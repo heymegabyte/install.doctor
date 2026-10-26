@@ -204,6 +204,39 @@ function planSummary(changes: ReadonlyArray<{ section: string; detail: string }>
   return { total: changes.length, install, remove, reconfigure, noop: changes.length === 0 };
 }
 
+// Shared apply-PREVIEW computation (observed → desired for a tenant) — one owner for the dry-run plan,
+// reused by the tenant-in-body endpoint and the device-scoped one. Returns a {status, body} envelope so
+// each caller forwards it with c.json(). Invalid observed → 400, no stored desired → 404.
+async function computeApplyPreview(
+  db: any,
+  tenant: string,
+  observedRaw: unknown,
+): Promise<{ status: number; body: Record<string, unknown> }> {
+  let observed: Blueprint;
+  try {
+    observed = validateBlueprint(observedRaw);
+  } catch (e) {
+    return { status: 400, body: { error: 'invalid_request', detail: e instanceof Error ? e.message : String(e) } };
+  }
+  const row = await db.prepare('SELECT markdown FROM blueprints WHERE tenant = ?').bind(tenant).first();
+  if (!row) return { status: 404, body: { error: 'no_desired_state', tenant, detail: 'no stored blueprint for this tenant — PUT /api/environment/current first' } };
+  const desired = importMarkdown(row.markdown);
+  const changes = diffBlueprints(observed, desired);
+  return {
+    status: 200,
+    body: {
+      dryRun: true,
+      applied: false,
+      tenant,
+      desiredRevision: desired.revision,
+      desiredDigest: await blueprintDigest(desired),
+      observedDigest: await blueprintDigest(observed),
+      plan: planSummary(changes),
+      changes,
+    },
+  };
+}
+
 // Apply-PREVIEW (dry-run) — MASTER-PROMPT §9, seeds S02 (desired-vs-observed diff) / S03 (restore
 // preview) / S12 (impact + blast-radius before mutation). Given a machine's OBSERVED blueprint, compute
 // the PLAN to reconcile it to the tenant's STORED desired blueprint (install / remove / reconfigure)
@@ -225,26 +258,8 @@ app.post('/api/environment/apply', async (c) => {
       501,
     );
   }
-  const tenant = body.tenant || '_default';
-  try {
-    const observed = validateBlueprint(body.observed);
-    const row = await db.prepare('SELECT markdown FROM blueprints WHERE tenant = ?').bind(tenant).first();
-    if (!row) return c.json({ error: 'no_desired_state', tenant, detail: 'no stored blueprint for this tenant — PUT /api/environment/current first' }, 404);
-    const desired = importMarkdown(row.markdown);
-    const changes = diffBlueprints(observed, desired);
-    return c.json({
-      dryRun: true,
-      applied: false,
-      tenant,
-      desiredRevision: desired.revision,
-      desiredDigest: await blueprintDigest(desired),
-      observedDigest: await blueprintDigest(observed),
-      plan: planSummary(changes),
-      changes,
-    });
-  } catch (e) {
-    return c.json({ error: 'invalid_request', detail: e instanceof Error ? e.message : String(e) }, 400);
-  }
+  const result = await computeApplyPreview(db, body.tenant || '_default', body.observed);
+  return c.json(result.body, result.status as any);
 });
 
 // --- Device identity (Phase B / S04 enrollment, S27 revocation) — ADR docs/aid/decisions/0002 ---
@@ -258,6 +273,22 @@ function randHex(bytes: number): string {
 async function sha256hex(s: string): Promise<string> {
   const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(s));
   return [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+// Resolve a device Bearer token to its identity via hash lookup (rejects unknown / revoked). Returns
+// null when absent/invalid/revoked so callers reply 401. One owner for device auth — shared by
+// /devices/me + the device-scoped environment endpoints.
+async function resolveDevice(
+  db: any,
+  authHeader: string | undefined,
+): Promise<{ deviceId: string; tenant: string; label: string | null; createdAt: string } | null> {
+  const token = (authHeader || '').startsWith('Bearer ') ? (authHeader as string).slice(7) : '';
+  if (!token) return null;
+  const row = await db
+    .prepare('SELECT device_id, tenant, label, created_at, revoked_at FROM devices WHERE token_sha256 = ?')
+    .bind(await sha256hex(token))
+    .first();
+  if (!row || row.revoked_at) return null;
+  return { deviceId: row.device_id, tenant: row.tenant, label: row.label, createdAt: row.created_at };
 }
 // Shared admin-bearer gate (reused by enroll + revoke + the PUT write path's pattern). Returns a
 // Response to short-circuit on failure, or null when authorized.
@@ -298,16 +329,10 @@ app.post('/api/devices/enroll', async (c) => {
 app.get('/api/devices/me', async (c) => {
   const db = (c.env as Record<string, any>).DB;
   if (!db) return c.json({ error: 'store_unavailable' }, 503);
-  const auth = c.req.header('authorization') || '';
-  const token = auth.startsWith('Bearer ') ? auth.slice(7) : '';
-  if (!token) return c.json({ error: 'unauthorized' }, 401);
   try {
-    const row = await db
-      .prepare('SELECT device_id, tenant, label, created_at, revoked_at FROM devices WHERE token_sha256 = ?')
-      .bind(await sha256hex(token))
-      .first();
-    if (!row || row.revoked_at) return c.json({ error: 'unauthorized' }, 401);
-    return c.json({ deviceId: row.device_id, tenant: row.tenant, label: row.label, enrolledAt: row.created_at });
+    const dev = await resolveDevice(db, c.req.header('authorization'));
+    if (!dev) return c.json({ error: 'unauthorized' }, 401);
+    return c.json({ deviceId: dev.deviceId, tenant: dev.tenant, label: dev.label, enrolledAt: dev.createdAt });
   } catch (e) {
     return c.json({ error: 'store_error', detail: e instanceof Error ? e.message : String(e) }, 503);
   }
@@ -329,6 +354,43 @@ app.post('/api/devices/:id/revoke', async (c) => {
   } catch (e) {
     return c.json({ error: 'invalid_request', detail: e instanceof Error ? e.message : String(e) }, 400);
   }
+});
+
+// --- Device-SCOPED environment access (fire #17) — the tenant is resolved FROM the device token, never
+// the URL/body. A real machine authenticates with its OWN token to fetch its desired state + preview the
+// reconciliation plan: no admin token, no tenant in the request. Completes the E2E loop (authenticate →
+// fetch desired → preview) and closes the READ-unauthenticated gap for real tenants. ---
+app.get('/api/device/current', async (c) => {
+  const db = (c.env as Record<string, any>).DB;
+  if (!db) return c.json({ error: 'store_unavailable' }, 503);
+  const dev = await resolveDevice(db, c.req.header('authorization'));
+  if (!dev) return c.json({ error: 'unauthorized' }, 401);
+  try {
+    const row = await db.prepare('SELECT markdown, updated_at FROM blueprints WHERE tenant = ?').bind(dev.tenant).first();
+    if (!row) return c.json({ error: 'not_found', tenant: dev.tenant, deviceId: dev.deviceId }, 404);
+    const bp = importMarkdown(row.markdown);
+    return c.json({ tenant: dev.tenant, deviceId: dev.deviceId, revision: bp.revision, digest: await blueprintDigest(bp), updatedAt: row.updated_at, markdown: row.markdown });
+  } catch (e) {
+    return c.json({ error: 'store_error', detail: e instanceof Error ? e.message : String(e) }, 503);
+  }
+});
+app.post('/api/device/apply', async (c) => {
+  const db = (c.env as Record<string, any>).DB;
+  if (!db) return c.json({ error: 'store_unavailable' }, 503);
+  const dev = await resolveDevice(db, c.req.header('authorization'));
+  if (!dev) return c.json({ error: 'unauthorized' }, 401);
+  let body: { observed?: unknown; dryRun?: boolean };
+  try {
+    body = (await c.req.json()) as typeof body;
+  } catch {
+    return c.json({ error: 'invalid_request', detail: 'body must be JSON' }, 400);
+  }
+  if (body.dryRun === false) {
+    return c.json({ error: 'apply_not_implemented', applied: false, detail: 'real apply runs on the on-device supervisor (Phase B)' }, 501);
+  }
+  const result = await computeApplyPreview(db, dev.tenant, body.observed);
+  if (result.status === 200) result.body.deviceId = dev.deviceId;
+  return c.json(result.body, result.status as any);
 });
 
 // Inference attempt (POST). Fail-closed pre-flight gates (MASTER-PROMPT §8, §15), in order:
