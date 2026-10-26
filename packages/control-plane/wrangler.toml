@@ -5,3 +5,11 @@ name = "aid-control-plane"
 main = "src/index.ts"
 compatibility_date = "2026-05-01"
 workers_dev = true
+migrations_dir = "migrations"
+
+# Persistence: authoritative stored blueprints (one "current" row per tenant). The DB index is a
+# projection of ENVIRONMENT.md, not a competing authority (MASTER-PROMPT §9). Provisioned fire #13.
+[[d1_databases]]
+binding = "DB"
+database_name = "aid-control-plane"
+database_id = "7ccce515-05da-4561-b0f4-a8fce09062c7"

@@ -82,6 +82,12 @@ JSON
   dbad="$(curl -s -o /dev/null -w '%{http_code}' -X POST -H 'content-type: application/json' -d '{"from":{},"to":{}}' "$u/api/environment/diff" 2>/dev/null || echo 000)"
   [ "$dbad" = 400 ] && pass "env diff (invalid blueprint) -> 400" || fail "diff invalid -> $dbad (want 400)"
   rm -f "$bpf" "$mdf" "$bpf2"
+
+  # persistence read path (§9) — D1-stored "current" blueprint (seeded _default)
+  cur="$(curl -s "$u/api/environment/current?tenant=_default" 2>/dev/null)"
+  echo "$cur" | grep -q '"digest"' && pass "env current (_default) -> stored blueprint + digest (D1 read)" || fail "env current _default -> $cur"
+  nf="$(curl -s -o /dev/null -w '%{http_code}' "$u/api/environment/current?tenant=__nope__" 2>/dev/null || echo 000)"
+  [ "$nf" = 404 ] && pass "env current (unknown tenant) -> 404" || fail "env current unknown -> $nf (want 404)"
 else
   skip "CONTROL_PLANE_URL unset — prod /health + routing E2E skipped (set after deploy)"
 fi

@@ -126,6 +126,27 @@ app.post('/api/environment/diff', async (c) => {
   }
 });
 
+// Persistence read path (MASTER-PROMPT §9) — the stored "current" blueprint for a tenant, from D1.
+// The Markdown is the authority; revision + digest are DERIVED on read. 404 when none (with the live
+// row count as proof the store was queried); 503 if the binding is missing / the query errors.
+// Write + revision-check + auth are a later fire.
+app.get('/api/environment/current', async (c) => {
+  const tenant = c.req.query('tenant') || '_default';
+  const db = (c.env as Record<string, any>).DB;
+  if (!db) return c.json({ error: 'store_unavailable' }, 503);
+  try {
+    const row = await db.prepare('SELECT markdown, updated_at FROM blueprints WHERE tenant = ?').bind(tenant).first();
+    if (!row) {
+      const cnt = await db.prepare('SELECT count(*) AS n FROM blueprints').first();
+      return c.json({ error: 'not_found', tenant, stored: cnt?.n ?? 0 }, 404);
+    }
+    const bp = importMarkdown(row.markdown);
+    return c.json({ tenant, revision: bp.revision, digest: await blueprintDigest(bp), updatedAt: row.updated_at, markdown: row.markdown });
+  } catch (e) {
+    return c.json({ error: 'store_error', detail: e instanceof Error ? e.message : String(e) }, 503);
+  }
+});
+
 // Inference attempt (POST). Fail-closed pre-flight gates (MASTER-PROMPT §8, §15), in order:
 //   unknown alias → 404 · restricted → 451 (approved private/local route only, never the public
 //   gateway) · provider not configured → 503 (keys stay backend-side) · all gates pass → 501
