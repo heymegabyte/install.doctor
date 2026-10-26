@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import { z } from 'zod';
 // Reuse aid-core's route contract (don't re-implement — MASTER-PROMPT §8). Relative import so
 // esbuild bundles the zero-dep contracts at deploy time; no workspace link needed.
-import { ROUTES, chooseRoute, validateBlueprint, exportMarkdown, importMarkdown, blueprintDigest } from '../../aid-core/src/core';
+import { ROUTES, chooseRoute, validateBlueprint, exportMarkdown, importMarkdown, blueprintDigest, type Blueprint } from '../../aid-core/src/core';
 import { Env, providerConfigured } from './env';
 import { reserveBudget, DEFAULT_CEILING_MICROS } from './budget';
 
@@ -73,6 +73,54 @@ app.post('/api/environment/import', async (c) => {
   try {
     const bp = importMarkdown(await c.req.text());
     return c.json({ blueprint: bp, digest: await blueprintDigest(bp) });
+  } catch (e) {
+    return c.json({ error: envErr(e) }, 400);
+  }
+});
+
+// Structured blueprint-vs-blueprint diff for the §9 Environment "Diff" action — added/removed/changed
+// packages, machines, services, routing, skills, privacy, revision. A pure view over two validated
+// blueprints (no persistence yet); `changed` reflects any difference the digests would capture.
+function diffMembers(
+  label: string,
+  from: ReadonlyArray<{ id: string }>,
+  to: ReadonlyArray<{ id: string }>,
+  out: Array<{ section: string; detail: string }>,
+): void {
+  const fa = new Map(from.map((x) => [x.id, JSON.stringify(x)]));
+  const ta = new Map(to.map((x) => [x.id, JSON.stringify(x)]));
+  for (const id of ta.keys()) if (!fa.has(id)) out.push({ section: label, detail: '+' + id });
+  for (const id of fa.keys()) if (!ta.has(id)) out.push({ section: label, detail: '-' + id });
+  for (const id of ta.keys()) if (fa.has(id) && fa.get(id) !== ta.get(id)) out.push({ section: label, detail: '~' + id });
+}
+function diffBlueprints(from: Blueprint, to: Blueprint): Array<{ section: string; detail: string }> {
+  const out: Array<{ section: string; detail: string }> = [];
+  if (from.revision !== to.revision) out.push({ section: 'revision', detail: `${from.revision} → ${to.revision}` });
+  const fp = new Set(from.defaults.packages);
+  const tp = new Set(to.defaults.packages);
+  const added = [...tp].filter((p) => !fp.has(p));
+  const removed = [...fp].filter((p) => !tp.has(p));
+  if (added.length) out.push({ section: 'defaults.packages', detail: '+' + added.join(', ') });
+  if (removed.length) out.push({ section: 'defaults.packages', detail: '-' + removed.join(', ') });
+  if (from.defaults.shellHistory !== to.defaults.shellHistory)
+    out.push({ section: 'defaults.shellHistory', detail: `${from.defaults.shellHistory} → ${to.defaults.shellHistory}` });
+  diffMembers('machines', from.machines, to.machines, out);
+  diffMembers('services', from.services, to.services, out);
+  for (const k of ['engine', 'preferredProvider', 'allowPremium', 'maxTaskCostMicros'] as const)
+    if (from.routing[k] !== to.routing[k]) out.push({ section: 'routing.' + k, detail: `${from.routing[k]} → ${to.routing[k]}` });
+  if (from.skills.commit !== to.skills.commit)
+    out.push({ section: 'skills.commit', detail: `${from.skills.commit.slice(0, 8)} → ${to.skills.commit.slice(0, 8)}` });
+  for (const k of ['shellAnalysis', 'screenshots', 'terminalInput', 'productLearning'] as const)
+    if (from.privacy[k] !== to.privacy[k]) out.push({ section: 'privacy.' + k, detail: `${from.privacy[k]} → ${to.privacy[k]}` });
+  return out;
+}
+app.post('/api/environment/diff', async (c) => {
+  try {
+    const body = (await c.req.json()) as { from?: unknown; to?: unknown };
+    const from = validateBlueprint(body.from);
+    const to = validateBlueprint(body.to);
+    const changes = diffBlueprints(from, to);
+    return c.json({ changed: changes.length > 0, fromDigest: await blueprintDigest(from), toDigest: await blueprintDigest(to), changes });
   } catch (e) {
     return c.json({ error: envErr(e) }, 400);
   }

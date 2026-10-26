@@ -72,7 +72,16 @@ JSON
   { [ -n "$d1" ] && [ "$d1" = "$id" ]; } && pass "env round-trip lossless (import(export).digest == validate.digest)" || fail "round-trip digest mismatch ($d1 vs $id)"
   iv="$(curl -s -o /dev/null -w '%{http_code}' -X POST -H 'content-type: application/json' -d '{}' "$u/api/environment/validate" 2>/dev/null || echo 000)"
   [ "$iv" = 400 ] && pass "env validate {} -> 400 (invalid blueprint)" || fail "invalid blueprint -> $iv (want 400)"
-  rm -f "$bpf" "$mdf"
+
+  # ENVIRONMENT.md diff (§9 Environment "Diff" action) — structured blueprint-vs-blueprint diff
+  bpf2="$(mktemp)"; jq '.defaults.packages += ["ripgrep"]' "$bpf" > "$bpf2" 2>/dev/null
+  same="$(curl -s -X POST -H 'content-type: application/json' -d "$(jq -n --slurpfile a "$bpf" '{from:$a[0],to:$a[0]}')" "$u/api/environment/diff" 2>/dev/null)"
+  echo "$same" | grep -q '"changed":false' && pass "env diff (identical) -> changed:false" || fail "diff identical -> $same"
+  chg="$(curl -s -X POST -H 'content-type: application/json' -d "$(jq -n --slurpfile a "$bpf" --slurpfile b "$bpf2" '{from:$a[0],to:$b[0]}')" "$u/api/environment/diff" 2>/dev/null)"
+  { echo "$chg" | grep -q '"changed":true' && echo "$chg" | grep -q 'ripgrep'; } && pass "env diff (added package) -> changed:true + ripgrep" || fail "diff changed -> $chg"
+  dbad="$(curl -s -o /dev/null -w '%{http_code}' -X POST -H 'content-type: application/json' -d '{"from":{},"to":{}}' "$u/api/environment/diff" 2>/dev/null || echo 000)"
+  [ "$dbad" = 400 ] && pass "env diff (invalid blueprint) -> 400" || fail "diff invalid -> $dbad (want 400)"
+  rm -f "$bpf" "$mdf" "$bpf2"
 else
   skip "CONTROL_PLANE_URL unset — prod /health + routing E2E skipped (set after deploy)"
 fi
