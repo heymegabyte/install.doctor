@@ -9,6 +9,9 @@ set -uo pipefail
 AID_CONTROL_PLANE_URL="${AID_CONTROL_PLANE_URL:-https://aid-control-plane.manhattan.workers.dev}"
 AID_TOKEN_PATH="${AID_TOKEN_PATH:-$HOME/.config/aid/device-token}"
 AID_ENV_PATH="${AID_ENV_PATH:-$HOME/.config/aid/ENVIRONMENT.md}"
+AID_TOTAL=0
+AID_PRESENT=0
+AID_MISSING=""
 
 log() { command -v gum >/dev/null 2>&1 && gum log --level info -- "$*" || printf '\033[1;36m[aid]\033[0m %s\n' "$*"; }
 err() { command -v gum >/dev/null 2>&1 && gum log --level error -- "$*" || printf '\033[1;31m[aid]\033[0m %s\n' "$*" >&2; }
@@ -75,49 +78,77 @@ cmdPull() {
   log "pulled desired ENVIRONMENT.md -> ${AID_ENV_PATH} ($(wc -c <"$AID_ENV_PATH" | tr -d ' ') bytes)"
 }
 
-# aid plan — LOCAL, offline reconciliation: which desired packages are present vs missing on this host.
-# Presence is checked by command name (package==command); a package whose binary differs from its name
-# (e.g. ripgrep->rg) may show missing — a software.yml `_bin`-aware check is a later refinement.
-cmdPlan() {
+# Reconcile the desired blueprint vs installed packages → AID_TOTAL / AID_PRESENT / AID_MISSING.
+# Presence is by command name (package==command); a package whose binary differs (ripgrep->rg) may show
+# missing — a software.yml `_bin`-aware check is a later refinement. LOCAL + offline (S23).
+computeReconcile() {
   command -v jq >/dev/null 2>&1 || {
-    err "aid plan requires jq"
+    err "this requires jq"
     return 3
   }
   if [ ! -s "$AID_ENV_PATH" ]; then
     cmdPull || return $?
   fi
-  local json pkgs total present missing p
+  local json pkgs p
   json="$(awk '/^```install-doctor[+]json[[:space:]]*$/{f=1;next} /^```[[:space:]]*$/{f=0} f' "$AID_ENV_PATH")"
   if [ -z "$json" ]; then
     err "no install-doctor+json blueprint fence in $AID_ENV_PATH"
     return 1
   fi
   pkgs="$(printf '%s' "$json" | jq -r '.defaults.packages[]?' 2>/dev/null)"
-  total=0
-  present=0
-  missing=""
+  AID_TOTAL=0
+  AID_PRESENT=0
+  AID_MISSING=""
   while IFS= read -r p; do
     [ -z "$p" ] && continue
-    total=$((total + 1))
+    AID_TOTAL=$((AID_TOTAL + 1))
     if command -v "$p" >/dev/null 2>&1; then
-      present=$((present + 1))
+      AID_PRESENT=$((AID_PRESENT + 1))
     else
-      missing="${missing} ${p}"
+      AID_MISSING="${AID_MISSING} ${p}"
     fi
   done < <(printf '%s\n' "$pkgs")
-  missing="${missing# }"
-  log "desired packages: ${total} · present: ${present} · missing: $((total - present))"
-  if [ -n "$missing" ]; then
-    log "to install:${missing:+ }${missing}"
+  AID_MISSING="${AID_MISSING# }"
+}
+
+# Detect the host package manager by what is actually installed (self-contained; no detect_os dep).
+detectManager() {
+  if command -v brew >/dev/null 2>&1; then
+    echo brew
+  elif command -v apt-get >/dev/null 2>&1; then
+    echo apt
+  elif command -v dnf >/dev/null 2>&1; then
+    echo dnf
+  elif command -v pacman >/dev/null 2>&1; then
+    echo pacman
+  elif command -v apk >/dev/null 2>&1; then
+    echo apk
+  else
+    echo ""
+  fi
+}
+
+# Resolve a package key to the per-manager package name via the cnf index (fire #3); fall back to the key.
+resolvePkg() {
+  local key="$1" col="$2" idx="${AID_CNF_INDEX:-$HOME/.cache/cnf/index.tsv}" val=""
+  if [ -n "$col" ] && [ -f "$idx" ]; then
+    val="$(awk -F'\t' -v k="$key" -v c="$col" '$2==k {print $c; exit}' "$idx")"
+  fi
+  printf '%s' "${val:-$key}"
+}
+
+# aid plan — LOCAL, offline reconciliation of desired vs installed packages (+ auto-register to History).
+cmdPlan() {
+  computeReconcile || return $?
+  log "desired packages: ${AID_TOTAL} · present: ${AID_PRESENT} · missing: $((AID_TOTAL - AID_PRESENT))"
+  if [ -n "$AID_MISSING" ]; then
+    log "to install:${AID_MISSING:+ }${AID_MISSING}"
   else
     log "all desired packages present ✓"
   fi
-  # record the reconciliation to History (S14) — best-effort; NEVER fails the plan if offline (S23).
-  if command -v jq >/dev/null 2>&1; then
-    local detail
-    detail="$(jq -nc --argjson t "$total" --argjson p "$present" --arg m "$missing" '{total:$t,present:$p,missing:($m|split(" ")|map(select(length>0)))}')"
-    postReport check success "plan: ${present}/${total} present" "$detail" >/dev/null 2>&1 && log "recorded to History ✓" || true
-  fi
+  local detail
+  detail="$(jq -nc --argjson t "$AID_TOTAL" --argjson p "$AID_PRESENT" --arg m "$AID_MISSING" '{total:$t,present:$p,missing:($m|split(" ")|map(select(length>0)))}')"
+  postReport check success "plan: ${AID_PRESENT}/${AID_TOTAL} present" "$detail" >/dev/null 2>&1 && log "recorded to History ✓" || true
 }
 
 # aid report — record a run/event to History (POST /api/device/report) as this device.
@@ -158,8 +189,61 @@ cmdReport() {
   log "reported ✓ ${kind}/${status} (id ${id})"
 }
 
+# aid apply — install the MISSING packages (from reconciliation). DRY-RUN by default; real install needs
+# --yes or AID_APPLY=1 (host mutation is opt-in). Resolves per-manager names via the cnf index; reports.
+cmdApply() {
+  local doIt=0 p mgr col n
+  [ "${1:-}" = "--yes" ] && doIt=1
+  [ "${AID_APPLY:-0}" = "1" ] && doIt=1
+  computeReconcile || return $?
+  if [ -z "$AID_MISSING" ]; then
+    log "nothing to install — all desired packages present ✓"
+    postReport apply success "apply: 0 to install" '{"installed":0}' >/dev/null 2>&1 || true
+    return 0
+  fi
+  mgr="$(detectManager)"
+  if [ -z "$mgr" ]; then
+    err "no supported package manager found (brew/apt/dnf/pacman/apk)"
+    return 1
+  fi
+  case "$mgr" in
+  brew) col=3 ;;
+  apt) col=4 ;;
+  dnf) col=5 ;;
+  pacman) col=6 ;;
+  *) col="" ;;
+  esac
+  local -a names=() runCmd=()
+  for p in $AID_MISSING; do names+=("$(resolvePkg "$p" "$col")"); done
+  case "$mgr" in
+  brew) runCmd=(brew install "${names[@]}") ;;
+  apt) runCmd=(sudo apt-get install -y "${names[@]}") ;;
+  dnf) runCmd=(sudo dnf install -y "${names[@]}") ;;
+  pacman) runCmd=(sudo pacman -S --noconfirm --needed "${names[@]}") ;;
+  apk) runCmd=(sudo apk add "${names[@]}") ;;
+  esac
+  n="${#names[@]}"
+  if [ "$doIt" != 1 ]; then
+    log "DRY-RUN — would install ${n} package(s) via ${mgr}:"
+    log "  ${runCmd[*]}"
+    log "(run 'aid apply --yes' or set AID_APPLY=1 to execute)"
+    postReport apply preview "apply dry-run: ${n} via ${mgr}" "$(jq -nc --arg c "${runCmd[*]}" --argjson n "$n" '{installed:0,planned:$n,command:$c}' 2>/dev/null)" >/dev/null 2>&1 || true
+    return 0
+  fi
+  [ "${HEADLESS_INSTALL:-0}" = "1" ] && log "HEADLESS_INSTALL=1 — non-interactive"
+  log "installing ${n} package(s) via ${mgr}…"
+  if "${runCmd[@]}"; then
+    log "apply ✓ installed ${n} via ${mgr}"
+    postReport apply success "apply: installed ${n} via ${mgr}" "$(jq -nc --argjson n "$n" --arg m "$mgr" '{installed:$n,manager:$m}' 2>/dev/null)" >/dev/null 2>&1 || true
+  else
+    err "apply failed (${mgr} returned non-zero)"
+    postReport apply failed "apply failed via ${mgr}" "$(jq -nc --arg m "$mgr" '{manager:$m}' 2>/dev/null)" >/dev/null 2>&1 || true
+    return 1
+  fi
+}
+
 usage() {
-  printf 'usage: aid <status|pull|plan|report>\n' >&2
+  printf 'usage: aid <status|pull|plan|report|apply>\n' >&2
   return 1
 }
 
@@ -171,6 +255,10 @@ main() {
   report)
     shift
     cmdReport "$@"
+    ;;
+  apply)
+    shift
+    cmdApply "$@"
     ;;
   *) usage ;;
   esac

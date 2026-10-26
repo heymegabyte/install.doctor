@@ -37,6 +37,12 @@ if [ -f "$SRC" ]; then
   rc=0
   AID_TOKEN_PATH="/nonexistent/aid-token-$$" bash "$RUN" status >/dev/null 2>&1 || rc=$?
   [ "$rc" = 2 ] && pass "aid status (no token) -> not-paired (exit 2)" || fail "aid status no-token exit=$rc (want 2)"
+  # aid apply DRY-RUN (LOCAL, offline, no token) — crafted env with a missing pkg; MUST print a plan + install NOTHING
+  CENV="$(mktemp)"
+  printf '# E\n\n```install-doctor+json\n{ "defaults": { "packages": ["bash","zzz-nope-apply-xyz"] } }\n```\n' >"$CENV"
+  ap="$(AID_TOKEN_PATH="/nonexistent/aid-token-$$" AID_ENV_PATH="$CENV" bash "$RUN" apply 2>&1)"
+  { echo "$ap" | grep -qi 'DRY-RUN' && echo "$ap" | grep -q 'would install' && ! echo "$ap" | grep -qi 'installed'; } && pass "aid apply (dry-run, offline) -> prints plan, installs nothing" || fail "aid apply dry-run -> $ap"
+  rm -f "$CENV"
 
   if [ -n "${CONTROL_PLANE_URL:-}" ]; then
     u="${CONTROL_PLANE_URL%/}"
@@ -60,6 +66,10 @@ if [ -f "$SRC" ]; then
       { echo "$rp" | grep -q 'reported' && echo "$rp" | grep -q 'hist_'; } && pass "aid report -> records a run to History (event id)" || fail "aid report -> $rp"
       hist="$(curl -s -H "authorization: Bearer $(cat "$TOK")" "$u/api/device/history" 2>/dev/null)"
       echo "$hist" | jq -e '[.items[].kind] | any(. == "check")' >/dev/null 2>&1 && pass "aid plan auto-registered a 'check' event to History (S14)" || fail "history lacks check event -> $(printf '%s' "$hist" | head -c 120)"
+      ap2="$(AID_TOKEN_PATH="$TOK" AID_CONTROL_PLANE_URL="$u" AID_ENV_PATH="$ENVF" bash "$RUN" apply 2>&1)"
+      echo "$ap2" | grep -qiE 'DRY-RUN|nothing to install' && pass "aid apply (dry-run, prod) -> plan or noop (installs nothing, opt-in to execute)" || fail "aid apply prod -> $ap2"
+      hist2="$(curl -s -H "authorization: Bearer $(cat "$TOK")" "$u/api/device/history" 2>/dev/null)"
+      echo "$hist2" | jq -e '[.items[].kind] | any(. == "apply")' >/dev/null 2>&1 && pass "aid apply auto-registered an 'apply' event to History (S14)" || fail "history lacks apply event -> $(printf '%s' "$hist2" | head -c 120)"
       [ -n "$did" ] && curl -s -o /dev/null -X POST -H "authorization: Bearer $ADMIN" "$u/api/devices/$did/revoke" >/dev/null 2>&1
       rm -f "$TOK" "$ENVF"
     else
