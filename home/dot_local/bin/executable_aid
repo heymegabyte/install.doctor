@@ -56,8 +56,47 @@ cmdPull() {
   log "pulled desired ENVIRONMENT.md -> ${AID_ENV_PATH} ($(wc -c <"$AID_ENV_PATH" | tr -d ' ') bytes)"
 }
 
+# aid plan — LOCAL, offline reconciliation: which desired packages are present vs missing on this host.
+# Presence is checked by command name (package==command); a package whose binary differs from its name
+# (e.g. ripgrep->rg) may show missing — a software.yml `_bin`-aware check is a later refinement.
+cmdPlan() {
+  command -v jq >/dev/null 2>&1 || {
+    err "aid plan requires jq"
+    return 3
+  }
+  if [ ! -s "$AID_ENV_PATH" ]; then
+    cmdPull || return $?
+  fi
+  local json pkgs total present missing p
+  json="$(awk '/^```install-doctor[+]json[[:space:]]*$/{f=1;next} /^```[[:space:]]*$/{f=0} f' "$AID_ENV_PATH")"
+  if [ -z "$json" ]; then
+    err "no install-doctor+json blueprint fence in $AID_ENV_PATH"
+    return 1
+  fi
+  pkgs="$(printf '%s' "$json" | jq -r '.defaults.packages[]?' 2>/dev/null)"
+  total=0
+  present=0
+  missing=""
+  while IFS= read -r p; do
+    [ -z "$p" ] && continue
+    total=$((total + 1))
+    if command -v "$p" >/dev/null 2>&1; then
+      present=$((present + 1))
+    else
+      missing="${missing} ${p}"
+    fi
+  done < <(printf '%s\n' "$pkgs")
+  missing="${missing# }"
+  log "desired packages: ${total} · present: ${present} · missing: $((total - present))"
+  if [ -n "$missing" ]; then
+    log "to install:${missing:+ }${missing}"
+  else
+    log "all desired packages present ✓"
+  fi
+}
+
 usage() {
-  printf 'usage: aid <status|pull>\n' >&2
+  printf 'usage: aid <status|pull|plan>\n' >&2
   return 1
 }
 
@@ -65,6 +104,7 @@ main() {
   case "${1:-}" in
   status) cmdStatus ;;
   pull) cmdPull ;;
+  plan) cmdPlan ;;
   *) usage ;;
   esac
 }

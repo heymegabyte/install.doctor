@@ -54,6 +54,8 @@ if [ -f "$SRC" ]; then
       echo "$st" | grep -q 'tenant=_default' && pass "aid status -> paired summary (tenant=_default)" || fail "aid status -> $st"
       AID_TOKEN_PATH="$TOK" AID_CONTROL_PLANE_URL="$u" AID_ENV_PATH="$ENVF" bash "$RUN" pull >/dev/null 2>&1
       { [ -s "$ENVF" ] && grep -q 'install-doctor+json' "$ENVF"; } && pass "aid pull -> wrote desired ENVIRONMENT.md (fenced blueprint)" || fail "aid pull -> $(head -c 80 "$ENVF" 2>/dev/null)"
+      pl="$(AID_TOKEN_PATH="$TOK" AID_CONTROL_PLANE_URL="$u" AID_ENV_PATH="$ENVF" bash "$RUN" plan 2>&1)"
+      echo "$pl" | grep -qE 'desired packages: [1-9]' && pass "aid plan -> reconciles desired packages (present/missing, local+offline)" || fail "aid plan -> $pl"
       [ -n "$did" ] && curl -s -o /dev/null -X POST -H "authorization: Bearer $ADMIN" "$u/api/devices/$did/revoke" >/dev/null 2>&1
       rm -f "$TOK" "$ENVF"
     else
