@@ -123,6 +123,14 @@ __cnf_resolve(){ local cmd="$1"; shift
   # E11 recursion guard: an install sub-step that re-triggers command-not-found for the SAME cmd must
   # NOT re-enter (infinite loop). Restored before every return via the single exit at the end.
   case " ${__CNF_RESOLVING:-} " in *" $cmd "*) return 127;; esac
+  # E13/E14 (v2): NEVER auto-install on a miss in a NON-INTERACTIVE shell (CI, a script, a background
+  # job, an untrusted project's command) — only an APPROVED job opts in (aid exec / prewarming export
+  # CNF_ALLOW_NONINTERACTIVE=1). CNF_DRY is always safe (installs nothing). An unknown/denied command
+  # then returns ORDINARY not-found (127), so untrusted or automated contexts can't trigger an
+  # unauthorized install. (Interactive shells keep the lazy-install golden path.)
+  if [ -z "${CNF_ALLOW_NONINTERACTIVE:-}" ] && [ -z "${CNF_DRY:-}" ]; then
+    case "$-" in *i*) :;; *) return 127;; esac
+  fi
   local __cnf_prev="${__CNF_RESOLVING:-}"; __CNF_RESOLVING="$__cnf_prev $cmd"
   local os pref row mgr="" pkg="" col rc=127 lock acq
   os="$(__cnf_os)"; pref="$(__cnf_pref "$os")"

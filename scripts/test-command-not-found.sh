@@ -147,8 +147,9 @@ cbin="$tmp/cbin"; mkdir -p "$cbin"
 fooidx="$tmp/fooidx.tsv"; printf 'footool\tfootool\tfootool\n' > "$fooidx"
 printf '#!/usr/bin/env bash\necho 1 >> "%s/installcount"\nsleep 2\nprintf "#!/usr/bin/env bash\\necho ran\\n" > "%s/footool"\nchmod +x "%s/footool"\n' "$tmp" "$cbin" "$cbin" > "$cbin/brew"; chmod +x "$cbin/brew"
 rm -f "$tmp/installcount" "$cbin/footool"
-( PATH="$cbin:$PATH" CNF_INDEX="$fooidx" CNF_LOCK_DIR="$tmp/locks" __cnf_resolve footool >/dev/null 2>&1 ) &
-( PATH="$cbin:$PATH" CNF_INDEX="$fooidx" CNF_LOCK_DIR="$tmp/locks" __cnf_resolve footool >/dev/null 2>&1 ) &
+# CNF_ALLOW_NONINTERACTIVE=1 — these subshells are non-interactive (E13); simulate an APPROVED install.
+( PATH="$cbin:$PATH" CNF_ALLOW_NONINTERACTIVE=1 CNF_INDEX="$fooidx" CNF_LOCK_DIR="$tmp/locks" __cnf_resolve footool >/dev/null 2>&1 ) &
+( PATH="$cbin:$PATH" CNF_ALLOW_NONINTERACTIVE=1 CNF_INDEX="$fooidx" CNF_LOCK_DIR="$tmp/locks" __cnf_resolve footool >/dev/null 2>&1 ) &
 wait
 ic="$(grep -c . "$tmp/installcount" 2>/dev/null || echo 0)"
 [ "$ic" = "1" ] && pass "E11 concurrency — 2 shells missing footool -> exactly ONE install (lock serialized)" || fail "E11 concurrency installs=$ic (want 1)"
@@ -160,8 +161,28 @@ ebin="$tmp/ebin"; mkdir -p "$ebin"
 e9idx="$tmp/e9idx.tsv"; printf 'cleantool\tcleantool\tcleantool\n' > "$e9idx"
 printf '#!/usr/bin/env bash\necho BREW_STDOUT_NOISE\nprintf "#!/usr/bin/env bash\\necho CLEAN_OUTPUT_42\\n" > "%s/cleantool"\nchmod +x "%s/cleantool"\n' "$ebin" "$ebin" > "$ebin/brew"; chmod +x "$ebin/brew"
 rm -f "$ebin/cleantool"
-e9out="$(PATH="$ebin:$PATH" CNF_INDEX="$e9idx" CNF_LOCK_DIR="$tmp/e9locks" __cnf_resolve cleantool 2>/dev/null)"
+e9out="$(PATH="$ebin:$PATH" CNF_ALLOW_NONINTERACTIVE=1 CNF_INDEX="$e9idx" CNF_LOCK_DIR="$tmp/e9locks" __cnf_resolve cleantool 2>/dev/null)"
 [ "$e9out" = "CLEAN_OUTPUT_42" ] && pass "E09/E08 — resolved command stdout is CLEAN (installer+hook noise on stderr)" || fail "E09 stdout polluted: '$e9out'"
+
+# 8. E13/E14 — a NON-INTERACTIVE shell (CI/script/background/untrusted-project command) must NOT
+# auto-install on a miss without an explicit opt-in: it returns ordinary not-found (127) and touches
+# NO installer. The test shell is non-interactive, so a bare resolve (no opt-in, no CNF_DRY) must not
+# run the fake brew. Then the SAME miss WITH CNF_ALLOW_NONINTERACTIVE=1 (aid exec/prewarm) DOES install.
+nbin="$tmp/nbin"; mkdir -p "$nbin"
+n8idx="$tmp/n8idx.tsv"; printf 'noauto\tnoauto\tnoauto\n' > "$n8idx"
+printf '#!/usr/bin/env bash\n: > "%s/n8installed"\n' "$tmp" > "$nbin/brew"; chmod +x "$nbin/brew"
+rm -f "$tmp/n8installed" "$nbin/noauto"
+n8out="$(PATH="$nbin:$PATH" CNF_INDEX="$n8idx" CNF_LOCK_DIR="$tmp/n8locks" __cnf_resolve noauto 2>/dev/null)"; n8rc=$?
+if [ "$n8rc" -eq 127 ] && [ ! -f "$tmp/n8installed" ]; then
+  pass "E13/E14 — non-interactive miss w/o opt-in -> 127, no install (unauthorized install blocked)"
+else
+  fail "E13 non-interactive guard rc=$n8rc installed=$([ -f "$tmp/n8installed" ] && echo yes || echo no)"
+fi
+# 8b. the SAME miss WITH the explicit opt-in installs (approved aid exec / prewarming path).
+rm -f "$tmp/n8installed"
+printf '#!/usr/bin/env bash\n: > "%s/n8installed"\nprintf "#!/usr/bin/env bash\\necho ok\\n" > "%s/noauto"\nchmod +x "%s/noauto"\n' "$tmp" "$nbin" "$nbin" > "$nbin/brew"; chmod +x "$nbin/brew"
+CNF_ALLOW_NONINTERACTIVE=1 PATH="$nbin:$PATH" CNF_INDEX="$n8idx" CNF_LOCK_DIR="$tmp/n8locks2" __cnf_resolve noauto >/dev/null 2>&1 || true
+[ -f "$tmp/n8installed" ] && pass "E13 — CNF_ALLOW_NONINTERACTIVE opt-in permits install (aid exec/prewarm)" || fail "E13 opt-in did not permit install"
 
 say "command-not-found: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]
