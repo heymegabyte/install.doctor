@@ -76,7 +76,7 @@ Per category: research ≥3 primary sources → generate 30 distinct candidates 
 | S16 | Automatic pinned skill install + reversible verified updates | C19 | not-started |
 | S17 | Task-scoped skill loading + bounded capability grants | C19/C22 | not-started |
 | S18 | Evaluated, independently-reviewed skill self-improvement | C19/C30 | not-started |
-| S19 | Local-first hiSHtory analysis, no default cloud upload | C20/C24 | not-started |
+| S19 | Local-first hiSHtory analysis, no default cloud upload | C20/C24 | **partial** — hiSHtory adopted as canonical (ADR 0001, fire #5); local-first analysis UI not built |
 | S20 | Drop-in / adapter / migration replacement reports | C21 | not-started |
 | S21 | Convert repeated workflows into tested automations | C12 | not-started |
 | S22 | Managed blocks, 3-way merges, Maintain/Optimize modes | C10/C22 | not-started |

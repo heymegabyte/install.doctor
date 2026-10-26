@@ -582,8 +582,9 @@ softwarePackages:
     npm: astronvim
   atuin:
     _name: Atuin
-    _short: Atuin is a command-line tool for managing macOS windows.
-    _desc: Atuin is a tool for managing AWS infrastructure using a simple command-line interface. It allows users to create, update, and delete AWS resources like EC2 instances, security groups, and S3 buckets using a declarative configuration file. Atuin aims to simplify AWS infrastructure management by providing a user-friendly interface and automating common tasks. It is written in Go and is open-source, available on GitHub at https://github.com/ellie/atuin.
+    _short: Atuin is a shell history tool — a searchable, synced, SQLite-backed replacement for Ctrl-R.
+    _desc: Atuin replaces your shell history with a SQLite database — a fuzzy Ctrl-R search TUI, rich per-command context (exit code, cwd, duration), stats, and optional end-to-end-encrypted sync across machines. Written in Rust, open-source.
+    _deprecated: aid standardizes on hiSHtory (ddworken/hishtory) per docs/aid/decisions/0001; Atuin is superseded in the aid environment (preserved here as institutional knowledge, not removed).
     _github: https://github.com/ellie/atuin
     _bin: atuin
     _preload: true
@@ -4678,12 +4679,10 @@ softwarePackages:
   hishtory:
     _name: hiSHtory
     _short: hishtory is a tool for tracking and visualizing your command history in the terminal.
-    _desc: hishtory is a tool available on GitHub at https://github.com/ddworken/hishtory. It appears to be a project related to browsing history analysis. The tool likely allows users to analyze and visualize their browsing history data, providing insights into their online activities. For more detailed information, you can explore the repository on GitHub.
+    _desc: hiSHtory (https://github.com/ddworken/hishtory) is a better shell command history — it records each command with context (exit code, cwd, hostname, duration, timestamp), stores it locally in SQLite, and offers a fuzzy Ctrl-R TUI plus optional end-to-end-encrypted sync across machines. aid standardizes on it over Atuin (see docs/aid/decisions/0001). Caveat — it auto-manages ~/.bashrc/~/.zshrc and 'which hishtory' points at a non-existent path, but it works.
     _github: https://github.com/ddworken/hishtory
     _bin: hishtory
     _post: echo y | hishtory init "$HISHTORY_USER_SECRET"
-    _todo: Check for Homebrew version
-    _deprecated: Superior to other history managers but the software has some odd features to it like automatically managing ~/.bashrc and ~/.zshrc and `which hishtory` links to a non-existant location but it still works
     script: curl -sSL --compressed https://hishtory.dev/install.py | python3 -
     brew: hishtory
     cargo: hishtory
