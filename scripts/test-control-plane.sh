@@ -146,6 +146,10 @@ JSON
   [ "$dcn" = 401 ] && pass "device/current (no bearer) -> 401" || fail "device/current no-bearer -> $dcn (want 401)"
   dan="$(curl -s -o /dev/null -w '%{http_code}' -X POST -H 'content-type: application/json' -d '{"observed":{}}' "$u/api/device/apply" 2>/dev/null || echo 000)"
   [ "$dan" = 401 ] && pass "device/apply (no bearer) -> 401" || fail "device/apply no-bearer -> $dan (want 401)"
+  rpn="$(curl -s -o /dev/null -w '%{http_code}' -X POST -H 'content-type: application/json' -d '{"kind":"run"}' "$u/api/device/report" 2>/dev/null || echo 000)"
+  [ "$rpn" = 401 ] && pass "device/report (no bearer) -> 401" || fail "report no-bearer -> $rpn (want 401)"
+  hsn="$(curl -s -o /dev/null -w '%{http_code}' "$u/api/device/history" 2>/dev/null || echo 000)"
+  [ "$hsn" = 401 ] && pass "device/history (no bearer) -> 401" || fail "history no-bearer -> $hsn (want 401)"
   DADM="${AID_ADMIN_TOKEN:-}"; [ -z "$DADM" ] && DADM="$(get-secret AID_ADMIN_TOKEN 2>/dev/null || true)"
   if [ -n "$DADM" ]; then
     enr="$(curl -s -X POST -H "authorization: Bearer $DADM" -H 'content-type: application/json' -d '{"tenant":"_test","label":"e2e-probe"}' "$u/api/devices/enroll" 2>/dev/null)"
@@ -170,6 +174,17 @@ JSON
     curl -s -o /dev/null -X POST -H "authorization: Bearer $DADM" "$u/api/devices/$did2/revoke" >/dev/null 2>&1
     dcr="$(curl -s -o /dev/null -w '%{http_code}' -H "authorization: Bearer $dtok2" "$u/api/device/current" 2>/dev/null || echo 000)"
     [ "$dcr" = 401 ] && pass "device/current (revoked token) -> 401 (S27)" || fail "device/current revoked -> $dcr (want 401)"
+
+    # History (fire #18 / S14,S15) — a device reports a run, then reads it back newest-first
+    enr4="$(curl -s -X POST -H "authorization: Bearer $DADM" -H 'content-type: application/json' -d '{"tenant":"_default","label":"history-probe"}' "$u/api/devices/enroll" 2>/dev/null)"
+    dtok4="$(printf '%s' "$enr4" | jq -r '.token // empty')"; did4="$(printf '%s' "$enr4" | jq -r '.deviceId // empty')"
+    rep="$(curl -s -X POST -H "authorization: Bearer $dtok4" -H 'content-type: application/json' -d '{"kind":"apply","status":"success","revision":"r1","summary":"e2e report","detail":{"plan":{"total":0}}}' "$u/api/device/report" 2>/dev/null)"
+    echo "$rep" | jq -e '(.id|type=="string") and .kind=="apply" and .status=="success"' >/dev/null 2>&1 && pass "device/report (device token) -> 201 + event id" || fail "report -> $rep"
+    hst="$(curl -s -H "authorization: Bearer $dtok4" "$u/api/device/history" 2>/dev/null)"
+    echo "$hst" | jq -e '.count>=1 and (.items[0].kind=="apply") and (.items[0].status=="success")' >/dev/null 2>&1 && pass "device/history (device token) -> lists the reported run (newest-first)" || fail "history -> $hst"
+    rpb="$(curl -s -o /dev/null -w '%{http_code}' -X POST -H "authorization: Bearer $dtok4" -H 'content-type: application/json' -d '{"kind":"bogus_kind"}' "$u/api/device/report" 2>/dev/null || echo 000)"
+    [ "$rpb" = 400 ] && pass "device/report (invalid kind) -> 400 (Zod boundary)" || fail "report invalid -> $rpb (want 400)"
+    [ -n "$did4" ] && curl -s -o /dev/null -X POST -H "authorization: Bearer $DADM" "$u/api/devices/$did4/revoke" >/dev/null 2>&1
   else
     skip "AID_ADMIN_TOKEN unset — device enroll/me/revoke lifecycle assertions skipped"
   fi

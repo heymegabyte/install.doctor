@@ -393,6 +393,65 @@ app.post('/api/device/apply', async (c) => {
   return c.json(result.body, result.status as any);
 });
 
+// --- History (S14 run registration, S15 searchable replay) — a device REPORTS each apply/run/check
+// event (the "report result" half of the E2E loop); stored per-device + per-tenant in D1, listed
+// newest-first. Device-scoped: a device records + reads its OWN history. Tenant-wide/admin views +
+// diff/cost correlation are later slices. ---
+const ReportRequest = z
+  .object({
+    kind: z.enum(['apply', 'run', 'enroll', 'check', 'other']).default('run'),
+    status: z.enum(['success', 'failed', 'partial', 'preview']).default('success'),
+    revision: z.string().max(200).optional(),
+    summary: z.string().max(500).optional(),
+    detail: z.unknown().optional(),
+  })
+  .strict();
+app.post('/api/device/report', async (c) => {
+  const db = (c.env as Record<string, any>).DB;
+  if (!db) return c.json({ error: 'store_unavailable' }, 503);
+  const dev = await resolveDevice(db, c.req.header('authorization'));
+  if (!dev) return c.json({ error: 'unauthorized' }, 401);
+  const parsed = ReportRequest.safeParse(await c.req.json().catch(() => ({})));
+  if (!parsed.success) return c.json({ error: 'invalid_request', issues: parsed.error.issues }, 400);
+  try {
+    const id = 'hist_' + Date.now().toString(36) + '_' + randHex(6);
+    const now = new Date().toISOString();
+    const { kind, status, revision, summary, detail } = parsed.data;
+    await db
+      .prepare('INSERT INTO history (id, device_id, tenant, kind, status, revision, summary, detail, created_at) VALUES (?,?,?,?,?,?,?,?,?)')
+      .bind(id, dev.deviceId, dev.tenant, kind, status, revision ?? null, summary ?? null, detail === undefined ? null : JSON.stringify(detail), now)
+      .run();
+    return c.json({ id, deviceId: dev.deviceId, tenant: dev.tenant, kind, status, createdAt: now }, 201);
+  } catch (e) {
+    return c.json({ error: 'store_error', detail: e instanceof Error ? e.message : String(e) }, 503);
+  }
+});
+app.get('/api/device/history', async (c) => {
+  const db = (c.env as Record<string, any>).DB;
+  if (!db) return c.json({ error: 'store_unavailable' }, 503);
+  const dev = await resolveDevice(db, c.req.header('authorization'));
+  if (!dev) return c.json({ error: 'unauthorized' }, 401);
+  const limit = Math.min(Math.max(parseInt(c.req.query('limit') || '50', 10) || 50, 1), 100);
+  try {
+    const rs = await db
+      .prepare('SELECT id, kind, status, revision, summary, detail, created_at FROM history WHERE device_id = ? ORDER BY created_at DESC, id DESC LIMIT ?')
+      .bind(dev.deviceId, limit)
+      .all();
+    const items = (rs.results || []).map((r: any) => ({
+      id: r.id,
+      kind: r.kind,
+      status: r.status,
+      revision: r.revision,
+      summary: r.summary,
+      detail: r.detail ? JSON.parse(r.detail) : null,
+      createdAt: r.created_at,
+    }));
+    return c.json({ deviceId: dev.deviceId, tenant: dev.tenant, count: items.length, items });
+  } catch (e) {
+    return c.json({ error: 'store_error', detail: e instanceof Error ? e.message : String(e) }, 503);
+  }
+});
+
 // Inference attempt (POST). Fail-closed pre-flight gates (MASTER-PROMPT §8, §15), in order:
 //   unknown alias → 404 · restricted → 451 (approved private/local route only, never the public
 //   gateway) · provider not configured → 503 (keys stay backend-side) · all gates pass → 501
