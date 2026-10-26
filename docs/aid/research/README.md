@@ -27,7 +27,7 @@ Per category: research ≥3 primary sources → generate 30 distinct candidates 
 | C14 | Remote terminals | 0/30 | not-started |
 | C15 | Remote desktop/files | 0/30 | not-started |
 | C16 | History & replay | 0/30 | not-started |
-| C17 | AI routing & capability | 0/30 | **partial-impl** — control-plane skeleton LIVE (fire #6): `/api/ai/v1` validates aid-core route aliases (501 stub); real routing/provider/AI-Gateway wiring + research not started |
+| C17 | AI routing & capability | 0/30 | **partial-impl** — `/api/ai/v1/resolve` LIVE (fire #7): real routing-POLICY via aid-core `chooseRoute`, Zod-validated, 10/10 (restricted fails closed, premium opt-in); provider CALL + AI-Gateway + research pending |
 | C18 | Agent execution quality | 0/30 | not-started |
 | C19 | Skills & extensibility | 0/30 | not-started |
 | C20 | Personalization | 0/30 | not-started |

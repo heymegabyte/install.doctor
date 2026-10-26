@@ -10,7 +10,8 @@
     "deploy": "wrangler deploy"
   },
   "dependencies": {
-    "hono": "^4.13.14"
+    "hono": "^4.13.14",
+    "zod": "^4.6.7"
   },
   "engines": {
     "node": ">=18"

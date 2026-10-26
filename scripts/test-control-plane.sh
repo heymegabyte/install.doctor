@@ -37,6 +37,15 @@ if [ -n "${CONTROL_PLANE_URL:-}" ]; then
   [ "$rc" = 501 ] && pass "GET /api/ai/v1/economy -> 501 (wiring pending)" || fail "known route -> $rc (want 501)"
   rb="$(curl -s -o /dev/null -w '%{http_code}' "$u/api/ai/v1/definitely-not-a-route" 2>/dev/null || echo 000)"
   [ "$rb" = 404 ] && pass "GET /api/ai/v1/<bogus> -> 404" || fail "bogus route -> $rb (want 404)"
+
+  # routing-policy decisions — reuses aid-core chooseRoute at the HTTP boundary (no inference performed)
+  rp(){ curl -s -X POST -H 'content-type: application/json' -d "$1" "$u/api/ai/v1/resolve" 2>/dev/null; }
+  echo "$(rp '{}')"                                                                                | grep -q '"route":"economy"'    && pass "resolve {} -> economy (routine default)"          || fail "resolve {} -> $(rp '{}')"
+  echo "$(rp '{"sensitivity":"restricted","kind":"code","verificationFailed":true,"allowPremium":true}')" | grep -q '"route":"restricted"' && pass "restricted fails closed (ignores premium)"    || fail "restricted not failing closed"
+  echo "$(rp '{"kind":"architecture","allowPremium":false}')"                                      | grep -q '"route":"code"'      && pass "architecture w/o premium -> code (opt-in gate)"  || fail "architecture gate wrong"
+  echo "$(rp '{"kind":"code","verificationFailed":true,"allowPremium":true}')"                      | grep -q '"route":"critical"'  && pass "verified-failure + premium -> critical"          || fail "escalation wrong"
+  rbad="$(curl -s -o /dev/null -w '%{http_code}' -X POST -H 'content-type: application/json' -d '{"sensitivity":"bogus"}' "$u/api/ai/v1/resolve" 2>/dev/null || echo 000)"
+  [ "$rbad" = 400 ] && pass "invalid body -> 400 (Zod boundary)" || fail "invalid body -> $rbad (want 400)"
 else
   skip "CONTROL_PLANE_URL unset — prod /health + routing E2E skipped (set after deploy)"
 fi
