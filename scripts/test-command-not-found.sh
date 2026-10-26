@@ -184,5 +184,18 @@ printf '#!/usr/bin/env bash\n: > "%s/n8installed"\nprintf "#!/usr/bin/env bash\\
 CNF_ALLOW_NONINTERACTIVE=1 PATH="$nbin:$PATH" CNF_INDEX="$n8idx" CNF_LOCK_DIR="$tmp/n8locks2" __cnf_resolve noauto >/dev/null 2>&1 || true
 [ -f "$tmp/n8installed" ] && pass "E13 — CNF_ALLOW_NONINTERACTIVE opt-in permits install (aid exec/prewarm)" || fail "E13 opt-in did not permit install"
 
+# 9. D13/B07 — the index build is ATOMIC + fail-soft: a FAILED/empty rebuild must NOT clobber a good
+# index. Write a 3-row "good" index, then rebuild from a BROKEN source into the SAME path; the good
+# index must survive intact. The old direct `> $OUT` write truncates it to 0 bytes before the parser
+# even runs (RED); the temp-file + atomic-rename build leaves the previous good index untouched (GREEN).
+atmp="$tmp/atomic"; mkdir -p "$atmp"
+goodidx="$atmp/index.tsv"
+printf 'a\ta\ta\nb\tb\tb\nc\tc\tc\n' > "$goodidx"
+before="$(wc -l < "$goodidx" | tr -d ' ')"
+badsrc="$atmp/broken.yml"; printf 'softwarePackages:\n  foo: {unclosed flow\n' > "$badsrc"
+bash "$BUILDER" "$badsrc" "$goodidx" >/dev/null 2>&1 || true   # expected to fail (parse error OR 0-row guard)
+after="$(wc -l < "$goodidx" 2>/dev/null | tr -d ' ')"
+{ [ "$after" = "$before" ] && [ -s "$goodidx" ]; } && pass "D13/B07 — failed rebuild preserves the good index (atomic temp+rename, fail-soft: $before rows intact)" || fail "D13 non-atomic: index clobbered by failed build (before=$before after=$after)"
+
 say "command-not-found: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

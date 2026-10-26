@@ -4,6 +4,11 @@
 # (array installer values are space-joined; a multi-binary _bin yields one row per binary).
 # Primary path: yq (YAML→JSON) | jq (robust array handling). Fallback: python3 + pyyaml.
 # Run at provisioning time + whenever software.yml changes.
+#
+# D13 (v2): the index is built to a TEMP file in the SAME directory, then ATOMICALLY renamed into
+# place. A concurrent reader (a shell hitting command-not-found that awk-scans the index) therefore
+# never sees a truncated/partial file, and a FAILED or EMPTY build leaves the previous good index
+# intact (fail-soft; B07 — a build problem never corrupts the live lookup). NEVER write $OUT directly.
 set -euo pipefail
 SRC="${1:-$HOME/.local/share/chezmoi/software.yml}"
 OUT="${2:-$HOME/.cache/cnf/index.tsv}"
@@ -16,10 +21,15 @@ JQ='to_entries[] | . as $e | $e.value as $v |
   (($v["_bin"] // $e.key) | if type=="array" then . else [.] end) as $bins |
   $bins[] | [ (tostring), $e.key ] + $cols | @tsv'
 
+# Build into a temp file in the OUT directory (same filesystem → rename is atomic). Cleaned on any exit
+# (a parser failure under `set -o pipefail` aborts here, leaving $OUT untouched).
+TMP="$(mktemp "$(dirname "$OUT")/.cnf-index.XXXXXX")"
+trap 'rm -f "$TMP" 2>/dev/null || true' EXIT
+
 if command -v yq >/dev/null 2>&1 && command -v jq >/dev/null 2>&1; then
-  yq -o=json '.softwarePackages' "$SRC" | jq -r "$JQ" > "$OUT"
+  yq -o=json '.softwarePackages' "$SRC" | jq -r "$JQ" > "$TMP"
 elif python3 -c 'import yaml' 2>/dev/null; then
-  python3 - "$SRC" "$OUT" <<'PY'
+  python3 - "$SRC" "$TMP" <<'PY'
 import sys, yaml
 src, out = sys.argv[1], sys.argv[2]
 pk = (yaml.safe_load(open(src)) or {}).get("softwarePackages", {})
@@ -37,4 +47,14 @@ PY
 else
   echo "need (yq + jq) or python3+pyyaml to parse software.yml" >&2; exit 1
 fi
-echo "cnf index: $(wc -l < "$OUT" | tr -d ' ') binaries -> $OUT"
+
+rows="$(wc -l < "$TMP" | tr -d ' ')"
+# Fail-soft: refuse to replace an existing good index with a 0-row (failed/empty) build. A first-time
+# build with no prior index still installs its result so the problem stays visible, never masked.
+if [ "${rows:-0}" -eq 0 ] && [ -s "$OUT" ]; then
+  echo "cnf index: build produced 0 rows — keeping existing $OUT ($(wc -l < "$OUT" | tr -d ' ') binaries)" >&2
+  exit 1
+fi
+mv -f "$TMP" "$OUT"           # atomic within the same filesystem
+trap - EXIT
+echo "cnf index: $rows binaries -> $OUT"
