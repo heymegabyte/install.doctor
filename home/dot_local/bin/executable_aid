@@ -272,14 +272,41 @@ cmdUp() {
   log "aid up ✓ (view synced + recorded; run 'aid apply' to install missing packages)"
 }
 
+# aid provider — write the OpenCode provider config (fetched from the control plane, aid-core SSOT) to
+# ~/.config/opencode so OpenCode routes aid through the control plane's /api/ai/v1. No token needed (the
+# config carries only the {env:AID_INFERENCE_TOKEN} ref). Safe: won't clobber an existing config sans --force.
+cmdProvider() {
+  local force=0 u out code
+  [ "${1:-}" = "--force" ] && force=1
+  u="${AID_CONTROL_PLANE_URL%/}"
+  out="${AID_OPENCODE_CONFIG_PATH:-$HOME/.config/opencode/opencode.json}"
+  if [ -s "$out" ] && [ "$force" -ne 1 ]; then
+    err "OpenCode config already exists at ${out} — pass --force to overwrite"
+    return 1
+  fi
+  mkdir -p "$(dirname "$out")"
+  code="$(curl -fsS -o "${out}.tmp" -w '%{http_code}' "$u/api/provider-config" 2>/dev/null || echo 000)"
+  if [ "$code" != 200 ]; then
+    rm -f "${out}.tmp"
+    err "fetch provider-config failed (HTTP ${code})"
+    return 1
+  fi
+  mv "${out}.tmp" "$out"
+  log "wrote OpenCode provider config -> ${out} (aid routes via ${u}/api/ai/v1; set AID_INFERENCE_TOKEN to use)"
+}
+
 usage() {
-  printf 'usage: aid <up|status|pull|plan|report|apply>\n' >&2
+  printf 'usage: aid <up|status|pull|plan|report|apply|provider>\n' >&2
   return 1
 }
 
 main() {
   case "${1:-}" in
   up) cmdUp ;;
+  provider)
+    shift
+    cmdProvider "$@"
+    ;;
   status) cmdStatus ;;
   pull) cmdPull ;;
   plan) cmdPlan ;;

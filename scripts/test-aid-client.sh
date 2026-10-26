@@ -61,6 +61,14 @@ if [ -f "$SRC" ]; then
     ADMIN="${AID_ADMIN_TOKEN:-}"
     [ -z "$ADMIN" ] && ADMIN="$(get-secret AID_ADMIN_TOKEN 2>/dev/null || true)"
     [ -z "$ADMIN" ] && [ -f "$CP/.aid-admin-token" ] && ADMIN="$(cat "$CP/.aid-admin-token" 2>/dev/null || true)"
+    # aid provider — write OpenCode config (public endpoint, no token needed)
+    PCF="$(mktemp -u)"
+    AID_CONTROL_PLANE_URL="$u" AID_OPENCODE_CONFIG_PATH="$PCF" bash "$RUN" provider >/dev/null 2>&1
+    { [ -s "$PCF" ] && grep -q 'install-doctor' "$PCF" && grep -q 'AID_INFERENCE_TOKEN' "$PCF"; } && pass "aid provider -> wrote OpenCode config (install-doctor provider + {env} token)" || fail "aid provider -> $(head -c 80 "$PCF" 2>/dev/null)"
+    rc=0
+    AID_CONTROL_PLANE_URL="$u" AID_OPENCODE_CONFIG_PATH="$PCF" bash "$RUN" provider >/dev/null 2>&1 || rc=$?
+    [ "$rc" = 1 ] && pass "aid provider (config exists, no --force) -> refuses (exit 1)" || fail "aid provider clobber-guard rc=$rc (want 1)"
+    rm -f "$PCF"
     if [ -n "$ADMIN" ]; then
       TOK="$(mktemp -u)"
       ENVF="$(mktemp -u)"

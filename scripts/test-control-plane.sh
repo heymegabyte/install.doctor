@@ -38,6 +38,8 @@ if [ -n "${CONTROL_PLANE_URL:-}" ]; then
   { echo "$land" | grep -q 'install.doctor' && echo "$land" | grep -qi 'pair a machine'; } && pass "GET / -> landing page (aid + pairing instructions)" || fail "landing -> $(printf '%s' "$land" | head -c 80)"
   pairp="$(curl -s "$u/pair?code=ABC12345" 2>/dev/null)"
   { echo "$pairp" | grep -q 'ABC12345' && echo "$pairp" | grep -qi 'approve pairing'; } && pass "GET /pair?code -> shows code + approve surface" || fail "pair page -> $(printf '%s' "$pairp" | head -c 80)"
+  pc="$(curl -s "$u/api/provider-config" 2>/dev/null)"
+  echo "$pc" | jq -e '(.enabled_providers[0]=="install-doctor") and (.provider["install-doctor"].options.baseURL|test("/api/ai/v1$")) and (.provider["install-doctor"].options.apiKey=="{env:AID_INFERENCE_TOKEN}")' >/dev/null 2>&1 && pass "GET /api/provider-config -> OpenCode config (install-doctor provider, {env} apiKey — no secret)" || fail "provider-config -> $(printf '%s' "$pc" | head -c 140)"
   # inference route pre-flight (fire #8): POST-only; restricted fails closed; fail-closed when unconfigured
   rc="$(curl -s -o /dev/null -w '%{http_code}' -X POST "$u/api/ai/v1/economy" 2>/dev/null || echo 000)"
   [ "$rc" = 503 ] && pass "POST /api/ai/v1/economy -> 503 (provider not configured, fail-closed)" || fail "economy POST -> $rc (want 503)"

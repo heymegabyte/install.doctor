@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import { z } from 'zod';
 // Reuse aid-core's route contract (don't re-implement — MASTER-PROMPT §8). Relative import so
 // esbuild bundles the zero-dep contracts at deploy time; no workspace link needed.
-import { ROUTES, chooseRoute, validateBlueprint, exportMarkdown, importMarkdown, blueprintDigest, APP_URL, type Blueprint } from '../../aid-core/src/core';
+import { ROUTES, chooseRoute, validateBlueprint, exportMarkdown, importMarkdown, blueprintDigest, aidProviderConfig, APP_URL, type Blueprint } from '../../aid-core/src/core';
 import { Env, providerConfigured } from './env';
 import { reserveBudget, DEFAULT_CEILING_MICROS } from './budget';
 
@@ -85,6 +85,10 @@ async function approve(){
 // HTTP boundary: restricted sensitivity fails CLOSED (never escalates to premium), and premium
 // requires explicit opt-in. Performs NO inference — no provider call, no keys, no cost — it only
 // returns the route it WOULD use. Registered before the :route param handler so it wins.
+// OpenCode provider config (aid-core SSOT) — the local `aid` client writes this to ~/.config/opencode
+// so OpenCode routes through the control plane's /api/ai/v1. No secrets (apiKey is the {env:…} ref).
+app.get('/api/provider-config', (c) => c.json(aidProviderConfig()));
+
 app.post('/api/ai/v1/resolve', async (c) => {
   const body = await c.req.json().catch(() => ({}));
   const parsed = ResolveRequest.safeParse(body);
