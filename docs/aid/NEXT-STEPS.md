@@ -1,6 +1,8 @@
 # aid — NEXT STEPS (resume pointer)
 
-Updated every loop fire. Smallest next executable step at the top. Cadence: `/loop 15m` (cron `67cbf027`, 7-day auto-expiry). **Advance ONE verified slice per fire**, commit + push, update this file. Full spec: `MASTER-PROMPT.md`. Reality: `CURRENT-STATE.md`.
+Updated every loop fire. Smallest next executable step at the top. Cadence: `/loop 15m` (cron `4002f61a` — the **v2** prompt, replaced `67cbf027` fire #32; 7-day auto-expiry). **Advance ONE verified slice per fire**, commit + push, update this file. Full spec: `MASTER-PROMPT.md`. Reality: `CURRENT-STATE.md`. **v2 backlog = the A01–X15 matrix in `REQUIREMENTS.md`** (360 reqs, Phase 1→5).
+
+> **v2 loop (fire #32+):** the Install Doctor v2 master prompt now drives the loop — pick the smallest highest-value ⬜/◐ requirement from `REQUIREMENTS.md` (Phase 1→5 order), implement with a failing test first, flip the ID with the fire# + evidence. Blocked categories: O (Better Auth — needs OAuth apps + SES), K/#7 (provider CALL — AI Gateway + token), N02 (Figma gate). **TOP next (v2 Phase-1 E11):** installation locks + recursion guard in the cnf hook so concurrent shells requesting the same tool produce ONE install (golden path) — a lockdir around `__cnf_do_install`, a `__cnf_resolve` recursion guard, bounded wait.
 
 > **Parallel session active:** `d6e00879` added `packages/aid-core` (tested contracts, 52/52 green). BUILD ON it — reuse its `validateBlueprint`/`aidProviderConfig`/`chooseRoute`/session/Loki contracts; do NOT duplicate them. Always rebase onto `origin/master` before pushing (push was rejected + rebased this fire).
 

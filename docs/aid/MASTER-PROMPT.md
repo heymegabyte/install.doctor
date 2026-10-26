@@ -1,6 +1,8 @@
 # aid — MASTER PROMPT (SSOT, 2026-10-26 baseline)
 
-This is the full requirements spec for the **aid** program, stored in-repo so any authorized Claude / Codex / OpenCode / aid session (including the `/loop 15m` cron `67cbf027`) can resume without the originating conversation. **Read `CURRENT-STATE.md` first** — several premises below (an existing `packages/aid-core`, "52 local tests", deployed services) are UNVERIFIED or FALSE for this repo and must not be inherited as fact. Revalidate every version, license, endpoint, and capability claim during execution.
+> **v2 (fire #32):** the loop now runs the **Install Doctor v2** master prompt (cron `4002f61a`, replaced `67cbf027`). The authoritative v2 backlog is the **A01–X15 requirement matrix in `REQUIREMENTS.md`** (360 reqs, Phase 1→5); this file remains the mission/architecture/invariant spec. Resume from `CURRENT-STATE.md` + `NEXT-STEPS.md` + `REQUIREMENTS.md`.
+
+This is the full requirements spec for the **aid** program, stored in-repo so any authorized Claude / Codex / OpenCode / aid session (including the `/loop 15m` cron `4002f61a`) can resume without the originating conversation. **Read `CURRENT-STATE.md` first** — several premises below (an existing `packages/aid-core`, "52 local tests", deployed services) are UNVERIFIED or FALSE for this repo and must not be inherited as fact. Revalidate every version, license, endpoint, and capability claim during execution.
 
 ---
 

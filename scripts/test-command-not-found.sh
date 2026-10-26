@@ -23,6 +23,10 @@ say "command-not-found test suite"
 bash -n "$HANDLER" && pass "not-found-hook.sh parses" || fail "not-found-hook.sh syntax error"
 bash -n "$BUILDER" && pass "cnf-build-index parses" || fail "cnf-build-index syntax error"
 
+# E10 (v2): the hook must NEVER eval model-generated text or replay a shell string. Grep CODE lines
+# only (strip comments, which legitimately mention the word).
+if grep -vE '^[[:space:]]*#' "$HANDLER" | grep -qE '\beval\b'; then fail "E10: 'eval' on a code line — model-text eval must be eliminated"; else pass "E10: no eval of model-generated commands in the hook"; fi
+
 # shellcheck source=/dev/null
 . "$HANDLER"
 # isolate the test shell from the handler's shell hooks — a missing/typo'd function in this
@@ -80,7 +84,7 @@ fi
 # so we can assert execution/non-execution with NO real install. `|| true` keeps a handler's
 # non-zero return from aborting the suite under `set -u`.
 fbin="$tmp/bin"; mkdir -p "$fbin"
-printf '#!/usr/bin/env bash\n: > "%s/executed"\n' "$tmp" > "$fbin/brew"; chmod +x "$fbin/brew"
+printf '#!/usr/bin/env bash\n: > "%s/executed"\nprintf "%%s\\n" "$*" > "%s/brewargs"\n' "$tmp" "$tmp" > "$fbin/brew"; chmod +x "$fbin/brew"
 
 # 3a. pure guard: allowlist installers, reject metachars / substitution / non-installers
 if __cnf_ai_safe 'brew install ripgrep' && __cnf_ai_safe 'sudo apt-get install -y ripgrep' \
@@ -112,6 +116,8 @@ if declare -F __cnf_ai_safe >/dev/null 2>&1; then
   rm -f "$tmp/executed"
   PATH="$fbin:$PATH" CNF_AI_AUTOINSTALL=1 CNF_AI_CMD='brew install testpkg' __cnf_ai_fallback testpkg darwin >/dev/null 2>&1 || true
   if [ -f "$tmp/executed" ]; then pass "explicit opt-in runs a validated installer"; else fail "opt-in happy path did not execute"; fi
+  # 3f. argv boundaries preserved via argv-exec (E07/E10): the installer got SEPARATE args, not a string
+  if [ "$(cat "$tmp/brewargs" 2>/dev/null)" = "install testpkg" ]; then pass "argv-exec preserves boundaries (brew received 'install testpkg', no eval/string-replay)"; else fail "argv boundaries wrong: '$(cat "$tmp/brewargs" 2>/dev/null)'"; fi
 else
   skip "AI-fallback behavior (3b-3e) — handler not hardened yet (__cnf_ai_safe absent)"
 fi

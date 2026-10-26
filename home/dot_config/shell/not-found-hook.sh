@@ -82,7 +82,11 @@ __cnf_ai_fallback(){ local cmd="$1" os="$2" inst="${CNF_AI_CMD:-}"
   if [ -n "${CNF_DRY:-}" ]; then __cnf_say "   [CNF_DRY] would run: $inst"; return 0; fi
   if [ -z "${CNF_AI_AUTOINSTALL:-}" ]; then
     __cnf_warn "AI auto-install is OFF — set CNF_AI_AUTOINSTALL=1 to allow. Command above not run."; return 1; fi
-  __cnf_say "↻ running (CNF_AI_AUTOINSTALL=1): $inst"; eval "$inst"; }
+  __cnf_say "↻ running (CNF_AI_AUTOINSTALL=1): $inst"
+  # E10 (v2): NEVER eval model text or replay a shell string. __cnf_ai_safe already guaranteed $inst is
+  # metachar-free + a known-installer invocation, so run it as plain argv in an ISOLATED subshell
+  # (noglob word-split; no eval, no shell re-interpretation, no parent-shell mutation).
+  ( set -f; IFS=$' \t\n'; set -- $inst; "$@" ); }
 
 __cnf_resolve(){ local cmd="$1"; shift
   local os pref row mgr="" pkg="" col
