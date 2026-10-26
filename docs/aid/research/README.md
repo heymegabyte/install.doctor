@@ -16,8 +16,8 @@ Per category: research ≥3 primary sources → generate 30 distinct candidates 
 | C03 | Platform compatibility | 0/30 | not-started |
 | C04 | Device lifecycle | 0/30 | not-started |
 | C05 | Inventory & evidence | 0/30 | not-started |
-| C06 | Desired-state language | 0/30 | not-started |
-| C07 | Portability & restore | 0/30 | not-started |
+| C06 | Desired-state language | 0/30 | **partial-impl** — `/api/environment/validate` live (fire #11): aid-core strict blueprint validation + SHA-256 digest; migrations + conflict-resolution + research pending |
+| C07 | Portability & restore | 0/30 | **partial-impl** — `/api/environment/{export,import}` live (fire #11): lossless ENVIRONMENT.md round-trip; snapshot/restore/recovery-key + research pending |
 | C08 | Catalog & App Store | 0/30 | **partial-impl** — fabricated-description audit (fire #10): `test-software-descriptions.sh` hard-gates "It appears to be"=0, 9 descriptions corrected vs the GitHub `.description`; softer tells tracked |
 | C09 | Lazy installation | 0/30 | **partial-impl** — command-not-found SINGLE deployed owner, hardened + reconciled + provision-wired (fire #2–4), 12/12 tested; live-machine proof (gated) + 30-candidate research not started |
 | C10 | Configuration convergence | 0/30 | not-started |
@@ -58,7 +58,7 @@ Per category: research ≥3 primary sources → generate 30 distinct candidates 
 
 | ID | Required outcome | Category | Status |
 |----|------------------|----------|--------|
-| S01 | Lossless ENVIRONMENT.md export/import + migrations | C06/C07 | not-started |
+| S01 | Lossless ENVIRONMENT.md export/import + migrations | C06/C07 | **partial** — round-trip LIVE on the control-plane (fire #11: validate/export/import/digest, 18/18); migrations + conflict-resolution + UI pending |
 | S02 | Desired-vs-observed diffs, freshness, honest offline | C05/C10 | not-started |
 | S03 | Role overlays, machine exceptions, restore previews | C06/C07 | not-started |
 | S04 | One-link enrollment + auto aid + approved skills | C02/C19 | not-started |

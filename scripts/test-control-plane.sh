@@ -57,6 +57,22 @@ if [ -n "${CONTROL_PLANE_URL:-}" ]; then
   echo "$(rp '{"kind":"code","verificationFailed":true,"allowPremium":true}')"                      | grep -q '"route":"critical"'  && pass "verified-failure + premium -> critical"          || fail "escalation wrong"
   rbad="$(curl -s -o /dev/null -w '%{http_code}' -X POST -H 'content-type: application/json' -d '{"sensitivity":"bogus"}' "$u/api/ai/v1/resolve" 2>/dev/null || echo 000)"
   [ "$rbad" = 400 ] && pass "invalid body -> 400 (Zod boundary)" || fail "invalid body -> $rbad (want 400)"
+
+  # ENVIRONMENT.md round-trip (S01 / MASTER-PROMPT §9) — aid-core validate/export/import/digest
+  bpf="$(mktemp)"; mdf="$(mktemp)"
+  cat > "$bpf" <<'JSON'
+{"schemaVersion":1,"revision":"r1","appUrl":"https://app.install.doctor","routing":{"engine":"projectsites","preferredProvider":"deepseek","allowPremium":false,"maxTaskCostMicros":250000},"skills":{"repository":"heymegabyte/agent-skills","commit":"0000000000000000000000000000000000000000","include":["desktop-provisioning"]},"defaults":{"packages":["git","chezmoi","mise"],"shellHistory":"hishtory"},"machines":[{"id":"runner","os":"linux","role":"runner","packages":["alloy"]},{"id":"laptop","os":"darwin","role":"workstation","packages":[]}],"services":[{"id":"logs","kind":"loki","pushUrl":"https://logs.example.invalid/loki/api/v1/push","credentialRef":"infisical://fleet/loki","machineIds":["runner","laptop"]}],"privacy":{"shellAnalysis":"local","screenshots":"off","terminalInput":false,"productLearning":false}}
+JSON
+  vd="$(curl -s -X POST -H 'content-type: application/json' --data-binary @"$bpf" "$u/api/environment/validate" 2>/dev/null)"
+  echo "$vd" | grep -q '"valid":true' && pass "env validate -> valid + digest" || fail "env validate -> $vd"
+  d1="$(printf '%s' "$vd" | grep -oE '"digest":"[0-9a-f]+"' | head -1)"
+  ec="$(curl -s -o "$mdf" -w '%{http_code}' -X POST -H 'content-type: application/json' --data-binary @"$bpf" "$u/api/environment/export" 2>/dev/null || echo 000)"
+  { [ "$ec" = 200 ] && grep -q 'install-doctor+json' "$mdf"; } && pass "env export -> ENVIRONMENT.md markdown" || fail "env export -> $ec"
+  id="$(curl -s -X POST -H 'content-type: text/markdown' --data-binary @"$mdf" "$u/api/environment/import" 2>/dev/null | grep -oE '"digest":"[0-9a-f]+"' | head -1)"
+  { [ -n "$d1" ] && [ "$d1" = "$id" ]; } && pass "env round-trip lossless (import(export).digest == validate.digest)" || fail "round-trip digest mismatch ($d1 vs $id)"
+  iv="$(curl -s -o /dev/null -w '%{http_code}' -X POST -H 'content-type: application/json' -d '{}' "$u/api/environment/validate" 2>/dev/null || echo 000)"
+  [ "$iv" = 400 ] && pass "env validate {} -> 400 (invalid blueprint)" || fail "invalid blueprint -> $iv (want 400)"
+  rm -f "$bpf" "$mdf"
 else
   skip "CONTROL_PLANE_URL unset — prod /health + routing E2E skipped (set after deploy)"
 fi

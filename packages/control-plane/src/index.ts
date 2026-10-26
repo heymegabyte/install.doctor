@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import { z } from 'zod';
 // Reuse aid-core's route contract (don't re-implement — MASTER-PROMPT §8). Relative import so
 // esbuild bundles the zero-dep contracts at deploy time; no workspace link needed.
-import { ROUTES, chooseRoute } from '../../aid-core/src/core';
+import { ROUTES, chooseRoute, validateBlueprint, exportMarkdown, importMarkdown, blueprintDigest } from '../../aid-core/src/core';
 import { Env, providerConfigured } from './env';
 import { reserveBudget, DEFAULT_CEILING_MICROS } from './budget';
 
@@ -49,6 +49,35 @@ app.post('/api/ai/v1/resolve', async (c) => {
 // Proposed inference proxy (MASTER-PROMPT §8): aid → this adapter → shared ProjectSites orchestrator
 // → one CF AI Gateway → permitted provider. SKELETON ONLY: validates the requested route alias against
 // aid-core's ROUTES but performs NO provider call (no keys here — provider keys stay backend-side).
+// ENVIRONMENT.md — the one portable configuration authority (MASTER-PROMPT §9, seed S01). Reuses
+// aid-core's tested contracts: strict schema validation (unknown fields rejected), a lossless
+// single-file Markdown round-trip, and a stable key-order-independent SHA-256 content digest. Pure
+// data transforms — no secrets, no persistence (projections/storage are a later slice).
+const envErr = (e: unknown) => (e instanceof Error ? e.message : String(e));
+app.post('/api/environment/validate', async (c) => {
+  try {
+    const bp = validateBlueprint(await c.req.json());
+    return c.json({ valid: true, revision: bp.revision, digest: await blueprintDigest(bp) });
+  } catch (e) {
+    return c.json({ valid: false, error: envErr(e) }, 400);
+  }
+});
+app.post('/api/environment/export', async (c) => {
+  try {
+    return c.text(exportMarkdown(await c.req.json()), 200, { 'content-type': 'text/markdown; charset=utf-8' });
+  } catch (e) {
+    return c.json({ error: envErr(e) }, 400);
+  }
+});
+app.post('/api/environment/import', async (c) => {
+  try {
+    const bp = importMarkdown(await c.req.text());
+    return c.json({ blueprint: bp, digest: await blueprintDigest(bp) });
+  } catch (e) {
+    return c.json({ error: envErr(e) }, 400);
+  }
+});
+
 // Inference attempt (POST). Fail-closed pre-flight gates (MASTER-PROMPT §8, §15), in order:
 //   unknown alias → 404 · restricted → 451 (approved private/local route only, never the public
 //   gateway) · provider not configured → 503 (keys stay backend-side) · all gates pass → 501
