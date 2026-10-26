@@ -81,13 +81,37 @@ JSON
   { echo "$chg" | grep -q '"changed":true' && echo "$chg" | grep -q 'ripgrep'; } && pass "env diff (added package) -> changed:true + ripgrep" || fail "diff changed -> $chg"
   dbad="$(curl -s -o /dev/null -w '%{http_code}' -X POST -H 'content-type: application/json' -d '{"from":{},"to":{}}' "$u/api/environment/diff" 2>/dev/null || echo 000)"
   [ "$dbad" = 400 ] && pass "env diff (invalid blueprint) -> 400" || fail "diff invalid -> $dbad (want 400)"
-  rm -f "$bpf" "$mdf" "$bpf2"
 
   # persistence read path (§9) — D1-stored "current" blueprint (seeded _default)
   cur="$(curl -s "$u/api/environment/current?tenant=_default" 2>/dev/null)"
   echo "$cur" | grep -q '"digest"' && pass "env current (_default) -> stored blueprint + digest (D1 read)" || fail "env current _default -> $cur"
   nf="$(curl -s -o /dev/null -w '%{http_code}' "$u/api/environment/current?tenant=__nope__" 2>/dev/null || echo 000)"
   [ "$nf" = 404 ] && pass "env current (unknown tenant) -> 404" || fail "env current unknown -> $nf (want 404)"
+
+  # authed WRITE path (§9) — PUT /api/environment/current, optimistic revision-check, AID_ADMIN_TOKEN bearer.
+  # Unauthed is rejected the moment the Worker secret is set (503 before it's set — honest SKIP, never a false pass).
+  un="$(curl -s -o /dev/null -w '%{http_code}' -X PUT -H 'content-type: application/json' -d '{"tenant":"_test","blueprint":{}}' "$u/api/environment/current" 2>/dev/null || echo 000)"
+  case "$un" in
+    401) pass "PUT current (no bearer) -> 401 (fail-closed auth)";;
+    503) skip "PUT current -> 503 (AID_ADMIN_TOKEN not yet set on Worker)";;
+    *)   fail "PUT current (no bearer) -> $un (want 401)";;
+  esac
+  ADMIN="${AID_ADMIN_TOKEN:-}"; [ -z "$ADMIN" ] && ADMIN="$(get-secret AID_ADMIN_TOKEN 2>/dev/null || true)"
+  if [ -n "$ADMIN" ]; then
+    wr="$(curl -s -X PUT -H "authorization: Bearer $ADMIN" -H 'content-type: application/json' -d "$(jq -n --slurpfile a "$bpf" '{tenant:"_test",blueprint:$a[0]}')" "$u/api/environment/current" 2>/dev/null)"
+    echo "$wr" | grep -q '"digest"' && pass "PUT current (bearer, valid) -> 200 + digest" || fail "authed PUT -> $wr"
+    rb="$(curl -s "$u/api/environment/current?tenant=_test" 2>/dev/null)"
+    echo "$rb" | grep -q '"revision":"r1"' && pass "GET current (_test) -> stored r1 (write persisted to D1)" || fail "read-back -> $rb"
+    sc="$(curl -s -o /dev/null -w '%{http_code}' -X PUT -H "authorization: Bearer $ADMIN" -H 'content-type: application/json' -d "$(jq -n --slurpfile a "$bpf" '{tenant:"_test",expectedRevision:"STALE",blueprint:$a[0]}')" "$u/api/environment/current" 2>/dev/null || echo 000)"
+    [ "$sc" = 409 ] && pass "PUT current (stale expectedRevision) -> 409 (optimistic lock)" || fail "stale revision -> $sc (want 409)"
+    mc="$(curl -s -o /dev/null -w '%{http_code}' -X PUT -H "authorization: Bearer $ADMIN" -H 'content-type: application/json' -d "$(jq -n --slurpfile a "$bpf" '{tenant:"_test",expectedRevision:"r1",blueprint:$a[0]}')" "$u/api/environment/current" 2>/dev/null || echo 000)"
+    [ "$mc" = 200 ] && pass "PUT current (matching expectedRevision r1) -> 200" || fail "matching revision -> $mc (want 200)"
+    ib="$(curl -s -o /dev/null -w '%{http_code}' -X PUT -H "authorization: Bearer $ADMIN" -H 'content-type: application/json' -d '{"tenant":"_test","blueprint":{}}' "$u/api/environment/current" 2>/dev/null || echo 000)"
+    [ "$ib" = 400 ] && pass "PUT current (authed, invalid blueprint) -> 400" || fail "authed invalid -> $ib (want 400)"
+  else
+    skip "AID_ADMIN_TOKEN unset (env + get-secret) — authed PUT assertions skipped"
+  fi
+  rm -f "$bpf" "$mdf" "$bpf2"
 else
   skip "CONTROL_PLANE_URL unset — prod /health + routing E2E skipped (set after deploy)"
 fi

@@ -7,6 +7,7 @@ import { z } from 'zod';
 export const Env = z
   .object({
     AID_INFERENCE_TOKEN: z.string().min(1).optional(),
+    AID_ADMIN_TOKEN: z.string().min(1).optional(),
     AI_GATEWAY_ACCOUNT_ID: z.string().min(1).optional(),
     AI_GATEWAY_NAME: z.string().min(1).optional(),
     DEEPSEEK_API_KEY: z.string().min(1).optional(),

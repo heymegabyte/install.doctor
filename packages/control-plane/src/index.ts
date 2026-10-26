@@ -147,6 +147,47 @@ app.get('/api/environment/current', async (c) => {
   }
 });
 
+// Constant-time bearer comparison (avoid timing leaks on the admin token).
+function safeEqual(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
+  let r = 0;
+  for (let i = 0; i < a.length; i++) r |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return r === 0;
+}
+// Persistence WRITE path (MASTER-PROMPT §9) — store a tenant's "current" blueprint in D1 with
+// OPTIMISTIC revision-check. Fail-closed auth: requires a configured AID_ADMIN_TOKEN (Worker secret,
+// backend-side) AND a matching Bearer. Changing desired state is gated; a stale expectedRevision
+// (concurrent edit) → 409 conflict. The Markdown is stored (the authority); the row is a projection.
+app.put('/api/environment/current', async (c) => {
+  const env = c.env as Record<string, any>;
+  const configured = env.AID_ADMIN_TOKEN as string | undefined;
+  if (!configured) return c.json({ error: 'write_auth_not_configured' }, 503);
+  const auth = c.req.header('authorization') || '';
+  const presented = auth.startsWith('Bearer ') ? auth.slice(7) : '';
+  if (!presented || !safeEqual(presented, configured)) return c.json({ error: 'unauthorized' }, 401);
+  const db = env.DB;
+  if (!db) return c.json({ error: 'store_unavailable' }, 503);
+  try {
+    const body = (await c.req.json()) as { tenant?: string; blueprint?: unknown; expectedRevision?: string };
+    const tenant = body.tenant || '_default';
+    const bp = validateBlueprint(body.blueprint);
+    const existing = await db.prepare('SELECT markdown FROM blueprints WHERE tenant = ?').bind(tenant).first();
+    if (existing) {
+      const current = importMarkdown(existing.markdown);
+      if (body.expectedRevision !== undefined && body.expectedRevision !== current.revision)
+        return c.json({ error: 'revision_conflict', storedRevision: current.revision, expectedRevision: body.expectedRevision }, 409);
+    }
+    const now = new Date().toISOString();
+    await db
+      .prepare('INSERT INTO blueprints (tenant, markdown, updated_at) VALUES (?,?,?) ON CONFLICT(tenant) DO UPDATE SET markdown=excluded.markdown, updated_at=excluded.updated_at')
+      .bind(tenant, exportMarkdown(bp), now)
+      .run();
+    return c.json({ tenant, revision: bp.revision, digest: await blueprintDigest(bp), updatedAt: now });
+  } catch (e) {
+    return c.json({ error: 'invalid_request', detail: e instanceof Error ? e.message : String(e) }, 400);
+  }
+});
+
 // Inference attempt (POST). Fail-closed pre-flight gates (MASTER-PROMPT §8, §15), in order:
 //   unknown alias → 404 · restricted → 451 (approved private/local route only, never the public
 //   gateway) · provider not configured → 503 (keys stay backend-side) · all gates pass → 501
