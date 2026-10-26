@@ -1,0 +1,103 @@
+#!/usr/bin/env bash
+# aid-pair — browser-first one-link device enrollment (machine side, S04 / MASTER-PROMPT §2).
+# Starts a pairing with the aid control plane, prints a short code + a browser verify URL for the
+# operator to approve, polls until approved, then stores the minted device token locally (0600).
+# Headless-safe: prints the code + URL (no interactive prompt); on a GUI box it also opens the URL.
+# No reusable credential is ever placed in a URL or logged — the device token is received from the
+# poll body and written straight to a 0600 file. No jq dependency (runs on a fresh machine).
+#
+# Env seams: AID_CONTROL_PLANE_URL · AID_TENANT · AID_TOKEN_PATH · AID_PAIR_TIMEOUT · AID_PAIR_INTERVAL
+# Usage: aid-pair [--force]   (re-pairs even if a token already exists)
+set -uo pipefail
+
+AID_CONTROL_PLANE_URL="${AID_CONTROL_PLANE_URL:-https://aid-control-plane.manhattan.workers.dev}"
+AID_TENANT="${AID_TENANT:-_default}"
+AID_TOKEN_PATH="${AID_TOKEN_PATH:-$HOME/.config/aid/device-token}"
+AID_PAIR_TIMEOUT="${AID_PAIR_TIMEOUT:-300}"
+AID_PAIR_INTERVAL="${AID_PAIR_INTERVAL:-3}"
+FORCE=0
+[ "${1:-}" = "--force" ] && FORCE=1
+
+log() { command -v gum >/dev/null 2>&1 && gum log --level info -- "$*" || printf '\033[1;36m[aid-pair]\033[0m %s\n' "$*"; }
+err() { command -v gum >/dev/null 2>&1 && gum log --level error -- "$*" || printf '\033[1;31m[aid-pair]\033[0m %s\n' "$*" >&2; }
+
+# Extract a JSON string field value portably (no jq). jsonStr '<json>' <field> -> value (or empty).
+jsonStr() { printf '%s' "$1" | grep -oE "\"$2\":\"[^\"]*\"" | head -1 | sed -E "s/\"$2\":\"([^\"]*)\"/\1/"; }
+
+openBrowser() {
+  [ "${HEADLESS_INSTALL:-0}" = "1" ] && return 0
+  if command -v open >/dev/null 2>&1; then
+    open "$1" >/dev/null 2>&1 || true
+  elif command -v xdg-open >/dev/null 2>&1; then
+    xdg-open "$1" >/dev/null 2>&1 || true
+  fi
+}
+
+main() {
+  local u="${AID_CONTROL_PLANE_URL%/}"
+  if [ -s "$AID_TOKEN_PATH" ] && [ "$FORCE" -ne 1 ]; then
+    log "already paired (token at $AID_TOKEN_PATH); pass --force to re-pair"
+    return 0
+  fi
+  local hostLabel
+  hostLabel="$(hostname 2>/dev/null || echo unknown)"
+  log "starting pairing with $u (tenant ${AID_TENANT})…"
+  local start
+  start="$(curl -fsS -X POST -H 'content-type: application/json' \
+    -d "{\"tenant\":\"${AID_TENANT}\",\"label\":\"${hostLabel}\"}" "$u/api/devices/pair/start" 2>/dev/null)"
+  local code pollSecret verifyUrl
+  code="$(jsonStr "$start" code)"
+  pollSecret="$(jsonStr "$start" pollSecret)"
+  verifyUrl="$(jsonStr "$start" verifyUrl)"
+  [ -z "$verifyUrl" ] && verifyUrl="$u/pair?code=${code}"
+  if [ -z "$code" ] || [ -z "$pollSecret" ]; then
+    err "pairing start failed: ${start:-no response from $u}"
+    return 1
+  fi
+  printf '\n'
+  log "PAIRING CODE:  ${code}"
+  log "APPROVE AT:    ${verifyUrl}"
+  printf '\n'
+  openBrowser "$verifyUrl"
+  log "waiting for approval (timeout ${AID_PAIR_TIMEOUT}s)…"
+  local waited=0 resp status errf token deviceId
+  while [ "$waited" -lt "$AID_PAIR_TIMEOUT" ]; do
+    resp="$(curl -sS -H "authorization: Bearer ${pollSecret}" "$u/api/devices/pair/poll" 2>/dev/null || true)"
+    status="$(jsonStr "$resp" status)"
+    errf="$(jsonStr "$resp" error)"
+    case "$status" in
+    claimed)
+      token="$(jsonStr "$resp" token)"
+      deviceId="$(jsonStr "$resp" deviceId)"
+      if [ -z "$token" ]; then
+        err "pairing claimed but no token in response"
+        return 1
+      fi
+      mkdir -p "$(dirname "$AID_TOKEN_PATH")"
+      (
+        umask 077
+        printf '%s' "$token" >"$AID_TOKEN_PATH"
+      )
+      chmod 600 "$AID_TOKEN_PATH" 2>/dev/null || true
+      log "paired ✓ device ${deviceId} — token stored at ${AID_TOKEN_PATH} (mode 0600)"
+      return 0
+      ;;
+    expired)
+      err "pairing expired before approval"
+      return 1
+      ;;
+    esac
+    case "$errf" in
+    already_claimed | not_found)
+      err "pairing not claimable: ${errf}"
+      return 1
+      ;;
+    esac
+    sleep "$AID_PAIR_INTERVAL"
+    waited=$((waited + AID_PAIR_INTERVAL))
+  done
+  err "pairing timed out after ${AID_PAIR_TIMEOUT}s (never approved)"
+  return 1
+}
+
+main "$@"
