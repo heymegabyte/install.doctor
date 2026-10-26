@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+# @file run_after_22-cnf-index.sh
+# @brief (Re)build the command-not-found index from software.yml after every `chezmoi apply`.
+# @description
+#     `chezmoi apply` is how software.yml changes reach a machine, so rebuilding the index here
+#     keeps the command-not-found hook's lookup table (~/.cache/cnf/index.tsv) fresh — without
+#     waiting for the runtime first-miss self-heal in ~/.config/shell/not-found-hook.sh.
+#     Best-effort, headless-safe, idempotent, universal (all roles benefit).
+#     Builder: ~/.local/bin/cnf-build-index (home/dot_local/bin/executable_cnf-build-index),
+#     which needs yq+jq OR python3+pyyaml and ~/.local/share/chezmoi/software.yml; if either is
+#     missing it exits non-zero and this step is a no-op (the runtime hook self-heals later).
+#     CNF_BUILD_INDEX_BIN overrides the builder path (test/override seam).
+set -euo pipefail
+
+CNF_BUILD_INDEX_BIN="${CNF_BUILD_INDEX_BIN:-$HOME/.local/bin/cnf-build-index}"
+if [ ! -x "$CNF_BUILD_INDEX_BIN" ]; then
+  if command -v cnf-build-index >/dev/null 2>&1; then
+    CNF_BUILD_INDEX_BIN="$(command -v cnf-build-index)"
+  else
+    exit 0 # builder not deployed yet — the runtime hook will self-heal the index on first miss
+  fi
+fi
+
+# Best-effort: a failed build (missing yq/jq/python or software.yml) must not fail `chezmoi apply`.
+"$CNF_BUILD_INDEX_BIN" >/dev/null 2>&1 || true

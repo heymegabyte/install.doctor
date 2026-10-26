@@ -8,8 +8,8 @@ Updated every loop fire. Smallest next executable step at the top. Cadence: `/lo
 
 1. ✅ **DONE (fire #3) — command-not-found reconciled to ONE canonical deployed owner.** `home/dot_config/shell/not-found-hook.sh` (hardened handler + `handle_command_not_found` rc entry point + on-demand index self-heal) + `home/dot_local/bin/executable_cnf-build-index` (→ `~/.local/bin/cnf-build-index`); `provisioning/command-not-found/` deleted; the old brew-only + `sgpt`-`eval` hook replaced. 10/10 tested; `bash -n`+`zsh -n`+ShellCheck clean. The rc already sources the deployed hook.
 2. ✅ **DONE (fire #2) — P1 `__cnf_ai_fallback` hardened + latent `set -u` crash fixed.** Safe-by-default (allowlist `__cnf_ai_safe` + `CNF_DRY` honored + `CNF_AI_AUTOINSTALL=1` opt-in + `CNF_AI_CMD` seam); 9/9 green; ShellCheck clean. See CURRENT-STATE § Defects.
-3. **(TOP actionable) Wire + PROVE the index at provision** `[S]` — run `cnf-build-index` at provision time + on `software.yml` change (Taskfile target / post-install hook; the hook already self-heals on first miss). Then PROVE end-to-end on a real machine: `chezmoi apply`, trigger a genuine missing command, confirm resolve→install→re-run in BOTH shells. (container test ≠ proof for macOS.)
-4. **Resolve the hiSHtory conflict** `[S]` — master prompt mandates hiSHtory over Atuin; `software.yml` marks `hishtory` deprecated. Decide, record via a stack-decision doc, migrate if adopting (preserve history — no deletion).
+3. ✅ **DONE (fire #4) — index build wired at provision.** `home/.chezmoiscripts/universal/run_after_22-cnf-index.sh.tmpl` rebuilds the index via `cnf-build-index` after every `chezmoi apply` (a superset of on-`software.yml`-change — apply is how it reaches a box; idempotent, headless-safe, best-effort; runtime hook self-heals as backstop; `CNF_BUILD_INDEX_BIN` override seam). 12/12 tested; `chezmoi execute-template` renders clean; ShellCheck clean. Live-machine proof is now a Blocker (below).
+4. **(TOP actionable) Resolve the hiSHtory conflict** `[S]` — master prompt mandates hiSHtory over Atuin; `software.yml` marks `hishtory` deprecated. Decide, record via a stack-decision doc, migrate if adopting (preserve history — no deletion).
 5. **Phase-A control-plane skeleton — build ON `packages/aid-core`, DESIGN-ONLY until CF auth** `[M]` — reuse aid-core's `validateBlueprint`/`aidProviderConfig`/`chooseRoute` contracts (import, don't re-implement). First run `get-secret CLOUDFLARE_API_TOKEN` (+ account id). Present → scaffold a Hono Worker serving `/api/ai/v1` + `/health` that imports aid-core; deploy skeleton to `*.workers.dev`. Absent → ADR + wire contracts only; deploy BLOCKED. Never fabricate a deploy.
 
 ## Blockers (external / human-gated)
@@ -17,6 +17,7 @@ Updated every loop fire. Smallest next executable step at the top. Cadence: `/lo
 - `app.install.doctor` zone / DNS.
 - Design approval (Figma) before full SaaS UI (master-prompt §16).
 - `test@megabyte.space` creds (get-secret) before UI acceptance tests.
+- **command-not-found LIVE end-to-end proof** (chezmoi apply + a real missing command, resolve→install→re-run, BOTH shells) — needs a real/throwaway machine; a loop fire must NOT mutate the dev shell's startup. Code + unit coverage are green; only the live run is gated.
 
 ## Resumable artifacts
 - `docs/aid/CURRENT-STATE.md` — verified state.

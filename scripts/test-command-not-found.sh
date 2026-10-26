@@ -116,5 +116,19 @@ else
   skip "AI-fallback behavior (3b-3e) — handler not hardened yet (__cnf_ai_safe absent)"
 fi
 
+# 4. provision wiring: a chezmoi run_after script (re)builds the index via the deployed builder on
+# every `chezmoi apply` (apply is how software.yml changes reach a box). CNF_BUILD_INDEX_BIN is the
+# test/override seam. Fake builder touches a sentinel so we can assert it was invoked (no real build).
+WIRING="$ROOT/home/.chezmoiscripts/universal/run_after_22-cnf-index.sh.tmpl"
+if [ -f "$WIRING" ]; then
+  bash -n "$WIRING" && pass "run_after cnf-index wiring parses" || fail "run_after cnf-index syntax error"
+  rm -f "$tmp/built-by-wiring"
+  printf '#!/usr/bin/env bash\n: > "%s/built-by-wiring"\n' "$tmp" > "$fbin/fake-cnf-build-index"; chmod +x "$fbin/fake-cnf-build-index"
+  CNF_BUILD_INDEX_BIN="$fbin/fake-cnf-build-index" bash "$WIRING" >/dev/null 2>&1 || true
+  if [ -f "$tmp/built-by-wiring" ]; then pass "run_after wiring invokes the index builder"; else fail "run_after wiring did not invoke the builder"; fi
+else
+  fail "provision wiring script missing: home/.chezmoiscripts/universal/run_after_22-cnf-index.sh.tmpl"
+fi
+
 say "command-not-found: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]
