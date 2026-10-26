@@ -27,7 +27,7 @@ Per category: research ≥3 primary sources → generate 30 distinct candidates 
 | C14 | Remote terminals | 0/30 | not-started |
 | C15 | Remote desktop/files | 0/30 | not-started |
 | C16 | History & replay | 0/30 | not-started |
-| C17 | AI routing & capability | 0/30 | **partial-impl** — `/api/ai/v1` LIVE (fire #7–8): routing-POLICY (`chooseRoute`) + Zod-env fail-closed inference pre-flight (restricted→451, unconfigured→503), 12/12; budget reservation + provider CALL + AI-Gateway + research pending |
+| C17 | AI routing & capability | 0/30 | **partial-impl** — `/api/ai/v1` LIVE (fire #7–9): routing-POLICY + fail-closed pre-flight + cost reservation (over-ceiling→402), 14/14; provider CALL + AI-Gateway + research pending |
 | C18 | Agent execution quality | 0/30 | not-started |
 | C19 | Skills & extensibility | 0/30 | not-started |
 | C20 | Personalization | 0/30 | not-started |
@@ -45,7 +45,7 @@ Per category: research ≥3 primary sources → generate 30 distinct candidates 
 | C32 | Accessibility & mobile | 0/30 | not-started |
 | C33 | Collaboration & delegation | 0/30 | not-started |
 | C34 | API & standards | 0/30 | not-started |
-| C35 | Economics & budgets | 0/30 | not-started |
+| C35 | Economics & budgets | 0/30 | **partial-impl** — per-request cost reservation LIVE (fire #9, `reserveBudget`, fail-closed, default $0.25/task ceiling); durable cross-fan-out counter + reconciliation + research pending |
 | C36 | Packaging & distribution | 0/30 | not-started |
 | C37 | Documentation & DX | 0/30 | not-started |
 | C38 | Commercial product & billing | 0/30 | not-started |

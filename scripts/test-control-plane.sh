@@ -43,6 +43,12 @@ if [ -n "${CONTROL_PLANE_URL:-}" ]; then
   rb="$(curl -s -o /dev/null -w '%{http_code}' "$u/api/ai/v1/definitely-not-a-route" 2>/dev/null || echo 000)"
   [ "$rb" = 404 ] && pass "GET /api/ai/v1/<bogus> -> 404" || fail "bogus route -> $rb (want 404)"
 
+  # cost-reservation gate (fire #9): fail-closed BEFORE any provider work
+  rov="$(curl -s -o /dev/null -w '%{http_code}' -X POST -H 'content-type: application/json' -d '{"estimateMicros":300000}' "$u/api/ai/v1/economy" 2>/dev/null || echo 000)"
+  [ "$rov" = 402 ] && pass "over-ceiling estimate -> 402 (cost reservation, fail-closed)" || fail "over-budget -> $rov (want 402)"
+  rneg="$(curl -s -o /dev/null -w '%{http_code}' -X POST -H 'content-type: application/json' -d '{"estimateMicros":-1}' "$u/api/ai/v1/economy" 2>/dev/null || echo 000)"
+  [ "$rneg" = 400 ] && pass "negative estimate -> 400 (Zod boundary)" || fail "negative estimate -> $rneg (want 400)"
+
   # routing-policy decisions — reuses aid-core chooseRoute at the HTTP boundary (no inference performed)
   rp(){ curl -s -X POST -H 'content-type: application/json' -d "$1" "$u/api/ai/v1/resolve" 2>/dev/null; }
   echo "$(rp '{}')"                                                                                | grep -q '"route":"economy"'    && pass "resolve {} -> economy (routine default)"          || fail "resolve {} -> $(rp '{}')"

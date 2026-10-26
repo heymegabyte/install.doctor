@@ -4,6 +4,10 @@ import { z } from 'zod';
 // esbuild bundles the zero-dep contracts at deploy time; no workspace link needed.
 import { ROUTES, chooseRoute } from '../../aid-core/src/core';
 import { Env, providerConfigured } from './env';
+import { reserveBudget, DEFAULT_CEILING_MICROS } from './budget';
+
+// Inference request body (Zod boundary) — estimated cost drives the budget reservation.
+const InferRequest = z.object({ estimateMicros: z.number().int().nonnegative().default(0) }).passthrough();
 
 const app = new Hono();
 
@@ -49,7 +53,7 @@ app.post('/api/ai/v1/resolve', async (c) => {
 //   unknown alias → 404 · restricted → 451 (approved private/local route only, never the public
 //   gateway) · provider not configured → 503 (keys stay backend-side) · all gates pass → 501
 //   (provider call-path still pending — the next slice).
-app.post('/api/ai/v1/:route', (c) => {
+app.post('/api/ai/v1/:route', async (c) => {
   const route = c.req.param('route');
   if (!(ROUTES as readonly string[]).includes(route)) {
     return c.json({ error: 'unknown_route_alias', known: ROUTES }, 404);
@@ -61,6 +65,16 @@ app.post('/api/ai/v1/:route', (c) => {
     );
   }
   const env = Env.safeParse(c.env).data ?? {};
+  const parsed = InferRequest.safeParse(await c.req.json().catch(() => ({})));
+  if (!parsed.success) {
+    return c.json({ error: 'invalid_request', issues: parsed.error.issues }, 400);
+  }
+  // atomic cost reservation BEFORE any provider work (fail closed on over-ceiling / unknown pricing)
+  const ceilingMicros = env.MAX_TASK_COST_MICROS ?? DEFAULT_CEILING_MICROS;
+  const reservation = reserveBudget(parsed.data.estimateMicros, ceilingMicros);
+  if (!reservation.ok) {
+    return c.json({ error: 'budget', reason: reservation.reason, ceilingMicros, estimateMicros: parsed.data.estimateMicros, route }, 402);
+  }
   if (!providerConfigured(env)) {
     return c.json(
       { error: 'provider_not_configured', detail: 'AID_INFERENCE_TOKEN + AI_GATEWAY_* + DEEPSEEK_API_KEY not set (keys stay backend-side)', route },
