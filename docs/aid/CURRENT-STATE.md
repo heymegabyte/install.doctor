@@ -22,7 +22,7 @@ At the audit **base** `5ef3f031`, the aid program did not exist here (no `packag
 - Stencil docs site at `site/` (Firebase deploy via `.github/workflows/site-deploy.yml`).
 
 ### 🟡 Partial (started, not complete / not wired)
-- **command-not-found lazy installer** — `provisioning/command-not-found/handler.sh` (`__cnf_resolve`: software.yml-index lookup → per-OS `installerPreference` → install → `mods` AI fallback) + `build-index.sh` (software.yml → TSV via yq/jq or python3+pyyaml). Both pass `bash -n`. Tracked this fire; new test green (below).
+- **command-not-found lazy installer** — `provisioning/command-not-found/handler.sh` (`__cnf_resolve`: software.yml-index lookup → per-OS `installerPreference` → install → `mods` AI fallback) + `build-index.sh` (software.yml → TSV via yq/jq or python3+pyyaml). **Handler HARDENED fire #2** — safe AI fallback (allowlist guard + `CNF_DRY`/opt-in gates) + a latent `set -u` crash fixed; 9/9 tested; ShellCheck clean. Still **UNWIRED** (drift below).
   - **DRIFT:** an OLDER, already-tracked impl `home/dot_config/shell/not-found-hook.sh` (`handle_command_not_found`) is what the rc files actually source (`home/dot_zshrc:577`, `home/dot_bashrc:215`). The new richer prototype is **built-but-UNWIRED**. One-owner reconciliation = top NEXT-STEP.
 - Multi-host observability + FQDN git-backup wiring (per `DESKTOP-PROVISIONING-BACKLOG.md`) — in flight, NOT aid.
 
@@ -40,11 +40,12 @@ At the audit **base** `5ef3f031`, the aid program did not exist here (no `packag
 - Design approval (Figma gate, master-prompt §16) before full SaaS UI.
 - `test@megabyte.space` seed-tenant creds (via get-secret) before UI acceptance tests.
 
-## Defects found by code review (fire #1)
-- **P1 — `__cnf_ai_fallback` ignores `CNF_DRY` and `eval`s an AI-suggested install string** (`handler.sh:46-52`). Directly violates master-prompt §10 ("never execute arbitrary web-found install commands merely because a command name was mistyped"). Dry-run is not actually dry on the fallback path. Fix queued (NEXT-STEPS #2).
-- **Drift — two command-not-found implementations** (old wired + new unwired), above.
+## Defects (status)
+- **P1 — `__cnf_ai_fallback` arbitrary-execution — ✅ FIXED (fire #2).** Was: `eval`'d the AI-suggested install string unconditionally, ignoring `CNF_DRY`. Now safe-by-default: logged + validated by a deterministic allowlist guard `__cnf_ai_safe` (rejects shell metachars/substitution + any non-installer leading token), never runs under `CNF_DRY`, and requires explicit `CNF_AI_AUTOINSTALL=1` opt-in (`CNF_AI_CMD` = manual/test seam). Locked by `scripts/test-command-not-found.sh` 3a–3e. Satisfies master-prompt §10 + the §17 "hostile names do not execute" golden path.
+- **Latent `set -u` crash — ✅ FIXED (fire #2).** `handler.sh` had `…on $os…"` (a multibyte ellipsis glued to `$os`) → under `set -u` the name parsed as `os…` → "unbound variable" crash even with `os` set. Fixed to `${os}`; exposed by the new `set -uo pipefail` test.
+- **Drift — two command-not-found implementations — OPEN.** New richer `provisioning/command-not-found/handler.sh` (now hardened) vs older wired `home/dot_config/shell/not-found-hook.sh` (`handle_command_not_found`). Reconciliation = NEXT-STEPS #1.
 
 ## Tests rerun / added this fire
 - `packages/aid-core` `npm test` (TS 5.8.3 build + `node --test`) → **52 passed, 0 failed** — verifies the README's "52 tests" claim by RERUNNING, not inheriting.
 - `bash -n` both new scripts → OK.
-- **New** `scripts/test-command-not-found.sh` → **4 passed, 0 failed** (syntax ×2, dry-run resolve via `brew` with NO install, index builder → **1,181 binary rows** from `software.yml`).
+- `scripts/test-command-not-found.sh` → **9 passed, 0 failed** (fire #1: syntax ×2, dry-run resolve, index builder → **1,181 rows**; fire #2: AI-fallback safety contract 3a–3e — guard allowlist, default-off, `CNF_DRY`-blocks, metachar-refused, opt-in-runs). ShellCheck clean.

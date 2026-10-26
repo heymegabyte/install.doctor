@@ -1,3 +1,4 @@
+# shellcheck shell=bash
 # command-not-found AI lazy-installer — source from the zsh/bash rc.
 # Megabyte estate / install.doctor. When you run a CLI that isn't installed, this:
 #   1. looks the binary up in the prebuilt index (from software.yml),
@@ -43,13 +44,43 @@ __cnf_do_install(){ local mgr="$1" pkg="$2"
     gem)    gem install "$pkg";;
     *) return 1;; esac; }
 
-__cnf_ai_fallback(){ local cmd="$1" os="$2" inst=""
-  __cnf_warn "✦ '$cmd' not in software.yml — asking AI how to install it on $os…"
-  if command -v mods >/dev/null 2>&1; then
+# Deterministic allowlist guard — AI text is NOT a trust boundary (ai-agent-security). Rejects shell
+# metacharacters (chaining/redirection/substitution/newline) and anything whose leading token (after an
+# optional sudo) is not a known package manager performing an install/add. This is the real gate; the
+# prompt is not.
+__cnf_ai_safe(){ local c="$1"
+  case "$c" in *';'*|*'|'*|*'&'*|*'$('*|*'${'*|*'`'*|*'>'*|*'<'*|*$'\n'*) return 1;; esac
+  case "$c" in 'sudo '*) c="${c#sudo }";; esac
+  case "${c%% *}" in
+    brew|apt|apt-get|dnf|pacman|cargo|go|npm|pipx|pip|pip3|gem|choco|scoop) ;;
+    *) return 1;; esac
+  case " $c " in *' install '*|*' add '*|*' -S '*|*' -Sy '*) return 0;; esac
+  return 1; }
+
+# Append the AI suggestion to an audit log; never fail the caller on a log error.
+__cnf_log_suggestion(){ local dir="$HOME/.local/var/log/install.doctor"
+  mkdir -p "$dir" 2>/dev/null || return 0
+  printf '%s\tcmd=%s\tos=%s\tsuggestion=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || echo unknown)" "$1" "$2" "$3" >> "$dir/cnf-ai-suggestions.log" 2>/dev/null || true; }
+
+# AI fallback for a command not in software.yml. SAFE BY DEFAULT (master-prompt §10 — never run an
+# arbitrary web-found install command on a mistype):
+#   - CNF_AI_CMD overrides the AI call (manual override / test seam)
+#   - the suggestion is logged + validated by __cnf_ai_safe BEFORE any execution
+#   - CNF_DRY never executes; execution requires explicit CNF_AI_AUTOINSTALL=1 opt-in
+__cnf_ai_fallback(){ local cmd="$1" os="$2" inst="${CNF_AI_CMD:-}"
+  __cnf_warn "✦ '$cmd' not in software.yml — asking AI how to install it on ${os}…"
+  if [ -z "$inst" ] && command -v mods >/dev/null 2>&1; then
     inst="$(printf 'Output ONLY the exact shell command to install the CLI named "%s" on %s (prefer brew then the native package manager). No prose, one line.' "$cmd" "$os" | mods --quiet 2>/dev/null | head -1)"
   fi
-  if [ -n "$inst" ]; then __cnf_say "→ $inst"; eval "$inst"; else
-    __cnf_warn "Could not auto-resolve '$cmd' (no software.yml entry, no AI CLI). Install manually."; return 1; fi; }
+  [ -n "$inst" ] || { __cnf_warn "Could not auto-resolve '$cmd' (no software.yml entry, no AI CLI). Install manually."; return 1; }
+  __cnf_say "→ suggested: $inst"
+  __cnf_log_suggestion "$cmd" "$os" "$inst"
+  if ! __cnf_ai_safe "$inst"; then
+    __cnf_warn "✗ refusing to run AI suggestion — not a recognized, metachar-free installer. Review + run it yourself if trusted."; return 1; fi
+  if [ -n "${CNF_DRY:-}" ]; then __cnf_say "   [CNF_DRY] would run: $inst"; return 0; fi
+  if [ -z "${CNF_AI_AUTOINSTALL:-}" ]; then
+    __cnf_warn "AI auto-install is OFF — set CNF_AI_AUTOINSTALL=1 to allow. Command above not run."; return 1; fi
+  __cnf_say "↻ running (CNF_AI_AUTOINSTALL=1): $inst"; eval "$inst"; }
 
 __cnf_resolve(){ local cmd="$1"; shift
   local os pref row mgr="" pkg="" col
