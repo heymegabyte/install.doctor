@@ -3,6 +3,7 @@ import { z } from 'zod';
 // Reuse aid-core's route contract (don't re-implement — MASTER-PROMPT §8). Relative import so
 // esbuild bundles the zero-dep contracts at deploy time; no workspace link needed.
 import { ROUTES, chooseRoute } from '../../aid-core/src/core';
+import { Env, providerConfigured } from './env';
 
 const app = new Hono();
 
@@ -44,20 +45,41 @@ app.post('/api/ai/v1/resolve', async (c) => {
 // Proposed inference proxy (MASTER-PROMPT §8): aid → this adapter → shared ProjectSites orchestrator
 // → one CF AI Gateway → permitted provider. SKELETON ONLY: validates the requested route alias against
 // aid-core's ROUTES but performs NO provider call (no keys here — provider keys stay backend-side).
-// Known alias → 501 (wiring pending); unknown → 404. Keeps the contract honest until real routing lands.
+// Inference attempt (POST). Fail-closed pre-flight gates (MASTER-PROMPT §8, §15), in order:
+//   unknown alias → 404 · restricted → 451 (approved private/local route only, never the public
+//   gateway) · provider not configured → 503 (keys stay backend-side) · all gates pass → 501
+//   (provider call-path still pending — the next slice).
+app.post('/api/ai/v1/:route', (c) => {
+  const route = c.req.param('route');
+  if (!(ROUTES as readonly string[]).includes(route)) {
+    return c.json({ error: 'unknown_route_alias', known: ROUTES }, 404);
+  }
+  if (route === 'restricted') {
+    return c.json(
+      { error: 'restricted_route', detail: 'restricted data must use an approved private/local route — never the public gateway', route },
+      451,
+    );
+  }
+  const env = Env.safeParse(c.env).data ?? {};
+  if (!providerConfigured(env)) {
+    return c.json(
+      { error: 'provider_not_configured', detail: 'AID_INFERENCE_TOKEN + AI_GATEWAY_* + DEEPSEEK_API_KEY not set (keys stay backend-side)', route },
+      503,
+    );
+  }
+  return c.json(
+    { error: 'not_implemented', detail: 'provider call-path pending — DeepSeek via one CF AI Gateway through ProjectSites', route },
+    501,
+  );
+});
+
+// Non-POST on a route alias → 405 (inference uses POST); unknown alias → 404.
 app.all('/api/ai/v1/:route', (c) => {
   const route = c.req.param('route');
   if (!(ROUTES as readonly string[]).includes(route)) {
     return c.json({ error: 'unknown_route_alias', known: ROUTES }, 404);
   }
-  return c.json(
-    {
-      error: 'not_implemented',
-      detail: 'provider wiring pending — ProjectSites routing + one CF AI Gateway + permitted provider',
-      route,
-    },
-    501,
-  );
+  return c.json({ error: 'method_not_allowed', detail: 'inference uses POST', route }, 405);
 });
 
 app.notFound((c) => c.json({ error: 'not_found' }, 404));

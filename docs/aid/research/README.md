@@ -27,7 +27,7 @@ Per category: research ≥3 primary sources → generate 30 distinct candidates 
 | C14 | Remote terminals | 0/30 | not-started |
 | C15 | Remote desktop/files | 0/30 | not-started |
 | C16 | History & replay | 0/30 | not-started |
-| C17 | AI routing & capability | 0/30 | **partial-impl** — `/api/ai/v1/resolve` LIVE (fire #7): real routing-POLICY via aid-core `chooseRoute`, Zod-validated, 10/10 (restricted fails closed, premium opt-in); provider CALL + AI-Gateway + research pending |
+| C17 | AI routing & capability | 0/30 | **partial-impl** — `/api/ai/v1` LIVE (fire #7–8): routing-POLICY (`chooseRoute`) + Zod-env fail-closed inference pre-flight (restricted→451, unconfigured→503), 12/12; budget reservation + provider CALL + AI-Gateway + research pending |
 | C18 | Agent execution quality | 0/30 | not-started |
 | C19 | Skills & extensibility | 0/30 | not-started |
 | C20 | Personalization | 0/30 | not-started |

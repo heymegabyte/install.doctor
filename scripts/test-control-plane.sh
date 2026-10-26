@@ -33,8 +33,13 @@ if [ -n "${CONTROL_PLANE_URL:-}" ]; then
   u="${CONTROL_PLANE_URL%/}"
   code="$(curl -fsS -o /tmp/cp-health.json -w '%{http_code}' "$u/health" 2>/dev/null || echo 000)"
   if [ "$code" = 200 ] && grep -q '"status":"ok"' /tmp/cp-health.json 2>/dev/null; then pass "GET /health 200 {status:ok}"; else fail "GET /health -> $code"; fi
-  rc="$(curl -s -o /dev/null -w '%{http_code}' "$u/api/ai/v1/economy" 2>/dev/null || echo 000)"
-  [ "$rc" = 501 ] && pass "GET /api/ai/v1/economy -> 501 (wiring pending)" || fail "known route -> $rc (want 501)"
+  # inference route pre-flight (fire #8): POST-only; restricted fails closed; fail-closed when unconfigured
+  rc="$(curl -s -o /dev/null -w '%{http_code}' -X POST "$u/api/ai/v1/economy" 2>/dev/null || echo 000)"
+  [ "$rc" = 503 ] && pass "POST /api/ai/v1/economy -> 503 (provider not configured, fail-closed)" || fail "economy POST -> $rc (want 503)"
+  rr="$(curl -s -o /dev/null -w '%{http_code}' -X POST "$u/api/ai/v1/restricted" 2>/dev/null || echo 000)"
+  [ "$rr" = 451 ] && pass "POST /api/ai/v1/restricted -> 451 (restricted fails closed — no public gateway)" || fail "restricted POST -> $rr (want 451)"
+  rg="$(curl -s -o /dev/null -w '%{http_code}' "$u/api/ai/v1/economy" 2>/dev/null || echo 000)"
+  [ "$rg" = 405 ] && pass "GET /api/ai/v1/economy -> 405 (inference uses POST)" || fail "economy GET -> $rg (want 405)"
   rb="$(curl -s -o /dev/null -w '%{http_code}' "$u/api/ai/v1/definitely-not-a-route" 2>/dev/null || echo 000)"
   [ "$rb" = 404 ] && pass "GET /api/ai/v1/<bogus> -> 404" || fail "bogus route -> $rb (want 404)"
 
