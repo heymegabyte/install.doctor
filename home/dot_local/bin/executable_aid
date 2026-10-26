@@ -18,6 +18,25 @@ jsonStr() { printf '%s' "$1" | grep -oE "\"$2\":\"[^\"]*\"" | head -1 | sed -E "
 
 readToken() { [ -s "$AID_TOKEN_PATH" ] && cat "$AID_TOKEN_PATH"; }
 
+# Post an event to History (/api/device/report) as this device. Prints the response; the caller
+# decides whether a failure is fatal (manual report) or best-effort (auto-register from aid plan).
+postReport() {
+  local kind="$1" status="$2" summary="$3" detail="$4" token u body
+  token="$(readToken)" || true
+  [ -z "$token" ] && return 2
+  u="${AID_CONTROL_PLANE_URL%/}"
+  if command -v jq >/dev/null 2>&1; then
+    if [ -n "$detail" ]; then
+      body="$(jq -nc --arg k "$kind" --arg s "$status" --arg sm "$summary" --argjson d "$detail" '{kind:$k,status:$s,summary:$sm,detail:$d}')"
+    else
+      body="$(jq -nc --arg k "$kind" --arg s "$status" --arg sm "$summary" '{kind:$k,status:$s,summary:$sm}')"
+    fi
+  else
+    body="{\"kind\":\"${kind}\",\"status\":\"${status}\"}"
+  fi
+  curl -fsS -X POST -H "authorization: Bearer ${token}" -H 'content-type: application/json' -d "$body" "${u}/api/device/report" 2>/dev/null
+}
+
 cmdStatus() {
   local u token resp tenant revision digest
   u="${AID_CONTROL_PLANE_URL%/}"
@@ -93,10 +112,54 @@ cmdPlan() {
   else
     log "all desired packages present ✓"
   fi
+  # record the reconciliation to History (S14) — best-effort; NEVER fails the plan if offline (S23).
+  if command -v jq >/dev/null 2>&1; then
+    local detail
+    detail="$(jq -nc --argjson t "$total" --argjson p "$present" --arg m "$missing" '{total:$t,present:$p,missing:($m|split(" ")|map(select(length>0)))}')"
+    postReport check success "plan: ${present}/${total} present" "$detail" >/dev/null 2>&1 && log "recorded to History ✓" || true
+  fi
+}
+
+# aid report — record a run/event to History (POST /api/device/report) as this device.
+#   aid report [--kind run|apply|check|enroll|other] [--status success|failed|partial|preview]
+#              [--summary "..."] [--detail '<json>']
+cmdReport() {
+  local kind="run" status="success" summary="" detail="" resp id
+  while [ $# -gt 0 ]; do
+    case "$1" in
+    --kind)
+      kind="${2:-}"
+      shift 2
+      ;;
+    --status)
+      status="${2:-}"
+      shift 2
+      ;;
+    --summary)
+      summary="${2:-}"
+      shift 2
+      ;;
+    --detail)
+      detail="${2:-}"
+      shift 2
+      ;;
+    *) shift ;;
+    esac
+  done
+  if ! readToken >/dev/null 2>&1; then
+    err "not paired — run: aid-pair"
+    return 2
+  fi
+  resp="$(postReport "$kind" "$status" "$summary" "$detail")" || {
+    err "report failed (token revoked / offline)"
+    return 1
+  }
+  id="$(jsonStr "$resp" id)"
+  log "reported ✓ ${kind}/${status} (id ${id})"
 }
 
 usage() {
-  printf 'usage: aid <status|pull|plan>\n' >&2
+  printf 'usage: aid <status|pull|plan|report>\n' >&2
   return 1
 }
 
@@ -105,6 +168,10 @@ main() {
   status) cmdStatus ;;
   pull) cmdPull ;;
   plan) cmdPlan ;;
+  report)
+    shift
+    cmdReport "$@"
+    ;;
   *) usage ;;
   esac
 }

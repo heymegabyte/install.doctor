@@ -56,6 +56,10 @@ if [ -f "$SRC" ]; then
       { [ -s "$ENVF" ] && grep -q 'install-doctor+json' "$ENVF"; } && pass "aid pull -> wrote desired ENVIRONMENT.md (fenced blueprint)" || fail "aid pull -> $(head -c 80 "$ENVF" 2>/dev/null)"
       pl="$(AID_TOKEN_PATH="$TOK" AID_CONTROL_PLANE_URL="$u" AID_ENV_PATH="$ENVF" bash "$RUN" plan 2>&1)"
       echo "$pl" | grep -qE 'desired packages: [1-9]' && pass "aid plan -> reconciles desired packages (present/missing, local+offline)" || fail "aid plan -> $pl"
+      rp="$(AID_TOKEN_PATH="$TOK" AID_CONTROL_PLANE_URL="$u" bash "$RUN" report --kind run --status success --summary "e2e-report-probe" 2>&1)"
+      { echo "$rp" | grep -q 'reported' && echo "$rp" | grep -q 'hist_'; } && pass "aid report -> records a run to History (event id)" || fail "aid report -> $rp"
+      hist="$(curl -s -H "authorization: Bearer $(cat "$TOK")" "$u/api/device/history" 2>/dev/null)"
+      echo "$hist" | jq -e '[.items[].kind] | any(. == "check")' >/dev/null 2>&1 && pass "aid plan auto-registered a 'check' event to History (S14)" || fail "history lacks check event -> $(printf '%s' "$hist" | head -c 120)"
       [ -n "$did" ] && curl -s -o /dev/null -X POST -H "authorization: Bearer $ADMIN" "$u/api/devices/$did/revoke" >/dev/null 2>&1
       rm -f "$TOK" "$ENVF"
     else
