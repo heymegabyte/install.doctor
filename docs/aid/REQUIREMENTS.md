@@ -18,7 +18,7 @@ until exercised live.
 - **I Per-host git** — ⬜ (host repos not built). Device IDENTITY exists (`devices` table, fire #16) → partial I01-adjacent.
 - **K aid/routing** — ◐ K03 OnePrompt/ProjectSites provider (provider-config, #30), K04/K05 route policy (`chooseRoute` restricted-wins/premium-opt-in), K06 keys backend-side (`{env:AID_INFERENCE_TOKEN}`, no secret), K08 deterministic validation pre-exec (apply revision-check). K01 aid OpenCode fork / K07 NL→typed-proposal / the real provider CALL ⚫ (#7 — AI Gateway + token).
 - **M Homepage/onboarding** — ◐ M01 explanatory landing (`/`, #29). Rest ⬜ (needs the approved SaaS UI).
-- **N Dashboard** — ◐ N03 nav (History section live `/history`, #31). N02 Figma ⬜ (gate), rest ⬜.
+- **N Dashboard** — ◐ N03 nav (History `/history` #31 + **Machines `/machines` + admin `GET /api/devices` device inventory, #37** — control-plane 70/70 live), N07 dense host view ◐ (device table: label/id/tenant/enrolled/status). N02 Figma ⬜ (gate), N08 health/drift ⬜, N05/N06 theme ⬜, rest ⬜.
 - **O Better Auth** — ⬜ ALL (today `/pair` + admin endpoints use an `AID_ADMIN_TOKEN` bearer, NOT Better Auth). The headline Phase-3 gap; needs GitHub/Google/magic-link + SES email.
 - **P Host enrollment** — ◐ P01-P03 device pairing (pair/start/approve/poll, #19; approval shows the code), P04 pairing≠session (poll-secret vs admin), P05 revocable scoped creds (device token + revoke, S27), P08 job-binding partial (tenant/revision in apply). P06-P15 (durable journal, leases, offline lease expiry) ⬜.
 - **Q Secrets/privilege** — ◐ Q06 short-lived creds (hashed-opaque device tokens, ADR 0002). Q01 Infisical authority / isolation (Q10-Q15) ⬜.
