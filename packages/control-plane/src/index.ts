@@ -34,7 +34,8 @@ const PAGE_CSS =
   '.card{background:#0d0f1a;border:1px solid #1b2030;border-radius:12px;padding:20px;margin:18px 0}' +
   '.code{font-family:ui-monospace,monospace;font-size:1.6rem;letter-spacing:.15em;color:#00E5FF;background:#0a0c16;border:1px solid #1b2030;border-radius:8px;padding:12px 16px;display:inline-block}' +
   'input,button{font:inherit;padding:10px 12px;border-radius:8px;border:1px solid #2a3147;background:#0a0c16;color:#e6e8ef}' +
-  'button{background:#00E5FF;color:#060610;font-weight:700;border:0;cursor:pointer}.muted{color:#8b93a7;font-size:.9rem}';
+  'button{background:#00E5FF;color:#060610;font-weight:700;border:0;cursor:pointer}.muted{color:#8b93a7;font-size:.9rem}' +
+  'table{width:100%;border-collapse:collapse;font-size:.9rem;margin-top:12px}th,td{text-align:left;padding:6px 10px;border-bottom:1px solid #1b2030;vertical-align:top}th{color:#8b93a7;font-weight:600}nav a{margin-right:16px}';
 function htmlPage(title: string, body: string): string {
   return `<!doctype html><html lang=en><head><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1"><title>${title}</title><style>${PAGE_CSS}</style></head><body><div class=wrap>${body}</div></body></html>`;
 }
@@ -49,7 +50,40 @@ app.get('/', (c) =>
 <p class=mono>bash &lt;(curl -sSL https://install.doctor/start)</p>
 <p class=mono>aid-pair</p>
 <p class=muted>It prints a short code and opens <span class=mono>/pair?code=…</span> here for you to approve.</p></div>
-<p class=muted>API health: <a href="/health">/health</a> — control plane live. The full dashboard (Machines · App Store · Recommendations · Automations · History) is in progress.</p>`,
+<p class=muted><a href="/history">History</a> is the first live dashboard section · API health: <a href="/health">/health</a>. The full dashboard (Machines · App Store · Recommendations · Automations) is in progress.</p>`,
+    ),
+  ),
+);
+// History nav section (S15) — the operator's fleet activity across devices. Minimal: paste the admin
+// token, fetch /api/history, render the events. The full cinematic §16 dashboard is ahead; this is the
+// first real, reachable nav section. All rendered values are HTML-escaped client-side (no XSS).
+app.get('/history', (c) =>
+  c.html(
+    htmlPage(
+      'History · aid',
+      `<nav class=muted><a href="/">aid</a><a href="/history">History</a></nav>
+<h1>History <span class=muted>· fleet activity</span></h1>
+<div class=card>
+<p class=muted>Paste your admin token to load the fleet's reported events (apply / plan / report runs across devices).</p>
+<p><input id=tenant placeholder="tenant (default _default)" style="width:46%"> <input id=tok type=password placeholder="AID_ADMIN_TOKEN" style="width:46%"></p>
+<p><button onclick="load()">Load history</button></p></div>
+<div id=out class=muted>No events loaded.</div>
+<script>
+function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]})}
+async function load(){
+  var out=document.getElementById('out'),tok=document.getElementById('tok').value.trim(),t=document.getElementById('tenant').value.trim()||'_default';
+  if(!tok){out.textContent='Enter the admin token.';return}
+  out.textContent='Loading…';
+  try{
+    var r=await fetch('/api/history?tenant='+encodeURIComponent(t)+'&limit=50',{headers:{'authorization':'Bearer '+tok}});
+    var j=await r.json();
+    if(!r.ok){out.textContent='✗ '+(j.error||r.status);return}
+    if(!j.items||!j.items.length){out.textContent='No events for '+esc(t)+'.';return}
+    var rows=j.items.map(function(e){return '<tr><td>'+esc(e.createdAt)+'</td><td class=mono>'+esc(e.deviceId)+'</td><td>'+esc(e.kind)+'</td><td>'+esc(e.status)+'</td><td>'+esc(e.summary||'')+'</td></tr>'}).join('');
+    out.innerHTML='<p class=muted>'+j.count+' events · tenant '+esc(t)+'</p><table><thead><tr><th>time</th><th>device</th><th>kind</th><th>status</th><th>summary</th></tr></thead><tbody>'+rows+'</tbody></table>';
+  }catch(e){out.textContent='✗ '+e}
+}
+</script>`,
     ),
   ),
 );
