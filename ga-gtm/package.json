@@ -1,0 +1,17 @@
+{
+  "name": "@install-doctor/ga-gtm",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Reusable GA4 + GTM client integration (Consent Mode v2, typed events) consumed by estate sites. Source of truth = the ga-gtm-integration agent skill.",
+  "main": "src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit --strict --target ES2022 --lib ES2022,DOM,DOM.Iterable --module ESNext --moduleResolution bundler --skipLibCheck src/index.ts src/consent.ts src/analytics.ts src/events.ts"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.0"
+  }
+}

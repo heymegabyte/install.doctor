@@ -1,0 +1,13 @@
+{
+  "_comment": "site domain -> GA4 + GTM IDs. WRITTEN by the ga-gtm-integration skill's auto-provision step (Analytics Admin API + Tag Manager API). The IDs below are PLACEHOLDERS — real entries replace example.com once creds are harvested. A site's build reads its own row by domain and passes it to initAnalytics().",
+  "version": 1,
+  "sites": {
+    "example.com": {
+      "ga4_property_id": "000000000",
+      "ga4_measurement_id": "G-XXXXXXXXXX",
+      "gtm_container_id": "GTM-XXXXXXX",
+      "enhanced_measurement": true,
+      "provisioned_at": null
+    }
+  }
+}
