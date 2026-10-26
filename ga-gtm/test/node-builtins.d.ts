@@ -11,6 +11,7 @@ declare module 'node:test' {
 declare module 'node:assert/strict' {
   interface StrictAssert {
     (value: unknown, message?: string | Error): void;
+    ok(value: unknown, message?: string | Error): void;
     equal(actual: unknown, expected: unknown, message?: string | Error): void;
     deepEqual(actual: unknown, expected: unknown, message?: string | Error): void;
     match(value: string, regExp: RegExp, message?: string | Error): void;
