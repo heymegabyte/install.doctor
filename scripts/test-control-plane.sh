@@ -44,6 +44,12 @@ if [ -n "${CONTROL_PLANE_URL:-}" ]; then
   { echo "$hp" | grep -qi 'fleet activity' && echo "$hp" | grep -q 'AID_ADMIN_TOKEN' && echo "$hp" | grep -qi 'Load history'; } && pass "GET /history -> fleet dashboard page (admin-token load of /api/history)" || fail "history page -> $(printf '%s' "$hp" | head -c 80)"
   mp="$(curl -s "$u/machines" 2>/dev/null)"
   { echo "$mp" | grep -qi 'device inventory' && echo "$mp" | grep -q 'AID_ADMIN_TOKEN' && echo "$mp" | grep -qi 'Load machines'; } && pass "GET /machines -> device-inventory dashboard page (admin-token load of /api/devices)" || fail "machines page -> $(printf '%s' "$mp" | head -c 80)"
+  ap="$(curl -s "$u/apps" 2>/dev/null)"
+  { echo "$ap" | grep -qi 'installable catalog' && echo "$ap" | grep -qi 'Search apps'; } && pass "GET /apps -> App Store catalog page (public, live search)" || fail "apps page -> $(printf '%s' "$ap" | head -c 80)"
+  cat="$(curl -s "$u/api/catalog?limit=3" 2>/dev/null)"
+  echo "$cat" | jq -e '(.total>=1000) and (.items|length==3) and (.items[0].name|type=="string") and (.items[0].bin|type=="string") and (.items[0].providers|type=="array")' >/dev/null 2>&1 && pass "GET /api/catalog -> software.yml catalog (total>=1000, typed entries, D01/D02)" || fail "catalog -> $(printf '%s' "$cat" | head -c 140)"
+  cq="$(curl -s "$u/api/catalog?q=ripgrep" 2>/dev/null)"
+  echo "$cq" | jq -e '.q=="ripgrep" and (.matched>=1) and ([.items[]|select(.bin=="rg" or .name=="ripgrep")]|length>=1)' >/dev/null 2>&1 && pass "GET /api/catalog?q=ripgrep -> filtered match (rg)" || fail "catalog query -> $(printf '%s' "$cq" | head -c 140)"
   # inference route pre-flight (fire #8): POST-only; restricted fails closed; fail-closed when unconfigured
   rc="$(curl -s -o /dev/null -w '%{http_code}' -X POST "$u/api/ai/v1/economy" 2>/dev/null || echo 000)"
   [ "$rc" = 503 ] && pass "POST /api/ai/v1/economy -> 503 (provider not configured, fail-closed)" || fail "economy POST -> $rc (want 503)"

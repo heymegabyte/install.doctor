@@ -5,6 +5,12 @@ import { z } from 'zod';
 import { ROUTES, chooseRoute, validateBlueprint, exportMarkdown, importMarkdown, blueprintDigest, aidProviderConfig, APP_URL, type Blueprint } from '../../aid-core/src/core';
 import { Env, providerConfigured } from './env';
 import { reserveBudget, DEFAULT_CEILING_MICROS } from './budget';
+// App Store catalog — generated from software.yml by the canonical validated parser
+// (scripts/gen-catalog.mjs → the cnf index builder; D01/D02/D13). Read-only, bundled at deploy;
+// regenerate + redeploy when software.yml changes. No runtime YAML at the edge.
+import catalogData from './catalog.json';
+type CatalogEntry = { name: string; bin: string; providers: string[]; platforms: string[] };
+const CATALOG = catalogData as CatalogEntry[];
 
 // Inference request body (Zod boundary) — estimated cost drives the budget reservation.
 const InferRequest = z.object({ estimateMicros: z.number().int().nonnegative().default(0) }).passthrough();
@@ -35,7 +41,8 @@ const PAGE_CSS =
   '.code{font-family:ui-monospace,monospace;font-size:1.6rem;letter-spacing:.15em;color:#00E5FF;background:#0a0c16;border:1px solid #1b2030;border-radius:8px;padding:12px 16px;display:inline-block}' +
   'input,button{font:inherit;padding:10px 12px;border-radius:8px;border:1px solid #2a3147;background:#0a0c16;color:#e6e8ef}' +
   'button{background:#00E5FF;color:#060610;font-weight:700;border:0;cursor:pointer}.muted{color:#8b93a7;font-size:.9rem}' +
-  'table{width:100%;border-collapse:collapse;font-size:.9rem;margin-top:12px}th,td{text-align:left;padding:6px 10px;border-bottom:1px solid #1b2030;vertical-align:top}th{color:#8b93a7;font-weight:600}nav a{margin-right:16px}';
+  'table{width:100%;border-collapse:collapse;font-size:.9rem;margin-top:12px}th,td{text-align:left;padding:6px 10px;border-bottom:1px solid #1b2030;vertical-align:top}th{color:#8b93a7;font-weight:600}nav a{margin-right:16px}' +
+  '.tag{display:inline-block;font-size:.72rem;padding:1px 7px;margin:1px;border-radius:999px;background:#0a0c16;border:1px solid #2a3147;color:#9fb4c8}';
 function htmlPage(title: string, body: string): string {
   return `<!doctype html><html lang=en><head><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1"><title>${title}</title><style>${PAGE_CSS}</style></head><body><div class=wrap>${body}</div></body></html>`;
 }
@@ -50,7 +57,7 @@ app.get('/', (c) =>
 <p class=mono>bash &lt;(curl -sSL https://install.doctor/start)</p>
 <p class=mono>aid-pair</p>
 <p class=muted>It prints a short code and opens <span class=mono>/pair?code=…</span> here for you to approve.</p></div>
-<p class=muted>Live dashboard: <a href="/machines">Machines</a> · <a href="/history">History</a> · API health <a href="/health">/health</a>. More sections (App Store · Recommendations · Automations) in progress.</p>`,
+<p class=muted>Live dashboard: <a href="/machines">Machines</a> · <a href="/apps">App Store</a> · <a href="/history">History</a> · API health <a href="/health">/health</a>. More sections (Recommendations · Automations) in progress.</p>`,
     ),
   ),
 );
@@ -61,7 +68,7 @@ app.get('/history', (c) =>
   c.html(
     htmlPage(
       'History · aid',
-      `<nav class=muted><a href="/">aid</a><a href="/machines">Machines</a><a href="/history">History</a></nav>
+      `<nav class=muted><a href="/">aid</a><a href="/machines">Machines</a><a href="/apps">App Store</a><a href="/history">History</a></nav>
 <h1>History <span class=muted>· fleet activity</span></h1>
 <div class=card>
 <p class=muted>Paste your admin token to load the fleet's reported events (apply / plan / report runs across devices).</p>
@@ -94,7 +101,7 @@ app.get('/machines', (c) =>
   c.html(
     htmlPage(
       'Machines · aid',
-      `<nav class=muted><a href="/">aid</a><a href="/machines">Machines</a><a href="/history">History</a></nav>
+      `<nav class=muted><a href="/">aid</a><a href="/machines">Machines</a><a href="/apps">App Store</a><a href="/history">History</a></nav>
 <h1>Machines <span class=muted>· device inventory</span></h1>
 <div class=card>
 <p class=muted>Paste your admin token to list the enrolled machines for a tenant (label · device id · enrolled · status).</p>
@@ -116,6 +123,38 @@ async function load(){
     out.innerHTML='<p class=muted>'+j.count+' machines · tenant '+esc(t)+'</p><table><thead><tr><th>label</th><th>device</th><th>tenant</th><th>enrolled</th><th>status</th></tr></thead><tbody>'+rows+'</tbody></table>';
   }catch(e){out.textContent='✗ '+e}
 }
+</script>`,
+    ),
+  ),
+);
+// App Store nav section (N03/N07/R13) — PUBLIC catalog browse. Loads the first page on open; the search
+// box filters /api/catalog live (debounced). No token (public software info). Values HTML-escaped client-side.
+app.get('/apps', (c) =>
+  c.html(
+    htmlPage(
+      'App Store · aid',
+      `<nav class=muted><a href="/">aid</a><a href="/machines">Machines</a><a href="/apps">App Store</a><a href="/history">History</a></nav>
+<h1>App Store <span class=muted>· installable catalog</span></h1>
+<div class=card>
+<p class=muted>Everything Install Doctor can install, from the software.yml catalog. Search by name or command; each shows its package managers + platforms.</p>
+<p><input id=q placeholder="Search apps + CLIs (e.g. ripgrep, docker, node)…" style="width:100%" oninput="debounced()"></p></div>
+<div id=out class=muted>Loading catalog…</div>
+<script>
+function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]})}
+function pill(a){return (a||[]).map(function(x){return '<span class=tag>'+esc(x)+'</span>'}).join(' ')}
+async function load(){
+  var out=document.getElementById('out'),q=document.getElementById('q').value.trim();
+  try{
+    var r=await fetch('/api/catalog?limit=60'+(q?('&q='+encodeURIComponent(q)):''));
+    var j=await r.json();
+    if(!r.ok){out.textContent='✗ '+(j.error||r.status);return}
+    if(!j.items||!j.items.length){out.textContent='No apps match "'+esc(q)+'".';return}
+    var rows=j.items.map(function(e){return '<tr><td><b>'+esc(e.name)+'</b></td><td class=mono>'+esc(e.bin)+'</td><td>'+pill(e.providers)+'</td><td>'+pill(e.platforms)+'</td></tr>'}).join('');
+    out.innerHTML='<p class=muted>'+j.matched+' of '+j.total+' apps'+(j.count<j.matched?(' · showing '+j.count):'')+'</p><table><thead><tr><th>name</th><th>command</th><th>installers</th><th>platforms</th></tr></thead><tbody>'+rows+'</tbody></table>';
+  }catch(e){out.textContent='✗ '+e}
+}
+var t;function debounced(){clearTimeout(t);t=setTimeout(load,160)}
+load();
 </script>`,
     ),
   ),
@@ -155,6 +194,24 @@ async function approve(){
 // OpenCode provider config (aid-core SSOT) — the local `aid` client writes this to ~/.config/opencode
 // so OpenCode routes through the control plane's /api/ai/v1. No secrets (apiKey is the {env:…} ref).
 app.get('/api/provider-config', (c) => c.json(aidProviderConfig()));
+
+// App Store catalog (D01/D02/R13) — PUBLIC, read-only browse of what Install Doctor can install, from
+// software.yml via the validated parser. `?q=` filters by name OR binary (case-insensitive substring);
+// `?limit=` caps rows (1..200, default 50). No secrets, no tenant data — browseable signed-out (M11).
+app.get('/api/catalog', (c) => {
+  const q = (c.req.query('q') || '').trim().toLowerCase();
+  const limit = Math.min(Math.max(parseInt(c.req.query('limit') || '50', 10) || 50, 1), 200);
+  const matched = q
+    ? CATALOG.filter((e) => e.name.toLowerCase().includes(q) || e.bin.toLowerCase().includes(q))
+    : CATALOG;
+  return c.json({
+    total: CATALOG.length,
+    matched: matched.length,
+    count: Math.min(matched.length, limit),
+    q: q || null,
+    items: matched.slice(0, limit),
+  });
+});
 
 app.post('/api/ai/v1/resolve', async (c) => {
   const body = await c.req.json().catch(() => ({}));
