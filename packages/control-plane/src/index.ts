@@ -9,8 +9,26 @@ import { reserveBudget, DEFAULT_CEILING_MICROS } from './budget';
 // (scripts/gen-catalog.mjs → the cnf index builder; D01/D02/D13). Read-only, bundled at deploy;
 // regenerate + redeploy when software.yml changes. No runtime YAML at the edge.
 import catalogData from './catalog.json';
-type CatalogEntry = { name: string; bin: string; providers: string[]; platforms: string[] };
+type CatalogEntry = { name: string; bin: string; providers: string[]; pkgs: Record<string, string>; platforms: string[] };
 const CATALOG = catalogData as CatalogEntry[];
+// Install-command templates per provider — MIRROR the cnf hook's __cnf_do_install (D04: ONE
+// provider→command contract shared with the deterministic executor). Drives the App Store install
+// detail (R13 — App Store details from recipe contracts). Keep in sync with not-found-hook.sh.
+const INSTALL_CMD: Record<string, (pkg: string) => string> = {
+  brew: (p) => `brew install ${p}`,
+  apt: (p) => `sudo apt-get install -y ${p}`,
+  dnf: (p) => `sudo dnf install -y ${p}`,
+  pacman: (p) => `sudo pacman -S --noconfirm ${p}`,
+  cask: (p) => `brew install --cask ${p}`,
+  choco: (p) => `choco install -y ${p}`,
+  scoop: (p) => `scoop install ${p}`,
+  go: (p) => `go install ${p}`,
+  cargo: (p) => `cargo install ${p}`,
+  npm: (p) => `npm install -g ${p}`,
+  pipx: (p) => `pipx install ${p}`,
+  pip: (p) => `pip install --user ${p}`,
+  gem: (p) => `gem install ${p}`,
+};
 
 // Inference request body (Zod boundary) — estimated cost drives the budget reservation.
 const InferRequest = z.object({ estimateMicros: z.number().int().nonnegative().default(0) }).passthrough();
@@ -42,7 +60,9 @@ const PAGE_CSS =
   'input,button{font:inherit;padding:10px 12px;border-radius:8px;border:1px solid #2a3147;background:#0a0c16;color:#e6e8ef}' +
   'button{background:#00E5FF;color:#060610;font-weight:700;border:0;cursor:pointer}.muted{color:#8b93a7;font-size:.9rem}' +
   'table{width:100%;border-collapse:collapse;font-size:.9rem;margin-top:12px}th,td{text-align:left;padding:6px 10px;border-bottom:1px solid #1b2030;vertical-align:top}th{color:#8b93a7;font-weight:600}nav a{margin-right:16px}' +
-  '.tag{display:inline-block;font-size:.72rem;padding:1px 7px;margin:1px;border-radius:999px;background:#0a0c16;border:1px solid #2a3147;color:#9fb4c8}';
+  '.tag{display:inline-block;font-size:.72rem;padding:1px 7px;margin:1px;border-radius:999px;background:#0a0c16;border:1px solid #2a3147;color:#9fb4c8}' +
+  '.lnk{background:none;border:0;color:#00E5FF;cursor:pointer;padding:0;font:inherit;font-weight:700;text-align:left}.lnk:hover{text-decoration:underline}' +
+  '.cmd{font-family:ui-monospace,monospace;font-size:.82rem;background:#0a0c16;border:1px solid #1b2030;border-radius:6px;padding:6px 10px;margin:4px 0;color:#9fb4c8;user-select:all;display:block}.cmd b{color:#8b93a7;font-weight:600;margin-right:8px;user-select:none}';
 function htmlPage(title: string, body: string): string {
   return `<!doctype html><html lang=en><head><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1"><title>${title}</title><style>${PAGE_CSS}</style></head><body><div class=wrap>${body}</div></body></html>`;
 }
@@ -142,6 +162,19 @@ app.get('/apps', (c) =>
 <script>
 function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]})}
 function pill(a){return (a||[]).map(function(x){return '<span class=tag>'+esc(x)+'</span>'}).join(' ')}
+async function detail(tr,name){
+  var ex=tr.nextElementSibling;
+  if(ex&&ex.className==='detail'){ex.remove();return}            // toggle closed
+  var dr=document.createElement('tr');dr.className='detail';
+  dr.innerHTML='<td colspan=4 class=muted>Loading install commands…</td>';
+  tr.parentNode.insertBefore(dr,tr.nextSibling);
+  try{
+    var r=await fetch('/api/catalog/'+encodeURIComponent(name));var j=await r.json();
+    if(!r.ok||!j.commands||!j.commands.length){dr.firstChild.textContent='No install commands.';return}
+    var cmds=j.commands.map(function(k){return '<span class=cmd><b>'+esc(k.provider)+'</b>'+esc(k.command)+'</span>'}).join('');
+    dr.firstChild.innerHTML='<div class=muted style="margin:2px 0 6px">Install <b>'+esc(j.name)+'</b> (command: '+esc(j.bin)+') on '+pill(j.platforms)+':</div>'+cmds;
+  }catch(e){dr.firstChild.textContent='✗ '+e}
+}
 async function load(){
   var out=document.getElementById('out'),q=document.getElementById('q').value.trim();
   try{
@@ -149,10 +182,14 @@ async function load(){
     var j=await r.json();
     if(!r.ok){out.textContent='✗ '+(j.error||r.status);return}
     if(!j.items||!j.items.length){out.textContent='No apps match "'+esc(q)+'".';return}
-    var rows=j.items.map(function(e){return '<tr><td><b>'+esc(e.name)+'</b></td><td class=mono>'+esc(e.bin)+'</td><td>'+pill(e.providers)+'</td><td>'+pill(e.platforms)+'</td></tr>'}).join('');
-    out.innerHTML='<p class=muted>'+j.matched+' of '+j.total+' apps'+(j.count<j.matched?(' · showing '+j.count):'')+'</p><table><thead><tr><th>name</th><th>command</th><th>installers</th><th>platforms</th></tr></thead><tbody>'+rows+'</tbody></table>';
+    var rows=j.items.map(function(e){return '<tr><td><button class=lnk data-name="'+esc(e.name)+'">'+esc(e.name)+'</button></td><td class=mono>'+esc(e.bin)+'</td><td>'+pill(e.providers)+'</td><td>'+pill(e.platforms)+'</td></tr>'}).join('');
+    out.innerHTML='<p class=muted>'+j.matched+' of '+j.total+' apps'+(j.count<j.matched?(' · showing '+j.count):'')+' · click a name for install commands</p><table><thead><tr><th>name</th><th>command</th><th>installers</th><th>platforms</th></tr></thead><tbody>'+rows+'</tbody></table>';
   }catch(e){out.textContent='✗ '+e}
 }
+document.getElementById('out').addEventListener('click',function(ev){
+  var b=ev.target.closest('.lnk');if(!b)return;
+  detail(b.closest('tr'),b.getAttribute('data-name'));
+});
 var t;function debounced(){clearTimeout(t);t=setTimeout(load,160)}
 load();
 </script>`,
@@ -211,6 +248,19 @@ app.get('/api/catalog', (c) => {
     q: q || null,
     items: matched.slice(0, limit),
   });
+});
+
+// App Store per-item DETAIL (R13/R01) — the exact per-manager install command for one catalog entry,
+// built from the SAME provider→command templates the cnf executor uses (D04). PUBLIC, read-only.
+app.get('/api/catalog/:name', (c) => {
+  const name = c.req.param('name');
+  const e = CATALOG.find((x) => x.name === name);
+  if (!e) return c.json({ error: 'not_found' }, 404);
+  const pkgs = e.pkgs || {};
+  const commands = (e.providers || [])
+    .filter((p) => INSTALL_CMD[p] && pkgs[p])
+    .map((p) => ({ provider: p, pkg: pkgs[p], command: INSTALL_CMD[p](pkgs[p]) }));
+  return c.json({ name: e.name, bin: e.bin, platforms: e.platforms, providers: e.providers, commands });
 });
 
 app.post('/api/ai/v1/resolve', async (c) => {

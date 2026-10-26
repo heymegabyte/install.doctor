@@ -39,16 +39,18 @@ for (const line of rows) {
   const name = f[1];
   if (!name) continue;
   const providers = [];
+  const pkgs = {}; // provider -> the real package id (may differ from name, e.g. angular-cli → npm @angular/cli)
   const platforms = new Set();
   for (let i = 0; i < COLS.length; i++) {
     const val = f[2 + i];
     if (val && val.trim()) {
       providers.push(COLS[i]);
+      pkgs[COLS[i]] = val.trim();
       for (const p of PLAT[COLS[i]]) platforms.add(p);
     }
   }
   if (!providers.length) continue; // an entry with no installable provider is not browseable
-  items.push({ name, bin, providers, platforms: [...platforms].sort() });
+  items.push({ name, bin, providers, pkgs, platforms: [...platforms].sort() });
 }
 items.sort((a, b) => a.name.localeCompare(b.name));
 

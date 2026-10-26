@@ -50,6 +50,13 @@ if [ -n "${CONTROL_PLANE_URL:-}" ]; then
   echo "$cat" | jq -e '(.total>=1000) and (.items|length==3) and (.items[0].name|type=="string") and (.items[0].bin|type=="string") and (.items[0].providers|type=="array")' >/dev/null 2>&1 && pass "GET /api/catalog -> software.yml catalog (total>=1000, typed entries, D01/D02)" || fail "catalog -> $(printf '%s' "$cat" | head -c 140)"
   cq="$(curl -s "$u/api/catalog?q=ripgrep" 2>/dev/null)"
   echo "$cq" | jq -e '.q=="ripgrep" and (.matched>=1) and ([.items[]|select(.bin=="rg" or .name=="ripgrep")]|length>=1)' >/dev/null 2>&1 && pass "GET /api/catalog?q=ripgrep -> filtered match (rg)" || fail "catalog query -> $(printf '%s' "$cq" | head -c 140)"
+  cd1="$(curl -s "$u/api/catalog/ripgrep" 2>/dev/null)"
+  echo "$cd1" | jq -e '.name=="ripgrep" and ([.commands[]|select(.command=="brew install ripgrep")]|length==1) and ([.commands[]|select(.provider=="cargo" and .command=="cargo install ripgrep")]|length==1)' >/dev/null 2>&1 && pass "GET /api/catalog/:name -> per-manager install commands (R13: brew+cargo install ripgrep)" || fail "catalog detail -> $(printf '%s' "$cd1" | head -c 160)"
+  cd2="$(curl -s "$u/api/catalog/angular-cli" 2>/dev/null)"
+  echo "$cd2" | jq -e '[.commands[]|select(.provider=="npm" and .command=="npm install -g @angular/cli")]|length==1' >/dev/null 2>&1 && pass "catalog detail uses real per-provider pkg id (angular-cli -> npm @angular/cli, not the name)" || fail "catalog detail pkg-id -> $(printf '%s' "$cd2" | head -c 160)"
+  cd3="$(curl -s -o /dev/null -w '%{http_code}' "$u/api/catalog/definitely-not-an-app-xyz" 2>/dev/null || echo 000)"
+  [ "$cd3" = 404 ] && pass "GET /api/catalog/<bogus> -> 404" || fail "catalog detail bogus -> $cd3 (want 404)"
+  { echo "$ap" | grep -qi 'install commands'; } && pass "/apps page ships the per-item install-command expander" || fail "apps install-command expander missing"
   # inference route pre-flight (fire #8): POST-only; restricted fails closed; fail-closed when unconfigured
   rc="$(curl -s -o /dev/null -w '%{http_code}' -X POST "$u/api/ai/v1/economy" 2>/dev/null || echo 000)"
   [ "$rc" = 503 ] && pass "POST /api/ai/v1/economy -> 503 (provider not configured, fail-closed)" || fail "economy POST -> $rc (want 503)"
