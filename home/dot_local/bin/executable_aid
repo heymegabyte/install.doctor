@@ -102,7 +102,7 @@ computeReconcile() {
   while IFS= read -r p; do
     [ -z "$p" ] && continue
     AID_TOTAL=$((AID_TOTAL + 1))
-    if command -v "$p" >/dev/null 2>&1; then
+    if isInstalled "$p"; then
       AID_PRESENT=$((AID_PRESENT + 1))
     else
       AID_MISSING="${AID_MISSING} ${p}"
@@ -135,6 +135,22 @@ resolvePkg() {
     val="$(awk -F'\t' -v k="$key" -v c="$col" '$2==k {print $c; exit}' "$idx")"
   fi
   printf '%s' "${val:-$key}"
+}
+
+# Is a desired package present? Resolve its binary name(s) from the cnf index (col1=bin, col2=key) and
+# check `command -v` on those — fixes name≠binary false-missing (angular-cli->ng, android-platform-tools
+# ->adb, ripgrep->rg). Fall back to the key itself when the index/row is absent (still works offline).
+isInstalled() {
+  local key="$1" idx="${AID_CNF_INDEX:-$HOME/.cache/cnf/index.tsv}" bins b
+  if [ -f "$idx" ]; then
+    bins="$(awk -F'\t' -v k="$key" '$2 == k && $1 != "" {print $1}' "$idx")"
+  fi
+  [ -z "$bins" ] && bins="$key"
+  while IFS= read -r b; do
+    [ -z "$b" ] && continue
+    command -v "$b" >/dev/null 2>&1 && return 0
+  done < <(printf '%s\n' "$bins")
+  return 1
 }
 
 # aid plan — LOCAL, offline reconciliation of desired vs installed packages (+ auto-register to History).

@@ -43,6 +43,15 @@ if [ -f "$SRC" ]; then
   ap="$(AID_TOKEN_PATH="/nonexistent/aid-token-$$" AID_ENV_PATH="$CENV" bash "$RUN" apply 2>&1)"
   { echo "$ap" | grep -qi 'DRY-RUN' && echo "$ap" | grep -q 'would install' && ! echo "$ap" | grep -qi 'installed'; } && pass "aid apply (dry-run, offline) -> prints plan, installs nothing" || fail "aid apply dry-run -> $ap"
   rm -f "$CENV"
+  # _bin-aware presence (fire #27): a package whose BINARY differs from its key is NOT false-missing.
+  # Fixture cnf index: pkgalias -> bin bash (always installed); missalias -> bin zzznope (absent).
+  IDX="$(mktemp)"
+  printf 'bash\tpkgalias\nzzznope-xyz\tmissalias\n' >"$IDX"
+  BENV="$(mktemp)"
+  printf '# E\n\n```install-doctor+json\n{ "defaults": { "packages": ["pkgalias","missalias"] } }\n```\n' >"$BENV"
+  bp="$(AID_TOKEN_PATH="/nonexistent/aid-token-$$" AID_CNF_INDEX="$IDX" AID_ENV_PATH="$BENV" bash "$RUN" plan 2>&1)"
+  { echo "$bp" | grep -q 'present: 1' && echo "$bp" | grep -q 'missing: 1' && echo "$bp" | grep -q 'missalias' && ! echo "$bp" | grep -q 'to install:.*pkgalias'; } && pass "aid plan _bin-aware: key!=binary (pkgalias->bash) counts present, not false-missing" || fail "aid _bin -> $bp"
+  rm -f "$IDX" "$BENV"
 
   if [ -n "${CONTROL_PLANE_URL:-}" ]; then
     u="${CONTROL_PLANE_URL%/}"
