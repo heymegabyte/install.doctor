@@ -1,0 +1,18 @@
+{
+  "name": "@install-doctor/aid-control-plane",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "aid control plane (Phase A skeleton) — Cloudflare Worker + Hono; imports aid-core route contracts. NOT production: /api/ai/v1 returns 501 until provider/ProjectSites wiring lands.",
+  "scripts": {
+    "check": "wrangler deploy --dry-run --outdir dist",
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy"
+  },
+  "dependencies": {
+    "hono": "^4.13.14"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

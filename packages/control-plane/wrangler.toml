@@ -1,0 +1,7 @@
+# aid control plane — Phase A skeleton (docs/aid/MASTER-PROMPT.md §2, §8, §17).
+# account_id is read from the CLOUDFLARE_ACCOUNT_ID env at deploy time (never hardcoded).
+# workers_dev = true keeps the *.workers.dev URL live (no custom domain yet).
+name = "aid-control-plane"
+main = "src/index.ts"
+compatibility_date = "2026-05-01"
+workers_dev = true
