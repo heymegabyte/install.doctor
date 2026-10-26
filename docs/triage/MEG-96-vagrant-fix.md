@@ -384,3 +384,29 @@ fi
 
 logg success 'The virtual machine is ready. Run "vagrant ssh <node>" to connect, and "vagrant destroy" to remove it.'
 ```
+
+## Pending board writes (blocked on Cloudflare Access / GitHub credentials)
+
+These were requested by triage but could not be applied because every Paperclip API call returns
+`302` to Cloudflare Access and `git push` has no credentials in this runtime.
+
+1. **Apply the requested title prefix** (MEG-263 drift repair). Target title exactly:
+
+   ```text
+   GitHub install.doctor#171: Vagrant setup link dead
+   ```
+
+   ```bash
+   curl -sS -X PATCH "$PAPERCLIP_API_URL/api/issues/$PAPERCLIP_TASK_ID" \
+     -H "Authorization: Bearer $PAPERCLIP_API_KEY" \
+     -H "X-Paperclip-Run-Id: $PAPERCLIP_RUN_ID" \
+     -H "Content-Type: application/json" \
+     --data '{"title":"GitHub install.doctor#171: Vagrant setup link dead"}'
+   ```
+
+   Note: this issue was created by the GitHub importer with the bare title `Vagrant setup link dead`;
+   the sweep expected the `GitHub <repo>#<n>: ` prefix that other imported issues carry.
+
+2. **Push and open the PR** for branch `MEG-96-vagrant-setup-link-dead` (commits `aea6ef9f`, `c0ad605c`).
+3. **Reply to @hacfi** on https://github.com/heymegabyte/install.doctor/issues/171 once the redirect
+   change is deployed.
