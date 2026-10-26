@@ -153,5 +153,15 @@ wait
 ic="$(grep -c . "$tmp/installcount" 2>/dev/null || echo 0)"
 [ "$ic" = "1" ] && pass "E11 concurrency — 2 shells missing footool -> exactly ONE install (lock serialized)" || fail "E11 concurrency installs=$ic (want 1)"
 
+# 7. E09/E08 — installer progress + hook status go to STDERR; a resolved command's STDOUT stays CLEAN.
+# Fake brew prints noise to STDOUT then installs 'cleantool' (which echoes a sentinel). Capturing the
+# resolve's stdout (2>/dev/null) must yield ONLY the sentinel — no install chatter.
+ebin="$tmp/ebin"; mkdir -p "$ebin"
+e9idx="$tmp/e9idx.tsv"; printf 'cleantool\tcleantool\tcleantool\n' > "$e9idx"
+printf '#!/usr/bin/env bash\necho BREW_STDOUT_NOISE\nprintf "#!/usr/bin/env bash\\necho CLEAN_OUTPUT_42\\n" > "%s/cleantool"\nchmod +x "%s/cleantool"\n' "$ebin" "$ebin" > "$ebin/brew"; chmod +x "$ebin/brew"
+rm -f "$ebin/cleantool"
+e9out="$(PATH="$ebin:$PATH" CNF_INDEX="$e9idx" CNF_LOCK_DIR="$tmp/e9locks" __cnf_resolve cleantool 2>/dev/null)"
+[ "$e9out" = "CLEAN_OUTPUT_42" ] && pass "E09/E08 — resolved command stdout is CLEAN (installer+hook noise on stderr)" || fail "E09 stdout polluted: '$e9out'"
+
 say "command-not-found: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

@@ -39,8 +39,10 @@ __cnf_acquire(){ local cmd="$1" lock waited=0 age
     sleep 1; waited=$((waited + 1))
   done; }
 
-__cnf_say(){  command -v gum >/dev/null 2>&1 && gum style --foreground 51  -- "$*" || printf '\033[1;36m%s\033[0m\n' "$*"; }
-__cnf_warn(){ command -v gum >/dev/null 2>&1 && gum style --foreground 214 -- "$*" || printf '\033[1;33m%s\033[0m\n' "$*"; }
+# E09 (v2): all hook status/progress goes to STDERR so a resolved command's STDOUT stays clean
+# (e.g. `out=$(missingtool)` captures only the tool's output, not install chatter). E08 stream integrity.
+__cnf_say(){  command -v gum >/dev/null 2>&1 && gum style --foreground 51  -- "$*" >&2 || printf '\033[1;36m%s\033[0m\n' "$*" >&2; }
+__cnf_warn(){ command -v gum >/dev/null 2>&1 && gum style --foreground 214 -- "$*" >&2 || printf '\033[1;33m%s\033[0m\n' "$*" >&2; }
 
 __cnf_os(){ case "$(uname -s)" in
   Darwin) echo darwin;;
@@ -115,7 +117,7 @@ __cnf_ai_fallback(){ local cmd="$1" os="$2" inst="${CNF_AI_CMD:-}"
   # E10 (v2): NEVER eval model text or replay a shell string. __cnf_ai_safe already guaranteed $inst is
   # metachar-free + a known-installer invocation, so run it as plain argv in an ISOLATED subshell
   # (noglob word-split; no eval, no shell re-interpretation, no parent-shell mutation).
-  ( set -f; IFS=$' \t\n'; set -- $inst; "$@" ); }
+  ( set -f; IFS=$' \t\n'; set -- $inst; "$@" ) >&2 </dev/null; }
 
 __cnf_resolve(){ local cmd="$1"; shift
   # E11 recursion guard: an install sub-step that re-triggers command-not-found for the SAME cmd must
@@ -150,7 +152,9 @@ __cnf_resolve(){ local cmd="$1"; shift
       __cnf_say "✓ '$cmd' installed by a concurrent shell — skipping duplicate install"
     else
       __cnf_say "↻ installing '$cmd' → $mgr: $pkg (first run)…"
-      __cnf_do_install "$mgr" "$pkg" || __cnf_warn "install via $mgr failed"
+      # E09: installer stdout → stderr (not the command's stdout); </dev/null so it never eats the
+      # command's stdin.
+      __cnf_do_install "$mgr" "$pkg" >&2 </dev/null || __cnf_warn "install via $mgr failed"
       [ "$acq" -eq 0 ] && { rmdir "$lock" 2>/dev/null || true; }
     fi
   else
