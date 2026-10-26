@@ -2,3 +2,4 @@ node_modules/
 dist/
 .wrangler/
 package-lock.json
+.aid-admin-token

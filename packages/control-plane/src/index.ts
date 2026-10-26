@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import { z } from 'zod';
 // Reuse aid-core's route contract (don't re-implement — MASTER-PROMPT §8). Relative import so
 // esbuild bundles the zero-dep contracts at deploy time; no workspace link needed.
-import { ROUTES, chooseRoute, validateBlueprint, exportMarkdown, importMarkdown, blueprintDigest, type Blueprint } from '../../aid-core/src/core';
+import { ROUTES, chooseRoute, validateBlueprint, exportMarkdown, importMarkdown, blueprintDigest, APP_URL, type Blueprint } from '../../aid-core/src/core';
 import { Env, providerConfigured } from './env';
 import { reserveBudget, DEFAULT_CEILING_MICROS } from './budget';
 
@@ -447,6 +447,89 @@ app.get('/api/device/history', async (c) => {
       createdAt: r.created_at,
     }));
     return c.json({ deviceId: dev.deviceId, tenant: dev.tenant, count: items.length, items });
+  } catch (e) {
+    return c.json({ error: 'store_error', detail: e instanceof Error ? e.message : String(e) }, 503);
+  }
+});
+
+// --- Browser-first PAIRING (S04 one-link enrollment, MASTER-PROMPT §2) — a headless machine STARTs a
+// pairing (no credentials yet: a short human `code` + a private poll-secret), a human APPROVES it in the
+// browser (owner-authed), and the machine POLLs with its poll-secret to CLAIM a freshly-minted device
+// token exactly once. The reusable device token is minted at claim + returned ONLY in the poll body —
+// never in a URL or log; only hashes are stored. ---
+const PAIR_TTL_MS = 10 * 60 * 1000;
+const PairStartRequest = z.object({ tenant: z.string().max(200).optional(), label: z.string().max(200).optional() }).strict();
+app.post('/api/devices/pair/start', async (c) => {
+  const db = (c.env as Record<string, any>).DB;
+  if (!db) return c.json({ error: 'store_unavailable' }, 503);
+  const parsed = PairStartRequest.safeParse(await c.req.json().catch(() => ({})));
+  if (!parsed.success) return c.json({ error: 'invalid_request', issues: parsed.error.issues }, 400);
+  try {
+    const code = randHex(4).toUpperCase(); // 8 hex chars, human-typable
+    const pollSecret = 'aidp_' + randHex(32);
+    const tenant = (parsed.data.tenant || '_default').trim() || '_default';
+    const nowMs = Date.now();
+    const createdAt = new Date(nowMs).toISOString();
+    const expiresAt = new Date(nowMs + PAIR_TTL_MS).toISOString();
+    await db
+      .prepare('INSERT INTO pairings (code, poll_sha256, tenant, label, status, created_at, expires_at) VALUES (?,?,?,?,?,?,?)')
+      .bind(code, await sha256hex(pollSecret), tenant, parsed.data.label ?? null, 'pending', createdAt, expiresAt)
+      .run();
+    return c.json(
+      { code, pollSecret, tenant, verifyUrl: `${APP_URL}/pair?code=${code}`, expiresAt, note: 'show the code to the operator; keep pollSecret private (never in a URL/log)' },
+      201,
+    );
+  } catch (e) {
+    return c.json({ error: 'store_error', detail: e instanceof Error ? e.message : String(e) }, 503);
+  }
+});
+// Owner approves a pending pairing (the browser leg). Admin-gated — stands in for the owner session
+// until Better Auth lands. Mints NO token (claim does), so no plaintext token is ever stored.
+app.post('/api/devices/pair/approve', async (c) => {
+  const denied = requireAdmin(c);
+  if (denied) return denied;
+  const db = (c.env as Record<string, any>).DB;
+  if (!db) return c.json({ error: 'store_unavailable' }, 503);
+  try {
+    const body = (await c.req.json().catch(() => ({}))) as { code?: string };
+    const code = (body.code || '').trim().toUpperCase();
+    if (!code) return c.json({ error: 'invalid_request', detail: 'code required' }, 400);
+    const row = await db.prepare('SELECT status, expires_at FROM pairings WHERE code = ?').bind(code).first();
+    if (!row) return c.json({ error: 'not_found', code }, 404);
+    if (row.status === 'claimed') return c.json({ error: 'already_claimed', code }, 409);
+    if (new Date(row.expires_at).getTime() < Date.now()) return c.json({ error: 'expired', code }, 410);
+    await db.prepare("UPDATE pairings SET status='approved', approved_at=? WHERE code=? AND status='pending'").bind(new Date().toISOString(), code).run();
+    return c.json({ code, status: 'approved' });
+  } catch (e) {
+    return c.json({ error: 'invalid_request', detail: e instanceof Error ? e.message : String(e) }, 400);
+  }
+});
+// Machine polls with its poll-secret. pending → {status:pending}; approved → atomically CLAIM (mint a
+// device + token, deliver once, mark claimed); already-claimed/expired → 410.
+app.get('/api/devices/pair/poll', async (c) => {
+  const db = (c.env as Record<string, any>).DB;
+  if (!db) return c.json({ error: 'store_unavailable' }, 503);
+  const auth = c.req.header('authorization') || '';
+  const pollSecret = auth.startsWith('Bearer ') ? auth.slice(7) : '';
+  if (!pollSecret) return c.json({ error: 'unauthorized' }, 401);
+  try {
+    const pollHash = await sha256hex(pollSecret);
+    const row = await db.prepare('SELECT code, tenant, label, status, expires_at FROM pairings WHERE poll_sha256 = ?').bind(pollHash).first();
+    if (!row) return c.json({ error: 'not_found' }, 404);
+    if (row.status === 'claimed') return c.json({ error: 'already_claimed' }, 410);
+    if (new Date(row.expires_at).getTime() < Date.now()) return c.json({ status: 'expired' }, 410);
+    if (row.status !== 'approved') return c.json({ status: 'pending' });
+    // approved → claim the slot atomically; only the winner mints + delivers the token
+    const deviceId = 'dev_' + Date.now().toString(36) + '_' + randHex(6);
+    const now = new Date().toISOString();
+    const claim = await db
+      .prepare("UPDATE pairings SET status='claimed', claimed_at=?, device_id=? WHERE poll_sha256=? AND status='approved'")
+      .bind(now, deviceId, pollHash)
+      .run();
+    if ((claim.meta?.changes ?? 0) === 0) return c.json({ error: 'already_claimed' }, 410);
+    const token = 'aid_' + randHex(32);
+    await db.prepare('INSERT INTO devices (device_id, tenant, token_sha256, label, created_at) VALUES (?,?,?,?,?)').bind(deviceId, row.tenant, await sha256hex(token), row.label ?? null, now).run();
+    return c.json({ status: 'claimed', deviceId, tenant: row.tenant, token, note: 'store the token now — it is not recoverable' });
   } catch (e) {
     return c.json({ error: 'store_error', detail: e instanceof Error ? e.message : String(e) }, 503);
   }

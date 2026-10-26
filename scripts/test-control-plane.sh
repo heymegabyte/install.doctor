@@ -96,7 +96,7 @@ JSON
     503) skip "PUT current -> 503 (AID_ADMIN_TOKEN not yet set on Worker)";;
     *)   fail "PUT current (no bearer) -> $un (want 401)";;
   esac
-  ADMIN="${AID_ADMIN_TOKEN:-}"; [ -z "$ADMIN" ] && ADMIN="$(get-secret AID_ADMIN_TOKEN 2>/dev/null || true)"
+  ADMIN="${AID_ADMIN_TOKEN:-}"; [ -z "$ADMIN" ] && ADMIN="$(get-secret AID_ADMIN_TOKEN 2>/dev/null || true)"; [ -z "$ADMIN" ] && [ -f "$CP/.aid-admin-token" ] && ADMIN="$(cat "$CP/.aid-admin-token" 2>/dev/null || true)"
   if [ -n "$ADMIN" ]; then
     wr="$(curl -s -X PUT -H "authorization: Bearer $ADMIN" -H 'content-type: application/json' -d "$(jq -n --slurpfile a "$bpf" '{tenant:"_test",blueprint:$a[0]}')" "$u/api/environment/current" 2>/dev/null)"
     echo "$wr" | grep -q '"digest"' && pass "PUT current (bearer, valid) -> 200 + digest" || fail "authed PUT -> $wr"
@@ -150,7 +150,18 @@ JSON
   [ "$rpn" = 401 ] && pass "device/report (no bearer) -> 401" || fail "report no-bearer -> $rpn (want 401)"
   hsn="$(curl -s -o /dev/null -w '%{http_code}' "$u/api/device/history" 2>/dev/null || echo 000)"
   [ "$hsn" = 401 ] && pass "device/history (no bearer) -> 401" || fail "history no-bearer -> $hsn (want 401)"
-  DADM="${AID_ADMIN_TOKEN:-}"; [ -z "$DADM" ] && DADM="$(get-secret AID_ADMIN_TOKEN 2>/dev/null || true)"
+
+  # browser-first PAIRING (fire #19 / S04) — start (unauthenticated) + poll-before-approval + bad polls
+  pstart="$(curl -s -X POST -H 'content-type: application/json' -d '{"tenant":"_default","label":"pair-probe"}' "$u/api/devices/pair/start" 2>/dev/null)"
+  pcode="$(printf '%s' "$pstart" | jq -r '.code // empty')"; psecret="$(printf '%s' "$pstart" | jq -r '.pollSecret // empty')"
+  echo "$pstart" | jq -e '(.code|type=="string") and (.pollSecret|type=="string") and (.verifyUrl|test("/pair\\?code="))' >/dev/null 2>&1 && pass "pair/start -> 201 code + pollSecret + verifyUrl" || fail "pair/start -> $pstart"
+  ppend="$(curl -s -H "authorization: Bearer $psecret" "$u/api/devices/pair/poll" 2>/dev/null)"
+  echo "$ppend" | jq -e '.status=="pending"' >/dev/null 2>&1 && pass "pair/poll (pre-approval) -> pending" || fail "pair/poll pending -> $ppend"
+  pbog="$(curl -s -o /dev/null -w '%{http_code}' -H 'authorization: Bearer aidp_bogus' "$u/api/devices/pair/poll" 2>/dev/null || echo 000)"
+  [ "$pbog" = 404 ] && pass "pair/poll (unknown secret) -> 404" || fail "pair/poll bogus -> $pbog (want 404)"
+  pnb="$(curl -s -o /dev/null -w '%{http_code}' "$u/api/devices/pair/poll" 2>/dev/null || echo 000)"
+  [ "$pnb" = 401 ] && pass "pair/poll (no bearer) -> 401" || fail "pair/poll no-bearer -> $pnb (want 401)"
+  DADM="${AID_ADMIN_TOKEN:-}"; [ -z "$DADM" ] && DADM="$(get-secret AID_ADMIN_TOKEN 2>/dev/null || true)"; [ -z "$DADM" ] && [ -f "$CP/.aid-admin-token" ] && DADM="$(cat "$CP/.aid-admin-token" 2>/dev/null || true)"
   if [ -n "$DADM" ]; then
     enr="$(curl -s -X POST -H "authorization: Bearer $DADM" -H 'content-type: application/json' -d '{"tenant":"_test","label":"e2e-probe"}' "$u/api/devices/enroll" 2>/dev/null)"
     did="$(printf '%s' "$enr" | jq -r '.deviceId // empty')"; dtok="$(printf '%s' "$enr" | jq -r '.token // empty')"
@@ -185,7 +196,23 @@ JSON
     rpb="$(curl -s -o /dev/null -w '%{http_code}' -X POST -H "authorization: Bearer $dtok4" -H 'content-type: application/json' -d '{"kind":"bogus_kind"}' "$u/api/device/report" 2>/dev/null || echo 000)"
     [ "$rpb" = 400 ] && pass "device/report (invalid kind) -> 400 (Zod boundary)" || fail "report invalid -> $rpb (want 400)"
     [ -n "$did4" ] && curl -s -o /dev/null -X POST -H "authorization: Bearer $DADM" "$u/api/devices/$did4/revoke" >/dev/null 2>&1
-  else
+
+    # pairing: owner approves (admin leg) then the machine claims its token (fire #19 / S04)
+    pabog="$(curl -s -o /dev/null -w '%{http_code}' -X POST -H "authorization: Bearer $DADM" -H 'content-type: application/json' -d '{"code":"ZZZZZZZZ"}' "$u/api/devices/pair/approve" 2>/dev/null || echo 000)"
+    [ "$pabog" = 404 ] && pass "pair/approve (unknown code) -> 404" || fail "pair/approve bogus -> $pabog (want 404)"
+    if [ -n "$pcode" ] && [ -n "$psecret" ]; then
+      pap="$(curl -s -X POST -H "authorization: Bearer $DADM" -H 'content-type: application/json' -d "$(jq -nc --arg c "$pcode" '{code:$c}')" "$u/api/devices/pair/approve" 2>/dev/null)"
+      echo "$pap" | jq -e '.status=="approved"' >/dev/null 2>&1 && pass "pair/approve (admin) -> approved" || fail "pair/approve -> $pap"
+      pclaim="$(curl -s -H "authorization: Bearer $psecret" "$u/api/devices/pair/poll" 2>/dev/null)"
+      ptok="$(printf '%s' "$pclaim" | jq -r '.token // empty')"
+      echo "$pclaim" | jq -e '.status=="claimed" and (.token|type=="string") and (.deviceId|type=="string")' >/dev/null 2>&1 && pass "pair/poll (post-approval) -> claimed + one-time device token" || fail "pair/poll claim -> $pclaim"
+      pme="$(curl -s -H "authorization: Bearer $ptok" "$u/api/devices/me" 2>/dev/null)"
+      echo "$pme" | jq -e '.tenant=="_default"' >/dev/null 2>&1 && pass "paired token works -> devices/me resolves (tenant _default)" || fail "paired me -> $pme"
+      prepoll="$(curl -s -o /dev/null -w '%{http_code}' -H "authorization: Bearer $psecret" "$u/api/devices/pair/poll" 2>/dev/null || echo 000)"
+      [ "$prepoll" = 410 ] && pass "pair/poll (already claimed) -> 410 (token delivered once)" || fail "pair/poll re-claim -> $prepoll (want 410)"
+    else
+      fail "pairing setup — start did not return code/pollSecret"
+    fi
     skip "AID_ADMIN_TOKEN unset — device enroll/me/revoke lifecycle assertions skipped"
   fi
 
