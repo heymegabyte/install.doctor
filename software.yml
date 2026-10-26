@@ -2048,7 +2048,7 @@ softwarePackages:
   d2vm:
     _name: Docker 2 VM
     _short: d2vm is a lightweight virtual machine manager for managing virtual machines on macOS.
-    _desc: d2vm is a project hosted on GitHub under the linka-cloud organization. It appears to be related to virtual machine management, possibly for development or testing purposes. The repository likely contains scripts, configurations, or tools for managing virtual machines efficiently. To get more detailed information about its specific features and functionalities, you may need to explore the repository's contents, README file, or any documentation provided within the project.
+    _desc: d2vm builds a bootable virtual-machine image directly from a Dockerfile or an existing Docker image (linka-cloud/d2vm) — turning a container into a VM that boots on any cloud or hypervisor.
     _github: https://github.com/linka-cloud/d2vm
     _bin: d2vm
     brew: linka-cloud/tap/d2vm
@@ -2278,7 +2278,7 @@ softwarePackages:
   distrobox:
     _name: Distrobox
     _short: distrobox is a project on GitHub by 89luca89. It likely involves a distribution or box-related software or tool. For detailed information, you should visit the repository directly.
-    _desc: Distrobox is a project hosted on GitHub by user 89luca89. It appears to be a repository related to creating a custom Linux distribution. The project might include scripts, configurations, or documentation to help users build their own Linux distribution tailored to their needs. For more detailed information, you can visit the GitHub repository directly at https://github.com/89luca89/distrobox.
+    _desc: Distrobox runs any Linux distribution inside your terminal using Podman or Docker, tightly integrated with the host (home, devices, graphical apps) — so you can use the tooling of any distro on whatever you are running (89luca89/distrobox).
     _github: https://github.com/89luca89/distrobox
     _bin: distrobox
     apt: distrobox
@@ -5561,7 +5561,7 @@ softwarePackages:
   kooha:
     _name: 'Kooha                                                                                                                                                                                                     '
     _short: Kooha is a lightweight and fast web server written in C.
-    _desc: Kooha is an open-source project available on GitHub at https://github.com/SeaDve/Kooha. It appears to be a tool or application developed by SeaDve, but without further details or documentation, it's not clear what its specific purpose or functionality is. To understand more about Kooha, you may need to explore the repository, check the README file, or look at the source code to see what it offers and how it can be used.
+    _desc: Kooha is a simple, elegant screen recorder for the GNOME desktop (Wayland and X11), recording to WebM/MP4/GIF/Matroska with optional system and microphone audio (SeaDve/Kooha).
     _github: https://github.com/SeaDve/Kooha
     _bin: kooha
     flatpak: io.github.seadve.Kooha
@@ -6525,7 +6525,7 @@ softwarePackages:
   meta-package-manager:
     _name: Meta Package Manager
     _short: meta-package-manager is a tool for managing multiple package managers in a unified way.
-    _desc: Meta Package Manager is a tool available on GitHub at https://github.com/kdeldycke/meta-package-manager. It appears to be a package manager designed to simplify the management of multiple package managers across different programming languages. The tool likely aims to streamline the process of handling dependencies and packages from various sources, providing a unified interface for package management tasks. For more detailed information and usage instructions, you may want to explore the repository's documentation and README file.
+    _desc: Meta Package Manager (mpm) is a CLI that unifies many package managers (Homebrew, apt, pip, npm, and more) under one interface — notably snapshotting every installed package to a single file and restoring them on a new machine (kdeldycke/meta-package-manager).
     _github: https://github.com/kdeldycke/meta-package-manager
     _bin: mpm
     brew: meta-package-manager
@@ -8311,7 +8311,7 @@ softwarePackages:
   pinapp:
     _name: 'PinApp                                                                                                                                                                                                    '
     _short: PinApp is a simple command-line tool for pinning applications to the macOS dock.
-    _desc: PinApp is a project hosted on GitHub by fabrialberio. It appears to be a repository related to a pinning application, possibly for organizing or saving important information. Without further details or access to the repository, it's challenging to provide a more in-depth description. You can explore the repository on GitHub to get a better understanding of its purpose, features, and how it can be utilized.
+    _desc: PinApp is a GTK/GNOME app for creating and editing application shortcuts — the .desktop launcher entries that appear in your app grid (fabrialberio/pinapp).
     _github: https://github.com/fabrialberio/PinApp
     _bin: pinapp
     flatpak: io.github.fabrialberio.pinapp
@@ -9832,7 +9832,7 @@ softwarePackages:
   search-gpt:
     _name: Search GPT
     _short: search-gpt is a tool that allows you to search through a large corpus of text using GPT models for natural language processing.
-    _desc: search-gpt is a GitHub repository created by Tobias Bueschel. It appears to be a project related to utilizing GPT (Generative Pre-trained Transformer) models for search-related tasks. The repository likely contains code, documentation, and possibly pre-trained models for implementing and experimenting with GPT-based search functionalities. For more detailed information, you can explore the repository directly on GitHub.
+    _desc: search-gpt connects ChatGPT to the live internet, combining web search with the model to answer questions using current, grounded results (TobiasBueschel/search-gpt).
     _github: https://github.com/tobiasbueschel/search-gpt
     _bin: searchgpt
     npm: search-gpt
@@ -10792,7 +10792,7 @@ softwarePackages:
   talksheet:
     _name: Talksheet
     _short: talksheet is a tool for creating and managing structured notes in Markdown format, designed for easy organization and sharing on GitHub.
-    _desc: 'talksheet is a tool available on GitHub created by danthelion. It appears to be a command-line utility written in Python for managing notes and tasks in a simple text-based format. Users can create, edit, and organize their notes and tasks using this tool. It seems to offer a straightforward way to keep track of information without the need for a complex interface. For more detailed information and usage instructions, you can refer to the repository on GitHub: talksheet.'
+    _desc: talksheet is a GPT-powered command-line tool that answers natural-language questions about your data, such as CSV files and spreadsheets (danthelion/talksheet).
     _github: https://github.com/danthelion/talksheet
     _bin: talksheet
     pip: talksheet

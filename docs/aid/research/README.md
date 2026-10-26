@@ -18,7 +18,7 @@ Per category: research ≥3 primary sources → generate 30 distinct candidates 
 | C05 | Inventory & evidence | 0/30 | not-started |
 | C06 | Desired-state language | 0/30 | not-started |
 | C07 | Portability & restore | 0/30 | not-started |
-| C08 | Catalog & App Store | 0/30 | not-started |
+| C08 | Catalog & App Store | 0/30 | **partial-impl** — fabricated-description audit (fire #10): `test-software-descriptions.sh` hard-gates "It appears to be"=0, 9 descriptions corrected vs the GitHub `.description`; softer tells tracked |
 | C09 | Lazy installation | 0/30 | **partial-impl** — command-not-found SINGLE deployed owner, hardened + reconciled + provision-wired (fire #2–4), 12/12 tested; live-machine proof (gated) + 30-candidate research not started |
 | C10 | Configuration convergence | 0/30 | not-started |
 | C11 | Integration graph | 0/30 | not-started |
