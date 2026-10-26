@@ -81,5 +81,36 @@ if [ -f "$SRC" ]; then
   rm -f "$RUN"
 fi
 
+# provisioning lifecycle hook (run_after_30-aid-report) — auto pull+plan for a PAIRED box; skip unpaired;
+# NEVER apply. Verified with a stub AID_BIN (no control plane needed).
+HOOK="$ROOT/home/.chezmoiscripts/universal/run_after_30-aid-report.sh.tmpl"
+if [ ! -f "$HOOK" ]; then
+  fail "aid-report run_after missing ($HOOK)"
+else
+  pass "aid-report run_after present"
+  REND="$(mktemp)"
+  if command -v chezmoi >/dev/null 2>&1; then chezmoi execute-template <"$HOOK" >"$REND" 2>/dev/null || cp "$HOOK" "$REND"; else cp "$HOOK" "$REND"; fi
+  bash -n "$REND" 2>/dev/null && pass "aid-report bash -n clean (rendered)" || fail "aid-report bash -n failed"
+  if command -v shellcheck >/dev/null 2>&1; then
+    shellcheck -S warning "$REND" >/tmp/aidhook-sc.log 2>&1 && pass "aid-report shellcheck clean" || { fail "aid-report shellcheck findings"; tail -5 /tmp/aidhook-sc.log 2>/dev/null; }
+  else
+    skip "shellcheck not installed"
+  fi
+  STUB="$(mktemp)"
+  CALLS="$(mktemp)"
+  printf '#!/usr/bin/env bash\necho "$@" >> "%s"\n' "$CALLS" >"$STUB"
+  chmod +x "$STUB"
+  rc=0
+  AID_TOKEN_PATH="/nonexistent/aid-$$" AID_BIN="$STUB" bash "$REND" || rc=$?
+  { [ "$rc" = 0 ] && [ ! -s "$CALLS" ]; } && pass "aid-report (unpaired) -> skips, invokes aid 0 times" || fail "aid-report unpaired rc=$rc calls=$(cat "$CALLS" 2>/dev/null)"
+  TOKF="$(mktemp)"
+  printf 'aid_faketoken' >"$TOKF"
+  : >"$CALLS"
+  rc=0
+  AID_TOKEN_PATH="$TOKF" AID_BIN="$STUB" bash "$REND" || rc=$?
+  { [ "$rc" = 0 ] && grep -q '^pull$' "$CALLS" && grep -q '^plan$' "$CALLS" && ! grep -q 'apply' "$CALLS"; } && pass "aid-report (paired) -> runs pull + plan, never apply" || fail "aid-report paired rc=$rc calls=$(cat "$CALLS" 2>/dev/null)"
+  rm -f "$REND" "$STUB" "$CALLS" "$TOKF"
+fi
+
 say "aid client: $P passed, $F failed"
 [ "$F" -eq 0 ]
