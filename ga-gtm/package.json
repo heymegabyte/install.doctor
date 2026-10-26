@@ -11,7 +11,8 @@
     "./registry.json": "./registry.json"
   },
   "scripts": {
-    "typecheck": "tsc --noEmit --strict --target ES2022 --lib ES2022,DOM,DOM.Iterable --module ESNext --moduleResolution bundler --skipLibCheck src/index.ts src/consent.ts src/analytics.ts src/events.ts src/server.ts"
+    "typecheck": "tsc --noEmit --strict --target ES2022 --lib ES2022,DOM,DOM.Iterable --module ESNext --moduleResolution bundler --skipLibCheck src/index.ts src/consent.ts src/analytics.ts src/events.ts src/server.ts",
+    "test": "tsc --outDir dist --module commonjs --moduleResolution node --target ES2022 --lib ES2022,DOM --strict --esModuleInterop --skipLibCheck src/*.ts test/*.ts && node --test dist/test/*.test.js"
   },
   "devDependencies": {
     "typescript": "^5.6.0"
