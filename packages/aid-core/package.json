@@ -1,0 +1,13 @@
+{
+  "name": "@install-doctor/aid-core",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Tested contracts for Install Doctor aid; not a deployed daemon or gateway",
+  "scripts": {
+    "build": "tsc --strict --target ES2022 --module ES2022 --lib ES2022,DOM --declaration src/core.ts --outDir dist",
+    "test": "npm run build && node --test test/core.test.mjs"
+  },
+  "engines": { "node": ">=22" },
+  "devDependencies": { "typescript": "5.8.3" }
+}
