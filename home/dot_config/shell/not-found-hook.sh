@@ -9,6 +9,35 @@
 # Index builder: ~/.local/bin/cnf-build-index (home/dot_local/bin/executable_cnf-build-index).
 # Sourcing has NO side effects (defines functions only). All output via gum/glow ([[terminal-styling]]).
 CNF_INDEX="${CNF_INDEX:-$HOME/.cache/cnf/index.tsv}"
+# E11 (v2): serialize concurrent installs of the SAME tool so two shells missing it produce ONE install.
+CNF_LOCK_DIR="${CNF_LOCK_DIR:-$HOME/.cache/cnf/locks}"
+CNF_LOCK_WAIT="${CNF_LOCK_WAIT:-120}"   # max seconds to wait for a peer's install
+CNF_LOCK_STALE="${CNF_LOCK_STALE:-600}" # a lock older than this is a dead holder → reaped
+
+__cnf_lock_path(){ printf '%s/%s.lock' "$CNF_LOCK_DIR" "$(printf '%s' "$1" | tr -c 'A-Za-z0-9_.-' '_')"; }
+__cnf_lock_age(){ local now mtime
+  now="$(date +%s 2>/dev/null)" || return 1
+  mtime="$(stat -f %m "$1" 2>/dev/null || stat -c %Y "$1" 2>/dev/null)" || return 1
+  printf '%s' "$((now - mtime))"; }
+# Acquire the per-command install lock (atomic mkdir). Prints the lock path + returns 0 when acquired
+# (caller installs then releases); returns 10 if a peer finished and the command now EXISTS (caller must
+# NOT install); returns 11 on timeout (caller proceeds best-effort). Reaps stale locks (dead holder).
+__cnf_acquire(){ local cmd="$1" lock waited=0 age
+  lock="$(__cnf_lock_path "$cmd")"; mkdir -p "$CNF_LOCK_DIR" 2>/dev/null || true
+  while :; do
+    if mkdir "$lock" 2>/dev/null; then
+      # Got the lock — but a peer may have installed it while we were blocked; re-check before claiming.
+      hash -r 2>/dev/null || true
+      command -v "$cmd" >/dev/null 2>&1 && { rmdir "$lock" 2>/dev/null || true; return 10; }
+      printf '%s' "$lock"; return 0
+    fi
+    age="$(__cnf_lock_age "$lock" 2>/dev/null)"
+    [ -n "$age" ] && [ "$age" -gt "$CNF_LOCK_STALE" ] && { rmdir "$lock" 2>/dev/null || rm -rf "$lock" 2>/dev/null; continue; }
+    hash -r 2>/dev/null || true
+    command -v "$cmd" >/dev/null 2>&1 && return 10
+    [ "$waited" -ge "$CNF_LOCK_WAIT" ] && return 11
+    sleep 1; waited=$((waited + 1))
+  done; }
 
 __cnf_say(){  command -v gum >/dev/null 2>&1 && gum style --foreground 51  -- "$*" || printf '\033[1;36m%s\033[0m\n' "$*"; }
 __cnf_warn(){ command -v gum >/dev/null 2>&1 && gum style --foreground 214 -- "$*" || printf '\033[1;33m%s\033[0m\n' "$*"; }
@@ -89,7 +118,11 @@ __cnf_ai_fallback(){ local cmd="$1" os="$2" inst="${CNF_AI_CMD:-}"
   ( set -f; IFS=$' \t\n'; set -- $inst; "$@" ); }
 
 __cnf_resolve(){ local cmd="$1"; shift
-  local os pref row mgr="" pkg="" col
+  # E11 recursion guard: an install sub-step that re-triggers command-not-found for the SAME cmd must
+  # NOT re-enter (infinite loop). Restored before every return via the single exit at the end.
+  case " ${__CNF_RESOLVING:-} " in *" $cmd "*) return 127;; esac
+  local __cnf_prev="${__CNF_RESOLVING:-}"; __CNF_RESOLVING="$__cnf_prev $cmd"
+  local os pref row mgr="" pkg="" col rc=127 lock acq
   os="$(__cnf_os)"; pref="$(__cnf_pref "$os")"
   __cnf_say "⟳ '$cmd' not found — resolving via install.doctor…"
   # self-heal: build the index on first use if missing + the deployed builder is available
@@ -107,16 +140,26 @@ __cnf_resolve(){ local cmd="$1"; shift
       fi
     done
   fi
+  if [ -n "${CNF_DRY:-}" ] && [ -n "$mgr" ] && [ -n "$pkg" ]; then
+    __cnf_say "   [CNF_DRY] would install via $mgr: $pkg"; __CNF_RESOLVING="$__cnf_prev"; return 0
+  fi
   if [ -n "$mgr" ] && [ -n "$pkg" ]; then
-    __cnf_say "↻ installing '$cmd' → $mgr: $pkg (first run)…"
-    [ -n "${CNF_DRY:-}" ] && { __cnf_say "   [CNF_DRY] would install via $mgr: $pkg"; return 0; }
-    __cnf_do_install "$mgr" "$pkg" || { __cnf_warn "install via $mgr failed"; return 1; }
+    # E11: serialize concurrent installs of the SAME tool (atomic lockdir; bounded wait; stale reap).
+    lock="$(__cnf_acquire "$cmd")"; acq=$?
+    if [ "$acq" -eq 10 ]; then
+      __cnf_say "✓ '$cmd' installed by a concurrent shell — skipping duplicate install"
+    else
+      __cnf_say "↻ installing '$cmd' → $mgr: $pkg (first run)…"
+      __cnf_do_install "$mgr" "$pkg" || __cnf_warn "install via $mgr failed"
+      [ "$acq" -eq 0 ] && { rmdir "$lock" 2>/dev/null || true; }
+    fi
   else
-    __cnf_ai_fallback "$cmd" "$os" || return 127
+    __cnf_ai_fallback "$cmd" "$os" || { __CNF_RESOLVING="$__cnf_prev"; return 127; }
   fi
   hash -r 2>/dev/null || true
-  if command -v "$cmd" >/dev/null 2>&1; then __cnf_say "✓ installed — running: $cmd $*"; "$cmd" "$@"
-  else __cnf_warn "'$cmd' still not found after install"; return 127; fi; }
+  if command -v "$cmd" >/dev/null 2>&1; then __cnf_say "✓ installed — running: $cmd $*"; "$cmd" "$@"; rc=$?
+  else __cnf_warn "'$cmd' still not found after install"; rc=127; fi
+  __CNF_RESOLVING="$__cnf_prev"; return "$rc"; }
 
 # Entry points. The rc files source this file then call handle_command_not_found "$1"; the shell
 # hooks are defined here too so the file is self-contained if sourced directly.

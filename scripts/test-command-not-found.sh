@@ -136,5 +136,22 @@ else
   fail "provision wiring script missing: home/.chezmoiscripts/universal/run_after_22-cnf-index.sh.tmpl"
 fi
 
+# 5. E11 recursion guard — a re-entry for the SAME cmd returns 127 without resolving (no infinite loop)
+out5="$(__CNF_RESOLVING='reentrant' CNF_INDEX=/dev/null __cnf_resolve reentrant 2>&1)"; rc5=$?
+[ "$rc5" -eq 127 ] && pass "E11 recursion guard — same-cmd re-entry -> 127 (no loop, no resolve)" || fail "recursion guard rc=$rc5 :: $out5"
+
+# 6. E11 concurrency — two shells missing the SAME tool produce EXACTLY ONE install (lockdir serialized).
+# Fake brew counts installs, sleeps so the peer overlaps, then creates 'footool' on PATH so the peer
+# (and the race-after-release path) detect it and skip. Hermetic: tmp PATH + tmp index + tmp lock dir.
+cbin="$tmp/cbin"; mkdir -p "$cbin"
+fooidx="$tmp/fooidx.tsv"; printf 'footool\tfootool\tfootool\n' > "$fooidx"
+printf '#!/usr/bin/env bash\necho 1 >> "%s/installcount"\nsleep 2\nprintf "#!/usr/bin/env bash\\necho ran\\n" > "%s/footool"\nchmod +x "%s/footool"\n' "$tmp" "$cbin" "$cbin" > "$cbin/brew"; chmod +x "$cbin/brew"
+rm -f "$tmp/installcount" "$cbin/footool"
+( PATH="$cbin:$PATH" CNF_INDEX="$fooidx" CNF_LOCK_DIR="$tmp/locks" __cnf_resolve footool >/dev/null 2>&1 ) &
+( PATH="$cbin:$PATH" CNF_INDEX="$fooidx" CNF_LOCK_DIR="$tmp/locks" __cnf_resolve footool >/dev/null 2>&1 ) &
+wait
+ic="$(grep -c . "$tmp/installcount" 2>/dev/null || echo 0)"
+[ "$ic" = "1" ] && pass "E11 concurrency — 2 shells missing footool -> exactly ONE install (lock serialized)" || fail "E11 concurrency installs=$ic (want 1)"
+
 say "command-not-found: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]
