@@ -26,6 +26,30 @@ track.purchase('ord_123', [{ item_id: 'sku1', item_name: 'Pro', price: 29 }], 29
 
 SSR: inject `gtmNoscriptHtml(cfg.gtm_container_id)` at the top of `<body>`.
 
+## Server-confirmed events (Worker / Node)
+
+```ts
+import {
+  sendMeasurementProtocol,
+  serverPurchaseEvent,
+  clientIdFromGaCookie,
+} from '@install-doctor/ga-gtm/server';
+
+// In a Stripe webhook (checkout.session.completed) — deduped with the client
+// event via the SAME transaction_id (idea #13):
+await sendMeasurementProtocol(
+  { measurementId: env.GA4_MEASUREMENT_ID, apiSecret: env.GA4_MP_API_SECRET },
+  {
+    client_id: storedClientId, // captured at checkout from the _ga cookie
+    events: [serverPurchaseEvent({ transactionId: session.id, value: 29, items })],
+  },
+);
+```
+
+Zod-validate the webhook body at the route boundary before calling (estate "Zod at
+boundaries"); `assertPayload` is the dep-free backstop. `api_secret` is a Worker secret —
+never shipped to the browser.
+
 ## Typecheck (verification)
 
 ```sh
@@ -43,8 +67,9 @@ pnpm typecheck    # flag-based tsc --noEmit, zero runtime deps
   helpers here are only for sites running with EM OFF (avoid double-counting).
 - **GTM-side config** (container tags/triggers/variables): cross-domain linker (#2),
   PII redaction (#21), naming/versioning (#23), DebugView/Preview asserts (#24).
-- **Server-side** (Worker + Zod boundary): server-side GTM (#14), Measurement Protocol
-  for Stripe `purchase` dedup + backend events (#13, #15), first-party mode (#16).
+- **Server-side** — Measurement Protocol **shipped as code** in `src/server.ts`: Stripe
+  `purchase` dedup + backend events (#13, #15), `client_id` from the `_ga` cookie. Still
+  infra: server-side GTM (#14), first-party mode (#16).
 - **GA4 console / links** (the skill drives via Admin API): custom dimensions/metrics
   (#18), audiences (#19), key events (#20), BigQuery export (#25), Looker Studio (#26),
   retention/IP-anon (#27), anomaly alerts (#28), explorations (#29), Ads/Search-Console
