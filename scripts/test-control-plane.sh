@@ -133,6 +133,32 @@ JSON
   ia="$(curl -s -o /dev/null -w '%{http_code}' -X POST -H 'content-type: application/json' -d '{"tenant":"_default","observed":{}}' "$u/api/environment/apply" 2>/dev/null || echo 000)"
   [ "$ia" = 400 ] && pass "apply (invalid observed) -> 400 (Zod boundary)" || fail "apply invalid -> $ia (want 400)"
 
+  # device identity lifecycle (Phase B / S04 enrollment, S27 revocation) — enroll(admin)->me->revoke->denied.
+  eun="$(curl -s -o /dev/null -w '%{http_code}' -X POST -H 'content-type: application/json' -d '{"tenant":"_test"}' "$u/api/devices/enroll" 2>/dev/null || echo 000)"
+  case "$eun" in
+    401) pass "enroll (no admin bearer) -> 401 (fail-closed)";;
+    503) skip "enroll -> 503 (AID_ADMIN_TOKEN not set on Worker)";;
+    *)   fail "enroll (no bearer) -> $eun (want 401)";;
+  esac
+  mbog="$(curl -s -o /dev/null -w '%{http_code}' -H 'authorization: Bearer aid_bogus_nonexistent_token' "$u/api/devices/me" 2>/dev/null || echo 000)"
+  [ "$mbog" = 401 ] && pass "devices/me (unknown token) -> 401" || fail "me bogus -> $mbog (want 401)"
+  DADM="${AID_ADMIN_TOKEN:-}"; [ -z "$DADM" ] && DADM="$(get-secret AID_ADMIN_TOKEN 2>/dev/null || true)"
+  if [ -n "$DADM" ]; then
+    enr="$(curl -s -X POST -H "authorization: Bearer $DADM" -H 'content-type: application/json' -d '{"tenant":"_test","label":"e2e-probe"}' "$u/api/devices/enroll" 2>/dev/null)"
+    did="$(printf '%s' "$enr" | jq -r '.deviceId // empty')"; dtok="$(printf '%s' "$enr" | jq -r '.token // empty')"
+    { [ -n "$did" ] && [ -n "$dtok" ]; } && pass "enroll (admin) -> 201 deviceId + one-time token" || fail "enroll -> $enr"
+    who="$(curl -s -H "authorization: Bearer $dtok" "$u/api/devices/me" 2>/dev/null)"
+    echo "$who" | jq -e --arg d "$did" '.deviceId==$d and .tenant=="_test"' >/dev/null 2>&1 && pass "devices/me (issued token) -> identity (deviceId + tenant)" || fail "me -> $who"
+    rv="$(curl -s -o /dev/null -w '%{http_code}' -X POST -H "authorization: Bearer $DADM" "$u/api/devices/$did/revoke" 2>/dev/null || echo 000)"
+    [ "$rv" = 200 ] && pass "revoke (admin) -> 200" || fail "revoke -> $rv (want 200)"
+    whor="$(curl -s -o /dev/null -w '%{http_code}' -H "authorization: Bearer $dtok" "$u/api/devices/me" 2>/dev/null || echo 000)"
+    [ "$whor" = 401 ] && pass "devices/me (revoked token) -> 401 (S27 per-device revocation)" || fail "me after revoke -> $whor (want 401)"
+    rvb="$(curl -s -o /dev/null -w '%{http_code}' -X POST -H "authorization: Bearer $DADM" "$u/api/devices/dev_nonexistent/revoke" 2>/dev/null || echo 000)"
+    [ "$rvb" = 404 ] && pass "revoke (unknown deviceId) -> 404" || fail "revoke bogus -> $rvb (want 404)"
+  else
+    skip "AID_ADMIN_TOKEN unset — device enroll/me/revoke lifecycle assertions skipped"
+  fi
+
   rm -f "$bpf" "$mdf" "$bpf2"
 else
   skip "CONTROL_PLANE_URL unset — prod /health + routing E2E skipped (set after deploy)"

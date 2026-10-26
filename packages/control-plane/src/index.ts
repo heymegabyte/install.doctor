@@ -247,6 +247,90 @@ app.post('/api/environment/apply', async (c) => {
   }
 });
 
+// --- Device identity (Phase B / S04 enrollment, S27 revocation) — ADR docs/aid/decisions/0002 ---
+// Opaque bearer tokens; only the SHA-256 is stored, so a DB read never reveals the secret. Revocation
+// is a row update (revoked_at), effective on the next request — no blocklist, no signing key.
+function randHex(bytes: number): string {
+  const a = new Uint8Array(bytes);
+  crypto.getRandomValues(a);
+  return [...a].map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+async function sha256hex(s: string): Promise<string> {
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(s));
+  return [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+// Shared admin-bearer gate (reused by enroll + revoke + the PUT write path's pattern). Returns a
+// Response to short-circuit on failure, or null when authorized.
+function requireAdmin(c: any): Response | null {
+  const configured = (c.env as Record<string, any>).AID_ADMIN_TOKEN as string | undefined;
+  if (!configured) return c.json({ error: 'write_auth_not_configured' }, 503);
+  const auth = c.req.header('authorization') || '';
+  const presented = auth.startsWith('Bearer ') ? auth.slice(7) : '';
+  if (!presented || !safeEqual(presented, configured)) return c.json({ error: 'unauthorized' }, 401);
+  return null;
+}
+
+// Enroll a device (admin-gated). Mints a device id + a one-time opaque token; stores only its hash.
+app.post('/api/devices/enroll', async (c) => {
+  const denied = requireAdmin(c);
+  if (denied) return denied;
+  const db = (c.env as Record<string, any>).DB;
+  if (!db) return c.json({ error: 'store_unavailable' }, 503);
+  try {
+    const body = (await c.req.json().catch(() => ({}))) as { tenant?: string; label?: string };
+    const tenant = (body.tenant || '_default').trim();
+    if (!tenant) return c.json({ error: 'invalid_request', detail: 'tenant required' }, 400);
+    const deviceId = 'dev_' + Date.now().toString(36) + '_' + randHex(6);
+    const token = 'aid_' + randHex(32);
+    const now = new Date().toISOString();
+    await db
+      .prepare('INSERT INTO devices (device_id, tenant, token_sha256, label, created_at) VALUES (?,?,?,?,?)')
+      .bind(deviceId, tenant, await sha256hex(token), body.label ?? null, now)
+      .run();
+    return c.json({ deviceId, tenant, token, label: body.label ?? null, createdAt: now, note: 'store the token now — it is not recoverable' }, 201);
+  } catch (e) {
+    return c.json({ error: 'invalid_request', detail: e instanceof Error ? e.message : String(e) }, 400);
+  }
+});
+
+// Device whoami — a device presents its own Bearer token; resolve to its identity (hash lookup,
+// rejects unknown/revoked). The primitive later endpoints key per-tenant access on.
+app.get('/api/devices/me', async (c) => {
+  const db = (c.env as Record<string, any>).DB;
+  if (!db) return c.json({ error: 'store_unavailable' }, 503);
+  const auth = c.req.header('authorization') || '';
+  const token = auth.startsWith('Bearer ') ? auth.slice(7) : '';
+  if (!token) return c.json({ error: 'unauthorized' }, 401);
+  try {
+    const row = await db
+      .prepare('SELECT device_id, tenant, label, created_at, revoked_at FROM devices WHERE token_sha256 = ?')
+      .bind(await sha256hex(token))
+      .first();
+    if (!row || row.revoked_at) return c.json({ error: 'unauthorized' }, 401);
+    return c.json({ deviceId: row.device_id, tenant: row.tenant, label: row.label, enrolledAt: row.created_at });
+  } catch (e) {
+    return c.json({ error: 'store_error', detail: e instanceof Error ? e.message : String(e) }, 503);
+  }
+});
+
+// Revoke a device (admin-gated, S27). Idempotent: already-revoked or unknown id → 404.
+app.post('/api/devices/:id/revoke', async (c) => {
+  const denied = requireAdmin(c);
+  if (denied) return denied;
+  const db = (c.env as Record<string, any>).DB;
+  if (!db) return c.json({ error: 'store_unavailable' }, 503);
+  try {
+    const id = c.req.param('id');
+    const now = new Date().toISOString();
+    const res = await db.prepare('UPDATE devices SET revoked_at = ? WHERE device_id = ? AND revoked_at IS NULL').bind(now, id).run();
+    const changed = res.meta?.changes ?? 0;
+    if (!changed) return c.json({ error: 'not_found_or_already_revoked', deviceId: id }, 404);
+    return c.json({ deviceId: id, revokedAt: now });
+  } catch (e) {
+    return c.json({ error: 'invalid_request', detail: e instanceof Error ? e.message : String(e) }, 400);
+  }
+});
+
 // Inference attempt (POST). Fail-closed pre-flight gates (MASTER-PROMPT §8, §15), in order:
 //   unknown alias → 404 · restricted → 451 (approved private/local route only, never the public
 //   gateway) · provider not configured → 503 (keys stay backend-side) · all gates pass → 501
