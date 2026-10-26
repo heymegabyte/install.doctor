@@ -111,6 +111,28 @@ JSON
   else
     skip "AID_ADMIN_TOKEN unset (env + get-secret) — authed PUT assertions skipped"
   fi
+
+  # apply-PREVIEW (§9 / S02,S03,S12) — reconciliation plan observed->desired, dry-run, no mutation.
+  # Derive a known-good observed from the seeded _default (GET current -> import markdown -> blueprint),
+  # so these run unauthenticated + deterministic every fire.
+  dmd="$(curl -s "$u/api/environment/current?tenant=_default" 2>/dev/null | jq -r '.markdown')"
+  obp="$(printf '%s' "$dmd" | curl -s -X POST -H 'content-type: text/markdown' --data-binary @- "$u/api/environment/import" 2>/dev/null | jq -c '.blueprint')"
+  if [ -n "$obp" ] && [ "$obp" != "null" ]; then
+    noop="$(curl -s -X POST -H 'content-type: application/json' -d "$(jq -nc --argjson o "$obp" '{tenant:"_default",observed:$o}')" "$u/api/environment/apply" 2>/dev/null)"
+    echo "$noop" | jq -e '.dryRun==true and .applied==false and .plan.total==0 and .plan.noop==true' >/dev/null 2>&1 && pass "apply (observed==desired _default) -> dryRun plan, 0 changes (noop)" || fail "apply noop -> $noop"
+    obp2="$(printf '%s' "$obp" | jq -c '.defaults.packages += ["zzz-drift-probe"]')"
+    drift="$(curl -s -X POST -H 'content-type: application/json' -d "$(jq -nc --argjson o "$obp2" '{tenant:"_default",observed:$o}')" "$u/api/environment/apply" 2>/dev/null)"
+    { echo "$drift" | jq -e '.plan.remove>=1' >/dev/null 2>&1 && echo "$drift" | grep -q 'zzz-drift-probe'; } && pass "apply (observed has extra pkg) -> plan.remove>=1 + names the drift" || fail "apply drift -> $drift"
+    na="$(curl -s -o /dev/null -w '%{http_code}' -X POST -H 'content-type: application/json' -d "$(jq -nc --argjson o "$obp" '{tenant:"_default",observed:$o,dryRun:false}')" "$u/api/environment/apply" 2>/dev/null || echo 000)"
+    [ "$na" = 501 ] && pass "apply dryRun:false -> 501 (mutation needs the on-device supervisor, Phase B)" || fail "apply real -> $na (want 501)"
+    ua="$(curl -s -o /dev/null -w '%{http_code}' -X POST -H 'content-type: application/json' -d "$(jq -nc --argjson o "$obp" '{tenant:"__nope__",observed:$o}')" "$u/api/environment/apply" 2>/dev/null || echo 000)"
+    [ "$ua" = 404 ] && pass "apply (unknown tenant, no desired) -> 404" || fail "apply no-desired -> $ua (want 404)"
+  else
+    fail "apply-preview setup — could not derive observed blueprint from _default (import returned '$obp')"
+  fi
+  ia="$(curl -s -o /dev/null -w '%{http_code}' -X POST -H 'content-type: application/json' -d '{"tenant":"_default","observed":{}}' "$u/api/environment/apply" 2>/dev/null || echo 000)"
+  [ "$ia" = 400 ] && pass "apply (invalid observed) -> 400 (Zod boundary)" || fail "apply invalid -> $ia (want 400)"
+
   rm -f "$bpf" "$mdf" "$bpf2"
 else
   skip "CONTROL_PLANE_URL unset — prod /health + routing E2E skipped (set after deploy)"

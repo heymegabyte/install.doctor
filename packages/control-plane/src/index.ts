@@ -188,6 +188,65 @@ app.put('/api/environment/current', async (c) => {
   }
 });
 
+// Bucket a diff (observed → desired) into reconciliation actions + a blast-radius count.
+// '+' = desired has it, observed lacks it → install; '-' = observed has it, desired drops it →
+// remove; '~' and scalar 'X → Y' changes → reconfigure.
+function planSummary(changes: ReadonlyArray<{ section: string; detail: string }>) {
+  let install = 0,
+    remove = 0,
+    reconfigure = 0;
+  for (const ch of changes) {
+    const c0 = ch.detail[0];
+    if (c0 === '+') install++;
+    else if (c0 === '-') remove++;
+    else reconfigure++;
+  }
+  return { total: changes.length, install, remove, reconfigure, noop: changes.length === 0 };
+}
+
+// Apply-PREVIEW (dry-run) — MASTER-PROMPT §9, seeds S02 (desired-vs-observed diff) / S03 (restore
+// preview) / S12 (impact + blast-radius before mutation). Given a machine's OBSERVED blueprint, compute
+// the PLAN to reconcile it to the tenant's STORED desired blueprint (install / remove / reconfigure)
+// with a blast-radius summary. NO mutation here: real apply runs on the on-device supervisor (Phase B)
+// and fail-closes to 501. Reuses the tested diff engine with from=observed, to=desired.
+app.post('/api/environment/apply', async (c) => {
+  const db = (c.env as Record<string, any>).DB;
+  if (!db) return c.json({ error: 'store_unavailable' }, 503);
+  let body: { tenant?: string; observed?: unknown; dryRun?: boolean };
+  try {
+    body = (await c.req.json()) as typeof body;
+  } catch {
+    return c.json({ error: 'invalid_request', detail: 'body must be JSON' }, 400);
+  }
+  // Mutation cannot run in a Worker — only the device supervisor applies to a real machine. Fail closed.
+  if (body.dryRun === false) {
+    return c.json(
+      { error: 'apply_not_implemented', applied: false, detail: 'real apply runs on the on-device supervisor (Phase B); only dryRun preview is available from the control plane' },
+      501,
+    );
+  }
+  const tenant = body.tenant || '_default';
+  try {
+    const observed = validateBlueprint(body.observed);
+    const row = await db.prepare('SELECT markdown FROM blueprints WHERE tenant = ?').bind(tenant).first();
+    if (!row) return c.json({ error: 'no_desired_state', tenant, detail: 'no stored blueprint for this tenant — PUT /api/environment/current first' }, 404);
+    const desired = importMarkdown(row.markdown);
+    const changes = diffBlueprints(observed, desired);
+    return c.json({
+      dryRun: true,
+      applied: false,
+      tenant,
+      desiredRevision: desired.revision,
+      desiredDigest: await blueprintDigest(desired),
+      observedDigest: await blueprintDigest(observed),
+      plan: planSummary(changes),
+      changes,
+    });
+  } catch (e) {
+    return c.json({ error: 'invalid_request', detail: e instanceof Error ? e.message : String(e) }, 400);
+  }
+});
+
 // Inference attempt (POST). Fail-closed pre-flight gates (MASTER-PROMPT §8, §15), in order:
 //   unknown alias → 404 · restricted → 451 (approved private/local route only, never the public
 //   gateway) · provider not configured → 503 (keys stay backend-side) · all gates pass → 501
