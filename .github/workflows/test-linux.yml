@@ -32,7 +32,7 @@ jobs:
 
       - name: Lint core scripts (blocking)
         run: |
-          shellcheck -x scripts/provision.sh start.sh || {
+          shellcheck -x scripts/provision.sh scripts/vagrant.sh start.sh || {
             echo "::error::ShellCheck failed on core scripts — fix before merge"
             exit 1
           }

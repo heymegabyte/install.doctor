@@ -40,6 +40,33 @@ After Docker is installed, the provisioning scripts:
 
 Vagrant enables reproducible development environments defined as code in `Vagrantfile` configurations.
 
+### Quick Start in a Virtual Machine
+
+The landing page advertises a one-liner that provisions Install Doctor inside a virtual machine. The one-liner points at `scripts/vagrant.sh` in this repository (served through the `https://install.doctor/vagrant` redirect):
+
+```shell
+bash <(curl -sSL "https://install.doctor/vagrant")
+```
+
+The script detects the host OS, ensures `curl`, `git`, and `gzip` are present, detects a supported virtualization platform (KVM/libvirt, VirtualBox, VMware Workstation/Fusion, or Parallels Desktop), installs Vagrant when it is missing, clones this repository so the `Vagrantfile` is available, and then runs `vagrant up` with the selected provider.
+
+Set the following environment variables to run it non-interactively:
+
+| Variable                | Description                                                                       |
+|-------------------------|-----------------------------------------------------------------------------------|
+| `VAGRANT_PROVIDER`      | Skip the provider prompt by naming the provider (e.g. `libvirt` or `virtualbox`)  |
+| `VAGRANT_NODE`          | Only bring up the named node from the `Vagrantfile` (e.g. `ukdah`)                |
+| `INSTALL_DOCTOR_REPO`   | Clone a fork instead of `megabyte-labs/install.doctor` (in `owner/name` form)     |
+| `INSTALL_DOCTOR_DIR`    | Directory the repository is cloned into (defaults to `$HOME/.install-doctor`)     |
+
+For example:
+
+```shell
+VAGRANT_PROVIDER=libvirt bash <(curl -sSL "https://install.doctor/vagrant")
+```
+
+Use `vagrant ssh <node>` to connect to a provisioned node and `vagrant destroy` to remove it. The Windows PowerShell variant is available at `https://install.doctor/windows-vagrant`.
+
 ## VirtualBox
 
 [VirtualBox](https://www.virtualbox.org/) is installed as a cross-platform hypervisor:
