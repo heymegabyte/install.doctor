@@ -182,6 +182,8 @@ JSON
     echo "$dcur" | jq -e '.tenant=="_default" and (.digest|type=="string")' >/dev/null 2>&1 && pass "device/current (device token) -> own tenant blueprint (_default, no tenant in URL)" || fail "device/current -> $dcur"
     dap="$(curl -s -X POST -H "authorization: Bearer $dtok2" -H 'content-type: application/json' -d "$(jq -nc --argjson o "$obp" '{observed:$o}')" "$u/api/device/apply" 2>/dev/null)"
     echo "$dap" | jq -e --arg d "$did2" '.dryRun==true and .tenant=="_default" and .deviceId==$d and .plan.total==0' >/dev/null 2>&1 && pass "device/apply (device token) -> scoped dry-run plan (noop vs _default)" || fail "device/apply -> $dap"
+    dmd2="$(curl -s -H "authorization: Bearer $dtok2" "$u/api/device/current.md" 2>/dev/null)"
+    echo "$dmd2" | grep -q 'install-doctor+json' && pass "device/current.md (device token) -> raw ENVIRONMENT.md (§9 Export)" || fail "device/current.md -> $(printf '%s' "$dmd2" | head -c 80)"
     curl -s -o /dev/null -X POST -H "authorization: Bearer $DADM" "$u/api/devices/$did2/revoke" >/dev/null 2>&1
     dcr="$(curl -s -o /dev/null -w '%{http_code}' -H "authorization: Bearer $dtok2" "$u/api/device/current" 2>/dev/null || echo 000)"
     [ "$dcr" = 401 ] && pass "device/current (revoked token) -> 401 (S27)" || fail "device/current revoked -> $dcr (want 401)"

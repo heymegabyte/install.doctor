@@ -374,6 +374,21 @@ app.get('/api/device/current', async (c) => {
     return c.json({ error: 'store_error', detail: e instanceof Error ? e.message : String(e) }, 503);
   }
 });
+// Device-scoped RAW ENVIRONMENT.md (the §9 Export / Copy-setup surface) — a device fetches its desired
+// blueprint as Markdown it writes to disk directly (no JSON decode needed on the machine).
+app.get('/api/device/current.md', async (c) => {
+  const db = (c.env as Record<string, any>).DB;
+  if (!db) return c.json({ error: 'store_unavailable' }, 503);
+  const dev = await resolveDevice(db, c.req.header('authorization'));
+  if (!dev) return c.json({ error: 'unauthorized' }, 401);
+  try {
+    const row = await db.prepare('SELECT markdown FROM blueprints WHERE tenant = ?').bind(dev.tenant).first();
+    if (!row) return c.json({ error: 'not_found', tenant: dev.tenant }, 404);
+    return c.text(row.markdown, 200, { 'content-type': 'text/markdown; charset=utf-8' });
+  } catch (e) {
+    return c.json({ error: 'store_error', detail: e instanceof Error ? e.message : String(e) }, 503);
+  }
+});
 app.post('/api/device/apply', async (c) => {
   const db = (c.env as Record<string, any>).DB;
   if (!db) return c.json({ error: 'store_unavailable' }, 503);
