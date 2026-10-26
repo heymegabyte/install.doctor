@@ -23,7 +23,7 @@ Updated every loop fire. Smallest next executable step at the top. Cadence: `/lo
 
 ## Blockers (external / human-gated)
 - CF API token + account id for `app.install.doctor` (verify via `get-secret CLOUDFLARE_API_TOKEN`; absent ⇒ control plane design-only).
-- `app.install.doctor` zone / DNS.
+- ~~`app.install.doctor` zone / DNS~~ ✅ RESOLVED (fire #29): live custom domain on the aid control-plane Worker (landing `/` + `/pair` approval page + the full API served there).
 - Design approval (Figma) before full SaaS UI (master-prompt §16).
 - `test@megabyte.space` creds (get-secret) before UI acceptance tests.
 - **command-not-found LIVE end-to-end proof** (chezmoi apply + a real missing command, resolve→install→re-run, BOTH shells) — needs a real/throwaway machine; a loop fire must NOT mutate the dev shell's startup. Code + unit coverage are green; only the live run is gated.

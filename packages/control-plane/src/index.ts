@@ -25,6 +25,62 @@ app.get('/health', (c) =>
   c.json({ status: 'ok', service: 'aid-control-plane', phase: 'A-skeleton', routes: ROUTES.length }),
 );
 
+// Minimal browser surface at app.install.doctor (MASTER-PROMPT §2). The full cinematic 5-section app is
+// the §16 build; this is an HONEST landing + a working pairing-approval page so the domain is live and
+// the `aid-pair` verifyUrl resolves end-to-end. Server-rendered HTML, no framework.
+const PAGE_CSS =
+  '*{box-sizing:border-box}body{margin:0;font:16px/1.6 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:#060610;color:#e6e8ef}' +
+  '.wrap{max-width:680px;margin:0 auto;padding:48px 24px}a{color:#00E5FF}h1{font-size:2rem;margin:.2em 0}.mono{font-family:ui-monospace,Menlo,monospace}' +
+  '.card{background:#0d0f1a;border:1px solid #1b2030;border-radius:12px;padding:20px;margin:18px 0}' +
+  '.code{font-family:ui-monospace,monospace;font-size:1.6rem;letter-spacing:.15em;color:#00E5FF;background:#0a0c16;border:1px solid #1b2030;border-radius:8px;padding:12px 16px;display:inline-block}' +
+  'input,button{font:inherit;padding:10px 12px;border-radius:8px;border:1px solid #2a3147;background:#0a0c16;color:#e6e8ef}' +
+  'button{background:#00E5FF;color:#060610;font-weight:700;border:0;cursor:pointer}.muted{color:#8b93a7;font-size:.9rem}';
+function htmlPage(title: string, body: string): string {
+  return `<!doctype html><html lang=en><head><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1"><title>${title}</title><style>${PAGE_CSS}</style></head><body><div class=wrap>${body}</div></body></html>`;
+}
+app.get('/', (c) =>
+  c.html(
+    htmlPage(
+      'aid · install.doctor',
+      `<h1>aid <span class=muted>· install.doctor</span></h1>
+<p>Browser-first environment engineer. Describe your environment once; make each authorized computer a verified, cooperating part of it.</p>
+<div class=card><h3>Pair a machine</h3>
+<p>On the machine, run the bootstrap, then pair:</p>
+<p class=mono>bash &lt;(curl -sSL https://install.doctor/start)</p>
+<p class=mono>aid-pair</p>
+<p class=muted>It prints a short code and opens <span class=mono>/pair?code=…</span> here for you to approve.</p></div>
+<p class=muted>API health: <a href="/health">/health</a> — control plane live. The full dashboard (Machines · App Store · Recommendations · Automations · History) is in progress.</p>`,
+    ),
+  ),
+);
+app.get('/pair', (c) => {
+  const code = (c.req.query('code') || '').replace(/[^0-9A-Za-z]/g, '').slice(0, 16);
+  return c.html(
+    htmlPage(
+      'Pair device · aid',
+      `<h1>Pair this device</h1>
+${code ? `<p>Approve pairing code:</p><p class=code>${code}</p>` : '<p class=muted>No code in the URL. Run <span class=mono>aid-pair</span> on the machine to get one.</p>'}
+<div class=card><h3>Approve (administrator)</h3>
+<p class=muted>Paste your admin token to approve this device. A signed-in owner session replaces this step soon.</p>
+<p><input id=tok type=password placeholder="AID_ADMIN_TOKEN" style="width:100%"></p>
+<p><button onclick="approve()">Approve pairing</button></p>
+<p id=out class=muted></p></div>
+<script>
+async function approve(){
+  var out=document.getElementById('out'),tok=document.getElementById('tok').value.trim();
+  if(!tok){out.textContent='Enter the admin token.';return}
+  out.textContent='Approving…';
+  try{
+    var r=await fetch('/api/devices/pair/approve',{method:'POST',headers:{'authorization':'Bearer '+tok,'content-type':'application/json'},body:JSON.stringify({code:${JSON.stringify(code)}})});
+    var j=await r.json();
+    out.textContent=r.ok?'✓ approved — the machine will claim its token shortly.':('✗ '+(j.error||r.status));
+  }catch(e){out.textContent='✗ '+e}
+}
+</script>`,
+    ),
+  );
+});
+
 // Routing-policy decision surface (MASTER-PROMPT §8). Reuses aid-core's tested chooseRoute at the
 // HTTP boundary: restricted sensitivity fails CLOSED (never escalates to premium), and premium
 // requires explicit opt-in. Performs NO inference — no provider call, no keys, no cost — it only

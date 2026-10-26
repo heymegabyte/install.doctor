@@ -33,6 +33,11 @@ if [ -n "${CONTROL_PLANE_URL:-}" ]; then
   u="${CONTROL_PLANE_URL%/}"
   code="$(curl -fsS -o /tmp/cp-health.json -w '%{http_code}' "$u/health" 2>/dev/null || echo 000)"
   if [ "$code" = 200 ] && grep -q '"status":"ok"' /tmp/cp-health.json 2>/dev/null; then pass "GET /health 200 {status:ok}"; else fail "GET /health -> $code"; fi
+  # browser surface (fire: app.install.doctor availability) — landing + pairing-approval page
+  land="$(curl -s "$u/" 2>/dev/null)"
+  { echo "$land" | grep -q 'install.doctor' && echo "$land" | grep -qi 'pair a machine'; } && pass "GET / -> landing page (aid + pairing instructions)" || fail "landing -> $(printf '%s' "$land" | head -c 80)"
+  pairp="$(curl -s "$u/pair?code=ABC12345" 2>/dev/null)"
+  { echo "$pairp" | grep -q 'ABC12345' && echo "$pairp" | grep -qi 'approve pairing'; } && pass "GET /pair?code -> shows code + approve surface" || fail "pair page -> $(printf '%s' "$pairp" | head -c 80)"
   # inference route pre-flight (fire #8): POST-only; restricted fails closed; fail-closed when unconfigured
   rc="$(curl -s -o /dev/null -w '%{http_code}' -X POST "$u/api/ai/v1/economy" 2>/dev/null || echo 000)"
   [ "$rc" = 503 ] && pass "POST /api/ai/v1/economy -> 503 (provider not configured, fail-closed)" || fail "economy POST -> $rc (want 503)"

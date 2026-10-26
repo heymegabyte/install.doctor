@@ -7,6 +7,11 @@ compatibility_date = "2026-05-01"
 workers_dev = true
 migrations_dir = "migrations"
 
+# Custom domain: app.install.doctor (zone 41d899… active in-account). CF provisions proxied DNS + TLS.
+# workers_dev stays true so the *.workers.dev URL keeps serving during propagation
+# (cloudflare-native-provisioning: declaring routes would otherwise default workers_dev=false).
+routes = [{ pattern = "app.install.doctor", custom_domain = true }]
+
 # Persistence: authoritative stored blueprints (one "current" row per tenant). The DB index is a
 # projection of ENVIRONMENT.md, not a competing authority (MASTER-PROMPT §9). Provisioned fire #13.
 [[d1_databases]]
