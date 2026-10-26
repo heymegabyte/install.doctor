@@ -42,6 +42,8 @@ if [ -n "${CONTROL_PLANE_URL:-}" ]; then
   echo "$pc" | jq -e '(.enabled_providers[0]=="install-doctor") and (.provider["install-doctor"].options.baseURL|test("/api/ai/v1$")) and (.provider["install-doctor"].options.apiKey=="{env:AID_INFERENCE_TOKEN}")' >/dev/null 2>&1 && pass "GET /api/provider-config -> OpenCode config (install-doctor provider, {env} apiKey — no secret)" || fail "provider-config -> $(printf '%s' "$pc" | head -c 140)"
   hp="$(curl -s "$u/history" 2>/dev/null)"
   { echo "$hp" | grep -qi 'fleet activity' && echo "$hp" | grep -q 'AID_ADMIN_TOKEN' && echo "$hp" | grep -qi 'Load history'; } && pass "GET /history -> fleet dashboard page (admin-token load of /api/history)" || fail "history page -> $(printf '%s' "$hp" | head -c 80)"
+  mp="$(curl -s "$u/machines" 2>/dev/null)"
+  { echo "$mp" | grep -qi 'device inventory' && echo "$mp" | grep -q 'AID_ADMIN_TOKEN' && echo "$mp" | grep -qi 'Load machines'; } && pass "GET /machines -> device-inventory dashboard page (admin-token load of /api/devices)" || fail "machines page -> $(printf '%s' "$mp" | head -c 80)"
   # inference route pre-flight (fire #8): POST-only; restricted fails closed; fail-closed when unconfigured
   rc="$(curl -s -o /dev/null -w '%{http_code}' -X POST "$u/api/ai/v1/economy" 2>/dev/null || echo 000)"
   [ "$rc" = 503 ] && pass "POST /api/ai/v1/economy -> 503 (provider not configured, fail-closed)" || fail "economy POST -> $rc (want 503)"
@@ -161,6 +163,8 @@ JSON
   [ "$hsn" = 401 ] && pass "device/history (no bearer) -> 401" || fail "history no-bearer -> $hsn (want 401)"
   ahn="$(curl -s -o /dev/null -w '%{http_code}' "$u/api/history?tenant=_default" 2>/dev/null || echo 000)"
   [ "$ahn" = 401 ] && pass "GET /api/history (no admin bearer) -> 401 (fail-closed)" || fail "admin history no-bearer -> $ahn (want 401)"
+  adn="$(curl -s -o /dev/null -w '%{http_code}' "$u/api/devices?tenant=_default" 2>/dev/null || echo 000)"
+  [ "$adn" = 401 ] && pass "GET /api/devices (no admin bearer) -> 401 (fail-closed)" || fail "admin devices no-bearer -> $adn (want 401)"
 
   # browser-first PAIRING (fire #19 / S04) — start (unauthenticated) + poll-before-approval + bad polls
   pstart="$(curl -s -X POST -H 'content-type: application/json' -d '{"tenant":"_default","label":"pair-probe"}' "$u/api/devices/pair/start" 2>/dev/null)"
@@ -210,6 +214,9 @@ JSON
     [ "$rpb" = 400 ] && pass "device/report (invalid kind) -> 400 (Zod boundary)" || fail "report invalid -> $rpb (want 400)"
     ah="$(curl -s -H "authorization: Bearer $DADM" "$u/api/history?tenant=_default&limit=5" 2>/dev/null)"
     echo "$ah" | jq -e '.tenant=="_default" and (.count>=1) and (.items[0].deviceId|type=="string") and (.items[0].kind|type=="string")' >/dev/null 2>&1 && pass "GET /api/history?tenant (admin) -> fleet events across devices (S15)" || fail "admin history -> $(printf '%s' "$ah" | head -c 160)"
+    # Machines inventory (fire #37 / N03·S04): the _test device enrolled above ($did) must appear with a boolean revoked status.
+    ad="$(curl -s -H "authorization: Bearer $DADM" "$u/api/devices?tenant=_test&limit=200" 2>/dev/null)"
+    echo "$ad" | jq -e --arg d "$did" '.tenant=="_test" and (.count>=1) and ([.items[].deviceId]|index($d)!=null) and (.items[0].revoked|type=="boolean")' >/dev/null 2>&1 && pass "GET /api/devices?tenant (admin) -> enrolled device inventory w/ status (N03/S04)" || fail "admin devices -> $(printf '%s' "$ad" | head -c 160)"
     [ -n "$did4" ] && curl -s -o /dev/null -X POST -H "authorization: Bearer $DADM" "$u/api/devices/$did4/revoke" >/dev/null 2>&1
 
     # pairing: owner approves (admin leg) then the machine claims its token (fire #19 / S04)

@@ -50,7 +50,7 @@ app.get('/', (c) =>
 <p class=mono>bash &lt;(curl -sSL https://install.doctor/start)</p>
 <p class=mono>aid-pair</p>
 <p class=muted>It prints a short code and opens <span class=mono>/pair?code=…</span> here for you to approve.</p></div>
-<p class=muted><a href="/history">History</a> is the first live dashboard section · API health: <a href="/health">/health</a>. The full dashboard (Machines · App Store · Recommendations · Automations) is in progress.</p>`,
+<p class=muted>Live dashboard: <a href="/machines">Machines</a> · <a href="/history">History</a> · API health <a href="/health">/health</a>. More sections (App Store · Recommendations · Automations) in progress.</p>`,
     ),
   ),
 );
@@ -61,7 +61,7 @@ app.get('/history', (c) =>
   c.html(
     htmlPage(
       'History · aid',
-      `<nav class=muted><a href="/">aid</a><a href="/history">History</a></nav>
+      `<nav class=muted><a href="/">aid</a><a href="/machines">Machines</a><a href="/history">History</a></nav>
 <h1>History <span class=muted>· fleet activity</span></h1>
 <div class=card>
 <p class=muted>Paste your admin token to load the fleet's reported events (apply / plan / report runs across devices).</p>
@@ -81,6 +81,39 @@ async function load(){
     if(!j.items||!j.items.length){out.textContent='No events for '+esc(t)+'.';return}
     var rows=j.items.map(function(e){return '<tr><td>'+esc(e.createdAt)+'</td><td class=mono>'+esc(e.deviceId)+'</td><td>'+esc(e.kind)+'</td><td>'+esc(e.status)+'</td><td>'+esc(e.summary||'')+'</td></tr>'}).join('');
     out.innerHTML='<p class=muted>'+j.count+' events · tenant '+esc(t)+'</p><table><thead><tr><th>time</th><th>device</th><th>kind</th><th>status</th><th>summary</th></tr></thead><tbody>'+rows+'</tbody></table>';
+  }catch(e){out.textContent='✗ '+e}
+}
+</script>`,
+    ),
+  ),
+);
+// Machines nav section (N03/N07/S04/S05) — the operator's device inventory. Paste the admin token,
+// fetch /api/devices, render enrolled machines + their status. The SECOND live dashboard nav section
+// (after History). All rendered values HTML-escaped client-side (no XSS); full §16 polish is ahead.
+app.get('/machines', (c) =>
+  c.html(
+    htmlPage(
+      'Machines · aid',
+      `<nav class=muted><a href="/">aid</a><a href="/machines">Machines</a><a href="/history">History</a></nav>
+<h1>Machines <span class=muted>· device inventory</span></h1>
+<div class=card>
+<p class=muted>Paste your admin token to list the enrolled machines for a tenant (label · device id · enrolled · status).</p>
+<p><input id=tenant placeholder="tenant (default _default)" style="width:46%"> <input id=tok type=password placeholder="AID_ADMIN_TOKEN" style="width:46%"></p>
+<p><button onclick="load()">Load machines</button></p></div>
+<div id=out class=muted>No machines loaded.</div>
+<script>
+function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]})}
+async function load(){
+  var out=document.getElementById('out'),tok=document.getElementById('tok').value.trim(),t=document.getElementById('tenant').value.trim()||'_default';
+  if(!tok){out.textContent='Enter the admin token.';return}
+  out.textContent='Loading…';
+  try{
+    var r=await fetch('/api/devices?tenant='+encodeURIComponent(t)+'&limit=200',{headers:{'authorization':'Bearer '+tok}});
+    var j=await r.json();
+    if(!r.ok){out.textContent='✗ '+(j.error||r.status);return}
+    if(!j.items||!j.items.length){out.textContent='No machines enrolled for '+esc(t)+'.';return}
+    var rows=j.items.map(function(d){return '<tr><td>'+esc(d.label||'—')+'</td><td class=mono>'+esc(d.deviceId)+'</td><td>'+esc(d.tenant)+'</td><td>'+esc(d.enrolledAt)+'</td><td>'+(d.revoked?'revoked':'active')+'</td></tr>'}).join('');
+    out.innerHTML='<p class=muted>'+j.count+' machines · tenant '+esc(t)+'</p><table><thead><tr><th>label</th><th>device</th><th>tenant</th><th>enrolled</th><th>status</th></tr></thead><tbody>'+rows+'</tbody></table>';
   }catch(e){out.textContent='✗ '+e}
 }
 </script>`,
@@ -415,6 +448,35 @@ app.post('/api/devices/enroll', async (c) => {
     return c.json({ deviceId, tenant, token, label: body.label ?? null, createdAt: now, note: 'store the token now — it is not recoverable' }, 201);
   } catch (e) {
     return c.json({ error: 'invalid_request', detail: e instanceof Error ? e.message : String(e) }, 400);
+  }
+});
+
+// List enrolled devices for a tenant (admin-gated, N03/N07/S04/S05 — the Machines inventory). Reuses
+// the devices table; returns id/label/tenant/enrolled + revoked status so the operator sees the fleet
+// and which machines are active. Exact path — distinct from /api/devices/me and /api/devices/pair/*.
+app.get('/api/devices', async (c) => {
+  const denied = requireAdmin(c);
+  if (denied) return denied;
+  const db = (c.env as Record<string, any>).DB;
+  if (!db) return c.json({ error: 'store_unavailable' }, 503);
+  const tenant = c.req.query('tenant') || '_default';
+  const limit = Math.min(Math.max(parseInt(c.req.query('limit') || '100', 10) || 100, 1), 500);
+  try {
+    const rs = await db
+      .prepare('SELECT device_id, tenant, label, created_at, revoked_at FROM devices WHERE tenant = ? ORDER BY created_at DESC, device_id DESC LIMIT ?')
+      .bind(tenant, limit)
+      .all();
+    const items = (rs.results || []).map((r: any) => ({
+      deviceId: r.device_id,
+      tenant: r.tenant,
+      label: r.label,
+      enrolledAt: r.created_at,
+      revoked: !!r.revoked_at,
+      revokedAt: r.revoked_at || null,
+    }));
+    return c.json({ tenant, count: items.length, items });
+  } catch (e) {
+    return c.json({ error: 'store_error', detail: e instanceof Error ? e.message : String(e) }, 503);
   }
 });
 
