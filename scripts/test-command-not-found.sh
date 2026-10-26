@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Test the command-not-found AI lazy-installer (provisioning/command-not-found/).
+# Test the command-not-found AI lazy-installer (home/dot_config/shell/not-found-hook.sh + home/dot_local/bin/executable_cnf-build-index).
 # Hermetic + SAFE: exercises __cnf_resolve in CNF_DRY mode against a synthetic
 # index (no real install, no machine mutation) and validates the index builder.
 # Mirrors handler.sh's gum-or-printf output idiom so it runs in CI without gum.
@@ -7,8 +7,9 @@
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-HANDLER="$ROOT/provisioning/command-not-found/handler.sh"
-BUILDER="$ROOT/provisioning/command-not-found/build-index.sh"
+# Single canonical (chezmoi-deployed) locations — fire #3 folded provisioning/command-not-found/ here.
+HANDLER="$ROOT/home/dot_config/shell/not-found-hook.sh"       # → ~/.config/shell/not-found-hook.sh
+BUILDER="$ROOT/home/dot_local/bin/executable_cnf-build-index" # → ~/.local/bin/cnf-build-index
 
 say(){  command -v gum >/dev/null 2>&1 && gum style --foreground 51  -- "$*" || printf '\033[1;36m%s\033[0m\n' "$*"; }
 pass(){ command -v gum >/dev/null 2>&1 && gum style --foreground 46  -- "PASS $*" || printf '\033[1;32mPASS\033[0m %s\n' "$*"; PASS=$((PASS+1)); }
@@ -19,14 +20,17 @@ PASS=0; FAIL=0
 say "command-not-found test suite"
 
 # 0. static syntax
-bash -n "$HANDLER" && pass "handler.sh parses" || fail "handler.sh syntax error"
-bash -n "$BUILDER" && pass "build-index.sh parses" || fail "build-index.sh syntax error"
+bash -n "$HANDLER" && pass "not-found-hook.sh parses" || fail "not-found-hook.sh syntax error"
+bash -n "$BUILDER" && pass "cnf-build-index parses" || fail "cnf-build-index syntax error"
 
 # shellcheck source=/dev/null
 . "$HANDLER"
 # isolate the test shell from the handler's shell hooks — a missing/typo'd function in this
 # harness must NOT trigger the real resolver (which would try to install something).
 unset -f command_not_found_handler command_not_found_handle 2>/dev/null || true
+
+# the rc entry point must exist (dot_zshrc/dot_bashrc source this file then call it)
+if declare -F handle_command_not_found >/dev/null 2>&1; then pass "handle_command_not_found (rc entry point) defined"; else fail "handle_command_not_found missing — rc integration would break"; fi
 
 # 1. dry-run resolve against a synthetic index (proves lookup + manager selection; NO install)
 tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' EXIT

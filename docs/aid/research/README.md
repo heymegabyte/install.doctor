@@ -19,7 +19,7 @@ Per category: research ≥3 primary sources → generate 30 distinct candidates 
 | C06 | Desired-state language | 0/30 | not-started |
 | C07 | Portability & restore | 0/30 | not-started |
 | C08 | Catalog & App Store | 0/30 | not-started |
-| C09 | Lazy installation | 0/30 | **partial-impl** — command-not-found prototype HARDENED fire #2 (safe AI fallback, 9/9 tested); candidate research not started |
+| C09 | Lazy installation | 0/30 | **partial-impl** — command-not-found SINGLE deployed owner, hardened+reconciled (fire #2–3), 10/10 tested; live-machine proof + 30-candidate research not started |
 | C10 | Configuration convergence | 0/30 | not-started |
 | C11 | Integration graph | 0/30 | not-started |
 | C12 | Workflow composition | 0/30 | not-started |

@@ -1,167 +1,121 @@
-#!/bin/bash
-# @file Command Not Found Hook
-# @brief Handles missing command invocations by checking a YAML configuration, installing missing packages, and running them.
-# @description
-#     This script is designed to handle situations where a command is invoked but is not found on the system.
-#     It performs the following actions:
-#
-#     1. Checks if the command is listed in the `chezmoi/software.yml` configuration file.
-#     2. If found, installs the corresponding Homebrew package(s) and runs the command.
-#     3. If not found, attempts to identify the missing package using `brew which-formula --explain`.
-#     4. If no match is found, it falls back to generating a set of installation instructions using the `sgpt` tool.
-#     5. In headless environments, it bypasses `sgpt` and shows an error message.
+# shellcheck shell=bash
+# Command-not-found hook — the SINGLE canonical command-not-found handler for the estate.
+# Sourced from the zsh/bash rc (dot_zshrc, dot_bashrc) which then call handle_command_not_found.
+# Deployed by chezmoi to ~/.config/shell/not-found-hook.sh. When you run a CLI that isn't installed:
+#   1. looks the binary up in a prebuilt index (from software.yml; self-heals via `cnf-build-index`),
+#   2. installs it via the OS's preferred package manager with gorgeous gum/glow output,
+#   3. SAFELY falls back to AI package discovery (off by default) when it's not in software.yml,
+#   4. then transparently runs the exact command you typed.
+# Index builder: ~/.local/bin/cnf-build-index (home/dot_local/bin/executable_cnf-build-index).
+# Sourcing has NO side effects (defines functions only). All output via gum/glow ([[terminal-styling]]).
+CNF_INDEX="${CNF_INDEX:-$HOME/.cache/cnf/index.tsv}"
 
-# Ensure we are using Bash or Zsh
-if [[ -z "$BASH_VERSION" && -z "$ZSH_VERSION" ]]; then
-  gum log -sl error "This script must be run in a Bash or Zsh shell."
-  exit 1
-fi
+__cnf_say(){  command -v gum >/dev/null 2>&1 && gum style --foreground 51  -- "$*" || printf '\033[1;36m%s\033[0m\n' "$*"; }
+__cnf_warn(){ command -v gum >/dev/null 2>&1 && gum style --foreground 214 -- "$*" || printf '\033[1;33m%s\033[0m\n' "$*"; }
 
-# @description
-#     Installs a missing package via Homebrew, using either a single package or an array of packages.
-#     The function supports both standard Homebrew packages and macOS-specific Homebrew formulas.
-#     It suppresses output during installation to avoid cluttering the terminal.
-install_via_brew() {
-  local BREW_KEY="$1"
-  local COMMAND="$2"
+__cnf_os(){ case "$(uname -s)" in
+  Darwin) echo darwin;;
+  Linux)  command -v apt-get >/dev/null 2>&1 && { echo apt; return; }
+          command -v dnf     >/dev/null 2>&1 && { echo dnf; return; }
+          command -v pacman  >/dev/null 2>&1 && { echo pacman; return; }
+          echo linux;;
+  *) echo unknown;; esac; }
 
-  # Ensure the brew key exists and contains valid values
-  if [[ -z "$BREW_KEY" || "$BREW_KEY" == "<" || -z "$COMMAND" ]]; then
-    gum log -sl error "No valid Homebrew package found for '$COMMAND'."
-    return 1
+# per-OS installer preference (mirrors software.yml installerPreference; names = index columns)
+__cnf_pref(){ case "$1" in
+  darwin) echo "cask brew go cargo npm pipx pip gem";;
+  apt)    echo "apt brew go cargo npm pipx pip gem";;
+  dnf)    echo "dnf brew go cargo npm pipx pip gem";;
+  pacman) echo "pacman brew go cargo npm pipx pip gem";;
+  *)      echo "brew go cargo npm pipx pip gem";; esac; }
+
+__cnf_do_install(){ local mgr="$1" pkg="$2"
+  case "$mgr" in
+    brew)   brew install "$pkg";;
+    apt)    sudo apt-get update -qq && sudo apt-get install -y "$pkg";;
+    dnf)    sudo dnf install -y "$pkg";;
+    pacman) sudo pacman -S --noconfirm "$pkg";;
+    cask)   brew install --cask "$pkg";;
+    choco)  choco install -y "$pkg";;
+    scoop)  scoop install "$pkg";;
+    go)     go install "$pkg";;
+    cargo)  cargo install "$pkg";;
+    npm)    npm install -g "$pkg";;
+    pipx)   pipx install "$pkg";;
+    pip)    pip install --user "$pkg";;
+    gem)    gem install "$pkg";;
+    *) return 1;; esac; }
+
+# Deterministic allowlist guard — AI text is NOT a trust boundary (ai-agent-security). Rejects shell
+# metacharacters (chaining/redirection/substitution/newline) and anything whose leading token (after an
+# optional sudo) is not a known package manager performing an install/add. This is the real gate; the
+# prompt is not.
+__cnf_ai_safe(){ local c="$1"
+  case "$c" in *';'*|*'|'*|*'&'*|*'$('*|*'${'*|*'`'*|*'>'*|*'<'*|*$'\n'*) return 1;; esac
+  case "$c" in 'sudo '*) c="${c#sudo }";; esac
+  case "${c%% *}" in
+    brew|apt|apt-get|dnf|pacman|cargo|go|npm|pipx|pip|pip3|gem|choco|scoop) ;;
+    *) return 1;; esac
+  case " $c " in *' install '*|*' add '*|*' -S '*|*' -Sy '*) return 0;; esac
+  return 1; }
+
+# Append the AI suggestion to an audit log; never fail the caller on a log error.
+__cnf_log_suggestion(){ local dir="$HOME/.local/var/log/install.doctor"
+  mkdir -p "$dir" 2>/dev/null || return 0
+  printf '%s\tcmd=%s\tos=%s\tsuggestion=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || echo unknown)" "$1" "$2" "$3" >> "$dir/cnf-ai-suggestions.log" 2>/dev/null || true; }
+
+# AI fallback for a command not in software.yml. SAFE BY DEFAULT (master-prompt §10 — never run an
+# arbitrary web-found install command on a mistype):
+#   - CNF_AI_CMD overrides the AI call (manual override / test seam)
+#   - the suggestion is logged + validated by __cnf_ai_safe BEFORE any execution
+#   - CNF_DRY never executes; execution requires explicit CNF_AI_AUTOINSTALL=1 opt-in
+__cnf_ai_fallback(){ local cmd="$1" os="$2" inst="${CNF_AI_CMD:-}"
+  __cnf_warn "✦ '$cmd' not in software.yml — asking AI how to install it on ${os}…"
+  if [ -z "$inst" ] && command -v mods >/dev/null 2>&1; then
+    inst="$(printf 'Output ONLY the exact shell command to install the CLI named "%s" on %s (prefer brew then the native package manager). No prose, one line.' "$cmd" "$os" | mods --quiet 2>/dev/null | head -1)"
   fi
+  [ -n "$inst" ] || { __cnf_warn "Could not auto-resolve '$cmd' (no software.yml entry, no AI CLI). Install manually."; return 1; }
+  __cnf_say "→ suggested: $inst"
+  __cnf_log_suggestion "$cmd" "$os" "$inst"
+  if ! __cnf_ai_safe "$inst"; then
+    __cnf_warn "✗ refusing to run AI suggestion — not a recognized, metachar-free installer. Review + run it yourself if trusted."; return 1; fi
+  if [ -n "${CNF_DRY:-}" ]; then __cnf_say "   [CNF_DRY] would run: $inst"; return 0; fi
+  if [ -z "${CNF_AI_AUTOINSTALL:-}" ]; then
+    __cnf_warn "AI auto-install is OFF — set CNF_AI_AUTOINSTALL=1 to allow. Command above not run."; return 1; fi
+  __cnf_say "↻ running (CNF_AI_AUTOINSTALL=1): $inst"; eval "$inst"; }
 
-  # Check if the brew key is a string or an array
-  if [[ "$BREW_KEY" == *","* ]]; then
-    # If it's an array, loop through and install each package
-    for PKG in $(echo "$BREW_KEY" | tr ',' '\n'); do
-      # Suppress output of brew install to keep the script clean
-      if [ ! -d "$HOME/.local/var/log/install.doctor" ]; then
-        mkdir -p "$HOME/.local/var/log/install.doctor"
-      fi
-      echo "$PKG" >> "$HOME/.local/var/log/install.doctor/id-not-found-hook-items"
-      if ! brew install "$PKG" &>/dev/null; then
-        gum log -sl error "Failed to install '$PKG' via Homebrew."
-        return 1
+__cnf_resolve(){ local cmd="$1"; shift
+  local os pref row mgr="" pkg="" col
+  os="$(__cnf_os)"; pref="$(__cnf_pref "$os")"
+  __cnf_say "⟳ '$cmd' not found — resolving via install.doctor…"
+  # self-heal: build the index on first use if missing + the deployed builder is available
+  [ -f "$CNF_INDEX" ] || { command -v cnf-build-index >/dev/null 2>&1 && cnf-build-index >/dev/null 2>&1 || true; }
+  row=""; [ -f "$CNF_INDEX" ] && row="$(awk -F'\t' -v c="$cmd" '$1==c{print; exit}' "$CNF_INDEX")"
+  if [ -n "$row" ]; then
+    # columns: 1 bin 2 key 3 brew 4 apt 5 dnf 6 pacman 7 cask 8 choco 9 scoop 10 go 11 cargo 12 npm 13 pipx 14 pip 15 gem
+    # manual word-split (zsh does NOT split unquoted $pref like bash does)
+    local rest="$pref" m
+    while [ -n "$rest" ]; do
+      m="${rest%% *}"; case "$rest" in *" "*) rest="${rest#* }";; *) rest="";; esac
+      case "$m" in brew)col=3;;apt)col=4;;dnf)col=5;;pacman)col=6;;cask)col=7;;choco)col=8;;scoop)col=9;;go)col=10;;cargo)col=11;;npm)col=12;;pipx)col=13;;pip)col=14;;gem)col=15;;*)col=0;;esac
+      if [ "$col" -gt 0 ] && command -v "$m" >/dev/null 2>&1; then
+        pkg="$(printf '%s' "$row" | cut -f"$col")"; [ -n "$pkg" ] && { mgr="$m"; break; }
       fi
     done
+  fi
+  if [ -n "$mgr" ] && [ -n "$pkg" ]; then
+    __cnf_say "↻ installing '$cmd' → $mgr: $pkg (first run)…"
+    [ -n "${CNF_DRY:-}" ] && { __cnf_say "   [CNF_DRY] would install via $mgr: $pkg"; return 0; }
+    __cnf_do_install "$mgr" "$pkg" || { __cnf_warn "install via $mgr failed"; return 1; }
   else
-    # Otherwise, install the single package
-    if [[ -z "$BREW_KEY" || "$BREW_KEY" == "<" ]]; then
-      gum log -sl error "Invalid Homebrew package name for '$COMMAND'."
-      return 1
-    fi
-    if ! brew install "$BREW_KEY" &>/dev/null; then
-      gum log -sl error "Failed to install '$BREW_KEY' via Homebrew."
-      return 1
-    fi
+    __cnf_ai_fallback "$cmd" "$os" || return 127
   fi
-}
+  hash -r 2>/dev/null || true
+  if command -v "$cmd" >/dev/null 2>&1; then __cnf_say "✓ installed — running: $cmd $*"; "$cmd" "$@"
+  else __cnf_warn "'$cmd' still not found after install"; return 127; fi; }
 
-# @description
-#     Handles the case where a command is not found in the system. This function:
-#
-#     1. Searches the `chezmoi/software.yml` configuration file to check if the command is listed with an associated package.
-#     2. If found, installs the required package(s) via Homebrew and runs the command.
-#     3. If not found in the YAML, it falls back to using the `brew which-formula --explain` command to find the correct package.
-#     4. If no suitable package is found, it uses the `sgpt` tool to generate installation instructions.
-#     5. In headless environments, it bypasses `sgpt` and shows an error message.
-handle_command_not_found() {
-  local COMMAND="$1"
-  local SOFTWARE_FILE="${XDG_DATA_HOME:-$HOME/.local/share}/chezmoi/software.yml"
-
-  # Check if the software list file exists
-  if [[ ! -f "$SOFTWARE_FILE" ]]; then
-    gum log -sl error "The software list file ($SOFTWARE_FILE) does not exist."
-    return 1
-  fi
-
-  # Use yq to extract the _bin value and check for the command
-  local BIN_VALUE
-  BIN_VALUE=$(yq e ".softwarePackages[] | select(._bin == \"$COMMAND\")" "$SOFTWARE_FILE")
-
-  if [[ -n "$BIN_VALUE" ]]; then
-    # Extract the 'brew' or 'brew:darwin' key
-    local BREW_KEY
-    BREW_KEY=$(yq e ".softwarePackages[] | select(._bin == \"$COMMAND\") | .brew" "$SOFTWARE_FILE")
-
-    # Check for the 'brew:darwin' key for macOS-specific packages
-    if [[ "$OSTYPE" == "darwin"* ]]; then
-      local BREW_DARWIN_KEY
-      BREW_DARWIN_KEY=$(yq e ".softwarePackages[] | select(._bin == \"$COMMAND\") | .\"brew:darwin\"" "$SOFTWARE_FILE")
-      if [[ -n "$BREW_DARWIN_KEY" ]]; then
-        # Install via Homebrew using the macOS-specific key
-        if install_via_brew "$BREW_DARWIN_KEY" "$COMMAND"; then
-          "$COMMAND" # Run the command after installation
-          return 0
-        fi
-      fi
-    fi
-
-    # Fallback to regular brew key if no macOS-specific key
-    if [[ -n "$BREW_KEY" ]]; then
-      if install_via_brew "$BREW_KEY" "$COMMAND"; then
-        "$COMMAND" # Run the command after installation
-        return 0
-      fi
-    fi
-  fi
-
-  # If no match found in software list, check with `brew which-formula`
-  local BREW_EXPLAIN_OUTPUT
-  BREW_EXPLAIN_OUTPUT=$(brew which-formula --explain "$COMMAND" 2>&1)
-
-  if [[ "$BREW_EXPLAIN_OUTPUT" == *"brew install"* ]]; then
-    # Extract the package name from the response and install it
-    local BREW_PACKAGE_NAME
-    BREW_PACKAGE_NAME=$(echo "$BREW_EXPLAIN_OUTPUT" | grep -oE "brew install [^\s]+" | awk '{print $3}')
-    if [[ -n "$BREW_PACKAGE_NAME" ]]; then
-      if gum spin --spinner dot --title "Installing $BREW_PACKAGE_NAME with Homebrew.." -- brew install "$BREW_PACKAGE_NAME" &>/dev/null; then
-        "$COMMAND" # Run the command after installation
-        return 0
-      else
-        gum log -sl error "Failed to install '$BREW_PACKAGE_NAME' via Homebrew."
-        return 1
-      fi
-    fi
-  fi
-
-  # Check for headless environment (no terminal interaction)
-  if [[ -z "$DISPLAY" && -z "$SSH_TTY" ]]; then
-    gum log -sl error "The '$COMMAND' command was not found and could not be loaded."
-    return 1
-  fi
-
-  # If nothing found, call sgpt to generate install code
-  gum log -sl warn "Command not found."
-  gum spin --spinner dot --title "Querying ChatGPT for possible solution.." -- SGPT_RESPONSE="$(sgpt "The \`$COMMAND\` command was not found. The system is macOS. Homebrew is already installed. Print the code that would be required to make the command available. Only print the code in the response.")"
-
-  # Print the markdown response using glow
-  echo "$SGPT_RESPONSE" | glow -
-
-  # Check if the response includes a block of code
-  if echo "$SGPT_RESPONSE" | grep -q '```'; then
-    if gum confirm "Do you want to run suggested solution?"; then
-      # Extract the code block from the markdown response and run it
-      CODE_BLOCK=$(echo "$SGPT_RESPONSE" | sed -n '/```/,/```/p' | sed '1d;$d')
-      eval "$CODE_BLOCK"
-
-      # After running the code block, execute the original command
-      # Check if the command has multiple lines or is a single line
-      if [[ "$COMMAND" == *$'\n'* ]]; then
-        # Multiple lines of command
-        echo -e "Running original command:\n\`\`\`$COMMAND\`\`\`" | glow -
-      else
-        # Single line command
-        echo "Running original command: \`$COMMAND\`" | glow -
-      fi
-    fi
-  fi
-}
-
-# Main hook: invoked when a command is not found
-if [ ${#1} -gt 1 ]; then
-  if [[ -n "$1" ]]; then
-    handle_command_not_found "$1"
-  fi
-fi
+# Entry points. The rc files source this file then call handle_command_not_found "$1"; the shell
+# hooks are defined here too so the file is self-contained if sourced directly.
+handle_command_not_found(){ __cnf_resolve "$@"; }   # rc entry point
+command_not_found_handler(){ __cnf_resolve "$@"; }   # zsh
+command_not_found_handle(){  __cnf_resolve "$@"; }   # bash
