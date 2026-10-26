@@ -467,6 +467,37 @@ app.get('/api/device/history', async (c) => {
   }
 });
 
+// Tenant/admin HISTORY (S15) — the operator's FLEET replay: ALL devices' events for a tenant, newest
+// first. Admin-gated (AID_ADMIN_TOKEN). Complements the device-scoped GET /api/device/history (one
+// device's own runs); returns device_id so the operator sees WHICH machine reported.
+app.get('/api/history', async (c) => {
+  const denied = requireAdmin(c);
+  if (denied) return denied;
+  const db = (c.env as Record<string, any>).DB;
+  if (!db) return c.json({ error: 'store_unavailable' }, 503);
+  const tenant = c.req.query('tenant') || '_default';
+  const limit = Math.min(Math.max(parseInt(c.req.query('limit') || '50', 10) || 50, 1), 200);
+  try {
+    const rs = await db
+      .prepare('SELECT id, device_id, kind, status, revision, summary, detail, created_at FROM history WHERE tenant = ? ORDER BY created_at DESC, id DESC LIMIT ?')
+      .bind(tenant, limit)
+      .all();
+    const items = (rs.results || []).map((r: any) => ({
+      id: r.id,
+      deviceId: r.device_id,
+      kind: r.kind,
+      status: r.status,
+      revision: r.revision,
+      summary: r.summary,
+      detail: r.detail ? JSON.parse(r.detail) : null,
+      createdAt: r.created_at,
+    }));
+    return c.json({ tenant, count: items.length, items });
+  } catch (e) {
+    return c.json({ error: 'store_error', detail: e instanceof Error ? e.message : String(e) }, 503);
+  }
+});
+
 // --- Browser-first PAIRING (S04 one-link enrollment, MASTER-PROMPT §2) — a headless machine STARTs a
 // pairing (no credentials yet: a short human `code` + a private poll-secret), a human APPROVES it in the
 // browser (owner-authed), and the machine POLLs with its poll-secret to CLAIM a freshly-minted device

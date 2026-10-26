@@ -150,6 +150,8 @@ JSON
   [ "$rpn" = 401 ] && pass "device/report (no bearer) -> 401" || fail "report no-bearer -> $rpn (want 401)"
   hsn="$(curl -s -o /dev/null -w '%{http_code}' "$u/api/device/history" 2>/dev/null || echo 000)"
   [ "$hsn" = 401 ] && pass "device/history (no bearer) -> 401" || fail "history no-bearer -> $hsn (want 401)"
+  ahn="$(curl -s -o /dev/null -w '%{http_code}' "$u/api/history?tenant=_default" 2>/dev/null || echo 000)"
+  [ "$ahn" = 401 ] && pass "GET /api/history (no admin bearer) -> 401 (fail-closed)" || fail "admin history no-bearer -> $ahn (want 401)"
 
   # browser-first PAIRING (fire #19 / S04) — start (unauthenticated) + poll-before-approval + bad polls
   pstart="$(curl -s -X POST -H 'content-type: application/json' -d '{"tenant":"_default","label":"pair-probe"}' "$u/api/devices/pair/start" 2>/dev/null)"
@@ -197,6 +199,8 @@ JSON
     echo "$hst" | jq -e '.count>=1 and (.items[0].kind=="apply") and (.items[0].status=="success")' >/dev/null 2>&1 && pass "device/history (device token) -> lists the reported run (newest-first)" || fail "history -> $hst"
     rpb="$(curl -s -o /dev/null -w '%{http_code}' -X POST -H "authorization: Bearer $dtok4" -H 'content-type: application/json' -d '{"kind":"bogus_kind"}' "$u/api/device/report" 2>/dev/null || echo 000)"
     [ "$rpb" = 400 ] && pass "device/report (invalid kind) -> 400 (Zod boundary)" || fail "report invalid -> $rpb (want 400)"
+    ah="$(curl -s -H "authorization: Bearer $DADM" "$u/api/history?tenant=_default&limit=5" 2>/dev/null)"
+    echo "$ah" | jq -e '.tenant=="_default" and (.count>=1) and (.items[0].deviceId|type=="string") and (.items[0].kind|type=="string")' >/dev/null 2>&1 && pass "GET /api/history?tenant (admin) -> fleet events across devices (S15)" || fail "admin history -> $(printf '%s' "$ah" | head -c 160)"
     [ -n "$did4" ] && curl -s -o /dev/null -X POST -H "authorization: Bearer $DADM" "$u/api/devices/$did4/revoke" >/dev/null 2>&1
 
     # pairing: owner approves (admin leg) then the machine claims its token (fire #19 / S04)
