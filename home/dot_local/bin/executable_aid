@@ -258,13 +258,28 @@ cmdApply() {
   fi
 }
 
+# aid up — one-command SYNC of this machine's view to its desired state: pull the desired ENVIRONMENT.md
+# then reconcile (which auto-registers a History 'check' event). READ-ONLY: never installs — `aid apply`
+# stays the explicit, opt-in mutation. Unpaired → point to `aid-pair`.
+cmdUp() {
+  if ! readToken >/dev/null 2>&1; then
+    err "not paired — run: aid-pair"
+    return 2
+  fi
+  log "aid up — syncing this machine's view to its desired state…"
+  cmdPull || return $?
+  cmdPlan || return $?
+  log "aid up ✓ (view synced + recorded; run 'aid apply' to install missing packages)"
+}
+
 usage() {
-  printf 'usage: aid <status|pull|plan|report|apply>\n' >&2
+  printf 'usage: aid <up|status|pull|plan|report|apply>\n' >&2
   return 1
 }
 
 main() {
   case "${1:-}" in
+  up) cmdUp ;;
   status) cmdStatus ;;
   pull) cmdPull ;;
   plan) cmdPlan ;;

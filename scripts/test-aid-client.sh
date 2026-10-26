@@ -37,6 +37,9 @@ if [ -f "$SRC" ]; then
   rc=0
   AID_TOKEN_PATH="/nonexistent/aid-token-$$" bash "$RUN" status >/dev/null 2>&1 || rc=$?
   [ "$rc" = 2 ] && pass "aid status (no token) -> not-paired (exit 2)" || fail "aid status no-token exit=$rc (want 2)"
+  rc=0
+  AID_TOKEN_PATH="/nonexistent/aid-token-$$" bash "$RUN" up >/dev/null 2>&1 || rc=$?
+  [ "$rc" = 2 ] && pass "aid up (no token) -> not-paired (exit 2)" || fail "aid up no-token exit=$rc (want 2)"
   # aid apply DRY-RUN (LOCAL, offline, no token) — crafted env with a missing pkg; MUST print a plan + install NOTHING
   CENV="$(mktemp)"
   printf '# E\n\n```install-doctor+json\n{ "defaults": { "packages": ["bash","zzz-nope-apply-xyz"] } }\n```\n' >"$CENV"
@@ -79,6 +82,10 @@ if [ -f "$SRC" ]; then
       echo "$ap2" | grep -qiE 'DRY-RUN|nothing to install' && pass "aid apply (dry-run, prod) -> plan or noop (installs nothing, opt-in to execute)" || fail "aid apply prod -> $ap2"
       hist2="$(curl -s -H "authorization: Bearer $(cat "$TOK")" "$u/api/device/history" 2>/dev/null)"
       echo "$hist2" | jq -e '[.items[].kind] | any(. == "apply")' >/dev/null 2>&1 && pass "aid apply auto-registered an 'apply' event to History (S14)" || fail "history lacks apply event -> $(printf '%s' "$hist2" | head -c 120)"
+      UENVF="$(mktemp -u)"
+      up="$(AID_TOKEN_PATH="$TOK" AID_CONTROL_PLANE_URL="$u" AID_ENV_PATH="$UENVF" bash "$RUN" up 2>&1)"
+      { [ -s "$UENVF" ] && echo "$up" | grep -q 'desired packages' && echo "$up" | grep -q 'aid up ✓'; } && pass "aid up -> one-command sync (pull wrote env + plan reconciled + done)" || fail "aid up -> $up / env=$([ -s "$UENVF" ] && echo written || echo missing)"
+      rm -f "$UENVF"
       [ -n "$did" ] && curl -s -o /dev/null -X POST -H "authorization: Bearer $ADMIN" "$u/api/devices/$did/revoke" >/dev/null 2>&1
       rm -f "$TOK" "$ENVF"
     else
