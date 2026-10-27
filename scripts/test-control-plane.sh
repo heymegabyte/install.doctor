@@ -301,6 +301,31 @@ JSON
     else
       fail "P05 pairing setup — start did not return code/pollSecret"
     fi
+
+    # P05-enforcement (O12) — the device token's GRANTED scope is ENFORCED per-action. A device granted
+    # ONLY report-status CAN report but CANNOT pull desired state (403 insufficient_scope, not 404 — the
+    # device IS known, the action isn't granted). An empty-scope (legacy, pre-#53) device is grandfathered.
+    p6start="$(curl -s -X POST -H 'content-type: application/json' -d '{"tenant":"_test","label":"p06-scope-enforce","permissions":["report-status"]}' "$u/api/devices/pair/start" 2>/dev/null)"
+    p6code="$(printf '%s' "$p6start" | jq -r '.code // empty')"; p6secret="$(printf '%s' "$p6start" | jq -r '.pollSecret // empty')"
+    if [ -n "$p6code" ] && [ -n "$p6secret" ]; then
+      curl -s -o /dev/null -X POST -H "authorization: Bearer $DADM" -H 'content-type: application/json' -d "$(jq -nc --arg c "$p6code" '{code:$c}')" "$u/api/devices/pair/approve" >/dev/null 2>&1
+      p6claim="$(curl -s -H "authorization: Bearer $p6secret" "$u/api/devices/pair/poll" 2>/dev/null)"
+      p6tok="$(printf '%s' "$p6claim" | jq -r '.token // empty')"; p6did="$(printf '%s' "$p6claim" | jq -r '.deviceId // empty')"
+      p6cur="$(curl -s -o /dev/null -w '%{http_code}' -H "authorization: Bearer $p6tok" "$u/api/device/current" 2>/dev/null || echo 000)"
+      [ "$p6cur" = 403 ] && pass "P05-enforce: report-only device -> GET /api/device/current 403 (lacks pull-desired-state)" || fail "P05-enforce current -> $p6cur (want 403)"
+      p6curb="$(curl -s -H "authorization: Bearer $p6tok" "$u/api/device/current" 2>/dev/null)"
+      echo "$p6curb" | jq -e '.error=="insufficient_scope" and .required=="pull-desired-state"' >/dev/null 2>&1 && pass "P05-enforce: 403 body names the required scope (insufficient_scope)" || fail "P05-enforce body -> $(printf '%s' "$p6curb" | head -c 120)"
+      p6rep="$(curl -s -o /dev/null -w '%{http_code}' -X POST -H "authorization: Bearer $p6tok" -H 'content-type: application/json' -d '{"kind":"check","status":"success","summary":"scope-enforce probe"}' "$u/api/device/report" 2>/dev/null || echo 000)"
+      [ "$p6rep" = 201 ] && pass "P05-enforce: report-only device -> POST /api/device/report 201 (report-status granted)" || fail "P05-enforce report -> $p6rep (want 201)"
+      [ -n "$p6did" ] && curl -s -o /dev/null -X POST -H "authorization: Bearer $DADM" "$u/api/devices/$p6did/revoke" >/dev/null 2>&1
+    else
+      fail "P05-enforce pairing setup — start did not return code/pollSecret"
+    fi
+    # back-compat: an empty-scope (legacy) device is GRANDFATHERED — scope enforcement never 403s it.
+    if [ -n "$ptok" ]; then
+      p6leg="$(curl -s -o /dev/null -w '%{http_code}' -H "authorization: Bearer $ptok" "$u/api/device/current" 2>/dev/null || echo 000)"
+      [ "$p6leg" != 403 ] && pass "P05-enforce: empty-scope (legacy) device grandfathered -> current NOT 403 ($p6leg)" || fail "P05-enforce legacy grandfather -> $p6leg (should NOT be 403)"
+    fi
     skip "AID_ADMIN_TOKEN unset — device enroll/me/revoke lifecycle assertions skipped"
   fi
 

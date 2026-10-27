@@ -605,6 +605,16 @@ async function resolveDevice(
   }
   return { deviceId: row.device_id, tenant: row.tenant, label: row.label, createdAt: row.created_at, permissions };
 }
+// P05-enforcement (O12 — authorize each host action server-side): gate a device action on the
+// device's RECORDED granted scope (persisted at claim, fire #53). Returns a 403 Response to
+// short-circuit, or null when allowed. A device with an EMPTY recorded scope is GRANDFATHERED
+// (legacy devices enrolled before the scope was persisted) so enforcement never breaks an
+// already-paired machine. 403 (not 404) — the device is known; the ACTION isn't granted.
+function requireScope(c: any, dev: { permissions: string[] }, permission: string): Response | null {
+  if (!dev.permissions || dev.permissions.length === 0) return null; // grandfathered (pre-#53)
+  if (dev.permissions.includes(permission)) return null; // granted
+  return c.json({ error: 'insufficient_scope', required: permission, granted: dev.permissions }, 403);
+}
 // Shared admin-bearer gate (reused by enroll + revoke + the PUT write path's pattern). Returns a
 // Response to short-circuit on failure, or null when authorized.
 function requireAdmin(c: any): Response | null {
@@ -778,6 +788,8 @@ app.get('/api/device/current', async (c) => {
   if (!db) return c.json({ error: 'store_unavailable' }, 503);
   const dev = await resolveDevice(db, c.req.header('authorization'));
   if (!dev) return c.json({ error: 'unauthorized' }, 401);
+  const scoped = requireScope(c, dev, 'pull-desired-state');
+  if (scoped) return scoped;
   try {
     const row = await db.prepare('SELECT markdown, updated_at FROM blueprints WHERE tenant = ?').bind(dev.tenant).first();
     if (!row) return c.json({ error: 'not_found', tenant: dev.tenant, deviceId: dev.deviceId }, 404);
@@ -794,6 +806,8 @@ app.get('/api/device/current.md', async (c) => {
   if (!db) return c.json({ error: 'store_unavailable' }, 503);
   const dev = await resolveDevice(db, c.req.header('authorization'));
   if (!dev) return c.json({ error: 'unauthorized' }, 401);
+  const scoped = requireScope(c, dev, 'pull-desired-state');
+  if (scoped) return scoped;
   try {
     const row = await db.prepare('SELECT markdown FROM blueprints WHERE tenant = ?').bind(dev.tenant).first();
     if (!row) return c.json({ error: 'not_found', tenant: dev.tenant }, 404);
@@ -807,6 +821,8 @@ app.post('/api/device/apply', async (c) => {
   if (!db) return c.json({ error: 'store_unavailable' }, 503);
   const dev = await resolveDevice(db, c.req.header('authorization'));
   if (!dev) return c.json({ error: 'unauthorized' }, 401);
+  const scoped = requireScope(c, dev, 'pull-desired-state');
+  if (scoped) return scoped;
   let body: { observed?: unknown; dryRun?: boolean };
   try {
     body = (await c.req.json()) as typeof body;
@@ -839,6 +855,8 @@ app.post('/api/device/report', async (c) => {
   if (!db) return c.json({ error: 'store_unavailable' }, 503);
   const dev = await resolveDevice(db, c.req.header('authorization'));
   if (!dev) return c.json({ error: 'unauthorized' }, 401);
+  const scoped = requireScope(c, dev, 'report-status');
+  if (scoped) return scoped;
   const parsed = ReportRequest.safeParse(await c.req.json().catch(() => ({})));
   if (!parsed.success) return c.json({ error: 'invalid_request', issues: parsed.error.issues }, 400);
   try {
@@ -859,6 +877,8 @@ app.get('/api/device/history', async (c) => {
   if (!db) return c.json({ error: 'store_unavailable' }, 503);
   const dev = await resolveDevice(db, c.req.header('authorization'));
   if (!dev) return c.json({ error: 'unauthorized' }, 401);
+  const scoped = requireScope(c, dev, 'report-status');
+  if (scoped) return scoped;
   const limit = Math.min(Math.max(parseInt(c.req.query('limit') || '50', 10) || 50, 1), 100);
   try {
     const rs = await db
