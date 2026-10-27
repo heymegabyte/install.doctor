@@ -1,3 +1,22 @@
+# BEGIN Ubuntu fleet Cloudflare Access
+Host ubuntu.megabyte.space
+    # ubuntu.megabyte.space is now the web desktop (Selkies, HTTP). SSH rides the
+    # ssh-ubuntu.megabyte.space hostname on the same private-apps tunnel (ssh://2222).
+    HostName ssh-ubuntu.megabyte.space
+    User professormanhattan
+    Port 22
+    ProxyCommand "/Users/Apple/.ssh/ubuntu-ssh-proxy.sh" "/opt/homebrew/opt/cloudflared/bin/cloudflared" %h
+    IdentityFile "/Users/Apple/.ssh/id_rsa"
+    IdentitiesOnly yes
+    ForwardAgent no
+    ServerAliveInterval 30
+    ServerAliveCountMax 3
+    ConnectTimeout 90
+    StrictHostKeyChecking yes
+# END Ubuntu fleet Cloudflare Access
+
+Include /Users/Apple/.config/colima/ssh_config
+
 Host *
     IgnoreUnknown AddKeysToAgent,UseKeychain
     AddKeysToAgent yes
@@ -57,3 +76,24 @@ Host workstation
     User {{ .user.username }}
     Hostname ssh-workstation.{{ .host.domain }}
     ProxyCommand /opt/homebrew/bin/cloudflared access ssh --hostname %h
+
+# ssh-coolify.megabyte.space via Cloudflare Access (added by Claude 2026-10-10)
+# 2026-10-27: switched to non-interactive service-token proxy (CF_ACCESS_SSH_COOLIFY_*)
+# so the unattended /loop deploys without a browser login. See coolify-ssh-proxy.sh.
+Host ssh-coolify.megabyte.space
+  ProxyCommand "/Users/Apple/.ssh/coolify-ssh-proxy.sh" "/opt/homebrew/bin/cloudflared" %h
+  StrictHostKeyChecking accept-new
+  User root
+
+# ssh-proxmox.megabyte.space via Cloudflare Access (added by Claude 2026-10-11)
+Host ssh-proxmox.megabyte.space
+  ProxyCommand /opt/homebrew/bin/cloudflared access ssh --hostname %h
+  StrictHostKeyChecking accept-new
+  User root
+
+# proxmox.megabyte.space resolves to the Proxmox WEB UI (:8006); SSH is routed via the
+# ssh-proxmox tunnel hostname. This alias makes 'ssh proxmox.megabyte.space' reach the host's SSH.
+Host proxmox.megabyte.space
+  ProxyCommand /opt/homebrew/bin/cloudflared access ssh --hostname ssh-proxmox.megabyte.space
+  StrictHostKeyChecking accept-new
+  User root
