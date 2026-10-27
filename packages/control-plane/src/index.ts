@@ -278,7 +278,8 @@ async function loadInfo(){
     var r=await fetch('/api/devices/pair/info?code='+encodeURIComponent(CODE));var j=await r.json();
     if(!r.ok){el.innerHTML='<p class=muted>✗ '+esc(j.error||r.status)+' — no pending pairing for this code.</p>';return}
     var warn=(j.status==='expired')?' <span class=tag>expired</span>':(j.status==='claimed'?' <span class=tag>already claimed</span>':'');
-    el.innerHTML='<h3>You are approving'+warn+'</h3><p><b>Host:</b> <span class=mono>'+esc(j.host||'(unnamed machine)')+'</span></p><p><b>Tenant:</b> '+esc(j.tenant)+'</p><p class=muted>Approving enrolls this machine as a device in that tenant (standard device access: pull its desired state + report status) and mints a revocable, device-scoped token — never a reusable secret in any URL. Only approve a code you started yourself.</p>';
+    var perms=(j.permissions&&j.permissions.length)?'<p><b>Requesting:</b> '+j.permissions.map(function(p){return '<span class=tag>'+esc(p)+'</span>'}).join(' ')+'</p>':'<p class=muted><b>Requesting:</b> standard device access (no elevated scope declared)</p>';
+    el.innerHTML='<h3>You are approving'+warn+'</h3><p><b>Host:</b> <span class=mono>'+esc(j.host||'(unnamed machine)')+'</span></p><p><b>Tenant:</b> '+esc(j.tenant)+'</p>'+perms+'<p class=muted>Approving enrolls this machine as a device in that tenant and mints a revocable, device-scoped token — never a reusable secret in any URL. Only approve a code you started yourself.</p>';
   }catch(e){el.innerHTML='<p class=muted>✗ '+esc(e)+'</p>'}
 }
 async function approve(){
@@ -899,7 +900,13 @@ app.get('/api/history', async (c) => {
 // token exactly once. The reusable device token is minted at claim + returned ONLY in the poll body —
 // never in a URL or log; only hashes are stored. ---
 const PAIR_TTL_MS = 10 * 60 * 1000;
-const PairStartRequest = z.object({ tenant: z.string().max(200).optional(), label: z.string().max(200).optional() }).strict();
+const PairStartRequest = z
+  .object({
+    tenant: z.string().max(200).optional(),
+    label: z.string().max(200).optional(),
+    permissions: z.array(z.string().max(64)).max(32).optional(), // P03: capability scope the device requests
+  })
+  .strict();
 app.post('/api/devices/pair/start', async (c) => {
   const db = (c.env as Record<string, any>).DB;
   if (!db) return c.json({ error: 'store_unavailable' }, 503);
@@ -912,9 +919,10 @@ app.post('/api/devices/pair/start', async (c) => {
     const nowMs = Date.now();
     const createdAt = new Date(nowMs).toISOString();
     const expiresAt = new Date(nowMs + PAIR_TTL_MS).toISOString();
+    const permissions = JSON.stringify(parsed.data.permissions ?? []); // stored as a JSON array (P03)
     await db
-      .prepare('INSERT INTO pairings (code, poll_sha256, tenant, label, status, created_at, expires_at) VALUES (?,?,?,?,?,?,?)')
-      .bind(code, await sha256hex(pollSecret), tenant, parsed.data.label ?? null, 'pending', createdAt, expiresAt)
+      .prepare('INSERT INTO pairings (code, poll_sha256, tenant, label, permissions, status, created_at, expires_at) VALUES (?,?,?,?,?,?,?,?)')
+      .bind(code, await sha256hex(pollSecret), tenant, parsed.data.label ?? null, permissions, 'pending', createdAt, expiresAt)
       .run();
     return c.json(
       { code, pollSecret, tenant, verifyUrl: `${APP_URL}/pair?code=${code}`, expiresAt, note: 'show the code to the operator; keep pollSecret private (never in a URL/log)' },
@@ -934,15 +942,22 @@ app.get('/api/devices/pair/info', async (c) => {
   const code = (c.req.query('code') || '').trim().toUpperCase();
   if (!code) return c.json({ error: 'invalid_request', detail: 'code required' }, 400);
   const row = await db
-    .prepare('SELECT code, tenant, label, status, created_at, expires_at FROM pairings WHERE code = ?')
+    .prepare('SELECT code, tenant, label, permissions, status, created_at, expires_at FROM pairings WHERE code = ?')
     .bind(code)
     .first();
   if (!row) return c.json({ error: 'not_found', code }, 404);
   const expired = new Date(row.expires_at).getTime() < Date.now();
+  let permissions: string[] = [];
+  try {
+    if (row.permissions) permissions = JSON.parse(row.permissions as string);
+  } catch {
+    /* tolerate a legacy/unparseable value — read as no declared scope */
+  }
   return c.json({
     code: row.code,
     tenant: row.tenant,
     host: row.label || null,
+    permissions,
     status: expired && row.status !== 'claimed' ? 'expired' : row.status,
     createdAt: row.created_at,
     expiresAt: row.expires_at,
