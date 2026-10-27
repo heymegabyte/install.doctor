@@ -754,10 +754,14 @@ app.get('/api/recommendations', async (c) => {
     const { currentRevision, items } = await listDevicesWithDrift(db, tenant, 500);
     const names = (ds: any[]) => ds.map((d) => d.label || d.deviceId).join(', ');
     const active = items.filter((d) => !d.revoked);
+    const failed = active.filter((d) => d.lastStatus === 'failed');
     const drifted = active.filter((d) => d.drift === 'drifted');
     const never = active.filter((d) => !d.lastSeen);
     const stale = active.filter((d) => d.lastSeen && Date.now() - Date.parse(d.lastSeen) > 86400000);
     const recs: any[] = [];
+    // A FAILED most-recent run is the most urgent signal (a broken apply/run beats mere drift) — list first.
+    if (failed.length)
+      recs.push({ id: 'failed_last_run', severity: 'warning', title: `${failed.length} machine(s) whose last run FAILED`, detail: `Investigate the most recent failure on: ${names(failed)}`, action: 'investigate', devices: failed.map((d) => d.deviceId) });
     if (drifted.length)
       recs.push({ id: 'drifted', severity: 'warning', title: `${drifted.length} machine(s) behind the desired revision${currentRevision ? ` (${currentRevision})` : ''}`, detail: `Apply desired state (\`aid up\`) on: ${names(drifted)}`, action: 'apply', devices: drifted.map((d) => d.deviceId) });
     if (never.length)

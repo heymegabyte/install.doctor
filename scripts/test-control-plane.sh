@@ -284,6 +284,14 @@ JSON
     recs="$(curl -s -H "authorization: Bearer $DADM" "$u/api/recommendations?tenant=_default" 2>/dev/null)"
     echo "$recs" | jq -e --arg d "$rcdid" '(.generated=="rule-based") and ([.recommendations[]|select(.id=="drifted")][0] as $r | ($r!=null) and ($r.action=="apply") and ([$r.devices[]]|index($d)!=null))' >/dev/null 2>&1 && pass "GET /api/recommendations -> 'drifted' rec names the behind-revision device (N03, rule-based)" || fail "recs drifted -> $(printf '%s' "$recs" | head -c 220)"
     [ -n "$rcdid" ] && curl -s -o /dev/null -X POST -H "authorization: Bearer $DADM" "$u/api/devices/$rcdid/revoke" >/dev/null 2>&1
+    # fire #60 — a FAILED last run yields a 'failed_last_run' rec (N03/U09). The most urgent signal — a
+    # failed apply/run beats drift. Reuses lastStatus already surfaced by listDevicesWithDrift.
+    frenr="$(curl -s -X POST -H "authorization: Bearer $DADM" -H 'content-type: application/json' -d '{"tenant":"_default","label":"recs-failed-probe"}' "$u/api/devices/enroll" 2>/dev/null)"
+    frdid="$(printf '%s' "$frenr" | jq -r '.deviceId // empty')"; frtok="$(printf '%s' "$frenr" | jq -r '.token // empty')"
+    curl -s -o /dev/null -X POST -H "authorization: Bearer $frtok" -H 'content-type: application/json' -d '{"kind":"apply","status":"failed","summary":"install failed"}' "$u/api/device/report" 2>/dev/null
+    frecs="$(curl -s -H "authorization: Bearer $DADM" "$u/api/recommendations?tenant=_default" 2>/dev/null)"
+    echo "$frecs" | jq -e --arg d "$frdid" '([.recommendations[]|select(.id=="failed_last_run")][0] as $r | ($r!=null) and ($r.severity=="warning") and ($r.action=="investigate") and ([$r.devices[]]|index($d)!=null))' >/dev/null 2>&1 && pass "GET /api/recommendations -> 'failed_last_run' rec names the device whose last run FAILED (N03/U09)" || fail "recs failed -> $(printf '%s' "$frecs" | head -c 240)"
+    [ -n "$frdid" ] && curl -s -o /dev/null -X POST -H "authorization: Bearer $DADM" "$u/api/devices/$frdid/revoke" >/dev/null 2>&1
     [ -n "$did4" ] && curl -s -o /dev/null -X POST -H "authorization: Bearer $DADM" "$u/api/devices/$did4/revoke" >/dev/null 2>&1
 
     # pairing: owner approves (admin leg) then the machine claims its token (fire #19 / S04)
