@@ -83,6 +83,17 @@ BREW
   { [ -x "$xbin/pwtool" ] && [ ! -f "$xbin/pwtool_ran" ]; } && pass "aid prewarm <missing> -> installs but does NOT run (§4.E prewarm)" || fail "aid prewarm installed=$([ -x "$xbin/pwtool" ] && echo y || echo n) ran=$([ -f "$xbin/pwtool_ran" ] && echo y || echo n)"
   rm -rf "$xbin" "$xidx"
 
+  # aid installs (U09/U10) — summarize the cnf lazy-install telemetry journal. Seed a journal, assert summary.
+  ijrnl="$(mktemp)"
+  printf '{"ts":"t","cmd":"rg","mgr":"brew","pkg":"ripgrep","outcome":"installed","duration_ms":1200}\n{"ts":"t","cmd":"fd","mgr":"brew","pkg":"fd","outcome":"installed","duration_ms":800}\n{"ts":"t","cmd":"rg","mgr":"brew","pkg":"ripgrep","outcome":"concurrent-skip","duration_ms":0}\n' > "$ijrnl"
+  isum="$(AID_CNF_JOURNAL="$ijrnl" AID_TOKEN_PATH="/nonexistent/aid-$$" bash "$RUN" installs 2>/dev/null)"
+  if command -v jq >/dev/null 2>&1; then
+    echo "$isum" | jq -e '.total==3 and .installed==2 and .warm_skips==1 and .avg_install_ms==1000' >/dev/null 2>&1 && pass "aid installs -> telemetry summary (total/installed/warm/avg latency, U09/U10)" || fail "aid installs -> $isum"
+  else
+    skip "jq absent — aid installs summary assertion skipped"
+  fi
+  rm -f "$ijrnl"
+
   if [ -n "${CONTROL_PLANE_URL:-}" ]; then
     u="${CONTROL_PLANE_URL%/}"
     ADMIN="${AID_ADMIN_TOKEN:-}"

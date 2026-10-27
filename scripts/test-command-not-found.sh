@@ -226,5 +226,25 @@ oidx="$tmp/oidx.tsv"; printf 'othertool\tothertool\tothertool\n' > "$oidx"
 oout="$(CNF_ALLOW_NONINTERACTIVE=1 PATH="$mbin:$PATH" CNF_INDEX="$oidx" CNF_LOCK_DIR="$tmp/mlocks2" __cnf_resolve othertool 2>/dev/null)"
 { [ "$oout" = "OTHER_OK" ] && [ -f "$tmp/brew_ran" ]; } && pass "E02 — a non-mise command falls through to the normal install path (brew)" || fail "E02 fallthrough: out='$oout' brew_ran=$([ -f "$tmp/brew_ran" ] && echo y || echo n)"
 
+# 12. U09/U10 — lazy-install TELEMETRY: a successful install appends a well-formed NDJSON line to the
+# LOCAL journal (cmd/manager/pkg/outcome/duration_ms). No secrets, append-only. jq-validated.
+jbin="$tmp/jbin"; mkdir -p "$jbin"
+jidx="$tmp/jidx.tsv"; printf 'jtool\tjtool\tjtool\n' > "$jidx"
+printf '#!/usr/bin/env bash\nprintf "#!/usr/bin/env bash\\necho ok\\n" > "%s/jtool"\nchmod +x "%s/jtool"\n' "$jbin" "$jbin" > "$jbin/brew"; chmod +x "$jbin/brew"
+jlog="$tmp/installs.ndjson"; rm -f "$jlog" "$jbin/jtool"
+CNF_JOURNAL="$jlog" CNF_ALLOW_NONINTERACTIVE=1 PATH="$jbin:$PATH" CNF_INDEX="$jidx" CNF_LOCK_DIR="$tmp/jlocks" __cnf_resolve jtool >/dev/null 2>&1
+if [ -s "$jlog" ] && command -v jq >/dev/null 2>&1; then
+  tail -1 "$jlog" | jq -e '.cmd=="jtool" and .mgr=="brew" and .pkg=="jtool" and .outcome=="installed" and (.duration_ms|type=="number")' >/dev/null 2>&1 && pass "U09/U10 — install appends a well-formed telemetry line (cmd/mgr/pkg/outcome/duration_ms)" || fail "journal line malformed: $(tail -1 "$jlog")"
+elif [ -s "$jlog" ]; then
+  { grep -q '"outcome":"installed"' "$jlog" && grep -q '"cmd":"jtool"' "$jlog"; } && pass "U09/U10 — install appends a telemetry line (jq absent; grep-validated)" || fail "journal line: $(tail -1 "$jlog")"
+else
+  fail "U09/U10 journal not written to $jlog"
+fi
+# 12b. V01 — sourcing the hook writes NO journal (telemetry is install-time only; startup stays
+# side-effect + network free). A fresh journal path must stay absent after a bare source.
+jlog2="$tmp/startup.ndjson"; rm -f "$jlog2"
+( CNF_JOURNAL="$jlog2"; . "$HANDLER" ) >/dev/null 2>&1
+[ ! -f "$jlog2" ] && pass "V01 — sourcing the hook writes no journal (startup side-effect-free)" || fail "sourcing wrote a journal: $(cat "$jlog2" 2>/dev/null)"
+
 say "command-not-found: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

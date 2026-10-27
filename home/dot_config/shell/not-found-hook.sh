@@ -13,6 +13,9 @@ CNF_INDEX="${CNF_INDEX:-$HOME/.cache/cnf/index.tsv}"
 CNF_LOCK_DIR="${CNF_LOCK_DIR:-$HOME/.cache/cnf/locks}"
 CNF_LOCK_WAIT="${CNF_LOCK_WAIT:-120}"   # max seconds to wait for a peer's install
 CNF_LOCK_STALE="${CNF_LOCK_STALE:-600}" # a lock older than this is a dead holder → reaped
+# U09/U10: append-only LOCAL lazy-install telemetry journal (cmd/manager/pkg/outcome/duration — never
+# in Git, never a secret). Lets aid report cold/warm latency + cache effectiveness.
+CNF_JOURNAL="${CNF_JOURNAL:-$HOME/.local/var/log/install.doctor/cnf-installs.ndjson}"
 
 __cnf_lock_path(){ printf '%s/%s.lock' "$CNF_LOCK_DIR" "$(printf '%s' "$1" | tr -c 'A-Za-z0-9_.-' '_')"; }
 __cnf_lock_age(){ local now mtime
@@ -76,6 +79,16 @@ __cnf_do_install(){ local mgr="$1" pkg="$2"
     pip)    pip install --user "$pkg";;
     gem)    gem install "$pkg";;
     *) return 1;; esac; }
+
+# U09/U10 telemetry. Sanitize to a safe charset so a value can NEVER break the JSON line (no quotes,
+# backslashes, or control chars reach the file). Append-only; fail-soft (a journal error never breaks
+# an install). Fields: ts, cmd, mgr, pkg, outcome (installed|failed|concurrent-skip), duration_ms.
+__cnf_jsan(){ printf '%s' "$1" | tr -cd 'A-Za-z0-9._/+@: -'; }
+__cnf_journal(){ mkdir -p "$(dirname "$CNF_JOURNAL")" 2>/dev/null || return 0
+  printf '{"ts":"%s","cmd":"%s","mgr":"%s","pkg":"%s","outcome":"%s","duration_ms":%s}\n' \
+    "$(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || echo unknown)" \
+    "$(__cnf_jsan "$1")" "$(__cnf_jsan "$2")" "$(__cnf_jsan "$3")" "$(__cnf_jsan "$4")" "${5:-0}" \
+    >> "$CNF_JOURNAL" 2>/dev/null || true; }
 
 # Deterministic allowlist guard — AI text is NOT a trust boundary (ai-agent-security). Rejects shell
 # metacharacters (chaining/redirection/substitution/newline) and anything whose leading token (after an
@@ -166,11 +179,21 @@ __cnf_resolve(){ local cmd="$1"; shift
     lock="$(__cnf_acquire "$cmd")"; acq=$?
     if [ "$acq" -eq 10 ]; then
       __cnf_say "✓ '$cmd' installed by a concurrent shell — skipping duplicate install"
+      __cnf_journal "$cmd" "$mgr" "$pkg" "concurrent-skip" 0 # U10: a warm hit — a peer did the install
     else
       __cnf_say "↻ installing '$cmd' → $mgr: $pkg (first run)…"
+      local __t0 __dur
+      __t0="$(date +%s 2>/dev/null || echo 0)"
       # E09: installer stdout → stderr (not the command's stdout); </dev/null so it never eats the
       # command's stdin.
-      __cnf_do_install "$mgr" "$pkg" >&2 </dev/null || __cnf_warn "install via $mgr failed"
+      if __cnf_do_install "$mgr" "$pkg" >&2 </dev/null; then
+        __dur=$(( ( $(date +%s 2>/dev/null || echo "$__t0") - __t0 ) * 1000 ))
+        __cnf_journal "$cmd" "$mgr" "$pkg" "installed" "$__dur" # U09/U10: cold install + latency
+      else
+        __dur=$(( ( $(date +%s 2>/dev/null || echo "$__t0") - __t0 ) * 1000 ))
+        __cnf_warn "install via $mgr failed"
+        __cnf_journal "$cmd" "$mgr" "$pkg" "failed" "$__dur"
+      fi
       [ "$acq" -eq 0 ] && { rmdir "$lock" 2>/dev/null || true; }
     fi
   else

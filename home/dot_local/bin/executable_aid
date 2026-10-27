@@ -10,6 +10,7 @@ AID_CONTROL_PLANE_URL="${AID_CONTROL_PLANE_URL:-https://aid-control-plane.manhat
 AID_TOKEN_PATH="${AID_TOKEN_PATH:-$HOME/.config/aid/device-token}"
 AID_ENV_PATH="${AID_ENV_PATH:-$HOME/.config/aid/ENVIRONMENT.md}"
 AID_CNF_HOOK="${AID_CNF_HOOK:-$HOME/.config/shell/not-found-hook.sh}" # the ONE cnf resolver (install path)
+AID_CNF_JOURNAL="${AID_CNF_JOURNAL:-${CNF_JOURNAL:-$HOME/.local/var/log/install.doctor/cnf-installs.ndjson}}" # U09/U10 lazy-install telemetry
 AID_TOTAL=0
 AID_PRESENT=0
 AID_MISSING=""
@@ -342,8 +343,23 @@ cmdPrewarm() {
   return "$rc"
 }
 
+# aid installs — summarize lazy-install telemetry (U09/U10 cold/warm latency + cache effectiveness) from
+# the cnf hook's LOCAL journal. Read-only, no network, no secrets.
+cmdInstalls() {
+  [ -s "$AID_CNF_JOURNAL" ] || { log "no lazy-install telemetry yet ($AID_CNF_JOURNAL)"; return 0; }
+  if command -v jq >/dev/null 2>&1; then
+    jq -s '{total:length,
+            installed:([.[]|select(.outcome=="installed")]|length),
+            failed:([.[]|select(.outcome=="failed")]|length),
+            warm_skips:([.[]|select(.outcome=="concurrent-skip")]|length),
+            avg_install_ms:([.[]|select(.outcome=="installed").duration_ms]|if length>0 then (add/length|floor) else 0 end)}' "$AID_CNF_JOURNAL"
+  else
+    log "installs: $(wc -l < "$AID_CNF_JOURNAL" | tr -d ' ') recorded in $AID_CNF_JOURNAL (install jq for a summary)"
+  fi
+}
+
 usage() {
-  printf 'usage: aid <up|status|pull|plan|report|apply|provider|exec|prewarm>\n' >&2
+  printf 'usage: aid <up|status|pull|plan|report|apply|provider|exec|prewarm|installs>\n' >&2
   return 1
 }
 
@@ -373,6 +389,7 @@ main() {
     shift
     cmdPrewarm "$@"
     ;;
+  installs) cmdInstalls ;;
   *) usage ;;
   esac
 }
