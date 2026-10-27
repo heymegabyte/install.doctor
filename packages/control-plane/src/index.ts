@@ -226,24 +226,37 @@ app.get('/pair', (c) => {
   return c.html(
     htmlPage(
       'Pair device · aid',
-      `<h1>Pair this device</h1>
-${code ? `<p>Approve pairing code:</p><p class=code>${code}</p>` : '<p class=muted>No code in the URL. Run <span class=mono>aid-pair</span> on the machine to get one.</p>'}
+      `<nav class=muted><a href="/">aid</a></nav>
+<h1>Pair this device</h1>
+${code ? `<p class=muted>Pairing code:</p><p class=code>${code}</p><div id=info class=card>Loading device details…</div>` : '<p class=muted>No code in the URL. Run <span class=mono>aid-pair</span> on the machine to get one.</p>'}
 <div class=card><h3>Approve (administrator)</h3>
-<p class=muted>Paste your admin token to approve this device. A signed-in owner session replaces this step soon.</p>
+<p class=muted>Review the device above, then paste your admin token to approve it. A signed-in owner session replaces this step soon.</p>
 <p><input id=tok type=password placeholder="AID_ADMIN_TOKEN" style="width:100%"></p>
 <p><button onclick="approve()">Approve pairing</button></p>
 <p id=out class=muted></p></div>
 <script>
+function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]})}
+var CODE=${JSON.stringify(code)};
+async function loadInfo(){
+  if(!CODE)return;var el=document.getElementById('info');if(!el)return;
+  try{
+    var r=await fetch('/api/devices/pair/info?code='+encodeURIComponent(CODE));var j=await r.json();
+    if(!r.ok){el.innerHTML='<p class=muted>✗ '+esc(j.error||r.status)+' — no pending pairing for this code.</p>';return}
+    var warn=(j.status==='expired')?' <span class=tag>expired</span>':(j.status==='claimed'?' <span class=tag>already claimed</span>':'');
+    el.innerHTML='<h3>You are approving'+warn+'</h3><p><b>Host:</b> <span class=mono>'+esc(j.host||'(unnamed machine)')+'</span></p><p><b>Tenant:</b> '+esc(j.tenant)+'</p><p class=muted>Approving enrolls this machine as a device in that tenant (standard device access: pull its desired state + report status) and mints a revocable, device-scoped token — never a reusable secret in any URL. Only approve a code you started yourself.</p>';
+  }catch(e){el.innerHTML='<p class=muted>✗ '+esc(e)+'</p>'}
+}
 async function approve(){
   var out=document.getElementById('out'),tok=document.getElementById('tok').value.trim();
   if(!tok){out.textContent='Enter the admin token.';return}
   out.textContent='Approving…';
   try{
-    var r=await fetch('/api/devices/pair/approve',{method:'POST',headers:{'authorization':'Bearer '+tok,'content-type':'application/json'},body:JSON.stringify({code:${JSON.stringify(code)}})});
+    var r=await fetch('/api/devices/pair/approve',{method:'POST',headers:{'authorization':'Bearer '+tok,'content-type':'application/json'},body:JSON.stringify({code:CODE})});
     var j=await r.json();
     out.textContent=r.ok?'✓ approved — the machine will claim its token shortly.':('✗ '+(j.error||r.status));
   }catch(e){out.textContent='✗ '+e}
 }
+loadInfo();
 </script>`,
     ),
   );
@@ -816,6 +829,30 @@ app.post('/api/devices/pair/start', async (c) => {
   } catch (e) {
     return c.json({ error: 'store_error', detail: e instanceof Error ? e.message : String(e) }, 503);
   }
+});
+// Public pairing INFO (P03 — the approver MUST see WHAT they're approving before granting). Returns the
+// machine's self-reported identity (label = its hostname) + tenant + status + expiry for a code. NO
+// secrets (never the poll hash or any token). Visiting this does NOT approve — approval is the explicit
+// admin-authed POST below ("visiting a URL doesn't approve it").
+app.get('/api/devices/pair/info', async (c) => {
+  const db = (c.env as Record<string, any>).DB;
+  if (!db) return c.json({ error: 'store_unavailable' }, 503);
+  const code = (c.req.query('code') || '').trim().toUpperCase();
+  if (!code) return c.json({ error: 'invalid_request', detail: 'code required' }, 400);
+  const row = await db
+    .prepare('SELECT code, tenant, label, status, created_at, expires_at FROM pairings WHERE code = ?')
+    .bind(code)
+    .first();
+  if (!row) return c.json({ error: 'not_found', code }, 404);
+  const expired = new Date(row.expires_at).getTime() < Date.now();
+  return c.json({
+    code: row.code,
+    tenant: row.tenant,
+    host: row.label || null,
+    status: expired && row.status !== 'claimed' ? 'expired' : row.status,
+    createdAt: row.created_at,
+    expiresAt: row.expires_at,
+  });
 });
 // Owner approves a pending pairing (the browser leg). Admin-gated — stands in for the owner session
 // until Better Auth lands. Mints NO token (claim does), so no plaintext token is ever stored.

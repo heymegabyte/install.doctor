@@ -38,7 +38,19 @@ if [ -n "${CONTROL_PLANE_URL:-}" ]; then
   { echo "$land" | grep -q 'install.doctor' && echo "$land" | grep -qi 'aid-pair'; } && pass "GET / -> landing page (aid + pairing instructions)" || fail "landing -> $(printf '%s' "$land" | head -c 80)"
   { echo "$land" | grep -qi 'set up and maintain' && echo "$land" | grep -qi 'headless' && echo "$land" | grep -qi 'first time you run' && echo "$land" | grep -qi 'Set up a computer'; } && pass "GET / -> onboarding content (promise + desktop/headless paths + on-demand CLIs + primary CTA — M2/M3/M5/M7)" || fail "landing onboarding content -> $(printf '%s' "$land" | head -c 140)"
   pairp="$(curl -s "$u/pair?code=ABC12345" 2>/dev/null)"
-  { echo "$pairp" | grep -q 'ABC12345' && echo "$pairp" | grep -qi 'approve pairing'; } && pass "GET /pair?code -> shows code + approve surface" || fail "pair page -> $(printf '%s' "$pairp" | head -c 80)"
+  { echo "$pairp" | grep -q 'ABC12345' && echo "$pairp" | grep -qi 'approve pairing' && echo "$pairp" | grep -qi 'You are approving'; } && pass "GET /pair?code -> shows code + device identity + approve surface (P03)" || fail "pair page -> $(printf '%s' "$pairp" | head -c 80)"
+  # P03: the approval surface must show WHAT is approved — start a pairing (public) then fetch its info.
+  pst="$(curl -s -X POST -H 'content-type: application/json' -d '{"tenant":"_test","label":"p03-probe-host"}' "$u/api/devices/pair/start" 2>/dev/null)"
+  pcode="$(printf '%s' "$pst" | jq -r '.code // empty')"
+  if [ -n "$pcode" ]; then
+    pinfo="$(curl -s "$u/api/devices/pair/info?code=$pcode" 2>/dev/null)"
+    echo "$pinfo" | jq -e --arg c "$pcode" '.code==$c and .host=="p03-probe-host" and .tenant=="_test" and .status=="pending"' >/dev/null 2>&1 && pass "GET /api/devices/pair/info -> host identity + tenant + status (P03)" || fail "pair info -> $(printf '%s' "$pinfo" | head -c 140)"
+    echo "$pinfo" | jq -e '(has("poll_sha256")|not) and (has("pollSecret")|not) and (has("token")|not)' >/dev/null 2>&1 && pass "pair/info leaks NO poll secret or token" || fail "pair/info leaked a secret field -> $(printf '%s' "$pinfo" | head -c 140)"
+  else
+    fail "pair/start -> no code ($(printf '%s' "$pst" | head -c 100))"
+  fi
+  pib="$(curl -s -o /dev/null -w '%{http_code}' "$u/api/devices/pair/info?code=ZZBOGUS99" 2>/dev/null || echo 000)"
+  [ "$pib" = 404 ] && pass "GET /api/devices/pair/info?code=<bogus> -> 404" || fail "pair info bogus -> $pib (want 404)"
   pc="$(curl -s "$u/api/provider-config" 2>/dev/null)"
   echo "$pc" | jq -e '(.enabled_providers[0]=="install-doctor") and (.provider["install-doctor"].options.baseURL|test("/api/ai/v1$")) and (.provider["install-doctor"].options.apiKey=="{env:AID_INFERENCE_TOKEN}")' >/dev/null 2>&1 && pass "GET /api/provider-config -> OpenCode config (install-doctor provider, {env} apiKey — no secret)" || fail "provider-config -> $(printf '%s' "$pc" | head -c 140)"
   hp="$(curl -s "$u/history" 2>/dev/null)"
