@@ -289,6 +289,30 @@ JSON
     echo "$hfall" | jq -e --arg a "$hfAid" --arg b "$hfBid" '(.device==null) and (.count>=3) and ([.items[].deviceId] as $d | ($d|index($a))!=null and ($d|index($b))!=null)' >/dev/null 2>&1 && pass "GET /api/history (no device) -> full tenant timeline incl. A+B (back-compat)" || fail "history no-filter -> $(printf '%s' "$hfall" | head -c 200)"
     [ -n "$hfAid" ] && curl -s -o /dev/null -X POST -H "authorization: Bearer $DADM" "$u/api/devices/$hfAid/revoke" >/dev/null 2>&1
     [ -n "$hfBid" ] && curl -s -o /dev/null -X POST -H "authorization: Bearer $DADM" "$u/api/devices/$hfBid/revoke" >/dev/null 2>&1
+    # fire #65 — W08 cross-tenant isolation (golden path "other-tenant can't retrieve"). Seed two
+    # tenants with DISTINCT revisions; a device in _isoA must see ONLY _isoA — never _isoB — and its
+    # token must not escalate to the admin fleet view. (The device model resolves tenant FROM the token.)
+    isobase="$(curl -s "$u/api/environment/current?tenant=_default" 2>/dev/null | jq -r '.markdown' | curl -s -X POST -H 'content-type: text/markdown' --data-binary @- "$u/api/environment/import" 2>/dev/null | jq -c '.blueprint')"
+    if [ -n "$isobase" ] && [ "$isobase" != "null" ]; then
+      isoAbp="$(printf '%s' "$isobase" | jq -c '.revision="iso-a-1"')"; isoBbp="$(printf '%s' "$isobase" | jq -c '.revision="iso-b-1"')"
+      curl -s -o /dev/null -X PUT -H "authorization: Bearer $DADM" -H 'content-type: application/json' -d "$(jq -nc --argjson b "$isoAbp" '{tenant:"_isoA",blueprint:$b}')" "$u/api/environment/current" 2>/dev/null
+      curl -s -o /dev/null -X PUT -H "authorization: Bearer $DADM" -H 'content-type: application/json' -d "$(jq -nc --argjson b "$isoBbp" '{tenant:"_isoB",blueprint:$b}')" "$u/api/environment/current" 2>/dev/null
+      isoenr="$(curl -s -X POST -H "authorization: Bearer $DADM" -H 'content-type: application/json' -d '{"tenant":"_isoA","label":"iso-probe"}' "$u/api/devices/enroll" 2>/dev/null)"
+      isotok="$(printf '%s' "$isoenr" | jq -r '.token // empty')"; isodid="$(printf '%s' "$isoenr" | jq -r '.deviceId // empty')"
+      isocur="$(curl -s -H "authorization: Bearer $isotok" "$u/api/device/current" 2>/dev/null)"
+      echo "$isocur" | jq -e '.tenant=="_isoA" and .revision=="iso-a-1"' >/dev/null 2>&1 && pass "W08: device/current -> ONLY its own tenant's desired state (_isoA iso-a-1)" || fail "W08 own-tenant -> $(printf '%s' "$isocur" | head -c 160)"
+      isowiden="$(curl -s -H "authorization: Bearer $isotok" "$u/api/device/current?tenant=_isoB" 2>/dev/null)"
+      echo "$isowiden" | jq -e '.tenant=="_isoA" and .revision=="iso-a-1"' >/dev/null 2>&1 && pass "W08: device/current?tenant=_isoB IGNORED -> still _isoA (no cross-tenant widening via param)" || fail "W08 widen -> $(printf '%s' "$isowiden" | head -c 160)"
+      curl -s -o /dev/null -X POST -H "authorization: Bearer $isotok" -H 'content-type: application/json' -d '{"kind":"run","status":"success","summary":"ISO_SECRET_EVENT_65"}' "$u/api/device/report" 2>/dev/null
+      isohA="$(curl -s -H "authorization: Bearer $DADM" "$u/api/history?tenant=_isoA&limit=50" 2>/dev/null)"
+      isohB="$(curl -s -H "authorization: Bearer $DADM" "$u/api/history?tenant=_isoB&limit=50" 2>/dev/null)"
+      { echo "$isohA" | grep -q 'ISO_SECRET_EVENT_65' && ! echo "$isohB" | grep -q 'ISO_SECRET_EVENT_65'; } && pass "W08: device History recorded under _isoA, ABSENT from _isoB (tenant isolation)" || fail "W08 history-leak -> A=$(echo "$isohA"|grep -c ISO_SECRET_EVENT_65) B=$(echo "$isohB"|grep -c ISO_SECRET_EVENT_65)"
+      isoesc="$(curl -s -o /dev/null -w '%{http_code}' -H "authorization: Bearer $isotok" "$u/api/devices?tenant=_isoB" 2>/dev/null || echo 000)"
+      [ "$isoesc" = 401 ] && pass "W08: device token REJECTED by admin fleet endpoint -> 401 (no privilege escalation)" || fail "W08 escalation -> $isoesc (want 401)"
+      [ -n "$isodid" ] && curl -s -o /dev/null -X POST -H "authorization: Bearer $DADM" "$u/api/devices/$isodid/revoke" >/dev/null 2>&1
+    else
+      fail "W08 setup — could not derive a base blueprint to seed _isoA/_isoB"
+    fi
     # Machines inventory (fire #37 / N03·S04): the _test device enrolled above ($did) must appear with a boolean revoked status.
     ad="$(curl -s -H "authorization: Bearer $DADM" "$u/api/devices?tenant=_test&limit=200" 2>/dev/null)"
     echo "$ad" | jq -e --arg d "$did" '.tenant=="_test" and (.count>=1) and ([.items[].deviceId]|index($d)!=null) and (.items[0].revoked|type=="boolean")' >/dev/null 2>&1 && pass "GET /api/devices?tenant (admin) -> enrolled device inventory w/ status (N03/S04)" || fail "admin devices -> $(printf '%s' "$ad" | head -c 160)"
