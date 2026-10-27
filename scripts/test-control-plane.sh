@@ -257,6 +257,21 @@ JSON
     [ "$rpb" = 400 ] && pass "device/report (invalid kind) -> 400 (Zod boundary)" || fail "report invalid -> $rpb (want 400)"
     ah="$(curl -s -H "authorization: Bearer $DADM" "$u/api/history?tenant=_default&limit=5" 2>/dev/null)"
     echo "$ah" | jq -e '.tenant=="_default" and (.count>=1) and (.items[0].deviceId|type=="string") and (.items[0].kind|type=="string")' >/dev/null 2>&1 && pass "GET /api/history?tenant (admin) -> fleet events across devices (S15)" || fail "admin history -> $(printf '%s' "$ah" | head -c 160)"
+    # fire #63 — per-device timeline filter (N09). Fresh device ids per run → id-scoped assertions are
+    # deterministic even though the _histf tenant accumulates events across runs.
+    hfA="$(curl -s -X POST -H "authorization: Bearer $DADM" -H 'content-type: application/json' -d '{"tenant":"_histf","label":"hist-A"}' "$u/api/devices/enroll" 2>/dev/null)"
+    hfAtok="$(printf '%s' "$hfA" | jq -r '.token // empty')"; hfAid="$(printf '%s' "$hfA" | jq -r '.deviceId // empty')"
+    hfB="$(curl -s -X POST -H "authorization: Bearer $DADM" -H 'content-type: application/json' -d '{"tenant":"_histf","label":"hist-B"}' "$u/api/devices/enroll" 2>/dev/null)"
+    hfBtok="$(printf '%s' "$hfB" | jq -r '.token // empty')"; hfBid="$(printf '%s' "$hfB" | jq -r '.deviceId // empty')"
+    curl -s -o /dev/null -X POST -H "authorization: Bearer $hfAtok" -H 'content-type: application/json' -d '{"kind":"run","status":"success","summary":"A1"}' "$u/api/device/report" 2>/dev/null
+    curl -s -o /dev/null -X POST -H "authorization: Bearer $hfAtok" -H 'content-type: application/json' -d '{"kind":"check","status":"success","summary":"A2"}' "$u/api/device/report" 2>/dev/null
+    curl -s -o /dev/null -X POST -H "authorization: Bearer $hfBtok" -H 'content-type: application/json' -d '{"kind":"run","status":"success","summary":"B1"}' "$u/api/device/report" 2>/dev/null
+    hffilt="$(curl -s -H "authorization: Bearer $DADM" "$u/api/history?tenant=_histf&device=$hfAid" 2>/dev/null)"
+    echo "$hffilt" | jq -e --arg a "$hfAid" '(.device==$a) and (.count==2) and (([.items[].deviceId]|unique)==[$a])' >/dev/null 2>&1 && pass "GET /api/history?device= -> per-device timeline (only that device's 2 events, N09)" || fail "history device-filter -> $(printf '%s' "$hffilt" | head -c 220)"
+    hfall="$(curl -s -H "authorization: Bearer $DADM" "$u/api/history?tenant=_histf&limit=200" 2>/dev/null)"
+    echo "$hfall" | jq -e --arg a "$hfAid" --arg b "$hfBid" '(.device==null) and (.count>=3) and ([.items[].deviceId] as $d | ($d|index($a))!=null and ($d|index($b))!=null)' >/dev/null 2>&1 && pass "GET /api/history (no device) -> full tenant timeline incl. A+B (back-compat)" || fail "history no-filter -> $(printf '%s' "$hfall" | head -c 200)"
+    [ -n "$hfAid" ] && curl -s -o /dev/null -X POST -H "authorization: Bearer $DADM" "$u/api/devices/$hfAid/revoke" >/dev/null 2>&1
+    [ -n "$hfBid" ] && curl -s -o /dev/null -X POST -H "authorization: Bearer $DADM" "$u/api/devices/$hfBid/revoke" >/dev/null 2>&1
     # Machines inventory (fire #37 / N03·S04): the _test device enrolled above ($did) must appear with a boolean revoked status.
     ad="$(curl -s -H "authorization: Bearer $DADM" "$u/api/devices?tenant=_test&limit=200" 2>/dev/null)"
     echo "$ad" | jq -e --arg d "$did" '.tenant=="_test" and (.count>=1) and ([.items[].deviceId]|index($d)!=null) and (.items[0].revoked|type=="boolean")' >/dev/null 2>&1 && pass "GET /api/devices?tenant (admin) -> enrolled device inventory w/ status (N03/S04)" || fail "admin devices -> $(printf '%s' "$ad" | head -c 160)"

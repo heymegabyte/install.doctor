@@ -77,7 +77,7 @@ A "public page" serves an HTML shell anyone can load, but its in-page data fetch
 | Route | Auth | Purpose |
 | --- | --- | --- |
 | `GET /api/recommendations` | admin | Rule-based recs from observed state — `failed_last_run` / `drifted` / `never_reported` / `stale` / `all_good`. |
-| `GET /api/history` | admin | Tenant-wide fleet events (which device reported what), newest-first. |
+| `GET /api/history` | admin | Tenant-wide fleet events (which device reported what), newest-first; optional `?device=<id>` scopes to one machine's timeline (N09). |
 
 ## See also
 

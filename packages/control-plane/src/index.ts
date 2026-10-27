@@ -971,11 +971,17 @@ app.get('/api/history', async (c) => {
   const db = (c.env as Record<string, any>).DB;
   if (!db) return c.json({ error: 'store_unavailable' }, 503);
   const tenant = c.req.query('tenant') || '_default';
+  const device = c.req.query('device') || '';
   const limit = Math.min(Math.max(parseInt(c.req.query('limit') || '50', 10) || 50, 1), 200);
   try {
+    // N09 unified timeline: an optional `device=` filter scopes the SAME tenant query to one machine
+    // (AND'd with tenant → no cross-tenant leak). One parametrized query; binds built to match.
+    const sql = device
+      ? 'SELECT id, device_id, kind, status, revision, summary, detail, created_at FROM history WHERE tenant = ? AND device_id = ? ORDER BY created_at DESC, id DESC LIMIT ?'
+      : 'SELECT id, device_id, kind, status, revision, summary, detail, created_at FROM history WHERE tenant = ? ORDER BY created_at DESC, id DESC LIMIT ?';
     const rs = await db
-      .prepare('SELECT id, device_id, kind, status, revision, summary, detail, created_at FROM history WHERE tenant = ? ORDER BY created_at DESC, id DESC LIMIT ?')
-      .bind(tenant, limit)
+      .prepare(sql)
+      .bind(...(device ? [tenant, device, limit] : [tenant, limit]))
       .all();
     const items = (rs.results || []).map((r: any) => ({
       id: r.id,
@@ -987,7 +993,7 @@ app.get('/api/history', async (c) => {
       detail: r.detail ? JSON.parse(r.detail) : null,
       createdAt: r.created_at,
     }));
-    return c.json({ tenant, count: items.length, items });
+    return c.json({ tenant, device: device || null, count: items.length, items });
   } catch (e) {
     return c.json({ error: 'store_error', detail: e instanceof Error ? e.message : String(e) }, 503);
   }
