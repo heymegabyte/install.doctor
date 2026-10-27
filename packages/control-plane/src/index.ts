@@ -103,7 +103,7 @@ app.get('/', (c) =>
 <div class=card><h3>Configured, recoverable, current</h3>
 <p>Each host keeps its configuration and recovery metadata in version control, and its state stays reconciled to what you described. User files and databases go to encrypted backup storage — kept separate from configuration.</p></div>
 
-<p class=muted>Live dashboard: <a href="/machines">Machines</a> · <a href="/apps">App Store</a> · <a href="/recommendations">Recommendations</a> · <a href="/history">History</a> · API health <a href="/health">/health</a>. Automations in progress.</p>`,
+<p class=muted>Live dashboard: <a href="/machines">Machines</a> · <a href="/apps">App Store</a> · <a href="/environment">Environment</a> · <a href="/recommendations">Recommendations</a> · <a href="/history">History</a> · API health <a href="/health">/health</a>. Automations in progress.</p>`,
     ),
   ),
 );
@@ -114,7 +114,7 @@ app.get('/history', (c) =>
   c.html(
     htmlPage(
       'History · aid',
-      `<nav class=muted><a href="/">aid</a><a href="/machines">Machines</a><a href="/apps">App Store</a><a href="/recommendations">Recommendations</a><a href="/history">History</a></nav>
+      `<nav class=muted><a href="/">aid</a><a href="/machines">Machines</a><a href="/apps">App Store</a><a href="/environment">Environment</a><a href="/recommendations">Recommendations</a><a href="/history">History</a></nav>
 <h1>History <span class=muted>· fleet activity</span></h1>
 <div class=card>
 <p class=muted>Paste your admin token to load the fleet's reported events (apply / plan / report runs across devices).</p>
@@ -140,6 +140,39 @@ async function load(){
     ),
   ),
 );
+// Environment nav section (C02/M "review the plan") — a READ-ONLY view of a tenant's authoritative
+// desired-state ENVIRONMENT.md + its revision/digest, read from the EXISTING public GET
+// /api/environment/current (the one revisioned write path; this only READS). Auto-loads _default on
+// open. Thin honest page — the full §16 redesign is Figma-gated.
+app.get('/environment', (c) =>
+  c.html(
+    htmlPage(
+      'Environment · aid',
+      `<nav class=muted><a href="/">aid</a><a href="/machines">Machines</a><a href="/apps">App Store</a><a href="/environment">Environment</a><a href="/recommendations">Recommendations</a><a href="/history">History</a></nav>
+<h1>Environment <span class=muted>· desired state</span></h1>
+<div class=card>
+<p class=muted>The authoritative <strong>ENVIRONMENT.md</strong> for a tenant — the one revisioned desired-state contract a machine pulls + reconciles against. Read-only here; edits go through the one validated write path.</p>
+<p><input id=tenant placeholder="tenant (default _default)" style="width:70%"> <button onclick="load()">Load</button></p></div>
+<div id=meta class=muted></div>
+<pre id=out class=mono style="white-space:pre-wrap;overflow-x:auto;max-height:70vh">No environment loaded.</pre>
+<script>
+function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]})}
+async function load(){
+  var out=document.getElementById('out'),meta=document.getElementById('meta'),t=document.getElementById('tenant').value.trim()||'_default';
+  out.textContent='Loading…';meta.textContent='';
+  try{
+    var r=await fetch('/api/environment/current?tenant='+encodeURIComponent(t));
+    var j=await r.json();
+    if(!r.ok){out.textContent='✗ '+(j.error||r.status)+(j.error==='not_found'?' — no desired state set for '+esc(t)+' yet':'');return}
+    meta.innerHTML='tenant <strong>'+esc(j.tenant||t)+'</strong> · revision <strong>'+esc(j.revision)+'</strong> · digest <span class=mono>'+esc(String(j.digest||'').slice(0,12))+'</span> · updated '+esc(j.updatedAt||'');
+    out.textContent=j.markdown||'(empty)';
+  }catch(e){out.textContent='✗ '+e}
+}
+load();
+</script>`,
+    ),
+  ),
+);
 // Machines nav section (N03/N07/S04/S05) — the operator's device inventory. Paste the admin token,
 // fetch /api/devices, render enrolled machines + their status. The SECOND live dashboard nav section
 // (after History). All rendered values HTML-escaped client-side (no XSS); full §16 polish is ahead.
@@ -147,7 +180,7 @@ app.get('/machines', (c) =>
   c.html(
     htmlPage(
       'Machines · aid',
-      `<nav class=muted><a href="/">aid</a><a href="/machines">Machines</a><a href="/apps">App Store</a><a href="/recommendations">Recommendations</a><a href="/history">History</a></nav>
+      `<nav class=muted><a href="/">aid</a><a href="/machines">Machines</a><a href="/apps">App Store</a><a href="/environment">Environment</a><a href="/recommendations">Recommendations</a><a href="/history">History</a></nav>
 <h1>Machines <span class=muted>· device inventory</span></h1>
 <div class=card>
 <p class=muted>Paste your admin token to list the enrolled machines for a tenant (label · device id · enrolled · status).</p>
@@ -184,7 +217,7 @@ app.get('/apps', (c) =>
   c.html(
     htmlPage(
       'App Store · aid',
-      `<nav class=muted><a href="/">aid</a><a href="/machines">Machines</a><a href="/apps">App Store</a><a href="/recommendations">Recommendations</a><a href="/history">History</a></nav>
+      `<nav class=muted><a href="/">aid</a><a href="/machines">Machines</a><a href="/apps">App Store</a><a href="/environment">Environment</a><a href="/recommendations">Recommendations</a><a href="/history">History</a></nav>
 <h1>App Store <span class=muted>· installable catalog</span></h1>
 <div class=card>
 <p class=muted>Everything Install Doctor can install, from the software.yml catalog. Search by name or command; each shows its package managers + platforms.</p>
@@ -233,7 +266,7 @@ app.get('/recommendations', (c) =>
   c.html(
     htmlPage(
       'Recommendations · aid',
-      `<nav class=muted><a href="/">aid</a><a href="/machines">Machines</a><a href="/apps">App Store</a><a href="/recommendations">Recommendations</a><a href="/history">History</a></nav>
+      `<nav class=muted><a href="/">aid</a><a href="/machines">Machines</a><a href="/apps">App Store</a><a href="/environment">Environment</a><a href="/recommendations">Recommendations</a><a href="/history">History</a></nav>
 <h1>Recommendations <span class=muted>· what to do next</span></h1>
 <div class=card>
 <p class=muted>Paste your admin token for actionable, rule-based recommendations from your fleet's observed state (drift · never-reported · stale). AI enrichment is pending the provider connection.</p>

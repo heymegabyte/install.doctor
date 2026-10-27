@@ -59,6 +59,10 @@ if [ -n "${CONTROL_PLANE_URL:-}" ]; then
   { echo "$mp" | grep -qi 'device inventory' && echo "$mp" | grep -q 'AID_ADMIN_TOKEN' && echo "$mp" | grep -qi 'Load machines' && echo "$mp" | grep -qi 'last active' && echo "$mp" | grep -qi 'drift' && echo "$mp" | grep -qi 'scope' && echo "$mp" | grep -qi 'health'; } && pass "GET /machines -> device-inventory dashboard w/ last-active + drift + scope + health columns (N08/U15/P05/U11)" || fail "machines page -> $(printf '%s' "$mp" | head -c 80)"
   recp="$(curl -s "$u/recommendations" 2>/dev/null)"
   { echo "$recp" | grep -qi 'what to do next' && echo "$recp" | grep -q 'AID_ADMIN_TOKEN' && echo "$recp" | grep -qi 'Load recommendations'; } && pass "GET /recommendations -> rule-based recs dashboard page (N03)" || fail "recommendations page -> $(printf '%s' "$recp" | head -c 80)"
+  # fire #61 — the /environment read-only desired-state view (step-5 "review the plan"; thin honest page).
+  envp="$(curl -s "$u/environment" 2>/dev/null)"
+  { echo "$envp" | grep -qi 'desired state' && echo "$envp" | grep -q '/api/environment/current' && echo "$envp" | grep -qi 'ENVIRONMENT.md' && echo "$envp" | grep -q 'id=tenant'; } && pass "GET /environment -> read-only desired-state view (ENVIRONMENT.md + revision over /api/environment/current, C02/M)" || fail "environment page -> $(printf '%s' "$envp" | head -c 80)"
+  echo "$mp" | grep -q 'href="/environment"' && pass "dashboard nav includes /environment (interconnected)" || fail "nav missing /environment -> $(printf '%s' "$mp" | grep -o 'href="/[a-z]*"' | tr '\n' ' ')"
   ap="$(curl -s "$u/apps" 2>/dev/null)"
   { echo "$ap" | grep -qi 'installable catalog' && echo "$ap" | grep -qi 'Search apps'; } && pass "GET /apps -> App Store catalog page (public, live search)" || fail "apps page -> $(printf '%s' "$ap" | head -c 80)"
   cat="$(curl -s "$u/api/catalog?limit=3" 2>/dev/null)"
