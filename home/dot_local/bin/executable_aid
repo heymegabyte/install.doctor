@@ -20,6 +20,8 @@ err() { command -v gum >/dev/null 2>&1 && gum log --level error -- "$*" || print
 
 # Extract a JSON string field value portably (no jq). jsonStr '<json>' <field> -> value (or empty).
 jsonStr() { printf '%s' "$1" | grep -oE "\"$2\":\"[^\"]*\"" | head -1 | sed -E "s/\"$2\":\"([^\"]*)\"/\1/"; }
+# Extract a JSON string-array field as a comma-joined list (no jq). jsonArr '<json>' <field> -> "a, b" (or empty).
+jsonArr() { printf '%s' "$1" | grep -oE "\"$2\":\[[^]]*\]" | head -1 | sed -E "s/.*:\[(.*)\]/\1/; s/\"//g; s/,/, /g"; }
 
 readToken() { [ -s "$AID_TOKEN_PATH" ] && cat "$AID_TOKEN_PATH"; }
 
@@ -43,22 +45,53 @@ postReport() {
 }
 
 cmdStatus() {
-  local u token resp tenant revision digest
+  local u token me code body device tenant scopes resp revision digest
   u="${AID_CONTROL_PLANE_URL%/}"
   token="$(readToken)" || true
   if [ -z "$token" ]; then
     err "not paired — run: aid-pair"
     return 2
   fi
-  resp="$(curl -fsS -H "authorization: Bearer ${token}" "$u/api/device/current" 2>/dev/null || true)"
-  if [ -z "$resp" ]; then
-    err "could not fetch desired state (token revoked, or no blueprint for this tenant yet)"
+  # Identity + GRANTED scope first (/api/devices/me is UNSCOPED — resolves for any valid token;
+  # 401 = revoked/unknown). Surfacing the scope here closes the client side of the scope loop (#53/#54).
+  me="$(curl -sS -w $'\n%{http_code}' -H "authorization: Bearer ${token}" "$u/api/devices/me" 2>/dev/null || true)"
+  code="${me##*$'\n'}"
+  body="${me%$'\n'*}"
+  if [ "$code" = 401 ]; then
+    err "token not recognized (revoked or unknown) — re-pair: aid-pair"
     return 1
   fi
-  tenant="$(jsonStr "$resp" tenant)"
-  revision="$(jsonStr "$resp" revision)"
-  digest="$(jsonStr "$resp" digest)"
-  log "paired ✓  tenant=${tenant}  revision=${revision}  digest=${digest:0:12}"
+  if [ "$code" != 200 ]; then
+    err "could not reach the control plane (HTTP ${code})"
+    return 1
+  fi
+  device="$(jsonStr "$body" deviceId)"
+  tenant="$(jsonStr "$body" tenant)"
+  scopes="$(jsonArr "$body" grantedPermissions)"
+  [ -z "$scopes" ] && scopes="(none recorded — full access, legacy pairing)"
+  log "paired ✓  device=${device}  tenant=${tenant}"
+  log "authorized for: ${scopes}"
+  # Desired-state summary (needs pull-desired-state — a 403 gets a scope-specific hint, not a bare error).
+  resp="$(curl -sS -w $'\n%{http_code}' -H "authorization: Bearer ${token}" "$u/api/device/current" 2>/dev/null || true)"
+  code="${resp##*$'\n'}"
+  body="${resp%$'\n'*}"
+  case "$code" in
+  200)
+    revision="$(jsonStr "$body" revision)"
+    digest="$(jsonStr "$body" digest)"
+    log "desired state: revision=${revision}  digest=${digest:0:12}"
+    ;;
+  403)
+    err "desired state: NOT authorized — this device token lacks '$(jsonStr "$body" required)'. Re-pair to widen scope: aid-pair"
+    ;;
+  404)
+    log "desired state: none set for tenant ${tenant} yet"
+    ;;
+  *)
+    err "desired state: fetch failed (HTTP ${code})"
+    ;;
+  esac
+  return 0
 }
 
 cmdPull() {

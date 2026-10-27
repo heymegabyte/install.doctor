@@ -116,6 +116,25 @@ BREW
       printf '%s' "$tok" >"$TOK"
       st="$(AID_TOKEN_PATH="$TOK" AID_CONTROL_PLANE_URL="$u" bash "$RUN" status 2>&1)"
       echo "$st" | grep -q 'tenant=_default' && pass "aid status -> paired summary (tenant=_default)" || fail "aid status -> $st"
+      # fire #55 — aid status surfaces the device's GRANTED scope (client-side completion of the scope loop).
+      # both-scope device: status prints "authorized for: … pull-desired-state … report-status".
+      TOK2="$(mktemp -u)"
+      enr2="$(curl -s -X POST -H "authorization: Bearer $ADMIN" -H 'content-type: application/json' -d '{"tenant":"_default","label":"aid-scope-both","permissions":["pull-desired-state","report-status"]}' "$u/api/devices/enroll" 2>/dev/null)"
+      tok2="$(printf '%s' "$enr2" | jq -r '.token // empty')"; did2="$(printf '%s' "$enr2" | jq -r '.deviceId // empty')"
+      printf '%s' "$tok2" >"$TOK2"
+      st2="$(AID_TOKEN_PATH="$TOK2" AID_CONTROL_PLANE_URL="$u" bash "$RUN" status 2>&1)"
+      { echo "$st2" | grep -qi 'authorized for' && echo "$st2" | grep -q 'pull-desired-state' && echo "$st2" | grep -q 'report-status'; } && pass "aid status -> surfaces granted scope (authorized for: pull-desired-state, report-status)" || fail "aid status scope -> $st2"
+      [ -n "$did2" ] && curl -s -o /dev/null -X POST -H "authorization: Bearer $ADMIN" "$u/api/devices/$did2/revoke" >/dev/null 2>&1
+      rm -f "$TOK2"
+      # report-only device: status EXPLAINS the desired-state 403 (lacks pull-desired-state), not a bare error.
+      TOK3="$(mktemp -u)"
+      enr3="$(curl -s -X POST -H "authorization: Bearer $ADMIN" -H 'content-type: application/json' -d '{"tenant":"_default","label":"aid-scope-report","permissions":["report-status"]}' "$u/api/devices/enroll" 2>/dev/null)"
+      tok3="$(printf '%s' "$enr3" | jq -r '.token // empty')"; did3="$(printf '%s' "$enr3" | jq -r '.deviceId // empty')"
+      printf '%s' "$tok3" >"$TOK3"
+      st3="$(AID_TOKEN_PATH="$TOK3" AID_CONTROL_PLANE_URL="$u" bash "$RUN" status 2>&1)"
+      { echo "$st3" | grep -qi 'not authorized' && echo "$st3" | grep -q 'pull-desired-state'; } && pass "aid status (report-only) -> explains desired-state scope gap (needs pull-desired-state)" || fail "aid status scope-gap -> $st3"
+      [ -n "$did3" ] && curl -s -o /dev/null -X POST -H "authorization: Bearer $ADMIN" "$u/api/devices/$did3/revoke" >/dev/null 2>&1
+      rm -f "$TOK3"
       AID_TOKEN_PATH="$TOK" AID_CONTROL_PLANE_URL="$u" AID_ENV_PATH="$ENVF" bash "$RUN" pull >/dev/null 2>&1
       { [ -s "$ENVF" ] && grep -q 'install-doctor+json' "$ENVF"; } && pass "aid pull -> wrote desired ENVIRONMENT.md (fenced blueprint)" || fail "aid pull -> $(head -c 80 "$ENVF" 2>/dev/null)"
       pl="$(AID_TOKEN_PATH="$TOK" AID_CONTROL_PLANE_URL="$u" AID_ENV_PATH="$ENVF" bash "$RUN" plan 2>&1)"
