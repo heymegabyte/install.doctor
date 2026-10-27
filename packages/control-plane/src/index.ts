@@ -155,6 +155,8 @@ app.get('/machines', (c) =>
 <div id=out class=muted>No machines loaded.</div>
 <script>
 function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]})}
+function fmtAgo(iso){var t=Date.parse(iso);if(!iso||isNaN(t))return '';var s=Math.max(0,(Date.now()-t)/1000);if(s<60)return Math.floor(s)+'s ago';if(s<3600)return Math.floor(s/60)+'m ago';if(s<86400)return Math.floor(s/3600)+'h ago';return Math.floor(s/86400)+'d ago';}
+function lastActive(d){if(!d.lastSeen)return '<span class=muted>never reported</span>';var stale=(Date.now()-Date.parse(d.lastSeen))>86400000;return esc(d.lastKind||'event')+' · '+fmtAgo(d.lastSeen)+(stale?' <span class=tag>stale</span>':'');}
 async function load(){
   var out=document.getElementById('out'),tok=document.getElementById('tok').value.trim(),t=document.getElementById('tenant').value.trim()||'_default';
   if(!tok){out.textContent='Enter the admin token.';return}
@@ -164,8 +166,8 @@ async function load(){
     var j=await r.json();
     if(!r.ok){out.textContent='✗ '+(j.error||r.status);return}
     if(!j.items||!j.items.length){out.textContent='No machines enrolled for '+esc(t)+'.';return}
-    var rows=j.items.map(function(d){return '<tr><td>'+esc(d.label||'—')+'</td><td class=mono>'+esc(d.deviceId)+'</td><td>'+esc(d.tenant)+'</td><td>'+esc(d.enrolledAt)+'</td><td>'+(d.revoked?'revoked':'active')+'</td></tr>'}).join('');
-    out.innerHTML='<p class=muted>'+j.count+' machines · tenant '+esc(t)+'</p><table><thead><tr><th>label</th><th>device</th><th>tenant</th><th>enrolled</th><th>status</th></tr></thead><tbody>'+rows+'</tbody></table>';
+    var rows=j.items.map(function(d){return '<tr><td>'+esc(d.label||'—')+'</td><td class=mono>'+esc(d.deviceId)+'</td><td>'+esc(d.tenant)+'</td><td>'+esc(d.enrolledAt)+'</td><td>'+lastActive(d)+'</td><td>'+(d.revoked?'<span class=tag>revoked</span>':'active')+'</td></tr>'}).join('');
+    out.innerHTML='<p class=muted>'+j.count+' machines · tenant '+esc(t)+' · last-active = each machine\\'s most recent reported event</p><table><thead><tr><th>label</th><th>device</th><th>tenant</th><th>enrolled</th><th>last active</th><th>status</th></tr></thead><tbody>'+rows+'</tbody></table>';
   }catch(e){out.textContent='✗ '+e}
 }
 </script>`,
@@ -607,8 +609,17 @@ app.get('/api/devices', async (c) => {
   const tenant = c.req.query('tenant') || '_default';
   const limit = Math.min(Math.max(parseInt(c.req.query('limit') || '100', 10) || 100, 1), 500);
   try {
+    // N08/U15: surface each device's OBSERVED freshness — its latest History event (kind + when) via
+    // correlated subqueries on `history`, so the operator sees active vs stale machines (not optimistic
+    // success). null lastSeen = the device has never reported.
     const rs = await db
-      .prepare('SELECT device_id, tenant, label, created_at, revoked_at FROM devices WHERE tenant = ? ORDER BY created_at DESC, device_id DESC LIMIT ?')
+      .prepare(
+        `SELECT d.device_id, d.tenant, d.label, d.created_at, d.revoked_at,
+           (SELECT h.created_at FROM history h WHERE h.device_id = d.device_id ORDER BY h.created_at DESC, h.id DESC LIMIT 1) AS last_seen,
+           (SELECT h.kind       FROM history h WHERE h.device_id = d.device_id ORDER BY h.created_at DESC, h.id DESC LIMIT 1) AS last_kind,
+           (SELECT h.status     FROM history h WHERE h.device_id = d.device_id ORDER BY h.created_at DESC, h.id DESC LIMIT 1) AS last_status
+         FROM devices d WHERE d.tenant = ? ORDER BY d.created_at DESC, d.device_id DESC LIMIT ?`,
+      )
       .bind(tenant, limit)
       .all();
     const items = (rs.results || []).map((r: any) => ({
@@ -618,6 +629,9 @@ app.get('/api/devices', async (c) => {
       enrolledAt: r.created_at,
       revoked: !!r.revoked_at,
       revokedAt: r.revoked_at || null,
+      lastSeen: r.last_seen || null,
+      lastKind: r.last_kind || null,
+      lastStatus: r.last_status || null,
     }));
     return c.json({ tenant, count: items.length, items });
   } catch (e) {

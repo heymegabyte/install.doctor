@@ -56,7 +56,7 @@ if [ -n "${CONTROL_PLANE_URL:-}" ]; then
   hp="$(curl -s "$u/history" 2>/dev/null)"
   { echo "$hp" | grep -qi 'fleet activity' && echo "$hp" | grep -q 'AID_ADMIN_TOKEN' && echo "$hp" | grep -qi 'Load history'; } && pass "GET /history -> fleet dashboard page (admin-token load of /api/history)" || fail "history page -> $(printf '%s' "$hp" | head -c 80)"
   mp="$(curl -s "$u/machines" 2>/dev/null)"
-  { echo "$mp" | grep -qi 'device inventory' && echo "$mp" | grep -q 'AID_ADMIN_TOKEN' && echo "$mp" | grep -qi 'Load machines'; } && pass "GET /machines -> device-inventory dashboard page (admin-token load of /api/devices)" || fail "machines page -> $(printf '%s' "$mp" | head -c 80)"
+  { echo "$mp" | grep -qi 'device inventory' && echo "$mp" | grep -q 'AID_ADMIN_TOKEN' && echo "$mp" | grep -qi 'Load machines' && echo "$mp" | grep -qi 'last active'; } && pass "GET /machines -> device-inventory dashboard page w/ last-active column (N08/U15)" || fail "machines page -> $(printf '%s' "$mp" | head -c 80)"
   ap="$(curl -s "$u/apps" 2>/dev/null)"
   { echo "$ap" | grep -qi 'installable catalog' && echo "$ap" | grep -qi 'Search apps'; } && pass "GET /apps -> App Store catalog page (public, live search)" || fail "apps page -> $(printf '%s' "$ap" | head -c 80)"
   cat="$(curl -s "$u/api/catalog?limit=3" 2>/dev/null)"
@@ -243,6 +243,9 @@ JSON
     # Machines inventory (fire #37 / N03·S04): the _test device enrolled above ($did) must appear with a boolean revoked status.
     ad="$(curl -s -H "authorization: Bearer $DADM" "$u/api/devices?tenant=_test&limit=200" 2>/dev/null)"
     echo "$ad" | jq -e --arg d "$did" '.tenant=="_test" and (.count>=1) and ([.items[].deviceId]|index($d)!=null) and (.items[0].revoked|type=="boolean")' >/dev/null 2>&1 && pass "GET /api/devices?tenant (admin) -> enrolled device inventory w/ status (N03/S04)" || fail "admin devices -> $(printf '%s' "$ad" | head -c 160)"
+    # N08/U15: did4 reported an 'apply' event above — the inventory must surface its last activity (freshness).
+    adf="$(curl -s -H "authorization: Bearer $DADM" "$u/api/devices?tenant=_default&limit=200" 2>/dev/null)"
+    echo "$adf" | jq -e --arg d "$did4" '([.items[]|select(.deviceId==$d)]) as $m | ($m|length>=1) and ($m[0].lastKind=="apply") and ($m[0].lastSeen|type=="string")' >/dev/null 2>&1 && pass "GET /api/devices -> per-device last-activity (lastKind=apply + lastSeen) after a report (N08/U15)" || fail "devices freshness -> $(printf '%s' "$adf" | head -c 180)"
     [ -n "$did4" ] && curl -s -o /dev/null -X POST -H "authorization: Bearer $DADM" "$u/api/devices/$did4/revoke" >/dev/null 2>&1
 
     # pairing: owner approves (admin leg) then the machine claims its token (fire #19 / S04)
