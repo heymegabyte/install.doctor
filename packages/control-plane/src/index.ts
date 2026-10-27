@@ -520,6 +520,7 @@ async function computeApplyPreview(
   db: any,
   tenant: string,
   observedRaw: unknown,
+  expectedRevision?: string,
 ): Promise<{ status: number; body: Record<string, unknown> }> {
   let observed: Blueprint;
   try {
@@ -530,6 +531,20 @@ async function computeApplyPreview(
   const row = await db.prepare('SELECT markdown FROM blueprints WHERE tenant = ?').bind(tenant).first();
   if (!row) return { status: 404, body: { error: 'no_desired_state', tenant, detail: 'no stored blueprint for this tenant — PUT /api/environment/current first' } };
   const desired = importMarkdown(row.markdown);
+  // §3 invariant: execution must match the plan's expected revision. When the caller declares the
+  // revision it planned against, reject a STALE plan (desired has since moved) — P09, reject mistargeted
+  // jobs. Omitting expectedRevision preserves the prior unguarded preview behavior (back-compat).
+  if (expectedRevision !== undefined && expectedRevision !== '' && expectedRevision !== desired.revision)
+    return {
+      status: 409,
+      body: {
+        error: 'revision_mismatch',
+        tenant,
+        desiredRevision: desired.revision ?? null,
+        expectedRevision,
+        detail: 'the plan is stale — desired state has moved; re-pull (aid pull / aid up) and retry',
+      },
+    };
   const changes = diffBlueprints(observed, desired);
   return {
     status: 200,
@@ -554,7 +569,7 @@ async function computeApplyPreview(
 app.post('/api/environment/apply', async (c) => {
   const db = (c.env as Record<string, any>).DB;
   if (!db) return c.json({ error: 'store_unavailable' }, 503);
-  let body: { tenant?: string; observed?: unknown; dryRun?: boolean };
+  let body: { tenant?: string; observed?: unknown; dryRun?: boolean; expectedRevision?: string };
   try {
     body = (await c.req.json()) as typeof body;
   } catch {
@@ -567,7 +582,7 @@ app.post('/api/environment/apply', async (c) => {
       501,
     );
   }
-  const result = await computeApplyPreview(db, body.tenant || '_default', body.observed);
+  const result = await computeApplyPreview(db, body.tenant || '_default', body.observed, body.expectedRevision);
   return c.json(result.body, result.status as any);
 });
 
@@ -823,7 +838,7 @@ app.post('/api/device/apply', async (c) => {
   if (!dev) return c.json({ error: 'unauthorized' }, 401);
   const scoped = requireScope(c, dev, 'pull-desired-state');
   if (scoped) return scoped;
-  let body: { observed?: unknown; dryRun?: boolean };
+  let body: { observed?: unknown; dryRun?: boolean; expectedRevision?: string };
   try {
     body = (await c.req.json()) as typeof body;
   } catch {
@@ -832,7 +847,7 @@ app.post('/api/device/apply', async (c) => {
   if (body.dryRun === false) {
     return c.json({ error: 'apply_not_implemented', applied: false, detail: 'real apply runs on the on-device supervisor (Phase B)' }, 501);
   }
-  const result = await computeApplyPreview(db, dev.tenant, body.observed);
+  const result = await computeApplyPreview(db, dev.tenant, body.observed, body.expectedRevision);
   if (result.status === 200) result.body.deviceId = dev.deviceId;
   return c.json(result.body, result.status as any);
 });

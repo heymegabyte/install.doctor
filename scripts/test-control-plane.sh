@@ -166,6 +166,15 @@ JSON
     [ "$na" = 501 ] && pass "apply dryRun:false -> 501 (mutation needs the on-device supervisor, Phase B)" || fail "apply real -> $na (want 501)"
     ua="$(curl -s -o /dev/null -w '%{http_code}' -X POST -H 'content-type: application/json' -d "$(jq -nc --argjson o "$obp" '{tenant:"__nope__",observed:$o}')" "$u/api/environment/apply" 2>/dev/null || echo 000)"
     [ "$ua" = 404 ] && pass "apply (unknown tenant, no desired) -> 404" || fail "apply no-desired -> $ua (want 404)"
+    # §3 / P09 — execution must match the plan's expected revision. A STALE expectedRevision is rejected
+    # 409 revision_mismatch (the plan is for an old desired state → re-pull); a MATCHING one proceeds;
+    # OMITTING it preserves the prior unguarded behavior (the noop above already proves omit→200).
+    dr="$(printf '%s' "$noop" | jq -r '.desiredRevision // empty')"
+    rmresp="$(curl -s -w $'\n%{http_code}' -X POST -H 'content-type: application/json' -d "$(jq -nc --argjson o "$obp" '{tenant:"_default",observed:$o,expectedRevision:"__stale__"}')" "$u/api/environment/apply" 2>/dev/null)"
+    rmcode="${rmresp##*$'\n'}"; rmbody="${rmresp%$'\n'*}"
+    { [ "$rmcode" = 409 ] && printf '%s' "$rmbody" | jq -e '.error=="revision_mismatch" and .expectedRevision=="__stale__" and (.desiredRevision|type=="string")' >/dev/null 2>&1; } && pass "apply (stale expectedRevision) -> 409 revision_mismatch (§3 plan-revision guard, P09)" || fail "apply stale rev -> $rmcode $rmbody"
+    rmok="$(curl -s -X POST -H 'content-type: application/json' -d "$(jq -nc --argjson o "$obp" --arg r "$dr" '{tenant:"_default",observed:$o,expectedRevision:$r}')" "$u/api/environment/apply" 2>/dev/null)"
+    printf '%s' "$rmok" | jq -e '.dryRun==true and .plan.noop==true' >/dev/null 2>&1 && pass "apply (matching expectedRevision) -> proceeds (dry-run plan)" || fail "apply match rev -> $rmok"
   else
     fail "apply-preview setup — could not derive observed blueprint from _default (import returned '$obp')"
   fi
