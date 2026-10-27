@@ -57,6 +57,8 @@ if [ -n "${CONTROL_PLANE_URL:-}" ]; then
   { echo "$hp" | grep -qi 'fleet activity' && echo "$hp" | grep -q 'AID_ADMIN_TOKEN' && echo "$hp" | grep -qi 'Load history'; } && pass "GET /history -> fleet dashboard page (admin-token load of /api/history)" || fail "history page -> $(printf '%s' "$hp" | head -c 80)"
   mp="$(curl -s "$u/machines" 2>/dev/null)"
   { echo "$mp" | grep -qi 'device inventory' && echo "$mp" | grep -q 'AID_ADMIN_TOKEN' && echo "$mp" | grep -qi 'Load machines' && echo "$mp" | grep -qi 'last active' && echo "$mp" | grep -qi 'drift'; } && pass "GET /machines -> device-inventory dashboard page w/ last-active + drift columns (N08/U15)" || fail "machines page -> $(printf '%s' "$mp" | head -c 80)"
+  recp="$(curl -s "$u/recommendations" 2>/dev/null)"
+  { echo "$recp" | grep -qi 'what to do next' && echo "$recp" | grep -q 'AID_ADMIN_TOKEN' && echo "$recp" | grep -qi 'Load recommendations'; } && pass "GET /recommendations -> rule-based recs dashboard page (N03)" || fail "recommendations page -> $(printf '%s' "$recp" | head -c 80)"
   ap="$(curl -s "$u/apps" 2>/dev/null)"
   { echo "$ap" | grep -qi 'installable catalog' && echo "$ap" | grep -qi 'Search apps'; } && pass "GET /apps -> App Store catalog page (public, live search)" || fail "apps page -> $(printf '%s' "$ap" | head -c 80)"
   cat="$(curl -s "$u/api/catalog?limit=3" 2>/dev/null)"
@@ -191,6 +193,8 @@ JSON
   [ "$ahn" = 401 ] && pass "GET /api/history (no admin bearer) -> 401 (fail-closed)" || fail "admin history no-bearer -> $ahn (want 401)"
   adn="$(curl -s -o /dev/null -w '%{http_code}' "$u/api/devices?tenant=_default" 2>/dev/null || echo 000)"
   [ "$adn" = 401 ] && pass "GET /api/devices (no admin bearer) -> 401 (fail-closed)" || fail "admin devices no-bearer -> $adn (want 401)"
+  arn="$(curl -s -o /dev/null -w '%{http_code}' "$u/api/recommendations?tenant=_default" 2>/dev/null || echo 000)"
+  [ "$arn" = 401 ] && pass "GET /api/recommendations (no admin bearer) -> 401 (fail-closed)" || fail "admin recs no-bearer -> $arn (want 401)"
 
   # browser-first PAIRING (fire #19 / S04) — start (unauthenticated) + poll-before-approval + bad polls
   pstart="$(curl -s -X POST -H 'content-type: application/json' -d '{"tenant":"_default","label":"pair-probe"}' "$u/api/devices/pair/start" 2>/dev/null)"
@@ -255,6 +259,13 @@ JSON
     add="$(curl -s -H "authorization: Bearer $DADM" "$u/api/devices?tenant=_default&limit=200" 2>/dev/null)"
     echo "$add" | jq -e --arg d "$drdid" '([.items[]|select(.deviceId==$d)][0]) as $m | ($m.drift=="drifted") and ($m.lastRevision=="r0")' >/dev/null 2>&1 && pass "GET /api/devices -> drift: device at older revision reads 'drifted' (r0 vs r1, N08)" || fail "drift drifted -> $(printf '%s' "$add" | head -c 200)"
     [ -n "$drdid" ] && curl -s -o /dev/null -X POST -H "authorization: Bearer $DADM" "$u/api/devices/$drdid/revoke" >/dev/null 2>&1
+    # Recommendations (N03): a drifted device yields a 'drifted' rec (rule-based) naming that device.
+    rcenr="$(curl -s -X POST -H "authorization: Bearer $DADM" -H 'content-type: application/json' -d '{"tenant":"_default","label":"recs-probe"}' "$u/api/devices/enroll" 2>/dev/null)"
+    rcdid="$(printf '%s' "$rcenr" | jq -r '.deviceId // empty')"; rctok="$(printf '%s' "$rcenr" | jq -r '.token // empty')"
+    curl -s -o /dev/null -X POST -H "authorization: Bearer $rctok" -H 'content-type: application/json' -d '{"kind":"apply","status":"success","revision":"r0","summary":"old"}' "$u/api/device/report" 2>/dev/null
+    recs="$(curl -s -H "authorization: Bearer $DADM" "$u/api/recommendations?tenant=_default" 2>/dev/null)"
+    echo "$recs" | jq -e --arg d "$rcdid" '(.generated=="rule-based") and ([.recommendations[]|select(.id=="drifted")][0] as $r | ($r!=null) and ($r.action=="apply") and ([$r.devices[]]|index($d)!=null))' >/dev/null 2>&1 && pass "GET /api/recommendations -> 'drifted' rec names the behind-revision device (N03, rule-based)" || fail "recs drifted -> $(printf '%s' "$recs" | head -c 220)"
+    [ -n "$rcdid" ] && curl -s -o /dev/null -X POST -H "authorization: Bearer $DADM" "$u/api/devices/$rcdid/revoke" >/dev/null 2>&1
     [ -n "$did4" ] && curl -s -o /dev/null -X POST -H "authorization: Bearer $DADM" "$u/api/devices/$did4/revoke" >/dev/null 2>&1
 
     # pairing: owner approves (admin leg) then the machine claims its token (fire #19 / S04)

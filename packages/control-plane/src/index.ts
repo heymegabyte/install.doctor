@@ -65,7 +65,8 @@ const PAGE_CSS =
   '.cmd{font-family:ui-monospace,monospace;font-size:.82rem;background:#0a0c16;border:1px solid #1b2030;border-radius:6px;padding:6px 10px;margin:4px 0;color:#9fb4c8;user-select:all;display:block}.cmd b{color:#8b93a7;font-weight:600;margin-right:8px;user-select:none}' +
   '.cta{display:inline-block;background:#00E5FF;color:#060610;font-weight:700;padding:10px 16px;border-radius:8px;text-decoration:none;margin:4px 8px 4px 0}.cta:hover{filter:brightness(1.1)}' +
   '.cta2{display:inline-block;color:#00E5FF;border:1px solid #2a3147;padding:10px 16px;border-radius:8px;text-decoration:none;margin:4px 0}.cta2:hover{border-color:#00E5FF}' +
-  'ol{padding-left:20px}ol li{margin:4px 0}';
+  'ol{padding-left:20px}ol li{margin:4px 0}' +
+  '.rec{border-left:3px solid #2a3147}.rec-warning{border-left-color:#f0a020}.rec-info{border-left-color:#00E5FF}.rec-ok{border-left-color:#3fbf6f}';
 function htmlPage(title: string, body: string): string {
   return `<!doctype html><html lang=en><head><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1"><title>${title}</title><style>${PAGE_CSS}</style></head><body><div class=wrap>${body}</div></body></html>`;
 }
@@ -102,7 +103,7 @@ app.get('/', (c) =>
 <div class=card><h3>Configured, recoverable, current</h3>
 <p>Each host keeps its configuration and recovery metadata in version control, and its state stays reconciled to what you described. User files and databases go to encrypted backup storage — kept separate from configuration.</p></div>
 
-<p class=muted>Live dashboard: <a href="/machines">Machines</a> · <a href="/apps">App Store</a> · <a href="/history">History</a> · API health <a href="/health">/health</a>. Recommendations &amp; Automations in progress.</p>`,
+<p class=muted>Live dashboard: <a href="/machines">Machines</a> · <a href="/apps">App Store</a> · <a href="/recommendations">Recommendations</a> · <a href="/history">History</a> · API health <a href="/health">/health</a>. Automations in progress.</p>`,
     ),
   ),
 );
@@ -113,7 +114,7 @@ app.get('/history', (c) =>
   c.html(
     htmlPage(
       'History · aid',
-      `<nav class=muted><a href="/">aid</a><a href="/machines">Machines</a><a href="/apps">App Store</a><a href="/history">History</a></nav>
+      `<nav class=muted><a href="/">aid</a><a href="/machines">Machines</a><a href="/apps">App Store</a><a href="/recommendations">Recommendations</a><a href="/history">History</a></nav>
 <h1>History <span class=muted>· fleet activity</span></h1>
 <div class=card>
 <p class=muted>Paste your admin token to load the fleet's reported events (apply / plan / report runs across devices).</p>
@@ -146,7 +147,7 @@ app.get('/machines', (c) =>
   c.html(
     htmlPage(
       'Machines · aid',
-      `<nav class=muted><a href="/">aid</a><a href="/machines">Machines</a><a href="/apps">App Store</a><a href="/history">History</a></nav>
+      `<nav class=muted><a href="/">aid</a><a href="/machines">Machines</a><a href="/apps">App Store</a><a href="/recommendations">Recommendations</a><a href="/history">History</a></nav>
 <h1>Machines <span class=muted>· device inventory</span></h1>
 <div class=card>
 <p class=muted>Paste your admin token to list the enrolled machines for a tenant (label · device id · enrolled · status).</p>
@@ -181,7 +182,7 @@ app.get('/apps', (c) =>
   c.html(
     htmlPage(
       'App Store · aid',
-      `<nav class=muted><a href="/">aid</a><a href="/machines">Machines</a><a href="/apps">App Store</a><a href="/history">History</a></nav>
+      `<nav class=muted><a href="/">aid</a><a href="/machines">Machines</a><a href="/apps">App Store</a><a href="/recommendations">Recommendations</a><a href="/history">History</a></nav>
 <h1>App Store <span class=muted>· installable catalog</span></h1>
 <div class=card>
 <p class=muted>Everything Install Doctor can install, from the software.yml catalog. Search by name or command; each shows its package managers + platforms.</p>
@@ -220,6 +221,37 @@ document.getElementById('out').addEventListener('click',function(ev){
 });
 var t;function debounced(){clearTimeout(t);t=setTimeout(load,160)}
 load();
+</script>`,
+    ),
+  ),
+);
+// Recommendations nav section (N03) — actionable RULE-BASED recs from observed drift/freshness. Paste
+// the admin token, fetch /api/recommendations, render severity-coded cards. AI enrichment pending #7.
+app.get('/recommendations', (c) =>
+  c.html(
+    htmlPage(
+      'Recommendations · aid',
+      `<nav class=muted><a href="/">aid</a><a href="/machines">Machines</a><a href="/apps">App Store</a><a href="/recommendations">Recommendations</a><a href="/history">History</a></nav>
+<h1>Recommendations <span class=muted>· what to do next</span></h1>
+<div class=card>
+<p class=muted>Paste your admin token for actionable, rule-based recommendations from your fleet's observed state (drift · never-reported · stale). AI enrichment is pending the provider connection.</p>
+<p><input id=tenant placeholder="tenant (default _default)" style="width:46%"> <input id=tok type=password placeholder="AID_ADMIN_TOKEN" style="width:46%"></p>
+<p><button onclick="load()">Load recommendations</button></p></div>
+<div id=out class=muted>No recommendations loaded.</div>
+<script>
+function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]})}
+async function load(){
+  var out=document.getElementById('out'),tok=document.getElementById('tok').value.trim(),t=document.getElementById('tenant').value.trim()||'_default';
+  if(!tok){out.textContent='Enter the admin token.';return}
+  out.textContent='Loading…';
+  try{
+    var r=await fetch('/api/recommendations?tenant='+encodeURIComponent(t),{headers:{'authorization':'Bearer '+tok}});
+    var j=await r.json();
+    if(!r.ok){out.textContent='✗ '+(j.error||r.status);return}
+    var cards=(j.recommendations||[]).map(function(k){return '<div class="card rec rec-'+esc(k.severity)+'"><h3>'+esc(k.title)+'</h3><p class=muted>'+esc(k.detail)+'</p></div>'}).join('');
+    out.innerHTML='<p class=muted>'+j.count+' recommendation(s) · tenant '+esc(t)+' · <span class=tag>'+esc(j.generated)+'</span> · desired revision '+esc(j.currentRevision||'—')+'</p>'+cards;
+  }catch(e){out.textContent='✗ '+e}
+}
 </script>`,
     ),
   ),
@@ -602,6 +634,45 @@ app.post('/api/devices/enroll', async (c) => {
 // List enrolled devices for a tenant (admin-gated, N03/N07/S04/S05 — the Machines inventory). Reuses
 // the devices table; returns id/label/tenant/enrolled + revoked status so the operator sees the fleet
 // and which machines are active. Exact path — distinct from /api/devices/me and /api/devices/pair/*.
+// Shared devices + drift/freshness read (used by GET /api/devices AND /api/recommendations — ONE query,
+// no duplication, A13). Each device carries its latest History event (lastSeen/kind/status), its last
+// event that carried a revision, and a `drift` status vs the tenant's current desired revision (parsed
+// best-effort from the stored blueprint — a missing/unparseable one leaves drift 'unknown', never errors).
+async function listDevicesWithDrift(db: any, tenant: string, limit: number): Promise<{ currentRevision: string | null; items: any[] }> {
+  const rs = await db
+    .prepare(
+      `SELECT d.device_id, d.tenant, d.label, d.created_at, d.revoked_at,
+         (SELECT h.created_at FROM history h WHERE h.device_id = d.device_id ORDER BY h.created_at DESC, h.id DESC LIMIT 1) AS last_seen,
+         (SELECT h.kind       FROM history h WHERE h.device_id = d.device_id ORDER BY h.created_at DESC, h.id DESC LIMIT 1) AS last_kind,
+         (SELECT h.status     FROM history h WHERE h.device_id = d.device_id ORDER BY h.created_at DESC, h.id DESC LIMIT 1) AS last_status,
+         (SELECT h.revision   FROM history h WHERE h.device_id = d.device_id AND h.revision IS NOT NULL ORDER BY h.created_at DESC, h.id DESC LIMIT 1) AS last_revision
+       FROM devices d WHERE d.tenant = ? ORDER BY d.created_at DESC, d.device_id DESC LIMIT ?`,
+    )
+    .bind(tenant, limit)
+    .all();
+  let currentRevision: string | null = null;
+  try {
+    const bprow = await db.prepare('SELECT markdown FROM blueprints WHERE tenant = ?').bind(tenant).first();
+    if (bprow && bprow.markdown) currentRevision = importMarkdown(bprow.markdown as string).revision ?? null;
+  } catch {
+    /* drift is best-effort; leave currentRevision null */
+  }
+  const items = (rs.results || []).map((r: any) => ({
+    deviceId: r.device_id,
+    tenant: r.tenant,
+    label: r.label,
+    enrolledAt: r.created_at,
+    revoked: !!r.revoked_at,
+    revokedAt: r.revoked_at || null,
+    lastSeen: r.last_seen || null,
+    lastKind: r.last_kind || null,
+    lastStatus: r.last_status || null,
+    lastRevision: r.last_revision || null,
+    drift: r.last_revision && currentRevision ? (r.last_revision === currentRevision ? 'current' : 'drifted') : 'unknown',
+  }));
+  return { currentRevision, items };
+}
+
 app.get('/api/devices', async (c) => {
   const denied = requireAdmin(c);
   if (denied) return denied;
@@ -610,44 +681,39 @@ app.get('/api/devices', async (c) => {
   const tenant = c.req.query('tenant') || '_default';
   const limit = Math.min(Math.max(parseInt(c.req.query('limit') || '100', 10) || 100, 1), 500);
   try {
-    // N08/U15: surface each device's OBSERVED freshness — its latest History event (kind + when) via
-    // correlated subqueries on `history`, so the operator sees active vs stale machines (not optimistic
-    // success). null lastSeen = the device has never reported. `last_revision` = the latest event that
-    // carried a revision (plan/apply) → used for DRIFT against the tenant's current desired revision.
-    const rs = await db
-      .prepare(
-        `SELECT d.device_id, d.tenant, d.label, d.created_at, d.revoked_at,
-           (SELECT h.created_at FROM history h WHERE h.device_id = d.device_id ORDER BY h.created_at DESC, h.id DESC LIMIT 1) AS last_seen,
-           (SELECT h.kind       FROM history h WHERE h.device_id = d.device_id ORDER BY h.created_at DESC, h.id DESC LIMIT 1) AS last_kind,
-           (SELECT h.status     FROM history h WHERE h.device_id = d.device_id ORDER BY h.created_at DESC, h.id DESC LIMIT 1) AS last_status,
-           (SELECT h.revision   FROM history h WHERE h.device_id = d.device_id AND h.revision IS NOT NULL ORDER BY h.created_at DESC, h.id DESC LIMIT 1) AS last_revision
-         FROM devices d WHERE d.tenant = ? ORDER BY d.created_at DESC, d.device_id DESC LIMIT ?`,
-      )
-      .bind(tenant, limit)
-      .all();
-    // N08 drift: the tenant's CURRENT desired revision (parsed from the stored blueprint). Best-effort —
-    // a missing/unparseable blueprint must NOT break the device list; drift just reads 'unknown' then.
-    let currentRevision: string | null = null;
-    try {
-      const bprow = await db.prepare('SELECT markdown FROM blueprints WHERE tenant = ?').bind(tenant).first();
-      if (bprow && bprow.markdown) currentRevision = importMarkdown(bprow.markdown as string).revision ?? null;
-    } catch {
-      /* drift is best-effort; leave currentRevision null */
-    }
-    const items = (rs.results || []).map((r: any) => ({
-      deviceId: r.device_id,
-      tenant: r.tenant,
-      label: r.label,
-      enrolledAt: r.created_at,
-      revoked: !!r.revoked_at,
-      revokedAt: r.revoked_at || null,
-      lastSeen: r.last_seen || null,
-      lastKind: r.last_kind || null,
-      lastStatus: r.last_status || null,
-      lastRevision: r.last_revision || null,
-      drift: r.last_revision && currentRevision ? (r.last_revision === currentRevision ? 'current' : 'drifted') : 'unknown',
-    }));
+    const { currentRevision, items } = await listDevicesWithDrift(db, tenant, limit);
     return c.json({ tenant, currentRevision, count: items.length, items });
+  } catch (e) {
+    return c.json({ error: 'store_error', detail: e instanceof Error ? e.message : String(e) }, 503);
+  }
+});
+
+// Deterministic Recommendations (N03/N08) — actionable RULE-BASED recs from OBSERVED device state
+// (drift / never-reported / stale). No AI: the shared provider call (#7) will ENRICH these later;
+// `generated:'rule-based'` labels that honestly. Admin-gated; reuses the devices+drift read.
+app.get('/api/recommendations', async (c) => {
+  const denied = requireAdmin(c);
+  if (denied) return denied;
+  const db = (c.env as Record<string, any>).DB;
+  if (!db) return c.json({ error: 'store_unavailable' }, 503);
+  const tenant = c.req.query('tenant') || '_default';
+  try {
+    const { currentRevision, items } = await listDevicesWithDrift(db, tenant, 500);
+    const names = (ds: any[]) => ds.map((d) => d.label || d.deviceId).join(', ');
+    const active = items.filter((d) => !d.revoked);
+    const drifted = active.filter((d) => d.drift === 'drifted');
+    const never = active.filter((d) => !d.lastSeen);
+    const stale = active.filter((d) => d.lastSeen && Date.now() - Date.parse(d.lastSeen) > 86400000);
+    const recs: any[] = [];
+    if (drifted.length)
+      recs.push({ id: 'drifted', severity: 'warning', title: `${drifted.length} machine(s) behind the desired revision${currentRevision ? ` (${currentRevision})` : ''}`, detail: `Apply desired state (\`aid up\`) on: ${names(drifted)}`, action: 'apply', devices: drifted.map((d) => d.deviceId) });
+    if (never.length)
+      recs.push({ id: 'never_reported', severity: 'warning', title: `${never.length} enrolled machine(s) have never reported`, detail: `Check connectivity / run \`aid up\` on: ${names(never)}`, action: 'connect', devices: never.map((d) => d.deviceId) });
+    if (stale.length)
+      recs.push({ id: 'stale', severity: 'info', title: `${stale.length} machine(s) haven't reported in over 24h`, detail: `Activity is stale on: ${names(stale)}`, action: 'check', devices: stale.map((d) => d.deviceId) });
+    if (!recs.length)
+      recs.push({ id: 'all_good', severity: 'ok', title: active.length ? 'All machines current and recently active' : 'No machines enrolled yet', detail: active.length ? `${active.length} machine(s) at revision ${currentRevision || '—'}, all reporting.` : 'Pair a machine to get started.', action: 'none', devices: [] });
+    return c.json({ tenant, currentRevision, generated: 'rule-based', count: recs.length, recommendations: recs });
   } catch (e) {
     return c.json({ error: 'store_error', detail: e instanceof Error ? e.message : String(e) }, 503);
   }
