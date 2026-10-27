@@ -35,7 +35,8 @@ if [ -n "${CONTROL_PLANE_URL:-}" ]; then
   if [ "$code" = 200 ] && grep -q '"status":"ok"' /tmp/cp-health.json 2>/dev/null; then pass "GET /health 200 {status:ok}"; else fail "GET /health -> $code"; fi
   # browser surface (fire: app.install.doctor availability) — landing + pairing-approval page
   land="$(curl -s "$u/" 2>/dev/null)"
-  { echo "$land" | grep -q 'install.doctor' && echo "$land" | grep -qi 'pair a machine'; } && pass "GET / -> landing page (aid + pairing instructions)" || fail "landing -> $(printf '%s' "$land" | head -c 80)"
+  { echo "$land" | grep -q 'install.doctor' && echo "$land" | grep -qi 'aid-pair'; } && pass "GET / -> landing page (aid + pairing instructions)" || fail "landing -> $(printf '%s' "$land" | head -c 80)"
+  { echo "$land" | grep -qi 'set up and maintain' && echo "$land" | grep -qi 'headless' && echo "$land" | grep -qi 'first time you run' && echo "$land" | grep -qi 'Set up a computer'; } && pass "GET / -> onboarding content (promise + desktop/headless paths + on-demand CLIs + primary CTA — M2/M3/M5/M7)" || fail "landing onboarding content -> $(printf '%s' "$land" | head -c 140)"
   pairp="$(curl -s "$u/pair?code=ABC12345" 2>/dev/null)"
   { echo "$pairp" | grep -q 'ABC12345' && echo "$pairp" | grep -qi 'approve pairing'; } && pass "GET /pair?code -> shows code + approve surface" || fail "pair page -> $(printf '%s' "$pairp" | head -c 80)"
   pc="$(curl -s "$u/api/provider-config" 2>/dev/null)"

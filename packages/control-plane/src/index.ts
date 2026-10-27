@@ -62,7 +62,10 @@ const PAGE_CSS =
   'table{width:100%;border-collapse:collapse;font-size:.9rem;margin-top:12px}th,td{text-align:left;padding:6px 10px;border-bottom:1px solid #1b2030;vertical-align:top}th{color:#8b93a7;font-weight:600}nav a{margin-right:16px}' +
   '.tag{display:inline-block;font-size:.72rem;padding:1px 7px;margin:1px;border-radius:999px;background:#0a0c16;border:1px solid #2a3147;color:#9fb4c8}' +
   '.lnk{background:none;border:0;color:#00E5FF;cursor:pointer;padding:0;font:inherit;font-weight:700;text-align:left}.lnk:hover{text-decoration:underline}' +
-  '.cmd{font-family:ui-monospace,monospace;font-size:.82rem;background:#0a0c16;border:1px solid #1b2030;border-radius:6px;padding:6px 10px;margin:4px 0;color:#9fb4c8;user-select:all;display:block}.cmd b{color:#8b93a7;font-weight:600;margin-right:8px;user-select:none}';
+  '.cmd{font-family:ui-monospace,monospace;font-size:.82rem;background:#0a0c16;border:1px solid #1b2030;border-radius:6px;padding:6px 10px;margin:4px 0;color:#9fb4c8;user-select:all;display:block}.cmd b{color:#8b93a7;font-weight:600;margin-right:8px;user-select:none}' +
+  '.cta{display:inline-block;background:#00E5FF;color:#060610;font-weight:700;padding:10px 16px;border-radius:8px;text-decoration:none;margin:4px 8px 4px 0}.cta:hover{filter:brightness(1.1)}' +
+  '.cta2{display:inline-block;color:#00E5FF;border:1px solid #2a3147;padding:10px 16px;border-radius:8px;text-decoration:none;margin:4px 0}.cta2:hover{border-color:#00E5FF}' +
+  'ol{padding-left:20px}ol li{margin:4px 0}';
 function htmlPage(title: string, body: string): string {
   return `<!doctype html><html lang=en><head><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1"><title>${title}</title><style>${PAGE_CSS}</style></head><body><div class=wrap>${body}</div></body></html>`;
 }
@@ -71,13 +74,35 @@ app.get('/', (c) =>
     htmlPage(
       'aid · install.doctor',
       `<h1>aid <span class=muted>· install.doctor</span></h1>
-<p>Browser-first environment engineer. Describe your environment once; make each authorized computer a verified, cooperating part of it.</p>
-<div class=card><h3>Pair a machine</h3>
-<p>On the machine, run the bootstrap, then pair:</p>
+<p>Set up and maintain any computer from one place — desktop, laptop, server, or headless box. Describe the environment once; make each authorized machine a verified, cooperating part of it.</p>
+<p><a class=cta href="#setup">Set up a computer ↓</a><a class=cta2 href="/pair">Approve a pairing</a></p>
+
+<div class=card><h3>How it works</h3>
+<ol>
+<li><b>Bootstrap</b> — run one line on the machine (below).</li>
+<li><b>Pair</b> — approve the machine in your browser. Nothing installs without your explicit OK.</li>
+<li><b>Describe &amp; apply</b> — choose desktop / server / developer / runner capabilities, review the concrete plan, apply.</li>
+</ol></div>
+
+<div class=card id=setup><h3>Bootstrap a machine</h3>
+<p class=muted>macOS &amp; Linux — run on the machine:</p>
 <p class=mono>bash &lt;(curl -sSL https://install.doctor/start)</p>
+<p class=muted>then pair it:</p>
 <p class=mono>aid-pair</p>
-<p class=muted>It prints a short code and opens <span class=mono>/pair?code=…</span> here for you to approve.</p></div>
-<p class=muted>Live dashboard: <a href="/machines">Machines</a> · <a href="/apps">App Store</a> · <a href="/history">History</a> · API health <a href="/health">/health</a>. More sections (Recommendations · Automations) in progress.</p>`,
+<p class=muted>Native Windows PowerShell entrypoint — coming.</p></div>
+
+<div class=card><h3>Desktop or headless — both work</h3>
+<p><b>Desktop (with a browser):</b> <span class=mono>aid-pair</span> opens the approval page here automatically.</p>
+<p><b>Headless / server:</b> <span class=mono>aid-pair</span> prints a short code + a URL you approve from any other browser. No GUI required — and the emergency CLI works without one.</p></div>
+
+<div class=card><h3>Apps now, CLIs on demand</h3>
+<p>Selected desktop applications and the few dependencies needed to bootstrap and recover install now. Optional command-line tools install automatically the <b>first time you run them</b> — no bloat, nothing before you need it.</p>
+<p class=muted>Browse everything installable in the <a href="/apps">App Store</a> — 1000+ tools, each with the exact install command per platform.</p></div>
+
+<div class=card><h3>Configured, recoverable, current</h3>
+<p>Each host keeps its configuration and recovery metadata in version control, and its state stays reconciled to what you described. User files and databases go to encrypted backup storage — kept separate from configuration.</p></div>
+
+<p class=muted>Live dashboard: <a href="/machines">Machines</a> · <a href="/apps">App Store</a> · <a href="/history">History</a> · API health <a href="/health">/health</a>. Recommendations &amp; Automations in progress.</p>`,
     ),
   ),
 );
