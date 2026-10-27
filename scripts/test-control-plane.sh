@@ -57,12 +57,29 @@ if [ -n "${CONTROL_PLANE_URL:-}" ]; then
   { echo "$hp" | grep -qi 'fleet activity' && echo "$hp" | grep -q 'AID_ADMIN_TOKEN' && echo "$hp" | grep -qi 'Load history'; } && pass "GET /history -> fleet dashboard page (admin-token load of /api/history)" || fail "history page -> $(printf '%s' "$hp" | head -c 80)"
   mp="$(curl -s "$u/machines" 2>/dev/null)"
   { echo "$mp" | grep -qi 'device inventory' && echo "$mp" | grep -q 'AID_ADMIN_TOKEN' && echo "$mp" | grep -qi 'Load machines' && echo "$mp" | grep -qi 'last active' && echo "$mp" | grep -qi 'drift' && echo "$mp" | grep -qi 'scope' && echo "$mp" | grep -qi 'health'; } && pass "GET /machines -> device-inventory dashboard w/ last-active + drift + scope + health columns (N08/U15/P05/U11)" || fail "machines page -> $(printf '%s' "$mp" | head -c 80)"
+  # fire #64 — each device row opens a detail view (identity + health + scope + drift + its /api/history timeline, N09 UI half).
+  { echo "$mp" | grep -q 'function detail(' && echo "$mp" | grep -q '/api/history?tenant=' && echo "$mp" | grep -q 'id=detail' && echo "$mp" | grep -q 'onclick="detail('; } && pass "GET /machines -> device rows open a detail view w/ unified timeline (/api/history?device=, N09)" || fail "machines detail wiring -> $(printf '%s' "$mp" | grep -oE 'detail\(|/api/history|id=detail' | sort -u | tr '\n' ' ')"
   recp="$(curl -s "$u/recommendations" 2>/dev/null)"
   { echo "$recp" | grep -qi 'what to do next' && echo "$recp" | grep -q 'AID_ADMIN_TOKEN' && echo "$recp" | grep -qi 'Load recommendations'; } && pass "GET /recommendations -> rule-based recs dashboard page (N03)" || fail "recommendations page -> $(printf '%s' "$recp" | head -c 80)"
   # fire #61 — the /environment read-only desired-state view (step-5 "review the plan"; thin honest page).
   envp="$(curl -s "$u/environment" 2>/dev/null)"
   { echo "$envp" | grep -qi 'desired state' && echo "$envp" | grep -q '/api/environment/current' && echo "$envp" | grep -qi 'ENVIRONMENT.md' && echo "$envp" | grep -q 'id=tenant'; } && pass "GET /environment -> read-only desired-state view (ENVIRONMENT.md + revision over /api/environment/current, C02/M)" || fail "environment page -> $(printf '%s' "$envp" | head -c 80)"
   echo "$mp" | grep -q 'href="/environment"' && pass "dashboard nav includes /environment (interconnected)" || fail "nav missing /environment -> $(printf '%s' "$mp" | grep -o 'href="/[a-z]*"' | tr '\n' ' ')"
+  # fire #64 — inline-JS syntax guard: a dashboard page's inline <script> is a template STRING (NOT
+  # tsc/dry-run checked), so a stray quote/escape silently breaks the ENTIRE page script. node --check
+  # every served inline script. (This caught the #64 onclick \' -> '' escaping bug before it shipped.)
+  if command -v node >/dev/null 2>&1 && command -v perl >/dev/null 2>&1; then
+    jsbad=""
+    for pg in machines history recommendations apps environment; do
+      tmpjs="$(mktemp).js" # node --check needs a .js extension to pick a module loader (else it errors regardless of JS validity)
+      curl -s "$u/$pg" 2>/dev/null | perl -0777 -ne 'while(/<script>(.*?)<\/script>/sg){print "$1\n"}' >"$tmpjs"
+      if [ -s "$tmpjs" ]; then node --check "$tmpjs" 2>/dev/null || jsbad="$jsbad $pg"; fi
+      rm -f "$tmpjs"
+    done
+    [ -z "$jsbad" ] && pass "every dashboard page's inline <script> parses clean (node --check; no template-string JS break)" || fail "inline JS syntax error on:$jsbad"
+  else
+    skip "node/perl absent — inline-JS syntax guard skipped"
+  fi
   ap="$(curl -s "$u/apps" 2>/dev/null)"
   { echo "$ap" | grep -qi 'installable catalog' && echo "$ap" | grep -qi 'Search apps'; } && pass "GET /apps -> App Store catalog page (public, live search)" || fail "apps page -> $(printf '%s' "$ap" | head -c 80)"
   cat="$(curl -s "$u/api/catalog?limit=3" 2>/dev/null)"

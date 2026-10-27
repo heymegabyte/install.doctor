@@ -187,6 +187,7 @@ app.get('/machines', (c) =>
 <p><input id=tenant placeholder="tenant (default _default)" style="width:46%"> <input id=tok type=password placeholder="AID_ADMIN_TOKEN" style="width:46%"></p>
 <p><button onclick="load()">Load machines</button></p></div>
 <div id=out class=muted>No machines loaded.</div>
+<div id=detail></div>
 <script>
 function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]})}
 function fmtAgo(iso){var t=Date.parse(iso);if(!iso||isNaN(t))return '';var s=Math.max(0,(Date.now()-t)/1000);if(s<60)return Math.floor(s)+'s ago';if(s<3600)return Math.floor(s/60)+'m ago';if(s<86400)return Math.floor(s/3600)+'h ago';return Math.floor(s/86400)+'d ago';}
@@ -203,9 +204,30 @@ async function load(){
     var j=await r.json();
     if(!r.ok){out.textContent='✗ '+(j.error||r.status);return}
     if(!j.items||!j.items.length){out.textContent='No machines enrolled for '+esc(t)+'.';return}
-    var rows=j.items.map(function(d){return '<tr><td>'+esc(d.label||'—')+'</td><td class=mono>'+esc(d.deviceId)+'</td><td>'+esc(d.tenant)+'</td><td>'+esc(d.enrolledAt)+'</td><td>'+lastActive(d)+'</td><td>'+driftCell(d,j.currentRevision)+'</td><td>'+healthCell(d)+'</td><td>'+scopeCell(d)+'</td><td>'+(d.revoked?'<span class=tag>revoked</span>':'active')+'</td></tr>'}).join('');
-    out.innerHTML='<p class=muted>'+j.count+' machines · tenant '+esc(t)+' · desired revision '+esc(j.currentRevision||'—')+' · drift = last-applied vs desired · health = connectivity·software·backup · scope = granted permissions</p><table><thead><tr><th>label</th><th>device</th><th>tenant</th><th>enrolled</th><th>last active</th><th>drift</th><th>health</th><th>scope</th><th>status</th></tr></thead><tbody>'+rows+'</tbody></table>';
+    LAST={};j.items.forEach(function(d){LAST[d.deviceId]=d});CUR=j.currentRevision;
+    var rows=j.items.map(function(d){return '<tr><td>'+esc(d.label||'—')+'</td><td><button class=lnk onclick="detail(\\''+esc(d.deviceId)+'\\')">'+esc(d.deviceId)+'</button></td><td>'+esc(d.tenant)+'</td><td>'+esc(d.enrolledAt)+'</td><td>'+lastActive(d)+'</td><td>'+driftCell(d,j.currentRevision)+'</td><td>'+healthCell(d)+'</td><td>'+scopeCell(d)+'</td><td>'+(d.revoked?'<span class=tag>revoked</span>':'active')+'</td></tr>'}).join('');
+    out.innerHTML='<p class=muted>'+j.count+' machines · tenant '+esc(t)+' · desired revision '+esc(j.currentRevision||'—')+' · drift = last-applied vs desired · health = connectivity·software·backup · scope = granted permissions · click a device for its timeline</p><table><thead><tr><th>label</th><th>device</th><th>tenant</th><th>enrolled</th><th>last active</th><th>drift</th><th>health</th><th>scope</th><th>status</th></tr></thead><tbody>'+rows+'</tbody></table>';
   }catch(e){out.textContent='✗ '+e}
+}
+var LAST={},CUR=null;
+// N09 device detail — click a device row to load its identity + health + scope + drift + unified
+// change timeline (GET /api/history?device=, reusing the admin token already entered on this page).
+async function detail(id){
+  var dp=document.getElementById('detail'),tok=document.getElementById('tok').value.trim(),t=document.getElementById('tenant').value.trim()||'_default',m=LAST[id]||{};
+  if(!tok){dp.textContent='Enter the admin token.';return}
+  dp.innerHTML='<p class=muted>Loading timeline for '+esc(id)+'…</p>';
+  try{
+    var r=await fetch('/api/history?tenant='+encodeURIComponent(t)+'&device='+encodeURIComponent(id)+'&limit=50',{headers:{'authorization':'Bearer '+tok}});
+    var j=await r.json();
+    if(!r.ok){dp.innerHTML='✗ '+esc(j.error||String(r.status));return}
+    var ev=(j.items||[]).map(function(e){return '<tr><td>'+esc(e.createdAt)+'</td><td>'+esc(e.kind)+'</td><td>'+esc(e.status)+'</td><td>'+esc(e.revision||'')+'</td><td>'+esc(e.summary||'')+'</td></tr>'}).join('')||'<tr><td colspan=5 class=muted>No events reported yet.</td></tr>';
+    var g=(m.grantedPermissions||[]).join(', ')||'—';
+    dp.innerHTML='<div class=card><p><strong>'+esc(m.label||id)+'</strong> <span class=mono muted>'+esc(id)+'</span>'+(m.revoked?' <span class=tag>revoked</span>':'')+'</p>'
+      +'<p class=muted>health '+healthCell(m)+' · drift '+driftCell(m,CUR)+' · scope '+esc(g)+' · last active '+lastActive(m)+'</p>'
+      +'<p class=muted>'+j.count+' event(s) · unified change timeline</p>'
+      +'<table><thead><tr><th>time</th><th>kind</th><th>status</th><th>revision</th><th>summary</th></tr></thead><tbody>'+ev+'</tbody></table></div>';
+    dp.scrollIntoView({behavior:'smooth',block:'nearest'});
+  }catch(e){dp.innerHTML='✗ '+esc(String(e))}
 }
 </script>`,
     ),
