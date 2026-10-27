@@ -56,7 +56,7 @@ if [ -n "${CONTROL_PLANE_URL:-}" ]; then
   hp="$(curl -s "$u/history" 2>/dev/null)"
   { echo "$hp" | grep -qi 'fleet activity' && echo "$hp" | grep -q 'AID_ADMIN_TOKEN' && echo "$hp" | grep -qi 'Load history'; } && pass "GET /history -> fleet dashboard page (admin-token load of /api/history)" || fail "history page -> $(printf '%s' "$hp" | head -c 80)"
   mp="$(curl -s "$u/machines" 2>/dev/null)"
-  { echo "$mp" | grep -qi 'device inventory' && echo "$mp" | grep -q 'AID_ADMIN_TOKEN' && echo "$mp" | grep -qi 'Load machines' && echo "$mp" | grep -qi 'last active' && echo "$mp" | grep -qi 'drift'; } && pass "GET /machines -> device-inventory dashboard page w/ last-active + drift columns (N08/U15)" || fail "machines page -> $(printf '%s' "$mp" | head -c 80)"
+  { echo "$mp" | grep -qi 'device inventory' && echo "$mp" | grep -q 'AID_ADMIN_TOKEN' && echo "$mp" | grep -qi 'Load machines' && echo "$mp" | grep -qi 'last active' && echo "$mp" | grep -qi 'drift' && echo "$mp" | grep -qi 'scope'; } && pass "GET /machines -> device-inventory dashboard w/ last-active + drift + scope columns (N08/U15/P05)" || fail "machines page -> $(printf '%s' "$mp" | head -c 80)"
   recp="$(curl -s "$u/recommendations" 2>/dev/null)"
   { echo "$recp" | grep -qi 'what to do next' && echo "$recp" | grep -q 'AID_ADMIN_TOKEN' && echo "$recp" | grep -qi 'Load recommendations'; } && pass "GET /recommendations -> rule-based recs dashboard page (N03)" || fail "recommendations page -> $(printf '%s' "$recp" | head -c 80)"
   ap="$(curl -s "$u/apps" 2>/dev/null)"
@@ -283,6 +283,23 @@ JSON
       [ "$prepoll" = 410 ] && pass "pair/poll (already claimed) -> 410 (token delivered once)" || fail "pair/poll re-claim -> $prepoll (want 410)"
     else
       fail "pairing setup — start did not return code/pollSecret"
+    fi
+
+    # P05 — the GRANTED scope is persisted on the device at claim (not just REQUESTED on the pairing).
+    # Full flow with permissions: pair/start(perms) -> approve -> claim -> devices/me + /api/devices surface grantedPermissions.
+    p5start="$(curl -s -X POST -H 'content-type: application/json' -d '{"tenant":"_test","label":"p05-scope-host","permissions":["pull-desired-state","report-status"]}' "$u/api/devices/pair/start" 2>/dev/null)"
+    p5code="$(printf '%s' "$p5start" | jq -r '.code // empty')"; p5secret="$(printf '%s' "$p5start" | jq -r '.pollSecret // empty')"
+    if [ -n "$p5code" ] && [ -n "$p5secret" ]; then
+      curl -s -o /dev/null -X POST -H "authorization: Bearer $DADM" -H 'content-type: application/json' -d "$(jq -nc --arg c "$p5code" '{code:$c}')" "$u/api/devices/pair/approve" >/dev/null 2>&1
+      p5claim="$(curl -s -H "authorization: Bearer $p5secret" "$u/api/devices/pair/poll" 2>/dev/null)"
+      p5tok="$(printf '%s' "$p5claim" | jq -r '.token // empty')"; p5did="$(printf '%s' "$p5claim" | jq -r '.deviceId // empty')"
+      p5me="$(curl -s -H "authorization: Bearer $p5tok" "$u/api/devices/me" 2>/dev/null)"
+      echo "$p5me" | jq -e '(.grantedPermissions|sort)==["pull-desired-state","report-status"]' >/dev/null 2>&1 && pass "P05 devices/me -> GRANTED scope copied onto the device at claim" || fail "P05 me grant -> $(printf '%s' "$p5me" | head -c 160)"
+      p5list="$(curl -s -H "authorization: Bearer $DADM" "$u/api/devices?tenant=_test&limit=200" 2>/dev/null)"
+      echo "$p5list" | jq -e --arg d "$p5did" '[.items[]|select(.deviceId==$d)][0].grantedPermissions|sort==["pull-desired-state","report-status"]' >/dev/null 2>&1 && pass "P05 /api/devices -> device carries grantedPermissions (admin sees the grant)" || fail "P05 devices grant -> $(printf '%s' "$p5list" | head -c 200)"
+      [ -n "$p5did" ] && curl -s -o /dev/null -X POST -H "authorization: Bearer $DADM" "$u/api/devices/$p5did/revoke" >/dev/null 2>&1
+    else
+      fail "P05 pairing setup — start did not return code/pollSecret"
     fi
     skip "AID_ADMIN_TOKEN unset — device enroll/me/revoke lifecycle assertions skipped"
   fi

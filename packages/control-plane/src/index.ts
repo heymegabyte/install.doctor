@@ -159,6 +159,7 @@ function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,function(c){return
 function fmtAgo(iso){var t=Date.parse(iso);if(!iso||isNaN(t))return '';var s=Math.max(0,(Date.now()-t)/1000);if(s<60)return Math.floor(s)+'s ago';if(s<3600)return Math.floor(s/60)+'m ago';if(s<86400)return Math.floor(s/3600)+'h ago';return Math.floor(s/86400)+'d ago';}
 function lastActive(d){if(!d.lastSeen)return '<span class=muted>never reported</span>';var stale=(Date.now()-Date.parse(d.lastSeen))>86400000;return esc(d.lastKind||'event')+' · '+fmtAgo(d.lastSeen)+(stale?' <span class=tag>stale</span>':'');}
 function driftCell(d,cur){if(d.drift==='drifted')return '<span class=tag>drifted</span> '+esc(d.lastRevision)+'→'+esc(cur||'?');if(d.drift==='current')return '<span class=muted>up to date ('+esc(cur)+')</span>';return '<span class=muted>—</span>';}
+function scopeCell(d){var g=d.grantedPermissions||[];if(!g.length)return '<span class=muted>—</span>';return g.map(function(p){return '<span class=tag>'+esc(p)+'</span>'}).join(' ');}
 async function load(){
   var out=document.getElementById('out'),tok=document.getElementById('tok').value.trim(),t=document.getElementById('tenant').value.trim()||'_default';
   if(!tok){out.textContent='Enter the admin token.';return}
@@ -168,8 +169,8 @@ async function load(){
     var j=await r.json();
     if(!r.ok){out.textContent='✗ '+(j.error||r.status);return}
     if(!j.items||!j.items.length){out.textContent='No machines enrolled for '+esc(t)+'.';return}
-    var rows=j.items.map(function(d){return '<tr><td>'+esc(d.label||'—')+'</td><td class=mono>'+esc(d.deviceId)+'</td><td>'+esc(d.tenant)+'</td><td>'+esc(d.enrolledAt)+'</td><td>'+lastActive(d)+'</td><td>'+driftCell(d,j.currentRevision)+'</td><td>'+(d.revoked?'<span class=tag>revoked</span>':'active')+'</td></tr>'}).join('');
-    out.innerHTML='<p class=muted>'+j.count+' machines · tenant '+esc(t)+' · desired revision '+esc(j.currentRevision||'—')+' · drift = last-applied vs desired</p><table><thead><tr><th>label</th><th>device</th><th>tenant</th><th>enrolled</th><th>last active</th><th>drift</th><th>status</th></tr></thead><tbody>'+rows+'</tbody></table>';
+    var rows=j.items.map(function(d){return '<tr><td>'+esc(d.label||'—')+'</td><td class=mono>'+esc(d.deviceId)+'</td><td>'+esc(d.tenant)+'</td><td>'+esc(d.enrolledAt)+'</td><td>'+lastActive(d)+'</td><td>'+driftCell(d,j.currentRevision)+'</td><td>'+scopeCell(d)+'</td><td>'+(d.revoked?'<span class=tag>revoked</span>':'active')+'</td></tr>'}).join('');
+    out.innerHTML='<p class=muted>'+j.count+' machines · tenant '+esc(t)+' · desired revision '+esc(j.currentRevision||'—')+' · drift = last-applied vs desired · scope = granted permissions</p><table><thead><tr><th>label</th><th>device</th><th>tenant</th><th>enrolled</th><th>last active</th><th>drift</th><th>scope</th><th>status</th></tr></thead><tbody>'+rows+'</tbody></table>';
   }catch(e){out.textContent='✗ '+e}
 }
 </script>`,
@@ -588,15 +589,21 @@ async function sha256hex(s: string): Promise<string> {
 async function resolveDevice(
   db: any,
   authHeader: string | undefined,
-): Promise<{ deviceId: string; tenant: string; label: string | null; createdAt: string } | null> {
+): Promise<{ deviceId: string; tenant: string; label: string | null; createdAt: string; permissions: string[] } | null> {
   const token = (authHeader || '').startsWith('Bearer ') ? (authHeader as string).slice(7) : '';
   if (!token) return null;
   const row = await db
-    .prepare('SELECT device_id, tenant, label, created_at, revoked_at FROM devices WHERE token_sha256 = ?')
+    .prepare('SELECT device_id, tenant, label, permissions, created_at, revoked_at FROM devices WHERE token_sha256 = ?')
     .bind(await sha256hex(token))
     .first();
   if (!row || row.revoked_at) return null;
-  return { deviceId: row.device_id, tenant: row.tenant, label: row.label, createdAt: row.created_at };
+  let permissions: string[] = [];
+  try {
+    if (row.permissions) permissions = JSON.parse(row.permissions as string);
+  } catch {
+    /* tolerate a legacy/unparseable value — read as no recorded scope */
+  }
+  return { deviceId: row.device_id, tenant: row.tenant, label: row.label, createdAt: row.created_at, permissions };
 }
 // Shared admin-bearer gate (reused by enroll + revoke + the PUT write path's pattern). Returns a
 // Response to short-circuit on failure, or null when authorized.
@@ -616,15 +623,16 @@ app.post('/api/devices/enroll', async (c) => {
   const db = (c.env as Record<string, any>).DB;
   if (!db) return c.json({ error: 'store_unavailable' }, 503);
   try {
-    const body = (await c.req.json().catch(() => ({}))) as { tenant?: string; label?: string };
+    const body = (await c.req.json().catch(() => ({}))) as { tenant?: string; label?: string; permissions?: unknown[] };
     const tenant = (body.tenant || '_default').trim();
     if (!tenant) return c.json({ error: 'invalid_request', detail: 'tenant required' }, 400);
     const deviceId = 'dev_' + Date.now().toString(36) + '_' + randHex(6);
     const token = 'aid_' + randHex(32);
     const now = new Date().toISOString();
+    const perms = JSON.stringify(Array.isArray(body.permissions) ? body.permissions.slice(0, 32).map(String) : []); // P05: admin enroll may grant a scope
     await db
-      .prepare('INSERT INTO devices (device_id, tenant, token_sha256, label, created_at) VALUES (?,?,?,?,?)')
-      .bind(deviceId, tenant, await sha256hex(token), body.label ?? null, now)
+      .prepare('INSERT INTO devices (device_id, tenant, token_sha256, label, permissions, created_at) VALUES (?,?,?,?,?,?)')
+      .bind(deviceId, tenant, await sha256hex(token), body.label ?? null, perms, now)
       .run();
     return c.json({ deviceId, tenant, token, label: body.label ?? null, createdAt: now, note: 'store the token now — it is not recoverable' }, 201);
   } catch (e) {
@@ -642,7 +650,7 @@ app.post('/api/devices/enroll', async (c) => {
 async function listDevicesWithDrift(db: any, tenant: string, limit: number): Promise<{ currentRevision: string | null; items: any[] }> {
   const rs = await db
     .prepare(
-      `SELECT d.device_id, d.tenant, d.label, d.created_at, d.revoked_at,
+      `SELECT d.device_id, d.tenant, d.label, d.permissions, d.created_at, d.revoked_at,
          (SELECT h.created_at FROM history h WHERE h.device_id = d.device_id ORDER BY h.created_at DESC, h.id DESC LIMIT 1) AS last_seen,
          (SELECT h.kind       FROM history h WHERE h.device_id = d.device_id ORDER BY h.created_at DESC, h.id DESC LIMIT 1) AS last_kind,
          (SELECT h.status     FROM history h WHERE h.device_id = d.device_id ORDER BY h.created_at DESC, h.id DESC LIMIT 1) AS last_status,
@@ -658,19 +666,28 @@ async function listDevicesWithDrift(db: any, tenant: string, limit: number): Pro
   } catch {
     /* drift is best-effort; leave currentRevision null */
   }
-  const items = (rs.results || []).map((r: any) => ({
-    deviceId: r.device_id,
-    tenant: r.tenant,
-    label: r.label,
-    enrolledAt: r.created_at,
-    revoked: !!r.revoked_at,
-    revokedAt: r.revoked_at || null,
-    lastSeen: r.last_seen || null,
-    lastKind: r.last_kind || null,
-    lastStatus: r.last_status || null,
-    lastRevision: r.last_revision || null,
-    drift: r.last_revision && currentRevision ? (r.last_revision === currentRevision ? 'current' : 'drifted') : 'unknown',
-  }));
+  const items = (rs.results || []).map((r: any) => {
+    let grantedPermissions: string[] = [];
+    try {
+      if (r.permissions) grantedPermissions = JSON.parse(r.permissions as string);
+    } catch {
+      /* legacy/unparseable scope → report none, never error the list */
+    }
+    return {
+      deviceId: r.device_id,
+      tenant: r.tenant,
+      label: r.label,
+      grantedPermissions,
+      enrolledAt: r.created_at,
+      revoked: !!r.revoked_at,
+      revokedAt: r.revoked_at || null,
+      lastSeen: r.last_seen || null,
+      lastKind: r.last_kind || null,
+      lastStatus: r.last_status || null,
+      lastRevision: r.last_revision || null,
+      drift: r.last_revision && currentRevision ? (r.last_revision === currentRevision ? 'current' : 'drifted') : 'unknown',
+    };
+  });
   return { currentRevision, items };
 }
 
@@ -728,7 +745,7 @@ app.get('/api/devices/me', async (c) => {
   try {
     const dev = await resolveDevice(db, c.req.header('authorization'));
     if (!dev) return c.json({ error: 'unauthorized' }, 401);
-    return c.json({ deviceId: dev.deviceId, tenant: dev.tenant, label: dev.label, enrolledAt: dev.createdAt });
+    return c.json({ deviceId: dev.deviceId, tenant: dev.tenant, label: dev.label, enrolledAt: dev.createdAt, grantedPermissions: dev.permissions });
   } catch (e) {
     return c.json({ error: 'store_error', detail: e instanceof Error ? e.message : String(e) }, 503);
   }
@@ -994,7 +1011,7 @@ app.get('/api/devices/pair/poll', async (c) => {
   if (!pollSecret) return c.json({ error: 'unauthorized' }, 401);
   try {
     const pollHash = await sha256hex(pollSecret);
-    const row = await db.prepare('SELECT code, tenant, label, status, expires_at FROM pairings WHERE poll_sha256 = ?').bind(pollHash).first();
+    const row = await db.prepare('SELECT code, tenant, label, permissions, status, expires_at FROM pairings WHERE poll_sha256 = ?').bind(pollHash).first();
     if (!row) return c.json({ error: 'not_found' }, 404);
     if (row.status === 'claimed') return c.json({ error: 'already_claimed' }, 410);
     if (new Date(row.expires_at).getTime() < Date.now()) return c.json({ status: 'expired' }, 410);
@@ -1008,7 +1025,8 @@ app.get('/api/devices/pair/poll', async (c) => {
       .run();
     if ((claim.meta?.changes ?? 0) === 0) return c.json({ error: 'already_claimed' }, 410);
     const token = 'aid_' + randHex(32);
-    await db.prepare('INSERT INTO devices (device_id, tenant, token_sha256, label, created_at) VALUES (?,?,?,?,?)').bind(deviceId, row.tenant, await sha256hex(token), row.label ?? null, now).run();
+    // P05: the device inherits the GRANTED scope from the pairing it was approved against.
+    await db.prepare('INSERT INTO devices (device_id, tenant, token_sha256, label, permissions, created_at) VALUES (?,?,?,?,?,?)').bind(deviceId, row.tenant, await sha256hex(token), row.label ?? null, (row.permissions as string) || '[]', now).run();
     return c.json({ status: 'claimed', deviceId, tenant: row.tenant, token, note: 'store the token now — it is not recoverable' });
   } catch (e) {
     return c.json({ error: 'store_error', detail: e instanceof Error ? e.message : String(e) }, 503);
