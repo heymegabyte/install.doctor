@@ -67,8 +67,16 @@ const PAGE_CSS =
   '.cta2{display:inline-block;color:#00E5FF;border:1px solid #2a3147;padding:10px 16px;border-radius:8px;text-decoration:none;margin:4px 0}.cta2:hover{border-color:#00E5FF}' +
   'ol{padding-left:20px}ol li{margin:4px 0}' +
   '.rec{border-left:3px solid #2a3147}.rec-warning{border-left-color:#f0a020}.rec-info{border-left-color:#00E5FF}.rec-ok{border-left-color:#3fbf6f}';
+// Shared across EVERY dashboard page: persist the admin token in sessionStorage (per-tab, cleared on
+// close) so the operator enters it ONCE — prefill the #tok input on load, auto-save on change, and
+// inject a "forget token" control. No-ops on pages without a #tok (landing, /pair, /environment).
+const TOKEN_PERSIST_JS = `<script>
+function aidSaveToken(t){try{if(t)sessionStorage.setItem('aidAdminToken',t)}catch(e){}}
+function aidForgetToken(){try{sessionStorage.removeItem('aidAdminToken')}catch(e){}var el=document.getElementById('tok');if(el)el.value='';}
+addEventListener('DOMContentLoaded',function(){try{var el=document.getElementById('tok');if(!el)return;var t=sessionStorage.getItem('aidAdminToken');if(t)el.value=t;el.addEventListener('change',function(){aidSaveToken(el.value.trim())});var b=document.createElement('button');b.type='button';b.className='lnk';b.textContent='forget token';b.style.marginLeft='8px';b.onclick=aidForgetToken;el.insertAdjacentElement('afterend',b)}catch(e){}});
+</script>`;
 function htmlPage(title: string, body: string): string {
-  return `<!doctype html><html lang=en><head><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1"><title>${title}</title><style>${PAGE_CSS}</style></head><body><div class=wrap>${body}</div></body></html>`;
+  return `<!doctype html><html lang=en><head><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1"><title>${title}</title><style>${PAGE_CSS}</style></head><body><div class=wrap>${body}</div>${TOKEN_PERSIST_JS}</body></html>`;
 }
 app.get('/', (c) =>
   c.html(
