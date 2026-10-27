@@ -169,7 +169,11 @@ __cnf_resolve(){ local cmd="$1"; shift
     __cnf_ai_fallback "$cmd" "$os" || { __CNF_RESOLVING="$__cnf_prev"; return 127; }
   fi
   hash -r 2>/dev/null || true
-  if command -v "$cmd" >/dev/null 2>&1; then __cnf_say "✓ installed — running: $cmd $*"; "$cmd" "$@"; rc=$?
+  if command -v "$cmd" >/dev/null 2>&1; then
+    # CNF_NO_EXEC (E04 install-only primitive — the fish adapter + `aid exec` delegate here): INSTALL
+    # but do NOT re-run; the caller re-runs the command in its OWN shell (bash can't re-run into fish).
+    if [ -n "${CNF_NO_EXEC:-}" ]; then rc=0
+    else __cnf_say "✓ installed — running: $cmd $*"; "$cmd" "$@"; rc=$?; fi
   else __cnf_warn "'$cmd' still not found after install"; rc=127; fi
   __CNF_RESOLVING="$__cnf_prev"; return "$rc"; }
 

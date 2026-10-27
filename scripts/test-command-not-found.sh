@@ -197,5 +197,16 @@ bash "$BUILDER" "$badsrc" "$goodidx" >/dev/null 2>&1 || true   # expected to fai
 after="$(wc -l < "$goodidx" 2>/dev/null | tr -d ' ')"
 { [ "$after" = "$before" ] && [ -s "$goodidx" ]; } && pass "D13/B07 — failed rebuild preserves the good index (atomic temp+rename, fail-soft: $before rows intact)" || fail "D13 non-atomic: index clobbered by failed build (before=$before after=$after)"
 
+# 10. E04 primitive — CNF_NO_EXEC INSTALLS but does NOT re-run the command (the install-only mode the
+# fish adapter delegates to; bash can't re-run into fish). Fake brew installs 'nxtool'; nxtool, IF RUN,
+# would touch a sentinel — under CNF_NO_EXEC it must NOT be executed, yet the resolver returns 0 because
+# the binary is now present. (RED on the old code, which always exec'd the installed command.)
+nxbin="$tmp/nxbin"; mkdir -p "$nxbin"
+nxidx="$tmp/nxidx.tsv"; printf 'nxtool\tnxtool\tnxtool\n' > "$nxidx"
+printf '#!/usr/bin/env bash\nprintf "#!/usr/bin/env bash\\n: > \\"%s/nxran\\"\\n" > "%s/nxtool"\nchmod +x "%s/nxtool"\n' "$tmp" "$nxbin" "$nxbin" > "$nxbin/brew"; chmod +x "$nxbin/brew"
+rm -f "$nxbin/nxtool" "$tmp/nxran"
+CNF_NO_EXEC=1 CNF_ALLOW_NONINTERACTIVE=1 PATH="$nxbin:$PATH" CNF_INDEX="$nxidx" CNF_LOCK_DIR="$tmp/nxlocks" __cnf_resolve nxtool >/dev/null 2>&1; nxrc=$?
+{ [ "$nxrc" -eq 0 ] && [ -x "$nxbin/nxtool" ] && [ ! -f "$tmp/nxran" ]; } && pass "E04 primitive — CNF_NO_EXEC installs but does NOT re-run (rc=0, binary present, never executed)" || fail "CNF_NO_EXEC rc=$nxrc installed=$([ -x "$nxbin/nxtool" ] && echo y || echo n) ran=$([ -f "$tmp/nxran" ] && echo y || echo n)"
+
 say "command-not-found: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]
