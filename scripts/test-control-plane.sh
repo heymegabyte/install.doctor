@@ -54,7 +54,7 @@ if [ -n "${CONTROL_PLANE_URL:-}" ]; then
   pc="$(curl -s "$u/api/provider-config" 2>/dev/null)"
   echo "$pc" | jq -e '(.enabled_providers[0]=="install-doctor") and (.provider["install-doctor"].options.baseURL|test("/api/ai/v1$")) and (.provider["install-doctor"].options.apiKey=="{env:AID_INFERENCE_TOKEN}")' >/dev/null 2>&1 && pass "GET /api/provider-config -> OpenCode config (install-doctor provider, {env} apiKey — no secret)" || fail "provider-config -> $(printf '%s' "$pc" | head -c 140)"
   hp="$(curl -s "$u/history" 2>/dev/null)"
-  { echo "$hp" | grep -qi 'fleet activity' && echo "$hp" | grep -q 'AID_ADMIN_TOKEN' && echo "$hp" | grep -qi 'Load history'; } && pass "GET /history -> fleet dashboard page (admin-token load of /api/history)" || fail "history page -> $(printf '%s' "$hp" | head -c 80)"
+  { echo "$hp" | grep -qi 'fleet activity' && echo "$hp" | grep -q 'AID_ADMIN_TOKEN' && echo "$hp" | grep -qi 'Load history' && echo "$hp" | grep -qiE 'events only|no terminal'; } && pass "GET /history -> fleet dashboard page + honest recording note (U02)" || fail "history page -> $(printf '%s' "$hp" | head -c 80)"
   mp="$(curl -s "$u/machines" 2>/dev/null)"
   { echo "$mp" | grep -qi 'device inventory' && echo "$mp" | grep -q 'AID_ADMIN_TOKEN' && echo "$mp" | grep -qi 'Load machines' && echo "$mp" | grep -qi 'last active' && echo "$mp" | grep -qi 'drift' && echo "$mp" | grep -qi 'scope' && echo "$mp" | grep -qi 'health'; } && pass "GET /machines -> device-inventory dashboard w/ last-active + drift + scope + health columns (N08/U15/P05/U11)" || fail "machines page -> $(printf '%s' "$mp" | head -c 80)"
   # fire #64 — each device row opens a detail view (identity + health + scope + drift + its /api/history timeline, N09 UI half).
@@ -274,11 +274,11 @@ JSON
     rep="$(curl -s -X POST -H "authorization: Bearer $dtok4" -H 'content-type: application/json' -d '{"kind":"apply","status":"success","revision":"r1","summary":"e2e report","detail":{"plan":{"total":0}}}' "$u/api/device/report" 2>/dev/null)"
     echo "$rep" | jq -e '(.id|type=="string") and .kind=="apply" and .status=="success"' >/dev/null 2>&1 && pass "device/report (device token) -> 201 + event id" || fail "report -> $rep"
     hst="$(curl -s -H "authorization: Bearer $dtok4" "$u/api/device/history" 2>/dev/null)"
-    echo "$hst" | jq -e '.count>=1 and (.items[0].kind=="apply") and (.items[0].status=="success")' >/dev/null 2>&1 && pass "device/history (device token) -> lists the reported run (newest-first)" || fail "history -> $hst"
+    echo "$hst" | jq -e '.count>=1 and (.items[0].kind=="apply") and (.items[0].status=="success") and (.recordingMode=="events-only")' >/dev/null 2>&1 && pass "device/history (device token) -> lists the reported run + recordingMode:events-only (U02)" || fail "history -> $hst"
     rpb="$(curl -s -o /dev/null -w '%{http_code}' -X POST -H "authorization: Bearer $dtok4" -H 'content-type: application/json' -d '{"kind":"bogus_kind"}' "$u/api/device/report" 2>/dev/null || echo 000)"
     [ "$rpb" = 400 ] && pass "device/report (invalid kind) -> 400 (Zod boundary)" || fail "report invalid -> $rpb (want 400)"
     ah="$(curl -s -H "authorization: Bearer $DADM" "$u/api/history?tenant=_default&limit=5" 2>/dev/null)"
-    echo "$ah" | jq -e '.tenant=="_default" and (.count>=1) and (.items[0].deviceId|type=="string") and (.items[0].kind|type=="string")' >/dev/null 2>&1 && pass "GET /api/history?tenant (admin) -> fleet events across devices (S15)" || fail "admin history -> $(printf '%s' "$ah" | head -c 160)"
+    echo "$ah" | jq -e '.tenant=="_default" and (.count>=1) and (.items[0].deviceId|type=="string") and (.items[0].kind|type=="string") and (.recordingMode=="events-only")' >/dev/null 2>&1 && pass "GET /api/history?tenant (admin) -> fleet events + recordingMode:events-only (S15/U02)" || fail "admin history -> $(printf '%s' "$ah" | head -c 160)"
     # fire #63 — per-device timeline filter (N09). Fresh device ids per run → id-scoped assertions are
     # deterministic even though the _histf tenant accumulates events across runs.
     hfA="$(curl -s -X POST -H "authorization: Bearer $DADM" -H 'content-type: application/json' -d '{"tenant":"_histf","label":"hist-A"}' "$u/api/devices/enroll" 2>/dev/null)"

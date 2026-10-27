@@ -126,6 +126,7 @@ app.get('/history', (c) =>
 <h1>History <span class=muted>· fleet activity</span></h1>
 <div class=card>
 <p class=muted>Paste your admin token to load the fleet's reported events (apply / plan / report runs across devices).</p>
+<p class=muted><strong>Recording fidelity:</strong> History captures structured events only — <strong>no terminal output</strong> is captured yet (U02; a future recorder will add redacted output).</p>
 <p><input id=tenant placeholder="tenant (default _default)" style="width:46%"> <input id=tok type=password placeholder="AID_ADMIN_TOKEN" style="width:46%"></p>
 <p><button onclick="load()">Load history</button></p></div>
 <div id=out class=muted>No events loaded.</div>
@@ -141,7 +142,7 @@ async function load(){
     if(!r.ok){out.textContent='✗ '+(j.error||r.status);return}
     if(!j.items||!j.items.length){out.textContent='No events for '+esc(t)+'.';return}
     var rows=j.items.map(function(e){return '<tr><td>'+esc(e.createdAt)+'</td><td class=mono>'+esc(e.deviceId)+'</td><td>'+esc(e.kind)+'</td><td>'+esc(e.status)+'</td><td>'+esc(e.summary||'')+'</td></tr>'}).join('');
-    out.innerHTML='<p class=muted>'+j.count+' events · tenant '+esc(t)+'</p><table><thead><tr><th>time</th><th>device</th><th>kind</th><th>status</th><th>summary</th></tr></thead><tbody>'+rows+'</tbody></table>';
+    out.innerHTML='<p class=muted>'+j.count+' events · tenant '+esc(t)+' · recording: '+esc(j.recordingMode||'events-only')+' (no terminal capture yet)</p><table><thead><tr><th>time</th><th>device</th><th>kind</th><th>status</th><th>summary</th></tr></thead><tbody>'+rows+'</tbody></table>';
   }catch(e){out.textContent='✗ '+e}
 }
 </script>`,
@@ -232,7 +233,7 @@ async function detail(id){
     var g=(m.grantedPermissions||[]).join(', ')||'—';
     dp.innerHTML='<div class=card><p><strong>'+esc(m.label||id)+'</strong> <span class=mono muted>'+esc(id)+'</span>'+(m.revoked?' <span class=tag>revoked</span>':'')+'</p>'
       +'<p class=muted>health '+healthCell(m)+' · drift '+driftCell(m,CUR)+' · scope '+esc(g)+' · last active '+lastActive(m)+'</p>'
-      +'<p class=muted>'+j.count+' event(s) · unified change timeline</p>'
+      +'<p class=muted>'+j.count+' event(s) · unified change timeline · recording: '+esc(j.recordingMode||'events-only')+' (no terminal capture yet)</p>'
       +'<table><thead><tr><th>time</th><th>kind</th><th>status</th><th>revision</th><th>summary</th></tr></thead><tbody>'+ev+'</tbody></table></div>';
     dp.scrollIntoView({behavior:'smooth',block:'nearest'});
   }catch(e){dp.innerHTML='✗ '+esc(String(e))}
@@ -990,7 +991,9 @@ app.get('/api/device/history', async (c) => {
       detail: r.detail ? JSON.parse(r.detail) : null,
       createdAt: r.created_at,
     }));
-    return c.json({ deviceId: dev.deviceId, tenant: dev.tenant, count: items.length, items });
+    // U02 — honest recording fidelity: History stores STRUCTURED events, not captured terminal output.
+    // The constant 'events-only' marks that gap (a future recorder will stamp 'full'/'redacted').
+    return c.json({ deviceId: dev.deviceId, tenant: dev.tenant, recordingMode: 'events-only', count: items.length, items });
   } catch (e) {
     return c.json({ error: 'store_error', detail: e instanceof Error ? e.message : String(e) }, 503);
   }
@@ -1027,7 +1030,7 @@ app.get('/api/history', async (c) => {
       detail: r.detail ? JSON.parse(r.detail) : null,
       createdAt: r.created_at,
     }));
-    return c.json({ tenant, device: device || null, count: items.length, items });
+    return c.json({ tenant, device: device || null, recordingMode: 'events-only', count: items.length, items });
   } catch (e) {
     return c.json({ error: 'store_error', detail: e instanceof Error ? e.message : String(e) }, 503);
   }
