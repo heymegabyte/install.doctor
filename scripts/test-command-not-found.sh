@@ -208,5 +208,23 @@ rm -f "$nxbin/nxtool" "$tmp/nxran"
 CNF_NO_EXEC=1 CNF_ALLOW_NONINTERACTIVE=1 PATH="$nxbin:$PATH" CNF_INDEX="$nxidx" CNF_LOCK_DIR="$tmp/nxlocks" __cnf_resolve nxtool >/dev/null 2>&1; nxrc=$?
 { [ "$nxrc" -eq 0 ] && [ -x "$nxbin/nxtool" ] && [ ! -f "$tmp/nxran" ]; } && pass "E04 primitive — CNF_NO_EXEC installs but does NOT re-run (rc=0, binary present, never executed)" || fail "CNF_NO_EXEC rc=$nxrc installed=$([ -x "$nxbin/nxtool" ] && echo y || echo n) ran=$([ -f "$tmp/nxran" ] && echo y || echo n)"
 
+# 11. E02 (ADR 0003) — DEFER to mise for a mise-provided command (don't duplicate mise's lazy machinery
+# with a redundant system install). Fake `mise`: `mise which mtool` succeeds; `mise exec -- mtool` runs a
+# sentinel + exits 7. mtool is ALSO in the index, so a fake `brew` would install it IF the hook fell
+# through — it must NOT: the resolve runs via mise (sentinel + status 7) and never invokes brew.
+mbin="$tmp/mbin"; mkdir -p "$mbin"
+midx="$tmp/midx.tsv"; printf 'mtool\tmtool\tmtool\n' > "$midx"
+printf '#!/usr/bin/env bash\ncase "$1" in\n  which) [ "$2" = mtool ] && exit 0 || exit 1;;\n  exec) shift; [ "$1" = -- ] && shift; if [ "$1" = mtool ]; then echo MISE_RAN_MTOOL; exit 7; fi;;\nesac\nexit 1\n' > "$mbin/mise"; chmod +x "$mbin/mise"
+printf '#!/usr/bin/env bash\n: > "%s/brew_ran"\n' "$tmp" > "$mbin/brew"; chmod +x "$mbin/brew"
+rm -f "$tmp/brew_ran"
+mout="$(CNF_ALLOW_NONINTERACTIVE=1 PATH="$mbin:$PATH" CNF_INDEX="$midx" CNF_LOCK_DIR="$tmp/mlocks" __cnf_resolve mtool 2>/dev/null)"; mrc=$?
+{ [ "$mout" = "MISE_RAN_MTOOL" ] && [ "$mrc" -eq 7 ] && [ ! -f "$tmp/brew_ran" ]; } && pass "E02 — mise-provided command runs via mise (status preserved), brew never invoked (no duplicate install)" || fail "E02 mise defer: out='$mout' rc=$mrc brew_ran=$([ -f "$tmp/brew_ran" ] && echo y || echo n)"
+# 11b. a command mise does NOT provide falls through to the normal install path (fake brew installs it).
+rm -f "$tmp/brew_ran" "$mbin/othertool"
+printf '#!/usr/bin/env bash\nprintf "#!/usr/bin/env bash\\necho OTHER_OK\\n" > "%s/othertool"\nchmod +x "%s/othertool"\n: > "%s/brew_ran"\n' "$mbin" "$mbin" "$tmp" > "$mbin/brew"; chmod +x "$mbin/brew"
+oidx="$tmp/oidx.tsv"; printf 'othertool\tothertool\tothertool\n' > "$oidx"
+oout="$(CNF_ALLOW_NONINTERACTIVE=1 PATH="$mbin:$PATH" CNF_INDEX="$oidx" CNF_LOCK_DIR="$tmp/mlocks2" __cnf_resolve othertool 2>/dev/null)"
+{ [ "$oout" = "OTHER_OK" ] && [ -f "$tmp/brew_ran" ]; } && pass "E02 — a non-mise command falls through to the normal install path (brew)" || fail "E02 fallthrough: out='$oout' brew_ran=$([ -f "$tmp/brew_ran" ] && echo y || echo n)"
+
 say "command-not-found: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

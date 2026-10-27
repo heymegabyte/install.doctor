@@ -133,6 +133,14 @@ __cnf_resolve(){ local cmd="$1"; shift
   fi
   local __cnf_prev="${__CNF_RESOLVING:-}"; __CNF_RESOLVING="$__cnf_prev $cmd"
   local os pref row mgr="" pkg="" col rc=127 lock acq
+  # E02 (ADR 0003): mise owns version-managed runtimes. If mise ALREADY provides this command, run it
+  # VIA mise instead of redundantly installing it through a system package manager — never duplicate
+  # mise's lazy machinery. `mise which` (stderr muted) succeeds only for a mise-managed tool. Only on the
+  # normal exec path (not the install-only CNF_NO_EXEC callers, not CNF_DRY).
+  if [ -z "${CNF_NO_EXEC:-}" ] && [ -z "${CNF_DRY:-}" ] && command -v mise >/dev/null 2>&1 && mise which "$cmd" >/dev/null 2>&1; then
+    __cnf_say "↪ '$cmd' is provided by mise — running via mise (no duplicate install)"
+    mise exec -- "$cmd" "$@"; rc=$?; __CNF_RESOLVING="$__cnf_prev"; return "$rc"
+  fi
   os="$(__cnf_os)"; pref="$(__cnf_pref "$os")"
   __cnf_say "⟳ '$cmd' not found — resolving via install.doctor…"
   # self-heal: build the index on first use if missing + the deployed builder is available
