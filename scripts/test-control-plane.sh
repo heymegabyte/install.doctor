@@ -56,7 +56,7 @@ if [ -n "${CONTROL_PLANE_URL:-}" ]; then
   hp="$(curl -s "$u/history" 2>/dev/null)"
   { echo "$hp" | grep -qi 'fleet activity' && echo "$hp" | grep -q 'AID_ADMIN_TOKEN' && echo "$hp" | grep -qi 'Load history'; } && pass "GET /history -> fleet dashboard page (admin-token load of /api/history)" || fail "history page -> $(printf '%s' "$hp" | head -c 80)"
   mp="$(curl -s "$u/machines" 2>/dev/null)"
-  { echo "$mp" | grep -qi 'device inventory' && echo "$mp" | grep -q 'AID_ADMIN_TOKEN' && echo "$mp" | grep -qi 'Load machines' && echo "$mp" | grep -qi 'last active' && echo "$mp" | grep -qi 'drift' && echo "$mp" | grep -qi 'scope'; } && pass "GET /machines -> device-inventory dashboard w/ last-active + drift + scope columns (N08/U15/P05)" || fail "machines page -> $(printf '%s' "$mp" | head -c 80)"
+  { echo "$mp" | grep -qi 'device inventory' && echo "$mp" | grep -q 'AID_ADMIN_TOKEN' && echo "$mp" | grep -qi 'Load machines' && echo "$mp" | grep -qi 'last active' && echo "$mp" | grep -qi 'drift' && echo "$mp" | grep -qi 'scope' && echo "$mp" | grep -qi 'health'; } && pass "GET /machines -> device-inventory dashboard w/ last-active + drift + scope + health columns (N08/U15/P05/U11)" || fail "machines page -> $(printf '%s' "$mp" | head -c 80)"
   recp="$(curl -s "$u/recommendations" 2>/dev/null)"
   { echo "$recp" | grep -qi 'what to do next' && echo "$recp" | grep -q 'AID_ADMIN_TOKEN' && echo "$recp" | grep -qi 'Load recommendations'; } && pass "GET /recommendations -> rule-based recs dashboard page (N03)" || fail "recommendations page -> $(printf '%s' "$recp" | head -c 80)"
   ap="$(curl -s "$u/apps" 2>/dev/null)"
@@ -261,12 +261,21 @@ JSON
     echo "$adf" | jq -e --arg d "$did4" '([.items[]|select(.deviceId==$d)]) as $m | ($m|length>=1) and ($m[0].lastKind=="apply") and ($m[0].lastSeen|type=="string")' >/dev/null 2>&1 && pass "GET /api/devices -> per-device last-activity (lastKind=apply + lastSeen) after a report (N08/U15)" || fail "devices freshness -> $(printf '%s' "$adf" | head -c 180)"
     # N08 drift: _default desired revision is r1; did4 applied r1 -> 'current'.
     echo "$adf" | jq -e --arg d "$did4" '(.currentRevision=="r1") and ([.items[]|select(.deviceId==$d)][0].drift=="current")' >/dev/null 2>&1 && pass "GET /api/devices -> drift: device at desired revision reads 'current' (N08)" || fail "drift current -> $(printf '%s' "$adf" | head -c 200)"
+    # U11 (#59): separate connectivity / software / backup health. did4 reported an apply at r1 just now.
+    echo "$adf" | jq -e --arg d "$did4" '([.items[]|select(.deviceId==$d)][0].health) as $h | ($h.connectivity=="ok") and ($h.software=="current") and ($h.backup=="not_configured")' >/dev/null 2>&1 && pass "GET /api/devices -> health: recent+current device reads connectivity=ok · software=current · backup=not_configured (U11)" || fail "health current -> $(printf '%s' "$adf" | head -c 240)"
+    # a freshly-enrolled, never-reported device reads connectivity=never · software=unknown.
+    hnenr="$(curl -s -X POST -H "authorization: Bearer $DADM" -H 'content-type: application/json' -d '{"tenant":"_default","label":"health-never"}' "$u/api/devices/enroll" 2>/dev/null)"
+    hndid="$(printf '%s' "$hnenr" | jq -r '.deviceId // empty')"
+    hnadf="$(curl -s -H "authorization: Bearer $DADM" "$u/api/devices?tenant=_default&limit=500" 2>/dev/null)"
+    echo "$hnadf" | jq -e --arg d "$hndid" '([.items[]|select(.deviceId==$d)][0].health) as $h | ($h.connectivity=="never") and ($h.software=="unknown")' >/dev/null 2>&1 && pass "GET /api/devices -> health: never-reported device reads connectivity=never · software=unknown (U11)" || fail "health never -> $(printf '%s' "$hnadf" | head -c 220)"
+    [ -n "$hndid" ] && curl -s -o /dev/null -X POST -H "authorization: Bearer $DADM" "$u/api/devices/$hndid/revoke" >/dev/null 2>&1
     # ...and a device that applied an OLDER revision reads 'drifted'.
     drenr="$(curl -s -X POST -H "authorization: Bearer $DADM" -H 'content-type: application/json' -d '{"tenant":"_default","label":"drift-probe"}' "$u/api/devices/enroll" 2>/dev/null)"
     drdid="$(printf '%s' "$drenr" | jq -r '.deviceId // empty')"; drtok="$(printf '%s' "$drenr" | jq -r '.token // empty')"
     curl -s -o /dev/null -X POST -H "authorization: Bearer $drtok" -H 'content-type: application/json' -d '{"kind":"apply","status":"success","revision":"r0","summary":"old revision"}' "$u/api/device/report" 2>/dev/null
     add="$(curl -s -H "authorization: Bearer $DADM" "$u/api/devices?tenant=_default&limit=200" 2>/dev/null)"
     echo "$add" | jq -e --arg d "$drdid" '([.items[]|select(.deviceId==$d)][0]) as $m | ($m.drift=="drifted") and ($m.lastRevision=="r0")' >/dev/null 2>&1 && pass "GET /api/devices -> drift: device at older revision reads 'drifted' (r0 vs r1, N08)" || fail "drift drifted -> $(printf '%s' "$add" | head -c 200)"
+    echo "$add" | jq -e --arg d "$drdid" '([.items[]|select(.deviceId==$d)][0].health.software)=="drifted"' >/dev/null 2>&1 && pass "GET /api/devices -> health.software=drifted for the behind-revision device (U11)" || fail "health drifted -> $(printf '%s' "$add" | head -c 200)"
     [ -n "$drdid" ] && curl -s -o /dev/null -X POST -H "authorization: Bearer $DADM" "$u/api/devices/$drdid/revoke" >/dev/null 2>&1
     # Recommendations (N03): a drifted device yields a 'drifted' rec (rule-based) naming that device.
     rcenr="$(curl -s -X POST -H "authorization: Bearer $DADM" -H 'content-type: application/json' -d '{"tenant":"_default","label":"recs-probe"}' "$u/api/devices/enroll" 2>/dev/null)"

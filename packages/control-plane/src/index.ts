@@ -160,6 +160,7 @@ function fmtAgo(iso){var t=Date.parse(iso);if(!iso||isNaN(t))return '';var s=Mat
 function lastActive(d){if(!d.lastSeen)return '<span class=muted>never reported</span>';var stale=(Date.now()-Date.parse(d.lastSeen))>86400000;return esc(d.lastKind||'event')+' · '+fmtAgo(d.lastSeen)+(stale?' <span class=tag>stale</span>':'');}
 function driftCell(d,cur){if(d.drift==='drifted')return '<span class=tag>drifted</span> '+esc(d.lastRevision)+'→'+esc(cur||'?');if(d.drift==='current')return '<span class=muted>up to date ('+esc(cur)+')</span>';return '<span class=muted>—</span>';}
 function scopeCell(d){var g=d.grantedPermissions||[];if(!g.length)return '<span class=muted>—</span>';return g.map(function(p){return '<span class=tag>'+esc(p)+'</span>'}).join(' ');}
+function healthCell(d){var h=d.health||{};function dot(k,v){var warn=(v==='stale'||v==='drifted'||v==='never');var dim=(v==='not_configured'||v==='unknown');return '<span class="'+(warn?'tag':'muted')+'" title="'+k+': '+esc(v||'?')+'">'+k+':'+esc(v==='not_configured'?'none':(v||'?'))+'</span>';}return dot('conn',h.connectivity)+' '+dot('sw',h.software)+' '+dot('bkp',h.backup);}
 async function load(){
   var out=document.getElementById('out'),tok=document.getElementById('tok').value.trim(),t=document.getElementById('tenant').value.trim()||'_default';
   if(!tok){out.textContent='Enter the admin token.';return}
@@ -169,8 +170,8 @@ async function load(){
     var j=await r.json();
     if(!r.ok){out.textContent='✗ '+(j.error||r.status);return}
     if(!j.items||!j.items.length){out.textContent='No machines enrolled for '+esc(t)+'.';return}
-    var rows=j.items.map(function(d){return '<tr><td>'+esc(d.label||'—')+'</td><td class=mono>'+esc(d.deviceId)+'</td><td>'+esc(d.tenant)+'</td><td>'+esc(d.enrolledAt)+'</td><td>'+lastActive(d)+'</td><td>'+driftCell(d,j.currentRevision)+'</td><td>'+scopeCell(d)+'</td><td>'+(d.revoked?'<span class=tag>revoked</span>':'active')+'</td></tr>'}).join('');
-    out.innerHTML='<p class=muted>'+j.count+' machines · tenant '+esc(t)+' · desired revision '+esc(j.currentRevision||'—')+' · drift = last-applied vs desired · scope = granted permissions</p><table><thead><tr><th>label</th><th>device</th><th>tenant</th><th>enrolled</th><th>last active</th><th>drift</th><th>scope</th><th>status</th></tr></thead><tbody>'+rows+'</tbody></table>';
+    var rows=j.items.map(function(d){return '<tr><td>'+esc(d.label||'—')+'</td><td class=mono>'+esc(d.deviceId)+'</td><td>'+esc(d.tenant)+'</td><td>'+esc(d.enrolledAt)+'</td><td>'+lastActive(d)+'</td><td>'+driftCell(d,j.currentRevision)+'</td><td>'+healthCell(d)+'</td><td>'+scopeCell(d)+'</td><td>'+(d.revoked?'<span class=tag>revoked</span>':'active')+'</td></tr>'}).join('');
+    out.innerHTML='<p class=muted>'+j.count+' machines · tenant '+esc(t)+' · desired revision '+esc(j.currentRevision||'—')+' · drift = last-applied vs desired · health = connectivity·software·backup · scope = granted permissions</p><table><thead><tr><th>label</th><th>device</th><th>tenant</th><th>enrolled</th><th>last active</th><th>drift</th><th>health</th><th>scope</th><th>status</th></tr></thead><tbody>'+rows+'</tbody></table>';
   }catch(e){out.textContent='✗ '+e}
 }
 </script>`,
@@ -698,6 +699,7 @@ async function listDevicesWithDrift(db: any, tenant: string, limit: number): Pro
     } catch {
       /* legacy/unparseable scope → report none, never error the list */
     }
+    const drift = r.last_revision && currentRevision ? (r.last_revision === currentRevision ? 'current' : 'drifted') : 'unknown';
     return {
       deviceId: r.device_id,
       tenant: r.tenant,
@@ -710,7 +712,15 @@ async function listDevicesWithDrift(db: any, tenant: string, limit: number): Pro
       lastKind: r.last_kind || null,
       lastStatus: r.last_status || null,
       lastRevision: r.last_revision || null,
-      drift: r.last_revision && currentRevision ? (r.last_revision === currentRevision ? 'current' : 'drifted') : 'unknown',
+      drift,
+      // U11 — separate health dimensions (observed, not optimistic): connectivity from last-report
+      // freshness, software from drift, backup honestly not_configured (J ⬜). Derived from the data
+      // already loaded above — no extra query (A13 reuse). The dashboard + recommendations read this.
+      health: {
+        connectivity: !r.last_seen ? 'never' : Date.now() - Date.parse(r.last_seen as string) > 86400000 ? 'stale' : 'ok',
+        software: drift,
+        backup: 'not_configured',
+      },
     };
   });
   return { currentRevision, items };
