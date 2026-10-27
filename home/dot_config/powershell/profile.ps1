@@ -53,3 +53,30 @@ function which ($command) {
   Get-Command -Name $command -ErrorAction SilentlyContinue |
     Select-Object -ExpandProperty Source -ErrorAction SilentlyContinue
 }
+
+### Install Doctor command-not-found adapter (E04)
+# Delegate a missing command to the SAME canonical bash resolver (~/.config/shell/not-found-hook.sh) in
+# INSTALL-ONLY mode (CNF_NO_EXEC — bash cannot re-run into pwsh), then re-run the command IN PowerShell
+# preserving arguments + exit status. A STILL-missing command does nothing here, so PowerShell emits its
+# ordinary command-not-found error — NEVER a false success. Installs only in an INTERACTIVE, non-CI
+# session (E13); the approved-interactive context is signalled to the resolver with
+# CNF_ALLOW_NONINTERACTIVE=1 (the bash child is itself non-interactive). Where bash is absent (native
+# Windows), it no-ops to ordinary not-found — a choco/scoop lazy path is a separate follow-up.
+$ExecutionContext.InvokeCommand.CommandNotFoundAction = {
+  param($CommandName, $CommandLookupEventArgs)
+  if (-not [Environment]::UserInteractive) { return }
+  if ($env:CI) { return }
+  $hook = Join-Path $HOME '.config/shell/not-found-hook.sh'
+  if (-not (Test-Path $hook)) { return }
+  if (-not (Get-Command bash -ErrorAction SilentlyContinue)) { return }
+  # install-only via the ONE resolver; all install/status chatter -> stderr (keep stdout clean)
+  & env CNF_ALLOW_NONINTERACTIVE=1 CNF_NO_EXEC=1 bash -c 'source "$1"; __cnf_resolve "$2"' _ $hook $CommandName 1>&2
+  if (Get-Command $CommandName -CommandType Application -ErrorAction SilentlyContinue) {
+    # installed -> re-run the exact command in pwsh, preserving arguments + exit status
+    $CommandLookupEventArgs.CommandScriptBlock = {
+      & (Get-Command $CommandName -CommandType Application) @args
+    }.GetNewClosure()
+    $CommandLookupEventArgs.StopSearch = $true
+  }
+  # still missing -> fall through to PowerShell's ordinary CommandNotFoundException (no false success)
+}
