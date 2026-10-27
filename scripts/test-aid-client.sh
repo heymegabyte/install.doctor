@@ -56,6 +56,33 @@ if [ -f "$SRC" ]; then
   { echo "$bp" | grep -q 'present: 1' && echo "$bp" | grep -q 'missing: 1' && echo "$bp" | grep -q 'missalias' && ! echo "$bp" | grep -q 'to install:.*pkgalias'; } && pass "aid plan _bin-aware: key!=binary (pkgalias->bash) counts present, not false-missing" || fail "aid _bin -> $bp"
   rm -f "$IDX" "$BENV"
 
+  # aid exec / aid prewarm (§4.E authorized install-on-demand + prewarming) over the CNF_NO_EXEC
+  # primitive. Hermetic: repo cnf hook + fixture index + fake brew; no control plane, no real install.
+  HOOK_SRC="$ROOT/home/dot_config/shell/not-found-hook.sh"
+  xbin="$(mktemp -d)"
+  xidx="$(mktemp)"
+  printf 'exectool\texectool\texectool\npwtool\tpwtool\tpwtool\n' >"$xidx"
+  cat >"$xbin/brew" <<BREW
+#!/usr/bin/env bash
+case "\$2" in
+  exectool) printf '#!/usr/bin/env bash\necho EXECTOOL_RAN_42\n' >"$xbin/exectool"; chmod +x "$xbin/exectool";;
+  pwtool)   printf '#!/usr/bin/env bash\n: > "$xbin/pwtool_ran"\n' >"$xbin/pwtool"; chmod +x "$xbin/pwtool";;
+esac
+BREW
+  chmod +x "$xbin/brew"
+  rc=0
+  AID_TOKEN_PATH="/nonexistent/aid-$$" bash "$RUN" exec >/dev/null 2>&1 || rc=$?
+  [ "$rc" = 2 ] && pass "aid exec (no command) -> usage (exit 2)" || fail "aid exec no-arg exit=$rc (want 2)"
+  eo="$(AID_TOKEN_PATH="/nonexistent/aid-$$" bash "$RUN" exec echo AIDEXEC_OK 2>/dev/null)"
+  [ "$eo" = "AIDEXEC_OK" ] && pass "aid exec <present> -> runs it, stdout clean (argv preserved via exec)" || fail "aid exec present -> '$eo'"
+  rm -f "$xbin/exectool"
+  eo2="$(AID_CNF_HOOK="$HOOK_SRC" CNF_INDEX="$xidx" CNF_LOCK_DIR="$(mktemp -d)" PATH="$xbin:$PATH" AID_TOKEN_PATH="/nonexistent/aid-$$" bash "$RUN" exec exectool 2>/dev/null)"
+  [ "$eo2" = "EXECTOOL_RAN_42" ] && pass "aid exec <missing> -> installs via the ONE resolver (CNF_NO_EXEC) then runs it" || fail "aid exec missing -> '$eo2'"
+  rm -f "$xbin/pwtool" "$xbin/pwtool_ran"
+  AID_CNF_HOOK="$HOOK_SRC" CNF_INDEX="$xidx" CNF_LOCK_DIR="$(mktemp -d)" PATH="$xbin:$PATH" AID_TOKEN_PATH="/nonexistent/aid-$$" bash "$RUN" prewarm pwtool >/dev/null 2>&1
+  { [ -x "$xbin/pwtool" ] && [ ! -f "$xbin/pwtool_ran" ]; } && pass "aid prewarm <missing> -> installs but does NOT run (§4.E prewarm)" || fail "aid prewarm installed=$([ -x "$xbin/pwtool" ] && echo y || echo n) ran=$([ -f "$xbin/pwtool_ran" ] && echo y || echo n)"
+  rm -rf "$xbin" "$xidx"
+
   if [ -n "${CONTROL_PLANE_URL:-}" ]; then
     u="${CONTROL_PLANE_URL%/}"
     ADMIN="${AID_ADMIN_TOKEN:-}"

@@ -9,6 +9,7 @@ set -uo pipefail
 AID_CONTROL_PLANE_URL="${AID_CONTROL_PLANE_URL:-https://aid-control-plane.manhattan.workers.dev}"
 AID_TOKEN_PATH="${AID_TOKEN_PATH:-$HOME/.config/aid/device-token}"
 AID_ENV_PATH="${AID_ENV_PATH:-$HOME/.config/aid/ENVIRONMENT.md}"
+AID_CNF_HOOK="${AID_CNF_HOOK:-$HOME/.config/shell/not-found-hook.sh}" # the ONE cnf resolver (install path)
 AID_TOTAL=0
 AID_PRESENT=0
 AID_MISSING=""
@@ -295,8 +296,54 @@ cmdProvider() {
   log "wrote OpenCode provider config -> ${out} (aid routes via ${u}/api/ai/v1; set AID_INFERENCE_TOKEN to use)"
 }
 
+# Install a missing command via the ONE canonical resolver's install path (CNF_NO_EXEC = install only;
+# the caller runs it). Subshell-scoped so the sourced hook never mutates aid's env. `aid exec`/`prewarm`
+# ARE the authorized unattended-install context (§4.E) → CNF_ALLOW_NONINTERACTIVE opts past the E13 gate.
+# Returns 0 if the command is present after, non-zero otherwise. All install chatter → stderr.
+cnfInstall() {
+  local cmd="$1"
+  [ -f "$AID_CNF_HOOK" ] || { err "cnf resolver not found at $AID_CNF_HOOK"; return 127; }
+  # shellcheck source=/dev/null
+  ( export CNF_ALLOW_NONINTERACTIVE=1 CNF_NO_EXEC=1; . "$AID_CNF_HOOK"; __cnf_resolve "$cmd" ) >&2 </dev/null
+  hash -r 2>/dev/null || true
+  command -v "$cmd" >/dev/null 2>&1
+}
+
+# aid exec <cmd> [args...] — run a command, installing it first if missing (authorized on-demand, §4.E).
+# exec replaces the aid process so argv/stdin/stdout/stderr/exit-status/signals pass through intact (E06-E08).
+cmdExec() {
+  local cmd="${1:-}"
+  [ -z "$cmd" ] && { err "usage: aid exec <command> [args...]"; return 2; }
+  shift
+  if command -v "$cmd" >/dev/null 2>&1; then exec "$cmd" "$@"; fi
+  log "aid exec: '$cmd' not installed — installing via install.doctor…"
+  if cnfInstall "$cmd"; then
+    postReport exec ok "aid exec installed $cmd" "" >/dev/null 2>&1 || true # best-effort History (U01), before run
+    exec "$cmd" "$@"
+  fi
+  err "aid exec: '$cmd' still not found after install"
+  return 127
+}
+
+# aid prewarm <cmd...> — INSTALL the named tools now (authorized), never run them (§4.E / V09 prewarm).
+cmdPrewarm() {
+  [ "$#" -ge 1 ] || { err "usage: aid prewarm <command> [command...]"; return 2; }
+  local rc=0 cmd
+  for cmd in "$@"; do
+    if command -v "$cmd" >/dev/null 2>&1; then log "prewarm: $cmd already present"; continue; fi
+    log "prewarm: installing ${cmd}…"
+    if cnfInstall "$cmd"; then
+      log "prewarm: $cmd installed"
+      postReport prewarm ok "aid prewarm installed $cmd" "" >/dev/null 2>&1 || true # best-effort History (U01)
+    else
+      err "prewarm: $cmd failed"; rc=1
+    fi
+  done
+  return "$rc"
+}
+
 usage() {
-  printf 'usage: aid <up|status|pull|plan|report|apply|provider>\n' >&2
+  printf 'usage: aid <up|status|pull|plan|report|apply|provider|exec|prewarm>\n' >&2
   return 1
 }
 
@@ -317,6 +364,14 @@ main() {
   apply)
     shift
     cmdApply "$@"
+    ;;
+  exec)
+    shift
+    cmdExec "$@"
+    ;;
+  prewarm)
+    shift
+    cmdPrewarm "$@"
     ;;
   *) usage ;;
   esac
