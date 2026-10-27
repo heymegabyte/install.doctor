@@ -237,6 +237,10 @@ async function detail(id){
     dp.scrollIntoView({behavior:'smooth',block:'nearest'});
   }catch(e){dp.innerHTML='✗ '+esc(String(e))}
 }
+// Deep-link target (fire #67): /machines?device=<id> — if the admin token is already remembered
+// (sessionStorage, #66), auto-load the inventory then open that device's detail. Lands a Recommendations
+// "flagged device" click directly on its unified timeline. No token → the normal Load flow still applies.
+addEventListener('DOMContentLoaded',function(){try{var dev=new URLSearchParams(location.search).get('device');if(!dev)return;var tok=sessionStorage.getItem('aidAdminToken');if(!tok)return;var el=document.getElementById('tok');if(el)el.value=tok;Promise.resolve(load()).then(function(){detail(dev)})}catch(e){}});
 </script>`,
     ),
   ),
@@ -313,7 +317,7 @@ async function load(){
     var r=await fetch('/api/recommendations?tenant='+encodeURIComponent(t),{headers:{'authorization':'Bearer '+tok}});
     var j=await r.json();
     if(!r.ok){out.textContent='✗ '+(j.error||r.status);return}
-    var cards=(j.recommendations||[]).map(function(k){return '<div class="card rec rec-'+esc(k.severity)+'"><h3>'+esc(k.title)+'</h3><p class=muted>'+esc(k.detail)+'</p></div>'}).join('');
+    var cards=(j.recommendations||[]).map(function(k){var dl=(k.devices||[]).map(function(id){return '<a href="/machines?device='+encodeURIComponent(id)+'">'+esc(id)+'</a>'}).join(' ');return '<div class="card rec rec-'+esc(k.severity)+'"><h3>'+esc(k.title)+'</h3><p class=muted>'+esc(k.detail)+'</p>'+(dl?'<p class=mono>'+dl+'</p>':'')+'</div>'}).join('');
     out.innerHTML='<p class=muted>'+j.count+' recommendation(s) · tenant '+esc(t)+' · <span class=tag>'+esc(j.generated)+'</span> · desired revision '+esc(j.currentRevision||'—')+'</p>'+cards;
   }catch(e){out.textContent='✗ '+e}
 }
