@@ -108,6 +108,37 @@ detect_os() {
 }
 
 # ---------------------------------------------------------------------------
+# detect_arch — returns the normalized CPU architecture
+#
+# Output: amd64 | arm64 | armv7 | armv6 | 386 | riscv64 | ppc64le | s390x
+#         (passes through the raw `uname -m` token for anything unrecognized;
+#          "unknown" + exit 1 only when `uname -m` yields nothing)
+#
+# Normalizes the many vendor spellings (x86_64/amd64, aarch64/arm64, …) to the
+# Go/release-asset vocabulary the catalog + download URLs already use, so the
+# 140+ ad-hoc `uname -m` checks across start.sh + post-installx can converge here
+# instead of each re-deriving arch. Pairs with detect_os as the "what machine is
+# this" source of truth.
+# ---------------------------------------------------------------------------
+detect_arch() {
+  local m
+  m="$(uname -m 2>/dev/null)"
+
+  case "$m" in
+    x86_64 | amd64)              echo "amd64";   return 0 ;;
+    aarch64 | arm64)             echo "arm64";   return 0 ;;
+    armv7l | armv7 | armhf)      echo "armv7";   return 0 ;;
+    armv6l | armv6)              echo "armv6";   return 0 ;;
+    i386 | i486 | i586 | i686)   echo "386";     return 0 ;;
+    riscv64)                     echo "riscv64"; return 0 ;;
+    ppc64le)                     echo "ppc64le"; return 0 ;;
+    s390x)                       echo "s390x";   return 0 ;;
+    "")                          echo "unknown"; return 1 ;;
+    *)                           echo "$m";      return 0 ;;
+  esac
+}
+
+# ---------------------------------------------------------------------------
 # detect_role — returns the machine's role in the fleet
 #
 # Output: workstation | server | proxmox | coolify | qubes-dom0 |

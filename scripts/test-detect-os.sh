@@ -74,6 +74,42 @@ detect_os > /dev/null
 assert_ok "detect_os exit code" $?
 
 # ---------------------------------------------------------------------------
+# Test 1b: detect_arch returns a known, normalized value on this host (B03)
+# ---------------------------------------------------------------------------
+echo "=== Test: detect_arch ==="
+ARCH="$(detect_arch)"
+KNOWN_ARCH="amd64 arm64 armv7 armv6 386 riscv64 ppc64le s390x"
+if echo "$KNOWN_ARCH" | /usr/bin/grep -qw "$ARCH"; then
+  echo "  PASS: detect_arch returned '$ARCH' (valid normalized value)"
+  PASS=$((PASS + 1))
+else
+  echo "  FAIL: detect_arch returned '$ARCH' (not in known list)"
+  FAIL=$((FAIL + 1))
+fi
+
+# Exit code
+detect_arch > /dev/null
+assert_ok "detect_arch exit code" $?
+
+# Normalization cross-check against the raw `uname -m` (host-agnostic — CI runs amd64 too)
+RAW_ARCH="$(uname -m)"
+case "$RAW_ARCH" in
+  x86_64 | amd64) EXP_ARCH="amd64" ;;
+  aarch64 | arm64) EXP_ARCH="arm64" ;;
+  armv7l | armv7 | armhf) EXP_ARCH="armv7" ;;
+  armv6l | armv6) EXP_ARCH="armv6" ;;
+  i386 | i486 | i586 | i686) EXP_ARCH="386" ;;
+  riscv64) EXP_ARCH="riscv64" ;;
+  ppc64le) EXP_ARCH="ppc64le" ;;
+  s390x) EXP_ARCH="s390x" ;;
+  *) EXP_ARCH="$RAW_ARCH" ;;
+esac
+assert_eq "detect_arch normalizes '$RAW_ARCH'" "$EXP_ARCH" "$ARCH"
+
+# Idempotency
+assert_eq "detect_arch idempotent" "$(detect_arch)" "$(detect_arch)"
+
+# ---------------------------------------------------------------------------
 # Test 2: detect_role returns a known value
 # ---------------------------------------------------------------------------
 echo "=== Test: detect_role ==="
@@ -142,7 +178,7 @@ fi
 # Test 5: All functions are defined
 # ---------------------------------------------------------------------------
 echo "=== Test: function definitions ==="
-for fn in detect_os detect_role detect_package_manager is_headless; do
+for fn in detect_os detect_arch detect_role detect_package_manager is_headless; do
   if declare -f "$fn" > /dev/null 2>&1; then
     echo "  PASS: $fn is defined"
     PASS=$((PASS + 1))
