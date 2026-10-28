@@ -79,6 +79,7 @@ A "public page" serves an HTML shell anyone can load, but its in-page data fetch
 | --- | --- | --- |
 | `GET /api/recommendations` | admin | Rule-based recs from observed state — `failed_last_run` / `drifted` / `never_reported` / `stale` / `all_good`. |
 | `GET /api/history` | admin | Tenant-wide fleet events (which device reported what), newest-first; optional `?device=<id>` scopes to one machine's timeline (N09). |
+| `POST /api/history/prune` | admin | Tenant-scoped retention prune — delete events older than an EXPLICIT `?olderThanDays=N` (required, ≥0); returns `{tenant, olderThanDays, cutoff, prunedCount}` (U14 retention; invoked by the loop as maintenance). |
 
 ## See also
 

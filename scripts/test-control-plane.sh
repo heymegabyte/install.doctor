@@ -345,6 +345,24 @@ JSON
     u14okcode="$(curl -s -o /dev/null -w '%{http_code}' -X POST -H "authorization: Bearer $u14tok" -H 'content-type: application/json' -d '{"kind":"run","status":"success","summary":"normal report","detail":{"plan":{"total":0}}}' "$u/api/device/report" 2>/dev/null || echo 000)"
     [ "$u14okcode" = 201 ] && pass "device/report (normal payload) -> 201 (U14 quota doesn't break the happy path)" || fail "U14 normal report -> $u14okcode (want 201)"
     [ -n "$u14id" ] && curl -s -o /dev/null -X POST -H "authorization: Bearer $DADM" "$u/api/devices/$u14id/revoke" >/dev/null 2>&1
+    # fire #87 — U14 RETENTION: admin POST /api/history/prune (tenant-scoped, EXPLICIT olderThanDays) deletes
+    # old history so the table can't grow unbounded. Seed 2 events, prune olderThanDays=0 (cutoff=now → all),
+    # prove prunedCount>=2 AND the device history is then EMPTY. No-auth → 401; missing olderThanDays → 400.
+    pr_un="$(curl -s -o /dev/null -w '%{http_code}' -X POST "$u/api/history/prune?tenant=_u14prune&olderThanDays=0" 2>/dev/null || echo 000)"
+    [ "$pr_un" = 401 ] && pass "history/prune (no admin bearer) -> 401 (U14 retention admin-scoped)" || fail "prune no-auth -> $pr_un (want 401)"
+    pr_bad="$(curl -s -o /dev/null -w '%{http_code}' -X POST -H "authorization: Bearer $DADM" "$u/api/history/prune?tenant=_u14prune" 2>/dev/null || echo 000)"
+    [ "$pr_bad" = 400 ] && pass "history/prune (missing olderThanDays) -> 400 (explicit retention window required; no silent policy)" || fail "prune missing-param -> $pr_bad (want 400)"
+    prenr="$(curl -s -X POST -H "authorization: Bearer $DADM" -H 'content-type: application/json' -d '{"tenant":"_u14prune","label":"u14-prune"}' "$u/api/devices/enroll" 2>/dev/null)"
+    prtok="$(printf '%s' "$prenr" | jq -r '.token // empty')"; prid="$(printf '%s' "$prenr" | jq -r '.deviceId // empty')"
+    curl -s -o /dev/null -X POST -H "authorization: Bearer $prtok" -H 'content-type: application/json' -d '{"kind":"run","status":"success","summary":"prune ev1"}' "$u/api/device/report" 2>/dev/null
+    curl -s -o /dev/null -X POST -H "authorization: Bearer $prtok" -H 'content-type: application/json' -d '{"kind":"run","status":"success","summary":"prune ev2"}' "$u/api/device/report" 2>/dev/null
+    prpre="$(curl -s -H "authorization: Bearer $prtok" "$u/api/device/history" 2>/dev/null)"
+    echo "$prpre" | jq -e '.count>=2' >/dev/null 2>&1 && pass "history/prune setup -> device has >=2 events before prune" || fail "prune pre-count -> $(printf '%s' "$prpre" | head -c 120)"
+    prdo="$(curl -s -X POST -H "authorization: Bearer $DADM" "$u/api/history/prune?tenant=_u14prune&olderThanDays=0" 2>/dev/null)"
+    echo "$prdo" | jq -e '.prunedCount>=2 and .tenant=="_u14prune" and (.cutoff|type=="string")' >/dev/null 2>&1 && pass "history/prune (olderThanDays=0) -> prunedCount>=2 + typed {tenant,cutoff} (U14 retention)" || fail "prune do -> $(printf '%s' "$prdo" | head -c 160)"
+    prpost="$(curl -s -H "authorization: Bearer $prtok" "$u/api/device/history" 2>/dev/null)"
+    echo "$prpost" | jq -e '.count==0' >/dev/null 2>&1 && pass "history/prune -> device history EMPTY after prune (retention actually removed the events)" || fail "prune post-count -> $(printf '%s' "$prpost" | head -c 120)"
+    [ -n "$prid" ] && curl -s -o /dev/null -X POST -H "authorization: Bearer $DADM" "$u/api/devices/$prid/revoke" >/dev/null 2>&1
     # fire #65 — W08 cross-tenant isolation (golden path "other-tenant can't retrieve"). Seed two
     # tenants with DISTINCT revisions; a device in _isoA must see ONLY _isoA — never _isoB — and its
     # token must not escalate to the admin fleet view. (The device model resolves tenant FROM the token.)
