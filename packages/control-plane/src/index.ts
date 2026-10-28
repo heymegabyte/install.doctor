@@ -132,17 +132,25 @@ app.get('/history', (c) =>
 <div id=out class=muted>No events loaded.</div>
 <script>
 function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]})}
-async function load(){
+// fire #91 — U03 fleet UI: a "run" column shows each event's correlationId; clicking it re-loads the history
+// filtered to that run (the built-but-UI-only ?correlation= filter), so an operator can isolate one aid-up
+// run's events across the fleet. load(corr) optionally scopes to a correlationId; a banner clears the filter.
+async function load(corr){
   var out=document.getElementById('out'),tok=document.getElementById('tok').value.trim(),t=document.getElementById('tenant').value.trim()||'_default';
   if(!tok){out.textContent='Enter the admin token.';return}
   out.textContent='Loading…';
   try{
-    var r=await fetch('/api/history?tenant='+encodeURIComponent(t)+'&limit=50',{headers:{'authorization':'Bearer '+tok}});
+    var url='/api/history?tenant='+encodeURIComponent(t)+'&limit=50'+(corr?('&correlation='+encodeURIComponent(corr)):'');
+    var r=await fetch(url,{headers:{'authorization':'Bearer '+tok}});
     var j=await r.json();
     if(!r.ok){out.textContent='✗ '+(j.error||r.status);return}
-    if(!j.items||!j.items.length){out.textContent='No events for '+esc(t)+'.';return}
-    var rows=j.items.map(function(e){return '<tr><td>'+esc(e.createdAt)+'</td><td class=mono>'+esc(e.deviceId)+'</td><td>'+esc(e.kind)+'</td><td>'+esc(e.status)+'</td><td>'+esc(e.summary||'')+'</td></tr>'}).join('');
-    out.innerHTML='<p class=muted>'+j.count+' events · tenant '+esc(t)+' · recording: '+esc(j.recordingMode||'events-only')+' (no terminal capture yet)</p><table><thead><tr><th>time</th><th>device</th><th>kind</th><th>status</th><th>summary</th></tr></thead><tbody>'+rows+'</tbody></table>';
+    if(!j.items||!j.items.length){out.innerHTML=corr?('<p class=muted>No events for run <span class=mono>'+esc(corr)+'</span>. <button class=lnk onclick="load()">✕ clear filter</button></p>'):('No events for '+esc(t)+'.');return}
+    var rows=j.items.map(function(e){
+      var run=e.correlationId?('<button class=lnk title="filter to run '+esc(e.correlationId)+(e.parentRunId?(' · child of '+esc(e.parentRunId)):'')+'" onclick="load(\\''+esc(e.correlationId)+'\\')">'+(e.parentRunId?'↳ ':'')+esc(String(e.correlationId).slice(-6))+'</button>'):'<span class=muted>—</span>';
+      return '<tr><td>'+esc(e.createdAt)+'</td><td class=mono>'+esc(e.deviceId)+'</td><td>'+esc(e.kind)+'</td><td>'+esc(e.status)+'</td><td>'+run+'</td><td>'+esc(e.summary||'')+'</td></tr>';
+    }).join('');
+    var banner=corr?('<p class=muted>Showing run <span class=mono>'+esc(corr)+'</span> · '+j.count+' event(s) · <button class=lnk onclick="load()">✕ clear filter</button></p>'):('<p class=muted>'+j.count+' events · tenant '+esc(t)+' · recording: '+esc(j.recordingMode||'events-only')+' (no terminal capture yet) · click a run to isolate its correlated events</p>');
+    out.innerHTML=banner+'<table><thead><tr><th>time</th><th>device</th><th>kind</th><th>status</th><th>run</th><th>summary</th></tr></thead><tbody>'+rows+'</tbody></table>';
   }catch(e){out.textContent='✗ '+e}
 }
 </script>`,
