@@ -151,6 +151,32 @@ case "$OS" in
 esac
 
 # ---------------------------------------------------------------------------
+# Test 3b: detect_service_manager returns a known init system (B05)
+# ---------------------------------------------------------------------------
+echo "=== Test: detect_service_manager ==="
+SM="$(detect_service_manager)"
+KNOWN_SM="launchd systemd openrc runit sysvinit"
+if echo "$KNOWN_SM" | /usr/bin/grep -qw "$SM"; then
+  echo "  PASS: detect_service_manager returned '$SM' (valid value)"
+  PASS=$((PASS + 1))
+else
+  echo "  FAIL: detect_service_manager returned '$SM' for OS=$OS (not in known list)"
+  FAIL=$((FAIL + 1))
+fi
+
+# Exit code
+detect_service_manager > /dev/null
+assert_ok "detect_service_manager exit code" $?
+
+# macOS always uses launchd
+if [ "$OS" = "macos" ]; then
+  assert_eq "service manager for macOS" "launchd" "$SM"
+fi
+
+# Idempotency
+assert_eq "detect_service_manager idempotent" "$(detect_service_manager)" "$(detect_service_manager)"
+
+# ---------------------------------------------------------------------------
 # Test 4: is_headless
 # ---------------------------------------------------------------------------
 echo "=== Test: is_headless ==="
@@ -178,7 +204,7 @@ fi
 # Test 5: All functions are defined
 # ---------------------------------------------------------------------------
 echo "=== Test: function definitions ==="
-for fn in detect_os detect_arch detect_role detect_package_manager is_headless; do
+for fn in detect_os detect_arch detect_role detect_package_manager detect_service_manager is_headless; do
   if declare -f "$fn" > /dev/null 2>&1; then
     echo "  PASS: $fn is defined"
     PASS=$((PASS + 1))
