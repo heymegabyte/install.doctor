@@ -9,7 +9,7 @@ import { reserveBudget, DEFAULT_CEILING_MICROS } from './budget';
 // (scripts/gen-catalog.mjs → the cnf index builder; D01/D02/D13). Read-only, bundled at deploy;
 // regenerate + redeploy when software.yml changes. No runtime YAML at the edge.
 import catalogData from './catalog.json';
-type CatalogEntry = { name: string; bin: string; providers: string[]; pkgs: Record<string, string>; platforms: string[] };
+type CatalogEntry = { name: string; bin: string; providers: string[]; pkgs: Record<string, string>; platforms: string[]; short?: string; github?: string };
 const CATALOG = catalogData as CatalogEntry[];
 // Install-command templates per provider — MIRROR the cnf hook's __cnf_do_install (D04: ONE
 // provider→command contract shared with the deterministic executor). Drives the App Store install
@@ -338,7 +338,8 @@ async function detail(tr,name){
     var r=await fetch('/api/catalog/'+encodeURIComponent(name));var j=await r.json();
     if(!r.ok||!j.commands||!j.commands.length){dr.firstChild.textContent='No install commands.';return}
     var cmds=j.commands.map(function(k){return '<span class=cmd><b>'+esc(k.provider)+'</b>'+esc(k.command)+'</span>'}).join('');
-    dr.firstChild.innerHTML='<div class=muted style="margin:2px 0 6px">Install <b>'+esc(j.name)+'</b> (command: '+esc(j.bin)+') on '+pill(j.platforms)+':</div>'+cmds;
+    var src=j.github?('<div class=muted style="margin:2px 0 6px">Source: <a href="'+esc(j.github)+'" target=_blank rel=noopener>'+esc(j.github)+'</a></div>'):'';
+    dr.firstChild.innerHTML='<div class=muted style="margin:2px 0 6px">Install <b>'+esc(j.name)+'</b> (command: '+esc(j.bin)+') on '+pill(j.platforms)+':</div>'+src+cmds;
   }catch(e){dr.firstChild.textContent='✗ '+e}
 }
 async function load(){
@@ -348,7 +349,7 @@ async function load(){
     var j=await r.json();
     if(!r.ok){out.textContent='✗ '+(j.error||r.status);return}
     if(!j.items||!j.items.length){out.textContent='No apps match "'+esc(q)+'".';return}
-    var rows=j.items.map(function(e){return '<tr><td><button class=lnk data-name="'+esc(e.name)+'">'+esc(e.name)+'</button></td><td class=mono>'+esc(e.bin)+'</td><td>'+pill(e.providers)+'</td><td>'+pill(e.platforms)+'</td></tr>'}).join('');
+    var rows=j.items.map(function(e){return '<tr><td><button class=lnk data-name="'+esc(e.name)+'">'+esc(e.name)+'</button>'+(e.short?('<div class=muted style="font-size:.85em;max-width:52ch">'+esc(e.short)+'</div>'):'')+'</td><td class=mono>'+esc(e.bin)+'</td><td>'+pill(e.providers)+'</td><td>'+pill(e.platforms)+'</td></tr>'}).join('');
     out.innerHTML='<p class=muted>'+j.matched+' of '+j.total+' apps'+(j.count<j.matched?(' · showing '+j.count):'')+' · click a name for install commands</p><table><thead><tr><th>name</th><th>command</th><th>installers</th><th>platforms</th></tr></thead><tbody>'+rows+'</tbody></table>';
   }catch(e){out.textContent='✗ '+e}
 }
@@ -472,7 +473,7 @@ app.get('/api/catalog/:name', (c) => {
   const commands = (e.providers || [])
     .filter((p) => INSTALL_CMD[p] && pkgs[p])
     .map((p) => ({ provider: p, pkg: pkgs[p], command: INSTALL_CMD[p](pkgs[p]) }));
-  return c.json({ name: e.name, bin: e.bin, platforms: e.platforms, providers: e.providers, commands });
+  return c.json({ name: e.name, bin: e.bin, platforms: e.platforms, providers: e.providers, short: e.short, github: e.github, commands });
 });
 
 app.post('/api/ai/v1/resolve', async (c) => {
