@@ -349,8 +349,9 @@ async function load(){
     var r=await fetch('/api/recommendations?tenant='+encodeURIComponent(t),{headers:{'authorization':'Bearer '+tok}});
     var j=await r.json();
     if(!r.ok){out.textContent='✗ '+(j.error||r.status);return}
-    var cards=(j.recommendations||[]).map(function(k){var dl=(k.devices||[]).map(function(id){return '<a href="/machines?device='+encodeURIComponent(id)+'">'+esc(id)+'</a>'}).join(' ');return '<div class="card rec rec-'+esc(k.severity)+'"><h3>'+esc(k.title)+'</h3><p class=muted>'+esc(k.detail)+'</p>'+(dl?'<p class=mono>'+dl+'</p>':'')+'</div>'}).join('');
-    out.innerHTML='<p class=muted>'+j.count+' recommendation(s) · tenant '+esc(t)+' · <span class=tag>'+esc(j.generated)+'</span> · desired revision '+esc(j.currentRevision||'—')+'</p>'+cards;
+    var cards=(j.recommendations||[]).map(function(k){var dl=(k.devices||[]).map(function(id){return '<a href="/machines?device='+encodeURIComponent(id)+'">'+esc(id)+'</a>'}).join(' ');var rep=k.command?'<p class=muted>Repair: <code>'+esc(k.command)+'</code> on the host <span class=muted>(runs on the machine — the server never pushes installs)</span></p>':'';return '<div class="card rec rec-'+esc(k.severity)+'"><h3>'+esc(k.title)+'</h3><p class=muted>'+esc(k.detail)+'</p>'+rep+(dl?'<p class=mono>'+dl+'</p>':'')+'</div>'}).join('');
+    var dd=(j.distinctDeviceCount||0);
+    out.innerHTML='<p class=muted>'+j.count+' recommendation(s) · '+(dd?('<strong>'+dd+'</strong> distinct machine(s) need attention'):'no machines need attention')+' · tenant '+esc(t)+' · <span class=tag>'+esc(j.generated)+'</span> · desired revision '+esc(j.currentRevision||'—')+'</p>'+cards;
   }catch(e){out.textContent='✗ '+e}
 }
 </script>`,
@@ -853,23 +854,38 @@ app.get('/api/recommendations', async (c) => {
     const { currentRevision, items } = await listDevicesWithDrift(db, tenant, 500);
     const names = (ds: any[]) => ds.map((d) => d.label || d.deviceId).join(', ');
     const active = items.filter((d) => !d.revoked);
-    const failed = active.filter((d) => d.lastStatus === 'failed');
-    const drifted = active.filter((d) => d.drift === 'drifted');
-    const never = active.filter((d) => !d.lastSeen);
-    const stale = active.filter((d) => d.lastSeen && Date.now() - Date.parse(d.lastSeen) > 86400000);
+    // U13 — DEDUPLICATE alerts: assign each flagged machine to its SINGLE most-severe issue so no machine is
+    // alerted twice across cards (a failed apply is usually ALSO drifted; a stale host may ALSO be drifted).
+    // Priority: failed > never-reported > drifted > stale. `claim` takes only machines not yet claimed by a
+    // higher-severity bucket, so the cards partition the flagged fleet instead of overlapping.
+    const seen = new Set<string>();
+    const claim = (ds: any[]) =>
+      ds.filter((d) => {
+        if (seen.has(d.deviceId)) return false;
+        seen.add(d.deviceId);
+        return true;
+      });
+    const failed = claim(active.filter((d) => d.lastStatus === 'failed'));
+    const never = claim(active.filter((d) => !d.lastSeen));
+    const drifted = claim(active.filter((d) => d.drift === 'drifted'));
+    const stale = claim(active.filter((d) => d.lastSeen && Date.now() - Date.parse(d.lastSeen) > 86400000));
     const recs: any[] = [];
-    // A FAILED most-recent run is the most urgent signal (a broken apply/run beats mere drift) — list first.
+    // Each rec carries a concrete repair `command` (U13 link-repair-actions) — the exact thing to run ON the
+    // host (the server never pushes installs; device apply = 501 by design, so the repair is operator-run).
     if (failed.length)
-      recs.push({ id: 'failed_last_run', severity: 'warning', title: `${failed.length} machine(s) whose last run FAILED`, detail: `Investigate the most recent failure on: ${names(failed)}`, action: 'investigate', devices: failed.map((d) => d.deviceId) });
+      recs.push({ id: 'failed_last_run', severity: 'warning', title: `${failed.length} machine(s) whose last run FAILED`, detail: `Investigate the most recent failure, then re-apply on: ${names(failed)}`, action: 'investigate', command: 'aid up', devices: failed.map((d) => d.deviceId) });
     if (drifted.length)
-      recs.push({ id: 'drifted', severity: 'warning', title: `${drifted.length} machine(s) behind the desired revision${currentRevision ? ` (${currentRevision})` : ''}`, detail: `Apply desired state (\`aid up\`) on: ${names(drifted)}`, action: 'apply', devices: drifted.map((d) => d.deviceId) });
+      recs.push({ id: 'drifted', severity: 'warning', title: `${drifted.length} machine(s) behind the desired revision${currentRevision ? ` (${currentRevision})` : ''}`, detail: `Apply desired state on: ${names(drifted)}`, action: 'apply', command: 'aid up', devices: drifted.map((d) => d.deviceId) });
     if (never.length)
-      recs.push({ id: 'never_reported', severity: 'warning', title: `${never.length} enrolled machine(s) have never reported`, detail: `Check connectivity / run \`aid up\` on: ${names(never)}`, action: 'connect', devices: never.map((d) => d.deviceId) });
+      recs.push({ id: 'never_reported', severity: 'warning', title: `${never.length} enrolled machine(s) have never reported`, detail: `Check connectivity, then pull + apply on: ${names(never)}`, action: 'connect', command: 'aid up', devices: never.map((d) => d.deviceId) });
     if (stale.length)
-      recs.push({ id: 'stale', severity: 'info', title: `${stale.length} machine(s) haven't reported in over 24h`, detail: `Activity is stale on: ${names(stale)}`, action: 'check', devices: stale.map((d) => d.deviceId) });
+      recs.push({ id: 'stale', severity: 'info', title: `${stale.length} machine(s) haven't reported in over 24h`, detail: `Activity is stale on: ${names(stale)}`, action: 'check', command: 'aid report', devices: stale.map((d) => d.deviceId) });
     if (!recs.length)
-      recs.push({ id: 'all_good', severity: 'ok', title: active.length ? 'All machines current and recently active' : 'No machines enrolled yet', detail: active.length ? `${active.length} machine(s) at revision ${currentRevision || '—'}, all reporting.` : 'Pair a machine to get started.', action: 'none', devices: [] });
-    return c.json({ tenant, currentRevision, generated: 'rule-based', count: recs.length, recommendations: recs });
+      recs.push({ id: 'all_good', severity: 'ok', title: active.length ? 'All machines current and recently active' : 'No machines enrolled yet', detail: active.length ? `${active.length} machine(s) at revision ${currentRevision || '—'}, all reporting.` : 'Pair a machine to get started.', action: 'none', command: '', devices: [] });
+    // distinctDeviceCount == unique flagged machines across every card (deduped). Lets the UI show the TRUE
+    // blast radius instead of a misleading sum of per-category counts.
+    const distinctDevices = [...seen];
+    return c.json({ tenant, currentRevision, generated: 'rule-based', count: recs.length, distinctDeviceCount: distinctDevices.length, distinctDevices, recommendations: recs });
   } catch (e) {
     return c.json({ error: 'store_error', detail: e instanceof Error ? e.message : String(e) }, 503);
   }
