@@ -257,13 +257,13 @@ async function detail(id){
     var r=await fetch('/api/history?tenant='+encodeURIComponent(t)+'&device='+encodeURIComponent(id)+'&limit=50',{headers:{'authorization':'Bearer '+tok}});
     var j=await r.json();
     if(!r.ok){dp.innerHTML='✗ '+esc(j.error||String(r.status));return}
-    var ev=(j.items||[]).map(function(e){return '<tr><td>'+esc(e.createdAt)+'</td><td>'+esc(e.kind)+'</td><td>'+esc(e.status)+'</td><td>'+esc(e.revision||'')+'</td><td>'+esc(e.summary||'')+'</td></tr>'}).join('')||'<tr><td colspan=5 class=muted>No events reported yet.</td></tr>';
+    var ev=(j.items||[]).map(function(e){var run=e.correlationId?('<span class=tag title="run '+esc(e.correlationId)+(e.parentRunId?(' · child of '+esc(e.parentRunId)):'')+'">'+(e.parentRunId?'↳ ':'')+esc(String(e.correlationId).slice(-6))+'</span>'):'<span class=muted>—</span>';return '<tr><td>'+esc(e.createdAt)+'</td><td>'+esc(e.kind)+'</td><td>'+esc(e.status)+'</td><td>'+run+'</td><td>'+esc(e.revision||'')+'</td><td>'+esc(e.summary||'')+'</td></tr>'}).join('')||'<tr><td colspan=6 class=muted>No events reported yet.</td></tr>';
     var g=(m.grantedPermissions||[]).join(', ')||'—';
     dp.innerHTML='<div class=card><p><strong>'+esc(m.label||id)+'</strong> <span class=mono muted>'+esc(id)+'</span>'+(m.revoked?' <span class=tag>revoked</span>':'')+' <button class=lnk onclick="bundle(\\''+esc(id)+'\\')">⬇ Support bundle</button></p>'
       +'<p class=muted>health '+healthCell(m)+' · drift '+driftCell(m,CUR)+' · scope '+esc(g)+' · last active '+lastActive(m)+'</p>'
       +'<p class=muted>'+j.count+' event(s) · unified change timeline · recording: '+esc(j.recordingMode||'events-only')+' (no terminal capture yet)</p>'
       +'<div id=sb></div>'
-      +'<table><thead><tr><th>time</th><th>kind</th><th>status</th><th>revision</th><th>summary</th></tr></thead><tbody>'+ev+'</tbody></table></div>';
+      +'<table><thead><tr><th>time</th><th>kind</th><th>status</th><th>run</th><th>revision</th><th>summary</th></tr></thead><tbody>'+ev+'</tbody></table></div>';
     dp.scrollIntoView({behavior:'smooth',block:'nearest'});
   }catch(e){dp.innerHTML='✗ '+esc(String(e))}
 }
