@@ -1,6 +1,6 @@
 # aid — CURRENT STATE (verified audit)
 
-**Refreshed:** fire #82 (reconciled against the A01–X15 matrix + the live suite). **Branch:** `master`.
+**Refreshed:** fire #83 (reconciled against the A01–X15 matrix + the live suite). **Branch:** `master`.
 Full spec: `MASTER-PROMPT.md` · resume pointer: `NEXT-STEPS.md` · matrix: `REQUIREMENTS.md`. Nothing here
 is inherited without evidence; every count below is from a live `scripts/test-all.sh` run.
 
@@ -10,7 +10,7 @@ The UNBLOCKED functional product has **converged**: the control plane, the full 
 dashboard, the honest-docs set, and a one-command test suite are built + live-verified at
 **https://app.install.doctor**. The remaining high-value requirements are **GATED on external action**
 (see § Gated). Loop fires now harden docs/tests/honesty until a gated dep is provisioned. Verified by
-**`scripts/test-all.sh` → 367 assertions / 22 suites GREEN (1 OS-skipped)** with the prod URL.
+**`scripts/test-all.sh` → 368 assertions / 22 suites GREEN (1 OS-skipped)** with the prod URL.
 
 ## ✅ Built + live-verified
 
@@ -19,7 +19,7 @@ dashboard, the honest-docs set, and a one-command test suite are built + live-ve
   ENVIRONMENT.md validate/export/import/diff + D1 read + authed `PUT` (optimistic `expectedRevision`
   lock) + apply-PREVIEW (dry-run plan; real mutation honest-501; `expectedRevision` 409 guard, §3/P09);
   the software catalog (`/api/catalog` + per-entry install commands). **`scripts/test-control-plane.sh`
-  117/117 — incl. the U12 sanitized **support bundle** (`GET /api/devices/:id/support-bundle`, admin-scoped, explicit contents/excluded manifest, never the token/secrets/detail-blob).**
+  118/118 — incl. the U12 sanitized **support bundle** (`GET /api/devices/:id/support-bundle`, admin-scoped, explicit contents/excluded manifest, never the token/secrets/detail-blob) — now SURFACED in the `/machines` device detail (view the manifest + download JSON; fire #83).**
 - **Device lifecycle** — enroll (hashed-opaque token, ADR 0002) · `devices/me` · revoke (S27) ·
   browser-first PAIRING (code + poll-secret, claim-once) with FULL approval contract (host identity +
   REQUESTED permissions, P03) · GRANTED scope persisted at claim (P05, migration 0007) · **per-action
@@ -30,7 +30,8 @@ dashboard, the honest-docs set, and a one-command test suite are built + live-ve
   opt-in real install) → `report` → `up`; plus `exec`/`prewarm` (authorized lazy install), `installs`
   (telemetry), `provider` (OpenCode config). **`test-aid-client.sh` 29/29 · `test-aid-pair.sh` 6/6.**
 - **Dashboard read surfaces** (thin honest pages, NOT the Figma redesign) — **Machines** (inventory +
-  last-active + drift + health + scope columns, + per-device DETAIL with a unified change timeline),
+  last-active + drift + health + scope columns, + per-device DETAIL with a unified change timeline + a
+  one-click **Support bundle** view/download (U12)),
   **App Store** (catalog live-search + install commands), **Environment** (read-only desired-state
   ENVIRONMENT.md view), **Recommendations** (rule-based: failed-last-run/drifted/never/stale, device
   deep-links), **History** (fleet events + honest `recordingMode:events-only` note, U02). Admin token
