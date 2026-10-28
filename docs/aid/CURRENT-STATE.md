@@ -1,6 +1,6 @@
 # aid — CURRENT STATE (verified audit)
 
-**Refreshed:** fire #78 (reconciled against the A01–X15 matrix + the live suite). **Branch:** `master`.
+**Refreshed:** fire #79 (reconciled against the A01–X15 matrix + the live suite). **Branch:** `master`.
 Full spec: `MASTER-PROMPT.md` · resume pointer: `NEXT-STEPS.md` · matrix: `REQUIREMENTS.md`. Nothing here
 is inherited without evidence; every count below is from a live `scripts/test-all.sh` run.
 
@@ -10,7 +10,7 @@ The UNBLOCKED functional product has **converged**: the control plane, the full 
 dashboard, the honest-docs set, and a one-command test suite are built + live-verified at
 **https://app.install.doctor**. The remaining high-value requirements are **GATED on external action**
 (see § Gated). Loop fires now harden docs/tests/honesty until a gated dep is provisioned. Verified by
-**`scripts/test-all.sh` → 352 assertions / 21 suites GREEN (1 OS-skipped)** with the prod URL.
+**`scripts/test-all.sh` → 357 assertions / 21 suites GREEN (1 OS-skipped)** with the prod URL.
 
 ## ✅ Built + live-verified
 
@@ -44,7 +44,7 @@ dashboard, the honest-docs set, and a one-command test suite are built + live-ve
   5 · platform-support 19 · operations 14 · provenance 16 · adoption 11.
 - **Verification** — `scripts/test-all.sh` runs every suite (per-suite + grand total, OS-gated skips,
   exits non-zero on any fail); inline-JS parse guard over every dashboard page. Preserved foundations:
-  chezmoi · software.yml · mise · hiSHtory · `detect_os()`/`detect_arch()`/`detect_service_manager()`/`detect_privilege()` (OS+arch+init+privilege SoT) · the prior `CONVERGENCE.md` arc.
+  chezmoi · software.yml · mise · hiSHtory · `detect_os()`/`detect_arch()`/`detect_release()`/`detect_service_manager()`/`detect_privilege()` (OS+arch+release+init+privilege SoT) · the prior `CONVERGENCE.md` arc.
 
 ## ◐ Partial (honest)
 

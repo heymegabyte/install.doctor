@@ -110,6 +110,25 @@ assert_eq "detect_arch normalizes '$RAW_ARCH'" "$EXP_ARCH" "$ARCH"
 assert_eq "detect_arch idempotent" "$(detect_arch)" "$(detect_arch)"
 
 # ---------------------------------------------------------------------------
+# Test 1c: detect_release returns the OS version/release (B03 release)
+# ---------------------------------------------------------------------------
+echo "=== Test: detect_release ==="
+RELEASE="$(detect_release)"
+assert_defined "detect_release returned a release" "$RELEASE"
+
+# Exit code
+detect_release > /dev/null
+assert_ok "detect_release exit code" $?
+
+# macOS: must match sw_vers -productVersion (deterministic)
+if [ "$OS" = "macos" ] && command -v sw_vers > /dev/null 2>&1; then
+  assert_eq "detect_release matches sw_vers" "$(sw_vers -productVersion 2>/dev/null)" "$RELEASE"
+fi
+
+# Idempotency
+assert_eq "detect_release idempotent" "$(detect_release)" "$(detect_release)"
+
+# ---------------------------------------------------------------------------
 # Test 2: detect_role returns a known value
 # ---------------------------------------------------------------------------
 echo "=== Test: detect_role ==="
@@ -228,7 +247,7 @@ assert_eq "detect_privilege idempotent" "$(detect_privilege)" "$(detect_privileg
 # Test 5: All functions are defined
 # ---------------------------------------------------------------------------
 echo "=== Test: function definitions ==="
-for fn in detect_os detect_arch detect_role detect_package_manager detect_service_manager detect_privilege is_headless; do
+for fn in detect_os detect_arch detect_release detect_role detect_package_manager detect_service_manager detect_privilege is_headless; do
   if declare -f "$fn" > /dev/null 2>&1; then
     echo "  PASS: $fn is defined"
     PASS=$((PASS + 1))

@@ -139,6 +139,55 @@ detect_arch() {
 }
 
 # ---------------------------------------------------------------------------
+# detect_release — returns the OS version/release identifier
+#
+# Output: macOS product version (e.g. 26.5) | Linux VERSION_ID (e.g. 24.04, 41)
+#         | "rolling" (arch & co. with no VERSION_ID) | "unknown" + exit 1
+#
+# The machine-readable release the version-gated recipes already reach for via
+# scattered `sw_vers -productVersion` / `VERSION_ID` / `/etc/debian_version`
+# reads. Completes the B03 "OS, architecture, release, privileges" quartet
+# alongside detect_os / detect_arch / detect_privilege. (Codename — what apt
+# repos want via `lsb_release -cs` — is a separate concern, intentionally not
+# folded in here.)
+# ---------------------------------------------------------------------------
+detect_release() {
+  local os
+  os="$(detect_os)"
+
+  # macOS — product version
+  if [ "$os" = "macos" ]; then
+    if command -v sw_vers > /dev/null 2>&1; then
+      sw_vers -productVersion 2>/dev/null && return 0
+    fi
+    echo "unknown"
+    return 1
+  fi
+
+  # Linux family (+ WSL/container/proxmox/qubes) — VERSION_ID from os-release
+  if [ -f /etc/os-release ]; then
+    # shellcheck disable=SC1091
+    local ver
+    ver="$(. /etc/os-release && echo "${VERSION_ID:-}")"
+    if [ -n "$ver" ]; then
+      echo "$ver"
+      return 0
+    fi
+    # Rolling distros (arch, gentoo, void) ship no VERSION_ID
+    echo "rolling"
+    return 0
+  fi
+
+  # Legacy Debian without os-release
+  if [ -f /etc/debian_version ]; then
+    cat /etc/debian_version 2>/dev/null && return 0
+  fi
+
+  echo "unknown"
+  return 1
+}
+
+# ---------------------------------------------------------------------------
 # detect_role — returns the machine's role in the fleet
 #
 # Output: workstation | server | proxmox | coolify | qubes-dom0 |
