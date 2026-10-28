@@ -270,3 +270,46 @@ is_headless() {
 
   return 1
 }
+
+# ---------------------------------------------------------------------------
+# detect_privilege — returns the host's effective privilege level
+#
+# Output: root | passwordless-sudo | sudo | user
+#   root              — running as uid 0
+#   passwordless-sudo — can elevate silently (`sudo -n` works) — HEADLESS-safe
+#   sudo              — sudo present but elevation needs a password / may be denied
+#   user              — no sudo available (unprivileged)
+#
+# Consolidates the scattered `id -u` / `EUID` / `sudo -n true` probes across
+# provision.sh + post-installx so the bootstrap + headless paths branch on ONE
+# honest value instead of re-deriving it. The sudo probe is non-interactive
+# (`-n`), so it never prompts and is safe to call during detection. Override
+# with INSTALL_DOCTOR_PRIVILEGE (mirrors INSTALL_DOCTOR_ROLE) for tests /
+# constrained environments.
+# ---------------------------------------------------------------------------
+detect_privilege() {
+  # Explicit override (tests / constrained environments)
+  if [ -n "${INSTALL_DOCTOR_PRIVILEGE:-}" ]; then
+    echo "$INSTALL_DOCTOR_PRIVILEGE"
+    return 0
+  fi
+
+  # Running as root
+  if [ "$(id -u 2>/dev/null)" = "0" ]; then
+    echo "root"
+    return 0
+  fi
+
+  # Non-root: probe sudo WITHOUT prompting (-n), so detection never blocks
+  if command -v sudo > /dev/null 2>&1; then
+    if sudo -n true > /dev/null 2>&1; then
+      echo "passwordless-sudo"
+    else
+      echo "sudo"
+    fi
+    return 0
+  fi
+
+  echo "user"
+  return 0
+}
