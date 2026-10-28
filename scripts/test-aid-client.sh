@@ -143,6 +143,14 @@ BREW
       { echo "$rp" | grep -q 'reported' && echo "$rp" | grep -q 'hist_'; } && pass "aid report -> records a run to History (event id)" || fail "aid report -> $rp"
       hist="$(curl -s -H "authorization: Bearer $(cat "$TOK")" "$u/api/device/history" 2>/dev/null)"
       echo "$hist" | jq -e '[.items[].kind] | any(. == "check")' >/dev/null 2>&1 && pass "aid plan auto-registered a 'check' event to History (S14)" || fail "history lacks check event -> $(printf '%s' "$hist" | head -c 120)"
+      # fire #89 — the aid client STAMPS a per-invocation run-id as correlationId on EVERY report (U03 client).
+      # AID_RUN_ID is env-overridable (a parent shares correlation) + AID_PARENT_RUN_ID links this run as a
+      # child. Report with known ids, then confirm they landed in History (RED pre-change: correlationId null).
+      aidrun="aidrun-$$-$(od -A n -N 4 -t x1 /dev/urandom 2>/dev/null | tr -d ' \n')"; aidpar="aidpar-$$"
+      AID_TOKEN_PATH="$TOK" AID_CONTROL_PLANE_URL="$u" AID_RUN_ID="$aidrun" AID_PARENT_RUN_ID="$aidpar" bash "$RUN" report --kind run --status success --summary "u03 aid-client correlation" >/dev/null 2>&1
+      histc="$(curl -s -H "authorization: Bearer $(cat "$TOK")" "$u/api/device/history" 2>/dev/null)"
+      echo "$histc" | jq -e --arg c "$aidrun" '([.items[].correlationId]|index($c))!=null' >/dev/null 2>&1 && pass "aid report -> stamps AID_RUN_ID as correlationId on the event (U03 client)" || fail "aid correlationId -> $(printf '%s' "$histc" | jq -c '[.items[]|{summary,correlationId}]' 2>/dev/null | head -c 200)"
+      echo "$histc" | jq -e --arg p "$aidpar" '([.items[].parentRunId]|index($p))!=null' >/dev/null 2>&1 && pass "aid report -> stamps AID_PARENT_RUN_ID as parentRunId (U03 parent/child linkage)" || fail "aid parentRunId -> $(printf '%s' "$histc" | jq -c '[.items[]|{summary,parentRunId}]' 2>/dev/null | head -c 200)"
       ap2="$(AID_TOKEN_PATH="$TOK" AID_CONTROL_PLANE_URL="$u" AID_ENV_PATH="$ENVF" bash "$RUN" apply 2>&1)"
       echo "$ap2" | grep -qiE 'DRY-RUN|nothing to install' && pass "aid apply (dry-run, prod) -> plan or noop (installs nothing, opt-in to execute)" || fail "aid apply prod -> $ap2"
       hist2="$(curl -s -H "authorization: Bearer $(cat "$TOK")" "$u/api/device/history" 2>/dev/null)"
