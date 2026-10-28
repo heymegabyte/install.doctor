@@ -69,6 +69,8 @@ if [ -n "${CONTROL_PLANE_URL:-}" ]; then
   { echo "$recp" | grep -qi 'what to do next' && echo "$recp" | grep -q 'AID_ADMIN_TOKEN' && echo "$recp" | grep -qi 'Load recommendations'; } && pass "GET /recommendations -> rule-based recs dashboard page (N03)" || fail "recommendations page -> $(printf '%s' "$recp" | head -c 80)"
   # fire #67 — deep-link: each flagged device in a rec links to /machines?device=, and /machines auto-opens that device's detail.
   echo "$recp" | grep -q '/machines?device=' && pass "GET /recommendations -> flagged device ids deep-link to /machines?device= (interconnected, N03/N09)" || fail "recs deep-link -> $(printf '%s' "$recp" | grep -oE '/machines[^\"'"'"']*' | head -1)"
+  # fire #84 — U13 UI: the recs page surfaces the deduped distinct-machine count + each card's repair command.
+  { echo "$recp" | grep -q 'distinctDeviceCount' && echo "$recp" | grep -qi 'distinct machine' && echo "$recp" | grep -q 'k.command' && echo "$recp" | grep -qi 'Repair:'; } && pass "GET /recommendations -> surfaces deduped distinct-machine count + per-card repair command (U13 UI)" || fail "recs U13 UI -> $(printf '%s' "$recp" | grep -oE 'distinctDeviceCount|distinct machine|Repair:' | sort -u | tr '\n' ' ')"
   { echo "$mp" | grep -q 'URLSearchParams' && echo "$mp" | grep -q "get('device')" && echo "$mp" | grep -q 'detail('; } && pass "GET /machines -> reads ?device= on load + auto-opens that device's detail (deep-link target)" || fail "machines auto-open -> $(printf '%s' "$mp" | grep -oE 'URLSearchParams|device' | sort -u | tr '\n' ' ')"
   # fire #61 — the /environment read-only desired-state view (step-5 "review the plan"; thin honest page).
   envp="$(curl -s "$u/environment" 2>/dev/null)"
@@ -313,6 +315,19 @@ JSON
     sbnf="$(curl -s -o /dev/null -w '%{http_code}' -H "authorization: Bearer $DADM" "$u/api/devices/dev_nonexistent/support-bundle?tenant=_sbundle" 2>/dev/null || echo 000)"
     [ "$sbnf" = 404 ] && pass "support-bundle (unknown device) -> 404" || fail "support-bundle unknown -> $sbnf (want 404)"
     [ -n "$sbid" ] && curl -s -o /dev/null -X POST -H "authorization: Bearer $DADM" "$u/api/devices/$sbid/revoke" >/dev/null 2>&1
+    # fire #84 — U13 deduplicate alerts + link repair actions. Seed a device that is BOTH failed AND drifted
+    # (a failed apply reported at an OLD revision while the tenant is at r1): it must be alerted in EXACTLY
+    # ONE card (failed wins by severity — no duplicate alert), the response must carry a deduped
+    # distinctDeviceCount, and every warning/info rec must carry a concrete repair `command`.
+    curl -s -o /dev/null -X PUT -H "authorization: Bearer $DADM" -H 'content-type: application/json' -d "$(jq -n --slurpfile a "$bpf" '{tenant:"_u13",blueprint:$a[0]}')" "$u/api/environment/current" 2>/dev/null
+    u13enr="$(curl -s -X POST -H "authorization: Bearer $DADM" -H 'content-type: application/json' -d '{"tenant":"_u13","label":"u13-faildrift"}' "$u/api/devices/enroll" 2>/dev/null)"
+    u13tok="$(printf '%s' "$u13enr" | jq -r '.token // empty')"; u13id="$(printf '%s' "$u13enr" | jq -r '.deviceId // empty')"
+    curl -s -o /dev/null -X POST -H "authorization: Bearer $u13tok" -H 'content-type: application/json' -d '{"kind":"apply","status":"failed","revision":"r0","summary":"u13 failed apply at old rev"}' "$u/api/device/report" 2>/dev/null
+    u13recs="$(curl -s -H "authorization: Bearer $DADM" "$u/api/recommendations?tenant=_u13" 2>/dev/null)"
+    echo "$u13recs" | jq -e --arg d "$u13id" '[.recommendations[]|select(.devices|index($d))|.id]==["failed_last_run"]' >/dev/null 2>&1 && pass "recommendations -> a failed+drifted device is alerted in EXACTLY ONE card (failed wins; U13 dedup)" || fail "U13 dedup -> $(printf '%s' "$u13recs" | jq -c '[.recommendations[]|{id,devices}]' 2>/dev/null | head -c 220)"
+    echo "$u13recs" | jq -e '(([.recommendations[].devices[]]|length)==([.recommendations[].devices[]]|unique|length)) and (.distinctDeviceCount==([.recommendations[].devices[]]|unique|length))' >/dev/null 2>&1 && pass "recommendations -> no device appears in 2+ cards + distinctDeviceCount == unique flagged (U13 dedup invariant)" || fail "U13 distinct-count -> $(printf '%s' "$u13recs" | jq -c '{distinctDeviceCount,listed:[.recommendations[].devices[]]}' 2>/dev/null | head -c 220)"
+    echo "$u13recs" | jq -e '[.recommendations[]|select(.severity!="ok")|.command] as $c | ($c|length)>0 and ($c|all(.!=null and .!=""))' >/dev/null 2>&1 && pass "recommendations -> every warning/info rec carries a concrete repair command (U13 link-repair-actions)" || fail "U13 repair command -> $(printf '%s' "$u13recs" | jq -c '[.recommendations[]|{id,command}]' 2>/dev/null | head -c 220)"
+    [ -n "$u13id" ] && curl -s -o /dev/null -X POST -H "authorization: Bearer $DADM" "$u/api/devices/$u13id/revoke" >/dev/null 2>&1
     # fire #65 — W08 cross-tenant isolation (golden path "other-tenant can't retrieve"). Seed two
     # tenants with DISTINCT revisions; a device in _isoA must see ONLY _isoA — never _isoB — and its
     # token must not escalate to the admin fleet view. (The device model resolves tenant FROM the token.)
