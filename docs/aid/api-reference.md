@@ -57,6 +57,7 @@ A "public page" serves an HTML shell anyone can load, but its in-page data fetch
 | `GET /api/devices` | admin | Device inventory: drift · health · last-activity · `grantedPermissions`. |
 | `GET /api/devices/me` | device token | Whoami — the device's identity + `grantedPermissions` (401 if revoked/unknown). |
 | `POST /api/devices/:id/revoke` | admin | Revoke a device (idempotent; 404 if unknown/already-revoked). |
+| `GET /api/devices/:id/support-bundle` | admin | Sanitized one-artifact device diagnostic (U12) — identity · scope · health · drift · recent history; explicit `contents`/`excluded` manifest, never the token/secrets/detail-blob (404 if unknown). |
 | `GET /api/devices/pair/info` | public | A pending pairing's host identity + requested scope (never the poll-secret/token). |
 | `POST /api/devices/pair/start` | public | Start pairing — returns a short code + a poll-secret (only hashes stored). |
 | `POST /api/devices/pair/approve` | admin | Owner approves a pairing by code. |

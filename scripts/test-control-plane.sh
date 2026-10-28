@@ -294,6 +294,21 @@ JSON
     echo "$hfall" | jq -e --arg a "$hfAid" --arg b "$hfBid" '(.device==null) and (.count>=3) and ([.items[].deviceId] as $d | ($d|index($a))!=null and ($d|index($b))!=null)' >/dev/null 2>&1 && pass "GET /api/history (no device) -> full tenant timeline incl. A+B (back-compat)" || fail "history no-filter -> $(printf '%s' "$hfall" | head -c 200)"
     [ -n "$hfAid" ] && curl -s -o /dev/null -X POST -H "authorization: Bearer $DADM" "$u/api/devices/$hfAid/revoke" >/dev/null 2>&1
     [ -n "$hfBid" ] && curl -s -o /dev/null -X POST -H "authorization: Bearer $DADM" "$u/api/devices/$hfBid/revoke" >/dev/null 2>&1
+    # fire #82 — U12 support bundle: admin-scoped, SANITIZED, with an explicit contents/excluded manifest.
+    # Report an event carrying a sentinel in its `detail` blob, then prove the bundle EXCLUDES both the
+    # device token and that blob (sanitized by construction — the bundle allowlists safe fields only).
+    sbenr="$(curl -s -X POST -H "authorization: Bearer $DADM" -H 'content-type: application/json' -d '{"tenant":"_sbundle","label":"sbundle-probe"}' "$u/api/devices/enroll" 2>/dev/null)"
+    sbtok="$(printf '%s' "$sbenr" | jq -r '.token // empty')"; sbid="$(printf '%s' "$sbenr" | jq -r '.deviceId // empty')"
+    curl -s -o /dev/null -X POST -H "authorization: Bearer $sbtok" -H 'content-type: application/json' -d '{"kind":"apply","status":"success","revision":"r1","summary":"sb event","detail":{"secretish":"SHOULD_NOT_LEAK"}}' "$u/api/device/report" 2>/dev/null
+    sbun="$(curl -s -o /dev/null -w '%{http_code}' "$u/api/devices/$sbid/support-bundle?tenant=_sbundle" 2>/dev/null || echo 000)"
+    [ "$sbun" = 401 ] && pass "support-bundle (no admin bearer) -> 401 (U12 admin-scoped)" || fail "support-bundle no-auth -> $sbun (want 401)"
+    sb="$(curl -s -H "authorization: Bearer $DADM" "$u/api/devices/$sbid/support-bundle?tenant=_sbundle" 2>/dev/null)"
+    echo "$sb" | jq -e --arg d "$sbid" '(.bundleVersion==1) and (.device.deviceId==$d) and (.contents|type=="array" and length>=3) and (.excluded|type=="array" and length>=1) and (.recordingMode=="events-only") and (.recentHistory|type=="array" and length>=1)' >/dev/null 2>&1 && pass "support-bundle (admin) -> sanitized bundle + explicit contents/excluded manifest (U12)" || fail "support-bundle -> $(printf '%s' "$sb" | head -c 200)"
+    { ! printf '%s' "$sb" | grep -qF "$sbtok"; } && pass "support-bundle EXCLUDES the device token (sanitized)" || fail "support-bundle LEAKED the device token"
+    { ! printf '%s' "$sb" | grep -qF "SHOULD_NOT_LEAK"; } && pass "support-bundle EXCLUDES the raw reported detail blob (sanitized)" || fail "support-bundle LEAKED a reported detail value"
+    sbnf="$(curl -s -o /dev/null -w '%{http_code}' -H "authorization: Bearer $DADM" "$u/api/devices/dev_nonexistent/support-bundle?tenant=_sbundle" 2>/dev/null || echo 000)"
+    [ "$sbnf" = 404 ] && pass "support-bundle (unknown device) -> 404" || fail "support-bundle unknown -> $sbnf (want 404)"
+    [ -n "$sbid" ] && curl -s -o /dev/null -X POST -H "authorization: Bearer $DADM" "$u/api/devices/$sbid/revoke" >/dev/null 2>&1
     # fire #65 — W08 cross-tenant isolation (golden path "other-tenant can't retrieve"). Seed two
     # tenants with DISTINCT revisions; a device in _isoA must see ONLY _isoA — never _isoB — and its
     # token must not escalate to the admin fleet view. (The device model resolves tenant FROM the token.)
