@@ -231,12 +231,43 @@ async function detail(id){
     if(!r.ok){dp.innerHTML='✗ '+esc(j.error||String(r.status));return}
     var ev=(j.items||[]).map(function(e){return '<tr><td>'+esc(e.createdAt)+'</td><td>'+esc(e.kind)+'</td><td>'+esc(e.status)+'</td><td>'+esc(e.revision||'')+'</td><td>'+esc(e.summary||'')+'</td></tr>'}).join('')||'<tr><td colspan=5 class=muted>No events reported yet.</td></tr>';
     var g=(m.grantedPermissions||[]).join(', ')||'—';
-    dp.innerHTML='<div class=card><p><strong>'+esc(m.label||id)+'</strong> <span class=mono muted>'+esc(id)+'</span>'+(m.revoked?' <span class=tag>revoked</span>':'')+'</p>'
+    dp.innerHTML='<div class=card><p><strong>'+esc(m.label||id)+'</strong> <span class=mono muted>'+esc(id)+'</span>'+(m.revoked?' <span class=tag>revoked</span>':'')+' <button class=lnk onclick="bundle(\\''+esc(id)+'\\')">⬇ Support bundle</button></p>'
       +'<p class=muted>health '+healthCell(m)+' · drift '+driftCell(m,CUR)+' · scope '+esc(g)+' · last active '+lastActive(m)+'</p>'
       +'<p class=muted>'+j.count+' event(s) · unified change timeline · recording: '+esc(j.recordingMode||'events-only')+' (no terminal capture yet)</p>'
+      +'<div id=sb></div>'
       +'<table><thead><tr><th>time</th><th>kind</th><th>status</th><th>revision</th><th>summary</th></tr></thead><tbody>'+ev+'</tbody></table></div>';
     dp.scrollIntoView({behavior:'smooth',block:'nearest'});
   }catch(e){dp.innerHTML='✗ '+esc(String(e))}
+}
+// fire #83 — surface the U12 support bundle from the device detail (interconnectedness): fetch the
+// admin-scoped diagnostic, render its SANITIZED contents/excluded manifest (so the operator SEES what is
+// and is NOT included), and offer a one-click JSON download to attach to a support request. Reuses the
+// admin token already entered on this page; the endpoint sanitizes by construction (no token/secret/detail).
+var LASTSB=null;
+async function bundle(id){
+  var sb=document.getElementById('sb'),tok=document.getElementById('tok').value.trim(),t=document.getElementById('tenant').value.trim()||'_default';
+  if(!sb)return;
+  if(!tok){sb.innerHTML='<p class=muted>Enter the admin token.</p>';return}
+  sb.innerHTML='<p class=muted>Building support bundle…</p>';
+  try{
+    var r=await fetch('/api/devices/'+encodeURIComponent(id)+'/support-bundle?tenant='+encodeURIComponent(t),{headers:{'authorization':'Bearer '+tok}});
+    var j=await r.json();
+    if(!r.ok){sb.innerHTML='✗ '+esc(j.error||String(r.status));return}
+    LASTSB=j;
+    var inc=(j.contents||[]).map(function(x){return '<li>✓ '+esc(x)+'</li>'}).join('');
+    var exc=(j.excluded||[]).map(function(x){return '<li>✗ '+esc(x)+'</li>'}).join('');
+    sb.innerHTML='<div class=card style="margin-top:8px"><p><strong>Support bundle</strong> <span class=tag>v'+esc(j.bundleVersion)+'</span> <span class=muted>generated '+esc(j.generatedAt)+' · recording '+esc(j.recordingMode)+'</span> <button class=lnk onclick="dlbundle()">⬇ Download JSON</button></p>'
+      +'<p class=muted>A sanitized, one-artifact diagnostic to attach to a support request — included, and what is deliberately left out:</p>'
+      +'<div style="display:flex;gap:28px;flex-wrap:wrap"><div><p class=muted><strong>Included</strong></p><ul class=muted>'+inc+'</ul></div><div><p class=muted><strong>Excluded (sanitized)</strong></p><ul class=muted>'+exc+'</ul></div></div></div>';
+  }catch(e){sb.innerHTML='✗ '+esc(String(e))}
+}
+function dlbundle(){
+  if(!LASTSB)return;
+  var name='support-bundle-'+((LASTSB.device&&LASTSB.device.deviceId)||'device')+'.json';
+  var blob=new Blob([JSON.stringify(LASTSB,null,2)],{type:'application/json'});
+  var url=URL.createObjectURL(blob),a=document.createElement('a');
+  a.href=url;a.download=name;document.body.appendChild(a);a.click();document.body.removeChild(a);
+  setTimeout(function(){URL.revokeObjectURL(url)},1000);
 }
 // Deep-link target (fire #67): /machines?device=<id> — if the admin token is already remembered
 // (sessionStorage, #66), auto-load the inventory then open that device's detail. Lands a Recommendations
