@@ -63,6 +63,9 @@ if [ -n "${CONTROL_PLANE_URL:-}" ]; then
   # "Support bundle" button fetches /api/devices/:id/support-bundle, shows the sanitized contents/excluded
   # manifest, and offers a Download-JSON. Makes the #82 endpoint reachable + judgeable from the frontend.
   { echo "$mp" | grep -q 'function bundle(' && echo "$mp" | grep -q '/support-bundle' && echo "$mp" | grep -qi 'Support bundle' && echo "$mp" | grep -q 'onclick="bundle(' && echo "$mp" | grep -qi 'Download JSON'; } && pass "GET /machines -> device detail surfaces the U12 support bundle (view sanitized manifest + download JSON; interconnectedness)" || fail "machines support-bundle wiring -> $(printf '%s' "$mp" | grep -oE 'bundle\(|/support-bundle|Download JSON' | sort -u | tr '\n' ' ')"
+  # fire #90 — U03 UI: the device-detail timeline surfaces the correlation "run" column (correlationId short
+  # badge + ↳ child-of-parent indicator), so an operator SEES which events belong to one `aid up` run.
+  { echo "$mp" | grep -q '<th>run</th>' && echo "$mp" | grep -q 'e.correlationId' && echo "$mp" | grep -q 'child of'; } && pass "GET /machines -> device-detail timeline surfaces the U03 correlation run column (correlationId + child-of parent; interconnectedness closes U03)" || fail "machines run-column -> $(printf '%s' "$mp" | grep -oE '<th>run</th>|e.correlationId|child of' | sort -u | tr '\n' ' ')"
   # fire #66 — admin token persists in sessionStorage (enter once; prefill + auto-save + forget), shared across every dashboard page via htmlPage.
   { echo "$mp" | grep -q 'sessionStorage' && echo "$mp" | grep -q 'aidAdminToken' && echo "$mp" | grep -qi 'forget'; } && pass "GET /machines -> admin token persists via sessionStorage (prefill + save + forget; embarrassingly-easy)" || fail "machines token-persist -> $(printf '%s' "$mp" | grep -oE 'sessionStorage|aidAdminToken|forget' | sort -u | tr '\n' ' ')"
   recp="$(curl -s "$u/recommendations" 2>/dev/null)"

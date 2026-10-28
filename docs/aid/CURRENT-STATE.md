@@ -1,6 +1,6 @@
 # aid — CURRENT STATE (verified audit)
 
-**Refreshed:** fire #89 (reconciled against the A01–X15 matrix + the live suite). **Branch:** `master`.
+**Refreshed:** fire #90 (reconciled against the A01–X15 matrix + the live suite). **Branch:** `master`.
 Full spec: `MASTER-PROMPT.md` · resume pointer: `NEXT-STEPS.md` · matrix: `REQUIREMENTS.md`. Nothing here
 is inherited without evidence; every count below is from a live `scripts/test-all.sh` run.
 
@@ -10,7 +10,7 @@ The UNBLOCKED functional product has **converged**: the control plane, the full 
 dashboard, the honest-docs set, and a one-command test suite are built + live-verified at
 **https://app.install.doctor**. The remaining high-value requirements are **GATED on external action**
 (see § Gated). Loop fires now harden docs/tests/honesty until a gated dep is provisioned. Verified by
-**`scripts/test-all.sh` → 386 assertions / 22 suites GREEN (1 OS-skipped)** with the prod URL.
+**`scripts/test-all.sh` → 387 assertions / 22 suites GREEN (1 OS-skipped)** with the prod URL.
 
 ## ✅ Built + live-verified
 
@@ -19,7 +19,7 @@ dashboard, the honest-docs set, and a one-command test suite are built + live-ve
   ENVIRONMENT.md validate/export/import/diff + D1 read + authed `PUT` (optimistic `expectedRevision`
   lock) + apply-PREVIEW (dry-run plan; real mutation honest-501; `expectedRevision` 409 guard, §3/P09);
   the software catalog (`/api/catalog` + per-entry install commands). **`scripts/test-control-plane.sh`
-  134/134 — incl. the U12 sanitized **support bundle** (admin-scoped, explicit contents/excluded manifest, never the token/secrets/detail-blob) SURFACED in the `/machines` device detail (view + download JSON; #83) — **U13 recommendations DEDUPED** (each flagged machine alerted in exactly ONE card by severity, `distinctDeviceCount` = true blast radius, per-card repair `command`; #84) — **U14 FULLY DONE** = access-control ✅ + **payload QUOTA** (`detail` capped 16 KB / body 32 KB → `413`; #85) + **RETENTION** (admin `POST /api/history/prune?tenant=&olderThanDays=` deletes old events, tenant-scoped, explicit window, invoked by the loop; prunedCount verified + history EMPTY after; #87) — **C09 semantic DIFF tool on `/environment`** (paste a proposed ENVIRONMENT.md → import both + diff → color-coded added/removed/changed; #86) — and **U03 parent/child run CORRELATION — END-TO-END** (a report carries `correlationId`/`parentRunId`, stored via migration 0008; admin `GET /api/history?correlation=` returns the correlated run tree; both history reads surface the fields #88; the **`aid` client now STAMPS a per-invocation run-id on every report** so one `aid up` groups into a correlated run — verified live via the real aid script #89. Only the UI timeline grouping remains cosmetic).**
+  135/135 — incl. the U12 sanitized **support bundle** (admin-scoped, explicit contents/excluded manifest, never the token/secrets/detail-blob) SURFACED in the `/machines` device detail (view + download JSON; #83) — **U13 recommendations DEDUPED** (each flagged machine alerted in exactly ONE card by severity, `distinctDeviceCount` = true blast radius, per-card repair `command`; #84) — **U14 FULLY DONE** = access-control ✅ + **payload QUOTA** (`detail` capped 16 KB / body 32 KB → `413`; #85) + **RETENTION** (admin `POST /api/history/prune?tenant=&olderThanDays=` deletes old events, tenant-scoped, explicit window, invoked by the loop; prunedCount verified + history EMPTY after; #87) — **C09 semantic DIFF tool on `/environment`** (paste a proposed ENVIRONMENT.md → import both + diff → color-coded added/removed/changed; #86) — and **U03 parent/child run CORRELATION — END-TO-END** (a report carries `correlationId`/`parentRunId`, stored via migration 0008; admin `GET /api/history?correlation=` returns the correlated run tree; both history reads surface the fields #88; the **`aid` client now STAMPS a per-invocation run-id on every report** so one `aid up` groups into a correlated run — verified live via the real aid script #89; and the `/machines` device-detail timeline shows a **"run" column** (short correlationId badge + ↳ child-of-parent indicator) so an operator SEES which events belong to one run #90. **U03 FULLY DONE** — tracked, stamped, surfaced).**
 - **Device lifecycle** — enroll (hashed-opaque token, ADR 0002) · `devices/me` · revoke (S27) ·
   browser-first PAIRING (code + poll-secret, claim-once) with FULL approval contract (host identity +
   REQUESTED permissions, P03) · GRANTED scope persisted at claim (P05, migration 0007) · **per-action
