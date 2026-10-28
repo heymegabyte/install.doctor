@@ -328,6 +328,19 @@ JSON
     echo "$u13recs" | jq -e '(([.recommendations[].devices[]]|length)==([.recommendations[].devices[]]|unique|length)) and (.distinctDeviceCount==([.recommendations[].devices[]]|unique|length))' >/dev/null 2>&1 && pass "recommendations -> no device appears in 2+ cards + distinctDeviceCount == unique flagged (U13 dedup invariant)" || fail "U13 distinct-count -> $(printf '%s' "$u13recs" | jq -c '{distinctDeviceCount,listed:[.recommendations[].devices[]]}' 2>/dev/null | head -c 220)"
     echo "$u13recs" | jq -e '[.recommendations[]|select(.severity!="ok")|.command] as $c | ($c|length)>0 and ($c|all(.!=null and .!=""))' >/dev/null 2>&1 && pass "recommendations -> every warning/info rec carries a concrete repair command (U13 link-repair-actions)" || fail "U13 repair command -> $(printf '%s' "$u13recs" | jq -c '[.recommendations[]|{id,command}]' 2>/dev/null | head -c 220)"
     [ -n "$u13id" ] && curl -s -o /dev/null -X POST -H "authorization: Bearer $DADM" "$u/api/devices/$u13id/revoke" >/dev/null 2>&1
+    # fire #85 — U14 report payload QUOTA: `detail` was z.unknown() (UNBOUNDED) → a buggy/compromised device
+    # could bloat the history table (D1 10GB) with huge detail blobs. Cap the serialized detail (+ the body
+    # via Content-Length): oversized → 413 payload_too_large; a normal report still 201 (happy path intact).
+    u14enr="$(curl -s -X POST -H "authorization: Bearer $DADM" -H 'content-type: application/json' -d '{"tenant":"_u14","label":"u14-quota"}' "$u/api/devices/enroll" 2>/dev/null)"
+    u14tok="$(printf '%s' "$u14enr" | jq -r '.token // empty')"; u14id="$(printf '%s' "$u14enr" | jq -r '.deviceId // empty')"
+    u14big="$(printf 'x%.0s' $(seq 1 20000))"   # 20,000-char detail string (> the 16 KB detail cap)
+    u14bigcode="$(curl -s -o /dev/null -w '%{http_code}' -X POST -H "authorization: Bearer $u14tok" -H 'content-type: application/json' -d "$(jq -nc --arg d "$u14big" '{kind:"run",status:"success",detail:$d}')" "$u/api/device/report" 2>/dev/null || echo 000)"
+    [ "$u14bigcode" = 413 ] && pass "device/report (oversized detail > 16KB) -> 413 payload_too_large (U14 quota — unbounded detail blob rejected)" || fail "U14 oversized report -> $u14bigcode (want 413)"
+    u14err="$(curl -s -X POST -H "authorization: Bearer $u14tok" -H 'content-type: application/json' -d "$(jq -nc --arg d "$u14big" '{kind:"run",status:"success",detail:$d}')" "$u/api/device/report" 2>/dev/null)"
+    echo "$u14err" | jq -e '.error=="payload_too_large" and (.limitBytes|type=="number")' >/dev/null 2>&1 && pass "device/report (oversized) -> typed payload_too_large + limitBytes (U14)" || fail "U14 error shape -> $(printf '%s' "$u14err" | head -c 120)"
+    u14okcode="$(curl -s -o /dev/null -w '%{http_code}' -X POST -H "authorization: Bearer $u14tok" -H 'content-type: application/json' -d '{"kind":"run","status":"success","summary":"normal report","detail":{"plan":{"total":0}}}' "$u/api/device/report" 2>/dev/null || echo 000)"
+    [ "$u14okcode" = 201 ] && pass "device/report (normal payload) -> 201 (U14 quota doesn't break the happy path)" || fail "U14 normal report -> $u14okcode (want 201)"
+    [ -n "$u14id" ] && curl -s -o /dev/null -X POST -H "authorization: Bearer $DADM" "$u/api/devices/$u14id/revoke" >/dev/null 2>&1
     # fire #65 — W08 cross-tenant isolation (golden path "other-tenant can't retrieve"). Seed two
     # tenants with DISTINCT revisions; a device in _isoA must see ONLY _isoA — never _isoB — and its
     # token must not escalate to the admin fleet view. (The device model resolves tenant FROM the token.)

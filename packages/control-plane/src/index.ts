@@ -1061,15 +1061,25 @@ app.post('/api/device/report', async (c) => {
   if (!dev) return c.json({ error: 'unauthorized' }, 401);
   const scoped = requireScope(c, dev, 'report-status');
   if (scoped) return scoped;
+  // U14 — report payload QUOTA: `detail` is free-form (z.unknown()), so cap it so a single buggy/compromised
+  // device can't bloat the history table (D1 10GB) or exhaust the isolate. Reject the whole body early when its
+  // Content-Length is oversized (pre-parse, protects memory), then cap the serialized `detail` authoritatively.
+  const MAX_BODY_BYTES = 32768;
+  const MAX_DETAIL_BYTES = 16384;
+  const contentLength = parseInt(c.req.header('content-length') || '0', 10);
+  if (contentLength > MAX_BODY_BYTES) return c.json({ error: 'payload_too_large', scope: 'body', limitBytes: MAX_BODY_BYTES, actualBytes: contentLength }, 413);
   const parsed = ReportRequest.safeParse(await c.req.json().catch(() => ({})));
   if (!parsed.success) return c.json({ error: 'invalid_request', issues: parsed.error.issues }, 400);
+  const detailStr = parsed.data.detail === undefined ? null : JSON.stringify(parsed.data.detail);
+  const detailBytes = detailStr === null ? 0 : new TextEncoder().encode(detailStr).length;
+  if (detailBytes > MAX_DETAIL_BYTES) return c.json({ error: 'payload_too_large', scope: 'detail', limitBytes: MAX_DETAIL_BYTES, actualBytes: detailBytes }, 413);
   try {
     const id = 'hist_' + Date.now().toString(36) + '_' + randHex(6);
     const now = new Date().toISOString();
-    const { kind, status, revision, summary, detail } = parsed.data;
+    const { kind, status, revision, summary } = parsed.data;
     await db
       .prepare('INSERT INTO history (id, device_id, tenant, kind, status, revision, summary, detail, created_at) VALUES (?,?,?,?,?,?,?,?,?)')
-      .bind(id, dev.deviceId, dev.tenant, kind, status, revision ?? null, summary ?? null, detail === undefined ? null : JSON.stringify(detail), now)
+      .bind(id, dev.deviceId, dev.tenant, kind, status, revision ?? null, summary ?? null, detailStr, now)
       .run();
     return c.json({ id, deviceId: dev.deviceId, tenant: dev.tenant, kind, status, createdAt: now }, 201);
   } catch (e) {
