@@ -876,6 +876,66 @@ app.post('/api/devices/:id/revoke', async (c) => {
   }
 });
 
+// Support bundle (U12) — admin-scoped, SANITIZED, one-artifact diagnostic for a single device with an
+// EXPLICIT `contents` + `excluded` manifest (U12 "sanitized support bundles with explicit content lists").
+// Reuses the devices+drift read (which already excludes the token) + recent history, but ALLOWLISTS only
+// safe fields and OMITS the device-reported `detail` blob (untrusted free-form). It never includes the
+// device token (hashed-opaque — never stored in plaintext or returned), secret values/references, or
+// terminal output (recordingMode: events-only). For operator support + the U-series diagnostics surface.
+app.get('/api/devices/:id/support-bundle', async (c) => {
+  const denied = requireAdmin(c);
+  if (denied) return denied;
+  const db = (c.env as Record<string, any>).DB;
+  if (!db) return c.json({ error: 'store_unavailable' }, 503);
+  const tenant = c.req.query('tenant') || '_default';
+  const id = c.req.param('id');
+  try {
+    const { currentRevision, items } = await listDevicesWithDrift(db, tenant, 500);
+    const d = items.find((x) => x.deviceId === id);
+    if (!d) return c.json({ error: 'not_found', deviceId: id, tenant }, 404);
+    // Recent history — allowlist safe columns ONLY; the device-reported `detail` blob is deliberately
+    // NOT selected (untrusted free-form that could carry sensitive strings) and no terminal output is
+    // captured (events-only), so the bundle is sanitized by construction.
+    const rs = await db
+      .prepare('SELECT id, kind, status, revision, summary, created_at FROM history WHERE device_id = ? ORDER BY created_at DESC, id DESC LIMIT 20')
+      .bind(id)
+      .all();
+    const recentHistory = (rs.results || []).map((r: any) => ({ id: r.id, kind: r.kind, status: r.status, revision: r.revision ?? null, summary: r.summary ?? null, createdAt: r.created_at }));
+    return c.json({
+      bundleVersion: 1,
+      generatedAt: new Date().toISOString(),
+      tenant,
+      currentRevision,
+      contents: ['device-identity', 'granted-scope', 'health', 'drift', 'recent-history (events-only; no detail blob)'],
+      excluded: [
+        'device token (hashed-opaque — never stored in plaintext or returned)',
+        'secret values / references (Infisical / Bitwarden)',
+        'raw device-reported detail blobs',
+        'terminal output (recordingMode: events-only)',
+      ],
+      device: {
+        deviceId: d.deviceId,
+        tenant: d.tenant,
+        label: d.label,
+        grantedPermissions: d.grantedPermissions,
+        enrolledAt: d.enrolledAt,
+        revoked: d.revoked,
+        revokedAt: d.revokedAt,
+        lastSeen: d.lastSeen,
+        lastKind: d.lastKind,
+        lastStatus: d.lastStatus,
+        lastRevision: d.lastRevision,
+        drift: d.drift,
+        health: d.health,
+      },
+      recentHistory,
+      recordingMode: 'events-only',
+    });
+  } catch (e) {
+    return c.json({ error: 'store_error', detail: e instanceof Error ? e.message : String(e) }, 503);
+  }
+});
+
 // --- Device-SCOPED environment access (fire #17) — the tenant is resolved FROM the device token, never
 // the URL/body. A real machine authenticates with its OWN token to fetch its desired state + preview the
 // reconciliation plan: no admin token, no tenant in the request. Completes the E2E loop (authenticate →
