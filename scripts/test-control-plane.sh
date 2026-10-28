@@ -75,6 +75,10 @@ if [ -n "${CONTROL_PLANE_URL:-}" ]; then
   # fire #61 — the /environment read-only desired-state view (step-5 "review the plan"; thin honest page).
   envp="$(curl -s "$u/environment" 2>/dev/null)"
   { echo "$envp" | grep -qi 'desired state' && echo "$envp" | grep -q '/api/environment/current' && echo "$envp" | grep -qi 'ENVIRONMENT.md' && echo "$envp" | grep -q 'id=tenant'; } && pass "GET /environment -> read-only desired-state view (ENVIRONMENT.md + revision over /api/environment/current, C02/M)" || fail "environment page -> $(printf '%s' "$envp" | head -c 80)"
+  # fire #86 — C09: surface the SEMANTIC DIFF on /environment (step-5 "review the plan before applying").
+  # Paste a proposed ENVIRONMENT.md -> import both (current + proposed) -> diff -> render added/removed/changed.
+  # Wires the built-but-UI-only /api/environment/import + /diff endpoints into the UI (interconnectedness).
+  { echo "$envp" | grep -q 'function diffProposed(' && echo "$envp" | grep -q '/api/environment/import' && echo "$envp" | grep -q '/api/environment/diff' && echo "$envp" | grep -qi 'Diff vs current' && echo "$envp" | grep -q 'id=proposed'; } && pass "GET /environment -> surfaces a semantic blueprint DIFF tool (import+diff a proposed ENVIRONMENT.md vs current; C09 interconnectedness)" || fail "environment diff tool -> $(printf '%s' "$envp" | grep -oE 'diffProposed|/api/environment/diff|Diff vs current' | sort -u | tr '\n' ' ')"
   echo "$mp" | grep -q 'href="/environment"' && pass "dashboard nav includes /environment (interconnected)" || fail "nav missing /environment -> $(printf '%s' "$mp" | grep -o 'href="/[a-z]*"' | tr '\n' ' ')"
   # fire #64 — inline-JS syntax guard: a dashboard page's inline <script> is a template STRING (NOT
   # tsc/dry-run checked), so a stray quote/escape silently breaks the ENTIRE page script. node --check

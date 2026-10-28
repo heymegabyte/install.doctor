@@ -164,18 +164,46 @@ app.get('/environment', (c) =>
 <p><input id=tenant placeholder="tenant (default _default)" style="width:70%"> <button onclick="load()">Load</button></p></div>
 <div id=meta class=muted></div>
 <pre id=out class=mono style="white-space:pre-wrap;overflow-x:auto;max-height:70vh">No environment loaded.</pre>
+<div class=card>
+<p class=muted>Preview a change before applying — paste a PROPOSED ENVIRONMENT.md and see the SEMANTIC diff vs the loaded current desired state (added <span style="color:#4ade80">+</span> · removed <span style="color:#f87171">−</span> · changed <span style="color:#fbbf24">~</span>). No write — this only compares.</p>
+<textarea id=proposed placeholder="Paste a proposed ENVIRONMENT.md to compare against current…" style="width:100%;height:160px;font-family:monospace"></textarea>
+<p><button onclick="diffProposed()">Diff vs current</button></p></div>
+<div id=diffout class=muted></div>
 <script>
 function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]})}
+var CURMD='';
 async function load(){
   var out=document.getElementById('out'),meta=document.getElementById('meta'),t=document.getElementById('tenant').value.trim()||'_default';
-  out.textContent='Loading…';meta.textContent='';
+  out.textContent='Loading…';meta.textContent='';CURMD='';
   try{
     var r=await fetch('/api/environment/current?tenant='+encodeURIComponent(t));
     var j=await r.json();
     if(!r.ok){out.textContent='✗ '+(j.error||r.status)+(j.error==='not_found'?' — no desired state set for '+esc(t)+' yet':'');return}
     meta.innerHTML='tenant <strong>'+esc(j.tenant||t)+'</strong> · revision <strong>'+esc(j.revision)+'</strong> · digest <span class=mono>'+esc(String(j.digest||'').slice(0,12))+'</span> · updated '+esc(j.updatedAt||'');
-    out.textContent=j.markdown||'(empty)';
+    out.textContent=j.markdown||'(empty)';CURMD=j.markdown||'';
   }catch(e){out.textContent='✗ '+e}
+}
+// fire #86 — C09 semantic diff: import the CURRENT + a PROPOSED ENVIRONMENT.md to blueprints, then diff them,
+// so an operator can REVIEW a change before it goes through the one write path. Pure compare — no persistence.
+async function diffProposed(){
+  var dout=document.getElementById('diffout'),proposed=document.getElementById('proposed').value;
+  if(!CURMD){dout.textContent='Load the current environment for a tenant first.';return}
+  if(!proposed.trim()){dout.textContent='Paste a proposed ENVIRONMENT.md to compare.';return}
+  dout.textContent='Diffing…';
+  try{
+    var fr=await fetch('/api/environment/import',{method:'POST',headers:{'content-type':'text/markdown'},body:CURMD});
+    var fj=await fr.json();
+    if(!fr.ok){dout.innerHTML='✗ current is not valid: '+esc(fj.error||String(fr.status));return}
+    var tr=await fetch('/api/environment/import',{method:'POST',headers:{'content-type':'text/markdown'},body:proposed});
+    var tj=await tr.json();
+    if(!tr.ok){dout.innerHTML='✗ proposed ENVIRONMENT.md is invalid: '+esc(tj.error||String(tr.status));return}
+    var dr=await fetch('/api/environment/diff',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({from:fj.blueprint,to:tj.blueprint})});
+    var dj=await dr.json();
+    if(!dr.ok){dout.innerHTML='✗ diff failed: '+esc(dj.error||String(dr.status));return}
+    if(!dj.changed){dout.innerHTML='<p class=muted>No changes — the proposed environment is identical to current.</p>';return}
+    var rows=(dj.changes||[]).map(function(ch){var d=String(ch.detail||'');var col=d.charAt(0)==='+'?'#4ade80':(d.charAt(0)==='-'?'#f87171':'#fbbf24');return '<tr><td class=mono>'+esc(ch.section)+'</td><td class=mono style="color:'+col+'">'+esc(d)+'</td></tr>'}).join('');
+    dout.innerHTML='<div class=card><p class=muted>'+dj.changes.length+' change(s) · proposed digest <span class=mono>'+esc(String(dj.toDigest||'').slice(0,12))+'</span></p><table><thead><tr><th>section</th><th>change</th></tr></thead><tbody>'+rows+'</tbody></table></div>';
+  }catch(e){dout.innerHTML='✗ '+esc(String(e))}
 }
 load();
 </script>`,
