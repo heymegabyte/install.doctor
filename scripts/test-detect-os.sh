@@ -201,10 +201,34 @@ if [ "$OS" = "macos" ]; then
 fi
 
 # ---------------------------------------------------------------------------
+# Test 4b: detect_privilege returns a known elevation level (B03 privileges)
+# ---------------------------------------------------------------------------
+echo "=== Test: detect_privilege ==="
+PRIV="$(detect_privilege)"
+KNOWN_PRIV="root passwordless-sudo sudo user"
+if echo "$KNOWN_PRIV" | /usr/bin/grep -qw "$PRIV"; then
+  echo "  PASS: detect_privilege returned '$PRIV' (valid value)"
+  PASS=$((PASS + 1))
+else
+  echo "  FAIL: detect_privilege returned '$PRIV' (not in known list)"
+  FAIL=$((FAIL + 1))
+fi
+
+# Exit code
+detect_privilege > /dev/null
+assert_ok "detect_privilege exit code" $?
+
+# Override test (mirrors detect_role — deterministic, no sudo probe)
+assert_eq "detect_privilege with INSTALL_DOCTOR_PRIVILEGE override" "test-priv" "$(INSTALL_DOCTOR_PRIVILEGE="test-priv" detect_privilege)"
+
+# Idempotency
+assert_eq "detect_privilege idempotent" "$(detect_privilege)" "$(detect_privilege)"
+
+# ---------------------------------------------------------------------------
 # Test 5: All functions are defined
 # ---------------------------------------------------------------------------
 echo "=== Test: function definitions ==="
-for fn in detect_os detect_arch detect_role detect_package_manager detect_service_manager is_headless; do
+for fn in detect_os detect_arch detect_role detect_package_manager detect_service_manager detect_privilege is_headless; do
   if declare -f "$fn" > /dev/null 2>&1; then
     echo "  PASS: $fn is defined"
     PASS=$((PASS + 1))
