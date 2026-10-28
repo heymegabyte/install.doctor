@@ -1180,6 +1180,31 @@ app.get('/api/history', async (c) => {
     return c.json({ error: 'store_error', detail: e instanceof Error ? e.message : String(e) }, 503);
   }
 });
+// U14 RETENTION — admin, tenant-scoped history prune. `olderThanDays` is REQUIRED + explicit (NO silent
+// retention policy baked in; the operator / THIS loop decides the window — e.g. a standing maintenance task
+// calling olderThanDays=90). Deletes ONLY the named tenant's events older than the cutoff (no cross-tenant
+// nuke). Returns the count actually removed (D1 `meta.changes`). `created_at` is an ISO-8601 string → a
+// lexicographic `< cutoff` IS a correct time comparison (same toISOString() format everywhere).
+app.post('/api/history/prune', async (c) => {
+  const denied = requireAdmin(c);
+  if (denied) return denied;
+  const db = (c.env as Record<string, any>).DB;
+  if (!db) return c.json({ error: 'store_unavailable' }, 503);
+  const tenant = c.req.query('tenant') || '_default';
+  const raw = c.req.query('olderThanDays');
+  if (raw === undefined || raw === '')
+    return c.json({ error: 'olderThanDays_required', detail: 'specify an explicit retention window in days (>= 0)' }, 400);
+  const olderThanDays = Number(raw);
+  if (!Number.isInteger(olderThanDays) || olderThanDays < 0)
+    return c.json({ error: 'invalid_olderThanDays', detail: 'must be a non-negative integer' }, 400);
+  const cutoff = new Date(Date.now() - olderThanDays * 86400000).toISOString();
+  try {
+    const res = await db.prepare('DELETE FROM history WHERE tenant = ? AND created_at < ?').bind(tenant, cutoff).run();
+    return c.json({ tenant, olderThanDays, cutoff, prunedCount: res.meta?.changes ?? 0 });
+  } catch (e) {
+    return c.json({ error: 'store_error', detail: e instanceof Error ? e.message : String(e) }, 503);
+  }
+});
 
 // --- Browser-first PAIRING (S04 one-link enrollment, MASTER-PROMPT §2) — a headless machine STARTs a
 // pairing (no credentials yet: a short human `code` + a private poll-secret), a human APPROVES it in the
