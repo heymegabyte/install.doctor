@@ -203,6 +203,59 @@ detect_package_manager() {
 }
 
 # ---------------------------------------------------------------------------
+# detect_service_manager — returns the init/service system managing the host
+#
+# Output: launchd | systemd | openrc | runit | sysvinit | unknown
+#
+# Detects the RUNNING init via PID-1 markers (/run/systemd/system, /run/openrc)
+# rather than merely an installed binary — a host can ship `systemctl` yet boot
+# OpenRC. Gives the H-series service adapters + server-stack post-installs ONE
+# primitive instead of the 160+ scattered `systemctl`/`launchctl` calls that
+# each re-derive it. Pairs with detect_package_manager as a "how to operate
+# this host" lookup.
+# ---------------------------------------------------------------------------
+detect_service_manager() {
+  # macOS always uses launchd
+  if [[ "$OSTYPE" == 'darwin'* ]] || [ "$(detect_os)" = "macos" ]; then
+    echo "launchd"
+    return 0
+  fi
+
+  # systemd — authoritative marker is the /run/systemd/system dir (PID 1 = systemd)
+  if [ -d /run/systemd/system ]; then
+    echo "systemd"
+    return 0
+  fi
+
+  # OpenRC (Alpine, Gentoo) — check the running marker before the bare binary
+  if [ -d /run/openrc ] || command -v rc-service > /dev/null 2>&1; then
+    echo "openrc"
+    return 0
+  fi
+
+  # runit (Void)
+  if [ -d /run/runit ] || { command -v sv > /dev/null 2>&1 && [ -d /etc/runit ]; }; then
+    echo "runit"
+    return 0
+  fi
+
+  # systemd fallback — binary present without the /run marker (e.g. some containers)
+  if command -v systemctl > /dev/null 2>&1; then
+    echo "systemd"
+    return 0
+  fi
+
+  # Legacy SysV init
+  if [ -d /etc/init.d ]; then
+    echo "sysvinit"
+    return 0
+  fi
+
+  echo "unknown"
+  return 1
+}
+
+# ---------------------------------------------------------------------------
 # is_headless — returns 0 if the machine has no GUI
 # ---------------------------------------------------------------------------
 is_headless() {
