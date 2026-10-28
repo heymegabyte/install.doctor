@@ -1,6 +1,6 @@
 # aid — CURRENT STATE (verified audit)
 
-**Refreshed:** fire #84 (reconciled against the A01–X15 matrix + the live suite). **Branch:** `master`.
+**Refreshed:** fire #85 (reconciled against the A01–X15 matrix + the live suite). **Branch:** `master`.
 Full spec: `MASTER-PROMPT.md` · resume pointer: `NEXT-STEPS.md` · matrix: `REQUIREMENTS.md`. Nothing here
 is inherited without evidence; every count below is from a live `scripts/test-all.sh` run.
 
@@ -10,7 +10,7 @@ The UNBLOCKED functional product has **converged**: the control plane, the full 
 dashboard, the honest-docs set, and a one-command test suite are built + live-verified at
 **https://app.install.doctor**. The remaining high-value requirements are **GATED on external action**
 (see § Gated). Loop fires now harden docs/tests/honesty until a gated dep is provisioned. Verified by
-**`scripts/test-all.sh` → 372 assertions / 22 suites GREEN (1 OS-skipped)** with the prod URL.
+**`scripts/test-all.sh` → 375 assertions / 22 suites GREEN (1 OS-skipped)** with the prod URL.
 
 ## ✅ Built + live-verified
 
@@ -19,7 +19,7 @@ dashboard, the honest-docs set, and a one-command test suite are built + live-ve
   ENVIRONMENT.md validate/export/import/diff + D1 read + authed `PUT` (optimistic `expectedRevision`
   lock) + apply-PREVIEW (dry-run plan; real mutation honest-501; `expectedRevision` 409 guard, §3/P09);
   the software catalog (`/api/catalog` + per-entry install commands). **`scripts/test-control-plane.sh`
-  122/122 — incl. the U12 sanitized **support bundle** (`GET /api/devices/:id/support-bundle`, admin-scoped, explicit contents/excluded manifest, never the token/secrets/detail-blob) — SURFACED in the `/machines` device detail (view the manifest + download JSON; fire #83) — and **U13 recommendations now DEDUPED** (each flagged machine alerted in exactly ONE card by severity, `distinctDeviceCount` = true blast radius) with a concrete per-card repair `command` (fire #84).**
+  125/125 — incl. the U12 sanitized **support bundle** (`GET /api/devices/:id/support-bundle`, admin-scoped, explicit contents/excluded manifest, never the token/secrets/detail-blob) — SURFACED in the `/machines` device detail (view the manifest + download JSON; fire #83) — **U13 recommendations DEDUPED** (each flagged machine alerted in exactly ONE card by severity, `distinctDeviceCount` = true blast radius) with a concrete per-card repair `command` (fire #84) — and **U14 report payload QUOTA** (the free-form `detail` blob is capped at 16 KB + the body at 32 KB → `413 payload_too_large`, so a buggy/compromised device can't bloat the history table; fire #85).**
 - **Device lifecycle** — enroll (hashed-opaque token, ADR 0002) · `devices/me` · revoke (S27) ·
   browser-first PAIRING (code + poll-secret, claim-once) with FULL approval contract (host identity +
   REQUESTED permissions, P03) · GRANTED scope persisted at claim (P05, migration 0007) · **per-action
