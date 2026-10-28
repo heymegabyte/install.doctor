@@ -1080,6 +1080,10 @@ const ReportRequest = z
     revision: z.string().max(200).optional(),
     summary: z.string().max(500).optional(),
     detail: z.unknown().optional(),
+    // U03 — parent/child run correlation: one logical run (plan→apply→report, or a parent spawning children)
+    // shares a correlationId; a child records its parentRunId. Both optional + bounded.
+    correlationId: z.string().max(200).optional(),
+    parentRunId: z.string().max(200).optional(),
   })
   .strict();
 app.post('/api/device/report', async (c) => {
@@ -1104,12 +1108,12 @@ app.post('/api/device/report', async (c) => {
   try {
     const id = 'hist_' + Date.now().toString(36) + '_' + randHex(6);
     const now = new Date().toISOString();
-    const { kind, status, revision, summary } = parsed.data;
+    const { kind, status, revision, summary, correlationId, parentRunId } = parsed.data;
     await db
-      .prepare('INSERT INTO history (id, device_id, tenant, kind, status, revision, summary, detail, created_at) VALUES (?,?,?,?,?,?,?,?,?)')
-      .bind(id, dev.deviceId, dev.tenant, kind, status, revision ?? null, summary ?? null, detailStr, now)
+      .prepare('INSERT INTO history (id, device_id, tenant, kind, status, revision, summary, detail, created_at, correlation_id, parent_run_id) VALUES (?,?,?,?,?,?,?,?,?,?,?)')
+      .bind(id, dev.deviceId, dev.tenant, kind, status, revision ?? null, summary ?? null, detailStr, now, correlationId ?? null, parentRunId ?? null)
       .run();
-    return c.json({ id, deviceId: dev.deviceId, tenant: dev.tenant, kind, status, createdAt: now }, 201);
+    return c.json({ id, deviceId: dev.deviceId, tenant: dev.tenant, kind, status, createdAt: now, correlationId: correlationId ?? null, parentRunId: parentRunId ?? null }, 201);
   } catch (e) {
     return c.json({ error: 'store_error', detail: e instanceof Error ? e.message : String(e) }, 503);
   }
@@ -1124,7 +1128,7 @@ app.get('/api/device/history', async (c) => {
   const limit = Math.min(Math.max(parseInt(c.req.query('limit') || '50', 10) || 50, 1), 100);
   try {
     const rs = await db
-      .prepare('SELECT id, kind, status, revision, summary, detail, created_at FROM history WHERE device_id = ? ORDER BY created_at DESC, id DESC LIMIT ?')
+      .prepare('SELECT id, kind, status, revision, summary, detail, created_at, correlation_id, parent_run_id FROM history WHERE device_id = ? ORDER BY created_at DESC, id DESC LIMIT ?')
       .bind(dev.deviceId, limit)
       .all();
     const items = (rs.results || []).map((r: any) => ({
@@ -1135,6 +1139,8 @@ app.get('/api/device/history', async (c) => {
       summary: r.summary,
       detail: r.detail ? JSON.parse(r.detail) : null,
       createdAt: r.created_at,
+      correlationId: r.correlation_id ?? null,
+      parentRunId: r.parent_run_id ?? null,
     }));
     // U02 — honest recording fidelity: History stores STRUCTURED events, not captured terminal output.
     // The constant 'events-only' marks that gap (a future recorder will stamp 'full'/'redacted').
@@ -1154,17 +1160,25 @@ app.get('/api/history', async (c) => {
   if (!db) return c.json({ error: 'store_unavailable' }, 503);
   const tenant = c.req.query('tenant') || '_default';
   const device = c.req.query('device') || '';
+  const correlation = c.req.query('correlation') || '';
   const limit = Math.min(Math.max(parseInt(c.req.query('limit') || '50', 10) || 50, 1), 200);
   try {
-    // N09 unified timeline: an optional `device=` filter scopes the SAME tenant query to one machine
-    // (AND'd with tenant → no cross-tenant leak). One parametrized query; binds built to match.
-    const sql = device
-      ? 'SELECT id, device_id, kind, status, revision, summary, detail, created_at FROM history WHERE tenant = ? AND device_id = ? ORDER BY created_at DESC, id DESC LIMIT ?'
-      : 'SELECT id, device_id, kind, status, revision, summary, detail, created_at FROM history WHERE tenant = ? ORDER BY created_at DESC, id DESC LIMIT ?';
-    const rs = await db
-      .prepare(sql)
-      .bind(...(device ? [tenant, device, limit] : [tenant, limit]))
-      .all();
+    // N09 unified timeline: optional `device=` scopes to one machine; U03 optional `correlation=` scopes to
+    // one logical run's events (its parent/child tree). Both AND'd with tenant → no cross-tenant leak. One
+    // parametrized query; the WHERE + binds are built together so they can't drift.
+    const where = ['tenant = ?'];
+    const binds: any[] = [tenant];
+    if (device) {
+      where.push('device_id = ?');
+      binds.push(device);
+    }
+    if (correlation) {
+      where.push('correlation_id = ?');
+      binds.push(correlation);
+    }
+    const sql = `SELECT id, device_id, kind, status, revision, summary, detail, created_at, correlation_id, parent_run_id FROM history WHERE ${where.join(' AND ')} ORDER BY created_at DESC, id DESC LIMIT ?`;
+    binds.push(limit);
+    const rs = await db.prepare(sql).bind(...binds).all();
     const items = (rs.results || []).map((r: any) => ({
       id: r.id,
       deviceId: r.device_id,
@@ -1174,8 +1188,10 @@ app.get('/api/history', async (c) => {
       summary: r.summary,
       detail: r.detail ? JSON.parse(r.detail) : null,
       createdAt: r.created_at,
+      correlationId: r.correlation_id ?? null,
+      parentRunId: r.parent_run_id ?? null,
     }));
-    return c.json({ tenant, device: device || null, recordingMode: 'events-only', count: items.length, items });
+    return c.json({ tenant, device: device || null, correlation: correlation || null, recordingMode: 'events-only', count: items.length, items });
   } catch (e) {
     return c.json({ error: 'store_error', detail: e instanceof Error ? e.message : String(e) }, 503);
   }
