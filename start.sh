@@ -323,6 +323,21 @@ function ensureTaskInstalled() {
 #
 # @exitcode 0 If Task installs/updates properly
 # @exitcode 1+ If the installation fails
+# @description Normalize the host CPU to the architecture token used in go-task release
+# assets (task_<os>_<arch>.tar.gz — arch ∈ amd64|arm64|386|arm). Mirrors the detect_arch
+# helper in scripts/lib/detect_os.sh but emits go-task's `arm` (not armv7/armv6) for 32-bit
+# ARM. Embedded (not sourced) because start.sh runs before the repo is cloned. Safe default
+# is amd64 (the most broadly published asset) for unrecognized machines.
+detectArchSuffix() {
+  case "$(uname -m 2>/dev/null)" in
+    x86_64 | amd64) echo "amd64" ;;
+    aarch64 | arm64) echo "arm64" ;;
+    i386 | i486 | i586 | i686) echo "386" ;;
+    armv7l | armv7 | armv6l | armv6 | armhf | arm) echo "arm" ;;
+    *) echo "amd64" ;;
+  esac
+}
+
 function installTask() {
   # @description Release URL to use when downloading [Task](https://github.com/go-task/task)
   TASK_RELEASE_URL="https://github.com/go-task/task/releases/latest"
@@ -331,11 +346,12 @@ function installTask() {
   DOWNLOAD_DESTINATION=/tmp/megabytelabs/task.tar.gz
   TMP_DIR=/tmp/megabytelabs
   local os; os="$(detect_os)"
-  logger info "Detected OS: $os"
+  local arch; arch="$(detectArchSuffix)"
+  logger info "Detected OS: $os (arch: $arch)"
   if [ "$os" = "macos" ]; then
-    DOWNLOAD_URL="$TASK_RELEASE_URL/download/task_darwin_amd64.tar.gz"
+    DOWNLOAD_URL="$TASK_RELEASE_URL/download/task_darwin_${arch}.tar.gz"
   else
-    DOWNLOAD_URL="$TASK_RELEASE_URL/download/task_linux_amd64.tar.gz"
+    DOWNLOAD_URL="$TASK_RELEASE_URL/download/task_linux_${arch}.tar.gz"
   fi
   logger info "Creating folder for Task download"
   mkdir -p "$(dirname "$DOWNLOAD_DESTINATION")"
