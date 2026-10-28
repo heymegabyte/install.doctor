@@ -52,6 +52,34 @@ for (const line of rows) {
   if (!providers.length) continue; // an entry with no installable provider is not browseable
   items.push({ name, bin, providers, pkgs, platforms: [...platforms].sort() });
 }
+
+// Merge the human-facing _short description + _github provenance from software.yml (the cnf index carries
+// only bin+providers). yq extracts a {key -> {short, github}} map; match by catalog name (== software.yml key).
+// Fail-soft: if yq is missing/errors, proceed without descriptions (the catalog still works).
+try {
+  const meta = JSON.parse(
+    execFileSync(
+      'yq',
+      ['-o', 'json', '.softwarePackages | to_entries | map({"key":.key,"short":.value._short,"github":.value._github})', SOFTWARE],
+      { encoding: 'utf8' },
+    ),
+  );
+  const byKey = new Map(meta.filter((m) => m && m.key).map((m) => [m.key, m]));
+  let enriched = 0;
+  for (const it of items) {
+    const m = byKey.get(it.name);
+    if (!m) continue;
+    if (typeof m.short === 'string' && m.short.trim()) {
+      it.short = m.short.trim();
+      enriched++;
+    }
+    if (typeof m.github === 'string' && m.github.trim()) it.github = m.github.trim();
+  }
+  console.error(`gen-catalog: enriched ${enriched} entries with _short/_github`);
+} catch (e) {
+  console.error('gen-catalog: WARNING — could not merge _short/_github (' + (e && e.message) + '); proceeding without descriptions');
+}
+
 items.sort((a, b) => a.name.localeCompare(b.name));
 
 const json = JSON.stringify(items);
