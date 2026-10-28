@@ -15,6 +15,19 @@ AID_TOTAL=0
 AID_PRESENT=0
 AID_MISSING=""
 
+# U03 — per-invocation run id: EVERY report in ONE aid invocation shares this correlationId, so a single
+# `aid up` (plan→apply→report, multiple reports) groups into one logical run on the control plane. Both
+# env-overridable: a parent process can export AID_RUN_ID to share correlation with a child aid, or
+# AID_PARENT_RUN_ID to link this run as a child of the parent's run (true parent/child across hosts/agents).
+genRunId() {
+  local r
+  r="$(od -A n -N 8 -t x1 /dev/urandom 2>/dev/null | tr -d ' \n')"
+  [ -n "$r" ] || r="$(date +%s 2>/dev/null)$$"
+  printf 'run_%s' "$r"
+}
+AID_RUN_ID="${AID_RUN_ID:-$(genRunId)}"
+AID_PARENT_RUN_ID="${AID_PARENT_RUN_ID:-}"
+
 log() { command -v gum >/dev/null 2>&1 && gum log --level info -- "$*" || printf '\033[1;36m[aid]\033[0m %s\n' "$*"; }
 err() { command -v gum >/dev/null 2>&1 && gum log --level error -- "$*" || printf '\033[1;31m[aid]\033[0m %s\n' "$*" >&2; }
 
@@ -32,14 +45,17 @@ postReport() {
   token="$(readToken)" || true
   [ -z "$token" ] && return 2
   u="${AID_CONTROL_PLANE_URL%/}"
+  # U03: stamp the per-invocation correlationId on every report (+ parentRunId when this run is a child).
   if command -v jq >/dev/null 2>&1; then
     if [ -n "$detail" ]; then
-      body="$(jq -nc --arg k "$kind" --arg s "$status" --arg sm "$summary" --argjson d "$detail" '{kind:$k,status:$s,summary:$sm,detail:$d}')"
+      body="$(jq -nc --arg k "$kind" --arg s "$status" --arg sm "$summary" --argjson d "$detail" --arg c "$AID_RUN_ID" --arg p "$AID_PARENT_RUN_ID" '{kind:$k,status:$s,summary:$sm,detail:$d,correlationId:$c} + (if $p=="" then {} else {parentRunId:$p} end)')"
     else
-      body="$(jq -nc --arg k "$kind" --arg s "$status" --arg sm "$summary" '{kind:$k,status:$s,summary:$sm}')"
+      body="$(jq -nc --arg k "$kind" --arg s "$status" --arg sm "$summary" --arg c "$AID_RUN_ID" --arg p "$AID_PARENT_RUN_ID" '{kind:$k,status:$s,summary:$sm,correlationId:$c} + (if $p=="" then {} else {parentRunId:$p} end)')"
     fi
+  elif [ -n "$AID_PARENT_RUN_ID" ]; then
+    body="{\"kind\":\"${kind}\",\"status\":\"${status}\",\"correlationId\":\"${AID_RUN_ID}\",\"parentRunId\":\"${AID_PARENT_RUN_ID}\"}"
   else
-    body="{\"kind\":\"${kind}\",\"status\":\"${status}\"}"
+    body="{\"kind\":\"${kind}\",\"status\":\"${status}\",\"correlationId\":\"${AID_RUN_ID}\"}"
   fi
   curl -fsS -X POST -H "authorization: Bearer ${token}" -H 'content-type: application/json' -d "$body" "${u}/api/device/report" 2>/dev/null
 }
