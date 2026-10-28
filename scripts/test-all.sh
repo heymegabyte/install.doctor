@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
-# W-series — ONE command to run every scripts/test-*.sh suite. Prints a per-suite result + a grand
+# W-series — ONE command to run every scripts/test-*.sh suite (+ the software.yml structural
+# validator, scripts/validate-software-yml.sh) so the LOCAL one-command gate enforces catalog
+# integrity at parity with CI (test-linux.yml). Prints a per-suite result + a grand
 # total of assertions, and exits non-zero if ANY runnable suite fails. Orchestrates; never replaces the
 # standalone suites. Passes CONTROL_PLANE_URL through (prod-gated suites skip their live asserts if unset).
 #
@@ -34,9 +36,10 @@ SUITE_FAIL=0
 SKIPPED=0
 TOTP=0
 TOTF=0
-for t in "$DIR"/test-*.sh; do
+for t in "$DIR"/test-*.sh "$DIR"/validate-software-yml.sh; do
   b="$(basename "$t")"
   [ "$b" = "test-all.sh" ] && continue
+  [ -f "$t" ] || continue
   req="$(needs_os "$b")"
   if [ -n "$req" ] && [ "$req" != "$HOST" ]; then
     skp "$b (requires $req; host is $HOST)"
