@@ -363,6 +363,22 @@ JSON
     prpost="$(curl -s -H "authorization: Bearer $prtok" "$u/api/device/history" 2>/dev/null)"
     echo "$prpost" | jq -e '.count==0' >/dev/null 2>&1 && pass "history/prune -> device history EMPTY after prune (retention actually removed the events)" || fail "prune post-count -> $(printf '%s' "$prpost" | head -c 120)"
     [ -n "$prid" ] && curl -s -o /dev/null -X POST -H "authorization: Bearer $DADM" "$u/api/devices/$prid/revoke" >/dev/null 2>&1
+    # fire #88 — U03 parent/child run correlation. A report may carry correlationId (groups a logical run's
+    # events — one `aid up` = plan+apply+report) + parentRunId (links a child run to its parent). Admin history
+    # filters by ?correlation=; both history reads surface the fields. (ReportRequest is .strict() → unknown
+    # keys were REJECTED 400 pre-migration, so a correlationId report is a real RED→GREEN.)
+    u3enr="$(curl -s -X POST -H "authorization: Bearer $DADM" -H 'content-type: application/json' -d '{"tenant":"_u03","label":"u03-corr"}' "$u/api/devices/enroll" 2>/dev/null)"
+    u3tok="$(printf '%s' "$u3enr" | jq -r '.token // empty')"; u3id="$(printf '%s' "$u3enr" | jq -r '.deviceId // empty')"
+    u3corr="u03-${u3id}"   # per-run-unique (fresh deviceId) → hermetic: the ?correlation= filter returns ONLY this run's 2 events (the _u03 tenant persists across runs)
+    u3a="$(curl -s -X POST -H "authorization: Bearer $u3tok" -H 'content-type: application/json' -d "$(jq -nc --arg c "$u3corr" '{kind:"apply",status:"success",summary:"u03 parent",correlationId:$c}')" "$u/api/device/report" 2>/dev/null)"
+    echo "$u3a" | jq -e --arg c "$u3corr" '.correlationId==$c' >/dev/null 2>&1 && pass "device/report (correlationId) -> 201 + echoes correlationId (U03)" || fail "U03 report echo -> $(printf '%s' "$u3a" | head -c 140)"
+    u3aid="$(printf '%s' "$u3a" | jq -r '.id // empty')"
+    curl -s -o /dev/null -X POST -H "authorization: Bearer $u3tok" -H 'content-type: application/json' -d "$(jq -nc --arg p "$u3aid" --arg c "$u3corr" '{kind:"run",status:"success",summary:"u03 child",correlationId:$c,parentRunId:$p}')" "$u/api/device/report" 2>/dev/null
+    u3h="$(curl -s -H "authorization: Bearer $DADM" "$u/api/history?tenant=_u03&correlation=$u3corr" 2>/dev/null)"
+    echo "$u3h" | jq -e --arg p "$u3aid" --arg c "$u3corr" '(.count==2) and (([.items[].correlationId]|unique)==[$c]) and (([.items[]|select(.parentRunId==$p)]|length)==1)' >/dev/null 2>&1 && pass "GET /api/history?correlation= -> the correlated run tree (2 events, shared correlationId, child links parent; U03)" || fail "U03 history filter -> $(printf '%s' "$u3h" | jq -c '[.items[]|{id,correlationId,parentRunId}]' 2>/dev/null | head -c 220)"
+    u3dh="$(curl -s -H "authorization: Bearer $u3tok" "$u/api/device/history" 2>/dev/null)"
+    echo "$u3dh" | jq -e --arg c "$u3corr" '([.items[].correlationId]|index($c))!=null' >/dev/null 2>&1 && pass "GET /api/device/history -> items carry correlationId (U03 surfaced to the device)" || fail "U03 device history -> $(printf '%s' "$u3dh" | jq -c '[.items[]|{correlationId}]' 2>/dev/null | head -c 160)"
+    [ -n "$u3id" ] && curl -s -o /dev/null -X POST -H "authorization: Bearer $DADM" "$u/api/devices/$u3id/revoke" >/dev/null 2>&1
     # fire #65 — W08 cross-tenant isolation (golden path "other-tenant can't retrieve"). Seed two
     # tenants with DISTINCT revisions; a device in _isoA must see ONLY _isoA — never _isoB — and its
     # token must not escalate to the admin fleet view. (The device model resolves tenant FROM the token.)
