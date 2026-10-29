@@ -323,5 +323,28 @@ for v in lock acq pref row mbin rest __t0 __dur tok; do
 done
 [ -z "$leaked" ] && pass "E07 — hook leaks no internals into the parent shell (all __cnf_resolve/__cnf_do_install vars are local)" || fail "parent-env leak: hook left [$leaked ] set in the caller's shell (a dropped 'local')"
 
+# 17. D13/B07 — index-build ATOMICITY + "cleaned on any exit": the builder writes a temp `.cnf-index.XXXXXX`
+# in the OUT dir then atomically `mv`s it into place (a concurrent reader never sees a partial index), and an
+# EXIT trap removes the temp on ANY exit. The clobber-safety half (a failed build keeps the prior index, #13
+# above) is covered; this asserts the UNtested half — NO `.cnf-index.*` temp litter remains after EITHER a
+# successful OR a failed build (a broken trap would strand temp files in the OUT dir, e.g. ~/.local/bin).
+# Non-vacuity proven: commenting the line-27 EXIT trap leaves the temp after a failed build → (b) FAILs.
+if { command -v yq > /dev/null 2>&1 && command -v jq > /dev/null 2>&1; } || python3 -c 'import yaml' 2> /dev/null; then
+  atdir="$tmp/atomic"; mkdir -p "$atdir"
+  # (a) successful build -> OUT complete + zero temp litter (the mv consumed the temp; trap disarmed)
+  bash "$BUILDER" "$SW" "$atdir/index.tsv" > /dev/null 2>&1
+  litter_s="$(find "$atdir" -maxdepth 1 -name '.cnf-index.*' 2> /dev/null | wc -l | tr -d ' ')"
+  { [ -s "$atdir/index.tsv" ] && [ "$litter_s" = 0 ]; } && pass "D13/B07 — successful build: atomic rename, zero temp litter in OUT dir" || fail "atomicity(success): empty index or temp litter ($litter_s)"
+  # (b) failed build (unterminated-flow YAML -> parser error) -> prior index INTACT + zero temp litter
+  before="$(wc -l < "$atdir/index.tsv" | tr -d ' ')"
+  printf 'softwarePackages: [\n' > "$atdir/bad.yml"
+  bash "$BUILDER" "$atdir/bad.yml" "$atdir/index.tsv" > /dev/null 2>&1 && bfail=0 || bfail=1
+  after="$(wc -l < "$atdir/index.tsv" | tr -d ' ')"
+  litter_f="$(find "$atdir" -maxdepth 1 -name '.cnf-index.*' 2> /dev/null | wc -l | tr -d ' ')"
+  { [ "$bfail" = 1 ] && [ "$before" = "$after" ] && [ "$litter_f" = 0 ]; } && pass "D13/B07 — failed build: prior index intact + zero temp litter (EXIT trap cleaned up)" || fail "atomicity(fail): bfail=$bfail before=$before after=$after litter=$litter_f"
+else
+  skip "no yq+jq or python3+pyyaml — index atomicity test skipped"
+fi
+
 say "command-not-found: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]
