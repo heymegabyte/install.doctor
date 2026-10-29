@@ -1,0 +1,6 @@
+{
+  "cloudflared": "In software.yml (the Cloudflare Tunnel daemon) but installed via a custom method with no package-manager provider column, so gen-catalog.mjs skips it (providerless entries are not browseable). Configured by post-cloudflared.sh; intentionally not in the App Store catalog.",
+  "ntfy": "In software.yml (the ntfy pub-sub notification service) but installed via a custom method with no package-manager provider column, so gen-catalog.mjs skips it (providerless entries are not browseable). Configured by post-ntfy.sh; intentionally not in the App Store catalog.",
+  "github-runner": "Internal CI self-hosted-runner enrollment hook (post-github-runner.sh). Not in software.yml and not a user-facing installable application — it configures a runner on an already-provisioned host, so it is intentionally not browseable.",
+  "zsh-bootstrap": "Internal shell bootstrap (post-zsh-bootstrap.sh) that seeds zsh/zinit config. Not in software.yml and not a user-facing installable application — it is part of provisioning, not a catalog tool, so it is intentionally not browseable."
+}
