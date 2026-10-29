@@ -364,10 +364,37 @@ if INSTALL_DOCTOR_ENV_CLASS=bare-metal INSTALL_DOCTOR_GRAPHICAL_SESSION=headless
 else echo "  PASS: bare-metal + headless -> no desktop"; PASS=$((PASS + 1)); fi
 
 # ---------------------------------------------------------------------------
+# Test 4f: should_skip_reboot — the 2nd CAPABILITY ADAPTER (A5), CONSUMES
+# detect_env_class (#166) to answer "can this host safely reboot mid-provision?"
+# A container (no init to return to — it just dies) and WSL (reboots via
+# `wsl --shutdown` from Windows, NOT in-distro — an in-place reboot kills the
+# session instead of resuming) must NOT reboot → skip (exit 0). A VM and bare
+# metal reboot normally → do NOT force-skip (exit 1). Deterministic via the
+# INSTALL_DOCTOR_ENV_CLASS override → fully testable on any host.
+# ---------------------------------------------------------------------------
+echo "=== Test: should_skip_reboot (A5 capability adapter) ==="
+# container -> cannot reboot (exit 0)
+if INSTALL_DOCTOR_ENV_CLASS=container should_skip_reboot; then
+  echo "  PASS: container -> skip reboot"; PASS=$((PASS + 1))
+else echo "  FAIL: container should skip reboot (no init to return to)"; FAIL=$((FAIL + 1)); fi
+# wsl -> cannot reboot in-distro (exit 0) — the gap this fire closes
+if INSTALL_DOCTOR_ENV_CLASS=wsl should_skip_reboot; then
+  echo "  PASS: wsl -> skip reboot"; PASS=$((PASS + 1))
+else echo "  FAIL: wsl should skip reboot (reboots via wsl --shutdown, not in-distro)"; FAIL=$((FAIL + 1)); fi
+# vm -> a real reboot is possible (exit 1)
+if INSTALL_DOCTOR_ENV_CLASS=vm should_skip_reboot; then
+  echo "  FAIL: vm should NOT force-skip reboot (a VM reboots normally)"; FAIL=$((FAIL + 1))
+else echo "  PASS: vm -> reboot allowed"; PASS=$((PASS + 1)); fi
+# bare-metal -> reboots normally (exit 1)
+if INSTALL_DOCTOR_ENV_CLASS=bare-metal should_skip_reboot; then
+  echo "  FAIL: bare-metal should NOT force-skip reboot"; FAIL=$((FAIL + 1))
+else echo "  PASS: bare-metal -> reboot allowed"; PASS=$((PASS + 1)); fi
+
+# ---------------------------------------------------------------------------
 # Test 5: All functions are defined
 # ---------------------------------------------------------------------------
 echo "=== Test: function definitions ==="
-for fn in detect_os detect_arch detect_release detect_role detect_package_manager detect_service_manager detect_privilege detect_graphical_session is_headless detect_env_class detect_sandbox_mechanisms should_provision_desktop; do
+for fn in detect_os detect_arch detect_release detect_role detect_package_manager detect_service_manager detect_privilege detect_graphical_session is_headless detect_env_class detect_sandbox_mechanisms should_provision_desktop should_skip_reboot; do
   if declare -f "$fn" > /dev/null 2>&1; then
     echo "  PASS: $fn is defined"
     PASS=$((PASS + 1))

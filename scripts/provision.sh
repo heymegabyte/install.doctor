@@ -32,7 +32,9 @@ else
   }
   detect_role() { echo "${INSTALL_DOCTOR_ROLE:-unknown}"; }
   detect_package_manager() { detect_os; }
-  is_headless() { [ "${HEADLESS_INSTALL:-}" = "true" ] && return 0; [ -z "${DISPLAY:-}" ] && return 0; return 1; }
+  # Mirror lib/detect_os.sh precedence: HEADLESS_INSTALL -> macOS has Aqua GUI -> Wayland/X11 check.
+  # (A bare `-z "$DISPLAY"` would wrongly call every GUI macOS headless — Macs never set DISPLAY.)
+  is_headless() { [ "${HEADLESS_INSTALL:-}" = "true" ] && return 0; [[ "$OSTYPE" == 'darwin'* ]] && return 1; [ -z "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ] && return 0; return 1; }
 fi
 #
 #     ## Dependencies
@@ -552,23 +554,25 @@ setCIEnvironmentVariables() {
   fi
 }
 
-# @description Applies capability-based defaults derived from the host's environment CLASS (A5/B4/H15).
-#     The first capability ADAPTER that consumes the detectors instead of a hostname/OS conditional: a host
-#     that should NOT get desktop components (a container, or a host with no graphical session) defaults to
-#     an unattended install — `HEADLESS_INSTALL` (no GUI prompts); a container additionally gets `NO_RESTART`
-#     (it cannot reboot). Each is set only if not already explicit (`:-`), so a user/CI override always wins.
-#     Uses `should_provision_desktop` + `detect_env_class` from lib/detect_os.sh; no-ops (fallback-safe) if
-#     the detector lib was unavailable at source time (the inline fallback does not define them).
+# @description Applies capability-based defaults derived from the host's environment CLASS (A5/B4/H15/A10).
+#     The capability ADAPTERS that consume the detectors instead of hostname/OS conditionals: a host that
+#     should NOT get desktop components (a container, or a host with no graphical session) defaults to an
+#     unattended install — `HEADLESS_INSTALL` (no GUI prompts); a host that cannot safely reboot mid-provision
+#     (`should_skip_reboot` — a container with no init to return to, OR a WSL distro that reboots via
+#     `wsl --shutdown` from Windows, never in-distro) additionally gets `NO_RESTART`. Each is set only if not
+#     already explicit (`:-`), so a user/CI override always wins. Uses `should_provision_desktop` +
+#     `should_skip_reboot` + `detect_env_class` from lib/detect_os.sh; no-ops (fallback-safe) if the detector
+#     lib was unavailable at source time (the inline fallback does not define them).
 #
 #     @envvar HEADLESS_INSTALL  Defaulted to true on a no-desktop target (container/headless)
-#     @envvar NO_RESTART        Defaulted to true inside a container (cannot reboot)
+#     @envvar NO_RESTART        Defaulted to true where a mid-provision reboot is impossible/unsafe (container/WSL)
 applyEnvClassDefaults() {
   command -v should_provision_desktop > /dev/null 2>&1 || return 0
   should_provision_desktop && return 0 # a desktop target — nothing to adjust
   export HEADLESS_INSTALL="${HEADLESS_INSTALL:-true}"
-  if [ "$(detect_env_class 2> /dev/null)" = "container" ]; then
+  if command -v should_skip_reboot > /dev/null 2>&1 && should_skip_reboot; then
     export NO_RESTART="${NO_RESTART:-true}"
-    logg info "Container environment (detect_env_class) — defaulting to HEADLESS_INSTALL + NO_RESTART (desktop-free, no reboot)"
+    logg info "$(detect_env_class 2> /dev/null) environment — defaulting to HEADLESS_INSTALL + NO_RESTART (desktop-free, cannot safely reboot mid-provision)"
   else
     logg info "No graphical session (is_headless) — defaulting to HEADLESS_INSTALL"
   fi
