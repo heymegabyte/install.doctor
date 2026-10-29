@@ -92,6 +92,24 @@ function collectUnknownPackages(bp: { defaults?: { packages?: string[] }; machin
   for (const name of names) if (!CATALOG_BY_NAME.get(name)) out.push(name);
   return out.sort((a, b) => a.localeCompare(b));
 }
+// F15/C12 (#161) — CONFIGURATION coverage of the plan (step-5 "review a concrete plan showing ... configuration"):
+// of the plan's CATALOG-KNOWN packages, how many AUTO-CONFIGURE on install via a post-installx first-run hook
+// (catalog `configured` #136). Surfaces BEFORE applying what setup Install Doctor runs automatically vs what stays
+// manual. `of` = catalog-known packages (uncatalogued ones are surfaced separately as unknownPackages).
+function collectConfigured(bp: { defaults?: { packages?: string[] }; machines?: { packages?: string[] }[] }): { count: number; of: number; packages: string[] } {
+  const names = new Set<string>();
+  for (const p of bp.defaults?.packages ?? []) names.add(p);
+  for (const m of bp.machines ?? []) for (const p of m.packages ?? []) names.add(p);
+  const packages: string[] = [];
+  let of = 0;
+  for (const name of names) {
+    const e = CATALOG_BY_NAME.get(name);
+    if (!e) continue;
+    of++;
+    if (e.configured) packages.push(name);
+  }
+  return { count: packages.length, of, packages: packages.sort((a, b) => a.localeCompare(b)) };
+}
 // Install-command templates per provider — MIRROR the cnf hook's __cnf_do_install (D04: ONE
 // provider→command contract shared with the deterministic executor). Drives the App Store install
 // detail (R13 — App Store details from recipe contracts). Keep in sync with not-found-hook.sh.
@@ -550,6 +568,14 @@ function renderSummary(bp){
   var pIn=labeledP('Installs');var imSpan=mk('span','muted');
   if(imParts.length){imParts.forEach(function(pt,i){if(i)imSpan.append(' · ');var b=document.createElement('b');b.textContent=pt[0];imSpan.append(b,pt[1]);});}else imSpan.append('—');
   pIn.append(imSpan);card.append(pIn);
+  // F15/C12 (#161) — CONFIGURATION coverage: how many catalog-known plan packages auto-configure on install (a
+  // post-installx first-run hook) vs stay manual (step-5 'configuration'); name the auto-configured ones as chips.
+  var cfg=bp.configured||{count:0,of:0,packages:[]};
+  var pCf=labeledP('Configuration');var cfSpan=mk('span','muted');
+  if(cfg.of){var cb=document.createElement('b');cb.textContent=cfg.count;cfSpan.append(cb,' of '+cfg.of+' package'+(cfg.of>1?'s':'')+' auto-configure on install (first-run setup)'+(cfg.count<cfg.of?' · the rest need manual setup':''));}else cfSpan.append('—');
+  pCf.append(cfSpan);
+  if(cfg.packages&&cfg.packages.length){var cfItems=mk('div');cfItems.setAttribute('style','margin-top:4px');cfg.packages.forEach(function(n,i){if(i)cfItems.append(' ');var a=mk('a','tag');a.href='/apps?q='+encodeURIComponent(n);a.setAttribute('style','border-color:#00e5ff;color:#00e5ff');a.textContent=n;cfItems.append(a);});pCf.append(cfItems);}
+  card.append(pCf);
   var pMa=labeledP('Machines ('+machines.length+')');pMa.append(muted(roleStr));card.append(pMa);
   var pSv=labeledP('Services ('+services.length+')');appendTagList(pSv,kinds);card.append(pSv);
   var pRt=labeledP('Routing');pRt.append(muted('engine '+(rt.engine||'—')+' · provider '+(rt.preferredProvider||'—')+' · premium '+(rt.allowPremium?'on':'off')));card.append(pRt);
@@ -1214,6 +1240,9 @@ app.get('/api/environment/current', async (c) => {
       platformGaps: collectPlatformGaps(bp),
       // A10 (#155) — plan packages NOT in the catalog (no recipe), NAMED so the review shows which are uncovered.
       unknownPackages: collectUnknownPackages(bp),
+      // F15/C12 (#161) — CONFIGURATION coverage: how many catalog-known plan packages auto-configure on install
+      // (post-installx first-run hook), so the review shows what setup is automatic vs what stays manual (step-5).
+      configured: collectConfigured(bp),
     };
     return c.json({ tenant, revision: bp.revision, digest: await blueprintDigest(bp), updatedAt: row.updated_at, markdown: row.markdown, summary });
   } catch (e) {
