@@ -588,37 +588,41 @@ app.get('/apps', (c) =>
 <p class=muted>Platform: <select id=plat style="background:#0b0f14;color:inherit;border:1px solid #223;border-radius:4px;padding:2px 6px"><option value="">All platforms</option><option value="macos">macOS</option><option value="linux">Linux</option><option value="windows">Windows</option></select> <span class=muted>— show only tools installable on your OS</span></p></div>
 <div id=out class=muted>Loading catalog…</div>
 <script>
-function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]})}
-function pill(a){return (a||[]).map(function(x){return '<span class=tag>'+esc(x)+'</span>'}).join(' ')}
+// #128 Trusted-Types arc — the App Store helpers now return DOM NODES (not HTML strings), so detail()/load()
+// build everything with createElement/textContent (auto-escaped) + replaceChildren. No innerHTML, no esc().
+function tagEl(text,title,style){var s=document.createElement('span');s.className='tag';s.textContent=text;if(title)s.title=title;if(style)s.setAttribute('style',style);return s;}
+function appendTags(parent,arr){(arr||[]).forEach(function(x,i){if(i)parent.append(' ');parent.append(tagEl(x));});}
 // D06 install mode — a user browsing the App Store sees whether a tool is a desktop app installed during
 // setup, a required service, or a CLI installed lazily on first command use (the core eager-vs-lazy promise).
 function modeLabel(m){return ({app:'desktop app',service:'service',cli:'CLI · on first use'})[m]||'CLI · on first use'}
-function modeBadge(m){var T={app:'A GUI desktop application — installed during desktop provisioning (eager)',service:'A background service — installed + configured to run',cli:'A command-line tool — installed automatically the first time you run it (lazy)'};return '<span class=tag title="'+esc(T[m]||T.cli)+'">'+esc(modeLabel(m))+'</span>'}
-function modeDesc(m,bin){if(m==='app')return 'Desktop app — installed during desktop provisioning (the GUI app is set up up front).';if(m==='service')return 'Service — installed and configured to run as a background service.';return 'CLI — installed automatically the first time you run '+esc(bin||'it')+' (lazy, on first use).'}
+function modeBadgeEl(m){var T={app:'A GUI desktop application — installed during desktop provisioning (eager)',service:'A background service — installed + configured to run',cli:'A command-line tool — installed automatically the first time you run it (lazy)'};return tagEl(modeLabel(m),T[m]||T.cli);}
+function modeDesc(m,bin){if(m==='app')return 'Desktop app — installed during desktop provisioning (the GUI app is set up up front).';if(m==='service')return 'Service — installed and configured to run as a background service.';return 'CLI — installed automatically the first time you run '+(bin||'it')+' (lazy, on first use).'}
 // D14/D15 — the maintainer flagged this tool deprecated/not-recommended (software.yml _deprecated, 147 entries).
 // WARN before a user installs it + show the reason (often naming a replacement). Absent = not flagged.
-function depBadge(d){return d?('<span class=tag style="border-color:#f0a020;color:#f0a020" title="'+esc('Deprecated: '+d)+'">deprecated</span>'):''}
-function depWarn(d){return d?('<div style="border-left:3px solid #f0a020;padding:6px 10px;margin:2px 0 8px;background:#1a1407;border-radius:4px"><b style="color:#f0a020">Deprecated</b> <span class=muted>'+esc(d)+'</span></div>'):''}
+function depBadgeEl(d){return d?tagEl('deprecated','Deprecated: '+d,'border-color:#f0a020;color:#f0a020'):null;}
+function depWarnEl(d){if(!d)return null;var div=document.createElement('div');div.setAttribute('style','border-left:3px solid #f0a020;padding:6px 10px;margin:2px 0 8px;background:#1a1407;border-radius:4px');var b=document.createElement('b');b.setAttribute('style','color:#f0a020');b.textContent='Deprecated';var s=document.createElement('span');s.className='muted';s.textContent=d;div.append(b,' ',s);return div;}
 // D07 — runtime dependencies (software.yml _deps). Each dep links to its own App Store entry (interconnected,
 // like the Environment plan's package links); a dep that isn't a browseable package just searches empty, honestly.
-function depsLinks(a){return (a||[]).map(function(x){return '<a class=tag href="/apps?q='+encodeURIComponent(x)+'" title="View '+esc(x)+' in the App Store">'+esc(x)+'</a>'}).join(' ')}
+function appendDepsLinks(parent,a){(a||[]).forEach(function(x,i){if(i)parent.append(' ');var link=document.createElement('a');link.className='tag';link.href='/apps?q='+encodeURIComponent(x);link.title='View '+x+' in the App Store';link.textContent=x;parent.append(link);});}
 async function detail(tr,name){
   var ex=tr.nextElementSibling;
   if(ex&&ex.className==='detail'){ex.remove();return}            // toggle closed
   var dr=document.createElement('tr');dr.className='detail';
-  dr.innerHTML='<td colspan=4 class=muted>Loading install commands…</td>';
+  var dtd=document.createElement('td');dtd.colSpan=4;dtd.className='muted';dtd.textContent='Loading install commands…';dr.append(dtd);
   tr.parentNode.insertBefore(dr,tr.nextSibling);
   try{
     var r=await fetch('/api/catalog/'+encodeURIComponent(name));var j=await r.json();
-    if(!r.ok||!j.commands||!j.commands.length){dr.firstChild.textContent='No install commands.';return}
-    var cmds=j.commands.map(function(k){return '<span class=cmd><b>'+esc(k.provider)+'</b>'+esc(k.command)+'</span>'}).join('');
-    function lnk(label,url){return url?('<a href="'+esc(url)+'" target=_blank rel=noopener>'+esc(label)+'</a>'):''}
-    var parts=[lnk('Source',j.github),lnk('Homepage',j.home),lnk('Docs',j.docs)].filter(Boolean);
-    var src=parts.length?('<div class=muted style="margin:2px 0 6px">Learn more: '+parts.join(' · ')+'</div>'):'';
-    var modeLine='<div style="margin:2px 0 6px">'+modeBadge(j.installMode)+' <span class=muted>'+modeDesc(j.installMode,j.bin)+'</span></div>';
-    var depsLine=(j.deps&&j.deps.length)?('<div class=muted style="margin:2px 0 6px">Depends on: '+depsLinks(j.deps)+'</div>'):'';
-    dr.firstChild.innerHTML=depWarn(j.deprecated)+modeLine+'<div class=muted style="margin:2px 0 6px">Install <b>'+esc(j.name)+'</b> (command: '+esc(j.bin)+') on '+pill(j.platforms)+':</div>'+depsLine+src+cmds;
-  }catch(e){dr.firstChild.textContent='✗ '+e}
+    if(!r.ok||!j.commands||!j.commands.length){dtd.textContent='No install commands.';return}
+    var frag=document.createDocumentFragment();
+    var dw=depWarnEl(j.deprecated);if(dw)frag.append(dw);
+    var modeLine=document.createElement('div');modeLine.setAttribute('style','margin:2px 0 6px');var md=document.createElement('span');md.className='muted';md.textContent=modeDesc(j.installMode,j.bin);modeLine.append(modeBadgeEl(j.installMode),' ',md);frag.append(modeLine);
+    var installLine=document.createElement('div');installLine.className='muted';installLine.setAttribute('style','margin:2px 0 6px');installLine.append('Install ');var nb=document.createElement('b');nb.textContent=j.name;installLine.append(nb,' (command: '+(j.bin||'')+') on ');appendTags(installLine,j.platforms);installLine.append(':');frag.append(installLine);
+    if(j.deps&&j.deps.length){var depsLine=document.createElement('div');depsLine.className='muted';depsLine.setAttribute('style','margin:2px 0 6px');depsLine.append('Depends on: ');appendDepsLinks(depsLine,j.deps);frag.append(depsLine);}
+    var parts=[['Source',j.github],['Homepage',j.home],['Docs',j.docs]].filter(function(p){return p[1]});
+    if(parts.length){var srcLine=document.createElement('div');srcLine.className='muted';srcLine.setAttribute('style','margin:2px 0 6px');srcLine.append('Learn more: ');parts.forEach(function(p,i){if(i)srcLine.append(' · ');var la=document.createElement('a');la.href=p[1];la.target='_blank';la.rel='noopener';la.textContent=p[0];srcLine.append(la);});frag.append(srcLine);}
+    j.commands.forEach(function(k){var sc=document.createElement('span');sc.className='cmd';var pb=document.createElement('b');pb.textContent=k.provider;sc.append(pb,k.command);frag.append(sc);});
+    dtd.replaceChildren(frag);
+  }catch(e){dtd.textContent='✗ '+e}
 }
 async function load(){
   var out=document.getElementById('out'),q=document.getElementById('q').value.trim(),plat=document.getElementById('plat').value;
@@ -627,9 +631,29 @@ async function load(){
     var j=await r.json();
     if(!r.ok){out.textContent='✗ '+(j.error||r.status);return}
     var platlabel=plat?({macos:'macOS',linux:'Linux',windows:'Windows'}[plat]||plat):'';
-    if(!j.items||!j.items.length){out.textContent='No apps match'+(q?(' "'+esc(q)+'"'):'')+(platlabel?(' on '+platlabel):'')+'.';return}
-    var rows=j.items.map(function(e){return '<tr><td><button class=lnk data-name="'+esc(e.name)+'">'+esc(e.name)+'</button> '+modeBadge(e.installMode)+depBadge(e.deprecated)+(e.short?('<div class=muted style="font-size:.85em;max-width:52ch">'+esc(e.short)+'</div>'):'')+'</td><td class=mono>'+esc(e.bin)+'</td><td>'+pill(e.providers)+'</td><td>'+pill(e.platforms)+'</td></tr>'}).join('');
-    out.innerHTML='<p class=muted>'+j.matched+' of '+j.total+' apps'+(platlabel?(' on '+platlabel):'')+(j.count<j.matched?(' · showing '+j.count):'')+' · click a name for install commands</p><table><thead><tr><th>name</th><th>command</th><th>installers</th><th>platforms</th></tr></thead><tbody>'+rows+'</tbody></table>';
+    if(!j.items||!j.items.length){out.textContent='No apps match'+(q?(' "'+q+'"'):'')+(platlabel?(' on '+platlabel):'')+'.';return}
+    var frag=document.createDocumentFragment();
+    var p=document.createElement('p');p.className='muted';p.textContent=j.matched+' of '+j.total+' apps'+(platlabel?(' on '+platlabel):'')+(j.count<j.matched?(' · showing '+j.count):'')+' · click a name for install commands';frag.append(p);
+    var table=document.createElement('table');
+    var thead=document.createElement('thead'),htr=document.createElement('tr');
+    ['name','command','installers','platforms'].forEach(function(h){var th=document.createElement('th');th.textContent=h;htr.append(th);});
+    thead.append(htr);table.append(thead);
+    var tbody=document.createElement('tbody');
+    j.items.forEach(function(e){
+      var tr=document.createElement('tr');
+      var nameTd=document.createElement('td');
+      var btn=document.createElement('button');btn.className='lnk';btn.setAttribute('data-name',e.name);btn.textContent=e.name; // #118 delegation: #out click → .lnk + data-name
+      nameTd.append(btn,' ',modeBadgeEl(e.installMode));
+      var db=depBadgeEl(e.deprecated);if(db)nameTd.append(db);
+      if(e.short){var sd=document.createElement('div');sd.className='muted';sd.setAttribute('style','font-size:.85em;max-width:52ch');sd.textContent=e.short;nameTd.append(sd);}
+      tr.append(nameTd);
+      var cmdTd=document.createElement('td');cmdTd.className='mono';cmdTd.textContent=e.bin||'';tr.append(cmdTd);
+      var provTd=document.createElement('td');appendTags(provTd,e.providers);tr.append(provTd);
+      var platTd=document.createElement('td');appendTags(platTd,e.platforms);tr.append(platTd);
+      tbody.append(tr);
+    });
+    table.append(tbody);frag.append(table);
+    out.replaceChildren(frag);
   }catch(e){out.textContent='✗ '+e}
 }
 document.getElementById('out').addEventListener('click',function(ev){
