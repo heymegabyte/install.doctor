@@ -67,7 +67,7 @@ try {
       [
         '-o',
         'json',
-        '.softwarePackages | to_entries | map({"key":.key,"short":.value._short,"github":.value._github,"home":.value._home,"docs":.value._docs,"app":(.value._app != null),"service":(.value._service != null)})',
+        '.softwarePackages | to_entries | map({"key":.key,"short":.value._short,"github":.value._github,"home":.value._home,"docs":.value._docs,"app":(.value._app != null),"service":(.value._service != null),"deprecated":.value._deprecated})',
         SOFTWARE,
       ],
       { encoding: 'utf8' },
@@ -91,6 +91,9 @@ try {
     if (typeof m.home === 'string' && m.home.trim()) it.home = m.home.trim();
     if (typeof m.docs === 'string' && m.docs.trim()) it.docs = m.docs.trim();
     if (it.home || it.docs) linked++;
+    // D14/D15 — surface the maintainer's `_deprecated` reason (often naming a replacement) so the App Store
+    // can WARN before a user installs an abandoned/discouraged tool. Honest declared data; absent = not flagged.
+    if (typeof m.deprecated === 'string' && m.deprecated.trim()) it.deprecated = m.deprecated.trim();
     // D06 install mode — _app (GUI app) wins over _service; neither → lazy cli. Grounded in the EXPLICIT
     // declared fields only. NOTE: `cask` presence is deliberately NOT treated as "app" — measured 2026-10:
     // of 40 cask-no-_app entries, most are CLIs shipped as casks (java/gcloud/flutter/fly/mitmproxy/…), so
