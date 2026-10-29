@@ -25,5 +25,17 @@ has 'command-not-found' && pass "documents the lazy CLI command-not-found instal
 { has 'Better Auth' && has 'blocked|not yet|pending|awaiting'; } && pass "HONEST status — names blocked/pending work (X14)" || fail "no honest blocked/pending status"
 has 'chezmoi' && pass "keeps the installer layer (chezmoi) documented" || fail "chezmoi (installer layer) dropped"
 
+# Canonical-org metadata provenance (#185, sibling of the #181 clone-URL migration): the user-facing
+# project metadata — the README banner logo + package.json repository/bugs — must point at the canonical
+# OWNED org `heymegabyte/install.doctor`, not the legacy `megabyte-labs` gitlab/github (an unowned org that
+# resolves today only via transfer-redirects → a name-squat/rot risk + wrong destination for tooling).
+# (The nested project.github/gitlab + overview-prose links are a separate low-priority sweep — BACKLOG.)
+grep -qiE 'gitlab\.com/megabyte-labs' "$R" && fail "README still references the legacy megabyte-labs gitlab org (banner/logo)" || pass "README: no legacy megabyte-labs gitlab reference"
+has 'raw\.githubusercontent\.com/heymegabyte/install\.doctor.*logo|docs/logo-full' && pass "README banner logo = canonical heymegabyte repo" || fail "README banner logo not canonical heymegabyte"
+[ -f "$ROOT/docs/logo-full.png" ] && pass "the referenced logo file exists in-repo (docs/logo-full.png)" || fail "docs/logo-full.png missing (banner would 404)"
+PKG="$ROOT/package.json"
+{ grep -q 'github\.com/heymegabyte/install\.doctor\.git' "$PKG" && ! grep -q 'megabyte-labs/install\.doctor\.git' "$PKG"; } && pass "package.json repository.url = canonical heymegabyte (no stale megabyte-labs)" || fail "package.json repository.url not canonical heymegabyte"
+{ grep -q 'github\.com/heymegabyte/install\.doctor/issues' "$PKG" && ! grep -q 'megabyte-labs/install\.doctor/-/issues' "$PKG"; } && pass "package.json bugs.url = canonical heymegabyte issues (no stale gitlab)" || fail "package.json bugs.url not canonical heymegabyte issues"
+
 say "readme: $P passed, $F failed"
 [ "$F" -eq 0 ]

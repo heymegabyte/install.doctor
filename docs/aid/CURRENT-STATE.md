@@ -1,6 +1,6 @@
 # aid — CURRENT STATE (verified audit)
 
-**Refreshed:** fire #184 — doc-honesty reconciliation (the drift-update #180 owed): the honest-docs still claimed the **Windows PowerShell entrypoint was "⬜ not published / `start.ps1` → 404 / no PowerShell entrypoint"** — STALE + WRONG after #180 shipped `provision.ps1` (served live at `install.doctor/windows` → **200**, the doc even cited the wrong `/start.ps1` path which 404s). Corrected `platform-support.md` (the capability row + 2 per-role/limitation notes), `getting-started-headless.md`, and the REQUIREMENTS M08 ref to the honest status: **Windows PowerShell is ◐ EXPERIMENTAL** — published at `/windows`, structurally verified (`test-powershell-entrypoint.sh` 24/24), but the native-Windows RUNTIME is not yet verified (no Windows CI); WSL stays the proven route. TDD RED→GREEN — extended the X04 gate `test-platform-support-doc.sh` 19→22 to assert the doc NAMES the real `/windows` entrypoint + `provision.ps1` + REJECTS the stale "not published"/`start.ps1`-404 claims (so the doc can't silently under-sell Windows again); the no-fabrication check (no "native Windows works") still holds. **test-all 658→661 / 36 suites GREEN.** A generative re-scan found this real drift — the #180-184 cleanup theme keeps paying. **Branch:** `master`.
+**Refreshed:** fire #185 — canonical-org METADATA provenance (the user-facing sibling of the #181 clone-URL migration): the README **banner logo** + `package.json` `repository`/`bugs` URLs still pointed at the legacy `megabyte-labs` org (gitlab/github — unowned, resolves today only via transfer-redirects → a name-squat/rot risk + wrong destination for tooling). Migrated the README banner to the SAME `docs/logo-full.png` served from the canonical `heymegabyte` raw URL (verified live **200** image/png), `package.json` `repository.url` → `heymegabyte` github, `bugs.url` → `heymegabyte` github ISSUES (where issues actually live). TDD RED→GREEN — extended the X01 README gate `test-readme.sh` 10→15 (asserts the banner + package.json repository/bugs are canonical heymegabyte, the logo file exists in-repo, no legacy megabyte-labs). **test-all 661→666 / 36 suites GREEN.** DEFERRED (low-priority BACKLOG sweep): the nested `package.json` project.github/gitlab + overview-prose links + ~85 post-installx doc-COMMENT org links. Doc/test layer — no deploy. **Branch:** `master`.
 Full spec: `MASTER-PROMPT.md` · resume pointer: `NEXT-STEPS.md` · matrix: `REQUIREMENTS.md`. Nothing here
 is inherited without evidence; every count below is from a live `scripts/test-all.sh` run.
 
@@ -10,7 +10,7 @@ The UNBLOCKED functional product has **converged**: the control plane, the full 
 dashboard, the honest-docs set, and a one-command test suite are built + live-verified at
 **https://app.install.doctor**. The remaining high-value requirements are **GATED on external action**
 (see § Gated). Loop fires now harden docs/tests/honesty until a gated dep is provisioned. Verified by
-**`scripts/test-all.sh` → 661 assertions / 36 suites GREEN (1 OS-skipped)** with the prod URL.
+**`scripts/test-all.sh` → 666 assertions / 36 suites GREEN (1 OS-skipped)** with the prod URL.
 
 ## ✅ Built + live-verified
 

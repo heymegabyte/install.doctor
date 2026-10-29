@@ -8,11 +8,11 @@
   "homepage": "https://megabyte.space",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/megabyte-labs/install.doctor.git"
+    "url": "git+https://github.com/heymegabyte/install.doctor.git"
   },
   "bugs": {
     "email": "help@megabyte.space",
-    "url": "https://gitlab.com/megabyte-labs/install.doctor/-/issues"
+    "url": "https://github.com/heymegabyte/install.doctor/issues"
   },
   "type": "commonjs",
   "main": "dist/main.js",

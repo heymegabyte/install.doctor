@@ -1,6 +1,6 @@
 <div align="center">
   <a href="https://install.doctor">
-    <img width="320" alt="Install Doctor" src="https://gitlab.com/megabyte-labs/install.doctor/-/raw/master/docs/logo-full.png" />
+    <img width="320" alt="Install Doctor" src="https://raw.githubusercontent.com/heymegabyte/install.doctor/master/docs/logo-full.png" />
   </a>
   <h1>Install Doctor</h1>
   <p><strong>One command brings up any computer — and keeps it that way.</strong></p>
