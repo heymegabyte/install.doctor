@@ -82,17 +82,43 @@ const app = new Hono();
 // Cross-Origin-Embedder-Policy (require-corp) is DELIBERATELY omitted: there are zero cross-origin
 // subresources today (no cross-origin-isolation benefit — no SharedArrayBuffer), and it would break
 // legitimate future embeds (Google Maps panels, R2 images) that lack CORP/CORS headers.
-const CSP =
-  "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; " +
-  "img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; " +
-  "object-src 'none'; form-action 'self'";
+// CSP STEP 2 (#122) — script-src drops 'unsafe-inline' for a per-request NONCE: the dashboard's inline
+// <script> blocks run ONLY if they carry the matching nonce, which an injected/reflected <script> cannot
+// guess — so a stored/reflected-XSS payload won't execute (real defense-in-depth on an app that holds the
+// admin token). style-src keeps 'unsafe-inline' (inline style= attrs + <style> are a separate, harder slice).
+function cspFor(nonce: string): string {
+  return (
+    `default-src 'self'; script-src 'self' 'nonce-${nonce}'; style-src 'self' 'unsafe-inline'; ` +
+    "img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; " +
+    "object-src 'none'; form-action 'self'"
+  );
+}
 const PERMISSIONS_POLICY = 'camera=(), microphone=(), geolocation=(), payment=(), usb=()';
 const COOP = 'same-origin-allow-popups';
 const CORP = 'same-origin';
 app.use('*', async (c, next) => {
+  // One cryptographically-random nonce per request (hex, 16 bytes). Generated BEFORE next() so it is stable
+  // for this response; used both to decorate every inline <script> AND in the script-src directive.
+  const rb = crypto.getRandomValues(new Uint8Array(16));
+  let nonce = '';
+  for (const b of rb) nonce += b.toString(16).padStart(2, '0');
   await next();
   try {
-    c.res.headers.set('content-security-policy', CSP);
+    // Inject nonce="<n>" into EVERY inline <script> of HTML responses (dashboard pages + the shared chrome).
+    // Done here, in ONE place, so any new page/script is covered automatically — a missed script would break
+    // under the strict policy. The lookahead matches `<script` + whitespace-or-`>` (handles a future
+    // `<script type=…>` too) and never matches `</script>`. Non-HTML (JSON APIs, redirects) is left untouched.
+    const ct = c.res.headers.get('content-type') || '';
+    if (ct.includes('text/html')) {
+      const html = await c.res.text();
+      const h = new Headers(c.res.headers);
+      h.delete('content-length'); // the injected attrs lengthen the body; let the runtime recompute
+      c.res = new Response(html.replace(/<script(?=[\s>])/g, `<script nonce="${nonce}"`), {
+        status: c.res.status,
+        headers: h,
+      });
+    }
+    c.res.headers.set('content-security-policy', cspFor(nonce));
     c.res.headers.set('permissions-policy', PERMISSIONS_POLICY);
     c.res.headers.set('cross-origin-opener-policy', COOP);
     c.res.headers.set('cross-origin-resource-policy', CORP);
