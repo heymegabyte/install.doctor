@@ -287,10 +287,36 @@ assert_eq "detect_privilege with INSTALL_DOCTOR_PRIVILEGE override" "test-priv" 
 assert_eq "detect_privilege idempotent" "$(detect_privilege)" "$(detect_privilege)"
 
 # ---------------------------------------------------------------------------
+# Test 4c: detect_env_class returns the VIRTUALIZATION/environment class (B04
+# "distinguish bare metal, VM, WSL, container"), orthogonal to the OS role +
+# graphical session. container | wsl | vm | bare-metal. Precedence: container
+# FIRST (a container nested in a VM is still a container for provisioning).
+# ---------------------------------------------------------------------------
+echo "=== Test: detect_env_class ==="
+ENVC="$(detect_env_class)"
+KNOWN_ENVC="container wsl vm bare-metal"
+if echo "$KNOWN_ENVC" | grep -qw "$ENVC"; then
+  echo "  PASS: detect_env_class returned '$ENVC' (valid value)"; PASS=$((PASS + 1))
+else
+  echo "  FAIL: detect_env_class returned '$ENVC' (not in known list)"; FAIL=$((FAIL + 1))
+fi
+detect_env_class > /dev/null
+assert_ok "detect_env_class exit code" $?
+# Full override (mirrors detect_privilege / detect_graphical_session — deterministic, no host probing)
+assert_eq "detect_env_class INSTALL_DOCTOR_ENV_CLASS override" "test-env" "$(INSTALL_DOCTOR_ENV_CLASS="test-env" detect_env_class)"
+# REAL detection path (env-var-mockable): the `container` env var (set by systemd-nspawn/podman) -> container,
+# on ANY host, with NO override. Proves the detection logic runs, not just the override echo.
+assert_eq "detect_env_class: container env var -> container" "container" "$(INSTALL_DOCTOR_ENV_CLASS='' container=podman detect_env_class)"
+# Precedence: the container signal wins over a would-be vm/bare-metal host classification.
+assert_eq "detect_env_class: container checked before vm/bare-metal" "container" "$(INSTALL_DOCTOR_ENV_CLASS='' container=lxc detect_env_class)"
+# Idempotency
+assert_eq "detect_env_class idempotent" "$(detect_env_class)" "$(detect_env_class)"
+
+# ---------------------------------------------------------------------------
 # Test 5: All functions are defined
 # ---------------------------------------------------------------------------
 echo "=== Test: function definitions ==="
-for fn in detect_os detect_arch detect_release detect_role detect_package_manager detect_service_manager detect_privilege detect_graphical_session is_headless; do
+for fn in detect_os detect_arch detect_release detect_role detect_package_manager detect_service_manager detect_privilege detect_graphical_session is_headless detect_env_class; do
   if declare -f "$fn" > /dev/null 2>&1; then
     echo "  PASS: $fn is defined"
     PASS=$((PASS + 1))
