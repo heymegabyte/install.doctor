@@ -1,6 +1,6 @@
 # aid — CURRENT STATE (verified audit)
 
-**Refreshed:** fire #169 (reconciled against the A01–X15 matrix + the live suite). **Branch:** `master`.
+**Refreshed:** fire #170 (reconciled against the A01–X15 matrix + the live suite). **Branch:** `master`.
 Full spec: `MASTER-PROMPT.md` · resume pointer: `NEXT-STEPS.md` · matrix: `REQUIREMENTS.md`. Nothing here
 is inherited without evidence; every count below is from a live `scripts/test-all.sh` run.
 
@@ -10,7 +10,7 @@ The UNBLOCKED functional product has **converged**: the control plane, the full 
 dashboard, the honest-docs set, and a one-command test suite are built + live-verified at
 **https://app.install.doctor**. The remaining high-value requirements are **GATED on external action**
 (see § Gated). Loop fires now harden docs/tests/honesty until a gated dep is provisioned. Verified by
-**`scripts/test-all.sh` → 612 assertions / 33 suites GREEN (1 OS-skipped)** with the prod URL.
+**`scripts/test-all.sh` → 614 assertions / 33 suites GREEN (1 OS-skipped)** with the prod URL.
 
 ## ✅ Built + live-verified
 
@@ -61,7 +61,11 @@ dashboard, the honest-docs set, and a one-command test suite are built + live-ve
   unfindable quoted "a b c"; bash+zsh proven) + #164 F02/D06 CASK detection (the manager-availability check
   now tests `brew`, not the nonexistent `cask` binary — so the 253 cask-ONLY GUI apps, cask col set/brew
   empty, e.g. aerospace/alt-tab/android-studio, actually lazy-install via `brew install --cask` instead of
-  silently falling through); bash+zsh tested (**`test-command-not-found.sh` 27/27**);
+  silently falling through) + #170 E08/E15 STREAM+STATUS fidelity (the resolved command's piped STDIN
+  reaches it — install `</dev/null` can't eat it — AND its EXIT STATUS propagates as the handler's rc, so
+  `if missingtool` / `$?` behave; proven non-vacuous by break→RED→restore→GREEN + bash+zsh parity confirmed —
+  a `zcat`-collides-with-a-real-binary probe artifact was ruled out, not "fixed"); bash+zsh tested
+  (**`test-command-not-found.sh` 29/29**);
   fish+pwsh adapters present (structural gates 8+8, live-unverified).
 - **Cua Spaces desktop provisioning gate** (`home/.chezmoiscripts/universal/run_after_21-cua-spaces.sh.tmpl`,
   Brian directive #101 "install on any 16GB+ desktop") — a chezmoi `run_after` that installs Cua Spaces
