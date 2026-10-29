@@ -41,6 +41,10 @@ grep -rqiE 'device token|hashed.?opaque' "$DEC"/[0-9]*.md && pass "the device-to
 # software.yml's declared `_`-fields, and WHY only explicit-declared + measure-first, no AI-generation) is a
 # substantial repeated architectural decision → must be recorded so the pattern + its measured rejections endure.
 grep -rqiE 'catalog.enrichment' "$DEC"/[0-9]*.md && pass "the catalog-enrichment-from-declared-fields decision is recorded (ADR; #110-115 pattern)" || fail "no ADR records the catalog-enrichment pattern (A12 gap)"
+# fire #123 — the O10 rate-limit STORAGE decision (#108: Better Auth's limiter backed by D1 `storage:"database"`
+# instead of the estate's Upstash `@upstash/ratelimit` convention — a one-way-door-ish infra choice driven by the
+# $10/mo-per-project budget + the no-second-routing/infra invariant) must be recorded with its alternatives.
+{ grep -rqiE 'rate.?limit' "$DEC"/[0-9]*.md && grep -rqiE 'upstash' "$DEC"/[0-9]*.md; } && pass "the rate-limit storage decision (Better Auth on D1 over Upstash) is recorded (ADR; #108 O10)" || fail "no ADR records the rate-limit storage decision (A12 gap)"
 
 say "adr: $P passed, $F failed"
 [ "$F" -eq 0 ]

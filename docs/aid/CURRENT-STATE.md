@@ -10,7 +10,7 @@ The UNBLOCKED functional product has **converged**: the control plane, the full 
 dashboard, the honest-docs set, and a one-command test suite are built + live-verified at
 **https://app.install.doctor**. The remaining high-value requirements are **GATED on external action**
 (see § Gated). Loop fires now harden docs/tests/honesty until a gated dep is provisioned. Verified by
-**`scripts/test-all.sh` → 485 assertions / 27 suites GREEN (1 OS-skipped)** with the prod URL.
+**`scripts/test-all.sh` → 486 assertions / 27 suites GREEN (1 OS-skipped)** with the prod URL.
 
 ## ✅ Built + live-verified
 
@@ -96,11 +96,11 @@ dashboard, the honest-docs set, and a one-command test suite are built + live-ve
   **strict-`script-src` STEP 1+2 COMPLETE — full XSS defense-in-depth LIVE (#117–#122).** STEP 1 (#117–#121): converted EVERY inline `on*=` handler on all 7 dashboard pages (`/login`+`/recommendations`+`/pair` #117, `/apps` #118, `/environment` #119, `/history` #120, `/machines` #121) to `addEventListener` — static fixed-button handlers (simple swaps) + DYNAMIC per-row buttons via EVENT DELEGATION (`data-act`/`data-id`/`data-corr` + one container listener reading `e.target.closest('[data-act]')`). STEP 2 (#122): dropped `script-src 'unsafe-inline'`, replaced with a **per-request NONCE** — a middleware generates a 16-byte hex nonce per request, injects `nonce="<n>"` into EVERY inline `<script>` of HTML responses (one regex in ONE place: `html.replace(/<script(?=[\s>])/g, …)` — catches page + shared-chrome scripts automatically), and sets `script-src 'self' 'nonce-<n>'`. An injected/reflected `<script>` can't guess the nonce → won't execute (and dropping unsafe-inline ALSO blocks injected inline `on*=` event handlers). `style-src 'unsafe-inline'` stays (a separate, harder slice). **Cloudflare's edge STAMPS OUR nonce onto its injected Web Analytics beacon** (reads our `script-src`), so the beacon passes too — no host allowlist needed, the CSP stays clean. Real-browser-verified: `/apps` catalog ("1068 of 1068 apps") + `/environment?tenant=_default` plan both RENDER (their inline scripts execute under the strict nonce CSP — a mismatch would've blocked them); `test-security-headers.sh` asserts header↔body nonce parity across all 4 `/` script tags (incl. the beacon). admin-token-gated pages (`/history`, `/machines`) verified WITHOUT exposing the token to an external browser (API data paths via the LOCAL token). Context-spillover #121: 2 `test-control-plane.sh` assertions on the old inline `onclick=` were updated to the `data-act` wiring. `test-security-headers.sh` 12→…→26. **→ NEXT security layer: Trusted Types (`require-trusted-types-for 'script'`) — a multi-fire arc refactoring the ~30 `innerHTML` sinks (measured #108-109) to Trusted-Types-safe APIs.** SPILLOVER (#117): the Google button (`.cta2`) was cyan-on-cyan (invisible); added `background:transparent` → readable.**
 - **Verification** — `scripts/test-all.sh` runs every suite (per-suite + grand total, OS-gated skips,
   exits non-zero on any fail); inline-JS parse guard over every dashboard page; **A12 ADR hygiene gate
-  (`test-adr.sh` 6/6) — every `docs/aid/decisions/NNNN` ADR is well-formed (Status·Context·Decision·
-  alternatives·Consequences) + the key decisions each HAVE an ADR; 0001-0005 (hiSHtory · device-token ·
-  mise-lazy-tools · Better Auth #105 · **the catalog-enrichment-from-declared-fields pattern #116 — records
-  the #110-115 arc + its MEASURED rejections (cask→app, `_groups`→related, `_post`→configure-steps all rejected)
-  so the pattern + its dead-ends endure**).** Preserved foundations: Preserved foundations:
+  (`test-adr.sh` 7/7) — every `docs/aid/decisions/NNNN` ADR is well-formed (Status·Context·Decision·
+  alternatives·Consequences) + the key decisions each HAVE an ADR; 0001-0006 (hiSHtory · device-token ·
+  mise-lazy-tools · Better Auth #105 · the catalog-enrichment-from-declared-fields pattern #116 · **the
+  O10 rate-limit STORAGE decision #123 — Better Auth's limiter on D1 (`storage:'database'`) over the estate's
+  Upstash convention, for budget + reuse-existing-infra; records the #108 one-way-door + its alternatives**).** Preserved foundations:
   chezmoi · software.yml · mise · hiSHtory · `detect_os()`/`detect_arch()`/`detect_release()`/`detect_service_manager()`/`detect_privilege()` (OS+arch+release+init+privilege SoT) · the prior `CONVERGENCE.md` arc.
 
 ## ◐ Partial (honest)
