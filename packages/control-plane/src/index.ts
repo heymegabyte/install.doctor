@@ -1601,8 +1601,22 @@ app.get('/api/recommendations', async (c) => {
     } catch {
       /* no/unreadable blueprint for this tenant → no plan-health rec (fine) */
     }
-    if (!recs.length)
-      recs.push({ id: 'all_good', severity: 'ok', title: active.length ? 'All machines current and recently active' : 'No machines enrolled yet', detail: active.length ? `${active.length} machine(s) at revision ${currentRevision || '—'}, all reporting.` : 'Pair a machine to get started.', action: 'none', command: '', devices: [] });
+    if (!recs.length) {
+      // U15 (#160) — empty-state HONESTY: active>0 → all-current; active==0 but the tenant HAS (revoked) machines
+      // → say they're DECOMMISSIONED, not "never enrolled" (misleading when machines WERE enrolled then revoked,
+      // pairs with #158 active-scoping); only a truly empty tenant (no device rows) is "No machines enrolled yet".
+      const title = active.length
+        ? 'All machines current and recently active'
+        : items.length
+          ? `No active machines (${items.length} decommissioned)`
+          : 'No machines enrolled yet';
+      const detail = active.length
+        ? `${active.length} machine(s) at revision ${currentRevision || '—'}, all reporting.`
+        : items.length
+          ? `All ${items.length} enrolled machine(s) are revoked (decommissioned) — pair a new machine, or review the revoked list on /machines.`
+          : 'Pair a machine to get started.';
+      recs.push({ id: 'all_good', severity: 'ok', title, detail, action: 'none', command: '', devices: [] });
+    }
     // distinctDeviceCount == unique flagged machines across every card (deduped). Lets the UI show the TRUE
     // blast radius instead of a misleading sum of per-category counts.
     const distinctDevices = [...seen];

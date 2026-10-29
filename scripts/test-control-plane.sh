@@ -393,6 +393,21 @@ JSON
     echo "$rd" | jq -e '([.recommendations[]|select(.id=="plan_deprecated")]|length==1) and ([.recommendations[]|select(.id=="plan_deprecated")][0].detail|test("altair")) and ([.recommendations[]|select(.id=="plan_deprecated")][0].severity=="warning")' >/dev/null 2>&1 && pass "GET /api/recommendations (_deptest) -> plan_deprecated rec flags altair (deprecation -> actionable rec; #115)" || fail "deptest plan rec -> $(printf '%s' "$rd" | jq -c '[.recommendations[].id]' 2>/dev/null | head -c 140)"
     rdc="$(curl -s -H "authorization: Bearer $ADMIN" "$u/api/recommendations?tenant=_default" 2>/dev/null)"
     echo "$rdc" | jq -e '[.recommendations[]|select(.id=="plan_deprecated")]|length==0' >/dev/null 2>&1 && pass "GET /api/recommendations (_default) -> no plan_deprecated rec (clean plan; #115)" || fail "default plan rec -> $(printf '%s' "$rdc" | jq -c '[.recommendations[].id]' 2>/dev/null | head -c 140)"
+    # fire #160 — recs empty-state HONESTY (U15 observed-state, pairs with #158 active-scoping): a tenant whose
+    # machines are ALL revoked (decommissioned) must NOT be told "No machines enrolled yet" — that is misleading
+    # when machines WERE enrolled + decommissioned. Seed _allrevoked ONCE (enroll->revoke; idempotent: skip if the
+    # honest message is already present), then assert the all_good rec is honest about the decommissioned machines.
+    arv="$(curl -s -H "authorization: Bearer $ADMIN" "$u/api/recommendations?tenant=_allrevoked" 2>/dev/null)"
+    if ! printf '%s' "$arv" | grep -qi 'decommission'; then
+      aren="$(curl -s -X POST -H "authorization: Bearer $ADMIN" -H 'content-type: application/json' -d '{"tenant":"_allrevoked","label":"decommissioned-probe"}' "$u/api/devices/enroll" 2>/dev/null)"
+      arid="$(printf '%s' "$aren" | jq -r '.deviceId // empty' 2>/dev/null)"
+      [ -n "$arid" ] && curl -s -o /dev/null -X POST -H "authorization: Bearer $ADMIN" "$u/api/devices/$arid/revoke" 2>/dev/null
+      sleep 1
+      arv="$(curl -s -H "authorization: Bearer $ADMIN" "$u/api/recommendations?tenant=_allrevoked" 2>/dev/null)"
+    fi
+    printf '%s' "$arv" | jq -e '[.recommendations[]|select(.id=="all_good")][0] | (.detail|test("decommission";"i")) and ((.title|test("No machines enrolled yet"))|not)' >/dev/null 2>&1 \
+      && pass "GET /api/recommendations (_allrevoked, all machines revoked) -> all_good is HONEST about decommissioned machines, not 'No machines enrolled yet' (U15 #160)" \
+      || fail "recs all-revoked empty-state -> $(printf '%s' "$arv" | jq -c '[.recommendations[]|select(.id=="all_good")][0]|{title,detail}' 2>/dev/null | head -c 180)"
   else
     skip "AID_ADMIN_TOKEN unset (env + get-secret) — authed PUT assertions skipped"
   fi
