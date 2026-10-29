@@ -85,6 +85,9 @@ if [ -n "${CONTROL_PLANE_URL:-}" ]; then
   # Paste a proposed ENVIRONMENT.md -> import both (current + proposed) -> diff -> render added/removed/changed.
   # Wires the built-but-UI-only /api/environment/import + /diff endpoints into the UI (interconnectedness).
   { echo "$envp" | grep -q 'function diffProposed(' && echo "$envp" | grep -q '/api/environment/import' && echo "$envp" | grep -q '/api/environment/diff' && echo "$envp" | grep -qi 'Diff vs current' && echo "$envp" | grep -q 'id=proposed'; } && pass "GET /environment -> surfaces a semantic blueprint DIFF tool (import+diff a proposed ENVIRONMENT.md vs current; C09 interconnectedness)" || fail "environment diff tool -> $(printf '%s' "$envp" | grep -oE 'diffProposed|/api/environment/diff|Diff vs current' | sort -u | tr '\n' ' ')"
+  # fire #93 — C12 "review the plan" (intended-experience step 5): a structured at-a-glance summary of the
+  # desired blueprint (packages/machines/services/routing/privacy), imported from the current markdown.
+  { echo "$envp" | grep -q 'id=summary' && echo "$envp" | grep -q 'function renderSummary(' && echo "$envp" | grep -qi 'Plan at a glance'; } && pass "GET /environment -> structured 'Plan at a glance' summary of the desired blueprint (step-5 review; C12)" || fail "environment plan summary -> $(printf '%s' "$envp" | grep -oE 'id=summary|renderSummary|Plan at a glance' | sort -u | tr '\n' ' ')"
   echo "$mp" | grep -q 'href="/environment"' && pass "dashboard nav includes /environment (interconnected)" || fail "nav missing /environment -> $(printf '%s' "$mp" | grep -o 'href="/[a-z]*"' | tr '\n' ' ')"
   # fire #64 — inline-JS syntax guard: a dashboard page's inline <script> is a template STRING (NOT
   # tsc/dry-run checked), so a stray quote/escape silently breaks the ENTIRE page script. node --check
@@ -171,6 +174,9 @@ JSON
   # persistence read path (§9) — D1-stored "current" blueprint (seeded _default)
   cur="$(curl -s "$u/api/environment/current?tenant=_default" 2>/dev/null)"
   echo "$cur" | grep -q '"digest"' && pass "env current (_default) -> stored blueprint + digest (D1 read)" || fail "env current _default -> $cur"
+  # fire #93 — C12: /api/environment/current carries a compact structured `summary` (packages/machines/services/
+  # routing/privacy) so the dashboard renders the "review the plan" at-a-glance view synchronously (one fetch).
+  echo "$cur" | jq -e '(.summary.defaults.packages|type=="array") and (.summary.machines|type=="array") and (.summary.routing.engine|type=="string") and (.summary.privacy|type=="object")' >/dev/null 2>&1 && pass "GET /api/environment/current -> structured plan summary (packages/machines/services/routing/privacy; C12 step-5)" || fail "env summary -> $(printf '%s' "$cur" | jq -c '.summary' 2>/dev/null | head -c 180)"
   nf="$(curl -s -o /dev/null -w '%{http_code}' "$u/api/environment/current?tenant=__nope__" 2>/dev/null || echo 000)"
   [ "$nf" = 404 ] && pass "env current (unknown tenant) -> 404" || fail "env current unknown -> $nf (want 404)"
 

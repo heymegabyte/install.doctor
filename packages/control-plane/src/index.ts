@@ -171,6 +171,7 @@ app.get('/environment', (c) =>
 <p class=muted>The authoritative <strong>ENVIRONMENT.md</strong> for a tenant — the one revisioned desired-state contract a machine pulls + reconciles against. Read-only here; edits go through the one validated write path.</p>
 <p><input id=tenant placeholder="tenant (default _default)" style="width:70%"> <button onclick="load()">Load</button></p></div>
 <div id=meta class=muted></div>
+<div id=summary></div>
 <pre id=out class=mono style="white-space:pre-wrap;overflow-x:auto;max-height:70vh">No environment loaded.</pre>
 <div class=card>
 <p class=muted>Preview a change before applying — paste a PROPOSED ENVIRONMENT.md and see the SEMANTIC diff vs the loaded current desired state (added <span style="color:#4ade80">+</span> · removed <span style="color:#f87171">−</span> · changed <span style="color:#fbbf24">~</span>). No write — this only compares.</p>
@@ -180,15 +181,34 @@ app.get('/environment', (c) =>
 <script>
 function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]})}
 var CURMD='';
+// fire #93 — C12 "review the plan" (intended-experience step 5): a structured at-a-glance breakdown of the
+// desired blueprint (packages/machines/services/routing/privacy), so an operator can review the shape of an
+// environment without reading the full markdown. Derived by importing the current markdown to a blueprint.
+function renderSummary(bp){
+  var sum=document.getElementById('summary');if(!sum)return;
+  var pkgs=(bp.defaults&&bp.defaults.packages)||[],machines=bp.machines||[],services=bp.services||[];
+  var roles={};machines.forEach(function(m){var k=m.role||'?';roles[k]=(roles[k]||0)+1});
+  var roleStr=Object.keys(roles).map(function(k){return esc(k)+'×'+roles[k]}).join(', ')||'—';
+  var kinds=services.map(function(s){return s.kind||s.id});
+  var rt=bp.routing||{},pv=bp.privacy||{};
+  function tagList(a){return a&&a.length?a.map(function(x){return '<span class=tag>'+esc(x)+'</span>'}).join(' '):'<span class=muted>—</span>';}
+  sum.innerHTML='<div class=card><p class=muted><strong>Plan at a glance</strong> — what this environment describes (review before applying). Derived from the desired blueprint.</p>'
+    +'<p><strong>Packages ('+pkgs.length+')</strong> '+tagList(pkgs)+'</p>'
+    +'<p><strong>Machines ('+machines.length+')</strong> <span class=muted>'+roleStr+'</span></p>'
+    +'<p><strong>Services ('+services.length+')</strong> '+tagList(kinds)+'</p>'
+    +'<p><strong>Routing</strong> <span class=muted>engine '+esc(rt.engine||'—')+' · provider '+esc(rt.preferredProvider||'—')+' · premium '+(rt.allowPremium?'on':'off')+'</span></p>'
+    +'<p><strong>Privacy</strong> <span class=muted>shell-analysis '+esc(pv.shellAnalysis||'—')+' · screenshots '+esc(pv.screenshots||'—')+' · terminal-input '+(pv.terminalInput?'on':'off')+' · product-learning '+(pv.productLearning?'on':'off')+'</span></p></div>';
+}
 async function load(){
-  var out=document.getElementById('out'),meta=document.getElementById('meta'),t=document.getElementById('tenant').value.trim()||'_default';
-  out.textContent='Loading…';meta.textContent='';CURMD='';
+  var out=document.getElementById('out'),meta=document.getElementById('meta'),sum=document.getElementById('summary'),t=document.getElementById('tenant').value.trim()||'_default';
+  out.textContent='Loading…';meta.textContent='';CURMD='';if(sum)sum.innerHTML='';
   try{
     var r=await fetch('/api/environment/current?tenant='+encodeURIComponent(t));
     var j=await r.json();
     if(!r.ok){out.textContent='✗ '+(j.error||r.status)+(j.error==='not_found'?' — no desired state set for '+esc(t)+' yet':'');return}
     meta.innerHTML='tenant <strong>'+esc(j.tenant||t)+'</strong> · revision <strong>'+esc(j.revision)+'</strong> · digest <span class=mono>'+esc(String(j.digest||'').slice(0,12))+'</span> · updated '+esc(j.updatedAt||'');
     out.textContent=j.markdown||'(empty)';CURMD=j.markdown||'';
+    if(j.summary)renderSummary(j.summary);
   }catch(e){out.textContent='✗ '+e}
 }
 // fire #86 — C09 semantic diff: import the CURRENT + a PROPOSED ENVIRONMENT.md to blueprints, then diff them,
@@ -588,7 +608,16 @@ app.get('/api/environment/current', async (c) => {
       return c.json({ error: 'not_found', tenant, stored: cnt?.n ?? 0 }, 404);
     }
     const bp = importMarkdown(row.markdown);
-    return c.json({ tenant, revision: bp.revision, digest: await blueprintDigest(bp), updatedAt: row.updated_at, markdown: row.markdown });
+    // C12 "review the plan" (step 5): a compact structured summary so the dashboard can render an at-a-glance
+    // breakdown synchronously with the markdown (no 2nd round-trip). Shape mirrors the blueprint subset the UI reads.
+    const summary = {
+      defaults: { packages: bp.defaults?.packages ?? [] },
+      machines: (bp.machines ?? []).map((m) => ({ id: m.id, role: m.role })),
+      services: (bp.services ?? []).map((s) => ({ id: s.id, kind: s.kind })),
+      routing: { engine: bp.routing?.engine, preferredProvider: bp.routing?.preferredProvider, allowPremium: bp.routing?.allowPremium },
+      privacy: bp.privacy,
+    };
+    return c.json({ tenant, revision: bp.revision, digest: await blueprintDigest(bp), updatedAt: row.updated_at, markdown: row.markdown, summary });
   } catch (e) {
     return c.json({ error: 'store_error', detail: e instanceof Error ? e.message : String(e) }, 503);
   }
