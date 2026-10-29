@@ -67,6 +67,12 @@ app.use('*', async (c, next) => {
     c.res.headers.set('permissions-policy', PERMISSIONS_POLICY);
     c.res.headers.set('cross-origin-opener-policy', COOP);
     c.res.headers.set('cross-origin-resource-policy', CORP);
+    // Cache-Control: no-store DEFAULT (#109) — this is an admin control plane; its tenant-scoped responses
+    // (devices · history · recommendations · environment) + the dashboard pages carry sensitive data that
+    // must NOT sit in a shared proxy or browser disk cache. Set no-store ONLY when the handler hasn't
+    // already chosen a policy, so a route can still opt INTO caching (e.g. a future public catalog cache
+    // via `public, max-age=…`) and Better Auth keeps its own session Cache-Control.
+    if (!c.res.headers.has('cache-control')) c.res.headers.set('cache-control', 'no-store');
   } catch {
     /* immutable response (e.g. redirects) — skip; CF-zone headers still apply */
   }

@@ -10,7 +10,7 @@ The UNBLOCKED functional product has **converged**: the control plane, the full 
 dashboard, the honest-docs set, and a one-command test suite are built + live-verified at
 **https://app.install.doctor**. The remaining high-value requirements are **GATED on external action**
 (see § Gated). Loop fires now harden docs/tests/honesty until a gated dep is provisioned. Verified by
-**`scripts/test-all.sh` → 447 assertions / 27 suites GREEN (1 OS-skipped)** with the prod URL.
+**`scripts/test-all.sh` → 450 assertions / 27 suites GREEN (1 OS-skipped)** with the prod URL.
 
 ## ✅ Built + live-verified
 
@@ -83,9 +83,13 @@ dashboard, the honest-docs set, and a one-command test suite are built + live-ve
   nothing breaks. **#107 completes the cross-origin header baseline: `Cross-Origin-Opener-Policy: same-origin-allow-popups`
   (browsing-context isolation, keeps future OAuth popups) + `Cross-Origin-Resource-Policy: same-origin` (no cross-origin
   no-cors hot-linking; CORS fetch + the server-to-server aid CLI unaffected). COEP `require-corp` is DELIBERATELY omitted
-  (0 cross-origin subresources today → no benefit; would break future Maps/R2 embeds).** `test-security-headers.sh` 9/9,
+  (0 cross-origin subresources today → no benefit; would break future Maps/R2 embeds).**
+  **#109: a conditional `Cache-Control: no-store` DEFAULT on every response — tenant-scoped data (devices · history · recommendations · environment) +
+  dashboard pages are no longer shared-/disk-cacheable (was: NO Cache-Control anywhere → heuristically cacheable). Conditional (`if !has('cache-control')`) so a
+  route can still opt INTO caching and Better Auth keeps its own session header.** `test-security-headers.sh` 12/12,
   real-browser-verified the `/machines` page renders styled + its inline JS still executes (the injected "forget token" control) under the headers.
-  Next hardening (higher value, its own fire): strict `script-src` (nonce/externalize the inline scripts → drop `'unsafe-inline'`) + Trusted Types (refactor the `innerHTML` sinks first).
+  Next hardening (higher value, its OWN 2-3-fire decomposition — measured #108): strict `script-src` needs the 18 inline `on*=` handlers → `addEventListener` FIRST
+  (they're blocked even with a nonce), then nonce the 9 `<script>` blocks → drop `'unsafe-inline'`; Trusted Types needs the 30 `innerHTML` sinks → `createElement`/`textContent` first.
 - **Verification** — `scripts/test-all.sh` runs every suite (per-suite + grand total, OS-gated skips,
   exits non-zero on any fail); inline-JS parse guard over every dashboard page; **A12 ADR hygiene gate
   (`test-adr.sh` 5/5) — every `docs/aid/decisions/NNNN` ADR is well-formed (Status·Context·Decision·
