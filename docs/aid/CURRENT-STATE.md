@@ -10,7 +10,7 @@ The UNBLOCKED functional product has **converged**: the control plane, the full 
 dashboard, the honest-docs set, and a one-command test suite are built + live-verified at
 **https://app.install.doctor**. The remaining high-value requirements are **GATED on external action**
 (see § Gated). Loop fires now harden docs/tests/honesty until a gated dep is provisioned. Verified by
-**`scripts/test-all.sh` → 495 assertions / 27 suites GREEN (1 OS-skipped)** with the prod URL.
+**`scripts/test-all.sh` → 510 assertions / 28 suites GREEN (1 OS-skipped)** with the prod URL.
 
 ## ✅ Built + live-verified
 
@@ -62,12 +62,19 @@ dashboard, the honest-docs set, and a one-command test suite are built + live-ve
   redirect; google → `accounts.google.com`; no client_secret ever in the response. A **`/login` page**
   (M06 — step 3) offers "Continue with GitHub/Google" buttons wired to `POST /api/auth/sign-in/social`
   (→ redirect to the provider), reachable from the landing-page "Sign in" CTA (#103). A **session-aware "who am I" status** is in the
-  shared page chrome on EVERY page (#104, test-auth 9/9) — calls `GET /api/auth/get-session`
+  shared page chrome on EVERY page (#104, test-auth 10/10) — calls `GET /api/auth/get-session`
   (`credentials:include`) → signed in: the user + a **Sign out** button (`POST /api/auth/sign-out`); not
   signed in: a "Sign in" link (`get-session` returns `null` unauthenticated — honest, O13).
-  **HONEST: sign-in does NOT COMPLETE yet** — the callback→session leg needs
+  **O11/O12 admin→session groundwork BUILT (#131):** `requireAdmin` now accepts EITHER the `AID_ADMIN_TOKEN`
+  bearer (checked FIRST — a presented bearer takes the fast path, so the CLI + all 9 admin routes + the
+  token-based dashboard are byte-for-byte unchanged) OR a Better Auth **session** whose verified email is in
+  the `AID_ADMIN_EMAILS` allowlist (a Worker secret, set to the owner emails). The decision is the pure,
+  node-unit-tested `isAllowedAdminEmail` (`src/admin-allowlist.ts`, `test-admin-allowlist.sh` 14/14). LIVE-
+  verified the branch is reachable + non-throwing: `/api/devices` no-auth → 401 (not 500/503), token → 200,
+  `get-session` → clean null. **HONEST: sign-in does NOT COMPLETE yet** — the callback→session leg needs
   `https://app.install.doctor/api/auth/callback/{github,google}` registered on the OAuth apps (a one-time
-  human step), and the dashboard still uses the `AID_ADMIN_TOKEN` bearer (not a user session). Magic-link ⬜ (needs SES).
+  human step), so the session-ACCEPT path for a signed-in allowlisted user is wired + ready but NOT yet
+  end-to-end verified; the dashboard still prompts for the `AID_ADMIN_TOKEN` until then. Magic-link ⬜ (needs SES).
   **O10 rate-limiting ◐ (#108): sign-in IS now rate-limited + VERIFIED.** Better Auth's limiter was INERT on prod (Workers has no
   `NODE_ENV=production` → `enabled` defaulted OFF; default "memory" storage is per-isolate → a 40x `/sign-in/social` burst all 200'd).
   Fixed in `auth.ts`: `enabled:true` + `storage:"database"` (D1 `rateLimit` table created via `/api/auth-migrate`, consistent across
