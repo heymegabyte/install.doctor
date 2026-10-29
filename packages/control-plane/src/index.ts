@@ -178,7 +178,14 @@ const PAGE_CSS =
 const TOKEN_PERSIST_JS = `<script>
 function aidSaveToken(t){try{if(t)sessionStorage.setItem('aidAdminToken',t)}catch(e){}}
 function aidForgetToken(){try{sessionStorage.removeItem('aidAdminToken')}catch(e){}var el=document.getElementById('tok');if(el)el.value='';}
-addEventListener('DOMContentLoaded',function(){try{var el=document.getElementById('tok');if(!el)return;var t=sessionStorage.getItem('aidAdminToken');if(t)el.value=t;el.addEventListener('change',function(){aidSaveToken(el.value.trim())});var b=document.createElement('button');b.type='button';b.className='lnk';b.textContent='forget token';b.style.marginLeft='8px';b.onclick=aidForgetToken;el.insertAdjacentElement('afterend',b)}catch(e){}});
+// Admin auth for dashboard fetches (#132, wires the #131 server gate into the UI): send the AID_ADMIN_TOKEN
+// bearer ONLY when the operator pasted one, else send no auth header and let the same-origin Better Auth
+// SESSION cookie authorize (fetch includes it by default for same-origin) — so a signed-in allowlisted admin
+// needs no token. requireAdmin accepts either. Returns a headers object (optionally merged with extras).
+function aidAdminHeaders(extra){var h=extra||{};var el=document.getElementById('tok');var t=el?el.value.trim():'';if(t)h['authorization']='Bearer '+t;return h;}
+// A 401/403 is no longer just "paste a token" — a session authorizes too. Append a session-aware hint.
+function aidAuthHint(status){return (status===401||status===403)?' — sign in (top-right) or paste your admin token above':'';}
+addEventListener('DOMContentLoaded',function(){try{var el=document.getElementById('tok');if(!el)return;var t=sessionStorage.getItem('aidAdminToken');if(t)el.value=t;el.addEventListener('change',function(){aidSaveToken(el.value.trim())});var b=document.createElement('button');b.type='button';b.className='lnk';b.textContent='forget token';b.style.marginLeft='8px';b.onclick=aidForgetToken;el.insertAdjacentElement('afterend',b);var hint=document.createElement('div');hint.className='muted';hint.style.cssText='font-size:.78rem;margin-top:4px';hint.textContent='Optional if you are signed in — your session authorizes admin access when your email is allowlisted.';var box=el.parentNode;if(box&&box.insertAdjacentElement){box.insertAdjacentElement('afterend',hint)}else if(box){box.appendChild(hint)}}catch(e){}});
 </script>`;
 // Session-aware "who am I" status in the shared chrome (O13; fire #104). On every page: call Better Auth's
 // GET /api/auth/get-session (credentials:include). Signed in → show the user + a Sign out button (POST
@@ -305,13 +312,12 @@ app.get('/history', (c) =>
 // run's events across the fleet. load(corr) optionally scopes to a correlationId; a banner clears the filter.
 async function load(corr){
   var out=document.getElementById('out'),tok=document.getElementById('tok').value.trim(),t=document.getElementById('tenant').value.trim()||'_default';
-  if(!tok){out.textContent='Enter the admin token.';return}
   out.textContent='Loading…';
   try{
     var url='/api/history?tenant='+encodeURIComponent(t)+'&limit=50'+(corr?('&correlation='+encodeURIComponent(corr)):'');
-    var r=await fetch(url,{headers:{'authorization':'Bearer '+tok}});
+    var r=await fetch(url,{headers:aidAdminHeaders()});
     var j=await r.json();
-    if(!r.ok){out.textContent='✗ '+(j.error||r.status);return}
+    if(!r.ok){out.textContent='✗ '+(j.error||r.status)+aidAuthHint(r.status);return}
     // #126 Trusted-Types-safe render (no innerHTML, toward require-trusted-types-for 'script') — build the banner
     // + events table with createElement/textContent/.append (auto-escaped). data-act/data-corr are preserved so
     // the #120 delegated listener (closest('[data-act]')) still drives the run-filter + clear-filter buttons.
@@ -508,12 +514,11 @@ function appendScopeCell(parent,d){var g=d.grantedPermissions||[];if(!g.length){
 function appendHealthCell(parent,d){var h=d.health||{};function dot(k,v){var warn=(v==='stale'||v==='drifted'||v==='never');var s=document.createElement('span');s.className=warn?'tag':'muted';s.title=k+': '+(v||'?');s.textContent=k+':'+(v==='not_configured'?'none':(v||'?'));return s;}parent.append(dot('conn',h.connectivity),' ',dot('sw',h.software),' ',dot('bkp',h.backup));}
 async function load(){
   var out=document.getElementById('out'),tok=document.getElementById('tok').value.trim(),t=document.getElementById('tenant').value.trim()||'_default';
-  if(!tok){out.textContent='Enter the admin token.';return}
   out.textContent='Loading…';
   try{
-    var r=await fetch('/api/devices?tenant='+encodeURIComponent(t)+'&limit=200',{headers:{'authorization':'Bearer '+tok}});
+    var r=await fetch('/api/devices?tenant='+encodeURIComponent(t)+'&limit=200',{headers:aidAdminHeaders()});
     var j=await r.json();
-    if(!r.ok){out.textContent='✗ '+(j.error||r.status);return}
+    if(!r.ok){out.textContent='✗ '+(j.error||r.status)+aidAuthHint(r.status);return}
     if(!j.items||!j.items.length){out.textContent='No machines enrolled for '+t+'.';return}
     LAST={};j.items.forEach(function(d){LAST[d.deviceId]=d});CUR=j.currentRevision;
     var frag=document.createDocumentFragment();
@@ -540,12 +545,11 @@ var LAST={},CUR=null;
 // change timeline (GET /api/history?device=, reusing the admin token already entered on this page).
 async function detail(id){
   var dp=document.getElementById('detail'),tok=document.getElementById('tok').value.trim(),t=document.getElementById('tenant').value.trim()||'_default',m=LAST[id]||{};
-  if(!tok){dp.textContent='Enter the admin token.';return}
   dp.textContent='Loading timeline for '+id+'…';
   try{
-    var r=await fetch('/api/history?tenant='+encodeURIComponent(t)+'&device='+encodeURIComponent(id)+'&limit=50',{headers:{'authorization':'Bearer '+tok}});
+    var r=await fetch('/api/history?tenant='+encodeURIComponent(t)+'&device='+encodeURIComponent(id)+'&limit=50',{headers:aidAdminHeaders()});
     var j=await r.json();
-    if(!r.ok){dp.textContent='✗ '+(j.error||String(r.status));return}
+    if(!r.ok){dp.textContent='✗ '+(j.error||String(r.status))+aidAuthHint(r.status);return}
     var g=(m.grantedPermissions||[]).join(', ')||'—';
     var card=document.createElement('div');card.className='card';
     var hp=document.createElement('p');var st=document.createElement('strong');st.textContent=m.label||id;var idSpan=document.createElement('span');idSpan.className='mono muted';idSpan.textContent=id;hp.append(st,' ',idSpan);
@@ -570,12 +574,11 @@ var LASTSB=null;
 async function bundle(id){
   var sb=document.getElementById('sb'),tok=document.getElementById('tok').value.trim(),t=document.getElementById('tenant').value.trim()||'_default';
   if(!sb)return;
-  if(!tok){sb.replaceChildren(muted('Enter the admin token.'));return}
   sb.replaceChildren(muted('Building support bundle…'));
   try{
-    var r=await fetch('/api/devices/'+encodeURIComponent(id)+'/support-bundle?tenant='+encodeURIComponent(t),{headers:{'authorization':'Bearer '+tok}});
+    var r=await fetch('/api/devices/'+encodeURIComponent(id)+'/support-bundle?tenant='+encodeURIComponent(t),{headers:aidAdminHeaders()});
     var j=await r.json();
-    if(!r.ok){sb.textContent='✗ '+(j.error||String(r.status));return}
+    if(!r.ok){sb.textContent='✗ '+(j.error||String(r.status))+aidAuthHint(r.status);return}
     LASTSB=j;
     function ul(items,mark){var u=document.createElement('ul');u.className='muted';items.forEach(function(x){var li=document.createElement('li');li.textContent=mark+' '+x;u.append(li);});return u;}
     var card=document.createElement('div');card.className='card';card.style.marginTop='8px';
@@ -733,12 +736,11 @@ app.get('/recommendations', (c) =>
 <script>
 async function load(){
   var out=document.getElementById('out'),tok=document.getElementById('tok').value.trim(),t=document.getElementById('tenant').value.trim()||'_default';
-  if(!tok){out.textContent='Enter the admin token.';return}
   out.textContent='Loading…';
   try{
-    var r=await fetch('/api/recommendations?tenant='+encodeURIComponent(t),{headers:{'authorization':'Bearer '+tok}});
+    var r=await fetch('/api/recommendations?tenant='+encodeURIComponent(t),{headers:aidAdminHeaders()});
     var j=await r.json();
-    if(!r.ok){out.textContent='✗ '+(j.error||r.status);return}
+    if(!r.ok){out.textContent='✗ '+(j.error||r.status)+aidAuthHint(r.status);return}
     // #125 Trusted-Types-safe render (no innerHTML, toward require-trusted-types-for 'script') — build the summary
     // + each rec card with createElement; .append(string) makes an auto-escaped text node, so esc() is gone.
     var frag=document.createDocumentFragment();
@@ -814,12 +816,11 @@ async function loadInfo(){
 }
 async function approve(){
   var out=document.getElementById('out'),tok=document.getElementById('tok').value.trim();
-  if(!tok){out.textContent='Enter the admin token.';return}
   out.textContent='Approving…';
   try{
-    var r=await fetch('/api/devices/pair/approve',{method:'POST',headers:{'authorization':'Bearer '+tok,'content-type':'application/json'},body:JSON.stringify({code:CODE})});
+    var r=await fetch('/api/devices/pair/approve',{method:'POST',headers:aidAdminHeaders({'content-type':'application/json'}),body:JSON.stringify({code:CODE})});
     var j=await r.json();
-    out.textContent=r.ok?'✓ approved — the machine will claim its token shortly.':('✗ '+(j.error||r.status));
+    out.textContent=r.ok?'✓ approved — the machine will claim its token shortly.':('✗ '+(j.error||r.status)+aidAuthHint(r.status));
   }catch(e){out.textContent='✗ '+e}
 }
 document.getElementById('approveBtn').addEventListener('click',approve); // CSP STEP-1 (#117) — no inline on*=
