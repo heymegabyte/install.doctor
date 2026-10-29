@@ -5,6 +5,11 @@
 # anti-base-injection via base-uri, object-src none, form-action self) + Permissions-Policy at the Worker.
 # The dashboard uses inline <script>/<style>, so script/style are 'unsafe-inline' (honest, no per-request
 # nonces) — but the inline JS is therefore NOT blocked (verified: pages still render).
+# #107 completes the cross-origin header baseline: Cross-Origin-Opener-Policy (same-origin-allow-popups —
+# isolates the browsing context while keeping future OAuth popups working) + Cross-Origin-Resource-Policy
+# (same-origin — this worker's responses can't be hot-linked as a no-cors subresource cross-origin; CORS
+# fetch + the server-to-server aid CLI are unaffected). COEP require-corp is DELIBERATELY omitted: zero
+# cross-origin subresources today (no benefit) + it would break future legit embeds (Maps/R2 images).
 set -uo pipefail
 u="${CONTROL_PLANE_URL:-https://app.install.doctor}"
 
@@ -31,6 +36,15 @@ printf '%s' "$(hdr "$u/machines")" | grep -qi '^content-security-policy:' && pas
 printf '%s' "$(hdr "$u/api/catalog?limit=1")" | grep -qi '^content-security-policy:' && pass "GET /api/catalog -> CSP present on API responses too" || fail "no CSP on the API"
 # 5. Sanity: the page still RENDERS (CSP didn't break the response) — body has the landing content.
 curl -sS "$u/" 2>/dev/null | grep -qi 'install.doctor' && pass "GET / still renders its content under the CSP (not broken)" || fail "landing body empty/broken under CSP"
+# 6. Cross-Origin-Opener-Policy on / (same-origin[-allow-popups] — isolates the browsing context; #107).
+coop="$(printf '%s' "$H" | grep -i '^cross-origin-opener-policy:' | head -1)"
+printf '%s' "$coop" | grep -qi 'same-origin' && pass "GET / -> Cross-Origin-Opener-Policy same-origin (browsing-context isolation; #107)" || fail "no/weak COOP on / -> $(printf '%s' "$coop" | head -c 120)"
+# 7. Cross-Origin-Resource-Policy on / (same-origin — no cross-origin no-cors hot-linking; #107).
+corp="$(printf '%s' "$H" | grep -i '^cross-origin-resource-policy:' | head -1)"
+printf '%s' "$corp" | grep -qi 'same-origin' && pass "GET / -> Cross-Origin-Resource-Policy same-origin (no cross-origin resource inclusion; #107)" || fail "no CORP on / -> $(printf '%s' "$corp" | head -c 120)"
+# 8. COOP + CORP are global too (same middleware) — assert on an API JSON response.
+HA="$(hdr "$u/api/catalog?limit=1")"
+{ printf '%s' "$HA" | grep -qi '^cross-origin-opener-policy:' && printf '%s' "$HA" | grep -qi '^cross-origin-resource-policy:'; } && pass "GET /api/catalog -> COOP + CORP present on API responses too (global)" || fail "COOP/CORP missing on the API"
 
 say "security-headers: $P passed, $F failed"
 [ "$F" -eq 0 ]

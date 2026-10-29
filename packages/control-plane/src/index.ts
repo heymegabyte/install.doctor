@@ -45,16 +45,28 @@ const app = new Hono();
 // are locked (anti-clickjacking / base-tag / object / form-hijack). No external assets (system fonts only), so
 // default-src/connect-src/img-src stay 'self'. The OAuth sign-in redirect is a top-level navigation (not a
 // connect/form), so it's unaffected. Set on c.res.headers AFTER next() so it covers every route's response.
+// #107 completes the cross-origin header baseline: Cross-Origin-Opener-Policy (same-origin-allow-popups —
+// isolates this browsing context so a cross-origin opener can't reach window.opener, while keeping any
+// future OAuth *popup* flow working; the current social flow is a top-level redirect, unaffected) +
+// Cross-Origin-Resource-Policy (same-origin — this worker's bytes can't be hot-linked as a no-cors
+// subresource cross-origin; a CORS fetch + the server-to-server aid CLI are NOT affected by CORP).
+// Cross-Origin-Embedder-Policy (require-corp) is DELIBERATELY omitted: there are zero cross-origin
+// subresources today (no cross-origin-isolation benefit — no SharedArrayBuffer), and it would break
+// legitimate future embeds (Google Maps panels, R2 images) that lack CORP/CORS headers.
 const CSP =
   "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; " +
   "img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; " +
   "object-src 'none'; form-action 'self'";
 const PERMISSIONS_POLICY = 'camera=(), microphone=(), geolocation=(), payment=(), usb=()';
+const COOP = 'same-origin-allow-popups';
+const CORP = 'same-origin';
 app.use('*', async (c, next) => {
   await next();
   try {
     c.res.headers.set('content-security-policy', CSP);
     c.res.headers.set('permissions-policy', PERMISSIONS_POLICY);
+    c.res.headers.set('cross-origin-opener-policy', COOP);
+    c.res.headers.set('cross-origin-resource-policy', CORP);
   } catch {
     /* immutable response (e.g. redirects) — skip; CF-zone headers still apply */
   }
