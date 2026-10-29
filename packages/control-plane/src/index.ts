@@ -343,7 +343,8 @@ app.get('/apps', (c) =>
 <h1>App Store <span class=muted>· installable catalog</span></h1>
 <div class=card>
 <p class=muted>Everything Install Doctor can install, from the software.yml catalog. Search by name, command, or what it does; each shows its package managers + platforms.</p>
-<p><input id=q placeholder="Search by name, command, or what it does (e.g. ripgrep, fuzzy finder, container)…" style="width:100%" oninput="debounced()"></p></div>
+<p><input id=q placeholder="Search by name, command, or what it does (e.g. ripgrep, fuzzy finder, container)…" style="width:100%" oninput="debounced()"></p>
+<p class=muted>Platform: <select id=plat onchange="load()" style="background:#0b0f14;color:inherit;border:1px solid #223;border-radius:4px;padding:2px 6px"><option value="">All platforms</option><option value="macos">macOS</option><option value="linux">Linux</option><option value="windows">Windows</option></select> <span class=muted>— show only tools installable on your OS</span></p></div>
 <div id=out class=muted>Loading catalog…</div>
 <script>
 function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]})}
@@ -365,14 +366,15 @@ async function detail(tr,name){
   }catch(e){dr.firstChild.textContent='✗ '+e}
 }
 async function load(){
-  var out=document.getElementById('out'),q=document.getElementById('q').value.trim();
+  var out=document.getElementById('out'),q=document.getElementById('q').value.trim(),plat=document.getElementById('plat').value;
   try{
-    var r=await fetch('/api/catalog?limit=60'+(q?('&q='+encodeURIComponent(q)):''));
+    var r=await fetch('/api/catalog?limit=60'+(q?('&q='+encodeURIComponent(q)):'')+(plat?('&platform='+encodeURIComponent(plat)):''));
     var j=await r.json();
     if(!r.ok){out.textContent='✗ '+(j.error||r.status);return}
-    if(!j.items||!j.items.length){out.textContent='No apps match "'+esc(q)+'".';return}
+    var platlabel=plat?({macos:'macOS',linux:'Linux',windows:'Windows'}[plat]||plat):'';
+    if(!j.items||!j.items.length){out.textContent='No apps match'+(q?(' "'+esc(q)+'"'):'')+(platlabel?(' on '+platlabel):'')+'.';return}
     var rows=j.items.map(function(e){return '<tr><td><button class=lnk data-name="'+esc(e.name)+'">'+esc(e.name)+'</button>'+(e.short?('<div class=muted style="font-size:.85em;max-width:52ch">'+esc(e.short)+'</div>'):'')+'</td><td class=mono>'+esc(e.bin)+'</td><td>'+pill(e.providers)+'</td><td>'+pill(e.platforms)+'</td></tr>'}).join('');
-    out.innerHTML='<p class=muted>'+j.matched+' of '+j.total+' apps'+(j.count<j.matched?(' · showing '+j.count):'')+' · click a name for install commands</p><table><thead><tr><th>name</th><th>command</th><th>installers</th><th>platforms</th></tr></thead><tbody>'+rows+'</tbody></table>';
+    out.innerHTML='<p class=muted>'+j.matched+' of '+j.total+' apps'+(platlabel?(' on '+platlabel):'')+(j.count<j.matched?(' · showing '+j.count):'')+' · click a name for install commands</p><table><thead><tr><th>name</th><th>command</th><th>installers</th><th>platforms</th></tr></thead><tbody>'+rows+'</tbody></table>';
   }catch(e){out.textContent='✗ '+e}
 }
 document.getElementById('out').addEventListener('click',function(ev){
@@ -473,8 +475,13 @@ app.get('/api/provider-config', (c) => c.json(aidProviderConfig()));
 // No secrets, no tenant data — browseable signed-out (M11).
 app.get('/api/catalog', (c) => {
   const q = (c.req.query('q') || '').trim().toLowerCase();
+  // Platform filter: only tools installable on the chosen OS (every entry has real `platforms`). Allowlisted
+  // server-side — an unknown value is ignored (→ all platforms), and the response ECHOES the filter actually
+  // applied so the client can't be misled (D05 "supported platforms" + what-you-can-install-on-MY-machine).
+  const platformRaw = (c.req.query('platform') || '').trim().toLowerCase();
+  const platform = ['macos', 'linux', 'windows'].includes(platformRaw) ? platformRaw : '';
   const limit = Math.min(Math.max(parseInt(c.req.query('limit') || '50', 10) || 50, 1), 200);
-  const matched = q
+  let matched = q
     ? CATALOG.filter(
         (e) =>
           e.name.toLowerCase().includes(q) ||
@@ -482,11 +489,13 @@ app.get('/api/catalog', (c) => {
           (e.short ? e.short.toLowerCase().includes(q) : false),
       )
     : CATALOG;
+  if (platform) matched = matched.filter((e) => (e.platforms || []).includes(platform));
   return c.json({
     total: CATALOG.length,
     matched: matched.length,
     count: Math.min(matched.length, limit),
     q: q || null,
+    platform: platform || null,
     items: matched.slice(0, limit),
   });
 });
