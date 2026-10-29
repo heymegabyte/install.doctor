@@ -69,5 +69,11 @@ for nm in xz bzip2 kvm rar; do
   [ "$gotbin" = "$nm" ] && pass "GET /api/catalog/$nm -> canonical bin '$nm' (multi-bin package resolves to its namesake command; #133 D02/D12)" || fail "/api/catalog/$nm returned bin '$gotbin' (want canonical '$nm')"
 done
 
+# 10. D13 — the deploy is GATED on catalog validity: packages/control-plane/wrangler.toml runs
+#     validate-catalog.py as its [build] command, so a catalog conflict ABORTS `wrangler deploy` (and
+#     --dry-run) BEFORE the worker is bundled/shipped — an invalid catalog can never reach prod (fire #134).
+WT="$dir/../packages/control-plane/wrangler.toml"
+{ grep -q '^\[build\]' "$WT" && grep -q 'validate-catalog.py' "$WT"; } && pass "wrangler.toml [build] gate runs validate-catalog.py before every deploy (D13 — invalid catalog can't ship; #134)" || fail "wrangler.toml missing the validate-catalog.py [build] gate (D13)"
+
 say "catalog-integrity: $P passed, $F failed"
 [ "$F" -eq 0 ]

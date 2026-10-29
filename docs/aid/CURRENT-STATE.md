@@ -10,7 +10,7 @@ The UNBLOCKED functional product has **converged**: the control plane, the full 
 dashboard, the honest-docs set, and a one-command test suite are built + live-verified at
 **https://app.install.doctor**. The remaining high-value requirements are **GATED on external action**
 (see § Gated). Loop fires now harden docs/tests/honesty until a gated dep is provisioned. Verified by
-**`scripts/test-all.sh` → 520 assertions / 29 suites GREEN (1 OS-skipped)** with the prod URL.
+**`scripts/test-all.sh` → 521 assertions / 29 suites GREEN (1 OS-skipped)** with the prod URL.
 
 ## ✅ Built + live-verified
 
@@ -22,7 +22,10 @@ dashboard, the honest-docs set, and a one-command test suite are built + live-ve
   CANONICAL entry (`bin === name`) for a multi-bin package (xz→xz not unxz, bzip2/kvm/rar→namesake; #133 D02)**
   + a reusable **catalog-integrity validator** `scripts/validate-catalog.py` (D12: fixture-proven to catch a
   same-bin-overlapping-platform conflict, providers≠pkgs, bad installMode; a disjoint-platform split is legit
-  + NOT flagged; committed catalog = 1068 entries, 0 conflicts; `test-catalog-integrity.sh` 9/9). **`scripts/test-control-plane.sh`
+  + NOT flagged; committed catalog = 1068 entries, 0 conflicts) **WIRED as the `wrangler.toml` `[build]` gate
+  (#134, D13) — `wrangler deploy` (and `--dry-run`) runs it before bundling, so a catalog conflict ABORTS the
+  deploy (E2E-proven: an injected same-bin `ack` conflict blocked a dry-run build, then restored); an invalid
+  catalog can never ship**; `test-catalog-integrity.sh` 10/10. **`scripts/test-control-plane.sh`
   170/170 — incl. the U12 sanitized **support bundle** (admin-scoped, explicit contents/excluded manifest, never the token/secrets/detail-blob) SURFACED in the `/machines` device detail (view + download JSON; #83) — **U13 recommendations DEDUPED** (each flagged machine alerted in exactly ONE card by severity, `distinctDeviceCount` = true blast radius, per-card repair `command`; #84) — **U14 FULLY DONE** = access-control ✅ + **payload QUOTA** (`detail` capped 16 KB / body 32 KB → `413`; #85) + **RETENTION** (admin `POST /api/history/prune?tenant=&olderThanDays=` deletes old events, tenant-scoped, explicit window, invoked by the loop; prunedCount verified + history EMPTY after; #87) — **C09 semantic DIFF tool on `/environment`** (paste a proposed ENVIRONMENT.md → import both + diff → color-coded added/removed/changed; #86) — and **U03 parent/child run CORRELATION — END-TO-END** (a report carries `correlationId`/`parentRunId`, stored via migration 0008; admin `GET /api/history?correlation=` returns the correlated run tree; both history reads surface the fields #88; the **`aid` client now STAMPS a per-invocation run-id on every report** so one `aid up` groups into a correlated run — verified live via the real aid script #89; and the `/machines` device-detail timeline shows a **"run" column** (short correlationId badge + ↳ child-of-parent indicator) so an operator SEES which events belong to one run #90. **U03 FULLY DONE** — tracked, stamped, surfaced).**
 - **Device lifecycle** — enroll (hashed-opaque token, ADR 0002) · `devices/me` · revoke (S27) ·
   browser-first PAIRING (code + poll-secret, claim-once) with FULL approval contract (host identity +

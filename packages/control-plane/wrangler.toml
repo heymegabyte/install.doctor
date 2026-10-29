@@ -14,6 +14,14 @@ migrations_dir = "migrations"
 # (cloudflare-native-provisioning: declaring routes would otherwise default workers_dev=false).
 routes = [{ pattern = "app.install.doctor", custom_domain = true }]
 
+# D13 — validate the software catalog BEFORE every build/deploy (fire #134). wrangler runs this build
+# command from this directory (packages/control-plane) prior to bundling `main`; a catalog conflict (two
+# entries sharing a bin on an OVERLAPPING platform, providers != pkgs keys, bad installMode, missing fields)
+# makes validate-catalog.py exit non-zero and ABORTS `wrangler deploy` (and `--dry-run`), so an invalid
+# catalog can never ship. The detector itself is fixture-proven by scripts/test-catalog-integrity.sh.
+[build]
+command = "python3 ../../scripts/validate-catalog.py src/catalog.json"
+
 # Persistence: authoritative stored blueprints (one "current" row per tenant). The DB index is a
 # projection of ENVIRONMENT.md, not a competing authority (MASTER-PROMPT §9). Provisioned fire #13.
 [[d1_databases]]
