@@ -552,6 +552,28 @@ setCIEnvironmentVariables() {
   fi
 }
 
+# @description Applies capability-based defaults derived from the host's environment CLASS (A5/B4/H15).
+#     The first capability ADAPTER that consumes the detectors instead of a hostname/OS conditional: a host
+#     that should NOT get desktop components (a container, or a host with no graphical session) defaults to
+#     an unattended install — `HEADLESS_INSTALL` (no GUI prompts); a container additionally gets `NO_RESTART`
+#     (it cannot reboot). Each is set only if not already explicit (`:-`), so a user/CI override always wins.
+#     Uses `should_provision_desktop` + `detect_env_class` from lib/detect_os.sh; no-ops (fallback-safe) if
+#     the detector lib was unavailable at source time (the inline fallback does not define them).
+#
+#     @envvar HEADLESS_INSTALL  Defaulted to true on a no-desktop target (container/headless)
+#     @envvar NO_RESTART        Defaulted to true inside a container (cannot reboot)
+applyEnvClassDefaults() {
+  command -v should_provision_desktop > /dev/null 2>&1 || return 0
+  should_provision_desktop && return 0 # a desktop target — nothing to adjust
+  export HEADLESS_INSTALL="${HEADLESS_INSTALL:-true}"
+  if [ "$(detect_env_class 2> /dev/null)" = "container" ]; then
+    export NO_RESTART="${NO_RESTART:-true}"
+    logg info "Container environment (detect_env_class) — defaulting to HEADLESS_INSTALL + NO_RESTART (desktop-free, no reboot)"
+  else
+    logg info "No graphical session (is_headless) — defaulting to HEADLESS_INSTALL"
+  fi
+}
+
 # @description Prompts for inputs needed to automate the entire installation up front, so the
 #     user can walk away once they've answered. Currently collects:
 #
@@ -1163,6 +1185,7 @@ provisionLogic() {
   logg info "Attempting to load Homebrew" && loadHomebrew
   logg info "Setting environment variables" && setEnvironmentVariables
   logg info "Handling CI variables" && setCIEnvironmentVariables
+  logg info "Applying env-class defaults" && applyEnvClassDefaults
   logg info "Collecting required inputs up front" && collectInputsUpfront
   logg info "Ensuring WARP is disconnected" && ensureWarpDisconnected
   logg info "Applying passwordless sudo" && setupPasswordlessSudo

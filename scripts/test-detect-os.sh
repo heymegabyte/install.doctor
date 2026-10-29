@@ -338,10 +338,36 @@ rm -rf "$SBXTMP"
 assert_eq "detect_sandbox_mechanisms idempotent" "$(detect_sandbox_mechanisms)" "$(detect_sandbox_mechanisms)"
 
 # ---------------------------------------------------------------------------
+# Test 4e: should_provision_desktop — the first CAPABILITY ADAPTER (A5) that
+# CONSUMES the detectors instead of a hostname/OS conditional: install GUI
+# desktop components only when the host is NOT a container (H15 — containers
+# stay desktop-free) AND has a graphical session (NOT is_headless). Combines
+# detect_env_class (#166) + is_headless/detect_graphical_session (#151).
+# Deterministic via the two override env vars → fully testable on any host.
+# ---------------------------------------------------------------------------
+echo "=== Test: should_provision_desktop (A5 capability adapter) ==="
+# bare-metal + a graphical session -> provision desktop (exit 0)
+if INSTALL_DOCTOR_ENV_CLASS=bare-metal INSTALL_DOCTOR_GRAPHICAL_SESSION=aqua should_provision_desktop; then
+  echo "  PASS: bare-metal + aqua -> provision desktop"; PASS=$((PASS + 1))
+else echo "  FAIL: bare-metal + aqua should provision desktop"; FAIL=$((FAIL + 1)); fi
+# a VM with a GUI is still a desktop target (exit 0)
+if INSTALL_DOCTOR_ENV_CLASS=vm INSTALL_DOCTOR_GRAPHICAL_SESSION=x11 should_provision_desktop; then
+  echo "  PASS: vm + x11 -> provision desktop"; PASS=$((PASS + 1))
+else echo "  FAIL: vm + x11 should provision desktop"; FAIL=$((FAIL + 1)); fi
+# container -> NO desktop (exit 1), even with a graphical session (H15)
+if INSTALL_DOCTOR_ENV_CLASS=container INSTALL_DOCTOR_GRAPHICAL_SESSION=aqua should_provision_desktop; then
+  echo "  FAIL: container should NOT provision desktop (H15)"; FAIL=$((FAIL + 1))
+else echo "  PASS: container -> no desktop (H15), even with a GUI"; PASS=$((PASS + 1)); fi
+# headless (no GUI) non-container -> NO desktop (exit 1)
+if INSTALL_DOCTOR_ENV_CLASS=bare-metal INSTALL_DOCTOR_GRAPHICAL_SESSION=headless should_provision_desktop; then
+  echo "  FAIL: headless should NOT provision desktop"; FAIL=$((FAIL + 1))
+else echo "  PASS: bare-metal + headless -> no desktop"; PASS=$((PASS + 1)); fi
+
+# ---------------------------------------------------------------------------
 # Test 5: All functions are defined
 # ---------------------------------------------------------------------------
 echo "=== Test: function definitions ==="
-for fn in detect_os detect_arch detect_release detect_role detect_package_manager detect_service_manager detect_privilege detect_graphical_session is_headless detect_env_class detect_sandbox_mechanisms; do
+for fn in detect_os detect_arch detect_release detect_role detect_package_manager detect_service_manager detect_privilege detect_graphical_session is_headless detect_env_class detect_sandbox_mechanisms should_provision_desktop; do
   if declare -f "$fn" > /dev/null 2>&1; then
     echo "  PASS: $fn is defined"
     PASS=$((PASS + 1))

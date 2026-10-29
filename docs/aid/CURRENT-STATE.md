@@ -10,7 +10,7 @@ The UNBLOCKED functional product has **converged**: the control plane, the full 
 dashboard, the honest-docs set, and a one-command test suite are built + live-verified at
 **https://app.install.doctor**. The remaining high-value requirements are **GATED on external action**
 (see § Gated). Loop fires now harden docs/tests/honesty until a gated dep is provisioned. Verified by
-**`scripts/test-all.sh` → 602 assertions / 33 suites GREEN (1 OS-skipped)** with the prod URL.
+**`scripts/test-all.sh` → 607 assertions / 33 suites GREEN (1 OS-skipped)** with the prod URL.
 
 ## ✅ Built + live-verified
 
@@ -132,7 +132,7 @@ dashboard, the honest-docs set, and a one-command test suite are built + live-ve
   mise-lazy-tools · Better Auth #105 · the catalog-enrichment-from-declared-fields pattern #116 · **the
   O10 rate-limit STORAGE decision #123 — Better Auth's limiter on D1 (`storage:'database'`) over the estate's
   Upstash convention, for budget + reuse-existing-infra; records the #108 one-way-door + its alternatives**).** Preserved foundations:
-  chezmoi · software.yml · mise · hiSHtory · `detect_os()`/`detect_arch()`/`detect_release()`/`detect_service_manager()`/`detect_privilege()`/`detect_graphical_session()`/`detect_env_class()`/`detect_sandbox_mechanisms()` (OS+arch+release+init+privilege+graphical-session+env-class+sandbox-mechanisms SoT; `is_headless` is a thin consumer; **#166 `detect_env_class` → container|wsl|vm|bare-metal, B04 — the virtualization axis, container-first precedence, systemd-detect-virt/DMI/macOS-hv_vmm_present probes, `INSTALL_DOCTOR_ENV_CLASS` override; #167 `detect_sandbox_mechanisms` → the available isolation primitives (bwrap/firejail/nsjail/unshare/systemd-run/sandbox-exec/docker/podman, set or "none"), B05 — builtin-only so correct under a stripped PATH, feeds the Q10-Q12 jail choice, `INSTALL_DOCTOR_SANDBOX_MECHANISMS` override; test-detect-os +7+6**) · the prior `CONVERGENCE.md` arc.
+  chezmoi · software.yml · mise · hiSHtory · `detect_os()`/`detect_arch()`/`detect_release()`/`detect_service_manager()`/`detect_privilege()`/`detect_graphical_session()`/`detect_env_class()`/`detect_sandbox_mechanisms()` (OS+arch+release+init+privilege+graphical-session+env-class+sandbox-mechanisms SoT; `is_headless` is a thin consumer; **#166 `detect_env_class` → container|wsl|vm|bare-metal, B04 — the virtualization axis, container-first precedence, systemd-detect-virt/DMI/macOS-hv_vmm_present probes, `INSTALL_DOCTOR_ENV_CLASS` override; #167 `detect_sandbox_mechanisms` → the available isolation primitives (bwrap/firejail/nsjail/unshare/systemd-run/sandbox-exec/docker/podman, set or "none"), B05 — builtin-only so correct under a stripped PATH, feeds the Q10-Q12 jail choice, `INSTALL_DOCTOR_SANDBOX_MECHANISMS` override; #168 `should_provision_desktop()` — the FIRST capability ADAPTER (A5): CONSUMES detect_env_class+is_headless to decide desktop-vs-not (container OR headless → no desktop, H15) instead of a hostname/OS conditional, and `provision.sh:applyEnvClassDefaults` consumes IT (container/headless → HEADLESS_INSTALL; container → NO_RESTART); test-detect-os +7+6+5**) · the prior `CONVERGENCE.md` arc.
 
 ## ◐ Partial (honest)
 
