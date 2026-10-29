@@ -101,7 +101,9 @@ if [ -n "${CONTROL_PLANE_URL:-}" ]; then
   { echo "$envp" | grep -q "URLSearchParams(location.search).get('tenant')"; } && pass "GET /environment -> honors ?tenant= from the URL (deep-link a tenant's plan + its deprecation warning; interconnect #114)" || fail "environment ?tenant= deep-link missing"
   # fire #98 — each planned package in the Plan-at-a-glance LINKS to its App Store detail (step-5 review +
   # interconnectedness): click a package → see what it is, install commands, platforms, learn-more links.
-  { echo "$envp" | grep -q 'function pkgLinks(' && echo "$envp" | grep -q '/apps?q='; } && pass "GET /environment -> plan packages LINK to the App Store (/apps?q=; interconnectedness #98)" || fail "environment pkg links -> $(printf '%s' "$envp" | grep -oE 'pkgLinks|/apps.q=' | sort -u | tr '\n' ' ')"
+  # Since #129 (Trusted-Types arc) the helper builds real <a href=/apps?q=> NODES (createElement) — renamed
+  # pkgLinks → appendPkgLinks (appends to a parent instead of returning an HTML string). Feature preserved.
+  { echo "$envp" | grep -q 'function appendPkgLinks(' && echo "$envp" | grep -q '/apps?q='; } && pass "GET /environment -> plan packages LINK to the App Store (/apps?q=; interconnectedness #98; TT-safe #129)" || fail "environment pkg links -> $(printf '%s' "$envp" | grep -oE 'appendPkgLinks|/apps.q=' | sort -u | tr '\n' ' ')"
   echo "$mp" | grep -q 'href="/environment"' && pass "dashboard nav includes /environment (interconnected)" || fail "nav missing /environment -> $(printf '%s' "$mp" | grep -o 'href="/[a-z]*"' | tr '\n' ' ')"
   # fire #64 — inline-JS syntax guard: a dashboard page's inline <script> is a template STRING (NOT
   # tsc/dry-run checked), so a stray quote/escape silently breaks the ENTIRE page script. node --check

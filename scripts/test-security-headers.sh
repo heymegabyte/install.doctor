@@ -113,7 +113,7 @@ mb="$(curl -sS "$u/machines" 2>/dev/null)"
 #   control — excluded here. The per-page data scripts still use innerHTML → converted page-by-page; the directive
 #   is enabled only once ALL first-party sinks are gone. TT_SAFE grows one page/fire: `/` (shared chrome, #124),
 #   `/recommendations` (#125), … smallest-first (/history /pair /apps /environment /machines) until all 7.
-for pg in "/" "/recommendations" "/history" "/pair" "/apps"; do
+for pg in "/" "/recommendations" "/history" "/pair" "/apps" "/environment"; do
   n="$(curl -sS "$u$pg" 2>/dev/null | grep '\.innerHTML' | grep -vc '__CF')"
   [ "$n" = "0" ] && pass "GET $pg -> 0 first-party .innerHTML sinks — Trusted-Types-safe DOM (TT arc; excludes CF's edge-injected __CF\$cv script)" || fail "GET $pg still has $n first-party .innerHTML sink(s) — not yet TT-safe"
 done

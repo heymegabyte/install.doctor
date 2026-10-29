@@ -376,8 +376,9 @@ app.get('/environment', (c) =>
 <p><button id=diffBtn>Diff vs current</button></p></div>
 <div id=diffout class=muted></div>
 <script>
-function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]})}
 var CURMD='';
+// #129 Trusted-Types arc — /environment renders the plan summary, meta, and diff entirely with createElement/
+// textContent (auto-escaped). No innerHTML, no esc(). Package + deprecation links stay as real <a href=/apps?q=>.
 // fire #93 — C12 "review the plan" (intended-experience step 5): a structured at-a-glance breakdown of the
 // desired blueprint (packages/machines/services/routing/privacy), so an operator can review the shape of an
 // environment without reading the full markdown. Derived by importing the current markdown to a blueprint.
@@ -385,47 +386,51 @@ function renderSummary(bp){
   var sum=document.getElementById('summary');if(!sum)return;
   var pkgs=(bp.defaults&&bp.defaults.packages)||[],machines=bp.machines||[],services=bp.services||[];
   var roles={};machines.forEach(function(m){var k=m.role||'?';roles[k]=(roles[k]||0)+1});
-  var roleStr=Object.keys(roles).map(function(k){return esc(k)+'×'+roles[k]}).join(', ')||'—';
+  var roleStr=Object.keys(roles).map(function(k){return k+'×'+roles[k]}).join(', ')||'—';
   var kinds=services.map(function(s){return s.kind||s.id});
   var rt=bp.routing||{},pv=bp.privacy||{};
-  function tagList(a){return a&&a.length?a.map(function(x){return '<span class=tag>'+esc(x)+'</span>'}).join(' '):'<span class=muted>—</span>';}
-  // Each planned package links to its App Store detail (review-the-plan step 5 + interconnectedness): click a
-  // package to see what it is, its install commands, platforms, and learn-more links.
-  function pkgLinks(a){return a&&a.length?a.map(function(x){return '<a class=tag href="/apps?q='+encodeURIComponent(x)+'" title="View '+esc(x)+' in the App Store">'+esc(x)+'</a>'}).join(' '):'<span class=muted>—</span>';}
-  // C12/D06 — eager-vs-lazy install breakdown (how provisioning behaves): desktop apps installed at setup vs
-  // CLIs installed lazily on first command use. From the server-computed summary.installModes (interconnects #110).
-  var im=bp.installModes||{app:0,service:0,cli:0,unknown:0};
-  var imParts=[];
-  if(im.app)imParts.push('<b>'+im.app+'</b> desktop app'+(im.app>1?'s':'')+' at setup');
-  if(im.service)imParts.push('<b>'+im.service+'</b> service'+(im.service>1?'s':''));
-  if(im.cli)imParts.push('<b>'+im.cli+'</b> CLI'+(im.cli>1?'s':'')+' on first use');
-  if(im.unknown)imParts.push('<b>'+im.unknown+'</b> other');
-  var imStr=imParts.length?imParts.join(' · '):'—';
-  // C12/D14 safety — if the plan includes packages the maintainer flagged deprecated (#112), WARN prominently
-  // before applying, with the reason + a link to each in the App Store. From the server-computed deprecatedPackages.
+  function mk(tag,cls){var e=document.createElement(tag);if(cls)e.className=cls;return e;}
+  function muted(text){var s=mk('span','muted');s.textContent=text;return s;}
+  function appendTagList(parent,a){if(a&&a.length){a.forEach(function(x,i){if(i)parent.append(' ');var s=mk('span','tag');s.textContent=x;parent.append(s);});}else parent.append(muted('—'));}
+  // Each planned package links to its App Store detail (review-the-plan step 5 + interconnectedness).
+  function appendPkgLinks(parent,a){if(a&&a.length){a.forEach(function(x,i){if(i)parent.append(' ');var link=mk('a','tag');link.href='/apps?q='+encodeURIComponent(x);link.title='View '+x+' in the App Store';link.textContent=x;parent.append(link);});}else parent.append(muted('—'));}
+  function labeledP(label){var p=document.createElement('p');var st=document.createElement('strong');st.textContent=label;p.append(st,' ');return p;}
+  var card=mk('div','card');
+  var intro=mk('p','muted');var introS=document.createElement('strong');introS.textContent='Plan at a glance';intro.append(introS,' — what this environment describes (review before applying). Derived from the desired blueprint.');card.append(intro);
+  // C12/D14 safety — if the plan includes maintainer-flagged deprecated packages (#112), WARN with reason + App Store link.
   var dep=bp.deprecatedPackages||[];
-  var depBlock='';
   if(dep.length){
-    var items=dep.map(function(x){return '<a class=tag href="/apps?q='+encodeURIComponent(x.name)+'" style="border-color:#f0a020;color:#f0a020" title="'+esc(x.reason)+'">'+esc(x.name)+'</a> <span class=muted>'+esc(x.reason)+'</span>'}).join('<br>');
-    depBlock='<div style="border-left:3px solid #f0a020;padding:6px 10px;margin:0 0 10px;background:#1a1407;border-radius:4px"><b style="color:#f0a020">'+dep.length+' deprecated package'+(dep.length>1?'s':'')+' in this plan</b> <span class=muted>— review before applying</span><div style="margin-top:4px">'+items+'</div></div>';
+    var db=mk('div');db.setAttribute('style','border-left:3px solid #f0a020;padding:6px 10px;margin:0 0 10px;background:#1a1407;border-radius:4px');
+    var dbh=document.createElement('b');dbh.setAttribute('style','color:#f0a020');dbh.textContent=dep.length+' deprecated package'+(dep.length>1?'s':'')+' in this plan';
+    db.append(dbh,' ',muted('— review before applying'));
+    var dbItems=mk('div');dbItems.setAttribute('style','margin-top:4px');
+    dep.forEach(function(x,i){if(i)dbItems.append(document.createElement('br'));var a=mk('a','tag');a.href='/apps?q='+encodeURIComponent(x.name);a.setAttribute('style','border-color:#f0a020;color:#f0a020');a.title=x.reason;a.textContent=x.name;dbItems.append(a,' ',muted(x.reason));});
+    db.append(dbItems);card.append(db);
   }
-  sum.innerHTML='<div class=card><p class=muted><strong>Plan at a glance</strong> — what this environment describes (review before applying). Derived from the desired blueprint.</p>'
-    +depBlock
-    +'<p><strong>Packages ('+pkgs.length+')</strong> '+pkgLinks(pkgs)+'</p>'
-    +'<p><strong>Installs</strong> <span class=muted>'+imStr+'</span></p>'
-    +'<p><strong>Machines ('+machines.length+')</strong> <span class=muted>'+roleStr+'</span></p>'
-    +'<p><strong>Services ('+services.length+')</strong> '+tagList(kinds)+'</p>'
-    +'<p><strong>Routing</strong> <span class=muted>engine '+esc(rt.engine||'—')+' · provider '+esc(rt.preferredProvider||'—')+' · premium '+(rt.allowPremium?'on':'off')+'</span></p>'
-    +'<p><strong>Privacy</strong> <span class=muted>shell-analysis '+esc(pv.shellAnalysis||'—')+' · screenshots '+esc(pv.screenshots||'—')+' · terminal-input '+(pv.terminalInput?'on':'off')+' · product-learning '+(pv.productLearning?'on':'off')+'</span></p></div>';
+  var pPk=labeledP('Packages ('+pkgs.length+')');appendPkgLinks(pPk,pkgs);card.append(pPk);
+  // C12/D06 — eager-vs-lazy install breakdown (server-computed summary.installModes, interconnects #110).
+  var im=bp.installModes||{app:0,service:0,cli:0,unknown:0};
+  var imParts=[];if(im.app)imParts.push([im.app,' desktop app'+(im.app>1?'s':'')+' at setup']);if(im.service)imParts.push([im.service,' service'+(im.service>1?'s':'')]);if(im.cli)imParts.push([im.cli,' CLI'+(im.cli>1?'s':'')+' on first use']);if(im.unknown)imParts.push([im.unknown,' other']);
+  var pIn=labeledP('Installs');var imSpan=mk('span','muted');
+  if(imParts.length){imParts.forEach(function(pt,i){if(i)imSpan.append(' · ');var b=document.createElement('b');b.textContent=pt[0];imSpan.append(b,pt[1]);});}else imSpan.append('—');
+  pIn.append(imSpan);card.append(pIn);
+  var pMa=labeledP('Machines ('+machines.length+')');pMa.append(muted(roleStr));card.append(pMa);
+  var pSv=labeledP('Services ('+services.length+')');appendTagList(pSv,kinds);card.append(pSv);
+  var pRt=labeledP('Routing');pRt.append(muted('engine '+(rt.engine||'—')+' · provider '+(rt.preferredProvider||'—')+' · premium '+(rt.allowPremium?'on':'off')));card.append(pRt);
+  var pPv=labeledP('Privacy');pPv.append(muted('shell-analysis '+(pv.shellAnalysis||'—')+' · screenshots '+(pv.screenshots||'—')+' · terminal-input '+(pv.terminalInput?'on':'off')+' · product-learning '+(pv.productLearning?'on':'off')));card.append(pPv);
+  sum.replaceChildren(card);
 }
 async function load(){
   var out=document.getElementById('out'),meta=document.getElementById('meta'),sum=document.getElementById('summary'),t=document.getElementById('tenant').value.trim()||'_default';
-  out.textContent='Loading…';meta.textContent='';CURMD='';if(sum)sum.innerHTML='';
+  out.textContent='Loading…';meta.textContent='';CURMD='';if(sum)sum.replaceChildren();
   try{
     var r=await fetch('/api/environment/current?tenant='+encodeURIComponent(t));
     var j=await r.json();
-    if(!r.ok){out.textContent='✗ '+(j.error||r.status)+(j.error==='not_found'?' — no desired state set for '+esc(t)+' yet':'');return}
-    meta.innerHTML='tenant <strong>'+esc(j.tenant||t)+'</strong> · revision <strong>'+esc(j.revision)+'</strong> · digest <span class=mono>'+esc(String(j.digest||'').slice(0,12))+'</span> · updated '+esc(j.updatedAt||'');
+    if(!r.ok){out.textContent='✗ '+(j.error||r.status)+(j.error==='not_found'?' — no desired state set for '+t+' yet':'');return}
+    var ts=document.createElement('strong');ts.textContent=j.tenant||t;
+    var rs=document.createElement('strong');rs.textContent=j.revision;
+    var dgs=document.createElement('span');dgs.className='mono';dgs.textContent=String(j.digest||'').slice(0,12);
+    meta.replaceChildren('tenant ',ts,' · revision ',rs,' · digest ',dgs,' · updated '+(j.updatedAt||''));
     out.textContent=j.markdown||'(empty)';CURMD=j.markdown||'';
     if(j.summary)renderSummary(j.summary);
   }catch(e){out.textContent='✗ '+e}
@@ -440,17 +445,22 @@ async function diffProposed(){
   try{
     var fr=await fetch('/api/environment/import',{method:'POST',headers:{'content-type':'text/markdown'},body:CURMD});
     var fj=await fr.json();
-    if(!fr.ok){dout.innerHTML='✗ current is not valid: '+esc(fj.error||String(fr.status));return}
+    if(!fr.ok){dout.textContent='✗ current is not valid: '+(fj.error||String(fr.status));return}
     var tr=await fetch('/api/environment/import',{method:'POST',headers:{'content-type':'text/markdown'},body:proposed});
     var tj=await tr.json();
-    if(!tr.ok){dout.innerHTML='✗ proposed ENVIRONMENT.md is invalid: '+esc(tj.error||String(tr.status));return}
+    if(!tr.ok){dout.textContent='✗ proposed ENVIRONMENT.md is invalid: '+(tj.error||String(tr.status));return}
     var dr=await fetch('/api/environment/diff',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({from:fj.blueprint,to:tj.blueprint})});
     var dj=await dr.json();
-    if(!dr.ok){dout.innerHTML='✗ diff failed: '+esc(dj.error||String(dr.status));return}
-    if(!dj.changed){dout.innerHTML='<p class=muted>No changes — the proposed environment is identical to current.</p>';return}
-    var rows=(dj.changes||[]).map(function(ch){var d=String(ch.detail||'');var col=d.charAt(0)==='+'?'#4ade80':(d.charAt(0)==='-'?'#f87171':'#fbbf24');return '<tr><td class=mono>'+esc(ch.section)+'</td><td class=mono style="color:'+col+'">'+esc(d)+'</td></tr>'}).join('');
-    dout.innerHTML='<div class=card><p class=muted>'+dj.changes.length+' change(s) · proposed digest <span class=mono>'+esc(String(dj.toDigest||'').slice(0,12))+'</span></p><table><thead><tr><th>section</th><th>change</th></tr></thead><tbody>'+rows+'</tbody></table></div>';
-  }catch(e){dout.innerHTML='✗ '+esc(String(e))}
+    if(!dr.ok){dout.textContent='✗ diff failed: '+(dj.error||String(dr.status));return}
+    if(!dj.changed){var np=document.createElement('p');np.className='muted';np.textContent='No changes — the proposed environment is identical to current.';dout.replaceChildren(np);return}
+    // #129 TT-safe diff render — a card with a summary line + the changes table, all createElement.
+    var card=document.createElement('div');card.className='card';
+    var p=document.createElement('p');p.className='muted';p.append(dj.changes.length+' change(s) · proposed digest ');var dg=document.createElement('span');dg.className='mono';dg.textContent=String(dj.toDigest||'').slice(0,12);p.append(dg);card.append(p);
+    var table=document.createElement('table');var thead=document.createElement('thead'),htr=document.createElement('tr');['section','change'].forEach(function(h){var th=document.createElement('th');th.textContent=h;htr.append(th);});thead.append(htr);table.append(thead);
+    var tbody=document.createElement('tbody');
+    (dj.changes||[]).forEach(function(ch){var d=String(ch.detail||'');var col=d.charAt(0)==='+'?'#4ade80':(d.charAt(0)==='-'?'#f87171':'#fbbf24');var tr2=document.createElement('tr');var td1=document.createElement('td');td1.className='mono';td1.textContent=ch.section;var td2=document.createElement('td');td2.className='mono';td2.setAttribute('style','color:'+col);td2.textContent=d;tr2.append(td1,td2);tbody.append(tr2);});
+    table.append(tbody);card.append(table);dout.replaceChildren(card);
+  }catch(e){dout.textContent='✗ '+String(e)}
 }
 // #119 CSP STEP 1 — wire the static Load + Diff buttons via addEventListener (no inline on*=), toward
 // dropping script-src 'unsafe-inline'. (This page has no dynamic per-row handlers — both buttons are fixed.)
