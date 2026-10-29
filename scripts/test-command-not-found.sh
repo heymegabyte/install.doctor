@@ -280,5 +280,28 @@ else
   fail "cask detection: brew args=[$(tr '\n' ',' < "$tmp/ckargs" 2>/dev/null)] (want install,--cask,casktool-app)"
 fi
 
+# 15. E08/E15 — STREAM + EXIT-STATUS fidelity (the transparent-shim property; §5 golden path
+# "executes once with preserved argv/streams/status"). argv (#163 + boundaries) + stdout (#7) are
+# already covered; this adds the two gaps a real pipeline/script depends on:
+#   (a) the piped STDIN reaches the RESOLVED command — the install is `</dev/null` so it can't eat
+#       the command's stdin, but the resolved command must still RECEIVE it (line 227 `"$cmd" "$@"`
+#       inherits the shell's stdin, not the install's /dev/null);
+#   (b) the resolved command's EXIT STATUS propagates as the handler's return code (line 227 `rc=$?`
+#       → 229 `return "$rc"`), so `if missingtool; then` and `missingtool; echo $?` behave correctly.
+# (a) stdin passthrough — fake brew installs 'stintool' = cat; piping DATA in must echo DATA back.
+sibin="$tmp/sibin"; mkdir -p "$sibin"
+siidx="$tmp/siidx.tsv"; printf 'stintool\tstintool\tstintool\n' > "$siidx"
+printf '#!/usr/bin/env bash\nprintf "#!/usr/bin/env bash\\ncat\\n" > "%s/stintool"\nchmod +x "%s/stintool"\n' "$sibin" "$sibin" > "$sibin/brew"; chmod +x "$sibin/brew"
+rm -f "$sibin/stintool"
+siout="$(printf 'STDIN_PASSTHRU_77' | PATH="$sibin:$PATH" CNF_ALLOW_NONINTERACTIVE=1 CNF_INDEX="$siidx" CNF_LOCK_DIR="$tmp/silocks" __cnf_resolve stintool 2>/dev/null)"
+[ "$siout" = "STDIN_PASSTHRU_77" ] && pass "E08/E15 — piped STDIN reaches the resolved command (install </dev/null doesn't eat it)" || fail "stdin passthrough broken: got '$siout' (want STDIN_PASSTHRU_77)"
+# (b) exit-status — fake brew installs 'rctool' that exits 42; the handler must return 42.
+rcbin="$tmp/rcbin"; mkdir -p "$rcbin"
+rcidx="$tmp/rcidx.tsv"; printf 'rctool\trctool\trctool\n' > "$rcidx"
+printf '#!/usr/bin/env bash\nprintf "#!/usr/bin/env bash\\nexit 42\\n" > "%s/rctool"\nchmod +x "%s/rctool"\n' "$rcbin" "$rcbin" > "$rcbin/brew"; chmod +x "$rcbin/brew"
+rm -f "$rcbin/rctool"
+PATH="$rcbin:$PATH" CNF_ALLOW_NONINTERACTIVE=1 CNF_INDEX="$rcidx" CNF_LOCK_DIR="$tmp/rclocks" __cnf_resolve rctool >/dev/null 2>&1; rcrc=$?
+[ "$rcrc" = 42 ] && pass "E08 — resolved command's EXIT STATUS propagates (rctool exit 42 → handler rc 42)" || fail "exit-status not preserved: handler rc=$rcrc (want 42)"
+
 say "command-not-found: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]
