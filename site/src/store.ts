@@ -359,26 +359,21 @@ export const LandingPageData = {
     },
     {
       number: '03',
-      title: 'Test it out in a VM with Vagrant.',
-      text: 'Dip your toes into the Install Doctor experience without any commitment! With just a one-liner, you can give Install Doctor a whirl before bringing it to your main workstations. This handy script effortlessly sets up Vagrant, checks for a compatible virtualization platform, and then smoothly provisions a virtual machine (VM) for you. It’s the perfect way to see Install Doctor in action, ensuring it meets your needs with zero hassle.',
-    },
-    {
-      number: '04',
       title: 'Automate everything.',
       text: 'Elevate your security with Install Doctor by safeguarding your sensitive data. Opt to seamlessly integrate your confidential information through environment variables or embed them as encrypted secrets within your fork, ensuring a secure, automated one-line installation. This approach guarantees your setup is not just efficient, but also fortified against vulnerabilities, providing peace of mind in every deployment.',
     },
     {
-      number: '05',
+      number: '04',
       title: 'Manage software across operating systems.',
       text: `Simplify your setup with our custom installer, effortlessly defining package requirements across different operating systems. All you need to do is specify the OS-specific package names within a straightforward YAML file. It's the hassle-free way to ensure your software runs smoothly, regardless of the operating system. Easy, efficient, and effective—just how it should be.`,
     },
     {
-      number: '06',
+      number: '05',
       title: 'Pin all your plugins, packages, and extensions.',
       text: `Streamline your future setups with Install Doctor by pre-configuring it to automatically install your favorite packages. Simply define your preferences in a YAML file, and let Install Doctor take care of the provisioning for you. This one-time setup promises to save you countless hours down the line, making every device setup as efficient as the first. It's smart, simple, and designed to give you back your valuable time.`,
     },
     {
-      number: '07',
+      number: '06',
       title: 'Configure once, deploy headlessly in the future.',
       text: 'Some settings are not easily stored in code, like Google Chrome extension settings. Other settings are sensitive and should be encrypted (like API keys). Install Doctor allows you to store these settings in a secure, encrypted files that can be decrypted during the provisioning process. This way, you can keep your settings secure and your provisioning process automated after you are satisfied with your application settings.',
     },

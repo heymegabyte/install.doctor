@@ -190,16 +190,6 @@ qvm-run --pass-io sys-firewall "curl -sSL https://install.doctor/qubes" > ~/setu
       />,
       <code-tabs
         data={{
-          tabs: ['Linux/macOS', 'Windows'],
-          languages: ['bash', 'powershell'],
-          code: [
-            `bash <(curl -sSL "https://install.doctor/vagrant")`,
-            `iex ((New-Object System.Net.WebClient).DownloadString('https://install.doctor/windows-vagrant'))`,
-          ],
-        }}
-      />,
-      <code-tabs
-        data={{
           tabs: ['Linux/macOS', 'Windows', 'Qubes'],
           languages: ['bash', 'powershell', 'bash'],
           code: [
@@ -213,7 +203,7 @@ export TAILSCALE_AUTH_KEY="tailscale-auth-key-xXP999kUu888777"
 export START_REPO="my-gh-user/my-fork-name"
 bash <(curl -sSL "https://install.doctor/start")`,
             `Write-Host "Headlessly provisioning a Windows machine"
-$env:HEADLESS_INSTALL = true
+$env:HEADLESS_INSTALL = 'true'
 $env:SOFTWARE_GROUP = 'Standard-Desktop'
 $env:FULL_NAME = 'Joe Shmoe'
 $env:PUBLIC_SERVICES_DOMAIN = 'megabyte.space'

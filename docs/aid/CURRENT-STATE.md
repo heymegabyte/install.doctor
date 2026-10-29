@@ -1,6 +1,6 @@
 # aid — CURRENT STATE (verified audit)
 
-**Refreshed:** fire #182 — shipped the **cleanly-verifiable half of the dead-Vagrant removal + a no-dangling-redirect GUARD**: removed the 2 dead firebase redirects `/vagrant` + `/vagrant-windows` (both 301→404 — `vagrant.sh`/`vagrant.ps1` exist nowhere; Vagrant is not a v2 feature; firebase has NO SPA catch-all so unknown paths cleanly 404, confirmed live) and EXTENDED `test-bootstrap-provenance.sh` (8→10) to assert EVERY firebase install.doctor redirect targets an existing `scripts/` file — locking out any future dangling redirect automatically (the drift-guard sibling of catalog-count #159 / cross-ledger #174 / freshness #175). **test-all 652→654 / 35 suites GREEN** (extended the existing suite, no new suite). The ENTANGLED build-gated half — the landing-page `panels[2]` + `store.ts` `started__list[2]` ("number 03" Vagrant) + the 04→03/05→04 RENUMBER cascade (the numbers are displayed) — is FULLY SCOPED to **#183** (needs a Stencil `npm ci` + build-verify; `site/node_modules` is absent, and editing an index-paired/numbered list blind would risk a broken landing page). **Branch:** `master`.
+**Refreshed:** fire #183 — COMPLETED the dead-Vagrant removal (the entangled build-gated half #182 scoped): removed the landing-page Vagrant surfaces — `landing-page.tsx` `panels[2]` (the `/vagrant` + `/windows-vagrant` `<code-tabs>`) + `store.ts` `started__list[2]` ("number 03" Vagrant, index-paired with `panels` at the `.map`) + **renumbered 04→03, 05→04, 06→05, 07→06** (the numbers are DISPLAYED; panels + started__list both 7→6, still aligned) + a spillover fix of the Windows headless example (`$env:HEADLESS_INSTALL = true` → `'true'` — bare `true` isn't a PowerShell boolean). TDD RED→GREEN new `test-landing-page.sh` 4/4 (no dead /vagrant command · PowerShell quoted · Vagrant entry gone · numbers sequential 01..06). **test-all 654→658 / 35→36 suites GREEN.** Build-verify: `site/node_modules` is absent (volta's DOWNLOADER is broken HERE for the pinned EOL **node 16.20.2** — fails for node 20 too, so it's the downloader not the pin — but it downloads fine in CI, so the authoritative Stencil build runs on the Firebase-deploy CI); verified LOCALLY via the TDD data test + balanced-delimiter + structural checks (the `[]`-imbalance is PRE-EXISTING prose brackets, confirmed identical vs HEAD). Firebase-deploy-gated for live. **Branch:** `master`.
 Full spec: `MASTER-PROMPT.md` · resume pointer: `NEXT-STEPS.md` · matrix: `REQUIREMENTS.md`. Nothing here
 is inherited without evidence; every count below is from a live `scripts/test-all.sh` run.
 
@@ -10,7 +10,7 @@ The UNBLOCKED functional product has **converged**: the control plane, the full 
 dashboard, the honest-docs set, and a one-command test suite are built + live-verified at
 **https://app.install.doctor**. The remaining high-value requirements are **GATED on external action**
 (see § Gated). Loop fires now harden docs/tests/honesty until a gated dep is provisioned. Verified by
-**`scripts/test-all.sh` → 654 assertions / 35 suites GREEN (1 OS-skipped)** with the prod URL.
+**`scripts/test-all.sh` → 658 assertions / 36 suites GREEN (1 OS-skipped)** with the prod URL.
 
 ## ✅ Built + live-verified
 
