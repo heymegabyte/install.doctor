@@ -220,6 +220,49 @@ if [ "$OS" = "macos" ]; then
 fi
 
 # ---------------------------------------------------------------------------
+# Test 4a: detect_graphical_session returns the session TYPE (B05 graphical-
+# session / G09 Wayland-vs-X11). headless | x11 | wayland | aqua. is_headless
+# is now a thin consumer (headless <=> no GUI). Precedence mirrors the old
+# is_headless: HEADLESS_INSTALL -> macOS(aqua) -> Wayland -> X11 -> headless.
+# ---------------------------------------------------------------------------
+echo "=== Test: detect_graphical_session ==="
+GFX="$(detect_graphical_session)"
+KNOWN_GFX="headless x11 wayland aqua"
+if echo "$KNOWN_GFX" | /usr/bin/grep -qw "$GFX"; then
+  echo "  PASS: detect_graphical_session returned '$GFX' (valid value)"
+  PASS=$((PASS + 1))
+else
+  echo "  FAIL: detect_graphical_session returned '$GFX' (not in known list)"
+  FAIL=$((FAIL + 1))
+fi
+# Exit code
+detect_graphical_session > /dev/null
+assert_ok "detect_graphical_session exit code" $?
+# Full override (mirrors detect_privilege — deterministic, no host probing)
+assert_eq "detect_graphical_session INSTALL_DOCTOR_GRAPHICAL_SESSION override" "test-gfx" "$(INSTALL_DOCTOR_GRAPHICAL_SESSION="test-gfx" detect_graphical_session)"
+# HEADLESS_INSTALL=true wins over everything (parity with the 89 HEADLESS_INSTALL sites + is_headless)
+assert_eq "detect_graphical_session HEADLESS_INSTALL=true -> headless" "headless" "$(HEADLESS_INSTALL=true detect_graphical_session)"
+# macOS host -> aqua (dev box + macOS CI); Linux branches via the stubbed-OS cases below
+if [ "$OS" = "macos" ]; then
+  assert_eq "detect_graphical_session on macOS (no HEADLESS) -> aqua" "aqua" "$(HEADLESS_INSTALL='' detect_graphical_session)"
+fi
+# Linux display-server branches — stub detect_os so the wayland/x11/headless logic is testable on ANY host
+assert_eq "detect_graphical_session: linux + WAYLAND_DISPLAY -> wayland" "wayland" "$(detect_os() { echo linux; }; WAYLAND_DISPLAY=wayland-0 DISPLAY='' HEADLESS_INSTALL='' detect_graphical_session)"
+assert_eq "detect_graphical_session: linux + DISPLAY (no wayland) -> x11" "x11" "$(detect_os() { echo linux; }; WAYLAND_DISPLAY='' DISPLAY=:0 HEADLESS_INSTALL='' detect_graphical_session)"
+assert_eq "detect_graphical_session: linux + WAYLAND+DISPLAY (XWayland) -> wayland" "wayland" "$(detect_os() { echo linux; }; WAYLAND_DISPLAY=wayland-0 DISPLAY=:0 HEADLESS_INSTALL='' detect_graphical_session)"
+assert_eq "detect_graphical_session: linux + no display -> headless" "headless" "$(detect_os() { echo linux; }; WAYLAND_DISPLAY='' DISPLAY='' HEADLESS_INSTALL='' detect_graphical_session)"
+# Idempotent
+assert_eq "detect_graphical_session idempotent" "$(detect_graphical_session)" "$(detect_graphical_session)"
+# is_headless CONSISTENCY — is_headless true IFF detect_graphical_session==headless (the refactor invariant)
+if HEADLESS_INSTALL=true is_headless && [ "$(HEADLESS_INSTALL=true detect_graphical_session)" = "headless" ]; then
+  echo "  PASS: is_headless <=> detect_graphical_session==headless (HEADLESS_INSTALL case)"
+  PASS=$((PASS + 1))
+else
+  echo "  FAIL: is_headless/detect_graphical_session disagree on HEADLESS_INSTALL"
+  FAIL=$((FAIL + 1))
+fi
+
+# ---------------------------------------------------------------------------
 # Test 4b: detect_privilege returns a known elevation level (B03 privileges)
 # ---------------------------------------------------------------------------
 echo "=== Test: detect_privilege ==="
@@ -247,7 +290,7 @@ assert_eq "detect_privilege idempotent" "$(detect_privilege)" "$(detect_privileg
 # Test 5: All functions are defined
 # ---------------------------------------------------------------------------
 echo "=== Test: function definitions ==="
-for fn in detect_os detect_arch detect_release detect_role detect_package_manager detect_service_manager detect_privilege is_headless; do
+for fn in detect_os detect_arch detect_release detect_role detect_package_manager detect_service_manager detect_privilege detect_graphical_session is_headless; do
   if declare -f "$fn" > /dev/null 2>&1; then
     echo "  PASS: $fn is defined"
     PASS=$((PASS + 1))
