@@ -57,7 +57,10 @@ if [ -n "${CONTROL_PLANE_URL:-}" ]; then
   { echo "$hp" | grep -qi 'fleet activity' && echo "$hp" | grep -q 'AID_ADMIN_TOKEN' && echo "$hp" | grep -qi 'Load history' && echo "$hp" | grep -qiE 'events only|no terminal'; } && pass "GET /history -> fleet dashboard page + honest recording note (U02)" || fail "history page -> $(printf '%s' "$hp" | head -c 80)"
   # fire #91 — U03 fleet UI: the /history page surfaces a correlation "run" column + wires the built-but-UI-only
   # ?correlation= filter (click a run → only its correlated events), consistent with the /machines timeline (#90).
-  { echo "$hp" | grep -q '<th>run</th>' && echo "$hp" | grep -q '&correlation=' && echo "$hp" | grep -q 'e.correlationId' && echo "$hp" | grep -qi 'clear filter'; } && pass "GET /history -> correlation run column + clickable ?correlation= filter (U03 fleet UI; wires the built filter)" || fail "history run-filter -> $(printf '%s' "$hp" | grep -oE '<th>run</th>|&correlation=|clear filter' | sort -u | tr '\n' ' ')"
+  # Since #126 (Trusted-Types arc) the table is built with createElement — the headers come from a
+  # ['time','device','kind','status','run','summary'] array (so the literal `<th>run</th>` is gone), the run column
+  # is a `data-act=filter`+`data-corr` button, and clear-filter text is set via textContent. Track the FEATURE.
+  { echo "$hp" | grep -qF "'status','run','summary'" && echo "$hp" | grep -q '&correlation=' && echo "$hp" | grep -q 'e.correlationId' && echo "$hp" | grep -qi 'clear filter'; } && pass "GET /history -> correlation run column + clickable ?correlation= filter (U03 fleet UI; wires the built filter; TT-safe #126)" || fail "history run-filter -> $(printf '%s' "$hp" | grep -oE \"'status','run'|&correlation=|clear filter\" | sort -u | tr '\n' ' ')"
   # fire #99 — each History event's DEVICE links to that machine's detail (/machines?device=), matching the
   # Recommendations deep-link pattern: from "what happened" → "which machine", one click (interconnectedness).
   { echo "$hp" | grep -q '/machines?device='; } && pass "GET /history -> device column links to /machines?device= (event→machine navigation; interconnectedness #99)" || fail "history device link -> $(printf '%s' "$hp" | grep -oE '/machines.device=' | head -1)"
