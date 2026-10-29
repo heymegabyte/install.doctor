@@ -263,5 +263,22 @@ else
   fail "array pkg serialization: brew args=[$(tr '\n' ',' < "$tmp/margs" 2>/dev/null)] (want install,pkg-a,pkg-b,pkg-c as 4 lines)"
 fi
 
+# 14. F02/D06 — CASK DETECTION: a cask-ONLY app (cask column set, brew column empty — 253 such GUI apps:
+# aerospace/alt-tab/android-studio/…) must install via `brew install --cask`. There is NO standalone `cask`
+# binary, so the manager-availability check must test `brew` (not `command -v cask`, which always fails →
+# the cask branch is never selected → every cask-only app silently un-lazy-installable). __cnf_os forced to
+# darwin (in a subshell) so the pref tries cask first on ANY runner; fake brew records args + creates the tool.
+ckbin="$tmp/ckbin"; mkdir -p "$ckbin"
+ckidx="$tmp/ckidx.tsv"
+printf 'casktool\tcasktool\t\t\t\t\tcasktool-app\n' > "$ckidx"   # col 7 (cask)=casktool-app; brew (col3) EMPTY
+printf '#!/usr/bin/env bash\nprintf "%%s\\n" "$@" > "%s/ckargs"\nprintf "#!/usr/bin/env bash\\necho ok\\n" > "%s/casktool"\nchmod +x "%s/casktool"\n' "$tmp" "$ckbin" "$ckbin" > "$ckbin/brew"; chmod +x "$ckbin/brew"
+rm -f "$ckbin/casktool" "$tmp/ckargs"
+( __cnf_os(){ echo darwin; }; CNF_ALLOW_NONINTERACTIVE=1 PATH="$ckbin:$PATH" CNF_INDEX="$ckidx" CNF_LOCK_DIR="$tmp/cklocks" __cnf_resolve casktool ) >/dev/null 2>&1 || true
+if grep -qx -- '--cask' "$tmp/ckargs" 2>/dev/null && grep -qx 'casktool-app' "$tmp/ckargs" 2>/dev/null; then
+  pass "F02/D06 — cask-only app installs via 'brew install --cask' (manager check uses brew, not the nonexistent 'cask' binary; #164)"
+else
+  fail "cask detection: brew args=[$(tr '\n' ',' < "$tmp/ckargs" 2>/dev/null)] (want install,--cask,casktool-app)"
+fi
+
 say "command-not-found: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

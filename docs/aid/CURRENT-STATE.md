@@ -10,7 +10,7 @@ The UNBLOCKED functional product has **converged**: the control plane, the full 
 dashboard, the honest-docs set, and a one-command test suite are built + live-verified at
 **https://app.install.doctor**. The remaining high-value requirements are **GATED on external action**
 (see § Gated). Loop fires now harden docs/tests/honesty until a gated dep is provisioned. Verified by
-**`scripts/test-all.sh` → 582 assertions / 32 suites GREEN (1 OS-skipped)** with the prod URL.
+**`scripts/test-all.sh` → 583 assertions / 32 suites GREEN (1 OS-skipped)** with the prod URL.
 
 ## ✅ Built + live-verified
 
@@ -58,7 +58,10 @@ dashboard, the honest-docs set, and a one-command test suite are built + live-ve
   install locks + recursion guard, interactive/CI gate, atomic index, mise-defer, + #163 D03/E07 ARRAY-pkg
   serialization (a space-joined multi-package installer value — docker apt:[containerd.io,docker-ce,…], 61
   catalog entries — now splits to SEPARATE argv in bash AND zsh via portable `${x%% *}` peel, never one
-  unfindable quoted "a b c"; bash+zsh proven); bash+zsh tested (**`test-command-not-found.sh` 26/26**);
+  unfindable quoted "a b c"; bash+zsh proven) + #164 F02/D06 CASK detection (the manager-availability check
+  now tests `brew`, not the nonexistent `cask` binary — so the 253 cask-ONLY GUI apps, cask col set/brew
+  empty, e.g. aerospace/alt-tab/android-studio, actually lazy-install via `brew install --cask` instead of
+  silently falling through); bash+zsh tested (**`test-command-not-found.sh` 27/27**);
   fish+pwsh adapters present (structural gates 8+8, live-unverified).
 - **Cua Spaces desktop provisioning gate** (`home/.chezmoiscripts/universal/run_after_21-cua-spaces.sh.tmpl`,
   Brian directive #101 "install on any 16GB+ desktop") — a chezmoi `run_after` that installs Cua Spaces
