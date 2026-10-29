@@ -113,6 +113,8 @@ if [ -n "${CONTROL_PLANE_URL:-}" ]; then
   { echo "$ap" | grep -q 'e.short' && echo "$ap" | grep -q 'j.github' && echo "$ap" | grep -qi 'Source'; } && pass "GET /apps -> surfaces tool description (_short) + github provenance (_github source link; D11/R13)" || fail "apps desc/provenance -> $(printf '%s' "$ap" | grep -oE 'e.short|j.github|Source' | sort -u | tr '\n' ' ')"
   # fire #95 — the App Store detail renders Homepage + Docs "learn more" links (j.home / j.docs) alongside Source.
   { echo "$ap" | grep -q 'j.home' && echo "$ap" | grep -q 'j.docs' && echo "$ap" | grep -qi 'Homepage'; } && pass "GET /apps -> detail renders Homepage + Docs learn-more links (j.home/j.docs; D11 #95)" || fail "apps home/docs render -> $(printf '%s' "$ap" | grep -oE 'j.home|j.docs|Homepage' | sort -u | tr '\n' ' ')"
+  # fire #97 — the App Store has a PLATFORM filter (show only tools installable on your OS); load() appends &platform=.
+  { echo "$ap" | grep -q 'id=plat' && echo "$ap" | grep -q 'platform=' && echo "$ap" | grep -qi 'macOS'; } && pass "GET /apps -> platform filter control (id=plat + &platform= wired; D05 #97)" || fail "apps platform filter -> $(printf '%s' "$ap" | grep -oE 'id=plat|platform=|macOS' | sort -u | tr '\n' ' ')"
   cat="$(curl -s "$u/api/catalog?limit=3" 2>/dev/null)"
   echo "$cat" | jq -e '(.total>=1000) and (.items|length==3) and (.items[0].name|type=="string") and (.items[0].bin|type=="string") and (.items[0].providers|type=="array")' >/dev/null 2>&1 && pass "GET /api/catalog -> software.yml catalog (total>=1000, typed entries, D01/D02)" || fail "catalog -> $(printf '%s' "$cat" | head -c 140)"
   cq="$(curl -s "$u/api/catalog?q=ripgrep" 2>/dev/null)"
@@ -121,6 +123,14 @@ if [ -n "${CONTROL_PLANE_URL:-}" ]; then
   # not just its name/bin. "fuzzy" is in NO name/bin but IS in fzf's _short ("command-line fuzzy finder").
   cqd="$(curl -s "$u/api/catalog?q=fuzzy" 2>/dev/null)"
   echo "$cqd" | jq -e '.q=="fuzzy" and (.matched>=1) and ([.items[]|select(.name=="fzf")]|length==1)' >/dev/null 2>&1 && pass "GET /api/catalog?q=fuzzy -> matches by DESCRIPTION (finds fzf via its _short; search-by-what-it-does)" || fail "catalog desc-search -> $(printf '%s' "$cqd" | jq -c '{matched,names:[.items[].name]}' 2>/dev/null | head -c 160)"
+  # fire #97 — the catalog filters by PLATFORM so you see only what's installable on YOUR OS (D05). Server
+  # allowlists the value + echoes what it applied. Anchors: cockpit=linux-only, aerospace=macos-only.
+  cpl="$(curl -s "$u/api/catalog?platform=linux&limit=200" 2>/dev/null)"
+  echo "$cpl" | jq -e '.platform=="linux" and ([.items[]|select(.name=="cockpit")]|length==1) and ([.items[]|select(.name=="aerospace")]|length==0)' >/dev/null 2>&1 && pass "GET /api/catalog?platform=linux -> only linux-installable (cockpit in, macos-only aerospace out; D05)" || fail "catalog platform=linux -> $(printf '%s' "$cpl" | jq -c '{platform,cockpit:([.items[]|select(.name=="cockpit")]|length),aerospace:([.items[]|select(.name=="aerospace")]|length)}' 2>/dev/null | head -c 160)"
+  cpm="$(curl -s "$u/api/catalog?platform=macos&limit=200" 2>/dev/null)"
+  echo "$cpm" | jq -e '.platform=="macos" and ([.items[]|select(.name=="aerospace")]|length==1) and ([.items[]|select(.name=="cockpit")]|length==0)' >/dev/null 2>&1 && pass "GET /api/catalog?platform=macos -> only macos-installable (aerospace in, linux-only cockpit out)" || fail "catalog platform=macos -> $(printf '%s' "$cpm" | jq -c '{platform}' 2>/dev/null | head -c 120)"
+  cpx="$(curl -s "$u/api/catalog?platform=bogus" 2>/dev/null)"
+  echo "$cpx" | jq -e '.platform==null and (.matched==.total)' >/dev/null 2>&1 && pass "GET /api/catalog?platform=bogus -> invalid value ignored (echoes null, returns all; allowlist)" || fail "catalog platform=bogus -> $(printf '%s' "$cpx" | jq -c '{platform,matched,total}' 2>/dev/null | head -c 120)"
   cd1="$(curl -s "$u/api/catalog/ripgrep" 2>/dev/null)"
   echo "$cd1" | jq -e '.name=="ripgrep" and ([.commands[]|select(.command=="brew install ripgrep")]|length==1) and ([.commands[]|select(.provider=="cargo" and .command=="cargo install ripgrep")]|length==1)' >/dev/null 2>&1 && pass "GET /api/catalog/:name -> per-manager install commands (R13: brew+cargo install ripgrep)" || fail "catalog detail -> $(printf '%s' "$cd1" | head -c 160)"
   # fire #92 — the detail carries the human-facing description + provenance from software.yml (_short/_github).
