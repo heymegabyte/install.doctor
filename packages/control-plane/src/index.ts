@@ -714,17 +714,34 @@ ${code ? `<p class=muted>Pairing code:</p><p class=code>${code}</p><div id=info 
 <p><button id=approveBtn>Approve pairing</button></p>
 <p id=out class=muted></p></div>
 <script>
-function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]})}
 var CODE=${JSON.stringify(code)};
 async function loadInfo(){
   if(!CODE)return;var el=document.getElementById('info');if(!el)return;
+  // #127 Trusted-Types-safe render (no innerHTML, toward require-trusted-types-for 'script') — build the
+  // approval details with createElement/textContent (auto-escaped). esc() removed.
+  function errP(msg){var p=document.createElement('p');p.className='muted';p.textContent='✗ '+msg;return p;}
+  function labeled(label,valueNode,muted){var p=document.createElement('p');if(muted)p.className='muted';var b=document.createElement('b');b.textContent=label;p.append(b,' ',valueNode);return p;}
   try{
     var r=await fetch('/api/devices/pair/info?code='+encodeURIComponent(CODE));var j=await r.json();
-    if(!r.ok){el.innerHTML='<p class=muted>✗ '+esc(j.error||r.status)+' — no pending pairing for this code.</p>';return}
-    var warn=(j.status==='expired')?' <span class=tag>expired</span>':(j.status==='claimed'?' <span class=tag>already claimed</span>':'');
-    var perms=(j.permissions&&j.permissions.length)?'<p><b>Requesting:</b> '+j.permissions.map(function(p){return '<span class=tag>'+esc(p)+'</span>'}).join(' ')+'</p>':'<p class=muted><b>Requesting:</b> standard device access (no elevated scope declared)</p>';
-    el.innerHTML='<h3>You are approving'+warn+'</h3><p><b>Host:</b> <span class=mono>'+esc(j.host||'(unnamed machine)')+'</span></p><p><b>Tenant:</b> '+esc(j.tenant)+'</p>'+perms+'<p class=muted>Approving enrolls this machine as a device in that tenant and mints a revocable, device-scoped token — never a reusable secret in any URL. Only approve a code you started yourself.</p>';
-  }catch(e){el.innerHTML='<p class=muted>✗ '+esc(e)+'</p>'}
+    if(!r.ok){el.replaceChildren(errP((j.error||r.status)+' — no pending pairing for this code.'));return}
+    var frag=document.createDocumentFragment();
+    var h=document.createElement('h3');h.append('You are approving');
+    if(j.status==='expired'||j.status==='claimed'){var wt=document.createElement('span');wt.className='tag';wt.textContent=(j.status==='expired')?'expired':'already claimed';h.append(' ',wt);}
+    frag.append(h);
+    var hostSpan=document.createElement('span');hostSpan.className='mono';hostSpan.textContent=j.host||'(unnamed machine)';
+    frag.append(labeled('Host:',hostSpan,false));
+    frag.append(labeled('Tenant:',document.createTextNode(j.tenant||''),false));
+    if(j.permissions&&j.permissions.length){
+      var pp=document.createElement('p');var pb=document.createElement('b');pb.textContent='Requesting:';pp.append(pb,' ');
+      j.permissions.forEach(function(p,i){if(i)pp.append(' ');var t=document.createElement('span');t.className='tag';t.textContent=p;pp.append(t);});
+      frag.append(pp);
+    }else{
+      frag.append(labeled('Requesting:',document.createTextNode('standard device access (no elevated scope declared)'),true));
+    }
+    var note=document.createElement('p');note.className='muted';note.textContent='Approving enrolls this machine as a device in that tenant and mints a revocable, device-scoped token — never a reusable secret in any URL. Only approve a code you started yourself.';
+    frag.append(note);
+    el.replaceChildren(frag);
+  }catch(e){el.replaceChildren(errP(String(e)))}
 }
 async function approve(){
   var out=document.getElementById('out'),tok=document.getElementById('tok').value.trim();
