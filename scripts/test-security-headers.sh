@@ -45,6 +45,17 @@ printf '%s' "$corp" | grep -qi 'same-origin' && pass "GET / -> Cross-Origin-Reso
 # 8. COOP + CORP are global too (same middleware) — assert on an API JSON response.
 HA="$(hdr "$u/api/catalog?limit=1")"
 { printf '%s' "$HA" | grep -qi '^cross-origin-opener-policy:' && printf '%s' "$HA" | grep -qi '^cross-origin-resource-policy:'; } && pass "GET /api/catalog -> COOP + CORP present on API responses too (global)" || fail "COOP/CORP missing on the API"
+# 9. Cache-Control: no-store on a SENSITIVE tenant-scoped response (#109) — device/history data must not sit in
+#    a shared proxy/browser cache. The header is set by the middleware regardless of the auth outcome, so an
+#    unauthed 401 still carries it (we assert the header, not the body).
+cc_hist="$(hdr "$u/api/history?tenant=_default" | grep -i '^cache-control:' | head -1)"
+printf '%s' "$cc_hist" | grep -qi 'no-store' && pass "GET /api/history -> Cache-Control: no-store (tenant data not shared-cacheable; #109)" || fail "no Cache-Control:no-store on /api/history -> $(printf '%s' "$cc_hist" | head -c 120)"
+# 10. Session state is not cacheable either.
+cc_sess="$(hdr "$u/api/auth/get-session" | grep -i '^cache-control:' | head -1)"
+printf '%s' "$cc_sess" | grep -qi 'no-store' && pass "GET /api/auth/get-session -> Cache-Control: no-store (session state not cached; #109)" || fail "no Cache-Control:no-store on get-session -> $(printf '%s' "$cc_sess" | head -c 120)"
+# 11. The no-store default is GLOBAL (a dashboard page gets it too, since no handler opts into caching).
+cc_pg="$(printf '%s' "$(hdr "$u/machines")" | grep -i '^cache-control:' | head -1)"
+printf '%s' "$cc_pg" | grep -qi 'no-store' && pass "GET /machines -> Cache-Control: no-store (global safe default)" || fail "no Cache-Control:no-store on /machines -> $(printf '%s' "$cc_pg" | head -c 120)"
 
 say "security-headers: $P passed, $F failed"
 [ "$F" -eq 0 ]
