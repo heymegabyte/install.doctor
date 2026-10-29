@@ -10,7 +10,7 @@ The UNBLOCKED functional product has **converged**: the control plane, the full 
 dashboard, the honest-docs set, and a one-command test suite are built + live-verified at
 **https://app.install.doctor**. The remaining high-value requirements are **GATED on external action**
 (see § Gated). Loop fires now harden docs/tests/honesty until a gated dep is provisioned. Verified by
-**`scripts/test-all.sh` → 444 assertions / 26 suites GREEN (1 OS-skipped)** with the prod URL.
+**`scripts/test-all.sh` → 447 assertions / 27 suites GREEN (1 OS-skipped)** with the prod URL.
 
 ## ✅ Built + live-verified
 
@@ -65,6 +65,13 @@ dashboard, the honest-docs set, and a one-command test suite are built + live-ve
   **HONEST: sign-in does NOT COMPLETE yet** — the callback→session leg needs
   `https://app.install.doctor/api/auth/callback/{github,google}` registered on the OAuth apps (a one-time
   human step), and the dashboard still uses the `AID_ADMIN_TOKEN` bearer (not a user session). Magic-link ⬜ (needs SES).
+  **O10 rate-limiting ◐ (#108): sign-in IS now rate-limited + VERIFIED.** Better Auth's limiter was INERT on prod (Workers has no
+  `NODE_ENV=production` → `enabled` defaulted OFF; default "memory" storage is per-isolate → a 40x `/sign-in/social` burst all 200'd).
+  Fixed in `auth.ts`: `enabled:true` + `storage:"database"` (D1 `rateLimit` table created via `/api/auth-migrate`, consistent across
+  isolates) + tight `customRules` (`/sign-in/social` 10/30s; `/sign-in/email`, `/sign-up/email`, `/forget-password` pre-staged). A
+  sequential burst now returns `200×10 → 429×5` with an `X-Retry-After` hint; the first attempt still succeeds (legit sign-in not
+  blocked); the 429 is identical whether the account exists or not (no account-existence leak). `test-rate-limit.sh` 3/3, live-verified
+  (Version 1ab34dd9). The email-ISSUANCE half is pre-staged but unverifiable until SES/an email plugin lands (⬜).
 - **Honest-docs set** (each gated) — `README` + `getting-started-desktop`/`-headless` + `api-reference`
   (drift-locked to the real routes + the `/api/catalog` filter params `?q=`/`?platform=` #100) + `platform-support` + `repos-and-backups` + `operations` +
   `provenance` + `adoption`. Doc gates: README 10 · getting-started 16 · repos-backups 13 · api-reference

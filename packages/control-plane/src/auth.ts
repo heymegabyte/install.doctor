@@ -30,4 +30,24 @@ export const auth = betterAuth({
       clientSecret: e.GOOGLE_CLIENT_SECRET,
     },
   },
+  // O10 — rate-limit sign-in + email issuance (fire #108). Better Auth's limiter was INERT on prod: on
+  // Workers there is no NODE_ENV=production so `enabled` defaulted OFF, and the default "memory" storage is
+  // per-ISOLATE, so a burst fanned across the CF edge never accumulated (a 40x /sign-in/social burst all
+  // 200'd). Two fixes: force it on, and back it with D1 (`storage:"database"` → the `rateLimit` table,
+  // consistent across every isolate). The sensitive paths get tight customRules; the generous global keeps
+  // the dashboard's per-page get-session poll well under the ceiling. 429 returns the SAME for a present or
+  // absent account → no account-existence leak. The `rateLimit` table is created by POST /api/auth-migrate
+  // (getMigrations now emits it because storage==="database").
+  rateLimit: {
+    enabled: true,
+    storage: 'database',
+    window: 60,
+    max: 100,
+    customRules: {
+      '/sign-in/social': { window: 30, max: 10 },
+      '/sign-in/email': { window: 30, max: 10 },
+      '/sign-up/email': { window: 60, max: 5 },
+      '/forget-password': { window: 60, max: 5 },
+    },
+  },
 });
