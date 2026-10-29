@@ -305,19 +305,67 @@ detect_service_manager() {
 }
 
 # ---------------------------------------------------------------------------
-# is_headless — returns 0 if the machine has no GUI
+# detect_graphical_session — returns the host's graphical session TYPE
+#
+# Output: headless | x11 | wayland | aqua
+#   headless — no display server (a server/container/CI box, or HEADLESS_INSTALL)
+#   aqua     — macOS native GUI
+#   wayland  — a Wayland session (checked BEFORE x11: a Wayland session usually
+#              also exports DISPLAY via XWayland, so WAYLAND_DISPLAY is the truth)
+#   x11      — an X11 session (DISPLAY set, no Wayland)
+#
+# Consolidates the scattered DISPLAY/WAYLAND_DISPLAY probes (provision.sh
+# is_headless, the Cua-Spaces graphical gate, .chezmoi.yaml.tmpl, …) into ONE
+# honest value so GUI-vs-headless AND Wayland-vs-X11 (G09 native-automation
+# constraint) branch on the same primitive. Precedence mirrors the historical
+# is_headless: HEADLESS_INSTALL override -> macOS(aqua) -> Wayland -> X11 ->
+# headless. Override with INSTALL_DOCTOR_GRAPHICAL_SESSION (tests / constrained
+# environments), mirroring INSTALL_DOCTOR_ROLE / INSTALL_DOCTOR_PRIVILEGE.
+# ---------------------------------------------------------------------------
+detect_graphical_session() {
+  # Explicit override (tests / constrained environments)
+  if [ -n "${INSTALL_DOCTOR_GRAPHICAL_SESSION:-}" ]; then
+    echo "$INSTALL_DOCTOR_GRAPHICAL_SESSION"
+    return 0
+  fi
+
+  # Explicit headless override wins over everything (parity with the 89
+  # HEADLESS_INSTALL gating sites across provision.sh + post-installx).
+  if [ "${HEADLESS_INSTALL:-}" = "true" ]; then
+    echo "headless"
+    return 0
+  fi
+
+  # macOS always has the Aqua GUI (no X/Wayland env vars) unless HEADLESS_INSTALL.
+  if [ "$(detect_os)" = "macos" ]; then
+    echo "aqua"
+    return 0
+  fi
+
+  # Wayland FIRST — a Wayland session usually also exports DISPLAY (XWayland).
+  if [ -n "${WAYLAND_DISPLAY:-}" ]; then
+    echo "wayland"
+    return 0
+  fi
+
+  # X11 — explicit DISPLAY, no Wayland.
+  if [ -n "${DISPLAY:-}" ]; then
+    echo "x11"
+    return 0
+  fi
+
+  # No display server + not macOS -> headless.
+  echo "headless"
+  return 0
+}
+
+# ---------------------------------------------------------------------------
+# is_headless — returns 0 if the machine has no GUI (a thin consumer of
+# detect_graphical_session: headless <=> no GUI). Preserves the exact prior
+# contract (HEADLESS_INSTALL -> macOS-has-GUI -> Linux display-server check).
 # ---------------------------------------------------------------------------
 is_headless() {
-  # Explicit override
-  [ "${HEADLESS_INSTALL:-}" = "true" ] && return 0
-
-  # macOS: always has GUI unless explicitly headless
-  [ "$(detect_os)" = "macos" ] && return 1
-
-  # Linux: check for display server
-  [ -z "${DISPLAY:-}" ] && [ -z "${WAYLAND_DISPLAY:-}" ] && return 0
-
-  return 1
+  [ "$(detect_graphical_session)" = "headless" ]
 }
 
 # ---------------------------------------------------------------------------

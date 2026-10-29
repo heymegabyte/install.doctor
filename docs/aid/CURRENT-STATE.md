@@ -10,7 +10,7 @@ The UNBLOCKED functional product has **converged**: the control plane, the full 
 dashboard, the honest-docs set, and a one-command test suite are built + live-verified at
 **https://app.install.doctor**. The remaining high-value requirements are **GATED on external action**
 (see § Gated). Loop fires now harden docs/tests/honesty until a gated dep is provisioned. Verified by
-**`scripts/test-all.sh` → 550 assertions / 31 suites GREEN (1 OS-skipped)** with the prod URL.
+**`scripts/test-all.sh` → 562 assertions / 31 suites GREEN (1 OS-skipped)** with the prod URL.
 
 ## ✅ Built + live-verified
 
@@ -126,7 +126,7 @@ dashboard, the honest-docs set, and a one-command test suite are built + live-ve
   mise-lazy-tools · Better Auth #105 · the catalog-enrichment-from-declared-fields pattern #116 · **the
   O10 rate-limit STORAGE decision #123 — Better Auth's limiter on D1 (`storage:'database'`) over the estate's
   Upstash convention, for budget + reuse-existing-infra; records the #108 one-way-door + its alternatives**).** Preserved foundations:
-  chezmoi · software.yml · mise · hiSHtory · `detect_os()`/`detect_arch()`/`detect_release()`/`detect_service_manager()`/`detect_privilege()` (OS+arch+release+init+privilege SoT) · the prior `CONVERGENCE.md` arc.
+  chezmoi · software.yml · mise · hiSHtory · `detect_os()`/`detect_arch()`/`detect_release()`/`detect_service_manager()`/`detect_privilege()`/`detect_graphical_session()` (OS+arch+release+init+privilege+graphical-session SoT; `is_headless` is a thin consumer) · the prior `CONVERGENCE.md` arc.
 
 ## ◐ Partial (honest)
 
