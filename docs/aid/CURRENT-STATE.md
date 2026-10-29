@@ -10,7 +10,7 @@ The UNBLOCKED functional product has **converged**: the control plane, the full 
 dashboard, the honest-docs set, and a one-command test suite are built + live-verified at
 **https://app.install.doctor**. The remaining high-value requirements are **GATED on external action**
 (see § Gated). Loop fires now harden docs/tests/honesty until a gated dep is provisioned. Verified by
-**`scripts/test-all.sh` → 470 assertions / 27 suites GREEN (1 OS-skipped)** with the prod URL.
+**`scripts/test-all.sh` → 471 assertions / 27 suites GREEN (1 OS-skipped)** with the prod URL.
 
 ## ✅ Built + live-verified
 
@@ -95,9 +95,11 @@ dashboard, the honest-docs set, and a one-command test suite are built + live-ve
   (they're blocked even with a nonce), then nonce the 9 `<script>` blocks → drop `'unsafe-inline'`; Trusted Types needs the 30 `innerHTML` sinks → `createElement`/`textContent` first.
 - **Verification** — `scripts/test-all.sh` runs every suite (per-suite + grand total, OS-gated skips,
   exits non-zero on any fail); inline-JS parse guard over every dashboard page; **A12 ADR hygiene gate
-  (`test-adr.sh` 5/5) — every `docs/aid/decisions/NNNN` ADR is well-formed (Status·Context·Decision·
-  alternatives·Consequences) + the one-way-door decisions each HAVE an ADR; closed the gap where the
-  Better Auth choice shipped undocumented → ADR 0004 (#105).** Preserved foundations:
+  (`test-adr.sh` 6/6) — every `docs/aid/decisions/NNNN` ADR is well-formed (Status·Context·Decision·
+  alternatives·Consequences) + the key decisions each HAVE an ADR; 0001-0005 (hiSHtory · device-token ·
+  mise-lazy-tools · Better Auth #105 · **the catalog-enrichment-from-declared-fields pattern #116 — records
+  the #110-115 arc + its MEASURED rejections (cask→app, `_groups`→related, `_post`→configure-steps all rejected)
+  so the pattern + its dead-ends endure**).** Preserved foundations: Preserved foundations:
   chezmoi · software.yml · mise · hiSHtory · `detect_os()`/`detect_arch()`/`detect_release()`/`detect_service_manager()`/`detect_privilege()` (OS+arch+release+init+privilege SoT) · the prior `CONVERGENCE.md` arc.
 
 ## ◐ Partial (honest)
