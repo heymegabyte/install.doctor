@@ -117,6 +117,10 @@ if [ -n "${CONTROL_PLANE_URL:-}" ]; then
   # fire #114 — the plan review WARNS if the plan includes deprecated packages (safety — don't apply a plan with abandoned tools).
   { echo "$envp" | grep -q 'deprecatedPackages'; } && pass "GET /environment -> plan flags DEPRECATED packages (safety — warn before applying; #114)" || fail "environment plan deprecation warning missing -> $(printf '%s' "$envp" | grep -oiE 'deprecatedPackages' | head -1)"
   { echo "$envp" | grep -q "URLSearchParams(location.search).get('tenant')"; } && pass "GET /environment -> honors ?tenant= from the URL (deep-link a tenant's plan + its deprecation warning; interconnect #114)" || fail "environment ?tenant= deep-link missing"
+  # fire #142 — U15/real-time: /environment self-refreshes on a visibility-aware poll (same pattern as /machines
+  # #140 + /history+/recs #141), completing the real-time set across ALL 5 admin surfaces. Polls the plan load()
+  # only (NOT diffProposed). Pause on a hidden tab, refetch on foreground, no manual reload.
+  { echo "$envp" | grep -q 'function startPoll(' && echo "$envp" | grep -q 'document.hidden' && echo "$envp" | grep -q 'visibilitychange' && echo "$envp" | grep -q 'setInterval('; } && pass "GET /environment -> self-refreshes on a visibility-aware poll (completes the real-time set across all 5 admin surfaces; U15/real-time-data-no-manual-refresh #142)" || fail "environment self-refresh -> $(printf '%s' "$envp" | grep -oE 'function startPoll\(|document.hidden|visibilitychange|setInterval\(' | sort -u | tr '\n' ' ')"
   # fire #98 — each planned package in the Plan-at-a-glance LINKS to its App Store detail (step-5 review +
   # interconnectedness): click a package → see what it is, install commands, platforms, learn-more links.
   # Since #129 (Trusted-Types arc) the helper builds real <a href=/apps?q=> NODES (createElement) — renamed

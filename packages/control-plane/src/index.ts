@@ -486,17 +486,20 @@ function renderSummary(bp){
   var pPv=labeledP('Privacy');pPv.append(muted('shell-analysis '+(pv.shellAnalysis||'—')+' · screenshots '+(pv.screenshots||'—')+' · terminal-input '+(pv.terminalInput?'on':'off')+' · product-learning '+(pv.productLearning?'on':'off')));card.append(pPv);
   sum.replaceChildren(card);
 }
-async function load(){
+async function load(opts){
+  opts=opts||{};
   var out=document.getElementById('out'),meta=document.getElementById('meta'),sum=document.getElementById('summary'),t=document.getElementById('tenant').value.trim()||'_default';
-  out.textContent='Loading…';meta.textContent='';CURMD='';if(sum)sum.replaceChildren();
+  if(!opts.quiet){out.textContent='Loading…';meta.textContent='';CURMD='';if(sum)sum.replaceChildren();} // #142 quiet poll ticks don't clear the view
   try{
     var r=await fetch('/api/environment/current?tenant='+encodeURIComponent(t));
     var j=await r.json();
-    if(!r.ok){out.textContent='✗ '+(j.error||r.status)+(j.error==='not_found'?' — no desired state set for '+t+' yet':'');return}
+    if(!r.ok){out.textContent='✗ '+(j.error||r.status)+(j.error==='not_found'?' — no desired state set for '+t+' yet':'');stopPoll();return} // #142 stop polling when there's no plan to watch
+    startPoll(); // #142 (re)arm the visibility-aware poller — the plan is live, keep it current
     var ts=document.createElement('strong');ts.textContent=j.tenant||t;
     var rs=document.createElement('strong');rs.textContent=j.revision;
     var dgs=document.createElement('span');dgs.className='mono';dgs.textContent=String(j.digest||'').slice(0,12);
     meta.replaceChildren('tenant ',ts,' · revision ',rs,' · digest ',dgs,' · updated '+(j.updatedAt||''));
+    var live=document.createElement('span');live.setAttribute('style','color:#00e5ff;margin-left:6px');live.title='auto-refreshing every 30s — pauses when the tab is hidden';live.textContent='↻ live';meta.append(' ',live); // #142
     out.textContent=j.markdown||'(empty)';CURMD=j.markdown||'';
     if(j.summary)renderSummary(j.summary);
   }catch(e){out.textContent='✗ '+e}
@@ -530,12 +533,19 @@ async function diffProposed(){
 }
 // #119 CSP STEP 1 — wire the static Load + Diff buttons via addEventListener (no inline on*=), toward
 // dropping script-src 'unsafe-inline'. (This page has no dynamic per-row handlers — both buttons are fixed.)
-document.getElementById('loadBtn').addEventListener('click',load);
-document.getElementById('diffBtn').addEventListener('click',diffProposed);
+document.getElementById('loadBtn').addEventListener('click',function(){load()}); // #142 wrap so the click Event isn't passed as opts
+document.getElementById('diffBtn').addEventListener('click',diffProposed); // diffProposed is a separate manual review action — NOT polled
 // Honor ?tenant= from the URL (deep-link a specific tenant's plan — e.g. from Machines/Recommendations, and
 // so the plan review + its deprecation warning are directly linkable). Mirrors the App Store's ?q= handling.
 try{var ptn=new URLSearchParams(location.search).get('tenant');if(ptn){document.getElementById('tenant').value=ptn;}}catch(e){}
 load();
+// #142 U15/real-time — /environment self-refreshes on a visibility-aware poll (same pattern as /machines #140 +
+// /history+/recs #141), COMPLETING the real-time set across all 5 admin surfaces. Polls the plan load() ONLY
+// (diffProposed stays manual). Pause on a hidden tab, refetch on foreground, never stack timers, no manual reload.
+var POLL=null;
+function stopPoll(){if(POLL){clearInterval(POLL);POLL=null;}}
+function startPoll(){stopPoll();POLL=setInterval(function(){if(!document.hidden)load({quiet:true});},30000);}
+document.addEventListener('visibilitychange',function(){if(!document.hidden&&POLL)load({quiet:true});});
 </script>`,
     ),
   ),
