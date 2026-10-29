@@ -1,6 +1,6 @@
 # aid — CURRENT STATE (verified audit)
 
-**Refreshed:** fire #100 (reconciled against the A01–X15 matrix + the live suite). **Branch:** `master`.
+**Refreshed:** fire #101 (reconciled against the A01–X15 matrix + the live suite). **Branch:** `master`.
 Full spec: `MASTER-PROMPT.md` · resume pointer: `NEXT-STEPS.md` · matrix: `REQUIREMENTS.md`. Nothing here
 is inherited without evidence; every count below is from a live `scripts/test-all.sh` run.
 
@@ -10,7 +10,7 @@ The UNBLOCKED functional product has **converged**: the control plane, the full 
 dashboard, the honest-docs set, and a one-command test suite are built + live-verified at
 **https://app.install.doctor**. The remaining high-value requirements are **GATED on external action**
 (see § Gated). Loop fires now harden docs/tests/honesty until a gated dep is provisioned. Verified by
-**`scripts/test-all.sh` → 404 assertions / 22 suites GREEN (1 OS-skipped)** with the prod URL.
+**`scripts/test-all.sh` → 421 assertions / 23 suites GREEN (1 OS-skipped)** with the prod URL.
 
 ## ✅ Built + live-verified
 
@@ -42,6 +42,14 @@ dashboard, the honest-docs set, and a one-command test suite are built + live-ve
 - **Lazy CLI** (`home/dot_config/shell/not-found-hook.sh`) — ONE canonical resolver: no-eval argv-exec,
   install locks + recursion guard, interactive/CI gate, atomic index, mise-defer; bash+zsh tested
   (**`test-command-not-found.sh` 25/25**); fish+pwsh adapters present (structural gates 8+8, live-unverified).
+- **Cua Spaces desktop provisioning gate** (`home/.chezmoiscripts/universal/run_after_21-cua-spaces.sh.tmpl`,
+  Brian directive #101 "install on any 16GB+ desktop") — a chezmoi `run_after` that installs Cua Spaces
+  (computer-use substrate, cua.ai) ONLY on a GUI desktop with ≥16 GiB RAM + macOS/Linux; dry-runs first,
+  idempotent (skips if `cua` present), HEADLESS_INSTALL + `INSTALL_DOCTOR_CUA=0` opt-outs, and per the
+  `cua-spaces` rule NEVER auto-pairs/signs-in/unlocks-the-Keyvault/copies-creds (install the app only;
+  sign-in stays the user's explicit action). **`test-cua-spaces.sh` 17/17** — gates + guardrails unit-verified
+  (headless + opt-out skip-before-install proven live); the real install path is machine-gated (runs at
+  `chezmoi apply` on a real qualifying desktop, NOT executed on the dev box — honestly marked).
 - **Honest-docs set** (each gated) — `README` + `getting-started-desktop`/`-headless` + `api-reference`
   (drift-locked to the real routes + the `/api/catalog` filter params `?q=`/`?platform=` #100) + `platform-support` + `repos-and-backups` + `operations` +
   `provenance` + `adoption`. Doc gates: README 10 · getting-started 16 · repos-backups 13 · api-reference
@@ -60,12 +68,19 @@ dashboard, the honest-docs set, and a one-command test suite are built + live-ve
 
 ## 🚧 Gated — remaining high-value work needs EXTERNAL action (not a loop slice)
 
-- **O Better Auth** (GitHub/Google/magic-link sign-in) — needs OAuth apps + an SES sender for
-  `app.install.doctor`. The dashboard uses an `AID_ADMIN_TOKEN` bearer today, not user login.
-- **K/#7 the real provider CALL** — needs the CF **AI Gateway** + `AID_INFERENCE_TOKEN` + the shared
-  ProjectSites/OnePrompt orchestrator contract. Routing policy + pre-flight are live; the call is not.
-- **I/J per-host private repos + encrypted backups** — need GitHub repo-creation creds + restic/S3 + a
-  throwaway box. Contract documented in `repos-and-backups.md`; code ⬜.
+- **O Better Auth** (GitHub/Google/magic-link sign-in) — **RE-MEASURED #101: the creds are PRESENT**
+  (`GITHUB_CLIENT_ID/SECRET` + `GOOGLE_CLIENT_ID/SECRET` + `BETTER_AUTH_SECRET` all in get-secret, correctly
+  shaped). So GitHub/Google sign-in is **buildable now** (control-plane has zero auth code yet). The only
+  remaining gates: register `https://app.install.doctor/api/auth/callback/{github,google}` on the OAuth apps
+  (confirm they ARE app.install.doctor's apps) + magic-link needs SES (`AWS_SES_ACCESS_KEY_ID` absent). The
+  dashboard uses an `AID_ADMIN_TOKEN` bearer today, not user login. **This is now the TOP unblocked slice.**
+- **K/#7 the real provider CALL** — still gated: `DEEPSEEK_API_KEY` IS present (#101) but the invariant is
+  routing THROUGH the shared ProjectSites/OnePrompt orchestrator + CF AI Gateway (no second stack), and
+  `PROJECTSITES_API_URL`/`ONEPROMPT_URL`/`AID_INFERENCE_TOKEN` are all absent. Routing policy + pre-flight
+  are live; the call is not (gated on the orchestrator URL, NOT the model key).
+- **I/J per-host private repos + encrypted backups** — a `GITHUB_TOKEN` IS present (#101), so repo creation
+  has a candidate credential; still needs restic/S3 + a throwaway box for the real drills. Contract in
+  `repos-and-backups.md`; code ⬜.
 - **Real multi-host / replacement-host restore drills** — need throwaway machines (can't run from the
   dev box; the loop must not mutate the dev shell).
 - **N02 the full cinematic §16 SaaS redesign** — Figma design + approval gate.
