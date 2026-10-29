@@ -759,6 +759,9 @@ async function detail(tr,name){
     // R14/F15 (#136) — config coverage: a tool with a post-installx hook gets an AUTOMATED first-run setup
     // step. Name the concrete action (the hook); absent → nothing (honest, no false "configured" claim).
     if(j.configured){var cfgLine=document.createElement('div');cfgLine.className='muted';cfgLine.setAttribute('style','margin:2px 0 6px');var ck=document.createElement('b');ck.setAttribute('style','color:#00e5ff');ck.textContent='✓ Configured on install';cfgLine.append(ck,' — Install Doctor runs a first-run setup step automatically after install ('+(j.postInstall||'post-'+j.name+'.sh')+').');frag.append(cfgLine);}
+    // #146 D11 — "Maintained by <owner>" (the github org/user, derived server-side from the provenance URL): a
+    // trust/ownership signal. Links to the owner's GitHub. Absent owner → nothing (honest). TT-safe DOM.
+    if(j.owner){var mby=document.createElement('div');mby.className='muted';mby.setAttribute('style','margin:2px 0 6px');mby.append('Maintained by: ');var ownA=document.createElement('a');ownA.href='https://github.com/'+encodeURIComponent(j.owner);ownA.target='_blank';ownA.rel='noopener';ownA.textContent=j.owner;mby.append(ownA);frag.append(mby);}
     var parts=[['Source',j.github],['Homepage',j.home],['Docs',j.docs]].filter(function(p){return p[1]});
     if(parts.length){var srcLine=document.createElement('div');srcLine.className='muted';srcLine.setAttribute('style','margin:2px 0 6px');srcLine.append('Learn more: ');parts.forEach(function(p,i){if(i)srcLine.append(' · ');var la=document.createElement('a');la.href=p[1];la.target='_blank';la.rel='noopener';la.textContent=p[0];srcLine.append(la);});frag.append(srcLine);}
     j.commands.forEach(function(k){var sc=document.createElement('span');sc.className='cmd';var pb=document.createElement('b');pb.textContent=k.provider;sc.append(pb,k.command);frag.append(sc);});
@@ -984,7 +987,11 @@ app.get('/api/catalog/:name', (c) => {
   // A10 (#137) — state platform availability EXPLICITLY: the OSes this tool is NOT installable on (the
   // complement of its declared `platforms`), so the detail says what it's missing (empty = every platform).
   const unavailablePlatforms = AID_PLATFORMS.filter((p) => !(e.platforms || []).includes(p));
-  return c.json({ name: e.name, bin: e.bin, platforms: e.platforms, unavailablePlatforms, providers: e.providers, short: e.short, github: e.github, home: e.home, docs: e.docs, installMode: e.installMode || 'cli', deprecated: e.deprecated, deps: e.deps, configured: e.configured, postInstall: e.postInstall, commands });
+  // D11 (#146) — derive the maintenance OWNER (the github org/user) from the provenance URL so the App Store
+  // can show WHO maintains a tool (a trust signal). Derived from EXISTING data (no new software.yml field, no
+  // guess); a non-github or absent provenance URL yields no owner (undefined → omitted, honest).
+  const owner = typeof e.github === 'string' ? (e.github.match(/github\.com\/([^/]+)\//) || [])[1] : undefined;
+  return c.json({ name: e.name, bin: e.bin, platforms: e.platforms, unavailablePlatforms, providers: e.providers, short: e.short, github: e.github, owner, home: e.home, docs: e.docs, installMode: e.installMode || 'cli', deprecated: e.deprecated, deps: e.deps, configured: e.configured, postInstall: e.postInstall, commands });
 });
 
 app.post('/api/ai/v1/resolve', async (c) => {
