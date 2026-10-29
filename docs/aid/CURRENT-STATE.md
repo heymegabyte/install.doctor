@@ -1,6 +1,6 @@
 # aid — CURRENT STATE (verified audit)
 
-**Refreshed:** fire #102 (reconciled against the A01–X15 matrix + the live suite). **Branch:** `master`.
+**Refreshed:** fire #103 (reconciled against the A01–X15 matrix + the live suite). **Branch:** `master`.
 Full spec: `MASTER-PROMPT.md` · resume pointer: `NEXT-STEPS.md` · matrix: `REQUIREMENTS.md`. Nothing here
 is inherited without evidence; every count below is from a live `scripts/test-all.sh` run.
 
@@ -10,7 +10,7 @@ The UNBLOCKED functional product has **converged**: the control plane, the full 
 dashboard, the honest-docs set, and a one-command test suite are built + live-verified at
 **https://app.install.doctor**. The remaining high-value requirements are **GATED on external action**
 (see § Gated). Loop fires now harden docs/tests/honesty until a gated dep is provisioned. Verified by
-**`scripts/test-all.sh` → 426 assertions / 24 suites GREEN (1 OS-skipped)** with the prod URL.
+**`scripts/test-all.sh` → 428 assertions / 24 suites GREEN (1 OS-skipped)** with the prod URL.
 
 ## ✅ Built + live-verified
 
@@ -56,10 +56,12 @@ dashboard, the honest-docs set, and a one-command test suite are built + live-ve
   `nodejs_compat` on; 5 OAuth secrets bound as Worker secrets, values never in Git/context). **Authorize-
   INITIATION is LIVE + verified** (`test-auth.sh` 5/5): `POST /api/auth/sign-in/social` for github → a real
   `github.com/login/oauth/authorize` URL with the client_id + the `app.install.doctor/api/auth/callback/github`
-  redirect; google → `accounts.google.com`; no client_secret ever in the response. **HONEST: sign-in does NOT
-  COMPLETE yet** — the callback→session leg needs `https://app.install.doctor/api/auth/callback/{github,google}`
-  registered on the OAuth apps (a one-time human step on the OAuth-app settings), and the dashboard still uses
-  the `AID_ADMIN_TOKEN` bearer (not a user session). Magic-link ⬜ (needs SES).
+  redirect; google → `accounts.google.com`; no client_secret ever in the response. A **`/login` page**
+  (M06 — step 3) offers "Continue with GitHub/Google" buttons wired to `POST /api/auth/sign-in/social`
+  (→ redirect to the provider), reachable from the landing-page "Sign in" CTA (#103, test-auth 7/7).
+  **HONEST: sign-in does NOT COMPLETE yet** — the callback→session leg needs
+  `https://app.install.doctor/api/auth/callback/{github,google}` registered on the OAuth apps (a one-time
+  human step), and the dashboard still uses the `AID_ADMIN_TOKEN` bearer (not a user session). Magic-link ⬜ (needs SES).
 - **Honest-docs set** (each gated) — `README` + `getting-started-desktop`/`-headless` + `api-reference`
   (drift-locked to the real routes + the `/api/catalog` filter params `?q=`/`?platform=` #100) + `platform-support` + `repos-and-backups` + `operations` +
   `provenance` + `adoption`. Doc gates: README 10 · getting-started 16 · repos-backups 13 · api-reference

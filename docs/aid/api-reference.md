@@ -15,6 +15,7 @@ A "public page" serves an HTML shell anyone can load, but its in-page data fetch
 | --- | --- | --- |
 | `GET /` | public | Landing: the promise, bootstrap one-liner, how-it-works, dashboard links. |
 | `GET /health` | public | Health probe → `{status:"ok", routes:N}`. |
+| `GET /login` | public | Sign-in page — GitHub + Google buttons that POST `/api/auth/sign-in/social` and redirect to the provider authorize URL (Better Auth, O-series). |
 | `GET /pair` | public | Browser pairing-approval page — shows the code + host identity + requested scope before Approve. |
 | `GET /machines` | public page (data load admin) | Device inventory: last-active · drift · health (conn·sw·bkp) · scope · status. |
 | `GET /apps` | public | App Store — live-search the software catalog; per-entry providers + install commands. |
