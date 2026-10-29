@@ -17,7 +17,7 @@ PROVEN, not by intent. The `detect_os` roles are: `macos` · `ubuntu`/`debian` �
 | Capability | Status | Evidence / limitation |
 | --- | --- | --- |
 | Unix bootstrap one-liner (`bash <(curl … install.doctor/start)`) | ✅ tested | `install.doctor/start` serves 200; the landing + getting-started guides use it. |
-| Native **Windows PowerShell** bootstrap entrypoint | ⬜ not published | `install.doctor/start.ps1` → 404. On Windows, use **WSL** (the `ubuntu` path). |
+| Native **Windows PowerShell** bootstrap entrypoint | ◐ experimental | PUBLISHED at `install.doctor/windows` → `scripts/provision.ps1` (winget/scoop/choco → git + chezmoi; same `START_REPO`/`HEADLESS_INSTALL`/`CI` contract as `provision.sh`). Structurally verified (`test-powershell-entrypoint.sh` 24/24 + `pwsh` parse-check); the RUNTIME on a real Windows host is **not yet verified** (no Windows CI). **WSL** (the `ubuntu` path) remains the proven route. |
 | Lazy CLI (command-not-found) — **bash + zsh** | ✅ tested | `scripts/test-command-not-found.sh` (25) — hardened resolver, locks, no-eval, atomic index. Run on macOS; bash/zsh are cross-platform. |
 | Lazy CLI — **fish** / **PowerShell** adapters | ◐ experimental | Adapters shipped (`fish_command_not_found` · pwsh `CommandNotFoundAction`) over the ONE resolver; structural gates pass (8+8) but a LIVE fish/pwsh run is unverified (neither shell on the runner). |
 | `aid` CLI (pair · pull · plan · apply · report · up · exec · prewarm · installs) | ✅ tested | `scripts/test-aid-client.sh` (29) on macOS + live against prod; a POSIX-sh client, portable across Unix. |
@@ -40,13 +40,16 @@ PROVEN, not by intent. The `detect_os` roles are: `macos` · `ubuntu`/`debian` �
   are preserved; `◐` — needs the Qubes box.
 - **proxmox / coolify** — server roles (post-install tuning, Tailscale, service stack); headless-safe
   (`HEADLESS_INSTALL=1`); `◐` — needs the real server.
-- **wsl** — treated as the `ubuntu` role; native-Windows outside WSL is `⬜` (no PowerShell entrypoint).
+- **wsl** — treated as the `ubuntu` role, the proven Windows route; native-Windows now also has an `◐`
+  **experimental** PowerShell entrypoint (`install.doctor/windows` → `provision.ps1`, runtime-unverified).
 - **container** — minimal, headless; desktop/GUI components excluded by role.
 
 ## Real limitations (do not expect these yet)
 
-- **No native Windows (outside WSL).** The PowerShell bootstrap entrypoint is not published; the pwsh
-  command-not-found adapter is live-unverified.
+- **Native Windows is `◐` experimental (runtime-unverified).** The PowerShell bootstrap entrypoint IS
+  published (`install.doctor/windows` → `provision.ps1`) + structurally verified, but the RUNTIME on a real
+  Windows host is not yet verified (no Windows CI); the pwsh command-not-found adapter is also
+  live-unverified. WSL is the proven route.
 - **fish + PowerShell lazy-install are experimental** — present + structurally tested, not live-run.
 - **The control plane never installs on your machine.** `aid apply --yes` runs the host package
   manager locally; the server-side apply is `501` (on-device supervisor, Phase B). Real multi-host /

@@ -82,9 +82,11 @@ Honestly **not wired yet** — do not expect these to work on a headless host:
 
 - **Account sign-in (Better Auth — GitHub, Google, email magic-link).** The dashboard is gated by an
   admin token today, not a user login. Planned.
-- **Native Windows PowerShell bootstrap entrypoint.** The `install.doctor/start` one-liner is for
-  Unix shells; the PowerShell entrypoint is not published yet. (fish and PowerShell command-not-found
-  adapters exist in the repo but are not yet verified on a live fish/pwsh host.)
+- **Native Windows PowerShell bootstrap entrypoint — experimental.** The `install.doctor/start` one-liner
+  is for Unix shells; a native PowerShell entrypoint is now PUBLISHED at `install.doctor/windows`
+  (`provision.ps1`) + structurally verified, but its RUNTIME on a real Windows host is not yet verified (no
+  Windows CI) — WSL is the proven route. (fish and PowerShell command-not-found adapters exist in the repo
+  but are not yet verified on a live fish/pwsh host.)
 - **Per-host private Git repository + encrypted backups.** Designed, not built.
 - **Server-pushed installs + real job transport.** The device apply endpoint returns `501` on
   purpose; durable job delivery/leases are still to come.

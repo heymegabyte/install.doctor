@@ -1,6 +1,6 @@
 # aid — CURRENT STATE (verified audit)
 
-**Refreshed:** fire #183 — COMPLETED the dead-Vagrant removal (the entangled build-gated half #182 scoped): removed the landing-page Vagrant surfaces — `landing-page.tsx` `panels[2]` (the `/vagrant` + `/windows-vagrant` `<code-tabs>`) + `store.ts` `started__list[2]` ("number 03" Vagrant, index-paired with `panels` at the `.map`) + **renumbered 04→03, 05→04, 06→05, 07→06** (the numbers are DISPLAYED; panels + started__list both 7→6, still aligned) + a spillover fix of the Windows headless example (`$env:HEADLESS_INSTALL = true` → `'true'` — bare `true` isn't a PowerShell boolean). TDD RED→GREEN new `test-landing-page.sh` 4/4 (no dead /vagrant command · PowerShell quoted · Vagrant entry gone · numbers sequential 01..06). **test-all 654→658 / 35→36 suites GREEN.** Build-verify: `site/node_modules` is absent (volta's DOWNLOADER is broken HERE for the pinned EOL **node 16.20.2** — fails for node 20 too, so it's the downloader not the pin — but it downloads fine in CI, so the authoritative Stencil build runs on the Firebase-deploy CI); verified LOCALLY via the TDD data test + balanced-delimiter + structural checks (the `[]`-imbalance is PRE-EXISTING prose brackets, confirmed identical vs HEAD). Firebase-deploy-gated for live. **Branch:** `master`.
+**Refreshed:** fire #184 — doc-honesty reconciliation (the drift-update #180 owed): the honest-docs still claimed the **Windows PowerShell entrypoint was "⬜ not published / `start.ps1` → 404 / no PowerShell entrypoint"** — STALE + WRONG after #180 shipped `provision.ps1` (served live at `install.doctor/windows` → **200**, the doc even cited the wrong `/start.ps1` path which 404s). Corrected `platform-support.md` (the capability row + 2 per-role/limitation notes), `getting-started-headless.md`, and the REQUIREMENTS M08 ref to the honest status: **Windows PowerShell is ◐ EXPERIMENTAL** — published at `/windows`, structurally verified (`test-powershell-entrypoint.sh` 24/24), but the native-Windows RUNTIME is not yet verified (no Windows CI); WSL stays the proven route. TDD RED→GREEN — extended the X04 gate `test-platform-support-doc.sh` 19→22 to assert the doc NAMES the real `/windows` entrypoint + `provision.ps1` + REJECTS the stale "not published"/`start.ps1`-404 claims (so the doc can't silently under-sell Windows again); the no-fabrication check (no "native Windows works") still holds. **test-all 658→661 / 36 suites GREEN.** A generative re-scan found this real drift — the #180-184 cleanup theme keeps paying. **Branch:** `master`.
 Full spec: `MASTER-PROMPT.md` · resume pointer: `NEXT-STEPS.md` · matrix: `REQUIREMENTS.md`. Nothing here
 is inherited without evidence; every count below is from a live `scripts/test-all.sh` run.
 
@@ -10,7 +10,7 @@ The UNBLOCKED functional product has **converged**: the control plane, the full 
 dashboard, the honest-docs set, and a one-command test suite are built + live-verified at
 **https://app.install.doctor**. The remaining high-value requirements are **GATED on external action**
 (see § Gated). Loop fires now harden docs/tests/honesty until a gated dep is provisioned. Verified by
-**`scripts/test-all.sh` → 658 assertions / 36 suites GREEN (1 OS-skipped)** with the prod URL.
+**`scripts/test-all.sh` → 661 assertions / 36 suites GREEN (1 OS-skipped)** with the prod URL.
 
 ## ✅ Built + live-verified
 
