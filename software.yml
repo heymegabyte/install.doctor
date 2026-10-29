@@ -1447,7 +1447,7 @@ softwarePackages:
     brew:darwin: chrome-cli
   chrome-gnome-shell:
     _name: 'gnome-browser-extension                                                                                                                                                                                   '
-    _short: GNOME Browser Extension is a project hosted on GitLab under the GNOME organization. It likely provides browser extensions tailored for the GNOME desktop environment.
+    _short: chrome-gnome-shell integrates GNOME Shell with web browsers so you can install and manage GNOME extensions from extensions.gnome.org.
     _desc: Browser extension for Google Chrome/Chromium, Firefox, Vivaldi (and other Browser Extension, Chrome Extension or WebExtensions capable browsers) and native host messaging connector that provides integration with GNOME Shell and the corresponding extensions repository
     _github: https://gitlab.gnome.org/GNOME/gnome-browser-extension
     _bin: null
@@ -1549,7 +1549,7 @@ softwarePackages:
     scoop: llvm
   clipboard:
     _name: Clipboard
-    _short: This is a GitHub repository named Clipboard under the Slackadays organization.
+    _short: Clipboard is a smart command-line clipboard manager for cutting, copying, and pasting anything in your terminal.
     _desc: The repository at https://github.com/Slackadays/Clipboard.git appears to be a Git repository hosted on GitHub. Without further details or access to the repository, I can't provide specific information about its contents. If you need more information, you may want to clone the repository locally and explore its files and commit history using Git commands.
     _github: https://github.com/Slackadays/Clipboard.git
     _bin: cb
@@ -2062,7 +2062,7 @@ softwarePackages:
     brew: dagger/tap/dagger
   dagu:
     _name: Dagu
-    _short: dagu is a GitHub repository for the Dagu project.
+    _short: dagu is a self-hostable workflow orchestrator — declarative YAML wrapping your scripts, SSH commands, and containers, in a single binary with no database.
     _desc: dagu-dev/dagu This is a GitHub repository belonging to the user "dagu-dev" named "dagu." It likely contains code, documentation, or other files related to a project called "dagu." Without further information or access to the repository, it's difficult to provide more details. You can visit the link to explore the contents of the repository and learn more about the project it represents.
     _github: https://github.com/dagu-dev/dagu
     _bin: dagu
@@ -2227,7 +2227,7 @@ softwarePackages:
     npm: deviceframe
   dialect:
     _name: 'dialect                                                                                                                                                                                                   '
-    _short: Dialect is a GitHub repository for the Dialect app, a platform for language learning and cultural exchange.
+    _short: Dialect is a translation app for GNOME with support for multiple translation providers and text-to-speech.
     _desc: The link https://github.com/dialect-app/dialect/ leads to a GitHub repository for a project named "dialect." This repository likely contains the source code, documentation, and other files related to the Dialect application. Without further details or access to the repository, it's difficult to provide specific information about the project's purpose or functionality. Users can typically find information about the project, such as its README file, codebase, issues, and contributions, by exploring the repository on GitHub.
     _github: https://github.com/dialect-app/dialect
     _bin: dialect
@@ -2277,7 +2277,7 @@ softwarePackages:
     choco: discord
   distrobox:
     _name: Distrobox
-    _short: distrobox is a project on GitHub by 89luca89. It likely involves a distribution or box-related software or tool. For detailed information, you should visit the repository directly.
+    _short: distrobox runs any Linux distribution inside your terminal using Docker or Podman, with tight access to your home directory, devices, and GUI apps.
     _desc: Distrobox runs any Linux distribution inside your terminal using Podman or Docker, tightly integrated with the host (home, devices, graphical apps) — so you can use the tooling of any distro on whatever you are running (89luca89/distrobox).
     _github: https://github.com/89luca89/distrobox
     _bin: distrobox
@@ -2313,7 +2313,7 @@ softwarePackages:
     pacman: dnsmasq
   docker:
     _name: Docker CLI
-    _short: microsoft/docker is a GitHub repository maintained by Microsoft for Docker-related projects.
+    _short: Docker packages applications into portable containers so they run the same across development, test, and production.
     _desc: The GitHub repository at https://github.com/microsoft/docker is maintained by Microsoft and is related to Docker, a popular platform for developing, shipping, and running applications using containerization technology. The repository likely contains code, documentation, and resources related to Microsoft's involvement with Docker, such as tools, extensions, or integrations. It could also include projects aimed at improving Docker's functionality on Microsoft platforms like Windows or Azure. For specific details, exploring the repository directly would provide more insights.
     _github: https://github.com/microsoft/docker
     _bin: docker
@@ -2499,7 +2499,7 @@ softwarePackages:
     npm: dotenv-vault
   dotnet:
     _name: .Net
-    _short: dotnet is a GitHub repository for the .NET development platform by Microsoft.
+    _short: .NET is a free, cross-platform, open-source developer platform and SDK for building web, desktop, mobile, cloud, and console apps.
     _desc: '[.Net](https://dotnet.microsoft.com/) lets you create beautiful apps and scalable cloud services, faster and easier with the free, open-source platform that''s loved by developers and trusted by organizations'
     _github: https://github.com/dotnet
     _bin: dotnet
@@ -3008,7 +3008,7 @@ softwarePackages:
     npm: '@feathersjs/cli'
   ferdium:
     _name: 'ferdium-app                                                                                                                                                                                               '
-    _short: ferdium-app is a GitHub repository belonging to user ferdium.
+    _short: Ferdium is a desktop app that brings all your messaging and web services together in a single window.
     _github: https://github.com/ferdium/ferdium-app
     _bin: ferdium
     _app: Ferdium.app
@@ -5976,7 +5976,7 @@ softwarePackages:
     yay: litecli
   live-captions:
     _name: 'LiveCaptions                                                                                                                                                                                              '
-    _short: LiveCaptions is a GitHub repository that likely contains code for generating live captions, possibly for videos or live streams.
+    _short: LiveCaptions is a Linux desktop app that generates real-time, on-device captions for any audio playing on your screen.
     _desc: Linux Desktop application that provides live captioning
     _github: https://github.com/abb128/LiveCaptions
     _bin: live-captions
@@ -7696,7 +7696,7 @@ softwarePackages:
     script:darwin: cd /tmp && curl -sSL https://github.com/trustcrypto/OnlyKey-App/releases/download/v5.3.6/OnlyKey.App.5.3.6.dmg > OnlyKey.dmg  && hdiutil attach "/tmp/OnlyKey.dmg" &&  sudo cp -R "/Volumes/OnlyKey App/OnlyKey App.app" /Applications && sudo hdiutil detach "/Volumes/OnlyKey App" && rm -f "/tmp/OnlyKey.dmg"
   onlykey-agent:
     _name: OnlyKey Agent
-    _short: onlykey-agent is a GitHub repository that contains code for the OnlyKey agent, a program used for managing OnlyKey devices, which are hardware security keys for encryption and authentication purposes.
+    _short: onlykey-agent lets you use an OnlyKey hardware security device as an SSH and GPG agent.
     _desc: onlykey-agent is a software tool available on GitHub developed by TrustCrypto. It is designed to work with OnlyKey, a hardware security key that provides two-factor authentication, password management, and encryption. The agent facilitates communication between the OnlyKey device and the computer, allowing users to securely manage their passwords and cryptographic keys. It supports various platforms and provides a command-line interface for interacting with the OnlyKey device. The agent enhances security by keeping sensitive information on the hardware device rather than on the computer.
     _github: https://github.com/trustcrypto/onlykey-agent
     _bin: onlykey-agent
@@ -8547,7 +8547,7 @@ softwarePackages:
     brew: poppler
   portal:
     _name: Portal
-    _short: portal is a project on GitHub by SpatiumPortae.
+    _short: portal is a command-line tool for quick, secure, end-to-end-encrypted file transfer directly between two computers.
     _desc: Portal is a quick and easy command-line file transfer utility from any computer to another
     _github: https://github.com/SpatiumPortae/portal
     _bin: portal
@@ -9743,7 +9743,7 @@ softwarePackages:
       '
   scap-security-guide:
     _name: OpenSCAP
-    _short: ComplianceAsCode/content is a GitHub repository containing security compliance content for various platforms and tools.
+    _short: scap-security-guide (ComplianceAsCode) provides security-hardening and compliance automation content in SCAP, Bash, and Ansible formats.
     _desc: ComplianceAsCode/content is a GitHub repository that contains content for various compliance benchmarks, including CIS (Center for Internet Security) benchmarks. It provides configuration baselines for different operating systems and applications to help users ensure their systems are compliant with industry standards. The repository includes scripts, documentation, and tools to assist in automating compliance checks and remediation tasks. It is a valuable resource for organizations looking to enhance their security posture and meet regulatory requirements.
     _github: https://github.com/ComplianceAsCode/content
     _bin: oscap
@@ -10323,7 +10323,7 @@ softwarePackages:
     pipx: spotdl
   sql-language-server:
     _name: SQL Language Server
-    _short: sql-language-server is a GitHub repository maintained by joe-re that provides a language server for SQL.
+    _short: sql-language-server provides SQL autocompletion, linting, and diagnostics to editors via the Language Server Protocol.
     _desc: An SQL language server
     _github: https://github.com/joe-re/sql-language-server
     _bin: sql-language-server
@@ -10603,7 +10603,7 @@ softwarePackages:
     brew: swiftformat
   swifty:
     _name: Swifty
-    _short: swifty is a GitHub repository for the Swifty app.
+    _short: Swifty is a local-first, open-source password and secrets manager.
     _desc: 'swifty Description: swifty is a GitHub repository belonging to the organization swiftyapp. It likely contains code related to a project or application named Swifty. Without further access to the repository, it''s challenging to provide specific details on its contents. You can visit the repository link to explore its code, documentation, and any other resources shared by the developers.'
     _github: https://github.com/swiftyapp/swifty
     _bin: swifty
@@ -10699,7 +10699,7 @@ softwarePackages:
     apk: sysbench
   sysdig:
     _name: sysdig
-    _short: draios is a GitHub repository belonging to a company that specializes in system monitoring and troubleshooting tools.
+    _short: sysdig is a Linux system exploration and troubleshooting tool with first-class support for containers.
     _desc: '[sysdig](https://www.sysdig.com/) is a simple tool for deep system visibility, exploration and troubleshooting, with native support for containers.'
     _github: https://github.com/draios
     _bin: sysdig
@@ -10987,7 +10987,7 @@ softwarePackages:
     scoop: tfsec
   tgpt:
     _name: Terminal GPT
-    _short: tgpt is a GitHub repository for a text-based AI model trained on the GPT architecture by the user aandrew-me.
+    _short: tgpt lets you chat with AI models directly from your terminal, with no API key required.
     _desc: tgpt is a GitHub repository created by user aandrew-me. It likely contains code related to a Transformer-based Generative Pre-trained Transformer (GPT) model. The repository may include scripts for training, fine-tuning, or using the model for text generation tasks. To get more detailed information about the contents and purpose of the repository, you can visit the GitHub link provided.
     _github: https://github.com/aandrew-me/tgpt
     _bin: tgpt
@@ -11414,7 +11414,7 @@ softwarePackages:
     pkg: up
   upscayl:
     _name: Upscayl
-    _short: upscayl is a GitHub repository.
+    _short: Upscayl is a free, open-source AI image upscaler for Linux, macOS, and Windows.
     _desc: upscayl is a GitHub repository belonging to the user upscayl. Without further details or access to the repository, it is not possible to provide a detailed description of its contents. To learn more about the repository, you can visit the link provided and explore the code, documentation, and any other resources available there.
     _github: https://github.com/upscayl/upscayl
     _bin: upscayl
@@ -12225,7 +12225,7 @@ softwarePackages:
     brew:darwin: xcodesorg/made/xcodes
   xcodes-app:
     _name: Xcodes App
-    _short: XcodesApp is a GitHub repository for XcodesOrg, likely related to Xcode development tools for MacOS/iOS.
+    _short: Xcodes is a macOS app for installing and switching between multiple versions of Xcode with a click.
     _desc: macOS desktop app that allows you to download, install, and switch to alternate versions of Xcode
     _github: https://github.com/XcodesOrg/XcodesApp
     _bin: xcodes-app
@@ -12421,7 +12421,7 @@ softwarePackages:
     script: curl -o- -L https://yarnpkg.com/install.sh | bash
   yarnhook:
     _name: Yarnhook
-    _short: yarnhook is a GitHub repository that contains a tool for managing Yarn package dependencies in a project.
+    _short: yarnhook automatically runs yarn, npm, or pnpm install on git hooks when lockfiles change after checkout or merge.
     _desc: yarnhook keeps your node_modules up-to-date when your yarn.lock, package-lock.json or shrinkwrap.yaml changes due to git operations like checkout, merge, rebase, pull etc.
     _github: https://github.com/frontsideair/yarnhook
     _bin: yarnhook

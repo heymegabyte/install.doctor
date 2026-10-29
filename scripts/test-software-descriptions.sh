@@ -22,6 +22,14 @@ say "software.yml description quality"
 hedge="$(grep -cE 'It appears to be' "$SW" 2>/dev/null || true)"; hedge="${hedge:-0}"
 [ "$hedge" -eq 0 ] && pass "no 'It appears to be' hedges (fabrication tell)" || fail "$hedge fabricated-hedge description(s) remain — correct against the GitHub repo .description"
 
+# fire #96 — HARD gate on the USER-FACING _short only (shown in the App Store list/search/detail): zero
+# "I don't know this tool" meta-commentary — repo-naming instead of describing ("is a GitHub repository
+# for …", "is a project on GitHub by …") or a "likely/for detailed information/visit the repository"
+# hedge. Fix each against the real tool (GitHub/GitLab .description). The _desc field (NOT user-facing)
+# still carries this slop and is tracked as INFO below, not gated.
+shortslop="$(grep -cE '^[[:space:]]*_short:.*([Ii]t likely (involves|provides|contains|is|relate)|likely (contains|related|involves|provides)|you should visit the repositor|visit the repository directly|[Ff]or (more )?detailed information|is a (project (on|hosted on) Git|GitHub repository)|This is a GitHub repository|is a GitHub repository (for|named|belonging|maintained|that|containing))' "$SW" 2>/dev/null || true)"; shortslop="${shortslop:-0}"
+[ "$shortslop" -eq 0 ] && pass "user-facing _short carries no fabrication meta-commentary (App Store shows these)" || fail "$shortslop _short with fabrication slop — rewrite against the real tool (GitHub .description)"
+
 say "softer tells (tracked for incremental correction, not gated):"
 for pat in 'For more detailed information' \
            'you can (explore|visit|refer|check)[^.]*(repositor|github|website)' \
