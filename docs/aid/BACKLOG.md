@@ -45,8 +45,11 @@
 
 ## Tier 3 — deferred (gated on a runtime or an unbuilt prereq; low value ÷ effort right now)
 
-- **B02 Windows PowerShell entrypoint** — needs a Windows runtime; a structural-only `start.ps1` would be
-  unverifiable scaffolding (the master prompt forbids claiming Windows verification from non-Windows).
+- **B02 ✅ SHIPPED (#180)** — `scripts/provision.ps1` now exists (the exact file the live `/windows` redirect
+  returned 404 for). The prior "unverifiable scaffolding" deferral was WRONG: the `test-pwsh-cnf.sh` precedent
+  (structural contract asserts + a `pwsh` parse-check that SKIPs honestly when absent) makes it verifiable
+  WITHOUT a Windows runtime. Native-Windows RUNTIME execution stays honestly-unverified; live `/windows` serving
+  awaits the next Firebase deploy (FIREBASE secret-gated).
 - **fish/pwsh LIVE cnf semantics** — adapters are structurally gated (8+8); live verification needs a real
   fish/pwsh runtime (neither installed; a loop fire must not mutate the dev box).
 - **Q01/Q10-Q15 isolation** — real filesystem/process jail for credentialed execution; needs the
@@ -59,8 +62,10 @@
 
 ## How the loop behaves until an unblock arrives
 
-Per `loop-driven-development` ("loops MUST terminate — no infinite polish") + monitor-orchestration
-healthy-iteration #4: with the frontier exhausted, fires default to **verification-only** (re-run
-`test-all` vs live prod; the automated consistency gates — catalog-count #159, cross-ledger
-assertion-count #174, headline-freshness #175 — catch drift). Do NOT fabricate product churn or add
-further micro-guards. When a human unblocks a Tier-1/2 row, the loop resumes real slices there.
+The frontier is THINNER, not exhausted — #180 disproved the "exhausted" verdict by shipping B02 (a real
+non-gated slice earlier fires missed). So each fire first **RE-SCANS GENERATIVELY** (the loop is generative;
+there is almost always real work — dangling redirects/404s, user-visible "coming" promises, other
+structurally-testable surfaces) BEFORE concluding there is nothing to do. ONLY when a genuine re-scan finds
+no non-gated slice does a fire default to **verification-only** (re-run `test-all` vs live prod; the
+consistency gates — catalog-count #159, cross-ledger assertion-count #174, headline-freshness #175 — catch
+drift). Never fabricate churn. When a human unblocks a Tier-1/2 row, the loop resumes real slices there.

@@ -91,7 +91,7 @@
       },
       {
         "source": "/windows",
-        "destination": "https://raw.githubusercontent.com/megabyte-labs/install.doctor/master/scripts/provision.ps1",
+        "destination": "https://raw.githubusercontent.com/heymegabyte/install.doctor/master/scripts/provision.ps1",
         "type": 301
       },
       {
