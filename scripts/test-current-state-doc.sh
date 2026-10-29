@@ -49,5 +49,21 @@ grep -qF "67/67" "$DOC" && fail "stale control-plane count '67/67' still present
 # Machines must not still be asserted as Absent.
 grep -qiE "Absent.*Machines|Machines.*(still )?Absent|the 5 nav sections \(Machines" "$DOC" && fail "Machines still listed as Absent (stale)" || pass "Machines not listed as Absent (reflects shipped reality)"
 
+# A14 (ledgers-from-evidence) — the headline "N assertions / 33 suites GREEN" count MUST agree across
+# all 3 ledgers (CURRENT-STATE + NEXT-STEPS + REQUIREMENTS). When a fire bumps the count it must bump all
+# three together; a stale one is a lying ledger the next fire inherits (the drift manually reconciled in
+# #169 + #173 — now a deterministic guard, the assertion-count sibling of the catalog-count guard #159).
+# Matches both "asserts" (NEXT-STEPS) and "assertions" (CURRENT-STATE/REQUIREMENTS); the "/ 33 suites
+# GREEN" anchor excludes the "N→M" per-fire transition records. Internal consistency across ledgers.
+_lc() { grep -oE '[0-9]+ assert(ion)?s? / 33 suites GREEN' "$1" 2> /dev/null | head -1 | grep -oE '^[0-9]+'; }
+cs_n="$(_lc "$DOC")"
+ns_n="$(_lc "$ROOT/docs/aid/NEXT-STEPS.md")"
+rq_n="$(_lc "$ROOT/docs/aid/REQUIREMENTS.md")"
+if [ -n "$cs_n" ] && [ "$cs_n" = "$ns_n" ] && [ "$cs_n" = "$rq_n" ]; then
+  pass "assertion-count headline agrees across all 3 ledgers ($cs_n)"
+else
+  fail "assertion-count DRIFT across ledgers: CURRENT-STATE=$cs_n NEXT-STEPS=$ns_n REQUIREMENTS=$rq_n (bump all 3 together)"
+fi
+
 say "CURRENT-STATE: $P passed, $F failed"
 [ "$F" -eq 0 ]
