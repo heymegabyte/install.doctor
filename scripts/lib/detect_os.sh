@@ -485,6 +485,26 @@ should_provision_desktop() {
 }
 
 # ---------------------------------------------------------------------------
+# should_skip_reboot — the 2nd CAPABILITY ADAPTER (A5), CONSUMES detect_env_class
+# (#166) to answer "can this host safely reboot to finish provisioning?" instead
+# of scattering env-class conditionals at every reboot site. Returns 0 (SKIP the
+# reboot) only when a reboot is impossible or harmful mid-provision:
+#   - container  — no init to return to; a "reboot" just kills the container (H15/A10)
+#   - wsl        — a WSL distro reboots via `wsl --shutdown` from the Windows host,
+#                  NOT in-distro; an in-place reboot ends the session instead of
+#                  resuming, so provisioning must never trigger one.
+# A vm or bare-metal host reboots normally → return 1 (do NOT force-skip; the
+# existing NO_RESTART / HEADLESS_INSTALL env gates still decide). Honors the
+# INSTALL_DOCTOR_ENV_CLASS override → deterministic + testable on any host.
+# ---------------------------------------------------------------------------
+should_skip_reboot() {
+  case "$(detect_env_class)" in
+    container | wsl) return 0 ;; # cannot safely reboot mid-provision (A10 — reboot unavailable)
+    *) return 1 ;;               # vm / bare-metal reboot normally
+  esac
+}
+
+# ---------------------------------------------------------------------------
 # detect_privilege — returns the host's effective privilege level
 #
 # Output: root | passwordless-sudo | sudo | user
