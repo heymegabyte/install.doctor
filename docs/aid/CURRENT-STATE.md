@@ -1,6 +1,6 @@
 # aid — CURRENT STATE (verified audit)
 
-**Refreshed:** fire #173 — CONVERGENCE CHECKPOINT (counts reconcile across all ledgers, 617 assertions GREEN against live prod, matrix all-⬜ human-gated or prereq-blocked; no non-gated slice remained, so no product change shipped). **Branch:** `master`.
+**Refreshed:** fire #174 — X14 now GUARDS cross-ledger assertion-count consistency (the #169/#173 manual reconciliation is now a deterministic drift-gate, the assertion-count sibling of the catalog-count guard #159). #173 was a convergence checkpoint: non-gated frontier exhausted, matrix all-⬜ human-gated/prereq-blocked. **Branch:** `master`.
 Full spec: `MASTER-PROMPT.md` · resume pointer: `NEXT-STEPS.md` · matrix: `REQUIREMENTS.md`. Nothing here
 is inherited without evidence; every count below is from a live `scripts/test-all.sh` run.
 
@@ -10,7 +10,7 @@ The UNBLOCKED functional product has **converged**: the control plane, the full 
 dashboard, the honest-docs set, and a one-command test suite are built + live-verified at
 **https://app.install.doctor**. The remaining high-value requirements are **GATED on external action**
 (see § Gated). Loop fires now harden docs/tests/honesty until a gated dep is provisioned. Verified by
-**`scripts/test-all.sh` → 617 assertions / 33 suites GREEN (1 OS-skipped)** with the prod URL.
+**`scripts/test-all.sh` → 618 assertions / 33 suites GREEN (1 OS-skipped)** with the prod URL.
 
 ## ✅ Built + live-verified
 
