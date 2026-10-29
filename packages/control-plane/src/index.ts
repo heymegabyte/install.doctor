@@ -80,6 +80,18 @@ function collectPlatformGaps(bp: { defaults?: { packages?: string[] }; machines?
   for (const os of AID_PLATFORMS) gaps[os].sort((a, b) => a.localeCompare(b));
   return gaps;
 }
+// A10 (#155) — plan packages the catalog does NOT know (no recipe): NAMED (not merely counted in
+// installModes.unknown) so plan review surfaces WHICH package is uncovered — mirrors collectDeprecated /
+// collectPlatformGaps. e.g. _default's runner carries `alloy` (Grafana Alloy, intended but not yet in
+// software.yml) -> the review shows "alloy not in the catalog" instead of a mystery "1 other".
+function collectUnknownPackages(bp: { defaults?: { packages?: string[] }; machines?: { packages?: string[] }[] }): string[] {
+  const names = new Set<string>();
+  for (const p of bp.defaults?.packages ?? []) names.add(p);
+  for (const m of bp.machines ?? []) for (const p of m.packages ?? []) names.add(p);
+  const out: string[] = [];
+  for (const name of names) if (!CATALOG_BY_NAME.get(name)) out.push(name);
+  return out.sort((a, b) => a.localeCompare(b));
+}
 // Install-command templates per provider — MIRROR the cnf hook's __cnf_do_install (D04: ONE
 // provider→command contract shared with the deterministic executor). Drives the App Store install
 // detail (R13 — App Store details from recipe contracts). Keep in sync with not-found-hook.sh.
@@ -519,6 +531,17 @@ function renderSummary(bp){
     } else {
       var pPlat=labeledP('Platforms');pPlat.append(muted('✓ all packages install on macOS, Linux + Windows'));card.append(pPlat);
     }
+  }
+  // A10 (#155) — packages in the plan the catalog does NOT know (no Install Doctor recipe yet): NAME them
+  // (like deprecatedPackages/platformGaps) so the reviewer sees WHICH package is uncovered, not a mystery 'other'.
+  var unk=bp.unknownPackages||[];
+  if(unk.length){
+    var ub=mk('div');ub.setAttribute('style','border-left:3px solid #50607a;padding:6px 10px;margin:0 0 10px;background:#0d1117;border-radius:4px');
+    var ubh=document.createElement('b');ubh.setAttribute('style','color:#8aa0c0');ubh.textContent=unk.length+' package'+(unk.length>1?'s':'')+' not in the catalog';
+    ub.append(ubh,' ',muted('— no Install Doctor recipe yet; install mode + commands unavailable'));
+    var ubItems=mk('div');ubItems.setAttribute('style','margin-top:4px');
+    unk.forEach(function(n,i){if(i)ubItems.append(' ');var t=mk('span','tag');t.setAttribute('style','border-color:#50607a;color:#8aa0c0');t.textContent=n;ubItems.append(t);});
+    ub.append(ubItems);card.append(ub);
   }
   var pPk=labeledP('Packages ('+pkgs.length+')');appendPkgLinks(pPk,pkgs);card.append(pPk);
   // C12/D06 — eager-vs-lazy install breakdown (server-computed summary.installModes, interconnects #110).
@@ -1183,6 +1206,8 @@ app.get('/api/environment/current', async (c) => {
       deprecatedPackages: collectDeprecated(bp),
       // A10 — per-OS list of plan packages NOT installable on that platform (partial-success made explicit).
       platformGaps: collectPlatformGaps(bp),
+      // A10 (#155) — plan packages NOT in the catalog (no recipe), NAMED so the review shows which are uncovered.
+      unknownPackages: collectUnknownPackages(bp),
     };
     return c.json({ tenant, revision: bp.revision, digest: await blueprintDigest(bp), updatedAt: row.updated_at, markdown: row.markdown, summary });
   } catch (e) {

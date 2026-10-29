@@ -117,6 +117,9 @@ if [ -n "${CONTROL_PLANE_URL:-}" ]; then
   # fire #154 — the plan summary SPLITS eager preloaded CLIs ("preloaded CLIs at setup") from lazy ("on first use"),
   # matching the per-tool #153 accuracy so the aggregate review doesn't over-claim "on first use" for preloaded tools.
   { echo "$envp" | grep -qi 'preloaded CLI'; } && pass "GET /environment -> plan render distinguishes PRELOADED CLIs ('preloaded CLIs at setup') from lazy ('on first use'); eager-vs-lazy accuracy #154" || fail "environment preloaded-cli label missing -> $(printf '%s' "$envp" | grep -oiE 'preloaded CLI|on first use' | sort -u | tr '\n' ' ')"
+  # fire #155 — A10: the plan review NAMES packages NOT in the catalog (no recipe) instead of a mystery "N other";
+  # mirrors the deprecatedPackages/platformGaps NAMED surfacing so a reviewer sees WHICH package is uncovered.
+  { echo "$envp" | grep -qi 'not in the catalog'; } && pass "GET /environment -> plan review NAMES uncatalogued packages ('N not in the catalog') not just counts them (A10 explicit coverage gap; #155)" || fail "environment uncatalogued-render missing -> $(printf '%s' "$envp" | grep -oiE 'not in the catalog' | sort -u | tr '\n' ' ')"
   # fire #114 — the plan review WARNS if the plan includes deprecated packages (safety — don't apply a plan with abandoned tools).
   { echo "$envp" | grep -q 'deprecatedPackages'; } && pass "GET /environment -> plan flags DEPRECATED packages (safety — warn before applying; #114)" || fail "environment plan deprecation warning missing -> $(printf '%s' "$envp" | grep -oiE 'deprecatedPackages' | head -1)"
   { echo "$envp" | grep -q "URLSearchParams(location.search).get('tenant')"; } && pass "GET /environment -> honors ?tenant= from the URL (deep-link a tenant's plan + its deprecation warning; interconnect #114)" || fail "environment ?tenant= deep-link missing"
@@ -313,6 +316,10 @@ JSON
   echo "$cur" | jq -e '(.summary.installModes.cliPreload|type=="number") and (.summary.installModes.cli|type=="number") and (.summary.installModes.app|type=="number") and (.summary.installModes.service|type=="number") and (.summary.installModes.cliPreload>=3) and (.summary.installModes.cli==0)' >/dev/null 2>&1 && pass "GET /api/environment/current (_default) -> installModes SPLITS eager preloaded CLIs from lazy (git/chezmoi/mise _preload:true → cliPreload>=3, cli==0 — NOT 'on first use'; C12/D06 #154)" || fail "default installModes -> $(printf '%s' "$cur" | jq -c '.summary.installModes' 2>/dev/null | head -c 120)"
   # fire #114 — the clean case: _default (git/chezmoi/mise are current, not deprecated) has an EMPTY deprecatedPackages list.
   echo "$cur" | jq -e '(.summary.deprecatedPackages|type=="array") and (.summary.deprecatedPackages|length==0)' >/dev/null 2>&1 && pass "GET /api/environment/current (_default) -> deprecatedPackages empty (no abandoned tools in the plan; safety #114)" || fail "default deprecatedPackages -> $(printf '%s' "$cur" | jq -c '.summary.deprecatedPackages' 2>/dev/null | head -c 120)"
+  # fire #155 — A10: summary.unknownPackages NAMES the plan packages the catalog does NOT know (no recipe), matching
+  # the NAMED deprecatedPackages/platformGaps. _default's runner carries `alloy` (Grafana Alloy — intended per the
+  # observability doctrine but absent from software.yml), so unknownPackages must contain it (installModes.unknown>=1).
+  echo "$cur" | jq -e '(.summary.unknownPackages|type=="array") and ((.summary.unknownPackages|index("alloy"))!=null) and (.summary.installModes.unknown>=1)' >/dev/null 2>&1 && pass "GET /api/environment/current (_default) -> summary.unknownPackages NAMES uncatalogued packages (alloy; A10 explicit coverage gap #155)" || fail "default unknownPackages -> $(printf '%s' "$cur" | jq -c '{unknownPackages:.summary.unknownPackages,unknown:.summary.installModes.unknown}' 2>/dev/null | head -c 140)"
   nf="$(curl -s -o /dev/null -w '%{http_code}' "$u/api/environment/current?tenant=__nope__" 2>/dev/null || echo 000)"
   [ "$nf" = 404 ] && pass "env current (unknown tenant) -> 404" || fail "env current unknown -> $nf (want 404)"
 
