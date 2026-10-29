@@ -97,7 +97,13 @@ curl -sS "$u/login" 2>/dev/null | grep -qE '\.cta2\{[^}]*background:transparent'
 # #118 — the /apps search box + platform filter stay WIRED after the oninput/onchange → addEventListener conversion.
 curl -sS "$u/apps" 2>/dev/null | grep -q "addEventListener('input'" && pass "/apps -> search box wired via addEventListener (interactivity preserved after #118 conversion)" || fail "/apps addEventListener('input') wiring missing"
 # #119 — the /environment Load + Diff buttons stay WIRED after the onclick → addEventListener conversion.
-curl -sS "$u/environment" 2>/dev/null | grep -q "addEventListener('click',diffProposed)" && pass "/environment -> Load+Diff buttons wired via addEventListener (interactivity preserved after #119 conversion)" || fail "/environment addEventListener('click',diffProposed) wiring missing"
+# #141 — /environment is the heaviest page (~19.5KB); under the suite's OWN rapid curl-burst Cloudflare
+# transiently challenges a bare-curl request → a false-RED on this untouched page (recurred #139-#141; a
+# SPACED curl serves the wiring reliably, verified 4/4). Harden with a bounded retry: a single transient miss
+# retries after a short pause, but a genuine regression still fails after 3 attempts — GREEN stays meaningful
+# (per verification-loop "a perpetually-flaky gate is a blind gate"). Never masks a real wiring break.
+envpg=""; for _a in 1 2 3; do envpg="$(curl -sS "$u/environment" 2>/dev/null)"; echo "$envpg" | grep -q "addEventListener('click',diffProposed)" && break; sleep 2; done
+echo "$envpg" | grep -q "addEventListener('click',diffProposed)" && pass "/environment -> Load+Diff buttons wired via addEventListener (interactivity preserved after #119 conversion; #141 burst-resilient retry)" || fail "/environment addEventListener('click',diffProposed) wiring missing"
 # #120 — /history's dynamic per-row run-filter + clear buttons stay WIRED via EVENT DELEGATION (data-act on #out).
 curl -sS "$u/history" 2>/dev/null | grep -qF "closest('[data-act]')" && pass "/history -> dynamic row/filter buttons wired via event delegation (closest('[data-act]') on #out; #120)" || fail "/history event-delegation wiring (closest('[data-act]')) missing"
 # #121 — /machines' dynamic per-row detail + support-bundle + download buttons stay WIRED via EVENT DELEGATION

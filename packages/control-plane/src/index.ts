@@ -338,14 +338,16 @@ app.get('/history', (c) =>
 // fire #91 — U03 fleet UI: a "run" column shows each event's correlationId; clicking it re-loads the history
 // filtered to that run (the built-but-UI-only ?correlation= filter), so an operator can isolate one aid-up
 // run's events across the fleet. load(corr) optionally scopes to a correlationId; a banner clears the filter.
-async function load(corr){
+async function load(corr,quiet){
+  CUR_CORR=corr||null; // #141 remember the active run-filter so the poller preserves it across refreshes
   var out=document.getElementById('out'),tok=document.getElementById('tok').value.trim(),t=document.getElementById('tenant').value.trim()||'_default';
-  out.textContent='Loading…';
+  if(!quiet)out.textContent='Loading…'; // #141 quiet background poll ticks never flash Loading…
   try{
     var url='/api/history?tenant='+encodeURIComponent(t)+'&limit=50'+(corr?('&correlation='+encodeURIComponent(corr)):'');
     var r=await fetch(url,{headers:aidAdminHeaders()});
     var j=await r.json();
-    if(!r.ok){out.textContent='✗ '+(j.error||r.status)+aidAuthHint(r.status);return}
+    if(!r.ok){out.textContent='✗ '+(j.error||r.status)+aidAuthHint(r.status);stopPoll();return} // #141 stop polling on auth failure
+    startPoll(); // #141 authorized response → keep the surface live (covers empty + populated)
     // #126 Trusted-Types-safe render (no innerHTML, toward require-trusted-types-for 'script') — build the banner
     // + events table with createElement/textContent/.append (auto-escaped). data-act/data-corr are preserved so
     // the #120 delegated listener (closest('[data-act]')) still drives the run-filter + clear-filter buttons.
@@ -359,6 +361,7 @@ async function load(corr){
     var banner=document.createElement('p');banner.className='muted';
     if(corr){var mb=document.createElement('span');mb.className='mono';mb.textContent=corr;banner.append('Showing run ',mb,' · '+j.count+' event(s) · ',clearBtn());}
     else{banner.append(j.count+' events · tenant '+t+' · recording: '+(j.recordingMode||'events-only')+' (no terminal capture yet) · click a run to isolate its correlated events');}
+    var live=document.createElement('span');live.setAttribute('style','color:#00e5ff;margin-left:6px');live.title='auto-refreshing every 30s — pauses when the tab is hidden';live.textContent='↻ live';banner.append(' ',live); // #141
     frag.append(banner);
     var table=document.createElement('table');
     var thead=document.createElement('thead'),htr=document.createElement('tr');
@@ -391,6 +394,12 @@ document.getElementById('out').addEventListener('click',function(ev){
   var b=ev.target.closest('[data-act]');if(!b)return;
   if(b.getAttribute('data-act')==='filter'){load(b.getAttribute('data-corr'))}else{load()}
 });
+// #141 U15/real-time — /history self-refreshes on a visibility-aware poll (same pattern as /machines #140),
+// PRESERVING the active run-filter (CUR_CORR). Pause on a hidden tab, refetch on foreground, never stack timers.
+var POLL=null,CUR_CORR=null;
+function stopPoll(){if(POLL){clearInterval(POLL);POLL=null;}}
+function startPoll(){stopPoll();POLL=setInterval(function(){if(!document.hidden)load(CUR_CORR,true);},30000);}
+document.addEventListener('visibilitychange',function(){if(!document.hidden&&POLL)load(CUR_CORR,true);});
 </script>`,
     ),
   ),
@@ -808,13 +817,15 @@ app.get('/recommendations', (c) =>
 <p><button id=loadRecs>Load recommendations</button></p></div>
 <div id=out class=muted>No recommendations loaded.</div>
 <script>
-async function load(){
+async function load(opts){
+  opts=opts||{};
   var out=document.getElementById('out'),tok=document.getElementById('tok').value.trim(),t=document.getElementById('tenant').value.trim()||'_default';
-  out.textContent='Loading…';
+  if(!opts.quiet)out.textContent='Loading…'; // #141 quiet background poll ticks never flash Loading…
   try{
     var r=await fetch('/api/recommendations?tenant='+encodeURIComponent(t),{headers:aidAdminHeaders()});
     var j=await r.json();
-    if(!r.ok){out.textContent='✗ '+(j.error||r.status)+aidAuthHint(r.status);return}
+    if(!r.ok){out.textContent='✗ '+(j.error||r.status)+aidAuthHint(r.status);stopPoll();return} // #141 stop polling on auth failure
+    startPoll(); // #141 authorized response → keep the surface live (covers empty + populated)
     // #125 Trusted-Types-safe render (no innerHTML, toward require-trusted-types-for 'script') — build the summary
     // + each rec card with createElement; .append(string) makes an auto-escaped text node, so esc() is gone.
     var frag=document.createDocumentFragment();
@@ -826,6 +837,7 @@ async function load(){
     sum.append('tenant '+t+' · ');
     var gtag=document.createElement('span');gtag.className='tag';gtag.textContent=j.generated||'';
     sum.append(gtag,' · desired revision '+(j.currentRevision||'—'));
+    var live=document.createElement('span');live.setAttribute('style','color:#00e5ff;margin-left:6px');live.title='auto-refreshing every 30s — pauses when the tab is hidden';live.textContent='↻ live';sum.append(' ',live); // #141
     frag.append(sum);
     (j.recommendations||[]).forEach(function(k){
       var card=document.createElement('div');card.className='card rec rec-'+(k.severity||'');
@@ -840,7 +852,13 @@ async function load(){
     out.replaceChildren(frag);
   }catch(e){out.textContent='✗ '+e}
 }
-document.getElementById('loadRecs').addEventListener('click',load); // CSP STEP-1 (#117) — no inline on*=
+document.getElementById('loadRecs').addEventListener('click',function(){load()}); // CSP STEP-1 (#117) — no inline on*=; #141 wrap so the click Event isn't passed as opts
+// #141 U15/real-time — /recommendations self-refreshes on a visibility-aware poll (same pattern as /machines #140).
+// Pause on a hidden tab, refetch on foreground, never stack timers, no manual reload.
+var POLL=null;
+function stopPoll(){if(POLL){clearInterval(POLL);POLL=null;}}
+function startPoll(){stopPoll();POLL=setInterval(function(){if(!document.hidden)load({quiet:true});},30000);}
+document.addEventListener('visibilitychange',function(){if(!document.hidden&&POLL)load({quiet:true});});
 </script>`,
     ),
   ),
