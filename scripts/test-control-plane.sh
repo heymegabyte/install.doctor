@@ -555,6 +555,11 @@ JSON
     add="$(curl -s -H "authorization: Bearer $DADM" "$u/api/devices?tenant=_default&limit=200" 2>/dev/null)"
     echo "$add" | jq -e --arg d "$drdid" '([.items[]|select(.deviceId==$d)][0]) as $m | ($m.drift=="drifted") and ($m.lastRevision=="r0")' >/dev/null 2>&1 && pass "GET /api/devices -> drift: device at older revision reads 'drifted' (r0 vs r1, N08)" || fail "drift drifted -> $(printf '%s' "$add" | head -c 200)"
     echo "$add" | jq -e --arg d "$drdid" '([.items[]|select(.deviceId==$d)][0].health.software)=="drifted"' >/dev/null 2>&1 && pass "GET /api/devices -> health.software=drifted for the behind-revision device (U11)" || fail "health drifted -> $(printf '%s' "$add" | head -c 200)"
+    # fire #138 (N08/U15) — a FLEET-HEALTH rollup on /api/devices: an at-a-glance summary of the whole loaded
+    # inventory (total · ok/stale/never by connectivity · drifted · revoked), so an operator sees fleet health
+    # without scanning every row. Computed server-side over the loaded devices. The connectivity buckets
+    # PARTITION the total (ok+stale+never==total); drifted>=1 (the drift-probe applied r0 above).
+    echo "$add" | jq -e '.summary as $s | ($s.total==.count) and ($s.ok+$s.stale+$s.neverReported==$s.total) and ($s.drifted>=1) and ($s.revoked|type=="number")' >/dev/null 2>&1 && pass "GET /api/devices -> summary fleet-health rollup (total·ok/stale/never partition·drifted·revoked; N08/U15 #138)" || fail "fleet summary -> $(printf '%s' "$add" | jq -c '.summary' 2>/dev/null | head -c 160)"
     [ -n "$drdid" ] && curl -s -o /dev/null -X POST -H "authorization: Bearer $DADM" "$u/api/devices/$drdid/revoke" >/dev/null 2>&1
     # Recommendations (N03): a drifted device yields a 'drifted' rec (rule-based) naming that device.
     rcenr="$(curl -s -X POST -H "authorization: Bearer $DADM" -H 'content-type: application/json' -d '{"tenant":"_default","label":"recs-probe"}' "$u/api/devices/enroll" 2>/dev/null)"
