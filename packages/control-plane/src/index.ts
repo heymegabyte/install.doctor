@@ -709,6 +709,9 @@ async function detail(tr,name){
     var dw=depWarnEl(j.deprecated);if(dw)frag.append(dw);
     var modeLine=document.createElement('div');modeLine.setAttribute('style','margin:2px 0 6px');var md=document.createElement('span');md.className='muted';md.textContent=modeDesc(j.installMode,j.bin);modeLine.append(modeBadgeEl(j.installMode),' ',md);frag.append(modeLine);
     var installLine=document.createElement('div');installLine.className='muted';installLine.setAttribute('style','margin:2px 0 6px');installLine.append('Install ');var nb=document.createElement('b');nb.textContent=j.name;installLine.append(nb,' (command: '+(j.bin||'')+') on ');appendTags(installLine,j.platforms);installLine.append(':');frag.append(installLine);
+    // A10 (#137) — state what the tool is NOT installable on (complement of platforms), so availability is
+    // explicit, not inferred from the absence of a tag. Muted so it reads as a limitation, not an action.
+    if(j.unavailablePlatforms&&j.unavailablePlatforms.length){var unLine=document.createElement('div');unLine.className='muted';unLine.setAttribute('style','margin:2px 0 6px');unLine.append('Not available on: ');var plLbl={macos:'macOS',linux:'Linux',windows:'Windows'};j.unavailablePlatforms.forEach(function(p,i){if(i)unLine.append(' ');unLine.append(tagEl(plLbl[p]||p,'',''+'border-color:#555;color:#999'));});frag.append(unLine);}
     if(j.deps&&j.deps.length){var depsLine=document.createElement('div');depsLine.className='muted';depsLine.setAttribute('style','margin:2px 0 6px');depsLine.append('Depends on: ');appendDepsLinks(depsLine,j.deps);frag.append(depsLine);}
     // R14/F15 (#136) — config coverage: a tool with a post-installx hook gets an AUTOMATED first-run setup
     // step. Name the concrete action (the hook); absent → nothing (honest, no false "configured" claim).
@@ -926,7 +929,10 @@ app.get('/api/catalog/:name', (c) => {
   const commands = (e.providers || [])
     .filter((p) => INSTALL_CMD[p] && pkgs[p])
     .map((p) => ({ provider: p, pkg: pkgs[p], command: INSTALL_CMD[p](pkgs[p]) }));
-  return c.json({ name: e.name, bin: e.bin, platforms: e.platforms, providers: e.providers, short: e.short, github: e.github, home: e.home, docs: e.docs, installMode: e.installMode || 'cli', deprecated: e.deprecated, deps: e.deps, configured: e.configured, postInstall: e.postInstall, commands });
+  // A10 (#137) — state platform availability EXPLICITLY: the OSes this tool is NOT installable on (the
+  // complement of its declared `platforms`), so the detail says what it's missing (empty = every platform).
+  const unavailablePlatforms = AID_PLATFORMS.filter((p) => !(e.platforms || []).includes(p));
+  return c.json({ name: e.name, bin: e.bin, platforms: e.platforms, unavailablePlatforms, providers: e.providers, short: e.short, github: e.github, home: e.home, docs: e.docs, installMode: e.installMode || 'cli', deprecated: e.deprecated, deps: e.deps, configured: e.configured, postInstall: e.postInstall, commands });
 });
 
 app.post('/api/ai/v1/resolve', async (c) => {
