@@ -266,6 +266,13 @@ JSON
     echo "$wr" | grep -q '"digest"' && pass "PUT current (bearer, valid) -> 200 + digest" || fail "authed PUT -> $wr"
     rb="$(curl -s "$u/api/environment/current?tenant=_test" 2>/dev/null)"
     echo "$rb" | grep -q '"revision":"r1"' && pass "GET current (_test) -> stored r1 (write persisted to D1)" || fail "read-back -> $rb"
+    # fire #135 (A10) — model partial-platform availability EXPLICITLY. Seed a tenant whose plan mixes an
+    # all-platform tool (ack: linux/macos/windows) with a macOS-only tool (aerospace); the plan summary's
+    # platformGaps must flag aerospace as unavailable on linux + windows (NOT macos), and NOT flag ack anywhere.
+    pgbp="$(jq -n --slurpfile a "$bpf" '$a[0] | .defaults.packages=["ack","aerospace"] | .machines=[] | .services=[]')"
+    curl -s -X PUT -H "authorization: Bearer $ADMIN" -H 'content-type: application/json' -d "$(jq -n --argjson b "$pgbp" '{tenant:"_platgap",blueprint:$b}')" "$u/api/environment/current" >/dev/null 2>&1
+    pg="$(curl -s "$u/api/environment/current?tenant=_platgap" 2>/dev/null)"
+    echo "$pg" | jq -e '(.summary.platformGaps.linux|index("aerospace")!=null) and (.summary.platformGaps.windows|index("aerospace")!=null) and (.summary.platformGaps.macos|index("aerospace")==null) and (.summary.platformGaps.linux|index("ack")==null)' >/dev/null 2>&1 && pass "GET /api/environment/current (_platgap) -> summary.platformGaps flags the macOS-only pkg unavailable on linux+windows, not the all-platform pkg (A10 #135)" || fail "platformGaps -> $(printf '%s' "$pg" | jq -c '.summary.platformGaps' 2>/dev/null | head -c 160)"
     sc="$(curl -s -o /dev/null -w '%{http_code}' -X PUT -H "authorization: Bearer $ADMIN" -H 'content-type: application/json' -d "$(jq -n --slurpfile a "$bpf" '{tenant:"_test",expectedRevision:"STALE",blueprint:$a[0]}')" "$u/api/environment/current" 2>/dev/null || echo 000)"
     [ "$sc" = 409 ] && pass "PUT current (stale expectedRevision) -> 409 (optimistic lock)" || fail "stale revision -> $sc (want 409)"
     mc="$(curl -s -o /dev/null -w '%{http_code}' -X PUT -H "authorization: Bearer $ADMIN" -H 'content-type: application/json' -d "$(jq -n --slurpfile a "$bpf" '{tenant:"_test",expectedRevision:"r1",blueprint:$a[0]}')" "$u/api/environment/current" 2>/dev/null || echo 000)"

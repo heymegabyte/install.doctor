@@ -52,6 +52,26 @@ function collectDeprecated(bp: { defaults?: { packages?: string[] }; machines?: 
   }
   return out.sort((a, b) => a.name.localeCompare(b.name));
 }
+// A10 — model partial-platform availability EXPLICITLY. For each OS, list the plan's catalog packages NOT
+// installable on it (their declared `platforms` exclude that OS), so plan review SEES where applying the plan
+// is only a PARTIAL success across a mixed fleet (a macOS-only app won't land on the Linux/Windows hosts)
+// instead of the package being silently applicable. Unknown (non-catalog) packages are skipped — platforms
+// unknown, never guessed. Shape mirrors collectDeprecated/tallyInstallModes (one scan of defaults+machines).
+const AID_PLATFORMS = ['macos', 'linux', 'windows'] as const;
+function collectPlatformGaps(bp: { defaults?: { packages?: string[] }; machines?: { packages?: string[] }[] }): Record<string, string[]> {
+  const names = new Set<string>();
+  for (const p of bp.defaults?.packages ?? []) names.add(p);
+  for (const m of bp.machines ?? []) for (const p of m.packages ?? []) names.add(p);
+  const gaps: Record<string, string[]> = { macos: [], linux: [], windows: [] };
+  for (const name of names) {
+    const e = CATALOG_BY_NAME.get(name);
+    if (!e) continue;
+    const plats = new Set(e.platforms ?? []);
+    for (const os of AID_PLATFORMS) if (!plats.has(os)) gaps[os].push(name);
+  }
+  for (const os of AID_PLATFORMS) gaps[os].sort((a, b) => a.localeCompare(b));
+  return gaps;
+}
 // Install-command templates per provider — MIRROR the cnf hook's __cnf_do_install (D04: ONE
 // provider→command contract shared with the deterministic executor). Drives the App Store install
 // detail (R13 — App Store details from recipe contracts). Keep in sync with not-found-hook.sh.
@@ -427,6 +447,22 @@ function renderSummary(bp){
     var dbItems=mk('div');dbItems.setAttribute('style','margin-top:4px');
     dep.forEach(function(x,i){if(i)dbItems.append(document.createElement('br'));var a=mk('a','tag');a.href='/apps?q='+encodeURIComponent(x.name);a.setAttribute('style','border-color:#f0a020;color:#f0a020');a.title=x.reason;a.textContent=x.name;dbItems.append(a,' ',muted(x.reason));});
     db.append(dbItems);card.append(db);
+  }
+  // A10 (#135) — partial-platform availability: summary.platformGaps lists, per OS, the plan packages that
+  // will NOT install there (a macOS-only app on the Linux/Windows hosts), so plan review sees partial success.
+  var pg=bp.platformGaps;
+  if(pg){
+    var pgOrder=['macos','linux','windows'],pgLabel={macos:'macOS',linux:'Linux',windows:'Windows'};
+    var pgHas=pgOrder.some(function(os){return (pg[os]||[]).length});
+    if(pgHas){
+      var gb=mk('div');gb.setAttribute('style','border-left:3px solid #f0a020;padding:6px 10px;margin:0 0 10px;background:#1a1407;border-radius:4px');
+      var gbh=document.createElement('b');gbh.setAttribute('style','color:#f0a020');gbh.textContent='Partial platform coverage';
+      gb.append(gbh,' ',muted('— some packages will not install on every platform'));
+      pgOrder.forEach(function(os){var miss=pg[os]||[];if(!miss.length)return;var row=mk('div');row.setAttribute('style','margin-top:4px');row.append(muted('Unavailable on '+pgLabel[os]+': '));miss.forEach(function(n,i){if(i)row.append(' ');var a=mk('a','tag');a.href='/apps?q='+encodeURIComponent(n);a.setAttribute('style','border-color:#f0a020;color:#f0a020');a.textContent=n;row.append(a);});gb.append(row);});
+      card.append(gb);
+    } else {
+      var pPlat=labeledP('Platforms');pPlat.append(muted('✓ all packages install on macOS, Linux + Windows'));card.append(pPlat);
+    }
   }
   var pPk=labeledP('Packages ('+pkgs.length+')');appendPkgLinks(pPk,pkgs);card.append(pPk);
   // C12/D06 — eager-vs-lazy install breakdown (server-computed summary.installModes, interconnects #110).
@@ -1014,6 +1050,8 @@ app.get('/api/environment/current', async (c) => {
       installModes: tallyInstallModes(bp),
       // C12/D14 safety — any packages in the plan the maintainer flagged deprecated (warn before applying).
       deprecatedPackages: collectDeprecated(bp),
+      // A10 — per-OS list of plan packages NOT installable on that platform (partial-success made explicit).
+      platformGaps: collectPlatformGaps(bp),
     };
     return c.json({ tenant, revision: bp.revision, digest: await blueprintDigest(bp), updatedAt: row.updated_at, markdown: row.markdown, summary });
   } catch (e) {
