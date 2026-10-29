@@ -1,6 +1,6 @@
 # aid — CURRENT STATE (verified audit)
 
-**Refreshed:** fire #175 — X14 freshness now reads the HEADLINE fire# (was a vacuous body-mention regex capped at #70-89, unable to detect a stale headline) + GUARDS cross-ledger fire# AND assertion-count agreement across all 3 ledgers (the #169/#173 manual reconciliations promoted to deterministic drift-gates, siblings of the catalog-count guard #159). Non-gated product frontier exhausted (matrix all-⬜ human-gated/prereq-blocked); ledger-integrity hardening is the autonomous lane. **Branch:** `master`.
+**Refreshed:** fire #177 — shipped X12: a ranked `docs/aid/BACKLOG.md` (value/reliability/effort/recurring-cost) that hands the operator a clear "unblock FIRST" decision aid for the human-gated frontier (O04 → K/#7 → I/J → N02), gated by X14. Prior arc: ledger-integrity guards (#174 cross-ledger count, #175 headline-fire# freshness). #176 was a verification-only convergence (no change). Non-gated product frontier exhausted (matrix all-⬜ human-gated/prereq-blocked); convergence + the ranked backlog are the autonomous lane. **Branch:** `master`.
 Full spec: `MASTER-PROMPT.md` · resume pointer: `NEXT-STEPS.md` · matrix: `REQUIREMENTS.md`. Nothing here
 is inherited without evidence; every count below is from a live `scripts/test-all.sh` run.
 
@@ -10,7 +10,7 @@ The UNBLOCKED functional product has **converged**: the control plane, the full 
 dashboard, the honest-docs set, and a one-command test suite are built + live-verified at
 **https://app.install.doctor**. The remaining high-value requirements are **GATED on external action**
 (see § Gated). Loop fires now harden docs/tests/honesty until a gated dep is provisioned. Verified by
-**`scripts/test-all.sh` → 619 assertions / 33 suites GREEN (1 OS-skipped)** with the prod URL.
+**`scripts/test-all.sh` → 620 assertions / 33 suites GREEN (1 OS-skipped)** with the prod URL.
 
 ## ✅ Built + live-verified
 
