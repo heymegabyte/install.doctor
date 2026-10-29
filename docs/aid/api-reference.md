@@ -38,8 +38,8 @@ A "public page" serves an HTML shell anyone can load, but its in-page data fetch
 
 | Route | Auth | Purpose |
 | --- | --- | --- |
-| `GET /api/catalog` | public | software.yml catalog (read-only); `?q=` name/bin filter, `?limit=` 1..200. |
-| `GET /api/catalog/:name` | public | One catalog entry + the exact per-manager install commands. |
+| `GET /api/catalog` | public | software.yml catalog (read-only); `?q=` filters by name, binary, OR description (find a tool by what it does); `?platform=` `macos`\|`linux`\|`windows` shows only tools installable on that OS (allowlisted, echoes the applied filter); `?limit=` 1..200. |
+| `GET /api/catalog/:name` | public | One catalog entry + the exact per-manager install commands, plus its description (`short`) and provenance/learn-more links (`github`, `home`, `docs`) when present. |
 
 ## AI routing
 
