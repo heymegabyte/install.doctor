@@ -369,6 +369,66 @@ is_headless() {
 }
 
 # ---------------------------------------------------------------------------
+# detect_env_class — the host's VIRTUALIZATION/environment class, orthogonal to
+# the OS role (detect_os) and the graphical session (detect_graphical_session).
+# B04 "distinguish bare metal, VM, WSL, container". Lets provisioning adapt:
+# skip hardware/GUI tuning in a container, handle WSL's Windows-interop specially,
+# relax bare-metal-only tuning inside a VM.
+#
+# Output: container | wsl | vm | bare-metal
+#   container  — Docker/Podman/LXC/nspawn/k8s (checked FIRST: a container nested
+#                in a VM is still a container for provisioning purposes)
+#   wsl        — Windows Subsystem for Linux (same probes as detect_os)
+#   vm         — a virtual machine (systemd-detect-virt, DMI hypervisor markers,
+#                or the macOS hv_vmm_present sysctl)
+#   bare-metal — none of the above
+#
+# Override with INSTALL_DOCTOR_ENV_CLASS (tests / constrained environments),
+# mirroring INSTALL_DOCTOR_GRAPHICAL_SESSION / INSTALL_DOCTOR_PRIVILEGE.
+# ---------------------------------------------------------------------------
+detect_env_class() {
+  # Explicit override (tests / constrained environments)
+  if [ -n "${INSTALL_DOCTOR_ENV_CLASS:-}" ]; then
+    echo "$INSTALL_DOCTOR_ENV_CLASS"
+    return 0
+  fi
+
+  # 1. Container FIRST — a container nested inside a VM is still a container here
+  #    (the most relevant class for provisioning: no kernel/hardware/GUI setup).
+  if [ -f /.dockerenv ] || [ -n "${container:-}" ] \
+    || { [ -r /proc/1/cgroup ] && grep -qiE 'docker|lxc|containerd|kubepods|podman' /proc/1/cgroup 2>/dev/null; }; then
+    echo "container"
+    return 0
+  fi
+
+  # 2. WSL — Windows Subsystem for Linux (parity with detect_os's WSL probes).
+  if [ -f /proc/sys/fs/binfmt_misc/WSLInterop ] || grep -qi microsoft /proc/version 2>/dev/null; then
+    echo "wsl"
+    return 0
+  fi
+
+  # 3. VM — prefer systemd-detect-virt (authoritative on Linux: `--vm --quiet`
+  #    exits 0 only when virtualized); else DMI hypervisor markers; else the
+  #    macOS hypervisor-present sysctl. Each branch is tried only where available.
+  if command -v systemd-detect-virt >/dev/null 2>&1; then
+    systemd-detect-virt --quiet --vm 2>/dev/null && { echo "vm"; return 0; }
+  elif [ -r /sys/class/dmi/id/product_name ] || [ -r /sys/class/dmi/id/sys_vendor ]; then
+    if grep -qiE 'virtual|vmware|kvm|qemu|virtualbox|xen|hyper-v|bhyve|parallels' \
+      /sys/class/dmi/id/product_name /sys/class/dmi/id/sys_vendor 2>/dev/null; then
+      echo "vm"
+      return 0
+    fi
+  elif [ "$(detect_os)" = "macos" ]; then
+    # kern.hv_vmm_present = 1 when macOS itself runs under a hypervisor (a VM).
+    [ "$(sysctl -n kern.hv_vmm_present 2>/dev/null)" = "1" ] && { echo "vm"; return 0; }
+  fi
+
+  # 4. Default: bare metal.
+  echo "bare-metal"
+  return 0
+}
+
+# ---------------------------------------------------------------------------
 # detect_privilege — returns the host's effective privilege level
 #
 # Output: root | passwordless-sudo | sudo | user
