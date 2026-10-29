@@ -260,7 +260,7 @@ app.get('/history', (c) =>
 <p class=muted>Paste your admin token to load the fleet's reported events (apply / plan / report runs across devices).</p>
 <p class=muted><strong>Recording fidelity:</strong> History captures structured events only — <strong>no terminal output</strong> is captured yet (U02; a future recorder will add redacted output).</p>
 <p><input id=tenant placeholder="tenant (default _default)" style="width:46%"> <input id=tok type=password placeholder="AID_ADMIN_TOKEN" style="width:46%"></p>
-<p><button onclick="load()">Load history</button></p></div>
+<p><button id=loadBtn>Load history</button></p></div>
 <div id=out class=muted>No events loaded.</div>
 <script>
 function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]})}
@@ -276,16 +276,25 @@ async function load(corr){
     var r=await fetch(url,{headers:{'authorization':'Bearer '+tok}});
     var j=await r.json();
     if(!r.ok){out.textContent='✗ '+(j.error||r.status);return}
-    if(!j.items||!j.items.length){out.innerHTML=corr?('<p class=muted>No events for run <span class=mono>'+esc(corr)+'</span>. <button class=lnk onclick="load()">✕ clear filter</button></p>'):('No events for '+esc(t)+'.');return}
+    if(!j.items||!j.items.length){out.innerHTML=corr?('<p class=muted>No events for run <span class=mono>'+esc(corr)+'</span>. <button class=lnk data-act="clear">✕ clear filter</button></p>'):('No events for '+esc(t)+'.');return}
     var rows=j.items.map(function(e){
-      var run=e.correlationId?('<button class=lnk title="filter to run '+esc(e.correlationId)+(e.parentRunId?(' · child of '+esc(e.parentRunId)):'')+'" onclick="load(\\''+esc(e.correlationId)+'\\')">'+(e.parentRunId?'↳ ':'')+esc(String(e.correlationId).slice(-6))+'</button>'):'<span class=muted>—</span>';
+      var run=e.correlationId?('<button class=lnk title="filter to run '+esc(e.correlationId)+(e.parentRunId?(' · child of '+esc(e.parentRunId)):'')+'" data-act="filter" data-corr="'+esc(e.correlationId)+'">'+(e.parentRunId?'↳ ':'')+esc(String(e.correlationId).slice(-6))+'</button>'):'<span class=muted>—</span>';
       var dev='<a class=mono href="/machines?device='+encodeURIComponent(e.deviceId)+'" title="View this machine">'+esc(e.deviceId)+'</a>';
       return '<tr><td>'+esc(e.createdAt)+'</td><td>'+dev+'</td><td>'+esc(e.kind)+'</td><td>'+esc(e.status)+'</td><td>'+run+'</td><td>'+esc(e.summary||'')+'</td></tr>';
     }).join('');
-    var banner=corr?('<p class=muted>Showing run <span class=mono>'+esc(corr)+'</span> · '+j.count+' event(s) · <button class=lnk onclick="load()">✕ clear filter</button></p>'):('<p class=muted>'+j.count+' events · tenant '+esc(t)+' · recording: '+esc(j.recordingMode||'events-only')+' (no terminal capture yet) · click a run to isolate its correlated events</p>');
+    var banner=corr?('<p class=muted>Showing run <span class=mono>'+esc(corr)+'</span> · '+j.count+' event(s) · <button class=lnk data-act="clear">✕ clear filter</button></p>'):('<p class=muted>'+j.count+' events · tenant '+esc(t)+' · recording: '+esc(j.recordingMode||'events-only')+' (no terminal capture yet) · click a run to isolate its correlated events</p>');
     out.innerHTML=banner+'<table><thead><tr><th>time</th><th>device</th><th>kind</th><th>status</th><th>run</th><th>summary</th></tr></thead><tbody>'+rows+'</tbody></table>';
   }catch(e){out.textContent='✗ '+e}
 }
+// #120 CSP STEP 1 — wire the static Load button + delegate the DYNAMIC per-row run-filter / clear-filter
+// buttons (built inside #out's innerHTML) via ONE listener reading data-act/data-corr. No inline on*=,
+// toward dropping script-src 'unsafe-inline'. load() takes an optional corr, so the static button calls
+// load() with NO arg (passing it the click Event directly would be treated as a truthy correlationId).
+document.getElementById('loadBtn').addEventListener('click',function(){load()});
+document.getElementById('out').addEventListener('click',function(ev){
+  var b=ev.target.closest('[data-act]');if(!b)return;
+  if(b.getAttribute('data-act')==='filter'){load(b.getAttribute('data-corr'))}else{load()}
+});
 </script>`,
     ),
   ),
