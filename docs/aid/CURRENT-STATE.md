@@ -10,7 +10,7 @@ The UNBLOCKED functional product has **converged**: the control plane, the full 
 dashboard, the honest-docs set, and a one-command test suite are built + live-verified at
 **https://app.install.doctor**. The remaining high-value requirements are **GATED on external action**
 (see § Gated). Loop fires now harden docs/tests/honesty until a gated dep is provisioned. Verified by
-**`scripts/test-all.sh` → 549 assertions / 31 suites GREEN (1 OS-skipped)** with the prod URL.
+**`scripts/test-all.sh` → 550 assertions / 31 suites GREEN (1 OS-skipped)** with the prod URL.
 
 ## ✅ Built + live-verified
 
@@ -140,10 +140,12 @@ dashboard, the honest-docs set, and a one-command test suite are built + live-ve
 ## 🚧 Gated — remaining high-value work needs EXTERNAL action (not a loop slice)
 
 - **O Better Auth** — **BUILT #102 (authorize-initiation LIVE; see § Built).** GitHub/Google sign-in INITIATES
-  (verified). The remaining COMPLETION gates: (1) register `https://app.install.doctor/api/auth/callback/{github,google}`
-  on the OAuth apps + confirm they're app.install.doctor's (a one-time human step); (2) wire the dashboard to use a
-  user SESSION instead of the `AID_ADMIN_TOKEN` bearer (a buildable follow-up, next fire); (3) magic-link needs SES
-  (`AWS_SES_ACCESS_KEY_ID` absent). Not a loop blocker anymore — (2) is the next buildable slice.
+  (verified). (2) the dashboard is now SESSION-AWARE — `requireAdmin` accepts a Better Auth session (allowlisted
+  email) OR the token, and the chrome shows the signed-in user + Sign-out (#131/#132, guarded by test-auth #8–#11
+  + #150 bad-cookie graceful-degradation) — **DONE**. The remaining COMPLETION gates are HUMAN/EXTERNAL: (1) register
+  `https://app.install.doctor/api/auth/callback/{github,google}` on the OAuth apps (a one-time human step) so the
+  session branch's live ACCEPTANCE can be verified end-to-end; (3) magic-link needs SES (`AWS_SES_ACCESS_KEY_ID`
+  absent, re-confirmed via get-secret #150). No buildable loop slice remains in O — it is gated on (1)+(3).
 - **K/#7 the real provider CALL** — still gated: `DEEPSEEK_API_KEY` IS present (#101) but the invariant is
   routing THROUGH the shared ProjectSites/OnePrompt orchestrator + CF AI Gateway (no second stack), and
   `PROJECTSITES_API_URL`/`ONEPROMPT_URL`/`AID_INFERENCE_TOKEN` are all absent. Routing policy + pre-flight
