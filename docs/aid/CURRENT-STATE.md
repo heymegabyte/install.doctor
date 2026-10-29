@@ -1,6 +1,6 @@
 # aid — CURRENT STATE (verified audit)
 
-**Refreshed:** fire #95 (reconciled against the A01–X15 matrix + the live suite). **Branch:** `master`.
+**Refreshed:** fire #96 (reconciled against the A01–X15 matrix + the live suite). **Branch:** `master`.
 Full spec: `MASTER-PROMPT.md` · resume pointer: `NEXT-STEPS.md` · matrix: `REQUIREMENTS.md`. Nothing here
 is inherited without evidence; every count below is from a live `scripts/test-all.sh` run.
 
@@ -10,7 +10,7 @@ The UNBLOCKED functional product has **converged**: the control plane, the full 
 dashboard, the honest-docs set, and a one-command test suite are built + live-verified at
 **https://app.install.doctor**. The remaining high-value requirements are **GATED on external action**
 (see § Gated). Loop fires now harden docs/tests/honesty until a gated dep is provisioned. Verified by
-**`scripts/test-all.sh` → 395 assertions / 22 suites GREEN (1 OS-skipped)** with the prod URL.
+**`scripts/test-all.sh` → 396 assertions / 22 suites GREEN (1 OS-skipped)** with the prod URL.
 
 ## ✅ Built + live-verified
 
@@ -33,7 +33,7 @@ dashboard, the honest-docs set, and a one-command test suite are built + live-ve
 - **Dashboard read surfaces** (thin honest pages, NOT the Figma redesign) — **Machines** (inventory +
   last-active + drift + health + scope columns, + per-device DETAIL with a unified change timeline + a
   one-click **Support bundle** view/download (U12)),
-  **App Store** (catalog live-search — now matches each tool's **description** too, so you can find a tool by WHAT IT DOES, not just its name/command (`?q=fuzzy` → fzf + 5 fuzzy/search tools); the box advertises the breadth; D-series #94 — + install commands + each tool's **description** (`_short`, 905/1068 entries) as a scannable sub-line + a **"Learn more" link set** in the detail — **Source** (github) + **Homepage** (`_home`) + **Docs** (`_docs`), only the links that exist so there are no dead links (489/1068 carry home/docs; D11 #92+#95)), **Environment** (a structured **"Plan at a glance"** summary — packages/machines/services/routing/privacy from `/api/environment/current`'s server-side `summary` (step-5 review, C12 #93) — + the read-only desired-state
+  **App Store** (catalog live-search — now matches each tool's **description** too, so you can find a tool by WHAT IT DOES, not just its name/command (`?q=fuzzy` → fzf + 5 fuzzy/search tools); the box advertises the breadth; D-series #94 — + install commands + each tool's **description** (`_short`, 905/1068 entries) as a scannable sub-line + a **"Learn more" link set** in the detail — **Source** (github) + **Homepage** (`_home`) + **Docs** (`_docs`), only the links that exist so there are no dead links (489/1068 carry home/docs; D11 #92+#95); the user-facing descriptions are **verified-accurate** — 19 fabricated/slop `_short` entries (e.g. distrobox/upscayl/dialect, which described the wrong product or just named the repo) corrected against real upstream `.description` + a **hard gate** (`test-software-descriptions.sh`) now blocks fabrication meta-commentary in `_short` from regressing (D11/D14 #96)), **Environment** (a structured **"Plan at a glance"** summary — packages/machines/services/routing/privacy from `/api/environment/current`'s server-side `summary` (step-5 review, C12 #93) — + the read-only desired-state
   ENVIRONMENT.md view + a **semantic DIFF tool** — paste a proposed ENVIRONMENT.md → color-coded
   added/removed/changed vs current, C09), **Recommendations** (rule-based: failed-last-run/drifted/never/stale, DEDUPED
   per-machine so no host is double-alerted, a `distinctDeviceCount` blast-radius summary, each card's
