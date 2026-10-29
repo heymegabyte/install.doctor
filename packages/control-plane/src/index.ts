@@ -14,6 +14,22 @@ import { getMigrations } from 'better-auth/db/migration';
 import catalogData from './catalog.json';
 type CatalogEntry = { name: string; bin: string; providers: string[]; pkgs: Record<string, string>; platforms: string[]; short?: string; github?: string; home?: string; docs?: string; installMode?: 'app' | 'service' | 'cli' };
 const CATALOG = catalogData as CatalogEntry[];
+const CATALOG_BY_NAME = new Map(CATALOG.map((e) => [e.name, e]));
+// D06/C12 — tally a plan's packages (defaults + every machine's own) by install mode, so the plan-review
+// summary shows the eager-vs-lazy breakdown: how many GUI desktop apps install at setup vs CLIs installed
+// lazily on first command use (the core product promise). Packages the catalog doesn't know → "unknown".
+function tallyInstallModes(bp: { defaults?: { packages?: string[] }; machines?: { packages?: string[] }[] }): { app: number; service: number; cli: number; unknown: number } {
+  const names = new Set<string>();
+  for (const p of bp.defaults?.packages ?? []) names.add(p);
+  for (const m of bp.machines ?? []) for (const p of m.packages ?? []) names.add(p);
+  const t = { app: 0, service: 0, cli: 0, unknown: 0 };
+  for (const name of names) {
+    const e = CATALOG_BY_NAME.get(name);
+    if (!e) t.unknown++;
+    else t[e.installMode || 'cli']++;
+  }
+  return t;
+}
 // Install-command templates per provider — MIRROR the cnf hook's __cnf_do_install (D04: ONE
 // provider→command contract shared with the deterministic executor). Drives the App Store install
 // detail (R13 — App Store details from recipe contracts). Keep in sync with not-found-hook.sh.
@@ -295,8 +311,18 @@ function renderSummary(bp){
   // Each planned package links to its App Store detail (review-the-plan step 5 + interconnectedness): click a
   // package to see what it is, its install commands, platforms, and learn-more links.
   function pkgLinks(a){return a&&a.length?a.map(function(x){return '<a class=tag href="/apps?q='+encodeURIComponent(x)+'" title="View '+esc(x)+' in the App Store">'+esc(x)+'</a>'}).join(' '):'<span class=muted>—</span>';}
+  // C12/D06 — eager-vs-lazy install breakdown (how provisioning behaves): desktop apps installed at setup vs
+  // CLIs installed lazily on first command use. From the server-computed summary.installModes (interconnects #110).
+  var im=bp.installModes||{app:0,service:0,cli:0,unknown:0};
+  var imParts=[];
+  if(im.app)imParts.push('<b>'+im.app+'</b> desktop app'+(im.app>1?'s':'')+' at setup');
+  if(im.service)imParts.push('<b>'+im.service+'</b> service'+(im.service>1?'s':''));
+  if(im.cli)imParts.push('<b>'+im.cli+'</b> CLI'+(im.cli>1?'s':'')+' on first use');
+  if(im.unknown)imParts.push('<b>'+im.unknown+'</b> other');
+  var imStr=imParts.length?imParts.join(' · '):'—';
   sum.innerHTML='<div class=card><p class=muted><strong>Plan at a glance</strong> — what this environment describes (review before applying). Derived from the desired blueprint.</p>'
     +'<p><strong>Packages ('+pkgs.length+')</strong> '+pkgLinks(pkgs)+'</p>'
+    +'<p><strong>Installs</strong> <span class=muted>'+imStr+'</span></p>'
     +'<p><strong>Machines ('+machines.length+')</strong> <span class=muted>'+roleStr+'</span></p>'
     +'<p><strong>Services ('+services.length+')</strong> '+tagList(kinds)+'</p>'
     +'<p><strong>Routing</strong> <span class=muted>engine '+esc(rt.engine||'—')+' · provider '+esc(rt.preferredProvider||'—')+' · premium '+(rt.allowPremium?'on':'off')+'</span></p>'
@@ -615,7 +641,7 @@ app.get('/api/catalog', (c) => {
 // built from the SAME provider→command templates the cnf executor uses (D04). PUBLIC, read-only.
 app.get('/api/catalog/:name', (c) => {
   const name = c.req.param('name');
-  const e = CATALOG.find((x) => x.name === name);
+  const e = CATALOG_BY_NAME.get(name);
   if (!e) return c.json({ error: 'not_found' }, 404);
   const pkgs = e.pkgs || {};
   const commands = (e.providers || [])
@@ -744,6 +770,8 @@ app.get('/api/environment/current', async (c) => {
       services: (bp.services ?? []).map((s) => ({ id: s.id, kind: s.kind })),
       routing: { engine: bp.routing?.engine, preferredProvider: bp.routing?.preferredProvider, allowPremium: bp.routing?.allowPremium },
       privacy: bp.privacy,
+      // C12/D06 — the plan's eager-vs-lazy install breakdown (desktop apps at setup · services · lazy CLIs).
+      installModes: tallyInstallModes(bp),
     };
     return c.json({ tenant, revision: bp.revision, digest: await blueprintDigest(bp), updatedAt: row.updated_at, markdown: row.markdown, summary });
   } catch (e) {

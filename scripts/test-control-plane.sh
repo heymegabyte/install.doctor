@@ -91,6 +91,8 @@ if [ -n "${CONTROL_PLANE_URL:-}" ]; then
   # fire #93 — C12 "review the plan" (intended-experience step 5): a structured at-a-glance summary of the
   # desired blueprint (packages/machines/services/routing/privacy), imported from the current markdown.
   { echo "$envp" | grep -q 'id=summary' && echo "$envp" | grep -q 'function renderSummary(' && echo "$envp" | grep -qi 'Plan at a glance'; } && pass "GET /environment -> structured 'Plan at a glance' summary of the desired blueprint (step-5 review; C12)" || fail "environment plan summary -> $(printf '%s' "$envp" | grep -oE 'id=summary|renderSummary|Plan at a glance' | sort -u | tr '\n' ' ')"
+  # fire #111 — the plan summary renders the eager-vs-lazy INSTALL breakdown (desktop apps at setup vs CLIs on first use).
+  { echo "$envp" | grep -q 'installModes' && echo "$envp" | grep -qiE 'on first use|desktop app'; } && pass "GET /environment -> plan shows the eager-vs-lazy INSTALL breakdown (desktop apps at setup vs CLIs on first use; C12/D06 #111)" || fail "environment installs breakdown -> $(printf '%s' "$envp" | grep -oiE 'installModes|on first use|desktop app' | sort -u | tr '\n' ' ')"
   # fire #98 — each planned package in the Plan-at-a-glance LINKS to its App Store detail (step-5 review +
   # interconnectedness): click a package → see what it is, install commands, platforms, learn-more links.
   { echo "$envp" | grep -q 'function pkgLinks(' && echo "$envp" | grep -q '/apps?q='; } && pass "GET /environment -> plan packages LINK to the App Store (/apps?q=; interconnectedness #98)" || fail "environment pkg links -> $(printf '%s' "$envp" | grep -oE 'pkgLinks|/apps.q=' | sort -u | tr '\n' ' ')"
@@ -216,6 +218,9 @@ JSON
   # fire #93 — C12: /api/environment/current carries a compact structured `summary` (packages/machines/services/
   # routing/privacy) so the dashboard renders the "review the plan" at-a-glance view synchronously (one fetch).
   echo "$cur" | jq -e '(.summary.defaults.packages|type=="array") and (.summary.machines|type=="array") and (.summary.routing.engine|type=="string") and (.summary.privacy|type=="object")' >/dev/null 2>&1 && pass "GET /api/environment/current -> structured plan summary (packages/machines/services/routing/privacy; C12 step-5)" || fail "env summary -> $(printf '%s' "$cur" | jq -c '.summary' 2>/dev/null | head -c 180)"
+  # fire #111 — C12/D06: the plan summary carries an install-MODE breakdown (eager desktop apps at setup vs lazy
+  # CLIs on first use) derived from the catalog installMode (#110), so the plan review shows HOW provisioning behaves.
+  echo "$cur" | jq -e '(.summary.installModes.cli|type=="number") and (.summary.installModes.app|type=="number") and (.summary.installModes.service|type=="number") and (.summary.installModes.unknown|type=="number") and (.summary.installModes.cli>=3)' >/dev/null 2>&1 && pass "GET /api/environment/current (_default) -> summary.installModes breakdown (git/chezmoi/mise -> cli>=3; C12/D06 #111)" || fail "default installModes -> $(printf '%s' "$cur" | jq -c '.summary.installModes' 2>/dev/null | head -c 120)"
   nf="$(curl -s -o /dev/null -w '%{http_code}' "$u/api/environment/current?tenant=__nope__" 2>/dev/null || echo 000)"
   [ "$nf" = 404 ] && pass "env current (unknown tenant) -> 404" || fail "env current unknown -> $nf (want 404)"
 
@@ -239,6 +244,13 @@ JSON
     [ "$mc" = 200 ] && pass "PUT current (matching expectedRevision r1) -> 200" || fail "matching revision -> $mc (want 200)"
     ib="$(curl -s -o /dev/null -w '%{http_code}' -X PUT -H "authorization: Bearer $ADMIN" -H 'content-type: application/json' -d '{"tenant":"_test","blueprint":{}}' "$u/api/environment/current" 2>/dev/null || echo 000)"
     [ "$ib" = 400 ] && pass "PUT current (authed, invalid blueprint) -> 400" || fail "authed invalid -> $ib (want 400)"
+    # fire #111 — seed a MIXED-mode tenant + assert the summary tallies app/service/cli across defaults AND
+    # machine packages (driven by the catalog installMode #110): aerospace(app)+ripgrep(cli) in defaults,
+    # caddy(service) on a machine -> {app:1,service:1,cli:1,unknown:0} (verifies all 3 modes + the package union).
+    mt="$(jq --slurpfile a "$bpf" -n '$a[0] | .defaults.packages=["aerospace","ripgrep"] | .machines=[{id:"m1",os:"darwin",role:"desktop",packages:["caddy"]}] | .services=[]')"
+    curl -s -X PUT -H "authorization: Bearer $ADMIN" -H 'content-type: application/json' -d "$(jq -n --argjson b "$mt" '{tenant:"_modetest",blueprint:$b}')" "$u/api/environment/current" >/dev/null 2>&1
+    ms="$(curl -s "$u/api/environment/current?tenant=_modetest" 2>/dev/null)"
+    echo "$ms" | jq -e '.summary.installModes=={app:1,service:1,cli:1,unknown:0}' >/dev/null 2>&1 && pass "mixed plan -> summary.installModes {app:1,service:1,cli:1} (counts defaults + machine packages by mode; C12/D06 #111)" || fail "modetest installModes -> $(printf '%s' "$ms" | jq -c '.summary.installModes' 2>/dev/null | head -c 120)"
   else
     skip "AID_ADMIN_TOKEN unset (env + get-secret) — authed PUT assertions skipped"
   fi
