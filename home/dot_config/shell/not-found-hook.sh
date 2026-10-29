@@ -64,20 +64,35 @@ __cnf_pref(){ case "$1" in
   *)      echo "brew go cargo npm pipx pip gem";; esac; }
 
 __cnf_do_install(){ local mgr="$1" pkg="$2"
+  # D03/E07 (v2 #163): $pkg may be a SPACE-JOINED package LIST — software.yml allows an ARRAY per manager
+  # (docker apt: [containerd.io, docker-ce, docker-ce-cli, docker-compose-plugin]) which the index joins into
+  # one column. Split it back into SEPARATE argv so the manager installs N packages, NEVER one quoted "a b c"
+  # (which apt/brew try to install as a single, unfindable package → all 61 array entries' lazy-install broke).
+  # MANUAL peel into positional params (like the $pref loop below): neither `arr=($x)` NOR `set -- $x` word-
+  # splits in zsh (SH_WORD_SPLIT off) — only explicit ${x%% *} peeling is portable across bash+zsh. All quoted
+  # → no glob, no eval (E10 — never reinterpret the string as shell).
+  local rest="$pkg" tok
+  set --
+  while [ -n "$rest" ]; do
+    tok="${rest%% *}"
+    case "$rest" in *" "*) rest="${rest#* }";; *) rest="";; esac
+    [ -n "$tok" ] && set -- "$@" "$tok"
+  done
+  [ "$#" -gt 0 ] || return 1
   case "$mgr" in
-    brew)   brew install "$pkg";;
-    apt)    sudo apt-get update -qq && sudo apt-get install -y "$pkg";;
-    dnf)    sudo dnf install -y "$pkg";;
-    pacman) sudo pacman -S --noconfirm "$pkg";;
-    cask)   brew install --cask "$pkg";;
-    choco)  choco install -y "$pkg";;
-    scoop)  scoop install "$pkg";;
-    go)     go install "$pkg";;
-    cargo)  cargo install "$pkg";;
-    npm)    npm install -g "$pkg";;
-    pipx)   pipx install "$pkg";;
-    pip)    pip install --user "$pkg";;
-    gem)    gem install "$pkg";;
+    brew)   brew install "$@";;
+    apt)    sudo apt-get update -qq && sudo apt-get install -y "$@";;
+    dnf)    sudo dnf install -y "$@";;
+    pacman) sudo pacman -S --noconfirm "$@";;
+    cask)   brew install --cask "$@";;
+    choco)  choco install -y "$@";;
+    scoop)  scoop install "$@";;
+    go)     go install "$@";;
+    cargo)  cargo install "$@";;
+    npm)    npm install -g "$@";;
+    pipx)   pipx install "$@";;
+    pip)    pip install --user "$@";;
+    gem)    gem install "$@";;
     *) return 1;; esac; }
 
 # U09/U10 telemetry. Sanitize to a safe charset so a value can NEVER break the JSON line (no quotes,
