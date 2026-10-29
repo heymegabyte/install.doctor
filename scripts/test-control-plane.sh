@@ -433,6 +433,15 @@ JSON
     echo "$dcur" | jq -e '.tenant=="_default" and (.digest|type=="string")' >/dev/null 2>&1 && pass "device/current (device token) -> own tenant blueprint (_default, no tenant in URL)" || fail "device/current -> $dcur"
     dap="$(curl -s -X POST -H "authorization: Bearer $dtok2" -H 'content-type: application/json' -d "$(jq -nc --argjson o "$obp" '{observed:$o}')" "$u/api/device/apply" 2>/dev/null)"
     echo "$dap" | jq -e --arg d "$did2" '.dryRun==true and .tenant=="_default" and .deviceId==$d and .plan.total==0' >/dev/null 2>&1 && pass "device/apply (device token) -> scoped dry-run plan (noop vs _default)" || fail "device/apply -> $dap"
+    # INVARIANT "server never pushes installs" (E13 / golden path) — a VALID device token requesting a REAL
+    # apply (dryRun:false) MUST be refused 501 apply_not_implemented; real apply runs on the on-device
+    # supervisor (Phase B), never the control plane. Mirrors the admin /api/environment/apply dryRun:false
+    # ->501 guard (line ~363) for the DEVICE path. Hardening guard: flips RED the moment the handler ever
+    # starts pushing installs from the server. 501 is returned BEFORE any side effect, so this is a noop.
+    drealp="$(jq -nc --argjson o "$obp" '{observed:$o,dryRun:false}')"
+    drealc="$(curl -s -o /dev/null -w '%{http_code}' -X POST -H "authorization: Bearer $dtok2" -H 'content-type: application/json' -d "$drealp" "$u/api/device/apply" 2>/dev/null || echo 000)"
+    drealb="$(curl -s -X POST -H "authorization: Bearer $dtok2" -H 'content-type: application/json' -d "$drealp" "$u/api/device/apply" 2>/dev/null)"
+    { [ "$drealc" = 501 ] && printf '%s' "$drealb" | jq -e '.error=="apply_not_implemented" and .applied==false' >/dev/null 2>&1; } && pass "device/apply (device token, dryRun:false) -> 501 apply_not_implemented (server NEVER pushes installs)" || fail "device/apply real -> $drealc $(printf '%s' "$drealb" | head -c 120)"
     dmd2="$(curl -s -H "authorization: Bearer $dtok2" "$u/api/device/current.md" 2>/dev/null)"
     echo "$dmd2" | grep -q 'install-doctor+json' && pass "device/current.md (device token) -> raw ENVIRONMENT.md (§9 Export)" || fail "device/current.md -> $(printf '%s' "$dmd2" | head -c 80)"
     curl -s -o /dev/null -X POST -H "authorization: Bearer $DADM" "$u/api/devices/$did2/revoke" >/dev/null 2>&1
