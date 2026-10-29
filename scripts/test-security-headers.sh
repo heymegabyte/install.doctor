@@ -19,6 +19,25 @@ fail() { command -v gum >/dev/null 2>&1 && gum style --foreground 196 -- "FAIL $
 P=0
 F=0
 
+# #144 — the suite's OWN rapid curl-burst transiently trips a Cloudflare bot-challenge on the HEAVIEST pages
+# (recurred on /environment #139-141, then /apps #144); a SPACED curl serves them reliably (verified 4/4).
+# fetch_retry does a bounded retry (3 attempts, 2s apart) keyed on a stable "page-loaded" substring, so a
+# single transient challenge can't false-RED — but a GENUINE wiring break still fails after 3 attempts, so
+# GREEN stays meaningful (per verification-loop "a perpetually-flaky gate is a blind gate"). It NEVER masks a
+# real break: the caller re-greps the returned body for its real assertion. Generalizes the #141 /environment
+# inline retry to every heavy page.
+fetch_retry() { # <url> <fixed-substring-that-proves-the-page-loaded> ; echoes the body of the first OK (or last) attempt
+  _fr_url="$1"
+  _fr_pat="$2"
+  _fr_body=""
+  for _fr_a in 1 2 3; do
+    _fr_body="$(curl -sS "$_fr_url" 2>/dev/null)"
+    printf '%s' "$_fr_body" | grep -qF "$_fr_pat" && break
+    sleep 2
+  done
+  printf '%s' "$_fr_body"
+}
+
 say "security headers (O14) @ $u"
 
 hdr() { curl -sS -D - -o /dev/null "$1" 2>/dev/null | tr -d '\r'; }
@@ -95,20 +114,20 @@ curl -sS "$u/login" 2>/dev/null | grep -q "addEventListener('click'" && pass "/l
 # + cta2's cyan TEXT render cyan-on-cyan (invisible). Real-browser-caught during the STEP-1 verification.
 curl -sS "$u/login" 2>/dev/null | grep -qE '\.cta2\{[^}]*background:transparent' && pass "/login -> .cta2 transparent bg (Google button text readable, not cyan-on-cyan; #117 spillover)" || fail "/login .cta2 missing transparent bg (invisible button text)"
 # #118 — the /apps search box + platform filter stay WIRED after the oninput/onchange → addEventListener conversion.
-curl -sS "$u/apps" 2>/dev/null | grep -q "addEventListener('input'" && pass "/apps -> search box wired via addEventListener (interactivity preserved after #118 conversion)" || fail "/apps addEventListener('input') wiring missing"
+apps="$(fetch_retry "$u/apps" "addEventListener('input'")"; echo "$apps" | grep -q "addEventListener('input'" && pass "/apps -> search box wired via addEventListener (interactivity preserved after #118 conversion; #144 burst-resilient)" || fail "/apps addEventListener('input') wiring missing"
 # #119 — the /environment Load + Diff buttons stay WIRED after the onclick → addEventListener conversion.
 # #141 — /environment is the heaviest page (~19.5KB); under the suite's OWN rapid curl-burst Cloudflare
 # transiently challenges a bare-curl request → a false-RED on this untouched page (recurred #139-#141; a
 # SPACED curl serves the wiring reliably, verified 4/4). Harden with a bounded retry: a single transient miss
 # retries after a short pause, but a genuine regression still fails after 3 attempts — GREEN stays meaningful
 # (per verification-loop "a perpetually-flaky gate is a blind gate"). Never masks a real wiring break.
-envpg=""; for _a in 1 2 3; do envpg="$(curl -sS "$u/environment" 2>/dev/null)"; echo "$envpg" | grep -q "addEventListener('click',diffProposed)" && break; sleep 2; done
-echo "$envpg" | grep -q "addEventListener('click',diffProposed)" && pass "/environment -> Load+Diff buttons wired via addEventListener (interactivity preserved after #119 conversion; #141 burst-resilient retry)" || fail "/environment addEventListener('click',diffProposed) wiring missing"
+envpg="$(fetch_retry "$u/environment" "addEventListener('click',diffProposed)")"
+echo "$envpg" | grep -q "addEventListener('click',diffProposed)" && pass "/environment -> Load+Diff buttons wired via addEventListener (interactivity preserved after #119 conversion; #141/#144 burst-resilient retry)" || fail "/environment addEventListener('click',diffProposed) wiring missing"
 # #120 — /history's dynamic per-row run-filter + clear buttons stay WIRED via EVENT DELEGATION (data-act on #out).
-curl -sS "$u/history" 2>/dev/null | grep -qF "closest('[data-act]')" && pass "/history -> dynamic row/filter buttons wired via event delegation (closest('[data-act]') on #out; #120)" || fail "/history event-delegation wiring (closest('[data-act]')) missing"
+hist="$(fetch_retry "$u/history" "closest('[data-act]')")"; echo "$hist" | grep -qF "closest('[data-act]')" && pass "/history -> dynamic row/filter buttons wired via event delegation (closest('[data-act]') on #out; #120; #144 burst-resilient)" || fail "/history event-delegation wiring (closest('[data-act]')) missing"
 # #121 — /machines' dynamic per-row detail + support-bundle + download buttons stay WIRED via EVENT DELEGATION
 # (data-act on #out for detail, on #detail for bundle/dlbundle). This COMPLETES STEP 1: all 7 pages handler-free.
-mb="$(curl -sS "$u/machines" 2>/dev/null)"
+mb="$(fetch_retry "$u/machines" "closest('[data-act]')")"
 # #130 — after the TT createElement conversion the per-row buttons set data-act via setAttribute('data-act','detail')
 # (single-quoted JS) instead of the old inline HTML data-act="detail" attribute; accept EITHER form (spillover,
 # same class as the #124 href fix). The listeners (closest('[data-act]') on #out + #detail) are unchanged.
