@@ -26,8 +26,23 @@ fi
 chk() { grep -qiF "$1" "$DOC" && pass "names '$1' ($2)" || fail "missing '$1' ($2)"; }
 chkre() { grep -qiE "$1" "$DOC" && pass "$2" || fail "$2 — pattern '$1' absent"; }
 
-# Freshness — must reference a recent fire (>= 70), not be stuck at the early audit.
-chkre "#7[0-9]|#8[0-9]|fire #7[0-9]" "freshness: references a recent fire (>=70)"
+# Freshness — the HEADLINE "Refreshed: fire #N" must name a recent fire (>= 70). The loop reads this doc
+# FIRST, so a stale headline mis-orients every fire. Anchor on the Refreshed LINE: the prior regex matched
+# any #7x/#8x in the BODY, so (a) it couldn't detect a stale headline and (b) it was capped at #70-89 — a
+# headline at #90+ only "passed" via incidental body mentions. Also assert the headline fire# AGREES with
+# NEXT-STEPS' CONVERGENCE-NOTE "refreshed #N" (both bumped every fire; a divergence = one ledger went stale).
+cs_fire="$(grep 'Refreshed' "$DOC" | head -1 | grep -oE 'fire #[0-9]+' | head -1 | grep -oE '[0-9]+')"
+if [ -n "$cs_fire" ] && [ "$cs_fire" -ge 70 ]; then
+  pass "freshness: CURRENT-STATE headline names a recent fire (#$cs_fire >= 70)"
+else
+  fail "freshness: CURRENT-STATE headline fire# '$cs_fire' missing or < 70 (stale/early-audit)"
+fi
+ns_fire="$(grep -oE 'CONVERGENCE NOTE \(refreshed #[0-9]+' "$ROOT/docs/aid/NEXT-STEPS.md" | head -1 | grep -oE '[0-9]+')"
+if [ -n "$cs_fire" ] && [ "$cs_fire" = "$ns_fire" ]; then
+  pass "freshness: headline fire# agrees across CURRENT-STATE + NEXT-STEPS (#$cs_fire)"
+else
+  fail "freshness DRIFT: CURRENT-STATE fire#=$cs_fire NEXT-STEPS fire#=$ns_fire (bump both together)"
+fi
 
 # Live dashboard read surfaces (shipped — must NOT still be listed only as Absent).
 chk "Machines" "live read surface: Machines"
