@@ -246,5 +246,22 @@ jlog2="$tmp/startup.ndjson"; rm -f "$jlog2"
 ( CNF_JOURNAL="$jlog2"; . "$HANDLER" ) >/dev/null 2>&1
 [ ! -f "$jlog2" ] && pass "V01 — sourcing the hook writes no journal (startup side-effect-free)" || fail "sourcing wrote a journal: $(cat "$jlog2" 2>/dev/null)"
 
+# 13. D03/E07 — array installer values install as SEPARATE args. software.yml allows a manager to take an
+# ARRAY of packages (docker.apt = [containerd.io, docker-ce, docker-ce-cli, docker-compose-plugin]); the
+# index space-JOINS them into one column. __cnf_do_install must word-split that back into N argv, not pass
+# one quoted "a b c" (which apt/brew try to install as a single, unfindable package → the 61 array entries'
+# lazy-install broken). Fake brew records each arg on its OWN line so we count SEPARATE args, not $* (which
+# joins + hides the bug). RED on the old quoted-"$pkg"; GREEN once split to argv.
+mabin="$tmp/mabin"; mkdir -p "$mabin"
+maidx="$tmp/maidx.tsv"; printf 'multitool\tmultitool\tpkg-a pkg-b pkg-c\n' > "$maidx"   # brew col = 3 space-joined pkgs
+printf '#!/usr/bin/env bash\nprintf "%%s\\n" "$@" > "%s/margs"\nprintf "#!/usr/bin/env bash\\necho ok\\n" > "%s/multitool"\nchmod +x "%s/multitool"\n' "$tmp" "$mabin" "$mabin" > "$mabin/brew"; chmod +x "$mabin/brew"
+rm -f "$mabin/multitool" "$tmp/margs"
+CNF_ALLOW_NONINTERACTIVE=1 PATH="$mabin:$PATH" CNF_INDEX="$maidx" CNF_LOCK_DIR="$tmp/malocks" __cnf_resolve multitool >/dev/null 2>&1 || true
+if [ "$(wc -l < "$tmp/margs" 2>/dev/null | tr -d ' ')" = 4 ] && [ "$(sed -n 2p "$tmp/margs" 2>/dev/null)" = "pkg-a" ] && [ "$(sed -n 4p "$tmp/margs" 2>/dev/null)" = "pkg-c" ]; then
+  pass "D03/E07 — array installer value installs as SEPARATE args (brew got 'install pkg-a pkg-b pkg-c', not one joined package; #163)"
+else
+  fail "array pkg serialization: brew args=[$(tr '\n' ',' < "$tmp/margs" 2>/dev/null)] (want install,pkg-a,pkg-b,pkg-c as 4 lines)"
+fi
+
 say "command-not-found: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

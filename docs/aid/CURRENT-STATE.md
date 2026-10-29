@@ -10,7 +10,7 @@ The UNBLOCKED functional product has **converged**: the control plane, the full 
 dashboard, the honest-docs set, and a one-command test suite are built + live-verified at
 **https://app.install.doctor**. The remaining high-value requirements are **GATED on external action**
 (see § Gated). Loop fires now harden docs/tests/honesty until a gated dep is provisioned. Verified by
-**`scripts/test-all.sh` → 581 assertions / 32 suites GREEN (1 OS-skipped)** with the prod URL.
+**`scripts/test-all.sh` → 582 assertions / 32 suites GREEN (1 OS-skipped)** with the prod URL.
 
 ## ✅ Built + live-verified
 
@@ -55,8 +55,11 @@ dashboard, the honest-docs set, and a one-command test suite are built + live-ve
   plan-review warning; reuses `collectDeprecated` on the blueprint**), **History** (fleet events + honest `recordingMode:events-only` note, U02; a correlation **"run" column** whose badges are CLICKABLE → filter the fleet history to one correlated run via `?correlation=`, U03 #91; and each event's **DEVICE now links to that machine's detail** (`/machines?device=`) so "what happened" → "which machine" is one click, matching the Recommendations deep-link pattern, interconnectedness #99). Admin token
   persists in sessionStorage (enter once). Device identity/health/drift/recs all from one shared query.
 - **Lazy CLI** (`home/dot_config/shell/not-found-hook.sh`) — ONE canonical resolver: no-eval argv-exec,
-  install locks + recursion guard, interactive/CI gate, atomic index, mise-defer; bash+zsh tested
-  (**`test-command-not-found.sh` 25/25**); fish+pwsh adapters present (structural gates 8+8, live-unverified).
+  install locks + recursion guard, interactive/CI gate, atomic index, mise-defer, + #163 D03/E07 ARRAY-pkg
+  serialization (a space-joined multi-package installer value — docker apt:[containerd.io,docker-ce,…], 61
+  catalog entries — now splits to SEPARATE argv in bash AND zsh via portable `${x%% *}` peel, never one
+  unfindable quoted "a b c"; bash+zsh proven); bash+zsh tested (**`test-command-not-found.sh` 26/26**);
+  fish+pwsh adapters present (structural gates 8+8, live-unverified).
 - **Cua Spaces desktop provisioning gate** (`home/.chezmoiscripts/universal/run_after_21-cua-spaces.sh.tmpl`,
   Brian directive #101 "install on any 16GB+ desktop") — a chezmoi `run_after` that installs Cua Spaces
   (computer-use substrate, cua.ai) ONLY on a GUI desktop with ≥16 GiB RAM + macOS/Linux; dry-runs first,
