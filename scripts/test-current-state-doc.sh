@@ -80,5 +80,19 @@ else
   fail "assertion-count DRIFT across ledgers: CURRENT-STATE=$cs_n NEXT-STEPS=$ns_n REQUIREMENTS=$rq_n (bump all 3 together)"
 fi
 
+# X12 (rank improvements by value/reliability/effort/recurring-cost) — a durable RANKED backlog must exist
+# at docs/aid/BACKLOG.md naming the human-gated unblocks (O04 · K/#7 · I/J · N02) WITH a value+effort
+# ranking, so the converged loop hands the operator a clear "unblock this FIRST" decision aid (the master
+# prompt names a BACKLOG as loop-state; it was absent until #177). Honest: a gated item is never "done".
+BL="$ROOT/docs/aid/BACKLOG.md"
+if [ -s "$BL" ] \
+  && grep -qiE "O04|better auth" "$BL" && grep -qiE "K/#?7|orchestrator|provider call" "$BL" \
+  && grep -qiE "I/J|per-host repo|restic" "$BL" && grep -qiE "N02|figma" "$BL" \
+  && grep -qiE "value" "$BL" && grep -qiE "effort" "$BL"; then
+  pass "X12 ranked BACKLOG.md exists + ranks the gated unblocks (O04/K#7/I/J/N02) by value+effort"
+else
+  fail "X12 BACKLOG.md missing/incomplete ($BL) — must rank O04/K#7/I/J/N02 with value+effort"
+fi
+
 say "CURRENT-STATE: $P passed, $F failed"
 [ "$F" -eq 0 ]
