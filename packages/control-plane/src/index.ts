@@ -670,7 +670,8 @@ async function load(opts){
       var issues=(sm.stale||0)+(sm.neverReported||0)+(sm.drifted||0)+(sm.revoked||0);
       if(!issues){var oks=document.createElement('span');oks.className='muted';oks.textContent='✓ all '+sm.total+' machines reporting + at the desired revision';hb.append(oks);}
       else{function hbTag(n,label,color){if(!n)return;var s=document.createElement('span');s.className='tag';s.setAttribute('style','border-color:'+color+';color:'+color);s.textContent=n+' '+label;hb.append(s);}
-        hbTag(sm.ok,'reporting','#00e5ff');hbTag(sm.stale,'stale','#f0a020');hbTag(sm.neverReported,'never reported','#888');hbTag(sm.drifted,'drifted','#f0a020');hbTag(sm.revoked,'revoked','#e05555');}
+        if(sm.revoked){var actx=document.createElement('span');actx.className='muted';actx.textContent=sm.active+' active of '+sm.total+' · ';hb.append(actx);}
+        hbTag(sm.ok,'reporting','#00e5ff');hbTag(sm.stale,'stale','#f0a020');hbTag(sm.neverReported,'never reported','#888');hbTag(sm.drifted,'drifted','#f0a020');hbTag(sm.revoked,'revoked (decommissioned)','#e05555');}
       frag.append(hb);}
     var table=document.createElement('table');var thead=document.createElement('thead'),htr=document.createElement('tr');
     ['label','device','tenant','enrolled','last active','drift','health','scope','status'].forEach(function(h){var th=document.createElement('th');th.textContent=h;htr.append(th);});
@@ -1524,9 +1525,16 @@ app.get('/api/devices', async (c) => {
     // health (not just per-row): ok/stale/neverReported PARTITION the total by connectivity freshness;
     // drifted + revoked are overlapping sub-counts. Observed state, computed from the already-loaded items
     // (A13 reuse — no extra query). "of the N loaded" when a large fleet exceeds the limit (honest).
-    const summary = { total: items.length, ok: 0, stale: 0, neverReported: 0, drifted: 0, revoked: 0 };
+    // #158 — the connectivity + drift partition is ACTIVE-scoped (revoked = decommissioned, EXCLUDED), matching
+    // recommendations' `active = items.filter(d => !d.revoked)` so the two fleet surfaces AGREE and "ok" is not
+    // inflated by dead devices (U15 observed-not-optimistic). total + revoked stay over all; active + revoked == total.
+    const summary = { total: items.length, active: 0, ok: 0, stale: 0, neverReported: 0, drifted: 0, revoked: 0 };
     for (const it of items) {
-      if (it.revoked) summary.revoked++;
+      if (it.revoked) {
+        summary.revoked++;
+        continue; // decommissioned — excluded from the active-fleet connectivity/drift partition
+      }
+      summary.active++;
       const conn = it.health?.connectivity;
       if (conn === 'ok') summary.ok++;
       else if (conn === 'stale') summary.stale++;
