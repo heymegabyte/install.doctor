@@ -87,7 +87,7 @@ app.get('/', (c) =>
       'aid · install.doctor',
       `<h1>aid <span class=muted>· install.doctor</span></h1>
 <p>Set up and maintain any computer from one place — desktop, laptop, server, or headless box. Describe the environment once; make each authorized machine a verified, cooperating part of it.</p>
-<p><a class=cta href="#setup">Set up a computer ↓</a><a class=cta2 href="/pair">Approve a pairing</a></p>
+<p><a class=cta href="#setup">Set up a computer ↓</a><a class=cta2 href="/login">Sign in</a><a class=cta2 href="/pair">Approve a pairing</a></p>
 
 <div class=card><h3>How it works</h3>
 <ol>
@@ -115,6 +115,41 @@ app.get('/', (c) =>
 <p>Each host keeps its configuration and recovery metadata in version control, and its state stays reconciled to what you described. User files and databases go to encrypted backup storage — kept separate from configuration.</p></div>
 
 <p class=muted>Live dashboard: <a href="/machines">Machines</a> · <a href="/apps">App Store</a> · <a href="/environment">Environment</a> · <a href="/recommendations">Recommendations</a> · <a href="/history">History</a> · API health <a href="/health">/health</a>. Automations in progress.</p>`,
+    ),
+  ),
+);
+
+// /login (O-series step 3; M06) — sign in with GitHub or Google via Better Auth. The buttons POST to the
+// live /api/auth/sign-in/social and redirect to the real provider authorize URL (fire #102). Completing the
+// round-trip needs the callback URL registered on the OAuth apps (a one-time human step) — the button itself
+// genuinely initiates OAuth either way. No backticks in the inline script (TS template literal, #91).
+app.get('/login', (c) =>
+  c.html(
+    htmlPage(
+      'Sign in · install.doctor',
+      `<h1>Sign in <span class=muted>· install.doctor</span></h1>
+<p class=muted>Sign in to describe your environment, review the plan, and manage your machines.</p>
+<div class=card>
+<p><button id=gh class=cta onclick="signIn('github',this)">Continue with GitHub</button></p>
+<p><button id=goog class=cta2 onclick="signIn('google',this)">Continue with Google</button></p>
+<p id=err class=muted></p>
+<p class=muted>Email magic-link sign-in is coming soon. New here? Signing in creates your account.</p>
+</div>
+<p class=muted>Setting up a headless machine? <a href="/pair">Approve a pairing</a> instead.</p>
+<script>
+function signIn(p, btn){
+  var err=document.getElementById('err'); err.textContent='';
+  if(btn){btn.disabled=true;}
+  fetch('/api/auth/sign-in/social',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({provider:p,callbackURL:'/'})})
+    .then(function(r){return r.json()})
+    .then(function(j){
+      if(j&&j.url){location.href=j.url;return}
+      err.textContent='Sign-in unavailable: '+((j&&j.error)||'unknown');
+      if(btn){btn.disabled=false;}
+    })
+    .catch(function(e){err.textContent='✗ '+e; if(btn){btn.disabled=false;}});
+}
+</script>`,
     ),
   ),
 );

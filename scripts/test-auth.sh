@@ -33,5 +33,12 @@ echo "$gh" | jq -e '(.url // "") | test("app\\.install\\.doctor")' >/dev/null 2>
 # 5. The OAuth client SECRETS are never exposed to the browser (O06) — the authorize URL has no client_secret.
 echo "$gh" | grep -qiE 'client_secret|GOCSPX|ghs_|github_pat' && fail "a client secret leaked into the authorize response" || pass "no client secret in the authorize response (secrets stay backend-side)"
 
+# 6. fire #103 — the /login PAGE (intended-experience step 3; M06 clear GitHub/Google sign-in choices):
+#    GitHub + Google buttons wired to the live POST /api/auth/sign-in/social.
+lp="$(curl -s "$u/login" 2>/dev/null)"
+{ echo "$lp" | grep -qiE 'sign in' && echo "$lp" | grep -qi 'GitHub' && echo "$lp" | grep -qi 'Google' && echo "$lp" | grep -q '/api/auth/sign-in/social' && echo "$lp" | grep -q 'signIn('; } && pass "GET /login -> GitHub + Google sign-in page wired to /api/auth/sign-in/social (M06 #103)" || fail "login page -> $(printf '%s' "$lp" | grep -oiE 'sign in|github|google|/api/auth/sign-in/social|signIn\(' | sort -u | tr '\n' ' ')"
+# 7. /login is reachable from the landing page (interconnectedness — not an orphan route).
+curl -s "$u/" 2>/dev/null | grep -q 'href="/login"' && pass "landing page links to /login (sign-in discoverable; M06)" || fail "landing page has no /login link"
+
 say "auth: $P passed, $F failed"
 [ "$F" -eq 0 ]
