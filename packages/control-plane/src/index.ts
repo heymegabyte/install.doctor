@@ -15,7 +15,15 @@ import { getMigrations } from 'better-auth/db/migration';
 import catalogData from './catalog.json';
 type CatalogEntry = { name: string; bin: string; providers: string[]; pkgs: Record<string, string>; platforms: string[]; short?: string; github?: string; home?: string; docs?: string; installMode?: 'app' | 'service' | 'cli'; deprecated?: string; deps?: string[] };
 const CATALOG = catalogData as CatalogEntry[];
-const CATALOG_BY_NAME = new Map(CATALOG.map((e) => [e.name, e]));
+// Name → entry. One package can legitimately provide SEVERAL bins (xz → lzma/xz/unlzma/unxz), one entry per
+// bin, all sharing the package `name`. Prefer the CANONICAL entry whose bin IS the name (so /api/catalog/xz
+// returns the `xz` bin, not an arbitrary sibling), else keep the FIRST seen (deterministic) — fire #133,
+// D02/D12. A naive `new Map(CATALOG.map(...))` kept the LAST sibling (xz → unxz), the bug this fixes.
+const CATALOG_BY_NAME = new Map<string, CatalogEntry>();
+for (const e of CATALOG) {
+  const existing = CATALOG_BY_NAME.get(e.name);
+  if (!existing || (e.bin === e.name && existing.bin !== existing.name)) CATALOG_BY_NAME.set(e.name, e);
+}
 // D06/C12 — tally a plan's packages (defaults + every machine's own) by install mode, so the plan-review
 // summary shows the eager-vs-lazy breakdown: how many GUI desktop apps install at setup vs CLIs installed
 // lazily on first command use (the core product promise). Packages the catalog doesn't know → "unknown".
