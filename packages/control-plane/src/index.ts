@@ -13,7 +13,7 @@ import { getMigrations } from 'better-auth/db/migration';
 // (scripts/gen-catalog.mjs → the cnf index builder; D01/D02/D13). Read-only, bundled at deploy;
 // regenerate + redeploy when software.yml changes. No runtime YAML at the edge.
 import catalogData from './catalog.json';
-type CatalogEntry = { name: string; bin: string; providers: string[]; pkgs: Record<string, string>; platforms: string[]; short?: string; github?: string; home?: string; docs?: string; installMode?: 'app' | 'service' | 'cli'; deprecated?: string; deps?: string[]; configured?: boolean; postInstall?: string };
+type CatalogEntry = { name: string; bin: string; providers: string[]; pkgs: Record<string, string>; platforms: string[]; short?: string; github?: string; home?: string; docs?: string; installMode?: 'app' | 'service' | 'cli'; preload?: boolean; deprecated?: string; deps?: string[]; configured?: boolean; postInstall?: string };
 const CATALOG = catalogData as CatalogEntry[];
 // Name → entry. One package can legitimately provide SEVERAL bins (xz → lzma/xz/unlzma/unxz), one entry per
 // bin, all sharing the package `name`. Prefer the CANONICAL entry whose bin IS the name (so /api/catalog/xz
@@ -768,9 +768,12 @@ function tagEl(text,title,style){var s=document.createElement('span');s.classNam
 function appendTags(parent,arr){(arr||[]).forEach(function(x,i){if(i)parent.append(' ');parent.append(tagEl(x));});}
 // D06 install mode — a user browsing the App Store sees whether a tool is a desktop app installed during
 // setup, a required service, or a CLI installed lazily on first command use (the core eager-vs-lazy promise).
-function modeLabel(m){return ({app:'desktop app',service:'service',cli:'CLI · on first use'})[m]||'CLI · on first use'}
-function modeBadgeEl(m){var T={app:'A GUI desktop application — installed during desktop provisioning (eager)',service:'A background service — installed + configured to run',cli:'A command-line tool — installed automatically the first time you run it (lazy)'};return tagEl(modeLabel(m),T[m]||T.cli);}
-function modeDesc(m,bin){if(m==='app')return 'Desktop app — installed during desktop provisioning (the GUI app is set up up front).';if(m==='service')return 'Service — installed and configured to run as a background service.';return 'CLI — installed automatically the first time you run '+(bin||'it')+' (lazy, on first use).'}
+// #153 eager-vs-lazy ACCURACY — a CLI with software.yml _preload:true is EAGER-installed at provisioning by
+// installx (NOT lazy), so preloaded CLIs read "installed at setup", lazy CLIs "on first use". app/service are
+// always eager. The preload flag flows from the catalog (gen-catalog derives it from the _preload field).
+function modeLabel(m,preload){if(m==='app')return 'desktop app';if(m==='service')return 'service';return preload?'CLI · installed at setup':'CLI · on first use'}
+function modeBadgeEl(m,preload){var cli=preload?'A command-line tool — preloaded at provisioning (installed up front, then ready immediately)':'A command-line tool — installed automatically the first time you run it (lazy)';var T={app:'A GUI desktop application — installed during desktop provisioning (eager)',service:'A background service — installed + configured to run'};return tagEl(modeLabel(m,preload),T[m]||cli);}
+function modeDesc(m,bin,preload){if(m==='app')return 'Desktop app — installed during desktop provisioning (the GUI app is set up up front).';if(m==='service')return 'Service — installed and configured to run as a background service.';return preload?'CLI — preloaded during provisioning (installed up front so '+(bin||'it')+' is ready immediately), not lazy.':'CLI — installed automatically the first time you run '+(bin||'it')+' (lazy, on first use).'}
 // D14/D15 — the maintainer flagged this tool deprecated/not-recommended (software.yml _deprecated, 147 entries).
 // WARN before a user installs it + show the reason (often naming a replacement). Absent = not flagged.
 function depBadgeEl(d){return d?tagEl('deprecated','Deprecated: '+d,'border-color:#f0a020;color:#f0a020'):null;}
@@ -789,7 +792,7 @@ async function detail(tr,name){
     if(!r.ok||!j.commands||!j.commands.length){dtd.textContent='No install commands.';return}
     var frag=document.createDocumentFragment();
     var dw=depWarnEl(j.deprecated);if(dw)frag.append(dw);
-    var modeLine=document.createElement('div');modeLine.setAttribute('style','margin:2px 0 6px');var md=document.createElement('span');md.className='muted';md.textContent=modeDesc(j.installMode,j.bin);modeLine.append(modeBadgeEl(j.installMode),' ',md);frag.append(modeLine);
+    var modeLine=document.createElement('div');modeLine.setAttribute('style','margin:2px 0 6px');var md=document.createElement('span');md.className='muted';md.textContent=modeDesc(j.installMode,j.bin,j.preload);modeLine.append(modeBadgeEl(j.installMode,j.preload),' ',md);frag.append(modeLine);
     var installLine=document.createElement('div');installLine.className='muted';installLine.setAttribute('style','margin:2px 0 6px');installLine.append('Install ');var nb=document.createElement('b');nb.textContent=j.name;installLine.append(nb,' (command: '+(j.bin||'')+') on ');appendTags(installLine,j.platforms);installLine.append(':');frag.append(installLine);
     // A10 (#137) — state what the tool is NOT installable on (complement of platforms), so availability is
     // explicit, not inferred from the absence of a tag. Muted so it reads as a limitation, not an action.
@@ -830,7 +833,7 @@ async function load(){
       var tr=document.createElement('tr');
       var nameTd=document.createElement('td');
       var btn=document.createElement('button');btn.className='lnk';btn.setAttribute('data-name',e.name);btn.textContent=e.name; // #118 delegation: #out click → .lnk + data-name
-      nameTd.append(btn,' ',modeBadgeEl(e.installMode));
+      nameTd.append(btn,' ',modeBadgeEl(e.installMode,e.preload));
       var db=depBadgeEl(e.deprecated);if(db)nameTd.append(db);
       if(e.short){var sd=document.createElement('div');sd.className='muted';sd.setAttribute('style','font-size:.85em;max-width:52ch');sd.textContent=e.short;nameTd.append(sd);}
       tr.append(nameTd);
@@ -1043,7 +1046,7 @@ app.get('/api/catalog/:name', (c) => {
   // can show WHO maintains a tool (a trust signal). Derived from EXISTING data (no new software.yml field, no
   // guess); a non-github or absent provenance URL yields no owner (undefined → omitted, honest).
   const owner = typeof e.github === 'string' ? (e.github.match(/github\.com\/([^/]+)\//) || [])[1] : undefined;
-  return c.json({ name: e.name, bin: e.bin, platforms: e.platforms, unavailablePlatforms, providers: e.providers, short: e.short, github: e.github, owner, home: e.home, docs: e.docs, installMode: e.installMode || 'cli', deprecated: e.deprecated, deps: e.deps, configured: e.configured, postInstall: e.postInstall, commands, updateCommands, uninstallCommands });
+  return c.json({ name: e.name, bin: e.bin, platforms: e.platforms, unavailablePlatforms, providers: e.providers, short: e.short, github: e.github, owner, home: e.home, docs: e.docs, installMode: e.installMode || 'cli', preload: e.preload === true, deprecated: e.deprecated, deps: e.deps, configured: e.configured, postInstall: e.postInstall, commands, updateCommands, uninstallCommands });
 });
 
 app.post('/api/ai/v1/resolve', async (c) => {
