@@ -837,6 +837,7 @@ async function detail(tr,name){
     if(j.owner){var mby=document.createElement('div');mby.className='muted';mby.setAttribute('style','margin:2px 0 6px');mby.append('Maintained by: ');var ownA=document.createElement('a');ownA.href='https://github.com/'+encodeURIComponent(j.owner);ownA.target='_blank';ownA.rel='noopener';ownA.textContent=j.owner;mby.append(ownA);frag.append(mby);}
     var parts=[['Source',j.github],['Homepage',j.home],['Docs',j.docs]].filter(function(p){return p[1]});
     if(parts.length){var srcLine=document.createElement('div');srcLine.className='muted';srcLine.setAttribute('style','margin:2px 0 6px');srcLine.append('Learn more: ');parts.forEach(function(p,i){if(i)srcLine.append(' · ');var la=document.createElement('a');la.href=p[1];la.target='_blank';la.rel='noopener';la.textContent=p[0];srcLine.append(la);});frag.append(srcLine);}
+    if(j.detectCommand){var dcLbl=document.createElement('div');dcLbl.className='muted';dcLbl.setAttribute('style','margin:2px 0 2px');dcLbl.textContent='Check if already installed (adopt, not reinstall):';frag.append(dcLbl);var dcc=document.createElement('span');dcc.className='cmd';dcc.textContent=j.detectCommand;frag.append(dcc);}
     j.commands.forEach(function(k){var sc=document.createElement('span');sc.className='cmd';var pb=document.createElement('b');pb.textContent=k.provider;sc.append(pb,k.command);frag.append(sc);});
     // #147 D11 update-channel — how to keep the tool CURRENT (promise #8): the per-provider UPDATE command, which
     // differs from install for most managers (brew upgrade, cargo install --force, npm update -g, …). TT-safe DOM.
@@ -1077,7 +1078,11 @@ app.get('/api/catalog/:name', (c) => {
   // can show WHO maintains a tool (a trust signal). Derived from EXISTING data (no new software.yml field, no
   // guess); a non-github or absent provenance URL yields no owner (undefined → omitted, honest).
   const owner = typeof e.github === 'string' ? (e.github.match(/github\.com\/([^/]+)\//) || [])[1] : undefined;
-  return c.json({ name: e.name, bin: e.bin, platforms: e.platforms, unavailablePlatforms, providers: e.providers, short: e.short, github: e.github, owner, home: e.home, docs: e.docs, installMode: e.installMode || 'cli', preload: e.preload === true, deprecated: e.deprecated, deps: e.deps, configured: e.configured, postInstall: e.postInstall, commands, updateCommands, uninstallCommands });
+  // R01 detect stage — the idempotency/adoption primitive: POSIX `command -v <bin>` checks whether the tool is
+  // ALREADY on PATH, so a run can ADOPT an existing install (F04) instead of reinstalling (B10/W02). Derived from
+  // the bin field (every entry has one); universal + accurate, no per-tool guessing (unlike a verify `--version`).
+  const detectCommand = e.bin ? `command -v ${e.bin}` : undefined;
+  return c.json({ name: e.name, bin: e.bin, platforms: e.platforms, unavailablePlatforms, providers: e.providers, short: e.short, github: e.github, owner, home: e.home, docs: e.docs, installMode: e.installMode || 'cli', preload: e.preload === true, deprecated: e.deprecated, deps: e.deps, configured: e.configured, postInstall: e.postInstall, detectCommand, commands, updateCommands, uninstallCommands });
 });
 
 app.post('/api/ai/v1/resolve', async (c) => {

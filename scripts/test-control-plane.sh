@@ -185,6 +185,10 @@ if [ -n "${CONTROL_PLANE_URL:-}" ]; then
   echo "$cpx" | jq -e '.platform==null and (.matched==.total)' >/dev/null 2>&1 && pass "GET /api/catalog?platform=bogus -> invalid value ignored (echoes null, returns all; allowlist)" || fail "catalog platform=bogus -> $(printf '%s' "$cpx" | jq -c '{platform,matched,total}' 2>/dev/null | head -c 120)"
   cd1="$(curl -s "$u/api/catalog/ripgrep" 2>/dev/null)"
   echo "$cd1" | jq -e '.name=="ripgrep" and ([.commands[]|select(.command=="brew install ripgrep")]|length==1) and ([.commands[]|select(.provider=="cargo" and .command=="cargo install ripgrep")]|length==1)' >/dev/null 2>&1 && pass "GET /api/catalog/:name -> per-manager install commands (R13: brew+cargo install ripgrep)" || fail "catalog detail -> $(printf '%s' "$cd1" | head -c 160)"
+  # fire #157 — R01 recipe DETECT stage: the idempotency/adoption primitive (POSIX `command -v <bin>`, derived from
+  # the bin field). Install Doctor checks this BEFORE installing — if the command exists it ADOPTS the existing tool
+  # (F04) instead of reinstalling (B10/W02). ripgrep's bin is `rg` → detectCommand == "command -v rg".
+  echo "$cd1" | jq -e '.detectCommand=="command -v rg"' >/dev/null 2>&1 && pass "GET /api/catalog/:name -> detectCommand 'command -v rg' (R01 detect stage — idempotency/adoption check from bin; #157)" || fail "catalog detectCommand -> $(printf '%s' "$cd1" | jq -c '{bin,detectCommand}' 2>/dev/null | head -c 100)"
   # fire #147 — D11 update-channel: per-provider UPDATE commands (how to keep the tool CURRENT, promise #8). They
   # genuinely DIFFER from install (brew upgrade; cargo install --force; npm update -g; apt --only-upgrade; …).
   echo "$cd1" | jq -e '([.updateCommands[]|select(.provider=="brew" and .command=="brew upgrade ripgrep")]|length==1) and ([.updateCommands[]|select(.provider=="cargo" and .command=="cargo install --force ripgrep")]|length==1)' >/dev/null 2>&1 && pass "GET /api/catalog/:name -> per-provider UPDATE commands (D11 update-channel #147: brew upgrade / cargo install --force)" || fail "catalog updateCommands -> $(printf '%s' "$cd1" | jq -c '.updateCommands' 2>/dev/null | head -c 180)"
@@ -209,6 +213,8 @@ if [ -n "${CONTROL_PLANE_URL:-}" ]; then
   cd3="$(curl -s -o /dev/null -w '%{http_code}' "$u/api/catalog/definitely-not-an-app-xyz" 2>/dev/null || echo 000)"
   [ "$cd3" = 404 ] && pass "GET /api/catalog/<bogus> -> 404" || fail "catalog detail bogus -> $cd3 (want 404)"
   { echo "$ap" | grep -qi 'install commands'; } && pass "/apps page ships the per-item install-command expander" || fail "apps install-command expander missing"
+  # fire #157 — the detail renders the DETECT stage ('Check if already installed') — the recipe's idempotency/adoption check (R01).
+  { echo "$ap" | grep -qi 'Check if already installed'; } && pass "/apps -> detail shows the DETECT stage ('Check if already installed' — the recipe idempotency/adoption check; R01 #157)" || fail "apps detect-stage render missing"
   # fire #110 — D06 install MODE: the catalog derives eager-desktop-app (software.yml _app) vs required-service
   # (_service) vs lazy-CLI (neither) + surfaces it, so a user reviewing the App Store sees whether a tool is a
   # desktop app installed during setup or a CLI installed on first command use (the core eager-vs-lazy promise).
