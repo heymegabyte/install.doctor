@@ -393,6 +393,14 @@ JSON
     curl -s -X PUT -H "authorization: Bearer $ADMIN" -H 'content-type: application/json' -d "$(jq -n --argjson b "$cft" '{tenant:"_cfgtest",blueprint:$b}')" "$u/api/environment/current" >/dev/null 2>&1
     cfs="$(curl -s "$u/api/environment/current?tenant=_cfgtest" 2>/dev/null)"
     echo "$cfs" | jq -e '.summary.configured.count==1 and .summary.configured.of==2 and (.summary.configured.packages==["tailscale"])' >/dev/null 2>&1 && pass "GET /api/environment/current (_cfgtest) -> summary.configured tallies auto-configured packages {count:1, of:2, [tailscale]} (step-5 config coverage, F15/C12 #161)" || fail "cfgtest configured -> $(printf '%s' "$cfs" | jq -c '.summary.configured' 2>/dev/null | head -c 140)"
+    # fire #162 — PRIVILEGES coverage (step-5 "review a concrete plan showing applications, configuration, PRIVILEGES ..."):
+    # of the plan's catalog-known packages, how many REQUIRE ELEVATION (sudo) to install — a service OR a package whose
+    # ONLY install path is a sudo system package manager (apt/dnf/pacman). distrobox(apt/dnf/pacman-only cli) is elevated;
+    # ripgrep(also has brew, a user-space path) is NOT -> summary.privileges {count:1, packages:["distrobox"]}.
+    pvt="$(jq --slurpfile a "$bpf" -n '$a[0] | .defaults.packages=["distrobox","ripgrep"] | .machines=[] | .services=[]')"
+    curl -s -X PUT -H "authorization: Bearer $ADMIN" -H 'content-type: application/json' -d "$(jq -n --argjson b "$pvt" '{tenant:"_privtest",blueprint:$b}')" "$u/api/environment/current" >/dev/null 2>&1
+    pvs="$(curl -s "$u/api/environment/current?tenant=_privtest" 2>/dev/null)"
+    echo "$pvs" | jq -e '.summary.privileges.count==1 and (.summary.privileges.packages==["distrobox"])' >/dev/null 2>&1 && pass "GET /api/environment/current (_privtest) -> summary.privileges flags packages needing sudo to install {count:1, [distrobox]}, not brew-installable ripgrep (step-5 privileges, C12 #162)" || fail "privtest privileges -> $(printf '%s' "$pvs" | jq -c '.summary.privileges' 2>/dev/null | head -c 140)"
     # fire #115 — plan-health RECOMMENDATION: a tenant whose DESIRED plan includes deprecated packages gets an
     # actionable Recommendation (the 3rd deprecation surface: App Store badge -> plan-review warning -> rec), so it
     # surfaces on the "what needs attention" dashboard. Reuses collectDeprecated (#114) on the tenant's blueprint.

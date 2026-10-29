@@ -168,6 +168,29 @@ const UNINSTALL_CMD: Record<string, (pkg: string) => string> = {
   gem: (p) => `gem uninstall ${p}`,
 };
 
+// C12 (#162) — providers whose install command REQUIRES ELEVATION (sudo), DERIVED from the INSTALL_CMD templates
+// so the set can't drift (a system package manager: apt/dnf/pacman). User-space managers (brew/cargo/npm/pipx/
+// pip/gem/go/scoop/cask/choco) install without root.
+const SUDO_PROVIDERS = new Set(Object.entries(INSTALL_CMD).filter(([, fn]) => fn('x').startsWith('sudo ')).map(([k]) => k));
+// PRIVILEGES coverage of the plan (step-5 "review a concrete plan showing ... privileges"): plan packages that
+// REQUIRE ELEVATION (sudo) to install — a service (installs + enables a system unit) OR a package whose only
+// INSTALLABLE providers all need sudo (a system-PM-only tool). The service set overlaps installModes.service, but
+// the system-PM-only CLIs/apps (chromium, docker, distrobox) are NOT captured there — genuinely new "needs root" info.
+function collectPrivileges(bp: { defaults?: { packages?: string[] }; machines?: { packages?: string[] }[] }): { count: number; packages: string[] } {
+  const names = new Set<string>();
+  for (const p of bp.defaults?.packages ?? []) names.add(p);
+  for (const m of bp.machines ?? []) for (const p of m.packages ?? []) names.add(p);
+  const packages: string[] = [];
+  for (const name of names) {
+    const e = CATALOG_BY_NAME.get(name);
+    if (!e) continue;
+    const installable = (e.providers ?? []).filter((p) => INSTALL_CMD[p]);
+    const elevated = e.installMode === 'service' || (installable.length > 0 && installable.every((p) => SUDO_PROVIDERS.has(p)));
+    if (elevated) packages.push(name);
+  }
+  return { count: packages.length, packages: packages.sort((a, b) => a.localeCompare(b)) };
+}
+
 // Inference request body (Zod boundary) — estimated cost drives the budget reservation.
 const InferRequest = z.object({ estimateMicros: z.number().int().nonnegative().default(0) }).passthrough();
 
@@ -576,6 +599,14 @@ function renderSummary(bp){
   pCf.append(cfSpan);
   if(cfg.packages&&cfg.packages.length){var cfItems=mk('div');cfItems.setAttribute('style','margin-top:4px');cfg.packages.forEach(function(n,i){if(i)cfItems.append(' ');var a=mk('a','tag');a.href='/apps?q='+encodeURIComponent(n);a.setAttribute('style','border-color:#00e5ff;color:#00e5ff');a.textContent=n;cfItems.append(a);});pCf.append(cfItems);}
   card.append(pCf);
+  // C12 (#162) — PRIVILEGES: plan packages that need elevation (sudo) to install (services + system-PM-only
+  // tools), so the reviewer sees "will applying this need root?" (step-5 privileges); name them as amber chips.
+  var prv=bp.privileges||{count:0,packages:[]};
+  var pPr=labeledP('Privileges');var prSpan=mk('span','muted');
+  if(prv.count){var prb=document.createElement('b');prb.textContent=prv.count;prSpan.append(prb,' package'+(prv.count>1?'s':'')+' require elevation (sudo) to install — a service or a system-package install');}else prSpan.append('✓ none require elevation (all install without sudo)');
+  pPr.append(prSpan);
+  if(prv.packages&&prv.packages.length){var prItems=mk('div');prItems.setAttribute('style','margin-top:4px');prv.packages.forEach(function(n,i){if(i)prItems.append(' ');var a=mk('a','tag');a.href='/apps?q='+encodeURIComponent(n);a.setAttribute('style','border-color:#f0a020;color:#f0a020');a.textContent=n;prItems.append(a);});pPr.append(prItems);}
+  card.append(pPr);
   var pMa=labeledP('Machines ('+machines.length+')');pMa.append(muted(roleStr));card.append(pMa);
   var pSv=labeledP('Services ('+services.length+')');appendTagList(pSv,kinds);card.append(pSv);
   var pRt=labeledP('Routing');pRt.append(muted('engine '+(rt.engine||'—')+' · provider '+(rt.preferredProvider||'—')+' · premium '+(rt.allowPremium?'on':'off')));card.append(pRt);
@@ -1243,6 +1274,9 @@ app.get('/api/environment/current', async (c) => {
       // F15/C12 (#161) — CONFIGURATION coverage: how many catalog-known plan packages auto-configure on install
       // (post-installx first-run hook), so the review shows what setup is automatic vs what stays manual (step-5).
       configured: collectConfigured(bp),
+      // C12 (#162) — PRIVILEGES coverage: plan packages that require elevation (sudo) to install (a service or a
+      // system-PM-only tool), so the review shows "will applying this need root?" before apply (step-5 privileges).
+      privileges: collectPrivileges(bp),
     };
     return c.json({ tenant, revision: bp.revision, digest: await blueprintDigest(bp), updatedAt: row.updated_at, markdown: row.markdown, summary });
   } catch (e) {
