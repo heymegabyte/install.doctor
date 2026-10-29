@@ -10,7 +10,7 @@ The UNBLOCKED functional product has **converged**: the control plane, the full 
 dashboard, the honest-docs set, and a one-command test suite are built + live-verified at
 **https://app.install.doctor**. The remaining high-value requirements are **GATED on external action**
 (see § Gated). Loop fires now harden docs/tests/honesty until a gated dep is provisioned. Verified by
-**`scripts/test-all.sh` → 471 assertions / 27 suites GREEN (1 OS-skipped)** with the prod URL.
+**`scripts/test-all.sh` → 476 assertions / 27 suites GREEN (1 OS-skipped)** with the prod URL.
 
 ## ✅ Built + live-verified
 
@@ -91,8 +91,9 @@ dashboard, the honest-docs set, and a one-command test suite are built + live-ve
   dashboard pages are no longer shared-/disk-cacheable (was: NO Cache-Control anywhere → heuristically cacheable). Conditional (`if !has('cache-control')`) so a
   route can still opt INTO caching and Better Auth keeps its own session header.** `test-security-headers.sh` 12/12,
   real-browser-verified the `/machines` page renders styled + its inline JS still executes (the injected "forget token" control) under the headers.
-  Next hardening (higher value, its OWN 2-3-fire decomposition — measured #108): strict `script-src` needs the 18 inline `on*=` handlers → `addEventListener` FIRST
-  (they're blocked even with a nonce), then nonce the 9 `<script>` blocks → drop `'unsafe-inline'`; Trusted Types needs the 30 `innerHTML` sinks → `createElement`/`textContent` first.
+  Next hardening (its OWN 2-3-fire decomposition — measured #108): strict `script-src` needs the inline `on*=` handlers → `addEventListener` FIRST
+  (they're blocked even with a nonce), then nonce the `<script>` blocks → drop `'unsafe-inline'`; Trusted Types needs the 30 `innerHTML` sinks → `createElement`/`textContent` first.
+  **#117 STARTED strict-`script-src` STEP 1: converted the inline `on*=` handlers on `/login` (signIn ×2), `/recommendations` (load), `/pair` (approve) to `addEventListener` → these 3 pages are now inline-handler-free (JS `.onclick=` property assignments in the shared chrome are CSP-SAFE, kept). The remaining 4 pages (`/history`/`/environment`/`/machines`/`/apps`) have dynamically-generated handlers needing event delegation → later fires; STEP 2 (nonce the scripts + drop `'unsafe-inline'`) follows once ALL pages are handler-free. Real-browser-verified `/login` renders + both buttons wired; `test-security-headers.sh` 12→17. SPILLOVER fix: the Google button (`.cta2`) was cyan-text-on-cyan-bg (invisible — base `button{background:#00E5FF}` + cta2's cyan text); added `background:transparent` to `.cta2` → readable (real-browser-confirmed).**
 - **Verification** — `scripts/test-all.sh` runs every suite (per-suite + grand total, OS-gated skips,
   exits non-zero on any fail); inline-JS parse guard over every dashboard page; **A12 ADR hygiene gate
   (`test-adr.sh` 6/6) — every `docs/aid/decisions/NNNN` ADR is well-formed (Status·Context·Decision·
