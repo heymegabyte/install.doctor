@@ -114,6 +114,9 @@ if [ -n "${CONTROL_PLANE_URL:-}" ]; then
   { echo "$envp" | grep -q 'id=summary' && echo "$envp" | grep -q 'function renderSummary(' && echo "$envp" | grep -qi 'Plan at a glance'; } && pass "GET /environment -> structured 'Plan at a glance' summary of the desired blueprint (step-5 review; C12)" || fail "environment plan summary -> $(printf '%s' "$envp" | grep -oE 'id=summary|renderSummary|Plan at a glance' | sort -u | tr '\n' ' ')"
   # fire #111 — the plan summary renders the eager-vs-lazy INSTALL breakdown (desktop apps at setup vs CLIs on first use).
   { echo "$envp" | grep -q 'installModes' && echo "$envp" | grep -qiE 'on first use|desktop app'; } && pass "GET /environment -> plan shows the eager-vs-lazy INSTALL breakdown (desktop apps at setup vs CLIs on first use; C12/D06 #111)" || fail "environment installs breakdown -> $(printf '%s' "$envp" | grep -oiE 'installModes|on first use|desktop app' | sort -u | tr '\n' ' ')"
+  # fire #154 — the plan summary SPLITS eager preloaded CLIs ("preloaded CLIs at setup") from lazy ("on first use"),
+  # matching the per-tool #153 accuracy so the aggregate review doesn't over-claim "on first use" for preloaded tools.
+  { echo "$envp" | grep -qi 'preloaded CLI'; } && pass "GET /environment -> plan render distinguishes PRELOADED CLIs ('preloaded CLIs at setup') from lazy ('on first use'); eager-vs-lazy accuracy #154" || fail "environment preloaded-cli label missing -> $(printf '%s' "$envp" | grep -oiE 'preloaded CLI|on first use' | sort -u | tr '\n' ' ')"
   # fire #114 — the plan review WARNS if the plan includes deprecated packages (safety — don't apply a plan with abandoned tools).
   { echo "$envp" | grep -q 'deprecatedPackages'; } && pass "GET /environment -> plan flags DEPRECATED packages (safety — warn before applying; #114)" || fail "environment plan deprecation warning missing -> $(printf '%s' "$envp" | grep -oiE 'deprecatedPackages' | head -1)"
   { echo "$envp" | grep -q "URLSearchParams(location.search).get('tenant')"; } && pass "GET /environment -> honors ?tenant= from the URL (deep-link a tenant's plan + its deprecation warning; interconnect #114)" || fail "environment ?tenant= deep-link missing"
@@ -305,7 +308,9 @@ JSON
   echo "$cur" | jq -e '(.summary.defaults.packages|type=="array") and (.summary.machines|type=="array") and (.summary.routing.engine|type=="string") and (.summary.privacy|type=="object")' >/dev/null 2>&1 && pass "GET /api/environment/current -> structured plan summary (packages/machines/services/routing/privacy; C12 step-5)" || fail "env summary -> $(printf '%s' "$cur" | jq -c '.summary' 2>/dev/null | head -c 180)"
   # fire #111 — C12/D06: the plan summary carries an install-MODE breakdown (eager desktop apps at setup vs lazy
   # CLIs on first use) derived from the catalog installMode (#110), so the plan review shows HOW provisioning behaves.
-  echo "$cur" | jq -e '(.summary.installModes.cli|type=="number") and (.summary.installModes.app|type=="number") and (.summary.installModes.service|type=="number") and (.summary.installModes.unknown|type=="number") and (.summary.installModes.cli>=3)' >/dev/null 2>&1 && pass "GET /api/environment/current (_default) -> summary.installModes breakdown (git/chezmoi/mise -> cli>=3; C12/D06 #111)" || fail "default installModes -> $(printf '%s' "$cur" | jq -c '.summary.installModes' 2>/dev/null | head -c 120)"
+  # fire #154 — git/chezmoi/mise are all `_preload:true` → EAGER at setup, so they count as cliPreload, NOT the lazy
+  # `cli` bucket (which must be 0 for _default). This corrects the primary demo tenant's "3 CLIs on first use" over-claim.
+  echo "$cur" | jq -e '(.summary.installModes.cliPreload|type=="number") and (.summary.installModes.cli|type=="number") and (.summary.installModes.app|type=="number") and (.summary.installModes.service|type=="number") and (.summary.installModes.cliPreload>=3) and (.summary.installModes.cli==0)' >/dev/null 2>&1 && pass "GET /api/environment/current (_default) -> installModes SPLITS eager preloaded CLIs from lazy (git/chezmoi/mise _preload:true → cliPreload>=3, cli==0 — NOT 'on first use'; C12/D06 #154)" || fail "default installModes -> $(printf '%s' "$cur" | jq -c '.summary.installModes' 2>/dev/null | head -c 120)"
   # fire #114 — the clean case: _default (git/chezmoi/mise are current, not deprecated) has an EMPTY deprecatedPackages list.
   echo "$cur" | jq -e '(.summary.deprecatedPackages|type=="array") and (.summary.deprecatedPackages|length==0)' >/dev/null 2>&1 && pass "GET /api/environment/current (_default) -> deprecatedPackages empty (no abandoned tools in the plan; safety #114)" || fail "default deprecatedPackages -> $(printf '%s' "$cur" | jq -c '.summary.deprecatedPackages' 2>/dev/null | head -c 120)"
   nf="$(curl -s -o /dev/null -w '%{http_code}' "$u/api/environment/current?tenant=__nope__" 2>/dev/null || echo 000)"
@@ -338,13 +343,15 @@ JSON
     [ "$mc" = 200 ] && pass "PUT current (matching expectedRevision r1) -> 200" || fail "matching revision -> $mc (want 200)"
     ib="$(curl -s -o /dev/null -w '%{http_code}' -X PUT -H "authorization: Bearer $ADMIN" -H 'content-type: application/json' -d '{"tenant":"_test","blueprint":{}}' "$u/api/environment/current" 2>/dev/null || echo 000)"
     [ "$ib" = 400 ] && pass "PUT current (authed, invalid blueprint) -> 400" || fail "authed invalid -> $ib (want 400)"
-    # fire #111 — seed a MIXED-mode tenant + assert the summary tallies app/service/cli across defaults AND
-    # machine packages (driven by the catalog installMode #110): aerospace(app)+ripgrep(cli) in defaults,
-    # caddy(service) on a machine -> {app:1,service:1,cli:1,unknown:0} (verifies all 3 modes + the package union).
-    mt="$(jq --slurpfile a "$bpf" -n '$a[0] | .defaults.packages=["aerospace","ripgrep"] | .machines=[{id:"m1",os:"darwin",role:"desktop",packages:["caddy"]}] | .services=[]')"
+    # fire #111/#154 — seed a MIXED-mode tenant + assert the summary tallies app/service/cliPreload/cli across
+    # defaults AND machine packages (driven by the catalog installMode #110 + preload #153): aerospace(app) +
+    # ripgrep(PRELOADED cli → cliPreload, eager at setup) + pandoc(LAZY cli → cli, on first use) in defaults,
+    # caddy(service) on a machine -> {app:1,service:1,cliPreload:1,cli:1,unknown:0} — verifies all 4 real modes
+    # incl. the #154 eager-vs-lazy split (a preloaded cli is NOT counted as "on first use") + the package union.
+    mt="$(jq --slurpfile a "$bpf" -n '$a[0] | .defaults.packages=["aerospace","ripgrep","pandoc"] | .machines=[{id:"m1",os:"darwin",role:"desktop",packages:["caddy"]}] | .services=[]')"
     curl -s -X PUT -H "authorization: Bearer $ADMIN" -H 'content-type: application/json' -d "$(jq -n --argjson b "$mt" '{tenant:"_modetest",blueprint:$b}')" "$u/api/environment/current" >/dev/null 2>&1
     ms="$(curl -s "$u/api/environment/current?tenant=_modetest" 2>/dev/null)"
-    echo "$ms" | jq -e '.summary.installModes=={app:1,service:1,cli:1,unknown:0}' >/dev/null 2>&1 && pass "mixed plan -> summary.installModes {app:1,service:1,cli:1} (counts defaults + machine packages by mode; C12/D06 #111)" || fail "modetest installModes -> $(printf '%s' "$ms" | jq -c '.summary.installModes' 2>/dev/null | head -c 120)"
+    echo "$ms" | jq -e '.summary.installModes=={app:1,service:1,cli:1,cliPreload:1,unknown:0}' >/dev/null 2>&1 && pass "mixed plan -> summary.installModes {app:1,service:1,cliPreload:1,cli:1} (counts by mode incl. the #154 eager-vs-lazy split: ripgrep→cliPreload, pandoc→cli; C12/D06 #111/#154)" || fail "modetest installModes -> $(printf '%s' "$ms" | jq -c '.summary.installModes' 2>/dev/null | head -c 120)"
     # fire #114 — seed a plan WITH a deprecated package (altair) + assert the summary flags it with its reason (safety:
     # the plan review warns before applying a plan that includes an abandoned/discouraged tool; uses the catalog `deprecated` #112).
     dt="$(jq --slurpfile a "$bpf" -n '$a[0] | .defaults.packages=["altair","ripgrep"] | .machines=[{id:"m1",os:"darwin",role:"desktop",packages:[]}] | .services=[]')"

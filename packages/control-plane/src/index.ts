@@ -27,15 +27,23 @@ for (const e of CATALOG) {
 // D06/C12 — tally a plan's packages (defaults + every machine's own) by install mode, so the plan-review
 // summary shows the eager-vs-lazy breakdown: how many GUI desktop apps install at setup vs CLIs installed
 // lazily on first command use (the core product promise). Packages the catalog doesn't know → "unknown".
-function tallyInstallModes(bp: { defaults?: { packages?: string[] }; machines?: { packages?: string[] }[] }): { app: number; service: number; cli: number; unknown: number } {
+function tallyInstallModes(bp: { defaults?: { packages?: string[] }; machines?: { packages?: string[] }[] }): { app: number; service: number; cli: number; cliPreload: number; unknown: number } {
   const names = new Set<string>();
   for (const p of bp.defaults?.packages ?? []) names.add(p);
   for (const m of bp.machines ?? []) for (const p of m.packages ?? []) names.add(p);
-  const t = { app: 0, service: 0, cli: 0, unknown: 0 };
+  const t = { app: 0, service: 0, cli: 0, cliPreload: 0, unknown: 0 };
   for (const name of names) {
     const e = CATALOG_BY_NAME.get(name);
-    if (!e) t.unknown++;
-    else t[e.installMode || 'cli']++;
+    if (!e) {
+      t.unknown++;
+      continue;
+    }
+    const mode = e.installMode || 'cli';
+    // #154 eager-vs-lazy accuracy — a _preload:true CLI is EAGER-installed at provisioning (installx), so it
+    // belongs in cliPreload ("installed at setup"), NOT the lazy cli ("on first use") bucket — the aggregate
+    // sibling of the per-tool #153 badge fix, so the plan review doesn't over-claim "on first use".
+    if (mode === 'cli' && e.preload) t.cliPreload++;
+    else t[mode]++;
   }
   return t;
 }
@@ -514,8 +522,8 @@ function renderSummary(bp){
   }
   var pPk=labeledP('Packages ('+pkgs.length+')');appendPkgLinks(pPk,pkgs);card.append(pPk);
   // C12/D06 — eager-vs-lazy install breakdown (server-computed summary.installModes, interconnects #110).
-  var im=bp.installModes||{app:0,service:0,cli:0,unknown:0};
-  var imParts=[];if(im.app)imParts.push([im.app,' desktop app'+(im.app>1?'s':'')+' at setup']);if(im.service)imParts.push([im.service,' service'+(im.service>1?'s':'')]);if(im.cli)imParts.push([im.cli,' CLI'+(im.cli>1?'s':'')+' on first use']);if(im.unknown)imParts.push([im.unknown,' other']);
+  var im=bp.installModes||{app:0,service:0,cli:0,cliPreload:0,unknown:0};
+  var imParts=[];if(im.app)imParts.push([im.app,' desktop app'+(im.app>1?'s':'')+' at setup']);if(im.service)imParts.push([im.service,' service'+(im.service>1?'s':'')]);if(im.cliPreload)imParts.push([im.cliPreload,' preloaded CLI'+(im.cliPreload>1?'s':'')+' at setup']);if(im.cli)imParts.push([im.cli,' CLI'+(im.cli>1?'s':'')+' on first use']);if(im.unknown)imParts.push([im.unknown,' other']);
   var pIn=labeledP('Installs');var imSpan=mk('span','muted');
   if(imParts.length){imParts.forEach(function(pt,i){if(i)imSpan.append(' · ');var b=document.createElement('b');b.textContent=pt[0];imSpan.append(b,pt[1]);});}else imSpan.append('—');
   pIn.append(imSpan);card.append(pIn);
