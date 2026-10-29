@@ -192,8 +192,11 @@ function renderSummary(bp){
   var kinds=services.map(function(s){return s.kind||s.id});
   var rt=bp.routing||{},pv=bp.privacy||{};
   function tagList(a){return a&&a.length?a.map(function(x){return '<span class=tag>'+esc(x)+'</span>'}).join(' '):'<span class=muted>—</span>';}
+  // Each planned package links to its App Store detail (review-the-plan step 5 + interconnectedness): click a
+  // package to see what it is, its install commands, platforms, and learn-more links.
+  function pkgLinks(a){return a&&a.length?a.map(function(x){return '<a class=tag href="/apps?q='+encodeURIComponent(x)+'" title="View '+esc(x)+' in the App Store">'+esc(x)+'</a>'}).join(' '):'<span class=muted>—</span>';}
   sum.innerHTML='<div class=card><p class=muted><strong>Plan at a glance</strong> — what this environment describes (review before applying). Derived from the desired blueprint.</p>'
-    +'<p><strong>Packages ('+pkgs.length+')</strong> '+tagList(pkgs)+'</p>'
+    +'<p><strong>Packages ('+pkgs.length+')</strong> '+pkgLinks(pkgs)+'</p>'
     +'<p><strong>Machines ('+machines.length+')</strong> <span class=muted>'+roleStr+'</span></p>'
     +'<p><strong>Services ('+services.length+')</strong> '+tagList(kinds)+'</p>'
     +'<p><strong>Routing</strong> <span class=muted>engine '+esc(rt.engine||'—')+' · provider '+esc(rt.preferredProvider||'—')+' · premium '+(rt.allowPremium?'on':'off')+'</span></p>'
@@ -382,6 +385,8 @@ document.getElementById('out').addEventListener('click',function(ev){
   detail(b.closest('tr'),b.getAttribute('data-name'));
 });
 var t;function debounced(){clearTimeout(t);t=setTimeout(load,160)}
+// Honor ?q= from the URL (e.g. a package link from the Environment plan) — prefill the search + filter on load.
+try{var pq=new URLSearchParams(location.search).get('q');if(pq){document.getElementById('q').value=pq;}}catch(e){}
 load();
 </script>`,
     ),
