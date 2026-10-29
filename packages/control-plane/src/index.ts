@@ -136,7 +136,7 @@ const PAGE_CSS =
   '.lnk{background:none;border:0;color:#00E5FF;cursor:pointer;padding:0;font:inherit;font-weight:700;text-align:left}.lnk:hover{text-decoration:underline}' +
   '.cmd{font-family:ui-monospace,monospace;font-size:.82rem;background:#0a0c16;border:1px solid #1b2030;border-radius:6px;padding:6px 10px;margin:4px 0;color:#9fb4c8;user-select:all;display:block}.cmd b{color:#8b93a7;font-weight:600;margin-right:8px;user-select:none}' +
   '.cta{display:inline-block;background:#00E5FF;color:#060610;font-weight:700;padding:10px 16px;border-radius:8px;text-decoration:none;margin:4px 8px 4px 0}.cta:hover{filter:brightness(1.1)}' +
-  '.cta2{display:inline-block;color:#00E5FF;border:1px solid #2a3147;padding:10px 16px;border-radius:8px;text-decoration:none;margin:4px 0}.cta2:hover{border-color:#00E5FF}' +
+  '.cta2{display:inline-block;background:transparent;color:#00E5FF;border:1px solid #2a3147;padding:10px 16px;border-radius:8px;text-decoration:none;margin:4px 0}.cta2:hover{border-color:#00E5FF}' +
   'ol{padding-left:20px}ol li{margin:4px 0}' +
   '.rec{border-left:3px solid #2a3147}.rec-warning{border-left-color:#f0a020}.rec-info{border-left-color:#00E5FF}.rec-ok{border-left-color:#3fbf6f}';
 // Shared across EVERY dashboard page: persist the admin token in sessionStorage (per-tab, cleared on
@@ -220,8 +220,8 @@ app.get('/login', (c) =>
       `<h1>Sign in <span class=muted>· install.doctor</span></h1>
 <p class=muted>Sign in to describe your environment, review the plan, and manage your machines.</p>
 <div class=card>
-<p><button id=gh class=cta onclick="signIn('github',this)">Continue with GitHub</button></p>
-<p><button id=goog class=cta2 onclick="signIn('google',this)">Continue with Google</button></p>
+<p><button id=gh class=cta>Continue with GitHub</button></p>
+<p><button id=goog class=cta2>Continue with Google</button></p>
 <p id=err class=muted></p>
 <p class=muted>Email magic-link sign-in is coming soon. New here? Signing in creates your account.</p>
 </div>
@@ -239,6 +239,10 @@ function signIn(p, btn){
     })
     .catch(function(e){err.textContent='✗ '+e; if(btn){btn.disabled=false;}});
 }
+// CSP STEP-1 (#117) — wire via addEventListener, no inline on*= handlers (so script-src can later drop
+// unsafe-inline; inline handlers are blocked even with a nonce). The listener-function this is the button.
+document.getElementById('gh').addEventListener('click',function(){signIn('github',this)});
+document.getElementById('goog').addEventListener('click',function(){signIn('google',this)});
 </script>`,
     ),
   ),
@@ -568,7 +572,7 @@ app.get('/recommendations', (c) =>
 <div class=card>
 <p class=muted>Paste your admin token for actionable, rule-based recommendations from your fleet's observed state (drift · never-reported · stale). AI enrichment is pending the provider connection.</p>
 <p><input id=tenant placeholder="tenant (default _default)" style="width:46%"> <input id=tok type=password placeholder="AID_ADMIN_TOKEN" style="width:46%"></p>
-<p><button onclick="load()">Load recommendations</button></p></div>
+<p><button id=loadRecs>Load recommendations</button></p></div>
 <div id=out class=muted>No recommendations loaded.</div>
 <script>
 function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]})}
@@ -585,6 +589,7 @@ async function load(){
     out.innerHTML='<p class=muted>'+j.count+' recommendation(s) · '+(dd?('<strong>'+dd+'</strong> distinct machine(s) need attention'):'no machines need attention')+' · tenant '+esc(t)+' · <span class=tag>'+esc(j.generated)+'</span> · desired revision '+esc(j.currentRevision||'—')+'</p>'+cards;
   }catch(e){out.textContent='✗ '+e}
 }
+document.getElementById('loadRecs').addEventListener('click',load); // CSP STEP-1 (#117) — no inline on*=
 </script>`,
     ),
   ),
@@ -600,7 +605,7 @@ ${code ? `<p class=muted>Pairing code:</p><p class=code>${code}</p><div id=info 
 <div class=card><h3>Approve (administrator)</h3>
 <p class=muted>Review the device above, then paste your admin token to approve it. A signed-in owner session replaces this step soon.</p>
 <p><input id=tok type=password placeholder="AID_ADMIN_TOKEN" style="width:100%"></p>
-<p><button onclick="approve()">Approve pairing</button></p>
+<p><button id=approveBtn>Approve pairing</button></p>
 <p id=out class=muted></p></div>
 <script>
 function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]})}
@@ -625,6 +630,7 @@ async function approve(){
     out.textContent=r.ok?'✓ approved — the machine will claim its token shortly.':('✗ '+(j.error||r.status));
   }catch(e){out.textContent='✗ '+e}
 }
+document.getElementById('approveBtn').addEventListener('click',approve); // CSP STEP-1 (#117) — no inline on*=
 loadInfo();
 </script>`,
     ),

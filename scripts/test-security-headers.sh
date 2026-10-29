@@ -56,6 +56,26 @@ printf '%s' "$cc_sess" | grep -qi 'no-store' && pass "GET /api/auth/get-session 
 # 11. The no-store default is GLOBAL (a dashboard page gets it too, since no handler opts into caching).
 cc_pg="$(printf '%s' "$(hdr "$u/machines")" | grep -i '^cache-control:' | head -1)"
 printf '%s' "$cc_pg" | grep -qi 'no-store' && pass "GET /machines -> Cache-Control: no-store (global safe default)" || fail "no Cache-Control:no-store on /machines -> $(printf '%s' "$cc_pg" | head -c 120)"
+# 12-14. strict-CSP STEP 1 (#117) — toward dropping script-src 'unsafe-inline': inline on*= handlers are blocked
+#   even with a nonce, so each page's handlers are being converted to addEventListener (a few pages/fire). These 3
+#   pages (login/recommendations/pair — the static-handler-only ones) are now FULLY inline-handler-free. (The
+#   remaining pages have dynamically-generated handlers needing event delegation → later fires.)
+# Match ONLY inline HTML attributes `on*="…"` (the real CSP concern, blocked even with a nonce) — NOT JS
+# property assignments like `b.onclick=fn` (the shared chrome's forget-token/sign-out, which are CSP-SAFE).
+# The opening double-quote after `=` is the discriminator: inline attrs are `onclick="…"`, assignments are `.onclick=fn`.
+for pg in login recommendations pair; do
+  body="$(curl -sS "$u/$pg" 2>/dev/null)"
+  if printf '%s' "$body" | grep -qE 'on(click|input|change|submit)="'; then
+    fail "/$pg still has inline on*=\"…\" handler(s) -> $(printf '%s' "$body" | grep -oE 'on(click|input|change|submit)="' | sort -u | tr '\n' ' ')"
+  else
+    pass "/$pg -> 0 inline on*=\"…\" handlers (CSP STEP-1 #117 — converted to addEventListener; JS .onclick= assignments are CSP-safe)"
+  fi
+done
+# the buttons are still WIRED (addEventListener present) — interactivity preserved after the conversion.
+curl -sS "$u/login" 2>/dev/null | grep -q "addEventListener('click'" && pass "/login -> sign-in buttons wired via addEventListener (interactivity preserved, not just removed)" || fail "/login addEventListener wiring missing"
+# #117 spillover — the Google button (class=cta2) must have a transparent bg, else the base `button{background:#00E5FF}`
+# + cta2's cyan TEXT render cyan-on-cyan (invisible). Real-browser-caught during the STEP-1 verification.
+curl -sS "$u/login" 2>/dev/null | grep -qE '\.cta2\{[^}]*background:transparent' && pass "/login -> .cta2 transparent bg (Google button text readable, not cyan-on-cyan; #117 spillover)" || fail "/login .cta2 missing transparent bg (invisible button text)"
 
 say "security-headers: $P passed, $F failed"
 [ "$F" -eq 0 ]
