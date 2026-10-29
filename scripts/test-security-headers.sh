@@ -27,8 +27,23 @@ H="$(hdr "$u/")"
 csp="$(printf '%s' "$H" | grep -i '^content-security-policy:' | head -1)"
 # 1. CSP present on the landing page with the locked directives.
 { printf '%s' "$csp" | grep -qi "frame-ancestors 'none'" && printf '%s' "$csp" | grep -qi "object-src 'none'" && printf '%s' "$csp" | grep -qi "base-uri 'self'" && printf '%s' "$csp" | grep -qi "form-action 'self'"; } && pass "GET / -> CSP with frame-ancestors 'none' + object-src 'none' + base-uri 'self' + form-action 'self' (O14)" || fail "landing CSP -> $(printf '%s' "$csp" | head -c 200)"
-# 2. CSP keeps script/style 'unsafe-inline' (so the inline dashboard JS/CSS is NOT broken by the policy).
-{ printf '%s' "$csp" | grep -qi "script-src[^;]*'unsafe-inline'" && printf '%s' "$csp" | grep -qi "style-src[^;]*'unsafe-inline'"; } && pass "CSP allows inline script+style ('unsafe-inline') — dashboard inline JS/CSS intact (honest)" || fail "CSP would break inline JS/CSS -> $(printf '%s' "$csp" | head -c 200)"
+# 2. CSP STEP 2 (#122) — script-src DROPS 'unsafe-inline' for a per-request NONCE (real XSS defense-in-depth:
+#    an injected <script> can't guess the nonce, so it won't execute); style-src KEEPS 'unsafe-inline' (inline
+#    styles are a separate, harder, later slice). Scope the unsafe-inline check to the script-src directive only
+#    ([^;]* stops at its ';', so style-src's unsafe-inline doesn't false-match).
+{ printf '%s' "$csp" | grep -qiE "script-src[^;]*'nonce-" && ! printf '%s' "$csp" | grep -qiE "script-src[^;]*'unsafe-inline'" && printf '%s' "$csp" | grep -qi "style-src[^;]*'unsafe-inline'"; } && pass "CSP script-src uses a per-request nonce + DROPS 'unsafe-inline' (XSS-hardened); style-src keeps inline (honest; #122)" || fail "CSP script-src not nonce-hardened -> $(printf '%s' "$csp" | head -c 200)"
+# 2b. EVERY <script> opening tag on the page carries the SAME nonce as the CSP header — fetched in ONE request
+#     (headers+body together) since the nonce is per-request. A missing/mismatched nonce on any script would break
+#     it under the strict policy, so header↔body parity is the correctness gate. NOTE the CF Web Analytics beacon
+#     is injected at the EDGE after the worker, but Cloudflare STAMPS OUR nonce onto it (reading our script-src),
+#     so it passes too — and its nonce sits AFTER type/src/integrity, so we check the whole opening tag, not just
+#     `<script nonce=` (which would only match our inline scripts where nonce is the first attribute).
+resp="$(curl -sS -D - "$u/" 2>/dev/null | tr -d '\r')"
+hn="$(printf '%s' "$resp" | grep -i '^content-security-policy:' | grep -oiE "nonce-[A-Za-z0-9+/=]+" | head -1 | sed 's/[Nn]once-//')"
+tags="$(printf '%s' "$resp" | grep -oE '<script[^>]*>')"
+st="$(printf '%s' "$tags" | grep -c '<script')"
+sn="$(printf '%s' "$tags" | grep -cF "nonce=\"$hn\"")"
+{ [ -n "$hn" ] && [ "$st" -gt 0 ] && [ "$st" = "$sn" ]; } && pass "GET / -> all $st <script> tags carry the CSP header's nonce ($sn match, incl. the CF-beacon CF stamps with our nonce; header↔body plumbed; #122)" || fail "nonce header↔body mismatch: header-nonce='$hn' total-script-tags=$st nonced=$sn"
 # 3. Permissions-Policy present (locks camera/mic/geolocation — the dashboard needs none).
 printf '%s' "$H" | grep -qi '^permissions-policy:' && pass "GET / -> Permissions-Policy present (locks unused powerful features)" || fail "no Permissions-Policy on /"
 # 4. The CSP is global — also on a dashboard page + an API JSON response.
