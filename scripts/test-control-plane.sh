@@ -180,6 +180,10 @@ if [ -n "${CONTROL_PLANE_URL:-}" ]; then
   # fire #147 — D11 update-channel: per-provider UPDATE commands (how to keep the tool CURRENT, promise #8). They
   # genuinely DIFFER from install (brew upgrade; cargo install --force; npm update -g; apt --only-upgrade; …).
   echo "$cd1" | jq -e '([.updateCommands[]|select(.provider=="brew" and .command=="brew upgrade ripgrep")]|length==1) and ([.updateCommands[]|select(.provider=="cargo" and .command=="cargo install --force ripgrep")]|length==1)' >/dev/null 2>&1 && pass "GET /api/catalog/:name -> per-provider UPDATE commands (D11 update-channel #147: brew upgrade / cargo install --force)" || fail "catalog updateCommands -> $(printf '%s' "$cd1" | jq -c '.updateCommands' 2>/dev/null | head -c 180)"
+  # fire #148 — drift guard: INSTALL_CMD + UPDATE_CMD are parallel maps that MUST stay in sync — if a provider
+  # is added to one but not the other, that tool's install OR update command silently drops. Assert the live
+  # detail's install-provider set == its update-provider set (ripgrep has 7 providers), locking the coupling #147 introduced.
+  echo "$cd1" | jq -e '(([.commands[].provider]|sort) == ([.updateCommands[].provider]|sort)) and ((.commands|length)>=2)' >/dev/null 2>&1 && pass "GET /api/catalog/:name -> install↔update command PARITY (every install-provider has an update cmd; INSTALL_CMD/UPDATE_CMD in sync; #148 drift guard)" || fail "install/update parity -> $(printf '%s' "$cd1" | jq -c '{install:[.commands[].provider],update:[.updateCommands[].provider]}' 2>/dev/null | head -c 180)"
   # fire #92 — the detail carries the human-facing description + provenance from software.yml (_short/_github).
   echo "$cd1" | jq -e '((.short|type=="string") and (.short|test("search";"i"))) and ((.github|type=="string") and (.github|test("github.com/BurntSushi/ripgrep")))' >/dev/null 2>&1 && pass "GET /api/catalog/:name -> description (_short) + github provenance (_github) (D11/R13)" || fail "catalog short/github -> $(printf '%s' "$cd1" | jq -c '{short,github}' 2>/dev/null | head -c 180)"
   # fire #146 — D11 maintenance-ownership: derive the OWNER (github org) from the provenance URL, so the App Store
