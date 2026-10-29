@@ -236,6 +236,10 @@ if [ -n "${CONTROL_PLANE_URL:-}" ]; then
   echo "$cmapp" | jq -e '.installMode=="app"' >/dev/null 2>&1 && pass "GET /api/catalog/aerospace -> installMode:app (GUI desktop app, eager at provisioning; D06/F02)" || fail "aerospace installMode -> $(printf '%s' "$cmapp" | jq -c '{installMode}' 2>/dev/null | head -c 80)"
   cmsvc="$(curl -s "$u/api/catalog/caddy" 2>/dev/null)"
   echo "$cmsvc" | jq -e '.installMode=="service"' >/dev/null 2>&1 && pass "GET /api/catalog/caddy -> installMode:service (required service; D06)" || fail "caddy installMode -> $(printf '%s' "$cmsvc" | jq -c '{installMode}' 2>/dev/null | head -c 80)"
+  # fire #156 — alloy (Grafana Alloy) is now CATALOGUED (closes the #155 coverage gap). Grounded install data:
+  # brew grafana-alloy (Homebrew API-verified) + apt/dnf alloy (Grafana's official Linux install docs); it's a service.
+  cmalloy="$(curl -s "$u/api/catalog/alloy" 2>/dev/null)"
+  echo "$cmalloy" | jq -e '.installMode=="service" and ([.commands[]?|select(.command|test("grafana-alloy"))]|length>=1) and ((.platforms|index("linux"))!=null) and (.github|test("grafana/alloy"))' >/dev/null 2>&1 && pass "GET /api/catalog/alloy -> Grafana Alloy catalogued (service; brew grafana-alloy + apt/dnf alloy; linux; closes the #155 gap; D01/#156)" || fail "alloy catalog -> $(printf '%s' "$cmalloy" | jq -c '{installMode,platforms,commands:[.commands[]?.command]}' 2>/dev/null | head -c 200)"
   echo "$cat" | jq -e '[.items[]|select(.installMode|type=="string")]|length==3' >/dev/null 2>&1 && pass "GET /api/catalog -> list items carry installMode (D06)" || fail "catalog list installMode -> $(printf '%s' "$cat" | jq -c '[.items[].installMode]' 2>/dev/null | head -c 100)"
   { echo "$ap" | grep -qiE 'installMode|Desktop app|first use'; } && pass "/apps page surfaces the install MODE (desktop app vs lazy CLI; frontend-judgeable D06)" || fail "apps install-mode badge missing"
   # fire #153 — the install-mode render distinguishes a PRELOADED cli ("installed at setup") from a lazy one ("on first use").
@@ -319,7 +323,9 @@ JSON
   # fire #155 — A10: summary.unknownPackages NAMES the plan packages the catalog does NOT know (no recipe), matching
   # the NAMED deprecatedPackages/platformGaps. _default's runner carries `alloy` (Grafana Alloy — intended per the
   # observability doctrine but absent from software.yml), so unknownPackages must contain it (installModes.unknown>=1).
-  echo "$cur" | jq -e '(.summary.unknownPackages|type=="array") and ((.summary.unknownPackages|index("alloy"))!=null) and (.summary.installModes.unknown>=1)' >/dev/null 2>&1 && pass "GET /api/environment/current (_default) -> summary.unknownPackages NAMES uncatalogued packages (alloy; A10 explicit coverage gap #155)" || fail "default unknownPackages -> $(printf '%s' "$cur" | jq -c '{unknownPackages:.summary.unknownPackages,unknown:.summary.installModes.unknown}' 2>/dev/null | head -c 140)"
+  # fire #156 — alloy is now catalogued (a service), so _default's coverage gap is CLOSED: unknownPackages EMPTY,
+  # installModes.unknown==0, and alloy counts as a service. (The NAMING mechanism stays guarded by the _unktest synthetic below.)
+  echo "$cur" | jq -e '(.summary.unknownPackages|type=="array") and (.summary.unknownPackages|length==0) and (.summary.installModes.unknown==0) and (.summary.installModes.service>=1)' >/dev/null 2>&1 && pass "GET /api/environment/current (_default) -> unknownPackages EMPTY + installModes.unknown==0 (alloy now catalogued as a service; #155 gap CLOSED by #156)" || fail "default unknownPackages -> $(printf '%s' "$cur" | jq -c '{unknownPackages:.summary.unknownPackages,unknown:.summary.installModes.unknown,service:.summary.installModes.service}' 2>/dev/null | head -c 160)"
   nf="$(curl -s -o /dev/null -w '%{http_code}' "$u/api/environment/current?tenant=__nope__" 2>/dev/null || echo 000)"
   [ "$nf" = 404 ] && pass "env current (unknown tenant) -> 404" || fail "env current unknown -> $nf (want 404)"
 
@@ -359,6 +365,12 @@ JSON
     curl -s -X PUT -H "authorization: Bearer $ADMIN" -H 'content-type: application/json' -d "$(jq -n --argjson b "$mt" '{tenant:"_modetest",blueprint:$b}')" "$u/api/environment/current" >/dev/null 2>&1
     ms="$(curl -s "$u/api/environment/current?tenant=_modetest" 2>/dev/null)"
     echo "$ms" | jq -e '.summary.installModes=={app:1,service:1,cli:1,cliPreload:1,unknown:0}' >/dev/null 2>&1 && pass "mixed plan -> summary.installModes {app:1,service:1,cliPreload:1,cli:1} (counts by mode incl. the #154 eager-vs-lazy split: ripgrep→cliPreload, pandoc→cli; C12/D06 #111/#154)" || fail "modetest installModes -> $(printf '%s' "$ms" | jq -c '.summary.installModes' 2>/dev/null | head -c 120)"
+    # fire #156 — the unknownPackages NAMING mechanism, durably tested with a GUARANTEED-unknown synthetic (decoupled
+    # from the real catalog, which now covers alloy): a bogus package name is NAMED in unknownPackages, not just counted.
+    ut="$(jq --slurpfile a "$bpf" -n '$a[0] | .defaults.packages=["nonexistentpkg156"] | .machines=[] | .services=[]')"
+    curl -s -X PUT -H "authorization: Bearer $ADMIN" -H 'content-type: application/json' -d "$(jq -n --argjson b "$ut" '{tenant:"_unktest",blueprint:$b}')" "$u/api/environment/current" >/dev/null 2>&1
+    us="$(curl -s "$u/api/environment/current?tenant=_unktest" 2>/dev/null)"
+    echo "$us" | jq -e '.summary.unknownPackages==["nonexistentpkg156"] and (.summary.installModes.unknown==1)' >/dev/null 2>&1 && pass "unknownPackages MECHANISM -> a bogus package is NAMED in summary.unknownPackages (not just counted; A10 #155/#156)" || fail "unktest unknownPackages -> $(printf '%s' "$us" | jq -c '.summary.unknownPackages' 2>/dev/null | head -c 120)"
     # fire #114 — seed a plan WITH a deprecated package (altair) + assert the summary flags it with its reason (safety:
     # the plan review warns before applying a plan that includes an abandoned/discouraged tool; uses the catalog `deprecated` #112).
     dt="$(jq --slurpfile a "$bpf" -n '$a[0] | .defaults.packages=["altair","ripgrep"] | .machines=[{id:"m1",os:"darwin",role:"desktop",packages:[]}] | .services=[]')"

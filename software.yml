@@ -223,6 +223,19 @@ softwarePackages:
     _github: https://github.com/alda-lang/alda
     _bin: alda
     brew: alda
+  alloy:
+    _name: Grafana Alloy
+    _short: OpenTelemetry Collector distribution with programmable pipelines.
+    _github: https://github.com/grafana/alloy
+    _home: https://grafana.com/oss/alloy/
+    _docs: https://grafana.com/docs/alloy/latest/
+    _bin: alloy
+    _service:
+      - name: alloy
+        sudo: true
+    brew: grafana-alloy
+    apt: alloy
+    dnf: alloy
   allure:
     _name: Allure
     _short: Allure2 is a flexible test reporting tool that provides clear and concise test execution reports with rich visual representations.
