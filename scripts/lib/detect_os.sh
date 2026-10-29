@@ -429,6 +429,44 @@ detect_env_class() {
 }
 
 # ---------------------------------------------------------------------------
+# detect_sandbox_mechanisms — the SANDBOX/isolation mechanisms available on the
+# host (B05 "detect ... sandbox mechanisms", the 3rd B05 detection after
+# service-manager + graphical-session). Feeds the Q-series isolation choice:
+# credentialed/privileged execution must run in REAL filesystem+process
+# isolation (Q10-Q12) — a cwd change or an Infisical folder is NOT a jail — so
+# the executor needs to know which jail primitives exist before it picks one.
+#
+# Output: a SPACE-SEPARATED SET in canonical (most-preferred first) order, or
+# "none". Depends ONLY on shell builtins + `command -v` (no detect_os / uname),
+# so it is correct even under a stripped PATH.
+#   bwrap        — bubblewrap (lightweight unprivileged namespaces; flatpak's jail)
+#   firejail     — firejail SUID sandbox
+#   nsjail       — nsjail (Google's namespace jail)
+#   unshare      — raw Linux namespaces (util-linux)
+#   systemd-run  — transient systemd scope with sandboxing properties
+#   sandbox-exec — macOS seatbelt
+#   docker/podman — container-as-sandbox fallback
+#
+# Override with INSTALL_DOCTOR_SANDBOX_MECHANISMS (tests / constrained envs),
+# mirroring the other detect_* overrides.
+# ---------------------------------------------------------------------------
+detect_sandbox_mechanisms() {
+  # Explicit override (tests / constrained environments)
+  if [ -n "${INSTALL_DOCTOR_SANDBOX_MECHANISMS:-}" ]; then
+    echo "$INSTALL_DOCTOR_SANDBOX_MECHANISMS"
+    return 0
+  fi
+
+  local out="" m
+  for m in bwrap firejail nsjail unshare systemd-run sandbox-exec docker podman; do
+    command -v "$m" >/dev/null 2>&1 && out="$out $m"
+  done
+  out="${out# }" # trim leading space
+  [ -n "$out" ] && echo "$out" || echo "none"
+  return 0
+}
+
+# ---------------------------------------------------------------------------
 # detect_privilege — returns the host's effective privilege level
 #
 # Output: root | passwordless-sudo | sudo | user

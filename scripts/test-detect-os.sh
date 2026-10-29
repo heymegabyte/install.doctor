@@ -313,10 +313,35 @@ assert_eq "detect_env_class: container checked before vm/bare-metal" "container"
 assert_eq "detect_env_class idempotent" "$(detect_env_class)" "$(detect_env_class)"
 
 # ---------------------------------------------------------------------------
+# Test 4d: detect_sandbox_mechanisms lists the available isolation mechanisms
+# (B05 "detect ... sandbox mechanisms" — the 3rd B05 detection after service-
+# manager + graphical-session). A SPACE-SEPARATED SET in canonical order, or
+# "none". Feeds the Q-series isolation choice (credentialed execution must run
+# in real filesystem/process isolation, not just a cwd change).
+# ---------------------------------------------------------------------------
+echo "=== Test: detect_sandbox_mechanisms ==="
+detect_sandbox_mechanisms > /dev/null
+assert_ok "detect_sandbox_mechanisms exit code" $?
+# Full override (deterministic, no host probing)
+assert_eq "detect_sandbox_mechanisms INSTALL_DOCTOR_SANDBOX_MECHANISMS override" "test-sbx" "$(INSTALL_DOCTOR_SANDBOX_MECHANISMS="test-sbx" detect_sandbox_mechanisms)"
+# REAL detection: a fake `bwrap` on PATH is discovered (proves the command-presence scan runs, not just the override).
+SBXTMP="$(mktemp -d)"; printf '#!/usr/bin/env bash\n:\n' > "$SBXTMP/bwrap"; chmod +x "$SBXTMP/bwrap"
+if INSTALL_DOCTOR_SANDBOX_MECHANISMS='' PATH="$SBXTMP:$PATH" detect_sandbox_mechanisms | grep -qw bwrap; then
+  echo "  PASS: detect_sandbox_mechanisms discovers bwrap on PATH (real command-presence scan)"; PASS=$((PASS + 1))
+else
+  echo "  FAIL: detect_sandbox_mechanisms did not discover a fake bwrap on PATH"; FAIL=$((FAIL + 1))
+fi
+# No mechanisms on a bare PATH -> "none" (the function depends only on shell builtins + command -v).
+assert_eq "detect_sandbox_mechanisms: empty PATH -> none" "none" "$(INSTALL_DOCTOR_SANDBOX_MECHANISMS='' PATH="$SBXTMP/empty" detect_sandbox_mechanisms)"
+rm -rf "$SBXTMP"
+# Idempotency
+assert_eq "detect_sandbox_mechanisms idempotent" "$(detect_sandbox_mechanisms)" "$(detect_sandbox_mechanisms)"
+
+# ---------------------------------------------------------------------------
 # Test 5: All functions are defined
 # ---------------------------------------------------------------------------
 echo "=== Test: function definitions ==="
-for fn in detect_os detect_arch detect_release detect_role detect_package_manager detect_service_manager detect_privilege detect_graphical_session is_headless detect_env_class; do
+for fn in detect_os detect_arch detect_release detect_role detect_package_manager detect_service_manager detect_privilege detect_graphical_session is_headless detect_env_class detect_sandbox_mechanisms; do
   if declare -f "$fn" > /dev/null 2>&1; then
     echo "  PASS: $fn is defined"
     PASS=$((PASS + 1))
