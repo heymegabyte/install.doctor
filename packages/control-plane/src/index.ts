@@ -293,7 +293,6 @@ app.get('/history', (c) =>
 <p><button id=loadBtn>Load history</button></p></div>
 <div id=out class=muted>No events loaded.</div>
 <script>
-function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]})}
 // fire #91 — U03 fleet UI: a "run" column shows each event's correlationId; clicking it re-loads the history
 // filtered to that run (the built-but-UI-only ?correlation= filter), so an operator can isolate one aid-up
 // run's events across the fleet. load(corr) optionally scopes to a correlationId; a banner clears the filter.
@@ -306,14 +305,40 @@ async function load(corr){
     var r=await fetch(url,{headers:{'authorization':'Bearer '+tok}});
     var j=await r.json();
     if(!r.ok){out.textContent='✗ '+(j.error||r.status);return}
-    if(!j.items||!j.items.length){out.innerHTML=corr?('<p class=muted>No events for run <span class=mono>'+esc(corr)+'</span>. <button class=lnk data-act="clear">✕ clear filter</button></p>'):('No events for '+esc(t)+'.');return}
-    var rows=j.items.map(function(e){
-      var run=e.correlationId?('<button class=lnk title="filter to run '+esc(e.correlationId)+(e.parentRunId?(' · child of '+esc(e.parentRunId)):'')+'" data-act="filter" data-corr="'+esc(e.correlationId)+'">'+(e.parentRunId?'↳ ':'')+esc(String(e.correlationId).slice(-6))+'</button>'):'<span class=muted>—</span>';
-      var dev='<a class=mono href="/machines?device='+encodeURIComponent(e.deviceId)+'" title="View this machine">'+esc(e.deviceId)+'</a>';
-      return '<tr><td>'+esc(e.createdAt)+'</td><td>'+dev+'</td><td>'+esc(e.kind)+'</td><td>'+esc(e.status)+'</td><td>'+run+'</td><td>'+esc(e.summary||'')+'</td></tr>';
-    }).join('');
-    var banner=corr?('<p class=muted>Showing run <span class=mono>'+esc(corr)+'</span> · '+j.count+' event(s) · <button class=lnk data-act="clear">✕ clear filter</button></p>'):('<p class=muted>'+j.count+' events · tenant '+esc(t)+' · recording: '+esc(j.recordingMode||'events-only')+' (no terminal capture yet) · click a run to isolate its correlated events</p>');
-    out.innerHTML=banner+'<table><thead><tr><th>time</th><th>device</th><th>kind</th><th>status</th><th>run</th><th>summary</th></tr></thead><tbody>'+rows+'</tbody></table>';
+    // #126 Trusted-Types-safe render (no innerHTML, toward require-trusted-types-for 'script') — build the banner
+    // + events table with createElement/textContent/.append (auto-escaped). data-act/data-corr are preserved so
+    // the #120 delegated listener (closest('[data-act]')) still drives the run-filter + clear-filter buttons.
+    function clearBtn(){var b=document.createElement('button');b.className='lnk';b.setAttribute('data-act','clear');b.textContent='✕ clear filter';return b;}
+    if(!j.items||!j.items.length){
+      if(corr){var pe=document.createElement('p');pe.className='muted';pe.append('No events for run ');var me=document.createElement('span');me.className='mono';me.textContent=corr;pe.append(me,'. ',clearBtn());out.replaceChildren(pe);}
+      else{out.textContent='No events for '+t+'.';}
+      return;
+    }
+    var frag=document.createDocumentFragment();
+    var banner=document.createElement('p');banner.className='muted';
+    if(corr){var mb=document.createElement('span');mb.className='mono';mb.textContent=corr;banner.append('Showing run ',mb,' · '+j.count+' event(s) · ',clearBtn());}
+    else{banner.append(j.count+' events · tenant '+t+' · recording: '+(j.recordingMode||'events-only')+' (no terminal capture yet) · click a run to isolate its correlated events');}
+    frag.append(banner);
+    var table=document.createElement('table');
+    var thead=document.createElement('thead'),htr=document.createElement('tr');
+    ['time','device','kind','status','run','summary'].forEach(function(h){var th=document.createElement('th');th.textContent=h;htr.append(th);});
+    thead.append(htr);table.append(thead);
+    var tbody=document.createElement('tbody');
+    j.items.forEach(function(e){
+      var tr=document.createElement('tr');
+      function td(){var c=document.createElement('td');tr.append(c);return c;}
+      td().textContent=e.createdAt||'';
+      var a=document.createElement('a');a.className='mono';a.href='/machines?device='+encodeURIComponent(e.deviceId);a.title='View this machine';a.textContent=e.deviceId||'';td().append(a);
+      td().textContent=e.kind||'';
+      td().textContent=e.status||'';
+      var rc=td();
+      if(e.correlationId){var rb=document.createElement('button');rb.className='lnk';rb.title='filter to run '+e.correlationId+(e.parentRunId?(' · child of '+e.parentRunId):'');rb.setAttribute('data-act','filter');rb.setAttribute('data-corr',e.correlationId);rb.textContent=(e.parentRunId?'↳ ':'')+String(e.correlationId).slice(-6);rc.append(rb);}
+      else{var sp=document.createElement('span');sp.className='muted';sp.textContent='—';rc.append(sp);}
+      td().textContent=e.summary||'';
+      tbody.append(tr);
+    });
+    table.append(tbody);frag.append(table);
+    out.replaceChildren(frag);
   }catch(e){out.textContent='✗ '+e}
 }
 // #120 CSP STEP 1 — wire the static Load button + delegate the DYNAMIC per-row run-filter / clear-filter
