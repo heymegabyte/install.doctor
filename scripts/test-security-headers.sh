@@ -56,17 +56,17 @@ printf '%s' "$cc_sess" | grep -qi 'no-store' && pass "GET /api/auth/get-session 
 # 11. The no-store default is GLOBAL (a dashboard page gets it too, since no handler opts into caching).
 cc_pg="$(printf '%s' "$(hdr "$u/machines")" | grep -i '^cache-control:' | head -1)"
 printf '%s' "$cc_pg" | grep -qi 'no-store' && pass "GET /machines -> Cache-Control: no-store (global safe default)" || fail "no Cache-Control:no-store on /machines -> $(printf '%s' "$cc_pg" | head -c 120)"
-# 12-17. strict-CSP STEP 1 (#117, #118, #119, #120) — toward dropping script-src 'unsafe-inline': inline on*= handlers
-#   are blocked even with a nonce, so each page's handlers are being converted to addEventListener (a few pages/fire).
-#   These 6 pages (login/recommendations/pair #117 + apps #118 + environment #119 + history #120) are now FULLY
-#   inline-handler-free. (apps' & environment's handlers were STATIC fixed buttons — simple addEventListener; history's
-#   per-row run-filter + clear buttons are DYNAMIC inside #out, so #120 used EVENT DELEGATION: data-act/data-corr attrs
-#   + one #out listener reading e.target.closest('[data-act]').) The LAST page (machines) has dynamic per-row handlers
-#   needing the same delegation → next fire.
+# 12-18. strict-CSP STEP 1 COMPLETE (#117-#121) — toward dropping script-src 'unsafe-inline': inline on*= handlers are
+#   blocked even with a nonce, so each page's handlers were converted to addEventListener (a few pages/fire). ALL 7
+#   dashboard pages (login/recommendations/pair #117 + apps #118 + environment #119 + history #120 + machines #121)
+#   are now FULLY inline-handler-free. (apps' & environment's handlers were STATIC fixed buttons — simple
+#   addEventListener; apps/history/machines' DYNAMIC per-row buttons use EVENT DELEGATION: data-act/data-id attrs +
+#   one container listener reading e.target.closest('[data-act]').) → STEP 2 (nonce/hash the <script> blocks + drop
+#   script-src 'unsafe-inline') is now UNBLOCKED (all pages handler-free).
 # Match ONLY inline HTML attributes `on*="…"` (the real CSP concern, blocked even with a nonce) — NOT JS
 # property assignments like `b.onclick=fn` (the shared chrome's forget-token/sign-out, which are CSP-SAFE).
 # The opening double-quote after `=` is the discriminator: inline attrs are `onclick="…"`, assignments are `.onclick=fn`.
-for pg in login recommendations pair apps environment history; do
+for pg in login recommendations pair apps environment history machines; do
   body="$(curl -sS "$u/$pg" 2>/dev/null)"
   if printf '%s' "$body" | grep -qE 'on(click|input|change|submit)="'; then
     fail "/$pg still has inline on*=\"…\" handler(s) -> $(printf '%s' "$body" | grep -oE 'on(click|input|change|submit)="' | sort -u | tr '\n' ' ')"
@@ -85,6 +85,10 @@ curl -sS "$u/apps" 2>/dev/null | grep -q "addEventListener('input'" && pass "/ap
 curl -sS "$u/environment" 2>/dev/null | grep -q "addEventListener('click',diffProposed)" && pass "/environment -> Load+Diff buttons wired via addEventListener (interactivity preserved after #119 conversion)" || fail "/environment addEventListener('click',diffProposed) wiring missing"
 # #120 — /history's dynamic per-row run-filter + clear buttons stay WIRED via EVENT DELEGATION (data-act on #out).
 curl -sS "$u/history" 2>/dev/null | grep -qF "closest('[data-act]')" && pass "/history -> dynamic row/filter buttons wired via event delegation (closest('[data-act]') on #out; #120)" || fail "/history event-delegation wiring (closest('[data-act]')) missing"
+# #121 — /machines' dynamic per-row detail + support-bundle + download buttons stay WIRED via EVENT DELEGATION
+# (data-act on #out for detail, on #detail for bundle/dlbundle). This COMPLETES STEP 1: all 7 pages handler-free.
+mb="$(curl -sS "$u/machines" 2>/dev/null)"
+{ printf '%s' "$mb" | grep -qF "closest('[data-act]')" && printf '%s' "$mb" | grep -qF 'data-act="detail"' && printf '%s' "$mb" | grep -qF 'data-act="bundle"'; } && pass "/machines -> detail/bundle/download buttons wired via event delegation (closest('[data-act]') on #out + #detail; #121 — STEP 1 COMPLETE, all 7 pages handler-free)" || fail "/machines event-delegation wiring missing (closest('[data-act]') + data-act=detail/bundle)"
 
 say "security-headers: $P passed, $F failed"
 [ "$F" -eq 0 ]

@@ -421,7 +421,7 @@ app.get('/machines', (c) =>
 <div class=card>
 <p class=muted>Paste your admin token to list the enrolled machines for a tenant (label · device id · enrolled · status).</p>
 <p><input id=tenant placeholder="tenant (default _default)" style="width:46%"> <input id=tok type=password placeholder="AID_ADMIN_TOKEN" style="width:46%"></p>
-<p><button onclick="load()">Load machines</button></p></div>
+<p><button id=loadBtn>Load machines</button></p></div>
 <div id=out class=muted>No machines loaded.</div>
 <div id=detail></div>
 <script>
@@ -441,7 +441,7 @@ async function load(){
     if(!r.ok){out.textContent='✗ '+(j.error||r.status);return}
     if(!j.items||!j.items.length){out.textContent='No machines enrolled for '+esc(t)+'.';return}
     LAST={};j.items.forEach(function(d){LAST[d.deviceId]=d});CUR=j.currentRevision;
-    var rows=j.items.map(function(d){return '<tr><td>'+esc(d.label||'—')+'</td><td><button class=lnk onclick="detail(\\''+esc(d.deviceId)+'\\')">'+esc(d.deviceId)+'</button></td><td>'+esc(d.tenant)+'</td><td>'+esc(d.enrolledAt)+'</td><td>'+lastActive(d)+'</td><td>'+driftCell(d,j.currentRevision)+'</td><td>'+healthCell(d)+'</td><td>'+scopeCell(d)+'</td><td>'+(d.revoked?'<span class=tag>revoked</span>':'active')+'</td></tr>'}).join('');
+    var rows=j.items.map(function(d){return '<tr><td>'+esc(d.label||'—')+'</td><td><button class=lnk data-act="detail" data-id="'+esc(d.deviceId)+'">'+esc(d.deviceId)+'</button></td><td>'+esc(d.tenant)+'</td><td>'+esc(d.enrolledAt)+'</td><td>'+lastActive(d)+'</td><td>'+driftCell(d,j.currentRevision)+'</td><td>'+healthCell(d)+'</td><td>'+scopeCell(d)+'</td><td>'+(d.revoked?'<span class=tag>revoked</span>':'active')+'</td></tr>'}).join('');
     out.innerHTML='<p class=muted>'+j.count+' machines · tenant '+esc(t)+' · desired revision '+esc(j.currentRevision||'—')+' · drift = last-applied vs desired · health = connectivity·software·backup · scope = granted permissions · click a device for its timeline</p><table><thead><tr><th>label</th><th>device</th><th>tenant</th><th>enrolled</th><th>last active</th><th>drift</th><th>health</th><th>scope</th><th>status</th></tr></thead><tbody>'+rows+'</tbody></table>';
   }catch(e){out.textContent='✗ '+e}
 }
@@ -458,7 +458,7 @@ async function detail(id){
     if(!r.ok){dp.innerHTML='✗ '+esc(j.error||String(r.status));return}
     var ev=(j.items||[]).map(function(e){var run=e.correlationId?('<span class=tag title="run '+esc(e.correlationId)+(e.parentRunId?(' · child of '+esc(e.parentRunId)):'')+'">'+(e.parentRunId?'↳ ':'')+esc(String(e.correlationId).slice(-6))+'</span>'):'<span class=muted>—</span>';return '<tr><td>'+esc(e.createdAt)+'</td><td>'+esc(e.kind)+'</td><td>'+esc(e.status)+'</td><td>'+run+'</td><td>'+esc(e.revision||'')+'</td><td>'+esc(e.summary||'')+'</td></tr>'}).join('')||'<tr><td colspan=6 class=muted>No events reported yet.</td></tr>';
     var g=(m.grantedPermissions||[]).join(', ')||'—';
-    dp.innerHTML='<div class=card><p><strong>'+esc(m.label||id)+'</strong> <span class=mono muted>'+esc(id)+'</span>'+(m.revoked?' <span class=tag>revoked</span>':'')+' <button class=lnk onclick="bundle(\\''+esc(id)+'\\')">⬇ Support bundle</button></p>'
+    dp.innerHTML='<div class=card><p><strong>'+esc(m.label||id)+'</strong> <span class=mono muted>'+esc(id)+'</span>'+(m.revoked?' <span class=tag>revoked</span>':'')+' <button class=lnk data-act="bundle" data-id="'+esc(id)+'">⬇ Support bundle</button></p>'
       +'<p class=muted>health '+healthCell(m)+' · drift '+driftCell(m,CUR)+' · scope '+esc(g)+' · last active '+lastActive(m)+'</p>'
       +'<p class=muted>'+j.count+' event(s) · unified change timeline · recording: '+esc(j.recordingMode||'events-only')+' (no terminal capture yet)</p>'
       +'<div id=sb></div>'
@@ -483,7 +483,7 @@ async function bundle(id){
     LASTSB=j;
     var inc=(j.contents||[]).map(function(x){return '<li>✓ '+esc(x)+'</li>'}).join('');
     var exc=(j.excluded||[]).map(function(x){return '<li>✗ '+esc(x)+'</li>'}).join('');
-    sb.innerHTML='<div class=card style="margin-top:8px"><p><strong>Support bundle</strong> <span class=tag>v'+esc(j.bundleVersion)+'</span> <span class=muted>generated '+esc(j.generatedAt)+' · recording '+esc(j.recordingMode)+'</span> <button class=lnk onclick="dlbundle()">⬇ Download JSON</button></p>'
+    sb.innerHTML='<div class=card style="margin-top:8px"><p><strong>Support bundle</strong> <span class=tag>v'+esc(j.bundleVersion)+'</span> <span class=muted>generated '+esc(j.generatedAt)+' · recording '+esc(j.recordingMode)+'</span> <button class=lnk data-act="dlbundle">⬇ Download JSON</button></p>'
       +'<p class=muted>A sanitized, one-artifact diagnostic to attach to a support request — included, and what is deliberately left out:</p>'
       +'<div style="display:flex;gap:28px;flex-wrap:wrap"><div><p class=muted><strong>Included</strong></p><ul class=muted>'+inc+'</ul></div><div><p class=muted><strong>Excluded (sanitized)</strong></p><ul class=muted>'+exc+'</ul></div></div></div>';
   }catch(e){sb.innerHTML='✗ '+esc(String(e))}
@@ -496,6 +496,21 @@ function dlbundle(){
   a.href=url;a.download=name;document.body.appendChild(a);a.click();document.body.removeChild(a);
   setTimeout(function(){URL.revokeObjectURL(url)},1000);
 }
+// #121 CSP STEP 1 (COMPLETES the 7-page conversion) — wire the static Load button + delegate the DYNAMIC
+// per-row buttons via data-act, toward dropping script-src 'unsafe-inline'. detail() lives in #out (device
+// table); bundle()/dlbundle() live in #detail (bundle() writes #sb INSIDE #detail, so a #detail listener
+// catches it by bubbling). load() takes no args, so the static button binds directly.
+document.getElementById('loadBtn').addEventListener('click',load);
+document.getElementById('out').addEventListener('click',function(ev){
+  var b=ev.target.closest('[data-act]');if(!b)return;
+  if(b.getAttribute('data-act')==='detail')detail(b.getAttribute('data-id'));
+});
+document.getElementById('detail').addEventListener('click',function(ev){
+  var b=ev.target.closest('[data-act]');if(!b)return;
+  var a=b.getAttribute('data-act');
+  if(a==='bundle')bundle(b.getAttribute('data-id'));
+  else if(a==='dlbundle')dlbundle();
+});
 // Deep-link target (fire #67): /machines?device=<id> — if the admin token is already remembered
 // (sessionStorage, #66), auto-load the inventory then open that device's detail. Lands a Recommendations
 // "flagged device" click directly on its unified timeline. No token → the normal Load flow still applies.
