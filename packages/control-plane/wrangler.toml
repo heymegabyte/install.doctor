@@ -4,6 +4,8 @@
 name = "aid-control-plane"
 main = "src/index.ts"
 compatibility_date = "2026-05-01"
+# nodejs_compat — required by Better Auth (O-series sign-in, fire #102): it uses node:crypto + friends.
+compatibility_flags = ["nodejs_compat"]
 workers_dev = true
 migrations_dir = "migrations"
 
