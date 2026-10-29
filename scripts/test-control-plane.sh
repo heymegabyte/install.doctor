@@ -175,6 +175,13 @@ if [ -n "${CONTROL_PLANE_URL:-}" ]; then
   cd4="$(curl -s "$u/api/catalog/atuin" 2>/dev/null)"
   echo "$cd4" | jq -e '.configured==true and (.postInstall|type=="string") and (.postInstall|test("post-atuin"))' >/dev/null 2>&1 && pass "GET /api/catalog/atuin -> configured:true + postInstall hook (R14 first-run config step surfaced; #136)" || fail "atuin configured -> $(printf '%s' "$cd4" | jq -c '{configured,postInstall}' 2>/dev/null | head -c 120)"
   echo "$cd1" | jq -e '(.configured==null) or (.configured==false)' >/dev/null 2>&1 && pass "GET /api/catalog/ripgrep -> NOT flagged configured (honest: a bare lazy CLI has no post-install config step; R14 #136)" || fail "ripgrep configured -> $(printf '%s' "$cd1" | jq -c '{configured}' 2>/dev/null | head -c 80)"
+  # fire #137 (A10-ext) — the App Store detail states platform availability EXPLICITLY, incl. what a tool is
+  # NOT installable on (`unavailablePlatforms` = the complement of `platforms`), mirroring the #135 plan
+  # callout at the catalog level. aerospace is macOS-only → [linux,windows]; ack is all 3 → [].
+  cd5="$(curl -s "$u/api/catalog/aerospace" 2>/dev/null)"
+  echo "$cd5" | jq -e '(.unavailablePlatforms|index("linux")!=null) and (.unavailablePlatforms|index("windows")!=null) and (.unavailablePlatforms|index("macos")==null)' >/dev/null 2>&1 && pass "GET /api/catalog/aerospace -> unavailablePlatforms:[linux,windows] (a macOS-only tool states what it is NOT installable on; A10 #137)" || fail "aerospace unavailablePlatforms -> $(printf '%s' "$cd5" | jq -c '{platforms,unavailablePlatforms}' 2>/dev/null | head -c 120)"
+  cd6="$(curl -s "$u/api/catalog/ack" 2>/dev/null)"
+  echo "$cd6" | jq -e '(.unavailablePlatforms|type=="array") and (.unavailablePlatforms|length==0)' >/dev/null 2>&1 && pass "GET /api/catalog/ack -> unavailablePlatforms:[] (an all-platform tool is available everywhere; A10 #137)" || fail "ack unavailablePlatforms -> $(printf '%s' "$cd6" | jq -c '{platforms,unavailablePlatforms}' 2>/dev/null | head -c 100)"
   cmapp="$(curl -s "$u/api/catalog/aerospace" 2>/dev/null)"
   echo "$cmapp" | jq -e '.installMode=="app"' >/dev/null 2>&1 && pass "GET /api/catalog/aerospace -> installMode:app (GUI desktop app, eager at provisioning; D06/F02)" || fail "aerospace installMode -> $(printf '%s' "$cmapp" | jq -c '{installMode}' 2>/dev/null | head -c 80)"
   cmsvc="$(curl -s "$u/api/catalog/caddy" 2>/dev/null)"
