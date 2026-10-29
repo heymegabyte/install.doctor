@@ -86,7 +86,7 @@
     "redirects": [
       {
         "source": "/start",
-        "destination": "https://raw.githubusercontent.com/megabyte-labs/install.doctor/master/scripts/provision.sh",
+        "destination": "https://raw.githubusercontent.com/heymegabyte/install.doctor/master/scripts/provision.sh",
         "type": 301
       },
       {

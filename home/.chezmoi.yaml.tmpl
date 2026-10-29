@@ -193,7 +193,7 @@ data:
       runnerOrg: megabyte-labs
       username: "{{ $githubUsername }}"
     gitomatic:
-      - git: "{{ default "git@github.com:megabyte-labs/install.doctor.git" (env "START_REPO") }}"
+      - git: "{{ default "git@github.com:heymegabyte/install.doctor.git" (env "START_REPO") }}"
         path: "{{ .chezmoi.homeDir }}/.local/share/chezmoi"
     gmail:
       username: "{{ $gmailAddress }}"

@@ -91,7 +91,7 @@ fi
   export HOMEBREW_DOWNLOAD_CONCURRENCY=1
   export HOMEBREW_NO_AUTO_UPDATE="${HOMEBREW_NO_AUTO_UPDATE:-1}"
   if [ -z "$START_REPO" ] && [ -z "$REPO" ]; then
-    export START_REPO="https://github.com/megabyte-labs/install.doctor.git"
+    export START_REPO="https://github.com/heymegabyte/install.doctor.git"
   else
     if [ -n "$REPO" ] && [ -z "$START_REPO" ]; then
       export START_REPO="$REPO"

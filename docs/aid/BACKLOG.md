@@ -45,6 +45,9 @@
 
 ## Tier 3 — deferred (gated on a runtime or an unbuilt prereq; low value ÷ effort right now)
 
+- **#182 (NEXT, queued) — remove the dead Vagrant surfaces**: firebase `/vagrant` + `/vagrant-windows` redirects both 404 (vagrant.sh/.ps1 exist nowhere; Vagrant is not a v2 feature) AND the landing page shows `curl -sSL https://install.doctor/vagrant` + a `/windows-vagrant` command to users. Remove the 2 redirects + the landing-page Vagrant code-tabs block TOGETHER; Firebase-deploy-gated so it needs a site build-verify (`cd site && npm run build`).
+- **~85 stale doc-COMMENT org links (low priority)** — post-installx `` headers + package.json/README reference `github.com/megabyte-labs/install.doctor/…` (non-executed; resolve via the GitHub transfer-redirect). Big mechanical sweep; migrate to heymegabyte opportunistically when touching those files.
+
 - **B02 ✅ SHIPPED (#180)** — `scripts/provision.ps1` now exists (the exact file the live `/windows` redirect
   returned 404 for). The prior "unverifiable scaffolding" deferral was WRONG: the `test-pwsh-cnf.sh` precedent
   (structural contract asserts + a `pwsh` parse-check that SKIPs honestly when absent) makes it verifiable

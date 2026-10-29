@@ -1,6 +1,6 @@
 # aid — CURRENT STATE (verified audit)
 
-**Refreshed:** fire #180 — shipped **B02 native Windows PowerShell bootstrap**: `scripts/provision.ps1` is the exact file the live `https://install.doctor/windows` redirect already pointed at (a 404 **dangling redirect** until now). A faithful native mirror of `provision.sh`: detect OS/arch/privilege → ensure winget/scoop/choco → git + chezmoi → `chezmoi init --apply`; same `START_REPO`/`REPO`/`HEADLESS_INSTALL`/`CI` contract; clean **heymegabyte** provenance; never echoes a secret. TDD RED→GREEN `test-powershell-entrypoint.sh` 24/24 (structural contract + `pwsh` parse-check **GATED** — no pwsh on runner, native-Windows runtime NOT claimed verified). Firebase `/windows` redirect repointed `megabyte-labs`→**heymegabyte** (canonical owned org) so it serves the pushed file; live `/windows` serving activates on the next Firebase deploy (FIREBASE_SERVICE_ACCOUNT secret-gated, §9.21). **test-all 620→644 / 33→34 suites GREEN**, live-verified vs the prod URL. The #176/#178/#179 "frontier exhausted → verification-only" verdict was PREMATURE — a generative re-scan surfaced this real non-gated slice (the loop is generative; there is almost always real work). **Branch:** `master`.
+**Refreshed:** fire #181 — shipped **D09/D11 bootstrap clone-URL provenance**: migrated the `curl|bash` installer's EXECUTED clone/fetch defaults from the legacy `megabyte-labs/install.doctor` to the canonical owned **`heymegabyte/install.doctor`** — `provision.sh` + `provision.sh.tmpl` (default `START_REPO`), `home/.chezmoi.yaml.tmpl` (chezmoi source) + `home/.chezmoiexternal.toml.tmpl` (external), and the firebase `/start` redirect. Closes a **name-squat supply-chain risk**: the legacy org name resolves today ONLY via GitHub's transfer-redirect, so a re-registration would feed every default bootstrap an attacker repo. Surgically scoped — the `megabyte-labs/install.doctor` pattern leaves the unrelated `megabyte-labs` GCP project / service-account / runner-org / other-repos (gas-station, local-sites, betelgeuse, AstronVim) UNTOUCHED (verified). TDD RED→GREEN `test-bootstrap-provenance.sh` 8/8. **test-all 644→652 / 34→35 suites GREEN**, live-verified vs prod; `curl -sSL https://install.doctor/start` serves the heymegabyte default clone URL. DEFERRED→#182: the 2 dead `/vagrant`+`/vagrant-windows` redirects + their landing-page command (404 danglers; needs a site build-verify) + ~85 stale doc-COMMENT org links. **Branch:** `master`.
 Full spec: `MASTER-PROMPT.md` · resume pointer: `NEXT-STEPS.md` · matrix: `REQUIREMENTS.md`. Nothing here
 is inherited without evidence; every count below is from a live `scripts/test-all.sh` run.
 
@@ -10,7 +10,7 @@ The UNBLOCKED functional product has **converged**: the control plane, the full 
 dashboard, the honest-docs set, and a one-command test suite are built + live-verified at
 **https://app.install.doctor**. The remaining high-value requirements are **GATED on external action**
 (see § Gated). Loop fires now harden docs/tests/honesty until a gated dep is provisioned. Verified by
-**`scripts/test-all.sh` → 644 assertions / 34 suites GREEN (1 OS-skipped)** with the prod URL.
+**`scripts/test-all.sh` → 652 assertions / 35 suites GREEN (1 OS-skipped)** with the prod URL.
 
 ## ✅ Built + live-verified
 
