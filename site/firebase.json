@@ -95,16 +95,6 @@
         "type": 301
       },
       {
-        "source": "/vagrant",
-        "destination": "https://raw.githubusercontent.com/megabyte-labs/install.doctor/master/scripts/vagrant.sh",
-        "type": 301
-      },
-      {
-        "source": "/vagrant-windows",
-        "destination": "https://raw.githubusercontent.com/megabyte-labs/install.doctor/master/scripts/vagrant.ps1",
-        "type": 301
-      },
-      {
         "source": "/opensearch.xml",
         "destination": "/docs/opensearch.xml",
         "type": 301

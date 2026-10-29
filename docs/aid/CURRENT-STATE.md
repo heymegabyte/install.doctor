@@ -1,6 +1,6 @@
 # aid — CURRENT STATE (verified audit)
 
-**Refreshed:** fire #181 — shipped **D09/D11 bootstrap clone-URL provenance**: migrated the `curl|bash` installer's EXECUTED clone/fetch defaults from the legacy `megabyte-labs/install.doctor` to the canonical owned **`heymegabyte/install.doctor`** — `provision.sh` + `provision.sh.tmpl` (default `START_REPO`), `home/.chezmoi.yaml.tmpl` (chezmoi source) + `home/.chezmoiexternal.toml.tmpl` (external), and the firebase `/start` redirect. Closes a **name-squat supply-chain risk**: the legacy org name resolves today ONLY via GitHub's transfer-redirect, so a re-registration would feed every default bootstrap an attacker repo. Surgically scoped — the `megabyte-labs/install.doctor` pattern leaves the unrelated `megabyte-labs` GCP project / service-account / runner-org / other-repos (gas-station, local-sites, betelgeuse, AstronVim) UNTOUCHED (verified). TDD RED→GREEN `test-bootstrap-provenance.sh` 8/8. **test-all 644→652 / 34→35 suites GREEN**, live-verified vs prod; `curl -sSL https://install.doctor/start` serves the heymegabyte default clone URL. DEFERRED→#182: the 2 dead `/vagrant`+`/vagrant-windows` redirects + their landing-page command (404 danglers; needs a site build-verify) + ~85 stale doc-COMMENT org links. **Branch:** `master`.
+**Refreshed:** fire #182 — shipped the **cleanly-verifiable half of the dead-Vagrant removal + a no-dangling-redirect GUARD**: removed the 2 dead firebase redirects `/vagrant` + `/vagrant-windows` (both 301→404 — `vagrant.sh`/`vagrant.ps1` exist nowhere; Vagrant is not a v2 feature; firebase has NO SPA catch-all so unknown paths cleanly 404, confirmed live) and EXTENDED `test-bootstrap-provenance.sh` (8→10) to assert EVERY firebase install.doctor redirect targets an existing `scripts/` file — locking out any future dangling redirect automatically (the drift-guard sibling of catalog-count #159 / cross-ledger #174 / freshness #175). **test-all 652→654 / 35 suites GREEN** (extended the existing suite, no new suite). The ENTANGLED build-gated half — the landing-page `panels[2]` + `store.ts` `started__list[2]` ("number 03" Vagrant) + the 04→03/05→04 RENUMBER cascade (the numbers are displayed) — is FULLY SCOPED to **#183** (needs a Stencil `npm ci` + build-verify; `site/node_modules` is absent, and editing an index-paired/numbered list blind would risk a broken landing page). **Branch:** `master`.
 Full spec: `MASTER-PROMPT.md` · resume pointer: `NEXT-STEPS.md` · matrix: `REQUIREMENTS.md`. Nothing here
 is inherited without evidence; every count below is from a live `scripts/test-all.sh` run.
 
@@ -10,7 +10,7 @@ The UNBLOCKED functional product has **converged**: the control plane, the full 
 dashboard, the honest-docs set, and a one-command test suite are built + live-verified at
 **https://app.install.doctor**. The remaining high-value requirements are **GATED on external action**
 (see § Gated). Loop fires now harden docs/tests/honesty until a gated dep is provisioned. Verified by
-**`scripts/test-all.sh` → 652 assertions / 35 suites GREEN (1 OS-skipped)** with the prod URL.
+**`scripts/test-all.sh` → 654 assertions / 35 suites GREEN (1 OS-skipped)** with the prod URL.
 
 ## ✅ Built + live-verified
 

@@ -66,5 +66,21 @@ else
   fail "site/firebase.json missing"
 fi
 
+# NO DANGLING REDIRECT — every install.doctor redirect in firebase.json must target a scripts/<file> that
+# EXISTS in the repo (generalizes the /start check to ALL redirects). A 301 to a non-existent file is a dead
+# redirect the user hits as a 404 — the /vagrant + /vagrant-windows redirects pointed at vagrant.sh/.ps1
+# which exist nowhere (Vagrant is not a v2 feature), removed #182. Locks out any future dangling redirect.
+if [ -f "$FB" ]; then
+  dangling=0; checked=0
+  while IFS= read -r dest; do
+    rel_tgt="${dest##*/install.doctor/master/}"
+    checked=$((checked + 1))
+    [ -f "$ROOT/$rel_tgt" ] || { dangling=$((dangling + 1)); fail "firebase redirect → NON-existent $rel_tgt (dangling)"; }
+  done < <(grep -oE 'https://raw.githubusercontent.com/[^"]+install.doctor/master/[^"]+' "$FB")
+  [ "$dangling" -eq 0 ] && pass "no dangling firebase redirects ($checked install.doctor redirect target(s) all exist)"
+  # the dead Vagrant redirects must be GONE (the landing-page Vagrant surfaces are scoped to #183 — need a site build).
+  grep -qE '"/vagrant(-windows)?"' "$FB" && fail "dead /vagrant redirect still present (removed #182)" || pass "dead /vagrant + /vagrant-windows redirects removed"
+fi
+
 say "bootstrap-provenance: $P passed, $F failed"
 [ "$F" -eq 0 ]
