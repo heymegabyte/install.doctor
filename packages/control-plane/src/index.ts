@@ -91,6 +91,25 @@ const INSTALL_CMD: Record<string, (pkg: string) => string> = {
   gem: (p) => `gem install ${p}`,
 };
 
+// D11 (#147) update-channel — the per-provider UPDATE command (how to keep a tool CURRENT; intended-experience
+// promise #8). Mirrors INSTALL_CMD but with each manager's UPGRADE form, which genuinely differs from install
+// for most providers (brew upgrade; apt --only-upgrade; cargo install --force; npm update -g; scoop/pipx/gem …).
+const UPDATE_CMD: Record<string, (pkg: string) => string> = {
+  brew: (p) => `brew upgrade ${p}`,
+  apt: (p) => `sudo apt-get install -y --only-upgrade ${p}`,
+  dnf: (p) => `sudo dnf upgrade -y ${p}`,
+  pacman: (p) => `sudo pacman -S --noconfirm ${p}`,
+  cask: (p) => `brew upgrade --cask ${p}`,
+  choco: (p) => `choco upgrade -y ${p}`,
+  scoop: (p) => `scoop update ${p}`,
+  go: (p) => `go install ${p}@latest`,
+  cargo: (p) => `cargo install --force ${p}`,
+  npm: (p) => `npm update -g ${p}`,
+  pipx: (p) => `pipx upgrade ${p}`,
+  pip: (p) => `pip install --user --upgrade ${p}`,
+  gem: (p) => `gem update ${p}`,
+};
+
 // Inference request body (Zod boundary) — estimated cost drives the budget reservation.
 const InferRequest = z.object({ estimateMicros: z.number().int().nonnegative().default(0) }).passthrough();
 
@@ -765,6 +784,9 @@ async function detail(tr,name){
     var parts=[['Source',j.github],['Homepage',j.home],['Docs',j.docs]].filter(function(p){return p[1]});
     if(parts.length){var srcLine=document.createElement('div');srcLine.className='muted';srcLine.setAttribute('style','margin:2px 0 6px');srcLine.append('Learn more: ');parts.forEach(function(p,i){if(i)srcLine.append(' · ');var la=document.createElement('a');la.href=p[1];la.target='_blank';la.rel='noopener';la.textContent=p[0];srcLine.append(la);});frag.append(srcLine);}
     j.commands.forEach(function(k){var sc=document.createElement('span');sc.className='cmd';var pb=document.createElement('b');pb.textContent=k.provider;sc.append(pb,k.command);frag.append(sc);});
+    // #147 D11 update-channel — how to keep the tool CURRENT (promise #8): the per-provider UPDATE command, which
+    // differs from install for most managers (brew upgrade, cargo install --force, npm update -g, …). TT-safe DOM.
+    if(j.updateCommands&&j.updateCommands.length){var upLbl=document.createElement('div');upLbl.className='muted';upLbl.setAttribute('style','margin:8px 0 2px');upLbl.textContent='Update (keep current):';frag.append(upLbl);j.updateCommands.forEach(function(k){var uc=document.createElement('span');uc.className='cmd';var ub=document.createElement('b');ub.textContent=k.provider;uc.append(ub,k.command);frag.append(uc);});}
     dtd.replaceChildren(frag);
   }catch(e){dtd.textContent='✗ '+e}
 }
@@ -984,6 +1006,10 @@ app.get('/api/catalog/:name', (c) => {
   const commands = (e.providers || [])
     .filter((p) => INSTALL_CMD[p] && pkgs[p])
     .map((p) => ({ provider: p, pkg: pkgs[p], command: INSTALL_CMD[p](pkgs[p]) }));
+  // D11 (#147) — the matching per-provider UPDATE command (keep-current; promise #8), built the same way.
+  const updateCommands = (e.providers || [])
+    .filter((p) => UPDATE_CMD[p] && pkgs[p])
+    .map((p) => ({ provider: p, pkg: pkgs[p], command: UPDATE_CMD[p](pkgs[p]) }));
   // A10 (#137) — state platform availability EXPLICITLY: the OSes this tool is NOT installable on (the
   // complement of its declared `platforms`), so the detail says what it's missing (empty = every platform).
   const unavailablePlatforms = AID_PLATFORMS.filter((p) => !(e.platforms || []).includes(p));
@@ -991,7 +1017,7 @@ app.get('/api/catalog/:name', (c) => {
   // can show WHO maintains a tool (a trust signal). Derived from EXISTING data (no new software.yml field, no
   // guess); a non-github or absent provenance URL yields no owner (undefined → omitted, honest).
   const owner = typeof e.github === 'string' ? (e.github.match(/github\.com\/([^/]+)\//) || [])[1] : undefined;
-  return c.json({ name: e.name, bin: e.bin, platforms: e.platforms, unavailablePlatforms, providers: e.providers, short: e.short, github: e.github, owner, home: e.home, docs: e.docs, installMode: e.installMode || 'cli', deprecated: e.deprecated, deps: e.deps, configured: e.configured, postInstall: e.postInstall, commands });
+  return c.json({ name: e.name, bin: e.bin, platforms: e.platforms, unavailablePlatforms, providers: e.providers, short: e.short, github: e.github, owner, home: e.home, docs: e.docs, installMode: e.installMode || 'cli', deprecated: e.deprecated, deps: e.deps, configured: e.configured, postInstall: e.postInstall, commands, updateCommands });
 });
 
 app.post('/api/ai/v1/resolve', async (c) => {
