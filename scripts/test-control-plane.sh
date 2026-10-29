@@ -169,6 +169,12 @@ if [ -n "${CONTROL_PLANE_URL:-}" ]; then
   # (_service) vs lazy-CLI (neither) + surfaces it, so a user reviewing the App Store sees whether a tool is a
   # desktop app installed during setup or a CLI installed on first command use (the core eager-vs-lazy promise).
   echo "$cd1" | jq -e '.installMode=="cli"' >/dev/null 2>&1 && pass "GET /api/catalog/ripgrep -> installMode:cli (lazy CLI on first use; D06)" || fail "ripgrep installMode -> $(printf '%s' "$cd1" | jq -c '{installMode}' 2>/dev/null | head -c 80)"
+  # fire #136 (R14/F15/F06) — the App Store detail flags tools with an AUTOMATED first-run CONFIGURATION step:
+  # a post-installx/post-<tool>.sh hook runs after installx installs <tool>. atuin HAS one (configured:true +
+  # the hook name as the concrete action); ripgrep does NOT (a bare lazy CLI — honest config-coverage signal).
+  cd4="$(curl -s "$u/api/catalog/atuin" 2>/dev/null)"
+  echo "$cd4" | jq -e '.configured==true and (.postInstall|type=="string") and (.postInstall|test("post-atuin"))' >/dev/null 2>&1 && pass "GET /api/catalog/atuin -> configured:true + postInstall hook (R14 first-run config step surfaced; #136)" || fail "atuin configured -> $(printf '%s' "$cd4" | jq -c '{configured,postInstall}' 2>/dev/null | head -c 120)"
+  echo "$cd1" | jq -e '(.configured==null) or (.configured==false)' >/dev/null 2>&1 && pass "GET /api/catalog/ripgrep -> NOT flagged configured (honest: a bare lazy CLI has no post-install config step; R14 #136)" || fail "ripgrep configured -> $(printf '%s' "$cd1" | jq -c '{configured}' 2>/dev/null | head -c 80)"
   cmapp="$(curl -s "$u/api/catalog/aerospace" 2>/dev/null)"
   echo "$cmapp" | jq -e '.installMode=="app"' >/dev/null 2>&1 && pass "GET /api/catalog/aerospace -> installMode:app (GUI desktop app, eager at provisioning; D06/F02)" || fail "aerospace installMode -> $(printf '%s' "$cmapp" | jq -c '{installMode}' 2>/dev/null | head -c 80)"
   cmsvc="$(curl -s "$u/api/catalog/caddy" 2>/dev/null)"
