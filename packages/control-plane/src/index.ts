@@ -86,11 +86,17 @@ const app = new Hono();
 // <script> blocks run ONLY if they carry the matching nonce, which an injected/reflected <script> cannot
 // guess — so a stored/reflected-XSS payload won't execute (real defense-in-depth on an app that holds the
 // admin token). style-src keeps 'unsafe-inline' (inline style= attrs + <style> are a separate, harder slice).
+// TRUSTED TYPES (#130, arc #124-130 COMPLETE) — all 7 dashboard pages were refactored to TT-safe DOM
+// (createElement/textContent/replaceChildren; zero first-party innerHTML sinks), so `require-trusted-types-for
+// 'script'` is now ENFORCED: a FUTURE unescaped DOM-sink assignment throws at runtime instead of executing a
+// DOM-XSS payload. NOT adding `trusted-types <policy>` — CF's edge-injected challenge/beacon script defines its
+// OWN default policy, and pinning a policy allowlist here would break it; the sink-blocking directive alone
+// satisfies the gate and leaves third-party policy creation unrestricted.
 function cspFor(nonce: string): string {
   return (
     `default-src 'self'; script-src 'self' 'nonce-${nonce}'; style-src 'self' 'unsafe-inline'; ` +
     "img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; " +
-    "object-src 'none'; form-action 'self'"
+    "object-src 'none'; form-action 'self'; require-trusted-types-for 'script'"
   );
 }
 const PERMISSIONS_POLICY = 'camera=(), microphone=(), geolocation=(), payment=(), usb=()';
@@ -490,12 +496,15 @@ app.get('/machines', (c) =>
 <div id=out class=muted>No machines loaded.</div>
 <div id=detail></div>
 <script>
-function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]})}
+// #130 Trusted-Types arc (the LAST page) — the cell helpers now APPEND DOM NODES to a parent (createElement/
+// textContent, auto-escaped) instead of returning HTML strings, so load()/detail()/bundle() use no innerHTML.
+function tag(t){var s=document.createElement('span');s.className='tag';s.textContent=t;return s;}
+function muted(t){var s=document.createElement('span');s.className='muted';s.textContent=t;return s;}
 function fmtAgo(iso){var t=Date.parse(iso);if(!iso||isNaN(t))return '';var s=Math.max(0,(Date.now()-t)/1000);if(s<60)return Math.floor(s)+'s ago';if(s<3600)return Math.floor(s/60)+'m ago';if(s<86400)return Math.floor(s/3600)+'h ago';return Math.floor(s/86400)+'d ago';}
-function lastActive(d){if(!d.lastSeen)return '<span class=muted>never reported</span>';var stale=(Date.now()-Date.parse(d.lastSeen))>86400000;return esc(d.lastKind||'event')+' · '+fmtAgo(d.lastSeen)+(stale?' <span class=tag>stale</span>':'');}
-function driftCell(d,cur){if(d.drift==='drifted')return '<span class=tag>drifted</span> '+esc(d.lastRevision)+'→'+esc(cur||'?');if(d.drift==='current')return '<span class=muted>up to date ('+esc(cur)+')</span>';return '<span class=muted>—</span>';}
-function scopeCell(d){var g=d.grantedPermissions||[];if(!g.length)return '<span class=muted>—</span>';return g.map(function(p){return '<span class=tag>'+esc(p)+'</span>'}).join(' ');}
-function healthCell(d){var h=d.health||{};function dot(k,v){var warn=(v==='stale'||v==='drifted'||v==='never');var dim=(v==='not_configured'||v==='unknown');return '<span class="'+(warn?'tag':'muted')+'" title="'+k+': '+esc(v||'?')+'">'+k+':'+esc(v==='not_configured'?'none':(v||'?'))+'</span>';}return dot('conn',h.connectivity)+' '+dot('sw',h.software)+' '+dot('bkp',h.backup);}
+function appendLastActive(parent,d){if(!d.lastSeen){parent.append(muted('never reported'));return;}var stale=(Date.now()-Date.parse(d.lastSeen))>86400000;parent.append((d.lastKind||'event')+' · '+fmtAgo(d.lastSeen));if(stale)parent.append(' ',tag('stale'));}
+function appendDriftCell(parent,d,cur){if(d.drift==='drifted'){parent.append(tag('drifted'),' '+(d.lastRevision||'')+'→'+(cur||'?'));return;}if(d.drift==='current'){parent.append(muted('up to date ('+(cur||'')+')'));return;}parent.append(muted('—'));}
+function appendScopeCell(parent,d){var g=d.grantedPermissions||[];if(!g.length){parent.append(muted('—'));return;}g.forEach(function(p,i){if(i)parent.append(' ');parent.append(tag(p));});}
+function appendHealthCell(parent,d){var h=d.health||{};function dot(k,v){var warn=(v==='stale'||v==='drifted'||v==='never');var s=document.createElement('span');s.className=warn?'tag':'muted';s.title=k+': '+(v||'?');s.textContent=k+':'+(v==='not_configured'?'none':(v||'?'));return s;}parent.append(dot('conn',h.connectivity),' ',dot('sw',h.software),' ',dot('bkp',h.backup));}
 async function load(){
   var out=document.getElementById('out'),tok=document.getElementById('tok').value.trim(),t=document.getElementById('tenant').value.trim()||'_default';
   if(!tok){out.textContent='Enter the admin token.';return}
@@ -504,10 +513,25 @@ async function load(){
     var r=await fetch('/api/devices?tenant='+encodeURIComponent(t)+'&limit=200',{headers:{'authorization':'Bearer '+tok}});
     var j=await r.json();
     if(!r.ok){out.textContent='✗ '+(j.error||r.status);return}
-    if(!j.items||!j.items.length){out.textContent='No machines enrolled for '+esc(t)+'.';return}
+    if(!j.items||!j.items.length){out.textContent='No machines enrolled for '+t+'.';return}
     LAST={};j.items.forEach(function(d){LAST[d.deviceId]=d});CUR=j.currentRevision;
-    var rows=j.items.map(function(d){return '<tr><td>'+esc(d.label||'—')+'</td><td><button class=lnk data-act="detail" data-id="'+esc(d.deviceId)+'">'+esc(d.deviceId)+'</button></td><td>'+esc(d.tenant)+'</td><td>'+esc(d.enrolledAt)+'</td><td>'+lastActive(d)+'</td><td>'+driftCell(d,j.currentRevision)+'</td><td>'+healthCell(d)+'</td><td>'+scopeCell(d)+'</td><td>'+(d.revoked?'<span class=tag>revoked</span>':'active')+'</td></tr>'}).join('');
-    out.innerHTML='<p class=muted>'+j.count+' machines · tenant '+esc(t)+' · desired revision '+esc(j.currentRevision||'—')+' · drift = last-applied vs desired · health = connectivity·software·backup · scope = granted permissions · click a device for its timeline</p><table><thead><tr><th>label</th><th>device</th><th>tenant</th><th>enrolled</th><th>last active</th><th>drift</th><th>health</th><th>scope</th><th>status</th></tr></thead><tbody>'+rows+'</tbody></table>';
+    var frag=document.createDocumentFragment();
+    var p=document.createElement('p');p.className='muted';p.textContent=j.count+' machines · tenant '+t+' · desired revision '+(j.currentRevision||'—')+' · drift = last-applied vs desired · health = connectivity·software·backup · scope = granted permissions · click a device for its timeline';frag.append(p);
+    var table=document.createElement('table');var thead=document.createElement('thead'),htr=document.createElement('tr');
+    ['label','device','tenant','enrolled','last active','drift','health','scope','status'].forEach(function(h){var th=document.createElement('th');th.textContent=h;htr.append(th);});
+    thead.append(htr);table.append(thead);
+    var tbody=document.createElement('tbody');
+    j.items.forEach(function(d){
+      var tr=document.createElement('tr');function td(){var c=document.createElement('td');tr.append(c);return c;}
+      td().textContent=d.label||'—';
+      var btn=document.createElement('button');btn.className='lnk';btn.setAttribute('data-act','detail');btn.setAttribute('data-id',d.deviceId);btn.textContent=d.deviceId; // #121 delegation
+      td().append(btn);
+      td().textContent=d.tenant||'';td().textContent=d.enrolledAt||'';
+      appendLastActive(td(),d);appendDriftCell(td(),d,j.currentRevision);appendHealthCell(td(),d);appendScopeCell(td(),d);
+      var stTd=td();if(d.revoked)stTd.append(tag('revoked'));else stTd.textContent='active';
+      tbody.append(tr);
+    });
+    table.append(tbody);frag.append(table);out.replaceChildren(frag);
   }catch(e){out.textContent='✗ '+e}
 }
 var LAST={},CUR=null;
@@ -516,20 +540,26 @@ var LAST={},CUR=null;
 async function detail(id){
   var dp=document.getElementById('detail'),tok=document.getElementById('tok').value.trim(),t=document.getElementById('tenant').value.trim()||'_default',m=LAST[id]||{};
   if(!tok){dp.textContent='Enter the admin token.';return}
-  dp.innerHTML='<p class=muted>Loading timeline for '+esc(id)+'…</p>';
+  dp.textContent='Loading timeline for '+id+'…';
   try{
     var r=await fetch('/api/history?tenant='+encodeURIComponent(t)+'&device='+encodeURIComponent(id)+'&limit=50',{headers:{'authorization':'Bearer '+tok}});
     var j=await r.json();
-    if(!r.ok){dp.innerHTML='✗ '+esc(j.error||String(r.status));return}
-    var ev=(j.items||[]).map(function(e){var run=e.correlationId?('<span class=tag title="run '+esc(e.correlationId)+(e.parentRunId?(' · child of '+esc(e.parentRunId)):'')+'">'+(e.parentRunId?'↳ ':'')+esc(String(e.correlationId).slice(-6))+'</span>'):'<span class=muted>—</span>';return '<tr><td>'+esc(e.createdAt)+'</td><td>'+esc(e.kind)+'</td><td>'+esc(e.status)+'</td><td>'+run+'</td><td>'+esc(e.revision||'')+'</td><td>'+esc(e.summary||'')+'</td></tr>'}).join('')||'<tr><td colspan=6 class=muted>No events reported yet.</td></tr>';
+    if(!r.ok){dp.textContent='✗ '+(j.error||String(r.status));return}
     var g=(m.grantedPermissions||[]).join(', ')||'—';
-    dp.innerHTML='<div class=card><p><strong>'+esc(m.label||id)+'</strong> <span class=mono muted>'+esc(id)+'</span>'+(m.revoked?' <span class=tag>revoked</span>':'')+' <button class=lnk data-act="bundle" data-id="'+esc(id)+'">⬇ Support bundle</button></p>'
-      +'<p class=muted>health '+healthCell(m)+' · drift '+driftCell(m,CUR)+' · scope '+esc(g)+' · last active '+lastActive(m)+'</p>'
-      +'<p class=muted>'+j.count+' event(s) · unified change timeline · recording: '+esc(j.recordingMode||'events-only')+' (no terminal capture yet)</p>'
-      +'<div id=sb></div>'
-      +'<table><thead><tr><th>time</th><th>kind</th><th>status</th><th>run</th><th>revision</th><th>summary</th></tr></thead><tbody>'+ev+'</tbody></table></div>';
+    var card=document.createElement('div');card.className='card';
+    var hp=document.createElement('p');var st=document.createElement('strong');st.textContent=m.label||id;var idSpan=document.createElement('span');idSpan.className='mono muted';idSpan.textContent=id;hp.append(st,' ',idSpan);
+    if(m.revoked)hp.append(' ',tag('revoked'));
+    var bbtn=document.createElement('button');bbtn.className='lnk';bbtn.setAttribute('data-act','bundle');bbtn.setAttribute('data-id',id);bbtn.textContent='⬇ Support bundle';hp.append(' ',bbtn);card.append(hp);
+    var hp2=document.createElement('p');hp2.className='muted';hp2.append('health ');appendHealthCell(hp2,m);hp2.append(' · drift ');appendDriftCell(hp2,m,CUR);hp2.append(' · scope '+g+' · last active ');appendLastActive(hp2,m);card.append(hp2);
+    var hp3=document.createElement('p');hp3.className='muted';hp3.textContent=j.count+' event(s) · unified change timeline · recording: '+(j.recordingMode||'events-only')+' (no terminal capture yet)';card.append(hp3);
+    var sbDiv=document.createElement('div');sbDiv.id='sb';card.append(sbDiv);
+    var table=document.createElement('table');var thead=document.createElement('thead'),htr=document.createElement('tr');['time','kind','status','run','revision','summary'].forEach(function(h){var th=document.createElement('th');th.textContent=h;htr.append(th);});thead.append(htr);table.append(thead);
+    var tbody=document.createElement('tbody');var items=j.items||[];
+    if(items.length){items.forEach(function(e){var tr2=document.createElement('tr');function td(){var c=document.createElement('td');tr2.append(c);return c;}td().textContent=e.createdAt||'';td().textContent=e.kind||'';td().textContent=e.status||'';var rc=td();if(e.correlationId){var rs=tag((e.parentRunId?'↳ ':'')+String(e.correlationId).slice(-6));rs.title='run '+e.correlationId+(e.parentRunId?(' · child of '+e.parentRunId):'');rc.append(rs);}else rc.append(muted('—'));td().textContent=e.revision||'';td().textContent=e.summary||'';tbody.append(tr2);});}
+    else{var etr=document.createElement('tr');var etd=document.createElement('td');etd.colSpan=6;etd.className='muted';etd.textContent='No events reported yet.';etr.append(etd);tbody.append(etr);}
+    table.append(tbody);card.append(table);dp.replaceChildren(card);
     dp.scrollIntoView({behavior:'smooth',block:'nearest'});
-  }catch(e){dp.innerHTML='✗ '+esc(String(e))}
+  }catch(e){dp.textContent='✗ '+String(e)}
 }
 // fire #83 — surface the U12 support bundle from the device detail (interconnectedness): fetch the
 // admin-scoped diagnostic, render its SANITIZED contents/excluded manifest (so the operator SEES what is
@@ -539,19 +569,23 @@ var LASTSB=null;
 async function bundle(id){
   var sb=document.getElementById('sb'),tok=document.getElementById('tok').value.trim(),t=document.getElementById('tenant').value.trim()||'_default';
   if(!sb)return;
-  if(!tok){sb.innerHTML='<p class=muted>Enter the admin token.</p>';return}
-  sb.innerHTML='<p class=muted>Building support bundle…</p>';
+  if(!tok){sb.replaceChildren(muted('Enter the admin token.'));return}
+  sb.replaceChildren(muted('Building support bundle…'));
   try{
     var r=await fetch('/api/devices/'+encodeURIComponent(id)+'/support-bundle?tenant='+encodeURIComponent(t),{headers:{'authorization':'Bearer '+tok}});
     var j=await r.json();
-    if(!r.ok){sb.innerHTML='✗ '+esc(j.error||String(r.status));return}
+    if(!r.ok){sb.textContent='✗ '+(j.error||String(r.status));return}
     LASTSB=j;
-    var inc=(j.contents||[]).map(function(x){return '<li>✓ '+esc(x)+'</li>'}).join('');
-    var exc=(j.excluded||[]).map(function(x){return '<li>✗ '+esc(x)+'</li>'}).join('');
-    sb.innerHTML='<div class=card style="margin-top:8px"><p><strong>Support bundle</strong> <span class=tag>v'+esc(j.bundleVersion)+'</span> <span class=muted>generated '+esc(j.generatedAt)+' · recording '+esc(j.recordingMode)+'</span> <button class=lnk data-act="dlbundle">⬇ Download JSON</button></p>'
-      +'<p class=muted>A sanitized, one-artifact diagnostic to attach to a support request — included, and what is deliberately left out:</p>'
-      +'<div style="display:flex;gap:28px;flex-wrap:wrap"><div><p class=muted><strong>Included</strong></p><ul class=muted>'+inc+'</ul></div><div><p class=muted><strong>Excluded (sanitized)</strong></p><ul class=muted>'+exc+'</ul></div></div></div>';
-  }catch(e){sb.innerHTML='✗ '+esc(String(e))}
+    function ul(items,mark){var u=document.createElement('ul');u.className='muted';items.forEach(function(x){var li=document.createElement('li');li.textContent=mark+' '+x;u.append(li);});return u;}
+    var card=document.createElement('div');card.className='card';card.style.marginTop='8px';
+    var p1=document.createElement('p');var st=document.createElement('strong');st.textContent='Support bundle';p1.append(st,' ',tag('v'+(j.bundleVersion||'')),' ',muted('generated '+(j.generatedAt||'')+' · recording '+(j.recordingMode||'')),' ');
+    var db=document.createElement('button');db.className='lnk';db.setAttribute('data-act','dlbundle');db.textContent='⬇ Download JSON';p1.append(db);card.append(p1);
+    var p2=document.createElement('p');p2.className='muted';p2.textContent='A sanitized, one-artifact diagnostic to attach to a support request — included, and what is deliberately left out:';card.append(p2);
+    var row=document.createElement('div');row.style.display='flex';row.style.gap='28px';row.style.flexWrap='wrap';
+    var colI=document.createElement('div');var pi=document.createElement('p');pi.className='muted';var si=document.createElement('strong');si.textContent='Included';pi.append(si);colI.append(pi,ul(j.contents||[],'✓'));
+    var colX=document.createElement('div');var px=document.createElement('p');px.className='muted';var sx=document.createElement('strong');sx.textContent='Excluded (sanitized)';px.append(sx);colX.append(px,ul(j.excluded||[],'✗'));
+    row.append(colI,colX);card.append(row);sb.replaceChildren(card);
+  }catch(e){sb.textContent='✗ '+String(e)}
 }
 function dlbundle(){
   if(!LASTSB)return;

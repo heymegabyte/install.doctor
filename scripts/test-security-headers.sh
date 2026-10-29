@@ -103,7 +103,10 @@ curl -sS "$u/history" 2>/dev/null | grep -qF "closest('[data-act]')" && pass "/h
 # #121 — /machines' dynamic per-row detail + support-bundle + download buttons stay WIRED via EVENT DELEGATION
 # (data-act on #out for detail, on #detail for bundle/dlbundle). This COMPLETES STEP 1: all 7 pages handler-free.
 mb="$(curl -sS "$u/machines" 2>/dev/null)"
-{ printf '%s' "$mb" | grep -qF "closest('[data-act]')" && printf '%s' "$mb" | grep -qF 'data-act="detail"' && printf '%s' "$mb" | grep -qF 'data-act="bundle"'; } && pass "/machines -> detail/bundle/download buttons wired via event delegation (closest('[data-act]') on #out + #detail; #121 — STEP 1 COMPLETE, all 7 pages handler-free)" || fail "/machines event-delegation wiring missing (closest('[data-act]') + data-act=detail/bundle)"
+# #130 — after the TT createElement conversion the per-row buttons set data-act via setAttribute('data-act','detail')
+# (single-quoted JS) instead of the old inline HTML data-act="detail" attribute; accept EITHER form (spillover,
+# same class as the #124 href fix). The listeners (closest('[data-act]') on #out + #detail) are unchanged.
+{ printf '%s' "$mb" | grep -qF "closest('[data-act]')" && printf '%s' "$mb" | grep -qE "data-act=\"detail\"|setAttribute\('data-act','detail'\)" && printf '%s' "$mb" | grep -qE "data-act=\"bundle\"|setAttribute\('data-act','bundle'\)"; } && pass "/machines -> detail/bundle/download buttons wired via event delegation (closest('[data-act]') on #out + #detail; #121 STEP 1 + #130 setAttribute form — all 7 pages handler-free + TT-safe)" || fail "/machines event-delegation wiring missing (closest('[data-act]') + data-act detail/bundle)"
 # 19. TRUSTED TYPES arc (#124) — the NEXT XSS layer after the script-src nonce: toward `require-trusted-types-for
 #   'script'`, which blocks EVERY `innerHTML`/`outerHTML`/`insertAdjacentHTML` sink. All first-party sinks must be
 #   refactored to Trusted-Types-safe DOM (createElement/textContent/replaceChildren) BEFORE the directive is enabled.
@@ -113,10 +116,16 @@ mb="$(curl -sS "$u/machines" 2>/dev/null)"
 #   control — excluded here. The per-page data scripts still use innerHTML → converted page-by-page; the directive
 #   is enabled only once ALL first-party sinks are gone. TT_SAFE grows one page/fire: `/` (shared chrome, #124),
 #   `/recommendations` (#125), … smallest-first (/history /pair /apps /environment /machines) until all 7.
-for pg in "/" "/recommendations" "/history" "/pair" "/apps" "/environment"; do
+for pg in "/" "/recommendations" "/history" "/pair" "/apps" "/environment" "/machines"; do
   n="$(curl -sS "$u$pg" 2>/dev/null | grep '\.innerHTML' | grep -vc '__CF')"
   [ "$n" = "0" ] && pass "GET $pg -> 0 first-party .innerHTML sinks — Trusted-Types-safe DOM (TT arc; excludes CF's edge-injected __CF\$cv script)" || fail "GET $pg still has $n first-party .innerHTML sink(s) — not yet TT-safe"
 done
+# 20. TRUSTED TYPES ENFORCED (#130) — arc #124-130 complete (all 7 pages sink-free), so the CSP now carries
+#   `require-trusted-types-for 'script'`: a future unescaped DOM-sink assignment THROWS instead of executing an
+#   injected payload. (No `trusted-types <policy>` allowlist — CF's edge challenge/beacon defines its own policy.)
+csp="$(curl -sSI "$u/machines" 2>/dev/null | tr -d '\r' | grep -i '^content-security-policy:')"
+printf '%s' "$csp" | grep -qiF "require-trusted-types-for 'script'" && pass "CSP enforces require-trusted-types-for 'script' (TT arc #124-130 COMPLETE — DOM-XSS sink blocking live)" || fail "CSP missing require-trusted-types-for 'script' directive"
+printf '%s' "$csp" | grep -qiF "trusted-types " && fail "CSP pins a trusted-types policy allowlist — would break CF's edge-injected challenge/beacon policy (should be absent)" || pass "CSP has NO trusted-types policy allowlist (CF edge challenge/beacon policy left unrestricted — correct)"
 
 say "security-headers: $P passed, $F failed"
 [ "$F" -eq 0 ]
