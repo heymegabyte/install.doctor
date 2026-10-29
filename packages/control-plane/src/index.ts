@@ -567,6 +567,15 @@ async function load(){
     LAST={};j.items.forEach(function(d){LAST[d.deviceId]=d});CUR=j.currentRevision;
     var frag=document.createDocumentFragment();
     var p=document.createElement('p');p.className='muted';p.textContent=j.count+' machines · tenant '+t+' · desired revision '+(j.currentRevision||'—')+' · drift = last-applied vs desired · health = connectivity·software·backup · scope = granted permissions · click a device for its timeline';frag.append(p);
+    // N08/U15 (#138) — an at-a-glance FLEET-HEALTH rollup from summary (observed, not optimistic): if nothing
+    // is wrong show one "all healthy" line; else surface the problem counts as colour-cued badges so an
+    // operator sees fleet health without scanning every row. TT-safe (createElement/textContent).
+    if(j.summary){var sm=j.summary;var hb=document.createElement('p');hb.setAttribute('style','margin:0 0 8px;display:flex;gap:6px;flex-wrap:wrap;align-items:center');
+      var issues=(sm.stale||0)+(sm.neverReported||0)+(sm.drifted||0)+(sm.revoked||0);
+      if(!issues){var oks=document.createElement('span');oks.className='muted';oks.textContent='✓ all '+sm.total+' machines reporting + at the desired revision';hb.append(oks);}
+      else{function hbTag(n,label,color){if(!n)return;var s=document.createElement('span');s.className='tag';s.setAttribute('style','border-color:'+color+';color:'+color);s.textContent=n+' '+label;hb.append(s);}
+        hbTag(sm.ok,'reporting','#00e5ff');hbTag(sm.stale,'stale','#f0a020');hbTag(sm.neverReported,'never reported','#888');hbTag(sm.drifted,'drifted','#f0a020');hbTag(sm.revoked,'revoked','#e05555');}
+      frag.append(hb);}
     var table=document.createElement('table');var thead=document.createElement('thead'),htr=document.createElement('tr');
     ['label','device','tenant','enrolled','last active','drift','health','scope','status'].forEach(function(h){var th=document.createElement('th');th.textContent=h;htr.append(th);});
     thead.append(htr);table.append(thead);
@@ -1368,7 +1377,20 @@ app.get('/api/devices', async (c) => {
   const limit = Math.min(Math.max(parseInt(c.req.query('limit') || '100', 10) || 100, 1), 500);
   try {
     const { currentRevision, items } = await listDevicesWithDrift(db, tenant, limit);
-    return c.json({ tenant, currentRevision, count: items.length, items });
+    // N08/U15 (#138) — a fleet-health ROLLUP over the loaded inventory so the dashboard shows at-a-glance
+    // health (not just per-row): ok/stale/neverReported PARTITION the total by connectivity freshness;
+    // drifted + revoked are overlapping sub-counts. Observed state, computed from the already-loaded items
+    // (A13 reuse — no extra query). "of the N loaded" when a large fleet exceeds the limit (honest).
+    const summary = { total: items.length, ok: 0, stale: 0, neverReported: 0, drifted: 0, revoked: 0 };
+    for (const it of items) {
+      if (it.revoked) summary.revoked++;
+      const conn = it.health?.connectivity;
+      if (conn === 'ok') summary.ok++;
+      else if (conn === 'stale') summary.stale++;
+      else summary.neverReported++;
+      if (it.drift === 'drifted') summary.drifted++;
+    }
+    return c.json({ tenant, currentRevision, count: items.length, summary, items });
   } catch (e) {
     return c.json({ error: 'store_error', detail: e instanceof Error ? e.message : String(e) }, 503);
   }
