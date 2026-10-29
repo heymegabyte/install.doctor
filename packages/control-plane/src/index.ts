@@ -78,8 +78,29 @@ function aidSaveToken(t){try{if(t)sessionStorage.setItem('aidAdminToken',t)}catc
 function aidForgetToken(){try{sessionStorage.removeItem('aidAdminToken')}catch(e){}var el=document.getElementById('tok');if(el)el.value='';}
 addEventListener('DOMContentLoaded',function(){try{var el=document.getElementById('tok');if(!el)return;var t=sessionStorage.getItem('aidAdminToken');if(t)el.value=t;el.addEventListener('change',function(){aidSaveToken(el.value.trim())});var b=document.createElement('button');b.type='button';b.className='lnk';b.textContent='forget token';b.style.marginLeft='8px';b.onclick=aidForgetToken;el.insertAdjacentElement('afterend',b)}catch(e){}});
 </script>`;
+// Session-aware "who am I" status in the shared chrome (O13; fire #104). On every page: call Better Auth's
+// GET /api/auth/get-session (credentials:include). Signed in → show the user + a Sign out button (POST
+// /api/auth/sign-out); not signed in → a "Sign in" link to /login. get-session returns null when there's no
+// session (honest). No backticks inside (TS template literal, #91); the IIFE scopes its own esc().
+const AUTH_STATUS_JS = `<div id=aidAuthStatus style="position:fixed;top:8px;right:12px;font-size:.8rem;z-index:50"></div><script>
+(function(){
+  var el=document.getElementById('aidAuthStatus'); if(!el)return;
+  function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]})}
+  function signedOut(){el.innerHTML='<a href="/login">Sign in</a>';}
+  fetch('/api/auth/get-session',{credentials:'include',headers:{'accept':'application/json'}})
+    .then(function(r){return r.ok?r.json():null})
+    .then(function(j){
+      if(j&&j.user){
+        el.innerHTML='<span class=muted>'+esc(j.user.name||j.user.email||'account')+'</span> · <button type=button class=lnk id=aidSignOut>Sign out</button>';
+        var b=document.getElementById('aidSignOut');
+        if(b)b.onclick=function(){fetch('/api/auth/sign-out',{method:'POST',headers:{'content-type':'application/json'},credentials:'include'}).then(function(){location.reload()}).catch(function(){location.reload()})};
+      } else { signedOut(); }
+    })
+    .catch(signedOut);
+})();
+</script>`;
 function htmlPage(title: string, body: string): string {
-  return `<!doctype html><html lang=en><head><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1"><title>${title}</title><style>${PAGE_CSS}</style></head><body><div class=wrap>${body}</div>${TOKEN_PERSIST_JS}</body></html>`;
+  return `<!doctype html><html lang=en><head><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1"><title>${title}</title><style>${PAGE_CSS}</style></head><body><div class=wrap>${body}</div>${TOKEN_PERSIST_JS}${AUTH_STATUS_JS}</body></html>`;
 }
 app.get('/', (c) =>
   c.html(
