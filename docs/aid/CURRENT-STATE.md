@@ -1,6 +1,6 @@
 # aid — CURRENT STATE (verified audit)
 
-**Refreshed:** fire #105 (reconciled against the A01–X15 matrix + the live suite). **Branch:** `master`.
+**Refreshed:** fire #106 (reconciled against the A01–X15 matrix + the live suite). **Branch:** `master`.
 Full spec: `MASTER-PROMPT.md` · resume pointer: `NEXT-STEPS.md` · matrix: `REQUIREMENTS.md`. Nothing here
 is inherited without evidence; every count below is from a live `scripts/test-all.sh` run.
 
@@ -10,7 +10,7 @@ The UNBLOCKED functional product has **converged**: the control plane, the full 
 dashboard, the honest-docs set, and a one-command test suite are built + live-verified at
 **https://app.install.doctor**. The remaining high-value requirements are **GATED on external action**
 (see § Gated). Loop fires now harden docs/tests/honesty until a gated dep is provisioned. Verified by
-**`scripts/test-all.sh` → 435 assertions / 25 suites GREEN (1 OS-skipped)** with the prod URL.
+**`scripts/test-all.sh` → 441 assertions / 26 suites GREEN (1 OS-skipped)** with the prod URL.
 
 ## ✅ Built + live-verified
 
@@ -69,6 +69,11 @@ dashboard, the honest-docs set, and a one-command test suite are built + live-ve
   (drift-locked to the real routes + the `/api/catalog` filter params `?q=`/`?platform=` #100) + `platform-support` + `repos-and-backups` + `operations` +
   `provenance` + `adoption`. Doc gates: README 10 · getting-started 16 · repos-backups 13 · api-reference
   6 · platform-support 19 · operations 14 · provenance 16 · adoption 11.
+- **Security headers** (Q / web-security defense-in-depth; fire #106) — the Worker adds a **Content-Security-Policy** + **Permissions-Policy**
+  on EVERY response (CF-zone already sets HSTS/X-Frame-Options/nosniff/Referrer-Policy). CSP locks
+  `frame-ancestors 'none'` (anti-clickjacking) + `base-uri 'self'` + `object-src 'none'` + `form-action 'self'`;
+  script/style stay `'unsafe-inline'` (the dashboard renders inline `<script>`/`<style>` — honest, no nonces) so
+  nothing breaks. `test-security-headers.sh` 6/6, real-browser-verified the page renders styled + intact under the CSP.
 - **Verification** — `scripts/test-all.sh` runs every suite (per-suite + grand total, OS-gated skips,
   exits non-zero on any fail); inline-JS parse guard over every dashboard page; **A12 ADR hygiene gate
   (`test-adr.sh` 5/5) — every `docs/aid/decisions/NNNN` ADR is well-formed (Status·Context·Decision·

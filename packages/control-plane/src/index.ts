@@ -38,6 +38,28 @@ const InferRequest = z.object({ estimateMicros: z.number().int().nonnegative().d
 
 const app = new Hono();
 
+// Security headers (O14 / web-security baseline; fire #106). CF-zone Managed Transforms already set HSTS /
+// X-Frame-Options / nosniff / Referrer-Policy; the Worker adds the two it doesn't: a Content-Security-Policy
+// and a Permissions-Policy, on EVERY response. The dashboard renders inline <script>/<style>, so script/style
+// are 'unsafe-inline' (honest — no per-request nonces here), but frame-ancestors/base-uri/object-src/form-action
+// are locked (anti-clickjacking / base-tag / object / form-hijack). No external assets (system fonts only), so
+// default-src/connect-src/img-src stay 'self'. The OAuth sign-in redirect is a top-level navigation (not a
+// connect/form), so it's unaffected. Set on c.res.headers AFTER next() so it covers every route's response.
+const CSP =
+  "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; " +
+  "img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; " +
+  "object-src 'none'; form-action 'self'";
+const PERMISSIONS_POLICY = 'camera=(), microphone=(), geolocation=(), payment=(), usb=()';
+app.use('*', async (c, next) => {
+  await next();
+  try {
+    c.res.headers.set('content-security-policy', CSP);
+    c.res.headers.set('permissions-policy', PERMISSIONS_POLICY);
+  } catch {
+    /* immutable response (e.g. redirects) — skip; CF-zone headers still apply */
+  }
+});
+
 // Boundary schema (Zod everywhere) — mirrors aid-core chooseRoute's accepted enums.
 const ResolveRequest = z
   .object({
