@@ -30,6 +30,19 @@ function tallyInstallModes(bp: { defaults?: { packages?: string[] }; machines?: 
   }
   return t;
 }
+// D14/D15 safety — flag the plan's packages the maintainer marked `_deprecated` (#112), so plan review WARNS
+// before a host applies a plan that includes an abandoned/discouraged tool, with the reason (often the replacement).
+function collectDeprecated(bp: { defaults?: { packages?: string[] }; machines?: { packages?: string[] }[] }): { name: string; reason: string }[] {
+  const names = new Set<string>();
+  for (const p of bp.defaults?.packages ?? []) names.add(p);
+  for (const m of bp.machines ?? []) for (const p of m.packages ?? []) names.add(p);
+  const out: { name: string; reason: string }[] = [];
+  for (const name of names) {
+    const e = CATALOG_BY_NAME.get(name);
+    if (e?.deprecated) out.push({ name, reason: e.deprecated });
+  }
+  return out.sort((a, b) => a.name.localeCompare(b.name));
+}
 // Install-command templates per provider — MIRROR the cnf hook's __cnf_do_install (D04: ONE
 // provider→command contract shared with the deterministic executor). Drives the App Store install
 // detail (R13 — App Store details from recipe contracts). Keep in sync with not-found-hook.sh.
@@ -320,7 +333,16 @@ function renderSummary(bp){
   if(im.cli)imParts.push('<b>'+im.cli+'</b> CLI'+(im.cli>1?'s':'')+' on first use');
   if(im.unknown)imParts.push('<b>'+im.unknown+'</b> other');
   var imStr=imParts.length?imParts.join(' · '):'—';
+  // C12/D14 safety — if the plan includes packages the maintainer flagged deprecated (#112), WARN prominently
+  // before applying, with the reason + a link to each in the App Store. From the server-computed deprecatedPackages.
+  var dep=bp.deprecatedPackages||[];
+  var depBlock='';
+  if(dep.length){
+    var items=dep.map(function(x){return '<a class=tag href="/apps?q='+encodeURIComponent(x.name)+'" style="border-color:#f0a020;color:#f0a020" title="'+esc(x.reason)+'">'+esc(x.name)+'</a> <span class=muted>'+esc(x.reason)+'</span>'}).join('<br>');
+    depBlock='<div style="border-left:3px solid #f0a020;padding:6px 10px;margin:0 0 10px;background:#1a1407;border-radius:4px"><b style="color:#f0a020">'+dep.length+' deprecated package'+(dep.length>1?'s':'')+' in this plan</b> <span class=muted>— review before applying</span><div style="margin-top:4px">'+items+'</div></div>';
+  }
   sum.innerHTML='<div class=card><p class=muted><strong>Plan at a glance</strong> — what this environment describes (review before applying). Derived from the desired blueprint.</p>'
+    +depBlock
     +'<p><strong>Packages ('+pkgs.length+')</strong> '+pkgLinks(pkgs)+'</p>'
     +'<p><strong>Installs</strong> <span class=muted>'+imStr+'</span></p>'
     +'<p><strong>Machines ('+machines.length+')</strong> <span class=muted>'+roleStr+'</span></p>'
@@ -362,6 +384,9 @@ async function diffProposed(){
     dout.innerHTML='<div class=card><p class=muted>'+dj.changes.length+' change(s) · proposed digest <span class=mono>'+esc(String(dj.toDigest||'').slice(0,12))+'</span></p><table><thead><tr><th>section</th><th>change</th></tr></thead><tbody>'+rows+'</tbody></table></div>';
   }catch(e){dout.innerHTML='✗ '+esc(String(e))}
 }
+// Honor ?tenant= from the URL (deep-link a specific tenant's plan — e.g. from Machines/Recommendations, and
+// so the plan review + its deprecation warning are directly linkable). Mirrors the App Store's ?q= handling.
+try{var ptn=new URLSearchParams(location.search).get('tenant');if(ptn){document.getElementById('tenant').value=ptn;}}catch(e){}
 load();
 </script>`,
     ),
@@ -780,6 +805,8 @@ app.get('/api/environment/current', async (c) => {
       privacy: bp.privacy,
       // C12/D06 — the plan's eager-vs-lazy install breakdown (desktop apps at setup · services · lazy CLIs).
       installModes: tallyInstallModes(bp),
+      // C12/D14 safety — any packages in the plan the maintainer flagged deprecated (warn before applying).
+      deprecatedPackages: collectDeprecated(bp),
     };
     return c.json({ tenant, revision: bp.revision, digest: await blueprintDigest(bp), updatedAt: row.updated_at, markdown: row.markdown, summary });
   } catch (e) {

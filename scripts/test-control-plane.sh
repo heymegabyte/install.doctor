@@ -93,6 +93,9 @@ if [ -n "${CONTROL_PLANE_URL:-}" ]; then
   { echo "$envp" | grep -q 'id=summary' && echo "$envp" | grep -q 'function renderSummary(' && echo "$envp" | grep -qi 'Plan at a glance'; } && pass "GET /environment -> structured 'Plan at a glance' summary of the desired blueprint (step-5 review; C12)" || fail "environment plan summary -> $(printf '%s' "$envp" | grep -oE 'id=summary|renderSummary|Plan at a glance' | sort -u | tr '\n' ' ')"
   # fire #111 — the plan summary renders the eager-vs-lazy INSTALL breakdown (desktop apps at setup vs CLIs on first use).
   { echo "$envp" | grep -q 'installModes' && echo "$envp" | grep -qiE 'on first use|desktop app'; } && pass "GET /environment -> plan shows the eager-vs-lazy INSTALL breakdown (desktop apps at setup vs CLIs on first use; C12/D06 #111)" || fail "environment installs breakdown -> $(printf '%s' "$envp" | grep -oiE 'installModes|on first use|desktop app' | sort -u | tr '\n' ' ')"
+  # fire #114 — the plan review WARNS if the plan includes deprecated packages (safety — don't apply a plan with abandoned tools).
+  { echo "$envp" | grep -q 'deprecatedPackages'; } && pass "GET /environment -> plan flags DEPRECATED packages (safety — warn before applying; #114)" || fail "environment plan deprecation warning missing -> $(printf '%s' "$envp" | grep -oiE 'deprecatedPackages' | head -1)"
+  { echo "$envp" | grep -q "URLSearchParams(location.search).get('tenant')"; } && pass "GET /environment -> honors ?tenant= from the URL (deep-link a tenant's plan + its deprecation warning; interconnect #114)" || fail "environment ?tenant= deep-link missing"
   # fire #98 — each planned package in the Plan-at-a-glance LINKS to its App Store detail (step-5 review +
   # interconnectedness): click a package → see what it is, install commands, platforms, learn-more links.
   { echo "$envp" | grep -q 'function pkgLinks(' && echo "$envp" | grep -q '/apps?q='; } && pass "GET /environment -> plan packages LINK to the App Store (/apps?q=; interconnectedness #98)" || fail "environment pkg links -> $(printf '%s' "$envp" | grep -oE 'pkgLinks|/apps.q=' | sort -u | tr '\n' ' ')"
@@ -235,6 +238,8 @@ JSON
   # fire #111 — C12/D06: the plan summary carries an install-MODE breakdown (eager desktop apps at setup vs lazy
   # CLIs on first use) derived from the catalog installMode (#110), so the plan review shows HOW provisioning behaves.
   echo "$cur" | jq -e '(.summary.installModes.cli|type=="number") and (.summary.installModes.app|type=="number") and (.summary.installModes.service|type=="number") and (.summary.installModes.unknown|type=="number") and (.summary.installModes.cli>=3)' >/dev/null 2>&1 && pass "GET /api/environment/current (_default) -> summary.installModes breakdown (git/chezmoi/mise -> cli>=3; C12/D06 #111)" || fail "default installModes -> $(printf '%s' "$cur" | jq -c '.summary.installModes' 2>/dev/null | head -c 120)"
+  # fire #114 — the clean case: _default (git/chezmoi/mise are current, not deprecated) has an EMPTY deprecatedPackages list.
+  echo "$cur" | jq -e '(.summary.deprecatedPackages|type=="array") and (.summary.deprecatedPackages|length==0)' >/dev/null 2>&1 && pass "GET /api/environment/current (_default) -> deprecatedPackages empty (no abandoned tools in the plan; safety #114)" || fail "default deprecatedPackages -> $(printf '%s' "$cur" | jq -c '.summary.deprecatedPackages' 2>/dev/null | head -c 120)"
   nf="$(curl -s -o /dev/null -w '%{http_code}' "$u/api/environment/current?tenant=__nope__" 2>/dev/null || echo 000)"
   [ "$nf" = 404 ] && pass "env current (unknown tenant) -> 404" || fail "env current unknown -> $nf (want 404)"
 
@@ -265,6 +270,12 @@ JSON
     curl -s -X PUT -H "authorization: Bearer $ADMIN" -H 'content-type: application/json' -d "$(jq -n --argjson b "$mt" '{tenant:"_modetest",blueprint:$b}')" "$u/api/environment/current" >/dev/null 2>&1
     ms="$(curl -s "$u/api/environment/current?tenant=_modetest" 2>/dev/null)"
     echo "$ms" | jq -e '.summary.installModes=={app:1,service:1,cli:1,unknown:0}' >/dev/null 2>&1 && pass "mixed plan -> summary.installModes {app:1,service:1,cli:1} (counts defaults + machine packages by mode; C12/D06 #111)" || fail "modetest installModes -> $(printf '%s' "$ms" | jq -c '.summary.installModes' 2>/dev/null | head -c 120)"
+    # fire #114 — seed a plan WITH a deprecated package (altair) + assert the summary flags it with its reason (safety:
+    # the plan review warns before applying a plan that includes an abandoned/discouraged tool; uses the catalog `deprecated` #112).
+    dt="$(jq --slurpfile a "$bpf" -n '$a[0] | .defaults.packages=["altair","ripgrep"] | .machines=[{id:"m1",os:"darwin",role:"desktop",packages:[]}] | .services=[]')"
+    curl -s -X PUT -H "authorization: Bearer $ADMIN" -H 'content-type: application/json' -d "$(jq -n --argjson b "$dt" '{tenant:"_deptest",blueprint:$b}')" "$u/api/environment/current" >/dev/null 2>&1
+    ds="$(curl -s "$u/api/environment/current?tenant=_deptest" 2>/dev/null)"
+    echo "$ds" | jq -e '([.summary.deprecatedPackages[]|select(.name=="altair")]|length==1) and ([.summary.deprecatedPackages[]|select(.name=="altair")][0].reason|test("Postman")) and ([.summary.deprecatedPackages[]|select(.name=="ripgrep")]|length==0)' >/dev/null 2>&1 && pass "plan WITH a deprecated pkg -> summary.deprecatedPackages flags altair + its reason (ripgrep clean; safety #114)" || fail "deptest deprecatedPackages -> $(printf '%s' "$ds" | jq -c '.summary.deprecatedPackages' 2>/dev/null | head -c 160)"
   else
     skip "AID_ADMIN_TOKEN unset (env + get-secret) — authed PUT assertions skipped"
   fi
