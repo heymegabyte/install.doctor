@@ -58,6 +58,9 @@ if [ -n "${CONTROL_PLANE_URL:-}" ]; then
   # fire #91 — U03 fleet UI: the /history page surfaces a correlation "run" column + wires the built-but-UI-only
   # ?correlation= filter (click a run → only its correlated events), consistent with the /machines timeline (#90).
   { echo "$hp" | grep -q '<th>run</th>' && echo "$hp" | grep -q '&correlation=' && echo "$hp" | grep -q 'e.correlationId' && echo "$hp" | grep -qi 'clear filter'; } && pass "GET /history -> correlation run column + clickable ?correlation= filter (U03 fleet UI; wires the built filter)" || fail "history run-filter -> $(printf '%s' "$hp" | grep -oE '<th>run</th>|&correlation=|clear filter' | sort -u | tr '\n' ' ')"
+  # fire #99 — each History event's DEVICE links to that machine's detail (/machines?device=), matching the
+  # Recommendations deep-link pattern: from "what happened" → "which machine", one click (interconnectedness).
+  { echo "$hp" | grep -q '/machines?device='; } && pass "GET /history -> device column links to /machines?device= (event→machine navigation; interconnectedness #99)" || fail "history device link -> $(printf '%s' "$hp" | grep -oE '/machines.device=' | head -1)"
   mp="$(curl -s "$u/machines" 2>/dev/null)"
   { echo "$mp" | grep -qi 'device inventory' && echo "$mp" | grep -q 'AID_ADMIN_TOKEN' && echo "$mp" | grep -qi 'Load machines' && echo "$mp" | grep -qi 'last active' && echo "$mp" | grep -qi 'drift' && echo "$mp" | grep -qi 'scope' && echo "$mp" | grep -qi 'health'; } && pass "GET /machines -> device-inventory dashboard w/ last-active + drift + scope + health columns (N08/U15/P05/U11)" || fail "machines page -> $(printf '%s' "$mp" | head -c 80)"
   # fire #64 — each device row opens a detail view (identity + health + scope + drift + its /api/history timeline, N09 UI half).

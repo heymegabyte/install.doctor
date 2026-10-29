@@ -147,7 +147,8 @@ async function load(corr){
     if(!j.items||!j.items.length){out.innerHTML=corr?('<p class=muted>No events for run <span class=mono>'+esc(corr)+'</span>. <button class=lnk onclick="load()">✕ clear filter</button></p>'):('No events for '+esc(t)+'.');return}
     var rows=j.items.map(function(e){
       var run=e.correlationId?('<button class=lnk title="filter to run '+esc(e.correlationId)+(e.parentRunId?(' · child of '+esc(e.parentRunId)):'')+'" onclick="load(\\''+esc(e.correlationId)+'\\')">'+(e.parentRunId?'↳ ':'')+esc(String(e.correlationId).slice(-6))+'</button>'):'<span class=muted>—</span>';
-      return '<tr><td>'+esc(e.createdAt)+'</td><td class=mono>'+esc(e.deviceId)+'</td><td>'+esc(e.kind)+'</td><td>'+esc(e.status)+'</td><td>'+run+'</td><td>'+esc(e.summary||'')+'</td></tr>';
+      var dev='<a class=mono href="/machines?device='+encodeURIComponent(e.deviceId)+'" title="View this machine">'+esc(e.deviceId)+'</a>';
+      return '<tr><td>'+esc(e.createdAt)+'</td><td>'+dev+'</td><td>'+esc(e.kind)+'</td><td>'+esc(e.status)+'</td><td>'+run+'</td><td>'+esc(e.summary||'')+'</td></tr>';
     }).join('');
     var banner=corr?('<p class=muted>Showing run <span class=mono>'+esc(corr)+'</span> · '+j.count+' event(s) · <button class=lnk onclick="load()">✕ clear filter</button></p>'):('<p class=muted>'+j.count+' events · tenant '+esc(t)+' · recording: '+esc(j.recordingMode||'events-only')+' (no terminal capture yet) · click a run to isolate its correlated events</p>');
     out.innerHTML=banner+'<table><thead><tr><th>time</th><th>device</th><th>kind</th><th>status</th><th>run</th><th>summary</th></tr></thead><tbody>'+rows+'</tbody></table>';
