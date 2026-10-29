@@ -276,6 +276,13 @@ JSON
     curl -s -X PUT -H "authorization: Bearer $ADMIN" -H 'content-type: application/json' -d "$(jq -n --argjson b "$dt" '{tenant:"_deptest",blueprint:$b}')" "$u/api/environment/current" >/dev/null 2>&1
     ds="$(curl -s "$u/api/environment/current?tenant=_deptest" 2>/dev/null)"
     echo "$ds" | jq -e '([.summary.deprecatedPackages[]|select(.name=="altair")]|length==1) and ([.summary.deprecatedPackages[]|select(.name=="altair")][0].reason|test("Postman")) and ([.summary.deprecatedPackages[]|select(.name=="ripgrep")]|length==0)' >/dev/null 2>&1 && pass "plan WITH a deprecated pkg -> summary.deprecatedPackages flags altair + its reason (ripgrep clean; safety #114)" || fail "deptest deprecatedPackages -> $(printf '%s' "$ds" | jq -c '.summary.deprecatedPackages' 2>/dev/null | head -c 160)"
+    # fire #115 — plan-health RECOMMENDATION: a tenant whose DESIRED plan includes deprecated packages gets an
+    # actionable Recommendation (the 3rd deprecation surface: App Store badge -> plan-review warning -> rec), so it
+    # surfaces on the "what needs attention" dashboard. Reuses collectDeprecated (#114) on the tenant's blueprint.
+    rd="$(curl -s -H "authorization: Bearer $ADMIN" "$u/api/recommendations?tenant=_deptest" 2>/dev/null)"
+    echo "$rd" | jq -e '([.recommendations[]|select(.id=="plan_deprecated")]|length==1) and ([.recommendations[]|select(.id=="plan_deprecated")][0].detail|test("altair")) and ([.recommendations[]|select(.id=="plan_deprecated")][0].severity=="warning")' >/dev/null 2>&1 && pass "GET /api/recommendations (_deptest) -> plan_deprecated rec flags altair (deprecation -> actionable rec; #115)" || fail "deptest plan rec -> $(printf '%s' "$rd" | jq -c '[.recommendations[].id]' 2>/dev/null | head -c 140)"
+    rdc="$(curl -s -H "authorization: Bearer $ADMIN" "$u/api/recommendations?tenant=_default" 2>/dev/null)"
+    echo "$rdc" | jq -e '[.recommendations[]|select(.id=="plan_deprecated")]|length==0' >/dev/null 2>&1 && pass "GET /api/recommendations (_default) -> no plan_deprecated rec (clean plan; #115)" || fail "default plan rec -> $(printf '%s' "$rdc" | jq -c '[.recommendations[].id]' 2>/dev/null | head -c 140)"
   else
     skip "AID_ADMIN_TOKEN unset (env + get-secret) — authed PUT assertions skipped"
   fi

@@ -1137,6 +1137,21 @@ app.get('/api/recommendations', async (c) => {
       recs.push({ id: 'never_reported', severity: 'warning', title: `${never.length} enrolled machine(s) have never reported`, detail: `Check connectivity, then pull + apply on: ${names(never)}`, action: 'connect', command: 'aid up', devices: never.map((d) => d.deviceId) });
     if (stale.length)
       recs.push({ id: 'stale', severity: 'info', title: `${stale.length} machine(s) haven't reported in over 24h`, detail: `Activity is stale on: ${names(stale)}`, action: 'check', command: 'aid report', devices: stale.map((d) => d.deviceId) });
+    // Plan-health (#115) — interconnect the catalog `deprecated` (#112) into Recommendations: if the tenant's
+    // DESIRED plan includes packages the maintainer flagged deprecated, surface it as an actionable rec here (the
+    // 3rd surface after the App Store badge + the plan-review warning #114) so it shows on the "what needs
+    // attention" dashboard. TENANT-scoped (devices:[], it affects every host that applies the plan); the fix is an
+    // edit to the desired plan, not a host command. Reuses collectDeprecated on the stored blueprint.
+    try {
+      const bpRow = await db.prepare('SELECT markdown FROM blueprints WHERE tenant = ?').bind(tenant).first();
+      if (bpRow?.markdown) {
+        const dep = collectDeprecated(importMarkdown(bpRow.markdown));
+        if (dep.length)
+          recs.push({ id: 'plan_deprecated', severity: 'warning', title: `${dep.length} deprecated package(s) in the desired plan`, detail: `Replace in the plan — ${dep.map((x) => `${x.name} (${x.reason})`).join('; ')}`, action: 'edit-plan', command: '', devices: [] });
+      }
+    } catch {
+      /* no/unreadable blueprint for this tenant → no plan-health rec (fine) */
+    }
     if (!recs.length)
       recs.push({ id: 'all_good', severity: 'ok', title: active.length ? 'All machines current and recently active' : 'No machines enrolled yet', detail: active.length ? `${active.length} machine(s) at revision ${currentRevision || '—'}, all reporting.` : 'Pair a machine to get started.', action: 'none', command: '', devices: [] });
     // distinctDeviceCount == unique flagged machines across every card (deduped). Lets the UI show the TRUE

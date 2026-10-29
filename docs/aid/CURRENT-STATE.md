@@ -10,7 +10,7 @@ The UNBLOCKED functional product has **converged**: the control plane, the full 
 dashboard, the honest-docs set, and a one-command test suite are built + live-verified at
 **https://app.install.doctor**. The remaining high-value requirements are **GATED on external action**
 (see § Gated). Loop fires now harden docs/tests/honesty until a gated dep is provisioned. Verified by
-**`scripts/test-all.sh` → 468 assertions / 27 suites GREEN (1 OS-skipped)** with the prod URL.
+**`scripts/test-all.sh` → 470 assertions / 27 suites GREEN (1 OS-skipped)** with the prod URL.
 
 ## ✅ Built + live-verified
 
@@ -37,7 +37,10 @@ dashboard, the honest-docs set, and a one-command test suite are built + live-ve
   ENVIRONMENT.md view + a **semantic DIFF tool** — paste a proposed ENVIRONMENT.md → color-coded
   added/removed/changed vs current, C09), **Recommendations** (rule-based: failed-last-run/drifted/never/stale, DEDUPED
   per-machine so no host is double-alerted, a `distinctDeviceCount` blast-radius summary, each card's
-  repair `command` + device deep-links, U13), **History** (fleet events + honest `recordingMode:events-only` note, U02; a correlation **"run" column** whose badges are CLICKABLE → filter the fleet history to one correlated run via `?correlation=`, U03 #91; and each event's **DEVICE now links to that machine's detail** (`/machines?device=`) so "what happened" → "which machine" is one click, matching the Recommendations deep-link pattern, interconnectedness #99). Admin token
+  repair `command` + device deep-links, U13; **+ a tenant-level `plan_deprecated` rec (#115) — if the desired PLAN
+  includes packages the maintainer flagged deprecated (#112), it warns "N deprecated package(s) in the desired plan —
+  Replace: altair (Deprecated in favor of Postman)", the 3rd + proactive deprecation surface after the App Store badge + the
+  plan-review warning; reuses `collectDeprecated` on the blueprint**), **History** (fleet events + honest `recordingMode:events-only` note, U02; a correlation **"run" column** whose badges are CLICKABLE → filter the fleet history to one correlated run via `?correlation=`, U03 #91; and each event's **DEVICE now links to that machine's detail** (`/machines?device=`) so "what happened" → "which machine" is one click, matching the Recommendations deep-link pattern, interconnectedness #99). Admin token
   persists in sessionStorage (enter once). Device identity/health/drift/recs all from one shared query.
 - **Lazy CLI** (`home/dot_config/shell/not-found-hook.sh`) — ONE canonical resolver: no-eval argv-exec,
   install locks + recursion guard, interactive/CI gate, atomic index, mise-defer; bash+zsh tested
