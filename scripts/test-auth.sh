@@ -60,6 +60,17 @@ ch="$(curl -s "$u/machines" 2>/dev/null)"
 na="$(curl -s -o /dev/null -w '%{http_code}' "$u/api/devices?tenant=_default" 2>/dev/null)"
 [ "$na" = "401" ] && pass "GET /api/devices (no auth) -> 401 — requireAdmin session branch reachable + non-throwing after the async refactor (O11/O12 #131; not 500/503)" || fail "admin no-auth expected 401, got $na"
 
+# 10b. fire #150 — the session branch must DEGRADE GRACEFULLY on a HOSTILE/STALE cookie, not just a missing
+#      one. #10 proves no-cookie -> 401, but a real browser carrying an EXPIRED or garbage Better Auth session
+#      cookie (fetch sends it same-origin) exercises getSession WITH bad input — which must be caught
+#      (requireAdmin's getSession carries `.catch(() => null)`, index.ts ~L1353) and fall through to 401, never
+#      a 500/stack-trace leak/DoS. A refactor dropping that `.catch` would 500 HERE while #10 (no cookie ->
+#      clean null, getSession never throws) stays green — so this guards a regression #10 structurally cannot.
+#      Two bad shapes: a plausible-looking opaque token + a malformed value.
+bc="$(curl -s -o /dev/null -w '%{http_code}' -H 'cookie: better-auth.session_token=garbage.invalid-not-a-real-session-xyz' "$u/api/devices?tenant=_default" 2>/dev/null)"
+bcm="$(curl -s -o /dev/null -w '%{http_code}' -H 'cookie: better-auth.session_token=%%%..broken..%%%' "$u/api/devices?tenant=_default" 2>/dev/null)"
+{ [ "$bc" = "401" ] && [ "$bcm" = "401" ]; } && pass "GET /api/devices (garbage/stale session cookie) -> 401 — session branch degrades gracefully on bad input (getSession .catch(()=>null); not 500/503; O11/O12 #150)" || fail "bad-cookie expected 401/401, got $bc/$bcm"
+
 # 11. fire #132 — the dashboard admin pages are SESSION-AWARE: an admin fetch sends the `AID_ADMIN_TOKEN`
 #     bearer when pasted, else relies on the same-origin Better Auth session cookie (fetch sends it by
 #     default for same-origin → the #131 server gate authorizes a signed-in allowlisted admin with NO token).
