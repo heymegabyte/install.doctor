@@ -52,7 +52,7 @@ for (const line of rows) {
   if (!providers.length) continue; // an entry with no installable provider is not browseable
   // installMode default = lazy CLI (installed on first command use via the cnf hook). Overridden below to
   // 'app' (a GUI desktop app, software.yml `_app`) or 'service' (a required service, `_service`) — D06.
-  items.push({ name, bin, providers, pkgs, platforms: [...platforms].sort(), installMode: 'cli' });
+  items.push({ name, bin, providers, pkgs, platforms: [...platforms].sort(), installMode: 'cli', preload: false });
 }
 
 // Merge the human-facing metadata from software.yml (the cnf index carries only bin+providers): _short
@@ -67,7 +67,7 @@ try {
       [
         '-o',
         'json',
-        '.softwarePackages | to_entries | map({"key":.key,"short":.value._short,"github":.value._github,"home":.value._home,"docs":.value._docs,"app":(.value._app != null),"service":(.value._service != null),"deprecated":.value._deprecated,"deps":.value._deps})',
+        '.softwarePackages | to_entries | map({"key":.key,"short":.value._short,"github":.value._github,"home":.value._home,"docs":.value._docs,"app":(.value._app != null),"service":(.value._service != null),"preload":(.value._preload != null),"deprecated":.value._deprecated,"deps":.value._deps})',
         SOFTWARE,
       ],
       { encoding: 'utf8' },
@@ -107,8 +107,13 @@ try {
     // lm-studio) fall to cli — an accepted edge, far better than mislabeling the CLI-casks.
     it.installMode = m.app ? 'app' : m.service ? 'service' : 'cli';
     modes[it.installMode]++;
+    // #153 eager-vs-lazy ACCURACY — software.yml `_preload:true` means installx EAGER-installs it at provisioning
+    // (executable_installx --lazy installs casks/flatpaks/_app/_serviceEnabled/_preload), so a `_preload:true`
+    // CLI is NOT "on first use" — the App Store must say "installed at setup". Carry the boolean so the badge is honest.
+    it.preload = !!m.preload;
+    if (it.installMode === 'cli' && it.preload) modes.preloadCli = (modes.preloadCli || 0) + 1;
   }
-  console.error(`gen-catalog: enriched ${enriched} with _short; ${linked} with _home/_docs links; modes app=${modes.app} service=${modes.service} cli=${modes.cli}`);
+  console.error(`gen-catalog: enriched ${enriched} with _short; ${linked} with _home/_docs links; modes app=${modes.app} service=${modes.service} cli=${modes.cli} (preloadCli=${modes.preloadCli || 0} eager, not on-first-use)`);
 } catch (e) {
   console.error('gen-catalog: WARNING — could not merge _short/_github/_home/_docs/installMode (' + (e && e.message) + '); proceeding without enrichment');
 }

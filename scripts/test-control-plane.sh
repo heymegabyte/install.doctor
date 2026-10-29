@@ -206,7 +206,13 @@ if [ -n "${CONTROL_PLANE_URL:-}" ]; then
   # fire #110 — D06 install MODE: the catalog derives eager-desktop-app (software.yml _app) vs required-service
   # (_service) vs lazy-CLI (neither) + surfaces it, so a user reviewing the App Store sees whether a tool is a
   # desktop app installed during setup or a CLI installed on first command use (the core eager-vs-lazy promise).
-  echo "$cd1" | jq -e '.installMode=="cli"' >/dev/null 2>&1 && pass "GET /api/catalog/ripgrep -> installMode:cli (lazy CLI on first use; D06)" || fail "ripgrep installMode -> $(printf '%s' "$cd1" | jq -c '{installMode}' 2>/dev/null | head -c 80)"
+  # fire #153 — eager-vs-lazy ACCURACY: installx eager-installs software.yml `_preload:true` items at provisioning
+  # (executable_installx: casks/flatpaks/_app/_service/_preload all install in --lazy mode), so a `_preload:true`
+  # CLI is NOT "on first use" — it's installed at setup. ripgrep IS `_preload:true` → installMode:cli + preload:true.
+  echo "$cd1" | jq -e '.installMode=="cli" and .preload==true' >/dev/null 2>&1 && pass "GET /api/catalog/ripgrep -> installMode:cli + preload:true (a PRELOADED CLI — installx installs _preload:true at setup, NOT lazy on first use; eager-vs-lazy accuracy #153)" || fail "ripgrep installMode/preload -> $(printf '%s' "$cd1" | jq -c '{installMode,preload}' 2>/dev/null | head -c 80)"
+  # a genuinely LAZY cli (no software.yml _preload) is preload:false → "on first use" is accurate. pandoc has no _preload.
+  cdlazy="$(curl -s "$u/api/catalog/pandoc" 2>/dev/null)"
+  echo "$cdlazy" | jq -e '.installMode=="cli" and .preload==false' >/dev/null 2>&1 && pass "GET /api/catalog/pandoc -> installMode:cli + preload:false (a genuinely lazy CLI installed on first use via the cnf hook; #153)" || fail "pandoc installMode/preload -> $(printf '%s' "$cdlazy" | jq -c '{installMode,preload}' 2>/dev/null | head -c 80)"
   # fire #136 (R14/F15/F06) — the App Store detail flags tools with an AUTOMATED first-run CONFIGURATION step:
   # a post-installx/post-<tool>.sh hook runs after installx installs <tool>. atuin HAS one (configured:true +
   # the hook name as the concrete action); ripgrep does NOT (a bare lazy CLI — honest config-coverage signal).
@@ -226,6 +232,8 @@ if [ -n "${CONTROL_PLANE_URL:-}" ]; then
   echo "$cmsvc" | jq -e '.installMode=="service"' >/dev/null 2>&1 && pass "GET /api/catalog/caddy -> installMode:service (required service; D06)" || fail "caddy installMode -> $(printf '%s' "$cmsvc" | jq -c '{installMode}' 2>/dev/null | head -c 80)"
   echo "$cat" | jq -e '[.items[]|select(.installMode|type=="string")]|length==3' >/dev/null 2>&1 && pass "GET /api/catalog -> list items carry installMode (D06)" || fail "catalog list installMode -> $(printf '%s' "$cat" | jq -c '[.items[].installMode]' 2>/dev/null | head -c 100)"
   { echo "$ap" | grep -qiE 'installMode|Desktop app|first use'; } && pass "/apps page surfaces the install MODE (desktop app vs lazy CLI; frontend-judgeable D06)" || fail "apps install-mode badge missing"
+  # fire #153 — the install-mode render distinguishes a PRELOADED cli ("installed at setup") from a lazy one ("on first use").
+  { echo "$ap" | grep -qi 'installed at setup'; } && pass "/apps -> install-mode render distinguishes PRELOADED CLIs ('installed at setup') from lazy ('on first use'); eager-vs-lazy accuracy #153" || fail "apps preload label missing -> $(printf '%s' "$ap" | grep -oiE 'installed at setup|first use' | sort -u | tr '\n' ' ')"
   # fire #112 — D14/D15 honesty: the catalog surfaces software.yml's `_deprecated` REASON (147 browseable entries the
   # maintainer flagged), so the App Store WARNS before a user installs an abandoned/discouraged tool + shows the reason
   # (often naming a replacement). Grounded in the declared field; a non-flagged tool carries nothing.
