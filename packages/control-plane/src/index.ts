@@ -5,6 +5,9 @@ import { z } from 'zod';
 import { ROUTES, chooseRoute, validateBlueprint, exportMarkdown, importMarkdown, blueprintDigest, aidProviderConfig, APP_URL, type Blueprint } from '../../aid-core/src/core';
 import { Env, providerConfigured } from './env';
 import { reserveBudget, DEFAULT_CEILING_MICROS } from './budget';
+// Better Auth — O-series sign-in (GitHub + Google), fire #102. See ./auth.ts.
+import { auth } from './auth';
+import { getMigrations } from 'better-auth/db/migration';
 // App Store catalog — generated from software.yml by the canonical validated parser
 // (scripts/gen-catalog.mjs → the cnf index builder; D01/D02/D13). Read-only, bundled at deploy;
 // regenerate + redeploy when software.yml changes. No runtime YAML at the edge.
@@ -1450,6 +1453,33 @@ app.all('/api/ai/v1/:route', (c) => {
     return c.json({ error: 'unknown_route_alias', known: ROUTES }, 404);
   }
   return c.json({ error: 'method_not_allowed', detail: 'inference uses POST', route }, 405);
+});
+
+// --- Better Auth (O-series sign-in: GitHub + Google) — fire #102 ----------------------------------------
+// Forward every /api/auth/* request to the Better Auth handler (its basePath defaults to /api/auth).
+// This exposes sign-in/social, the OAuth callback, session, sign-out, etc. Authorize-INITIATION is live +
+// verifiable now; sign-in COMPLETION still needs the callback URL registered on the OAuth apps (human step).
+app.on(['GET', 'POST'], '/api/auth/*', (c) => auth.handler(c.req.raw));
+
+// Admin-guarded D1 schema migration for Better Auth (the CLI can't reach D1 — run programmatically).
+// Creates the user/session/account/verification tables; idempotent (reports "no migrations needed" after).
+app.post('/api/auth-migrate', async (c) => {
+  const denied = requireAdmin(c);
+  if (denied) return denied;
+  try {
+    const { toBeCreated, toBeAdded, runMigrations } = await getMigrations(auth.options);
+    if (toBeCreated.length === 0 && toBeAdded.length === 0) {
+      return c.json({ message: 'no migrations needed', created: [], added: [] });
+    }
+    await runMigrations();
+    return c.json({
+      message: 'migrations completed',
+      created: toBeCreated.map((t: any) => t.table),
+      added: toBeAdded.map((t: any) => t.table),
+    });
+  } catch (e) {
+    return c.json({ error: 'migration_failed', detail: e instanceof Error ? e.message : String(e) }, 500);
+  }
 });
 
 app.notFound((c) => c.json({ error: 'not_found' }, 404));

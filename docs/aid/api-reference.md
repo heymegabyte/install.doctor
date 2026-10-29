@@ -41,6 +41,20 @@ A "public page" serves an HTML shell anyone can load, but its in-page data fetch
 | `GET /api/catalog` | public | software.yml catalog (read-only); `?q=` filters by name, binary, OR description (find a tool by what it does); `?platform=` `macos`\|`linux`\|`windows` shows only tools installable on that OS (allowlisted, echoes the applied filter); `?limit=` 1..200. |
 | `GET /api/catalog/:name` | public | One catalog entry + the exact per-manager install commands, plus its description (`short`) and provenance/learn-more links (`github`, `home`, `docs`) when present. |
 
+## Authentication (Better Auth — O-series)
+
+Sign-in is handled by Better Auth, mounted on the `/api/auth/*` surface (basePath `/api/auth`), backed by D1
+(`user`/`session`/`account`/`verification` tables). GitHub + Google social sign-in are configured. The
+**authorize-initiation is live** — e.g. a POST to `/api/auth/sign-in/social` with `{"provider":"github"}`
+returns the real provider authorize URL (carrying the OAuth `client_id` + the
+`https://app.install.doctor/api/auth/callback/<provider>` redirect). Sign-in **completion** (callback → session) additionally requires that callback URL be registered
+on the OAuth apps — a one-time human step on the OAuth-app settings; magic-link sign-in is pending an SES sender.
+
+| Route | Auth | Purpose |
+| --- | --- | --- |
+| `/api/auth/*` | public (Better Auth) | Better Auth handler — `sign-in/social` (GitHub/Google), OAuth `callback/<provider>`, `get-session`, `sign-out`, `ok`. Wildcard mount (`app.on`). Client secrets stay backend-side; the browser only sees the provider authorize URL. |
+| `POST /api/auth-migrate` | admin | Programmatic D1 schema migration for Better Auth (the CLI can't reach D1) — creates `user`/`session`/`account`/`verification`; idempotent ("no migrations needed" after). |
+
 ## AI routing
 
 | Route | Auth | Purpose |

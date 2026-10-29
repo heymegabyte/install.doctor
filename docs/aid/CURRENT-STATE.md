@@ -1,6 +1,6 @@
 # aid — CURRENT STATE (verified audit)
 
-**Refreshed:** fire #101 (reconciled against the A01–X15 matrix + the live suite). **Branch:** `master`.
+**Refreshed:** fire #102 (reconciled against the A01–X15 matrix + the live suite). **Branch:** `master`.
 Full spec: `MASTER-PROMPT.md` · resume pointer: `NEXT-STEPS.md` · matrix: `REQUIREMENTS.md`. Nothing here
 is inherited without evidence; every count below is from a live `scripts/test-all.sh` run.
 
@@ -10,7 +10,7 @@ The UNBLOCKED functional product has **converged**: the control plane, the full 
 dashboard, the honest-docs set, and a one-command test suite are built + live-verified at
 **https://app.install.doctor**. The remaining high-value requirements are **GATED on external action**
 (see § Gated). Loop fires now harden docs/tests/honesty until a gated dep is provisioned. Verified by
-**`scripts/test-all.sh` → 421 assertions / 23 suites GREEN (1 OS-skipped)** with the prod URL.
+**`scripts/test-all.sh` → 426 assertions / 24 suites GREEN (1 OS-skipped)** with the prod URL.
 
 ## ✅ Built + live-verified
 
@@ -50,6 +50,16 @@ dashboard, the honest-docs set, and a one-command test suite are built + live-ve
   sign-in stays the user's explicit action). **`test-cua-spaces.sh` 17/17** — gates + guardrails unit-verified
   (headless + opt-out skip-before-install proven live); the real install path is machine-gated (runs at
   `chezmoi apply` on a real qualifying desktop, NOT executed on the dev box — honestly marked).
+- **Better Auth sign-in** (`packages/control-plane/src/auth.ts` + `/api/auth/*`, Phase-3 keystone, fire #102) —
+  Better Auth 1.7 mounted on the Worker, **GitHub + Google** social providers, backed by D1
+  (`user`/`session`/`account`/`verification` tables created via the admin-guarded `POST /api/auth-migrate`;
+  `nodejs_compat` on; 5 OAuth secrets bound as Worker secrets, values never in Git/context). **Authorize-
+  INITIATION is LIVE + verified** (`test-auth.sh` 5/5): `POST /api/auth/sign-in/social` for github → a real
+  `github.com/login/oauth/authorize` URL with the client_id + the `app.install.doctor/api/auth/callback/github`
+  redirect; google → `accounts.google.com`; no client_secret ever in the response. **HONEST: sign-in does NOT
+  COMPLETE yet** — the callback→session leg needs `https://app.install.doctor/api/auth/callback/{github,google}`
+  registered on the OAuth apps (a one-time human step on the OAuth-app settings), and the dashboard still uses
+  the `AID_ADMIN_TOKEN` bearer (not a user session). Magic-link ⬜ (needs SES).
 - **Honest-docs set** (each gated) — `README` + `getting-started-desktop`/`-headless` + `api-reference`
   (drift-locked to the real routes + the `/api/catalog` filter params `?q=`/`?platform=` #100) + `platform-support` + `repos-and-backups` + `operations` +
   `provenance` + `adoption`. Doc gates: README 10 · getting-started 16 · repos-backups 13 · api-reference
@@ -68,12 +78,11 @@ dashboard, the honest-docs set, and a one-command test suite are built + live-ve
 
 ## 🚧 Gated — remaining high-value work needs EXTERNAL action (not a loop slice)
 
-- **O Better Auth** (GitHub/Google/magic-link sign-in) — **RE-MEASURED #101: the creds are PRESENT**
-  (`GITHUB_CLIENT_ID/SECRET` + `GOOGLE_CLIENT_ID/SECRET` + `BETTER_AUTH_SECRET` all in get-secret, correctly
-  shaped). So GitHub/Google sign-in is **buildable now** (control-plane has zero auth code yet). The only
-  remaining gates: register `https://app.install.doctor/api/auth/callback/{github,google}` on the OAuth apps
-  (confirm they ARE app.install.doctor's apps) + magic-link needs SES (`AWS_SES_ACCESS_KEY_ID` absent). The
-  dashboard uses an `AID_ADMIN_TOKEN` bearer today, not user login. **This is now the TOP unblocked slice.**
+- **O Better Auth** — **BUILT #102 (authorize-initiation LIVE; see § Built).** GitHub/Google sign-in INITIATES
+  (verified). The remaining COMPLETION gates: (1) register `https://app.install.doctor/api/auth/callback/{github,google}`
+  on the OAuth apps + confirm they're app.install.doctor's (a one-time human step); (2) wire the dashboard to use a
+  user SESSION instead of the `AID_ADMIN_TOKEN` bearer (a buildable follow-up, next fire); (3) magic-link needs SES
+  (`AWS_SES_ACCESS_KEY_ID` absent). Not a loop blocker anymore — (2) is the next buildable slice.
 - **K/#7 the real provider CALL** — still gated: `DEEPSEEK_API_KEY` IS present (#101) but the invariant is
   routing THROUGH the shared ProjectSites/OnePrompt orchestrator + CF AI Gateway (no second stack), and
   `PROJECTSITES_API_URL`/`ONEPROMPT_URL`/`AID_INFERENCE_TOKEN` are all absent. Routing policy + pre-flight
