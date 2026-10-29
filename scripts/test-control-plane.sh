@@ -66,6 +66,10 @@ if [ -n "${CONTROL_PLANE_URL:-}" ]; then
   { echo "$hp" | grep -q '/machines?device='; } && pass "GET /history -> device column links to /machines?device= (event→machine navigation; interconnectedness #99)" || fail "history device link -> $(printf '%s' "$hp" | grep -oE '/machines.device=' | head -1)"
   mp="$(curl -s "$u/machines" 2>/dev/null)"
   { echo "$mp" | grep -qi 'device inventory' && echo "$mp" | grep -q 'AID_ADMIN_TOKEN' && echo "$mp" | grep -qi 'Load machines' && echo "$mp" | grep -qi 'last active' && echo "$mp" | grep -qi 'drift' && echo "$mp" | grep -qi 'scope' && echo "$mp" | grep -qi 'health'; } && pass "GET /machines -> device-inventory dashboard w/ last-active + drift + scope + health columns (N08/U15/P05/U11)" || fail "machines page -> $(printf '%s' "$mp" | head -c 80)"
+  # fire #139 — U15: a glanceable connectivity-coloured freshness DOT (●) prepended to last-active, so observed
+  # freshness is a VISUAL signal not just text (ok→cyan / stale→amber / never→grey, from health.connectivity the
+  # rollup already computes). One helper used by BOTH the table cell + the device-detail line (appendLastActive, DRY).
+  { echo "$mp" | grep -q 'function freshDot(' && echo "$mp" | grep -q 'append(freshDot(d))' && echo "$mp" | grep -q 'freshness: ' && echo "$mp" | grep -q 'connectivity'; } && pass "GET /machines -> last-active carries a connectivity-coloured freshness DOT (U15 observed-freshness as a visual signal; ok/stale/never, DRY across table+detail; #139)" || fail "machines freshness-dot -> $(printf '%s' "$mp" | grep -oE 'function freshDot\(|append\(freshDot\(d\)\)|freshness: ' | sort -u | tr '\n' ' ')"
   # fire #64 — each device row opens a detail view (identity + health + scope + drift + its /api/history timeline, N09 UI half).
   # #130 — after TT createElement conversion the detail button sets data-act via setAttribute('data-act','detail')
   # (single-quoted JS) rather than the inline HTML data-act="detail"; accept EITHER form (spillover class).
