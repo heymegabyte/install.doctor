@@ -1,6 +1,6 @@
 # aid — CURRENT STATE (verified audit)
 
-**Refreshed:** fire #172 (reconciled against the A01–X15 matrix + the live suite). **Branch:** `master`.
+**Refreshed:** fire #173 — CONVERGENCE CHECKPOINT (counts reconcile across all ledgers, 617 assertions GREEN against live prod, matrix all-⬜ human-gated or prereq-blocked; no non-gated slice remained, so no product change shipped). **Branch:** `master`.
 Full spec: `MASTER-PROMPT.md` · resume pointer: `NEXT-STEPS.md` · matrix: `REQUIREMENTS.md`. Nothing here
 is inherited without evidence; every count below is from a live `scripts/test-all.sh` run.
 
