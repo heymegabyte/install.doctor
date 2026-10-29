@@ -59,6 +59,11 @@ EOF
 [ "$livec" = "$docc" ] && pass "route count parity: $livec live == $docc documented" || fail "count mismatch: $livec live vs $docc documented"
 grep -qiE '\| *auth *\||auth' "$DOC" && pass "doc records an auth column/field per route" || fail "doc missing auth classification"
 grep -qiE 'device token|AID_ADMIN_TOKEN|admin' "$DOC" && pass "doc names the real auth mechanisms (admin token / device token)" || fail "doc missing real auth mechanisms"
+# fire #100 — X03 is route-derived + can't catch a new PARAM on an existing route. The /api/catalog row MUST
+# reflect the real filters the API gained: ?q= now searches descriptions (#94) + ?platform= (#97). Lock it so
+# the doc can't silently drift from the shipped filters (verify-against-source-of-truth).
+catline="$(grep -F '`GET /api/catalog`' "$DOC")"
+{ printf '%s' "$catline" | grep -qi 'platform' && printf '%s' "$catline" | grep -qiE 'descrip'; } && pass "doc documents /api/catalog filters (?platform= + description search, not just name/bin)" || fail "catalog filters stale in api-reference (needs ?platform= + description) -> $(printf '%s' "$catline" | head -c 160)"
 
 say "api-reference: $P passed, $F failed"
 [ "$F" -eq 0 ]
