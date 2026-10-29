@@ -110,10 +110,13 @@ mb="$(curl -sS "$u/machines" 2>/dev/null)"
 #   The SHARED CHROME (TOKEN_PERSIST_JS + AUTH_STATUS_JS, injected on EVERY page) is converted first: the landing `/`
 #   serves ONLY the chrome (no per-page data-script), so it is the first page with ZERO first-party innerHTML sinks.
 #   (Cloudflare's challenge-platform injects its OWN `d.innerHTML=window.__CF$cv$params…` at the EDGE, out of our
-#   control — excluded here. The 7 per-page data scripts still use innerHTML → converted page-by-page in later fires;
-#   the directive is enabled only once ALL first-party sinks are gone.)
-iH="$(curl -sS "$u/" 2>/dev/null | grep '\.innerHTML' | grep -vc '__CF')"
-[ "$iH" = "0" ] && pass "GET / -> 0 first-party .innerHTML sinks — the shared chrome is Trusted-Types-safe (TT arc start; #124)" || fail "GET / still has $iH first-party .innerHTML sink(s) — shared chrome not yet TT-safe"
+#   control — excluded here. The per-page data scripts still use innerHTML → converted page-by-page; the directive
+#   is enabled only once ALL first-party sinks are gone. TT_SAFE grows one page/fire: `/` (shared chrome, #124),
+#   `/recommendations` (#125), … smallest-first (/history /pair /apps /environment /machines) until all 7.
+for pg in "/" "/recommendations"; do
+  n="$(curl -sS "$u$pg" 2>/dev/null | grep '\.innerHTML' | grep -vc '__CF')"
+  [ "$n" = "0" ] && pass "GET $pg -> 0 first-party .innerHTML sinks — Trusted-Types-safe DOM (TT arc; excludes CF's edge-injected __CF\$cv script)" || fail "GET $pg still has $n first-party .innerHTML sink(s) — not yet TT-safe"
+done
 
 say "security-headers: $P passed, $F failed"
 [ "$F" -eq 0 ]

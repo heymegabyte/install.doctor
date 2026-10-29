@@ -637,7 +637,6 @@ app.get('/recommendations', (c) =>
 <p><button id=loadRecs>Load recommendations</button></p></div>
 <div id=out class=muted>No recommendations loaded.</div>
 <script>
-function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]})}
 async function load(){
   var out=document.getElementById('out'),tok=document.getElementById('tok').value.trim(),t=document.getElementById('tenant').value.trim()||'_default';
   if(!tok){out.textContent='Enter the admin token.';return}
@@ -646,9 +645,29 @@ async function load(){
     var r=await fetch('/api/recommendations?tenant='+encodeURIComponent(t),{headers:{'authorization':'Bearer '+tok}});
     var j=await r.json();
     if(!r.ok){out.textContent='✗ '+(j.error||r.status);return}
-    var cards=(j.recommendations||[]).map(function(k){var dl=(k.devices||[]).map(function(id){return '<a href="/machines?device='+encodeURIComponent(id)+'">'+esc(id)+'</a>'}).join(' ');var rep=k.command?'<p class=muted>Repair: <code>'+esc(k.command)+'</code> on the host <span class=muted>(runs on the machine — the server never pushes installs)</span></p>':'';return '<div class="card rec rec-'+esc(k.severity)+'"><h3>'+esc(k.title)+'</h3><p class=muted>'+esc(k.detail)+'</p>'+rep+(dl?'<p class=mono>'+dl+'</p>':'')+'</div>'}).join('');
+    // #125 Trusted-Types-safe render (no innerHTML, toward require-trusted-types-for 'script') — build the summary
+    // + each rec card with createElement; .append(string) makes an auto-escaped text node, so esc() is gone.
+    var frag=document.createDocumentFragment();
     var dd=(j.distinctDeviceCount||0);
-    out.innerHTML='<p class=muted>'+j.count+' recommendation(s) · '+(dd?('<strong>'+dd+'</strong> distinct machine(s) need attention'):'no machines need attention')+' · tenant '+esc(t)+' · <span class=tag>'+esc(j.generated)+'</span> · desired revision '+esc(j.currentRevision||'—')+'</p>'+cards;
+    var sum=document.createElement('p');sum.className='muted';
+    sum.append((j.count||0)+' recommendation(s) · ');
+    if(dd){var st=document.createElement('strong');st.textContent=dd;sum.append(st,' distinct machine(s) need attention · ');}
+    else{sum.append('no machines need attention · ');}
+    sum.append('tenant '+t+' · ');
+    var gtag=document.createElement('span');gtag.className='tag';gtag.textContent=j.generated||'';
+    sum.append(gtag,' · desired revision '+(j.currentRevision||'—'));
+    frag.append(sum);
+    (j.recommendations||[]).forEach(function(k){
+      var card=document.createElement('div');card.className='card rec rec-'+(k.severity||'');
+      var h=document.createElement('h3');h.textContent=k.title||'';
+      var d=document.createElement('p');d.className='muted';d.textContent=k.detail||'';
+      card.append(h,d);
+      if(k.command){var rp=document.createElement('p');rp.className='muted';var code=document.createElement('code');code.textContent=k.command;var note=document.createElement('span');note.className='muted';note.textContent='(runs on the machine — the server never pushes installs)';rp.append('Repair: ',code,' on the host ',note);card.append(rp);}
+      var devs=(k.devices||[]);
+      if(devs.length){var dp=document.createElement('p');dp.className='mono';devs.forEach(function(id,i){if(i)dp.append(' ');var a=document.createElement('a');a.href='/machines?device='+encodeURIComponent(id);a.textContent=id;dp.append(a);});card.append(dp);}
+      frag.append(card);
+    });
+    out.replaceChildren(frag);
   }catch(e){out.textContent='✗ '+e}
 }
 document.getElementById('loadRecs').addEventListener('click',load); // CSP STEP-1 (#117) — no inline on*=
