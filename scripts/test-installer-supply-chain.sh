@@ -74,5 +74,16 @@ else
   fail "allowlist missing ($ALLOW) — create it to document every installer remote-exec site (reason + status)"
 fi
 
+# (5) #145 — no installer script fetches EXECUTABLE code from a MOVING git branch (a /raw/master or /raw/main
+# URL): a moving branch is an un-pinned, mutable supply-chain input (today's install.sh != tomorrow's). Pin to
+# a release tag or commit SHA + verify a checksum instead. Per-file comment lines (^\s*#) are stripped first so
+# a documentation-marker URL in a comment is not flagged. (This is what caught the archived nginx-amplify fetch.)
+movingbranch=""
+while IFS= read -r f; do
+  [ -f "$f" ] || continue
+  grep -vE '^[[:space:]]*#' "$f" 2>/dev/null | grep -qE '(curl|wget)[^|]*(github\.com/[^ ]*/raw/(master|main)/|raw\.githubusercontent\.com/[^ ]*/(master|main)/)' && movingbranch="$movingbranch $(basename "$f")"
+done < <(find "$PIX" "$CHS" -type f 2>/dev/null)
+[ -z "$movingbranch" ] && pass "no installer fetches executable code from a moving git branch (/raw/master|main) — pinned refs only (D09 supply-chain)" || fail "installer fetches from a MOVING branch (pin to a tag/commit + checksum):$movingbranch"
+
 say "installer-supply-chain: $P passed, $F failed"
 [ "$F" -eq 0 ]
