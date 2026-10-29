@@ -110,6 +110,26 @@ const UPDATE_CMD: Record<string, (pkg: string) => string> = {
   gem: (p) => `gem update ${p}`,
 };
 
+// R02/B14 (#152) uninstall — the per-provider UNINSTALL/REMOVE command (how to cleanly REMOVE a tool;
+// maintenance-lifecycle completion alongside install #R13 + update #147). Mirrors UPDATE_CMD. `go` is OMITTED
+// on purpose: `go install` has no `go uninstall` verb (removal = rm the GOPATH/bin binary, whose name isn't the
+// package path), so we show NOTHING for a go-only tool rather than a possibly-wrong hand-rolled rm — honest;
+// the handler's `UNINSTALL_CMD[p] && pkgs[p]` filter skips any provider not listed here.
+const UNINSTALL_CMD: Record<string, (pkg: string) => string> = {
+  brew: (p) => `brew uninstall ${p}`,
+  apt: (p) => `sudo apt-get remove -y ${p}`,
+  dnf: (p) => `sudo dnf remove -y ${p}`,
+  pacman: (p) => `sudo pacman -Rns --noconfirm ${p}`,
+  cask: (p) => `brew uninstall --cask ${p}`,
+  choco: (p) => `choco uninstall -y ${p}`,
+  scoop: (p) => `scoop uninstall ${p}`,
+  cargo: (p) => `cargo uninstall ${p}`,
+  npm: (p) => `npm uninstall -g ${p}`,
+  pipx: (p) => `pipx uninstall ${p}`,
+  pip: (p) => `pip uninstall -y ${p}`,
+  gem: (p) => `gem uninstall ${p}`,
+};
+
 // Inference request body (Zod boundary) — estimated cost drives the budget reservation.
 const InferRequest = z.object({ estimateMicros: z.number().int().nonnegative().default(0) }).passthrough();
 
@@ -787,6 +807,7 @@ async function detail(tr,name){
     // #147 D11 update-channel — how to keep the tool CURRENT (promise #8): the per-provider UPDATE command, which
     // differs from install for most managers (brew upgrade, cargo install --force, npm update -g, …). TT-safe DOM.
     if(j.updateCommands&&j.updateCommands.length){var upLbl=document.createElement('div');upLbl.className='muted';upLbl.setAttribute('style','margin:8px 0 2px');upLbl.textContent='Update (keep current):';frag.append(upLbl);j.updateCommands.forEach(function(k){var uc=document.createElement('span');uc.className='cmd';var ub=document.createElement('b');ub.textContent=k.provider;uc.append(ub,k.command);frag.append(uc);});}
+    if(j.uninstallCommands&&j.uninstallCommands.length){var unLbl=document.createElement('div');unLbl.className='muted';unLbl.setAttribute('style','margin:8px 0 2px');unLbl.textContent='Uninstall:';frag.append(unLbl);j.uninstallCommands.forEach(function(k){var xc=document.createElement('span');xc.className='cmd';var xb=document.createElement('b');xb.textContent=k.provider;xc.append(xb,k.command);frag.append(xc);});}
     dtd.replaceChildren(frag);
   }catch(e){dtd.textContent='✗ '+e}
 }
@@ -1010,6 +1031,11 @@ app.get('/api/catalog/:name', (c) => {
   const updateCommands = (e.providers || [])
     .filter((p) => UPDATE_CMD[p] && pkgs[p])
     .map((p) => ({ provider: p, pkg: pkgs[p], command: UPDATE_CMD[p](pkgs[p]) }));
+  // R02/B14 (#152) — the matching per-provider UNINSTALL command (cleanly remove the tool), built the same way.
+  // `go` has no uninstall verb so it's absent from UNINSTALL_CMD → go-only tools get an empty set (honest).
+  const uninstallCommands = (e.providers || [])
+    .filter((p) => UNINSTALL_CMD[p] && pkgs[p])
+    .map((p) => ({ provider: p, pkg: pkgs[p], command: UNINSTALL_CMD[p](pkgs[p]) }));
   // A10 (#137) — state platform availability EXPLICITLY: the OSes this tool is NOT installable on (the
   // complement of its declared `platforms`), so the detail says what it's missing (empty = every platform).
   const unavailablePlatforms = AID_PLATFORMS.filter((p) => !(e.platforms || []).includes(p));
@@ -1017,7 +1043,7 @@ app.get('/api/catalog/:name', (c) => {
   // can show WHO maintains a tool (a trust signal). Derived from EXISTING data (no new software.yml field, no
   // guess); a non-github or absent provenance URL yields no owner (undefined → omitted, honest).
   const owner = typeof e.github === 'string' ? (e.github.match(/github\.com\/([^/]+)\//) || [])[1] : undefined;
-  return c.json({ name: e.name, bin: e.bin, platforms: e.platforms, unavailablePlatforms, providers: e.providers, short: e.short, github: e.github, owner, home: e.home, docs: e.docs, installMode: e.installMode || 'cli', deprecated: e.deprecated, deps: e.deps, configured: e.configured, postInstall: e.postInstall, commands, updateCommands });
+  return c.json({ name: e.name, bin: e.bin, platforms: e.platforms, unavailablePlatforms, providers: e.providers, short: e.short, github: e.github, owner, home: e.home, docs: e.docs, installMode: e.installMode || 'cli', deprecated: e.deprecated, deps: e.deps, configured: e.configured, postInstall: e.postInstall, commands, updateCommands, uninstallCommands });
 });
 
 app.post('/api/ai/v1/resolve', async (c) => {
