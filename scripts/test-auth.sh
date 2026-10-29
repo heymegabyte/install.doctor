@@ -44,7 +44,10 @@ curl -s "$u/" 2>/dev/null | grep -q 'href="/login"' && pass "landing page links 
 [ "$(curl -s "$u/api/auth/get-session" 2>/dev/null)" = "null" ] && pass "GET /api/auth/get-session (unauth) -> null (honest no-session; O13)" || fail "get-session unauth -> $(curl -s "$u/api/auth/get-session" 2>/dev/null | head -c 80)"
 # 9. The shared page chrome shows a session-aware auth status: get-session -> user + Sign out | Sign in (O13).
 ch="$(curl -s "$u/machines" 2>/dev/null)"
-{ echo "$ch" | grep -q 'aidAuthStatus' && echo "$ch" | grep -q '/api/auth/get-session' && echo "$ch" | grep -qi 'Sign out' && echo "$ch" | grep -q '/api/auth/sign-out' && echo "$ch" | grep -q 'href="/login"'; } && pass "dashboard chrome -> session-aware auth status (get-session -> user+Sign out | Sign in; O13 #104)" || fail "auth status chrome -> $(printf '%s' "$ch" | grep -oE 'aidAuthStatus|get-session|Sign out|sign-out' | sort -u | tr '\n' ' ')"
+# The signed-out path links to /login. Since #124 (Trusted-Types arc) the chrome builds it the TT-safe way
+# (`a.href='/login'` via createElement, no innerHTML) rather than the old `innerHTML='<a href="/login">…'`;
+# accept EITHER form so the test tracks the sign-in-affordance, not a specific DOM-building style.
+{ echo "$ch" | grep -q 'aidAuthStatus' && echo "$ch" | grep -q '/api/auth/get-session' && echo "$ch" | grep -qi 'Sign out' && echo "$ch" | grep -q '/api/auth/sign-out' && echo "$ch" | grep -qE "a\.href='/login'|href=\"/login\""; } && pass "dashboard chrome -> session-aware auth status (get-session -> user+Sign out | Sign in; O13 #104; TT-safe #124)" || fail "auth status chrome -> $(printf '%s' "$ch" | grep -oE 'aidAuthStatus|get-session|Sign out|sign-out|/login' | sort -u | tr '\n' ' ')"
 
 say "auth: $P passed, $F failed"
 [ "$F" -eq 0 ]

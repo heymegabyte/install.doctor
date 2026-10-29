@@ -104,6 +104,16 @@ curl -sS "$u/history" 2>/dev/null | grep -qF "closest('[data-act]')" && pass "/h
 # (data-act on #out for detail, on #detail for bundle/dlbundle). This COMPLETES STEP 1: all 7 pages handler-free.
 mb="$(curl -sS "$u/machines" 2>/dev/null)"
 { printf '%s' "$mb" | grep -qF "closest('[data-act]')" && printf '%s' "$mb" | grep -qF 'data-act="detail"' && printf '%s' "$mb" | grep -qF 'data-act="bundle"'; } && pass "/machines -> detail/bundle/download buttons wired via event delegation (closest('[data-act]') on #out + #detail; #121 — STEP 1 COMPLETE, all 7 pages handler-free)" || fail "/machines event-delegation wiring missing (closest('[data-act]') + data-act=detail/bundle)"
+# 19. TRUSTED TYPES arc (#124) — the NEXT XSS layer after the script-src nonce: toward `require-trusted-types-for
+#   'script'`, which blocks EVERY `innerHTML`/`outerHTML`/`insertAdjacentHTML` sink. All first-party sinks must be
+#   refactored to Trusted-Types-safe DOM (createElement/textContent/replaceChildren) BEFORE the directive is enabled.
+#   The SHARED CHROME (TOKEN_PERSIST_JS + AUTH_STATUS_JS, injected on EVERY page) is converted first: the landing `/`
+#   serves ONLY the chrome (no per-page data-script), so it is the first page with ZERO first-party innerHTML sinks.
+#   (Cloudflare's challenge-platform injects its OWN `d.innerHTML=window.__CF$cv$params…` at the EDGE, out of our
+#   control — excluded here. The 7 per-page data scripts still use innerHTML → converted page-by-page in later fires;
+#   the directive is enabled only once ALL first-party sinks are gone.)
+iH="$(curl -sS "$u/" 2>/dev/null | grep '\.innerHTML' | grep -vc '__CF')"
+[ "$iH" = "0" ] && pass "GET / -> 0 first-party .innerHTML sinks — the shared chrome is Trusted-Types-safe (TT arc start; #124)" || fail "GET / still has $iH first-party .innerHTML sink(s) — shared chrome not yet TT-safe"
 
 say "security-headers: $P passed, $F failed"
 [ "$F" -eq 0 ]

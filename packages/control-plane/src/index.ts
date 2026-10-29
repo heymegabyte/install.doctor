@@ -180,15 +180,19 @@ addEventListener('DOMContentLoaded',function(){try{var el=document.getElementByI
 const AUTH_STATUS_JS = `<div id=aidAuthStatus style="position:fixed;top:8px;right:12px;font-size:.8rem;z-index:50"></div><script>
 (function(){
   var el=document.getElementById('aidAuthStatus'); if(!el)return;
-  function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]})}
-  function signedOut(){el.innerHTML='<a href="/login">Sign in</a>';}
+  // #124 Trusted-Types arc — build the status with createElement + textContent (NO innerHTML), toward
+  // require-trusted-types-for 'script'. textContent auto-escapes, so the old esc() helper is gone. The shared
+  // chrome is on EVERY page, so the landing / is now the first page with zero first-party innerHTML sinks.
+  function signedOut(){el.replaceChildren();var a=document.createElement('a');a.href='/login';a.textContent='Sign in';el.appendChild(a);}
   fetch('/api/auth/get-session',{credentials:'include',headers:{'accept':'application/json'}})
     .then(function(r){return r.ok?r.json():null})
     .then(function(j){
       if(j&&j.user){
-        el.innerHTML='<span class=muted>'+esc(j.user.name||j.user.email||'account')+'</span> · <button type=button class=lnk id=aidSignOut>Sign out</button>';
-        var b=document.getElementById('aidSignOut');
-        if(b)b.onclick=function(){fetch('/api/auth/sign-out',{method:'POST',headers:{'content-type':'application/json'},credentials:'include'}).then(function(){location.reload()}).catch(function(){location.reload()})};
+        el.replaceChildren();
+        var span=document.createElement('span');span.className='muted';span.textContent=j.user.name||j.user.email||'account';
+        var btn=document.createElement('button');btn.type='button';btn.className='lnk';btn.id='aidSignOut';btn.textContent='Sign out';
+        btn.addEventListener('click',function(){fetch('/api/auth/sign-out',{method:'POST',headers:{'content-type':'application/json'},credentials:'include'}).then(function(){location.reload()}).catch(function(){location.reload()})});
+        el.append(span,document.createTextNode(' · '),btn);
       } else { signedOut(); }
     })
     .catch(signedOut);
