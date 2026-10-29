@@ -342,8 +342,8 @@ app.get('/apps', (c) =>
       `<nav class=muted><a href="/">aid</a><a href="/machines">Machines</a><a href="/apps">App Store</a><a href="/environment">Environment</a><a href="/recommendations">Recommendations</a><a href="/history">History</a></nav>
 <h1>App Store <span class=muted>· installable catalog</span></h1>
 <div class=card>
-<p class=muted>Everything Install Doctor can install, from the software.yml catalog. Search by name or command; each shows its package managers + platforms.</p>
-<p><input id=q placeholder="Search apps + CLIs (e.g. ripgrep, docker, node)…" style="width:100%" oninput="debounced()"></p></div>
+<p class=muted>Everything Install Doctor can install, from the software.yml catalog. Search by name, command, or what it does; each shows its package managers + platforms.</p>
+<p><input id=q placeholder="Search by name, command, or what it does (e.g. ripgrep, fuzzy finder, container)…" style="width:100%" oninput="debounced()"></p></div>
 <div id=out class=muted>Loading catalog…</div>
 <script>
 function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]})}
@@ -466,13 +466,19 @@ loadInfo();
 app.get('/api/provider-config', (c) => c.json(aidProviderConfig()));
 
 // App Store catalog (D01/D02/R13) — PUBLIC, read-only browse of what Install Doctor can install, from
-// software.yml via the validated parser. `?q=` filters by name OR binary (case-insensitive substring);
-// `?limit=` caps rows (1..200, default 50). No secrets, no tenant data — browseable signed-out (M11).
+// software.yml via the validated parser. `?q=` filters by name, binary, OR description (case-insensitive
+// substring — search by WHAT A TOOL DOES, not just its name); `?limit=` caps rows (1..200, default 50).
+// No secrets, no tenant data — browseable signed-out (M11).
 app.get('/api/catalog', (c) => {
   const q = (c.req.query('q') || '').trim().toLowerCase();
   const limit = Math.min(Math.max(parseInt(c.req.query('limit') || '50', 10) || 50, 1), 200);
   const matched = q
-    ? CATALOG.filter((e) => e.name.toLowerCase().includes(q) || e.bin.toLowerCase().includes(q))
+    ? CATALOG.filter(
+        (e) =>
+          e.name.toLowerCase().includes(q) ||
+          e.bin.toLowerCase().includes(q) ||
+          (e.short ? e.short.toLowerCase().includes(q) : false),
+      )
     : CATALOG;
   return c.json({
     total: CATALOG.length,

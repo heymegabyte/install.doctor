@@ -105,7 +105,9 @@ if [ -n "${CONTROL_PLANE_URL:-}" ]; then
     skip "node/perl absent — inline-JS syntax guard skipped"
   fi
   ap="$(curl -s "$u/apps" 2>/dev/null)"
-  { echo "$ap" | grep -qi 'installable catalog' && echo "$ap" | grep -qi 'Search apps'; } && pass "GET /apps -> App Store catalog page (public, live search)" || fail "apps page -> $(printf '%s' "$ap" | head -c 80)"
+  # fire #94 — the search box ADVERTISES the breadth (name · command · what-it-does) so the description-search
+  # superpower is discoverable, not hidden behind a bare "Search apps" label (embarrassingly-easy-to-use).
+  { echo "$ap" | grep -qi 'installable catalog' && echo "$ap" | grep -qi 'what it does'; } && pass "GET /apps -> App Store catalog page (public, live search advertises name/command/what-it-does)" || fail "apps page -> $(printf '%s' "$ap" | head -c 80)"
   # fire #92 — D11/R13: the App Store surfaces WHAT each tool does (_short description, list sub-line) + its
   # PROVENANCE (_github source link, detail) — previously name/command/installers/platforms only.
   { echo "$ap" | grep -q 'e.short' && echo "$ap" | grep -q 'j.github' && echo "$ap" | grep -qi 'Source'; } && pass "GET /apps -> surfaces tool description (_short) + github provenance (_github source link; D11/R13)" || fail "apps desc/provenance -> $(printf '%s' "$ap" | grep -oE 'e.short|j.github|Source' | sort -u | tr '\n' ' ')"
@@ -113,6 +115,10 @@ if [ -n "${CONTROL_PLANE_URL:-}" ]; then
   echo "$cat" | jq -e '(.total>=1000) and (.items|length==3) and (.items[0].name|type=="string") and (.items[0].bin|type=="string") and (.items[0].providers|type=="array")' >/dev/null 2>&1 && pass "GET /api/catalog -> software.yml catalog (total>=1000, typed entries, D01/D02)" || fail "catalog -> $(printf '%s' "$cat" | head -c 140)"
   cq="$(curl -s "$u/api/catalog?q=ripgrep" 2>/dev/null)"
   echo "$cq" | jq -e '.q=="ripgrep" and (.matched>=1) and ([.items[]|select(.bin=="rg" or .name=="ripgrep")]|length>=1)' >/dev/null 2>&1 && pass "GET /api/catalog?q=ripgrep -> filtered match (rg)" || fail "catalog query -> $(printf '%s' "$cq" | head -c 140)"
+  # fire #94 — the catalog search also matches the DESCRIPTION (_short), so you can find a tool by WHAT IT DOES,
+  # not just its name/bin. "fuzzy" is in NO name/bin but IS in fzf's _short ("command-line fuzzy finder").
+  cqd="$(curl -s "$u/api/catalog?q=fuzzy" 2>/dev/null)"
+  echo "$cqd" | jq -e '.q=="fuzzy" and (.matched>=1) and ([.items[]|select(.name=="fzf")]|length==1)' >/dev/null 2>&1 && pass "GET /api/catalog?q=fuzzy -> matches by DESCRIPTION (finds fzf via its _short; search-by-what-it-does)" || fail "catalog desc-search -> $(printf '%s' "$cqd" | jq -c '{matched,names:[.items[].name]}' 2>/dev/null | head -c 160)"
   cd1="$(curl -s "$u/api/catalog/ripgrep" 2>/dev/null)"
   echo "$cd1" | jq -e '.name=="ripgrep" and ([.commands[]|select(.command=="brew install ripgrep")]|length==1) and ([.commands[]|select(.provider=="cargo" and .command=="cargo install ripgrep")]|length==1)' >/dev/null 2>&1 && pass "GET /api/catalog/:name -> per-manager install commands (R13: brew+cargo install ripgrep)" || fail "catalog detail -> $(printf '%s' "$cd1" | head -c 160)"
   # fire #92 — the detail carries the human-facing description + provenance from software.yml (_short/_github).
