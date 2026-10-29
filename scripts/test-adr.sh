@@ -37,6 +37,10 @@ done
 grep -rqiE 'better.?auth' "$DEC"/[0-9]*.md && pass "the Better Auth sign-in decision is recorded (ADR; #102 keystone)" || fail "no ADR records the Better Auth / sign-in decision (A12 gap)"
 grep -rqiE 'hishtory|atuin' "$DEC"/[0-9]*.md && pass "the shell-history (hiSHtory) decision is recorded" || fail "no ADR for the shell-history decision"
 grep -rqiE 'device token|hashed.?opaque' "$DEC"/[0-9]*.md && pass "the device-token decision is recorded" || fail "no ADR for the device-token decision"
+# fire #116 — the catalog-enrichment-from-declared-fields PATTERN (#110-115: how the App Store/plan surface
+# software.yml's declared `_`-fields, and WHY only explicit-declared + measure-first, no AI-generation) is a
+# substantial repeated architectural decision → must be recorded so the pattern + its measured rejections endure.
+grep -rqiE 'catalog.enrichment' "$DEC"/[0-9]*.md && pass "the catalog-enrichment-from-declared-fields decision is recorded (ADR; #110-115 pattern)" || fail "no ADR records the catalog-enrichment pattern (A12 gap)"
 
 say "adr: $P passed, $F failed"
 [ "$F" -eq 0 ]
