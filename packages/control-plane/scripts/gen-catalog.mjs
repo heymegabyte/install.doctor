@@ -53,19 +53,26 @@ for (const line of rows) {
   items.push({ name, bin, providers, pkgs, platforms: [...platforms].sort() });
 }
 
-// Merge the human-facing _short description + _github provenance from software.yml (the cnf index carries
-// only bin+providers). yq extracts a {key -> {short, github}} map; match by catalog name (== software.yml key).
-// Fail-soft: if yq is missing/errors, proceed without descriptions (the catalog still works).
+// Merge the human-facing metadata from software.yml (the cnf index carries only bin+providers): _short
+// (one-line description) + _github (provenance) + _home (homepage) + _docs (documentation). yq extracts a
+// {key -> {short, github, home, docs}} map; match by catalog name (== software.yml key).
+// Fail-soft: if yq is missing/errors, proceed without the enrichment (the catalog still works).
 try {
   const meta = JSON.parse(
     execFileSync(
       'yq',
-      ['-o', 'json', '.softwarePackages | to_entries | map({"key":.key,"short":.value._short,"github":.value._github})', SOFTWARE],
+      [
+        '-o',
+        'json',
+        '.softwarePackages | to_entries | map({"key":.key,"short":.value._short,"github":.value._github,"home":.value._home,"docs":.value._docs})',
+        SOFTWARE,
+      ],
       { encoding: 'utf8' },
     ),
   );
   const byKey = new Map(meta.filter((m) => m && m.key).map((m) => [m.key, m]));
   let enriched = 0;
+  let linked = 0;
   for (const it of items) {
     const m = byKey.get(it.name);
     if (!m) continue;
@@ -74,10 +81,13 @@ try {
       enriched++;
     }
     if (typeof m.github === 'string' && m.github.trim()) it.github = m.github.trim();
+    if (typeof m.home === 'string' && m.home.trim()) it.home = m.home.trim();
+    if (typeof m.docs === 'string' && m.docs.trim()) it.docs = m.docs.trim();
+    if (it.home || it.docs) linked++;
   }
-  console.error(`gen-catalog: enriched ${enriched} entries with _short/_github`);
+  console.error(`gen-catalog: enriched ${enriched} with _short; ${linked} with _home/_docs learn-more links`);
 } catch (e) {
-  console.error('gen-catalog: WARNING — could not merge _short/_github (' + (e && e.message) + '); proceeding without descriptions');
+  console.error('gen-catalog: WARNING — could not merge _short/_github/_home/_docs (' + (e && e.message) + '); proceeding without enrichment');
 }
 
 items.sort((a, b) => a.name.localeCompare(b.name));
