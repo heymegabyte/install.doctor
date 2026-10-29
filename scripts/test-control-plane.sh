@@ -88,6 +88,9 @@ if [ -n "${CONTROL_PLANE_URL:-}" ]; then
   # fire #93 — C12 "review the plan" (intended-experience step 5): a structured at-a-glance summary of the
   # desired blueprint (packages/machines/services/routing/privacy), imported from the current markdown.
   { echo "$envp" | grep -q 'id=summary' && echo "$envp" | grep -q 'function renderSummary(' && echo "$envp" | grep -qi 'Plan at a glance'; } && pass "GET /environment -> structured 'Plan at a glance' summary of the desired blueprint (step-5 review; C12)" || fail "environment plan summary -> $(printf '%s' "$envp" | grep -oE 'id=summary|renderSummary|Plan at a glance' | sort -u | tr '\n' ' ')"
+  # fire #98 — each planned package in the Plan-at-a-glance LINKS to its App Store detail (step-5 review +
+  # interconnectedness): click a package → see what it is, install commands, platforms, learn-more links.
+  { echo "$envp" | grep -q 'function pkgLinks(' && echo "$envp" | grep -q '/apps?q='; } && pass "GET /environment -> plan packages LINK to the App Store (/apps?q=; interconnectedness #98)" || fail "environment pkg links -> $(printf '%s' "$envp" | grep -oE 'pkgLinks|/apps.q=' | sort -u | tr '\n' ' ')"
   echo "$mp" | grep -q 'href="/environment"' && pass "dashboard nav includes /environment (interconnected)" || fail "nav missing /environment -> $(printf '%s' "$mp" | grep -o 'href="/[a-z]*"' | tr '\n' ' ')"
   # fire #64 — inline-JS syntax guard: a dashboard page's inline <script> is a template STRING (NOT
   # tsc/dry-run checked), so a stray quote/escape silently breaks the ENTIRE page script. node --check
@@ -115,6 +118,8 @@ if [ -n "${CONTROL_PLANE_URL:-}" ]; then
   { echo "$ap" | grep -q 'j.home' && echo "$ap" | grep -q 'j.docs' && echo "$ap" | grep -qi 'Homepage'; } && pass "GET /apps -> detail renders Homepage + Docs learn-more links (j.home/j.docs; D11 #95)" || fail "apps home/docs render -> $(printf '%s' "$ap" | grep -oE 'j.home|j.docs|Homepage' | sort -u | tr '\n' ' ')"
   # fire #97 — the App Store has a PLATFORM filter (show only tools installable on your OS); load() appends &platform=.
   { echo "$ap" | grep -q 'id=plat' && echo "$ap" | grep -q 'platform=' && echo "$ap" | grep -qi 'macOS'; } && pass "GET /apps -> platform filter control (id=plat + &platform= wired; D05 #97)" || fail "apps platform filter -> $(printf '%s' "$ap" | grep -oE 'id=plat|platform=|macOS' | sort -u | tr '\n' ' ')"
+  # fire #98 — /apps honors ?q= from the URL (so a package link from the Environment plan lands on a filtered view).
+  { echo "$ap" | grep -q "URLSearchParams(location.search).get('q')"; } && pass "GET /apps -> honors ?q= from the URL (deep-link from the Environment plan; #98)" || fail "apps ?q= deep-link -> $(printf '%s' "$ap" | grep -oE "URLSearchParams\(location.search\).get\('q'\)" | head -1)"
   cat="$(curl -s "$u/api/catalog?limit=3" 2>/dev/null)"
   echo "$cat" | jq -e '(.total>=1000) and (.items|length==3) and (.items[0].name|type=="string") and (.items[0].bin|type=="string") and (.items[0].providers|type=="array")' >/dev/null 2>&1 && pass "GET /api/catalog -> software.yml catalog (total>=1000, typed entries, D01/D02)" || fail "catalog -> $(printf '%s' "$cat" | head -c 140)"
   cq="$(curl -s "$u/api/catalog?q=ripgrep" 2>/dev/null)"
