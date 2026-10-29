@@ -163,6 +163,13 @@ if [ -n "${CONTROL_PLANE_URL:-}" ]; then
   echo "$cmsvc" | jq -e '.installMode=="service"' >/dev/null 2>&1 && pass "GET /api/catalog/caddy -> installMode:service (required service; D06)" || fail "caddy installMode -> $(printf '%s' "$cmsvc" | jq -c '{installMode}' 2>/dev/null | head -c 80)"
   echo "$cat" | jq -e '[.items[]|select(.installMode|type=="string")]|length==3' >/dev/null 2>&1 && pass "GET /api/catalog -> list items carry installMode (D06)" || fail "catalog list installMode -> $(printf '%s' "$cat" | jq -c '[.items[].installMode]' 2>/dev/null | head -c 100)"
   { echo "$ap" | grep -qiE 'installMode|Desktop app|first use'; } && pass "/apps page surfaces the install MODE (desktop app vs lazy CLI; frontend-judgeable D06)" || fail "apps install-mode badge missing"
+  # fire #112 — D14/D15 honesty: the catalog surfaces software.yml's `_deprecated` REASON (147 browseable entries the
+  # maintainer flagged), so the App Store WARNS before a user installs an abandoned/discouraged tool + shows the reason
+  # (often naming a replacement). Grounded in the declared field; a non-flagged tool carries nothing.
+  cdep="$(curl -s "$u/api/catalog/altair" 2>/dev/null)"
+  echo "$cdep" | jq -e '(.deprecated|type=="string") and (.deprecated|test("Postman"))' >/dev/null 2>&1 && pass "GET /api/catalog/altair -> deprecated reason surfaced (\"in favor of Postman\"; D14/D15 #112)" || fail "altair deprecated -> $(printf '%s' "$cdep" | jq -c '{deprecated}' 2>/dev/null | head -c 100)"
+  echo "$cd1" | jq -e '(.deprecated==null) or (.deprecated=="")' >/dev/null 2>&1 && pass "GET /api/catalog/ripgrep -> NOT deprecated (a clean tool carries no deprecation flag)" || fail "ripgrep deprecated -> $(printf '%s' "$cd1" | jq -c '{deprecated}' 2>/dev/null | head -c 80)"
+  { echo "$ap" | grep -qi 'deprecated'; } && pass "/apps page surfaces the DEPRECATION warning (don't install abandoned tools; D14/D15 #112)" || fail "apps deprecation UI missing"
   # inference route pre-flight (fire #8): POST-only; restricted fails closed; fail-closed when unconfigured
   rc="$(curl -s -o /dev/null -w '%{http_code}' -X POST "$u/api/ai/v1/economy" 2>/dev/null || echo 000)"
   [ "$rc" = 503 ] && pass "POST /api/ai/v1/economy -> 503 (provider not configured, fail-closed)" || fail "economy POST -> $rc (want 503)"
