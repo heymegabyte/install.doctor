@@ -303,5 +303,25 @@ rm -f "$rcbin/rctool"
 PATH="$rcbin:$PATH" CNF_ALLOW_NONINTERACTIVE=1 CNF_INDEX="$rcidx" CNF_LOCK_DIR="$tmp/rclocks" __cnf_resolve rctool >/dev/null 2>&1; rcrc=$?
 [ "$rcrc" = 42 ] && pass "E08 — resolved command's EXIT STATUS propagates (rctool exit 42 → handler rc 42)" || fail "exit-status not preserved: handler rc=$rcrc (want 42)"
 
+# 16. E07 — the hook MUST NOT persistently mutate the parent (interactive) shell. Every working var in
+# __cnf_resolve/__cnf_do_install is `local`; a single dropped `local` would leak into the user's shell on
+# EVERY missing command (e.g. clobber their $rest/$row/$col). Run the resolve IN THE CURRENT shell (a
+# subshell would hide a leak), CNF_NO_EXEC so it installs-but-doesn't-run, then assert the hook-only
+# internals are unset afterward. The checked names are used by the hook but NOT by this test
+# (lock/acq/pref/row/mbin/rest/__t0/__dur/tok) so a pre-existing test global can't mask a real leak.
+# Non-vacuity proven: dropping `lock acq` from the line-163 `local` makes them leak → this FAILs.
+lkbin="$tmp/lkbin"; mkdir -p "$lkbin"
+lkidx="$tmp/lkidx.tsv"; printf 'leaktool\tleaktool\tleaktool\n' > "$lkidx"
+printf '#!/usr/bin/env bash\nprintf "#!/usr/bin/env bash\\necho ok\\n" > "%s/leaktool"\nchmod +x "%s/leaktool"\n' "$lkbin" "$lkbin" > "$lkbin/brew"; chmod +x "$lkbin/brew"
+rm -f "$lkbin/leaktool"
+unset lock acq pref row mbin rest __t0 __dur tok 2>/dev/null || true
+CNF_NO_EXEC=1 CNF_ALLOW_NONINTERACTIVE=1 CNF_JOURNAL="$tmp/lkjournal" PATH="$lkbin:$PATH" CNF_INDEX="$lkidx" CNF_LOCK_DIR="$tmp/lklocks" __cnf_resolve leaktool >/dev/null 2>&1
+leaked=""
+for v in lock acq pref row mbin rest __t0 __dur tok; do
+  eval "__lk=\${$v+SET}"
+  [ "${__lk:-}" = SET ] && leaked="$leaked $v"
+done
+[ -z "$leaked" ] && pass "E07 — hook leaks no internals into the parent shell (all __cnf_resolve/__cnf_do_install vars are local)" || fail "parent-env leak: hook left [$leaked ] set in the caller's shell (a dropped 'local')"
+
 say "command-not-found: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]
