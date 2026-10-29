@@ -12,7 +12,7 @@ import { getMigrations } from 'better-auth/db/migration';
 // (scripts/gen-catalog.mjs → the cnf index builder; D01/D02/D13). Read-only, bundled at deploy;
 // regenerate + redeploy when software.yml changes. No runtime YAML at the edge.
 import catalogData from './catalog.json';
-type CatalogEntry = { name: string; bin: string; providers: string[]; pkgs: Record<string, string>; platforms: string[]; short?: string; github?: string; home?: string; docs?: string };
+type CatalogEntry = { name: string; bin: string; providers: string[]; pkgs: Record<string, string>; platforms: string[]; short?: string; github?: string; home?: string; docs?: string; installMode?: 'app' | 'service' | 'cli' };
 const CATALOG = catalogData as CatalogEntry[];
 // Install-command templates per provider — MIRROR the cnf hook's __cnf_do_install (D04: ONE
 // provider→command contract shared with the deterministic executor). Drives the App Store install
@@ -452,6 +452,11 @@ app.get('/apps', (c) =>
 <script>
 function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]})}
 function pill(a){return (a||[]).map(function(x){return '<span class=tag>'+esc(x)+'</span>'}).join(' ')}
+// D06 install mode — a user browsing the App Store sees whether a tool is a desktop app installed during
+// setup, a required service, or a CLI installed lazily on first command use (the core eager-vs-lazy promise).
+function modeLabel(m){return ({app:'desktop app',service:'service',cli:'CLI · on first use'})[m]||'CLI · on first use'}
+function modeBadge(m){var T={app:'A GUI desktop application — installed during desktop provisioning (eager)',service:'A background service — installed + configured to run',cli:'A command-line tool — installed automatically the first time you run it (lazy)'};return '<span class=tag title="'+esc(T[m]||T.cli)+'">'+esc(modeLabel(m))+'</span>'}
+function modeDesc(m,bin){if(m==='app')return 'Desktop app — installed during desktop provisioning (the GUI app is set up up front).';if(m==='service')return 'Service — installed and configured to run as a background service.';return 'CLI — installed automatically the first time you run '+esc(bin||'it')+' (lazy, on first use).'}
 async function detail(tr,name){
   var ex=tr.nextElementSibling;
   if(ex&&ex.className==='detail'){ex.remove();return}            // toggle closed
@@ -465,7 +470,8 @@ async function detail(tr,name){
     function lnk(label,url){return url?('<a href="'+esc(url)+'" target=_blank rel=noopener>'+esc(label)+'</a>'):''}
     var parts=[lnk('Source',j.github),lnk('Homepage',j.home),lnk('Docs',j.docs)].filter(Boolean);
     var src=parts.length?('<div class=muted style="margin:2px 0 6px">Learn more: '+parts.join(' · ')+'</div>'):'';
-    dr.firstChild.innerHTML='<div class=muted style="margin:2px 0 6px">Install <b>'+esc(j.name)+'</b> (command: '+esc(j.bin)+') on '+pill(j.platforms)+':</div>'+src+cmds;
+    var modeLine='<div style="margin:2px 0 6px">'+modeBadge(j.installMode)+' <span class=muted>'+modeDesc(j.installMode,j.bin)+'</span></div>';
+    dr.firstChild.innerHTML=modeLine+'<div class=muted style="margin:2px 0 6px">Install <b>'+esc(j.name)+'</b> (command: '+esc(j.bin)+') on '+pill(j.platforms)+':</div>'+src+cmds;
   }catch(e){dr.firstChild.textContent='✗ '+e}
 }
 async function load(){
@@ -476,7 +482,7 @@ async function load(){
     if(!r.ok){out.textContent='✗ '+(j.error||r.status);return}
     var platlabel=plat?({macos:'macOS',linux:'Linux',windows:'Windows'}[plat]||plat):'';
     if(!j.items||!j.items.length){out.textContent='No apps match'+(q?(' "'+esc(q)+'"'):'')+(platlabel?(' on '+platlabel):'')+'.';return}
-    var rows=j.items.map(function(e){return '<tr><td><button class=lnk data-name="'+esc(e.name)+'">'+esc(e.name)+'</button>'+(e.short?('<div class=muted style="font-size:.85em;max-width:52ch">'+esc(e.short)+'</div>'):'')+'</td><td class=mono>'+esc(e.bin)+'</td><td>'+pill(e.providers)+'</td><td>'+pill(e.platforms)+'</td></tr>'}).join('');
+    var rows=j.items.map(function(e){return '<tr><td><button class=lnk data-name="'+esc(e.name)+'">'+esc(e.name)+'</button> '+modeBadge(e.installMode)+(e.short?('<div class=muted style="font-size:.85em;max-width:52ch">'+esc(e.short)+'</div>'):'')+'</td><td class=mono>'+esc(e.bin)+'</td><td>'+pill(e.providers)+'</td><td>'+pill(e.platforms)+'</td></tr>'}).join('');
     out.innerHTML='<p class=muted>'+j.matched+' of '+j.total+' apps'+(platlabel?(' on '+platlabel):'')+(j.count<j.matched?(' · showing '+j.count):'')+' · click a name for install commands</p><table><thead><tr><th>name</th><th>command</th><th>installers</th><th>platforms</th></tr></thead><tbody>'+rows+'</tbody></table>';
   }catch(e){out.textContent='✗ '+e}
 }
@@ -615,7 +621,7 @@ app.get('/api/catalog/:name', (c) => {
   const commands = (e.providers || [])
     .filter((p) => INSTALL_CMD[p] && pkgs[p])
     .map((p) => ({ provider: p, pkg: pkgs[p], command: INSTALL_CMD[p](pkgs[p]) }));
-  return c.json({ name: e.name, bin: e.bin, platforms: e.platforms, providers: e.providers, short: e.short, github: e.github, home: e.home, docs: e.docs, commands });
+  return c.json({ name: e.name, bin: e.bin, platforms: e.platforms, providers: e.providers, short: e.short, github: e.github, home: e.home, docs: e.docs, installMode: e.installMode || 'cli', commands });
 });
 
 app.post('/api/ai/v1/resolve', async (c) => {

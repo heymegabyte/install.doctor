@@ -50,13 +50,16 @@ for (const line of rows) {
     }
   }
   if (!providers.length) continue; // an entry with no installable provider is not browseable
-  items.push({ name, bin, providers, pkgs, platforms: [...platforms].sort() });
+  // installMode default = lazy CLI (installed on first command use via the cnf hook). Overridden below to
+  // 'app' (a GUI desktop app, software.yml `_app`) or 'service' (a required service, `_service`) — D06.
+  items.push({ name, bin, providers, pkgs, platforms: [...platforms].sort(), installMode: 'cli' });
 }
 
 // Merge the human-facing metadata from software.yml (the cnf index carries only bin+providers): _short
-// (one-line description) + _github (provenance) + _home (homepage) + _docs (documentation). yq extracts a
-// {key -> {short, github, home, docs}} map; match by catalog name (== software.yml key).
-// Fail-soft: if yq is missing/errors, proceed without the enrichment (the catalog still works).
+// (one-line description) + _github (provenance) + _home (homepage) + _docs (documentation) + the install
+// MODE (_app → GUI desktop app installed eagerly at provisioning; _service → a required service; neither →
+// a lazy CLI installed on first command use — D06). yq extracts a {key -> {…}} map; match by catalog name.
+// Fail-soft: if yq is missing/errors, proceed without the enrichment (the catalog still works; mode stays cli).
 try {
   const meta = JSON.parse(
     execFileSync(
@@ -64,7 +67,7 @@ try {
       [
         '-o',
         'json',
-        '.softwarePackages | to_entries | map({"key":.key,"short":.value._short,"github":.value._github,"home":.value._home,"docs":.value._docs})',
+        '.softwarePackages | to_entries | map({"key":.key,"short":.value._short,"github":.value._github,"home":.value._home,"docs":.value._docs,"app":(.value._app != null),"service":(.value._service != null)})',
         SOFTWARE,
       ],
       { encoding: 'utf8' },
@@ -73,9 +76,13 @@ try {
   const byKey = new Map(meta.filter((m) => m && m.key).map((m) => [m.key, m]));
   let enriched = 0;
   let linked = 0;
+  const modes = { app: 0, service: 0, cli: 0 };
   for (const it of items) {
     const m = byKey.get(it.name);
-    if (!m) continue;
+    if (!m) {
+      modes.cli++;
+      continue;
+    }
     if (typeof m.short === 'string' && m.short.trim()) {
       it.short = m.short.trim();
       enriched++;
@@ -84,10 +91,17 @@ try {
     if (typeof m.home === 'string' && m.home.trim()) it.home = m.home.trim();
     if (typeof m.docs === 'string' && m.docs.trim()) it.docs = m.docs.trim();
     if (it.home || it.docs) linked++;
+    // D06 install mode — _app (GUI app) wins over _service; neither → lazy cli. Grounded in the EXPLICIT
+    // declared fields only. NOTE: `cask` presence is deliberately NOT treated as "app" — measured 2026-10:
+    // of 40 cask-no-_app entries, most are CLIs shipped as casks (java/gcloud/flutter/fly/mitmproxy/…), so
+    // cask→app would mislabel MORE than it fixes. A few real GUI casks lacking _app (adobe-creative-cloud,
+    // lm-studio) fall to cli — an accepted edge, far better than mislabeling the CLI-casks.
+    it.installMode = m.app ? 'app' : m.service ? 'service' : 'cli';
+    modes[it.installMode]++;
   }
-  console.error(`gen-catalog: enriched ${enriched} with _short; ${linked} with _home/_docs learn-more links`);
+  console.error(`gen-catalog: enriched ${enriched} with _short; ${linked} with _home/_docs links; modes app=${modes.app} service=${modes.service} cli=${modes.cli}`);
 } catch (e) {
-  console.error('gen-catalog: WARNING — could not merge _short/_github/_home/_docs (' + (e && e.message) + '); proceeding without enrichment');
+  console.error('gen-catalog: WARNING — could not merge _short/_github/_home/_docs/installMode (' + (e && e.message) + '); proceeding without enrichment');
 }
 
 items.sort((a, b) => a.name.localeCompare(b.name));
