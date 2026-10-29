@@ -60,5 +60,15 @@ ch="$(curl -s "$u/machines" 2>/dev/null)"
 na="$(curl -s -o /dev/null -w '%{http_code}' "$u/api/devices?tenant=_default" 2>/dev/null)"
 [ "$na" = "401" ] && pass "GET /api/devices (no auth) -> 401 — requireAdmin session branch reachable + non-throwing after the async refactor (O11/O12 #131; not 500/503)" || fail "admin no-auth expected 401, got $na"
 
+# 11. fire #132 — the dashboard admin pages are SESSION-AWARE: an admin fetch sends the `AID_ADMIN_TOKEN`
+#     bearer when pasted, else relies on the same-origin Better Auth session cookie (fetch sends it by
+#     default for same-origin → the #131 server gate authorizes a signed-in allowlisted admin with NO token).
+#     The blocking "Enter the admin token" guard is replaced by an attempt + a session-aware 401 hint, and a
+#     "optional if you are signed in" note sits by the token input. Verify the shared `aidAdminHeaders` helper
+#     + the hint are served on an admin page AND the blocking guard text is GONE. (The signed-IN token-free
+#     load is OAuth-callback-gated, O04; the no-token fallback + the plumbing are live-verifiable now.)
+mp="$(curl -s "$u/machines" 2>/dev/null)"
+{ echo "$mp" | grep -qF 'function aidAdminHeaders' && echo "$mp" | grep -qiF 'optional if you are signed in' && ! echo "$mp" | grep -qF 'Enter the admin token'; } && pass "/machines -> session-aware admin fetch (aidAdminHeaders helper + 'optional if signed in' hint; blocking 'Enter the admin token' guard removed; O11/O12 #132)" || fail "machines session-aware auth -> $(printf '%s' "$mp" | grep -oiE 'aidAdminHeaders|Enter the admin token|optional if you are signed in' | sort -u | tr '\n' ' ')"
+
 say "auth: $P passed, $F failed"
 [ "$F" -eq 0 ]
