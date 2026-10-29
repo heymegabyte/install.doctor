@@ -559,17 +559,21 @@ function appendLastActive(parent,d){parent.append(freshDot(d));if(!d.lastSeen){p
 function appendDriftCell(parent,d,cur){if(d.drift==='drifted'){parent.append(tag('drifted'),' '+(d.lastRevision||'')+'→'+(cur||'?'));return;}if(d.drift==='current'){parent.append(muted('up to date ('+(cur||'')+')'));return;}parent.append(muted('—'));}
 function appendScopeCell(parent,d){var g=d.grantedPermissions||[];if(!g.length){parent.append(muted('—'));return;}g.forEach(function(p,i){if(i)parent.append(' ');parent.append(tag(p));});}
 function appendHealthCell(parent,d){var h=d.health||{};function dot(k,v){var warn=(v==='stale'||v==='drifted'||v==='never');var s=document.createElement('span');s.className=warn?'tag':'muted';s.title=k+': '+(v||'?');s.textContent=k+':'+(v==='not_configured'?'none':(v||'?'));return s;}parent.append(dot('conn',h.connectivity),' ',dot('sw',h.software),' ',dot('bkp',h.backup));}
-async function load(){
+async function load(opts){
+  opts=opts||{};
   var out=document.getElementById('out'),tok=document.getElementById('tok').value.trim(),t=document.getElementById('tenant').value.trim()||'_default';
-  out.textContent='Loading…';
+  if(!opts.quiet)out.textContent='Loading…'; // #140 quiet background poll ticks never flash Loading…
   try{
     var r=await fetch('/api/devices?tenant='+encodeURIComponent(t)+'&limit=200',{headers:aidAdminHeaders()});
     var j=await r.json();
-    if(!r.ok){out.textContent='✗ '+(j.error||r.status)+aidAuthHint(r.status);return}
-    if(!j.items||!j.items.length){out.textContent='No machines enrolled for '+t+'.';return}
+    if(!r.ok){out.textContent='✗ '+(j.error||r.status)+aidAuthHint(r.status);stopPoll();return} // #140 stop polling on auth failure
+    if(!j.items||!j.items.length){out.textContent='No machines enrolled for '+t+'.';stopPoll();return}
     LAST={};j.items.forEach(function(d){LAST[d.deviceId]=d});CUR=j.currentRevision;
     var frag=document.createDocumentFragment();
-    var p=document.createElement('p');p.className='muted';p.textContent=j.count+' machines · tenant '+t+' · desired revision '+(j.currentRevision||'—')+' · drift = last-applied vs desired · health = connectivity·software·backup · scope = granted permissions · click a device for its timeline';frag.append(p);
+    var p=document.createElement('p');p.className='muted';p.textContent=j.count+' machines · tenant '+t+' · desired revision '+(j.currentRevision||'—')+' · drift = last-applied vs desired · health = connectivity·software·backup · scope = granted permissions · click a device for its timeline';
+    // #140 U15/real-time — a subtle "live" affordance so the operator knows the surface auto-refreshes (no manual reload).
+    var live=document.createElement('span');live.setAttribute('style','color:#00e5ff;margin-left:6px');live.title='auto-refreshing every 30s — pauses when the tab is hidden';live.textContent='↻ live · auto-refresh 30s';p.append(live);
+    frag.append(p);
     // N08/U15 (#138) — an at-a-glance FLEET-HEALTH rollup from summary (observed, not optimistic): if nothing
     // is wrong show one "all healthy" line; else surface the problem counts as colour-cued badges so an
     // operator sees fleet health without scanning every row. TT-safe (createElement/textContent).
@@ -594,9 +598,17 @@ async function load(){
       tbody.append(tr);
     });
     table.append(tbody);frag.append(table);out.replaceChildren(frag);
+    startPoll(); // #140 (re)arm the visibility-aware poller after a successful load
   }catch(e){out.textContent='✗ '+e}
 }
 var LAST={},CUR=null;
+// #140 U15/real-time — the inventory SELF-REFRESHES: a visibility-aware poll keeps freshness/drift/health current
+// with NO manual "Load machines" click (per real-time-data-no-manual-refresh). Pause when the tab is hidden (no
+// wasted fetches), refetch immediately on return to foreground, never stack timers (startPoll clears first).
+var POLL=null;
+function stopPoll(){if(POLL){clearInterval(POLL);POLL=null;}}
+function startPoll(){stopPoll();POLL=setInterval(function(){if(!document.hidden)load({quiet:true});},30000);}
+document.addEventListener('visibilitychange',function(){if(!document.hidden&&POLL)load({quiet:true});});
 // N09 device detail — click a device row to load its identity + health + scope + drift + unified
 // change timeline (GET /api/history?device=, reusing the admin token already entered on this page).
 async function detail(id){
@@ -658,8 +670,8 @@ function dlbundle(){
 // #121 CSP STEP 1 (COMPLETES the 7-page conversion) — wire the static Load button + delegate the DYNAMIC
 // per-row buttons via data-act, toward dropping script-src 'unsafe-inline'. detail() lives in #out (device
 // table); bundle()/dlbundle() live in #detail (bundle() writes #sb INSIDE #detail, so a #detail listener
-// catches it by bubbling). load() takes no args, so the static button binds directly.
-document.getElementById('loadBtn').addEventListener('click',load);
+// catches it by bubbling). load() now takes an opts arg (#140 quiet poll), so WRAP to avoid passing the click Event as opts.
+document.getElementById('loadBtn').addEventListener('click',function(){load()});
 document.getElementById('out').addEventListener('click',function(ev){
   var b=ev.target.closest('[data-act]');if(!b)return;
   if(b.getAttribute('data-act')==='detail')detail(b.getAttribute('data-id'));

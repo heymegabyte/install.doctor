@@ -70,6 +70,11 @@ if [ -n "${CONTROL_PLANE_URL:-}" ]; then
   # freshness is a VISUAL signal not just text (ok→cyan / stale→amber / never→grey, from health.connectivity the
   # rollup already computes). One helper used by BOTH the table cell + the device-detail line (appendLastActive, DRY).
   { echo "$mp" | grep -q 'function freshDot(' && echo "$mp" | grep -q 'append(freshDot(d))' && echo "$mp" | grep -q 'freshness: ' && echo "$mp" | grep -q 'connectivity'; } && pass "GET /machines -> last-active carries a connectivity-coloured freshness DOT (U15 observed-freshness as a visual signal; ok/stale/never, DRY across table+detail; #139)" || fail "machines freshness-dot -> $(printf '%s' "$mp" | grep -oE 'function freshDot\(|append\(freshDot\(d\)\)|freshness: ' | sort -u | tr '\n' ' ')"
+  # fire #140 — U15/real-time: after a successful load the inventory SELF-REFRESHES on a visibility-aware poll
+  # (setInterval, SKIP when document.hidden, immediate refetch on visibilitychange→visible) so freshness/drift/
+  # health stay current with NO manual reload (per real-time-data-no-manual-refresh); a quiet load() avoids the
+  # Loading… flash on background ticks + a "live · auto-refresh" affordance makes it visible.
+  { echo "$mp" | grep -q 'function startPoll(' && echo "$mp" | grep -q 'document.hidden' && echo "$mp" | grep -q 'visibilitychange' && echo "$mp" | grep -q 'setInterval('; } && pass "GET /machines -> inventory self-refreshes on a visibility-aware poll (no manual reload; pause on hidden, refresh on foreground; U15/real-time-data-no-manual-refresh #140)" || fail "machines self-refresh -> $(printf '%s' "$mp" | grep -oE 'function startPoll\(|document.hidden|visibilitychange|setInterval\(' | sort -u | tr '\n' ' ')"
   # fire #64 — each device row opens a detail view (identity + health + scope + drift + its /api/history timeline, N09 UI half).
   # #130 — after TT createElement conversion the detail button sets data-act via setAttribute('data-act','detail')
   # (single-quoted JS) rather than the inline HTML data-act="detail"; accept EITHER form (spillover class).
