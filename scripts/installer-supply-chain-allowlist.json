@@ -1,0 +1,12 @@
+{
+  "run_after_21-cua-spaces.sh.tmpl": {
+    "status": "sanctioned",
+    "pattern": "curl -fsSL https://cua.ai/install.sh | sh  (official cua.ai installer)",
+    "reason": "Official cua.ai installer and the only install method cua offers. Mitigated: the gate runs it with --dry-run FIRST and only proceeds to --yes if the dry-run succeeds (per cua-spaces-integration.md). cua publishes no upstream checksum; the dry-run is the mitigation. Gated behind the #101 Cua Spaces provisioning gate (RAM/OS/consent)."
+  },
+  "executable_post-nginx.sh": {
+    "status": "known-gap",
+    "pattern": "curl -sSL .../nginx-amplify-agent/raw/master/packages/install.sh > $TMP ; sh $TMP",
+    "reason": "Downloads the NGINX Amplify agent install.sh from the master branch and executes it with no checksum/pin. Real supply-chain gap, but LOW exposure: only runs when the NGINX_AMPLIFY_API_KEY secret exists (almost never). HARDEN when the nginx server role is built out: pin to a release tag/commit (not master) + verify a published checksum, or install via the official apt/yum repo. Tracked here so it is visible, not silently present."
+  }
+}
