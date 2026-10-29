@@ -302,14 +302,14 @@ app.get('/environment', (c) =>
 <h1>Environment <span class=muted>· desired state</span></h1>
 <div class=card>
 <p class=muted>The authoritative <strong>ENVIRONMENT.md</strong> for a tenant — the one revisioned desired-state contract a machine pulls + reconciles against. Read-only here; edits go through the one validated write path.</p>
-<p><input id=tenant placeholder="tenant (default _default)" style="width:70%"> <button onclick="load()">Load</button></p></div>
+<p><input id=tenant placeholder="tenant (default _default)" style="width:70%"> <button id=loadBtn>Load</button></p></div>
 <div id=meta class=muted></div>
 <div id=summary></div>
 <pre id=out class=mono style="white-space:pre-wrap;overflow-x:auto;max-height:70vh">No environment loaded.</pre>
 <div class=card>
 <p class=muted>Preview a change before applying — paste a PROPOSED ENVIRONMENT.md and see the SEMANTIC diff vs the loaded current desired state (added <span style="color:#4ade80">+</span> · removed <span style="color:#f87171">−</span> · changed <span style="color:#fbbf24">~</span>). No write — this only compares.</p>
 <textarea id=proposed placeholder="Paste a proposed ENVIRONMENT.md to compare against current…" style="width:100%;height:160px;font-family:monospace"></textarea>
-<p><button onclick="diffProposed()">Diff vs current</button></p></div>
+<p><button id=diffBtn>Diff vs current</button></p></div>
 <div id=diffout class=muted></div>
 <script>
 function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]})}
@@ -388,6 +388,10 @@ async function diffProposed(){
     dout.innerHTML='<div class=card><p class=muted>'+dj.changes.length+' change(s) · proposed digest <span class=mono>'+esc(String(dj.toDigest||'').slice(0,12))+'</span></p><table><thead><tr><th>section</th><th>change</th></tr></thead><tbody>'+rows+'</tbody></table></div>';
   }catch(e){dout.innerHTML='✗ '+esc(String(e))}
 }
+// #119 CSP STEP 1 — wire the static Load + Diff buttons via addEventListener (no inline on*=), toward
+// dropping script-src 'unsafe-inline'. (This page has no dynamic per-row handlers — both buttons are fixed.)
+document.getElementById('loadBtn').addEventListener('click',load);
+document.getElementById('diffBtn').addEventListener('click',diffProposed);
 // Honor ?tenant= from the URL (deep-link a specific tenant's plan — e.g. from Machines/Recommendations, and
 // so the plan review + its deprecation warning are directly linkable). Mirrors the App Store's ?q= handling.
 try{var ptn=new URLSearchParams(location.search).get('tenant');if(ptn){document.getElementById('tenant').value=ptn;}}catch(e){}
