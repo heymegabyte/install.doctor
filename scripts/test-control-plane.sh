@@ -73,6 +73,9 @@ if [ -n "${CONTROL_PLANE_URL:-}" ]; then
   # freshness is a VISUAL signal not just text (ok→cyan / stale→amber / never→grey, from health.connectivity the
   # rollup already computes). One helper used by BOTH the table cell + the device-detail line (appendLastActive, DRY).
   { echo "$mp" | grep -q 'function freshDot(' && echo "$mp" | grep -q 'append(freshDot(d))' && echo "$mp" | grep -q 'freshness: ' && echo "$mp" | grep -q 'connectivity'; } && pass "GET /machines -> last-active carries a connectivity-coloured freshness DOT (U15 observed-freshness as a visual signal; ok/stale/never, DRY across table+detail; #139)" || fail "machines freshness-dot -> $(printf '%s' "$mp" | grep -oE 'function freshDot\(|append\(freshDot\(d\)\)|freshness: ' | sort -u | tr '\n' ' ')"
+  # fire #158 — the rollup render shows the ACTIVE count as context ('N active of M') + labels revoked 'decommissioned',
+  # so the active-scoped connectivity counts read honestly against the active fleet, not the all-ever-enrolled total.
+  { echo "$mp" | grep -q 'active of ' && echo "$mp" | grep -q 'decommissioned'; } && pass "GET /machines -> fleet-health render shows 'N active of M' context + 'revoked (decommissioned)' (U15 honest active-fleet; #158)" || fail "machines active-context render -> $(printf '%s' "$mp" | grep -oE 'active of |decommissioned' | sort -u | tr '\n' ' ')"
   # fire #140 — U15/real-time: after a successful load the inventory SELF-REFRESHES on a visibility-aware poll
   # (setInterval, SKIP when document.hidden, immediate refetch on visibilitychange→visible) so freshness/drift/
   # health stay current with NO manual reload (per real-time-data-no-manual-refresh); a quiet load() avoids the
@@ -646,7 +649,11 @@ JSON
     # inventory (total · ok/stale/never by connectivity · drifted · revoked), so an operator sees fleet health
     # without scanning every row. Computed server-side over the loaded devices. The connectivity buckets
     # PARTITION the total (ok+stale+never==total); drifted>=1 (the drift-probe applied r0 above).
-    echo "$add" | jq -e '.summary as $s | ($s.total==.count) and ($s.ok+$s.stale+$s.neverReported==$s.total) and ($s.drifted>=1) and ($s.revoked|type=="number")' >/dev/null 2>&1 && pass "GET /api/devices -> summary fleet-health rollup (total·ok/stale/never partition·drifted·revoked; N08/U15 #138)" || fail "fleet summary -> $(printf '%s' "$add" | jq -c '.summary' 2>/dev/null | head -c 160)"
+    # fire #158 — the connectivity partition is ACTIVE-scoped (revoked = decommissioned, EXCLUDED), matching recs'
+  # `active = items.filter(d => !d.revoked)` so the two fleet surfaces agree + "ok" isn't inflated by dead devices
+  # (U15 observed-not-optimistic). Invariant: ok+stale+never==active ∧ active+revoked==total; _default has revoked
+  # so active<total → the exclusion is proven non-vacuously; drifted>=1 (the active drift-probe applied r0 above).
+  echo "$add" | jq -e '.summary as $s | ($s.total==.count) and ($s.active+$s.revoked==$s.total) and ($s.ok+$s.stale+$s.neverReported==$s.active) and ($s.revoked>=1) and ($s.active<$s.total) and ($s.drifted>=1)' >/dev/null 2>&1 && pass "GET /api/devices -> fleet-health rollup: ACTIVE-scoped connectivity partition (ok+stale+never==active, active+revoked==total, revoked EXCLUDED — matches recs' active-scoping; N08/U15 #138/#158)" || fail "fleet summary -> $(printf '%s' "$add" | jq -c '.summary' 2>/dev/null | head -c 180)"
     [ -n "$drdid" ] && curl -s -o /dev/null -X POST -H "authorization: Bearer $DADM" "$u/api/devices/$drdid/revoke" >/dev/null 2>&1
     # Recommendations (N03): a drifted device yields a 'drifted' rec (rule-based) naming that device.
     rcenr="$(curl -s -X POST -H "authorization: Bearer $DADM" -H 'content-type: application/json' -d '{"tenant":"_default","label":"recs-probe"}' "$u/api/devices/enroll" 2>/dev/null)"
