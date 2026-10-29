@@ -170,6 +170,13 @@ if [ -n "${CONTROL_PLANE_URL:-}" ]; then
   echo "$cdep" | jq -e '(.deprecated|type=="string") and (.deprecated|test("Postman"))' >/dev/null 2>&1 && pass "GET /api/catalog/altair -> deprecated reason surfaced (\"in favor of Postman\"; D14/D15 #112)" || fail "altair deprecated -> $(printf '%s' "$cdep" | jq -c '{deprecated}' 2>/dev/null | head -c 100)"
   echo "$cd1" | jq -e '(.deprecated==null) or (.deprecated=="")' >/dev/null 2>&1 && pass "GET /api/catalog/ripgrep -> NOT deprecated (a clean tool carries no deprecation flag)" || fail "ripgrep deprecated -> $(printf '%s' "$cd1" | jq -c '{deprecated}' 2>/dev/null | head -c 80)"
   { echo "$ap" | grep -qi 'deprecated'; } && pass "/apps page surfaces the DEPRECATION warning (don't install abandoned tools; D14/D15 #112)" || fail "apps deprecation UI missing"
+  # fire #113 — D07 runtime deps: the catalog surfaces software.yml's `_deps` (40 entries; e.g. aifiles needs
+  # pandoc/exiftool/poppler/csvkit), so the App Store detail shows "Depends on: …" with each dep linked to its own
+  # App Store entry (interconnectedness). Grounded in the declared array; a dep-less tool carries nothing.
+  cdp="$(curl -s "$u/api/catalog/aifiles" 2>/dev/null)"
+  echo "$cdp" | jq -e '(.deps|type=="array") and ([.deps[]|select(.=="pandoc")]|length==1) and ([.deps[]|select(.=="exiftool")]|length==1)' >/dev/null 2>&1 && pass "GET /api/catalog/aifiles -> runtime deps surfaced (pandoc+exiftool; D07 #113)" || fail "aifiles deps -> $(printf '%s' "$cdp" | jq -c '{deps}' 2>/dev/null | head -c 100)"
+  echo "$cd1" | jq -e '(.deps==null) or ((.deps|type=="array") and (.deps|length==0))' >/dev/null 2>&1 && pass "GET /api/catalog/ripgrep -> no runtime deps (a dep-less tool carries nothing)" || fail "ripgrep deps -> $(printf '%s' "$cd1" | jq -c '{deps}' 2>/dev/null | head -c 80)"
+  { echo "$ap" | grep -qi 'Depends on'; } && pass "/apps detail shows the 'Depends on' runtime deps (D07 #113)" || fail "apps deps UI missing"
   # inference route pre-flight (fire #8): POST-only; restricted fails closed; fail-closed when unconfigured
   rc="$(curl -s -o /dev/null -w '%{http_code}' -X POST "$u/api/ai/v1/economy" 2>/dev/null || echo 000)"
   [ "$rc" = 503 ] && pass "POST /api/ai/v1/economy -> 503 (provider not configured, fail-closed)" || fail "economy POST -> $rc (want 503)"

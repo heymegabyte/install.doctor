@@ -12,7 +12,7 @@ import { getMigrations } from 'better-auth/db/migration';
 // (scripts/gen-catalog.mjs → the cnf index builder; D01/D02/D13). Read-only, bundled at deploy;
 // regenerate + redeploy when software.yml changes. No runtime YAML at the edge.
 import catalogData from './catalog.json';
-type CatalogEntry = { name: string; bin: string; providers: string[]; pkgs: Record<string, string>; platforms: string[]; short?: string; github?: string; home?: string; docs?: string; installMode?: 'app' | 'service' | 'cli'; deprecated?: string };
+type CatalogEntry = { name: string; bin: string; providers: string[]; pkgs: Record<string, string>; platforms: string[]; short?: string; github?: string; home?: string; docs?: string; installMode?: 'app' | 'service' | 'cli'; deprecated?: string; deps?: string[] };
 const CATALOG = catalogData as CatalogEntry[];
 const CATALOG_BY_NAME = new Map(CATALOG.map((e) => [e.name, e]));
 // D06/C12 — tally a plan's packages (defaults + every machine's own) by install mode, so the plan-review
@@ -487,6 +487,9 @@ function modeDesc(m,bin){if(m==='app')return 'Desktop app — installed during d
 // WARN before a user installs it + show the reason (often naming a replacement). Absent = not flagged.
 function depBadge(d){return d?('<span class=tag style="border-color:#f0a020;color:#f0a020" title="'+esc('Deprecated: '+d)+'">deprecated</span>'):''}
 function depWarn(d){return d?('<div style="border-left:3px solid #f0a020;padding:6px 10px;margin:2px 0 8px;background:#1a1407;border-radius:4px"><b style="color:#f0a020">Deprecated</b> <span class=muted>'+esc(d)+'</span></div>'):''}
+// D07 — runtime dependencies (software.yml _deps). Each dep links to its own App Store entry (interconnected,
+// like the Environment plan's package links); a dep that isn't a browseable package just searches empty, honestly.
+function depsLinks(a){return (a||[]).map(function(x){return '<a class=tag href="/apps?q='+encodeURIComponent(x)+'" title="View '+esc(x)+' in the App Store">'+esc(x)+'</a>'}).join(' ')}
 async function detail(tr,name){
   var ex=tr.nextElementSibling;
   if(ex&&ex.className==='detail'){ex.remove();return}            // toggle closed
@@ -501,7 +504,8 @@ async function detail(tr,name){
     var parts=[lnk('Source',j.github),lnk('Homepage',j.home),lnk('Docs',j.docs)].filter(Boolean);
     var src=parts.length?('<div class=muted style="margin:2px 0 6px">Learn more: '+parts.join(' · ')+'</div>'):'';
     var modeLine='<div style="margin:2px 0 6px">'+modeBadge(j.installMode)+' <span class=muted>'+modeDesc(j.installMode,j.bin)+'</span></div>';
-    dr.firstChild.innerHTML=depWarn(j.deprecated)+modeLine+'<div class=muted style="margin:2px 0 6px">Install <b>'+esc(j.name)+'</b> (command: '+esc(j.bin)+') on '+pill(j.platforms)+':</div>'+src+cmds;
+    var depsLine=(j.deps&&j.deps.length)?('<div class=muted style="margin:2px 0 6px">Depends on: '+depsLinks(j.deps)+'</div>'):'';
+    dr.firstChild.innerHTML=depWarn(j.deprecated)+modeLine+'<div class=muted style="margin:2px 0 6px">Install <b>'+esc(j.name)+'</b> (command: '+esc(j.bin)+') on '+pill(j.platforms)+':</div>'+depsLine+src+cmds;
   }catch(e){dr.firstChild.textContent='✗ '+e}
 }
 async function load(){
@@ -651,7 +655,7 @@ app.get('/api/catalog/:name', (c) => {
   const commands = (e.providers || [])
     .filter((p) => INSTALL_CMD[p] && pkgs[p])
     .map((p) => ({ provider: p, pkg: pkgs[p], command: INSTALL_CMD[p](pkgs[p]) }));
-  return c.json({ name: e.name, bin: e.bin, platforms: e.platforms, providers: e.providers, short: e.short, github: e.github, home: e.home, docs: e.docs, installMode: e.installMode || 'cli', deprecated: e.deprecated, commands });
+  return c.json({ name: e.name, bin: e.bin, platforms: e.platforms, providers: e.providers, short: e.short, github: e.github, home: e.home, docs: e.docs, installMode: e.installMode || 'cli', deprecated: e.deprecated, deps: e.deps, commands });
 });
 
 app.post('/api/ai/v1/resolve', async (c) => {
