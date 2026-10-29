@@ -177,11 +177,16 @@ __cnf_resolve(){ local cmd="$1"; shift
   if [ -n "$row" ]; then
     # columns: 1 bin 2 key 3 brew 4 apt 5 dnf 6 pacman 7 cask 8 choco 9 scoop 10 go 11 cargo 12 npm 13 pipx 14 pip 15 gem
     # manual word-split (zsh does NOT split unquoted $pref like bash does)
-    local rest="$pref" m
+    local rest="$pref" m mbin
     while [ -n "$rest" ]; do
       m="${rest%% *}"; case "$rest" in *" "*) rest="${rest#* }";; *) rest="";; esac
       case "$m" in brew)col=3;;apt)col=4;;dnf)col=5;;pacman)col=6;;cask)col=7;;choco)col=8;;scoop)col=9;;go)col=10;;cargo)col=11;;npm)col=12;;pipx)col=13;;pip)col=14;;gem)col=15;;*)col=0;;esac
-      if [ "$col" -gt 0 ] && command -v "$m" >/dev/null 2>&1; then
+      # F02/D06 (#164): the availability check tests the manager's BINARY, but `cask` has NO standalone binary —
+      # it's `brew install --cask`. Map cask→brew so the 253 cask-ONLY GUI apps (cask col set, brew col empty)
+      # actually install instead of silently falling through (`command -v cask` always fails). Other managers
+      # match their binary name.
+      mbin="$m"; [ "$m" = cask ] && mbin=brew
+      if [ "$col" -gt 0 ] && command -v "$mbin" >/dev/null 2>&1; then
         pkg="$(printf '%s' "$row" | cut -f"$col")"; [ -n "$pkg" ] && { mgr="$m"; break; }
       fi
     done
