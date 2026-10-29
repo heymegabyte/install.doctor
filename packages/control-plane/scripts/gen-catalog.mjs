@@ -5,7 +5,7 @@
 // emitted JSON (read-only; regenerate + redeploy when software.yml changes). No runtime YAML in the edge.
 // Each entry: { name (software.yml key), bin (executable), providers[] (package managers), platforms[] }.
 import { execFileSync } from 'node:child_process';
-import { readFileSync, writeFileSync, mkdtempSync } from 'node:fs';
+import { readFileSync, writeFileSync, mkdtempSync, readdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -111,6 +111,33 @@ try {
   console.error(`gen-catalog: enriched ${enriched} with _short; ${linked} with _home/_docs links; modes app=${modes.app} service=${modes.service} cli=${modes.cli}`);
 } catch (e) {
   console.error('gen-catalog: WARNING — could not merge _short/_github/_home/_docs/installMode (' + (e && e.message) + '); proceeding without enrichment');
+}
+
+// R14/F15/F06 — flag which tools get an AUTOMATED first-run CONFIGURATION step. A post-installx hook
+// (home/dot_local/bin/post-installx/executable_post-<tool>.sh) runs after installx installs <tool>, so the
+// App Store can tell the user "configured on install" (vs a bare install) + name the hook as the concrete
+// action (R14 "config completeness + repair actions" / F15 "report config coverage per app"). Match by
+// catalog name OR bin (a hook is named for either). Fail-soft: if the dir is unreadable, skip (no flag).
+try {
+  const hookDir = join(ROOT, 'home', 'dot_local', 'bin', 'post-installx');
+  const hooks = new Map(); // tool -> hook filename (chezmoi `executable_` prefix stripped)
+  for (const f of readdirSync(hookDir)) {
+    const base = f.startsWith('executable_') ? f.slice('executable_'.length) : f;
+    const mt = base.match(/^post-(.+)\.sh$/);
+    if (mt) hooks.set(mt[1], 'post-' + mt[1] + '.sh');
+  }
+  let configured = 0;
+  for (const it of items) {
+    const h = hooks.get(it.name) || hooks.get(it.bin);
+    if (h) {
+      it.configured = true;
+      it.postInstall = h;
+      configured++;
+    }
+  }
+  console.error(`gen-catalog: ${configured} entries flagged configured-on-install (post-installx hooks of ${hooks.size})`);
+} catch (e) {
+  console.error('gen-catalog: WARNING — could not scan post-installx hooks (' + (e && e.message) + ')');
 }
 
 items.sort((a, b) => a.name.localeCompare(b.name));

@@ -13,7 +13,7 @@ import { getMigrations } from 'better-auth/db/migration';
 // (scripts/gen-catalog.mjs → the cnf index builder; D01/D02/D13). Read-only, bundled at deploy;
 // regenerate + redeploy when software.yml changes. No runtime YAML at the edge.
 import catalogData from './catalog.json';
-type CatalogEntry = { name: string; bin: string; providers: string[]; pkgs: Record<string, string>; platforms: string[]; short?: string; github?: string; home?: string; docs?: string; installMode?: 'app' | 'service' | 'cli'; deprecated?: string; deps?: string[] };
+type CatalogEntry = { name: string; bin: string; providers: string[]; pkgs: Record<string, string>; platforms: string[]; short?: string; github?: string; home?: string; docs?: string; installMode?: 'app' | 'service' | 'cli'; deprecated?: string; deps?: string[]; configured?: boolean; postInstall?: string };
 const CATALOG = catalogData as CatalogEntry[];
 // Name → entry. One package can legitimately provide SEVERAL bins (xz → lzma/xz/unlzma/unxz), one entry per
 // bin, all sharing the package `name`. Prefer the CANONICAL entry whose bin IS the name (so /api/catalog/xz
@@ -710,6 +710,9 @@ async function detail(tr,name){
     var modeLine=document.createElement('div');modeLine.setAttribute('style','margin:2px 0 6px');var md=document.createElement('span');md.className='muted';md.textContent=modeDesc(j.installMode,j.bin);modeLine.append(modeBadgeEl(j.installMode),' ',md);frag.append(modeLine);
     var installLine=document.createElement('div');installLine.className='muted';installLine.setAttribute('style','margin:2px 0 6px');installLine.append('Install ');var nb=document.createElement('b');nb.textContent=j.name;installLine.append(nb,' (command: '+(j.bin||'')+') on ');appendTags(installLine,j.platforms);installLine.append(':');frag.append(installLine);
     if(j.deps&&j.deps.length){var depsLine=document.createElement('div');depsLine.className='muted';depsLine.setAttribute('style','margin:2px 0 6px');depsLine.append('Depends on: ');appendDepsLinks(depsLine,j.deps);frag.append(depsLine);}
+    // R14/F15 (#136) — config coverage: a tool with a post-installx hook gets an AUTOMATED first-run setup
+    // step. Name the concrete action (the hook); absent → nothing (honest, no false "configured" claim).
+    if(j.configured){var cfgLine=document.createElement('div');cfgLine.className='muted';cfgLine.setAttribute('style','margin:2px 0 6px');var ck=document.createElement('b');ck.setAttribute('style','color:#00e5ff');ck.textContent='✓ Configured on install';cfgLine.append(ck,' — Install Doctor runs a first-run setup step automatically after install ('+(j.postInstall||'post-'+j.name+'.sh')+').');frag.append(cfgLine);}
     var parts=[['Source',j.github],['Homepage',j.home],['Docs',j.docs]].filter(function(p){return p[1]});
     if(parts.length){var srcLine=document.createElement('div');srcLine.className='muted';srcLine.setAttribute('style','margin:2px 0 6px');srcLine.append('Learn more: ');parts.forEach(function(p,i){if(i)srcLine.append(' · ');var la=document.createElement('a');la.href=p[1];la.target='_blank';la.rel='noopener';la.textContent=p[0];srcLine.append(la);});frag.append(srcLine);}
     j.commands.forEach(function(k){var sc=document.createElement('span');sc.className='cmd';var pb=document.createElement('b');pb.textContent=k.provider;sc.append(pb,k.command);frag.append(sc);});
@@ -923,7 +926,7 @@ app.get('/api/catalog/:name', (c) => {
   const commands = (e.providers || [])
     .filter((p) => INSTALL_CMD[p] && pkgs[p])
     .map((p) => ({ provider: p, pkg: pkgs[p], command: INSTALL_CMD[p](pkgs[p]) }));
-  return c.json({ name: e.name, bin: e.bin, platforms: e.platforms, providers: e.providers, short: e.short, github: e.github, home: e.home, docs: e.docs, installMode: e.installMode || 'cli', deprecated: e.deprecated, deps: e.deps, commands });
+  return c.json({ name: e.name, bin: e.bin, platforms: e.platforms, providers: e.providers, short: e.short, github: e.github, home: e.home, docs: e.docs, installMode: e.installMode || 'cli', deprecated: e.deprecated, deps: e.deps, configured: e.configured, postInstall: e.postInstall, commands });
 });
 
 app.post('/api/ai/v1/resolve', async (c) => {
