@@ -467,6 +467,24 @@ detect_sandbox_mechanisms() {
 }
 
 # ---------------------------------------------------------------------------
+# should_provision_desktop — the first CAPABILITY ADAPTER (A5: "capability-based
+# adapters instead of hostname-specific conditionals"). It CONSUMES the detectors
+# to answer one question the provisioning layer repeatedly asks — "should this
+# host get GUI desktop components?" — instead of scattering ad-hoc OS/DISPLAY
+# checks. Yes (return 0) only when:
+#   - the host is NOT a container (H15 — minimal/container hosts stay desktop-free), AND
+#   - the host HAS a graphical session (NOT is_headless — no GUI → no desktop apps).
+# Composes detect_env_class (#166) + is_headless/detect_graphical_session (#151),
+# so it honors their overrides (INSTALL_DOCTOR_ENV_CLASS / _GRAPHICAL_SESSION /
+# HEADLESS_INSTALL) and is deterministic under test.
+# ---------------------------------------------------------------------------
+should_provision_desktop() {
+  [ "$(detect_env_class)" = "container" ] && return 1   # containers: no desktop components (H15)
+  is_headless && return 1                                 # no graphical session: nothing to install
+  return 0
+}
+
+# ---------------------------------------------------------------------------
 # detect_privilege — returns the host's effective privilege level
 #
 # Output: root | passwordless-sudo | sudo | user
