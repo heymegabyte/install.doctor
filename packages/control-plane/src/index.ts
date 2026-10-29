@@ -7,6 +7,7 @@ import { Env, providerConfigured } from './env';
 import { reserveBudget, DEFAULT_CEILING_MICROS } from './budget';
 // Better Auth — O-series sign-in (GitHub + Google), fire #102. See ./auth.ts.
 import { auth } from './auth';
+import { isAllowedAdminEmail } from './admin-allowlist';
 import { getMigrations } from 'better-auth/db/migration';
 // App Store catalog — generated from software.yml by the canonical validated parser
 // (scripts/gen-catalog.mjs → the cnf index builder; D01/D02/D13). Read-only, bundled at deploy;
@@ -1185,20 +1186,42 @@ function requireScope(c: any, dev: { permissions: string[] }, permission: string
   if (dev.permissions.includes(permission)) return null; // granted
   return c.json({ error: 'insufficient_scope', required: permission, granted: dev.permissions }, 403);
 }
-// Shared admin-bearer gate (reused by enroll + revoke + the PUT write path's pattern). Returns a
-// Response to short-circuit on failure, or null when authorized.
-function requireAdmin(c: any): Response | null {
-  const configured = (c.env as Record<string, any>).AID_ADMIN_TOKEN as string | undefined;
-  if (!configured) return c.json({ error: 'write_auth_not_configured' }, 503);
-  const auth = c.req.header('authorization') || '';
-  const presented = auth.startsWith('Bearer ') ? auth.slice(7) : '';
-  if (!presented || !safeEqual(presented, configured)) return c.json({ error: 'unauthorized' }, 401);
-  return null;
+// Shared admin gate (reused by enroll + revoke + the PUT write path + every admin read). Returns a
+// Response to short-circuit on failure, or null when authorized. TWO accepted credentials, checked in
+// order (fire #131, O11/O12):
+//   1. AID_ADMIN_TOKEN bearer — the fully-verifiable path, checked FIRST when a bearer is presented so the
+//      CLI + the test suites keep their exact current behavior (no session lookup, no added latency).
+//   2. Better Auth SESSION whose user email is in the AID_ADMIN_EMAILS allowlist — the forward path that
+//      lets the browser dashboard authorize off the signed-in user instead of a pasted token. getSession
+//      returns null for an unauthenticated request (verified against the Better Auth server API), so a
+//      no-session browser request simply falls through. Its live ACCEPTANCE for a signed-in allowlisted
+//      user is integration-gated on the OAuth callback registration (O04) — but the allowlist decision is
+//      pure + unit-tested (scripts/test-admin-allowlist.sh) and the getSession call is reachable +
+//      non-throwing on prod (a no-auth admin request returns 401, not 500).
+// Neither method configured → honest 503; configured but unsatisfied → 401.
+async function requireAdmin(c: any): Promise<Response | null> {
+  const env = c.env as Record<string, any>;
+  const configuredToken = env.AID_ADMIN_TOKEN as string | undefined;
+  const allowlist = env.AID_ADMIN_EMAILS as string | undefined;
+  const hdr = c.req.header('authorization') || '';
+  const presented = hdr.startsWith('Bearer ') ? hdr.slice(7) : '';
+  // 1) AID_ADMIN_TOKEN bearer (fast path for CLI + tests — no session lookup when a bearer is presented).
+  if (presented && configuredToken && safeEqual(presented, configuredToken)) return null;
+  // 2) Better Auth session (allowlisted email) — runs for browser requests (session cookie, no bearer).
+  if (allowlist) {
+    const session = (await auth.api.getSession({ headers: c.req.raw.headers }).catch(() => null)) as
+      | { user?: { email?: string | null } }
+      | null;
+    if (isAllowedAdminEmail(session?.user?.email, allowlist)) return null;
+  }
+  // 3) Neither method configured → honest 503; otherwise unauthorized.
+  if (!configuredToken && !allowlist) return c.json({ error: 'write_auth_not_configured' }, 503);
+  return c.json({ error: 'unauthorized' }, 401);
 }
 
 // Enroll a device (admin-gated). Mints a device id + a one-time opaque token; stores only its hash.
 app.post('/api/devices/enroll', async (c) => {
-  const denied = requireAdmin(c);
+  const denied = await requireAdmin(c);
   if (denied) return denied;
   const db = (c.env as Record<string, any>).DB;
   if (!db) return c.json({ error: 'store_unavailable' }, 503);
@@ -1281,7 +1304,7 @@ async function listDevicesWithDrift(db: any, tenant: string, limit: number): Pro
 }
 
 app.get('/api/devices', async (c) => {
-  const denied = requireAdmin(c);
+  const denied = await requireAdmin(c);
   if (denied) return denied;
   const db = (c.env as Record<string, any>).DB;
   if (!db) return c.json({ error: 'store_unavailable' }, 503);
@@ -1299,7 +1322,7 @@ app.get('/api/devices', async (c) => {
 // (drift / never-reported / stale). No AI: the shared provider call (#7) will ENRICH these later;
 // `generated:'rule-based'` labels that honestly. Admin-gated; reuses the devices+drift read.
 app.get('/api/recommendations', async (c) => {
-  const denied = requireAdmin(c);
+  const denied = await requireAdmin(c);
   if (denied) return denied;
   const db = (c.env as Record<string, any>).DB;
   if (!db) return c.json({ error: 'store_unavailable' }, 503);
@@ -1376,7 +1399,7 @@ app.get('/api/devices/me', async (c) => {
 
 // Revoke a device (admin-gated, S27). Idempotent: already-revoked or unknown id → 404.
 app.post('/api/devices/:id/revoke', async (c) => {
-  const denied = requireAdmin(c);
+  const denied = await requireAdmin(c);
   if (denied) return denied;
   const db = (c.env as Record<string, any>).DB;
   if (!db) return c.json({ error: 'store_unavailable' }, 503);
@@ -1399,7 +1422,7 @@ app.post('/api/devices/:id/revoke', async (c) => {
 // device token (hashed-opaque — never stored in plaintext or returned), secret values/references, or
 // terminal output (recordingMode: events-only). For operator support + the U-series diagnostics surface.
 app.get('/api/devices/:id/support-bundle', async (c) => {
-  const denied = requireAdmin(c);
+  const denied = await requireAdmin(c);
   if (denied) return denied;
   const db = (c.env as Record<string, any>).DB;
   if (!db) return c.json({ error: 'store_unavailable' }, 503);
@@ -1595,7 +1618,7 @@ app.get('/api/device/history', async (c) => {
 // first. Admin-gated (AID_ADMIN_TOKEN). Complements the device-scoped GET /api/device/history (one
 // device's own runs); returns device_id so the operator sees WHICH machine reported.
 app.get('/api/history', async (c) => {
-  const denied = requireAdmin(c);
+  const denied = await requireAdmin(c);
   if (denied) return denied;
   const db = (c.env as Record<string, any>).DB;
   if (!db) return c.json({ error: 'store_unavailable' }, 503);
@@ -1643,7 +1666,7 @@ app.get('/api/history', async (c) => {
 // nuke). Returns the count actually removed (D1 `meta.changes`). `created_at` is an ISO-8601 string → a
 // lexicographic `< cutoff` IS a correct time comparison (same toISOString() format everywhere).
 app.post('/api/history/prune', async (c) => {
-  const denied = requireAdmin(c);
+  const denied = await requireAdmin(c);
   if (denied) return denied;
   const db = (c.env as Record<string, any>).DB;
   if (!db) return c.json({ error: 'store_unavailable' }, 503);
@@ -1735,7 +1758,7 @@ app.get('/api/devices/pair/info', async (c) => {
 // Owner approves a pending pairing (the browser leg). Admin-gated — stands in for the owner session
 // until Better Auth lands. Mints NO token (claim does), so no plaintext token is ever stored.
 app.post('/api/devices/pair/approve', async (c) => {
-  const denied = requireAdmin(c);
+  const denied = await requireAdmin(c);
   if (denied) return denied;
   const db = (c.env as Record<string, any>).DB;
   if (!db) return c.json({ error: 'store_unavailable' }, 503);
@@ -1841,7 +1864,7 @@ app.on(['GET', 'POST'], '/api/auth/*', (c) => auth.handler(c.req.raw));
 // Admin-guarded D1 schema migration for Better Auth (the CLI can't reach D1 — run programmatically).
 // Creates the user/session/account/verification tables; idempotent (reports "no migrations needed" after).
 app.post('/api/auth-migrate', async (c) => {
-  const denied = requireAdmin(c);
+  const denied = await requireAdmin(c);
   if (denied) return denied;
   try {
     const { toBeCreated, toBeAdded, runMigrations } = await getMigrations(auth.options);

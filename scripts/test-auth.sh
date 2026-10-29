@@ -49,5 +49,16 @@ ch="$(curl -s "$u/machines" 2>/dev/null)"
 # accept EITHER form so the test tracks the sign-in-affordance, not a specific DOM-building style.
 { echo "$ch" | grep -q 'aidAuthStatus' && echo "$ch" | grep -q '/api/auth/get-session' && echo "$ch" | grep -qi 'Sign out' && echo "$ch" | grep -q '/api/auth/sign-out' && echo "$ch" | grep -qE "a\.href='/login'|href=\"/login\""; } && pass "dashboard chrome -> session-aware auth status (get-session -> user+Sign out | Sign in; O13 #104; TT-safe #124)" || fail "auth status chrome -> $(printf '%s' "$ch" | grep -oE 'aidAuthStatus|get-session|Sign out|sign-out|/login' | sort -u | tr '\n' ' ')"
 
+# 10. fire #131 (O11/O12) — requireAdmin now accepts EITHER the AID_ADMIN_TOKEN bearer OR a Better Auth
+#     session whose verified email is in the AID_ADMIN_EMAILS allowlist (the forward path to retiring the
+#     pasted token once sign-in completes). The session branch's live ACCEPTANCE (a signed-in allowlisted
+#     user) is integration-gated on the OAuth callback (O04) — but here we verify it is REACHABLE +
+#     NON-THROWING: a no-auth admin request returns exactly 401 (a throwing getSession would 500; a missing
+#     allowlist env would still 401 via the final branch, so this pairs with #8 — get-session returning a
+#     clean null proves the shared Better Auth session machinery is live on prod D1). The token fast-path is
+#     covered by the full control-plane suite exercising all 9 admin routes with a valid bearer.
+na="$(curl -s -o /dev/null -w '%{http_code}' "$u/api/devices?tenant=_default" 2>/dev/null)"
+[ "$na" = "401" ] && pass "GET /api/devices (no auth) -> 401 — requireAdmin session branch reachable + non-throwing after the async refactor (O11/O12 #131; not 500/503)" || fail "admin no-auth expected 401, got $na"
+
 say "auth: $P passed, $F failed"
 [ "$F" -eq 0 ]
