@@ -501,8 +501,8 @@ app.get('/apps', (c) =>
 <h1>App Store <span class=muted>· installable catalog</span></h1>
 <div class=card>
 <p class=muted>Everything Install Doctor can install, from the software.yml catalog. Search by name, command, or what it does; each shows its package managers + platforms.</p>
-<p><input id=q placeholder="Search by name, command, or what it does (e.g. ripgrep, fuzzy finder, container)…" style="width:100%" oninput="debounced()"></p>
-<p class=muted>Platform: <select id=plat onchange="load()" style="background:#0b0f14;color:inherit;border:1px solid #223;border-radius:4px;padding:2px 6px"><option value="">All platforms</option><option value="macos">macOS</option><option value="linux">Linux</option><option value="windows">Windows</option></select> <span class=muted>— show only tools installable on your OS</span></p></div>
+<p><input id=q placeholder="Search by name, command, or what it does (e.g. ripgrep, fuzzy finder, container)…" style="width:100%"></p>
+<p class=muted>Platform: <select id=plat style="background:#0b0f14;color:inherit;border:1px solid #223;border-radius:4px;padding:2px 6px"><option value="">All platforms</option><option value="macos">macOS</option><option value="linux">Linux</option><option value="windows">Windows</option></select> <span class=muted>— show only tools installable on your OS</span></p></div>
 <div id=out class=muted>Loading catalog…</div>
 <script>
 function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]})}
@@ -554,6 +554,10 @@ document.getElementById('out').addEventListener('click',function(ev){
   detail(b.closest('tr'),b.getAttribute('data-name'));
 });
 var t;function debounced(){clearTimeout(t);t=setTimeout(load,160)}
+// #118 CSP STEP 1 — wire the static search box + platform filter via addEventListener (no inline on*=),
+// toward dropping script-src 'unsafe-inline'. (The dynamic result rows already use event delegation above.)
+document.getElementById('q').addEventListener('input',debounced);
+document.getElementById('plat').addEventListener('change',load);
 // Honor ?q= from the URL (e.g. a package link from the Environment plan) — prefill the search + filter on load.
 try{var pq=new URLSearchParams(location.search).get('q');if(pq){document.getElementById('q').value=pq;}}catch(e){}
 load();
