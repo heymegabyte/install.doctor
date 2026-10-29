@@ -151,6 +151,16 @@ if [ -n "${CONTROL_PLANE_URL:-}" ]; then
   cd3="$(curl -s -o /dev/null -w '%{http_code}' "$u/api/catalog/definitely-not-an-app-xyz" 2>/dev/null || echo 000)"
   [ "$cd3" = 404 ] && pass "GET /api/catalog/<bogus> -> 404" || fail "catalog detail bogus -> $cd3 (want 404)"
   { echo "$ap" | grep -qi 'install commands'; } && pass "/apps page ships the per-item install-command expander" || fail "apps install-command expander missing"
+  # fire #110 — D06 install MODE: the catalog derives eager-desktop-app (software.yml _app) vs required-service
+  # (_service) vs lazy-CLI (neither) + surfaces it, so a user reviewing the App Store sees whether a tool is a
+  # desktop app installed during setup or a CLI installed on first command use (the core eager-vs-lazy promise).
+  echo "$cd1" | jq -e '.installMode=="cli"' >/dev/null 2>&1 && pass "GET /api/catalog/ripgrep -> installMode:cli (lazy CLI on first use; D06)" || fail "ripgrep installMode -> $(printf '%s' "$cd1" | jq -c '{installMode}' 2>/dev/null | head -c 80)"
+  cmapp="$(curl -s "$u/api/catalog/aerospace" 2>/dev/null)"
+  echo "$cmapp" | jq -e '.installMode=="app"' >/dev/null 2>&1 && pass "GET /api/catalog/aerospace -> installMode:app (GUI desktop app, eager at provisioning; D06/F02)" || fail "aerospace installMode -> $(printf '%s' "$cmapp" | jq -c '{installMode}' 2>/dev/null | head -c 80)"
+  cmsvc="$(curl -s "$u/api/catalog/caddy" 2>/dev/null)"
+  echo "$cmsvc" | jq -e '.installMode=="service"' >/dev/null 2>&1 && pass "GET /api/catalog/caddy -> installMode:service (required service; D06)" || fail "caddy installMode -> $(printf '%s' "$cmsvc" | jq -c '{installMode}' 2>/dev/null | head -c 80)"
+  echo "$cat" | jq -e '[.items[]|select(.installMode|type=="string")]|length==3' >/dev/null 2>&1 && pass "GET /api/catalog -> list items carry installMode (D06)" || fail "catalog list installMode -> $(printf '%s' "$cat" | jq -c '[.items[].installMode]' 2>/dev/null | head -c 100)"
+  { echo "$ap" | grep -qiE 'installMode|Desktop app|first use'; } && pass "/apps page surfaces the install MODE (desktop app vs lazy CLI; frontend-judgeable D06)" || fail "apps install-mode badge missing"
   # inference route pre-flight (fire #8): POST-only; restricted fails closed; fail-closed when unconfigured
   rc="$(curl -s -o /dev/null -w '%{http_code}' -X POST "$u/api/ai/v1/economy" 2>/dev/null || echo 000)"
   [ "$rc" = 503 ] && pass "POST /api/ai/v1/economy -> 503 (provider not configured, fail-closed)" || fail "economy POST -> $rc (want 503)"
