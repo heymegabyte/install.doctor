@@ -285,5 +285,19 @@ done
   && pass "no orphan scripts/*.sh (every non-test/non-entrypoint script has >=1 textual reference — no dead code)" \
   || fail "ORPHAN scripts/*.sh (zero textual references — dead code, remove or wire up):$orphan_hits"
 
+# installx (the bulk installer) has unimplemented installer-key cases — `github` (GitHub-release binary) +
+# `sbopkg` (Slackware) are `// TODO` + a bare `break`. Its `default:` case LOGS "Unable to find install key
+# instructions"; these KNOWN-but-unimplemented cases must ALSO surface a warning, not SILENTLY skip — else an
+# entry whose chosen installer is github/sbopkg is dropped with NO trace (the operator believes it installed →
+# a "quality of the software it delivers" defect). #271 made them warn (listing the skipped packages); the FULL
+# GitHub-release install (arch/OS asset selection + extract to PATH) + the installerPreference reach-analysis
+# are a BACKLOG focused session. 118 software.yml entries carry a `github:` key (mostly as a fallback).
+IX="$ROOT/home/dot_local/bin/executable_installx"
+if grep -qF "Install key 'github' not yet implemented" "$IX" 2> /dev/null && grep -qF "Install key 'sbopkg' not yet implemented" "$IX" 2> /dev/null; then
+  pass "installx warns on unimplemented installer keys (github, sbopkg) — a skipped install is VISIBLE, not silently swallowed (quality)"
+else
+  fail "installx silently 'break's on an unimplemented installer key (github/sbopkg) — an entry using it is skipped with no trace; warn like the default case"
+fi
+
 say "bootstrap-provenance: $P passed, $F failed"
 [ "$F" -eq 0 ]

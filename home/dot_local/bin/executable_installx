@@ -424,14 +424,16 @@ async function installPackages(pkgInstructions) {
       case 'flatpak':
         promises.push(forEachSeries(combined[key].flatMap(x => x.installList.flatMap(i => $`sudo ${key} install -y flathub ${i}`))))
         break
-      case 'github': // TODO
+      case 'github': // TODO: GitHub-release-binary install not yet implemented (backlog — arch/OS asset selection + extract)
+        log(`Install key 'github' not yet implemented — skipping: ${combined[key].flatMap(x => x.installList).join(' ')}`)
         break
       case 'pacman':
         promises.push($`sudo ${key} -Sy --noconfirm --needed ${combined[key].flatMap(x => x.installList).join(' ')}`)
         break
       case 'pkg-darwin':
         break
-      case 'sbopkg': // TODO
+      case 'sbopkg': // TODO: Slackware sbopkg install not yet implemented (backlog)
+        log(`Install key 'sbopkg' not yet implemented — skipping: ${combined[key].flatMap(x => x.installList).join(' ')}`)
         break
       case 'script':
         promises.push(...combined[key].flatMap(x => x.installList.flatMap(i => runScript(x.listKey, i))))
