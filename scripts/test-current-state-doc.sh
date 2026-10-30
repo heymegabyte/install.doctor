@@ -106,5 +106,17 @@ else
   fail "arc-narrative line 3 is ${l3}B > ratchet ${LINE3_RATCHET} — collapse the per-fire clause chain into git log + the sections below (lower the ratchet, never raise it)"
 fi
 
+# MASTER-PROMPT currency (#217) — NEXT-STEPS calls docs/aid/MASTER-PROMPT.md the "full spec (SSOT; the cron
+# references it)". It had DRIFTED to the retired v2 banner ("the loop now runs the Install Doctor v2 master
+# prompt (cron 4002f61a)") while the live cron 5eaf1b85 has run the bootstrap-QUALITY prompt since #198.
+# Assert the SSOT reflects the CURRENT arc: the bootstrap pivot + the live cron + the
+# app.install.doctor→desktop.tools retirement, so a session reading the "full spec" isn't misled into v2.
+MP="$ROOT/docs/aid/MASTER-PROMPT.md"
+if [ -f "$MP" ] && grep -qiF 'bootstrap' "$MP" && grep -qF '5eaf1b85' "$MP" && grep -qiF 'desktop.tools' "$MP"; then
+  pass "MASTER-PROMPT.md SSOT reflects the current bootstrap-quality arc (cron 5eaf1b85 + desktop.tools retirement)"
+else
+  fail "MASTER-PROMPT.md SSOT is STALE — must name the bootstrap pivot + the live cron 5eaf1b85 + the app.install.doctor→desktop.tools retirement (it currently describes the retired v2)"
+fi
+
 say "CURRENT-STATE: $P passed, $F failed"
 [ "$F" -eq 0 ]
