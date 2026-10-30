@@ -76,6 +76,17 @@ else
   fail "update-system does not run chezmoi update (add updateChezmoi → chezmoi update)"
 fi
 
+# 9.5. Alpine must actually UPGRADE, not just index-sync (#267). On Alpine, `apk update` only refreshes the
+#      package index — `apk upgrade` is what upgrades installed packages (apt separates these too: updateAptGet
+#      runs `apt-get update` THEN `apt-get upgrade -y`). update-system ran `apk update` ALONE, so the Monday-02:00
+#      cron on a supported Alpine fleet role (CLAUDE.md §2) refreshed the index but NEVER upgraded packages — the
+#      prompt's "ensures EVERYTHING is updated" silently broken on Alpine. (dnf/pacman/zypper upgrade in one verb.)
+if grep -qE 'apk upgrade' "$UPD" 2>/dev/null; then
+  pass "update-system actually UPGRADES Alpine packages (apk upgrade — not just the apk-update index sync)"
+else
+  fail "update-system runs only 'apk update' (index sync) — add 'apk upgrade' so the Monday cron actually upgrades Alpine packages (the prompt's 'everything updated')"
+fi
+
 # 10. every updateX invoked in a dispatch branch must be DEFINED (no orphan call after the Nix/Port removal).
 missing=""
 for fn in $(grep -oE 'update[A-Z][A-Za-z]+' "$UPD" 2>/dev/null | sort -u); do

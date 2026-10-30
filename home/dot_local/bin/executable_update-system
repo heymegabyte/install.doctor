@@ -10,6 +10,7 @@ set -euo pipefail
 updateApk() {
   if command -v apk > /dev/null; then
     gum log -sl info 'Running sudo apk update' && sudo apk update || gum log -sl error 'Failed to run sudo apk update'
+    gum log -sl info 'Running sudo apk upgrade' && sudo apk upgrade || gum log -sl error 'Failed to run sudo apk upgrade'
   fi
 }
 
