@@ -33,6 +33,9 @@
 #   A9 parity   — no hook hardcodes the dev-box user (`apple`) in a chown/chgrp. The dispatcher runs hooks
 #                 FLEET-WIDE now, so a dev-Mac `chown apple:staff` FAILS on every other machine (no `apple`
 #                 user) — use a var (`$(id -un):$(id -gn)`). CLAUDE.md §3 cross-platform parity. #254.
+#   A10 set-u-safe — no hook references the debug-toggle env (`$DEBUG`/`$DEBUG_MODE`) WITHOUT a `:-` default;
+#                 under the hooks' `set -euo pipefail`, an unset ref crashes the hook mid-config — now live
+#                 via the #251 dispatcher (which doesn't export DEBUG_MODE). #255.
 set -uo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 HOOKS="$ROOT/home/dot_local/bin/post-installx"
@@ -123,6 +126,21 @@ if [ -z "$devuser" ]; then
   pass "no post-installx hook hardcodes the dev-box user in a chown/chgrp (cross-platform parity)"
 else
   fail "hook(s) hardcode the dev-box user 'apple' in a chown/chgrp — fails on the non-Mac fleet:$devuser"
+fi
+
+# A10 — set -u safety: no hook references the debug-toggle env (`$DEBUG`/`$DEBUG_MODE`) WITHOUT a `:-`
+#       default. Under the hooks' `set -euo pipefail`, an unset ref crashes the hook mid-config — now live
+#       via the #251 dispatcher (which does NOT export DEBUG_MODE), so the crash would skip later steps.
+baddbg=""
+for f in "$HOOKS"/executable_post-*.sh; do
+  if grep -E '\$\{?DEBUG(_MODE)?' "$f" 2>/dev/null | grep -vE 'DEBUG(_MODE)?:-' | grep -q .; then
+    baddbg="$baddbg $(basename "$f" | sed 's/^executable_//;s/\.sh$//')"
+  fi
+done
+if [ -z "$baddbg" ]; then
+  pass "no hook references \$DEBUG/\$DEBUG_MODE without a :- default (set -u-safe — won't crash mid-config)"
+else
+  fail "hook(s) reference \$DEBUG/\$DEBUG_MODE with NO :- default — crash under set -u when unset:$baddbg"
 fi
 
 echo

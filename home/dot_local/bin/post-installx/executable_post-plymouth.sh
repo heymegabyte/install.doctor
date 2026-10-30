@@ -83,7 +83,7 @@ fi
 
 ### Update kernel / initrd images
 # Set `export DEBUG_MODE=true` to bypass GRUB2 / Plymouth application
-if [ "$DEBUG_MODE" != 'true' ]; then
+if [ "${DEBUG_MODE:-}" != 'true' ]; then
   if command -v update-initramfs > /dev/null; then
     gum log -sl info 'Running sudo update-initramfs -u'
     sudo update-initramfs -u
