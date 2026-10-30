@@ -51,10 +51,24 @@ ensurePackageManagerHomebrew() {
     if command -v sudo > /dev/null && sudo -n true; then
       logg info 'Installing Homebrew. Sudo privileges available.'
       echo | bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)" || BREW_EXIT_CODE="$?"
+      if [ -d "/opt/homebrew" ]; then
+        if [ -n "$USER" ]; then
+          logg info "Setting owner of /opt/homebrew to '$USER'" && sudo chown -R "$USER" /opt/homebrew || logg warn "Failed to chown /opt/homebrew to '$USER'"
+        else
+          logg warn "USER not set; skipping chown /opt/homebrew"
+        fi
+      fi
       fixHomebrewSharePermissions
     else
       logg info 'Installing Homebrew. Sudo privileges not available. Password may be required.'
-      bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)" || BREW_EXIT_CODE="$?"
+      echo | bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)" || BREW_EXIT_CODE="$?"
+      if [ -d "/opt/homebrew" ]; then
+        if [ -n "$USER" ]; then
+          logg info "Setting owner of /opt/homebrew to '$USER'" && sudo chown -R "$USER" /opt/homebrew || logg warn "Failed to chown /opt/homebrew to '$USER'"
+        else
+          logg warn "USER not set; skipping chown /opt/homebrew"
+        fi
+      fi
       fixHomebrewSharePermissions
     fi
 
@@ -63,11 +77,6 @@ ensurePackageManagerHomebrew() {
         logg warn 'Homebrew was installed but part of the installation failed to complete successfully.'
         fixHomebrewPermissions
       fi
-
-    ### Ensure /opt/homebrew is owned by the active user when present
-    if [ -d "/opt/homebrew" ]; then
-      logg info "Setting owner of /opt/homebrew to '$USER'" && sudo chown -R "$USER" /opt/homebrew || logg warn "Failed to chown /opt/homebrew to '$USER'"
-    fi
   fi
 }
 

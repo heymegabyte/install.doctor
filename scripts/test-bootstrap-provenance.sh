@@ -123,6 +123,26 @@ grep -qE 'HEADLESS_INSTALL' "$fda" 2> /dev/null || fdabad="$fdabad no-HEADLESS-g
   && pass "partials/full-disk-access uses detect_os + HEADLESS gating (reconciled to the deployed ensureFullDiskAccess, no ad-hoc macOS check)" \
   || fail "partials/full-disk-access still drifted from the deployed ensureFullDiskAccess:$fdabad"
 
+# homebrew partial (ensurePackageManagerHomebrew, inlined into provision.sh's ensureHomebrew) was the LAST
+# mapped partial drift. Two deployed improvements the partial lacked: (1) its NO-SUDO install path used a BARE
+# `bash -c "$(curl …install.sh)"` — the Homebrew installer blocks on an interactive RETURN prompt, so a
+# headless / no-sudo provision HANGS; the deployed pipes `echo |` into BOTH install paths (non-interactive).
+# (2) its single trailing `/opt/homebrew` chown used an UNGUARDED `$USER` (empty USER → `sudo chown -R ""
+# /opt/homebrew` errors); the deployed guards it `[ -n "$USER" ]` (warn-and-skip when unset), per branch.
+# Reconciled to the deployed #263 → the src↔deployed PARTIAL axis is now FULLY reconciled (basic-deps #260 ·
+# import-cloudflare+reboot #261 · full-disk-access #262 · homebrew #263). The other 5 homebrew fns were already
+# identical. Lock: echo-pipe on BOTH install paths (count == 2) + the USER-guarded chown present.
+hb="$ROOT/scripts/partials/homebrew"
+hbbad=""
+# -F (fixed string): the literal carries `|` + `$(` + `"` — BSD grep's BRE mishandles the mid-pattern `$(` as
+# an EOL anchor and matches 0 (the macOS-grep-quirk family, cf. the `\b`-unreliable reminder), making a plain
+# `grep -c` a vacuously-broken sub-check. `-Fc` matches the literal: 1 (sudo path only) now → 2 (both) on port.
+[ "$(grep -Fc 'echo | bash -c "$(curl' "$hb" 2> /dev/null)" = 2 ] || hbbad="$hbbad echo-pipe-not-on-both-install-paths"
+grep -qE '\[ -n "\$USER" \]' "$hb" 2> /dev/null || hbbad="$hbbad unguarded-opt-homebrew-chown"
+[ -z "$hbbad" ] \
+  && pass "partials/homebrew ensurePackageManagerHomebrew: echo-pipe on both install paths + USER-guarded /opt/homebrew chown (reconciled to the deployed, no interactive-hang / empty-USER chown)" \
+  || fail "partials/homebrew still drifted from the deployed ensurePackageManagerHomebrew:$hbbad"
+
 # ROBUST clone-URL coverage (#186, verify-against-source-of-truth: a gate must cover the FULL tree, not a
 # hardcoded subset). The #181 checks above hardcoded scripts/provision.sh + the template, so they MISSED
 # `local/provision.sh` — an unreferenced older variant (940 vs 1213 lines) that still carried the legacy
