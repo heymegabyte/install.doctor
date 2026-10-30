@@ -111,8 +111,8 @@ if [ -d /System ] && [ -d /Applications ] && command -v warp-cli > /dev/null; th
     # fi
     if [ -f "$HOME/.local/etc/ssl/cloudflare/cloudflare.pem" ]; then
       gum log -sl info 'Updating the OpenSSL CA Store to include the Cloudflare certificate'
-      echo | sudo tee -a "$SSL_CERT_PATH" < "$HOME/.local/etc/ssl/cloudflare/cloudflare.pem" > /dev/null
-      echo "" | sudo tee -a "$SSL_CERT_PATH"
+      sudo tee -a "$SSL_CERT_PATH" < "$HOME/.local/etc/ssl/cloudflare/cloudflare.pem" > /dev/null
+      echo "" | sudo tee -a "$SSL_CERT_PATH" > /dev/null
     else
       gum log -sl warn "$HOME/.local/etc/ssl/cloudflare/cloudflare.pem is missing so not importing into to master pem"
     fi

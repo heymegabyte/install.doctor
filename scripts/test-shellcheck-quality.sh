@@ -56,5 +56,21 @@ for rel in $WARN_SCRIPTS; do
   fi
 done
 
+# error-severity on EVERY post-installx hook — they run at provision time (installx fires them after their
+# tool installs); a shellcheck ERROR (parse error / broken redirect) silently misconfigures that tool on
+# every machine. Aggregate (ONE assertion, lists offenders) — the 32-hook migration per the audit-arc
+# maturity ladder (detect → migrate → lock). Warning-sev on the hooks is a later ratchet.
+hookdirty=""
+for f in "$ROOT"/home/dot_local/bin/post-installx/*.sh; do
+  [ -f "$f" ] || continue
+  out="$(shellcheck -S error -s bash "$f" 2>&1)"
+  [ -n "$out" ] && hookdirty="$hookdirty $(basename "$f")"
+done
+if [ -z "$hookdirty" ]; then
+  pass "all post-installx hooks pass shellcheck -S error (provision-time scripts — a parse error misconfigures the tool)"
+else
+  fail "post-installx hook(s) with shellcheck ERRORS:$hookdirty"
+fi
+
 say "shellcheck-quality: $P passed, $F failed"
 [ "$F" -eq 0 ]
