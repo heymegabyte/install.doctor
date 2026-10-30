@@ -27,6 +27,19 @@ bash -n "$BUILDER" && pass "cnf-build-index parses" || fail "cnf-build-index syn
 # only (strip comments, which legitimately mention the word).
 if grep -vE '^[[:space:]]*#' "$HANDLER" | grep -qE '\beval\b'; then fail "E10: 'eval' on a code line — model-text eval must be eliminated"; else pass "E10: no eval of model-generated commands in the hook"; fi
 
+# Alpine (apk) support — Alpine is a supported fleet role (CLAUDE.md §2), so the lazy-installer (the prompt's
+# "automatically install software on demand") MUST support its native package manager in ALL THREE places, or a
+# missing command on Alpine can't auto-install via apk — only the language providers (brew/go/cargo/npm/pip/gem)
+# would be tried. #268: apk was absent from __cnf_os detection, __cnf_pref preference, AND __cnf_do_install
+# dispatch — the same supported-fleet-role gap class as #267 (Alpine was missing from the update-system cron).
+apkmiss=""
+grep -qE 'command -v apk' "$HANDLER" || apkmiss="$apkmiss os-detect"
+grep -qE 'apk\) +echo "apk ' "$HANDLER" || apkmiss="$apkmiss pref"
+grep -qE 'apk\) +sudo apk add' "$HANDLER" || apkmiss="$apkmiss install-dispatch"
+[ -z "$apkmiss" ] \
+  && pass "cnf hook supports Alpine apk in all 3 fns (__cnf_os detect + __cnf_pref preference + __cnf_do_install → apk add)" \
+  || fail "cnf hook MISSING Alpine apk support ($apkmiss) — a missing command can't auto-install via apk on a supported Alpine fleet role"
+
 # shellcheck source=/dev/null
 . "$HANDLER"
 # isolate the test shell from the handler's shell hooks — a missing/typo'd function in this

@@ -52,6 +52,7 @@ __cnf_os(){ case "$(uname -s)" in
   Linux)  command -v apt-get >/dev/null 2>&1 && { echo apt; return; }
           command -v dnf     >/dev/null 2>&1 && { echo dnf; return; }
           command -v pacman  >/dev/null 2>&1 && { echo pacman; return; }
+          command -v apk     >/dev/null 2>&1 && { echo apk; return; }
           echo linux;;
   *) echo unknown;; esac; }
 
@@ -61,6 +62,7 @@ __cnf_pref(){ case "$1" in
   apt)    echo "apt brew go cargo npm pipx pip gem";;
   dnf)    echo "dnf brew go cargo npm pipx pip gem";;
   pacman) echo "pacman brew go cargo npm pipx pip gem";;
+  apk)    echo "apk brew go cargo npm pipx pip gem";;
   *)      echo "brew go cargo npm pipx pip gem";; esac; }
 
 __cnf_do_install(){ local mgr="$1" pkg="$2"
@@ -84,6 +86,7 @@ __cnf_do_install(){ local mgr="$1" pkg="$2"
     apt)    sudo apt-get update -qq && sudo apt-get install -y "$@";;
     dnf)    sudo dnf install -y "$@";;
     pacman) sudo pacman -S --noconfirm "$@";;
+    apk)    sudo apk add "$@";;
     cask)   brew install --cask "$@";;
     choco)  choco install -y "$@";;
     scoop)  scoop install "$@";;
@@ -183,7 +186,7 @@ __cnf_resolve(){ local cmd="$1"; shift
     local rest="$pref" m mbin
     while [ -n "$rest" ]; do
       m="${rest%% *}"; case "$rest" in *" "*) rest="${rest#* }";; *) rest="";; esac
-      case "$m" in brew)col=3;;apt)col=4;;dnf)col=5;;pacman)col=6;;cask)col=7;;choco)col=8;;scoop)col=9;;go)col=10;;cargo)col=11;;npm)col=12;;pipx)col=13;;pip)col=14;;gem)col=15;;*)col=0;;esac
+      case "$m" in brew)col=3;;apt)col=4;;dnf)col=5;;pacman)col=6;;cask)col=7;;choco)col=8;;scoop)col=9;;go)col=10;;cargo)col=11;;npm)col=12;;pipx)col=13;;pip)col=14;;gem)col=15;;apk)col=16;;*)col=0;;esac
       # F02/D06 (#164): the availability check tests the manager's BINARY, but `cask` has NO standalone binary —
       # it's `brew install --cask`. Map cask→brew so the 253 cask-ONLY GUI apps (cask col set, brew col empty)
       # actually install instead of silently falling through (`command -v cask` always fails). Other managers

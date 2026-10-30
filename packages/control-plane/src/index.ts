@@ -128,6 +128,7 @@ const INSTALL_CMD: Record<string, (pkg: string) => string> = {
   pipx: (p) => `pipx install ${p}`,
   pip: (p) => `pip install --user ${p}`,
   gem: (p) => `gem install ${p}`,
+  apk: (p) => `sudo apk add ${p}`,
 };
 
 // D11 (#147) update-channel — the per-provider UPDATE command (how to keep a tool CURRENT; intended-experience
