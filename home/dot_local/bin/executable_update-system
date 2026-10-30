@@ -1,4 +1,9 @@
 #!/usr/bin/env bash
+# Keeps the host current: every PRESENT package manager + mise-managed runtimes + the install.doctor
+# config itself. Invoked weekly by the Monday-02:00 crontab entry (home/dot_config/crontab/config-user)
+# and runnable by hand. set -u safe — a bare cron environment has no DEBUG, so all optional env vars are
+# default-expanded (a bare "$DEBUG" under `set -u` would abort the ENTIRE update with "unbound variable").
+# Every updater is command-guarded, so it is a no-op where its manager is absent (minimum-footprint hosts).
 
 set -euo pipefail
 
@@ -16,11 +21,13 @@ updateAptGet() {
 }
 
 updateBrew() {
-  gum log -sl info 'Running brew update' && brew update || gum log -sl error 'Failed to run brew update'
-  gum log -sl info 'Running brew upgrade' && brew upgrade || gum log -sl error 'Failed to run brew upgrade'
-  if [ -d /Applications ] && [ -d /System ]; then
-    ### macOS
-    gum log -sl info 'Running brew upgrade --cask' && brew upgrade --cask || gum log -sl error 'Failed to run brew upgrade --cask'
+  if command -v brew > /dev/null; then
+    gum log -sl info 'Running brew update' && brew update || gum log -sl error 'Failed to run brew update'
+    gum log -sl info 'Running brew upgrade' && brew upgrade || gum log -sl error 'Failed to run brew upgrade'
+    if [ -d /Applications ] && [ -d /System ]; then
+      ### macOS
+      gum log -sl info 'Running brew upgrade --cask' && brew upgrade --cask || gum log -sl error 'Failed to run brew upgrade --cask'
+    fi
   fi
 }
 
@@ -38,25 +45,14 @@ updateDnf() {
 
 updateFlatpak() {
   if command -v flatpak > /dev/null; then
-    gum log -sl info 'Running sudo flatpak update -y' && sudo flatpak update -y || gum log -sl error 'Failed to run sudo flatpak update -y'
-  fi
-}
-
-updateNix() {
-  if command -v nix-channel > /dev/null; then
-    gum log -sl info 'Running nix-channel --update' && nix-channel --update || gum log -sl error 'Failed to run nix-channel --update'
+    gum log -sl info 'Running flatpak update -y' && flatpak update -y || gum log -sl error 'Failed to run flatpak update -y'
   fi
 }
 
 updatePacman() {
   if command -v pacman > /dev/null; then
-    gum log -sl info 'Running sudo pacman -Syu' && sudo pacman -Syu || gum log -sl error 'Failed to run sudo pacman -Syu'
-  fi
-}
-
-updatePort() {
-  if command -v port > /dev/null; then
-    gum log -sl info 'Running sudo port sync' && sudo port sync || gum log -sl error 'Failed to run sudo port sync'
+    ### --noconfirm so the unattended Monday-02:00 cron never hangs on a prompt
+    gum log -sl info 'Running sudo pacman -Syu --noconfirm' && sudo pacman -Syu --noconfirm || gum log -sl error 'Failed to run sudo pacman -Syu'
   fi
 }
 
@@ -68,36 +64,54 @@ updateSnap() {
 
 updateZypper() {
   if command -v zypper > /dev/null; then
-    gum log -sl info 'Running sudo zypper update' && sudo zypper update || gum log -sl error 'Failed to run sudo zypper update'
+    ### -y so the unattended Monday-02:00 cron never hangs on a prompt
+    gum log -sl info 'Running sudo zypper --non-interactive update' && sudo zypper --non-interactive update || gum log -sl error 'Failed to run sudo zypper update'
   fi
 }
 
-if [ -n "$DEBUG" ] || [ -n "$DEBUG_MODE" ]; then
-  gum log -sl info 'The DEBUG or DEBUG_MODE environment variable is set so updates will be run synchronously'
+### mise owns version-managed runtimes (ADR 0003 — Node.js / Go / Rust et al). Upgrade the tools + mise itself.
+updateMise() {
+  if command -v mise > /dev/null; then
+    gum log -sl info 'Running mise upgrade' && mise upgrade --yes || gum log -sl error 'Failed to run mise upgrade'
+    mise self-update --yes > /dev/null 2>&1 || true
+  fi
+}
+
+### chezmoi pulls + applies the latest install.doctor config, so the host keeps improving over time.
+updateChezmoi() {
+  if command -v chezmoi > /dev/null; then
+    gum log -sl info 'Running chezmoi update (pull + apply the latest install.doctor config)' && chezmoi update || gum log -sl error 'Failed to run chezmoi update'
+  fi
+}
+
+if [ -n "${DEBUG:-}" ] || [ -n "${DEBUG_MODE:-}" ]; then
+  gum log -sl info 'DEBUG/DEBUG_MODE is set — running updates synchronously'
   updateApk
   updateAptGet
   updateBrew
   updateCrew
   updateDnf
   updateFlatpak
-  updateNix
   updatePacman
-  updatePort
   updateSnap
   updateZypper
+  updateMise
+  updateChezmoi
 else
+  ### OS package managers are independent — run them in parallel, then settle.
   updateApk &
   updateAptGet &
   updateBrew &
   updateCrew &
   updateDnf &
   updateFlatpak &
-  updateNix &
   updatePacman &
-  updatePort &
   updateSnap &
   updateZypper &
   wait
+  ### mise + chezmoi run AFTER the package managers settle (chezmoi apply may itself invoke them).
+  updateMise
+  updateChezmoi
 fi
 
 gum log -sl info 'Finished running update-system'

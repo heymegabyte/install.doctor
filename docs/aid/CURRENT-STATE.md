@@ -1,6 +1,6 @@
 # aid — CURRENT STATE (verified audit)
 
-**Refreshed:** fire #196 — CONVERGENCE CHECKPOINT (no code change). The non-gated autonomous frontier is EXHAUSTED: fires #189-194 worked every reachable defect axis (secret-redaction server+client+parity #189-191, cnf degraded-index #192, aid+aid-pair A11 curl-timeouts #193-194), and this session's fresh-axis re-scans all came back CLEAN — cnf AI-fallback is network-free (no A11 hang), the dashboard pages handle fetch failure with honest `✗`/stopPoll error states (N11/U15), the fish adapter's 127/no-false-success invariant is tested (E-series). Verified: full suite **711 / 38 suites GREEN** vs live prod + `/health` ok; ledgers reconcile with reality (#194 live-reconciliation: catalog 1069 live==bundled==claimed, #189 redaction LIVE). **Future fires = NO-OP VERIFY (re-run the suite vs live prod + report) until a HUMAN unblock lands** — do NOT manufacture churn (loop-driven-development: loops MUST terminate). Remaining frontier is 100% human-gated: O04 (register OAuth callbacks — top unblock) → K/#7 → I/J → N02. **Branch:** `master`.
+**Refreshed:** fire #198 — NEW ARC: bootstrap/provisioning QUALITY + deploy SPEED (the v2 control-plane arc converged #195–#197). The master prompt PIVOTED — `start.sh`→chezmoi (dot configs **and** system files), minimum-install + lazy-everywhere, a preinstalled toolchain (Node/Go/Rust already all `_preload: true`), cloudflared+WARP, file cleanup/de-dup, a Monday-02:00 auto-update cron. **⚠️ app.install.doctor is being RETIRED → absorbed by https://desktop.tools** — do NOT keep hardening the control-plane surface; the suite still verifies it until the migration lands. **#198 shipped** the Monday-02:00 `update-system` cron (`home/dot_config/crontab/config-user` → `update-system`) + cleaned the updater it runs: set-`u`-safe `${DEBUG:-}` (a bare `$DEBUG` under `set -euo pipefail` crashed the WHOLE update), dropped dead `updateNix`+`updatePort` (Nix+MacPorts removed fleet-wide per CLAUDE.md §7), added `updateMise`+`updateChezmoi` (keep runtimes + the install.doctor config itself current), `--noconfirm`/`-y` so unattended pacman/zypper never hang. TDD RED→GREEN (`test-update-cron.sh` 12/12). Verified: full suite **723 / 39 suites GREEN** vs live prod. **Branch:** `master`.
 Full spec: `MASTER-PROMPT.md` · resume pointer: `NEXT-STEPS.md` · matrix: `REQUIREMENTS.md`. Nothing here
 is inherited without evidence; every count below is from a live `scripts/test-all.sh` run.
 
@@ -10,7 +10,7 @@ The UNBLOCKED functional product has **converged**: the control plane, the full 
 dashboard, the honest-docs set, and a one-command test suite are built + live-verified at
 **https://app.install.doctor**. The remaining high-value requirements are **GATED on external action**
 (see § Gated). Loop fires now harden docs/tests/honesty until a gated dep is provisioned. Verified by
-**`scripts/test-all.sh` → 711 assertions / 38 suites GREEN (1 OS-skipped)** with the prod URL.
+**`scripts/test-all.sh` → 723 assertions / 39 suites GREEN (1 OS-skipped)** with the prod URL.
 
 ## ✅ Built + live-verified
 

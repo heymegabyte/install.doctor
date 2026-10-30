@@ -3,6 +3,7 @@ PATH=/usr/local/bin:/usr/local/sbin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
 */5 * * * *      command -v autorestic > /dev/null && autorestic -c "$HOME/.config/autorestic/autorestic-user.yml" --ci cron > /tmp/autorestic.log 2>&1
 * * * * *        command -v dagu-start-all > /dev/null && test -f "$HOME/.config/shell/exports.sh" && . "$HOME/.config/shell/exports.sh" && dagu-start-all
 30 4 * * *       command -v ghorg > /dev/null && test -f "$HOME/.config/shell/exports.sh" && . "$HOME/.config/shell/exports.sh" && ghorg reclone
+0 2 * * 1        command -v update-system > /dev/null && { test -f "$HOME/.config/shell/exports.sh" && . "$HOME/.config/shell/exports.sh"; update-system > /tmp/update-system.log 2>&1; }
 
 # * * * * * command to be executed
 # ┯ ┯ ┯ ┯ ┯
