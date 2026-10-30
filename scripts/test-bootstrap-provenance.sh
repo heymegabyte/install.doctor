@@ -82,6 +82,17 @@ else
   fail "src/provision.sh.tmpl has NO stale/do-not-regenerate warning — a gomplate regen would clobber the served provision.sh (#259)"
 fi
 
+# partials/basic-deps (the SHARED source inlined into provision.sh's ensureBasicDeps) must stay consistent
+# with the deployed's improvements: the detect_os SSOT (not an ad-hoc `[ -d /Applications ]` check) + HEADLESS
+# gating around the macOS CLT/Rosetta installs (CLAUDE.md §3 cross-platform parity + headless-safety). Drift
+# here = inconsistent duplicate code, and a regen would revert the deployed's improvements. #260.
+bdp="$ROOT/scripts/partials/basic-deps"
+if grep -qE 'detect_os' "$bdp" 2> /dev/null && grep -qE 'HEADLESS_INSTALL' "$bdp" 2> /dev/null; then
+  pass "partials/basic-deps uses detect_os + HEADLESS gating (consistent with the deployed ensureBasicDeps)"
+else
+  fail "partials/basic-deps is STALE vs the deployed ensureBasicDeps — missing detect_os SSOT and/or HEADLESS gating (inconsistent duplicate; a regen would revert the deployed's cross-platform + headless improvements)"
+fi
+
 # ROBUST clone-URL coverage (#186, verify-against-source-of-truth: a gate must cover the FULL tree, not a
 # hardcoded subset). The #181 checks above hardcoded scripts/provision.sh + the template, so they MISSED
 # `local/provision.sh` — an unreferenced older variant (940 vs 1213 lines) that still carried the legacy
