@@ -1,6 +1,6 @@
 # aid — CURRENT STATE (verified audit)
 
-**Refreshed:** fire #185 — canonical-org METADATA provenance (the user-facing sibling of the #181 clone-URL migration): the README **banner logo** + `package.json` `repository`/`bugs` URLs still pointed at the legacy `megabyte-labs` org (gitlab/github — unowned, resolves today only via transfer-redirects → a name-squat/rot risk + wrong destination for tooling). Migrated the README banner to the SAME `docs/logo-full.png` served from the canonical `heymegabyte` raw URL (verified live **200** image/png), `package.json` `repository.url` → `heymegabyte` github, `bugs.url` → `heymegabyte` github ISSUES (where issues actually live). TDD RED→GREEN — extended the X01 README gate `test-readme.sh` 10→15 (asserts the banner + package.json repository/bugs are canonical heymegabyte, the logo file exists in-repo, no legacy megabyte-labs). **test-all 661→666 / 36 suites GREEN.** DEFERRED (low-priority BACKLOG sweep): the nested `package.json` project.github/gitlab + overview-prose links + ~85 post-installx doc-COMMENT org links. Doc/test layer — no deploy. **Branch:** `master`.
+**Refreshed:** fire #186 — a genuine generative RE-SCAN (before declaring convergence) found REAL work the prior fires missed: `local/provision.sh:139` carried a **legacy-org clone-URL default** (`megabyte-labs/install.doctor` — the #181 name-squat supply-chain class) AND the #181 provenance gate had a **coverage gap** — it hardcoded `scripts/provision.sh` + the template, so it MISSED `local/provision.sh` (an unreferenced 940-line older variant). Fixed the clone URL → canonical `heymegabyte`, and made the gate ROBUST: `test-bootstrap-provenance.sh` now GLOBS every `provision.sh`/`.tmpl` variant (git ls-files, excl site/) → none may carry the legacy org (10→11, shellcheck-clean; verify-against-source-of-truth: a gate must cover the FULL tree, not a hardcoded subset). TDD RED→GREEN. **test-all 666→667 / 36 suites GREEN.** The re-scan ALSO surfaced user-facing stale-org links in `site/src/store.ts` (the landing-page "Fork"/github/discussions links → a user would fork the WRONG repo) + `site/docs/scripts/markdown.sh` (doc-gen URLs) — DEFERRED to the next slice (site data, Firebase-deploy-gated). `local/provision.sh` is an unreferenced older variant → flagged possibly-vestigial. **Branch:** `master`.
 Full spec: `MASTER-PROMPT.md` · resume pointer: `NEXT-STEPS.md` · matrix: `REQUIREMENTS.md`. Nothing here
 is inherited without evidence; every count below is from a live `scripts/test-all.sh` run.
 
@@ -10,7 +10,7 @@ The UNBLOCKED functional product has **converged**: the control plane, the full 
 dashboard, the honest-docs set, and a one-command test suite are built + live-verified at
 **https://app.install.doctor**. The remaining high-value requirements are **GATED on external action**
 (see § Gated). Loop fires now harden docs/tests/honesty until a gated dep is provisioned. Verified by
-**`scripts/test-all.sh` → 666 assertions / 36 suites GREEN (1 OS-skipped)** with the prod URL.
+**`scripts/test-all.sh` → 667 assertions / 36 suites GREEN (1 OS-skipped)** with the prod URL.
 
 ## ✅ Built + live-verified
 
