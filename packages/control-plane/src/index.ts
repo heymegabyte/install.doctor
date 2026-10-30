@@ -8,6 +8,7 @@ import { reserveBudget, DEFAULT_CEILING_MICROS } from './budget';
 // Better Auth — O-series sign-in (GitHub + Google), fire #102. See ./auth.ts.
 import { auth } from './auth';
 import { isAllowedAdminEmail } from './admin-allowlist';
+import { redactSecrets } from './redact';
 import { getMigrations } from 'better-auth/db/migration';
 // App Store catalog — generated from software.yml by the canonical validated parser
 // (scripts/gen-catalog.mjs → the cnf index builder; D01/D02/D13). Read-only, bundled at deploy;
@@ -1879,9 +1880,14 @@ app.post('/api/device/report', async (c) => {
     const id = 'hist_' + Date.now().toString(36) + '_' + randHex(6);
     const now = new Date().toISOString();
     const { kind, status, revision, summary, correlationId, parentRunId } = parsed.data;
+    // Q08/U02 — redact known secret shapes from the free-form summary/detail BEFORE persisting to the
+    // History table (defense-in-depth boundary backstop; a secret that slips into a reported event —
+    // `--token=…`, an error echoing an API key — never lands plaintext in D1 / the admin /history view).
+    const safeSummary = summary == null ? null : redactSecrets(summary);
+    const safeDetail = detailStr == null ? null : redactSecrets(detailStr);
     await db
       .prepare('INSERT INTO history (id, device_id, tenant, kind, status, revision, summary, detail, created_at, correlation_id, parent_run_id) VALUES (?,?,?,?,?,?,?,?,?,?,?)')
-      .bind(id, dev.deviceId, dev.tenant, kind, status, revision ?? null, summary ?? null, detailStr, now, correlationId ?? null, parentRunId ?? null)
+      .bind(id, dev.deviceId, dev.tenant, kind, status, revision ?? null, safeSummary, safeDetail, now, correlationId ?? null, parentRunId ?? null)
       .run();
     return c.json({ id, deviceId: dev.deviceId, tenant: dev.tenant, kind, status, createdAt: now, correlationId: correlationId ?? null, parentRunId: parentRunId ?? null }, 201);
   } catch (e) {

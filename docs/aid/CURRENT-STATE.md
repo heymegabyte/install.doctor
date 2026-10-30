@@ -1,6 +1,6 @@
 # aid — CURRENT STATE (verified audit)
 
-**Refreshed:** fire #188 — RECONCILED a WRONG ledger recommendation + removed confirmed-dead code. The #187 BACKLOG recommended DROPPING the GitLab footer link on a FALSE premise ("the project left gitlab"); verify-against-source-of-truth DISPROVED it — `gitlab.com/megabyte-labs/install.doctor` is a **LIVE mirror** (curl **200**: org page + raw README) and `site/src/store.ts` carries a deliberate **"Connect on GitLab"** content block inviting users there (only the GITHUB org moved to `heymegabyte`, NOT gitlab). So the 4 gitlab refs are CORRECT + KEPT; corrected the BACKLOG + 2 stale "the project left gitlab" gate comments and LOCKED IN the decision with a positive M-gate assertion (`test-landing-page.sh` 6→7: the deliberate gitlab mirror link must stay present) so a future fire can't re-make that wrong removal. Also removed the #186-flagged confirmed-dead `local/provision.sh` (unreferenced + undocumented 940-line stale variant; the provenance gate now globs 2 live variants, still 11). TDD RED→GREEN. **test-all 669→670 / 36 suites GREEN.** Doc/test + a dead-file removal — no deploy (the gitlab reconciliation is correctly a NO-OP on the served site). **Branch:** `master`.
+**Refreshed:** fire #189 — SHIPPED a real security slice (Q08/U02): device-reported `summary`/`detail` are now SECRET-REDACTED before they persist to the D1 `history` table. A re-scan found the report→History path stored them VERBATIM (grep found ZERO redaction anywhere), so a secret that slipped into a reported event (`aid exec deploy --token=ghp_…`, an error echoing an API key) landed in D1 **plaintext** — readable via `/api/device/history` + the admin `/history` view. Added `packages/control-plane/src/redact.ts` (`redactSecrets` — high-confidence credential shapes: bearer/AKIA/ghp_/github_pat_/sk-/xox/PEM + explicit `key=value` assignments; biased to a safe failure; idempotent) wired into `POST /api/device/report` (scrubs summary + detail before the INSERT). TDD RED→GREEN: unit `test-redact.sh` **19/19** + an END-TO-END integration assertion in `test-control-plane.sh` (report a ghp_ token → GET history → `[REDACTED]`). DEPLOYED (Version `6fc6c219`) + LIVE-VERIFIED: a reported `--token=ghp_…` came back `--token=[REDACTED]`, the secret GONE from D1. Honest: this is the defense-in-depth BOUNDARY backstop; the primary source-suppression (the U02 terminal-output recorder) stays ⬜. **test-all 670→690 / 37 suites GREEN.** **Branch:** `master`.
 Full spec: `MASTER-PROMPT.md` · resume pointer: `NEXT-STEPS.md` · matrix: `REQUIREMENTS.md`. Nothing here
 is inherited without evidence; every count below is from a live `scripts/test-all.sh` run.
 
@@ -10,7 +10,7 @@ The UNBLOCKED functional product has **converged**: the control plane, the full 
 dashboard, the honest-docs set, and a one-command test suite are built + live-verified at
 **https://app.install.doctor**. The remaining high-value requirements are **GATED on external action**
 (see § Gated). Loop fires now harden docs/tests/honesty until a gated dep is provisioned. Verified by
-**`scripts/test-all.sh` → 670 assertions / 36 suites GREEN (1 OS-skipped)** with the prod URL.
+**`scripts/test-all.sh` → 690 assertions / 37 suites GREEN (1 OS-skipped)** with the prod URL.
 
 ## ✅ Built + live-verified
 

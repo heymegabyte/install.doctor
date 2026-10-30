@@ -505,6 +505,21 @@ JSON
     rvb="$(curl -s -o /dev/null -w '%{http_code}' -X POST -H "authorization: Bearer $DADM" "$u/api/devices/dev_nonexistent/revoke" 2>/dev/null || echo 000)"
     [ "$rvb" = 404 ] && pass "revoke (unknown deviceId) -> 404" || fail "revoke bogus -> $rvb (want 404)"
 
+    # fire #189 — Q08/U02 secret-redaction BOUNDARY backstop: a device-reported summary/detail is scrubbed of
+    # known credential shapes BEFORE it is persisted to the History table (redactSecrets, src/redact.ts; unit
+    # suite test-redact.sh). Enroll a throwaway device, report an event carrying a ghp_ token + an
+    # "Authorization: Bearer" in BOTH summary + detail, read it back via /api/device/history, and assert the
+    # secret is GONE + [REDACTED] present. End-to-end proof the handler actually invokes the redactor (flips
+    # RED the moment someone removes the redactSecrets call from the report path). Cleans up its own device.
+    renr="$(curl -s -X POST -H "authorization: Bearer $DADM" -H 'content-type: application/json' -d '{"tenant":"_redacttest","label":"redact-probe"}' "$u/api/devices/enroll" 2>/dev/null)"
+    rdid="$(printf '%s' "$renr" | jq -r '.deviceId // empty')"; rdtok="$(printf '%s' "$renr" | jq -r '.token // empty')"
+    RSECRET='ghp_ABCDEF1234567890GHIJ1234'
+    rbody="$(jq -nc --arg s "deploy --token=$RSECRET" --arg t "$RSECRET" '{kind:"run",status:"success",summary:$s,detail:{cmd:("push --token="+$t),note:("Authorization: Bearer "+$t)}}')"
+    curl -s -o /dev/null -X POST -H "authorization: Bearer $rdtok" -H 'content-type: application/json' -d "$rbody" "$u/api/device/report" 2>/dev/null
+    rnew="$(curl -s -H "authorization: Bearer $rdtok" "$u/api/device/history" 2>/dev/null | jq -c '.items[0] // empty')"
+    { [ -n "$rnew" ] && ! printf '%s' "$rnew" | grep -qF "$RSECRET" && printf '%s' "$rnew" | grep -qF '[REDACTED]'; } && pass "device/report -> summary+detail SECRET-REDACTED in History ([REDACTED]; ghp_/Bearer scrubbed before D1 persist; Q08/U02 #189)" || fail "report redaction -> $(printf '%s' "$rnew" | head -c 180)"
+    [ -n "$rdid" ] && curl -s -o /dev/null -X POST -H "authorization: Bearer $DADM" "$u/api/devices/$rdid/revoke" 2>/dev/null
+
     # device-SCOPED environment access (fire #17) — tenant resolved FROM the token (no tenant in URL)
     enr2="$(curl -s -X POST -H "authorization: Bearer $DADM" -H 'content-type: application/json' -d '{"tenant":"_default","label":"scoped-probe"}' "$u/api/devices/enroll" 2>/dev/null)"
     did2="$(printf '%s' "$enr2" | jq -r '.deviceId // empty')"; dtok2="$(printf '%s' "$enr2" | jq -r '.token // empty')"
