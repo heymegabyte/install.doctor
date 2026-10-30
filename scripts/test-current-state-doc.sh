@@ -139,5 +139,25 @@ else
   fail ".claude/run-the-loop/ has no README pointer to the docs/aid/ loop state — the prompt says to read it FIRST but it is empty"
 fi
 
+# Doc<->repo reconciliation (#234) — the recurring drift class (stale SSOT claim contradicted by the repo:
+# #217/#218 crons, #230 local/, #233 aid-core) is now codified as regression locks. #217/#218 guarded their
+# finds; these lock the two that were un-guarded, so a future "cleanup" can't delete a file the ledgers rely
+# on. Positive-existence checks (not string-forbids) to avoid the self-referential-guard trap (the corrective
+# prose legitimately QUOTES the wrong claim to refute it).
+# (A #233) NEXT-STEPS says "build ON packages/aid-core ... reuse, never duplicate" + MASTER-PROMPT was
+# corrected from "aid-core is FALSE for this repo" — assert it IS a real tested package.
+if [ -d "$ROOT/packages/aid-core" ] && [ -f "$ROOT/packages/aid-core/test/core.test.mjs" ]; then
+  pass "packages/aid-core is a real tested package — the ledgers' 'reuse aid-core, never duplicate' reminder resolves (#233 lock)"
+else
+  fail "packages/aid-core MISSING its package/test — the ledgers say reuse it + MASTER-PROMPT says it exists; a deletion regresses #233 (or re-validate the claim)"
+fi
+# (B #230) BACKLOG was corrected from "remove the whole local/ dir if dead" — local/yarn.lock is a LIVE
+# yarn.lock cache the install+CI Taskfiles move/restore; assert it exists + stays Taskfile-referenced.
+if [ -f "$ROOT/local/yarn.lock" ] && grep -rqF 'local/yarn.lock' "$ROOT/.config/taskfiles" 2> /dev/null; then
+  pass "local/yarn.lock exists + is a live Taskfile-referenced cache (NOT bulk-removable — #230 lock)"
+else
+  fail "local/yarn.lock MISSING or no longer Taskfile-referenced — it is a LIVE install+CI yarn.lock cache; deleting it regresses #230 (or re-validate)"
+fi
+
 say "CURRENT-STATE: $P passed, $F failed"
 [ "$F" -eq 0 ]
