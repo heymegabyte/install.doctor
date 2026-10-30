@@ -82,6 +82,28 @@ else
   fail "src/provision.sh.tmpl has NO stale/do-not-regenerate warning — a gomplate regen would clobber the served provision.sh (#259)"
 fi
 
+# provision.sh OS detection is a SOURCE-ELSE-INLINE pattern (#266, verify-against-source + the prompt's "no
+# duplicate code"): it SOURCES the detect_os SSOT `scripts/lib/detect_os.sh` when present (cloned-repo → consumes
+# the SSOT, CLAUDE.md §9 #2), ELSE defines an INLINE fallback `detect_os()`. That inline copy is LOAD-BEARING,
+# NOT removable duplicate code: on a fresh `curl|bash` box ONLY provision.sh exists (the user never fetched
+# scripts/lib/), so the `[ -f …/lib/detect_os.sh ]` test is FALSE and the inline fallback is the ONLY detect_os.
+# A naive "dedup" that drops the inline branch would break curl|bash provisioning (detect_os undefined → every
+# call fails). Lock BOTH halves. (The residual ad-hoc OS checks in the secondary entrypoints homebrew.sh /
+# cloudflared-ssh.sh are the macOS branch of a PACKAGE-MANAGER chain — pacman/zypper/apk/macOS/cygwin/freebsd —
+# that detect_os's macos|ubuntu|… can't express, so they are CORRECT self-contained idioms, NOT migration drift:
+# #266 verified, do NOT churn them.) Non-vacuity: drop the source line OR the inline detect_os() → a half fails.
+PROVOS="$ROOT/scripts/provision.sh"
+ifl="$(grep -nE 'if \[ -f "\$SCRIPT_DIR/lib/detect_os\.sh" \]; then' "$PROVOS" 2> /dev/null | head -1 | cut -d: -f1)"
+srcl="$(grep -nE 'source "\$SCRIPT_DIR/lib/detect_os\.sh"' "$PROVOS" 2> /dev/null | head -1 | cut -d: -f1)"
+elsel="$(awk -v s="${ifl:-0}" 'NR>s && /^else$/{print NR; exit}' "$PROVOS" 2> /dev/null)"
+fbl="$(awk -v s="${elsel:-0}" 'NR>s && /detect_os\(\) \{/{print NR; exit}' "$PROVOS" 2> /dev/null)"
+{ [ -n "$ifl" ] && [ -n "$srcl" ]; } \
+  && pass "provision.sh SOURCES the detect_os SSOT (scripts/lib/detect_os.sh) when present — consumes it in a cloned repo (CLAUDE.md §9 #2, no duplicate)" \
+  || fail "provision.sh no longer sources the detect_os SSOT — the #2 consume-the-SSOT state regressed"
+{ [ -n "$elsel" ] && [ -n "$fbl" ]; } \
+  && pass "provision.sh keeps the INLINE detect_os() fallback in the else branch (L$fbl) — LOAD-BEARING for curl|bash (a fresh box has no scripts/lib/; do NOT 'dedup' it away)" \
+  || fail "provision.sh LOST its inline detect_os() fallback — a fresh curl|bash box (no scripts/lib/detect_os.sh) would have detect_os UNDEFINED; restore the else-branch fallback"
+
 # partials/basic-deps (the SHARED source inlined into provision.sh's ensureBasicDeps) must stay consistent
 # with the deployed's improvements: the detect_os SSOT (not an ad-hoc `[ -d /Applications ]` check) + HEADLESS
 # gating around the macOS CLT/Rosetta installs (CLAUDE.md §3 cross-platform parity + headless-safety). Drift
