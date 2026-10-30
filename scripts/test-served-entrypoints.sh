@@ -45,5 +45,18 @@ else
   done <<< "$pairs"
 fi
 
+# #206 — the repo-root start.sh is the LOCAL Task-runner bootstrap (package.json `bash start.sh && task …`),
+# NOT the deployed curl entrypoint: /start serves scripts/provision.sh (asserted above). start.sh's header
+# once falsely self-claimed the curl-/start role → a maintainer would edit the WRONG file (the #204
+# entrypoint-confusion class). Lock it: start.sh must NOT claim to BE the curl-piped /start entrypoint.
+SS="$ROOT/start.sh"
+if [ ! -f "$SS" ]; then
+  fail "repo-root start.sh missing ($SS)"
+elif grep -qE 'initial entry point when running' "$SS"; then
+  fail "start.sh falsely self-claims the curl-/start entrypoint role — but /start serves scripts/provision.sh (edit provision.sh for the deployed bootstrap)"
+else
+  pass "start.sh does not falsely claim the curl-/start role (the deployed /start is scripts/provision.sh; start.sh is the local Task bootstrap)"
+fi
+
 say "served-entrypoints: $P passed, $F failed"
 [ "$F" -eq 0 ]

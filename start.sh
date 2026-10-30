@@ -3,7 +3,10 @@
 # @file start.sh
 # @brief Bootstrap script that ensures Task is installed and up-to-date, then runs `task start`.
 # @description
-#   This script is the initial entry point when running `bash <(curl -sSL https://install.doctor/start)`.
+#   This is the LOCAL Task-runner bootstrap (invoked by the npm/`task` scripts in `package.json`, e.g.
+#   `bash start.sh && task <x>`). NOTE: the DEPLOYED `bash <(curl -sSL https://install.doctor/start)`
+#   entrypoint serves `scripts/provision.sh` (the self-contained provisioner), NOT this file — edit
+#   `scripts/provision.sh` to change the deployed bootstrap.
 #   It performs the following steps:
 #
 #   1. **Environment Setup**: Configures git, PATH, and SSH known hosts
