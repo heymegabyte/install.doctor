@@ -20,7 +20,7 @@ if [ -d /Applications ] && [ -d /System ]; then
     wget -q "$PKG_URL" -O /tmp/wazuh-agent.pkg &> /dev/null
     gum log -sl info 'Setting Wazuh launch parameters in /tmp/wazuh_envs'
     # https://documentation.wazuh.com/current/user-manual/agent/deployment-variables/deployment-variables-macos.html
-    echo "WAZUH_MANAGER="$(get-secret WAZUH_MANAGER)" && WAZUH_REGISTRATION_PASSWORD="$(get-secret WAZUH_REGISTRATION_PASSWORD)"" > /tmp/wazuh_envs
+    echo "WAZUH_MANAGER=$(get-secret WAZUH_MANAGER) && WAZUH_REGISTRATION_PASSWORD=$(get-secret WAZUH_REGISTRATION_PASSWORD)" > /tmp/wazuh_envs
     gum log -sl info 'Installing the Wazuh agent pkg'
     sudo installer -pkg /tmp/wazuh-agent.pkg -target /
     sudo chmod 755 /Library/Ossec
@@ -58,7 +58,7 @@ else
         echo "gpgcheck=1" | sudo tee -a /etc/zypp/repos.d/wazuh.repo
         echo "gpgkey=https://packages.wazuh.com/key/GPG-KEY-WAZUH" | sudo tee -a /etc/zypp/repos.d/wazuh.repo
         echo "enabled=1" | sudo tee -a /etc/zypp/repos.d/wazuh.repo
-        echo "name=EL-$releasever - Wazuh" | sudo tee -a /etc/zypp/repos.d/wazuh.repo
+        echo "name=EL-\$releasever - Wazuh" | sudo tee -a /etc/zypp/repos.d/wazuh.repo
         echo "baseurl=https://packages.wazuh.com/4.x/yum/" | sudo tee -a /etc/zypp/repos.d/wazuh.repo
         echo "protect=1" | sudo tee -a /etc/zypp/repos.d/wazuh.repo
         gum log -sl info 'Importing GPG-KEY-WAZUH'
