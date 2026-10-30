@@ -56,7 +56,7 @@ Every `software.yml` entry carries `tier: essential | workstation | server | coo
 `{{ if eq .chezmoi.hostname "coolify-prod" }}...{{ end }}` blocks render host-specific values. Hostnames listed in §2 above drive the per-host config matrix.
 
 ### post-installx hooks
-`home/dot_local/bin/post-installx/post-<tool>.sh` runs after `installx` installs `<tool>`. Each script is platform-aware (early-exit on wrong OS). Examples: `post-coolify.sh`, `post-proxmox.sh`, `post-zsh-bootstrap.sh`, `post-tailscale.sh`.
+`home/dot_local/bin/post-installx/post-<tool>.sh` runs after `installx` installs `<tool>`. Each script is platform-aware (early-exit on wrong OS). Examples (existing): `post-cloudflared.sh`, `post-zsh-bootstrap.sh`, `post-tailscale.sh`, `post-netdata.sh` — note `post-coolify.sh`/`post-proxmox.sh` are PLANNED (§9 #7/#8), not yet built.
 
 ### Fail-safe sudo
 `scripts/provision.sh:setupPasswordlessSudo` validates the password before writing `/etc/sudoers`. `home/.chezmoitemplates/universal/profile-inline` wraps `sudo` so chezmoi scripts skip-with-warning instead of blocking on a `Password:` prompt mid-run.
