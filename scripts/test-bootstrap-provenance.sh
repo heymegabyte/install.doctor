@@ -143,6 +143,30 @@ grep -qE '\[ -n "\$USER" \]' "$hb" 2> /dev/null || hbbad="$hbbad unguarded-opt-h
   && pass "partials/homebrew ensurePackageManagerHomebrew: echo-pipe on both install paths + USER-guarded /opt/homebrew chown (reconciled to the deployed, no interactive-hang / empty-USER chown)" \
   || fail "partials/homebrew still drifted from the deployed ensurePackageManagerHomebrew:$hbbad"
 
+# CHEZMOISCRIPT headless-safety (#264, verify-against-source): the run_* chezmoiscript scan found they are NOT
+# the partial-drift class — their ad-hoc `[ -d /Applications ] && [ -d /System ]` macOS check is the CORRECT
+# self-contained idiom (detect_os is NOT in a chezmoiscript's scope; chezmoi renders per-host), and their bare
+# `$DEBUG`/`$DEBUG_MODE` is a harmless pervasive idiom (the universal/profile* preambles set NO `set -u`, unlike
+# the post-installx hooks that A10 covers). So NEITHER is drift — do NOT "fix" them (fabricated churn). The ONE
+# genuinely-lockable invariant: the interactive Full-Disk-Access System-Settings pane-open in run_before_01-prepare
+# MUST stay HEADLESS-gated (the #262 class on the chezmoiscript surface) — else a headless Proxmox/Coolify/Qubes
+# macOS provision opens a GUI pane it can't display. (2 uncertain host-gated HEADLESS candidates it surfaced —
+# xcode-select --install [02-homebrew] + the foreground osascript default-browser [20-post-install] — are BACKLOG,
+# not force-fixed in-loop.) Non-vacuity: the only HEADLESS guard between the enclosing fn header and the open is
+# the FDA early-return; remove it and this fails.
+pf="$ROOT/home/.chezmoiscripts/universal/run_before_01-prepare.sh.tmpl"
+ol="$(grep -n 'open "x-apple.systempreferences' "$pf" 2> /dev/null | head -1 | cut -d: -f1)"
+if [ -z "$ol" ]; then
+  fail "run_before_01-prepare: the FDA System-Settings pane-open was not found (code changed — re-verify HEADLESS gating)"
+else
+  fs="$(awk -v o="$ol" 'NR<=o && /^[a-zA-Z_][a-zA-Z0-9_]*\(\)[ ]*\{/{ln=NR} END{print ln}' "$pf")"
+  if awk -v a="$fs" -v b="$ol" 'NR>a && NR<b && /HEADLESS_INSTALL/{g=1} END{exit g?0:1}' "$pf"; then
+    pass "run_before_01-prepare FDA pane-open (L$ol) is HEADLESS-gated inside its fn (L$fs) — an interactive macOS op can't hang a headless provision (#262 class on the chezmoiscript surface)"
+  else
+    fail "run_before_01-prepare FDA pane-open (L$ol) has NO HEADLESS_INSTALL guard in its enclosing fn (L$fs) — a headless macOS provision would open a GUI pane it can't display"
+  fi
+fi
+
 # ROBUST clone-URL coverage (#186, verify-against-source-of-truth: a gate must cover the FULL tree, not a
 # hardcoded subset). The #181 checks above hardcoded scripts/provision.sh + the template, so they MISSED
 # `local/provision.sh` — an unreferenced older variant (940 vs 1213 lines) that still carried the legacy
