@@ -10,7 +10,8 @@ handleRequiredReboot() {
     logg info "NO_RESTART or HEADLESS_INSTALL is set — skipping automatic reboot"
     return 0
   fi
-  if [ "$(detect_os 2>/dev/null || echo "")" = "macos" ] || [ -d /Applications ] && [ -d /System ]; then
+
+  if [ "$(detect_os)" = "macos" ]; then
     ### macOS
     if ! defaults read /Library/Updates/index.plist InstallAtLogout 2>&1 | grep 'does not exist' > /dev/null; then
       logg info 'There appears to be an update that requires a reboot'

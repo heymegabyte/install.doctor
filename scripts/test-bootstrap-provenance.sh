@@ -93,6 +93,21 @@ else
   fail "partials/basic-deps is STALE vs the deployed ensureBasicDeps — missing detect_os SSOT and/or HEADLESS gating (inconsistent duplicate; a regen would revert the deployed's cross-platform + headless improvements)"
 fi
 
+# More partials drifted from the deployed's detect_os SSOT (same class as basic-deps #260). Lock the ones
+# reconciled #261: import-cloudflare-certificate + reboot must use detect_os, not the ad-hoc
+# `[ -d /Applications ] && [ -d /System ]` check (which also carried an SC2181 `$?` test + a ||/&& precedence
+# bug). The 3 still-drifted fns (printFullDiskAccessNotice, ensureFullDiskAccess, ensurePackageManagerHomebrew)
+# are mapped for follow-up / the focused-session. #261.
+pdrift=""
+for pf in import-cloudflare-certificate reboot; do
+  f="$ROOT/scripts/partials/$pf"
+  grep -qE 'detect_os' "$f" 2> /dev/null || pdrift="$pdrift $pf(no-detect_os)"
+  grep -qE '\[ -d /Applications \] && \[ -d /System \]' "$f" 2> /dev/null && pdrift="$pdrift $pf(ad-hoc-macos-check)"
+done
+[ -z "$pdrift" ] \
+  && pass "partials import-cloudflare-certificate + reboot use the detect_os SSOT (reconciled to the deployed, no ad-hoc macOS check)" \
+  || fail "partial(s) still drifted from the deployed detect_os form:$pdrift"
+
 # ROBUST clone-URL coverage (#186, verify-against-source-of-truth: a gate must cover the FULL tree, not a
 # hardcoded subset). The #181 checks above hardcoded scripts/provision.sh + the template, so they MISSED
 # `local/provision.sh` — an unreferenced older variant (940 vs 1213 lines) that still carried the legacy
