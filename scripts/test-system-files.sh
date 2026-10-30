@@ -58,5 +58,28 @@ if [ -f "$SRC" ]; then
   fi
 fi
 
+# 7. OTHER chezmoi→/etc appliers — the prompt says "apply system files" (PLURAL), not only docker.
+#    run_after_01-pre-install copies chezmoi-managed sources INTO /etc: shell/exports.sh→/etc/zshenv (shell
+#    env system-wide), fontconfig/fonts.conf→/etc/fonts/local.conf, .ssh/system/sshd_config→/etc/ssh/. Each
+#    needs the cp-from-chezmoi-source→/etc line present AND a non-dangling source (a missing source ⇒ cp
+#    writes nothing — the /brew class #204). This extends #205's coverage from docker-only to the full set.
+PRE="$ROOT/home/.chezmoiscripts/universal/run_after_01-pre-install.sh.tmpl"
+if has "$PRE" '/etc/zshenv' && [ -f "$ROOT/home/dot_config/shell/exports.sh.tmpl" ]; then
+  pass "chezmoi→/etc: shell/exports.sh → /etc/zshenv (applier + source present)"
+else
+  fail "zshenv applier or its chezmoi source (dot_config/shell/exports.sh.tmpl) missing"
+fi
+if has "$PRE" '/etc/fonts/local.conf' && [ -f "$ROOT/home/dot_config/fontconfig/fonts.conf" ]; then
+  pass "chezmoi→/etc: fontconfig/fonts.conf → /etc/fonts/local.conf (applier + source present)"
+else
+  fail "fonts applier or its chezmoi source (dot_config/fontconfig/fonts.conf) missing"
+fi
+sshsrc="$(ls "$ROOT"/home/*dot_ssh/system/sshd_config* 2> /dev/null | head -1)"
+if has "$PRE" '/etc/ssh/sshd_config' && [ -n "$sshsrc" ]; then
+  pass "chezmoi→/etc: .ssh/system/sshd_config → /etc/ssh/sshd_config (applier + source present)"
+else
+  fail "ssh sshd_config applier or its chezmoi source (home/*dot_ssh/system/sshd_config*) missing"
+fi
+
 say "system-files: $P passed, $F failed"
 [ "$F" -eq 0 ]
