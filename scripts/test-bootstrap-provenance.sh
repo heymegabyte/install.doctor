@@ -115,6 +115,20 @@ else
   fail "partials/basic-deps is STALE vs the deployed ensureBasicDeps — missing detect_os SSOT and/or HEADLESS gating (inconsistent duplicate; a regen would revert the deployed's cross-platform + headless improvements)"
 fi
 
+# basic-deps is THE primary prerequisites installer (inlined into the curl|bash /start entrypoint, runs FIRST),
+# so its Alpine apk branch is LOAD-BEARING: without it a fresh `curl|bash` on Alpine (a supported fleet role,
+# CLAUDE.md §2) can't install curl/git/build-base → provisioning dies at step 1. The #270 SYSTEMATIC Alpine
+# sweep confirmed the critical path is Alpine-covered (basic-deps apk + #267 cron `apk upgrade` + #268 cnf apk +
+# #269 WARP `update-ca-certificates`) — lock the primary bootstrap path so it can't regress. (The one remaining
+# Alpine gap — run_before_04's secondary `$packages` installer has no alpine branch — is a LOWER-impact BACKLOG
+# item: core deps are basic-deps' job, and the rest of the sweep's hits were false positives: display/config,
+# the Qubes path [Fedora/Debian templates, not Alpine], and the legacy ansible layer.)
+if grep -qE 'apk add .*build-base.*curl.*git' "$bdp" 2> /dev/null; then
+  pass "partials/basic-deps has the Alpine apk branch (apk add build-base curl expect git … — the primary curl|bash prerequisites installer bootstraps Alpine)"
+else
+  fail "partials/basic-deps LOST its Alpine apk branch — a fresh curl|bash on Alpine (supported fleet role) can't install core prerequisites; restore 'elif command -v apk' → apk add build-base curl ..."
+fi
+
 # More partials drifted from the deployed's detect_os SSOT (same class as basic-deps #260). Lock the ones
 # reconciled #261: import-cloudflare-certificate + reboot must use detect_os, not the ad-hoc
 # `[ -d /Applications ] && [ -d /System ]` check (which also carried an SC2181 `$?` test + a ||/&& precedence
