@@ -1,6 +1,6 @@
 # aid — CURRENT STATE (verified audit)
 
-**Refreshed:** fire #187 — the #186 re-scan's deferred slice: the landing-page's user-facing **GitHub links pointed at the legacy `megabyte-labs` org** — a visitor clicking "Fork" would **fork the WRONG repo** (`site/src/store.ts` Fork/github/discussions × 6) + `site/docs/scripts/markdown.sh` (the `generate-plugin-docs` script) emitted megabyte-labs github/script locations into generated docs. Migrated all `github.com/megabyte-labs/install.doctor` → canonical `heymegabyte` (verified live **200**), scoped to github so the 2 `gitlab` social refs stay untouched (the gitlab footer link is a separate product decision — the project left gitlab; tracked). TDD RED→GREEN — extended the M-series gate `test-landing-page.sh` 4→6 (store.ts + markdown.sh carry no legacy megabyte-labs GitHub link). **test-all 667→669 / 36 suites GREEN.** Firebase-deploy-gated (served site data); the CI build-verifies at deploy. DEFERRED: drop the GitLab footer link (`capacitor-site-footer.tsx` renders `social.gitlab`) — a UX change. **Branch:** `master`.
+**Refreshed:** fire #188 — RECONCILED a WRONG ledger recommendation + removed confirmed-dead code. The #187 BACKLOG recommended DROPPING the GitLab footer link on a FALSE premise ("the project left gitlab"); verify-against-source-of-truth DISPROVED it — `gitlab.com/megabyte-labs/install.doctor` is a **LIVE mirror** (curl **200**: org page + raw README) and `site/src/store.ts` carries a deliberate **"Connect on GitLab"** content block inviting users there (only the GITHUB org moved to `heymegabyte`, NOT gitlab). So the 4 gitlab refs are CORRECT + KEPT; corrected the BACKLOG + 2 stale "the project left gitlab" gate comments and LOCKED IN the decision with a positive M-gate assertion (`test-landing-page.sh` 6→7: the deliberate gitlab mirror link must stay present) so a future fire can't re-make that wrong removal. Also removed the #186-flagged confirmed-dead `local/provision.sh` (unreferenced + undocumented 940-line stale variant; the provenance gate now globs 2 live variants, still 11). TDD RED→GREEN. **test-all 669→670 / 36 suites GREEN.** Doc/test + a dead-file removal — no deploy (the gitlab reconciliation is correctly a NO-OP on the served site). **Branch:** `master`.
 Full spec: `MASTER-PROMPT.md` · resume pointer: `NEXT-STEPS.md` · matrix: `REQUIREMENTS.md`. Nothing here
 is inherited without evidence; every count below is from a live `scripts/test-all.sh` run.
 
@@ -10,7 +10,7 @@ The UNBLOCKED functional product has **converged**: the control plane, the full 
 dashboard, the honest-docs set, and a one-command test suite are built + live-verified at
 **https://app.install.doctor**. The remaining high-value requirements are **GATED on external action**
 (see § Gated). Loop fires now harden docs/tests/honesty until a gated dep is provisioned. Verified by
-**`scripts/test-all.sh` → 669 assertions / 36 suites GREEN (1 OS-skipped)** with the prod URL.
+**`scripts/test-all.sh` → 670 assertions / 36 suites GREEN (1 OS-skipped)** with the prod URL.
 
 ## ✅ Built + live-verified
 

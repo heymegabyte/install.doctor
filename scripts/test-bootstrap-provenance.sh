@@ -50,7 +50,9 @@ done
 # ROBUST clone-URL coverage (#186, verify-against-source-of-truth: a gate must cover the FULL tree, not a
 # hardcoded subset). The #181 checks above hardcoded scripts/provision.sh + the template, so they MISSED
 # `local/provision.sh` — an unreferenced older variant (940 vs 1213 lines) that still carried the legacy
-# clone URL. Glob EVERY provision.sh/.tmpl variant (git ls-files, excl site/) → NONE may be on megabyte-labs.
+# clone URL. That dead variant was REMOVED #188 (drift-detection: unreferenced + undocumented); this glob
+# stays as the durable guard so ANY future provision.sh/.tmpl variant (git ls-files, excl site/) that drifts
+# to megabyte-labs is caught — the coverage no longer depends on which variants happen to exist today.
 prov_legacy=0
 prov_n=0
 while IFS= read -r pf; do
@@ -58,7 +60,7 @@ while IFS= read -r pf; do
   prov_n=$((prov_n + 1))
   grep -q 'megabyte-labs/install\.doctor' "$ROOT/$pf" && { prov_legacy=$((prov_legacy + 1)); fail "provision variant $pf carries the LEGACY megabyte-labs clone URL"; }
 done < <(git -C "$ROOT" ls-files | grep -E '(^|/)provision\.sh(\.tmpl)?$' | grep -vE '^site/')
-[ "$prov_legacy" -eq 0 ] && pass "no provision.sh variant carries a legacy megabyte-labs clone URL ($prov_n variants globbed, incl local/)"
+[ "$prov_legacy" -eq 0 ] && pass "no provision.sh variant carries a legacy megabyte-labs clone URL ($prov_n variants globbed)"
 
 # The /start firebase redirect must serve from the canonical org AND target a file that EXISTS (no dangling redirect).
 FB="$ROOT/site/firebase.json"

@@ -55,7 +55,8 @@ fi
 # 3. Canonical-org provenance (#187): the SERVED user-facing GitHub links (Fork/github/discussions in
 # store.ts + the doc-gen URLs in markdown.sh) must point at the canonical heymegabyte org — a legacy
 # github.com/megabyte-labs/install.doctor Fork link makes a visitor FORK THE WRONG REPO. (The `gitlab`
-# social key is a separate product decision — the project left gitlab; tracked in BACKLOG.)
+# social/CTA links are DELIBERATE + LIVE — gitlab.com/megabyte-labs/install.doctor resolves 200; only the
+# GITHUB org moved to heymegabyte, NOT the GitLab mirror. Asserted PRESENT below (#4), never removed.)
 grep -q 'github\.com/megabyte-labs/install\.doctor' "$STORE" \
   && fail "store.ts has a LEGACY github.com/megabyte-labs/install.doctor user-facing link (wrong repo)" \
   || pass "store.ts: no legacy megabyte-labs GitHub link (Fork/github/discussions canonical)"
@@ -65,6 +66,16 @@ if [ -f "$MDGEN" ]; then
     && fail "markdown.sh (generate-plugin-docs) emits legacy megabyte-labs GitHub URLs into generated docs" \
     || pass "markdown.sh: no legacy megabyte-labs GitHub URLs"
 fi
+
+# 4. DELIBERATE GitLab mirror (#188): the project KEEPS a live GitLab presence — the "Connect on GitLab"
+# content block (store.ts) explicitly invites users there, and gitlab.com/megabyte-labs/install.doctor
+# verified 200 (org page + raw README). The #187 BACKLOG wrongly recommended DROPPING this link on a
+# FALSE "the project left gitlab" premise — reconciled #188. Assert the social link is PRESENT so a
+# future fire can't re-make that wrong removal (the GitHub org moving to heymegabyte does NOT move the
+# GitLab mirror — gitlab stays megabyte-labs).
+grep -qF "gitlab: 'https://gitlab.com/megabyte-labs/install.doctor'" "$STORE" \
+  && pass "store.ts: deliberate live GitLab mirror link present (kept by design — the project did NOT leave gitlab)" \
+  || fail "store.ts: the deliberate GitLab mirror social link was removed (it is a live 200 mirror — keep it; see #188)"
 
 say "landing-page: $P passed, $F failed"
 [ "$F" -eq 0 ]
