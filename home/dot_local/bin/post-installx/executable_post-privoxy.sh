@@ -39,7 +39,7 @@ if command -v privoxy > /dev/null; then
       sudo add-usergroup "$USER" privoxy
     fi
     gum log -sl info 'Applying proper permissions to Privoxy configuration'
-    sudo chown privoxy:privoxy "$PRIVOXY_CONFIG" 2> /dev/null || sudo chown privoxy:$(id -g -n) "$PRIVOXY_CONFIG"
+    sudo chown privoxy:privoxy "$PRIVOXY_CONFIG" 2> /dev/null || sudo chown "privoxy:$(id -g -n)" "$PRIVOXY_CONFIG"
     if [ -d "${HOMEBREW_PREFIX:-/opt/homebrew}/etc/privoxy" ] && [ ! -f "${HOMEBREW_PREFIX:-/opt/homebrew}/etc/privoxy/config" ]; then
       gum log -sl info "Symlinking $PRIVOXY_CONFIG to ${HOMEBREW_PREFIX:-/opt/homebrew}/etc/privoxy/config"
       ln -s "$PRIVOXY_CONFIG" "${HOMEBREW_PREFIX:-/opt/homebrew}/etc/privoxy/config"
