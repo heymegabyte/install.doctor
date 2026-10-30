@@ -65,7 +65,7 @@ postReport() {
   else
     body="{\"kind\":\"${kind}\",\"status\":\"${status}\",\"correlationId\":\"${AID_RUN_ID}\"}"
   fi
-  curl -fsS -X POST -H "authorization: Bearer ${token}" -H 'content-type: application/json' -d "$body" "${u}/api/device/report" 2>/dev/null
+  curl -fsS --connect-timeout 5 --max-time 20 -X POST -H "authorization: Bearer ${token}" -H 'content-type: application/json' -d "$body" "${u}/api/device/report" 2>/dev/null
 }
 
 cmdStatus() {
@@ -78,7 +78,7 @@ cmdStatus() {
   fi
   # Identity + GRANTED scope first (/api/devices/me is UNSCOPED — resolves for any valid token;
   # 401 = revoked/unknown). Surfacing the scope here closes the client side of the scope loop (#53/#54).
-  me="$(curl -sS -w $'\n%{http_code}' -H "authorization: Bearer ${token}" "$u/api/devices/me" 2>/dev/null || true)"
+  me="$(curl -sS --connect-timeout 5 --max-time 20 -w $'\n%{http_code}' -H "authorization: Bearer ${token}" "$u/api/devices/me" 2>/dev/null || true)"
   code="${me##*$'\n'}"
   body="${me%$'\n'*}"
   if [ "$code" = 401 ]; then
@@ -96,7 +96,7 @@ cmdStatus() {
   log "paired ✓  device=${device}  tenant=${tenant}"
   log "authorized for: ${scopes}"
   # Desired-state summary (needs pull-desired-state — a 403 gets a scope-specific hint, not a bare error).
-  resp="$(curl -sS -w $'\n%{http_code}' -H "authorization: Bearer ${token}" "$u/api/device/current" 2>/dev/null || true)"
+  resp="$(curl -sS --connect-timeout 5 --max-time 20 -w $'\n%{http_code}' -H "authorization: Bearer ${token}" "$u/api/device/current" 2>/dev/null || true)"
   code="${resp##*$'\n'}"
   body="${resp%$'\n'*}"
   case "$code" in
@@ -127,7 +127,7 @@ cmdPull() {
     return 2
   fi
   mkdir -p "$(dirname "$AID_ENV_PATH")"
-  code="$(curl -fsS -H "authorization: Bearer ${token}" -o "${AID_ENV_PATH}.tmp" -w '%{http_code}' "$u/api/device/current.md" 2>/dev/null || echo 000)"
+  code="$(curl -fsS --connect-timeout 5 --max-time 20 -H "authorization: Bearer ${token}" -o "${AID_ENV_PATH}.tmp" -w '%{http_code}' "$u/api/device/current.md" 2>/dev/null || echo 000)"
   if [ "$code" != 200 ]; then
     rm -f "${AID_ENV_PATH}.tmp"
     err "pull failed (HTTP ${code} — token revoked, or no blueprint for this tenant)"
@@ -344,7 +344,7 @@ cmdProvider() {
     return 1
   fi
   mkdir -p "$(dirname "$out")"
-  code="$(curl -fsS -o "${out}.tmp" -w '%{http_code}' "$u/api/provider-config" 2>/dev/null || echo 000)"
+  code="$(curl -fsS --connect-timeout 5 --max-time 20 -o "${out}.tmp" -w '%{http_code}' "$u/api/provider-config" 2>/dev/null || echo 000)"
   if [ "$code" != 200 ]; then
     rm -f "${out}.tmp"
     err "fetch provider-config failed (HTTP ${code})"

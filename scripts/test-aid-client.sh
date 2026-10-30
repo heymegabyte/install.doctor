@@ -46,6 +46,11 @@ if [ -f "$SRC" ]; then
   ap="$(AID_TOKEN_PATH="/nonexistent/aid-token-$$" AID_ENV_PATH="$CENV" bash "$RUN" apply 2>&1)"
   { echo "$ap" | grep -qi 'DRY-RUN' && echo "$ap" | grep -q 'would install' && ! echo "$ap" | grep -qi 'installed'; } && pass "aid apply (dry-run, offline) -> prints plan, installs nothing" || fail "aid apply dry-run -> $ap"
   rm -f "$CENV"
+  # fire #193 — A11 offline resilience: an UNREACHABLE control plane must fail FAST (an honest error, then
+  # the user falls back to local `aid plan`), NOT hang on curl's multi-minute default connect timeout.
+  # Assert every control-plane curl in the client carries --connect-timeout. RED pre-fix (none did).
+  missing_to="$(grep -nE '\bcurl ' "$SRC" | grep -cvE -- '--connect-timeout')"
+  { [ "$missing_to" = 0 ]; } && pass "A11 — every aid control-plane curl carries --connect-timeout (unreachable CP fails fast, never hangs)" || fail "$missing_to aid curl call(s) lack --connect-timeout (would hang on an unreachable control plane)"
   # _bin-aware presence (fire #27): a package whose BINARY differs from its key is NOT false-missing.
   # Fixture cnf index: pkgalias -> bin bash (always installed); missalias -> bin zzznope (absent).
   IDX="$(mktemp)"
