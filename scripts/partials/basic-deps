@@ -56,13 +56,13 @@ ensureBasicDeps() {
       logg info 'Running choco install -y curl expect git moreutils rsync' && choco install -y curl expect git moreutils rsync
     elif [[ "$OSTYPE" == 'freebsd'* ]]; then
       ### FreeBSD
-      logg warn "TODO - Add support for FreeBSD"
+      logg warn "FreeBSD is not yet supported"
     elif command -v pkg > /dev/null; then
       ### Termux
-      logg warn "TODO - Add support for Termux"
+      logg warn "Termux is not yet supported"
     elif command -v xbps-install > /dev/null; then
       ### Void
-      logg warn "TODO - Add support for Void"
+      logg warn "Void is not yet supported"
     fi
   fi
 }

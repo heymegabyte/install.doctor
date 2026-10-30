@@ -89,5 +89,20 @@ for h in $WARN_HOOKS; do
   fi
 done
 
+# No user-VISIBLE "TODO" in the deployed entrypoints' + the basic-deps partial's logg/echo strings (#220).
+# A `logg warn "TODO - …"` ships a dev marker to the end user (a no-user-visible-TODO Hard-Gate violation);
+# source COMMENTS (`# TODO:`) are fine (todos-are-roadmap) — this flags TODO only INSIDE a logg/echo string.
+TODO_FILES="scripts/provision.sh scripts/homebrew.sh scripts/cloudflared-ssh.sh scripts/partials/basic-deps"
+vis=""
+for rel in $TODO_FILES; do
+  [ -f "$ROOT/$rel" ] || continue
+  grep -qE 'logg [a-z]+ "TODO|echo "TODO' "$ROOT/$rel" && vis="$vis $(basename "$rel")"
+done
+if [ -z "$vis" ]; then
+  pass "no user-visible TODO in deployed-entrypoint logg/echo strings (source # TODO comments allowed)"
+else
+  fail "user-visible TODO in a logg/echo string ships to every machine (reword — it is not a dev marker):$vis"
+fi
+
 say "shellcheck-quality: $P passed, $F failed"
 [ "$F" -eq 0 ]
