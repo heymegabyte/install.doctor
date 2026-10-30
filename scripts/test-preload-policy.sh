@@ -8,7 +8,7 @@
 #
 # This guard does NOT guess the user's "favorite software" (which convenience CLIs they want pre-installed
 # is THEIR call). It enforces the objective invariants + a DOWN-ONLY RATCHET so the set can only shrink:
-#   1. the toolchain (Node/Go/Rust — the cnf-hook substrate the prompt names) stays preloaded;
+#   1. the cnf-hook substrate (Node/Go/Rust the prompt names + Python/Ruby/pipx the hook also installs via — pip/pipx/gem) stays preloaded, DERIVED from the hook's actual dispatch;
 #   2. the bootstrap/script deps (gum/jq/yq/chezmoi/mise/zsh/git/curl — de-preloading any breaks provisioning) stay preloaded;
 #   3. NO §6/§7-removed tool is preloaded (m-cli no-ops on macOS 15+; bash-it/Mackup/Nix/MacPorts dropped);
 #   4. the total _preload count never GROWS past the ratchet (PRELOAD_CEILING, may only go DOWN as the favorite-trim lands).
@@ -44,10 +44,30 @@ PY
 count="$(printf '%s\n' "$FACTS" | awk '$1=="COUNT"{print $2}')"
 is_pre() { printf '%s\n' "$FACTS" | grep -qxE "PRELOAD $1"; }
 
-# 1. toolchain the prompt explicitly names (the cnf-hook substrate: node→npm, go, rust→cargo lazy-installs).
-for t in node go rust; do
-  is_pre "$t" && pass "toolchain preloaded: $t (cnf-hook substrate — ready for on-demand installs)" || fail "toolchain NOT preloaded: $t (the cnf hook needs it ready)"
-done
+# 1. the cnf-hook substrate: EVERY language toolchain the hook dispatches on-demand installs to must be
+#    preloaded, or `cnf` can't rescue a missing command via that provider (it would hit a missing installer
+#    and give up). The prompt names Node/Go/Rust; the hook ALSO installs via pip/pipx (→ python) and gem
+#    (→ ruby), so those substrates are locked too — else a "minimize-preload" pass could de-preload python
+#    or ruby and silently break cnf's pip/pipx/gem providers with no test catching it. DERIVED from the
+#    hook's ACTUAL install dispatch (BSD-safe literals, no `\b`) so a NEW provider whose toolchain isn't
+#    preloaded can't slip through: add a `<tool> install` line to the hook and this guard demands it preload.
+HOOK="$ROOT/home/dot_config/shell/not-found-hook.sh"
+need_sub() { [ -f "$HOOK" ] && grep -qE "$1" "$HOOK" 2>/dev/null; }
+subs=""
+need_sub 'npm install -g' && subs="$subs node"
+need_sub 'go install'     && subs="$subs go"
+need_sub 'cargo install'  && subs="$subs rust"
+need_sub 'pip install'    && subs="$subs python"
+need_sub 'pipx install'   && subs="$subs python pipx"
+need_sub 'gem install'    && subs="$subs ruby"
+subs="$(printf '%s\n' $subs | sort -u)"
+if [ -z "$subs" ]; then
+  fail "could not derive any cnf install substrate from the hook (extraction broke — not vacuous-green)"
+else
+  for t in $subs; do
+    is_pre "$t" && pass "cnf substrate preloaded: $t (the cnf hook dispatches on-demand installs needing it — ready for lazy installs)" || fail "cnf substrate NOT preloaded: $t — the cnf hook installs via it, but it's lazy; minimize-preload broke a cnf provider (the prompt requires the select group READY for cnf)"
+  done
+fi
 
 # 2. bootstrap/script deps — the provisioning scripts + the cnf index builder call these directly; if they
 #    were lazy, bootstrap would break (the cnf hook returns 127 non-interactively, so it can't rescue a script).
