@@ -94,5 +94,17 @@ else
   fail "X12 BACKLOG.md missing/incomplete ($BL) — must rank O04/K#7/I/J/N02 with value+effort"
 fi
 
+# Arc-narrative byte ratchet (#212) — the "Refreshed: fire #N" line (3) was accreting one per-fire clause
+# EVERY fire (#198→#211 grew it to ~3.5 KB), bloating the doc that is read FIRST each fire. Collapse the
+# per-fire history into `git log` + the sections below; a DOWN-ONLY ratchet (like X11's NEXT-STEPS budget)
+# stops the re-accretion. Lower it as the summary tightens; never raise it.
+LINE3_RATCHET="${LINE3_RATCHET:-1200}"
+l3="$(awk 'NR==3{print length($0)}' "$DOC")"
+if [ -n "$l3" ] && [ "$l3" -le "$LINE3_RATCHET" ]; then
+  pass "arc-narrative line 3 is ${l3}B <= ratchet ${LINE3_RATCHET} (no per-fire clause accretion)"
+else
+  fail "arc-narrative line 3 is ${l3}B > ratchet ${LINE3_RATCHET} — collapse the per-fire clause chain into git log + the sections below (lower the ratchet, never raise it)"
+fi
+
 say "CURRENT-STATE: $P passed, $F failed"
 [ "$F" -eq 0 ]
