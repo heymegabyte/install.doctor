@@ -96,8 +96,7 @@ fi
 # More partials drifted from the deployed's detect_os SSOT (same class as basic-deps #260). Lock the ones
 # reconciled #261: import-cloudflare-certificate + reboot must use detect_os, not the ad-hoc
 # `[ -d /Applications ] && [ -d /System ]` check (which also carried an SC2181 `$?` test + a ||/&& precedence
-# bug). The 3 still-drifted fns (printFullDiskAccessNotice, ensureFullDiskAccess, ensurePackageManagerHomebrew)
-# are mapped for follow-up / the focused-session. #261.
+# bug). full-disk-access reconciled #262 (own block below); only ensurePackageManagerHomebrew remains (#263).
 pdrift=""
 for pf in import-cloudflare-certificate reboot; do
   f="$ROOT/scripts/partials/$pf"
@@ -107,6 +106,22 @@ done
 [ -z "$pdrift" ] \
   && pass "partials import-cloudflare-certificate + reboot use the detect_os SSOT (reconciled to the deployed, no ad-hoc macOS check)" \
   || fail "partial(s) still drifted from the deployed detect_os form:$pdrift"
+
+# full-disk-access partial (printFullDiskAccessNotice + ensureFullDiskAccess, inlined into provision.sh's
+# ensureFullDiskAccess call) was the last detect_os-class partial drift: it used the ad-hoc
+# `[ -d /Applications ] && [ -d /System ]` macOS check, and ensureFullDiskAccess LACKED the deployed's
+# HEADLESS_INSTALL early-return (a headless Proxmox/Coolify/Qubes box would open a GUI pane it can't display
+# then exit 0 — stalling provisioning). It also carried a useless-cat (SC2002) grep + a `gum log` call + a dead
+# Linux sed branch. Reconciled to the deployed #262: detect_os SSOT + HEADLESS early-return + `grep -q` + `logg`
+# + dropped the dead Linux branch. ensurePackageManagerHomebrew (echo-pipe + guarded chown) remains (#263).
+fda="$ROOT/scripts/partials/full-disk-access"
+fdabad=""
+grep -qE 'detect_os' "$fda" 2> /dev/null || fdabad="$fdabad no-detect_os"
+grep -qE '\[ -d /Applications \] && \[ -d /System \]' "$fda" 2> /dev/null && fdabad="$fdabad ad-hoc-macos-check"
+grep -qE 'HEADLESS_INSTALL' "$fda" 2> /dev/null || fdabad="$fdabad no-HEADLESS-gating"
+[ -z "$fdabad" ] \
+  && pass "partials/full-disk-access uses detect_os + HEADLESS gating (reconciled to the deployed ensureFullDiskAccess, no ad-hoc macOS check)" \
+  || fail "partials/full-disk-access still drifted from the deployed ensureFullDiskAccess:$fdabad"
 
 # ROBUST clone-URL coverage (#186, verify-against-source-of-truth: a gate must cover the FULL tree, not a
 # hardcoded subset). The #181 checks above hardcoded scripts/provision.sh + the template, so they MISSED

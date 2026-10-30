@@ -1,46 +1,46 @@
 # @description Prints information describing why full disk access is required for the script to run on macOS.
 printFullDiskAccessNotice() {
-  if [ -d /Applications ] && [ -d /System ]; then
+  if [ "$(detect_os)" = "macos" ]; then
     logg md "${XDG_DATA_HOME:-$HOME/.local/share}/chezmoi/docs/terminal/full-disk-access.md"
   fi
 }
 
-# @description
-#     This script ensures the terminal running the provisioning process has full disk access permissions. It also
-#     prints information regarding the process of how to enable the permission as well as information related to
-#     the specific reasons that the terminal needs full disk access. More specifically, the scripts need full
-#     disk access to modify various system files and permissions.
+# @description Ensures the terminal running the provisioning process has full disk access on macOS.
+#     Full disk access is required to modify system files, preferences, and permissions during provisioning.
 #
-#     Ensures the terminal running the provisioning process script has full disk access on macOS. It does this
-#     by attempting to read a file that requires full disk access. If it does not, the program opens the preferences
-#     pane where the user can grant access so that the script can continue.
+#     This function works by attempting to read a file (`com.apple.TimeMachine.plist`) that requires
+#     full disk access. If the read fails, it means the terminal lacks the permission.
 #
-#     #### Links
+#     **Behavior when full disk access is missing:**
+#     - In headless mode (`HEADLESS_INSTALL=true`): Logs a warning and continues (some operations may fail)
+#     - In interactive mode: Opens the macOS System Preferences pane and exits so the user can grant access
 #
-#     * [Detecting Full Disk Access permission on macOS](https://www.dzombak.com/blog/2021/11/macOS-Scripting-How-to-tell-if-the-Terminal-app-has-Full-Disk-Access.html)
+#     After granting access, the user must restart the terminal. A temporary entry is added to `~/.zshrc`
+#     to automatically re-run the install script on the next terminal launch.
+#
+#     @envvar HEADLESS_INSTALL  If set, skips the interactive full disk access prompt
+#     @see [Detecting Full Disk Access on macOS](https://www.dzombak.com/blog/2021/11/macOS-Scripting-How-to-tell-if-the-Terminal-app-has-Full-Disk-Access.html)
 ensureFullDiskAccess() {
-  if [ -d /Applications ] && [ -d /System ]; then
+  if [ "$(detect_os)" = "macos" ]; then
     if ! plutil -lint /Library/Preferences/com.apple.TimeMachine.plist > /dev/null ; then
+      if [ -n "$HEADLESS_INSTALL" ]; then
+        logg warn 'Full disk access is not available. Some macOS operations may fail in headless mode.'
+        return 0
+      fi
       printFullDiskAccessNotice
       logg star 'Opening Full Disk Access preference pane.. Grant full-disk access for the terminal you would like to run the provisioning process with.' && open "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles"
       logg info 'You may have to force quit the terminal and have it reload.'
-      if [ ! -f "$HOME/.zshrc" ] || ! cat "$HOME/.zshrc" | grep '# TEMPORARY FOR INSTALL DOCTOR MACOS' > /dev/null; then
+      if [ ! -f "$HOME/.zshrc" ] || ! grep -q '# TEMPORARY FOR INSTALL DOCTOR MACOS' "$HOME/.zshrc"; then
         echo 'bash <(curl -sSL https://install.doctor/start) # TEMPORARY FOR INSTALL DOCTOR MACOS' >> "$HOME/.zshrc"
       fi
       exit 0
     else
-      gum log -sl info 'Current terminal has full disk access'
+      logg info 'Current terminal has full disk access'
       if [ -f "$HOME/.zshrc" ]; then
         if command -v gsed > /dev/null; then
           gsed -i '/# TEMPORARY FOR INSTALL DOCTOR MACOS/d' "$HOME/.zshrc" || logg warn "Failed to remove kickstart script from .zshrc"
         else
-          if [ -d /Applications ] && [ -d /System ]; then
-            ### macOS
-            sed -i '' '/# TEMPORARY FOR INSTALL DOCTOR MACOS/d' "$HOME/.zshrc" || logg warn "Failed to remove kickstart script from .zshrc"
-          else
-            ### Linux
-            sed -i '/# TEMPORARY FOR INSTALL DOCTOR MACOS/d' "$HOME/.zshrc" || logg warn "Failed to remove kickstart script from .zshrc"
-          fi
+          sed -i '' '/# TEMPORARY FOR INSTALL DOCTOR MACOS/d' "$HOME/.zshrc" || logg warn "Failed to remove kickstart script from .zshrc"
         fi
       fi
     fi
