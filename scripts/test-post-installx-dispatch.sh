@@ -30,6 +30,9 @@
 #                 (The _TEMPLATE's OS-gate #2 is NOT asserted — valid guards vary: OS check / command -v /
 #                 `[ -f config ]` file-presence; post-vim + post-tabby correctly guard on file-presence, so a
 #                 naive OSTYPE/command-v assertion would false-fail them — verified-against-source #253.)
+#   A9 parity   — no hook hardcodes the dev-box user (`apple`) in a chown/chgrp. The dispatcher runs hooks
+#                 FLEET-WIDE now, so a dev-Mac `chown apple:staff` FAILS on every other machine (no `apple`
+#                 user) — use a var (`$(id -un):$(id -gn)`). CLAUDE.md §3 cross-platform parity. #254.
 set -uo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 HOOKS="$ROOT/home/dot_local/bin/post-installx"
@@ -110,6 +113,16 @@ if [ -z "$noset" ]; then
   pass "every post-installx hook declares 'set -euo pipefail' (fail-fast; $nhooks/$nhooks)"
 else
   fail "post-installx hook(s) missing 'set -euo pipefail' (fail-fast contract):$noset"
+fi
+
+# A9 — cross-platform parity: no hook hardcodes the dev-box user (`apple`) in a chown/chgrp. The #251
+#      dispatcher runs hooks FLEET-WIDE, so `chown apple:staff` (this Mac's user) FAILS on every other
+#      machine (no `apple` user); use `$(id -un):$(id -gn)`. CLAUDE.md §3 "a var, not a dev-user/hostname".
+devuser=$(grep -rlE 'ch(own|grp)[^#]* apple:' "$HOOKS"/executable_post-*.sh 2>/dev/null | sed 's#.*/executable_##;s/\.sh$//' | tr '\n' ' ')
+if [ -z "$devuser" ]; then
+  pass "no post-installx hook hardcodes the dev-box user in a chown/chgrp (cross-platform parity)"
+else
+  fail "hook(s) hardcode the dev-box user 'apple' in a chown/chgrp — fails on the non-Mac fleet:$devuser"
 fi
 
 echo

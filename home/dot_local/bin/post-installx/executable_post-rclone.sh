@@ -53,7 +53,7 @@ trap "gum log -sl error 'Script encountered an error!'" ERR
 if command -v rclone >/dev/null; then
   R2_ENDPOINT="$(yq '.data.user.cloudflare.r2' "${XDG_CONFIG_HOME:-$HOME/.config}/chezmoi/chezmoi.yaml")"
   CONFIG_FILE="${XDG_CONFIG_HOME:-$HOME/.config}/rclone/rclone.conf"
-  gum log -sl info 'Ensuring proper permissions on user rclone.conf file' && sudo chown -Rf apple:staff "$CONFIG_FILE"
+  gum log -sl info 'Ensuring proper permissions on user rclone.conf file' && sudo chown -Rf "$(id -un)":"$(id -gn)" "$CONFIG_FILE"
   if [ "$R2_ENDPOINT" != 'null' ] && get-secret --exists CLOUDFLARE_R2_ID_USER CLOUDFLARE_R2_SECRET_USER; then
     gum log -sl info 'Removing ~/.config/rclone/rclone.conf Install Doctor managed block'
     if cat "$CONFIG_FILE" | grep '# INSTALL DOCTOR MANAGED S3 START' >/dev/null; then
