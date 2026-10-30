@@ -93,7 +93,8 @@ installNerdFont() {
   )
   local _need_cache_refresh=0
   for face in "${FACES[@]}"; do
-    local enc_face=$(printf %s "$face" | sed 's/ /%20/g')
+    local enc_face
+    enc_face=$(printf %s "$face" | sed 's/ /%20/g')
     local dest="$FONT_DIR/$face"
     if [ -f "$dest" ]; then continue; fi
     gum log -sl info "Downloading $face"
@@ -186,11 +187,11 @@ configureTerminalFont() {
   ### Both render the same powerline glyphs — we just need to use the
   ### family name macOS actually knows about.
   local FONT_FAMILY=""
-  if ls "$HOME/Library/Fonts/MesloLGSNerdFontMono-Regular.ttf" /Library/Fonts/MesloLGSNerdFontMono-Regular.ttf 2>/dev/null | grep -q .; then
+  if [ -f "$HOME/Library/Fonts/MesloLGSNerdFontMono-Regular.ttf" ] || [ -f /Library/Fonts/MesloLGSNerdFontMono-Regular.ttf ]; then
     FONT_FAMILY="MesloLGS Nerd Font Mono"
-  elif ls "$HOME/Library/Fonts/MesloLGSNerdFont-Regular.ttf" /Library/Fonts/MesloLGSNerdFont-Regular.ttf 2>/dev/null | grep -q .; then
+  elif [ -f "$HOME/Library/Fonts/MesloLGSNerdFont-Regular.ttf" ] || [ -f /Library/Fonts/MesloLGSNerdFont-Regular.ttf ]; then
     FONT_FAMILY="MesloLGS Nerd Font"
-  elif ls "$HOME/Library/Fonts/MesloLGS NF Regular.ttf" "/Library/Fonts/MesloLGS NF Regular.ttf" 2>/dev/null | grep -q .; then
+  elif [ -f "$HOME/Library/Fonts/MesloLGS NF Regular.ttf" ] || [ -f "/Library/Fonts/MesloLGS NF Regular.ttf" ]; then
     FONT_FAMILY="MesloLGS NF"
   else
     gum log -sl warn 'No MesloLGS face found in ~/Library/Fonts or /Library/Fonts; skipping Terminal.app font config (cask font-meslo-lg-nerd-font may not have installed)'

@@ -9,8 +9,8 @@
 #   - the stricter warning-severity on the code delivered RAW via curl|bash + sourced into every shell
 #     (the entrypoints + the cnf hook — all currently 0 findings, so hold them to the higher bar).
 # SKIPs cleanly (0/0, never a vacuous pass) if shellcheck is absent. Pure local checks, no network.
-# Scope is deliberately the highest-stakes scripts; extending to the 32 post-installx hooks is a later
-# ratchet (audit-arc maturity ladder: detect here first, migrate the hooks once they're error-clean).
+# Error-sev covers all 32 hooks (aggregate, below). The stricter warning-sev bar is being migrated onto
+# the hooks ONE PER FIRE (audit-arc ladder: detect -> migrate -> lock); each cleaned hook joins WARN_HOOKS.
 set -uo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 
@@ -73,10 +73,12 @@ else
 fi
 
 # Hooks MIGRATED to the stricter warning bar, locked one-at-a-time (audit-arc ladder). The cloudflare/WARP
-# hooks the prompt names come first. A cleaned hook is locked here so a future edit can't regress it.
-# (post-warp's remaining warnings are SC2024 sudo-redirect — switching to `sudo tee` changes file ownership
-# on Homebrew cert dirs, so that fix is host-gated; it stays error-locked above until verified on a real box.)
-WARN_HOOKS="executable_post-cloudflared.sh executable_post-rkhunter.sh"
+# hooks the prompt names came first; post-zsh-bootstrap (the everywhere-shell setup) was fixed #222
+# (SC2155 declare+assign split; 3x SC2010 ls|grep -> [ -f ] tests that also handle the space-in-path faces).
+# A cleaned hook is locked here so a future edit can't regress it. Remaining warn-dirty candidates:
+# post-netdata/postfix/privoxy/rclone/wazuh (+ post-warp's SC2024 sudo-redirect is HOST-GATED -- `sudo tee`
+# would change Homebrew cert-dir ownership, so it stays error-locked above until verified on a real box).
+WARN_HOOKS="executable_post-cloudflared.sh executable_post-rkhunter.sh executable_post-zsh-bootstrap.sh"
 for h in $WARN_HOOKS; do
   f="$ROOT/home/dot_local/bin/post-installx/$h"
   if [ ! -f "$f" ]; then fail "missing warn-locked hook: $h"; continue; fi
