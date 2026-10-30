@@ -217,5 +217,37 @@ if [ -f "$FB" ]; then
   grep -qE '"/vagrant(-windows)?"' "$FB" && fail "dead /vagrant redirect still present (removed #182)" || pass "dead /vagrant + /vagrant-windows redirects removed"
 fi
 
+# NO-ORPHAN scripts/*.sh (#265 — operationalizes the prompt's "remove unnecessary files / no dead code" as a
+# deterministic gate; drift-detection § dead code). #232 manually confirmed 0 orphans + characterized the FP
+# risk (a script referenced only DYNAMICALLY / non-textually) — so this promotes that manual scan to an auto-gate
+# using the STRONGEST, lowest-FP signal: a top-level scripts/*.sh that is NOT a test-*.sh, NOT one of the 4
+# served/harness entrypoints, AND has ZERO textual references to its basename anywhere else in the tracked tree
+# is a true orphan (dead code to remove or wire). The fleet-role/util scripts (audit-deprecated, cloudflared-
+# opnsense, drift-check, generate-sbom, pfsense, qubes-provision, validate-software-yml, …) all carry refs
+# (README / Taskfile / CI) → correctly NOT flagged. Non-vacuity: a candidate-count sanity assert guards the
+# classifier from vacuously excluding all; proven #265 by planting a zero-reference probe script → RED,
+# removing it → GREEN. git grep --fixed-strings so a basename with regex chars can't mis-match. NOTE: candidate
+# basenames are named here WITHOUT the `.sh` extension on purpose — the detector greps the full `<name>.sh`, so
+# a bare "<name>" mention in this comment can't become a self-reference that masks a future real orphan.
+ORPHAN_ENTRY="provision.sh homebrew.sh cloudflared-ssh.sh test-all.sh"
+orphan_hits=""
+orphan_cand=0
+for f in "$ROOT"/scripts/*.sh; do
+  b="$(basename "$f")"
+  case "$b" in test-*.sh) continue ;; esac
+  skip=0
+  for e in $ORPHAN_ENTRY; do [ "$b" = "$e" ] && skip=1; done
+  [ "$skip" = 1 ] && continue
+  orphan_cand=$((orphan_cand + 1))
+  refs="$(git -C "$ROOT" grep -l --fixed-strings "$b" -- ':!scripts/'"$b" 2> /dev/null | wc -l | tr -d ' ')"
+  [ "$refs" = 0 ] && orphan_hits="$orphan_hits $b"
+done
+[ "$orphan_cand" -ge 4 ] \
+  && pass "no-orphan scan classified $orphan_cand candidate scripts/*.sh (non-test, non-entrypoint — exclusions are non-vacuous)" \
+  || fail "no-orphan scan found only $orphan_cand candidates — the test-*/entrypoint exclusion likely over-matched (vacuous scan)"
+[ -z "$orphan_hits" ] \
+  && pass "no orphan scripts/*.sh (every non-test/non-entrypoint script has >=1 textual reference — no dead code)" \
+  || fail "ORPHAN scripts/*.sh (zero textual references — dead code, remove or wire up):$orphan_hits"
+
 say "bootstrap-provenance: $P passed, $F failed"
 [ "$F" -eq 0 ]
