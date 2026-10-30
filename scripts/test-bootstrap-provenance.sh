@@ -63,6 +63,25 @@ for rel in "scripts/provision.sh" "scripts/src/provision.sh.tmpl"; do
     || fail "$rel: unconditionally overwrites CI-provided$envbad (clobbers a secret-provided identity → postfix root-mail misrouting; use \${VAR:-})"
 done
 
+# The SoT template src/provision.sh.tmpl is STALE — ~530 lines behind the hand-maintained, SERVED
+# scripts/provision.sh. A gomplate regen (scripts/.gomplate.yaml: src/ -> provision.sh) would CLOBBER
+# deployed-only, load-bearing functions + the #258 env-safe CI defaults. Lock BOTH halves: (1) the deployed
+# keeps its critical functions (a regen/edit dropping them REDs); (2) the template carries a DO-NOT-REGENERATE
+# warning so it can't silently look authoritative. Full reconciliation = a focused-session item (TOP-next). #259.
+PROV="$ROOT/scripts/provision.sh"
+dmiss=""
+for fn in setEnvironmentVariables applyEnvClassDefaults; do
+  grep -qE "^${fn}\(\)" "$PROV" 2> /dev/null || dmiss="$dmiss $fn"
+done
+[ -z "$dmiss" ] \
+  && pass "deployed provision.sh keeps its critical hand-maintained functions (setEnvironmentVariables, applyEnvClassDefaults)" \
+  || fail "deployed provision.sh is MISSING$dmiss — a stale-template regen likely clobbered it (see scripts/.gomplate.yaml)"
+if grep -qE 'DO NOT REGENERATE|STALE TEMPLATE' "$ROOT/scripts/src/provision.sh.tmpl" 2> /dev/null; then
+  pass "src/provision.sh.tmpl carries the STALE / DO-NOT-REGENERATE warning (won't silently clobber the served provision.sh)"
+else
+  fail "src/provision.sh.tmpl has NO stale/do-not-regenerate warning — a gomplate regen would clobber the served provision.sh (#259)"
+fi
+
 # ROBUST clone-URL coverage (#186, verify-against-source-of-truth: a gate must cover the FULL tree, not a
 # hardcoded subset). The #181 checks above hardcoded scripts/provision.sh + the template, so they MISSED
 # `local/provision.sh` — an unreferenced older variant (940 vs 1213 lines) that still carried the legacy

@@ -1,4 +1,14 @@
 #!/usr/bin/env bash
+#
+# ⚠️  STALE TEMPLATE — DO NOT REGENERATE scripts/provision.sh FROM THIS FILE WITHOUT A FULL RECONCILIATION.  ⚠️
+# The SERVED https://install.doctor/start entrypoint is the HAND-MAINTAINED `scripts/provision.sh`, which is
+# ~530 lines AHEAD of this template and carries load-bearing behavior this template LACKS — e.g.
+# `setEnvironmentVariables()`, `applyEnvClassDefaults()` (the env-class capability adapter), and
+# env-override-safe CI defaults (`${VAR:-}`, fire #258). Running gomplate (scripts/.gomplate.yaml maps
+# src/ -> provision.sh) would CLOBBER all of it and break the live bootstrap. Treat `scripts/provision.sh`
+# as the de-facto source of truth until the template<->deployed divergence is reconciled (a focused session:
+# retire this template OR re-sync it + revive the generator). Tracked in docs/aid/NEXT-STEPS.md. Fire #259.
+#
 # @file Quick Start Provision Script
 # @brief Main entry point for Install Doctor that ensures Homebrew and a few dependencies are installed before cloning the repository and running Chezmoi.
 # @description
