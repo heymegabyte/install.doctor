@@ -16,15 +16,15 @@ trap "gum log -sl error 'Script encountered an error!'" ERR
 ensureNetdataOwnership() {
   ### Ensure /usr/local/var/lib/netdata/cloud.d is owned by user
   if [ -d /var/lib/netdata ]; then
-    gum log -sl info 'Ensuring permissions are correct on /var/lib/netdata' && sudo chown -Rf netdata:netdata /var/lib/netdata 2> /dev/null || sudo chown -Rf netdata:$(id -g -n) /var/lib/netdata
+    gum log -sl info 'Ensuring permissions are correct on /var/lib/netdata' && sudo chown -Rf netdata:netdata /var/lib/netdata 2> /dev/null || sudo chown -Rf "netdata:$(id -g -n)" /var/lib/netdata
   elif [ -d /usr/local/var/lib/netdata ]; then
-    gum log -sl info 'Ensuring permissions are correct on /usr/local/var/lib/netdata' && sudo chown -Rf netdata:netdata /usr/local/var/lib/netdata 2> /dev/null || sudo chown -Rf netdata:$(id -g -n) /usr/local/var/lib/netdata
+    gum log -sl info 'Ensuring permissions are correct on /usr/local/var/lib/netdata' && sudo chown -Rf netdata:netdata /usr/local/var/lib/netdata 2> /dev/null || sudo chown -Rf "netdata:$(id -g -n)" /usr/local/var/lib/netdata
     if [ ! -d /var/lib/netdata ]; then
       sudo mkdir -p /var/lib
       sudo ln -s /usr/local/var/lib/netdata /var/lib/netdata
     fi
   elif [ -d "${HOMEBREW_PREFIX:-/opt/homebrew}/var/lib/netdata" ]; then
-    gum log -sl info "Ensuring permissions are correct on ${HOMEBREW_PREFIX:-/opt/homebrew}/var/lib/netdata" && sudo chown -Rf netdata:netdata "${HOMEBREW_PREFIX:-/opt/homebrew}/var/lib/netdata" 2> /dev/null || sudo chown -Rf netdata:$(id -g -n) "${HOMEBREW_PREFIX:-/opt/homebrew}/var/lib/netdata"
+    gum log -sl info "Ensuring permissions are correct on ${HOMEBREW_PREFIX:-/opt/homebrew}/var/lib/netdata" && sudo chown -Rf netdata:netdata "${HOMEBREW_PREFIX:-/opt/homebrew}/var/lib/netdata" 2> /dev/null || sudo chown -Rf "netdata:$(id -g -n)" "${HOMEBREW_PREFIX:-/opt/homebrew}/var/lib/netdata"
     if [ ! -d /var/lib/netdata ]; then
       sudo mkdir -p /var/lib
       sudo ln -s "${HOMEBREW_PREFIX:-/opt/homebrew}/var/lib/netdata" /var/lib/netdata
@@ -52,7 +52,7 @@ if command -v netdata-claim.sh > /dev/null; then
   cd /tmp
 
   ### netdata-claim.sh must be run as netdata user
-  if sudo -H -u netdata bash -c "yes | netdata-claim.sh -token="$(get-secret NETDATA_TOKEN)" -rooms="$(get-secret NETDATA_ROOM)" -url="https://app.netdata.cloud""; then
+  if sudo -H -u netdata bash -c "yes | netdata-claim.sh -token=$(get-secret NETDATA_TOKEN) -rooms=$(get-secret NETDATA_ROOM) -url=https://app.netdata.cloud"; then
     gum log -sl info 'Successfully added device to Netdata Cloud account'
   fi
 
@@ -88,6 +88,8 @@ if command -v netdata-claim.sh > /dev/null; then
     fi
     gum log -sl info "Copying ${XDG_CONFIG_HOME:-$HOME/.config}/netdata/health.d/ to $NETDATA_ETC"
     sudo cp -rf "${XDG_CONFIG_HOME:-$HOME/.config}/netdata/health.d/" "$NETDATA_ETC"
+    # SED_UTIL is consumed by the commented-out blocky/sftpgo prometheus sed config below (a disabled feature).
+    # shellcheck disable=SC2034
     if command -v gsed > /dev/null; then
       SED_UTIL="gsed"
     else
