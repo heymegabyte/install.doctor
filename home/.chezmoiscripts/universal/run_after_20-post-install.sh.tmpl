@@ -389,6 +389,24 @@ ensureAutoresticLocation() {
   fi
 }
 
+# @description Dispatches every post-installx config hook AFTER installx (run_after_10) has installed the
+#     user's software. Each hook (post-installx/post-<tool>.sh) self-guards on OS + tool-presence +
+#     idempotency per post-installx/_TEMPLATE.sh, so running them all is safe — a hook whose tool is not
+#     installed on this host/role self-skips. A hook's non-zero exit is LOGGED, never fatal (matches the
+#     installx runScript tolerance), so one bad hook cannot abort provisioning. This is the general
+#     dispatcher the built-but-undispatched config hooks (cloudflared/WARP/tailscale/netdata/...) needed
+#     (#251 — closes the #250 gap; wazuh ALSO runs via its software.yml script: entry, harmless + idempotent).
+runPostInstallxHooks() {
+  POST_INSTALLX_DIR="$HOME/.local/bin/post-installx"
+  if [ -d "$POST_INSTALLX_DIR" ]; then
+    for HOOK in "$POST_INSTALLX_DIR"/post-*.sh; do
+      [ -f "$HOOK" ] || continue
+      gum log -sl info "Running post-installx hook: $(basename "$HOOK")"
+      bash "$HOOK" || gum log -sl warn "post-installx hook failed (non-fatal): $(basename "$HOOK")"
+    done
+  fi
+}
+
 # Temporary next line for debugging
 if [ -n "$DEBUG" ] || [ -n "$DEBUG_MODE" ]; then
   gum log -sl info 'The DEBUG or DEBUG_MODE environment variable is set so the post-install tasks will be run synchronously'
@@ -415,5 +433,9 @@ else
   ensureAutoresticLocation &
   wait
 fi
+
+### Dispatch the post-installx config hooks LAST, sequentially (they may use sudo / configure services),
+### after installx (run_after_10) + the parallel post-install tasks above — #251 (closes the #250 gap).
+runPostInstallxHooks
 
 gum log -sl info 'Finished running the post-install tasks'

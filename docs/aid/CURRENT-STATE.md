@@ -1,6 +1,6 @@
 # aid — CURRENT STATE (verified audit)
 
-**Refreshed:** fire #250 — NEW ARC: bootstrap/provisioning QUALITY + deploy SPEED (the v2 control-plane arc converged #195–#197). The master prompt PIVOTED to: `start.sh`→chezmoi (dot configs **and** system files), minimum-install + lazy-everywhere, a preinstalled cnf-substrate toolchain, cloudflared+WARP, file cleanup/de-dup, a Monday-02:00 auto-update cron. **⚠️ app.install.doctor is being RETIRED → absorbed by https://desktop.tools** — do NOT keep hardening the control-plane surface; the suite still verifies it until the migration lands. Per-fire arc history (#198→) lives in `git log` + the §Built/§Gated sections below. Verified: full suite **804 / 46 suites GREEN** vs live prod. **Branch:** `master`.
+**Refreshed:** fire #251 — NEW ARC: bootstrap/provisioning QUALITY + deploy SPEED (the v2 control-plane arc converged #195–#197). The master prompt PIVOTED to: `start.sh`→chezmoi (dot configs **and** system files), minimum-install + lazy-everywhere, a preinstalled cnf-substrate toolchain, cloudflared+WARP, file cleanup/de-dup, a Monday-02:00 auto-update cron. **⚠️ app.install.doctor is being RETIRED → absorbed by https://desktop.tools** — do NOT keep hardening the control-plane surface; the suite still verifies it until the migration lands. Per-fire arc history (#198→) lives in `git log` + the §Built/§Gated sections below. Verified: full suite **806 / 46 suites GREEN** vs live prod. **Branch:** `master`.
 Full spec: `MASTER-PROMPT.md` · resume pointer: `NEXT-STEPS.md` · matrix: `REQUIREMENTS.md`. Nothing here
 is inherited without evidence; every count below is from a live `scripts/test-all.sh` run.
 
@@ -10,7 +10,7 @@ The UNBLOCKED functional product has **converged**: the control plane, the full 
 dashboard, the honest-docs set, and a one-command test suite are built + live-verified at
 **https://app.install.doctor**. The remaining high-value requirements are **GATED on external action**
 (see § Gated). Loop fires now harden docs/tests/honesty until a gated dep is provisioned. Verified by
-**`scripts/test-all.sh` → 804 assertions / 46 suites GREEN (1 OS-skipped)** with the prod URL.
+**`scripts/test-all.sh` → 806 assertions / 46 suites GREEN (1 OS-skipped)** with the prod URL.
 
 ## ✅ Built + live-verified
 
@@ -152,13 +152,13 @@ dashboard, the honest-docs set, and a one-command test suite are built + live-ve
   run in CI). Server never pushes installs (device apply = 501 by design; guarded #149 — a valid device
   token requesting a real apply (dryRun:false) is refused 501 apply_not_implemented).
 - **fish/pwsh lazy install** — adapters shipped, live-unverified (no fish/pwsh on the runner).
-- **post-installx hook DISPATCH** — only `wazuh` is wired (its software.yml `script:` entry → installx
-  `case 'script'`→runScript→bash). The other 29 config hooks (cloudflared/WARP/tailscale/netdata/atuin/…)
-  are BUILT but not invoked by any current code path (installx has no readdir of the hooks dir;
-  `postInstall()` does only flatpak links; no chezmoiscript/provision/Taskfile runs the dir), so the
-  "pre-installed AND configured" promise is PARTIAL. Detect+lock: `test-post-installx-dispatch.sh` (#250,
-  a 29/30-gap detector + a wazuh-dispatch regression lock). The WIRING fix (a dispatcher) is the armed
-  next slice (NEXT-STEPS TOP-next 5); CLAUDE.md §4's "runs after installx installs <tool>" was corrected #250.
+- **post-installx hook DISPATCH** — WIRED #251: `run_after_20-post-install.sh.tmpl`'s `runPostInstallxHooks`
+  loops `~/.local/bin/post-installx/post-*.sh` after installx (`run_after_10`), error-tolerant; each hook
+  self-guards on OS + tool-presence + idempotency, so all 30 config hooks (cloudflared/WARP/tailscale/
+  netdata/…) now dispatch (wazuh also via its `script:` entry). File-wired + gate-locked
+  (`test-post-installx-dispatch.sh` 7/7; #250 detect → #251 wire+lock). **Still ◐: the LIVE run (hooks
+  actually executing + configuring on a provisioned machine) is HOST-GATED** — needs a throwaway box to
+  confirm, same class as cloudflared/WARP live-connect. Closed the #250 29/30-undispatched gap.
 
 ## 🚧 Gated — remaining high-value work needs EXTERNAL action (not a loop slice)
 
