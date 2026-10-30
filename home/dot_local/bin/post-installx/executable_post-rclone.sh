@@ -58,8 +58,8 @@ if command -v rclone >/dev/null; then
     gum log -sl info 'Removing ~/.config/rclone/rclone.conf Install Doctor managed block'
     if cat "$CONFIG_FILE" | grep '# INSTALL DOCTOR MANAGED S3 START' >/dev/null; then
       # TODO: Remove old block
-      START_LINE="$(echo $(grep -n -m 1 "# INSTALL DOCTOR MANAGED S3 START" "$CONFIG_FILE" | cut -f1 -d ":"))"
-      END_LINE="$(echo $(grep -n -m 1 "# INSTALL DOCTOR MANAGED S3 END" "$CONFIG_FILE" | cut -f1 -d ":"))"
+      START_LINE="$(grep -n -m 1 "# INSTALL DOCTOR MANAGED S3 START" "$CONFIG_FILE" | cut -f1 -d ":")"
+      END_LINE="$(grep -n -m 1 "# INSTALL DOCTOR MANAGED S3 END" "$CONFIG_FILE" | cut -f1 -d ":")"
       if command -v gsed >/dev/null; then
         gsed -i "$START_LINE,${END_LINE}d" "$CONFIG_FILE" >/dev/null
       else

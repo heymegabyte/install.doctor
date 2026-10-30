@@ -73,12 +73,13 @@ else
 fi
 
 # Hooks MIGRATED to the stricter warning bar, locked one-at-a-time (audit-arc ladder). The cloudflare/WARP
-# hooks the prompt names came first; post-zsh-bootstrap fixed #222 (SC2155 split; 3x SC2010 ls|grep -> [ -f ]);
-# post-privoxy fixed #223 (SC2046 -- quoted `"privoxy:$(id -g -n)"` so a space-containing group can't split).
+# hooks the prompt names came first, then migrated one hook/fire: post-zsh-bootstrap #222 (SC2155 + 3x SC2010),
+# post-privoxy #223 (SC2046 chown-group quoting), post-rclone #224 (SC2046 -- dropped the redundant
+# `echo $(...)` wrapper around the line-number lookup; $(...) already strips the trailing newline).
 # A cleaned hook is locked here so a future edit can't regress it. Remaining warn-dirty candidates:
-# post-netdata/postfix/rclone/wazuh (+ post-warp's SC2024 sudo-redirect is HOST-GATED -- `sudo tee`
+# post-netdata/postfix/wazuh (+ post-warp's SC2024 sudo-redirect is HOST-GATED -- `sudo tee`
 # would change Homebrew cert-dir ownership, so it stays error-locked above until verified on a real box).
-WARN_HOOKS="executable_post-cloudflared.sh executable_post-rkhunter.sh executable_post-zsh-bootstrap.sh executable_post-privoxy.sh"
+WARN_HOOKS="executable_post-cloudflared.sh executable_post-rkhunter.sh executable_post-zsh-bootstrap.sh executable_post-privoxy.sh executable_post-rclone.sh"
 for h in $WARN_HOOKS; do
   f="$ROOT/home/dot_local/bin/post-installx/$h"
   if [ ! -f "$f" ]; then fail "missing warn-locked hook: $h"; continue; fi
