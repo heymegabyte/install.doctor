@@ -71,6 +71,7 @@
   profiles/overlays/merge-rules/recipe-verify-stage ⬜).
 - **U07 Alloy / S11 observability bindings** — needs an Alloy→Loki deployment (infra).
 - **D08 version-pinning** — speculative; no consumer reads a pin field today. Build only on real demand.
+- **shfmt-gate for the highest-stakes shell (#228 — deliberate, NOT loop-churn)** · value **LOW-MED** (formatting consistency; code-style pairs shellcheck+shfmt) · effort **HIGH** (cosmetic, high-blast-radius). The shellcheck-quality gate (#208-#227) locks the entrypoints + all 32 hooks shellcheck-clean, but there is NO shfmt gate. `.editorconfig` declares 2-space, yet `scripts/{provision,homebrew,cloudflared-ssh}.sh` + the cnf hook + `update-system` drift ~800 lines from it. **Why deferred:** the 3 served entrypoints are BUILT (inlined from `scripts/src/*.sh.tmpl` + `scripts/partials/*`), so a real fix reformats the SOURCE + makes the build preserve it (shfmt-ing the generated output just gets reverted next build) — a careful cosmetic change on curl|bash code that runs unattended on every machine. **One action to START:** pick the shfmt flag set that matches `.editorconfig`, reformat the source + partials, rebuild, verify byte-identical behavior — its own deliberate fire, never a HOLD-fire afterthought.
 
 ## How the loop behaves until an unblock arrives
 
