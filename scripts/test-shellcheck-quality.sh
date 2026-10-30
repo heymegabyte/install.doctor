@@ -72,5 +72,22 @@ else
   fail "post-installx hook(s) with shellcheck ERRORS:$hookdirty"
 fi
 
+# Hooks MIGRATED to the stricter warning bar, locked one-at-a-time (audit-arc ladder). The cloudflare/WARP
+# hooks the prompt names come first. A cleaned hook is locked here so a future edit can't regress it.
+# (post-warp's remaining warnings are SC2024 sudo-redirect — switching to `sudo tee` changes file ownership
+# on Homebrew cert dirs, so that fix is host-gated; it stays error-locked above until verified on a real box.)
+WARN_HOOKS="executable_post-cloudflared.sh"
+for h in $WARN_HOOKS; do
+  f="$ROOT/home/dot_local/bin/post-installx/$h"
+  if [ ! -f "$f" ]; then fail "missing warn-locked hook: $h"; continue; fi
+  out="$(shellcheck -S warning -s bash "$f" 2>&1)"
+  if [ -z "$out" ]; then
+    pass "shellcheck -S warning clean: post-installx/$h (warn-locked — cloudflare/WARP hook)"
+  else
+    fail "shellcheck warning+ in post-installx/$h (warn-locked — must stay clean)"
+    printf '%s\n' "$out" | grep -E 'SC[0-9]+' | head -3
+  fi
+done
+
 say "shellcheck-quality: $P passed, $F failed"
 [ "$F" -eq 0 ]

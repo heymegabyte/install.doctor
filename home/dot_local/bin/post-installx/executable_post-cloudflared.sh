@@ -11,7 +11,7 @@ trap "gum log -sl error 'Script encountered an error!'" ERR
 if command -v cloudflared > /dev/null; then
   ### Show error message about ~/.cloudflared already existing
   if [ -d "$HOME/.cloudflared" ]; then
-    gum log -sl error '~/.cloudflared is already in the home directory - to ensure proper deployment, remove the ~/.cloudflared configuration folder' && exit 1
+    gum log -sl error "$HOME/.cloudflared is already in the home directory - to ensure proper deployment, remove the $HOME/.cloudflared configuration folder" && exit 1
   fi
 
   ### Use lowercased hostname / tunnel ID
@@ -31,7 +31,7 @@ if command -v cloudflared > /dev/null; then
   done< <(sudo cloudflared tunnel list | grep "$HOSTNAME_LOWER" | sed 's/ .*//')
 
   ### Register tunnel (if not already registered)
-  gum log -sl info "Creating CloudFlared tunnel named "$HOSTNAME_LOWER""
+  gum log -sl info "Creating CloudFlared tunnel named $HOSTNAME_LOWER"
   sudo cloudflared tunnel create "$HOSTNAME_LOWER" || true
 
   ### Acquire TUNNEL_ID and symlink credentials.json
@@ -47,7 +47,7 @@ if command -v cloudflared > /dev/null; then
   while read DOMAIN; do
     if [ "$DOMAIN" != 'null' ]; then
       gum log -sl info "Setting up $DOMAIN for access through cloudflared (Tunnel ID: $TUNNEL_ID)"
-      gum log -sl info "Running sudo cloudflared tunnel route dns -f "$TUNNEL_ID" "$DOMAIN""
+      gum log -sl info "Running sudo cloudflared tunnel route dns -f $TUNNEL_ID $DOMAIN"
       sudo cloudflared tunnel route dns -f "$TUNNEL_ID" "$DOMAIN"
       gum log -sl info "Successfully routed $DOMAIN to this machine's cloudflared Argo tunnel"
     fi
