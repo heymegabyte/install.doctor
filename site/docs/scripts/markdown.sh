@@ -16,7 +16,7 @@ installShdoc() {
 cloneInstallDoctor() {
   if [ ! -d "install.doctor/.git" ]; then
     echo 'Removing install.doctor artifacts' && rm -rf "install.doctor"
-    echo 'Cloning install.doctor' && git clone https://github.com/megabyte-labs/install.doctor.git
+    echo 'Cloning install.doctor' && git clone https://github.com/heymegabyte/install.doctor.git
   else
     cd install.doctor
     echo 'Pulling latest changes from install.doctor repository' && git pull origin master
@@ -62,8 +62,8 @@ populateHomeScripts() {
     echo "description: $(shdoc < "$SCRIPT" | sed -n '3p')" >> "$MD_FILE"
     echo "sidebar_label: $NUMBER_ID_PREFIX$(shdoc < "$SCRIPT" | head -n 1 | sed 's/\# //')" >> "$MD_FILE"
     echo "slug: /scripts/$TAG/$(basename "$SCRIPT")" >> "$MD_FILE"
-    echo "githubLocation: https://github.com/megabyte-labs/install.doctor/blob/master/$(echo "$SCRIPT" | sed 's/.*\/install.doctor\///')" >> "$MD_FILE"
-    echo "scriptLocation: https://github.com/megabyte-labs/install.doctor/raw/master/$(echo "$SCRIPT" | sed 's/.*\/install.doctor\///')" >> "$MD_FILE"
+    echo "githubLocation: https://github.com/heymegabyte/install.doctor/blob/master/$(echo "$SCRIPT" | sed 's/.*\/install.doctor\///')" >> "$MD_FILE"
+    echo "scriptLocation: https://github.com/heymegabyte/install.doctor/raw/master/$(echo "$SCRIPT" | sed 's/.*\/install.doctor\///')" >> "$MD_FILE"
     echo "repoLocation: $(echo "$SCRIPT" | sed 's/.*\/install.doctor\///')" >> "$MD_FILE"
     echo "---" >> "$MD_FILE"
     cat "$TMP" >> "$MD_FILE"
@@ -89,8 +89,8 @@ populateDanglingScripts() {
     echo "description: $(shdoc < "$SCRIPT" | sed -n '3p')" >> "$MD_FILE"
     echo "sidebar_label: $(shdoc < "$SCRIPT" | head -n 1 | sed 's/\# //')" >> "$MD_FILE"
     echo "slug: /scripts/$TAG/$(basename "$SCRIPT")" >> "$MD_FILE"
-    echo "githubLocation: https://github.com/megabyte-labs/install.doctor/blob/master/$(echo "$SCRIPT" | sed 's/.*\/install.doctor\///')" >> "$MD_FILE"
-    echo "scriptLocation: https://github.com/megabyte-labs/install.doctor/raw/master/$(echo "$SCRIPT" | sed 's/.*\/install.doctor\///')" >> "$MD_FILE"
+    echo "githubLocation: https://github.com/heymegabyte/install.doctor/blob/master/$(echo "$SCRIPT" | sed 's/.*\/install.doctor\///')" >> "$MD_FILE"
+    echo "scriptLocation: https://github.com/heymegabyte/install.doctor/raw/master/$(echo "$SCRIPT" | sed 's/.*\/install.doctor\///')" >> "$MD_FILE"
     echo "repoLocation: $(echo "$SCRIPT" | sed 's/.*\/install.doctor\///')" >> "$MD_FILE"
     echo "---" >> "$MD_FILE"
     cat "$TMP" >> "$MD_FILE"
@@ -120,7 +120,7 @@ populateTaskfileScripts() {
       echo "description: $TASK_DESC" >>"$FILE"
       echo "sidebar_label: $TASK" >> "$FILE"
       echo "slug: /cli/commands/$(echo "$TASK" | tr ":" -)" >> "$FILE"
-      echo "githubLocation: https://github.com/megabyte-labs/install.doctor/blob/master/home/dot_config/task/Taskfile.yml#L$LINE_NUMBER" >> "$FILE"
+      echo "githubLocation: https://github.com/heymegabyte/install.doctor/blob/master/home/dot_config/task/Taskfile.yml#L$LINE_NUMBER" >> "$FILE"
       echo "repoLocation: home/dot_config/task/Taskfile.yml" >> "$FILE"
       echo "---" >> "$FILE"
       TMP="$(mktemp)"

@@ -1,6 +1,6 @@
 # aid — CURRENT STATE (verified audit)
 
-**Refreshed:** fire #186 — a genuine generative RE-SCAN (before declaring convergence) found REAL work the prior fires missed: `local/provision.sh:139` carried a **legacy-org clone-URL default** (`megabyte-labs/install.doctor` — the #181 name-squat supply-chain class) AND the #181 provenance gate had a **coverage gap** — it hardcoded `scripts/provision.sh` + the template, so it MISSED `local/provision.sh` (an unreferenced 940-line older variant). Fixed the clone URL → canonical `heymegabyte`, and made the gate ROBUST: `test-bootstrap-provenance.sh` now GLOBS every `provision.sh`/`.tmpl` variant (git ls-files, excl site/) → none may carry the legacy org (10→11, shellcheck-clean; verify-against-source-of-truth: a gate must cover the FULL tree, not a hardcoded subset). TDD RED→GREEN. **test-all 666→667 / 36 suites GREEN.** The re-scan ALSO surfaced user-facing stale-org links in `site/src/store.ts` (the landing-page "Fork"/github/discussions links → a user would fork the WRONG repo) + `site/docs/scripts/markdown.sh` (doc-gen URLs) — DEFERRED to the next slice (site data, Firebase-deploy-gated). `local/provision.sh` is an unreferenced older variant → flagged possibly-vestigial. **Branch:** `master`.
+**Refreshed:** fire #187 — the #186 re-scan's deferred slice: the landing-page's user-facing **GitHub links pointed at the legacy `megabyte-labs` org** — a visitor clicking "Fork" would **fork the WRONG repo** (`site/src/store.ts` Fork/github/discussions × 6) + `site/docs/scripts/markdown.sh` (the `generate-plugin-docs` script) emitted megabyte-labs github/script locations into generated docs. Migrated all `github.com/megabyte-labs/install.doctor` → canonical `heymegabyte` (verified live **200**), scoped to github so the 2 `gitlab` social refs stay untouched (the gitlab footer link is a separate product decision — the project left gitlab; tracked). TDD RED→GREEN — extended the M-series gate `test-landing-page.sh` 4→6 (store.ts + markdown.sh carry no legacy megabyte-labs GitHub link). **test-all 667→669 / 36 suites GREEN.** Firebase-deploy-gated (served site data); the CI build-verifies at deploy. DEFERRED: drop the GitLab footer link (`capacitor-site-footer.tsx` renders `social.gitlab`) — a UX change. **Branch:** `master`.
 Full spec: `MASTER-PROMPT.md` · resume pointer: `NEXT-STEPS.md` · matrix: `REQUIREMENTS.md`. Nothing here
 is inherited without evidence; every count below is from a live `scripts/test-all.sh` run.
 
@@ -10,7 +10,7 @@ The UNBLOCKED functional product has **converged**: the control plane, the full 
 dashboard, the honest-docs set, and a one-command test suite are built + live-verified at
 **https://app.install.doctor**. The remaining high-value requirements are **GATED on external action**
 (see § Gated). Loop fires now harden docs/tests/honesty until a gated dep is provisioned. Verified by
-**`scripts/test-all.sh` → 667 assertions / 36 suites GREEN (1 OS-skipped)** with the prod URL.
+**`scripts/test-all.sh` → 669 assertions / 36 suites GREEN (1 OS-skipped)** with the prod URL.
 
 ## ✅ Built + live-verified
 

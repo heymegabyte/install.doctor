@@ -52,5 +52,19 @@ else
   fail "store.ts missing ($STORE)"
 fi
 
+# 3. Canonical-org provenance (#187): the SERVED user-facing GitHub links (Fork/github/discussions in
+# store.ts + the doc-gen URLs in markdown.sh) must point at the canonical heymegabyte org — a legacy
+# github.com/megabyte-labs/install.doctor Fork link makes a visitor FORK THE WRONG REPO. (The `gitlab`
+# social key is a separate product decision — the project left gitlab; tracked in BACKLOG.)
+grep -q 'github\.com/megabyte-labs/install\.doctor' "$STORE" \
+  && fail "store.ts has a LEGACY github.com/megabyte-labs/install.doctor user-facing link (wrong repo)" \
+  || pass "store.ts: no legacy megabyte-labs GitHub link (Fork/github/discussions canonical)"
+MDGEN="$ROOT/site/docs/scripts/markdown.sh"
+if [ -f "$MDGEN" ]; then
+  grep -q 'github\.com/megabyte-labs/install\.doctor' "$MDGEN" \
+    && fail "markdown.sh (generate-plugin-docs) emits legacy megabyte-labs GitHub URLs into generated docs" \
+    || pass "markdown.sh: no legacy megabyte-labs GitHub URLs"
+fi
+
 say "landing-page: $P passed, $F failed"
 [ "$F" -eq 0 ]

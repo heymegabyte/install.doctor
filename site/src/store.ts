@@ -235,7 +235,7 @@ export const defaults = {
     ],
     actionButton: {
       title: 'Fork',
-      href: 'https://github.com/megabyte-labs/install.doctor/fork',
+      href: 'https://github.com/heymegabyte/install.doctor/fork',
       svgId: 'fork',
     },
   },
@@ -274,8 +274,8 @@ export const defaults = {
   social: {
     discord: 'https://discord.com/channels/1077138419953713222/1077138479928049734',
     facebook: 'https://www.facebook.com/InstallDoctor',
-    github: 'https://github.com/megabyte-labs/install.doctor',
-    githubDiscussions: 'https://github.com/megabyte-labs/install.doctor/discussions',
+    github: 'https://github.com/heymegabyte/install.doctor',
+    githubDiscussions: 'https://github.com/heymegabyte/install.doctor/discussions',
     gitlab: 'https://gitlab.com/megabyte-labs/install.doctor',
     linkedin: 'https://linkedin.com/company/megabyte-labs',
     slack: 'https://app.slack.com/client/T01ABCG4NK1/C04TDHV564E',
@@ -924,7 +924,7 @@ export const LandingPageData = {
       },
       text: 'Star us on GitHub',
       link: {
-        url: 'https://github.com/megabyte-labs/install.doctor',
+        url: 'https://github.com/heymegabyte/install.doctor',
         target: '_blank',
       },
     },
@@ -1481,7 +1481,7 @@ export const CommunityPageData = {
       ],
       link: {
         target: '_blank',
-        url: 'https://github.com/megabyte-labs/install.doctor/discussions',
+        url: 'https://github.com/heymegabyte/install.doctor/discussions',
       },
     },
     {
@@ -1558,7 +1558,7 @@ export const CommunityPageData = {
       ],
       link: {
         target: '_blank',
-        url: 'https://github.com/megabyte-labs/install.doctor/discussions',
+        url: 'https://github.com/heymegabyte/install.doctor/discussions',
       },
     },
     {
