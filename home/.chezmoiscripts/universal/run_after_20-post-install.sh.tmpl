@@ -402,7 +402,9 @@ runPostInstallxHooks() {
     for HOOK in "$POST_INSTALLX_DIR"/post-*.sh; do
       [ -f "$HOOK" ] || continue
       gum log -sl info "Running post-installx hook: $(basename "$HOOK")"
-      bash "$HOOK" || gum log -sl warn "post-installx hook failed (non-fatal): $(basename "$HOOK")"
+      ### stdin </dev/null: a hook's interactive read (4 hooks have read-loops; only 1/30 respects
+      ### HEADLESS_INSTALL) gets EOF instead of HANGING a non-interactive / headless provision (#252, CLAUDE.md §3).
+      bash "$HOOK" </dev/null || gum log -sl warn "post-installx hook failed (non-fatal): $(basename "$HOOK")"
     done
   fi
 }

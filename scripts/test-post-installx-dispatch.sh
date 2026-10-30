@@ -23,6 +23,8 @@
 #   A5 LOCK     — the dispatcher is INVOKED (not just defined) AND error-tolerant (one hook's failure
 #                 is logged, never fatal) — so provisioning can't be aborted by a single bad hook.
 #   A6 coverage — every on-disk hook is reachable by the dispatcher glob (#250's 29/30 gap is CLOSED).
+#   A7 headless — the dispatcher runs each hook with stdin </dev/null, so an interactive read/prompt in a
+#                 hook gets EOF (never HANGS a non-interactive / headless provision). CLAUDE.md §3. #252.
 set -uo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 HOOKS="$ROOT/home/dot_local/bin/post-installx"
@@ -82,6 +84,15 @@ if [ "${stray:-0}" -eq 0 ]; then
   pass "dispatch coverage: all $nhooks hooks match the post-*.sh glob, no stray undispatchable hook (#250 gap CLOSED)"
 else
   fail "$stray hook(s) in $HOOKS not named post-*.sh — the run_after_20 glob would MISS them"
+fi
+
+# A7 — headless-safe: the dispatcher runs each hook with stdin from /dev/null. 4 hooks have `read` loops
+#      (cloudflared/envchain/vscode/wazuh) + only 1/30 hooks respects HEADLESS_INSTALL, so a bare read of
+#      inherited stdin would HANG a non-interactive provision; </dev/null gives EOF instead. #252.
+if grep -qE 'bash "\$HOOK"[[:space:]]*<[[:space:]]*/dev/null' "$DISPATCHER" 2>/dev/null; then
+  pass "dispatcher runs hooks with </dev/null (headless-safe: a hook's read gets EOF, can't hang provisioning)"
+else
+  fail "dispatcher does NOT redirect hook stdin from /dev/null — an interactive read could HANG a headless provision (#252)"
 fi
 
 echo
