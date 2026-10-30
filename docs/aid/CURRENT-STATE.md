@@ -1,6 +1,6 @@
 # aid — CURRENT STATE (verified audit)
 
-**Refreshed:** fire #190 — SHIPPED the SOURCE half of the secret-redaction invariant (Q08/U02). #189 redacted device-reported `summary`/`detail` at the control-plane BOUNDARY; the invariant's PRIMARY control is SOURCE-suppression ("disable sensitive capture at its source; later redaction alone is insufficient"), so a secret must never LEAVE the host. Added `home/dot_local/bin/aid-redact.jq` — a jq filter mirroring `redact.ts` (bearer/AKIA/ghp_/github_pat_/sk-/xox/PEM + explicit `key=value`; walks every string in the outgoing report body; idempotent) — wired into the aid client's `postReport` (reuses the jq already required there; fail-safe: filter absent OR jq error → send as-is, so #189's server redaction still backstops). TDD RED→GREEN: aid-redact filter unit tests + a `postReport` WIRING assertion in `test-aid-client.sh` (31→36, RED before the wiring); `bash -n` + shellcheck clean; verified the filter scrubs ghp_/Bearer/AKIA/sk-/password= from summary+detail, leaves prose+correlationId+kind/status untouched, stays valid JSON, idempotent. Client-only — **NO control-plane deploy** (chezmoi installs `aid-redact.jq` alongside `aid` on hosts; the on-host end-to-end is machine-gated, and #189's server redaction is the LIVE backstop). **test-all 690→695 / 37 suites GREEN.** **Branch:** `master`.
+**Refreshed:** fire #191 — LOCKED the two secret-redactors in PARITY (Q08/U02 drift guard). #189 (server BOUNDARY, `redact.ts`) + #190 (client SOURCE, `aid-redact.jq`) are TWO implementations that MUST scrub the SAME credential shapes — a shape added to one but not the other is a silent HALF-leak (caught server-side but sent plaintext from the host, or vice versa), the textbook drift-detection gap for duplicate security logic. Added `scripts/test-redact-parity.sh` — feeds ONE canonical sample list (bearer/AKIA/ghp_/github_pat_/sk-/xox/`password=`/`token=`/json-`api_key`/multiline-PEM + clean prose) to BOTH engines (node `redact.ts` + jq `aid-redact.jq`) and asserts they AGREE on every case (both redact a secret, or both leave clean prose untouched). Verified they agree on every shape today; proven NON-VACUOUS by break→RED→restore (dropping the client `ghp_` rule flips `parity[ghp]` RED: server=R, client=.). Mirrors the `test-provider-consistency.sh` pattern (#165). Test-only — NO deploy. **test-all 695→708 / 38 suites GREEN.** **Branch:** `master`.
 Full spec: `MASTER-PROMPT.md` · resume pointer: `NEXT-STEPS.md` · matrix: `REQUIREMENTS.md`. Nothing here
 is inherited without evidence; every count below is from a live `scripts/test-all.sh` run.
 
@@ -10,7 +10,7 @@ The UNBLOCKED functional product has **converged**: the control plane, the full 
 dashboard, the honest-docs set, and a one-command test suite are built + live-verified at
 **https://app.install.doctor**. The remaining high-value requirements are **GATED on external action**
 (see § Gated). Loop fires now harden docs/tests/honesty until a gated dep is provisioned. Verified by
-**`scripts/test-all.sh` → 695 assertions / 37 suites GREEN (1 OS-skipped)** with the prod URL.
+**`scripts/test-all.sh` → 708 assertions / 38 suites GREEN (1 OS-skipped)** with the prod URL.
 
 ## ✅ Built + live-verified
 
