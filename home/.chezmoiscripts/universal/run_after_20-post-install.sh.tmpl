@@ -8,76 +8,6 @@
 {{ includeTemplate "universal/profile" }}
 {{ includeTemplate "universal/logg" }}
 
-# @description
-#     This script ensures Bash is configured to use Bash It! It ensures dependencies are installed, installs completions,
-#     and enables Bash It! plugins. The completions and plugins are hardcoded in this script. Source file might need `#!/usr/bin/env -S bash -i`.
-bashItPlugins() {
-  ### Ensure Powerline is installed
-  if ! command -v powerline > /dev/null; then
-    gum log -sl info 'Installing powerline via install-program'
-    installx powerline
-  fi
-
-  ### Include Bash It
-  export BASH_IT="${XDG_DATA_HOME:-$HOME/.local/share}/bash_it"
-  export BASH_IT_THEME="powerline"
-  if command -v powerline-daemon > /dev/null && [ -f "$BASH_IT/bash_it.sh" ] && ! command -v bash-it; then
-    gum log -sl info "Sourcing the bash_it.sh script"
-    . "$BASH_IT/bash_it.sh"
-  fi
-
-  ### Ensure ble.sh installed
-  if [ -d "${XDG_DATA_HOME:-$HOME/.local/share}/blesh/src" ]; then
-    gum log -sl info 'Make installing blesh'
-    make -C "${XDG_DATA_HOME:-$HOME/.local/share}/blesh/src" install > /dev/null && gum log -sl info "Installed ble.sh" || gum log -sl error "Error running make -C "${XDG_DATA_HOME:-$HOME/.local/share}/blesh/src" install"
-  fi
-
-  ### Bash-it completions / plugins
-  if command -v powerline > /dev/null && [ -f "$HOME/.bashrc" ]; then
-    if [ -d "$BASH_IT" ]; then
-      ### Ensure bash-it is installed
-      if ! command -v bash-it > /dev/null; then
-        gum log -sl info 'Installing bash-it since it is not available yet as a command'
-        bash "$BASH_IT/install.sh" --silent --no-modify-config
-      else
-        gum log -sl info 'bash-it already available'
-      fi
-
-      ### Ensure completions are enabled
-      if [ ! -d "$BASH_IT/enabled" ]; then
-        gum log -sl info "Creating the $BASH_IT/enabled directory" && mkdir -p "$BASH_IT/enabled"
-      fi
-      gum log -sl info "Changing directory to $BASH_IT/enabled" && cd "$BASH_IT/enabled"
-      gum log -sl info 'Enabling bash-it completions'
-      # TODO: Move these plugins to the .chezmoidata.yaml
-      for COMPLETION in defaults dirs docker docker-compose export git makefile ng ssh system vagrant; do
-        if ls "$BASH_IT/enabled" | grep "$COMPLETION" > /dev/null; then
-          rm -f "$BASH_IT/enabled/"*"$COMPLETION"* > /dev/null && gum log -sl info "Removed old $COMPLETION bash-it completion symlink" || gum log -sl error "Failed to remove $COMPLETION bash-it completion symlink"
-        fi
-        yes | bash-it enable completion "$COMPLETION" > /dev/null && gum log -sl info "Enabled the bash-it $COMPLETION completion plugin" || gum log -sl error "Failed to install the $COMPLETION bash-it completion plugin"
-      done
-
-      ### Ensure plugins are enabled
-      gum log -sl info 'Enabling bash-it plugins'
-      # TODO: Move these plugins to the .chezmoidata.yaml
-      for PLUGIN in base blesh browser cht-sh dirs gitstatus powerline sudo xterm; do
-        if ls "$BASH_IT/enabled" | grep "$PLUGIN" > /dev/null; then
-          rm -f "$BASH_IT/enabled/"*"$PLUGIN"* > /dev/null && gum log -sl info "Removed old $PLUGIN bash-it plugin symlink" || gum log -sl error "Failed to remove $PLUGIN bash-it plugin symlink"
-        fi
-        yes | bash-it enable plugin "$PLUGIN" > /dev/null && gum log -sl info "Enabled the bash-it $PLUGIN plugin" || gum log -sl error "Failed to install the $PLUGIN bash-it plugin"
-      done
-    else
-      gum log -sl warn 'The path specified by BASH_IT does not exist yet'
-    fi
-  else
-    if ! command -v powerline > /dev/null; then
-      gum log -sl warn 'powerline is not available'
-    else
-      gum log -sl warn '~/.bashrc is missing'
-    fi
-  fi
-}
-
 # @description Performs various tasks related to integrating the Sweet icon theme that is part of our Betelgeuse theme
 candyIconTweaks() {
   if [ "{{ .host.distro.family }}" = "linux" ]; then
@@ -462,7 +392,6 @@ ensureAutoresticLocation() {
 # Temporary next line for debugging
 if [ -n "$DEBUG" ] || [ -n "$DEBUG_MODE" ]; then
   gum log -sl info 'The DEBUG or DEBUG_MODE environment variable is set so the post-install tasks will be run synchronously'
-  bashItPlugins
   candyIconTweaks
   configureVNC
   disableAutoUpdateDarwin
@@ -474,7 +403,6 @@ if [ -n "$DEBUG" ] || [ -n "$DEBUG_MODE" ]; then
   ubuntuDashToDockFix
   ensureAutoresticLocation
 else
-  bashItPlugins &
   candyIconTweaks &
   configureVNC &
   disableAutoUpdateDarwin &
