@@ -54,9 +54,6 @@ ensureBasicDeps() {
     elif [[ "$OSTYPE" == 'cygwin' ]] || [[ "$OSTYPE" == 'msys' ]] || [[ "$OSTYPE" == 'win32' ]]; then
       ### Windows
       logg info 'Running choco install -y curl expect git moreutils rsync' && choco install -y curl expect git moreutils rsync
-    elif command -v nix-env > /dev/null; then
-      ### NixOS
-      logg warn "TODO - Add support for NixOS"
     elif [[ "$OSTYPE" == 'freebsd'* ]]; then
       ### FreeBSD
       logg warn "TODO - Add support for FreeBSD"

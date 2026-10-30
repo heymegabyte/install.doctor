@@ -17,7 +17,7 @@ fail() { command -v gum >/dev/null 2>&1 && gum style --foreground 196 -- "FAIL $
 P=0
 F=0
 
-say "dead removed-tool guard (bash-it + Mackup — CLAUDE.md §6)"
+say "dead removed-tool guard (bash-it + Mackup §6 · Nix + MacPorts §7)"
 
 # The live provisioning surfaces to scan (NOT the test suite, NOT docs).
 SURFACES="home/.chezmoiscripts home/dot_local/bin home/dot_config/shell scripts/partials"
@@ -49,6 +49,17 @@ if ! grep -qE 'bashItPlugins' home/.chezmoiscripts/universal/run_after_20-post-i
 else
   fail "run_after_20-post-install still references bashItPlugins"
 fi
+
+# 5. Nix — removed fleet-wide (CLAUDE.md §7: 53 software.yml entries + install branches dropped). NixOS is
+#    NOT a supported fleet role (§2), so a `command -v nix-env` OS-detection branch is dead. BSD-safe patterns
+#    (no \b — macOS grep's \b is unreliable); the active invocations can't appear in a prose comment.
+nx="$(activeHits 'command -v nix-env|nix-channel|nix-build|nixpkgs|installNix')"
+if [ -z "$nx" ]; then pass "no active Nix code in provisioning surfaces (§7: Nix removed fleet-wide)"; else fail "active Nix code remains:"; printf '%s\n' "$nx" | head -6; fi
+
+# 6. MacPorts — removed fleet-wide (CLAUDE.md §7: 110 software.yml entries + ensureMacportsInstalled dropped).
+#    `[^a-z]port ` requires a non-letter before "port" so "report install" / "support" never false-match.
+mp="$(activeHits '[^a-z]port (install|sync|selfupdate|upgrade)|ensureMacportsInstalled|/opt/local/bin/port')"
+if [ -z "$mp" ]; then pass "no active MacPorts code in provisioning surfaces (§7: MacPorts removed fleet-wide)"; else fail "active MacPorts code remains:"; printf '%s\n' "$mp" | head -6; fi
 
 say "no-removed-tools: $P passed, $F failed"
 [ "$F" -eq 0 ]
