@@ -576,7 +576,7 @@ command -v zoxide > /dev/null && zstyle ':autocomplete:recent-dirs' backend zoxi
 # ---------------------------------------------------------------------------
 if [[ -f "${XDG_CONFIG_HOME:-$HOME/.config}/shell/not-found-hook.sh" ]]; then
   source "${XDG_CONFIG_HOME:-$HOME/.config}/shell/not-found-hook.sh"
-  command_not_found_handler() { handle_command_not_found "$1"; }
+  command_not_found_handler() { handle_command_not_found "$@"; }
 fi
 
 # ---------------------------------------------------------------------------

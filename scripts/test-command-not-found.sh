@@ -49,6 +49,23 @@ unset -f command_not_found_handler command_not_found_handle 2>/dev/null || true
 # the rc entry point must exist (dot_zshrc/dot_bashrc source this file then call it)
 if declare -F handle_command_not_found >/dev/null 2>&1; then pass "handle_command_not_found (rc entry point) defined"; else fail "handle_command_not_found missing — rc integration would break"; fi
 
+# The rc handlers (dot_zshrc command_not_found_handler, dot_bashrc command_not_found_handle) must pass the FULL
+# command line to handle_command_not_found, NOT just the command NAME. __cnf_resolve captures cmd then SHIFTS,
+# re-running "cmd + remaining args" — it is DESIGNED to preserve the user's args (rg pattern → install rg → run
+# `rg pattern`). Passing only the first positional drops every arg, so a lazy-installed command re-runs BARE
+# (rg pattern → bare rg, pattern lost). The hook's own self-contained handlers already forward all args; the rc
+# re-definitions must match. #273. (grep patterns single-quoted so the positional refs stay literal.)
+RC_ROOT="$ROOT/home"
+rcargbad=""
+for rcf in dot_zshrc dot_bashrc; do
+  grep -qF 'handle_command_not_found "$1"' "$RC_ROOT/$rcf" 2>/dev/null && rcargbad="$rcargbad $rcf(drops-args)"
+done
+if [ -z "$rcargbad" ] && grep -qF 'handle_command_not_found "$@"' "$RC_ROOT/dot_zshrc" 2>/dev/null && grep -qF 'handle_command_not_found "$@"' "$RC_ROOT/dot_bashrc" 2>/dev/null; then
+  pass "rc handlers forward the FULL command line to handle_command_not_found — a lazy-installed cmd re-runs WITH its original args (not bare)"
+else
+  fail "rc handler forwards only the command NAME (drops the user's args — a lazy-installed 'rg pattern' re-runs as bare 'rg'):$rcargbad"
+fi
+
 # 1. dry-run resolve against a synthetic index (proves lookup + manager selection; NO install)
 tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' EXIT
 idx="$tmp/index.tsv"
