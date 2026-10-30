@@ -43,6 +43,16 @@ if [ -f "$WARP" ]; then
   else
     fail "WARP hook does not install the Cloudflare cert into a trust store"
   fi
+  # Linux trust store must cover ALPINE (a supported fleet role, CLAUDE.md §2). Alpine has NEITHER
+  # `dpkg-reconfigure` (Debian) NOR `update-ca-trust` (Fedora) — but it HAS `update-ca-certificates` +
+  # /usr/local/share/ca-certificates/. The standard, NON-interactive `update-ca-certificates` is present on
+  # BOTH Debian/Ubuntu AND Alpine, so gating the Debian-family path on it covers Alpine; the old
+  # `dpkg-reconfigure` gate silently SKIPPED Alpine → WARP's cert never trusted → broken HTTPS under WARP. #269.
+  if has "$WARP" 'command -v update-ca-certificates' && has "$WARP" 'sudo update-ca-certificates'; then
+    pass "WARP Linux cert-trust covers Alpine — gated on update-ca-certificates (Debian/Ubuntu + Alpine), not the Debian-only dpkg-reconfigure"
+  else
+    fail "WARP Linux cert-trust uses a Debian-only gate — Alpine (no dpkg-reconfigure / update-ca-trust) never gets the cert; gate on update-ca-certificates"
+  fi
   # register + connect (idempotent — gated on 'Registration Missing' / 'Disconnected')
   has "$WARP" 'registration new' && pass "WARP REGISTERS the device (warp-cli registration new)" || fail "WARP hook never registers the device"
   has "$WARP" 'warp-cli --accept-tos connect' && pass "WARP CONNECTS the device (warp-cli --accept-tos connect)" || fail "WARP hook never connects"

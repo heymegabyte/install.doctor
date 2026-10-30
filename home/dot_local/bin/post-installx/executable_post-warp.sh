@@ -139,12 +139,12 @@ if [ -d /System ] && [ -d /Applications ] && command -v warp-cli > /dev/null; th
   fi
 elif command -v warp-cli > /dev/null; then
   # System is Linux
-  if command -v dpkg-reconfigure > /dev/null; then
+  if command -v update-ca-certificates > /dev/null; then
     if [ -d /usr/local/share/ca-certificates ]; then
       gum log -sl info 'Copying CloudFlare Teams PEM file to /usr/local/share/ca-certificates/cloudflare.crt'
       sudo cp -f "$HOME/.local/etc/ssl/cloudflare/cloudflare.pem" /usr/local/share/ca-certificates/cloudflare.crt
-      gum log -sl info 'dpkg-reconfigure executable detected so using Debian/Ubuntu method of updating system trusted certificates to include CloudFlare Teams certificate'
-      sudo dpkg-reconfigure ca-certificates -p high
+      gum log -sl info 'update-ca-certificates detected so using the Debian/Ubuntu/Alpine method of updating system trusted certificates to include the CloudFlare Teams certificate'
+      sudo update-ca-certificates
       SSL_CERT_PATH="/etc/ssl/certs/ca-certificates.crt"
     else
       gum log -sl warn 'No /usr/local/share/ca-certificates folder present'
