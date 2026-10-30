@@ -47,6 +47,22 @@ for rel in "scripts/provision.sh" "scripts/src/provision.sh.tmpl"; do
     || fail "$rel: default START_REPO is not the canonical heymegabyte clone URL"
 done
 
+# CI-env defaults must RESPECT an externally-provided value (${VAR:-default}), never UNCONDITIONALLY
+# overwrite it. A bare `export PRIMARY_EMAIL="brian@..."` in setCIEnvironmentVariables clobbers a secret/
+# CI-provided identity, which post-postfix then uses for root-mail forwarding (.forward / aliases) — the
+# #254 cross-machine class. Guard BOTH the generated provision.sh AND its template SoT (they drifted: the
+# template set them unconditionally while the deployed used ${VAR:-}; fixed #258). Identity/mail vars only.
+for rel in "scripts/provision.sh" "scripts/src/provision.sh.tmpl"; do
+  f="$ROOT/$rel"
+  envbad=""
+  for v in PRIMARY_EMAIL PUBLIC_SERVICES_DOMAIN; do
+    grep -qE "export $v=\"[^\$]" "$f" 2> /dev/null && envbad="$envbad $v"
+  done
+  [ -z "$envbad" ] \
+    && pass "$rel: CI-env identity vars use \${VAR:-default} (respect a provided value, no unconditional overwrite)" \
+    || fail "$rel: unconditionally overwrites CI-provided$envbad (clobbers a secret-provided identity → postfix root-mail misrouting; use \${VAR:-})"
+done
+
 # ROBUST clone-URL coverage (#186, verify-against-source-of-truth: a gate must cover the FULL tree, not a
 # hardcoded subset). The #181 checks above hardcoded scripts/provision.sh + the template, so they MISSED
 # `local/provision.sh` — an unreferenced older variant (940 vs 1213 lines) that still carried the legacy

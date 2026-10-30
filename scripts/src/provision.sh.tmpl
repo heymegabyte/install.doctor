@@ -121,13 +121,13 @@ setCIEnvironmentVariables() {
     logg info "Automatically setting environment variables since the CI environment variable is defined"
     logg info "Setting NO_RESTART to true" && export NO_RESTART=true
     logg info "Setting HEADLESS_INSTALL to true " && export HEADLESS_INSTALL=true
-    logg info "Setting SOFTWARE_GROUP to Full-Desktop" && export SOFTWARE_GROUP="Full-Desktop"
-    logg info "Setting FULL_NAME to Brian Zalewski" && export FULL_NAME="Brian Zalewski"
-    logg info "Setting PRIMARY_EMAIL to brian@megabyte.space" && export PRIMARY_EMAIL="brian@megabyte.space"
-    logg info "Setting PUBLIC_SERVICES_DOMAIN to lab.megabyte.space" && export PUBLIC_SERVICES_DOMAIN="lab.megabyte.space"
-    logg info "Setting RESTRICTED_ENVIRONMENT to false" && export RESTRICTED_ENVIRONMENT=false
-    logg info "Setting WORK_ENVIRONMENT to false" && export WORK_ENVIRONMENT=false
-    logg info "Setting HOST to $(hostname -s)" && export HOST="$(hostname -s)"
+    logg info "Setting SOFTWARE_GROUP to ${SOFTWARE_GROUP:-Full-Desktop}" && export SOFTWARE_GROUP="${SOFTWARE_GROUP:-Full-Desktop}"
+    logg info "Setting FULL_NAME to ${FULL_NAME:-Brian Zalewski}" && export FULL_NAME="${FULL_NAME:-Brian Zalewski}"
+    logg info "Setting PRIMARY_EMAIL to ${PRIMARY_EMAIL:-brian@megabyte.space}" && export PRIMARY_EMAIL="${PRIMARY_EMAIL:-brian@megabyte.space}"
+    logg info "Setting PUBLIC_SERVICES_DOMAIN to ${PUBLIC_SERVICES_DOMAIN:-lab.megabyte.space}" && export PUBLIC_SERVICES_DOMAIN="${PUBLIC_SERVICES_DOMAIN:-lab.megabyte.space}"
+    logg info "Setting RESTRICTED_ENVIRONMENT to ${RESTRICTED_ENVIRONMENT:-false}" && export RESTRICTED_ENVIRONMENT="${RESTRICTED_ENVIRONMENT:-false}"
+    logg info "Setting WORK_ENVIRONMENT to ${WORK_ENVIRONMENT:-false}" && export WORK_ENVIRONMENT="${WORK_ENVIRONMENT:-false}"
+    logg info "Setting HOST to ${HOST:-$(hostname -s)}" && export HOST="${HOST:-$(hostname -s)}"
   fi
 }
 
