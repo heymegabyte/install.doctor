@@ -6217,7 +6217,6 @@ softwarePackages:
     _bin: m
     _home: https://github.com/rgcr/m-cli
     _docs: https://github.com/rgcr/m-cli
-    _preload: true
     brew:darwin: m-cli
   maas:
     _name: MAAS
