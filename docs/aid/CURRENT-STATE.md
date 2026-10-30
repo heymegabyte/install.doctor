@@ -1,6 +1,6 @@
 # aid — CURRENT STATE (verified audit)
 
-**Refreshed:** fire #252 — NEW ARC: bootstrap/provisioning QUALITY + deploy SPEED (the v2 control-plane arc converged #195–#197). The master prompt PIVOTED to: `start.sh`→chezmoi (dot configs **and** system files), minimum-install + lazy-everywhere, a preinstalled cnf-substrate toolchain, cloudflared+WARP, file cleanup/de-dup, a Monday-02:00 auto-update cron. **⚠️ app.install.doctor is being RETIRED → absorbed by https://desktop.tools** — do NOT keep hardening the control-plane surface; the suite still verifies it until the migration lands. Per-fire arc history (#198→) lives in `git log` + the §Built/§Gated sections below. Verified: full suite **807 / 46 suites GREEN** vs live prod. **Branch:** `master`.
+**Refreshed:** fire #253 — NEW ARC: bootstrap/provisioning QUALITY + deploy SPEED (the v2 control-plane arc converged #195–#197). The master prompt PIVOTED to: `start.sh`→chezmoi (dot configs **and** system files), minimum-install + lazy-everywhere, a preinstalled cnf-substrate toolchain, cloudflared+WARP, file cleanup/de-dup, a Monday-02:00 auto-update cron. **⚠️ app.install.doctor is being RETIRED → absorbed by https://desktop.tools** — do NOT keep hardening the control-plane surface; the suite still verifies it until the migration lands. Per-fire arc history (#198→) lives in `git log` + the §Built/§Gated sections below. Verified: full suite **808 / 46 suites GREEN** vs live prod. **Branch:** `master`.
 Full spec: `MASTER-PROMPT.md` · resume pointer: `NEXT-STEPS.md` · matrix: `REQUIREMENTS.md`. Nothing here
 is inherited without evidence; every count below is from a live `scripts/test-all.sh` run.
 
@@ -10,7 +10,7 @@ The UNBLOCKED functional product has **converged**: the control plane, the full 
 dashboard, the honest-docs set, and a one-command test suite are built + live-verified at
 **https://app.install.doctor**. The remaining high-value requirements are **GATED on external action**
 (see § Gated). Loop fires now harden docs/tests/honesty until a gated dep is provisioned. Verified by
-**`scripts/test-all.sh` → 807 assertions / 46 suites GREEN (1 OS-skipped)** with the prod URL.
+**`scripts/test-all.sh` → 808 assertions / 46 suites GREEN (1 OS-skipped)** with the prod URL.
 
 ## ✅ Built + live-verified
 
@@ -156,7 +156,7 @@ dashboard, the honest-docs set, and a one-command test suite are built + live-ve
   loops `~/.local/bin/post-installx/post-*.sh` after installx (`run_after_10`), error-tolerant; each hook
   self-guards on OS + tool-presence + idempotency, so all 30 config hooks (cloudflared/WARP/tailscale/
   netdata/…) now dispatch (wazuh also via its `script:` entry). File-wired + gate-locked
-  (`test-post-installx-dispatch.sh` 8/8; #250 detect → #251 wire → #252 stdin `</dev/null` headless-harden).
+  (`test-post-installx-dispatch.sh` 9/9; #250 detect → #251 wire → #252 headless-harden → #253 `set -euo pipefail` fail-fast lock).
   **Still ◐: the LIVE run (hooks
   actually executing + configuring on a provisioned machine) is HOST-GATED** — needs a throwaway box to
   confirm, same class as cloudflared/WARP live-connect. Closed the #250 29/30-undispatched gap.

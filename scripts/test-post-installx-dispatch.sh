@@ -25,6 +25,11 @@
 #   A6 coverage — every on-disk hook is reachable by the dispatcher glob (#250's 29/30 gap is CLOSED).
 #   A7 headless — the dispatcher runs each hook with stdin </dev/null, so an interactive read/prompt in a
 #                 hook gets EOF (never HANGS a non-interactive / headless provision). CLAUDE.md §3. #252.
+#   A8 fail-fast — every hook declares `set -euo pipefail` (_TEMPLATE contract #1), load-bearing now the
+#                 dispatcher RUNS them: a hook missing it could silently continue past a failed step. #253.
+#                 (The _TEMPLATE's OS-gate #2 is NOT asserted — valid guards vary: OS check / command -v /
+#                 `[ -f config ]` file-presence; post-vim + post-tabby correctly guard on file-presence, so a
+#                 naive OSTYPE/command-v assertion would false-fail them — verified-against-source #253.)
 set -uo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 HOOKS="$ROOT/home/dot_local/bin/post-installx"
@@ -93,6 +98,18 @@ if grep -qE 'bash "\$HOOK"[[:space:]]*<[[:space:]]*/dev/null' "$DISPATCHER" 2>/d
   pass "dispatcher runs hooks with </dev/null (headless-safe: a hook's read gets EOF, can't hang provisioning)"
 else
   fail "dispatcher does NOT redirect hook stdin from /dev/null — an interactive read could HANG a headless provision (#252)"
+fi
+
+# A8 — _TEMPLATE contract #1: every hook declares `set -euo pipefail` (fail-fast). Load-bearing now the
+#      dispatcher RUNS all hooks — a hook missing it could silently half-configure past a failed step.
+noset=""
+for f in "$HOOKS"/executable_post-*.sh; do
+  grep -qE '^set -euo pipefail' "$f" || noset="$noset $(basename "$f" | sed 's/^executable_//')"
+done
+if [ -z "$noset" ]; then
+  pass "every post-installx hook declares 'set -euo pipefail' (fail-fast; $nhooks/$nhooks)"
+else
+  fail "post-installx hook(s) missing 'set -euo pipefail' (fail-fast contract):$noset"
 fi
 
 echo
