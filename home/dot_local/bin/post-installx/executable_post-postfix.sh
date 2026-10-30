@@ -48,8 +48,8 @@ if get-secret --exists SENDGRID_API_KEY; then
         CONFIG_FILE=/etc/postfix/main.cf
         if cat "$CONFIG_FILE" | grep '### INSTALL DOCTOR MANAGED' > /dev/null; then
           gum log -sl info 'Removing Install Doctor-managed block of code in /etc/postfix/main.cf block'
-          START_LINE="$(echo `grep -n -m 1 "### INSTALL DOCTOR MANAGED ### START" "$CONFIG_FILE" | cut -f1 -d ":"`)"
-          END_LINE="$(echo `grep -n -m 1 "### INSTALL DOCTOR MANAGED ### END" "$CONFIG_FILE" | cut -f1 -d ":"`)"
+          START_LINE="$(grep -n -m 1 "### INSTALL DOCTOR MANAGED ### START" "$CONFIG_FILE" | cut -f1 -d ":")"
+          END_LINE="$(grep -n -m 1 "### INSTALL DOCTOR MANAGED ### END" "$CONFIG_FILE" | cut -f1 -d ":")"
           if [ -n "$START_LINE" ] && [ -n "$END_LINE" ]; then
             if command -v gsed > /dev/null; then
               sudo gsed -i "${START_LINE},${END_LINE}d" "$CONFIG_FILE"
@@ -74,7 +74,7 @@ if get-secret --exists SENDGRID_API_KEY; then
         gum log -sl info 'Updating Postfix hashmaps for /etc/postfix/sasl_passwd'
         sudo postmap /etc/postfix/sasl_passwd
       else
-        gum log -sl warn '~/.config/postfix/sasl_passwd file is missing'
+        gum log -sl warn "${XDG_CONFIG_HOME:-$HOME/.config}/postfix/sasl_passwd file is missing"
       fi
 
       ### Forward root e-mails
@@ -113,7 +113,7 @@ if get-secret --exists SENDGRID_API_KEY; then
         gum log -sl info "Forward root e-mails to $PRIMARY_EMAIL"
         ALIASES_TMP="$(mktemp)"
         gum log -sl info "Setting $PRIMARY_EMAIL as root e-mail in temporary file"
-        sudo sed "s/#root.*/root:\ $PRIMARY_EMAIL/" /etc/aliases > "$ALIASES_TMP"
+        sudo sed "s/#root.*/root:\ $PRIMARY_EMAIL/" /etc/aliases | tee "$ALIASES_TMP" > /dev/null
         gum log -sl info 'Moving temporary file to /etc/aliases'
         sudo mv -f "$ALIASES_TMP" /etc/aliases
         if ! cat /etc/aliases | grep "$USER_USERNAME: root" > /dev/null; then
@@ -129,9 +129,9 @@ if get-secret --exists SENDGRID_API_KEY; then
         ### Re-generate the /etc/aliases.db file
         if [ -f /etc/aliases ]; then
           if command -v gstat > /dev/null; then
-            gum log -sl info 'Ensuring proper permissions on the /etc/aliases file' && sudo chown $(gstat -c "%U:%G" /etc/sudoers) /etc/aliases
+            gum log -sl info 'Ensuring proper permissions on the /etc/aliases file' && sudo chown "$(gstat -c "%U:%G" /etc/sudoers)" /etc/aliases
           elif command -v stat > /dev/null; then
-            gum log -sl info 'Ensuring proper permissions on the /etc/aliases file' && sudo chown $(stat -c "%U:%G" /etc/sudoers) /etc/aliases
+            gum log -sl info 'Ensuring proper permissions on the /etc/aliases file' && sudo chown "$(stat -c "%U:%G" /etc/sudoers)" /etc/aliases
           else
             gum log -sl info 'Neither the gstat or stat command are available - cannot run sudo chown $(stat/gstat -c "%U:%G" /etc/sudoers) /etc/aliases'
           fi

@@ -75,12 +75,14 @@ fi
 # Hooks MIGRATED to the stricter warning bar, locked one-at-a-time (audit-arc ladder). The cloudflare/WARP
 # hooks the prompt names came first, then migrated one hook/fire: post-zsh-bootstrap #222 (SC2155 + 3x SC2010),
 # post-privoxy #223 (SC2046 chown-group quoting), post-rclone #224 (SC2046 -- dropped a redundant echo-wrapper),
-# post-wazuh #225 (SC2027/SC2046 one-quoted-string for the envs echo; SC2154 escaped `\$releasever` to match
-# the yum-branch sibling so the zypp repo `name=` isn't silently blanked by shell expansion).
-# A cleaned hook is locked here so a future edit can't regress it. Remaining warn-dirty candidates:
-# post-netdata/postfix (+ post-warp's SC2024 sudo-redirect is HOST-GATED -- `sudo tee`
-# would change Homebrew cert-dir ownership, so it stays error-locked above until verified on a real box).
-WARN_HOOKS="executable_post-cloudflared.sh executable_post-rkhunter.sh executable_post-zsh-bootstrap.sh executable_post-privoxy.sh executable_post-rclone.sh executable_post-wazuh.sh"
+# post-wazuh #225 (SC2027/SC2046 one-quoted envs echo; SC2154 escaped `\$releasever`), post-postfix #226
+# (SC2046 dropped 2 echo-backtick-wrappers; SC2088 `~` -> `${XDG_CONFIG_HOME:-$HOME/.config}` to match the
+# hook's own path style; SC2024 `sudo sed > tmp` -> `sudo sed | tee tmp` (tmp is a user-owned mktemp)).
+# A cleaned hook is locked here so a future edit can't regress it. Remaining warn-dirty: post-netdata (the
+# last cleanly-fixable one) + post-warp's SC2024 sudo-redirect is HOST-GATED (`sudo tee` would change
+# Homebrew cert-dir ownership, stays error-locked above until verified on a real box); _TEMPLATE.sh is a
+# scaffold (SC2034/SC2217 are intentional placeholders), not a real hook -- exempt from the warn-lock.
+WARN_HOOKS="executable_post-cloudflared.sh executable_post-rkhunter.sh executable_post-zsh-bootstrap.sh executable_post-privoxy.sh executable_post-rclone.sh executable_post-wazuh.sh executable_post-postfix.sh"
 for h in $WARN_HOOKS; do
   f="$ROOT/home/dot_local/bin/post-installx/$h"
   if [ ! -f "$f" ]; then fail "missing warn-locked hook: $h"; continue; fi
