@@ -43,7 +43,7 @@ main() {
   hostLabel="$(hostname 2>/dev/null || echo unknown)"
   log "starting pairing with $u (tenant ${AID_TENANT})…"
   local start
-  start="$(curl -fsS -X POST -H 'content-type: application/json' \
+  start="$(curl -fsS --connect-timeout 5 --max-time 20 -X POST -H 'content-type: application/json' \
     -d "{\"tenant\":\"${AID_TENANT}\",\"label\":\"${hostLabel}\",\"permissions\":[\"pull-desired-state\",\"report-status\"]}" "$u/api/devices/pair/start" 2>/dev/null)"
   local code pollSecret verifyUrl
   code="$(jsonStr "$start" code)"
@@ -62,7 +62,7 @@ main() {
   log "waiting for approval (timeout ${AID_PAIR_TIMEOUT}s)…"
   local waited=0 resp status errf token deviceId
   while [ "$waited" -lt "$AID_PAIR_TIMEOUT" ]; do
-    resp="$(curl -sS -H "authorization: Bearer ${pollSecret}" "$u/api/devices/pair/poll" 2>/dev/null || true)"
+    resp="$(curl -sS --connect-timeout 5 --max-time 20 -H "authorization: Bearer ${pollSecret}" "$u/api/devices/pair/poll" 2>/dev/null || true)"
     status="$(jsonStr "$resp" status)"
     errf="$(jsonStr "$resp" error)"
     case "$status" in

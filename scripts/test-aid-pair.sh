@@ -72,5 +72,12 @@ else
   skip "CONTROL_PLANE_URL unset — aid-pair E2E skipped (static gates only)"
 fi
 
+# fire #194 — A11 offline resilience (sibling of the #193 aid fix): aid-pair's control-plane curls
+# (pair/start + the pair/poll loop) must carry --connect-timeout so an unreachable control plane fails
+# FAST with an honest error instead of hanging on curl's multi-minute default (a poll loop would hang
+# EACH iteration). Completes the #193 A11 fix across BOTH aid client scripts (aid + aid-pair). RED pre-fix.
+pair_noto="$(grep -nE '\bcurl ' "$SRC" | grep -cvE -- '--connect-timeout')"
+{ [ "$pair_noto" = 0 ]; } && pass "A11 — every aid-pair control-plane curl carries --connect-timeout (pairing fails fast on an unreachable CP, never hangs)" || fail "$pair_noto aid-pair curl call(s) lack --connect-timeout (pairing would hang on an unreachable control plane)"
+
 say "aid-pair: $P passed, $F failed"
 [ "$F" -eq 0 ]

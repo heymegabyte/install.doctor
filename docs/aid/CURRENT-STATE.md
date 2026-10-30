@@ -1,6 +1,6 @@
 # aid — CURRENT STATE (verified audit)
 
-**Refreshed:** fire #193 — HARDENED the aid client against an UNREACHABLE control plane (A11 offline resilience, a fresh-axis re-scan slice). All 5 control-plane curl calls (status/pull/report/current/provider-config) lacked a timeout, so on a network outage or DNS failure the "could not reach the control plane" honest error fired only AFTER curl's multi-minute default connect timeout — aid effectively HUNG instead of failing fast + letting the user fall back to local `aid plan`. Added `--connect-timeout 5 --max-time 20` to every control-plane curl in `home/dot_local/bin/executable_aid`. TDD RED→GREEN: a structural assertion in `test-aid-client.sh` (36→37) that every client curl carries `--connect-timeout` (RED pre-fix: 5 lacked it). `bash -n` + shellcheck clean. Client-only — NO deploy (chezmoi installs the client on hosts; on-host behavior machine-gated; the honest-error path itself is already live-tested). **test-all 709→710 / 38 suites GREEN.** **Branch:** `master`.
+**Refreshed:** fire #194 — COMPLETED the #193 A11 offline-resilience fix across the aid pairing-client (sibling-consistency re-scan). #193 added curl timeouts to `aid`, but its SIBLING `aid-pair` (the bootstrap every host runs to pair) had the SAME gap: its 2 control-plane curls (pair/start + the pair/poll LOOP) lacked a timeout, so an unreachable control plane during pairing HUNG each poll on curl's multi-minute default instead of failing fast with an honest error. Added `--connect-timeout 5 --max-time 20` to both `home/dot_local/bin/executable_aid-pair` curls. TDD RED→GREEN: a structural A11 assertion in `test-aid-pair.sh` (6→7, RED pre-fix: 2 lacked it); `bash -n` + shellcheck clean. ALSO this fire — a live-prod RECONCILIATION confirmed the ledger is honest: `/health` ok, `/api/catalog` live **1069 == bundled == claimed**, the #189 secret-redaction LIVE-verified (`--token=ghp_…` → `[REDACTED]` on prod), CSP nonce + headers live. Client-only — NO deploy. **test-all 710→711 / 38 suites GREEN.** **Branch:** `master`.
 Full spec: `MASTER-PROMPT.md` · resume pointer: `NEXT-STEPS.md` · matrix: `REQUIREMENTS.md`. Nothing here
 is inherited without evidence; every count below is from a live `scripts/test-all.sh` run.
 
@@ -10,7 +10,7 @@ The UNBLOCKED functional product has **converged**: the control plane, the full 
 dashboard, the honest-docs set, and a one-command test suite are built + live-verified at
 **https://app.install.doctor**. The remaining high-value requirements are **GATED on external action**
 (see § Gated). Loop fires now harden docs/tests/honesty until a gated dep is provisioned. Verified by
-**`scripts/test-all.sh` → 710 assertions / 38 suites GREEN (1 OS-skipped)** with the prod URL.
+**`scripts/test-all.sh` → 711 assertions / 38 suites GREEN (1 OS-skipped)** with the prod URL.
 
 ## ✅ Built + live-verified
 
