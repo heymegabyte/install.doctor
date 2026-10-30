@@ -1,6 +1,6 @@
 # aid — CURRENT STATE (verified audit)
 
-**Refreshed:** fire #191 — LOCKED the two secret-redactors in PARITY (Q08/U02 drift guard). #189 (server BOUNDARY, `redact.ts`) + #190 (client SOURCE, `aid-redact.jq`) are TWO implementations that MUST scrub the SAME credential shapes — a shape added to one but not the other is a silent HALF-leak (caught server-side but sent plaintext from the host, or vice versa), the textbook drift-detection gap for duplicate security logic. Added `scripts/test-redact-parity.sh` — feeds ONE canonical sample list (bearer/AKIA/ghp_/github_pat_/sk-/xox/`password=`/`token=`/json-`api_key`/multiline-PEM + clean prose) to BOTH engines (node `redact.ts` + jq `aid-redact.jq`) and asserts they AGREE on every case (both redact a secret, or both leave clean prose untouched). Verified they agree on every shape today; proven NON-VACUOUS by break→RED→restore (dropping the client `ghp_` rule flips `parity[ghp]` RED: server=R, client=.). Mirrors the `test-provider-consistency.sh` pattern (#165). Test-only — NO deploy. **test-all 695→708 / 38 suites GREEN.** **Branch:** `master`.
+**Refreshed:** fire #192 — HARDENED the cnf lazy-installer against a DEGRADED index (E12/V02/E14, a different-axis re-scan slice). The reader self-healed (rebuilt the index) only when it was MISSING (`[ -f ]`) — but `[ -f ]` is TRUE for a 0-byte file, so an EMPTY/truncated index (an interrupted or external write, disk-full) silently disabled lazy-install with NO recovery until something external rebuilt it. Fixed `home/dot_config/shell/not-found-hook.sh` to `[ -s ]` (exists AND non-empty) so a truncated index self-heals, and made the index read `[ -s ]`-guarded + `awk … 2>/dev/null` so a vanished/unreadable index falls through to ORDINARY not-found with no terminal noise. TDD RED→GREEN: a hermetic test (`test-command-not-found.sh` 32→33) — an EMPTY index + a stub `cnf-build-index` on PATH → a dry-run resolve must fire the self-heal (sentinel touched); RED pre-fix (an empty file is "present" under `[ -f ]`). `bash -n` + shellcheck clean. Client-only — NO deploy (chezmoi installs the hook on hosts; on-host behavior machine-gated). **test-all 708→709 / 38 suites GREEN.** **Branch:** `master`.
 Full spec: `MASTER-PROMPT.md` · resume pointer: `NEXT-STEPS.md` · matrix: `REQUIREMENTS.md`. Nothing here
 is inherited without evidence; every count below is from a live `scripts/test-all.sh` run.
 
@@ -10,7 +10,7 @@ The UNBLOCKED functional product has **converged**: the control plane, the full 
 dashboard, the honest-docs set, and a one-command test suite are built + live-verified at
 **https://app.install.doctor**. The remaining high-value requirements are **GATED on external action**
 (see § Gated). Loop fires now harden docs/tests/honesty until a gated dep is provisioned. Verified by
-**`scripts/test-all.sh` → 708 assertions / 38 suites GREEN (1 OS-skipped)** with the prod URL.
+**`scripts/test-all.sh` → 709 assertions / 38 suites GREEN (1 OS-skipped)** with the prod URL.
 
 ## ✅ Built + live-verified
 

@@ -171,9 +171,12 @@ __cnf_resolve(){ local cmd="$1"; shift
   fi
   os="$(__cnf_os)"; pref="$(__cnf_pref "$os")"
   __cnf_say "⟳ '$cmd' not found — resolving via install.doctor…"
-  # self-heal: build the index on first use if missing + the deployed builder is available
-  [ -f "$CNF_INDEX" ] || { command -v cnf-build-index >/dev/null 2>&1 && cnf-build-index >/dev/null 2>&1 || true; }
-  row=""; [ -f "$CNF_INDEX" ] && row="$(awk -F'\t' -v c="$cmd" '$1==c{print; exit}' "$CNF_INDEX")"
+  # self-heal: (re)build the index on first use if MISSING or EMPTY/truncated (a 0-byte index from an
+  # interrupted/external write or disk-full must NOT silently disable lazy-install) + the builder exists.
+  [ -s "$CNF_INDEX" ] || { command -v cnf-build-index >/dev/null 2>&1 && cnf-build-index >/dev/null 2>&1 || true; }
+  # read only a non-empty index; silence a vanished/unreadable-file awk error so a degraded index falls
+  # through to ORDINARY not-found with no terminal noise (E14).
+  row=""; [ -s "$CNF_INDEX" ] && row="$(awk -F'\t' -v c="$cmd" '$1==c{print; exit}' "$CNF_INDEX" 2>/dev/null)"
   if [ -n "$row" ]; then
     # columns: 1 bin 2 key 3 brew 4 apt 5 dnf 6 pacman 7 cask 8 choco 9 scoop 10 go 11 cargo 12 npm 13 pipx 14 pip 15 gem
     # manual word-split (zsh does NOT split unquoted $pref like bash does)

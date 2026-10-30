@@ -346,5 +346,23 @@ else
   skip "no yq+jq or python3+pyyaml — index atomicity test skipped"
 fi
 
+# fire #192 — E12/V02/E14 degraded-index SELF-HEAL: a TRUNCATED (0-byte) index must rebuild, not sit dead.
+# The reader gated self-heal on `[ -f ]`, which is TRUE for a 0-byte file — so an empty/truncated index
+# (an interrupted or external write, disk-full) silently disabled lazy-install with NO recovery. Fixed to
+# `[ -s ]` (exists AND non-empty). Hermetic: an EMPTY index + a stub cnf-build-index on PATH that touches a
+# sentinel; after a dry-run resolve the sentinel must exist (self-heal fired). RED pre-fix (an empty file
+# is "present" under `[ -f ]` → no rebuild → no sentinel).
+shdir="$(mktemp -d)"; shidx="$shdir/index.tsv"; shsent="$shdir/builder-ran"
+: > "$shidx"  # EMPTY (0-byte) index — the degenerate case
+cat > "$shdir/cnf-build-index" <<SHBUILD
+#!/usr/bin/env bash
+: > "$shsent"
+printf 'selfhealtool\tselfhealtool\tselfhealtool\t\t\t\t\t\t\t\t\t\t\t\t\n' > "$shidx"
+SHBUILD
+chmod +x "$shdir/cnf-build-index"
+PATH="$shdir:$PATH" CNF_INDEX="$shidx" CNF_DRY=1 __cnf_resolve selfhealtool >/dev/null 2>&1 || true
+{ [ -f "$shsent" ]; } && pass "E12/V02 — EMPTY (0-byte) index SELF-HEALS (rebuilds via cnf-build-index; [ -s ] not [ -f ])" || fail "empty index did NOT self-heal — lazy-install would sit dead (cnf-build-index not invoked)"
+rm -rf "$shdir"
+
 say "command-not-found: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]
