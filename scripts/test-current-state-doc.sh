@@ -118,5 +118,15 @@ else
   fail "MASTER-PROMPT.md SSOT is STALE — must name the bootstrap pivot + the live cron 5eaf1b85 + the app.install.doctor→desktop.tools retirement (it currently describes the retired v2)"
 fi
 
+# REQUIREMENTS.md header cron-currency (#218 — same stale-cron drift class as #217's MASTER-PROMPT fix).
+# Its resume header must cite the CURRENT loop cron (5eaf1b85), not present the superseded v2 cron
+# (4002f61a) as the active /loop driver, so the matrix doc isn't read as a still-running-v2 spec.
+RQ="$ROOT/docs/aid/REQUIREMENTS.md"
+if [ -f "$RQ" ] && grep -qF '5eaf1b85' "$RQ" && ! grep -qF '4002f61a' "$RQ"; then
+  pass "REQUIREMENTS.md cites the current loop cron 5eaf1b85 + carries ZERO stale v2 4002f61a reference"
+else
+  fail "REQUIREMENTS.md still references the superseded v2 cron 4002f61a (its matrix is driven by the current loop 5eaf1b85) — drop 4002f61a"
+fi
+
 say "CURRENT-STATE: $P passed, $F failed"
 [ "$F" -eq 0 ]
