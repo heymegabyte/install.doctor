@@ -43,7 +43,7 @@ done
 
 # warning-severity (stricter) on the code delivered RAW via curl|bash + sourced into every interactive shell:
 # no local review stands between these and execution, so hold them to the higher bar (all currently 0).
-WARN_SCRIPTS="home/dot_config/shell/not-found-hook.sh scripts/homebrew.sh scripts/cloudflared-ssh.sh"
+WARN_SCRIPTS="home/dot_config/shell/not-found-hook.sh scripts/provision.sh scripts/homebrew.sh scripts/cloudflared-ssh.sh"
 for rel in $WARN_SCRIPTS; do
   f="$ROOT/$rel"
   if [ ! -f "$f" ]; then fail "missing curl|bash script: $rel"; continue; fi
