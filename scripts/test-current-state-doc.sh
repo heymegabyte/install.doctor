@@ -128,5 +128,16 @@ else
   fail "REQUIREMENTS.md still references the superseded v2 cron 4002f61a (its matrix is driven by the current loop 5eaf1b85) — drop 4002f61a"
 fi
 
+# The master prompt instructs every session to "Read .claude/run-the-loop/ + docs/aid/ loop state FIRST",
+# but the real loop state lives in docs/aid/ — .claude/run-the-loop/ was ABSENT, so a session literally
+# following that instruction found nothing (#219). Assert a pointer exists there redirecting to the
+# docs/aid/ loop-state docs, so the prompt's instructed entry-point resolves instead of dead-ending.
+RTL="$ROOT/.claude/run-the-loop/README.md"
+if [ -f "$RTL" ] && grep -qF 'CURRENT-STATE.md' "$RTL" && grep -qF 'NEXT-STEPS.md' "$RTL"; then
+  pass ".claude/run-the-loop/ pointer exists + redirects to the docs/aid/ loop state (the prompt's instructed read-path resolves)"
+else
+  fail ".claude/run-the-loop/ has no README pointer to the docs/aid/ loop state — the prompt says to read it FIRST but it is empty"
+fi
+
 say "CURRENT-STATE: $P passed, $F failed"
 [ "$F" -eq 0 ]
