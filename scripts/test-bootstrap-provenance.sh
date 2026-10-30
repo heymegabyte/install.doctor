@@ -299,5 +299,22 @@ else
   fail "installx silently 'break's on an unimplemented installer key (github/sbopkg) — an entry using it is skipped with no trace; warn like the default case"
 fi
 
+# installx has ZERO behavioral coverage (#272) — lock its two PROMPT-CENTRAL invariants. (1) The lazy/MINIMUM-
+# install gate (the prompt's "install closer to the minimum … lazy loading … only pre-load what needs pre-config
+# or desktop apps"): `--lazy` installs only desktop-apps + items flagged `_preload: true`, leaving every other
+# CLI for the cnf hook to lazy-install on demand. If the `_preload` gate were dropped, `--lazy` would install
+# EVERYTHING → the minimum-install promise breaks SILENTLY. (2) Headless-safety (CLAUDE.md §3): on a headless box
+# `--lazy` must SKIP GUI apps (`_app`/flatpak/appimage → false), never pull a desktop app onto a server.
+if grep -qF 'customArgv.lazy' "$IX" 2> /dev/null && grep -qF 'return !!x._preload' "$IX" 2> /dev/null; then
+  pass "installx --lazy gates on _preload (the prompt's MINIMUM-install: only desktop-apps + _preload items; the rest lazy-load via cnf)"
+else
+  fail "installx --lazy no longer gates on _preload — minimum-install would regress to installing EVERYTHING (breaks the prompt's 'install closer to the minimum')"
+fi
+if grep -qF 'x._app || x.flatpak || x.appimage' "$IX" 2> /dev/null; then
+  pass "installx headless --lazy SKIPS GUI apps (_app/flatpak/appimage → false) — a headless provision never pulls desktop apps (CLAUDE.md §3)"
+else
+  fail "installx headless --lazy no longer skips GUI apps — a headless box would try to install desktop apps; restore the _app/flatpak/appimage skip"
+fi
+
 say "bootstrap-provenance: $P passed, $F failed"
 [ "$F" -eq 0 ]
