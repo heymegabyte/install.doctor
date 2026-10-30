@@ -47,7 +47,7 @@ The fleet today (update hostnames as they're confirmed):
 ## 4. Architectural pillars
 
 ### detect_os() — single source of truth
-Every script that branches on OS must use one shared `detect_os()` (planned: #2 in work queue). Today's ad-hoc `[ -d /Applications ]` + `[ -f /etc/redhat-release ]` + `[ -f /usr/bin/qubes-session ]` checks are duplicated across 12 scripts and disagree on edge cases (Silverblue, Coolify, WSL2, immutable Fedora). Centralize.
+Every script that branches on OS must use one shared `detect_os()`. The shared lib `scripts/lib/detect_os.sh` is BUILT + tested (14-assertion `test-detect-os.sh`; defines `detect_os`/`detect_role`/`detect_package_manager`/`is_headless`) and consumed by `provision.sh` — but ad-hoc `[ -d /Applications ]` + `[ -f /etc/redhat-release ]` + `[ -f /usr/bin/qubes-session ]` checks are STILL duplicated across ~20 other scripts/hooks/chezmoiscripts and disagree on edge cases (Silverblue, Coolify, WSL2, immutable Fedora). Finish the consumption-migration (#2) — do NOT rebuild the lib, it already exists.
 
 ### Tier system — `software.yml` install scope per role
 Every `software.yml` entry carries `tier: essential | workstation | server | coolify | proxmox | qubes-dom0 | qubes-appvm | alpine-minimal`. `auto` (the default) reads `detect_os()` and picks the right subset. One bootstrap command → right software for the role.
@@ -120,7 +120,7 @@ Ranked by impact ÷ effort. `[S]` <1hr, `[M]` half-day, `[L]` multi-day. Each an
 
 ### Foundation (do these first — everything else depends on them)
 1. **Multi-OS CI matrix** `[L]` — `.github/workflows/provision-matrix.yml` running `bash start.sh` headless across Tart (macOS 14/15/26), UTM/QEMU (Ubuntu 24.04, Fedora 41, Alpine 3.20), Proxmox VE 8 cloud-init template, Qubes 4.2 dom0 + AppVM template.
-2. **`detect_os()` source of truth** `[M]` — Returns `macos|ubuntu|debian|fedora|silverblue|alpine|arch|qubes-dom0|qubes-appvm|proxmox|coolify|wsl|container`. Consumed everywhere; today's ad-hoc checks are duplicated across 12 scripts.
+2. **`detect_os()` consumption-migration** `[M]` — ◐ the SSOT lib `scripts/lib/detect_os.sh` is BUILT + tested (returns `macos|ubuntu|debian|fedora|silverblue|alpine|arch|qubes-dom0|qubes-appvm|proxmox|coolify|wsl|container`; also `detect_role`/`detect_package_manager`/`is_headless`; 14-assertion `test-detect-os.sh`) + consumed by `provision.sh`. REMAINING: migrate the ad-hoc OS checks still duplicated across ~20 other scripts/hooks/chezmoiscripts to consume it (don't rebuild the lib — it exists).
 3. **`HEADLESS_INSTALL=1` parity audit** `[M]` — Walk every interactive prompt; assert each skips gracefully on Proxmox/Coolify/Qubes dom0.
 4. **Provisioning tier system** `[M]` — `tier: essential|workstation|server|coolify|proxmox|qubes-dom0|qubes-appvm|alpine-minimal` on every `software.yml` entry; `auto` default reads `detect_os()`.
 5. **State-parity verifier** `[M]` — `task verify:parity` `chezmoi diff`s the current host against a per-host reference manifest.
