@@ -116,7 +116,7 @@ __cnf_ai_safe(){ local c="$1"
   case "$c" in *';'*|*'|'*|*'&'*|*'$('*|*'${'*|*'`'*|*'>'*|*'<'*|*$'\n'*) return 1;; esac
   case "$c" in 'sudo '*) c="${c#sudo }";; esac
   case "${c%% *}" in
-    brew|apt|apt-get|dnf|pacman|cargo|go|npm|pipx|pip|pip3|gem|choco|scoop) ;;
+    brew|apt|apt-get|dnf|pacman|apk|cargo|go|npm|pipx|pip|pip3|gem|choco|scoop) ;;
     *) return 1;; esac
   case " $c " in *' install '*|*' add '*|*' -S '*|*' -Sy '*) return 0;; esac
   return 1; }

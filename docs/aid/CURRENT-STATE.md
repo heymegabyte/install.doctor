@@ -1,6 +1,6 @@
 # aid — CURRENT STATE (verified audit)
 
-**Refreshed:** fire #273 — NEW ARC: bootstrap/provisioning QUALITY + deploy SPEED (the v2 control-plane arc converged #195–#197). The master prompt PIVOTED to: `start.sh`→chezmoi (dot configs **and** system files), minimum-install + lazy-everywhere, a preinstalled cnf-substrate toolchain, cloudflared+WARP, file cleanup/de-dup, a Monday-02:00 auto-update cron. **⚠️ app.install.doctor is being RETIRED → absorbed by https://desktop.tools** — do NOT keep hardening the control-plane surface; the suite still verifies it until the migration lands. Per-fire arc history (#198→) lives in `git log` + the §Built/§Gated sections below. Verified: full suite **831 / 46 suites GREEN** vs live prod. **Branch:** `master`.
+**Refreshed:** fire #274 — NEW ARC: bootstrap/provisioning QUALITY + deploy SPEED (the v2 control-plane arc converged #195–#197). The master prompt PIVOTED to: `start.sh`→chezmoi (dot configs **and** system files), minimum-install + lazy-everywhere, a preinstalled cnf-substrate toolchain, cloudflared+WARP, file cleanup/de-dup, a Monday-02:00 auto-update cron. **⚠️ app.install.doctor is being RETIRED → absorbed by https://desktop.tools** — do NOT keep hardening the control-plane surface; the suite still verifies it until the migration lands. Per-fire arc history (#198→) lives in `git log` + the §Built/§Gated sections below. Verified: full suite **831 / 46 suites GREEN** vs live prod. **Branch:** `master`.
 Full spec: `MASTER-PROMPT.md` · resume pointer: `NEXT-STEPS.md` · matrix: `REQUIREMENTS.md`. Nothing here
 is inherited without evidence; every count below is from a live `scripts/test-all.sh` run.
 
@@ -71,7 +71,10 @@ dashboard, the honest-docs set, and a one-command test suite are built + live-ve
   (`cnf-build-index` writes a temp `.cnf-index.*` then atomic-`mv`s it in + an EXIT trap removes it on ANY exit —
   asserted NO temp litter remains in the OUT dir after EITHER a successful OR a failed build, non-vacuity proven
   by disarming the trap→RED; complements the existing failed-build-keeps-prior-index clobber test); bash+zsh tested
-  (**`test-command-not-found.sh` 32/32**);
+  (**`test-command-not-found.sh` 35/35** — #273 fixed the rc wiring to forward `"$@"` (a lazy-installed `rg pattern`
+  had re-run as bare `rg`, args lost); #274 added `apk` to the `__cnf_ai_safe` AI-fallback allowlist — the 4th place a
+  manager must appear, the last gap of the #268 Alpine migration, so a valid `sudo apk add X` AI suggestion is no longer
+  rejected on Alpine);
   fish+pwsh adapters present (structural gates 8+8, live-unverified).
 - **Cua Spaces desktop provisioning gate** (`home/.chezmoiscripts/universal/run_after_21-cua-spaces.sh.tmpl`,
   Brian directive #101 "install on any 16GB+ desktop") — a chezmoi `run_after` that installs Cua Spaces
