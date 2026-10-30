@@ -201,5 +201,28 @@ else
   rm -f "$REND" "$STUB" "$CALLS" "$TOKF"
 fi
 
+# fire #190 — Q08/U02 SOURCE-suppression: the aid client scrubs known secret shapes from the OUTGOING
+# report body BEFORE it leaves the host (the invariant's PRIMARY control — "disable sensitive capture at
+# its source"; defense-in-depth with the control-plane #189 boundary redaction). The reusable jq filter
+# home/dot_local/bin/aid-redact.jq walks every string in the body. Tests the REAL filter (zero drift) +
+# asserts postReport WIRES it. RED before the filter file + the wiring exist.
+RJQ="$ROOT/home/dot_local/bin/aid-redact.jq"
+if [ ! -f "$RJQ" ]; then
+  fail "aid-redact.jq filter missing ($RJQ)"
+elif ! command -v jq >/dev/null 2>&1; then
+  skip "jq not installed — aid-redact filter unit test skipped"
+else
+  RD='[REDACTED]'
+  out="$(printf '%s' '{"kind":"run","status":"success","summary":"deploy --token=ghp_ABCDEF1234567890GHIJ1234","detail":{"cmd":"push --token=ghp_ABCDEF1234567890GHIJ1234","note":"Authorization: Bearer abcdefgh12345678wxyz"}}' | jq -c -f "$RJQ" 2>/dev/null)"
+  { printf '%s' "$out" | jq -e . >/dev/null 2>&1 && printf '%s' "$out" | grep -qF "$RD" && ! printf '%s' "$out" | grep -qF 'ghp_ABCDEF1234567890GHIJ1234' && ! printf '%s' "$out" | grep -qF 'abcdefgh12345678wxyz'; } && pass "aid-redact: ghp_ + Bearer scrubbed from summary+detail, body stays valid JSON" || fail "aid-redact ghp/bearer -> $out"
+  out2="$(printf '%s' '{"summary":"login password=hunter2hunter2 AKIA1234567890ABCDEF key sk-ant-ABCDEFGHIJ1234567890"}' | jq -c -f "$RJQ" 2>/dev/null)"
+  { printf '%s' "$out2" | grep -qF "$RD" && ! printf '%s' "$out2" | grep -qF 'hunter2hunter2' && ! printf '%s' "$out2" | grep -qF 'AKIA1234567890ABCDEF' && ! printf '%s' "$out2" | grep -qF 'sk-ant-ABCDEFGHIJ1234567890'; } && pass "aid-redact: password=/AKIA/sk- shapes all scrubbed" || fail "aid-redact shapes -> $out2"
+  out3="$(printf '%s' '{"kind":"run","status":"success","summary":"apply: 3 packages, 2 services, revision 42","correlationId":"run_abc123def456"}' | jq -c -f "$RJQ" 2>/dev/null)"
+  { printf '%s' "$out3" | grep -qF 'apply: 3 packages, 2 services, revision 42' && printf '%s' "$out3" | grep -qF 'run_abc123def456' && ! printf '%s' "$out3" | grep -qF "$RD"; } && pass "aid-redact: prose + correlationId + kind/status NOT mangled (no false positive)" || fail "aid-redact prose -> $out3"
+  once="$(printf '%s' '{"summary":"--token=ghp_ABCDEF1234567890GHIJ1234"}' | jq -c -f "$RJQ" 2>/dev/null)"; twice="$(printf '%s' "$once" | jq -c -f "$RJQ" 2>/dev/null)"
+  { [ -n "$once" ] && [ "$once" = "$twice" ]; } && pass "aid-redact: idempotent (redact of redacted == redacted)" || fail "aid-redact idempotent -> once=$once twice=$twice"
+  { grep -q 'aid-redact.jq' "$SRC" && grep -qE 'jq -c -f|jq -cf' "$SRC"; } && pass "aid client: postReport WIRES aid-redact.jq (source-suppression before the report leaves the host)" || fail "aid client: postReport does NOT pipe the outgoing body through aid-redact.jq"
+fi
+
 say "aid client: $P passed, $F failed"
 [ "$F" -eq 0 ]

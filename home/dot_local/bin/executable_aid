@@ -41,7 +41,7 @@ readToken() { [ -s "$AID_TOKEN_PATH" ] && cat "$AID_TOKEN_PATH"; }
 # Post an event to History (/api/device/report) as this device. Prints the response; the caller
 # decides whether a failure is fatal (manual report) or best-effort (auto-register from aid plan).
 postReport() {
-  local kind="$1" status="$2" summary="$3" detail="$4" token u body
+  local kind="$1" status="$2" summary="$3" detail="$4" token u body rj
   token="$(readToken)" || true
   [ -z "$token" ] && return 2
   u="${AID_CONTROL_PLANE_URL%/}"
@@ -52,6 +52,14 @@ postReport() {
     else
       body="$(jq -nc --arg k "$kind" --arg s "$status" --arg sm "$summary" --arg c "$AID_RUN_ID" --arg p "$AID_PARENT_RUN_ID" '{kind:$k,status:$s,summary:$sm,correlationId:$c} + (if $p=="" then {} else {parentRunId:$p} end)')"
     fi
+    # Q08/U02 SOURCE-suppression (fire #190): scrub known secret shapes from the OUTGOING report body
+    # BEFORE it leaves the host — the invariant's PRIMARY control ("disable sensitive capture at its
+    # source"), defense-in-depth with the control-plane's own redaction (#189). Reuses the jq already
+    # required here; aid-redact.jq walks every string in the body. Fail-safe: filter absent OR a jq error
+    # -> send as-is (the control plane still redacts before persisting).
+    rj="${AID_REDACT_JQ:-$HOME/.local/bin/aid-redact.jq}"
+    [ -f "$rj" ] || rj="$(dirname "$0")/aid-redact.jq"
+    [ -f "$rj" ] && body="$(printf '%s' "$body" | jq -c -f "$rj" 2>/dev/null || printf '%s' "$body")"
   elif [ -n "$AID_PARENT_RUN_ID" ]; then
     body="{\"kind\":\"${kind}\",\"status\":\"${status}\",\"correlationId\":\"${AID_RUN_ID}\",\"parentRunId\":\"${AID_PARENT_RUN_ID}\"}"
   else
