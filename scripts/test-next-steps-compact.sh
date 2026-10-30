@@ -7,7 +7,7 @@
 set -uo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 DOC="$ROOT/docs/aid/NEXT-STEPS.md"
-BUDGET="${NEXT_STEPS_BYTE_BUDGET:-20000}" # ratchet: may only go DOWN
+BUDGET="${NEXT_STEPS_BYTE_BUDGET:-16000}" # ratchet: may only go DOWN (20000→16000 at #202 after the compaction)
 
 say() { command -v gum >/dev/null 2>&1 && gum style --foreground 51 -- "$*" || printf '\033[1;36m%s\033[0m\n' "$*"; }
 pass() { command -v gum >/dev/null 2>&1 && gum style --foreground 46 -- "PASS $*" || printf '\033[1;32mPASS\033[0m %s\n' "$*"; P=$((P + 1)); }
