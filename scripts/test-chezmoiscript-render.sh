@@ -22,7 +22,7 @@ skip() { command -v gum >/dev/null 2>&1 && gum style --foreground 244 -- "SKIP $
 P=0
 F=0
 
-say "chezmoiscript integrity gate (ordering invariant + every .chezmoiscripts/**/*.sh.tmpl renders + parses)"
+say "chezmoiscript integrity gate (ordering invariants + every .chezmoiscripts/**/*.sh.tmpl renders + parses)"
 
 # 0. ORDERING invariant (#307) — chezmoi runs the run_after_* scripts ALPHABETICALLY, so the NN numeric prefix
 #    is the ONLY thing sequencing them. The load-bearing dependency (run_after_20's own header + CLAUDE.md §4):
@@ -50,11 +50,41 @@ else
   fail "ordering: expected exactly 1 installx-executor + 1 post-install-dispatcher run_after script, found $ninst + $npost — the provisioning spine moved; re-anchor this invariant"
 fi
 
+# 0b. DECRYPT-GUARD/ordering invariant (#308) — the age-key DECRYPTOR (the run_before that decrypts
+#    key.txt.age → the age identity, or on failure DELETES every encrypted_ file) sanitizes the secret state
+#    later scripts rely on. A run_before using chezmoi's `{{ | decrypt }}` AFTER the decryptor may guard only on
+#    `stat(secret)` (no key ⇒ the decryptor already removed the encrypted_ file). But a run_before that decrypts
+#    BEFORE the decryptor CANNOT rely on that cleanup, so it MUST also guard on the age-key's existence
+#    (`stat(.config/age/chezmoi.txt)`) — else a keyless host renders `decrypt` against a not-yet-cleaned encrypted
+#    file → chezmoi apply ABORTS. run_before_02 correctly uses the belt-and-suspenders `and (stat age-key)
+#    (stat secret)` guard; this locks it so a future edit (or a NEW pre-decryptor decrypt) can't drop the age-key
+#    precondition. (This is the #307-deferred invariant, now correctly understood.) Pure file math — no chezmoi.
+prefixBefore() { basename "$1" 2>/dev/null | grep -oE 'run_before_[0-9]+' | grep -oE '[0-9]+'; }
+dpfxFile="$(grep -lE 'age/chezmoi\.txt|key\.txt\.age' "$CS"/run_before_*.sh.tmpl 2>/dev/null | sort | head -1)"
+if [ -z "$dpfxFile" ]; then
+  fail "ordering(decrypt): no age-key decryptor run_before found (marker age/chezmoi.txt|key.txt.age) — provisioning spine moved; re-anchor"
+else
+  dpfx="$(prefixBefore "$dpfxFile")"
+  unguarded=""
+  while IFS= read -r df; do
+    [ -z "$df" ] && continue
+    dfp="$(prefixBefore "$df")"
+    if [ -n "$dfp" ] && [ -n "$dpfx" ] && [ "$((10#$dfp))" -lt "$((10#$dpfx))" ]; then
+      grep -qE 'stat.*age.*chezmoi\.txt' "$df" || unguarded="$unguarded $(basename "$df")"
+    fi
+  done < <(grep -lE '\| *decrypt' "$CS"/run_before_*.sh.tmpl 2>/dev/null | sort)
+  if [ -z "$unguarded" ]; then
+    pass "ordering: every run_before using | decrypt BEFORE the decryptor (run_before_$dpfx) also guards on the age-key existence — safe on a keyless host, before the decryptor's encrypted_ cleanup"
+  else
+    fail "ordering: pre-decryptor decrypt-user(s) MISSING the stat(age-key) guard:$unguarded — a keyless host renders | decrypt against a not-yet-cleaned encrypted file → chezmoi apply ABORT"
+  fi
+fi
+
 # chezmoi is the renderer — without it we cannot prove a template renders. SKIP the RENDER checks (the ordering
-# invariant above already ran): a render gate with no renderer gives no render-protection, but must never block
-# a chezmoi-less CI — and the ordering invariant above still gates.
+# invariants above already ran): a render gate with no renderer gives no render-protection, but must never block
+# a chezmoi-less CI — and the ordering invariants above still gate.
 if ! command -v chezmoi >/dev/null 2>&1; then
-  skip "chezmoi not installed — render checks skipped (the ordering invariant above ran)"
+  skip "chezmoi not installed — render checks skipped (the ordering invariants above ran)"
   say "chezmoiscript integrity: $P passed, $F failed (render skipped — no chezmoi)"
   [ "$F" -eq 0 ]
   exit $?
