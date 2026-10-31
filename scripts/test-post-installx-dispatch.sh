@@ -36,6 +36,9 @@
 #   A10 set-u-safe — no hook references the debug-toggle env (`$DEBUG`/`$DEBUG_MODE`) WITHOUT a `:-` default;
 #                 under the hooks' `set -euo pipefail`, an unset ref crashes the hook mid-config — now live
 #                 via the #251 dispatcher (which doesn't export DEBUG_MODE). #255.
+#   A11 tmp-clean — every hook that `mktemp`s sets a `trap ... EXIT` cleanup (_TEMPLATE req 5). The hooks run
+#                 `set -Eeo pipefail` + an ERR trap that only LOGS, so an error between mktemp and the happy-
+#                 path mv/consume strands the temp — now leakable fleet-wide via the #251 dispatcher. #291.
 set -uo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 HOOKS="$ROOT/home/dot_local/bin/post-installx"
@@ -141,6 +144,22 @@ if [ -z "$baddbg" ]; then
   pass "no hook references \$DEBUG/\$DEBUG_MODE without a :- default (set -u-safe — won't crash mid-config)"
 else
   fail "hook(s) reference \$DEBUG/\$DEBUG_MODE with NO :- default — crash under set -u when unset:$baddbg"
+fi
+
+# A11 — temp-file cleanup (_TEMPLATE.sh req 5: "Clean up temp files on exit (trap)"): a hook that `mktemp`s
+#       MUST set a `trap ... EXIT` so a mid-hook failure can't leak the temp. Every hook runs `set -Eeo
+#       pipefail` + an ERR trap that only LOGS; the happy-path `mv`/consume isn't enough (an error between
+#       mktemp and the mv strands the file) — and the #251 dispatcher now runs these fleet-wide. In scope:
+#       only hooks that create a temp (no mktemp → nothing to clean).
+notmp=""
+for f in "$HOOKS"/executable_post-*.sh; do
+  grep -qE 'mktemp' "$f" 2> /dev/null || continue
+  grep -qE '^[[:space:]]*trap .*EXIT' "$f" 2> /dev/null || notmp="$notmp $(basename "$f" | sed 's/^executable_//;s/\.sh$//')"
+done
+if [ -z "$notmp" ]; then
+  pass "every post-installx hook that mktemps cleans it via a trap ... EXIT (_TEMPLATE req 5 — no temp leak on an error path)"
+else
+  fail "hook(s) mktemp WITHOUT a trap ... EXIT cleanup — a mid-hook error leaks the temp (_TEMPLATE req 5):$notmp"
 fi
 
 echo

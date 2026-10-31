@@ -112,6 +112,9 @@ if get-secret --exists SENDGRID_API_KEY; then
       if [ -f /etc/aliases ] && [ -n "$PRIMARY_EMAIL" ]; then
         gum log -sl info "Forward root e-mails to $PRIMARY_EMAIL"
         ALIASES_TMP="$(mktemp)"
+        # _TEMPLATE req 5: clean the temp on ANY exit — set -Eeo pipefail + the ERR trap only LOG, so a
+        # failure in the sed|tee pipe or the mv below would otherwise strand this file (#291).
+        trap 'rm -f "$ALIASES_TMP"' EXIT
         gum log -sl info "Setting $PRIMARY_EMAIL as root e-mail in temporary file"
         sudo sed "s/#root.*/root:\ $PRIMARY_EMAIL/" /etc/aliases | tee "$ALIASES_TMP" > /dev/null
         gum log -sl info 'Moving temporary file to /etc/aliases'
