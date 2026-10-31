@@ -131,6 +131,17 @@ else
   fail "crontab has no PATH= line — cron's minimal env won't resolve user-installed tools (update-system)"
 fi
 
+# 10.6b (#282). The SIBLING system crontab (config-system — root's crontab, runs the autorestic backup) carried
+#      the SAME PATH dup: #279 deduped config-user but MISSED config-system, which still listed `/usr/local/bin`
+#      + `/usr/local/sbin` twice. Guard BOTH crontabs so the "no duplicate code" invariant can't drift in either.
+CRON_SYS="$ROOT/home/dot_config/crontab/config-system"
+if [ -f "$CRON_SYS" ]; then
+  sysdups="$(grep -E '^PATH=' "$CRON_SYS" | head -1 | sed 's/^PATH=//' | tr ':' '\n' | grep -v '^$' | sort | uniq -d | tr '\n' ' ' | sed 's/ *$//')"
+  [ -z "$sysdups" ] && pass "config-system crontab PATH has no duplicate components (no-duplicate-code — #282 sibling of #279)" || fail "config-system crontab PATH has DUPLICATE components: $sysdups — dedupe it (the #279 fix missed this sibling crontab)"
+else
+  skip "config-system crontab not present — skipping sibling PATH-dup check"
+fi
+
 # 10.7 (#281). exports.sh (rendered from exports.sh.tmpl) is SOURCED by the Monday-02:00 update job (line 6:
 #      `. "$HOME/.config/shell/exports.sh"; update-system`) + 2 other crons. Sourcing a file with a TOP-LEVEL
 #      `exit` KILLS the cron shell → update-system never runs; a top-level `set -e`/`set -u` MUTATES it → a later

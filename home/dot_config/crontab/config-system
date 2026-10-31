@@ -1,4 +1,4 @@
-PATH=/usr/local/bin:/usr/local/sbin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/sbin:/opt/homebrew/bin
+PATH=/usr/local/bin:/usr/local/sbin:/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin
 
 */30 * * * *      command -v autorestic > /dev/null && autorestic --ci cron > /tmp/autorestic-system.log 2>&1
 
