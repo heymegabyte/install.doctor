@@ -45,6 +45,25 @@ else
   done <<< "$pairs"
 fi
 
+# #305 — the redirect DESTINATIONS must point at the CANONICAL org. /start,/windows,/brew,/ssh serve
+# raw.githubusercontent.com/<org>/install.doctor/… — <org> MUST be heymegabyte (the public repo per
+# CLAUDE.md §13 + the git remote), NEVER the stale megabyte-labs (the pre-rename org). The #204 check
+# above verifies the destination carries the right SCRIPT FILENAME but is BLIND to the org, so a
+# regression to the old org (serving a DIFFERENT repo's script that can silently diverge from what's
+# committed here) would pass it. Observed LIVE #305: prod still 301s /start,/windows → megabyte-labs
+# because the Firebase deploy is stale (site-deploy needs FIREBASE_SERVICE_ACCOUNT, CLAUDE.md §9 #21) —
+# a correct repo config goes live on the next deploy; this locks the repo config so it can't regress.
+dests="$(grep -oE 'raw\.githubusercontent\.com/[a-z0-9.-]+/install\.doctor/' "$FB" 2>/dev/null)"
+if [ -z "$dests" ]; then
+  fail "no install.doctor raw-githubusercontent redirect destinations found in firebase.json (extraction broke?)"
+elif printf '%s\n' "$dests" | grep -qE 'megabyte-labs/install\.doctor/'; then
+  fail "a firebase.json redirect points at the STALE megabyte-labs/install.doctor org — must be heymegabyte (CLAUDE.md §13)"
+elif printf '%s\n' "$dests" | grep -qvE 'heymegabyte/install\.doctor/'; then
+  fail "a firebase.json install.doctor redirect destination is not on the canonical heymegabyte org"
+else
+  pass "every install.doctor redirect destination uses the canonical heymegabyte org (not the stale megabyte-labs)"
+fi
+
 # #206 — the repo-root start.sh is the LOCAL Task-runner bootstrap (package.json `bash start.sh && task …`),
 # NOT the deployed curl entrypoint: /start serves scripts/provision.sh (asserted above). start.sh's header
 # once falsely self-claimed the curl-/start role → a maintainer would edit the WRONG file (the #204

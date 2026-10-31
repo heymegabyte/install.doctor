@@ -12,6 +12,23 @@
 
 ## Tier 1 — unblock FIRST (highest value ÷ effort; the code is already built + tested)
 
+0. **Re-add the Firebase deploy secret → the live `install.doctor` entrypoints go current** · value **HIGH**
+   (the prompt's CORE deliverable — `https://install.doctor/start` — serves the WRONG repo in prod + `/brew`,
+   `/ssh` 404) · reliability **HIGH** (the repo `site/firebase.json` is correct + #305-gate-locked) · effort
+   **~2 min, NO code** · recurring-cost **~0**.
+   - **Finding (LIVE probe #305):** prod `/start` + `/windows` 301 to the STALE `megabyte-labs/install.doctor`
+     org (pre-rename), and `/brew` + `/ssh` **404** — the DEPLOYED Firebase hosting config predates BOTH the
+     org rename AND the `/brew`,`/ssh` redirects. The repo already has all 4 redirects on the canonical
+     `heymegabyte` org (`site/firebase.json`); only a REDEPLOY is missing.
+   - **Root cause = CLAUDE.md §9 #21:** `.github/workflows/site-deploy.yml` fires on `site/**` but FAILS
+     without `FIREBASE_SERVICE_ACCOUNT_INSTALL_DOCTOR` (write-only, lost in the repo absorption) — so no
+     `site/firebase.json` change has deployed since.
+   - **One action:** `gh secret set FIREBASE_SERVICE_ACCOUNT_INSTALL_DOCTOR -R heymegabyte/install.doctor <
+     service-account.json` (Firebase project `install-doctor`; backup at `~/backups/repos/install.doctor-site-*.bundle`),
+     then re-run `site-deploy.yml`. Verify: `curl -sIL https://install.doctor/start` redirects to
+     `heymegabyte/…/provision.sh`, and `/brew`+`/ssh` → 200. Also unblocks every other "goes live on the next
+     Firebase deploy" item below (#182/#183/#60/B02).
+
 1. **O04 — register the OAuth callback URLs** · value **HIGH** · reliability **HIGH** (session-admin arc
    #131/#132 built + unit-tested) · effort **~5 min, NO code** · recurring-cost **~0**.
    - **One action:** register `https://app.install.doctor/api/auth/callback/github` + `.../callback/google`

@@ -1,6 +1,6 @@
 # aid — CURRENT STATE (verified audit)
 
-**Refreshed:** fire #304 (root chezmoi-config render-integrity gate — the init manifests (`.chezmoidata.yaml` · `.chezmoiexternal.toml.tmpl` · `.chezmoiignore`) were UNGATED; a broken one aborts `chezmoi init` ENTIRELY (worse than a chezmoiscript break). NEW `test-chezmoi-config.sh` (3/3) validates the data-YAML + renders the external-TOML + ignore; `.chezmoi.yaml.tmpl` excluded (init-context `writeToStdout` false-REDs execute-template); TDD RED→GREEN) — NEW ARC: bootstrap/provisioning QUALITY + deploy SPEED (the v2 control-plane arc converged #195–#197). The master prompt PIVOTED to: `start.sh`→chezmoi (dot configs **and** system files), minimum-install + lazy-everywhere, a preinstalled cnf-substrate toolchain, cloudflared+WARP, file cleanup/de-dup, a Monday-02:00 auto-update cron. **⚠️ app.install.doctor is being RETIRED → absorbed by https://desktop.tools** — do NOT keep hardening the control-plane surface; the suite still verifies it until the migration lands. Per-fire arc history (#198→) lives in `git log` + the §Built/§Gated sections below. Verified: full suite **863 / 50 suites GREEN** vs live prod. **Branch:** `master`.
+**Refreshed:** fire #305 (served-entrypoint canonical-ORG invariant — the 4 entrypoints 301 to raw.githubusercontent.com/<org>/install.doctor/…; the #204 gate checked the FILENAME but was BLIND to <org>, now asserts every redirect uses canonical `heymegabyte` not stale `megabyte-labs`, TDD RED→GREEN; LIVE probe: prod still 301s /start,/windows→megabyte-labs + 404s /brew,/ssh = stale Firebase deploy (§9 #21) → BACKLOG) — NEW ARC: bootstrap/provisioning QUALITY + deploy SPEED (the v2 control-plane arc converged #195–#197). The master prompt PIVOTED to: `start.sh`→chezmoi (dot configs **and** system files), minimum-install + lazy-everywhere, a preinstalled cnf-substrate toolchain, cloudflared+WARP, file cleanup/de-dup, a Monday-02:00 auto-update cron. **⚠️ app.install.doctor is being RETIRED → absorbed by https://desktop.tools** — do NOT keep hardening the control-plane surface; the suite still verifies it until the migration lands. Per-fire arc history (#198→) lives in `git log` + the §Built/§Gated sections below. Verified: full suite **864 / 50 suites GREEN** vs live prod. **Branch:** `master`.
 Full spec: `MASTER-PROMPT.md` · resume pointer: `NEXT-STEPS.md` · matrix: `REQUIREMENTS.md`. Nothing here
 is inherited without evidence; every count below is from a live `scripts/test-all.sh` run.
 
@@ -10,7 +10,7 @@ The UNBLOCKED functional product has **converged**: the control plane, the full 
 dashboard, the honest-docs set, and a one-command test suite are built + live-verified at
 **https://app.install.doctor**. The remaining high-value requirements are **GATED on external action**
 (see § Gated). Loop fires now harden docs/tests/honesty until a gated dep is provisioned. Verified by
-**`scripts/test-all.sh` → 863 assertions / 50 suites GREEN (1 OS-skipped)** with the prod URL.
+**`scripts/test-all.sh` → 864 assertions / 50 suites GREEN (1 OS-skipped)** with the prod URL.
 
 ## ✅ Built + live-verified
 
@@ -158,7 +158,15 @@ dashboard, the honest-docs set, and a one-command test suite are built + live-ve
   #304) validates the init/apply bootstrap manifests — `.chezmoidata.yaml` is valid YAML (the data map every
   template reads) + `.chezmoiexternal.toml.tmpl` renders → valid TOML + `.chezmoiignore` renders cleanly; a
   broken one aborts `chezmoi init` ENTIRELY (the config template `.chezmoi.yaml.tmpl` is excluded — its
-  init-context `writeToStdout` false-REDs execute-template);
+  init-context `writeToStdout` false-REDs execute-template); a **served-entrypoint canonical-ORG
+  invariant** (`test-served-entrypoints.sh` 8/8, #305) — the #204 gate verified each `/start`/`/windows`/
+  `/brew`/`/ssh` redirect carries the right SCRIPT filename but was BLIND to the GitHub org, so it now also
+  asserts every `raw.githubusercontent.com/<org>/install.doctor/…` destination uses the canonical
+  `heymegabyte` org (CLAUDE.md §13 + the git remote), never the stale pre-rename `megabyte-labs` (which
+  serves a DIFFERENT repo's script that can diverge); non-vacuous (planted `megabyte-labs` + a third-party
+  org both RED); a LIVE probe this fire found prod STILL 301s `/start`+`/windows`→`megabyte-labs` and 404s
+  `/brew`+`/ssh` — the deployed Firebase config is STALE (site-deploy is Firebase-secret-gated, §9 #21), so
+  the repo config is correct + locked and a redeploy (human-gated) is surfaced to BACKLOG;
   **A12 ADR hygiene gate
   (`test-adr.sh` 7/7) — every `docs/aid/decisions/NNNN` ADR is well-formed (Status·Context·Decision·
   alternatives·Consequences) + the key decisions each HAVE an ADR; 0001-0006 (hiSHtory · device-token ·
