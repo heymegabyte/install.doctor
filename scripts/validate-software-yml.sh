@@ -85,6 +85,22 @@ for method in brew cask apt npm pipx cargo go snap flatpak pacman dnf choco scoo
 done
 
 # ---------------------------------------------------------------------------
+# Check 7 (#299): No DUPLICATE package keys. YAML parsers (yaml.safe_load) silently keep the LAST of a
+# duplicated key and DROP the first — so a dup ships wrong install data or masks a catalog entry with NO
+# parse error. Count the 2-space-indented keys in softwarePackages directly (the regex catches exact dups).
+# software.yml is the most-edited file → a real "ensure there is no duplicate code" regression path.
+# ---------------------------------------------------------------------------
+echo ""
+DUP_KEYS=$(sed -n '/^softwarePackages:/,/^[^ ]/p' "$SW_YML" | python3 -c 'import re,sys,collections; c=collections.Counter(m.group(1) for m in (re.match(r"^  ([A-Za-z0-9][\w.@/+-]*):\s*$", l) for l in sys.stdin) if m); d=sorted(k for k,v in c.items() if v>1); sys.stderr.write(("  duplicated: "+", ".join(d)+"\n") if d else ""); print(len(d))' 2>&2 || echo 0)
+if [ "${DUP_KEYS:-0}" -eq 0 ] 2>/dev/null; then
+  echo "PASS: No duplicate package keys in softwarePackages (YAML last-wins would silently drop the first)"
+  PASS=$((PASS + 1))
+else
+  echo "FAIL: $DUP_KEYS duplicate package key(s) in softwarePackages — YAML silently keeps the LAST + drops the first (wrong install data / masked entry)"
+  FAIL=$((FAIL + 1))
+fi
+
+# ---------------------------------------------------------------------------
 # Results
 # ---------------------------------------------------------------------------
 echo ""
