@@ -162,6 +162,24 @@ else
   fail "hook(s) mktemp WITHOUT a trap ... EXIT cleanup — a mid-hook error leaks the temp (_TEMPLATE req 5):$notmp"
 fi
 
+# A12 (#295) — secret-to-temp-file hygiene: a hook that writes a `get-secret` VALUE into a temp file MUST
+#       chmod-restrict it (chmod 600) AND remove it (a `trap ... EXIT` or an explicit rm of the temp), else a
+#       PLAINTEXT secret lingers WORLD-READABLE in /tmp after provisioning. A11 only covers `mktemp` (mode-600
+#       at birth); a FIXED path — `echo "…$(get-secret X)…" > /tmp/file` — is created mode-644, the real gap
+#       (post-wazuh wrote WAZUH_REGISTRATION_PASSWORD to /tmp/wazuh_envs 644 + never removed it). #295.
+secleak=""
+for f in "$HOOKS"/executable_post-*.sh; do
+  grep -qE 'get-secret.*>[[:space:]]*/tmp/' "$f" 2> /dev/null || continue
+  if ! grep -qE 'chmod 0?600' "$f" 2> /dev/null || ! grep -qE 'trap .*rm.*EXIT|rm -f? +/tmp/' "$f" 2> /dev/null; then
+    secleak="$secleak $(basename "$f" | sed 's/^executable_//;s/\.sh$//')"
+  fi
+done
+if [ -z "$secleak" ]; then
+  pass "every hook writing a get-secret value to a /tmp file chmod-600's + removes it (no plaintext secret lingers world-readable in /tmp)"
+else
+  fail "hook(s) write a get-secret value to a /tmp file WITHOUT chmod 600 + cleanup:$secleak — a plaintext secret lingers world-readable in /tmp"
+fi
+
 echo
 say "post-installx-dispatch: $P passed, $F failed"
 [ "$F" -eq 0 ]

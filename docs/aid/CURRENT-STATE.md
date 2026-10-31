@@ -1,6 +1,6 @@
 # aid — CURRENT STATE (verified audit)
 
-**Refreshed:** fire #294 (Monday-02:00 cron INSTALL-idempotency gate (#12) — asserts run_after_01 loads BOTH crontabs via `crontab < file` (redirect-REPLACE), never a dup-prone `| crontab -` append that would duplicate the Monday entry on every re-provision; the cron-install MECHANISM was entirely ungated; TDD RED→GREEN) — NEW ARC: bootstrap/provisioning QUALITY + deploy SPEED (the v2 control-plane arc converged #195–#197). The master prompt PIVOTED to: `start.sh`→chezmoi (dot configs **and** system files), minimum-install + lazy-everywhere, a preinstalled cnf-substrate toolchain, cloudflared+WARP, file cleanup/de-dup, a Monday-02:00 auto-update cron. **⚠️ app.install.doctor is being RETIRED → absorbed by https://desktop.tools** — do NOT keep hardening the control-plane surface; the suite still verifies it until the migration lands. Per-fire arc history (#198→) lives in `git log` + the §Built/§Gated sections below. Verified: full suite **852 / 47 suites GREEN** vs live prod. **Branch:** `master`.
+**Refreshed:** fire #295 (SECRET-at-rest fix — post-wazuh wrote WAZUH_REGISTRATION_PASSWORD PLAINTEXT to world-readable `/tmp/wazuh_envs` + never removed it; now `trap 'rm -f' EXIT` + `chmod 600`, locked by dispatch-gate A12 (any hook writing a get-secret value to /tmp MUST chmod-600 + clean it — generalizes A11's mktemp-only cleanup to fixed-path secret temps); TDD RED→GREEN) — NEW ARC: bootstrap/provisioning QUALITY + deploy SPEED (the v2 control-plane arc converged #195–#197). The master prompt PIVOTED to: `start.sh`→chezmoi (dot configs **and** system files), minimum-install + lazy-everywhere, a preinstalled cnf-substrate toolchain, cloudflared+WARP, file cleanup/de-dup, a Monday-02:00 auto-update cron. **⚠️ app.install.doctor is being RETIRED → absorbed by https://desktop.tools** — do NOT keep hardening the control-plane surface; the suite still verifies it until the migration lands. Per-fire arc history (#198→) lives in `git log` + the §Built/§Gated sections below. Verified: full suite **853 / 47 suites GREEN** vs live prod. **Branch:** `master`.
 Full spec: `MASTER-PROMPT.md` · resume pointer: `NEXT-STEPS.md` · matrix: `REQUIREMENTS.md`. Nothing here
 is inherited without evidence; every count below is from a live `scripts/test-all.sh` run.
 
@@ -10,7 +10,7 @@ The UNBLOCKED functional product has **converged**: the control plane, the full 
 dashboard, the honest-docs set, and a one-command test suite are built + live-verified at
 **https://app.install.doctor**. The remaining high-value requirements are **GATED on external action**
 (see § Gated). Loop fires now harden docs/tests/honesty until a gated dep is provisioned. Verified by
-**`scripts/test-all.sh` → 852 assertions / 47 suites GREEN (1 OS-skipped)** with the prod URL.
+**`scripts/test-all.sh` → 853 assertions / 47 suites GREEN (1 OS-skipped)** with the prod URL.
 
 ## ✅ Built + live-verified
 
@@ -165,7 +165,7 @@ dashboard, the honest-docs set, and a one-command test suite are built + live-ve
   loops `~/.local/bin/post-installx/post-*.sh` after installx (`run_after_10`), error-tolerant; each hook
   self-guards on OS + tool-presence + idempotency, so all 30 config hooks (cloudflared/WARP/tailscale/
   netdata/…) now dispatch (wazuh also via its `script:` entry). File-wired + gate-locked
-  (`test-post-installx-dispatch.sh` 12/12; #250 detect → #251 wire → #252 headless-harden → #253 fail-fast → #254 dev-user `chown` fix+lock → #255 `$DEBUG_MODE` set-u crash fix+lock → #291 A11 TEMP-CLEANUP: a hook that `mktemp`s must `trap … EXIT`-clean it (_TEMPLATE req 5), fixed post-postfix's error-path leak RED→GREEN).
+  (`test-post-installx-dispatch.sh` 13/13; #250 detect → #251 wire → #252 headless-harden → #253 fail-fast → #254 dev-user `chown` fix+lock → #255 `$DEBUG_MODE` set-u crash fix+lock → #291 A11 TEMP-CLEANUP: a hook that `mktemp`s must `trap … EXIT`-clean it (_TEMPLATE req 5), fixed post-postfix's error-path leak RED→GREEN → #295 A12 SECRET-TO-TMP: a hook writing a get-secret value to /tmp must chmod-600 + clean it, fixed post-wazuh's plaintext WAZUH_REGISTRATION_PASSWORD leak RED→GREEN).
   **Still ◐: the LIVE run (hooks
   actually executing + configuring on a provisioned machine) is HOST-GATED** — needs a throwaway box to
   confirm, same class as cloudflared/WARP live-connect. Closed the #250 29/30-undispatched gap.

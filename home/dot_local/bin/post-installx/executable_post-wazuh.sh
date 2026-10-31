@@ -20,7 +20,12 @@ if [ -d /Applications ] && [ -d /System ]; then
     wget -q "$PKG_URL" -O /tmp/wazuh-agent.pkg &> /dev/null
     gum log -sl info 'Setting Wazuh launch parameters in /tmp/wazuh_envs'
     # https://documentation.wazuh.com/current/user-manual/agent/deployment-variables/deployment-variables-macos.html
+    # The env file carries WAZUH_REGISTRATION_PASSWORD in PLAINTEXT — remove it on ANY exit (trap set BEFORE
+    # the write so a failure can't strand it) + restrict to owner (root still reads it via `sudo installer`),
+    # so the secret never lingers world-readable in /tmp after provisioning (#295).
+    trap 'rm -f /tmp/wazuh_envs' EXIT
     echo "WAZUH_MANAGER=$(get-secret WAZUH_MANAGER) && WAZUH_REGISTRATION_PASSWORD=$(get-secret WAZUH_REGISTRATION_PASSWORD)" > /tmp/wazuh_envs
+    chmod 600 /tmp/wazuh_envs
     gum log -sl info 'Installing the Wazuh agent pkg'
     sudo installer -pkg /tmp/wazuh-agent.pkg -target /
     sudo chmod 755 /Library/Ossec
