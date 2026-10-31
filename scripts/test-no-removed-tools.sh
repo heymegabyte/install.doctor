@@ -83,6 +83,23 @@ else
   fail ".chezmoiexternal.toml.tmpl still fetches antigen.zsh — a dead §7 network download on every chezmoi apply (remove it; zinit replaced antigen 2f9ab27c)"
 fi
 
+# 4d (#288). CONSOLIDATED residue guard — generalizes the per-tool removals (#284 mackup · #285 bash-it · #286
+#   whalebrew · #287 antigen) so NO §6/§7-removed tool can leave a config dir OR a chezmoiexternal download. The
+#   #287 sweep confirmed m-cli/gVisor/macfuse/MacPorts have no residue, but nothing LOCKED that — this does, so a
+#   future accidental re-introduction fails CI. Exact dir-name match (zero false-positive) + distinctive-name
+#   chezmoiexternal grep. (nix excluded — "nix" substrings unix/minix; its active code is covered by #5. bash-it
+#   rc by #4b, nested files like brew/whalebrew by #3c, active invocations by #1-#6.)
+removed_residue=""
+for t in mackup whalebrew antigen macfuse gvisor macports m-cli; do
+  [ -d "home/dot_config/$t" ] && removed_residue="$removed_residue dot_config/$t"
+  grep -qi "$t" home/.chezmoiexternal.toml.tmpl 2>/dev/null && removed_residue="$removed_residue ext:$t"
+done
+if [ -z "$removed_residue" ]; then
+  pass "no §6/§7 removed-tool config/chezmoiexternal residue (mackup/whalebrew/antigen/macfuse/gvisor/macports/m-cli all clean — future-proofs the removals)"
+else
+  fail "§6/§7 removed-tool residue returned:$removed_residue — a dropped tool left a config dir or per-apply download (remove it)"
+fi
+
 # 5. Nix — removed fleet-wide (CLAUDE.md §7: 53 software.yml entries + install branches dropped). NixOS is
 #    NOT a supported fleet role (§2), so a `command -v nix-env` OS-detection branch is dead. BSD-safe patterns
 #    (no \b — macOS grep's \b is unreliable); the active invocations can't appear in a prose comment.
