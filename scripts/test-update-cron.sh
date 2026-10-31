@@ -105,6 +105,25 @@ else
   fail "update-system does NOT update lazy-install language managers ($langmiss) — a tool installed via the cnf hook's npm/pipx/gem path is never kept current by the Monday cron"
 fi
 
+# 9.7 (#306). The CORE OS package managers install.doctor PRIMARILY installs through (CLAUDE.md §2 fleet +
+#      §7 Homebrew-primary: macOS=brew, Ubuntu/Debian=apt, Fedora=dnf, Arch=pacman, openSUSE=zypper; apk is
+#      gated by #9.5) must each be DEFINED **and** DISPATCHED. #8/#9/#9.5/#9.6 explicitly guard
+#      mise/chezmoi/apk/npm/pipx/gem and #10 guards invoked→defined — but NOTHING asserted the primary OS
+#      managers are invoked AT ALL, so dropping updateBrew (install.doctor's primary installer, §7) would pass
+#      every existing check while silently ending Homebrew updates across the whole macOS fleet: the exact
+#      "ensures EVERYTHING is updated" regression. Each must have a `updateX() {` definition AND an indented
+#      dispatch line (bare in the DEBUG-sync block, ` &` in the parallel block).
+osmiss=""
+for pm in Brew:brew AptGet:apt Dnf:dnf Pacman:pacman Zypper:zypper; do
+  fn="update${pm%%:*}"
+  { grep -qE "^${fn}\(\) \{" "$UPD" && grep -qE "^[[:space:]]+${fn}( &)?$" "$UPD"; } || osmiss="$osmiss ${pm##*:}"
+done
+if [ -z "$osmiss" ]; then
+  pass "update-system defines + dispatches every core OS package manager (brew/apt/dnf/pacman/zypper — the fleet's primary installers per CLAUDE.md §2/§7)"
+else
+  fail "update-system is MISSING a core OS package-manager updater ($osmiss) — the Monday-02:00 'everything updated' promise silently skips it on that fleet role"
+fi
+
 # 10. every updateX invoked in a dispatch branch must be DEFINED (no orphan call after the Nix/Port removal).
 missing=""
 for fn in $(grep -oE 'update[A-Z][A-Za-z]+' "$UPD" 2>/dev/null | sort -u); do
