@@ -43,6 +43,13 @@ if [ -z "$mk" ]; then pass "no active Mackup code in provisioning surfaces (§6:
 # 3. the backup-apps Mackup wrapper file is deleted (it served no purpose without Mackup).
 if [ ! -f home/dot_local/bin/executable_backup-apps.tmpl ]; then pass "executable_backup-apps.tmpl (Mackup wrapper) removed"; else fail "executable_backup-apps.tmpl still present (dead Mackup wrapper)"; fi
 
+# 3b (#284). the Mackup CONFIG dir must also be gone — it deployed `~/.config/mackup` (a .mackup.cfg + per-app
+#   .cfg set + README) to EVERY machine for a tool §6 dropped + provisioning never installs; nothing active reads
+#   it (the wrapper above is deleted), so it's pure dead deployed weight (prompt: remove unnecessary files +
+#   install closer to the minimum). The software.yml catalog entry stays (deploy-gated regen) + the historical
+#   Qubes-Ansible `roles/system/mackup` ref stays (externally-resolved, CLAUDE.md §5 keep) — separate lifecycles.
+if [ ! -d home/dot_config/mackup ]; then pass "no deployed Mackup config dir (home/dot_config/mackup removed — §6 dead-tool config no longer ships to every machine)"; else fail "home/dot_config/mackup/ still present — a removed tool's config deploys to every machine (remove it; §6 chezmoi owns the dotfiles)"; fi
+
 # 4. the bash-it call sites in the post-install dispatch are gone (both the sync + the parallel branch).
 if ! grep -qE 'bashItPlugins' home/.chezmoiscripts/universal/run_after_20-post-install.sh.tmpl 2>/dev/null; then
   pass "post-install dispatch no longer calls bashItPlugins (sync + parallel branches clean)"
