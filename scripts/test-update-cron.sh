@@ -87,6 +87,24 @@ else
   fail "update-system runs only 'apk update' (index sync) — add 'apk upgrade' so the Monday cron actually upgrades Alpine packages (the prompt's 'everything updated')"
 fi
 
+# 9.6 (#275). The cron must UPDATE what the lazy-installer INSTALLS with. The cnf hook (__cnf_pref) resolves a
+#      missing CLI via the OS manager FIRST, then the language managers go/cargo/npm/pipx/pip/gem. The OS managers
+#      + mise + flatpak/snap are updated above — but a tool lazy-installed via `npm -g` / `pipx` / `gem` was NEVER
+#      kept current, so the prompt's "ensures EVERYTHING is updated" silently missed the language managers (same
+#      install-vs-update contract class as #267's apk-in-cron). npm/pipx/gem each have a CLEAN, non-interactive
+#      update-ALL safe for the unattended Monday-02:00 cron (npm update -g / pipx upgrade-all / gem update);
+#      cargo + go are INTENTIONALLY omitted (no safe unattended update-all — cargo needs the cargo-update crate,
+#      `go install` re-fetches per-binary), and pip --user upgrade-all is too fragile to run unattended.
+langmiss=""
+{ grep -qE 'updateNpm\(\) \{' "$UPD" && grep -qE 'npm update -g' "$UPD"; } || langmiss="$langmiss npm"
+{ grep -qE 'updatePipx\(\) \{' "$UPD" && grep -qE 'pipx upgrade-all' "$UPD"; } || langmiss="$langmiss pipx"
+{ grep -qE 'updateGem\(\) \{' "$UPD" && grep -qE 'gem update' "$UPD"; } || langmiss="$langmiss gem"
+if [ -z "$langmiss" ]; then
+  pass "update-system keeps lazy-installed language-manager tools current (npm -g / pipx / gem update — matches the cnf hook's install path)"
+else
+  fail "update-system does NOT update lazy-install language managers ($langmiss) — a tool installed via the cnf hook's npm/pipx/gem path is never kept current by the Monday cron"
+fi
+
 # 10. every updateX invoked in a dispatch branch must be DEFINED (no orphan call after the Nix/Port removal).
 missing=""
 for fn in $(grep -oE 'update[A-Z][A-Za-z]+' "$UPD" 2>/dev/null | sort -u); do

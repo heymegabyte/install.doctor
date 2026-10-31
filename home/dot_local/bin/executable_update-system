@@ -70,6 +70,31 @@ updateZypper() {
   fi
 }
 
+### Language package managers the cnf lazy-installer resolves through (__cnf_pref: … npm pipx … gem). The OS
+### managers + mise cover most tools, but a CLI installed via `npm install -g` / `pipx install` / `gem install`
+### is kept current ONLY here — else the Monday-02:00 "everything updated" promise silently skips them (same
+### install-vs-update contract as #267's apk-in-cron). Each has a CLEAN, non-interactive update-ALL safe for the
+### unattended cron. cargo + go are omitted deliberately (no safe unattended update-all — cargo needs the
+### cargo-update crate; `go install` re-fetches per-binary); pip --user upgrade-all is too fragile unattended.
+updateNpm() {
+  if command -v npm > /dev/null; then
+    gum log -sl info 'Running npm update -g' && npm update -g || gum log -sl error 'Failed to run npm update -g'
+  fi
+}
+
+updatePipx() {
+  if command -v pipx > /dev/null; then
+    gum log -sl info 'Running pipx upgrade-all' && pipx upgrade-all || gum log -sl error 'Failed to run pipx upgrade-all'
+  fi
+}
+
+updateGem() {
+  if command -v gem > /dev/null; then
+    ### user-scope gems only (matches the cnf hook's `gem install`, no sudo); `--system` is intentionally NOT run.
+    gum log -sl info 'Running gem update' && gem update || gum log -sl error 'Failed to run gem update'
+  fi
+}
+
 ### mise owns version-managed runtimes (ADR 0003 — Node.js / Go / Rust et al). Upgrade the tools + mise itself.
 updateMise() {
   if command -v mise > /dev/null; then
@@ -96,6 +121,9 @@ if [ -n "${DEBUG:-}" ] || [ -n "${DEBUG_MODE:-}" ]; then
   updatePacman
   updateSnap
   updateZypper
+  updateNpm
+  updatePipx
+  updateGem
   updateMise
   updateChezmoi
 else
@@ -109,6 +137,9 @@ else
   updatePacman &
   updateSnap &
   updateZypper &
+  updateNpm &
+  updatePipx &
+  updateGem &
   wait
   ### mise + chezmoi run AFTER the package managers settle (chezmoi apply may itself invoke them).
   updateMise
