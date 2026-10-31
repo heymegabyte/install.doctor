@@ -165,6 +165,11 @@ jobs:
         run: |
           bash scripts/test-detect-os.sh
 
+      - name: Run full test suite at CI parity (report-only — promote to blocking after a green CI run, #354)
+        env:
+          CONTROL_PLANE_URL: https://app.install.doctor
+        run: bash scripts/test-all.sh || echo "::warning::test-all.sh reported failures (report-only; see log). Promote to blocking once CI parity is confirmed green."
+
       - name: Run Install Doctor bootstrap (headless)
         run: |
           su - testuser -c '
