@@ -99,5 +99,21 @@ for p in $s_install_hook; do
 done
 [ -z "$updmiss" ] && pass "every cnf install-manager is update-covered by the Monday cron OR a documented exclusion (#275 class locked)" || fail "update-system does NOT keep these cnf install-managers current + they are not excluded:$updmiss — a tool lazy-installed via them silently rots (the #275 npm/pipx/gem class)"
 
+# 7 (#278). The index BUILDER has TWO code paths — the primary yq|jq array ([$v.brew,$v.apt,…]) and the python3+
+#     pyyaml fallback (cols=[…]) — that MUST emit the manager columns in the SAME ORDER, else the TSV index differs
+#     by which path ran (a box with python3 but no yq/jq gets different columns). AND the hook's colmap (brew)col=3;;…
+#     → which TSV column each manager reads) must assign col-numbers in that SAME order, else the hook reads the WRONG
+#     column. Checks 1-3 SORT their sets (set-equality) so they CANNOT catch an ORDER drift — this locks the ordered
+#     column sequence across all three (#268 added apk to all three BY HAND; nothing guarded the ordering until now).
+o_jq="$(grep -oE '\$v\.[a-z]+' "$BUILDER" | sed 's/\$v\.//' | tr '\n' ' ')"
+o_py="$(grep -oE 'cols = \[[^]]*\]' "$BUILDER" | grep -oE '"[a-z]+"' | tr -d '"' | tr '\n' ' ')"
+o_colmap="$(grep -oE '[a-z]+\)col=[0-9]+' "$HOOK" | sort -t= -k2 -n | sed -E 's/\)col=[0-9]+//' | tr '\n' ' ')"
+if [ "$(printf '%s' "$o_jq" | wc -w | tr -d ' ')" -ge 10 ] && [ -n "$o_py" ]; then
+  [ "$o_jq" = "$o_py" ]     && pass "cnf-build-index jq path == python3 path (same column ORDER — index identical whichever builder path runs)" || fail "cnf-build-index COLUMN-ORDER drift: jq [$o_jq] != python [$o_py] — the TSV index differs by which builder path runs"
+  [ "$o_jq" = "$o_colmap" ] && pass "cnf-build-index column ORDER == hook colmap col-number order (hook reads the right TSV column per manager)" || fail "builder column order [$o_jq] != hook colmap order-by-colnum [$o_colmap] — the hook would read the WRONG column per manager"
+else
+  fail "cnf-build-index column-order extraction broke — jq=[$o_jq] py=[$o_py]"
+fi
+
 say "provider-consistency: $P passed, $F failed"
 [ "$F" -eq 0 ]
