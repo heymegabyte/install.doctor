@@ -46,6 +46,24 @@ if [ "${nprov:-0}" -ge 10 ]; then pass "provider set resolved ($nprov managers f
 [ "$s_colmap" = "$s_install_hook" ] && pass "cnf hook column-map == cnf hook __cnf_do_install cases" || fail "cnf colmap [$s_colmap] != cnf install cases [$s_install_hook]"
 [ "$s_install_hook" = "$s_install_cp" ] && pass "cnf hook install cases == control-plane INSTALL_CMD (D04: lazy-install ↔ App Store agree)" || fail "cnf install [$s_install_hook] != control-plane INSTALL_CMD [$s_install_cp]"
 
+# 4b (#276). The AI-fallback SAFETY allowlist (__cnf_ai_safe) must accept EVERY manager the cnf hook can install
+#     through — else a valid AI-suggested `<mgr> install X` is REFUSED on that platform. This is the #274 bug
+#     generalized into the contract: apk was a first-class install manager but was MISSING from the allowlist, so
+#     `sudo apk add X` was rejected on Alpine. EXEMPT: cask, whose AI-install path is `brew install --cask …`
+#     (leading token `brew`, already allowed — cask has no standalone binary). Invariant: install-manager − {cask} ⊆ ai_safe.
+s_aisafe="$(grep -F 'brew|apt|apt-get' "$HOOK" | head -1 | sed -E 's/\).*//; s/^[[:space:]]*//' | tr '|' ' ' | tr ' ' '\n' | grep -v '^$' | sort -u | tr '\n' ' ')"
+naisafe="$(printf '%s' "$s_aisafe" | wc -w | tr -d ' ')"
+if [ "${naisafe:-0}" -ge 10 ]; then
+  aimiss=""
+  for p in $s_install_hook; do
+    [ "$p" = cask ] && continue   # cask → `brew install --cask`, leading token brew (already allowed)
+    case " $s_aisafe " in *" $p "*) ;; *) aimiss="$aimiss $p";; esac
+  done
+  [ -z "$aimiss" ] && pass "every cnf install-manager (minus cask→brew) is in __cnf_ai_safe (AI fallback can't refuse a valid installer — #274 class locked)" || fail "__cnf_ai_safe MISSING installer(s):$aimiss — an AI-suggested install via these is REFUSED though the hook installs with them (the #274 apk-on-Alpine bug class)"
+else
+  fail "__cnf_ai_safe allowlist extraction broke (naisafe=$naisafe < 10) — [$s_aisafe]"
+fi
+
 # 5. UPDATE_CMD / UNINSTALL_CMD providers ⊆ INSTALL_CMD (can't update/uninstall via a manager you can't install with).
 for map in UPDATE_CMD UNINSTALL_CMD; do
   sub="$(sed -n "/^const $map/,/^};/p" "$IDX" | grep -oE '^  [a-z]+:' | tr -d ' :' | sort -u)"
