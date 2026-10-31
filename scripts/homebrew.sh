@@ -232,8 +232,10 @@ ensurePackageManagerHomebrew() {
 
 ### Ensures gcc is installed
 ensureGcc() {
-  if command -v brew > /dev/null; then
-    if ! brew list | grep gcc > /dev/null; then
+  # Eval homebrew before checking if gcc is installed
+  loadHomebrew
+  if command -v brew >/dev/null; then
+    if ! brew list | grep gcc >/dev/null; then
       logg info 'Installing Homebrew gcc' && brew install --quiet gcc
     else
       logg info 'Homebrew gcc is available'
