@@ -22,14 +22,42 @@ skip() { command -v gum >/dev/null 2>&1 && gum style --foreground 244 -- "SKIP $
 P=0
 F=0
 
-say "chezmoiscript render-integrity gate (every .chezmoiscripts/**/*.sh.tmpl renders + parses)"
+say "chezmoiscript integrity gate (ordering invariant + every .chezmoiscripts/**/*.sh.tmpl renders + parses)"
 
-# chezmoi is the renderer — without it we cannot prove a template renders. SKIP (not PASS, not FAIL): a render
-# gate with no renderer gives no protection, but it must never block a chezmoi-less CI runner / minimal box.
+# 0. ORDERING invariant (#307) — chezmoi runs the run_after_* scripts ALPHABETICALLY, so the NN numeric prefix
+#    is the ONLY thing sequencing them. The load-bearing dependency (run_after_20's own header + CLAUDE.md §4):
+#    the installx EXECUTOR must run BEFORE the post-install DISPATCHER — the post-install hooks CONFIGURE the
+#    tools installx installed, so running them first makes every hook self-skip (tool absent) = a silently
+#    UNCONFIGURED provision (the prompt's "pre-installed AND configured" broken, with NO error). Scripts are
+#    identified by UNIQUE CONTENT markers (`command -v installx` / `runPostInstallxHooks`), NOT a name glob
+#    (which mis-matched run_after_01-pre-install), so a rename that keeps the role is still caught. Pure file
+#    math — NO chezmoi, NO execution — so it runs even on a renderer-less CI (where the render check below skips).
+CS="home/.chezmoiscripts/universal"
+prefixOf() { basename "$1" 2>/dev/null | grep -oE 'run_after_[0-9]+' | grep -oE '[0-9]+'; }
+instList="$(grep -lE 'command -v installx' "$CS"/run_after_*.sh.tmpl 2>/dev/null)"
+postList="$(grep -lE 'runPostInstallxHooks' "$CS"/run_after_*.sh.tmpl 2>/dev/null)"
+ninst="$(printf '%s\n' "$instList" | grep -c .)"
+npost="$(printf '%s\n' "$postList" | grep -c .)"
+if [ "$ninst" = 1 ] && [ "$npost" = 1 ]; then
+  ip="$(prefixOf "$instList")"
+  pp="$(prefixOf "$postList")"
+  if [ -n "$ip" ] && [ -n "$pp" ] && [ "$((10#$ip))" -lt "$((10#$pp))" ]; then
+    pass "ordering: installx executor (run_after_$ip) runs BEFORE post-install dispatch (run_after_$pp) — tools installed before their config hooks fire (pre-installed AND configured)"
+  else
+    fail "ordering BROKEN: installx-executor prefix='$ip' is NOT < post-install-dispatch prefix='$pp' — config hooks would self-skip (tools not yet installed) = a silently UNCONFIGURED provision"
+  fi
+else
+  fail "ordering: expected exactly 1 installx-executor + 1 post-install-dispatcher run_after script, found $ninst + $npost — the provisioning spine moved; re-anchor this invariant"
+fi
+
+# chezmoi is the renderer — without it we cannot prove a template renders. SKIP the RENDER checks (the ordering
+# invariant above already ran): a render gate with no renderer gives no render-protection, but must never block
+# a chezmoi-less CI — and the ordering invariant above still gates.
 if ! command -v chezmoi >/dev/null 2>&1; then
-  skip "chezmoi not installed — render gate cannot run (install chezmoi to exercise it)"
-  say "chezmoiscript-render: 0 passed, 0 failed (skipped — no renderer)"
-  exit 0
+  skip "chezmoi not installed — render checks skipped (the ordering invariant above ran)"
+  say "chezmoiscript integrity: $P passed, $F failed (render skipped — no chezmoi)"
+  [ "$F" -eq 0 ]
+  exit $?
 fi
 
 # renderOne <file> → render via chezmoi THEN bash -n-parse the output. Returns 0 only if BOTH succeed.
@@ -77,5 +105,5 @@ else
   fail "chezmoiscript(s) fail render-or-parse:$broken — chezmoi apply would ABORT mid-provision"
 fi
 
-say "chezmoiscript-render: $P passed, $F failed"
+say "chezmoiscript integrity: $P passed, $F failed"
 [ "$F" -eq 0 ]
