@@ -1,4 +1,4 @@
-PATH=/usr/local/bin:/usr/local/sbin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/sbin:/opt/homebrew/bin:$HOME/.local/bin
+PATH=/usr/local/bin:/usr/local/sbin:/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin:$HOME/.local/bin
 
 */5 * * * *      command -v autorestic > /dev/null && autorestic -c "$HOME/.config/autorestic/autorestic-user.yml" --ci cron > /tmp/autorestic.log 2>&1
 * * * * *        command -v dagu-start-all > /dev/null && test -f "$HOME/.config/shell/exports.sh" && . "$HOME/.config/shell/exports.sh" && dagu-start-all

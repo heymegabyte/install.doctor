@@ -116,6 +116,21 @@ else
   fail "orphan update* call(s) with no definition:$missing"
 fi
 
+# 10.6 (#279). The crontab PATH line is LOAD-BEARING: cron runs with a minimal environment, so the Monday-02:00
+#      update job resolves `update-system` (+ every lazy-installed CLI) ONLY via this PATH. It must (a) include
+#      ~/.local/bin (where update-system lives — drop it and the cron silently no-ops `command -v update-system`)
+#      and (b) have NO DUPLICATE components (the prompt's "ensure there is no duplicate code" — a literal dup in a
+#      committed config). Deduping preserves first-occurrence order → identical PATH resolution.
+pathline="$(grep -E '^PATH=' "$CRON" 2>/dev/null | head -1)"
+if [ -n "$pathline" ]; then
+  comps="$(printf '%s' "${pathline#PATH=}" | tr ':' '\n' | grep -v '^$')"
+  dups="$(printf '%s\n' "$comps" | sort | uniq -d | tr '\n' ' ' | sed 's/ *$//')"
+  [ -z "$dups" ] && pass "crontab PATH has no duplicate components (no-duplicate-code)" || fail "crontab PATH has DUPLICATE components: $dups — dedupe the PATH= line (prompt: ensure no duplicate code)"
+  printf '%s\n' "$comps" | grep -qF '.local/bin' && pass "crontab PATH includes ~/.local/bin (cron can resolve update-system + lazy-installed CLIs)" || fail "crontab PATH MISSING ~/.local/bin — the Monday-02:00 cron can't resolve update-system"
+else
+  fail "crontab has no PATH= line — cron's minimal env won't resolve user-installed tools (update-system)"
+fi
+
 # 11. shellcheck clean (defensive; skip if unavailable)
 if command -v shellcheck >/dev/null 2>&1; then
   shellcheck -S warning "$UPD" >/tmp/update-system-sc.log 2>&1 && pass "update-system shellcheck clean" || { fail "update-system shellcheck findings"; tail -6 /tmp/update-system-sc.log 2>/dev/null; }
