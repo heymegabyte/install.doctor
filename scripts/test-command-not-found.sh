@@ -44,6 +44,28 @@ grep -E 'pip3' "$HANDLER" | grep -qF 'apk' || apkmiss="$apkmiss ai-safe-allowlis
   && pass "cnf hook supports Alpine apk in all 4 places (__cnf_os detect + __cnf_pref preference + __cnf_do_install dispatch + __cnf_ai_safe allowlist)" \
   || fail "cnf hook MISSING Alpine apk support ($apkmiss) — a missing command can't auto-install via apk on a supported Alpine fleet role"
 
+# Dual-path builder PARITY (#280): cnf-build-index has TWO code paths — the primary yq|jq and the python3+pyyaml
+# fallback — that MUST produce BYTE-IDENTICAL output on the real software.yml, else the TSV index (and thus WHICH
+# manager the hook picks) differs by which path ran on a box. #278 locked the column ORDER structurally; this runs
+# BOTH paths on the committed catalog + diffs the actual ROWS end-to-end. Skips if either toolchain is absent (can't
+# compare → never a false fail). The python path is forced by restricting PATH to a dir with only python3 (yq/jq
+# shadowed). Hermetic: reads the committed software.yml read-only, writes to mktemp temps, cleaned up.
+SWY="$ROOT/software.yml"
+if [ -f "$SWY" ] && command -v yq >/dev/null 2>&1 && command -v jq >/dev/null 2>&1 && command -v python3 >/dev/null 2>&1 && python3 -c 'import yaml' 2>/dev/null; then
+  _dpj="$(mktemp)"; _dpp="$(mktemp)"; _dpbin="$(mktemp -d)"
+  ln -s "$(command -v python3)" "$_dpbin/python3" 2>/dev/null
+  bash "$BUILDER" "$SWY" "$_dpj" >/dev/null 2>&1                               # yq|jq path (both present)
+  PATH="$_dpbin:/usr/bin:/bin" bash "$BUILDER" "$SWY" "$_dpp" >/dev/null 2>&1   # python3 path (yq/jq shadowed)
+  if [ -s "$_dpj" ] && [ -s "$_dpp" ] && diff <(sort "$_dpj") <(sort "$_dpp") >/dev/null 2>&1; then
+    pass "cnf-build-index yq|jq path == python3 path — BYTE-IDENTICAL TSV on the real software.yml ($(wc -l < "$_dpj" | tr -d ' ') rows; #280 dual-path parity)"
+  else
+    fail "cnf-build-index DUAL-PATH DIVERGENCE — yq|jq and python3 produce different TSV on the real software.yml (the index differs by which builder path runs on a box)"
+  fi
+  command rm -rf "$_dpbin" "$_dpj" "$_dpp" 2>/dev/null
+else
+  skip "builder dual-path parity (#280) — need yq+jq+python3+pyyaml + software.yml all present"
+fi
+
 # shellcheck source=/dev/null
 . "$HANDLER"
 # isolate the test shell from the handler's shell hooks — a missing/typo'd function in this
