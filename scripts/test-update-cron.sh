@@ -170,6 +170,21 @@ else
   skip "exports.sh.tmpl not found — skipping cron-sourced-file safety check"
 fi
 
+# 12 (#294). INSTALL idempotency — the Monday-02:00 entry only fires if the crontab is actually LOADED, and
+#      loaded IDEMPOTENTLY. run_after_01 installs it via `crontab < config-user` (+ `sudo crontab < config-system`),
+#      a redirect-REPLACE: a re-provision overwrites the crontab wholesale, so the entry is never DUPLICATED. A
+#      dup-prone append (`(crontab -l; cat config-user) | crontab -`) would re-add it every run → update-system
+#      fires N times after N provisions. Lock the replace-load so a future edit can't silently switch to an append.
+#      (The install itself is host-gated; this asserts the MECHANISM in the deployed run_after_01.)
+INST="$ROOT/home/.chezmoiscripts/universal/run_after_01-pre-install.sh.tmpl"
+if [ ! -f "$INST" ]; then
+  skip "run_after_01 not present — skipping crontab-install idempotency check"
+elif grep -qE 'crontab <[^|]*config-user' "$INST" && grep -qE 'sudo crontab <[^|]*config-system' "$INST" && ! grep -qE '\|[[:space:]]*(sudo[[:space:]]+)?crontab[[:space:]]+-' "$INST"; then
+  pass "run_after_01 installs both crontabs via 'crontab < file' (idempotent REPLACE, no '| crontab -' append — re-provision never duplicates the Monday-02:00 entry)"
+else
+  fail "run_after_01 does not load the crontab via an idempotent 'crontab < config-user/config-system' replace, or uses a dup-prone '| crontab -' append — the Monday-02:00 cron may mis-install or DUPLICATE on re-provision"
+fi
+
 # 11. shellcheck clean (defensive; skip if unavailable)
 if command -v shellcheck >/dev/null 2>&1; then
   shellcheck -S warning "$UPD" >/tmp/update-system-sc.log 2>&1 && pass "update-system shellcheck clean" || { fail "update-system shellcheck findings"; tail -6 /tmp/update-system-sc.log 2>/dev/null; }
