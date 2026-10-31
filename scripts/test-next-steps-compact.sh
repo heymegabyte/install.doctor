@@ -38,8 +38,16 @@ chk "REQUIREMENTS.md" "the matrix pointer"
 chkre "Better Auth" "blocker O (Better Auth)"
 chkre "#7|AI Gateway" "blocker K/#7 (provider call)"
 chkre "Figma|N02" "blocker N02 (Figma redesign)"
-# Freshness — references a recent fire.
-chkre "#7[0-9]|#8[0-9]" "freshness: references a recent fire (>=70)"
+# Freshness — extract the CONVERGENCE NOTE's "refreshed #N" (bumped EVERY fire) + assert it's recent (>=70),
+# tracking the CURRENT era. The prior check matched a fixed "#7x/#8x" string, which (a) FALSE-PASSED a stale
+# ledger as long as any old #7x reference lingered (the only one left was an incidental "#72" while the ledger
+# is at #310+), and (b) would FALSE-FAIL the moment a de-bloat removed that reference. Mirrors X14's freshness.
+ns_fire="$(grep -oE 'CONVERGENCE NOTE \(refreshed #[0-9]+' "$DOC" | head -1 | grep -oE '[0-9]+')"
+if [ -n "$ns_fire" ] && [ "$ns_fire" -ge 70 ]; then
+  pass "freshness: CONVERGENCE NOTE names a recent fire (#$ns_fire >= 70) — tracks the current era, not a fixed #7x window"
+else
+  fail "freshness: CONVERGENCE NOTE 'refreshed #N' missing or < 70 (#${ns_fire:-none}) — the resume ledger looks stale"
+fi
 
 say "next-steps: $P passed, $F failed"
 [ "$F" -eq 0 ]
