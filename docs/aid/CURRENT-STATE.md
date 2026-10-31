@@ -1,6 +1,6 @@
 # aid — CURRENT STATE (verified audit)
 
-**Refreshed:** fire #295 (SECRET-at-rest fix — post-wazuh wrote WAZUH_REGISTRATION_PASSWORD PLAINTEXT to world-readable `/tmp/wazuh_envs` + never removed it; now `trap 'rm -f' EXIT` + `chmod 600`, locked by dispatch-gate A12 (any hook writing a get-secret value to /tmp MUST chmod-600 + clean it — generalizes A11's mktemp-only cleanup to fixed-path secret temps); TDD RED→GREEN) — NEW ARC: bootstrap/provisioning QUALITY + deploy SPEED (the v2 control-plane arc converged #195–#197). The master prompt PIVOTED to: `start.sh`→chezmoi (dot configs **and** system files), minimum-install + lazy-everywhere, a preinstalled cnf-substrate toolchain, cloudflared+WARP, file cleanup/de-dup, a Monday-02:00 auto-update cron. **⚠️ app.install.doctor is being RETIRED → absorbed by https://desktop.tools** — do NOT keep hardening the control-plane surface; the suite still verifies it until the migration lands. Per-fire arc history (#198→) lives in `git log` + the §Built/§Gated sections below. Verified: full suite **853 / 47 suites GREEN** vs live prod. **Branch:** `master`.
+**Refreshed:** fire #296 (secret-hygiene sweep COMPLETE — swept chezmoiscripts + partials (the #295 Next); surface CLEAN (age MASTER key chmod-600'd + direct-decrypt · no secret-to-file · no echo/log · `enable_autologin` is a 3rd-party kcpassword-interface non-issue). NEW `test-secret-hygiene.sh` locks the crown-jewel age-master-key perms + direct-decrypt invariants (security-critical, ungated until now); TDD RED→GREEN) — NEW ARC: bootstrap/provisioning QUALITY + deploy SPEED (the v2 control-plane arc converged #195–#197). The master prompt PIVOTED to: `start.sh`→chezmoi (dot configs **and** system files), minimum-install + lazy-everywhere, a preinstalled cnf-substrate toolchain, cloudflared+WARP, file cleanup/de-dup, a Monday-02:00 auto-update cron. **⚠️ app.install.doctor is being RETIRED → absorbed by https://desktop.tools** — do NOT keep hardening the control-plane surface; the suite still verifies it until the migration lands. Per-fire arc history (#198→) lives in `git log` + the §Built/§Gated sections below. Verified: full suite **855 / 48 suites GREEN** vs live prod. **Branch:** `master`.
 Full spec: `MASTER-PROMPT.md` · resume pointer: `NEXT-STEPS.md` · matrix: `REQUIREMENTS.md`. Nothing here
 is inherited without evidence; every count below is from a live `scripts/test-all.sh` run.
 
@@ -10,7 +10,7 @@ The UNBLOCKED functional product has **converged**: the control plane, the full 
 dashboard, the honest-docs set, and a one-command test suite are built + live-verified at
 **https://app.install.doctor**. The remaining high-value requirements are **GATED on external action**
 (see § Gated). Loop fires now harden docs/tests/honesty until a gated dep is provisioned. Verified by
-**`scripts/test-all.sh` → 853 assertions / 47 suites GREEN (1 OS-skipped)** with the prod URL.
+**`scripts/test-all.sh` → 855 assertions / 48 suites GREEN (1 OS-skipped)** with the prod URL.
 
 ## ✅ Built + live-verified
 
@@ -145,7 +145,12 @@ dashboard, the honest-docs set, and a one-command test suite are built + live-ve
   break that would ABORT `chezmoi apply` mid-provision (the whole deploy dies) fails CI first; no prior
   suite rendered the WHOLE set (the 8 that touch chezmoiscripts each grep ONE for its own concern), and it
   SELF-TESTS its own detector against a planted broken fixture so it can never go vacuous (SKIPs if chezmoi
-  absent — a render gate with no renderer gives no protection but must not block a chezmoi-less CI); **A12 ADR hygiene gate
+  absent — a render gate with no renderer gives no protection but must not block a chezmoi-less CI); a
+  **secret-hygiene gate** (`test-secret-hygiene.sh` 2/2, #296) locks the crown-jewel age MASTER-key
+  invariants — run_before_03 chmod-600's the decrypted key (`~/.config/age/chezmoi.txt`, which unlocks
+  EVERY chezmoi secret) AND decrypts it DIRECTLY to its config path (never staged world-readable in /tmp);
+  the secret-sweep axis (#295 post-installx `/tmp` → A12; #296 chezmoiscripts/partials — surface clean);
+  **A12 ADR hygiene gate
   (`test-adr.sh` 7/7) — every `docs/aid/decisions/NNNN` ADR is well-formed (Status·Context·Decision·
   alternatives·Consequences) + the key decisions each HAVE an ADR; 0001-0006 (hiSHtory · device-token ·
   mise-lazy-tools · Better Auth #105 · the catalog-enrichment-from-declared-fields pattern #116 · **the
