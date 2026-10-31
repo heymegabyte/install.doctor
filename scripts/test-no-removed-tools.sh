@@ -130,5 +130,22 @@ else
   fail "a root rc file has an active §6/§7 removed-tool reference:$rcres — a dropped tool's shell hook lingers (remove it)"
 fi
 
+# 8 (#303). CLEANUP PROPAGATION to EXISTING machines — removing a §6/§7 tool's config from the SOURCE
+#   (#284 mackup · #286 whalebrew · #287 antigen) only stops FRESH machines deploying it; a machine that
+#   ALREADY deployed the artifact KEEPS it (chezmoi does NOT auto-delete a removed source entry's target).
+#   So each removed-tool DEPLOYED path must be listed in home/.chezmoiremove to clean existing machines on
+#   their next `chezmoi apply` (the prompt's "remove unnecessary files"). Target-relative paths. Sibling of
+#   #3b/#3c/#4d (which assert the SOURCE is clean); this asserts the TARGET gets cleaned too.
+REMOVE="home/.chezmoiremove"
+missing_rm=""
+for p in '.config/mackup' '.config/brew/whalebrew' '.local/scripts/antigen.zsh'; do
+  grep -qF "$p" "$REMOVE" 2> /dev/null || missing_rm="$missing_rm $p"
+done
+if [ -z "$missing_rm" ]; then
+  pass ".chezmoiremove cleans the §6/§7 removed-tool deployed artifacts (mackup/whalebrew/antigen) from EXISTING machines on upgrade"
+else
+  fail ".chezmoiremove MISSING removed-tool cleanup path(s):$missing_rm — a source removal (#284/#286/#287) won't propagate; existing machines keep the stale config"
+fi
+
 say "no-removed-tools: $P passed, $F failed"
 [ "$F" -eq 0 ]

@@ -50,3 +50,9 @@ Brewfile
 .zsh_sessions/
 .zprofile
 .zshrc.zwc
+# §6/§7 removed-tool cleanup — propagate the SOURCE removals to EXISTING machines (#303). chezmoi does not
+# auto-delete a removed source entry's deployed target, so list each here to clean it on the next apply:
+# mackup config (§6, source removed #284) · whalebrew orphan (§7, #286) · antigen fetch (§7, #287).
+.config/mackup
+.config/brew/whalebrew
+.local/scripts/antigen.zsh
