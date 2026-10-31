@@ -1,6 +1,6 @@
 # aid — CURRENT STATE (verified audit)
 
-**Refreshed:** fire #354 (CI/deploy-workflow arc #352–#354 ended HOLDs #313–#351: fixed EOL Node 16 → 20.20.2 in BOTH Firebase-deploy workflows (#352/#353) + wired the 52-suite `test-all.sh` into BOTH CI test workflows report-only (#354 — it ran in NEITHER before, so ~48 gates protected only local fires); new gates `test-site-deploy-workflow.sh` 9/9 + `test-ci-runs-suite.sh` 3/3; BACKLOG #183 done, #0 Firebase secret PROVABLY the sole blocker. Full suite **880/52 GREEN**) — NEW ARC: bootstrap/provisioning QUALITY + deploy SPEED (the v2 control-plane arc converged #195–#197). The master prompt PIVOTED to: `start.sh`→chezmoi (dot configs **and** system files), minimum-install + lazy-everywhere, a preinstalled cnf-substrate toolchain, cloudflared+WARP, file cleanup/de-dup, a Monday-02:00 auto-update cron. **⚠️ app.install.doctor is being RETIRED → absorbed by https://desktop.tools** — do NOT keep hardening the control-plane surface; the suite still verifies it until the migration lands. Per-fire arc history (#198→) lives in `git log` + the §Built/§Gated sections below. Verified: full suite **880 / 52 suites GREEN** vs live prod. **Branch:** `master`.
+**Refreshed:** fire #355 (CI-workflow hardening arc #352–#355 ended HOLDs #313–#351: EOL Node 16 → 20.20.2 in both Firebase-deploy workflows (#352/#353); wired the 53-suite `test-all.sh` into both CI test workflows report-only (#354 — ran in NEITHER before); pinned floating `calibreapp/image-actions`→@1.5.0 (#355 supply-chain); 3 new gates (9/9·3/3·2/2); BACKLOG #183 done, #0 Firebase secret PROVABLY the sole blocker. Full suite **882/53 GREEN**) — NEW ARC: bootstrap/provisioning QUALITY + deploy SPEED (the v2 control-plane arc converged #195–#197). The master prompt PIVOTED to: `start.sh`→chezmoi (dot configs **and** system files), minimum-install + lazy-everywhere, a preinstalled cnf-substrate toolchain, cloudflared+WARP, file cleanup/de-dup, a Monday-02:00 auto-update cron. **⚠️ app.install.doctor is being RETIRED → absorbed by https://desktop.tools** — do NOT keep hardening the control-plane surface; the suite still verifies it until the migration lands. Per-fire arc history (#198→) lives in `git log` + the §Built/§Gated sections below. Verified: full suite **882 / 53 suites GREEN** vs live prod. **Branch:** `master`.
 Full spec: `MASTER-PROMPT.md` · resume pointer: `NEXT-STEPS.md` · matrix: `REQUIREMENTS.md`. Nothing here
 is inherited without evidence; every count below is from a live `scripts/test-all.sh` run.
 
@@ -10,7 +10,7 @@ The UNBLOCKED functional product has **converged**: the control plane, the full 
 dashboard, the honest-docs set, and a one-command test suite are built + live-verified at
 **https://app.install.doctor**. The remaining high-value requirements are **GATED on external action**
 (see § Gated). Loop fires now harden docs/tests/honesty until a gated dep is provisioned. Verified by
-**`scripts/test-all.sh` → 880 assertions / 52 suites GREEN (1 OS-skipped)** with the prod URL.
+**`scripts/test-all.sh` → 882 assertions / 53 suites GREEN (1 OS-skipped)** with the prod URL.
 
 ## ✅ Built + live-verified
 
