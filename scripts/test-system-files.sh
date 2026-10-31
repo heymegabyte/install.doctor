@@ -81,5 +81,22 @@ else
   fail "ssh sshd_config applier or its chezmoi source (home/*dot_ssh/system/sshd_config*) missing"
 fi
 
+# 8 (#309). COUPLED system file — the sshd_config #7 just validated DECLARES `Banner /etc/ssh/banner` (a
+#    pre-auth login banner), so /etc/ssh/banner is a FILE THAT CONFIG REQUIRES. The #7 check validates
+#    sshd_config but is BLIND to the banner it references: drop the banner applier/source and sshd logs
+#    "Banner /etc/ssh/banner does not exist" on EVERY connection — a broken SSH config shipped PAST the
+#    sshd_config check. Conditional on the REAL coupling (only fires when sshd_config declares the Banner),
+#    so it can't go vacuous; same applier + non-dangling-source class as #7.
+if [ -n "$sshsrc" ] && grep -qiE '^[[:space:]]*Banner[[:space:]]+/etc/ssh/banner' "$sshsrc" 2> /dev/null; then
+  bansrc="$(ls "$ROOT"/home/*dot_ssh/system/banner 2> /dev/null | head -1)"
+  if has "$PRE" '/etc/ssh/banner' && [ -n "$bansrc" ]; then
+    pass "chezmoi→/etc: sshd_config's 'Banner /etc/ssh/banner' is BACKED — the banner applier + its source (home/*dot_ssh/system/banner) are present (no broken Banner reference)"
+  else
+    fail "sshd_config declares 'Banner /etc/ssh/banner' but the banner applier (/etc/ssh/banner in run_after_01) or its chezmoi source (home/*dot_ssh/system/banner) is MISSING → sshd logs 'Banner file does not exist' every connection"
+  fi
+else
+  pass "sshd_config declares no '/etc/ssh/banner' Banner directive — no banner coupling to enforce (N/A)"
+fi
+
 say "system-files: $P passed, $F failed"
 [ "$F" -eq 0 ]
