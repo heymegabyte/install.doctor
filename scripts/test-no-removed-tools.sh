@@ -73,6 +73,16 @@ else
   fail "dot_bashrc still has an active bash-it source block (BASH_IT / bash_it.sh) — a dead §6 branch deployed to every bash machine"
 fi
 
+# 4c (#287). the Antigen chezmoiexternal download must be gone. antigen was §7-removed (2f9ab27c: zinit turbo
+#   replaces it — "reparsed 88 bundles every shell launch") + dot_zshrc uses zinit, nothing sources it. But
+#   .chezmoiexternal.toml.tmpl still FETCHED antigen.zsh from GitHub to ~/.local/scripts on EVERY `chezmoi apply`
+#   — a dead NETWORK download that slows every deploy (prompt: speed of deployment + install closer to the minimum).
+if ! grep -qiE 'antigen' home/.chezmoiexternal.toml.tmpl 2>/dev/null; then
+  pass "no Antigen chezmoiexternal download (dead §7 fetch removed — zinit is the zsh plugin manager, no per-apply antigen.zsh pull)"
+else
+  fail ".chezmoiexternal.toml.tmpl still fetches antigen.zsh — a dead §7 network download on every chezmoi apply (remove it; zinit replaced antigen 2f9ab27c)"
+fi
+
 # 5. Nix — removed fleet-wide (CLAUDE.md §7: 53 software.yml entries + install branches dropped). NixOS is
 #    NOT a supported fleet role (§2), so a `command -v nix-env` OS-detection branch is dead. BSD-safe patterns
 #    (no \b — macOS grep's \b is unreliable); the active invocations can't appear in a prose comment.
