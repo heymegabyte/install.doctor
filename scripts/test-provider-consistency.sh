@@ -16,6 +16,7 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 HOOK="$ROOT/home/dot_config/shell/not-found-hook.sh"
 BUILDER="$ROOT/home/dot_local/bin/executable_cnf-build-index"
 IDX="$ROOT/packages/control-plane/src/index.ts"
+UPD="$ROOT/home/dot_local/bin/executable_update-system"
 
 say() { command -v gum >/dev/null 2>&1 && gum style --foreground 51 -- "$*" || printf '\033[1;36m%s\033[0m\n' "$*"; }
 pass() { command -v gum >/dev/null 2>&1 && gum style --foreground 46 -- "PASS $*" || printf '\033[1;32mPASS\033[0m %s\n' "$*"; P=$((P + 1)); }
@@ -25,7 +26,7 @@ F=0
 
 say "provider-set consistency (D04/D13)"
 
-for f in "$HOOK" "$BUILDER" "$IDX"; do
+for f in "$HOOK" "$BUILDER" "$IDX" "$UPD"; do
   [ -f "$f" ] || { fail "source file missing: $f"; say "provider-consistency: $P passed, $F failed"; exit 1; }
 done
 
@@ -71,6 +72,32 @@ for map in UPDATE_CMD UNINSTALL_CMD; do
   for p in $sub; do case " $s_install_cp " in *" $p "*) ;; *) extra="$extra $p";; esac; done
   [ -z "$extra" ] && pass "$map providers ⊆ INSTALL_CMD (no orphan manager)" || fail "$map has providers not in INSTALL_CMD:$extra"
 done
+
+# 6 (#277). The Monday-02:00 cron (update-system) must KEEP CURRENT every manager the cnf hook INSTALLS through,
+#     or that manager is on a documented no-safe-unattended-update-all EXCLUSION list — else a tool lazy-installed
+#     via it silently ROTS (the #275 class: npm/pipx/gem were installed but never updated until #275 added their
+#     updaters). Generalizes #275 into the contract. EXCLUDED (no safe unattended update-all): cargo (needs the
+#     cargo-update crate), go (`go install` re-fetches per-binary), pip (--user upgrade-all too fragile), choco +
+#     scoop (Windows managers the Unix cron doesn't run). cask is UPDATED via `brew upgrade --cask` (no dedicated
+#     updater). A NEW manager with neither a coverage rule here NOR an exclusion entry FAILS (forces a decision).
+upd_excluded="cargo go pip choco scoop"
+updmiss=""
+for p in $s_install_hook; do
+  case " $upd_excluded " in *" $p "*) continue;; esac
+  case "$p" in
+    apk)    grep -qF 'apk upgrade'         "$UPD" || updmiss="$updmiss apk";;
+    apt)    grep -qF 'apt-get upgrade'     "$UPD" || updmiss="$updmiss apt";;
+    brew)   grep -qF 'brew upgrade'        "$UPD" || updmiss="$updmiss brew";;
+    cask)   grep -qF 'brew upgrade --cask' "$UPD" || updmiss="$updmiss cask";;
+    dnf)    grep -qF 'dnf update'          "$UPD" || updmiss="$updmiss dnf";;
+    gem)    grep -qF 'gem update'          "$UPD" || updmiss="$updmiss gem";;
+    npm)    grep -qF 'npm update -g'       "$UPD" || updmiss="$updmiss npm";;
+    pacman) grep -qF 'pacman -Syu'         "$UPD" || updmiss="$updmiss pacman";;
+    pipx)   grep -qF 'pipx upgrade-all'    "$UPD" || updmiss="$updmiss pipx";;
+    *)      updmiss="$updmiss $p(no-coverage-rule)";;
+  esac
+done
+[ -z "$updmiss" ] && pass "every cnf install-manager is update-covered by the Monday cron OR a documented exclusion (#275 class locked)" || fail "update-system does NOT keep these cnf install-managers current + they are not excluded:$updmiss — a tool lazy-installed via them silently rots (the #275 npm/pipx/gem class)"
 
 say "provider-consistency: $P passed, $F failed"
 [ "$F" -eq 0 ]
