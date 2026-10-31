@@ -131,6 +131,34 @@ else
   fail "crontab has no PATH= line — cron's minimal env won't resolve user-installed tools (update-system)"
 fi
 
+# 10.7 (#281). exports.sh (rendered from exports.sh.tmpl) is SOURCED by the Monday-02:00 update job (line 6:
+#      `. "$HOME/.config/shell/exports.sh"; update-system`) + 2 other crons. Sourcing a file with a TOP-LEVEL
+#      `exit` KILLS the cron shell → update-system never runs; a top-level `set -e`/`set -u` MUTATES it → a later
+#      unset var / non-zero aborts the whole job. cron is minimal + unattended, so this SHARED dep must be
+#      source-safe — a single bad edit here silently kills EVERY cron that sources it. Column-0 match = top-level
+#      (a function's internal `exit`/`set` is indented). Static checks + a render+parse when chezmoi is present.
+EXPORTS="$ROOT/home/dot_config/shell/exports.sh.tmpl"
+if [ -f "$EXPORTS" ]; then
+  exmiss=""
+  grep -qE '^exit( |$)' "$EXPORTS" && exmiss="$exmiss top-level-exit"
+  grep -qE '^set -e|^set -o errexit' "$EXPORTS" && exmiss="$exmiss top-level-set-e"
+  grep -qE '^set -u|^set -o nounset' "$EXPORTS" && exmiss="$exmiss top-level-set-u"
+  [ -z "$exmiss" ] && pass "cron-sourced exports.sh has no source-shell-killing top-level construct (no exit/set -e/set -u — the Monday cron's sourced dep is safe)" || fail "exports.sh has a cron-shell-HOSTILE top-level construct ($exmiss) — sourcing it would kill/abort the Monday-02:00 update job + every other cron that sources it"
+  if command -v chezmoi >/dev/null 2>&1; then
+    _exr="$(mktemp)"
+    if chezmoi execute-template < "$EXPORTS" > "$_exr" 2>/dev/null && bash -n "$_exr" 2>/dev/null; then
+      pass "exports.sh.tmpl renders (chezmoi) + the result parses (bash -n) — crons can source it cleanly"
+    else
+      fail "exports.sh.tmpl fails to render or parse — a broken exports.sh breaks EVERY cron that sources it"
+    fi
+    command rm -f "$_exr" 2>/dev/null
+  else
+    skip "exports.sh render check — chezmoi not installed"
+  fi
+else
+  skip "exports.sh.tmpl not found — skipping cron-sourced-file safety check"
+fi
+
 # 11. shellcheck clean (defensive; skip if unavailable)
 if command -v shellcheck >/dev/null 2>&1; then
   shellcheck -S warning "$UPD" >/tmp/update-system-sc.log 2>&1 && pass "update-system shellcheck clean" || { fail "update-system shellcheck findings"; tail -6 /tmp/update-system-sc.log 2>/dev/null; }
