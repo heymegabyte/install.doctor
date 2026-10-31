@@ -64,21 +64,23 @@ grep -qF "67/67" "$DOC" && fail "stale control-plane count '67/67' still present
 # Machines must not still be asserted as Absent.
 grep -qiE "Absent.*Machines|Machines.*(still )?Absent|the 5 nav sections \(Machines" "$DOC" && fail "Machines still listed as Absent (stale)" || pass "Machines not listed as Absent (reflects shipped reality)"
 
-# A14 (ledgers-from-evidence) — the headline "N assertions / 46 suites GREEN" count MUST agree across
+# A14 (ledgers-from-evidence) — the headline "N assert(ion)s / M suites GREEN" count MUST agree across
 # all 3 ledgers (CURRENT-STATE + NEXT-STEPS + REQUIREMENTS). When a fire bumps the count it must bump all
 # three together; a stale one is a lying ledger the next fire inherits (the drift manually reconciled in
 # #169 + #173 — now a deterministic guard, the assertion-count sibling of the catalog-count guard #159).
-# Matches both "asserts" (NEXT-STEPS) and "assertions" (CURRENT-STATE/REQUIREMENTS); the "/ 45 suites
-# GREEN" anchor excludes the "N→M" per-fire transition records. Internal consistency across ledgers.
-# Suite literal bumps on a NEW suite (45→46 at #250, test-post-installx-dispatch).
-_lc() { grep -oE '[0-9]+ assert(ion)?s? / 46 suites GREEN' "$1" 2> /dev/null | head -1 | grep -oE '^[0-9]+'; }
+# SUITE-COUNT-AGNOSTIC (#290): matches any "/ M suites GREEN" + compares the (asserts, suites) TUPLE, so
+# BOTH numbers must agree AND a NEW suite no longer needs this guard's literal bumped (the 45→46→47 churn
+# that silently extracted-empty into a near-vacuous state when a bump was forgotten). The "assert(ion)s …
+# suites GREEN" WORDS (not the number) exclude the "N→M" per-fire transition records; "asserts"(NEXT-STEPS)
+# and "assertions"(CURRENT-STATE/REQUIREMENTS) both normalize to the same slash-joined digit tuple.
+_lc() { grep -oE '[0-9]+ assert(ion)?s? / [0-9]+ suites GREEN' "$1" 2> /dev/null | head -1 | grep -oE '[0-9]+' | tr '\n' '/'; }
 cs_n="$(_lc "$DOC")"
 ns_n="$(_lc "$ROOT/docs/aid/NEXT-STEPS.md")"
 rq_n="$(_lc "$ROOT/docs/aid/REQUIREMENTS.md")"
 if [ -n "$cs_n" ] && [ "$cs_n" = "$ns_n" ] && [ "$cs_n" = "$rq_n" ]; then
-  pass "assertion-count headline agrees across all 3 ledgers ($cs_n)"
+  pass "assertion+suite count headline agrees across all 3 ledgers ($cs_n)"
 else
-  fail "assertion-count DRIFT across ledgers: CURRENT-STATE=$cs_n NEXT-STEPS=$ns_n REQUIREMENTS=$rq_n (bump all 3 together)"
+  fail "assertion/suite count DRIFT across ledgers: CURRENT-STATE=$cs_n NEXT-STEPS=$ns_n REQUIREMENTS=$rq_n (bump all 3 together)"
 fi
 
 # X12 (rank improvements by value/reliability/effort/recurring-cost) — a durable RANKED backlog must exist
