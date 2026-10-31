@@ -68,12 +68,8 @@ if [ "$BASH_SUPPORT" = 'true' ] && [ -n "$BASH" ]; then
 
   # Prompt (on bash only)
   if [[ "$(hostname)" != *'-minimal' ]]; then
-    ### Styled Terminal
-    export BASH_IT="${XDG_DATA_HOME:-$HOME/.local/share}/bash_it"
-    export BASH_IT_THEME="powerline"
-    if command -v powerline-daemon > /dev/null && [ -f "$BASH_IT/bash_it.sh" ]; then
-      source "$BASH_IT/bash_it.sh"
-    elif command -v oh-my-posh > /dev/null; then
+    ### Styled Terminal (bash-it removed §6 — zsh+zinit is the everywhere shell; oh-my-posh is the bash prompt)
+    if command -v oh-my-posh > /dev/null; then
       # Oh My Posh (See: https://ohmyposh.dev/)
       eval "$(oh-my-posh init bash --config "${XDG_CONFIG_HOME:-$HOME/.config}/oh-my-posh/Betelgeuse.omp.json")"
     else

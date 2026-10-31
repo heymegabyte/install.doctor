@@ -57,6 +57,16 @@ else
   fail "run_after_20-post-install still references bashItPlugins"
 fi
 
+# 4b (#285). the dead bash-it SOURCE block in the deployed dot_bashrc must be gone. §6 dropped bash-it (zsh+zinit
+#   is the everywhere shell) + §4 purged the post-install DISPATCH — but dot_bashrc still exported BASH_IT /
+#   BASH_IT_THEME + had a `[ -f "$BASH_IT/bash_it.sh" ]`-guarded prompt branch (permanently false, bash-it is never
+#   installed) that deployed to every bash machine. Check ACTIVE code only (comments mentioning bash-it are fine).
+if ! grep -vE '^[[:space:]]*#' home/dot_bashrc | grep -qE 'BASH_IT|bash_it\.sh'; then
+  pass "dot_bashrc has no active bash-it code (dead BASH_IT prompt branch removed — §6, oh-my-posh is the bash prompt)"
+else
+  fail "dot_bashrc still has an active bash-it source block (BASH_IT / bash_it.sh) — a dead §6 branch deployed to every bash machine"
+fi
+
 # 5. Nix — removed fleet-wide (CLAUDE.md §7: 53 software.yml entries + install branches dropped). NixOS is
 #    NOT a supported fleet role (§2), so a `command -v nix-env` OS-detection branch is dead. BSD-safe patterns
 #    (no \b — macOS grep's \b is unreliable); the active invocations can't appear in a prose comment.
