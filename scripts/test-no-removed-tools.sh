@@ -9,7 +9,7 @@
 # tools deliberately), and comment lines (a historical "<tool> was dropped" note is legitimate documentation).
 set -uo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-cd "$ROOT"
+cd "$ROOT" || exit 1
 
 say() { command -v gum >/dev/null 2>&1 && gum style --foreground 51 -- "$*" || printf '\033[1;36m%s\033[0m\n' "$*"; }
 pass() { command -v gum >/dev/null 2>&1 && gum style --foreground 46 -- "PASS $*" || printf '\033[1;32mPASS\033[0m %s\n' "$*"; P=$((P + 1)); }
@@ -110,6 +110,25 @@ if [ -z "$nx" ]; then pass "no active Nix code in provisioning surfaces (§7: Ni
 #    `[^a-z]port ` requires a non-letter before "port" so "report install" / "support" never false-match.
 mp="$(activeHits '[^a-z]port (install|sync|selfupdate|upgrade)|ensureMacportsInstalled|/opt/local/bin/port')"
 if [ -z "$mp" ]; then pass "no active MacPorts code in provisioning surfaces (§7: MacPorts removed fleet-wide)"; else fail "active MacPorts code remains:"; printf '%s\n' "$mp" | head -6; fi
+
+# 7 (#293). The two ROOT rc files (home/dot_zshrc + home/dot_bashrc) are NOT in the SURFACES scan above
+#   (SURFACES = the provisioning DIRS) — yet they're prime homes for a removed shell-integration tool, since
+#   antigen/bash-it/mackup/nix were all shell hooks. #4b/#4c bespoke-checked ONLY dot_bashrc+bash-it and
+#   chezmoiexternal+antigen; NOTHING scanned dot_zshrc at all, nor dot_bashrc for the OTHER removed tools.
+#   Scan BOTH rc files (comment-stripped — a historical "X removed §6" note is legit) for an ACTIVE ref to
+#   ANY §6/§7 removed tool, so a re-introduction into either shell's rc fails CI. Distinctive patterns only
+#   (nix-env/nixpkgs not bare "nix"; /opt/local/bin/port not bare "port") → zero false-positive on export/unix.
+rcres=""
+for rc in home/dot_zshrc home/dot_bashrc; do
+  if grep -vE '^[[:space:]]*#' "$rc" 2> /dev/null | grep -qE 'bash-it|bash_it|BASH_IT|antigen|mackup|m-cli|nix-env|nix-channel|nixpkgs|/opt/local/bin/port|ensureMacportsInstalled|whalebrew|macfuse|gvisor'; then
+    rcres="$rcres ${rc#home/}"
+  fi
+done
+if [ -z "$rcres" ]; then
+  pass "root rc files (dot_zshrc + dot_bashrc) carry no active §6/§7 removed-tool reference (#285 bash-it gap generalized to BOTH shells + ALL removed tools)"
+else
+  fail "a root rc file has an active §6/§7 removed-tool reference:$rcres — a dropped tool's shell hook lingers (remove it)"
+fi
 
 say "no-removed-tools: $P passed, $F failed"
 [ "$F" -eq 0 ]
