@@ -50,6 +50,12 @@ if [ ! -f home/dot_local/bin/executable_backup-apps.tmpl ]; then pass "executabl
 #   Qubes-Ansible `roles/system/mackup` ref stays (externally-resolved, CLAUDE.md §5 keep) — separate lifecycles.
 if [ ! -d home/dot_config/mackup ]; then pass "no deployed Mackup config dir (home/dot_config/mackup removed — §6 dead-tool config no longer ships to every machine)"; else fail "home/dot_config/mackup/ still present — a removed tool's config deploys to every machine (remove it; §6 chezmoi owns the dotfiles)"; fi
 
+# 3c (#286). the Whalebrew config orphan must be gone — `home/dot_config/brew/whalebrew` was a 1-byte newline-only
+#   file deploying to `~/.config/brew/whalebrew` on EVERY machine for Whalebrew, REMOVED in d8171e6c (§7 removed
+#   table: niche + broke regularly → docker compose). Brewfile.tmpl doesn't reference it + nothing active reads it
+#   — pure dead deployed weight (sibling of the #284 mackup config removal). The Brewfile.tmpl itself stays (live).
+if [ ! -e home/dot_config/brew/whalebrew ]; then pass "no deployed Whalebrew config orphan (home/dot_config/brew/whalebrew removed — §7 dead-tool residue)"; else fail "home/dot_config/brew/whalebrew still present — a removed tool's config deploys to every machine (remove it; §7 Whalebrew dropped d8171e6c)"; fi
+
 # 4. the bash-it call sites in the post-install dispatch are gone (both the sync + the parallel branch).
 if ! grep -qE 'bashItPlugins' home/.chezmoiscripts/universal/run_after_20-post-install.sh.tmpl 2>/dev/null; then
   pass "post-install dispatch no longer calls bashItPlugins (sync + parallel branches clean)"
