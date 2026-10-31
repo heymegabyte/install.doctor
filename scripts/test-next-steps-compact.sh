@@ -7,7 +7,7 @@
 set -uo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 DOC="$ROOT/docs/aid/NEXT-STEPS.md"
-BUDGET="${NEXT_STEPS_BYTE_BUDGET:-15000}" # ratchet: may only go DOWN (20000→16000 #202 · 16000→15500 #297 host-gated→BACKLOG · 15500→15000 #302 after collapsing the per-fire enumeration into git log + Last fires)
+BUDGET="${NEXT_STEPS_BYTE_BUDGET:-14800}" # ratchet: may only go DOWN (20000→16000 #202 · 16000→15500 #297 host-gated→BACKLOG · 15500→15000 #302 per-fire-enum→git log · 15000→14800 #310 collapsed the per-gate drained-list into a RANGE summary)
 
 say() { command -v gum >/dev/null 2>&1 && gum style --foreground 51 -- "$*" || printf '\033[1;36m%s\033[0m\n' "$*"; }
 pass() { command -v gum >/dev/null 2>&1 && gum style --foreground 46 -- "PASS $*" || printf '\033[1;32mPASS\033[0m %s\n' "$*"; P=$((P + 1)); }
