@@ -1,6 +1,6 @@
 # aid — CURRENT STATE (verified audit)
 
-**Refreshed:** fire #299 (software.yml DUPLICATE-KEY gate — a duplicated package key is silently LAST-WINS in YAML (`safe_load` drops the first → wrong install data / a masked catalog entry) with NO parse error, caught by no existing check; `validate-software-yml.sh` Check 7 now counts the 2-space keys in `softwarePackages` + FAILS on any dup (surface clean: 1179 unique, 0 dups); TDD RED→GREEN) — NEW ARC: bootstrap/provisioning QUALITY + deploy SPEED (the v2 control-plane arc converged #195–#197). The master prompt PIVOTED to: `start.sh`→chezmoi (dot configs **and** system files), minimum-install + lazy-everywhere, a preinstalled cnf-substrate toolchain, cloudflared+WARP, file cleanup/de-dup, a Monday-02:00 auto-update cron. **⚠️ app.install.doctor is being RETIRED → absorbed by https://desktop.tools** — do NOT keep hardening the control-plane surface; the suite still verifies it until the migration lands. Per-fire arc history (#198→) lives in `git log` + the §Built/§Gated sections below. Verified: full suite **858 / 49 suites GREEN** vs live prod. **Branch:** `master`.
+**Refreshed:** fire #300 (bin-script shellcheck-ERROR coverage — 15 OTHER chezmoi-shipped OUR bin scripts (aid/cnf-build-index/setup-firewall/…) were UNGATED for errors; `test-shellcheck-quality.sh` now error-checks them all, EXCLUDING 4 vendored 3rd-party by their `# Source:` header; TDD RED→GREEN) — NEW ARC: bootstrap/provisioning QUALITY + deploy SPEED (the v2 control-plane arc converged #195–#197). The master prompt PIVOTED to: `start.sh`→chezmoi (dot configs **and** system files), minimum-install + lazy-everywhere, a preinstalled cnf-substrate toolchain, cloudflared+WARP, file cleanup/de-dup, a Monday-02:00 auto-update cron. **⚠️ app.install.doctor is being RETIRED → absorbed by https://desktop.tools** — do NOT keep hardening the control-plane surface; the suite still verifies it until the migration lands. Per-fire arc history (#198→) lives in `git log` + the §Built/§Gated sections below. Verified: full suite **859 / 49 suites GREEN** vs live prod. **Branch:** `master`.
 Full spec: `MASTER-PROMPT.md` · resume pointer: `NEXT-STEPS.md` · matrix: `REQUIREMENTS.md`. Nothing here
 is inherited without evidence; every count below is from a live `scripts/test-all.sh` run.
 
@@ -10,7 +10,7 @@ The UNBLOCKED functional product has **converged**: the control plane, the full 
 dashboard, the honest-docs set, and a one-command test suite are built + live-verified at
 **https://app.install.doctor**. The remaining high-value requirements are **GATED on external action**
 (see § Gated). Loop fires now harden docs/tests/honesty until a gated dep is provisioned. Verified by
-**`scripts/test-all.sh` → 858 assertions / 49 suites GREEN (1 OS-skipped)** with the prod URL.
+**`scripts/test-all.sh` → 859 assertions / 49 suites GREEN (1 OS-skipped)** with the prod URL.
 
 ## ✅ Built + live-verified
 

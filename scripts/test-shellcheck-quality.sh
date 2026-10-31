@@ -72,6 +72,34 @@ else
   fail "post-installx hook(s) with shellcheck ERRORS:$hookdirty"
 fi
 
+# error-severity on the OTHER home/dot_local/bin/* bash scripts shipped to every machine (aid, aid-pair,
+# cnf-build-index, logg, backup, extract, setup-firewall, …). The CRITICAL ones (update-system + the cnf hook
+# + the entrypoints) are gated above; these are ALSO chezmoi-deployed, so a shellcheck ERROR edited into one
+# ships to every box uncaught (they were ungated until #300). VENDORED 3rd-party scripts carrying a `# Source:`
+# upstream attribution are EXCLUDED — their upstream shellcheck errors aren't ours to fix (fixing diverges from
+# upstream on a re-vendor): chromecastize (SC2068, petrkotek) + wait-for-it (SC2260, vishnubob). Aggregate —
+# ONE assertion lists offenders + the vendored-excluded set for transparency. #300.
+binerr=""
+binvendored=""
+for f in "$ROOT"/home/dot_local/bin/*; do
+  [ -f "$f" ] || continue
+  case "$f" in *.tmpl) continue ;; esac
+  head -1 "$f" 2>/dev/null | grep -qE '^#!.*(ba)?sh' || continue # bash/sh shebang only (skip zx/node/python)
+  b="$(basename "$f")"
+  [ "$b" = "executable_update-system" ] && continue # already gated in ERR_SCRIPTS above
+  if head -5 "$f" | grep -qE '^# Source: https?://'; then
+    binvendored="$binvendored $b"
+    continue
+  fi
+  out="$(shellcheck -S error -s bash "$f" 2>&1)"
+  [ -n "$out" ] && binerr="$binerr $b"
+done
+if [ -z "$binerr" ]; then
+  pass "all OUR home/dot_local/bin/* bash scripts pass shellcheck -S error (shipped to every machine; vendored excl:${binvendored:- none})"
+else
+  fail "home/dot_local/bin/* OUR script(s) with shellcheck ERRORS:$binerr — shipped to every machine, fix before they land"
+fi
+
 # Hooks MIGRATED to the stricter warning bar, locked one-at-a-time (audit-arc ladder). The cloudflare/WARP
 # hooks the prompt names came first, then migrated one hook/fire: post-zsh-bootstrap #222 (SC2155 + 3x SC2010),
 # post-privoxy #223 (SC2046 chown-group quoting), post-rclone #224 (SC2046 -- dropped a redundant echo-wrapper),
