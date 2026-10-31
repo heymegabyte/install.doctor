@@ -75,5 +75,26 @@ else
   pass "python3 absent — volta.node JSON check skipped (the CI node-version is still gated above)"
 fi
 
+# 6 (#353). The SIBLING Firebase-deploy workflow — site-preview.yml (the PR preview) — shares the deploy path
+#    and MUST hold the same invariants. It is NOT a push/live deploy (ephemeral PR channel, no channelId:live),
+#    so only the SHARED invariants apply: same secret + Firebase project + a SUPPORTED Node. #352 fixed Node on
+#    site-deploy.yml but MISSED this sibling (it kept EOL 16) — this closes that gate gap so neither can drift.
+PREVIEW="${SITE_PREVIEW_WF:-$ROOT/.github/workflows/site-preview.yml}"
+if [ ! -f "$PREVIEW" ]; then
+  pass "no site-preview.yml sibling (nothing to drift)"
+else
+  if has "$PREVIEW" 'secrets\.FIREBASE_SERVICE_ACCOUNT_INSTALL_DOCTOR' && has "$PREVIEW" 'projectId:[[:space:]]*install-doctor'; then
+    pass "sibling site-preview.yml wired to the same Firebase project + secret (consistent deploy path)"
+  else
+    fail "site-preview.yml drifted — must deploy projectId install-doctor via secrets.FIREBASE_SERVICE_ACCOUNT_INSTALL_DOCTOR"
+  fi
+  pvnode="$(grep -oE 'node-version:[[:space:]]*"?[0-9]+' "$PREVIEW" | grep -oE '[0-9]+$' | head -1)"
+  if [ -n "$pvnode" ] && [ "$pvnode" -ge 18 ]; then
+    pass "sibling site-preview.yml builds on a supported Node (node-version: $pvnode >= 18 — off EOL 16, consistent with site-deploy.yml)"
+  else
+    fail "site-preview.yml node-version '${pvnode:-none}' is EOL/unsupported (<18) — the PR-preview build runs on a dead runtime; match site-deploy.yml (#352/#353)"
+  fi
+fi
+
 say "site-deploy: $P passed, $F failed"
 [ "$F" -eq 0 ]
