@@ -1,6 +1,6 @@
 # aid — CURRENT STATE (verified audit)
 
-**Refreshed:** fire #297 (ledger de-bloat — migrated the host-gated findings (#292 post-warp cert-append + a consolidated throwaway-box live-verify batch) from the byte-capped NEXT-STEPS into `BACKLOG.md` (their proper durable home), compressed the DONE frontier bullets to status+pointers, and lowered the X11 ratchet 16000→15500 to LOCK the ~1KB headroom recovered; RED→GREEN via the tightened gate) — NEW ARC: bootstrap/provisioning QUALITY + deploy SPEED (the v2 control-plane arc converged #195–#197). The master prompt PIVOTED to: `start.sh`→chezmoi (dot configs **and** system files), minimum-install + lazy-everywhere, a preinstalled cnf-substrate toolchain, cloudflared+WARP, file cleanup/de-dup, a Monday-02:00 auto-update cron. **⚠️ app.install.doctor is being RETIRED → absorbed by https://desktop.tools** — do NOT keep hardening the control-plane surface; the suite still verifies it until the migration lands. Per-fire arc history (#198→) lives in `git log` + the §Built/§Gated sections below. Verified: full suite **855 / 48 suites GREEN** vs live prod. **Branch:** `master`.
+**Refreshed:** fire #298 (chezmoiexternal SUPPLY-CHAIN gate — `.chezmoiexternal.toml.tmpl` fetches 16 externals (executable shell/fonts/a key) from MOVING branches (`/master`/`/main`) = non-reproducible + a supply-chain exposure, entirely ungated; NEW `test-external-integrity.sh` down-only ratchet FAILS any NEW floating external (forces pinning to a SHA/tag); pinning the existing 16 → BACKLOG focused-session; TDD RED→GREEN) — NEW ARC: bootstrap/provisioning QUALITY + deploy SPEED (the v2 control-plane arc converged #195–#197). The master prompt PIVOTED to: `start.sh`→chezmoi (dot configs **and** system files), minimum-install + lazy-everywhere, a preinstalled cnf-substrate toolchain, cloudflared+WARP, file cleanup/de-dup, a Monday-02:00 auto-update cron. **⚠️ app.install.doctor is being RETIRED → absorbed by https://desktop.tools** — do NOT keep hardening the control-plane surface; the suite still verifies it until the migration lands. Per-fire arc history (#198→) lives in `git log` + the §Built/§Gated sections below. Verified: full suite **857 / 49 suites GREEN** vs live prod. **Branch:** `master`.
 Full spec: `MASTER-PROMPT.md` · resume pointer: `NEXT-STEPS.md` · matrix: `REQUIREMENTS.md`. Nothing here
 is inherited without evidence; every count below is from a live `scripts/test-all.sh` run.
 
@@ -10,7 +10,7 @@ The UNBLOCKED functional product has **converged**: the control plane, the full 
 dashboard, the honest-docs set, and a one-command test suite are built + live-verified at
 **https://app.install.doctor**. The remaining high-value requirements are **GATED on external action**
 (see § Gated). Loop fires now harden docs/tests/honesty until a gated dep is provisioned. Verified by
-**`scripts/test-all.sh` → 855 assertions / 48 suites GREEN (1 OS-skipped)** with the prod URL.
+**`scripts/test-all.sh` → 857 assertions / 49 suites GREEN (1 OS-skipped)** with the prod URL.
 
 ## ✅ Built + live-verified
 
@@ -149,7 +149,12 @@ dashboard, the honest-docs set, and a one-command test suite are built + live-ve
   **secret-hygiene gate** (`test-secret-hygiene.sh` 2/2, #296) locks the crown-jewel age MASTER-key
   invariants — run_before_03 chmod-600's the decrypted key (`~/.config/age/chezmoi.txt`, which unlocks
   EVERY chezmoi secret) AND decrypts it DIRECTLY to its config path (never staged world-readable in /tmp);
-  the secret-sweep axis (#295 post-installx `/tmp` → A12; #296 chezmoiscripts/partials — surface clean);
+  the secret-sweep axis (#295 post-installx `/tmp` → A12; #296 chezmoiscripts/partials — surface clean); a
+  **chezmoiexternal supply-chain gate** (`test-external-integrity.sh` 2/2, #298) — a down-only ratchet on
+  floating-ref downloads (`.chezmoiexternal.toml.tmpl` pulls 16 externals from moving `/master`/`/main`
+  branches = a supply-chain exposure); FAILS any NEW floating external so it must be PINNED to a SHA/tag
+  (pinning the existing 16 is a BACKLOG focused-session); non-vacuous (asserts the detector matches the
+  known set, never a vacuous 0);
   **A12 ADR hygiene gate
   (`test-adr.sh` 7/7) — every `docs/aid/decisions/NNNN` ADR is well-formed (Status·Context·Decision·
   alternatives·Consequences) + the key decisions each HAVE an ADR; 0001-0006 (hiSHtory · device-token ·
