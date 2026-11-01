@@ -1,0 +1,35 @@
+# Keep the repo's PINNED versions current automatically (the prompt's "keep current + automatically improve
+# over time"). Pairs with the #355 action-pin gate: pinning gives reproducibility + supply-chain safety, and
+# dependabot keeps the pins from rotting — GitHub's own hardening guidance pairs the two. Weekly on Monday at
+# 02:00 to match the repo's Monday-02:00 update-cron theme; grouped + PR-capped so it doesn't flood the repo.
+# Root npm (/) is intentionally NOT tracked — it has no lockfile + a possibly-vestigial @mblabs manifest; add
+# a third entry once that manifest is confirmed live.
+version: 2
+updates:
+  # Every workflow's GitHub Action (checkout/setup-node/upload-artifact/action-hosting-deploy/
+  # create-pull-request/calibreapp) — so the #355 tag pins refresh instead of going stale.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "02:00"
+    groups:
+      github-actions:
+        patterns: ["*"]
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "⬆️"
+  # The Stencil site's npm deps (lockfile-backed at site/package-lock.json).
+  - package-ecosystem: "npm"
+    directory: "/site"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "02:00"
+    groups:
+      site-npm:
+        patterns: ["*"]
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "⬆️"
