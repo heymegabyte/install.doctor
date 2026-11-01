@@ -9,6 +9,7 @@
   cam = commit -am
   d = diff
   dc = diff --cached
+  dft = difftool -t difftastic
   l = log --graph --pretty=format:"%Cred%h%Creset -%C(yellow)%d%Creset %s %Cgreen(%cr) %C(bold blue)<%an>%Creset" --abbrev-commit
   master = !git add --all && git commit -am 'Quick commit.' -n && git push origin master
   sub  = submodule update --init --recursive
@@ -119,6 +120,8 @@
   command = compare $2 $1 png:- | montage -geometry +4+4 $2 - $1 png:- | display -title \"$1\" -
 [difftool]
   prompt = false
+[difftool "difftastic"]
+  cmd = difft "$LOCAL" "$REMOTE"
 [fetch]
   prune = true
 [filter "lfs"]
@@ -137,7 +140,7 @@
 [interactive]
   diffFilter = delta --color-only
 [merge]
-  conflictstyle = diff3
+  conflictstyle = zdiff3
   renamelimit = 0
   summary = true
   stat = true
@@ -156,6 +159,7 @@
   followTags = true
 [rebase]
   autosquash = true
+  autostash = true
 [rerere]
   enabled = true
   autoupdate = true
