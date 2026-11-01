@@ -4,7 +4,7 @@ python = ['3.11', '3.12', '3.13']
 ruby = '3.3'
 
 [settings]
-legacy_version_file = true
+idiomatic_version_file_enable_tools = ['node', 'python', 'ruby', 'java', 'go']
 always_keep_download = false
 always_keep_install = false
 plugin_autoupdate_last_check_duration = '1 week'

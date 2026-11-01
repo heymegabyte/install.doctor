@@ -38,5 +38,11 @@ pyline="$(grep -E '^python = ' "$CFG" 2> /dev/null)"
 printf '%s' "$pyline" | grep -qE "'3\.13'" && pass "python includes the current 3.13" || fail "python missing 3.13 (the current stable)"
 if printf '%s' "$pyline" | grep -qE "'3\.10'"; then fail "python still pins EOL 3.10 (EOL 2026-10) — drop it"; else pass "python drops EOL 3.10"; fi
 
+# idiomatic version files (#366): mise 2026 REMOVED the old boolean legacy_version_file → the per-tool
+# idiomatic_version_file_enable_tools list. A stale legacy_version_file is now a DEAD no-op, so .nvmrc /
+# .python-version / .ruby-version are silently unread. Lock the modern setting + forbid the removed one.
+grep -qE '^idiomatic_version_file_enable_tools = ' "$CFG" && pass "idiomatic_version_file_enable_tools set (current mise setting for .nvmrc/.python-version/… — replaces the removed legacy_version_file)" || fail "missing idiomatic_version_file_enable_tools (mise 2026 removed legacy_version_file; idiomatic version files silently unread)"
+if grep -qE '^legacy_version_file' "$CFG"; then fail "stale legacy_version_file present — REMOVED in mise 2026 (dead no-op); switch to idiomatic_version_file_enable_tools"; else pass "no dead legacy_version_file setting (removed in mise 2026)"; fi
+
 say "mise-config: $P passed, $F failed"
 [ "$F" -eq 0 ]
