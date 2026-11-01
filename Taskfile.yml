@@ -616,18 +616,6 @@ tasks:
     cmds:
       - task: fix:all
 
-  fresh:
-    summary: Initialize a new project with only the Taskfile.yml present
-    cmds:
-      - curl -sSL https://gitlab.com/megabyte-labs/common/shared/-/raw/master/common/start.sh > start.sh
-      - curl -sSL https://gitlab.com/megabyte-labs/common/shared/-/blob/master/common/.gitignore > .gitignore
-      - curl -sSL https://gitlab.com/megabyte-labs/common/shared/-/blob/master/common/.editorconfig > .editorconfig
-      - curl -sSL https://gitlab.com/megabyte-labs/common/shared/-/blob/master/package.json > package.json
-      - curl -sSL https://gitlab.com/megabyte-labs/common/shared/-/blob/master/.gitlab-ci.yml > .gitlab-ci.yml
-      - TMP="$(mktemp)" && jq -r 'del(.blueprint)' package.json > "$TMP" && mv "$TMP" package.json
-      - bash start.sh
-      - task: prepare
-
   get:links:
     deps:
       - install:software:jq
