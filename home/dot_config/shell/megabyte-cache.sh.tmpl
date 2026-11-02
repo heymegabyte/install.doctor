@@ -1,0 +1,36 @@
+# @file ~/.config/shell/megabyte-cache.sh
+# @description Scoped .cache/megabyte directory hierarchy and Sonatype Nexus package/model cache endpoints (§8 & §9).
+
+export XDG_CACHE_HOME="${XDG_CACHE_HOME:-$HOME/.cache}"
+export MEGABYTE_CACHE_ROOT="${XDG_CACHE_HOME}/megabyte"
+
+# Package manager local caches under ~/.cache/megabyte/packages
+export npm_config_cache="${MEGABYTE_CACHE_ROOT}/packages/npm"
+export npm_config_registry="${MEGABYTE_NEXUS_NPM_REGISTRY:-https://nexus.megabyte.space/repository/npm-group/}"
+export PNPM_HOME="${XDG_DATA_HOME:-$HOME/.local/share}/pnpm"
+export YARN_CACHE_FOLDER="${MEGABYTE_CACHE_ROOT}/packages/yarn"
+export BUN_INSTALL_CACHE_DIR="${MEGABYTE_CACHE_ROOT}/packages/bun"
+export PIP_CACHE_DIR="${MEGABYTE_CACHE_ROOT}/packages/pip"
+export PIP_INDEX_URL="${MEGABYTE_NEXUS_PYPI_URL:-https://nexus.megabyte.space/repository/pypi-group/simple/}"
+export PIP_EXTRA_INDEX_URL="https://pypi.org/simple/"
+export UV_CACHE_DIR="${MEGABYTE_CACHE_ROOT}/packages/uv"
+export UV_INDEX_URL="${MEGABYTE_NEXUS_PYPI_URL:-https://nexus.megabyte.space/repository/pypi-group/simple}"
+export UV_EXTRA_INDEX_URL="https://pypi.org/simple"
+export POETRY_CACHE_DIR="${MEGABYTE_CACHE_ROOT}/packages/poetry"
+export GOMODCACHE="${MEGABYTE_CACHE_ROOT}/packages/gomod"
+export GOPROXY="${MEGABYTE_NEXUS_GOPROXY:-https://nexus.megabyte.space/repository/go-proxy/,https://proxy.golang.org,direct}"
+export GRADLE_USER_HOME="${MEGABYTE_CACHE_ROOT}/packages/gradle"
+
+# Build & compiler caches under ~/.cache/megabyte/build
+export GOCACHE="${MEGABYTE_CACHE_ROOT}/build/go-build"
+export CCACHE_DIR="${MEGABYTE_CACHE_ROOT}/build/ccache"
+export SCCACHE_DIR="${MEGABYTE_CACHE_ROOT}/build/sccache"
+
+# AI & model caches under ~/.cache/megabyte/ai
+export HF_HOME="${MEGABYTE_CACHE_ROOT}/ai/huggingface"
+export HF_HUB_CACHE="${MEGABYTE_CACHE_ROOT}/ai/huggingface/hub"
+export TORCH_HOME="${MEGABYTE_CACHE_ROOT}/ai/torch"
+export VLLM_CACHE_ROOT="${MEGABYTE_CACHE_ROOT}/ai/vllm"
+
+# Agent disposable scratch/working caches under ~/.cache/megabyte/agents
+export MEGABYTE_AGENT_CACHE_DIR="${MEGABYTE_CACHE_ROOT}/agents"
