@@ -1677,3 +1677,33 @@ community-page .cards .ui-paragraph {
 landing-page #features img {
   height: 48px !important;
 }
+
+// Install Doctor 2.0 Dark-First Cinematic Accessibility & 6-Breakpoint Responsive Grid
+:focus-visible {
+  outline: 2px solid var(--aid-cyan-electric, #00E5FF);
+  outline-offset: 2px;
+}
+
+.aid-cinematic-surface {
+  background-color: var(--aid-bg-void, #060610);
+  color: var(--aid-text-primary, #F8FAFC);
+}
+
+@media screen and (max-width: 360px) {
+  .ui-container { padding-inline: 12px; }
+}
+@media screen and (min-width: 361px) and (max-width: 480px) {
+  .ui-container { padding-inline: 16px; }
+}
+@media screen and (min-width: 481px) and (max-width: 768px) {
+  .ui-container { padding-inline: 24px; }
+}
+@media screen and (min-width: 769px) and (max-width: 1024px) {
+  .ui-container { padding-inline: 32px; }
+}
+@media screen and (min-width: 1025px) and (max-width: 1440px) {
+  .ui-container { max-width: 1280px; }
+}
+@media screen and (min-width: 1441px) and (max-width: 1920px) {
+  .ui-container { max-width: 1440px; }
+}

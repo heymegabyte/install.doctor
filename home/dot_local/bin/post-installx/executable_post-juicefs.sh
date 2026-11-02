@@ -78,7 +78,7 @@ restoreHomeDirectory() {
 mountJuicefs() {
     if mount | grep -q " $MOUNT_POINT "; then
         logMessage "JuiceFS already mounted on $MOUNT_POINT"
-        exit 0
+        return 0
     fi
 
     logMessage "Mounting JuiceFS on $MOUNT_POINT..."
@@ -86,7 +86,7 @@ mountJuicefs() {
     if [ -d /Applications ] && [ -d /System ]; then
       UPDATE_FSTAB=""
     fi
-    sudo "$JUICEFS_CMD" mount --enable-xattr -o user_id="$(id -u "$USER")",group_id="$(id -g "$USER")" --conf-dir "${XDG_CONFIG_HOME:-$HOME/.config}/juicefs" -b $UPDATE_FSTAB "$FILESYSTEM_NAME" "$MOUNT_POINT" --no-ui &
+    sudo "$JUICEFS_CMD" mount --enable-xattr -o user_id="$(id -u "${USER:-$(id -un)}")",group_id="$(id -g "${USER:-$(id -un)}")" --conf-dir "${XDG_CONFIG_HOME:-$HOME/.config}/juicefs" -b $UPDATE_FSTAB "$FILESYSTEM_NAME" "$MOUNT_POINT" --no-ui &
     sleep 2
     if mount | grep -q " $MOUNT_POINT "; then
         logMessage "JuiceFS mounted successfully on $MOUNT_POINT"

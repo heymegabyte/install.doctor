@@ -56,9 +56,9 @@ async function runScript(key, script) {
     process.env.DEBUG && require('child_process').execSync(`glow --width 120 "${cacheDir}/${key}-glow"`)
     // TODO: Set process.env.DEBUG || true here because the asynchronous method is not logging properly / running slow
     if (process.env.DEBUG) {
-      return await runSilentCommand(`bash "${cacheDir}/${key}" || gum log -sl error 'Error occurred while processing script for ${key}'`)
+      return await runSilentCommand(`bash "${cacheDir}/${key}" </dev/null || gum log -sl error 'Error occurred while processing script for ${key}'`)
     } else {
-      return await $`bash "${cacheDir}/${key}" || gum log -sl error 'Error occurred while processing script for ${key}'`.pipe(process.stdout)
+      return await $`bash "${cacheDir}/${key}" </dev/null || gum log -sl error 'Error occurred while processing script for ${key}'`.pipe(process.stdout)
     }
   } catch (e) {
     console.error(`Failed to run script associated with ${key}`, e)

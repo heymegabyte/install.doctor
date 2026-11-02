@@ -1,4 +1,15 @@
 installerPreference:
+  apk:
+  - apk
+  - brew
+  - go
+  - cargo
+  - npm
+  - pipx
+  - pip
+  - gem
+  - script
+  - binary
   apt:
   - flatpak
   - snap
@@ -46,6 +57,19 @@ installerPreference:
   - npm
   - gem
   - script
+  linux:
+  - flatpak
+  - snap
+  - brew
+  - go
+  - cargo
+  - npm
+  - pipx
+  - pip
+  - gem
+  - appimage
+  - script
+  - binary
   pacman:
   - flatpak
   - snap
@@ -3683,7 +3707,7 @@ softwarePackages:
     _bin: gist
     gem: gist
   git:
-    _name: 'git                                                                                                                                                                                                       '
+    _name: Git
     _short: git/git is the official repository for the Git version control system.
     _desc: git/git is the official repository for the Git version control system. It contains the source code for Git, along with documentation, release notes, and other resources. Users can contribute to Git by submitting pull requests, reporting issues, and participating in discussions. The repository is maintained by the Git community and serves as the central hub for all things related to the development and improvement of Git.
     _github: https://github.com/git/git
@@ -3692,7 +3716,13 @@ softwarePackages:
     brew: git
     apt: git
     dnf: git
+    pacman: git
     apk: git
+    choco: git
+    scoop: git
+    winget: Git.Git
+    zypper: git
+    pkg-freebsd: git
   git-branchless:
     _name: Git Branchless
     _short: git-branchless is a tool that simplifies Git workflows by avoiding the use of branches. It allows you to work directly on the main branch, making the process more linear and reducing the complexity of managing multiple branches.
@@ -6111,7 +6141,8 @@ softwarePackages:
     _bin: lsd
     _home: https://github.com/lsd-rs/lsd
     _docs: https://github.com/lsd-rs/lsd
-    _deprecated: Deprecated in favor of using `exa`. `lsd` may be re-introduced when Windows support is added.
+    _deprecated: Deprecated in favor of using `eza` (the maintained successor to `exa`).
+    _replacement: eza
     brew: lsd
     apt: lsd
     dnf: lsd
@@ -6217,6 +6248,7 @@ softwarePackages:
     _bin: m
     _home: https://github.com/rgcr/m-cli
     _docs: https://github.com/rgcr/m-cli
+    _deprecated: Superseded by declarative macOS defaults scripts and native system utilities.
     brew:darwin: m-cli
   maas:
     _name: MAAS
@@ -6253,6 +6285,8 @@ softwarePackages:
     _bin: mackup
     _home: https://github.com/lra/mackup
     _docs: https://github.com/lra/mackup
+    _deprecated: Superseded by Chezmoi + Cloudflare R2 dotfile synchronization (Mackup symlinks broke on macOS Sonoma+).
+    _replacement: chezmoi
     brew: mackup
     pipx: mackup
   macprefs:
@@ -7165,7 +7199,8 @@ softwarePackages:
     _desc: Neofetch is a command-line tool that displays system information in a visually appealing way. It gathers details about your system, including the operating system, kernel version, CPU, GPU, memory, and more, and presents it in a customizable ASCII art or image. Neofetch supports various Linux distributions, macOS, and other Unix-like systems. It is highly customizable through configuration files and command-line options, allowing users to personalize the output to suit their preferences. Neofetch is popular among users who like to display system information in a stylish and informative manner.
     _github: https://github.com/dylanaraps/neofetch
     _bin: neofetch
-    _preload: true
+    _deprecated: Upstream repository archived in 2024; replaced by `fastfetch`.
+    _replacement: fastfetch
     brew: neofetch
     apt: neofetch
     dnf: neofetch

@@ -48,8 +48,8 @@ set -euo pipefail
 #
 #     ## Links
 #
-#     * [Linux managed configuration](https://github.com/megabyte-labs/install.doctor/tree/master/home/dot_config/warp/private_mdm.xml.tmpl)
-#     * [macOS managed configuration](https://github.com/megabyte-labs/install.doctor/tree/master/home/Library/Managed%20Preferences/private_com.cloudflare.warp.plist.tmpl)
+#     * [Linux managed configuration](https://github.com/heymegabyte/install.doctor/tree/master/home/dot_config/warp/private_mdm.xml.tmpl)
+#     * [macOS managed configuration](https://github.com/heymegabyte/install.doctor/tree/master/home/Library/Managed%20Preferences/private_com.cloudflare.warp.plist.tmpl)
 
 set -Eeo pipefail
 trap "gum log -sl error 'Script encountered an error!'" ERR
@@ -88,7 +88,7 @@ if [[ ! "$(test -d /proc && grep Microsoft /proc/version > /dev/null)" ]]; then
     sudo apt-get update && sudo apt-get install -y cloudflare-warp
   elif command -v dnf > /dev/null && command -v rpm > /dev/null; then
     ### This is made for CentOS 8 and works on Fedora 36 (hopefully 36+ as well) with `nss-tools` as a dependency
-    sudo dnf instal -y nss-tools || NSS_TOOL_EXIT=$?
+    sudo dnf install -y nss-tools || NSS_TOOL_EXIT=$?
     if [ -n "${NSS_TOOL_EXIT:-}" ]; then
       gum log -sl warn 'Unable to install nss-tools which was a requirement on Fedora 36 and assumed to be one on other systems as well.'
     fi
@@ -104,15 +104,18 @@ fi
 ### Ensure certificate is installed
 if [ -d /System ] && [ -d /Applications ] && command -v warp-cli > /dev/null; then
   ### Ensure certificate installed on macOS
-  if [ -z "$SSH_CONNECTION" ]; then
+  if [ -z "${SSH_CONNECTION:-}" ]; then
     # if [ -z "$HEADLESS_INSTALL" ]; then
     #     gum log -sl info '**macOS Manual Security Permission** Requesting security authorization for Cloudflare trusted certificate'
     #     sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain "$HOME/.local/etc/ssl/cloudflare/cloudflare.crt"
     # fi
     if [ -f "$HOME/.local/etc/ssl/cloudflare/cloudflare.pem" ]; then
       gum log -sl info 'Updating the OpenSSL CA Store to include the Cloudflare certificate'
-      sudo tee -a "$SSL_CERT_PATH" < "$HOME/.local/etc/ssl/cloudflare/cloudflare.pem" > /dev/null
-      echo "" | sudo tee -a "$SSL_CERT_PATH" > /dev/null
+      CF_CERT_HEADER="$(head -n 2 "$HOME/.local/etc/ssl/cloudflare/cloudflare.pem" | tail -n 1)"
+      if ! grep -qF "$CF_CERT_HEADER" "$SSL_CERT_PATH" 2>/dev/null; then
+        sudo tee -a "$SSL_CERT_PATH" < "$HOME/.local/etc/ssl/cloudflare/cloudflare.pem" > /dev/null
+        echo "" | sudo tee -a "$SSL_CERT_PATH" > /dev/null
+      fi
     else
       gum log -sl warn "$HOME/.local/etc/ssl/cloudflare/cloudflare.pem is missing so not importing into to master pem"
     fi
@@ -124,14 +127,14 @@ if [ -d /System ] && [ -d /Applications ] && command -v warp-cli > /dev/null; th
     # Location on Intel macOS
     gum log -sl info 'Ensuring /usr/local/etc/openssl@3/certs directory exists' && mkdir -p /usr/local/etc/openssl@3/certs
     gum log -sl info 'Adding Cloudflare certificate to /usr/local/etc/openssl@3/certs/cloudflare.pem'
-    echo | sudo cat - "$HOME/.local/etc/ssl/cloudflare/cloudflare.pem" >> /usr/local/etc/openssl@3/certs/cloudflare.pem
+    sudo cp -f "$HOME/.local/etc/ssl/cloudflare/cloudflare.pem" /usr/local/etc/openssl@3/certs/cloudflare.pem
     gum log -sl info 'Running /usr/local/opt/openssl@3/bin/c_rehash'
     /usr/local/opt/openssl@3/bin/c_rehash > /dev/null && gum log -sl info 'OpenSSL certificate rehash successful'
   elif [ -f "${HOMEBREW_PREFIX:-/opt/homebrew}/opt/openssl@3/bin/c_rehash" ]; then
     # Location on arm64 macOS and custom Homebrew locations
     gum log -sl info "Ensuring ${HOMEBREW_PREFIX:-/opt/homebrew}/etc/openssl@3/certs directory exists" && mkdir -p "${HOMEBREW_PREFIX:-/opt/homebrew}/etc/openssl@3/certs"
     gum log -sl info "Adding Cloudflare certificate to ${HOMEBREW_PREFIX:-/opt/homebrew}/etc/openssl@3/certs/cloudflare.pem"
-    echo | sudo cat - "$HOME/.local/etc/ssl/cloudflare/cloudflare.pem" >> "${HOMEBREW_PREFIX:-/opt/homebrew}/etc/openssl@3/certs/cloudflare.pem"
+    sudo cp -f "$HOME/.local/etc/ssl/cloudflare/cloudflare.pem" "${HOMEBREW_PREFIX:-/opt/homebrew}/etc/openssl@3/certs/cloudflare.pem"
     gum log -sl info "Running ${HOMEBREW_PREFIX:-/opt/homebrew}/opt/openssl@3/bin/c_rehash"
     "${HOMEBREW_PREFIX:-/opt/homebrew}/opt/openssl@3/bin/c_rehash" > /dev/null && gum log -sl info 'OpenSSL certificate rehash successful'
   else
@@ -193,8 +196,12 @@ if command -v warp-cli > /dev/null; then
     fi
 
     ### Copy CloudFlare PEM file to Python 3 location
-    gum log -sl info "Configuring python3 / python to use "$HOME/.local/etc/ssl/cloudflare/cloudflare.pem""
-    echo | cat - "$HOME/.local/etc/ssl/cloudflare/cloudflare.pem" >> $(python3 -m certifi)
+    gum log -sl info "Configuring python3 / python to use $HOME/.local/etc/ssl/cloudflare/cloudflare.pem"
+    CERTIFI_BUNDLE="$(python3 -m certifi)"
+    CF_CERT_HEADER="$(head -n 2 "$HOME/.local/etc/ssl/cloudflare/cloudflare.pem" | tail -n 1)"
+    if [ -f "$CERTIFI_BUNDLE" ] && ! grep -qF "$CF_CERT_HEADER" "$CERTIFI_BUNDLE" 2>/dev/null; then
+      echo | cat - "$HOME/.local/etc/ssl/cloudflare/cloudflare.pem" >> "$CERTIFI_BUNDLE"
+    fi
   fi
 
   ### Google Cloud SDK
@@ -210,7 +217,7 @@ if command -v warp-cli > /dev/null; then
     if [ -d "/Applications/Google Drive.app/Contents/Resources" ]; then
       gum log -sl info "Combining Google Drive roots.pem with CloudFlare certificate"
       mkdir -p "$HOME/.local/etc/ssl/google-drive"
-      cat "$HOME/.local/etc/ssl/cloudflare/cloudflare.pem" "/Applications/Google Drive.app/Contents/Resources/roots.pem" >> "$HOME/.local/etc/ssl/google-drive/roots.pem"
+      cat "$HOME/.local/etc/ssl/cloudflare/cloudflare.pem" "/Applications/Google Drive.app/Contents/Resources/roots.pem" > "$HOME/.local/etc/ssl/google-drive/roots.pem"
       sudo defaults write /Library/Preferences/com.google.drivefs.settings TrustedRootsCertsFile -string "$HOME/.local/etc/ssl/google-drive/roots.pem"
     else
       gum log -sl warn 'Google Drive.app installed but roots.pem is not available yet'
@@ -224,7 +231,7 @@ if command -v warp-cli > /dev/null; then
   if [ -d /System ] && [ -d /Applications ]; then
     sudo plutil -convert binary1 '/Library/Managed Preferences/com.cloudflare.warp.plist'
     ### Enable CloudFlare WARP credentials auto-populate (since file is deleted when not managed with MDM)
-    sudo launchctl load "/Library/LaunchDaemons/com.cloudflare.warp.plist"
+    sudo launchctl load "/Library/LaunchDaemons/com.cloudflare.warp.plist" || true
   elif [ -f "${XDG_CONFIG_HOME:-$HOME/.config}/warp/mdm.xml" ]; then
     sudo mkdir -p /var/lib/cloudflare-warp
     sudo cp -f "${XDG_CONFIG_HOME:-$HOME/.config}/warp/mdm.xml" /var/lib/cloudflare-warp/mdm.xml

@@ -40,34 +40,18 @@ export const pixelize = (num: number) => {
   return num.toString().concat('px');
 };
 
-const hasGlobalProperty = (property: string) => {
-  if (property && property.includes('.')) {
+const hasGlobalProperty = (property?: string): boolean => {
+  if (!property) return false;
+  if (property.includes('.')) {
     const propertyList = property.split('.');
-    return !!propertyList.reduce((prev, cur) => {
-      if (prev) {
-        return prev.hasOwnProperty(cur) ? prev[cur] : null;
+    return !!propertyList.reduce((prev: any, cur: string) => {
+      if (prev && Object.prototype.hasOwnProperty.call(prev, cur)) {
+        return prev[cur];
       }
+      return null;
     }, window);
   }
 
-  return window.hasOwnProperty(property);
+  return Object.prototype.hasOwnProperty.call(window, property);
 };
-
-export function slugify(text: string) {
-  if (!text) {
-    return '';
-  }
-  return text
-    .toString()
-    .toLowerCase()
-    .replace(/\s+/g, '-') // Replace spaces with -
-    .replace(/[^\w\-]+/g, '') // Remove all non-word chars
-    .replace(/\-\-+/g, '-') // Replace multiple - with single -
-    .replace(/^-+/, '') // Trim - from start of text
-    .replace(/-+$/, ''); // Trim - from end of text
-}
-
-export function href(href: string) {
-  return { href };
-}
 

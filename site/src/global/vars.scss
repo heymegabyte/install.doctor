@@ -28,6 +28,16 @@ $screen-xs-max: ($screen-sm-min - 1) !default;
 $screen-sm-max: ($screen-md-min - 1) !default;
 $screen-md-max: ($screen-lg-min - 1) !default;
 
+// Canonical 6-breakpoint grid (360, 480, 768, 1024, 1440, 1920)
+$aid-bp-360: 360px !default;
+$aid-bp-480: 480px !default;
+$aid-bp-768: 768px !default;
+$aid-bp-1024: 1024px !default;
+$aid-bp-1440: 1440px !default;
+$aid-bp-1920: 1920px !default;
+
 :root {
   --c-capacitor-blue: #119eff;
+  --aid-bg-void: #060610;
+  --aid-cyan-electric: #00E5FF;
 }

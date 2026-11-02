@@ -31,7 +31,6 @@ export class NewsletterSignupParallax {
     xhr.open('POST', url);
     xhr.setRequestHeader('Content-Type', 'application/json;charset=UTF-8');
     xhr.onreadystatechange = () => {
-      console.log(xhr);
       if (xhr.readyState === 4) {
         this.isLoading = false;
       }
@@ -104,9 +103,9 @@ export class NewsletterSignupParallax {
           nopointer: this.hasSubmitted,
         }}
       >
-        <div class="wrapper">
+        <div class="wrapper" aria-live="polite">
           {this.hasSubmitted ? (
-            <div class="form-message">
+            <div class="form-message" role="status">
               <Paragraph level={5} class="form-message-p">
                 {this.inlineMessage}
               </Paragraph>
@@ -123,11 +122,12 @@ export class NewsletterSignupParallax {
                       autocomplete="email"
                       inputmode="email"
                       value={this.email}
-                      onInput={() => this.handleEmailChange(event)}
+                      onInput={(ev) => this.handleEmailChange(ev)}
                       disabled={this.isLoading}
                       placeholder="E-mail"
-                      class={{ error: this.isValid, 'ui-paragraph-4': true }}
+                      class={{ error: !this.isValid, 'ui-paragraph-4': true }}
                       aria-label="Email"
+                      aria-invalid={String(!this.isValid)}
                       onBlur={(ev) => {
                         this.inputBlur(ev);
                       }}

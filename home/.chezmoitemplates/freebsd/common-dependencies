@@ -2,6 +2,7 @@
   "age"
   "gcc"
   "gcc-c++"
+  "git"
   "go"
   "kernel-devel"
   "locate"

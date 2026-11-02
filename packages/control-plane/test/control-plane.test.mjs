@@ -159,7 +159,7 @@ test('Control Plane Phase 1: PIA endpoints (/api/v1/intent/* and /api/v1/easter-
   assert.equal(collapsed.perceivedLatencyMicros, 0);
   assert.ok(collapsed.auditSignature.startsWith('ed25519_sig_'));
 
-  // 4. POST /api/v1/easter-eggs/oracle
+  // 4. POST /api/v1/easter-eggs/oracle (SECRET_CODE + HARMONIC_FIBONACCI + ASTRAL_404)
   const eggRes = await app.fetch(
     new Request('https://app.install.doctor/api/v1/easter-eggs/oracle', {
       method: 'POST',
@@ -176,22 +176,61 @@ test('Control Plane Phase 1: PIA endpoints (/api/v1/intent/* and /api/v1/easter-
   const eggJson = await eggRes.json();
   assert.equal(eggJson.unlocked, true);
   assert.equal(eggJson.codeName, 'COLOSSAL_CAVE_PORTAL');
+
+  const fibRes = await app.fetch(
+    new Request('https://app.install.doctor/api/v1/easter-eggs/oracle', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        kind: 'HARMONIC_FIBONACCI',
+        intervalsMs: [10, 10, 20, 30, 50, 80],
+      }),
+    }),
+    TEST_ENV
+  );
+  assert.equal(fibRes.status, 200);
+  const fibJson = await fibRes.json();
+  assert.equal(fibJson.unlocked, true);
+  assert.equal(fibJson.codeName, 'FIBONACCI_HARMONIC_RESONANCE');
+
+  const astralRes = await app.fetch(
+    new Request('https://app.install.doctor/api/v1/easter-eggs/oracle', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        kind: 'ASTRAL_404',
+      }),
+    }),
+    TEST_ENV
+  );
+  assert.equal(astralRes.status, 200);
+  const astralJson = await astralRes.json();
+  assert.equal(astralJson.unlocked, true);
+  assert.equal(astralJson.codeName, 'ASTRAL_PLANE_DUNGEON');
 });
 
-test('Control Plane Phase 1: OpenAPI 3.1 schema (/api/v1/openapi.json) and interactive docs (/api/v1/docs)', async () => {
+test('Control Plane Phase 1: OpenAPI 3.1 schema (/api/v1/openapi.json) covers 100% of /api/v1/* routes and interactive docs (/api/v1/docs)', async () => {
   const app = await loadWorkerApp();
 
   const oaRes = await app.fetch(new Request('https://app.install.doctor/api/v1/openapi.json'), TEST_ENV);
   assert.equal(oaRes.status, 200);
   const spec = await oaRes.json();
   assert.equal(spec.openapi, '3.1.0');
-  assert.ok(spec.paths['/api/v1/intent/telemetry']);
-  assert.ok(spec.paths['/api/v1/intent/speculate']);
-  assert.ok(spec.paths['/api/v1/intent/collapse']);
-  assert.ok(spec.paths['/api/v1/easter-eggs/oracle']);
-  assert.ok(spec.paths['/api/v1/github/repos/scan']);
-  assert.ok(spec.paths['/api/v1/github/host-repo/ensure']);
-  assert.ok(spec.paths['/api/v1/keys/mint']);
+  assert.ok(spec.components?.securitySchemes?.bearerAdmin);
+  assert.ok(spec.components?.securitySchemes?.bearerDevice);
+
+  // Extract all /api/v1/* routes from src/index.ts and verify 100% coverage in OpenAPI 3.1 spec
+  const srcIndex = fs.readFileSync(path.resolve(__dirname, '../src/index.ts'), 'utf8');
+  const v1RouteRegex = /app\.(get|post|put|delete)\(\s*['"](\/api\/v1\/[^'"]+)['"]/g;
+  let match;
+  const discoveredV1Routes = [];
+  while ((match = v1RouteRegex.exec(srcIndex)) !== null) {
+    const [, method, routePath] = match;
+    discoveredV1Routes.push({ method, routePath });
+    assert.ok(spec.paths[routePath], `OpenAPI 3.1 spec must document path ${routePath}`);
+    assert.ok(spec.paths[routePath][method], `OpenAPI 3.1 spec must document ${method.toUpperCase()} ${routePath}`);
+  }
+  assert.ok(discoveredV1Routes.length >= 9, 'Must discover all /api/v1/* routes');
   assert.ok(spec.paths['/start']);
 
   const docRes = await app.fetch(new Request('https://app.install.doctor/api/v1/docs'), TEST_ENV);

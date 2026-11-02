@@ -5,6 +5,7 @@
   "gcc-c++"
   "ffmpeg"
   "fuse"
+  "git"
   "gnome"
   "gnupg2-smime"
   "go"

@@ -42,7 +42,7 @@ if command -v netdata-claim.sh > /dev/null; then
   ### Add user / group with script in ~/.local/bin/add-usergroup, if it is available
   if command -v add-usergroup > /dev/null; then
     sudo add-usergroup netdata netdata
-    sudo add-usergroup "$USER" netdata
+    sudo add-usergroup "${USER:-$(id -un)}" netdata
   fi
 
   ### Ensure ownership
@@ -52,7 +52,7 @@ if command -v netdata-claim.sh > /dev/null; then
   cd /tmp
 
   ### netdata-claim.sh must be run as netdata user
-  if sudo -H -u netdata bash -c "yes | netdata-claim.sh -token=$(get-secret NETDATA_TOKEN) -rooms=$(get-secret NETDATA_ROOM) -url=https://app.netdata.cloud"; then
+  if sudo -H -u netdata bash -c "(yes || true) | netdata-claim.sh -token=$(get-secret NETDATA_TOKEN) -rooms=$(get-secret NETDATA_ROOM) -url=https://app.netdata.cloud"; then
     gum log -sl info 'Successfully added device to Netdata Cloud account'
   fi
 
@@ -145,8 +145,8 @@ if command -v netdata-claim.sh > /dev/null; then
 
       ### Install the module/configuration file
       gum log -sl info 'Installing the module and configuration file'
-      sudo "$DEBSECAN_GIT/debsecan.chart.py" /usr/libexec/netdata/python.d/debsecan.chart.py
-      sudo "$DEBSECAN_GIT/debsecan.conf" /etc/netdata/python.d/debsecan.conf
+      sudo cp -f "$DEBSECAN_GIT/debsecan.chart.py" /usr/libexec/netdata/python.d/debsecan.chart.py
+      sudo cp -f "$DEBSECAN_GIT/debsecan.conf" /etc/netdata/python.d/debsecan.conf
     else
       gum log -sl warn 'apt-get is available but debsecan is not available in the PATH or is not installed'
     fi

@@ -147,5 +147,12 @@ else
   fail ".chezmoiremove MISSING removed-tool cleanup path(s):$missing_rm — a source removal (#284/#286/#287) won't propagate; existing machines keep the stale config"
 fi
 
+# 9. Brewfile + post-vim.sh must not carry m-cli or coc.nvim bootstrap residue
+if ! grep -q 'm-cli' home/.chezmoitemplates/darwin/Brewfile 2>/dev/null && ! grep -q 'coc/extensions' home/dot_local/bin/post-installx/executable_post-vim.sh 2>/dev/null; then
+  pass "darwin Brewfile and post-vim.sh carry no m-cli or vim+coc bootstrap residue"
+else
+  fail "darwin Brewfile or post-vim.sh still contains m-cli or coc/extensions residue"
+fi
+
 say "no-removed-tools: $P passed, $F failed"
 [ "$F" -eq 0 ]

@@ -11,9 +11,9 @@ set -Eeo pipefail
 trap "gum log -sl error 'Script encountered an error!'" ERR
 
 if command -v cloudflared > /dev/null; then
-  ### Show error message about ~/.cloudflared already existing
+  ### Skip if ~/.cloudflared already exists (idempotent re-run)
   if [ -d "$HOME/.cloudflared" ]; then
-    gum log -sl error "$HOME/.cloudflared is already in the home directory - to ensure proper deployment, remove the $HOME/.cloudflared configuration folder" && exit 1
+    gum log -sl info "$HOME/.cloudflared already exists in the home directory - skipping initial tunnel provisioning" && exit 0
   fi
 
   ### Use lowercased hostname / tunnel ID

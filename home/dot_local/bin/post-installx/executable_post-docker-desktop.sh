@@ -15,10 +15,10 @@ trap "gum log -sl error 'Script encountered an error!'" ERR
 if command -v docker > /dev/null; then
   ### Acquire DOCKERHUB_USER
   if [ -f "${XDG_CONFIG_HOME:-$HOME/.config}/chezmoi/chezmoi.yaml" ]; then
-    DOCKERHUB_USER="$(yq '.data.user.docker.username' ~/.config/chezmoi/chezmoi.yaml)"
+    DOCKERHUB_USER="$(yq '.data.user.docker.username' "${XDG_CONFIG_HOME:-$HOME/.config}/chezmoi/chezmoi.yaml")"
   else
-    gum log -sl error "${XDG_CONFIG_HOME:-$HOME/.config}/chezmoi/chezmoi.yaml is missing which is required for populating the DOCKERHUB_USER"
-    exit 1
+    gum log -sl info "${XDG_CONFIG_HOME:-$HOME/.config}/chezmoi/chezmoi.yaml is missing — skipping DockerHub pre-authentication"
+    exit 0
   fi
 
   ### Launch Docker.app

@@ -15,6 +15,9 @@ set -Eeo pipefail
 trap "gum log -sl error 'Script encountered an error!'" ERR
 
 ### Acquire PUBLIC_SERVICES_DOMAIN and PRIMARY_EMAIL
+PUBLIC_SERVICES_DOMAIN="${PUBLIC_SERVICES_DOMAIN:-}"
+PRIMARY_EMAIL="${PRIMARY_EMAIL:-}"
+USER_USERNAME="${USER_USERNAME:-${USER:-$(id -un)}}"
 if command -v yq > /dev/null; then
   if [ -f "${XDG_CONFIG_HOME:-$HOME/.config}/chezmoi/chezmoi.yaml" ]; then
     PUBLIC_SERVICES_DOMAIN="$(yq '.data.host.domain' "${XDG_CONFIG_HOME:-$HOME/.config}/chezmoi/chezmoi.yaml")"
@@ -61,7 +64,7 @@ if get-secret --exists SENDGRID_API_KEY; then
           fi
         fi
         ### Add Postfix main configuration
-        logg "Adding the following configuration from ${XDG_CONFIG_HOME:-$HOME/.config}/postfix/main.cf to /etc/postfix/main.cf"
+        gum log -sl info "Adding the following configuration from ${XDG_CONFIG_HOME:-$HOME/.config}/postfix/main.cf to /etc/postfix/main.cf"
         cat "${XDG_CONFIG_HOME:-$HOME/.config}/postfix/main.cf" | sudo tee -a "$CONFIG_FILE" > /dev/null
         echo "" | sudo tee -a "$CONFIG_FILE" > /dev/null
       fi

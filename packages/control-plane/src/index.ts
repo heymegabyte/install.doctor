@@ -2595,7 +2595,24 @@ const OPENAPI_31_SPEC = {
         operationId: 'mintApiKey',
         summary: 'Mint a scoped API key to bypass the interactive OAuth sequence',
         tags: ['Authentication & API Keys'],
+        security: [{ bearerAdmin: [] }],
         responses: { '201': { description: 'Minted API key' }, '401': { description: 'Unauthorized' } },
+      },
+    },
+    '/api/v1/openapi.json': {
+      get: {
+        operationId: 'getOpenApi31Specification',
+        summary: 'Serve the OpenAPI 3.1.0 machine-readable specification for all /api/v1/* routes',
+        tags: ['OpenAPI & Introspection'],
+        responses: { '200': { description: 'OpenAPI 3.1.0 JSON document' } },
+      },
+    },
+    '/api/v1/docs': {
+      get: {
+        operationId: 'getInteractiveApiDocs',
+        summary: 'Render the interactive CSP/Trusted-Types-safe OpenAPI 3.1 explorer',
+        tags: ['OpenAPI & Introspection'],
+        responses: { '200': { description: 'Interactive API documentation HTML' } },
       },
     },
     '/start': {
@@ -2604,6 +2621,20 @@ const OPENAPI_31_SPEC = {
         summary: 'Serve the multi-OS bootstrap script for curl https://app.install.doctor/start | bash',
         tags: ['Bootstrap'],
         responses: { '200': { description: 'Shell bootstrap script' } },
+      },
+    },
+  },
+  components: {
+    securitySchemes: {
+      bearerAdmin: {
+        type: 'http',
+        scheme: 'bearer',
+        description: 'Operator admin token (AID_ADMIN_TOKEN)',
+      },
+      bearerDevice: {
+        type: 'http',
+        scheme: 'bearer',
+        description: 'Enrolled machine token (aid_<64hex>)',
       },
     },
   },

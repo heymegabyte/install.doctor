@@ -80,10 +80,10 @@ export class NewsletterSignup {
               releases, articles, news, and exclusive beta features!
             </Paragraph>
           </div>
-          <div class="form-group">
+          <div class="form-group" aria-live="polite">
             {this.hasSubmitted ? (
-              <div class="form-message">
-                <ion-icon name="checkmark-circle"></ion-icon>
+              <div class="form-message" role="status">
+                <ion-icon name="checkmark-circle" aria-hidden="true"></ion-icon>
                 <Paragraph>{this.handleInlineMessage(this.inlineMessage)}</Paragraph>
               </div>
             ) : (
@@ -96,11 +96,12 @@ export class NewsletterSignup {
                       autocomplete="email"
                       inputmode="email"
                       value={this.email}
-                      onInput={() => this.handleEmailChange(event)}
+                      onInput={(ev) => this.handleEmailChange(ev)}
                       disabled={this.isLoading}
                       placeholder="E-mail"
-                      class={{ error: this.isValid, 'ui-paragraph-4': true }}
+                      class={{ error: !this.isValid, 'ui-paragraph-4': true }}
                       aria-label="Email"
+                      aria-invalid={String(!this.isValid)}
                       required
                     />
                   </div>

@@ -3,6 +3,7 @@
     "build-essential"
     "dconf"
     "ffmpeg"
+    "git"
     "gnome"
     "gnome-software-plugin-flatpak"
     "gnupg-agent"

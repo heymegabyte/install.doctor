@@ -36,13 +36,13 @@ if command -v privoxy > /dev/null; then
     sudo chmod 600 "$PRIVOXY_CONFIG"
     if command -v add-usergroup > /dev/null; then
       sudo add-usergroup privoxy privoxy
-      sudo add-usergroup "$USER" privoxy
+      sudo add-usergroup "${USER:-$(id -un)}" privoxy
     fi
     gum log -sl info 'Applying proper permissions to Privoxy configuration'
     sudo chown privoxy:privoxy "$PRIVOXY_CONFIG" 2> /dev/null || sudo chown "privoxy:$(id -g -n)" "$PRIVOXY_CONFIG"
-    if [ -d "${HOMEBREW_PREFIX:-/opt/homebrew}/etc/privoxy" ] && [ ! -f "${HOMEBREW_PREFIX:-/opt/homebrew}/etc/privoxy/config" ]; then
+    if [ -d "${HOMEBREW_PREFIX:-/opt/homebrew}/etc/privoxy" ] && [ ! -e "${HOMEBREW_PREFIX:-/opt/homebrew}/etc/privoxy/config" ]; then
       gum log -sl info "Symlinking $PRIVOXY_CONFIG to ${HOMEBREW_PREFIX:-/opt/homebrew}/etc/privoxy/config"
-      ln -s "$PRIVOXY_CONFIG" "${HOMEBREW_PREFIX:-/opt/homebrew}/etc/privoxy/config"
+      ln -sfn "$PRIVOXY_CONFIG" "${HOMEBREW_PREFIX:-/opt/homebrew}/etc/privoxy/config"
     fi
     ### Restart Privoxy after configuration is applied
     if [ -d /Applications ] && [ -d /System ]; then

@@ -21,6 +21,22 @@ import sys
 import collections
 
 MODES = {"cli", "app", "service"}
+VALID_MANAGERS = {
+    "brew",
+    "apt",
+    "dnf",
+    "pacman",
+    "cask",
+    "choco",
+    "scoop",
+    "go",
+    "cargo",
+    "npm",
+    "pipx",
+    "pip",
+    "gem",
+    "apk",
+}
 
 
 def validate(cat):
@@ -43,6 +59,9 @@ def validate(cat):
         if e.get("installMode") not in MODES:
             problems.append(f"{nm}: installMode {e.get('installMode')!r} not in {sorted(MODES)}")
         provs = set(e.get("providers") or [])
+        unknown_provs = provs - VALID_MANAGERS
+        if unknown_provs:
+            problems.append(f"{nm}: unknown package manager provider(s) {sorted(unknown_provs)}")
         pks = set((e.get("pkgs") or {}).keys())
         if provs != pks:
             problems.append(

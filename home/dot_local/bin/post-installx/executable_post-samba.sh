@@ -46,7 +46,7 @@ set -euo pipefail
 #
 #     ## Links
 #
-#     * [Default Samba configuration](https://github.com/megabyte-labs/install.doctor/tree/master/home/dot_local/samba/config.tmpl)
+#     * [Default Samba configuration](https://github.com/heymegabyte/install.doctor/tree/master/home/dot_local/samba/config.tmpl)
 #     * [Secrets / Environment variables documentation](https://install.doctor/docs/customization/secrets)
 
 set -Eeo pipefail
@@ -57,7 +57,7 @@ if command -v smbd > /dev/null; then
   # Add user / group with script in ~/.local/bin/add-usergroup, if it is available
   if command -v add-usergroup > /dev/null; then
     sudo add-usergroup rclone rclone
-    sudo add-usergroup "$USER" rclone
+    sudo add-usergroup "${USER:-$(id -un)}" rclone
   fi
   ### Define share locations
   if [ -d /Applications ] && [ -d /System ]; then
@@ -83,7 +83,7 @@ if command -v smbd > /dev/null; then
   gum log -sl info "Ensuring $HOME/Shared is created"
   mkdir -p "$HOME/Shared"
   chmod 755 "$HOME/Shared"
-  chown -Rf "$USER":rclone "$HOME/Shared"
+  chown -Rf "${USER:-$(id -un)}":rclone "$HOME/Shared"
 
   ### Copy the Samba server configuration file
   if [ -d /Applications ] && [ -d /System ]; then

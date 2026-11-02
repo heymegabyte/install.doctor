@@ -1,19 +1,15 @@
 #!/usr/bin/env bash
 set -euo pipefail
-# @file VIM Plugins AOT Installation
-# @brief This script triggers VIM to pre-install plugins so that VIM loads into the desired state the first time it is invoked
+# @file Neovim / Vim Runtime State Initialization
+# @brief Ensures XDG state and data directories exist for Neovim / Vim without legacy coc.nvim extensions
 
-# @description This script installs the extensions defined in `${XDG_CONFIG_HOME:-$HOME/.config}/coc/extensions/package.json`
-#     which should correlate to the Coc extensions defined in `${XDG_CONFIG_HOME:-$HOME/.config}/vim/vimrc`.
-installCocExtensions() {
-  if [ -f "${XDG_CONFIG_HOME:-$HOME/.config}/coc/extensions/package.json" ]; then
-    gum log -sl info "Running npm i --no-progress --no-package-lock in ${XDG_CONFIG_HOME:-$HOME/.config}/coc/extensions"
-    cd "${XDG_CONFIG_HOME:-$HOME/.config}/coc/extensions"
-    npm i --no-progress --no-package-lock
-  else
-    gum log -sl info "Skipping Coc extension installation because ${XDG_CONFIG_HOME:-$HOME/.config}/coc/extensions/package.json is missing"
+ensureEditorStateDirs() {
+  local data_dir="${XDG_DATA_HOME:-$HOME/.local/share}/nvim"
+  local state_dir="${XDG_STATE_HOME:-$HOME/.local/state}/nvim"
+  mkdir -p "$data_dir" "$state_dir"
+  if command -v gum >/dev/null 2>&1; then
+    gum log -sl info "Verified Neovim/Vim XDG directories ($data_dir, $state_dir)"
   fi
 }
 
-### Install VIM coc plugins
-gum log -sl info "Updating VIM coc extensions" && installCocExtensions
+ensureEditorStateDirs

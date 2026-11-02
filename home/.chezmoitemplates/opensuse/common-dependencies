@@ -4,6 +4,7 @@
   "dconf"
   "fuse"
   "fuse-devel"
+  "git"
   "golang-go"
   "gnome"
   "locate"

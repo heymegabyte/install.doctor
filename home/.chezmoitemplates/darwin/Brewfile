@@ -10,7 +10,6 @@ tap "homebrew/command-not-found"
 if OS.mac?
   brew "coreutils"
   brew "findutils"
-  brew "m-cli"
 end
 brew "age"
 # Ensure macOS Bash gets upgraded to 5+
@@ -19,6 +18,7 @@ brew "expect"
 brew "ffmpeg"
 brew "fzf"
 brew "gawk"
+brew "git"
 brew "git-delta"
 brew "glow"
 brew "gnupg"

@@ -80,7 +80,7 @@ processPostScripts() {
     local CUSTOM_SCRIPT="$POST_INSTALL_DIR/post-$NAME.sh"
     if [[ -x "$CUSTOM_SCRIPT" ]]; then
       gum log -sl info "Executing custom script for $NAME: $CUSTOM_SCRIPT"
-      "$CUSTOM_SCRIPT" &
+      "$CUSTOM_SCRIPT" </dev/null &
     fi
   else
     if [ -n "${DEBUG:-}" ]; then

@@ -3,6 +3,7 @@
     "build-essential"
     "dconf-cli"
     "ffmpeg"
+    "git"
     "golang-go"
     "gnome-session"
     "gnome-software-plugin-flatpak"

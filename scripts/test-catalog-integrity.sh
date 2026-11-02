@@ -62,6 +62,14 @@ JSON
 if python3 "$VAL" "$fx4" >/dev/null 2>&1; then fail "validator MISSED a bad installMode (fixture)"; else pass "validator catches an invalid installMode (fixture)"; fi
 rm -f "$fx4"
 
+# 5b. FIXTURE — an unknown package manager provider → exit 1 (VALID_MANAGERS).
+fx5="$(mktemp)"
+cat >"$fx5" <<'JSON'
+[{"name":"a","bin":"a","providers":["unknown_pm"],"pkgs":{"unknown_pm":"a"},"platforms":["linux"],"installMode":"cli"}]
+JSON
+if python3 "$VAL" "$fx5" >/dev/null 2>&1; then fail "validator MISSED an unknown package manager provider (fixture)"; else pass "validator catches an unknown package manager provider via VALID_MANAGERS (fixture)"; fi
+rm -f "$fx5"
+
 # 6-9. LIVE — /api/catalog/:name returns the CANONICAL entry (bin===name) for a multi-bin package (#133 fix).
 #      Pre-fix the name-keyed Map kept the LAST sibling (xz→unxz, bzip2→bunzip2, kvm→qemu-img, rar→unrar).
 for nm in xz bzip2 kvm rar; do

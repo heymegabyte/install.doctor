@@ -39,7 +39,6 @@ export class CapacitorSiteFooter {
     xhr.open('POST', url);
     xhr.setRequestHeader('Content-Type', 'application/json;charset=UTF-8');
     xhr.onreadystatechange = () => {
-      console.log(xhr);
       if (xhr.readyState === 4) {
         this.isLoading = false;
       }
@@ -121,10 +120,10 @@ export class CapacitorSiteFooter {
                   about popular, trending open-source productivity tools that we integrate into our stack.
                 </Paragraph>
               </div>
-              <div class="form-group">
+              <div class="form-group" aria-live="polite">
                 {this.hasSubmitted ? (
-                  <div class="form-message">
-                    <ion-icon name="checkmark-circle" class="success-color"></ion-icon>
+                  <div class="form-message" role="status">
+                    <ion-icon name="checkmark-circle" class="success-color" aria-hidden="true"></ion-icon>
                     <Paragraph>{this.inlineMessage}</Paragraph>
                   </div>
                 ) : (
@@ -137,11 +136,12 @@ export class CapacitorSiteFooter {
                           autocomplete="email"
                           inputmode="email"
                           value={this.email}
-                          onInput={() => this.handleEmailChange(event)}
+                          onInput={(ev) => this.handleEmailChange(ev)}
                           disabled={this.isLoading}
                           placeholder="E-mail"
-                          class={{ error: this.isValid, 'ui-paragraph-4': true }}
+                          class={{ error: !this.isValid, 'ui-paragraph-4': true }}
                           aria-label="Email"
+                          aria-invalid={String(!this.isValid)}
                           required
                         />
                       </div>

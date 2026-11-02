@@ -17,11 +17,11 @@ const OUT = process.argv[3] || join(HERE, '..', 'src', 'catalog.json');
 const BUILDER = join(ROOT, 'home', 'dot_local', 'bin', 'executable_cnf-build-index');
 
 // index columns (per not-found-hook.sh): 1 bin 2 key 3 brew 4 apt 5 dnf 6 pacman 7 cask 8 choco
-// 9 scoop 10 go 11 cargo 12 npm 13 pipx 14 pip 15 gem
-const COLS = ['brew', 'apt', 'dnf', 'pacman', 'cask', 'choco', 'scoop', 'go', 'cargo', 'npm', 'pipx', 'pip', 'gem'];
+// 9 scoop 10 go 11 cargo 12 npm 13 pipx 14 pip 15 gem 16 apk
+const COLS = ['brew', 'apt', 'dnf', 'pacman', 'cask', 'choco', 'scoop', 'go', 'cargo', 'npm', 'pipx', 'pip', 'gem', 'apk'];
 const PLAT = {
   brew: ['macos', 'linux'], cask: ['macos'],
-  apt: ['linux'], dnf: ['linux'], pacman: ['linux'],
+  apt: ['linux'], dnf: ['linux'], pacman: ['linux'], apk: ['linux'],
   choco: ['windows'], scoop: ['windows'],
   go: ['macos', 'linux', 'windows'], cargo: ['macos', 'linux', 'windows'], npm: ['macos', 'linux', 'windows'],
   pipx: ['macos', 'linux', 'windows'], pip: ['macos', 'linux', 'windows'], gem: ['macos', 'linux', 'windows'],

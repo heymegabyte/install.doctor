@@ -4,6 +4,7 @@
   "fuse"
   "gcc"
   "gcc-c++"
+  "git"
   "go"
   "gnome"
   "gnupg2-smime"
