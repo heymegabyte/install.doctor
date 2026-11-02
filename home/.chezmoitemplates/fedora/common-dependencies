@@ -1,5 +1,7 @@
 {{- $packages := list
   "age"
+  "clang-tools-extra"
+  "curl"
   "dconf"
   "gcc"
   "gcc-c++"
@@ -26,8 +28,10 @@
   "pkg-config"
   "progress"
   "readline-devel"
+  "ripgrep"
   "ruby-devel"
   "sddm"
+  "tmux"
   "xorg-x11-fonts-Type1"
   "xorg-x11-xauth"
   "xrandr"

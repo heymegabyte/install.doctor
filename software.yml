@@ -624,7 +624,6 @@ softwarePackages:
     _deprecated: aid standardizes on hiSHtory (ddworken/hishtory) per docs/aid/decisions/0001; Atuin is superseded in the aid environment (preserved here as institutional knowledge, not removed).
     _github: https://github.com/ellie/atuin
     _bin: atuin
-    _preload: true
     brew: atuin
     pacman: atuin
     cargo: atuin
@@ -832,6 +831,18 @@ softwarePackages:
     apt: bash-completion
     dnf: bash-completion
     pacman: bash-completion
+  bash-language-server:
+    _name: Bash Language Server
+    _short: bash-language-server is a language server for Bash scripts based on Tree Sitter and ShellCheck.
+    _desc: A language server for Bash scripts that provides code completion, hover diagnostics, go-to-definition, and ShellCheck/shfmt integration for coding agents and editors.
+    _github: https://github.com/bash-lsp/bash-language-server
+    _bin: bash-language-server
+    _preload: true
+    brew:darwin: bash-language-server
+    pacman:linux: bash-language-server
+    npm:darwin: bash-language-server
+    npm:linux: bash-language-server
+    npm:windows: bash-language-server
   bashly:
     _name: Bashly
     _short: bashly is a tool for creating Bash command-line applications with ease.
@@ -1578,6 +1589,7 @@ softwarePackages:
     _bin: clangd
     _home: https://clangd.llvm.org/
     _docs: https://clangd.llvm.org/guides/
+    _preload: true
     brew: llvm
     apt: clangd
     dnf: clang-tools-extra
@@ -4376,8 +4388,12 @@ softwarePackages:
     _bin: gopkgs
     go: github.com/uudashr/gopkgs/v2/cmd/gopkgs@latest
   gopls:
+    _name: gopls
+    _short: gopls is the official Go language server maintained by the Go team.
+    _desc: gopls (pronounced "Go please") is the official Go language server developed by the Go team. It provides IDE and coding agent features such as workspace symbol navigation, diagnostics, and refactoring to any LSP-compatible client.
     _github: false
     _bin: gopls
+    _preload: true
     brew: gopls
     go: golang.org/x/tools/gopls@latest
   goreleaser:
@@ -4609,7 +4625,6 @@ softwarePackages:
     _desc: This is a CLI tool to render handlebars templates, with the ability to require in Partials, Helpers and JSON Data
     _github: https://github.com/keithamus/hbs-cli
     _bin: hbs
-    _preload: true
     npm: hbs-cli
   hclq:
     _name: hclq
@@ -4735,7 +4750,6 @@ softwarePackages:
     _desc: Hoard is a tool available on GitHub at https://github.com/Hyde46/hoard. It is a simple shell script designed to help users manage their dotfiles by storing them in a Git repository. Dotfiles are configuration files for various programs in Unix-like systems. Hoard simplifies the process of backing up and syncing these files across multiple machines. Users can easily add, commit, and push changes to their dotfiles repository using this tool. It provides a convenient way to keep configurations consistent across different environments.
     _github: https://github.com/Hyde46/hoard
     _bin: hoard
-    _preload: true
     pacman: hoard
     cargo: hoard-rs
   holehe:
@@ -4886,7 +4900,6 @@ softwarePackages:
     _desc: Add GitHub support to git on the command-line
     _github: https://hub.github.com
     _bin: hub
-    _preload: true
     brew: hub
     apt: hub
     dnf:fedora: hub
@@ -6935,7 +6948,6 @@ softwarePackages:
     _github: false
     _bin: mpg123
     _home: https://mpg123.org/
-    _preload: true
     brew: mpg123
     apt: mpg123
     dnf: mpg123
@@ -7464,6 +7476,11 @@ softwarePackages:
     _preload: true
     _version: '>=22'
     brew: node
+    apt: nodejs
+    dnf: nodejs
+    pacman: nodejs
+    apk: nodejs
+    choco: nodejs
     scoop: nodejs
   node-prune:
     _name: node-prune
@@ -9019,6 +9036,20 @@ softwarePackages:
     zypper:
     - python3-pip
     - python3-setuptools
+  pyright:
+    _name: Pyright
+    _short: Pyright is a fast, full-featured static type checker and language server for Python.
+    _desc: Pyright is a fast static type checker and Language Server Protocol (LSP) server for Python created by Microsoft, providing type checking, symbol navigation, and code intelligence for agents and IDEs.
+    _github: https://github.com/microsoft/pyright
+    _bin:
+    - pyright
+    - pyright-langserver
+    _preload: true
+    brew:darwin: pyright
+    pacman:linux: pyright
+    npm:darwin: pyright
+    npm:linux: pyright
+    npm:windows: pyright
   python2:
     _github: false
     _bin: python2
@@ -9619,6 +9650,19 @@ softwarePackages:
     scoop: rust
     script:darwin: curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
     script:linux: curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+  rust-analyzer:
+    _name: rust-analyzer
+    _short: rust-analyzer is a modular compiler frontend and Language Server Protocol implementation for Rust.
+    _desc: rust-analyzer is the official Language Server Protocol (LSP) implementation for the Rust programming language, providing semantic analysis, code completion, and go-to-definition for coding agents and editors.
+    _github: https://github.com/rust-lang/rust-analyzer
+    _bin: rust-analyzer
+    _home: https://rust-analyzer.github.io/
+    _preload: true
+    brew:darwin: rust-analyzer
+    apt:linux: rust-analyzer
+    dnf:linux: rust-analyzer
+    pacman:linux: rust-analyzer
+    rustup: rust-analyzer
   rustdesk:
     _name: RustDesk
     _short: RustDesk is an open-source remote desktop software written in Rust.
@@ -9972,7 +10016,6 @@ softwarePackages:
     _desc: CLI tool that integrates with Espanso to show WiFi password when typing :sharewifi
     _github: https://github.com/bradyjoslin/sharewifi
     _bin: sharewifi
-    _preload: true
     brew: bradyjoslin/sharewifi/sharewifi
     npm: sharewifi
     cargo: --git https://github.com/bradyjoslin/sharewifi
@@ -11170,6 +11213,11 @@ softwarePackages:
     - perl
     - tmux
     apt: tmux
+    dnf: tmux
+    pacman: tmux
+    apk: tmux
+    pkg-freebsd: tmux
+    zypper: tmux
   tmuxinator:
     _name: Tmuxinator
     _short: Tmuxinator is a tool for managing complex tmux sessions easily through simple YAML configuration files.
@@ -11377,7 +11425,19 @@ softwarePackages:
     _docs: https://www.typescriptlang.org/docs/
     _preload: true
     brew: typescript
-    npm: tsc
+    npm: typescript
+  typescript-language-server:
+    _name: TypeScript Language Server
+    _short: typescript-language-server is a Language Server Protocol implementation for TypeScript and JavaScript wrapping tsserver.
+    _desc: Language Server Protocol (LSP) implementation for TypeScript and JavaScript using tsserver, enabling semantic code navigation, diagnostics, and refactoring for coding agents and editors.
+    _github: https://github.com/typescript-language-server/typescript-language-server
+    _bin: typescript-language-server
+    _preload: true
+    brew:darwin: typescript-language-server
+    pacman:linux: typescript-language-server
+    npm:darwin: typescript-language-server
+    npm:linux: typescript-language-server
+    npm:windows: typescript-language-server
   typescript-to-lua:
     _name: TypeScript to Lua Converter
     _short: TypeScriptToLua is a tool that transpiles TypeScript code to Lua code, enabling developers to write TypeScript and run it on Lua runtimes.
@@ -11409,7 +11469,6 @@ softwarePackages:
     _desc: Uncompresses *.ace files
     _github: null
     _bin: unace
-    _preload: true
     apt: unace
     dnf: unace
     pacman: unace
@@ -11796,6 +11855,21 @@ softwarePackages:
     choco: vscode
     snap: code --classic
     yay: visual-studio-code-bin
+  vscode-langservers-extracted:
+    _name: VSCode Extracted Language Servers (HTML/CSS/JSON/ESLint)
+    _short: vscode-langservers-extracted provides HTML, CSS, JSON, and ESLint language servers extracted from VS Code.
+    _desc: HTML, CSS, JSON, and ESLint Language Server Protocol (LSP) servers extracted from Visual Studio Code (vscode-css-language-server, vscode-html-language-server, vscode-json-language-server) for coding agents and editors.
+    _github: https://github.com/hrsh7th/vscode-langservers-extracted
+    _bin:
+    - vscode-css-language-server
+    - vscode-html-language-server
+    - vscode-json-language-server
+    _preload: true
+    brew:darwin: vscode-langservers-extracted
+    pacman:linux: vscode-langservers-extracted
+    npm:darwin: vscode-langservers-extracted
+    npm:linux: vscode-langservers-extracted
+    npm:windows: vscode-langservers-extracted
   vscodium:
     _name: 'VSCodium                                                                                                                                                                                                  '
     _short: VSCodium is a community-driven, freely-licensed binary distribution of Microsoft's Visual Studio Code.
@@ -11827,7 +11901,6 @@ softwarePackages:
     _bin: w3m
     _home: https://tracker.debian.org/pkg/w3m
     _docs: https://w3m.sourceforge.net/MANUAL
-    _preload: true
     brew: w3m
     apt: w3m
     dnf: w3m
@@ -12419,6 +12492,18 @@ softwarePackages:
     choco: xz
     scoop: xz
     apk: xz
+  yaml-language-server:
+    _name: YAML Language Server
+    _short: yaml-language-server is a Language Server Protocol implementation for YAML files developed by Red Hat.
+    _desc: Language Server for YAML files supporting JSON Schema validation, hover documentation, autocompletion, and diagnostics for coding agents and editors.
+    _github: https://github.com/redhat-developer/yaml-language-server
+    _bin: yaml-language-server
+    _preload: true
+    brew:darwin: yaml-language-server
+    pacman:linux: yaml-language-server
+    npm:darwin: yaml-language-server
+    npm:linux: yaml-language-server
+    npm:windows: yaml-language-server
   yamllint:
     _name: yamllint
     _short: yamllint is a tool for checking YAML files for syntax errors and adherence to best practices.

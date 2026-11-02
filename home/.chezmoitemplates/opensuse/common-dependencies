@@ -1,6 +1,8 @@
 {{- $packages := list
   "age"
   "bash"
+  "clang"
+  "curl"
   "dconf"
   "fuse"
   "fuse-devel"
@@ -12,8 +14,10 @@
   "npm"
   "pkgconf-pkg-config"
   "progress"
+  "ripgrep"
   "rust"
   "sddm"
   "secure-delete"
+  "tmux"
 -}}
 {{- $packages | join " " -}}

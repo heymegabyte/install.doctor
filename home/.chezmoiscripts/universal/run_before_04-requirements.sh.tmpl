@@ -126,7 +126,7 @@ if [ -d /Applications ] && [ -d /System ]; then
     ### Install base formulae one at a time, with per-package retry + cleanup.
     logg 'Installing base Homebrew formulae sequentially'
     INSTALL_FAILED=""
-    for FORMULA in coreutils findutils m-cli age bash expect ffmpeg fzf gawk git-delta glow gnupg go gsed gum htmlq jq mas media-info moreutils m4 node openssh pinentry-mac pipx pkgconf progress python@3.12 python@3.11 rsync ruby rust go-task/tap/go-task volta yarn yq zx; do
+    for FORMULA in coreutils findutils age bash bash-language-server curl expect ffmpeg fzf gawk git git-delta glow gnupg go gopls gsed gum htmlq jq llvm mas media-info moreutils m4 node openssh pinentry-mac pipx pkgconf progress pyright python@3.12 python@3.11 ripgrep rsync ruby rust rust-analyzer go-task/tap/go-task tmux typescript typescript-language-server volta vscode-langservers-extracted yaml-language-server yarn yq zx; do
       brewInstallSafely formula "$FORMULA"
     done
 
@@ -415,5 +415,33 @@ else
         fi
       fi
     done
+  fi
+fi
+
+### Ensure core agent & developer language servers are installed when toolchains are present
+if [ "${INSTALL_DOCTOR_MINIMAL:-0}" != "1" ]; then
+  if command -v npm > /dev/null 2>&1; then
+    for NPM_LSP_SPEC in \
+      "bash-language-server:bash-language-server" \
+      "vscode-css-language-server:vscode-langservers-extracted" \
+      "pyright-langserver:pyright" \
+      "tsc:typescript" \
+      "typescript-language-server:typescript-language-server" \
+      "yaml-language-server:yaml-language-server"; do
+      LSP_BIN="${NPM_LSP_SPEC%%:*}"
+      LSP_PKG="${NPM_LSP_SPEC#*:}"
+      if ! command -v "$LSP_BIN" > /dev/null 2>&1; then
+        gum log -sl info "Installing agent LSP package $LSP_PKG (provides $LSP_BIN) via npm"
+        npm install -g "$LSP_PKG" > /dev/null 2>&1 || gum log -sl warn "Failed to install $LSP_PKG via npm; continuing"
+      fi
+    done
+  fi
+  if command -v go > /dev/null 2>&1 && ! command -v gopls > /dev/null 2>&1; then
+    gum log -sl info "Installing Go language server (gopls) via go install"
+    go install golang.org/x/tools/gopls@latest > /dev/null 2>&1 || gum log -sl warn "Failed to install gopls via go install; continuing"
+  fi
+  if command -v rustup > /dev/null 2>&1 && ! rust-analyzer --version > /dev/null 2>&1; then
+    gum log -sl info "Installing Rust language server (rust-analyzer) via rustup"
+    rustup component add rust-analyzer > /dev/null 2>&1 || gum log -sl warn "Failed to install rust-analyzer via rustup; continuing"
   fi
 fi

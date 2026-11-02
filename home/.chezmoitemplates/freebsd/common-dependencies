@@ -1,5 +1,6 @@
 {{- $packages := list
   "age"
+  "curl"
   "gcc"
   "gcc-c++"
   "git"
@@ -9,5 +10,7 @@
   "nodejs"
   "npm"
   "progress"
+  "ripgrep"
+  "tmux"
 -}}
 {{- $packages | join " " -}}

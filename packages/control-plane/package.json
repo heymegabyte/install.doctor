@@ -6,7 +6,7 @@
   "description": "aid control plane (Phase A skeleton) — Cloudflare Worker + Hono; imports aid-core route contracts. NOT production: /api/ai/v1 returns 501 until provider/ProjectSites wiring lands.",
   "scripts": {
     "check": "npx --yes wrangler deploy --dry-run --outdir dist",
-    "test": "node --test test/control-plane.test.mjs",
+    "test": "npm run check && node --test test/control-plane.test.mjs",
     "dev": "npx --yes wrangler dev",
     "deploy": "npx --yes wrangler deploy"
   },

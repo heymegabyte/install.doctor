@@ -75,6 +75,12 @@ for t in gum jq yq chezmoi mise zsh git curl; do
   is_pre "$t" && pass "bootstrap dep preloaded: $t" || fail "bootstrap dep NOT preloaded: $t (scripts depend on it at provision time)"
 done
 
+# 2b. coding-agent & developer workstation tools + LSP servers (Git, Ripgrep, curl, Node.js/npm, tmux,
+#     Bash/C++/CSS/Go/HTML/JSON/Python/Rust/TypeScript/YAML language servers).
+for t in git ripgrep curl node tmux bash-language-server clangd vscode-langservers-extracted gopls pyright rust-analyzer typescript typescript-language-server yaml-language-server; do
+  is_pre "$t" && pass "agent dev/LSP tool preloaded: $t" || fail "agent dev/LSP tool NOT preloaded: $t"
+done
+
 # 3. no §6/§7-removed tool is preloaded (dead eager installs). m-cli no-ops on macOS 15+ (§6); the others are dropped.
 rmfail=""
 for t in m-cli whalebrew macfuse mackup antigen gvisor bash-it nix macports; do
