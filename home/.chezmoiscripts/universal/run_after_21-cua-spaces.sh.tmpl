@@ -43,10 +43,16 @@ case "${OSTYPE:-}" in
     ;;
 esac
 
-### Graphical-session gate (Linux) — a headless server has no DISPLAY/WAYLAND_DISPLAY
+### Graphical-session gate (Linux) — check DISPLAY/WAYLAND_DISPLAY first, then active/configured
+### desktop sessions so provisioning over SSH still detects a real desktop host.
 if [ "$CUA_OS" = 'linux' ] && [ -z "${DISPLAY:-}" ] && [ -z "${WAYLAND_DISPLAY:-}" ]; then
-  log 'No graphical session (DISPLAY/WAYLAND_DISPLAY unset) — skipping Cua Spaces (desktop app)'
-  exit 0
+  if ! compgen -G "/run/user/*/wayland-*" >/dev/null 2>&1 \
+    && ! compgen -G "/tmp/.X11-unix/X*" >/dev/null 2>&1 \
+    && ! compgen -G "/usr/share/wayland-sessions/*.desktop" >/dev/null 2>&1 \
+    && ! compgen -G "/usr/share/xsessions/*.desktop" >/dev/null 2>&1; then
+    log 'No graphical session (DISPLAY/WAYLAND_DISPLAY unset and no desktop session present) — skipping Cua Spaces (desktop app)'
+    exit 0
+  fi
 fi
 
 ### RAM gate — require >= 16 GiB

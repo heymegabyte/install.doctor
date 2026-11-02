@@ -66,17 +66,12 @@ allocateSwap() {
 }
 
 # @description
-#     This script imports your publicly hosted GPG key using `pgp.mit.edu` as the key host. It then assigns it
-#     the ultimate trust level. It also downloads and configures GPG to use the configuration defined in `.config.gpg`
-#     in the `home/.chezmoidata.yaml` file.
+#     This script configures GPG permissions, downloads the hardened gpg.conf defined in `.config.gpg`,
+#     and optionally imports `.user.gpg.id` via `hkps://keys.openpgp.org` when configured.
 configureGPG() {
   export KEYID="{{ .user.gpg.id }}"
-  if [ -n "$KEYID" ] && command -v gpg > /dev/null; then
-    if [ ! -d "$HOME/.gnupg" ]; then
-      mkdir "$HOME/.gnupg"
-    fi
-    chown "$(whoami)" "$HOME/.gnupg"
-    chmod 700 "$HOME/.gnupg"
+  if command -v gpg > /dev/null; then
+    mkdir -p "$HOME/.gnupg"
     chown -Rf "$(whoami)" "$HOME/.gnupg/"
     find "$HOME/.gnupg" -type f -exec chmod 600 {} \;
     find "$HOME/.gnupg" -type d -exec chmod 700 {} \;
@@ -85,51 +80,33 @@ configureGPG() {
       curl -sSL --compressed "{{ .config.gpg }}" > "$HOME/.gnupg/gpg.conf"
       chmod 600 "$HOME/.gnupg/gpg.conf"
     fi
-    gum log -sl info 'Killing dirmngr instance and reloading daemon with standard-resolver' && sudo pkill dirmngr || true
-    dirmngr --daemon --standard-resolver
-    KEYID_TRIMMED="$(echo "$KEYID" | sed 's/^0x//')"
-    if ! gpg --list-secret-keys --keyid-format=long | grep "$KEYID_TRIMMED" > /dev/null; then
-      if [ -f "${XDG_DATA_HOME:-$HOME/.local/share}/chezmoi/home/private_dot_gnupg/private_public/private_${KEYID}.asc" ]; then
-        gum log -sl info "Importing GPG key stored in ${XDG_DATA_HOME:-$HOME/.local/share}/chezmoi/home/private_dot_gnupg/private_public/private_${KEYID}.asc since its name matches the GPG key ID in .chezmoi.yaml.tmpl"
-        gpg --import "${XDG_DATA_HOME:-$HOME/.local/share}/chezmoi/home/private_dot_gnupg/private_public/private_${KEYID}.asc" && gum log -sl info 'Successfully imported master GPG key'
-      else
-        gum log -sl info 'Attempting to download the specified public GPG key ({{ .user.gpg.id }}) from public keyservers'
-        gpg --keyserver https://pgp.mit.edu --recv "$KEYID" || EXIT_CODE=$?
-        if [ -n "$EXIT_CODE" ]; then
-          gum log -sl info 'Non-zero exit code received when downloading public GPG key'
-          gpg --keyserver hkps://pgp.mit.edu --recv "$KEYID" || EXIT_CODE=$?
-          if [ -n "$EXIT_CODE" ]; then
-            gum log -sl info 'Non-zero exit code received when trying to retrieve public user GPG key on hkps://pgp.mit.edu'
-          else
-            gum log -sl info 'Successfully imported configured public user GPG key'
-          fi
+    if [ -n "$KEYID" ]; then
+      KEYID_TRIMMED="$(echo "$KEYID" | sed 's/^0x//')"
+      if ! gpg --list-secret-keys --keyid-format=long 2>/dev/null | grep -q "$KEYID_TRIMMED"; then
+        if [ -f "${XDG_DATA_HOME:-$HOME/.local/share}/chezmoi/home/private_dot_gnupg/private_public/private_${KEYID}.asc" ]; then
+          gpg --import "${XDG_DATA_HOME:-$HOME/.local/share}/chezmoi/home/private_dot_gnupg/private_public/private_${KEYID}.asc" || true
+        else
+          gpg --keyserver hkps://keys.openpgp.org --recv "$KEYID" || true
         fi
       fi
-    else
-      gum log -sl info 'Key is already in keyring'
     fi
-    gum log -sl info 'Stopping dirmngr'
-    gpgconf --kill dirmngr && gum log -sl info 'Stopped dirmngr' || gum log -sl warn 'Failed to stop dirmngr'
-    logg 'Ensuring the trust of the provided public GPG key is set to maximum'
-    echo -e "trust\n5\ny" | gpg --command-fd 0 --edit-key "$KEYID"
-  else
-    gum log -sl warn 'gpg appears to be unavailable. Is it installed and on the PATH?'
   fi
 }
 
-# @description Disable the creation of `.DS_Store` files on macOS.
+# @description Disable the creation of `.DS_Store` files on network and USB volumes on macOS using native `defaults`.
 disableDStoreFileCreation() {
-  if command -v m > /dev/null; then
-    gum log -sl info 'Disabling creation of .DS_Store files'
-    echo y | m dir dsfiles off > /dev/null
+  if [ -d /Applications ] && [ -d /System ]; then
+    gum log -sl info 'Disabling creation of .DS_Store files on network and USB volumes'
+    defaults write com.apple.desktopservices DSDontWriteNetworkStores -bool true 2>/dev/null || true
+    defaults write com.apple.desktopservices DSDontWriteUSBStores -bool true 2>/dev/null || true
   fi
 }
 
-# @description Enables transparent dark-mode on macOS
+# @description Enables dark-mode on macOS using native `defaults`.
 enableDarkTransparentMode() {
-  if command -v m > /dev/null; then
-    gum log -sl info 'Enabling dark mode' && m appearance darkmode YES > /dev/null
-    gum log -sl info 'Enabling theme transparency' && m appearance transparency YES > /dev/null
+  if [ -d /Applications ] && [ -d /System ]; then
+    gum log -sl info 'Enabling macOS dark mode'
+    defaults write NSGlobalDomain AppleInterfaceStyle -string "Dark" 2>/dev/null || true
   fi
 }
 
@@ -184,51 +161,6 @@ ensureNodeInstalled() {
     fi
   else
     logg 'node is available'
-  fi
-}
-
-# @description
-#     This script ensures that there is a group with the same name of the provisioning user available on the system.
-ensureUserGroup() {
-  if [ "{{ .host.distro.family }}" = "darwin" ]; then
-    if [ -n "$USER" ]; then
-      gum log -sl info "Adding the $USER user to the $USER group"
-      ### Ensure user has group of same name (required for Macports)
-      gum log -sl info "Ensuring user ($USER) has a group with the same name ($USER) and that it is a member. Sudo privileges may be required"
-
-      GROUP="$USER"
-      USERNAME="$USER"
-
-      ### Add group
-      sudo dscl . create /Groups/$GROUP
-
-      ### Add GroupID to group
-      if [[ "$(sudo dscl . read /Groups/$GROUP gid 2>&1)" == *'No such key'* ]]; then
-        MAX_ID_GROUP="$(dscl . -list /Groups gid | awk '{print $2}' | sort -ug | tail -1)"
-        GROUP_ID="$((MAX_ID_GROUP+1))"
-        sudo dscl . create /Groups/$GROUP gid "$GROUP_ID"
-      fi
-
-      ### Add user
-      sudo dscl . create /Users/$USERNAME
-
-      ### Add PrimaryGroupID to user
-      if [[ "$(sudo dscl . read /Users/$USERNAME PrimaryGroupID 2>&1)" == *'No such key'* ]]; then
-        sudo dscl . create /Users/$USERNAME PrimaryGroupID 20
-      fi
-
-      ### Add UniqueID to user
-      if [[ "$(sudo dscl . read /Users/$USERNAME UniqueID 2>&1)" == *'No such key'* ]]; then
-        MAX_ID_USER="$(dscl . -list /Users UniqueID | awk '{print $2}' | sort -ug | tail -1)"
-        USER_ID="$((MAX_ID_USER+1))"
-        sudo dscl . create /Users/$USERNAME UniqueID "$USER_ID"
-      fi
-
-      ### Add user to group
-      sudo dseditgroup -o edit -t user -a "$USERNAME" "$GROUP"
-    else
-      gum log -sl warn 'The USER environment variable is unavailable'
-    fi
   fi
 }
 
@@ -537,20 +469,13 @@ setHostname() {
 #     ### Error:-99 File:/AppleInternal/Library/BuildRoots/0032d1ee-80fd-11ee-8227-6aecfccc70fe/Library/Caches/com.apple.xbs/Sources/Admin/InternetServices.m Line:379
 #     ```
 setNtpServer() {
-  if [ -d /Applications ] && [ -d /System ]; then
-    if command -v m > /dev/null; then
-      ### macOS
-      gum log -sl info 'Turning off setusingnetworktime for 2 seconds' && sudo systemsetup -setusingnetworktime off 2>/dev/null 1>&2
-      sleep 2
-      gum log -sl info 'Re-enabling setusingnetworktime' && sudo systemsetup -setusingnetworktime on 2>/dev/null 1>&2
-    else
-      gum log -sl warn 'Skipped setting the NTP server'
-    fi
+  if [ -d /Applications ] && [ -d /System ] && command -v systemsetup > /dev/null; then
+    gum log -sl info 'Enabling macOS network time sync via systemsetup'
+    sudo systemsetup -setusingnetworktime on 2>/dev/null 1>&2 || true
   fi
 }
 
-# @description Sets the system timezone using `timedatectl` on Linux and `m` on macOS. If neither commands are available
-#     then a warning message is printed.
+# @description Sets the system timezone using `timedatectl` on Linux and `systemsetup` on macOS.
 setTimezone() {
   if command -v timedatectl > /dev/null; then
     ### Linux
@@ -564,39 +489,9 @@ setTimezone() {
   fi
 }
 
-# @description Configures macOS to enable the notification center. `&> /dev/null` was added to the command
-#     because the following useless error was being reported:
-#
-#     ```shell
-#     Load failed: 5: Input/output error
-#     Try running `launchctl bootstrap` as root for richer errors.
-#     Restart your computer for this to take effect
-#     ```
-showNotificationCenter() {
-  if command -v m > /dev/null; then
-    gum log -sl info 'Configuring macOS to show notification center' && m notification showcenter YES &> /dev/null
-  fi
-}
-
-installShellGPT() {
-  if command -v pipx > /dev/null; then
-    if command -v sgpt > /dev/null; then
-      gum log -sl info "sgpt is already installed"
-    else
-      gum log -sl info "Installing sgpt via pipx" && pipx install shell-gpt
-    fi
-  else
-    gum log -sl warn "Unable to install sgpt because pipx is unavailable"
-  fi
-}
-
 installBrewPackages() {
   ensureNodeInstalled
   ensureDeltaInstalled
-  ensureBrewPackageInstalled "volta"
-  volta install node@latest &
-  volta install yarn@latest &
-  npm install --no-progress -g npm@latest &
   ensureBrewPackageInstalled "pipx"
   pipx ensurepath &
   ensureBrewPackageInstalled "gh"
@@ -605,7 +500,7 @@ installBrewPackages() {
   ensureBrewPackageInstalled "rustup"
   ensureBrewPackageInstalled "zx"
   wait
-  gum log -sl info 'Finished installing auxilary Homebrew packages'
+  gum log -sl info 'Finished installing auxiliary Homebrew packages'
 }
 
 setupSnap() {
@@ -639,99 +534,19 @@ rustUpInit() {
   fi
 }
 
-zapInstall() {
-  if [ ! -d /Applications ] && [ ! -d /System ]; then
-    if ! command -v zap > /dev/null; then
-      ### Architecture
-      if [ -z ${ARCH+x} ]; then
-	      MACHINE_ARCH="$(uname -m)"
-	      if [ "$MACHINE_ARCH" = "amd64" ]; then
-	  	    ARCH="amd64"
-        elif [ "$MACHINE_ARCH" = "x86_64" ]; then
-          ARCH="amd64"
-	      elif [ "$MACHINE_ARCH" = "i386" ]; then
-	  	    ARCH="386"
-	      elif [ "$MACHINE_ARCH" = "i686" ]; then
-	  	    ARCH="386" # both are 32bit, should be compatible
-	      elif [ "$MACHINE_ARCH" = "aarch64" ]; then
-	  	    ARCH="arm64"
-	      elif [ "$MACHINE_ARCH" = "arm64" ]; then
-	  	    ARCH="arm64"
-	      elif [ "$MACHINE_ARCH" = "arm" ]; then
-	  	    ARCH="arm"
-	      fi
-        export ARCH
-      fi
-      gum log -sl info 'Downloading zap to /usr/local/bin/zap' && sudo curl -sSL --output /usr/local/bin/zap "https://github.com/srevinsaju/zap/releases/download/continuous/zap-${ARCH}"
-      gum log -sl info 'Making /usr/local/bin/zap executable' && sudo chmod +x /usr/local/bin/zap
-    fi
-  fi
-}
-
 addFlathub() {
   if command -v flatpak > /dev/null; then
     gum log -sl info 'Adding flatpak flathub repository' && sudo flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
   fi
 }
 
-installXcode() {
-  if [ -d /Applications ] && [ -d /System ]; then
-    if [ ! -d /Applications/Xcode.app ]; then
-      gum log -sl info 'Installing Xcode via mas - the installation will timeout after 40 minutes if Apple account is not signed into'
-      timeout 2400 mas install 497799835 || MAS_EXIT_CODE=$?
-      if [ -n "$MAS_EXIT_CODE" ]; then
-        gum log -sl error 'Failed to install Xcode'
-      else
-        if command -v xcodebuild > /dev/null; then
-          logg info 'Accepting licenses and warming up with sudo xcodebuild -runFirstLaunch'
-          logg info 'Running xcodebuild -license accept'
-          sudo xcodebuild -license accept
-          logg info 'Running sudo xcodebuild -runFirstLaunch'
-          sudo xcodebuild -runFirstLaunch
-        else
-          logg warn 'xcodebuild is not available'
-        fi
-      fi
-    else
-      gum log -sl info 'Xcode is already installed'
-    fi
-  fi
-}
-
-rustUpFix() {
-  if command -v rustup > /dev/null; then
-    logg info 'Running rustup default stable because unsure which Rust library are used on some systems'
-    rustup default stable
-  fi
-}
-
-setupLinuxHomebrewFonts() {
-  if [ ! -d /Applications ] && [ ! -d /System ]; then
-    gum log -sl info 'Tapping homebrew/linux-fonts' && brew tap homebrew/linux-fonts
-    # if [ ! -L "/usr/local/share/fonts" ]; then
-    #   gum log -sl info 'Symlinking linuxbrew/share/fonts to /usr/local/share'
-    #   sudo ln -s /home/linuxbrew/.linuxbrew/share/fonts -t /usr/local/share
-    # else
-    #   gum log -sl info '/home/linuxbrew/.linuxbrew/share/fonts already symlinked to /usr/local/share'
-    # fi
-
-    if command -v fc-cache > /dev/null; then
-      gum log -sl info 'Running sudo fc-cache -fv' && sudo fc-cache -fv > /dev/null
-    else
-      gum log -sl warn 'fc-cache binary not available for setting up Linux Homebrew fonts'
-    fi
-  fi
-}
-
 if [ -n "$DEBUG" ] || [ -n "$DEBUG_MODE" ]; then
   gum log -sl info 'The DEBUG or DEBUG_MODE environment variable is set so preliminary system tweaks will be run synchronously'
-  installXcode
   addFlathub
   allocateSwap
   configureGPG
   disableDStoreFileCreation
   enableDarkTransparentMode
-  ensureUserGroup
   increaseMapCount
   installBrewPackages
   installDocker
@@ -744,24 +559,16 @@ if [ -n "$DEBUG" ] || [ -n "$DEBUG_MODE" ]; then
   setNtpServer
   setTimezone
   setupSnap
-  showNotificationCenter
-  zapInstall
-  installShellGPT
-  setupLinuxHomebrewFonts
-  rustUpFix
 else
   installBrewPackages
-  installXcode &
   addFlathub &
   allocateSwap &
   configureGPG &
   disableDStoreFileCreation &
   enableDarkTransparentMode &
-  ensureUserGroup &
   increaseMapCount &
   installDocker &
   installJumpCloud &
-  installShellGPT &
   installSystemPips &
   installYay &
   removeLinuxBloatware &
@@ -770,10 +577,6 @@ else
   setNtpServer &
   setTimezone &
   setupSnap &
-  showNotificationCenter &
-  zapInstall &
-  setupLinuxHomebrewFonts &
-  rustUpFix &
   wait
 fi
 

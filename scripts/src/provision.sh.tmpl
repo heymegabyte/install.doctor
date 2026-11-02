@@ -585,17 +585,6 @@ postProvision() {
   fi
 }
 
-# @description Installs VIM plugins (outside of Chezmoi because of terminal GUI issues)
-vimPlugins() {
-  if command -v vim > /dev/null; then
-    logg info 'Running vim +CocUpdateSync +qall' && vim +CocUpdateSync +qall >/dev/null 2>&1 &
-    disown
-    logg info "Installing VIM plugins with vim +'PlugInstall --sync' +qall" && vim +'PlugInstall --sync' +qall
-  else
-    logg info 'VIM not in PATH'
-  fi
-}
-
 # @description Creates the install user when running as root so Homebrew/provisioning
 #     can continue under a non-root account. Uses INSTALL_DOCTOR_USER env var if set,
 #     falls back to $SUDO_USER, then $USER, then "install-doctor".
@@ -605,10 +594,9 @@ function ensureInstallUser() {
   if [ "$(id -u)" -eq 0 ]; then
     logg info "You are running as root. Proceeding with user creation."
 
-    # Check if SUDO_PASSWORD is set, if not, set it to "bananas" and export
-    if [ -z "$SUDO_PASSWORD" ]; then
-      logg info "SUDO_PASSWORD is not set. Setting it to 'bananas'."
-      export SUDO_PASSWORD="bananas"
+    if [ -z "${SUDO_PASSWORD:-}" ] && command -v infisical >/dev/null 2>&1 && [ -n "${INFISICAL_TOKEN:-}" ]; then
+      SUDO_PASSWORD="$(infisical secrets get SUDO_PASSWORD --plain --silent 2>/dev/null || true)"
+      export SUDO_PASSWORD
     fi
 
     # Check if the install user exists
@@ -634,11 +622,12 @@ function ensureInstallUser() {
         exit 1
       fi
 
-      # Set the password for the install user
-      logg info "Setting a password for '$INSTALL_USER'..."
-      echo "$INSTALL_USER:$SUDO_PASSWORD" | chpasswd 2>/dev/null || \
-      (echo "$SUDO_PASSWORD" | passwd --stdin "$INSTALL_USER" 2>/dev/null || \
-      (echo "$SUDO_PASSWORD" | dscl . -passwd "/Users/$INSTALL_USER" "$SUDO_PASSWORD" 2>/dev/null))
+      if [ -n "${SUDO_PASSWORD:-}" ]; then
+        logg info "Setting a password for '$INSTALL_USER'..."
+        echo "$INSTALL_USER:$SUDO_PASSWORD" | chpasswd 2>/dev/null || \
+        (echo "$SUDO_PASSWORD" | passwd --stdin "$INSTALL_USER" 2>/dev/null || \
+        (echo "$SUDO_PASSWORD" | dscl . -passwd "/Users/$INSTALL_USER" "$SUDO_PASSWORD" 2>/dev/null))
+      fi
 
       # Grant sudo privileges to the install user
       logg info "Granting sudo privileges to '$INSTALL_USER'..."
@@ -653,7 +642,9 @@ function ensureInstallUser() {
 
     # Switch to the install user to continue the script
     logg warn "Exporting environment variables to /tmp/env_vars.sh"
+    umask 077
     export -p > /tmp/env_vars.sh
+    chmod 0600 /tmp/env_vars.sh
     chown "$INSTALL_USER" /tmp/env_vars.sh
     logg info "Running source /tmp/env_vars.sh && rm -f /tmp/env_vars.sh && bash <(curl -sSL https://install.doctor/start) with the $INSTALL_USER user"
     su - "$INSTALL_USER" -c "source /tmp/env_vars.sh && rm -f /tmp/env_vars.sh && export HOME='/home/$INSTALL_USER' && export USER='$INSTALL_USER' && cd /home/$INSTALL_USER && bash <(curl -sSL https://install.doctor/start)"
@@ -684,9 +675,9 @@ provisionLogic() {
   logg info "Installing Homebrew packages" && ensureHomebrewDeps
   logg info "Handling Qubes dom0 logic (if applicable)" && handleQubesDom0
   logg info "Handling pre-provision logic" && initChezmoiAndPrompt
+  export INSTALL_DOCTOR_PROVISION_BOOTSTRAPPED=1
   logg info "Running the Chezmoi provisioning" && runChezmoi
   logg info "Ensuring temporary passwordless sudo is removed" && removePasswordlessSudo
-  logg info "Running post-install VIM plugin installations" && vimPlugins
   logg info "Determing whether or not reboot" && handleRequiredReboot
   logg info "Handling post-provision logic" && postProvision
 }

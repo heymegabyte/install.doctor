@@ -1,5 +1,16 @@
 #!/usr/bin/env bash
-# @file `compress-image`
-# @brief Compresses images with tinypng
+# @file Compress Image
+# @brief Compresses images using TinyPNG API key retrieved via Infisical / get-secret or chezmoi config
 
-tinypng -k "$(yq '.data.user.tinypngKey' "${XDG_CONFIG_HOME:-$HOME/.config}/chezmoi/chezmoi.yaml")" $*
+set -euo pipefail
+TINYPNG_KEY=""
+if command -v get-secret > /dev/null 2>&1 && get-secret --exists TINYPNG_API_KEY > /dev/null 2>&1; then
+  TINYPNG_KEY="$(get-secret TINYPNG_API_KEY)"
+elif [ -f "${XDG_CONFIG_HOME:-$HOME/.config}/chezmoi/chezmoi.yaml" ] && command -v yq > /dev/null 2>&1; then
+  TINYPNG_KEY="$(yq '.data.user.tinypngKey' "${XDG_CONFIG_HOME:-$HOME/.config}/chezmoi/chezmoi.yaml" 2> /dev/null || true)"
+fi
+if [ -z "$TINYPNG_KEY" ] || [ "$TINYPNG_KEY" = "null" ]; then
+  echo "TINYPNG_API_KEY is not configured in Infisical or chezmoi.yaml" >&2
+  exit 1
+fi
+tinypng -k "$TINYPNG_KEY" "$@"

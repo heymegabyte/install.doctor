@@ -959,14 +959,6 @@ initChezmoiAndPrompt() {
   fi
 }
 
-# @description When a reboot is triggered by softwareupdate on macOS, other utilities that require
-#     a reboot are also installed to save on reboots. macfuse was dropped (EOL'd in favor of
-#     FUSE-T / Mounty and consistently breaks on new macOS kernel-extension rules), so this is
-#     a no-op for now. Add reboot-bundled installs here when needed.
-beforeRebootDarwin() {
-  :
-}
-
 # @description Runs `chezmoi apply` with appropriate flags and logging.
 #     - Logs output to `$HOME/.local/var/log/install.doctor/chezmoi-apply-<timestamp>.log`
 #     - Adds the `--force` flag when `HEADLESS_INSTALL` is set (skips all chezmoi prompts)
@@ -1044,7 +1036,6 @@ runChezmoi() {
 
   ### Handle exit codes in log
   if [ -f "$LOG_FILE" ] && grep -q 'chezmoi: exit status 140' "$LOG_FILE"; then
-    beforeRebootDarwin
     logg info "Chezmoi signalled that a reboot is necessary to apply a system update"
     if [ "${NO_RESTART:-}" = "true" ] || [ -n "${HEADLESS_INSTALL:-}" ]; then
       logg warn "NO_RESTART or HEADLESS_INSTALL is set — skipping softwareupdate reboot"
@@ -1073,6 +1064,7 @@ removePasswordlessSudo() {
   else
     sudo sed -i '/# TEMPORARY FOR INSTALL DOCTOR/d' /etc/sudoers || logg warn 'Failed to remove passwordless sudo from the /etc/sudoers file'
   fi
+  sudo rm -f /etc/sudoers.d/install-doctor 2>/dev/null || true
   ### Drop the passwordless-sudo marker so a future re-run of the script
   ### re-evaluates from scratch.
   rm -f /tmp/install-doctor-passwordless-sudo
@@ -1086,30 +1078,23 @@ postProvision() {
   fi
 }
 
-# @description Installs VIM plugins (outside of Chezmoi because of terminal GUI issues)
-vimPlugins() {
-  if command -v vim > /dev/null; then
-    logg info 'Running vim +CocUpdateSync +qall' && vim +CocUpdateSync +qall >/dev/null 2>&1 &
-    disown
-    logg info "Installing VIM plugins with vim +'PlugInstall --sync' +qall" && vim +'PlugInstall --sync' +qall
-  else
-    logg info 'VIM not in PATH'
-  fi
-}
-
 # @description Creates the install user when running as root so Homebrew/provisioning
 #     can continue under a non-root account. Uses INSTALL_DOCTOR_USER env var if set,
 #     falls back to $SUDO_USER, then $USER, then "install-doctor".
 function ensureInstallUser() {
   local INSTALL_USER="${INSTALL_DOCTOR_USER:-${SUDO_USER:-${USER:-install-doctor}}}"
+  local USER_HOME_DIR="/home/$INSTALL_USER"
+  if [ "$(detect_os)" = "macos" ]; then
+    USER_HOME_DIR="/Users/$INSTALL_USER"
+  fi
   # Check if the script is running as root
   if [ "$(id -u)" -eq 0 ]; then
     logg info "You are running as root. Proceeding with user creation."
 
-    # Check if SUDO_PASSWORD is set, if not, set it to "bananas" and export
-    if [ -z "$SUDO_PASSWORD" ]; then
-      logg info "SUDO_PASSWORD is not set. Setting it to 'bananas'."
-      export SUDO_PASSWORD="bananas"
+    # Resolve SUDO_PASSWORD from Infisical when available (never fall back to a hardcoded default password)
+    if [ -z "${SUDO_PASSWORD:-}" ] && command -v infisical >/dev/null 2>&1 && [ -n "${INFISICAL_TOKEN:-}" ]; then
+      SUDO_PASSWORD="$(infisical secrets get SUDO_PASSWORD --plain --silent 2>/dev/null || true)"
+      export SUDO_PASSWORD
     fi
 
     # Check if the install user exists
@@ -1119,10 +1104,8 @@ function ensureInstallUser() {
       # Create a new user
       logg info "Creating user '$INSTALL_USER'..."
       if command -v useradd &>/dev/null; then
-        # For Linux distributions
         useradd -m -s /bin/bash "$INSTALL_USER"
       elif command -v dscl &>/dev/null; then
-        # For macOS
         dscl . -create "/Users/$INSTALL_USER"
         dscl . -create "/Users/$INSTALL_USER" UserShell /bin/bash
         NEW_UID="$(dscl . -list /Users UniqueID | awk '{print $2}' | sort -n | tail -1)"
@@ -1136,29 +1119,34 @@ function ensureInstallUser() {
         exit 1
       fi
 
-      # Set the password for the install user
-      logg info "Setting a password for '$INSTALL_USER'..."
-      echo "$INSTALL_USER:$SUDO_PASSWORD" | chpasswd 2>/dev/null || \
-      (echo "$SUDO_PASSWORD" | passwd --stdin "$INSTALL_USER" 2>/dev/null || \
-      (echo "$SUDO_PASSWORD" | dscl . -passwd "/Users/$INSTALL_USER" "$SUDO_PASSWORD" 2>/dev/null))
+      if [ -n "${SUDO_PASSWORD:-}" ]; then
+        logg info "Setting Infisical/env password for '$INSTALL_USER'..."
+        echo "$INSTALL_USER:$SUDO_PASSWORD" | chpasswd 2>/dev/null || \
+        (echo "$SUDO_PASSWORD" | passwd --stdin "$INSTALL_USER" 2>/dev/null || \
+        (echo "$SUDO_PASSWORD" | dscl . -passwd "/Users/$INSTALL_USER" "$SUDO_PASSWORD" 2>/dev/null))
+      fi
 
       # Grant sudo privileges to the install user
       logg info "Granting sudo privileges to '$INSTALL_USER'..."
       if command -v usermod &>/dev/null; then
-        usermod -aG sudo "$INSTALL_USER"
+        usermod -aG sudo "$INSTALL_USER" 2>/dev/null || usermod -aG wheel "$INSTALL_USER" 2>/dev/null || true
       elif command -v dseditgroup &>/dev/null; then
         dseditgroup -o edit -a "$INSTALL_USER" -t user admin
-      else
-        logg info "Unable to grant sudo privileges. Continuing anyway."
+      fi
+      if [ -d /etc/sudoers.d ]; then
+        printf '%s ALL=(ALL) NOPASSWD:ALL # TEMPORARY FOR INSTALL DOCTOR\n' "$INSTALL_USER" > /etc/sudoers.d/install-doctor
+        chmod 0440 /etc/sudoers.d/install-doctor
       fi
     fi
 
     # Switch to the install user to continue the script
     logg warn "Exporting environment variables to /tmp/env_vars.sh"
+    umask 077
     export -p > /tmp/env_vars.sh
+    chmod 0600 /tmp/env_vars.sh
     chown "$INSTALL_USER" /tmp/env_vars.sh
     logg info "Running source /tmp/env_vars.sh && rm -f /tmp/env_vars.sh && bash <(curl -sSL https://install.doctor/start) with the $INSTALL_USER user"
-    su - "$INSTALL_USER" -c "source /tmp/env_vars.sh && rm -f /tmp/env_vars.sh && export HOME='/home/$INSTALL_USER' && export USER='$INSTALL_USER' && cd /home/$INSTALL_USER && bash <(curl -sSL https://install.doctor/start)"
+    su - "$INSTALL_USER" -c "source /tmp/env_vars.sh && rm -f /tmp/env_vars.sh && export HOME='$USER_HOME_DIR' && export USER='$INSTALL_USER' && cd '$USER_HOME_DIR' && bash <(curl -sSL https://install.doctor/start)"
     exit 0
   else
     logg info "You are not running as root. Proceeding with the current user."
@@ -1166,24 +1154,6 @@ function ensureInstallUser() {
 }
 
 # @description Main orchestration function that defines the execution order of all provisioning steps.
-#     This function is the primary entry point and runs the following steps in order:
-#
-#     1. **User Setup** - Creates a non-root user if running as root (required for Homebrew)
-#     2. **Environment Setup** - Loads Homebrew, sets environment variables, configures CI defaults
-#     3. **Input Collection** - Prompts the user up front for the sudo password (and anything else
-#        the script needs) so the rest of the run can proceed unattended
-#     4. **Network Preparation** - Disconnects WARP VPN to prevent conflicts during provisioning
-#     5. **Sudo Setup** - Temporarily grants passwordless sudo (with timeout, auto-skips on failure)
-#     6. **Dependencies** - Installs basic system dependencies (curl, git, etc.)
-#     7. **Repository** - Clones or updates the Install Doctor source repository
-#     8. **macOS Setup** - Ensures full disk access and imports CloudFlare certificates (macOS only)
-#     9. **Homebrew** - Ensures Homebrew is installed and installs required brew packages
-#     10. **Qubes** - Handles Qubes dom0 provisioning if applicable
-#     11. **Chezmoi Init** - Initializes Chezmoi configuration and prompts for settings
-#     12. **Chezmoi Apply** - Runs the main provisioning via `chezmoi apply`
-#     13. **Cleanup** - Removes temporary passwordless sudo, installs VIM plugins
-#     14. **Reboot Check** - Reboots the system if required by updates
-#     15. **Post-Install** - Displays post-installation instructions
 provisionLogic() {
   logg info "Ensuring script is not run with root" && ensureInstallUser
   logg info "Attempting to load Homebrew" && loadHomebrew
@@ -1204,9 +1174,9 @@ provisionLogic() {
   logg info "Installing Homebrew packages" && ensureHomebrewDeps
   logg info "Handling Qubes dom0 logic (if applicable)" && handleQubesDom0
   logg info "Handling pre-provision logic" && initChezmoiAndPrompt
+  export INSTALL_DOCTOR_PROVISION_BOOTSTRAPPED=1
   logg info "Running the Chezmoi provisioning" && runChezmoi
   logg info "Ensuring temporary passwordless sudo is removed" && removePasswordlessSudo
-  logg info "Running post-install VIM plugin installations" && vimPlugins
   logg info "Determining whether or not to reboot" && handleRequiredReboot
   logg info "Handling post-provision logic" && postProvision
 }

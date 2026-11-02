@@ -1,0 +1,113 @@
+#!/usr/bin/env bash
+# @file Secure Infisical-Backed Desktop Autologin
+# @brief Configures macOS (/etc/kcpassword + loginwindow) and Linux (GDM3/LightDM/SDDM) to boot into an unlocked desktop using a secret retrieved from Infisical Vault.
+
+set -euo pipefail
+
+log_info() {
+  if command -v gum > /dev/null 2>&1; then
+    gum log -sl info "$*"
+  else
+    printf '[INFO] %s\n' "$*"
+  fi
+}
+
+log_warn() {
+  if command -v gum > /dev/null 2>&1; then
+    gum log -sl warn "$*"
+  else
+    printf '[WARN] %s\n' "$*" >&2
+  fi
+}
+
+resolve_autologin_secret() {
+  local secret=""
+  if command -v infisical > /dev/null 2>&1 && [ -n "${INFISICAL_TOKEN:-}" ]; then
+    secret="$(infisical secrets get DESKTOP_AUTOLOGIN_PASSWORD --plain --silent 2> /dev/null || infisical secrets get SUDO_PASSWORD --plain --silent 2> /dev/null || true)"
+  fi
+  if [ -z "$secret" ] && command -v get-secret > /dev/null 2>&1; then
+    if get-secret --exists DESKTOP_AUTOLOGIN_PASSWORD > /dev/null 2>&1; then
+      secret="$(get-secret DESKTOP_AUTOLOGIN_PASSWORD 2> /dev/null || true)"
+    elif get-secret --exists SUDO_PASSWORD > /dev/null 2>&1; then
+      secret="$(get-secret SUDO_PASSWORD 2> /dev/null || true)"
+    fi
+  fi
+  if [ -z "$secret" ]; then
+    secret="${DESKTOP_AUTOLOGIN_PASSWORD:-${SUDO_PASSWORD:-}}"
+  fi
+  printf '%s' "$secret"
+}
+
+enable_macos_autologin() {
+  local target_user="${1:-${USER:-$(id -un)}}"
+  local pw=""
+  pw="$(resolve_autologin_secret)"
+  if [ -z "$pw" ]; then
+    log_warn "No DESKTOP_AUTOLOGIN_PASSWORD or SUDO_PASSWORD found in Infisical/vault; skipping macOS /etc/kcpassword autologin"
+    return 0
+  fi
+  if ! command -v python3 > /dev/null 2>&1; then
+    log_warn "python3 is required to encode /etc/kcpassword without third-party binaries"
+    return 0
+  fi
+  log_info "Encoding /etc/kcpassword in memory for user '$target_user' via Infisical secret (0600 root:wheel)"
+  printf '%s' "$pw" | python3 -c '
+import sys
+key = [0x7D, 0x89, 0x52, 0x23, 0xD2, 0xBC, 0xDD, 0xEA, 0xA3, 0xB9, 0x1F]
+pw = list(sys.stdin.buffer.read()) + [0]
+while len(pw) % 12 != 0:
+    pw.append(0)
+out = bytes(b ^ key[i % len(key)] for i, b in enumerate(pw))
+sys.stdout.buffer.write(out)
+' | sudo tee /etc/kcpassword > /dev/null
+  sudo chown root:wheel /etc/kcpassword
+  sudo chmod 0600 /etc/kcpassword
+  sudo defaults write /Library/Preferences/com.apple.loginwindow autoLoginUser -string "$target_user"
+  log_info "Configured macOS unlocked desktop autologin for '$target_user'"
+}
+
+enable_linux_autologin() {
+  local target_user="${1:-${USER:-$(id -un)}}"
+  # GDM3 / GDM
+  for gdm_conf in /etc/gdm3/custom.conf /etc/gdm/custom.conf; do
+    if [ -f "$gdm_conf" ]; then
+      log_info "Configuring GDM unlocked desktop autologin in $gdm_conf for '$target_user'"
+      sudo sed -i '/^AutomaticLoginEnable=/d;/^AutomaticLogin=/d' "$gdm_conf"
+      sudo sed -i "/\[daemon\]/a AutomaticLoginEnable=true\nAutomaticLogin=${target_user}" "$gdm_conf"
+    fi
+  done
+  # LightDM
+  if [ -d /etc/lightdm ]; then
+    log_info "Configuring LightDM unlocked desktop autologin for '$target_user'"
+    sudo mkdir -p /etc/lightdm/lightdm.conf.d
+    printf '[Seat:*]\nautologin-user=%s\nautologin-user-timeout=0\n' "$target_user" | sudo tee /etc/lightdm/lightdm.conf.d/50-install-doctor-autologin.conf > /dev/null
+  fi
+  # SDDM
+  if [ -d /etc/sddm.conf.d ] || command -v sddm > /dev/null 2>&1; then
+    log_info "Configuring SDDM unlocked desktop autologin for '$target_user'"
+    sudo mkdir -p /etc/sddm.conf.d
+    printf '[Autologin]\nUser=%s\nRelogin=true\n' "$target_user" | sudo tee /etc/sddm.conf.d/install-doctor-autologin.conf > /dev/null
+  fi
+}
+
+disable_autologin() {
+  if [ -d /Applications ] && [ -d /System ]; then
+    sudo rm -f /etc/kcpassword
+    sudo defaults delete /Library/Preferences/com.apple.loginwindow autoLoginUser 2> /dev/null || true
+    log_info "Disabled macOS desktop autologin and removed /etc/kcpassword"
+  else
+    sudo rm -f /etc/lightdm/lightdm.conf.d/50-install-doctor-autologin.conf /etc/sddm.conf.d/install-doctor-autologin.conf
+    for gdm_conf in /etc/gdm3/custom.conf /etc/gdm/custom.conf; do
+      [ -f "$gdm_conf" ] && sudo sed -i '/^AutomaticLoginEnable=/d;/^AutomaticLogin=/d' "$gdm_conf"
+    done
+    log_info "Disabled Linux desktop autologin"
+  fi
+}
+
+if [ "${1:-}" = "--disable" ]; then
+  disable_autologin
+elif [ -d /Applications ] && [ -d /System ]; then
+  enable_macos_autologin "${1:-}"
+else
+  enable_linux_autologin "${1:-}"
+fi

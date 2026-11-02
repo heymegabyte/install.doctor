@@ -485,6 +485,47 @@ should_provision_desktop() {
 }
 
 # ---------------------------------------------------------------------------
+# has_configured_desktop — detects whether a host has a real configured desktop
+# even when provisioning runs over a headless SSH shell (where DISPLAY and
+# WAYLAND_DISPLAY are unset in the SSH environment).
+# Returns 0 if a desktop exists, 1 on genuinely headless servers/containers.
+# ---------------------------------------------------------------------------
+has_configured_desktop() {
+  [ "${HEADLESS_INSTALL:-}" = "true" ] || [ "${HEADLESS_INSTALL:-}" = "1" ] && return 1
+  [ "$(detect_env_class)" = "container" ] && return 1
+  local os role
+  os="$(detect_os)"
+  role="$(detect_role)"
+  case "$os:$role" in
+    proxmox:*|*:proxmox|*:coolify|qubes-dom0:*|alpine:*) return 1 ;;
+  esac
+  if [ "$os" = "macos" ]; then
+    [ -d "/System/Library/CoreServices/Finder.app" ] || [ -d "/Applications" ]
+    return $?
+  fi
+  if [ "$(detect_graphical_session)" != "headless" ]; then
+    return 0
+  fi
+  # Running over SSH on Linux: inspect active display sockets, loginctl sessions, or installed session files
+  if compgen -G "/run/user/*/wayland-*" >/dev/null 2>&1 || compgen -G "/tmp/.X11-unix/X*" >/dev/null 2>&1; then
+    return 0
+  fi
+  if command -v loginctl >/dev/null 2>&1; then
+    local sid stype
+    for sid in $(loginctl list-sessions --no-legend 2>/dev/null | awk '{print $1}'); do
+      stype="$(loginctl show-session "$sid" -p Type --value 2>/dev/null || true)"
+      if [ "$stype" = "wayland" ] || [ "$stype" = "x11" ]; then
+        return 0
+      fi
+    done
+  fi
+  if compgen -G "/usr/share/wayland-sessions/*.desktop" >/dev/null 2>&1 || compgen -G "/usr/share/xsessions/*.desktop" >/dev/null 2>&1; then
+    return 0
+  fi
+  return 1
+}
+
+# ---------------------------------------------------------------------------
 # should_skip_reboot — the 2nd CAPABILITY ADAPTER (A5), CONSUMES detect_env_class
 # (#166) to answer "can this host safely reboot to finish provisioning?" instead
 # of scattering env-class conditionals at every reboot site. Returns 0 (SKIP the

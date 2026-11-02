@@ -1,4 +1,9 @@
 {
+  "executable_post-ollama.sh": {
+    "status": "sanctioned",
+    "pattern": "curl -fsSL https://ollama.com/install.sh | $SUDO sh  (official Ollama Linux installer)",
+    "reason": "Official Ollama Linux installer (https://ollama.com/install.sh) used only on Linux hosts when an active NVIDIA GPU is detected (or OLLAMA_ALLOW_LINUX_CPU=1 is explicitly set), with the systemd service immediately locked to 127.0.0.1:11434."
+  },
   "run_after_21-cua-spaces.sh.tmpl": {
     "status": "sanctioned",
     "pattern": "curl -fsSL https://cua.ai/install.sh | sh  (official cua.ai installer)",

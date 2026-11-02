@@ -8,183 +8,6 @@
 {{ includeTemplate "universal/profile" }}
 {{ includeTemplate "universal/logg" }}
 
-# @description Performs various tasks related to integrating the Sweet icon theme that is part of our Betelgeuse theme
-candyIconTweaks() {
-  if [ "{{ .host.distro.family }}" = "linux" ]; then
-    ### Merge latest Candy icons into the Betelgeuse icon theme
-    if command -v rsync > /dev/null; then
-      if [ -d "${XDG_DATA_HOME:-$HOME/.local/share}/candy-icons" ] && [ -d /usr/local/share/icons/Candy ]; then
-        sudo rsync --chown=root: --chmod=Du=rwx,Dg=rx,Do=rx,Fu=rw,Fg=r,Fo=r -artu --inplace --exclude .git/ "${XDG_DATA_HOME:-$HOME/.local/share}/candy-icons/" "/usr/local/share/icons/Candy/"
-      else
-        gum log -sl warn 'Skipping synchronization of Candy icons since either the target or destination folder is not present'
-      fi
-    else
-      gum log -sl warn 'rsync is missing from the system!'
-    fi
-
-    ### Additional icons
-    SOURCE_DIR="/usr/local/share/icons/Candy/apps/scalable"
-    TARGET_DIR="/usr/local/share/icons/Candy/apps/scalable"
-    if [ -d "$SOURCE_DIR" ] && [ -d "$TARGET_DIR" ]; then
-      gum log -sl info 'Adding similar substitutes for some apps in the Candy icons theme'
-      if [ -f "$SOURCE_DIR/youtube-dl-gui.svg" ] && [ ! -f "$TARGET_DIR/com.github.Johnn3y.Forklift.svg" ]; then
-        sudo cp -f "$SOURCE_DIR/youtube-dl-gui.svg" "$TARGET_DIR/com.github.Johnn3y.Forklift.svg"
-      fi
-      if [ -f "$SOURCE_DIR/rdm.svg" ] && [ ! -f "$TARGET_DIR/app.resp.RESP.svg" ]; then
-        sudo cp -f "$SOURCE_DIR/rdm.svg" "$TARGET_DIR/app.resp.RESP.svg"
-      fi
-      if [ -f "$SOURCE_DIR/preferences-system-power.svg" ] && [ ! -f "$TARGET_DIR/org.gnome.PowerStats.svg" ]; then
-        sudo cp -f "$SOURCE_DIR/preferences-system-power.svg" "$TARGET_DIR/org.gnome.PowerStats.svg"
-      fi
-      if [ -f "$SOURCE_DIR/software-store.svg" ] && [ ! -f "$TARGET_DIR/software-properties-gtk.svg" ]; then
-        sudo cp -f "$SOURCE_DIR/software-store.svg" "$TARGET_DIR/software-properties-gtk.svg"
-      fi
-      if [ -f "$SOURCE_DIR/preferences-desktop-remote-desktop.svg" ] && [ ! -f "$TARGET_DIR/org.gnome.Connections.svg" ]; then
-        sudo cp -f "$SOURCE_DIR/preferences-desktop-remote-desktop.svg" "$TARGET_DIR/org.gnome.Connections.svg"
-      fi
-      if [ -f "$SOURCE_DIR/com.github.wwmm.pulseeffects.svg" ] && [ ! -f "$TARGET_DIR/com.mattjakeman.ExtensionManager.svg" ]; then
-        sudo cp -f "$SOURCE_DIR/com.github.wwmm.pulseeffects.svg" "$TARGET_DIR/com.mattjakeman.ExtensionManager.svg"
-      fi
-    fi
-
-    ### Icons added to fork (https://github.com/ProfessorManhattan/candy-icons)
-    # These commented out icons already had good matches in the Sweet theme so a fork was created
-    # and a pull request was open for them.
-    # sudo cp -f "$SOURCE_DIR/gitkraken.svg" "$TARGET_DIR/com.axosoft.GitKraken.svg"
-    # sudo cp -f "$SOURCE_DIR/github-desktop.svg" "$TARGET_DIR/io.github.shiftey.Desktop"
-    # sudo cp -f "$SOURCE_DIR/inkscape.svg" "$TARGET_DIR/inkscape_inkscape.desktop"
-    # sudo cp -f "$SOURCE_DIR/cutter.svg" "$TARGET_DIR/re.rizin.cutter.svg"
-    # sudo cp -f "$SOURCE_DIR/arduino.svg" "$TARGET_DIR/cc.arduino.IDE2.svg"
-    # sudo cp -f "$SOURCE_DIR/intellij.svg" "$TARGET_DIR/intellij-idea-community_intellij-idea-community.svg"
-    # sudo cp -f "$SOURCE_DIR/google-chrome.svg" "$TARGET_DIR/com.google.Chrome.svg"
-    # sudo cp -f "$SOURCE_DIR/firefox.svg" "$TARGET_DIR/org.mozilla.firefox.svg"
-    # sudo cp -f "$SOURCE_DIR/microsoft-edge.svg" "$TARGET_DIR/com.microsoft.Edge.svg"
-    # sudo cp -f "$SOURCE_DIR/thunderbird.svg" "$TARGET_DIR/org.mozilla.Thunderbird.svg"
-    # sudo cp -f "$SOURCE_DIR/postman.svg" "$TARGET_DIR/com.getpostman.Postman.svg"
-    # sudo cp -f "$SOURCE_DIR/plexhometheater.svg" "$TARGET_DIR/tv.plex.PlexDesktop.svg"
-    # sudo cp -f "$SOURCE_DIR/seafile.svg" "$TARGET_DIR/com.client.Seafile.svg"
-    # sudo cp -f "$SOURCE_DIR/com.github.gi_lom.dialect.svg" "$TARGET_DIR/app.drey.Dialect.svg"
-    sudo cp -f "$SOURCE_DIR/teamviewer.svg" "$TARGET_DIR/com.teamviewer.TeamViewer.svg"
-    sudo cp -f "$SOURCE_DIR/terminator.svg" "$TARGET_DIR/tabby.svg"
-
-    ### Missing icons
-    # The following applications are missing icons after using the "Full" installer. The application name
-    # is listed. To the right of each hyphen is the name of the `.desktop` file.
-    # Webkit Font Generator -
-    # Lepton - lepton_lepton
-    # scrcpygui
-    # scrcpy - scrcpy_scrcpy
-    # Shotcut - org.shotcut.Shotcut
-    # Kooha - io.github.seadve.Kooha
-    # Lens - kontena-lens_kontena-lens
-    # Proton Mail Bridge - ch.protonmail.protonmail-bridge
-    # Proton Import-Export app - ch.protonmail.protonmail-import-export-app
-    # MQTTX - com.emqx.MQTTX
-    # Mockoon - mockoon_mockoon
-    # PowerShell - powershell_powershell
-    # GNOME Network Displays - org.gnome.NetworkDisplays
-    # Cockpit Client - org.cockpit_project.CockpitClient
-    # Yubico Authenticator - com.yubico.yubioath
-    # OnlyKey App - onlykey-app_onlykey-app
-    # Element - im.riot.Riot
-    # Jitsi Meet - org.jitsi.jitsi-meet
-    # Keybase
-    # Nuclear - org.js.nuclear.Nuclear
-    # Motrix - net.agalwood.Motrix
-    # Raspberry Pi Imager - org.raspberrypi.rpi-imager
-    # Junction - re.sonny.Junction
-    # GNOME Extension Manager - com.mattjakeman.ExtensionManager
-    # Startup Applications
-    # Multipass - multipass_gui
-    # Portmaster - portmaster, portmaster_notifier
-    # GNOME Connections - org.gnome.Connections
-
-    ### Copy Snap desktop links to ~/.local/share/applications to apply custom icons
-    find /var/lib/snapd/desktop/applications -mindepth 1 -maxdepth 1 -name "*.desktop" | while read DESKTOP_FILE; do
-      DESKTOP_FILE_BASE="$(basename "$DESKTOP_FILE" | sed 's/.desktop$//')"
-      SNAP_ICON_BASE="$(echo "$DESKTOP_FILE_BASE" | sed 's/^[^_]*_//')"
-      if [ -f "/usr/local/share/icons/Candy/apps/scalable/${DESKTOP_FILE_BASE}.svg" ] || [ -f "/usr/local/share/icons/Candy/apps/scalable/${SNAP_ICON_BASE}.svg" ]; then
-        gum log -sl info "Found matching Candy icon theme icon for $DESKTOP_FILE"
-        if [ ! -f "${XDG_DATA_HOME:-$HOME/.local/share}/applications/${DESKTOP_FILE_BASE}.desktop" ]; then
-          cp "$DESKTOP_FILE" "${XDG_DATA_HOME:-$HOME/.local/share}/applications"
-          gum log -sl info "Copied the .desktop shortcut to ${XDG_DATA_HOME:-$HOME/.local/share}/applications"
-          if [ -f "/usr/local/share/icons/Candy/apps/scalable/${SNAP_ICON_BASE}.svg" ]; then
-            SNAP_ICON="${SNAP_ICON_BASE}"
-          else
-            SNAP_ICON="${DESKTOP_FILE_BASE}"
-          fi
-          gum log -sl info 'Setting the .desktop shortcut Icon value equal to '"$SNAP_ICON"''
-          sed -i 's/^Icon=.*$/Icon='"$SNAP_ICON"'/' "${XDG_DATA_HOME:-$HOME/.local/share}/applications/${DESKTOP_FILE_BASE}.desktop"
-        else
-          gum log -sl info "${XDG_DATA_HOME:-$HOME/.local/share}/applications/${DESKTOP_FILE_BASE}.desktop already exists!"
-        fi
-      fi
-    done
-  fi
-}
-
-# @description
-#     This script ensures VNC is setup and enabled. It will run on macOS always since macOS includes
-#     a VNC server baked into its system. On Linux, it will check for the presence of the `tightvncserver`
-#     package before configuring and enabling VNC.
-#
-#     The script will set the VNC password using the `VNC_PASSWORD` environment variable or the encrypted
-#     equivalent stored in `home/.chezmoitemplates/secrets`. If neither are provided, then the default
-#     password will be equal to `vncpass` since the password must be between 6-8 characters long.
-#
-#     Additionally, the `VNC_READ_PASSWORD` can be defined to allow read-only VNC sessions. The default password
-#     for a read-only session is `readonly`.
-configureVNC() {
-  if [ -d /Applications ] && [ -d /System ]; then
-    ### macOS
-    # Source: https://apple.stackexchange.com/questions/30238/how-to-enable-os-x-screen-sharing-vnc-through-ssh
-    # To disable, run: sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart -deactivate -configure -access -off
-    # Only enable when computer is not a corporate / work computer
-    gum log -sl info 'Enabling VNC using the VNC_PASSWORD variable which is vncpass when nothing is specified'
-    sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart -activate -configure -access -on -allowAccessFor -specifiedUsers -clientopts -setreqperm -reqperm yes -setvnclegacy -vnclegacy yes -setvncpw -vncpw "{{- if and (stat (joinPath .host.home ".config" "age" "chezmoi.txt")) (stat (joinPath .chezmoi.sourceDir ".chezmoitemplates" (printf "%s%s" "secrets-" .chezmoi.hostname) "VNC_PASSWORD")) }}{{ includeTemplate (printf "%s%s" (printf "%s%s" "secrets-" .chezmoi.hostname) "/VNC_PASSWORD") | decrypt | trim }}{{ else }}{{ default "vncpass" (env "VNC_PASSWORD") }}{{ end }}" -restart -agent -privs -all -users "$USER" && gum log -sl info 'Finished running the macOS Remote Management kickstart executable'
-  else
-    ### Linux
-    ### VNC set-up / configuration
-    # KasmVNC / TigerVNC (or alternative VNC program) is installed
-    if command -v kasmvncpasswd > /dev/null; then
-      gum log -sl info 'Copying VNC configuration files from ~/.config/vnc/etc/kasmvnc/ to /etc/'
-      sudo cp -Rf "${XDG_CONFIG_HOME:-$HOME/.config}/vnc/etc/kasmvnc/" /etc/
-      gum log -sl info 'Adding VNC full-control password to ~/.config/vnc/kasmpasswd'
-      echo -e "{{- if and (stat (joinPath .host.home ".config" "age" "chezmoi.txt")) (stat (joinPath .chezmoi.sourceDir ".chezmoitemplates" (printf "%s%s" "secrets-" .chezmoi.hostname) "VNC_PASSWORD")) }}{{ includeTemplate (printf "%s%s" (printf "%s%s" "secrets-" .chezmoi.hostname) "/VNC_PASSWORD") | decrypt | trim }}{{ else }}{{ default "vncpass" (env "VNC_PASSWORD") }}{{ end }}\n{{- if and (stat (joinPath .host.home ".config" "age" "chezmoi.txt")) (stat (joinPath .chezmoi.sourceDir ".chezmoitemplates" (printf "%s%s" "secrets-" .chezmoi.hostname) "VNC_PASSWORD")) }}{{ includeTemplate (printf "%s%s" (printf "%s%s" "secrets-" .chezmoi.hostname) "/VNC_PASSWORD") | decrypt | trim }}{{ else }}{{ default "vncpass" (env "VNC_PASSWORD") }}{{ end }}" | kasmvncpasswd -u {{ .user.name }} -rwo
-      gum log -sl info 'Adding VNC read-only password to ~/.config/vnc/kasmpasswd for user readonly'
-      echo -e "{{- if and (stat (joinPath .host.home ".config" "age" "chezmoi.txt")) (stat (joinPath .chezmoi.sourceDir ".chezmoitemplates" (printf "%s%s" "secrets-" .chezmoi.hostname) "VNC_READ_PASSWORD")) }}{{ includeTemplate (printf "%s%s" (printf "%s%s" "secrets-" .chezmoi.hostname) "/VNC_READ_PASSWORD") | decrypt | trim }}{{ else }}{{ default "readonly" (env "VNC_READ_PASSWORD") }}{{ end }}\n{{- if and (stat (joinPath .host.home ".config" "age" "chezmoi.txt")) (stat (joinPath .chezmoi.sourceDir ".chezmoitemplates" (printf "%s%s" "secrets-" .chezmoi.hostname) "VNC_READ_PASSWORD")) }}{{ includeTemplate (printf "%s%s" (printf "%s%s" "secrets-" .chezmoi.hostname) "/VNC_READ_PASSWORD") | decrypt | trim }}{{ else }}{{ default "readonly" (env "VNC_READ_PASSWORD") }}{{ end }}" | kasmvncpasswd -u guest -r
-      gum log -sl info 'Reloading the systemctl configuration files since a new one for VNC may have been added'
-      sudo systemctl daemon-reload
-      gum log -sl info 'Enabling / starting the VNC service for the current user / display 1'
-      sudo systemctl start vncserver@1
-      sudo systemctl enable vncserver@1
-      if command -v update-alternatives > /dev/null; then
-        update-alternatives --set vncserver "$(which kasmvncserver)"
-        update-alternatives --set vncpasswd "$(which kasmvncpasswd)"
-        update-alternatives --set Xvnc "$(which Xkasmvnc)"
-        update-alternatives --set vncconfig "$(which kasmvncconfig)"
-      fi
-    elif command -v tigervncpasswd > /dev/null; then
-      if [ ! -d "${XDG_CONFIG_HOME:-$HOME/.config}/vnc" ]; then
-        mkdir -p "${XDG_CONFIG_HOME:-$HOME/.config}/vnc"
-      fi
-      gum log -sl info 'Copying VNC configuration files from ~/.config/vnc/etc/tigervnc/ to /etc/'
-      sudo cp -Rf "${XDG_CONFIG_HOME:-$HOME/.config}/vnc/etc/tigervnc/" /etc/
-      gum log -sl info 'Adding VNC full-control password to ~/.config/vnc/passwd'
-      echo -n "{{- if and (stat (joinPath .host.home ".config" "age" "chezmoi.txt")) (stat (joinPath .chezmoi.sourceDir ".chezmoitemplates" (printf "%s%s" "secrets-" .chezmoi.hostname) "VNC_PASSWORD")) }}{{ includeTemplate (printf "%s%s" (printf "%s%s" "secrets-" .chezmoi.hostname) "/VNC_PASSWORD") | decrypt | trim }}{{ else }}{{ default "vncpass" (env "VNC_PASSWORD") }}{{ end }}" | tigervncpasswd -f > "${XDG_CONFIG_HOME:-$HOME/.config}/vnc/passwd"
-      gum log -sl info 'Adding VNC read-only password to ~/.config/vnc/passwd'
-      echo -n "{{- if and (stat (joinPath .host.home ".config" "age" "chezmoi.txt")) (stat (joinPath .chezmoi.sourceDir ".chezmoitemplates" (printf "%s%s" "secrets-" .chezmoi.hostname) "VNC_READ_PASSWORD")) }}{{ includeTemplate (printf "%s%s" (printf "%s%s" "secrets-" .chezmoi.hostname) "/VNC_READ_PASSWORD") | decrypt | trim }}{{ else }}{{ default "readonly" (env "VNC_READ_PASSWORD") }}{{ end }}" | tigervncpasswd -f >> "${XDG_CONFIG_HOME:-$HOME/.config}/vnc/passwd"
-      gum log -sl info 'Reloading the systemctl configuration files since a new one for VNC may have been added'
-      sudo systemctl daemon-reload
-      gum log -sl info 'Enabling / starting the VNC service for the current user / display 1'
-      sudo systemctl start vncserver@1
-      sudo systemctl enable vncserver@1
-    else
-      gum log -sl info 'Skipping VNC setup since the tightvncserver package is not present on the system'
-    fi
-  fi
-}
-
 # @description Move ~/.gnome/apps/* to ~/.local/share/applications
 moveGnomeAppsToShare() {
   if [ -d "$HOME/.gnome/apps" ]; then
@@ -202,16 +25,11 @@ moveGnomeAppsToShare() {
 }
 
 # @description
-#     This script ensures that the first time you open a ZSH terminal session everything is loaded as fast as possible.
-#     It does this by invoking ZSH in the background during the provisioning process so that "first-run" tasks such
-#     as cache-building are handled ahead of time.
+#     Warm up ZSH plugin cache non-interactively without hanging or spawning a blocking exec loop.
 preloadZsh() {
-  ### Initialize ZSH so plugin bootstrap process is done ahead of time
   if command -v zsh > /dev/null; then
-    gum log -sl info 'Bootstrapping ZSH by running exec zsh'
-    exec zsh &
-    gum log -sl info 'Waiting for exec zsh to finish'
-    wait
+    gum log -sl info 'Warming up ZSH configuration cache'
+    zsh -i -c 'exit' < /dev/null > /dev/null 2>&1 || true
   fi
 }
 
@@ -412,8 +230,6 @@ runPostInstallxHooks() {
 # Temporary next line for debugging
 if [ -n "$DEBUG" ] || [ -n "$DEBUG_MODE" ]; then
   gum log -sl info 'The DEBUG or DEBUG_MODE environment variable is set so the post-install tasks will be run synchronously'
-  candyIconTweaks
-  configureVNC
   disableAutoUpdateDarwin
   moveGnomeAppsToShare
   preloadZsh
@@ -423,8 +239,6 @@ if [ -n "$DEBUG" ] || [ -n "$DEBUG_MODE" ]; then
   ubuntuDashToDockFix
   ensureAutoresticLocation
 else
-  candyIconTweaks &
-  configureVNC &
   disableAutoUpdateDarwin &
   moveGnomeAppsToShare &
   preloadZsh &

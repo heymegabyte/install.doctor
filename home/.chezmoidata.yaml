@@ -24,105 +24,47 @@ config:
 docker:
   healthchecks:
     allowedHosts: '*'
-    s3Endpoint: s3.wasabisys.com
-    siteLogoUrl: https://raw.githubusercontent.com/megabyte-labs/install.doctor/master/home/dot_local/etc/branding/black-icon-128x128.png
+    s3Endpoint: s3.cloudflarestorage.com
+    siteLogoUrl: https://raw.githubusercontent.com/heymegabyte/install.doctor/master/home/dot_local/etc/branding/black-icon-128x128.png
     siteName: Healthchecks
     siteRoot: '/'
   portainer:
     siteLogoUrl: https://gitlab.com/megabyte-labs/misc/assets/-/raw/master/logo/color3@10x.png
     templatesUrl: https://raw.githubusercontent.com/Lissy93/portainer-templates/main/templates.json
   statping:
-    description: Uptime monitoring for Megabyte Labs managed web services
+    description: Uptime monitoring for Install Doctor managed web services
     name: Uptime Monitoring
   wireguard:
     serverUrl: megabyte.space
     internalSubnet: 10.93.92.0
-kubernetesHost: kochab
-macosRemoteLogin: 'on'
+kubernetesHost: cluster
+macosRemoteLogin: 'off'
 themeparkTheme: aquamarine
 figmaAddons:
-  - https://www.figma.com/community/plugin/1037309320238203168/DhiWise---Figma-to-Code
   - https://www.figma.com/community/plugin/1220512233196109878/github
-  - https://www.figma.com/community/plugin/1056467900248561542/Locofy-FREE-BETA---Figma-to-React%2C-React-Native%2C-HTML%2FCSS%2C-Next.js%2C-Gatsby
-chromeExtensionsDisabled:
-  - buster-captcha-solver-for/mpbjkejclgfgadiemmefgebjfooflfhl
-  - chatgpt-app-for-chrome-me/camppjleccjaphfdbohjdohecfnoikec
-  - chatgpt-for-google/jgjaeacdkonaoafenlfkkkmbaopkbilf
-  - compose-ai-ai-powered-wri/ddlbpiadoechcolndfeaonajmngmhblj
-  - headless-recorder/djeegiggegleadkkbgopoonhjimgehda
-  - hoppscotch-browser-extens/amknoiejhlmhancpahfcfcfhllgkpbld
-  - jiffy-reader/lljedihjnnjjefafchaljkhbpfhfkdic
-  - liner-chatgpt-google-assi/bmhcbmnbenmcecpmpepghooflbehcack
-  - loom-–-screen-recorder-sc/liecbddmkiiihnedobmlmillhodjkdmb
-  - replixai/nhfededlooagdmcpamafanjolhkekbbl
+chromeExtensionsDisabled: []
 chromeExtensions:
-  - ai-based-grammar-checker/oldceeleldhonbafppcapldpdifcinji
-  - bitly-powerful-short-link/iabeihobmhlgpkcgjiloemdbofjbdcic
   - bitwarden-free-password-m/nngceckbapebfimnlniiiahkandclblb
-  - builderio/cfldfgibklhmjhnkfighkbafbkbfcmij
-  # - buffer/noojglkidnpfjbincgijbaiedldjfbhh
-  - chrome-remote-desktop/inomeogfingihgjfjlpeplalcfajhgai
-  - desktop-app-for-google-ta/lpofefdiokgmcdnnaigddelnfamkkghi
-  - falcon/mmifbbohghecjloeklpbinkjpbplfalb
   - floccus-bookmarks-sync/fnaicdffflnofjppbagibeoednhnbjhg
-  - gnome-shell-integration/gphhapmejobijbbhgpjhcjognlahblep
-  # - gsconnect/jfnifeihccihocjbfcfhicmmgpjicaec
-  - hunter-email-finder-exten/hgmhmanijnjhaffoampdlllchpolkdnj
-  - hypertype/lohojfppjeknalpoklojhfnndocgekbd
-  - json-resume-exporter/caobgmmcpklomkcckaenhjlokpmfbdec
   - json-viewer-pro/eifflpmocdbdmepbjaopkkhbfmdgijcc
-  - markdown-here/elifhakcjgalahccnjkneoccemfahfoa
-  # - metamask/nkbihfbeogaeaoehlefnkodbefgpgknn
   - octotree-github-code-tree/bkhaagjahfmjljalopjnoealnfndnagc
-  - postman-interceptor/aicmkgpgakddgnaphhhpliifpcfhicfo
-  - rakuten-get-cash-back-for/chhjbpecpncaggjpdakmflnfcopglcmi
   - refined-github/hlepfoohegkhhmjieoechaddaejaokhf
-  - screenity-screen-recorder/kbbdabhdfibnancpjfhlkhafgdilcnji
   - singlefile/mpiodijhokgodhhofbcjdecpffjipkle
   - sponsorblock-for-youtube/mnjggcdmjocbbbhaepdhchncahnbgone
-  - toucan-language-learning/lokjgaehpcnlmkebpmjiofccpklbmoci
-  - vimeo-record-screen-webca/ejfmffkmeigkphomnpabpdabfddeadcb
-  - vytal/ncbknoohfjmcfneopnfkapmkblaenokb
-firefoxPublicProfile: https://github.com/ProfessorManhattan/firefox-profile-with-plugins.git
 firefoxAddOns:
-  - automa
   - bitwarden-password-manager
-  - buffer-for-firefox
-  - buster-captcha-solver
   - canvasblocker
-  - chatgpt-for-google
   - clearurls
   - decentraleyes
-  - dictionary-anyvhere
-  - ebates
-  - emoji-sav
-  - falcon_extension
-  - firefox-translations
   - floccus
-  - giphy-for-firefox
-  - gnome-shell-integration
   - hoppscotch
   - json-lite
-  - languagetool
-  - pushbullet
-  - mailvelope
-  - markdown-here
-  - medium-unlimited-read-for-free
   - multi-account-containers
-  # - notion-web-clipper
-  - private-relay
-  - profile-switcher
   - refined-github-
-  - search_by_image
   - single-file
   - sponsorblock
-  - swift-selection-search
   - temporary-containers
-  - tiny_url
   - ublock-origin
-  - umatrix
-  - undoclosetabbutton
-  - view-page-archive
 fonts:
   main: Montserrat Bold
 grub:
@@ -158,78 +100,10 @@ softwarePlugins:
   android-studio:
     cmd: bash -c 'if ! sdkmanager --list_installed | grep "{PLUGIN}" > /dev/null; then echo y | sdkmanager --install "{PLUGIN}"; fi'
     plugins:
-      - add-ons;addon-google_apis-google-24
-      # - build-tools;31.0.0
-      # - build-tools;32.0.0
-      # - build-tools;33.0.2
       - build-tools;34.0.0
-      - cmake;3.22.1
       - cmdline-tools;latest
-      - emulator
-      - extras;android;m2repository
-      - extras;google;auto
-      - extras;google;google_play_services
-      - extras;google;instantapps
-      - extras;google;m2repository
-      - extras;google;market_apk_expansion
-      - extras;google;market_licensing
-      - extras;google;simulators
-      - extras;google;webdriver
-      - extras;m2repository;com;android;support;constraint;constraint-layout-solver;1.0.2
-      - extras;m2repository;com;android;support;constraint;constraint-layout;1.0.2
-      - ndk-bundle
       - platform-tools
-      # - platforms;android-31
-      # - platforms;android-32
-      # - platforms;android-33
       - platforms;android-34
-      - skiaparser;3
-      # - sources;android-31
-      # - sources;android-32
-      # - sources;android-33
-      - sources;android-34
-      # - system-images;android-31;default;x86_64
-      # - system-images;android-32;android-desktop;x86_64
-      # - system-images;android-33-ext5;google_apis_playstore;arm64-v8a
-      # - system-images;android-33-ext5;google_apis_playstore;x86_64
-      # - system-images;android-33;android-automotive;arm64-v8a
-      # - system-images;android-33;android-automotive;x86_64
-      # - system-images;android-33;android-desktop;arm64-v8a
-      # - system-images;android-33;android-desktop;x86_64
-      # - system-images;android-33;android-tv;arm64-v8a
-      # - system-images;android-33;android-tv;x86
-      # - system-images;android-33;android-wear;arm64-v8a
-      # - system-images;android-33;android-wear;x86_64
-      # - system-images;android-33;aosp_atd;arm64-v8a
-      # - system-images;android-33;aosp_atd;x86_64
-      # - system-images;android-33;default;arm64-v8a
-      # - system-images;android-33;default;x86_64
-      # - system-images;android-33;google-tv;arm64-v8a
-      # - system-images;android-33;google-tv;x86
-      # - system-images;android-33;google_apis;arm64-v8a
-      # - system-images;android-33;google_apis;x86_64
-      # - system-images;android-33;google_apis_playstore;arm64-v8a
-      # - system-images;android-33;google_apis_playstore;x86_64
-      # - system-images;android-33;google_atd;arm64-v8a
-      # - system-images;android-33;google_atd;x86_64
-      - system-images;android-34-ext8;google_apis_playstore;arm64-v8a
-      - system-images;android-34-ext8;google_apis_playstore;x86_64
-      - system-images;android-34;android-tv;arm64-v8a
-      - system-images;android-34;android-tv;x86
-      - system-images;android-34;default;arm64-v8a
-      - system-images;android-34;default;x86_64
-      - system-images;android-34;google-tv;arm64-v8a
-      - system-images;android-34;google-tv;x86
-      - system-images;android-34;google_apis;arm64-v8a
-      - system-images;android-34;google_apis;x86_64
-      - system-images;android-34;google_apis_playstore;arm64-v8a
-      - system-images;android-34;google_apis_playstore;x86_64
-      # - system-images;android-TiramisuPrivacySandbox;google_apis;arm64-v8a
-      # - system-images;android-TiramisuPrivacySandbox;google_apis;x86_64
-      # - system-images;android-TiramisuPrivacySandbox;google_apis_playstore;arm64-v8a
-      # - system-images;android-TiramisuPrivacySandbox;google_apis_playstore;x86_64
-      # - system-images;android-UpsideDownCakePrivacySandbox;google_apis_playstore;arm64-v8a
-      # - system-images;android-UpsideDownCakePrivacySandbox;google_apis_playstore;x86_64
   composer:
     cmd: null
     plugins:
@@ -237,26 +111,18 @@ softwarePlugins:
   docker:
     cmd: bash -c 'if ! docker extension list | grep "$(echo "{PLUGIN}" | sed 's/\:.*//')" > /dev/null; then echo y | docker extension install "{PLUGIN}"; fi'
     plugins:
-      - ambassador/telepresence-docker-extension:1.0.19
       - docker/disk-usage-extension:0.2.8
       - docker/logs-explorer-extension:0.2.5
       - docker/resource-usage-extension
       - docker/volumes-backup-extension:1.1.4
-      - drone/drone-ci-docker-extension:0.2.0
-      - mutagenio/docker-desktop-extension:0.17.3
-      - okteto/docker-desktop-extension:0.3.3
       - portainer/portainer-docker-extension:2.19.3
-      - redhatdeveloper/openshift-dd-ext
-      - snyk/snyk-docker-desktop-extension:0.7.4
       - tailscale/docker-extension:1.0.1
     when: docker extension list &> /dev/null
   docker-images:
     cmd: bash -c 'if ! docker image list | awk \'{print $1 " " $2}\' | grep "{PLUGIN}" > /dev/null; then docker pull "{PLUGIN}"; fi'
     plugins:
       - alpine:latest
-      - postgres:10
-      - postgres:12
-      - postgres:latest
+      - postgres:16-alpine
       - ubuntu:latest
   docker-plugins:
     cmd: bash -c 'if ! docker plugin ls | grep "{PLUGIN}" > /dev/null; then echo y | docker plugin install "{PLUGIN}"; fi'
@@ -312,23 +178,12 @@ softwarePlugins:
   intellij-idea-ce:
     cmd: bash -c 'if [ ! -f "${XDG_CACHE_HOME:-$HOME/.cache}/install.doctor/intellij-idea-ce" ] || ! cat "${XDG_CACHE_HOME:-$HOME/.cache}/install.doctor/intellij-idea-ce" | grep "${PLUGIN}" &> /dev/null; then idea installPlugins "{PLUGIN}" && mkdir -p "${XDG_CACHE_HOME:-$HOME/.cache}/install.doctor" && echo "{PLUGIN}" >> "${XDG_CACHE_HOME:-$HOME/.cache}/install.doctor/intellij-idea-ce"; fi'
     plugins:
-      - AngularJS
-      - com.dmarcotte.handlebars
       - com.github.copilot
-      - com.github.masahirosuzuka.PhoneGapIntelliJPlugin
-      - com.jetbrains.edu
       - com.jetbrains.rust
-      - com.wakatime.intellij.plugin
       - org.intellij.plugins.hcl
       - com.intellij.lang.jsgraphql
-      - com.chrisrm.idea.MaterialThemeUI
       - name.kropp.intellij.makefile
-      - com.genymotion.idea
       - Docker
-      - io.flutter
-      - Dart
-      - Jetbrains TeamCity Plugin
-      - com.wakatime.intellij.plugin
       - mobi.hsz.idea.gitignore
       - NodeJS
       - org.editorconfig.editorconfigjetbrains
@@ -337,15 +192,8 @@ softwarePlugins:
       - org.jetbrains.plugins.go-template
   helm:
     cmd: bash -c '{PLUGIN}'
-    _todo:
-      - https://github.com/spacecloud-io/space-cloud
-      - https://infisical.com/docs/self-hosting/deployment-options/kubernetes-helm
-      - helm repo add appsmith-ee https://helm-ee.appsmith.com
-      - https://github.com/kubevirt/kubevirt
-      - https://github.com/meilisearch/meilisearch
     plugins:
       - if ! helm plugin list | grep "Preview helm upgrade changes as a diff" > /dev/null; then helm plugin install https://github.com/databus23/helm-diff; fi
-      - if ! helm plugin list | grep "Query at a given interval a Prometheus, ElasticSearch or Sentry instance." > /dev/null; then helm plugin install https://github.com/ContainerSolutions/helm-monitor; fi
       - if ! helm plugin list | grep "This plugin provides secrets values encryption for Helm charts secure storing" > /dev/null; then helm plugin install https://github.com/jkroepke/helm-secrets; fi
   krew:
     cmd: bash -c 'if ! kubectl krew list | grep "^{PLUGIN}$" > /dev/null; then if ! kubectl krew search "{PLUGIN}" | grep " unavailable on " > /dev/null; then kubectl krew install "{PLUGIN}"; else echo "UNSUPPORTED PLATFORM - {PLUGIN} is not supported on the current platform"; fi; fi'
@@ -354,21 +202,11 @@ softwarePlugins:
       - cert-manager
       - cost
       - ctx
-      - datree
       - deprecations
-      # flyte fails to install on macOS arm64
-      # W1105 install.go:164] failed to install plugin "flyte": plugin "flyte" does not offer installation for this platform
-      - flyte
       - get-all
       - graph
-      # ingress-nginx fails to install on macOS arm64
-      # W1105 install.go:164] failed to install plugin "ingress-nginx": plugin "ingress-nginx" does not offer installation for this platform
-      - ingress-nginx
-      - karmada
       - konfig
       - kyverno
-      - liqo
-      - minio
       - modify-secret
       - neat
       - node-shell
@@ -379,14 +217,7 @@ softwarePlugins:
       - sniff
       - tail
       - tree
-      - tunnel
       - view-allocations
-      # virt fails to install on macOS arm64
-      # W1105 install.go:164] failed to install plugin "virt": plugin "virt" does not offer installation for this platform
-      - virt
-      # warp fails to install on macOS arm64
-      # W1105 install.go:164] failed to install plugin "warp": plugin "warp" does not offer installation for this platform
-      - warp
       - who-can
   obsidian:
     cmd: |
@@ -544,25 +375,10 @@ softwarePlugins:
       - theapsgroup/vault
       - twitter
     update: steampipe plugin update --all
-  vagrant:
-    cmd: bash -c 'if ! vagrant plugin list | grep "{PLUGIN}" > /dev/null; then vagrant plugin install "{PLUGIN}"; fi'
-    plugins:
-      - vagrant-bindfs
-      - vagrant-digitalocean
-      - vagrant-google
-      - vagrant-hostmanager
-      - vagrant-libvirt
-      - vagrant-parallels
-      - vagrant-share
-      - vagrant-vbguest
-      - vagrant-vmware-desktop
-      - vagrant-xenserver
   visual-studio:
-    cmd: null # VSIXInstaller.exe can be used to install a local file. The first step is to download the plugin file. https://gist.github.com/ScottHutchinson/b22339c3d3688da5c9b477281e258400
+    cmd: null
     plugins:
       - GitHub.copilotvs
-      - TemplateStudio.TemplateStudioForWinUICs
-      - lepo.wpf-ui
   vim:
     plugins:
       - https://github.com/airblade/vim-gitgutter.git

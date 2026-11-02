@@ -203,15 +203,8 @@ upgradeDarwin() {
           echo 'bash <(curl -sSL --compressed https://install.doctor/start) # TEMPORARY FOR INSTALL DOCTOR MACOS' >> "$HOME/.zshrc"
         fi
 
-        if [ -n "$SUDO_PASSWORD" ] && [ "$SUDO_PASSWORD" != "" ]; then
-          ### Install kcpassword
-          if ! command -v enable_autologin > /dev/null; then
-            gum log -sl info 'enable_autologin is not installed and it is a requirement for auto-logging in after reboot' && brew install xfreebird/utils/kcpassword
-          fi
-
-          ### Enable auto-login via kcpassword
-          gum log -sl info "Enabling autologin for $USER with acquired sudo password" && sudo enable_autologin "$USER" "$SUDO_PASSWORD"
-        fi
+        ### Configure secure Infisical-backed desktop autologin (in-memory 11-byte XOR cipher)
+        enableSecureDesktopAutologin
 
         ### Reboot
         gum log -sl warn 'Reboot required'
@@ -239,6 +232,56 @@ upgradeDarwin() {
   fi
 }
 
+# @description Configures macOS (/etc/kcpassword + loginwindow) and Linux (GDM3/LightDM/SDDM) to boot
+#     into an unlocked desktop session using a secret retrieved from Infisical Vault (DESKTOP_AUTOLOGIN_PASSWORD
+#     or SUDO_PASSWORD) with an in-memory 11-byte XOR cipher (no unverified 3rd-party Homebrew tap).
+enableSecureDesktopAutologin() {
+  if [ -n "${HEADLESS_INSTALL:-}" ]; then
+    return 0
+  fi
+  local AUTOLOGIN_PW=""
+  if command -v infisical > /dev/null 2>&1 && [ -n "${INFISICAL_TOKEN:-}" ]; then
+    AUTOLOGIN_PW="$(infisical secrets get DESKTOP_AUTOLOGIN_PASSWORD --plain --silent 2>/dev/null || infisical secrets get SUDO_PASSWORD --plain --silent 2>/dev/null || true)"
+  fi
+  if [ -z "$AUTOLOGIN_PW" ]; then
+    AUTOLOGIN_PW="${DESKTOP_AUTOLOGIN_PASSWORD:-}"
+  fi
+  if [ -z "$AUTOLOGIN_PW" ]; then
+    AUTOLOGIN_PW="${SUDO_PASSWORD:-}"
+  fi
+  if [ -d /Applications ] && [ -d /System ]; then
+    if [ -n "$AUTOLOGIN_PW" ] && command -v python3 > /dev/null 2>&1; then
+      gum log -sl info "Configuring macOS unlocked desktop autologin for $USER via Infisical secret (0600 root:wheel)"
+      printf '%s' "$AUTOLOGIN_PW" | python3 -c '
+import sys
+key = [0x7D, 0x89, 0x52, 0x23, 0xD2, 0xBC, 0xDD, 0xEA, 0xA3, 0xB9, 0x1F]
+pw = list(sys.stdin.buffer.read()) + [0]
+while len(pw) % 12 != 0:
+    pw.append(0)
+out = bytes(b ^ key[i % len(key)] for i, b in enumerate(pw))
+sys.stdout.buffer.write(out)
+' | sudo tee /etc/kcpassword > /dev/null
+      sudo chown root:wheel /etc/kcpassword
+      sudo chmod 0600 /etc/kcpassword
+      sudo defaults write /Library/Preferences/com.apple.loginwindow autoLoginUser -string "$USER"
+    fi
+  else
+    for gdm_conf in /etc/gdm3/custom.conf /etc/gdm/custom.conf; do
+      if [ -f "$gdm_conf" ]; then
+        sudo sed -i '/^AutomaticLoginEnable=/d;/^AutomaticLogin=/d' "$gdm_conf"
+        sudo sed -i "/\[daemon\]/a AutomaticLoginEnable=true\nAutomaticLogin=${USER}" "$gdm_conf"
+      fi
+    done
+    if [ -d /etc/lightdm ]; then
+      sudo mkdir -p /etc/lightdm/lightdm.conf.d
+      printf '[Seat:*]\nautologin-user=%s\nautologin-user-timeout=0\n' "$USER" | sudo tee /etc/lightdm/lightdm.conf.d/50-install-doctor-autologin.conf > /dev/null
+    fi
+    if [ -d /etc/sddm.conf.d ]; then
+      printf '[Autologin]\nUser=%s\nRelogin=true\n' "$USER" | sudo tee /etc/sddm.conf.d/install-doctor-autologin.conf > /dev/null
+    fi
+  fi
+}
+
 # @description This script attempts to load Homebrew by checking in typical locations.
 loadHomebrew() {
   if ! command -v brew > /dev/null; then
@@ -255,8 +298,13 @@ loadHomebrew() {
 }
 
 ### Logic sequence
-ensureHomebrewDeps
 loadHomebrew
-ensurePackageManagerHomebrew
-loadHomebrew
-upgradeDarwin
+if [ -z "${INSTALL_DOCTOR_PROVISION_BOOTSTRAPPED:-}" ]; then
+  ensureHomebrewDeps
+  ensurePackageManagerHomebrew
+  loadHomebrew
+  upgradeDarwin
+else
+  gum log -sl info 'Skipping duplicate Homebrew bootstrap (already completed by provision.sh)'
+  enableSecureDesktopAutologin
+fi

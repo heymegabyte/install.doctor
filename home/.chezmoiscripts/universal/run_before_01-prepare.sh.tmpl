@@ -146,38 +146,6 @@ ensureFullDiskAccess() {
   return 0
 }
 
-# @description Install the mobileconfig files from `~/.config/macos/mobileconfig`.
-#     Starting with macOS Ventura, the `profiles` CLI no longer supports
-#     installing configuration profiles ("profiles tool no longer supports
-#     installs. Use System Settings Profiles to add configuration profiles.")
-#     so we detect that situation up front and skip rather than emitting
-#     errors for every .mobileconfig file in the directory.
-importSettingsMobileConfig() {
-  if [ -d /Applications ] && [ -d /System ]; then
-    if ! command -v profiles > /dev/null; then
-      gum log -sl info 'profiles command not available; skipping mobileconfig install'
-      return 0
-    fi
-    ### Starting with macOS Ventura (13.0) the `profiles install` subcommand
-    ### prints "profiles tool no longer supports installs. Use System
-    ### Settings Profiles to add configuration profiles." and exits non-zero.
-    ### Detect by major macOS version rather than probing the CLI (which
-    ### would prompt for a sudo password just to discover the deprecation).
-    if command -v sw_vers > /dev/null; then
-      MACOS_MAJOR="$(sw_vers -productVersion 2>/dev/null | awk -F. '{print $1}')"
-      if [ -n "$MACOS_MAJOR" ] && [ "$MACOS_MAJOR" -ge 13 ] 2>/dev/null; then
-        gum log -sl info 'The profiles CLI no longer supports installing configuration profiles on macOS 13+; skipping. Install them manually from System Settings > Privacy & Security > Profiles.'
-        return 0
-      fi
-    fi
-    for FILE in "${XDG_DATA_HOME:-$HOME/.local/share}/chezmoi/home/dot_config/macos/mobileconfig/"*.mobileconfig; do
-      [ -f "$FILE" ] || continue
-      gum log -sl info "Installing $FILE"
-      sudo profiles install -type configuration -path "$FILE" || gum log -sl warn "Failed to install $FILE; continuing"
-    done
-  fi
-}
-
 # @description Applies changes that require input from the user such as using Touch ID on macOS when
 #     importing certificates into the system keychain.
 #
@@ -213,16 +181,18 @@ symlinkMissingSecrets() {
 addTemporaryIncludes
 . /tmp/tmp-logg
 . /tmp/tmp-profile
-importSettingsMobileConfig
-ensureFullDiskAccess
-if [ -n "$DEBUG" ] || [ -n "$DEBUG_MODE" ]; then
-  gum log -sl info 'The DEBUG or DEBUG_MODE environment variable is set so the prepare tasks will be run synchronously'
-  importCloudFlareCert
-  disconnectWarp
-  symlinkMissingSecrets
+symlinkMissingSecrets
+if [ -z "${INSTALL_DOCTOR_PROVISION_BOOTSTRAPPED:-}" ]; then
+  ensureFullDiskAccess
+  if [ -n "$DEBUG" ] || [ -n "$DEBUG_MODE" ]; then
+    gum log -sl info 'The DEBUG or DEBUG_MODE environment variable is set so the prepare tasks will be run synchronously'
+    importCloudFlareCert
+    disconnectWarp
+  else
+    importCloudFlareCert &
+    disconnectWarp &
+    wait
+  fi
 else
-  importCloudFlareCert &
-  disconnectWarp &
-  symlinkMissingSecrets &
-  wait
+  gum log -sl info 'Skipping duplicate prepare checks (already completed by provision.sh bootstrap)'
 fi

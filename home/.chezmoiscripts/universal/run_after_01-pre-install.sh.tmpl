@@ -169,13 +169,12 @@ applyWallpaper() {
   gum log -sl info 'Setting wallpaper to /usr/local/share/wallpapers/Betelgeuse/contents/images/3440x1440.jpg'
   ksetwallpaper --file /usr/local/share/wallpapers/Betelgeuse/contents/images/3440x1440.jpg
   {{ else -}}
-  ### Set macOS wallpaper
-  if [ -d /Applications ] && [ -d /System ]; then
-    if command -v m > /dev/null && [ -f "${XDG_DATA_HOME:-$HOME/.local/share}/betelgeuse/share/wallpapers/Betelgeuse-macOS/contents/source.png" ]; then
-      gum log -sl info 'Setting macOS wallpaper with m'
-      m wallpaper "${XDG_DATA_HOME:-$HOME/.local/share}/betelgeuse/share/wallpapers/Betelgeuse-macOS/contents/source.png"
-    else
-      gum log -sl warn 'Either m or the macOS default wallpaper is missing.'
+  ### Set macOS wallpaper via native osascript (no deprecated m-cli)
+  if [ -d /Applications ] && [ -d /System ] && [ -z "${HEADLESS_INSTALL:-}" ]; then
+    WALLPAPER_FILE="${XDG_DATA_HOME:-$HOME/.local/share}/betelgeuse/share/wallpapers/Betelgeuse-macOS/contents/source.png"
+    if [ -f "$WALLPAPER_FILE" ] && command -v osascript > /dev/null; then
+      gum log -sl info 'Setting macOS wallpaper via osascript'
+      osascript -e "tell application \"Finder\" to set desktop picture to POSIX file \"$WALLPAPER_FILE\"" 2>/dev/null || true
     fi
   fi
   {{ end -}}
@@ -336,31 +335,13 @@ configureSSHD() {
       gum log -sl info 'Copying ~/.ssh/system/banner to /etc/ssh/banner' && sudo cp -f "$HOME/.ssh/system/banner" /etc/ssh/banner
       gum log -sl info 'Copying ~/.ssh/system/sshd_config to /etc/ssh/sshd_config' && sudo cp -f "$HOME/.ssh/system/sshd_config" /etc/ssh/sshd_config
 
-      if command -v semanage > /dev/null; then
-        gum log -sl info 'Apply SELinux configuration addressing custom SSH port' && sudo semanage port -a -t ssh_port_t -p tcp {{ .host.ssh.port }}
-        gum log -sl info 'Allow NIS SSHD' && sudo setsebool -P nis_enabled 1
-      fi
-
-      ### Ensure keys are created
+      ### Ensure host keys are created
       gum log -sl info 'Running sudo ssh-keygen -A' && sudo ssh-keygen -A
 
-      ### Restart SSH server
+      ### Restart SSH server on standard Port 22 (protected by Cloudflare Zero-Trust firewall)
       if [ -d /Applications ] && [ -d /System ]; then
         ### macOS
-        if [ -f /etc/services ]; then
-          gum log -sl info 'Updating SSH configuration in /etc/services to point to port {{ .host.ssh.port }}'
-          sudo sed -i.bak 's/ 22\/udp/ {{ .host.ssh.port }}\/udp/' /etc/services
-          sudo sed -i.bak 's/ 22\/tcp/ {{ .host.ssh.port }}\/tcp/' /etc/services
-          sudo rm -f /etc/services.bak
-        fi
-        gum log -sl info 'Running sudo systemsetup -setremotelogin on' && sudo systemsetup -setremotelogin on > /dev/null
-        if sudo launchctl list | grep 'com.openssh.sshd' > /dev/null; then
-          gum log -sl info 'Unloading previous com.openssh.sshd configuration'
-          sudo launchctl unload /System/Library/LaunchDaemons/ssh.plist
-        fi
-        gum log -sl info 'Running sudo launchctl load -w /System/Library/LaunchDaemons/ssh.plist (Latest)' && sudo launchctl load -w /System/Library/LaunchDaemons/ssh.plist
-        gum log -sl info 'Running sudo launchctl stop com.openssh.sshd (High Sierra - errors muted)' && sudo launchctl stop com.openssh.sshd 2> /dev/null
-        gum log -sl info 'Running sudo launchctl start com.openssh.sshd (High Sierra - errors muted)' && sudo launchctl start com.openssh.sshd 2> /dev/null && gum log -sl info 'Successfully ran launchctl start com.openssh.sshd'
+        sudo launchctl kickstart -k system/com.openssh.sshd 2> /dev/null || true
       else
         ### Linux
         gum log -sl info 'Enabling the sshd service'
@@ -394,6 +375,18 @@ configureSSHD() {
     fi
   else
     gum log -sl info 'Skipping sshd_config application since environment is WSL'
+  fi
+}
+
+# @description Enforces Cloudflare-Only Zero-Trust Firewall rules so incoming connections on ports 22, 80, and 443
+#     are strictly allowed ONLY from official Cloudflare IPv4/IPv6 edge CIDRs (plus local loopback & Zero-Trust mesh).
+configureCloudflareFirewall() {
+  if [ -x "$HOME/.local/bin/cloudflare-firewall" ]; then
+    gum log -sl info 'Applying Cloudflare-Only Zero-Trust Firewall policy'
+    "$HOME/.local/bin/cloudflare-firewall" || gum log -sl warn 'cloudflare-firewall exited non-zero (continuing)'
+  elif command -v cloudflare-firewall > /dev/null 2>&1; then
+    gum log -sl info 'Applying Cloudflare-Only Zero-Trust Firewall policy'
+    cloudflare-firewall || gum log -sl warn 'cloudflare-firewall exited non-zero (continuing)'
   fi
 }
 
@@ -448,51 +441,15 @@ dconfSettings() {
 }
 
 # @description
-#     This script generates a pair of default `id_rsa` and `id_rsa.pub` keys if one is not already present
-#     on the system after the Install Doctor provisioning process completes. It also ensures the private
-#     key is only readable and writable the provisioning user.
+#     Generates a modern Ed25519 SSH key pair (`~/.ssh/id_ed25519`) if no SSH key is present on the host.
 ensureSSHKey() {
-  ### Ensure id_rsa is present and create one if it does not exist
-  if [ ! -f "$HOME/.ssh/id_rsa" ]; then
-    gum log -sl info 'Generating missing default private key / public key (~/.ssh/id_rsa)'
-    ssh-keygen -b 4096 -t rsa -f "$HOME/.ssh/id_rsa" -q -N ""
-    chmod 600 "$HOME/.ssh/id_rsa"
+  mkdir -p "$HOME/.ssh"
+  chmod 700 "$HOME/.ssh"
+  if [ ! -f "$HOME/.ssh/id_ed25519" ] && [ ! -f "$HOME/.ssh/id_rsa" ]; then
+    gum log -sl info 'Generating default Ed25519 SSH key pair (~/.ssh/id_ed25519)'
+    ssh-keygen -t ed25519 -a 100 -f "$HOME/.ssh/id_ed25519" -q -N ""
+    chmod 600 "$HOME/.ssh/id_ed25519"
   fi
-}
-
-# @description
-#     This script installs and activates the latest version of Emscripten. This script
-#     implements the [instructions outlined on Emscripten's website](https://emscripten.org/docs/getting_started/downloads.html#installation-instructions-using-the-emsdk-recommended).
-#
-#     This script will only run when `${XDG_DATA_HOME:-$HOME/.local/share}/emsdk` is present on the system. This folder
-#     is populated via the definition in `home/.chezmoiexternal.toml.tmpl`.
-emscriptenInstall() {
-  if [ -d "${XDG_DATA_HOME:-$HOME/.local/share}/emsdk" ]; then
-    gum log -sl info 'Pulling latest changes for Emscripten source code' && cd "${XDG_DATA_HOME:-$HOME/.local/share}/emsdk" && git pull
-    gum log -sl info "Running emsdk install latest" && emsdk install latest > /dev/null
-    gum log -sl info "Running emsdk activate latest" && emsdk activate latest > /dev/null
-    gum log -sl info 'Profile source inclusions are already implemented in Bash / ZSH profile'
-  fi
-}
-
-ensurePipUpdated() {
-  ### python3.10 pip update
-  if command -v python3.10 > /dev/null; then
-    gum log -sl info 'Ensuring python3.10 pip is updated' && python3.10 -m pip install --upgrade pip > /dev/null &
-    gum log -sl info 'Ensuring python3.10 setuptools is updated' && python3.10 -m pip install --upgrade setuptools > /dev/null &
-  fi
-
-  ### python3.11 pip update
-  if command -v python3.11 > /dev/null; then
-    gum log -sl info 'Ensuring python3.11 pip is updated' && python3.11 -m pip install --upgrade pip > /dev/null &
-    gum log -sl info 'Ensuring python3.11 setuptools is updated' && python3.11 -m pip install --upgrade setuptools > /dev/null &
-  fi
-
-  ### python3.12 pip update
-  # if command -v python3.12 > /dev/null; then
-  #   gum log -sl info 'Ensuring python3.12 pip is updated' && python3.12 -m pip install --upgrade pip > /dev/null &
-  # fi
-  wait
 }
 
 # @description
@@ -642,188 +599,6 @@ gnomeExtensionSettings() {
 }
 
 # @description
-#     This script configures GRUB2 with a custom theme on Linux systems.
-grubSettings() {
-  if [ "{{ .host.distro.family }}" = "linux" ]; then
-    ### Fix Qubes issue
-    if command -v qubesctl > /dev/null && [ -f /boot/grub2/grubenv ] && [ -d /boot/efi/EFI/qubes ]; then
-      sudo cp -f /boot/grub2/grubenv /boot/efi/EFI/qubes/grubenv
-      gum log -sl info 'Copied /boot/grub2/grubenv to /boot/efi/EFI/qubes/grubenv'
-    fi
-
-    ### Ensure /boot/grub2/themes is directory
-    if [ ! -d /boot/grub2/themes ]; then
-      sudo mkdir -p /boot/grub2/themes
-      gum log -sl info 'Created /boot/grub2/themes'
-    fi
-
-    ### Copy GRUB theme to /boot/grub2/themes
-    if [ -d /usr/local/share/grub/themes ]; then
-      sudo cp -rf /usr/local/share/grub/themes /boot/grub2/
-      gum log -sl info 'Copied GRUB themes in /usr/local/share/grub/themes to /boot/grub2/themes'
-    else
-      gum log -sl warn '/usr/local/share/grub/themes is missing'
-    fi
-
-    ### Set default GRUB screen resolution variables
-    SCREEN_RATIO_ULTRAWIDE="2100"
-    GRUB_RESOLUTION_TYPE="1080p"
-
-    ### Determine screen size ratio (used for picking GRUB2 theme resolution)
-    if command -v xrandr > /dev/null && command -v uniq > /dev/null; then
-      SCREEN_WIDTH="$(xrandr --current | grep '*' | uniq | awk '{print $1}' | cut -d 'x' -f1)"
-      SCREEN_HEIGHT="$(xrandr --current | grep '*' | uniq | awk '{print $1}' | cut -d 'x' -f2)"
-      SCREEN_RATIO="$(awk -v height="$SCREEN_HEIGHT" -v width="$SCREEN_WIDTH" 'BEGIN { print ((height / width) * 1000) }')"
-      SCREEN_RATIO="${SCREEN_RATIO%.*}"
-      gum log -sl info "Screen detected as $SCREEN_WIDTH x $SCREEN_HEIGHT (ratio of $SCREEN_RATIO)"
-      if (( $(echo "$SCREEN_RATIO $SCREEN_RATIO_ULTRAWIDE" | awk '{print ($1 > $2)}') )); then
-        GRUB_RESOLUTION_TYPE="ultrawide"
-        gum log -sl info 'GRUB resolution registered as ultrawide'
-      fi
-    else
-      gum log -sl warn 'Missing either xrandr or uniq (required for calculating screen size ratio)'
-    fi
-
-    ### Optimize the GRUB resolution
-    if [ -f /etc/default/grub ]; then
-      ### GRUB_GFXMODE
-      gum log -sl info 'Setting GRUB_GFXMODE=auto in /etc/default/grub'
-      if cat /etc/default/grub | grep GRUB_GFX_MODE > /dev/null; then
-        sudo sed -i 's/.*GRUB_GFXMODE.*/GRUB_GFXMODE=auto/' /etc/default/grub
-      else
-        echo "GRUB_GFXMODE=auto" | sudo tee -a /etc/default/grub > /dev/null
-      fi
-
-      ### GRUB_GFXPAYLOAD_LINUX
-      gum log -sl info 'Setting GRUB_GFXPAYLOAD_LINUX=keep in /etc/default/grub'
-      if cat /etc/default/grub | grep GRUB_GFXPAYLOAD_LINUX > /dev/null; then
-        sudo sed -i 's/.*GRUB_GFXPAYLOAD_LINUX.*/GRUB_GFXPAYLOAD_LINUX="keep"/' /etc/default/grub
-      else
-        echo 'GRUB_GFXPAYLOAD_LINUX="keep"' | sudo tee -a /etc/default/grub > /dev/null
-      fi
-
-      ### GRUB_THEME
-      gum log -sl info 'Setting GRUB_THEME={{ .theme }} in /etc/default/grub'
-      if cat /etc/default/grub | grep GRUB_THEME > /dev/null; then
-        sudo sed -i 's/.*GRUB_THEME.*/GRUB_THEME="{{ .theme }}-'"$GRUB_RESOLUTION_TYPE"'"/' /etc/default/grub
-      else
-        echo 'GRUB_THEME="{{ .theme }}-'"$GRUB_RESOLUTION_TYPE"'"' | sudo tee -a /etc/default/grub > /dev/null
-      fi
-
-      ### GRUB_BACKGROUND
-      # Removed since the background should be flat black which is configurable
-      # Leaving this code here in case we need to add a flat black image background for some reason
-      # gum log -sl info 'Setting GRUB_BACKGROUND=/usr/local/share/grub/{{ .theme }}-blue.png in /etc/default/grub'
-      # if cat /etc/default/grub | grep GRUB_BACKGROUND > /dev/null; then
-      #     sudo sed -i 's/.*GRUB_BACKGROUND.*/GRUB_BACKGROUND="\/usr\/local\/share\/grub\/{{ .theme }}-blue.png"/' /etc/default/grub
-      # else
-      #     echo 'GRUB_BACKGROUND="/usr/local/share/grub/{{ .theme }}-blue.png"' | sudo tee -a /etc/default/grub > /dev/null
-      # fi
-
-      ### GRUB_TIMEOUT
-      gum log -sl info 'Setting GRUB_TIMEOUT={{ .grub.timeout }} in /etc/default/grub'
-      if cat /etc/default/grub | grep GRUB_TIMEOUT > /dev/null; then
-        sudo sed -i 's/.*GRUB_TIMEOUT.*/GRUB_TIMEOUT="{{ .grub.timeout }}"/' /etc/default/grub
-      else
-        echo 'GRUB_TIMEOUT="{{ .grub.timeout }}"' | sudo tee -a /etc/default/grub > /dev/null
-      fi
-
-      ### GRUB_FORCE_HIDDEN_MENU
-      gum log -sl info 'Setting GRUB_FORCE_HIDDEN_MENU={{ .grub.shiftToSee }} in /etc/default/grub'
-      sudo sed -i '/GRUB_FORCE_HIDDEN_MENU/d' /etc/default/grub
-      echo "GRUB_FORCE_HIDDEN_MENU={{ .grub.shiftToSee }}" | sudo tee -a /etc/default/grub > /dev/null
-
-      ### Remove duplicate lines in /etc/default/grub
-      gum log -sl info 'Ensuring there are no duplicate entries in /etc/default/grub'
-      cat /etc/default/grub | uniq | sudo tee /etc/default/grub > /dev/null
-    else
-      gum log -sl warn '/etc/default/grub is missing'
-    fi
-
-    ### Determine platform-specific icon to use
-    if command -v qubesctl > /dev/null; then
-      GRUB_ICON='qubes'
-    elif [ -f "/usr/local/share/grub/themes/{{ .theme }}-$GRUB_RESOLUTION_TYPE/icons/{{ .host.distro.id }}.png" ]; then
-      GRUB_ICON='{{ .host.distro.id }}'
-    elif [ -f "/usr/local/share/grub/themes/{{ .theme }}-$GRUB_RESOLUTION_TYPE/icons/{{ .host.distro.family }}.png" ]; then
-      GRUB_ICON='{{ .host.distro.family }}'
-    else
-      GRUB_ICON='linux'
-    fi
-
-    ### Copy icon to GRUB2 theme folder
-    # Check looks in /usr/local/share/grub because on some systems the /boot folder is behind permissions for non-root users
-    if [ -f "/usr/local/share/grub/themes/{{ .theme }}-$GRUB_RESOLUTION_TYPE/icons/$GRUB_ICON.png" ]; then
-      sudo cp -f /boot/grub2/themes/{{ .theme }}-$GRUB_RESOLUTION_TYPE/icons/$GRUB_ICON.png /boot/grub2/themes/{{ .theme }}-$GRUB_RESOLUTION_TYPE/icon.png
-      gum log -sl info 'Copied platform-specific icon to GRUB2 theme folder'
-    else
-      gum log -sl warn "/boot/grub2/themes/{{ .theme }}-$GRUB_RESOLUTION_TYPE/icons/$GRUB_ICON.png is missing"
-    fi
-
-    ### Hide unnecessary Boot messages and Bliking cursor
-    GRUB_DEFAULT_CMDLINE=$(grep 'GRUB_CMDLINE_LINUX_DEFAULT' /etc/default/grub)
-    if [[ -n $GRUB_DEFAULT_CMDLINE ]]; then
-      KERNEL_PARAMS_QUIET=$(echo "$GRUB_DEFAULT_CMDLINE" | grep 'quiet')
-      gum log -sl info 'Updating GRUB_CMDLINE_LINUX_DEFAULT to hide log messages'
-      if [[ -z $KERNEL_PARAMS_QUIET ]]; then
-        sudo sed -i 's/^GRUB_CMDLINE_LINUX_DEFAULT="/GRUB_CMDLINE_LINUX_DEFAULT="quiet loglevel=3 systemd.show_status=auto rd.udev.log_level=3 vt.global_cursor_default=0 /' /etc/default/grub
-      else
-        NEW_KERNEL_PARAMS=$(echo $KERNEL_PARAMS_QUIET | sed -e "s/quiet/quiet loglevel=3 systemd.show_status=auto rd.udev.log_level=3 vt.global_cursor_default=0/")
-        sudo sed -i "s/^GRUB_CMDLINE_LINUX_DEFAULT.*/${NEW_KERNEL_PARAMS}/" /etc/default/grub
-      fi
-    else
-      gum log -sl info 'GRUB_CMDLINE_LINUX_DEFAULT was not present, adding one with parameters to hide log messages'
-      echo 'GRUB_CMDLINE_LINUX_DEFAULT="quiet loglevel=3 systemd.show_status=auto rd.udev.log_level=3 vt.global_cursor_default=0"' | sudo tee -a /etc/default/grub > /dev/null
-    fi
-
-
-    ### Ensure grub2-mkconfig is available
-    if ! command -v grub2-mkconfig > /dev/null; then
-      if command -v grub-mkconfig > /dev/null; then
-        sudo ln -s "$(which grub-mkconfig)" /usr/bin/grub2-mkconfig
-      elif sudo which grub-mkconfig > /dev/null; then
-        sudo ln -s "$(sudo which grub-mkconfig)" /usr/bin/grub2-mkconfig
-      else
-        gum log -sl warn 'Neither grub2-mkconfig or grub-mkconfig are available'
-      fi
-    fi
-
-    ### Apply GRUB2 theme
-    # Set export DEBUG_MODE=true to bypass GRUB2 / Plymouth application
-    if [ "$DEBUG_MODE" != 'true' ]; then
-      if command -v grub2-mkconfig > /dev/null; then
-        if [ -d /sys/firmware/efi ]; then
-          gum log -sl info 'Assuming system is UEFI-enabled since /sys/firmware/efi is present'
-          if [ -f /boot/efi/EFI/qubes/grub.cfg ]; then
-            gum log -sl info 'Running sudo grub2-mkconfig -o /boot/efi/EFI/qubes/grub.cfg'
-            sudo grub2-mkconfig -o /boot/efi/EFI/qubes/grub.cfg
-            gum log -sl info 'Applied GRUB2 theme'
-          elif [ -f /boot/efi/EFI/grub.cfg ]; then
-            gum log -sl info 'Running sudo grub2-mkconfig -o /boot/efi/EFI/grub.cfg'
-            sudo grub2-mkconfig -o /boot/efi/EFI/grub.cfg
-            gum log -sl info 'Applied GRUB2 theme'
-          else
-            gum log -sl warn 'Unknown GRUB2 configuration - not applying GRUB2 theme'
-          fi
-        else
-          gum log -sl info 'Assuming system is non-UEFI since /sys/firmware/efi is not present'
-          gum log -sl info 'Running sudo grub2-mkconfig -o /boot/grub2/grub.cfg'
-          sudo grub2-mkconfig -o /boot/grub2/grub.cfg
-          gum log -sl info 'Applied GRUB2 theme'
-        fi
-      elif [ -f /usr/sbin/update-grub ]; then
-        gum log -sl info 'Running sudo update-grub'
-        sudo update-grub
-      else
-        gum log -sl warn 'Unable to find appropriate GRUB mkconfig command'
-      fi
-    else
-      gum log -sl info 'Skipping GRUB2 theme application because DEBUG_MODE is set to true'
-    fi
-  fi
-}
-
-# @description
 #     This script sets the [Docker Rclone plugin](https://rclone.org/docker/) which allows you to mount Rclone mounts as Docker volumes
 #
 #     #### Docker Rclone
@@ -927,64 +702,11 @@ symlinkAnsibleRoles() {
   fi
   gum log -sl info 'Ensuring Qubes Ansible roles are symlinked to ~/.local/share/ansible/roles'
   mkdir -p "${XDG_DATA_HOME:-$HOME/.local/share}/ansible/roles"
-  find "${XDG_DATA_HOME:-$HOME/.local/share}/gas-station/roles" -mindepth 2 -maxdepth 2 -type d | while read ROLE_PATH; do
-    ROLE_FOLDER="professormanhattan.$(echo "$ROLE_PATH" | sed 's/.*\/\([^\/]*\)$/\1/')"
-    ALT_ROLE_FOLDER="$(echo "$ROLE_PATH" | sed 's/.*\/\([^\/]*\)$/\1/')"
-    if [ ! -d "${XDG_DATA_HOME:-$HOME/.local/share}/ansible/roles/$ROLE_FOLDER" ] || [ "$(readlink -f "${XDG_DATA_HOME:-$HOME/.local/share}/ansible/roles/$ROLE_FOLDER")" != "$ROLE_PATH" ]; then
-      gum log -sl info 'Symlinking '"$ROLE_FOLDER"''
-      rm -f "${XDG_DATA_HOME:-$HOME/.local/share}/ansible/roles/$ROLE_FOLDER"
-      ln -s "$ROLE_PATH" "${XDG_DATA_HOME:-$HOME/.local/share}/ansible/roles/$ROLE_FOLDER"
-    fi
-    if [ ! -d "${XDG_DATA_HOME:-$HOME/.local/share}/ansible/roles/$ALT_ROLE_FOLDER" ] || [ "$(readlink -f "${XDG_DATA_HOME:-$HOME/.local/share}/ansible/roles/$ALT_ROLE_FOLDER")" != "$ROLE_PATH" ]; then
-      rm -f "${XDG_DATA_HOME:-$HOME/.local/share}/ansible/roles/$ALT_ROLE_FOLDER"
-      ln -s "$ROLE_PATH" "${XDG_DATA_HOME:-$HOME/.local/share}/ansible/roles/$ALT_ROLE_FOLDER"
-    fi
-  done
-
-  if [ -f "${XDG_DATA_HOME:-$HOME/.local/share}/gas-station/requirements.yml" ]; then
-    ### Install Ansible Galaxy and dependencies if missing
-    if ! command -v ansible-galaxy > /dev/null; then
-      if ! command -v pipx > /dev/null; then
-        gum log -sl info 'Installing pipx via Homebrew'
-        brew install --quiet pipx
-        gum log -sl info 'Running pipx ensurepath'
-        pipx ensurepath
-      fi
-      gum log -sl info 'Installing ansible-core via pipx'
-      pipx install ansible
-      if [ -d /Applications ] && [ -d /System ]; then
-        gum log -sl info 'Injecting macOS-specific pipx dependencies via pipx'
-        pipx inject ansible PyObjC PyObjC-core
-      fi
-      gum log -sl info 'Injecting Ansible dependencies via pipx'
-      pipx inject ansible docker lxml netaddr pexpect python-vagrant pywinrm requests-credssp watchdog
-      mkdir -p "${XDG_CACHE_HOME:-$HOME/.cache}/megabyte-labs"
-      touch "${XDG_CACHE_HOME:-$HOME/.cache}/megabyte-labs/ansible-installed"
-    fi
-
-    ### Ensure Ansible Galaxy was successfully loaded and then install the Ansible Galaxy requirements
-    if command -v ansible-galaxy > /dev/null; then
-      gum log -sl info 'Ensuring Ansible Galaxy collections are installed'
-      export ANSIBLE_CONFIG="${XDG_DATA_HOME:-$HOME/.local/share}/ansible/ansible.cfg"
-      ansible-galaxy install -r "${XDG_DATA_HOME:-$HOME/.local/share}/ansible/requirements.yml" > /dev/null || EXIT_CODE=$?
-      if [ -n "$EXIT_CODE" ]; then
-        gum log -sl error 'Failed to install Ansible requirements from Ansible Galaxy'
-        if [ -d "${XDG_DATA_HOME:-$HOME/.local/share}/gas-station/collections" ]; then
-          gum log -sl info 'Attempting to use locally stored Ansible requirements'
-          cd "${XDG_DATA_HOME:-$HOME/.local/share}/gas-station/collections"
-          ansible-galaxy install -r requirements.yml || SECOND_EXIT_CODE=$?
-          if [ -n "$SECOND_EXIT_CODE" ]; then
-            gum log -sl error 'Failed to install requirements from both the cloud and the local copy' && exit 1
-          fi
-        else
-          gum log -sl warn "${XDG_DATA_HOME:-$HOME/.local/share}/gas-station/collections is missing"
-        fi
-      fi
-    else
-      gum log -sl warn 'Unable to install the Ansible Galaxy requirements.yml since the ansible-galaxy executable is missing from the PATH'
-    fi
-  else
-    gum log -sl warn '~/.local/share/ansible/requirements.yml is missing'
+  if [ -d "${XDG_DATA_HOME:-$HOME/.local/share}/ansible-qubes/roles" ]; then
+    find "${XDG_DATA_HOME:-$HOME/.local/share}/ansible-qubes/roles" -mindepth 1 -maxdepth 1 -type d | while read ROLE_PATH; do
+      ROLE_FOLDER="$(basename "$ROLE_PATH")"
+      ln -sfn "$ROLE_PATH" "${XDG_DATA_HOME:-$HOME/.local/share}/ansible/roles/$ROLE_FOLDER"
+    done
   fi
 }
 
@@ -1042,15 +764,13 @@ if [ -n "$DEBUG" ] || [ -n "$DEBUG_MODE" ]; then
   applyWallpaper
   configureNetworkManagerVPNProfiles
   configureSSHD
+  configureCloudflareFirewall
   dconfSettings
   ensureSSHKey
-  emscriptenInstall
   ensureQtStyleOverride
-  ensurePipUpdated
   ensureSystemGemUpdated
   ensureZshShell
   gnomeExtensionSettings
-  grubSettings
   installDockerRclonePlugin
   installLocalBinPackageJson
   installTerminalTheme
@@ -1070,15 +790,13 @@ else
   applyWallpaper &
   configureNetworkManagerVPNProfiles &
   configureSSHD &
+  configureCloudflareFirewall &
   dconfSettings &
   ensureSSHKey &
-  emscriptenInstall &
   ensureQtStyleOverride &
-  ensurePipUpdated &
   ensureSystemGemUpdated &
   ensureZshShell &
   gnomeExtensionSettings &
-  grubSettings &
   installDockerRclonePlugin &
   installLocalBinPackageJson &
   installTerminalTheme &

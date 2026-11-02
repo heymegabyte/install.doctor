@@ -17,10 +17,6 @@
 export DEBIAN_FRONTEND=noninteractive
 
 if [ -d /Applications ] && [ -d /System ]; then
-  ### Ensure environment variables are appropriately configured
-  export VOLTA_HOME="${XDG_DATA_HOME:-$HOME/.local/share}/volta"
-  export PATH="$VOLTA_HOME/bin:$PATH"
-
   ### Check for presence of Homebrew
   if command -v brew > /dev/null; then
     ### Force serial Homebrew downloads. Newer Homebrew releases ship a parallel

@@ -1,154 +1,33 @@
 {{ $gitArgs := "clone.args = ['--depth', '1']\n    pull.args = ['--ff-only']" }}
 
-### Git Template
-# [".config/git/template/_/husky.sh"]
-#     type = "file"
-#     url = "https://github.com/typicode/husky/raw/main/husky.sh"
-
-### Rundeck
-[".local/system/src/var/lib/rundeck/libext/ansible-plugin-3.2.2.jar"]
-    type = "file"
-    url = "https://github.com/rundeck-plugins/ansible-plugin/releases/download/v3.2.2/ansible-plugin-3.2.2.jar"
-
-### Chef Bento
-[".local/src/bento"]
-    type = "git-repo"
-    url = "https://github.com/installdoc/bento.git"
-    {{ $gitArgs }}
-
-### Vagrant OPNSense
-[".local/src/vagrant-opnsense"]
-    type = "git-repo"
-    url = "https://github.com/punktDe/vagrant-opnsense.git"
-    {{ $gitArgs }}
-
-### Shellfire
-[".local/src/shellfire"]
-    type = "git-repo"
-    url = "https://github.com/shellfire-dev/shellfire.git"
-    {{ $gitArgs }}
-
-[".local/share/hoard"]
-    type = "git-repo"
-    url = "https://github.com/Hyde46/hoard.git"
-    {{ $gitArgs }}
-[".local/share/up"]
-    type = "git-repo"
-    url = "https://github.com/shannonmoeller/up.git"
-    {{ $gitArgs }}
+### RSync Time Backup
 [".local/share/rsync-time-backup"]
     type = "git-repo"
     url = "https://github.com/laurent22/rsync-time-backup.git"
     {{ $gitArgs }}
-[".local/share/concurrent"]
-    type = "git-repo"
-    url = "https://github.com/themattrix/bash-concurrent.git"
-    {{ $gitArgs }}
-[".local/share/install.doctor"]
-    type = "git-repo"
-    url = "https://github.com/heymegabyte/install.doctor.git"
-    {{ $gitArgs }}
-#[".local/oh-my-bash"]
-#    type = "git-repo"
-#    url = "https://github.com/ohmybash/oh-my-bash.git"
 
-### Ansible Roles / Playbook
-# TODO: Remove all Gas Station references
-[".local/share/gas-station"]
-    type = "git-repo"
-    url = "https://gitlab.com/megabyte-labs/gas-station.git"
-    {{ $gitArgs }}
+### Qubes OS Ansible Playbooks (Qubes only)
+{{- if .host.qubes }}
 [".local/share/ansible-qubes"]
     type = "git-repo"
     url = "https://github.com/ProfessorManhattan/ansible-qubes.git"
     {{ $gitArgs }}
-[".local/share/ansible/plugins/callback/beautiful_output.py"]
-    type = "file"
-    url = "https://github.com/Townk/ansible-beautiful-output/raw/master/callback_plugins/beautiful_output.py"
-# Removed: ProfessorManhattan/ansible-modules-bitwarden was deleted from
-# GitHub (now 404s on every chezmoi apply). For Ansible Bitwarden lookups,
-# install the maintained collection instead:
-#   ansible-galaxy collection install community.general
-# Then use community.general.bitwarden in your playbooks.
+{{- end }}
 
-# https://github.com/kholia/OSX-KVM
-[".local/share/osx-kvm"]
-    type = "git-repo"
-    url = "https://github.com/kholia/OSX-KVM.git"
-    {{ $gitArgs }}
-
-### PowerShell
+### PowerShell Docker Completion
 [".local/share/powershell/docker"]
     type = "git-repo"
     url = "https://github.com/matt9ucci/DockerCompletion.git"
     {{ $gitArgs }}
 
 ######################################
-### AI / GPT #########################
-######################################
-
-### AgentGPT
-[".local/share/agentgpt"]
-    type = "git-repo"
-    url = "https://github.com/reworkd/AgentGPT.git"
-    {{ $gitArgs }}
-
-### code2prompt
-[".local/share/code2prompt"]
-    type = "git-repo"
-    url = "https://github.com/mufeedvh/code2prompt.git"
-    {{ $gitArgs}}
-
-### Kaguya
-[".local/share/kaguya"]
-    type = "git-repo"
-    url = "https://github.com/ykdojo/kaguya.git"
-    {{ $gitArgs }}
-
-### LocalGPT
-[".local/share/localgpt"]
-    type = "git-repo"
-    url = "https://github.com/PromtEngineer/localGPT.git"
-    {{ $gitArgs }}
-
-### ShortGPT
-[".local/share/shortgpt"]
-    type = "git-repo"
-    url = "https://github.com/rayventura/shortgpt.git"
-    {{ $gitArgs }}
-
-### Quivr
-[".local/share/quivr"]
-    type = "git-repo"
-    url = "https://github.com/StanGirard/Quivr.git"
-    {{ $gitArgs }}
-
-######################################
-### CLI ##############################
+### CLI & Shell Integrations #########
 ######################################
 
 ### Bash (Sensible defaults)
 [".local/share/shell/sensible.bash"]
     type = "file"
     url = "https://raw.githubusercontent.com/mrzool/bash-sensible/master/sensible.bash"
-
-### Ble.sh
-[".local/share/blesh/src"]
-    type = "git-repo"
-    url = "https://github.com/akinomyoga/ble.sh.git"
-    {{ $gitArgs }}
-
-### Bash It!
-[".local/share/bash_it"]
-    type = "git-repo"
-    url = "https://github.com/Bash-it/bash-it.git"
-    {{ $gitArgs }}
-
-### emsdk
-[".local/share/emsdk"]
-    type = "git-repo"
-    url = "https://github.com/emscripten-core/emsdk.git"
-    {{ $gitArgs }}
 
 ### fzf
 [".local/share/fzf/fzf-git.bash"]
@@ -188,29 +67,14 @@
     type = "file"
     url = "https://raw.githubusercontent.com/gpakosz/.tmux/master/.tmux.conf.local"
 
-### Update scripts
-[".local/bin/update"]
-    type = "git-repo"
-    url = "https://github.com/UpdateCommand/update.git"
-    {{ $gitArgs }}
-
-######################################
-### Home #############################
-######################################
-
-### Local Sites (localwp.com)
-["Local Sites"]
-    type = "git-repo"
-    url = "git@github.com:megabyte-labs/local-sites.git"
-
 ######################################
 ### Fonts ############################
 ######################################
 
-### Hack Nerd Font
+### Hack Nerd Font (4 core weights only — eliminates 30 redundant font HTTP requests)
 {{- if not .host.headless }}
 {{-   $fontDir := "" }}
-{{-   $fontUrlBase := "https://github.com/ryanoasis/nerd-fonts/raw/master/patched-fonts/Hack"}}
+{{-   $fontUrlBase := "https://github.com/ryanoasis/nerd-fonts/raw/v3.2.1/patched-fonts/Hack" }}
 {{-   if eq .host.distro.family "darwin" }}
 {{-     $fontDir = "Library/Fonts" }}
 {{-   else if eq .host.distro.family "linux" }}
@@ -230,142 +94,47 @@
 ["{{ $fontDir }}/Hack-Bold-Italic-Nerd-Font.ttf"]
     type = "file"
     url = "{{ $fontUrlBase }}/BoldItalic/HackNerdFont-BoldItalic.ttf"
-
-### Montserrat Font
-{{-   $fontUrlBase := "https://github.com/JulietaUla/Montserrat/raw/master/fonts/ttf/Montserrat-"}}
-{{-   $fonts := list "Black" "BlackItalic" "Bold" "BoldItalic" "ExtraBold" "ExtraBoldItalic" "ExtraLight" "ExtraLightItalic" "Italic" "Light" "LightItalic" "Medium" "MediumItalic" "Regular" "SemiBold" "SemiBoldItalic" "Thin" "ThinItalic" }}
-{{-   range $font := $fonts }}
-["{{ $fontDir }}/Montserrat-{{ $font }}.ttf"]
-    type = "file"
-    url = "{{ $fontUrlBase }}{{ $font }}.ttf"
-{{-   end }}
-
-### ZillaSlab Font
-{{-   $fontUrlBase := "https://github.com/typotheque/zilla-slab/raw/master/fonts_TTF/ZillaSlab"}}
-{{-   $fonts := list "-Bold" "-BoldItalic" "-Italic" "-Light" "-LightItalic" "-Medium" "-MediumItalic" "-Regular" "-SemiBold" "-SemiBoldItalic" "Highlight-Bold" "Highlight-Regular" }}
-{{-   range $font := $fonts }}
-["{{ $fontDir }}/ZillaSlab{{ $font }}.ttf"]
-    type = "file"
-    url = "{{ $fontUrlBase }}{{ $font }}.ttf"
-{{-   end }}
-{{- end }}
-
-######################################
-### Netdata ##########################
-######################################
-
-{{- if (lookPath "apt-get") }}
-### Netdata Debsecan
-[".local/share/netdata-debsecan"]
-    type = "git-repo"
-    url = "https://gitlab.com/nodiscc/netdata-debsecan.git"
-    {{ $gitArgs }}
-{{- end }}
-
-### Netdata Speedtest (required for Netdata speedtest plugin)
-[".local/share/netdata-speedtest"]
-    type = "git-repo"
-    url = "https://github.com/ohthehugemanatee/netdata-speedtest.git"
-    {{ $gitArgs }}
-
-######################################
-### Rofi #############################
-######################################
-
-{{- if and (eq .chezmoi.os "linux") (not .host.headless) }}
-[".local/share/fonts/GrapeNuts-Regular.ttf"]
-    type = "file"
-    url = "https://github.com/adi1090x/rofi/raw/master/fonts/GrapeNuts-Regular.ttf"
-[".local/share/fonts/Icomoon-Feather.ttf"]
-    type = "file"
-    url = "https://github.com/adi1090x/rofi/raw/master/fonts/Icomoon-Feather.ttf"
-[".local/share/fonts/Iosevka-Nerd-Font-Complete.ttf"]
-    type = "file"
-    url = "https://github.com/adi1090x/rofi/raw/master/fonts/Iosevka-Nerd-Font-Complete.ttf"
-[".local/share/fonts/JetBrains-Mono-Nerd-Font-Complete.ttf"]
-    type = "file"
-    url = "https://github.com/adi1090x/rofi/raw/master/fonts/JetBrains-Mono-Nerd-Font-Complete.ttf"
-[".config/rofi"]
-    type = "archive"
-    url = "https://github.com/adi1090x/rofi/archive/refs/heads/master.tar.gz"
-    exact = true
-    stripComponents = 2
-    include = ["applets/**", "colors/**", "images/**", "launchers/**", "powermenu/**", "scripts/**", "config.rasi"]
 {{- end }}
 
 ######################################
 ### Security Certificates ############
 ######################################
 
-### cURL / Google Cloud SDK
+### cURL / Mozilla CA Bundle
 [".local/etc/ssl/curl/cacert.pem"]
     type = "file"
     url = "https://curl.se/ca/cacert.pem"
 
-### Vagrant
-[".ssh/authorized_keys.vagrant"]
-    type = "file"
-    url = "https://raw.githubusercontent.com/hashicorp/vagrant/main/keys/vagrant.pub"
-
 ######################################
-### Theme ############################
+### Theme (Linux Desktop Only) #######
 ######################################
 
-### Betelgeuse (GNOME / KDE / GRUB / Plymouth)
-# TODO: Merge Betelgeuse theme into Install Doctor
-[".local/src/betelgeuse"]
-    type = "git-repo"
-    url = "https://gitlab.com/megabyte-labs/misc/betelgeuse.git"
-    {{ $gitArgs }}
+{{- if and (eq .chezmoi.os "linux") (not .host.headless) }}
 [".local/share/betelgeuse"]
     type = "git-repo"
     url = "https://gitlab.com/megabyte-labs/misc/betelgeuse.git"
     {{ $gitArgs }}
-[".local/share/candy-icons"]
-    type = "git-repo"
-    url = "https://github.com/ProfessorManhattan/candy-icons.git"
-    {{ $gitArgs }}
-
-### AwesomeWM
-[".local/share/yoru"]
-    type = "git-repo"
-    url = "https://github.com/rxyhn/yoru.git"
-    {{ $gitArgs }}
-
-### Windows / Fluent Application Styles
-# Discord (TODO: Apply this to Discord automatically)
-[".local/share/fluent/discord/theme.css"]
-    type = "file"
-    url = "https://raw.githubusercontent.com/DiscordStyles/Fluent/deploy/Fluent.theme.css"
-# Steam (TODO: Apply this to Steam automatically by detecting first if it is installed)
-[".local/share/fluent/steam"]
-    type = "git-repo"
-    url = "https://github.com/purogamer/Fluent-for-Steam.git"
-    {{ $gitArgs }}
+{{- end }}
 
 ######################################
 ### VIM / NVIM #######################
 ######################################
 
-### VIM
+### VIM (vim-plug only; coc.nvim removed in favor of native LSP servers)
 [".config/vim/autoload/plug.vim"]
     type = "file"
     url = "https://raw.githubusercontent.com/junegunn/vim-plug/master/plug.vim"
 {{- $vimPlugins := .softwarePlugins.vim.plugins }}
 {{- range $vimPlugin := $vimPlugins }}
-{{-   $folderName :=  trimSuffix ".git" (last (splitList "/" $vimPlugin)) }}
+{{-   $folderName := trimSuffix ".git" (last (splitList "/" $vimPlugin)) }}
 [".local/share/vim/plugged/{{ $folderName }}"]
     type = "git-repo"
     url = "{{ $vimPlugin }}"
     {{ $gitArgs }}
 {{- end }}
-[".local/share/vim/plugged/coc.nvim"]
-    type = "git-repo"
-    url = "https://github.com/neoclide/coc.nvim.git"
-    clone.args = ["--branch", "release", "--depth", "1"]
-    pull.args = ["--ff-only"]
 
 ### NVIM
 [".config/nvim"]
     type = "git-repo"
     url = "https://github.com/megabyte-labs/AstronVim.git"
+    {{ $gitArgs }}
