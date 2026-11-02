@@ -1,18 +1,18 @@
 #!/usr/bin/env bash
 set -euo pipefail
 # @file Privoxy Configuration
-# @brief This script applies the Privoxy configuration stored at `${XDG_CONFIG_HOME:-HOME/.config}/privoxy/config` to the system and then restarts Privoxy
+# @brief This script applies the Privoxy configuration stored at `${XDG_CONFIG_HOME:-$HOME/.config}/privoxy/config` to the system and then restarts Privoxy
 # @description
 #     Privoxy is a web proxy that can be combined with Tor to provide an HTTPS / HTTP proxy that can funnel all traffic
 #     through Tor. This script:
 #
 #     1. Determines the system configuration file location
-#     2. Applies the configuration stored at `${XDG_CONFIG_HOME:-HOME/.config}/privoxy/config`
+#     2. Applies the configuration stored at `${XDG_CONFIG_HOME:-$HOME/.config}/privoxy/config`
 #     3. Enables and restarts the Privoxy service with the new configuration
 #
 #     ## Links
 #
-#     * [Privoxy configuration](https://github.com/megabyte-labs/install.doctor/tree/master/home/dot_config/privoxy/config)
+#     * [Privoxy configuration](https://github.com/heymegabyte/install.doctor/tree/master/home/dot_config/privoxy/config)
 
 set -Eeo pipefail
 trap "gum log -sl error 'Script encountered an error!'" ERR
@@ -28,10 +28,10 @@ fi
 PRIVOXY_CONFIG="$PRIVOXY_CONFIG_DIR/config"
 
 if command -v privoxy > /dev/null; then
-  if [ -f "${XDG_CONFIG_HOME:-HOME/.config}/privoxy/config" ]; then
+  if [ -f "${XDG_CONFIG_HOME:-$HOME/.config}/privoxy/config" ]; then
     sudo mkdir -p "$PRIVOXY_CONFIG_DIR"
-    gum log -sl info "Copying ${XDG_CONFIG_HOME:-HOME/.config}/privoxy/config to $PRIVOXY_CONFIG"
-    sudo cp -f "${XDG_CONFIG_HOME:-HOME/.config}/privoxy/config" "$PRIVOXY_CONFIG"
+    gum log -sl info "Copying ${XDG_CONFIG_HOME:-$HOME/.config}/privoxy/config to $PRIVOXY_CONFIG"
+    sudo cp -f "${XDG_CONFIG_HOME:-$HOME/.config}/privoxy/config" "$PRIVOXY_CONFIG"
     gum log -sl info "Running sudo chmod 600 $PRIVOXY_CONFIG"
     sudo chmod 600 "$PRIVOXY_CONFIG"
     if command -v add-usergroup > /dev/null; then
@@ -60,7 +60,7 @@ if command -v privoxy > /dev/null; then
       fi
     fi
   else
-    gum log -sl info "${XDG_CONFIG_HOME:-HOME/.config}/privoxy/config is missing so skipping set up of Privoxy"
+    gum log -sl info "${XDG_CONFIG_HOME:-$HOME/.config}/privoxy/config is missing so skipping set up of Privoxy"
   fi
 else
   gum log -sl info 'privoxy is not installed or not available in the PATH'

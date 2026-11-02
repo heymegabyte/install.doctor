@@ -420,5 +420,16 @@ PATH="$shdir:$PATH" CNF_INDEX="$shidx" CNF_DRY=1 __cnf_resolve selfhealtool >/de
 { [ -f "$shsent" ]; } && pass "E12/V02 — EMPTY (0-byte) index SELF-HEALS (rebuilds via cnf-build-index; [ -s ] not [ -f ])" || fail "empty index did NOT self-heal — lazy-install would sit dead (cnf-build-index not invoked)"
 rm -rf "$shdir"
 
+# 18. R14/F06 — lazy-install POST-INSTALLX HOOK auto-dispatch: when a tool with a `post-<key>.sh` hook in
+# `~/.local/bin/post-installx/` is lazy-installed on first use, the hook automatically runs (stdin-isolated
+# `</dev/null` and stdout->stderr `>&2` so the resolved command's stdout stays clean).
+phdir="$(mktemp -d)"; phbin="$phdir/bin"; phhooks="$phdir/hooks"; mkdir -p "$phbin" "$phhooks"
+phidx="$phdir/index.tsv"; printf 'cfgbin\tcfgpkg\tcfgpkg\n' > "$phidx"
+printf '#!/usr/bin/env bash\nprintf "#!/usr/bin/env bash\\necho CFG_CLEAN_STDOUT\\n" > "%s/cfgbin"\nchmod +x "%s/cfgbin"\n' "$phbin" "$phbin" > "$phbin/brew"; chmod +x "$phbin/brew"
+printf '#!/usr/bin/env bash\necho HOOK_NOISE_TO_STDOUT\n: > "%s/hook-ran"\n' "$phdir" > "$phhooks/post-cfgpkg.sh"; chmod +x "$phhooks/post-cfgpkg.sh"
+phout="$(PATH="$phbin:$PATH" CNF_ALLOW_NONINTERACTIVE=1 CNF_INDEX="$phidx" CNF_LOCK_DIR="$phdir/locks" CNF_POST_HOOK_DIR="$phhooks" __cnf_resolve cfgbin 2>/dev/null)"
+{ [ -f "$phdir/hook-ran" ] && [ "$phout" = "CFG_CLEAN_STDOUT" ]; } && pass "R14/F06 — lazy install auto-runs post-<key>.sh config hook with clean stdout isolation" || fail "post-installx hook on lazy install failed (ran=$([ -f "$phdir/hook-ran" ] && echo y || echo n) out='$phout')"
+rm -rf "$phdir"
+
 say "command-not-found: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

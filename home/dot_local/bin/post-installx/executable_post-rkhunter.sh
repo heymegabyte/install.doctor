@@ -9,7 +9,10 @@ trap "gum log -sl error 'Script encountered an error!'" ERR
 if command -v rkhunter > /dev/null; then
     if [ -d /Applications ] && [ -d /System ]; then
       ### macOS
-      gum log -sl info 'Updating file "$(brew --prefix)/Cellar/rkhunter/1.4.6/etc/rkhunter.conf"' && gsed -i  "s/^#WEB_CMD.*$/WEB_CMD=curl\ -L/" "$(brew --prefix)/Cellar/rkhunter/1.4.6/etc/rkhunter.conf"
+      RKHUNTER_CONF="$(brew --prefix rkhunter 2>/dev/null)/etc/rkhunter.conf"
+      if [ -f "$RKHUNTER_CONF" ]; then
+        gum log -sl info "Updating file $RKHUNTER_CONF" && gsed -i "s/^#WEB_CMD.*$/WEB_CMD=curl\ -L/" "$RKHUNTER_CONF"
+      fi
       PATH="$(echo "$PATH" | gsed 's/VMware Fusion.app/VMwareFusion.app/g')"
       PATH="$(echo "$PATH" | gsed 's/IntelliJ IDEA CE.app/IntelliJIDEACE.app/g')"
       export PATH

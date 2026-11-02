@@ -4,7 +4,7 @@ Welcome to a new way of doing things. Born out of complete paranoia and a relent
 
 Gas Station a collection of Ansible playbooks, configurations, scripts, and roles meant to provision computers and networks with the "best of GitHub". By leveraging Ansible, you can provision your whole network relatively fast in the event of a disaster or scheduled network reset. This project is also intended to increase the security of your network by allowing you to frequently wipe, reinstall, and re-provision your network, bringing it back to its original state. This is done by backing up container storage volumes (like database files and Docker volumes) to encrypted S3 buckets, storing configurations in encrypted git repositories, and leveraging GitHub-sourced power tools to make the job easy-peasy.
 
-This project started when a certain somebody changed their desktop wallpaper to an _cute_ picture of a cat 🐱 when, all of a sudden, their computer meowed. Well, it actually started before that but no one believes someone who claims that time travelers hacked them on a regular basis. _Tip: If you are stuck in spiritual darkness involving time travelers, save yourself some headaches by adopting an other-people first mentality that may include volunteering, tithing, and surrendering to Jesus Christ._ Anyway, enough preaching!
+This project started from the desire to bring up and maintain fully automated, reproducible developer workstations and server environments in minutes.
 
 Gas Station is:
 

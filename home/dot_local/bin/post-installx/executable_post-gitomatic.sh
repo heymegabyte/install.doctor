@@ -18,8 +18,8 @@ set -euo pipefail
 #     ## Links
 #
 #     * [gitomatic GitHub repository](https://github.com/muesli/gitomatic/)
-#     * [Systemd Unit file](https://github.com/megabyte-labs/install.doctor/blob/master/home/dot_config/gitomatic/gitomatic.service.tmpl)
-#     * [Helper script](https://github.com/megabyte-labs/install.doctor/blob/master/home/dot_local/bin/executable_gitomatic_service.tmpl
+#     * [Systemd Unit file](https://github.com/heymegabyte/install.doctor/blob/master/home/dot_config/gitomatic/gitomatic.service.tmpl)
+#     * [Helper script](https://github.com/heymegabyte/install.doctor/blob/master/home/dot_local/bin/executable_gitomatic_service.tmpl
 
 set -Eeo pipefail
 trap "gum log -sl error 'Script encountered an error!'" ERR
@@ -27,7 +27,7 @@ trap "gum log -sl error 'Script encountered an error!'" ERR
 if command -v gitomatic > /dev/null; then
   ### Copy gitomatic-service to /usr/local/bin
   gum log -sl info "Copying $HOME/.local/bin/gitomatic-service to /usr/local/bin/gitomatic-service"
-  sudo cp -f "$HOME/.local/bin/gitomatic-service" /usr/local/bin/gitomatic-servic
+  sudo cp -f "$HOME/.local/bin/gitomatic-service" /usr/local/bin/gitomatic-service
   
   ### Copy gitomatic to global directory
   if [ ! -f /usr/local/bin/gitomatic ]; then

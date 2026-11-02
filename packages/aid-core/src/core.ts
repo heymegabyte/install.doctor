@@ -201,3 +201,6 @@ export function renderAlloy(input: unknown, serviceId: string, machineId: string
   const q = JSON.stringify;
   return `// Generated managed fragment. Input file must already exclude secrets and terminal output.\n// Resolve ${service.credentialRef} locally into scoped environment variables.\nlocal.file_match "aid_events" {\n  path_targets = [{"__path__" = ${q(sanitizedEventsPath)}, "job" = "install-doctor", "machine_id" = ${q(machineId)}}]\n}\nloki.source.file "aid_events" {\n  targets = local.file_match.aid_events.targets\n  forward_to = [loki.write.aid.receiver]\n}\nloki.write "aid" {\n  endpoint {\n    url = ${q(service.pushUrl)}\n    basic_auth {\n      username = sys.env("AID_LOKI_USERNAME")\n      password = sys.env("AID_LOKI_PASSWORD")\n    }\n  }\n}\n`;
 }
+
+export * from './probabilistic-intent.js';
+

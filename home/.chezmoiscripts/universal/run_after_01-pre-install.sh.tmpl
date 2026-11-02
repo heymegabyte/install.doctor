@@ -921,7 +921,11 @@ makeLocalBinExecutable() {
 #     * Move installation logic into the ZX installer so that Ansible and its dependencies are only installed when required
 #     * Remove Ansible dependency completely
 symlinkAnsibleRoles() {
-  gum log -sl info 'Ensuring Gas Station roles are symlinked to ~/.local/share/ansible/roles'
+  # Qubes-only Ansible provisioning: skip completely on non-Qubes hosts (macOS, Linux, Proxmox, Coolify)
+  if [ ! -d /var/lib/qubes ] && [ ! -d /rw/config ] && [ ! -f /etc/qubes-release ]; then
+    return 0
+  fi
+  gum log -sl info 'Ensuring Qubes Ansible roles are symlinked to ~/.local/share/ansible/roles'
   mkdir -p "${XDG_DATA_HOME:-$HOME/.local/share}/ansible/roles"
   find "${XDG_DATA_HOME:-$HOME/.local/share}/gas-station/roles" -mindepth 2 -maxdepth 2 -type d | while read ROLE_PATH; do
     ROLE_FOLDER="professormanhattan.$(echo "$ROLE_PATH" | sed 's/.*\/\([^\/]*\)$/\1/')"

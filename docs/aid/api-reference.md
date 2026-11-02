@@ -96,6 +96,21 @@ on the OAuth apps — a one-time human step on the OAuth-app settings; magic-lin
 | `GET /api/history` | admin | Tenant-wide fleet events (which device reported what), newest-first; optional `?device=<id>` scopes to one machine's timeline (N09). |
 | `POST /api/history/prune` | admin | Tenant-scoped retention prune — delete events older than an EXPLICIT `?olderThanDays=N` (required, ≥0); returns `{tenant, olderThanDays, cutoff, prunedCount}` (U14 retention; invoked by the loop as maintenance). |
 
+## Probabilistic Intent Architecture (PIA), Dual-Repo GitHub & OpenAPI 3.1
+
+| Route | Auth | Purpose |
+| --- | --- | --- |
+| `GET /start` | public | Universal multi-OS bootstrap script (`curl https://app.install.doctor/start \| bash`) supporting macOS, Linux, Windows, FreeBSD, and Qubes with `AID_API_KEY` OAuth bypass and real-time TUI pairing callback. |
+| `POST /api/v1/intent/telemetry` | public | Ingest terminal interaction cadence intervals and command buffer to compute Shannon cadence entropy and predict intent probability distribution. |
+| `POST /api/v1/intent/speculate` | public | Fork an isolated edge speculative shadow branch (`SpeculativeBranch`) for high-confidence predicted intents. |
+| `POST /api/v1/intent/collapse` | public | Commit a verified `SpeculativeBranch` with a cryptographic `ActionVoucher` for 0ms perceived latency, or evaporate on mismatch. |
+| `POST /api/v1/easter-eggs/oracle` | public | Evaluate multidimensional Easter egg triggers (`SECRET_CODE`, `CADENCE_RESONANCE`, `KONAMI_SEQUENCE`, `ASTRAL_404`). |
+| `POST /api/v1/github/repos/scan` | public | Scan user GitHub account for `install.doctor`-type master blueprint repositories and `<hostname>.<namespace>` host-specific state repositories. |
+| `POST /api/v1/github/host-repo/ensure` | public | Ensure or create the host-specific GitHub repository (`<hostname>.<namespace>`, falling back to `<hostname>` if namespace is absent) and signal the browser that the TUI is resuming. |
+| `POST /api/v1/keys/mint` | admin | Mint a headless API key (`aid_...`) with `bypassOAuth: true` to skip interactive browser OAuth during automated fleet provisioning. |
+| `GET /api/v1/openapi.json` | public | Strict OpenAPI 3.1.0 machine-readable specification covering all `/api/v1/*` and core control-plane endpoints. |
+| `GET /api/v1/docs` | public | Interactive OpenAPI 3.1 documentation explorer (Trusted-Types-safe DOM). |
+
 ## See also
 
 - Requirement matrix + status: `REQUIREMENTS.md`. Resume pointer: `NEXT-STEPS.md`.

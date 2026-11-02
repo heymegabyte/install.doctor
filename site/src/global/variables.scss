@@ -6,9 +6,12 @@ $color-white: #fff;
 
 $link-color: #1d9aff;
 
+$breakpoint-2xl: 1920px;
+$breakpoint-xl: 1440px;
 $breakpoint-lg: 1024px;
 $breakpoint-md: 768px;
 $breakpoint-sm: 480px;
+$breakpoint-xs: 360px;
 
 $easeOutExpo: cubic-bezier(0.19, 1, 0.22, 1);
 
@@ -47,4 +50,13 @@ $easeOutExpo: cubic-bezier(0.19, 1, 0.22, 1);
   --ease-out-expo: cubic-bezier(0.19, 1, 0.22, 1);
 
   --line-rule-color: #edf2f6;
+
+  // Install Doctor 2.0 Dark-First Cinematic Design Tokens (Obsidian + Electric Cyan)
+  --aid-bg-void: #060610;
+  --aid-bg-surface: #0D0E17;
+  --aid-cyan-electric: #00E5FF;
+  --aid-magenta-lipgloss: #FF2E93;
+  --aid-emerald-mint: #00F5A0;
+  --aid-text-primary: #F8FAFC;
+  --aid-text-muted: #94A3B8;
 }

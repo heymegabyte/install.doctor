@@ -1,1 +1,0 @@
-windows-ci ansible_host=localhost ansible_user=runneradmin ansible_password=AnsibleTest999 ansible_connection=winrm ansible_winrm_server_cert_validation=ignore ansible_winrm_transport=credssp

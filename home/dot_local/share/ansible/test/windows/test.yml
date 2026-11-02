@@ -1,4 +1,0 @@
----
-- hosts: windows-ci
-  roles:
-    - role: .

@@ -1,3 +1,0 @@
----
-- name: Converge
-  import_playbook: ../main.yml

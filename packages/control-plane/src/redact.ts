@@ -27,8 +27,12 @@ const RULES: Array<[RegExp, string]> = [
   // GitHub tokens: classic ghp_/gho_/ghu_/ghs_/ghr_ + fine-grained github_pat_
   [/\bgh[pousr]_[A-Za-z0-9]{20,}\b/g, REDACTED],
   [/\bgithub_pat_[A-Za-z0-9_]{20,}\b/g, REDACTED],
-  // OpenAI / Anthropic style sk- / sk-ant-
+  // DeepSeek / OpenAI / Anthropic style sk- / sk-ant-
   [/\bsk-(?:ant-)?[A-Za-z0-9._-]{16,}\b/g, REDACTED],
+  // Install Doctor device / session tokens (aid_xxx)
+  [/\baid_[a-f0-9]{32,}\b/g, REDACTED],
+  // Infisical service tokens
+  [/\bst\.[a-f0-9]{24,}\.[a-f0-9]{32,}\b/g, REDACTED],
   // Slack tokens
   [/\bxox[baprs]-[A-Za-z0-9-]{10,}\b/g, REDACTED],
   // Explicit secret-ish key ASSIGNMENTS: key=VALUE / key:VALUE / "key":"VALUE".

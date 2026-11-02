@@ -17,7 +17,13 @@ fi
 # Run node from the control-plane dir so Volta selects the modern node that strips TS types natively; the
 # repo ROOT pins an older node via Volta which cannot import a .ts module (ERR_UNKNOWN_FILE_EXTENSION).
 cd "$CP" || { printf 'FAIL cannot cd to %s\n' "$CP"; echo "admin-allowlist: 0 passed, 1 failed"; exit 1; }
-node --input-type=module <<'NODE'
+NODE_BIN="node"
+if [ -x /opt/homebrew/bin/node ]; then
+  NODE_BIN="/opt/homebrew/bin/node"
+elif [ -x /usr/local/bin/node ]; then
+  NODE_BIN="/usr/local/bin/node"
+fi
+"$NODE_BIN" --input-type=module <<'NODE'
 const { isAllowedAdminEmail } = await import(process.env.MOD);
 let P = 0, F = 0;
 const ok = (d, cond) => { if (cond) { P++; console.log('PASS ' + d); } else { F++; console.log('FAIL ' + d); } };

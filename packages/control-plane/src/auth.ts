@@ -50,4 +50,9 @@ export const auth = betterAuth({
       '/forget-password': { window: 60, max: 5 },
     },
   },
+  advanced: {
+    ipAddress: {
+      ipAddressHeaders: ['cf-connecting-ip', 'x-forwarded-for'],
+    },
+  },
 });

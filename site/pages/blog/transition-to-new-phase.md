@@ -31,7 +31,7 @@ keywords:
 
 As we mark the five-year milestone of Install Doctor's journey, it's time to announce a shift in our approach. Rather than a retirement from active development, I'm embracing a new phase where our focus will be on addressing defects and guiding our contributors' pull requests into the master branch.
 
-Our [GitHub project](https://github.com/megabyte-labs/install.doctor), Install Doctor, has been a labor of passion and dedication, a project that has seen remarkable growth and evolution over the years. But with growth comes new challenges, and as we strive to maintain the high standards of quality and functionality that our users expect, it's become clear that a change in strategy is necessary.
+Our [GitHub project](https://github.com/heymegabyte/install.doctor), Install Doctor, has been a labor of passion and dedication, a project that has seen remarkable growth and evolution over the years. But with growth comes new challenges, and as we strive to maintain the high standards of quality and functionality that our users expect, it's become clear that a change in strategy is necessary.
 
 ## Diligence Will Persist
 

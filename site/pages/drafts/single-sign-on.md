@@ -7,7 +7,7 @@ authorUrl: https://twitter.com/HillBillyHack3r
 authorName: Brian Zalewski
 authorImageName: brian-zalewski.png
 authorDescription: Yo whats goodie.
-description: Hey, my name is Brian. My friends call me BZ. I am the main driving force behind Megabyte Labs and its various offerings. Apart from optimizing my developer tool stack, my hobbies include going to the gym, partying with friends, and playing volleyball / kickball. I never turn down a conversation about AI, God, time travelers, or Jesus. I frequently think about how I can make the world a better place by inspiring others.
+description: Hey, my name is Brian. My friends call me BZ. I am the main driving force behind Megabyte Labs and its various offerings. Apart from optimizing my developer tool stack, my hobbies include going to the gym, fitness, and building open-source developer tooling. I frequently think about how I can make the world a better place by inspiring others.
 featuredImage: /single-sign-on.png
 featuredImageAlt: Single sign-on graphic
 tags: SSO,Ory.sh,CloudFlare

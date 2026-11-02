@@ -50,7 +50,7 @@ There are several other competeting packages like [`autojump`](https://github.co
 await $`echo "Heyyy yooo"`;
 ```
 
-Install Doctor utilizes ZX to handle the installation of software on multiple different platforms as well as handle the execution of package-dependent post-installation scripts. Check out the [`installx`](https://github.com/megabyte-labs/install.doctor/blob/master/home/dot_local/bin/executable_installx) executable in our GitHub repository to see how we handle installations on so many different operating systems.
+Install Doctor utilizes ZX to handle the installation of software on multiple different platforms as well as handle the execution of package-dependent post-installation scripts. Check out the [`installx`](https://github.com/heymegabyte/install.doctor/blob/master/home/dot_local/bin/executable_installx) executable in our GitHub repository to see how we handle installations on so many different operating systems.
 
 ### 7. WiFi Password Retrieval with [`wifi-password`](https://github.com/rauchg/wifi-password)
 
@@ -93,7 +93,7 @@ _Note: Just like the ChatGPT auto-commit generators, this package requires you t
 
 **Effortless and Secure Web Access**: `cloudflared` facilitates the secure connection of web services to the internet without complex configurations. Integrated into the Install Doctor system, it offers a streamlined, automated setup process, leveraging CloudFlare's impressive free services to enhance accessibility and security.
 
-Install Doctor has implemented a headless implementation of `cloudflared` that completely automates the process of authenticating and integrating `cloudflared` into the stack. You can see the implementation by searching for `cloudflared` in the [`software.yml`](https://github.com/megabyte-labs/install.doctor/blob/master/software.yml) file. CloudFlare's free service offering is wild - does anybody know how they offer all these amazing services for free and still turn a profit? Their stock has been going up last I checked.
+Install Doctor has implemented a headless implementation of `cloudflared` that completely automates the process of authenticating and integrating `cloudflared` into the stack. You can see the implementation by searching for `cloudflared` in the [`software.yml`](https://github.com/heymegabyte/install.doctor/blob/master/software.yml) file. CloudFlare's free service offering is wild - does anybody know how they offer all these amazing services for free and still turn a profit? Their stock has been going up last I checked.
 
 While this list represents a selection of noteworthy command line utilities, it's important to note that the command line ecosystem is vast and continually evolving. These tools, integrated into the Install Doctor provisioning system, exemplify the power and versatility of the command line interface in modern software development and system administration workflows. Whether you're a seasoned developer or a newcomer to the command line, exploring these utilities can enhance your productivity and streamline your workflows on GitHub and beyond.
 

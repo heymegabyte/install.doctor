@@ -18,8 +18,12 @@ starting processes, modifying a workstation, or contacting an AI provider.
 - Streaming asciicast v3 formatting for already-sanitized output, resize, marker, and exit events.
 - Per-machine Loki reconciliation plans with stable keys for a future durable deduplication store.
 - Managed Grafana Alloy fragments using credential references, not inline secrets.
+- Probabilistic Intent Architecture (PIA): Shannon entropy analysis over user cadence and multi-dimensional intent vector distributions.
+- Quantum Speculative Execution: Speculative shadow branch lifecycle in edge Durable Objects with 0ms perceived latency collapse and leak-free evaporation.
+- Cloudflare Planetary Edge & AI Gateway policy: Smart Placement Workers, Durable Object actors, and dynamic model tiering (Workers AI, DeepSeek-V3, DeepSeek-R1, Claude).
+- Multidimensional Easter Egg Farm: Harmonic Fibonacci resonance detection, ANSI terminal games (Space Invaders, Matrix, C64), astral 404 dungeon crawler, and stateful Virtual Pet (Tamagotchi) Durable Object actors.
 
-`npm test` passes **52 tests** with Node 22.16.0 and TypeScript 5.8.3 in the authoring environment.
+`npm test` passes **65 tests** with Node 22.16.0 and TypeScript 5.8.3 in the authoring environment.
 
 ## Run
 

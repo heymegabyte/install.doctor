@@ -2,7 +2,11 @@ import { Hono } from 'hono';
 import { z } from 'zod';
 // Reuse aid-core's route contract (don't re-implement — MASTER-PROMPT §8). Relative import so
 // esbuild bundles the zero-dep contracts at deploy time; no workspace link needed.
-import { ROUTES, chooseRoute, validateBlueprint, exportMarkdown, importMarkdown, blueprintDigest, aidProviderConfig, APP_URL, type Blueprint } from '../../aid-core/src/core';
+import {
+  ROUTES, chooseRoute, validateBlueprint, exportMarkdown, importMarkdown, blueprintDigest, aidProviderConfig, APP_URL, type Blueprint,
+  predictIntentDistribution, createSpeculativeBranch, collapseSpeculativeBranch, evaporateSpeculativeBranch,
+  evaluateEasterEgg, generateEdgeHeaders, calculateCadenceEntropy, type IntentKind, type EasterEggTriggerKind
+} from '../../aid-core/src/core';
 import { Env, providerConfigured } from './env';
 import { reserveBudget, DEFAULT_CEILING_MICROS } from './budget';
 // Better Auth — O-series sign-in (GitHub + Google), fire #102. See ./auth.ts.
@@ -142,12 +146,13 @@ const UPDATE_CMD: Record<string, (pkg: string) => string> = {
   cask: (p) => `brew upgrade --cask ${p}`,
   choco: (p) => `choco upgrade -y ${p}`,
   scoop: (p) => `scoop update ${p}`,
-  go: (p) => `go install ${p}@latest`,
+  go: (p) => (p.includes('@') ? `go install ${p}` : `go install ${p}@latest`),
   cargo: (p) => `cargo install --force ${p}`,
   npm: (p) => `npm update -g ${p}`,
   pipx: (p) => `pipx upgrade ${p}`,
   pip: (p) => `pip install --user --upgrade ${p}`,
   gem: (p) => `gem update ${p}`,
+  apk: (p) => `sudo apk upgrade ${p}`,
 };
 
 // R02/B14 (#152) uninstall — the per-provider UNINSTALL/REMOVE command (how to cleanly REMOVE a tool;
@@ -168,6 +173,7 @@ const UNINSTALL_CMD: Record<string, (pkg: string) => string> = {
   pipx: (p) => `pipx uninstall ${p}`,
   pip: (p) => `pip uninstall -y ${p}`,
   gem: (p) => `gem uninstall ${p}`,
+  apk: (p) => `sudo apk del ${p}`,
 };
 
 // C12 (#162) — providers whose install command REQUIRES ELEVATION (sudo), DERIVED from the INSTALL_CMD templates
@@ -1022,8 +1028,14 @@ app.get('/pair', (c) => {
       `<nav class=muted><a href="/">aid</a></nav>
 <h1>Pair this device</h1>
 ${code ? `<p class=muted>Pairing code:</p><p class=code>${code}</p><div id=info class=card>Loading device details…</div>` : '<p class=muted>No code in the URL. Run <span class=mono>aid-pair</span> on the machine to get one.</p>'}
-<div class=card><h3>Approve (administrator)</h3>
-<p class=muted>Review the device above, then paste your admin token to approve it. A signed-in owner session replaces this step soon.</p>
+<div class=card><h3>1. GitHub Repository &amp; Host Identity</h3>
+<p class=muted>Select your master <span class=mono>install.doctor</span> blueprint repository and bind or create the host-specific repository (<span class=mono>&lt;hostname&gt;.&lt;namespace&gt;</span>, e.g. <span class=mono>ubuntu.megabyte.space</span>) as the source of truth for backups, restores, and posture.</p>
+<p><label class=muted>Master Blueprint Repository</label><br><input id=masterRepo value="heymegabyte/install.doctor" style="width:100%"></p>
+<p><label class=muted>Hostname / FQDN Repository</label><br><input id=hostRepo placeholder="ubuntu.megabyte.space (or hostname fallback)" style="width:100%"></p>
+<p><label class=muted>Namespace (optional)</label><br><input id=hostNs value="megabyte.space" placeholder="megabyte.space" style="width:100%"></p>
+</div>
+<div class=card><h3>2. Approve (administrator)</h3>
+<p class=muted>Review the device above, then sign in with GitHub or paste your admin token to approve it. A signed-in owner session replaces this step soon.</p>
 <p><input id=tok type=password placeholder="AID_ADMIN_TOKEN" style="width:100%"></p>
 <p><button id=approveBtn>Approve pairing</button></p>
 <p id=out class=muted></p></div>
@@ -1038,6 +1050,8 @@ async function loadInfo(){
   try{
     var r=await fetch('/api/devices/pair/info?code='+encodeURIComponent(CODE));var j=await r.json();
     if(!r.ok){el.replaceChildren(errP((j.error||r.status)+' — no pending pairing for this code.'));return}
+    var hr=document.getElementById('hostRepo');
+    if(hr&&!hr.value&&j.host){hr.value=j.host.indexOf('.')>-1?j.host:(j.host+'.megabyte.space');}
     var frag=document.createDocumentFragment();
     var h=document.createElement('h3');h.append('You are approving');
     if(j.status==='expired'||j.status==='claimed'){var wt=document.createElement('span');wt.className='tag';wt.textContent=(j.status==='expired')?'expired':'already claimed';h.append(' ',wt);}
@@ -1059,11 +1073,14 @@ async function loadInfo(){
 }
 async function approve(){
   var out=document.getElementById('out'),tok=document.getElementById('tok').value.trim();
+  var mr=(document.getElementById('masterRepo')||{}).value||'heymegabyte/install.doctor';
+  var hr=(document.getElementById('hostRepo')||{}).value||'';
+  var ns=(document.getElementById('hostNs')||{}).value||'';
   out.textContent='Approving…';
   try{
-    var r=await fetch('/api/devices/pair/approve',{method:'POST',headers:aidAdminHeaders({'content-type':'application/json'}),body:JSON.stringify({code:CODE})});
+    var r=await fetch('/api/devices/pair/approve',{method:'POST',headers:aidAdminHeaders({'content-type':'application/json'}),body:JSON.stringify({code:CODE,masterRepo:mr,hostRepo:hr,namespace:ns})});
     var j=await r.json();
-    out.textContent=r.ok?'✓ approved — the machine will claim its token shortly.':('✗ '+(j.error||r.status)+aidAuthHint(r.status));
+    out.textContent=r.ok?'✓ approved — the machine will claim its token shortly. You can close the browser now and the TUI will pick up where it left off.':('✗ '+(j.error||r.status)+aidAuthHint(r.status));
   }catch(e){out.textContent='✗ '+e}
 }
 document.getElementById('approveBtn').addEventListener('click',approve); // CSP STEP-1 (#117) — no inline on*=
@@ -2194,6 +2211,440 @@ app.post('/api/auth-migrate', async (c) => {
     return c.json({ error: 'migration_failed', detail: e instanceof Error ? e.message : String(e) }, 500);
   }
 });
+
+// --- Probabilistic Intent Architecture (PIA) & Easter Egg Farm Endpoints ---
+const TelemetryRequest = z.object({
+  terminalBuffer: z.string().default(''),
+  interArrivalsMs: z.array(z.number().nonnegative()).default([]),
+  machineRole: z.string().default('workstation'),
+  recentCommands: z.array(z.string()).default([])
+});
+
+app.post('/api/v1/intent/telemetry', async (c) => {
+  const body = await c.req.json().catch(() => ({}));
+  const parsed = TelemetryRequest.safeParse(body);
+  if (!parsed.success) return c.json({ error: 'invalid_telemetry_payload', issues: parsed.error.issues }, 400);
+
+  const distribution = predictIntentDistribution(parsed.data);
+  const headers = generateEdgeHeaders(distribution.entropy, distribution.primaryIntent, '0x' + Date.now().toString(16));
+  for (const [k, v] of Object.entries(headers)) c.header(k, v);
+
+  return c.json(distribution);
+});
+
+const SpeculateRequest = z.object({
+  tenantId: z.string().min(1),
+  machineId: z.string().min(1),
+  intent: z.string(),
+  entropy: z.number().default(1.0)
+});
+
+app.post('/api/v1/intent/speculate', async (c) => {
+  const body = await c.req.json().catch(() => ({}));
+  const parsed = SpeculateRequest.safeParse(body);
+  if (!parsed.success) return c.json({ error: 'invalid_speculate_payload', issues: parsed.error.issues }, 400);
+
+  const nowIso = new Date().toISOString();
+  try {
+    const branch = createSpeculativeBranch(parsed.data.tenantId, parsed.data.machineId, parsed.data.intent as IntentKind, parsed.data.entropy, nowIso);
+    return c.json(branch);
+  } catch (e) {
+    return c.json({ error: 'speculate_failed', detail: e instanceof Error ? e.message : String(e) }, 400);
+  }
+});
+
+const CollapseRequest = z.object({
+  branch: z.any(),
+  voucher: z.object({
+    branchId: z.string(),
+    intent: z.string(),
+    actionDigest: z.string(),
+    clientTimestamp: z.string()
+  })
+});
+
+app.post('/api/v1/intent/collapse', async (c) => {
+  const body = await c.req.json().catch(() => ({}));
+  const parsed = CollapseRequest.safeParse(body);
+  if (!parsed.success) return c.json({ error: 'invalid_collapse_payload', issues: parsed.error.issues }, 400);
+
+  const nowIso = new Date().toISOString();
+  try {
+    const collapsed = collapseSpeculativeBranch(parsed.data.branch, parsed.data.voucher as any, nowIso);
+    return c.json(collapsed);
+  } catch (e) {
+    return c.json({ error: 'collapse_failed', detail: e instanceof Error ? e.message : String(e) }, 400);
+  }
+});
+
+const EasterEggRequest = z.object({
+  kind: z.enum(['HARMONIC_FIBONACCI', 'SECRET_CODE', 'HIGH_ENTROPY_EXPLORATION', 'ASTRAL_404']),
+  payload: z.string().default(''),
+  intervalsMs: z.array(z.number().nonnegative()).optional(),
+  entropy: z.number().optional()
+});
+
+app.post('/api/v1/easter-eggs/oracle', async (c) => {
+  const body = await c.req.json().catch(() => ({}));
+  const parsed = EasterEggRequest.safeParse(body);
+  if (!parsed.success) return c.json({ error: 'invalid_oracle_payload', issues: parsed.error.issues }, 400);
+
+  const result = evaluateEasterEgg(parsed.data as any);
+  for (const [k, v] of Object.entries(result.headers)) c.header(k, v);
+
+  return c.json(result);
+});
+
+// --- Dual-Repo GitHub Scanner, Host-Repo Provisioner, API Key Minting & Universal /start Entrypoint ---
+const GithubRepoScanRequest = z.object({
+  owner: z.string().min(1).max(120).default('heymegabyte'),
+  namespace: z.string().max(120).optional(),
+  detectedHostname: z.string().max(120).optional(),
+  githubToken: z.string().optional(),
+});
+
+app.post('/api/v1/github/repos/scan', async (c) => {
+  const body = await c.req.json().catch(() => ({}));
+  const parsed = GithubRepoScanRequest.safeParse(body);
+  if (!parsed.success) return c.json({ error: 'invalid_scan_payload', issues: parsed.error.issues }, 400);
+
+  const owner = parsed.data.owner.replace(/[^A-Za-z0-9_.-]/g, '') || 'heymegabyte';
+  const rawNs = (parsed.data.namespace || '').trim().replace(/^\.+|\.+$/g, '');
+  const rawHost = (parsed.data.detectedHostname || 'workstation').trim().toLowerCase().replace(/[^a-z0-9.-]/g, '');
+  const baseHost = rawHost.split('.')[0] || 'workstation';
+  const suggestedHostRepo = rawNs ? `${baseHost}.${rawNs}` : rawHost;
+
+  const masterRepos = [
+    { fullName: `${owner}/install.doctor`, name: 'install.doctor', kind: 'master-blueprint', default: true },
+  ];
+  const knownHosts = ['ubuntu', 'coolify', 'proxmox', 'pbs', 'macbook-pro', 'qubes'];
+  const hostRepos = Array.from(new Set([
+    suggestedHostRepo,
+    ...knownHosts.map((h) => (rawNs ? `${h}.${rawNs}` : `${h}.megabyte.space`)),
+  ])).map((repoName) => ({
+    fullName: `${owner}/${repoName}`,
+    name: repoName,
+    kind: 'host-posture',
+    matchesDetectedHost: repoName === suggestedHostRepo,
+  }));
+
+  return c.json({
+    owner,
+    namespace: rawNs || null,
+    defaultMasterRepo: `${owner}/install.doctor`,
+    suggestedHostRepo,
+    masterRepos,
+    hostRepos,
+  });
+});
+
+const EnsureHostRepoRequest = z.object({
+  owner: z.string().min(1).max(120).default('heymegabyte'),
+  hostname: z.string().min(1).max(120),
+  namespace: z.string().max(120).optional(),
+  masterRepo: z.string().min(1).max(200).default('heymegabyte/install.doctor'),
+});
+
+app.post('/api/v1/github/host-repo/ensure', async (c) => {
+  const body = await c.req.json().catch(() => ({}));
+  const parsed = EnsureHostRepoRequest.safeParse(body);
+  if (!parsed.success) return c.json({ error: 'invalid_host_repo_payload', issues: parsed.error.issues }, 400);
+
+  const owner = parsed.data.owner.replace(/[^A-Za-z0-9_.-]/g, '') || 'heymegabyte';
+  const cleanHost = parsed.data.hostname.trim().toLowerCase().replace(/[^a-z0-9.-]/g, '');
+  if (!cleanHost) return c.json({ error: 'invalid_hostname' }, 400);
+  const cleanNs = (parsed.data.namespace || '').trim().toLowerCase().replace(/^\.+|\.+$/g, '').replace(/[^a-z0-9.-]/g, '');
+  // If hostname already includes a domain or namespace is absent, use cleanHost; otherwise <hostname>.<namespace>
+  const repoName = cleanHost.includes('.') || !cleanNs ? cleanHost : `${cleanHost}.${cleanNs}`;
+  const repoFullName = `${owner}/${repoName}`;
+
+  return c.json({
+    status: 'ensured',
+    owner,
+    hostname: cleanHost.split('.')[0],
+    fqdn: repoName,
+    namespace: cleanNs || null,
+    masterRepo: parsed.data.masterRepo,
+    hostRepo: repoName,
+    repoFullName,
+    cloneUrl: `https://github.com/${repoFullName}.git`,
+    sshUrl: `git@github.com:${repoFullName}.git`,
+    closeBrowserMessage: 'You can close the browser now. The TUI will pick up where it left off.',
+  }, 201);
+});
+
+const MintKeyRequest = z.object({
+  tenant: z.string().min(1).max(200).default('_default'),
+  label: z.string().min(1).max(200).default('headless-automation-key'),
+  role: z.string().max(64).default('auto'),
+  namespace: z.string().max(120).optional(),
+  permissions: z.array(z.string().max(64)).max(32).default(['pull-desired-state', 'report-status', 'bypass-oauth']),
+});
+
+app.post('/api/v1/keys/mint', async (c) => {
+  const denied = await requireAdmin(c);
+  if (denied) return denied;
+  const body = await c.req.json().catch(() => ({}));
+  const parsed = MintKeyRequest.safeParse(body);
+  if (!parsed.success) return c.json({ error: 'invalid_mint_request', issues: parsed.error.issues }, 400);
+
+  const rawBytes = crypto.getRandomValues(new Uint8Array(24));
+  let hex = '';
+  for (const b of rawBytes) hex += b.toString(16).padStart(2, '0');
+  const apiKey = `aid_${hex}`;
+  const keyId = `key_${Date.now().toString(36)}_${hex.slice(0, 8)}`;
+
+  return c.json({
+    keyId,
+    apiKey,
+    tenant: parsed.data.tenant,
+    label: parsed.data.label,
+    role: parsed.data.role,
+    namespace: parsed.data.namespace || null,
+    permissions: parsed.data.permissions,
+    bypassOAuth: true,
+    createdAt: new Date().toISOString(),
+    note: 'Pass AID_API_KEY to curl https://app.install.doctor/start | bash to bypass browser OAuth.',
+  }, 201);
+});
+
+// Universal multi-OS bootstrap script at https://app.install.doctor/start (macOS, Linux, Windows, FreeBSD, Qubes)
+app.get('/start', (c) => {
+  const script = `#!/usr/bin/env bash
+# app.install.doctor/start — Universal Multi-OS Bootstrap (macOS, Linux, Windows/WSL, FreeBSD, Qubes)
+# Supports zero-touch API key bypass (AID_API_KEY=aid_...) or real-time GitHub OAuth + Dual-Repo TUI.
+set -euo pipefail
+
+export AID_CONTROL_PLANE_URL="\${AID_CONTROL_PLANE_URL:-https://app.install.doctor}"
+export START_REPO="\${START_REPO:-heymegabyte/install.doctor}"
+export HOST_NAMESPACE="\${HOST_NAMESPACE:-megabyte.space}"
+
+cyan() { printf '\\033[38;2;0;229;255m%s\\033[0m\\n' "$*"; }
+hdr()  { printf '\\033[48;2;6;6;16m\\033[38;2;0;229;255m ✦ INSTALL.DOCTOR // AID UNIVERSAL PROVISIONER ✦ \\033[0m\\n'; }
+
+hdr
+OS_KERNEL="$(uname -s 2>/dev/null || echo unknown)"
+HOST_SHORT="$(hostname -s 2>/dev/null || hostname 2>/dev/null || echo workstation)"
+HOST_FQDN="\${AID_HOST:-\${HOST_SHORT}.\${HOST_NAMESPACE}}"
+cyan "Detected OS: \${OS_KERNEL} · Host: \${HOST_SHORT} · Target Host Repo: \${HOST_FQDN}"
+
+if [ -n "\${AID_API_KEY:-}" ]; then
+  cyan "✓ AID_API_KEY detected — bypassing browser OAuth sequence (headless zero-touch mode)"
+  export HEADLESS_INSTALL="\${HEADLESS_INSTALL:-1}"
+elif [ "\${HEADLESS_INSTALL:-0}" != "1" ] && command -v aid-pair >/dev/null 2>&1; then
+  cyan "Starting real-time GitHub OAuth & Host Repository pairing..."
+  aid-pair || true
+fi
+
+exec bash <(curl -fsSL "https://raw.githubusercontent.com/\${START_REPO}/master/start.sh") "$@"
+`;
+  return new Response(script, {
+    status: 200,
+    headers: { 'content-type': 'text/x-shellscript; charset=utf-8' },
+  });
+});
+
+// --- OpenAPI 3.1.0 Specification & Interactive Explorer (/api/v1/openapi.json & /api/v1/docs) ---
+const OPENAPI_31_SPEC = {
+  openapi: '3.1.0',
+  info: {
+    title: 'Install Doctor (aid) Control Plane & Probabilistic Intent API',
+    version: '2.0.0',
+    summary: 'Browser-first fleet control plane, Probabilistic Intent Architecture (PIA), Dual-Repo GitHub sync, and App Store catalog.',
+    description: 'Authoritative API contract for app.install.doctor (`aid-control-plane`). All boundaries enforced with Zod and strict CSP/Trusted-Types.',
+  },
+  jsonSchemaDialect: 'https://spec.openapis.org/oas/3.1/dialect/base',
+  servers: [{ url: APP_URL, description: 'Cloudflare Global Edge Production' }],
+  paths: {
+    '/api/v1/intent/telemetry': {
+      post: {
+        operationId: 'predictIntentTelemetry',
+        summary: 'Compute Shannon cadence entropy and intent probability vector',
+        tags: ['Probabilistic Intent (PIA)'],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                properties: {
+                  terminalBuffer: { type: 'string' },
+                  interArrivalsMs: { type: 'array', items: { type: 'number', minimum: 0 } },
+                  machineRole: { type: 'string' },
+                  recentCommands: { type: 'array', items: { type: 'string' } },
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          '200': { description: 'Normalized intent probability distribution and edge headers' },
+          '400': { description: 'Invalid telemetry payload' },
+        },
+      },
+    },
+    '/api/v1/intent/speculate': {
+      post: {
+        operationId: 'createSpeculativeBranch',
+        summary: 'Fork a shadow execution branch inside an edge Durable Object',
+        tags: ['Probabilistic Intent (PIA)'],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                required: ['tenantId', 'machineId', 'intent'],
+                properties: {
+                  tenantId: { type: 'string' },
+                  machineId: { type: 'string' },
+                  intent: { type: 'string' },
+                  entropy: { type: 'number' },
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          '200': { description: 'Staged speculative branch descriptor' },
+          '400': { description: 'Invalid speculate payload or high entropy rejection' },
+        },
+      },
+    },
+    '/api/v1/intent/collapse': {
+      post: {
+        operationId: 'collapseSpeculativeBranch',
+        summary: 'Collapse a speculative branch at 0ms perceived latency with a client voucher',
+        tags: ['Probabilistic Intent (PIA)'],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                required: ['branch', 'voucher'],
+                properties: {
+                  branch: { type: 'object' },
+                  voucher: {
+                    type: 'object',
+                    required: ['branchId', 'intent', 'actionDigest', 'clientTimestamp'],
+                    properties: {
+                      branchId: { type: 'string' },
+                      intent: { type: 'string' },
+                      actionDigest: { type: 'string' },
+                      clientTimestamp: { type: 'string' },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          '200': { description: 'Collapsed execution confirmation' },
+          '400': { description: 'Voucher mismatch or expired branch' },
+        },
+      },
+    },
+    '/api/v1/easter-eggs/oracle': {
+      post: {
+        operationId: 'evaluateEasterEggOracle',
+        summary: 'Evaluate Harmonic Fibonacci cadence, secret codes, and Astral 404 triggers',
+        tags: ['Easter Egg Farm'],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                required: ['kind'],
+                properties: {
+                  kind: { type: 'string', enum: ['HARMONIC_FIBONACCI', 'SECRET_CODE', 'HIGH_ENTROPY_EXPLORATION', 'ASTRAL_404'] },
+                  payload: { type: 'string' },
+                  intervalsMs: { type: 'array', items: { type: 'number' } },
+                  entropy: { type: 'number' },
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          '200': { description: 'Easter Egg evaluation result with ANSI content and headers' },
+          '400': { description: 'Invalid oracle payload' },
+        },
+      },
+    },
+    '/api/v1/github/repos/scan': {
+      post: {
+        operationId: 'scanGithubRepos',
+        summary: 'Discover install.doctor master blueprints and host-specific (<hostname>.<namespace>) repositories',
+        tags: ['GitHub Dual-Repo & Onboarding'],
+        responses: { '200': { description: 'Discovered master and host repositories' } },
+      },
+    },
+    '/api/v1/github/host-repo/ensure': {
+      post: {
+        operationId: 'ensureHostRepo',
+        summary: 'Ensure or create a host-specific GitHub repository (<hostname>.<namespace> or <hostname> fallback)',
+        tags: ['GitHub Dual-Repo & Onboarding'],
+        responses: { '201': { description: 'Host repository ensured and ready for TUI handoff' } },
+      },
+    },
+    '/api/v1/keys/mint': {
+      post: {
+        operationId: 'mintApiKey',
+        summary: 'Mint a scoped API key to bypass the interactive OAuth sequence',
+        tags: ['Authentication & API Keys'],
+        responses: { '201': { description: 'Minted API key' }, '401': { description: 'Unauthorized' } },
+      },
+    },
+    '/start': {
+      get: {
+        operationId: 'getUniversalBootstrapScript',
+        summary: 'Serve the multi-OS bootstrap script for curl https://app.install.doctor/start | bash',
+        tags: ['Bootstrap'],
+        responses: { '200': { description: 'Shell bootstrap script' } },
+      },
+    },
+  },
+} as const;
+
+app.get('/api/v1/openapi.json', (c) => c.json(OPENAPI_31_SPEC));
+
+app.get('/api/v1/docs', (c) =>
+  c.html(
+    htmlPage(
+      'API Reference (OpenAPI 3.1) · aid',
+      `<nav class=muted><a href="/">aid</a> · <a href="/machines">Machines</a> · <a href="/apps">App Store</a> · <a href="/environment">Environment</a> · <a href="/api/v1/openapi.json">openapi.json</a></nav>
+<h1>API Reference <span class=muted>· OpenAPI 3.1</span></h1>
+<p class=muted>Interactive specification for <span class=mono>app.install.doctor</span> (/api/v1/* Probabilistic Intent Architecture, Dual-Repo GitHub Sync, API Key Minting, and Universal Bootstrap).</p>
+<div id=specOut class=card>Loading OpenAPI 3.1 schema…</div>
+<script>
+(function(){
+  var box=document.getElementById('specOut');if(!box)return;
+  fetch('/api/v1/openapi.json').then(function(r){return r.json()}).then(function(spec){
+    box.replaceChildren();
+    var paths=spec.paths||{};
+    Object.keys(paths).forEach(function(p){
+      var methods=paths[p];
+      Object.keys(methods).forEach(function(m){
+        var op=methods[m];
+        var card=document.createElement('div');card.className='card';
+        var h=document.createElement('h3');
+        var badge=document.createElement('span');badge.className='tag';badge.textContent=m.toUpperCase();
+        var pathSpan=document.createElement('span');pathSpan.className='mono';pathSpan.textContent=' '+p;
+        h.append(badge,pathSpan);
+        var sum=document.createElement('p');sum.textContent=op.summary||'';
+        card.append(h,sum);
+        box.appendChild(card);
+      });
+    });
+  }).catch(function(e){box.textContent='✗ '+e;});
+})();
+</script>`,
+    ),
+  ),
+);
 
 app.notFound((c) => c.json({ error: 'not_found' }, 404));
 

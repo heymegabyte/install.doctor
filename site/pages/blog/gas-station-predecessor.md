@@ -33,7 +33,7 @@ Despite its strengths, we eventually encountered limitations with Ansible. The m
 
 ### Transitioning to Chezmoi
 
-Our search for a better solution led us to [Chezmoi](https://www.chezmoi.io/), a tool adept at managing dotfiles with essential features like encryption, templating, and file change detection. The transition to Chezmoi was facilitated by an innovative [`installx`](https://github.com/megabyte-labs/install.doctor/blob/master/home/dot_local/bin/executable_installx) script, simplifying cross-OS software installations. This approach, supported by a [`software.yml`](https://github.com/megabyte-labs/install.doctor/blob/master/software.yml) file, allowed for concise, effective management of software installations, significantly reducing the complexity of adding new software to our stack.
+Our search for a better solution led us to [Chezmoi](https://www.chezmoi.io/), a tool adept at managing dotfiles with essential features like encryption, templating, and file change detection. The transition to Chezmoi was facilitated by an innovative [`installx`](https://github.com/heymegabyte/install.doctor/blob/master/home/dot_local/bin/executable_installx) script, simplifying cross-OS software installations. This approach, supported by a [`software.yml`](https://github.com/heymegabyte/install.doctor/blob/master/software.yml) file, allowed for concise, effective management of software installations, significantly reducing the complexity of adding new software to our stack.
 
 ### The Ease of Chezmoi
 

@@ -538,7 +538,7 @@ module.exports = {
             'https://www.pinterest.com/InstallDoc/',
             'https://www.instagram.com/installdoctor/',
             'https://gitlab.com/megabyte-labs/install.doctor',
-            'https://github.com/megabyte-labs/install.doctor',
+            'https://github.com/heymegabyte/install.doctor',
             'https://linkedin.com/company/megabyte-labs',
             'https://app.slack.com/client/T01ABCG4NK1/C04TDHV564E',
             'https://discord.com/channels/1077138419953713222/1077138479928049734',
@@ -737,7 +737,7 @@ module.exports = {
           icon: {
             alt: 'GitHub logo',
             src: `/logos/github.svg`,
-            href: 'https://github.com/megabyte-labs/install.doctor',
+            href: 'https://github.com/heymegabyte/install.doctor',
             target: '_blank',
           },
         },
@@ -791,18 +791,18 @@ module.exports = {
             return 'https://crowdin.com/project/install-doctor-docs';
           }
           if ((match = docPath.match(/scripts\/profile\/(.*)\.md/)) != null) {
-            return `https://github.com/megabyte-labs/install.doctor/edit/master/home/dot_config/shell/${match[1]}`;
+            return `https://github.com/heymegabyte/install.doctor/edit/master/home/dot_config/shell/${match[1]}`;
           }
           if ((match = docPath.match(/scripts\/utility\/(.*)\.md/)) != null) {
-            return `https://github.com/megabyte-labs/install.doctor/edit/master/scripts/${match[1]}`;
+            return `https://github.com/heymegabyte/install.doctor/edit/master/scripts/${match[1]}`;
           }
           if ((match = docPath.match(/scripts\/.*\/(.*)\.md/)) != null) {
-            return `https://github.com/megabyte-labs/install.doctor/edit/master/home/.chezmoiscripts/universal/${match[1]}`;
+            return `https://github.com/heymegabyte/install.doctor/edit/master/home/.chezmoiscripts/universal/${match[1]}`;
           }
           if ((match = docPath.match(/cli\/commands\/(.*)\.md/)) != null) {
-            return `https://github.com/megabyte-labs/install.doctor/edit/master/home/dot_config/task/Taskfile.yml`;
+            return `https://github.com/heymegabyte/install.doctor/edit/master/home/dot_config/task/Taskfile.yml`;
           }
-          return `https://github.com/megabyte-labs/install.doctor/edit/master/${versionDocsDirPath}/${docPath}`;
+          return `https://github.com/heymegabyte/install.doctor/edit/master/${versionDocsDirPath}/${docPath}`;
         },
         exclude: ['README.md'],
         lastVersion: 'current',

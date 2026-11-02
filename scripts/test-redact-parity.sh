@@ -50,8 +50,15 @@ R	apikeyjson	{"api_key":"k9f8s7d6f5g4h3j2l1q0"}
 EOF
 export SAMPLES
 
+NODE_BIN="node"
+if [ -x /opt/homebrew/bin/node ]; then
+  NODE_BIN="/opt/homebrew/bin/node"
+elif [ -x /usr/local/bin/node ]; then
+  NODE_BIN="/usr/local/bin/node"
+fi
+
 # ONE node pass emits the SERVER verdict per line: EXPECT<TAB>label<TAB>serverVerdict<TAB>sample.
-SV="$(cd "$CP" && node --input-type=module <<'NODE' 2>/dev/null
+SV="$(cd "$CP" && "$NODE_BIN" --input-type=module <<'NODE' 2>/dev/null
 const { redactSecrets } = await import(process.env.MOD);
 import fs from 'node:fs';
 for (const line of fs.readFileSync(process.env.SAMPLES, 'utf8').split('\n').filter(Boolean)) {
@@ -78,7 +85,7 @@ rm -f "$SAMPLES"
 
 # Multiline PEM private-key block — both engines must scrub the whole block.
 PEM="$(printf -- '-----BEGIN OPENSSH PRIVATE KEY-----\nb3BlbnNzaC1rSECRETkey\n-----END OPENSSH PRIVATE KEY-----')"
-pv="$(cd "$CP" && PEM="$PEM" node --input-type=module <<'NODE' 2>/dev/null
+pv="$(cd "$CP" && PEM="$PEM" "$NODE_BIN" --input-type=module <<'NODE' 2>/dev/null
 const { redactSecrets } = await import(process.env.MOD);
 console.log(redactSecrets(process.env.PEM).includes('[REDACTED]') && !redactSecrets(process.env.PEM).includes('SECRET') ? 'R' : '.');
 NODE

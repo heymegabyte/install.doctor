@@ -163,7 +163,7 @@ __cnf_resolve(){ local cmd="$1"; shift
     case "$-" in *i*) :;; *) return 127;; esac
   fi
   local __cnf_prev="${__CNF_RESOLVING:-}"; __CNF_RESOLVING="$__cnf_prev $cmd"
-  local os pref row mgr="" pkg="" col rc=127 lock acq
+  local os pref row mgr="" pkg="" col rc=127 lock acq __key="" __post_hook=""
   # E02 (ADR 0003): mise owns version-managed runtimes. If mise ALREADY provides this command, run it
   # VIA mise instead of redundantly installing it through a system package manager — never duplicate
   # mise's lazy machinery. `mise which` (stderr muted) succeeds only for a mise-managed tool. Only on the
@@ -182,6 +182,7 @@ __cnf_resolve(){ local cmd="$1"; shift
   row=""; [ -s "$CNF_INDEX" ] && row="$(awk -F'\t' -v c="$cmd" '$1==c{print; exit}' "$CNF_INDEX" 2>/dev/null)"
   if [ -n "$row" ]; then
     # columns: 1 bin 2 key 3 brew 4 apt 5 dnf 6 pacman 7 cask 8 choco 9 scoop 10 go 11 cargo 12 npm 13 pipx 14 pip 15 gem
+    __key="$(printf '%s' "$row" | cut -f2)"
     # manual word-split (zsh does NOT split unquoted $pref like bash does)
     local rest="$pref" m mbin
     while [ -n "$rest" ]; do
@@ -215,6 +216,14 @@ __cnf_resolve(){ local cmd="$1"; shift
       if __cnf_do_install "$mgr" "$pkg" >&2 </dev/null; then
         __dur=$(( ( $(date +%s 2>/dev/null || echo "$__t0") - __t0 ) * 1000 ))
         __cnf_journal "$cmd" "$mgr" "$pkg" "installed" "$__dur" # U09/U10: cold install + latency
+        # R14/F06: auto-run post-installx configuration hook on lazy install if present (stderr + stdin-isolated)
+        for __post_hook in "${CNF_POST_HOOK_DIR:-$HOME/.local/bin/post-installx}/post-${__key:-$cmd}.sh" "${CNF_POST_HOOK_DIR:-$HOME/.local/bin/post-installx}/post-${cmd}.sh"; do
+          if [ -f "$__post_hook" ]; then
+            __cnf_say "⚙ running post-install config hook: $(basename "$__post_hook")…"
+            bash "$__post_hook" >&2 </dev/null || __cnf_warn "post-install hook $(basename "$__post_hook") exited non-zero (continuing)"
+            break
+          fi
+        done
       else
         __dur=$(( ( $(date +%s 2>/dev/null || echo "$__t0") - __t0 ) * 1000 ))
         __cnf_warn "install via $mgr failed"
