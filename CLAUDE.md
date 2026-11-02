@@ -46,6 +46,10 @@ The fleet today (update hostnames as they're confirmed):
 
 ## 4. Architectural pillars
 
+### Server ingress ownership
+
+Server networking follows `docs/architecture/server-ingress-ownership.md`: agent skills own policy; Install Doctor owns portable `cloudflared`/firewall mechanisms and safe defaults; each host recovery repo owns tunnel ingress, Access intent, and explicit firewall exceptions; live Cloudflare/host state is reconciled evidence, never the source of truth. Install Doctor MUST NOT invent production hostnames, origin ports, or permanent exceptions from a generic role, and installing software never authorizes opening its port.
+
 ### detect_os() — single source of truth
 Scripts that branch on OS-IDENTITY share one `detect_os()`. The lib `scripts/lib/detect_os.sh` is BUILT + tested (14-assertion `test-detect-os.sh`; defines `detect_os`/`detect_role`/`detect_package_manager`/`is_headless`) and consumed by `provision.sh` via a **source-else-inline** pattern — it sources the lib in a cloned repo, else defines an inline fallback for `curl|bash` (a fresh box has ONLY `provision.sh`, not `scripts/lib/`); BOTH halves locked by `test-bootstrap-provenance.sh` (#266). The partials it inlines were reconciled to `detect_os` where the deployed uses it (#260-#263). **VERIFIED #266 — the residual ad-hoc `[ -d /Applications ]`-style checks are CORRECT self-contained idioms, NOT migratable drift (do NOT churn them):** chezmoiscripts can't source the lib (detect_os isn't in their scope, #264), and the secondary entrypoints' check is the macOS branch of a PACKAGE-MANAGER chain (pacman/zypper/apk/macOS/cygwin/freebsd) that `detect_os`'s `macos|ubuntu|…` can't express. Do NOT rebuild the lib.
 

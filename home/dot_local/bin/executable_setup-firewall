@@ -5,10 +5,12 @@
 #   This script sets up and configures the firewall. On Linux systems, it prefers `firewall-cmd` and, if that is not available,
 #   it uses `ufw`. By default, it allows outgoing traffic and denies incoming traffic.
 #
+#   This is the portable baseline mechanism. Host-specific exceptions belong in the machine's recovery repository and
+#   must be applied as explicit, reviewable rules after this baseline. Installing a package never authorizes opening its port.
+#
 #   ## CloudFlare
 #
-#   The script will allow incoming traffic on port 80 and 443 from any CloudFlare IP address. The logic was adapted from
-#   [cloudflare-ufw](https://github.com/Paul-Reed/cloudflare-ufw).
+#   Public services should use cloudflared without opening origin ports. Direct inbound rules are host-owned exceptions.
 
 if command -v firewall-cmd > /dev/null; then
     echo "firewall-cmd detected - preferring this over UFW"

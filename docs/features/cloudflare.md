@@ -38,6 +38,12 @@ If you are willing to pay $10/month, you can enable browser isolation to improve
 
 By default, we do not open up any incoming ports in the firewall to the public internet. The firewall rules you may find in the `software.yml` definitions file only apply to local intranet communications. However, we do integrate our system with CloudFlare Teams Zero Access which allows us to provide public services and SSO-enabled services via a combination of CloudFlare tunnels (for providing access to system services such as SSH via a FQDN) and the CloudFlare WARP client (which is used for proxying outgoing traffic through CloudFlare Teams Zero Trust). In other words, CloudFlare tunnels handles the incoming traffic and CloudFlare WARP handles the outgoing traffic.
 
+### Ownership boundary
+
+Install Doctor installs and operates the portable connector/firewall mechanisms. It does not own production DNS names, origin mappings, Access policies, or permanent firewall exceptions. Those belong to the machine's host recovery repository and are reconciled into Cloudflare and the host firewall. See [Server ingress ownership](/docs/architecture/server-ingress-ownership).
+
+The automatic `host-$HOST` flow below is a bootstrap mechanism. A production server must consume host-owned desired state; it must not infer its permanent ingress or firewall exceptions merely from installed software.
+
 ### Bundling Authorization Certificate
 
 Each computer instance (e.g. operating system, VM, container) provisioned with Install Doctor that is configured to install `cloudflared` will attempt to create a new tunnel named `host-$HOST`, if one does not already exist. It can do this headlessly by utilizing the CloudFlare `cert.pem` file which grants access to a specific domain managed by CloudFlare. If the `cert.pem` is in `/usr/local/etc/cloudflared/cert.pem`, calls to `cloudflared` will be authenticated and new tunnels will be able to be created. To integrate the `cert.pem` into your fork, generate it by:

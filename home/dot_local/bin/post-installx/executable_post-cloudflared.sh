@@ -4,6 +4,8 @@ set -euo pipefail
 # @brief Applies cloudflared configuration, connects to Argo tunnel with managed configuration, and enables it on system start
 # @description
 #     1. Skips the deletion of a tunnel when it is currently in use
+#     2. Provides the portable connector/service mechanism only. Production ingress hostnames, origins, Access policies,
+#        and firewall exceptions belong to the machine's host recovery repository.
 
 set -Eeo pipefail
 trap "gum log -sl error 'Script encountered an error!'" ERR
