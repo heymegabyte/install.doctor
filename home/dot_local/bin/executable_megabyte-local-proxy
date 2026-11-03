@@ -4,6 +4,7 @@ Megabyte Tier-1 Local Loopback Pass-Through Caching Proxy (127.0.0.1:4880).
 Combines a local on-machine disk cache (~/.cache/megabyte/local-proxy) with automatic
 pass-through to Sonatype Nexus (https://nexus.megabyte.space) and instant failover to
 canonical upstream registries (npmjs.org, pypi.org, proxy.golang.org, crates.io, maven.org, ubuntu.com).
+Exposes /healthz, /stats (JSON), and /metrics (Prometheus).
 """
 import gzip
 import hashlib
@@ -14,6 +15,7 @@ import pathlib
 import socketserver
 import ssl
 import tempfile
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -28,9 +30,42 @@ CACHE_ROOT = pathlib.Path(
 BLOBS_DIR = CACHE_ROOT / "blobs"
 META_DIR = CACHE_ROOT / "meta"
 META_FRESH_TTL_SEC = int(os.environ.get("MEGABYTE_LOCAL_PROXY_META_TTL", "300"))
+START_TIME = time.time()
 
 BLOBS_DIR.mkdir(parents=True, exist_ok=True)
 META_DIR.mkdir(parents=True, exist_ok=True)
+
+STATS_LOCK = threading.Lock()
+STATS = {
+    "HIT-LOCAL": 0,
+    "HIT-LOCAL-META": 0,
+    "HIT-LOCAL-STALE": 0,
+    "HIT-LOCAL-CARGO-CONFIG": 0,
+    "MISS-VIA-NEXUS": 0,
+    "MISS-VIA-UPSTREAM": 0,
+    "MISS-ERROR": 0,
+    "bytes_served_local": 0,
+    "bytes_served_remote": 0,
+    "by_repo": {},
+}
+
+
+def record_stat(cache_hdr: str, repo: str = None, num_bytes: int = 0):
+    with STATS_LOCK:
+        if cache_hdr in STATS:
+            STATS[cache_hdr] += 1
+        if cache_hdr.startswith("HIT-"):
+            STATS["bytes_served_local"] += num_bytes
+        elif cache_hdr.startswith("MISS-VIA-"):
+            STATS["bytes_served_remote"] += num_bytes
+        if repo:
+            r = STATS["by_repo"].setdefault(repo, {"hits": 0, "misses": 0, "bytes": 0})
+            if cache_hdr.startswith("HIT-"):
+                r["hits"] += 1
+            elif cache_hdr.startswith("MISS-"):
+                r["misses"] += 1
+            r["bytes"] += num_bytes
+
 
 UPSTREAM_MAP = {
     "npm-group": "https://registry.npmjs.org",
@@ -189,6 +224,55 @@ class ProxyHandler(http.server.BaseHTTPRequestHandler):
             self._send(200, "application/json", payload, "LOCAL-HEALTHZ", head_only)
             return
 
+        if raw_path == "/stats":
+            with STATS_LOCK:
+                total_hits = (
+                    STATS["HIT-LOCAL"]
+                    + STATS["HIT-LOCAL-META"]
+                    + STATS["HIT-LOCAL-STALE"]
+                    + STATS["HIT-LOCAL-CARGO-CONFIG"]
+                )
+                total_misses = STATS["MISS-VIA-NEXUS"] + STATS["MISS-VIA-UPSTREAM"]
+                total_reqs = total_hits + total_misses
+                hit_ratio = round(total_hits / total_reqs, 4) if total_reqs > 0 else 0.0
+                snap = {
+                    "status": "ok",
+                    "uptime_seconds": round(time.time() - START_TIME, 1),
+                    "total_requests": total_reqs,
+                    "total_hits": total_hits,
+                    "total_misses": total_misses,
+                    "hit_ratio": hit_ratio,
+                    "counters": {k: v for k, v in STATS.items() if k != "by_repo"},
+                    "by_repo": STATS["by_repo"],
+                }
+            payload = json.dumps(snap, indent=2).encode("utf-8")
+            self._send(200, "application/json", payload, "LOCAL-STATS", head_only)
+            return
+
+        if raw_path == "/metrics":
+            with STATS_LOCK:
+                lines = [
+                    "# HELP megabyte_local_proxy_requests_total Total proxy requests by cache result",
+                    "# TYPE megabyte_local_proxy_requests_total counter",
+                ]
+                for key in (
+                    "HIT-LOCAL",
+                    "HIT-LOCAL-META",
+                    "HIT-LOCAL-STALE",
+                    "HIT-LOCAL-CARGO-CONFIG",
+                    "MISS-VIA-NEXUS",
+                    "MISS-VIA-UPSTREAM",
+                    "MISS-ERROR",
+                ):
+                    lines.append(f'megabyte_local_proxy_requests_total{{result="{key}"}} {STATS[key]}')
+                lines.append("# HELP megabyte_local_proxy_bytes_total Total bytes served by source")
+                lines.append("# TYPE megabyte_local_proxy_bytes_total counter")
+                lines.append(f'megabyte_local_proxy_bytes_total{{source="local"}} {STATS["bytes_served_local"]}')
+                lines.append(f'megabyte_local_proxy_bytes_total{{source="remote"}} {STATS["bytes_served_remote"]}')
+            payload = ("\n".join(lines) + "\n").encode("utf-8")
+            self._send(200, "text/plain; version=0.0.4", payload, "LOCAL-METRICS", head_only)
+            return
+
         repo = None
         rest = ""
         if raw_path.startswith("/pypi-files/"):
@@ -209,6 +293,7 @@ class ProxyHandler(http.server.BaseHTTPRequestHandler):
                     "api": "https://crates.io",
                 }
             ).encode("utf-8")
+            record_stat("HIT-LOCAL-CARGO-CONFIG", repo, len(cfg))
             self._send(200, "application/json", cfg, "HIT-LOCAL-CARGO-CONFIG", head_only)
             return
 
@@ -221,6 +306,7 @@ class ProxyHandler(http.server.BaseHTTPRequestHandler):
             try:
                 meta = json.loads(hdr_file.read_text())
                 data = blob_file.read_bytes()
+                record_stat("HIT-LOCAL", repo, len(data))
                 self._send(200, meta.get("content_type", "application/octet-stream"), data, "HIT-LOCAL", head_only)
                 return
             except Exception:
@@ -230,6 +316,7 @@ class ProxyHandler(http.server.BaseHTTPRequestHandler):
                 meta = json.loads(hdr_file.read_text())
                 if time.time() - meta.get("ts", 0) < META_FRESH_TTL_SEC:
                     data = blob_file.read_bytes()
+                    record_stat("HIT-LOCAL-META", repo, len(data))
                     self._send(200, meta.get("content_type", "application/json"), data, "HIT-LOCAL-META", head_only)
                     return
             except Exception:
@@ -254,6 +341,7 @@ class ProxyHandler(http.server.BaseHTTPRequestHandler):
                         hdr_file,
                         json.dumps({"content_type": ct, "ts": time.time(), "source": tag}).encode("utf-8"),
                     )
+                    record_stat(tag, repo, len(rewritten))
                     self._send(200, ct, rewritten, tag, head_only)
                     return
                 last_status = st
@@ -271,11 +359,13 @@ class ProxyHandler(http.server.BaseHTTPRequestHandler):
             try:
                 meta = json.loads(hdr_file.read_text())
                 data = blob_file.read_bytes()
+                record_stat("HIT-LOCAL-STALE", repo, len(data))
                 self._send(200, meta.get("content_type", "application/octet-stream"), data, "HIT-LOCAL-STALE", head_only)
                 return
             except Exception:
                 pass
 
+        record_stat("MISS-ERROR", repo, 0)
         self._send(last_status, "text/plain", last_body, "MISS-ERROR", head_only)
 
 

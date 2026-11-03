@@ -84,6 +84,19 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# Check 4: Loopback proxy & KasmVNC helper syntax validation
+# ---------------------------------------------------------------------------
+if python3 -m py_compile "$REPO_ROOT/home/dot_local/bin/executable_megabyte-local-proxy" && \
+   bash -n "$REPO_ROOT/home/dot_local/bin/executable_kasmvnc-gnome-loopback-run" && \
+   bash -n "$REPO_ROOT/home/dot_local/bin/post-installx/executable_post-nexus-cache.sh"; then
+  echo "  PASS: Loopback proxy and KasmVNC helper scripts passed syntax validation"
+  PASS=$((PASS + 1))
+else
+  echo "  FAIL: Loopback proxy or KasmVNC helper script syntax error"
+  FAIL=$((FAIL + 1))
+fi
+
+# ---------------------------------------------------------------------------
 # Results
 # ---------------------------------------------------------------------------
 echo ""
