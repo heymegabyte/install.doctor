@@ -52,13 +52,16 @@ export PATH="$HOME/.local/bin/cask:$PATH"
 export PATH="$HOME/.local/bin/docker:$PATH"
 export PATH="$HOME/.local/bin/firejail:$PATH"
 export PATH="$HOME/.local/bin/flatpak:$PATH"
-export PATH="$HOME/.local/bin/gpt:$PATH"
 export PATH="$HOME/.local/bin/pipx:$PATH"
 export PATH="$HOME/.local/bin/post-installx:$PATH"
 if [ -f /usr/bin/qubes-session ]; then
   export PATH="$HOME/.local/bin/qubes:$PATH"
 fi
-export SSH_KEY_PATH="$HOME/.ssh/id_rsa"
+if [ -f "$HOME/.ssh/id_ed25519" ]; then
+  export SSH_KEY_PATH="$HOME/.ssh/id_ed25519"
+else
+  export SSH_KEY_PATH="$HOME/.ssh/id_rsa"
+fi
 
 ### Homebrew
 export HOMEBREW_NO_ENV_HINTS=true
@@ -147,35 +150,17 @@ export PATH="$PATH:$COMPOSER_BIN_DIR"
 
 ### Bash
 export BASH_COMPLETION_USER_FILE="${XDG_CONFIG_HOME:-$HOME/.config}/bash-completion/bash_completion"
-
-### Bash It
-# Don't check mail when opening terminal.
 unset MAILCHECK
-export GIT_HOSTING='git@gitlab.com'
-if command -v irssi > /dev/null; then
-  export IRC_CLIENT='irssi'
-fi
-# Set this to the command you use for todo.txt-cli TODO -- figure this out with Standard Notes / Lepton / or nb
-export TODO="t"
-export SCM_CHECK=true
 
 ### Boringtun
 if command -v boringtun-cli > /dev/null; then
   export WG_QUICK_USERSPACE_IMPLEMENTATION=boringtun-cli
 fi
 
-### BitWarden
-# https://bitwarden.com/help/cli/#using-an-api-key
-# BW_CLIENTID client_id
-# BW_CLIENTSECRET
-
 ### Cheat
 if command -v fzf > /dev/null; then
   export CHEAT_USE_FZF=true
 fi
-
-### Concurrent
-export CONCURRENT_LOG_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/concurrent"
 
 ### cURL
 export CURLOPT_ACCEPT_ENCODING=true
@@ -189,10 +174,6 @@ export DEBIAN_FRONTEND=noninteractive
 ### Desk
 export DESK_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/desk"
 export DESK_DESKS_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/desk/desks"
-
-### Deta
-export DETA_INSTALL="${XDG_DATA_HOME:-$HOME/.local/share}/deta"
-export PATH="$PATH:$DETA_INSTALL/bin"
 
 ### Docker
 export DOCKER_CONFIG="${XDG_CONFIG_HOME:-$HOME/.config}/docker"
@@ -210,21 +191,17 @@ fi
 export MONO_GAC_PREFIX="${HOMEBREW_PREFIX:-/opt/homebrew}"
 export PATH="$PATH:${XDG_CONFIG_HOME:-$HOME/.config}/dotnet/.dotnet/tools"
 
-### Elastic Agent
-# https://www.elastic.co/guide/en/fleet/current/agent-environment-variables.html#env-common-vars
-
-### emsdk
-export PATH="${XDG_DATA_HOME:-$HOME/.local/share}/emsdk:$PATH"
-
 ### ffmpeg
 export FFMPEG_DATADIR="${XDG_CONFIG_HOME:-$HOME/.config}/ffmpeg"
 
-### Flatpak
-if command -v flatpak > /dev/null; then
-  FLATPAK_INSTALLATIONS="$(flatpak --installations)"
-  export PATH="$FLATPAK_INSTALLATIONS/exports/bin:$PATH"
-  export XDG_DATA_DIRS="${XDG_CONFIG_HOME:-$HOME/.local/share}/flatpak/exports/share:$FLATPAK_INSTALLATIONS/exports/share:$XDG_DATA_DIRS"
-fi
+### Flatpak (zero-fork directory check for fast shell startup)
+for _fp_dir in /var/lib/flatpak "${XDG_DATA_HOME:-$HOME/.local/share}/flatpak"; do
+  if [ -d "$_fp_dir/exports/bin" ]; then
+    export PATH="$_fp_dir/exports/bin:$PATH"
+    export XDG_DATA_DIRS="$_fp_dir/exports/share:${XDG_DATA_DIRS:-/usr/local/share:/usr/share}"
+  fi
+done
+unset _fp_dir
 
 ### FreeBSD
 export ASSUME_ALWAYS_YES="yes"
@@ -306,13 +283,6 @@ fi
 ### IPFS
 export IPFS_PATH="${XDG_DATA_HOME:-$HOME/.local/share}/ipfs"
 
-### Invoice
-export INVOICE_LOGO="${HOME}/.local/share/assets/icon-jest.png"
-export INVOICE_FROM="Megabyte Labs"
-export INVOICE_TO="Megabyte Labs Customer"
-export INVOICE_TAX=0
-export INVOICE_RATE=140
-
 ### JuiceFS
 export JFS_PRIVATE_KEY="$HOME/.local/etc/juicefs/cert.pem"
 export JFS_HOME="${XDG_DATA_HOME:-$HOME/.local/share}/juicefs"
@@ -342,17 +312,9 @@ export KUBECONFIG="${XDG_CONFIG_HOME:-$HOME/.config}/kube"
 export LEXICON_CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/lexicon"
 export TLDEXTRACT_CACHE_PATH="${XDG_DATA_HOME:-$HOME/.local/share}/lexicon"
 
-### MacPrefs
-export MACPREFS_BACKUP_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/macprefs"
-
 ### Maven
 export MAVEN_CONFIG="${XDG_CONFIG_HOME:-$HOME/.config}/maven/settings.xml"
 alias mvn="mvn -s $MAVEN_CONFIG"
-
-### McFly
-export MCFLY_FUZZY=2
-export MCFLY_RESULTS=14
-export MCFLY_KEY_SCHEME=vim
 
 ### minikube
 export MINIKUBE_HOME="${XDG_DATA_HOME:-$HOME/.local/share}/minikube"
@@ -362,11 +324,6 @@ export MISE_GO_DEFAULT_PACKAGES_FILE="${XDG_CONFIG_HOME:-$HOME/.config}/mise/def
 export MISE_NODE_DEFAULT_PACKAGES_FILE="${XDG_CONFIG_HOME:-$HOME/.config}/mise/default-node-pkgs"
 export MISE_RUBY_DEFAULT_PACKAGES_FILE="${XDG_CONFIG_HOME:-$HOME/.config}/mise/default-ruby-pkgs"
 export MISE_PYTHON_DEFAULT_PACKAGES_FILE="${XDG_CONFIG_HOME:-$HOME/.config}/mise/default-python-pkgs"
-
-### Monero
-if [ -f /Applications/monero-wallet-gui.app/Contents/MacOS/monerod ]; then
-  export PATH="$PATH:/Applications/monero-wallet-gui.app/Contents/MacOS"
-fi
 
 ### Mutagen
 export MUTAGEN_DATA_DIRECTORY="${XDG_DATA_HOME:-$HOME/.local/share}/mutagen"
@@ -380,15 +337,10 @@ export NETRC="${XDG_CONFIG_HOME:-$HOME/.config}/netrc"
 ### Navi
 export NAVI_CONFIG="${XDG_CONFIG_HOME:-$HOME/.config}/navi/config.yaml"
 
-### Nix
-# TODO: Fix this
-# export NIX_SSL_CERT_FILE="$HOME/.local/etc/ssl/cloudflare/cloudflare.crt"
-
 ### nnn
 if command -v nnn > /dev/null; then
   alias n='nnn -de'
   alias N='sudo -E nnn -dH'
-  alias nnn-install-plugins='curl -Ls https://raw.githubusercontent.com/jarun/nnn/master/plugins/getplugs | sh'
   export NNN_RCLONE='rclone mount --read-only --no-checksum'
   export NNN_SSHFS='sshfs -o reconnect,idmap=user,cache_timeout=3600'
 fi
@@ -451,14 +403,9 @@ export PATH="$PATH:$PNPM_HOME"
 ### Proto
 export PROTO_HOME="${XDG_DATA_HOME:-$HOME/.local/share}/proto"
 
-### Python / CA Certificate
-# Used by Python, cURL, and other tools
+### Python / CA Certificate (zero-fork stat check — never spawn pip3/python3 on shell startup)
 if [ -f "$HOME/.local/etc/ssl/curl/cacert.pem" ]; then
   export CERT_PATH="$HOME/.local/etc/ssl/curl/cacert.pem"
-  export SSL_CERT_FILE="$CERT_PATH"
-  export REQUESTS_CA_BUNDLE="$CERT_PATH"
-elif command -v python3 > /dev/null && pip3 list | grep certifi > /dev/null; then
-  export CERT_PATH="$(python3 -m certifi)" || export CERT_PATH="$(python -m certifi)" || export CERT_PATH="$HOME/.local/etc/ssl/curl/cacert.pem"
   export SSL_CERT_FILE="$CERT_PATH"
   export REQUESTS_CA_BUNDLE="$CERT_PATH"
 fi
@@ -516,10 +463,6 @@ fi
 
 ### Visual Studio Code
 export VSCODE_EXTENSIONS="${XDG_DATA_HOME:-$HOME/.local/share}/vscode"
-
-### Volta
-export VOLTA_HOME="${XDG_DATA_HOME:-$HOME/.local/share}/volta"
-export PATH="$VOLTA_HOME/bin:$PATH"
 
 ### Wakatime
 export WAKATIME_HOME="${XDG_CONFIG_HOME:-$HOME/.config}/wakatime"
@@ -610,4 +553,9 @@ if [ -d /proc ] && grep -q Microsoft /proc/version 2>/dev/null; then
   export LIBGL_ALWAYS_INDIRECT="1"
   export DISPLAY=$(ip route list default | awk '{print $3}'):0
   export BROWSER='/mnt/c/Program\ Files/BraveSoftware/Brave-Browser/Application/brave.exe'
+fi
+
+### Megabyte Scoped Cache & 3-Tier Pass-Through Proxy Hierarchy
+if [ -f "${XDG_CONFIG_HOME:-$HOME/.config}/shell/megabyte-cache.sh" ]; then
+  . "${XDG_CONFIG_HOME:-$HOME/.config}/shell/megabyte-cache.sh"
 fi

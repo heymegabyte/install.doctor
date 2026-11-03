@@ -1,24 +1,31 @@
 # @file ~/.config/shell/megabyte-cache.sh
-# @description Scoped .cache/megabyte directory hierarchy and Sonatype Nexus package/model cache endpoints (§8 & §9).
+# @description Scoped .cache/megabyte directory hierarchy and 3-tier pass-through caching proxy endpoints:
+#   Tier 1: Local loopback pass-through cache (http://127.0.0.1:4880)
+#   Tier 2: Central fleet Sonatype Nexus pass-through proxy (https://nexus.megabyte.space)
+#   Tier 3: Canonical upstream registries (npmjs.org, pypi.org, proxy.golang.org, crates.io, maven.org)
 
 export XDG_CACHE_HOME="${XDG_CACHE_HOME:-$HOME/.cache}"
 export MEGABYTE_CACHE_ROOT="${XDG_CACHE_HOME}/megabyte"
+export MEGABYTE_LOCAL_PROXY_URL="${MEGABYTE_LOCAL_PROXY_URL:-http://127.0.0.1:4880}"
+export MEGABYTE_NEXUS_URL="${MEGABYTE_NEXUS_URL:-https://nexus.megabyte.space}"
 
-# Package manager local caches under ~/.cache/megabyte/packages
+# Package manager local caches & pass-through proxy chain under ~/.cache/megabyte/packages
 export npm_config_cache="${MEGABYTE_CACHE_ROOT}/packages/npm"
-export npm_config_registry="${MEGABYTE_NEXUS_NPM_REGISTRY:-https://nexus.megabyte.space/repository/npm-group/}"
+export npm_config_registry="${MEGABYTE_NEXUS_NPM_REGISTRY:-${MEGABYTE_LOCAL_PROXY_URL}/repository/npm-group/}"
 export PNPM_HOME="${XDG_DATA_HOME:-$HOME/.local/share}/pnpm"
 export YARN_CACHE_FOLDER="${MEGABYTE_CACHE_ROOT}/packages/yarn"
 export BUN_INSTALL_CACHE_DIR="${MEGABYTE_CACHE_ROOT}/packages/bun"
 export PIP_CACHE_DIR="${MEGABYTE_CACHE_ROOT}/packages/pip"
-export PIP_INDEX_URL="${MEGABYTE_NEXUS_PYPI_URL:-https://nexus.megabyte.space/repository/pypi-group/simple/}"
-export PIP_EXTRA_INDEX_URL="https://pypi.org/simple/"
+export PIP_INDEX_URL="${MEGABYTE_NEXUS_PYPI_URL:-${MEGABYTE_LOCAL_PROXY_URL}/repository/pypi-group/simple/}"
+export PIP_EXTRA_INDEX_URL="${MEGABYTE_NEXUS_URL}/repository/pypi-group/simple/ https://pypi.org/simple/"
+export PIP_TRUSTED_HOST="127.0.0.1 nexus.megabyte.space"
 export UV_CACHE_DIR="${MEGABYTE_CACHE_ROOT}/packages/uv"
-export UV_INDEX_URL="${MEGABYTE_NEXUS_PYPI_URL:-https://nexus.megabyte.space/repository/pypi-group/simple}"
-export UV_EXTRA_INDEX_URL="https://pypi.org/simple"
+export UV_INDEX_URL="${MEGABYTE_NEXUS_PYPI_URL:-${MEGABYTE_LOCAL_PROXY_URL}/repository/pypi-group/simple}"
+export UV_EXTRA_INDEX_URL="${MEGABYTE_NEXUS_URL}/repository/pypi-group/simple https://pypi.org/simple"
+export UV_INSECURE_HOST="127.0.0.1:4880"
 export POETRY_CACHE_DIR="${MEGABYTE_CACHE_ROOT}/packages/poetry"
 export GOMODCACHE="${MEGABYTE_CACHE_ROOT}/packages/gomod"
-export GOPROXY="${MEGABYTE_NEXUS_GOPROXY:-https://nexus.megabyte.space/repository/go-proxy/,https://proxy.golang.org,direct}"
+export GOPROXY="${MEGABYTE_NEXUS_GOPROXY:-${MEGABYTE_LOCAL_PROXY_URL}/repository/go-proxy/,${MEGABYTE_NEXUS_URL}/repository/go-proxy/,https://proxy.golang.org,direct}"
 export GRADLE_USER_HOME="${MEGABYTE_CACHE_ROOT}/packages/gradle"
 
 # Build & compiler caches under ~/.cache/megabyte/build

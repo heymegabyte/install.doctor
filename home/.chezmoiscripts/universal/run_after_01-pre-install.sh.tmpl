@@ -810,4 +810,9 @@ else
   wait
 fi
 
+if [ -x "$HOME/.local/bin/post-installx/post-nexus-cache.sh" ]; then
+  gum log -sl info 'Bootstrapping local pass-through proxy and Nexus package cache endpoints prior to software installation'
+  bash "$HOME/.local/bin/post-installx/post-nexus-cache.sh" </dev/null || gum log -sl warn 'Pre-install Nexus cache bootstrap returned non-zero (non-fatal)'
+fi
+
 gum log -sl info 'Completed post-dotfile-application routine'
