@@ -48,7 +48,7 @@ set -uo pipefail
 CMD="$(basename "$0")"
 SHIM_DIR="$(cd "$(dirname "$0")" && pwd)"
 CLEAN_PATH="$(printf '%s' "${PATH:-/usr/local/bin:/usr/bin:/bin}" | tr ':' '\n' | grep -vxF "$SHIM_DIR" | paste -sd: -)"
-export PATH="$CLEAN_PATH"
+export PATH="$HOME/go/bin:$HOME/.local/share/go/bin:$HOME/.local/share/cargo/bin:$HOME/.cargo/bin:$HOME/.local/bin:$CLEAN_PATH"
 
 # If already installed on CLEAN_PATH, remove shim and exec native binary immediately
 if command -v "$CMD" >/dev/null 2>&1; then
