@@ -119,7 +119,7 @@ configure_linux_ufw_and_fail2ban() {
     $SUDO sed -i 's/^IPV6=.*/IPV6=yes/' /etc/default/ufw
   fi
 
-  # Preserve active SSH connection and LAN SSH before enabling
+  # Preserve the active session and the controller-only Coolify management path.
   if [ -n "${SSH_CONNECTION:-}" ]; then
     read -r client_ip _ _ server_port <<<"$SSH_CONNECTION"
     if [ -n "$client_ip" ] && [ -n "$server_port" ]; then
@@ -129,7 +129,7 @@ configure_linux_ufw_and_fail2ban() {
   $SUDO ufw allow in on lo >/dev/null || true
   $SUDO ufw allow from 127.0.0.1 to any port 22 proto tcp >/dev/null || true
   $SUDO ufw allow from ::1 to any port 22 proto tcp >/dev/null || true
-  $SUDO ufw allow from 10.0.0.0/24 to any port 22 proto tcp comment 'LAN SSH' >/dev/null || true
+  $SUDO ufw allow from 10.0.0.155 to 10.0.0.143 port 22 proto tcp comment 'Coolify controller SSH' >/dev/null || true
 
   $SUDO ufw default deny incoming >/dev/null
   $SUDO ufw default deny routed >/dev/null
