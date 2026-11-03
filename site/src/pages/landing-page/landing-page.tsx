@@ -199,7 +199,6 @@ export SOFTWARE_GROUP="Standard-Desktop"
 export FULL_NAME="Joe Shmoe"
 export PUBLIC_SERVICES_DOMAIN="megabyte.space"
 export CLOUDFLARE_API_TOKEN="cf-pat-xXP999kUu888777"
-export TAILSCALE_AUTH_KEY="tailscale-auth-key-xXP999kUu888777"
 export START_REPO="my-gh-user/my-fork-name"
 bash <(curl -sSL "https://install.doctor/start")`,
             `Write-Host "Headlessly provisioning a Windows machine"
@@ -208,7 +207,6 @@ $env:SOFTWARE_GROUP = 'Standard-Desktop'
 $env:FULL_NAME = 'Joe Shmoe'
 $env:PUBLIC_SERVICES_DOMAIN = 'megabyte.space'
 $env:CLOUDFLARE_API_TOKEN = 'cf-pat-xXP999kUu888777'
-$env:TAILSCALE_AUTH_KEY = 'tailscale-auth-key-xXP999kUu888777'
 $env:START_REPO = 'my-gh-user/my-fork-name'
 iex ((New-Object System.Net.WebClient).DownloadString('https://install.doctor/windows'))`,
             `echo "Headlessly provisioning Qubes from dom0"
@@ -217,7 +215,6 @@ export SOFTWARE_GROUP=Standard-Desktop
 export FULL_NAME="Joe Shmoe"
 export PUBLIC_SERVICES_DOMAIN="megabyte.space"
 export CLOUDFLARE_API_TOKEN="cf-pat-xXP999kUu888777"
-export TAILSCALE_AUTH_KEY="tailscale-auth-key-xXP999kUu888777"
 export START_REPO="my-gh-user/my-fork-name"
 qvm-run --pass-io sys-firewall "curl -sSL https://install.doctor/qubes" > ~/setup.sh
 bash ~/setup.sh`,

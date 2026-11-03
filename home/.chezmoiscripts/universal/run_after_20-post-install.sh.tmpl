@@ -65,14 +65,14 @@ removeUbuntuLogoBranding() {
 }
 
 # @description
-#     This script sets the default browser to the value stored in [`.chezmoi.yaml.tmpl`](https://github.com/megabyte-labs/install.doctor/tree/master/home/.chezmoi.yaml.tmpl)
+#     This script sets the default browser to the value stored in [`.chezmoi.yaml.tmpl`](https://github.com/heymegabyte/install.doctor/tree/master/home/.chezmoi.yaml.tmpl)
 #     under the `user` section.
 #
 #     * On macOS, it uses the `defaultbrowser` Homebrew package to update the default browser.
 #     * On Linux, it uses a combination of `xdg-mime` and `xdg-settings` options to update the default browser.
 #
 #     The default browser for terminal applications is stored as the `BROWSER` value which is
-#     defined at the end of the [`exports.sh.tmpl`](https://github.com/megabyte-labs/install.doctor/tree/master/home/dot_config/shell/exports.sh.tmpl)
+#     defined at the end of the [`exports.sh.tmpl`](https://github.com/heymegabyte/install.doctor/tree/master/home/dot_config/shell/exports.sh.tmpl)
 #     file. This value is also populated from the `.chezmoi.yaml.tmpl` value.
 setDefaultBrowser() {
   if [ -d /Applications ] && [ -d /System ]; then
@@ -212,7 +212,7 @@ ensureAutoresticLocation() {
 #     idempotency per post-installx/_TEMPLATE.sh, so running them all is safe — a hook whose tool is not
 #     installed on this host/role self-skips. A hook's non-zero exit is LOGGED, never fatal (matches the
 #     installx runScript tolerance), so one bad hook cannot abort provisioning. This is the general
-#     dispatcher the built-but-undispatched config hooks (cloudflared/WARP/tailscale/netdata/...) needed
+#     dispatcher the built-but-undispatched config hooks (cloudflared/WARP/netdata/...) needed
 #     (#251 — closes the #250 gap; wazuh ALSO runs via its software.yml script: entry, harmless + idempotent).
 runPostInstallxHooks() {
   POST_INSTALLX_DIR="$HOME/.local/bin/post-installx"

@@ -13,7 +13,7 @@ set -euo pipefail
 #
 #     ## Links
 #
-#     * [Tor configuration](https://github.com/megabyte-labs/install.doctor/tree/master/home/dot_config/tor/torrc)
+#     * [Tor configuration](https://github.com/heymegabyte/install.doctor/tree/master/home/dot_config/tor/torrc)
 
 set -Eeo pipefail
 trap "gum log -sl error 'Script encountered an error!'" ERR

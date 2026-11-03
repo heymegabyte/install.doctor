@@ -1,0 +1,10 @@
+[metadata]
+name = "apps"
+description = "Install Doctor lazy-installable CLI & App Store catalog (1,180+ tools)"
+requirements = ["aid"]
+
+[source]
+command = "cat ${CNF_INDEX:-$HOME/.cache/install.doctor/cnf-index.tsv} 2>/dev/null"
+
+[preview]
+command = "printf 'Tool: %s\\n\\nRun `aid exec %s` or press Enter to prewarm via install.doctor\\n' '{0}' '{0}'"

@@ -104,7 +104,7 @@
     "name": "Install Doctor",
     "overview": "Want to try out a new desktop jam-packed with a whole suite of GitHub's most-starred projects? Install Doctor is a combination of application settings, theme files, and a performant yet flexible software installer written with [ZX](https://github.com/google/zx). It is easily customizable, with optional prompts that ask you for API keys if you want to completely automate everything. The installer supports almost any operating system, just checkout the [software.yml file](https://gitlab.com/megabyte-labs/install.doctor/-/blob/master/software.yml). It uses [Chezmoi](https://github.com/twpayne/chezmoi) to apply file changes in an interactive way. It is not your typical Chezmoi project - it is built around the philosophy that you should be able to bash all your computers to bits with a hammer and then resurrect them the next day ✝️️ by storing stateful data to an encrypted S3 bucket and automating desktop configuration as much as possible.",
     "repository": {
-      "github": "https://github.com/megabyte-labs/install.doctor",
+      "github": "https://github.com/heymegabyte/install.doctor",
       "gitlab": "https://gitlab.com/megabyte-labs/install.doctor"
     },
     "slug": "install-doctor",

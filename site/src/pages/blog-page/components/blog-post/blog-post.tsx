@@ -56,7 +56,7 @@ export class BlogPost {
   popupHeight = 0;
   popupWidth = 0;
   private twitterUrl = [
-    'http://twitter.com/intent/tweet?',
+    'https://twitter.com/intent/tweet?',
     `url=${encodeURIComponent(`${window.location.origin}${window.location.pathname}`)}`,
   ];
   private facebookUrl = [

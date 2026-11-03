@@ -58,7 +58,7 @@ need_sub 'npm install -g' && subs="$subs node"
 need_sub 'go install'     && subs="$subs go"
 need_sub 'cargo install'  && subs="$subs rust"
 need_sub 'pip install'    && subs="$subs python"
-need_sub 'pipx install'   && subs="$subs python pipx"
+need_sub 'uv tool install' && subs="$subs uv"
 need_sub 'gem install'    && subs="$subs ruby"
 subs="$(printf '%s\n' $subs | sort -u)"
 if [ -z "$subs" ]; then

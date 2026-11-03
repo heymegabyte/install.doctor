@@ -107,5 +107,36 @@ else
   fail "10. Infisical secret resolution in get-secret or executable_post-hishtory.sh missing"
 fi
 
+# 11. Orphaned dot_config dirs & PII-containing binaries (launchpress, improve-code, gpt, aihawk, vnc, zap, Base.code-profile) removed
+if [ ! -e home/dot_local/bin/executable_launchpress ] \
+  && [ ! -e home/dot_local/bin/executable_improve-code ] \
+  && [ ! -d home/dot_local/bin/gpt ] \
+  && [ ! -d home/dot_config/aihawk ] \
+  && [ ! -d home/dot_config/vnc ] \
+  && [ ! -d home/dot_config/zap ] \
+  && [ ! -e home/dot_config/Code/User/Base.code-profile ]; then
+  pass "11. Orphaned dot_config dirs and PII-containing legacy scripts removed"
+else
+  fail "11. Orphaned dot_config dirs or PII-containing legacy scripts still present"
+fi
+
+# 12. Shell startup acceleration: no slow pip3/certifi or flatpak/brew --prefix subshell forks on every shell start
+if ! grep -q 'pip3 list' home/dot_config/shell/exports.sh.tmpl \
+  && ! grep -q 'flatpak --installations' home/dot_config/shell/exports.sh.tmpl \
+  && ! grep -q 'brew --prefix' home/dot_config/shell/aliases.sh.tmpl; then
+  pass "12. Zero-fork shell startup optimizations active in exports.sh.tmpl and aliases.sh.tmpl"
+else
+  fail "12. Slow pip3/flatpak/brew subshell forks still present in shell startup templates"
+fi
+
+# 13. aid doctor & aid search subcommands + Television (tv) fuzzy channels wired
+if bash home/dot_local/bin/executable_aid doctor 2>&1 | grep -q 'aid doctor summary:' \
+  && [ -f home/dot_config/television/cable/apps.toml ] \
+  && [ -f home/dot_config/television/cable/posture.toml ]; then
+  pass "13. aid doctor diagnostic command and Television (tv) fuzzy cable channels wired"
+else
+  fail "13. aid doctor or Television fuzzy cable channels missing"
+fi
+
 say "top50-provisioning-hygiene: $P passed, $F failed"
 [ "$F" -eq 0 ]

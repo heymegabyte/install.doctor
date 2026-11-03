@@ -15,7 +15,7 @@ The basics of customizing the software you want to install on your device with y
 
 Several programs that many developers and power-users use include Google Chrome, Mozilla, and Visual Studio Code. Install Doctor supports pre-installing and configuring addons for these applications and more by defining lists of plugins to install, similar to how you define the list of software packages you would like to install on your device.
 
-In many cases, depending on how you install a program that leverages plugins, the location that the plugins install to will change. The scripts that install the plugins include logic that will loop through the various known locations and install the plugins if the location is present on the system. You can see an example of this in the [script that provisions Firefox addons](https://github.com/megabyte-labs/install.doctor/blob/master/home/.chezmoiscripts/universal/run_onchange_after_40-firefox.tmpl), for instance.
+In many cases, depending on how you install a program that leverages plugins, the location that the plugins install to will change. The scripts that install the plugins include logic that will loop through the various known locations and install the plugins if the location is present on the system. You can see an example of this in the [script that provisions Firefox addons](https://github.com/heymegabyte/install.doctor/blob/master/home/.chezmoiscripts/universal/run_onchange_after_40-firefox.tmpl), for instance.
 
 ### Google Chrome / Brave
 
@@ -143,4 +143,4 @@ The preference of which package manager to use during the installation process i
 
 #### Package Manager Installation
 
-If the preferred package manager determined by the `installerPreference` variable is not available on the system, then the installer will install the package manager prior to using it to install the package. The installation method can be determined by inspecting the [source of the ZX-based installer](https://github.com/megabyte-labs/install.doctor/blob/master/home/dot_local/bin/executable_install-program).
+If the preferred package manager determined by the `installerPreference` variable is not available on the system, then the installer will install the package manager prior to using it to install the package. The installation method can be determined by inspecting the [source of the ZX-based installer](https://github.com/heymegabyte/install.doctor/blob/master/home/dot_local/bin/executable_install-program).

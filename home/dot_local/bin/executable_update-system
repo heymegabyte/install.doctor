@@ -71,7 +71,7 @@ updateZypper() {
 }
 
 ### Language package managers the cnf lazy-installer resolves through (__cnf_pref: … npm pipx … gem). The OS
-### managers + mise cover most tools, but a CLI installed via `npm install -g` / `pipx install` / `gem install`
+### managers + mise cover most tools, but a CLI installed via `npm install -g` / `uv tool install` / `gem install`
 ### is kept current ONLY here — else the Monday-02:00 "everything updated" promise silently skips them (same
 ### install-vs-update contract as #267's apk-in-cron). Each has a CLEAN, non-interactive update-ALL safe for the
 ### unattended cron. cargo + go are omitted deliberately (no safe unattended update-all — cargo needs the
@@ -82,9 +82,9 @@ updateNpm() {
   fi
 }
 
-updatePipx() {
-  if command -v pipx > /dev/null; then
-    gum log -sl info 'Running pipx upgrade-all' && pipx upgrade-all || gum log -sl error 'Failed to run pipx upgrade-all'
+updateUvTools() {
+  if command -v uv > /dev/null; then
+    gum log -sl info 'Running uv tool upgrade --all' && uv tool upgrade --all || gum log -sl error 'Failed to run uv tool upgrade --all'
   fi
 }
 
@@ -122,7 +122,7 @@ if [ -n "${DEBUG:-}" ] || [ -n "${DEBUG_MODE:-}" ]; then
   updateSnap
   updateZypper
   updateNpm
-  updatePipx
+  updateUvTools
   updateGem
   updateMise
   updateChezmoi
@@ -138,7 +138,7 @@ else
   updateSnap &
   updateZypper &
   updateNpm &
-  updatePipx &
+  updateUvTools &
   updateGem &
   wait
   ### mise + chezmoi run AFTER the package managers settle (chezmoi apply may itself invoke them).

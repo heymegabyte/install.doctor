@@ -19,15 +19,15 @@ The following chart outlines the purpose of the various shared profile setup scr
 
 | File Path                        | Description                                                        |
 |----------------------------------|--------------------------------------------------------------------|
-| [`~/.config/shell/aliases.sh`](https://github.com/megabyte-labs/install.doctor/blob/master/home/dot_config/shell/aliases.sh.tmpl) | Stores command aliases / shortcuts |
-| [`~/.config/shell/exports.sh`](https://github.com/megabyte-labs/install.doctor/blob/master/home/dot_config/shell/exports.sh.tmpl) | Houses all the environment variables |
-| [`~/.config/shell/functions.sh`](https://github.com/megabyte-labs/install.doctor/blob/master/home/dot_config/shell/functions.sh.tmpl) | Stored all the functions / more-complicated aliases |
-| [`~/.config/shell/motd.sh`](https://github.com/megabyte-labs/install.doctor/blob/master/home/dot_config/shell/motd.sh.tmpl) | Includes code that invokes a useful, pretty MOTD |
-| [`~/.config/shell/private.sh`](https://github.com/megabyte-labs/install.doctor/blob/master/home/dot_config/shell/private.sh.tmpl) | Stores environment variables that are intended to be private (e.g. API keys) |
-| [`~/.config/shell/profile.sh`](https://github.com/megabyte-labs/install.doctor/blob/master/home/dot_config/shell/profile.sh.tmpl) | Main profile script that is invoked by `~/.bashrc` and `~/.zshrc` that includes all of the other scripts as well as some other initialization logic |
+| [`~/.config/shell/aliases.sh`](https://github.com/heymegabyte/install.doctor/blob/master/home/dot_config/shell/aliases.sh.tmpl) | Stores command aliases / shortcuts |
+| [`~/.config/shell/exports.sh`](https://github.com/heymegabyte/install.doctor/blob/master/home/dot_config/shell/exports.sh.tmpl) | Houses all the environment variables |
+| [`~/.config/shell/functions.sh`](https://github.com/heymegabyte/install.doctor/blob/master/home/dot_config/shell/functions.sh.tmpl) | Stored all the functions / more-complicated aliases |
+| [`~/.config/shell/motd.sh`](https://github.com/heymegabyte/install.doctor/blob/master/home/dot_config/shell/motd.sh.tmpl) | Includes code that invokes a useful, pretty MOTD |
+| [`~/.config/shell/private.sh`](https://github.com/heymegabyte/install.doctor/blob/master/home/dot_config/shell/private.sh.tmpl) | Stores environment variables that are intended to be private (e.g. API keys) |
+| [`~/.config/shell/profile.sh`](https://github.com/heymegabyte/install.doctor/blob/master/home/dot_config/shell/profile.sh.tmpl) | Main profile script that is invoked by `~/.bashrc` and `~/.zshrc` that includes all of the other scripts as well as some other initialization logic |
 
 ## Related Links
 
-* [Profile scripts folder](https://github.com/megabyte-labs/install.doctor/tree/master/home/dot_config/shell)
-* [`~/.bashrc` source file](https://github.com/megabyte-labs/install.doctor/blob/master/home/dot_bashrc)
-* [`~/.zshrc` source file](https://github.com/megabyte-labs/install.doctor/blob/master/home/dot_zshrc)
+* [Profile scripts folder](https://github.com/heymegabyte/install.doctor/tree/master/home/dot_config/shell)
+* [`~/.bashrc` source file](https://github.com/heymegabyte/install.doctor/blob/master/home/dot_bashrc)
+* [`~/.zshrc` source file](https://github.com/heymegabyte/install.doctor/blob/master/home/dot_zshrc)

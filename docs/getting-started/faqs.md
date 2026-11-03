@@ -101,4 +101,4 @@ Yes, Install Doctor supports Qubes OS provisioning from dom0. See the [Qubes doc
 
 ## Community
 
-If your question is not answered here, please reach out through one of the channels on our [Community](https://install.doctor/community) page or [open an issue on GitHub](https://github.com/megabyte-labs/install.doctor/issues).
+If your question is not answered here, please reach out through one of the channels on our [Community](https://install.doctor/community) page or [open an issue on GitHub](https://github.com/heymegabyte/install.doctor/issues).

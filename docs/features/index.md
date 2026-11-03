@@ -17,7 +17,6 @@ Install Doctor bundles together thousands of open-source projects into a single 
 | Secret management (Age) | Yes | Yes | Yes | Yes | Yes | Yes |
 | Homebrew packages | Yes | Yes | Yes | Yes | No | No |
 | System package manager | mas | apt | dnf | pacman | choco/scoop | dnf |
-| Tailscale mesh VPN | Yes | Yes | Yes | Yes | Yes | Beta |
 | CloudFlare integration | Yes | Yes | Yes | Yes | Partial | Beta |
 | Netdata monitoring | Yes | Yes | Yes | Yes | No | No |
 | ClamAV antivirus | Yes | Yes | Yes | Yes | No | No |
@@ -47,7 +46,7 @@ The majority of Install Doctor software and configurations can be applied on any
 * Fully configured settings, with sensible defaults, like the Git config template that automatically injects your name and e-mail address so Git does not hassle you about it again. The Git config also includes a beautifully styled `git diff` tool powered by [delta](https://github.com/dandavison/delta) and [bat](https://github.com/sharkdp/bat).
 * Start projects with boilerplates and synchronize settings across all your repositories by simply running `npm init` which utilizes [GitSync.org](https://gitsync.org). *Coming soon..*
 * Automatically configure your SSH settings including your `~/.ssh/authorized_keys` file which links to your GitHub SSH keys so that you can SSH into your machine with the same SSH keys you use to access GitHub
-* Create a LAN-like network of VPN-connected devices anywhere on the internet via our [Tailscale](https://tailscale.com/) integration (i.e. no need to worry about opening ports in your firewall / router)
+* Enroll devices or publish services through explicitly selected Cloudflare WARP/Tunnel and firewall plans
 * Synchronize browser profiles to a private git repository so that you do not have to reset up all your extensions settings and logins the next time you distro hop or reformat. *This is a WIP.*
 * Patches VMWare so that it can run macOS and also automatically accepts the license agreement and applies a license key
 
@@ -156,4 +155,4 @@ By default, our pre-defined software templates include dozens (or hundreds, depe
 
 ## More Features
 
-There are many, many more features that have not been listed in this high-level overview. We encourage you to browse through the [Install Doctor repository](https://github.com/megabyte-labs/install.doctor) codebase to browse through additional features not listed here. If you cannot find a feature that you are looking for, then please engage with our [Community](https://install.doctor/community) and let us know how to make Install Doctor accomodate your needs.
+There are many, many more features that have not been listed in this high-level overview. We encourage you to browse through the [Install Doctor repository](https://github.com/heymegabyte/install.doctor) codebase to browse through additional features not listed here. If you cannot find a feature that you are looking for, then please engage with our [Community](https://install.doctor/community) and let us know how to make Install Doctor accommodate your needs.

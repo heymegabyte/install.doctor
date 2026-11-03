@@ -43,7 +43,7 @@ if ! command -v chezmoi > /dev/null 2>&1; then
 else
   # 2. .chezmoiexternal.toml.tmpl → renders → valid TOML (the external-download manifest).
   EXT="home/.chezmoiexternal.toml.tmpl"
-  if chezmoi execute-template < "$EXT" > "$O" 2> "$E" && python3 -c 'import tomllib; tomllib.load(open("'"$O"'","rb"))' 2> "$E"; then
+  if chezmoi -S "$ROOT/home" execute-template < "$EXT" > "$O" 2> "$E" && python3 -c 'import tomllib; tomllib.load(open("'"$O"'","rb"))' 2> "$E"; then
     pass ".chezmoiexternal.toml.tmpl renders → valid TOML (the external-download manifest)"
   else
     fail ".chezmoiexternal.toml.tmpl renders to INVALID TOML — externals can't be fetched on apply"
@@ -51,7 +51,7 @@ else
   fi
   # 3. .chezmoiignore → renders cleanly (per-OS ignore template; a render error mis-deploys files).
   IGN="home/.chezmoiignore"
-  if chezmoi execute-template < "$IGN" > "$O" 2> "$E"; then
+  if chezmoi -S "$ROOT/home" execute-template < "$IGN" > "$O" 2> "$E"; then
     pass ".chezmoiignore renders cleanly (per-OS ignore template; a render error would mis-deploy files)"
   else
     fail ".chezmoiignore fails to render — chezmoi can't determine ignores (wrong files deployed)"

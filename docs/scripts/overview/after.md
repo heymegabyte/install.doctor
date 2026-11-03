@@ -14,7 +14,7 @@ After Scripts run once Chezmoi has finished applying dotfiles and configuration 
 | 01 | `run_after_01-pre-install.sh.tmpl` | Early bootstrapping: runs scripts that can safely execute before the main software installation (e.g., GPG key import, SSH key setup) |
 | 10 | `run_after_10-install.sh.tmpl` | **Main software installation**: invokes the ZX-based installer to install all packages for the selected `SOFTWARE_GROUP`. This is the longest-running script |
 | 15 | `run_after_15-chezmoi-system.sh.tmpl` | Copies system-level config files from `~/.config/system/` to their target locations on the filesystem (e.g., `/etc/`, `/usr/local/etc/`) |
-| 20 | `run_after_20-post-install.sh.tmpl` | Post-install tasks: configures installed services (Tailscale, Netdata, Docker, etc.), sets up integrations, applies macOS `defaults write` settings |
+| 20 | `run_after_20-post-install.sh.tmpl` | Post-install tasks: configures installed services (Cloudflare WARP, Netdata, Docker, etc.), sets up integrations, applies macOS `defaults write` settings |
 | 24 | `run_after_24-cleanup.sh.tmpl` | Removes temporary files, cleans up dotfiles clutter from the home directory, final housekeeping |
 
 ## Execution Order
@@ -53,5 +53,5 @@ After all After Scripts have executed, the Chezmoi-based provisioning process is
 
 ## Links
 
-* [`universal/` scripts folder](https://github.com/megabyte-labs/install.doctor/tree/master/home/.chezmoiscripts/universal)
+* [`universal/` scripts folder](https://github.com/heymegabyte/install.doctor/tree/master/home/.chezmoiscripts/universal)
 * [Chezmoi scripting documentation](https://www.chezmoi.io/user-guide/use-scripts-to-perform-actions/)

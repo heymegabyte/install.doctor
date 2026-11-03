@@ -3,7 +3,6 @@ import { defaults } from 'src/store';
 
 @Component({
   tag: 'prismic-image',
-  styleUrl: 'prismic-image.scss',
 })
 export class PrismicImage {
   @Prop() image;

@@ -93,7 +93,7 @@ __cnf_do_install(){ local mgr="$1" pkg="$2"
     go)     go install "$@";;
     cargo)  cargo install "$@";;
     npm)    npm install -g "$@";;
-    pipx)   pipx install "$@";;
+    pipx)   uv tool install "$@";;
     pip)    pip install --user "$@";;
     gem)    gem install "$@";;
     *) return 1;; esac; }

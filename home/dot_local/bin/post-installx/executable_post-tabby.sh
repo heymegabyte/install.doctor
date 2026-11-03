@@ -39,7 +39,7 @@ set -euo pipefail
 #
 #     ## Links
 #
-#     * [Tabby plugins `package.json`](https://github.com/megabyte-labs/install.doctor/tree/master/home/dot_config/tabby/plugins/package.json)
+#     * [Tabby plugins `package.json`](https://github.com/heymegabyte/install.doctor/tree/master/home/dot_config/tabby/plugins/package.json)
 #     * [Secrets / Environment variables documentation](https://install.doctor/docs/customization/secrets) which details how to store your Tabby configuration in as an encrypted file
 
 set -Eeo pipefail

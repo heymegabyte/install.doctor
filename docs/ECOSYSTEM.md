@@ -19,7 +19,7 @@ Install Doctor is the cornerstone of the Megabyte Labs ecosystem. It provisions 
 |---|---|---|
 | **Development tools** | Language runtimes, compilers, linters, formatters | Node.js, Go, Python, Rust, ShellCheck, ESLint |
 | **Shell environment** | Bash and ZSH with frameworks, aliases, functions | Oh-My-ZSH, Powerlevel10k, Bash-It, zoxide, fzf |
-| **Security tooling** | Antivirus, intrusion detection, VPN, encryption | ClamAV, fail2ban, Tailscale, Age |
+| **Security tooling** | Antivirus, intrusion detection, VPN, encryption | ClamAV, fail2ban, Cloudflare WARP, Age |
 | **Infrastructure tools** | Containers, VMs, orchestration, IaC | Docker, Vagrant, Terraform, Ansible, kubectl |
 | **CI/CD integration** | Source control, CI runners, automation | GitHub CLI, GitLab CLI, Task runner |
 | **Editor setup** | IDE configuration, extensions, themes | VS Code, Neovim (NvChad), VIM |

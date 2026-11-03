@@ -5,7 +5,7 @@ sidebar_label: Scripts
 slug: /customization/scripts
 ---
 
-Install Doctor leverages shell scripting for many of the complex tasks that cannot easily be accomodated by the Install Doctor [ZX-based installer](https://github.com/megabyte-labs/install.doctor/blob/master/home/dot_local/bin/executable_install-program). On macOS / Linux / *nix variants Bash is used and, on Windows, PowerShell is also leveraged. Since Install Doctor is a [Chezmoi](https://www.chezmoi.io/)-based installer, all of the Chezmoi features and syntaxes are used by the scripts housed in the Install Doctor repository. After parsing script templates and filtering files with the `.chezmoiignore` file, all the scripts with file names that begin with `run_` are executed at different phases during the provisioning process.
+Install Doctor leverages shell scripting for many of the complex tasks that cannot easily be accommodated by the Install Doctor [ZX-based installer](https://github.com/heymegabyte/install.doctor/blob/master/home/dot_local/bin/executable_install-program). On macOS / Linux / *nix variants Bash is used and, on Windows, PowerShell is also leveraged. Since Install Doctor is a [Chezmoi](https://www.chezmoi.io/)-based installer, all of the Chezmoi features and syntaxes are used by the scripts housed in the Install Doctor repository. After parsing script templates and filtering files with the `.chezmoiignore` file, all the scripts with file names that begin with `run_` are executed at different phases during the provisioning process.
 
 ## Script Phases
 
@@ -40,7 +40,7 @@ Then, the second time you run `chezmoi apply` or use the quick start script (i.e
 
 ### Conditional Script Usage Example
 
-The `onchange_` flag for scripts is useful when you have code that should run the first time and then anytime there is a particular type of change in the state of the device. For example, the [`home/.chezmoiscripts/universal/run_onchange_after_12-install-packages.tmpl`](https://github.com/megabyte-labs/install.doctor/blob/master/home/.chezmoiscripts/universal/run_onchange_after_12-install-packages.tmpl) script runs anytime there is a change to the list of software that the user wants installed on the target system. It accomplishes this by injecting the list of software that should be installed as a Bash comment in the script via [Go Sprig](http://masterminds.github.io/sprig/) templating (which is what is used when a file ends with `.tmpl`). *Note: Go Sprig functions can be combined with the [functions that Chezmoi provides](https://www.chezmoi.io/reference/templates/functions/).*
+The `onchange_` flag for scripts is useful when you have code that should run the first time and then anytime there is a particular type of change in the state of the device. For example, the [`home/.chezmoiscripts/universal/run_onchange_after_12-install-packages.tmpl`](https://github.com/heymegabyte/install.doctor/blob/master/home/.chezmoiscripts/universal/run_onchange_after_12-install-packages.tmpl) script runs anytime there is a change to the list of software that the user wants installed on the target system. It accomplishes this by injecting the list of software that should be installed as a Bash comment in the script via [Go Sprig](http://masterminds.github.io/sprig/) templating (which is what is used when a file ends with `.tmpl`). *Note: Go Sprig functions can be combined with the [functions that Chezmoi provides](https://www.chezmoi.io/reference/templates/functions/).*
 
 ### Conditional Script Advanced Example
 
@@ -92,7 +92,7 @@ In the script above, the `{{-` and `-}}` are required on the first line because 
 
 ### Creating Conditional Symlinks
 
-Another place where the use of `{{-` and `-}}` is necessary is when you are creating a file that should be empty of any characters if certain templating conditions fail. For instance, take the [`home/dot_local/bin/symlink_bat.tmpl`](https://github.com/megabyte-labs/install.doctor/blob/master/home/dot_local/bin/symlink_bat.tmpl) file as an example. It contains the following code:
+Another place where the use of `{{-` and `-}}` is necessary is when you are creating a file that should be empty of any characters if certain templating conditions fail. For instance, take the [`home/dot_local/bin/symlink_bat.tmpl`](https://github.com/heymegabyte/install.doctor/blob/master/home/dot_local/bin/symlink_bat.tmpl) file as an example. It contains the following code:
 
 ```shell
 {{- if (eq .host.distro.id "ubuntu") -}}

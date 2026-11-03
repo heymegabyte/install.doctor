@@ -5,7 +5,9 @@ import { z } from 'zod';
 import {
   ROUTES, chooseRoute, validateBlueprint, exportMarkdown, importMarkdown, blueprintDigest, aidProviderConfig, APP_URL, type Blueprint,
   predictIntentDistribution, createSpeculativeBranch, collapseSpeculativeBranch, evaporateSpeculativeBranch,
-  evaluateEasterEgg, generateEdgeHeaders, calculateCadenceEntropy, type IntentKind, type EasterEggTriggerKind
+  evaluateEasterEgg, generateEdgeHeaders, calculateCadenceEntropy,
+  analyzeFleetDrift, mintExecutionReceipt, verifyExecutionReceipt, rankSemanticCatalogMatches,
+  type IntentKind, type EasterEggTriggerKind
 } from '../../aid-core/src/core';
 import { Env, providerConfigured } from './env';
 import { reserveBudget, DEFAULT_CEILING_MICROS } from './budget';
@@ -18,7 +20,7 @@ import { getMigrations } from 'better-auth/db/migration';
 // (scripts/gen-catalog.mjs → the cnf index builder; D01/D02/D13). Read-only, bundled at deploy;
 // regenerate + redeploy when software.yml changes. No runtime YAML at the edge.
 import catalogData from './catalog.json';
-type CatalogEntry = { name: string; bin: string; providers: string[]; pkgs: Record<string, string>; platforms: string[]; short?: string; github?: string; home?: string; docs?: string; installMode?: 'app' | 'service' | 'cli'; preload?: boolean; deprecated?: string; deps?: string[]; configured?: boolean; postInstall?: string };
+type CatalogEntry = { name: string; bin: string; providers: string[]; pkgs: Record<string, string>; platforms: string[]; short?: string; github?: string; home?: string; docs?: string; installMode?: 'app' | 'service' | 'cli'; preload?: boolean; deprecated?: string; replacement?: string; deps?: string[]; configured?: boolean; postInstall?: string };
 const CATALOG = catalogData as CatalogEntry[];
 // Name → entry. One package can legitimately provide SEVERAL bins (xz → lzma/xz/unlzma/unxz), one entry per
 // bin, all sharing the package `name`. Prefer the CANONICAL entry whose bin IS the name (so /api/catalog/xz
@@ -129,7 +131,9 @@ const INSTALL_CMD: Record<string, (pkg: string) => string> = {
   go: (p) => `go install ${p}`,
   cargo: (p) => `cargo install ${p}`,
   npm: (p) => `npm install -g ${p}`,
-  pipx: (p) => `pipx install ${p}`,
+  // `pipx` is retained as the catalog recipe key, while uv is the faster,
+  // actively selected isolated Python-tool backend used by installx.
+  pipx: (p) => `uv tool install ${p}`,
   pip: (p) => `pip install --user ${p}`,
   gem: (p) => `gem install ${p}`,
   apk: (p) => `sudo apk add ${p}`,
@@ -149,7 +153,7 @@ const UPDATE_CMD: Record<string, (pkg: string) => string> = {
   go: (p) => (p.includes('@') ? `go install ${p}` : `go install ${p}@latest`),
   cargo: (p) => `cargo install --force ${p}`,
   npm: (p) => `npm update -g ${p}`,
-  pipx: (p) => `pipx upgrade ${p}`,
+  pipx: (p) => `uv tool upgrade ${p}`,
   pip: (p) => `pip install --user --upgrade ${p}`,
   gem: (p) => `gem update ${p}`,
   apk: (p) => `sudo apk upgrade ${p}`,
@@ -170,7 +174,7 @@ const UNINSTALL_CMD: Record<string, (pkg: string) => string> = {
   scoop: (p) => `scoop uninstall ${p}`,
   cargo: (p) => `cargo uninstall ${p}`,
   npm: (p) => `npm uninstall -g ${p}`,
-  pipx: (p) => `pipx uninstall ${p}`,
+  pipx: (p) => `uv tool uninstall ${p}`,
   pip: (p) => `pip uninstall -y ${p}`,
   gem: (p) => `gem uninstall ${p}`,
   apk: (p) => `sudo apk del ${p}`,
@@ -1159,7 +1163,7 @@ app.get('/api/catalog/:name', (c) => {
   // ALREADY on PATH, so a run can ADOPT an existing install (F04) instead of reinstalling (B10/W02). Derived from
   // the bin field (every entry has one); universal + accurate, no per-tool guessing (unlike a verify `--version`).
   const detectCommand = e.bin ? `command -v ${e.bin}` : undefined;
-  return c.json({ name: e.name, bin: e.bin, platforms: e.platforms, unavailablePlatforms, providers: e.providers, short: e.short, github: e.github, owner, home: e.home, docs: e.docs, installMode: e.installMode || 'cli', preload: e.preload === true, deprecated: e.deprecated, deps: e.deps, configured: e.configured, postInstall: e.postInstall, detectCommand, commands, updateCommands, uninstallCommands });
+  return c.json({ name: e.name, bin: e.bin, platforms: e.platforms, unavailablePlatforms, providers: e.providers, short: e.short, github: e.github, owner, home: e.home, docs: e.docs, installMode: e.installMode || 'cli', preload: e.preload === true, deprecated: e.deprecated, replacement: e.replacement, deps: e.deps, configured: e.configured, postInstall: e.postInstall, detectCommand, commands, updateCommands, uninstallCommands });
 });
 
 app.post('/api/ai/v1/resolve', async (c) => {
@@ -2295,6 +2299,82 @@ app.post('/api/v1/easter-eggs/oracle', async (c) => {
   return c.json(result);
 });
 
+// --- Fleet Drift Radar, Cryptographic Execution Receipts & Semantic Catalog Search ---
+const FleetDriftRequest = z.object({
+  desired: z.object({
+    machineId: z.string().min(1).max(96),
+    packages: z.array(z.string()).max(10000),
+    services: z.array(z.string()).max(1000).optional(),
+  }),
+  observed: z.object({
+    installedPackages: z.array(z.string()).max(10000),
+    runningServices: z.array(z.string()).max(1000).optional(),
+    sshPort: z.number().int().min(1).max(65535).optional(),
+    cloudflareOnlyIngress: z.boolean().optional(),
+    autologinConfigured: z.boolean().optional(),
+  }),
+});
+
+app.post('/api/v1/fleet/drift', async (c) => {
+  const body = await c.req.json().catch(() => ({}));
+  const parsed = FleetDriftRequest.safeParse(body);
+  if (!parsed.success) return c.json({ error: 'invalid_drift_payload', issues: parsed.error.issues }, 400);
+  try {
+    const report = analyzeFleetDrift(parsed.data.desired, parsed.data.observed);
+    return c.json(report);
+  } catch (e) {
+    return c.json({ error: 'drift_analysis_failed', detail: e instanceof Error ? e.message : String(e) }, 400);
+  }
+});
+
+const MintReceiptRequest = z.object({
+  receiptId: z.string().min(1).max(96),
+  tenantId: z.string().min(1).max(96),
+  machineId: z.string().min(1).max(96),
+  runId: z.string().min(1).max(96),
+  parentRunId: z.string().min(1).max(96).optional(),
+  blueprintDigest: z.string().regex(/^[0-9a-f]{64}$/),
+  action: z.string().min(1).max(2048),
+  exitCode: z.number().int().min(0).max(255),
+  timestamp: z.string().optional(),
+  prevReceiptHash: z.string().regex(/^[0-9a-f]{64}$/).optional(),
+});
+
+app.post('/api/v1/receipts/mint', async (c) => {
+  const body = await c.req.json().catch(() => ({}));
+  const parsed = MintReceiptRequest.safeParse(body);
+  if (!parsed.success) return c.json({ error: 'invalid_receipt_payload', issues: parsed.error.issues }, 400);
+  try {
+    const receipt = await mintExecutionReceipt({
+      ...parsed.data,
+      timestamp: parsed.data.timestamp ?? new Date().toISOString(),
+    });
+    return c.json(receipt, 201);
+  } catch (e) {
+    return c.json({ error: 'receipt_mint_failed', detail: e instanceof Error ? e.message : String(e) }, 400);
+  }
+});
+
+app.post('/api/v1/receipts/verify', async (c) => {
+  const body = await c.req.json().catch(() => ({}));
+  const valid = await verifyExecutionReceipt(body as any);
+  return c.json({ valid, receiptId: body?.receiptId ?? null, receiptHash: body?.receiptHash ?? null });
+});
+
+app.get('/api/v1/catalog/semantic', (c) => {
+  const q = (c.req.query('q') || '').trim();
+  const os = (c.req.query('os') || '').trim() || undefined;
+  const limitRaw = Number.parseInt(c.req.query('limit') || '10', 10);
+  const limit = Number.isFinite(limitRaw) ? Math.max(1, Math.min(limitRaw, 50)) : 10;
+  if (!q) return c.json({ query: '', count: 0, matches: [] });
+  try {
+    const matches = rankSemanticCatalogMatches(q, CATALOG, { os, limit });
+    return c.json({ query: q, os: os ?? null, count: matches.length, matches });
+  } catch (e) {
+    return c.json({ error: 'semantic_query_failed', detail: e instanceof Error ? e.message : String(e) }, 400);
+  }
+});
+
 // --- Dual-Repo GitHub Scanner, Host-Repo Provisioner, API Key Minting & Universal /start Entrypoint ---
 const GithubRepoScanRequest = z.object({
   owner: z.string().min(1).max(120).default('heymegabyte'),
@@ -2408,19 +2488,25 @@ app.post('/api/v1/keys/mint', async (c) => {
   }, 201);
 });
 
-// Universal multi-OS bootstrap script at https://app.install.doctor/start (macOS, Linux, Windows, FreeBSD, Qubes)
+// Terminal-safe stage-zero bootstrap for macOS, Unix/Linux, Qubes, FreeBSD, and Windows through WSL/Git Bash.
 app.get('/start', (c) => {
   const script = `#!/usr/bin/env bash
-# app.install.doctor/start — Universal Multi-OS Bootstrap (macOS, Linux, Windows/WSL, FreeBSD, Qubes)
-# Supports zero-touch API key bypass (AID_API_KEY=aid_...) or real-time GitHub OAuth + Dual-Repo TUI.
+# app.install.doctor/start — secure stage-zero fleet bootstrap
 set -euo pipefail
 
 export AID_CONTROL_PLANE_URL="\${AID_CONTROL_PLANE_URL:-https://app.install.doctor}"
 export START_REPO="\${START_REPO:-heymegabyte/install.doctor}"
+export START_REF="\${START_REF:-master}"
 export HOST_NAMESPACE="\${HOST_NAMESPACE:-megabyte.space}"
 
 cyan() { printf '\\033[38;2;0;229;255m%s\\033[0m\\n' "$*"; }
 hdr()  { printf '\\033[48;2;6;6;16m\\033[38;2;0;229;255m ✦ INSTALL.DOCTOR // AID UNIVERSAL PROVISIONER ✦ \\033[0m\\n'; }
+die()  { printf 'install.doctor: %s\\n' "$*" >&2; exit 1; }
+sha256() {
+  if command -v sha256sum >/dev/null 2>&1; then sha256sum "$1" | awk '{print $1}'
+  elif command -v shasum >/dev/null 2>&1; then shasum -a 256 "$1" | awk '{print $1}'
+  else die 'sha256sum or shasum is required when START_SHA256 is set'; fi
+}
 
 hdr
 OS_KERNEL="$(uname -s 2>/dev/null || echo unknown)"
@@ -2436,7 +2522,32 @@ elif [ "\${HEADLESS_INSTALL:-0}" != "1" ] && command -v aid-pair >/dev/null 2>&1
   aid-pair || true
 fi
 
-exec bash <(curl -fsSL "https://raw.githubusercontent.com/\${START_REPO}/master/start.sh") "$@"
+umask 077
+START_TMP="$(mktemp -d 2>/dev/null || mktemp -d -t install-doctor)"
+cleanup() { rm -rf -- "$START_TMP"; }
+trap cleanup EXIT HUP INT TERM
+PROVISIONER="$START_TMP/provision.sh"
+PROVISION_URL="https://raw.githubusercontent.com/\${START_REPO}/\${START_REF}/scripts/provision.sh"
+cyan "Fetching pinned provisioner: \${START_REPO}@\${START_REF}"
+curl -fL --retry 3 --connect-timeout 15 --max-time 300 "$PROVISION_URL" -o "$PROVISIONER"
+chmod 0700 "$PROVISIONER"
+if [ -n "\${START_SHA256:-}" ]; then
+  ACTUAL_SHA256="$(sha256 "$PROVISIONER")"
+  [ "$ACTUAL_SHA256" = "$START_SHA256" ] || die "provisioner sha256 mismatch"
+  cyan '✓ Provisioner integrity verified'
+fi
+
+set +e
+if [ "\${HEADLESS_INSTALL:-0}" != "1" ] && [ -r /dev/tty ] && [ -w /dev/tty ]; then
+  bash "$PROVISIONER" "$@" < /dev/tty
+else
+  export HEADLESS_INSTALL=1
+  bash "$PROVISIONER" "$@" < /dev/null
+fi
+STATUS=$?
+cleanup
+trap - EXIT HUP INT TERM
+exit "$STATUS"
 `;
   return new Response(script, {
     status: 200,
@@ -2572,6 +2683,38 @@ const OPENAPI_31_SPEC = {
           '200': { description: 'Easter Egg evaluation result with ANSI content and headers' },
           '400': { description: 'Invalid oracle payload' },
         },
+      },
+    },
+    '/api/v1/fleet/drift': {
+      post: {
+        operationId: 'analyzeFleetDrift',
+        summary: 'Analyze Desired vs. Observed host drift, Zero-Trust posture (SSH Port 22, Cloudflare firewall, Infisical autologin), and generate self-healing steps',
+        tags: ['Fleet Drift & Self-Healing'],
+        responses: { '200': { description: 'Fleet drift report and healing plan' }, '400': { description: 'Invalid drift payload' } },
+      },
+    },
+    '/api/v1/receipts/mint': {
+      post: {
+        operationId: 'mintExecutionReceipt',
+        summary: 'Mint a tamper-evident SHA-256 hash-chained ExecutionReceipt for durable History auditability',
+        tags: ['Cryptographic Receipts'],
+        responses: { '201': { description: 'Minted execution receipt' }, '400': { description: 'Invalid receipt payload' } },
+      },
+    },
+    '/api/v1/receipts/verify': {
+      post: {
+        operationId: 'verifyExecutionReceipt',
+        summary: 'Cryptographically verify the SHA-256 hash chain integrity of an ExecutionReceipt',
+        tags: ['Cryptographic Receipts'],
+        responses: { '200': { description: 'Verification result' } },
+      },
+    },
+    '/api/v1/catalog/semantic': {
+      get: {
+        operationId: 'searchSemanticCatalog',
+        summary: 'Semantic and synonym-expanded search across the 1,069-entry Install Doctor catalog',
+        tags: ['Catalog & App Store'],
+        responses: { '200': { description: 'Ranked semantic catalog matches' } },
       },
     },
     '/api/v1/github/repos/scan': {

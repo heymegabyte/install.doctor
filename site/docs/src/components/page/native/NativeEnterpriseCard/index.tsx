@@ -8,7 +8,12 @@ export default function NativeEnterpriseCard(props) {
   return (
     <a className={clsx(props.className, styles.nativeEnterprise)} href="https://ionicframework.com/native">
       <div className="image-wrapper">
-        <img src={useBaseUrl('/img/native/native-enterprise@2x.png')} width="476" height="228" />
+        <img
+          src={useBaseUrl('/img/native/native-enterprise@2x.png')}
+          width="476"
+          height="228"
+          alt=""
+        />
       </div>
 
       <div className="heading-group">

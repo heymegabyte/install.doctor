@@ -20,7 +20,6 @@ module.exports = {
         'features/index',
         'features/integrations',
         'features/cloudflare',
-        'features/tailscale',
         'features/netdata',
       ],
     },

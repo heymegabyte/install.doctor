@@ -154,5 +154,21 @@ else
   fail "darwin Brewfile or post-vim.sh still contains m-cli or coc/extensions residue"
 fi
 
+# 10. Tailscale was removed in favor of the existing Cloudflare connectivity stack. Keep it out of every
+# live provisioning surface and propagate deletion of its previously deployed post-install hook.
+ts_hits="$(grep -rnEi 'tailscale' software.yml home/.chezmoidata.yaml home/.chezmoiscripts home/dot_config home/dot_local/bin 2>/dev/null \
+  | grep -vE ':[0-9]+:[[:space:]]*#' || true)"
+if [ -z "$ts_hits" ]; then
+  pass "no active Tailscale catalog, package, plugin, configuration, or provisioning hook remains"
+else
+  fail "active Tailscale provisioning residue remains:"
+  printf '%s\n' "$ts_hits" | head -6
+fi
+if grep -qFx '.local/bin/post-installx/post-tailscale.sh' home/.chezmoiremove; then
+  pass "existing machines remove the previously deployed Tailscale post-install hook"
+else
+  fail ".chezmoiremove does not clean the previously deployed Tailscale post-install hook"
+fi
+
 say "no-removed-tools: $P passed, $F failed"
 [ "$F" -eq 0 ]

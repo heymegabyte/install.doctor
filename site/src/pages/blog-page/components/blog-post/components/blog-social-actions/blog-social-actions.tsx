@@ -10,7 +10,7 @@ import { defaults } from 'src/store';
 })
 export class BlogSocialActions {
   private twitterUrl = [
-    'http://twitter.com/intent/tweet?',
+    'https://twitter.com/intent/tweet?',
     `url=${encodeURIComponent(`${window.location.origin}${window.location.pathname}`)}`,
   ];
   private facebookUrl = [

@@ -56,5 +56,5 @@ Key elements:
 
 ## Links
 
-* [`universal/` scripts folder](https://github.com/megabyte-labs/install.doctor/tree/master/home/.chezmoiscripts/universal)
+* [`universal/` scripts folder](https://github.com/heymegabyte/install.doctor/tree/master/home/.chezmoiscripts/universal)
 * [Chezmoi scripting documentation](https://www.chezmoi.io/user-guide/use-scripts-to-perform-actions/)

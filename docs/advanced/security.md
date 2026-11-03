@@ -18,7 +18,6 @@ Install Doctor takes a defense-in-depth approach to security by layering multipl
 | OpenSnitch | Application firewall | Linux | Package manager |
 | Portmaster | Application firewall | Linux/Windows | Binary download |
 | Cloudflare WARP | Encrypted DNS/VPN | All | Package manager |
-| Tailscale | Mesh VPN | All | Package manager |
 
 ## Antivirus and Malware Detection
 
@@ -105,7 +104,6 @@ All sensitive data (API keys, tokens, passwords) is encrypted at rest using [Age
 | Tool | Purpose | Configuration |
 |---|---|---|
 | [Cloudflare WARP](https://1.1.1.1/) | Encrypted DNS and optional VPN tunneling | `CLOUDFLARE_TEAMS_*` variables |
-| [Tailscale](https://tailscale.com/) | Zero-config WireGuard mesh VPN | `TAILSCALE_AUTH_KEY` |
 | [WireGuard](https://www.wireguard.com/) | Modern VPN protocol | NetworkManager profiles in `~/.config/vpn/` |
 | [OpenVPN](https://openvpn.net/) | Traditional VPN | `.ovpn` files in `~/.config/vpn/` |
 

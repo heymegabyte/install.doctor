@@ -85,14 +85,6 @@ bash <(curl -sSL https://install.doctor/start)
               />
               <img
                 loading="lazy"
-                src="/assets/img/landing/tailscale.png"
-                alt="Tailscale"
-                class="vm-icon"
-                width="37"
-                height="37"
-              />
-              <img
-                loading="lazy"
                 src="/assets/img/landing/cloudflare.png"
                 alt="CloudFlare"
                 class="vm-icon"
@@ -102,7 +94,7 @@ bash <(curl -sSL https://install.doctor/start)
             </div>
             <Paragraph>
               Launch a suite of web services via Docker Swarm and KubeSphere. Access all your machines over a VPN subnet
-              (via Tailscale) and host SSO-protected web apps (via CloudFlare Teams).
+              through an explicitly configured private tunnel and host SSO-protected web apps via Cloudflare Access.
             </Paragraph>
           </div>
           <div class="code-panel">

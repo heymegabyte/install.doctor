@@ -78,14 +78,6 @@ qvm-run --pass-io sys-firewall "curl -sSL https://install.doctor/qubes" > ~/setu
               />
               <img
                 loading="lazy"
-                src="/assets/img/landing/tailscale.png"
-                alt="Tailscale"
-                class="vm-icon"
-                width="37"
-                height="37"
-              />
-              <img
-                loading="lazy"
                 src="/assets/img/landing/cloudflare.png"
                 alt="CloudFlare"
                 class="vm-icon"
@@ -95,7 +87,7 @@ qvm-run --pass-io sys-firewall "curl -sSL https://install.doctor/qubes" > ~/setu
             </div>
             <Paragraph>
               Launch a suite of web services via Docker Swarm and KubeSphere to a network-enabled VM. Access all your
-              machines over a VPN subnet (via Tailscale) and host SSO-protected web apps (via CloudFlare Teams).
+              machines through an explicitly configured private tunnel and host SSO-protected web apps via Cloudflare Access.
             </Paragraph>
           </div>
           <div class="code-panel">

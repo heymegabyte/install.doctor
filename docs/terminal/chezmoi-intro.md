@@ -14,7 +14,7 @@ bash <(curl -sSL https://install.doctor/start)
 
 | Step | Action | Details |
 |---|---|---|
-| 1 | **Fork the repo** | [Fork on GitHub](https://github.com/megabyte-labs/install.doctor/fork) |
+| 1 | **Fork the repo** | [Fork on GitHub](https://github.com/heymegabyte/install.doctor/fork) |
 | 2 | **Generate an Age key** | `age-keygen -o key.txt` (see [Secrets docs](https://install.doctor/docs/customization/secrets)) |
 | 3 | **Encrypt your secrets** | Populate `home/.chezmoitemplates/secrets/` with encrypted API keys and tokens |
 | 4 | **Customize settings** | Edit `home/.chezmoidata.yaml` (software groups) and `home/.chezmoi.yaml.tmpl` (user identity) |

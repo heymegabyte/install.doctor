@@ -75,7 +75,7 @@ done
 
 # 6 (#277). The Monday-02:00 cron (update-system) must KEEP CURRENT every manager the cnf hook INSTALLS through,
 #     or that manager is on a documented no-safe-unattended-update-all EXCLUSION list — else a tool lazy-installed
-#     via it silently ROTS (the #275 class: npm/pipx/gem were installed but never updated until #275 added their
+#     via it silently ROTS (the #275 class: npm/uv/gem were installed but never updated until #275 added their
 #     updaters). Generalizes #275 into the contract. EXCLUDED (no safe unattended update-all): cargo (needs the
 #     cargo-update crate), go (`go install` re-fetches per-binary), pip (--user upgrade-all too fragile), choco +
 #     scoop (Windows managers the Unix cron doesn't run). cask is UPDATED via `brew upgrade --cask` (no dedicated
@@ -93,7 +93,7 @@ for p in $s_install_hook; do
     gem)    grep -qF 'gem update'          "$UPD" || updmiss="$updmiss gem";;
     npm)    grep -qF 'npm update -g'       "$UPD" || updmiss="$updmiss npm";;
     pacman) grep -qF 'pacman -Syu'         "$UPD" || updmiss="$updmiss pacman";;
-    pipx)   grep -qF 'pipx upgrade-all'    "$UPD" || updmiss="$updmiss pipx";;
+    pipx)   grep -qF 'uv tool upgrade --all' "$UPD" || updmiss="$updmiss pipx-via-uv";;
     *)      updmiss="$updmiss $p(no-coverage-rule)";;
   esac
 done

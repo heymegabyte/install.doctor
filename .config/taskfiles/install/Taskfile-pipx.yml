@@ -102,11 +102,11 @@ tasks:
     run: when_changed
     cmds:
       - task: :install:software:pipx
-      - .config/log info 'Installing `{{.PACKAGE}}` as a pipx package'
+      - .config/log info 'Installing `{{.PACKAGE}}` as an isolated Python tool with uv'
       - |
         PATH="$PATH:$HOME/.local/bin"
-        pipx install {{.PACKAGE}} --include-deps --force
-      - .config/log success 'Successfully installed `{{.PACKAGE}}` with pipx'
+        uv tool install {{.PACKAGE}} --force
+      - .config/log success 'Successfully installed `{{.PACKAGE}}` with uv'
     status:
       - type {{.BIN}} > /dev/null
 

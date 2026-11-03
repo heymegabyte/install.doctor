@@ -4,7 +4,7 @@ Thanks for considering contributing to Install Doctor! This guide covers everyth
 
 ## Code of Conduct
 
-This project and everyone participating in it is governed by the [Code of Conduct](https://github.com/megabyte-labs/install.doctor/blob/master/docs/CODE_OF_CONDUCT.md). By participating, you are expected to uphold this code. Please report unacceptable behavior to [help@megabyte.space](mailto:help@megabyte.space).
+This project and everyone participating in it is governed by the [Code of Conduct](https://github.com/heymegabyte/install.doctor/blob/master/docs/CODE_OF_CONDUCT.md). By participating, you are expected to uphold this code. Please report unacceptable behavior to [help@megabyte.space](mailto:help@megabyte.space).
 
 ## Getting Started
 
@@ -126,4 +126,4 @@ docs: update FAQ with Apple Silicon instructions
 
 ## Questions?
 
-If your question is not answered here, please [open an issue on GitHub](https://github.com/megabyte-labs/install.doctor/issues) or visit our [Community page](https://install.doctor/community).
+If your question is not answered here, please [open an issue on GitHub](https://github.com/heymegabyte/install.doctor/issues) or visit our [Community page](https://install.doctor/community).

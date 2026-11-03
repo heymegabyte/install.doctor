@@ -89,20 +89,20 @@ fi
 
 # 9.6 (#275). The cron must UPDATE what the lazy-installer INSTALLS with. The cnf hook (__cnf_pref) resolves a
 #      missing CLI via the OS manager FIRST, then the language managers go/cargo/npm/pipx/pip/gem. The OS managers
-#      + mise + flatpak/snap are updated above — but a tool lazy-installed via `npm -g` / `pipx` / `gem` was NEVER
+#      + mise + flatpak/snap are updated above — but a tool lazy-installed via `npm -g` / `uv tool` / `gem` was NEVER
 #      kept current, so the prompt's "ensures EVERYTHING is updated" silently missed the language managers (same
-#      install-vs-update contract class as #267's apk-in-cron). npm/pipx/gem each have a CLEAN, non-interactive
-#      update-ALL safe for the unattended Monday-02:00 cron (npm update -g / pipx upgrade-all / gem update);
+#      install-vs-update contract class as #267's apk-in-cron). npm/uv/gem each have a CLEAN, non-interactive
+#      update-ALL safe for the unattended Monday-02:00 cron (npm update -g / uv tool upgrade --all / gem update);
 #      cargo + go are INTENTIONALLY omitted (no safe unattended update-all — cargo needs the cargo-update crate,
 #      `go install` re-fetches per-binary), and pip --user upgrade-all is too fragile to run unattended.
 langmiss=""
 { grep -qE 'updateNpm\(\) \{' "$UPD" && grep -qE 'npm update -g' "$UPD"; } || langmiss="$langmiss npm"
-{ grep -qE 'updatePipx\(\) \{' "$UPD" && grep -qE 'pipx upgrade-all' "$UPD"; } || langmiss="$langmiss pipx"
+{ grep -qE 'updateUvTools\(\) \{' "$UPD" && grep -qE 'uv tool upgrade --all' "$UPD"; } || langmiss="$langmiss uv"
 { grep -qE 'updateGem\(\) \{' "$UPD" && grep -qE 'gem update' "$UPD"; } || langmiss="$langmiss gem"
 if [ -z "$langmiss" ]; then
-  pass "update-system keeps lazy-installed language-manager tools current (npm -g / pipx / gem update — matches the cnf hook's install path)"
+  pass "update-system keeps lazy-installed language-manager tools current (npm -g / uv tool / gem update — matches the cnf hook's install path)"
 else
-  fail "update-system does NOT update lazy-install language managers ($langmiss) — a tool installed via the cnf hook's npm/pipx/gem path is never kept current by the Monday cron"
+  fail "update-system does NOT update lazy-install language managers ($langmiss) — a tool installed via the cnf hook's npm/uv/gem path is never kept current by the Monday cron"
 fi
 
 # 9.7 (#306). The CORE OS package managers install.doctor PRIMARILY installs through (CLAUDE.md §2 fleet +
@@ -176,7 +176,7 @@ if [ -f "$EXPORTS" ]; then
   [ -z "$exmiss" ] && pass "cron-sourced exports.sh has no source-shell-killing top-level construct (no exit/set -e/set -u — the Monday cron's sourced dep is safe)" || fail "exports.sh has a cron-shell-HOSTILE top-level construct ($exmiss) — sourcing it would kill/abort the Monday-02:00 update job + every other cron that sources it"
   if command -v chezmoi >/dev/null 2>&1; then
     _exr="$(mktemp)"
-    if chezmoi execute-template < "$EXPORTS" > "$_exr" 2>/dev/null && bash -n "$_exr" 2>/dev/null; then
+    if chezmoi -S "$ROOT/home" execute-template < "$EXPORTS" > "$_exr" 2>/dev/null && bash -n "$_exr" 2>/dev/null; then
       pass "exports.sh.tmpl renders (chezmoi) + the result parses (bash -n) — crons can source it cleanly"
     else
       fail "exports.sh.tmpl fails to render or parse — a broken exports.sh breaks EVERY cron that sources it"

@@ -316,6 +316,11 @@ test('Control Plane Phase 1: Dual-Repo GitHub Scan, Host-Repo Ensure, API Key Mi
   const startScript = await startRes.text();
   assert.ok(startScript.includes('AID_API_KEY'));
   assert.ok(startScript.includes('heymegabyte/install.doctor'));
+  assert.ok(startScript.includes('mktemp -d'), 'stage zero downloads into a private temporary directory');
+  assert.ok(startScript.includes('/dev/tty'), 'interactive input is reconnected to the terminal');
+  assert.ok(startScript.includes('/dev/null'), 'headless input cannot consume the script stream');
+  assert.ok(startScript.includes('sha256'), 'stage zero supports provisioner integrity verification');
+  assert.ok(!startScript.includes('bash <('), 'stage zero never executes mutable process substitution');
 });
 
 test('Control Plane Phase 1: Better Auth D1 migrations and session handling under cloudflare:workers mock', async () => {
@@ -352,4 +357,80 @@ test('Control Plane Phase 1: Better Auth D1 migrations and session handling unde
   assert.ok(sessRes.headers.get('cache-control')?.includes('no-store'));
   const sessBody = await sessRes.json();
   assert.equal(sessBody, null);
+});
+
+test('Control Plane Phase 2: Fleet Drift Radar, Cryptographic Execution Receipts & Semantic Catalog Search', async () => {
+  const app = await loadWorkerApp();
+
+  // 1. POST /api/v1/fleet/drift
+  const driftRes = await app.fetch(
+    new Request('https://app.install.doctor/api/v1/fleet/drift', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        desired: {
+          machineId: 'ubuntu-megabyte-space',
+          packages: ['git', 'ripgrep', 'tmux'],
+          services: ['alloy'],
+        },
+        observed: {
+          installedPackages: ['git', 'ripgrep'],
+          runningServices: [],
+          sshPort: 22,
+          cloudflareOnlyIngress: false,
+          autologinConfigured: true,
+        },
+      }),
+    }),
+    TEST_ENV
+  );
+  assert.equal(driftRes.status, 200);
+  const driftJson = await driftRes.json();
+  assert.equal(driftJson.converged, false);
+  assert.deepEqual(driftJson.missingPackages, ['tmux']);
+  assert.deepEqual(driftJson.stoppedServices, ['alloy']);
+  assert.ok(driftJson.healingPlan.includes('cloudflare-firewall'));
+
+  // 2. POST /api/v1/receipts/mint & /api/v1/receipts/verify
+  const mintRes = await app.fetch(
+    new Request('https://app.install.doctor/api/v1/receipts/mint', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        receiptId: 'rcpt-edge-01',
+        tenantId: 'tenant-alpha',
+        machineId: 'ubuntu-megabyte-space',
+        runId: 'run-edge-01',
+        blueprintDigest: 'b'.repeat(64),
+        action: 'cloudflare-firewall',
+        exitCode: 0,
+      }),
+    }),
+    TEST_ENV
+  );
+  assert.equal(mintRes.status, 201);
+  const receipt = await mintRes.json();
+  assert.equal(receipt.receiptHash.length, 64);
+
+  const verRes = await app.fetch(
+    new Request('https://app.install.doctor/api/v1/receipts/verify', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(receipt),
+    }),
+    TEST_ENV
+  );
+  assert.equal(verRes.status, 200);
+  const verJson = await verRes.json();
+  assert.equal(verJson.valid, true);
+
+  // 3. GET /api/v1/catalog/semantic
+  const semRes = await app.fetch(
+    new Request('https://app.install.doctor/api/v1/catalog/semantic?q=ripgrep+search&os=macos&limit=5'),
+    TEST_ENV
+  );
+  assert.equal(semRes.status, 200);
+  const semJson = await semRes.json();
+  assert.ok(semJson.count >= 1);
+  assert.equal(semJson.matches[0].name, 'ripgrep');
 });

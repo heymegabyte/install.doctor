@@ -92,7 +92,7 @@ Many tools require post-install configuration to be useful. Install Doctor handl
 
 | Integration | What It Does | Required Variable |
 |---|---|---|
-| [Tailscale](/docs/integrations/tailscale) | Connects device to your WireGuard mesh VPN | `TAILSCALE_AUTH_KEY` |
+| Cloudflare WARP / Tunnel | Explicit, consented device or service enrollment | Control-plane enrollment |
 | [CloudFlare](/docs/integrations/cloudflare) | Sets up tunnels, WARP, DNS, and SSO-protected services | `CLOUDFLARE_*` variables |
 | [Netdata](/docs/integrations/netdata) | Enrolls device in cloud monitoring dashboard | `NETDATA_TOKEN`, `NETDATA_ROOM` |
 | Docker Hub | Authenticates Docker with your registry account | `DOCKERHUB_USER`, `DOCKERHUB_TOKEN` |

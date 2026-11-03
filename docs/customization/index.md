@@ -44,9 +44,9 @@ All prompts have a 30-second timeout and auto-proceed with sensible defaults. Se
 
 ## Software Definitions
 
-The software / package definitions are all mapped in the [`software.yml`](https://github.com/megabyte-labs/install.doctor/blob/master/software.yml) file defined in the root of the Install Doctor repository. The definitions for the *Basic*, *Standard*, and *Full* installations (as well as their desktop-only variants) are all defined in the [`home/.chezmoidata.yaml`](https://github.com/megabyte-labs/install.doctor/blob/master/home/.chezmoidata.yaml) file. The *Basic* definition is found under the `_Basic` key in the `chezmoidata.yaml` file and the desktop variant is found under the `_Basic-Desktop` key in the file.
+The software / package definitions are all mapped in the [`software.yml`](https://github.com/heymegabyte/install.doctor/blob/master/software.yml) file defined in the root of the Install Doctor repository. The definitions for the *Basic*, *Standard*, and *Full* installations (as well as their desktop-only variants) are all defined in the [`home/.chezmoidata.yaml`](https://github.com/heymegabyte/install.doctor/blob/master/home/.chezmoidata.yaml) file. The *Basic* definition is found under the `_Basic` key in the `chezmoidata.yaml` file and the desktop variant is found under the `_Basic-Desktop` key in the file.
 
-Depending on whether or not the script detects if the device is a workstation or not (i.e. whether or not it has an active display manager), UI-only tools will be installed. This detection is done in the [`home/.chezmoi.yaml.tmpl`](https://github.com/megabyte-labs/install.doctor/blob/master/home/.chezmoi.yaml.tmpl) file.
+Depending on whether or not the script detects if the device is a workstation or not (i.e. whether or not it has an active display manager), UI-only tools will be installed. This detection is done in the [`home/.chezmoi.yaml.tmpl`](https://github.com/heymegabyte/install.doctor/blob/master/home/.chezmoi.yaml.tmpl) file.
 
 ### Customizing Software Definitions
 
@@ -207,4 +207,3 @@ bash ~/setup.sh
 ### Customizing Variables / Secrets
 
 For a list of variables that Install Doctor can integrate as well as details on how you can encrypt and store your variables inside your fork of Install Doctor, please refer to the [documentation on Secrets](/docs/customization/secrets).
-

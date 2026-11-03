@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 # @file VSCode Extensions / Global NPM Modules Fallback
-# @brief Installs all of the Visual Studio Code extensions specified in the [`home/dot_config/Code/User/extensions.json`](https://github.com/megabyte-labs/install.doctor/blob/master/home/dot_config/Code/User/extensions.json) file and installs NPM packages to the system `/` directory as a catch-all for tools that recursively search upwards for shared NPM configurations.
+# @brief Installs all of the Visual Studio Code extensions specified in the [`home/dot_config/Code/User/extensions.json`](https://github.com/heymegabyte/install.doctor/blob/master/home/dot_config/Code/User/extensions.json) file and installs NPM packages to the system `/` directory as a catch-all for tools that recursively search upwards for shared NPM configurations.
 # @description
-#     This script loops through all the extensions listed in the [`home/dot_config/Code/User/extensions.json`](https://github.com/megabyte-labs/install.doctor/blob/master/home/dot_config/Code/User/extensions.json)
+#     This script loops through all the extensions listed in the [`home/dot_config/Code/User/extensions.json`](https://github.com/heymegabyte/install.doctor/blob/master/home/dot_config/Code/User/extensions.json)
 #     file. It installs the extensions when either Visual Studio Code or VSCodium is installed. If both are installed, then both will
 #     have the plugins automatically installed.
 #
@@ -14,7 +14,7 @@ set -euo pipefail
 #     ## Plugin Settings
 #
 #     Most of the plugin settings have been configured and optimized to work properly with the other default settings
-#     included by Install Doctor. These settings can be found in the [`home/dot_config/Code/User/settings.json` file](https://github.com/megabyte-labs/install.doctor/blob/master/home/dot_config/Code/User/settings.json).
+#     included by Install Doctor. These settings can be found in the [`home/dot_config/Code/User/settings.json` file](https://github.com/heymegabyte/install.doctor/blob/master/home/dot_config/Code/User/settings.json).
 #     If you manage to come up with an improvement, please open a pull request so other users can benefit from your work.
 #
 #     ## Default Extensions
@@ -68,10 +68,10 @@ set -euo pipefail
 #
 #     ## Links
 #
-#     * [`package.json` configuration file](https://github.com/megabyte-labs/install.doctor/blob/master/home/dot_config/Code/User/package.json)
+#     * [`package.json` configuration file](https://github.com/heymegabyte/install.doctor/blob/master/home/dot_config/Code/User/package.json)
 #     * [StrictLint.com documentation](https://strictlint.com/docs)
-#     * [Visual Studio Code settings folder](https://github.com/megabyte-labs/install.doctor/blob/master/home/dot_config/Code/User)
-#     * [Visual Studio Code `extensions.json`](https://github.com/megabyte-labs/install.doctor/blob/master/home/dot_config/Code/User/extensions.json)
+#     * [Visual Studio Code settings folder](https://github.com/heymegabyte/install.doctor/blob/master/home/dot_config/Code/User)
+#     * [Visual Studio Code `extensions.json`](https://github.com/heymegabyte/install.doctor/blob/master/home/dot_config/Code/User/extensions.json)
 
 set -Eeo pipefail
 trap "gum log -sl error 'Script encountered an error!'" ERR

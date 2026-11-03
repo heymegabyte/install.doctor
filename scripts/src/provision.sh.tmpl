@@ -132,9 +132,9 @@ setCIEnvironmentVariables() {
     logg info "Setting NO_RESTART to true" && export NO_RESTART=true
     logg info "Setting HEADLESS_INSTALL to true " && export HEADLESS_INSTALL=true
     logg info "Setting SOFTWARE_GROUP to ${SOFTWARE_GROUP:-Full-Desktop}" && export SOFTWARE_GROUP="${SOFTWARE_GROUP:-Full-Desktop}"
-    logg info "Setting FULL_NAME to ${FULL_NAME:-Brian Zalewski}" && export FULL_NAME="${FULL_NAME:-Brian Zalewski}"
-    logg info "Setting PRIMARY_EMAIL to ${PRIMARY_EMAIL:-brian@megabyte.space}" && export PRIMARY_EMAIL="${PRIMARY_EMAIL:-brian@megabyte.space}"
-    logg info "Setting PUBLIC_SERVICES_DOMAIN to ${PUBLIC_SERVICES_DOMAIN:-lab.megabyte.space}" && export PUBLIC_SERVICES_DOMAIN="${PUBLIC_SERVICES_DOMAIN:-lab.megabyte.space}"
+    logg info "Setting FULL_NAME to ${FULL_NAME:-Install Doctor}" && export FULL_NAME="${FULL_NAME:-Install Doctor}"
+    logg info "Setting PRIMARY_EMAIL to ${PRIMARY_EMAIL:-admin@install.doctor}" && export PRIMARY_EMAIL="${PRIMARY_EMAIL:-admin@install.doctor}"
+    logg info "Setting PUBLIC_SERVICES_DOMAIN to ${PUBLIC_SERVICES_DOMAIN:-install.doctor}" && export PUBLIC_SERVICES_DOMAIN="${PUBLIC_SERVICES_DOMAIN:-install.doctor}"
     logg info "Setting RESTRICTED_ENVIRONMENT to ${RESTRICTED_ENVIRONMENT:-false}" && export RESTRICTED_ENVIRONMENT="${RESTRICTED_ENVIRONMENT:-false}"
     logg info "Setting WORK_ENVIRONMENT to ${WORK_ENVIRONMENT:-false}" && export WORK_ENVIRONMENT="${WORK_ENVIRONMENT:-false}"
     logg info "Setting HOST to ${HOST:-$(hostname -s)}" && export HOST="${HOST:-$(hostname -s)}"
@@ -164,7 +164,7 @@ collectInputsUpfront() {
         SUDO_PASSWORD="$(timeout 30 gum input --password --placeholder="Enter password (30s timeout)..")" || SUDO_PASSWORD=""
       else
         SUDO_PASSWORD=""
-        read -s -t 30 -p "Password (30s timeout): " SUDO_PASSWORD || SUDO_PASSWORD=""
+        read -s -t 30 -p "Password (30s timeout): " SUDO_PASSWORD < /dev/tty || SUDO_PASSWORD=""
         printf '\n'
       fi
       if [ -n "$SUDO_PASSWORD" ]; then
@@ -236,7 +236,7 @@ setupPasswordlessSudo() {
       if command -v gum > /dev/null; then
         CANDIDATE="$(timeout 30 gum input --password --placeholder="Enter password (30s timeout)..")" || CANDIDATE=""
       else
-        read -s -t 30 -p "Password (30s timeout): " CANDIDATE || CANDIDATE=""
+        read -s -t 30 -p "Password (30s timeout): " CANDIDATE < /dev/tty || CANDIDATE=""
         printf '\n'
       fi
       if _idSudoPasswordWorks "$CANDIDATE"; then
@@ -448,6 +448,55 @@ cloneChezmoiSourceRepo() {
 #     1. Show `chezmoi-intro.md` with `glow`
 #     2. Prompt for the software group if the `SOFTWARE_GROUP` variable is not defined
 #     3. Run `chezmoi init` when the Chezmoi configuration is missing (i.e. `${XDG_CONFIG_HOME:-$HOME/.config}/chezmoi/chezmoi.yaml`)
+writeInstallPlan() {
+  local PLAN_DIR PLAN_FILE PLAN_TMP
+  PLAN_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/install.doctor/plans"
+  PLAN_FILE="${INSTALL_DOCTOR_PLAN:-$PLAN_DIR/latest.json}"
+  PLAN_TMP="$PLAN_FILE.tmp.$$"
+  mkdir -p "$PLAN_DIR"
+  umask 077
+  cat > "$PLAN_TMP" <<EOF
+{"schemaVersion":1,"host":{"hostname":"$(hostname -s 2>/dev/null || hostname)","os":"$(detect_os)"},"role":"${INSTALL_DOCTOR_ROLE}","capability":"${INSTALL_DOCTOR_CAPABILITY}","network":"${INSTALL_DOCTOR_NETWORK}","concurrency":${INSTALL_DOCTOR_CONCURRENCY},"consents":{"privileged":${INSTALL_DOCTOR_CONSENT_PRIVILEGED},"network":${INSTALL_DOCTOR_CONSENT_NETWORK}},"createdAt":"$(date -u +%Y-%m-%dT%H:%M:%SZ)"}
+EOF
+  mv "$PLAN_TMP" "$PLAN_FILE"
+  export INSTALL_DOCTOR_PLAN="$PLAN_FILE"
+  logg info "Install plan saved to $PLAN_FILE"
+}
+
+configureInstallPlan() {
+  if [ -n "${INSTALL_DOCTOR_PLAN:-}" ] && [ -f "$INSTALL_DOCTOR_PLAN" ]; then return 0; fi
+  INSTALL_DOCTOR_ROLE="${INSTALL_DOCTOR_ROLE:-$(detect_role 2>/dev/null || detect_os)}"
+  INSTALL_DOCTOR_CAPABILITY="${INSTALL_DOCTOR_CAPABILITY:-developer}"
+  INSTALL_DOCTOR_NETWORK="${INSTALL_DOCTOR_NETWORK:-none}"
+  INSTALL_DOCTOR_CONCURRENCY="${INSTALL_DOCTOR_CONCURRENCY:-4}"
+  INSTALL_DOCTOR_CONSENT_PRIVILEGED="${INSTALL_DOCTOR_CONSENT_PRIVILEGED:-false}"
+  INSTALL_DOCTOR_CONSENT_NETWORK="${INSTALL_DOCTOR_CONSENT_NETWORK:-false}"
+  if [ -z "${HEADLESS_INSTALL:-}" ] && command -v gum >/dev/null 2>&1 && [ -t 0 ]; then
+    gum style --border rounded --border-foreground '#00E5FF' --foreground '#00E5FF' --padding '1 3' 'INSTALL.DOCTOR' 'Fast, explicit fleet provisioning'
+    INSTALL_DOCTOR_ROLE="$(gum choose --header 'Machine role' workstation server proxmox coolify qubes container custom --selected "$INSTALL_DOCTOR_ROLE")"
+    INSTALL_DOCTOR_CAPABILITY="$(gum choose --header 'Capability bundle' developer ai web media security minimal --selected "$INSTALL_DOCTOR_CAPABILITY")"
+    INSTALL_DOCTOR_NETWORK="$(gum choose --header 'Network enrollment' none cloudflare-warp cloudflare-tunnel ssh --selected "$INSTALL_DOCTOR_NETWORK")"
+    if gum confirm 'Allow reviewed privileged system changes?'; then INSTALL_DOCTOR_CONSENT_PRIVILEGED=true; fi
+    if [ "$INSTALL_DOCTOR_NETWORK" != none ] && gum confirm "Apply $INSTALL_DOCTOR_NETWORK network configuration?"; then INSTALL_DOCTOR_CONSENT_NETWORK=true; else INSTALL_DOCTOR_NETWORK=none; fi
+  elif [ -z "${HEADLESS_INSTALL:-}" ] && [ -t 0 ]; then
+    printf '\033[48;2;6;6;16m\033[38;2;0;229;255m ✦ INSTALL.DOCTOR // PLAN ✦ \033[0m\n'
+    printf 'Machine role [%s]: ' "$INSTALL_DOCTOR_ROLE" > /dev/tty
+    read -r PLAN_ROLE < /dev/tty || true
+    [ -z "${PLAN_ROLE:-}" ] || INSTALL_DOCTOR_ROLE="$PLAN_ROLE"
+    printf 'Capability (developer/ai/web/media/security/minimal) [%s]: ' "$INSTALL_DOCTOR_CAPABILITY" > /dev/tty
+    read -r PLAN_CAPABILITY < /dev/tty || true
+    [ -z "${PLAN_CAPABILITY:-}" ] || INSTALL_DOCTOR_CAPABILITY="$PLAN_CAPABILITY"
+  fi
+  case "$INSTALL_DOCTOR_ROLE" in workstation|server|proxmox|coolify|qubes|container|custom|macos|ubuntu|debian|fedora|silverblue|alpine|arch|qubes-dom0|qubes-appvm|wsl) ;; *) logg error "Invalid INSTALL_DOCTOR_ROLE: $INSTALL_DOCTOR_ROLE"; return 2 ;; esac
+  case "$INSTALL_DOCTOR_CAPABILITY" in developer|ai|web|media|security|minimal) ;; *) logg error "Invalid INSTALL_DOCTOR_CAPABILITY: $INSTALL_DOCTOR_CAPABILITY"; return 2 ;; esac
+  case "$INSTALL_DOCTOR_NETWORK" in none|cloudflare-warp|cloudflare-tunnel|ssh) ;; *) logg error "Invalid INSTALL_DOCTOR_NETWORK: $INSTALL_DOCTOR_NETWORK"; return 2 ;; esac
+  case "$INSTALL_DOCTOR_CONCURRENCY" in ''|*[!0-9]*) logg error 'INSTALL_DOCTOR_CONCURRENCY must be a positive integer'; return 2 ;; esac
+  [ "$INSTALL_DOCTOR_CONCURRENCY" -ge 1 ] || { logg error 'INSTALL_DOCTOR_CONCURRENCY must be at least 1'; return 2; }
+  export INSTALL_DOCTOR_ROLE INSTALL_DOCTOR_CAPABILITY INSTALL_DOCTOR_NETWORK INSTALL_DOCTOR_CONCURRENCY
+  export INSTALL_DOCTOR_CONSENT_PRIVILEGED INSTALL_DOCTOR_CONSENT_NETWORK
+  writeInstallPlan
+}
+
 initChezmoiAndPrompt() {
   ### Show `chezmoi-intro.md` with `glow`
   if command -v glow > /dev/null; then
@@ -466,6 +515,8 @@ initChezmoiAndPrompt() {
   else
     logg error 'Woops! Gum needs to be installed for the guided installation. Try running brew install gum' && exit 1
   fi
+
+  configureInstallPlan
 
   if [ ! -f "${XDG_CONFIG_HOME:-$HOME/.config}/chezmoi/chezmoi.yaml" ]; then
     ### Run `chezmoi init` when the Chezmoi configuration is missing
@@ -590,6 +641,10 @@ postProvision() {
 #     falls back to $SUDO_USER, then $USER, then "install-doctor".
 function ensureInstallUser() {
   local INSTALL_USER="${INSTALL_DOCTOR_USER:-${SUDO_USER:-${USER:-install-doctor}}}"
+  local USER_HOME_DIR="/home/$INSTALL_USER"
+  if [ "$(detect_os)" = "macos" ]; then
+    USER_HOME_DIR="/Users/$INSTALL_USER"
+  fi
   # Check if the script is running as root
   if [ "$(id -u)" -eq 0 ]; then
     logg info "You are running as root. Proceeding with user creation."
@@ -641,14 +696,27 @@ function ensureInstallUser() {
     fi
 
     # Switch to the install user to continue the script
-    logg warn "Exporting environment variables to /tmp/env_vars.sh"
+    local CURRENT_PROVISIONER USER_PROVISIONER ENV_EXPORT
+    CURRENT_PROVISIONER="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "${BASH_SOURCE[0]}")"
+    USER_PROVISIONER="$USER_HOME_DIR/.cache/install.doctor/provision-$$.sh"
+    ENV_EXPORT="/tmp/install-doctor-env-$$.sh"
+    _idCleanupHandoff() { rm -f "$ENV_EXPORT" "$USER_PROVISIONER"; }
+    trap '_idCleanupHandoff' EXIT INT TERM
+    mkdir -p "$USER_HOME_DIR/.cache/install.doctor"
+    chown -R "$INSTALL_USER" "$USER_HOME_DIR/.cache/install.doctor"
+    install -m 0700 "$CURRENT_PROVISIONER" "$USER_PROVISIONER"
+    chown "$INSTALL_USER" "$USER_PROVISIONER"
+    logg warn "Exporting environment variables for the target user"
     umask 077
-    export -p > /tmp/env_vars.sh
-    chmod 0600 /tmp/env_vars.sh
-    chown "$INSTALL_USER" /tmp/env_vars.sh
-    logg info "Running source /tmp/env_vars.sh && rm -f /tmp/env_vars.sh && bash <(curl -sSL https://install.doctor/start) with the $INSTALL_USER user"
-    su - "$INSTALL_USER" -c "source /tmp/env_vars.sh && rm -f /tmp/env_vars.sh && export HOME='/home/$INSTALL_USER' && export USER='$INSTALL_USER' && cd /home/$INSTALL_USER && bash <(curl -sSL https://install.doctor/start)"
-    exit 0
+    export -p > "$ENV_EXPORT"
+    chmod 0600 "$ENV_EXPORT"
+    chown "$INSTALL_USER" "$ENV_EXPORT"
+    logg info "Continuing with the locally staged provisioner as $INSTALL_USER"
+    su - "$INSTALL_USER" -c "source '$ENV_EXPORT' && rm -f '$ENV_EXPORT' && export HOME='$USER_HOME_DIR' && export USER='$INSTALL_USER' && cd '$USER_HOME_DIR' && bash '$USER_PROVISIONER'; STATUS=\$?; rm -f '$USER_PROVISIONER'; exit \$STATUS"
+    HANDOFF_STATUS=$?
+    _idCleanupHandoff
+    trap - EXIT INT TERM
+    exit "$HANDOFF_STATUS"
   else
     logg info "You are not running as root. Proceeding with the current user."
   fi
@@ -657,6 +725,7 @@ function ensureInstallUser() {
 # @description The `provisionLogic` function is used to define the order of the script. All of the functions it relies on are defined
 #     above.
 provisionLogic() {
+  logg info "Resolving the install plan before mutation" && configureInstallPlan
   logg info "Ensuring script is not run with root" && ensureInstallUser
   logg info "Attempting to load Homebrew" && loadHomebrew
   logg info "Setting environment variables" && setEnvironmentVariables

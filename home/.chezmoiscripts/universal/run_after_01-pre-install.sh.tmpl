@@ -208,7 +208,7 @@ ensureNetworkConfigs() {
 #
 #     #### Links
 #
-#     * [VPN profile folder](https://github.com/megabyte-labs/install.doctor/blob/master/home/dot_config/vpn)
+#     * [VPN profile folder](https://github.com/heymegabyte/install.doctor/blob/master/home/dot_config/vpn)
 #     * [VPN profile documentation](https://install.doctor/docs/customization/secrets#vpn-profiles)
 configureNetworkManagerVPNProfiles() {
   if [ "{{ .host.distro.family }}" = "linux" ]; then
@@ -327,7 +327,7 @@ configureNetworkManagerVPNProfiles() {
 #
 #     #### Links
 #
-#     * [System SSHD configurations](https://github.com/megabyte-labs/install.doctor/tree/master/home/private_dot_ssh/system)
+#     * [System SSHD configurations](https://github.com/heymegabyte/install.doctor/tree/master/home/private_dot_ssh/system)
 configureSSHD() {
   ### Update /etc/ssh/sshd_config if environment is not WSL
   if [[ ! "$(test -d /proc && grep Microsoft /proc/version > /dev/null)" ]]; then
@@ -603,7 +603,7 @@ gnomeExtensionSettings() {
 #
 #     #### Docker Rclone
 #
-#     The Docker Rclone installation ensures necessary system directories are initialized / created. It also copies the [Docker Rclone configuration](https://github.com/megabyte-labs/install.doctor/blob/master/home/dot_config/rclone/private_docker-rclone.conf.tmpl)
+#     The Docker Rclone installation ensures necessary system directories are initialized / created. It also copies the [Docker Rclone configuration](https://github.com/heymegabyte/install.doctor/blob/master/home/dot_config/rclone/private_docker-rclone.conf.tmpl)
 #     to the proper system location.
 installDockerRclonePlugin() {
   ### Docker Rclone plugin

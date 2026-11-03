@@ -154,10 +154,10 @@ if command -v netdata-claim.sh > /dev/null; then
 
   ### Ensure / report whether speedtest-cli is installed
   if ! command -v speedtest-cli > /dev/null; then
-    if command -v pipx > /dev/null; then
-      pipx install speedtest-cli
+    if command -v uv > /dev/null; then
+      uv tool install speedtest-cli
     else
-      gum log -sl warn 'speedtest-cli not installed and pipx is not available'
+      gum log -sl warn 'speedtest-cli not installed and uv is not available'
     fi
   fi
 

@@ -96,7 +96,7 @@ renderOne() {
   local f="$1" out err
   out="$(mktemp)"
   err="$(mktemp)"
-  if ! chezmoi execute-template <"$f" >"$out" 2>"$err"; then
+  if ! chezmoi -S "$ROOT/home" execute-template <"$f" >"$out" 2>"$err"; then
     command rm -f "$out" "$err"
     return 1
   fi

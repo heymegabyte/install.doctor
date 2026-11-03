@@ -42,8 +42,8 @@ set -euo pipefail
 #
 #     ## Links
 #
-#     * [Rclone mount script](https://github.com/megabyte-labs/install.doctor/tree/master/home/dot_local/bin/executable_rclone-mount)
-#     * [Rclone default configurations](https://github.com/megabyte-labs/install.doctor/tree/master/home/dot_config/rclone)
+#     * [Rclone mount script](https://github.com/heymegabyte/install.doctor/tree/master/home/dot_local/bin/executable_rclone-mount)
+#     * [Rclone default configurations](https://github.com/heymegabyte/install.doctor/tree/master/home/dot_config/rclone)
 #     * [Rclone documentation](https://rclone.org/docs/)
 
 set -Eeo pipefail

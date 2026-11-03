@@ -38,7 +38,7 @@ PROVEN, not by intent. The `detect_os` roles are: `macos` · `ubuntu`/`debian` �
 - **arch** — pacman; `◐` live.
 - **qubes-dom0 / qubes-appvm** — distinct dom0 (Salt-based, restricted) vs AppVM (TemplateVM) paths
   are preserved; `◐` — needs the Qubes box.
-- **proxmox / coolify** — server roles (post-install tuning, Tailscale, service stack); headless-safe
+- **proxmox / coolify** — server roles (post-install tuning, consented Cloudflare enrollment, service stack); headless-safe
   (`HEADLESS_INSTALL=1`); `◐` — needs the real server.
 - **wsl** — treated as the `ubuntu` role, the proven Windows route; native-Windows now also has an `◐`
   **experimental** PowerShell entrypoint (`install.doctor/windows` → `provision.ps1`, runtime-unverified).

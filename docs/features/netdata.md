@@ -55,7 +55,7 @@ echo -n "YOUR_ROOM_ID" | chezmoi encrypt > home/.chezmoitemplates/secrets/NETDAT
 
 ## Alerts
 
-Netdata supports automated alerts when system parameters exceed defined thresholds. Install Doctor includes a pre-configured [notification configuration](https://github.com/megabyte-labs/install.doctor/blob/master/home/dot_config/netdata/health_alarm_notify.conf.tmpl) that supports:
+Netdata supports automated alerts when system parameters exceed defined thresholds. Install Doctor includes a pre-configured [notification configuration](https://github.com/heymegabyte/install.doctor/blob/master/home/dot_config/netdata/health_alarm_notify.conf.tmpl) that supports:
 
 | Notification Method | Required Secret |
 |---|---|
@@ -72,4 +72,4 @@ For full details on configuring alerts, see [Netdata's alert documentation](http
 |---|---|---|
 | Local dashboard | `http://localhost:19999` | Always available when Netdata is running |
 | Netdata Cloud | `https://app.netdata.cloud` | Centralized view of all enrolled devices |
-| Tailscale + local | `http://100.x.y.z:19999` | Access via Tailscale mesh VPN from any device |
+| Private tunnel + local | `http://private-host:19999` | Access through an explicitly configured private tunnel |

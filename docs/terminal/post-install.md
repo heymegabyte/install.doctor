@@ -6,7 +6,7 @@ Provisioning is complete. You can review the installation logs at:
 ls ~/.local/var/log/install.doctor/
 ```
 
-If you encounter issues, have ideas, or want to contribute, [open an issue on GitHub](https://github.com/megabyte-labs/install.doctor/issues) or visit the [Community page](https://install.doctor/community).
+If you encounter issues, have ideas, or want to contribute, [open an issue on GitHub](https://github.com/heymegabyte/install.doctor/issues) or visit the [Community page](https://install.doctor/community).
 
 ## What Just Happened
 
@@ -19,7 +19,7 @@ Here's a summary of what Install Doctor configured on your system:
 | **Shell** | ZSH configured as default shell with Oh-My-ZSH, Powerlevel10k theme |
 | **Dotfiles** | Configuration files deployed to `~/.config/` following XDG spec |
 | **Secrets** | Age-encrypted secrets decrypted and deployed to appropriate locations |
-| **Services** | Configured services (Tailscale, Netdata, Docker, etc.) started where applicable |
+| **Services** | Explicitly selected services (Cloudflare WARP/Tunnel, Netdata, Docker, etc.) started where applicable |
 | **Security** | ClamAV, fail2ban, SSH hardening applied (depending on SOFTWARE_GROUP) |
 | **System** | Hostname, timezone, user/group configuration applied |
 
@@ -30,7 +30,7 @@ Here's a summary of what Install Doctor configured on your system:
 | 1 | **Restart your terminal** | Close and reopen to load new shell configuration |
 | 2 | **Reboot** (recommended) | Some macOS `defaults write` settings require a reboot |
 | 3 | **Try the CLI** | Run `task-menu` to browse available post-install tasks |
-| 4 | **Fork the project** | [Fork on GitHub](https://github.com/megabyte-labs/install.doctor/fork) to add your customizations |
+| 4 | **Fork the project** | [Fork on GitHub](https://github.com/heymegabyte/install.doctor/fork) to add your customizations |
 | 5 | **Add your secrets** | See the [Secrets guide](/docs/customization/secrets) to encrypt and store your API keys |
 | 6 | **Customize software** | Edit `software.yml` and `home/.chezmoidata.yaml` to tailor your software stack |
 | 7 | **Re-provision safely** | Run `bash <(curl -sSL https://install.doctor/start)` again anytime — it skips already-installed software |

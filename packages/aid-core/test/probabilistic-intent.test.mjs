@@ -10,7 +10,11 @@ import {
   generateEdgeHeaders,
   evaluateEasterEgg,
   createVirtualPet,
-  stepVirtualPet
+  stepVirtualPet,
+  analyzeFleetDrift,
+  mintExecutionReceipt,
+  verifyExecutionReceipt,
+  rankSemanticCatalogMatches
 } from '../dist/core.js';
 
 test('calculateCadenceEntropy returns 0 on empty or single-bin intervals', () => {
@@ -158,4 +162,94 @@ test('Virtual Pet lifecycle steps and evolves across stages', () => {
   assert.equal(pet.stage, 'fleet-master');
   assert.equal(pet.wisdom, 75);
   assert.equal(pet.ansiAvatar, ' ᕦ(ò_óˇ)ᕤ ');
+});
+
+test('analyzeFleetDrift reports converged when packages, services, and Zero-Trust posture match', () => {
+  const report = analyzeFleetDrift(
+    { machineId: 'ubuntu-megabyte-space', packages: ['git', 'ripgrep', 'tmux'], services: ['alloy'] },
+    {
+      installedPackages: ['git', 'ripgrep', 'tmux', 'htop'],
+      runningServices: ['alloy'],
+      sshPort: 22,
+      cloudflareOnlyIngress: true,
+      autologinConfigured: true
+    }
+  );
+  assert.equal(report.converged, true);
+  assert.equal(report.driftScore, 0);
+  assert.deepEqual(report.missingPackages, []);
+  assert.deepEqual(report.unmanagedPackages, ['htop']);
+  assert.deepEqual(report.securityFindings, []);
+  assert.deepEqual(report.healingPlan, []);
+});
+
+test('analyzeFleetDrift detects missing packages, non-22 SSH port, and missing Cloudflare firewall', () => {
+  const report = analyzeFleetDrift(
+    { machineId: 'proxmox-node-1', packages: ['git', 'ripgrep', 'clangd'], services: ['alloy'] },
+    {
+      installedPackages: ['git'],
+      runningServices: [],
+      sshPort: 8169,
+      cloudflareOnlyIngress: false,
+      autologinConfigured: false
+    }
+  );
+  assert.equal(report.converged, false);
+  assert.ok(report.driftScore >= 80);
+  assert.deepEqual(report.missingPackages, ['clangd', 'ripgrep']);
+  assert.deepEqual(report.stoppedServices, ['alloy']);
+  assert.equal(report.securityFindings.length, 3);
+  assert.ok(report.healingPlan.some((step) => step.includes('aid apply --yes')));
+  assert.ok(report.healingPlan.includes('cloudflare-firewall'));
+  assert.ok(report.healingPlan.includes('desktop-autologin'));
+});
+
+test('mintExecutionReceipt and verifyExecutionReceipt enforce SHA-256 hash-chain integrity', async () => {
+  const digest = 'a'.repeat(64);
+  const r1 = await mintExecutionReceipt({
+    receiptId: 'rcpt-001',
+    tenantId: 'tenant-alpha',
+    machineId: 'ubuntu-megabyte-space',
+    runId: 'run-100',
+    blueprintDigest: digest,
+    action: 'aid apply --yes',
+    exitCode: 0,
+    timestamp: '2026-11-02T22:00:00.000Z'
+  });
+  assert.equal(r1.prevReceiptHash, '0'.repeat(64));
+  assert.equal(r1.receiptHash.length, 64);
+  assert.equal(await verifyExecutionReceipt(r1), true);
+
+  const r2 = await mintExecutionReceipt({
+    receiptId: 'rcpt-002',
+    tenantId: 'tenant-alpha',
+    machineId: 'ubuntu-megabyte-space',
+    runId: 'run-101',
+    parentRunId: 'run-100',
+    blueprintDigest: digest,
+    action: 'cloudflare-firewall',
+    exitCode: 0,
+    timestamp: '2026-11-02T22:01:00.000Z',
+    prevReceiptHash: r1.receiptHash
+  });
+  assert.equal(r2.prevReceiptHash, r1.receiptHash);
+  assert.equal(await verifyExecutionReceipt(r2), true);
+
+  // Tamper with exitCode -> verification must fail
+  const tampered = { ...r2, exitCode: 1 };
+  assert.equal(await verifyExecutionReceipt(tampered), false);
+});
+
+test('rankSemanticCatalogMatches ranks exact and synonym-expanded matches with platform filtering', () => {
+  const catalog = [
+    { name: 'ripgrep', bin: 'rg', short: 'Fast line-oriented regex search tool in Rust', providers: ['brew', 'apt'], platforms: ['linux', 'macos'], configured: false },
+    { name: 'hishtory', bin: 'hishtory', short: 'Contextual shell history sync and search', providers: ['brew'], platforms: ['linux', 'macos'], configured: true },
+    { name: 'dust', bin: 'dust', short: 'More intuitive version of du in rust for disk usage', providers: ['brew', 'cargo'], platforms: ['linux', 'macos'], configured: false }
+  ];
+  const diskMatches = rankSemanticCatalogMatches('fast disk storage usage', catalog, { os: 'macos', limit: 5 });
+  assert.ok(diskMatches.length >= 1);
+  assert.equal(diskMatches[0].name, 'dust');
+
+  const histMatches = rankSemanticCatalogMatches('shell history audit', catalog);
+  assert.equal(histMatches[0].name, 'hishtory');
 });

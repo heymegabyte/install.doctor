@@ -2,6 +2,13 @@
 
 > **Read this FIRST in every session.** This file captures the business requirements, the multi-machine fleet model, the design constraints that come from it, and the prioritized work queue. Future Claude sessions and human contributors should treat it as the source of truth for "what is this project and what are we building toward."
 
+Internal agent execution follows `~/.agentskills/rules/agent-provider-policy.md`. Before using
+premium-model capacity for implementation or other throughput work, determine whether OpenCode
+can complete the unit effectively; when it can, delegate through LiteLLM to configured local
+Ollama or rotating DeepSeek routes and assess safe swarm fan-out. Claude owns architecture,
+sensitive/shared-state decisions, integration, and final verification. This does not change the
+separate product-runtime decision in `AGENTS.md`: `aid` uses ProjectSites routing without LiteLLM.
+
 ---
 
 ## 1. Mission
@@ -55,6 +62,9 @@ Scripts that branch on OS-IDENTITY share one `detect_os()`. The lib `scripts/lib
 
 ### Tier system — `software.yml` install scope per role
 Every `software.yml` entry carries `tier: essential | workstation | server | coolify | proxmox | qubes-dom0 | qubes-appvm | alpine-minimal`. `auto` (the default) reads `detect_os()` and picks the right subset. One bootstrap command → right software for the role.
+
+### Default software eligibility
+`software.yml` entries marked `_default: false` are opt-in. `installx --all --lazy` MUST exclude them on graphical and headless hosts, including entries that declare `_preload`, `_app`, or `_serviceEnabled`; `installx <catalog-key>` keeps them available for an explicit specialist or role-driven request. This policy is non-destructive: provisioning does not uninstall an excluded package that is already present. `scripts/test-default-provisioning-policy.sh` locks the approved exclusion set.
 
 ### chezmoi templates per-host
 `{{ if eq .chezmoi.hostname "coolify-prod" }}...{{ end }}` blocks render host-specific values. Hostnames listed in §2 above drive the per-host config matrix.
@@ -131,11 +141,11 @@ Ranked by impact ÷ effort. `[S]` <1hr, `[M]` half-day, `[L]` multi-day. Each an
 
 ### Per-OS correctness
 6. **Split Qubes path: dom0 vs AppVM** `[M]` — `provisionQubesDom0` (Salt-based, dom0-restricted) + `provisionQubesAppVM` (TemplateVM Linux path) + `provisionWhonix`.
-7. **Proxmox post-install** `[M]` — `post-proxmox.sh`: disable enterprise-repo nag, enable no-subscription repo, install `qemu-guest-agent`, set `zfs_arc_max` to half-RAM, integrate Tailscale, bind `pveproxy` to tailnet IP only.
+7. **Proxmox post-install** `[M]` — `post-proxmox.sh`: disable enterprise-repo nag, enable no-subscription repo, install `qemu-guest-agent`, set `zfs_arc_max` to half-RAM, and offer consented Cloudflare Tunnel/WARP enrollment.
 8. **Coolify post-install** `[M]` — `post-coolify.sh`: official Coolify install on Ubuntu/Debian, Resend SMTP for transactional mail, Backblaze B2 backups, join docker network to tailnet.
 9. **Fedora Silverblue / OSTree branch** `[M]` — Detect `/run/ostree-booted`; use `rpm-ostree install --apply-live`. Same path serves Bluefin/Bazzite/Universal Blue.
 10. **Alpine + musl branch** `[M]` — `-musl` cargo target triples + `apk add` lines in `software.yml`.
-11. **Server-stack production tuning** `[S]` — `fail2ban` jail.local with Tailscale `100.64.0.0/10` allowlist, `clamav` weekly systemd-timer scan, `endlessh` on `:22` decoy + sshd on `:2222`, `postfix` outbound-only via Resend SMTP, `samba` opt-in via `INSTALL_DOCTOR_SAMBA=1`.
+11. **Server-stack production tuning** `[S]` — `fail2ban` jail.local with an explicit trusted-network allowlist, `clamav` weekly systemd-timer scan, `endlessh` on `:22` decoy + sshd on `:2222`, `postfix` outbound-only via Resend SMTP, `samba` opt-in via `INSTALL_DOCTOR_SAMBA=1`.
 
 ### Security & secrets across the fleet
 12. **Per-host age recipients** `[M]` — One age key per machine; `chezmoi.toml.tmpl` picks recipient by hostname.
@@ -148,7 +158,7 @@ Ranked by impact ÷ effort. `[S]` <1hr, `[M]` half-day, `[L]` multi-day. Each an
 17. **Auto-dispatching `task` one-liners** `[S]` — `task update:all`, `task docker:reset`, `task atuin:sync`, `task ssh:deploy <host>`.
 18. **Cross-machine deploy hook** `[S]` — `task ssh:deploy <host>` runs `chezmoi git push` locally + SSH'd `chezmoi update --apply --force` on the target.
 19. **`MIGRATION.md` + `troubleshooting.md` per-OS** `[S]` — Per-OS columns for every error → fix mapping. Errors map differently per OS.
-20. **Loki-on-Coolify observability** `[M]` — Each `chezmoi apply` emits JSON events to `~/.local/var/log/install.doctor/events.ndjson`; Promtail forwards via Tailscale to a Coolify Loki+Grafana stack.
+20. **Loki-on-Coolify observability** `[M]` — Each `chezmoi apply` emits JSON events to `~/.local/var/log/install.doctor/events.ndjson`; Alloy forwards through explicitly authorized Cloudflare/private ingress to a Coolify Loki+Grafana stack.
 21. **Re-add Firebase deploy secret** `[S]` — The standalone `install.doctor-site` repo was absorbed into `site/` and deleted; its `FIREBASE_SERVICE_ACCOUNT_INSTALL_DOCTOR` secret was write-only and could not be copied. `.github/workflows/site-deploy.yml` fires on `site/**` pushes and will FAIL until the secret is re-added: `gh secret set FIREBASE_SERVICE_ACCOUNT_INSTALL_DOCTOR -R heymegabyte/install.doctor < service-account.json`. Full-history backup at `~/backups/repos/install.doctor-site-*.bundle`.
 
 ---

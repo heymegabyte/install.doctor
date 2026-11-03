@@ -1,0 +1,63 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SOURCE_WEBROOT="${KASMVNC_SOURCE_WEBROOT:-/usr/share/kasmvnc/www}"
+TARGET_WEBROOT="${KASMVNC_WEB_ROOT:-${XDG_DATA_HOME:-$HOME/.local/share}/kasmvnc-fit-browser/www}"
+STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/install.doctor"
+STATE_FILE="$STATE_DIR/kasmvnc-fit-browser.env"
+
+if [ ! -f "$SOURCE_WEBROOT/index.html" ] || [ ! -f "$SOURCE_WEBROOT/screen.html" ]; then
+  printf 'kasmvnc-fit-browser: KasmVNC webroot not found at %s\n' "$SOURCE_WEBROOT" >&2
+  exit 1
+fi
+
+geometry="${KASMVNC_SOURCE_GEOMETRY:-}"
+if [ -z "$geometry" ] && [ -f "$HOME/.config/monitors.xml" ]; then
+  geometry="$(python3 - "$HOME/.config/monitors.xml" <<'PY'
+import sys
+import xml.etree.ElementTree as ET
+
+root = ET.parse(sys.argv[1]).getroot()
+mode = root.find('.//logicalmonitor/monitor/mode') or root.find('.//monitor/mode')
+if mode is not None:
+    width = mode.findtext('width')
+    height = mode.findtext('height')
+    if width and height:
+        print(f'{width}x{height}')
+PY
+)"
+fi
+geometry="${geometry:-1920x1080}"
+case "$geometry" in
+  *[!0-9x]*|*x|x*|*x*x*) printf 'kasmvnc-fit-browser: invalid geometry: %s\n' "$geometry" >&2; exit 2 ;;
+esac
+
+mkdir -p "$TARGET_WEBROOT" "$STATE_DIR"
+cp -a "$SOURCE_WEBROOT/." "$TARGET_WEBROOT/"
+python3 - "$TARGET_WEBROOT" <<'PY'
+from pathlib import Path
+import sys
+
+marker = 'install-doctor-default-local-scaling'
+script = '''<script id="install-doctor-default-local-scaling">
+(() => {
+  const params = new URLSearchParams(window.location.search);
+  if (!params.has('resize')) {
+    params.set('resize', 'scale');
+    window.location.replace(`${window.location.pathname}?${params}${window.location.hash}`);
+  }
+})();
+</script>
+'''
+for name in ('index.html', 'screen.html'):
+    path = Path(sys.argv[1]) / name
+    html = path.read_text()
+    if marker not in html:
+        html = html.replace('</head>', f'{script}</head>', 1)
+        path.write_text(html)
+PY
+
+umask 077
+printf 'KASMVNC_GEOMETRY=%s\nKASMVNC_WEB_ROOT=%q\n' "$geometry" "$TARGET_WEBROOT" > "$STATE_FILE"
+printf 'KASMVNC_GEOMETRY=%s\nKASMVNC_WEB_ROOT=%s\n' "$geometry" "$TARGET_WEBROOT"
+printf 'Xkasmvnc arguments: -geometry %s -httpd %s -http-header Cache-Control=no-store\n' "$geometry" "$TARGET_WEBROOT"

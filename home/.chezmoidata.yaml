@@ -116,7 +116,6 @@ softwarePlugins:
       - docker/resource-usage-extension
       - docker/volumes-backup-extension:1.1.4
       - portainer/portainer-docker-extension:2.19.3
-      - tailscale/docker-extension:1.0.1
     when: docker extension list &> /dev/null
   docker-images:
     cmd: bash -c 'if ! docker image list | awk \'{print $1 " " $2}\' | grep "{PLUGIN}" > /dev/null; then docker pull "{PLUGIN}"; fi'
@@ -364,7 +363,6 @@ softwarePlugins:
       - shopify
       - slack
       - stripe
-      - tailscale
       - terraform
       - trivy
       - twilio

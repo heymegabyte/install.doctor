@@ -40,7 +40,6 @@ These variables configure third-party service integrations. When set, Install Do
 
 | Variable | Service | Description |
 |---|---|---|
-| `TAILSCALE_AUTH_KEY` | Tailscale | Reusable auth key for mesh VPN enrollment ([generate here](https://login.tailscale.com/admin/settings/keys)) |
 | `CLOUDFLARE_TEAMS_CLIENT_ID` | CloudFlare WARP | Client ID for Zero Trust configuration |
 | `CLOUDFLARE_TEAMS_CLIENT_SECRET` | CloudFlare WARP | Client secret for Zero Trust configuration |
 | `CLOUDFLARE_TEAMS_ORG` | CloudFlare WARP | Organization name for Zero Trust |

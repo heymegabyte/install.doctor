@@ -563,7 +563,7 @@ elif [ "$OS" != "unknown" ] && [ "$OS" != "wsl" ] && [ "$OS" != "container" ]; t
   fi
 fi
 
-# @description Ensures Homebrew, Poetry, and Volta are installed
+# @description Ensures Homebrew, uv, and Volta are installed
 if [ -z "$NO_INSTALL_HOMEBREW" ]; then
   if [ "$OS" = "macos" ] || [ "$OS" = "ubuntu" ] || [ "$OS" = "debian" ] || [ "$OS" = "fedora" ] || [ "$OS" = "arch" ] || [ "$OS" = "alpine" ] || [ "$OS" = "linux" ]; then
     if [ -z "$INIT_CWD" ]; then
@@ -597,9 +597,9 @@ if [ -z "$NO_INSTALL_HOMEBREW" ]; then
         # shellcheck disable=SC1091
         . "$HOME/.profile" &> /dev/null || true
       fi
-      if ! type poetry &> /dev/null; then
+      if ! type uv &> /dev/null; then
         # shellcheck disable=SC2016
-        brew install poetry || logger info 'There may have been an issue installing poetry with brew'
+        brew install uv || logger info 'There may have been an issue installing uv with brew'
       fi
       if ! type jq &> /dev/null; then
         # shellcheck disable=SC2016

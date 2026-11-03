@@ -388,11 +388,11 @@ JSON
     echo "$ds" | jq -e '([.summary.deprecatedPackages[]|select(.name=="altair")]|length==1) and ([.summary.deprecatedPackages[]|select(.name=="altair")][0].reason|test("Postman")) and ([.summary.deprecatedPackages[]|select(.name=="ripgrep")]|length==0)' >/dev/null 2>&1 && pass "plan WITH a deprecated pkg -> summary.deprecatedPackages flags altair + its reason (ripgrep clean; safety #114)" || fail "deptest deprecatedPackages -> $(printf '%s' "$ds" | jq -c '.summary.deprecatedPackages' 2>/dev/null | head -c 160)"
     # fire #161 — CONFIGURATION coverage (step-5 "review a concrete plan showing ... configuration" + F15/C12): of the
     # plan's CATALOG-KNOWN packages, how many AUTO-CONFIGURE on install via a post-installx first-run hook (catalog
-    # `configured` #136). Seed tailscale(configured) + ripgrep(known, NOT configured) -> {count:1, of:2, [tailscale]}.
-    cft="$(jq --slurpfile a "$bpf" -n '$a[0] | .defaults.packages=["tailscale","ripgrep"] | .machines=[] | .services=[]')"
+    # `configured` #136). Seed atuin(configured) + ripgrep(known, NOT configured) -> {count:1, of:2, [atuin]}.
+    cft="$(jq --slurpfile a "$bpf" -n '$a[0] | .defaults.packages=["atuin","ripgrep"] | .machines=[] | .services=[]')"
     curl -s -X PUT -H "authorization: Bearer $ADMIN" -H 'content-type: application/json' -d "$(jq -n --argjson b "$cft" '{tenant:"_cfgtest",blueprint:$b}')" "$u/api/environment/current" >/dev/null 2>&1
     cfs="$(curl -s "$u/api/environment/current?tenant=_cfgtest" 2>/dev/null)"
-    echo "$cfs" | jq -e '.summary.configured.count==1 and .summary.configured.of==2 and (.summary.configured.packages==["tailscale"])' >/dev/null 2>&1 && pass "GET /api/environment/current (_cfgtest) -> summary.configured tallies auto-configured packages {count:1, of:2, [tailscale]} (step-5 config coverage, F15/C12 #161)" || fail "cfgtest configured -> $(printf '%s' "$cfs" | jq -c '.summary.configured' 2>/dev/null | head -c 140)"
+    echo "$cfs" | jq -e '.summary.configured.count==1 and .summary.configured.of==2 and (.summary.configured.packages==["atuin"])' >/dev/null 2>&1 && pass "GET /api/environment/current (_cfgtest) -> summary.configured tallies auto-configured packages {count:1, of:2, [atuin]} (step-5 config coverage, F15/C12 #161)" || fail "cfgtest configured -> $(printf '%s' "$cfs" | jq -c '.summary.configured' 2>/dev/null | head -c 140)"
     # fire #162 — PRIVILEGES coverage (step-5 "review a concrete plan showing applications, configuration, PRIVILEGES ..."):
     # of the plan's catalog-known packages, how many REQUIRE ELEVATION (sudo) to install — a service OR a package whose
     # ONLY install path is a sudo system package manager (apt/dnf/pacman). distrobox(apt/dnf/pacman-only cli) is elevated;

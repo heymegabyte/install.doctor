@@ -76,9 +76,9 @@ function getPkgData(pref, pkg, installer) {
     } else if (pkg[`${pref}:${osType}:${installer}:${osArch}`]) {
       return `${pref}:${osType}:${installer}:${osArch}` // Handles case like `_bin:windows:pipx:x64:`
     } else if (pkg[`${pref}:${installer}:${osId}`]) {
-      return `${pref}:${installer}:${osType}` // Handles case like `_bin:pipx:fedora:`
+      return `${pref}:${installer}:${osId}` // Handles case like `_bin:pipx:fedora:`
     } else if (pkg[`${pref}:${osId}:${installer}`]) {
-      return `${pref}:${osType}:${installer}` // Handles case like `_bin:fedora:pipx:`
+      return `${pref}:${osId}:${installer}` // Handles case like `_bin:fedora:pipx:`
     } else if (pkg[`${pref}:${installer}:${osType}`]) {
       return `${pref}:${installer}:${osType}` // Handles case like `_bin:pipx:darwin:`
     } else if (pkg[`${pref}:${osType}:${installer}`]) {
@@ -96,7 +96,7 @@ function getPkgData(pref, pkg, installer) {
     } else if (pkg[`${pref}:${osType}:${osArch}`]) {
       return `${pref}:${osType}:${osArch}` // Handles case like `pipx:windows:x64:`
     } else if (pkg[`${pref}:${osId}`]) {
-      return `${pref}:${osType}` // Handles case like `pipx:fedora:`
+      return `${pref}:${osId}` // Handles case like `pipx:fedora:`
     } else if (pkg[`${pref}:${osType}`]) {
       return `${pref}:${osType}` // Handles case like `pipx:darwin:`
     } else if (pkg[`${pref}`]) {
@@ -262,6 +262,8 @@ async function createFlatpakLinks(flatpakMap) {
 }
 
 async function bundleInstall(brews, casks, caskMap) {
+  const bundleDir = fs.mkdtempSync(path.join(os.tmpdir(), 'installx-brew-'))
+  const brewfile = path.join(bundleDir, 'Brewfile')
   try {
     const lines = []
     casks.length && log(`Adding following casks to Brewfile for installation: ${casks.join(' ')}`)
@@ -283,14 +285,16 @@ async function bundleInstall(brews, casks, caskMap) {
       lines.push(`brew "${brew}"`)
     }
     log(`Creating Brewfile to install from`)
-    cd(await $`mktemp -d`)
-    fs.writeFileSync('Brewfile', lines.join('\n'))
+    fs.writeFileSync(brewfile, lines.join('\n'))
     log(`Installing packages via brew bundle`)
-    await $`brew bundle --file Brewfile`
+    await $`brew bundle --file ${brewfile}`
     log(`Finished installing via Brewfile`)
   } catch (e) {
     console.log('Error:', e)
     log(`Error occurred while installing via Brewfile`)
+    throw e
+  } finally {
+    fs.rmSync(bundleDir, { recursive: true, force: true })
   }
 
   try {
@@ -298,12 +302,13 @@ async function bundleInstall(brews, casks, caskMap) {
   } catch (e) {
     console.log('Error:', e)
     log(`Error occurred while creating cask bin links`)
+    throw e
   }
 }
 
 async function forEachSeries(iterable) {
-  for (const x of iterable) {
-    await x
+  for (const task of iterable) {
+    await (typeof task === 'function' ? task() : task)
   }
 }
 
@@ -352,6 +357,9 @@ async function installPackages(pkgInstructions) {
           tasks.push(() => $`DEBIAN_FRONTEND=noninteractive sudo apt-get -o DPkg::Options::=--force-confdef install -y --ignore-missing ${packages}`)
         }
         break
+      case 'pipx':
+        tasks.push(...combined[key].flatMap(x => x.installList.flatMap(i => () => $`uv tool install ${i.split(' ')}`)))
+        break
       case 'basher':
       case 'baulk':
       case 'cargo':
@@ -359,7 +367,6 @@ async function installPackages(pkgInstructions) {
       case 'gem':
       case 'go':
       case 'pip':
-      case 'pipx':
       case 'scoop': // Maybe needs forEachSeries
       case 'winget': // Maybe needs forEachSeries
         tasks.push(...combined[key].flatMap(x => x.installList.flatMap(i => () => $`${key} install ${i.split(' ')}`)))
@@ -425,7 +432,7 @@ async function installPackages(pkgInstructions) {
         }
         break
       case 'flatpak':
-        tasks.push(() => forEachSeries(combined[key].flatMap(x => x.installList.flatMap(i => () => $`sudo ${key} install -y flathub ${i}`)).map(task => task())))
+        tasks.push(() => forEachSeries(combined[key].flatMap(x => x.installList.flatMap(i => () => $`sudo ${key} install -y flathub ${i}`))))
         break
       case 'github': // TODO: GitHub-release-binary install not yet implemented (backlog — arch/OS asset selection + extract)
         log(`Install key 'github' not yet implemented — skipping: ${combined[key].flatMap(x => x.installList).join(' ')}`)
@@ -588,7 +595,10 @@ async function main() {
     acquireManagerList('npm', `volta list --format plain | awk '{print $2}' | sed 's/@.*//'`),
     acquireManagerList('pacman', `pacman -Qs`),
     acquireManagerList('pip', `pip3 list | awk '{print $1}'`),
-    acquireManagerList('pipx', `pipx list --short | awk '{print $1}'`),
+    // `pipx:` remains the catalog provider name for compatibility, but uv is
+    // the execution backend. Inventory uv's tool environments so idempotency
+    // does not reinstall every Python CLI on each provisioning run.
+    acquireManagerList('uv', `uv tool list | awk '/^[^[:space:]-]/ {print $1}'`),
     acquireManagerList('snap', `if command -v snapd; then snap list; fi`),
     acquireManagerList('zap', `zap list`)
   ]

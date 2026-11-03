@@ -88,6 +88,7 @@ Brewfile
 .local/bin/launchpress
 .local/bin/improve-code
 .local/bin/gpt
+.local/bin/post-installx/post-tailscale.sh
 .config/aihawk
 .config/blesh
 .config/coc

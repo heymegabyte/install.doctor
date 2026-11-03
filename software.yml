@@ -300,6 +300,7 @@ softwarePackages:
         choco: TODO
         snap: $HOME/snap/altair/current/.config/Altair GraphQL Client
   amazon-q:
+    _default: false
     _name: Amazon Q
     _github: https://github.com/aws/amazon-q-developer-cli
     _bin: amazon-q
@@ -370,6 +371,7 @@ softwarePackages:
     brew: ansifilter
     choco: ansifilter
   anythingllm:
+    _default: false
     _short: Private desktop AI chat application and eco-system
     _desc: Private desktop AI chat application and eco-system
     _github: https://github.com/Mintplex-Labs/anything-llm
@@ -488,6 +490,7 @@ softwarePackages:
     binary:linux: https://github.com/aquaproj/aqua/releases/download/v2.0.0-0/aqua_linux_amd64.tar.gz
     binary:windows: https://github.com/aquaproj/aqua/releases/download/v2.0.0-0/aqua_windows_amd64.tar.gz
   arc:
+    _default: false
     _desc: A replacement for Chrome browser
     _bin: arc
     _home: https://arc.net/
@@ -1044,6 +1047,7 @@ softwarePackages:
     scoop: extras/blender
     snap: blender --classic
   block-goose:
+    _default: false
     _name: Goose
     _github: https://github.com/block/goose
     _bin: block-goose
@@ -1383,7 +1387,7 @@ softwarePackages:
     _desc: '[Certbot](https://certbot.eff.org/) is part of EFF’s effort to encrypt the entire Internet. Secure communication over the Web relies on HTTPS, which requires the use of a digital certificate that lets browsers verify the identity of web servers (e.g., is that really google.com?). Web servers obtain their certificates from trusted third parties called certificate authorities (CAs). Certbot is an easy-to-use client that fetches a certificate from [Let’s Encrypt](https://letsencrypt.org/)—an open certificate authority launched by the EFF, Mozilla, and others—and deploys it to a web server.'
     _github: https://github.com/certbot/certbot
     _bin: certbot
-    _post: pipx inject certbot certbot-dns-cloudflare
+    _post: uv tool install --force --with certbot-dns-cloudflare certbot
     _home: https://certbot.eff.org/
     _docs: https://eff-certbot.readthedocs.io/en/stable/
     pipx: certbot
@@ -1504,6 +1508,7 @@ softwarePackages:
     dnf: chrome-gnome-shell
     pacman: chrome-gnome-shell
   chrome-remote-desktop-host:
+    _default: false
     _name: Chrome Remote Desktop Host
     _github: false
     _bin: chrome-remote-desktop-host
@@ -1534,6 +1539,7 @@ softwarePackages:
     brew: clair
     github: github.com/quay/clair
   clamav:
+    _default: false
     _name: ClamAV
     _short: ClamAV is an open-source antivirus engine for detecting trojans, viruses, malware, and other malicious threats on Unix-like systems.
     _desc: '[ClamAV](https://www.clamav.net/) is an open-source antivirus engine for detecting trojans, viruses, malware & other malicious threats.'
@@ -1564,7 +1570,6 @@ softwarePackages:
     - name: clamav-freshclam
       sudo: true
       pkg: pacman
-    _preload: true
     brew: clamav
     apt:
     - clamav
@@ -2438,7 +2443,6 @@ softwarePackages:
   docker-plugins:
     _desc: This entry is used to trigger a post-installation Docker plugin installation. See `docker-plugins` entry in `.chezmoidata.yaml`.
     _github: 'false'
-    _preload: true
     _name: Docker Plugins
   docker-pushrm:
     _name: Docker PushRM
@@ -2873,6 +2877,7 @@ softwarePackages:
     _bin: esprint
     npm: esprint
   etcd:
+    _default: false
     _name: etcd
     _short: etcd is a distributed key-value store used for shared configuration and service discovery in distributed systems.
     _desc: Distributed reliable key-value store for the most critical data of a distributed system
@@ -2881,7 +2886,6 @@ softwarePackages:
     _service:
     - name: etcd
       sudo: false
-    _preload: true
     brew: etcd
     dnf:fedora: etcd
     choco: etcd
@@ -2975,7 +2979,8 @@ softwarePackages:
     brew: fabric
     pipx: fabric
   fail2ban:
-    _name: 'fail2ban                                                                                                                                                                                                  '
+    _default: false
+    _name: fail2ban
     _short: Fail2ban is an open-source intrusion prevention software that protects servers from brute-force attacks by monitoring logs and blocking malicious IP addresses.
     _desc: Fail2ban is an open-source intrusion prevention software that protects servers from brute-force attacks by monitoring logs for malicious activity and dynamically blocking IP addresses that exhibit suspicious behavior. It works by analyzing log files, detecting patterns of failed login attempts or other malicious activities, and then taking action such as blocking the IP address for a specified period. Fail2ban is highly configurable, allowing users to define custom filters and actions. It is commonly used to enhance the security of servers and services like SSH, FTP, and web applications.
     _github: https://github.com/fail2ban/fail2ban
@@ -2983,7 +2988,6 @@ softwarePackages:
     _service:
     - name: fail2ban
       sudo: true
-    _preload: true
     brew: fail2ban
     apt: fail2ban
     dnf: fail2ban
@@ -3182,6 +3186,7 @@ softwarePackages:
     _bin: firebase
     npm: firebase-tools
   firefox:
+    _default: false
     _name: Mozilla Firefox
     _desc: '[Mozilla Firefox](https://www.mozilla.org/en-US/firefox/new/), or simply Firefox, is a free and open-source web browser developed by the Mozilla Foundation and its subsidiary, the Mozilla Corporation. Firefox uses the Gecko layout engine to render web pages, which implements current and anticipated web standards.'
     _github: false
@@ -4019,7 +4024,7 @@ softwarePackages:
     - lm_sensors
     - wireless_tools
     pipx: glances
-    _post:pipx: pipx inject glances glances[all]
+    _post:pipx: uv tool install --force --with 'glances[all]' glances
     apt:ubuntu:
     - python3-dev
     - python3-jinja2
@@ -4187,7 +4192,6 @@ softwarePackages:
     flatpak: org.gnome.Weather
   gnu:
     _github: 'false'
-    _preload: true
     _deps:darwin:
     - coreutils
     - findutils
@@ -4315,6 +4319,7 @@ softwarePackages:
     brew:linux: goofys
     go:linux: github.com/kahing/goofys@latest
   google-assistant:
+    _default: false
     _name: Google Assistant for Desktop
     _short: This is an unofficial desktop client for Google Assistant created by Melvin Abraham.
     _desc: '[Google Assistant for Desktop](https://github.com/Melvin-Abraham/Google-Assistant-Unofficial-Desktop-Client) is a cross-platform unofficial Google Assistant Client for Desktop.'
@@ -5756,6 +5761,7 @@ softwarePackages:
     pacman: kvantum
     eopkg: kvantum
   kvm:
+    _default: false
     _name: KVM
     _desc: Kernel-based Virtual Machine (or [KVM](https://www.linux-kvm.org/page/Main_Page)) is a virtualization module in the Linux kernel that allows the kernel to function as a hypervisor. It was merged into the Linux kernel mainline in kernel version 2.6.20, which was released on February 5, 2007.
     _github: false
@@ -5817,6 +5823,7 @@ softwarePackages:
     brew: langgraph-cli
     pipx: langgraph-cli[inmem]
   langgraph-studio:
+    _default: false
     _name: LangGraph Studio
     _github: https://github.com/langchain-ai/langgraph-studio
     _bin: langgraph-studio
@@ -5824,6 +5831,7 @@ softwarePackages:
     _app: LangGraph Studio.app
     cask: langgraph-studio
   languagetool:
+    _default: false
     _name: LanguageTool for Desktop
     _desc: Style and Grammar Checker for 25+ Languages
     _github: https://github.com/languagetool-org/languagetool
@@ -5907,7 +5915,7 @@ softwarePackages:
     _github: https://github.com/AnalogJ/lexicon
     _bin: lexicon
     pipx: dns-lexicon
-    _post:pipx: pipx inject dns-lexicon dns-lexicon[full]
+    _post:pipx: uv tool install --force --with 'dns-lexicon[full]' dns-lexicon
   libguestfs-tools:
     _name: 'libguestfs                                                                                                                                                                                                '
     _short: libguestfs is a set of tools for accessing and modifying virtual machine disk images.
@@ -6607,6 +6615,7 @@ softwarePackages:
     _deprecated: Keeps creating .condarc in HOME even when CONDARC is defined (tried other methods as well)
     brew: micromamba
   microsoft-edge:
+    _default: false
     _name: Microsoft Edge
     _desc: '[Microsoft Edge](https://www.microsoft.com/en-us/edge) is a cross-platform web browser developed by Microsoft. It was first released for Windows 10 and Xbox One in 2015, then for Android and iOS in 2017, for macOS in 2019, and as a preview for Linux in October 2020.'
     _github: false
@@ -6657,6 +6666,7 @@ softwarePackages:
     cask: microsoft-office
     choco: office365business
   microsoft-remote-desktop:
+    _default: false
     _name: Microsoft Remote Desktop
     _github: false
     _bin: microsoft-remote-desktop
@@ -6817,7 +6827,7 @@ softwarePackages:
     _home: https://molecule.readthedocs.io/en/latest/
     _docs: https://molecule.readthedocs.io/en/latest/getting-started.html
     pipx: molecule
-    _post:pipx: pipx inject molecule ansible PyObjC PyObjC-core docker lxml netaddr pexpect python-vagrant pywinrm requests-credssp watchdog apache-libcloud gcloud junit-xml molecule-docker molecule-gce molecule-vagrant pycrypto
+    _post:pipx: uv tool install --force --with ansible --with PyObjC --with PyObjC-core --with docker --with lxml --with netaddr --with pexpect --with python-vagrant --with pywinrm --with requests-credssp --with watchdog --with apache-libcloud --with gcloud --with junit-xml --with molecule-docker --with molecule-gce --with molecule-vagrant --with pycrypto molecule
   monero:
     _name: Monero
     _short: Monero is an open-source cryptocurrency that focuses on privacy, security, and decentralization.
@@ -6979,6 +6989,7 @@ softwarePackages:
     github: github.com/emqx/MQTTX
     yay: mqttx-bin
   msty:
+    _default: false
     _name: Msty
     _github: false
     _bin: msty
@@ -7304,6 +7315,7 @@ softwarePackages:
     choco: netcat
     scoop: netcat
   netdata:
+    _default: false
     _name: Netdata
     _short: Netdata is an open-source real-time performance monitoring tool for system administrators and developers.
     _desc: '[Netdata](https://www.netdata.cloud/) is an open source tool designed to collect real-time metrics, such as CPU usage, disk activity, bandwidth usage, website visits, etc., and then display them in live, easy-to-interpret charts.'
@@ -7317,7 +7329,6 @@ softwarePackages:
     _service:
     - name: netdata
       sudo: true
-    _preload: true
     brew: netdata
     pacman: netdata
     script: curl https://my-netdata.io/kickstart.sh > /tmp/netdata-kickstart.sh && sh /tmp/netdata-kickstart.sh
@@ -7360,6 +7371,7 @@ softwarePackages:
     cask: nextcloud
     choco: nextcloud-client
   nginx:
+    _default: false
     _name: NGINX
     _short: nginx is a popular open-source web server known for its high performance, stability, and scalability.
     _desc: It also generates sites-enabled proxies using YML configurations. Easter eggs included. [Nginx](https://www.nginx.com/), stylized as NGINX, nginx or NginX, is a web server that can also be used as a reverse proxy, load balancer, mail proxy and HTTP cache. The software was created by Igor Sysoev and publicly released in 2004. Nginx is free and open-source software, released under the terms of the 2-clause BSD license.
@@ -7370,7 +7382,6 @@ softwarePackages:
     _service:
     - name: nginx
       sudo: true
-    _preload: true
     brew: nginx
     apt: nginx
     dnf: nginx
@@ -8057,6 +8068,7 @@ softwarePackages:
     _bin: papertrail
     gem: papertrail
   parallels:
+    _default: false
     _name: Parallels
     _desc: '[Parallels Desktop for Mac](https://www.parallels.com/) is software providing hardware virtualization for Macintosh computers with Intel processors. It is developed by Parallels, since 2018 a subsidiary of Corel.'
     _github: false
@@ -8404,7 +8416,6 @@ softwarePackages:
     _bin: pipx
     _home: https://pypi.org/project/pipx/
     _docs: https://pypa.github.io/pipx/
-    _preload: true
     _deprecated: The `pipx` installation is handled by the `install-program` program bundled with Install Doctor.
     brew: pipx
     _post:brew: pipx ensurepath
@@ -8572,6 +8583,8 @@ softwarePackages:
     emerge: app-containers/podman
     zypper: podman
   poetry:
+    _default: false
+    _replacement: uv
     _name: Poetry
     _short: Poetry is a Python dependency management and packaging tool that simplifies and streamlines the process of managing Python projects.
     _desc: '[Poetry](https://python-poetry.org) helps you declare, manage and install dependencies of Python projects, ensuring you have the right stack everywhere.'
@@ -8579,7 +8592,6 @@ softwarePackages:
     _bin: poetry
     _home: https://python-poetry.org/
     _docs: https://python-poetry.org/docs/
-    _preload: true
     brew: poetry
     yay: python-poetry-git
   polybar:
@@ -8778,7 +8790,6 @@ softwarePackages:
     _home: false
     _docs: false
     _app: Privaxy.app
-    _preload: true
     _deprecated: No cask available
     apt: https://github.com/Barre/privaxy/releases/download/v0.5.2/privaxy_0.5.2_amd64.deb
     appimage: barre/privaxy
@@ -8792,6 +8803,7 @@ softwarePackages:
     _app: Privileges.app
     cask: privileges
   privoxy:
+    _default: false
     _name: Privoxy
     _short: Privoxy is a non-caching web proxy with advanced filtering capabilities for enhancing privacy, modifying web page data, and controlling access.
     _desc: Privoxy is a non-caching web proxy with advanced filtering capabilities for enhancing privacy, modifying web page data and HTTP headers, controlling access, and removing ads and other obnoxious Internet junk
@@ -8802,7 +8814,6 @@ softwarePackages:
     _service:
     - name: privoxy
       sudo: false
-    _preload: true
     brew: privoxy
     apt: privoxy
     dnf: privoxy
@@ -9121,7 +9132,6 @@ softwarePackages:
     - qlprettypatch
     - webpquicklook
     - avifquicklook
-    _preload: true
   qlprettypatch:
     _name: QLPrettyPatch
     _github: https://github.com/atnan/QLPrettyPatch
@@ -9329,6 +9339,7 @@ softwarePackages:
     choco: recuva
     scoop: extras/recuva
   redis:
+    _default: false
     _name: Redis
     _desc: Redis is an in-memory database that persists on disk. The data model is key-value, but many different kind of values are supported - Strings, Lists, Sets, Sorted Sets, Hashes, Streams, HyperLogLogs, Bitmaps.
     _github: https://github.com/redis/redis
@@ -9341,7 +9352,6 @@ softwarePackages:
     _service:
     - name: redis
       sudo: false
-    _preload: true
     brew: redis
     choco: redis
     snap: redis
@@ -9755,6 +9765,7 @@ softwarePackages:
     script:darwin: curl -sfL https://raw.githubusercontent.com/alajmo/sake/main/install.sh | sh
     script:linux: curl -sfL https://raw.githubusercontent.com/alajmo/sake/main/install.sh | sh
   samba:
+    _default: false
     _name: Samba
     _short: Samba is an open-source software suite that provides file and print services for various Microsoft Windows clients.
     _desc: '[Samba](https://www.samba.org/) is a free and open-source software that allows files to be shared across Windows and Linux systems simply and easily. To be exact, it is an open-source implementation of the SMB/CIFS protocol.'
@@ -9774,7 +9785,6 @@ softwarePackages:
     - name: smbd
       sudo: true
       pkg: pacman
-    _preload: true
     brew: samba
     apt: samba
     dnf: samba
@@ -9973,6 +9983,7 @@ softwarePackages:
     brew: serverless
     npm: serverless
   sftpgo:
+    _default: false
     _name: sftpgo
     _short: sftpgo is an open-source SFTP server written in Go.
     _desc: Fully featured and highly configurable SFTP server with optional HTTP/S, FTP/S and WebDAV support - S3, Google Cloud Storage, Azure Blob
@@ -9986,7 +9997,6 @@ softwarePackages:
     _service:
     - name: sftpgo
       sudo: true
-    _preload: true
     brew: sftpgo
     choco: sftpgo
     github: github.com/drakkan/sftpgo
@@ -10746,6 +10756,7 @@ softwarePackages:
     _docs: https://jamiemason.github.io/syncpack/installation
     npm: syncpack
   syncthing:
+    _default: false
     _name: Syncthing
     _short: Syncthing is an open-source continuous file synchronization program.
     _desc: 'Syncthing is an open-source continuous file synchronization program that allows you to securely sync files between multiple devices. It is designed to be decentralized, giving you control over your data without relying on a central server. Syncthing uses end-to-end encryption to ensure your files are transferred securely. It supports various operating systems, including Darwin/MacOS, making it a versatile solution for keeping your files in sync across different devices. You can find more information about Syncthing on its GitHub page: Syncthing GitHub Repository.'
@@ -10859,26 +10870,6 @@ softwarePackages:
     choco: tabby
     github: github.com/Eugeny/tabby
     _notes: TODO Update the direct links periodically and keep eye out for Snap / Flatpak
-  tailscale:
-    _name: Tailscale
-    _short: Tailscale is a secure mesh VPN that makes it easy to connect your devices securely.
-    _desc: '[Tailscale](https://tailscale.com/) lets you easily manage access to private resources, quickly SSH into devices on your network, and work securely from anywhere in the world.'
-    _github: https://github.com/tailscale/tailscale
-    _bin: tailscale
-    _home: https://tailscale.com/
-    _docs: https://tailscale.com/kb/
-    _service:
-    - name: tailscaled
-      sudo: true
-      pkg: pacman
-    _app: Tailscale.app
-    _preload: true
-    brew: tailscale
-    cask: tailscale
-    pacman: tailscale
-    choco: tailscale
-    go: tailscale.com/cmd/tailscale{,d}@main
-    mas: 1475387142
   talksheet:
     _name: Talksheet
     _short: talksheet is a tool for creating and managing structured notes in Markdown format, designed for easy organization and sharing on GitHub.
@@ -11267,6 +11258,7 @@ softwarePackages:
     _docs: https://pypi.org/project/toml-sort/
     pipx: toml-sort
   tor:
+    _default: false
     _name: TOR
     _short: TheTorProject is a nonprofit organization that develops privacy tools to help people stay safe online, including the Tor Browser for anonymous web browsing.
     _desc: '[Tor](https://www.torproject.org/) is free and open-source software for enabling anonymous communication by directing Internet traffic through a free, worldwide, volunteer overlay network consisting of more than seven thousand relays in order to conceal a user''s location and usage from anyone conducting network surveillance or traffic analysis. On Linux you can combine Tor with [Privoxy](https://www.privoxy.org/) which allows you to tunnel all of your traffic through the Tor network.'
@@ -11277,7 +11269,6 @@ softwarePackages:
     _service:
     - name: tor
       sudo: false
-    _preload: true
     brew: tor
     apt: tor
     dnf: tor
@@ -11285,6 +11276,7 @@ softwarePackages:
     _restricted: true
     _serviceEnabled: true
   tor-browser:
+    _default: false
     _name: Tor Browser
     _short: gettorbrowser is a project by The Tor Project that provides a way to download the Tor Browser in regions where access to the official website is restricted.
     _desc: Tor, short for The Onion Router, is free and open-source software for enabling anonymous communication. It directs Internet traffic through a free, worldwide, volunteer overlay network, consisting of more than seven thousand relays, to conceal a user's location and usage.
@@ -11313,6 +11305,7 @@ softwarePackages:
     snap: tradingview
     msix: https://tvd-packages.tradingview.com/stable/latest/win32/TradingView.msix
   trae:
+    _default: false
     _name: Trae
     _github: https://github.com/Trae-AI/Trae
     _bin: trae
@@ -11330,13 +11323,6 @@ softwarePackages:
     dnf: translate-shell
     pacman: translate-shell
     apt:ubuntu: translate-shell
-  trayscale:
-    _name: Trayscale
-    _short: trayscale is a tool for adjusting the brightness of external monitors on macOS.
-    _desc: Unofficial Menu Bar for Tailscale on Linux
-    _github: https://github.com/DeedleFake/trayscale
-    _bin: trayscale
-    flatpak: dev.deedles.Trayscale
   tree:
     _name: tree-cli
     _short: tree-cli is a command-line tool that generates directory trees in a visually appealing way.
@@ -11579,6 +11565,18 @@ softwarePackages:
     _app: UTM.app
     _deprecated: Deprecated in favor of more cross-OS platform like VirtualBox, Parallels, and VMWare
     cask: utm
+  uv:
+    _name: uv
+    _short: uv is a fast Python package and project manager that replaces pip, pip-tools, pipx, and most Poetry workflows.
+    _desc: uv provides reproducible Python project management, dependency locking, virtual environments, tool execution, and Python version management in one Rust-based CLI.
+    _github: https://github.com/astral-sh/uv
+    _bin: uv
+    _home: https://astral.sh/uv/
+    _docs: https://docs.astral.sh/uv/
+    _preload: true
+    brew: uv
+    cargo: uv
+    pipx: uv
   vagrant:
     _name: Vagrant
     _short: Vagrant is an open-source tool for building and managing virtual machine environments in a single workflow.
@@ -11724,6 +11722,7 @@ softwarePackages:
     choco: vim
     scoop: vim
   virtualbox:
+    _default: false
     _name: VirtualBox
     _short: mirror/vbox is a mirror of the VirtualBox repository on GitHub.
     _desc: '[VirtualBox](https://www.virtualbox.org/) is a free and open-source hosted hypervisor for x86 virtualization, developed by Oracle Corporation. Created by Innotek, it was acquired by Sun Microsystems in 2008, which was in turn acquired by Oracle in 2010. VirtualBox may be installed on Windows, macOS, Linux, Solaris and OpenSolaris.'
@@ -11776,6 +11775,7 @@ softwarePackages:
     brew: virtualenv
     pipx: virtualenv
   visual-studio:
+    _default: false
     _name: Visual Studio
     _short: $'Not open-source' is a string enclosed in single quotes preceded by a dollar sign and is typically used in Unix-like systems to enable escape sequences like \n for new lines.
     _desc: '[Microsoft Visual Studio](https://visualstudio.microsoft.com/) is an integrated development environment from Microsoft. It is used to develop computer programs, as well as websites, web apps, web services and mobile apps.'
@@ -11813,6 +11813,7 @@ softwarePackages:
     choco: vlc
     snap: vlc
   vmware:
+    _default: false
     _name: VMWare
     _desc: '[VMWare Workstation](https://www.vmware.com/products/workstation-pro.html) (or [VMWare Fusion](https://www.vmware.com/products/fusion.html) in the case of macOS) is a hosted hypervisor that runs on x64 versions of Windows and Linux operating systems. It enables users to set up virtual machines on a single physical machine and use them simultaneously along with the host machine. It is similar to [VirtualBox](https://gitlab.com/megabyte-labs/ansible-roles/virtualbox).'
     _github: false

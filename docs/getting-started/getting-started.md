@@ -67,7 +67,7 @@ You can customize the provisioning process by setting environment variables befo
 
 | Variable | Description | Default |
 |---|---|---|
-| `START_REPO` | Git repo URL or GitHub `user/repo` shorthand | `megabyte-labs/install.doctor` |
+| `START_REPO` | Git repo URL or GitHub `user/repo` shorthand | `heymegabyte/install.doctor` |
 | `HEADLESS_INSTALL` | Skip all interactive prompts | unset |
 | `SOFTWARE_GROUP` | Software group: `Basic`, `Server`, `Standard`, `Full` | `Full` |
 | `SUDO_PASSWORD` | Sudo password for automated setup | unset |
@@ -117,7 +117,7 @@ Here's a high-level overview of each provisioning step:
 ├─────────────────────────────────────────────────────────┤
 │ 5. After Scripts (run_after_01 → run_after_24)          │
 │    ├── Installs all software packages                   │
-│    ├── Configures services (Docker, Tailscale, etc.)    │
+│    ├── Configures explicitly selected services         │
 │    ├── Applies macOS defaults / Linux dconf settings    │
 │    └── Cleans up temporary files                        │
 └─────────────────────────────────────────────────────────┘

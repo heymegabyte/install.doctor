@@ -40,7 +40,7 @@ set -euo pipefail
 #
 #     * [VMWare Workstation homepage](https://www.vmware.com/content/vmware/vmware-published-sites/us/products/workstation-pro.html.html)
 #     * [Vagrant VMWare Utility on GitHub](https://github.com/hashicorp/vagrant-vmware-desktop)
-#     * [`home/.chezmoidata.yaml`](https://github.com/megabyte-labs/install.doctor/blob/master/home/.chezmoidata.yaml)
+#     * [`home/.chezmoidata.yaml`](https://github.com/heymegabyte/install.doctor/blob/master/home/.chezmoidata.yaml)
 #     * [Default license key gist](https://gist.github.com/PurpleVibe32/30a802c3c8ec902e1487024cdea26251)
 
 set -Eeo pipefail

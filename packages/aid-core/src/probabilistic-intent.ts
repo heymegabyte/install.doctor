@@ -550,3 +550,266 @@ export function stepVirtualPet(
 
   return p;
 }
+
+/** Desired machine state input for {@link analyzeFleetDrift}. */
+export interface DesiredMachinePosture {
+  machineId: string;
+  packages: string[];
+  services?: string[];
+}
+
+/** Observed host telemetry input for {@link analyzeFleetDrift}. */
+export interface ObservedHostPosture {
+  installedPackages: string[];
+  runningServices?: string[];
+  sshPort?: number;
+  cloudflareOnlyIngress?: boolean;
+  autologinConfigured?: boolean;
+}
+
+/** Structured drift analysis and deterministic self-healing plan. */
+export interface FleetDriftReport {
+  machineId: string;
+  converged: boolean;
+  driftScore: number; // 0 (100% converged) to 100 (critical drift)
+  missingPackages: string[];
+  unmanagedPackages: string[];
+  stoppedServices: string[];
+  securityFindings: string[];
+  healingPlan: string[];
+}
+
+/**
+ * Computes a deterministic Desired-vs-Observed drift score, security posture check
+ * (SSH Port 22, Cloudflare-only Zero-Trust firewall, Infisical autologin), and ordered
+ * self-healing remediation steps.
+ */
+export function analyzeFleetDrift(
+  desired: DesiredMachinePosture,
+  observed: ObservedHostPosture
+): FleetDriftReport {
+  invariant(desired !== null && typeof desired === 'object', 'Expected desired posture');
+  invariant(observed !== null && typeof observed === 'object', 'Expected observed posture');
+  identifier(desired.machineId, 'machineId');
+  invariant(Array.isArray(desired.packages) && desired.packages.length <= 10_000, 'Invalid desired.packages');
+  invariant(Array.isArray(observed.installedPackages) && observed.installedPackages.length <= 10_000, 'Invalid observed.installedPackages');
+
+  const desiredPkgSet = new Set(desired.packages);
+  const observedPkgSet = new Set(observed.installedPackages);
+
+  const missingPackages = desired.packages.filter((p) => !observedPkgSet.has(p)).sort();
+  const unmanagedPackages = observed.installedPackages.filter((p) => !desiredPkgSet.has(p)).sort();
+
+  const desiredServices = desired.services ?? [];
+  const runningSet = new Set(observed.runningServices ?? []);
+  const stoppedServices = desiredServices.filter((s) => !runningSet.has(s)).sort();
+
+  const securityFindings: string[] = [];
+  const healingPlan: string[] = [];
+
+  if (missingPackages.length > 0) {
+    healingPlan.push(`aid apply --yes # install ${missingPackages.length} missing package(s): ${missingPackages.slice(0, 5).join(', ')}`);
+  }
+  for (const svc of stoppedServices) {
+    healingPlan.push(`sudo systemctl restart ${svc} || brew services restart ${svc}`);
+  }
+  if (observed.sshPort !== undefined && observed.sshPort !== 22) {
+    securityFindings.push(`SSH listening on non-standard port ${observed.sshPort} (policy requires standard port 22 protected by Cloudflare firewall)`);
+    healingPlan.push('chezmoi apply ~/.ssh/sshd_config && cloudflare-firewall');
+  }
+  if (observed.cloudflareOnlyIngress === false) {
+    securityFindings.push('Cloudflare-Only Zero-Trust Firewall is not active on public ingress ports 22/80/443');
+    healingPlan.push('cloudflare-firewall');
+  }
+  if (observed.autologinConfigured === false) {
+    securityFindings.push('Infisical-backed unlocked desktop autologin is not configured');
+    healingPlan.push('desktop-autologin');
+  }
+
+  const rawPenalty =
+    missingPackages.length * 10 +
+    stoppedServices.length * 20 +
+    securityFindings.length * 25;
+  const driftScore = Math.min(100, rawPenalty);
+  const converged = driftScore === 0;
+
+  return {
+    machineId: desired.machineId,
+    converged,
+    driftScore,
+    missingPackages,
+    unmanagedPackages,
+    stoppedServices,
+    securityFindings,
+    healingPlan
+  };
+}
+
+/** Input used to mint a tamper-evident SHA-256 hash-chained execution receipt. */
+export interface ExecutionReceiptInput {
+  receiptId: string;
+  tenantId: string;
+  machineId: string;
+  runId: string;
+  parentRunId?: string;
+  blueprintDigest: string;
+  action: string;
+  exitCode: number;
+  timestamp: string;
+  prevReceiptHash?: string;
+}
+
+/** Tamper-evident SHA-256 hash-chained execution receipt. */
+export interface ExecutionReceipt extends ExecutionReceiptInput {
+  prevReceiptHash: string;
+  receiptHash: string;
+}
+
+async function computeReceiptPayloadHash(input: ExecutionReceiptInput, prevHash: string): Promise<string> {
+  const canonicalPayload = JSON.stringify({
+    receiptId: input.receiptId,
+    tenantId: input.tenantId,
+    machineId: input.machineId,
+    runId: input.runId,
+    parentRunId: input.parentRunId ?? null,
+    blueprintDigest: input.blueprintDigest,
+    action: input.action,
+    exitCode: input.exitCode,
+    timestamp: input.timestamp,
+    prevReceiptHash: prevHash
+  });
+  const bytes = new TextEncoder().encode(canonicalPayload);
+  const digest = await crypto.subtle.digest('SHA-256', bytes);
+  return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+/**
+ * Mints a cryptographically hash-chained ExecutionReceipt for durable History auditability.
+ */
+export async function mintExecutionReceipt(input: ExecutionReceiptInput): Promise<ExecutionReceipt> {
+  identifier(input.receiptId, 'receiptId');
+  identifier(input.tenantId, 'tenantId');
+  identifier(input.machineId, 'machineId');
+  identifier(input.runId, 'runId');
+  if (input.parentRunId !== undefined) identifier(input.parentRunId, 'parentRunId');
+  invariant(typeof input.blueprintDigest === 'string' && /^[0-9a-f]{64}$/.test(input.blueprintDigest), 'Invalid blueprintDigest');
+  invariant(typeof input.action === 'string' && input.action.length > 0 && input.action.length <= 2048, 'Invalid action');
+  invariant(Number.isSafeInteger(input.exitCode) && input.exitCode >= 0 && input.exitCode <= 255, 'Invalid exitCode');
+  iso(input.timestamp, 'timestamp');
+  const prevReceiptHash = input.prevReceiptHash ?? '0'.repeat(64);
+  invariant(/^[0-9a-f]{64}$/.test(prevReceiptHash), 'Invalid prevReceiptHash');
+
+  const receiptHash = await computeReceiptPayloadHash(input, prevReceiptHash);
+  return {
+    ...input,
+    prevReceiptHash,
+    receiptHash
+  };
+}
+
+/**
+ * Verifies the cryptographic SHA-256 integrity of an ExecutionReceipt.
+ */
+export async function verifyExecutionReceipt(receipt: ExecutionReceipt): Promise<boolean> {
+  if (!receipt || typeof receipt !== 'object' || typeof receipt.receiptHash !== 'string') return false;
+  try {
+    const expected = await computeReceiptPayloadHash(receipt, receipt.prevReceiptHash);
+    return expected === receipt.receiptHash;
+  } catch {
+    return false;
+  }
+}
+
+/** Candidate catalog item scored by {@link rankSemanticCatalogMatches}. */
+export interface SemanticCatalogCandidate {
+  name: string;
+  bin: string;
+  short?: string;
+  providers: string[];
+  platforms: string[];
+  installMode?: 'app' | 'service' | 'cli';
+  configured?: boolean;
+}
+
+/** Ranked semantic catalog match with score and matched terms. */
+export interface SemanticCatalogMatch extends SemanticCatalogCandidate {
+  score: number;
+  matchedTerms: string[];
+}
+
+const SEMANTIC_SYNONYMS: Record<string, string[]> = {
+  history: ['hishtory', 'shell', 'command', 'audit', 'atuin'],
+  firewall: ['ufw', 'nftables', 'pf', 'cloudflare', 'security', 'iptables'],
+  container: ['docker', 'orbstack', 'podman', 'kubernetes', 'k8s', 'oci', 'lxc'],
+  gpu: ['nvidia', 'cuda', 'ollama', 'llm', 'ai'],
+  disk: ['du', 'dust', 'dua', 'ncdu', 'storage', 'filesystem', 'btrfs', 'zfs'],
+  search: ['ripgrep', 'rg', 'fd', 'fzf', 'grep', 'find'],
+  secret: ['infisical', 'age', 'vault', 'bitwarden', 'pass', 'keychain'],
+  editor: ['nvim', 'neovim', 'vim', 'vscode', 'codium', 'helix'],
+  terminal: ['tmux', 'zellij', 'ghostty', 'wezterm', 'kitty', 'alacritty', 'warp']
+};
+
+/**
+ * Ranks catalog tools by BM25-style lexical + domain-synonym semantic relevance in <2ms at the edge.
+ */
+export function rankSemanticCatalogMatches(
+  query: string,
+  entries: SemanticCatalogCandidate[],
+  options?: { os?: string; limit?: number }
+): SemanticCatalogMatch[] {
+  invariant(typeof query === 'string' && query.length <= 512, 'Invalid query');
+  invariant(Array.isArray(entries), 'Expected entries array');
+  const limit = Math.max(1, Math.min(options?.limit ?? 10, 50));
+  const osFilter = options?.os?.toLowerCase().trim();
+
+  const rawTokens = query
+    .toLowerCase()
+    .split(/[^a-z0-9_+-]+/)
+    .filter((t) => t.length >= 2);
+  if (rawTokens.length === 0) return [];
+
+  const expandedTokens = new Set<string>(rawTokens);
+  for (const t of rawTokens) {
+    const syns = SEMANTIC_SYNONYMS[t];
+    if (syns) for (const s of syns) expandedTokens.add(s);
+  }
+
+  const scored: SemanticCatalogMatch[] = [];
+  for (const entry of entries) {
+    if (osFilter && Array.isArray(entry.platforms) && !entry.platforms.includes(osFilter)) {
+      continue;
+    }
+    const nameLower = entry.name.toLowerCase();
+    const binLower = entry.bin.toLowerCase();
+    const descLower = (entry.short ?? '').toLowerCase();
+    let score = 0;
+    const matchedTerms: string[] = [];
+
+    for (const tok of expandedTokens) {
+      const isPrimary = rawTokens.includes(tok);
+      const weight = isPrimary ? 1.0 : 0.45;
+      if (nameLower === tok || binLower === tok) {
+        score += 25 * weight;
+        matchedTerms.push(tok);
+      } else if (nameLower.includes(tok) || binLower.includes(tok)) {
+        score += 12 * weight;
+        matchedTerms.push(tok);
+      } else if (descLower.includes(tok)) {
+        score += 5 * weight;
+        matchedTerms.push(tok);
+      }
+    }
+
+    if (score > 0) {
+      if (entry.configured) score += 1.5; // slight boost for tools with turnkey post-installx hooks
+      scored.push({
+        ...entry,
+        score: Math.round(score * 100) / 100,
+        matchedTerms: Array.from(new Set(matchedTerms))
+      });
+    }
+  }
+
+  scored.sort((a, b) => b.score - a.score || a.name.localeCompare(b.name));
+  return scored.slice(0, limit);
+}

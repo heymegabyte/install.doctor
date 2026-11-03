@@ -67,7 +67,7 @@ try {
       [
         '-o',
         'json',
-        '.softwarePackages | to_entries | map({"key":.key,"short":.value._short,"github":.value._github,"home":.value._home,"docs":.value._docs,"app":(.value._app != null),"service":(.value._service != null),"preload":(.value._preload != null),"deprecated":.value._deprecated,"deps":.value._deps})',
+        '.softwarePackages | to_entries | map({"key":.key,"short":.value._short,"github":.value._github,"home":.value._home,"docs":.value._docs,"app":(.value._app != null),"service":(.value._service != null),"preload":(.value._preload == true),"deprecated":.value._deprecated,"replacement":.value._replacement,"deps":.value._deps})',
         SOFTWARE,
       ],
       { encoding: 'utf8' },
@@ -94,6 +94,11 @@ try {
     // D14/D15 — surface the maintainer's `_deprecated` reason (often naming a replacement) so the App Store
     // can WARN before a user installs an abandoned/discouraged tool. Honest declared data; absent = not flagged.
     if (typeof m.deprecated === 'string' && m.deprecated.trim()) it.deprecated = m.deprecated.trim();
+    // A replacement is a catalog key, not prose. Keeping it structured lets
+    // clients offer a deterministic migration instead of parsing deprecation text.
+    if (typeof m.replacement === 'string' && /^[a-z0-9][a-z0-9._-]*$/.test(m.replacement)) {
+      it.replacement = m.replacement;
+    }
     // D07 — runtime dependencies (software.yml `_deps`). Keep only valid package-name identifiers so a YAML
     // merge-key artifact (e.g. "_envchain:deps") never leaks; the App Store links each dep to its catalog entry.
     if (Array.isArray(m.deps)) {

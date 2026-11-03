@@ -14,6 +14,13 @@ derivative; reuse shared ProjectSites routing with DeepSeek preferred and no Lit
 hiSHtory is preferred over Atuin; Alloy replaces Promtail for new Loki integration work.
 Existing history and running services must be preserved until tested migrations exist.
 
+The no-LiteLLM decision above applies only to the customer-facing `aid` product runtime.
+Internal development, research, and test-generation agents follow the canonical
+`~/.agentskills/rules/agent-provider-policy.md`: first offload every effectively executable
+unit through OpenCode → LiteLLM → local Ollama or rotating DeepSeek, and assess safe swarm
+fan-out for every delegation. Premium subscription models retain decomposition, frontier
+judgment, sensitive/shared-state decisions, integration, and final verification.
+
 Keep one portable desired-state ENVIRONMENT.md and separate observed-state evidence.
 Every future aid launch must create durable History and a recording, including local,
 scheduled, child and offline runs. Install approved pinned agent-skills automatically,

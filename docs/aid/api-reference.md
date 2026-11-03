@@ -105,6 +105,10 @@ on the OAuth apps — a one-time human step on the OAuth-app settings; magic-lin
 | `POST /api/v1/intent/speculate` | public | Fork an isolated edge speculative shadow branch (`SpeculativeBranch`) for high-confidence predicted intents. |
 | `POST /api/v1/intent/collapse` | public | Commit a verified `SpeculativeBranch` with a cryptographic `ActionVoucher` for 0ms perceived latency, or evaporate on mismatch. |
 | `POST /api/v1/easter-eggs/oracle` | public | Evaluate multidimensional Easter egg triggers (`SECRET_CODE`, `CADENCE_RESONANCE`, `KONAMI_SEQUENCE`, `ASTRAL_404`). |
+| `POST /api/v1/fleet/drift` | public | Analyze Desired vs. Observed host drift, Zero-Trust posture (SSH Port 22, Cloudflare firewall, Infisical autologin), and synthesize deterministic self-healing steps. |
+| `POST /api/v1/receipts/mint` | public | Mint a tamper-evident SHA-256 hash-chained `ExecutionReceipt` for durable History auditability. |
+| `POST /api/v1/receipts/verify` | public | Cryptographically verify the SHA-256 hash-chain integrity of an `ExecutionReceipt`. |
+| `GET /api/v1/catalog/semantic` | public | Semantic and synonym-expanded search across the 1,069-entry Install Doctor catalog (`?q=`, `?os=`, `?limit=`). |
 | `POST /api/v1/github/repos/scan` | public | Scan user GitHub account for `install.doctor`-type master blueprint repositories and `<hostname>.<namespace>` host-specific state repositories. |
 | `POST /api/v1/github/host-repo/ensure` | public | Ensure or create the host-specific GitHub repository (`<hostname>.<namespace>`, falling back to `<hostname>` if namespace is absent) and signal the browser that the TUI is resuming. |
 | `POST /api/v1/keys/mint` | admin | Mint a headless API key (`aid_...`) with `bypassOAuth: true` to skip interactive browser OAuth during automated fleet provisioning. |

@@ -9,16 +9,6 @@ Install Doctor provisions a multi-layered network stack designed to secure commu
 
 ## VPN Support
 
-### Tailscale
-
-[Tailscale](https://tailscale.com/) is a zero-config WireGuard-based mesh VPN that Install Doctor fully supports. During provisioning:
-
-- Tailscale is installed via the system package manager or Homebrew
-- The Tailscale service is enabled and started automatically
-- You can set your `TAILSCALE_AUTH_KEY` environment variable to automatically authenticate the device
-
-For more details, see the [Tailscale integration page](/docs/features/tailscale).
-
 ### WireGuard
 
 [WireGuard](https://www.wireguard.com/) is installed as the underlying VPN protocol. Install Doctor configures WireGuard through NetworkManager integration:
@@ -106,7 +96,6 @@ Place your VPN configuration files in the appropriate locations within your Chez
 
 | Variable              | Description                                              |
 | --------------------- | -------------------------------------------------------- |
-| `TAILSCALE_AUTH_KEY`  | Tailscale authentication key for automatic device join   |
 | `OVPN_USERNAME`       | OpenVPN authentication username                          |
 | `OVPN_PASSWORD`       | OpenVPN authentication password                          |
 | `CLOUDFLARE_TUNNEL_TOKEN` | Cloudflare Tunnel authentication token              |
