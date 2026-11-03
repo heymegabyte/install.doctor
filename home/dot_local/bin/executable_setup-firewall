@@ -1,31 +1,20 @@
 #!/usr/bin/env bash
 # @file ~/.local/bin/setup-firewall
-# @brief Setup and enable the firewall
+# @brief Setup and enable the Cloudflare-Only Zero-Trust Host Firewall
 # @description
-#   This script sets up and configures the firewall. On Linux systems, it prefers `firewall-cmd` and, if that is not available,
-#   it uses `ufw`. By default, it allows outgoing traffic and denies incoming traffic.
-#
-#   This is the portable baseline mechanism. Host-specific exceptions belong in the machine's recovery repository and
-#   must be applied as explicit, reviewable rules after this baseline. Installing a package never authorizes opening its port.
-#
-#   ## CloudFlare
-#
-#   Public services should use cloudflared without opening origin ports. Direct inbound rules are host-owned exceptions.
+#   Delegates to `~/.local/bin/cloudflare-firewall` (or `post-firewall.sh`) to enforce
+#   default-deny incoming policy while permitting public ingress on ports 22, 80, and 443
+#   exclusively from official Cloudflare IPv4/IPv6 edge CIDRs (plus local loopback and
+#   explicitly approved Zero-Trust interfaces such as wg0, CloudflareWARP, and utun*).
+set -euo pipefail
 
-if command -v firewall-cmd > /dev/null; then
-    echo "firewall-cmd detected - preferring this over UFW"
-elif command -v ufw > /dev/null; then
-    ### Deny incoming and allow outgoing
-    sudo ufw default deny incoming
-    sudo ufw default allow outgoing
-    
-    ### Allow CloudFlare IPs to connect to port 80 and 443
-    ### May be useful if cloudflared is not being used
-    # for CF_IP in `curl -sw '\n' https://www.cloudflare.com/ips-v{4,6}`; do
-    #     sudo ufw allow proto tcp from "$CF_IP" to any port 80,443 comment 'CloudFlare IP'
-    # done
-
-    ### Enable / reload the firewall
-    sudo ufw enable
-    sudo ufw reload
+if [ -x "$HOME/.local/bin/cloudflare-firewall" ]; then
+  exec "$HOME/.local/bin/cloudflare-firewall" "$@"
+elif command -v cloudflare-firewall > /dev/null 2>&1; then
+  exec cloudflare-firewall "$@"
+elif command -v ufw > /dev/null 2>&1; then
+  sudo ufw default deny incoming
+  sudo ufw default allow outgoing
+  sudo ufw --force enable
+  sudo ufw reload
 fi

@@ -8,7 +8,6 @@ The following list includes useful Caddy plugins:
 - [https://github.com/luisfarzati/localdots](localdots) - Provides HTTPS for localhost domains
 - [https://github.com/mholt/caddy-dynamicdns](DynamicDNS) - Automatically updates IP address referenced in DNS records
 - [https://github.com/caddyserver/cache-handler](Cache) - Distributed HTTP cache module for Caddy based on [Souin](https://github.com/darkweak/souin) cache
-- [https://github.com/tailscale/caddy-tailscale](Tailscale) - Automatically join Tailscale network
 - [https://github.com/caddyserver/replace-response](Search & Replace) - Search and replace text in responses
 - [https://github.com/lindenlab/caddy-s3-proxy](S3 Proxy) - Proxy requests directly from S3
 - [https://github.com/greenpau/caddy-git](Git) - Integrates auto-pulling / webhook to update git source

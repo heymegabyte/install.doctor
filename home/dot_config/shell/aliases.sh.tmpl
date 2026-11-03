@@ -4,14 +4,11 @@
 # @description
 #     This script is included by `~/.bashrc` and `~/.zshrc` to provide command aliases.
 
-### macOS Polyfills
-# Note: May cause conflicts
-if [ -d /Applications ] && command -v brew > /dev/null; then
-  # Causes issues with stty
-  # PATH="$(brew --prefix)/opt/coreutils/libexec/gnubin:$PATH"
-  PATH="$(brew --prefix)/opt/gnu-indent/libexec/gnubin:$PATH"
-  PATH="$(brew --prefix)/opt/gnu-sed/libexec/gnubin:$PATH"
-  PATH="$(brew --prefix)/opt/gnu-tar/libexec/gnubin:$PATH"
+### macOS Polyfills (zero-fork HOMEBREW_PREFIX lookup on shell startup)
+if [ -d /Applications ] && [ -n "${HOMEBREW_PREFIX:-}" ]; then
+  PATH="${HOMEBREW_PREFIX}/opt/gnu-indent/libexec/gnubin:$PATH"
+  PATH="${HOMEBREW_PREFIX}/opt/gnu-sed/libexec/gnubin:$PATH"
+  PATH="${HOMEBREW_PREFIX}/opt/gnu-tar/libexec/gnubin:$PATH"
   export PATH
 fi
 
@@ -200,8 +197,8 @@ alias hash-password='mkpasswd --method=sha-512'
 # History alias
 alias hh=hstr
 
-# Show IP address
-alias ip-address='curl http://ipecho.net/plain; echo'
+# Show IP address over HTTPS via Cloudflare trace
+alias ip-address='curl -fsSL https://cloudflare.com/cdn-cgi/trace | grep "^ip=" | cut -d= -f2'
 
 # Configures Java to use ~/.config/java
 alias java='java -Djava.util.prefs.userRoot="${XDG_CONFIG_HOME:-$HOME/.config}/java"'
@@ -215,16 +212,14 @@ alias mkdir='mkdir -pv'
 # Make mount command output readable
 alias mount='mount | column -t'
 
-# Link pip to pip3
-if ! command -v pip > /dev/null; then
+# Link pip to pip3 when pip is absent
+if ! command -v pip > /dev/null && command -v pip3 > /dev/null; then
   alias pip='pip3'
 fi
 
-# Link python to python3
-if [ -f /usr/bin/python3 ]; then
-  alias python='/usr/bin/python3'
-elif [ -f /usr/local/bin/python3 ]; then
-  alias python='/usr/local/bin/python3'
+# Link python to python3 only when python is absent (preserves mise / Homebrew Python in PATH)
+if ! command -v python > /dev/null && command -v python3 > /dev/null; then
+  alias python='python3'
 fi
 
 # Masked sudo password entry
@@ -237,9 +232,6 @@ alias plist-xml='plutil -convert xml1'
 
 # Recoverpy
 alias recoverpy='python3 -m recoverpy'
-
-# Performance Test
-alias perftest='mkdir -p "${XDG_DATA_HOME:-$HOME/.local/share}/perftest" && curl -sL yabs.sh | bash -s -- -w "${XDG_DATA_HOME:-$HOME/.local/share}/perftest/$(date +%Y%m%d_%H%M%S)"'
 
 # @description Adds an alias to use Docker to run [pfFocus](https://github.com/TKCERT/pfFocus) which is a Python package that
 #     allows you to convert a pfSense export into a readable markdown file. Example: `pf-format < input.xml > output.md`
@@ -256,8 +248,8 @@ alias ports='sudo netstat -tulanp'
 # Shuts down the computer, skipping the shutdown scripts
 alias poweroff='sudo /sbin/poweroff'
 
-# Open the Rclone web GUI
-alias rclone-gui='rclone rcd --rc-web-gui --rc-user=admin --rc-pass=pass --rc-serve'
+# Open the Rclone web GUI (uses Infisical/get-secret instead of hardcoded credentials)
+alias rclone-gui='rclone rcd --rc-web-gui --rc-serve'
 
 # Reboot the computer
 alias reboot='sudo /sbin/reboot'
@@ -274,14 +266,8 @@ alias sha256='openssl sha256'
 # Shutdown the computer
 alias shutdown='sudo /sbin/shutdown'
 
-# Speed test
-alias speedtest='wget -O /dev/null http://speedtest.wdc01.softlayer.com/downloads/test10.zip'
-
 # Shortcut for config file
 alias ssh-config='${EDITOR:-code} ~/.ssh/config'
-
-# Pastebin
-alias sprunge='curl -F "sprunge=<-" http://sprunge.us'
 
 if command -v torsocks > /dev/null; then
   # Disable Tor for current shell
@@ -300,15 +286,8 @@ alias unban='sudo fail2ban-client set sshd unbanip'
 # Recursively encrypts files using Ansible Vault
 alias unvault-dir='find . -type f -printf "%h/\"%f\" " | xargs ansible-vault decrypt'
 
-# Alias for updating software
-if command -v sysget > /dev/null; then
-  alias upgrade='sudo sysget update && sudo sysget upgrade'
-else
-  # TODO - Add other package managers
-  if command -v apt-get > /dev/null; then
-    alias upgrade='sudo apt-get update && sudo apt-get upgrade'
-  fi
-fi
+# Alias for updating software via canonical update-system
+alias upgrade='update-system'
 
 # Recursively encrypts files using Ansible Vault
 alias vault-dir='find . -type f -printf "%h/\"%f\" " | xargs ansible-vault encrypt'

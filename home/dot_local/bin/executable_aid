@@ -415,8 +415,64 @@ cmdInstalls() {
   fi
 }
 
+# aid doctor — local Zero-Trust & host posture diagnostic check (read-only, offline-safe, zero network calls).
+cmdDoctor() {
+  local ok=0 warn=0
+  log "aid doctor — checking local host posture & Zero-Trust readiness…"
+  if [ -s "$AID_TOKEN_PATH" ]; then
+    log "  [✓] device token present at $AID_TOKEN_PATH"
+    ok=$((ok + 1))
+  else
+    log "  [!] device token not found at $AID_TOKEN_PATH (run: aid-pair)"
+    warn=$((warn + 1))
+  fi
+  if [ -s "$AID_ENV_PATH" ]; then
+    log "  [✓] desired-state blueprint present at $AID_ENV_PATH"
+    ok=$((ok + 1))
+  else
+    log "  [!] ENVIRONMENT.md not found at $AID_ENV_PATH (run: aid pull)"
+    warn=$((warn + 1))
+  fi
+  if [ -f "$AID_CNF_HOOK" ]; then
+    log "  [✓] lazy-install CNF resolver present at $AID_CNF_HOOK"
+    ok=$((ok + 1))
+  else
+    err "  [✗] CNF resolver missing at $AID_CNF_HOOK"
+    warn=$((warn + 1))
+  fi
+  if command -v cloudflare-firewall >/dev/null 2>&1 || [ -x "$HOME/.local/bin/cloudflare-firewall" ]; then
+    log "  [✓] Cloudflare-Only Zero-Trust Firewall helper installed"
+    ok=$((ok + 1))
+  else
+    log "  [!] cloudflare-firewall helper not found in ~/.local/bin"
+    warn=$((warn + 1))
+  fi
+  if command -v get-secret >/dev/null 2>&1 || [ -x "$HOME/.local/bin/get-secret" ]; then
+    log "  [✓] Infisical / age secret resolver (get-secret) installed"
+    ok=$((ok + 1))
+  else
+    log "  [!] get-secret helper not found in ~/.local/bin"
+    warn=$((warn + 1))
+  fi
+  log "aid doctor summary: ${ok} checks passed, ${warn} warning(s)"
+  return 0
+}
+
+# aid search <query> — search the local CNF lazy-install index (offline-first, instant).
+cmdSearch() {
+  local q="${1:-}" idx
+  [ -z "$q" ] && { err "usage: aid search <query>"; return 2; }
+  idx="${AID_CNF_INDEX:-${CNF_INDEX:-$HOME/.cache/install.doctor/cnf-index.tsv}}"
+  if [ -s "$idx" ]; then
+    grep -i -- "$q" "$idx" | head -n 25 || log "no local index matches for '$q'"
+  else
+    err "local CNF index not found at $idx (run: cnf-build-index)"
+    return 1
+  fi
+}
+
 usage() {
-  printf 'usage: aid <up|status|pull|plan|report|apply|provider|exec|prewarm|installs>\n' >&2
+  printf 'usage: aid <up|status|pull|plan|report|apply|provider|exec|prewarm|installs|doctor|search>\n' >&2
   return 1
 }
 
@@ -447,6 +503,11 @@ main() {
     cmdPrewarm "$@"
     ;;
   installs) cmdInstalls ;;
+  doctor) cmdDoctor ;;
+  search)
+    shift
+    cmdSearch "$@"
+    ;;
   *) usage ;;
   esac
 }

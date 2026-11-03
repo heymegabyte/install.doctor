@@ -166,8 +166,12 @@ async function getSystemType() {
   }
 }
 
-function expandDeps(keys) {
+function expandDeps(keys, seen = new Set()) {
+  const expanded = []
   for (const i of keys) {
+    if (!pkgs[i] || seen.has(i)) continue
+    seen.add(i)
+    expanded.push(i)
     for (const pref of installOrder[sysType]) {
       const installKey = getPkgData(pref, pkgs[i], false)
       if (installKey) {
@@ -175,13 +179,12 @@ function expandDeps(keys) {
         const depsKey = getPkgData('_deps', pkgs[i], installType)
         if (depsKey) {
           const deps = typeof pkgs[i][depsKey] === 'string' ? [pkgs[i][depsKey]] : pkgs[i][depsKey]
-          return [...keys, ...expandDeps(deps)]
+          expanded.push(...expandDeps(deps, seen))
         }
       }
     }
-    return [...keys]
   }
-  return [...keys]
+  return expanded
 }
 
 async function createCaskLinks(caskMap) {
@@ -306,7 +309,7 @@ async function forEachSeries(iterable) {
 
 async function installPackages(pkgInstructions) {
   const combined = {}
-  const promises = []
+  const tasks = []
   log(`Populating install order lists`)
   for (const option of installOrder[sysType]) {
     const instructions = pkgInstructions.filter(x => x.installType === option).filter((value, index, array) => array.indexOf(value) === index)
@@ -316,7 +319,7 @@ async function installPackages(pkgInstructions) {
   }
   log(`Running Homebrew installation via Brewfile`)
   if ((combined.brew && combined.brew.length) || (combined.cask && combined.cask.length)) {
-    promises.push(bundleInstall(combined.brew ? combined.brew.flatMap(x => x.installList.flatMap(i => i)) : [], combined.cask ? combined.cask.flatMap(x => x.installList.flatMap(i => i)) : [], combined.cask))
+    tasks.push(() => bundleInstall(combined.brew ? combined.brew.flatMap(x => x.installList.flatMap(i => i)) : [], combined.cask ? combined.cask.flatMap(x => x.installList.flatMap(i => i)) : [], combined.cask))
   }
   for (const key of Object.keys(combined)) {
     if (key !== 'script') {
@@ -326,19 +329,19 @@ async function installPackages(pkgInstructions) {
       case 'apk':
         const apkPackages = combined[key]?.flatMap(x => x.installList || []) || []
         if (apkPackages.length > 0) {
-          promises.push($`sudo ${key} add ${apkPackages.join(' ')}`)
+          tasks.push(() => $`sudo ${key} add ${apkPackages.join(' ')}`)
         }
         break
       case 'appimage':
-        promises.push(...combined[key].flatMap(x => x.installList.flatMap(i => {
+        tasks.push(...combined[key].flatMap(x => x.installList.flatMap(i => {
           process.env.DEBUG && console.log('AppImage', x)
           if (typeof x === 'string') {
             if (x.substring(0, 4) === 'http') {
-              return $`zap install --select-first -q --from ${i}`
+              return () => $`zap install --select-first -q --from ${i}`
             } else if ((x.match(/\//g) || []).length === 1) {
-              return $`zap install --select-first -q --github --from ${i}`
+              return () => $`zap install --select-first -q --github --from ${i}`
             } else {
-              return $`zap install --select-first -q ${i}`
+              return () => $`zap install --select-first -q ${i}`
             }
           }
         })))
@@ -346,7 +349,7 @@ async function installPackages(pkgInstructions) {
       case 'apt':
         const packages = combined[key]?.flatMap(x => x.installList || []) || []
         if (packages.length > 0) {
-          promises.push($`DEBIAN_FRONTEND=noninteractive sudo apt-get -o DPkg::Options::=--force-confdef install -y --ignore-missing ${packages}`)
+          tasks.push(() => $`DEBIAN_FRONTEND=noninteractive sudo apt-get -o DPkg::Options::=--force-confdef install -y --ignore-missing ${packages}`)
         }
         break
       case 'basher':
@@ -359,31 +362,31 @@ async function installPackages(pkgInstructions) {
       case 'pipx':
       case 'scoop': // Maybe needs forEachSeries
       case 'winget': // Maybe needs forEachSeries
-        promises.push(...combined[key].flatMap(x => x.installList.flatMap(i => $`${key} install ${i.split(' ')}`)))
+        tasks.push(...combined[key].flatMap(x => x.installList.flatMap(i => () => $`${key} install ${i.split(' ')}`)))
         break
       case 'npm':
-        promises.push(...combined[key].flatMap(x => x.installList.flatMap(i => $`volta install ${i}`)))
+        tasks.push(...combined[key].flatMap(x => x.installList.flatMap(i => () => $`volta install ${i}`)))
         break
       case 'binary':
         // TODO
-        promises.push(...combined[key].flatMap(x => x.installList.flatMap(i => $`TMP="$(mktemp)" && curl -sSL ${i} > "$TMP" && sudo mv "$TMP" /usr/local/src/${x._bin} && chmod +x /usr/local/src/${x._bin}`)))
+        tasks.push(...combined[key].flatMap(x => x.installList.flatMap(i => () => $`TMP="$(mktemp)" && curl -sSL ${i} > "$TMP" && sudo mv "$TMP" /usr/local/src/${x._bin} && chmod +x /usr/local/src/${x._bin}`)))
         break
       case 'brew':
       case 'cask': // Handled above
         break
       case 'choco':
-        promises.push($`${key} install -y ${combined[key].flatMap(x => x.installList).join(' ')}`)
+        tasks.push(() => $`${key} install -y ${combined[key].flatMap(x => x.installList).join(' ')}`)
         break
       case 'dnf':
       case 'yum':
-        promises.push($`sudo ${key} install -y ${combined[key].flatMap(x => x.installList).join(' ')} --setopt=skip_if_unavailable=True --setopt=skip_missing_names_on_install=True`)
+        tasks.push(() => $`sudo ${key} install -y ${combined[key].flatMap(x => x.installList).join(' ')} --setopt=skip_if_unavailable=True --setopt=skip_missing_names_on_install=True`)
         break
       case 'zypper':
-        promises.push($`sudo ${key} --non-interactive install -y ${combined[key].flatMap(x => x.installList).join(' ')}`)
+        tasks.push(() => $`sudo ${key} --non-interactive install -y ${combined[key].flatMap(x => x.installList).join(' ')}`)
         break
       case 'emerge':
       case 'pkg_add':
-        promises.push($`sudo ${key} ${combined[key].flatMap(x => x.installList).join(' ')}`)
+        tasks.push(() => $`sudo ${key} ${combined[key].flatMap(x => x.installList).join(' ')}`)
         break
       case 'eopkg':
       case 'pkg-freebsd':
@@ -413,22 +416,22 @@ async function installPackages(pkgInstructions) {
 
         if (classicInstall.length > 0) {
           process.env.DEBUG && log(`DEBUG: sudo snap install ${classicInstall.join(' ')} --classic`)
-          promises.push($`sudo snap install ${['--classic', ...classicInstall]}`)
+          tasks.push(() => $`sudo snap install ${['--classic', ...classicInstall]}`)
         }
 
         if (regularInstall.length > 0) {
           process.env.DEBUG && log(`DEBUG: sudo snap install ${regularInstall.join(' ')}`)
-          promises.push($`sudo snap install ${regularInstall}`)
+          tasks.push(() => $`sudo snap install ${regularInstall}`)
         }
         break
       case 'flatpak':
-        promises.push(forEachSeries(combined[key].flatMap(x => x.installList.flatMap(i => $`sudo ${key} install -y flathub ${i}`))))
+        tasks.push(() => forEachSeries(combined[key].flatMap(x => x.installList.flatMap(i => () => $`sudo ${key} install -y flathub ${i}`)).map(task => task())))
         break
       case 'github': // TODO: GitHub-release-binary install not yet implemented (backlog — arch/OS asset selection + extract)
         log(`Install key 'github' not yet implemented — skipping: ${combined[key].flatMap(x => x.installList).join(' ')}`)
         break
       case 'pacman':
-        promises.push($`sudo ${key} -Sy --noconfirm --needed ${combined[key].flatMap(x => x.installList).join(' ')}`)
+        tasks.push(() => $`sudo ${key} -Sy --noconfirm --needed ${combined[key].flatMap(x => x.installList).join(' ')}`)
         break
       case 'pkg-darwin':
         break
@@ -436,32 +439,39 @@ async function installPackages(pkgInstructions) {
         log(`Install key 'sbopkg' not yet implemented — skipping: ${combined[key].flatMap(x => x.installList).join(' ')}`)
         break
       case 'script':
-        promises.push(...combined[key].flatMap(x => x.installList.flatMap(i => runScript(x.listKey, i))))
+        tasks.push(...combined[key].flatMap(x => x.installList.flatMap(i => () => runScript(x.listKey, i))))
         break
       case 'xbps':
-        promises.push($`sudo xbps-install -S ${combined[key].flatMap(x => x.installList).join(' ')}`)
+        tasks.push(() => $`sudo xbps-install -S ${combined[key].flatMap(x => x.installList).join(' ')}`)
         break
       case 'yay':
-        promises.push($`yay -Sy --noconfirm --needed ${combined[key].flatMap(x => x.installList).join(' ')}`)
+        tasks.push(() => $`yay -Sy --noconfirm --needed ${combined[key].flatMap(x => x.installList).join(' ')}`)
         break
       default:
         log(`Unable to find install key instructions for ${key}`)
     }
   }
-  ### Throttle parallelism. Bulk-running `Promise.allSettled(promises)` on
-  ### a fresh box spawns 20+ concurrent `brew install --cask` workers, each
-  ### with its own curl. 20 curls on a single home connection saturates the
-  ### shared pipe and slows every download — and brew's own per-process
-  ### locks/cache mean only one cask actually installs at a time anyway.
-  ### CONCURRENCY=4 (override via env) lets 4 downloads run in parallel,
-  ### which empirically finishes the bundle 2-3× faster end-to-end.
-  const CONCURRENCY = parseInt(process.env.INSTALLX_CONCURRENCY || '4', 10) || 4
-  log(`Performing ${promises.length} installations (concurrency=${CONCURRENCY})`)
-  const installs = []
-  for (let i = 0; i < promises.length; i += CONCURRENCY) {
-    const slice = promises.slice(i, i + CONCURRENCY)
-    const settled = await Promise.allSettled(slice)
-    installs.push(...settled)
+  // Start commands only when a bounded worker claims them. Constructing zx
+  // ProcessPromises earlier starts the processes and defeats throttling.
+  const CONCURRENCY = Math.max(1, parseInt(process.env.INSTALLX_CONCURRENCY || process.env.INSTALL_DOCTOR_CONCURRENCY || '4', 10) || 4)
+  log(`Performing ${tasks.length} installations (concurrency=${CONCURRENCY})`)
+  const installs = new Array(tasks.length)
+  let cursor = 0
+  async function worker() {
+    while (cursor < tasks.length) {
+      const index = cursor++
+      try {
+        installs[index] = { status: 'fulfilled', value: await tasks[index]() }
+      } catch (reason) {
+        installs[index] = { status: 'rejected', reason }
+      }
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(CONCURRENCY, tasks.length || 1) }, worker))
+  const failures = installs.filter(result => result.status === 'rejected')
+  if (failures.length) {
+    failures.forEach(({ reason }) => console.error(reason))
+    throw new Error(`${failures.length} installation task(s) failed`)
   }
   log(`All of the installations have finished`)
   process.env.DEBUG && console.log('Completed installs:', installs)
@@ -607,6 +617,11 @@ async function main() {
   log(`Filtering install instructions`)
   process.env.DEBUG && log(`Headless session detected: ${isHeadless}`)
   const installInstructions = installData
+    // `--all` is the automatic provisioning path. Catalog entries with
+    // `_default: false` stay available through an explicit named invocation
+    // (`installx <key>`) but must never be pulled into a workstation/server
+    // merely because they are an app, preload, or enabled service.
+    .filter(x => !customArgv.all || x._default !== false)
     .filter(x => !!x.installList)
     .map(x => {
       return {

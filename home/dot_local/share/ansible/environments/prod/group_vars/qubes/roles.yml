@@ -185,8 +185,6 @@ qubes_roles:
     - roles/applications/proton
   vpn-random-tmpl:
     - roles/system/vpn
-  vpn-tailscale-tmpl:
-    - roles/services/tailscale
   vpn-warp-tmpl:
     - roles/system/warp
   vpn-tmpl: []

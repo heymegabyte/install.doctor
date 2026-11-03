@@ -319,10 +319,6 @@ proxy-vms:
           qubes:
             template: vpn-nm-tmpl
             template_vm: vpn-nm-tmpl
-        vpn-tailscale-dvm:
-          qubes:
-            template: vpn-tailscale-tmpl
-            template_vm: vpn-tailscale-tmpl
         vpn-warp-dvm:
           qubes:
             template: vpn-warp-tmpl
@@ -524,7 +520,6 @@ template-vms:
         vpn-pritunl-tmpl:
         vpn-proton-tmpl:
         vpn-nm-tmpl:
-        vpn-tailscale-tmpl:
         vpn-warp-tmpl:
       vars:
         qubes:

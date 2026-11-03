@@ -13,6 +13,14 @@ ARCH="$(uname -m)"
 
 if [[ $EUID -eq 0 ]]; then SUDO=""; else SUDO="sudo -n"; fi
 
+TMP_BR=""
+cleanup() {
+  if [[ -n "$TMP_BR" ]]; then
+    rm -rf -- "$TMP_BR"
+  fi
+}
+trap cleanup EXIT
+
 # 1. Install restic
 if ! command -v restic >/dev/null 2>&1; then
   if [[ "$OS_KERNEL" == "Linux" ]] && command -v apt-get >/dev/null 2>&1; then
@@ -38,6 +46,7 @@ if [[ "$OS_KERNEL" == "Linux" ]] && ! command -v backrest >/dev/null 2>&1; then
       | tar -xz -C "$TMP_BR"
     $SUDO install -m 0755 "$TMP_BR/backrest" /usr/local/bin/backrest
     rm -rf "$TMP_BR"
+    TMP_BR=""
   fi
 fi
 

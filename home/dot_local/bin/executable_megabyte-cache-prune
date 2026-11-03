@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+# @file ~/.local/bin/megabyte-cache-prune
+# @description Prune aged build/agent/package cache artifacts under ~/.cache/megabyte
+set -euo pipefail
+CACHE_ROOT="${XDG_CACHE_HOME:-$HOME/.cache}/megabyte"
+MAX_AGE_DAYS="${MEGABYTE_CACHE_MAX_AGE_DAYS:-30}"
+if [[ -d "$CACHE_ROOT" ]]; then
+  find "$CACHE_ROOT/agents" "$CACHE_ROOT/build" -type f -atime +"$MAX_AGE_DAYS" -delete 2>/dev/null || true
+  find "$CACHE_ROOT/packages" "$CACHE_ROOT/local-proxy/blobs" -type f -atime +60 -delete 2>/dev/null || true
+  find "$CACHE_ROOT/local-proxy/meta" -type f -mtime +7 -delete 2>/dev/null || true
+fi

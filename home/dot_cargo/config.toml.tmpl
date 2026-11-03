@@ -1,0 +1,15 @@
+[source.crates-io]
+replace-with = "megabyte-local"
+
+[source.megabyte-local]
+registry = "sparse+http://127.0.0.1:4880/repository/cargo-proxy/"
+
+[source.nexus]
+registry = "sparse+https://nexus.megabyte.space/repository/cargo-proxy/"
+
+[source.crates-io-upstream]
+registry = "sparse+https://index.crates.io/"
+
+[net]
+retry = 3
+git-fetch-with-cli = true

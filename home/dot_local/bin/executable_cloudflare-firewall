@@ -70,8 +70,8 @@ configure_linux_ufw() {
   sudo ufw default deny incoming
   sudo ufw default allow outgoing
 
-  # Allow Zero-Trust mesh & tunnel interfaces (Tailscale, WireGuard, Cloudflare WARP)
-  for iface in tailscale0 wg0 CloudflareWARP; do
+  # Allow explicitly approved Zero-Trust tunnel interfaces (WireGuard, Cloudflare WARP)
+  for iface in wg0 CloudflareWARP; do
     sudo ufw allow in on "$iface" > /dev/null 2>&1 || true
   done
 
@@ -112,7 +112,7 @@ table inet cloudflare_zero_trust {
   }
   chain input {
     type filter hook input priority 0; policy drop;
-    iifname { "lo", "tailscale0", "wg0", "CloudflareWARP" } accept
+    iifname { "lo", "wg0", "CloudflareWARP" } accept
     ct state established,related accept
     ip protocol icmp accept
     ip6 nexthdr icmpv6 accept

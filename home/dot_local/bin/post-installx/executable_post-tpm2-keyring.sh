@@ -33,6 +33,18 @@ fi
 
 if [[ $EUID -eq 0 ]]; then SUDO=""; else SUDO="sudo -n"; fi
 
+TMP_PLAIN=""
+TMP_CRED=""
+cleanup() {
+  if [[ -n "$TMP_PLAIN" ]]; then
+    rm -f -- "$TMP_PLAIN"
+  fi
+  if [[ -n "$TMP_CRED" ]]; then
+    $SUDO rm -f -- "$TMP_CRED"
+  fi
+}
+trap cleanup EXIT
+
 $SUDO install -d -m 0700 /etc/credstore.encrypted
 $SUDO install -d -m 0755 /usr/local/libexec
 
@@ -44,6 +56,8 @@ $SUDO systemd-creds encrypt --with-key=tpm2 --tpm2-pcrs=7 --name=tpm2-selftest "
 UNSEALED="$($SUDO systemd-creds decrypt --name=tpm2-selftest "$TMP_CRED" -)"
 rm -f "$TMP_PLAIN"
 $SUDO rm -f "$TMP_CRED"
+TMP_PLAIN=""
+TMP_CRED=""
 
 if [[ "$UNSEALED" != "legion-tpm2-keyring-selftest-ok" ]]; then
   log_warn "TPM2 seal/unseal roundtrip verification failed; refusing to enable TPM2 keyring unlock."

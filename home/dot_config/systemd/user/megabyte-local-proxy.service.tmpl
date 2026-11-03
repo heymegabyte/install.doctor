@@ -1,0 +1,15 @@
+[Unit]
+Description=Megabyte Tier-1 Local Loopback Pass-Through Caching Proxy
+After=network.target
+
+[Service]
+Type=simple
+Environment=MEGABYTE_CACHE_ROOT={{ .chezmoi.homeDir }}/.cache/megabyte
+Environment=MEGABYTE_NEXUS_URL=https://nexus.megabyte.space
+Environment=MEGABYTE_LOCAL_PROXY_PORT=4880
+ExecStart=/usr/bin/python3 {{ .chezmoi.homeDir }}/.local/bin/megabyte-local-proxy
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=default.target

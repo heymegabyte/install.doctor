@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>space.megabyte.local-proxy</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/usr/bin/python3</string>
+    <string>{{ .chezmoi.homeDir }}/.local/bin/megabyte-local-proxy</string>
+  </array>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>MEGABYTE_CACHE_ROOT</key>
+    <string>{{ .chezmoi.homeDir }}/.cache/megabyte</string>
+    <key>MEGABYTE_NEXUS_URL</key>
+    <string>https://nexus.megabyte.space</string>
+    <key>MEGABYTE_LOCAL_PROXY_PORT</key>
+    <string>4880</string>
+  </dict>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <key>StandardOutPath</key>
+  <string>{{ .chezmoi.homeDir }}/.cache/megabyte/local-proxy/logs/stdout.log</string>
+  <key>StandardErrorPath</key>
+  <string>{{ .chezmoi.homeDir }}/.cache/megabyte/local-proxy/logs/stderr.log</string>
+</dict>
+</plist>

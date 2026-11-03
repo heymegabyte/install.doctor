@@ -1,4 +1,6 @@
-cache={{ .chezmoi.homeDir }}/.cache/npm
+registry=http://127.0.0.1:4880/repository/npm-group/
+cache={{ .chezmoi.homeDir }}/.cache/megabyte/packages/npm
+store-dir={{ .chezmoi.homeDir }}/.cache/megabyte/packages/pnpm
 {{ if (stat (joinPath "etc" "ssl" "cert.pem")) -}}
 cafile=/etc/ssl/cert.pem
 {{ end -}}

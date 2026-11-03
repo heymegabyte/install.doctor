@@ -1,6 +1,6 @@
 ---
 - name: Remove the VMs added by Gas Station
-  hosts: all:sys-vpn-pritunl:sys-vpn-proton:sys-vpn-tailscale:sys-vpn-warp:!system-vms:!primary-templates:!dom0
+  hosts: all:sys-vpn-pritunl:sys-vpn-proton:sys-vpn-warp:!system-vms:!primary-templates:!dom0
   connection: qubes
   gather_facts: false
   tasks:

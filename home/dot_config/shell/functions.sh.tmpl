@@ -6,20 +6,6 @@
 
 # shellcheck disable=SC1091
 
-### Bash Concurrent
-if [ -f "${XDG_DATA_HOME:-$HOME/.local/share}/concurrent/concurrent.lib.sh" ]; then
-  . "${XDG_DATA_HOME:-$HOME/.local/share}/concurrent/concurrent.lib.sh"
-fi
-
-# Install WebDriverAgent on iOS device
-appiumwebdriver() {
-  # read -r "Enter the UDID of the device you wish to install WebDriverAgent on: " UDID_INPUT
-  mkdir -p Resources/WebDriverAgent.bundle
-  bash ./Scripts/bootstrap.sh -d
-  cd /Applications/Appium.app/Contents/Resources/app/node_modules/appium/node_modules/appium-webdriveragent || return
-  xcodebuild -project WebDriverAgent.xcodeproj -scheme WebDriverAgentRunner -destination "id=${UDID_INPUT}" test
-}
-
 # Change directories and view contents at the same time
 cl() {
   DIR="$*"
@@ -37,11 +23,6 @@ cpv() {
   rsync -pogbr -hhh --backup-dir="/tmp/rsync-${USERNAME}" -e /dev/null --progress "$@"
 }
 
-# Checks status of a website on downforeveryoneorjustme.com
-down4me() {
-  curl -s "http://www.downforeveryoneorjustme.com/$1" | sed '/just you/!d;s/<[^>]*>//g'
-}
-
 # Easier version of find command
 find() {
   if [ $# = 1 ]; then
@@ -52,14 +33,9 @@ find() {
   fi
 }
 
-# Opens current repository in browser
+# Opens current repository in browser over HTTPS
 gitopen() {
-  git remote -v | head -n 1 | awk -F "@" '{print $2}' | awk -F " " '{print $1}' | sed 's/:/\//g' | sed 's/.git//g' | awk '{print "http://"$1}' | xargs open
-}
-
-# Open Mac OS X desktop on a Linux machine
-macosx() {
-  docker run -it --device /dev/kvm -p 50922:10022 -v /tmp/.X11-unix:/tmp/.X11-unix -e "DISPLAY=${DISPLAY:-:0.0}" sickcodes/docker-osx:big-sur
+  git remote -v | head -n 1 | awk -F "@" '{print $2}' | awk -F " " '{print $1}' | sed 's/:/\//g' | sed 's/.git//g' | awk '{print "https://"$1}' | xargs open
 }
 
 # Generate a random string of X length
@@ -105,41 +81,12 @@ rgafzf() {
 	xdg-open "$file"
 }
 
-#  Easy file sharing from the command line, using transfer.sh
-transfer() {
-  if [ $# -eq 0 ]; then
-    printf "No arguments specified.\nUsage:\n  transfer <file|directory>\n  ... | transfer <file_name>" >&2
-    return 1
-  fi
-  if tty -s; then
-    file="$1"
-    file_name=$(basename "$file")
-    if [ ! -e "$file" ]; then
-      echo "$file: No such file or directory" >&2
-      return 1
-    fi
-    if [ -d "$file" ]; then
-      file_name="$file_name.zip"
-      (cd "$file" && zip -r -q - .) | curl --progress-bar --upload-file "-" "https://transfer.sh/$file_name" | tee /dev/null
-    else
-      curl --progress-bar --upload-file "-" "https://transfer.sh/$file_name" <"$file" | tee /dev/null
-    fi
-  else
-    file_name=$1
-    curl --progress-bar --upload-file "-" "https://transfer.sh/$file_name" | tee /dev/null
-  fi
-}
-
 updateall() {
-  brew update
-  brew upgrade
-  brew upgrade --cask --greedy
-  brew cleanup --prune=1
-  rustup self update || true
-  rustup update || true
-  npm update -g || true
-  chezmoi upgrade
-  z4h update
+  if command -v update-system > /dev/null 2>&1; then
+    update-system
+  elif [ -x "$HOME/.local/bin/update-system" ]; then
+    "$HOME/.local/bin/update-system"
+  fi
 }
 
 y() {

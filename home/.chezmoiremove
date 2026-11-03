@@ -85,3 +85,16 @@ Brewfile
 .local/src/shellfire
 .local/src/betelgeuse
 .local/bin/update
+.local/bin/launchpress
+.local/bin/improve-code
+.local/bin/gpt
+.config/aihawk
+.config/blesh
+.config/coc
+.config/code2prompt
+.config/hoard
+.config/shell_gpt
+.config/update
+.config/vnc
+.config/zap
+.config/Code/User/Base.code-profile

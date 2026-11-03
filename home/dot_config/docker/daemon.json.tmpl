@@ -1,9 +1,11 @@
 {
-  "builder": {
-    "gc": {
-      "defaultKeepStorage": "20GB",
-      "enabled": true
-    }
+  "registry-mirrors": [
+    "https://registry.megabyte.space"
+  ],
+  "log-driver": "local",
+  "log-opts": {
+    "max-size": "10m",
+    "max-file": "3"
   },
-  "experimental": false
+  "live-restore": true
 }

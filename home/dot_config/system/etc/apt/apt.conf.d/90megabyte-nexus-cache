@@ -1,0 +1,4 @@
+Acquire::Retries "3";
+Acquire::http::Timeout "15";
+Acquire::https::Timeout "15";
+Acquire::Queue-Mode "host";
