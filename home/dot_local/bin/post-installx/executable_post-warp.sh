@@ -224,6 +224,125 @@ if command -v warp-cli > /dev/null; then
     fi
   fi
 
+  ### Linux Desktop Browsers (Chrome/Chromium NSS DB + Firefox Enterprise Roots + Chrome English Locale Policy),
+  ### uv/certifi bundles, systemd user units (Paperclip/OpenClaw/Runners), and Paperclip plugin-worker CA passthrough
+  if [ "$(uname -s)" = "Linux" ]; then
+    WARP_CA_PEM=""
+    for candidate in /usr/local/share/ca-certificates/managed-warp.pem /usr/local/share/ca-certificates/cloudflare.crt "$HOME/.local/etc/ssl/cloudflare/cloudflare.pem"; do
+      if [ -s "$candidate" ]; then
+        WARP_CA_PEM="$candidate"
+        break
+      fi
+    done
+
+    if [ -n "$WARP_CA_PEM" ]; then
+      # 1. Chrome / Chromium / Electron user NSS DB (~/.pki/nssdb) + Firefox profile NSS DBs
+      if ! command -v certutil >/dev/null 2>&1 && command -v apt-get >/dev/null 2>&1 && sudo -n true 2>/dev/null; then
+        sudo -n env DEBIAN_FRONTEND=noninteractive apt-get install -y -qq libnss3-tools >/dev/null 2>&1 || true
+      fi
+      if command -v certutil >/dev/null 2>&1; then
+        mkdir -p "$HOME/.pki/nssdb"
+        certutil -D -d "sql:$HOME/.pki/nssdb" -n "Cloudflare Gateway CA" 2>/dev/null || true
+        certutil -A -d "sql:$HOME/.pki/nssdb" -n "Cloudflare Gateway CA" -t "CT,C,C" -i "$WARP_CA_PEM" 2>/dev/null || true
+        for dbdir in "$HOME"/snap/firefox/common/.mozilla/firefox/*.default* "$HOME"/.mozilla/firefox/*.default*; do
+          [ -d "$dbdir" ] || continue
+          certutil -D -d "sql:$dbdir" -n "Cloudflare Gateway CA" 2>/dev/null || true
+          certutil -A -d "sql:$dbdir" -n "Cloudflare Gateway CA" -t "CT,C,C" -i "$WARP_CA_PEM" 2>/dev/null || true
+        done
+      fi
+
+      # 2. Firefox Enterprise Roots policy + Chrome English locale policy (prevents WARP egress IP geolocation serving foreign Google)
+      if sudo -n true 2>/dev/null; then
+        sudo -n mkdir -p /etc/firefox/policies /etc/opt/chrome/policies/managed
+        sudo -n tee /etc/firefox/policies/policies.json >/dev/null <<FF_EOF
+{"policies":{"Certificates":{"ImportEnterpriseRoots":true,"Install":["$WARP_CA_PEM","/etc/ssl/certs/managed-warp.pem","/etc/ssl/certs/ca-certificates.crt"]}}}
+FF_EOF
+        sudo -n tee /etc/opt/chrome/policies/managed/00-english.json >/dev/null <<'CHROME_EOF'
+{"ApplicationLocaleValue":"en-US","HomepageLocation":"https://www.google.com/ncr?hl=en&gl=us","HomepageIsNewTabPage":false,"RestoreOnStartup":4,"RestoreOnStartupURLs":["https://www.google.com/ncr?hl=en&gl=us"]}
+CHROME_EOF
+        if ! grep -q '^NODE_EXTRA_CA_CERTS=' /etc/environment 2>/dev/null; then
+          sudo -n tee -a /etc/environment >/dev/null <<ENV_EOF
+NODE_EXTRA_CA_CERTS=$WARP_CA_PEM
+NODE_OPTIONS=--use-system-ca
+SSL_CERT_FILE=$SSL_CERT_PATH
+SSL_CERT_DIR=/etc/ssl/certs
+REQUESTS_CA_BUNDLE=$SSL_CERT_PATH
+CURL_CA_BUNDLE=$SSL_CERT_PATH
+GIT_SSL_CAINFO=$SSL_CERT_PATH
+AWS_CA_BUNDLE=$SSL_CERT_PATH
+ENV_EOF
+        fi
+      fi
+
+      # 3. User-session environment.d + systemd user service drop-ins (Paperclip, OpenClaw, GitHub Actions runners)
+      mkdir -p "$HOME/.config/environment.d"
+      cat > "$HOME/.config/environment.d/10-warp-ca.conf" <<ENVD_EOF
+NODE_EXTRA_CA_CERTS=$WARP_CA_PEM
+NODE_OPTIONS=--use-system-ca
+SSL_CERT_FILE=$SSL_CERT_PATH
+SSL_CERT_DIR=/etc/ssl/certs
+REQUESTS_CA_BUNDLE=$SSL_CERT_PATH
+CURL_CA_BUNDLE=$SSL_CERT_PATH
+GIT_SSL_CAINFO=$SSL_CERT_PATH
+AWS_CA_BUNDLE=$SSL_CERT_PATH
+ENVD_EOF
+      for unit_dir in paperclipai.service.d agent-runner-01.service.d agent-runner-02.service.d agent-runner-03.service.d; do
+        if [ -d "$HOME/.config/systemd/user/$unit_dir" ] || [ -f "$HOME/.config/systemd/user/${unit_dir%.d}" ]; then
+          mkdir -p "$HOME/.config/systemd/user/$unit_dir"
+          cat > "$HOME/.config/systemd/user/$unit_dir/use-system-ca.conf" <<DROPIN_EOF
+[Service]
+Environment="NODE_EXTRA_CA_CERTS=$WARP_CA_PEM"
+Environment="NODE_OPTIONS=--use-system-ca"
+Environment="SSL_CERT_FILE=$SSL_CERT_PATH"
+Environment="SSL_CERT_DIR=/etc/ssl/certs"
+Environment="REQUESTS_CA_BUNDLE=$SSL_CERT_PATH"
+Environment="CURL_CA_BUNDLE=$SSL_CERT_PATH"
+Environment="GIT_SSL_CAINFO=$SSL_CERT_PATH"
+Environment="AWS_CA_BUNDLE=$SSL_CERT_PATH"
+DROPIN_EOF
+        fi
+      done
+
+      # 4. Append WARP CA to isolated uv Python certifi bundles (~/.local/share/uv & ~/.cache/uv) and patch Paperclip plugin-worker env
+      python3 - "$WARP_CA_PEM" <<'PY_EOF' 2>/dev/null || true
+from pathlib import Path
+import sys
+
+warp_ca = Path(sys.argv[1])
+warp_pem = warp_ca.read_text()
+header = warp_pem.splitlines()[1] if len(warp_pem.splitlines()) > 1 else "BEGIN CERTIFICATE"
+home = Path.home()
+
+for base in (home / ".local/share/uv", home / ".cache/uv"):
+    if base.is_dir():
+        for cacert in base.rglob("cacert.pem"):
+            try:
+                txt = cacert.read_text()
+                if header not in txt:
+                    cacert.write_text(txt.rstrip() + "\n\n# Cloudflare Gateway CA\n" + warp_pem)
+            except OSError:
+                pass
+
+pwm = home / ".paperclip/cli/current/node_modules/@paperclipai/server/dist/services/plugin-worker-manager.js"
+if pwm.is_file():
+    t = pwm.read_text()
+    target = '            TZ: process.env.TZ ?? "UTC",\n        };'
+    repl = (
+        '            TZ: process.env.TZ ?? "UTC",\n'
+        '            ...(process.env.NODE_EXTRA_CA_CERTS ? { NODE_EXTRA_CA_CERTS: process.env.NODE_EXTRA_CA_CERTS } : {}),\n'
+        '            ...(process.env.NODE_OPTIONS ? { NODE_OPTIONS: process.env.NODE_OPTIONS } : {}),\n'
+        '            ...(process.env.SSL_CERT_FILE ? { SSL_CERT_FILE: process.env.SSL_CERT_FILE } : {}),\n'
+        '            ...(process.env.SSL_CERT_DIR ? { SSL_CERT_DIR: process.env.SSL_CERT_DIR } : {}),\n'
+        '            ...(process.env.REQUESTS_CA_BUNDLE ? { REQUESTS_CA_BUNDLE: process.env.REQUESTS_CA_BUNDLE } : {}),\n'
+        '            ...(process.env.CURL_CA_BUNDLE ? { CURL_CA_BUNDLE: process.env.CURL_CA_BUNDLE } : {}),\n'
+        '        };'
+    )
+    if "NODE_EXTRA_CA_CERTS" not in t and target in t:
+        pwm.write_text(t.replace(target, repl, 1))
+PY_EOF
+    fi
+  fi
+
   ### Ensure MDM settings are applied (deletes after reboot on macOS)
   ### TODO: Ensure `.plist` can be added to `~/Library/Managed Preferences` and not just `/Library/Managed Preferences`
   # Source: https://developers.cloudflare.com/cloudflare-one/connections/connect-devices/warp/deployment/mdm-deployment/

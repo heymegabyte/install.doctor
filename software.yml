@@ -1656,15 +1656,15 @@ softwarePackages:
     _bin: cfcli
     npm: cloudflare-cli
   cloudflared:
-    _name: CloudFlared
-    _short: cloudflared is a tool by Cloudflare that allows secure and fast access to the internet.
-    _desc: '[CloudFlare Argo Tunnel Client](https://developers.cloudflare.com/argo-tunnel/) contains the command-line client for CloudFlare Argo Tunnel, a tunneling daemon that proxies any local webserver through the Cloudflare network.'
+    _name: cloudflared
+    _short: Cloudflare Tunnel client for securely connecting private services to Cloudflare without opening inbound ports.
+    _desc: '[cloudflared](https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/) creates outbound-only Cloudflare Tunnel connections and can also act as an Access proxy.'
     _github: https://github.com/cloudflare/cloudflared
     _bin: cloudflared
     _preload: true
     brew:darwin: cloudflare/cloudflare/cloudflared
+    brew:linux: cloudflared
     github: github.com/cloudflare/cloudflared
-    binary:linux: https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64
   cmake:
     _name: Chezmoi
     _short: CMake is an open-source cross-platform build system designed to build, test, and package software.
@@ -2368,8 +2368,8 @@ softwarePackages:
   docker:
     _name: Docker CLI
     _short: Docker packages applications into portable containers so they run the same across development, test, and production.
-    _desc: The GitHub repository at https://github.com/microsoft/docker is maintained by Microsoft and is related to Docker, a popular platform for developing, shipping, and running applications using containerization technology. The repository likely contains code, documentation, and resources related to Microsoft's involvement with Docker, such as tools, extensions, or integrations. It could also include projects aimed at improving Docker's functionality on Microsoft platforms like Windows or Azure. For specific details, exploring the repository directly would provide more insights.
-    _github: https://github.com/microsoft/docker
+    _desc: Docker CLI and Engine tooling for building, running, and managing OCI containers.
+    _github: https://github.com/docker/cli
     _bin: docker
     _deps:
     - docker-images
@@ -2378,22 +2378,25 @@ softwarePackages:
     - containerd.io
     - docker-ce
     - docker-ce-cli
+    - docker-buildx-plugin
     - docker-compose-plugin
     dnf:
     - containerd.io
     - docker-ce
     - docker-ce-cli
+    - docker-buildx-plugin
     - docker-compose-plugin
     pacman:
-    - containerd.io
-    - docker-ce
-    - docker-ce-cli
-    - docker-compose-plugin
+    - containerd
+    - docker
+    - docker-buildx
+    - docker-compose
     script:darwin: echo "Docker CLI installed by Docker Desktop on macOS"
     zypper:
     - containerd.io
     - docker-ce
     - docker-ce-cli
+    - docker-buildx-plugin
     - docker-compose-plugin
   docker-credential-helper:
     _name: Docker Credential Helper
@@ -2409,9 +2412,9 @@ softwarePackages:
     _bin:windows: docker-credential-wincred
   docker-desktop:
     _name: Docker Desktop
-    _short: Docker Compose is a tool for defining and running multi-container Docker applications.
+    _short: Docker Desktop bundles Docker Engine, the CLI, Compose, BuildKit, and a desktop management interface.
     _desc: '[Docker](https://www.docker.com/) is a set of platform-as-a-service products that use OS-level virtualization to deliver software in packages called containers. Containers are isolated from one another and bundle their own software, libraries and configuration files; they can communicate with each other through well-defined channels. [Docker Desktop](https://www.docker.com/products/docker-desktop/) adds a sleek UI for Docker and makes it easier to manage Docker on macOS and Windows.'
-    _github: https://github.com/docker/compose
+    _github: 'false'
     _home: https://www.docker.com/
     _docs: https://docs.docker.com/
     _app: Docker.app
@@ -5280,14 +5283,15 @@ softwarePackages:
     - itermai
   java:
     _name: Java
-    _short: nosql-java-sdk is a Java library for interacting with Oracle NoSQL Database.
-    _desc: '[Java](https://www.java.com/en/) is a class-based, object-oriented programming language that is designed to have as few implementation dependencies as possible.'
-    _github: https://github.com/oracle/nosql-java-sdk
+    _short: Compatibility alias for the repository's canonical OpenJDK package.
+    _desc: Java development is provisioned through the OpenJDK catalog entry to avoid installing conflicting JDK generations.
+    _github: https://github.com/openjdk/jdk
     _bin: null
     _home: https://www.java.com/en/
-    _docs: https://docs.oracle.com/en/cloud/paas/nosql-cloud/index.html
+    _docs: https://openjdk.org/
+    _deprecated: Replaced by the canonical OpenJDK entry
+    _replacement: openjdk
     _when:cask: '! brew list temurin > /dev/null'
-    _preload: true
     brew: openjdk
     cask: temurin
     apt: openjdk-11-jdk
@@ -5495,7 +5499,7 @@ softwarePackages:
     yay: kasmvncserver-bin
     _groups:
     - kasmvnc-cert
-    script:linux: "RELEASES=$(curl -sS \"https://api.github.com/repos/kasmtech/KasmVNC/releases/latest\") || :\nLATEST_VERSION=$(echo $RELEASES | grep -o '\"tag_name\": \"[^\"]*' | grep -o '[^\"]*$') || :\nif command -v apt-get > /dev/null; then\n  . /etc/os-release\n  cd /tmp\n  case $VERSION_CODENAME in\n  bullseye )\n    wget \"https://github.com/kasmtech/KasmVNC/releases/download/$LATEST_VERSION/kasmvncserver_bullseye_${LATEST_VERSION:1}_amd64.deb\" || :\n    ;;\n  buster )\n    wget \"https://github.com/kasmtech/KasmVNC/releases/download/$LATEST_VERSION/kasmvncserver_buster_${LATEST_VERSION:1}_amd64.deb\" || :\n    ;;\n  focal )\n    wget \"https://github.com/kasmtech/KasmVNC/releases/download/$LATEST_VERSION/kasmvncserver_focal_${LATEST_VERSION:1}_amd64.deb\" || :\n    ;;\n  jammy )\n    wget \"https://github.com/kasmtech/KasmVNC/releases/download/$LATEST_VERSION/kasmvncserver_jammy_${LATEST_VERSION:1}_amd64.deb\" || :\n    ;;\n  noble )\n    wget \"https://github.com/kasmtech/KasmVNC/releases/download/$LATEST_VERSION/kasmvncserver_noble_${LATEST_VERSION:1}_amd64.deb\" || :\n  * )\n    ;;\n  esac\n  if ls kasmvncserver*.deb > /dev/null 2>&1; then sudo apt-get install ./kasmvncserver_*.deb; sudo addgroup $USER ssl-cert; fi\nelif command -v dnf > /dev/null; then\n  wget \"https://github.com/kasmtech/KasmVNC/releases/download/$LATEST_VERSION/kasmvncserver_centos_core_${LATEST_VERSION:1}_x86_64.rpm\" || :\n  if ls kasmvncserver*.rpm > /dev/null 2>&1; then sudo rpm -ivh ./kasmvncserver_*.rpm; sudo usermod -a -G kasmvnc-cert $USER; fi\nelif command -v zypper > /dev/null; then\n  wget \"https://github.com/kasmtech/KasmVNC/releases/download/$LATEST_VERSION/kasmvncserver_opensuse_15_${LATEST_VERSION:1}_x86_64.rpm\" || :\n  if ls kasmvncserver*.rpm > /dev/null 2>&1; then sudo rpm -ivh ./kasmvncserver_*.rpm; sudo usermod -a -G kasmvnc-cert $USER; fi\nelif command -v apk > /dev/null; then\n  wget \"https://github.com/kasmtech/KasmVNC/releases/download/$LATEST_VERSION/kasmvnc.alpine_317_x86_64.tgz\" || :\n  if ls kasmvncserver*.rpm > /dev/null 2>&1; then sudo tar -xzf \"./kasmvnc.alpine_317_x86_64.tgz\" -C /; fi\nfi\n"
+    script:linux: "RELEASES=$(curl -sS \"https://api.github.com/repos/kasmtech/KasmVNC/releases/latest\") || :\nLATEST_VERSION=$(echo $RELEASES | grep -o '\"tag_name\": \"[^\"]*' | grep -o '[^\"]*$') || LATEST_VERSION=v1.5.2\n[ -n \"$LATEST_VERSION\" ] || LATEST_VERSION=v1.5.2\nif command -v apt-get > /dev/null; then\n  . /etc/os-release\n  cd /tmp\n  case $VERSION_CODENAME in\n  bullseye )\n    wget -qO kasmvncserver.deb \"https://github.com/kasmtech/KasmVNC/releases/download/$LATEST_VERSION/kasmvncserver_bullseye_${LATEST_VERSION:1}_amd64.deb\" || :\n    ;;\n  bookworm )\n    wget -qO kasmvncserver.deb \"https://github.com/kasmtech/KasmVNC/releases/download/$LATEST_VERSION/kasmvncserver_bookworm_${LATEST_VERSION:1}_amd64.deb\" || :\n    ;;\n  focal )\n    wget -qO kasmvncserver.deb \"https://github.com/kasmtech/KasmVNC/releases/download/$LATEST_VERSION/kasmvncserver_focal_${LATEST_VERSION:1}_amd64.deb\" || :\n    ;;\n  jammy )\n    wget -qO kasmvncserver.deb \"https://github.com/kasmtech/KasmVNC/releases/download/$LATEST_VERSION/kasmvncserver_jammy_${LATEST_VERSION:1}_amd64.deb\" || :\n    ;;\n  noble | plucky | questing | resolute | * )\n    wget -qO kasmvncserver.deb \"https://github.com/kasmtech/KasmVNC/releases/download/$LATEST_VERSION/kasmvncserver_ubuntu_noble_${LATEST_VERSION:1}_amd64.deb\" || :\n    ;;\n  esac\n  if [ -s kasmvncserver.deb ]; then sudo apt-get install -y --no-install-recommends ./kasmvncserver.deb tigervnc-viewer openbox; rm -f kasmvncserver.deb; sudo usermod -aG ssl-cert \"$USER\" 2>/dev/null || true; fi\nelif command -v dnf > /dev/null; then\n  wget \"https://github.com/kasmtech/KasmVNC/releases/download/$LATEST_VERSION/kasmvncserver_centos_core_${LATEST_VERSION:1}_x86_64.rpm\" || :\n  if ls kasmvncserver*.rpm > /dev/null 2>&1; then sudo rpm -ivh ./kasmvncserver_*.rpm; sudo usermod -a -G kasmvnc-cert $USER; fi\nelif command -v zypper > /dev/null; then\n  wget \"https://github.com/kasmtech/KasmVNC/releases/download/$LATEST_VERSION/kasmvncserver_opensuse_15_${LATEST_VERSION:1}_x86_64.rpm\" || :\n  if ls kasmvncserver*.rpm > /dev/null 2>&1; then sudo rpm -ivh ./kasmvncserver_*.rpm; sudo usermod -a -G kasmvnc-cert $USER; fi\nelif command -v apk > /dev/null; then\n  wget \"https://github.com/kasmtech/KasmVNC/releases/download/$LATEST_VERSION/kasmvnc.alpine_317_x86_64.tgz\" || :\n  if ls kasmvncserver*.rpm > /dev/null 2>&1; then sudo tar -xzf \"./kasmvnc.alpine_317_x86_64.tgz\" -C /; fi\nfi\n"
     script:darwin: null
   kcpassword:
     _name: kcpassword
@@ -7730,7 +7734,6 @@ softwarePackages:
     _bin: ollama
     _home: https://ollama.com
     _app: Ollama.app
-    _deprecated: Deprecated in favor of AnythingLLM
     brew: ollama
     cask: ollama
     choco: ollama
@@ -7829,9 +7832,9 @@ softwarePackages:
   opencode:
     _name: OpenCode
     _short: AI Terminal companion
-    _github: https://github.com/sst/opencode
+    _github: https://github.com/anomalyco/opencode
     _bin: opencode
-    brew: sst/tap/opencode
+    brew: anomalyco/tap/opencode
     npm: opencode-ai@latest
     script: curl -fsSL https://opencode.ai/install | bash
     paru: opencode-bin
