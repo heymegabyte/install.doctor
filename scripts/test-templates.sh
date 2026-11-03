@@ -20,8 +20,8 @@ echo "Templates found: $TMPS"
 # ---------------------------------------------------------------------------
 MISMATCHED=0
 while IFS= read -r -d '' f; do
-  OPEN=$(/usr/bin/grep -c '{{' "$f" 2>/dev/null || echo "0")
-  CLOSE=$(/usr/bin/grep -c '}}' "$f" 2>/dev/null || echo "0")
+  OPEN=$(grep -c '{{' "$f" 2>/dev/null || true)
+  CLOSE=$(grep -c '}}' "$f" 2>/dev/null || true)
   if [ "$OPEN" != "$CLOSE" ]; then
     echo "  FAIL: $(basename "$f") — $OPEN opens vs $CLOSE closes"
     MISMATCHED=$((MISMATCHED + 1))
@@ -39,8 +39,8 @@ fi
 # ---------------------------------------------------------------------------
 # Check 2: Orphaned {{ end }} without matching {{ if }}/{{ range }}
 # ---------------------------------------------------------------------------
-ORPHAN_ENDS=$(/usr/bin/grep -rn '{{ *end *}}' "$REPO_ROOT/home" --include="*.tmpl" 2>/dev/null | wc -l | tr -d ' ')
-ORPHAN_IFS=$(/usr/bin/grep -rn '{{ *if \|{{ *range \|{{ *with \|{{ *block ' "$REPO_ROOT/home" --include="*.tmpl" 2>/dev/null | wc -l | tr -d ' ')
+ORPHAN_ENDS=$(grep -rn '{{ *end *}}' "$REPO_ROOT/home" --include="*.tmpl" 2>/dev/null | wc -l | tr -d ' ')
+ORPHAN_IFS=$(grep -rn '{{ *if \|{{ *range \|{{ *with \|{{ *block ' "$REPO_ROOT/home" --include="*.tmpl" 2>/dev/null | wc -l | tr -d ' ')
 echo "  Template control flow: $ORPHAN_IFS opens, $ORPHAN_ENDS ends"
 
 # ---------------------------------------------------------------------------
@@ -50,7 +50,12 @@ if command -v chezmoi &>/dev/null; then
   echo ""
   echo "=== chezmoi execute-template validation ==="
   CHEZMOI_FAILS=0
+  CHEZMOI_SAMPLED=0
   while IFS= read -r -d '' f; do
+    # NUL-delimited records contain no newlines, so `head -50` on a `find -print0` stream caps NOTHING
+    # (it reads one giant line and passes every template). Bound the sample here instead.
+    [ "$CHEZMOI_SAMPLED" -ge 50 ] && break
+    CHEZMOI_SAMPLED=$((CHEZMOI_SAMPLED + 1))
     rel="${f#$REPO_ROOT/home/}"
     # Skip .chezmoi.yaml.tmpl (needs full chezmoi context, not stdin-renderable)
     # Skip scripts/src/* (gomplate templates, not chezmoi)
@@ -71,9 +76,9 @@ if command -v chezmoi &>/dev/null; then
       echo "  FAIL: chezmoi execute-template failed on ${rel} (exit $rc)" >&2
       CHEZMOI_FAILS=$((CHEZMOI_FAILS + 1))
     fi
-  done < <(find "$REPO_ROOT/home" -name "*.tmpl" -type f -not -path "*/scripts/src/*" -print0 2>/dev/null | head -50)
+  done < <(find "$REPO_ROOT/home" -name "*.tmpl" -type f -not -path "*/scripts/src/*" -print0 2>/dev/null)
   if [ "$CHEZMOI_FAILS" -eq 0 ]; then
-    echo "  PASS: chezmoi execute-template succeeded on sampled templates"
+    echo "  PASS: chezmoi execute-template succeeded on sampled templates ($CHEZMOI_SAMPLED checked)"
     PASS=$((PASS + 1))
   else
     echo "  FAIL: $CHEZMOI_FAILS templates failed chezmoi execute-template"
@@ -88,7 +93,9 @@ fi
 # ---------------------------------------------------------------------------
 if python3 -m py_compile "$REPO_ROOT/home/dot_local/bin/executable_megabyte-local-proxy" && \
    bash -n "$REPO_ROOT/home/dot_local/bin/executable_kasmvnc-gnome-loopback-run" && \
-   bash -n "$REPO_ROOT/home/dot_local/bin/post-installx/executable_post-nexus-cache.sh"; then
+   bash -n "$REPO_ROOT/home/dot_local/bin/executable_cnf-build-shims" && \
+   bash -n "$REPO_ROOT/home/dot_local/bin/post-installx/executable_post-nexus-cache.sh" && \
+   bash -n "$REPO_ROOT/home/dot_local/bin/post-installx/executable_post-legion-workstation.sh"; then
   echo "  PASS: Loopback proxy and KasmVNC helper scripts passed syntax validation"
   PASS=$((PASS + 1))
 else

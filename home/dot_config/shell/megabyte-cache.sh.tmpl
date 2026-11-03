@@ -41,3 +41,25 @@ export VLLM_CACHE_ROOT="${MEGABYTE_CACHE_ROOT}/ai/vllm"
 
 # Agent disposable scratch/working caches under ~/.cache/megabyte/agents
 export MEGABYTE_AGENT_CACHE_DIR="${MEGABYTE_CACHE_ROOT}/agents"
+
+# Ensure user-local toolchains (~/.local/bin, cargo, bun, mise shims) are on PATH
+for _mb_prepend in "$HOME/.local/share/mise/shims" "$HOME/.bun/bin" "$HOME/.local/share/cargo/bin" "$HOME/.cargo/bin" "$HOME/.local/bin"; do
+  if [ -d "$_mb_prepend" ]; then
+    case ":$PATH:" in
+      *":$_mb_prepend:"*) ;;
+      *) export PATH="$_mb_prepend:$PATH" ;;
+    esac
+  fi
+done
+unset _mb_prepend
+
+# Append ~/.cache/cnf/shims to the VERY END (tail) of PATH so missing lazy-loaded CLIs
+# auto-install on first invocation (even in non-interactive AI agent subshells), while
+# already-installed native binaries earlier in PATH execute with 0ms overhead.
+export CNF_SHIMS_DIR="${XDG_CACHE_HOME}/cnf/shims"
+if [ -d "$CNF_SHIMS_DIR" ]; then
+  case ":$PATH:" in
+    *":$CNF_SHIMS_DIR:"*) ;;
+    *) export PATH="$PATH:$CNF_SHIMS_DIR" ;;
+  esac
+fi

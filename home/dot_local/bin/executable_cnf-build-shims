@@ -1,0 +1,96 @@
+#!/usr/bin/env bash
+# @file ~/.local/bin/cnf-build-shims
+# @brief Generate tail-of-PATH lazy-loading shims in ~/.cache/cnf/shims for non-interactive/agent CLI execution.
+# @description
+#   Interactive bash/zsh shells use ~/.config/shell/not-found-hook.sh (command_not_found_handle).
+#   However, AI coding agents (Claude Code, OpenCode, Codex, Gemini) and scripts execute commands via
+#   non-interactive subshells or execvp(), where shell command-not-found hooks do not trigger.
+#   By placing lightweight shims in ~/.cache/cnf/shims (appended to the VERY END of PATH), any missing
+#   convenience/linter/cloud/media CLI is transparently installed on first invocation via not-found-hook.sh
+#   (backed by the 3-tier megabyte-local-proxy -> Nexus cache), and then self-deletes its shim so all
+#   subsequent calls hit the native binary with 0ms overhead.
+set -euo pipefail
+
+INDEX="${1:-${CNF_INDEX:-$HOME/.cache/cnf/index.tsv}}"
+SHIM_DIR="${2:-${CNF_SHIMS_DIR:-$HOME/.cache/cnf/shims}}"
+mkdir -p "$SHIM_DIR"
+
+# If index doesn't exist yet, try building it first
+if [ ! -s "$INDEX" ] && command -v cnf-build-index >/dev/null 2>&1; then
+  cnf-build-index "$HOME/.local/share/chezmoi/software.yml" "$INDEX" >/dev/null 2>&1 || true
+fi
+
+# Curated lazy-loaded CLI catalog (convenience, TUI, DevSecOps linters, cloud, and media tools)
+LAZY_CMDS=(
+  lazygit lazydocker dive zellij starship zoxide eza bat delta glow gum atuin
+  shellcheck shfmt actionlint yamllint semgrep trivy gitleaks hadolint syft grype
+  aws gcloud flyctl kubectl helm k9s stern terraform tofu ansible rclone
+  ffmpeg imagemagick convert magick dot graphviz pandoc typst qpdf tesseract pdftotext
+  hyperfine duf dust procs doggo mosh just watchexec entr syncthing tree-sitter
+)
+
+# Clean PATH without SHIM_DIR to check if native binary already exists
+CLEAN_PATH="$(printf '%s' "${PATH:-/usr/local/bin:/usr/bin:/bin}" | tr ':' '\n' | grep -vxF "$SHIM_DIR" | paste -sd: -)"
+
+count=0
+removed=0
+for cmd in "${LAZY_CMDS[@]}"; do
+  if PATH="$CLEAN_PATH" command -v "$cmd" >/dev/null 2>&1; then
+    if [ -f "$SHIM_DIR/$cmd" ]; then
+      rm -f "$SHIM_DIR/$cmd"
+      removed=$((removed + 1))
+    fi
+    continue
+  fi
+  cat > "$SHIM_DIR/$cmd" <<'EOF'
+#!/usr/bin/env bash
+set -uo pipefail
+CMD="$(basename "$0")"
+SHIM_DIR="$(cd "$(dirname "$0")" && pwd)"
+CLEAN_PATH="$(printf '%s' "${PATH:-/usr/local/bin:/usr/bin:/bin}" | tr ':' '\n' | grep -vxF "$SHIM_DIR" | paste -sd: -)"
+export PATH="$CLEAN_PATH"
+
+# If already installed on CLEAN_PATH, remove shim and exec native binary immediately
+if command -v "$CMD" >/dev/null 2>&1; then
+  rm -f "$SHIM_DIR/$CMD" 2>/dev/null || true
+  exec "$CMD" "$@"
+fi
+
+# Ubuntu binary alias normalization (batcat -> bat, fdfind -> fd)
+if [ "$CMD" = "bat" ] && command -v batcat >/dev/null 2>&1; then
+  mkdir -p "$HOME/.local/bin" && ln -sf "$(command -v batcat)" "$HOME/.local/bin/bat"
+  rm -f "$SHIM_DIR/$CMD" 2>/dev/null || true
+  exec batcat "$@"
+fi
+if [ "$CMD" = "fd" ] && command -v fdfind >/dev/null 2>&1; then
+  mkdir -p "$HOME/.local/bin" && ln -sf "$(command -v fdfind)" "$HOME/.local/bin/fd"
+  rm -f "$SHIM_DIR/$CMD" 2>/dev/null || true
+  exec fdfind "$@"
+fi
+
+HOOK="${CNF_HOOK:-${XDG_CONFIG_HOME:-$HOME/.config}/shell/not-found-hook.sh}"
+if [ -f "$HOOK" ]; then
+  # shellcheck disable=SC1090
+  . "$HOOK"
+  CNF_ALLOW_NONINTERACTIVE=1 CNF_NO_EXEC=1 handle_command_not_found "$CMD" || exit $?
+  hash -r 2>/dev/null || true
+  if [ "$CMD" = "bat" ] && ! command -v bat >/dev/null 2>&1 && command -v batcat >/dev/null 2>&1; then
+    mkdir -p "$HOME/.local/bin" && ln -sf "$(command -v batcat)" "$HOME/.local/bin/bat"
+  fi
+  if [ "$CMD" = "fd" ] && ! command -v fd >/dev/null 2>&1 && command -v fdfind >/dev/null 2>&1; then
+    mkdir -p "$HOME/.local/bin" && ln -sf "$(command -v fdfind)" "$HOME/.local/bin/fd"
+  fi
+  if command -v "$CMD" >/dev/null 2>&1; then
+    rm -f "$SHIM_DIR/$CMD" 2>/dev/null || true
+    exec "$CMD" "$@"
+  fi
+fi
+
+printf 'cnf-shim: %s could not be lazy-installed\n' "$CMD" >&2
+exit 127
+EOF
+  chmod +x "$SHIM_DIR/$cmd"
+  count=$((count + 1))
+done
+
+printf 'cnf-shims: %d lazy shims active, %d resolved native binaries (%s)\n' "$count" "$removed" "$SHIM_DIR"

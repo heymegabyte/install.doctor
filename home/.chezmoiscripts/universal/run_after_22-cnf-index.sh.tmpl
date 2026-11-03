@@ -23,3 +23,11 @@ fi
 
 # Best-effort: a failed build (missing yq/jq/python or software.yml) must not fail `chezmoi apply`.
 "$CNF_BUILD_INDEX_BIN" >/dev/null 2>&1 || true
+
+# Also materialize tail-of-PATH lazy shims (~/.cache/cnf/shims) for non-interactive/agent CLI execution.
+CNF_BUILD_SHIMS_BIN="${CNF_BUILD_SHIMS_BIN:-$HOME/.local/bin/cnf-build-shims}"
+if [ -x "$CNF_BUILD_SHIMS_BIN" ]; then
+  "$CNF_BUILD_SHIMS_BIN" >/dev/null 2>&1 || true
+elif command -v cnf-build-shims >/dev/null 2>&1; then
+  cnf-build-shims >/dev/null 2>&1 || true
+fi
