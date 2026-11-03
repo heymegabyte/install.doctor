@@ -1,0 +1,44 @@
+#!/usr/bin/env bash
+# @file ~/.local/bin/gpt/aihawk
+# @brief Setup and launch AIHawk
+# @description
+#   This script configures [AIHawk](https://github.com/feder-cr/Jobs_Applier_AI_Agent)
+#   which allows the user to apply to jobs using AI.
+
+### Ensure repository is cloned to ~/.local/share/shortgpt
+if [ ! -d "${XDG_DATA_HOME:-$HOME/.local/share}/aihawk" ]; then
+  gum log -sl info "Cloning https://github.com/feder-cr/Jobs_Applier_AI_Agent.git to ${XDG_DATA_HOME:-$HOME/.local/share}/aihawk"
+  git clone https://github.com/feder-cr/Jobs_Applier_AI_Agent.git "${XDG_DATA_HOME:-$HOME/.local/share}/aihawk"
+  cd "${XDG_DATA_HOME:-$HOME/.local/share}/aihawk" || exit 1
+else
+  gum log -sl info "Attempting to pull latest changes"
+  cd "${XDG_DATA_HOME:-$HOME/.local/share}/aihawk" || exit 1
+  git pull || true
+fi
+
+### Remove AIHawk `data_folder`
+if [ ! -L "${XDG_DATA_HOME:-$HOME/.local/share}/aihawk/data_folder" ]; then
+  gum log -sl info "Symlinking ${XDG_DATA_HOME:-$HOME/.local/share}/aihawk/data_folder to ${XDG_CONFIG_HOME:-$HOME/.config}/aihawk"
+  rm -rf "${XDG_DATA_HOME:-$HOME/.local/share}/aihawk/data_folder"
+  ln -s "${XDG_CONFIG_HOME:-$HOME/.config}/aihawk" "${XDG_DATA_HOME:-$HOME/.local/share}/aihawk/data_folder"
+else
+  gum log -sl info "${XDG_DATA_HOME:-$HOME/.local/share}/aihawk/data_folder is already symlinked"
+fi
+
+### Ensure virtualenv is initialized
+if [ ! -d "${XDG_DATA_HOME:-$HOME/.local/share}/aihawk/.venv" ]; then
+  gum log -sl info "Creating .venv virtualenv"
+  virtualenv .venv
+fi
+
+### Source the virtualenv
+gum log -sl info "Running source .venv/bin/activate"
+source .venv/bin/activate
+
+### Install requirements
+gum log -sl info "Installing requirements"
+pip3 install -r requirements.txt
+
+### Run AIHawk
+gum log -sl info "Running python3 main.py"
+python3 main.py

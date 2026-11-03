@@ -1,0 +1,50 @@
+#!/usr/bin/env bash
+# @file ~/.local/bin/gpt/localgpt
+# @brief Setup and launch localGPT
+# @description
+#   This script is a script that will automatically setup and launch [localGPT](https://github.com/PromtEngineer/localGPT).
+#   Chat with your documents on your local device using GPT models. No data leaves your device and 100% private.
+
+
+### Ensure repository is cloned to ~/.local/share/localgpt
+if [ ! -d "${XDG_DATA_HOME:-$HOME/.local/share}/localgpt" ]; then
+    git clone https://github.com/PromtEngineer/localGPT.git "${XDG_DATA_HOME:-$HOME/.local/share}/localgpt"
+fi
+
+### Set working directory
+cd "${XDG_DATA_HOME:-$HOME/.local/share}/localgpt"
+
+### Ensure Conda environment is created
+echo y | conda create -n localGPT
+
+### Activate environment
+conda activate localGPT
+
+### Install requirements
+pip3 install -r requirements.txt
+
+### Ensure port 5111 is available
+kill -9 $(lsof -t -i:5111) || EXIT_CODE=$?
+if [ -n "$EXIT_CODE" ]; then
+    echo "No processes were killed (while ensuring any process listening on port 5111 is killed)"
+else
+    echo "Killed process listening on port 5111"
+fi
+
+### Run ShortGPT
+python3 runShortGPT.py &
+
+### Wait until localhost:5111 is available (max. wait of 20 minutes)
+echo "Waiting for localhost:5111 to become available.."
+timeout 1200 bash -c 'until printf "" 2>>/dev/null >>/dev/tcp/$0/$1; do sleep 1; done' localhost 5111
+echo "localhost:5111 is now available!"
+
+### Open the website
+WEB_APP_URL="http://127.0.0.1:5111"
+if command -v xdg-open > /dev/null; then
+    xdg-open "$WEB_APP_URL"
+elif command -v open && [ -d /Applications ]; then
+    open "$WEB_APP_URL"
+else
+    echo "Open $WEB_APP_URL in a web browser"
+fi

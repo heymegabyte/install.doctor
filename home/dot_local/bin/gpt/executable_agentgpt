@@ -1,0 +1,48 @@
+#!/usr/bin/env bash
+# @file ~/.local/bin/gpt/agentgpt
+# @brief Setup and launch AgentGPT
+# @description
+#   This script is a script that will automatically setup and launch [AgentGPT](https://github.com/reworkd/AgentGPT).
+#   AgentGPT allows you to assemble, configure, and deploy autonomous AI agents in your browser.
+
+### Ensure repository is cloned to ~/.local/share/shortgpt
+if [ ! -d "${XDG_DATA_HOME:-$HOME/.local/share}/agentgpt" ]; then
+    git clone https://github.com/reworkd/AgentGPT.git "${XDG_DATA_HOME:-$HOME/.local/share}/agentgpt"
+fi
+
+### Set working directory
+cd "${XDG_DATA_HOME:-$HOME/.local/share}/agentgpt"
+
+### Copy .env files
+if [ -f "${XDG_CONFIG_HOME:-$HOME/.config}/agentgpt/next/.env" ]; then
+    cp -f "${XDG_CONFIG_HOME:-$HOME/.config}/agentgpt/next/.env" "${XDG_DATA_HOME:-$HOME/.local/share}/agentgpt/next/.env"
+fi
+if [ -f "${XDG_CONFIG_HOME:-$HOME/.config}/agentgpt/platform/.env" ]; then
+    cp -f "${XDG_CONFIG_HOME:-$HOME/.config}/agentgpt/platform/.env" "${XDG_DATA_HOME:-$HOME/.local/share}/agentgpt/platform/.env"
+fi
+
+### Ensure port 8080 is available
+kill -9 $(lsof -t -i:8080) || EXIT_CODE=$?
+if [ -n "$EXIT_CODE" ]; then
+    echo "No processes were killed (while ensuring any process listening on port 8080 is killed)"
+else
+    echo "Killed process listening on port 8080"
+fi
+
+### Run the setup script
+echo | bash "${XDG_DATA_HOME:-$HOME/.local/share}/agentgpt/setup.sh" &
+
+### Wait until localhost:3000 is available (max. wait of 20 minutes)
+echo "Waiting for localhost:3000 to become available.."
+timeout 1200 bash -c 'until printf "" 2>>/dev/null >>/dev/tcp/$0/$1; do sleep 1; done' localhost 3000
+echo "localhost:3000 is now available!"
+
+### Open the website
+WEB_APP_URL="http://127.0.0.1:3000"
+if command -v xdg-open > /dev/null; then
+    xdg-open "$WEB_APP_URL"
+elif command -v open && [ -d /Applications ]; then
+    open "$WEB_APP_URL"
+else
+    echo "Open $WEB_APP_URL in a web browser"
+fi

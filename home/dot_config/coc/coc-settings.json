@@ -1,0 +1,38 @@
+{
+  "sh.enable": true,
+  "languageserver": {
+    "dockerfile": {
+      "command": "docker-langserver",
+      "filetypes": [
+        "Dockerfile"
+      ],
+      "args": [
+        "--stdio"
+      ]
+    },
+    "sql": {
+      "module": "sql-language-server",
+      "args": [
+        "up",
+        "--method",
+        "node-ipc"
+      ],
+      "filetypes": [
+        "sql",
+        "mysql"
+      ]
+    },
+    "terraform": {
+      "command": "terraform-ls",
+      "args": [
+        "serve"
+      ],
+      "filetypes": [
+        "terraform",
+        "tf"
+      ],
+      "initializationOptions": {},
+      "settings": {}
+    }
+  }
+}

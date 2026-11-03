@@ -1,0 +1,56 @@
+# /etc/tigervnc/vncserver-config-mandatory written by Joachim Falk. This file is
+# in the Public Domain.
+#
+# This is a configuration file for the tigervnc-standalone-server and the
+# tigervnc-scraping-server packages.
+#
+# The options specified in this file override any of the same options defined
+# in vncserver-config-defaults, a user's tigervnc.conf file, as well as options
+# given via the command line. This file offers a mechanism to establish some
+# basic form of system-wide policy.
+#
+# ******************************************************************************
+# * WARNING! Nothing is stopping users from realizing their own start script   *
+# * that calls Xtigervnc directly to bypass any options defined in this file.  *
+# ******************************************************************************
+#
+# See the following manpages for more details:
+#  - tigervnc.conf(5x)
+#  - tigervncserver(1)
+#  - tigervncsession(8)
+#  - Xtigervnc(1)
+#
+# This file has Perl syntax and is source from the tigervncserver script.
+# Several common settings are shown below. Uncomment and modify to your liking.
+
+# $SecurityTypes a comma separated list of security types the TigerVNC
+#                server will offer. Available are None, VncAuth, Plain,
+#                TLSNone, TLSVnc, TLSPlain, X509None, X509Vnc, and X509Plain.
+#
+# Example: $SecurityTypes = "X509Vnc,X509Plain,TLSVnc,TLSPlain,VncAuth";
+
+# $desktopName specifies the name of the desktop.
+#
+# Example: $desktopName = "${HOSTFQDN}:nn ($USER)" # Where nn is the display number.
+
+# $geometry sets framebuffer width & height.
+#
+# Example: $geometry="2000x1200";
+
+# $localhost should the TigerVNC server only listen on localhost for
+#            incoming VNC connections.
+#
+# Example: $localhost = "yes";
+# Example: $localhost = "no";
+
+# $AlwaysShared specifies if incoming connections are always treated as shared,
+# regardless of the client-specified setting.
+#
+# Default: $AlwaysShared = "no";
+# Example: $AlwaysShared = "yes";
+
+# $NeverShared specifies if incoming connections are never treated as shared,
+# regardless of the client-specified setting.
+#
+# Default: $NeverShared  = "no";
+# Example: $NeverShared  = "yes";

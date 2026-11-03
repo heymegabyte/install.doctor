@@ -1,0 +1,53 @@
+Project Path: {{ absolute_code_path }}
+
+I'd like your help cleaning up and improving the code quality of this file. Please review all the code files carefully:
+
+Source Tree:
+```
+{{ source_tree }}
+```
+
+{{#each files}}
+{{#if code}}
+`{{path}}`:
+
+{{code}}
+
+{{/if}}
+{{/each}}
+
+When reviewing the code, look for opportunities to improve:
+- Readability and clarity
+- Adherence to language idioms and best practices
+- Modularity and code organization
+- Efficiency and performance (within reason)
+- Consistency in style and conventions
+- Error handling and reliability
+- Simplicity (remove unused code, simplify complex logic)
+- Naming of variables, functions, classes, etc.
+- Formatting and whitespace
+- Comments and documentation
+- Comments should be in shdoc format for shell scripts and in jsdoc syntax for JavaScript/TypeScript files
+- Comments using the shdoc format and all shell scripts in general should start with `#!/usr/bin/env bash` followed by shdoc comments describing the entire file in the following format:
+
+```
+# @file .local/bin/improve-code
+# @brief The brief should be a short description of the file
+# @description
+#     This section should include an in-depth comment that describes the particulars
+#     of the entire script / file.
+```
+
+- In shell scripts, the variables should be in uppercase
+- In shell scripts, the functions should be in camel case
+- In shell scripts, for log statements, instead of echo, use `gum log -sl info` for info statements, `gum log -sl warn` for warning statements, and `gum log -sl error` for error statements
+- In shell scripts and Chezmoi shell template scripts ending in `.tmpl`, the code should pass all of the shellcheck recommendations
+- Tabs should equal 2 spaces in the final code
+
+Make sure your changes don't alter existing behavior (except perhaps for improved error handling). Try to infer the original intent as much as possible, and refactor towards that intent.
+
+Be aggressive with your changes and implement any improvements you can think of even if they are not covered in the bullet points above.
+
+When returning your response, only print the code without the wrapping ` marks. Your response will be saved verbatim to the project path so it is important that your response only include the improved code.
+
+Print a full drop-in replacement with only the code and no wrapping ` marks. Be sure to include all initial business logic since the code should be a drop-in replacement with your revisions and the initial code.

@@ -1,0 +1,51 @@
+#!/usr/bin/env bash
+# @file ~/.local/bin/gpt/shortgpt
+# @brief Setup and launch ShortGPT
+# @description
+#   This script is a script that will automatically setup and launch [ShortGPT](https://github.com/RayVentura/ShortGPT).
+#   ShortGPT allows you to create short videos automatically by leveraging AI.
+
+### Ensure repository is cloned to ~/.local/share/shortgpt
+if [ ! -d "${XDG_DATA_HOME:-$HOME/.local/share}/shortgpt" ]; then
+    git clone https://github.com/rayventura/shortgpt.git "${XDG_DATA_HOME:-$HOME/.local/share}/shortgpt"
+fi
+
+### Set working directory
+cd "${XDG_DATA_HOME:-$HOME/.local/share}/shortgpt"
+
+### Ensure virtualenv is initialized
+if [ ! -d "${XDG_DATA_HOME:-$HOME/.local/share}/shortgpt/.venv" ]; then
+    virtualenv .venv
+fi
+
+### Source the virtualenv
+source .venv/bin/activate
+
+### Install requirements
+pip3 install -r requirements.txt
+
+### Ensure port 31415 is available
+kill -9 $(lsof -t -i:31415) || EXIT_CODE=$?
+if [ -n "$EXIT_CODE" ]; then
+    echo "No processes were killed (while ensuring any process listening on port 31415 is killed)"
+else
+    echo "Killed process listening on port 31415"
+fi
+
+### Run ShortGPT
+python3 runShortGPT.py &
+
+### Wait until localhost:31415 is available (max. wait of 20 minutes)
+echo "Waiting for localhost:31415 to become available.."
+timeout 1200 bash -c 'until printf "" 2>>/dev/null >>/dev/tcp/$0/$1; do sleep 1; done' localhost 31415
+echo "localhost:31415 is now available!"
+
+### Open the website
+WEB_APP_URL="http://127.0.0.1:31415"
+if command -v xdg-open > /dev/null; then
+    xdg-open "$WEB_APP_URL"
+elif command -v open && [ -d /Applications ]; then
+    open "$WEB_APP_URL"
+else
+    echo "Open $WEB_APP_URL in a web browser"
+fi

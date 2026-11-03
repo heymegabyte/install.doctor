@@ -1,0 +1,28 @@
+---
+version: 1.4.0
+default_namespace: default
+config_home_path: {{ .host.home }}/.config/hoard
+trove_path: {{ .host.home }}/.config/hoard/trove.yml
+query_prefix: "  >"
+primary_color:
+  - 242
+  - 229
+  - 188
+secondary_color:
+  - 181
+  - 118
+  - 20
+tertiary_color:
+  - 50
+  - 48
+  - 47
+command_color:
+  - 180
+  - 118
+  - 20
+parameter_token: "#"
+parameter_ending_token: "!"
+read_from_current_directory: true
+sync_server_url: "https://troveserver.herokuapp.com/"
+api_token: {{ if (stat (joinPath .chezmoi.sourceDir ".chezmoitemplates" (printf "%s%s" "secrets-" .chezmoi.hostname) "HOARD_API_TOKEN")) }}{{ includeTemplate (printf "%s%s" (printf "%s%s" "secrets-" .chezmoi.hostname) "/HOARD_API_TOKEN") | decrypt | trim }}{{ else }}{{ env "HOARD_API_TOKEN" }}{{ end }}
+gpt_api_key: {{ if (stat (joinPath .chezmoi.sourceDir ".chezmoitemplates" (printf "%s%s" "secrets-" .chezmoi.hostname) "OPENAI_API_KEY")) }}{{ includeTemplate (printf "%s%s" (printf "%s%s" "secrets-" .chezmoi.hostname) "/OPENAI_API_KEY") | decrypt | trim }}{{ else }}{{ env "OPENAI_API_KEY" }}{{ end }}

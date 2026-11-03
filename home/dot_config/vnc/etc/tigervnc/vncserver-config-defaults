@@ -1,0 +1,229 @@
+# /etc/tigervnc/vncserver-config-defaults written by Joachim Falk. This file is
+# in the Public Domain.
+#
+# This is a configuration file for the tigervnc-standalone-server and the
+# tigervnc-scraping-server packages.
+#
+# After this file, $ENV{HOME}/.vnc/tigervnc.conf will be sourced, so values can
+# be overwritten on a per-user basis.
+#
+# Next, command-line options overwrite the settings in both this file as well as
+# the user's tigervnc.conf config file.
+#
+# Finally, /etc/tigervnc/vncserver-config-mandatory is parsed. If this file
+# exists and defines options to be passed to Xtigervnc, they will override any
+# of the same options defined in a user's tigervnc.conf file as well as options
+# given via the command line. The vncserver-config-mandatory file offers a
+# mechanism to establish some basic form of system-wide policy.
+#
+# ******************************************************************************
+# * WARNING! There is nothing stopping users from constructing their own start *
+# * script that calls Xtigervnc directly to bypass any options defined in      *
+# * /etc/tigervnc/vncserver-config-mandatory.                                  *
+# ******************************************************************************
+#
+# See the following manpages for more details:
+#  - tigervnc.conf(5x)
+#  - tigervncserver(1)
+#  - tigervncsession(8)
+#  - Xtigervnc(1)
+#
+# This file has Perl syntax and is source from the tigervncserver script. Every
+# value has suitable defaults, so you probably don't need any modifications.
+# If you want to reactivate default values, you have to specify an undef value.
+# For example, $fontPath will set to the default value after
+#
+# $fontPath = "/foo";
+# $fontPath = undef;
+#
+# If you are missing something, please let me know.
+# joachim.falk@gmx.de
+
+# System configuration
+# --------------------
+#
+# This section contains entries that should be true for all users.
+
+# $fontPath should be a comma separated list of fonts to be added to the font
+#           path. If not specified, the default will apply.
+# Example:
+#       $fontPath = "tcp/localhost:7100"; # would force Xtigervnc to use xfs.
+# Example:
+#       $fontPath = "";
+#       $fontPath .= "/usr/share/fonts/X11/misc,";
+#       $fontPath .= "/usr/share/fonts/X11/cyrillic,";
+#       $fontPath .= "/usr/share/fonts/X11/100dpi/:unscaled,";
+#       $fontPath .= "/usr/share/fonts/X11/75dpi/:unscaled,";
+#       $fontPath .= "/usr/share/fonts/X11/Type1,";
+#       $fontPath .= "/usr/share/fonts/X11/100dpi,";
+#       $fontPath .= "/usr/share/fonts/X11/75dpi,";
+#
+# Default: $fontPath = undef; # Use Xtigervnc built-in default font path.
+
+# $PAMService is the PAM service used for plain password authentication
+#             if one of the security types Plain, TLSPlain, and
+#             X509Plain is used.
+#
+# Default: $PAMService = "tigervnc"; # if /etc/pam.d/vnc is absent.
+# Default: $PAMService = "vnc";      # if /etc/pam.d/vnc is present.
+
+# $sslAutoGenCertCommand is used to auto generate the certificate
+# for the X509Cert and X509Key options. The configuration for
+# openssl is taken from /etc/tigervnc/openssl.cnf where we substitute
+# @HostName@ by the fully qualified domain name of the host.
+#
+# Example: $sslAutoGenCertCommand =
+#  "openssl req -newkey rsa:4096 -x509 -days 365 -nodes";
+#
+# Default: $sslAutoGenCertCommand =
+#  "openssl req -newkey ec:/etc/tigervnc/openssl-ecparams.pem -x509 -days 2190 -nodes";
+
+# User configuration
+# ------------------
+#
+# This section contains entries that may change from user to user.
+# You can overwrite these settings by providing a ~/.vnc/tigervnc.conf
+# configuration file.
+
+# $vncUserDir contains the filename for the log files directory of Xtigervnc
+#             (the server) and the viewers that are connected to it.
+#
+# Default: $vncUserDir = "$ENV{HOME}/.vnc";
+$vncUserDir = "$ENV{HOME}/.config/vnc"
+
+# $vncPasswdFile contains the filename of the password file for Xtigervnc.
+#                This file is only used for the security types VncAuth,
+#                TLSVnc, and X509Vnc.
+#
+# Default: $vncPasswdFile = "$vncUserDir/passwd";
+
+# $vncStartup points to a script that will be started at the very beginning
+# when neither $vncUserDir/Xtigervnc-session nor $vncUserDir/xstartup is present.
+# If $vncUserDir/Xtigervnc-session is present, it will be used. Otherwise, we try
+# $vncUserDir/xstartup. If this is also absent, then we use the script given by
+# $vncStartup. If $vncStartup is specified in $vncUserDir/tigervnc.conf, then this
+# script is used unconditionally. That is without checking for the presence of
+# $vncUserDir/Xtigervnc-session or $vncUserDir/xstartup.
+#
+# Default: $vncStartup = "/etc/X11/Xtigervnc-session";
+
+# The $session option controls which X session type will be started. This
+# should match one of the files in /usr/share/xsessions. For example, if there
+# is a file called gnome.desktop, then $session = "gnome" would start this X
+# session. The command to start the session is passed to the $vncStartup
+# script. If this is not specified, then /etc/X11/Xtigervnc-session will start
+# the session specified by /usr/bin/x-session-manager.
+#
+# Default: $session = undef;
+
+# $xauthorityFile should be the path to the authority file that should be used
+#                 by the Xtigervnc server.
+#
+# Default: $xauthorityFile = "$ENV{XAUTHORITY}"        # if the env var is defined.
+# Default: $xauthorityFile = "$ENV{HOME}/.Xauthority"; # otherwise
+
+# $desktopName should be set to the default name of the desktop.
+#              This can be changed at the command line with -name.
+#
+# Default: $desktopName = "${HOSTFQDN}:nn ($USER)" # Where nn is the display number.
+
+# $geometry is is only used by the standalone TigerVNC server. It sets the
+#           framebuffer width & height. A default can be derived if the
+#           tigervncserver is run in a X session -- either $ENV{DISPLAY} or the
+#           session given by $getDefaultFrom -- with the -xdisplaydefaults
+#           option. The geometry can also be changed at the commandline with
+#           the -geometry option. Otherwise, the fixed default provided below
+#           will be used.
+#
+# Default: $geometry = "1920x1200";
+
+# $depth       sets the framebuffer color depth. Must be one of 16, 24, or 32.
+# $pixelformat sets the default pixelformat.
+#              A default can be derived if the tigervncserver is run in a
+#              X session -- either $ENV{DISPLAY} or the session given by
+#              $getDefaultFrom -- with the -xdisplaydefaults option. The depth
+#              and pixelformat can also be changed at the commandline with
+#              the -depth and -pixelformat options. Otherwise, the fixed
+#              defaults provided below for the two settings will be used.
+#
+# Example: $depth = "16";
+#          $pixelformat = "rgb565";
+#
+# Default: $depth = "24";
+# Default: $pixelformat = undef;
+
+# $wmDecoration sets the adjustment of $geometry to accommodate the window decoration
+#               used by the X11 window manager. This is used to fully display
+#               the VNC desktop even if the VNC viewer is not in full screen mode.
+#
+# Default: $wmDecoration = "8x64";
+
+# $getDefaultFrom sets the display for the -xdisplaydefaults option if
+#                 tigervncserver is not called in an X session, i.e.,
+#                 the $ENV{DISPLAY} variable is not set. The -xdisplaydefaults
+#                 option can be used to derive values for the above three
+#                 options, i.e., $geometry to $pixelformat. The $getDefaultFrom
+#                 value will be added to the call of xdpyinfo.
+#
+# Example: $getDefaultFrom = "-display localhost:0";
+#
+# Default: $getDefaultFrom = undef;
+
+# $scrapingGeometry is only used by the scraping TigerVNC server. It specifies
+#                   the screen area that will be shown to VNC clients, e.g.,
+#                   640x480+320+240. The format is <w>x<h>+<xoff>+<yoff>, where
+#                   `+' signs can be replaced with `-' signs to specify offsets
+#                   from the right and/or from the bottom of the screen.
+#                   Offsets are optional, +0+0 is assumed by default (top left
+#                   corner). If the argument is empty, full screen is shown to
+#                   VNC clients (this is the default).
+#
+# Example: $scrapingGeometry = "640x480+320+240";
+#
+# Default: $scrapingGeometry = undef;
+
+# $localhost should the TigerVNC server only listen on localhost for
+#            incoming VNC connections.
+#
+# Example: $localhost = "yes";
+# Example: $localhost = "no";
+#
+# Default: $localhost = "yes"; # if $SecurityTypes does not contain any TLS*
+#                              #    or X509* security types or the $SecurityTypes
+#                              #    does contain at least on *None security type.
+# Default: $localhost = "no";  # Otherwise
+
+# $SecurityTypes a comma separated list of security types the TigerVNC
+#                server will offer. Available are None, VncAuth, Plain,
+#                TLSNone, TLSVnc, TLSPlain, X509None, X509Vnc, and X509Plain.
+#
+# Example: $SecurityTypes = "X509Vnc,X509Plain,TLSVnc,TLSPlain,VncAuth";
+#
+# Default: $SecurityTypes = "VncAuth"        # if localhost is enabled (the default)
+# Default: $SecurityTypes = "VncAuth,TLSVnc" # otherwise
+
+# $PlainUsers a comma separated list of users that are authorized to access
+#             the VNC server if the security types Plain, TLSPlain, or
+#             X509Plain are used to establish the connection. The password
+#             for these users are check by the system via the PAM service
+#             specified via $PAMService option.
+#
+# Example: $PlainUsers = "user1,user2";
+#
+# Default: $PlainUsers only contains the user starting the tigervncserver.
+
+# $X509Cert and $X509Key contan the filenames for a certificate and its
+#           key that is used for the security types X509None, X509Vnc,
+#           and X509Plain.
+#
+# Default: $X509Cert is auto generated if absent and stored in
+#                    ~/.vnc/${HOSTFQDN}-SrvCert.pem
+# Default: $X509Key  is auto generated if absent and stored in
+#                    ~/.vnc/${HOSTFQDN}-SrvKey.pem
+#
+# If filenames are given for $X509Cert and $X509Key either here or
+# on the commandline via -X509Cert and -X509Key options, then
+# the auto generation is disabled and the user has to take care
+# that usable certificates are present.
+
+1;

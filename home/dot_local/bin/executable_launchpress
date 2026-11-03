@@ -1,0 +1,145 @@
+#!/usr/bin/env bash
+# Other steps
+#
+# 1. Add domain to https://www.google.com/recaptcha/admin/site/694216568/settings
+# 2. Add domain to Google Maps API https://console.cloud.google.com/google/maps-apis/credentials?utm_source=Docs_CreateAPIKey&utm_content=Docs_maps-backend&pli=1&inv=1&invt=Aboj0w&project=megabyte-labs
+export COMPANY_LLC_NAME="NY Folding Box Company"
+export SITE_TITLE='NY Folding Box Company'
+export SITE_TAGLINE='Smart, Sturdy, and Sustainable Packaging Solutions!'
+export SITE_DESCRIPTION='NY Folding Box provides high-quality, custom folding cartons and packaging solutions for businesses of all sizes. With durable materials, innovative designs, and sustainable options, we help bring your brand to life. Contact us for premium packaging solutions tailored to your needs!'
+export SITE_URL='nyfoldingbox.com'
+export SITE_PHONE_NUMBER='+19733476932'
+export FIRST_NAME='Ryan'
+export TWITTER_USER='nyfoldingbox'
+export FACEBOOK_APP_ID=''
+export FACEBOOK_PAGE_URL='https://www.facebook.com/nyfoldingbox'
+export INSTAGRAM_URL='https://www.instagram.com/nyfoldingbox/'
+export LINKEDIN_URL='https://www.linkedin.com/company/new-york-folding-box-co-inc/'
+export PINTEREST_URL='https://pinterest.com/nyfoldingbox'
+export YOUTUBE_URL=''
+
+### Copy base files / clean up existing cloned files
+if [ -f .wp-config.local.php ]; then
+  gum log -sl info 'The .wp-config.local.php exists'
+else
+  gum log -sl info 'The .wp-config.local.php file does not exist'
+fi
+
+if gum confirm "Copy wp-config to .wp-config.local.php?"; then
+  cp wp-config.php .wp-config.local.php
+  # FILE="wp-config.php"
+  # # Define the required last three lines
+  # REQUIRED_LINES=$'\nif ( ! defined( \'WP_CLI\' ) ) {\n    require_once ABSPATH . \'wp-settings.php\';\n}'
+  # # Determine the correct `sed` command for Linux or macOS
+  # if [[ "$(uname)" == "Darwin" ]]; then
+  #   SED_CMD="gsed" # macOS requires an empty argument for `-i`
+  # else
+  #   SED_CMD="sed" # Linux works with `-i` directly
+  # fi
+  # # Remove any existing occurrences of the block
+  # $SED_CMD -i '/if ( ! defined( .WP_CLI. ) ) {/,/require_once ABSPATH . .wp-settings.php.;/d' "$FILE"
+  # # Ensure the file ends with a newline (compatible with both OSes)
+  # echo "" >>"$FILE"
+  # # Append the required lines
+  # echo -e "$REQUIRED_LINES" >>"$FILE"
+  # gum log -sl info "Updated $FILE to ensure the last three lines are set correctly."
+fi
+
+if gum confirm "Remove .sail/ and .backups/?"; then
+  rm -rf .sail
+  rm -rf .backups
+fi
+
+### TODO: Add fix mentioned here for WP-CLI https://sailed.io/kb/dev-environment-local/
+
+### Sail
+gum log -sl info 'Loading Sail config secrets'
+sail config provider-token "$(get-secret DIGITALOCEAN_ACCESS_TOKEN)"
+sail config email "$(yq '.data.user.email' "${XDG_CONFIG_HOME:-$HOME/.config}/chezmoi/chezmoi.yaml")"
+
+if gum confirm "Run sail init --force?"; then
+  gum log -sl info 'Running sail init --force'
+  sail init --force
+fi
+
+### Ensure local configuration referenced
+if ! cat wp-config.php | grep 'Load local development configuration' >/dev/null; then
+  gum log -sl info "Ensuring local .wp-config.local.php is used in wp-config.php"
+  REPLACEMENT=$'<?php\n// Load local development configuration file\nif ( file_exists( __DIR__ . "/.wp-config.local.php" ) ) {\n    require_once( __DIR__ . "/.wp-config.local.php" );\n    return;\n}'
+  # Create a temporary file
+  TMP=$(mktemp) || exit 1
+  # Preserve the existing wp-config.php (excluding the first line)
+  {
+    echo "$REPLACEMENT"
+    tail -n +2 wp-config.php
+  } >"$TMP"
+  # Replace the original file
+  mv -f "$TMP" wp-config.php
+fi
+
+### CloudFlare (development)
+if gum confirm "Apply CloudFlare DNS settings for dev.$SITE_URL?"; then
+  gum log -sl info 'Acquiring hostname'
+  HOSTNAME="$(sail info | grep 'Hostname' | awk '{print $2}')"
+  export CF_API_DOMAIN="$SITE_URL"
+  gum log -sl info "Adding dev.$SITE_URL"
+  cfcli -a -t CNAME add dev "$HOSTNAME"
+fi
+
+### CloudFlare (production)
+if gum confirm "Apply CloudFlare DNS settings for $SITE_URL and www.$SITE_URL?"; then
+  gum log -sl info 'Acquiring hostname'
+  HOSTNAME="$(sail info | grep 'Hostname' | awk '{print $2}')"
+  export CF_API_DOMAIN="$SITE_URL"
+  gum log -sl info "Adding root CNAME pointing to $SITE_URL"
+  cfcli -a -t CNAME add @ "$HOSTNAME"
+  gum log -sl info "Adding www.$SITE_URL"
+  cfcli -a -t CNAME add www "$HOSTNAME"
+fi
+
+### URL
+if gum confirm "Configure Sail DNS and HTTPS?"; then
+  sail domain add "$SITE_URL"
+  sail domain add "www.$SITE_URL"
+  sail domain add "dev.$SITE_URL"
+  sail domain make-https "$SITE_URL"
+  sail domain make-https "www.$SITE_URL"
+  sail domain make-https "dev.$SITE_URL"
+  sail domain make-primary "$SITE_URL"
+fi
+
+searchAndReplace() {
+  gum log -sl info "Replacing $1 with $2"
+  wp search-replace "$1" "$2"
+}
+
+if gum confirm "Run search and replace?"; then
+  searchAndReplace 'Megabyte Labs Site Title' "$SITE_TITLE"
+  searchAndReplace 'Megabyte Labs Site Tagline' "$SITE_TAGLINE"
+  searchAndReplace 'sender-email@megabyte-labs.local' "help@${SITE_URL}"
+  searchAndReplace 'sender-name@megabyte-labs.local' "$SITE_TITLE"
+  # searchAndReplace 'http://megabyte-labs.local' "https://$SITE_URL"
+  # searchAndReplace 'megabyte-labs.local' "$SITE_URL"
+  searchAndReplace 'Authenticator App Title' "$SITE_TITLE"
+  searchAndReplace 'SECURITY NOTICE FIRST NAME' "$FIRST_NAME"
+  searchAndReplace '___REPORT_TO_ADDRESS_FIRST_NAME' "$FIRST_NAME"
+  searchAndReplace '___TWITTER_URL' "https://x.com/$TWITTER_USER"
+  searchAndReplace '___TWITTER_USERNAME' "$TWITTER_USER"
+  searchAndReplace '___FACEBOOK_APP_ID' "$FACEBOOK_APP_ID"
+  searchAndReplace '___FACEBOOK_PAGE_URL' "$FACEBOOK_PAGE_URL"
+  searchAndReplace '___INSTAGRAM_URL' "$INSTAGRAM_URL"
+  searchAndReplace '___LINKEDIN_URL' "$LINKEDIN_URL"
+  searchAndReplace '___PINTEREST_URL' "$PINTEREST_URL"
+  searchAndReplace '___YOUTUBE_URL' "$YOUTUBE_URL"
+  searchAndReplace '___ORGANIZATION_NAME' "$SITE_TITLE"
+  searchAndReplace '___ORGANIZATION_DESCRIPTION' "$SITE_DESCRIPTION"
+  searchAndReplace '___CUSTOMER_SUPPORT_PHONE_NUMBER' "$SITE_PHONE_NUMBER"
+  searchAndReplace '___MAIL_URL' "mailto:help@${SITE_URL}"
+  searchAndReplace '___COMPANY_LLC_NAME' "$COMPANY_LLC_NAME"
+fi
+
+if gum confirm "Deploy local files to production (i.e. sail deploy --with-uploads)?"; then
+  sail deploy --with-uploads
+  SQL_FILE="$(wp db export | grep -oE "'[^']+\.sql'" | sed "s/'//g")"
+  sail db import "$SQL_FILE"
+fi

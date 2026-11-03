@@ -1,0 +1,9 @@
+---
+version: 1.4.0
+commands:
+  - name: pimps_flayers
+    namespace: default
+    tags:
+      - test
+    command: "echo \"Sup pimps and flayers\""
+    description: Echoes a test command.
