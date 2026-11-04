@@ -243,12 +243,13 @@ if ! command -v emdash >/dev/null 2>&1; then
 fi
 
 # -----------------------------------------------------------------------------
-# 4. Tier 1: AI Coding Agents & LSPs (claude, opencode, gemini, agy, LSP servers)
+# 4. Tier 1: AI Coding Agents & LSPs (claude, codex, opencode, gemini, agy, LSP servers)
 # -----------------------------------------------------------------------------
 if command -v npm >/dev/null 2>&1; then
   log "Installing AI coding CLIs and LSP servers via npm..."
   npm install -g \
     @anthropic-ai/claude-code \
+    @openai/codex \
     opencode-ai \
     @google/gemini-cli \
     @fission-ai/openspec \
@@ -264,11 +265,122 @@ fi
 # Ensure ~/.local/bin symlinks for mise-installed npm globals
 MISE_NODE_BIN="$(find "$HOME/.local/share/mise/installs/node" -maxdepth 2 -type d -name bin 2>/dev/null | sort -V | tail -n 1 || true)"
 if [ -n "$MISE_NODE_BIN" ] && [ -d "$MISE_NODE_BIN" ]; then
-  for bin_name in node npm npx claude opencode gemini openspec pnpm tsc typescript-language-server pyright bash-language-server yaml-language-server; do
+  for bin_name in node npm npx claude codex opencode gemini openspec pnpm tsc typescript-language-server pyright bash-language-server yaml-language-server; do
     if [ -x "$MISE_NODE_BIN/$bin_name" ]; then
       ln -sf "$MISE_NODE_BIN/$bin_name" "$HOME/.local/bin/$bin_name"
     fi
   done
+fi
+
+# Configure OpenCode with LiteLLM (llm.megabyte.space) primary rail + DeepSeek direct fallback
+python3 - <<'PY' || true
+import json
+from pathlib import Path
+
+home = Path.home()
+oc_dir = home / ".config/opencode"
+oc_dir.mkdir(parents=True, exist_ok=True)
+cua_bin = str(home / ".local/bin/cua-driver")
+
+oc_jsonc = {
+    "$schema": "https://opencode.ai/config.json",
+    "model": "litellm/deepseek-v4-pro",
+    "small_model": "litellm/deepseek-flash",
+    "disabled_providers": ["openai", "anthropic"],
+    "mcp": {
+        "cua-driver": {
+            "type": "local",
+            "command": [cua_bin, "mcp"],
+            "enabled": True
+        }
+    },
+    "provider": {
+        "litellm": {
+            "npm": "@ai-sdk/openai-compatible",
+            "name": "LiteLLM (llm.megabyte.space - DeepSeek 4-key rotation + fallback + Langfuse)",
+            "options": {
+                "baseURL": "https://llm.megabyte.space/v1"
+            },
+            "models": {
+                "deepseek-v4-pro": {
+                    "name": "DeepSeek V4 Pro (rotated)",
+                    "reasoning": True,
+                    "tool_call": True,
+                    "temperature": True,
+                    "limit": {"context": 1048576, "output": 393216},
+                    "modalities": {"input": ["text"], "output": ["text"]},
+                    "variants": {
+                        "high": {"reasoningEffort": "high"},
+                        "max": {"reasoningEffort": "max"}
+                    }
+                },
+                "deepseek-flash": {
+                    "name": "DeepSeek V4.1 Flash (rotated)",
+                    "reasoning": True,
+                    "tool_call": True,
+                    "temperature": True,
+                    "attachment": True,
+                    "limit": {"context": 1048576, "output": 393216},
+                    "modalities": {"input": ["text", "image"], "output": ["text"]},
+                    "variants": {
+                        "low": {"reasoningEffort": "low"},
+                        "high": {"reasoningEffort": "high"}
+                    }
+                },
+                "deepseek-chat": {"name": "DeepSeek Chat (rotated)", "tool_call": True, "temperature": True},
+                "deepseek-reasoner": {"name": "DeepSeek Reasoner (rotated)", "reasoning": True, "tool_call": True}
+            }
+        },
+        "deepseek": {
+            "npm": "@ai-sdk/openai-compatible",
+            "name": "DeepSeek (direct)",
+            "options": {
+                "baseURL": "https://api.deepseek.com"
+            },
+            "models": {
+                "deepseek-v4-pro": {
+                    "name": "DeepSeek V4 Pro",
+                    "reasoning": True,
+                    "tool_call": True,
+                    "temperature": True,
+                    "attachment": False,
+                    "limit": {"context": 1048576, "output": 393216},
+                    "modalities": {"input": ["text"], "output": ["text"]}
+                },
+                "deepseek-flash": {
+                    "name": "DeepSeek V4.1 Flash",
+                    "reasoning": True,
+                    "tool_call": True,
+                    "temperature": True,
+                    "attachment": True,
+                    "limit": {"context": 1048576, "output": 393216},
+                    "modalities": {"input": ["text", "image"], "output": ["text"]}
+                },
+                "deepseek-chat": {
+                    "name": "DeepSeek Chat (legacy -> V4.1 Flash)",
+                    "tool_call": True,
+                    "temperature": True,
+                    "attachment": True,
+                    "limit": {"context": 1048576, "output": 393216},
+                    "modalities": {"input": ["text", "image"], "output": ["text"]}
+                },
+                "deepseek-reasoner": {
+                    "name": "DeepSeek Reasoner (legacy -> V4.1 Flash)",
+                    "reasoning": True,
+                    "tool_call": True,
+                    "temperature": True,
+                    "attachment": False,
+                    "limit": {"context": 1048576, "output": 393216},
+                    "modalities": {"input": ["text"], "output": ["text"]}
+                }
+            }
+        }
+    }
+}
+(oc_dir / "opencode.jsonc").write_text(json.dumps(oc_jsonc, indent=2) + "\n")
+PY
+if [ -x "$HOME/.agentskills/bin/opencode-deepseek-auth.sh" ]; then
+  "$HOME/.agentskills/bin/opencode-deepseek-auth.sh" sync >/dev/null 2>&1 || true
 fi
 
 # Nerd Fonts (MesloLGS NF) for terminal & prompt glyphs
