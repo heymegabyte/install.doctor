@@ -14,6 +14,7 @@ always_on: true
    - Truly irreversible destructive actions on production systems (dropping production DB, charging credit cards).
 4. **Tool Selection Discipline**: Always prefer native Antigravity file tools (`read_file`, `write_file`, `edit_file`) instead of invoking shell commands like `find`, `cat`, or `grep` when reading the codebase. Native tools avoid triggering unsandboxed shell prompts.
 5. **Execution Mode**: In the Antigravity CLI, press `Shift + Tab` to switch to `turbo` mode for complete unhindered execution.
+6. **Language Preference (TypeScript over Python)**: Always prefer **TypeScript** (Node 24 native strip-types or Bun) and **Bash** over **Python** for all application code, CLIs, tools, automation scripts, verifiers, exporters, and tests (`~/.agentskills/rules/brian-preferences.md`, `~/.agentskills/rules/code-style.md`). Never reach for Python by default or for convenience.
 
 ## Four-Harness Orchestration
 - **Google Antigravity (`agy` / IDE)**: Multimodal reasoning, subagent delegation (`invoke_subagent`), background jobs (`manage_task`), and persistent workspace memory (`brain/`).

@@ -9,6 +9,11 @@ It is not wired into the bootstrap, site, a daemon, or production routing. Do no
 that browser terminals, OpenCode forking, skill installation, or fleet orchestration are
 implemented merely because their interfaces and intended behavior are documented.
 
+packages/aid-core also contains pure, side-effect-free Probabilistic Intent, edge-placement,
+and Easter-Egg contracts. They are unit-tested but are not wired into the bootstrap, site,
+control plane, daemon, routing, or UI. Treat them as experimental contracts, never as shipped
+product capability, until an explicit integration decision exists.
+
 New product decisions: app.install.doctor is browser-first; aid is the intended OpenCode
 derivative; reuse shared ProjectSites routing with DeepSeek preferred and no LiteLLM;
 hiSHtory is preferred over Atuin; Alloy replaces Promtail for new Loki integration work.
@@ -32,3 +37,8 @@ Require approved Figma designs before implementing the full SaaS UI.
 
 Validate the isolated package with: cd packages/aid-core && npm install && npm test.
 Preserve the existing master-branch workflow and do not deploy as a side effect of tests.
+
+Prefer TypeScript (Node 24 native strip-types or Bun) and Bash over Python for all new
+application code, CLIs, tools, verifiers, exporters, automation scripts, and tests
+(`~/.agentskills/rules/brian-preferences.md`, `~/.agentskills/rules/code-style.md`). Never
+default to Python for convenience.
