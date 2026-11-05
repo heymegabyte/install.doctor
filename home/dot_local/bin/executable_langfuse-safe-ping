@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+# @file ~/.local/bin/langfuse-safe-ping
+# @description Probes Langfuse health with a strict bounded timeout (default 2500ms) and fails open
+# gracefully so workstation/agent startup and telemetry hooks never block when Langfuse is down.
+
+set -euo pipefail
+
+LANGFUSE_URL="${LANGFUSE_HOST:-${LANGFUSE_BASEURL:-https://us.cloud.langfuse.com}}"
+LANGFUSE_URL="${LANGFUSE_URL%/}"
+TIMEOUT_MS="${LANGFUSE_TIMEOUT_MS:-2500}"
+SPOOL_DIR="${LANGFUSE_SPOOL_DIR:-${XDG_CACHE_HOME:-$HOME/.cache}/megabyte/ai/langfuse-spool}"
+
+mkdir -p "$SPOOL_DIR"
+
+if command -v node >/dev/null 2>&1 && [ -f "$HOME/.agentskills/bin/lib/langfuse-safe.ts" ]; then
+  node --experimental-strip-types -e "
+    import { LangfuseSafeClient } from '$HOME/.agentskills/bin/lib/langfuse-safe.ts';
+    const client = new LangfuseSafeClient({ timeoutMs: Number('$TIMEOUT_MS') || 2500 });
+    const health = await client.probeHealth();
+    const replay = health.healthy ? await client.replaySpool() : { replayed: 0, remaining: 0 };
+    console.log(JSON.stringify({ ...health, ...replay, failOpen: true }));
+    process.exit(0);
+  " 2>/dev/null || printf '{"healthy":false,"failOpen":true,"error":"probe_fallback"}\n'
+else
+  TIMEOUT_SEC=$(awk "BEGIN { printf \"%.2f\", ${TIMEOUT_MS}/1000 }")
+  if curl -fsS --max-time "$TIMEOUT_SEC" "${LANGFUSE_URL}/api/public/health" >/dev/null 2>&1; then
+    printf '{"healthy":true,"failOpen":true,"url":"%s"}\n' "$LANGFUSE_URL"
+  else
+    printf '{"healthy":false,"failOpen":true,"url":"%s","spooledDir":"%s"}\n' "$LANGFUSE_URL" "$SPOOL_DIR"
+  fi
+fi
+exit 0

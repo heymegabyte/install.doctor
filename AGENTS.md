@@ -42,3 +42,9 @@ Prefer TypeScript (Node 24 native strip-types or Bun) and Bash over Python for a
 application code, CLIs, tools, verifiers, exporters, automation scripts, and tests
 (`~/.agentskills/rules/brian-preferences.md`, `~/.agentskills/rules/code-style.md`). Never
 default to Python for convenience.
+
+## Parallel Triad Convergence, Frontier OpenSpec & Langfuse Fail-Open Mandate
+
+1. **Parallel End-of-Turn Triad (`agent-skills` + `install.doctor` + `theme.tools`)**: Whenever a prompt pass reveals reusable system configs, dotfiles, shell exports, CLI shims, or service units, apply them to `install.doctor` in parallel next to `agent-skills` and `theme.tools`, save future/multi-step work via OpenSpec (`openspec/changes/<change-id>/`), and register the linked issue in the `install.doctor` Paperclip project (`d97b0204-ca63-4117-b469-2fe0f2470d18`) via `~/.agentskills/bin/openspec-paperclip-sync.ts`.
+2. **Frontier Architect Only for OpenSpec (`claude` / `codex` / `antigravity` — NEVER `opencode`)**: OpenSpec `proposal.md`, `design.md`, `tasks.md`, and `specs/` MUST be authored by `claude` (with a fully-loaded, hydrated context), `codex`, or `antigravity`. Never author OpenSpec architectural details with `opencode`.
+3. **Langfuse Always-On + Graceful Timeout Fallback (`2500ms`)**: Keep `LANGFUSE_TIMEOUT_MS=2500`, `LANGFUSE_FAIL_OPEN=true`, and `LANGFUSE_SPOOL_DIR` active in `home/dot_config/shell/megabyte-cache.sh.tmpl` so Langfuse outages never block workstation or agent execution.

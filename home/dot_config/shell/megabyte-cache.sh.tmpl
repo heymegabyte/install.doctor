@@ -42,6 +42,12 @@ export VLLM_CACHE_ROOT="${MEGABYTE_CACHE_ROOT}/ai/vllm"
 # Agent disposable scratch/working caches under ~/.cache/megabyte/agents
 export MEGABYTE_AGENT_CACHE_DIR="${MEGABYTE_CACHE_ROOT}/agents"
 
+# Langfuse Always-On with Graceful Timeout & Fail-Open Local Spool
+export LANGFUSE_TIMEOUT_MS="${LANGFUSE_TIMEOUT_MS:-2500}"
+export LANGFUSE_FAIL_OPEN="${LANGFUSE_FAIL_OPEN:-true}"
+export LANGFUSE_FLUSH_AT="${LANGFUSE_FLUSH_AT:-10}"
+export LANGFUSE_SPOOL_DIR="${LANGFUSE_SPOOL_DIR:-${MEGABYTE_CACHE_ROOT}/ai/langfuse-spool}"
+
 # Ensure user-local toolchains (~/.local/bin, go/bin, cargo, bun, mise shims) are on PATH
 for _mb_prepend in "$HOME/.local/share/mise/shims" "$HOME/go/bin" "$HOME/.local/share/go/bin" "$HOME/.bun/bin" "$HOME/.local/share/cargo/bin" "$HOME/.cargo/bin" "$HOME/.local/bin"; do
   if [ -d "$_mb_prepend" ]; then
