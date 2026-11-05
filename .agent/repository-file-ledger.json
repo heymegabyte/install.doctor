@@ -351,9 +351,9 @@
     {
       "path": ".agent/repository-file-ledger.json",
       "kind": "configuration",
-      "bytes": 1923120,
+      "bytes": 1924444,
       "mode": "644",
-      "sha256": "7a48e6128c15c5855e7d68336ea76734527827e2f53e0b9f1b2672af59e87492",
+      "sha256": "400f165cc5dcc3748b13d3195bbe17609142ed17b445c6c68949b64e8f6a128c",
       "validators": [
         "tracked",
         "readable",
@@ -33373,9 +33373,9 @@
     {
       "path": "home/dot_local/bin/post-installx/executable_post-legion-workstation.sh",
       "kind": "script",
-      "bytes": 99122,
+      "bytes": 99028,
       "mode": "755",
-      "sha256": "1e4d3d3d2c56516f63b59d373a1b412102c085e80aff7ab773b126e2dd4a05fc",
+      "sha256": "b566c263ba4494e9e89ce61b7d581a39ed09320580fda09af18f2eaede0eb726",
       "validators": [
         "tracked",
         "readable",
@@ -64578,7 +64578,7 @@
       "kind": "configuration",
       "bytes": 727859,
       "mode": "644",
-      "sha256": "5d2213705e1e2fd40c60ad6710d471c1c81b35d2787f1aa76ecbdf06c7036b0b",
+      "sha256": "a3e82005042d2fbf1f4c76ec1791f7ffe462257f673f245258345efffefff94c",
       "validators": [
         "tracked",
         "readable",
