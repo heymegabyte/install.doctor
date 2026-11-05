@@ -15,6 +15,7 @@ Install Doctor spans fleet bootstrap, dotfiles, system automation, an isolated a
 - Add gates that prevent discovered defect classes from recurring.
 - Repeat the architecture loop until two consecutive passes find no new justified change above the value threshold.
 - Apply the approved 30-item security, bootstrap, CI, control-plane, catalog, provenance, dependency, consent, and documentation program as an append-only follow-on wave; prior convergence evidence does not mark these newly accepted findings complete.
+- Make lazy loading the deterministic catalog default and require every eager exception to prove that it is bootstrap-critical, inevitably required by a supported path, needed for security/recovery before lazy infrastructure, or an always-on service explicitly selected by desired state.
 
 ## Capabilities
 

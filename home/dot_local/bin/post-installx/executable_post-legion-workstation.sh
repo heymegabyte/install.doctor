@@ -651,10 +651,10 @@ if ! command -v emdash >/dev/null 2>&1; then
 fi
 
 # -----------------------------------------------------------------------------
-# 4. Tier 1: AI Coding Agents & LSPs (claude, codex, opencode, agy, LSP servers)
+# 4. Tier 1: AI Coding Agents (claude, codex, opencode, agy, openspec; LSP servers lazy-load via CNF shims)
 # -----------------------------------------------------------------------------
 if command -v npm >/dev/null 2>&1; then
-  log "Installing AI coding CLIs and LSP servers via npm..."
+  log "Installing AI coding CLIs via npm (LSP servers lazy-load on demand via CNF shims)..."
   npm uninstall -g @google/gemini-cli >/dev/null 2>&1 || true
   rm -f "$HOME/.local/bin/gemini" "$HOME/.gemini/oauth_creds.json" "$HOME/.gemini/google_accounts.json"
   npm install -g \
@@ -662,13 +662,7 @@ if command -v npm >/dev/null 2>&1; then
     @openai/codex \
     opencode-ai \
     @fission-ai/openspec \
-    pnpm \
-    typescript \
-    typescript-language-server \
-    pyright \
-    bash-language-server \
-    vscode-langservers-extracted \
-    yaml-language-server >/dev/null 2>&1 || true
+    pnpm >/dev/null 2>&1 || true
 fi
 
 # Install/update Google Antigravity CLI (agy) via official auto-updater manifest
@@ -1985,7 +1979,76 @@ alias cp='cp --reflink=auto'
 EOF
   run_root install -m 0644 "$TMP_DIR/99-fleet-ai-and-fast-io.sh" /etc/profile.d/99-fleet-ai-and-fast-io.sh
 
-  # Fleet DR & 90-Point Resilience Verifier (/usr/local/bin/fleet-dr-verify)
+  # Fleet DR & 140-Point Resilience Verifier (/usr/local/bin/fleet-dr-verify) + Wave 4 (#91-#140) Convergence
+  HOST_LC="$(hostname -s | tr '[:upper:]' '[:lower:]')"
+  case "$HOST_LC" in
+    *zen*)    PBS_CAL="*-*-* 01:45:00" ;;
+    *omen*)   PBS_CAL="*-*-* 02:00:00" ;;
+    *legion*) PBS_CAL="*-*-* 02:15:00" ;;
+    *ubuntu*) PBS_CAL="*-*-* 02:45:00" ;;
+    *)        PBS_CAL="*-*-* 02:30:00" ;;
+  esac
+  run_root install -d -m 0755 /etc/systemd/system/pbs-workstation-backup.timer.d
+  printf '[Timer]\nOnCalendar=\nOnCalendar=%s\nRandomizedDelaySec=5m\n' "$PBS_CAL" > "$TMP_DIR/pbs-stagger.conf"
+  run_root cp "$TMP_DIR/pbs-stagger.conf" /etc/systemd/system/pbs-workstation-backup.timer.d/stagger.conf
+
+  # #120: Enforce Cloudflare Post-Quantum ML-KEM Tunnel Transport
+  if [ -f /etc/systemd/system/cloudflared.service ] || [ -f /lib/systemd/system/cloudflared.service ]; then
+    run_root install -d -m 0755 /etc/systemd/system/cloudflared.service.d
+    printf '[Service]\nEnvironment="TUNNEL_POST_QUANTUM=true"\n' > "$TMP_DIR/cf-pq.conf"
+    run_root cp "$TMP_DIR/cf-pq.conf" /etc/systemd/system/cloudflared.service.d/post-quantum.conf
+  fi
+
+  # #111: Coolify edge proxy Traefik global zstd/gzip compression + security headers
+  if [ -d /data/coolify/proxy/dynamic ]; then
+    cat > "$TMP_DIR/security-headers-compression.yaml" <<'EOF'
+http:
+  middlewares:
+    fleet-compress:
+      compress:
+        excludedContentTypes:
+          - text/event-stream
+        minResponseBodyBytes: 1024
+    fleet-security-headers:
+      headers:
+        frameDeny: true
+        browserXssFilter: true
+        contentTypeNosniff: true
+        referrerPolicy: "strict-origin-when-cross-origin"
+        stsSeconds: 31536000
+        stsIncludeSubdomains: true
+        stsPreload: true
+EOF
+    run_root cp "$TMP_DIR/security-headers-compression.yaml" /data/coolify/proxy/dynamic/security-headers-compression.yaml
+  fi
+
+  # #119 & #124: Persistent NVIDIA persistence mode + mobile GPU thermal power cap service
+  if command -v nvidia-smi >/dev/null 2>&1; then
+    GPU_MODEL="$(nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null | head -n1 || true)"
+    PL_WATTS=""
+    echo "$GPU_MODEL" | grep -qi "4080 Laptop" && PL_WATTS="150"
+    echo "$GPU_MODEL" | grep -qi "3080 Ti Laptop" && PL_WATTS="135"
+    if [ -n "$PL_WATTS" ]; then
+      run_root nvidia-smi -pl "$PL_WATTS" >/dev/null 2>&1 || true
+      cat > "$TMP_DIR/nvidia-power-limit.service" <<EOF
+[Unit]
+Description=NVIDIA GPU Optimal Power & Persistence Tuning
+After=syslog.target systemd-modules-load.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/nvidia-smi -pm 1
+ExecStart=/usr/bin/nvidia-smi -pl ${PL_WATTS}
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
+EOF
+      run_root cp "$TMP_DIR/nvidia-power-limit.service" /etc/systemd/system/nvidia-power-limit.service
+      run_root systemctl enable nvidia-power-limit.service >/dev/null 2>&1 || true
+    fi
+  fi
+
   cat > "$TMP_DIR/fleet-dr-verify" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail

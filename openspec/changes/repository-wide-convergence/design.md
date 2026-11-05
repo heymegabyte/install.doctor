@@ -38,6 +38,16 @@ The approved Infisical program is enforced at repository boundaries as well as a
 
 Identity categories are non-substitutable: Cloudflare Access protects public human administration, GitHub/platform OIDC authenticates automation, Infisical workload identities authorize service secrets, Authentik is exceptional local/offline human access, and product-native auth owns customer accounts. A repository change that crosses these planes without a documented exception fails policy validation.
 
+## Deterministic lazy-loading policy
+
+Every installable catalog entry has a schema-validated `load_policy` and `load_rationale`. `lazy` is the default and requires no exception. Eager entries must use exactly one narrow class: `eager-bootstrap` for prerequisites required before the lazy resolver can work; `eager-supported-path` for a dependency inevitably exercised by a selected supported path; `eager-security-recovery` for security or recovery capability required before lazy infrastructure; or `eager-service` for an always-on service explicitly selected in the host's desired state. Eager entries also identify the consuming path, prerequisite, recovery obligation, or desired-state selector that justifies them. Popularity, convenience, historical preload status, optional integrations, and possible future use are not sufficient rationales.
+
+Classification is deterministic from the versioned catalog, supported-path dependency graph, platform/role capability, and desired state. The same inputs produce the same ordered plan. Missing rationales, unknown classes, dependency cycles, eager services without explicit selection, and a lazy resolver that depends on an unavailable lazy package fail validation. Platform-specific entries may classify differently only through explicit platform/role overrides with their own rationale.
+
+At runtime, interactive command discovery may install an eligible lazy package through the existing bounded, locked, provenance-checked path and then resume the original invocation. Noninteractive, privileged, offline, or policy-disabled contexts fail with an exact remediation rather than silently installing or partially configuring software. Supported workflows declare dependencies in advance so planning can install them as a transactional prerequisite. A failed lazy install leaves no success marker, duplicate task, service enablement, or ambiguous partial state; a later run can retry safely. Always-on services are never started merely because their package is discovered or installed.
+
+Structured secret-free events record classification, reason code, trigger, platform/role, package, outcome, duration, fallback, and remediation. Metrics cover eager install count/time, shell/bootstrap startup budget, lazy cold/warm latency, failures, retries, offline fallbacks, and unused eager exceptions. Package names and bounded reason codes may be labels; commands, paths, errors, and run identifiers remain fields.
+
 ## Rollback
 
 All mutations remain ordinary Git changes, grouped by subsystem with regression tests. No deploy or live-host mutation occurs. Generated outputs can be restored by their generator and removals remain recoverable from Git history.

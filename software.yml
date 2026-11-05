@@ -835,7 +835,6 @@ softwarePackages:
     _desc: A language server for Bash scripts that provides code completion, hover diagnostics, go-to-definition, and ShellCheck/shfmt integration for coding agents and editors.
     _github: https://github.com/bash-lsp/bash-language-server
     _bin: bash-language-server
-    _preload: true
     brew:darwin: bash-language-server
     pacman:linux: bash-language-server
     npm:darwin: bash-language-server
@@ -1465,6 +1464,8 @@ softwarePackages:
     dnf: https://packages.chef.io/files/stable/chef-workstation/21.10.640/el/8/chef-workstation-21.10.640-1.el8.x86_64.rpm
     choco: chef-workstation
   chezmoi:
+    _preload: true
+    _preloadReason: bootstrap-critical
     _name: Chezmoi
     _short: Chezmoi is a tool that helps manage dotfiles across multiple machines using a version control system like Git.
     _desc: Manage your dotfiles across multiple diverse machines, securely.
@@ -1472,7 +1473,6 @@ softwarePackages:
     _bin: chezmoi
     _home: https://www.chezmoi.io/
     _docs: https://www.chezmoi.io/user-guide/command-overview/
-    _preload: true
     _version: '>=2.40'
     brew: chezmoi
     pacman: chezmoi
@@ -1585,7 +1585,6 @@ softwarePackages:
     _bin: clangd
     _home: https://clangd.llvm.org/
     _docs: https://clangd.llvm.org/guides/
-    _preload: true
     brew: llvm
     apt: clangd
     dnf: clang-tools-extra
@@ -2019,6 +2018,8 @@ softwarePackages:
     _docs: https://www.elastic.co/guide/en/elasticsearch/client/curator
     pipx: elasticsearch-curator
   curl:
+    _preload: true
+    _preloadReason: bootstrap-critical
     _name: cURL
     _short: curl is a command-line tool and library for transferring data with URLs.
     _desc: cURL is a computer software project providing a library (libcurl) and command-line tool (curl) for transferring data using various network protocols.
@@ -2026,7 +2027,6 @@ softwarePackages:
     _bin: curl
     _home: https://curl.se/
     _docs: https://curl.se/docs/
-    _preload: true
     brew: curl
     apt: curl
     dnf: curl
@@ -3683,12 +3683,13 @@ softwarePackages:
     _bin: gist
     gem: gist
   git:
+    _preload: true
+    _preloadReason: bootstrap-critical
     _name: Git
     _short: git/git is the official repository for the Git version control system.
     _desc: git/git is the official repository for the Git version control system. It contains the source code for Git, along with documentation, release notes, and other resources. Users can contribute to Git by submitting pull requests, reporting issues, and participating in discussions. The repository is maintained by the Git community and serves as the central hub for all things related to the development and improvement of Git.
     _github: https://github.com/git/git
     _bin: git
-    _preload: true
     brew: git
     apt: git
     dnf: git
@@ -4173,6 +4174,8 @@ softwarePackages:
     _bin: gnutls-certtool
     brew: gnutls
   go:
+    _preload: true
+    _preloadReason: lazy-installer-substrate
     _name: Go
     _short: The official repository for the Go programming language.
     _desc: '[Go](https://golang.org/) is a statically typed, compiled programming language designed at Google by Robert Griesemer, Rob Pike, and Ken Thompson. Go is syntactically similar to C, but with memory safety, garbage collection, structural typing, and CSP-style concurrency.'
@@ -4180,7 +4183,6 @@ softwarePackages:
     _bin: go
     _home: https://go.dev/
     _docs: https://go.dev/doc/
-    _preload: true
     brew: go
     apt: golang-go
     pacman: go
@@ -4346,7 +4348,6 @@ softwarePackages:
     _desc: gopls (pronounced "Go please") is the official Go language server developed by the Go team. It provides IDE and coding agent features such as workspace symbol navigation, diagnostics, and refactoring to any LSP-compatible client.
     _github: false
     _bin: gopls
-    _preload: true
     brew: gopls
     go: golang.org/x/tools/gopls@latest
   goreleaser:
@@ -4488,6 +4489,8 @@ softwarePackages:
     _docs: https://gulpjs.com/docs/en/getting-started/quick-start
     npm: gulp
   gum:
+    _preload: true
+    _preloadReason: bootstrap-critical
     _name: Gum
     _short: gum is a terminal framework for Go that helps in building rich and interactive command-line applications.
     _desc: A tool for glamorous shell scripts. Provides styling and fancy prompts.
@@ -4495,7 +4498,6 @@ softwarePackages:
     _bin: gum
     _home: https://charm.sh/
     _docs: https://github.com/charmbracelet/gum
-    _preload: true
     _version: '>=0.14'
     brew: gum
     pacman: gum
@@ -5326,6 +5328,8 @@ softwarePackages:
     choco: jpegoptim
     zypper: jpegoptim
   jq:
+    _preload: true
+    _preloadReason: bootstrap-critical
     _name: jq
     _short: jq is a lightweight and flexible command-line JSON processor for parsing, manipulating, and formatting JSON data efficiently.
     _desc: '[jq](https://github.com/stedolan/jq) is like sed for JSON data. You can use it to slice and filter and map and transform structured data with the same ease that sed, awk, grep and friends let you play with text.'
@@ -5333,7 +5337,6 @@ softwarePackages:
     _bin: jq
     _home: https://stedolan.github.io/jq
     _docs: https://stedolan.github.io/jq/manual/
-    _preload: true
     brew: jq
     apt: jq
     dnf: jq
@@ -6659,12 +6662,13 @@ softwarePackages:
     _deps:darwin:
     - hyperkit
   mise:
+    _preload: true
+    _preloadReason: bootstrap-critical
     _name: mise
     _short: Mise is a tool for managing macOS dotfiles.
     _desc: Mise is a tool created by jdx available on GitHub at https://github.com/jdx/mise. It is a simple script that helps in managing macOS system preferences from the command line. With Mise, you can easily set and get various system preferences like dark mode, accent color, wallpaper, and more. It provides a convenient way to automate the customization of macOS settings, making it useful for system administrators and power users who prefer working with the command line interface.
     _github: https://github.com/jdx/mise
     _bin: mise
-    _preload: true
     brew: mise
     npm: '@jdxcode/mise'
     cargo: mise-cli
@@ -7404,6 +7408,8 @@ softwarePackages:
     pkg: nnn
     apk: nnn
   node:
+    _preload: true
+    _preloadReason: lazy-installer-substrate
     _name: Node.js
     _short: Node.js is an open-source JavaScript runtime built on Chrome's V8 JavaScript engine.
     _desc: '[Node.js](https://nodejs.org/en/) is an open-source, cross-platform, back-end JavaScript runtime environment that runs on the V8 engine and executes JavaScript code outside a web browser.'
@@ -7411,7 +7417,6 @@ softwarePackages:
     _bin: node
     _home: https://nodejs.org/en/
     _docs: https://nodejs.org/en/docs/
-    _preload: true
     _version: '>=22'
     brew: node
     apt: nodejs
@@ -8938,12 +8943,13 @@ softwarePackages:
     _bin: pwnat
     brew: pwnat
   python:
+    _preload: true
+    _preloadReason: lazy-installer-substrate
     _name: 'cpython                                                                                                                                                                                                   '
     _short: Official repository for the Python programming language.
     _desc: CPython is the official implementation of the Python programming language. It is written in C and is maintained by the Python Software Foundation. The repository contains the source code for Python interpreter, standard library, and various tools. Developers can contribute to the project by submitting bug fixes, new features, and improvements. CPython is widely used and serves as a reference implementation for the Python language specification.
     _github: https://github.com/python/cpython
     _bin: python3
-    _preload: true
     brew: python
     apt:
     - python3-pip
@@ -8967,7 +8973,6 @@ softwarePackages:
     _bin:
     - pyright
     - pyright-langserver
-    _preload: true
     brew:darwin: pyright
     pacman:linux: pyright
     npm:darwin: pyright
@@ -9374,7 +9379,6 @@ softwarePackages:
     _desc: '[ripgrep](https://github.com/BurntSushi/ripgrep) is a line-oriented search tool that recursively searches your current directory for a regex pattern. By default, ripgrep will respect your .gitignore and automatically skip hidden files/directories and binary files. This role also installs ripgrep-all. [ripgrep-all](https://github.com/phiresky/ripgrep-all) is just like ripgrep except it also searches in PDFs, E-Books, Office documents, zip, tar.gz, etc.'
     _github: https://github.com/BurntSushi/ripgrep
     _bin: rg
-    _preload: true
     brew: ripgrep
     apt: ripgrep
     dnf: ripgrep
@@ -9500,6 +9504,8 @@ softwarePackages:
     _bin: rubocop
     gem: rubocop
   ruby:
+    _preload: true
+    _preloadReason: lazy-installer-substrate
     _name: Ruby
     _short: Ruby is an open-source programming language known for its simplicity and productivity.
     _desc: Ruby is an interpreted, high-level, general-purpose programming language which supports multiple programming paradigms. It was designed with an emphasis on programming productivity and simplicity. In Ruby, everything is an object, including primitive data types. It was developed in the mid-1990s in Japan.
@@ -9507,7 +9513,6 @@ softwarePackages:
     _bin: ruby
     _home: https://www.ruby-lang.org/en/
     _docs: https://www.ruby-lang.org/en/documentation/
-    _preload: true
     brew: ruby
     apt: ruby-dev
     dnf: ruby-devel
@@ -9545,6 +9550,8 @@ softwarePackages:
     github: github.com/lukehaas/RunJS
     yay: runjs-bin
   rust:
+    _preload: true
+    _preloadReason: lazy-installer-substrate
     _name: Rust
     _short: rust-lang/rust is the official Rust programming language repository on GitHub.
     _desc: '[Rust](https://www.rust-lang.org/) is a multi-paradigm programming language designed for performance and safety, especially safe concurrency.'
@@ -9552,7 +9559,6 @@ softwarePackages:
     _bin: rustc
     _home: https://www.rust-lang.org/
     _docs: https://www.rust-lang.org/learn
-    _preload: true
     brew: rust
     dnf:
     - cargo
@@ -9569,7 +9575,6 @@ softwarePackages:
     _github: https://github.com/rust-lang/rust-analyzer
     _bin: rust-analyzer
     _home: https://rust-analyzer.github.io/
-    _preload: true
     brew:darwin: rust-analyzer
     apt:linux: rust-analyzer
     dnf:linux: rust-analyzer
@@ -11074,7 +11079,6 @@ softwarePackages:
     _github: https://github.com/tmux/tmux
     _bin: tmux
     _docs: https://github.com/tmux/tmux/wiki
-    _preload: true
     brew:
     - awk
     - gnu-sed
@@ -11283,7 +11287,6 @@ softwarePackages:
     _bin: tsc
     _home: https://www.typescriptlang.org/
     _docs: https://www.typescriptlang.org/docs/
-    _preload: true
     brew: typescript
     npm: typescript
   typescript-language-server:
@@ -11292,7 +11295,6 @@ softwarePackages:
     _desc: Language Server Protocol (LSP) implementation for TypeScript and JavaScript using tsserver, enabling semantic code navigation, diagnostics, and refactoring for coding agents and editors.
     _github: https://github.com/typescript-language-server/typescript-language-server
     _bin: typescript-language-server
-    _preload: true
     brew:darwin: typescript-language-server
     pacman:linux: typescript-language-server
     npm:darwin: typescript-language-server
@@ -11438,6 +11440,8 @@ softwarePackages:
     _deprecated: Deprecated in favor of more cross-OS platform like VirtualBox, Parallels, and VMWare
     cask: utm
   uv:
+    _preload: true
+    _preloadReason: lazy-installer-substrate
     _name: uv
     _short: uv is a fast Python package and project manager that replaces pip, pip-tools, pipx, and most Poetry workflows.
     _desc: uv provides reproducible Python project management, dependency locking, virtual environments, tool execution, and Python version management in one Rust-based CLI.
@@ -11445,7 +11449,6 @@ softwarePackages:
     _bin: uv
     _home: https://astral.sh/uv/
     _docs: https://docs.astral.sh/uv/
-    _preload: true
     brew: uv
     cargo: uv
     pipx: uv
@@ -11698,7 +11701,6 @@ softwarePackages:
     - vscode-css-language-server
     - vscode-html-language-server
     - vscode-json-language-server
-    _preload: true
     brew:darwin: vscode-langservers-extracted
     pacman:linux: vscode-langservers-extracted
     npm:darwin: vscode-langservers-extracted
@@ -12325,7 +12327,6 @@ softwarePackages:
     _desc: Language Server for YAML files supporting JSON Schema validation, hover documentation, autocompletion, and diagnostics for coding agents and editors.
     _github: https://github.com/redhat-developer/yaml-language-server
     _bin: yaml-language-server
-    _preload: true
     brew:darwin: yaml-language-server
     pacman:linux: yaml-language-server
     npm:darwin: yaml-language-server
@@ -12442,6 +12443,8 @@ softwarePackages:
     exe: https://github.com/th-ch/youtube-music/releases/download/v1.19.0/YouTube-Music-Setup-1.19.0.exe
     script:darwin: "DL_URL=\"https://github.com/th-ch/youtube-music/releases/download/v1.20.0/YouTube-Music-1.20.0.dmg\"\nif [ $(arch) = 'arm64' ]; then\n  DL_URL=\"https://github.com/th-ch/youtube-music/releases/download/v1.20.0/YouTube-Music-1.20.0-arm64.dmg\"\nfi\necho \"Downloading YouTube Music\" && curl -sSL \"$DL_URL\" > /tmp/YouTube-Music.dmg\necho \"Attaching volume\" && sudo hdiutil attach /tmp/YouTube-Music.dmg\necho \"Copying to /Applications\"\nif [ -d \"/Volumes/YouTube Music 1.20.0\" ]; then\n  sudo cp -R \"/Volumes/YouTube Music 1.20.0/YouTube Music.app\" /Applications\n  echo \"Detaching\" && sudo hdiutil detach \"/Volumes/YouTube Music 1.20.0\"\nelif [ -d \"/Volumes/YouTube Music 1.20.0-arm64\" ]; then\n  sudo cp -R \"/Volumes/YouTube Music 1.20.0-arm64/YouTube Music.app\" /Applications\n  echo \"Detaching\" && sudo hdiutil detach \"/Volumes/YouTube Music 1.20.0-arm64\"\nfi\necho \"Removing /tmp/YouTube-Music.dmg\" && rm -f /tmp/YouTube-Music.dmg\n"
   yq:
+    _preload: true
+    _preloadReason: bootstrap-critical
     _name: yq
     _short: yq is a lightweight and portable command-line YAML processor.
     _desc: '[yq](https://github.com/mikefarah/yq) is a free, open-source command-line YAML processor. It aims to be like [jq](https://gitlab.com/megabyte-labs/ansible-roles/jq) except for YAML files. It can read and write values to YAML files.'
@@ -12449,7 +12452,6 @@ softwarePackages:
     _bin: yq
     _home: https://mikefarah.gitbook.io/yq/
     _docs: https://mikefarah.gitbook.io/yq/how-it-works
-    _preload: true
     brew: yq
     choco: yq
     snap: yq
@@ -12604,12 +12606,13 @@ softwarePackages:
     dnf: zpaq
     pacman: zpaq
   zsh:
+    _preload: true
+    _preloadReason: bootstrap-critical
     _name: Zsh
     _short: zsh is a powerful shell for Unix-like operating systems, offering advanced features and customization options for command-line users.
     _desc: '[Oh My Zsh](https://ohmyz.sh/) is a delightful, open source, community-driven framework for managing your Zsh configurations. It comes bundled with thousands of helpful functions, helpers, plugins, themes, and a few things that make you shout oh my zsh! This role also installs some CLI tools that accompany Oh My Zsh! to make it even more amazing.'
     _github: https://github.com/zsh-users/zsh
     _bin: zsh
-    _preload: true
     brew: zsh
     apt: zsh
     dnf: zsh

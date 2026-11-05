@@ -28,6 +28,8 @@
 #     echo "_post allows you to define a script that runs after the installation"
 #   _service: smbd                                    # System service to enable, restart, and/or start (can also be an array).
 #   _restricted: true                                 # True if it should be skipped on a restricted machine (i.e. a work machine).
+#   _preload: true                                    # Exceptional eager install; omit for the default command-not-found lazy install.
+#   _preloadReason: bootstrap-critical                # Required with _preload. Allowed: bootstrap-critical, lazy-installer-substrate, security-recovery-prerequisite, desired-state-service.
 #   _epel: true                                       # True if https://docs.fedoraproject.org/en-US/epel/ should be enabled
 #   ansible: professormanhattan.docker
 #   apk: altair

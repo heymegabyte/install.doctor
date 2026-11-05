@@ -76,6 +76,17 @@ These tasks enforce the 30 runtime requirements owned by `fleet-backup-recovery`
 - [ ] IG06 Add fixture/canary/runtime-class batch verification covering I30; reject rollout receipts without automatic configuration rollback evidence and explicit blocked/failed targets.
 - [ ] IG07 Verify the authentication-plane matrix: Cloudflare Access for public humans, claim-bound OIDC for CI/platform workloads, Infisical identities for services, Authentik only for documented local/offline human access or incompatibility, and product-native customer auth.
 
+## Lazy-loading convergence
+
+- [ ] L01 Extend the authoritative catalog schema with deterministic `load_policy` and `load_rationale` fields; default to `lazy` and permit eager only as `eager-bootstrap`, `eager-supported-path`, `eager-security-recovery`, or `eager-service`.
+- [ ] L02 Classify every installable entry and platform/role override; require eager entries to reference their bootstrap prerequisite, supported-path consumer, pre-lazy security/recovery obligation, or explicit desired-state service selector.
+- [ ] L03 Build and validate the supported-path dependency graph; reject unknown classes, missing/stale references, cycles, lazy-resolver bootstrap gaps, and eager services not selected by desired state.
+- [ ] L04 Generate a stable discover/plan report showing lazy/eager classification, rationale, dependency closure, host applicability, install/start actions, and excluded entries without mutation.
+- [ ] L05 Implement bounded locked lazy invocation with provenance verification, atomic completion, retry-safe failure, exact offline/noninteractive remediation, and no automatic service enablement.
+- [ ] L06 Preserve transactional prerequisites for supported workflows and bootstrap/security/recovery operation when lazy infrastructure is unavailable; prove a second unchanged run has no duplicate installs, tasks, markers, or service changes.
+- [ ] L07 Emit secret-free structured classification/install/fallback events and metrics for eager cost, startup budget, cold/warm latency, retries, failures, offline fallback, and unused eager exceptions with bounded labels.
+- [ ] L08 Add acceptance evidence for schema completeness, deterministic repeated plans, current preload migration, supported platform/role matrices, cold/warm command invocation, offline and noninteractive failure, concurrency locking, interrupted install recovery, unselected-service denial, startup budgets, and rollback to the previous valid catalog/configuration.
+
 ## Verification evidence
 
 - Tracked-file ledger schema v2: 2,923/2,923 paths carry a disposition, reason, and evidence; zero review gaps.

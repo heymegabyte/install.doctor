@@ -21,6 +21,13 @@ import sys
 import collections
 
 MODES = {"cli", "app", "service"}
+DELIVERY_MODES = {"eager", "lazy"}
+PRELOAD_REASONS = {
+    "bootstrap-critical",
+    "lazy-installer-substrate",
+    "security-recovery-prerequisite",
+    "desired-state-service",
+}
 VALID_MANAGERS = {
     "brew",
     "apt",
@@ -58,6 +65,20 @@ def validate(cat):
                 problems.append(f"{nm}: {fld!r} must be a non-empty list")
         if e.get("installMode") not in MODES:
             problems.append(f"{nm}: installMode {e.get('installMode')!r} not in {sorted(MODES)}")
+        if e.get("deliveryMode") not in DELIVERY_MODES:
+            problems.append(f"{nm}: deliveryMode {e.get('deliveryMode')!r} not in {sorted(DELIVERY_MODES)}")
+        if not isinstance(e.get("preload"), bool):
+            problems.append(f"{nm}: preload must be a boolean")
+        if e.get("preload") is True and e.get("preloadReason") not in PRELOAD_REASONS:
+            problems.append(f"{nm}: eager preload has invalid reason {e.get('preloadReason')!r}")
+        if e.get("preload") is not True and "preloadReason" in e:
+            problems.append(f"{nm}: preloadReason is only valid for an eager preload")
+        expected_delivery = "eager" if e.get("installMode") in {"app", "service"} or e.get("preload") is True else "lazy"
+        if e.get("deliveryMode") != expected_delivery:
+            problems.append(
+                f"{nm}: deliveryMode {e.get('deliveryMode')!r} does not match installMode/preload; "
+                f"expected {expected_delivery!r}"
+            )
         provs = set(e.get("providers") or [])
         unknown_provs = provs - VALID_MANAGERS
         if unknown_provs:

@@ -104,3 +104,49 @@ Repository policy SHALL distinguish Cloudflare Access public-human authorization
 
 - **WHEN** a change uses one identity system outside its assigned plane without a documented incompatibility and compensating controls
 - **THEN** validation fails before deployment and identifies the expected authority without exposing credentials
+
+### Requirement: Lazy-by-default catalog classification
+
+Every installable catalog entry SHALL have a deterministic load classification. `lazy` SHALL be the default. Eager classification SHALL be limited to bootstrap-critical prerequisites, dependencies inevitably required by a selected supported path, security/recovery tools required before lazy infrastructure, or always-on services explicitly selected by desired state. Every eager entry SHALL carry a machine-verifiable rationale and owning reference.
+
+#### Scenario: Historical preload without an exception
+
+- **WHEN** an entry is eager only because it was previously preloaded, is popular, is convenient, or might be useful later
+- **THEN** validation rejects the eager classification and requires `lazy` or a qualifying referenced exception
+
+#### Scenario: Unselected always-on service
+
+- **WHEN** a service package is present in the catalog but the host desired state does not select that service
+- **THEN** planning does not eagerly install, enable, or start it
+
+### Requirement: Deterministic load planning
+
+Classification and planning SHALL be derived solely from the versioned catalog, supported-path dependency graph, platform/role capabilities, and desired state. Repeated identical inputs SHALL produce the same ordered plan, and validation SHALL reject missing rationale, unknown classes, stale references, dependency cycles, or lazy infrastructure whose own prerequisites are unavailable.
+
+#### Scenario: Platform-specific exception
+
+- **WHEN** a dependency is bootstrap-critical on one supported platform but safely lazy on another
+- **THEN** explicit platform overrides produce deterministic different classifications and each eager override carries its own qualifying rationale
+
+### Requirement: Safe lazy runtime and fallback
+
+Interactive lazy installation SHALL be bounded, locked, provenance-checked, atomic, and retry-safe. Offline, noninteractive, privileged, or policy-disabled contexts SHALL fail with exact remediation rather than silently install. Supported workflows SHALL declare transactional prerequisites, and package discovery or installation SHALL NOT automatically enable a service.
+
+#### Scenario: Concurrent first invocation
+
+- **WHEN** two processes invoke the same absent lazy command concurrently
+- **THEN** one owned installation runs, the other waits or returns a bounded retry result, and no duplicate marker, partial success, or service enablement occurs
+
+#### Scenario: Offline first invocation
+
+- **WHEN** a lazy package is absent and its verified source is unreachable
+- **THEN** the invocation fails honestly with the package, reason, and remediation while leaving the next online retry safe
+
+### Requirement: Observable loading outcomes
+
+Load planning and execution SHALL emit secret-free structured evidence with bounded classification and outcome dimensions. Acceptance SHALL measure eager install cost, bootstrap/shell startup budget, lazy cold and warm latency, retries, failures, offline fallbacks, unused eager exceptions, deterministic reapply, and rollback.
+
+#### Scenario: Eager exception becomes unused
+
+- **WHEN** runtime evidence shows an eager-supported-path dependency no longer has a selected consumer or the owning reference is removed
+- **THEN** validation or monitoring marks the exception stale and requires reclassification before it remains eager

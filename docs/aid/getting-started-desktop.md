@@ -65,7 +65,9 @@ names from the shared catalog index.
 
 You do not pre-install every command-line tool. The command-not-found hook installs a missing CLI
 the first time you run it, then runs your command — argv, stdin/stdout/stderr, exit status, and
-signals all preserved. For authorized unattended installs:
+signals all preserved. This includes optional TUIs, language servers, search tools, and compilers.
+Only bootstrap-critical commands and the language-package substrates needed to perform a later lazy
+install are installed up front. For authorized unattended installs:
 
 ```sh
 aid exec <command> [args...]   # install-if-missing, then run it

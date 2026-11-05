@@ -101,6 +101,37 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# Check 8: Eager installation is an explicit, bounded exception. Every `_preload: true` entry must explain
+# why command-not-found cannot safely install it later; lazy entries must not carry a misleading reason.
+# ---------------------------------------------------------------------------
+PRELOAD_SCHEMA="$(python3 - "$SW_YML" <<'PY'
+import sys, yaml
+allowed = {"bootstrap-critical", "lazy-installer-substrate", "security-recovery-prerequisite", "desired-state-service"}
+doc = yaml.safe_load(open(sys.argv[1], encoding="utf-8")) or {}
+packages = doc.get("softwarePackages", {})
+bad = []
+for name, value in packages.items():
+    if not isinstance(value, dict):
+        continue
+    eager = value.get("_preload") is True
+    reason = value.get("_preloadReason")
+    if eager and reason not in allowed:
+        bad.append(f"{name}: missing/invalid _preloadReason")
+    if not eager and "_preloadReason" in value:
+        bad.append(f"{name}: _preloadReason requires _preload: true")
+print("\n".join(bad))
+PY
+)"
+if [ -z "$PRELOAD_SCHEMA" ]; then
+  echo "PASS: Every eager package has a bounded reason; lazy packages have none"
+  PASS=$((PASS + 1))
+else
+  echo "FAIL: Invalid preload policy:"
+  printf '  %s\n' "$PRELOAD_SCHEMA"
+  FAIL=$((FAIL + 1))
+fi
+
+# ---------------------------------------------------------------------------
 # Results
 # ---------------------------------------------------------------------------
 echo ""

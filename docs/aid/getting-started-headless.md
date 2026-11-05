@@ -63,7 +63,8 @@ usually run it under automation, so it never blocks on a prompt.
 ## 6. Lazy installs under automation / CI
 
 Unattended install-on-first-use is **off** unless explicitly allowed, so an untrusted project or a CI
-job cannot silently trigger an install:
+job cannot silently trigger an install. Optional CLIs, TUIs, and language servers remain lazy; only
+bootstrap-critical tools and lazy-installer substrates are installed up front:
 
 - `CNF_ALLOW_NONINTERACTIVE=1` — allow install-on-miss in a non-interactive shell you control.
 - `CNF_DRY=1` — resolve + report only, never install.

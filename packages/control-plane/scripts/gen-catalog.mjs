@@ -67,7 +67,7 @@ try {
       [
         '-o',
         'json',
-        '.softwarePackages | to_entries | map({"key":.key,"short":.value._short,"github":.value._github,"home":.value._home,"docs":.value._docs,"app":(.value._app != null),"service":(.value._service != null),"preload":(.value._preload == true),"deprecated":.value._deprecated,"replacement":.value._replacement,"deps":.value._deps})',
+        '.softwarePackages | to_entries | map({"key":.key,"short":.value._short,"github":.value._github,"home":.value._home,"docs":.value._docs,"app":(.value._app != null),"service":(.value._service != null),"preload":(.value._preload == true),"preloadReason":.value._preloadReason,"deprecated":.value._deprecated,"replacement":.value._replacement,"deps":.value._deps})',
         SOFTWARE,
       ],
       { encoding: 'utf8' },
@@ -111,11 +111,13 @@ try {
     // cask→app would mislabel MORE than it fixes. A few real GUI casks lacking _app (adobe-creative-cloud,
     // lm-studio) fall to cli — an accepted edge, far better than mislabeling the CLI-casks.
     it.installMode = m.app ? 'app' : m.service ? 'service' : 'cli';
+    it.deliveryMode = m.app || m.service || m.preload ? 'eager' : 'lazy';
     modes[it.installMode]++;
     // #153 eager-vs-lazy ACCURACY — software.yml `_preload:true` means installx EAGER-installs it at provisioning
     // (executable_installx --lazy installs casks/flatpaks/_app/_serviceEnabled/_preload), so a `_preload:true`
     // CLI is NOT "on first use" — the App Store must say "installed at setup". Carry the boolean so the badge is honest.
     it.preload = !!m.preload;
+    if (it.preload && typeof m.preloadReason === 'string') it.preloadReason = m.preloadReason;
     if (it.installMode === 'cli' && it.preload) modes.preloadCli = (modes.preloadCli || 0) + 1;
   }
   console.error(`gen-catalog: enriched ${enriched} with _short; ${linked} with _home/_docs links; modes app=${modes.app} service=${modes.service} cli=${modes.cli} (preloadCli=${modes.preloadCli || 0} eager, not on-first-use)`);

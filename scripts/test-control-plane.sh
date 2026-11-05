@@ -223,11 +223,14 @@ if [ -n "${CONTROL_PLANE_URL:-}" ]; then
   # desktop app installed during setup or a CLI installed on first command use (the core eager-vs-lazy promise).
   # fire #153 — eager-vs-lazy ACCURACY: installx eager-installs software.yml `_preload:true` items at provisioning
   # (executable_installx: casks/flatpaks/_app/_service/_preload all install in --lazy mode), so a `_preload:true`
-  # CLI is NOT "on first use" — it's installed at setup. ripgrep IS `_preload:true` → installMode:cli + preload:true.
-  echo "$cd1" | jq -e '.installMode=="cli" and .preload==true' >/dev/null 2>&1 && pass "GET /api/catalog/ripgrep -> installMode:cli + preload:true (a PRELOADED CLI — installx installs _preload:true at setup, NOT lazy on first use; eager-vs-lazy accuracy #153)" || fail "ripgrep installMode/preload -> $(printf '%s' "$cd1" | jq -c '{installMode,preload}' 2>/dev/null | head -c 80)"
+  # CLI is NOT "on first use" when explicitly preloaded. ripgrep is intentionally lazy; chezmoi is a
+  # bootstrap-critical eager exception and must explain why it is paid up front.
+  echo "$cd1" | jq -e '.installMode=="cli" and .deliveryMode=="lazy" and .preload==false and (.preloadReason==null)' >/dev/null 2>&1 && pass "GET /api/catalog/ripgrep -> lazy delivery with no eager-exception rationale" || fail "ripgrep delivery policy -> $(printf '%s' "$cd1" | jq -c '{installMode,deliveryMode,preload,preloadReason}' 2>/dev/null | head -c 140)"
+  cdeager="$(curl -s "$u/api/catalog/chezmoi" 2>/dev/null)"
+  echo "$cdeager" | jq -e '.installMode=="cli" and .deliveryMode=="eager" and .preload==true and .preloadReason=="bootstrap-critical"' >/dev/null 2>&1 && pass "GET /api/catalog/chezmoi -> justified bootstrap-critical eager exception" || fail "chezmoi delivery policy -> $(printf '%s' "$cdeager" | jq -c '{installMode,deliveryMode,preload,preloadReason}' 2>/dev/null | head -c 140)"
   # a genuinely LAZY cli (no software.yml _preload) is preload:false → "on first use" is accurate. pandoc has no _preload.
   cdlazy="$(curl -s "$u/api/catalog/pandoc" 2>/dev/null)"
-  echo "$cdlazy" | jq -e '.installMode=="cli" and .preload==false' >/dev/null 2>&1 && pass "GET /api/catalog/pandoc -> installMode:cli + preload:false (a genuinely lazy CLI installed on first use via the cnf hook; #153)" || fail "pandoc installMode/preload -> $(printf '%s' "$cdlazy" | jq -c '{installMode,preload}' 2>/dev/null | head -c 80)"
+  echo "$cdlazy" | jq -e '.installMode=="cli" and .deliveryMode=="lazy" and .preload==false' >/dev/null 2>&1 && pass "GET /api/catalog/pandoc -> lazy CLI installed on first use via the cnf hook" || fail "pandoc delivery policy -> $(printf '%s' "$cdlazy" | jq -c '{installMode,deliveryMode,preload}' 2>/dev/null | head -c 100)"
   # fire #136 (R14/F15/F06) — the App Store detail flags tools with an AUTOMATED first-run CONFIGURATION step:
   # a post-installx/post-<tool>.sh hook runs after installx installs <tool>. atuin HAS one (configured:true +
   # the hook name as the concrete action); ripgrep does NOT (a bare lazy CLI — honest config-coverage signal).

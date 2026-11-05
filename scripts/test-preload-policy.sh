@@ -17,7 +17,7 @@ set -uo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 YML="$ROOT/software.yml"
 # Ratchet: the current preload count. LOWER it as the favorite-gated convenience trim lands; never raise it.
-PRELOAD_CEILING="${PRELOAD_CEILING:-25}"
+PRELOAD_CEILING="${PRELOAD_CEILING:-14}"
 
 say() { command -v gum >/dev/null 2>&1 && gum style --foreground 51 -- "$*" || printf '\033[1;36m%s\033[0m\n' "$*"; }
 pass() { command -v gum >/dev/null 2>&1 && gum style --foreground 46 -- "PASS $*" || printf '\033[1;32mPASS\033[0m %s\n' "$*"; P=$((P + 1)); }
@@ -29,20 +29,28 @@ say "preload policy — minimum eager install, lazy everywhere (fire #200)"
 
 if [ ! -f "$YML" ]; then fail "software.yml missing ($YML)"; say "preload-policy: $P passed, $F failed"; exit 1; fi
 
-# Emit one line per fact the shell asserts on: "COUNT <n>", "PRELOAD <name>" for every _preload:true entry.
+# Emit one line per fact the shell asserts on: "COUNT <n>", "PRELOAD <name>" and its bounded reason.
 FACTS="$(python3 - "$YML" <<'PY'
 import yaml,sys
 d=yaml.safe_load(open(sys.argv[1]))
 sp=d.get('softwarePackages',d) if isinstance(d,dict) else d
-pre=[k for k,v in (sp.items() if isinstance(sp,dict) else []) if isinstance(v,dict) and v.get('_preload') is True]
+allowed={"bootstrap-critical","lazy-installer-substrate","security-recovery-prerequisite","desired-state-service"}
+pre=[(k,v.get('_preloadReason')) for k,v in (sp.items() if isinstance(sp,dict) else []) if isinstance(v,dict) and v.get('_preload') is True]
 print("COUNT", len(pre))
-for k in sorted(pre): print("PRELOAD", k)
+for k,r in sorted(pre): print("PRELOAD", k, r if isinstance(r,str) else "MISSING")
+for k,r in sorted(pre):
+    if r not in allowed: print("BAD_REASON", k, r if isinstance(r,str) else "MISSING")
+for k,v in (sp.items() if isinstance(sp,dict) else []):
+    if isinstance(v,dict) and '_preloadReason' in v and v.get('_preload') is not True: print("ORPHAN_REASON",k)
 PY
 )"
 [ -n "$FACTS" ] || { fail "could not parse software.yml preload set"; say "preload-policy: $P passed, $F failed"; exit 1; }
 
 count="$(printf '%s\n' "$FACTS" | awk '$1=="COUNT"{print $2}')"
-is_pre() { printf '%s\n' "$FACTS" | grep -qxE "PRELOAD $1"; }
+is_pre() { printf '%s\n' "$FACTS" | grep -qE "^PRELOAD $1 "; }
+
+bad_reasons="$(printf '%s\n' "$FACTS" | awk '$1=="BAD_REASON" || $1=="ORPHAN_REASON"')"
+[ -z "$bad_reasons" ] && pass "every eager entry has one bounded _preloadReason and lazy entries have none" || fail "invalid eager-install reasons: $bad_reasons"
 
 # 1. the cnf-hook substrate: EVERY language toolchain the hook dispatches on-demand installs to must be
 #    preloaded, or `cnf` can't rescue a missing command via that provider (it would hit a missing installer
@@ -75,10 +83,10 @@ for t in gum jq yq chezmoi mise zsh git curl; do
   is_pre "$t" && pass "bootstrap dep preloaded: $t" || fail "bootstrap dep NOT preloaded: $t (scripts depend on it at provision time)"
 done
 
-# 2b. coding-agent & developer workstation tools + LSP servers (Git, Ripgrep, curl, Node.js/npm, tmux,
-#     Bash/C++/CSS/Go/HTML/JSON/Python/Rust/TypeScript/YAML language servers).
-for t in git ripgrep curl node tmux bash-language-server clangd vscode-langservers-extracted gopls pyright rust-analyzer typescript typescript-language-server yaml-language-server; do
-  is_pre "$t" && pass "agent dev/LSP tool preloaded: $t" || fail "agent dev/LSP tool NOT preloaded: $t"
+# 2b. Optional CLIs, TUIs, and LSPs are catalogued for command-not-found installation, not paid for on
+# every machine. Add tools here when a regression has previously made them eager without a valid closure.
+for t in ripgrep tmux bash-language-server clangd vscode-langservers-extracted gopls pyright rust-analyzer typescript typescript-language-server yaml-language-server; do
+  is_pre "$t" && fail "optional CLI/TUI/LSP is eager instead of lazy: $t" || pass "optional CLI/TUI/LSP remains lazy: $t"
 done
 
 # 3. no §6/§7-removed tool is preloaded (dead eager installs). m-cli no-ops on macOS 15+ (§6); the others are dropped.
@@ -96,7 +104,7 @@ else
 fi
 
 # Informational: the convenience-CLI trim toward minimum is FAVORITE-gated (the user's call, not an autonomous guess).
-say "note: $count tools preload eagerly; trimming the pure-convenience CLIs toward minimum needs the owner's favorite-list (a design call) — this guard enforces the direction (ratchet) + the invariants, not the favorite picks."
+say "note: $count tools preload eagerly; all other catalog tools install on first authorized use."
 
 say "preload-policy: $P passed, $F failed"
 [ "$F" -eq 0 ]

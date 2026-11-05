@@ -66,6 +66,9 @@ package-name:
   _bin: binary-name
   _home: https://project-website.com
   _docs: https://docs-url.com
+  # Eager installation is exceptional. Omit both fields for the default lazy behavior.
+  _preload: true
+  _preloadReason: bootstrap-critical
   # Installation methods
   brew: homebrew-formula-name
   apt: apt-package-name
@@ -151,6 +154,8 @@ docker:
 | `_home` | Optional | Project homepage URL |
 | `_docs` | Optional | Documentation URL |
 | `_bin` | Recommended | Binary name to check if already installed |
+| `_preload` | Optional | Eagerly install instead of using command-not-found; requires `_preloadReason` |
+| `_preloadReason` | Required with `_preload` | One of `bootstrap-critical`, `lazy-installer-substrate`, `security-recovery-prerequisite`, or `desired-state-service` |
 | `_when:<method>` | Optional | Shell condition that must be true before installing |
 | `_post` | Optional | Shell command to run after installation (any method) |
 | `_post:<method>` | Optional | Shell command to run after installation (specific method) |

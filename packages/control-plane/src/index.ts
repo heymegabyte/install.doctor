@@ -21,7 +21,7 @@ import { errorEnvelope, requestSecurity, requestIdFor } from './http-security';
 // (scripts/gen-catalog.mjs → the cnf index builder; D01/D02/D13). Read-only, bundled at deploy;
 // regenerate + redeploy when software.yml changes. No runtime YAML at the edge.
 import catalogData from './catalog.json';
-type CatalogEntry = { name: string; bin: string; providers: string[]; pkgs: Record<string, string>; platforms: string[]; short?: string; github?: string; home?: string; docs?: string; installMode?: 'app' | 'service' | 'cli'; preload?: boolean; deprecated?: string; replacement?: string; deps?: string[]; configured?: boolean; postInstall?: string };
+type CatalogEntry = { name: string; bin: string; providers: string[]; pkgs: Record<string, string>; platforms: string[]; short?: string; github?: string; home?: string; docs?: string; installMode?: 'app' | 'service' | 'cli'; deliveryMode: 'eager' | 'lazy'; preload?: boolean; preloadReason?: 'bootstrap-critical' | 'lazy-installer-substrate' | 'security-recovery-prerequisite' | 'desired-state-service'; deprecated?: string; replacement?: string; deps?: string[]; configured?: boolean; postInstall?: string };
 const CATALOG = catalogData as CatalogEntry[];
 // Name → entry. One package can legitimately provide SEVERAL bins (xz → lzma/xz/unlzma/unxz), one entry per
 // bin, all sharing the package `name`. Prefer the CANONICAL entry whose bin IS the name (so /api/catalog/xz
@@ -1165,7 +1165,7 @@ app.get('/api/catalog/:name', (c) => {
   // ALREADY on PATH, so a run can ADOPT an existing install (F04) instead of reinstalling (B10/W02). Derived from
   // the bin field (every entry has one); universal + accurate, no per-tool guessing (unlike a verify `--version`).
   const detectCommand = e.bin ? `command -v ${e.bin}` : undefined;
-  return c.json({ name: e.name, bin: e.bin, platforms: e.platforms, unavailablePlatforms, providers: e.providers, short: e.short, github: e.github, owner, home: e.home, docs: e.docs, installMode: e.installMode || 'cli', preload: e.preload === true, deprecated: e.deprecated, replacement: e.replacement, deps: e.deps, configured: e.configured, postInstall: e.postInstall, detectCommand, commands, updateCommands, uninstallCommands });
+  return c.json({ name: e.name, bin: e.bin, platforms: e.platforms, unavailablePlatforms, providers: e.providers, short: e.short, github: e.github, owner, home: e.home, docs: e.docs, installMode: e.installMode || 'cli', deliveryMode: e.deliveryMode || (e.preload ? 'eager' : 'lazy'), preload: e.preload === true, preloadReason: e.preloadReason, deprecated: e.deprecated, replacement: e.replacement, deps: e.deps, configured: e.configured, postInstall: e.postInstall, detectCommand, commands, updateCommands, uninstallCommands });
 });
 
 app.post('/api/ai/v1/resolve', async (c) => {

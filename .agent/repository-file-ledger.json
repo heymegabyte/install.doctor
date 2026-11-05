@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "trackedFileCount": 2773,
-  "classifiedFileCount": 2773,
+  "trackedFileCount": 2775,
+  "classifiedFileCount": 2775,
   "complete": true,
   "byClass": {
     "binary-media": 536,
@@ -10,8 +10,8 @@
     "encrypted": 84,
     "generated": 4,
     "gitlink-or-directory": 1,
-    "other": 1143,
-    "script": 179,
+    "other": 1144,
+    "script": 180,
     "sentinel-empty": 18,
     "source": 155,
     "test": 144
@@ -353,7 +353,7 @@
       "kind": "configuration",
       "bytes": 1923120,
       "mode": "644",
-      "sha256": "e13254db225f60dfab2aec6cbc42fcb044d7ad2a90b3cc96c132c93c2ef2282a",
+      "sha256": "7a48e6128c15c5855e7d68336ea76734527827e2f53e0b9f1b2672af59e87492",
       "validators": [
         "tracked",
         "readable",
@@ -4754,9 +4754,9 @@
     {
       "path": "coolify/cluster-standard.md",
       "kind": "documentation",
-      "bytes": 5100,
+      "bytes": 11870,
       "mode": "644",
-      "sha256": "074ff278dcc52f8699bbf726fe90c564f5a92bb19559fb8f11560f329261f19b",
+      "sha256": "3e68d4737c815d2159050e9baa25345b0b4e07f6c97fd1f2c0882a3a6c54929a",
       "validators": [
         "tracked",
         "readable",
@@ -4944,9 +4944,9 @@
     {
       "path": "docs/advanced/installer.md",
       "kind": "documentation",
-      "bytes": 7304,
+      "bytes": 7719,
       "mode": "644",
-      "sha256": "83ffa7f5a95e8ae6fe06503345de9814d4c8300dc7a4f3b73ccaf06ee3374577",
+      "sha256": "c2a7014e605cf5ddac3334057d1a5d16deaa273d5d662f4e26c2e6c32596650f",
       "validators": [
         "tracked",
         "readable",
@@ -5376,9 +5376,9 @@
     {
       "path": "docs/aid/getting-started-desktop.md",
       "kind": "documentation",
-      "bytes": 4394,
+      "bytes": 4602,
       "mode": "644",
-      "sha256": "72cb4473015e81eb8761ba65197c52575bd22eb310f45ee52c6395dc14bf40ff",
+      "sha256": "487779a61fbdbdfe9021f6bb059ea0cffa31467bc8eb854e9dcc610838218d53",
       "validators": [
         "tracked",
         "readable",
@@ -5400,9 +5400,9 @@
     {
       "path": "docs/aid/getting-started-headless.md",
       "kind": "documentation",
-      "bytes": 4435,
+      "bytes": 4574,
       "mode": "644",
-      "sha256": "f24c9327e068b8827dee6ccd31284d5c2f474e160855f2e0a45a52f5e1e169af",
+      "sha256": "3aa454022d98186903f2db23a8b8abd8063d68f87d0f97885e4448f1f5b29a33",
       "validators": [
         "tracked",
         "readable",
@@ -27909,9 +27909,9 @@
     {
       "path": "home/dot_config/shell/macos.sh.tmpl",
       "kind": "other",
-      "bytes": 43170,
+      "bytes": 43503,
       "mode": "644",
-      "sha256": "f2984991dfb7ba5151619c1a85d836cbf11aa05cab9cccef56e52fc6c88a78d8",
+      "sha256": "4591f8e808437852ed7c0fa753cf16f5e5316a21d717d5a4f1abb23cd8fb1d26",
       "validators": [
         "tracked",
         "readable",
@@ -28044,9 +28044,33 @@
     {
       "path": "home/dot_config/shell/profile.sh.tmpl",
       "kind": "script",
-      "bytes": 4992,
+      "bytes": 5116,
       "mode": "644",
-      "sha256": "78bc2b1b09e2e6cdf711ec8f058a8c9c96cc769e20df2177255fe23911955f6f",
+      "sha256": "528763ca46c91ad314d6efdf5788546cf7d5ff30d103b11aabd8a2a373182514",
+      "validators": [
+        "tracked",
+        "readable",
+        "sha256",
+        "syntax",
+        "shellcheck-or-runtime-test",
+        "callers"
+      ],
+      "disposition": "retain-validated",
+      "reason": "Executable script is retained when syntax, static analysis, caller, and runtime contract gates pass.",
+      "evidence": [
+        "syntax",
+        "shellcheck-or-runtime-test",
+        "callers",
+        "repository-suite"
+      ],
+      "issues": []
+    },
+    {
+      "path": "home/dot_config/shell/ssh-agent.sh",
+      "kind": "script",
+      "bytes": 1361,
+      "mode": "644",
+      "sha256": "855d4f657737e570471ea5362c3db28796d22fa75595c2d629f38e5a15d5b5eb",
       "validators": [
         "tracked",
         "readable",
@@ -29474,6 +29498,26 @@
       "bytes": 335,
       "mode": "644",
       "sha256": "fa91203fdfa41ca2712487cdda9e0c7592969e8f9403f14e79c05a065a719a1d",
+      "validators": [
+        "tracked",
+        "readable",
+        "sha256",
+        "semantic-review"
+      ],
+      "disposition": "retain-reviewed",
+      "reason": "No safe higher-confidence rewrite was identified; preserve behavior and validate through tracked, readable, sha256, semantic-review.",
+      "evidence": [
+        "semantic-review",
+        "repository-suite"
+      ],
+      "issues": []
+    },
+    {
+      "path": "home/dot_config/system/etc/pam.d/sudo_local.tmpl",
+      "kind": "other",
+      "bytes": 212,
+      "mode": "644",
+      "sha256": "b411e370cf7e79871a50c17cbac69cfd54705d479d65ee2e2b0ca4a80fa74b34",
       "validators": [
         "tracked",
         "readable",
@@ -32047,9 +32091,9 @@
     {
       "path": "home/dot_local/bin/executable_cnf-build-shims",
       "kind": "script",
-      "bytes": 4445,
+      "bytes": 6122,
       "mode": "755",
-      "sha256": "5f574652c4463aaa89a6de29c2c6fea540a8150a8ab866d7b965adf37edb1137",
+      "sha256": "cb17cfee510c0a04d2d09d5ba9d99b122203c91c693b9d18669ca0ff7a677bbc",
       "validators": [
         "tracked",
         "readable",
@@ -32191,9 +32235,9 @@
     {
       "path": "home/dot_local/bin/executable_fleet-proxmox-pbs-converge",
       "kind": "script",
-      "bytes": 4047,
+      "bytes": 6669,
       "mode": "755",
-      "sha256": "23385a471ce4f73a997df1510e4b86cd6e6e742153b792eb24a850ae361f2717",
+      "sha256": "2bd45c0fdd35a041607d979f382258fdb3dc6976f44b37a793f391e46ea78498",
       "validators": [
         "tracked",
         "readable",
@@ -32331,9 +32375,9 @@
     {
       "path": "home/dot_local/bin/executable_installx",
       "kind": "script",
-      "bytes": 28356,
+      "bytes": 28429,
       "mode": "644",
-      "sha256": "f00a4f5ac7159629ace662142c87128a71bc17130b3723e38ed3ae032e7a1b79",
+      "sha256": "223419a9937e5ebc4686de08780d169e7468c55620165559c725442abc5bc534",
       "validators": [
         "tracked",
         "readable",
@@ -33329,9 +33373,9 @@
     {
       "path": "home/dot_local/bin/post-installx/executable_post-legion-workstation.sh",
       "kind": "script",
-      "bytes": 93646,
+      "bytes": 99122,
       "mode": "755",
-      "sha256": "81f81ce5c9ebf8a454b1bde47828d89d955832b8ebb0be87b59172d6cf090c1d",
+      "sha256": "1e4d3d3d2c56516f63b59d373a1b412102c085e80aff7ab773b126e2dd4a05fc",
       "validators": [
         "tracked",
         "readable",
@@ -39484,9 +39528,9 @@
     {
       "path": "home/private_dot_ssh/private_config.tmpl",
       "kind": "encrypted",
-      "bytes": 3783,
+      "bytes": 3835,
       "mode": "644",
-      "sha256": "158dee6fc08d50af95f13d9997f65667f1c2b2059f8c2a777c02ef5265894f42",
+      "sha256": "b4283e992f9c3745761806d6e037db11fd7270c402043fa96f09a40cdf5925e9",
       "validators": [
         "tracked",
         "readable",
@@ -40552,9 +40596,9 @@
     {
       "path": "openspec/changes/repository-wide-convergence/design.md",
       "kind": "documentation",
-      "bytes": 4839,
+      "bytes": 7298,
       "mode": "644",
-      "sha256": "e9238d1883c3336c5d9eadb9ee7cd7f6821dfecd7b02370e233046ded5cefe6c",
+      "sha256": "668c976f2a26c9e416abd4d96fd8ff849789b02a7cf411e20164a16604b0f3f5",
       "validators": [
         "tracked",
         "readable",
@@ -40576,9 +40620,9 @@
     {
       "path": "openspec/changes/repository-wide-convergence/proposal.md",
       "kind": "documentation",
-      "bytes": 2041,
+      "bytes": 2329,
       "mode": "644",
-      "sha256": "a9a134f7a34250d07afa3f70e9379a44298df0e72e68a8e1289509a317418e9b",
+      "sha256": "c1fe71a9c3e9f00666204a2b1fa5c5be6d5e23972e35f8e6a4075223043fc4f5",
       "validators": [
         "tracked",
         "readable",
@@ -40626,9 +40670,9 @@
     {
       "path": "openspec/changes/repository-wide-convergence/specs/repository-quality-gates/spec.md",
       "kind": "test",
-      "bytes": 5677,
+      "bytes": 9049,
       "mode": "644",
-      "sha256": "406781899f2452fb5241fc72c4c60089563ba69fbc19adeeb7ab18ad09ff50d2",
+      "sha256": "866e0cd01d676866549ddf3d4a4d7606c67fa1f3dd596977fade73c9f58af7b3",
       "validators": [
         "tracked",
         "readable",
@@ -40652,9 +40696,9 @@
     {
       "path": "openspec/changes/repository-wide-convergence/tasks.md",
       "kind": "documentation",
-      "bytes": 10822,
+      "bytes": 12782,
       "mode": "644",
-      "sha256": "5903681fb116a8b91f5954aa0a038231ae381661cec0ff225209b7d5db87b93f",
+      "sha256": "682c3224669545866646f85f61ac8db495409bbdf944f9865eca94ac6fa571c5",
       "validators": [
         "tracked",
         "readable",
@@ -41622,9 +41666,9 @@
     {
       "path": "packages/control-plane/scripts/gen-catalog.mjs",
       "kind": "script",
-      "bytes": 8964,
+      "bytes": 9171,
       "mode": "644",
-      "sha256": "4444b1165bc1be787f7b2a5680e67873bd4664467fa966b134fd10c73596e168",
+      "sha256": "8969b671384f7690a7998fff63ad58d50301dc2f19808503843e519f3f723a59",
       "validators": [
         "tracked",
         "readable",
@@ -41724,9 +41768,9 @@
     {
       "path": "packages/control-plane/src/catalog.json",
       "kind": "generated",
-      "bytes": 401545,
+      "bytes": 423713,
       "mode": "644",
-      "sha256": "cf2f92e7e5a7576ea7d7c351d15dfe4bc924199d2275806504e66d924c563ae2",
+      "sha256": "e86969ef1e550333d0ffe724a9036bab45072d06c198cbdeb1546189887f4fbc",
       "validators": [
         "tracked",
         "readable",
@@ -41797,9 +41841,9 @@
     {
       "path": "packages/control-plane/src/index.ts",
       "kind": "source",
-      "bytes": 188757,
+      "bytes": 189013,
       "mode": "644",
-      "sha256": "1461dc5687830c62c6b311193223162104beedf4955578fe41b097dbf7a1ce73",
+      "sha256": "984efd670def479e76c284b289bfb0d93cf36bcb54e9f609c7c141ea946bdaa6",
       "validators": [
         "tracked",
         "readable",
@@ -42529,9 +42573,9 @@
     {
       "path": "scripts/partials/software.yml.header",
       "kind": "other",
-      "bytes": 5125,
+      "bytes": 5451,
       "mode": "644",
-      "sha256": "d2d1cb25bab311e237e2cb8d58280a57d4b51bce1bfeeeaf02bcb38866150625",
+      "sha256": "95bf34e7aeb1785abefc8437b560a1e2662e89321a2935939aa41dd10d8724a4",
       "validators": [
         "tracked",
         "readable",
@@ -43255,9 +43299,9 @@
     {
       "path": "scripts/test-catalog-integrity.sh",
       "kind": "test",
-      "bytes": 5410,
+      "bytes": 6174,
       "mode": "755",
-      "sha256": "532e976c92e535b4297a20a9ffe2340ba156f3d2a0d6978e12156d1e7c615595",
+      "sha256": "d562fea1e8a6f102eef9327156dc34e5a84a7b30e709cdec487f16e0802e9726",
       "validators": [
         "tracked",
         "readable",
@@ -43281,9 +43325,9 @@
     {
       "path": "scripts/test-catalog-policy-invariants.sh",
       "kind": "test",
-      "bytes": 2481,
+      "bytes": 4133,
       "mode": "755",
-      "sha256": "ee824b491bc8fdd1909271662ae81b1f8c50ae7194c37b38f58dec439ce6f4d2",
+      "sha256": "105df095942f02225c172d7f5718db7b91083fa0e38dd7c25035a64492ed8a85",
       "validators": [
         "tracked",
         "readable",
@@ -43515,9 +43559,9 @@
     {
       "path": "scripts/test-control-plane.sh",
       "kind": "test",
-      "bytes": 119675,
+      "bytes": 120141,
       "mode": "644",
-      "sha256": "0c0697c6093c875958cad0e6c843a32227b7ce277fceae4ebfad1df85cccd3c3",
+      "sha256": "9ca7633e3f1b30c272fe970f65911ebb9207181ef7e090f3c0bf9c716c212d9d",
       "validators": [
         "tracked",
         "readable",
@@ -44763,9 +44807,9 @@
     {
       "path": "scripts/test-preload-policy.sh",
       "kind": "test",
-      "bytes": 6701,
+      "bytes": 7306,
       "mode": "755",
-      "sha256": "999825575b53316142633e76b2fa16847c7a1e3fa87ef01396f4ce566a38fd22",
+      "sha256": "d2f5d4ef93844bca3f1116bec70db9324b1742a8c4bba53855b4da25b957307b",
       "validators": [
         "tracked",
         "readable",
@@ -45777,9 +45821,9 @@
     {
       "path": "scripts/validate-catalog.py",
       "kind": "script",
-      "bytes": 4369,
+      "bytes": 5540,
       "mode": "755",
-      "sha256": "0ba0edd313f3eb0bdd61c5d2ec54a75a59b98fb3d7880aa03d926d0b708362c2",
+      "sha256": "f2d99b918c362678ad33cfe1903091f676d965d404159435b70c3c7d6c2bb0ea",
       "validators": [
         "tracked",
         "readable",
@@ -45825,9 +45869,9 @@
     {
       "path": "scripts/validate-software-yml.sh",
       "kind": "script",
-      "bytes": 5400,
+      "bytes": 6728,
       "mode": "755",
-      "sha256": "8309d1f95aca6efd165d47c27510cbcd8e321a5f59d0a7cd1f98f7d91c3545c7",
+      "sha256": "5e846c7d5c5042fcf0747147959d014621bdd8baf5cb9dd47bdb238cdad0536d",
       "validators": [
         "tracked",
         "readable",
@@ -64532,9 +64576,9 @@
     {
       "path": "software.yml",
       "kind": "configuration",
-      "bytes": 729850,
+      "bytes": 727859,
       "mode": "644",
-      "sha256": "bbdbf090bdce5513431da446ccf8ee89c7353f434dcf52be8cb43425ec219b49",
+      "sha256": "5d2213705e1e2fd40c60ad6710d471c1c81b35d2787f1aa76ecbdf06c7036b0b",
       "validators": [
         "tracked",
         "readable",
