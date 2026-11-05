@@ -1,0 +1,358 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+label="com.heymegabyte.oneprompt-convergence"
+state_root="${XDG_STATE_HOME:-$HOME/.local/state}/oneprompt-convergence"
+config_root="$state_root/config"
+pause_file="$state_root/pause"
+stop_file="$state_root/stop"
+heartbeat_file="$state_root/heartbeat"
+log_file="$state_root/controller.log"
+heartbeat_max_age="${ONEPROMPT_HEARTBEAT_MAX_AGE_SECONDS:-900}"
+
+die() {
+  printf 'oneprompt-convergence-supervisor: %s\n' "$*" >&2
+  exit 64
+}
+
+manager() {
+  if test -n "${ONEPROMPT_SUPERVISOR_MANAGER:-}"; then
+    printf '%s\n' "$ONEPROMPT_SUPERVISOR_MANAGER"
+  elif test "$(uname -s)" = Darwin && command -v launchctl >/dev/null 2>&1; then
+    printf 'launchd\n'
+  elif command -v systemctl >/dev/null 2>&1; then
+    printf 'systemd\n'
+  else
+    printf 'unsupported\n'
+  fi
+}
+
+validate_absolute_path() {
+  case "$1" in
+    /*) ;;
+    *) die "path must be absolute: $1" ;;
+  esac
+  case "$1" in
+    *$'\n'*|*$'\r'*) die "path contains a line break" ;;
+  esac
+}
+
+canonical_repo() {
+  local requested="$1"
+  validate_absolute_path "$requested"
+  test -d "$requested" || die "repository does not exist: $requested"
+  (cd "$requested" && pwd -P)
+}
+
+controller_for_repo() {
+  local repo="$1"
+  local controller="${ONEPROMPT_CONVERGENCE_CONTROLLER:-$repo/scripts/run-convergence-loop.sh}"
+  validate_absolute_path "$controller"
+  test -f "$controller" || die "foreground controller does not exist: $controller"
+  test -x "$controller" || die "foreground controller is not executable: $controller"
+  printf '%s\n' "$controller"
+}
+
+write_atomic() {
+  local destination="$1"
+  local temporary
+  mkdir -p "$(dirname "$destination")"
+  temporary="$(mktemp "$(dirname "$destination")/.oneprompt-convergence.XXXXXX")"
+  cat >"$temporary"
+  chmod 600 "$temporary"
+  if test -f "$destination" && cmp -s "$temporary" "$destination"; then
+    rm -f "$temporary"
+  else
+    mv -f "$temporary" "$destination"
+  fi
+}
+
+xml_escape() {
+  sed -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g' -e 's/"/\&quot;/g' -e "s/'/\\&apos;/g"
+}
+
+systemd_escape() {
+  sed -e 's/\\/\\\\/g' -e 's/"/\\"/g'
+}
+
+install_service() {
+  local repo_arg="" repo controller service_manager home_xml repo_xml tool_xml path_xml definition
+  while test "$#" -gt 0; do
+    case "$1" in
+      --repo)
+        test "$#" -ge 2 || die "--repo requires a path"
+        repo_arg="$2"
+        shift 2
+        ;;
+      *) die "unknown install option: $1" ;;
+    esac
+  done
+  test -n "$repo_arg" || die "install requires --repo /absolute/path"
+  repo="$(canonical_repo "$repo_arg")"
+  controller="$(controller_for_repo "$repo")"
+  service_manager="$(manager)"
+  case "$service_manager" in launchd|systemd) ;; *) die "no supported user service manager" ;; esac
+
+  if test "$service_manager" = launchd; then
+    definition="$HOME/Library/LaunchAgents/$label.plist"
+  else
+    definition="$HOME/.config/systemd/user/oneprompt-convergence.service"
+  fi
+  if test -e "$definition" && test ! -r "$config_root/manager"; then
+    die "an unmanaged canonical service already exists at $definition; inspect and adopt it explicitly before installation"
+  fi
+
+  mkdir -p "$config_root"
+  printf '%s\n' "$repo" | write_atomic "$config_root/repository"
+  printf '%s\n' "$controller" | write_atomic "$config_root/controller"
+  printf '%s\n' "$service_manager" | write_atomic "$config_root/manager"
+
+  if test "$service_manager" = launchd; then
+    home_xml="$(printf '%s' "$HOME" | xml_escape)"
+    repo_xml="$(printf '%s' "$repo" | xml_escape)"
+    tool_xml="$(printf '%s' "$0" | xml_escape)"
+    path_xml="$(printf '%s' "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:$HOME/.local/bin:$HOME/.opencode/bin" | xml_escape)"
+    write_atomic "$HOME/Library/LaunchAgents/$label.plist" <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>Label</key><string>$label</string>
+  <key>ProgramArguments</key><array><string>/bin/bash</string><string>$tool_xml</string><string>run</string></array>
+  <key>WorkingDirectory</key><string>$repo_xml</string>
+  <key>EnvironmentVariables</key><dict>
+    <key>HOME</key><string>$home_xml</string>
+    <key>PATH</key><string>$path_xml</string>
+    <key>ONEPROMPT_CONVERGENCE_STATE_DIR</key><string>$(printf '%s' "$state_root" | xml_escape)</string>
+  </dict>
+  <key>RunAtLoad</key><true/>
+  <key>StartInterval</key><integer>900</integer>
+  <key>KeepAlive</key><false/>
+  <key>ProcessType</key><string>Background</string>
+  <key>StandardOutPath</key><string>$(printf '%s' "$log_file" | xml_escape)</string>
+  <key>StandardErrorPath</key><string>$(printf '%s' "$log_file" | xml_escape)</string>
+</dict></plist>
+EOF
+  else
+    local repo_unit tool_unit state_unit log_unit
+    repo_unit="$(printf '%s' "$repo" | systemd_escape)"
+    tool_unit="$(printf '%s' "$0" | systemd_escape)"
+    state_unit="$(printf '%s' "$state_root" | systemd_escape)"
+    log_unit="$(printf '%s' "$log_file" | systemd_escape)"
+    write_atomic "$HOME/.config/systemd/user/oneprompt-convergence.service" <<EOF
+[Unit]
+Description=OnePrompt bounded convergence controller
+ConditionPathExists=!$stop_file
+ConditionPathExists=!$pause_file
+
+[Service]
+Type=exec
+WorkingDirectory="$repo_unit"
+ExecStart=/bin/bash "$tool_unit" run
+Environment="ONEPROMPT_CONVERGENCE_STATE_DIR=$state_unit"
+StandardOutput=append:$log_unit
+StandardError=append:$log_unit
+Restart=no
+TimeoutStopSec=3
+
+[Install]
+WantedBy=default.target
+EOF
+    write_atomic "$HOME/.config/systemd/user/oneprompt-convergence.timer" <<EOF
+[Unit]
+Description=Wake the bounded OnePrompt convergence controller
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=15min
+Persistent=true
+Unit=oneprompt-convergence.service
+
+[Install]
+WantedBy=timers.target
+EOF
+  fi
+  printf 'installed %s definition for %s; service not started\n' "$service_manager" "$repo"
+}
+
+read_config() {
+  test -r "$config_root/manager" || die "service is not installed by install.doctor"
+  configured_manager="$(sed -n '1p' "$config_root/manager")"
+  configured_repo="$(sed -n '1p' "$config_root/repository")"
+  configured_controller="$(sed -n '1p' "$config_root/controller")"
+}
+
+definition_path() {
+  if test "$configured_manager" = launchd; then
+    printf '%s\n' "$HOME/Library/LaunchAgents/$label.plist"
+  else
+    printf '%s\n' "$HOME/.config/systemd/user/oneprompt-convergence.service"
+  fi
+}
+
+service_loaded() {
+  if test "$configured_manager" = launchd; then
+    launchctl print "gui/$(id -u)/$label" >/dev/null 2>&1
+  else
+    systemctl --user status oneprompt-convergence.service >/dev/null 2>&1
+  fi
+}
+
+service_active() {
+  if test "$configured_manager" = launchd; then
+    launchctl print "gui/$(id -u)/$label" 2>/dev/null | grep -q 'state = running'
+  else
+    systemctl --user is-active --quiet oneprompt-convergence.service
+  fi
+}
+
+start_service() {
+  read_config
+  test ! -e "$stop_file" || die "stop intent is present; use resume to clear it explicitly"
+  test ! -e "$pause_file" || die "pause intent is present; use resume"
+  verify_service >/dev/null
+  if test "$configured_manager" = launchd; then
+    service_loaded || launchctl bootstrap "gui/$(id -u)" "$(definition_path)"
+    launchctl kickstart "gui/$(id -u)/$label"
+  else
+    systemctl --user daemon-reload
+    systemctl --user enable --now oneprompt-convergence.timer
+  fi
+}
+
+stop_manager_service() {
+  read_config
+  if test "$configured_manager" = launchd; then
+    service_loaded && launchctl bootout "gui/$(id -u)/$label" || true
+  else
+    systemctl --user disable --now oneprompt-convergence.timer || true
+    systemctl --user stop oneprompt-convergence.service || true
+  fi
+}
+
+pause_service() {
+  mkdir -p "$state_root"
+  : >"$pause_file"
+  stop_manager_service
+}
+
+stop_service() {
+  mkdir -p "$state_root"
+  : >"$stop_file"
+  rm -f "$pause_file"
+  stop_manager_service
+}
+
+resume_service() {
+  read_config
+  rm -f "$pause_file" "$stop_file"
+  start_service
+}
+
+heartbeat_state() {
+  if test ! -e "$heartbeat_file"; then
+    printf 'missing\n'
+    return
+  fi
+  local modified now age
+  if modified="$(stat -f %m "$heartbeat_file" 2>/dev/null)"; then :
+  else modified="$(stat -c %Y "$heartbeat_file")"; fi
+  now="$(date +%s)"
+  age=$((now - modified))
+  if test "$age" -le "$heartbeat_max_age"; then printf 'fresh\n'; else printf 'stale\n'; fi
+}
+
+desired_mode() {
+  if test -e "$stop_file"; then printf 'stopped\n'
+  elif test -e "$pause_file"; then printf 'paused\n'
+  else printf 'running\n'; fi
+}
+
+json_string() {
+  printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' | tr -d '\r\n'
+}
+
+status_service() {
+  local format="text" desired service heartbeat healthy repo="" service_manager="uninstalled"
+  test "${1:-}" = --json && format=json
+  desired="$(desired_mode)"
+  if test -r "$config_root/manager"; then
+    read_config
+    repo="$configured_repo"
+    service_manager="$configured_manager"
+    if service_active; then service=active; else service=inactive; fi
+  else
+    service=uninstalled
+  fi
+  heartbeat="$(heartbeat_state)"
+  healthy=false
+  test "$desired" = running && test "$service" = active && test "$heartbeat" = fresh && healthy=true
+  if test "$format" = json; then
+    printf '{"schemaVersion":1,"label":"%s","manager":"%s","repository":"%s","desiredMode":"%s","serviceState":"%s","heartbeat":"%s","healthy":%s}\n' \
+      "$label" "$(json_string "$service_manager")" "$(json_string "$repo")" "$desired" "$service" "$heartbeat" "$healthy"
+  else
+    printf 'label: %s\nmanager: %s\nrepository: %s\ndesired mode: %s\nservice: %s\nheartbeat: %s\nhealthy: %s\n' \
+      "$label" "$service_manager" "$repo" "$desired" "$service" "$heartbeat" "$healthy"
+  fi
+}
+
+verify_service() {
+  read_config
+  local definition
+  definition="$(definition_path)"
+  test -f "$definition" || die "service definition is missing: $definition"
+  test -d "$configured_repo" || die "configured repository is missing: $configured_repo"
+  test -x "$configured_controller" || die "configured controller is not executable: $configured_controller"
+  grep -Fq "$configured_repo" "$definition" || die "service definition does not match the configured repository"
+  grep -Fq "$0" "$definition" || die "service definition does not invoke the intent-checking host adapter"
+  if test "$configured_manager" = systemd; then
+    test -f "$HOME/.config/systemd/user/oneprompt-convergence.timer" || die "systemd timer is missing"
+  fi
+  printf 'verified %s (%s)\n' "$label" "$configured_manager"
+}
+
+run_controller() {
+  read_config
+  test ! -e "$stop_file" || { printf 'stop intent present; skipping admission\n'; return 0; }
+  test ! -e "$pause_file" || { printf 'pause intent present; skipping admission\n'; return 0; }
+  test -x "$configured_controller" || die "configured controller is not executable: $configured_controller"
+  cd "$configured_repo"
+  exec "$configured_controller"
+}
+
+uninstall_service() {
+  if test ! -r "$config_root/manager"; then
+    die "service is not managed by install.doctor; refusing to remove an unknown definition"
+  fi
+  stop_service
+  read_config
+  if test "$configured_manager" = launchd; then
+    rm -f "$HOME/Library/LaunchAgents/$label.plist"
+  else
+    rm -f "$HOME/.config/systemd/user/oneprompt-convergence.service" "$HOME/.config/systemd/user/oneprompt-convergence.timer"
+    systemctl --user daemon-reload || true
+  fi
+  rm -rf "$config_root"
+  printf 'removed managed service definition; stop intent and logs retained in %s\n' "$state_root"
+}
+
+show_logs() {
+  if test -f "$log_file"; then tail -n "${ONEPROMPT_LOG_LINES:-200}" "$log_file"
+  else printf 'no controller log at %s\n' "$log_file"; fi
+}
+
+command="${1:-}"
+test -n "$command" || die "usage: $0 install|start|status|logs|pause|resume|stop|verify|uninstall"
+shift
+case "$command" in
+  install) install_service "$@" ;;
+  start) start_service "$@" ;;
+  status) status_service "$@" ;;
+  logs) show_logs "$@" ;;
+  pause) pause_service "$@" ;;
+  resume) resume_service "$@" ;;
+  stop) stop_service "$@" ;;
+  verify) verify_service "$@" ;;
+  run) run_controller "$@" ;;
+  uninstall) uninstall_service "$@" ;;
+  *) die "unknown command: $command" ;;
+esac
