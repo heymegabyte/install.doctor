@@ -73,38 +73,10 @@ removeLinuxShortcuts:
   - scvim.desktop
 theme: Betelgeuse
 helm:
-  # helm repo add cloudflare-exporter https://lablabs.github.io/cloudflare-exporter/ && helm install cloudflare-exporter/cloudflare-exporter
   - name: cloudflare-exporter
     url: https://lablabs.github.io/cloudflare-exporter/
     pkg: cloudflare-exporter/cloudflare-exporter
-  - name: juicefs
-    url: https://juicedata.github.io/charts/
-    pkg: juicefs/juicefs-csi-driver
 softwarePlugins:
-  alfred:
-    cmd: null
-    plugins:
-      - https://github.com/BalliAsghar/mailsy-alfred/releases/download/2.0.0/Mailsy.alfredworkflow
-  android-studio:
-    cmd: bash -c 'if ! sdkmanager --list_installed | grep "{PLUGIN}" > /dev/null; then echo y | sdkmanager --install "{PLUGIN}"; fi'
-    plugins:
-      - build-tools;34.0.0
-      - cmdline-tools;latest
-      - platform-tools
-      - platforms;android-34
-  composer:
-    cmd: null
-    plugins:
-      - deployer/deployer
-  docker:
-    cmd: bash -c 'if ! docker extension list | grep "$(echo "{PLUGIN}" | sed 's/\:.*//')" > /dev/null; then echo y | docker extension install "{PLUGIN}"; fi'
-    plugins:
-      - docker/disk-usage-extension:0.2.8
-      - docker/logs-explorer-extension:0.2.5
-      - docker/resource-usage-extension
-      - docker/volumes-backup-extension:1.1.4
-      - portainer/portainer-docker-extension:2.19.3
-    when: docker extension list &> /dev/null
   docker-images:
     cmd: bash -c 'if ! docker image list | awk \'{print $1 " " $2}\' | grep "{PLUGIN}" > /dev/null; then docker pull "{PLUGIN}"; fi'
     plugins:
@@ -116,12 +88,6 @@ softwarePlugins:
     plugins:
       - sapk/plugin-rclone
     when: docker plugin ls &> /dev/null
-  espanso:
-    cmd: espanso install {PLUGIN}
-    plugins:
-      - base64-encoder-decoder
-      - gitmojis
-      - typofixer-en
   gcloud:
     cmd: bash -c 'if ! gcloud components list | grep "^..Installed.*{PLUGIN}" > /dev/null; then echo "Installing.." && gcloud components install --quiet "{PLUGIN}"; fi'
     plugins:
@@ -133,17 +99,6 @@ softwarePlugins:
     plugins:
       - dlvhdr/gh-dash
       - mislav/gh-cp
-  intellij-idea-ce:
-    cmd: bash -c 'if [ ! -f "${XDG_CACHE_HOME:-$HOME/.cache}/install.doctor/intellij-idea-ce" ] || ! cat "${XDG_CACHE_HOME:-$HOME/.cache}/install.doctor/intellij-idea-ce" | grep "${PLUGIN}" &> /dev/null; then idea installPlugins "{PLUGIN}" && mkdir -p "${XDG_CACHE_HOME:-$HOME/.cache}/install.doctor" && echo "{PLUGIN}" >> "${XDG_CACHE_HOME:-$HOME/.cache}/install.doctor/intellij-idea-ce"; fi'
-    plugins:
-      - com.github.copilot
-      - com.jetbrains.rust
-      - org.intellij.plugins.hcl
-      - Docker
-      - mobi.hsz.idea.gitignore
-      - NodeJS
-      - org.editorconfig.editorconfigjetbrains
-      - org.intellij.plugins.markdown
   helm:
     cmd: bash -c '{PLUGIN}'
     plugins:
@@ -152,15 +107,11 @@ softwarePlugins:
   krew:
     cmd: bash -c 'if ! kubectl krew list | grep "^{PLUGIN}$" > /dev/null; then if ! kubectl krew search "{PLUGIN}" | grep " unavailable on " > /dev/null; then kubectl krew install "{PLUGIN}"; else echo "UNSUPPORTED PLATFORM - {PLUGIN} is not supported on the current platform"; fi; fi'
     plugins:
-      - cert-manager
       - ctx
-      - get-all
       - neat
       - ns
-      - resource-capacity
       - tail
       - tree
-      - who-can
   obsidian:
     cmd: |
       #!/usr/bin/env bash
@@ -180,53 +131,34 @@ softwarePlugins:
     plugins:
       - https://github.com/blacksmithgu/obsidian-dataview
       - https://github.com/denolehov/obsidian-git
-      - https://github.com/FlorianWoelki/obsidian-iconize
-      - https://github.com/ganesshkumar/obsidian-table-editor
-      - https://github.com/javalent/settings-search
       - https://github.com/liamcain/obsidian-calendar-plugin
-      - https://github.com/liamcain/obsidian-periodic-notes
-      - https://github.com/lukeleppan/better-word-count
       - https://github.com/mgmeyers/obsidian-kanban
       - https://github.com/mgmeyers/obsidian-style-settings
-      - https://github.com/NomarCub/obsidian-open-vscode
       - https://github.com/obsidian-tasks-group/obsidian-tasks
-      - https://github.com/obsidianmd/obsidian-importer
       - https://github.com/platers/obsidian-linter
       - https://github.com/scambier/obsidian-omnisearch
-      - https://github.com/Vinzent03/obsidian-advanced-uri
   steampipe:
     cmd: bash -c 'if [ ! -f /tmp/steampipe-plugin-list ]; then steampipe plugin list > /tmp/steampipe-plugin-list; fi && if ! cat /tmp/steampipe-plugin-list | grep "{PLUGIN}" > /dev/null; then steampipe plugin install "{PLUGIN}"; fi'
     plugins:
-      - aws
       - cloudflare
-      - code
-      - csv
       - docker
       - github
-      - grafana
-      - kubernetes
-      - net
       - openai
       - prometheus
       - sentry
       - stripe
-      - terraform
       - trivy
     update: steampipe plugin update --all
   vim:
     plugins:
       - https://github.com/airblade/vim-gitgutter.git
       - https://github.com/dense-analysis/ale.git
-      - https://github.com/editorconfig/editorconfig-vim.git
-      - https://github.com/github/copilot.vim
       - https://github.com/junegunn/fzf.git
       - https://github.com/junegunn/fzf.vim.git
       - https://github.com/preservim/nerdtree.git
-      - https://github.com/sheerun/vim-polyglot.git
       - https://github.com/tpope/vim-fugitive.git
       - https://github.com/tpope/vim-sensible.git
       - https://github.com/tpope/vim-surround.git
-      - https://github.com/vim-airline/vim-airline.git
   # Handled by script that looks at ~/.config/Code/extensions.json
   # vscode:
   #   cmd: bash -c 'if ! code --list-extensions | grep "{PLUGIN}" > /dev/null; then code --install-extension "{PLUGIN}"; fi'

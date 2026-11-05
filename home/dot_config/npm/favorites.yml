@@ -1,5 +1,23 @@
 ---
 favorites:
-  - pkg: tasuku
-    github: https://github.com/privatenumber/tasuku
-    desc: The minimal task visualizer for Node.js
+  - pkg: zod
+    github: https://github.com/colinhacks/zod
+    desc: TypeScript-first schema validation with static type inference
+  - pkg: hono
+    github: https://github.com/honojs/hono
+    desc: Web framework built on Web Standards for Cloudflare Workers
+  - pkg: drizzle-orm
+    github: https://github.com/drizzle-team/drizzle-orm
+    desc: TypeScript ORM for SQL databases
+  - pkg: vitest
+    github: https://github.com/vitest-dev/vitest
+    desc: Next generation testing framework powered by Vite
+  - pkg: '@playwright/test'
+    github: https://github.com/microsoft/playwright
+    desc: End-to-end testing for modern web apps
+  - pkg: '@biomejs/biome'
+    github: https://github.com/biomejs/biome
+    desc: Fast formatter and linter for JavaScript, TypeScript, JSX, and JSON
+  - pkg: tsx
+    github: https://github.com/privatenumber/tsx
+    desc: TypeScript Execute (tsx) for Node.js

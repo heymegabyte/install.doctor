@@ -332,34 +332,15 @@ zinit wait'0a' lucid light-mode for \
 ### actually installed or whose pure-zsh helper has lasting value
 zinit wait'0b' lucid for \
   OMZP::command-not-found \
-  OMZP::copybuffer \
-  OMZP::encode64 \
   OMZP::sudo \
-  OMZP::safe-paste \
-  OMZP::zsh-interactive-cd
-
-### Git plugins — Brian uses these daily.
-zinit wait'0c' lucid for \
-  OMZP::git-extras \
-  OMZP::github
+  OMZP::safe-paste
 
 ### Tool-specific plugins — gated on tool presence so an uninstalled
 ### tool doesn't drag in dead completion definitions.
-###
-### Removed (do not re-add):
-###   - OMZP::node-docs — never existed in ohmyzsh/ohmyzsh (404)
-###   - OMZP::ripgrep   — never existed (ripgrep ships its own FPATH
-###                        completion from brew)
-###   - OMZP::macos     — multi-file plugin (sources `music`/`spotify`
-###                        sibling files); same svn-required issue as
-###                        gitfast/git-flow. Niche aliases (`cdf`,
-###                        `quick-look`, `tab`) can be added inline if
-###                        wanted.
-(( $+commands[docker] ))   && zinit wait'0d' lucid for OMZP::docker OMZP::docker-compose
-(( $+commands[kubectl] ))  && zinit wait'0d' lucid for OMZP::kubectx
+(( $+commands[docker] ))    && zinit wait'0d' lucid for OMZP::docker OMZP::docker-compose
+(( $+commands[kubectl] ))   && zinit wait'0d' lucid for OMZP::kubectx
 (( $+commands[terraform] )) && zinit wait'0d' lucid for OMZP::terraform
-(( $+commands[go] ))       && zinit wait'0d' lucid for OMZP::golang
-(( $+commands[yarn] ))     && zinit wait'0d' lucid for OMZP::yarn
+(( $+commands[go] ))        && zinit wait'0d' lucid for OMZP::golang
 
 # ---------------------------------------------------------------------------
 # compinit — cached. Rebuilds the dump at most once per day instead of on
@@ -489,7 +470,6 @@ _id_defer_completions() {
     zstyle ':completion:*:git:*' group-order 'main commands' 'alias commands' 'external commands'
     _id_eval_safe carapace command carapace _carapace
   fi
-  command -v cod >/dev/null 2>&1 && _id_eval_safe cod command cod init $$ zsh
 }
 autoload -Uz add-zsh-hook
 add-zsh-hook precmd _id_defer_completions
@@ -498,13 +478,7 @@ add-zsh-hook precmd _id_defer_completions
 # Tools without a `(tool) init zsh` story — sourced from cached files
 # ---------------------------------------------------------------------------
 
-### Google Cloud SDK — fleet-aware PATH + completion sourcing. Probe every
-### install location used across our supported OSes (macOS Homebrew cask,
-### apt-installed deb on Ubuntu/Debian, dnf-installed rpm on Fedora, snap
-### on Ubuntu, manual tarball under /opt/google-cloud-sdk, user-local
-### install under ~/google-cloud-sdk). First hit wins; subsequent paths
-### are skipped. Every source call now goes through _id_source_safe so a
-### corrupt completion file can never freeze the prompt.
+### Google Cloud SDK — fleet-aware PATH + completion sourcing.
 for _gcloud_root in \
   "$HOMEBREW_PREFIX/share/google-cloud-sdk" \
   /usr/lib/google-cloud-sdk \
@@ -520,29 +494,8 @@ for _gcloud_root in \
 done
 unset _gcloud_root
 
-### Goto — must `unalias` first; oh-my-zsh + several dotfile templates
-### ship a `goto` alias that breaks the function definition
-if [ -f "${XDG_CONFIG_HOME:-$HOME/.config}/shell/goto.sh" ]; then
-  unalias goto 2>/dev/null
-  builtin setopt no_aliases 2>/dev/null
-  _id_source_safe goto "${XDG_CONFIG_HOME:-$HOME/.config}/shell/goto.sh"
-  builtin setopt aliases 2>/dev/null
-fi
-
-### hiSHtory
-export PATH="$PATH:${XDG_CONFIG_HOME:-$HOME/.config}/hishtory"
-_id_source_safe hishtory "${XDG_CONFIG_HOME:-$HOME/.config}/hishtory/config.zsh"
-
-### Hoard
-if command -v hoard > /dev/null; then
-  _id_source_safe hoard "${XDG_DATA_HOME:-$HOME/.local/share}/hoard/src/shell/hoard.zsh"
-fi
-
 ### iTerm2
 _id_source_safe iterm2 "${XDG_CONFIG_HOME:-$HOME/.config}/shell/iterm/iterm2.zsh"
-
-### Up — directory traversal helper
-_id_source_safe up "${XDG_DATA_HOME:-$HOME/.local/share}/up/up.sh"
 
 ### HashiCorp Vault
 command -v vault > /dev/null && complete -o nospace -C vault vault

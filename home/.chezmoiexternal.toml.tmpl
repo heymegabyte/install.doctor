@@ -1,11 +1,5 @@
 {{ $gitArgs := "clone.args = ['--depth', '1']\n    pull.args = ['--ff-only']" }}
 
-### RSync Time Backup
-[".local/share/rsync-time-backup"]
-    type = "git-repo"
-    url = "https://github.com/laurent22/rsync-time-backup.git"
-    {{ $gitArgs }}
-
 ### Qubes OS Ansible Playbooks (Qubes only)
 {{- if .host.qubes }}
 [".local/share/ansible-qubes"]
@@ -13,12 +7,6 @@
     url = "https://github.com/ProfessorManhattan/ansible-qubes.git"
     {{ $gitArgs }}
 {{- end }}
-
-### PowerShell Docker Completion
-[".local/share/powershell/docker"]
-    type = "git-repo"
-    url = "https://github.com/matt9ucci/DockerCompletion.git"
-    {{ $gitArgs }}
 
 ######################################
 ### CLI & Shell Integrations #########
@@ -29,7 +17,7 @@
     type = "file"
     url = "https://raw.githubusercontent.com/mrzool/bash-sensible/master/sensible.bash"
 
-### fzf
+### fzf (68k+ stars)
 [".local/share/fzf/fzf-git.bash"]
     type = "file"
     url = "https://raw.githubusercontent.com/junegunn/fzf-git.sh/main/fzf-git.sh"
@@ -43,23 +31,12 @@
     type = "file"
     url = "https://raw.githubusercontent.com/junegunn/fzf/master/shell/key-bindings.zsh"
 
-### Git Fuzzy
-[".local/share/git-fuzzy"]
-    type = "git-repo"
-    url = "https://github.com/bigH/git-fuzzy.git"
-    {{ $gitArgs }}
-
-### Goto
-[".config/shell/goto.sh"]
-    type = "file"
-    url = "https://raw.githubusercontent.com/iridakos/goto/master/goto.sh"
-
 ### LSColors
 [".config/shell/lscolors.sh"]
     type = "file"
     url = "https://raw.githubusercontent.com/trapd00r/LS_COLORS/master/lscolors.sh"
 
-### TMux
+### TMux (gpakosz/.tmux — 23k+ stars)
 [".config/tmux/tmux.conf"]
     type = "file"
     url = "https://raw.githubusercontent.com/gpakosz/.tmux/master/.tmux.conf"
@@ -132,9 +109,3 @@
     url = "{{ $vimPlugin }}"
     {{ $gitArgs }}
 {{- end }}
-
-### NVIM
-[".config/nvim"]
-    type = "git-repo"
-    url = "https://github.com/megabyte-labs/AstronVim.git"
-    {{ $gitArgs }}

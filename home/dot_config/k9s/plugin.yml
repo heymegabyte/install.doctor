@@ -1,5 +1,5 @@
 plugin:
-  # dive image layers
+  # dive image layers (48k+ GitHub stars)
   dive:
     shortCut: d
     confirm: false
@@ -10,34 +10,7 @@ plugin:
     background: false
     args:
       - $COL-IMAGE
-  # get all resources in a namespace using the krew get-all plugin
-  get-all:
-    shortCut: g
-    confirm: false
-    description: get-all
-    scopes:
-      - all
-    command: sh
-    background: false
-    args:
-      - -c
-      - 'kubectl get-all -n $NAMESPACE | less'
-  edit-secret:
-    shortCut: Ctrl-X
-    confirm: false
-    description: Edit Decoded Secret
-    scopes:
-      - secrets
-    command: kubectl
-    background: false
-    args:
-      - modify-secret
-      - --namespace
-      - $NAMESPACE
-      - --context
-      - $CONTEXT
-      - $NAME
-  # View resource logs using stern
+  # View resource logs using stern (11k+ GitHub stars)
   stern:
     shortCut: Ctrl-L
     confirm: false
@@ -55,8 +28,6 @@ plugin:
       - --context
       - $CONTEXT
   # watch events on selected resources
-  # requires linux "watch" command
-  # change '-n' to adjust refresh time in seconds
   watch-events:
     shortCut: Shift-E
     confirm: false

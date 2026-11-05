@@ -365,15 +365,11 @@ endif
 
 silent! call plug#begin('~/.local/share/vim/plugged')
 Plug '~/.local/share/vim/plugged/ale'
-Plug '~/.local/share/vim/plugged/copilot.vim'
-Plug '~/.local/share/vim/plugged/editorconfig-vim'
 Plug '~/.local/share/vim/plugged/fzf.vim'
 Plug '~/.local/share/vim/plugged/fzf', { 'do': { -> fzf#install() } }
 Plug '~/.local/share/vim/plugged/nerdtree'
-Plug '~/.local/share/vim/plugged/vim-airline'
 Plug '~/.local/share/vim/plugged/vim-fugitive'
 Plug '~/.local/share/vim/plugged/vim-gitgutter'
-Plug '~/.local/share/vim/plugged/vim-polyglot'
 Plug '~/.local/share/vim/plugged/vim-sensible'
 Plug '~/.local/share/vim/plugged/vim-surround'
 call plug#end()

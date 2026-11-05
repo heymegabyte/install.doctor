@@ -3,11 +3,11 @@ default_dconf_settings:
   - key: /org/gnome/desktop/background/picture-uri
     value: "'file:///usr/share/backgrounds/brad-huchteman-stone-mountain.jpg'"
   - key: /org/gnome/shell/favorite-apps
-    value: "['org.gnome.Nautilus.desktop', 'com.brave.Browser.desktop', 'io.gitlab.librewolf-community.desktop', 'com.vscodium.codium.desktop', 'org.ferdium.Ferdium.desktop', 'com.getmailspring.Mailspring.desktop', 'org.gnome.Terminal.desktop', 'tabby.desktop', 'vmware-workstation.desktop', 'org.gnome.Connections.desktop', 'org.standardnotes.standardnotes.desktop', 'com.bitwarden.desktop.desktop', 'portmaster.desktop', 'gnome-control-center.desktop']"
+    value: "['org.gnome.Nautilus.desktop', 'com.brave.Browser.desktop', 'code.desktop', 'org.gnome.Terminal.desktop', 'com.bitwarden.desktop.desktop', 'gnome-control-center.desktop']"
   - key: /org/gnome/shell/disable-user-extensions
     value: 'false'
   - key: /org/gnome/shell/enabled-extensions
-    value: "['dash-to-dock@micxgx.gmail.com', 'drive-menu@gnome-shell-extensions.gcampax.github.com', 'places-menu@gnome-shell-extensions.gcampax.github.com', 'gsconnect@andyholmes.github.io', 'appindicatorsupport@rgcjonas.gmail.com', 'user-theme@gnome-shell-extensions.gcampax.github.com', 'AlphabeticalAppGrid@stuarthayhurst']"
+    value: "['dash-to-dock@micxgx.gmail.com', 'gsconnect@andyholmes.github.io', 'appindicatorsupport@rgcjonas.gmail.com', 'user-theme@gnome-shell-extensions.gcampax.github.com']"
   - key: /org/gnome/shell/extensions/dash-to-dock/dash-max-icon-size
     value: '40'
   - key: /org/gnome/desktop/session/idle-delay
@@ -75,10 +75,6 @@ default_gnome_extensions:
     settings:
       - dconf write /org/gnome/shell/extensions/gsconnect/name "'Betelgeuse'"
       - dconf write /org/gnome/shell/extensions/gsconnect/show-indicators true
-  - url: https://extensions.gnome.org/extension/4269/alphabetical-app-grid/
-    regex: AlphabeticalAppGrid@stuarthayhurst
-    settings:
-      - dconf write /org/gnome/shell/extensions/alphabetical-app-grid/sort-folder-contents true
   - url: https://extensions.gnome.org/extension/307/dash-to-dock/
     regex: dash-to-dock
     settings:
@@ -95,7 +91,3 @@ default_gnome_extensions:
       - dconf write /org/gnome/shell/extensions/dash-to-dock/show-apps-at-top true
       - dconf write /org/gnome/shell/extensions/dash-to-dock/show-mounts-network false
       - dconf write /org/gnome/shell/extensions/dash-to-dock/show-show-apps-button true
-  - url: https://extensions.gnome.org/extension/7/removable-drive-menu/
-    regex: drive-menu
-  - url: https://extensions.gnome.org/extension/8/places-status-indicator/
-    regex: places-menu

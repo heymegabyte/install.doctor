@@ -1,179 +1,51 @@
 ---
-# yamllint disable rule:line-length
-# @var vscode_extensions: [] # A list of VS Code extensions to install after VS Code is installed.
-vscode_extensions:
-  - name: Angular.ng-template
-    types:
-      - angular
-  - name: astro-build.astro-vscode
-    types:
-      - npm
-  - name: attilabuti.vscode-mjml
-  - name: bierner.markdown-emoji
-  - name: biomejs.biome
-    types:
-      - all
-  - name: bradlc.vscode-tailwindcss
-    types:
-      - all
-  - name: ChakrounAnas.turbo-console-log
-    types:
-      - angular
-      - npm
-  - name: charliermarsh.ruff
-    types:
-      - python
-  - name: chrmarti.regex
-    types:
-      - all
-  - name: DavidAnson.vscode-markdownlint
-    types:
-      - all
-  - name: dbaeumer.vscode-eslint
-    types:
-      - all
-  - name: denoland.vscode-deno
-    types:
-      - npm
-  - name: eamodio.gitlens
-    types:
-      - all
-  - name: EditorConfig.EditorConfig
-    types:
-      - all
-  - name: esbenp.prettier-vscode
-    types:
-      - all
-  - name: foxundermoon.shell-format
-    types:
-      - all
-  - name: GitHub.vscode-github-actions
-    types:
-      - all
-  - name: GitHub.vscode-pull-request-github
-    types:
-      - all
-  - name: golang.Go
-    types:
-      - go
-  - name: hangxingliu.vscode-systemd-support
-    types:
-      - all
-  - name: HashiCorp.terraform
-    types:
-      - ansible
-  - name: hediet.vscode-drawio
-    types:
-      - all
-  - name: IBM.output-colorizer
-    types:
-      - all
-  - name: Kelvin.vscode-sshfs
-    types:
-      - all
-  - name: lokalise.i18n-ally
-    types:
-      - npm
-  - name: mads-hartmann.bash-ide-vscode
-    types:
-      - all
-  - name: ms-azuretools.vscode-docker
-    types:
-      - all
-  - name: ms-kubernetes-tools.vscode-kubernetes-tools
-    types:
-      - ansible
-  - name: ms-playwright.playwright
-    types:
-      - all
-  - name: ms-vscode-remote.remote-containers
-    types:
-      - all
-  - name: ms-vscode-remote.remote-ssh
-    types:
-      - all
-  - name: ms-vscode-remote.remote-wsl
-    types:
-      - all
-  - name: ms-python.python
-    types:
-      - python
-  - name: ms-python.vscode-pylance
-    types:
-      - python
-  - name: ms-vscode.PowerShell
-    types:
-      - all
-  - name: MS-vsliveshare.vsliveshare
-    types:
-      - all
-  - name: njpwerner.autodocstring
-    types:
-      - python
-  - name: nrwl.angular-console
-    types:
-      - angular
-  - name: oxc.oxc-vscode
-    types:
-      - all
-  - name: PKief.material-icon-theme
-    types:
-      - all
-  - name: pranaygp.vscode-css-peek
-    types:
-      - angular
-      - npm
-  - name: quicktype.quicktype
-    types:
-      - angular
-      - npm
-  - name: redhat.ansible
-    types:
-      - ansible
-  - name: redhat.vscode-yaml
-    types:
-      - all
-  - name: richie5um2.vscode-sort-json
-    types:
-      - all
-  - name: rust-lang.rust-analyzer
-    types:
-      - rust
-  - name: shd101wyy.markdown-preview-enhanced
-    types:
-      - all
-  - name: stylelint.vscode-stylelint
-    types:
-      - angular
-      - npm
-  - name: tamasfe.even-better-toml
-    types:
-      - all
-  - name: timonwong.shellcheck
-    types:
-      - all
-  - name: tyriar.sort-lines
-    types:
-      - all
-  - name: usernamehw.errorlens
-    types:
-      - all
-  - name: valentjn.vscode-ltex
-    types:
-      - all
-  - name: vitest.explorer
-    types:
-      - all
-  - name: vsls-contrib.codetour
-    types:
-      - all
-  - name: vue.volar
-    types:
-      - npm
-  - name: yatki.vscode-surround
-    types:
-      - angular
-      - npm
-  - name: yoavbls.pretty-ts-errors
-    types:
-      - all
+vscode_extension_ids:
+  - angular.ng-template
+  - astro-build.astro-vscode
+  - biomejs.biome
+  - bradlc.vscode-tailwindcss
+  - charliermarsh.ruff
+  - davidanson.vscode-markdownlint
+  - dbaeumer.vscode-eslint
+  - denoland.vscode-deno
+  - dotenv.dotenv-vscode
+  - eamodio.gitlens
+  - editorconfig.editorconfig
+  - esbenp.prettier-vscode
+  - github.copilot
+  - github.copilot-chat
+  - github.github-vscode-theme
+  - github.vscode-github-actions
+  - github.vscode-pull-request-github
+  - golang.go
+  - graphql.vscode-graphql
+  - graphql.vscode-graphql-syntax
+  - hashicorp.hcl
+  - hashicorp.terraform
+  - hediet.vscode-drawio
+  - lokalise.i18n-ally
+  - mads-hartmann.bash-ide-vscode
+  - ms-azuretools.vscode-docker
+  - ms-playwright.playwright
+  - ms-python.python
+  - ms-python.vscode-pylance
+  - ms-vscode-remote.remote-containers
+  - ms-vscode-remote.remote-ssh
+  - ms-vscode-remote.remote-ssh-edit
+  - ms-vscode.remote-explorer
+  - ms-vscode.remote-server
+  - ms-vscode.vscode-js-profile-flame
+  - nrwl.angular-console
+  - oxc.oxc-vscode
+  - pkief.material-icon-theme
+  - prisma.prisma
+  - redhat.vscode-yaml
+  - rust-lang.rust-analyzer
+  - svelte.svelte-vscode
+  - tamasfe.even-better-toml
+  - timonwong.shellcheck
+  - unifiedjs.vscode-mdx
+  - usernamehw.errorlens
+  - vitest.explorer
+  - vue.volar
+  - yoavbls.pretty-ts-errors
