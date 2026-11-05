@@ -1,3 +1,0 @@
----
-# Do not include dotfiles with sensitive information by default
-include_pii_dotfiles: false

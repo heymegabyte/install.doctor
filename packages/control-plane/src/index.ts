@@ -16,6 +16,7 @@ import { auth } from './auth';
 import { isAllowedAdminEmail } from './admin-allowlist';
 import { redactSecrets } from './redact';
 import { getMigrations } from 'better-auth/db/migration';
+import { errorEnvelope, requestSecurity, requestIdFor } from './http-security';
 // App Store catalog — generated from software.yml by the canonical validated parser
 // (scripts/gen-catalog.mjs → the cnf index builder; D01/D02/D13). Read-only, bundled at deploy;
 // regenerate + redeploy when software.yml changes. No runtime YAML at the edge.
@@ -207,6 +208,7 @@ function collectPrivileges(bp: { defaults?: { packages?: string[] }; machines?: 
 const InferRequest = z.object({ estimateMicros: z.number().int().nonnegative().default(0) }).passthrough();
 
 const app = new Hono();
+app.use('*', requestSecurity);
 
 // Security headers (O14 / web-security baseline; fire #106). CF-zone Managed Transforms already set HSTS /
 // X-Frame-Options / nosniff / Referrer-Policy; the Worker adds the two it doesn't: a Content-Security-Policy
@@ -1191,6 +1193,23 @@ app.post('/api/ai/v1/resolve', async (c) => {
 // single-file Markdown round-trip, and a stable key-order-independent SHA-256 content digest. Pure
 // data transforms — no secrets, no persistence (projections/storage are a later slice).
 const envErr = (e: unknown) => (e instanceof Error ? e.message : String(e));
+const TenantId = z.string().trim().min(1).max(200).regex(/^[A-Za-z0-9._:-]+$/);
+const EnvironmentReadQuery = z.object({ tenant: TenantId.default('_default') }).strict();
+const EnvironmentWriteRequest = z
+  .object({
+    tenant: TenantId.default('_default'),
+    blueprint: z.unknown(),
+    expectedRevision: z.string().max(200).optional(),
+  })
+  .strict();
+const EnvironmentApplyRequest = z
+  .object({
+    tenant: TenantId.default('_default'),
+    observed: z.unknown(),
+    dryRun: z.boolean().default(true),
+    expectedRevision: z.string().max(200).optional(),
+  })
+  .strict();
 app.post('/api/environment/validate', async (c) => {
   try {
     const bp = validateBlueprint(await c.req.json());
@@ -1268,7 +1287,11 @@ app.post('/api/environment/diff', async (c) => {
 // row count as proof the store was queried); 503 if the binding is missing / the query errors.
 // Write + revision-check + auth are a later fire.
 app.get('/api/environment/current', async (c) => {
-  const tenant = c.req.query('tenant') || '_default';
+  const denied = await requireAdmin(c);
+  if (denied) return denied;
+  const query = EnvironmentReadQuery.safeParse({ tenant: c.req.query('tenant') || undefined });
+  if (!query.success) return c.json({ error: 'invalid_request', issues: query.error.issues }, 400);
+  const tenant = query.data.tenant;
   const db = (c.env as Record<string, any>).DB;
   if (!db) return c.json({ error: 'store_unavailable' }, 503);
   try {
@@ -1319,17 +1342,16 @@ function safeEqual(a: string, b: string): boolean {
 // backend-side) AND a matching Bearer. Changing desired state is gated; a stale expectedRevision
 // (concurrent edit) → 409 conflict. The Markdown is stored (the authority); the row is a projection.
 app.put('/api/environment/current', async (c) => {
-  const env = c.env as Record<string, any>;
-  const configured = env.AID_ADMIN_TOKEN as string | undefined;
-  if (!configured) return c.json({ error: 'write_auth_not_configured' }, 503);
-  const auth = c.req.header('authorization') || '';
-  const presented = auth.startsWith('Bearer ') ? auth.slice(7) : '';
-  if (!presented || !safeEqual(presented, configured)) return c.json({ error: 'unauthorized' }, 401);
+  const denied = await requireAdmin(c);
+  if (denied) return denied;
+  const env = c.env as Record<string, unknown>;
   const db = env.DB;
   if (!db) return c.json({ error: 'store_unavailable' }, 503);
   try {
-    const body = (await c.req.json()) as { tenant?: string; blueprint?: unknown; expectedRevision?: string };
-    const tenant = body.tenant || '_default';
+    const parsed = EnvironmentWriteRequest.safeParse(await c.req.json());
+    if (!parsed.success) return c.json({ error: 'invalid_request', issues: parsed.error.issues }, 400);
+    const body = parsed.data;
+    const tenant = body.tenant;
     const bp = validateBlueprint(body.blueprint);
     const existing = await db.prepare('SELECT markdown FROM blueprints WHERE tenant = ?').bind(tenant).first();
     if (existing) {
@@ -1418,23 +1440,26 @@ async function computeApplyPreview(
 // with a blast-radius summary. NO mutation here: real apply runs on the on-device supervisor (Phase B)
 // and fail-closes to 501. Reuses the tested diff engine with from=observed, to=desired.
 app.post('/api/environment/apply', async (c) => {
+  const denied = await requireAdmin(c);
+  if (denied) return denied;
   const db = (c.env as Record<string, any>).DB;
   if (!db) return c.json({ error: 'store_unavailable' }, 503);
-  let body: { tenant?: string; observed?: unknown; dryRun?: boolean; expectedRevision?: string };
   try {
-    body = (await c.req.json()) as typeof body;
+    const parsed = EnvironmentApplyRequest.safeParse(await c.req.json());
+    if (!parsed.success) return c.json({ error: 'invalid_request', issues: parsed.error.issues }, 400);
+    const body = parsed.data;
+    // Mutation cannot run in a Worker — only the device supervisor applies to a real machine. Fail closed.
+    if (body.dryRun === false) {
+      return c.json(
+        { error: 'apply_not_implemented', applied: false, detail: 'real apply runs on the on-device supervisor (Phase B); only dryRun preview is available from the control plane' },
+        501,
+      );
+    }
+    const result = await computeApplyPreview(db, body.tenant, body.observed, body.expectedRevision);
+    return c.json(result.body, result.status as any);
   } catch {
     return c.json({ error: 'invalid_request', detail: 'body must be JSON' }, 400);
   }
-  // Mutation cannot run in a Worker — only the device supervisor applies to a real machine. Fail closed.
-  if (body.dryRun === false) {
-    return c.json(
-      { error: 'apply_not_implemented', applied: false, detail: 'real apply runs on the on-device supervisor (Phase B); only dryRun preview is available from the control plane' },
-      501,
-    );
-  }
-  const result = await computeApplyPreview(db, body.tenant || '_default', body.observed, body.expectedRevision);
-  return c.json(result.body, result.status as any);
 });
 
 // --- Device identity (Phase B / S04 enrollment, S27 revocation) — ADR docs/aid/decisions/0002 ---
@@ -2336,29 +2361,79 @@ const MintReceiptRequest = z.object({
   blueprintDigest: z.string().regex(/^[0-9a-f]{64}$/),
   action: z.string().min(1).max(2048),
   exitCode: z.number().int().min(0).max(255),
-  timestamp: z.string().optional(),
+  timestamp: z.iso.datetime({ offset: true }).optional(),
   prevReceiptHash: z.string().regex(/^[0-9a-f]{64}$/).optional(),
-});
+}).strict();
+
+const SignedReceiptRequest = MintReceiptRequest.extend({
+  timestamp: z.iso.datetime({ offset: true }),
+  prevReceiptHash: z.string().regex(/^[0-9a-f]{64}$/),
+  receiptHash: z.string().regex(/^[0-9a-f]{64}$/),
+  authTag: z.string().regex(/^[0-9a-f]{64}$/),
+}).strict();
+
+const RECEIPT_REPLAY_WINDOW_MS = 5 * 60 * 1000;
+
+async function receiptAuthTag(
+  signingKey: string,
+  receipt: { tenantId: string; machineId: string; timestamp: string; receiptHash: string },
+): Promise<string> {
+  const key = await crypto.subtle.importKey(
+    'raw',
+    new TextEncoder().encode(signingKey),
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign'],
+  );
+  const payload = `${receipt.tenantId}\n${receipt.machineId}\n${receipt.timestamp}\n${receipt.receiptHash}`;
+  const tag = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(payload));
+  return [...new Uint8Array(tag)].map((byte) => byte.toString(16).padStart(2, '0')).join('');
+}
+
+function receiptInsideReplayWindow(timestamp: string, now = Date.now()): boolean {
+  const parsed = Date.parse(timestamp);
+  return Number.isFinite(parsed) && Math.abs(now - parsed) <= RECEIPT_REPLAY_WINDOW_MS;
+}
 
 app.post('/api/v1/receipts/mint', async (c) => {
+  const denied = await requireAdmin(c);
+  if (denied) return denied;
+  const signingKey = (c.env as Record<string, unknown>).AID_RECEIPT_SIGNING_KEY;
+  if (typeof signingKey !== 'string' || signingKey.length < 32)
+    return c.json({ error: 'receipt_signing_not_configured' }, 503);
   const body = await c.req.json().catch(() => ({}));
   const parsed = MintReceiptRequest.safeParse(body);
   if (!parsed.success) return c.json({ error: 'invalid_receipt_payload', issues: parsed.error.issues }, 400);
   try {
+    const timestamp = parsed.data.timestamp ?? new Date().toISOString();
+    if (!receiptInsideReplayWindow(timestamp))
+      return c.json({ error: 'receipt_outside_replay_window' }, 409);
     const receipt = await mintExecutionReceipt({
       ...parsed.data,
-      timestamp: parsed.data.timestamp ?? new Date().toISOString(),
+      timestamp,
     });
-    return c.json(receipt, 201);
+    return c.json({ ...receipt, authTag: await receiptAuthTag(signingKey, receipt) }, 201);
   } catch (e) {
     return c.json({ error: 'receipt_mint_failed', detail: e instanceof Error ? e.message : String(e) }, 400);
   }
 });
 
 app.post('/api/v1/receipts/verify', async (c) => {
+  const denied = await requireAdmin(c);
+  if (denied) return denied;
+  const signingKey = (c.env as Record<string, unknown>).AID_RECEIPT_SIGNING_KEY;
+  if (typeof signingKey !== 'string' || signingKey.length < 32)
+    return c.json({ error: 'receipt_signing_not_configured' }, 503);
   const body = await c.req.json().catch(() => ({}));
-  const valid = await verifyExecutionReceipt(body as any);
-  return c.json({ valid, receiptId: body?.receiptId ?? null, receiptHash: body?.receiptHash ?? null });
+  const parsed = SignedReceiptRequest.safeParse(body);
+  if (!parsed.success) return c.json({ error: 'invalid_receipt_payload', issues: parsed.error.issues }, 400);
+  const { authTag, ...receipt } = parsed.data;
+  const expectedTag = await receiptAuthTag(signingKey, receipt);
+  const valid =
+    receiptInsideReplayWindow(receipt.timestamp) &&
+    safeEqual(authTag, expectedTag) &&
+    (await verifyExecutionReceipt(receipt));
+  return c.json({ valid, receiptId: receipt.receiptId, receiptHash: receipt.receiptHash });
 });
 
 app.get('/api/v1/catalog/semantic', (c) => {
@@ -2426,6 +2501,8 @@ const EnsureHostRepoRequest = z.object({
 });
 
 app.post('/api/v1/github/host-repo/ensure', async (c) => {
+  const denied = await requireAdmin(c);
+  if (denied) return denied;
   const body = await c.req.json().catch(() => ({}));
   const parsed = EnsureHostRepoRequest.safeParse(body);
   if (!parsed.success) return c.json({ error: 'invalid_host_repo_payload', issues: parsed.error.issues }, 400);
@@ -2439,7 +2516,8 @@ app.post('/api/v1/github/host-repo/ensure', async (c) => {
   const repoFullName = `${owner}/${repoName}`;
 
   return c.json({
-    status: 'ensured',
+    error: 'github_reconciliation_not_configured',
+    status: 'unsupported',
     owner,
     hostname: cleanHost.split('.')[0],
     fqdn: repoName,
@@ -2449,8 +2527,8 @@ app.post('/api/v1/github/host-repo/ensure', async (c) => {
     repoFullName,
     cloneUrl: `https://github.com/${repoFullName}.git`,
     sshUrl: `git@github.com:${repoFullName}.git`,
-    closeBrowserMessage: 'You can close the browser now. The TUI will pick up where it left off.',
-  }, 201);
+    detail: 'No GitHub provider credential or reconciliation adapter is configured; no repository was read, created, or changed.',
+  }, 501);
 });
 
 const MintKeyRequest = z.object({
@@ -2468,24 +2546,16 @@ app.post('/api/v1/keys/mint', async (c) => {
   const parsed = MintKeyRequest.safeParse(body);
   if (!parsed.success) return c.json({ error: 'invalid_mint_request', issues: parsed.error.issues }, 400);
 
-  const rawBytes = crypto.getRandomValues(new Uint8Array(24));
-  let hex = '';
-  for (const b of rawBytes) hex += b.toString(16).padStart(2, '0');
-  const apiKey = `aid_${hex}`;
-  const keyId = `key_${Date.now().toString(36)}_${hex.slice(0, 8)}`;
-
   return c.json({
-    keyId,
-    apiKey,
+    error: 'api_key_provisioning_not_configured',
+    status: 'unsupported',
     tenant: parsed.data.tenant,
     label: parsed.data.label,
     role: parsed.data.role,
     namespace: parsed.data.namespace || null,
     permissions: parsed.data.permissions,
-    bypassOAuth: true,
-    createdAt: new Date().toISOString(),
-    note: 'Pass AID_API_KEY to curl https://app.install.doctor/start | bash to bypass browser OAuth.',
-  }, 201);
+    detail: 'No durable hashed-key store or secret-reference provisioner is configured; no credential was minted.',
+  }, 501);
 });
 
 // Terminal-safe stage-zero bootstrap for macOS, Unix/Linux, Qubes, FreeBSD, and Windows through WSL/Git Bash.
@@ -2696,17 +2766,19 @@ const OPENAPI_31_SPEC = {
     '/api/v1/receipts/mint': {
       post: {
         operationId: 'mintExecutionReceipt',
-        summary: 'Mint a tamper-evident SHA-256 hash-chained ExecutionReceipt for durable History auditability',
+        summary: 'Mint an authenticated HMAC-protected SHA-256 hash-chained ExecutionReceipt within a five-minute replay window',
         tags: ['Cryptographic Receipts'],
-        responses: { '201': { description: 'Minted execution receipt' }, '400': { description: 'Invalid receipt payload' } },
+        security: [{ bearerAdmin: [] }],
+        responses: { '201': { description: 'Minted authenticated execution receipt' }, '400': { description: 'Invalid receipt payload' }, '401': { description: 'Unauthorized' }, '409': { description: 'Timestamp outside replay window' }, '503': { description: 'Signing key not configured' } },
       },
     },
     '/api/v1/receipts/verify': {
       post: {
         operationId: 'verifyExecutionReceipt',
-        summary: 'Cryptographically verify the SHA-256 hash chain integrity of an ExecutionReceipt',
+        summary: 'Verify receipt hash integrity, HMAC authenticity, tenant/machine binding, and replay window',
         tags: ['Cryptographic Receipts'],
-        responses: { '200': { description: 'Verification result' } },
+        security: [{ bearerAdmin: [] }],
+        responses: { '200': { description: 'Verification result' }, '400': { description: 'Invalid receipt payload' }, '401': { description: 'Unauthorized' }, '503': { description: 'Signing key not configured' } },
       },
     },
     '/api/v1/catalog/semantic': {
@@ -2728,18 +2800,19 @@ const OPENAPI_31_SPEC = {
     '/api/v1/github/host-repo/ensure': {
       post: {
         operationId: 'ensureHostRepo',
-        summary: 'Ensure or create a host-specific GitHub repository (<hostname>.<namespace> or <hostname> fallback)',
+        summary: 'Report host-repository reconciliation as unsupported until a provider-backed adapter is configured',
         tags: ['GitHub Dual-Repo & Onboarding'],
-        responses: { '201': { description: 'Host repository ensured and ready for TUI handoff' } },
+        security: [{ bearerAdmin: [] }],
+        responses: { '401': { description: 'Unauthorized' }, '501': { description: 'GitHub reconciliation adapter not configured; no repository changed' } },
       },
     },
     '/api/v1/keys/mint': {
       post: {
         operationId: 'mintApiKey',
-        summary: 'Mint a scoped API key to bypass the interactive OAuth sequence',
+        summary: 'Report API-key provisioning as unsupported until durable hashed storage is configured',
         tags: ['Authentication & API Keys'],
         security: [{ bearerAdmin: [] }],
-        responses: { '201': { description: 'Minted API key' }, '401': { description: 'Unauthorized' } },
+        responses: { '401': { description: 'Unauthorized' }, '501': { description: 'API-key provisioner not configured; no credential minted' } },
       },
     },
     '/api/v1/openapi.json': {
@@ -2820,6 +2893,25 @@ app.get('/api/v1/docs', (c) =>
   ),
 );
 
-app.notFound((c) => c.json({ error: 'not_found' }, 404));
+app.notFound((c) => c.json(errorEnvelope('not_found', requestIdFor(c.req.raw)), 404));
+app.onError((error, c) => {
+  const requestId = requestIdFor(c.req.raw);
+  console.log(
+    JSON.stringify({
+      level: 'error',
+      ts: Date.now(),
+      msg: 'unhandled_request_error',
+      traceId: requestId,
+      requestId,
+      workerId: 'aid-control-plane',
+      env: 'production',
+      method: c.req.method,
+      path: new URL(c.req.url).pathname,
+      status: 500,
+      error: { message: 'internal_error', code: error instanceof Error ? error.name : 'UnknownError' },
+    }),
+  );
+  return c.json(errorEnvelope('internal_error', requestId), 500);
+});
 
 export default app;

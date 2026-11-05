@@ -67,7 +67,7 @@ Auto-generated 2026-07-23. Each item: status · priority (P0–P4) · deps · ac
 - **Deps:** C5
 - **Acceptance:** At minimum: (a) ShellCheck in CI, (b) `bash -n` syntax check on all scripts, (c) chezmoi template render smoke test, (d) software.yml YAML schema validation. CI fails on violations.
 - **Validation:** `task lint` exits 0, `.github/workflows/test-linux.yml` includes all gates.
-- **Files:** `.github/workflows/*.yml`, new `scripts/test-*.sh`, `.config/taskfiles/lint/`
+- **Files:** `.github/workflows/*.yml`, new `scripts/test-*.sh`, root `Taskfile.yml`
 
 ### C9. No per-package version pinning
 - **Status:** 🟡 IN PROGRESS (2026-07-23, c2a016f9 — versionedPkg() helper in installx, 4 critical-path tools pinned, pattern established for all 1179 entries)

@@ -313,6 +313,79 @@ PY
   if [ -x "$HOME/.local/bin/ensure-cloudflare-zt-ca.sh" ]; then
     "$HOME/.local/bin/ensure-cloudflare-zt-ca.sh" >/dev/null 2>&1 || true
   fi
+
+  # 8. Ideal Linux AI Workstation Desktop: purge unnecessary GUI bloat & configure clean GNOME 50 dock/theme
+  if [ "$os_name" = "linux" ]; then
+    if sudo -n true 2>/dev/null; then
+      # Remove unneeded Snap GUI bloat (keep chromium on hosts that use it as the desktop browser)
+      if command -v snap >/dev/null 2>&1; then
+        for bsnap in firefox snap-store cups desktop-security-center prompting-client firmware-updater; do
+          if snap list "$bsnap" >/dev/null 2>&1; then
+            sudo -n snap remove --purge "$bsnap" >/dev/null 2>&1 || true
+          fi
+        done
+      fi
+      # Remove any installed Flatpak bloatware
+      if command -v flatpak >/dev/null 2>&1; then
+        sudo -n flatpak uninstall --all --unused -y >/dev/null 2>&1 || true
+      fi
+      # Purge Ubuntu/GNOME default consumer GUI bloatware & orphaned xfce4 packages via APT
+      sudo -n env DEBIAN_FRONTEND=noninteractive apt-get purge -y -qq \
+        'libreoffice*' 'thunderbird*' 'gimp*' 'kdenlive*' 'shotwell*' 'rhythmbox*' 'totem*' \
+        'transmission*' 'remmina*' 'cheese*' 'simple-scan*' 'deja-dup*' 'aisleriot*' \
+        'gnome-mahjongg*' 'gnome-mines*' 'gnome-sudoku*' 'gnome-weather*' 'gnome-maps*' \
+        'gnome-music*' 'gnome-calendar*' 'gnome-contacts*' 'gnome-clocks*' 'gnome-characters*' \
+        'gnome-font-viewer*' 'gnome-tour*' 'gnome-boxes*' 'gnome-sound-recorder*' 'gnome-todo*' \
+        'yelp*' 'yelp-xsl*' 'orca*' 'baobab*' 'eog*' 'evince*' \
+        'xfce4-*' 'libxfce4*' 'xfconf*' 'xfdesktop4*' 'xfwm4*' 'thunar*' 'exo-utils' >/dev/null 2>&1 || true
+      sudo -n env DEBIAN_FRONTEND=noninteractive apt-get autoremove -y -qq >/dev/null 2>&1 || true
+    fi
+
+    # Mask noisy background desktop file-indexers (Tracker / LocalSearch) so idle CPU/IO stays at 0%
+    systemctl --user mask tracker-miner-fs-3.service tracker-extract-3.service localsearch-3.service >/dev/null 2>&1 || true
+
+    # Configure GNOME 50 Dark Theme, zero-latency KasmVNC/Selkies rendering (animations off), and clean Dock
+    if command -v gsettings >/dev/null 2>&1 && [ -e "/run/user/$(id -u)/bus" ]; then
+      export DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$(id -u)/bus"
+      gsettings set org.gnome.desktop.interface color-scheme 'prefer-dark' 2>/dev/null || true
+      gsettings set org.gnome.desktop.interface gtk-theme 'Yaru-dark' 2>/dev/null || true
+      gsettings set org.gnome.desktop.interface enable-animations false 2>/dev/null || true
+      gsettings set org.gnome.desktop.interface enable-hot-corners false 2>/dev/null || true
+      gsettings set org.gnome.desktop.privacy report-technical-problems false 2>/dev/null || true
+      python3 - <<'PY' 2>/dev/null || true
+import os, subprocess
+from pathlib import Path
+
+dirs = [
+    Path.home() / ".local/share/applications",
+    Path("/usr/share/applications"),
+    Path("/var/lib/snapd/desktop/applications"),
+]
+candidates = [
+    "google-chrome.desktop",
+    "chromium_chromium.desktop",
+    "code.desktop",
+    "emdash.desktop",
+    "cua.desktop",
+    "org.gnome.Ptyxis.desktop",
+    "org.gnome.Terminal.desktop",
+    "org.gnome.Nautilus.desktop",
+]
+present = []
+for c in candidates:
+    if any((d / c).exists() for d in dirs):
+        # Only keep one browser and one terminal in the dock
+        if c == "chromium_chromium.desktop" and "google-chrome.desktop" in present:
+            continue
+        if c == "org.gnome.Terminal.desktop" and "org.gnome.Ptyxis.desktop" in present:
+            continue
+        present.append(c)
+if present:
+    val = "[" + ", ".join(f"'{x}'" for x in present) + "]"
+    subprocess.run(["gsettings", "set", "org.gnome.shell", "favorite-apps", val], check=False)
+PY
+    fi
+  fi
 }
 
 # Run fleet convergence + CNF shims refresh on macOS (or when --converge-only is passed) and exit cleanly
@@ -410,17 +483,16 @@ run_root() {
 }
 
 # -----------------------------------------------------------------------------
-# 1. Eager Base APT Packages (Substrates, GPU/System Monitors, ZFS Sanoid, Media, Editors, Fleet Tools)
+# 1. Eager Base APT Packages (Minimal Substrates, GPU/System Monitors, ZFS Sanoid; CLI tools lazy-load via CNF)
 # -----------------------------------------------------------------------------
 if command -v apt-get >/dev/null 2>&1 && { [ "$(id -u)" -eq 0 ] || [ -n "$SUDO" ]; }; then
-  log "Installing eager foundation packages via APT..."
+  log "Installing minimal foundation packages via APT (all convenience/media/linter CLIs lazy-load via CNF)..."
   run_root env DEBIAN_FRONTEND=noninteractive apt-get update -qq || true
   run_root env DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
-    ca-certificates curl wget git jq zsh tmux vim neovim ripgrep fd-find fzf bat \
-    htop btop nvtop ncdu gh rclone restic sanoid lzop pv mbuffer flatpak gnome-shell-extension-prefs \
+    ca-certificates curl wget git jq zsh tmux ripgrep fd-find fzf bat \
+    htop btop nvtop gh sanoid lzop pv mbuffer \
     age build-essential pkg-config libssl-dev unzip xz-utils zstd \
-    ffmpeg poppler-utils tesseract-ocr qpdf imagemagick graphviz pandoc \
-    smartmontools lynis just yt-dlp pipx net-tools bind9-dnsutils fail2ban ufw unattended-upgrades apt-listchanges \
+    smartmontools net-tools bind9-dnsutils ufw unattended-upgrades apt-listchanges \
     lm-sensors i2c-tools dkms python3-yaml python3-pip python3-venv >/dev/null 2>&1 || true
 fi
 
@@ -432,21 +504,9 @@ if command -v batcat >/dev/null 2>&1 && ! command -v bat >/dev/null 2>&1; then
   ln -sf "$(command -v batcat)" "$HOME/.local/bin/bat"
 fi
 
-# Install actionlint if missing
-if ! command -v actionlint >/dev/null 2>&1; then
-  log "Installing actionlint..."
-  AL_VER="1.7.7"
-  if curl -fsSL "https://github.com/rhysd/actionlint/releases/download/v${AL_VER}/actionlint_${AL_VER}_linux_amd64.tar.gz" -o "$TMP_DIR/actionlint.tar.gz"; then
-    tar -xzf "$TMP_DIR/actionlint.tar.gz" -C "$TMP_DIR" actionlint 2>/dev/null || true
-    if [ -f "$TMP_DIR/actionlint" ]; then
-      mv "$TMP_DIR/actionlint" "$HOME/.local/bin/actionlint"
-      chmod +x "$HOME/.local/bin/actionlint"
-    fi
-  fi
-fi
-
 # -----------------------------------------------------------------------------
-# 2. Bootstrap & Runtime Substrates (chezmoi, task, gum, yq, mise, node, bun, deno, uv, go, rust)
+# 2. Bootstrap & Runtime Substrates (chezmoi, task, gum, yq, mise, node, bun, uv, go, rust)
+#    (actionlint, ruff, deno, ffmpeg, pandoc, imagemagick, rclone, restic, etc. lazy-load via CNF shims)
 # -----------------------------------------------------------------------------
 if ! command -v chezmoi >/dev/null 2>&1; then
   log "Installing chezmoi..."
@@ -478,16 +538,6 @@ if ! command -v uv >/dev/null 2>&1; then
   curl -LsSf https://astral.sh/uv/install.sh | env UV_INSTALL_DIR="$HOME/.local/bin" sh >/dev/null 2>&1 || true
 fi
 
-if ! command -v ruff >/dev/null 2>&1; then
-  log "Installing ruff..."
-  if command -v uv >/dev/null 2>&1; then
-    UV_INSECURE_HOST="127.0.0.1:4880" uv tool install ruff >/dev/null 2>&1 || true
-  fi
-  if ! command -v ruff >/dev/null 2>&1; then
-    curl -LsSf https://astral.sh/ruff/install.sh | env RUFF_INSTALL_DIR="$HOME/.local/bin" sh >/dev/null 2>&1 || true
-  fi
-fi
-
 if ! command -v mise >/dev/null 2>&1; then
   log "Installing mise..."
   curl -fsSL https://mise.run | sh >/dev/null 2>&1 || true
@@ -510,14 +560,6 @@ if ! command -v bun >/dev/null 2>&1; then
   if [ -x "$HOME/.bun/bin/bun" ]; then
     ln -sf "$HOME/.bun/bin/bun" "$HOME/.local/bin/bun"
     ln -sf "$HOME/.bun/bin/bun" "$HOME/.local/bin/bunx"
-  fi
-fi
-
-if ! command -v deno >/dev/null 2>&1; then
-  log "Installing deno..."
-  curl -fsSL https://deno.land/install.sh | sh -s -- -y --no-modify-path >/dev/null 2>&1 || true
-  if [ -x "$HOME/.deno/bin/deno" ]; then
-    ln -sf "$HOME/.deno/bin/deno" "$HOME/.local/bin/deno"
   fi
 fi
 
@@ -758,7 +800,7 @@ if [ ! -f "$FONT_DIR/MesloLGS NF Regular.ttf" ]; then
   mkdir -p "$FONT_DIR"
   for style in "Regular" "Bold" "Italic" "Bold%20Italic"; do
     fname="MesloLGS NF ${style//%20/ }.ttf"
-    curl -fsSL "https://github.com/romkatv/powerlevel10k-media/raw/master/MesloLGS%20NF%20${style}.ttf" -o "$FONT_DIR/$fname" || true
+    curl -fsSL "https://github.com/romkatv/powerlevel10k-media/raw/307625efccbc8bf1ad5efde7c5eb27b33a974b8c/MesloLGS%20NF%20${style}.ttf" -o "$FONT_DIR/$fname" || true
   done
   command -v fc-cache >/dev/null 2>&1 && fc-cache -f "$FONT_DIR" >/dev/null 2>&1 || true
 fi
@@ -1430,12 +1472,8 @@ EOF
 fi
 
 # -----------------------------------------------------------------------------
-# 7. Tier 7: Flatpak + Flathub, VS Code, Emdash, GNOME Clipboard & Orphaned xfce4 Cleanup
+# 7. Tier 7: Ideal Minimal Desktop (VS Code, GNOME Clipboard Indicator & Bloatware Cleanup)
 # -----------------------------------------------------------------------------
-if command -v flatpak >/dev/null 2>&1 && { [ "$(id -u)" -eq 0 ] || [ -n "$SUDO" ]; }; then
-  run_root flatpak remote-add --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo >/dev/null 2>&1 || true
-fi
-
 # Visual Studio Code APT repository & binary
 if ! command -v code >/dev/null 2>&1 && command -v apt-get >/dev/null 2>&1 && { [ "$(id -u)" -eq 0 ] || [ -n "$SUDO" ]; }; then
   log "Installing Visual Studio Code (code)..."
@@ -1455,17 +1493,6 @@ if [ ! -d "$CLIP_EXT_DIR" ]; then
   if git clone --depth 1 https://github.com/Tudmotu/gnome-shell-extension-clipboard-indicator.git "$CLIP_EXT_DIR" >/dev/null 2>&1; then
     rm -rf "$CLIP_EXT_DIR/.git"
     XDG_RUNTIME_DIR="/run/user/$(id -u)" gnome-extensions enable "clipboard-indicator@tudmotu.com" >/dev/null 2>&1 || true
-  fi
-fi
-
-# Purge orphaned xfce4-* packages on GNOME 50 loopback hosts
-if [ "$(id -u)" -eq 0 ] || [ -n "$SUDO" ]; then
-  if dpkg -l 2>/dev/null | grep -q '^ii  xfce4-session'; then
-    log "Purging orphaned xfce4-* / thunar desktop packages (live GNOME 50 loopback preserved)..."
-    XDG_RUNTIME_DIR="/run/user/$(id -u)" systemctl --user stop thunar.service >/dev/null 2>&1 || true
-    run_root env DEBIAN_FRONTEND=noninteractive apt-get purge -y -qq \
-      'xfce4-*' 'libxfce4*' 'xfconf*' 'xfdesktop4*' 'xfwm4*' 'thunar*' 'exo-utils' >/dev/null 2>&1 || true
-    run_root env DEBIAN_FRONTEND=noninteractive apt-get autoremove -y -qq >/dev/null 2>&1 || true
   fi
 fi
 

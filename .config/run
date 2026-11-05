@@ -1,4 +1,0 @@
-#!/usr/bin/env bash
-
-# @file .config/run
-# @brief Wrapper for Task (the Taskfile.yml runner)

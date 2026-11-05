@@ -135,9 +135,6 @@ export SNAPCRAFT_UNBOUND_DISCHARGE="{{ if (stat (joinPath .chezmoi.sourceDir ".c
 export SURGE_LOGIN="{{ if (stat (joinPath .chezmoi.sourceDir ".chezmoitemplates" (printf "%s%s" "secrets-" .chezmoi.hostname) "SURGE_LOGIN")) }}{{ includeTemplate (printf "%s%s" (printf "%s%s" "secrets-" .chezmoi.hostname) "/SURGE_LOGIN") | decrypt | trim }}{{ else }}{{ env "SURGE_LOGIN" }}{{ end }}"
 export SURGE_TOKEN="{{ if (stat (joinPath .chezmoi.sourceDir ".chezmoitemplates" (printf "%s%s" "secrets-" .chezmoi.hostname) "SURGE_TOKEN")) }}{{ includeTemplate (printf "%s%s" (printf "%s%s" "secrets-" .chezmoi.hostname) "/SURGE_TOKEN") | decrypt | trim }}{{ else }}{{ env "SURGE_TOKEN" }}{{ end }}"
 
-### Vagrant Cloud
-export VAGRANT_CLOUD_TOKEN="{{ if (stat (joinPath .chezmoi.sourceDir ".chezmoitemplates" (printf "%s%s" "secrets-" .chezmoi.hostname) "VAGRANT_CLOUD_TOKEN")) }}{{ includeTemplate (printf "%s%s" (printf "%s%s" "secrets-" .chezmoi.hostname) "/VAGRANT_CLOUD_TOKEN") | decrypt | trim }}{{ else }}{{ env "VAGRANT_CLOUD_TOKEN" }}{{ end }}"
-
 ### VMWare
 export VMWARE_WORKSTATION_LICENSE_KEY="{{ if (stat (joinPath .chezmoi.sourceDir ".chezmoitemplates" (printf "%s%s" "secrets-" .chezmoi.hostname) "VMWARE_WORKSTATION_LICENSE_KEY")) }}{{ includeTemplate (printf "%s%s" (printf "%s%s" "secrets-" .chezmoi.hostname) "/VMWARE_WORKSTATION_LICENSE_KEY") | decrypt | trim }}{{ else }}{{ env "VMWARE_WORKSTATION_LICENSE_KEY" }}{{ end }}"
 

@@ -14,7 +14,7 @@ services:
     ports:
       - "3000:3000" # change host port if needed
     environment:
-      - TOKEN=your-strong-token # optional: to secure access
+      - TOKEN=${BROWSERLESS_TOKEN:?set BROWSERLESS_TOKEN} # required: to secure access
       - MAX_CONCURRENT_SESSIONS=5
       - PREBOOT_CHROME=true
       - CONNECTION_TIMEOUT=300000

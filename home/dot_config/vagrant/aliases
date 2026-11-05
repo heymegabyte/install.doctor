@@ -1,8 +1,0 @@
-# Source: https://developer.hashicorp.com/vagrant/docs/cli/aliases
-
-# basic command-level aliases
-start = up
-stop = halt
-
-# advanced command-line aliases
-eradicate = !vagrant destroy && rm -rf .vagrant

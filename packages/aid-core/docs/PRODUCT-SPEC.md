@@ -33,7 +33,7 @@ Inspect actual ProjectSites source before extracting shared routing contracts. R
 metadata does not prove the latest routing design is deployed. Dynamic routes accept
 Chat-Completions payloads; other protocols need explicit adapters. Test reasoning fields,
 tool calls and streaming against a pinned OpenCode release. The proposed /api/ai/v1
-endpoint in this package has not been deployed or exercised.
+endpoint and experimental HTTP adapters in this package have not been deployed or exercised.
 
 ## One ENVIRONMENT.md
 
@@ -152,21 +152,6 @@ auth/tenancy tests, OS-matrix checks, recording-failure tests and a two-machine 
 before production. Do not auto-optimize hypervisor networking, Qubes dom0, SSH access,
 firmware or encryption using generic recipes. No unattended cloud spending is authorized
 by this specification alone.
-
-## Probabilistic Intent Architecture (PIA) and Edge Super-Stack
-
-Aid incorporates a continuous probabilistic intent distribution engine running on Cloudflare Planetary
-Edge infrastructure. Interaction telemetry (inter-arrival timing, Shannon cadence entropy, terminal
-token patterns) continuously predicts the user's operational vector before explicit command confirmation.
-
-When intent confidence crosses $\tau \ge 0.65$, edge Durable Objects spawn speculative execution branches
-in a strictly isolated, read-only shadow sandbox. Once the user confirms the action, an ephemeral intent
-voucher collapses the speculative state with 0ms perceived latency. If the user diverges, the shadow
-branch evaporates cleanly with zero side-effects.
-
-The multidimensional Easter Egg Farm embeds harmonic cadence detection (e.g. Fibonacci timing sequences),
-ANSI terminal mini-games (Space Invaders, Conway's Game of Life, C64 BASIC), and stateful companion virtual
-pets (Tamagotchi Durable Objects) directly into the edge routing fabric.
 
 ## Primary references
 

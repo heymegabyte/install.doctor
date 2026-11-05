@@ -1,5 +1,0 @@
-{
-  "exec": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register jest --runInBand",
-  "ext": "js,jsx,ts,tsx,json,ts,yml",
-  "watch": [".env", "src"]
-}

@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "runId": "3f3ecb36-a019-498a-98b3-a50fb6098135",
+  "pass": 10,
+  "attempt": 1,
+  "pid": 6443,
+  "model": "litellm/deepseek-v4-pro",
+  "status": 0,
+  "signal": null,
+  "promptHash": "5f2b723aa7485488607f7dc55c427f8f8407b71c6eb1e0b20cb31c861409e1bc",
+  "baselineHead": "cb602dcefdd3f2318a3d5dbd71e7bf9f14cd637c",
+  "baselineStateHash": "611bb269499ac7f3ca37ac113821e706b2ffb211e17a778dec3dc133915c6319",
+  "resultingStateHash": "18217130ecd3450e60dab84685c3833ecee236a5b86181573df65432ebaede57",
+  "summary": "**Convergence pass 10/10 — receipt · new winner: YES**\n\n**Winner: XS-29 + XS-30 + XS-31** — delete the three inherited-Capacitor site identity docs.\n\n**Changes:**\n- Deleted `site/readme.md` (`# Capacitor Site`), `site/CONTRIBUTING.md` (\"contributing to the Capacitor website\"), and `site/CODE_OF_CONDUCT.md` (generic inherited Covenant). Each had zero build/workflow/script references — pure source-of-truth lies misidentifying the project.\n- Added `scripts/test-inherited-capacitor-site-docs.sh` (4 assertions, auto-discovered by `test-all.sh`): residue absent · canonical docs preserved · no dangling path reference · bidirectional non-vacuity self-test.\n\n**Evidence (verified, not assumed):**\n- Read all three heads: Capacitor-branded content, not Install Doctor.\n- `git grep` for the three paths → only `.agent/repository-file-ledger.json` (generated evidence); zero functional references. `site/docs/scripts/markdown.sh` excludes bare `CODE_OF_CONDUCT.md`/`CONTRIBUTING.md` (the `docs/` copies), not the `site/` ones.\n- Canonical authorities present: `README.md`, `docs/CONTRIBUTING.md`, `docs/contributing/{index,code-of-conduct}.md`.\n\n**Tests run:** `bash -n` clean · `shellcheck` clean · `scripts/test-inherited-capacitor-site-docs.sh` → **4/4 PASS** (non-vacuous: planted fixture correctly detected + removed).\n\n**Prior receipts consulted:** all 9. XS-02/03, 14-16, 11-13, 08/09, 23, 25, 17-19, 49/50, 20/21 already done. Verified XS-48 (`populate-secrets`) and XS-10 (Python reconciler) were *already* removed by the wave-two worktree with guards present — not re-claimed. aid-core contract removals (XS-40/41/44/45) remain correctly out of scope (AGENTS.md declares them deliberate experimental contracts pending an explicit integration decision).\n\n**Risks:** Low — source-only Markdown deletion; no build path, no state, no service touched. Pre-existing `M` on `site/readme.md` was a benign junk-URL trim of the same delete-me file, superseded by the directive.\n\n**New winner implemented:** Yes.\n\n**Preserved unrelated edits:** untouched (all prior-pass deletions, `.agents/skills/*` `M` edits, `docs/aid/*` `M` edits, and the wave-two `D` site-tree entries remain). No commit, no deploy, no history rewrite.\n\n**Config/Repos:** none.",
+  "errors": [],
+  "stderr": "",
+  "completedAt": "2026-11-04T06:51:06.044Z"
+}

@@ -1,6 +1,7 @@
 # Design: Install Doctor Langfuse Fail-Open Defaults & Parallel Triad Integration
 
-> **Architect:** claude / antigravity (hydrated frontier context — non-OpenCode spec)
+> **Architect:** codex
+> **Architect Role:** assigned
 
 ## Architecture
 

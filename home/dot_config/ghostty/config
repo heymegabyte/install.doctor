@@ -1,0 +1,17 @@
+# Ghostty GPU-Accelerated Terminal Configuration (Dark-First #060610 / #00E5FF)
+font-family = "MesloLGS NF"
+font-size = 13
+theme = "TokyoNight Night"
+background = 060610
+foreground = e2e8f0
+cursor-color = 00e5ff
+selection-background = 1e293b
+selection-foreground = 00e5ff
+window-padding-x = 10
+window-padding-y = 8
+window-decoration = true
+macos-option-as-alt = true
+scrollback-limit = 100000000
+copy-on-select = clipboard
+shell-integration = detect
+confirm-close-surface = false

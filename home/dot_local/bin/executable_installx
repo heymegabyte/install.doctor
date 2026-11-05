@@ -655,7 +655,8 @@ async function main() {
     })
     .filter(x => {
 
-      // Only install casks or flatpaks and items with `_preload: true` in the `software.yml` file
+      // Only install items with `_preload: true` (or `_serviceEnabled: true`) in `--lazy` mode;
+      // headless hosts also explicitly block any `_app` / `flatpak` / `appimage` / `cask` entry.
       if (customArgv.lazy) {
         if (isHeadless) {
           if (x._app || x.flatpak || x.appimage) {
@@ -666,7 +667,7 @@ async function main() {
             return !!x._preload
           }
         } else {
-          if (x._app || x.flatpak || x._serviceEnabled) {
+          if (x._serviceEnabled) {
             return true
           } else {
             return !!x._preload

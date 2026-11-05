@@ -359,10 +359,19 @@ fixHomebrewSharePermissions() {
 ### Installs Homebrew
 ensurePackageManagerHomebrew() {
   if ! command -v brew > /dev/null; then
+    local BREW_EXIT_CODE=""
+    local HOMEBREW_INSTALL_COMMIT='959bdd728192d78c47287c177796c3d86d111f09'
+    local HOMEBREW_INSTALLER
+    HOMEBREW_INSTALLER="$(mktemp)"
+    if ! curl -fsSL "https://raw.githubusercontent.com/Homebrew/install/$HOMEBREW_INSTALL_COMMIT/install.sh" -o "$HOMEBREW_INSTALLER"; then
+      rm -f "$HOMEBREW_INSTALLER"
+      logg error 'Unable to download the pinned Homebrew installer'
+      return 1
+    fi
     ### Select install type based off of whether or not sudo privileges are available
     if command -v sudo > /dev/null && sudo -n true; then
       logg info 'Installing Homebrew. Sudo privileges available.'
-      echo | bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)" || BREW_EXIT_CODE="$?"
+      NONINTERACTIVE=1 bash "$HOMEBREW_INSTALLER" || BREW_EXIT_CODE="$?"
       if [ -d "/opt/homebrew" ]; then
         if [ -n "$USER" ]; then
           logg info "Setting owner of /opt/homebrew to '$USER'" && sudo chown -R "$USER" /opt/homebrew || logg warn "Failed to chown /opt/homebrew to '$USER'"
@@ -373,7 +382,7 @@ ensurePackageManagerHomebrew() {
       fixHomebrewSharePermissions
     else
       logg info 'Installing Homebrew. Sudo privileges not available. Password may be required.'
-      echo | bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)" || BREW_EXIT_CODE="$?"
+      NONINTERACTIVE=1 bash "$HOMEBREW_INSTALLER" || BREW_EXIT_CODE="$?"
       if [ -d "/opt/homebrew" ]; then
         if [ -n "$USER" ]; then
           logg info "Setting owner of /opt/homebrew to '$USER'" && sudo chown -R "$USER" /opt/homebrew || logg warn "Failed to chown /opt/homebrew to '$USER'"
@@ -383,6 +392,7 @@ ensurePackageManagerHomebrew() {
       fi
       fixHomebrewSharePermissions
     fi
+    rm -f "$HOMEBREW_INSTALLER"
 
     ### Attempt to fix problematic installs
     if [ -n "$BREW_EXIT_CODE" ]; then
@@ -634,14 +644,14 @@ ensureWarpDisconnected() {
   fi
 }
 
-# @description Temporarily grants the current user passwordless sudo for the duration of the provisioning process.
+# @description Validates and caches the current user's sudo credential for this provisioning process.
 #     This function will:
-#     1. Check if passwordless sudo is already available
-#     2. Try to decrypt the SUDO_PASSWORD from Chezmoi secrets if available
+#     1. Reuse an already-valid non-interactive sudo credential
+#     2. Resolve SUDO_PASSWORD from the configured secret provider when available
 #     3. Use the SUDO_PASSWORD environment variable if set
 #     4. Fall back to prompting the user with a 30-second timeout (auto-proceeds on timeout)
 #
-#     The passwordless sudo entry is marked with a comment so it can be removed later by `removePasswordlessSudo()`.
+#     No sudoers entry is created. Cleanup invalidates the credential cache.
 #
 #     @envvar SUDO_PASSWORD  If set, used to authenticate sudo without interactive prompts
 #     @envvar HEADLESS_INSTALL  If set, skips interactive prompts entirely
@@ -656,9 +666,10 @@ setupPasswordlessSudo() {
     printf '%s\n' "$CANDIDATE" | sudo -S -p '' -k true >/dev/null 2>&1
   }
 
-  ### Helper: persist a passwordless-sudo state for the rest of the run.
-  ### When NOPASSWD is active we drop a marker file so child shells (and
-  ### `chezmoi apply`) can `sudo -n` confidently. When it is NOT active we
+  ### Helper: record a validated sudo timestamp for the rest of the run.
+  ### The historical marker path is retained for downstream compatibility;
+  ### it means `sudo -n` was verified, not that sudoers was modified. When
+  ### sudo is NOT active we
   ### export SUDO_ASKPASS=/usr/bin/false so any stray `sudo` call in a
   ### chezmoi script fails fast instead of blocking on an interactive
   ### password prompt — which is what was happening mid-run before.
@@ -672,9 +683,9 @@ setupPasswordlessSudo() {
     export INSTALL_DOCTOR_NO_SUDO=1
   }
 
-  sudo -n true 2>/dev/null && { logg info 'Passwordless sudo is already available'; _idMarkPasswordless; return 0; }
+  sudo -n true 2>/dev/null && { logg info 'A valid non-interactive sudo credential is already available'; _idMarkPasswordless; return 0; }
 
-  logg info 'Your user will temporarily be granted passwordless sudo for the duration of the script'
+  logg info 'Validating sudo once so its credential cache can be used during provisioning'
 
   ### Try Infisical first (via get-secret or infisical CLI) before Chezmoi or prompting.
   if [ -z "$SUDO_PASSWORD" ] && command -v get-secret > /dev/null 2>&1; then
@@ -761,17 +772,12 @@ PY
   fi
 
   if [ -n "$SUDO_PASSWORD" ] && _idSudoPasswordWorks "$SUDO_PASSWORD"; then
-    logg info 'Using the acquired sudo password to automatically grant the user passwordless sudo privileges for the duration of the script'
-    ### printf preserves the password verbatim; `echo` would mangle
-    ### backslashes. `sudo -S -p ''` reads the password from stdin without
-    ### printing a prompt to the TTY.
-    printf '%s\n' "$SUDO_PASSWORD" | sudo -S -p '' sh -c "printf '%s\n' '$(whoami) ALL=(ALL:ALL) NOPASSWD: ALL # TEMPORARY FOR INSTALL DOCTOR' >> /etc/sudoers"
-    sudo -k 2>/dev/null || true
-    if sudo -n true 2>/dev/null; then
+    logg info 'Caching the validated sudo credential without changing sudoers'
+    if printf '%s\n' "$SUDO_PASSWORD" | sudo -S -p '' -v >/dev/null 2>&1 && sudo -n true 2>/dev/null; then
       _idMarkPasswordless
       return 0
     fi
-    logg warn 'NOPASSWD entry was written but `sudo -n true` still fails; treating as blocked'
+    logg warn 'The sudo credential cache could not be established; treating sudo as blocked'
   fi
 
   if [ -n "$HEADLESS_INSTALL" ]; then
@@ -1076,6 +1082,7 @@ initChezmoiAndPrompt() {
 #     @envvar DEBUG_MODE  If set, enables verbose debug output
 #     @envvar DEBUG  Alternative to DEBUG_MODE
 runChezmoi() {
+  local CHEZMOI_EXIT_CODE=0
   ### Set up logging
   mkdir -p "$HOME/.local/var/log/install.doctor"
   LOG_FILE="$HOME/.local/var/log/install.doctor/chezmoi-apply-$(date +%s).log"
@@ -1111,7 +1118,7 @@ runChezmoi() {
   # Check if the last command failed
   if [ $? -ne 0 ]; then
     logg info "Fallback: Running in headless mode"
-    chezmoi apply $COMMON_MODIFIERS $DEBUG_MODIFIER $KEEP_GOING_MODIFIER $FORCE_MODIFIER
+    chezmoi apply $COMMON_MODIFIERS $DEBUG_MODIFIER $KEEP_GOING_MODIFIER $FORCE_MODIFIER || CHEZMOI_EXIT_CODE=$?
   else
     logg info "Running with a display"
     if command -v unbuffer > /dev/null; then
@@ -1149,25 +1156,23 @@ runChezmoi() {
   fi
 
   ### Handle actual process exit code
-  if [ -n "$CHEZMOI_EXIT_CODE" ]; then
+  if [ "$CHEZMOI_EXIT_CODE" -ne 0 ]; then
     logg error "Chezmoi encountered an error and exited with an exit code of $CHEZMOI_EXIT_CODE"
+    return "$CHEZMOI_EXIT_CODE"
   else
     logg info 'Finished provisioning the system'
   fi
 }
 
-# @description Ensure temporary passwordless sudo privileges are removed from `/etc/sudoers`
+# @description Invalidate the temporary sudo credential cache and remove legacy bootstrap state.
 removePasswordlessSudo() {
   if [ "$(detect_os)" = "macos" ]; then
     logg info "Ensuring $USER is still an admin"
     sudo dscl . -merge /Groups/admin GroupMembership "$USER"
   fi
-  if command -v gsed > /dev/null; then
-    sudo gsed -i '/# TEMPORARY FOR INSTALL DOCTOR/d' /etc/sudoers || logg warn 'Failed to remove passwordless sudo from the /etc/sudoers file'
-  else
-    sudo sed -i '/# TEMPORARY FOR INSTALL DOCTOR/d' /etc/sudoers || logg warn 'Failed to remove passwordless sudo from the /etc/sudoers file'
-  fi
+  # Remove only the old dedicated drop-in. Modern runs never write sudoers.
   sudo rm -f /etc/sudoers.d/install-doctor 2>/dev/null || true
+  sudo -k 2>/dev/null || true
   ### Drop the passwordless-sudo marker so a future re-run of the script
   ### re-evaluates from scratch.
   rm -f /tmp/install-doctor-passwordless-sudo
@@ -1236,10 +1241,6 @@ function ensureInstallUser() {
       elif command -v dseditgroup &>/dev/null; then
         dseditgroup -o edit -a "$INSTALL_USER" -t user admin
       fi
-      if [ -d /etc/sudoers.d ]; then
-        printf '%s ALL=(ALL) NOPASSWD:ALL # TEMPORARY FOR INSTALL DOCTOR\n' "$INSTALL_USER" > /etc/sudoers.d/install-doctor
-        chmod 0440 /etc/sudoers.d/install-doctor
-      fi
     fi
 
     # Switch to the install user to continue the script
@@ -1271,6 +1272,7 @@ function ensureInstallUser() {
 
 # @description Main orchestration function that defines the execution order of all provisioning steps.
 provisionLogic() {
+  local CHEZMOI_STATUS=0
   logg info "Resolving the install plan before mutation" && configureInstallPlan
   logg info "Ensuring script is not run with root" && ensureInstallUser
   logg info "Attempting to load Homebrew" && loadHomebrew
@@ -1292,8 +1294,13 @@ provisionLogic() {
   logg info "Handling Qubes dom0 logic (if applicable)" && handleQubesDom0
   logg info "Handling pre-provision logic" && initChezmoiAndPrompt
   export INSTALL_DOCTOR_PROVISION_BOOTSTRAPPED=1
-  logg info "Running the Chezmoi provisioning" && runChezmoi
+  logg info "Running the Chezmoi provisioning"
+  runChezmoi || CHEZMOI_STATUS=$?
   logg info "Ensuring temporary passwordless sudo is removed" && removePasswordlessSudo
+  if [ "$CHEZMOI_STATUS" -ne 0 ]; then
+    logg error "Provisioning failed during chezmoi apply (exit $CHEZMOI_STATUS)"
+    return "$CHEZMOI_STATUS"
+  fi
   logg info "Determining whether or not to reboot" && handleRequiredReboot
   logg info "Handling post-provision logic" && postProvision
 }

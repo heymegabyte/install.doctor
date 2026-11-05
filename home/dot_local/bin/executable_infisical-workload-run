@@ -1,0 +1,88 @@
+#!/usr/bin/env node
+// Directly execs one command with only its exact manifest-declared secret mappings.
+import { readFileSync, realpathSync, statSync } from 'node:fs';
+import { delimiter, join } from 'node:path';
+import { execFileSync } from 'node:child_process';
+import process from 'node:process';
+
+function fail(message) { console.error(`infisical-workload-run: ${message}`); process.exit(1); }
+function exact(value, keys, label) {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) fail(`${label} must be an object`);
+  const actual = Object.keys(value);
+  if (actual.some(key => !keys.includes(key)) || keys.some(key => !Object.hasOwn(value, key))) fail(`${label} has missing or unknown fields`);
+  return value;
+}
+const identifier = value => typeof value === 'string' && /^[a-z0-9][a-z0-9._-]{0,95}$/.test(value);
+const allowedPrincipals = new Set([
+  'public-human:oidc:cloudflare-access', 'ci:oidc:github', 'ci:oidc:native',
+  'service:workload-identity:infisical', 'service:universal-auth:infisical', 'local-offline-human:oidc:authentik',
+  'product-customer:native:product-native'
+]);
+
+function validate(input) {
+  const root = exact(input, ['schemaVersion', 'workloads'], 'manifest');
+  if (root.schemaVersion !== 1 || !Array.isArray(root.workloads) || root.workloads.length < 1 || root.workloads.length > 10_000) fail('unsupported or unbounded manifest');
+  const ids = new Set(); const identities = new Set();
+  for (const entry of root.workloads) {
+    const workload = exact(entry, ['id', 'identityId', 'projectId', 'environment', 'secretPath', 'principal', 'delivery', 'secrets'], 'workload');
+    if (![workload.id, workload.identityId, workload.projectId].every(identifier)) fail('invalid workload identifier');
+    if (ids.has(workload.id) || identities.has(workload.identityId)) fail('workload ids and identities must be unique');
+    ids.add(workload.id); identities.add(workload.identityId);
+    if (workload.environment !== 'prod' || workload.secretPath !== `/workloads/${workload.id}`) fail('scope must be prod and a fixed workload leaf path');
+    const principal = exact(workload.principal, ['kind', 'authMode', 'provider'], 'principal');
+    if (!allowedPrincipals.has(`${principal.kind}:${principal.authMode}:${principal.provider}`)) fail('principal violates the identity plane');
+    if (workload.delivery !== 'environment' || !Array.isArray(workload.secrets) || workload.secrets.length < 1 || workload.secrets.length > 256) fail('invalid secret delivery');
+    const names = new Set(); const variables = new Set();
+    for (const item of workload.secrets) {
+      const mapping = exact(item, ['secretName', 'environmentVariable'], 'secret mapping');
+      if (typeof mapping.secretName !== 'string' || !/^[A-Z][A-Z0-9_]{0,127}$/.test(mapping.secretName) ||
+          typeof mapping.environmentVariable !== 'string' || !/^[A-Z_][A-Z0-9_]{0,127}$/.test(mapping.environmentVariable) ||
+          names.has(mapping.secretName) || variables.has(mapping.environmentVariable)) fail('secret mappings must be exact and unique');
+      names.add(mapping.secretName); variables.add(mapping.environmentVariable);
+    }
+  }
+  return root;
+}
+
+function parseArguments(values) {
+  let manifestPath; let workloadId; let separator = -1;
+  for (let index = 0; index < values.length; index += 1) {
+    if (values[index] === '--') { separator = index; break; }
+    if (values[index] === '--manifest' && index + 1 < values.length) manifestPath = values[++index];
+    else if (values[index] === '--workload' && index + 1 < values.length) workloadId = values[++index];
+    else fail('usage: --manifest FILE --workload ID -- COMMAND [ARG ...]');
+  }
+  if (!manifestPath || !workloadId || separator < 0 || separator === values.length - 1) fail('usage: --manifest FILE --workload ID -- COMMAND [ARG ...]');
+  return { manifestPath, workloadId, command: values[separator + 1], arguments: values.slice(separator + 2) };
+}
+
+function resolveExecutable(command, environment) {
+  if (command.includes('/')) return realpathSync(command);
+  for (const directory of (environment.PATH ?? '').split(delimiter)) {
+    if (!directory) continue;
+    const candidate = join(directory, command);
+    try { if (statSync(candidate).isFile()) return realpathSync(candidate); } catch { /* keep looking */ }
+  }
+  fail('command was not found');
+}
+
+const options = parseArguments(process.argv.slice(2));
+let parsed;
+try { parsed = JSON.parse(readFileSync(options.manifestPath, 'utf8')); } catch { fail('manifest is unreadable or invalid JSON'); }
+const manifest = validate(parsed);
+const workload = manifest.workloads.find(item => item.id === options.workloadId);
+if (!workload) fail('workload is not declared');
+const values = new Map();
+for (const mapping of workload.secrets) {
+  try {
+    const value = execFileSync('get-secret', [mapping.secretName], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], timeout: 15_000, maxBuffer: 1024 * 1024 }).replace(/\r?\n$/, '');
+    if (!value) fail('a declared secret is unavailable');
+    values.set(mapping.environmentVariable, value);
+  } catch { fail('a declared secret is unavailable'); }
+}
+const secretShaped = /(?:^|_)(?:API_?KEY|ACCESS_?KEY|SECRET|TOKEN|PASSWORD|PASSWD|PRIVATE_?KEY|CREDENTIALS?)(?:$|_)/i;
+const childEnvironment = Object.fromEntries(Object.entries(process.env).filter(([name]) => !secretShaped.test(name)));
+for (const [name, value] of values) childEnvironment[name] = value;
+const commandPath = resolveExecutable(options.command, childEnvironment);
+if (typeof process.execve !== 'function') fail('this Node runtime does not support direct exec');
+process.execve(commandPath, [options.command, ...options.arguments], childEnvironment);

@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "runId": "3f3ecb36-a019-498a-98b3-a50fb6098135",
+  "pass": 11,
+  "attempt": 1,
+  "pid": 53422,
+  "model": "litellm/deepseek-v4-pro",
+  "status": 0,
+  "signal": null,
+  "promptHash": "6596cda6f2d1146a943eb9bfde32fe0b3b99237cb8e30a4e34d41a7b49b77a04",
+  "baselineHead": "cb602dcefdd3f2318a3d5dbd71e7bf9f14cd637c",
+  "baselineStateHash": "611bb269499ac7f3ca37ac113821e706b2ffb211e17a778dec3dc133915c6319",
+  "resultingStateHash": "1728ebf3c2d2b4fcf13e10e3ad47ea6a77c20319729d20428ff6b1636d671e9f",
+  "summary": "Convergence pass 11/12 — receipt.\n\n**New winner: YES** — completed CATS-14 (the netdata dead-dependency residue). The prior wave removed netdata's `debsecan`/`speedtest-cli` chart branches from the hook *and* `.chezmoiremove` already schedules `~/.local/share/netdata-{debsecan,speedtest}` for deletion, but the catalog entry still declared them as `_deps` — so `installx` force-installed two unrelated packages on every netdata install. That was the unguarded catalog-side half of CATS-14.\n\n**Changes:**\n- `software.yml` — removed the dead `_deps: [debsecan, speedtest-cli]` from `netdata` (both packages remain standalone catalog entries; only netdata's now-false dependency edge was dropped).\n- `scripts/test-catalog-removal-wave-two.sh` — added one regression assertion (scoped to the netdata block via `sed -n '/^  netdata:/,/^  [a-z]/p'`) that fails if the catalog re-declares those dependencies.\n\n**Evidence (verified, not assumed):**\n- `grep -nE 'netdata-debsecan|netdata-speedtest|debsecan|speedtest'` → the hook (`executable_post-netdata.sh`) no longer references them; only `.chezmoiremove:80-81` and the (now-removed) `_deps` did.\n- `git grep` for netdata deps across `scripts/*.sh docs/` → no other consumer or test asserted them.\n- Dangling-`_deps` sweep (python yaml): 0 structural dangling deps — this was purely semantic dead weight.\n\n**Tests run:** `validate-software-yml.sh` 4/4 · `test-catalog-removal-wave-two.sh` **9/9** (new assertion green) · `test-catalog-coverage.sh` 5/5 · `test-catalog-count-doc.sh` 2/2 · `test-default-provisioning-policy.sh` 41/41 · `bash -n` + `git diff --check` clean · `python3 yaml.safe_load` OK. Non-vacuity proven both directions: a planted `_deps` block is flagged by the detector; the current netdata block reads clean. (shellcheck reports only 3 pre-existing `SC2015` info notes on the original `A && B || C` lines, not my `if/else` addition.)\n\n**Risks:** Low — source-only catalog metadata trim; no live service, secret, history, or user data touched; no deploy/commit. `debsecan`/`speedtest-cli` stay independently installable.\n\n**Preserved unrelated edits:** untouched (the large dirty worktree of prior wave-two/convergence work, including the `_preload` trims, `_post` scalar→array migrations, `_name` whitespace fixes, and `_default: false` additions, was left as-is).\n\n**⏱ Time:** 2:04:41 AM EST → 2:20:32 AM EST · 15m 51s",
+  "errors": [],
+  "stderr": "",
+  "completedAt": "2026-11-04T07:20:52.811Z"
+}

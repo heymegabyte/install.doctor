@@ -208,8 +208,7 @@
     "pypi": "ProfessorManhattan",
     "replit": "ProfessorMegaby",
     "stackblitz": "ProfessorManhattan",
-    "twitter": "MegabyteLabs",
-    "vagrant": "ProfessorManhattan"
+    "twitter": "MegabyteLabs"
   },
   "profile_link": {
     "dockerhub": "https://hub.docker.com/u",
@@ -222,8 +221,7 @@
     "pypi": "https://pypi.org/user",
     "replit": "https://repl.it/@",
     "stackblitz": "https://stackblitz.com/@",
-    "twitter": "MegabyteLabs",
-    "vagrant": "https://app.vagrantup.com"
+    "twitter": "MegabyteLabs"
   },
   "redditApplicationId": "O3UxD7HlPpcN88gpEkPIXQ",
   "redditUsername": "tsgangster",
@@ -309,13 +307,13 @@
       "wrangler": "https://gitlab.com/megabyte-labs/wrangler"
     }
   },
-  "scriptsBuild": "task donothing",
+  "scriptsBuild": "task validate:software",
   "scriptsHelp": "task --menu",
   "scriptsPrepare": "npm run start && (test -f Taskfile.yml && task common:husky) || true",
   "scriptsReplaceThis": "\"",
   "scriptsReplaceWith": "\\\"",
   "scriptsStart": "bash start.sh",
-  "scriptsTest": "task donothing",
+  "scriptsTest": "task test",
   "sharp_instructions": [],
   "slackNotificationChannel": "#misc",
   "slackNotificationIcon": "https://gitlab.com/megabyte-labs/misc/assets/-/raw/master/logo/megabytelabs-color-icon-350x350.png",

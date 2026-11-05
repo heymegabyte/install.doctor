@@ -1,8 +1,0 @@
-{ // https://cockpit-project.org/guide/latest/feature-machines
-    "{{ item.ip_address }}": {
-        "address": "{{ item.ip_address }}:{{ ssh_port }}",
-        "port": {{ ssh_port }},
-        "user": "{{ item.user | default(ansible_user | default(lookup('env', 'USER'))) }}",
-        "visible": true
-    }
-}

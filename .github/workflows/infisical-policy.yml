@@ -1,0 +1,34 @@
+name: Infisical identity policy
+
+on:
+  pull_request:
+    paths:
+      - "config/infisical/**"
+      - "scripts/infisical-identity-policy.mjs"
+      - "scripts/test-infisical-identity-policy.sh"
+      - ".github/workflows/infisical-policy.yml"
+  push:
+    branches: [main, master]
+    paths:
+      - "config/infisical/**"
+      - "scripts/infisical-identity-policy.mjs"
+      - "scripts/test-infisical-identity-policy.sh"
+      - ".github/workflows/infisical-policy.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: infisical-policy-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    name: Validate value-free identity policy
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Test deterministic validator and planner
+        run: bash scripts/test-infisical-identity-policy.sh

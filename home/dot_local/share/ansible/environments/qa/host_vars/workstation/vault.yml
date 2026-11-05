@@ -1,5 +1,0 @@
----
-admin_password: AnsibleTest999
-admin_username: Brian
-# restic_password_ansible_user:
-# restic_password_root_user:

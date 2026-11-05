@@ -5,10 +5,10 @@ services:
     ports:
       - "8055:8055"
     environment:
-      DIRECTUS_ADMIN_EMAIL: "admin@example.com"
-      DIRECTUS_ADMIN_PASSWORD: "password"
-      DIRECTUS_KEY: "your-secret-key"
-      DIRECTUS_SECRET: "your-secret-secret"
+      DIRECTUS_ADMIN_EMAIL: "${DIRECTUS_ADMIN_EMAIL:?set DIRECTUS_ADMIN_EMAIL}"
+      DIRECTUS_ADMIN_PASSWORD: "${DIRECTUS_ADMIN_PASSWORD:?set DIRECTUS_ADMIN_PASSWORD}"
+      DIRECTUS_KEY: "${DIRECTUS_KEY:?set DIRECTUS_KEY}"
+      DIRECTUS_SECRET: "${DIRECTUS_SECRET:?set DIRECTUS_SECRET}"
       DB_CLIENT: "sqlite"
       DB_FILENAME: "/directus/database/data.db"
     volumes:

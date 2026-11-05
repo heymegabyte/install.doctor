@@ -41,7 +41,6 @@ user_configs:
     ssh_authorized_keys: '{{ default_ssh_authorized_keys | default([]) }}'
     ssh_private_keys: '{{ default_ssh_private_keys | default([]) }}'
     tinypng_api_key: '{{ tinypng_api_key }}'
-    vagrant_cloud_token: '{{ vagrant_cloud_token }}'
     vscode_extensions: '{{ vscode_extensions }}'
   - username: root
     git_user_email: '{{ git_user_email | default(omit) }}'

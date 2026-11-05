@@ -354,9 +354,6 @@ fi
 ### NPM
 export NPM_CONFIG_USERCONFIG="${XDG_CONFIG_HOME:-$HOME/.config}/npm/npmrc"
 
-### ntfy
-export AUTO_NTFY_DONE_IGNORE="code nvim vim screen meld"
-
 ### NTL
 export NTL_RUNNER="pnpm"
 export NTL_RERUN_CACHE_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/ntl"
@@ -451,14 +448,6 @@ export STEAMPIPE_TELEMETRY=none
 ### Update
 if [ -d "$HOME/.local/bin/update/bin" ]; then
   export PATH="$PATH:$HOME/.local/bin/update/bin"
-fi
-
-### Vagrant
-export VAGRANT_ALIAS_FILE="${XDG_CONFIG_HOME:-$HOME/.config}/vagrant/aliases"
-export VAGRANT_DEFAULT_PROVIDER=virtualbox
-export VAGRANT_HOME="${XDG_DATA_HOME:-$HOME/.local/share}/vagrant.d"
-if [ -d /opt/vagrant-vmware-desktop/bin ]; then
-  export PATH="/opt/vagrant-vmware-desktop/bin:$PATH"
 fi
 
 ### Visual Studio Code

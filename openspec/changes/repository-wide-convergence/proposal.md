@@ -1,5 +1,8 @@
 # Repository-wide convergence audit
 
+> **Architect:** codex
+> **Architect Role:** assigned
+
 ## Why
 
 Install Doctor spans fleet bootstrap, dotfiles, system automation, an isolated aid foundation, a Cloudflare control plane, a documentation site, generated catalogs, encrypted configuration, and media assets. Piecemeal reviews leave cross-subsystem drift and do not prove that every tracked path was considered.
@@ -11,6 +14,7 @@ Install Doctor spans fleet bootstrap, dotfiles, system automation, an isolated a
 - Implement every high-confidence, in-scope improvement whose value exceeds its regression and migration risk.
 - Add gates that prevent discovered defect classes from recurring.
 - Repeat the architecture loop until two consecutive passes find no new justified change above the value threshold.
+- Apply the approved 30-item security, bootstrap, CI, control-plane, catalog, provenance, dependency, consent, and documentation program as an append-only follow-on wave; prior convergence evidence does not mark these newly accepted findings complete.
 
 ## Capabilities
 

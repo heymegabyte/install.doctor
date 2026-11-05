@@ -537,7 +537,7 @@ template-vms:
     #     windows-desktop-tmpl:
     #       ansible_connection: winrm
     #   vars:
-    #     # SSH connection is unnecessary since templates are loaded from vagrantup.com or via the qubes-packer.yml playbook
+    #     # SSH connection is unnecessary when templates are loaded via the qubes-packer.yml playbook
     #     # ansible_connection: ssh
     #     # ansible_password: "{{ lookup('env', 'VAGRANT_PASSWORD') }}"
     #     # ansible_user: "{{ lookup('env', 'VAGRANT_USER') }}"

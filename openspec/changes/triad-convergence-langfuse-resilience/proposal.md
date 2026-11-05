@@ -1,6 +1,7 @@
 # Proposal: Parallel Triad Convergence, Langfuse Fail-Open Telemetry & Paperclip OpenSpec Sync
 
-> **Architect:** claude / antigravity (hydrated frontier context — non-OpenCode spec)
+> **Architect:** codex
+> **Architect Role:** assigned
 
 ## Why
 

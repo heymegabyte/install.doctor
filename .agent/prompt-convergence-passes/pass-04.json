@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "runId": "3f3ecb36-a019-498a-98b3-a50fb6098135",
+  "pass": 4,
+  "attempt": 1,
+  "pid": 6443,
+  "model": "litellm/deepseek-v4-pro",
+  "status": 0,
+  "signal": null,
+  "promptHash": "54afb8479b8578c37f17daa88f41eb3fd78bae511f6d799f7ba54f03246819af",
+  "baselineHead": "cb602dcefdd3f2318a3d5dbd71e7bf9f14cd637c",
+  "baselineStateHash": "611bb269499ac7f3ca37ac113821e706b2ffb211e17a778dec3dc133915c6319",
+  "resultingStateHash": "1b8388c7f729663f3ee2de1ad383923b5dddc9e3b2b2ff75d71ef54da6068144",
+  "summary": "**Convergence pass 4/10 — receipt · new winner: YES**\n\n**Winner:** XS-08 + XS-09 — delete the two dead root-level fleet-config manifests `file-system.yml` and `sake.yaml`, plus a regression gate. Highest-value because it is *security + source-of-truth consolidation*, not just churn: `sake.yaml` embeds live fleet hostnames (`maas.ssh.megabyte.space`, `workhorse.ssh.megabyte.space`) and a legacy GitLab `START_REPO` in a **public repo**, directly violating the server-ingress-ownership rule (CLAUDE.md §4 — \"Install Doctor MUST NOT invent production hostnames\"); `file-system.yml` is a gitfs mount manifest for the retired `ProfessorManhattan` org mapping `$HOME/.config`/`$HOME/Library/Preferences` to a non-canonical remote. Both had **zero reachable callers** (git grep returned nothing).\n\n**Change implemented:**\n- Deleted `file-system.yml` (retired-org gitfs mount manifest) and `sake.yaml` (stale host inventory with live hostnames + legacy GitLab origin).\n- `scripts/test-dead-fleet-config.sh` — new 5-assertion hermetic guard: (1) both manifests absent, (2) the `sake` **tool** preserved (software.yml entry + bash completion — the package is distinct from the dead inventory file), (3) no `/start`/chezmoi entrypoint re-references either, (4+5) non-vacuous self-test planting both fixtures and re-running the same detector. Auto-discovered by `test-all.sh` (`test-*.sh` glob).\n\n**Evidence:**\n- `git grep` for `file-system\\.yml` and `sake\\.yaml` → zero matches outside the new guard itself; `sake` in `software.yml:9609` is the *real tool* (`github.com/alajmo/sake`), distinct from the deleted inventory.\n- `bash -n scripts/test-dead-fleet-config.sh` clean; `bash scripts/test-dead-fleet-config.sh` → **5/5 PASS**.\n- Non-vacuity (both directions): planting `file-system.yml` → **FAIL (4 passed, 1 failed, exit 1)**; removing it → green (exit 0).\n\n**Tests run:** `test-dead-fleet-config.sh` (5/5) · `test-removal-implementation-ledger.sh` (9/9) · `test-fleet-installer-policy.sh` (11/11) · `test-no-removed-tools.sh` (17/17) · `test-xdg-config-migration.sh` (4/4) · `test-catalog-wave-two-cleanup.sh` (4/4) · `test-repository-file-ledger.sh` (PASS).\n\n**Risks:** Low — source-only deletion; no host contacted, no mount unmounted, no service stopped, no secret value read, no host identity mutated. The `sake` package and its completion are preserved (guard asserts it). `.agent/repository-file-ledger.json` regenerates self-consistently via `audit-repository-files.mjs`, so the deletion leaves no stale-evidence red. No commit/deploy performed.\n\n**Next:** → pass 5/10 — remaining wave-two: XS-04 (pnpm-lock), XS-05/06 (GitLab CI/templates), XS-07 (Vagrantfile), XS-17/18/19 (ntfy/tabby residue).\n\n**⏱ Time:** 12:47:03 AM EST → 12:53:25 AM EST · 6m 22s",
+  "errors": [],
+  "stderr": "",
+  "completedAt": "2026-11-04T05:53:39.011Z"
+}

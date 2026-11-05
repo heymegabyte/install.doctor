@@ -32,14 +32,6 @@ After Docker is installed, the provisioning scripts:
 
 ## Vagrant
 
-[Vagrant](https://www.vagrantup.com/) is installed across all platforms with a selection of provider plugins:
-
-- `vagrant-libvirt` - KVM/QEMU provider for Linux
-- `vagrant-vmware-desktop` - VMware Workstation/Fusion provider
-- `vagrant-parallels` - Parallels Desktop provider (macOS)
-
-Vagrant enables reproducible development environments defined as code in `Vagrantfile` configurations.
-
 ## VirtualBox
 
 [VirtualBox](https://www.virtualbox.org/) is installed as a cross-platform hypervisor:
@@ -82,5 +74,4 @@ The software groups defined in `home/.chezmoidata.yaml` control which virtualiza
 
 | Variable        | Description                                           |
 | --------------- | ----------------------------------------------------- |
-| `VAGRANT_HOME`  | Custom Vagrant home directory (defaults to XDG path)  |
 | `DOCKER_HOST`   | Docker daemon socket path                             |

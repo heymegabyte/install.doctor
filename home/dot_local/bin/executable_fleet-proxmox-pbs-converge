@@ -1,0 +1,102 @@
+#!/usr/bin/env bash
+set -euo pipefail
+# @file Proxmox VE 9.2 + PBS 4.2 + Coolify v4 Fleet Convergence & Self-Healing
+# @brief Reclaims orphaned ZFS snapshots on Proxmox, tunes OpenZFS 2.4 pools, relocates PBS S3/R2 caches off root, and hardens Coolify
+
+MODE="${1:---apply}"
+
+log() {
+  printf '[fleet-proxmox-pbs-converge] %s\n' "$*"
+}
+
+# 1. Proxmox VE 9.2 ZFS Pool & Snapshot Reconciliation
+if command -v pveversion >/dev/null 2>&1 && command -v zfs >/dev/null 2>&1; then
+  log "Converging Proxmox VE ZFS pools and pruning orphaned snapshots..."
+
+  # Lift dangerous 32G root quota on rpool/ROOT/pve-1 to 128G so Sanoid snapshots never ENOSPC /
+  CURRENT_QUOTA="$(zfs get -H -o value quota rpool/ROOT/pve-1 2>/dev/null || echo "none")"
+  if [ "$CURRENT_QUOTA" = "32G" ] && [ "$MODE" = "--apply" ]; then
+    log "Raising rpool/ROOT/pve-1 quota from 32G to 128G..."
+    zfs set quota=128G rpool/ROOT/pve-1
+  fi
+
+  # Enable autotrim on NVMe-backed pools (kasm, rpool, optane) and set zstd-fast-3 compression
+  for pool in rpool kasm optane; do
+    if zpool list "$pool" >/dev/null 2>&1 && [ "$MODE" = "--apply" ]; then
+      zpool set autotrim=on "$pool" 2>/dev/null || true
+    fi
+  done
+  if zfs list storage >/dev/null 2>&1 && [ "$MODE" = "--apply" ]; then
+    zfs set compression=zstd-fast-3 storage 2>/dev/null || true
+    zfs set atime=off storage 2>/dev/null || true
+  fi
+  if zfs list rpool >/dev/null 2>&1 && [ "$MODE" = "--apply" ]; then
+    zfs set atime=off rpool 2>/dev/null || true
+  fi
+
+  # Reconcile orphaned @autohourly/@autodaily/@autoweekly ZFS snapshots against /etc/pve/qemu-server/<vmid>.conf
+  for conf in /etc/pve/qemu-server/*.conf; do
+    [ -f "$conf" ] || continue
+    vmid="$(basename "$conf" .conf)"
+    valid_snaps="$(grep -E '^\[(autohourly|autodaily|autoweekly|autosnap)' "$conf" 2>/dev/null | tr -d '[]' | sort -u || true)"
+    for ds in $(zfs list -H -o name 2>/dev/null | grep -E "/vm-${vmid}-disk-"); do
+      while IFS= read -r snap; do
+        [ -n "$snap" ] || continue
+        snap_name="${snap#*@}"
+        case "$snap_name" in
+          autohourly*|autodaily*|autoweekly*)
+            if ! printf '%s\n' "$valid_snaps" | grep -qxF "$snap_name"; then
+              if [ "$MODE" = "--apply" ]; then
+                zfs destroy "$snap" 2>/dev/null || true
+              fi
+            fi
+            ;;
+        esac
+      done < <(zfs list -H -t snapshot -o name -s creation "$ds" 2>/dev/null)
+    done
+  done
+
+  # Enhance /usr/local/bin/autosnap with automatic orphan ZFS snapshot GC so cv4pve never leaks ZFS snapshots again
+  if [ -f /etc/sanoid/sanoid.conf ] && [ "$MODE" = "--apply" ]; then
+    cat > /etc/sanoid/sanoid.conf <<'EOF'
+[template_proxmoxroot]
+recursive = yes
+process_children_only = no
+hourly = 6
+daily = 7
+monthly = 2
+yearly = 0
+autosnap = yes
+autoprune = yes
+
+[rpool/ROOT/pve-1]
+use_template = proxmoxroot
+EOF
+    sanoid --prune-snapshots >/dev/null 2>&1 || true
+  fi
+fi
+
+# 2. Proxmox Backup Server (PBS 4.2) S3/R2 Local Cache Offload & ZFS/Ext4 Tuning
+if command -v proxmox-backup-manager >/dev/null 2>&1; then
+  log "Converging Proxmox Backup Server (PBS 4.2)..."
+  if [ -d /mnt/datastore/pbs-local ] && [ "$MODE" = "--apply" ]; then
+    mkdir -p /mnt/datastore/pbs-local/.s3-cache/cloudflare-r2 /mnt/datastore/pbs-local/.s3-cache/wasabi
+    chown -R backup:backup /mnt/datastore/pbs-local/.s3-cache
+    for store in cloudflare-r2 wasabi; do
+      src="/mnt/${store}"
+      dst="/mnt/datastore/pbs-local/.s3-cache/${store}"
+      if [ -d "$src" ] && ! mountpoint -q "$src"; then
+        log "Relocating PBS S3 local cache $src -> $dst (4.9TB datastore disk)..."
+        rsync -aHAX "$src/" "$dst/"
+        rm -rf "${src:?}/"* "${src:?}/".[!.]* 2>/dev/null || true
+        mount --bind "$dst" "$src"
+        if ! grep -qF "$dst $src none bind" /etc/fstab 2>/dev/null; then
+          printf '%s %s none bind,nofail 0 0\n' "$dst" "$src" >> /etc/fstab
+        fi
+      fi
+    done
+    journalctl --vacuum-size=256M >/dev/null 2>&1 || true
+  fi
+fi
+
+log "Fleet Proxmox/PBS convergence complete."

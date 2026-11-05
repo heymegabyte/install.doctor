@@ -147,11 +147,12 @@ disableAutoUpdateDarwin() {
     return 0
   fi
 
-  ### 1. Unload the automated-updates LaunchDaemon if loaded
+  ### 1. Unload and remove the automated-updates LaunchDaemon if present
   if sudo launchctl list 2>/dev/null | grep -q 'com.apple.automatedupdates'; then
     gum log -sl info 'Unloading /Library/LaunchDaemons/com.apple.automatedupdates.plist'
     sudo launchctl unload /Library/LaunchDaemons/com.apple.automatedupdates.plist 2>/dev/null || true
   fi
+  sudo rm -f /Library/LaunchDaemons/com.apple.automatedupdates.plist 2>/dev/null || true
 
   ### 2. Stop Homebrew autoupdate (the --greedy job that breaks casks)
   if command -v brew >/dev/null 2>&1; then

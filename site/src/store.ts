@@ -276,7 +276,6 @@ export const defaults = {
     facebook: 'https://www.facebook.com/InstallDoctor',
     github: 'https://github.com/heymegabyte/install.doctor',
     githubDiscussions: 'https://github.com/heymegabyte/install.doctor/discussions',
-    gitlab: 'https://gitlab.com/megabyte-labs/install.doctor',
     linkedin: 'https://linkedin.com/company/megabyte-labs',
     slack: 'https://app.slack.com/client/T01ABCG4NK1/C04TDHV564E',
     twitter: 'https://twitter.com/InstallDoc',
@@ -1660,7 +1659,7 @@ export const CommunityPageData = {
       ],
       link: {
         target: '_blank',
-        url: 'https://gitlab.com/megabyte-labs/install.doctor',
+        url: 'https://github.com/heymegabyte/install.doctor',
       },
     },
   ],

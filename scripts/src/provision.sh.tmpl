@@ -188,8 +188,7 @@ ensureWarpDisconnected() {
   fi
 }
 
-# @description Notify user that they can press CTRL+C to prevent `/etc/sudoers` from being modified (which is currently required for headless installs on some systems).
-#     Additionally, this function will add the current user to `/etc/sudoers` so that headless automation is possible.
+# @description Validate and cache the current user's sudo credential without modifying sudoers.
 setupPasswordlessSudo() {
   ### Helper: confirm a candidate password actually works for `sudo`.
   _idSudoPasswordWorks() {
@@ -199,8 +198,9 @@ setupPasswordlessSudo() {
     printf '%s\n' "$CANDIDATE" | sudo -S -p '' -k true >/dev/null 2>&1
   }
 
-  ### Marker file lets later scripts (and chezmoi) confirm passwordless
-  ### sudo is active. When it isn't, exporting SUDO_ASKPASS=/usr/bin/false
+  ### The historical marker path lets later scripts confirm `sudo -n` was
+  ### verified. It does not mean sudoers was modified. When sudo is not
+  ### active, exporting SUDO_ASKPASS=/usr/bin/false
   ### makes every subsequent `sudo` invocation fail immediately instead of
   ### blocking on an interactive prompt mid chezmoi run.
   _idMarkPasswordless() {
@@ -213,9 +213,9 @@ setupPasswordlessSudo() {
     export INSTALL_DOCTOR_NO_SUDO=1
   }
 
-  sudo -n true 2>/dev/null && { logg info 'Passwordless sudo is already available'; _idMarkPasswordless; return 0; }
+  sudo -n true 2>/dev/null && { logg info 'A valid non-interactive sudo credential is already available'; _idMarkPasswordless; return 0; }
 
-  logg info 'Your user will temporarily be granted passwordless sudo for the duration of the script'
+  logg info 'Validating sudo once so its credential cache can be used during provisioning'
 
   if [ -z "$SUDO_PASSWORD" ] && command -v get-secret > /dev/null 2>&1; then
     SUDO_PASSWORD="$(get-secret SUDO_PASSWORD 2>/dev/null | tr -d '\r' | sed -e 's/[[:space:]]*$//' || true)"
@@ -296,14 +296,12 @@ PY
   fi
 
   if [ -n "$SUDO_PASSWORD" ] && _idSudoPasswordWorks "$SUDO_PASSWORD"; then
-    logg info 'Using the acquired sudo password to automatically grant the user passwordless sudo privileges for the duration of the script'
-    printf '%s\n' "$SUDO_PASSWORD" | sudo -S -p '' sh -c "printf '%s\n' '$(whoami) ALL=(ALL:ALL) NOPASSWD: ALL # TEMPORARY FOR INSTALL DOCTOR' >> /etc/sudoers"
-    sudo -k 2>/dev/null || true
-    if sudo -n true 2>/dev/null; then
+    logg info 'Caching the validated sudo credential without changing sudoers'
+    if printf '%s\n' "$SUDO_PASSWORD" | sudo -S -p '' -v >/dev/null 2>&1 && sudo -n true 2>/dev/null; then
       _idMarkPasswordless
       return 0
     fi
-    logg warn 'NOPASSWD entry was written but `sudo -n true` still fails; treating as blocked'
+    logg warn 'The sudo credential cache could not be established; treating sudo as blocked'
   fi
 
   if [ -n "$HEADLESS_INSTALL" ]; then
@@ -582,6 +580,7 @@ beforeRebootDarwin() {
 # @description Save the log of the provision process to `$HOME/.local/var/log/install.doctor/install.doctor.$(date +%s).log` and add the Chezmoi
 #     `--force` flag if the `HEADLESS_INSTALL` variable is set to `true`.
 runChezmoi() {
+  local CHEZMOI_EXIT_CODE=0
   ### Set up logging
   mkdir -p "$HOME/.local/var/log/install.doctor"
   LOG_FILE="$HOME/.local/var/log/install.doctor/chezmoi-apply-$(date +%s).log"
@@ -617,7 +616,7 @@ runChezmoi() {
   # Check if the last command failed
   if [ $? -ne 0 ]; then
     logg info "Fallback: Running in headless mode"
-    chezmoi apply $COMMON_MODIFIERS $DEBUG_MODIFIER $KEEP_GOING_MODIFIER $FORCE_MODIFIER
+    chezmoi apply $COMMON_MODIFIERS $DEBUG_MODIFIER $KEEP_GOING_MODIFIER $FORCE_MODIFIER || CHEZMOI_EXIT_CODE=$?
   else
     logg info "Running with a display"
     if command -v unbuffer > /dev/null; then
@@ -652,25 +651,23 @@ runChezmoi() {
   fi
 
   ### Handle actual process exit code
-  if [ -n "$CHEZMOI_EXIT_CODE" ]; then
+  if [ "$CHEZMOI_EXIT_CODE" -ne 0 ]; then
     logg error "Chezmoi encountered an error and exitted with an exit code of $CHEZMOI_EXIT_CODE"
+    return "$CHEZMOI_EXIT_CODE"
   else
     logg info 'Finished provisioning the system'
   fi
 }
 
-# @description Ensure temporary passwordless sudo privileges are removed from `/etc/sudoers`
+# @description Invalidate the temporary sudo credential cache and remove legacy bootstrap state.
 removePasswordlessSudo() {
   if [ -d /Applications ] && [ -d /System ]; then
     logg info "Ensuring $USER is still an admin"
     sudo dscl . -merge /Groups/admin GroupMembership "$USER"
   fi
 
-  if command -v gsed > /dev/null; then
-    sudo gsed -i '/# TEMPORARY FOR INSTALL DOCTOR/d' /etc/sudoers || logg warn 'Failed to remove passwordless sudo from the /etc/sudoers file'
-  else
-    sudo sed -i '/# TEMPORARY FOR INSTALL DOCTOR/d' /etc/sudoers || logg warn 'Failed to remove passwordless sudo from the /etc/sudoers file'
-  fi
+  sudo rm -f /etc/sudoers.d/install-doctor 2>/dev/null || true
+  sudo -k 2>/dev/null || true
   rm -f /tmp/install-doctor-passwordless-sudo
 }
 
@@ -771,6 +768,7 @@ function ensureInstallUser() {
 # @description The `provisionLogic` function is used to define the order of the script. All of the functions it relies on are defined
 #     above.
 provisionLogic() {
+  local CHEZMOI_STATUS=0
   logg info "Resolving the install plan before mutation" && configureInstallPlan
   logg info "Ensuring script is not run with root" && ensureInstallUser
   logg info "Attempting to load Homebrew" && loadHomebrew
@@ -791,8 +789,13 @@ provisionLogic() {
   logg info "Handling Qubes dom0 logic (if applicable)" && handleQubesDom0
   logg info "Handling pre-provision logic" && initChezmoiAndPrompt
   export INSTALL_DOCTOR_PROVISION_BOOTSTRAPPED=1
-  logg info "Running the Chezmoi provisioning" && runChezmoi
+  logg info "Running the Chezmoi provisioning"
+  runChezmoi || CHEZMOI_STATUS=$?
   logg info "Ensuring temporary passwordless sudo is removed" && removePasswordlessSudo
+  if [ "$CHEZMOI_STATUS" -ne 0 ]; then
+    logg error "Provisioning failed during chezmoi apply (exit $CHEZMOI_STATUS)"
+    return "$CHEZMOI_STATUS"
+  fi
   logg info "Determing whether or not reboot" && handleRequiredReboot
   logg info "Handling post-provision logic" && postProvision
 }

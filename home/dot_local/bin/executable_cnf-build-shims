@@ -20,34 +20,40 @@ if [ ! -s "$INDEX" ] && command -v cnf-build-index >/dev/null 2>&1; then
   cnf-build-index "$HOME/.local/share/chezmoi/software.yml" "$INDEX" >/dev/null 2>&1 || true
 fi
 
-# Curated lazy-loaded CLI catalog (convenience, TUI, DevSecOps linters, cloud, and media tools)
+# Curated lazy-loaded CLI catalog (convenience, TUI, DevSecOps linters, cloud, LSP, and media tools)
+# Plus automatic expansion from ~/.cache/cnf/index.tsv so ANY catalog CLI can be lazy-loaded on first use.
 LAZY_CMDS=(
   lazygit lazydocker dive zellij starship zoxide eza bat delta glow gum atuin
   shellcheck shfmt actionlint yamllint semgrep trivy gitleaks hadolint syft grype
-  aws gcloud flyctl kubectl helm k9s stern terraform tofu ansible rclone
+  aws gcloud flyctl kubectl helm k9s stern terraform tofu ansible rclone restic
   ffmpeg imagemagick convert magick dot graphviz pandoc typst qpdf tesseract pdftotext
   hyperfine duf dust procs doggo mosh just watchexec entr tree-sitter
+  ruff deno yt-dlp lynis ncdu exiftool htmlq jq yq fzf fd rg
 )
 
-# Purge any stale shims for retired tools
-for retired_shim in beszel beszel-agent "sync""thing" "tail""scale" "tray""scale"; do
+# Expand LAZY_CMDS with all valid CLI binaries from ~/.cache/cnf/index.tsv that have an active CLI provider
+if [ -s "$INDEX" ] && command -v awk >/dev/null 2>&1; then
+  while IFS= read -r idx_cmd; do
+    [ -n "$idx_cmd" ] && LAZY_CMDS+=("$idx_cmd")
+  done < <(awk -F'\t' '
+    # Columns: 1=bin 2=key 3=brew 4=apt 5=dnf 6=pacman 7=cask 8=choco 9=scoop 10=go 11=cargo 12=npm 13=pipx 14=pip 15=gem 16=apk
+    $1 ~ /^[a-zA-Z0-9_.-]+$/ && $1 !~ /\.(app|exe|dmg|pkg|deb|rpm|AppImage)$/ && ($3 != "" || $4 != "" || $5 != "" || $6 != "" || $10 != "" || $11 != "" || $12 != "" || $13 != "" || $14 != "" || $15 != "" || $16 != "") {
+      print $1
+    }
+  ' "$INDEX" | sort -u)
+fi
+
+# Deduplicate LAZY_CMDS and purge any stale shims for retired/opt-out tools
+RETIRED_PATTERN="^(gemini|gemini-cli|beszel|beszel-agent|sync""thing|tail""scale|tray""scale|superset|onlykey|amazon-q|anythingllm|arc|block-goose|chrome-remote-desktop-host|clamav|etcd|fail2ban|firefox|google-assistant|kvm|langgraph-studio|languagetool|microsoft-edge|microsoft-remote-desktop|msty|netdata|nginx|parallels|poetry|privoxy|redis|samba|sftpgo|tor|tor-browser|trae|virtualbox|visual-studio|vmware)$"
+for retired_shim in gemini gemini-cli beszel beszel-agent "sync""thing" "tail""scale" "tray""scale" superset; do
   rm -f "$SHIM_DIR/$retired_shim" 2>/dev/null || true
 done
 
 # Clean PATH without SHIM_DIR to check if native binary already exists
 CLEAN_PATH="$(printf '%s' "${PATH:-/usr/local/bin:/usr/bin:/bin}" | tr ':' '\n' | grep -vxF "$SHIM_DIR" | paste -sd: -)"
 
-count=0
-removed=0
-for cmd in "${LAZY_CMDS[@]}"; do
-  if PATH="$CLEAN_PATH" command -v "$cmd" >/dev/null 2>&1; then
-    if [ -f "$SHIM_DIR/$cmd" ]; then
-      rm -f "$SHIM_DIR/$cmd"
-      removed=$((removed + 1))
-    fi
-    continue
-  fi
-  cat > "$SHIM_DIR/$cmd" <<'EOF'
+SHIM_TEMPLATE="$SHIM_DIR/.shim-template.tmp"
+cat > "$SHIM_TEMPLATE" <<'EOF'
 #!/usr/bin/env bash
 set -uo pipefail
 CMD="$(basename "$0")"
@@ -94,8 +100,27 @@ fi
 printf 'cnf-shim: %s could not be lazy-installed\n' "$CMD" >&2
 exit 127
 EOF
+chmod +x "$SHIM_TEMPLATE"
+
+count=0
+removed=0
+while IFS= read -r cmd; do
+  [ -n "$cmd" ] || continue
+  if printf '%s\n' "$cmd" | grep -Eq "$RETIRED_PATTERN"; then
+    rm -f "$SHIM_DIR/$cmd" 2>/dev/null || true
+    continue
+  fi
+  if PATH="$CLEAN_PATH" command -v "$cmd" >/dev/null 2>&1; then
+    if [ -f "$SHIM_DIR/$cmd" ]; then
+      rm -f "$SHIM_DIR/$cmd"
+      removed=$((removed + 1))
+    fi
+    continue
+  fi
+  cp -f "$SHIM_TEMPLATE" "$SHIM_DIR/$cmd"
   chmod +x "$SHIM_DIR/$cmd"
   count=$((count + 1))
-done
+done < <(printf '%s\n' "${LAZY_CMDS[@]}" | sort -u)
+rm -f "$SHIM_TEMPLATE" 2>/dev/null || true
 
 printf 'cnf-shims: %d lazy shims active, %d resolved native binaries (%s)\n' "$count" "$removed" "$SHIM_DIR"

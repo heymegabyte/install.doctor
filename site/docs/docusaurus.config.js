@@ -18,8 +18,8 @@ module.exports = {
       en: { label: 'English' },
     },
   },
-  onBrokenLinks: 'warn',
-  onBrokenMarkdownLinks: 'warn',
+  onBrokenLinks: 'throw',
+  onBrokenMarkdownLinks: 'throw',
   favicon: 'img/meta/favicon.png',
   organizationName: 'megabyte-labs',
   projectName: 'install.doctor-docs',
@@ -537,7 +537,6 @@ module.exports = {
             'https://twitter.com/InstallDoc',
             'https://www.pinterest.com/InstallDoc/',
             'https://www.instagram.com/installdoctor/',
-            'https://gitlab.com/megabyte-labs/install.doctor',
             'https://github.com/heymegabyte/install.doctor',
             'https://linkedin.com/company/megabyte-labs',
             'https://app.slack.com/client/T01ABCG4NK1/C04TDHV564E',
@@ -632,12 +631,7 @@ module.exports = {
       {
         name: 'msapplication-task',
         content:
-          'name=GitHub;action-uri=https://github.com/megabyte-lab/install.doctor;icon-uri=https://install.doctor/assets/img/microsoft/github.ico',
-      },
-      {
-        name: 'msapplication-task',
-        content:
-          'name=GitLab;action-uri=https://gitlab.com/megabyte-labs/install.doctor;icon-uri=https://install.doctor/assets/img/microsoft/gitlab.ico',
+          'name=GitHub;action-uri=https://github.com/heymegabyte/install.doctor;icon-uri=https://install.doctor/assets/img/microsoft/github.ico',
       },
       { name: 'msapplication-tap-highlight', content: 'no' },
       { name: 'msapplication-starturl', content: 'https://install.doctor' },

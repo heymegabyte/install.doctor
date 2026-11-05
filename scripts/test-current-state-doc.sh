@@ -154,12 +154,11 @@ if [ -d "$ROOT/packages/aid-core" ] && [ -f "$ROOT/packages/aid-core/test/core.t
 else
   fail "packages/aid-core MISSING its package/test — the ledgers say reuse it + MASTER-PROMPT says it exists; a deletion regresses #233 (or re-validate the claim)"
 fi
-# (B #230) BACKLOG was corrected from "remove the whole local/ dir if dead" — local/yarn.lock is a LIVE
-# yarn.lock cache the install+CI Taskfiles move/restore; assert it exists + stays Taskfile-referenced.
-if [ -f "$ROOT/local/yarn.lock" ] && grep -rqF 'local/yarn.lock' "$ROOT/.config/taskfiles" 2> /dev/null; then
-  pass "local/yarn.lock exists + is a live Taskfile-referenced cache (NOT bulk-removable — #230 lock)"
+# (B #230 superseded) The local Yarn cache lost its final Taskfile callers and was approved for removal.
+if [ ! -e "$ROOT/local/yarn.lock" ] && ! grep -rqF 'local/yarn.lock' "$ROOT/.config/taskfiles" 2> /dev/null; then
+  pass "retired local/yarn.lock cache remains absent with no dangling Taskfile caller"
 else
-  fail "local/yarn.lock MISSING or no longer Taskfile-referenced — it is a LIVE install+CI yarn.lock cache; deleting it regresses #230 (or re-validate)"
+  fail "retired local/yarn.lock cache or a dangling Taskfile caller was reintroduced"
 fi
 
 say "CURRENT-STATE: $P passed, $F failed"

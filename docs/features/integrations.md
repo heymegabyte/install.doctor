@@ -64,7 +64,6 @@ When selecting third-party services for official support, Install Doctor priorit
 | ----------- | ----------- | ------------- |
 | JumpCloud | Device management and identity | `JUMPCLOUD_CONNECT_KEY` environment variable |
 | Google Cloud | Cloud platform SDK | `GCE_CREDS_FILE` environment variable |
-| Vagrant Cloud | Vagrant box hosting | `VAGRANT_CLOUD_TOKEN` environment variable |
 
 ## Enabling Integrations
 

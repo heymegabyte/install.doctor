@@ -203,4 +203,4 @@ export function renderAlloy(input: unknown, serviceId: string, machineId: string
 }
 
 export * from './probabilistic-intent.js';
-
+export * from './fleet-recovery.js';

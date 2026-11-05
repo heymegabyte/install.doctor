@@ -445,12 +445,16 @@ tasks:
         if [ -d "{{ .ProfileFolder }}" ]; then
           if [ -d "$HOME/.local/mnt/s3" ]; then
             if command -v rclone > /dev/null && command -v restic > /dev/null; then
+              RESTIC_PASSWORD_FILE="$(mktemp)"
+              chmod 0600 "$RESTIC_PASSWORD_FILE"
+              trap 'rm -f "$RESTIC_PASSWORD_FILE"' EXIT
+              get-secret RESTIC_PASSWORD >"$RESTIC_PASSWORD_FILE"
               gum log -sl info '{{ .AppName }} profile folder exists and user S3 mount exists. Backing the profile up to user S3 bucket via Restic.'
-              if ([ -z "$(restic -r "rclone:$USER-s3:user/{{ .RcloneRepository }}" --password-file "${XDG_CONFIG_HOME:-$HOME/.config}/age/chezmoi.txt" cat config)" ]) 2>/dev/null; then
+              if ([ -z "$(restic -r "rclone:$USER-s3:user/{{ .RcloneRepository }}" --password-file "$RESTIC_PASSWORD_FILE" cat config)" ]) 2>/dev/null; then
                 gum log -sl info 'Initializing {{ .AppName }} Restic repository'
-                restic -r "rclone:$USER-s3:user/{{ .RcloneRepository }}" --password-file "${XDG_CONFIG_HOME:-$HOME/.config}/age/chezmoi.txt" init
+                restic -r "rclone:$USER-s3:user/{{ .RcloneRepository }}" --password-file "$RESTIC_PASSWORD_FILE" init
               fi
-              restic -r "rclone:$USER-s3:user/{{ .RcloneRepository }}" --password-file "${XDG_CONFIG_HOME:-$HOME/.config}/age/chezmoi.txt" --verbose backup --tag "{{ .ProfileFolder }}" --tag {{ OS }} --tag "$HOST" "{{ .ProfileFolder }}"
+              restic -r "rclone:$USER-s3:user/{{ .RcloneRepository }}" --password-file "$RESTIC_PASSWORD_FILE" --verbose backup --tag "{{ .ProfileFolder }}" --tag {{ OS }} --tag "$HOST" "{{ .ProfileFolder }}"
             else
               gum log -sl error 'Both rclone and restic must be available' && exit 1
             fi
@@ -467,10 +471,14 @@ tasks:
         if [ -d '{{ .AppFolder }}' ]; then
           if [ -d "$HOME/.local/mnt/s3" ]; then
             if command -v rclone > /dev/null && command -v restic > /dev/null; then
-              if ([ -z "$(restic -r "rclone:$USER-s3:user/{{ .RcloneRepository }}" --password-file "${XDG_CONFIG_HOME:-$HOME/.config}/age/chezmoi.txt" cat config)" ]) 2>/dev/null; then
+              RESTIC_PASSWORD_FILE="$(mktemp)"
+              chmod 0600 "$RESTIC_PASSWORD_FILE"
+              trap 'rm -f "$RESTIC_PASSWORD_FILE"' EXIT
+              get-secret RESTIC_PASSWORD >"$RESTIC_PASSWORD_FILE"
+              if ([ -z "$(restic -r "rclone:$USER-s3:user/{{ .RcloneRepository }}" --password-file "$RESTIC_PASSWORD_FILE" cat config)" ]) 2>/dev/null; then
                 gum log -sl warn 'The {{ .AppName }} Rclone repository has not been initialized. Skipping.'
               else
-                restic -r "rclone:$USER-s3:user/{{ .RcloneRepository }}" --password-file "${XDG_CONFIG_HOME:-$HOME/.config}/age/chezmoi.txt" restore latest --target '{{ .ProfileFolder }}'
+                restic -r "rclone:$USER-s3:user/{{ .RcloneRepository }}" --password-file "$RESTIC_PASSWORD_FILE" restore latest --target '{{ .ProfileFolder }}'
               fi
             else
               gum log -sl error 'Both rclone and restic must be available' && exit 1

@@ -1,0 +1,108 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://install.doctor/schemas/infisical-identity-policy-v1.json",
+  "title": "Install Doctor Infisical workload identity policy",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "workloads"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "workloads": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "runtime", "availableAuthModes", "auth", "authorization", "platformBindings", "revocation", "rotation"],
+        "properties": {
+          "id": { "$ref": "#/$defs/exactString" },
+          "runtime": { "$ref": "#/$defs/exactString" },
+          "availableAuthModes": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": { "enum": ["github-oidc", "platform-oidc", "universal-auth"] }
+          },
+          "federationUnavailableReason": { "$ref": "#/$defs/exactString" },
+          "auth": {
+            "type": "object",
+            "required": ["mode", "issuer", "accessTokenTtlSeconds", "accessTokenMaxTtlSeconds", "accessTokenMaxUses", "trustedIpRationale"],
+            "properties": {
+              "mode": { "enum": ["github-oidc", "platform-oidc", "universal-auth"] },
+              "issuer": { "$ref": "#/$defs/exactString" },
+              "claims": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["repository", "ref", "environment"],
+                "properties": {
+                  "repository": { "$ref": "#/$defs/exactString" },
+                  "ref": { "$ref": "#/$defs/exactString" },
+                  "environment": { "$ref": "#/$defs/exactString" }
+                }
+              },
+              "accessTokenTtlSeconds": { "$ref": "#/$defs/positiveInteger" },
+              "accessTokenMaxTtlSeconds": { "$ref": "#/$defs/positiveInteger" },
+              "accessTokenMaxUses": { "$ref": "#/$defs/positiveInteger" },
+              "trustedCidrs": { "type": "array", "items": { "$ref": "#/$defs/exactString" }, "uniqueItems": true },
+              "trustedIpRationale": { "$ref": "#/$defs/exactString" },
+              "clientSecretExpiresAt": { "type": "string", "format": "date-time" },
+              "clientSecretExpiryAlertDays": { "$ref": "#/$defs/positiveInteger" }
+            }
+          },
+          "authorization": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["project", "environment", "path", "secretNames", "inheritedGrants"],
+            "properties": {
+              "project": { "$ref": "#/$defs/exactString" },
+              "environment": { "$ref": "#/$defs/exactString" },
+              "path": { "type": "string", "pattern": "^/(?!.*\\.\\.).+" },
+              "secretNames": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "$ref": "#/$defs/exactString" } },
+              "inheritedGrants": { "type": "array", "maxItems": 0 }
+            }
+          },
+          "platformBindings": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["platform", "binding", "sourceRef", "authority"],
+              "properties": {
+                "platform": { "$ref": "#/$defs/exactString" },
+                "binding": { "$ref": "#/$defs/exactString" },
+                "sourceRef": { "type": "string", "pattern": "^infisical://" },
+                "authority": { "const": "infisical" }
+              }
+            }
+          },
+          "revocation": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["tokenCacheWindowSeconds", "urgentProcedure"],
+            "properties": {
+              "tokenCacheWindowSeconds": { "$ref": "#/$defs/positiveInteger" },
+              "urgentProcedure": {
+                "const": ["disable-identity", "revoke-issuing-credential", "wait-cache-window", "verify-denied"]
+              }
+            }
+          },
+          "rotation": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["overlapSeconds", "steps", "healthCheck"],
+            "properties": {
+              "overlapSeconds": { "$ref": "#/$defs/positiveInteger" },
+              "steps": {
+                "const": ["issue-new", "reload-consumer", "health-check", "revoke-old", "verify-old-denied"]
+              },
+              "healthCheck": { "$ref": "#/$defs/exactString" }
+            }
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "exactString": { "type": "string", "minLength": 1, "not": { "pattern": "\\*" } },
+    "positiveInteger": { "type": "integer", "minimum": 1 }
+  }
+}

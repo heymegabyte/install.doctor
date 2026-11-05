@@ -9,14 +9,6 @@ set -euo pipefail
 #     2. Installs VMWare Workstation Pro
 #     3. Passes options to the installation script that automatically apply a publicly retrived license key and accept the Terms & Conditions
 #
-#     This script first checks if `vagrant`, `vmware`, and `vagrant-vmware-utility` are available in the `PATH`. If they are present, then the script
-#     configures the [`vagrant-vmware-utility`](https://developer.hashicorp.com/vagrant/docs/providers/vmware/vagrant-vmware-utility) by generating the required security certificates and enabling the service.
-#     This system package enables the capability of controlling both VMWare Workstation and VMWare Fusion with Vagrant.
-#
-#     Since this script runs only when `vagrant`, `vmware`, and `vagrant-vmware-utility` are in the `PATH`, this means that it will run
-#     when you use an installation template that includes all three pieces of software in the software list defined in
-#     `home/.chezmoidata.yaml`.
-#
 #     **DISCLAIMER:** If you plan on using VMWare Workstation for anything but evaluation purposes, then we highly suggest purchasing a copy
 #     of VMWare Workstation. The "publicly-retrived" license keys are scattered throughout GitHub and we are not exactly
 #     sure why they work. You can pass in your own key by utilizing the `VMWARE_WORKSTATION_LICENSE_KEY` environment variable. More details on
@@ -39,7 +31,6 @@ set -euo pipefail
 #     ## Links
 #
 #     * [VMWare Workstation homepage](https://www.vmware.com/content/vmware/vmware-published-sites/us/products/workstation-pro.html.html)
-#     * [Vagrant VMWare Utility on GitHub](https://github.com/hashicorp/vagrant-vmware-desktop)
 #     * [`home/.chezmoidata.yaml`](https://github.com/heymegabyte/install.doctor/blob/master/home/.chezmoidata.yaml)
 #     * [Default license key gist](https://gist.github.com/PurpleVibe32/30a802c3c8ec902e1487024cdea26251)
 
@@ -127,32 +118,4 @@ else
     ### Linux and VMWare not installed
     gum log -sl warn 'VMware Workstation is not installed so the VMware Unlocker will not be installed'
   fi
-fi
-
-# @description Only run logic if both Vagrant and VMWare are installed
-if command -v vagrant > /dev/null && command -v vmware-id > /dev/null; then
-  ### Vagrant VMWare Utility configuration
-  if command -v vagrant-vmware-utility > /dev/null; then
-    if [ -f /usr/local/bin/certificates/vagrant-utility.key ]; then
-      gum log -sl info 'Assuming Vagrant VMWare Utility certificates have been properly generated since /usr/local/bin/certificates/vagrant-utility.key is present'
-    else
-      gum log -sl info 'Generating Vagrant VMWare Utility certificates'
-      sudo vagrant-vmware-utility certificate generate
-      gum log -sl info 'Generated Vagrant VMWare Utility certificates via vagrant-vmware-utility certificate generate'
-    fi
-    gum log -sl info 'Ensuring the Vagrant VMWare Utility service is enabled'
-    if VVU_OUTPUT=$(sudo vagrant-vmware-utility service install 2>&1); then
-      gum log -sl info 'sudo vagrant-vmware-utility service install successfully ran'
-    else
-      if echo $VVU_OUTPUT | grep 'service is already installed' > /dev/null; then
-        gum log -sl info 'Vagrant VMWare Utility is already installed'
-      else
-        gum log -sl error 'An error occurred while running sudo vagrant-vmware-utility service install'
-        echo "$VVU_OUTPUT"
-      fi
-    fi
-  fi
-else
-  gum log -sl info 'Vagrant is not installed so the Vagrant plugins will not be installed'
-  gum log -sl info 'Vagrant or VMWare is not installed so the Vagrant VMWare utility will not be configured'
 fi

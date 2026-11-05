@@ -190,7 +190,6 @@ cask "slack"
 cask "skype"
 # @cask [teamviewer](https://www.teamviewer.com/) - Remote access and connectivity software focused on security
 cask "teamviewer"
-# @cask [vagrant](https://www.vagrantup.com/) - Command-line, configuration-driven CLI for launching virtualization tools
 cask "vagrant"
 # @cask [virtualbox](https://www.virtualbox.org/) - A popular virtualization platform for virtual machines
 cask "virtualbox"

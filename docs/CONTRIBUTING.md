@@ -31,7 +31,7 @@ home/                             # Chezmoi-managed dotfiles and configs
   dot_config/                     # ~/.config managed files
 software.yml                      # Software definitions (12,000+ lines)
 docs/                             # Project documentation
-.config/taskfiles/                # Task runner definitions
+Taskfile.yml                       # Repository-owned task runner definitions
 ```
 
 ## Key Conventions

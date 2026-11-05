@@ -83,7 +83,6 @@ These variables configure third-party service integrations. When set, Install Do
 |---|---|---|
 | `JUMPCLOUD_CONNECT_KEY` | JumpCloud | Connect key for device management enrollment |
 | `GCE_CREDS_FILE` | Google Cloud | Path to Google Cloud service account credentials JSON |
-| `VAGRANT_CLOUD_TOKEN` | Vagrant Cloud | Token for Vagrant box publishing and downloading |
 
 ## Chezmoi Template Variables
 

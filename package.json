@@ -15,59 +15,28 @@
     "url": "https://github.com/heymegabyte/install.doctor/issues"
   },
   "type": "commonjs",
-  "main": "dist/main.js",
-  "files": [
-    "dist",
-    "lib"
-  ],
   "scripts": {
-    "build": "bash start.sh && task npm:build:tsconfig",
-    "bump": "bash start.sh && task npm:bump",
-    "commit": "bash start.sh && task commit",
-    "fix": "bash start.sh && task fix",
-    "help": "bash start.sh && task --menu",
-    "lint": "bash start.sh && task lint",
-    "preload": "bash start.sh && task preload",
-    "prepare": "bash start.sh && (test -f Taskfile.yml && task npm:prepare) || true",
-    "release": "bash start.sh && task publish:semantic-release",
+    "build": "task validate:software",
+    "help": "task --list",
+    "lint": "task test:scripts",
     "repair": "bash <(curl -sS https://install.doctor/repair)",
     "sort:software": "yq -i 'sort_keys(..)' software.yml",
-    "start": "test -z $SKIP_NPM_START && bash start.sh || true",
-    "test": "bash start.sh && task donothing",
-    "unpack": "bash start.sh && task npm:bundle:unpack",
-    "update": "bash start.sh && task update",
-    "vscode": "bash start.sh && task vscode"
+    "start": "task provision",
+    "test": "task test",
+    "validate:software": "task validate:software"
   },
-  "config": {
-    "commitizen": {
-      "path": "node_modules/git-cz-emoji"
-    }
-  },
-  "typings": "dist/main.d.ts",
   "dependencies": {
+    "bin-wrapper": "latest",
     "nestia": "latest",
-    "tslib": "latest",
-    "bin-wrapper": "latest"
+    "tslib": "latest"
   },
   "peerDependenciesMeta": {
     "eslint": {
       "optional": true
     }
   },
-  "optionalDependencies": {},
   "devDependencies": {
-    "@commitlint/config-conventional": "latest",
-    "@types/node": "^16.11.6",
-    "esbuild": "^0.12.29",
-    "esbuild-node-externals": "^1.3.0",
-    "eslint-config-strict-mode": "latest",
-    "git-cz-emoji": "latest",
-    "handlebars-helpers": "latest",
-    "jest-preset-ts": "latest",
-    "prettier": "^2.4.1",
-    "prettier-config-sexy-mode": "latest",
-    "semantic-release-config": "latest",
-    "typescript": "^4.5.5"
+    "@types/node": "^16.11.6"
   },
   "keywords": [
     "common",
@@ -87,252 +56,10 @@
     "washingtondc"
   ],
   "engines": {
-    "node": ">=18.4.0"
-  },
-  "publishConfig": {
-    "@gitlab:registry": "https://gitlab.com/api/v4/projects/42515222/packages/npm/",
-    "access": "public",
-    "registry": "https://registry.npmjs.org/",
-    "tag": "edge"
-  },
-  "blueprint": {
-    "description": "A glorious combination of application / theme settings and a performant cross-platform, desktop-oriented software suite.",
-    "github_id": "R_kgDOIxh9bQ",
-    "gitlab_group_id": "3940994",
-    "gitlab_project_id": "42515222",
-    "group": "npm",
-    "name": "Install Doctor",
-    "overview": "Want to try out a new desktop jam-packed with a whole suite of GitHub's most-starred projects? Install Doctor is a combination of application settings, theme files, and a performant yet flexible software installer written with [ZX](https://github.com/google/zx). It is easily customizable, with optional prompts that ask you for API keys if you want to completely automate everything. The installer supports almost any operating system, just checkout the [software.yml file](https://gitlab.com/megabyte-labs/install.doctor/-/blob/master/software.yml). It uses [Chezmoi](https://github.com/twpayne/chezmoi) to apply file changes in an interactive way. It is not your typical Chezmoi project - it is built around the philosophy that you should be able to bash all your computers to bits with a hammer and then resurrect them the next day ✝️️ by storing stateful data to an encrypted S3 bucket and automating desktop configuration as much as possible.",
-    "repository": {
-      "github": "https://github.com/heymegabyte/install.doctor",
-      "gitlab": "https://gitlab.com/megabyte-labs/install.doctor"
-    },
-    "slug": "install-doctor",
-    "subgroup": "misc",
-    "title": "Install Doctor, The Desktop Provisioning System"
-  },
-  "changelog": {
-    "displayTypes": [
-      "feat",
-      "fix",
-      "perf",
-      "refactor",
-      "revert"
-    ],
-    "showAuthor": true
-  },
-  "commitlint": {
-    "extends": [
-      "@commitlint/config-conventional"
-    ],
-    "helpUrl": "https://megabyte.space/docs/contributing/commits"
-  },
-  "eslintConfig": {
-    "extends": "eslint-config-strict-mode",
-    "overrides": [
-      {
-        "files": [
-          "home/private_dot_config/oh-my-posh/*",
-          "home/private_dot_config/private_Code/User/extensions/theme-betelgeuse-vscode/**/*",
-          "home/private_dot_config/private_Code/User/settings.json"
-        ],
-        "rules": {
-          "no-secrets/no-secrets": "off"
-        }
-      }
-    ]
-  },
-  "funding": [
-    {
-      "type": "opencollective",
-      "url": "https://opencollective.com/megabytelabs"
-    },
-    {
-      "type": "patreon",
-      "url": "https://www.patreon.com/ProfessorManhattan"
-    }
-  ],
-  "jest": {
-    "preset": "jest-preset-ts",
-    "reporters": [
-      "default",
-      [
-        "jest-html-reporters",
-        {
-          "filename": "index.html",
-          "logoImgPath": "./.config/assets/logo-jest-report.png",
-          "openReport": true,
-          "pageTitle": "Code Coverage Report",
-          "publicPath": "./coverage"
-        }
-      ]
-    ]
-  },
-  "jscpd": {
-    "absolute": true,
-    "gitignore": true,
-    "ignore": [
-      "!**/.devcontainer/**/*",
-      "!**/.config/**/*",
-      "!**/.git/**/*",
-      "!**/.github/**/*",
-      "!**/.gitlab/**/*",
-      "!**/.vscode/**/*",
-      "!**/common/.config/taskfiles/**/*",
-      "!**/docs/**/*",
-      "!**/.editorconfig",
-      "!**/.gitignore",
-      "!**/.npmrc",
-      "!**/.gitlab-ci.yml",
-      "!**/README.md",
-      "!**/LICENSE",
-      "!**/Taskfile.yml",
-      "!**/logo.png",
-      "!**/package.json",
-      "!**/start.sh",
-      "!**/pnpm-lock.yaml",
-      "!**/package-lock.json",
-      "!**/poetry.lock",
-      "!**/pyproject.toml",
-      "!**/requirements.yml",
-      "!**/yarn.lock",
-      "!**/deprecated/**/*"
-    ],
-    "threshold": 14
-  },
-  "lint-staged": {
-    "(Brewfile|composer.lock|Gemfile|Gopkg.lock|Pipfile.lock)": [
-      "task fix:prettier --"
-    ],
-    "**/!(logo).(jpg|png)": [
-      "task image:compress --"
-    ],
-    "**/*": [
-      "task lint:any --"
-    ],
-    "**/*!(template).(json|webapp|webmanifest)": [
-      "task fix:json --"
-    ],
-    "**/*.(bash|cfg|cgi|command|css|env|env.*|handlebars|hbs|html|less|fcgi|java|md|mdx|mjml|php|phtml|properties|reg|scss|tmpl|tmux|tool|tpl|zsh)": [
-      "task fix:prettier --"
-    ],
-    "**/*.(cjs|js|jsx|mjs|ts|tsx)": [
-      "task fix:js --",
-      "task lint:js --"
-    ],
-    "**/*.(yml|yaml)": [
-      "task fix:yaml --",
-      "task lint:yaml --"
-    ],
-    "**/*.go": [
-      "task fix:go --",
-      "task lint:go --"
-    ],
-    "**/*.md": [
-      "task fix:markdown --",
-      "task lint:spelling:markdown --"
-    ],
-    "**/*.php": [
-      "task fix:php --",
-      "task lint:php --"
-    ],
-    "**/*.py": [
-      "task fix:python --",
-      "task lint:python --"
-    ],
-    "**/*.sh": [
-      "task fix:prettier --",
-      "task fix:shell --",
-      "task lint:shell --"
-    ],
-    "**/*.toml": [
-      "task fix:toml --",
-      "task fix:prettier --",
-      "task lint:toml --"
-    ],
-    "**/*.xml": [
-      "task fix:xml --",
-      "task lint:xml --"
-    ],
-    "Dockerfile": [
-      "task fix:prettier --",
-      "task lint:docker --"
-    ],
-    "Vagrantfile": [
-      "task fix:prettier --",
-      "task lint:vagrant"
-    ],
-    "logo.(gif|jpg|jpeg|webp)": [
-      "task image:convert:logo --"
-    ],
-    "logo.png": [
-      "task image:resize -- 200 200",
-      "task image:compress --"
-    ]
-  },
-  "nodemonConfig": {
-    "exec": "tsc -p . && node --inspect-brk dist/main",
-    "ext": "js,jsx,json,ts,tsx,yml",
-    "ignore": [
-      "src/**/*.spec.ts"
-    ],
-    "watch": [
-      ".env",
-      "src"
-    ]
-  },
-  "ntl": {
-    "descriptions": {
-      "build": "Builds the project using the build command specified under scripts in package.json",
-      "bump": "Used to quickly build, increase the package.json version, and publish the package",
-      "commit": "If unsure, use this task to commit your code so that it adheres to our commit rules",
-      "fix": "Run auto-fixing with all available auto-fixers",
-      "help": "Display the Bodega Taskfile.yml interactive help menu",
-      "lint": "Lint the project with all available linters",
-      "preload": "Preload the operating system with commonly used libraries and tools",
-      "prepare": "A hook triggered by running npm install that runs logic such as installing pre-commit hooks",
-      "release": "Publish the software to all supported channels using semantic-release",
-      "repair": "Fixes basic issues in projects that are having trouble running basic commands like 'task start'",
-      "start": "Entrypoint for new developers that installs requirements and then runs 'task start'",
-      "test": "Runs the appropriate test logic by running the test command defined under scripts in package.json",
-      "unpack": "Populates production node_modules from compressed copies saved in the .modules/ folder",
-      "update": "Update and refresh the repository with upstream changes and templated parts"
-    }
-  },
-  "pnpm": {
-    "allowedVersions": {
-      "@typescript-eslint/eslint-plugin": "5",
-      "eslint": "8",
-      "typescript": "4"
-    },
-    "neverBuiltDependencies": [
-      "core-js",
-      "core-js-pure",
-      "highlight.js"
-    ],
-    "peerDependencyRules": {
-      "ignoreMissing": [
-        "eslint",
-        "prettier",
-        "puppeteer"
-      ]
-    }
-  },
-  "prettier": "prettier-config-sexy-mode",
-  "release": {
-    "branches": [
-      "main",
-      "master",
-      "next",
-      {
-        "name": "beta",
-        "prerelease": true
-      }
-    ],
-    "extends": "semantic-release-config"
+    "node": ">=24.0.0"
   },
   "volta": {
-    "node": "18.4.0",
+    "node": "24.22.2",
     "yarn": "1.22.19"
   }
 }

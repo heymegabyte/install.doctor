@@ -1,6 +1,7 @@
 # Provision the OnePrompt convergence supervisor
 
 > **Architect:** codex
+> **Architect Role:** assigned
 
 ## Why
 
@@ -19,4 +20,3 @@ OnePrompt already has an operator-authorized bounded convergence controller and 
 - theme.tools owns reusable controller libraries.
 - install.doctor owns only portable host/service provisioning and lifecycle control.
 - This change does not launch a second writer, deploy OnePrompt, alter the live launchd service, or add credentials.
-

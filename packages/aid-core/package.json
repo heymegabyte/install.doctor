@@ -5,9 +5,16 @@
   "type": "module",
   "description": "Tested contracts for Install Doctor aid; not a deployed daemon or gateway",
   "scripts": {
-    "build": "tsc --strict --target ES2022 --module ES2022 --lib ES2022,DOM --declaration src/core.ts src/probabilistic-intent.ts --outDir dist",
-    "test": "npm run build && node --test test/core.test.mjs test/probabilistic-intent.test.mjs"
+    "build": "tsc --strict --target ES2022 --module ES2022 --moduleResolution bundler --lib ES2022,DOM --declaration src/core.ts src/probabilistic-intent.ts src/fleet-recovery.ts src/infisical-workload.ts --outDir dist",
+    "test": "npm run build && node --test test/*.test.mjs"
   },
-  "engines": { "node": ">=22" },
-  "devDependencies": { "typescript": "5.8.3" }
+  "engines": {
+    "node": ">=22"
+  },
+  "devDependencies": {
+    "typescript": "5.8.3"
+  },
+  "dependencies": {
+    "zod": "4.1.12"
+  }
 }

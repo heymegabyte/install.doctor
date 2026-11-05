@@ -57,8 +57,6 @@ detect_os() {
 }
 
 # @description Initialize variables
-DELAYED_CI_SYNC=""
-ENSURED_TASKFILES=""
 export HOMEBREW_NO_INSTALL_CLEANUP=true
 export HOMEBREW_NO_ANALYTICS=1
 
@@ -71,10 +69,8 @@ fi
 
 # @description Ensure .config/log is present
 if [ ! -f .config/log ]; then
-  mkdir -p .config
-  if type curl &> /dev/null; then
-    curl -sSL https://gitlab.com/megabyte-labs/common/shared/-/raw/master/common/.config/log > .config/log
-  fi
+  printf 'Missing trusted .config/log; run start.sh from a complete install.doctor checkout.\n' >&2
+  exit 1
 fi
 
 # @description Ensure .config/log is executable
@@ -201,22 +197,12 @@ function ensureRootPackageInstalled() {
   fi
 }
 
-# @description If the user is running this script as root, then create a new user named
-# megabyte and restart the script with that user. This is required because Homebrew
-# can only be invoked by non-root users.
-if [ -z "$NO_INSTALL_HOMEBREW" ] && [ "$USER" == "root" ] && [ -z "$INIT_CWD" ] && type useradd &> /dev/null; then
-  # shellcheck disable=SC2016
-  logger info 'Running as root - creating separate user named megabyte to run script with'
-  echo "megabyte ALL=(ALL) NOPASSWD: ALL" >> /etc/sudoers
-  useradd -m -s "$(which bash)" --gecos "" --disabled-login -c "Megabyte Labs" megabyte > /dev/null || ROOT_EXIT_CODE=$?
-  if [ -n "$ROOT_EXIT_CODE" ]; then
-    # shellcheck disable=SC2016
-    logger info 'User megabyte already exists'
-  fi
-  ensureRootPackageInstalled "sudo"
-  # shellcheck disable=SC2016
-  logger info 'Reloading the script with the megabyte user'
-  exec su megabyte "$0" -- "$@"
+# Homebrew refuses root and an automatically-created blanket-sudo account is
+# not an acceptable workaround. The served provisioner has an explicit,
+# audited root-to-user handoff for fleet images.
+if [ -z "$NO_INSTALL_HOMEBREW" ] && [ "$(id -u)" -eq 0 ] && [ -z "$INIT_CWD" ]; then
+  logger error 'Run start.sh as the intended non-root user; refusing to create a passwordless sudo account.'
+  exit 1
 fi
 
 # @description Ensures ~/.local/bin is in the PATH variable on *nix machines and
@@ -385,10 +371,7 @@ function installTask() {
     sudo mkdir -p "$TARGET_BIN_DIR"
     sudo mv "$TMP_DIR/task/task" "$TARGET_DEST"
   else
-    echo | /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)" || BREW_EXIT_CODE="$?"
-    if [ -d "/opt/homebrew" ]; then
-      logger info "Setting owner of /opt/homebrew to '$USER'" && sudo chown -R "$USER" /opt/homebrew || logger warn "Failed to chown /opt/homebrew to '$USER'"
-    fi
+    mkdir -p "$TARGET_BIN_DIR"
     mv "$TMP_DIR/task/task" "$TARGET_DEST"
   fi
   logger success "Installed Task to $TARGET_DEST"
@@ -436,103 +419,18 @@ function sha256() {
   fi
 }
 
-# @description Ensures the Taskfile.yml is accessible
-function ensureTaskfiles() {
-  if [ -z "$ENSURED_TASKFILES" ]; then
-    # shellcheck disable=SC2030
-    task donothing || BOOTSTRAP_EXIT_CODE=$?
-    mkdir -p "${XDG_CACHE_HOME:-$HOME/.cache}/megabyte/start.sh"
-    if [ -f "${XDG_CACHE_HOME:-$HOME/.cache}/megabyte/start.sh/ensure-taskfiles" ]; then
-      TASK_UPDATE_TIME="$(cat "${XDG_CACHE_HOME:-$HOME/.cache}/megabyte/start.sh/ensure-taskfiles")"
-    else
-      TASK_UPDATE_TIME="$(date +%s)"
-      echo "$TASK_UPDATE_TIME" > "${XDG_CACHE_HOME:-$HOME/.cache}/megabyte/start.sh/ensure-taskfiles"
-    fi
-    # shellcheck disable=SC2004
-    TIME_DIFF="$(($(date +%s) - $TASK_UPDATE_TIME))"
-    # Only run if it has been at least 60 minutes since last attempt
-    if [ -n "$BOOTSTRAP_EXIT_CODE" ] || [ "$TIME_DIFF" -gt 3600 ] || [ "$TIME_DIFF" -lt 5 ] || [ -n "$FORCE_TASKFILE_UPDATE" ]; then
-      logger info 'Grabbing latest Taskfiles by downloading shared-master.tar.gz'
-      # shellcheck disable=SC2031
-      date +%s > "${XDG_CACHE_HOME:-$HOME/.cache}/megabyte/start.sh/ensure-taskfiles"
-      ENSURED_TASKFILES="true"
-      if [ -d common/.config/taskfiles ]; then
-        if [[ "$OSTYPE" == 'darwin'* ]]; then
-          cp -rf common/.config/taskfiles/ .config/taskfiles
-        else
-          cp -rT common/.config/taskfiles/ .config/taskfiles
-        fi
-      else
-        mkdir -p .config/taskfiles
-        curl -sSL https://gitlab.com/megabyte-labs/common/shared/-/archive/master/shared-master.tar.gz > shared-master.tar.gz
-        tar -xzf shared-master.tar.gz > /dev/null
-        rm shared-master.tar.gz
-        rm -rf .config/taskfiles
-        mv shared-master/common/.config/taskfiles .config/taskfiles
-        mv shared-master/common/.editorconfig .editorconfig
-        mv shared-master/common/.gitignore .gitignore
-        rm -rf shared-master
-      fi
-    fi
-    if [ -n "$BOOTSTRAP_EXIT_CODE" ] && ! task donothing; then
-      # task donothing still does not work so issue must be with main Taskfile.yml
-      # shellcheck disable=SC2016
-      logger warn 'Something is wrong with the Taskfile.yml - grabbing main Taskfile.yml'
-      git checkout HEAD~1 -- Taskfile.yml
-      if ! task donothing; then
-        logger error 'Error appears to be with main Taskfile.yml'
-      else
-        logger warn 'Error appears to be with one of the included Taskfiles'
-        logger info 'Removing and cloning Taskfile library from upstream repository'
-        rm -rf .config/taskfiles
-        FORCE_TASKFILE_UPDATE=true ensureTaskfiles
-        if task donothing; then
-          logger warn 'The issue was remedied by cloning the latest Taskfile includes'
-        fi
-      fi
-    fi
-  fi
-}
-
-# @description Ensures basic files like package.json and Taskfile.yml are present
-function ensureProjectBootstrapped() {
-  if [ ! -f start.sh ] || [ ! -f package.json ] || [ ! -f Taskfile.yml ]; then
-    if [ ! -f start.sh ]; then
-      curl -sSL https://gitlab.com/megabyte-labs/common/shared/-/raw/master/common/start.sh > start.sh
-    fi
-    if [ ! -f package.json ]; then
-      curl -sSL https://gitlab.com/megabyte-labs/common/shared/-/raw/master/package.json > package.json
-    fi
-    if [ ! -f Taskfile.yml ]; then
-      curl -sSL https://gitlab.com/megabyte-labs/common/shared/-/raw/master/Taskfile.yml > Taskfile.yml
-    fi
-    ensureTaskfiles
-    task new:project
-  fi
-}
-
 ##### Main Logic #####
 
 if [ ! -f "$HOME/.profile" ]; then
   touch "$HOME/.profile"
 fi
 
-# @description Ensure git hosts are all in ~/.ssh/known_hosts
+# @description Preserve the operator-verified SSH trust store. Never convert
+# an unauthenticated network scan into a trusted host key.
 mkdir -p ~/.ssh
 chmod 700 ~/.ssh
-if [ ! -f ~/.ssh/known_hosts ]; then
-  touch ~/.ssh/known_hosts
-  chmod 600 ~/.ssh/known_hosts
-fi
-if ! grep -q "^gitlab.com " ~/.ssh/known_hosts; then
-  ssh-keyscan gitlab.com >> ~/.ssh/known_hosts 2>/dev/null
-fi
-if ! grep -q "^github.com " ~/.ssh/known_hosts; then
-  ssh-keyscan github.com >> ~/.ssh/known_hosts 2>/dev/null
-fi
-if ! grep -q "^bitbucket.org " ~/.ssh/known_hosts; then
-  ssh-keyscan bitbucket.org >> ~/.ssh/known_hosts 2>/dev/null
-fi
+touch ~/.ssh/known_hosts
+chmod 600 ~/.ssh/known_hosts
 
 # @description Ensures ~/.local/bin is in PATH
 ensureLocalPath
@@ -568,11 +466,16 @@ if [ -z "$NO_INSTALL_HOMEBREW" ]; then
   if [ "$OS" = "macos" ] || [ "$OS" = "ubuntu" ] || [ "$OS" = "debian" ] || [ "$OS" = "fedora" ] || [ "$OS" = "arch" ] || [ "$OS" = "alpine" ] || [ "$OS" = "linux" ]; then
     if [ -z "$INIT_CWD" ]; then
       if ! type brew &> /dev/null; then
+        BREW_EXIT_CODE=""
+        HOMEBREW_INSTALL_COMMIT='959bdd728192d78c47287c177796c3d86d111f09'
+        HOMEBREW_INSTALLER="$(mktemp)"
+        trap 'rm -f "$HOMEBREW_INSTALLER"' EXIT
+        curl -fsSL "https://raw.githubusercontent.com/Homebrew/install/$HOMEBREW_INSTALL_COMMIT/install.sh" -o "$HOMEBREW_INSTALLER"
         if type sudo &> /dev/null && sudo -n true; then
-          echo | /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+          NONINTERACTIVE=1 /bin/bash "$HOMEBREW_INSTALLER"
         else
           logger warn "Homebrew is not installed. The script will attempt to install Homebrew and you might be prompted for your password."
-          echo | /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)" || BREW_EXIT_CODE="$?"
+          NONINTERACTIVE=1 /bin/bash "$HOMEBREW_INSTALLER" || BREW_EXIT_CODE="$?"
           if [ -n "$BREW_EXIT_CODE" ]; then
             if command -v brew > /dev/null; then
               logger warn "Homebrew was installed but part of the installation failed. Retrying again after changing a few things.."
@@ -586,6 +489,8 @@ if [ -z "$NO_INSTALL_HOMEBREW" ]; then
             fi
           fi
         fi
+        rm -f "$HOMEBREW_INSTALLER"
+        trap - EXIT
       fi
       if ! (grep "/bin/brew shellenv" < "$HOME/.profile" &> /dev/null) && [ "$OS" != "macos" ]; then
         # shellcheck disable=SC2016
@@ -610,8 +515,7 @@ if [ -z "$NO_INSTALL_HOMEBREW" ]; then
         brew install yq || logger info 'There may have been an issue installing yq with brew'
       fi
       if ! type volta &> /dev/null || ! type node &> /dev/null; then
-        # shellcheck disable=SC2016
-        curl https://get.volta.sh | bash -s -- --skip-setup 2>/dev/null || curl https://get.volta.sh | bash
+        brew install volta || logger warn 'Unable to install Volta from the verified Homebrew package index'
         # shellcheck disable=SC1091
         . "$HOME/.profile" &> /dev/null || true
         if type volta &> /dev/null; then
@@ -657,36 +561,35 @@ if [ -d .git ] && type git &> /dev/null; then
     GIT_POS="$(git rev-parse --abbrev-ref HEAD)"
     logger info 'Current branch is '"$GIT_POS"
     if [ "$GIT_POS" == 'synchronize' ] || [ "$CI_COMMIT_REF_NAME" == 'synchronize' ]; then
-      git reset --hard origin/master
-      git push --force origin synchronize || FORCE_SYNC_ERR=$?
-      if [ -n "$FORCE_SYNC_ERR" ] && type task &> /dev/null; then
-        NO_GITLAB_SYNCHRONIZE=true task ci:synchronize || CI_SYNC_TASK_ISSUE=$?
-        if [ -n "$CI_SYNC_TASK_ISSUE" ]; then
-          ensureTaskfiles
-          NO_GITLAB_SYNCHRONIZE=true task ci:synchronize
-        fi
-      else
-        DELAYED_CI_SYNC=true
-      fi
+      logger warn 'The retired synchronize branch is not rewritten automatically; reconcile it explicitly.'
     elif [ "$GIT_POS" == 'HEAD' ]; then
       if [ -n "$GITLAB_CI" ]; then
         printenv
       fi
     fi
-    git pull --force origin master --ff-only || GIT_PULL_FAIL="$?"
+    if [ -n "$(git status --porcelain --untracked-files=no)" ]; then
+      logger warn 'Tracked changes are present; skipping automatic pull to preserve user work.'
+      GIT_PULL_FAIL=1
+    else
+      git pull origin master --ff-only || GIT_PULL_FAIL="$?"
+    fi
     if [ -n "$GIT_PULL_FAIL" ]; then
       git config url."https://gitlab.com/".insteadOf git@gitlab.com:
       git config url."https://github.com/".insteadOf git@github.com:
-      git pull --force origin master --ff-only || true
+      git pull origin master --ff-only || true
     fi
     ROOT_DIR="$PWD"
     if ls .modules/*/ > /dev/null 2>&1; then
       for SUBMODULE_PATH in .modules/*/; do
         cd "$SUBMODULE_PATH"
         DEFAULT_BRANCH=$(git remote show origin | grep 'HEAD branch' | cut -d' ' -f5)
-        git reset --hard HEAD
-        git checkout "$DEFAULT_BRANCH"
-        git pull origin "$DEFAULT_BRANCH" --ff-only || true
+        if [ -n "$(git status --porcelain)" ]; then
+          logger warn "Skipping dirty module $SUBMODULE_PATH"
+        elif [ "$(git rev-parse --abbrev-ref HEAD)" = "$DEFAULT_BRANCH" ]; then
+          git pull origin "$DEFAULT_BRANCH" --ff-only || true
+        else
+          logger warn "Skipping module $SUBMODULE_PATH because it is not on $DEFAULT_BRANCH"
+        fi
         cd "$ROOT_DIR"
       done
       # shellcheck disable=SC2016
@@ -698,36 +601,10 @@ fi
 # @description Ensures Task is installed and properly configured
 ensureTaskInstalled
 
-# @description Ensures Taskfiles are up-to-date
-logger info 'Ensuring Taskfile.yml files are all in good standing'
-ensureTaskfiles
-
-# @description Try synchronizing again (in case Task was not available yet)
-if [ "$DELAYED_CI_SYNC" == 'true' ]; then
-  logger info 'Attempting to synchronize CI..'
-  task ci:synchronize
-fi
-
 # @description Run the start logic, if appropriate
 if [ -z "$CI" ] && [ -z "$START" ] && [ -z "$INIT_CWD" ]; then
-  if ! type pipx &> /dev/null; then
-    task install:software:pipx
-  fi
   logger info "Sourcing profile located in $HOME/.profile"
   # shellcheck disable=SC1091
   . "$HOME/.profile" &> /dev/null || true
-  ensureProjectBootstrapped
-  if task donothing &> /dev/null; then
-    task -vvv start
-  else
-    FORCE_TASKFILE_UPDATE=true ensureTaskfiles
-    if task donothing &> /dev/null; then
-      task -vvv start
-    else
-      # shellcheck disable=SC2016
-      logger warn 'Something appears to be wrong with the main Taskfile.yml - resetting to shared common version'
-      rm Taskfile.yml
-      ensureProjectBootstrapped
-    fi
-  fi
+  task provision
 fi

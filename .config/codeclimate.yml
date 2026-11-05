@@ -8,8 +8,7 @@ plugins:
     enabled: true
   jscpd:
     enabled: true
-    exclude_patterns:
-      - common/.config/taskfiles/
+    exclude_patterns: []
   proselint:
     enabled: true
   shellcheck:

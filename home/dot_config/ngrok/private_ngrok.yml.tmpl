@@ -1,4 +1,0 @@
-{{- if and (stat (joinPath .host.home ".config" "age" "chezmoi.txt")) (or (stat (joinPath .chezmoi.sourceDir ".chezmoitemplates" (printf "%s%s" "secrets-" .chezmoi.hostname) "NGROK_AUTH_TOKEN")) (env "NGROK_AUTH_TOKEN")) -}}
-version: "2"
-authtoken: '{{ if (stat (joinPath .chezmoi.sourceDir ".chezmoitemplates" (printf "%s%s" "secrets-" .chezmoi.hostname) "NGROK_AUTH_TOKEN")) }}{{- includeTemplate (printf "%s%s" (printf "%s%s" "secrets-" .chezmoi.hostname) "/NGROK_AUTH_TOKEN") | decrypt | trim -}}{{ else }}{{- env "NGROK_AUTH_TOKEN" -}}{{ end }}'
-{{- end -}}

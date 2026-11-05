@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "runId": "3f3ecb36-a019-498a-98b3-a50fb6098135",
+  "pass": 9,
+  "attempt": 1,
+  "pid": 6443,
+  "model": "litellm/deepseek-v4-pro",
+  "status": 0,
+  "signal": null,
+  "promptHash": "55b6b437f53b25f29687becf6bf6329400e45f5faaa8b3bf54b2fee1ae2f4cb8",
+  "baselineHead": "cb602dcefdd3f2318a3d5dbd71e7bf9f14cd637c",
+  "baselineStateHash": "611bb269499ac7f3ca37ac113821e706b2ffb211e17a778dec3dc133915c6319",
+  "resultingStateHash": "eea9b409bff3f6b5b87e1a37a61d55dd6a136a9fbad621d3d858642133b51abe",
+  "summary": "Convergence pass 9/10 — receipt.\n\n**Winner: XS-20 + XS-21** (dead shell-completion residue). Highest-value remaining fully-source-verifiable winner; the two remaining medium-risk candidates (XS-24 duplicate systemd units, XS-46 duplicate CI matrix) require host-gated or branch-protection verification the guardrails forbid me from completing.\n\n**Changes:**\n- Deleted 4 dead completion templates: `home/dot_local/share/zsh-completion/_atuin.tmpl`, `home/dot_local/share/bash-completion/completions/{atuin,fig,plz}.bash.tmpl`. All three tools are filtered from fresh installs — `atuin` is `_deprecated` (superseded by hiSHtory, ADR 0001), `fig` is `_deprecated` (Acquired by Amazon → CodeWhisperer), `plz` has no catalog entry — and each template was guarded only by `lookPath` (a no-op on standard hosts).\n- Added `scripts/test-dead-shell-completions.sh` (6 assertions, auto-discovered by `test-all.sh`): residue absent · atuin/fig `_deprecated` tombstones preserved · plz still uncatalogued · no dangling path reference · bidirectional non-vacuity self-test.\n\n**Evidence:**\n- `git grep` across `home/ scripts/ docs/ site/` for the four filenames → zero references (only the new gate names them; it self-excludes).\n- `dot_zshrc:267` FPATH reference to `zsh-completion` is a conditional `[ -d … ]` guard — harmless when the dir is absent.\n\n**Tests run:** `test-dead-shell-completions.sh` 6/6 · `test-templates.sh` 3/3 (222→218 templates balanced, chezmoi sampled 50) · `test-shell-history-policy.sh` 6/6 (atuin superseded + hiSHtory adopted preserved) · `test-no-removed-tools.sh` 17/17 · `bash -n` + `shellcheck` clean.\n\n**Risks:** Low — source-only deletion; no history/database/user-data touched, no service stopped, no deploy/commit. Atuin/fig catalog tombstones intentionally preserved (historical knowledge).\n\n**New winner implemented:** Yes.\n\n**Preserved unrelated edits:** untouched (e.g. `docs/aid/decisions/0001-…md` `M` was pre-existing in the dirty worktree).\n\n---\n\n**⚡ install.doctor convergence** · `master` · 1:43:21 AM EST\n\n**⏱ Time:** 1:31:04 AM EST → 1:43:21 AM EST · 12m 17s\n\n**Changes:**\n- Deleted 4 dead shell-completion templates (atuin zsh+bash, fig bash, plz bash)\n- `scripts/test-dead-shell-completions.sh`: new 6-assertion regression gate\n\n**Next:** → pass 10/10 — remaining candidates XS-01 (Taskfile stack), XS-24 (dup systemd units, host-gated), XS-46 (dup CI matrix), XS-06/07 (GitLab/Vagrant artifacts)\n\n**Recs:**\n- ◆ XS-24/XS-46 are the last SSOT-consolidation wins but need host/branch-protection sign-off before a convergence pass can verify them.\n- ◆ Leave aid-core quarantined contracts (XS-40–45) in place per OpenSpec task 14's recorded \"keep quarantined\" disposition.\n\n**Config:** none\n**Repos:** none\n**Links:** [Repo](https://github.com/heymegabyte/install.doctor)",
+  "errors": [],
+  "stderr": "",
+  "completedAt": "2026-11-04T06:44:01.940Z"
+}

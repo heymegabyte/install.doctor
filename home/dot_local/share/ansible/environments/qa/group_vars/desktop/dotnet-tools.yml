@@ -1,6 +1,0 @@
----
-# yamllint disable rule:line-length
-# @var dotnet_tools: [] # An array of .NET tools to install. Specify the package name using the `name` field in each member of the array.
-dotnet_tools:
-  # @dotnet [attacksurfaceanalyzer](https://github.com/microsoft/AttackSurfaceAnalyzer) | [GitHub](https://github.com/microsoft/AttackSurfaceAnalyzer) - Attack Surface Analyzer can help you analyze your operating system's security configuration for changes during software installation
-  - name: Microsoft.CST.AttackSurfaceAnalyzer.CLI

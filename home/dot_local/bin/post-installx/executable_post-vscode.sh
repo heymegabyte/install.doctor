@@ -40,7 +40,7 @@ set -euo pipefail
 #     the following configuration:
 #
 #     ```json
-#     <!-- AUTO-GENERATED:START (REMOTE:url=https://gitlab.com/megabyte-labs/install.doctor/-/raw/master/home/dot_config/Code/User/package.json) -->
+#     <!-- AUTO-GENERATED:START (REMOTE:url=https://raw.githubusercontent.com/heymegabyte/install.doctor/master/home/dot_config/Code/User/package.json) -->
 #     {
 #       ...
 #       // Notable dependencies listed below

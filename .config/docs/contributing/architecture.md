@@ -11,6 +11,5 @@ We adhere to strict design-patterns across all of our NPM packages. In order for
 - `constants/` - This folder houses all the constant variables used in the project. The constants are generally seperated out into different files based on where they are being used in the application.
 - `lib/` - This folder contains all the pieces of the app that would generally be utilized by the `app.ts` file.
 - `models/` - This folder contains all of the data models that are used. Data models are important to use especially in larger projects because they provide type definitions and also open the door to data validation which is touched on in the [Preferred Libraries](#preferred-libraries) section.
-- `tsconfig.json` - This file is included to address a Visual Studio Code bug that occurs if you open the `src/` directory and not the root folder
 
 When building a new project, try to follow the same design patterns that are used by the [`Buildr`]({{ repository.project.buildr }}) project. In most cases, all of the aforementioned files and folders should be part of the project.

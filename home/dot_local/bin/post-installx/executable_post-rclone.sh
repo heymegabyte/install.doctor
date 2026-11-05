@@ -105,11 +105,11 @@ EOT
   sudo chmod 750 /var/log/rclone
   sudo chown -Rf rclone:rclone /var/log/rclone
 
-  ### Setup /etc/rcloneignore
-  gum log -sl info 'Adding ~/.config/rclone/rcloneignore to /etc/rcloneignore'
-  sudo cp -f "${XDG_CONFIG_HOME:-$HOME/.config}/rclone/rcloneignore" /etc/rcloneignore
-  sudo chown -Rf rclone:rclone /etc/rcloneignore
-  sudo chmod 640 /etc/rcloneignore
+  ### Setup /etc/rcloneignore (deployed via home/dot_config/system/etc/rcloneignore)
+  if [ -f /etc/rcloneignore ]; then
+    sudo chown -Rf rclone:rclone /etc/rcloneignore
+    sudo chmod 640 /etc/rcloneignore
+  fi
 
   ### Setup /etc/rclone.conf
   gum log -sl info 'Setting permissions on /etc/rclone.conf'

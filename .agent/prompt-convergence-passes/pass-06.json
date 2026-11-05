@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "runId": "3f3ecb36-a019-498a-98b3-a50fb6098135",
+  "pass": 6,
+  "attempt": 1,
+  "pid": 6443,
+  "model": "litellm/deepseek-v4-pro",
+  "status": 0,
+  "signal": null,
+  "promptHash": "2cd3564d01881b2fe78f62f932f09b561ef487f26dcfcc5f56790256384911a8",
+  "baselineHead": "cb602dcefdd3f2318a3d5dbd71e7bf9f14cd637c",
+  "baselineStateHash": "611bb269499ac7f3ca37ac113821e706b2ffb211e17a778dec3dc133915c6319",
+  "resultingStateHash": "8fef562ce5741200dcdbda598a88709e3d5a64705e7ee119d2a43209de75871d",
+  "summary": "**Convergence pass 6/10 — receipt · new winner: YES**\n\n**Winner: XS-25** — delete `site/assets/app-mockup.mockup`, a 28 MB (29,432,473-byte) design-tool archive that was the **single largest tracked file in the repo** with zero references anywhere in `site/src`, `site/docs`, `stencil.config.ts`, or any build/config path. Pure clone bloat + a source-of-truth lie (a build-irrelevant binary tracked as a site asset).\n\n**Changes:**\n- Deleted `site/assets/app-mockup.mockup` (28 MB design-tool archive; only reference in the whole tree was the file itself).\n- Added `scripts/test-no-design-archives.sh` — 4-assertion hermetic guard: (1) the specific blob is gone, (2) no `.mockup`/`.sketch`/`.fig`/`.xd` archive ships anywhere in the tree (pruning `.git`/`node_modules`/`.agent`), (3) no site build path re-references the blob, (4) non-vacuous self-test planting a `.mockup` fixture. Auto-discovered by `test-all.sh` (`test-*.sh` glob).\n\n**Evidence:**\n- `grep -rln \"app-mockup\" .` (excl. `.git`/`node_modules`/`.agent`) → only the new guard's own doc/assertion text; zero build/code references.\n- `git ls-files '*.mockup' '*.sketch' '*.fig' '*.xd'` → `app-mockup.mockup` was the sole design archive in the repo.\n- `git status`: `D site/assets/app-mockup.mockup`, `?? scripts/test-no-design-archives.sh`.\n\n**Tests run:**\n- `bash -n scripts/test-no-design-archives.sh` → clean.\n- `shellcheck scripts/test-no-design-archives.sh` → clean.\n- `bash scripts/test-no-design-archives.sh` → **4/4 PASS** (exit 0).\n- Non-vacuity (both directions): planted `site/assets/planted-regression.mockup` → **FAIL (3 passed, 1 failed, exit 1)** correctly naming the planted path; removed → re-green (exit 0).\n\n**Risks:** Low. Binary blob with zero reachable callers; no CI/test/build path references it. The 28 MB remains in git history until an owner-gated history scrub/gc (out of scope — no history rewrite performed).\n\n**Prior receipts consulted:** pass-01 (root package.json NestJS template) · pass-02 (blesh/coc/update residue) · pass-03 (cargo/gradle/maven XDG dupes) · pass-04 (file-system.yml + sake.yaml) · pass-05 (durable auto-update disable). Also confirmed already-complete-by-parallel-work candidates before choosing: SEC-20 (`test-secrets-encrypted.sh` exists), XS-10 (reconcile `.py` gone, `.sh` present), XS-48 (`populate-secrets` deleted). Deferred (not selected): XS-01 Taskfile stack (too large/medium-risk for one pass), XS-24 local-proxy systemd dup (host-gated verification I can't run), XS-40–45 unwired aid-core contracts (task 14 recorded \"keep quarantined\" disposition, not delete).",
+  "errors": [],
+  "stderr": "",
+  "completedAt": "2026-11-04T06:11:51.274Z"
+}

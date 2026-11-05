@@ -1,0 +1,22 @@
+[
+  {
+    "id": "runtime-patterns",
+    "cwd": "/Users/Apple/emdash/repositories/install.doctor",
+    "task": "Read-only audit. Inspect tracked runtime and service-launch files for patterns needed by a manifest-driven Infisical minimum-environment launcher. Return only file paths, secret variable NAMES, runtime category, and concrete recommendations. Never edit files or print values."
+  },
+  {
+    "id": "ci-patterns",
+    "cwd": "/Users/Apple/emdash/repositories/install.doctor",
+    "task": "Read-only audit. Inspect GitHub workflow and deployment files for long-lived secret use that could use GitHub OIDC or scoped platform bindings. Return paths, secret NAMES, and migration recommendations. Never edit files or print values."
+  },
+  {
+    "id": "offline-patterns",
+    "cwd": "/Users/Apple/emdash/repositories/install.doctor",
+    "task": "Read-only audit. Find local/offline/pre-network secret dependencies and age/SOPS usage. Classify which appear genuinely required before network and which should move to Infisical. Return paths and secret NAMES only. Never edit files or print values."
+  },
+  {
+    "id": "verification-patterns",
+    "cwd": "/Users/Apple/emdash/repositories/install.doctor",
+    "task": "Read-only audit. Inspect existing tests and observability for secret leak, rotation, revocation, denied authorization, and enrollment-status coverage. Return gaps and reusable test locations. Never edit files or print values."
+  }
+]

@@ -90,6 +90,7 @@ async function loadWorkerApp() {
 
 const TEST_ENV = {
   AID_ADMIN_TOKEN: 'test_admin_secret_token_123456',
+  AID_RECEIPT_SIGNING_KEY: 'test_receipt_signing_key_at_least_32_bytes_long!',
   BETTER_AUTH_SECRET: 'test_better_auth_secret_32_bytes_long_minimum!',
 };
 
@@ -241,7 +242,7 @@ test('Control Plane Phase 1: OpenAPI 3.1 schema (/api/v1/openapi.json) covers 10
   assert.ok(docRes.headers.get('content-security-policy')?.includes("require-trusted-types-for 'script'"));
 });
 
-test('Control Plane Phase 1: Dual-Repo GitHub Scan, Host-Repo Ensure, API Key Minting & Universal /start', async () => {
+test('Control Plane Phase 1: GitHub discovery, truthful unsupported mutations & Universal /start', async () => {
   const app = await loadWorkerApp();
 
   // Scan repos
@@ -258,36 +259,42 @@ test('Control Plane Phase 1: Dual-Repo GitHub Scan, Host-Repo Ensure, API Key Mi
   assert.equal(scanJson.defaultMasterRepo, 'heymegabyte/install.doctor');
   assert.equal(scanJson.suggestedHostRepo, 'ubuntu.megabyte.space');
 
-  // Ensure host repo with namespace
+  // Host-repo ensure is not provider-backed yet. It must never claim a repository exists.
   const ensRes = await app.fetch(
     new Request('https://app.install.doctor/api/v1/github/host-repo/ensure', {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: {
+        authorization: `Bearer ${TEST_ENV.AID_ADMIN_TOKEN}`,
+        'content-type': 'application/json',
+      },
       body: JSON.stringify({ owner: 'heymegabyte', hostname: 'ubuntu', namespace: 'megabyte.space' }),
     }),
     TEST_ENV
   );
-  assert.equal(ensRes.status, 201);
+  assert.equal(ensRes.status, 501);
   const ensJson = await ensRes.json();
-  assert.equal(ensJson.fqdn, 'ubuntu.megabyte.space');
+  assert.equal(ensJson.error, 'github_reconciliation_not_configured');
+  assert.equal(ensJson.status, 'unsupported');
   assert.equal(ensJson.repoFullName, 'heymegabyte/ubuntu.megabyte.space');
-  assert.ok(ensJson.closeBrowserMessage.includes('You can close the browser now'));
 
   // Ensure host repo fallback when namespace is absent
   const ensFallbackRes = await app.fetch(
     new Request('https://app.install.doctor/api/v1/github/host-repo/ensure', {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: {
+        authorization: `Bearer ${TEST_ENV.AID_ADMIN_TOKEN}`,
+        'content-type': 'application/json',
+      },
       body: JSON.stringify({ owner: 'heymegabyte', hostname: 'ephemeral-node' }),
     }),
     TEST_ENV
   );
-  assert.equal(ensFallbackRes.status, 201);
+  assert.equal(ensFallbackRes.status, 501);
   const ensFallback = await ensFallbackRes.json();
   assert.equal(ensFallback.fqdn, 'ephemeral-node');
   assert.equal(ensFallback.repoFullName, 'heymegabyte/ephemeral-node');
 
-  // Mint API Key (unauthenticated -> 401; authenticated -> 201)
+  // API-key persistence is not implemented. Authentication is required, then the route is truthful.
   const mintUnauth = await app.fetch(
     new Request('https://app.install.doctor/api/v1/keys/mint', { method: 'POST' }),
     TEST_ENV
@@ -305,10 +312,11 @@ test('Control Plane Phase 1: Dual-Repo GitHub Scan, Host-Repo Ensure, API Key Mi
     }),
     TEST_ENV
   );
-  assert.equal(mintAuth.status, 201);
+  assert.equal(mintAuth.status, 501);
   const mintJson = await mintAuth.json();
-  assert.ok(mintJson.apiKey.startsWith('aid_'));
-  assert.equal(mintJson.bypassOAuth, true);
+  assert.equal(mintJson.error, 'api_key_provisioning_not_configured');
+  assert.equal(mintJson.status, 'unsupported');
+  assert.equal('apiKey' in mintJson, false);
 
   // GET /start universal bootstrap
   const startRes = await app.fetch(new Request('https://app.install.doctor/start'), TEST_ENV);
@@ -391,11 +399,24 @@ test('Control Plane Phase 2: Fleet Drift Radar, Cryptographic Execution Receipts
   assert.deepEqual(driftJson.stoppedServices, ['alloy']);
   assert.ok(driftJson.healingPlan.includes('cloudflare-firewall'));
 
-  // 2. POST /api/v1/receipts/mint & /api/v1/receipts/verify
-  const mintRes = await app.fetch(
+  // 2. POST /api/v1/receipts/mint & /api/v1/receipts/verify are authenticated.
+  const unauthenticatedReceipt = await app.fetch(
     new Request('https://app.install.doctor/api/v1/receipts/mint', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({}),
+    }),
+    TEST_ENV
+  );
+  assert.equal(unauthenticatedReceipt.status, 401);
+
+  const mintRes = await app.fetch(
+    new Request('https://app.install.doctor/api/v1/receipts/mint', {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${TEST_ENV.AID_ADMIN_TOKEN}`,
+        'content-type': 'application/json',
+      },
       body: JSON.stringify({
         receiptId: 'rcpt-edge-01',
         tenantId: 'tenant-alpha',
@@ -415,7 +436,10 @@ test('Control Plane Phase 2: Fleet Drift Radar, Cryptographic Execution Receipts
   const verRes = await app.fetch(
     new Request('https://app.install.doctor/api/v1/receipts/verify', {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: {
+        authorization: `Bearer ${TEST_ENV.AID_ADMIN_TOKEN}`,
+        'content-type': 'application/json',
+      },
       body: JSON.stringify(receipt),
     }),
     TEST_ENV
@@ -423,6 +447,43 @@ test('Control Plane Phase 2: Fleet Drift Radar, Cryptographic Execution Receipts
   assert.equal(verRes.status, 200);
   const verJson = await verRes.json();
   assert.equal(verJson.valid, true);
+
+  const tamperedRes = await app.fetch(
+    new Request('https://app.install.doctor/api/v1/receipts/verify', {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${TEST_ENV.AID_ADMIN_TOKEN}`,
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({ ...receipt, machineId: 'other-machine' }),
+    }),
+    TEST_ENV
+  );
+  assert.equal(tamperedRes.status, 200);
+  assert.equal((await tamperedRes.json()).valid, false);
+
+  const staleRes = await app.fetch(
+    new Request('https://app.install.doctor/api/v1/receipts/mint', {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${TEST_ENV.AID_ADMIN_TOKEN}`,
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        receiptId: 'rcpt-stale-01',
+        tenantId: 'tenant-alpha',
+        machineId: 'ubuntu-megabyte-space',
+        runId: 'run-stale-01',
+        blueprintDigest: 'b'.repeat(64),
+        action: 'cloudflare-firewall',
+        exitCode: 0,
+        timestamp: '2020-01-01T00:00:00.000Z',
+      }),
+    }),
+    TEST_ENV
+  );
+  assert.equal(staleRes.status, 409);
+  assert.equal((await staleRes.json()).error, 'receipt_outside_replay_window');
 
   // 3. GET /api/v1/catalog/semantic
   const semRes = await app.fetch(
@@ -433,4 +494,40 @@ test('Control Plane Phase 2: Fleet Drift Radar, Cryptographic Execution Receipts
   const semJson = await semRes.json();
   assert.ok(semJson.count >= 1);
   assert.equal(semJson.matches[0].name, 'ripgrep');
+});
+
+test('Control Plane security: desired-state metadata is authenticated and requests are bounded/correlated', async () => {
+  const app = await loadWorkerApp();
+
+  const desiredRead = await app.fetch(
+    new Request('https://app.install.doctor/api/environment/current?tenant=tenant-alpha'),
+    TEST_ENV
+  );
+  assert.equal(desiredRead.status, 401);
+  assert.ok(desiredRead.headers.get('x-request-id'));
+  assert.equal((await desiredRead.json()).error, 'unauthorized');
+
+  const preview = await app.fetch(
+    new Request('https://app.install.doctor/api/environment/apply', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ tenant: 'tenant-alpha', observed: {}, dryRun: true }),
+    }),
+    TEST_ENV
+  );
+  assert.equal(preview.status, 401);
+
+  const oversized = await app.fetch(
+    new Request('https://app.install.doctor/api/v1/github/repos/scan', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'content-length': '1048577' },
+      body: '{}',
+    }),
+    TEST_ENV
+  );
+  assert.equal(oversized.status, 413);
+  const oversizedBody = await oversized.json();
+  assert.equal(oversizedBody.error, 'request_too_large');
+  assert.equal(typeof oversizedBody.requestId, 'string');
+  assert.equal('detail' in oversizedBody, false);
 });

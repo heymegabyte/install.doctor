@@ -6,8 +6,8 @@ services:
     privileged: true
     environment:
       KASM_PORT: 443
-      DOCKER_HUB_USERNAME: USER
-      DOCKER_HUB_PASSWORD: PASS
+      DOCKER_HUB_USERNAME: "${DOCKER_HUB_USERNAME:-}"
+      DOCKER_HUB_PASSWORD: "${DOCKER_HUB_PASSWORD:-}"
       DOCKER_MTU: 1500
     volumes:
       - /path/to/data:/opt

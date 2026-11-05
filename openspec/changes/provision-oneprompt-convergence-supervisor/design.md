@@ -1,6 +1,7 @@
 # Design: portable OnePrompt convergence service
 
 > **Architect:** codex
+> **Architect Role:** assigned
 
 ## Contract
 

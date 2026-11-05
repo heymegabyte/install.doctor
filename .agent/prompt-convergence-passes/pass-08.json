@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "runId": "3f3ecb36-a019-498a-98b3-a50fb6098135",
+  "pass": 8,
+  "attempt": 1,
+  "pid": 6443,
+  "model": "litellm/deepseek-v4-pro",
+  "status": 0,
+  "signal": null,
+  "promptHash": "2359d4c526bd5c5e8a4d6c7ece31681b0ae323d64ee36fddb242cc4fc807beb4",
+  "baselineHead": "cb602dcefdd3f2318a3d5dbd71e7bf9f14cd637c",
+  "baselineStateHash": "611bb269499ac7f3ca37ac113821e706b2ffb211e17a778dec3dc133915c6319",
+  "resultingStateHash": "226adab884b072e25c9e93a77ab535a89f4eb790e1dd5b554c414043d08da459",
+  "summary": "**Convergence pass 8/10 — receipt · new winner: YES**\n\n**Winner: XS-49 + XS-50 — obsolete duplicate secret-name consolidation (security + source-of-truth).**\n\nSeven age-encrypted secret sources in `home/.chezmoitemplates/secrets/` carried obsolete, ambiguous credential names that had **zero named consumers** but were still imported into the system keyring on every provisioned host (post-envchain globs the whole directory into `envchain default`). Two families drifted out of use:\n- `GITHUB_OAUTH_CLIENT_ID/SECRET`, `GOOGLE_OAUTH_CLIENT_ID/SECRET` — superseded by `packages/control-plane/src/auth.ts`'s `GITHUB_CLIENT_ID/SECRET` + `GOOGLE_CLIENT_ID/SECRET`.\n- `CLOUDFLARE_R2_TOKEN`, `CLOUDFLARE_R2_TOKEN_USER`, `CLOUDFLARE_R2_JURISDICTION_USER` — superseded by `CLOUDFLARE_R2_ID/SECRET` (system) + `CLOUDFLARE_R2_ID_USER/SECRET_USER` (user, post-rclone/autorestic).\n\n**Changes:**\n- Deleted 7 base `secrets/` files (working-tree deletion, not staged; no host-scoped `secrets-workstation`/`secrets-wordpress` copies touched).\n- Added `scripts/test-secret-name-consolidation.sh` — 5-assertion hermetic guard (auto-discovered by `test-all.sh`): obsolete names absent · 8 canonical names present · zero named consumers (path-only `git grep`, never values) · bidirectional non-vacuity self-test.\n\n**Evidence (verified, not assumed):**\n- `git grep -Ilw` across all `*.ts/*.mjs/*.js/*.sh/*.tmpl/*.toml/*.yaml/*.json` for the 7 names → zero matches outside `.agent/repository-file-ledger.json` (generated evidence). Confirms no live consumer.\n- Active names confirmed referenced: `auth.ts:25-30` (GITHUB/GOOGLE_CLIENT_ID/SECRET), `private_rclone.conf.tmpl`, `autorestic-*.yml.tmpl`, `post-rclone.sh` (CLOUDFLARE_R2_ID/SECRET + _USER variants).\n- Files are `-----BEGIN AGE ENCRYPTED FILE-----` blobs; only existence was checked — no secret value was read or printed.\n\n**Tests run:**\n- `bash -n` + `shellcheck scripts/test-secret-name-consolidation.sh` → clean.\n- `bash scripts/test-secret-name-consolidation.sh` → **5/5 PASS** (exit 0).\n- Non-vacuity both directions: planted `CLOUDFLARE_R2_TOKEN` → **FAIL (4 passed, 1 failed, exit 1)** naming the planted path; removed → re-green (exit 0).\n- `bash scripts/test-secret-hygiene.sh` → **7/7 PASS** (no regression to the sibling crown-jewel/credential gate).\n\n**Risks:** Low. Source templates only; no host keyring, password-manager entry, running service, or user data touched. Values remain in git history (owner-gated rotation/history scrub is out of scope — no history rewrite performed). Host-scoped `secrets-workstation/CLOUDFLARE_R2_TOKEN*` copies were left alone (host-specific credential state, out of scope).\n\n**Config/Repos:** none. **No deploy, commit, or history rewrite performed.**\n\n**Next:** → pass 9/10; remaining candidates include XS-01 (Taskfile/Bodega stack), XS-24 (duplicate systemd writer), XS-46 (duplicate CI matrix).",
+  "errors": [],
+  "stderr": "",
+  "completedAt": "2026-11-04T06:30:57.560Z"
+}

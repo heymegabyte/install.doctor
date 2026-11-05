@@ -1,5 +1,8 @@
 # Design
 
+> **Architect:** codex
+> **Architect Role:** assigned
+
 ## Coverage model
 
 The tracked-file list is the source of truth. A deterministic audit assigns every path to one of: source, test, script, configuration, documentation, generated, encrypted, binary/media, vendored, or empty/sentinel. Each class has required validators. The final ledger must contain exactly one record for every `git ls-files` path and reject duplicates or omissions.
@@ -22,6 +25,18 @@ Findings are scored by impact, confidence, effort, risk, and reversibility. Impl
 ## Convergence
 
 Run the full inventory and validators, implement winners, rerun, then perform two consecutive independent finding passes. Convergence means neither pass produces a new actionable finding above the recorded threshold; it does not mean every file changes.
+
+The approved 30-item program reopens convergence. Its implementation is dependency-ordered into five waves: (A) exploit and bootstrap safety; (B) secret, backup, and scheduler authority; (C) CI, catalog, and source provenance; (D) authenticated control-plane boundaries and observability; (E) consent, dependency modernization, and truthful documentation. A wave may proceed in parallel only across disjoint files and state; control-plane auth precedes state-changing or receipt endpoints, and independent recovery precedes destructive storage work.
+
+## Cross-change ownership
+
+`fleet-backup-recovery` owns Infisical authorization, backup-secret separation, scheduler reconciliation, ZFS discover/plan/apply/status, recovery escrow, restore evidence, and host rollout. This change owns repository enforcement and the remaining bootstrap, CI, control-plane, catalog, provenance, dependency, consent, and documentation work. `triad-convergence-langfuse-resilience` owns the Langfuse fail-open shell contract and Frontier-only OpenSpec authorship declaration; this change adds the mechanical verifier that prevents a non-Frontier author from passing validation.
+
+Infisical is authoritative for operational secrets. Repository configuration stores references, not values. Local secrets are valid only for a declared machine-scoped offline/pre-network dependency and may never act as a silent general fallback. The independent recovery package is governed by `fleet-backup-recovery` and is not a second operational secret authority.
+
+The approved Infisical program is enforced at repository boundaries as well as at runtime. `fleet-backup-recovery` owns I01–I30 behavior and host evidence. This change owns deterministic gates for manifest schema and immutability (I01–I06, I10), credential/reference leakage and CI federation (I07–I09, I13–I19, I24–I26, I29), authorization/telemetry/dashboard evidence (I11–I12, I22–I23, I27–I28), recovery-envelope provenance (I20–I21), and staged rollout receipts (I30). These gates consume redacted evidence and never require secret values in the repository.
+
+Identity categories are non-substitutable: Cloudflare Access protects public human administration, GitHub/platform OIDC authenticates automation, Infisical workload identities authorize service secrets, Authentik is exceptional local/offline human access, and product-native auth owns customer accounts. A repository change that crosses these planes without a documented exception fails policy validation.
 
 ## Rollback
 

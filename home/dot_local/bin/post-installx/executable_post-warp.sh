@@ -349,8 +349,6 @@ PY_EOF
   # Source for JumpCloud: https://developers.cloudflare.com/cloudflare-one/static/documentation/connections/CloudflareWARP.mobileconfig
   if [ -d /System ] && [ -d /Applications ]; then
     sudo plutil -convert binary1 '/Library/Managed Preferences/com.cloudflare.warp.plist'
-    ### Enable CloudFlare WARP credentials auto-populate (since file is deleted when not managed with MDM)
-    sudo launchctl load "/Library/LaunchDaemons/com.cloudflare.warp.plist" || true
   elif [ -f "${XDG_CONFIG_HOME:-$HOME/.config}/warp/mdm.xml" ]; then
     sudo mkdir -p /var/lib/cloudflare-warp
     sudo cp -f "${XDG_CONFIG_HOME:-$HOME/.config}/warp/mdm.xml" /var/lib/cloudflare-warp/mdm.xml

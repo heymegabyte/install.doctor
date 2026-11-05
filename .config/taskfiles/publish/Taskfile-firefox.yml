@@ -1,9 +1,0 @@
----
-version: '3'
-
-tasks:
-  log:
-    error: Encountered error while publishing Firefox add-on
-    start: Publishing Firefox add-on
-    success: Successfully published Firefox add-on
-  release: Publishes Firefox add-on

@@ -17,18 +17,9 @@ There are no strict guidelines for submitting a feature request. Any feature req
 
 ## Feature Requests on GitHub
 
-As with all the projects in the [Megabyte Labs eco-system](https://gitlab.com/megabyte-labs), you can create a feature request using an issue template specifically designed for formatting feature requests. Just select the, "Feature Request," template when creating a GitHub issue. You can [open a feature request for Install Doctor on GitHub using this link](https://github.com/heymegabyte/install.doctor/issues/new?assignees=&labels=question&template=FeatureRequest.yml).
+As with all the projects in the [Megabyte Labs eco-system](https://github.com/heymegabyte), you can create a feature request using an issue template specifically designed for formatting feature requests. Just select the, "Feature Request," template when creating a GitHub issue. You can [open a feature request for Install Doctor on GitHub using this link](https://github.com/heymegabyte/install.doctor/issues/new?assignees=&labels=question&template=FeatureRequest.yml).
 
 <video autoPlay loop muted playsInline>
   <source src="/docs/video/github-feature-request.mp4" type="video/mp4" />
   <source src="/docs/video/github-feature-request.webm" type="video/webm" />
-</video>
-
-## Feature Requests on GitLab
-
-Alternatively, you can create a feature request by posting an issue on GitLab. You must be signed in. To create a feature request on GitLab, navigate to the Issues section and then click, "New issue," or [open the new issue directly with this link](https://gitlab.com/megabyte-labs/install.doctor/-/issues/new). Once you open the issue, be sure to select the, "Feature," project template under the, "Description," dropdown at the top.
-
-<video autoPlay loop muted playsInline>
-  <source src="/docs/video/gitlab-feature-request.mp4" type="video/mp4" />
-  <source src="/docs/video/gitlab-feature-request.webm" type="video/webm" />
 </video>

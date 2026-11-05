@@ -1,4 +1,9 @@
 {
+  "executable_post-legion-workstation.sh": {
+    "status": "sanctioned",
+    "pattern": "official vendor CLI installers (chezmoi, taskfile, uv, ruff, mise, bun, deno, rustup) gated by host workstation convergence",
+    "reason": "Workstation convergence script (post-legion-workstation.sh) runs official vendor bootstrap installers only when the corresponding binary is absent from ~/.local/bin, with all git asset fetches pinned to immutable commit SHAs or release tags."
+  },
   "executable_post-ollama.sh": {
     "status": "sanctioned",
     "pattern": "curl -fsSL https://ollama.com/install.sh | $SUDO sh  (official Ollama Linux installer)",

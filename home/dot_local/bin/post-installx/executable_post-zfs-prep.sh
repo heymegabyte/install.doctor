@@ -29,13 +29,10 @@ TMP_ZFS="$(mktemp -d)"
 chmod 0700 "$TMP_ZFS"
 trap 'rm -rf "$TMP_ZFS" 2>/dev/null || true' EXIT
 
-resolve_infisical_sudo_password() {
+resolve_sudo_password() {
   local pw="${SUDO_PASSWORD:-}"
   if [[ -z "$pw" ]] && command -v get-secret >/dev/null 2>&1; then
     pw="$(get-secret SUDO_PASSWORD 2>/dev/null || true)"
-  fi
-  if [[ -z "$pw" ]] && command -v infisical >/dev/null 2>&1 && [[ -n "${INFISICAL_TOKEN:-}" ]]; then
-    pw="$(infisical secrets get SUDO_PASSWORD --env=prod --path="/hosts/${HOSTNAME_SHORT}" --plain --silent 2>/dev/null || infisical secrets get SUDO_PASSWORD --plain --silent 2>/dev/null || true)"
   fi
   printf '%s' "$pw"
 }
@@ -43,7 +40,7 @@ resolve_infisical_sudo_password() {
 if [[ $EUID -eq 0 ]]; then
   SUDO=""
 else
-  SUDO_PW="$(resolve_infisical_sudo_password)"
+  SUDO_PW="$(resolve_sudo_password)"
   if [[ -n "$SUDO_PW" ]]; then
     printf '#!/usr/bin/env sh\nprintf '\''%%s\\n'\'' %q\n' "$SUDO_PW" > "$TMP_ZFS/askpass.sh"
     chmod 0700 "$TMP_ZFS/askpass.sh"
@@ -173,19 +170,15 @@ EOF
 ExecStartPre=/usr/local/bin/fleet-zfs-autosnap-guard
 EOF
 
-  # Restricted SSH wrapper for cross-host Syncoid pull replication
-  $SUDO tee /usr/local/bin/syncoid-ssh-wrapper.sh >/dev/null <<'EOF'
-#!/usr/bin/env bash
-set -euo pipefail
-ALLOWED_CMD="${SSH_ORIGINAL_COMMAND:-}"
-if [[ "$ALLOWED_CMD" =~ ^(zfs[[:space:]]+(list|get|snapshot|send|destroy|holds|release)|zpool[[:space:]]+(get|status|list)|lzop|mbuffer|pv|zstd|command[[:space:]]+-v) ]]; then
-  exec /bin/sh -c "$ALLOWED_CMD"
-else
-  echo "ERROR: Unauthorized command rejected by syncoid-ssh-wrapper" >&2
-  exit 1
-fi
-EOF
-  $SUDO chmod 0755 /usr/local/bin/syncoid-ssh-wrapper.sh
+  # Restricted SSH wrapper for cross-host Syncoid pull replication. The
+  # checked-in parser directly execs an exact allowlist; it never evaluates the
+  # caller-controlled SSH_ORIGINAL_COMMAND with a shell.
+  SYNCOID_WRAPPER_SOURCE="${XDG_BIN_HOME:-$HOME/.local/bin}/syncoid-ssh-wrapper"
+  if [[ -x "$SYNCOID_WRAPPER_SOURCE" ]]; then
+    $SUDO install -o root -g root -m 0755 "$SYNCOID_WRAPPER_SOURCE" /usr/local/bin/syncoid-ssh-wrapper
+  else
+    log_warn "Syncoid wrapper is not installed at $SYNCOID_WRAPPER_SOURCE; replication identity will not be provisioned."
+  fi
 
   $SUDO systemctl daemon-reload
   $SUDO systemctl enable --now sanoid.timer 2>/dev/null || true

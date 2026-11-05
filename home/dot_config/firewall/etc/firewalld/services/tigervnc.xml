@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<service>
+  <short>TigerVNC</short>
+  <description>High performance, multi-platform VNC server</description>
+  <port protocol="tcp" port="5900-5904"/>
+</service>

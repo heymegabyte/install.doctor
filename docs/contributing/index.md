@@ -33,4 +33,4 @@ Filing issues and contributing code are the not only ways you can contribute. Yo
 
 ## Star and Share
 
-If you appreciate Install Doctor and think other people should know about it then please [Star our GitHub project](https://github.com/heymegabyte/install.doctor) and share your positive experience with it elsewhere.
+If you appreciate Install Doctor and think other people should know about it then please [Star our GitHub project](https://github.com/megabyte-labs/install.doctor) and share your positive experience with it elsewhere.

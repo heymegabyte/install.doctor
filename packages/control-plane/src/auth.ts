@@ -9,8 +9,9 @@
 // the OAuth apps — a human step on the OAuth-app settings, NOT claimable from this code alone.
 import { env } from 'cloudflare:workers';
 import { betterAuth } from 'better-auth';
+import { Env } from './env';
 
-const e = env as Record<string, any>;
+const e = Env.parse(env);
 
 export const auth = betterAuth({
   // D1 binding (auto-detected). The user/session/account/verification tables are created by the

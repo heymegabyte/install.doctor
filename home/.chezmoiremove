@@ -113,5 +113,15 @@ Brewfile
 .cache/cnf/shims/beszel-agent
 .cache/cnf/shims/tailscale
 .local/bin/gemini
+.config/ngrok
+.ngrok2
+.config/heroku
+.config/conda
+.condarc
+.config/yarn
+.yarnrc
+.VirtualBox
+.config/VirtualBox
+Library/VirtualBox
 .gemini/oauth_creds.json
 .gemini/google_accounts.json

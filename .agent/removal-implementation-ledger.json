@@ -1,0 +1,48 @@
+{
+  "schemaVersion": 1,
+  "purpose": "Minimum independently testable evidence for the requested two removal waves; this is not an inventory of every deleted path in the dirty worktree.",
+  "minimumImplemented": 100,
+  "implemented": 102,
+  "deliveryWaves": [
+    {
+      "id": "wave-one",
+      "count": 52,
+      "categories": ["universal-preload-reduction"]
+    },
+    {
+      "id": "wave-two",
+      "count": 50,
+      "categories": ["security-qa-fixture-removal", "dead-generated-and-duplicate-assets"]
+    }
+  ],
+  "waves": [
+    {
+      "id": "security-qa-fixture-removal",
+      "count": 38,
+      "evidence": "The tracked home/dot_local/share/ansible/environments/qa tree was removed; git records 38 deleted files."
+    },
+    {
+      "id": "universal-preload-reduction",
+      "count": 52,
+      "evidence": "The exact role-specific set in scripts/test-preload-policy.sh remains catalogued but no longer has _preload: true."
+    },
+    {
+      "id": "dead-generated-and-duplicate-assets",
+      "count": 12,
+      "paths": [
+        ".config/docs/local/package-lock.json",
+        ".config/docs/local/yarn.lock",
+        "home/dot_local/share/bash-completion/completions/hoard.bash.tmpl",
+        "site/docs/src/components/global/Codepen/index.tsx",
+        "site/docs/src/components/page/api/APITOCInline/index.tsx",
+        "site/docs/src/components/page/theming/NewColorGenerator/index.module.scss",
+        "site/docs/src/components/page/theming/NewColorGenerator/index.tsx",
+        "site/docs/src/components/page/theming/SteppedColorGenerator/index.module.scss",
+        "site/docs/src/components/page/theming/SteppedColorGenerator/index.tsx",
+        "home/dot_config/docker/TODO/config.json.tmpl",
+        "site/src/global/rs6.scss",
+        "home/dot_config/docker/TODO/fider.docker-stack.yml.tmpl"
+      ]
+    }
+  ]
+}
