@@ -73,14 +73,17 @@ from urllib.request import Request, urlopen
 
 cfg_path = Path.home() / ".config/agent-fleet/infisical.json"
 cfg = json.loads(cfg_path.read_text())
-cred_path = Path(cfg.get("credentialsFile", str(Path.home() / ".config/agent-fleet/infisical-credentials.json"))).expanduser()
+cred_path = Path(cfg.get("credentialsFile", str(Path.home() / ".config/agent-fleet/infisical-us-credentials.json"))).expanduser()
+if not cred_path.exists():
+    cred_path = Path.home() / ".config/agent-fleet/infisical-us-credentials.json"
 creds = json.loads(cred_path.read_text())
 base = cfg["url"].rstrip("/")
-req = Request(f"{base}/api/v1/auth/universal-auth/login", data=json.dumps(creds).encode(), headers={"Content-Type": "application/json"})
+headers = {"Content-Type": "application/json", "User-Agent": "infisical-fleet-broker/1.0"}
+req = Request(f"{base}/api/v1/auth/universal-auth/login", data=json.dumps(creds).encode(), headers=headers)
 with urlopen(req, timeout=10) as resp:
     tok = json.load(resp)["accessToken"]
-q = urlencode({"projectId": cfg["projectId"], "environment": cfg.get("environment", "prod"), "secretPath": cfg.get("secretPath", "/"), "type": "shared"})
-req2 = Request(f"{base}/api/v4/secrets/SUDO_PASSWORD?{q}", headers={"Authorization": f"Bearer {tok}"})
+q = urlencode({"workspaceId": cfg["projectId"], "environment": cfg.get("environment", "prod"), "secretPath": cfg.get("secretPath", "/"), "type": "shared"})
+req2 = Request(f"{base}/api/v3/secrets/raw/SUDO_PASSWORD?{q}", headers={"Authorization": f"Bearer {tok}", "User-Agent": "infisical-fleet-broker/1.0"})
 with urlopen(req2, timeout=10) as resp2:
     print(json.load(resp2)["secret"]["secretValue"], end="")
 PY
