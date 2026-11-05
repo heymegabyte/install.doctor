@@ -315,9 +315,12 @@ PY
   fi
 }
 
-# Run fleet convergence + CNF shims refresh on macOS and exit cleanly
-if [ "$(uname -s)" != "Linux" ]; then
+# Run fleet convergence + CNF shims refresh on macOS (or when --converge-only is passed) and exit cleanly
+if [ "$(uname -s)" != "Linux" ] || [ "${1:-}" = "--converge-only" ]; then
   converge_fleet_host
+  if [ -x "$HOME/.local/bin/post-installx/post-cua-driver.sh" ]; then
+    "$HOME/.local/bin/post-installx/post-cua-driver.sh" >/dev/null 2>&1 || true
+  fi
   if [ -x "$HOME/.local/bin/cnf-build-shims" ]; then
     "$HOME/.local/bin/cnf-build-shims" >/dev/null 2>&1 || true
   fi
