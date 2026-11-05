@@ -6831,7 +6831,7 @@ softwarePackages:
     _home: https://molecule.readthedocs.io/en/latest/
     _docs: https://molecule.readthedocs.io/en/latest/getting-started.html
     pipx: molecule
-    _post:pipx: uv tool install --force --with ansible --with PyObjC --with PyObjC-core --with docker --with lxml --with netaddr --with pexpect --with python-vagrant --with pywinrm --with requests-credssp --with watchdog --with apache-libcloud --with gcloud --with junit-xml --with molecule-docker --with molecule-gce --with molecule-vagrant --with pycrypto molecule
+    _post:pipx: uv tool install --force --with ansible --with PyObjC --with PyObjC-core --with docker --with lxml --with netaddr --with pexpect --with pywinrm --with requests-credssp --with watchdog --with apache-libcloud --with gcloud --with junit-xml --with molecule-docker --with molecule-gce --with pycrypto molecule
   monero:
     _name: Monero
     _short: Monero is an open-source cryptocurrency that focuses on privacy, security, and decentralization.
@@ -10758,23 +10758,6 @@ softwarePackages:
     _home: https://jamiemason.github.io/syncpack/
     _docs: https://jamiemason.github.io/syncpack/installation
     npm: syncpack
-  syncthing:
-    _default: false
-    _name: Syncthing
-    _short: Syncthing is an open-source continuous file synchronization program.
-    _desc: 'Syncthing is an open-source continuous file synchronization program that allows you to securely sync files between multiple devices. It is designed to be decentralized, giving you control over your data without relying on a central server. Syncthing uses end-to-end encryption to ensure your files are transferred securely. It supports various operating systems, including Darwin/MacOS, making it a versatile solution for keeping your files in sync across different devices. You can find more information about Syncthing on its GitHub page: Syncthing GitHub Repository.'
-    _github: https://github.com/syncthing/syncthing
-    _bin: syncthing
-    _service:
-    - name: syncthing
-      sudo: false
-    brew: syncthing
-    choco: syncthing
-    scoop: syncthing
-    _serviceEnabled: true
-    _env:
-      SYNCTHING_APPDATA:
-        cask: $HOME/Library/Application Support/Cursor
   synp:
     _name: synp
     _short: synp is a tool for synchronizing directories.
@@ -11580,42 +11563,6 @@ softwarePackages:
     brew: uv
     cargo: uv
     pipx: uv
-  vagrant:
-    _name: Vagrant
-    _short: Vagrant is an open-source tool for building and managing virtual machine environments in a single workflow.
-    _desc: '[Vagrant](https://www.vagrantup.com/) is an open-source software product for building and maintaining portable virtual software development environments (e.g., for VirtualBox, KVM, Hyper-V, Docker containers, VMware, and AWS).'
-    _github: https://github.com/hashicorp/vagrant
-    _bin: vagrant
-    _home: https://www.vagrantup.com/
-    _docs: https://www.vagrantup.com/docs
-    brew: hashicorp/tap/vagrant
-    cask: vagrant
-    apt: vagrant
-    dnf:fedora: vagrant
-    pacman: vagrant
-    choco: vagrant
-    scoop: vagrant
-  vagrant-manager:
-    _name: Vagrant Manager
-    _short: Vagrant Manager is a GUI tool for managing Vagrant environments on macOS.
-    _desc: Status bar menu application that allows you to manage Vagrant available on macOS and Windows
-    _github: https://github.com/lanayotech/vagrant-manager
-    _bin: vagrant-manager
-    _home: https://www.vagrantmanager.com/
-    _docs: https://github.com/lanayotech/vagrant-manager
-    _app: Vagrant Manager.app
-    _deprecated: Unneeded and UI is not so polished
-    cask: vagrant-manager
-    choco: vagrant-manager
-  vagrant-vmware-utility:
-    _name: Vagrant VMWare Utility
-    _short: vagrant-vmware-desktop is a plugin for Vagrant that allows users to manage VMware Desktop virtual machines.
-    _desc: vagrant-vmware-desktop This is a plugin for Vagrant, a tool for building and managing virtual machine environments. The vagrant-vmware-desktop plugin allows Vagrant to work with VMware Fusion and VMware Workstation on macOS. It provides additional functionality and compatibility for using VMware products with Vagrant, enhancing the virtualization capabilities for developers and system administrators working on macOS systems. This plugin enables users to create and manage VMware virtual machines seamlessly within Vagrant workflows.
-    _github: https://github.com/hashicorp/vagrant-vmware-desktop
-    _when:cask: '! test -f /opt/vagrant-vmware-desktop/bin/vagrant-vmware-utility'
-    cask: vagrant-vmware-utility
-    choco: vagrant-vmware-utility
-    script: rm -rf /tmp/vagrant-vmware-utility_1.0.21_linux_amd64.zip && curl https://releases.hashicorp.com/vagrant-vmware-utility/1.0.21/vagrant-vmware-utility_1.0.21_linux_amd64.zip -o /tmp/vagrant-vmware-utility_1.0.21_linux_amd64.zip && unzip /tmp/vagrant-vmware-utility_1.0.21_linux_amd64.zip && sudo mv -f /tmp/vagrant-vmware-utility /usr/local/bin/vagrant-vmware-utility && sudo chmod +x /usr/local/bin/vagrant-vmware-utility
   vale:
     _name: Vale
     _short: Vale is a syntax-aware linter for prose.

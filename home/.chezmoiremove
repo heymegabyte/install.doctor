@@ -99,3 +99,16 @@ Brewfile
 .config/vnc
 .config/zap
 .config/Code/User/Base.code-profile
+.config/syncthing
+.local/state/syncthing
+.local/share/syncthing
+.config/beszel
+.local/state/beszel
+.local/share/beszel
+.local/bin/beszel
+.local/bin/beszel-agent
+.local/bin/syncthing
+.cache/cnf/shims/syncthing
+.cache/cnf/shims/beszel
+.cache/cnf/shims/beszel-agent
+.cache/cnf/shims/tailscale

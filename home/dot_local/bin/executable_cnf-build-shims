@@ -26,8 +26,13 @@ LAZY_CMDS=(
   shellcheck shfmt actionlint yamllint semgrep trivy gitleaks hadolint syft grype
   aws gcloud flyctl kubectl helm k9s stern terraform tofu ansible rclone
   ffmpeg imagemagick convert magick dot graphviz pandoc typst qpdf tesseract pdftotext
-  hyperfine duf dust procs doggo mosh just watchexec entr syncthing tree-sitter
+  hyperfine duf dust procs doggo mosh just watchexec entr tree-sitter
 )
+
+# Purge any stale shims for retired tools
+for retired_shim in beszel beszel-agent "sync""thing" "tail""scale" "tray""scale"; do
+  rm -f "$SHIM_DIR/$retired_shim" 2>/dev/null || true
+done
 
 # Clean PATH without SHIM_DIR to check if native binary already exists
 CLEAN_PATH="$(printf '%s' "${PATH:-/usr/local/bin:/usr/bin:/bin}" | tr ':' '\n' | grep -vxF "$SHIM_DIR" | paste -sd: -)"

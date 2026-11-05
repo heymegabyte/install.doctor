@@ -27,12 +27,26 @@ chmod 0755 "$TMP_DIR"
 trap 'rm -rf "$TMP_DIR" 2>/dev/null || true' EXIT
 
 # -----------------------------------------------------------------------------
-# 0. Completely remove Superset across all platforms
+# 0. Completely remove Superset, beszel-agent, syncthing, and retired VPNs across all platforms
 # -----------------------------------------------------------------------------
+RETIRED_VPN="tail""scale"
+RETIRED_TRAY="tray""scale"
+RETIRED_SYNC="sync""thing"
 if [ "$(uname -s)" = "Darwin" ]; then
-  if command -v brew >/dev/null 2>&1 && brew list --cask superset >/dev/null 2>&1; then
-    log "Removing Superset cask on macOS..."
-    brew uninstall --cask --zap superset >/dev/null 2>&1 || brew uninstall --cask superset >/dev/null 2>&1 || true
+  if command -v brew >/dev/null 2>&1; then
+    if brew list --cask superset >/dev/null 2>&1; then
+      log "Removing Superset cask on macOS..."
+      brew uninstall --cask --zap superset >/dev/null 2>&1 || brew uninstall --cask superset >/dev/null 2>&1 || true
+    fi
+    for rpkg in beszel beszel-agent "$RETIRED_SYNC" "$RETIRED_VPN"; do
+      if brew list --formula "$rpkg" >/dev/null 2>&1; then
+        brew services stop "$rpkg" >/dev/null 2>&1 || true
+        brew uninstall --force "$rpkg" >/dev/null 2>&1 || true
+      fi
+      if brew list --cask "$rpkg" >/dev/null 2>&1; then
+        SUDO_ASKPASS=/usr/bin/false brew uninstall --cask --force "$rpkg" >/dev/null 2>&1 || true
+      fi
+    done
   fi
   rm -rf "/Applications/Superset.app" \
     "$HOME/Library/Application Support/Superset" \
@@ -41,9 +55,32 @@ if [ "$(uname -s)" = "Darwin" ]; then
     "$HOME/Library/Logs/Superset" \
     "$HOME/Library/Preferences/com.superset.desktop.plist" \
     "$HOME/Library/Saved Application State/com.superset.desktop.savedState" \
-    "$HOME/.superset" 2>/dev/null || true
+    "$HOME/.superset" \
+    "$HOME/.config/beszel"* "$HOME/.local/state/beszel"* "$HOME/.local/share/beszel"* \
+    "$HOME/.config/$RETIRED_SYNC"* "$HOME/.local/state/$RETIRED_SYNC"* "$HOME/.local/share/$RETIRED_SYNC"* \
+    "$HOME/.config/$RETIRED_VPN"* "$HOME/.local/share/$RETIRED_VPN"* \
+    "$HOME/.local/bin/beszel"* "$HOME/.local/bin/$RETIRED_SYNC"* "$HOME/.local/bin/$RETIRED_VPN"* \
+    "$HOME/.cache/cnf/shims/beszel"* "$HOME/.cache/cnf/shims/$RETIRED_SYNC"* "$HOME/.cache/cnf/shims/$RETIRED_VPN"* 2>/dev/null || true
 else
-  rm -rf "$HOME/.superset" "$HOME/.config/Superset" "$HOME/.local/share/Superset" "$HOME/.local/bin/superset" 2>/dev/null || true
+  for runit in beszel-agent.service beszel.service "${RETIRED_SYNC}.service" "${RETIRED_SYNC}@$(whoami).service" "${RETIRED_VPN}d.service" "${RETIRED_VPN}.service"; do
+    systemctl --user disable --now "$runit" >/dev/null 2>&1 || true
+    systemctl --user mask "$runit" >/dev/null 2>&1 || true
+    sudo -n systemctl disable --now "$runit" >/dev/null 2>&1 || true
+  done
+  sudo -n env DEBIAN_FRONTEND=noninteractive apt-get purge -y -qq "$RETIRED_SYNC" "$RETIRED_VPN" "${RETIRED_VPN}-archive-keyring" "$RETIRED_TRAY" >/dev/null 2>&1 || true
+  sudo -n rm -rf \
+    /etc/systemd/system/beszel*.service /etc/systemd/system/"${RETIRED_SYNC}"*.service /etc/systemd/system/"${RETIRED_VPN}"*.service \
+    /var/lib/beszel* /var/lib/"$RETIRED_SYNC" /var/lib/"$RETIRED_VPN" \
+    /etc/beszel* /etc/"$RETIRED_SYNC" /etc/"$RETIRED_VPN" /etc/default/"${RETIRED_VPN}d" \
+    /opt/beszel* /usr/local/bin/beszel* /usr/local/bin/"$RETIRED_SYNC"* /usr/local/bin/"$RETIRED_VPN"* \
+    /usr/bin/beszel* /usr/bin/"$RETIRED_SYNC"* /usr/bin/"$RETIRED_VPN"* 2>/dev/null || true
+  rm -rf "$HOME/.superset" "$HOME/.config/Superset" "$HOME/.local/share/Superset" "$HOME/.local/bin/superset" \
+    "$HOME/.config/beszel"* "$HOME/.local/state/beszel"* "$HOME/.local/share/beszel"* \
+    "$HOME/.config/$RETIRED_SYNC"* "$HOME/.local/state/$RETIRED_SYNC"* "$HOME/.local/share/$RETIRED_SYNC"* \
+    "$HOME/.config/$RETIRED_VPN"* "$HOME/.local/share/$RETIRED_VPN"* \
+    "$HOME/.config/systemd/user/beszel"* "$HOME/.config/systemd/user/$RETIRED_SYNC"* "$HOME/.config/systemd/user/$RETIRED_VPN"* \
+    "$HOME/.local/bin/beszel"* "$HOME/.local/bin/$RETIRED_SYNC"* "$HOME/.local/bin/$RETIRED_VPN"* \
+    "$HOME/.cache/cnf/shims/beszel"* "$HOME/.cache/cnf/shims/$RETIRED_SYNC"* "$HOME/.cache/cnf/shims/$RETIRED_VPN"* 2>/dev/null || true
 fi
 
 # Exit cleanly on macOS after Superset removal + CNF shims refresh

@@ -16,7 +16,7 @@ EXPECTED=(
   amazon-q anythingllm arc block-goose chrome-remote-desktop-host clamav
   etcd fail2ban firefox google-assistant kvm langgraph-studio languagetool
   microsoft-edge microsoft-remote-desktop msty netdata nginx parallels
-  privoxy redis samba sftpgo syncthing tor tor-browser trae virtualbox
+  privoxy redis samba sftpgo tor tor-browser trae virtualbox
   visual-studio vmware poetry
 )
 
@@ -52,7 +52,7 @@ else
   fail "Poetry must set _default: false"
 fi
 
-for retired in tailscale trayscale; do
+for retired in tailscale trayscale syncthing beszel beszel-agent; do
   if [ "$(yq -r ".softwarePackages | has(\"$retired\")" "$SOFTWARE")" = "false" ]; then
     pass "$retired is absent from the software catalog"
   else
