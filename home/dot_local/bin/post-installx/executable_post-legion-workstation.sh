@@ -793,6 +793,51 @@ def collect_metrics() -> str:
         except Exception:
             pass
 
+    if os.path.exists("/proc/spl/kstat/zfs/arcstats"):
+        try:
+            arc = {}
+            for line in open("/proc/spl/kstat/zfs/arcstats"):
+                parts = line.split()
+                if len(parts) == 3 and parts[2].isdigit():
+                    arc[parts[0]] = int(parts[2])
+            hits = arc.get("hits", 0)
+            misses = arc.get("misses", 0)
+            total = hits + misses
+            ratio = (hits / total) if total > 0 else 1.0
+            lines.extend([
+                "# HELP zfs_arc_size_bytes ZFS ARC current size in bytes",
+                "# TYPE zfs_arc_size_bytes gauge",
+                f"zfs_arc_size_bytes {arc.get('size', 0)}",
+                "# HELP zfs_arc_max_bytes ZFS ARC target max size in bytes",
+                "# TYPE zfs_arc_max_bytes gauge",
+                f"zfs_arc_max_bytes {arc.get('c_max', 0)}",
+                "# HELP zfs_arc_hits_total ZFS ARC hits counter",
+                "# TYPE zfs_arc_hits_total counter",
+                f"zfs_arc_hits_total {hits}",
+                "# HELP zfs_arc_misses_total ZFS ARC misses counter",
+                "# TYPE zfs_arc_misses_total counter",
+                f"zfs_arc_misses_total {misses}",
+                "# HELP zfs_arc_hit_ratio ZFS ARC hit ratio (0.0-1.0)",
+                "# TYPE zfs_arc_hit_ratio gauge",
+                f"zfs_arc_hit_ratio {ratio:.4f}",
+            ])
+        except Exception:
+            pass
+
+    for res in ("cpu", "memory", "io"):
+        psi_path = f"/proc/pressure/{res}"
+        if os.path.exists(psi_path):
+            try:
+                first = open(psi_path).readline()
+                for kv in first.split():
+                    if kv.startswith("avg10="):
+                        val = float(kv.split("=", 1)[1])
+                        lines.append(f"# HELP linux_psi_{res}_some_avg10 Linux PSI {res} some avg10 percentage")
+                        lines.append(f"# TYPE linux_psi_{res}_some_avg10 gauge")
+                        lines.append(f"linux_psi_{res}_some_avg10 {val:.2f}")
+            except Exception:
+                pass
+
     return "\n".join(lines) + "\n"
 
 
@@ -939,11 +984,56 @@ EOF
       [ -n "$snapname" ] && [ -n "$revision" ] && run_root snap remove "$snapname" --revision="$revision" >/dev/null 2>&1 || true
     done
   fi
+
+  # #20: OpenSSH 10.x Post-Quantum Key Exchange (mlkem768x25519-sha256) + PerSourcePenalties, systemd-oomd PSI, journald cap & nvidia-powerd
+  if [ -d /etc/ssh/sshd_config.d ] && command -v sshd >/dev/null 2>&1; then
+    cat > "$TMP_DIR/10-fleet-pqc.conf" <<'EOF'
+# Hybrid Post-Quantum Key Exchange (ML-KEM-768 + X25519) & Pre-Auth Abuse Penalties
+KexAlgorithms mlkem768x25519-sha256,sntrup761x25519-sha512@openssh.com,curve25519-sha256,curve25519-sha256@libssh.org
+PerSourcePenalties yes
+PerSourceNetBlockSize 32:128
+PerSourcePenaltyExemptList 127.0.0.1,::1,10.0.0.0/24
+EOF
+    run_root cp "$TMP_DIR/10-fleet-pqc.conf" /etc/ssh/sshd_config.d/10-fleet-pqc.conf
+    if ! run_root sshd -t 2>/dev/null; then
+      run_root rm -f /etc/ssh/sshd_config.d/10-fleet-pqc.conf
+    else
+      run_root systemctl reload ssh.service 2>/dev/null || true
+    fi
+  fi
+
+  run_root install -d -m 0755 /etc/systemd/journald.conf.d
+  cat > "$TMP_DIR/99-fleet-journald.conf" <<'EOF'
+[Journal]
+SystemMaxUse=250M
+RuntimeMaxUse=64M
+MaxRetentionSec=14day
+EOF
+  run_root cp "$TMP_DIR/99-fleet-journald.conf" /etc/systemd/journald.conf.d/99-fleet.conf
+  run_root systemctl restart systemd-journald.service 2>/dev/null || true
+  run_root journalctl --vacuum-size=200M >/dev/null 2>&1 || true
+
+  if [ -f /etc/systemd/oomd.conf ]; then
+    cat > "$TMP_DIR/oomd.conf" <<'EOF'
+[OOM]
+DefaultMemoryPressureLimit=80%
+DefaultMemoryPressureDurationSec=20s
+EOF
+    run_root cp "$TMP_DIR/oomd.conf" /etc/systemd/oomd.conf
+    run_root systemctl restart systemd-oomd.service 2>/dev/null || true
+  fi
+
+  if systemctl list-unit-files nvidia-powerd.service >/dev/null 2>&1; then
+    run_root systemctl enable --now nvidia-powerd.service >/dev/null 2>&1 || true
+  fi
+  run_root systemctl disable --now motd-news.timer >/dev/null 2>&1 || true
+  run_root systemctl reset-failed zramswap.service >/dev/null 2>&1 || true
 fi
 
-# Stop and mask unneeded Orca screen reader in user systemd session
-systemctl --user stop orca.service >/dev/null 2>&1 || true
-systemctl --user mask orca.service >/dev/null 2>&1 || true
+# Stop and mask unneeded Orca screen reader and Canonical ubuntu-insights telemetry in user systemd session
+systemctl --user stop orca.service ubuntu-insights-upload.timer ubuntu-insights-collect.timer >/dev/null 2>&1 || true
+systemctl --user mask orca.service ubuntu-insights-upload.timer ubuntu-insights-collect.timer >/dev/null 2>&1 || true
+systemctl --user reset-failed >/dev/null 2>&1 || true
 
 # Patch Emdash workspace-server daemon startup timeout (5e3 -> 30e3) if installed
 if [ -f "$HOME/.emdash/workspace-server/dist/daemon/entry.js" ]; then

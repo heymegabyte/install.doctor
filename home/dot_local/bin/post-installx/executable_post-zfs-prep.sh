@@ -173,11 +173,27 @@ EOF
 ExecStartPre=/usr/local/bin/fleet-zfs-autosnap-guard
 EOF
 
+  # Restricted SSH wrapper for cross-host Syncoid pull replication
+  $SUDO tee /usr/local/bin/syncoid-ssh-wrapper.sh >/dev/null <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+ALLOWED_CMD="${SSH_ORIGINAL_COMMAND:-}"
+if [[ "$ALLOWED_CMD" =~ ^(zfs[[:space:]]+(list|get|snapshot|send|destroy|holds|release)|zpool[[:space:]]+(get|status|list)|lzop|mbuffer|pv|zstd|command[[:space:]]+-v) ]]; then
+  exec /bin/sh -c "$ALLOWED_CMD"
+else
+  echo "ERROR: Unauthorized command rejected by syncoid-ssh-wrapper" >&2
+  exit 1
+fi
+EOF
+  $SUDO chmod 0755 /usr/local/bin/syncoid-ssh-wrapper.sh
+
   $SUDO systemctl daemon-reload
   $SUDO systemctl enable --now sanoid.timer 2>/dev/null || true
   while IFS= read -r pool; do
     if zpool list "$pool" >/dev/null 2>&1; then
+      $SUDO zpool set autotrim=on "$pool" 2>/dev/null || true
       $SUDO systemctl enable --now "zfs-scrub-monthly@${pool}.timer" 2>/dev/null || true
+      $SUDO systemctl enable --now "zfs-trim-weekly@${pool}.timer" 2>/dev/null || true
     fi
   done < <(zpool list -H -o name)
 fi
