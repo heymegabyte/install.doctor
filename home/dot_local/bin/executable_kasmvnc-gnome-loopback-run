@@ -37,11 +37,11 @@ rm -f /tmp/.X20-lock /tmp/.X11-unix/X20
 # Prefer integrated GPU (00:02.0 -> renderD129) for desktop/KasmVNC DRI3 when a discrete NVIDIA GPU is present
 DRI_ARGS=()
 if [ -e /dev/dri/by-path/pci-0000:00:02.0-render ]; then
-  DRI_ARGS=(-drinode "$(readlink -f /dev/dri/by-path/pci-0000:00:02.0-render)")
+  DRI_ARGS=(-hw3d -drinode "$(readlink -f /dev/dri/by-path/pci-0000:00:02.0-render)")
 elif [ -e /dev/dri/renderD129 ]; then
-  DRI_ARGS=(-drinode /dev/dri/renderD129)
+  DRI_ARGS=(-hw3d -drinode /dev/dri/renderD129)
 elif [ -e /dev/dri/renderD128 ]; then
-  DRI_ARGS=(-drinode /dev/dri/renderD128)
+  DRI_ARGS=(-hw3d -drinode /dev/dri/renderD128)
 fi
 
 CERT_FILE="$SECRET_DIR/kasmvnc.pem"

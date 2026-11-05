@@ -21,7 +21,8 @@ log() {
   fi
 }
 
-TMP_DIR="$(mktemp -d)"
+mkdir -p "${XDG_CACHE_HOME:-$HOME/.cache}" 2>/dev/null || true
+TMP_DIR="$(mktemp -d "${XDG_CACHE_HOME:-$HOME/.cache}/.id-workstation.XXXXXX" 2>/dev/null || mktemp -d)"
 chmod 0755 "$TMP_DIR"
 trap 'rm -rf "$TMP_DIR" 2>/dev/null || true' EXIT
 
@@ -1193,6 +1194,169 @@ if [ "$(id -u)" -eq 0 ] || [ -n "$SUDO" ]; then
       'xfce4-*' 'libxfce4*' 'xfconf*' 'xfdesktop4*' 'xfwm4*' 'thunar*' 'exo-utils' >/dev/null 2>&1 || true
     run_root env DEBIAN_FRONTEND=noninteractive apt-get autoremove -y -qq >/dev/null 2>&1 || true
   fi
+fi
+
+# -----------------------------------------------------------------------------
+# 7e. Fleet Wave-1 & Wave-2 Hardening: Proxmox Backup Client (PBS), PQC SSH,
+#     BBRv3+fq+ECN, MGLRU, Battery Conservation, Tailscale UDP GRO, NVIDIA CDI
+# -----------------------------------------------------------------------------
+if [ "$(id -u)" -eq 0 ] || [ -n "$SUDO" ]; then
+  # Proxmox Backup Client 4.2+ (trixie PBS client repo)
+  if ! command -v proxmox-backup-client >/dev/null 2>&1 && command -v apt-get >/dev/null 2>&1; then
+    log "Installing Proxmox Backup Client (proxmox-backup-client)..."
+    if curl -fsSL https://enterprise.proxmox.com/debian/proxmox-release-trixie.gpg -o "$TMP_DIR/proxmox-archive-keyring.gpg" 2>/dev/null; then
+      run_root install -D -o root -g root -m 0644 "$TMP_DIR/proxmox-archive-keyring.gpg" /usr/share/keyrings/proxmox-archive-keyring.gpg
+      printf 'deb [signed-by=/usr/share/keyrings/proxmox-archive-keyring.gpg] http://download.proxmox.com/debian/pbs-client trixie main\n' > "$TMP_DIR/pbs-client.list"
+      run_root cp "$TMP_DIR/pbs-client.list" /etc/apt/sources.list.d/pbs-client.list
+      run_root apt-get update -o Dir::Etc::sourcelist="sources.list.d/pbs-client.list" -o Dir::Etc::sourceparts="-" -o APT::Get::List-Cleanup="0" -qq >/dev/null 2>&1 || true
+      run_root env DEBIAN_FRONTEND=noninteractive apt-get install -y -qq proxmox-backup-client >/dev/null 2>&1 || true
+    fi
+  fi
+
+  # Journald 500M cap + ZSTD compression
+  run_root install -d -m 0755 /etc/systemd/journald.conf.d
+  printf '[Journal]\nSystemMaxUse=500M\nRuntimeMaxUse=100M\nMaxRetentionSec=14day\nCompress=yes\n' > "$TMP_DIR/99-fleet-limits.conf"
+  run_root cp "$TMP_DIR/99-fleet-limits.conf" /etc/systemd/journald.conf.d/99-fleet-limits.conf
+
+  # systemd-oomd User-Slice PSI Protection + DefaultIPAccounting
+  run_root install -d -m 0755 /etc/systemd/system/user@.service.d /etc/systemd/system.conf.d
+  printf '[Service]\nManagedOOMSwap=auto\nManagedOOMMemoryPressure=auto\nManagedOOMMemoryPressureLimit=80%%\n' > "$TMP_DIR/oomd-protect.conf"
+  run_root cp "$TMP_DIR/oomd-protect.conf" /etc/systemd/system/user@.service.d/oomd-protect.conf
+  printf '[Manager]\nDefaultIPAccounting=yes\nDefaultCPUAccounting=yes\nDefaultIOAccounting=yes\nDefaultMemoryAccounting=yes\n' > "$TMP_DIR/99-fleet-accounting.conf"
+  run_root cp "$TMP_DIR/99-fleet-accounting.conf" /etc/systemd/system.conf.d/99-fleet-accounting.conf
+
+  # Canonical Ubuntu 26.04 telemetry & wsdd multicast eradication
+  for t_unit in ubuntu-insights-upload.timer ubuntu-insights-collect.timer ubuntu-insights-upload.service motd-news.timer motd-news.service wsdd.service wsdd-server.service; do
+    run_root systemctl disable --now "$t_unit" >/dev/null 2>&1 || true
+    run_root systemctl mask "$t_unit" >/dev/null 2>&1 || true
+  done
+
+  # Post-Quantum OpenSSH 10.x (mlkem768x25519-sha256) + PerSourcePenalties
+  if [ -x /usr/sbin/sshd ]; then
+    run_root install -d -m 0755 /etc/ssh/sshd_config.d
+    cat > "$TMP_DIR/99-fleet-pqc-hardening.conf" <<'EOF'
+KexAlgorithms mlkem768x25519-sha256,sntrup761x25519-sha512@openssh.com,curve25519-sha256,curve25519-sha256@libssh.org
+PerSourcePenalties crash:90 authfail:5 noauth:1 grace-exceeded:20 max:600 min:15
+PerSourcePenaltyExemptList 10.0.0.0/24,100.64.0.0/10,127.0.0.0/8,172.16.0.0/12
+EOF
+    run_root cp "$TMP_DIR/99-fleet-pqc-hardening.conf" /etc/ssh/sshd_config.d/99-fleet-pqc-hardening.conf
+    if run_root /usr/sbin/sshd -t 2>/dev/null; then
+      run_root systemctl reload ssh >/dev/null 2>&1 || run_root systemctl reload sshd >/dev/null 2>&1 || true
+    else
+      run_root rm -f /etc/ssh/sshd_config.d/99-fleet-pqc-hardening.conf
+    fi
+  fi
+
+  # BBRv3 + fq + ECN + ZRAM + I/O PSI sysctl tuning
+  run_root install -d -m 0755 /etc/sysctl.d
+  cat > "$TMP_DIR/99-fleet-bbrv3-memory-io.conf" <<'EOF'
+net.core.default_qdisc = fq
+net.ipv4.tcp_congestion_control = bbr
+net.ipv4.tcp_ecn = 1
+net.ipv4.tcp_ecn_fallback = 1
+net.core.rmem_max = 134217728
+net.core.wmem_max = 134217728
+net.ipv4.tcp_rmem = 4096 87380 134217728
+net.ipv4.tcp_wmem = 4096 65536 134217728
+net.ipv4.tcp_window_scaling = 1
+net.ipv4.tcp_keepalive_time = 300
+net.ipv4.tcp_keepalive_intvl = 15
+net.ipv4.tcp_keepalive_probes = 5
+vm.swappiness = 100
+vm.page-cluster = 0
+vm.dirty_ratio = 10
+vm.dirty_background_ratio = 3
+vm.vfs_cache_pressure = 50
+EOF
+  run_root cp "$TMP_DIR/99-fleet-bbrv3-memory-io.conf" /etc/sysctl.d/99-fleet-bbrv3-memory-io.conf
+  run_root sysctl --system >/dev/null 2>&1 || true
+
+  # Hardware tuning service: MGLRU min_ttl_ms=1000, balance_performance EPP, Battery Conservation, Tailscale UDP GRO
+  cat > "$TMP_DIR/fleet-hardware-tuning.sh" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+[ -w /sys/kernel/mm/lru_gen/min_ttl_ms ] && echo 1000 > /sys/kernel/mm/lru_gen/min_ttl_ms || true
+for p in /sys/devices/system/cpu/cpu*/cpufreq/energy_performance_preference; do
+  [ -w "$p" ] && echo balance_performance > "$p" 2>/dev/null || true
+done
+for b in /sys/class/power_supply/BAT*/charge_control_end_threshold; do
+  [ -w "$b" ] && echo 80 > "$b" 2>/dev/null || true
+done
+for c in /sys/bus/platform/drivers/ideapad_acpi/*/conservation_mode; do
+  [ -w "$c" ] && echo 1 > "$c" 2>/dev/null || true
+done
+NETDEV="$(ip route show 0/0 2>/dev/null | awk '{print $5; exit}')"
+if [ -n "$NETDEV" ] && command -v ethtool >/dev/null 2>&1; then
+  ethtool -K "$NETDEV" rx-udp-gro-forwarding on rx-gro-list off 2>/dev/null || true
+fi
+EOF
+  run_root install -m 0755 "$TMP_DIR/fleet-hardware-tuning.sh" /usr/local/bin/fleet-hardware-tuning.sh
+  run_root /usr/local/bin/fleet-hardware-tuning.sh >/dev/null 2>&1 || true
+
+  cat > "$TMP_DIR/fleet-hardware-tuning.service" <<'EOF'
+[Unit]
+Description=Fleet Kernel MGLRU, CPU EPP, Battery Conservation & Tailscale UDP GRO Tuning
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/fleet-hardware-tuning.sh
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
+EOF
+  run_root cp "$TMP_DIR/fleet-hardware-tuning.service" /etc/systemd/system/fleet-hardware-tuning.service
+  run_root systemctl enable --now fleet-hardware-tuning.service >/dev/null 2>&1 || true
+
+  # NVIDIA Dynamic Boost + CDI specification (/etc/cdi/nvidia.yaml)
+  if command -v nvidia-smi >/dev/null 2>&1; then
+    run_root systemctl enable --now nvidia-powerd.service >/dev/null 2>&1 || true
+    run_root systemctl enable --now nvidia-persistenced.service >/dev/null 2>&1 || true
+    if command -v nvidia-ctk >/dev/null 2>&1; then
+      run_root install -d -m 0755 /etc/cdi
+      run_root nvidia-ctk cdi generate --output=/etc/cdi/nvidia.yaml >/dev/null 2>&1 || true
+    fi
+  fi
+
+  # Weekly TRIM timers (fstrim + ZFS rpool/bpool)
+  run_root systemctl enable --now fstrim.timer >/dev/null 2>&1 || true
+  if command -v zpool >/dev/null 2>&1; then
+    cat > "$TMP_DIR/zfs-trim-weekly@.service" <<'EOF'
+[Unit]
+Description=Weekly ZFS pool TRIM on %i
+ConditionACPower=true
+
+[Service]
+Type=oneshot
+ExecStart=/sbin/zpool trim %i
+EOF
+    cat > "$TMP_DIR/zfs-trim-weekly@.timer" <<'EOF'
+[Unit]
+Description=Weekly ZFS TRIM timer for %i
+
+[Timer]
+OnCalendar=Sun *-*-* 04:30:00
+RandomizedDelaySec=30m
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+EOF
+    run_root cp "$TMP_DIR/zfs-trim-weekly@.service" /etc/systemd/system/zfs-trim-weekly@.service
+    run_root cp "$TMP_DIR/zfs-trim-weekly@.timer" /etc/systemd/system/zfs-trim-weekly@.timer
+    for pool in rpool bpool; do
+      if zpool list -H -o name "$pool" >/dev/null 2>&1; then
+        run_root systemctl enable --now "zfs-trim-weekly@${pool}.timer" >/dev/null 2>&1 || true
+      fi
+    done
+  fi
+
+  # systemd-resolved local DNS cache
+  run_root install -d -m 0755 /etc/systemd/resolved.conf.d
+  printf '[Resolve]\nCache=yes\nCacheFromLocalhost=no\nDNSStubListener=yes\n' > "$TMP_DIR/99-fleet-dns-cache.conf"
+  run_root cp "$TMP_DIR/99-fleet-dns-cache.conf" /etc/systemd/resolved.conf.d/99-fleet-dns-cache.conf
+  run_root systemctl restart systemd-resolved >/dev/null 2>&1 || true
 fi
 
 # -----------------------------------------------------------------------------
