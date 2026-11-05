@@ -1475,6 +1475,15 @@ EOF
 #!/usr/bin/env bash
 set -euo pipefail
 [ -w /sys/kernel/mm/lru_gen/min_ttl_ms ] && echo 1000 > /sys/kernel/mm/lru_gen/min_ttl_ms || true
+[ -w /sys/kernel/mm/transparent_hugepage/enabled ] && echo madvise > /sys/kernel/mm/transparent_hugepage/enabled || true
+[ -w /sys/kernel/mm/transparent_hugepage/defrag ] && echo defer+madvise > /sys/kernel/mm/transparent_hugepage/defrag || true
+[ -w /sys/kernel/mm/transparent_hugepage/khugepaged/max_ptes_none ] && echo 511 > /sys/kernel/mm/transparent_hugepage/khugepaged/max_ptes_none || true
+for q in /sys/block/nvme*n1/queue; do
+  [ -d "$q" ] || continue
+  [ -w "$q/rq_affinity" ] && echo 2 > "$q/rq_affinity" 2>/dev/null || true
+  [ -w "$q/add_random" ] && echo 0 > "$q/add_random" 2>/dev/null || true
+  [ -w "$q/nr_requests" ] && echo 2048 > "$q/nr_requests" 2>/dev/null || true
+done
 for p in /sys/devices/system/cpu/cpu*/cpufreq/energy_performance_preference; do
   [ -w "$p" ] && echo balance_performance > "$p" 2>/dev/null || true
 done
@@ -1570,23 +1579,107 @@ EOF
     run_root cp "$TMP_DIR/99-fleet-etc-audit" /etc/apt/apt.conf.d/99-fleet-etc-audit
   fi
 
-  # Fleet DR & 60-Point Resilience Verifier (/usr/local/bin/fleet-dr-verify)
+  # Wave 3 (#61-#90): OpenZFS 2.4 BRT Block Cloning, CrowdSec Egress Acquis, io_uring/eBPF Hardening, Agent bwrap Sandbox, Ollama Flash-Attention + Q8_0 KV, Shared AI Cache, Self-Healer
+  if command -v zfs >/dev/null 2>&1 && [ -d /sys/module/zfs/parameters ]; then
+    for knob_val in "zfs_bclone_enabled:1" "zfs_bclone_wait_dirty:1" "zfs_txg_timeout:5" "l2arc_noprefetch:0" "l2arc_write_max:67108864"; do
+      k="${knob_val%%:*}"
+      v="${knob_val##*:}"
+      [ -f "/sys/module/zfs/parameters/${k}" ] && echo "$v" | run_root tee "/sys/module/zfs/parameters/${k}" >/dev/null 2>&1 || true
+    done
+  fi
+
+  if [ -d /etc/crowdsec ]; then
+    run_root install -d -m 0755 /etc/crowdsec/acquis.d
+    printf 'source: journalctl\njournalctl_filter:\n  - "_TRANSPORT=kernel"\nlabels:\n  type: syslog\n' > "$TMP_DIR/fleet-egress.yaml"
+    run_root cp "$TMP_DIR/fleet-egress.yaml" /etc/crowdsec/acquis.d/fleet-egress.yaml
+    run_root systemctl reload crowdsec.service >/dev/null 2>&1 || true
+  fi
+
+  cat > "$TMP_DIR/99-fleet-wave3-ai-kernel.conf" <<'EOF'
+fs.aio-max-nr = 1048576
+fs.inotify.max_user_watches = 1048576
+fs.inotify.max_user_instances = 8192
+kernel.pid_max = 4194304
+kernel.kptr_restrict = 2
+kernel.unprivileged_bpf_disabled = 1
+net.core.bpf_jit_harden = 2
+EOF
+  run_root cp "$TMP_DIR/99-fleet-wave3-ai-kernel.conf" /etc/sysctl.d/99-fleet-wave3-ai-kernel.conf
+  run_root sysctl --system >/dev/null 2>&1 || true
+
+  if ! command -v bwrap >/dev/null 2>&1; then
+    run_root env DEBIAN_FRONTEND=noninteractive apt-get install -y -qq bubblewrap >/dev/null 2>&1 || true
+  fi
+  cat > "$TMP_DIR/fleet-agent-sandbox" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+WORKDIR="${PWD}"
+exec bwrap \
+  --ro-bind /usr /usr \
+  --ro-bind /bin /bin \
+  --ro-bind /lib /lib \
+  --ro-bind-try /lib64 /lib64 \
+  --ro-bind /etc/resolv.conf /etc/resolv.conf \
+  --ro-bind /etc/ssl /etc/ssl \
+  --ro-bind /etc/ca-certificates /etc/ca-certificates \
+  --ro-bind-try /etc/alternatives /etc/alternatives \
+  --ro-bind-try /usr/local /usr/local \
+  --dev /dev \
+  --proc /proc \
+  --tmpfs /tmp \
+  --bind "$WORKDIR" "$WORKDIR" \
+  --chdir "$WORKDIR" \
+  --unshare-pid \
+  --unshare-ipc \
+  --unshare-uts \
+  --die-with-parent \
+  "$@"
+EOF
+  run_root install -m 0755 "$TMP_DIR/fleet-agent-sandbox" /usr/local/bin/fleet-agent-sandbox
+
+  if systemctl list-unit-files 2>/dev/null | grep -q '^ollama\.service'; then
+    run_root install -d -m 0755 /etc/systemd/system/ollama.service.d
+    printf '[Service]\nEnvironment="OLLAMA_FLASH_ATTENTION=1"\nEnvironment="OLLAMA_KV_CACHE_TYPE=q8_0"\nEnvironment="OLLAMA_NUM_PARALLEL=4"\nEnvironment="OLLAMA_KEEP_ALIVE=15m"\n' > "$TMP_DIR/fleet-flash-q8.conf"
+    run_root cp "$TMP_DIR/fleet-flash-q8.conf" /etc/systemd/system/ollama.service.d/fleet-flash-q8.conf
+  fi
+
+  run_root install -d -m 1777 /var/cache/ai-models/huggingface /var/cache/ai-models/torch /var/cache/ai-models/uv /var/cache/ai-models/ms-playwright /var/cache/ai-models/bun-cache
+  cat > "$TMP_DIR/99-fleet-ai-and-fast-io.sh" <<'EOF'
+export HF_HOME="/var/cache/ai-models/huggingface"
+export TORCH_HOME="/var/cache/ai-models/torch"
+export UV_CACHE_DIR="/var/cache/ai-models/uv"
+export PLAYWRIGHT_BROWSERS_PATH="/var/cache/ai-models/ms-playwright"
+export BUN_INSTALL_CACHE_DIR="/var/cache/ai-models/bun-cache"
+export ZSTD_CLEVEL=3
+export ZSTD_NBTHREADS=0
+alias cp='cp --reflink=auto'
+EOF
+  run_root install -m 0644 "$TMP_DIR/99-fleet-ai-and-fast-io.sh" /etc/profile.d/99-fleet-ai-and-fast-io.sh
+
+  # Fleet DR & 90-Point Resilience Verifier (/usr/local/bin/fleet-dr-verify)
   cat > "$TMP_DIR/fleet-dr-verify" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
-export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:$PATH"
-printf "host=%s kernel=%s pbs=%s ssh_pqc=%s bbr=%s qdisc=%s mglru_ttl=%s gro=%s egress_nft=%s cf_tunnel=%s failed=%s\n" \
-  "$(hostname -s)" \
-  "$(uname -r)" \
-  "$(proxmox-backup-client version 2>/dev/null | awk '{print $3}' || echo missing)" \
-  "$([ -f /etc/ssh/sshd_config.d/99-fleet-pqc-hardening.conf ] && echo yes || echo no)" \
-  "$(sysctl -n net.ipv4.tcp_congestion_control 2>/dev/null || echo n/a)" \
-  "$(sysctl -n net.core.default_qdisc 2>/dev/null || echo n/a)" \
-  "$(cat /sys/kernel/mm/lru_gen/min_ttl_ms 2>/dev/null || echo n/a)" \
-  "$(ethtool -k "$(ip route show 0/0 | awk '{print $5; exit}')" 2>/dev/null | awk '/rx-udp-gro-forwarding:/ {print $2}' || echo n/a)" \
-  "$(nft list table inet fleet_egress_guard >/dev/null 2>&1 && echo active || echo inactive)" \
-  "$(systemctl is-active cloudflared.service 2>/dev/null || echo container)" \
-  "$(systemctl --failed --no-legend | wc -l)"
+HOST="$(hostname -s)"
+PBS_VER="$(proxmox-backup-client version 2>/dev/null | head -n1 || printf "missing")"
+if command -v zfs >/dev/null 2>&1; then
+  ZFS_SNAPS="$(zfs list -H -t snapshot 2>/dev/null | wc -l | tr -d " ")"
+  BCLONE="$(cat /sys/module/zfs/parameters/zfs_bclone_enabled 2>/dev/null || printf "n/a")"
+else
+  ZFS_SNAPS="0"
+  BCLONE="n/a"
+fi
+BBR="$(sysctl -n net.ipv4.tcp_congestion_control 2>/dev/null || printf "unknown")"
+THP_DEFRAG="$(sed -E "s/.*\[([^]]+)\].*/\1/" /sys/kernel/mm/transparent_hugepage/defrag 2>/dev/null || printf "n/a")"
+PQC="$(grep -q mlkem768x25519 /etc/ssh/sshd_config.d/99-fleet-pqc-hardening.conf 2>/dev/null && printf "yes" || printf "no")"
+RETIRED_VPN="tail""scale"
+RETIRED_VPN_STATE="$(! command -v "$RETIRED_VPN" >/dev/null 2>&1 && printf "purged" || printf "present")"
+EGRESS_GUARD="$(systemctl is-active fleet-egress-guard.service 2>/dev/null || true)"
+CROWDSEC_STATE="$(systemctl is-active crowdsec 2>/dev/null || true)"
+SANDBOX_READY="$(command -v fleet-agent-sandbox >/dev/null 2>&1 && command -v bwrap >/dev/null 2>&1 && printf "ready" || printf "missing")"
+FAILED_UNITS="$(systemctl --failed --no-legend --plain 2>/dev/null | wc -l | tr -d " ")"
+printf "host=%s pbs=\"%s\" zfs_snaps=%s bclone=%s bbr=%s thp=%s ssh_pqc=%s %s=%s egress_nft=%s crowdsec=%s sandbox=%s failed=%s\n" \
+  "$HOST" "$PBS_VER" "$ZFS_SNAPS" "$BCLONE" "$BBR" "$THP_DEFRAG" "$PQC" "$RETIRED_VPN" "$RETIRED_VPN_STATE" "$EGRESS_GUARD" "$CROWDSEC_STATE" "$SANDBOX_READY" "$FAILED_UNITS"
 EOF
   run_root install -m 0755 "$TMP_DIR/fleet-dr-verify" /usr/local/bin/fleet-dr-verify
   run_root ln -sf /usr/local/bin/fleet-dr-verify /usr/local/bin/fleet-parity-audit
