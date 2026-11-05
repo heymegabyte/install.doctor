@@ -26,6 +26,87 @@ TMP_DIR="$(mktemp -d "${XDG_CACHE_HOME:-$HOME/.cache}/.id-workstation.XXXXXX" 2>
 chmod 0755 "$TMP_DIR"
 trap 'rm -rf "$TMP_DIR" 2>/dev/null || true' EXIT
 
+resolve_infisical_sudo_password() {
+  local pw="${SUDO_PASSWORD:-}"
+  if [ -z "$pw" ] && command -v get-secret >/dev/null 2>&1; then
+    pw="$(get-secret SUDO_PASSWORD 2>/dev/null || true)"
+  fi
+  if [ -z "$pw" ] && command -v infisical >/dev/null 2>&1 && [ -n "${INFISICAL_TOKEN:-}" ]; then
+    pw="$(infisical secrets get SUDO_PASSWORD --env=prod --path="/hosts/$(hostname -s 2>/dev/null || hostname)" --plain --silent 2>/dev/null || infisical secrets get SUDO_PASSWORD --plain --silent 2>/dev/null || true)"
+  fi
+  if [ -z "$pw" ] && [ -f "$HOME/.config/agent-fleet/infisical.json" ] && command -v python3 >/dev/null 2>&1; then
+    pw="$(python3 - <<'PY' 2>/dev/null || true
+import json
+from pathlib import Path
+from urllib.parse import urlencode
+from urllib.request import Request, urlopen
+
+cfg_path = Path.home() / ".config/agent-fleet/infisical.json"
+cfg = json.loads(cfg_path.read_text())
+cred_path = Path(cfg.get("credentialsFile", str(Path.home() / ".config/agent-fleet/infisical-us-credentials.json"))).expanduser()
+if not cred_path.exists():
+    cred_path = Path.home() / ".config/agent-fleet/infisical-us-credentials.json"
+creds = json.loads(cred_path.read_text())
+base = cfg["url"].rstrip("/")
+headers = {"Content-Type": "application/json", "User-Agent": "infisical-fleet-broker/1.0"}
+req = Request(f"{base}/api/v1/auth/universal-auth/login", data=json.dumps(creds).encode(), headers=headers)
+with urlopen(req, timeout=10) as resp:
+    tok = json.load(resp)["accessToken"]
+q = urlencode({"workspaceId": cfg["projectId"], "environment": cfg.get("environment", "prod"), "secretPath": cfg.get("secretPath", "/"), "type": "shared"})
+req2 = Request(f"{base}/api/v3/secrets/raw/SUDO_PASSWORD?{q}", headers={"Authorization": f"Bearer {tok}", "User-Agent": "infisical-fleet-broker/1.0"})
+with urlopen(req2, timeout=10) as resp2:
+    print(json.load(resp2)["secret"]["secretValue"], end="")
+PY
+)"
+  fi
+  printf '%s' "$pw"
+}
+
+SUDO=""
+COOLIFY_KEY="$HOME/legion-provision/private/coolify-legion-ed25519"
+if [ "$(uname -s)" = "Linux" ] && [ "$(id -u)" -ne 0 ]; then
+  if sudo -n true 2>/dev/null; then
+    SUDO="sudo"
+  else
+    SUDO_PW="$(resolve_infisical_sudo_password)"
+    if [ -n "$SUDO_PW" ]; then
+      ASKPASS_SCRIPT="$TMP_DIR/sudo-askpass.sh"
+      printf '#!/usr/bin/env sh\nprintf '\''%%s\\n'\'' %q\n' "$SUDO_PW" > "$ASKPASS_SCRIPT"
+      chmod 0700 "$ASKPASS_SCRIPT"
+      export SUDO_ASKPASS="$ASKPASS_SCRIPT"
+      if sudo -A -k true 2>/dev/null; then
+        SUDO="sudo-askpass"
+      fi
+      unset SUDO_PW
+    fi
+    if [ -z "$SUDO" ] && [ -f "$COOLIFY_KEY" ] && ssh -o BatchMode=yes -o ConnectTimeout=3 -i "$COOLIFY_KEY" coolify@127.0.0.1 "sudo -n true" 2>/dev/null; then
+      SUDO="coolify-ssh"
+    fi
+  fi
+fi
+
+has_root() {
+  [ "$(id -u)" -eq 0 ] || [ -n "$SUDO" ]
+}
+
+run_root() {
+  if [ "$(id -u)" -eq 0 ]; then
+    "$@"
+  elif [ "$SUDO" = "sudo-askpass" ]; then
+    sudo -A "$@"
+  elif [ "$SUDO" = "sudo" ]; then
+    sudo -n "$@"
+  elif [ "$SUDO" = "coolify-ssh" ]; then
+    local qcmd="" arg
+    for arg in "$@"; do
+      qcmd="$qcmd $(printf '%q' "$arg")"
+    done
+    ssh -o BatchMode=yes -i "$COOLIFY_KEY" coolify@127.0.0.1 "sudo -n $qcmd"
+  else
+    return 1
+  fi
+}
+
 # -----------------------------------------------------------------------------
 # 0. Completely remove Superset, beszel-agent, syncthing, and retired VPNs across all platforms
 # -----------------------------------------------------------------------------
@@ -316,21 +397,21 @@ PY
 
   # 8. Ideal Linux AI Workstation Desktop: purge unnecessary GUI bloat & configure clean GNOME 50 dock/theme
   if [ "$os_name" = "linux" ]; then
-    if sudo -n true 2>/dev/null; then
+    if has_root; then
       # Remove unneeded Snap GUI bloat (keep chromium on hosts that use it as the desktop browser)
       if command -v snap >/dev/null 2>&1; then
         for bsnap in firefox snap-store cups desktop-security-center prompting-client firmware-updater; do
           if snap list "$bsnap" >/dev/null 2>&1; then
-            sudo -n snap remove --purge "$bsnap" >/dev/null 2>&1 || true
+            run_root snap remove --purge "$bsnap" >/dev/null 2>&1 || true
           fi
         done
       fi
       # Remove any installed Flatpak bloatware
       if command -v flatpak >/dev/null 2>&1; then
-        sudo -n flatpak uninstall --all --unused -y >/dev/null 2>&1 || true
+        run_root flatpak uninstall --all --unused -y >/dev/null 2>&1 || true
       fi
       # Purge Ubuntu/GNOME default consumer GUI bloatware & orphaned xfce4 packages via APT
-      sudo -n env DEBIAN_FRONTEND=noninteractive apt-get purge -y -qq \
+      run_root env DEBIAN_FRONTEND=noninteractive apt-get purge -y -qq \
         'libreoffice*' 'thunderbird*' 'gimp*' 'kdenlive*' 'shotwell*' 'rhythmbox*' 'totem*' \
         'transmission*' 'remmina*' 'cheese*' 'simple-scan*' 'deja-dup*' 'aisleriot*' \
         'gnome-mahjongg*' 'gnome-mines*' 'gnome-sudoku*' 'gnome-weather*' 'gnome-maps*' \
@@ -338,7 +419,34 @@ PY
         'gnome-font-viewer*' 'gnome-tour*' 'gnome-boxes*' 'gnome-sound-recorder*' 'gnome-todo*' \
         'yelp*' 'yelp-xsl*' 'orca*' 'baobab*' 'eog*' 'evince*' \
         'xfce4-*' 'libxfce4*' 'xfconf*' 'xfdesktop4*' 'xfwm4*' 'thunar*' 'exo-utils' >/dev/null 2>&1 || true
-      sudo -n env DEBIAN_FRONTEND=noninteractive apt-get autoremove -y -qq >/dev/null 2>&1 || true
+      run_root env DEBIAN_FRONTEND=noninteractive apt-get autoremove -y -qq >/dev/null 2>&1 || true
+    fi
+
+    # Ensure .desktop launchers exist for Emdash and VS Code when their binaries are present
+    mkdir -p "$HOME/.local/share/applications"
+    if [ -x "$HOME/.local/bin/emdash" ] && [ ! -f "/usr/share/applications/emdash.desktop" ] && [ ! -f "$HOME/.local/share/applications/emdash.desktop" ]; then
+      cat > "$HOME/.local/share/applications/emdash.desktop" <<EOF
+[Desktop Entry]
+Name=Emdash
+Comment=Multi-Agent Orchestrator
+Exec=$HOME/.local/bin/emdash --no-sandbox %U
+Terminal=false
+Type=Application
+Icon=utilities-terminal
+Categories=Development;IDE;
+EOF
+    fi
+    if command -v code >/dev/null 2>&1 && [ ! -f "/usr/share/applications/code.desktop" ] && [ ! -f "$HOME/.local/share/applications/code.desktop" ]; then
+      cat > "$HOME/.local/share/applications/code.desktop" <<EOF
+[Desktop Entry]
+Name=Visual Studio Code
+Comment=Code Editing. Redefined.
+Exec=$(command -v code) %F
+Terminal=false
+Type=Application
+Icon=com.visualstudio.code
+Categories=Utility;TextEditor;Development;IDE;
+EOF
     fi
 
     # Mask noisy background desktop file-indexers (Tracker / LocalSearch) so idle CPU/IO stays at 0%
@@ -364,6 +472,7 @@ dirs = [
 candidates = [
     "google-chrome.desktop",
     "chromium_chromium.desktop",
+    "antigravity.desktop",
     "code.desktop",
     "emdash.desktop",
     "cua.desktop",
@@ -374,7 +483,6 @@ candidates = [
 present = []
 for c in candidates:
     if any((d / c).exists() for d in dirs):
-        # Only keep one browser and one terminal in the dock
         if c == "chromium_chromium.desktop" and "google-chrome.desktop" in present:
             continue
         if c == "org.gnome.Terminal.desktop" and "org.gnome.Ptyxis.desktop" in present:
@@ -402,85 +510,6 @@ fi
 
 export PATH="$HOME/.local/share/mise/shims:$HOME/.bun/bin:$HOME/.local/share/cargo/bin:$HOME/.cargo/bin:$HOME/.local/bin:/usr/local/go/bin:/usr/local/bin:/usr/bin:/bin:$PATH"
 mkdir -p "$HOME/.local/bin" "$HOME/.config/shell" "$HOME/.cache/cnf/shims"
-
-resolve_infisical_sudo_password() {
-  local pw="${SUDO_PASSWORD:-}"
-  if [ -z "$pw" ] && command -v get-secret >/dev/null 2>&1; then
-    pw="$(get-secret SUDO_PASSWORD 2>/dev/null || true)"
-  fi
-  if [ -z "$pw" ] && command -v infisical >/dev/null 2>&1 && [ -n "${INFISICAL_TOKEN:-}" ]; then
-    pw="$(infisical secrets get SUDO_PASSWORD --env=prod --path="/hosts/$(hostname -s 2>/dev/null || hostname)" --plain --silent 2>/dev/null || infisical secrets get SUDO_PASSWORD --plain --silent 2>/dev/null || true)"
-  fi
-  if [ -z "$pw" ] && [ -f "$HOME/.config/agent-fleet/infisical.json" ] && command -v python3 >/dev/null 2>&1; then
-    pw="$(python3 - <<'PY' 2>/dev/null || true
-import json
-from pathlib import Path
-from urllib.parse import urlencode
-from urllib.request import Request, urlopen
-
-cfg_path = Path.home() / ".config/agent-fleet/infisical.json"
-cfg = json.loads(cfg_path.read_text())
-cred_path = Path(cfg.get("credentialsFile", str(Path.home() / ".config/agent-fleet/infisical-us-credentials.json"))).expanduser()
-if not cred_path.exists():
-    cred_path = Path.home() / ".config/agent-fleet/infisical-us-credentials.json"
-creds = json.loads(cred_path.read_text())
-base = cfg["url"].rstrip("/")
-headers = {"Content-Type": "application/json", "User-Agent": "infisical-fleet-broker/1.0"}
-req = Request(f"{base}/api/v1/auth/universal-auth/login", data=json.dumps(creds).encode(), headers=headers)
-with urlopen(req, timeout=10) as resp:
-    tok = json.load(resp)["accessToken"]
-q = urlencode({"workspaceId": cfg["projectId"], "environment": cfg.get("environment", "prod"), "secretPath": cfg.get("secretPath", "/"), "type": "shared"})
-req2 = Request(f"{base}/api/v3/secrets/raw/SUDO_PASSWORD?{q}", headers={"Authorization": f"Bearer {tok}", "User-Agent": "infisical-fleet-broker/1.0"})
-with urlopen(req2, timeout=10) as resp2:
-    print(json.load(resp2)["secret"]["secretValue"], end="")
-PY
-)"
-  fi
-  printf '%s' "$pw"
-}
-
-SUDO=""
-COOLIFY_KEY="$HOME/legion-provision/private/coolify-legion-ed25519"
-if [ "$(id -u)" -ne 0 ]; then
-  SUDO_PW="$(resolve_infisical_sudo_password)"
-  if [ -n "$SUDO_PW" ]; then
-    ASKPASS_SCRIPT="$TMP_DIR/sudo-askpass.sh"
-    printf '#!/usr/bin/env sh\nprintf '\''%%s\\n'\'' %q\n' "$SUDO_PW" > "$ASKPASS_SCRIPT"
-    chmod 0700 "$ASKPASS_SCRIPT"
-    export SUDO_ASKPASS="$ASKPASS_SCRIPT"
-    if sudo -A -k true 2>/dev/null; then
-      SUDO="sudo-askpass"
-    fi
-    unset SUDO_PW
-  fi
-  if [ -z "$SUDO" ] && sudo -n true 2>/dev/null; then
-    SUDO="sudo"
-  elif [ -z "$SUDO" ] && [ -f "$COOLIFY_KEY" ] && ssh -o BatchMode=yes -o ConnectTimeout=3 -i "$COOLIFY_KEY" coolify@127.0.0.1 "sudo -n true" 2>/dev/null; then
-    SUDO="coolify-ssh"
-  fi
-fi
-
-has_root() {
-  [ "$(id -u)" -eq 0 ] || [ -n "$SUDO" ]
-}
-
-run_root() {
-  if [ "$(id -u)" -eq 0 ]; then
-    "$@"
-  elif [ "$SUDO" = "sudo-askpass" ]; then
-    sudo -A "$@"
-  elif [ "$SUDO" = "sudo" ]; then
-    sudo -n "$@"
-  elif [ "$SUDO" = "coolify-ssh" ]; then
-    local qcmd="" arg
-    for arg in "$@"; do
-      qcmd="$qcmd $(printf '%q' "$arg")"
-    done
-    ssh -o BatchMode=yes -i "$COOLIFY_KEY" coolify@127.0.0.1 "sudo -n $qcmd"
-  else
-    return 1
-  fi
-}
 
 # -----------------------------------------------------------------------------
 # 1. Eager Base APT Packages (Minimal Substrates, GPU/System Monitors, ZFS Sanoid; CLI tools lazy-load via CNF)
