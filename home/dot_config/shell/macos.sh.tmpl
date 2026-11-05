@@ -12,6 +12,12 @@ gum log -sl info 'Applying optimized macOS settings'
 gum log -sl info 'A sudo password is required to apply some of the macOS optimizations.'
 sudo echo "Sudo access granted."
 
+# Enable Touch ID for sudo via /etc/pam.d/sudo_local
+if [ -f /etc/pam.d/sudo_local.template ] && [ ! -f /etc/pam.d/sudo_local ]; then
+  gum log -sl info 'Configuring Touch ID for sudo (/etc/pam.d/sudo_local)'
+  sudo sed "s/#auth/auth/" /etc/pam.d/sudo_local.template | sudo tee /etc/pam.d/sudo_local > /dev/null
+fi
+
 # Log commands
 if [ -n "$DEBUG" ] || [ -n "$DEBUG_MODE" ]; then
 	set -x
@@ -20,12 +26,14 @@ fi
 # Enable SSH access
 sudo systemsetup -setremotelogin {{ .macosRemoteLogin }} > /dev/null
 
-# Close any open System Settings / Preferences panes on interactive GUI sessions
-if [ -z "${HEADLESS_INSTALL:-}" ]; then
-  osascript -e 'tell application "System Settings" to quit' 2>/dev/null || osascript -e 'tell application "System Preferences" to quit' 2>/dev/null || true
-  osascript -e "tell application \"Terminal\" to set the font name of window 1 to \"Hack Nerd Font\"" 2>/dev/null || true
-  osascript -e "tell application \"Terminal\" to set the font size of window 1 to 12" 2>/dev/null || true
-fi
+# Close any open System Preferences panes, to prevent them from overriding
+# settings we’re about to change
+osascript -e 'tell application "System Preferences" to quit'
+
+# Change font to Hack for icon support
+osascript -e "tell application \"Terminal\" to set the font name of window 1 to \"Hack Nerd Font\""
+osascript -e "tell application \"Terminal\" to set the font size of window 1 to 12"
+# TODO - Add anti-aliasing
 
 # Hammerspoon
 defaults write org.hammerspoon.Hammerspoon MJConfigFile "${XDG_CONFIG_HOME:-$HOME/.config}/hammerspoon/init.lua"
@@ -354,7 +362,8 @@ defaults write com.apple.finder WarnOnEmptyTrash -bool false
 defaults write com.apple.NetworkBrowser BrowseAllInterfaces -bool true
 
 # Show the ~/Library folder
-chflags nohidden ~/Library 2>/dev/null || true
+# ERROR: xattr: /Users/bzalewski/Library: No such xattr: com.apple.FinderInfo
+# chflags nohidden ~/Library && xattr -d com.apple.FinderInfo ~/Library
 
 # Show the /Volumes folder
 sudo chflags nohidden /Volumes

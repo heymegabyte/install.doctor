@@ -14,6 +14,7 @@ export XDG_CONFIG_HOME="${XDG_CONFIG_HOME:-$HOME/.config}"
 [ ! -f "${XDG_CONFIG_HOME:-$HOME/.config}/shell/functions.sh" ] || . "${XDG_CONFIG_HOME:-$HOME/.config}/shell/functions.sh"
 [ ! -f "${XDG_CONFIG_HOME:-$HOME/.config}/shell/apps.sh" ] || . "${XDG_CONFIG_HOME:-$HOME/.config}/shell/apps.sh"
 [ ! -f "${XDG_CONFIG_HOME:-$HOME/.config}/shell/docker.sh" ] || . "${XDG_CONFIG_HOME:-$HOME/.config}/shell/docker.sh"
+[ ! -f "${XDG_CONFIG_HOME:-$HOME/.config}/shell/ssh-agent.sh" ] || . "${XDG_CONFIG_HOME:-$HOME/.config}/shell/ssh-agent.sh"
 
 ### Bash / ZSH
 if [ "$BASH_SUPPORT" = 'true' ]; then

@@ -1,0 +1,5 @@
+{{- if eq .host.distro.family "darwin" -}}
+# sudo_local: local config file which survives macOS system updates
+# Enables Touch ID authentication for sudo on macOS
+auth       sufficient     pam_tid.so
+{{- end -}}

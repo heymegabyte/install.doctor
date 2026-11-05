@@ -8,7 +8,8 @@ Host ubuntu.megabyte.space
     ProxyCommand "/Users/Apple/.ssh/ubuntu-ssh-proxy.sh" "/opt/homebrew/opt/cloudflared/bin/cloudflared" %h
     IdentityFile "/Users/Apple/.ssh/id_rsa"
     IdentitiesOnly yes
-    ForwardAgent no
+    ForwardAgent yes
+    IdentityAgent ~/.ssh/agent.sock
     ServerAliveInterval 30
     ServerAliveCountMax 3
     ConnectTimeout 90
@@ -16,6 +17,19 @@ Host ubuntu.megabyte.space
 # END Ubuntu fleet Cloudflare Access
 
 Include /Users/Apple/.config/colima/ssh_config
+
+Host gitlab.com
+    UpdateHostKeys no
+    {{ if eq .host.distro.id "darwin" -}}
+    IdentityAgent /Users/apple/Library/Containers/com.maxgoedjen.Secretive.SecretAgent/Data/socket.ssh
+    {{- end }}
+
+Host github.com
+    Hostname github.com
+    UpdateHostKeys no
+    {{ if eq .host.distro.id "darwin" -}}
+    IdentityAgent /Users/apple/Library/Containers/com.maxgoedjen.Secretive.SecretAgent/Data/socket.ssh
+    {{- end }}
 
 Host *
     IgnoreUnknown AddKeysToAgent,UseKeychain
@@ -32,7 +46,7 @@ Host *
     ServerAliveInterval 60
     ServerAliveCountMax 30
     IdentitiesOnly yes
-    IdentityAgent none
+    IdentityAgent ~/.ssh/agent.sock
     {{ if eq .host.hostname "automation" -}}
     IdentityFile ~/.ssh/ssh-13147527
     {{- else if eq .host.hostname "macbook-pro" -}}
@@ -49,17 +63,6 @@ Host *
     IdentityFile ~/.ssh/ssh-5-nfc-yellow
     {{- end }}
     IdentityFile ~/.ssh/id_rsa
-Host gitlab.com
-    UpdateHostKeys no
-    {{ if eq .host.distro.id "darwin" -}}
-    IdentityAgent /Users/apple/Library/Containers/com.maxgoedjen.Secretive.SecretAgent/Data/socket.ssh
-    {{- end }}
-Host github.com
-    Hostname github.com
-    UpdateHostKeys no
-    {{ if eq .host.distro.id "darwin" -}}
-    IdentityAgent /Users/apple/Library/Containers/com.maxgoedjen.Secretive.SecretAgent/Data/socket.ssh
-    {{- end }}
 Host automation
     User {{ .user.username }}
     Hostname ssh-automation.{{ .host.domain }}
