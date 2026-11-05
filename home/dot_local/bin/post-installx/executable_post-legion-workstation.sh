@@ -1703,10 +1703,11 @@ fi
 
 if [ "$(id -u)" -eq 0 ] || [ -n "$SUDO" ]; then
   log "Symlinking user/runtime CLIs into /usr/local/bin for system-wide and non-interactive SSH parity..."
+  run_root rm -f /usr/local/bin/gemini 2>/dev/null || true
   for bin_name in \
     rg tmux jq fzf fd bat htop btop ncdu gh rclone restic age sops yq \
     uv uvx ruff bun bunx pnpm deno node npm npx go gofmt cargo rustc \
-    cloudflared warp-cli claude codex opencode gemini openspec \
+    cloudflared warp-cli claude codex opencode agy openspec \
     ffmpeg cua-driver actionlint just yt-dlp task chezmoi gum infisical code; do
     src_bin=""
     if [ -x "$HOME/.local/bin/$bin_name" ]; then
@@ -1718,6 +1719,98 @@ if [ "$(id -u)" -eq 0 ] || [ -n "$SUDO" ]; then
       run_root ln -sf "$src_bin" "/usr/local/bin/$bin_name" 2>/dev/null || true
     fi
   done
+fi
+
+# -----------------------------------------------------------------------------
+# 9. Fleet Convergence: machine.json, agent-skills & ~/.claude/bin symlinks,
+#    Global Doctrine (CLAUDE.md / AGENTS.md / GEMINI.md), 4-Harness cua-driver MCP,
+#    Git Identity, KasmVNC -AcceptSetDesktopSize 1, and Cloudflare Zero Trust CA
+# -----------------------------------------------------------------------------
+SHORT_HOST="$(hostname -s 2>/dev/null | tr '[:upper:]' '[:lower:]' || echo linux)"
+mkdir -p "$HOME/.config/agent-fleet" "$HOME/ai/repos" "$HOME/.claude" "$HOME/.codex" "$HOME/.gemini" "$HOME/.config/opencode"
+
+# Ensure ~/.agentskills <-> ~/ai/repos/agent-skills and ~/.claude/bin -> ~/.agentskills/bin
+if [ -d "$HOME/ai/repos/agent-skills/.git" ] && [ ! -e "$HOME/.agentskills" ]; then
+  ln -sfn "$HOME/ai/repos/agent-skills" "$HOME/.agentskills"
+elif [ -d "$HOME/.agentskills/.git" ] && [ ! -e "$HOME/ai/repos/agent-skills" ]; then
+  ln -sfn "$HOME/.agentskills" "$HOME/ai/repos/agent-skills"
+fi
+if [ -d "$HOME/.agentskills/bin" ]; then
+  ln -sfn "$HOME/.agentskills/bin" "$HOME/.claude/bin"
+fi
+
+# Populate global doctrine files from ~/.agentskills if present
+if [ -d "$HOME/.agentskills" ]; then
+  [ -f "$HOME/.agentskills/CLAUDE.md" ] && cp -f "$HOME/.agentskills/CLAUDE.md" "$HOME/.claude/CLAUDE.md"
+  [ -f "$HOME/.agentskills/AGENTS.md" ] && cp -f "$HOME/.agentskills/AGENTS.md" "$HOME/.codex/AGENTS.md"
+  [ -f "$HOME/.agentskills/AGENTS.md" ] && cp -f "$HOME/.agentskills/AGENTS.md" "$HOME/.config/opencode/AGENTS.md"
+  [ -f "$HOME/.agentskills/GEMINI.md" ] && cp -f "$HOME/.agentskills/GEMINI.md" "$HOME/.gemini/GEMINI.md"
+fi
+
+# Ensure ~/.config/agent-fleet/machine.json exists
+if [ ! -f "$HOME/.config/agent-fleet/machine.json" ]; then
+  cat > "$HOME/.config/agent-fleet/machine.json" <<EOF
+{
+  "machineId": "${SHORT_HOST}-linux-workstation",
+  "profile": "$HOME/ai/repos/agent-skills/machines/${SHORT_HOST}-linux-workstation.md",
+  "skillsRepository": "heymegabyte/agent-skills",
+  "preferredSetupAgent": "codex",
+  "machineRepository": "heymegabyte/${SHORT_HOST}.megabyte.space",
+  "machineCheckout": "$HOME/ai/repos/${SHORT_HOST}.megabyte.space",
+  "sshHostname": "${SHORT_HOST}.megabyte.space",
+  "sshAlias": "${SHORT_HOST}.megabyte.space",
+  "paperclipUrl": "https://swarml.ink"
+}
+EOF
+fi
+
+# Register cua-driver MCP in claude (~/.claude.json) and codex (~/.codex/config.toml)
+python3 - <<'PY' || true
+import json
+from pathlib import Path
+home = Path.home()
+cua_bin = str(home / ".local/bin/cua-driver")
+cj = home / ".claude.json"
+data = {}
+if cj.exists():
+    try:
+        data = json.loads(cj.read_text())
+    except Exception:
+        data = {}
+data.setdefault("mcpServers", {})["cua-driver"] = {
+    "type": "stdio",
+    "command": cua_bin,
+    "args": ["mcp"],
+    "env": {}
+}
+cj.write_text(json.dumps(data, indent=2) + "\n")
+
+ct = home / ".codex/config.toml"
+ct.parent.mkdir(parents=True, exist_ok=True)
+txt = ct.read_text() if ct.exists() else ""
+if "[mcp_servers.cua-driver]" not in txt:
+    ct.write_text(txt.rstrip() + f'\n\n[mcp_servers.cua-driver]\ncommand = "{cua_bin}"\nargs = ["mcp"]\nenabled = true\n')
+PY
+
+# Ensure Git global identity defaults
+if [ -z "$(git config --global user.name 2>/dev/null || true)" ]; then
+  git config --global user.name "Brian Zalewski" || true
+fi
+if [ -z "$(git config --global user.email 2>/dev/null || true)" ]; then
+  git config --global user.email "brian@megabyte.space" || true
+fi
+git config --global init.defaultBranch main || true
+
+# Ensure KasmVNC wrapper scripts allow dynamic browser viewport resizing (-AcceptSetDesktopSize 1)
+for krun in "$HOME/.local/bin"/*-kasmvnc-run; do
+  if [ -f "$krun" ] && grep -q -- "-AcceptSetDesktopSize 0" "$krun" 2>/dev/null; then
+    sed -i 's/-AcceptSetDesktopSize 0/-AcceptSetDesktopSize 1/g' "$krun" || true
+  fi
+done
+
+# Run Cloudflare Zero Trust CA installer if present
+if [ -x "$HOME/.local/bin/ensure-cloudflare-zt-ca.sh" ]; then
+  "$HOME/.local/bin/ensure-cloudflare-zt-ca.sh" >/dev/null 2>&1 || true
 fi
 
 for rc_file in "$HOME/.profile" "$HOME/.bashrc" "$HOME/.zshrc"; do
