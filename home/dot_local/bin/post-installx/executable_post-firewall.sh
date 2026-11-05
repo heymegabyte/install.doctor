@@ -98,12 +98,36 @@ EOF
 }
 
 configure_linux_ufw_and_fail2ban() {
-  if ! sudo -n true 2>/dev/null && [ "$(id -u)" -ne 0 ]; then
-    warn "Root/sudo unavailable — cannot enforce UFW/fail2ban configuration"
-    return 1
-  fi
   local SUDO=""
-  [ "$(id -u)" -ne 0 ] && SUDO="sudo"
+  if [ "$(id -u)" -ne 0 ]; then
+    local sudo_pw="${SUDO_PASSWORD:-}"
+    if [ -z "$sudo_pw" ] && command -v get-secret >/dev/null 2>&1; then
+      sudo_pw="$(get-secret SUDO_PASSWORD 2>/dev/null || true)"
+    fi
+    if [ -z "$sudo_pw" ] && command -v infisical >/dev/null 2>&1 && [ -n "${INFISICAL_TOKEN:-}" ]; then
+      sudo_pw="$(infisical secrets get SUDO_PASSWORD --env=prod --path="/hosts/$(hostname -s 2>/dev/null || hostname)" --plain --silent 2>/dev/null || infisical secrets get SUDO_PASSWORD --plain --silent 2>/dev/null || true)"
+    fi
+    if [ -n "$sudo_pw" ]; then
+      local fw_tmp
+      fw_tmp="$(mktemp -d)"
+      chmod 0700 "$fw_tmp"
+      trap 'rm -rf "$fw_tmp" 2>/dev/null || true' EXIT
+      printf '#!/usr/bin/env sh\nprintf '\''%%s\\n'\'' %q\n' "$sudo_pw" > "$fw_tmp/askpass.sh"
+      chmod 0700 "$fw_tmp/askpass.sh"
+      export SUDO_ASKPASS="$fw_tmp/askpass.sh"
+      unset sudo_pw
+      if sudo -A -k true 2>/dev/null; then
+        SUDO="sudo -A"
+      fi
+    fi
+    if [ -z "$SUDO" ] && sudo -n true 2>/dev/null; then
+      SUDO="sudo"
+    fi
+    if [ -z "$SUDO" ]; then
+      warn "Root/sudo unavailable — cannot enforce UFW/fail2ban configuration"
+      return 1
+    fi
+  fi
 
   if ! command -v ufw >/dev/null 2>&1; then
     if command -v apt-get >/dev/null 2>&1; then

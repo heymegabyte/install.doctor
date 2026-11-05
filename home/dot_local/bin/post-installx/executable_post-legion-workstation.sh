@@ -56,12 +56,56 @@ fi
 export PATH="$HOME/.local/share/mise/shims:$HOME/.bun/bin:$HOME/.local/share/cargo/bin:$HOME/.cargo/bin:$HOME/.local/bin:/usr/local/go/bin:/usr/local/bin:/usr/bin:/bin:$PATH"
 mkdir -p "$HOME/.local/bin" "$HOME/.config/shell" "$HOME/.cache/cnf/shims"
 
+resolve_infisical_sudo_password() {
+  local pw="${SUDO_PASSWORD:-}"
+  if [ -z "$pw" ] && command -v get-secret >/dev/null 2>&1; then
+    pw="$(get-secret SUDO_PASSWORD 2>/dev/null || true)"
+  fi
+  if [ -z "$pw" ] && command -v infisical >/dev/null 2>&1 && [ -n "${INFISICAL_TOKEN:-}" ]; then
+    pw="$(infisical secrets get SUDO_PASSWORD --env=prod --path="/hosts/$(hostname -s 2>/dev/null || hostname)" --plain --silent 2>/dev/null || infisical secrets get SUDO_PASSWORD --plain --silent 2>/dev/null || true)"
+  fi
+  if [ -z "$pw" ] && [ -f "$HOME/.config/agent-fleet/infisical.json" ] && command -v python3 >/dev/null 2>&1; then
+    pw="$(python3 - <<'PY' 2>/dev/null || true
+import json
+from pathlib import Path
+from urllib.parse import urlencode
+from urllib.request import Request, urlopen
+
+cfg_path = Path.home() / ".config/agent-fleet/infisical.json"
+cfg = json.loads(cfg_path.read_text())
+cred_path = Path(cfg.get("credentialsFile", str(Path.home() / ".config/agent-fleet/infisical-credentials.json"))).expanduser()
+creds = json.loads(cred_path.read_text())
+base = cfg["url"].rstrip("/")
+req = Request(f"{base}/api/v1/auth/universal-auth/login", data=json.dumps(creds).encode(), headers={"Content-Type": "application/json"})
+with urlopen(req, timeout=10) as resp:
+    tok = json.load(resp)["accessToken"]
+q = urlencode({"projectId": cfg["projectId"], "environment": cfg.get("environment", "prod"), "secretPath": cfg.get("secretPath", "/"), "type": "shared"})
+req2 = Request(f"{base}/api/v4/secrets/SUDO_PASSWORD?{q}", headers={"Authorization": f"Bearer {tok}"})
+with urlopen(req2, timeout=10) as resp2:
+    print(json.load(resp2)["secret"]["secretValue"], end="")
+PY
+)"
+  fi
+  printf '%s' "$pw"
+}
+
 SUDO=""
 COOLIFY_KEY="$HOME/legion-provision/private/coolify-legion-ed25519"
 if [ "$(id -u)" -ne 0 ]; then
-  if sudo -n true 2>/dev/null; then
+  SUDO_PW="$(resolve_infisical_sudo_password)"
+  if [ -n "$SUDO_PW" ]; then
+    ASKPASS_SCRIPT="$TMP_DIR/sudo-askpass.sh"
+    printf '#!/usr/bin/env sh\nprintf '\''%%s\\n'\'' %q\n' "$SUDO_PW" > "$ASKPASS_SCRIPT"
+    chmod 0700 "$ASKPASS_SCRIPT"
+    export SUDO_ASKPASS="$ASKPASS_SCRIPT"
+    if sudo -A -k true 2>/dev/null; then
+      SUDO="sudo-askpass"
+    fi
+    unset SUDO_PW
+  fi
+  if [ -z "$SUDO" ] && sudo -n true 2>/dev/null; then
     SUDO="sudo"
-  elif [ -f "$COOLIFY_KEY" ] && ssh -o BatchMode=yes -o ConnectTimeout=3 -i "$COOLIFY_KEY" coolify@127.0.0.1 "sudo -n true" 2>/dev/null; then
+  elif [ -z "$SUDO" ] && [ -f "$COOLIFY_KEY" ] && ssh -o BatchMode=yes -o ConnectTimeout=3 -i "$COOLIFY_KEY" coolify@127.0.0.1 "sudo -n true" 2>/dev/null; then
     SUDO="coolify-ssh"
   fi
 fi
@@ -73,6 +117,8 @@ has_root() {
 run_root() {
   if [ "$(id -u)" -eq 0 ]; then
     "$@"
+  elif [ "$SUDO" = "sudo-askpass" ]; then
+    sudo -A "$@"
   elif [ "$SUDO" = "sudo" ]; then
     sudo -n "$@"
   elif [ "$SUDO" = "coolify-ssh" ]; then
@@ -558,16 +604,9 @@ EOF
     [ -w "$epp" ] && printf 'balance_performance\n' | run_root tee "$epp" >/dev/null 2>&1 || true
   done
 
-  # #16: Passwordless sudoers (/etc/sudoers.d/90-fleet-nopasswd) & Coolify Fleet Node Readiness
-  log "Configuring /etc/sudoers.d/90-fleet-nopasswd and Coolify node readiness..."
-  cat > "$TMP_DIR/90-fleet-nopasswd" <<'EOF'
-ubuntu ALL=(ALL) NOPASSWD:ALL
-coolify ALL=(ALL) NOPASSWD:ALL
-professormanhattan ALL=(ALL) NOPASSWD:ALL
-EOF
-  if command -v visudo >/dev/null 2>&1 && visudo -cf "$TMP_DIR/90-fleet-nopasswd" >/dev/null 2>&1; then
-    run_root install -o root -g root -m 0440 "$TMP_DIR/90-fleet-nopasswd" /etc/sudoers.d/90-fleet-nopasswd
-  fi
+  # #16: Enforce Infisical-backed sudo (remove any legacy passwordless sudoers drop-in) & Coolify Fleet Node Readiness
+  log "Removing legacy passwordless sudoers drop-ins (sudo password loaded via Infisical) and configuring Coolify node readiness..."
+  run_root rm -f /etc/sudoers.d/90-fleet-nopasswd 2>/dev/null || true
 
   # Ensure Docker Engine + Compose v2 is installed and bound to loopback + registry mirror + NVIDIA CDI
   if ! command -v docker >/dev/null 2>&1 && command -v apt-get >/dev/null 2>&1; then

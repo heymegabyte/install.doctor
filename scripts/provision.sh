@@ -676,7 +676,25 @@ setupPasswordlessSudo() {
 
   logg info 'Your user will temporarily be granted passwordless sudo for the duration of the script'
 
-  ### Try the Chezmoi-encrypted secret first. `chezmoi decrypt` can append a
+  ### Try Infisical first (via get-secret or infisical CLI) before Chezmoi or prompting.
+  if [ -z "$SUDO_PASSWORD" ] && command -v get-secret > /dev/null 2>&1; then
+    SUDO_PASSWORD="$(get-secret SUDO_PASSWORD 2>/dev/null | tr -d '\r' | sed -e 's/[[:space:]]*$//' || true)"
+    if [ -n "$SUDO_PASSWORD" ] && ! _idSudoPasswordWorks "$SUDO_PASSWORD"; then
+      SUDO_PASSWORD=""
+    fi
+    export SUDO_PASSWORD
+  fi
+  if [ -z "$SUDO_PASSWORD" ] && command -v infisical > /dev/null 2>&1 && [ -n "${INFISICAL_TOKEN:-}" ]; then
+    logg info "Acquiring SUDO_PASSWORD from Infisical Vault"
+    SUDO_PASSWORD="$(infisical secrets get SUDO_PASSWORD --env=prod --path="/hosts/$(hostname -s 2>/dev/null || hostname)" --plain --silent 2>/dev/null || infisical secrets get SUDO_PASSWORD --plain --silent 2>/dev/null || true)"
+    if [ -n "$SUDO_PASSWORD" ] && ! _idSudoPasswordWorks "$SUDO_PASSWORD"; then
+      logg warn 'The SUDO_PASSWORD retrieved from Infisical did not authenticate; discarding it'
+      SUDO_PASSWORD=""
+    fi
+    export SUDO_PASSWORD
+  fi
+
+  ### Try the Chezmoi-encrypted secret next. `chezmoi decrypt` can append a
   ### trailing newline, so strip it before testing.
   if [ -z "$SUDO_PASSWORD" ] && command -v chezmoi > /dev/null && [ -f "${XDG_DATA_HOME:-$HOME/.local/share}/chezmoi/home/.chezmoitemplates/secrets-$(hostname -s)/SUDO_PASSWORD" ] && [ -f "${XDG_CONFIG_HOME:-$HOME/.config}/age/chezmoi.txt" ]; then
     logg info "Acquiring SUDO_PASSWORD by using Chezmoi to decrypt ${XDG_DATA_HOME:-$HOME/.local/share}/chezmoi/home/.chezmoitemplates/secrets-$(hostname -s)/SUDO_PASSWORD"
