@@ -82,6 +82,19 @@ trap "gum log -sl error 'Script encountered an error!'" ERR
 #     (Use `Electron --trace-deprecation ...` to show where the warning was created)
 export NODE_OPTIONS=--throw-deprecation
 
+# Ensure Visual Studio Code (code) binary is installed on Debian/Ubuntu Linux hosts
+if ! command -v code > /dev/null && [ "$(uname -s)" = "Linux" ] && command -v apt-get > /dev/null && { [ "$(id -u)" -eq 0 ] || sudo -n true 2>/dev/null; }; then
+  gum log -sl info 'Installing Visual Studio Code (code) from official Microsoft APT repository...'
+  TMP_VSC="$(mktemp -d)"
+  trap 'rm -rf "$TMP_VSC" 2>/dev/null || true' EXIT
+  if curl -fsSL https://packages.microsoft.com/keys/microsoft.asc | gpg --dearmor > "$TMP_VSC/microsoft.gpg"; then
+    sudo install -D -o root -g root -m 644 "$TMP_VSC/microsoft.gpg" /usr/share/keyrings/microsoft.gpg
+    printf 'Types: deb\nURIs: https://packages.microsoft.com/repos/code\nSuites: stable\nComponents: main\nArchitectures: amd64,arm64\nSigned-By: /usr/share/keyrings/microsoft.gpg\n' | sudo tee /etc/apt/sources.list.d/vscode.sources > /dev/null
+    sudo env DEBIAN_FRONTEND=noninteractive apt-get update -qq > /dev/null 2>&1 || true
+    sudo env DEBIAN_FRONTEND=noninteractive apt-get install -y -qq code > /dev/null 2>&1 || true
+  fi
+fi
+
 # @description Install Visual Studio Code extensions if they are not already installed (by checking the `code --list-extensions` output)
 if command -v code > /dev/null; then
   EXTENSIONS="$(code --list-extensions)"

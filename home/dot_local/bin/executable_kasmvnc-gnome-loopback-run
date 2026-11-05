@@ -4,7 +4,9 @@
 # into native Xkasmvnc :20 on 127.0.0.1:8444 with iGPU DRI3, 1920x1080 geometry, and local scaling.
 set -euo pipefail
 
-SECRET_DIR="${KASMVNC_SECRET_DIR:-$HOME/.config/legion-desktop}"
+SECRET_DIR="${KASMVNC_SECRET_DIR:-$HOME/.config/remote-desktop}"
+WEBSOCKET_PORT="${KASMVNC_WEBSOCKET_PORT:-8444}"
+RFB_PORT="${KASMVNC_RFB_PORT:-5920}"
 mkdir -p "$SECRET_DIR"
 chmod 700 "$SECRET_DIR"
 
@@ -54,7 +56,7 @@ if [ ! -s "$PASSWD_FILE" ] && [ -s "$HOME/.kasmpasswd" ]; then
 fi
 
 # Prepare responsive local-scaling webroot (resize=scale)
-WEB_ROOT="${KASMVNC_WEB_ROOT:-$HOME/.local/share/legion-kasmvnc-www}"
+WEB_ROOT="${KASMVNC_WEB_ROOT:-$HOME/.local/share/kasmvnc-www}"
 if [ -x "$HOME/.local/bin/kasmvnc-fit-browser" ]; then
   KASMVNC_WEB_ROOT="$WEB_ROOT" "$HOME/.local/bin/kasmvnc-fit-browser" >/dev/null 2>&1 || true
 else
@@ -64,8 +66,8 @@ else
 from pathlib import Path
 import sys
 
-marker = "legion-default-local-scaling"
-script = """<script id="legion-default-local-scaling">
+marker = "default-local-scaling"
+script = """<script id="default-local-scaling">
 (() => {
   const params = new URLSearchParams(window.location.search);
   if (!params.has('resize')) {
@@ -89,13 +91,13 @@ fi
 GEOMETRY="${KASMVNC_GEOMETRY:-1920x1080}"
 DESKTOP_TITLE="${KASMVNC_DESKTOP_TITLE:-$(hostname -s 2>/dev/null || hostname) (GNOME)}"
 
-/usr/bin/Xkasmvnc :20 \
+"${XKASMVNC_BIN:-/usr/bin/Xkasmvnc}" :20 \
   -interface 127.0.0.1 \
   -UseIPv4 1 \
   -UseIPv6 0 \
   -localhost 1 \
-  -websocketPort 8444 \
-  -rfbport 5920 \
+  -websocketPort "$WEBSOCKET_PORT" \
+  -rfbport "$RFB_PORT" \
   -sslOnly 1 \
   -cert "$CERT_FILE" \
   -key "$KEY_FILE" \

@@ -11,8 +11,9 @@ else
   [ -r /proc/meminfo ] || exit 0
   memory_kib="$(awk '/^MemTotal:/{print $2; exit}' /proc/meminfo)"
 fi
-min_mem_kib="${INSTALL_DOCTOR_KASMVNC_MIN_MEM_KIB:-7500000}"
-[ "${memory_kib:-0}" -ge "$min_mem_kib" ] || { log "skipping: live desktop proxy requires at least ${min_mem_kib} KiB RAM"; exit 0; }
+nominal_16gib_kib=16777216
+min_mem_kib="${INSTALL_DOCTOR_KASMVNC_MIN_MEM_KIB:-15000000}"
+[ "${memory_kib:-0}" -ge "$min_mem_kib" ] || { log "skipping: live desktop proxy requires at least 16 GiB RAM (${nominal_16gib_kib} KiB nominal; detected ${memory_kib:-0} KiB)"; exit 0; }
 
 if [ "${HEADLESS_INSTALL:-0}" = "1" ] || [ "${HEADLESS_INSTALL:-false}" = "true" ]; then
   log 'skipping: HEADLESS_INSTALL is enabled'
@@ -154,7 +155,7 @@ After=default.target
 [Service]
 Type=simple
 Environment=KASMVNC_SECRET_DIR=$secret_dir
-Environment=KASMVNC_WEBSOCKET_PORT=6901
+Environment=KASMVNC_WEBSOCKET_PORT=${KASMVNC_WEBSOCKET_PORT:-8444}
 Environment=KASMVNC_RFB_PORT=5920
 Environment=XKASMVNC_BIN=$xkasm
 Environment=OPENBOX_BIN=$openbox

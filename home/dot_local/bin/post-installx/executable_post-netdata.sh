@@ -34,8 +34,42 @@ ensureNetdataOwnership() {
   fi
 }
 
-### Ensure secrets are available
-get-secret --exists NETDATA_ROOM NETDATA_TOKEN
+### Ensure Netdata is installed and bound to loopback (127.0.0.1 ::1) on Debian/Ubuntu Linux
+if [ "$(uname -s)" = "Linux" ] && command -v apt-get > /dev/null && { [ "$(id -u)" -eq 0 ] || sudo -n true 2>/dev/null; }; then
+  if ! command -v netdata > /dev/null; then
+    gum log -sl info 'Installing Netdata from official repository (with Ubuntu 26.04 APT 3.x Pin-Priority fix)...'
+    sudo env DEBIAN_FRONTEND=noninteractive apt-get update -qq || true
+    sudo env DEBIAN_FRONTEND=noninteractive apt-get install -y -qq debian-keyring curl ca-certificates || true
+    TMP_ND="$(mktemp -d)"
+    trap 'rm -rf "$TMP_ND" 2>/dev/null || true' EXIT
+    if curl -fsSL "https://repo.netdata.cloud/repos/repoconfig/ubuntu/jammy/netdata-repo_4-2+ubuntu22.04_all.deb" -o "$TMP_ND/netdata-repo.deb"; then
+      sudo dpkg -i "$TMP_ND/netdata-repo.deb" >/dev/null 2>&1 || true
+      if [ -f /etc/apt/preferences.d/80netdata ]; then
+        sudo sed -i 's/^Priority:/Pin-Priority:/' /etc/apt/preferences.d/80netdata
+      fi
+      sudo env DEBIAN_FRONTEND=noninteractive apt-get update -qq || true
+      sudo env DEBIAN_FRONTEND=noninteractive apt-get install -y -qq netdata || true
+    fi
+  elif [ -f /etc/apt/preferences.d/80netdata ]; then
+    sudo sed -i 's/^Priority:/Pin-Priority:/' /etc/apt/preferences.d/80netdata || true
+  fi
+
+  if [ -d /etc/netdata ]; then
+    sudo tee /etc/netdata/netdata.conf >/dev/null <<'EOF'
+[global]
+    run as user = netdata
+    bind to = 127.0.0.1 ::1
+    default port = 19999
+EOF
+    if command -v systemctl > /dev/null; then
+      sudo systemctl enable --now netdata >/dev/null 2>&1 || true
+      sudo systemctl restart netdata >/dev/null 2>&1 || true
+    fi
+  fi
+fi
+
+### Ensure secrets are available (non-fatal if Netdata Cloud claiming is not configured)
+get-secret --exists NETDATA_ROOM NETDATA_TOKEN || exit 0
 
 ### Claim the instance with Netdata Cloud
 if command -v netdata-claim.sh > /dev/null; then
@@ -120,62 +154,6 @@ if command -v netdata-claim.sh > /dev/null; then
     sudo cp -f "${XDG_CONFIG_HOME:-$HOME/.config}/netdata/health_alarm_notify.conf" "$NETDATA_LIB/conf.d/health_alarm_notify.conf"
   else
     gum log -sl warn 'netdata is not available in the PATH or is not installed'
-  fi
-
-  ### Ensure the apt command is available before running `debsecan` logic
-  if command -v apt-get > /dev/null; then
-    ### Configure Netdata to gather information about CVEs in the installed packages
-    if command -v debsecan > /dev/null; then
-      DEBSECAN_GIT="${XDG_DATA_HOME:-$HOME/.local/share}/netdata-debsecan"
-      ### Installing the script to generate report on CVEs in installed packages
-      gum log -sl info 'Installing script to generate report on CVEs in installed packages'
-      sudo cp -f "$DEBSECAN_GIT/usr_local_bin_debsecan-by-type" "/usr/local/bin/debsecan-by-type"
-
-      ### Generate initial debsecan reports in /var/log/debsecan/
-      gum log -sl info 'Generating initial debsecan reports in /var/log/debsecan/'
-      debsecan-by-type
-
-      ### Configure dpkg to refresh the file after each run
-      gum log -sl info 'Configuring dpkg to refresh the file after each run'
-      sudo cp -f "$DEBSECAN_GIT/etc_apt_apt.conf.d_99debsecan"  /etc/apt/apt.conf.d/99-debsecan
-
-      ### Add a cron job to refresh the file every hour
-      gum log -sl info 'Adding a cron job to refresh the file every hour'
-      sudo cp -f "$DEBSECAN_GIT/etc_cron.d_debsecan" /etc/cron.d/debsecan
-
-      ### Install the module/configuration file
-      gum log -sl info 'Installing the module and configuration file'
-      sudo cp -f "$DEBSECAN_GIT/debsecan.chart.py" /usr/libexec/netdata/python.d/debsecan.chart.py
-      sudo cp -f "$DEBSECAN_GIT/debsecan.conf" /etc/netdata/python.d/debsecan.conf
-    else
-      gum log -sl warn 'apt-get is available but debsecan is not available in the PATH or is not installed'
-    fi
-  fi
-
-  ### Ensure / report whether speedtest-cli is installed
-  if ! command -v speedtest-cli > /dev/null; then
-    if command -v uv > /dev/null; then
-      uv tool install speedtest-cli
-    else
-      gum log -sl warn 'speedtest-cli not installed and uv is not available'
-    fi
-  fi
-
-  ### Configure Netdata to gather information about Internet connection speed
-  if command -v speedtest-cli > /dev/null; then
-    ### Installing the script to generate report on Internet connection speed
-    gum log -sl info 'Installing script to generate report on Internet connection speed'
-    LIBEXEC_PATH="$(netdata -W buildinfo | grep 'Configure' | sed "s/.*--libexecdir=\([^ \']*\).*/\1/")"
-    if [ -d /usr/libexec/netdata/charts.d ]; then
-      sudo cp -f "${XDG_DATA_HOME:-$HOME/.local/share}/netdata-speedtest/speedtest.chart.sh" "/usr/libexec/netdata/charts.d/speedtest.chart.sh"
-    elif [ -d "$LIBEXEC_PATH/netdata/charts.d" ]; then
-      gum log -sl info "$LIBEXEC_PATH/netdata/charts.d present on system"
-      cp -f "${XDG_DATA_HOME:-$HOME/.local/share}/netdata-speedtest/speedtest.chart.sh" "$LIBEXEC_PATH/netdata/charts.d/speedtest.chart.sh"
-    else
-      gum log -sl warn "Failed to find appropriate directory to add Netdata speedtest chart script"
-    fi
-  else
-    gum log -sl warn 'speedtest-cli is not available in the PATH or is not installed'
   fi
 
   ### Ensure ownership again

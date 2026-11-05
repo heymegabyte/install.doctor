@@ -4,8 +4,8 @@
 # @description
 #   Configures the operating system's native firewall with default-deny incoming/routed policy,
 #   preserves active SSH/LAN administrative access, integrates Docker DOCKER-USER ingress protection
-#   natively into /etc/ufw/after.rules and /etc/ufw/after6.rules (retiring any redundant standalone
-#   legion-firewall.service controller), and configures fail2ban for active authentication services.
+#   natively into /etc/ufw/after.rules and /etc/ufw/after6.rules, and configures fail2ban for active
+#   authentication services across all fleet nodes.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -99,8 +99,8 @@ EOF
 
 configure_linux_ufw_and_fail2ban() {
   if ! sudo -n true 2>/dev/null && [ "$(id -u)" -ne 0 ]; then
-    warn "Root/sudo unavailable — skipping UFW/fail2ban configuration"
-    return 0
+    warn "Root/sudo unavailable — cannot enforce UFW/fail2ban configuration"
+    return 1
   fi
   local SUDO=""
   [ "$(id -u)" -ne 0 ] && SUDO="sudo"
@@ -114,12 +114,22 @@ configure_linux_ufw_and_fail2ban() {
     fi
   fi
 
-  # Ensure IPv6 is enabled in /etc/default/ufw
+  # Ensure IPv6 and default DROP policies in /etc/default/ufw
   if [ -f /etc/default/ufw ]; then
     $SUDO sed -i 's/^IPV6=.*/IPV6=yes/' /etc/default/ufw
+    $SUDO sed -i 's/^DEFAULT_INPUT_POLICY=.*/DEFAULT_INPUT_POLICY="DROP"/' /etc/default/ufw
+    $SUDO sed -i 's/^DEFAULT_FORWARD_POLICY=.*/DEFAULT_FORWARD_POLICY="DROP"/' /etc/default/ufw
   fi
 
-  # Preserve the active session and the controller-only Coolify management path.
+  # Dynamically detect primary RFC1918 LAN subnet and IP (works on Zen, Omen, Legion, Ubuntu, or any LAN host)
+  local lan_cidr="" lan_ip="" admin_cidr=""
+  if command -v ip >/dev/null 2>&1; then
+    lan_cidr="$(ip -4 route show proto kernel scope link 2>/dev/null | awk '/^(10\.|192\.168\.|172\.(1[6-9]|2[0-9]|3[0-1])\.)/ {print $1; exit}')"
+    lan_ip="$(ip -4 -o addr show scope global 2>/dev/null | awk '{split($4,a,"/"); if (a[1] ~ /^(10\.|192\.168\.|172\.(1[6-9]|2[0-9]|3[0-1])\.)/) {print a[1]; exit}}')"
+  fi
+  admin_cidr="${INSTALL_DOCTOR_FIREWALL_ADMIN_CIDR:-$lan_cidr}"
+
+  # Preserve active SSH session, loopback, and parameterized/detected LAN admin & Coolify controller SSH access
   if [ -n "${SSH_CONNECTION:-}" ]; then
     read -r client_ip _ _ server_port <<<"$SSH_CONNECTION"
     if [ -n "$client_ip" ] && [ -n "$server_port" ]; then
@@ -129,7 +139,24 @@ configure_linux_ufw_and_fail2ban() {
   $SUDO ufw allow in on lo >/dev/null || true
   $SUDO ufw allow from 127.0.0.1 to any port 22 proto tcp >/dev/null || true
   $SUDO ufw allow from ::1 to any port 22 proto tcp >/dev/null || true
-  $SUDO ufw allow from 10.0.0.155 to 10.0.0.143 port 22 proto tcp comment 'Coolify controller SSH' >/dev/null || true
+  if [ -n "$admin_cidr" ]; then
+    if [ -n "$lan_ip" ]; then
+      $SUDO ufw allow from "$admin_cidr" to "$lan_ip" port 22 proto tcp comment 'LAN and Coolify controller SSH' >/dev/null || true
+    else
+      $SUDO ufw allow from "$admin_cidr" to any port 22 proto tcp comment 'LAN and Coolify controller SSH' >/dev/null || true
+    fi
+  fi
+
+  # When host is enrolled as a Coolify node running coolify-proxy (Traefik), allow LAN HTTP/HTTPS ingress
+  if [ -n "$admin_cidr" ] && { [ -d /data/coolify/proxy ] || (command -v docker >/dev/null 2>&1 && $SUDO docker ps --format '{{.Names}}' 2>/dev/null | grep -qx 'coolify-proxy'); }; then
+    if [ -n "$lan_ip" ]; then
+      $SUDO ufw allow from "$admin_cidr" to "$lan_ip" port 80 proto tcp comment 'Coolify proxy HTTP' >/dev/null || true
+      $SUDO ufw allow from "$admin_cidr" to "$lan_ip" port 443 proto tcp comment 'Coolify proxy HTTPS' >/dev/null || true
+    else
+      $SUDO ufw allow from "$admin_cidr" to any port 80 proto tcp comment 'Coolify proxy HTTP' >/dev/null || true
+      $SUDO ufw allow from "$admin_cidr" to any port 443 proto tcp comment 'Coolify proxy HTTPS' >/dev/null || true
+    fi
+  fi
 
   $SUDO ufw default deny incoming >/dev/null
   $SUDO ufw default deny routed >/dev/null
@@ -151,24 +178,14 @@ configure_linux_ufw_and_fail2ban() {
   $SUDO ufw --force enable >/dev/null
   $SUDO ufw reload >/dev/null
 
-  # If redundant legion-firewall.service exists, verify UFW DOCKER-USER is active and retire it
-  if systemctl list-unit-files legion-firewall.service 2>/dev/null | grep -q legion-firewall.service || [ -f /etc/systemd/system/legion-firewall.service ]; then
-    if $SUDO iptables -S DOCKER-USER 2>/dev/null | grep -q -- "-A DOCKER-USER -j DROP"; then
-      log "Verified native UFW DOCKER-USER chain; retiring redundant legion-firewall.service"
-      $SUDO systemctl disable --now legion-firewall.service 2>/dev/null || true
-      $SUDO rm -f /etc/systemd/system/legion-firewall.service \
-        /etc/systemd/system/docker.service.d/60-legion-firewall.conf \
-        /usr/local/sbin/legion-docker-ingress-guard
-      # Clean up legacy LEGION-INBOUND chain if present
-      for tool in iptables ip6tables; do
-        if command -v "$tool" >/dev/null 2>&1; then
-          $SUDO "$tool" -w -D DOCKER-USER -j LEGION-INBOUND 2>/dev/null || true
-          $SUDO "$tool" -w -F LEGION-INBOUND 2>/dev/null || true
-          $SUDO "$tool" -w -X LEGION-INBOUND 2>/dev/null || true
-        fi
-      done
-      $SUDO systemctl daemon-reload
-    fi
+  # Verify post-apply enforcement state
+  if [ -f /etc/ufw/ufw.conf ] && ! grep -q '^ENABLED=yes' /etc/ufw/ufw.conf; then
+    warn "UFW failed post-apply ENABLED=yes verification"
+    return 1
+  fi
+  if [ -f /etc/default/ufw ] && { ! grep -q '^DEFAULT_INPUT_POLICY="DROP"' /etc/default/ufw || ! grep -q '^DEFAULT_FORWARD_POLICY="DROP"' /etc/default/ufw; }; then
+    warn "UFW failed post-apply DEFAULT_INPUT_POLICY/DEFAULT_FORWARD_POLICY DROP verification"
+    return 1
   fi
 
   # Configure fail2ban for installed authentication services
@@ -183,7 +200,7 @@ findtime = 10m
 maxretry = 5
 backend = systemd
 banaction = ufw
-ignoreip = 127.0.0.1/8 ::1 10.0.0.0/24
+ignoreip = 127.0.0.1/8 ::1 ${admin_cidr}
 
 [sshd]
 enabled = ${ssh_enabled}

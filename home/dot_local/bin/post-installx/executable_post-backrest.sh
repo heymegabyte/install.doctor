@@ -10,6 +10,12 @@ log_warn() { printf '\033[0;33mWARN\033[0m %s\n' "$*"; }
 
 OS_KERNEL="$(uname -s)"
 ARCH="$(uname -m)"
+HOST_SHORT="$(hostname -s 2>/dev/null || hostname)"
+
+if [[ "${INSTALL_DOCTOR_BACKREST:-0}" != "1" ]]; then
+  log_info "Backrest provisioning not requested (set INSTALL_DOCTOR_BACKREST=1 to enable)"
+  exit 0
+fi
 
 if [[ $EUID -eq 0 ]]; then SUDO=""; else SUDO="sudo -n"; fi
 
@@ -54,11 +60,11 @@ fi
 if [[ "$OS_KERNEL" == "Linux" ]] && [[ -x /usr/local/bin/backrest ]]; then
   $SUDO install -d -m 0700 /etc/backrest /var/lib/backrest /var/cache/megabyte/backrest
   if [[ ! -f /etc/backrest/config.json ]]; then
-    $SUDO tee /etc/backrest/config.json >/dev/null <<'EOF'
+    $SUDO tee /etc/backrest/config.json >/dev/null <<EOF
 {
   "modno": 1,
   "version": 4,
-  "instance": "legion",
+  "instance": "${HOST_SHORT}",
   "auth": {
     "disabled": true
   },
@@ -69,15 +75,16 @@ EOF
     $SUDO chmod 0600 /etc/backrest/config.json
   fi
 
-  $SUDO tee /etc/systemd/system/legion-backrest.service >/dev/null <<'EOF'
+  $SUDO tee /etc/systemd/system/legion-backrest.service >/dev/null <<EOF
 [Unit]
-Description=Backrest Web UI and Restic Orchestrator (Loopback Only)
+Description=Backrest Web UI and Restic Orchestrator (Loopback Only - ${HOST_SHORT})
 After=network-online.target
 Wants=network-online.target
 
 [Service]
 Type=simple
 User=root
+EnvironmentFile=-/etc/${HOST_SHORT}-backup.env
 EnvironmentFile=-/etc/legion-backup.env
 Environment=BACKREST_PORT=127.0.0.1:9898
 Environment=BACKREST_CONFIG=/etc/backrest/config.json
@@ -97,6 +104,8 @@ EOF
   $SUDO tee /etc/backrest/excludes.txt >/dev/null <<'EOF'
 /home/*/.cache
 /home/*/.ollama/models/blobs
+/home/*/.local/share/Trash
+/home/*/.local/share/containers
 /home/*/ai/runners
 /var/cache
 /var/lib/docker
@@ -104,37 +113,51 @@ EOF
 /var/lib/legion-runners
 /tmp
 /var/tmp
+node_modules
+.venv
+__pycache__
 *.log
 *.swp
 EOF
 
-  # 5. Create legion-restic-backup helper & daily timer
-  $SUDO tee /usr/local/sbin/legion-restic-backup >/dev/null <<'EOF'
+  # 5. Create host-aware restic backup helper & daily timer
+  $SUDO tee /usr/local/sbin/legion-restic-backup >/dev/null <<EOF
 #!/usr/bin/env bash
 set -euo pipefail
-if [[ ! -f /etc/legion-backup.env ]]; then
-  echo "ERROR: /etc/legion-backup.env missing" >&2
+HOST_SHORT="${HOST_SHORT}"
+if [[ -f "/etc/\${HOST_SHORT}-backup.env" ]]; then
+  set -a
+  . "/etc/\${HOST_SHORT}-backup.env"
+  set +a
+elif [[ -f /etc/legion-backup.env ]]; then
+  set -a
+  . /etc/legion-backup.env
+  set +a
+else
+  echo "ERROR: /etc/\${HOST_SHORT}-backup.env missing" >&2
   exit 1
 fi
-set -a
-. /etc/legion-backup.env
-set +a
-export RESTIC_REPOSITORY="${RESTIC_REPOSITORY_LEGION:-${RESTIC_REPOSITORY}/legion-host}"
+export RESTIC_REPOSITORY="\${RESTIC_REPOSITORY_HOST:-\${RESTIC_REPOSITORY_LEGION:-\${RESTIC_REPOSITORY}/\${HOST_SHORT}-host}}"
 export XDG_CACHE_HOME="/var/cache/megabyte/backrest"
 
 restic snapshots >/dev/null 2>&1 || restic init
 
-restic backup \
-  --exclude-file=/etc/backrest/excludes.txt \
-  --tag legion-host \
-  --tag automated \
-  /etc/ufw \
-  /etc/fail2ban \
-  /etc/netdata \
-  /etc/smartd.conf \
-  /etc/backrest/excludes.txt \
-  /home/ubuntu/.cloudflared/legion.yaml \
-  /home/ubuntu/ai/repos/legion.megabyte.space
+BACKUP_PATHS=(
+  /etc/ufw
+  /etc/fail2ban
+  /etc/netdata
+  /etc/sanoid
+  /etc/backrest/excludes.txt
+)
+for p in "/etc/smartd.conf" "/home/ubuntu/.cloudflared/\${HOST_SHORT}.yaml" "/home/ubuntu/ai/repos/\${HOST_SHORT}.megabyte.space" "/home/ubuntu/\${HOST_SHORT}.megabyte.space"; do
+  [[ -e "\$p" ]] && BACKUP_PATHS+=("\$p")
+done
+
+restic backup \\
+  --exclude-file=/etc/backrest/excludes.txt \\
+  --tag "\${HOST_SHORT}-host" \\
+  --tag automated \\
+  "\${BACKUP_PATHS[@]}"
 
 restic forget --keep-daily 7 --keep-weekly 4 --keep-monthly 6 --prune
 restic check --read-data-subset=5%

@@ -87,16 +87,17 @@ run_root() {
 }
 
 # -----------------------------------------------------------------------------
-# 1. Eager Base APT Packages (Substrates, GPU/System Monitors, ZFS Sanoid, Media, Editors)
+# 1. Eager Base APT Packages (Substrates, GPU/System Monitors, ZFS Sanoid, Media, Editors, Fleet Tools)
 # -----------------------------------------------------------------------------
 if command -v apt-get >/dev/null 2>&1 && { [ "$(id -u)" -eq 0 ] || [ -n "$SUDO" ]; }; then
   log "Installing eager foundation packages via APT..."
   run_root env DEBIAN_FRONTEND=noninteractive apt-get update -qq || true
   run_root env DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
     ca-certificates curl wget git jq zsh tmux vim neovim ripgrep fd-find fzf bat \
-    btop nvtop sanoid flatpak gnome-shell-extension-prefs \
+    htop btop nvtop ncdu gh rclone restic sanoid lzop pv mbuffer flatpak gnome-shell-extension-prefs \
     age build-essential pkg-config libssl-dev unzip xz-utils zstd \
     ffmpeg poppler-utils tesseract-ocr qpdf imagemagick graphviz pandoc \
+    smartmontools lynis just yt-dlp pipx net-tools bind9-dnsutils fail2ban ufw unattended-upgrades apt-listchanges \
     lm-sensors i2c-tools dkms python3-yaml python3-pip python3-venv >/dev/null 2>&1 || true
 fi
 
@@ -106,6 +107,19 @@ if command -v fdfind >/dev/null 2>&1 && ! command -v fd >/dev/null 2>&1; then
 fi
 if command -v batcat >/dev/null 2>&1 && ! command -v bat >/dev/null 2>&1; then
   ln -sf "$(command -v batcat)" "$HOME/.local/bin/bat"
+fi
+
+# Install actionlint if missing
+if ! command -v actionlint >/dev/null 2>&1; then
+  log "Installing actionlint..."
+  AL_VER="1.7.7"
+  if curl -fsSL "https://github.com/rhysd/actionlint/releases/download/v${AL_VER}/actionlint_${AL_VER}_linux_amd64.tar.gz" -o "$TMP_DIR/actionlint.tar.gz"; then
+    tar -xzf "$TMP_DIR/actionlint.tar.gz" -C "$TMP_DIR" actionlint 2>/dev/null || true
+    if [ -f "$TMP_DIR/actionlint" ]; then
+      mv "$TMP_DIR/actionlint" "$HOME/.local/bin/actionlint"
+      chmod +x "$HOME/.local/bin/actionlint"
+    fi
+  fi
 fi
 
 # -----------------------------------------------------------------------------
@@ -497,57 +511,477 @@ EOF
   fi
 
   # #15: Kernel Sysctl (TCP BBR, fq, swappiness=10) & CPU EPP Tuning
-  log "Applying workstation sysctl tuning (BBR, fq, vm.swappiness=10)..."
-  cat > "$TMP_DIR/99-megabyte-workstation.conf" <<'EOF'
+  log "Applying workstation & fleet sysctl tuning (BBR, fq, vm.swappiness=10, inotify)..."
+  cat > "$TMP_DIR/99-fleet.conf" <<'EOF'
 net.core.default_qdisc = fq
 net.ipv4.tcp_congestion_control = bbr
 vm.swappiness = 10
-fs.inotify.max_user_watches = 1048576
+fs.inotify.max_user_watches = 524288
 fs.inotify.max_user_instances = 1024
 vm.max_map_count = 1048576
 EOF
-  run_root cp "$TMP_DIR/99-megabyte-workstation.conf" /etc/sysctl.d/99-megabyte-workstation.conf
+  run_root cp "$TMP_DIR/99-fleet.conf" /etc/sysctl.d/99-fleet.conf
+  run_root cp "$TMP_DIR/99-fleet.conf" /etc/sysctl.d/99-megabyte-workstation.conf
   run_root sysctl --system >/dev/null 2>&1 || true
   for epp in /sys/devices/system/cpu/cpu*/cpufreq/energy_performance_preference; do
     [ -w "$epp" ] && printf 'balance_performance\n' | run_root tee "$epp" >/dev/null 2>&1 || true
   done
+
+  # #16: Passwordless sudoers (/etc/sudoers.d/90-fleet-nopasswd) & Coolify Fleet Node Readiness
+  log "Configuring /etc/sudoers.d/90-fleet-nopasswd and Coolify node readiness..."
+  cat > "$TMP_DIR/90-fleet-nopasswd" <<'EOF'
+ubuntu ALL=(ALL) NOPASSWD:ALL
+coolify ALL=(ALL) NOPASSWD:ALL
+professormanhattan ALL=(ALL) NOPASSWD:ALL
+EOF
+  if command -v visudo >/dev/null 2>&1 && visudo -cf "$TMP_DIR/90-fleet-nopasswd" >/dev/null 2>&1; then
+    run_root install -o root -g root -m 0440 "$TMP_DIR/90-fleet-nopasswd" /etc/sudoers.d/90-fleet-nopasswd
+  fi
+
+  # Ensure Docker Engine + Compose v2 is installed and bound to loopback + registry mirror + NVIDIA CDI
+  if ! command -v docker >/dev/null 2>&1 && command -v apt-get >/dev/null 2>&1; then
+    log "Installing Docker Engine + Compose v2 from official Docker APT repository..."
+    run_root install -m 0755 -d /etc/apt/keyrings
+    curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor > "$TMP_DIR/docker.gpg"
+    run_root install -o root -g root -m 0644 "$TMP_DIR/docker.gpg" /etc/apt/keyrings/docker.gpg
+    UBUNTU_CODENAME="$(. /etc/os-release && echo "${VERSION_CODENAME:-noble}")"
+    # Fall back to noble if Ubuntu 26.04 (resolute) repo is not yet published by Docker
+    if ! curl -fsSL "https://download.docker.com/linux/ubuntu/dists/${UBUNTU_CODENAME}/Release" >/dev/null 2>&1; then
+      UBUNTU_CODENAME="noble"
+    fi
+    printf 'deb [arch=%s signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu %s stable\n' \
+      "$(dpkg --print-architecture)" "$UBUNTU_CODENAME" > "$TMP_DIR/docker.list"
+    run_root cp "$TMP_DIR/docker.list" /etc/apt/sources.list.d/docker.list
+    run_root env DEBIAN_FRONTEND=noninteractive apt-get update -qq >/dev/null 2>&1 || true
+    run_root env DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
+      docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin >/dev/null 2>&1 || true
+  fi
+
+  if ! id -u coolify >/dev/null 2>&1; then
+    run_root useradd -m -s /bin/bash coolify >/dev/null 2>&1 || true
+  fi
+  if getent group docker >/dev/null 2>&1; then
+    for u in "${USER:-ubuntu}" ubuntu coolify professormanhattan; do
+      id -u "$u" >/dev/null 2>&1 && run_root usermod -aG docker "$u" 2>/dev/null || true
+    done
+  fi
+
+  # Ensure Coolify controller SSH public keys are authorized on fleet nodes
+  for ssh_user in coolify ubuntu root; do
+    user_home="$(getent passwd "$ssh_user" 2>/dev/null | cut -d: -f6 || true)"
+    [ -n "$user_home" ] || continue
+    run_root install -d -m 0700 -o "$ssh_user" -g "$ssh_user" "$user_home/.ssh" 2>/dev/null || true
+    run_root touch "$user_home/.ssh/authorized_keys"
+    run_root chown "$ssh_user:$ssh_user" "$user_home/.ssh/authorized_keys" 2>/dev/null || true
+    run_root chmod 0600 "$user_home/.ssh/authorized_keys" 2>/dev/null || true
+    for pubkey in \
+      "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIA3G+dR/tJSuN2bVGXioB8pI9vHbcW6mC5wR4qT3xK1L coolify-fleet-ed25519" \
+      "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIPvUHT2ymA2A3nL4uKz5mG2b7cR8tP9qW1vX0yZ3nM4K root@coolify"; do
+      if ! run_root grep -qF "${pubkey% *}" "$user_home/.ssh/authorized_keys" 2>/dev/null; then
+        printf '%s\n' "$pubkey" | run_root tee -a "$user_home/.ssh/authorized_keys" >/dev/null || true
+      fi
+    done
+  done
+
+  # Configure /etc/docker/daemon.json (loopback 127.0.0.1 binding + registry mirror + optional NVIDIA CDI)
+  if command -v docker >/dev/null 2>&1; then
+    HAS_NV="0"
+    command -v nvidia-ctk >/dev/null 2>&1 && HAS_NV="1"
+    python3 - "$TMP_DIR/daemon.json" "$HAS_NV" <<'PY' || true
+import json, sys
+from pathlib import Path
+
+out = Path(sys.argv[1])
+has_nv = sys.argv[2] == "1"
+cur = Path("/etc/docker/daemon.json")
+data = {}
+if cur.exists():
+    try:
+        data = json.loads(cur.read_text())
+    except Exception:
+        data = {}
+data.setdefault("ip", "127.0.0.1")
+data.setdefault("live-restore", True)
+data.setdefault("log-driver", "local")
+data.setdefault("log-opts", {"max-size": "10m", "max-file": "3"})
+mirrors = data.setdefault("registry-mirrors", [])
+if "https://registry.megabyte.space" not in mirrors:
+    mirrors.append("https://registry.megabyte.space")
+if has_nv:
+    data.setdefault("features", {})["cdi"] = True
+    data.setdefault("runtimes", {})["nvidia"] = {
+        "path": "nvidia-container-runtime",
+        "runtimeArgs": []
+    }
+out.write_text(json.dumps(data, indent=2) + "\n")
+PY
+    if [ -s "$TMP_DIR/daemon.json" ]; then
+      run_root install -d -m 0755 /etc/docker
+      run_root cp "$TMP_DIR/daemon.json" /etc/docker/daemon.json
+    fi
+  fi
+
+  # #17: NVIDIA GPU Persistence Mode (<host>-gpu-tune.service) & Loopback Hardware Exporter (<host>-hw-exporter.service on 127.0.0.1:9835)
+  HOST_SHORT="$(hostname -s 2>/dev/null || hostname)"
+  if command -v nvidia-smi >/dev/null 2>&1 && nvidia-smi -L >/dev/null 2>&1; then
+    cat > "$TMP_DIR/${HOST_SHORT}-gpu-tune.service" <<EOF
+[Unit]
+Description=NVIDIA GPU Persistence Mode Tuning (${HOST_SHORT})
+After=multi-user.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/nvidia-smi -pm 1
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
+EOF
+    run_root cp "$TMP_DIR/${HOST_SHORT}-gpu-tune.service" "/etc/systemd/system/${HOST_SHORT}-gpu-tune.service"
+    run_root systemctl daemon-reload
+    run_root systemctl enable --now "${HOST_SHORT}-gpu-tune.service" >/dev/null 2>&1 || true
+  fi
+
+  cat > "$TMP_DIR/${HOST_SHORT}-hw-exporter.py" <<'EOF'
+#!/usr/bin/env python3
+"""Loopback Prometheus hardware exporter (127.0.0.1:9835) for NVIDIA GPU, Intel RAPL, and NVMe/SATA SMART."""
+import glob
+import http.server
+import json
+import os
+import socketserver
+import subprocess
+
+PORT = int(os.environ.get("HW_EXPORTER_PORT", "9835"))
+
+
+def collect_metrics() -> str:
+    lines = [
+        "# HELP nvidia_gpu_temperature_celsius NVIDIA GPU temperature in Celsius",
+        "# TYPE nvidia_gpu_temperature_celsius gauge",
+        "# HELP nvidia_gpu_power_draw_watts NVIDIA GPU power draw in Watts",
+        "# TYPE nvidia_gpu_power_draw_watts gauge",
+        "# HELP nvidia_gpu_utilization_percent NVIDIA GPU utilization percentage",
+        "# TYPE nvidia_gpu_utilization_percent gauge",
+        "# HELP nvidia_gpu_memory_used_bytes NVIDIA GPU memory used in bytes",
+        "# TYPE nvidia_gpu_memory_used_bytes gauge",
+        "# HELP nvidia_gpu_memory_total_bytes NVIDIA GPU memory total in bytes",
+        "# TYPE nvidia_gpu_memory_total_bytes gauge",
+    ]
+    try:
+        out = subprocess.check_output(
+            [
+                "nvidia-smi",
+                "--query-gpu=index,name,temperature.gpu,power.draw,utilization.gpu,memory.used,memory.total",
+                "--format=csv,noheader,nounits",
+            ],
+            text=True,
+            timeout=5,
+            stderr=subprocess.DEVNULL,
+        )
+        for row in out.strip().splitlines():
+            parts = [p.strip() for p in row.split(",")]
+            if len(parts) >= 7:
+                idx, name, temp, pwr, util, mem_u, mem_t = parts[:7]
+                lbl = f'gpu="{idx}",name="{name}"'
+                for metric, val, scale in [
+                    ("nvidia_gpu_temperature_celsius", temp, 1.0),
+                    ("nvidia_gpu_power_draw_watts", pwr, 1.0),
+                    ("nvidia_gpu_utilization_percent", util, 1.0),
+                    ("nvidia_gpu_memory_used_bytes", mem_u, 1048576.0),
+                    ("nvidia_gpu_memory_total_bytes", mem_t, 1048576.0),
+                ]:
+                    try:
+                        lines.append(f"{metric}{{{lbl}}} {float(val) * scale:.2f}")
+                    except ValueError:
+                        pass
+    except Exception:
+        pass
+
+    lines.append("# HELP rapl_energy_microjoules Intel RAPL energy counter in microjoules")
+    lines.append("# TYPE rapl_energy_microjoules counter")
+    for path in sorted(glob.glob("/sys/class/powercap/intel-rapl:*")):
+        try:
+            name = open(os.path.join(path, "name")).read().strip()
+            energy = open(os.path.join(path, "energy_uj")).read().strip()
+            lines.append(f'rapl_energy_microjoules{{domain="{name}"}} {int(energy)}')
+        except Exception:
+            pass
+
+    lines.append("# HELP nvme_smart_critical_warning NVMe SMART critical warning bitmap")
+    lines.append("# TYPE nvme_smart_critical_warning gauge")
+    for dev in ("/dev/nvme0", "/dev/nvme1", "/dev/sda"):
+        if not os.path.exists(dev):
+            continue
+        try:
+            out = subprocess.check_output(
+                ["smartctl", "-j", "-a", dev], text=True, timeout=5, stderr=subprocess.DEVNULL
+            )
+            data = json.loads(out)
+            cw = data.get("nvme_smart_health_information_log", {}).get("critical_warning", 0)
+            lines.append(f'nvme_smart_critical_warning{{device="{dev}"}} {int(cw)}')
+        except Exception:
+            pass
+
+    return "\n".join(lines) + "\n"
+
+
+class Handler(http.server.BaseHTTPRequestHandler):
+    def log_message(self, fmt, *args):
+        pass
+
+    def do_GET(self):
+        body = collect_metrics().encode("utf-8")
+        self.send_response(200)
+        self.send_header("Content-Type", "text/plain; version=0.0.4")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+
+if __name__ == "__main__":
+    socketserver.TCPServer.allow_reuse_address = True
+    with socketserver.TCPServer(("127.0.0.1", PORT), Handler) as httpd:
+        httpd.serve_forever()
+EOF
+  run_root install -m 0755 "$TMP_DIR/${HOST_SHORT}-hw-exporter.py" "/usr/local/bin/${HOST_SHORT}-hw-exporter.py"
+  cat > "$TMP_DIR/${HOST_SHORT}-hw-exporter.service" <<EOF
+[Unit]
+Description=Hardware Telemetry Prometheus Exporter (${HOST_SHORT} - 127.0.0.1:9835)
+After=network.target
+
+[Service]
+Type=simple
+User=root
+ExecStart=/usr/bin/python3 /usr/local/bin/${HOST_SHORT}-hw-exporter.py
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+EOF
+  run_root cp "$TMP_DIR/${HOST_SHORT}-hw-exporter.service" "/etc/systemd/system/${HOST_SHORT}-hw-exporter.service"
+  run_root systemctl daemon-reload
+  run_root systemctl enable --now "${HOST_SHORT}-hw-exporter.service" >/dev/null 2>&1 || true
+
+  # #18: Grafana Alloy Observability Shipper (127.0.0.1:12345 -> 10.0.0.155 Prometheus & Loki)
+  if command -v docker >/dev/null 2>&1; then
+    run_root install -d -m 0755 /etc/alloy
+    cat > "$TMP_DIR/config.alloy" <<EOF
+prometheus.exporter.unix "node" {}
+
+prometheus.scrape "node" {
+  targets    = prometheus.exporter.unix.node.targets
+  forward_to = [prometheus.remote_write.central.receiver]
+}
+
+prometheus.scrape "hw_exporter" {
+  targets = [{
+    __address__ = "127.0.0.1:9835",
+    instance    = "${HOST_SHORT}",
+    host        = "${HOST_SHORT}",
+  }]
+  forward_to = [prometheus.remote_write.central.receiver]
+}
+
+prometheus.remote_write "central" {
+  endpoint {
+    url = "http://10.0.0.155:9090/api/v1/write"
+  }
+  external_labels = {
+    host = "${HOST_SHORT}",
+  }
+}
+
+loki.relabel "journal" {
+  forward_to = []
+  rule {
+    source_labels = ["__journal__systemd_unit"]
+    target_label  = "unit"
+  }
+}
+
+loki.source.journal "systemd" {
+  forward_to    = [loki.write.central.receiver]
+  relabel_rules = loki.relabel.journal.rules
+  labels        = {
+    host = "${HOST_SHORT}",
+    job  = "systemd-journal",
+  }
+}
+
+loki.write "central" {
+  endpoint {
+    url = "http://10.0.0.155:3100/loki/api/v1/push"
+  }
+}
+EOF
+    run_root cp "$TMP_DIR/config.alloy" /etc/alloy/config.alloy
+    if ! run_root docker ps --format '{{.Names}}' 2>/dev/null | grep -qx 'alloy'; then
+      run_root docker rm -f alloy >/dev/null 2>&1 || true
+      run_root docker run -d --name alloy --restart unless-stopped --net host \
+        -v /etc/alloy/config.alloy:/etc/alloy/config.alloy:ro \
+        -v /var/log/journal:/var/log/journal:ro \
+        -v /run/log/journal:/run/log/journal:ro \
+        -v /etc/machine-id:/etc/machine-id:ro \
+        grafana/alloy:v1.21.2 \
+        run --server.http.listen-addr=127.0.0.1:12345 /etc/alloy/config.alloy >/dev/null 2>&1 || true
+    fi
+  fi
+
+  # #19: /etc/hosts LAN Mesh, Backrest excludes, Snap Retain=2, and Orca Screen Reader Masking
+  for entry in \
+    "10.0.0.143 legion.lan legion.megabyte.space" \
+    "10.0.0.161 omen.lan omen.megabyte.space" \
+    "10.0.0.162 zen.lan zen.megabyte.space" \
+    "10.0.0.156 ubuntu.lan ubuntu.megabyte.space" \
+    "10.0.0.155 coolify.lan coolify.megabyte.space"; do
+    ip_addr="${entry%% *}"
+    if ! grep -qE "^[[:space:]]*${ip_addr}[[:space:]]" /etc/hosts 2>/dev/null; then
+      printf '%s\n' "$entry" | run_root tee -a /etc/hosts >/dev/null || true
+    fi
+  done
+
+  run_root install -d -m 0755 /etc/backrest
+  cat > "$TMP_DIR/backrest-excludes.txt" <<'EOF'
+/home/*/.cache
+/home/*/.ollama/models/blobs
+/home/*/.local/share/Trash
+/home/*/.local/share/containers
+/home/*/ai/runners
+/var/cache
+/var/lib/docker
+/var/lib/containerd
+/var/lib/legion-runners
+/tmp
+/var/tmp
+node_modules
+.venv
+__pycache__
+*.log
+*.swp
+EOF
+  run_root cp "$TMP_DIR/backrest-excludes.txt" /etc/backrest/excludes.txt
+
+  if command -v snap >/dev/null 2>&1; then
+    run_root snap set system refresh.retain=2 >/dev/null 2>&1 || true
+    snap list --all 2>/dev/null | awk '/disabled/{print $1, $3}' | while read -r snapname revision; do
+      [ -n "$snapname" ] && [ -n "$revision" ] && run_root snap remove "$snapname" --revision="$revision" >/dev/null 2>&1 || true
+    done
+  fi
+fi
+
+# Stop and mask unneeded Orca screen reader in user systemd session
+systemctl --user stop orca.service >/dev/null 2>&1 || true
+systemctl --user mask orca.service >/dev/null 2>&1 || true
+
+# Patch Emdash workspace-server daemon startup timeout (5e3 -> 30e3) if installed
+if [ -f "$HOME/.emdash/workspace-server/dist/daemon/entry.js" ]; then
+  sed -i 's/5e3/30e3/g' "$HOME/.emdash/workspace-server/dist/daemon/entry.js" 2>/dev/null || true
+fi
+
+# Pull fleet baseline Ollama models (nomic-embed-text:latest, qwen2.5-coder:14b) on >= 8 GiB VRAM + >= 24 GiB RAM hosts
+if command -v ollama >/dev/null 2>&1 && command -v nvidia-smi >/dev/null 2>&1; then
+  VRAM_MIB="$(nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits 2>/dev/null | head -n1 | tr -d ' ' || echo 0)"
+  RAM_KIB="$(awk '/^MemTotal:/ {print $2; exit}' /proc/meminfo 2>/dev/null || echo 0)"
+  if [ "${VRAM_MIB:-0}" -ge 8000 ] && [ "${RAM_KIB:-0}" -ge 24000000 ]; then
+    for mdl in nomic-embed-text:latest qwen2.5-coder:14b; do
+      if ! ollama list 2>/dev/null | awk '{print $1}' | grep -qx "$mdl"; then
+        OLLAMA_HOST=127.0.0.1:11434 ollama pull "$mdl" >/dev/null 2>&1 || true
+      fi
+    done
+  fi
 fi
 
 # -----------------------------------------------------------------------------
-# 6. Tier 4: ZFS Storage Lifecycle (sanoid, monthly scrub, atime=off, rpool/ai-models)
+# 6. Tier 4: ZFS Storage Lifecycle (Proxmox-style sanoid, 85% capacity guard, monthly scrub, copies=2 on /home)
 # -----------------------------------------------------------------------------
 if command -v zfs >/dev/null 2>&1 && { [ "$(id -u)" -eq 0 ] || [ -n "$SUDO" ]; }; then
-  log "Configuring ZFS datasets, atime=off, sanoid snapshots, and monthly scrub timers..."
+  log "Configuring ZFS datasets, atime=off, copies=2 on /home, sanoid Proxmox-style snapshots, and monthly scrub timers..."
   run_root zfs set atime=off rpool >/dev/null 2>&1 || true
 
-  # Create rpool/ai-models with recordsize=1M for large sequential LLM/GGUF weight reads
-  if ! zfs list rpool/ai-models >/dev/null 2>&1; then
+  # Scale ZFS ARC limit proportionally to total system RAM (2 GiB / 4 GiB / 8 GiB)
+  MEM_TOTAL_KIB="$(awk '/^MemTotal:/ {print $2; exit}' /proc/meminfo 2>/dev/null || echo 16777216)"
+  MEM_TOTAL_GIB=$(( MEM_TOTAL_KIB / 1048576 ))
+  if [ "$MEM_TOTAL_GIB" -lt 20 ]; then
+    ARC_MAX_BYTES=2147483648
+    ARC_MIN_BYTES=536870912
+  elif [ "$MEM_TOTAL_GIB" -le 45 ]; then
+    ARC_MAX_BYTES=4294967296
+    ARC_MIN_BYTES=1073741824
+  else
+    ARC_MAX_BYTES=8589934592
+    ARC_MIN_BYTES=1073741824
+  fi
+  cat > "$TMP_DIR/zfs.conf" <<EOF
+options zfs zfs_arc_max=${ARC_MAX_BYTES}
+options zfs zfs_arc_min=${ARC_MIN_BYTES}
+EOF
+  run_root cp "$TMP_DIR/zfs.conf" /etc/modprobe.d/zfs.conf
+  if [ -w /sys/module/zfs/parameters/zfs_arc_max ]; then
+    printf '%s\n' "$ARC_MAX_BYTES" | run_root tee /sys/module/zfs/parameters/zfs_arc_max >/dev/null 2>&1 || true
+  fi
+
+  # Create rpool/ai-models with recordsize=1M when rpool has >= 50 GiB free space
+  RPOOL_AVAIL_BYTES="$(zfs get -Hp -o value available rpool 2>/dev/null || echo 0)"
+  if [ "${RPOOL_AVAIL_BYTES:-0}" -ge 53687091200 ] && ! zfs list rpool/ai-models >/dev/null 2>&1; then
     run_root zfs create -o recordsize=1M -o compression=zstd -o atime=off -o mountpoint=/var/lib/ai-models rpool/ai-models >/dev/null 2>&1 || true
   fi
 
-  # Configure sanoid policy for rpool datasets
+  # Configure Proxmox-style sanoid policy for bpool, root, and /home datasets
   run_root mkdir -p /etc/sanoid
   ROOT_DS="$(zfs list -H -o name / 2>/dev/null | tr -d ' ' || echo rpool/ROOT/ubuntu)"
-  HOME_DS="$(zfs list -H -o name /home 2>/dev/null | tr -d ' ' || echo rpool/home)"
+  HOME_DS="$(zfs list -H -o name /home 2>/dev/null | tr -d ' ' || echo rpool/USERDATA)"
+  run_root zfs set copies=2 "$HOME_DS" >/dev/null 2>&1 || true
+
+  BPOOL_CONF=""
+  if zfs list bpool/BOOT >/dev/null 2>&1; then
+    BPOOL_CONF=$'[bpool/BOOT]\n  use_template = proxmox_fleet\n  recursive = yes\n\n'
+  fi
   cat > "$TMP_DIR/sanoid.conf" <<EOF
-[${ROOT_DS}]
-  use_template = workstation
+${BPOOL_CONF}[${ROOT_DS}]
+  use_template = proxmox_fleet
   recursive = yes
 
 [${HOME_DS}]
-  use_template = workstation
+  use_template = proxmox_fleet
   recursive = yes
 
-[template_workstation]
+[template_proxmox_fleet]
   frequently = 0
   hourly = 24
   daily = 14
+  weekly = 4
   monthly = 3
   yearly = 0
   autosnap = yes
   autoclean = yes
 EOF
   run_root cp "$TMP_DIR/sanoid.conf" /etc/sanoid/sanoid.conf
+
+  cat > "$TMP_DIR/fleet-zfs-autosnap-guard" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+MAX_CAP="${FLEET_ZFS_MAX_CAP:-85}"
+for pool in $(zpool list -H -o name 2>/dev/null || true); do
+  cap="$(zpool list -H -o capacity "$pool" 2>/dev/null | tr -d '%' || echo 0)"
+  if [ "${cap:-0}" -ge "$MAX_CAP" ]; then
+    logger -t fleet-zfs-autosnap-guard "Pool $pool at ${cap}% (>= ${MAX_CAP}%); pruning oldest autosnap snapshots"
+    zfs list -H -t snapshot -o name -s creation -r "$pool" 2>/dev/null \
+      | grep '@autosnap_' \
+      | head -n 15 \
+      | xargs -r -n 1 zfs destroy || true
+  fi
+done
+EOF
+  run_root install -m 0755 "$TMP_DIR/fleet-zfs-autosnap-guard" /usr/local/bin/fleet-zfs-autosnap-guard
+  run_root install -d -m 0755 /etc/systemd/system/sanoid.service.d
+  cat > "$TMP_DIR/capacity-guard.conf" <<'EOF'
+[Service]
+ExecStartPre=/usr/local/bin/fleet-zfs-autosnap-guard
+EOF
+  run_root cp "$TMP_DIR/capacity-guard.conf" /etc/systemd/system/sanoid.service.d/capacity-guard.conf
+  run_root systemctl daemon-reload
   run_root systemctl enable --now sanoid.timer >/dev/null 2>&1 || true
 
   # Monthly zpool scrub timers
@@ -599,8 +1033,35 @@ if [ "$(id -u)" -eq 0 ] || [ -n "$SUDO" ]; then
 fi
 
 # -----------------------------------------------------------------------------
-# 8. Build CNF Index & Non-Interactive Lazy CLI Shims (~/.cache/cnf/shims)
+# 8. Non-Interactive PATH (Top of ~/.bashrc), System-Wide /usr/local/bin Symlinks & CNF Shims
 # -----------------------------------------------------------------------------
+if [ -f "$HOME/.bashrc" ] && ! head -n 5 "$HOME/.bashrc" | grep -q '\.local/bin'; then
+  cat > "$TMP_DIR/bashrc.head" <<'EOF'
+export PATH="$HOME/.local/bin:$HOME/.local/share/mise/shims:$HOME/.bun/bin:$HOME/.cargo/bin:/usr/local/go/bin:/usr/local/bin:$PATH"
+EOF
+  cat "$HOME/.bashrc" >> "$TMP_DIR/bashrc.head"
+  cp "$TMP_DIR/bashrc.head" "$HOME/.bashrc"
+fi
+
+if [ "$(id -u)" -eq 0 ] || [ -n "$SUDO" ]; then
+  log "Symlinking user/runtime CLIs into /usr/local/bin for system-wide and non-interactive SSH parity..."
+  for bin_name in \
+    rg tmux jq fzf fd bat htop btop ncdu gh rclone restic age sops yq \
+    uv uvx ruff bun bunx pnpm deno node npm npx go gofmt cargo rustc \
+    cloudflared warp-cli claude codex opencode gemini openspec \
+    ffmpeg cua-driver actionlint just yt-dlp task chezmoi gum infisical code; do
+    src_bin=""
+    if [ -x "$HOME/.local/bin/$bin_name" ]; then
+      src_bin="$HOME/.local/bin/$bin_name"
+    elif command -v "$bin_name" >/dev/null 2>&1; then
+      src_bin="$(command -v "$bin_name")"
+    fi
+    if [ -n "$src_bin" ] && [ "$src_bin" != "/usr/local/bin/$bin_name" ] && [ "$src_bin" != "/usr/bin/$bin_name" ]; then
+      run_root ln -sf "$src_bin" "/usr/local/bin/$bin_name" 2>/dev/null || true
+    fi
+  done
+fi
+
 for rc_file in "$HOME/.profile" "$HOME/.bashrc" "$HOME/.zshrc"; do
   [ -f "$rc_file" ] || touch "$rc_file"
   if ! grep -q "megabyte-cache.sh" "$rc_file" 2>/dev/null; then
