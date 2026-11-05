@@ -693,6 +693,35 @@ setupPasswordlessSudo() {
     fi
     export SUDO_PASSWORD
   fi
+  if [ -z "$SUDO_PASSWORD" ] && [ -f "$HOME/.config/agent-fleet/infisical.json" ] && command -v python3 > /dev/null 2>&1; then
+    SUDO_PASSWORD="$(python3 - <<'PY' 2>/dev/null || true
+import json
+from pathlib import Path
+from urllib.parse import urlencode
+from urllib.request import Request, urlopen
+
+cfg_path = Path.home() / ".config/agent-fleet/infisical.json"
+cfg = json.loads(cfg_path.read_text())
+cred_path = Path(cfg.get("credentialsFile", str(Path.home() / ".config/agent-fleet/infisical-us-credentials.json"))).expanduser()
+if not cred_path.exists():
+    cred_path = Path.home() / ".config/agent-fleet/infisical-us-credentials.json"
+creds = json.loads(cred_path.read_text())
+base = cfg["url"].rstrip("/")
+headers = {"Content-Type": "application/json", "User-Agent": "infisical-fleet-broker/1.0"}
+req = Request(f"{base}/api/v1/auth/universal-auth/login", data=json.dumps(creds).encode(), headers=headers)
+with urlopen(req, timeout=10) as resp:
+    tok = json.load(resp)["accessToken"]
+q = urlencode({"workspaceId": cfg["projectId"], "environment": cfg.get("environment", "prod"), "secretPath": cfg.get("secretPath", "/"), "type": "shared"})
+req2 = Request(f"{base}/api/v3/secrets/raw/SUDO_PASSWORD?{q}", headers={"Authorization": f"Bearer {tok}", "User-Agent": "infisical-fleet-broker/1.0"})
+with urlopen(req2, timeout=10) as resp2:
+    print(json.load(resp2)["secret"]["secretValue"], end="")
+PY
+)"
+    if [ -n "$SUDO_PASSWORD" ] && ! _idSudoPasswordWorks "$SUDO_PASSWORD"; then
+      SUDO_PASSWORD=""
+    fi
+    export SUDO_PASSWORD
+  fi
 
   ### Try the Chezmoi-encrypted secret next. `chezmoi decrypt` can append a
   ### trailing newline, so strip it before testing.
