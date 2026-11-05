@@ -45,25 +45,13 @@ figmaAddons:
 chromeExtensionsDisabled: []
 chromeExtensions:
   - bitwarden-free-password-m/nngceckbapebfimnlniiiahkandclblb
-  - floccus-bookmarks-sync/fnaicdffflnofjppbagibeoednhnbjhg
-  - json-viewer-pro/eifflpmocdbdmepbjaopkkhbfmdgijcc
-  - octotree-github-code-tree/bkhaagjahfmjljalopjnoealnfndnagc
   - refined-github/hlepfoohegkhhmjieoechaddaejaokhf
-  - singlefile/mpiodijhokgodhhofbcjdecpffjipkle
-  - sponsorblock-for-youtube/mnjggcdmjocbbbhaepdhchncahnbgone
+  - ublock-origin-lite/ddkjiahejlhfcafbddmgiahcphecmpfh
 firefoxAddOns:
   - bitwarden-password-manager
-  - canvasblocker
   - clearurls
-  - decentraleyes
-  - floccus
-  - hoppscotch
-  - json-lite
   - multi-account-containers
   - refined-github-
-  - single-file
-  - sponsorblock
-  - temporary-containers
   - ublock-origin
 fonts:
   main: Montserrat Bold
@@ -126,53 +114,24 @@ softwarePlugins:
   docker-plugins:
     cmd: bash -c 'if ! docker plugin ls | grep "{PLUGIN}" > /dev/null; then echo y | docker plugin install "{PLUGIN}"; fi'
     plugins:
-      # TODO - Add https://github.com/ContainX/docker-volume-netshare
-      - juicedata/juicefs
-      - n0r1skcom/docker-volume-cephfs
       - sapk/plugin-rclone
-      - vieux/sshfs
     when: docker plugin ls &> /dev/null
-  dotnet:
-    cmd: bash -c 'if ! dotnet tool list -g | grep "{PLUGIN}" > /dev/null; then dotnet tool install -g "{PLUGIN}"; fi'
-    plugins:
-      - Cake.Tool
-      - microsoft.cst.attacksurfaceanalyzer.cli
-      - dotnet-format
-      - git-credential-manager
   espanso:
     cmd: espanso install {PLUGIN}
     plugins:
       - base64-encoder-decoder
-      - basic-emojis
-      - common-phrases
-      - espanso-fractions
-      - foreign-thanks
-      - frontend-snippets
       - gitmojis
-      - lorem
-      - mac-symbols
-      - numeronyms
-      - rand-tools
-      - sharewifi
       - typofixer-en
   gcloud:
     cmd: bash -c 'if ! gcloud components list | grep "^..Installed.*{PLUGIN}" > /dev/null; then echo "Installing.." && gcloud components install --quiet "{PLUGIN}"; fi'
     plugins:
-      - app-engine-go
-      - cloud-datastore-emulator
-      - cloud-firestore-emulator
       - cloud-run-proxy
       - gke-gcloud-auth-plugin
-      - log-streaming
-      - pubsub-emulator
-      - terraform-tools
     update: gcloud components update
   gh:
     cmd: bash -c 'if [ -f "${XDG_CONFIG_HOME:-$HOME/.config}/shell/private.sh" ]; then source "${XDG_CONFIG_HOME:-$HOME/.config}/shell/private.sh"; fi && if [ -n "$GITHUB_TOKEN" ] && ! gh extension list | grep "{PLUGIN}" > /dev/null; then gh extension install "{PLUGIN}"; fi'
     plugins:
-      - abdfnx/gh-tran
       - dlvhdr/gh-dash
-      - github/gh-net
       - mislav/gh-cp
   intellij-idea-ce:
     cmd: bash -c 'if [ ! -f "${XDG_CACHE_HOME:-$HOME/.cache}/install.doctor/intellij-idea-ce" ] || ! cat "${XDG_CACHE_HOME:-$HOME/.cache}/install.doctor/intellij-idea-ce" | grep "${PLUGIN}" &> /dev/null; then idea installPlugins "{PLUGIN}" && mkdir -p "${XDG_CACHE_HOME:-$HOME/.cache}/install.doctor" && echo "{PLUGIN}" >> "${XDG_CACHE_HOME:-$HOME/.cache}/install.doctor/intellij-idea-ce"; fi'
@@ -180,15 +139,11 @@ softwarePlugins:
       - com.github.copilot
       - com.jetbrains.rust
       - org.intellij.plugins.hcl
-      - com.intellij.lang.jsgraphql
-      - name.kropp.intellij.makefile
       - Docker
       - mobi.hsz.idea.gitignore
       - NodeJS
       - org.editorconfig.editorconfigjetbrains
       - org.intellij.plugins.markdown
-      - org.jetbrains.completion.full.line
-      - org.jetbrains.plugins.go-template
   helm:
     cmd: bash -c '{PLUGIN}'
     plugins:
@@ -197,26 +152,14 @@ softwarePlugins:
   krew:
     cmd: bash -c 'if ! kubectl krew list | grep "^{PLUGIN}$" > /dev/null; then if ! kubectl krew search "{PLUGIN}" | grep " unavailable on " > /dev/null; then kubectl krew install "{PLUGIN}"; else echo "UNSUPPORTED PLATFORM - {PLUGIN} is not supported on the current platform"; fi; fi'
     plugins:
-      - access-matrix
       - cert-manager
-      - cost
       - ctx
-      - deprecations
       - get-all
-      - graph
-      - konfig
-      - kyverno
-      - modify-secret
       - neat
-      - node-shell
       - ns
-      - oidc-login
       - resource-capacity
-      - score
-      - sniff
       - tail
       - tree
-      - view-allocations
       - who-can
   obsidian:
     cmd: |
@@ -235,179 +178,55 @@ softwarePlugins:
         fi
       done
     plugins:
-      - https://github.com/aidenlx/media-extended
-      - https://github.com/alangrainger/obsidian-google-photos
-      - https://github.com/aleksey-rezvov/obsidian-local-images
-      - https://github.com/alexandru-dinu/obsidian-sortable
-      - https://github.com/AlexW00/obsidian-note-linker
-      - https://github.com/argenos/nldates-obsidian
-      - https://github.com/bingryan/obsidian-markdown-export-plugin
       - https://github.com/blacksmithgu/obsidian-dataview
-      - https://github.com/bramses/chatgpt-md
-      - https://github.com/Canna71/obsidian-janitor
-      - https://github.com/caronchen/obsidian-epub-plugin
-      - https://github.com/CIMSTA/obsidiosaurus
-      - https://github.com/Clemens-E/obsidian-languagetool-plugin
-      - https://github.com/coddingtonbear/obsidian-local-rest-api
-      - https://github.com/dartungar/obsidian-mermaid
-      - https://github.com/davish/obsidian-full-calendar
-      - https://github.com/deathau/cm-editor-syntax-highlight-obsidian
-      - https://github.com/deathau/csv-obsidian
       - https://github.com/denolehov/obsidian-git
-      - https://github.com/devbean/obsidian-wordpress
-      - https://github.com/dexin-qi/obsidian-sync-calendar
-      - https://github.com/dhamaniasad/obsidian-rich-links
-      - https://github.com/different-ai/obsidian-ava
-      - https://github.com/EasyChris/obsidian-to-notion
-      - https://github.com/Ellpeck/ObsidianCustomFrames
       - https://github.com/FlorianWoelki/obsidian-iconize
       - https://github.com/ganesshkumar/obsidian-table-editor
-      - https://github.com/getmatterapp/obsidian-matter
-      - https://github.com/HEmile/obsidian-search-on-internet
-      - https://github.com/hipstersmoothie/obsidian-plugin-toc
-      - https://github.com/ivan-lednev/obsidian-day-planner
-      - https://github.com/jamesmagoo/nostr-writer
       - https://github.com/javalent/settings-search
-      - https://github.com/joethei/obsidian-rss
-      - https://github.com/jonstodle/obsius-obsidian-plugin
-      - https://github.com/khoj-ai/khoj
       - https://github.com/liamcain/obsidian-calendar-plugin
       - https://github.com/liamcain/obsidian-periodic-notes
-      - https://github.com/linjunpop/obsidian-gist
       - https://github.com/lukeleppan/better-word-count
-      - https://github.com/lukeleppan/obsidian-discordrpc
-      - https://github.com/Make-md/makemd
-      - https://github.com/marcjulianschwarz/obsidian-file-link
-      - https://github.com/marcusolsson/obsidian-projects
-      - https://github.com/mcndt/obsidian-quickshare
-      - https://github.com/meld-cp/obsidian-encrypt
       - https://github.com/mgmeyers/obsidian-kanban
       - https://github.com/mgmeyers/obsidian-style-settings
-      - https://github.com/MrGVSV/obsidian-github-embeds
-      - https://github.com/MSzturc/obsidian-advanced-slides
-      - https://github.com/noatpad/obsidian-banners
       - https://github.com/NomarCub/obsidian-open-vscode
-      - https://github.com/nybbles/obsidian-pocket
-      - https://github.com/Obsidian-Desci/Obsidian-Desci
       - https://github.com/obsidian-tasks-group/obsidian-tasks
       - https://github.com/obsidianmd/obsidian-importer
-      - https://github.com/ObsidianPublisher/obsidian-github-publisher
-      - https://github.com/oeN/liquid-template
-      - https://github.com/OliverBalfour/obsidian-pandoc
-      - https://github.com/oliveryh/obsidian-emoji-toolbar
-      - https://github.com/omnivore-app/obsidian-omnivore
-      - https://github.com/ozntel/file-tree-alternative
-      - https://github.com/phibr0/obsidian-charts
-      - https://github.com/phibr0/obsidian-dictionary
       - https://github.com/platers/obsidian-linter
-      - https://github.com/polyipseity/obsidian-terminal
-      - https://github.com/ravimashru/obsidian-show-file-path
-      - https://github.com/sbquinlan/obsidian-handlebars
       - https://github.com/scambier/obsidian-omnisearch
-      # - https://github.com/shabegom/buttons
-      - https://github.com/mProjectsCode/obsidian-meta-bind-plugin
-      # - https://github.com/snezhig/obsidian-front-matter-title
-      - https://github.com/tadashi-aikawa/obsidian-various-complements-plugin
-      - https://github.com/trashhalo/obsidian-webhooks
-      - https://github.com/twentytwokhz/language-translator
-      - https://github.com/twibiral/obsidian-execute-code
-      - https://github.com/Vinzent03/find-unlinked-files
       - https://github.com/Vinzent03/obsidian-advanced-uri
-      # - https://github.com/weichenw/obsidian-hypothesis-plugin
-      - https://github.com/xryul/obsidian-image-converter
-      - https://github.com/YukiGasai/obsidian-google-calendar
-      - https://github.com/YukiGasai/obsidian-google-tasks
-      # - https://github.com/zsviczian/excalibrain
-      # - https://github.com/zsviczian/obsidian-excalidraw-plugin
-      - https://github.com/qgrail/obsidian-ai-assistant
-  # raycast: Manually install Raycast extensions - no CLI method
   steampipe:
     cmd: bash -c 'if [ ! -f /tmp/steampipe-plugin-list ]; then steampipe plugin list > /tmp/steampipe-plugin-list; fi && if ! cat /tmp/steampipe-plugin-list | grep "{PLUGIN}" > /dev/null; then steampipe plugin install "{PLUGIN}"; fi'
     plugins:
-      - algolia
       - aws
-      - azure
-      - azuread
-      - azuredevops
-      - bitbucket
-      - buildkite
       - cloudflare
       - code
-      - config
-      - consul
       - csv
-      - digitalocean
       - docker
-      - gcp
       - github
-      - googledirectory
-      - googlesheets
-      - googleworkspace
       - grafana
-      - heroku
-      - hibp
-      - imap
-      - ipinfo
-      - jira
-      - jumpcloud
       - kubernetes
-      - ldap
-      - linkedin
       - net
-      - nomad
       - openai
       - prometheus
-      - reddit
-      - rss
       - sentry
-      - shopify
-      - slack
       - stripe
       - terraform
       - trivy
-      - twilio
-      - whois
-      - ernw/openstack
-      - theapsgroup/gitlab
-      - theapsgroup/keycloak
-      - theapsgroup/vault
-      - twitter
     update: steampipe plugin update --all
-  visual-studio:
-    cmd: null
-    plugins:
-      - GitHub.copilotvs
   vim:
     plugins:
       - https://github.com/airblade/vim-gitgutter.git
       - https://github.com/dense-analysis/ale.git
       - https://github.com/editorconfig/editorconfig-vim.git
-      - https://github.com/ekalinin/dockerfile.vim.git
-      - https://github.com/fatih/vim-go.git
       - https://github.com/github/copilot.vim
-      - https://github.com/hdima/python-syntax.git
       - https://github.com/junegunn/fzf.git
       - https://github.com/junegunn/fzf.vim.git
-      - https://github.com/kristijanhusak/vim-carbon-now-sh.git
-      - https://github.com/mxw/vim-jsx.git
-      - https://github.com/Yggdroot/indentLine
-      - https://github.com/nanotee/zoxide.vim.git
-      - https://github.com/pangloss/vim-javascript.git
-      - https://github.com/pearofducks/ansible-vim.git
-      - https://github.com/plasticboy/vim-markdown.git
+      - https://github.com/preservim/nerdtree.git
       - https://github.com/sheerun/vim-polyglot.git
-      - https://github.com/prettier/vim-prettier.git
-      - https://github.com/ryanoasis/vim-devicons.git
-      - https://github.com/scrooloose/nerdtree.git
-      - https://github.com/stanangeloff/php.vim.git
-      - https://github.com/terryma/vim-multiple-cursors.git
       - https://github.com/tpope/vim-fugitive.git
       - https://github.com/tpope/vim-sensible.git
-      - https://github.com/justinmk/vim-sneak.git
       - https://github.com/tpope/vim-surround.git
       - https://github.com/vim-airline/vim-airline.git
-      - https://github.com/vim-syntastic/syntastic.git
-      - https://github.com/leafgarland/typescript-vim.git
   # Handled by script that looks at ~/.config/Code/extensions.json
   # vscode:
   #   cmd: bash -c 'if ! code --list-extensions | grep "{PLUGIN}" > /dev/null; then code --install-extension "{PLUGIN}"; fi'

@@ -7,7 +7,7 @@ default_dconf_settings:
   - key: /org/gnome/shell/disable-user-extensions
     value: 'false'
   - key: /org/gnome/shell/enabled-extensions
-    value: "['improved-workspace-indicator@michaelaquilina.github.io', 'ssm-gnome@lgiki.net', 'sound-output-device-chooser@kgshank.net', 'ProxySwitcher@flannaghan.com', 'IP-Finder@linxgem33.com', 'vlan-switcher@darcato.github.io', 'dash-to-dock@micxgx.gmail.com', 'drive-menu@gnome-shell-extensions.gcampax.github.com', 'places-menu@gnome-shell-extensions.gcampax.github.com', 'gsconnect@andyholmes.github.io', 'bluetooth-quick-connect@bjarosze.gmail.com', 'mprisindicatorbutton@JasonLG1979.github.io', 'startup-measure@marco.trevi.me', 'pano@elhan.io', 'mutter-primary-gpu@zaidka.github.io', 'appindicatorsupport@rgcjonas.gmail.com', 'user-theme@gnome-shell-extensions.gcampax.github.com']"
+    value: "['dash-to-dock@micxgx.gmail.com', 'drive-menu@gnome-shell-extensions.gcampax.github.com', 'places-menu@gnome-shell-extensions.gcampax.github.com', 'gsconnect@andyholmes.github.io', 'appindicatorsupport@rgcjonas.gmail.com', 'user-theme@gnome-shell-extensions.gcampax.github.com', 'AlphabeticalAppGrid@stuarthayhurst']"
   - key: /org/gnome/shell/extensions/dash-to-dock/dash-max-icon-size
     value: '40'
   - key: /org/gnome/desktop/session/idle-delay
@@ -64,8 +64,6 @@ default_dconf_settings:
     value: "'nothing'"
 
 default_gnome_extensions:
-  # - url: https://extensions.gnome.org/extension/327/axe-menu/
-  # - url: https://extensions.gnome.org/extension/1176/argos/
   - url: https://extensions.gnome.org/extension/615/appindicator-support/
     regex: appindicator-support
   - url: https://extensions.gnome.org/extension/19/user-themes/
@@ -97,79 +95,7 @@ default_gnome_extensions:
       - dconf write /org/gnome/shell/extensions/dash-to-dock/show-apps-at-top true
       - dconf write /org/gnome/shell/extensions/dash-to-dock/show-mounts-network false
       - dconf write /org/gnome/shell/extensions/dash-to-dock/show-show-apps-button true
-  - url: https://extensions.gnome.org/extension/771/proxy-switcher/
-    regex: ProxySwitcher
-  - url: https://extensions.gnome.org/extension/3968/improved-workspace-indicator/
-    regex: improved-workspace-indicator
-    settings:
-      - dconf write /org/gnome/shell/extensions/improved-workspace-indicator/panel-position "'right'"
-  - url: https://extensions.gnome.org/extension/4506/simple-system-monitor/
-    regex: ssm-gnome
-    settings:
-      - dconf write /org/gnome/shell/extensions/simple-system-monitor/cpu-usage-text "'CPU'"
-      - dconf write /org/gnome/shell/extensions/simple-system-monitor/extension-order -50
-      - dconf write /org/gnome/shell/extensions/simple-system-monitor/extension-position "'center'"
-      - dconf write /org/gnome/shell/extensions/simple-system-monitor/font-family "'Hack Nerd Font'"
-      - dconf write /org/gnome/shell/extensions/simple-system-monitor/font-size 11
-      - dconf write /org/gnome/shell/extensions/simple-system-monitor/font-weight 400
-      - dconf write /org/gnome/shell/extensions/simple-system-monitor/is-cpu-usage-enable true
-      - dconf write /org/gnome/shell/extensions/simple-system-monitor/is-download-speed-enable true
-      - dconf write /org/gnome/shell/extensions/simple-system-monitor/is-memory-usage-enable true
-      - dconf write /org/gnome/shell/extensions/simple-system-monitor/is-upload-speed-enable true
-      - dconf write /org/gnome/shell/extensions/simple-system-monitor/memory-usage-text "'MEM'"
-      - dconf write /org/gnome/shell/extensions/simple-system-monitor/refresh-interval 3
-      - dconf write /org/gnome/shell/extensions/simple-system-monitor/show-extra-spaces true
-      - dconf write /org/gnome/shell/extensions/simple-system-monitor/show-percent-sign true
-      - dconf write /org/gnome/shell/extensions/simple-system-monitor/text-color "'#ffffff'"
-  - url: https://extensions.gnome.org/extension/906/sound-output-device-chooser/
-    regex: sound-output-device-chooser
-    settings:
-      - dconf write /org/gnome/shell/extensions/sound-output-device-chooser/hide-menu-icons true
-      - dconf write /org/gnome/shell/extensions/sound-output-device-chooser/hide-on-single-device true
-      - dconf write /org/gnome/shell/extensions/sound-output-device-chooser/icon-theme "'monochrome'"
-      - dconf write /org/gnome/shell/extensions/sound-output-device-chooser/integrate-with-slider true
-      - dconf write /org/gnome/shell/extensions/sound-output-device-chooser/omit-device-origins false
-  - url: https://extensions.gnome.org/extension/2983/ip-finder/
-    regex: IP-Finder
-    settings:
-      - dconf write /org/gnome/shell/extensions/public-ip-address/actors-in-panel "'Flag'"
-      - dconf write /org/gnome/shell/extensions/public-ip-address/panel-vpn-ip-addr-colors false
-      - dconf write /org/gnome/shell/extensions/public-ip-address/position-in-panel "'right'"
-  # Alternative to the full screen activities overview
-  # - url: https://extensions.gnome.org/extension/6/applications-menu/
-  #   regex: apps-menu
-  - url: https://extensions.gnome.org/extension/3061/vlan-switcher/
-    regex: vlan-switcher
-  # Works but does not have that many features and the top bar is somewhat crowded on smaller screens
-  # - url: https://extensions.gnome.org/extension/1762/lan-ip-address/
-  #   regex: lan-ip-address
   - url: https://extensions.gnome.org/extension/7/removable-drive-menu/
     regex: drive-menu
-  - url: https://extensions.gnome.org/extension/5087/startup-measure/
-    regex: startup-measure
   - url: https://extensions.gnome.org/extension/8/places-status-indicator/
     regex: places-menu
-  - url: https://extensions.gnome.org/extension/1379/mpris-indicator-button/
-    regex: mprisindicatorbutton
-  - url: https://extensions.gnome.org/extension/5218/mutter-primary-gpu/
-    regex: mutter-primary-gpu
-  - url: https://extensions.gnome.org/extension/1401/bluetooth-quick-connect/
-    regex: bluetooth-quick-connect
-    settings:
-      - dconf write /org/gnome/shell/extensions/bluetooth-quick-connect/bluetooth-auto-power-on true
-      - dconf write /org/gnome/shell/extensions/bluetooth-quick-connect/refresh-button-on true
-      - dconf write /org/gnome/shell/extensions/bluetooth-quick-connect/show-battery-value-on true
-  - url: https://extensions.gnome.org/extension/5278/pano/
-    regex: pano
-    settings:
-      - if command -v apt-get > /dev/null; then sudo apt-get install -y gir1.2-gda-5.0 gir1.2-gsound-1.0; fi
-      - if command -v dnf > /dev/null; then sudo dnf install -y libgda libgda-sqlite; fi
-      - if command -v yum > /dev/null; then sudo yum install -y libgda libgda-sqlite; fi
-      - if command -v pacman > /dev/null; then sudo pacman -Sy libgda; fi
-      - if command -v zypper > /dev/null; then sudo zypper install -y libgda-6_0-sqlite typelib-1_0-Gda-6_0 typelib-1_0-GSound-1_0; fi
-      - dconf write /org/gnome/shell/extensions/pano/database-location "\\\"${XDG_DATA_HOME:-$HOME/.local/share}/pano\\\""
-      - dconf write /org/gnome/shell/extensions/pano/history-length 50
-      - dconf write /org/gnome/shell/extensions/pano/play-audio-on-copy true
-      - dconf write /org/gnome/shell/extensions/pano/session-only-mode true
-      # Set below to true if you want select text for copy
-      - dconf write /org/gnome/shell/extensions/pano/sync-primary false

@@ -336,26 +336,11 @@ zinit wait'0b' lucid for \
   OMZP::encode64 \
   OMZP::sudo \
   OMZP::safe-paste \
-  OMZP::last-working-dir \
-  OMZP::timer \
-  OMZP::urltools \
-  OMZP::web-search \
-  OMZP::zsh-interactive-cd \
-  OMZP::zsh-navigation-tools
+  OMZP::zsh-interactive-cd
 
 ### Git plugins — Brian uses these daily.
-###
-### Removed (do not re-add): OMZP::git-flow + OMZP::gitfast. Both are
-### multi-file OMZ plugins (they `source` sibling files like `_git-flow`
-### and `git-prompt.sh`). zinit's `OMZP::` shorthand only downloads the
-### entry point — sibling files 404 — and the `svn` ice that fetches
-### the whole subdirectory requires Subversion which Apple removed from
-### macOS 10.14+. Net loss is small: brew's git ships full completion
-### via FPATH (so `gitfast` is redundant) and `git flow` completion is
-### niche enough to re-add per-machine if actually used.
 zinit wait'0c' lucid for \
   OMZP::git-extras \
-  OMZP::git-auto-fetch \
   OMZP::github
 
 ### Tool-specific plugins — gated on tool presence so an uninstalled
@@ -439,10 +424,8 @@ _id_lazy() {
 ### Tools the user invokes directly (lazy-stubbed; init on first call):
 _id_lazy direnv      'hook zsh'
 _id_lazy mise        'activate zsh'
-_id_lazy rtx         'activate zsh'
 _id_lazy navi        'widget zsh'
 _id_lazy ntfy        'shell-integration'
-_id_lazy pay-respects 'zsh --alias'
 _id_lazy zoxide      'init zsh'
 _id_lazy sheldon     'source'
 unfunction _id_lazy
@@ -563,13 +546,6 @@ _id_source_safe up "${XDG_DATA_HOME:-$HOME/.local/share}/up/up.sh"
 
 ### HashiCorp Vault
 command -v vault > /dev/null && complete -o nospace -C vault vault
-
-### Autocomplete UX tuning — applies to marlonrichert/zsh-autocomplete
-zstyle ':autocomplete:*' list-lines 14
-zstyle ':autocomplete:history-search:*' list-lines 14
-zstyle ':autocomplete:history-incremental-search-*:*' list-lines 14
-command -v fzf > /dev/null && zstyle ':autocomplete:*' fzf-completion yes
-command -v zoxide > /dev/null && zstyle ':autocomplete:recent-dirs' backend zoxide
 
 # ---------------------------------------------------------------------------
 # Optional: custom command_not_found_handler

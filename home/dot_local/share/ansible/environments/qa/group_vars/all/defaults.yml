@@ -3,43 +3,99 @@ default_dconf_settings:
   - key: /org/gnome/desktop/background/picture-uri
     value: "'file:///usr/share/backgrounds/brad-huchteman-stone-mountain.jpg'"
   - key: /org/gnome/shell/favorite-apps
-    value: "['org.gnome.Nautilus.desktop', 'firefox.desktop', 'chromium_chromium.desktop', \
-      'brave-browser.desktop', 'mailspring_mailspring.desktop', 'code_code.desktop', \
-      'hyper.desktop', 'plexmediaserver_pms-web.desktop', 'org.gnome.Lollypop.desktop', \
-      'virt-manager.desktop', 'vmware-workstation.desktop']"
+    value: "['org.gnome.Nautilus.desktop', 'com.brave.Browser.desktop', 'io.gitlab.librewolf-community.desktop', 'com.vscodium.codium.desktop', 'org.ferdium.Ferdium.desktop', 'com.getmailspring.Mailspring.desktop', 'org.gnome.Terminal.desktop', 'tabby.desktop', 'vmware-workstation.desktop', 'org.gnome.Connections.desktop', 'org.standardnotes.standardnotes.desktop', 'com.bitwarden.desktop.desktop', 'portmaster.desktop', 'gnome-control-center.desktop']"
+  - key: /org/gnome/shell/disable-user-extensions
+    value: 'false'
+  - key: /org/gnome/shell/enabled-extensions
+    value: "['dash-to-dock@micxgx.gmail.com', 'drive-menu@gnome-shell-extensions.gcampax.github.com', 'places-menu@gnome-shell-extensions.gcampax.github.com', 'gsconnect@andyholmes.github.io', 'appindicatorsupport@rgcjonas.gmail.com', 'user-theme@gnome-shell-extensions.gcampax.github.com', 'AlphabeticalAppGrid@stuarthayhurst']"
   - key: /org/gnome/shell/extensions/dash-to-dock/dash-max-icon-size
     value: '40'
   - key: /org/gnome/desktop/session/idle-delay
     value: '600'
   - key: /org/gnome/desktop/privacy/report-technical-problems
     value: 'false'
+  - key: /org/gnome/settings-daemon/plugins/power/sleep-inactive-ac-timeout
+    value: '3600'
+  - key: /org/gnome/settings-daemon/plugins/power/power-saver-profile-on-low-battery
+    value: 'true'
+  - key: /org/gnome/desktop/calendar/show-weekdate
+    value: 'true'
+  - key: /org/gnome/desktop/interface/clock-format
+    value: "'12h'"
+  - key: /org/gnome/desktop/interface/clock-show-seconds
+    value: 'true'
+  - key: /org/gnome/desktop/interface/clock-show-weekday
+    value: 'true'
+  - key: /org/gnome/desktop/interface/color-scheme
+    value: "'prefer-dark'"
+  - key: /org/gnome/desktop/interface/document-font-name
+    value: "'Zilla Slab Medium 11'"
+  - key: /org/gnome/desktop/interface/enable-hot-corners
+    value: 'true'
+  - key: /org/gnome/desktop/interface/font-antialiasing
+    value: "'rgba'"
+  - key: /org/gnome/desktop/interface/font-hinting
+    value: "'medium'"
+  - key: /org/gnome/desktop/interface/font-name
+    value: "'Montserrat Medium 11'"
+  - key: /org/gnome/desktop/interface/gtk-theme
+    value: "'Betelgeuse'"
+  - key: /org/gnome/desktop/interface/icon-theme
+    value: "'Betelgeuse'"
+  - key: /org/gnome/desktop/interface/monospace-font-name
+    value: "'Hack Nerd Font 11'"
+  - key: /org/gnome/desktop/privacy/old-files-age
+    value: 14
+  - key: /org/gnome/desktop/privacy/recent-files-max-age
+    value: '7'
+  - key: /org/gnome/desktop/privacy/remove-old-temp-files
+    value: 'true'
+  - key: /org/gnome/desktop/privacy/remove-old-trash-files
+    value: 'true'
+  - key: /org/gnome/desktop/privacy/report-technical-problems
+    value: 'false'
+  - key: /org/gnome/desktop/wm/preferences/titlebar-font
+    value: "'Montserrat Bold 11'"
+  - key: /org/gnome/settings-daemon/plugins/power/power-saver-profile-on-low-battery
+    value: 'true'
+  - key: /org/gnome/settings-daemon/plugins/power/sleep-inactive-ac-timeout
+    value: '3600'
+  - key: /org/gnome/settings-daemon/plugins/power/sleep-inactive-ac-type
+    value: "'nothing'"
 
 default_gnome_extensions:
-  - url: https://extensions.gnome.org/extension/750/openweather/
-    regex: openweather-extension
+  - url: https://extensions.gnome.org/extension/615/appindicator-support/
+    regex: appindicator-support
+  - url: https://extensions.gnome.org/extension/19/user-themes/
+    regex: user-themes
     settings:
-      - "gsettings --schemadir ~/.local/share/gnome-shell/extensions/openweather-extension@jenslody.de\
-        /schemas/ set org.gnome.shell.extensions.openweather city '40.7970384,-74.4809492>Morristown, \
-        Morris County, New Jersey, 07960, United States of America >-1 && 40.7127281,-74.0060152>New \
-        York, United States of America >-1 && 12.9791198,77.5912997>Bengaluru, Bangalore North, \
-        Bangalore Urban, Karnataka, India >-1 && 40.4862174,-74.4518173>New Brunswick, New Jersey, \
-        United States of America >-1'"
-      - gsettings --schemadir ~/.local/share/gnome-shell/extensions/openweather-extension@jenslody.de/schemas/ set org.gnome.shell.extensions.openweather days-forecast 10
-      - gsettings --schemadir ~/.local/share/gnome-shell/extensions/openweather-extension@jenslody.de/schemas/ set org.gnome.shell.extensions.openweather show-text-in-panel true
-      - gsettings --schemadir ~/.local/share/gnome-shell/extensions/openweather-extension@jenslody.de/schemas/ set org.gnome.shell.extensions.openweather actual-city 0
-  - url: https://extensions.gnome.org/extension/771/proxy-switcher/
-    regex: ProxySwitcher
-  - url: https://extensions.gnome.org/extension/1085/simple-net-speed/
-    regex: simplenetspeed
-  - url: https://extensions.gnome.org/extension/906/sound-output-device-chooser/
-    regex: sound-output-device-chooser
-  - url: https://extensions.gnome.org/extension/2983/ip-finder/
-    regex: IP-Finder
-  - url: https://extensions.gnome.org/extension/6/applications-menu/
-    regex: apps-menu
-  - url: https://extensions.gnome.org/extension/3061/vlan-switcher/
-    regex: vlan-switcher
-  - url: https://extensions.gnome.org/extension/1762/lan-ip-address/
-    regex: lan-ip-address
-  - url: https://extensions.gnome.org/extension/2224/easy-docker-containers/
-    regex: easy_docker_containers
+      - dconf write /org/gnome/shell/extensions/user-theme/name "'Betelgeuse'"
+  - url: https://extensions.gnome.org/extension/1319/gsconnect/
+    regex: gsconnect
+    settings:
+      - dconf write /org/gnome/shell/extensions/gsconnect/name "'Betelgeuse'"
+      - dconf write /org/gnome/shell/extensions/gsconnect/show-indicators true
+  - url: https://extensions.gnome.org/extension/4269/alphabetical-app-grid/
+    regex: AlphabeticalAppGrid@stuarthayhurst
+    settings:
+      - dconf write /org/gnome/shell/extensions/alphabetical-app-grid/sort-folder-contents true
+  - url: https://extensions.gnome.org/extension/307/dash-to-dock/
+    regex: dash-to-dock
+    settings:
+      - dconf write /org/gnome/shell/extensions/dash-to-dock/animate-show-apps true
+      - dconf write /org/gnome/shell/extensions/dash-to-dock/apply-custom-theme true
+      - dconf write /org/gnome/shell/extensions/dash-to-dock/custom-theme-shrink true
+      - dconf write /org/gnome/shell/extensions/dash-to-dock/dash-max-icon-size 30
+      - dconf write /org/gnome/shell/extensions/dash-to-dock/disable-overview-on-startup true
+      - dconf write /org/gnome/shell/extensions/dash-to-dock/dock-fixed false
+      - dconf write /org/gnome/shell/extensions/dash-to-dock/dock-position "'BOTTOM'"
+      - dconf write /org/gnome/shell/extensions/dash-to-dock/intellihide-mode "'FOCUS_APPLICATION_WINDOWS'"
+      - dconf write /org/gnome/shell/extensions/dash-to-dock/preview-size-scale 0.45000000000000001
+      - dconf write /org/gnome/shell/extensions/dash-to-dock/scroll-action "'cycle-windows'"
+      - dconf write /org/gnome/shell/extensions/dash-to-dock/show-apps-at-top true
+      - dconf write /org/gnome/shell/extensions/dash-to-dock/show-mounts-network false
+      - dconf write /org/gnome/shell/extensions/dash-to-dock/show-show-apps-button true
+  - url: https://extensions.gnome.org/extension/7/removable-drive-menu/
+    regex: drive-menu
+  - url: https://extensions.gnome.org/extension/8/places-status-indicator/
+    regex: places-menu
