@@ -1428,7 +1428,15 @@ EOF
   run_root cp "$TMP_DIR/fleet-egress-guard.service" /etc/systemd/system/fleet-egress-guard.service
   run_root systemctl enable --now fleet-egress-guard.service >/dev/null 2>&1 || true
 
+  if ! command -v cscli >/dev/null 2>&1; then
+    run_root env DEBIAN_FRONTEND=noninteractive apt-get install -y -qq crowdsec >/dev/null 2>&1 || true
+  fi
+  if [ -f /etc/crowdsec/config.yaml ]; then
+    run_root sed -i 's/127\.0\.0\.1:8080/127.0.0.1:18080/g' /etc/crowdsec/config.yaml /etc/crowdsec/local_api_credentials.yaml 2>/dev/null || true
+    run_root systemctl enable --now crowdsec.service >/dev/null 2>&1 || true
+  fi
   if [ -f /etc/crowdsec/bouncers/crowdsec-firewall-bouncer.yaml ]; then
+    run_root sed -i 's/127\.0\.0\.1:8080/127.0.0.1:18080/g' /etc/crowdsec/bouncers/crowdsec-firewall-bouncer.yaml 2>/dev/null || true
     run_root sed -i 's/iptables_chains:/iptables_chains:\n  - OUTPUT/' /etc/crowdsec/bouncers/crowdsec-firewall-bouncer.yaml 2>/dev/null || true
     run_root systemctl restart crowdsec-firewall-bouncer.service >/dev/null 2>&1 || true
   fi
