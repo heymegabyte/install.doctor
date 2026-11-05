@@ -2397,7 +2397,7 @@ app.post('/api/v1/github/repos/scan', async (c) => {
   const masterRepos = [
     { fullName: `${owner}/install.doctor`, name: 'install.doctor', kind: 'master-blueprint', default: true },
   ];
-  const knownHosts = ['ubuntu', 'coolify', 'proxmox', 'pbs', 'macbook-pro', 'qubes'];
+  const knownHosts = ['ubuntu', 'zen', 'omen', 'legion', 'coolify', 'proxmox', 'pbs', 'macbook-pro', 'qubes'];
   const hostRepos = Array.from(new Set([
     suggestedHostRepo,
     ...knownHosts.map((h) => (rawNs ? `${h}.${rawNs}` : `${h}.megabyte.space`)),

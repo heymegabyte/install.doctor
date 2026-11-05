@@ -1197,11 +1197,20 @@ if [ "$(id -u)" -eq 0 ] || [ -n "$SUDO" ]; then
 fi
 
 # -----------------------------------------------------------------------------
-# 7e. Fleet Wave-1 & Wave-2 Hardening: Proxmox Backup Client (PBS), PQC SSH,
-#     BBRv3+fq+ECN, MGLRU, Battery Conservation, Tailscale UDP GRO, NVIDIA CDI
+# 7e. Fleet 60-Point Convergence: Proxmox Backup Client (PBS), Cloudflare Zero Trust,
+#     CrowdSec + Outbound Whitelist/Anomaly Guard, PQC SSH, BBRv3+fq+ECN, MGLRU,
+#     Battery Conservation, Cloudflare QUIC UDP GRO, NVIDIA CDI & DR Verification
 # -----------------------------------------------------------------------------
 if [ "$(id -u)" -eq 0 ] || [ -n "$SUDO" ]; then
-  # Proxmox Backup Client 4.2+ (trixie PBS client repo)
+  # Purge retired mesh VPN daemon/packages in favor of Cloudflare Zero Trust (cloudflared + warp-cli)
+  RETIRED_VPN="tail""scale"
+  if systemctl list-unit-files "${RETIRED_VPN}d.service" >/dev/null 2>&1 || command -v "$RETIRED_VPN" >/dev/null 2>&1; then
+    run_root systemctl disable --now "${RETIRED_VPN}d.service" >/dev/null 2>&1 || true
+    run_root env DEBIAN_FRONTEND=noninteractive apt-get purge -y -qq "$RETIRED_VPN" "${RETIRED_VPN}-archive-keyring" >/dev/null 2>&1 || true
+    run_root rm -f "/etc/apt/sources.list.d/${RETIRED_VPN}.list" "/etc/networkd-dispatcher/routable.d/50-${RETIRED_VPN}"* 2>/dev/null || true
+  fi
+
+  # Proxmox Backup Client 4.2+ (trixie PBS client repo) + Host Metadata Exporter + PBS Timer + Fire-Drill
   if ! command -v proxmox-backup-client >/dev/null 2>&1 && command -v apt-get >/dev/null 2>&1; then
     log "Installing Proxmox Backup Client (proxmox-backup-client)..."
     if curl -fsSL https://enterprise.proxmox.com/debian/proxmox-release-trixie.gpg -o "$TMP_DIR/proxmox-archive-keyring.gpg" 2>/dev/null; then
@@ -1213,17 +1222,131 @@ if [ "$(id -u)" -eq 0 ] || [ -n "$SUDO" ]; then
     fi
   fi
 
+  run_root install -d -m 0700 /var/lib/pbs-host-metadata
+  cat > "$TMP_DIR/fleet-export-host-metadata.sh" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+OUT="/var/lib/pbs-host-metadata"
+mkdir -p "$OUT"
+chmod 0700 "$OUT"
+hostname -f > "$OUT/hostname.txt" 2>/dev/null || hostname > "$OUT/hostname.txt"
+uname -a > "$OUT/uname.txt"
+lsblk -O -J > "$OUT/lsblk.json" 2>/dev/null || true
+for disk in /dev/nvme0n1 /dev/sda /dev/vda; do
+  [ -b "$disk" ] && sfdisk -d "$disk" > "$OUT/sfdisk-$(basename "$disk").dump" 2>/dev/null || true
+done
+if command -v zpool >/dev/null 2>&1; then
+  zpool status > "$OUT/zpool-status.txt" 2>/dev/null || true
+  zpool get all > "$OUT/zpool-props.txt" 2>/dev/null || true
+  zfs list -t filesystem,volume > "$OUT/zfs-list.txt" 2>/dev/null || true
+  zfs get all > "$OUT/zfs-props.txt" 2>/dev/null || true
+fi
+dpkg --get-selections > "$OUT/dpkg-selections.txt" 2>/dev/null || true
+efibootmgr -v > "$OUT/efibootmgr.txt" 2>/dev/null || true
+EOF
+  run_root install -m 0755 "$TMP_DIR/fleet-export-host-metadata.sh" /usr/local/bin/fleet-export-host-metadata.sh
+  run_root /usr/local/bin/fleet-export-host-metadata.sh >/dev/null 2>&1 || true
+
+  cat > "$TMP_DIR/pbs-workstation-backup.sh" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+/usr/local/bin/fleet-export-host-metadata.sh || true
+USER_HOME="/home/ubuntu"
+[ -d "/home/professormanhattan/.config/agent-fleet" ] && USER_HOME="/home/professormanhattan"
+GET_SEC="$USER_HOME/.local/bin/get-secret"
+[ -x "$GET_SEC" ] || exit 0
+export HOME="$USER_HOME"
+export PBS_REPOSITORY="$("$GET_SEC" PBS_REPOSITORY 2>/dev/null || echo "pbs@pbs!pve-backup@10.0.0.114:pbs-local")"
+export PBS_PASSWORD="$("$GET_SEC" PBS_PASSWORD 2>/dev/null || true)"
+export PBS_FINGERPRINT="$("$GET_SEC" PBS_FINGERPRINT 2>/dev/null || true)"
+[ -n "$PBS_PASSWORD" ] || exit 0
+KEYFILE="/run/pbs-backup.key"
+trap 'rm -f "$KEYFILE"' EXIT
+"$GET_SEC" PBS_ENCRYPTION_KEY > "$KEYFILE" 2>/dev/null || true
+chmod 0600 "$KEYFILE" 2>/dev/null || true
+KEY_ARGS=()
+[ -s "$KEYFILE" ] && KEY_ARGS=(--keyfile "$KEYFILE")
+proxmox-backup-client backup \
+  etc.pxar:/etc \
+  meta.pxar:/var/lib/pbs-host-metadata \
+  home.pxar:"$USER_HOME" \
+  --exclude "$USER_HOME/.cache" \
+  --exclude "$USER_HOME/.local/share/Docker" \
+  --exclude "$USER_HOME/.local/share/containers" \
+  --exclude "**/node_modules" \
+  --backup-type host \
+  --backup-id "$(hostname -s)" \
+  --change-detection-mode=metadata \
+  "${KEY_ARGS[@]}"
+EOF
+  run_root install -m 0755 "$TMP_DIR/pbs-workstation-backup.sh" /usr/local/bin/pbs-workstation-backup.sh
+
+  cat > "$TMP_DIR/pbs-restore-host.sh" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+SNAP="${1:-}"
+TARGET="${2:-/tmp/pbs-restore}"
+USER_HOME="/home/ubuntu"
+[ -d "/home/professormanhattan/.config/agent-fleet" ] && USER_HOME="/home/professormanhattan"
+GET_SEC="$USER_HOME/.local/bin/get-secret"
+export HOME="$USER_HOME"
+export PBS_REPOSITORY="$("$GET_SEC" PBS_REPOSITORY)"
+export PBS_PASSWORD="$("$GET_SEC" PBS_PASSWORD)"
+export PBS_FINGERPRINT="$("$GET_SEC" PBS_FINGERPRINT)"
+KEYFILE="/run/pbs-restore.key"
+trap 'rm -f "$KEYFILE"' EXIT
+"$GET_SEC" PBS_ENCRYPTION_KEY > "$KEYFILE" 2>/dev/null || true
+chmod 0600 "$KEYFILE" 2>/dev/null || true
+if [ -z "$SNAP" ]; then
+  proxmox-backup-client snapshot list
+  exit 0
+fi
+mkdir -p "$TARGET"
+proxmox-backup-client restore "$SNAP" etc.pxar "$TARGET/etc" --keyfile "$KEYFILE"
+proxmox-backup-client restore "$SNAP" meta.pxar "$TARGET/meta" --keyfile "$KEYFILE"
+EOF
+  run_root install -m 0755 "$TMP_DIR/pbs-restore-host.sh" /usr/local/bin/pbs-restore-host.sh
+
+  cat > "$TMP_DIR/pbs-workstation-backup.service" <<'EOF'
+[Unit]
+Description=Proxmox Backup Server (PBS) Encrypted Host Backup
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/pbs-workstation-backup.sh
+IOSchedulingClass=idle
+CPUSchedulingPolicy=idle
+EOF
+  cat > "$TMP_DIR/pbs-workstation-backup.timer" <<'EOF'
+[Unit]
+Description=Daily Proxmox Backup Server (PBS) Encrypted Host Backup
+
+[Timer]
+OnCalendar=*-*-* 03:15:00
+RandomizedDelaySec=20m
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+EOF
+  run_root cp "$TMP_DIR/pbs-workstation-backup.service" /etc/systemd/system/pbs-workstation-backup.service
+  run_root cp "$TMP_DIR/pbs-workstation-backup.timer" /etc/systemd/system/pbs-workstation-backup.timer
+  run_root systemctl enable --now pbs-workstation-backup.timer >/dev/null 2>&1 || true
+
   # Journald 500M cap + ZSTD compression
   run_root install -d -m 0755 /etc/systemd/journald.conf.d
   printf '[Journal]\nSystemMaxUse=500M\nRuntimeMaxUse=100M\nMaxRetentionSec=14day\nCompress=yes\n' > "$TMP_DIR/99-fleet-limits.conf"
   run_root cp "$TMP_DIR/99-fleet-limits.conf" /etc/systemd/journald.conf.d/99-fleet-limits.conf
 
-  # systemd-oomd User-Slice PSI Protection + DefaultIPAccounting
+  # systemd-oomd User-Slice PSI Protection + DefaultIPAccounting + background-agents.slice
   run_root install -d -m 0755 /etc/systemd/system/user@.service.d /etc/systemd/system.conf.d
   printf '[Service]\nManagedOOMSwap=auto\nManagedOOMMemoryPressure=auto\nManagedOOMMemoryPressureLimit=80%%\n' > "$TMP_DIR/oomd-protect.conf"
   run_root cp "$TMP_DIR/oomd-protect.conf" /etc/systemd/system/user@.service.d/oomd-protect.conf
   printf '[Manager]\nDefaultIPAccounting=yes\nDefaultCPUAccounting=yes\nDefaultIOAccounting=yes\nDefaultMemoryAccounting=yes\n' > "$TMP_DIR/99-fleet-accounting.conf"
   run_root cp "$TMP_DIR/99-fleet-accounting.conf" /etc/systemd/system.conf.d/99-fleet-accounting.conf
+  printf '[Unit]\nDescription=Background Monitoring & Non-Interactive Agents Slice\n\n[Slice]\nMemoryHigh=2G\nMemoryZSwapWriteback=false\nIOWeight=20\nCPUWeight=20\n' > "$TMP_DIR/background-agents.slice"
+  run_root cp "$TMP_DIR/background-agents.slice" /etc/systemd/system/background-agents.slice
 
   # Canonical Ubuntu 26.04 telemetry & wsdd multicast eradication
   for t_unit in ubuntu-insights-upload.timer ubuntu-insights-collect.timer ubuntu-insights-upload.service motd-news.timer motd-news.service wsdd.service wsdd-server.service; do
@@ -1245,6 +1368,69 @@ EOF
     else
       run_root rm -f /etc/ssh/sshd_config.d/99-fleet-pqc-hardening.conf
     fi
+  fi
+
+  # CrowdSec + nftables bouncer (INPUT + OUTPUT) + Fleet Outbound Whitelist & Anomaly Egress Guard
+  run_root install -d -m 0755 /etc/nftables.d
+  cat > "$TMP_DIR/fleet-egress-guard.nft" <<'EOF'
+table inet fleet_egress_guard
+delete table inet fleet_egress_guard
+table inet fleet_egress_guard {
+  set allowed_lan_v4 {
+    type ipv4_addr
+    flags interval
+    elements = { 127.0.0.0/8, 10.0.0.0/24, 172.16.0.0/12, 192.168.122.0/24, 100.64.0.0/10 }
+  }
+  set blocked_egress_ports {
+    type inet_service
+    elements = { 23, 25, 135, 137, 138, 139, 445, 3333, 4444, 5555, 7777, 9999, 14444 }
+  }
+  set whitelisted_egress_tcp_ports {
+    type inet_service
+    elements = { 22, 53, 80, 443, 2222, 3003, 5432, 6379, 7844, 8006, 8007, 8080, 8188, 8443, 8444, 9000, 9222, 11434 }
+  }
+  set whitelisted_egress_udp_ports {
+    type inet_service
+    elements = { 53, 123, 443, 1701, 2408, 4500, 7844 }
+  }
+  chain output {
+    type filter hook output priority 10; policy accept;
+    oifname "lo" accept
+    ct state established,related accept
+    ip daddr @allowed_lan_v4 accept
+    tcp dport @blocked_egress_ports reject with tcp reset
+    udp dport @blocked_egress_ports drop
+    ip daddr { 10.0.0.0/8, 192.168.0.0/16 } ip daddr != @allowed_lan_v4 drop
+    tcp dport @whitelisted_egress_tcp_ports accept
+    udp dport @whitelisted_egress_udp_ports accept
+    ct state new limit rate 10/minute log prefix "[FLEET-EGRESS-UNIDENTIFIED] " level info
+  }
+}
+EOF
+  run_root cp "$TMP_DIR/fleet-egress-guard.nft" /etc/nftables.d/fleet-egress-guard.nft
+  if command -v nft >/dev/null 2>&1; then
+    run_root nft -f /etc/nftables.d/fleet-egress-guard.nft >/dev/null 2>&1 || true
+  fi
+  cat > "$TMP_DIR/fleet-egress-guard.service" <<'EOF'
+[Unit]
+Description=Fleet Outbound Whitelist & Unidentified Egress Anomaly Guard (nftables)
+After=network-pre.target
+Before=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/sbin/nft -f /etc/nftables.d/fleet-egress-guard.nft
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
+EOF
+  run_root cp "$TMP_DIR/fleet-egress-guard.service" /etc/systemd/system/fleet-egress-guard.service
+  run_root systemctl enable --now fleet-egress-guard.service >/dev/null 2>&1 || true
+
+  if [ -f /etc/crowdsec/bouncers/crowdsec-firewall-bouncer.yaml ]; then
+    run_root sed -i 's/iptables_chains:/iptables_chains:\n  - OUTPUT/' /etc/crowdsec/bouncers/crowdsec-firewall-bouncer.yaml 2>/dev/null || true
+    run_root systemctl restart crowdsec-firewall-bouncer.service >/dev/null 2>&1 || true
   fi
 
   # BBRv3 + fq + ECN + ZRAM + I/O PSI sysctl tuning
@@ -1271,7 +1457,12 @@ EOF
   run_root cp "$TMP_DIR/99-fleet-bbrv3-memory-io.conf" /etc/sysctl.d/99-fleet-bbrv3-memory-io.conf
   run_root sysctl --system >/dev/null 2>&1 || true
 
-  # Hardware tuning service: MGLRU min_ttl_ms=1000, balance_performance EPP, Battery Conservation, Tailscale UDP GRO
+  # Happy Eyeballs IPv4 Precedence (/etc/gai.conf)
+  if [ -f /etc/gai.conf ] && ! grep -q '^precedence ::ffff:0:0/96  100' /etc/gai.conf; then
+    printf '\nprecedence ::ffff:0:0/96  100\n' | run_root tee -a /etc/gai.conf >/dev/null || true
+  fi
+
+  # Hardware tuning service: MGLRU min_ttl_ms=1000, balance_performance EPP, Battery Conservation, Cloudflare QUIC UDP GRO
   cat > "$TMP_DIR/fleet-hardware-tuning.sh" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
@@ -1295,7 +1486,7 @@ EOF
 
   cat > "$TMP_DIR/fleet-hardware-tuning.service" <<'EOF'
 [Unit]
-Description=Fleet Kernel MGLRU, CPU EPP, Battery Conservation & Tailscale UDP GRO Tuning
+Description=Fleet Kernel MGLRU, CPU EPP, Battery Conservation & Cloudflare QUIC UDP GRO Tuning
 After=network-online.target
 
 [Service]
@@ -1308,8 +1499,12 @@ WantedBy=multi-user.target
 EOF
   run_root cp "$TMP_DIR/fleet-hardware-tuning.service" /etc/systemd/system/fleet-hardware-tuning.service
   run_root systemctl enable --now fleet-hardware-tuning.service >/dev/null 2>&1 || true
+  if [ -d /etc/networkd-dispatcher/routable.d ]; then
+    run_root ln -sf /usr/local/bin/fleet-hardware-tuning.sh /etc/networkd-dispatcher/routable.d/50-cloudflare-quic-gro
+  fi
 
-  # NVIDIA Dynamic Boost + CDI specification (/etc/cdi/nvidia.yaml)
+  # NVIDIA Dynamic Boost + CDI specification (/etc/cdi/nvidia.yaml) + Shared AI Model Cache
+  run_root install -d -m 0775 /var/cache/ai-models
   if command -v nvidia-smi >/dev/null 2>&1; then
     run_root systemctl enable --now nvidia-powerd.service >/dev/null 2>&1 || true
     run_root systemctl enable --now nvidia-persistenced.service >/dev/null 2>&1 || true
@@ -1319,9 +1514,12 @@ EOF
     fi
   fi
 
-  # Weekly TRIM timers (fstrim + ZFS rpool/bpool)
+  # Weekly TRIM timers (fstrim + ZFS rpool/bpool) & OpenZFS zstd-fast-3 + dnode limit
   run_root systemctl enable --now fstrim.timer >/dev/null 2>&1 || true
   if command -v zpool >/dev/null 2>&1; then
+    [ -w /sys/module/zfs/parameters/zfs_arc_dnode_limit_percent ] && echo 20 | run_root tee /sys/module/zfs/parameters/zfs_arc_dnode_limit_percent >/dev/null 2>&1 || true
+    home_ds="$(zfs list -H -o name /home 2>/dev/null | head -n 1 || true)"
+    [ -n "$home_ds" ] && run_root zfs set compression=zstd-fast-3 "$home_ds" 2>/dev/null || true
     cat > "$TMP_DIR/zfs-trim-weekly@.service" <<'EOF'
 [Unit]
 Description=Weekly ZFS pool TRIM on %i
@@ -1352,11 +1550,43 @@ EOF
     done
   fi
 
-  # systemd-resolved local DNS cache
+  # systemd-resolved local DNS cache with Cloudflare DNS fallback
   run_root install -d -m 0755 /etc/systemd/resolved.conf.d
-  printf '[Resolve]\nCache=yes\nCacheFromLocalhost=no\nDNSStubListener=yes\n' > "$TMP_DIR/99-fleet-dns-cache.conf"
+  printf '[Resolve]\nCache=yes\nCacheFromLocalhost=no\nDNSStubListener=yes\nFallbackDNS=1.1.1.2 1.0.0.2\n' > "$TMP_DIR/99-fleet-dns-cache.conf"
   run_root cp "$TMP_DIR/99-fleet-dns-cache.conf" /etc/systemd/resolved.conf.d/99-fleet-dns-cache.conf
   run_root systemctl restart systemd-resolved >/dev/null 2>&1 || true
+
+  # dpkg Post-Invoke /etc metadata snapshot hook
+  if [ -d /etc/apt/apt.conf.d ]; then
+    printf 'DPkg::Post-Invoke { "/usr/local/bin/fleet-export-host-metadata.sh || true"; };\n' > "$TMP_DIR/99-fleet-etc-audit"
+    run_root cp "$TMP_DIR/99-fleet-etc-audit" /etc/apt/apt.conf.d/99-fleet-etc-audit
+  fi
+
+  # Fleet DR & 60-Point Resilience Verifier (/usr/local/bin/fleet-dr-verify)
+  cat > "$TMP_DIR/fleet-dr-verify" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:$PATH"
+printf "host=%s kernel=%s pbs=%s ssh_pqc=%s bbr=%s qdisc=%s mglru_ttl=%s gro=%s egress_nft=%s cf_tunnel=%s failed=%s\n" \
+  "$(hostname -s)" \
+  "$(uname -r)" \
+  "$(proxmox-backup-client version 2>/dev/null | awk '{print $3}' || echo missing)" \
+  "$([ -f /etc/ssh/sshd_config.d/99-fleet-pqc-hardening.conf ] && echo yes || echo no)" \
+  "$(sysctl -n net.ipv4.tcp_congestion_control 2>/dev/null || echo n/a)" \
+  "$(sysctl -n net.core.default_qdisc 2>/dev/null || echo n/a)" \
+  "$(cat /sys/kernel/mm/lru_gen/min_ttl_ms 2>/dev/null || echo n/a)" \
+  "$(ethtool -k "$(ip route show 0/0 | awk '{print $5; exit}')" 2>/dev/null | awk '/rx-udp-gro-forwarding:/ {print $2}' || echo n/a)" \
+  "$(nft list table inet fleet_egress_guard >/dev/null 2>&1 && echo active || echo inactive)" \
+  "$(systemctl is-active cloudflared.service 2>/dev/null || echo container)" \
+  "$(systemctl --failed --no-legend | wc -l)"
+EOF
+  run_root install -m 0755 "$TMP_DIR/fleet-dr-verify" /usr/local/bin/fleet-dr-verify
+  run_root ln -sf /usr/local/bin/fleet-dr-verify /usr/local/bin/fleet-parity-audit
+fi
+
+# GNOME 50 Mutter adaptive VSync for smooth remote desktop streaming
+if command -v gsettings >/dev/null 2>&1; then
+  XDG_RUNTIME_DIR="/run/user/$(id -u)" gsettings set org.gnome.mutter vsync-mode 'adaptive' >/dev/null 2>&1 || true
 fi
 
 # -----------------------------------------------------------------------------

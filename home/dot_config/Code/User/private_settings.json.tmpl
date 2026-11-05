@@ -1,23 +1,43 @@
 {
   "GitLive.Issue tracker integration": "Disabled",
   "GitLive.Special branches": "main|master|trunk|dev|develop|qa|test|release[-/].*",
+  "[json]": {
+    "editor.defaultFormatter": "esbenp.prettier-vscode"
+  },
   "[jsonc]": {
-    "editor.defaultFormatter": "trunk.io"
+    "editor.defaultFormatter": "esbenp.prettier-vscode"
+  },
+  "[markdown]": {
+    "editor.defaultFormatter": "esbenp.prettier-vscode"
   },
   "[python]": {
+    "editor.defaultFormatter": "charliermarsh.ruff",
     "editor.formatOnType": true
   },
   "[scss]": {
-    "editor.defaultFormatter": "trunk.io"
+    "editor.defaultFormatter": "esbenp.prettier-vscode"
   },
   "[shellscript]": {
-    "editor.defaultFormatter": "trunk.io"
+    "editor.defaultFormatter": "foxundermoon.shell-format"
   },
   "[typescript]": {
-    "editor.defaultFormatter": "trunk.io"
+    "editor.defaultFormatter": "esbenp.prettier-vscode"
   },
   "[typescriptreact]": {
-    "editor.defaultFormatter": "trunk.io"
+    "editor.defaultFormatter": "esbenp.prettier-vscode"
+  },
+  "editor.linkedEditing": true,
+  "tailwindCSS.experimental.classRegex": [
+    ["cn\\(([^)]*)\\)", "[\"'`]([^\"'`]*)[\"'`]"],
+    ["clsx\\(([^)]*)\\)", "[\"'`]([^\"'`]*)[\"'`]"],
+    ["cva\\(([^)]*)\\)", "[\"'`]([^\"'`]*)[\"'`]"]
+  ],
+  "search.exclude": {
+    "**/dist": true,
+    "**/.wrangler": true,
+    "**/playwright-report": true,
+    "**/test-results": true,
+    "**/node_modules": true
   },
   "ansible.lightspeed.enabled": true,
   "ansible.lightspeed.suggestions.enabled": true,
@@ -57,11 +77,10 @@
     "**/.trunk/*notifications/": true
   },
   "files.watcherExclude": {
-    "**/.trunk/*actions/": true,
-    "**/.trunk/*logs/": true,
-    "**/.trunk/*out/": true,
-    "**/.trunk/*plugins/": true,
-    "**/.trunk/*notifications/": true,
+    "**/dist/**": true,
+    "**/.wrangler/**": true,
+    "**/playwright-report/**": true,
+    "**/test-results/**": true,
     "**/.git/objects/**": true,
     "**/.git/subtree-cache/**": true,
     "**/node_modules/*/**": true,
