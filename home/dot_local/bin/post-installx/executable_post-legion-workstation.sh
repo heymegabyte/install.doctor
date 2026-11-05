@@ -257,15 +257,16 @@ if ! command -v emdash >/dev/null 2>&1; then
 fi
 
 # -----------------------------------------------------------------------------
-# 4. Tier 1: AI Coding Agents & LSPs (claude, codex, opencode, gemini, agy, LSP servers)
+# 4. Tier 1: AI Coding Agents & LSPs (claude, codex, opencode, agy, LSP servers)
 # -----------------------------------------------------------------------------
 if command -v npm >/dev/null 2>&1; then
   log "Installing AI coding CLIs and LSP servers via npm..."
+  npm uninstall -g @google/gemini-cli >/dev/null 2>&1 || true
+  rm -f "$HOME/.local/bin/gemini" "$HOME/.gemini/oauth_creds.json" "$HOME/.gemini/google_accounts.json"
   npm install -g \
     @anthropic-ai/claude-code \
     @openai/codex \
     opencode-ai \
-    @google/gemini-cli \
     @fission-ai/openspec \
     pnpm \
     typescript \
@@ -276,10 +277,40 @@ if command -v npm >/dev/null 2>&1; then
     yaml-language-server >/dev/null 2>&1 || true
 fi
 
+# Install/update Google Antigravity CLI (agy) via official auto-updater manifest
+if ! [ -x "$HOME/.local/bin/agy" ]; then
+  log "Installing Google Antigravity CLI (agy)..."
+  AGY_MANIFEST_URL="https://antigravity-cli-auto-updater-974169037036.us-central1.run.app/manifests/linux_amd64.json"
+  if AGY_MANIFEST_JSON="$(curl -fsSL "$AGY_MANIFEST_URL" 2>/dev/null)"; then
+    AGY_TAR_URL="$(python3 -c 'import json,sys; print(json.loads(sys.argv[1])["url"])' "$AGY_MANIFEST_JSON" 2>/dev/null || true)"
+    AGY_SHA512="$(python3 -c 'import json,sys; print(json.loads(sys.argv[1])["sha512"])' "$AGY_MANIFEST_JSON" 2>/dev/null || true)"
+    if [ -n "$AGY_TAR_URL" ] && curl -fsSL "$AGY_TAR_URL" -o "$TMP_DIR/agy.tar.gz"; then
+      ACTUAL_SHA="$(python3 -c 'import hashlib,sys; print(hashlib.sha512(open(sys.argv[1],"rb").read()).hexdigest())' "$TMP_DIR/agy.tar.gz" 2>/dev/null || true)"
+      if [ "$ACTUAL_SHA" = "$AGY_SHA512" ]; then
+        tar -xzf "$TMP_DIR/agy.tar.gz" -C "$TMP_DIR"
+        AGY_BIN="$(find "$TMP_DIR" -type f \( -name agy -o -name antigravity \) | head -n 1 || true)"
+        if [ -n "$AGY_BIN" ] && [ -f "$AGY_BIN" ]; then
+          install -m 0755 "$AGY_BIN" "$HOME/.local/bin/agy"
+        fi
+      fi
+    fi
+  fi
+else
+  "$HOME/.local/bin/agy" update >/dev/null 2>&1 || true
+fi
+if [ -x "$HOME/.local/bin/agy" ]; then
+  "$HOME/.local/bin/agy" install --skip-aliases >/dev/null 2>&1 || true
+  if [ -x "$HOME/.local/bin/cua-driver-mcp" ]; then
+    "$HOME/.local/bin/agy" mcp add cua-driver "$HOME/.local/bin/cua-driver-mcp" >/dev/null 2>&1 || true
+  elif [ -x "$HOME/.local/bin/cua-driver" ]; then
+    "$HOME/.local/bin/agy" mcp add cua-driver "$HOME/.local/bin/cua-driver" mcp >/dev/null 2>&1 || true
+  fi
+fi
+
 # Ensure ~/.local/bin symlinks for mise-installed npm globals
 MISE_NODE_BIN="$(find "$HOME/.local/share/mise/installs/node" -maxdepth 2 -type d -name bin 2>/dev/null | sort -V | tail -n 1 || true)"
 if [ -n "$MISE_NODE_BIN" ] && [ -d "$MISE_NODE_BIN" ]; then
-  for bin_name in node npm npx claude codex opencode gemini openspec pnpm tsc typescript-language-server pyright bash-language-server yaml-language-server; do
+  for bin_name in node npm npx claude codex opencode openspec pnpm tsc typescript-language-server pyright bash-language-server yaml-language-server; do
     if [ -x "$MISE_NODE_BIN/$bin_name" ]; then
       ln -sf "$MISE_NODE_BIN/$bin_name" "$HOME/.local/bin/$bin_name"
     fi
