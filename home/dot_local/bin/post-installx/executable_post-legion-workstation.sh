@@ -83,8 +83,241 @@ else
     "$HOME/.cache/cnf/shims/beszel"* "$HOME/.cache/cnf/shims/$RETIRED_SYNC"* "$HOME/.cache/cnf/shims/$RETIRED_VPN"* 2>/dev/null || true
 fi
 
-# Exit cleanly on macOS after Superset removal + CNF shims refresh
+converge_fleet_host() {
+  local short_host os_name arch_name
+  short_host="$(hostname -s 2>/dev/null | tr '[:upper:]' '[:lower:]' || echo linux)"
+  os_name="$(uname -s | tr '[:upper:]' '[:lower:]')"
+  arch_name="$(uname -m)"
+  [ "$arch_name" = "x86_64" ] && arch_name="amd64"
+  [ "$arch_name" = "aarch64" ] && arch_name="arm64"
+
+  mkdir -p "$HOME/.local/bin" "$HOME/.config/agent-fleet" "$HOME/ai/repos" \
+    "$HOME/.claude" "$HOME/.codex" "$HOME/.gemini/antigravity-cli" "$HOME/.gemini/config" "$HOME/.config/opencode"
+
+  # 1. Remove legacy @google/gemini-cli (gemini) & install/update Google Antigravity CLI (agy)
+  rm -f "$HOME/.local/bin/gemini" "$HOME/.gemini/oauth_creds.json" "$HOME/.gemini/google_accounts.json" 2>/dev/null || true
+  if ! [ -x "$HOME/.local/bin/agy" ]; then
+    local agy_manifest_url="https://antigravity-cli-auto-updater-974169037036.us-central1.run.app/manifests/${os_name}_${arch_name}.json"
+    local agy_manifest_json agy_tar_url agy_sha512 actual_sha agy_bin
+    if agy_manifest_json="$(curl -fsSL "$agy_manifest_url" 2>/dev/null)"; then
+      agy_tar_url="$(python3 -c 'import json,sys; print(json.loads(sys.argv[1])["url"])' "$agy_manifest_json" 2>/dev/null || true)"
+      agy_sha512="$(python3 -c 'import json,sys; print(json.loads(sys.argv[1])["sha512"])' "$agy_manifest_json" 2>/dev/null || true)"
+      if [ -n "$agy_tar_url" ] && curl -fsSL "$agy_tar_url" -o "$TMP_DIR/agy.tar.gz"; then
+        actual_sha="$(python3 -c 'import hashlib,sys; print(hashlib.sha512(open(sys.argv[1],"rb").read()).hexdigest())' "$TMP_DIR/agy.tar.gz" 2>/dev/null || true)"
+        if [ "$actual_sha" = "$agy_sha512" ]; then
+          tar -xzf "$TMP_DIR/agy.tar.gz" -C "$TMP_DIR"
+          agy_bin="$(find "$TMP_DIR" -type f \( -name agy -o -name antigravity \) | head -n 1 || true)"
+          [ -n "$agy_bin" ] && [ -f "$agy_bin" ] && install -m 0755 "$agy_bin" "$HOME/.local/bin/agy"
+        fi
+      fi
+    fi
+  fi
+
+  # 2. Clone or link heymegabyte/agent-skills (~/.agentskills <-> ~/ai/repos/agent-skills) & ~/.claude/bin
+  if [ ! -d "$HOME/ai/repos/agent-skills/.git" ] && [ ! -d "$HOME/.agentskills/.git" ]; then
+    if command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1; then
+      gh repo clone heymegabyte/agent-skills "$HOME/ai/repos/agent-skills" >/dev/null 2>&1 || true
+    fi
+  fi
+  if [ -d "$HOME/ai/repos/agent-skills/.git" ] && [ ! -e "$HOME/.agentskills" ]; then
+    ln -sfn "$HOME/ai/repos/agent-skills" "$HOME/.agentskills"
+  elif [ -d "$HOME/.agentskills/.git" ] && [ ! -e "$HOME/ai/repos/agent-skills" ]; then
+    ln -sfn "$HOME/.agentskills" "$HOME/ai/repos/agent-skills"
+  fi
+  [ -d "$HOME/.agentskills/bin" ] && ln -sfn "$HOME/.agentskills/bin" "$HOME/.claude/bin"
+
+  # 3. Populate global doctrine files from ~/.agentskills
+  if [ -d "$HOME/.agentskills" ]; then
+    [ -f "$HOME/.agentskills/CLAUDE.md" ] && cp -f "$HOME/.agentskills/CLAUDE.md" "$HOME/.claude/CLAUDE.md"
+    [ -f "$HOME/.agentskills/AGENTS.md" ] && cp -f "$HOME/.agentskills/AGENTS.md" "$HOME/.codex/AGENTS.md"
+    [ -f "$HOME/.agentskills/AGENTS.md" ] && cp -f "$HOME/.agentskills/AGENTS.md" "$HOME/.config/opencode/AGENTS.md"
+    [ -f "$HOME/.agentskills/GEMINI.md" ] && cp -f "$HOME/.agentskills/GEMINI.md" "$HOME/.gemini/GEMINI.md"
+  fi
+
+  # 4. Ensure ~/.config/agent-fleet/machine.json and machine repo checkout
+  if [ ! -f "$HOME/.config/agent-fleet/machine.json" ]; then
+    if [ "$os_name" = "darwin" ]; then
+      cat > "$HOME/.config/agent-fleet/machine.json" <<EOF
+{
+  "machineId": "macos-owner-primary",
+  "profile": "$HOME/ai/repos/agent-skills/machines/macos-owner-primary.md",
+  "skillsRepository": "heymegabyte/agent-skills",
+  "preferredSetupAgent": "agy",
+  "sshHostname": "macbook-pro.megabyte.space",
+  "sshAlias": "macbook-pro.megabyte.space",
+  "paperclipUrl": "https://swarml.ink"
+}
+EOF
+    else
+      cat > "$HOME/.config/agent-fleet/machine.json" <<EOF
+{
+  "machineId": "${short_host}-linux-workstation",
+  "profile": "$HOME/ai/repos/agent-skills/machines/${short_host}-linux-workstation.md",
+  "skillsRepository": "heymegabyte/agent-skills",
+  "preferredSetupAgent": "codex",
+  "machineRepository": "heymegabyte/${short_host}.megabyte.space",
+  "machineCheckout": "$HOME/ai/repos/${short_host}.megabyte.space",
+  "sshHostname": "${short_host}.megabyte.space",
+  "sshAlias": "${short_host}.megabyte.space",
+  "paperclipUrl": "https://swarml.ink"
+}
+EOF
+    fi
+  fi
+  if [ "$os_name" = "linux" ] && [ ! -d "$HOME/ai/repos/${short_host}.megabyte.space/.git" ] && command -v gh >/dev/null 2>&1; then
+    gh repo clone "heymegabyte/${short_host}.megabyte.space" "$HOME/ai/repos/${short_host}.megabyte.space" >/dev/null 2>&1 \
+      || gh repo clone "ProfessorManhattan/${short_host}.megabyte.space" "$HOME/ai/repos/${short_host}.megabyte.space" >/dev/null 2>&1 || true
+  fi
+
+  # 5. Register cua-driver MCP across all 4 harnesses (agy, claude, codex, opencode) + SSH mesh + agy keyring<->file bridge
+  python3 - <<'PY' || true
+import json, os
+from pathlib import Path
+
+home = Path.home()
+cua_bin = str(home / ".local/bin/cua-driver")
+
+# Claude Code
+cj = home / ".claude.json"
+data = {}
+if cj.exists():
+    try:
+        data = json.loads(cj.read_text())
+    except Exception:
+        data = {}
+data.setdefault("mcpServers", {})["cua-driver"] = {
+    "type": "stdio",
+    "command": cua_bin,
+    "args": ["mcp"],
+    "env": {}
+}
+cj.write_text(json.dumps(data, indent=2) + "\n")
+
+# Codex
+ct = home / ".codex/config.toml"
+ct.parent.mkdir(parents=True, exist_ok=True)
+txt = ct.read_text() if ct.exists() else ""
+if "[mcp_servers.cua-driver]" not in txt:
+    ct.write_text(txt.rstrip() + f'\n\n[mcp_servers.cua-driver]\ncommand = "{cua_bin}"\nargs = ["mcp"]\nenabled = true\n')
+
+# Antigravity CLI settings & MCP
+agy_settings = home / ".gemini/antigravity-cli/settings.json"
+agy_settings.parent.mkdir(parents=True, exist_ok=True)
+sdata = {}
+if agy_settings.exists():
+    try:
+        sdata = json.loads(agy_settings.read_text())
+    except Exception:
+        sdata = {}
+sdata.setdefault("allowNonWorkspaceAccess", True)
+agy_settings.write_text(json.dumps(sdata, indent=2) + "\n")
+agy_settings.chmod(0o600)
+
+agy_mcp = home / ".gemini/config/mcp_config.json"
+agy_mcp.parent.mkdir(parents=True, exist_ok=True)
+mdata = {}
+if agy_mcp.exists():
+    try:
+        mdata = json.loads(agy_mcp.read_text())
+    except Exception:
+        mdata = {}
+mdata.setdefault("mcpServers", {})["cua-driver"] = {
+    "command": cua_bin,
+    "args": ["mcp"]
+}
+agy_mcp.write_text(json.dumps(mdata, indent=2) + "\n")
+
+# Bridge agy token files (~/.gemini/antigravity-cli/antigravity-oauth-token <-> ~/.config/antigravity/credential-user-scope)
+# and Linux gnome-keyring (service=gemini, username=antigravity) so GUI and SSH sessions stay in sync
+t1 = home / ".gemini/antigravity-cli/antigravity-oauth-token"
+t2 = home / ".config/antigravity/credential-user-scope"
+bus_path = f"/run/user/{os.getuid()}/bus"
+if not t1.exists() and not t2.exists() and os.path.exists(bus_path):
+    try:
+        import re, subprocess
+        env = dict(os.environ, DBUS_SESSION_BUS_ADDRESS=f"unix:path={bus_path}")
+        s = subprocess.check_output([
+            "dbus-send", "--session", "--print-reply", "--dest=org.freedesktop.secrets",
+            "/org/freedesktop/secrets", "org.freedesktop.Secret.Service.SearchItems",
+            "dict:string:string:service,gemini,username,antigravity"
+        ], env=env, text=True, stderr=subprocess.DEVNULL)
+        m_item = re.search(r'object path "(/org/freedesktop/secrets/collection/[^"]+)"', s)
+        if m_item:
+            o = subprocess.check_output([
+                "dbus-send", "--session", "--print-reply", "--dest=org.freedesktop.secrets",
+                "/org/freedesktop/secrets", "org.freedesktop.Secret.Service.OpenSession",
+                "string:plain", "variant:string:"
+            ], env=env, text=True, stderr=subprocess.DEVNULL)
+            m_sess = re.search(r'object path "(/org/freedesktop/secrets/session/[^"]+)"', o)
+            if m_sess:
+                sec = subprocess.check_output([
+                    "dbus-send", "--session", "--print-reply", "--dest=org.freedesktop.secrets",
+                    "/org/freedesktop/secrets", "org.freedesktop.Secret.Service.GetSecrets",
+                    f"array:objpath:{m_item.group(1)}", f"objpath:{m_sess.group(1)}"
+                ], env=env, text=True, stderr=subprocess.DEVNULL)
+                bytestr = sec.split("array [")[2].split("]")[0]
+                b = bytes(int(x) for x in re.findall(r'\b(\d+)\b', bytestr))
+                if b:
+                    t1.parent.mkdir(parents=True, exist_ok=True)
+                    t1.write_bytes(b)
+                    t1.chmod(0o600)
+    except Exception:
+        pass
+if t1.exists() and not t2.exists():
+    t2.parent.mkdir(parents=True, exist_ok=True)
+    t2.write_bytes(t1.read_bytes())
+    t2.chmod(0o600)
+elif t2.exists() and not t1.exists():
+    t1.parent.mkdir(parents=True, exist_ok=True)
+    t1.write_bytes(t2.read_bytes())
+    t1.chmod(0o600)
+
+# 5-node LAN SSH mesh in ~/.ssh/config
+ssh_dir = home / ".ssh"
+ssh_dir.mkdir(parents=True, exist_ok=True)
+ssh_dir.chmod(0o700)
+ssh_cfg = ssh_dir / "config"
+cfg_txt = ssh_cfg.read_text() if ssh_cfg.exists() else ""
+mesh = [
+    ("zen.megabyte.space", "zen", "10.0.0.162", "ubuntu"),
+    ("omen.megabyte.space", "omen", "10.0.0.161", "ubuntu"),
+    ("legion.megabyte.space", "legion", "10.0.0.143", "ubuntu"),
+    ("ubuntu.megabyte.space", "ubuntu", "10.0.0.156", "professormanhattan"),
+    ("macbook-pro.megabyte.space", "macos", "10.0.0.138", "Apple"),
+]
+added = []
+for fqdn, short, ip, usr in mesh:
+    if f"Host {fqdn}" not in cfg_txt:
+        added.append(f"Host {fqdn} {short}\n  HostName {ip}\n  User {usr}\n  IdentityFile ~/.ssh/id_ed25519\n  StrictHostKeyChecking accept-new\n")
+if added:
+    ssh_cfg.write_text(cfg_txt.rstrip() + "\n\n# Fleet LAN SSH Mesh\n" + "\n".join(added) + "\n")
+    ssh_cfg.chmod(0o600)
+PY
+
+  # 6. Sync OpenCode LiteLLM + DeepSeek auth if helper is present
+  if [ -x "$HOME/.agentskills/bin/opencode-deepseek-auth.sh" ]; then
+    "$HOME/.agentskills/bin/opencode-deepseek-auth.sh" sync >/dev/null 2>&1 || true
+  fi
+
+  # 7. Ensure Git global identity defaults, KasmVNC -AcceptSetDesktopSize 1, and Cloudflare Zero Trust CA
+  [ -z "$(git config --global user.name 2>/dev/null || true)" ] && git config --global user.name "Brian Zalewski" || true
+  [ -z "$(git config --global user.email 2>/dev/null || true)" ] && git config --global user.email "brian@megabyte.space" || true
+  git config --global init.defaultBranch main || true
+
+  for krun in "$HOME/.local/bin"/*-kasmvnc-run; do
+    if [ -f "$krun" ] && grep -q -- "-AcceptSetDesktopSize 0" "$krun" 2>/dev/null; then
+      sed -i 's/-AcceptSetDesktopSize 0/-AcceptSetDesktopSize 1/g' "$krun" 2>/dev/null || true
+    fi
+  done
+
+  if [ -x "$HOME/.local/bin/ensure-cloudflare-zt-ca.sh" ]; then
+    "$HOME/.local/bin/ensure-cloudflare-zt-ca.sh" >/dev/null 2>&1 || true
+  fi
+}
+
+# Run fleet convergence + CNF shims refresh on macOS and exit cleanly
 if [ "$(uname -s)" != "Linux" ]; then
+  converge_fleet_host
   if [ -x "$HOME/.local/bin/cnf-build-shims" ]; then
     "$HOME/.local/bin/cnf-build-shims" >/dev/null 2>&1 || true
   fi
@@ -1763,92 +1996,7 @@ fi
 #    Global Doctrine (CLAUDE.md / AGENTS.md / GEMINI.md), 4-Harness cua-driver MCP,
 #    Git Identity, KasmVNC -AcceptSetDesktopSize 1, and Cloudflare Zero Trust CA
 # -----------------------------------------------------------------------------
-SHORT_HOST="$(hostname -s 2>/dev/null | tr '[:upper:]' '[:lower:]' || echo linux)"
-mkdir -p "$HOME/.config/agent-fleet" "$HOME/ai/repos" "$HOME/.claude" "$HOME/.codex" "$HOME/.gemini" "$HOME/.config/opencode"
-
-# Ensure ~/.agentskills <-> ~/ai/repos/agent-skills and ~/.claude/bin -> ~/.agentskills/bin
-if [ -d "$HOME/ai/repos/agent-skills/.git" ] && [ ! -e "$HOME/.agentskills" ]; then
-  ln -sfn "$HOME/ai/repos/agent-skills" "$HOME/.agentskills"
-elif [ -d "$HOME/.agentskills/.git" ] && [ ! -e "$HOME/ai/repos/agent-skills" ]; then
-  ln -sfn "$HOME/.agentskills" "$HOME/ai/repos/agent-skills"
-fi
-if [ -d "$HOME/.agentskills/bin" ]; then
-  ln -sfn "$HOME/.agentskills/bin" "$HOME/.claude/bin"
-fi
-
-# Populate global doctrine files from ~/.agentskills if present
-if [ -d "$HOME/.agentskills" ]; then
-  [ -f "$HOME/.agentskills/CLAUDE.md" ] && cp -f "$HOME/.agentskills/CLAUDE.md" "$HOME/.claude/CLAUDE.md"
-  [ -f "$HOME/.agentskills/AGENTS.md" ] && cp -f "$HOME/.agentskills/AGENTS.md" "$HOME/.codex/AGENTS.md"
-  [ -f "$HOME/.agentskills/AGENTS.md" ] && cp -f "$HOME/.agentskills/AGENTS.md" "$HOME/.config/opencode/AGENTS.md"
-  [ -f "$HOME/.agentskills/GEMINI.md" ] && cp -f "$HOME/.agentskills/GEMINI.md" "$HOME/.gemini/GEMINI.md"
-fi
-
-# Ensure ~/.config/agent-fleet/machine.json exists
-if [ ! -f "$HOME/.config/agent-fleet/machine.json" ]; then
-  cat > "$HOME/.config/agent-fleet/machine.json" <<EOF
-{
-  "machineId": "${SHORT_HOST}-linux-workstation",
-  "profile": "$HOME/ai/repos/agent-skills/machines/${SHORT_HOST}-linux-workstation.md",
-  "skillsRepository": "heymegabyte/agent-skills",
-  "preferredSetupAgent": "codex",
-  "machineRepository": "heymegabyte/${SHORT_HOST}.megabyte.space",
-  "machineCheckout": "$HOME/ai/repos/${SHORT_HOST}.megabyte.space",
-  "sshHostname": "${SHORT_HOST}.megabyte.space",
-  "sshAlias": "${SHORT_HOST}.megabyte.space",
-  "paperclipUrl": "https://swarml.ink"
-}
-EOF
-fi
-
-# Register cua-driver MCP in claude (~/.claude.json) and codex (~/.codex/config.toml)
-python3 - <<'PY' || true
-import json
-from pathlib import Path
-home = Path.home()
-cua_bin = str(home / ".local/bin/cua-driver")
-cj = home / ".claude.json"
-data = {}
-if cj.exists():
-    try:
-        data = json.loads(cj.read_text())
-    except Exception:
-        data = {}
-data.setdefault("mcpServers", {})["cua-driver"] = {
-    "type": "stdio",
-    "command": cua_bin,
-    "args": ["mcp"],
-    "env": {}
-}
-cj.write_text(json.dumps(data, indent=2) + "\n")
-
-ct = home / ".codex/config.toml"
-ct.parent.mkdir(parents=True, exist_ok=True)
-txt = ct.read_text() if ct.exists() else ""
-if "[mcp_servers.cua-driver]" not in txt:
-    ct.write_text(txt.rstrip() + f'\n\n[mcp_servers.cua-driver]\ncommand = "{cua_bin}"\nargs = ["mcp"]\nenabled = true\n')
-PY
-
-# Ensure Git global identity defaults
-if [ -z "$(git config --global user.name 2>/dev/null || true)" ]; then
-  git config --global user.name "Brian Zalewski" || true
-fi
-if [ -z "$(git config --global user.email 2>/dev/null || true)" ]; then
-  git config --global user.email "brian@megabyte.space" || true
-fi
-git config --global init.defaultBranch main || true
-
-# Ensure KasmVNC wrapper scripts allow dynamic browser viewport resizing (-AcceptSetDesktopSize 1)
-for krun in "$HOME/.local/bin"/*-kasmvnc-run; do
-  if [ -f "$krun" ] && grep -q -- "-AcceptSetDesktopSize 0" "$krun" 2>/dev/null; then
-    sed -i 's/-AcceptSetDesktopSize 0/-AcceptSetDesktopSize 1/g' "$krun" || true
-  fi
-done
-
-# Run Cloudflare Zero Trust CA installer if present
-if [ -x "$HOME/.local/bin/ensure-cloudflare-zt-ca.sh" ]; then
-  "$HOME/.local/bin/ensure-cloudflare-zt-ca.sh" >/dev/null 2>&1 || true
-fi
+converge_fleet_host
 
 for rc_file in "$HOME/.profile" "$HOME/.bashrc" "$HOME/.zshrc"; do
   [ -f "$rc_file" ] || touch "$rc_file"

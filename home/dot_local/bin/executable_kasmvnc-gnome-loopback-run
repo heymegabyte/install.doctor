@@ -115,7 +115,7 @@ DESKTOP_TITLE="${KASMVNC_DESKTOP_TITLE:-$(hostname -s 2>/dev/null || hostname) (
   "${DRI_ARGS[@]}" \
   -DynamicQualityMin 7 \
   -DynamicQualityMax 8 \
-  -AcceptSetDesktopSize 0 \
+  -AcceptSetDesktopSize 1 \
   -AcceptPointerEvents 1 \
   -AcceptKeyEvents 1 \
   -AcceptCutText 1 \

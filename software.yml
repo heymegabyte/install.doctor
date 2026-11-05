@@ -3633,13 +3633,6 @@ softwarePackages:
     github: github.com/prasmussen/gdrive
     yay: gdrive
     go: github.com/prasmussen/gdrive@latest
-  gemini-cli:
-    _name: Gemini CLI
-    _short: Gemini terminal-first experience
-    _github: https://github.com/google-gemini/gemini-cli
-    _bin: gemini
-    brew: gemini-cli
-    npm: '@google/gemini-cli'
   generator-ngx-rocket:
     _name: Angular
     _short: generator-ngx-rocket is a Yeoman generator for Angular applications, providing a solid foundation with best practices and a modular architecture.

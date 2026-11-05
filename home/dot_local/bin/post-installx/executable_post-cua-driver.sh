@@ -101,7 +101,8 @@ for name in ("opencode.json", "opencode.jsonc"):
     data = {}
     if p.exists():
         try:
-            data = json.loads(p.read_text())
+            raw = "\n".join(l for l in p.read_text().splitlines() if not l.strip().startswith("//"))
+            data = json.loads(raw)
         except Exception:
             continue
     elif name == "opencode.jsonc":
@@ -127,8 +128,10 @@ for p in claude_targets:
         except Exception:
             data = {}
     data.setdefault("mcpServers", {})["cua-driver"] = {
+        "type": "stdio",
         "command": cua_bin,
         "args": ["mcp"],
+        "env": {},
     }
     p.parent.mkdir(parents=True, exist_ok=True)
     p.write_text(json.dumps(data, indent=2) + "\n")
@@ -136,16 +139,16 @@ for p in claude_targets:
 
 # 3. Codex (~/.codex/config.toml)
 codex_dir = home / ".codex"
-if codex_dir.is_dir():
-    cfg = codex_dir / "config.toml"
-    txt = cfg.read_text() if cfg.exists() else ""
-    if "[mcp_servers.cua-driver]" not in txt and "[mcp_servers.cua_driver]" not in txt:
-        block = f'\n[mcp_servers.cua-driver]\ncommand = "{cua_bin}"\nargs = ["mcp"]\n'
-        cfg.write_text(txt.rstrip() + "\n" + block)
+codex_dir.mkdir(parents=True, exist_ok=True)
+cfg = codex_dir / "config.toml"
+txt = cfg.read_text() if cfg.exists() else ""
+if "[mcp_servers.cua-driver]" not in txt and "[mcp_servers.cua_driver]" not in txt:
+    block = f'\n[mcp_servers.cua-driver]\ncommand = "{cua_bin}"\nargs = ["mcp"]\nenabled = true\n'
+    cfg.write_text(txt.rstrip() + "\n" + block)
 
-# 4. Antigravity (~/.gemini/antigravity/mcp_config.json if directory exists)
-agy_dir = home / ".gemini/antigravity"
-if agy_dir.is_dir():
+# 4. Antigravity CLI (~/.gemini/config/mcp_config.json and legacy ~/.gemini/antigravity/mcp_config.json)
+for agy_dir in [home / ".gemini/config", home / ".gemini/antigravity"]:
+    agy_dir.mkdir(parents=True, exist_ok=True)
     p = agy_dir / "mcp_config.json"
     data = {}
     if p.exists():

@@ -52,7 +52,7 @@ else
   fail "Poetry must set _default: false"
 fi
 
-for retired in tailscale trayscale syncthing beszel beszel-agent; do
+for retired in tailscale trayscale syncthing beszel beszel-agent gemini-cli; do
   if [ "$(yq -r ".softwarePackages | has(\"$retired\")" "$SOFTWARE")" = "false" ]; then
     pass "$retired is absent from the software catalog"
   else

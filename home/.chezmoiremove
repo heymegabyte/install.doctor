@@ -112,3 +112,6 @@ Brewfile
 .cache/cnf/shims/beszel
 .cache/cnf/shims/beszel-agent
 .cache/cnf/shims/tailscale
+.local/bin/gemini
+.gemini/oauth_creds.json
+.gemini/google_accounts.json
