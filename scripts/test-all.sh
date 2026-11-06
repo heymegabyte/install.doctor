@@ -67,8 +67,11 @@ for t in "$DIR"/test-*.sh "$DIR"/validate-software-yml.sh; do
   else
     bad "$b — ${sm:-no summary} (exit $rc)"
     SUITE_FAIL=$((SUITE_FAIL + 1))
-    printf '%s\n' "    ---- last lines of $b ----"
-    tail -6 "$log" | sed 's/^/    /'
+    # Preserve enough context to identify the first failed assertion. Six
+    # lines routinely showed only a suite footer, forcing an otherwise
+    # unnecessary rerun on the same platform before a defect was actionable.
+    printf '%s\n' "    ---- last 40 lines of $b ----"
+    tail -40 "$log" | sed 's/^/    /'
   fi
   rm -f "$log"
 done
