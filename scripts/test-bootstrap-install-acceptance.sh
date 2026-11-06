@@ -36,16 +36,43 @@ RELEASE="$RELEASE_PARENT/$RELEASE_ID"
 RUNTIME_DIR="$FIXTURE/runtimes"
 TOOLS="$FIXTURE/tools"
 mkdir -m 0700 "$REPOSITORY" "$RELEASE_PARENT" "$RUNTIME_DIR" "$TOOLS"
-mkdir -p "$REPOSITORY/home"
+# Exercise the signed source-commit boundary with the repository's actual
+# committed desired-state inputs. The canary still replaces every mutating
+# executable with a hermetic fixture, so this proves provenance and source-tree
+# structure without installing any real package or rendering local secrets.
+git -C "$ROOT" archive --format=tar HEAD -- .chezmoiroot home software.yml \
+  | tar -xf - -C "$REPOSITORY"
 mkdir -p "$REPOSITORY/packages/control-plane/src"
 cp "$ROOT/scripts/provision.sh" "$REPOSITORY/provision.sh"
 cp "$ROOT/packages/installer-engine/dist/install-doctor-engine.mjs" "$REPOSITORY/install-doctor-engine.mjs"
 cp "$ROOT/packages/control-plane/src/catalog.json" "$REPOSITORY/packages/control-plane/src/catalog.json"
+# The real desired-state hook files remain at their canonical paths and are
+# therefore covered by the signed source commit. Keep the hermetic canary from
+# selecting those host-mutating hooks by making their catalog entries lazy in
+# this fixture only; bootstrap executables themselves are supplied by mocks.
+node - "$REPOSITORY/packages/control-plane/src/catalog.json" <<'NODE'
+const fs = require('node:fs');
+const file = process.argv[2];
+const catalog = JSON.parse(fs.readFileSync(file, 'utf8'));
+for (const entry of catalog) {
+  if (!['mise', 'rclone'].includes(entry.name)) continue;
+  entry.preload = false;
+  entry.loadPolicy = 'lazy';
+  entry.loadRationale = 'default-lazy';
+  entry.deliveryMode = 'lazy';
+  delete entry.preloadReason;
+}
+fs.writeFileSync(file, `${JSON.stringify(catalog, null, 2)}\n`);
+NODE
 (cd "$ROOT" && tar --exclude='node_modules' --exclude='dist' -cf - packages/aid-core packages/installer-engine) \
   | (cd "$REPOSITORY" && tar -xf -)
 chmod 0700 "$REPOSITORY/provision.sh" "$REPOSITORY/install-doctor-engine.mjs"
-printf '.\n' > "$REPOSITORY/.chezmoiroot"
-printf 'fixture desired state\n' > "$REPOSITORY/home/README.fixture"
+[ -f "$REPOSITORY/home/.chezmoidata.yaml" ]
+[ -f "$REPOSITORY/home/dot_local/bin/executable_installx" ]
+[ -f "$REPOSITORY/home/dot_config/shell/megabyte-cache.sh.tmpl" ]
+[ -s "$REPOSITORY/software.yml" ]
+DESIRED_STATE_FILE_COUNT="$(git -C "$ROOT" ls-tree -r --name-only HEAD -- home software.yml .chezmoiroot | wc -l | tr -d ' ')"
+[ "$DESIRED_STATE_FILE_COUNT" -gt 1000 ] || { printf 'canonical desired-state fixture is unexpectedly incomplete\n' >&2; exit 1; }
 git -C "$REPOSITORY" init --quiet
 git -C "$REPOSITORY" config user.name 'Install Doctor Acceptance'
 git -C "$REPOSITORY" config user.email 'acceptance@install.doctor.invalid'
@@ -433,4 +460,4 @@ grep -q '^committed_runs=3$' "$OUTPUT"
 grep -q '^interrupted_run_resumed=1$' "$OUTPUT"
 grep -q '^rollback_config_committed=1$' "$OUTPUT"
 grep -q '^unchanged_mutations=0$' "$OUTPUT"
-printf 'bootstrap-install-acceptance: PASS (signed /start, released cancellation, automatic same-run resume, committed config rollback, unchanged reapply)\n'
+printf 'bootstrap-install-acceptance: PASS (signed /start and %s committed desired-state inputs, released cancellation, automatic same-run resume, committed config rollback, unchanged reapply)\n' "$DESIRED_STATE_FILE_COUNT"

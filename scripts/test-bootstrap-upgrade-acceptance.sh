@@ -30,24 +30,51 @@ RUNTIME_DIR="$FIXTURE/runtimes"
 RELEASES="$FIXTURE/releases"
 TOOLS="$FIXTURE/publisher-tools"
 mkdir -m 0700 "$REPOSITORY" "$RUNTIME_DIR" "$RELEASES" "$TOOLS"
-mkdir -p "$REPOSITORY/home"
+# Carry the repository's complete committed desired state through both signed
+# releases. All mutating tools remain hermetic fixtures; these bytes are used
+# only to prove that upgrade provenance covers the source users actually apply.
+git -C "$ROOT" archive --format=tar HEAD -- .chezmoiroot home software.yml \
+  | tar -xf - -C "$REPOSITORY"
 mkdir -p "$REPOSITORY/packages/control-plane/src"
 cp "$ROOT/scripts/provision.sh" "$REPOSITORY/provision.sh"
 cp "$ROOT/packages/installer-engine/dist/install-doctor-engine.mjs" "$REPOSITORY/install-doctor-engine.mjs"
 cp "$ROOT/packages/control-plane/src/catalog.json" "$REPOSITORY/packages/control-plane/src/catalog.json"
+# Preserve every real desired-state hook in the signed source while ensuring
+# this network-disabled fixture never executes one. The canary provides its
+# bootstrap tools as mocks, so only the hook-owning eager entries need a
+# fixture-local lazy classification.
+node - "$REPOSITORY/packages/control-plane/src/catalog.json" <<'NODE'
+const fs = require('node:fs');
+const file = process.argv[2];
+const catalog = JSON.parse(fs.readFileSync(file, 'utf8'));
+for (const entry of catalog) {
+  if (!['mise', 'rclone'].includes(entry.name)) continue;
+  entry.preload = false;
+  entry.loadPolicy = 'lazy';
+  entry.loadRationale = 'default-lazy';
+  entry.deliveryMode = 'lazy';
+  delete entry.preloadReason;
+}
+fs.writeFileSync(file, `${JSON.stringify(catalog, null, 2)}\n`);
+NODE
 (cd "$ROOT" && tar --exclude='node_modules' --exclude='dist' -cf - packages/aid-core packages/installer-engine) \
   | (cd "$REPOSITORY" && tar -xf -)
 chmod 0700 "$REPOSITORY/provision.sh" "$REPOSITORY/install-doctor-engine.mjs"
-printf '.\n' > "$REPOSITORY/.chezmoiroot"
-printf 'v1\n' > "$REPOSITORY/home/UPGRADE-VERSION"
+[ -f "$REPOSITORY/home/.chezmoidata.yaml" ]
+[ -f "$REPOSITORY/home/dot_local/bin/executable_installx" ]
+[ -f "$REPOSITORY/home/dot_config/shell/megabyte-cache.sh.tmpl" ]
+[ -s "$REPOSITORY/software.yml" ]
+DESIRED_STATE_FILE_COUNT="$(git -C "$ROOT" ls-tree -r --name-only HEAD -- home software.yml .chezmoiroot | wc -l | tr -d ' ')"
+[ "$DESIRED_STATE_FILE_COUNT" -gt 1000 ] || { printf 'canonical desired-state fixture is unexpectedly incomplete\n' >&2; exit 1; }
+printf 'v1\n' > "$REPOSITORY/home/.install-doctor-upgrade-acceptance-revision"
 git -C "$REPOSITORY" init --quiet
 git -C "$REPOSITORY" config user.name 'Install Doctor Upgrade Acceptance'
 git -C "$REPOSITORY" config user.email 'upgrade-acceptance@install.doctor.invalid'
 git -C "$REPOSITORY" add .
 git -C "$REPOSITORY" commit --quiet -m 'immutable upgrade acceptance v1'
 V1_COMMIT="$(git -C "$REPOSITORY" rev-parse HEAD)"
-printf 'v2\n' > "$REPOSITORY/home/UPGRADE-VERSION"
-git -C "$REPOSITORY" add home/UPGRADE-VERSION
+printf 'v2\n' > "$REPOSITORY/home/.install-doctor-upgrade-acceptance-revision"
+git -C "$REPOSITORY" add home/.install-doctor-upgrade-acceptance-revision
 git -C "$REPOSITORY" commit --quiet -m 'immutable upgrade acceptance v2'
 V2_COMMIT="$(git -C "$REPOSITORY" rev-parse HEAD)"
 [ "$V1_COMMIT" != "$V2_COMMIT" ] || { printf 'fixture commits must differ\n' >&2; exit 1; }
@@ -150,7 +177,7 @@ set -euo pipefail
 source_root=''
 if [ "${1:-}" = '--source' ]; then source_root="$2"; shift 2; fi
 command="${1:-}"; shift || true
-version="$(tr -d '\n' < "$source_root/UPGRADE-VERSION")"
+version="$(tr -d '\n' < "$source_root/.install-doctor-upgrade-acceptance-revision")"
 mkdir -p "$HOME/.fixture" "$HOME/.config/chezmoi"
 case "$command" in
   data) exit 0 ;;
@@ -194,7 +221,7 @@ esac
 SH
 cat > "$FIXTURE/process-software-groups" <<'SH'
 #!/usr/bin/env bash
-version="$(tr -d '\n' < "$INSTALL_DOCTOR_CHEZMOI_SOURCE/UPGRADE-VERSION")"
+version="$(tr -d '\n' < "$INSTALL_DOCTOR_CHEZMOI_SOURCE/.install-doctor-upgrade-acceptance-revision")"
 if [ "${1:-}" = --check ]; then [ "$(cat "$HOME/.fixture/software-groups-version" 2>/dev/null)" = "$version" ] && exit 0 || exit 10; fi
 printf '%s\n' "$version" > "$HOME/.fixture/software-groups-version"
 printf 'apply:software-groups:%s\n' "$version" >> "$HOME/mutation-ledger"
@@ -318,5 +345,6 @@ docker run --rm --network=none --read-only --entrypoint /bin/bash \
 grep -q '^distinct_releases=1$' "$OUTPUT"
 grep -q '^distinct_commits=1$' "$OUTPUT"
 grep -q '^distinct_plans=1$' "$OUTPUT"
+printf 'bootstrap-upgrade-acceptance: covered %s committed desired-state inputs across both signed releases\n' "$DESIRED_STATE_FILE_COUNT"
 grep -q '^v2_unchanged_mutations=0$' "$OUTPUT"
 printf 'bootstrap-upgrade-acceptance: PASS (signed v1 apply, v2 approval boundary, changed closure, unchanged v2)\n'
