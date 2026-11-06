@@ -1266,6 +1266,24 @@ def collect_metrics() -> str:
             except Exception:
                 pass
 
+    try:
+        freqs = [int(open(p).read().strip()) / 1000.0 for p in glob.glob("/sys/devices/system/cpu/cpu[0-9]*/cpufreq/scaling_cur_freq")]
+        if freqs:
+            lines.append("# HELP cpu_scaling_frequency_mhz Average CPU scaling frequency in MHz")
+            lines.append("# TYPE cpu_scaling_frequency_mhz gauge")
+            lines.append(f"cpu_scaling_frequency_mhz {sum(freqs) / len(freqs):.1f}")
+    except Exception:
+        pass
+
+    try:
+        failed_out = subprocess.check_output(["systemctl", "--failed", "--no-legend", "--plain"], text=True, timeout=3)
+        failed_cnt = len([l for l in failed_out.strip().splitlines() if l.strip()])
+        lines.append("# HELP systemd_failed_units_total Number of currently failed systemd units")
+        lines.append("# TYPE systemd_failed_units_total gauge")
+        lines.append(f"systemd_failed_units_total {failed_cnt}")
+    except Exception:
+        pass
+
     return "\n".join(lines) + "\n"
 
 
@@ -1324,6 +1342,13 @@ prometheus.exporter.unix "node" {}
 
 prometheus.scrape "node" {
   targets    = prometheus.exporter.unix.node.targets
+  forward_to = [prometheus.remote_write.central.receiver]
+}
+
+prometheus.exporter.self "alloy" {}
+
+prometheus.scrape "alloy_self" {
+  targets    = prometheus.exporter.self.alloy.targets
   forward_to = [prometheus.remote_write.central.receiver]
 }
 
@@ -2114,8 +2139,20 @@ EOF
     run_root install -d -m 0755 /etc/crowdsec/acquis.d
     printf 'source: journalctl\njournalctl_filter:\n  - "_TRANSPORT=kernel"\nlabels:\n  type: syslog\n' > "$TMP_DIR/fleet-egress.yaml"
     run_root cp "$TMP_DIR/fleet-egress.yaml" /etc/crowdsec/acquis.d/fleet-egress.yaml
+    if command -v cscli >/dev/null 2>&1; then
+      run_root cscli hub update >/dev/null 2>&1 || true
+      run_root cscli collections upgrade crowdsecurity/sshd --force >/dev/null 2>&1 || true
+      run_root cscli collections install crowdsecurity/linux-lpe >/dev/null 2>&1 || true
+    fi
     run_root systemctl reload crowdsec.service >/dev/null 2>&1 || true
   fi
+
+  run_root install -d -m 0755 /etc/systemd/oomd.conf.d /etc/systemd/system/user@.service.d
+  printf '[OOM]\nSwapUsedLimit=85%%\nDefaultMemoryPressureLimit=75%%\nDefaultMemoryPressureDurationSec=30s\n' > "$TMP_DIR/99-workstation-oomd.conf"
+  run_root cp "$TMP_DIR/99-workstation-oomd.conf" /etc/systemd/oomd.conf.d/99-workstation.conf
+  printf '[Service]\nManagedOOMSwap=auto\nManagedOOMMemoryPressure=auto\nManagedOOMMemoryPressureLimit=80%%\nOOMScoreAdjust=-300\n' > "$TMP_DIR/user-oomd-protect.conf"
+  run_root cp "$TMP_DIR/user-oomd-protect.conf" /etc/systemd/system/user@.service.d/oomd-protect.conf
+  run_root systemctl restart systemd-oomd.service >/dev/null 2>&1 || true
 
   cat > "$TMP_DIR/99-fleet-wave3-ai-kernel.conf" <<'EOF'
 fs.aio-max-nr = 1048576
@@ -2125,6 +2162,8 @@ kernel.pid_max = 4194304
 kernel.kptr_restrict = 2
 kernel.unprivileged_bpf_disabled = 1
 net.core.bpf_jit_harden = 2
+kernel.sched_autogroup_enabled = 0
+vm.admin_reserve_kbytes = 65536
 EOF
   run_root cp "$TMP_DIR/99-fleet-wave3-ai-kernel.conf" /etc/sysctl.d/99-fleet-wave3-ai-kernel.conf
   run_root sysctl --system >/dev/null 2>&1 || true
