@@ -61,6 +61,8 @@ if [ -f "$SWY" ] && command -v yq >/dev/null 2>&1 && yq --version 2>&1 | grep -q
     pass "cnf-build-index yq|jq path == python3 path — BYTE-IDENTICAL TSV on the real software.yml ($(wc -l < "$_dpj" | tr -d ' ') rows; #280 dual-path parity)"
   else
     fail "cnf-build-index DUAL-PATH DIVERGENCE — yq|jq and python3 produce different TSV on the real software.yml (the index differs by which builder path runs on a box)"
+    printf '%s\n' '--- first normalized builder differences ---'
+    diff -u <(LC_ALL=C sort "$_dpj") <(LC_ALL=C sort "$_dpp") | head -80 || true
   fi
   command rm -rf "$_dpbin" "$_dpj" "$_dpp" 2>/dev/null
 else
