@@ -44,6 +44,8 @@ requireMatch(/name: "macOS \$\{\{ matrix\.osMajor \}\} \$\{\{ matrix\.architectu
   'job name must report the asserted tuple rather than an unverified prose label');
 requireMatch(/uses: actions\/setup-node@[a-f0-9]{40}[\s\S]*node-version: 24\.22\.2/,
   'workflow must use the pinned supported Node runtime');
+requireMatch(/uses: actions\/setup-python@[a-f0-9]{40}[\s\S]*python-version: 3\.13\.11/,
+  'workflow must use a pinned Python runtime with cross-architecture PyYAML wheels');
 requireMatch(/name: Install pinned test prerequisites[\s\S]*PyYAML==6\.0\.3[\s\S]*packages\/aid-core ci[\s\S]*packages\/installer-engine ci[\s\S]*packages\/control-plane ci/,
   'workflow must install YAML support and locked package test dependencies');
 if (/CONTROL_PLANE_URL:\s*https?:\/\//.test(workflow)) failures.push('revision tests must not depend on a mutable production control plane');
