@@ -2010,7 +2010,8 @@ EOF
     if command -v cscli >/dev/null 2>&1; then
       run_root cscli hub update >/dev/null 2>&1 || true
       run_root cscli collections upgrade crowdsecurity/sshd --force >/dev/null 2>&1 || true
-      run_root cscli collections install crowdsecurity/linux-lpe >/dev/null 2>&1 || true
+      run_root cscli collections upgrade crowdsecurity/linux --force >/dev/null 2>&1 || true
+      run_root cscli collections install crowdsecurity/linux-lpe --force >/dev/null 2>&1 || true
     fi
     run_root systemctl reload crowdsec.service >/dev/null 2>&1 || true
   fi
