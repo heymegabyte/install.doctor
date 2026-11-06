@@ -76,3 +76,35 @@ jobs:
         run: |
           npm --prefix packages/installer-engine run build
           node --test packages/installer-engine/test/offline-sandbox.test.mjs
+
+  macos-signed-lifecycle:
+    name: Native macOS signed fixture lifecycle — ${{ matrix.architecture }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - architecture: arm64
+            runner: macos-15
+          - architecture: x64
+            runner: macos-15-intel
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 24.22.2
+          cache: npm
+          cache-dependency-path: |
+            packages/aid-core/package-lock.json
+            packages/installer-engine/package-lock.json
+      - name: Install locked engine dependencies
+        run: |
+          npm --prefix packages/aid-core ci --ignore-scripts --no-audit --no-fund
+          npm --prefix packages/installer-engine ci --ignore-scripts --no-audit --no-fund
+      - name: Verify native macOS signed lifecycle fixture (not platform promotion or canonical /start transport proof)
+        run: |
+          bash scripts/test-bootstrap-macos-lifecycle-contract.sh
+          bash scripts/test-bootstrap-macos-lifecycle-acceptance.sh
