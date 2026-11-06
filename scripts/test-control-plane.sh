@@ -29,7 +29,9 @@ else
   else
     fail "control-plane release/channel R2 bindings are missing or conflated"
   fi
-  if ( cd "$CP" && node --test test/*.test.mjs ) >/tmp/cp-node-test.log 2>&1; then
+  # The tests import the bundled Worker from dist/index.js. Run the package's
+  # locked build-and-test contract instead of relying on a stale local dist.
+  if ( cd "$CP" && npm test ) >/tmp/cp-node-test.log 2>&1; then
     pass "control-plane node tests OK"
   else
     fail "control-plane node tests failed (see /tmp/cp-node-test.log)"; tail -20 /tmp/cp-node-test.log 2>/dev/null

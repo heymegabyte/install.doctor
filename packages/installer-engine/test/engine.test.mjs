@@ -67,7 +67,10 @@ function deferred() {
 async function eventually(predicate, message) {
   for (let attempt = 0; attempt < 200; attempt += 1) {
     if (predicate()) return;
-    await new Promise(resolve => setImmediate(resolve));
+    // Yield across an actual event-loop turn. A tight setImmediate-only loop
+    // can exhaust all attempts before Node 24 advances pending filesystem and
+    // module work on loaded Linux runners, producing false scheduler failures.
+    await new Promise(resolve => setTimeout(resolve, 5));
   }
   assert.fail(message);
 }

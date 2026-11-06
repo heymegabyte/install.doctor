@@ -40,13 +40,21 @@ test('admits an inherited anonymous pipe as a one-shot capability without readin
   });
   const stdout = [];
   const stderr = [];
+  let pipeError;
   child.stdout.on('data', chunk => stdout.push(chunk));
   child.stderr.on('data', chunk => stderr.push(chunk));
+  // The child intentionally proves that admission does not read the secret
+  // bytes. Linux may therefore reset the parent side while it is being closed;
+  // that expected transport result must not become an unhandled test error.
+  child.stdio[3].on('error', error => {
+    if (error.code !== 'ECONNRESET' && error.code !== 'EPIPE') pipeError = error;
+  });
   child.stdio[3].end('value-that-must-not-be-read');
   const code = await new Promise((resolve, reject) => {
     child.once('error', reject);
     child.once('close', resolve);
   });
+  assert.ifError(pipeError);
   assert.equal(code, 0, Buffer.concat(stderr).toString('utf8'));
   assert.deepEqual(JSON.parse(Buffer.concat(stdout).toString('utf8')), {
     purpose: 'sudo-password', maxBytes: 1_024, sourceFd: 3, replayRejected: true,
