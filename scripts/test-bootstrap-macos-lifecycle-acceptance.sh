@@ -15,6 +15,10 @@ cleanup() {
 }
 trap cleanup EXIT HUP INT TERM
 
+[ "${INSTALL_DOCTOR_RUN_NATIVE_MACOS_LIFECYCLE:-0}" = 1 ] || {
+  printf 'bootstrap-macos-lifecycle-acceptance: SKIP (dedicated signed-lifecycle job only)\n'
+  exit 0
+}
 [ "$(uname -s)" = Darwin ] || {
   printf 'bootstrap-macos-lifecycle-acceptance: Darwin is required\n' >&2
   exit 1

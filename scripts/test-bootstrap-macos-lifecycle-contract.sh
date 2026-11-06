@@ -30,7 +30,7 @@ requireMatch(nativeJob, /include:\s*\n\s*- architecture: arm64\s*\n\s*runner: ma
 requireMatch(nativeJob, /uses: actions\/setup-node@[a-f0-9]{40}[\s\S]*?node-version: 24\.22\.2/,
   'workflow must install the pinned supported Node runtime');
 requireMatch(nativeJob, /timeout-minutes: 20/, 'native lifecycle job must have a bounded timeout');
-requireMatch(nativeJob, /name: Verify native macOS signed lifecycle fixture \(not platform promotion or canonical \/start transport proof\)[\s\S]*?bash scripts\/test-bootstrap-macos-lifecycle-contract\.sh[\s\S]*?bash scripts\/test-bootstrap-macos-lifecycle-acceptance\.sh/,
+requireMatch(nativeJob, /name: Verify native macOS signed lifecycle fixture \(not platform promotion or canonical \/start transport proof\)[\s\S]*?bash scripts\/test-bootstrap-macos-lifecycle-contract\.sh[\s\S]*?INSTALL_DOCTOR_RUN_NATIVE_MACOS_LIFECYCLE=1 bash scripts\/test-bootstrap-macos-lifecycle-acceptance\.sh/,
   'workflow must run the contract before the native lifecycle acceptance and state its evidence limits');
 requireMatch(nativeJob, /npm --prefix packages\/aid-core ci --ignore-scripts --no-audit --no-fund[\s\S]*?npm --prefix packages\/installer-engine ci --ignore-scripts --no-audit --no-fund/,
   'native job must install locked engine dependencies');
@@ -38,6 +38,8 @@ if (/continue-on-error:\s*true/.test(nativeJob)) failures.push('native lifecycle
 
 requireMatch(acceptance, /\[ "\$\(uname -s\)" = Darwin \]/,
   'acceptance must reject non-Darwin execution rather than silently skip');
+requireMatch(acceptance, /\[ "\$\{INSTALL_DOCTOR_RUN_NATIVE_MACOS_LIFECYCLE:-0\}" = 1 \]/,
+  'acceptance must run only when its dedicated blocking workflow opts in');
 requireMatch(acceptance, /OBSERVED_MACOS_VERSION="\$\(sw_vers -productVersion\)"[\s\S]*?\[ "\$OBSERVED_MACOS_MAJOR" = "\$EXPECTED_MACOS_MAJOR" \]/,
   'acceptance must bind the fixture to the expected observed macOS major');
 requireMatch(acceptance, /ssh-keygen -Y verify[\s\S]*?-n install\.doctor\.release[\s\S]*?< "\$RELEASE\/manifest"/,

@@ -107,4 +107,4 @@ jobs:
       - name: Verify native macOS signed lifecycle fixture (not platform promotion or canonical /start transport proof)
         run: |
           bash scripts/test-bootstrap-macos-lifecycle-contract.sh
-          bash scripts/test-bootstrap-macos-lifecycle-acceptance.sh
+          INSTALL_DOCTOR_RUN_NATIVE_MACOS_LIFECYCLE=1 bash scripts/test-bootstrap-macos-lifecycle-acceptance.sh
