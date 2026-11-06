@@ -6,7 +6,8 @@ INSTALLX="$ROOT/home/dot_local/bin/executable_installx"
 grep -Fq "case 'appimage':" "$INSTALLX" || { printf 'AppImage provider admission is missing\n' >&2; exit 1; }
 grep -Fq 'appimage provider is disabled until the catalog binds an immutable URL, SHA-256 digest, size, and destination' "$INSTALLX" \
   || { printf 'AppImage provider does not fail closed on missing artifact authority\n' >&2; exit 1; }
-ZX="$(command -v zx)"
+ZX="${INSTALLX_TEST_ZX:-$ROOT/packages/installer-engine/node_modules/.bin/zx}"
+[ -x "$ZX" ] || { printf 'Hermetic zx test runtime is missing; run npm ci --prefix packages/installer-engine\n' >&2; exit 1; }
 FIXTURE="$(mktemp -d "${TMPDIR:-/tmp}/installx-check.XXXXXXXX")"
 trap 'rm -rf -- "$FIXTURE"' EXIT HUP INT TERM
 

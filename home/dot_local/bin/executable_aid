@@ -200,7 +200,7 @@ resolvePkg() {
 # check `command -v` on those — fixes name≠binary false-missing (angular-cli->ng, android-platform-tools
 # ->adb, ripgrep->rg). Fall back to the key itself when the index/row is absent (still works offline).
 isInstalled() {
-  local key="$1" idx="${AID_CNF_INDEX:-$HOME/.cache/cnf/index.tsv}" bins b
+  local key="$1" idx="${AID_CNF_INDEX:-$HOME/.cache/cnf/index.tsv}" bins="" b
   if [ -f "$idx" ]; then
     bins="$(awk -F'\t' -v k="$key" '$2 == k && $1 != "" {print $1}' "$idx")"
   fi
