@@ -96,9 +96,10 @@ fs.writeFileSync(destination, `${JSON.stringify({
 })}\n`, { mode: 0o600, flag: 'wx' });
 NODE
 node "$ROOT/scripts/helpers/render-bootstrap.mjs" "$FIXTURE/bootstrap-config.json" > "$FIXTURE/start.sh"
-# The launcher is executed directly inside the network-denied canary. Preserve
-# private fixture ownership while granting only its owner execute permission.
-chmod 0700 "$FIXTURE/start.sh"
+# The launcher contains only public trust material. A Linux bind mount preserves
+# the host UID, which need not match the pinned image UID, so grant read/execute
+# without granting mutation to the canary process.
+chmod 0555 "$FIXTURE/start.sh"
 
 cat > "$FIXTURE/curl" <<'SH'
 #!/usr/bin/env bash
