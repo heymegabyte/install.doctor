@@ -120,7 +120,10 @@ test('Linux user sandbox refuses root and never admits a capability probe', asyn
 });
 
 test('default runtime refuses safely when this host cannot prove Linux namespace isolation', async t => {
-  if (process.platform === 'linux') t.skip('covered by the optional real Linux canary when Bubblewrap is available');
+  if (process.platform === 'linux') {
+    t.skip('covered by the optional real Linux canary when Bubblewrap is available');
+    return;
+  }
   const root = await mkdtemp(join(tmpdir(), 'install-doctor-offline-default-sandbox-'));
   t.after(() => rm(root, { recursive: true, force: true }));
   const marker = join(root, 'marker');
@@ -155,5 +158,5 @@ child="$(/usr/bin/readlink /proc/self/ns/net)"
     materializedRoot: root, executableFileDescriptor: handle.fd, artifactFileDescriptors: [],
     arguments: [capability.hostNetworkNamespace], timeoutMs: 5_000,
   });
-  assert.equal(result.exitCode, 0);
+  assert.equal(result.exitCode, 0, `offline sandbox operation failed: ${result.stderr}`);
 });
