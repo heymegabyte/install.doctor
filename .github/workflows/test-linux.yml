@@ -51,13 +51,8 @@ jobs:
       - name: Lint core scripts
         run: shellcheck --severity=error -x scripts/provision.sh start.sh
 
-      - name: Lint all scripts (advisory inventory)
-        continue-on-error: true
-        run: |
-          find . -name "*.sh" -not -path "*/.git/*" -not -path "*/.claude/worktrees/*" \
-            -exec shellcheck -x {} \; 2>&1 | tee shellcheck.log
-          violations="$(grep -cE 'SC|warning|error' shellcheck.log || true)"
-          printf 'Existing ShellCheck findings: %s\n' "$violations"
+      - name: Enforce shipped-shell quality ratchet
+        run: bash scripts/test-shellcheck-quality.sh
 
       - name: Verify repository structural contracts
         run: bash scripts/test-all.sh

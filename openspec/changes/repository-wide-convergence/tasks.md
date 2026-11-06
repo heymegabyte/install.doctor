@@ -34,7 +34,7 @@ These findings are append-only follow-on work. A checked legacy convergence task
 
 ### Wave C — CI, catalog, dependency, and source provenance
 
-- [ ] R10 Remove nonblocking CI from required validation; preserve intentional platform skips as explicit results and fail real test errors.
+- [x] R10 Remove nonblocking CI from required validation; preserve intentional platform skips as explicit results and fail real test errors.
 - [ ] R11 Make pull-request tests execute the checked-out revision and local generated artifacts, never production or mutable remote code as the test subject.
 - [ ] R23 Enforce a strict runtime schema for every `software.yml` entry, reject unknown/incomplete fields, and deterministically validate/generated derived catalogs.
 - [ ] R24 Collapse provisioning-source drift to one canonical bootstrap source plus a deterministic generated portable fallback whose regeneration is tested.

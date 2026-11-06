@@ -57,6 +57,11 @@ for wf in test-linux test-macos; do
     fail "$wf.yml must validate pull requests from the checked-out revision, not mutable production /start"
   fi
 done
+if ! grep -R -n 'continue-on-error:[[:space:]]*true' "$ROOT/.github/workflows" >/dev/null 2>&1; then
+  pass "required workflow validation contains no warning-only jobs"
+else
+  fail "required workflow validation must not convert real failures into warnings"
+fi
 if [ ! -e "$ROOT/.github/workflows/pr-install-doctor.yml" ]; then
   pass "redundant mutable-runner PR provision workflow remains retired"
 else
