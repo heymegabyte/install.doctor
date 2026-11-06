@@ -3,6 +3,52 @@
   "schemaVersion": 1,
   "workloads": [
     {
+      "id": "github-control-plane-deployer",
+      "runtime": "github-actions",
+      "availableAuthModes": ["github-oidc"],
+      "auth": {
+        "mode": "github-oidc",
+        "issuer": "https://token.actions.githubusercontent.com",
+        "claims": {
+          "repository": "heymegabyte/install.doctor",
+          "repository_id": "588807533",
+          "repository_owner_id": "82490183",
+          "ref": "refs/heads/master",
+          "environment": "control-plane-production",
+          "workflow_ref": "heymegabyte/install.doctor/.github/workflows/control-plane-production.yml@refs/heads/master",
+          "event_name": "workflow_dispatch",
+          "aud": "https://github.com/heymegabyte",
+          "sub": "repo:heymegabyte/install.doctor:environment:control-plane-production"
+        },
+        "accessTokenTtlSeconds": 600,
+        "accessTokenMaxTtlSeconds": 900,
+        "accessTokenMaxUses": 8,
+        "trustedIpRationale": "GitHub-hosted runner addresses are not stable; exact repository, ref, workflow, event, and protected-environment claims are the boundary."
+      },
+      "authorization": {
+        "project": "install-doctor",
+        "environment": "prod",
+        "path": "/ci/control-plane/deployer",
+        "secretNames": ["CLOUDFLARE_ACCOUNT_ID", "CLOUDFLARE_API_TOKEN", "CLOUDFLARE_ZONE_ID"],
+        "inheritedGrants": []
+      },
+      "platformBindings": [{
+        "platform": "cloudflare-workers-production-deploy",
+        "binding": "INSTALL_DOCTOR_CONTROL_PLANE_DEPLOY_CREDENTIALS",
+        "sourceRef": "infisical://install-doctor/prod/ci/control-plane/deployer",
+        "authority": "infisical"
+      }],
+      "revocation": {
+        "tokenCacheWindowSeconds": 60,
+        "urgentProcedure": ["disable-identity", "revoke-issuing-credential", "wait-cache-window", "verify-denied"]
+      },
+      "rotation": {
+        "overlapSeconds": 300,
+        "steps": ["issue-new", "reload-consumer", "health-check", "revoke-old", "verify-old-denied"],
+        "healthCheck": "deploy-source-pinned-worker-purge-one-host-and-verify-public-fail-closed-or-signed-start"
+      }
+    },
+    {
       "id": "github-bootstrap-release-signer",
       "runtime": "github-actions",
       "availableAuthModes": ["github-oidc"],

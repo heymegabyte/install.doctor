@@ -91,7 +91,7 @@ check 'renewal activation blocks on public signature proof' grep -q 'ssh-keygen 
 check 'publisher CLI uses release-bucket credentials' grep -q "storageFromEnvironment('INSTALL_DOCTOR_RELEASE_R2')" "$CLI"
 check 'activator CLI uses a distinct channel bucket' grep -q "storageFromEnvironment('INSTALL_DOCTOR_CHANNEL_R2')" "$CLI"
 check 'Worker declares a distinct channel binding' grep -q 'RELEASE_CHANNELS:' "$ENV_SOURCE"
-check 'ten workflow-bound value-free Infisical workload identities validate' node "$ROOT/scripts/infisical-identity-policy.mjs" validate "$POLICY"
+check 'shared value-free Infisical workload identity policy validates' node "$ROOT/scripts/infisical-identity-policy.mjs" validate "$POLICY"
 check 'promotion verifier has an exact read-only OIDC identity' jq -e '
   [.workloads[] | select(.id == "github-platform-promotion-reader")] | length == 1 and
   .[0].auth.claims.environment == "platform-promotion-verifier" and

@@ -50,6 +50,10 @@ tests:
 - Add the nonsecret GitHub variables referenced by the workflows: `INSTALL_DOCTOR_RELEASE_SIGNER_ID`,
   `INFISICAL_PROJECT_SLUG`, and the ten Infisical identity ids.
 
+The shared identity-policy file also contains the separate `github-control-plane-deployer` workload.
+It is not one of these ten release/offline/promotion authorities and must not receive signing, release
+bucket, channel bucket, or D1 mutation access. See `control-plane-deploy.md`.
+
 The protected environment, exact-workflow OIDC conditions, branch/ruleset protection, and required
 reviewers are mandatory compensating controls because GitHub-hosted signing still materializes the raw
 private key briefly. Do not describe this as HSM-enforced policy. A future signer broker or HSM should

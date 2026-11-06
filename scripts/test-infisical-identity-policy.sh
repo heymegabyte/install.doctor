@@ -23,11 +23,11 @@ node "$ROOT/scripts/infisical-identity-policy.mjs" validate "$ROOT/config/infisi
 grep -Fq '"valid": true' "$TMP/bootstrap-release.out" || fail "bootstrap release identity policy was rejected"
 node "$ROOT/scripts/infisical-identity-policy.mjs" plan "$ROOT/config/infisical/bootstrap-release-identities.json" >"$TMP/bootstrap-release-plan.json"
 jq -e '
-  (.workloads | length) == 10 and all(.workloads[]; .authMode == "github-oidc") and
-  ([.workloads[].claims.environment] | unique | length) == 10 and
-  ([.workloads[].claims.workflowRef] | unique | length) == 6 and
-  ([.workloads[].authorization.path] | unique | length) == 10
-' "$TMP/bootstrap-release-plan.json" >/dev/null || fail "bootstrap release workloads do not have ten disjoint workflow-bound OIDC/environment/path boundaries"
+  (.workloads | length) == 11 and all(.workloads[]; .authMode == "github-oidc") and
+  ([.workloads[].claims.environment] | unique | length) == 11 and
+  ([.workloads[].claims.workflowRef] | unique | length) == 7 and
+  ([.workloads[].authorization.path] | unique | length) == 11
+' "$TMP/bootstrap-release-plan.json" >/dev/null || fail "CI workloads do not have eleven disjoint workflow-bound OIDC/environment/path boundaries"
 jq -e '
   (.workloads | map(select(.id == "github-bootstrap-release-signer"))[0].authorization.secretNames == ["INSTALL_DOCTOR_RELEASE_SIGNING_KEY"]) and
   (.workloads | map(select(.id == "github-bootstrap-release-publisher"))[0].authorization.secretNames == [
@@ -50,9 +50,15 @@ jq -e '
   (.workloads | map(select(.id == "github-bootstrap-release-monitor"))[0] |
     (.authorization.secretNames | index("INSTALL_DOCTOR_RELEASE_SIGNING_KEY") == null) and
     (.platformBindings | length == 1) and
-    (.platformBindings[0].platform == "cloudflare-r2-channel-and-release-read-only"))
+    (.platformBindings[0].platform == "cloudflare-r2-channel-and-release-read-only")) and
+  (.workloads | map(select(.id == "github-control-plane-deployer"))[0] |
+    (.authorization.secretNames == ["CLOUDFLARE_ACCOUNT_ID", "CLOUDFLARE_API_TOKEN", "CLOUDFLARE_ZONE_ID"]) and
+    (.authorization.secretNames | index("INSTALL_DOCTOR_RELEASE_SIGNING_KEY") == null) and
+    (all(.authorization.secretNames[]; test("R2|SIGNING") | not)) and
+    (.auth.claims.environment == "control-plane-production") and
+    (.auth.claims.workflow_ref == "heymegabyte/install.doctor/.github/workflows/control-plane-production.yml@refs/heads/master"))
 ' "$ROOT/config/infisical/bootstrap-release-identities.json" >/dev/null \
-  || fail "bootstrap release secret allowlists do not match their code authority boundaries"
+  || fail "CI secret allowlists do not match their code authority boundaries"
 
 cat >"$TMP/valid.json" <<'JSON'
 {

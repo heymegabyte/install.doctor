@@ -47,7 +47,11 @@ It deliberately cannot deploy without separately scoped R2 credentials and a sou
 signer. The production workflow enforces an unprivileged build, no-checkout signer, immutable-object
 publisher, and separate channel activator; production custody and external identities remain required.
 
-The protected production workflow is `.github/workflows/bootstrap-release-production.yml`; its
+The control plane itself is deployed only by the manual, protected, source-pinned
+`.github/workflows/control-plane-production.yml` workflow. Its least-privilege provisioning,
+verification, purge, and rollback procedure is `docs/operations/control-plane-deploy.md`.
+
+The protected bootstrap release workflow is `.github/workflows/bootstrap-release-production.yml`; its
 external provisioning and verification runbook is `docs/operations/bootstrap-release.md`. Release
 objects and channel records intentionally use separate R2 buckets/bindings so publication and
 activation are provider-separable authorities.

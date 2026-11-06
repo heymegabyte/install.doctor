@@ -208,7 +208,7 @@ SH
 
 mkdir "$FIXTURE/container-tools" "$FIXTURE/container-fixture"
 for TOOL in curl sudo rsync brew gum zx chezmoi process-software-groups process-software-post-scripts; do
-  cp "$FIXTURE/$TOOL" "$FIXTURE/container-tools/$TOOL"; chmod 0700 "$FIXTURE/container-tools/$TOOL"
+  cp "$FIXTURE/$TOOL" "$FIXTURE/container-tools/$TOOL"; chmod 0555 "$FIXTURE/container-tools/$TOOL"
 done
 cp -a "$RELEASES" "$FIXTURE/container-fixture/releases"
 cp -a "$REPOSITORY" "$FIXTURE/container-fixture/repository"
@@ -302,7 +302,9 @@ chmod 0700 /canary-home/run-as-node.sh
 chown node:node /canary-home/run-as-node.sh
 su -s /bin/bash node -c 'bash /canary-home/run-as-node.sh'
 SH
-chmod 0700 "$FIXTURE/container-fixture/container-run.sh"
+# The bind-mounted fixture contains only public release/canary material. Linux
+# preserves the host UID, so admit the pinned image UID without granting writes.
+chmod -R a+rX,go-w "$FIXTURE/container-fixture"
 
 MOUNTS=()
 for TOOL in curl sudo rsync brew gum zx chezmoi process-software-groups process-software-post-scripts; do

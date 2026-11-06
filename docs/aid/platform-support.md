@@ -2,7 +2,7 @@
 
 What Install Doctor v2 actually does on each OS/role today — marked **honestly** by how much is
 proven, not by intent. The authoritative claims are the cells in
-[`scripts/platform-support-matrix.json`](../../scripts/platform-support-matrix.json), validated by
+[`scripts/platform-support-matrix.json`](https://github.com/heymegabyte/install.doctor/blob/master/scripts/platform-support-matrix.json), validated by
 `scripts/validate-platform-support-matrix.mjs` and mirrored as executable policy inside the signed
 provisioner. The provisioner rejects absent and `unsupported` tuples before plan approval; a
 `best-effort` tuple proceeds only with explicit `INSTALL_DOCTOR_CONSENT_BEST_EFFORT=true`, and its

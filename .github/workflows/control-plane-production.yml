@@ -1,0 +1,125 @@
+name: Deploy control plane to production
+
+on:
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: control-plane-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: github.ref == 'refs/heads/master'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: control-plane-production
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.2.2
+        with:
+          persist-credentials: false
+          ref: ${{ github.workflow_sha }}
+
+      - name: Prove immutable reviewed source
+        run: test "$(git rev-parse HEAD)" = "$GITHUB_WORKFLOW_SHA"
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 24.22.2
+          cache: npm
+          cache-dependency-path: packages/control-plane/package-lock.json
+
+      - name: Install, test, and dry-run without production credentials
+        run: |
+          set -euo pipefail
+          npm --prefix packages/control-plane ci --ignore-scripts --no-audit --no-fund
+          npm --prefix packages/control-plane test
+          node scripts/infisical-identity-policy.mjs validate config/infisical/bootstrap-release-identities.json
+
+      - uses: Infisical/secrets-action@d2e351f16c6ca20d17c85e6c992e04bdeb64e87d # v1.0.18
+        name: Resolve exact Cloudflare deploy identity through GitHub OIDC
+        with:
+          method: oidc
+          identity-id: ${{ vars.INFISICAL_CONTROL_PLANE_DEPLOYER_ID }}
+          project-slug: ${{ vars.INFISICAL_PROJECT_SLUG }}
+          env-slug: prod
+          secret-path: /ci/control-plane/deployer
+          include-imports: false
+          recursive: false
+
+      - name: Deploy exact tested source and retain rollback evidence
+        run: |
+          set -euo pipefail
+          umask 077
+          cd packages/control-plane
+          ./node_modules/.bin/wrangler deployments list --json > "$RUNNER_TEMP/deployments-before.json"
+          ./node_modules/.bin/wrangler deploy --strict --keep-vars \
+            --message "source=${GITHUB_WORKFLOW_SHA} run=${GITHUB_RUN_ID}"
+          ./node_modules/.bin/wrangler deployments list --json > "$RUNNER_TEMP/deployments-after.json"
+          before="$(jq -er 'last.versions[] | select(.percentage == 100).version_id' "$RUNNER_TEMP/deployments-before.json")"
+          after="$(jq -er 'last.versions[] | select(.percentage == 100).version_id' "$RUNNER_TEMP/deployments-after.json")"
+          test "$after" != "$before"
+          jq -n --arg source "$GITHUB_WORKFLOW_SHA" --arg run "$GITHUB_RUN_ID" \
+            --arg before "$before" --arg after "$after" \
+            '{schemaVersion:1,sourceCommit:$source,runId:$run,previousVersionId:$before,deployedVersionId:$after}' \
+            > "$RUNNER_TEMP/control-plane-deployment-receipt.json"
+
+      - name: Purge only the production control-plane hostname
+        run: |
+          set -euo pipefail
+          response="$(curl --fail --silent --show-error --proto '=https' --tlsv1.2 \
+            --request POST "https://api.cloudflare.com/client/v4/zones/${CLOUDFLARE_ZONE_ID}/purge_cache" \
+            --header "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+            --header 'Content-Type: application/json' \
+            --data '{"hosts":["app.install.doctor"]}')"
+          test "$(jq -r .success <<<"$response")" = true
+
+      - name: Clear deployment credentials before public verification
+        run: |
+          printf 'CLOUDFLARE_ACCOUNT_ID=\nCLOUDFLARE_API_TOKEN=\nCLOUDFLARE_ZONE_ID=\n' >> "$GITHUB_ENV"
+
+      - name: Verify public health and signed-launcher fail-closed contract
+        run: |
+          set -euo pipefail
+          umask 077
+          base='https://app.install.doctor'
+          curl --fail --silent --show-error --proto '=https' --tlsv1.2 \
+            --max-time 20 "$base/health" -o "$RUNNER_TEMP/health.json"
+          test "$(jq -r .status "$RUNNER_TEMP/health.json")" = ok
+
+          status="$(curl --silent --show-error --proto '=https' --tlsv1.2 --max-time 20 \
+            --output "$RUNNER_TEMP/start.body" --dump-header "$RUNNER_TEMP/start.headers" \
+            --write-out '%{http_code}' "$base/start")"
+          ! grep -Eiq '^location:' "$RUNNER_TEMP/start.headers"
+          case "$status" in
+            200)
+              grep -Eiq '^content-type: (text/x-shellscript|text/plain)' "$RUNNER_TEMP/start.headers"
+              grep -Eiq '^cache-control: no-store' "$RUNNER_TEMP/start.headers"
+              ! grep -Eq 'raw\.githubusercontent\.com|/refs/heads/' "$RUNNER_TEMP/start.body"
+              bash -n "$RUNNER_TEMP/start.body"
+              ;;
+            503)
+              jq -e '.error == "release_channel_unavailable" or .error == "release_trust_not_configured"' \
+                "$RUNNER_TEMP/start.body" >/dev/null
+              ;;
+            *) exit 1 ;;
+          esac
+          missing="$(curl --silent --show-error --proto '=https' --tlsv1.2 --max-time 20 \
+            --output "$RUNNER_TEMP/missing.json" --write-out '%{http_code}' \
+            "$base/releases/nonexistent/manifest")"
+          test "$missing" = 404
+          test "$(jq -r .error "$RUNNER_TEMP/missing.json")" = release_not_found
+          jq --arg start "$status" '. + {publicHealthStatus:200,publicStartStatus:($start|tonumber),missingReleaseStatus:404}' \
+            "$RUNNER_TEMP/control-plane-deployment-receipt.json" \
+            > "$RUNNER_TEMP/control-plane-deployment-receipt.complete.json"
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: control-plane-production-${{ github.run_id }}
+          path: ${{ runner.temp }}/control-plane-deployment-receipt.complete.json
+          if-no-files-found: error
+          retention-days: 90
