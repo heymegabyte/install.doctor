@@ -61,10 +61,10 @@ gpgv --keyring "$runtime_keyring" "$runtime_shasums_signature" "$runtime_shasums
 }
 
 file_mode() {
-  if stat -f '%Lp' "$1" >/dev/null 2>&1; then
-    stat -f '%Lp' "$1"
-  else
+  if stat -c '%a' "$1" >/dev/null 2>&1; then
     stat -c '%a' "$1"
+  else
+    stat -f '%Lp' "$1"
   fi
 }
 

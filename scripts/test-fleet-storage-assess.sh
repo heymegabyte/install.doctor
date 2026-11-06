@@ -19,7 +19,7 @@ chmod +x "$tmp/bin/ssh"
 PATH="$tmp/bin:$PATH" "$script" --host fixture.example --output "$tmp/evidence" >/dev/null
 
 test -s "$tmp/evidence/status.tsv"
-test "$(stat -f '%Lp' "$tmp/evidence/status.tsv" 2>/dev/null || stat -c '%a' "$tmp/evidence/status.tsv")" = 600
+test "$(stat -c '%a' "$tmp/evidence/status.tsv" 2>/dev/null || stat -f '%Lp' "$tmp/evidence/status.tsv")" = 600
 grep -q $'identity\tok' "$tmp/evidence/status.tsv"
 grep -q 'observed evidence, not desired state' "$tmp/evidence/README.txt"
 

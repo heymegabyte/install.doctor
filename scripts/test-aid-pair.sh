@@ -55,7 +55,7 @@ if [ -n "${CONTROL_PLANE_URL:-}" ] && [ -f "$SRC" ]; then
       wait "$PID"
       rc=$?
       { [ "$rc" = 0 ] && [ -s "$TOK" ] && grep -q '^aid_' "$TOK"; } && pass "aid-pair E2E: start->approve->claim stored device token" || fail "aid-pair E2E rc=$rc (log: $(tail -1 "$LOG" 2>/dev/null))"
-      perm="$(stat -f '%Lp' "$TOK" 2>/dev/null || stat -c '%a' "$TOK" 2>/dev/null || echo '?')"
+      perm="$(stat -c '%a' "$TOK" 2>/dev/null || stat -f '%Lp' "$TOK" 2>/dev/null || echo '?')"
       [ "$perm" = 600 ] && pass "aid-pair: token file mode 0600" || fail "token perm $perm (want 600)"
     else
       kill "$PID" 2>/dev/null || true

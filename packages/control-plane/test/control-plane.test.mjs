@@ -703,7 +703,7 @@ test('Rendered /start executes only an authentic, current release and scrubs its
 set -euo pipefail
 env | sort > ${shellLiteral(childEnvironment)}
 [ -f "$INSTALL_DOCTOR_CATALOG_PATH" ] && [ ! -L "$INSTALL_DOCTOR_CATALOG_PATH" ]
-catalog_mode="$(stat -f '%Lp' "$INSTALL_DOCTOR_CATALOG_PATH" 2>/dev/null || stat -c '%a' "$INSTALL_DOCTOR_CATALOG_PATH")"
+catalog_mode="$(stat -c '%a' "$INSTALL_DOCTOR_CATALOG_PATH" 2>/dev/null || stat -f '%Lp' "$INSTALL_DOCTOR_CATALOG_PATH")"
 printf 'VERIFIED_CATALOG_MODE=%s\nVERIFIED_CATALOG_BODY=%s\n' "$catalog_mode" "$(cat "$INSTALL_DOCTOR_CATALOG_PATH")" >> ${shellLiteral(childEnvironment)}
 `,
   });

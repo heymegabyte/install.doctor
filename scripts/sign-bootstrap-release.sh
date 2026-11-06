@@ -21,7 +21,7 @@ signer_id="$1"; signing_key="$2"; unsigned_dir="$3"; output_dir="$4"
 case "$signer_id" in ''|[!a-z0-9]*|*[!a-z0-9._-]*) printf 'invalid signer identifier\n' >&2; exit 65 ;; esac
 [ "${#signer_id}" -le 128 ] || { printf 'invalid signer identifier\n' >&2; exit 65; }
 
-mode() { if stat -f '%Lp' "$1" >/dev/null 2>&1; then stat -f '%Lp' "$1"; else stat -c '%a' "$1"; fi; }
+mode() { if stat -c '%a' "$1" >/dev/null 2>&1; then stat -c '%a' "$1"; else stat -f '%Lp' "$1"; fi; }
 owner() { if stat -f '%u' "$1" >/dev/null 2>&1; then stat -f '%u' "$1"; else stat -c '%u' "$1"; fi; }
 size() { wc -c < "$1" | tr -d '[:space:]'; }
 sha256() { if command -v sha256sum >/dev/null 2>&1; then sha256sum "$1" | awk '{print $1}'; else shasum -a 256 "$1" | awk '{print $1}'; fi; }

@@ -31,7 +31,7 @@ fi
 
 for file in "$EVENT_LOG" "$RECEIPT"; do
   if [ -n "$file" ] && [ -f "$file" ] && [ ! -L "$file" ] \
-    && [ "$(stat -f '%Lp' "$file" 2>/dev/null || stat -c '%a' "$file")" = 600 ]; then
+    && [ "$(stat -c '%a' "$file" 2>/dev/null || stat -f '%Lp' "$file")" = 600 ]; then
     pass "$(basename "$file") is a private regular file"
   else
     fail "local evidence file is missing, linked, or not mode 0600: $file"

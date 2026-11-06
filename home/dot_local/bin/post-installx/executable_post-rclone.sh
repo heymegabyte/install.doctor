@@ -31,7 +31,7 @@ TMP_CONFIG=''
 cleanup() { [ -z "$TMP_BLOCK" ] || rm -f -- "$TMP_BLOCK"; [ -z "$TMP_CONFIG" ] || rm -f -- "$TMP_CONFIG"; }
 trap cleanup EXIT HUP INT TERM
 
-mode() { stat -f '%Lp' "$1" 2>/dev/null || stat -c '%a' "$1" 2>/dev/null; }
+mode() { stat -c '%a' "$1" 2>/dev/null || stat -f '%Lp' "$1" 2>/dev/null; }
 owner_uid() { stat -f '%u' "$1" 2>/dev/null || stat -c '%u' "$1" 2>/dev/null; }
 
 prerequisites() {

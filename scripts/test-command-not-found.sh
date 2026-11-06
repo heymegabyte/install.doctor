@@ -510,7 +510,7 @@ fi
 # L05/L06: configuration debt survives the binary becoming available, is private and bound to the
 # exact command/package/hook/index evidence, then one explicit bounded repair atomically clears it.
 phstate="$phdir/repair/cfgbin.repair"
-phmode="$(stat -f '%Lp' "$phstate" 2>/dev/null || stat -c '%a' "$phstate" 2>/dev/null)"
+phmode="$(stat -c '%a' "$phstate" 2>/dev/null || stat -f '%Lp' "$phstate" 2>/dev/null)"
 if [ -f "$phstate" ] && [ ! -L "$phstate" ] && [ "$phmode" = 600 ] \
   && grep -qx 'cmd=cfgbin' "$phstate" && grep -qx 'key=cfgpkg' "$phstate" \
   && grep -q '^hook_sha256=[a-f0-9]\{64\}$' "$phstate" && grep -q '^index_sha256=[a-f0-9]\{64\}$' "$phstate"; then

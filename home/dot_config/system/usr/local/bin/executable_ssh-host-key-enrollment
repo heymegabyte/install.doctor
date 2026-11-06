@@ -53,7 +53,7 @@ parent="$(dirname -- "$known_hosts")"
 base="$(basename -- "$known_hosts")"
 [ -d "$parent" ] && [ ! -L "$parent" ] || die 'known_hosts parent must be a real directory'
 canonical_parent="$(CDPATH='' cd -P -- "$parent" && pwd)"
-parent_mode="$(stat -f '%Lp' "$canonical_parent" 2>/dev/null || stat -c '%a' "$canonical_parent")"
+parent_mode="$(stat -c '%a' "$canonical_parent" 2>/dev/null || stat -f '%Lp' "$canonical_parent")"
 [[ "$parent_mode" =~ ^[0-7]{3,4}$ ]] || die 'cannot verify known_hosts parent permissions'
 (( (8#$parent_mode & 077) == 0 )) || die 'known_hosts parent is group/world accessible'
 known_hosts="$canonical_parent/$base"

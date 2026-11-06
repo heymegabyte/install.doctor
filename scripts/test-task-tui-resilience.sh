@@ -53,7 +53,7 @@ chmod 0700 "$TMP/fail.sh"
 INSTALL_DOCTOR_TUI_STATE="$TMP/run-state" INSTALL_DOCTOR_CONCURRENCY=1 \
   bash -c 'source "$1"; idTaskUiInit; idTaskRun 1 failed-task "Failed task" "$2"' _ "$PROVISION" "$TMP/fail.sh" >/dev/null 2>&1 || true
 log="$(find "$TMP/run-state/logs" -type f -name '*.log' -print -quit)"
-if [ -n "$log" ] && [ -f "$log" ] && [ ! -L "$log" ] && [ "$(stat -f '%Lp' "$log" 2>/dev/null || stat -c '%a' "$log")" = 600 ]; then pass 'spill logs are private regular files'; else fail 'spill log is unsafe or not mode 0600'; fi
+if [ -n "$log" ] && [ -f "$log" ] && [ ! -L "$log" ] && [ "$(stat -c '%a' "$log" 2>/dev/null || stat -f '%Lp' "$log")" = 600 ]; then pass 'spill logs are private regular files'; else fail 'spill log is unsafe or not mode 0600'; fi
 if grep -q '"log":"' "$TMP/run-state/events.ndjson" && grep -q '"status":"failed"' "$TMP/run-state/events.ndjson"; then pass 'failure evidence identifies its spill log'; else fail 'failure evidence does not identify spill log'; fi
 
 cat > "$TMP/cancel.sh" <<'SH'

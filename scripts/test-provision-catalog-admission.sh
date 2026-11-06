@@ -27,7 +27,7 @@ run_remote() {
 
 ADMITTED="$(run_remote "$TMP/source/catalog.json" "$(sha "$TMP/source/catalog.json")" "$TMP/state")" || ADMITTED=''
 if [ -f "$ADMITTED" ] && [ "$(sha "$ADMITTED")" = "$(sha "$TMP/source/catalog.json")" ] \
-  && [ "$(stat -f %Lp "$ADMITTED" 2>/dev/null || stat -c %a "$ADMITTED")" = 600 ]; then
+  && [ "$(stat -c %a "$ADMITTED" 2>/dev/null || stat -f %Lp "$ADMITTED")" = 600 ]; then
   pass 'remote catalog is admitted as a private content-addressed copy'
 else fail 'valid remote catalog was not admitted'; fi
 

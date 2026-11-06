@@ -110,7 +110,7 @@ run_bad 'an alias already owned by another endpoint cannot be rebound' \
   "$SUBJECT" enroll --hostname other.example --alias short.example --port 2022 \
   --key-type "$NEW_TYPE" --key-base64 "$NEW_KEY" --fingerprint "$NEW_FP" \
   --known-hosts "$KNOWN_HOSTS"
-MODE="$(stat -f '%Lp' "$KNOWN_HOSTS" 2>/dev/null || stat -c '%a' "$KNOWN_HOSTS")"
+MODE="$(stat -c '%a' "$KNOWN_HOSTS" 2>/dev/null || stat -f '%Lp' "$KNOWN_HOSTS")"
 if [ "$MODE" = 600 ]; then pass 'known_hosts remains private mode 0600'; else fail "known_hosts mode is $MODE, expected 600"; fi
 
 file_identity() {

@@ -119,7 +119,7 @@ __cnf_complete_repair(){ local state="$1" completed
 __cnf_trusted_root_binary(){ local binary="$1" uid mode
   [ -f "$binary" ] && [ ! -L "$binary" ] || return 1
   uid="$(stat -f '%u' "$binary" 2>/dev/null || stat -c '%u' "$binary" 2>/dev/null)"
-  mode="$(stat -f '%Lp' "$binary" 2>/dev/null || stat -c '%a' "$binary" 2>/dev/null)"
+  mode="$(stat -c '%a' "$binary" 2>/dev/null || stat -f '%Lp' "$binary" 2>/dev/null)"
   [ "$uid" = 0 ] || return 1
   case "$mode" in *[2367][0-9]|*[0-9][2367]) return 1;; esac
 }
@@ -169,7 +169,7 @@ __cnf_repair(){ local cmd="${1:-}" state lock schema saved_cmd key mgr pkg hook 
   __cnf_prepare_repair_dir || return 1
   state="$(__cnf_repair_path "$cmd")"
   [ -f "$state" ] && [ ! -L "$state" ] && [ -O "$state" ] || { __cnf_warn "no safe configuration repair is recorded for '$cmd'"; return 1; }
-  [ "$(stat -f '%Lp' "$state" 2>/dev/null || stat -c '%a' "$state" 2>/dev/null)" = 600 ] || { __cnf_warn 'configuration-repair record is not private'; return 1; }
+  [ "$(stat -c '%a' "$state" 2>/dev/null || stat -f '%Lp' "$state" 2>/dev/null)" = 600 ] || { __cnf_warn 'configuration-repair record is not private'; return 1; }
   [ "$(wc -l < "$state" | tr -d ' ')" = 9 ] || { __cnf_warn 'configuration-repair record has an invalid schema'; return 1; }
   schema="$(awk -F= '$1=="schema"{print substr($0,index($0,"=")+1)}' "$state")"
   saved_cmd="$(awk -F= '$1=="cmd"{print substr($0,index($0,"=")+1)}' "$state")"
