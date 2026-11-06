@@ -407,7 +407,16 @@ PY
     "$HOME/.local/bin/ensure-cloudflare-zt-ca.sh" >/dev/null 2>&1 || true
   fi
 
-  # 8. Ideal Linux AI Workstation Desktop: purge unnecessary GUI bloat & configure clean GNOME 50 dock/theme
+  # 8. Ideal AI Workstation Desktop: purge unnecessary GUI bloat & configure clean dock/theme
+  if [ "$os_name" = "darwin" ]; then
+    run_root rm -rf "/Applications/OnlyKey App.app" "/Applications/balenaEtcher.app" \
+      "/Applications/Google Docs.app" "/Applications/Google Sheets.app" "/Applications/Google Slides.app" \
+      "$HOME/Applications/OnlyKey App.app" "$HOME/Applications/balenaEtcher.app" \
+      "$HOME/Applications/Google Docs.app" "$HOME/Applications/Google Sheets.app" "$HOME/Applications/Google Slides.app" \
+      "$HOME/Applications/Chrome Apps.localized/Google Docs.app" \
+      "$HOME/Applications/Chrome Apps.localized/Google Sheets.app" \
+      "$HOME/Applications/Chrome Apps.localized/Google Slides.app" 2>/dev/null || true
+  fi
   if [ "$os_name" = "linux" ]; then
     if has_root; then
       # Remove unneeded Snap GUI bloat (keep chromium on hosts that use it as the desktop browser)
@@ -422,32 +431,25 @@ PY
       if command -v flatpak >/dev/null 2>&1; then
         run_root flatpak uninstall --all --unused -y >/dev/null 2>&1 || true
       fi
-      # Purge Ubuntu/GNOME default consumer GUI bloatware & orphaned xfce4 packages via APT
+      # Purge Ubuntu/GNOME default consumer GUI bloatware, Inkscape, TextEditor, Sysprof & orphaned xfce4 packages via APT
       run_root env DEBIAN_FRONTEND=noninteractive apt-get purge -y -qq \
-        'libreoffice*' 'thunderbird*' 'gimp*' 'kdenlive*' 'shotwell*' 'rhythmbox*' 'totem*' \
+        'libreoffice*' 'thunderbird*' 'gimp*' 'inkscape*' 'kdenlive*' 'shotwell*' 'rhythmbox*' 'totem*' \
         'transmission*' 'remmina*' 'cheese*' 'simple-scan*' 'deja-dup*' 'aisleriot*' \
         'gnome-mahjongg*' 'gnome-mines*' 'gnome-sudoku*' 'gnome-weather*' 'gnome-maps*' \
         'gnome-music*' 'gnome-calendar*' 'gnome-contacts*' 'gnome-clocks*' 'gnome-characters*' \
         'gnome-font-viewer*' 'gnome-tour*' 'gnome-boxes*' 'gnome-sound-recorder*' 'gnome-todo*' \
+        'gnome-text-editor*' 'sysprof*' \
         'yelp*' 'yelp-xsl*' 'orca*' 'baobab*' 'eog*' 'evince*' \
         'xfce4-*' 'libxfce4*' 'xfconf*' 'xfdesktop4*' 'xfwm4*' 'thunar*' 'exo-utils' >/dev/null 2>&1 || true
       run_root env DEBIAN_FRONTEND=noninteractive apt-get autoremove -y -qq >/dev/null 2>&1 || true
     fi
 
-    # Ensure .desktop launchers exist for Emdash and VS Code when their binaries are present
+    # Ensure .desktop launcher exists for VS Code when its binary is present, and deduplicate icons
     mkdir -p "$HOME/.local/share/applications"
-    if [ -x "$HOME/.local/bin/emdash" ] && [ ! -f "/usr/share/applications/emdash.desktop" ] && [ ! -f "$HOME/.local/share/applications/emdash.desktop" ]; then
-      cat > "$HOME/.local/share/applications/emdash.desktop" <<EOF
-[Desktop Entry]
-Name=Emdash
-Comment=Multi-Agent Orchestrator
-Exec=$HOME/.local/bin/emdash --no-sandbox %U
-Terminal=false
-Type=Application
-Icon=utilities-terminal
-Categories=Development;IDE;
-EOF
-    fi
+    rm -f "$HOME/.local/share/applications/com.microsoft.VSCode.desktop" \
+          "$HOME/.local/share/applications/Emdash.desktop" 2>/dev/null || true
+    has_root && run_root rm -f /usr/share/applications/com.microsoft.VSCode.desktop /usr/share/applications/Emdash.desktop 2>/dev/null || true
+
     if command -v code >/dev/null 2>&1 && [ ! -f "/usr/share/applications/code.desktop" ] && [ ! -f "$HOME/.local/share/applications/code.desktop" ]; then
       cat > "$HOME/.local/share/applications/code.desktop" <<EOF
 [Desktop Entry]
@@ -460,6 +462,18 @@ Icon=com.visualstudio.code
 Categories=Utility;TextEditor;Development;IDE;
 EOF
     fi
+
+    # Hide noisy CLI/utility .desktop wrappers from the GNOME app grid
+    for d in vim.desktop nvim.desktop htop.desktop btop.desktop nvtop.desktop info.desktop lynis.desktop display-im7.q16.desktop display-im6.q16.desktop org.gnome.TextEditor.desktop org.gnome.Sysprof.desktop xtigervncviewer.desktop; do
+      if [ -f "/usr/share/applications/$d" ]; then
+        cp -f "/usr/share/applications/$d" "$HOME/.local/share/applications/$d"
+        if grep -q "^NoDisplay=" "$HOME/.local/share/applications/$d"; then
+          sed -i "s/^NoDisplay=.*/NoDisplay=true/" "$HOME/.local/share/applications/$d"
+        else
+          printf "\nNoDisplay=true\n" >> "$HOME/.local/share/applications/$d"
+        fi
+      fi
+    done
 
     # Mask noisy background desktop file-indexers (Tracker / LocalSearch) so idle CPU/IO stays at 0%
     systemctl --user mask tracker-miner-fs-3.service tracker-extract-3.service localsearch-3.service >/dev/null 2>&1 || true
@@ -485,9 +499,7 @@ dirs = [
 candidates = [
     "google-chrome.desktop",
     "chromium_chromium.desktop",
-    "antigravity.desktop",
     "code.desktop",
-    "emdash.desktop",
     "cua.desktop",
     "org.gnome.Ptyxis.desktop",
     "org.gnome.Terminal.desktop",
