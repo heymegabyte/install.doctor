@@ -8,6 +8,11 @@ on:
       - master
     paths:
       - "site/**"
+      - "docs/**"
+      - "home/**/*.sh.tmpl"
+      - "home/dot_config/task/Taskfile.yml"
+      - "scripts/*.sh"
+      - "software.yml"
       - "scripts/lib/task-bootstrap.sh"
       - ".github/workflows/site-deploy.yml"
 

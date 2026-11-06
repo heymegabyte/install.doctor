@@ -30,6 +30,11 @@ if [ ! -f "$WF" ]; then
 fi
 pass "site-deploy.yml present"
 
+for source in 'site/**' 'docs/**' 'home/**/*.sh.tmpl' 'home/dot_config/task/Taskfile.yml' 'scripts/*.sh' 'software.yml'; do
+  grep -Fq -- "- \"$source\"" "$WF" || fail "generated documentation source does not trigger deploy: $source"
+done
+pass "all canonical generated-documentation sources trigger deployment"
+
 # 1. Fires on a push to the default branch for site/** changes (so a firebase.json redirect edit auto-deploys).
 if has "$WF" '^[[:space:]]*-[[:space:]]*(master|main)[[:space:]]*$' && has "$WF" 'site/\*\*'; then
   pass "trigger: push to master/main on paths site/** (a redirect edit auto-deploys)"
