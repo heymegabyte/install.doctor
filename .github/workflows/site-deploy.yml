@@ -34,6 +34,15 @@ jobs:
           echo '3bda94dbe6efb789c8c5349e0d554c8f7841611ee0ff2c34a757541262d1c033  '"$tmp" | sha256sum --check --status
           sudo install -m 0755 "$tmp" /usr/local/bin/shdoc
 
+      - name: Install repository-pinned Task runner
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/install-doctor-bin"
+          # shellcheck source=../scripts/lib/task-bootstrap.sh
+          . ../scripts/lib/task-bootstrap.sh
+          install_pinned_task linux x86_64 "$RUNNER_TEMP/install-doctor-bin/task"
+          printf '%s\n' "$RUNNER_TEMP/install-doctor-bin" >> "$GITHUB_PATH"
+
       - name: Install and build
         run: npm ci --force && npm run build:prod
 

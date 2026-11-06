@@ -9,8 +9,8 @@
   },
   "scripts": {
     "build": "npm --prefix ../aid-core run build && tsc -p tsconfig.json",
-    "bundle": "esbuild src/cli.ts --bundle --platform=node --format=esm --target=node22 --legal-comments=none --charset=utf8 --minify-syntax --minify-whitespace --outfile=dist/install-doctor-engine.mjs",
-    "test": "npm run build && npm run bundle && node --test test/*.test.mjs"
+    "bundle": "npm run build && esbuild src/cli.ts --bundle --platform=node --format=esm --target=node22 --legal-comments=none --charset=utf8 --minify-syntax --minify-whitespace --outfile=dist/install-doctor-engine.mjs",
+    "test": "npm run bundle && node --test test/*.test.mjs"
   },
   "engines": {
     "node": ">=22"

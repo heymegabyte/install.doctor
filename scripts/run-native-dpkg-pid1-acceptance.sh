@@ -50,3 +50,4 @@ docker exec "$CONTAINER" /usr/bin/setpriv --bounding-set=-net_admin --no-new-pri
   node /opt/install.doctor/packages/installer-engine/acceptance.mjs /evidence/receipt.json \
   | tee "$EVIDENCE_ROOT/run.ndjson"
 test -s "$EVIDENCE_ROOT/receipt.json"
+chmod 0644 "$EVIDENCE_ROOT/receipt.json" "$EVIDENCE_ROOT/run.ndjson"

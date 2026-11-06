@@ -97,7 +97,7 @@ test('Linux execution reprobes immediately, contains paths, and invokes only Bub
   assert.equal(calls[1].argv.includes('--bind'), false);
   assert.equal(calls[1].argv.includes('/'), false, 'host root must never be mounted into the sandbox');
   assert.deepEqual(calls[1].fileDescriptors, [executableHandle.fd]);
-  assert.deepEqual(calls[1].argv.slice(calls[1].argv.indexOf('--preserve-fds'), calls[1].argv.indexOf('--preserve-fds') + 2), ['--preserve-fds', '1']);
+  assert.equal(calls[1].argv.includes('--preserve-fds'), false, 'Bubblewrap inherits explicitly passed descriptors without a non-portable flag');
   assert.ok(calls[1].argv.includes('/run/install-doctor/operation'));
 
   await assert.rejects(runtime.execute({

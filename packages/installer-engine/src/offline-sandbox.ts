@@ -190,7 +190,7 @@ export function createOfflineSandboxRuntime(dependencies: OfflineSandboxDependen
           '--die-with-parent', '--new-session', '--ro-bind-try', '/usr', '/usr', '--ro-bind-try', '/bin', '/bin',
           '--ro-bind-try', '/lib', '/lib', '--ro-bind-try', '/lib64', '/lib64', '--proc', '/proc', '--dev', '/dev',
           '--tmpfs', '/tmp', '--dir', '/run', '--dir', '/run/install-doctor', ...descriptorBinds,
-          '--preserve-fds', String(fileDescriptors.length), '--chdir', '/run/install-doctor',
+          '--chdir', '/run/install-doctor',
           '--', '/run/install-doctor/operation', ...sandboxArguments,
         ],
         fileDescriptors,
