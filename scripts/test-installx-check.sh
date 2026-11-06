@@ -8,6 +8,9 @@ grep -Fq 'appimage provider is disabled until the catalog binds an immutable URL
   || { printf 'AppImage provider does not fail closed on missing artifact authority\n' >&2; exit 1; }
 ZX="${INSTALLX_TEST_ZX:-$ROOT/packages/installer-engine/node_modules/.bin/zx}"
 [ -x "$ZX" ] || { printf 'Hermetic zx test runtime is missing; run npm ci --prefix packages/installer-engine\n' >&2; exit 1; }
+NODE="$(command -v node)"
+[ -x "$NODE" ] || { printf 'Node.js is required for the locked zx test runtime\n' >&2; exit 1; }
+NODE_BIN_DIR="$(dirname "$NODE")"
 FIXTURE="$(mktemp -d "${TMPDIR:-/tmp}/installx-check.XXXXXXXX")"
 trap 'rm -rf -- "$FIXTURE"' EXIT HUP INT TERM
 
@@ -118,7 +121,9 @@ printf 'fixture-present\n' > "$FIXTURE/inventory"
 export HOME="$FIXTURE/home"
 export INSTALLX_CHECK_CALLS="$FIXTURE/calls"
 export INSTALLX_CHECK_INVENTORY="$FIXTURE/inventory"
-export PATH="$FIXTURE/bin:/opt/homebrew/bin:/home/linuxbrew/.linuxbrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+# Preserve the selected pinned Node runtime even when setup-node installs it
+# outside conventional system paths; everything else remains fixture-bounded.
+export PATH="$FIXTURE/bin:$NODE_BIN_DIR:/opt/homebrew/bin:/home/linuxbrew/.linuxbrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
 
 run_check() {
   set +e
