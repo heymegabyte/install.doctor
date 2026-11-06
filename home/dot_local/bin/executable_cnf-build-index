@@ -27,7 +27,11 @@ JQ='to_entries[] | . as $e |
 TMP="$(mktemp "$(dirname "$OUT")/.cnf-index.XXXXXX")"
 trap 'rm -f "$TMP" 2>/dev/null || true' EXIT
 
-if command -v yq >/dev/null 2>&1 && command -v jq >/dev/null 2>&1; then
+# `yq` is not one CLI: the Python/jq wrapper and mikefarah/yq accept different
+# flags. Admit only the implementation this pipeline was written for; an
+# unrelated ambient `yq` must not preempt the deterministic Python fallback.
+if command -v yq >/dev/null 2>&1 && command -v jq >/dev/null 2>&1 \
+  && yq --version 2>&1 | grep -qi 'mikefarah'; then
   yq -o=json '.softwarePackages' "$SRC" | jq -r "$JQ" > "$TMP"
 elif python3 -c 'import yaml' 2>/dev/null; then
   python3 - "$SRC" "$TMP" <<'PY'

@@ -51,7 +51,8 @@ grep -E 'pip3' "$HANDLER" | grep -qF 'apk' || apkmiss="$apkmiss ai-safe-allowlis
 # compare → never a false fail). The python path is forced by restricting PATH to a dir with only python3 (yq/jq
 # shadowed). Hermetic: reads the committed software.yml read-only, writes to mktemp temps, cleaned up.
 SWY="$ROOT/software.yml"
-if [ -f "$SWY" ] && command -v yq >/dev/null 2>&1 && command -v jq >/dev/null 2>&1 && command -v python3 >/dev/null 2>&1 && python3 -c 'import yaml' 2>/dev/null; then
+if [ -f "$SWY" ] && command -v yq >/dev/null 2>&1 && yq --version 2>&1 | grep -qi 'mikefarah' \
+  && command -v jq >/dev/null 2>&1 && command -v python3 >/dev/null 2>&1 && python3 -c 'import yaml' 2>/dev/null; then
   _dpj="$(mktemp)"; _dpp="$(mktemp)"; _dpbin="$(mktemp -d)"
   ln -s "$(command -v python3)" "$_dpbin/python3" 2>/dev/null
   bash "$BUILDER" "$SWY" "$_dpj" >/dev/null 2>&1                               # yq|jq path (both present)
@@ -63,7 +64,7 @@ if [ -f "$SWY" ] && command -v yq >/dev/null 2>&1 && command -v jq >/dev/null 2>
   fi
   command rm -rf "$_dpbin" "$_dpj" "$_dpp" 2>/dev/null
 else
-  skip "builder dual-path parity (#280) — need yq+jq+python3+pyyaml + software.yml all present"
+  skip "builder dual-path parity (#280) — need mikefarah/yq+jq+python3+pyyaml + software.yml all present"
 fi
 
 # shellcheck source=/dev/null
