@@ -119,8 +119,10 @@ populateDanglingScripts() {
 # @description Populates Taskfile.yml markdown files using shdoc
 populateTaskfileScripts() {
   cd "$INSTALL_DOCTOR_ROOT/home/dot_config/task"
-  TASKS="$(task --list)"
-  task --list | while read LINE; do
+  # Task enables ANSI styling when CI allocates a terminal. Parsing decorated
+  # bytes corrupts task names, so make the machine-readable boundary explicit.
+  TASKS="$(NO_COLOR=1 task --list)"
+  printf '%s\n' "$TASKS" | while IFS= read -r LINE; do
     TASK="$(echo "$LINE" | sed 's/\* \(.*\):[^ ]*\(.*\)/\1/')"
     echo "Processing the $TASK task"
     TASK_DESC="$(echo "$LINE" | sed 's/\* \(.*\):[^ ]*\(.*\)/\2/')"

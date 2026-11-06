@@ -17,6 +17,12 @@ if grep -Eq 'git (clone|pull)|rm -rf ["'\'']?install\.doctor' "$GENERATOR"; then
 fi
 pass "markdown generator uses the current source checkout"
 
+grep -Fq 'TASKS="$(NO_COLOR=1 task --list)"' "$GENERATOR" \
+  || fail "task documentation discovery does not disable terminal styling"
+grep -Fq "printf '%s\\n' \"\$TASKS\" | while IFS= read -r LINE" "$GENERATOR" \
+  || fail "task documentation discovery reparses a decorated command stream"
+pass "task documentation discovery uses one undecorated machine-readable stream"
+
 DOCS_SITE_ROOT="$TMP/site" INSTALL_DOCTOR_ROOT="$ROOT" MARKDOWN_COPY_ONLY=1 \
   bash "$GENERATOR" || fail "copy-only generation failed"
 
