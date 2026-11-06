@@ -90,7 +90,7 @@ PY
 
 SUDO=""
 COOLIFY_KEY="$HOME/legion-provision/private/coolify-legion-ed25519"
-if [ "$(uname -s)" = "Linux" ] && [ "$(id -u)" -ne 0 ]; then
+if [ "$(id -u)" -ne 0 ]; then
   if sudo -n true 2>/dev/null; then
     SUDO="sudo"
   else
