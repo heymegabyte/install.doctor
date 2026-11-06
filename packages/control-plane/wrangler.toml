@@ -11,7 +11,13 @@ workers_dev = true
 # Custom domain: app.install.doctor (zone 41d899… active in-account). CF provisions proxied DNS + TLS.
 # workers_dev stays true so the *.workers.dev URL keeps serving during propagation
 # (cloudflare-native-provisioning: declaring routes would otherwise default workers_dev=false).
-routes = [{ pattern = "app.install.doctor", custom_domain = true }]
+routes = [
+  { pattern = "app.install.doctor", custom_domain = true },
+  # Keep the canonical curl endpoint independent of the legacy Firebase site
+  # deployment credential while leaving every other install.doctor path on its
+  # existing origin.
+  { pattern = "install.doctor/start", zone_name = "install.doctor" },
+]
 
 # D13 — validate the software catalog BEFORE every build/deploy (fire #134). wrangler runs this build
 # command from this directory (packages/control-plane) prior to bundling `main`; a catalog conflict (two

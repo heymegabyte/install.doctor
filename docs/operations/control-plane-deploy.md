@@ -5,6 +5,10 @@ from `master`. The workflow checks out the immutable workflow commit, installs l
 runs the complete control-plane tests and Wrangler dry run without credentials, and only then obtains
 a short-lived Infisical token through GitHub OIDC.
 
+The Worker owns the `app.install.doctor` custom domain and the exact `install.doctor/start` zone route.
+The latter runs in front of the existing site origin, so the canonical curl entrypoint does not depend
+on the legacy Firebase deploy credential and no unrelated site path is intercepted.
+
 ## One-time authority provisioning
 
 Create the protected GitHub environment `control-plane-production`, restrict it to `master`, and
