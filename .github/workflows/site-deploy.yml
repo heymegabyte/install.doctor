@@ -1,12 +1,15 @@
 name: "Deploy Site to Firebase on merge"
 
 on:
+  workflow_dispatch:
   push:
     branches:
       - main
       - master
     paths:
       - "site/**"
+      - "scripts/lib/task-bootstrap.sh"
+      - ".github/workflows/site-deploy.yml"
 
 jobs:
   build_and_deploy:
