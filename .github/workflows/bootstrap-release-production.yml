@@ -31,10 +31,10 @@ jobs:
       release_id: ${{ steps.identity.outputs.release_id }}
       signer_id: ${{ steps.identity.outputs.signer_id }}
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 24.22.2
           cache: npm
@@ -114,14 +114,14 @@ jobs:
             packages/control-plane/src/release-trust.json >.release-work/publisher/release-public-key
           grep -Eq '^ssh-ed25519 [A-Za-z0-9+/]+={0,3}( [^[:cntrl:]]{1,128})?$' .release-work/publisher/release-public-key
           chmod 0600 .release-work/publisher/release-public-key
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         name: Upload sealed unsigned release
         with:
           name: bootstrap-release-unsigned-${{ github.run_id }}
           path: .release-work/output
           if-no-files-found: error
           retention-days: 1
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         name: Upload credential-free publisher tools
         with:
           name: bootstrap-release-tools-${{ github.run_id }}
@@ -174,7 +174,7 @@ jobs:
           rm -f "$key"
           trap - EXIT HUP INT TERM
           printf 'INSTALL_DOCTOR_RELEASE_SIGNING_KEY=\n' >>"$GITHUB_ENV"
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         name: Upload signed immutable release
         with:
           name: bootstrap-release-signed-${{ github.run_id }}
