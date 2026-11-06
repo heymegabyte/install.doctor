@@ -18,7 +18,7 @@ concurrency:
 
 jobs:
   test-macos:
-    name: "macOS ${{ matrix.osMajor }} ${{ matrix.architecture }}"
+    name: "Structural checks — macOS ${{ matrix.osMajor }} ${{ matrix.architecture }}"
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 120
     strategy:
@@ -105,25 +105,26 @@ jobs:
       - name: Run full test suite at CI parity (blocking)
         run: bash scripts/test-all.sh
 
-      - name: Run Install Doctor (headless)
+      - name: "Best-effort checked-out platform admission — macOS ${{ matrix.osMajor }} ${{ matrix.architecture }} (not signed lifecycle proof)"
+        env:
+          EXPECTED_CELL: macos-${{ matrix.osMajor }}-${{ matrix.architecture }}-native
         run: |
-          export CI=true
-          export TEST_INSTALL=true
-          export HEADLESS_INSTALL=true
-          export NO_RESTART=true
-          export SOFTWARE_GROUP=Basic
-          bash scripts/provision.sh
-        timeout-minutes: 90
-
-      - name: Verify key tools installed
-        run: |
-          set -e
-          echo "=== Verification ==="
-          for tool in chezmoi brew task node gum; do
-            command -v "$tool" >/dev/null
-            echo "$tool: OK"
-          done
-          echo "=== Done ==="
+          # Full installation requires a signed release closure and belongs to
+          # the dedicated lifecycle acceptance workflow. This job proves only
+          # that the checked-out policy admits the exact observed native tuple.
+          bash -c '
+            set -eo pipefail
+            source scripts/provision.sh
+            export CI=true TEST_INSTALL=true HEADLESS_INSTALL=true NO_RESTART=true SOFTWARE_GROUP=Basic
+            export INSTALL_DOCTOR_CONSENT_PRIVILEGED=true INSTALL_DOCTOR_CONSENT_NETWORK=true
+            export INSTALL_DOCTOR_CONSENT_BEST_EFFORT=true INSTALL_DOCTOR_USER="$USER"
+            setEnvironmentVariables
+            setCIEnvironmentVariables
+            applyEnvClassDefaults
+            idResolvePlatform
+            idAuthorizePlatform
+            [ "$INSTALL_DOCTOR_PLATFORM_CELL" = "$EXPECTED_CELL" ]
+          '
 
       - name: Upload Logs
         if: always()

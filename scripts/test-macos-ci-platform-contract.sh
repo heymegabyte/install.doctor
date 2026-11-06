@@ -40,7 +40,7 @@ requireMatch(/observed_version="\$\(sw_vers -productVersion\)"/, 'platform asser
 requireMatch(/observed_architecture="\$\(uname -m\)"/, 'platform assertion must observe machine architecture with uname -m');
 requireMatch(/\[ "\$observed_major" = "\$EXPECTED_OS_MAJOR" \]/, 'platform assertion must reject an unexpected macOS major');
 requireMatch(/\[ "\$observed_architecture" = "\$EXPECTED_UNAME_ARCHITECTURE" \]/, 'platform assertion must reject an unexpected architecture');
-requireMatch(/name: "macOS \$\{\{ matrix\.osMajor \}\} \$\{\{ matrix\.architecture \}\}"/,
+requireMatch(/name: "Structural checks — macOS \$\{\{ matrix\.osMajor \}\} \$\{\{ matrix\.architecture \}\}"/,
   'job name must report the asserted tuple rather than an unverified prose label');
 requireMatch(/uses: actions\/setup-node@[a-f0-9]{40}[\s\S]*node-version: 24\.22\.2/,
   'workflow must use the pinned supported Node runtime');
@@ -49,6 +49,9 @@ requireMatch(/uses: actions\/setup-python@[a-f0-9]{40}[\s\S]*python-version: 3\.
 requireMatch(/name: Install pinned test prerequisites[\s\S]*PyYAML==6\.0\.3[\s\S]*packages\/aid-core ci[\s\S]*packages\/installer-engine ci[\s\S]*packages\/control-plane ci/,
   'workflow must install YAML support and locked package test dependencies');
 if (/CONTROL_PLANE_URL:\s*https?:\/\//.test(workflow)) failures.push('revision tests must not depend on a mutable production control plane');
+requireMatch(/name: "Best-effort checked-out platform admission — macOS \$\{\{ matrix\.osMajor \}\} \$\{\{ matrix\.architecture \}\} \(not signed lifecycle proof\)"[\s\S]*idResolvePlatform[\s\S]*idAuthorizePlatform[\s\S]*INSTALL_DOCTOR_PLATFORM_CELL.*EXPECTED_CELL/,
+  'workflow must execute checked-out read-only platform admission and disclaim signed lifecycle proof');
+if (/bash scripts\/provision\.sh\s*$/m.test(workflow)) failures.push('unsigned macOS jobs must not invoke full provisioning without a verified release closure');
 if (/macos-14/.test(workflow)) failures.push('retired macos-14 runner labels must not remain in the active workflow');
 
 const activeIds = new Set(rows.map(row => `macos-${row.osMajor}-${row.architecture}-native`));
