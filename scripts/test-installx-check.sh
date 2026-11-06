@@ -1,6 +1,15 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+diagnose_failure() {
+  local status="$1" file
+  [ "$status" -ne 0 ] || return 0
+  printf 'installx-check failed at line %s (status %s)\n' "${BASH_LINENO[0]:-unknown}" "$status" >&2
+  for file in "${FIXTURE:-}/error" "${FIXTURE:-}/output" "${FIXTURE:-}/predicate-check-error" "${FIXTURE:-}/provider-error"; do
+    [ -f "$file" ] && { printf '%s\n' "--- $file" >&2; tail -20 "$file" >&2; }
+  done
+}
+
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 INSTALLX="$ROOT/home/dot_local/bin/executable_installx"
 grep -Fq "case 'appimage':" "$INSTALLX" || { printf 'AppImage provider admission is missing\n' >&2; exit 1; }
@@ -12,7 +21,14 @@ NODE="$(command -v node)"
 [ -x "$NODE" ] || { printf 'Node.js is required for the locked zx test runtime\n' >&2; exit 1; }
 NODE_BIN_DIR="$(dirname "$NODE")"
 FIXTURE="$(mktemp -d "${TMPDIR:-/tmp}/installx-check.XXXXXXXX")"
-trap 'rm -rf -- "$FIXTURE"' EXIT HUP INT TERM
+cleanup() {
+  local status="$?"
+  diagnose_failure "$status"
+  rm -rf -- "$FIXTURE"
+  return "$status"
+}
+trap cleanup EXIT
+trap 'exit 130' HUP INT TERM
 
 mkdir -p "$FIXTURE/home/.config/chezmoi" "$FIXTURE/work" "$FIXTURE/bin"
 printf '{}\n' > "$FIXTURE/home/.config/chezmoi/chezmoi.yaml"

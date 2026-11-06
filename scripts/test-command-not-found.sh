@@ -489,6 +489,11 @@ rm -rf "$shdir"
 # 18. R14/F06 — lazy-install POST-INSTALLX HOOK auto-dispatch: when a tool with a `post-<key>.sh` hook in
 # `~/.local/bin/post-installx/` is lazy-installed on first use, the hook automatically runs (stdin-isolated
 # `</dev/null` and stdout->stderr `>&2` so the resolved command's stdout stays clean).
+# These are deterministic hook/repair lifecycle tests, not an ambient-host
+# sandbox probe. Substitute only the execution boundary here; dedicated L06
+# assertions below restore and exercise the production boundary fail-closed.
+cnf_production_isolated="$(declare -f __cnf_run_hook_isolated)"
+__cnf_run_hook_isolated() { /bin/bash "$1"; }
 phdir="$(mktemp -d)"; phbin="$phdir/bin"; phhooks="$phdir/hooks"; mkdir -p "$phbin" "$phhooks"
 phidx="$phdir/index.tsv"; printf 'cfgbin\tcfgpkg\tcfgpkg\n' > "$phidx"
 printf '#!/usr/bin/env bash\nprintf "#!/usr/bin/env bash\\necho CFG_CLEAN_STDOUT\\n" > "%s/cfgbin"\nchmod +x "%s/cfgbin"\n' "$phbin" "$phbin" > "$phbin/brew"; chmod +x "$phbin/brew"
@@ -586,6 +591,7 @@ else
 fi
 
 # Service activation is rejected before hook execution, not merely discouraged through an env hint.
+eval "$cnf_production_isolated"
 rm -f "$phbin/cfgbin" "$phdir/service-attempt" "$phdir/service-first"
 printf '#!/usr/bin/env bash\nset -e\nif [ ! -f "%s/service-first" ]; then : > "%s/service-first"; exit 23; fi\ncase "$(uname -s)" in Darwin) actuator=/bin/launchctl; "$actuator" load /definitely/not/a/service.plist;; Linux) actuator="$(command -v systemctl)"; "$actuator" enable definitely-not-a.service;; *) exit 78;; esac\n: > "%s/service-attempt"\n' "$phdir" "$phdir" "$phdir" > "$phhooks/post-cfgpkg.sh"; chmod +x "$phhooks/post-cfgpkg.sh"
 PATH="$phbin:$PATH" CNF_ALLOW_NONINTERACTIVE=1 CNF_INDEX="$phidx" CNF_LOCK_DIR="$phdir/locks-service" CNF_REPAIR_DIR="$phdir/repair-service" CNF_POST_HOOK_DIR="$phhooks" __cnf_resolve cfgbin >/dev/null 2>&1 || true

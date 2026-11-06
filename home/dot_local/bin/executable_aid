@@ -28,7 +28,7 @@ genRunId() {
 AID_RUN_ID="${AID_RUN_ID:-$(genRunId)}"
 AID_PARENT_RUN_ID="${AID_PARENT_RUN_ID:-}"
 
-log() { command -v gum >/dev/null 2>&1 && gum log --level info -- "$*" || printf '\033[1;36m[aid]\033[0m %s\n' "$*"; }
+log() { command -v gum >/dev/null 2>&1 && gum log --level info -- "$*" >&2 || printf '\033[1;36m[aid]\033[0m %s\n' "$*" >&2; }
 err() { command -v gum >/dev/null 2>&1 && gum log --level error -- "$*" || printf '\033[1;31m[aid]\033[0m %s\n' "$*" >&2; }
 
 # Extract a JSON string field value portably (no jq). jsonStr '<json>' <field> -> value (or empty).
