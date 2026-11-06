@@ -63,10 +63,13 @@ requireMatch(/\[ "\$observed_version" = "\$EXPECTED_VERSION" \]/, 'platform asse
 requireMatch(/\[ "\$observed_architecture" = "\$EXPECTED_ARCHITECTURE" \]/, 'platform assertion must reject an unexpected architecture');
 requireMatch(/name: Assert support-matrix admission[\s\S]*status == "best-effort"/, 'workflow must validate the checked-out support authority before provisioning');
 requireMatch(/name: "Structural checks — \$\{\{ matrix\.cell \}\}"/, 'structural job name must identify its evidence class');
-requireMatch(/name: "Best-effort checked-out bootstrap smoke — \$\{\{ matrix\.cell \}\} \(not signed lifecycle proof\)"/,
-  'bootstrap smoke must explicitly disclaim signed lifecycle proof');
+requireMatch(/name: "Best-effort checked-out platform admission — \$\{\{ matrix\.cell \}\} \(not signed lifecycle proof\)"/,
+  'platform admission must explicitly disclaim signed lifecycle proof');
 requireMatch(/INSTALL_DOCTOR_CONSENT_PRIVILEGED=true[\s\S]*INSTALL_DOCTOR_CONSENT_BEST_EFFORT=true/,
-  'best-effort smoke must provide explicit privileged and best-effort consent');
+  'best-effort admission must provide explicit privileged and best-effort consent');
+requireMatch(/source \/tmp\/install-doctor-provision\.sh[\s\S]*idResolvePlatform[\s\S]*idAuthorizePlatform[\s\S]*INSTALL_DOCTOR_PLATFORM_CELL.*EXPECTED_CELL/,
+  'matrix job must execute checked-out read-only platform resolution and authorization');
+if (/bash \/tmp\/install-doctor-provision\.sh\s*$/.test(workflow)) failures.push('unsigned matrix jobs must not invoke full provisioning without a verified engine closure');
 if (/curl[^\n]*install\.doctor\/start/.test(workflow)) failures.push('structural PR CI must execute the checked-out revision, not mutable production');
 if (/status:\s*verified|full-lifecycle canary|canary-receipt/.test(workflow)) failures.push('structural workflow must not mint or claim verified lifecycle evidence');
 if (!/test-linux\.sh\|test-macos\.sh\)\s+echo harness/.test(harness) || !/\[ "\$req" = harness \]/.test(harness)) {

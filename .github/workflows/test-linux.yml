@@ -177,7 +177,7 @@ jobs:
 
       - name: Install smoke-test prerequisites (dnf)
         if: matrix.osId == 'fedora'
-        run: dnf install -y bash curl jq sudo shadow-utils
+        run: dnf install -y bash curl jq sudo shadow-utils util-linux
 
       - name: Install smoke-test prerequisites (pacman)
         if: matrix.osId == 'arch'
@@ -209,26 +209,26 @@ jobs:
           printf 'testuser ALL=(ALL) NOPASSWD:ALL\n' >> /etc/sudoers
           [ "$(su - testuser -c 'node --version')" = v24.22.2 ]
 
-      - name: "Best-effort checked-out bootstrap smoke — ${{ matrix.cell }} (not signed lifecycle proof)"
-        timeout-minutes: 60
+      - name: "Best-effort checked-out platform admission — ${{ matrix.cell }} (not signed lifecycle proof)"
+        env:
+          EXPECTED_CELL: ${{ matrix.cell }}
+          EXPECTED_ROLE: ${{ matrix.role }}
         run: |
           install -m 0755 scripts/provision.sh /tmp/install-doctor-provision.sh
-          su - testuser -c '
-            set -e
+          # Direct provision.sh execution now correctly rejects an unsigned,
+          # engine-less checkout. Exercise only its read-only tuple admission
+          # here; the dedicated signed acceptance workflow owns installation.
+          bash -c '
+            set -euo pipefail
+            source /tmp/install-doctor-provision.sh
             export CI=true TEST_INSTALL=true HEADLESS_INSTALL=true NO_RESTART=true SOFTWARE_GROUP=Basic
             export INSTALL_DOCTOR_CONSENT_PRIVILEGED=true INSTALL_DOCTOR_CONSENT_NETWORK=true
-            export INSTALL_DOCTOR_CONSENT_BEST_EFFORT=true
-            bash /tmp/install-doctor-provision.sh
-          '
-
-      - name: Verify smoke postconditions
-        run: |
-          # Variables intentionally expand in the isolated user's shell.
-          # shellcheck disable=SC2016
-          su - testuser -c '
-            set -e
-            for tool in chezmoi brew task node; do
-              command -v "$tool" >/dev/null
-              printf "%s: present\n" "$tool"
-            done
+            export INSTALL_DOCTOR_CONSENT_BEST_EFFORT=true INSTALL_DOCTOR_USER=testuser
+            setEnvironmentVariables
+            setCIEnvironmentVariables
+            applyEnvClassDefaults
+            idResolvePlatform
+            idAuthorizePlatform
+            [ "$INSTALL_DOCTOR_PLATFORM_CELL" = "$EXPECTED_CELL" ]
+            [ "$INSTALL_DOCTOR_PLATFORM_ROLE" = "$EXPECTED_ROLE" ]
           '
