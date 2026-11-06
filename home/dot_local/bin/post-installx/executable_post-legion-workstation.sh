@@ -512,15 +512,15 @@ export PATH="$HOME/.local/share/mise/shims:$HOME/.bun/bin:$HOME/.local/share/car
 mkdir -p "$HOME/.local/bin" "$HOME/.config/shell" "$HOME/.cache/cnf/shims"
 
 # -----------------------------------------------------------------------------
-# 1. Eager Base APT Packages (Substrates, Shell Profile Built-ins, Web-Dev & Media Management CLIs)
+# 1. Eager Base APT Packages (Substrates, Shell Profile Built-ins, LSPs, Web-Dev & Media Management CLIs)
 # -----------------------------------------------------------------------------
 if command -v apt-get >/dev/null 2>&1 && { [ "$(id -u)" -eq 0 ] || [ -n "$SUDO" ]; }; then
-  log "Installing foundation, shell-profile, web-dev, and media-management CLIs via APT..."
+  log "Installing foundation, shell-profile, LSP, web-dev, and media-management CLIs via APT..."
   run_root env DEBIAN_FRONTEND=noninteractive apt-get update -qq || true
   run_root env DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
-    ca-certificates curl wget git jq zsh tmux vim neovim ripgrep fd-find fzf bat eza zoxide direnv \
-    htop btop nvtop gh rclone restic sanoid lzop pv mbuffer \
-    age build-essential pkg-config libssl-dev unzip xz-utils zstd \
+    ca-certificates curl wget git git-delta jq zsh tmux vim neovim ripgrep fd-find fzf bat eza zoxide direnv \
+    htop btop nvtop tree rsync p7zip-full gh rclone restic sanoid lzop pv mbuffer \
+    age build-essential clangd pkg-config libssl-dev unzip xz-utils zstd \
     ffmpeg imagemagick libimage-exiftool-perl qpdf poppler-utils tesseract-ocr graphviz pandoc yt-dlp \
     smartmontools net-tools bind9-dnsutils ufw unattended-upgrades apt-listchanges \
     lm-sensors i2c-tools dkms python3-yaml python3-pip python3-venv >/dev/null 2>&1 || true
@@ -599,11 +599,29 @@ if ! command -v cargo >/dev/null 2>&1; then
 fi
 for rust_dir in "$HOME/.cargo/bin" "$HOME/.local/share/cargo/bin"; do
   if [ -d "$rust_dir" ]; then
-    for rbin in cargo rustc rustup rustfmt cargo-clippy; do
+    for rbin in cargo rustc rustup rustfmt cargo-clippy rust-analyzer; do
       [ -x "$rust_dir/$rbin" ] && ln -sf "$rust_dir/$rbin" "$HOME/.local/bin/$rbin"
     done
   fi
 done
+
+if command -v rustup >/dev/null 2>&1 && ! command -v rust-analyzer >/dev/null 2>&1; then
+  rustup component add rust-analyzer >/dev/null 2>&1 || true
+fi
+
+if command -v go >/dev/null 2>&1 && ! command -v gopls >/dev/null 2>&1; then
+  GOBIN="$HOME/.local/bin" go install golang.org/x/tools/gopls@latest >/dev/null 2>&1 || true
+fi
+
+if command -v npm >/dev/null 2>&1; then
+  if ! command -v typescript-language-server >/dev/null 2>&1 || ! command -v bash-language-server >/dev/null 2>&1 || ! command -v pyright >/dev/null 2>&1; then
+    npm install -g pnpm typescript typescript-language-server bash-language-server vscode-langservers-extracted yaml-language-server pyright sql-language-server dockerfile-language-server-nodejs >/dev/null 2>&1 || true
+  fi
+fi
+
+if [ ! -x "$HOME/.local/bin/oh-my-posh" ] && ! command -v oh-my-posh >/dev/null 2>&1; then
+  curl -fsSL https://ohmyposh.dev/install.sh | bash -s -- -d "$HOME/.local/bin" >/dev/null 2>&1 || true
+fi
 
 # -----------------------------------------------------------------------------
 # 3. Item #11: Secrets Stack (infisical, age, sops — NO OnlyKey / FIDO2 tools)

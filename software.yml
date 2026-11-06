@@ -618,6 +618,8 @@ softwarePackages:
     brew: astrovim
     npm: astronvim
   atuin:
+    _preload: true
+    _preloadReason: shell-profile-core
     _name: Atuin
     _short: Atuin is a shell history tool — a searchable, synced, SQLite-backed replacement for Ctrl-R.
     _desc: Atuin replaces your shell history with a SQLite database — a fuzzy Ctrl-R search TUI, rich per-command context (exit code, cwd, duration), stats, and optional end-to-end-encrypted sync across machines. Written in Rust, open-source.
@@ -830,6 +832,8 @@ softwarePackages:
     dnf: bash-completion
     pacman: bash-completion
   bash-language-server:
+    _preload: true
+    _preloadReason: lsp-core
     _name: Bash Language Server
     _short: bash-language-server is a language server for Bash scripts based on Tree Sitter and ShellCheck.
     _desc: A language server for Bash scripts that provides code completion, hover diagnostics, go-to-definition, and ShellCheck/shfmt integration for coding agents and editors.
@@ -853,6 +857,8 @@ softwarePackages:
     _when: '! test -d /Library/TeX'
     cask: basictex
   bat:
+    _preload: true
+    _preloadReason: shell-profile-core
     _name: bat
     _short: bat is a cat(1) clone with syntax highlighting and Git integration.
     _desc: '[bat](https://github.com/sharkdp/bat) is a cat(1) clone with syntax highlighting and Git integration.'
@@ -1205,6 +1211,8 @@ softwarePackages:
     _bin: buildkite-agent
     brew: buildkite/buildkite/buildkite-agent
   bun:
+    _preload: true
+    _preloadReason: web-dev-core
     _name: Bun
     _short: Bun is a tool for managing macOS development environments using Homebrew and Ansible.
     _desc: Bun is a tool developed by oven-sh available on GitHub at https://github.com/oven-sh/bun. It is a command-line utility for managing project-specific environments using Docker. Bun simplifies the process of setting up and managing development environments by defining project-specific configurations in a Bunfile. This allows developers to easily reproduce the same environment across different machines. Bun also supports Docker Compose integration, making it easier to work with multi-container applications. It's a handy tool for streamlining development workflows and ensuring consistency across environments.
@@ -1292,6 +1300,8 @@ softwarePackages:
     _deprecated: Unused Docker assistance package
     go: github.com/jenssegers/captain@latest
   carapace:
+    _preload: true
+    _preloadReason: shell-profile-core
     _name: Carapace
     _short: carapace-bin is a collection of shell completion scripts for various commands and tools, designed to enhance the command-line user experience.
     _desc: carapace-bin is a repository on GitHub maintained by rsteube. It contains shell completion scripts for various commands and utilities. These completion scripts help users by providing auto-completion suggestions when typing commands in the shell, making it easier and faster to navigate and use these commands. The repository likely includes scripts for popular tools and commands, enhancing the user experience for those working in the shell environment.
@@ -1578,6 +1588,8 @@ softwarePackages:
     - /var/log/clamav
     - /etc/clamav
   clangd:
+    _preload: true
+    _preloadReason: lsp-core
     _name: clangd
     _short: clangd is a language server for C++. It provides IDE-like features such as code completion, find references, and more for C and C++ codebases.
     _desc: '[clangd](https://clangd.llvm.org/) is an language server that understands your C++ code and adds smart features to your editor'
@@ -1646,6 +1658,8 @@ softwarePackages:
     _bin: cfcli
     npm: cloudflare-cli
   cloudflared:
+    _preload: true
+    _preloadReason: security-recovery-prerequisite
     _name: cloudflared
     _short: Cloudflare Tunnel client for securely connecting private services to Cloudflare without opening inbound ports.
     _desc: '[cloudflared](https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/) creates outbound-only Cloudflare Tunnel connections and can also act as an Access proxy.'
@@ -1745,6 +1759,8 @@ softwarePackages:
     brew:darwin: cocoapods
     gem:darwin: cocoapods
   cod:
+    _preload: true
+    _preloadReason: shell-profile-core
     _name: Cod
     _short: cod is a lightweight, fast, and powerful code editor designed for macOS.
     _desc: Cod is a completion daemon for bash/fish/zsh that automatically adds auto-completions when --help is used
@@ -2038,6 +2054,8 @@ softwarePackages:
     xbps: curl
     zypper: curl
   curlie:
+    _preload: true
+    _preloadReason: shell-profile-core
     _name: Curlie
     _short: curlie is a modern command-line interface for curl.
     _desc: Curlie is a frontend to curl that adds the ease of use of httpie, without compromising on features and performance.
@@ -2148,6 +2166,8 @@ softwarePackages:
     flatpak: org.gnome.DejaDup
     _gitlab: https://gitlab.gnome.org/World/deja-dup
   delta:
+    _preload: true
+    _preloadReason: shell-profile-core
     _name: Delta
     _short: Delta is a tool for viewing git diff output with syntax highlighting and line decorations.
     _desc: '[delta](https://github.com/dandavison/delta) is a viewer for git and diff output'
@@ -2295,6 +2315,8 @@ softwarePackages:
     brew: difftastic
     cargo: difftastic
   direnv:
+    _preload: true
+    _preloadReason: shell-profile-core
     _name: direnv
     _short: direnv is a tool that helps automate loading and unloading of environment variables based on the current directory.
     _desc: '[direnv](https://direnv.net/) is an extension for your shell. It augments existing shells with a new feature that can load and unload environment variables depending on the current directory.'
@@ -2416,6 +2438,8 @@ softwarePackages:
     script: echo "Enabling docker-images pre-load"
     _name: Docker Images
   docker-langserver:
+    _preload: true
+    _preloadReason: lsp-core
     _name: Docker Language Server
     _short: dockerfile-language-server-nodejs is a language server for Dockerfiles, written in Node.js.
     _desc: A Docker language server
@@ -2489,6 +2513,8 @@ softwarePackages:
     github: github.com/digitalocean/doctl
     pkg: doctl
   dog:
+    _preload: true
+    _preloadReason: shell-profile-core
     _name: dog
     _short: Dog is a command-line DNS client for DNS-over-HTTPS.
     _desc: A command-line DNS client
@@ -2728,6 +2754,8 @@ softwarePackages:
     _bin: emoj
     npm: emoj
   emplace:
+    _preload: true
+    _preloadReason: shell-profile-core
     _name: Emplace
     _short: Emplace is a tool for quickly creating and managing GitHub repositories from the command line.
     _desc: Emplace objects and arrays - pointer to pointer style
@@ -2910,6 +2938,8 @@ softwarePackages:
     emerge: sys-apps/exa
     zypper: exa
   exiftool:
+    _preload: true
+    _preloadReason: media-management-core
     _name: exiftool
     _short: ExifTool is a powerful command-line tool for reading, writing, and editing metadata in a wide variety of files, including images, videos, and documents.
     _desc: '[exiftool](https://exiftool.org/) is a platform-independent Perl library plus a command-line application for reading, writing and editing meta information in a wide variety of files'
@@ -2932,6 +2962,8 @@ softwarePackages:
     dnf: expect
     pacman: expect
   eza:
+    _preload: true
+    _preloadReason: shell-profile-core
     _name: Eza
     _desc: A modern replacement for ls. Active fork of exa.
     _github: https://github.com/eza-community/eza
@@ -2999,6 +3031,8 @@ softwarePackages:
     brew: fcp
     cargo: fcp
   fd:
+    _preload: true
+    _preloadReason: shell-profile-core
     _name: fd
     _short: fd is a simple, fast and user-friendly alternative to find command, written in Rust.
     _desc: '[fd](https://github.com/sharkdp/fd) is a program that can search for files on your filesystem. It is a simple, fast, and user-friendly alternative to find. While it does not aim to support all of find''s powerful functionality, it provides sensible (opinionated) defaults for a majority of use cases.'
@@ -3049,6 +3083,8 @@ softwarePackages:
         flatpak: $HOME/.var/app/org.ferdium.Ferdium/config/Ferdium
         snap: $HOME/snap/ferdium/current/.config/Ferdium
   ffmpeg:
+    _preload: true
+    _preloadReason: media-management-core
     _name: FFmpeg
     _short: FFmpeg is a powerful multimedia framework that can decode, encode, transcode, mux, demux, stream, filter, and play almost anything that humans and machines have created.
     _desc: '[FFmpeg](https://www.ffmpeg.org/) is the leading multimedia framework. It is able to decode, encode, transcode, mux, demux, stream, filter and play pretty much anything that humans and machines have created. It supports the most obscure ancient formats up to the cutting edge.'
@@ -3513,6 +3549,8 @@ softwarePackages:
     go: github.com/antonmedv/fx@latest
     pkg: fx
   fzf:
+    _preload: true
+    _preloadReason: shell-profile-core
     _name: fzf
     _short: fzf is a command-line fuzzy finder for searching and selecting items interactively.
     _desc: '[fzf](https://github.com/junegunn/fzf) is a general-purpose command-line fuzzy finder. It''s an interactive Unix filter for command-line that can be used with any list; files, command history, processes, hostnames, bookmarks, git commits, etc.'
@@ -3618,6 +3656,8 @@ softwarePackages:
     _bin: gfi
     npm: google-font-installer
   gh:
+    _preload: true
+    _preloadReason: web-dev-core
     _name: Github CLI
     _short: GitHub CLI is a command-line tool that brings GitHub to your terminal.
     _desc: '[gh](https://cli.github.com/) is GitHub on the command line. It brings pull requests, issues, and other GitHub concepts to the terminal next to where you are already working with git and your code.'
@@ -3735,7 +3775,6 @@ softwarePackages:
     apt: git-extras
     dnf: git-extras
     pacman: git-extras
-    ansible:windows: professormanhattan.gitextras
   git-filter-repo:
     _name: 'git-filter-repo                                                                                                                                                                                           '
     _short: git-filter-repo is a powerful tool for rewriting Git repository history efficiently and with ease.
@@ -3892,6 +3931,8 @@ softwarePackages:
     _bin: gitlabform
     pipx: gitlabform
   gitleaks:
+    _preload: true
+    _preloadReason: security-recovery-prerequisite
     _name: gitleaks
     _short: gitleaks is a tool for finding sensitive information in git repositories.
     _desc: Extension to scan git repos (or files) for secrets using regex and entropy
@@ -3963,6 +4004,8 @@ softwarePackages:
     yay: gitlab-glab-bin
     apk: glab
   glances:
+    _preload: true
+    _preloadReason: shell-profile-core
     _name: Glances
     _short: Glances is a cross-platform monitoring tool that provides real-time system information in a visually appealing way.
     _desc: '[Glances](https://github.com/nicolargo/glances) is a cross-platform monitoring tool which aims to present a maximum of information in a minimum of space through a curses or a web interface. It can adapt the displayed information depending on the terminal size dynamically. It is a top/htop alternative for Linux, BSD, macOS, and even Windows.'
@@ -4000,6 +4043,8 @@ softwarePackages:
     _bin: glen
     go: github.com/lingrino/glen@latest
   glow:
+    _preload: true
+    _preloadReason: shell-profile-core
     _name: glow
     _short: Glow is a terminal markdown viewer for Unix systems.
     _desc: Glow is a terminal based markdown reader designed from the ground up to bring out the beauty—and power—of the CLI
@@ -4280,7 +4325,6 @@ softwarePackages:
     snap: g-assist
     winget: g-assist
     github: github.com/Melvin-Abraham/Google-Assistant-Unofficial-Desktop-Client
-    ansible:windows: professormanhattan.googleassistant
   google-chrome:
     _name: Google Chrome
     _short: $'Not open-source' is a string in zsh shell that uses single quotes to interpret escape sequences like \n for newline.
@@ -4343,6 +4387,8 @@ softwarePackages:
     _bin: gopkgs
     go: github.com/uudashr/gopkgs/v2/cmd/gopkgs@latest
   gopls:
+    _preload: true
+    _preloadReason: lsp-core
     _name: gopls
     _short: gopls is the official Go language server maintained by the Go team.
     _desc: gopls (pronounced "Go please") is the official Go language server developed by the Go team. It provides IDE and coding agent features such as workspace symbol navigation, diagnostics, and refactoring to any LSP-compatible client.
@@ -4379,6 +4425,8 @@ softwarePackages:
     pacman: gphotos-sync
     pipx: gphotos-sync
   gping:
+    _preload: true
+    _preloadReason: shell-profile-core
     _name: gping
     _short: gping is a modern ping tool that shows a graph of ping responses over time.
     _desc: '[gping](https://github.com/orf/gping) is like the regular ping command except it also displays a chart labeled with response timing statistics.'
@@ -4699,6 +4747,8 @@ softwarePackages:
     brew: hishtory
     cargo: hishtory
   hoard:
+    _preload: true
+    _preloadReason: shell-profile-core
     _name: Hoard
     _short: Hoard is a tool for managing secrets securely in macOS keychain.
     _desc: Hoard is a tool available on GitHub at https://github.com/Hyde46/hoard. It is a simple shell script designed to help users manage their dotfiles by storing them in a Git repository. Dotfiles are configuration files for various programs in Unix-like systems. Hoard simplifies the process of backing up and syncing these files across multiple machines. Users can easily add, commit, and push changes to their dotfiles repository using this tool. It provides a convenient way to keep configurations consistent across different environments.
@@ -4756,6 +4806,8 @@ softwarePackages:
     brew: hss
     script: cd /tmp && git clone https://github.com/six-ddc/hss.git && cd hss && make && make install && cd /tmp && rm -rf hss
   hstr:
+    _preload: true
+    _preloadReason: shell-profile-core
     _name: HiSToRy
     _short: hstr is a command-line utility that enhances the history search functionality in Unix-based systems, allowing users to easily search and execute past commands using a fuzzy search algorithm.
     _desc: hstr is a command-line utility for managing command history in Unix-like systems. It enhances the history search functionality in the terminal by providing a more interactive and powerful way to search and execute past commands. Users can search their command history with incremental search, view and filter results, and execute commands directly from the search results. It also supports fuzzy matching and can be integrated with various shells like zsh and bash. Overall, hstr aims to make working with command history more efficient and user-friendly.
@@ -4787,6 +4839,8 @@ softwarePackages:
     cargo: htmlq
     github: github.com/mgdm/htmlq
   htop:
+    _preload: true
+    _preloadReason: shell-profile-core
     _name: htop
     _short: htop is a popular interactive process viewer for Unix systems, providing a more user-friendly and feature-rich alternative to the traditional top command.
     _desc: '[htop](https://htop.dev/) is an interactive system-monitor process-viewer and process-manager. It is designed as an alternative to the Unix program top. It shows a frequently updated list of the processes running on a computer, normally ordered by the amount of CPU usage.'
@@ -4963,6 +5017,8 @@ softwarePackages:
     _app: iina.app
     cask: iina
   imagemagick:
+    _preload: true
+    _preloadReason: media-management-core
     _name: 'ImageMagick                                                                                                                                                                                               '
     _short: ImageMagick is an open-source software suite for creating, editing, composing, or converting bitmap images.
     _desc: ImageMagick is an open-source software suite used for creating, editing, composing, or converting bitmap images. It supports a wide range of image formats and includes tools for image manipulation, such as resizing, cropping, and applying filters. The software can be accessed via command line or through various programming languages like C++, Python, and Perl. It is widely used in web development, graphic design, and scientific applications for its versatility and powerful image processing capabilities. The GitHub repository for ImageMagick contains the source code, documentation, and community contributions related to the project.
@@ -6238,7 +6294,6 @@ softwarePackages:
       proto: tcp
     - port: 5250-5270
       proto: udp
-    ansible:ubuntu: professormanhattan.maas
     snap:ubuntu: maas
   mackup:
     _name: mackup
@@ -6737,6 +6792,8 @@ softwarePackages:
     winget: ModernFlyouts.ModernFlyouts
     winapp: modernflyouts-preview/9MT60QV066RP
   mods:
+    _preload: true
+    _preloadReason: shell-profile-core
     _name: Mods
     _short: mods is a collection of terminal utilities for building modern CLI applications in Go.
     _desc: AI for the command-line that leverages OpenAI or LocalAI (if configured to do so)
@@ -7087,6 +7144,8 @@ softwarePackages:
     apt: nautilus-wipe
     pacman: nautilus-wipe
   navi:
+    _preload: true
+    _preloadReason: shell-profile-core
     _name: Navi
     _short: navi is a command-line cheat sheet tool that helps users navigate commands more efficiently.
     _desc: An interactive cheatsheet tool for the command-line
@@ -7191,6 +7250,8 @@ softwarePackages:
     scoop: neovide
     snap: neovide
   neovim:
+    _preload: true
+    _preloadReason: shell-profile-core
     _name: neovim
     _short: Neovim is a highly extensible text editor based on Vim, with improved performance and features for modern development workflows.
     _desc: '[neovim](https://neovim.io/) is Vim-fork focused on extensibility and usability'
@@ -7396,6 +7457,8 @@ softwarePackages:
     snap: nmap
     _post:snap: sudo snap connect nmap:network-control
   nnn:
+    _preload: true
+    _preloadReason: shell-profile-core
     _name: nnn
     _short: nnn is a fast and resource-friendly file manager for the terminal.
     _desc: A full-featured terminal file manager
@@ -7523,6 +7586,8 @@ softwarePackages:
     _github: https://github.com/google/nsjail
     _todo: add this, at time of adding there was no easily installable source but 3.2k stars and seems active
   ntfy:
+    _preload: true
+    _preloadReason: shell-profile-core
     _name: NFTY
     _short: ntfy is a command-line utility that sends notifications when a command finishes.
     _desc: ntfy is a command-line utility that sends desktop notifications when a command finishes. It supports various notification backends like Pushbullet, Pushover, Slack, Telegram, and more. It can be used to keep track of long-running commands or scripts without having to constantly check the terminal. It's easy to install and configure, making it a handy tool for system administrators and developers who want to stay updated on their command executions.
@@ -7642,6 +7707,8 @@ softwarePackages:
     brew: cube2222/octosql/octosql
     scoop: octosql
   oh-my-posh:
+    _preload: true
+    _preloadReason: shell-profile-core
     _name: oh-my-posh
     _short: oh-my-posh is a prompt theme engine for PowerShell, providing a customizable and visually appealing prompt for the shell.
     _desc: A blazing fast cross platform/shell prompt renderer
@@ -7909,6 +7976,8 @@ softwarePackages:
     github: github.com/sniptt-official/ots
     go: github.com/sniptt-official/ots@latest
   p7zip:
+    _preload: true
+    _preloadReason: web-dev-core
     _name: p7zip
     _short: p7zip is a high compression ratio file archiver with support for various archive formats, including 7z, ZIP, and TAR. It is a command-line tool available on multiple platforms, including MacOS.
     _desc: p7zip is a port of the command-line version of the 7-Zip file archiver to Unix-like operating systems. It supports a wide range of archive formats and provides high compression ratios. The project is hosted on GitHub at https://github.com/p7zip-project/p7zip. Users can download, compile, and use p7zip to create, extract, and manage compressed files efficiently from the terminal. It is a popular tool for managing archives on Unix-based systems.
@@ -7959,6 +8028,8 @@ softwarePackages:
     _bin: pake
     npm: pake-cli
   pandoc:
+    _preload: true
+    _preloadReason: media-management-core
     _name: Pandoc
     _short: Pandoc is a versatile tool for converting between various document formats.
     _desc: '[Pandoc](https://pandoc.org/) is a Haskell library for converting from one documentation markup format to another. If you need to convert files from one markup format into another, then look no further. Pandoc is your swiss-army knife. It converts from and to dozens of formats like HTML, markdown, docx, JSON, YAML, and CSV, to name a few.'
@@ -8032,6 +8103,8 @@ softwarePackages:
     _bin: patch-package
     npm: patch-package
   pay-respects:
+    _preload: true
+    _preloadReason: shell-profile-core
     _desc: pay-respects corrects your commands when you make a mistake
     _github: https://github.com/iffse/pay-respects
     _bin: pay-respects
@@ -8349,6 +8422,8 @@ softwarePackages:
     _bin: pkg
     npm: pkg
   pkgx:
+    _preload: true
+    _preloadReason: shell-profile-core
     _name: pkgx
     _short: pkgx is a tool that simplifies package management for Go projects by providing a centralized configuration file to manage dependencies.
     _desc: The next-generation, cross‐platform package manager
@@ -8459,6 +8534,8 @@ softwarePackages:
     _docs: https://pm2.keymetrics.io/docs/usage/quick-start/
     npm: pm2
   pnpm:
+    _preload: true
+    _preloadReason: web-dev-core
     _name: pnpm
     _short: pnpm is a fast, disk space-efficient package manager for Node.js projects.
     _desc: '[pnpm](https://github.com/pnpm/pnpm) is a fast, disk space efficient package manager'
@@ -8535,6 +8612,8 @@ softwarePackages:
     github: github.com/jessfraz/pony
     go: github.com/jessfraz/pony@latest
   poppler:
+    _preload: true
+    _preloadReason: media-management-core
     _name: 'pdf2image                                                                                                                                                                                                 '
     _short: pdf2image is a Python library that converts PDF files into images.
     _desc: pdf2image is a Python library that converts PDF files into a sequence of PIL (Python Imaging Library) images. It provides a simple interface to extract images from PDFs, making it easier to work with PDF content in image processing tasks. The library supports multiple backends for PDF rendering, such as Poppler and Ghostscript, giving users flexibility in choosing the rendering engine. This tool can be useful for tasks like extracting images from PDF documents for further analysis or manipulation.
@@ -8966,6 +9045,8 @@ softwarePackages:
     - python3-pip
     - python3-setuptools
   pyright:
+    _preload: true
+    _preloadReason: lsp-core
     _name: Pyright
     _short: Pyright is a fast, full-featured static type checker and language server for Python.
     _desc: Pyright is a fast static type checker and Language Server Protocol (LSP) server for Python created by Microsoft, providing type checking, symbol navigation, and code intelligence for agents and IDEs.
@@ -9069,6 +9150,8 @@ softwarePackages:
     _when:cask: '! test -d "$HOME/Library/QuickLook/ProvisionQL.qlgenerator"'
     cask: qlvideo
   qpdf:
+    _preload: true
+    _preloadReason: media-management-core
     _name: qpdf
     _desc: Decompresses *.zlib files
     _github: https://github.com/qpdf/qpdf
@@ -9094,7 +9177,6 @@ softwarePackages:
     _bin: null
     _home: https://github.com/quasar/Quasar
     _docs: https://github.com/quasar/Quasar/wiki
-    ansible:windows: professormanhattan.quasar
   quickemu:
     _name: 'quickemu                                                                                                                                                                                                  '
     _short: quickemu is a tool for running virtual machines quickly and easily on Linux using QEMU and KVM.
@@ -9210,6 +9292,8 @@ softwarePackages:
       RAYCAST_APPDATA:
         cask: $HOME/Library/Application Support/com.raycast.macos
   rclone:
+    _preload: true
+    _preloadReason: security-recovery-prerequisite
     _name: Rclone
     _short: rclone is a command-line program to manage files on cloud storage.
     _desc: '[Rclone](https://rclone.org/) is an open source, multi threaded, command line computer program to manage content on cloud and other high latency storage. Its capabilities include sync, transfer, crypt, cache, union, compress and mount. The rclone website lists [fifty supported backends](https://rclone.org/overview/) including S3 services and Google Drive.'
@@ -9347,6 +9431,8 @@ softwarePackages:
     choco: responsively
     github: github.com/responsively-org/responsively-app
   restic:
+    _preload: true
+    _preloadReason: security-recovery-prerequisite
     _name: Restic
     _short: restic is an open-source backup program that is fast, secure, and efficient.
     _desc: '[Restic](https://restic.net/) is a modern backup program that can back up your files from Linux, BSD, Mac and Windows to many different storage types, including self-hosted and online services. It is a single executable that you can run without a server or complex setup. It can be used to only back-up the parts of files that actually changed. It uses cryptography in every part of the process. Restic is entirely free to use and completely open source.'
@@ -9374,6 +9460,8 @@ softwarePackages:
     _docs: https://jsonresume.org/getting-started/
     npm: resume-cli
   ripgrep:
+    _preload: true
+    _preloadReason: shell-profile-core
     _name: ripgrep
     _short: ripgrep is a fast, line-oriented search tool that recursively searches your current directory for a regex pattern while respecting your gitignore rules.
     _desc: '[ripgrep](https://github.com/BurntSushi/ripgrep) is a line-oriented search tool that recursively searches your current directory for a regex pattern. By default, ripgrep will respect your .gitignore and automatically skip hidden files/directories and binary files. This role also installs ripgrep-all. [ripgrep-all](https://github.com/phiresky/ripgrep-all) is just like ripgrep except it also searches in PDFs, E-Books, Office documents, zip, tar.gz, etc.'
@@ -9462,6 +9550,8 @@ softwarePackages:
     pkg: rofi
     zypper: rofi
   rsync:
+    _preload: true
+    _preloadReason: web-dev-core
     _name: rsync
     _short: rsync is a fast and versatile file synchronization tool for Unix-like systems.
     _desc: rsync is an open source utility that provides fast incremental file transfer.
@@ -9569,6 +9659,8 @@ softwarePackages:
     script:darwin: curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
     script:linux: curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
   rust-analyzer:
+    _preload: true
+    _preloadReason: lsp-core
     _name: rust-analyzer
     _short: rust-analyzer is a modular compiler frontend and Language Server Protocol implementation for Rust.
     _desc: rust-analyzer is the official Language Server Protocol (LSP) implementation for the Rust programming language, providing semantic analysis, code completion, and go-to-definition for coding agents and editors.
@@ -9645,6 +9737,8 @@ softwarePackages:
     brew: ms-jpq/sad/sad
     pacman: sad
   safe-rm:
+    _preload: true
+    _preloadReason: shell-profile-core
     _name: safe-rm
     _short: shell-safe-rm is a safer alternative to the rm command in Unix-like systems, designed to prevent accidental deletion of important files by moving them to a trash directory instead of permanently deleting them.
     _desc: shell-safe-rm is a tool on GitHub created by kaelzhang that aims to prevent accidental deletion of important files by enhancing the rm command in Unix-like systems. It adds a safety net by moving files to a trash directory instead of permanently deleting them. This can help prevent data loss by allowing users to easily recover files that were mistakenly deleted. The tool provides options to configure the behavior of the rm command, making it a useful addition for users who want an extra layer of protection when managing their files.
@@ -9971,6 +10065,8 @@ softwarePackages:
     script:darwin: cd /tmp && git clone --recursive https://github.com/reconquest/shdoc && cd shdoc && sudo make install && cd /tmp && sudo rm -rf shdoc
     script:linux: cd /tmp && git clone --recursive https://github.com/reconquest/shdoc && cd shdoc && sudo make install && cd /tmp && sudo rm -rf shdoc
   sheldon:
+    _preload: true
+    _preloadReason: shell-profile-core
     _name: Sheldon
     _short: sheldon is a macOS shell configuration framework that aims to make your shell experience more efficient and enjoyable.
     _desc: Sheldon is a command-line tool for managing macOS preferences. It allows users to easily view, set, and remove macOS system and application preferences using a simple command-line interface. With Sheldon, users can manage preferences for various system components like Dock, Finder, Safari, and more, making it convenient for system administrators and power users to customize and automate macOS settings. It simplifies the process of managing preferences without needing to navigate through multiple settings menus, providing a more efficient way to handle macOS configurations.
@@ -10326,6 +10422,8 @@ softwarePackages:
     _docs: https://spotdl.readthedocs.io/en/latest/
     pipx: spotdl
   sql-language-server:
+    _preload: true
+    _preloadReason: lsp-core
     _name: SQL Language Server
     _short: sql-language-server provides SQL autocompletion, linting, and diagnostics to editors via the Language Server Protocol.
     _desc: An SQL language server
@@ -10762,6 +10860,8 @@ softwarePackages:
     _bin: talksheet
     pip: talksheet
   taplo:
+    _preload: true
+    _preloadReason: lsp-core
     _name: Taplo
     _short: taplo is a TOML parser and serializer written in Rust.
     _desc: A TOML toolkit written in Rust that includes TOML formatting abilities
@@ -10781,6 +10881,8 @@ softwarePackages:
     _todo: Verify that this installs properly (error on arm64 macOS)
     brew:darwin: cirruslabs/cli/gitlab-tart-executor
   task:
+    _preload: true
+    _preloadReason: bootstrap-critical
     _name: Task
     _short: Task is a simple task runner / build tool for Go projects.
     _desc: A task runner / simpler Make alternative written in Go
@@ -11073,6 +11175,8 @@ softwarePackages:
     pkg_add: tmate
     zypper: tmate
   tmux:
+    _preload: true
+    _preloadReason: shell-profile-core
     _name: tmux
     _short: tmux is a terminal multiplexer for Unix-like operating systems that allows multiple terminal sessions to be accessed and controlled from a single window.
     _desc: '[Tmux](https://github.com/tmux/tmux/wiki) is a terminal multiplexer. It enables a number of terminals to be created, accessed, and controlled from a single screen. Tmux may be detached from a screen and continue running in the background, then later reattached.'
@@ -11204,6 +11308,8 @@ softwarePackages:
     pacman: translate-shell
     apt:ubuntu: translate-shell
   tree:
+    _preload: true
+    _preloadReason: shell-profile-core
     _name: tree-cli
     _short: tree-cli is a command-line tool that generates directory trees in a visually appealing way.
     _desc: '[tree-cli](https://github.com/MrRaindrop/tree-cli) is a recursive directory listing program that produces a depth indented listing of files. With no arguments, tree lists the files in the current directory. When directory arguments are given, tree lists all the files and/or directories found in the given directories each in turn. Upon completion of listing all files/directories found, tree returns the total number of files and/or directories listed.'
@@ -11230,6 +11336,8 @@ softwarePackages:
     _home: https://roots.io/trellis/
     brew: roots/tap/trellis-cli
   trivy:
+    _preload: true
+    _preloadReason: security-recovery-prerequisite
     _name: trivy
     _short: Trivy is a comprehensive vulnerability scanner for containers and other artifacts.
     _desc: Scanner for vulnerabilities in container images, file systems, and Git repositories, as well as for configuration issues
@@ -11280,6 +11388,8 @@ softwarePackages:
     _bin: turbo
     npm: turbo
   typescript:
+    _preload: true
+    _preloadReason: web-dev-core
     _name: TypeScript
     _short: TypeScript is a superset of JavaScript that adds static typing to the language, making it easier to build and maintain large-scale applications.
     _desc: TypeScript is a strongly typed programming language that builds on JavaScript, giving you better tooling at any scale.
@@ -11290,6 +11400,8 @@ softwarePackages:
     brew: typescript
     npm: typescript
   typescript-language-server:
+    _preload: true
+    _preloadReason: lsp-core
     _name: TypeScript Language Server
     _short: typescript-language-server is a Language Server Protocol implementation for TypeScript and JavaScript wrapping tsserver.
     _desc: Language Server Protocol (LSP) implementation for TypeScript and JavaScript using tsserver, enabling semantic code navigation, diagnostics, and refactoring for coding agents and editors.
@@ -11546,6 +11658,8 @@ softwarePackages:
     brew: tgotwig/vidmerger/vidmerger
     choco: vidmerger
   vim:
+    _preload: true
+    _preloadReason: shell-profile-core
     _name: VIM
     _short: Vim is a highly configurable text editor built for efficiency and speed, with a focus on keyboard shortcuts for navigation and editing.
     _desc: '[Vim](https://www.vim.org/) is a greatly improved version of the good old UNIX editor Vi'
@@ -11693,6 +11807,8 @@ softwarePackages:
     snap: code --classic
     yay: visual-studio-code-bin
   vscode-langservers-extracted:
+    _preload: true
+    _preloadReason: lsp-core
     _name: VSCode Extracted Language Servers (HTML/CSS/JSON/ESLint)
     _short: vscode-langservers-extracted provides HTML, CSS, JSON, and ESLint language servers extracted from VS Code.
     _desc: HTML, CSS, JSON, and ESLint Language Server Protocol (LSP) servers extracted from Visual Studio Code (vscode-css-language-server, vscode-html-language-server, vscode-json-language-server) for coding agents and editors.
@@ -11893,6 +12009,8 @@ softwarePackages:
     github: github.com/webtorrent/webtorrent-desktop
     yay: webtorrent-desktop
   wego:
+    _preload: true
+    _preloadReason: shell-profile-core
     _name: WeGo
     _short: wego is a terminal weather app for the terminal.
     _desc: wego is a weather client for the terminal. It provides current weather conditions and forecasts in a simple and visually appealing way. It supports various backends for weather data retrieval and can display information like temperature, wind speed, humidity, and more. Users can customize the output to suit their preferences and even view weather maps. It's a lightweight and convenient tool for checking the weather directly from the command line.
@@ -11908,6 +12026,8 @@ softwarePackages:
     _bin: wetty
     npm: wetty
   wget:
+    _preload: true
+    _preloadReason: bootstrap-critical
     _name: wget
     _desc: The [wget](https://www.gnu.org/software/wget/) command is a command line utility for downloading files from the Internet. It supports downloading multiple files, downloading in the background, resuming downloads, limiting the bandwidth used for downloads and viewing headers.
     _github: false
@@ -12322,6 +12442,8 @@ softwarePackages:
     scoop: xz
     apk: xz
   yaml-language-server:
+    _preload: true
+    _preloadReason: lsp-core
     _name: YAML Language Server
     _short: yaml-language-server is a Language Server Protocol implementation for YAML files developed by Red Hat.
     _desc: Language Server for YAML files supporting JSON Schema validation, hover documentation, autocompletion, and diagnostics for coding agents and editors.
@@ -12341,6 +12463,8 @@ softwarePackages:
     brew: yamllint
     pipx: yamllint
   yank:
+    _preload: true
+    _preloadReason: shell-profile-core
     _name: yank
     _short: Yank is a tool that allows you to copy text from your terminal to your clipboard.
     _desc: '[yank](https://github.com/mptre/yank) is a terminal agnostic solution which allows copying output from Termial easily, without the need to use Terminal multiplexers.'
@@ -12459,6 +12583,8 @@ softwarePackages:
     go: github.com/mikefarah/yq/v4@latest
     apk: yq
   yt-dlp:
+    _preload: true
+    _preloadReason: media-management-core
     _name: YouTube Download
     _short: To install yt-dlp, visit the GitHub page and follow the installation instructions provided in the wiki section.
     _desc: 'To install yt-dlp, a fork of youtube-dl, you can follow these steps: 1 Clone the Repository: Use git clone https://github.com/yt-dlp/yt-dlp.git to download the repository. 2 Navigate to the Directory: Move into the yt-dlp directory using cd yt-dlp. 3 Install yt-dlp: Run sudo python3 setup.py install to install yt-dlp system-wide. 4 Verify Installation: To confirm the installation, run yt-dlp --version. These steps will help you install yt-dlp on your system.'
@@ -12589,6 +12715,8 @@ softwarePackages:
     snap: zoom
     yay: zoom
   zoxide:
+    _preload: true
+    _preloadReason: shell-profile-core
     _name: zoxide
     _short: zoxide is a blazing fast replacement for cd, allowing you to navigate your filesystem with ease using fuzzy matching and tracking your most used directories.
     _desc: '[zoxide](https://github.com/ajeetdsouza/zoxide) is a blazing fast replacement for your cd command, inspired by z and autojump'
@@ -12636,6 +12764,8 @@ softwarePackages:
     pacman: zstd
     zypper: zstd
   zx:
+    _preload: true
+    _preloadReason: bootstrap-critical
     _name: zx
     _short: ZX is a tool for writing better scripts with JavaScript on macOS and Linux.
     _desc: Bash is great, but when it comes to writing more complex scripts, many people prefer a more convenient programming language. JavaScript is a perfect choice, but the Node.js standard library requires additional hassle before using. The zx package provides useful wrappers around child_process, escapes arguments and gives sensible defaults.
