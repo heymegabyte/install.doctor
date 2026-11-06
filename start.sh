@@ -200,7 +200,6 @@ ensureLocalPath
 # @description Validates the tiny local-launcher prerequisite set. Package
 # acquisition belongs to signed stage zero or selected desired state; this
 # checkout launcher must not mutate current package indexes before planning.
-OS="$(detect_os)"
 for START_REQUIRED_COMMAND in curl gzip tar; do
   if ! command -v "$START_REQUIRED_COMMAND" >/dev/null 2>&1; then
     logger error "Missing bootstrap prerequisite: $START_REQUIRED_COMMAND. Install it with the operating system's trusted package workflow, then rerun."

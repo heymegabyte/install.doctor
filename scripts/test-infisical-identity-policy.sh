@@ -23,11 +23,11 @@ node "$ROOT/scripts/infisical-identity-policy.mjs" validate "$ROOT/config/infisi
 grep -Fq '"valid": true' "$TMP/bootstrap-release.out" || fail "bootstrap release identity policy was rejected"
 node "$ROOT/scripts/infisical-identity-policy.mjs" plan "$ROOT/config/infisical/bootstrap-release-identities.json" >"$TMP/bootstrap-release-plan.json"
 jq -e '
-  (.workloads | length) == 9 and all(.workloads[]; .authMode == "github-oidc") and
-  ([.workloads[].claims.environment] | unique | length) == 9 and
-  ([.workloads[].claims.workflowRef] | unique | length) == 5 and
-  ([.workloads[].authorization.path] | unique | length) == 9
-' "$TMP/bootstrap-release-plan.json" >/dev/null || fail "bootstrap release workloads do not have nine disjoint workflow-bound OIDC/environment/path boundaries"
+  (.workloads | length) == 10 and all(.workloads[]; .authMode == "github-oidc") and
+  ([.workloads[].claims.environment] | unique | length) == 10 and
+  ([.workloads[].claims.workflowRef] | unique | length) == 6 and
+  ([.workloads[].authorization.path] | unique | length) == 10
+' "$TMP/bootstrap-release-plan.json" >/dev/null || fail "bootstrap release workloads do not have ten disjoint workflow-bound OIDC/environment/path boundaries"
 jq -e '
   (.workloads | map(select(.id == "github-bootstrap-release-signer"))[0].authorization.secretNames == ["INSTALL_DOCTOR_RELEASE_SIGNING_KEY"]) and
   (.workloads | map(select(.id == "github-bootstrap-release-publisher"))[0].authorization.secretNames == [

@@ -50,8 +50,8 @@ if (/^\s*test-vm:/m.test(workflow)) failures.push('unversioned mutable VM jobs m
 
 requireMatch(/name: Assert observed container tuple[\s\S]*EXPECTED_OS_ID: \$\{\{ matrix\.osId \}\}[\s\S]*EXPECTED_VERSION: \$\{\{ matrix\.version \}\}[\s\S]*EXPECTED_ARCHITECTURE: \$\{\{ matrix\.architecture \}\}/,
   'workflow must bind every declared tuple to an observed platform assertion');
-requireMatch(/observed_id=.*\/etc\/os-release/, 'platform assertion must observe distro identity from /etc/os-release');
-requireMatch(/observed_version=.*\/etc\/os-release/, 'platform assertion must observe distro version from /etc/os-release');
+requireMatch(/\. \/etc\/os-release[\s\S]*observed_id="\$\{ID:-\}"/, 'platform assertion must observe distro identity from /etc/os-release');
+requireMatch(/\. \/etc\/os-release[\s\S]*observed_version="\$\{VERSION_ID:-\}"/, 'platform assertion must observe distro version from /etc/os-release');
 requireMatch(/observed_architecture="\$\(uname -m\)"/, 'platform assertion must observe machine architecture');
 requireMatch(/\[ -f \/\.dockerenv \]/, 'platform assertion must prove container execution');
 requireMatch(/\[ "\$observed_id" = "\$EXPECTED_OS_ID" \]/, 'platform assertion must reject an unexpected distro');
