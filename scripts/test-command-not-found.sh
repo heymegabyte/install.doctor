@@ -575,10 +575,10 @@ fi
 # and an unchanged second run cannot rerun a completed hook or recreate debt.
 trap 'true' INT
 phtrap_before="$(trap -p INT)"
-phmtime="$(stat -f %m "$phdir/interrupted-configured" 2>/dev/null || stat -c %Y "$phdir/interrupted-configured")"
+phmtime="$(stat -c %Y "$phdir/interrupted-configured" 2>/dev/null || stat -f %m "$phdir/interrupted-configured")"
 PATH="$phbin:$PATH" CNF_INDEX="$phidx" CNF_REPAIR_DIR="$phdir/repair" CNF_POST_HOOK_DIR="$phhooks" cnf_repair cfgbin >/dev/null 2>&1; phnooprc=$?
 phtrap_after="$(trap -p INT)"; trap - INT
-phmtime_after="$(stat -f %m "$phdir/interrupted-configured" 2>/dev/null || stat -c %Y "$phdir/interrupted-configured")"
+phmtime_after="$(stat -c %Y "$phdir/interrupted-configured" 2>/dev/null || stat -f %m "$phdir/interrupted-configured")"
 if [ "$phnooprc" -ne 0 ] && [ "$phtrap_before" = "$phtrap_after" ] && [ "$phmtime" = "$phmtime_after" ] && [ ! -e "$phstate" ]; then
   pass "L05/L06 — unchanged second repair is a no-op and preserves caller traps"
 else

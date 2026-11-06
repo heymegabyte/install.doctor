@@ -27,7 +27,7 @@ CNF_POST_HOOK_DIR="${CNF_POST_HOOK_DIR:-$HOME/.local/bin/post-installx}"
 __cnf_lock_path(){ printf '%s/%s.lock' "$CNF_LOCK_DIR" "$(printf '%s' "$1" | tr -c 'A-Za-z0-9_.-' '_')"; }
 __cnf_lock_age(){ local now mtime
   now="$(date +%s 2>/dev/null)" || return 1
-  mtime="$(stat -f %m "$1" 2>/dev/null || stat -c %Y "$1" 2>/dev/null)" || return 1
+  mtime="$(stat -c %Y "$1" 2>/dev/null || stat -f %m "$1" 2>/dev/null)" || return 1
   printf '%s' "$((now - mtime))"; }
 __cnf_process_identity(){ ps -o lstart= -p "$1" 2>/dev/null | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | head -1; }
 __cnf_install_owner_live(){ local lock="$1" pid saved current
@@ -118,7 +118,7 @@ __cnf_complete_repair(){ local state="$1" completed
 }
 __cnf_trusted_root_binary(){ local binary="$1" uid mode
   [ -f "$binary" ] && [ ! -L "$binary" ] || return 1
-  uid="$(stat -f '%u' "$binary" 2>/dev/null || stat -c '%u' "$binary" 2>/dev/null)"
+  uid="$(stat -c '%u' "$binary" 2>/dev/null || stat -f '%u' "$binary" 2>/dev/null)"
   mode="$(stat -c '%a' "$binary" 2>/dev/null || stat -f '%Lp' "$binary" 2>/dev/null)"
   [ "$uid" = 0 ] || return 1
   case "$mode" in *[2367][0-9]|*[0-9][2367]) return 1;; esac

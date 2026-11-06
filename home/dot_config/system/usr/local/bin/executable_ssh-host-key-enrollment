@@ -59,7 +59,7 @@ parent_mode="$(stat -c '%a' "$canonical_parent" 2>/dev/null || stat -f '%Lp' "$c
 known_hosts="$canonical_parent/$base"
 if [ -e "$known_hosts" ]; then
   [ -f "$known_hosts" ] && [ ! -L "$known_hosts" ] || die 'known_hosts must be a regular non-symlink file'
-  links="$(stat -f '%l' "$known_hosts" 2>/dev/null || stat -c '%h' "$known_hosts")"
+  links="$(stat -c '%h' "$known_hosts" 2>/dev/null || stat -f '%l' "$known_hosts")"
   [ "$links" = 1 ] || die 'known_hosts must have one link'
 else
   : >"$known_hosts"

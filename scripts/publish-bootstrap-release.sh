@@ -69,10 +69,10 @@ file_mode() {
 }
 
 file_owner() {
-  if stat -f '%u' "$1" >/dev/null 2>&1; then
-    stat -f '%u' "$1"
-  else
+  if stat -c '%u' "$1" >/dev/null 2>&1; then
     stat -c '%u' "$1"
+  else
+    stat -f '%u' "$1"
   fi
 }
 

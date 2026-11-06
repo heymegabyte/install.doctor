@@ -42,7 +42,7 @@ grep -Fq '[preserved]' "$CONFIG"
 grep -Fq 'access_key_id = access-fixture' "$CONFIG"
 grep -Fq 'secret_access_key = secret-fixture' "$CONFIG"
 [ "$(stat -c '%a' "$CONFIG" 2>/dev/null || stat -f '%Lp' "$CONFIG")" = 600 ]
-[ "$(stat -f '%u' "$CONFIG" 2>/dev/null || stat -c '%u' "$CONFIG")" = "$(id -u)" ]
+[ "$(stat -c '%u' "$CONFIG" 2>/dev/null || stat -f '%u' "$CONFIG")" = "$(id -u)" ]
 before="$(cksum "$CONFIG")"
 bash "$HOOK" --check
 bash "$HOOK" --apply

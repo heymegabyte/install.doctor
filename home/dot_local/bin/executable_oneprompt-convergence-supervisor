@@ -254,8 +254,8 @@ heartbeat_state() {
     return
   fi
   local modified now age
-  if modified="$(stat -f %m "$heartbeat_file" 2>/dev/null)"; then :
-  else modified="$(stat -c %Y "$heartbeat_file")"; fi
+  if modified="$(stat -c %Y "$heartbeat_file" 2>/dev/null)"; then :
+  else modified="$(stat -f %m "$heartbeat_file")"; fi
   now="$(date +%s)"
   age=$((now - modified))
   if test "$age" -le "$heartbeat_max_age"; then printf 'fresh\n'; else printf 'stale\n'; fi

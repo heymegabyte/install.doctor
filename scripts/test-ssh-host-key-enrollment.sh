@@ -114,7 +114,7 @@ MODE="$(stat -c '%a' "$KNOWN_HOSTS" 2>/dev/null || stat -f '%Lp' "$KNOWN_HOSTS")
 if [ "$MODE" = 600 ]; then pass 'known_hosts remains private mode 0600'; else fail "known_hosts mode is $MODE, expected 600"; fi
 
 file_identity() {
-  stat -f '%i:%m:%z' "$1" 2>/dev/null || stat -c '%i:%Y:%s' "$1"
+  stat -c '%i:%Y:%s' "$1" 2>/dev/null || stat -f '%i:%m:%z' "$1"
 }
 sha256_file() {
   if command -v shasum >/dev/null 2>&1; then

@@ -32,7 +32,7 @@ cleanup() { [ -z "$TMP_BLOCK" ] || rm -f -- "$TMP_BLOCK"; [ -z "$TMP_CONFIG" ] |
 trap cleanup EXIT HUP INT TERM
 
 mode() { stat -c '%a' "$1" 2>/dev/null || stat -f '%Lp' "$1" 2>/dev/null; }
-owner_uid() { stat -f '%u' "$1" 2>/dev/null || stat -c '%u' "$1" 2>/dev/null; }
+owner_uid() { stat -c '%u' "$1" 2>/dev/null || stat -f '%u' "$1" 2>/dev/null; }
 
 prerequisites() {
   command -v rclone >/dev/null 2>&1 || return 20

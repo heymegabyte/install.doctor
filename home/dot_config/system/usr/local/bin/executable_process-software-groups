@@ -48,7 +48,7 @@ userInGroup() { case " $(id -Gn "$1" 2>/dev/null) " in *" $2 "*) return 0 ;; *) 
 folderMatches() {
   local ACTUAL
   [ -d "$1" ] && [ ! -L "$1" ] || return 1
-  ACTUAL="$(stat -f '%Su:%Sg:%Lp' "$1" 2>/dev/null || stat -c '%U:%G:%a' "$1" 2>/dev/null)" || return 1
+  ACTUAL="$(stat -c '%U:%G:%a' "$1" 2>/dev/null || stat -f '%Su:%Sg:%Lp' "$1" 2>/dev/null)" || return 1
   [ "$ACTUAL" = "$2:$3:750" ]
 }
 
