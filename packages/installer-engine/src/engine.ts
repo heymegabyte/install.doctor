@@ -622,7 +622,12 @@ export function createInstallerEngine(options: EngineOptions): InstallerEngine {
               emit({ kind: 'task-status', taskId, status: verification, attempt });
               break;
             } catch (error) {
-              const classified = error instanceof InstallerOperationError ? error : new InstallerOperationError('operation failed', 'permanent');
+              const message = error instanceof Error
+                ? error.message.replaceAll(/[\0\r\n]+/g, ' ').trim().slice(0, 512)
+                : 'operation failed';
+              const classified = error instanceof InstallerOperationError
+                ? error
+                : new InstallerOperationError(message || 'operation failed', 'permanent');
               const retryable = (task.retry.class === 'transient' && classified.failureClass === 'transient')
                 || (task.retry.class === 'rate-limit' && (classified.failureClass === 'transient' || classified.failureClass === 'rate-limit'));
               if (classified.failureClass === 'cancelled' || controller.signal.aborted) throw new InstallerOperationError('operation cancelled', 'cancelled');
@@ -642,6 +647,10 @@ export function createInstallerEngine(options: EngineOptions): InstallerEngine {
           const interrupted = controller.signal.aborted || (error instanceof InstallerOperationError && error.failureClass === 'cancelled');
           statuses[taskId] = interrupted ? 'interrupted' : 'failed';
           await checkpoint(task, interrupted ? 'interrupted' : 'failed', finalAttempt || 1);
+          if (!interrupted) {
+            const message = error instanceof Error ? error.message : 'operation failed';
+            emit({ kind: 'output', taskId, stream: 'stderr', line: redactSecrets(`[operation-failed] ${message}`) });
+          }
           emit({ kind: 'task-status', taskId, status: interrupted ? 'interrupted' : 'failed', attempt: finalAttempt || 1 });
           if (!finalizer && !interrupted && task.failurePolicy === 'abort-run') {
             failurePolicyAbort = true;

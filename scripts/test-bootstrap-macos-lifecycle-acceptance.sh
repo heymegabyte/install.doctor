@@ -6,6 +6,10 @@ umask 077
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 FIXTURE="$(mktemp -d "${TMPDIR:-/tmp}/install-doctor-bootstrap-macos-lifecycle.XXXXXXXX")"
+# macOS exposes /var as a symlink to /private/var. Canonicalize the fixture so
+# managed-file safety checks prove the actual parent path instead of correctly
+# rejecting a path whose ancestors traverse that compatibility symlink.
+FIXTURE="$(cd "$FIXTURE" && pwd -P)"
 cleanup() {
   if [ "${INSTALL_DOCTOR_KEEP_CANARY_FIXTURE:-0}" = 1 ]; then
     printf 'bootstrap-macos-lifecycle-acceptance: retained fixture %s\n' "$FIXTURE" >&2
@@ -53,6 +57,22 @@ mkdir -p "$REPOSITORY/packages/control-plane/src"
 cp "$ROOT/scripts/provision.sh" "$REPOSITORY/provision.sh"
 cp "$ROOT/packages/installer-engine/dist/install-doctor-engine.mjs" "$REPOSITORY/install-doctor-engine.mjs"
 cp "$ROOT/packages/control-plane/src/catalog.json" "$REPOSITORY/packages/control-plane/src/catalog.json"
+# Keep the real hook files inside the signed source while preventing this
+# hermetic canary from selecting their host-mutating eager paths.
+node - "$REPOSITORY/packages/control-plane/src/catalog.json" <<'NODE'
+const fs = require('node:fs');
+const file = process.argv[2];
+const catalog = JSON.parse(fs.readFileSync(file, 'utf8'));
+for (const entry of catalog) {
+  if (!['mise', 'rclone'].includes(entry.name)) continue;
+  entry.preload = false;
+  entry.loadPolicy = 'lazy';
+  entry.loadRationale = 'default-lazy';
+  entry.deliveryMode = 'lazy';
+  delete entry.preloadReason;
+}
+fs.writeFileSync(file, `${JSON.stringify(catalog, null, 2)}\n`);
+NODE
 (cd "$ROOT" && tar --exclude='node_modules' --exclude='dist' -cf - packages/aid-core packages/installer-engine) \
   | (cd "$REPOSITORY" && tar -xf -)
 chmod 0700 "$REPOSITORY/provision.sh" "$REPOSITORY/install-doctor-engine.mjs"
@@ -276,7 +296,8 @@ exit 0
 SH
 
 
-mkdir -p "$FIXTURE/tools" "$FIXTURE/canary-home/.local/share/install.doctor/releases/acceptance"
+mkdir -p "$FIXTURE/tools" "$FIXTURE/canary-home/.local/share/install.doctor/releases/acceptance" "$FIXTURE/runtime"
+chmod 0700 "$FIXTURE/runtime"
 for TOOL in curl sudo rsync brew gum zx chezmoi process-software-groups process-software-post-scripts; do
   cp "$FIXTURE/$TOOL" "$FIXTURE/tools/$TOOL"
   chmod 0500 "$FIXTURE/tools/$TOOL"
@@ -438,6 +459,11 @@ chmod 0500 "$RUNNER"
 printf 'bootstrap-macos-lifecycle-acceptance: running isolated native Darwin fixture\n'
 OUTPUT="$FIXTURE/canary.out"
 HOME="$FIXTURE/canary-home" \
+XDG_CONFIG_HOME="$FIXTURE/canary-home/.config" \
+XDG_STATE_HOME="$FIXTURE/canary-home/.local/state" \
+XDG_DATA_HOME="$FIXTURE/canary-home/.local/share" \
+XDG_CACHE_HOME="$FIXTURE/canary-home/.cache" \
+XDG_RUNTIME_DIR="$FIXTURE/runtime" \
 PATH="$FIXTURE/tools:$PATH" \
 INSTALL_DOCTOR_RELEASE_DIR="$RELEASE" \
 INSTALL_DOCTOR_RELEASE_ID="$RELEASE_ID" \

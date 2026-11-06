@@ -55,6 +55,8 @@ requireMatch(acceptance, /run_provision\(\) \{ bash "\$INSTALL_DOCTOR_RELEASE_DI
   'lifecycle must invoke the exact independently verified released provisioner directly');
 requireMatch(acceptance, /INSTALL_DOCTOR_VERIFIED_MANIFEST="\$RELEASE\/manifest"[\s\S]*?INSTALL_DOCTOR_VERIFIED_SIGNATURE="\$RELEASE\/manifest\.sig"[\s\S]*?INSTALL_DOCTOR_ARTIFACT_SHA256="\$ARTIFACT_SHA"/,
   'direct provisioner invocation must carry the verified release authority');
+requireMatch(acceptance, /HOME="\$FIXTURE\/canary-home"[\s\S]*?XDG_CONFIG_HOME="\$FIXTURE\/canary-home\/\.config"[\s\S]*?XDG_STATE_HOME="\$FIXTURE\/canary-home\/\.local\/state"[\s\S]*?XDG_DATA_HOME="\$FIXTURE\/canary-home\/\.local\/share"/,
+  'native lifecycle must isolate HOME and every persistent XDG authority from the runner account');
 requireMatch(acceptance, /evidence_scope=native-macos-signed-fixture-lifecycle/,
   'acceptance must identify the bounded evidence scope');
 requireMatch(acceptance, /platform_promotion=0/, 'acceptance must disclaim platform promotion');

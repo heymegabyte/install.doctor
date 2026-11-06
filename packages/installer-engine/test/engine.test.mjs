@@ -693,6 +693,9 @@ test('run finalizer executes after ordinary failure and gates terminal completio
   assert.equal(result.taskStatuses[ordinary.id], 'failed');
   assert.equal(result.taskStatuses[finalizer.id], 'verified');
   assert.equal(result.receipt.status, 'failed');
+  assert.ok(result.events.some(event => event.kind === 'output'
+    && event.taskId === ordinary.id && event.stream === 'stderr'
+    && event.line === '[operation-failed] ordinary failure'));
   assert.deepEqual(calls, [
     `check:${ordinary.id}`, `apply:${ordinary.id}`,
     `check:${finalizer.id}`, `apply:${finalizer.id}`, `verify:${finalizer.id}`,
