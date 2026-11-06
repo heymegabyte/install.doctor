@@ -37,6 +37,25 @@ jobs:
     steps:
       - name: Checkout Repository
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 24.22.2
+          cache: npm
+          cache-dependency-path: |
+            packages/aid-core/package-lock.json
+            packages/installer-engine/package-lock.json
+            packages/control-plane/package-lock.json
+
+      - name: Install pinned test prerequisites
+        run: |
+          brew install ripgrep shellcheck
+          python3 -m pip install --disable-pip-version-check --only-binary=:all: PyYAML==6.0.3
+          npm --prefix packages/aid-core ci --ignore-scripts --no-audit --no-fund
+          npm --prefix packages/installer-engine ci --ignore-scripts --no-audit --no-fund
+          npm --prefix packages/control-plane ci --ignore-scripts --no-audit --no-fund
 
       - name: Assert observed platform tuple
         env:
@@ -77,8 +96,6 @@ jobs:
           bash scripts/test-detect-os.sh
 
       - name: Run full test suite at CI parity (blocking)
-        env:
-          CONTROL_PLANE_URL: https://app.install.doctor
         run: bash scripts/test-all.sh
 
       - name: Run Install Doctor (headless)

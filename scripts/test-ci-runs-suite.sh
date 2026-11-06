@@ -45,14 +45,22 @@ for wf in test-linux test-macos; do
   fi
 done
 
-# PR validation must exercise the checked-out revision. Production /start is covered separately by production
-# smoke checks; using it here means the PR can pass without executing any code from the PR.
-pr="$ROOT/.github/workflows/pr-install-doctor.yml"
-if grep -q 'actions/checkout@' "$pr" && grep -q 'bash scripts/provision.sh' "$pr" \
-  && ! grep -q 'curl .*install\.doctor/start' "$pr"; then
-  pass "PR installer workflow executes the checked-out scripts/provision.sh"
+# PR validation is owned by the exact tuple-bound Linux and macOS workflows.
+# A third direct-provision workflow previously duplicated them on mutable
+# `*-latest` runners and invoked a tuple the admission policy correctly rejects.
+for wf in test-linux test-macos; do
+  f="$ROOT/.github/workflows/$wf.yml"
+  if grep -q '^  pull_request:' "$f" && grep -q 'actions/checkout@' "$f" \
+    && ! grep -q 'curl .*install\.doctor/start' "$f"; then
+    pass "$wf.yml validates pull requests from the checked-out revision"
+  else
+    fail "$wf.yml must validate pull requests from the checked-out revision, not mutable production /start"
+  fi
+done
+if [ ! -e "$ROOT/.github/workflows/pr-install-doctor.yml" ]; then
+  pass "redundant mutable-runner PR provision workflow remains retired"
 else
-  fail "PR installer workflow must execute the checked-out revision, not mutable production /start"
+  fail "pr-install-doctor.yml duplicates tuple-bound PR validation and must remain retired"
 fi
 
 say "ci-runs-suite: $P passed, $F failed"
