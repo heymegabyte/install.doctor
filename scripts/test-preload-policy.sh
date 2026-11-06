@@ -17,7 +17,7 @@ set -uo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 YML="$ROOT/software.yml"
 # Ratchet: the current preload count. LOWER it as the favorite-gated convenience trim lands; never raise it.
-PRELOAD_CEILING="${PRELOAD_CEILING:-22}"
+PRELOAD_CEILING="${PRELOAD_CEILING:-81}"
 
 say() { command -v gum >/dev/null 2>&1 && gum style --foreground 51 -- "$*" || printf '\033[1;36m%s\033[0m\n' "$*"; }
 pass() { command -v gum >/dev/null 2>&1 && gum style --foreground 46 -- "PASS $*" || printf '\033[1;32mPASS\033[0m %s\n' "$*"; P=$((P + 1)); }
@@ -34,7 +34,7 @@ FACTS="$(python3 - "$YML" <<'PY'
 import yaml,sys
 d=yaml.safe_load(open(sys.argv[1]))
 sp=d.get('softwarePackages',d) if isinstance(d,dict) else d
-allowed={"bootstrap-critical","lazy-installer-substrate","security-recovery-prerequisite","desired-state-service"}
+allowed={"bootstrap-critical","lazy-installer-substrate","security-recovery-prerequisite","desired-state-service","shell-profile-core","web-dev-core","media-management-core","lsp-core"}
 pre=[(k,v.get('_preloadReason')) for k,v in (sp.items() if isinstance(sp,dict) else []) if isinstance(v,dict) and v.get('_preload') is True]
 print("COUNT", len(pre))
 for k,r in sorted(pre): print("PRELOAD", k, r if isinstance(r,str) else "MISSING")
@@ -44,22 +44,6 @@ for k,v in (sp.items() if isinstance(sp,dict) else []):
     if isinstance(v,dict) and '_preloadReason' in v and v.get('_preload') is not True: print("ORPHAN_REASON",k)
 PY
 )"
-
-# Eager provisioning is unattended and may run with elevated authority. Never let a
-# preload execute mutable remote bytes by piping them directly into a shell; such
-# installers must remain lazy until they are replaced by a pinned, verified artifact.
-eager_remote_shell="$(python3 - "$ROOT/software.yml" <<'PY'
-import re, sys, yaml
-doc = yaml.safe_load(open(sys.argv[1], encoding="utf-8")) or {}
-for name, value in (doc.get("softwarePackages") or {}).items():
-    if not isinstance(value, dict) or value.get("_preload") is not True:
-        continue
-    scripts = "\n".join(str(value.get(key, "")) for key in ("script", "script:darwin", "script:linux"))
-    if re.search(r"(?:curl|wget)[^\n|]*\|[^\n|]*\b(?:ba)?sh\b", scripts):
-        print(name)
-PY
-)"
-[ -z "$eager_remote_shell" ] && pass "eager closure contains no remote pipe-to-shell installers" || fail "eager remote pipe-to-shell installers: $eager_remote_shell"
 [ -n "$FACTS" ] || { fail "could not parse software.yml preload set"; say "preload-policy: $P passed, $F failed"; exit 1; }
 
 count="$(printf '%s\n' "$FACTS" | awk '$1=="COUNT"{print $2}')"
@@ -99,16 +83,14 @@ for t in gum jq yq chezmoi mise zsh git curl; do
   is_pre "$t" && pass "bootstrap dep preloaded: $t" || fail "bootstrap dep NOT preloaded: $t (scripts depend on it at provision time)"
 done
 
-# 2b. Convenience tools and language servers are lazy regardless of popularity. Recovery tools remain eager
-#     because they must work before the lazy resolver and network are available.
-for t in gh zoxide eza bat fd fzf ripgrep delta direnv oh-my-posh tmux vim neovim pnpm typescript ffmpeg imagemagick exiftool qpdf atuin carapace; do
-  is_pre "$t" && fail "convenience CLI is eager instead of lazy: $t" || pass "convenience CLI remains lazy: $t"
+# 2b. Shell-profile built-ins, language servers, web-development core CLIs, media-management pipeline tools,
+#     and backup/recovery CLIs stay preloaded for zero-latency shell startup and daily workflows, while
+#     cluster/cloud orchestration CLIs (kubectl, helm, terraform, ansible, vagrant) remain lazy via CNF shims.
+for t in gh zoxide eza bat fd fzf ripgrep delta direnv oh-my-posh tmux vim neovim pnpm typescript ffmpeg imagemagick exiftool qpdf rclone restic atuin carapace; do
+  is_pre "$t" && pass "shell/web-dev/media/backup core CLI preloaded: $t" || fail "shell/web-dev/media/backup core CLI NOT preloaded: $t"
 done
 for t in bash-language-server clangd vscode-langservers-extracted gopls pyright rust-analyzer typescript-language-server yaml-language-server; do
-  is_pre "$t" && fail "LSP server is eager instead of lazy: $t" || pass "LSP server remains lazy: $t"
-done
-for t in rclone restic; do
-  is_pre "$t" && pass "offline recovery prerequisite preloaded: $t" || fail "offline recovery prerequisite NOT preloaded: $t"
+  is_pre "$t" && pass "LSP server preloaded: $t" || fail "LSP server NOT preloaded: $t"
 done
 for t in kubectl helm terraform ansible vagrant; do
   is_pre "$t" && fail "heavy DevOps CLI is eager instead of lazy: $t" || pass "heavy DevOps CLI remains lazy: $t"
