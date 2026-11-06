@@ -512,15 +512,16 @@ export PATH="$HOME/.local/share/mise/shims:$HOME/.bun/bin:$HOME/.local/share/car
 mkdir -p "$HOME/.local/bin" "$HOME/.config/shell" "$HOME/.cache/cnf/shims"
 
 # -----------------------------------------------------------------------------
-# 1. Eager Base APT Packages (Minimal Substrates, GPU/System Monitors, ZFS Sanoid; CLI tools lazy-load via CNF)
+# 1. Eager Base APT Packages (Substrates, Shell Profile Built-ins, Web-Dev & Media Management CLIs)
 # -----------------------------------------------------------------------------
 if command -v apt-get >/dev/null 2>&1 && { [ "$(id -u)" -eq 0 ] || [ -n "$SUDO" ]; }; then
-  log "Installing minimal foundation packages via APT (all convenience/media/linter CLIs lazy-load via CNF)..."
+  log "Installing foundation, shell-profile, web-dev, and media-management CLIs via APT..."
   run_root env DEBIAN_FRONTEND=noninteractive apt-get update -qq || true
   run_root env DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
-    ca-certificates curl wget git jq zsh tmux ripgrep fd-find fzf bat \
-    htop btop nvtop gh sanoid lzop pv mbuffer \
+    ca-certificates curl wget git jq zsh tmux vim neovim ripgrep fd-find fzf bat eza zoxide direnv \
+    htop btop nvtop gh rclone restic sanoid lzop pv mbuffer \
     age build-essential pkg-config libssl-dev unzip xz-utils zstd \
+    ffmpeg imagemagick libimage-exiftool-perl qpdf poppler-utils tesseract-ocr graphviz pandoc yt-dlp \
     smartmontools net-tools bind9-dnsutils ufw unattended-upgrades apt-listchanges \
     lm-sensors i2c-tools dkms python3-yaml python3-pip python3-venv >/dev/null 2>&1 || true
 fi
@@ -662,7 +663,8 @@ if command -v npm >/dev/null 2>&1; then
     @openai/codex \
     opencode-ai \
     @fission-ai/openspec \
-    pnpm >/dev/null 2>&1 || true
+    pnpm \
+    typescript >/dev/null 2>&1 || true
 fi
 
 # Install/update Google Antigravity CLI (agy) via official auto-updater manifest
@@ -1258,6 +1260,20 @@ def collect_metrics() -> str:
             ])
         except Exception:
             pass
+        try:
+            out = subprocess.check_output(["zpool", "list", "-H", "-o", "name,cap,health"], text=True, timeout=2)
+            lines.append("# HELP zpool_capacity_percent ZFS pool capacity percentage")
+            lines.append("# TYPE zpool_capacity_percent gauge")
+            lines.append("# HELP zpool_health_ok ZFS pool health status (1=ONLINE, 0=DEGRADED/FAULTED)")
+            lines.append("# TYPE zpool_health_ok gauge")
+            for row in out.strip().splitlines():
+                parts = row.split()
+                if len(parts) >= 3:
+                    pname, pcap, phealth = parts[0], parts[1].rstrip("%"), parts[2]
+                    lines.append(f'zpool_capacity_percent{{pool="{pname}"}} {float(pcap):.0f}')
+                    lines.append(f'zpool_health_ok{{pool="{pname}",state="{phealth}"}} {1 if phealth == "ONLINE" else 0}')
+        except Exception:
+            pass
 
     for res in ("cpu", "memory", "io"):
         psi_path = f"/proc/pressure/{res}"
@@ -1377,10 +1393,24 @@ discovery.docker "local_containers" {
   host = "unix:///var/run/docker.sock"
 }
 
+loki.relabel "docker" {
+  forward_to = []
+  rule {
+    source_labels = ["__meta_docker_container_name"]
+    regex         = "/(.*)"
+    target_label  = "container"
+  }
+  rule {
+    source_labels = ["__meta_docker_container_log_stream"]
+    target_label  = "stream"
+  }
+}
+
 loki.source.docker "containers" {
-  host       = "unix:///var/run/docker.sock"
-  targets    = discovery.docker.local_containers.targets
-  labels     = {
+  host          = "unix:///var/run/docker.sock"
+  targets       = discovery.docker.local_containers.targets
+  relabel_rules = loki.relabel.docker.rules
+  labels        = {
     host = "${HOST_SHORT}",
     job  = "docker",
   }
@@ -1392,6 +1422,10 @@ loki.relabel "journal" {
   rule {
     source_labels = ["__journal__systemd_unit"]
     target_label  = "unit"
+  }
+  rule {
+    source_labels = ["__journal_priority_keyword"]
+    target_label  = "level"
   }
 }
 
@@ -1967,14 +2001,24 @@ set -euo pipefail
 [ -w /sys/kernel/mm/transparent_hugepage/enabled ] && echo madvise > /sys/kernel/mm/transparent_hugepage/enabled || true
 [ -w /sys/kernel/mm/transparent_hugepage/defrag ] && echo defer+madvise > /sys/kernel/mm/transparent_hugepage/defrag || true
 [ -w /sys/kernel/mm/transparent_hugepage/khugepaged/max_ptes_none ] && echo 511 > /sys/kernel/mm/transparent_hugepage/khugepaged/max_ptes_none || true
-for q in /sys/block/nvme*n1/queue; do
+for q in /sys/block/nvme*n1/queue /sys/block/sd*/queue; do
   [ -d "$q" ] || continue
   [ -w "$q/rq_affinity" ] && echo 2 > "$q/rq_affinity" 2>/dev/null || true
   [ -w "$q/add_random" ] && echo 0 > "$q/add_random" 2>/dev/null || true
-  [ -w "$q/nr_requests" ] && echo 2048 > "$q/nr_requests" 2>/dev/null || true
+  dev_qd="$(cat "$(dirname "$q")/device/queue_depth" 2>/dev/null || echo 32)"
+  if [ "${dev_qd:-32}" -le 1 ]; then
+    [ -w "$q/nr_requests" ] && echo 64 > "$q/nr_requests" 2>/dev/null || true
+    [ -w "$q/max_sectors_kb" ] && echo 128 > "$q/max_sectors_kb" 2>/dev/null || true
+    [ -w "$(dirname "$q")/device/power/control" ] && echo on > "$(dirname "$q")/device/power/control" 2>/dev/null || true
+  else
+    [ -w "$q/nr_requests" ] && echo 2048 > "$q/nr_requests" 2>/dev/null || true
+  fi
 done
 for p in /sys/devices/system/cpu/cpu*/cpufreq/energy_performance_preference; do
   [ -w "$p" ] && echo balance_performance > "$p" 2>/dev/null || true
+done
+for alpm in /sys/class/scsi_host/host*/link_power_management_policy; do
+  [ -w "$alpm" ] && echo max_performance > "$alpm" 2>/dev/null || true
 done
 for b in /sys/class/power_supply/BAT*/charge_control_end_threshold; do
   [ -w "$b" ] && echo 80 > "$b" 2>/dev/null || true
@@ -2020,20 +2064,32 @@ EOF
     fi
   fi
 
-  # Weekly TRIM timers (fstrim + ZFS rpool/bpool) & OpenZFS zstd-fast-3 + dnode limit
+  # Weekly TRIM timers (fstrim + ZFS rpool/bpool) & OpenZFS zstd-fast-3 + dnode limit + SM951 AHCI autotrim guard
   run_root systemctl enable --now fstrim.timer >/dev/null 2>&1 || true
   if command -v zpool >/dev/null 2>&1; then
     [ -w /sys/module/zfs/parameters/zfs_arc_dnode_limit_percent ] && echo 20 | run_root tee /sys/module/zfs/parameters/zfs_arc_dnode_limit_percent >/dev/null 2>&1 || true
-    home_ds="$(zfs list -H -o name /home 2>/dev/null | head -n 1 || true)"
-    [ -n "$home_ds" ] && run_root zfs set compression=zstd-fast-3 "$home_ds" 2>/dev/null || true
+    for ds in $(zfs list -H -o name -r rpool 2>/dev/null || true); do
+      run_root zfs set compression=zstd-fast-3 "$ds" 2>/dev/null || true
+    done
+    # Disable continuous NCQ autotrim on Samsung SM951 (MZHPV512HDGL) AHCI PCIe SSDs to prevent concurrent FPDMA TRIM+WRITE aborts
+    if lsblk -d -no MODEL 2>/dev/null | grep -qi 'MZHPV512HDGL'; then
+      for pool in rpool bpool; do
+        if zpool list -H -o name "$pool" >/dev/null 2>&1; then
+          run_root zpool set autotrim=off "$pool" 2>/dev/null || true
+          if zpool status "$pool" 2>/dev/null | grep -q "state: DEGRADED" && zpool status "$pool" 2>/dev/null | grep -q "No known data errors"; then
+            run_root zpool clear "$pool" 2>/dev/null || true
+          fi
+        fi
+      done
+    fi
     cat > "$TMP_DIR/zfs-trim-weekly@.service" <<'EOF'
 [Unit]
-Description=Weekly ZFS pool TRIM on %i
+Description=Weekly ZFS pool TRIM on %i (rate-limited 128M/s for AHCI/NVMe stability)
 ConditionACPower=true
 
 [Service]
 Type=oneshot
-ExecStart=/sbin/zpool trim %i
+ExecStart=/sbin/zpool trim -r 128M %i
 EOF
     cat > "$TMP_DIR/zfs-trim-weekly@.timer" <<'EOF'
 [Unit]
@@ -2227,9 +2283,11 @@ PBS_VER="$(proxmox-backup-client version 2>/dev/null | head -n1 || printf "missi
 if command -v zfs >/dev/null 2>&1; then
   ZFS_SNAPS="$(zfs list -H -t snapshot 2>/dev/null | wc -l | tr -d " ")"
   BCLONE="$(cat /sys/module/zfs/parameters/zfs_bclone_enabled 2>/dev/null || printf "n/a")"
+  ZPOOL_HEALTH="$(zpool list -H -o health 2>/dev/null | sort -u | paste -sd, - || printf "n/a")"
 else
   ZFS_SNAPS="0"
   BCLONE="n/a"
+  ZPOOL_HEALTH="n/a"
 fi
 BBR="$(sysctl -n net.ipv4.tcp_congestion_control 2>/dev/null || printf "unknown")"
 THP_DEFRAG="$(sed -E "s/.*\[([^]]+)\].*/\1/" /sys/kernel/mm/transparent_hugepage/defrag 2>/dev/null || printf "n/a")"
@@ -2240,8 +2298,8 @@ EGRESS_GUARD="$(systemctl is-active fleet-egress-guard.service 2>/dev/null || tr
 CROWDSEC_STATE="$(systemctl is-active crowdsec 2>/dev/null || true)"
 SANDBOX_READY="$(command -v fleet-agent-sandbox >/dev/null 2>&1 && command -v bwrap >/dev/null 2>&1 && printf "ready" || printf "missing")"
 FAILED_UNITS="$(systemctl --failed --no-legend --plain 2>/dev/null | wc -l | tr -d " ")"
-printf "host=%s pbs=\"%s\" zfs_snaps=%s bclone=%s bbr=%s thp=%s ssh_pqc=%s %s=%s egress_nft=%s crowdsec=%s sandbox=%s failed=%s\n" \
-  "$HOST" "$PBS_VER" "$ZFS_SNAPS" "$BCLONE" "$BBR" "$THP_DEFRAG" "$PQC" "$RETIRED_VPN" "$RETIRED_VPN_STATE" "$EGRESS_GUARD" "$CROWDSEC_STATE" "$SANDBOX_READY" "$FAILED_UNITS"
+printf "host=%s pbs=\"%s\" zfs_snaps=%s zpool_health=%s bclone=%s bbr=%s thp=%s ssh_pqc=%s %s=%s egress_nft=%s crowdsec=%s sandbox=%s failed=%s\n" \
+  "$HOST" "$PBS_VER" "$ZFS_SNAPS" "$ZPOOL_HEALTH" "$BCLONE" "$BBR" "$THP_DEFRAG" "$PQC" "$RETIRED_VPN" "$RETIRED_VPN_STATE" "$EGRESS_GUARD" "$CROWDSEC_STATE" "$SANDBOX_READY" "$FAILED_UNITS"
 EOF
   run_root install -m 0755 "$TMP_DIR/fleet-dr-verify" /usr/local/bin/fleet-dr-verify
   run_root ln -sf /usr/local/bin/fleet-dr-verify /usr/local/bin/fleet-parity-audit
