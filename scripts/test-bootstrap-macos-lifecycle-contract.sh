@@ -32,8 +32,8 @@ requireMatch(nativeJob, /uses: actions\/setup-node@[a-f0-9]{40}[\s\S]*?node-vers
 requireMatch(nativeJob, /timeout-minutes: 20/, 'native lifecycle job must have a bounded timeout');
 requireMatch(nativeJob, /name: Verify native macOS signed lifecycle fixture \(not platform promotion or canonical \/start transport proof\)[\s\S]*?bash scripts\/test-bootstrap-macos-lifecycle-contract\.sh[\s\S]*?INSTALL_DOCTOR_RUN_NATIVE_MACOS_LIFECYCLE=1 bash scripts\/test-bootstrap-macos-lifecycle-acceptance\.sh/,
   'workflow must run the contract before the native lifecycle acceptance and state its evidence limits');
-requireMatch(nativeJob, /npm --prefix packages\/aid-core ci --ignore-scripts --no-audit --no-fund[\s\S]*?npm --prefix packages\/installer-engine ci --ignore-scripts --no-audit --no-fund/,
-  'native job must install locked engine dependencies');
+requireMatch(nativeJob, /npm --prefix packages\/aid-core ci --ignore-scripts --no-audit --no-fund[\s\S]*?npm --prefix packages\/control-plane ci --ignore-scripts --no-audit --no-fund[\s\S]*?npm --prefix packages\/installer-engine ci --ignore-scripts --no-audit --no-fund/,
+  'native job must install every locked release-build dependency');
 if (/continue-on-error:\s*true/.test(nativeJob)) failures.push('native lifecycle job must remain blocking');
 
 requireMatch(acceptance, /\[ "\$\(uname -s\)" = Darwin \]/,
