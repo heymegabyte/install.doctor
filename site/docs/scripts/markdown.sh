@@ -18,13 +18,18 @@ fi
 # @description Verifies explicit build dependencies without mutating the host
 requireGeneratorTools() {
   local missing=()
-  for tool in rsync shdoc task; do
+  for tool in node rsync shdoc task; do
     command -v "$tool" >/dev/null 2>&1 || missing+=("$tool")
   done
   if ((${#missing[@]})); then
     printf 'Missing documentation generator tool(s): %s\n' "${missing[*]}" >&2
     exit 69
   fi
+}
+
+# @description Emits one JSON string, which is also a valid YAML scalar
+yamlString() {
+  node -e 'process.stdout.write(JSON.stringify(process.argv[1]))' "$1"
 }
 
 # @description Removes stale generated text while preserving image assets
@@ -69,10 +74,14 @@ populateHomeScripts() {
     if echo "$SCRIPT" | grep '[0-9][0-9]' > /dev/null; then
         NUMBER_ID_PREFIX="$(echo "$SCRIPT" | sed 's/.*\([0-9][0-9]\).*/\1/') "
     fi
+    TITLE="$(shdoc < "$SCRIPT" | head -n 1 | sed 's/\# //')"
+    [ -n "$TITLE" ] || TITLE="$(basename "$SCRIPT")"
+    DESCRIPTION="$(shdoc < "$SCRIPT" | sed -n '3p')"
+    [ -n "$DESCRIPTION" ] || DESCRIPTION="Generated reference for $(basename "$SCRIPT")"
     echo "---" > "$MD_FILE"
-    echo "title: $(shdoc < "$SCRIPT" | head -n 1 | sed 's/\# //')" >> "$MD_FILE"
-    echo "description: $(shdoc < "$SCRIPT" | sed -n '3p')" >> "$MD_FILE"
-    echo "sidebar_label: $NUMBER_ID_PREFIX$(shdoc < "$SCRIPT" | head -n 1 | sed 's/\# //')" >> "$MD_FILE"
+    echo "title: $(yamlString "$TITLE")" >> "$MD_FILE"
+    echo "description: $(yamlString "$DESCRIPTION")" >> "$MD_FILE"
+    echo "sidebar_label: $(yamlString "$NUMBER_ID_PREFIX$TITLE")" >> "$MD_FILE"
     echo "slug: /scripts/$TAG/$(basename "$SCRIPT")" >> "$MD_FILE"
     REPO_PATH="${SCRIPT#"$INSTALL_DOCTOR_ROOT/"}"
     echo "githubLocation: https://github.com/heymegabyte/install.doctor/blob/master/$REPO_PATH" >> "$MD_FILE"
@@ -97,10 +106,14 @@ populateDanglingScripts() {
     shdoc < "$SCRIPT" | sed '/### /,$!d' | sed 's/^### \(.*\)$/### `\1`/' >> "$TMP"
     MD_FILE="$DOCS_SITE_ROOT/docs/scripts/utility/$(basename "$SCRIPT").md"
     TAG=utility
+    TITLE="$(shdoc < "$SCRIPT" | head -n 1 | sed 's/\# //')"
+    [ -n "$TITLE" ] || TITLE="$(basename "$SCRIPT")"
+    DESCRIPTION="$(shdoc < "$SCRIPT" | sed -n '3p')"
+    [ -n "$DESCRIPTION" ] || DESCRIPTION="Generated reference for $(basename "$SCRIPT")"
     echo "---" > "$MD_FILE"
-    echo "title: $(shdoc < "$SCRIPT" | head -n 1 | sed 's/\# //')" >> "$MD_FILE"
-    echo "description: $(shdoc < "$SCRIPT" | sed -n '3p')" >> "$MD_FILE"
-    echo "sidebar_label: $(shdoc < "$SCRIPT" | head -n 1 | sed 's/\# //')" >> "$MD_FILE"
+    echo "title: $(yamlString "$TITLE")" >> "$MD_FILE"
+    echo "description: $(yamlString "$DESCRIPTION")" >> "$MD_FILE"
+    echo "sidebar_label: $(yamlString "$TITLE")" >> "$MD_FILE"
     echo "slug: /scripts/$TAG/$(basename "$SCRIPT")" >> "$MD_FILE"
     REPO_PATH="${SCRIPT#"$INSTALL_DOCTOR_ROOT/"}"
     echo "githubLocation: https://github.com/heymegabyte/install.doctor/blob/master/$REPO_PATH" >> "$MD_FILE"
@@ -132,9 +145,11 @@ populateTaskfileScripts() {
       SUMMARY="$(task --summary "$TASK")"
       LINE_NUMBER="$(awk '/  '"$TASK"':/{ print NR; exit }' Taskfile.yml)"
       echo "---" > "$FILE"
-      echo "title: "$(echo "$SUMMARY" | sed -n '3p' | sed 's/\# //')"" >> "$FILE"
-      echo "description: $TASK_DESC" >>"$FILE"
-      echo "sidebar_label: $TASK" >> "$FILE"
+      TITLE="$(echo "$SUMMARY" | sed -n '3p' | sed 's/\# //')"
+      [ -n "$TITLE" ] || TITLE="$TASK"
+      echo "title: $(yamlString "$TITLE")" >> "$FILE"
+      echo "description: $(yamlString "$TASK_DESC")" >>"$FILE"
+      echo "sidebar_label: $(yamlString "$TASK")" >> "$FILE"
       echo "slug: /cli/commands/$(echo "$TASK" | tr ":" -)" >> "$FILE"
       echo "githubLocation: https://github.com/heymegabyte/install.doctor/blob/master/home/dot_config/task/Taskfile.yml#L$LINE_NUMBER" >> "$FILE"
       echo "repoLocation: home/dot_config/task/Taskfile.yml" >> "$FILE"

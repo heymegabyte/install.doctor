@@ -23,6 +23,12 @@ grep -Fq "printf '%s\\n' \"\$TASKS\" | while IFS= read -r LINE" "$GENERATOR" \
   || fail "task documentation discovery reparses a decorated command stream"
 pass "task documentation discovery uses one undecorated machine-readable stream"
 
+grep -Fq "JSON.stringify(process.argv[1])" "$GENERATOR" \
+  || fail "generated frontmatter scalars are not safely encoded"
+grep -Fq 'Generated reference for $(basename "$SCRIPT")' "$GENERATOR" \
+  || fail "scripts without shdoc metadata have no deterministic fallback"
+pass "generated frontmatter is encoded and has deterministic fallbacks"
+
 DOCS_SITE_ROOT="$TMP/site" INSTALL_DOCTOR_ROOT="$ROOT" MARKDOWN_COPY_ONLY=1 \
   bash "$GENERATOR" || fail "copy-only generation failed"
 
