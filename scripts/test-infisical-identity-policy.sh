@@ -8,6 +8,7 @@ trap 'rm -rf "$TMP"' EXIT
 fail() { printf 'FAIL: %s\n' "$*" >&2; exit 1; }
 
 test -f "$ROOT/config/infisical/identity-policy.schema.json" || fail "identity policy schema missing"
+test -f "$ROOT/config/infisical/bootstrap-release-identities.json" || fail "bootstrap release identity policy missing"
 jq -e '.properties.workloads.items.required | index("rotation") != null' "$ROOT/config/infisical/identity-policy.schema.json" >/dev/null \
   || fail "schema does not require rotation policy"
 test -f "$ROOT/.github/workflows/infisical-policy.yml" || fail "policy workflow missing"
@@ -17,6 +18,41 @@ grep -Fq 'contents: read' "$ROOT/.github/workflows/infisical-policy.yml" || fail
   || fail "read-only policy workflow must not mint OIDC tokens"
 grep -Fq 'test-infisical-identity-policy.sh' "$ROOT/.github/workflows/infisical-policy.yml" \
   || fail "workflow does not execute focused policy test"
+
+node "$ROOT/scripts/infisical-identity-policy.mjs" validate "$ROOT/config/infisical/bootstrap-release-identities.json" >"$TMP/bootstrap-release.out"
+grep -Fq '"valid": true' "$TMP/bootstrap-release.out" || fail "bootstrap release identity policy was rejected"
+node "$ROOT/scripts/infisical-identity-policy.mjs" plan "$ROOT/config/infisical/bootstrap-release-identities.json" >"$TMP/bootstrap-release-plan.json"
+jq -e '
+  (.workloads | length) == 9 and all(.workloads[]; .authMode == "github-oidc") and
+  ([.workloads[].claims.environment] | unique | length) == 9 and
+  ([.workloads[].claims.workflowRef] | unique | length) == 5 and
+  ([.workloads[].authorization.path] | unique | length) == 9
+' "$TMP/bootstrap-release-plan.json" >/dev/null || fail "bootstrap release workloads do not have nine disjoint workflow-bound OIDC/environment/path boundaries"
+jq -e '
+  (.workloads | map(select(.id == "github-bootstrap-release-signer"))[0].authorization.secretNames == ["INSTALL_DOCTOR_RELEASE_SIGNING_KEY"]) and
+  (.workloads | map(select(.id == "github-bootstrap-release-publisher"))[0].authorization.secretNames == [
+    "INSTALL_DOCTOR_RELEASE_R2_ACCESS_KEY_ID",
+    "INSTALL_DOCTOR_RELEASE_R2_BUCKET",
+    "INSTALL_DOCTOR_RELEASE_R2_ENDPOINT",
+    "INSTALL_DOCTOR_RELEASE_R2_SECRET_ACCESS_KEY"
+  ]) and
+  (.workloads | map(select(.id == "github-bootstrap-release-activator"))[0].authorization.secretNames | index("INSTALL_DOCTOR_RELEASE_SIGNING_KEY") == null) and
+  (.workloads | map(select(.id == "github-offline-bundle-authority"))[0] |
+    (.authorization.secretNames == [
+      "INSTALL_DOCTOR_OFFLINE_R2_ACCESS_KEY_ID",
+      "INSTALL_DOCTOR_OFFLINE_R2_BUCKET",
+      "INSTALL_DOCTOR_OFFLINE_R2_ENDPOINT",
+      "INSTALL_DOCTOR_OFFLINE_R2_SECRET_ACCESS_KEY",
+      "INSTALL_DOCTOR_OFFLINE_SIGNING_KEY"
+    ]) and
+    (.auth.claims.environment == "offline-bundle-authority") and
+    (.auth.claims.workflow_ref == "heymegabyte/install.doctor/.github/workflows/offline-bundle-authority.yml@refs/heads/master")) and
+  (.workloads | map(select(.id == "github-bootstrap-release-monitor"))[0] |
+    (.authorization.secretNames | index("INSTALL_DOCTOR_RELEASE_SIGNING_KEY") == null) and
+    (.platformBindings | length == 1) and
+    (.platformBindings[0].platform == "cloudflare-r2-channel-and-release-read-only"))
+' "$ROOT/config/infisical/bootstrap-release-identities.json" >/dev/null \
+  || fail "bootstrap release secret allowlists do not match their code authority boundaries"
 
 cat >"$TMP/valid.json" <<'JSON'
 {
@@ -31,8 +67,14 @@ cat >"$TMP/valid.json" <<'JSON'
         "issuer": "https://token.actions.githubusercontent.com",
         "claims": {
           "repository": "heymegabyte/install.doctor",
+          "repository_id": "588807533",
+          "repository_owner_id": "82490183",
           "ref": "refs/heads/master",
-          "environment": "prod"
+          "environment": "prod",
+          "workflow_ref": "heymegabyte/install.doctor/.github/workflows/bootstrap-release-production.yml@refs/heads/master",
+          "event_name": "workflow_dispatch",
+          "aud": "https://github.com/heymegabyte",
+          "sub": "repo:heymegabyte/install.doctor:environment:prod"
         },
         "accessTokenTtlSeconds": 900,
         "accessTokenMaxTtlSeconds": 1800,
@@ -128,7 +170,7 @@ jq '(.workloads[0].auth.claims.ref) = "*"' "$TMP/valid.json" >"$TMP/wildcard.jso
 if node "$ROOT/scripts/infisical-identity-policy.mjs" validate "$TMP/wildcard.json" >"$TMP/wildcard.out" 2>&1; then
   fail "wildcard GitHub ref was accepted"
 fi
-grep -Fq 'exact repository/ref/environment claims' "$TMP/wildcard.out" || fail "OIDC claim diagnostic missing"
+grep -Fq 'immutable repository IDs, exact workflow/ref/environment/audience/subject claims' "$TMP/wildcard.out" || fail "OIDC claim diagnostic missing"
 
 jq '(.workloads[1].auth.clientSecretExpiresAt) = null' "$TMP/valid.json" >"$TMP/no-expiry.json"
 if node "$ROOT/scripts/infisical-identity-policy.mjs" validate "$TMP/no-expiry.json" >"$TMP/no-expiry.out" 2>&1; then

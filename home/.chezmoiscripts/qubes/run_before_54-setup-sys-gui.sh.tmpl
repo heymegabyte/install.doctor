@@ -1,36 +1,9 @@
 {{- if (eq .host.distro.id "qubes") -}}
 #!/usr/bin/env bash
-# @file Qubes `sys-gui-gpu`
-# @brief Enables `sys-gui-gpu` if a compatible GPU controller is found on Qubes dom0
-# @description
-#     This script enables `sys-gui-gpu` which allows you to secure dom0 even more by seperating the GUI
-#     management from dom0 and into a seperate Qube.
+set -euo pipefail
 
-{{ includeTemplate "universal/profile-before" }}
 {{ includeTemplate "universal/logg-before" }}
 
-### Enables sys-gui-gpu
-enableSysGUIGPU() {
-  gum log -sl info 'Enabling sys-gui-gpu'
-  qubesctl top.enable qvm.sys-gui-gpu
-  qubesctl top.enable qvm.sys-gui-gpu pillar=True
-  qubesctl --all state.highstate
-  qubesctl top.disable qvm.sys-gui-gpu
-}
-
-### Enable appropriate sys-gui
-if qvm-pci list | grep 'VGA compatible controller' | grep 'Intel'; then
-  gum log -sl info 'An Intel GPU was detected'
-  enableSysGUIGPU
-  gum log -sl info 'Attaching Intel GPU PCI devices to sys-gui-gpu'
-  qubesctl state.sls qvm.sys-gui-gpu-attach-gpu
-elif qvm-pci list | grep 'VGA compatible controller' | grep 'NVIDIA'; then
-  gum log -sl info 'An NVIDIA GPU was detected'
-  enableSysGUIGPU
-  gum log -sl info 'Attaching NVIDIA GPU PCI devices to sys-gui-gpu'
-  for ID in $(qvm-pci list | grep 'NVIDIA' | sed 's/^\([^ ]*\).*/\1/'); do
-    gum log -sl info "Attaching PCI device with ID of $ID"
-    qvm-pci attach sys-gui-gpu "$ID" --persistent -o permissive=true
-  done
-fi
+gum log -sl error 'Qubes sys-gui GPU mutation is unsupported until device identity, rollback, and signed real-host canary evidence exist; refusing Salt and persistent PCI mutation'
+exit 78
 {{ end -}}

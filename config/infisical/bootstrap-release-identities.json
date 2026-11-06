@@ -1,0 +1,496 @@
+{
+  "$schema": "./identity-policy.schema.json",
+  "schemaVersion": 1,
+  "workloads": [
+    {
+      "id": "github-bootstrap-release-signer",
+      "runtime": "github-actions",
+      "availableAuthModes": ["github-oidc"],
+      "auth": {
+        "mode": "github-oidc",
+        "issuer": "https://token.actions.githubusercontent.com",
+        "claims": {
+          "repository": "heymegabyte/install.doctor",
+          "repository_id": "588807533",
+          "repository_owner_id": "82490183",
+          "ref": "refs/heads/master",
+          "environment": "bootstrap-release-sign",
+          "workflow_ref": "heymegabyte/install.doctor/.github/workflows/bootstrap-release-production.yml@refs/heads/master",
+          "event_name": "workflow_dispatch",
+          "aud": "https://github.com/heymegabyte",
+          "sub": "repo:heymegabyte/install.doctor:environment:bootstrap-release-sign"
+        },
+        "accessTokenTtlSeconds": 300,
+        "accessTokenMaxTtlSeconds": 600,
+        "accessTokenMaxUses": 4,
+        "trustedIpRationale": "GitHub-hosted runner addresses are not stable; exact repository, ref, and protected-environment claims are the boundary."
+      },
+      "authorization": {
+        "project": "install-doctor",
+        "environment": "prod",
+        "path": "/ci/bootstrap-release/signer",
+        "secretNames": ["INSTALL_DOCTOR_RELEASE_SIGNING_KEY"],
+        "inheritedGrants": []
+      },
+      "platformBindings": [],
+      "revocation": {
+        "tokenCacheWindowSeconds": 60,
+        "urgentProcedure": ["disable-identity", "revoke-issuing-credential", "wait-cache-window", "verify-denied"]
+      },
+      "rotation": {
+        "overlapSeconds": 300,
+        "steps": ["issue-new", "reload-consumer", "health-check", "revoke-old", "verify-old-denied"],
+        "healthCheck": "sign-test-manifest-and-verify-with-source-pinned-public-key"
+      }
+    },
+    {
+      "id": "github-bootstrap-release-renew-preparer",
+      "runtime": "github-actions",
+      "availableAuthModes": ["github-oidc"],
+      "auth": {
+        "mode": "github-oidc",
+        "issuer": "https://token.actions.githubusercontent.com",
+        "claims": {
+          "repository": "heymegabyte/install.doctor",
+          "repository_id": "588807533",
+          "repository_owner_id": "82490183",
+          "ref": "refs/heads/master",
+          "environment": "bootstrap-release-renew-prepare",
+          "workflow_ref": "heymegabyte/install.doctor/.github/workflows/bootstrap-release-renew.yml@refs/heads/master",
+          "event_name": "workflow_dispatch",
+          "aud": "https://github.com/heymegabyte",
+          "sub": "repo:heymegabyte/install.doctor:environment:bootstrap-release-renew-prepare"
+        },
+        "accessTokenTtlSeconds": 300,
+        "accessTokenMaxTtlSeconds": 600,
+        "accessTokenMaxUses": 6,
+        "trustedIpRationale": "GitHub-hosted runner addresses are not stable; exact repository, ref, and protected renewal-preparation environment claims are the boundary."
+      },
+      "authorization": {
+        "project": "install-doctor",
+        "environment": "prod",
+        "path": "/ci/bootstrap-release/renew-preparer",
+        "secretNames": [
+          "INSTALL_DOCTOR_CHANNEL_R2_ACCESS_KEY_ID",
+          "INSTALL_DOCTOR_CHANNEL_R2_BUCKET",
+          "INSTALL_DOCTOR_CHANNEL_R2_ENDPOINT",
+          "INSTALL_DOCTOR_CHANNEL_R2_SECRET_ACCESS_KEY",
+          "INSTALL_DOCTOR_RELEASE_R2_ACCESS_KEY_ID",
+          "INSTALL_DOCTOR_RELEASE_R2_BUCKET",
+          "INSTALL_DOCTOR_RELEASE_R2_ENDPOINT",
+          "INSTALL_DOCTOR_RELEASE_R2_SECRET_ACCESS_KEY"
+        ],
+        "inheritedGrants": []
+      },
+      "platformBindings": [
+        {
+          "platform": "cloudflare-r2-channel-and-release-read-only",
+          "binding": "INSTALL_DOCTOR_BOOTSTRAP_RENEW_PREPARER_READ_CREDENTIALS",
+          "sourceRef": "infisical://install-doctor/prod/ci/bootstrap-release/renew-preparer",
+          "authority": "infisical"
+        }
+      ],
+      "revocation": {
+        "tokenCacheWindowSeconds": 60,
+        "urgentProcedure": ["disable-identity", "revoke-issuing-credential", "wait-cache-window", "verify-denied"]
+      },
+      "rotation": {
+        "overlapSeconds": 300,
+        "steps": ["issue-new", "reload-consumer", "health-check", "revoke-old", "verify-old-denied"],
+        "healthCheck": "read-and-verify-active-release-without-release-or-channel-write-authority"
+      }
+    },
+    {
+      "id": "github-bootstrap-release-renew-signer",
+      "runtime": "github-actions",
+      "availableAuthModes": ["github-oidc"],
+      "auth": {
+        "mode": "github-oidc",
+        "issuer": "https://token.actions.githubusercontent.com",
+        "claims": {
+          "repository": "heymegabyte/install.doctor",
+          "repository_id": "588807533",
+          "repository_owner_id": "82490183",
+          "ref": "refs/heads/master",
+          "environment": "bootstrap-release-renew-sign",
+          "workflow_ref": "heymegabyte/install.doctor/.github/workflows/bootstrap-release-renew.yml@refs/heads/master",
+          "event_name": "workflow_dispatch",
+          "aud": "https://github.com/heymegabyte",
+          "sub": "repo:heymegabyte/install.doctor:environment:bootstrap-release-renew-sign"
+        },
+        "accessTokenTtlSeconds": 300,
+        "accessTokenMaxTtlSeconds": 600,
+        "accessTokenMaxUses": 4,
+        "trustedIpRationale": "GitHub-hosted runner addresses are not stable; exact repository, ref, and protected renewal-signing environment claims are the boundary."
+      },
+      "authorization": {
+        "project": "install-doctor",
+        "environment": "prod",
+        "path": "/ci/bootstrap-release/renew-signer",
+        "secretNames": ["INSTALL_DOCTOR_RELEASE_SIGNING_KEY"],
+        "inheritedGrants": []
+      },
+      "platformBindings": [],
+      "revocation": {
+        "tokenCacheWindowSeconds": 60,
+        "urgentProcedure": ["disable-identity", "revoke-issuing-credential", "wait-cache-window", "verify-denied"]
+      },
+      "rotation": {
+        "overlapSeconds": 300,
+        "steps": ["issue-new", "reload-consumer", "health-check", "revoke-old", "verify-old-denied"],
+        "healthCheck": "renew-test-envelope-and-verify-identical-payloads-with-source-pinned-public-key"
+      }
+    },
+    {
+      "id": "github-bootstrap-release-publisher",
+      "runtime": "github-actions",
+      "availableAuthModes": ["github-oidc"],
+      "auth": {
+        "mode": "github-oidc",
+        "issuer": "https://token.actions.githubusercontent.com",
+        "claims": {
+          "repository": "heymegabyte/install.doctor",
+          "repository_id": "588807533",
+          "repository_owner_id": "82490183",
+          "ref": "refs/heads/master",
+          "environment": "bootstrap-release-publish",
+          "workflow_ref": "heymegabyte/install.doctor/.github/workflows/bootstrap-release-production.yml@refs/heads/master",
+          "event_name": "workflow_dispatch",
+          "aud": "https://github.com/heymegabyte",
+          "sub": "repo:heymegabyte/install.doctor:environment:bootstrap-release-publish"
+        },
+        "accessTokenTtlSeconds": 600,
+        "accessTokenMaxTtlSeconds": 900,
+        "accessTokenMaxUses": 8,
+        "trustedIpRationale": "GitHub-hosted runner addresses are not stable; exact repository, ref, and protected-environment claims are the boundary."
+      },
+      "authorization": {
+        "project": "install-doctor",
+        "environment": "prod",
+        "path": "/ci/bootstrap-release/publisher",
+        "secretNames": [
+          "INSTALL_DOCTOR_RELEASE_R2_ACCESS_KEY_ID",
+          "INSTALL_DOCTOR_RELEASE_R2_BUCKET",
+          "INSTALL_DOCTOR_RELEASE_R2_ENDPOINT",
+          "INSTALL_DOCTOR_RELEASE_R2_SECRET_ACCESS_KEY"
+        ],
+        "inheritedGrants": []
+      },
+      "platformBindings": [
+        {
+          "platform": "cloudflare-r2-release-bucket",
+          "binding": "INSTALL_DOCTOR_RELEASE_R2_CREDENTIALS",
+          "sourceRef": "infisical://install-doctor/prod/ci/bootstrap-release/publisher",
+          "authority": "infisical"
+        }
+      ],
+      "revocation": {
+        "tokenCacheWindowSeconds": 60,
+        "urgentProcedure": ["disable-identity", "revoke-issuing-credential", "wait-cache-window", "verify-denied"]
+      },
+      "rotation": {
+        "overlapSeconds": 300,
+        "steps": ["issue-new", "reload-consumer", "health-check", "revoke-old", "verify-old-denied"],
+        "healthCheck": "create-and-read-back-disposable-object-in-release-bucket"
+      }
+    },
+    {
+      "id": "github-bootstrap-release-activator",
+      "runtime": "github-actions",
+      "availableAuthModes": ["github-oidc"],
+      "auth": {
+        "mode": "github-oidc",
+        "issuer": "https://token.actions.githubusercontent.com",
+        "claims": {
+          "repository": "heymegabyte/install.doctor",
+          "repository_id": "588807533",
+          "repository_owner_id": "82490183",
+          "ref": "refs/heads/master",
+          "environment": "bootstrap-release-activate",
+          "workflow_ref": "heymegabyte/install.doctor/.github/workflows/bootstrap-release-activate.yml@refs/heads/master",
+          "event_name": "workflow_dispatch",
+          "aud": "https://github.com/heymegabyte",
+          "sub": "repo:heymegabyte/install.doctor:environment:bootstrap-release-activate"
+        },
+        "accessTokenTtlSeconds": 600,
+        "accessTokenMaxTtlSeconds": 900,
+        "accessTokenMaxUses": 12,
+        "trustedIpRationale": "GitHub-hosted runner addresses are not stable; exact repository, ref, and protected-environment claims are the boundary."
+      },
+      "authorization": {
+        "project": "install-doctor",
+        "environment": "prod",
+        "path": "/ci/bootstrap-release/activator",
+        "secretNames": [
+          "INSTALL_DOCTOR_CHANNEL_R2_ACCESS_KEY_ID",
+          "INSTALL_DOCTOR_CHANNEL_R2_BUCKET",
+          "INSTALL_DOCTOR_CHANNEL_R2_ENDPOINT",
+          "INSTALL_DOCTOR_CHANNEL_R2_SECRET_ACCESS_KEY",
+          "INSTALL_DOCTOR_RELEASE_R2_ACCESS_KEY_ID",
+          "INSTALL_DOCTOR_RELEASE_R2_BUCKET",
+          "INSTALL_DOCTOR_RELEASE_R2_ENDPOINT",
+          "INSTALL_DOCTOR_RELEASE_R2_SECRET_ACCESS_KEY"
+        ],
+        "inheritedGrants": []
+      },
+      "platformBindings": [
+        {
+          "platform": "cloudflare-r2-channel-bucket",
+          "binding": "INSTALL_DOCTOR_CHANNEL_R2_CREDENTIALS",
+          "sourceRef": "infisical://install-doctor/prod/ci/bootstrap-release/activator",
+          "authority": "infisical"
+        },
+        {
+          "platform": "cloudflare-r2-release-bucket-read-only",
+          "binding": "INSTALL_DOCTOR_RELEASE_R2_READ_CREDENTIALS",
+          "sourceRef": "infisical://install-doctor/prod/ci/bootstrap-release/activator",
+          "authority": "infisical"
+        }
+      ],
+      "revocation": {
+        "tokenCacheWindowSeconds": 60,
+        "urgentProcedure": ["disable-identity", "revoke-issuing-credential", "wait-cache-window", "verify-denied"]
+      },
+      "rotation": {
+        "overlapSeconds": 300,
+        "steps": ["issue-new", "reload-consumer", "health-check", "revoke-old", "verify-old-denied"],
+        "healthCheck": "read-release-and-cas-disposable-channel-pointer"
+      }
+    },
+    {
+      "id": "github-bootstrap-release-renew-publisher",
+      "runtime": "github-actions",
+      "availableAuthModes": ["github-oidc"],
+      "auth": {
+        "mode": "github-oidc",
+        "issuer": "https://token.actions.githubusercontent.com",
+        "claims": {
+          "repository": "heymegabyte/install.doctor",
+          "repository_id": "588807533",
+          "repository_owner_id": "82490183",
+          "ref": "refs/heads/master",
+          "environment": "bootstrap-release-renew-publish",
+          "workflow_ref": "heymegabyte/install.doctor/.github/workflows/bootstrap-release-renew.yml@refs/heads/master",
+          "event_name": "workflow_dispatch",
+          "aud": "https://github.com/heymegabyte",
+          "sub": "repo:heymegabyte/install.doctor:environment:bootstrap-release-renew-publish"
+        },
+        "accessTokenTtlSeconds": 600,
+        "accessTokenMaxTtlSeconds": 900,
+        "accessTokenMaxUses": 8,
+        "trustedIpRationale": "GitHub-hosted runner addresses are not stable; immutable repository IDs and exact workflow, ref, event, audience, subject, and protected environment claims are the boundary."
+      },
+      "authorization": {
+        "project": "install-doctor",
+        "environment": "prod",
+        "path": "/ci/bootstrap-release/renew-publisher",
+        "secretNames": ["INSTALL_DOCTOR_RELEASE_R2_ACCESS_KEY_ID", "INSTALL_DOCTOR_RELEASE_R2_BUCKET", "INSTALL_DOCTOR_RELEASE_R2_ENDPOINT", "INSTALL_DOCTOR_RELEASE_R2_SECRET_ACCESS_KEY"],
+        "inheritedGrants": []
+      },
+      "platformBindings": [{
+        "platform": "cloudflare-r2-release-bucket",
+        "binding": "INSTALL_DOCTOR_RENEW_RELEASE_R2_CREDENTIALS",
+        "sourceRef": "infisical://install-doctor/prod/ci/bootstrap-release/renew-publisher",
+        "authority": "infisical"
+      }],
+      "revocation": {"tokenCacheWindowSeconds": 60, "urgentProcedure": ["disable-identity", "revoke-issuing-credential", "wait-cache-window", "verify-denied"]},
+      "rotation": {"overlapSeconds": 300, "steps": ["issue-new", "reload-consumer", "health-check", "revoke-old", "verify-old-denied"], "healthCheck": "create-and-read-back-disposable-object-in-release-bucket"}
+    },
+    {
+      "id": "github-bootstrap-release-renew-activator",
+      "runtime": "github-actions",
+      "availableAuthModes": ["github-oidc"],
+      "auth": {
+        "mode": "github-oidc",
+        "issuer": "https://token.actions.githubusercontent.com",
+        "claims": {
+          "repository": "heymegabyte/install.doctor",
+          "repository_id": "588807533",
+          "repository_owner_id": "82490183",
+          "ref": "refs/heads/master",
+          "environment": "bootstrap-release-renew-activate",
+          "workflow_ref": "heymegabyte/install.doctor/.github/workflows/bootstrap-release-renew.yml@refs/heads/master",
+          "event_name": "workflow_dispatch",
+          "aud": "https://github.com/heymegabyte",
+          "sub": "repo:heymegabyte/install.doctor:environment:bootstrap-release-renew-activate"
+        },
+        "accessTokenTtlSeconds": 600,
+        "accessTokenMaxTtlSeconds": 900,
+        "accessTokenMaxUses": 12,
+        "trustedIpRationale": "GitHub-hosted runner addresses are not stable; immutable repository IDs and exact workflow, ref, event, audience, subject, and protected environment claims are the boundary."
+      },
+      "authorization": {
+        "project": "install-doctor",
+        "environment": "prod",
+        "path": "/ci/bootstrap-release/renew-activator",
+        "secretNames": ["INSTALL_DOCTOR_CHANNEL_R2_ACCESS_KEY_ID", "INSTALL_DOCTOR_CHANNEL_R2_BUCKET", "INSTALL_DOCTOR_CHANNEL_R2_ENDPOINT", "INSTALL_DOCTOR_CHANNEL_R2_SECRET_ACCESS_KEY", "INSTALL_DOCTOR_RELEASE_R2_ACCESS_KEY_ID", "INSTALL_DOCTOR_RELEASE_R2_BUCKET", "INSTALL_DOCTOR_RELEASE_R2_ENDPOINT", "INSTALL_DOCTOR_RELEASE_R2_SECRET_ACCESS_KEY"],
+        "inheritedGrants": []
+      },
+      "platformBindings": [
+        {"platform": "cloudflare-r2-channel-bucket", "binding": "INSTALL_DOCTOR_RENEW_CHANNEL_R2_CREDENTIALS", "sourceRef": "infisical://install-doctor/prod/ci/bootstrap-release/renew-activator", "authority": "infisical"},
+        {"platform": "cloudflare-r2-release-bucket-read-only", "binding": "INSTALL_DOCTOR_RENEW_RELEASE_R2_READ_CREDENTIALS", "sourceRef": "infisical://install-doctor/prod/ci/bootstrap-release/renew-activator", "authority": "infisical"}
+      ],
+      "revocation": {"tokenCacheWindowSeconds": 60, "urgentProcedure": ["disable-identity", "revoke-issuing-credential", "wait-cache-window", "verify-denied"]},
+      "rotation": {"overlapSeconds": 300, "steps": ["issue-new", "reload-consumer", "health-check", "revoke-old", "verify-old-denied"], "healthCheck": "read-release-and-cas-disposable-channel-pointer"}
+    },
+    {
+      "id": "github-offline-bundle-authority",
+      "runtime": "github-actions",
+      "availableAuthModes": ["github-oidc"],
+      "auth": {
+        "mode": "github-oidc",
+        "issuer": "https://token.actions.githubusercontent.com",
+        "claims": {
+          "repository": "heymegabyte/install.doctor",
+          "repository_id": "588807533",
+          "repository_owner_id": "82490183",
+          "ref": "refs/heads/master",
+          "environment": "offline-bundle-authority",
+          "workflow_ref": "heymegabyte/install.doctor/.github/workflows/offline-bundle-authority.yml@refs/heads/master",
+          "event_name": "workflow_dispatch",
+          "aud": "https://github.com/heymegabyte",
+          "sub": "repo:heymegabyte/install.doctor:environment:offline-bundle-authority"
+        },
+        "accessTokenTtlSeconds": 300,
+        "accessTokenMaxTtlSeconds": 600,
+        "accessTokenMaxUses": 6,
+        "trustedIpRationale": "The protected authority is bound to exact immutable repository IDs, workflow/ref/event/audience/subject/environment claims; external provisioning must additionally bind job_workflow_sha to the reviewed deployed commit."
+      },
+      "authorization": {
+        "project": "install-doctor",
+        "environment": "prod",
+        "path": "/ci/offline-bundle/authority",
+        "secretNames": [
+          "INSTALL_DOCTOR_OFFLINE_R2_ACCESS_KEY_ID",
+          "INSTALL_DOCTOR_OFFLINE_R2_BUCKET",
+          "INSTALL_DOCTOR_OFFLINE_R2_ENDPOINT",
+          "INSTALL_DOCTOR_OFFLINE_R2_SECRET_ACCESS_KEY",
+          "INSTALL_DOCTOR_OFFLINE_SIGNING_KEY"
+        ],
+        "inheritedGrants": []
+      },
+      "platformBindings": [{
+        "platform": "cloudflare-r2-offline-private-create-only",
+        "binding": "INSTALL_DOCTOR_OFFLINE_R2_CREATE_ONLY_CREDENTIALS",
+        "sourceRef": "infisical://install-doctor/prod/ci/offline-bundle/authority",
+        "authority": "infisical"
+      }],
+      "revocation": {
+        "tokenCacheWindowSeconds": 60,
+        "urgentProcedure": ["disable-identity", "revoke-issuing-credential", "wait-cache-window", "verify-denied"]
+      },
+      "rotation": {
+        "overlapSeconds": 300,
+        "steps": ["issue-new", "reload-consumer", "health-check", "revoke-old", "verify-old-denied"],
+        "healthCheck": "sign-test-bundle-and-receipt-then-create-and-read-back-private-content-addressed-object"
+      }
+    },
+    {
+      "id": "github-platform-promotion-reader",
+      "runtime": "github-actions",
+      "availableAuthModes": ["github-oidc"],
+      "auth": {
+        "mode": "github-oidc",
+        "issuer": "https://token.actions.githubusercontent.com",
+        "claims": {
+          "repository": "heymegabyte/install.doctor",
+          "repository_id": "588807533",
+          "repository_owner_id": "82490183",
+          "ref": "refs/heads/master",
+          "environment": "platform-promotion-verifier",
+          "workflow_ref": "heymegabyte/install.doctor/.github/workflows/platform-promotion-verifier.yml@refs/heads/master",
+          "event_name": "workflow_dispatch",
+          "aud": "https://github.com/heymegabyte",
+          "sub": "repo:heymegabyte/install.doctor:environment:platform-promotion-verifier"
+        },
+        "accessTokenTtlSeconds": 300,
+        "accessTokenMaxTtlSeconds": 600,
+        "accessTokenMaxUses": 2,
+        "trustedIpRationale": "GitHub-hosted runner addresses are not stable; exact repository, ref, workflow, and protected-environment claims are the boundary."
+      },
+      "authorization": {
+        "project": "install-doctor",
+        "environment": "prod",
+        "path": "/ci/offline-bundle/promotion-read",
+        "secretNames": [
+          "INSTALL_DOCTOR_PROMOTION_R2_ACCESS_KEY_ID",
+          "INSTALL_DOCTOR_PROMOTION_R2_BUCKET",
+          "INSTALL_DOCTOR_PROMOTION_R2_ENDPOINT",
+          "INSTALL_DOCTOR_PROMOTION_R2_SECRET_ACCESS_KEY"
+        ],
+        "inheritedGrants": []
+      },
+      "platformBindings": [{
+        "platform": "cloudflare-r2-promotion-evidence-read-only",
+        "binding": "INSTALL_DOCTOR_PLATFORM_PROMOTION_READER_CREDENTIALS",
+        "sourceRef": "infisical://install-doctor/prod/ci/offline-bundle/promotion-read",
+        "authority": "infisical"
+      }],
+      "revocation": {
+        "tokenCacheWindowSeconds": 60,
+        "urgentProcedure": ["disable-identity", "revoke-issuing-credential", "wait-cache-window", "verify-denied"]
+      },
+      "rotation": {
+        "overlapSeconds": 300,
+        "steps": ["issue-new", "reload-consumer", "health-check", "revoke-old", "verify-old-denied"],
+        "healthCheck": "read-one-content-addressed-promotion-input-and-verify-cross-prefix-write-denial"
+      }
+    },
+    {
+      "id": "github-bootstrap-release-monitor",
+      "runtime": "github-actions",
+      "availableAuthModes": ["github-oidc"],
+      "auth": {
+        "mode": "github-oidc",
+        "issuer": "https://token.actions.githubusercontent.com",
+        "claims": {
+          "repository": "heymegabyte/install.doctor",
+          "repository_id": "588807533",
+          "repository_owner_id": "82490183",
+          "ref": "refs/heads/master",
+          "environment": "bootstrap-release-monitor",
+          "workflow_ref": "heymegabyte/install.doctor/.github/workflows/bootstrap-release-continuity.yml@refs/heads/master",
+          "aud": "https://github.com/heymegabyte",
+          "sub": "repo:heymegabyte/install.doctor:environment:bootstrap-release-monitor"
+        },
+        "accessTokenTtlSeconds": 300,
+        "accessTokenMaxTtlSeconds": 600,
+        "accessTokenMaxUses": 4,
+        "trustedIpRationale": "GitHub-hosted runner addresses are not stable; exact repository, ref, and monitor-environment claims are the boundary."
+      },
+      "authorization": {
+        "project": "install-doctor",
+        "environment": "prod",
+        "path": "/ci/bootstrap-release/monitor",
+        "secretNames": [
+          "INSTALL_DOCTOR_CHANNEL_R2_ACCESS_KEY_ID",
+          "INSTALL_DOCTOR_CHANNEL_R2_BUCKET",
+          "INSTALL_DOCTOR_CHANNEL_R2_ENDPOINT",
+          "INSTALL_DOCTOR_CHANNEL_R2_SECRET_ACCESS_KEY",
+          "INSTALL_DOCTOR_RELEASE_R2_ACCESS_KEY_ID",
+          "INSTALL_DOCTOR_RELEASE_R2_BUCKET",
+          "INSTALL_DOCTOR_RELEASE_R2_ENDPOINT",
+          "INSTALL_DOCTOR_RELEASE_R2_SECRET_ACCESS_KEY"
+        ],
+        "inheritedGrants": []
+      },
+      "platformBindings": [
+        {
+          "platform": "cloudflare-r2-channel-and-release-read-only",
+          "binding": "INSTALL_DOCTOR_BOOTSTRAP_RELEASE_MONITOR_READ_CREDENTIALS",
+          "sourceRef": "infisical://install-doctor/prod/ci/bootstrap-release/monitor",
+          "authority": "infisical"
+        }
+      ],
+      "revocation": {
+        "tokenCacheWindowSeconds": 60,
+        "urgentProcedure": ["disable-identity", "revoke-issuing-credential", "wait-cache-window", "verify-denied"]
+      },
+      "rotation": {
+        "overlapSeconds": 300,
+        "steps": ["issue-new", "reload-consumer", "health-check", "revoke-old", "verify-old-denied"],
+        "healthCheck": "read-and-signature-verify-stable-channel-without-write-authority"
+      }
+    }
+  ]
+}

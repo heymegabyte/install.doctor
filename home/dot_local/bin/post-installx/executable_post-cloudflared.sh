@@ -10,6 +10,23 @@ set -euo pipefail
 set -Eeo pipefail
 trap "gum log -sl error 'Script encountered an error!'" ERR
 
+cloudflared_postcondition() {
+  [ "${INSTALL_DOCTOR_CLOUDFLARED_ENROLL:-0}" = 1 ] || return 20
+  command -v cloudflared >/dev/null 2>&1 || return 20
+  [ -d "$HOME/.cloudflared" ] || return 10
+}
+
+case "${1:---apply}" in
+  --check|--verify) cloudflared_postcondition; exit $? ;;
+  --apply) ;;
+  *) printf 'usage: %s [--check|--apply|--verify]\n' "$0" >&2; exit 2 ;;
+esac
+
+if [ "${INSTALL_DOCTOR_CLOUDFLARED_ENROLL:-0}" != "1" ]; then
+  printf '%s\n' 'cloudflared enrollment is lazy; set INSTALL_DOCTOR_CLOUDFLARED_ENROLL=1 after approving this host ingress'
+  exit 0
+fi
+
 if command -v cloudflared > /dev/null; then
   ### Skip if ~/.cloudflared already exists (idempotent re-run)
   if [ -d "$HOME/.cloudflared" ]; then

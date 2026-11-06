@@ -14,7 +14,7 @@ On macOS/Linux, the only requirements are that `bash` and `curl` are installed.
 ### macOS/Linux
 
 ```shell
-bash <(curl -sSL https://install.doctor/start)
+curl -fsSL https://app.install.doctor/start | bash
 ```
 
 ### Headless / Non-Interactive Mode
@@ -22,18 +22,22 @@ bash <(curl -sSL https://install.doctor/start)
 All prompts have 30-second timeouts and auto-proceed with sensible defaults. For fully unattended installs:
 
 ```shell
-HEADLESS_INSTALL=true bash <(curl -sSL https://install.doctor/start)
+curl -fsSL https://app.install.doctor/start | HEADLESS_INSTALL=true INSTALL_DOCTOR_CONSENT_PRIVILEGED=true bash
+
+The first unattended pass performs discovery and planning without applying changes. Review the protected plan path it prints, then rerun the same command with `INSTALL_DOCTOR_APPROVED_PLAN_DIGEST=<printed-sha256>`. Any changed selection or host fact produces a different digest and requires fresh approval.
 ```
 
 For complete control over headless installations:
 
 ```shell
 HEADLESS_INSTALL=true \
+  INSTALL_DOCTOR_CONSENT_PRIVILEGED=true \
+  INSTALL_DOCTOR_APPROVED_PLAN_DIGEST=<reviewed-sha256> \
   SOFTWARE_GROUP=Full \
   SUDO_PASSWORD=your_password \
   FULL_NAME="Your Name" \
   PRIMARY_EMAIL="you@example.com" \
-  bash <(curl -sSL https://install.doctor/start)
+  curl -fsSL https://app.install.doctor/start | bash
 ```
 
 ### Windows
@@ -41,7 +45,7 @@ HEADLESS_INSTALL=true \
 On Windows, you can run the following from an administrator PowerShell terminal:
 
 ```powershell
-iex ((New-Object System.Net.WebClient).DownloadString('https://install.doctor/windows'))
+# Native Windows installer is not published until its signed release path is verified.
 ```
 
 ### Qubes
@@ -49,7 +53,7 @@ iex ((New-Object System.Net.WebClient).DownloadString('https://install.doctor/wi
 The following one-liner should be run from Qubes dom0:
 
 ```shell
-qvm-run --pass-io sys-firewall "curl -sSL https://install.doctor/qubes" > ~/setup.sh && bash ~/setup.sh
+# Qubes entrypoint is not published until its signed delivery and dom0/AppVM matrix are verified.
 ```
 
 ## Guided Terminal Prompts

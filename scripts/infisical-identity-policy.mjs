@@ -85,8 +85,14 @@ function validatePolicy(input) {
     }
     if (auth.mode === 'github-oidc') {
       const claims = auth.claims
-      if (!isRecord(claims) || !exactString(claims.repository) || !exactString(claims.ref) || !exactString(claims.environment)) {
-        errors.push(`${at}.auth requires exact repository/ref/environment claims`)
+      if (!isRecord(claims) || claims.repository !== 'heymegabyte/install.doctor'
+        || claims.repository_id !== '588807533' || claims.repository_owner_id !== '82490183'
+        || claims.ref !== 'refs/heads/master' || !exactString(claims.environment)
+        || !/^heymegabyte\/install\.doctor\/\.github\/workflows\/[a-z0-9._-]+\.yml@refs\/heads\/master$/.test(claims.workflow_ref ?? '')
+        || claims.aud !== 'https://github.com/heymegabyte'
+        || claims.sub !== `repo:heymegabyte/install.doctor:environment:${claims.environment}`
+        || (claims.event_name !== undefined && !['workflow_dispatch', 'schedule'].includes(claims.event_name))) {
+        errors.push(`${at}.auth requires immutable repository IDs, exact workflow/ref/environment/audience/subject claims, and an allowed event`)
       }
     }
     if (auth.mode === 'universal-auth') {
@@ -159,8 +165,14 @@ function policyPlan(policy) {
         : 'federated identity available',
       claims: workload.auth.mode === 'github-oidc' ? {
         repository: workload.auth.claims.repository,
+        repositoryId: workload.auth.claims.repository_id,
+        repositoryOwnerId: workload.auth.claims.repository_owner_id,
         ref: workload.auth.claims.ref,
         environment: workload.auth.claims.environment,
+        workflowRef: workload.auth.claims.workflow_ref,
+        eventName: workload.auth.claims.event_name ?? null,
+        audience: workload.auth.claims.aud,
+        subject: workload.auth.claims.sub,
       } : null,
       tokenPolicy: {
         ttlSeconds: workload.auth.accessTokenTtlSeconds,

@@ -20,7 +20,7 @@ Whenever possible, we make the services available via an FQDN of your choice. By
 
 ```bash
 export PUBLIC_SERVICES_DOMAIN="install.doctor"
-bash <(curl -sSL https://install.doctor/start)
+curl -fsSL https://app.install.doctor/start | bash
 ```
 
 **Will create the following publicly accessible web services assuming the hostname is `webdev1` and the `PUBLIC_SERVICES_DOMAIN` is `example.com`:**

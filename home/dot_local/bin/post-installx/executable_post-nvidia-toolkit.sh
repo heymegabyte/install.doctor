@@ -59,20 +59,8 @@ SUDO=""
 [ "$(id -u)" -ne 0 ] && SUDO="sudo"
 
 if ! command -v nvidia-ctk >/dev/null 2>&1; then
-  log "Installing nvidia-container-toolkit from official NVIDIA repository..."
-  if command -v apt-get >/dev/null 2>&1; then
-    $SUDO install -d -m 0755 /usr/share/keyrings
-    curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey \
-      | $SUDO gpg --dearmor --yes -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg
-    curl -s -L https://nvidia.github.io/libnvidia-container/stable/deb/nvidia-container-toolkit.list \
-      | sed 's#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#g' \
-      | $SUDO tee /etc/apt/sources.list.d/nvidia-container-toolkit.list >/dev/null
-    $SUDO apt-get update -qq
-    $SUDO env DEBIAN_FRONTEND=noninteractive apt-get install -y -qq nvidia-container-toolkit
-  else
-    warn "Unsupported package manager for automatic nvidia-container-toolkit install"
-    exit 0
-  fi
+  warn "nvidia-container-toolkit is absent; select it through Install Doctor desired state"
+  exit 20
 fi
 
 # Generate CDI specification (/etc/cdi/nvidia.yaml)

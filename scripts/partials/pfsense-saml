@@ -1,5 +1,6 @@
 # @description This function adds an unofficial package that adds SAML2 support to pfSense for SSO logins over
 #     the web portal. For more information, see the project's [GitHub page](https://github.com/jaredhendrickson13/pfsense-saml2-auth).
 enablePFsenseSAML() {
-  pkg add https://github.com/jaredhendrickson13/pfsense-saml2-auth/releases/latest/download/pfSense-2.7-pkg-saml2-auth.pkg
+  logg error 'pfSense SAML installation is unsupported until an exact package digest is declared'
+  return 78
 }

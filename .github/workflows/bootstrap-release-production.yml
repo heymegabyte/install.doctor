@@ -1,0 +1,218 @@
+name: Production bootstrap release
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_id:
+        description: Immutable release id (lowercase letters, digits, dot, underscore, hyphen)
+        required: true
+        type: string
+
+permissions: {}
+
+concurrency:
+  group: bootstrap-release-production
+  cancel-in-progress: false
+
+env:
+  NODE_RELEASE_VERSION: 24.22.2
+  NODE_RELEASE_KEYS_COMMIT: 481637f813e912c4aa3622d7964ab426c97b8e8d
+  SIGNER_SCRIPT_SHA256: 2064705b0ec5aada57ee8a5a7eafedb69cd0764ac266f93523bbdb263c4980c3
+
+jobs:
+  build:
+    name: Build inert unsigned release
+    if: github.ref == 'refs/heads/master'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    outputs:
+      release_id: ${{ steps.identity.outputs.release_id }}
+      signer_id: ${{ steps.identity.outputs.signer_id }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 24.22.2
+          cache: npm
+          cache-dependency-path: |
+            packages/aid-core/package-lock.json
+            packages/installer-engine/package-lock.json
+            packages/control-plane/package-lock.json
+      - id: identity
+        name: Validate immutable identities
+        env:
+          RELEASE_ID: ${{ inputs.release_id }}
+          SIGNER_ID: ${{ vars.INSTALL_DOCTOR_RELEASE_SIGNER_ID }}
+        run: |
+          set -euo pipefail
+          case "$RELEASE_ID" in ''|[!a-z0-9]*|*[!a-z0-9._-]*) exit 64;; esac
+          case "$SIGNER_ID" in ''|[!a-z0-9]*|*[!a-z0-9._-]*) exit 64;; esac
+          test "${#RELEASE_ID}" -le 128
+          test "${#SIGNER_ID}" -le 128
+          printf 'release_id=%s\nsigner_id=%s\n' "$RELEASE_ID" "$SIGNER_ID" >>"$GITHUB_OUTPUT"
+      - name: Reproducibly bundle the installer engine
+        run: |
+          set -euo pipefail
+          npm --prefix packages/aid-core ci --ignore-scripts --no-audit --no-fund
+          npm --prefix packages/installer-engine ci --ignore-scripts --no-audit --no-fund
+          npm --prefix packages/aid-core run build
+          npm --prefix packages/installer-engine run bundle
+      - name: Acquire exact upstream Node runtime closure
+        run: |
+          set -euo pipefail
+          umask 077
+          mkdir -p .release-work/runtime .release-work/node-keys
+          base="https://nodejs.org/dist/v${NODE_RELEASE_VERSION}"
+          curl=(curl --fail --silent --show-error --proto '=https' --tlsv1.2 --max-time 300 --retry 3 --retry-all-errors)
+          "${curl[@]}" --output .release-work/SHASUMS256.txt "$base/SHASUMS256.txt"
+          "${curl[@]}" --output .release-work/SHASUMS256.txt.sig "$base/SHASUMS256.txt.sig"
+          for platform in darwin-x64 darwin-arm64 linux-x64 linux-arm64; do
+            "${curl[@]}" --max-filesize 100663296 --output ".release-work/runtime/node-v${NODE_RELEASE_VERSION}-${platform}.tar.gz" \
+              "$base/node-v${NODE_RELEASE_VERSION}-${platform}.tar.gz"
+          done
+          git clone --quiet --no-checkout https://github.com/nodejs/release-keys.git .release-work/node-keys
+          git -C .release-work/node-keys checkout --quiet --detach "$NODE_RELEASE_KEYS_COMMIT"
+          test "$(git -C .release-work/node-keys rev-parse HEAD)" = "$NODE_RELEASE_KEYS_COMMIT"
+      - name: Build exact unsigned release inventory
+        env:
+          RELEASE_ID: ${{ steps.identity.outputs.release_id }}
+          SIGNER_ID: ${{ steps.identity.outputs.signer_id }}
+        run: |
+          set -euo pipefail
+          umask 077
+          mkdir -p .release-work/output
+          created="$(date -u +%s)"
+          expires="$((created + 604800))"
+          INSTALL_DOCTOR_RUNTIME_NODE_VERSION="$NODE_RELEASE_VERSION" \
+          INSTALL_DOCTOR_RUNTIME_DIR="$PWD/.release-work/runtime" \
+          INSTALL_DOCTOR_NODE_SHASUMS="$PWD/.release-work/SHASUMS256.txt" \
+          INSTALL_DOCTOR_NODE_SHASUMS_SIGNATURE="$PWD/.release-work/SHASUMS256.txt.sig" \
+          INSTALL_DOCTOR_NODE_RELEASE_KEYRING="$PWD/.release-work/node-keys/gpg-only-active-keys/pubring.kbx" \
+            bash scripts/publish-bootstrap-release.sh \
+              "$RELEASE_ID" "$GITHUB_SHA" "$created" "$expires" "$SIGNER_ID" - \
+              "$PWD/scripts/provision.sh" "$PWD/packages/installer-engine/dist/install-doctor-engine.mjs" \
+              "$PWD/.release-work/output/unsigned"
+          cp scripts/sign-bootstrap-release.sh .release-work/output/sign-bootstrap-release.sh
+          printf '%s  %s\n' "$SIGNER_SCRIPT_SHA256" .release-work/output/sign-bootstrap-release.sh | sha256sum --check --strict
+      - name: Assemble credential-free publisher tools
+        env:
+          SIGNER_ID: ${{ steps.identity.outputs.signer_id }}
+        run: |
+          set -euo pipefail
+          umask 077
+          mkdir -p .release-work/publisher/scripts
+          cp packages/control-plane/package.json packages/control-plane/package-lock.json .release-work/publisher/
+          cp packages/control-plane/scripts/publish-release-to-r2.mjs \
+             packages/control-plane/scripts/release-publication.mjs \
+             packages/control-plane/scripts/r2-publication-storage.mjs .release-work/publisher/scripts/
+          npm --prefix .release-work/publisher ci --omit=dev --ignore-scripts --no-audit --no-fund
+          jq -er --arg id "$SIGNER_ID" '.signers[$id] | select(type == "string")' \
+            packages/control-plane/src/release-trust.json >.release-work/publisher/release-public-key
+          grep -Eq '^ssh-ed25519 [A-Za-z0-9+/]+={0,3}( [^[:cntrl:]]{1,128})?$' .release-work/publisher/release-public-key
+          chmod 0600 .release-work/publisher/release-public-key
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        name: Upload sealed unsigned release
+        with:
+          name: bootstrap-release-unsigned-${{ github.run_id }}
+          path: .release-work/output
+          if-no-files-found: error
+          retention-days: 1
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        name: Upload credential-free publisher tools
+        with:
+          name: bootstrap-release-tools-${{ github.run_id }}
+          path: .release-work/publisher
+          if-no-files-found: error
+          include-hidden-files: true
+          retention-days: 1
+
+  sign:
+    name: Sign in protected no-checkout boundary
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: bootstrap-release-sign
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: bootstrap-release-unsigned-${{ github.run_id }}
+          path: release-input
+      - name: Verify the only executable admitted to the signer
+        run: |
+          set -euo pipefail
+          printf '%s  %s\n' "$SIGNER_SCRIPT_SHA256" release-input/sign-bootstrap-release.sh | sha256sum --check --strict
+          test -d release-input/unsigned
+      - uses: Infisical/secrets-action@d2e351f16c6ca20d17c85e6c992e04bdeb64e87d # v1.0.18
+        name: Resolve only the release signing key through GitHub OIDC
+        with:
+          method: oidc
+          identity-id: ${{ vars.INFISICAL_BOOTSTRAP_RELEASE_SIGNER_ID }}
+          project-slug: ${{ vars.INFISICAL_PROJECT_SLUG }}
+          env-slug: prod
+          secret-path: /ci/bootstrap-release/signer
+          secret-name: INSTALL_DOCTOR_RELEASE_SIGNING_KEY
+          include-imports: false
+          recursive: false
+      - name: Sign and erase private material before artifact handling
+        env:
+          SIGNER_ID: ${{ needs.build.outputs.signer_id }}
+        run: |
+          set -euo pipefail
+          umask 077
+          key="$(mktemp "$RUNNER_TEMP/bootstrap-signing-key.XXXXXXXX")"
+          cleanup() { rm -f "$key"; }
+          trap cleanup EXIT HUP INT TERM
+          printf '%s' "$INSTALL_DOCTOR_RELEASE_SIGNING_KEY" >"$key"
+          chmod 0600 "$key"
+          bash release-input/sign-bootstrap-release.sh "$SIGNER_ID" "$key" release-input/unsigned signed-release
+          rm -f "$key"
+          trap - EXIT HUP INT TERM
+          printf 'INSTALL_DOCTOR_RELEASE_SIGNING_KEY=\n' >>"$GITHUB_ENV"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        name: Upload signed immutable release
+        with:
+          name: bootstrap-release-signed-${{ github.run_id }}
+          path: signed-release
+          if-no-files-found: error
+          retention-days: 1
+
+  publish:
+    name: Publish immutable release objects
+    needs: [build, sign]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: bootstrap-release-publish
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: bootstrap-release-signed-${{ github.run_id }}
+          path: signed-release
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: bootstrap-release-tools-${{ github.run_id }}
+          path: release-tools
+      - uses: Infisical/secrets-action@d2e351f16c6ca20d17c85e6c992e04bdeb64e87d # v1.0.18
+        name: Resolve only immutable release-bucket credentials through GitHub OIDC
+        with:
+          method: oidc
+          identity-id: ${{ vars.INFISICAL_BOOTSTRAP_RELEASE_PUBLISHER_ID }}
+          project-slug: ${{ vars.INFISICAL_PROJECT_SLUG }}
+          env-slug: prod
+          secret-path: /ci/bootstrap-release/publisher
+          include-imports: false
+          recursive: false
+      - name: Create and read back immutable release objects
+        env:
+          INSTALL_DOCTOR_RELEASE_SIGNER_ID: ${{ needs.build.outputs.signer_id }}
+          INSTALL_DOCTOR_RELEASE_PUBLIC_KEY: ${{ github.workspace }}/release-tools/release-public-key
+        run: |
+          set -euo pipefail
+          node release-tools/scripts/publish-release-to-r2.mjs publish signed-release "${{ needs.build.outputs.release_id }}"

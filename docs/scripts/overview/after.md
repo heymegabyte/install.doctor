@@ -49,7 +49,7 @@ gum log -sl info 'Running custom setup...'
 
 ## Provision Completion
 
-After all After Scripts have executed, the Chezmoi-based provisioning process is finished. If you launched via `bash <(curl -sSL https://install.doctor/start)`, the `provision.sh` wrapper performs additional cleanup, prints log file locations, and may trigger a reboot.
+After all After Scripts have executed, the Chezmoi-based provisioning process is finished. If you launched via `curl -fsSL https://app.install.doctor/start | bash`, the `provision.sh` wrapper performs additional cleanup, prints log file locations, and may trigger a reboot.
 
 ## Links
 

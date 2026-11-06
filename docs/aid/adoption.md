@@ -14,7 +14,7 @@ run `aid apply`. Nothing is installed or removed implicitly.
 
 ## Step by step
 
-1. **Bootstrap is idempotent — re-running is safe.** `bash <(curl -sSL https://install.doctor/start)`
+1. **Bootstrap is idempotent — re-running is safe.** `curl -fsSL https://app.install.doctor/start | bash`
    on an already-provisioned box is a no-op where state already matches; it does not re-install
    completed steps or duplicate anything (B10). chezmoi stays the single source of truth for your
    dotfiles — there is **no re-import**; the configs it already manages keep working.

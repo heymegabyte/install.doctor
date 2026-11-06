@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # @file post-installx/executable_post-cua-driver.sh
-# @brief Install and configure the official Cua Driver on every supported desktop (macOS & Linux)
+# @brief Opt-in installation and configuration of the official Cua Driver
 # @description
-#   Installs the official Cua Driver (`cua-driver` + `cua` CLI) by default on every supported
-#   desktop provisioned by Install Doctor, even when invoked over a headless SSH session.
+#   When explicitly selected, installs the official Cua Driver (`cua-driver` + `cua` CLI) on a
+#   supported interactive desktop.
 #   Configures GNOME Wayland support (`winrects@cua`), disables telemetry, registers the MCP
 #   server in Claude Code, Codex, OpenCode, and Antigravity harnesses, and sets up native user
 #   autostart (systemd user unit on Linux, LaunchAgent on macOS).
@@ -32,8 +32,8 @@ else
   warn() { echo "[WARN] $1" >&2; }
 fi
 
-if [ "${INSTALL_DOCTOR_CUA_DRIVER:-1}" = "0" ] || [ "${HEADLESS_INSTALL:-}" = "1" ] || [ "${HEADLESS_INSTALL:-}" = "true" ]; then
-  log "Cua Driver skipped (opted out or HEADLESS_INSTALL)"
+if [ "${INSTALL_DOCTOR_CUA_DRIVER:-0}" != "1" ] || [ "${HEADLESS_INSTALL:-}" = "1" ] || [ "${HEADLESS_INSTALL:-}" = "true" ]; then
+  log "Cua Driver is lazy; set INSTALL_DOCTOR_CUA_DRIVER=1 on an interactive desktop to enable it"
   exit 0
 fi
 
@@ -61,12 +61,8 @@ fi
 export PATH="$HOME/.local/bin:$PATH"
 
 if ! command -v cua-driver >/dev/null 2>&1; then
-  log "Installing official Cua Driver (cli + cua-driver) on $OS desktop..."
-  tmp_installer="$(mktemp /tmp/cua-install.XXXXXX.sh)"
-  trap 'rm -f "$tmp_installer" 2>/dev/null || true' EXIT
-  if curl -fsSL https://cua.ai/install.sh -o "$tmp_installer"; then
-    bash "$tmp_installer" --only cli,cua-driver --yes || warn "cua.ai installer returned non-zero"
-  fi
+  warn 'Cua Driver is selected but no immutable verified artifact is present in this release'
+  exit 78
 fi
 
 if ! command -v cua-driver >/dev/null 2>&1; then

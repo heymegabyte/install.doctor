@@ -7,7 +7,7 @@ Check out [the documentation](https://install.doctor/docs) for the complete guid
 ## Quick Start
 
 ```shell
-bash <(curl -sSL https://install.doctor/start)
+curl -fsSL https://app.install.doctor/start | bash
 ```
 
 ## Customizing
@@ -31,7 +31,7 @@ export START_REPO=YourGitHubUsername
 export SUDO_PASSWORD=YourSudoPassword
 export SOFTWARE_GROUP=Standard
 export HEADLESS_INSTALL=true
-bash <(curl -sSL https://install.doctor/start)
+curl -fsSL https://app.install.doctor/start | bash
 ```
 
 ## Key Files

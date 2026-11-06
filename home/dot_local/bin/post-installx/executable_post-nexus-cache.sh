@@ -9,6 +9,11 @@ set -euo pipefail
 log_info() { printf '\033[0;34mINFO\033[0m %s\n' "$*"; }
 log_warn() { printf '\033[0;33mWARN\033[0m %s\n' "$*"; }
 
+if [[ "${INSTALL_DOCTOR_NEXUS_CACHE:-0}" != "1" ]]; then
+  log_info "Nexus/local proxy integration is lazy; set INSTALL_DOCTOR_NEXUS_CACHE=1 to configure it."
+  exit 0
+fi
+
 LOCAL_PROXY_HOST="127.0.0.1"
 LOCAL_PROXY_PORT="${MEGABYTE_LOCAL_PROXY_PORT:-4880}"
 LOCAL_PROXY_BASE="http://${LOCAL_PROXY_HOST}:${LOCAL_PROXY_PORT}"

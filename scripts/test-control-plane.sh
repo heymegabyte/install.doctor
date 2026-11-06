@@ -21,8 +21,22 @@ if [ ! -f "$CP/wrangler.toml" ] || [ ! -f "$CP/src/index.ts" ]; then
   fail "control-plane not scaffolded (packages/control-plane/{wrangler.toml,src/index.ts})"
 else
   pass "control-plane scaffolded"
-  # build gate: dry-run bundles the Worker (needs hono installed + wrangler available via npx)
-  if ( cd "$CP" && npx --yes wrangler deploy --dry-run --outdir /tmp/cp-dist ) >/tmp/cp-build.log 2>&1; then
+  if grep -q 'binding = "RELEASES"' "$CP/wrangler.toml" \
+    && grep -q 'bucket_name = "install-doctor-bootstrap-releases"' "$CP/wrangler.toml" \
+    && grep -q 'binding = "RELEASE_CHANNELS"' "$CP/wrangler.toml" \
+    && grep -q 'bucket_name = "install-doctor-bootstrap-channels"' "$CP/wrangler.toml"; then
+    pass "release and channel R2 authority domains are separately bound"
+  else
+    fail "control-plane release/channel R2 bindings are missing or conflated"
+  fi
+  if ( cd "$CP" && node --test test/*.test.mjs ) >/tmp/cp-node-test.log 2>&1; then
+    pass "control-plane node tests OK"
+  else
+    fail "control-plane node tests failed (see /tmp/cp-node-test.log)"; tail -20 /tmp/cp-node-test.log 2>/dev/null
+  fi
+  # Build with the lockfile-installed Wrangler only; tests never download an
+  # ambient registry version as executable authority.
+  if ( cd "$CP" && ./node_modules/.bin/wrangler deploy --dry-run --outdir /tmp/cp-dist ) >/tmp/cp-build.log 2>&1; then
     pass "wrangler dry-run build OK"
   else
     fail "wrangler dry-run build failed (see /tmp/cp-build.log)"; tail -5 /tmp/cp-build.log 2>/dev/null

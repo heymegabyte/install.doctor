@@ -181,15 +181,6 @@ export class CapacitorSiteFooter {
                     <ion-icon name="logo-github"></ion-icon>
                   </a>
                   <a
-                    class="footer-social gitlab hint--top hint--rounded"
-                    href={this.defaults.social.gitlab}
-                    target="_blank"
-                    rel="noopener"
-                    aria-label="GitLab"
-                  >
-                    <ion-icon name="logo-gitlab"></ion-icon>
-                  </a>
-                  <a
                     class="footer-social slack hint--top hint--rounded"
                     href={this.defaults.social.slack}
                     target="_blank"
@@ -363,16 +354,6 @@ export class CapacitorSiteFooter {
                           rel="noopener"
                         >
                           GitHub
-                        </a>
-                      </li>
-                      <li>
-                        <a
-                          class="ui-paragraph-4 underline-hover link"
-                          href={this.defaults.social.gitlab}
-                          target="_blank"
-                          rel="noopener"
-                        >
-                          GitLab
                         </a>
                       </li>
                       <li>

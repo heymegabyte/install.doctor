@@ -11,7 +11,7 @@ Run the minimal bootstrap on the machine. It installs the provisioning foundatio
 command-not-found hook — nothing that needs a GUI:
 
 ```sh
-bash <(curl -sSL https://install.doctor/start)
+curl -fsSL https://app.install.doctor/start | bash
 ```
 
 Re-running it on an already-set-up machine is a no-op (idempotent).

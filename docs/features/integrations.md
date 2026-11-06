@@ -22,7 +22,7 @@ When selecting third-party services for official support, Install Doctor priorit
 | Integration | Description | Configuration |
 | ----------- | ----------- | ------------- |
 | Cloudflare WARP / Tunnel | Zero-Trust client and explicit service ingress | Control-plane enrollment |
-| [Cloudflare](/docs/features/cloudflare) | DNS, tunnels, WARP, and SSL certificates | Multiple `CLOUDFLARE_*` environment variables |
+| [Cloudflare](/docs/integrations/cloudflare) | DNS, tunnels, WARP, and SSL certificates | Multiple `CLOUDFLARE_*` environment variables |
 | WireGuard | Modern VPN protocol via NetworkManager | VPN profiles in `~/.config/vpn/` |
 | OpenVPN | Traditional VPN with automated profile import | `.ovpn` files in `~/.config/vpn/` |
 
@@ -30,7 +30,7 @@ When selecting third-party services for official support, Install Doctor priorit
 
 | Integration | Description | Configuration |
 | ----------- | ----------- | ------------- |
-| [Netdata](/docs/features/netdata) | Real-time system monitoring dashboard | `NETDATA_TOKEN` and `NETDATA_ROOM` |
+| [Netdata](/docs/integrations/netdata) | Real-time system monitoring dashboard | `NETDATA_TOKEN` and `NETDATA_ROOM` |
 | Healthchecks | Cron job and backup monitoring | `HEALTHCHECKS_API_KEY` environment variable |
 
 ## Security

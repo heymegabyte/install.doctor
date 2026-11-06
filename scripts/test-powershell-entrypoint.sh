@@ -36,7 +36,7 @@ hasre(){ grep -qE "$1" "$PS1" && pass "$2" || fail "$2 — pattern '$1' absent";
 # --- Identity + safety preamble -------------------------------------------------------------------
 hasre '#Requires -Version'                 "declares a PowerShell version floor (#Requires)"
 grep -qiF 'install.doctor' "$PS1" && pass "self-identifies as the install.doctor bootstrap" || fail "no install.doctor identity"
-grep -qiF '/windows' "$PS1" && pass "documents that https://install.doctor/windows points here" || fail "does not reference the /windows redirect it serves"
+grep -qiF 'not currently published' "$PS1" && pass "truthfully labels native Windows delivery unpublished" || fail "does not label native Windows delivery unpublished"
 hasre "ErrorActionPreference\s*=\s*'Stop'" "sets \$ErrorActionPreference = 'Stop' (fail-fast)"
 
 # --- Env-var contract parity with provision.sh ----------------------------------------------------
@@ -76,21 +76,15 @@ op=$(tr -cd '(' < "$PS1" | wc -c | tr -d ' '); cp=$(tr -cd ')' < "$PS1" | wc -c 
 [ "$ob" = "$cb" ] && pass "braces balanced ({ $ob == } $cb)" || fail "brace imbalance ({ $ob != } $cb)"
 [ "$op" = "$cp" ] && pass "parens balanced (( $op == ) $cp)" || fail "paren imbalance (( $op != ) $cp)"
 
-# --- Serving wiring: the /windows redirect must target scripts/provision.ps1 -----------------------
+# --- Serving wiring: unpublished until signed delivery and runtime verification --------------------
 if [ -f "$FIREBASE" ]; then
-  if grep -A2 '"/windows"' "$FIREBASE" | grep -q 'scripts/provision.ps1'; then
-    pass "firebase /windows redirect targets scripts/provision.ps1"
+  if grep -q '"source": "/windows"' "$FIREBASE"; then
+    fail "firebase publishes the runtime-unverified native Windows entrypoint"
   else
-    fail "firebase /windows redirect does not target scripts/provision.ps1"
-  fi
-  # The /windows redirect should serve from the canonical owned org (so the file we push is the file served).
-  if grep -A2 '"/windows"' "$FIREBASE" | grep -q 'heymegabyte/install.doctor'; then
-    pass "/windows redirect serves from the canonical heymegabyte org"
-  else
-    fail "/windows redirect still points at a non-canonical org (serves a file we don't push)"
+    pass "firebase keeps native Windows unpublished pending signed runtime evidence"
   fi
 else
-  skip "site/firebase.json absent — cannot verify /windows wiring"
+  skip "site/firebase.json absent — cannot verify Windows remains unpublished"
 fi
 
 # --- pwsh parse-check (gated — never claim Windows verification from a non-Windows host) -----------

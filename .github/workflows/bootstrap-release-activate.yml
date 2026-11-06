@@ -1,0 +1,134 @@
+name: Activate published bootstrap release
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_id:
+        description: Exact already-published immutable release ID
+        required: true
+        type: string
+      expected_channel_etag:
+        description: Exact current stable-channel ETag, or - only for first activation
+        required: true
+        type: string
+
+permissions: {}
+
+concurrency:
+  group: bootstrap-release-activate
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    name: Prepare credential-free activation tools
+    if: github.ref == 'refs/heads/master'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    outputs:
+      release_id: ${{ steps.identity.outputs.release_id }}
+      signer_id: ${{ steps.identity.outputs.signer_id }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 24.22.2
+          cache: npm
+          cache-dependency-path: packages/control-plane/package-lock.json
+      - id: identity
+        env:
+          RELEASE_ID: ${{ inputs.release_id }}
+          SIGNER_ID: ${{ vars.INSTALL_DOCTOR_RELEASE_SIGNER_ID }}
+        run: |
+          set -euo pipefail
+          case "$RELEASE_ID" in ''|[!a-z0-9]*|*[!a-z0-9._-]*) exit 64;; esac
+          case "$SIGNER_ID" in ''|[!a-z0-9]*|*[!a-z0-9._-]*) exit 64;; esac
+          test "${#RELEASE_ID}" -le 128
+          test "${#SIGNER_ID}" -le 128
+          printf 'release_id=%s\nsigner_id=%s\n' "$RELEASE_ID" "$SIGNER_ID" >>"$GITHUB_OUTPUT"
+      - name: Assemble source-pinned activation tools
+        env:
+          SIGNER_ID: ${{ steps.identity.outputs.signer_id }}
+        run: |
+          set -euo pipefail
+          umask 077
+          mkdir -p activation-tools/scripts
+          cp packages/control-plane/package.json packages/control-plane/package-lock.json activation-tools/
+          cp packages/control-plane/scripts/publish-release-to-r2.mjs \
+             packages/control-plane/scripts/release-publication.mjs \
+             packages/control-plane/scripts/r2-publication-storage.mjs activation-tools/scripts/
+          npm --prefix activation-tools ci --omit=dev --ignore-scripts --no-audit --no-fund
+          jq -er --arg id "$SIGNER_ID" '.signers[$id] | select(type == "string")' \
+            packages/control-plane/src/release-trust.json >activation-tools/release-public-key
+          grep -Eq '^ssh-ed25519 [A-Za-z0-9+/]+={0,3}( [^[:cntrl:]]{1,128})?$' activation-tools/release-public-key
+          chmod 0600 activation-tools/release-public-key
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: bootstrap-activation-tools-${{ github.run_id }}
+          path: activation-tools
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 1
+
+  activate:
+    name: CAS-activate and publicly verify stable
+    needs: prepare
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: bootstrap-release-activate
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: bootstrap-activation-tools-${{ github.run_id }}
+          path: activation-tools
+      - uses: Infisical/secrets-action@d2e351f16c6ca20d17c85e6c992e04bdeb64e87d # v1.0.18
+        with:
+          method: oidc
+          identity-id: ${{ vars.INFISICAL_BOOTSTRAP_RELEASE_ACTIVATOR_ID }}
+          project-slug: ${{ vars.INFISICAL_PROJECT_SLUG }}
+          env-slug: prod
+          secret-path: /ci/bootstrap-release/activator
+          include-imports: false
+          recursive: false
+      - name: Activate exact published bytes and prove public routing
+        env:
+          RELEASE_ID: ${{ needs.prepare.outputs.release_id }}
+          EXPECTED_ETAG: ${{ inputs.expected_channel_etag }}
+          INSTALL_DOCTOR_RELEASE_SIGNER_ID: ${{ needs.prepare.outputs.signer_id }}
+          INSTALL_DOCTOR_RELEASE_PUBLIC_KEY: ${{ github.workspace }}/activation-tools/release-public-key
+        run: |
+          set -euo pipefail
+          if [ "$EXPECTED_ETAG" != - ] && [[ ! "$EXPECTED_ETAG" =~ ^\"[A-Za-z0-9._:-]+\"$ ]]; then
+            printf 'expected_channel_etag must be - or a quoted canonical ETag\n' >&2
+            exit 64
+          fi
+          activation_id="$(node -e 'process.stdout.write(crypto.randomUUID())')"
+          activated_at="$(date -u +%Y-%m-%dT%H:%M:%S.000Z)"
+          set +e
+          activation_output="$(node activation-tools/scripts/publish-release-to-r2.mjs activate \
+            "$RELEASE_ID" stable "$EXPECTED_ETAG" "$activation_id" "$activated_at")"
+          activation_status=$?
+          set -e
+          printf '%s\n' "$activation_output"
+          if [ "$activation_status" -eq 75 ]; then
+            node activation-tools/scripts/publish-release-to-r2.mjs reconcile stable "$activation_id"
+          elif [ "$activation_status" -ne 0 ]; then
+            exit "$activation_status"
+          fi
+          curl --fail --silent --show-error --proto '=https' --tlsv1.2 --max-time 30 --retry 3 --retry-all-errors \
+            --output "$RUNNER_TEMP/start" https://app.install.doctor/start
+          bash -n "$RUNNER_TEMP/start"
+          grep -Fq "https://app.install.doctor/releases/$RELEASE_ID/manifest" "$RUNNER_TEMP/start"
+          curl --fail --silent --show-error --proto '=https' --tlsv1.2 --max-time 30 --retry 3 --retry-all-errors \
+            --output "$RUNNER_TEMP/manifest" "https://app.install.doctor/releases/$RELEASE_ID/manifest"
+          curl --fail --silent --show-error --proto '=https' --tlsv1.2 --max-time 30 --retry 3 --retry-all-errors \
+            --output "$RUNNER_TEMP/manifest.sig" "https://app.install.doctor/releases/$RELEASE_ID/manifest.sig"
+          printf '%s %s\n' "$INSTALL_DOCTOR_RELEASE_SIGNER_ID" "$(cat "$INSTALL_DOCTOR_RELEASE_PUBLIC_KEY")" >"$RUNNER_TEMP/allowed-signers"
+          ssh-keygen -Y verify -f "$RUNNER_TEMP/allowed-signers" -I "$INSTALL_DOCTOR_RELEASE_SIGNER_ID" \
+            -n install.doctor.release -s "$RUNNER_TEMP/manifest.sig" <"$RUNNER_TEMP/manifest"
+          printf 'INSTALL_DOCTOR_RELEASE_R2_ACCESS_KEY_ID=\nINSTALL_DOCTOR_RELEASE_R2_SECRET_ACCESS_KEY=\nINSTALL_DOCTOR_CHANNEL_R2_ACCESS_KEY_ID=\nINSTALL_DOCTOR_CHANNEL_R2_SECRET_ACCESS_KEY=\n' >>"$GITHUB_ENV"

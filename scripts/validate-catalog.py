@@ -19,9 +19,18 @@
 import json
 import sys
 import collections
+import pathlib
+import subprocess
 
 MODES = {"cli", "app", "service"}
 DELIVERY_MODES = {"eager", "lazy"}
+LOAD_POLICIES = {
+    "lazy",
+    "eager-bootstrap",
+    "eager-supported-path",
+    "eager-security-recovery",
+    "eager-service",
+}
 PRELOAD_REASONS = {
     "bootstrap-critical",
     "lazy-installer-substrate",
@@ -44,8 +53,6 @@ VALID_MANAGERS = {
     "gem",
     "apk",
 }
-
-
 def validate(cat):
     problems = []
     if not isinstance(cat, list):
@@ -61,24 +68,34 @@ def validate(cat):
                 problems.append(f"{nm}: missing/invalid string field {fld!r}")
         for fld in ("providers", "platforms"):
             v = e.get(fld)
-            if not isinstance(v, list) or not v:
-                problems.append(f"{nm}: {fld!r} must be a non-empty list")
+            if not isinstance(v, list) or (fld == "platforms" and not v):
+                problems.append(f"{nm}: {fld!r} must be a list{'' if fld == 'providers' else ' with at least one platform'}")
+        if not (e.get("providers") or e.get("artifacts")):
+            problems.append(f"{nm}: entry requires a package-manager provider or immutable artifact")
         if e.get("installMode") not in MODES:
             problems.append(f"{nm}: installMode {e.get('installMode')!r} not in {sorted(MODES)}")
         if e.get("deliveryMode") not in DELIVERY_MODES:
             problems.append(f"{nm}: deliveryMode {e.get('deliveryMode')!r} not in {sorted(DELIVERY_MODES)}")
+        if e.get("loadPolicy") not in LOAD_POLICIES:
+            problems.append(f"{nm}: loadPolicy {e.get('loadPolicy')!r} not in {sorted(LOAD_POLICIES)}")
+        if not isinstance(e.get("loadRationale"), str) or not e.get("loadRationale"):
+            problems.append(f"{nm}: loadRationale must be a non-empty string")
         if not isinstance(e.get("preload"), bool):
             problems.append(f"{nm}: preload must be a boolean")
         if e.get("preload") is True and e.get("preloadReason") not in PRELOAD_REASONS:
             problems.append(f"{nm}: eager preload has invalid reason {e.get('preloadReason')!r}")
         if e.get("preload") is not True and "preloadReason" in e:
             problems.append(f"{nm}: preloadReason is only valid for an eager preload")
-        expected_delivery = "eager" if e.get("installMode") in {"app", "service"} or e.get("preload") is True else "lazy"
+        expected_delivery = "eager" if e.get("loadPolicy") != "lazy" else "lazy"
         if e.get("deliveryMode") != expected_delivery:
             problems.append(
                 f"{nm}: deliveryMode {e.get('deliveryMode')!r} does not match installMode/preload; "
                 f"expected {expected_delivery!r}"
             )
+        if e.get("loadPolicy") == "lazy" and e.get("loadRationale") != "default-lazy":
+            problems.append(f"{nm}: lazy entries must use the deterministic default-lazy rationale")
+        if e.get("loadPolicy") != "lazy" and ":" not in str(e.get("loadRationale", "")):
+            problems.append(f"{nm}: eager loadRationale must name its owning reference")
         provs = set(e.get("providers") or [])
         unknown_provs = provs - VALID_MANAGERS
         if unknown_provs:
@@ -110,6 +127,14 @@ def main(argv):
         cat = json.load(open(path))
     except Exception as exc:  # noqa: BLE001 - surface any read/parse failure as a hard fail
         print(f"FATAL: cannot read {path}: {exc}")
+        return 1
+    artifact_validator = pathlib.Path(__file__).with_name("validate-catalog-artifacts.mjs")
+    artifact_result = subprocess.run(
+        ["node", str(artifact_validator), path], capture_output=True, text=True, check=False
+    )
+    if artifact_result.returncode != 0:
+        diagnostic = artifact_result.stderr.strip().splitlines()[-1] if artifact_result.stderr.strip() else "unknown error"
+        print(f"FATAL: {diagnostic}")
         return 1
     problems = validate(cat)
     if problems:

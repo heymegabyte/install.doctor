@@ -435,23 +435,23 @@ if [ -f "$REPO_ROOT/start.sh" ]; then
 fi
 
 # ---------------------------------------------------------------------------
-# Test 8: start.sh embedded detectArchSuffix picks the host's go-task arch (B03 consumer)
-#   Guards the real bug: the Task bootstrap must not hardcode amd64 on ARM hosts.
+# Test 8: immutable Task bootstrap maps only supported architectures (B03 consumer)
+#   Guards both the original hardcoded-amd64 bug and unsafe unknown-arch fallback.
 # ---------------------------------------------------------------------------
-echo "=== Test: start.sh embedded detectArchSuffix ==="
-if [ -f "$REPO_ROOT/start.sh" ]; then
+echo "=== Test: Task bootstrap architecture mapping ==="
+if [ -f "$REPO_ROOT/scripts/lib/task-bootstrap.sh" ]; then
   EMBEDDED_ARCH="$(bash -c "
-    $(sed -n '/^detectArchSuffix() {/,/^}/p' "$REPO_ROOT/start.sh")
-    detectArchSuffix
+    . '$REPO_ROOT/scripts/lib/task-bootstrap.sh'
+    task_bootstrap_arch '$(uname -m)'
   " 2>/dev/null || echo "error")"
   case "$(uname -m)" in
     x86_64 | amd64) EXP_TASK_ARCH="amd64" ;;
     aarch64 | arm64) EXP_TASK_ARCH="arm64" ;;
     i386 | i486 | i586 | i686) EXP_TASK_ARCH="386" ;;
     armv7l | armv7 | armv6l | armv6 | armhf | arm) EXP_TASK_ARCH="arm" ;;
-    *) EXP_TASK_ARCH="amd64" ;;
+    *) EXP_TASK_ARCH="error" ;;
   esac
-  assert_eq "start.sh detectArchSuffix resolves host arch" "$EXP_TASK_ARCH" "$EMBEDDED_ARCH"
+  assert_eq "Task bootstrap resolves supported host arch or fails closed" "$EXP_TASK_ARCH" "$EMBEDDED_ARCH"
   # Regression guard for the hardcoded-amd64 bug: ARM hosts must resolve arm64, never amd64
   if [ "$(uname -m)" = "arm64" ] || [ "$(uname -m)" = "aarch64" ]; then
     assert_eq "start.sh Task arch is arm64 on ARM (not hardcoded amd64)" "arm64" "$EMBEDDED_ARCH"

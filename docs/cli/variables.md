@@ -14,7 +14,7 @@ These variables control the core provisioning process:
 | Variable | Default | Description |
 |---|---|---|
 | `HEADLESS_INSTALL` | `false` | When `true`, skips all interactive prompts and uses default values |
-| `SOFTWARE_GROUP` | (prompted) | Which software set to install: `Full`, `Standard`, or `Minimal` |
+| `SOFTWARE_GROUP` | `Full` in bootstrap; `Standard` in direct Chezmoi runs | Base set: `Basic`, `Server`, `Standard`, or `Full`. Desktop sessions automatically append the `-Desktop` suffix, such as `Standard-Desktop`. |
 | `START_REPO` | `megabyte-labs` | GitHub username or org containing your Install Doctor fork |
 | `START_REPO_BRANCH` | `master` | Branch to use when cloning the Install Doctor repository |
 | `SUDO_PASSWORD` | (prompted) | Sudo password for automated installs (avoids sudo prompts) |
@@ -29,12 +29,28 @@ export SOFTWARE_GROUP=Standard
 export START_REPO=YourGitHubUsername
 export SUDO_PASSWORD=YourPassword
 export AGE_PASSWORD=YourAgePassword
-bash <(curl -sSL https://install.doctor/start)
+curl -fsSL https://app.install.doctor/start | bash
 ```
 
 ## Integration Variables
 
-These variables configure third-party service integrations. When set, Install Doctor automatically connects to these services during provisioning:
+Optional runtimes and integrations are lazy by default. Selecting software does not silently enroll a host, start a daemon, download an AI model, or expose an ingress path.
+
+### Optional runtime activation
+
+| Variable | Default | Effect when set to `1` |
+|---|---:|---|
+| `INSTALL_DOCTOR_OLLAMA` | `0` | Configure the loopback Ollama service and pull the approved model on a capable host. |
+| `INSTALL_DOCTOR_LITELLM_ENROLL` | `0` | Enroll an already-selected Ollama host in the authenticated LiteLLM gateway. |
+| `INSTALL_DOCTOR_CUA_DRIVER` | `0` | Install and configure Cua Driver on an interactive desktop. |
+| `INSTALL_DOCTOR_KASMVNC` | `0` | Configure and optionally start the loopback KasmVNC desktop bridge. |
+| `INSTALL_DOCTOR_NEXUS_CACHE` | `0` | Configure the local proxy and Nexus package-cache integration. |
+| `INSTALL_DOCTOR_GITOMATIC` | `0` | Enable the automatic repository synchronization service. |
+| `INSTALL_DOCTOR_CLOUDFLARED_ENROLL` | `0` | Enroll this host and start its approved Cloudflare Tunnel service. |
+
+These selectors authorize activation only; every hook still checks platform, capabilities, installed dependencies, and headless constraints.
+
+The variables below provide configuration to integrations after the corresponding runtime has been explicitly selected:
 
 ### Networking
 
@@ -125,7 +141,7 @@ These variables are defined in `home/.chezmoidata.yaml` and available in `.tmpl`
 
 Variables are resolved in this order (highest priority first):
 
-1. **Inline environment variables** - `HEADLESS_INSTALL=true bash <(curl ...)`
+1. **Inline environment variables** - `curl -fsSL https://app.install.doctor/start | HEADLESS_INSTALL=true bash`
 2. **Exported shell variables** - `export SOFTWARE_GROUP=Standard`
 3. **Encrypted Chezmoi secrets** - `home/.chezmoitemplates/secrets/`
 4. **chezmoi.yaml.tmpl defaults** - `home/.chezmoi.yaml.tmpl`

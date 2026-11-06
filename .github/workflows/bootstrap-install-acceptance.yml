@@ -1,0 +1,92 @@
+name: Signed bootstrap acceptance
+
+on:
+  pull_request:
+    paths:
+      - "packages/aid-core/**"
+      - "packages/control-plane/**"
+      - "packages/installer-engine/**"
+      - "scripts/provision.sh"
+      - "scripts/publish-bootstrap-release.sh"
+      - "scripts/test-bootstrap-install-acceptance.sh"
+      - "scripts/test-bootstrap-upgrade-acceptance.sh"
+      - "scripts/helpers/render-bootstrap.mjs"
+      - ".github/workflows/bootstrap-install-acceptance.yml"
+  push:
+    branches: [main, master]
+    paths:
+      - "packages/aid-core/**"
+      - "packages/control-plane/**"
+      - "packages/installer-engine/**"
+      - "scripts/provision.sh"
+      - "scripts/publish-bootstrap-release.sh"
+      - "scripts/test-bootstrap-install-acceptance.sh"
+      - "scripts/test-bootstrap-upgrade-acceptance.sh"
+      - "scripts/helpers/render-bootstrap.mjs"
+      - ".github/workflows/bootstrap-install-acceptance.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: signed-bootstrap-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  linux-signed-start:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 24.22.2
+          cache: npm
+          cache-dependency-path: |
+            packages/aid-core/package-lock.json
+            packages/control-plane/package-lock.json
+            packages/installer-engine/package-lock.json
+      - name: Install locked build dependencies
+        run: |
+          npm --prefix packages/aid-core ci --ignore-scripts --no-audit --no-fund
+          npm --prefix packages/control-plane ci --ignore-scripts --no-audit --no-fund
+          npm --prefix packages/installer-engine ci --ignore-scripts --no-audit --no-fund
+      - name: Acquire pinned disposable image
+        run: docker pull node@sha256:8fa96264f302f58bbb13aa7339c541547b56975766ce956c875da149452a3e40
+      - name: Verify immutable publication and activation contracts
+        run: node --test packages/control-plane/test/release-publication.test.mjs packages/control-plane/test/r2-publication-storage.test.mjs
+      - name: Verify protected production release authority boundaries
+        run: bash scripts/test-bootstrap-release-workflow.sh
+      - name: Verify signed start, clean install, and unchanged run
+        run: bash scripts/test-bootstrap-install-acceptance.sh
+      - name: Verify signed release upgrade and unchanged upgraded run
+        run: bash scripts/test-bootstrap-upgrade-acceptance.sh
+
+  linux-offline-sandbox:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 24.22.2
+          cache: npm
+          cache-dependency-path: |
+            packages/aid-core/package-lock.json
+            packages/installer-engine/package-lock.json
+      - name: Install locked engine and Bubblewrap
+        run: |
+          npm --prefix packages/aid-core ci --ignore-scripts --no-audit --no-fund
+          npm --prefix packages/installer-engine ci --ignore-scripts --no-audit --no-fund
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends bubblewrap
+          if sysctl kernel.apparmor_restrict_unprivileged_userns >/dev/null 2>&1; then
+            sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          fi
+      - name: Require real network-denied sandbox execution
+        env:
+          INSTALL_DOCTOR_REQUIRE_REAL_OFFLINE_SANDBOX: "1"
+        run: |
+          npm --prefix packages/installer-engine run build
+          node --test packages/installer-engine/test/offline-sandbox.test.mjs

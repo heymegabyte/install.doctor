@@ -192,9 +192,6 @@ software_package:
     dnf: desed # dnf package for Fedora
     github: github.com/SoptikHa2/desed # GitHub link - populate if the repository has releases
     pkg: desed # FreeBSD pkg name for future FreeBSD support
-  # @binarycli @binary @cli [deta](https://github.com/deta/deta-cli) - Command line interface for managing Deta micros and deployments
-  deta:
-    github: github.com/deta/deta-cli
   # @binarycli @binary @cli [direnv](https://github.com/direnv/direnv) - Extension to load and unload environment variables depending on the current directory
   direnv:
     apt: direnv

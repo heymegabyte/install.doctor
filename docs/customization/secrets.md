@@ -22,7 +22,7 @@ export FULL_NAME="Joe Shmoe"
 export PRIMARY_EMAIL="help@megabyte.space"
 export PUBLIC_SERVICES_DOMAIN="megabyte.space"
 export START_REPO=my-gh-user/my-fork-name
-bash <(curl -sSL https://install.doctor/start)
+curl -fsSL https://app.install.doctor/start | bash
 ```
 
 **Windows:**
@@ -34,7 +34,7 @@ $env:FULL_NAME = 'Joe Shmoe'
 $env:PRIMARY_EMAIL = 'help@megabyte.space'
 $env:PUBLIC_SERVICES_DOMAIN = 'megabyte.space'
 $env:START_REPO = 'my-gh-user/my-fork-name'
-iex ((New-Object System.Net.WebClient).DownloadString('https://install.doctor/windows'))
+# Native Windows installer is not published until its signed release path is verified.
 ```
 
 **Qubes:**
@@ -46,7 +46,7 @@ export FULL_NAME="Joe Shmoe"
 export PRIMARY_EMAIL="help@megabyte.space"
 export PUBLIC_SERVICES_DOMAIN="megabyte.space"
 export START_REPO=my-gh-user/my-fork-name
-qvm-run --pass-io sys-firewall "curl -sSL https://install.doctor/qubes" > ~/setup.sh
+# Qubes entrypoint is not published until its signed delivery and dom0/AppVM matrix are verified.
 bash ~/setup.sh
 ```
 
@@ -92,21 +92,21 @@ To add secrets to your custom fork, you need to ensure Chezmoi is configured to 
 
 ```shell
 export START_REPO=my-gh-user/my-fork-name
-bash <(curl -sSL https://install.doctor/start)
+curl -fsSL https://app.install.doctor/start | bash
 ```
 
 **Windows:**
 
 ```powershell
 $env:START_REPO = 'my-gh-user/my-fork-name'
-iex ((New-Object System.Net.WebClient).DownloadString('https://install.doctor/windows'))
+# Native Windows installer is not published until its signed release path is verified.
 ```
 
 **Qubes:**
 
 ```shell
 export START_REPO=my-gh-user/my-fork-name
-qvm-run --pass-io sys-firewall "curl -sSL https://install.doctor/qubes" > ~/setup.sh
+# Qubes entrypoint is not published until its signed delivery and dom0/AppVM matrix are verified.
 bash ~/setup.sh
 ```
 

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Served-entrypoint drift guard (new-arc "the deployed entrypoints must actually serve" + no-dead-claim, #204).
-# install.doctor serves standalone bootstrap scripts at short URLs via site/firebase.json `redirects`
-# (e.g. /start → scripts/provision.sh). docs/scripts/overview/utility.md DOCUMENTS each script→URL mapping as
+# install.doctor exposes only the signed `/start` bootstrap; mutable raw-script aliases are forbidden.
+# docs/scripts/overview/utility.md DOCUMENTS each script→URL mapping as
 # a public contract. A documented URL with NO redirect 404s — a dead claim (found #204: /brew + /ssh were
 # documented but had no redirect → both 404 while /start was 200). This guard locks the doc ↔ serving-config
 # in sync: every `scripts/<x>.sh → https://install.doctor/<ep>` row in utility.md MUST have a matching
@@ -27,22 +27,13 @@ if command -v python3 >/dev/null 2>&1 && [ -f "$FB" ]; then
   python3 -c "import json,sys; json.load(open('$FB'))" 2>/dev/null && pass "firebase.json is valid JSON" || fail "firebase.json is INVALID JSON"
 fi
 
-# Every utility.md row mapping `scripts/<x>.sh` → `https://install.doctor/<ep>` is a served-URL contract.
-# Here-string (not a pipe) so the pass/fail counters survive (no subshell).
-pairs="$(grep -E '`scripts/[a-z.-]+`' "$UTIL" 2>/dev/null | grep 'install.doctor/' \
-  | sed -E 's#.*`(scripts/[a-z.-]+)`.*install\.doctor/([a-z]+).*#\2 \1#' | grep -E '^[a-z]+ scripts/')"
-if [ -z "$pairs" ]; then
-  fail "no documented script→URL entrypoint rows found in utility.md (extraction broke?)"
+grep -A2 '"/start"' "$FB" | grep -q 'https://app.install.doctor/start' \
+  && pass "/start is served through signed stage zero" \
+  || fail "/start does not route to signed stage zero"
+if grep -qE '"source": "/(windows|brew|ssh)"' "$FB"; then
+  fail "legacy mutable installer redirects remain published"
 else
-  while read -r ep script; do
-    [ -z "$ep" ] && continue
-    sfile="$(basename "$script")"
-    if grep -qE "\"source\": \"/$ep\"" "$FB" && grep -qE "$sfile\"" "$FB"; then
-      pass "/$ep is served — firebase.json redirects it to $script (documented in utility.md)"
-    else
-      fail "/$ep is DOCUMENTED (→ $script) but has NO matching firebase.json redirect → it 404s (dead claim)"
-    fi
-  done <<< "$pairs"
+  pass "legacy /windows, /brew, and /ssh mutable installer redirects are absent"
 fi
 
 # #305 — the redirect DESTINATIONS must point at the CANONICAL org. /start,/windows,/brew,/ssh serve
@@ -53,28 +44,23 @@ fi
 # committed here) would pass it. Observed LIVE #305: prod still 301s /start,/windows → megabyte-labs
 # because the Firebase deploy is stale (site-deploy needs FIREBASE_SERVICE_ACCOUNT, CLAUDE.md §9 #21) —
 # a correct repo config goes live on the next deploy; this locks the repo config so it can't regress.
-dests="$(grep -oE 'raw\.githubusercontent\.com/[a-z0-9.-]+/install\.doctor/' "$FB" 2>/dev/null)"
-if [ -z "$dests" ]; then
-  fail "no install.doctor raw-githubusercontent redirect destinations found in firebase.json (extraction broke?)"
-elif printf '%s\n' "$dests" | grep -qE 'megabyte-labs/install\.doctor/'; then
-  fail "a firebase.json redirect points at the STALE megabyte-labs/install.doctor org — must be heymegabyte (CLAUDE.md §13)"
-elif printf '%s\n' "$dests" | grep -qvE 'heymegabyte/install\.doctor/'; then
-  fail "a firebase.json install.doctor redirect destination is not on the canonical heymegabyte org"
+if grep -qE 'raw\.githubusercontent\.com/.*/install\.doctor/' "$FB"; then
+  fail "firebase.json publishes a mutable raw install.doctor script"
 else
-  pass "every install.doctor redirect destination uses the canonical heymegabyte org (not the stale megabyte-labs)"
+  pass "firebase.json publishes no mutable raw install.doctor scripts"
 fi
 
 # #206 — the repo-root start.sh is the LOCAL Task-runner bootstrap (package.json `bash start.sh && task …`),
-# NOT the deployed curl entrypoint: /start serves scripts/provision.sh (asserted above). start.sh's header
+# NOT the deployed curl entrypoint: /start serves the control-plane stage zero. start.sh's header
 # once falsely self-claimed the curl-/start role → a maintainer would edit the WRONG file (the #204
 # entrypoint-confusion class). Lock it: start.sh must NOT claim to BE the curl-piped /start entrypoint.
 SS="$ROOT/start.sh"
 if [ ! -f "$SS" ]; then
   fail "repo-root start.sh missing ($SS)"
 elif grep -qE 'initial entry point when running' "$SS"; then
-  fail "start.sh falsely self-claims the curl-/start entrypoint role — but /start serves scripts/provision.sh (edit provision.sh for the deployed bootstrap)"
+  fail "start.sh falsely self-claims the curl-/start role — the control plane owns stage zero"
 else
-  pass "start.sh does not falsely claim the curl-/start role (the deployed /start is scripts/provision.sh; start.sh is the local Task bootstrap)"
+  pass "start.sh does not falsely claim the curl-/start role (control-plane stage zero is canonical)"
 fi
 
 say "served-entrypoints: $P passed, $F failed"

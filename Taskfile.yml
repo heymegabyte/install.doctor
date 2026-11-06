@@ -2,7 +2,7 @@
 version: '3'
 
 vars:
-  START_URL: https://install.doctor/start
+  START_URL: https://app.install.doctor/start
   CONTROL_PLANE_URL: '{{default "https://app.install.doctor" .CONTROL_PLANE_URL}}'
 
 tasks:
@@ -74,11 +74,11 @@ tasks:
       - bash home/dot_local/bin/executable_desktop-autologin --disable
 
   provision:
-    desc: Run local Install Doctor provisioning entrypoint (scripts/provision.sh)
+    desc: Fetch and execute the canonical signed Install Doctor bootstrap
     cmds:
-      - bash scripts/provision.sh
+      - curl --proto '=https' --tlsv1.2 -fsSL {{.START_URL}} | bash
 
   provision:remote:
-    desc: Fetch and execute the canonical Install Doctor bootstrap script via curl
+    desc: Compatibility alias for the canonical signed bootstrap
     cmds:
-      - curl -fsSL {{.START_URL}} | bash
+      - task: provision

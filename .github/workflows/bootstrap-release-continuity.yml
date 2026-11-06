@@ -1,0 +1,91 @@
+name: Bootstrap release continuity
+
+on:
+  schedule:
+    - cron: '17 */6 * * *'
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: bootstrap-release-continuity
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    name: Prepare credential-free freshness verifier
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    outputs:
+      signer_id: ${{ steps.identity.outputs.signer_id }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 24.22.2
+          cache: npm
+          cache-dependency-path: packages/control-plane/package-lock.json
+      - id: identity
+        env:
+          SIGNER_ID: ${{ vars.INSTALL_DOCTOR_RELEASE_SIGNER_ID }}
+        run: |
+          set -euo pipefail
+          case "$SIGNER_ID" in ''|[!a-z0-9]*|*[!a-z0-9._-]*) exit 64;; esac
+          test "${#SIGNER_ID}" -le 128
+          printf 'signer_id=%s\n' "$SIGNER_ID" >>"$GITHUB_OUTPUT"
+      - name: Assemble source-pinned verifier
+        env:
+          SIGNER_ID: ${{ steps.identity.outputs.signer_id }}
+        run: |
+          set -euo pipefail
+          umask 077
+          mkdir -p continuity-tools/scripts
+          cp packages/control-plane/package.json packages/control-plane/package-lock.json continuity-tools/
+          cp packages/control-plane/scripts/publish-release-to-r2.mjs \
+             packages/control-plane/scripts/release-publication.mjs \
+             packages/control-plane/scripts/r2-publication-storage.mjs continuity-tools/scripts/
+          npm --prefix continuity-tools ci --omit=dev --ignore-scripts --no-audit --no-fund
+          jq -er --arg id "$SIGNER_ID" '.signers[$id] | select(type == "string")' \
+            packages/control-plane/src/release-trust.json >continuity-tools/release-public-key
+          chmod 0600 continuity-tools/release-public-key
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: bootstrap-continuity-tools-${{ github.run_id }}
+          path: continuity-tools
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 1
+
+  inspect:
+    name: Verify stable has more than 96 hours remaining
+    needs: prepare
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: bootstrap-release-monitor
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: bootstrap-continuity-tools-${{ github.run_id }}
+          path: continuity-tools
+      - uses: Infisical/secrets-action@d2e351f16c6ca20d17c85e6c992e04bdeb64e87d # v1.0.18
+        with:
+          method: oidc
+          identity-id: ${{ vars.INFISICAL_BOOTSTRAP_RELEASE_MONITOR_ID }}
+          project-slug: ${{ vars.INFISICAL_PROJECT_SLUG }}
+          env-slug: prod
+          secret-path: /ci/bootstrap-release/monitor
+          include-imports: false
+          recursive: false
+      - name: Fail loudly before the signed channel expires
+        env:
+          INSTALL_DOCTOR_RELEASE_SIGNER_ID: ${{ needs.prepare.outputs.signer_id }}
+          INSTALL_DOCTOR_RELEASE_PUBLIC_KEY: ${{ github.workspace }}/continuity-tools/release-public-key
+        run: |
+          set -euo pipefail
+          node continuity-tools/scripts/publish-release-to-r2.mjs freshness stable 345600

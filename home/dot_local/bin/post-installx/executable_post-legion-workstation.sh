@@ -21,6 +21,32 @@ log() {
   fi
 }
 
+warn() {
+  if command -v gum >/dev/null 2>&1; then
+    gum log -sl warn "$*"
+  else
+    printf '[post-legion-workstation] WARNING: %s\n' "$*" >&2
+  fi
+}
+
+# This host-specific capability must be selected explicitly. Keeping the hook
+# installed is not consent to provision a workstation or mutate host services.
+if [ "${INSTALL_DOCTOR_ENABLE_LEGION_WORKSTATION:-0}" != "1" ]; then
+  log 'Legion workstation capability is not selected; leaving the host unchanged'
+  exit 0
+fi
+
+# The typed installer invokes custom hooks as check/apply/verify. This legacy
+# monolith cannot yet prove a read-only check or complete postconditions, so it
+# must remain explicitly pending instead of mutating during --check or falsely
+# reporting success during --verify.
+case "${1:-}" in
+  --check|--apply|--verify)
+    warn 'Legion workstation reconciliation is pending migration to typed desired-state tasks'
+    exit 20
+    ;;
+esac
+
 mkdir -p "${XDG_CACHE_HOME:-$HOME/.cache}" 2>/dev/null || true
 TMP_DIR="$(mktemp -d "${XDG_CACHE_HOME:-$HOME/.cache}/.id-workstation.XXXXXX" 2>/dev/null || mktemp -d)"
 chmod 0755 "$TMP_DIR"
@@ -108,12 +134,15 @@ run_root() {
 }
 
 # -----------------------------------------------------------------------------
-# 0. Completely remove Superset, beszel-agent, syncthing, and retired VPNs across all platforms
+# 0. Optional removal of explicitly retired software.
+# Preservation is the default; destructive cleanup requires recorded consent.
 # -----------------------------------------------------------------------------
 RETIRED_VPN="tail""scale"
 RETIRED_TRAY="tray""scale"
 RETIRED_SYNC="sync""thing"
-if [ "$(uname -s)" = "Darwin" ]; then
+if [ "${INSTALL_DOCTOR_CONSENT_REMOVE_LEGACY:-0}" != "1" ]; then
+  log 'Preserving existing legacy software; removal was not explicitly approved'
+elif [ "$(uname -s)" = "Darwin" ]; then
   if command -v brew >/dev/null 2>&1; then
     if brew list --cask superset >/dev/null 2>&1; then
       log "Removing Superset cask on macOS..."
@@ -175,30 +204,14 @@ converge_fleet_host() {
   mkdir -p "$HOME/.local/bin" "$HOME/.config/agent-fleet" "$HOME/ai/repos" \
     "$HOME/.claude" "$HOME/.codex" "$HOME/.gemini/antigravity-cli" "$HOME/.gemini/config" "$HOME/.config/opencode"
 
-  # 1. Remove legacy @google/gemini-cli (gemini) & install/update Google Antigravity CLI (agy)
-  rm -f "$HOME/.local/bin/gemini" "$HOME/.gemini/oauth_creds.json" "$HOME/.gemini/google_accounts.json" 2>/dev/null || true
-  if ! [ -x "$HOME/.local/bin/agy" ]; then
-    local agy_manifest_url="https://antigravity-cli-auto-updater-974169037036.us-central1.run.app/manifests/${os_name}_${arch_name}.json"
-    local agy_manifest_json agy_tar_url agy_sha512 actual_sha agy_bin
-    if agy_manifest_json="$(curl -fsSL "$agy_manifest_url" 2>/dev/null)"; then
-      agy_tar_url="$(python3 -c 'import json,sys; print(json.loads(sys.argv[1])["url"])' "$agy_manifest_json" 2>/dev/null || true)"
-      agy_sha512="$(python3 -c 'import json,sys; print(json.loads(sys.argv[1])["sha512"])' "$agy_manifest_json" 2>/dev/null || true)"
-      if [ -n "$agy_tar_url" ] && curl -fsSL "$agy_tar_url" -o "$TMP_DIR/agy.tar.gz"; then
-        actual_sha="$(python3 -c 'import hashlib,sys; print(hashlib.sha512(open(sys.argv[1],"rb").read()).hexdigest())' "$TMP_DIR/agy.tar.gz" 2>/dev/null || true)"
-        if [ "$actual_sha" = "$agy_sha512" ]; then
-          tar -xzf "$TMP_DIR/agy.tar.gz" -C "$TMP_DIR"
-          agy_bin="$(find "$TMP_DIR" -type f \( -name agy -o -name antigravity \) | head -n 1 || true)"
-          [ -n "$agy_bin" ] && [ -f "$agy_bin" ] && install -m 0755 "$agy_bin" "$HOME/.local/bin/agy"
-        fi
-      fi
-    fi
-  fi
+  # 1. Agent binaries and credentials belong to selected desired state. This
+  # configuration hook neither installs binaries nor deletes another client's
+  # credentials.
+  [ -x "$HOME/.local/bin/agy" ] || log 'agy is not selected; fleet configuration will leave it absent'
 
-  # 2. Clone or link heymegabyte/agent-skills (~/.agentskills <-> ~/ai/repos/agent-skills) & ~/.claude/bin
+  # 2. Link an already provisioned, release-pinned agent-skills checkout.
   if [ ! -d "$HOME/ai/repos/agent-skills/.git" ] && [ ! -d "$HOME/.agentskills/.git" ]; then
-    if command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1; then
-      gh repo clone heymegabyte/agent-skills "$HOME/ai/repos/agent-skills" >/dev/null 2>&1 || true
-    fi
+    warn 'Pinned agent-skills checkout is absent; select it through Install Doctor desired state'
   fi
   if [ -d "$HOME/ai/repos/agent-skills/.git" ] && [ ! -e "$HOME/.agentskills" ]; then
     ln -sfn "$HOME/ai/repos/agent-skills" "$HOME/.agentskills"
@@ -245,9 +258,8 @@ EOF
 EOF
     fi
   fi
-  if [ "$os_name" = "linux" ] && [ ! -d "$HOME/ai/repos/${short_host}.megabyte.space/.git" ] && command -v gh >/dev/null 2>&1; then
-    gh repo clone "heymegabyte/${short_host}.megabyte.space" "$HOME/ai/repos/${short_host}.megabyte.space" >/dev/null 2>&1 \
-      || gh repo clone "ProfessorManhattan/${short_host}.megabyte.space" "$HOME/ai/repos/${short_host}.megabyte.space" >/dev/null 2>&1 || true
+  if [ "$os_name" = "linux" ] && [ ! -d "$HOME/ai/repos/${short_host}.megabyte.space/.git" ]; then
+    warn "Pinned machine checkout is absent; select and verify ${short_host}.megabyte.space through Install Doctor desired state"
   fi
 
   # 5. Register cua-driver MCP across all 4 harnesses (agy, claude, codex, opencode) + SSH mesh + agy keyring<->file bridge
@@ -369,7 +381,7 @@ mesh = [
 added = []
 for fqdn, short, ip, usr in mesh:
     if f"Host {fqdn}" not in cfg_txt:
-        added.append(f"Host {fqdn} {short}\n  HostName {ip}\n  User {usr}\n  IdentityFile ~/.ssh/id_ed25519\n  StrictHostKeyChecking accept-new\n")
+        added.append(f"Host {fqdn} {short}\n  HostName {ip}\n  User {usr}\n  IdentityFile ~/.ssh/id_ed25519\n  StrictHostKeyChecking yes\n  UpdateHostKeys no\n  UserKnownHostsFile ~/.ssh/known_hosts\n")
 if added:
     ssh_cfg.write_text(cfg_txt.rstrip() + "\n\n# Fleet LAN SSH Mesh\n" + "\n".join(added) + "\n")
     ssh_cfg.chmod(0o600)
@@ -454,7 +466,8 @@ EOF
 
     # Configure GNOME 50 Dark Theme, zero-latency KasmVNC/Selkies rendering (animations off), and clean Dock
     if command -v gsettings >/dev/null 2>&1 && [ -e "/run/user/$(id -u)/bus" ]; then
-      export DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$(id -u)/bus"
+      DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$(id -u)/bus"
+      export DBUS_SESSION_BUS_ADDRESS
       gsettings set org.gnome.desktop.interface color-scheme 'prefer-dark' 2>/dev/null || true
       gsettings set org.gnome.desktop.interface gtk-theme 'Yaru-dark' 2>/dev/null || true
       gsettings set org.gnome.desktop.interface enable-animations false 2>/dev/null || true
@@ -550,8 +563,6 @@ if [ "${#missing_managed[@]}" -gt 0 ]; then
 fi
 
 if command -v mise >/dev/null 2>&1; then
-  log "Ensuring Node.js LTS, Go, and Python via mise..."
-  mise use --global node@lts go@latest >/dev/null 2>&1 || true
   eval "$(mise env -s bash 2>/dev/null)" || true
   MISE_GO_BIN="$(find "$HOME/.local/share/mise/installs/go" -maxdepth 2 -type d -name bin 2>/dev/null | sort -V | tail -n 1 || true)"
   if [ -n "$MISE_GO_BIN" ] && [ -x "$MISE_GO_BIN/go" ]; then
@@ -568,103 +579,30 @@ for rust_dir in "$HOME/.cargo/bin" "$HOME/.local/share/cargo/bin"; do
   fi
 done
 
-if command -v rustup >/dev/null 2>&1 && ! command -v rust-analyzer >/dev/null 2>&1; then
-  rustup component add rust-analyzer >/dev/null 2>&1 || true
-fi
-
-if command -v go >/dev/null 2>&1 && ! command -v gopls >/dev/null 2>&1; then
-  GOBIN="$HOME/.local/bin" go install golang.org/x/tools/gopls@latest >/dev/null 2>&1 || true
-fi
-
-if command -v npm >/dev/null 2>&1; then
-  if ! command -v typescript-language-server >/dev/null 2>&1 || ! command -v bash-language-server >/dev/null 2>&1 || ! command -v pyright >/dev/null 2>&1; then
-    npm install -g pnpm typescript typescript-language-server bash-language-server vscode-langservers-extracted yaml-language-server pyright sql-language-server dockerfile-language-server-nodejs >/dev/null 2>&1 || true
-  fi
-fi
+for lazy_command in rust-analyzer gopls typescript-language-server bash-language-server pyright yaml-language-server; do
+  command -v "$lazy_command" >/dev/null 2>&1 || log "$lazy_command remains lazy and will resolve only when explicitly invoked"
+done
 
 # -----------------------------------------------------------------------------
 # 3. Item #11: Secrets Stack (infisical, age, sops — NO OnlyKey / FIDO2 tools)
 # -----------------------------------------------------------------------------
-if ! command -v age >/dev/null 2>&1; then
-  log "Installing age + age-keygen..."
-  AGE_VER="v1.2.1"
-  if curl -fsSL "https://github.com/FiloSottile/age/releases/download/${AGE_VER}/age-${AGE_VER}-linux-amd64.tar.gz" -o "$TMP_DIR/age.tar.gz"; then
-    tar -xzf "$TMP_DIR/age.tar.gz" -C "$TMP_DIR"
-    if [ -f "$TMP_DIR/age/age" ]; then
-      mv "$TMP_DIR/age/age" "$HOME/.local/bin/age"
-      mv "$TMP_DIR/age/age-keygen" "$HOME/.local/bin/age-keygen"
-      chmod +x "$HOME/.local/bin/age" "$HOME/.local/bin/age-keygen"
-    fi
-  fi
-fi
-
-if ! command -v sops >/dev/null 2>&1; then
-  log "Installing sops..."
-  SOPS_VER="v3.9.4"
-  curl -fsSL "https://github.com/getsops/sops/releases/download/${SOPS_VER}/sops-${SOPS_VER}.linux.amd64" -o "$HOME/.local/bin/sops" && chmod +x "$HOME/.local/bin/sops" || true
-fi
-
-if ! command -v infisical >/dev/null 2>&1; then
-  log "Installing infisical CLI..."
-  INF_VER="0.44.12"
-  if curl -fsSL "https://github.com/Infisical/cli/releases/download/v${INF_VER}/cli_${INF_VER}_linux_amd64.tar.gz" -o "$TMP_DIR/infisical.tar.gz"; then
-    tar -xzf "$TMP_DIR/infisical.tar.gz" -C "$TMP_DIR" infisical 2>/dev/null || tar -xzf "$TMP_DIR/infisical.tar.gz" -C "$TMP_DIR"
-    if [ -f "$TMP_DIR/infisical" ]; then
-      mv "$TMP_DIR/infisical" "$HOME/.local/bin/infisical"
-      chmod +x "$HOME/.local/bin/infisical"
-    fi
-  fi
-fi
+for managed_secret_command in age sops infisical; do
+  command -v "$managed_secret_command" >/dev/null 2>&1 \
+    || warn "$managed_secret_command is absent; select it through Install Doctor desired state instead of this configuration hook"
+done
 
 if ! command -v emdash >/dev/null 2>&1; then
-  log "Installing Emdash multi-agent orchestrator..."
-  if command -v apt-get >/dev/null 2>&1 && { [ "$(id -u)" -eq 0 ] || [ -n "$SUDO" ]; }; then
-    if curl -fsSL "https://github.com/generalaction/emdash/releases/latest/download/emdash-amd64.deb" -o "$TMP_DIR/emdash-amd64.deb"; then
-      run_root env DEBIAN_FRONTEND=noninteractive apt-get install -y -qq "$TMP_DIR/emdash-amd64.deb" >/dev/null 2>&1 || true
-    fi
-  fi
-  if ! command -v emdash >/dev/null 2>&1; then
-    curl -fsSL "https://github.com/generalaction/emdash/releases/latest/download/emdash-x86_64.AppImage" -o "$HOME/.local/bin/emdash" && chmod +x "$HOME/.local/bin/emdash" || true
-  fi
+  log 'Emdash is unavailable in the verified desired-state closure; skipping optional integration'
 fi
 
 # -----------------------------------------------------------------------------
 # 4. Tier 1: AI Coding Agents (claude, codex, opencode, agy, openspec; LSP servers lazy-load via CNF shims)
 # -----------------------------------------------------------------------------
-if command -v npm >/dev/null 2>&1; then
-  log "Installing AI coding CLIs via npm (LSP servers lazy-load on demand via CNF shims)..."
-  npm uninstall -g @google/gemini-cli >/dev/null 2>&1 || true
-  rm -f "$HOME/.local/bin/gemini" "$HOME/.gemini/oauth_creds.json" "$HOME/.gemini/google_accounts.json"
-  npm install -g \
-    @anthropic-ai/claude-code \
-    @openai/codex \
-    opencode-ai \
-    @fission-ai/openspec \
-    pnpm \
-    typescript >/dev/null 2>&1 || true
-fi
-
-# Install/update Google Antigravity CLI (agy) via official auto-updater manifest
-if ! [ -x "$HOME/.local/bin/agy" ]; then
-  log "Installing Google Antigravity CLI (agy)..."
-  AGY_MANIFEST_URL="https://antigravity-cli-auto-updater-974169037036.us-central1.run.app/manifests/linux_amd64.json"
-  if AGY_MANIFEST_JSON="$(curl -fsSL "$AGY_MANIFEST_URL" 2>/dev/null)"; then
-    AGY_TAR_URL="$(python3 -c 'import json,sys; print(json.loads(sys.argv[1])["url"])' "$AGY_MANIFEST_JSON" 2>/dev/null || true)"
-    AGY_SHA512="$(python3 -c 'import json,sys; print(json.loads(sys.argv[1])["sha512"])' "$AGY_MANIFEST_JSON" 2>/dev/null || true)"
-    if [ -n "$AGY_TAR_URL" ] && curl -fsSL "$AGY_TAR_URL" -o "$TMP_DIR/agy.tar.gz"; then
-      ACTUAL_SHA="$(python3 -c 'import hashlib,sys; print(hashlib.sha512(open(sys.argv[1],"rb").read()).hexdigest())' "$TMP_DIR/agy.tar.gz" 2>/dev/null || true)"
-      if [ "$ACTUAL_SHA" = "$AGY_SHA512" ]; then
-        tar -xzf "$TMP_DIR/agy.tar.gz" -C "$TMP_DIR"
-        AGY_BIN="$(find "$TMP_DIR" -type f \( -name agy -o -name antigravity \) | head -n 1 || true)"
-        if [ -n "$AGY_BIN" ] && [ -f "$AGY_BIN" ]; then
-          install -m 0755 "$AGY_BIN" "$HOME/.local/bin/agy"
-        fi
-      fi
-    fi
-  fi
-else
-  "$HOME/.local/bin/agy" update >/dev/null 2>&1 || true
-fi
+# Agent binaries are installed only by the approved desired-state closure.
+for managed_agent_command in claude codex opencode openspec agy; do
+  command -v "$managed_agent_command" >/dev/null 2>&1 \
+    || log "$managed_agent_command is not selected; this hook will not install or update it"
+done
 if [ -x "$HOME/.local/bin/agy" ]; then
   "$HOME/.local/bin/agy" install --skip-aliases >/dev/null 2>&1 || true
   if [ -x "$HOME/.local/bin/cua-driver-mcp" ]; then
@@ -798,13 +736,7 @@ fi
 # Nerd Fonts (MesloLGS NF) for terminal & prompt glyphs
 FONT_DIR="$HOME/.local/share/fonts/NerdFonts"
 if [ ! -f "$FONT_DIR/MesloLGS NF Regular.ttf" ]; then
-  log "Installing MesloLGS NF Nerd Fonts..."
-  mkdir -p "$FONT_DIR"
-  for style in "Regular" "Bold" "Italic" "Bold%20Italic"; do
-    fname="MesloLGS NF ${style//%20/ }.ttf"
-    curl -fsSL "https://github.com/romkatv/powerlevel10k-media/raw/307625efccbc8bf1ad5efde7c5eb27b33a974b8c/MesloLGS%20NF%20${style}.ttf" -o "$FONT_DIR/$fname" || true
-  done
-  command -v fc-cache >/dev/null 2>&1 && fc-cache -f "$FONT_DIR" >/dev/null 2>&1 || true
+  warn 'MesloLGS fonts are absent; select checksummed font artifacts through desired state'
 fi
 
 # -----------------------------------------------------------------------------
@@ -985,23 +917,11 @@ EOF
   log "Removing legacy passwordless sudoers drop-ins (sudo password loaded via Infisical) and configuring Coolify node readiness..."
   run_root rm -f /etc/sudoers.d/90-fleet-nopasswd 2>/dev/null || true
 
-  # Ensure Docker Engine + Compose v2 is installed and bound to loopback + registry mirror + NVIDIA CDI
+  # Docker is a selected desired-state package. This host-configuration hook
+  # may configure an admitted installation, but it never adds a repository or
+  # installs packages on its own.
   if ! command -v docker >/dev/null 2>&1 && command -v apt-get >/dev/null 2>&1; then
-    log "Installing Docker Engine + Compose v2 from official Docker APT repository..."
-    run_root install -m 0755 -d /etc/apt/keyrings
-    curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor > "$TMP_DIR/docker.gpg"
-    run_root install -o root -g root -m 0644 "$TMP_DIR/docker.gpg" /etc/apt/keyrings/docker.gpg
-    UBUNTU_CODENAME="$(. /etc/os-release && echo "${VERSION_CODENAME:-noble}")"
-    # Fall back to noble if Ubuntu 26.04 (resolute) repo is not yet published by Docker
-    if ! curl -fsSL "https://download.docker.com/linux/ubuntu/dists/${UBUNTU_CODENAME}/Release" >/dev/null 2>&1; then
-      UBUNTU_CODENAME="noble"
-    fi
-    printf 'deb [arch=%s signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu %s stable\n' \
-      "$(dpkg --print-architecture)" "$UBUNTU_CODENAME" > "$TMP_DIR/docker.list"
-    run_root cp "$TMP_DIR/docker.list" /etc/apt/sources.list.d/docker.list
-    run_root env DEBIAN_FRONTEND=noninteractive apt-get update -qq >/dev/null 2>&1 || true
-    run_root env DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
-      docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin >/dev/null 2>&1 || true
+    warn 'Docker is absent; select docker through Install Doctor desired state'
   fi
 
   if ! id -u coolify >/dev/null 2>&1; then
@@ -1328,13 +1248,7 @@ EOF
     # #18: Grafana Alloy Observability Shipper (127.0.0.1:12345 -> 10.0.0.155 Prometheus & Loki) + Autoheal
   if command -v docker >/dev/null 2>&1; then
     if ! run_root docker ps --format '{{.Names}}' 2>/dev/null | grep -qx 'autoheal'; then
-      run_root docker rm -f autoheal >/dev/null 2>&1 || true
-      run_root docker run -d --name autoheal --restart=always \
-        -e AUTOHEAL_CONTAINER_LABEL=all \
-        -e AUTOHEAL_INTERVAL=15 \
-        -e AUTOHEAL_START_PERIOD=30 \
-        -v /var/run/docker.sock:/var/run/docker.sock \
-        willfarrell/autoheal:1.2.0 >/dev/null 2>&1 || true
+      warn 'Autoheal is absent; this hook will not grant an unverified image write access to the Docker socket'
     fi
     run_root install -d -m 0755 /etc/alloy
     cat > "$TMP_DIR/config.alloy" <<EOF
@@ -1448,18 +1362,7 @@ loki.write "central" {
 EOF
     run_root cp "$TMP_DIR/config.alloy" /etc/alloy/config.alloy
     if ! run_root docker ps --format '{{.Names}}' 2>/dev/null | grep -qx 'alloy'; then
-      run_root docker rm -f alloy >/dev/null 2>&1 || true
-      run_root docker run -d --name alloy --restart unless-stopped --net host \
-        -e GOMEMLIMIT=768MiB \
-        -v /etc/alloy/config.alloy:/etc/alloy/config.alloy:ro \
-        -v /var/log/journal:/var/log/journal:ro \
-        -v /run/log/journal:/run/log/journal:ro \
-        -v /etc/machine-id:/etc/machine-id:ro \
-        -v /var/run/docker.sock:/var/run/docker.sock:ro \
-        -v /sys:/sys:ro \
-        -v /var/lib/docker:/var/lib/docker:ro \
-        grafana/alloy:v1.21.2 \
-        run --server.http.listen-addr=127.0.0.1:12345 /etc/alloy/config.alloy >/dev/null 2>&1 || true
+      warn 'Alloy is absent; select a digest-pinned Alloy service through desired state'
     fi
   fi
 
@@ -1559,18 +1462,8 @@ if [ -f "$HOME/.emdash/workspace-server/dist/daemon/entry.js" ]; then
   sed -i 's/5e3/30e3/g' "$HOME/.emdash/workspace-server/dist/daemon/entry.js" 2>/dev/null || true
 fi
 
-# Pull fleet baseline Ollama models (nomic-embed-text:latest, qwen2.5-coder:14b) on >= 8 GiB VRAM + >= 24 GiB RAM hosts
-if command -v ollama >/dev/null 2>&1 && command -v nvidia-smi >/dev/null 2>&1; then
-  VRAM_MIB="$(nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits 2>/dev/null | head -n1 | tr -d ' ' || echo 0)"
-  RAM_KIB="$(awk '/^MemTotal:/ {print $2; exit}' /proc/meminfo 2>/dev/null || echo 0)"
-  if [ "${VRAM_MIB:-0}" -ge 8000 ] && [ "${RAM_KIB:-0}" -ge 24000000 ]; then
-    for mdl in nomic-embed-text:latest qwen2.5-coder:14b; do
-      if ! ollama list 2>/dev/null | awk '{print $1}' | grep -qx "$mdl"; then
-        OLLAMA_HOST=127.0.0.1:11434 ollama pull "$mdl" >/dev/null 2>&1 || true
-      fi
-    done
-  fi
-fi
+# Model downloads are selected, digest-bound lazy artifacts. Host
+# configuration never pulls mutable model tags.
 
 # -----------------------------------------------------------------------------
 # 6. Tier 4: ZFS Storage Lifecycle (Proxmox-style sanoid, 85% capacity guard, monthly scrub, copies=2 on /home)
@@ -1660,11 +1553,8 @@ for pool in $(zpool list -H -o name 2>/dev/null || true); do
   [ "$pool" = "bpool" ] && max_cap=65
   cap="$(zpool list -H -o capacity "$pool" 2>/dev/null | tr -d '%' || echo 0)"
   if [ "${cap:-0}" -ge "$max_cap" ]; then
-    logger -t fleet-zfs-autosnap-guard "Pool $pool at ${cap}% (>= ${max_cap}%); pruning oldest snapshots"
-    zfs list -H -t snapshot -o name -s creation -r "$pool" 2>/dev/null \
-      | grep -E '@(autosnap_|autozsys_)' \
-      | head -n 15 \
-      | xargs -r -n 1 zfs destroy || true
+    logger -p daemon.err -t fleet-zfs-autosnap-guard "Pool $pool at ${cap}% (>= ${max_cap}%); refusing automatic snapshot mutation"
+    exit 75
   fi
 done
 EOF
@@ -1690,26 +1580,11 @@ fi
 # 7. Tier 7: Ideal Minimal Desktop (VS Code, GNOME Clipboard Indicator & Bloatware Cleanup)
 # -----------------------------------------------------------------------------
 # Visual Studio Code APT repository & binary
-if ! command -v code >/dev/null 2>&1 && command -v apt-get >/dev/null 2>&1 && { [ "$(id -u)" -eq 0 ] || [ -n "$SUDO" ]; }; then
-  log "Installing Visual Studio Code (code)..."
-  curl -fsSL https://packages.microsoft.com/keys/microsoft.asc | gpg --dearmor > "$TMP_DIR/microsoft.gpg"
-  run_root install -D -o root -g root -m 644 "$TMP_DIR/microsoft.gpg" /usr/share/keyrings/microsoft.gpg
-  printf 'Types: deb\nURIs: https://packages.microsoft.com/repos/code\nSuites: stable\nComponents: main\nArchitectures: amd64,arm64\nSigned-By: /usr/share/keyrings/microsoft.gpg\n' > "$TMP_DIR/vscode.sources"
-  run_root cp "$TMP_DIR/vscode.sources" /etc/apt/sources.list.d/vscode.sources
-  run_root env DEBIAN_FRONTEND=noninteractive apt-get update -qq >/dev/null 2>&1 || true
-  run_root env DEBIAN_FRONTEND=noninteractive apt-get install -y -qq code >/dev/null 2>&1 || true
-fi
+command -v code >/dev/null 2>&1 || warn 'Visual Studio Code is absent; select vscode through Install Doctor desired state'
 
 # GNOME Wayland Clipboard Indicator extension
 CLIP_EXT_DIR="$HOME/.local/share/gnome-shell/extensions/clipboard-indicator@tudmotu.com"
-if [ ! -d "$CLIP_EXT_DIR" ]; then
-  log "Installing GNOME Wayland Clipboard Indicator extension..."
-  mkdir -p "$CLIP_EXT_DIR"
-  if git clone --depth 1 https://github.com/Tudmotu/gnome-shell-extension-clipboard-indicator.git "$CLIP_EXT_DIR" >/dev/null 2>&1; then
-    rm -rf "$CLIP_EXT_DIR/.git"
-    XDG_RUNTIME_DIR="/run/user/$(id -u)" gnome-extensions enable "clipboard-indicator@tudmotu.com" >/dev/null 2>&1 || true
-  fi
-fi
+[ -d "$CLIP_EXT_DIR" ] || warn 'GNOME Clipboard Indicator is absent; select a pinned extension artifact through desired state'
 
 # -----------------------------------------------------------------------------
 # 7e. Fleet 60-Point Convergence: Proxmox Backup Client (PBS), Cloudflare Zero Trust,
@@ -1727,14 +1602,7 @@ if [ "$(id -u)" -eq 0 ] || [ -n "$SUDO" ]; then
 
   # Proxmox Backup Client 4.2+ (trixie PBS client repo) + Host Metadata Exporter + PBS Timer + Fire-Drill
   if ! command -v proxmox-backup-client >/dev/null 2>&1 && command -v apt-get >/dev/null 2>&1; then
-    log "Installing Proxmox Backup Client (proxmox-backup-client)..."
-    if curl -fsSL https://enterprise.proxmox.com/debian/proxmox-release-trixie.gpg -o "$TMP_DIR/proxmox-archive-keyring.gpg" 2>/dev/null; then
-      run_root install -D -o root -g root -m 0644 "$TMP_DIR/proxmox-archive-keyring.gpg" /usr/share/keyrings/proxmox-archive-keyring.gpg
-      printf 'deb [signed-by=/usr/share/keyrings/proxmox-archive-keyring.gpg] http://download.proxmox.com/debian/pbs-client trixie main\n' > "$TMP_DIR/pbs-client.list"
-      run_root cp "$TMP_DIR/pbs-client.list" /etc/apt/sources.list.d/pbs-client.list
-      run_root apt-get update -o Dir::Etc::sourcelist="sources.list.d/pbs-client.list" -o Dir::Etc::sourceparts="-" -o APT::Get::List-Cleanup="0" -qq >/dev/null 2>&1 || true
-      run_root env DEBIAN_FRONTEND=noninteractive apt-get install -y -qq proxmox-backup-client >/dev/null 2>&1 || true
-    fi
+    warn 'Proxmox Backup Client is absent; select it through Install Doctor desired state'
   fi
 
   run_root install -d -m 0700 /var/lib/pbs-host-metadata
@@ -2078,9 +1946,9 @@ EOF
       for pool in rpool bpool; do
         if zpool list -H -o name "$pool" >/dev/null 2>&1; then
           run_root zpool set autotrim=off "$pool" 2>/dev/null || true
-          if zpool status "$pool" 2>/dev/null | grep -qE "state: DEGRADED|zpool clear" && zpool status "$pool" 2>/dev/null | grep -q "No known data errors"; then
-            run_root zpool clear "$pool" 2>/dev/null || true
-          fi
+          # Error counters are diagnostic evidence. They are never cleared by
+          # unattended provisioning; repair and post-repair verification own
+          # that decision.
         fi
       done
     fi

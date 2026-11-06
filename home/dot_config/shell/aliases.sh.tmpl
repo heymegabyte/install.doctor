@@ -61,7 +61,7 @@ alias curl-impersonate='docker run --rm lwthiker/curl-impersonate:0.5-chrome cur
 
 ### curlie
 ### Curlie handles compression differently than curl. The bootstrap script
-# invoked by `bash <(curl -sSL https://install.doctor/start)` also requires
+# invoked by `curl -fsSL https://app.install.doctor/start | bash` also requires
 # the `--compressed` flag when this alias is enabled.
 # if command -v curlie > /dev/null; then
 #   alias curl='curlie'

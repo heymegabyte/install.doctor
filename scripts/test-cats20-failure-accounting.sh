@@ -13,12 +13,11 @@ F=0
 pass() { printf 'PASS %s\n' "$*"; P=$((P + 1)); }
 fail() { printf 'FAIL %s\n' "$*" >&2; F=$((F + 1)); }
 
-RUN_SCRIPT="$(sed -n '/async function runScript/,/^}/p' "$INSTALLX")"
-if ! printf '%s\n' "$RUN_SCRIPT" | grep -q '|| gum log' \
-  && printf '%s\n' "$RUN_SCRIPT" | grep -q 'throw e'; then
-  pass "installx script provider preserves the failed child status"
+if ! grep -Fq 'async function runScript' "$INSTALLX" \
+  && grep -Fq 'catalog script providers are unsupported' "$INSTALLX"; then
+  pass "installx rejects catalog script providers instead of executing or masking them"
 else
-  fail "installx script provider can still turn a failed script into success"
+  fail "installx retains an executable or non-failing catalog script provider"
 fi
 if grep -q 'failures.length' "$INSTALLX" && grep -q 'installation task(s) failed' "$INSTALLX"; then
   pass "installx aggregates rejected install tasks before reporting completion"
@@ -56,7 +55,7 @@ exit 0
 SH
 chmod +x "$TMP/bin/"*
 
-if HOME="$TMP/home" PATH="$TMP/bin:/usr/bin:/bin" SYSTEMCTL_TEST_STATUS=23 bash "$SERVICES" >"$TMP/service.out" 2>"$TMP/service.err"; then
+if HOME="$TMP/home" PATH="$TMP/bin:/usr/bin:/bin" INSTALL_DOCTOR_SELECTED_SERVICES=fixture SYSTEMCTL_TEST_STATUS=23 bash "$SERVICES" >"$TMP/service.out" 2>"$TMP/service.err"; then
   fail "service processor returned success after systemctl failed"
 else
   pass "service processor propagates a background service failure"
@@ -66,23 +65,22 @@ if grep -q 'Service management failed for fixture' "$TMP/service.err"; then
 else
   fail "service failure ledger omitted the owning package"
 fi
-if HOME="$TMP/home" PATH="$TMP/bin:/usr/bin:/bin" SYSTEMCTL_TEST_STATUS=0 bash "$SERVICES" >/dev/null 2>&1; then
+if HOME="$TMP/home" PATH="$TMP/bin:/usr/bin:/bin" INSTALL_DOCTOR_SELECTED_SERVICES=fixture SYSTEMCTL_TEST_STATUS=0 bash "$SERVICES" >/dev/null 2>&1; then
   pass "service processor still succeeds when the service action succeeds"
 else
   fail "valid service action became fatal"
 fi
 mv "$TMP/bin/fixture-bin" "$TMP/bin/fixture-bin.absent"
-if HOME="$TMP/home" PATH="$TMP/bin:/usr/bin:/bin" SYSTEMCTL_TEST_STATUS=23 bash "$SERVICES" >/dev/null 2>&1; then
+if HOME="$TMP/home" PATH="$TMP/bin:/usr/bin:/bin" INSTALL_DOCTOR_SELECTED_SERVICES=fixture SYSTEMCTL_TEST_STATUS=23 bash "$SERVICES" >/dev/null 2>&1; then
   pass "missing optional tool remains a non-fatal skip"
 else
   fail "missing optional tool became fatal by default"
 fi
 
-if grep -q 'POST_PIDS' "$POST" && grep -q 'wait "${POST_PIDS\[' "$POST" \
-  && grep -q 'Post-install task failed:' "$POST"; then
-  pass "post-script runner retains per-task PID failure accounting"
+if ! grep -q 'bash -c' "$POST" && grep -q 'Catalog _post commands are unsupported' "$POST"; then
+  pass "catalog post metadata is validated without granting shell authority"
 else
-  fail "post-script runner still loses background task failures"
+  fail "catalog post metadata retains an executable shell path"
 fi
 
 if grep -q '^WantedBy=multi-user.target$' "$ROOT/home/dot_config/system/etc/systemd/system/s3-private.service.tmpl" \

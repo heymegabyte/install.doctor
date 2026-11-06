@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 2,
+  "fixtureId": "installer-hermetic-v2",
+  "minimumSamples": 3,
+  "budgets": [
+    {"name":"launcher-render","temperature":"cold","unit":"ms","requiredStatus":"measured","comparison":"max","value":250},
+    {"name":"launcher-render","temperature":"warm","unit":"ms","requiredStatus":"measured","comparison":"max","value":50},
+    {"name":"time-to-plan","temperature":"cold","unit":"ms","requiredStatus":"measured","comparison":"max","value":500},
+    {"name":"time-to-plan","temperature":"warm","unit":"ms","requiredStatus":"measured","comparison":"max","value":150},
+    {"name":"unchanged-run","temperature":"cold","unit":"ms","requiredStatus":"measured","comparison":"max","value":750},
+    {"name":"unchanged-run","temperature":"warm","unit":"ms","requiredStatus":"measured","comparison":"max","value":300},
+    {"name":"task-latency","temperature":"cold","unit":"ms","requiredStatus":"measured","comparison":"max","value":150},
+    {"name":"task-latency","temperature":"warm","unit":"ms","requiredStatus":"measured","comparison":"max","value":100},
+    {"name":"queue-wait","temperature":"warm","unit":"ms","requiredStatus":"measured","comparison":"max","value":100},
+    {"name":"queue-utilization","temperature":"warm","unit":"ratio","requiredStatus":"measured","comparison":"min","value":0.25},
+    {"name":"critical-path","temperature":"warm","unit":"ms","requiredStatus":"measured","comparison":"max","value":150},
+    {"name":"observed-makespan","temperature":"warm","unit":"ms","requiredStatus":"measured","comparison":"max","value":200},
+    {"name":"cpu-time","temperature":"warm","unit":"ms","requiredStatus":"measured","comparison":"max","value":2000},
+    {"name":"peak-rss","temperature":"warm","unit":"KiB","requiredStatus":"measured","comparison":"max","value":524288},
+    {"name":"fixture-disk-read-bytes","temperature":"warm","unit":"bytes","requiredStatus":"measured","comparison":"max","value":131072},
+    {"name":"fixture-disk-write-bytes","temperature":"warm","unit":"bytes","requiredStatus":"measured","comparison":"max","value":131072},
+    {"name":"fixture-network-received-bytes","temperature":"warm","unit":"bytes","requiredStatus":"measured","comparison":"max","value":32768},
+    {"name":"fixture-network-sent-bytes","temperature":"warm","unit":"bytes","requiredStatus":"measured","comparison":"max","value":65536},
+    {"name":"peak-cpu-percent","temperature":"warm","unit":"percent","requiredStatus":"unsupported","comparison":null,"value":null},
+    {"name":"peak-disk-throughput","temperature":"warm","unit":"bytes-per-second","requiredStatus":"unsupported","comparison":null,"value":null},
+    {"name":"peak-network-throughput","temperature":"warm","unit":"bytes-per-second","requiredStatus":"unsupported","comparison":null,"value":null}
+  ]
+}

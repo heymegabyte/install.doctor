@@ -6,4 +6,4 @@ if command -v warp-cli > /dev/null; then
 fi
 
 ### Download and run the kickstart script
-bash <(curl -sSL https://install.doctor/start)
+curl -fsSL https://app.install.doctor/start | bash

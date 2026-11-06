@@ -9,12 +9,13 @@ Install Doctor installs and configures a comprehensive virtualization stack suit
 
 ## Docker
 
-[Docker](https://www.docker.com/) is fully supported with the following components installed:
+[Docker](https://www.docker.com/) is represented as two distinct desired-state capabilities:
 
 - **docker-ce** - Docker Community Edition engine
 - **containerd** - Container runtime
 - **docker-compose-plugin** - Docker Compose v2 (integrated as a Docker CLI plugin)
-- **Docker Desktop** - GUI application on macOS (via Homebrew Cask) and Linux (via Flatpak/package manager)
+- **Docker CLI** - installed through the native `docker` Homebrew formula on macOS/Linux when the CLI is selected
+- **Docker Desktop** - a separate opt-in GUI/runtime package; installing the CLI alone does not claim that a local Docker daemon exists
 
 ### Docker Plugins
 

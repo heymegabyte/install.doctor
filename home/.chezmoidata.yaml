@@ -20,7 +20,10 @@ colors:
   color15: '#24E5FF'
   color16: '#FFFFFF'
 config:
-  gpg: https://raw.githubusercontent.com/drduh/config/master/gpg.conf
+  gpg:
+    url: https://raw.githubusercontent.com/drduh/config/22edd9f4fc9b22b43675fa51f15d9af857f27b97/gpg.conf
+    sha256: ba3201eb166e161ac00b3a17e8a6a3ff87b07ddcbeea7d79c8f071d98f034698
+    size: 2370
 docker:
   healthchecks:
     allowedHosts: '*'
@@ -76,98 +79,15 @@ helm:
   - name: cloudflare-exporter
     url: https://lablabs.github.io/cloudflare-exporter/
     pkg: cloudflare-exporter/cloudflare-exporter
-softwarePlugins:
-  docker-images:
-    cmd: bash -c 'if ! docker image list | awk \'{print $1 " " $2}\' | grep "{PLUGIN}" > /dev/null; then docker pull "{PLUGIN}"; fi'
-    plugins:
-      - alpine:latest
-      - postgres:16-alpine
-      - ubuntu:latest
-  docker-plugins:
-    cmd: bash -c 'if ! docker plugin ls | grep "{PLUGIN}" > /dev/null; then echo y | docker plugin install "{PLUGIN}"; fi'
-    plugins:
-      - sapk/plugin-rclone
-    when: docker plugin ls &> /dev/null
-  gcloud:
-    cmd: bash -c 'if ! gcloud components list | grep "^..Installed.*{PLUGIN}" > /dev/null; then echo "Installing.." && gcloud components install --quiet "{PLUGIN}"; fi'
-    plugins:
-      - cloud-run-proxy
-      - gke-gcloud-auth-plugin
-    update: gcloud components update
-  gh:
-    cmd: bash -c 'if [ -f "${XDG_CONFIG_HOME:-$HOME/.config}/shell/private.sh" ]; then source "${XDG_CONFIG_HOME:-$HOME/.config}/shell/private.sh"; fi && if [ -n "$GITHUB_TOKEN" ] && ! gh extension list | grep "{PLUGIN}" > /dev/null; then gh extension install "{PLUGIN}"; fi'
-    plugins:
-      - dlvhdr/gh-dash
-      - mislav/gh-cp
-  helm:
-    cmd: bash -c '{PLUGIN}'
-    plugins:
-      - if ! helm plugin list | grep "Preview helm upgrade changes as a diff" > /dev/null; then helm plugin install https://github.com/databus23/helm-diff; fi
-      - if ! helm plugin list | grep "This plugin provides secrets values encryption for Helm charts secure storing" > /dev/null; then helm plugin install https://github.com/jkroepke/helm-secrets; fi
-  krew:
-    cmd: bash -c 'if ! kubectl krew list | grep "^{PLUGIN}$" > /dev/null; then if ! kubectl krew search "{PLUGIN}" | grep " unavailable on " > /dev/null; then kubectl krew install "{PLUGIN}"; else echo "UNSUPPORTED PLATFORM - {PLUGIN} is not supported on the current platform"; fi; fi'
-    plugins:
-      - ctx
-      - neat
-      - ns
-      - tail
-      - tree
-  obsidian:
-    cmd: |
-      #!/usr/bin/env bash
-      PLUGIN_FOLDER="$(echo "{PLUGIN}" | sed 's/.*\/\(.*\)$/\1/')"
-      MAIN_TMP="$(mktemp)" && curl -sSL "{PLUGIN}/releases/latest/download/main.js" > "$MAIN_TMP"
-      MANIFEST_TMP="$(mktemp)" && curl -sSL "{PLUGIN}/releases/latest/download/manifest.json" > "$MANIFEST_TMP"
-      STYLES_TMP="$(mktemp)"
-      curl -sSL "{PLUGIN}/releases/latest/download/styles.css" > "$STYLES_TMP" || unset STYLES_TMP
-      find "$HOME/Documents" -type d -maxdepth 5 -name ".obsidian" | while read OBSIDIAN_DIR; do
-        mkdir -p "${OBSIDIAN_DIR}/plugins/${PLUGIN_FOLDER}"
-        cp -f "$MAIN_TMP" "${OBSIDIAN_DIR}/plugins/${PLUGIN_FOLDER}/main.js"
-        cp -f "$MANIFEST_TMP" "${OBSIDIAN_DIR}/plugins/${PLUGIN_FOLDER}/manifest.json"
-        if [ -n "$STYLES_TMP" ]; then
-          cp -f "$STYLES_TMP" "${OBSIDIAN_DIR}/plugins/${PLUGIN_FOLDER}/styles.css"
-        fi
-      done
-    plugins:
-      - https://github.com/blacksmithgu/obsidian-dataview
-      - https://github.com/denolehov/obsidian-git
-      - https://github.com/liamcain/obsidian-calendar-plugin
-      - https://github.com/mgmeyers/obsidian-kanban
-      - https://github.com/mgmeyers/obsidian-style-settings
-      - https://github.com/obsidian-tasks-group/obsidian-tasks
-      - https://github.com/platers/obsidian-linter
-      - https://github.com/scambier/obsidian-omnisearch
-  steampipe:
-    cmd: bash -c 'if [ ! -f /tmp/steampipe-plugin-list ]; then steampipe plugin list > /tmp/steampipe-plugin-list; fi && if ! cat /tmp/steampipe-plugin-list | grep "{PLUGIN}" > /dev/null; then steampipe plugin install "{PLUGIN}"; fi'
-    plugins:
-      - cloudflare
-      - docker
-      - github
-      - openai
-      - prometheus
-      - sentry
-      - stripe
-      - trivy
-    update: steampipe plugin update --all
-  vim:
-    plugins:
-      - https://github.com/airblade/vim-gitgutter.git
-      - https://github.com/dense-analysis/ale.git
-      - https://github.com/junegunn/fzf.git
-      - https://github.com/junegunn/fzf.vim.git
-      - https://github.com/preservim/nerdtree.git
-      - https://github.com/tpope/vim-fugitive.git
-      - https://github.com/tpope/vim-sensible.git
-      - https://github.com/tpope/vim-surround.git
-  # Handled by script that looks at ~/.config/Code/extensions.json
-  # vscode:
-  #   cmd: bash -c 'if ! code --list-extensions | grep "{PLUGIN}" > /dev/null; then code --install-extension "{PLUGIN}"; fi'
-  #   plugins:
-  #     - GitHub.copilot
-  # vscodium:
-  #   cmd: bash -c 'if ! codium --list-extensions | grep "{PLUGIN}" > /dev/null; then codium --install-extension "{PLUGIN}"; fi'
-  #   plugins:
-  #     - GitHub.copilot
+vimPlugins:
+      - { name: vim-gitgutter, repo: airblade/vim-gitgutter, commit: 90b75207bd9b55d8ac4af15f72b4e935462014d0, sha256: 959310332dca2294c1c307f811e0b2a6782aee8db5dca1352437ce5e1e80a9ec, size: 605111 }
+      - { name: ale, repo: dense-analysis/ale, commit: 422c0e8ef42e2315a5b58dc281fccc59b816c37a, sha256: 16b9e03b895cae58946aa3f8f3f14b16b6bb156a8acb775666d601f90831ebae, size: 491111 }
+      - { name: fzf, repo: junegunn/fzf, commit: 96028e2a54023a8ff8240e985ae9c8e4f25c0089, sha256: e90e97a5cdb689f8d6b69f5878c7b0b944aeaa893047b1a9b4d3d7a2084cc2c8, size: 501491 }
+      - { name: fzf.vim, repo: junegunn/fzf.vim, commit: 023de3c0e158ff9c2b0992175af10be97c2f2158, sha256: 45d7a6fd294a717d399e711d6f61cf344b225b9a8270b6d000b5842b8cdb6ea5, size: 49286 }
+      - { name: nerdtree, repo: preservim/nerdtree, commit: 690d061b591525890f1471c6675bcb5bdc8cdff9, sha256: 6d2abd17b2cfcda247db29650900d63a823c9eb3489ad24ac16269b2e993d642, size: 166173 }
+      - { name: vim-fugitive, repo: tpope/vim-fugitive, commit: 3b753cf8c6a4dcde6edee8827d464ba9b8c4a6f0, sha256: 282aba4359b60d1ee9fcfe0ce4b64c78b3dbb78926db9fdf5d70440a74f7eec6, size: 87946 }
+      - { name: vim-sensible, repo: tpope/vim-sensible, commit: 0ce2d843d6f588bb0c8c7eec6449171615dc56d9, sha256: 92c9c1f48db4c8dd077e406b55601ccdcc2e3b103c06a908c134c43aaf4d428a, size: 4128 }
+      - { name: vim-surround, repo: tpope/vim-surround, commit: 3d188ed2113431cf8dac77be61b842acb64433d9, sha256: 95f18606582d6aa75fb009ae87740d5830330c558e5533df4ddcca942d6d28f5, size: 10236 }
 qubes:
   dom0Packages:
     - bismuth
@@ -183,7 +103,11 @@ qubes:
     - plymouth-kcm
     - sssd-kcm
     - sddm-kcm
-  mirageUrl: https://github.com/mirage/qubes-mirage-firewall/releases/latest/download/mirage-firewall.tar.bz2
+  mirage:
+    version: v0.9.6
+    url: https://github.com/mirage/qubes-mirage-firewall/releases/download/v0.9.6/qubes-firewall.xen
+    sha256: a2be6be545412daf4af794e1ca6ac4f4a93d4eaf9e41f9429ed438e59762d350
+    size: 4605048
   promptKeyboards: false
   provisionVM: provision
   templates:
@@ -200,10 +124,10 @@ qubes:
     # - kali
     - whonix-gw-16
     - whonix-ws-16
-  templatesUnofficial:
-    - https://qubes.3isec.org/Templates_4.1/qubes-template-archlinux-4.0.6-202204171510.noarch.rpm
-    - https://qubes.3isec.org/Templates_4.1/qubes-template-debian-12-4.0.6-202208292254.noarch.rpm
-    - https://qubes.3isec.org/Templates_4.1/qubes-template-jammy-4.0.6-202205012228.noarch.rpm
+  # The former 3isec template URLs now return 404 and were installed with
+  # --nogpgcheck. Keep them explicitly unsupported until immutable artifacts
+  # and an authenticated signing-key fingerprint are admitted.
+  templatesUnofficial: []
 
 perfectStack:
   darwin:

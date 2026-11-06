@@ -1,19 +1,15 @@
 #!/usr/bin/env bash
 # @file /usr/local/bin/process-software-post-scripts
-# @brief Executes post-installation scripts for software packages
+# @brief Rejects executable post-install metadata in the eager software closure
 # @description
 #     This script reads the `${XDG_DATA_HOME:-$HOME/.local/share}/chezmoi/software.yml` file,
-#     validates the software package configurations, checks if their binaries are in the PATH,
-#     and executes associated post-installation scripts (_post) asynchronously if defined.
-#     Additionally, it checks for custom scripts in `$HOME/.local/bin/post-installx/` with a naming pattern
-#     `post-PACKAGE_KEY.sh` and runs those as well.
+#     validates that the eager software closure contains no executable `_post*` metadata.
+#     Typed `post-installx/post-PACKAGE_KEY.sh` hooks have one execution owner:
+#     run_after_20-post-install.sh.tmpl. Catalog YAML never grants shell authority.
 
-# Causing premature exits so commentting out
-# set -euo pipefail
-# trap 'echo "An error occurred. Exiting." >&2; exit 1' ERR
+set -uo pipefail
 
 SOFTWARE_YAML="${XDG_DATA_HOME:-$HOME/.local/share}/chezmoi/software.yml"
-POST_INSTALL_DIR="$HOME/.local/bin/post-installx"
 
 # Ensure required dependencies are installed
 if ! command -v gum &>/dev/null; then
@@ -26,69 +22,6 @@ if ! command -v yq &>/dev/null; then
   exit 1
 fi
 
-# @description Checks if a binary is in the PATH
-isBinaryInPath() {
-  local BIN="$1"
-  command -v "$BIN" &>/dev/null
-}
-
-# @description Processes a single software package for post-installation scripts and custom scripts
-processPostScripts() {
-  local NAME="$1"
-  local BIN_LIST
-  local POST_SCRIPTS
-
-  BIN_LIST=$(yq '(.softwarePackages["'"$NAME"'"])._bin' "$SOFTWARE_YAML")
-  POST_SCRIPTS=$(yq '(.softwarePackages["'"$NAME"'"])._post[]' "$SOFTWARE_YAML" 2>/dev/null || true)
-
-  if [[ "$BIN_LIST" == "null" ]]; then
-    if [ -n "${DEBUG:-}" ]; then
-      gum log -sl warn "No binaries defined for $NAME. Skipping."
-    fi
-    return
-  fi
-
-  local BIN_FOUND=false
-  if [[ "$BIN_LIST" =~ \[ ]]; then
-    for BIN in $(echo "$BIN_LIST" | yq ".[]"); do
-      if isBinaryInPath "$BIN"; then
-        BIN_FOUND=true
-        break
-      fi
-    done
-  else
-    if isBinaryInPath "$BIN_LIST"; then
-      BIN_FOUND=true
-    fi
-  fi
-
-  if [[ "$BIN_FOUND" == true ]]; then
-    gum log -sl info "Binaries for $NAME found. Running post-installation tasks."
-
-    # Run all _post scripts asynchronously
-    if [[ "${POST_SCRIPTS}" != "null" ]]; then
-      for SCRIPT in ${POST_SCRIPTS}; do
-        if [[ -n "${DEBUG:-}" ]]; then
-          echo "${SCRIPT}" | bash
-        else
-          echo "${SCRIPT}" | bash &
-        fi
-      done
-    fi
-
-    # Check and run custom post-installation script
-    local CUSTOM_SCRIPT="$POST_INSTALL_DIR/post-$NAME.sh"
-    if [[ -x "$CUSTOM_SCRIPT" ]]; then
-      gum log -sl info "Executing custom script for $NAME: $CUSTOM_SCRIPT"
-      "$CUSTOM_SCRIPT" </dev/null &
-    fi
-  else
-    if [ -n "${DEBUG:-}" ]; then
-      gum log -sl warn "$NAME binary not found in PATH. Skipping post-installation tasks."
-    fi
-  fi
-}
-
 # @description Main script execution logic
 main() {
   if [[ ! -f "$SOFTWARE_YAML" ]]; then
@@ -96,22 +29,13 @@ main() {
     exit 1
   fi
 
-  if [[ ! -d "$POST_INSTALL_DIR" ]]; then
-    gum log -sl warn "Post-installation directory not found: $POST_INSTALL_DIR"
+  local rejected
+  rejected=$(yq -r '.softwarePackages | to_entries[] | select(.value._default != false and (.value._preload == true or .value._serviceEnabled == true)) | .key as $package | .value | keys[] | select(test("^_post($|:)")) | $package + ":" + .' "$SOFTWARE_YAML")
+  if [ -n "$rejected" ]; then
+    gum log -sl error "Catalog _post commands are unsupported; migrate to typed post-installx hooks: $(printf '%s' "$rejected" | tr '\n' ',' | sed 's/,$//')"
+    return 2
   fi
-
-  local PACKAGES
-  PACKAGES=$(yq ".softwarePackages | keys[]" "$SOFTWARE_YAML")
-
-  for PACKAGE in $PACKAGES; do
-    if [ -n "${DEBUG:-}" ]; then
-      gum log -sl info "Processing package: $PACKAGE"
-    fi
-    processPostScripts "$PACKAGE"
-  done
-
-  wait # Ensure all background scripts complete
-  gum log -sl info "Post-installation script processing completed."
+  gum log -sl info "Catalog post-install metadata validation complete."
 }
 
 main

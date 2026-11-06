@@ -20,14 +20,16 @@ systemFiles() {
 
 systemFiles
 
-if command -v installx > /dev/null; then
+if [ "${INSTALL_DOCTOR_ENGINE_OWNS_PACKAGES:-0}" = 1 ]; then
+  gum log -sl info 'Package reconciliation is owned by the canonical installer engine'
+elif command -v installx > /dev/null; then
   if command -v zx > /dev/null; then
     if command -v unbuffer > /dev/null; then
       gum log -sl info 'Running unbuffer installx'
-      unbuffer installx --all --lazy
+      unbuffer installx --all --lazy || { gum log -sl error 'installx failed'; exit 1; }
     else
       gum log -sl info 'Running installx'
-      installx --all --lazy
+      installx --all --lazy || { gum log -sl error 'installx failed'; exit 1; }
     fi
   else
     gum log -sl error 'zx is not available'
@@ -38,6 +40,21 @@ else
   exit 1
 fi
 
-gum log -sl info "Processing groups and permissions defined in ${XDG_DATA_HOME:-$HOME/.local/share}/chezmoi/software.yml" && process-software-groups
-gum log -sl info "Running post scripts" && process-software-post-scripts
-gum log -sl info "Starting enabled services" && process-software-services
+if [ "${INSTALL_DOCTOR_ENGINE_OWNS_SOFTWARE_GROUPS:-0}" = 1 ]; then
+  gum log -sl info 'Software group reconciliation is owned by the canonical installer engine'
+else
+  gum log -sl info "Processing groups and permissions defined in ${XDG_DATA_HOME:-$HOME/.local/share}/chezmoi/software.yml"
+  process-software-groups || exit 1
+fi
+if [ "${INSTALL_DOCTOR_ENGINE_OWNS_CATALOG_POST_HOOKS:-0}" = 1 ]; then
+  gum log -sl info 'Catalog post-install hooks are owned by the canonical installer engine'
+else
+  gum log -sl info "Running post scripts"
+  process-software-post-scripts || exit 1
+fi
+if [ "${INSTALL_DOCTOR_ENGINE_OWNS_SERVICES:-0}" = 1 ]; then
+  gum log -sl info 'Service reconciliation is owned by the canonical installer engine'
+else
+  gum log -sl info "Starting explicitly selected services"
+  process-software-services || exit 1
+fi

@@ -10,15 +10,12 @@
 # integrations.) The installer-supply-chain gate (#144/#145) covers pipe-to-shell in the installer SCRIPTS but
 # NOT these downloads — this gate closes that surface.
 #
-# DOWN-ONLY RATCHET (same idiom as test-preload-policy + X11): it does NOT force-pin the existing 16 (that is a
-# network-dependent focused session — tracked in BACKLOG.md), but it FAILS the instant a NEW floating-ref
-# external is added, so every FUTURE external must be PINNED to a SHA/tag (or the baseline consciously bumped).
-# Pure file assertion — no network.
+# Zero-tolerance gate: executable externals must use a full immutable commit
+# and bind the downloaded bytes by size and SHA-256. Pure file assertion.
 set -uo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT" || exit 1
 EXT="home/.chezmoiexternal.toml.tmpl"
-BASELINE="${CHEZMOI_EXTERNAL_FLOATING_BUDGET:-16}" # ratchet: may only go DOWN as externals get pinned (16 @ #298)
 
 say() { command -v gum >/dev/null 2>&1 && gum style --foreground 51 -- "$*" || printf '\033[1;36m%s\033[0m\n' "$*"; }
 pass() { command -v gum >/dev/null 2>&1 && gum style --foreground 46 -- "PASS $*" || printf '\033[1;32mPASS\033[0m %s\n' "$*"; P=$((P + 1)); }
@@ -26,7 +23,7 @@ fail() { command -v gum >/dev/null 2>&1 && gum style --foreground 196 -- "FAIL $
 P=0
 F=0
 
-say "chezmoiexternal supply-chain integrity (floating-ref down-only ratchet)"
+say "chezmoiexternal supply-chain integrity (immutable executable externals)"
 
 # The moving-branch URL signature (NOT a pinned SHA/tag). Excludes comment lines.
 FLOATING_RE='url[[:space:]]*=.*(/raw/master|/raw/main|raw\.githubusercontent\.com/[^"]*/(master|main)/|/releases/latest/|@latest)'
@@ -36,19 +33,56 @@ if [ ! -f "$EXT" ]; then
 else
   n="$(grep -vE '^[[:space:]]*#' "$EXT" | grep -cE "$FLOATING_RE")"
 
-  # 1. the down-only ratchet — a NEW floating-ref external fails CI (pin it, don't add another /master pull).
-  if [ "$n" -le "$BASELINE" ]; then
-    pass "floating-ref externals: $n ≤ $BASELINE baseline (down-only — a NEW external must be PINNED to a commit SHA / version tag, never a fresh /master|/main pull)"
+  if [ "$n" -eq 0 ]; then
+    pass "floating-ref executable externals: zero"
   else
-    fail "floating-ref externals: $n > $BASELINE baseline — a NEW moving-branch download was added. PIN it (commit SHA or version tag) for reproducibility + supply-chain safety, OR consciously bump CHEZMOI_EXTERNAL_FLOATING_BUDGET (the ratchet is down-only — prefer pinning)"
+    fail "floating-ref executable externals: $n (full commit pins are required)"
   fi
 
-  # 2. non-vacuity — the detector must actually match the known floating set, else a broken regex would make
-  #    the ratchet pass vacuously (0 ≤ 16). The baseline is well-known to be ~16, so assert ≥1.
-  if [ "$n" -ge 1 ]; then
-    pass "floating-ref detector is non-vacuous (matched $n known moving-branch externals — a broken regex would read 0)"
+  pinned="$(grep -cE 'raw\.githubusercontent\.com/[^/]+/[^/]+/[a-f0-9]{40}/' "$EXT")"
+  digests="$(grep -cE 'checksum\.sha256[[:space:]]*=[[:space:]]*"[a-f0-9]{64}"' "$EXT")"
+  sizes="$(grep -cE 'checksum\.size[[:space:]]*=[[:space:]]*[1-9][0-9]*' "$EXT")"
+  if [ "$pinned" -ge 10 ] && [ "$digests" -ge 15 ] && [ "$sizes" -ge 15 ]; then
+    pass "all executable and font externals bind immutable source, SHA-256, and size"
   else
-    fail "floating-ref detector matched 0 — the regex broke; it must match the known moving-branch externals (fzf/tmux/goto/…)"
+    fail "external authority incomplete (commit=$pinned sha256=$digests size=$sizes expected>=10/15/15)"
+  fi
+  if grep -q 'cacert-2026-11-05.pem' "$EXT" \
+    && grep -q '427c064216761a1e72a8b30f0d954d08cb6e4435a82091fb865afd20c8497285' "$EXT" \
+    && grep -q 'checksum.size = 200116' "$EXT"; then
+    pass 'Mozilla CA bundle is date-pinned and bound by SHA-256 and size'
+  else
+    fail 'Mozilla CA bundle lacks immutable trust authority'
+  fi
+  font_authority=1
+  for binding in \
+    '0aa54352dfb5a20a736e384409e378f22fde3726bf5d30318934e4ee6853b2b1:2445204' \
+    '8c02ee30eb4e371e3e769fc17f761d08b0d6665af623ca8ef7d86819c77b5498:2453600' \
+    '0bd831dcf9cf0e51a7f5b346a414340cb4edf7c5d1c23915fe742223b2c37827:2452644' \
+    '746205166b20dd962aafca3971c7fedd4c87e59b17f4fe8569e61467bcea9766:2459276'; do
+    grep -q "${binding%:*}" "$EXT" && grep -q "checksum.size = ${binding#*:}" "$EXT" || font_authority=0
+  done
+  if [ "$font_authority" -eq 1 ] && grep -q 'b6c7639200240f2608e751a3aafe1720125895b3' "$EXT"; then
+    pass 'all four Nerd Font artifacts bind an immutable commit, SHA-256, and size'
+  else
+    fail 'Nerd Font artifact authority is incomplete'
+  fi
+  vim_plugin_data="$(awk '/^vimPlugins:$/ { in_vim=1 } in_vim && /^qubes:$/ { exit } in_vim' home/.chezmoidata.yaml)"
+  plugin_commits="$(printf '%s\n' "$vim_plugin_data" | grep -cE 'commit: [a-f0-9]{40}')"
+  plugin_digests="$(printf '%s\n' "$vim_plugin_data" | grep -cE 'sha256: [a-f0-9]{64}')"
+  plugin_sizes="$(printf '%s\n' "$vim_plugin_data" | grep -cE 'size: [1-9][0-9]*')"
+  if [ "$plugin_commits" -eq 8 ] && [ "$plugin_digests" -eq 8 ] && [ "$plugin_sizes" -eq 8 ] \
+    && grep -q 'https://codeload.github.com/{{ \$vimPlugin.repo }}/tar.gz/{{ \$vimPlugin.commit }}' "$EXT"; then
+    pass 'all 8 Vim plugins use immutable checksummed archives'
+  else
+    fail "Vim plugin authority incomplete (commit=$plugin_commits sha256=$plugin_digests size=$plugin_sizes expected=8)"
+  fi
+  if ! grep -q 'type = "git-repo"' "$EXT" \
+    && grep -q 'sha=854b544c4161a128dfa0da022016ea556b1c56b0' "$EXT" \
+    && grep -q 'a0b1b5cb2c7b69d72cc9401a9becda3b7fb8e208b0f97460107a577c3ef99436' "$EXT"; then
+    pass 'repository externals are immutable archives; no moving git clone remains'
+  else
+    fail 'a moving git-repo external or unverified Betelgeuse archive remains'
   fi
 fi
 

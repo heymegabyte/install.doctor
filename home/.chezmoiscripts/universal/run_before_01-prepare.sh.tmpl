@@ -4,8 +4,7 @@
 # @description
 #     This script runs as the first Chezmoi `run_before` script during provisioning. It performs:
 #
-#     1. **Temporary includes**: Creates `/tmp/tmp-profile` and `/tmp/tmp-logg` with shared functions
-#        for use by other scripts (avoids inlining verbose helper code in every script)
+#     1. **Trusted helpers**: Embeds repository-owned logging and profile functions directly.
 #     2. **macOS mobileconfig installation**: Installs configuration profiles from `~/.config/macos/mobileconfig/`
 #     3. **Full disk access check**: Verifies the terminal has full disk access on macOS
 #        (skips in headless mode with a warning instead of blocking)
@@ -17,20 +16,6 @@
 #
 #     @envvar HEADLESS_INSTALL  If set, skips interactive prompts (full disk access, certificates)
 #     @envvar DEBUG / DEBUG_MODE  If set, runs tasks sequentially for easier debugging
-
-addTemporaryIncludes() {
-    ### Ensure /tmp/tmp-profile is created
-    # Add pre-scaffolding profile to /tmp/tmp-profile so it's easier to navigate through scripts
-    cat <<'EOF' > /tmp/tmp-profile
-{{ includeTemplate "universal/profile-inline" }}
-EOF
-
-    ### Ensure /tmp/tmp-logg is created and owned by root
-  # Add pre-scaffolding /tmp/tmp-logg
-  cat <<'EOF' > /tmp/tmp-logg
-{{ includeTemplate "universal/logg-inline" }}
-EOF
-}
 
 # @description
 #     This script detects for the presence of the `warp-cli` and the WARP connection status. If `warp-cli` is installed
@@ -75,22 +60,8 @@ ensureFullDiskAccess() {
   ### /Library/Preferences which is only readable with FDA on macOS 10.15+.
   _idHasFda() { plutil -lint /Library/Preferences/com.apple.TimeMachine.plist > /dev/null 2>&1; }
 
-  ### Helper: idempotently clear the kickstart-on-next-login line in
-  ### ~/.zshrc that older versions of this script left behind for users
-  ### who had to manually restart their terminal after granting FDA.
-  ### Polling-until-granted means a restart is no longer required.
-  _idClearKickstartLine() {
-    [ -f "$HOME/.zshrc" ] || return 0
-    if command -v gsed > /dev/null; then
-      gsed -i '/# TEMPORARY FOR INSTALL DOCTOR MACOS/d' "$HOME/.zshrc" 2>/dev/null || true
-    else
-      sed -i '' '/# TEMPORARY FOR INSTALL DOCTOR MACOS/d' "$HOME/.zshrc" 2>/dev/null || true
-    fi
-  }
-
   if _idHasFda; then
     gum log -sl info 'Current terminal has full disk access'
-    _idClearKickstartLine
     return 0
   fi
 
@@ -178,9 +149,8 @@ symlinkMissingSecrets() {
   fi
 }
 
-addTemporaryIncludes
-. /tmp/tmp-logg
-. /tmp/tmp-profile
+{{ includeTemplate "universal/logg-inline" }}
+{{ includeTemplate "universal/profile-inline" }}
 symlinkMissingSecrets
 if [ -z "${INSTALL_DOCTOR_PROVISION_BOOTSTRAPPED:-}" ]; then
   ensureFullDiskAccess

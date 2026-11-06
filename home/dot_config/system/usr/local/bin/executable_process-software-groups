@@ -1,129 +1,111 @@
 #!/usr/bin/env bash
 # @file /usr/local/bin/process-software-groups
-# @brief Processes software package configurations from a YAML file
-# @description
-#     This script reads the `${XDG_DATA_HOME:-$HOME/.local/share}/chezmoi/software.yml` file,
-#     validates the software package configurations, and performs folder and group management tasks.
-#     Based on the provided configuration, it ensures executables are in the PATH,
-#     sets appropriate folder ownership and permissions, and manages user groups.
+# @brief Reconciles only the selected packages' declared groups and folders.
 
-# Causing premature exits so commenting out
-# set -euo pipefail
-# trap 'echo "An error occurred. Exiting." >&2; exit 1' ERR
+set -uo pipefail
+[ -z "${DEBUG:-}" ] || set -x
 
 SOFTWARE_YAML="${XDG_DATA_HOME:-$HOME/.local/share}/chezmoi/software.yml"
+MODE=apply
+case "${1:-}" in --check|check) MODE=check; shift ;; '') ;; *) printf 'INVALID\tusage\n' >&2; exit 20 ;; esac
+[ "$#" -eq 0 ] || { printf 'INVALID\tusage\n' >&2; exit 20; }
 
-# Ensure required dependencies are installed
-if ! command -v gum &>/dev/null; then
-  echo "gum is not installed. Please install gum to proceed." >&2
-  exit 1
-fi
-
-if ! command -v yq &>/dev/null; then
-  echo "yq is not installed. Please install yq to proceed." >&2
-  exit 1
-fi
-
-# @description Checks if a binary is in the PATH
-isBinaryInPath() {
-  local BIN="$1"
-  command -v "$BIN" &>/dev/null
+invalid() { printf 'INVALID\t%s\n' "$*" >&2; return 20; }
+selectedKeys() {
+  local RAW KEY SEEN=','
+  RAW="${INSTALL_DOCTOR_SELECTED_PACKAGES:-}"
+  [ -z "${INSTALL_DOCTOR_SELECTED_SERVICES:-}" ] || RAW="${RAW:+$RAW,}${INSTALL_DOCTOR_SELECTED_SERVICES}"
+  [ "${#RAW}" -le 524288 ] || { invalid selected-input-too-large; return; }
+  [ -z "$RAW" ] || [[ "$RAW" =~ ^[a-z0-9][a-z0-9._:-]{0,127}(,[a-z0-9][a-z0-9._:-]{0,127})*$ ]] \
+    || { invalid selected-input-format; return; }
+  [ -n "$RAW" ] || return 0
+  while IFS= read -r KEY; do
+    [ -n "$KEY" ] || continue
+    case "$SEEN" in *",$KEY,"*) continue ;; esac
+    SEEN="$SEEN$KEY,"
+    printf '%s\n' "$KEY"
+  done < <(printf '%s\n' "${RAW//,/$'\n'}" | LC_ALL=C sort)
 }
 
-# @description Processes a single software package configuration
-processSoftwarePackage() {
-  local NAME="$1"
-  local BIN_LIST
-  local FOLDERS
-  local SOFTWARE_GROUPS
-
-  BIN_LIST=$(yq '(.softwarePackages["'"$NAME"'"])._bin' "$SOFTWARE_YAML")
-  FOLDERS=$(yq '(.softwarePackages["'"$NAME"'"])._folders[]' "$SOFTWARE_YAML" 2>/dev/null || true)
-  SOFTWARE_GROUPS=$(yq '(.softwarePackages["'"$NAME"'"])._groups[]' "$SOFTWARE_YAML" 2>/dev/null || true)
-
-  if [[ "$BIN_LIST" == "null" ]]; then
-    if [ -n "${DEBUG:-}" ]; then
-      gum log -sl warn "No binaries defined for $NAME. Skipping."
-    fi
-    return
-  fi
-
-  local BIN_FOUND=false
-  if [[ "$BIN_LIST" =~ \[ ]]; then
-    for BIN in $(echo "$BIN_LIST" | yq ".[]"); do
-      if isBinaryInPath "$BIN"; then
-        BIN_FOUND=true
-        break
-      fi
-    done
-  else
-    if isBinaryInPath "$BIN_LIST"; then
-      BIN_FOUND=true
-    fi
-  fi
-
-  # Handle case when binaries are found but no folders are defined
-  if [[ "$BIN_FOUND" == true && "$FOLDERS" == "null" && "$SOFTWARE_GROUPS" != "null" ]]; then
-    for GROUP_NAME in $SOFTWARE_GROUPS; do
-      gum log -sl info "Adding group $GROUP_NAME"
-      sudo add-usergroup "$GROUP_NAME" "$GROUP_NAME"
-    done
-    return
-  fi
-
-  if [[ "$BIN_FOUND" == true ]]; then
-    if [[ "$SOFTWARE_GROUPS" != "null" ]]; then
-      local GROUP_NAME
-      GROUP_NAME=$(echo "$SOFTWARE_GROUPS" | head -n 1)
-      for FOLDER in $FOLDERS; do
-        gum log -sl info "Assigning $FOLDER to $GROUP_NAME"
-        sudo own-folder "$FOLDER" "$GROUP_NAME" "$GROUP_NAME"
-      done
-    else
-      if [[ "$FOLDERS" != "null" ]]; then
-        for FOLDER in $FOLDERS; do
-          if [[ "$OSTYPE" == "darwin"* ]]; then
-            gum log -sl info "Assigning $FOLDER to $USER and staff"
-            sudo own-folder "$FOLDER" "$USER" staff
-          else
-            gum log -sl info "Assigning $FOLDER to $USER"
-            sudo own-folder "$FOLDER" "$USER" "$USER"
-          fi
-        done
-      fi
-    fi
-  else
-    if [ -n "${DEBUG:-}" ]; then
-      gum log -sl warn "$NAME binary not found in PATH. Managing groups instead."
-    fi
-
-    if [[ "$SOFTWARE_GROUPS" != "null" ]]; then
-      for GROUP_NAME in $SOFTWARE_GROUPS; do
-        gum log -sl info "Creating or ensuring group $GROUP_NAME exists"
-        sudo add-usergroup "$GROUP_NAME" "$GROUP_NAME"
-      done
-    fi
-  fi
-}
-
-# @description Main script execution logic
-main() {
-  if [[ ! -f "$SOFTWARE_YAML" ]]; then
-    gum log -sl error "Configuration file not found: $SOFTWARE_YAML"
-    exit 1
-  fi
-
-  local PACKAGES
-  PACKAGES=$(yq ".softwarePackages | keys[]" "$SOFTWARE_YAML")
-
-  for PACKAGE in $PACKAGES; do
-    if [ -n "${DEBUG:-}" ]; then
-      gum log -sl info "Processing package: $PACKAGE"
-    fi
-    processSoftwarePackage "$PACKAGE"
+validGroup() { [[ "$1" =~ ^[a-z_][a-z0-9_-]{0,31}$ ]]; }
+validFolder() {
+  local PATH_VALUE="$1" COMPONENT CURRENT=''
+  [[ "$PATH_VALUE" =~ ^/(etc|opt|var/(cache|lib|log))/[A-Za-z0-9._/-]+$ ]] || return 1
+  case "$PATH_VALUE" in *'//'*|*'/../'*|*'/./'*|*'/..'|*'/.'|*/) return 1 ;; esac
+  IFS='/' read -r -a COMPONENTS <<<"$PATH_VALUE"
+  for COMPONENT in "${COMPONENTS[@]}"; do
+    [ -n "$COMPONENT" ] || continue
+    CURRENT="$CURRENT/$COMPONENT"
+    [ ! -L "$CURRENT" ] || return 1
   done
+}
+groupExists() {
+  if [[ "$OSTYPE" == darwin* ]]; then dscl . -read "/Groups/$1" >/dev/null 2>&1
+  else getent group "$1" >/dev/null 2>&1; fi
+}
+userExists() { id -u "$1" >/dev/null 2>&1; }
+userInGroup() { case " $(id -Gn "$1" 2>/dev/null) " in *" $2 "*) return 0 ;; *) return 1 ;; esac; }
+folderMatches() {
+  local ACTUAL
+  [ -d "$1" ] && [ ! -L "$1" ] || return 1
+  ACTUAL="$(stat -f '%Su:%Sg:%Lp' "$1" 2>/dev/null || stat -c '%U:%G:%a' "$1" 2>/dev/null)" || return 1
+  [ "$ACTUAL" = "$2:$3:750" ]
+}
 
-  gum log -sl info "Software package processing completed."
+reconcilePackage() {
+  local PACKAGE="$1" DECLARED_GROUPS FOLDERS GROUP FOLDER OWNER TARGET_GROUP NEEDS=false
+  yq -e '.softwarePackages["'"$PACKAGE"'"] | type == "!!map"' "$SOFTWARE_YAML" >/dev/null 2>&1 \
+    || { invalid "unknown-selected-package\t$PACKAGE"; return; }
+  DECLARED_GROUPS="$(yq -r '.softwarePackages["'"$PACKAGE"'"]._groups // [] | .[]' "$SOFTWARE_YAML")" || return 20
+  FOLDERS="$(yq -r '.softwarePackages["'"$PACKAGE"'"]._folders // [] | .[]' "$SOFTWARE_YAML")" || return 20
+  while IFS= read -r GROUP; do [ -z "$GROUP" ] || validGroup "$GROUP" || { invalid "unsafe-group\t$PACKAGE"; return; }; done <<<"$DECLARED_GROUPS"
+  while IFS= read -r FOLDER; do [ -z "$FOLDER" ] || validFolder "$FOLDER" || { invalid "unsafe-folder\t$PACKAGE"; return; }; done <<<"$FOLDERS"
+  if [ -n "$FOLDERS" ]; then
+    TARGET_GROUP="$(printf '%s\n' "$DECLARED_GROUPS" | sed -n '1p')"
+    [ -n "$TARGET_GROUP" ] || TARGET_GROUP="${INSTALL_DOCTOR_USER:-${USER:-}}"
+    OWNER="$TARGET_GROUP"
+    validGroup "$OWNER" || { invalid "missing-safe-folder-owner\t$PACKAGE"; return; }
+    while IFS= read -r FOLDER; do
+      [ -n "$FOLDER" ] || continue
+      if ! userExists "$OWNER" || ! groupExists "$TARGET_GROUP" || ! folderMatches "$FOLDER" "$OWNER" "$TARGET_GROUP"; then
+        NEEDS=true
+        if [ "$MODE" = apply ]; then
+          command -v own-folder >/dev/null 2>&1 || return 20
+          sudo own-folder "$FOLDER" "$OWNER" "$TARGET_GROUP" || return 1
+          folderMatches "$FOLDER" "$OWNER" "$TARGET_GROUP" || return 1
+        fi
+      fi
+    done <<<"$FOLDERS"
+  else
+    OWNER="${INSTALL_DOCTOR_USER:-${USER:-}}"
+    validGroup "$OWNER" || { invalid missing-safe-install-user; return; }
+    userExists "$OWNER" || { invalid install-user-does-not-exist; return; }
+    while IFS= read -r GROUP; do
+      [ -n "$GROUP" ] || continue
+      if ! groupExists "$GROUP" || ! userInGroup "$OWNER" "$GROUP"; then
+        NEEDS=true
+        if [ "$MODE" = apply ]; then
+          command -v add-usergroup >/dev/null 2>&1 || return 20
+          sudo add-usergroup "$OWNER" "$GROUP" || return 1
+          groupExists "$GROUP" && userInGroup "$OWNER" "$GROUP" || return 1
+        fi
+      fi
+    done <<<"$DECLARED_GROUPS"
+  fi
+  [ "$NEEDS" = false ] || [ "$MODE" = apply ] || return 10
+}
+
+main() {
+  local PACKAGE PACKAGES STATUS=0 RESULT
+  [ -f "$SOFTWARE_YAML" ] && [ ! -L "$SOFTWARE_YAML" ] || { invalid configuration-not-found; return; }
+  command -v yq >/dev/null 2>&1 || { invalid yq-not-installed; return; }
+  PACKAGES="$(selectedKeys)" || return 20
+  while IFS= read -r PACKAGE; do
+    [ -n "$PACKAGE" ] || continue
+    reconcilePackage "$PACKAGE"; RESULT=$?
+    case "$RESULT" in 0) ;; 10) [ "$STATUS" -eq 20 ] || STATUS=10 ;; *) STATUS=20 ;; esac
+  done <<<"$PACKAGES"
+  return "$STATUS"
 }
 
 main

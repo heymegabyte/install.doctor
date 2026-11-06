@@ -30,7 +30,7 @@ Install Doctor bundles together thousands of open-source projects into a single 
 
 Install Doctor was originally intended to be a sub-repo for the Ansible-based project called [Gas Station](https://github.com/megabyte-labs/gas-station). However, after years of dealing with Ansible's shortcomings, we decided to transition the entire Gas Station project, which contains hundreds of custom Ansible roles, to Install Doctor's Chezmoi-based format. Since Install Doctor is based on [Chezmoi](https://www.chezmoi.io/), that means you get to leverage all the great template directives that Chezmoi makes available. There is also a feature that allows you to see the changes that Install Doctor will make to a file prior to applying the change during the provision process which is a great way of determining new settings to include in your base configuration.
 
-The information below provides high-level details on what features Install Doctor will integrate into your operating system if you decide to choose the `Full` install after running `bash <(curl -sSL https://install.doctor/start)` (or the equivalent for your OS).
+The information below provides high-level details on what features Install Doctor will integrate into your operating system if you decide to choose the `Full` install after running `curl -fsSL https://app.install.doctor/start | bash` (or the equivalent for your OS).
 
 ## Consistent Features
 

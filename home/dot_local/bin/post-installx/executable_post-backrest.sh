@@ -38,18 +38,24 @@ if ! command -v restic >/dev/null 2>&1; then
 fi
 
 # 2. Install Backrest binary (v1.14.1) on Linux x86_64/arm64
-BACKREST_VER="${BACKREST_VERSION:-1.14.1}"
+BACKREST_VER="1.14.1"
 if [[ "$OS_KERNEL" == "Linux" ]] && ! command -v backrest >/dev/null 2>&1; then
   case "$ARCH" in
-    x86_64|amd64) BR_ARCH="x86_64" ;;
-    aarch64|arm64) BR_ARCH="arm64" ;;
+    x86_64|amd64) BR_ARCH="x86_64"; BR_SIZE=12224740; BR_SHA256='acc7835a9c55b3d254f0fa285cacbe87ac912cb7e069d0211924838020e6921c' ;;
+    aarch64|arm64) BR_ARCH="arm64"; BR_SIZE=11130174; BR_SHA256='b53718cd6e042e7d99538cb652968ab966a5c53fabd556785648ceb13320a320' ;;
     *) BR_ARCH="" ;;
   esac
   if [[ -n "$BR_ARCH" ]]; then
     log_info "Installing Backrest v${BACKREST_VER} (${BR_ARCH})..."
     TMP_BR="$(mktemp -d)"
-    curl -fsSL "https://github.com/garethgeorge/backrest/releases/download/v${BACKREST_VER}/backrest_Linux_${BR_ARCH}.tar.gz" \
-      | tar -xz -C "$TMP_BR"
+    archive="$TMP_BR/backrest.tar.gz"
+    curl --fail --silent --show-error --proto '=https' --tlsv1.2 --location --max-time 120 \
+      "https://github.com/garethgeorge/backrest/releases/download/v${BACKREST_VER}/backrest_Linux_${BR_ARCH}.tar.gz" -o "$archive"
+    [[ "$(wc -c < "$archive")" -eq "$BR_SIZE" ]]
+    if command -v sha256sum >/dev/null 2>&1; then actual="$(sha256sum "$archive" | awk '{print $1}')";
+    else actual="$(shasum -a 256 "$archive" | awk '{print $1}')"; fi
+    [[ "$actual" == "$BR_SHA256" ]]
+    tar -xzf "$archive" -C "$TMP_BR" backrest
     $SUDO install -m 0755 "$TMP_BR/backrest" /usr/local/bin/backrest
     rm -rf "$TMP_BR"
     TMP_BR=""

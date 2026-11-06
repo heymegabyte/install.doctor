@@ -40,7 +40,7 @@ All scripts must support fully automated, headless execution. Every interactive 
 | pacman | `--noconfirm` | `sudo pacman -S --noconfirm curl` |
 | zypper | `-y` | `sudo zypper install -y curl` |
 | makepkg | `--noconfirm` | `makepkg -si --noconfirm` |
-| Homebrew | `echo \|` piped | `echo \| /bin/bash -c "$(curl ...)"` |
+| Homebrew | managed bootstrap | Use Install Doctor's commit-pinned, SHA-256-verified Homebrew task |
 | snap | (non-interactive by default) | `sudo snap install package` |
 
 ```bash
@@ -71,6 +71,8 @@ logg success "Success message"
 logg star "Highlighted message"
 logg md "file.md"                       # Render markdown
 ```
+
+The `se_*` helpers belong exclusively to `prompt/source.sh` and the prompt-authoring shell. They are separate from provisioning logging: provisioning scripts use `logg` or `gum log`; do not import `se_*` into bootstrap, Chezmoi, installx, or post-install execution.
 
 ## Platform Detection
 

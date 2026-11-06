@@ -105,20 +105,6 @@ if [ "$BASH_SUPPORT" = 'true' ] && [ -n "$BASH" ]; then
   ### Cod
   ! command -v cod > /dev/null || source <(cod init $$ bash)
 
-  ### Conda
-  # if command -v conda > /dev/null && [ -f "${HOMEBREW_PREFIX:-/opt/homebrew}/Caskroom/mambaforge/base/bin/conda" ]; then
-	#   __conda_setup="$("${HOMEBREW_PREFIX:-/opt/homebrew}/Caskroom/mambaforge/base/bin/conda" "shell.zsh" "hook" 2> /dev/null)"
-	#   if [ $? -eq 0 ]; then
-	# 	  eval "$__conda_setup"
-	#   else
-	# 	  if [ -f "${HOMEBREW_PREFIX:-/opt/homebrew}/Caskroom/mambaforge/base/etc/profile.d/conda.sh" ]; then
-	# 		  . "${HOMEBREW_PREFIX:-/opt/homebrew}/Caskroom/mambaforge/base/etc/profile.d/conda.sh"
-	# 	  else
-	# 		  export PATH="${HOMEBREW_PREFIX:-/opt/homebrew}/Caskroom/mambaforge/base/bin:$PATH"
-	# 	  fi
-	#   fi
-  # fi
-
   ### Google Cloud SDK — fleet-aware (macOS brew, apt/dnf, snap, manual install).
   ### First-match-wins probe. Mirrors the zsh version in ~/.zshrc.
   for _gcloud_root in \
@@ -174,16 +160,6 @@ if [ "$BASH_SUPPORT" = 'true' ] && [ -n "$BASH" ]; then
 
   ### RTX
   ! command -v rtx > /dev/null || eval "$(rtx activate bash)"
-
-  ### SDKMan
-  ### Using mise instead for Java handling
-  # if command -v brew > /dev/null && command -v sdkman-cli > /dev/null; then
-  #   export SDKMAN_DIR="$(brew --prefix sdkman-cli)/libexec"
-  #   source "$SDKMAN_DIR/bin/sdkman-init.sh"
-  # elif [ -f "$SDKMAN_DIR/bin/sdkman-init.sh" ]; then
-  #   export SDKMAN_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/sdkman"
-  #   source "$SDKMAN_DIR/bin/sdkman-init.sh"
-  # fi
 
   ### Sheldon
   export SHELDON_CONFIG_FILE="${SHELDON_CONFIG_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/sheldon}/plugins.bash.toml"

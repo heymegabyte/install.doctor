@@ -18,26 +18,46 @@ concurrency:
 
 jobs:
   test-macos:
-    name: "macOS ${{ matrix.os }}"
+    name: "macOS ${{ matrix.osMajor }} ${{ matrix.architecture }}"
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 120
     strategy:
       fail-fast: false
       matrix:
         include:
-          # macOS on Apple Silicon (M1)
-          - os: "14 (Sonoma ARM64)"
-            runner: macos-14
-          # macOS on Apple Silicon (latest)
-          - os: "15 (Sequoia ARM64)"
+          - osMajor: "15"
+            architecture: arm64
+            unameArchitecture: arm64
             runner: macos-15
-          # macOS on Intel (oldest available)
-          - os: "14 (Sonoma x64)"
-            runner: macos-14
+          - osMajor: "15"
+            architecture: x64
+            unameArchitecture: x86_64
+            runner: macos-15-intel
 
     steps:
       - name: Checkout Repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Assert observed platform tuple
+        env:
+          EXPECTED_OS_MAJOR: ${{ matrix.osMajor }}
+          EXPECTED_UNAME_ARCHITECTURE: ${{ matrix.unameArchitecture }}
+        run: |
+          set -euo pipefail
+          observed_version="$(sw_vers -productVersion)"
+          observed_major="${observed_version%%.*}"
+          observed_architecture="$(uname -m)"
+          if ! [ "$observed_major" = "$EXPECTED_OS_MAJOR" ]; then
+            printf '::error::Runner OS mismatch: expected macOS major %s, observed %s (%s)\n' \
+              "$EXPECTED_OS_MAJOR" "$observed_major" "$observed_version"
+            exit 1
+          fi
+          if ! [ "$observed_architecture" = "$EXPECTED_UNAME_ARCHITECTURE" ]; then
+            printf '::error::Runner architecture mismatch: expected %s, observed %s\n' \
+              "$EXPECTED_UNAME_ARCHITECTURE" "$observed_architecture"
+            exit 1
+          fi
+          printf 'Verified runner tuple: macOS %s / %s\n' "$observed_major" "$observed_architecture"
 
       - name: Print System Information
         run: |
@@ -56,10 +76,10 @@ jobs:
         run: |
           bash scripts/test-detect-os.sh
 
-      - name: Run full test suite at CI parity (report-only — promote to blocking after a green CI run, #354)
+      - name: Run full test suite at CI parity (blocking)
         env:
           CONTROL_PLANE_URL: https://app.install.doctor
-        run: bash scripts/test-all.sh || echo "::warning::test-all.sh reported failures (report-only; see log). Promote to blocking once CI parity is confirmed green."
+        run: bash scripts/test-all.sh
 
       - name: Run Install Doctor (headless)
         run: |
@@ -68,23 +88,22 @@ jobs:
           export HEADLESS_INSTALL=true
           export NO_RESTART=true
           export SOFTWARE_GROUP=Basic
-          bash <(curl -sSL https://install.doctor/start)
+          bash scripts/provision.sh
         timeout-minutes: 90
 
       - name: Verify key tools installed
-        if: always()
         run: |
+          set -e
           echo "=== Verification ==="
-          command -v chezmoi && echo "chezmoi: OK" || echo "chezmoi: MISSING"
-          command -v brew && echo "brew: OK" || echo "brew: MISSING"
-          command -v task && echo "task: OK" || echo "task: MISSING"
-          command -v node && echo "node: OK" || echo "node: MISSING"
-          command -v gum && echo "gum: OK" || echo "gum: MISSING"
+          for tool in chezmoi brew task node gum; do
+            command -v "$tool" >/dev/null
+            echo "$tool: OK"
+          done
           echo "=== Done ==="
 
       - name: Upload Logs
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: macos-logs-${{ matrix.runner }}
           path: |

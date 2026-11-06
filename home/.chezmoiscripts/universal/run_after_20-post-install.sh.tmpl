@@ -77,8 +77,8 @@ removeUbuntuLogoBranding() {
 setDefaultBrowser() {
   if [ -d /Applications ] && [ -d /System ]; then
     if ! command -v defaultbrowser > /dev/null; then
-      gum log -sl info 'Installing defaultbrowser via Homebrew which is the preferred way of configuring the default browser'
-      brew install --quiet defaultbrowser
+      gum log -sl warn 'defaultbrowser is not selected; skipping macOS default-browser configuration'
+      return 0
     fi
     gum log -sl info "Setting default browser to {{ .user.defaultBrowserDarwin }}"
     osascript "$HOME/Library/Scripts/default-browser.applescript" "{{ .user.defaultBrowserDarwin }}" || EXIT_CODE=$?
@@ -208,51 +208,69 @@ ensureAutoresticLocation() {
   fi
 }
 
-# @description Dispatches every post-installx config hook AFTER installx (run_after_10) has installed the
-#     user's software. Each hook (post-installx/post-<tool>.sh) self-guards on OS + tool-presence +
-#     idempotency per post-installx/_TEMPLATE.sh, so running them all is safe — a hook whose tool is not
-#     installed on this host/role self-skips. A hook's non-zero exit is LOGGED, never fatal (matches the
-#     installx runScript tolerance), so one bad hook cannot abort provisioning. This is the general
-#     dispatcher the built-but-undispatched config hooks (cloudflared/WARP/netdata/...) needed
-#     (#251 — closes the #250 gap; wazuh ALSO runs via its software.yml script: entry, harmless + idempotent).
+# @description Dispatches post-installx hooks only for the eager desired-state closure AFTER installx
+#     (run_after_10) has installed it. Optional integrations remain inert even if their binaries already
+#     exist; command-not-found dispatches the one matching hook after an explicit first-use install.
+#     `_default: false` always wins over eager-looking metadata. Every selected hook is attempted, then
+#     any failures fail the owning Chezmoi operation so provisioning cannot report partial success.
 runPostInstallxHooks() {
   POST_INSTALLX_DIR="$HOME/.local/bin/post-installx"
-  if [ -d "$POST_INSTALLX_DIR" ]; then
-    for HOOK in "$POST_INSTALLX_DIR"/post-*.sh; do
+  SOFTWARE_YAML="${XDG_DATA_HOME:-$HOME/.local/share}/chezmoi/software.yml"
+  POST_INSTALLX_FAILURES=0
+  POST_INSTALLX_FAILED_HOOKS=''
+  if [ -d "$POST_INSTALLX_DIR" ] && [ -f "$SOFTWARE_YAML" ]; then
+    while IFS= read -r PACKAGE; do
+      [ -n "$PACKAGE" ] || continue
+      HOOK="$POST_INSTALLX_DIR/post-$PACKAGE.sh"
       [ -f "$HOOK" ] || continue
       gum log -sl info "Running post-installx hook: $(basename "$HOOK")"
       ### stdin </dev/null: a hook's interactive read (4 hooks have read-loops; only 1/30 respects
       ### HEADLESS_INSTALL) gets EOF instead of HANGING a non-interactive / headless provision (#252, CLAUDE.md §3).
-      bash "$HOOK" </dev/null || gum log -sl warn "post-installx hook failed (non-fatal): $(basename "$HOOK")"
-    done
+      if ! bash "$HOOK" </dev/null; then
+        POST_INSTALLX_FAILURES=$((POST_INSTALLX_FAILURES + 1))
+        POST_INSTALLX_FAILED_HOOKS="${POST_INSTALLX_FAILED_HOOKS} $(basename "$HOOK")"
+        gum log -sl error "post-installx hook failed: $(basename "$HOOK")"
+      fi
+    done < <(yq -r '.softwarePackages | with_entries(select(.value._default != false and (.value._preload == true or .value._serviceEnabled == true))) | keys[]' "$SOFTWARE_YAML")
+  fi
+  if [ "$POST_INSTALLX_FAILURES" -gt 0 ]; then
+    gum log -sl error "${POST_INSTALLX_FAILURES} selected post-installx hook(s) failed:${POST_INSTALLX_FAILED_HOOKS}"
+    return 1
   fi
 }
 
 # Temporary next line for debugging
 if [ -n "$DEBUG" ] || [ -n "$DEBUG_MODE" ]; then
   gum log -sl info 'The DEBUG or DEBUG_MODE environment variable is set so the post-install tasks will be run synchronously'
-  disableAutoUpdateDarwin
-  moveGnomeAppsToShare
-  preloadZsh
-  removeShortcutsLinux
-  removeUbuntuLogoBranding
-  setDefaultBrowser
-  ubuntuDashToDockFix
-  ensureAutoresticLocation
+  disableAutoUpdateDarwin || exit 1
+  moveGnomeAppsToShare || exit 1
+  preloadZsh || exit 1
+  removeShortcutsLinux || exit 1
+  removeUbuntuLogoBranding || exit 1
+  setDefaultBrowser || exit 1
+  ubuntuDashToDockFix || exit 1
+  ensureAutoresticLocation || exit 1
 else
-  disableAutoUpdateDarwin &
-  moveGnomeAppsToShare &
-  preloadZsh &
-  removeShortcutsLinux &
-  removeUbuntuLogoBranding &
-  setDefaultBrowser &
-  ubuntuDashToDockFix &
-  ensureAutoresticLocation &
-  wait
+  POST_TASK_PIDS=""
+  disableAutoUpdateDarwin & POST_TASK_PIDS="$POST_TASK_PIDS $!"
+  moveGnomeAppsToShare & POST_TASK_PIDS="$POST_TASK_PIDS $!"
+  preloadZsh & POST_TASK_PIDS="$POST_TASK_PIDS $!"
+  removeShortcutsLinux & POST_TASK_PIDS="$POST_TASK_PIDS $!"
+  removeUbuntuLogoBranding & POST_TASK_PIDS="$POST_TASK_PIDS $!"
+  setDefaultBrowser & POST_TASK_PIDS="$POST_TASK_PIDS $!"
+  ubuntuDashToDockFix & POST_TASK_PIDS="$POST_TASK_PIDS $!"
+  ensureAutoresticLocation & POST_TASK_PIDS="$POST_TASK_PIDS $!"
+  POST_TASK_STATUS=0
+  for PID in $POST_TASK_PIDS; do wait "$PID" || POST_TASK_STATUS=1; done
+  [ "$POST_TASK_STATUS" -eq 0 ] || { gum log -sl error 'One or more post-install tasks failed'; exit 1; }
 fi
 
 ### Dispatch the post-installx config hooks LAST, sequentially (they may use sudo / configure services),
 ### after installx (run_after_10) + the parallel post-install tasks above — #251 (closes the #250 gap).
-runPostInstallxHooks
+if [ "${INSTALL_DOCTOR_ENGINE_OWNS_CUSTOM_POST_HOOKS:-0}" = 1 ]; then
+  gum log -sl info 'Custom post-installx hooks are owned by the canonical installer engine'
+else
+  runPostInstallxHooks || exit 1
+fi
 
 gum log -sl info 'Finished running the post-install tasks'

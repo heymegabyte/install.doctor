@@ -23,6 +23,7 @@
 # @envvar SSH_PORT  Host port for SSH forwarding (default: 2222)
 # @envvar CI  Set in CI environments for non-interactive behavior
 # @envvar TEST_INSTALL  Alternative to CI for triggering headless mode
+# @envvar INSTALLER_PATH  Optional checked-out installer copied into the VM before execution
 #
 # @exitcode 0 If successful.
 # @exitcode 1 If an error occurs.
@@ -201,6 +202,18 @@ runCommandInVm() {
       "export CI=true; export TEST_INSTALL=true; export HEADLESS_INSTALL=true; $COMMAND"
 }
 
+# Copy the checked-out installer into the disposable VM so CI validates the revision under test rather than
+# mutable production. Production URL availability is a separate smoke-test responsibility.
+copyInstallerToVm() {
+  [ -n "${INSTALLER_PATH:-}" ] || return 0
+  [ -f "$INSTALLER_PATH" ] || { echo "Error: INSTALLER_PATH does not exist: $INSTALLER_PATH"; return 1; }
+  scp -q -o StrictHostKeyChecking=no \
+      -o UserKnownHostsFile=/dev/null \
+      -o ConnectTimeout=10 \
+      -P "$SSH_PORT" \
+      "$INSTALLER_PATH" "$SSH_USER"@localhost:/tmp/install-doctor-provision.sh
+}
+
 # ==============================================================================
 # @description Stop the QEMU VM process gracefully.
 # ==============================================================================
@@ -227,6 +240,7 @@ main() {
   createCloudInitConfig
   startQemuVm
   waitForSsh
+  copyInstallerToVm
   runCommandInVm "$2"
 }
 

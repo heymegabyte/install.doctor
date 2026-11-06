@@ -1,0 +1,52 @@
+name: Test Installer Engine on Windows
+
+on:
+  push:
+    branches:
+      - main
+      - master
+    paths:
+      - ".github/workflows/test-windows.yml"
+      - "packages/aid-core/**"
+      - "packages/installer-engine/**"
+  pull_request:
+    paths:
+      - ".github/workflows/test-windows.yml"
+      - "packages/aid-core/**"
+      - "packages/installer-engine/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test-installer-engine:
+    name: Process-tree cancellation (Windows)
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Set up Node.js 24
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: |
+            packages/aid-core/package-lock.json
+            packages/installer-engine/package-lock.json
+
+      - name: Install locked dependencies
+        shell: pwsh
+        run: |
+          npm ci --prefix packages/aid-core
+          npm ci --prefix packages/installer-engine
+
+      - name: Test installer engine
+        shell: pwsh
+        run: npm test --prefix packages/installer-engine

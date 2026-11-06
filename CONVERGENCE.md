@@ -151,13 +151,13 @@ Auto-generated 2026-07-23. Each item: status · priority (P0–P4) · deps · ac
 - **Acceptance:** `detect_os()` returns `qubes-dom0` or `qubes-appvm`, scripts branch correctly.
 - **Files:** `scripts/provision.sh`, chezmoi scripts
 
-### C21. provision.sh.tmpl drift (new — discovered 2026-07-23)
-- **Status:** 🟢 COMPLETED (2026-07-23, d8b9804f — backported detect_os, ensureInstallUser, HEADLESS_INSTALL gates to template; delta: 530→7 lines; CI threshold: 50)
+### C21. provision.sh source authority (resolved)
+- **Status:** 🟢 COMPLETED — the stale duplicate template was removed.
 - **Priority:** P2
 - **Deps:** None
-- **Acceptance:** `scripts/src/provision.sh.tmpl` (655 lines) is synced with `scripts/provision.sh` (1186 lines). The template is the source of truth; the actual file is generated. Currently diverged by ~530 lines.
-- **Validation:** `diff scripts/src/provision.sh.tmpl scripts/provision.sh` shows only expected template-to-rendered differences.
-- **Files:** `scripts/src/provision.sh.tmpl`, `scripts/provision.sh`
+- **Acceptance:** `scripts/provision.sh` is the single authored provisioner; the control-plane stage zero serves only a signed, digest-bound release of it.
+- **Validation:** `scripts/test-bootstrap-source-authority.sh` rejects reintroducing `scripts/src/provision.sh.tmpl`.
+- **Files:** `scripts/provision.sh`
 
 ---
 

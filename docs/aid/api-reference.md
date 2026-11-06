@@ -15,6 +15,7 @@ A "public page" serves an HTML shell anyone can load, but its in-page data fetch
 | --- | --- | --- |
 | `GET /` | public | Landing: the promise, bootstrap one-liner, how-it-works, dashboard links. |
 | `GET /health` | public | Health probe → `{status:"ok", routes:N}`. |
+| `GET /releases/:releaseId/:file` | public | Serve one immutable, allowlisted release object (`manifest`, `manifest.sig`, or `provision.sh`) from the bound release store. |
 | `GET /login` | public | Sign-in page — GitHub + Google buttons that POST `/api/auth/sign-in/social` and redirect to the provider authorize URL (Better Auth, O-series). |
 | `GET /pair` | public | Browser pairing-approval page — shows the code + host identity + requested scope before Approve. |
 | `GET /machines` | public page (data load admin) | Device inventory: last-active · drift · health (conn·sw·bkp) · scope · status. |
@@ -100,7 +101,7 @@ on the OAuth apps — a one-time human step on the OAuth-app settings; magic-lin
 
 | Route | Auth | Purpose |
 | --- | --- | --- |
-| `GET /start` | public | Universal multi-OS bootstrap script (`curl https://app.install.doctor/start \| bash`) supporting macOS, Linux, Windows, FreeBSD, and Qubes with `AID_API_KEY` OAuth bypass and real-time TUI pairing callback. |
+| `GET /start` | public | Signed immutable-release bootstrap (`curl -fsSL https://app.install.doctor/start \| bash`) for the currently gated macOS and Linux x64/arm64 stage-zero cells. Unsupported kernels and architectures fail before download. |
 | `POST /api/v1/intent/telemetry` | public | Ingest terminal interaction cadence intervals and command buffer to compute Shannon cadence entropy and predict intent probability distribution. |
 | `POST /api/v1/intent/speculate` | public | Fork an isolated edge speculative shadow branch (`SpeculativeBranch`) for high-confidence predicted intents. |
 | `POST /api/v1/intent/collapse` | public | Commit a verified `SpeculativeBranch` with a cryptographic `ActionVoucher` for 0ms perceived latency, or evaporate on mismatch. |

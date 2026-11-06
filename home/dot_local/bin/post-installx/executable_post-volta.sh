@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 # @file Volta initialization
-# @brief This script initializes Volta and ensures the latest version of node and yarn are installed
+# @brief Configure an admitted Volta installation without acquiring mutable runtimes
 
 set -Eeo pipefail
 trap "gum log -sl error 'Script encountered an error!'" ERR
@@ -18,10 +18,8 @@ fi
 if command -v volta > /dev/null; then
     gum log -sl info 'Running volta setup'
     volta setup
-    gum log -sl info 'Installing latest version of Node.js via Volta'
-    volta install node@latest
-    gum log -sl info 'Installing latest version of Yarn via Volta'
-    volta install yarn@latest
+    volta list node 2>/dev/null | grep -q . || gum log -sl warn 'No Volta-managed Node runtime is installed; select an exact version in desired state'
+    volta list yarn 2>/dev/null | grep -q . || gum log -sl warn 'No Volta-managed Yarn runtime is installed; select an exact version in desired state'
 else
     gum log -sl info 'Volta is not installed'
 fi

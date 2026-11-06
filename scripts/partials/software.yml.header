@@ -20,18 +20,13 @@
 #   _docker: docker run --rm bannmann/docker-cheat    # Command that the _bin value should alias to (similar to Whalebrew)
 #   _groups:                                          # Groups that should be created / user added to
 #     - docker
-#   _when: |                                          # Run the script defined with _when and only proceed if it exits with a 0
-#     test -f /usr
-#   _pre: |
-#     echo "_pre allows you to define a script that runs before the installation"
-#   _post:brew:debian: |
-#     echo "_post allows you to define a script that runs after the installation"
+#   # Legacy script*, _when*, _pre*, and _post* fields are non-executable migration data.
+#   # Use package-manager coordinates and a reviewed typed post-installx hook instead.
 #   _service: smbd                                    # System service to enable, restart, and/or start (can also be an array).
 #   _restricted: true                                 # True if it should be skipped on a restricted machine (i.e. a work machine).
 #   _preload: true                                    # Exceptional eager install; omit for the default command-not-found lazy install.
 #   _preloadReason: bootstrap-critical                # Required with _preload. Allowed: bootstrap-critical, lazy-installer-substrate, security-recovery-prerequisite, desired-state-service.
 #   _epel: true                                       # True if https://docs.fedoraproject.org/en-US/epel/ should be enabled
-#   ansible: professormanhattan.docker
 #   apk: altair
 #   appimage: https://developers.yubico.com/yubikey-manager-qt/Releases/yubikey-manager-qt-1.2.4b-linux.AppImage
 #   appinstaller: https://example.com/package.appinstaller # TODO - https://pieces.app has example of this type of file
@@ -62,10 +57,6 @@
 #   pkg-termux: altair
 #   port: altair
 #   scoop: altair
-#   script >-
-#     curl -sS https://getcomposer.org/installer | php
-#     sudo mv composer.phar /usr/local/bin/composer
-#     sudo chmod +x /usr/local/bin/composer
 #   _snapClassic: true                                # Install the snap in classic mode
 #   snap: altair
 #   whalebrew:

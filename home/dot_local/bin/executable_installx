@@ -1,5 +1,4 @@
 #!/usr/bin/env zx
-import osInfo from 'linux-os-info'
 
 $.verbose = false
 // Preserves color from subshells
@@ -7,24 +6,47 @@ $.verbose = false
 
 let installOrder, osArch, osId, osType, pkgs, sysType, chezmoiConfig, isHeadless
 const cacheDir = os.homedir() + '/.cache/installx'
+const IMPLEMENTED_PROVIDER_TYPES = new Set([
+  'apk', 'apt', 'basher', 'baulk', 'brew', 'cargo', 'cask', 'choco',
+  'crew', 'dnf', 'emerge', 'flatpak', 'gem', 'go', 'npm', 'pacman',
+  'pip', 'pipx', 'pkg_add', 'scoop', 'snap', 'winget', 'xbps', 'yay',
+  'yum', 'zypper'
+])
 
 const customArgv = minimist(process.argv.slice(3), {
   boolean: [
     'all',
-    'lazy'
+    'lazy',
+    'check'
   ],
   alias: {
     a: 'all',
-    l: 'lazy'
+    l: 'lazy',
+    c: 'check'
   }
 })
 
 function log(message) {
+  if (customArgv.check) return
   console.log(`${chalk.greenBright.bold('installx ❯')} ${message}`)
 }
 
+function hasMutableGoReference(instruction) {
+  if (instruction.installType !== 'go') return false
+  return instruction.installList.some(value => !/@v\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/.test(String(value)))
+}
+
 async function getOsInfo() {
-  return osInfo({ mode: 'sync' })
+  const arch = process.arch === 'x64' ? 'x64' : process.arch === 'arm64' ? 'arm64' : process.arch
+  if (process.platform !== 'linux') return { arch, id: process.platform }
+  try {
+    const release = fs.readFileSync('/etc/os-release', 'utf8')
+    const match = release.match(/^ID=(?:"([^"]+)"|'([^']+)'|([^\n]+))$/m)
+    const id = (match?.[1] || match?.[2] || match?.[3] || 'linux').trim().toLowerCase()
+    return { arch, id }
+  } catch {
+    return { arch, id: 'linux' }
+  }
 }
 
 function execPromise(command) {
@@ -37,32 +59,6 @@ function execPromise(command) {
       resolve(stdout.trim())
     })
   })
-}
-
-function runSilentCommand(command) {
-  return require('child_process').execSync(`${command}`, { stdio: 'inherit', shell: true })
-}
-
-async function runScript(key, script) {
-  fs.writeFileSync(`${cacheDir}/${key}-raw`, script)
-  const [templatedScript, file, brief] = await Promise.all([
-    $`cat "${cacheDir}/${key}-raw" | chezmoi execute-template`,
-    $`cat "${cacheDir}/${key}-raw" | ( grep "^# @file" || [ "$?" == "1" ] ) | sed 's/^# @file //'`,
-    $`cat "${cacheDir}/${key}-raw" | ( grep "^# @brief" || [ "$?" == "1" ] ) | sed 's/^# @brief //'`
-  ])
-  fs.writeFileSync(`${cacheDir}/${key}-glow`, (file.stdout ? `# ${file.stdout}\n\n` : '') + (brief.stdout ? `> ${brief.stdout}\n\n` : '') + '```sh\n' + templatedScript.stdout + "\n```")
-  fs.writeFileSync(`${cacheDir}/${key}`, templatedScript.stdout)
-  try {
-    process.env.DEBUG && require('child_process').execSync(`glow --width 120 "${cacheDir}/${key}-glow"`)
-    // TODO: Set process.env.DEBUG || true here because the asynchronous method is not logging properly / running slow
-    if (process.env.DEBUG) {
-      return await runSilentCommand(`bash "${cacheDir}/${key}" </dev/null || gum log -sl error 'Error occurred while processing script for ${key}'`)
-    } else {
-      return await $`bash "${cacheDir}/${key}" </dev/null || gum log -sl error 'Error occurred while processing script for ${key}'`.pipe(process.stdout)
-    }
-  } catch (e) {
-    console.error(`Failed to run script associated with ${key}`, e)
-  }
 }
 
 function getPkgData(pref, pkg, installer) {
@@ -166,10 +162,13 @@ async function getSystemType() {
   }
 }
 
-function expandDeps(keys, seen = new Set()) {
+function expandDeps(keys, seen = new Set(), visiting = new Set()) {
   const expanded = []
   for (const i of keys) {
-    if (!pkgs[i] || seen.has(i)) continue
+    if (!pkgs[i]) throw new Error(`unknown package dependency: ${i}`)
+    if (visiting.has(i)) throw new Error(`dependency cycle detected at package: ${i}`)
+    if (seen.has(i)) continue
+    visiting.add(i)
     seen.add(i)
     expanded.push(i)
     for (const pref of installOrder[sysType]) {
@@ -179,12 +178,35 @@ function expandDeps(keys, seen = new Set()) {
         const depsKey = getPkgData('_deps', pkgs[i], installType)
         if (depsKey) {
           const deps = typeof pkgs[i][depsKey] === 'string' ? [pkgs[i][depsKey]] : pkgs[i][depsKey]
-          expanded.push(...expandDeps(deps, seen))
+          expanded.push(...expandDeps(deps, seen, visiting))
         }
       }
     }
+    visiting.delete(i)
   }
   return expanded
+}
+
+function missingDependencies(keys, seen = new Set(), missing = new Set()) {
+  for (const key of keys) {
+    if (seen.has(key)) continue
+    seen.add(key)
+    const pkg = pkgs[key]
+    if (!pkg) {
+      missing.add(key)
+      continue
+    }
+    for (const pref of installOrder[sysType]) {
+      const installKey = getPkgData(pref, pkg, false)
+      if (!installKey) continue
+      const depsKey = getPkgData('_deps', pkg, installKey.split(':')[0])
+      if (!depsKey) break
+      const deps = typeof pkg[depsKey] === 'string' ? [pkg[depsKey]] : pkg[depsKey]
+      missingDependencies(deps, seen, missing)
+      break
+    }
+  }
+  return [...missing].sort()
 }
 
 async function createCaskLinks(caskMap) {
@@ -220,10 +242,10 @@ async function createCaskLinks(caskMap) {
       return
     }
     if (fs.existsSync(`${os.homedir()}/Applications/${app[appField]}`)) {
-      fs.writeFileSync(`${os.homedir()}/.local/bin/cask/${app[binField]}`, `#!/usr/bin/env bash\nopen "$HOME/Applications/${app[appField]}" $*`)
+      fs.writeFileSync(`${os.homedir()}/.local/bin/cask/${app[binField]}`, `#!/usr/bin/env bash\nopen "$HOME/Applications/${app[appField]}" "$@"`)
       await $`chmod +x '${os.homedir()}/.local/bin/cask/${app[binField]}'`
     } else if (fs.existsSync(`/Applications/${app[appField]}`)) {
-      fs.writeFileSync(`${os.homedir()}/.local/bin/cask/${app[binField]}`, `#!/usr/bin/env bash\nopen "/Applications/${app[appField]}" $*`)
+      fs.writeFileSync(`${os.homedir()}/.local/bin/cask/${app[binField]}`, `#!/usr/bin/env bash\nopen "/Applications/${app[appField]}" "$@"`)
       await $`chmod +x '${os.homedir()}/.local/bin/cask/${app[binField]}'`
     } else {
       log(`Unable to create bin link to ${app[appField]}`)
@@ -252,10 +274,10 @@ async function createFlatpakLinks(flatpakMap) {
       return
     }
     if (fs.existsSync(`${flatpakDir}/app/${app.installList[0]}`)) {
-      fs.writeFileSync(`${os.homedir()}/.local/bin/flatpak/${app[binField]}`, `#!/usr/bin/env bash\nflatpak run ${app.installList[0]} $*`)
+      fs.writeFileSync(`${os.homedir()}/.local/bin/flatpak/${app[binField]}`, `#!/usr/bin/env bash\nflatpak run ${app.installList[0]} "$@"`)
       await $`chmod +x '${os.homedir()}/.local/bin/flatpak/${app[binField]}'`
     } else {
-      log(`Unable to create bin link to ${x.flatpak}`)
+      log(`Unable to create bin link to ${app.installList[0]}`)
     }
   }
   flatpakApps.length && log(`Finished creating Flatpak links in ~/.local/bin/flatpak`)
@@ -338,23 +360,14 @@ async function installPackages(pkgInstructions) {
         }
         break
       case 'appimage':
-        tasks.push(...combined[key].flatMap(x => x.installList.flatMap(i => {
-          process.env.DEBUG && console.log('AppImage', x)
-          if (typeof x === 'string') {
-            if (x.substring(0, 4) === 'http') {
-              return () => $`zap install --select-first -q --from ${i}`
-            } else if ((x.match(/\//g) || []).length === 1) {
-              return () => $`zap install --select-first -q --github --from ${i}`
-            } else {
-              return () => $`zap install --select-first -q ${i}`
-            }
-          }
-        })))
+        tasks.push(() => {
+          throw new Error('appimage provider is disabled until the catalog binds an immutable URL, SHA-256 digest, size, and destination')
+        })
         break
       case 'apt':
         const packages = combined[key]?.flatMap(x => x.installList || []) || []
         if (packages.length > 0) {
-          tasks.push(() => $`DEBIAN_FRONTEND=noninteractive sudo apt-get -o DPkg::Options::=--force-confdef install -y --ignore-missing ${packages}`)
+          tasks.push(() => $`DEBIAN_FRONTEND=noninteractive sudo apt-get -o DPkg::Options::=--force-confdef install -y ${packages}`)
         }
         break
       case 'pipx':
@@ -375,8 +388,9 @@ async function installPackages(pkgInstructions) {
         tasks.push(...combined[key].flatMap(x => x.installList.flatMap(i => () => $`volta install ${i}`)))
         break
       case 'binary':
-        // TODO
-        tasks.push(...combined[key].flatMap(x => x.installList.flatMap(i => () => $`TMP="$(mktemp)" && curl -sSL ${i} > "$TMP" && sudo mv "$TMP" /usr/local/src/${x._bin} && chmod +x /usr/local/src/${x._bin}`)))
+        tasks.push(() => {
+          throw new Error('binary provider is disabled until the catalog binds an immutable URL, SHA-256 digest, size, and destination')
+        })
         break
       case 'brew':
       case 'cask': // Handled above
@@ -386,7 +400,7 @@ async function installPackages(pkgInstructions) {
         break
       case 'dnf':
       case 'yum':
-        tasks.push(() => $`sudo ${key} install -y ${combined[key].flatMap(x => x.installList).join(' ')} --setopt=skip_if_unavailable=True --setopt=skip_missing_names_on_install=True`)
+        tasks.push(() => $`sudo ${key} install -y ${combined[key].flatMap(x => x.installList).join(' ')}`)
         break
       case 'zypper':
         tasks.push(() => $`sudo ${key} --non-interactive install -y ${combined[key].flatMap(x => x.installList).join(' ')}`)
@@ -395,10 +409,6 @@ async function installPackages(pkgInstructions) {
       case 'pkg_add':
         tasks.push(() => $`sudo ${key} ${combined[key].flatMap(x => x.installList).join(' ')}`)
         break
-      case 'eopkg':
-      case 'pkg-freebsd':
-      case 'pkg-termux':
-      case 'pkgin':
       case 'snap':
         const command = `${combined[key].flatMap(x => x.installList).join(' ')}`
         process.env.DEBUG && console.log(command)
@@ -434,20 +444,20 @@ async function installPackages(pkgInstructions) {
       case 'flatpak':
         tasks.push(() => forEachSeries(combined[key].flatMap(x => x.installList.flatMap(i => () => $`sudo ${key} install -y flathub ${i}`))))
         break
-      case 'github': // TODO: GitHub-release-binary install not yet implemented (backlog — arch/OS asset selection + extract)
-        log(`Install key 'github' not yet implemented — skipping: ${combined[key].flatMap(x => x.installList).join(' ')}`)
-        break
+      case 'github':
+      case 'pkg-darwin':
+      case 'sbopkg':
+      case 'eopkg':
+      case 'pkg-freebsd':
+      case 'pkg-termux':
+      case 'pkgin':
+      case 'pkg':
+        throw new Error(`catalog provider '${key}' has no verified check/apply/verify adapter`)
       case 'pacman':
         tasks.push(() => $`sudo ${key} -Sy --noconfirm --needed ${combined[key].flatMap(x => x.installList).join(' ')}`)
         break
-      case 'pkg-darwin':
-        break
-      case 'sbopkg': // TODO: Slackware sbopkg install not yet implemented (backlog)
-        log(`Install key 'sbopkg' not yet implemented — skipping: ${combined[key].flatMap(x => x.installList).join(' ')}`)
-        break
       case 'script':
-        tasks.push(...combined[key].flatMap(x => x.installList.flatMap(i => () => runScript(x.listKey, i))))
-        break
+        throw new Error(`catalog script providers are unsupported; migrate to a package manager or immutable artifact descriptor: ${combined[key].map(x => x.listKey).sort().join(',')}`)
       case 'xbps':
         tasks.push(() => $`sudo xbps-install -S ${combined[key].flatMap(x => x.installList).join(' ')}`)
         break
@@ -455,12 +465,12 @@ async function installPackages(pkgInstructions) {
         tasks.push(() => $`yay -Sy --noconfirm --needed ${combined[key].flatMap(x => x.installList).join(' ')}`)
         break
       default:
-        log(`Unable to find install key instructions for ${key}`)
+        throw new Error(`catalog provider '${key}' is unknown or has no verified adapter`)
     }
   }
   // Start commands only when a bounded worker claims them. Constructing zx
   // ProcessPromises earlier starts the processes and defeats throttling.
-  const CONCURRENCY = Math.max(1, parseInt(process.env.INSTALLX_CONCURRENCY || process.env.INSTALL_DOCTOR_CONCURRENCY || '4', 10) || 4)
+  const CONCURRENCY = Math.min(16, Math.max(1, parseInt(process.env.INSTALLX_CONCURRENCY || process.env.INSTALL_DOCTOR_CONCURRENCY || '4', 10) || 4))
   log(`Performing ${tasks.length} installations (concurrency=${CONCURRENCY})`)
   const installs = new Array(tasks.length)
   let cursor = 0
@@ -490,19 +500,20 @@ async function postInstall(combined) {
   const promises = []
   Object.keys(combined).includes('flatpak') && promises.push(createFlatpakLinks(combined.flatpak))
   const postInstalls = await Promise.allSettled(promises)
+  const postInstallFailures = postInstalls.filter(result => result.status === 'rejected')
+  if (postInstallFailures.length) {
+    postInstallFailures.forEach(({ reason }) => console.error(reason))
+    throw new Error(`${postInstallFailures.length} post-install task(s) failed`)
+  }
   process.env.DEBUG && console.log('Post installs:', postInstalls)
 }
 
-async function acquireManagerList(type, command) {
+async function acquireManagerList(type, command, persist = true) {
   if (which.sync(type, { nothrow: true })) {
-    if (fs.existsSync(`${cacheDir}/${type}`)) {
-      setTimeout(() => {
-        require('child_process').exec(`${command} > ${cacheDir}/${type}`)
-      }, 100)
-    } else {
-      require('child_process').execSync(`${command} > ${cacheDir}/${type}`)
-    }
-    return fs.readFileSync(`${cacheDir}/${type}`).toString().split('\n')
+    const cacheFile = path.join(cacheDir, type)
+    const output = await execPromise(command)
+    if (persist) fs.writeFileSync(cacheFile, `${output}\n`, { mode: 0o600 })
+    return output.split('\n')
   } else {
     log(`${type} is not installed`)
     return []
@@ -556,6 +567,7 @@ function pkgMap(pkgDefs) {
 }
 
 async function checkIfHeadless() {
+  if (/^(?:1|true|yes)$/i.test(process.env.HEADLESS_INSTALL || '')) return true
   try {
     process.env.DEBUG && log('Checking if session is headless')
     runSilentCommand(`if [ -d /System ] && [ -d /Applications ]; then system_profiler SPDisplaysDataType > /dev/null 2>&1; else xrandr --listmonitors > /dev/null 2>&1; fi`)
@@ -567,7 +579,7 @@ async function checkIfHeadless() {
 
 
 async function main() {
-  await $`mkdir -p ${cacheDir}`
+  if (!customArgv.check) await $`mkdir -p ${cacheDir}`
   log(`Acquiring software definitions and system information`)
   const initData = await Promise.all([
     getOsInfo(),
@@ -586,25 +598,27 @@ async function main() {
   installOrder = initData[1].installerPreference
   log(`Populating lists of pre-installed packages`)
   const listPromises = [
-    acquireManagerList('apt', `if command -v dpkg; then dpkg -l; fi`),
-    acquireManagerList('brew', `brew list -1`),
-    acquireManagerList('cargo', `cargo install --list | awk '/^[[:alnum:]]/ {print $1}'`),
-    acquireManagerList('dnf', `rpm -qa`),
-    acquireManagerList('flatpak', `flatpak --columns=app list`),
-    acquireManagerList('gem', `gem list | awk '{print $1}'`),
-    acquireManagerList('npm', `volta list --format plain | awk '{print $2}' | sed 's/@.*//'`),
-    acquireManagerList('pacman', `pacman -Qs`),
-    acquireManagerList('pip', `pip3 list | awk '{print $1}'`),
+    acquireManagerList('apt', `if command -v dpkg; then dpkg -l; fi`, !customArgv.check),
+    acquireManagerList('brew', `brew list -1`, !customArgv.check),
+    acquireManagerList('cargo', `cargo install --list | awk '/^[[:alnum:]]/ {print $1}'`, !customArgv.check),
+    acquireManagerList('dnf', `rpm -qa`, !customArgv.check),
+    acquireManagerList('flatpak', `flatpak --columns=app list`, !customArgv.check),
+    acquireManagerList('gem', `gem list | awk '{print $1}'`, !customArgv.check),
+    acquireManagerList('npm', `volta list --format plain | awk '{print $2}' | sed 's/@.*//'`, !customArgv.check),
+    acquireManagerList('pacman', `pacman -Qs`, !customArgv.check),
+    acquireManagerList('pip', `pip3 list | awk '{print $1}'`, !customArgv.check),
     // `pipx:` remains the catalog provider name for compatibility, but uv is
     // the execution backend. Inventory uv's tool environments so idempotency
     // does not reinstall every Python CLI on each provisioning run.
-    acquireManagerList('uv', `uv tool list | awk '/^[^[:space:]-]/ {print $1}'`),
-    acquireManagerList('snap', `if command -v snapd; then snap list; fi`),
-    acquireManagerList('zap', `zap list`)
+    acquireManagerList('uv', `uv tool list | awk '/^[^[:space:]-]/ {print $1}'`, !customArgv.check),
+    acquireManagerList('snap', `if command -v snapd; then snap list; fi`, !customArgv.check),
+    acquireManagerList('zap', `zap list`, !customArgv.check)
   ]
   const lists = await Promise.all(listPromises)
   const managerLists = {
-    appimage: lists[6],
+    // AppImage packages are installed by Zap, so idempotency must use Zap's
+    // inventory rather than Volta/npm's unrelated package list.
+    appimage: lists[11],
     apt: lists[0],
     brew: lists[1],
     cargo: lists[2],
@@ -620,19 +634,99 @@ async function main() {
     zap: lists[11]
   }
   log(`Acquiring installation keys`)
+  const requestedKeys = customArgv._ || []
+  if (customArgv.check && !customArgv.all && requestedKeys.length === 0) {
+    throw new Error('inspection requires --all or at least one package key')
+  }
+  const unknownKeys = requestedKeys.filter(key => !pkgs[key]).sort()
+  if (unknownKeys.length) throw new Error(`unknown package keys: ${unknownKeys.join(',')}`)
+  const expandedRequestedKeys = expandDeps(requestedKeys)
   const installKeys = Object.keys(pkgs)
-    .filter(i => expandDeps(argv._).includes(i))
+    .filter(i => expandedRequestedKeys.includes(i))
   log(`Constructing installation data`)
   const installData = pkgMap(customArgv.all ? Object.keys(pkgs) : installKeys)
+  const unavailableRequested = customArgv.all
+    ? []
+    : expandedRequestedKeys.filter(key => !installData.some(item => item.listKey === key)).sort()
+  if (unavailableRequested.length) {
+    if (customArgv.check) {
+      process.stdout.write(`${JSON.stringify({
+        schemaVersion: 1,
+        status: 'unsupported',
+        selected: unavailableRequested,
+        missing: unavailableRequested,
+        unsupported: unavailableRequested
+      })}\n`)
+      process.exitCode = 21
+      return
+    }
+    throw new Error(`no applicable provider for current platform: ${unavailableRequested.join(',')}`)
+  }
+  const selectedServiceKeys = new Set(
+    (process.env.INSTALL_DOCTOR_SELECTED_SERVICES || '')
+      .split(',')
+      .filter(Boolean)
+  )
+  if ([...selectedServiceKeys].some(key => !/^[A-Za-z0-9][A-Za-z0-9._+-]{0,127}$/.test(key) || !pkgs[key])) {
+    throw new Error('INSTALL_DOCTOR_SELECTED_SERVICES contains an invalid or unknown package key')
+  }
+  const requestedSelectedPackages = (process.env.INSTALL_DOCTOR_SELECTED_PACKAGES || '').split(',').filter(Boolean)
+  if (requestedSelectedPackages.some(key => !/^[A-Za-z0-9][A-Za-z0-9._+-]{0,127}$/.test(key) || !pkgs[key])) {
+    throw new Error('INSTALL_DOCTOR_SELECTED_PACKAGES contains an invalid or unknown package key')
+  }
+  const selectedRoots = [...new Set([...requestedSelectedPackages, ...selectedServiceKeys])]
+  const missingSelectedDependencies = missingDependencies(selectedRoots)
+  if (missingSelectedDependencies.length) {
+    throw new Error(`selected packages reference unknown dependencies: ${missingSelectedDependencies.join(',')}`)
+  }
+  const selectedPackageKeys = new Set(expandDeps(selectedRoots))
+  const explicitRequestedKeys = new Set([...expandedRequestedKeys, ...selectedPackageKeys])
+  const unavailableSelections = [...explicitRequestedKeys]
+    .filter(key => !installData.some(item => item.listKey === key))
+    .sort()
+  if (unavailableSelections.length) {
+    if (customArgv.check) {
+      process.stdout.write(`${JSON.stringify({ schemaVersion: 1, status: 'unsupported', selected: unavailableSelections, missing: unavailableSelections, unsupported: unavailableSelections })}\n`)
+      process.exitCode = 21
+      return
+    }
+    throw new Error(`no applicable provider for current platform: ${unavailableSelections.join(',')}`)
+  }
+  const policyUnsupported = installData
+    .filter(item => explicitRequestedKeys.has(item.listKey))
+    .filter(item => item._deprecated || (isHeadless && (item._app || item.flatpak)))
+    .map(item => item.listKey)
+    .sort()
+  if (policyUnsupported.length) {
+    if (customArgv.check) {
+      process.stdout.write(`${JSON.stringify({ schemaVersion: 1, status: 'unsupported', selected: policyUnsupported, missing: policyUnsupported, unsupported: policyUnsupported })}\n`)
+      process.exitCode = 21
+      return
+    }
+    throw new Error(`explicit selection is unsupported by current policy or host capabilities: ${policyUnsupported.join(',')}`)
+  }
   log(`Filtering install instructions`)
   process.env.DEBUG && log(`Headless session detected: ${isHeadless}`)
-  const installInstructions = installData
+  const desiredInstructions = installData
     // `--all` is the automatic provisioning path. Catalog entries with
     // `_default: false` stay available through an explicit named invocation
     // (`installx <key>`) but must never be pulled into a workstation/server
     // merely because they are an app, preload, or enabled service.
-    .filter(x => !customArgv.all || x._default !== false)
+    .filter(x => !customArgv.all || x._default !== false || explicitRequestedKeys.has(x.listKey))
     .filter(x => !!x.installList)
+    .filter(x => !x._deprecated)
+    .filter(x => {
+      if (!customArgv.lazy) return true
+      if (isHeadless && (x._app || x.flatpak || x.appimage) && !explicitRequestedKeys.has(x.listKey)) return false
+      // A lazy run installs the minimum baseline plus only those service
+      // packages explicitly selected in the immutable desired-state plan.
+      return !!x._preload || selectedPackageKeys.has(x.listKey) || selectedServiceKeys.has(x.listKey)
+    })
+  const unsafePredicates = desiredInstructions.filter(x => getPkgData('_when', x, x.installType)).map(x => x.listKey).sort()
+  if (unsafePredicates.length) {
+    throw new Error(`catalog _when predicates are unsupported; migrate to typed declarative conditions: ${unsafePredicates.join(',')}`)
+  }
+  const installInstructions = desiredInstructions
     .map(x => {
       return {
         ...x,
@@ -649,81 +743,49 @@ async function main() {
       // Filter out packages already installed by by package managers
       return x.installList.length
     })
-    .filter(x => {
-      // Filter out packages that contain a deprecation note
-      return !x._deprecated
-    })
-    .filter(x => {
-
-      // Only install items with `_preload: true` (or `_serviceEnabled: true`) in `--lazy` mode;
-      // headless hosts also explicitly block any `_app` / `flatpak` / `appimage` / `cask` entry.
-      if (customArgv.lazy) {
-        if (isHeadless) {
-          if (x._app || x.flatpak || x.appimage) {
-            return false
-          } else if (x._serviceEnabled) {
-            return true
-          } else {
-            return !!x._preload
-          }
-        } else {
-          if (x._serviceEnabled) {
-            return true
-          } else {
-            return !!x._preload
-          }
-        }
-      } else {
-        return true
-      }
-    })
-    .filter(x => {
-      // Filter out macOS apps that already have a _app installed
-      if (x.installType === 'cask' || (osId === 'darwin' && x._app)) {
-        const appField = getPkgData('_app', x, x.installType)
-        const appCheck = fs.existsSync(`/Applications/${x[appField]}`) || fs.existsSync(`${os.homedir()}/Applications/${x[appField]}`)
-        appCheck && log(`Skipping installation of ${x.listKey} because the application is in an Applications folder`)
-        return !appCheck
-      } else {
-        return true
-      }
-    })
-    .filter(x => {
-      // Filter out packages that already have a bin in the PATH
-      const binField = getPkgData('_bin', x, x.installType)
-      const isArray = Array.isArray(x[binField])
-      if (typeof x[binField] === 'string' || isArray) {
-        isArray && log(`_bin field for ${x.listKey} is an array so the first entry will be used to check`)
-        const whichCheck = which.sync(typeof x[binField] === 'string' ? x[binField] : x[binField][0], { nothrow: true })
-        whichCheck && log(`Skipping installation of ${x.listKey} because its binary is available in the PATH`)
-        return !whichCheck
-      } else {
-        log(`Ignoring _bin check because the _bin field for ${x.listKey} is not a string or array`)
-        return true
-      }
-    })
-    .filter(x => {
-      // Filter out packages that do not pass _when check
-      const whenField = getPkgData('_when', x, x.installType)
-      if (x[whenField]) {
-        if (typeof x[whenField] === 'string') {
-          try {
-            runSilentCommand(`${x[whenField]}`)
-            return true
-          } catch (e) {
-            return false
-          }
-        } else {
-          log(`typeof _when for ${x.listKey} must be a string`)
-          return true
-        }
-      } else {
-        return true
-      }
-    })
+  if (customArgv.check) {
+    const selected = desiredInstructions.map(x => x.listKey).sort()
+    const missing = installInstructions.map(x => x.listKey).sort()
+    const unsupported = installInstructions
+      .filter(x => !IMPLEMENTED_PROVIDER_TYPES.has(x.installType) || hasMutableGoReference(x))
+      .map(x => x.listKey)
+      .sort()
+    if (unsupported.length) {
+      process.stdout.write(`${JSON.stringify({ schemaVersion: 1, status: 'unsupported', selected, missing, unsupported })}\n`)
+      process.exitCode = 21
+      return
+    }
+    const status = missing.length ? 'mutation-needed' : 'converged'
+    process.stdout.write(`${JSON.stringify({ schemaVersion: 1, status, selected, missing })}\n`)
+    process.exitCode = missing.length ? 10 : 0
+    return
+  }
+  const unsupportedScripts = installInstructions.filter(x => x.installType === 'script').map(x => x.listKey).sort()
+  if (unsupportedScripts.length) {
+    throw new Error(`catalog script providers are unsupported; migrate to a package manager or immutable artifact descriptor: ${unsupportedScripts.join(',')}`)
+  }
+  const unsupportedAppimages = installInstructions.filter(x => x.installType === 'appimage').map(x => x.listKey).sort()
+  if (unsupportedAppimages.length) {
+    throw new Error(`catalog appimage providers require a typed immutable artifact descriptor: ${unsupportedAppimages.join(',')}`)
+  }
+  const mutableGoProviders = installInstructions.filter(hasMutableGoReference).map(x => x.listKey).sort()
+  if (mutableGoProviders.length) {
+    throw new Error(`catalog go providers require an exact semantic or pseudo-version: ${mutableGoProviders.join(',')}`)
+  }
+  const unverifiedBinaries = installInstructions.filter(x => x.installType === 'binary').map(x => x.listKey).sort()
+  if (unverifiedBinaries.length) {
+    throw new Error(`catalog binary providers require a typed immutable artifact descriptor: ${unverifiedBinaries.join(',')}`)
+  }
   log(`Running installation routine`)
   await installPackages(installInstructions)
   log(`Installation process complete!`)
 }
 
-main()
+main().catch(error => {
+  if (customArgv.check) {
+    process.stdout.write(`${JSON.stringify({ schemaVersion: 1, status: 'error', selected: [], missing: [], error: 'inspection-failed' })}\n`)
+    process.exitCode = 20
+    return
+  }
+  throw error
+})

@@ -5,9 +5,10 @@
 # total of assertions, and exits non-zero if ANY runnable suite fails. Orchestrates; never replaces the
 # standalone suites. Passes CONTROL_PLANE_URL through (prod-gated suites skip their live asserts if unset).
 #
-# OS-gating: a few legacy suites are platform-specific (test-linux.sh = Linux-only, test-macos.sh =
-# macOS-only). On a non-matching host they are SKIPPED WITH A REASON (never silently passed, never
-# failed) so the aggregator is honest on any box.
+# Platform orchestration harnesses (`test-linux.sh` and `test-macos.sh`) are not
+# zero-argument assertion suites. They are skipped with an explicit reason and
+# run only from tuple-bound workflows; auto-invoking them here either fails for
+# missing arguments or mutates a host through a live entrypoint.
 #
 # Usage:   bash scripts/test-all.sh            # run all runnable suites
 #          CONTROL_PLANE_URL=https://app.install.doctor bash scripts/test-all.sh   # + live prod asserts
@@ -24,8 +25,7 @@ skp() { c 214 "SKIP $*"; }
 # needs_os <suite-basename> -> prints the required OS token, or empty if the suite runs everywhere.
 needs_os() {
   case "$1" in
-  test-linux.sh) echo Linux ;;
-  test-macos.sh) echo Darwin ;;
+  test-linux.sh|test-macos.sh) echo harness ;;
   *) echo "" ;;
   esac
 }
@@ -41,6 +41,11 @@ for t in "$DIR"/test-*.sh "$DIR"/validate-software-yml.sh; do
   [ "$b" = "test-all.sh" ] && continue
   [ -f "$t" ] || continue
   req="$(needs_os "$b")"
+  if [ "$req" = harness ]; then
+    skp "$b (platform orchestration harness; invoked only by its tuple-bound workflow)"
+    SKIPPED=$((SKIPPED + 1))
+    continue
+  fi
   if [ -n "$req" ] && [ "$req" != "$HOST" ]; then
     skp "$b (requires $req; host is $HOST)"
     SKIPPED=$((SKIPPED + 1))

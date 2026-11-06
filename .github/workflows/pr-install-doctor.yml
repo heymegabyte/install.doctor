@@ -19,7 +19,7 @@ jobs:
     timeout-minutes: 20
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Show runner info
         run: |
@@ -30,6 +30,10 @@ jobs:
         shell: bash
         env:
           CI: true
+          TEST_INSTALL: true
+          HEADLESS_INSTALL: true
+          NO_RESTART: true
+          SOFTWARE_GROUP: Basic
         run: |
-          echo "Running install.doctor installer"
-          bash <(curl -sSL https://install.doctor/start)
+          echo "Running checked-out install.doctor installer"
+          bash scripts/provision.sh

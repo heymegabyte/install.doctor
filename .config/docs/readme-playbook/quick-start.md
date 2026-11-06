@@ -13,16 +13,12 @@ bash start.sh && task ansible:test:vagrant
 ### macOS/Linux
 
 ```shell
-curl -sSL https://install.doctor/quickstart > ./setup.sh && bash ./setup.sh
+curl -fsSL https://app.install.doctor/start | bash
 ```
 
 ### Windows
 
-In an administrative PowerShell session, run:
-
-```powershell
-iex ((New-Object System.Net.WebClient).DownloadString('https://install.doctor/windows-quickstart'))
-```
+Native Windows provisioning remains unsupported until the separately signed PowerShell release path has current lifecycle evidence. Use the signed Unix stage zero inside WSL on a supported Linux distribution.
 
 ### Qubes
 
@@ -31,5 +27,5 @@ Our playbooks include a specially crafted playbook for Qubes. It will load your 
 To setup Qubes, run the following on a fresh install in dom0:
 
 ```shell
-qvm-run --pass-io sys-firewall "curl -sSL https://install.doctor/qubes" > ./setup.sh && bash ./setup.sh
+curl -fsSL https://app.install.doctor/start | bash
 ```

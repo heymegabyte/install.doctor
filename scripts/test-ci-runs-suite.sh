@@ -5,9 +5,8 @@
 # other ~48 gates (chezmoiscript-render · system-files · served-entrypoints · site-deploy-workflow · update-cron
 # · the security/catalog/secret-hygiene gates …) NEVER ran on a push/PR — they protected only LOCAL loop fires.
 # This locks that BOTH CI test workflows actually INVOKE the full auto-discovering harness (sibling parity —
-# #353's lesson: never wire one + miss the sibling). Report-only in CI for now (audit-arc ladder: a new
-# CI-env-dependent gate runs report-only first; promote-to-blocking after a confirmed-green CI run is BACKLOGGED),
-# so this asserts the INVOCATION exists in each workflow, not that CI blocks on it. Pure file assertions, no network.
+# #353's lesson: never wire one + miss the sibling). The suite is blocking: warning-only execution creates false
+# confidence and lets a broken checked-out installer merge while mutable production remains healthy.
 set -uo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 HARNESS="$ROOT/scripts/test-all.sh"
@@ -18,6 +17,7 @@ fail() { command -v gum >/dev/null 2>&1 && gum style --foreground 196 -- "FAIL $
 P=0
 F=0
 inv() { grep -qE 'bash[[:space:]]+scripts/test-all\.sh' "$1" 2> /dev/null; }
+blocking() { ! grep -E 'scripts/test-all\.sh.*(\|\||continue-on-error)' "$1" >/dev/null 2>&1; }
 
 say "CI runs the full test suite (both OS workflows)"
 
@@ -38,7 +38,22 @@ for wf in test-linux test-macos; do
   else
     fail "$wf.yml does NOT invoke scripts/test-all.sh — ~48 gates never run on a push/PR there (regressions invisible to CI)"
   fi
+  if [ -f "$f" ] && blocking "$f"; then
+    pass "$wf.yml treats full-suite failures as blocking"
+  else
+    fail "$wf.yml swallows test-all.sh failures — installer regressions can merge green"
+  fi
 done
+
+# PR validation must exercise the checked-out revision. Production /start is covered separately by production
+# smoke checks; using it here means the PR can pass without executing any code from the PR.
+pr="$ROOT/.github/workflows/pr-install-doctor.yml"
+if grep -q 'actions/checkout@' "$pr" && grep -q 'bash scripts/provision.sh' "$pr" \
+  && ! grep -q 'curl .*install\.doctor/start' "$pr"; then
+  pass "PR installer workflow executes the checked-out scripts/provision.sh"
+else
+  fail "PR installer workflow must execute the checked-out revision, not mutable production /start"
+fi
 
 say "ci-runs-suite: $P passed, $F failed"
 [ "$F" -eq 0 ]

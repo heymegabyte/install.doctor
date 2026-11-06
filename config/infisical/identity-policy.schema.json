@@ -32,11 +32,17 @@
               "claims": {
                 "type": "object",
                 "additionalProperties": false,
-                "required": ["repository", "ref", "environment"],
+                "required": ["repository", "repository_id", "repository_owner_id", "ref", "environment", "workflow_ref", "aud", "sub"],
                 "properties": {
                   "repository": { "$ref": "#/$defs/exactString" },
+                  "repository_id": { "type": "string", "pattern": "^[1-9][0-9]*$" },
+                  "repository_owner_id": { "type": "string", "pattern": "^[1-9][0-9]*$" },
                   "ref": { "$ref": "#/$defs/exactString" },
-                  "environment": { "$ref": "#/$defs/exactString" }
+                  "environment": { "$ref": "#/$defs/exactString" },
+                  "workflow_ref": { "type": "string", "pattern": "^heymegabyte/install\\.doctor/\\.github/workflows/[a-z0-9._-]+\\.yml@refs/heads/master$" },
+                  "event_name": { "enum": ["workflow_dispatch", "schedule"] },
+                  "aud": { "const": "https://github.com/heymegabyte" },
+                  "sub": { "type": "string", "pattern": "^repo:heymegabyte/install\\.doctor:environment:[a-z0-9._-]+$" }
                 }
               },
               "accessTokenTtlSeconds": { "$ref": "#/$defs/positiveInteger" },

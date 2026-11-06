@@ -50,16 +50,14 @@ export const SolutionWindows = () => {
               Provision Windows.
             </Heading>
             <Paragraph>
-              Interactively provision Windows with a feature-packed terminal, slick theme, and a configurable list of
-              software.
+              Native Windows provisioning remains experimental until the PowerShell entrypoint passes the signed-release
+              and clean-host acceptance matrix. Use WSL2 only where its Linux support cell is explicitly verified.
             </Paragraph>
           </div>
           <div class="code-panel">
             <code-snippet
               language="shell-session"
-              code={`
-iex ((New-Object System.Net.WebClient).DownloadString('https://install.doctor/windows'))
-`}
+              code={`# No release-verified native Windows installer is currently published.`}
             />
           </div>
         </article>

@@ -55,50 +55,11 @@ set -Eeo pipefail
 trap "gum log -sl error 'Script encountered an error!'" ERR
 
 SSL_CERT_PATH="/etc/ssl/cert.pem"
-### Install CloudFlare WARP (on non-WSL *nix systems)
-if [[ ! "$(test -d /proc && grep Microsoft /proc/version > /dev/null)" ]]; then
-  if [ -d /System ] && [ -d /Applications ]; then
-    ### Install on macOS
-    if [ ! -d "/Applications/Cloudflare WARP.app" ]; then
-      brew install --cask --quiet cloudflare-warp
-    else
-      gum log -sl info 'Cloudflare WARP already installed'
-    fi
-  elif [ -n "$(uname -a | grep Debian)" ]; then
-    ### Add CloudFlare WARP desktop app apt-get source
-    if [ ! -f /etc/apt/sources.list.d/cloudflare-client.list ]; then
-      gum log -sl info 'Adding CloudFlare WARP keyring'
-      curl https://pkg.cloudflareclient.com/pubkey.gpg | sudo gpg --yes --dearmor --output /usr/share/keyrings/cloudflare-warp-archive-keyring.gpg
-      gum log -sl info 'Adding apt source reference'
-      echo "deb [arch=amd64 signed-by=/usr/share/keyrings/cloudflare-warp-archive-keyring.gpg] https://pkg.cloudflareclient.com/ $(lsb_release -cs) main" | sudo tee /etc/apt/sources.list.d/cloudflare-client.list
-    fi
-
-    ### Update apt-get and install the CloudFlare WARP CLI
-    sudo apt-get update && sudo apt-get install -y cloudflare-warp
-  elif [ -n "$(uname -a | grep Ubuntu)" ]; then
-    ### Add CloudFlare WARP desktop app apt-get source
-    if [ ! -f /etc/apt/sources.list.d/cloudflare-client.list ]; then
-      gum log -sl info 'Adding CloudFlare WARP keyring'
-      curl https://pkg.cloudflareclient.com/pubkey.gpg | sudo gpg --yes --dearmor --output /usr/share/keyrings/cloudflare-warp-archive-keyring.gpg
-      gum log -sl info 'Adding apt source reference'
-      echo "deb [arch=amd64 signed-by=/usr/share/keyrings/cloudflare-warp-archive-keyring.gpg] https://pkg.cloudflareclient.com/ $(lsb_release -cs) main" | sudo tee /etc/apt/sources.list.d/cloudflare-client.list
-    fi
-
-    ### Update apt-get and install the CloudFlare WARP CLI
-    sudo apt-get update && sudo apt-get install -y cloudflare-warp
-  elif command -v dnf > /dev/null && command -v rpm > /dev/null; then
-    ### This is made for CentOS 8 and works on Fedora 36 (hopefully 36+ as well) with `nss-tools` as a dependency
-    sudo dnf install -y nss-tools || NSS_TOOL_EXIT=$?
-    if [ -n "${NSS_TOOL_EXIT:-}" ]; then
-      gum log -sl warn 'Unable to install nss-tools which was a requirement on Fedora 36 and assumed to be one on other systems as well.'
-    fi
-
-    ### According to the download site, this is the only version available for RedHat-based systems
-    sudo rpm -ivh https://pkg.cloudflareclient.com/cloudflare-release-el8.rpm || RPM_EXIT_CODE=$?
-    if [ -n "${RPM_EXIT_CODE:-}" ]; then
-      gum log -sl error 'Unable to install CloudFlare WARP using RedHat 8 RPM package'
-    fi
-  fi
+### Installation belongs to selected desired state; this hook configures only
+### an already admitted WARP client and never adds package trust on its own.
+if ! command -v warp-cli >/dev/null 2>&1 && [ ! -d "/Applications/Cloudflare WARP.app" ]; then
+  gum log -sl warn 'Cloudflare WARP is absent; select it through Install Doctor desired state'
+  exit 20
 fi
 
 ### Ensure certificate is installed

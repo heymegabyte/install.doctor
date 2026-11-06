@@ -34,7 +34,7 @@ cat > "$TMP/bin/awk" <<'EOF'
 printf '%s\n' "${TEST_MEM_KIB:-8388608}"
 EOF
 chmod +x "$TMP/bin/uname" "$TMP/bin/awk"
-INSTALL_DOCTOR_MEM_TOTAL_KIB=8388608 HOME="$TMP/home" PATH="$TMP/bin:$PATH" bash "$HOOK" >"$TMP/low.log" 2>&1
+INSTALL_DOCTOR_KASMVNC=1 INSTALL_DOCTOR_MEM_TOTAL_KIB=8388608 HOME="$TMP/home" PATH="$TMP/bin:$PATH" bash "$HOOK" >"$TMP/low.log" 2>&1
 [ "$?" -eq 0 ] && grep -qi '16 GiB' "$TMP/low.log" && pass 'below-threshold host skips cleanly' || fail 'low-memory skip'
 INSTALL_DOCTOR_KASMVNC=0 HOME="$TMP/home" PATH="$TMP/bin:$PATH" bash "$HOOK" >"$TMP/off.log" 2>&1
 [ "$?" -eq 0 ] && pass 'explicit opt-out skips cleanly' || fail 'opt-out skip'

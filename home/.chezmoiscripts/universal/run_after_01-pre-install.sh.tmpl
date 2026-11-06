@@ -224,15 +224,9 @@ configureNetworkManagerVPNProfiles() {
 
     RESTART_NM=false
 
-    ### Ensure `NetworkManager` plugins are
-    if command -v apt-get > /dev/null; then
-      sudo apt-get install -y network-manager* openvpn
-    elif command -v dnf > /dev/null; then
-      sudo dnf install -y openvpn NetworkManager*
-    elif command -v pacman > /dev/null; then
-      sudo pacman -Syu --noconfirm openvpn networkmanager*
-    else
-      gum log -sl warn 'Unknown package manager - install OpenVPN / WireGuard / NetworkManager plugins individually'
+    if ! command -v nmcli >/dev/null 2>&1; then
+      gum log -sl warn 'NetworkManager is not selected; skipping VPN profile configuration'
+      return 0
     fi
 
     ### Ensures `nmcli` (the CLI for NetworkManager) is available in the `PATH`
@@ -271,13 +265,6 @@ configureNetworkManagerVPNProfiles() {
       ### Setup WireGuard profiles
       if [ -d /etc/NetworkManager/system-connections ]; then
         find "${XDG_CONFIG_HOME:-$HOME/.config}/vpn" -type f -name "*.conf" | while read WG_FILE; do
-          ### Ensure the WireGuard NetworkManager plugin is available
-          if ! command -v network-manager-wireguard > /dev/null; then
-            gum log -sl info 'The nm-wireguard-service is not present'
-            gum log -sl info 'Installing the nm-wireguard-service'
-            sudo apt-get install -y network-manager-wireguard
-          fi
-
           TMP_CONF="$(mktemp -d)"
 
           ### Add the WireGuard profiles
@@ -471,11 +458,10 @@ ensureQtStyleOverride() {
   fi
 }
 
-# @description Run `gem update --system` if `gem` is available
+# @description Observe RubyGems without mutating the system runtime.
 ensureSystemGemUpdated() {
-  ### Ensure gem is updated
   if command -v gem > /dev/null; then
-    gum log -sl info 'Ensuring system gem is updated' && gem update --system > /dev/null
+    gum log -sl info 'RubyGems is present; version changes remain selected desired state'
   else
     gum log -sl info 'Could not find gem in PATH so skipping gem system update'
   fi
@@ -501,15 +487,14 @@ ensureZshShell() {
 #     to automatically install a configurable list of GNOME extensions as well as apply your preferred settings.
 gnomeExtensionSettings() {
   if command -v gnome-shell > /dev/null; then
-    ### Ensure /tmp/install-gnome-extensions.txt is not present on the system
-    if [ -f /tmp/install-gnome-extensions.txt ]; then
-      rm -f /tmp/install-gnome-extensions.txt
-    fi
+    GNOME_EXTENSION_PLAN="$(mktemp "${TMPDIR:-/tmp}/install-doctor-gnome-extensions.XXXXXX")" || return 1
+    chmod 600 "$GNOME_EXTENSION_PLAN"
 
     ### Ensure yq installed
     if ! command -v yq > /dev/null; then
-      gum log -sl info 'Installing yq'
-      brew install yq
+      gum log -sl warn 'Cannot plan GNOME extensions because selected desired state has not provided yq'
+      rm -f "$GNOME_EXTENSION_PLAN"
+      return 0
     fi
 
     ### Register temporary file for gnome.yml JSON
@@ -518,22 +503,22 @@ gnomeExtensionSettings() {
       cat "${XDG_CONFIG_HOME:-$HOME/.config}/desktop/gnome.yml" | yq e -o=j '.' > "$TMP_YQ"
     fi
 
-    ### Populate /tmp/install-gnome-extensions.txt with GNOME extensions that need to be installed
+    ### Populate the private extension plan with GNOME extensions that need to be installed
     if [ -f "${XDG_CONFIG_HOME:-$HOME/.config}/desktop/gnome.yml" ]; then
       cat "$TMP_YQ" | jq -c '.default_gnome_extensions[] | tojson' | while read EXT; do
         TMP="$(mktemp)"
         echo "$EXT" | sed 's/^.\(.*\).$/\1/' > "$TMP"
         EXT_URL="$(cat "$TMP" | jq -r '.url')"
         EXT_ID="$(cat "$TMP" | jq -r '.regex')"
-        echo "$EXT_URL" >> /tmp/install-gnome-extensions.txt
+        echo "$EXT_URL" >> "$GNOME_EXTENSION_PLAN"
         if [ ! -d "${XDG_DATA_HOME:-$HOME/.local/share}/gnome-shell/extensions" ]; then
           mkdir -p "${XDG_DATA_HOME:-$HOME/.local/share}/gnome-shell/extensions"
         fi
         find "${XDG_DATA_HOME:-$HOME/.local/share}/gnome-shell/extensions" -mindepth 1 -maxdepth 1 -type d | while read EXT_FOLDER; do
-          if [[ "$EXT_FOLDER" == *"$EXT_ID"* ]] && [ -f /tmp/install-gnome-extensions.txt ]; then
+          if [[ "$EXT_FOLDER" == *"$EXT_ID"* ]] && [ -f "$GNOME_EXTENSION_PLAN" ]; then
             TMP_EXT="$(mktemp)"
-            head -n -1 /tmp/install-gnome-extensions.txt > "$TMP_EXT"
-            mv -f "$TMP_EXT" /tmp/install-gnome-extensions.txt > /dev/null
+            head -n -1 "$GNOME_EXTENSION_PLAN" > "$TMP_EXT"
+            mv -f "$TMP_EXT" "$GNOME_EXTENSION_PLAN" > /dev/null
           fi
         done
       done
@@ -541,27 +526,42 @@ gnomeExtensionSettings() {
       gum log -sl warn 'The ~/.config/desktop/gnome.yml file is missing so GNOME extension install orders cannot be calculated'
     fi
 
-    ### Remove /tmp/install-gnome-extensions.txt if it is empty
-    if [ "$(cat /tmp/install-gnome-extensions.txt)" == "" ]; then
-      rm -f /tmp/install-gnome-extensions.txt > /dev/null
+    if [ ! -s "$GNOME_EXTENSION_PLAN" ]; then
+      rm -f "$GNOME_EXTENSION_PLAN" > /dev/null
     fi
 
     ### Install the GNOME extensions using the `install-gnome-extensions` script
     if command -v install-gnome-extensions > /dev/null; then
-      if [ -f /tmp/install-gnome-extensions.txt ]; then
+      if [ -f "$GNOME_EXTENSION_PLAN" ]; then
         gum log -sl info 'Running the install-gnome-extensions script'
         cd /tmp
-        install-gnome-extensions --enable --overwrite --file /tmp/install-gnome-extensions.txt
-        rm -f /tmp/install-gnome-extensions.txt
+        install-gnome-extensions --enable --overwrite --file "$GNOME_EXTENSION_PLAN"
+        rm -f "$GNOME_EXTENSION_PLAN"
         gum log -sl info 'Finished installing the GNOME extensions'
       else
         gum log -sl info 'No new GNOME extensions to install'
       fi
     else
       gum log -sl warn 'Cannot install GNOME extensions because the install-gnome-extensions script is missing from ~/.local/bin'
+      rm -f "$GNOME_EXTENSION_PLAN"
     fi
 
-    ### Apply plugin gsettings
+    applyDconfSetting() {
+      local setting="$1" remainder key value
+      case "$setting" in
+        'dconf write '*) remainder="${setting#dconf write }" ;;
+        *) gum log -sl error 'Unsupported GNOME setting operation; only typed dconf write entries are allowed'; return 2 ;;
+      esac
+      key="${remainder%% *}"
+      value="${remainder#* }"
+      if ! printf '%s\n' "$key" | grep -Eq '^/org/gnome/[A-Za-z0-9_./@+-]+$' || [ "$value" = "$remainder" ] || [ -z "$value" ]; then
+        gum log -sl error 'Invalid GNOME dconf key/value declaration'
+        return 2
+      fi
+      dconf write "$key" "$value"
+    }
+
+    ### Apply typed plugin gsettings without evaluating catalog text as shell.
     if [ -f "${XDG_CONFIG_HOME:-$HOME/.config}/desktop/gnome.yml" ]; then
       cat "$TMP_YQ" | jq -c '.default_gnome_extensions[] | tojson' | while read EXT; do
         if [ "$DEBUG_MODE" == 'true' ]; then
@@ -584,12 +584,12 @@ gnomeExtensionSettings() {
             cat "$TMP" | jq -r '.settings[]' | while read EXT_SETTING; do
               gum log -sl info 'Applying following extension setting:'
               echo "$EXT_SETTING"
-              eval "$EXT_SETTING"
+              applyDconfSetting "$EXT_SETTING"
             done
           else
             gum log -sl info 'Applying following extension setting:'
             echo "$EXT_SETTINGS"
-            eval "$EXT_SETTINGS"
+            applyDconfSetting "$EXT_SETTINGS"
           fi
           gum log -sl info 'Applied gsettings configuration for the '"$EXT_ID"' GNOME extension'
         fi
@@ -606,31 +606,11 @@ gnomeExtensionSettings() {
 #     The Docker Rclone installation ensures necessary system directories are initialized / created. It also copies the [Docker Rclone configuration](https://github.com/heymegabyte/install.doctor/blob/master/home/dot_config/rclone/private_docker-rclone.conf.tmpl)
 #     to the proper system location.
 installDockerRclonePlugin() {
-  ### Docker Rclone plugin
-  # Source: https://rclone.org/docker/
-  # First, ensure Docker Rclone configuration exists (which only happens when the Chezmoi Age decryption key is present as well as keys for Rclone)
-  if [ -f "${XDG_CONFIG_HOME:-$HOME/.config}/rclone/docker-rclone.conf" ]; then
-    ### Ensure Docker Rclone plugin system folders exist
-    gum log -sl info 'Ensure Docker Rclone plugin system folders exist'
-    gum log -sl info 'Ensuring directory /var/lib/docker-plugins/rclone/config is created' && sudo mkdir -p /var/lib/docker-plugins/rclone/config
-    gum log -sl info 'Ensuring directory /var/lib/docker-plugins/rclone/cache is created' && sudo mkdir -p /var/lib/docker-plugins/rclone/cache
-
-    ### Copy Rclone configuration
-    gum log -sl info "Copy the Rclone configuration from ${XDG_CONFIG_HOME:-$HOME/.config}/rclone/docker-rclone.conf to /var/lib/docker-plugins/rclone/config/rclone.conf"
-    sudo cp -f "${XDG_CONFIG_HOME:-$HOME/.config}/rclone/docker-rclone.conf" /var/lib/docker-plugins/rclone/config/rclone.conf
-
-    ### Install the Rclone Docker plugin (if not already installed)
-    if ! sudo su -c 'docker plugin ls' - "$USER" | grep 'rclone:latest' > /dev/null; then
-      sudo su -c 'docker plugin install rclone/docker-volume-rclone:amd64 args="-v" --alias rclone --grant-all-permissions' - "$USER"
-    fi
-  fi
-}
-
-installLocalBinPackageJson() {
-  if [ -f "$HOME/.local/bin/package.json" ]; then
-    gum log -sl info 'Installing NPM packages in ~/.local/bin/package.json'
-    cd "$HOME/.local/bin" && npm i --force
-    gum log -sl info 'Installed NPM packages in ~/.local/bin'
+  if [ -f "${XDG_CONFIG_HOME:-$HOME/.config}/rclone/docker-rclone.conf" ] \
+    && command -v docker >/dev/null 2>&1 \
+    && ! docker plugin ls --format '{{ "{{" }}.Name{{ "}}" }}' 2>/dev/null | grep -q '^rclone:'; then
+    gum log -sl warn 'Rclone Docker plugin is selected by configuration but absent; admit a digest-pinned plugin through desired state'
+    return 20
   fi
 }
 
@@ -754,63 +734,70 @@ sshPermissions() {
   find "${HOME}/.ssh" -type f -exec chmod 600 {} \;
 }
 
+waitForPids() {
+  local STATUS=0 PID
+  for PID in "$@"; do
+    wait "$PID" || STATUS=1
+  done
+  return "$STATUS"
+}
+
 if [ -n "$DEBUG" ] || [ -n "$DEBUG_MODE" ]; then
   gum log -sl info 'The DEBUG or DEBUG_MODE environment variable is set so the post-dotfile-application routine tasks will be run synchronously'
-  addZshEnv
-  applyFontsToSystem
-  applyLinuxConfSettings
-  applyLinuxThemeFiles
-  applyRootConfig
-  applyWallpaper
-  configureNetworkManagerVPNProfiles
-  configureSSHD
-  configureCloudflareFirewall
-  dconfSettings
-  ensureSSHKey
-  ensureQtStyleOverride
-  ensureSystemGemUpdated
-  ensureZshShell
-  gnomeExtensionSettings
-  installDockerRclonePlugin
-  installLocalBinPackageJson
-  installTerminalTheme
-  loadCronjobs
-  macOSSettings
-  symlinkAnsibleRoles
-  symlinkPython
-  userLogFolders
-  applyBasePlists
-  sshPermissions
+  addZshEnv || exit 1
+  applyFontsToSystem || exit 1
+  applyLinuxConfSettings || exit 1
+  applyLinuxThemeFiles || exit 1
+  applyRootConfig || exit 1
+  applyWallpaper || exit 1
+  configureNetworkManagerVPNProfiles || exit 1
+  configureSSHD || exit 1
+  configureCloudflareFirewall || exit 1
+  dconfSettings || exit 1
+  ensureSSHKey || exit 1
+  ensureQtStyleOverride || exit 1
+  ensureSystemGemUpdated || exit 1
+  ensureZshShell || exit 1
+  gnomeExtensionSettings || exit 1
+  installDockerRclonePlugin || exit 1
+  installTerminalTheme || exit 1
+  loadCronjobs || exit 1
+  macOSSettings || exit 1
+  symlinkAnsibleRoles || exit 1
+  symlinkPython || exit 1
+  userLogFolders || exit 1
+  applyBasePlists || exit 1
+  sshPermissions || exit 1
 else
-  addZshEnv &
-  applyFontsToSystem &
-  applyLinuxConfSettings &
-  applyLinuxThemeFiles &
-  applyRootConfig &
-  applyWallpaper &
-  configureNetworkManagerVPNProfiles &
-  configureSSHD &
-  configureCloudflareFirewall &
-  dconfSettings &
-  ensureSSHKey &
-  ensureQtStyleOverride &
-  ensureSystemGemUpdated &
-  ensureZshShell &
-  gnomeExtensionSettings &
-  installDockerRclonePlugin &
-  installLocalBinPackageJson &
-  installTerminalTheme &
-  loadCronjobs &
-  macOSSettings &
-  symlinkAnsibleRoles &
-  symlinkPython &
-  userLogFolders &
-  applyBasePlists &
-  sshPermissions &
-  wait
+  POST_APPLY_PIDS=""
+  addZshEnv & POST_APPLY_PIDS="$POST_APPLY_PIDS $!"
+  applyFontsToSystem & POST_APPLY_PIDS="$POST_APPLY_PIDS $!"
+  applyLinuxConfSettings & POST_APPLY_PIDS="$POST_APPLY_PIDS $!"
+  applyLinuxThemeFiles & POST_APPLY_PIDS="$POST_APPLY_PIDS $!"
+  applyRootConfig & POST_APPLY_PIDS="$POST_APPLY_PIDS $!"
+  applyWallpaper & POST_APPLY_PIDS="$POST_APPLY_PIDS $!"
+  configureNetworkManagerVPNProfiles & POST_APPLY_PIDS="$POST_APPLY_PIDS $!"
+  configureSSHD & POST_APPLY_PIDS="$POST_APPLY_PIDS $!"
+  configureCloudflareFirewall & POST_APPLY_PIDS="$POST_APPLY_PIDS $!"
+  dconfSettings & POST_APPLY_PIDS="$POST_APPLY_PIDS $!"
+  ensureSSHKey & POST_APPLY_PIDS="$POST_APPLY_PIDS $!"
+  ensureQtStyleOverride & POST_APPLY_PIDS="$POST_APPLY_PIDS $!"
+  ensureSystemGemUpdated & POST_APPLY_PIDS="$POST_APPLY_PIDS $!"
+  ensureZshShell & POST_APPLY_PIDS="$POST_APPLY_PIDS $!"
+  gnomeExtensionSettings & POST_APPLY_PIDS="$POST_APPLY_PIDS $!"
+  installDockerRclonePlugin & POST_APPLY_PIDS="$POST_APPLY_PIDS $!"
+  installTerminalTheme & POST_APPLY_PIDS="$POST_APPLY_PIDS $!"
+  loadCronjobs & POST_APPLY_PIDS="$POST_APPLY_PIDS $!"
+  macOSSettings & POST_APPLY_PIDS="$POST_APPLY_PIDS $!"
+  symlinkAnsibleRoles & POST_APPLY_PIDS="$POST_APPLY_PIDS $!"
+  symlinkPython & POST_APPLY_PIDS="$POST_APPLY_PIDS $!"
+  userLogFolders & POST_APPLY_PIDS="$POST_APPLY_PIDS $!"
+  applyBasePlists & POST_APPLY_PIDS="$POST_APPLY_PIDS $!"
+  sshPermissions & POST_APPLY_PIDS="$POST_APPLY_PIDS $!"
+  waitForPids $POST_APPLY_PIDS || { gum log -sl error 'One or more post-apply tasks failed'; exit 1; }
 fi
 
-if [ -x "$HOME/.local/bin/post-installx/post-nexus-cache.sh" ]; then
+if [ "${INSTALL_DOCTOR_NEXUS_CACHE:-0}" = "1" ] && [ -x "$HOME/.local/bin/post-installx/post-nexus-cache.sh" ]; then
   gum log -sl info 'Bootstrapping local pass-through proxy and Nexus package cache endpoints prior to software installation'
   bash "$HOME/.local/bin/post-installx/post-nexus-cache.sh" </dev/null || gum log -sl warn 'Pre-install Nexus cache bootstrap returned non-zero (non-fatal)'
 fi

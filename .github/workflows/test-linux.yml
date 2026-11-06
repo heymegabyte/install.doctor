@@ -2,9 +2,7 @@ name: Test Install Doctor on Linux
 
 on:
   push:
-    branches:
-      - main
-      - master
+    branches: [main, master]
     paths-ignore:
       - "site/**"
   pull_request:
@@ -12,223 +10,198 @@ on:
       - "site/**"
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  # ============================================================================
-  # ShellCheck lint — fast, runs first, blocks on new violations only
-  # ============================================================================
-  lint-shell:
-    name: ShellCheck
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
+  structural-contracts:
+    name: Repository structural contracts
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.2.2
+        with:
+          persist-credentials: false
 
       - name: Install ShellCheck
-        run: sudo apt-get update && sudo apt-get install -y shellcheck
-
-      - name: Lint core scripts (blocking)
         run: |
-          shellcheck -x scripts/provision.sh start.sh || {
-            echo "::error::ShellCheck failed on core scripts — fix before merge"
-            exit 1
-          }
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends shellcheck
 
-      - name: Lint all scripts (advisory)
+      - name: Lint core scripts
+        run: shellcheck -x scripts/provision.sh start.sh
+
+      - name: Lint all scripts (advisory inventory)
         continue-on-error: true
         run: |
           find . -name "*.sh" -not -path "*/.git/*" -not -path "*/.claude/worktrees/*" \
             -exec shellcheck -x {} \; 2>&1 | tee shellcheck.log
-          VIOLATIONS=$(grep -c "SC\|warning\|error" shellcheck.log || true)
-          echo "ShellCheck violations (existing): $VIOLATIONS"
-          echo "shellcheck_violations=$VIOLATIONS" >> "$GITHUB_OUTPUT"
+          violations="$(grep -cE 'SC|warning|error' shellcheck.log || true)"
+          printf 'Existing ShellCheck findings: %s\n' "$violations"
+
+      - name: Verify repository structural contracts
+        env:
+          CONTROL_PLANE_URL: https://app.install.doctor
+        run: bash scripts/test-all.sh
 
       - name: Audit deprecated packages
         run: bash scripts/audit-deprecated.sh
 
-      - name: Generate SBOM
+      - name: Generate structural SBOM
         run: |
           bash scripts/generate-sbom.sh --compact > sbom.json
-          echo "SBOM generated: $(wc -c < sbom.json) bytes"
-          echo "Components: $(python3 -c "import json; d=json.load(open('sbom.json')); print(len(d['components']))" 2>/dev/null || echo "N/A")"
+          printf 'SBOM bytes: %s\n' "$(wc -c < sbom.json)"
 
-      - name: Check template drift (provision.sh vs provision.sh.tmpl)
-        run: |
-          if [ -f scripts/src/provision.sh.tmpl ]; then
-            TMPL_LINES=$(wc -l < scripts/src/provision.sh.tmpl | tr -d ' ')
-            LIVE_LINES=$(wc -l < scripts/provision.sh | tr -d ' ')
-            DELTA=$((LIVE_LINES - TMPL_LINES))
-            echo "Template: $TMPL_LINES lines, Live: $LIVE_LINES lines, Delta: $DELTA"
-            if [ "$DELTA" -gt 50 ]; then
-              echo "::warning::Template drift: provision.sh has $DELTA more lines than provision.sh.tmpl (threshold: 50)"
-            elif [ "$DELTA" -lt 0 ]; then
-              echo "::error::Template has MORE lines than live — likely regression"
-              exit 1
-            else
-              echo "Template drift within bounds ($DELTA lines)"
-            fi
-          fi
+      - name: Check bootstrap source authority
+        run: bash scripts/test-bootstrap-source-authority.sh
 
-      - name: Check for source drift
+      - name: Reject generated source drift
         run: |
           if ! git diff --quiet || ! git diff --cached --quiet; then
-            echo "::error::Source drift detected — uncommitted changes in chezmoi source"
+            echo "::error::Structural checks changed tracked source"
             git diff --stat
             exit 1
           fi
-          echo "Source drift: CLEAN"
-  # ============================================================================
-  # Native container tests - fast, no QEMU overhead
-  # Tests the bootstrap script directly in each distro's container
-  # ============================================================================
+
+  # These jobs are definition-level, best-effort smoke evidence only. They do
+  # not exercise the signed /start lifecycle and cannot promote matrix cells to
+  # verified. Full signed lifecycle evidence is owned by the dedicated
+  # bootstrap acceptance and real-host canary workflows.
   test-container:
-    name: "${{ matrix.distro }} (container)"
-    runs-on: ubuntu-latest
+    name: "Structural checks — ${{ matrix.cell }}"
+    runs-on: ubuntu-24.04
     timeout-minutes: 90
     strategy:
       fail-fast: false
       matrix:
         include:
-          - distro: ubuntu-22.04
-            image: ubuntu:22.04
-          - distro: ubuntu-24.04
-            image: ubuntu:24.04
-          - distro: debian-12
-            image: debian:12
-          - distro: fedora-39
-            image: fedora:39
-          - distro: fedora-40
-            image: fedora:40
-          - distro: centos-stream-9
-            image: quay.io/centos/centos:stream9
-          - distro: archlinux
-            image: archlinux:latest
-          - distro: alpine-3.19
-            image: alpine:3.19
-          - distro: opensuse-leap
-            image: opensuse/leap:15.5
-
+          - cell: ubuntu-22-04-x64-container
+            image: ubuntu:22.04@sha256:076e7bf82319619f28dd0aa9c02ab34b055ad37100395b4f49a2ffba04fb5e11
+            osId: ubuntu
+            version: "22.04"
+            architecture: x86_64
+            role: ubuntu
+          - cell: ubuntu-24-04-x64-container
+            image: ubuntu:24.04@sha256:fe81560990fae86dc4743202b2cb4d3df98d0bcf949173cecef15ce1127ef852
+            osId: ubuntu
+            version: "24.04"
+            architecture: x86_64
+            role: ubuntu
+          - cell: debian-12-x64-container
+            image: debian:12@sha256:268fb24c39bca92d326dd83ea3abebe4a3f7751c804ffef23bb6d857dd343ff8
+            osId: debian
+            version: "12"
+            architecture: x86_64
+            role: debian
+          - cell: fedora-44-x64-container
+            image: fedora:44@sha256:15da97ed9aa94dd3d92c3925eb89520f6c80e07ea7ee24cba848d1f8b6912b3e
+            osId: fedora
+            version: "44"
+            architecture: x86_64
+            role: fedora
+          - cell: arch-rolling-x64-container
+            image: archlinux@sha256:b1c2fe6e717bfd5673af8fc217e1e1c3ce0dcbb1d53c3414c8425e7ce79fc6d9
+            osId: arch
+            version: rolling
+            architecture: x86_64
+            role: arch
     container:
       image: ${{ matrix.image }}
 
     steps:
-      - name: Install prerequisites (Debian/Ubuntu)
-        if: contains(matrix.distro, 'ubuntu') || contains(matrix.distro, 'debian')
+      - name: Checkout repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.2.2
+        with:
+          persist-credentials: false
+
+      - name: Assert observed container tuple
+        shell: bash
+        env:
+          EXPECTED_OS_ID: ${{ matrix.osId }}
+          EXPECTED_VERSION: ${{ matrix.version }}
+          EXPECTED_ARCHITECTURE: ${{ matrix.architecture }}
+        run: |
+          set -euo pipefail
+          [ -f /.dockerenv ]
+          [ -r /etc/os-release ]
+          observed_id="$(sed -n 's/^ID=["'"']\{0,1\}\([^"'"']*\)["'"']\{0,1\}$/\1/p' /etc/os-release)"
+          observed_version="$(sed -n 's/^VERSION_ID=["'"']\{0,1\}\([^"'"']*\)["'"']\{0,1\}$/\1/p' /etc/os-release)"
+          observed_architecture="$(uname -m)"
+          if [ "$EXPECTED_VERSION" = rolling ]; then
+            observed_build="$(sed -n 's/^BUILD_ID=["'"']\{0,1\}\([^"'"']*\)["'"']\{0,1\}$/\1/p' /etc/os-release)"
+            [ -n "$observed_build" ]
+            printf 'Observed rolling build: %s\n' "$observed_build"
+            observed_version=rolling
+          fi
+          [ "$observed_id" = "$EXPECTED_OS_ID" ]
+          [ "$observed_version" = "$EXPECTED_VERSION" ]
+          [ "$observed_architecture" = "$EXPECTED_ARCHITECTURE" ]
+          printf 'Observed tuple: %s/%s/%s/container\n' "$observed_id" "$observed_version" "$observed_architecture"
+
+      - name: Install smoke-test prerequisites (apt)
+        if: matrix.osId == 'ubuntu' || matrix.osId == 'debian'
         run: |
           apt-get update
-          apt-get install -y curl bash sudo
+          apt-get install -y --no-install-recommends bash curl jq sudo
 
-      - name: Install prerequisites (Fedora)
-        if: contains(matrix.distro, 'fedora')
-        run: |
-          dnf install -y curl bash sudo
+      - name: Install smoke-test prerequisites (dnf)
+        if: matrix.osId == 'fedora'
+        run: dnf install -y bash curl jq sudo shadow-utils
 
-      - name: Install prerequisites (CentOS)
-        if: contains(matrix.distro, 'centos')
-        run: |
-          dnf install -y curl bash sudo
+      - name: Install smoke-test prerequisites (pacman)
+        if: matrix.osId == 'arch'
+        run: pacman -Sy --noconfirm bash curl jq sudo shadow
 
-      - name: Install prerequisites (Archlinux)
-        if: contains(matrix.distro, 'archlinux')
-        run: |
-          pacman -Sy --noconfirm curl bash sudo
-
-      - name: Install prerequisites (Alpine)
-        if: contains(matrix.distro, 'alpine')
-        run: |
-          apk add --update curl bash sudo shadow
-
-      - name: Install prerequisites (OpenSUSE)
-        if: contains(matrix.distro, 'opensuse')
-        run: |
-          zypper install -y curl bash sudo
-
-      - name: Create non-root user
-        run: |
-          if command -v useradd > /dev/null; then
-            useradd -m -s /bin/bash testuser || true
-          elif command -v adduser > /dev/null; then
-            adduser -D -s /bin/bash testuser || true
-          fi
-          echo "testuser ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
-
-      - name: Validate software.yml schema
-        run: bash scripts/validate-software-yml.sh
-
-      - name: Test template rendering
-        run: bash scripts/test-templates.sh
-
-      - name: Test detect_os library
-        run: |
-          bash scripts/test-detect-os.sh
-
-      - name: Run full test suite at CI parity (report-only — promote to blocking after a green CI run, #354)
+      - name: Assert support-matrix admission
         env:
-          CONTROL_PLANE_URL: https://app.install.doctor
-        run: bash scripts/test-all.sh || echo "::warning::test-all.sh reported failures (report-only; see log). Promote to blocking once CI parity is confirmed green."
-
-      - name: Run Install Doctor bootstrap (headless)
+          EXPECTED_CELL: ${{ matrix.cell }}
+          EXPECTED_ROLE: ${{ matrix.role }}
         run: |
-          su - testuser -c '
-            export CI=true
-            export TEST_INSTALL=true
-            export HEADLESS_INSTALL=true
-            export NO_RESTART=true
-            export SOFTWARE_GROUP=Basic
-            bash <(curl -sSL https://install.doctor/start)
-          '
+          # jq variables are intentionally referenced inside its single-quoted program.
+          # shellcheck disable=SC2016
+          jq -e --arg id "$EXPECTED_CELL" --arg role "$EXPECTED_ROLE" '
+            any(.cells[];
+              .id == $id and
+              .status == "best-effort" and
+              .arch == "x64" and
+              .environment == "container" and
+              .role == $role)
+          ' scripts/platform-support-matrix.json >/dev/null
+
+      - name: Create isolated non-root smoke user
+        run: |
+          if command -v useradd >/dev/null 2>&1; then
+            useradd -m -s /bin/bash testuser
+          else
+            adduser -D -s /bin/bash testuser
+          fi
+          printf 'testuser ALL=(ALL) NOPASSWD:ALL\n' >> /etc/sudoers
+
+      - name: "Best-effort checked-out bootstrap smoke — ${{ matrix.cell }} (not signed lifecycle proof)"
         timeout-minutes: 60
-
-      - name: Verify key tools installed
         run: |
+          install -m 0755 scripts/provision.sh /tmp/install-doctor-provision.sh
           su - testuser -c '
-            echo "=== Verification ==="
-            command -v chezmoi && echo "chezmoi: OK" || echo "chezmoi: MISSING"
-            command -v brew && echo "brew: OK" || echo "brew: MISSING"
-            command -v task && echo "task: OK" || echo "task: MISSING"
-            command -v node && echo "node: OK" || echo "node: MISSING"
-            echo "=== Done ==="
+            set -e
+            export CI=true TEST_INSTALL=true HEADLESS_INSTALL=true NO_RESTART=true SOFTWARE_GROUP=Basic
+            export INSTALL_DOCTOR_CONSENT_PRIVILEGED=true INSTALL_DOCTOR_CONSENT_NETWORK=true
+            export INSTALL_DOCTOR_CONSENT_BEST_EFFORT=true
+            bash /tmp/install-doctor-provision.sh
           '
 
-  # ============================================================================
-  # QEMU VM tests - full OS with systemd, networking, etc.
-  # More realistic but slower than container tests
-  # ============================================================================
-  test-vm:
-    name: "${{ matrix.distro }} (VM)"
-    runs-on: ubuntu-latest
-    timeout-minutes: 120
-    strategy:
-      fail-fast: false
-      matrix:
-        distro: [ubuntu, debian, fedora, centos, arch]
-
-    steps:
-      - name: Checkout Repository
-        uses: actions/checkout@v4
-
-      - name: Install QEMU and Dependencies
+      - name: Verify smoke postconditions
         run: |
-          sudo apt-get update
-          sudo apt-get install -y qemu-kvm libvirt-daemon-system libvirt-clients bridge-utils genisoimage wget netcat-openbsd
-
-      - name: Make Script Executable
-        run: chmod +x scripts/test-linux.sh
-
-      - name: Run ${{ matrix.distro }} VM and Execute Install Doctor
-        run: |
-          scripts/test-linux.sh ${{ matrix.distro }} "bash <(curl -sSL https://install.doctor/start)"
-        timeout-minutes: 90
-
-      - name: Upload Logs
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: vm-logs-${{ matrix.distro }}
-          path: |
-            run-vm.log
-            run-vm-error.log
-          retention-days: 7
+          # Variables intentionally expand in the isolated user's shell.
+          # shellcheck disable=SC2016
+          su - testuser -c '
+            set -e
+            for tool in chezmoi brew task node; do
+              command -v "$tool" >/dev/null
+              printf "%s: present\n" "$tool"
+            done
+          '

@@ -2,14 +2,13 @@
 # Workflow action-pin supply-chain gate (fire #355). A GitHub Action pinned to a MOVING branch ref
 # (`uses: owner/action@main|@master|@latest|…`) auto-pulls whatever that branch holds on the NEXT CI run — a
 # compromised/changed upstream lands new code with the workflow's `secrets.GITHUB_TOKEN` access, no review.
-# Every action MUST be pinned to an immutable TAG or SHA (GitHub's own hardening guidance + the repo's #298
-# chezmoiexternal floating-ref discipline, now applied to ACTION refs). Asserts ZERO moving-branch action refs
-# across .github/workflows/. Non-vacuous (asserts it actually found refs to check). No `\b` (BSD-grep-unsafe —
-# ledger reminder); a trailing boundary-char alternation avoids false-matching a tag like @maintenance. File-only.
+# Every external action MUST be pinned to a full commit SHA. Tags are mutable names and are not a supply-chain
+# boundary. Asserts zero tag/branch refs across .github/workflows/ and remains non-vacuous.
 set -uo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 WFDIR="${WORKFLOW_DIR:-$ROOT/.github/workflows}"
-MOVING='uses:[[:space:]]*[A-Za-z0-9_./-]+@(main|master|latest|develop|trunk|HEAD)($|[^A-Za-z0-9._-])'
+EXTERNAL='uses:[[:space:]]*[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+@'
+FULL_SHA='uses:[[:space:]]*[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+@[0-9a-f]{40}([[:space:]]|$)'
 
 say() { command -v gum >/dev/null 2>&1 && gum style --foreground 51 -- "$*" || printf '\033[1;36m%s\033[0m\n' "$*"; }
 pass() { command -v gum >/dev/null 2>&1 && gum style --foreground 46 -- "PASS $*" || printf '\033[1;32mPASS\033[0m %s\n' "$*"; P=$((P + 1)); }
@@ -17,7 +16,7 @@ fail() { command -v gum >/dev/null 2>&1 && gum style --foreground 196 -- "FAIL $
 P=0
 F=0
 
-say "workflow action-pin supply-chain (no moving @branch refs)"
+say "workflow action-pin supply-chain (full commit SHAs only)"
 
 if [ ! -d "$WFDIR" ]; then
   fail "no .github/workflows dir ($WFDIR)"
@@ -33,12 +32,12 @@ else
   fail "only ${refs:-0} action refs found — grep/dir wrong, the gate would be vacuous"
 fi
 
-# 2. ZERO moving-branch refs — every `uses:` must be an immutable tag/SHA.
-moving="$(grep -rnE "$MOVING" "$WFDIR" 2> /dev/null || true)"
-if [ -z "$moving" ]; then
-  pass "every action is pinned to an immutable tag/SHA — 0 moving-branch (@main/@master/…) refs"
+# 2. Every external action is a full lowercase commit SHA. Local ./ actions are outside this check.
+unpinned="$(grep -rnE "$EXTERNAL" "$WFDIR" 2> /dev/null | grep -vE "$FULL_SHA" || true)"
+if [ -z "$unpinned" ]; then
+  pass "every external action is pinned to a full commit SHA"
 else
-  fail "moving-branch action ref(s) — pin each to a release tag or SHA (supply-chain): $(printf '%s' "$moving" | tr '\n' ';')"
+  fail "tag/branch/short-SHA action ref(s) remain: $(printf '%s' "$unpinned" | tr '\n' ';')"
 fi
 
 say "action-pins: $P passed, $F failed"

@@ -1,0 +1,281 @@
+name: Renew active bootstrap release
+
+on:
+  workflow_dispatch:
+    inputs:
+      renewal_utc_day:
+        description: Canonical UTC renewal day (YYYYMMDD); retries must reuse the same value
+        required: true
+        type: string
+
+permissions: {}
+
+# Share the activation lock: the captured source ETag must remain current through CAS.
+concurrency:
+  group: bootstrap-release-activate
+  cancel-in-progress: false
+
+env:
+  RENEWAL_SIGNER_SCRIPT_SHA256: 51bf7b3b63eddff2a707c91d419357ba6158f0de758eabc4368c76b703bfe659
+
+jobs:
+  assemble:
+    name: Assemble credential-free renewal tools
+    if: github.ref == 'refs/heads/master'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    outputs:
+      signer_id: ${{ steps.identity.outputs.signer_id }}
+      created_at: ${{ steps.identity.outputs.created_at }}
+      expires_at: ${{ steps.identity.outputs.expires_at }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 24.22.2
+          cache: npm
+          cache-dependency-path: packages/control-plane/package-lock.json
+      - id: identity
+        name: Validate deterministic renewal identity inputs
+        env:
+          TARGET_DAY: ${{ inputs.renewal_utc_day }}
+          SIGNER_ID: ${{ vars.INSTALL_DOCTOR_RELEASE_SIGNER_ID }}
+        run: |
+          set -euo pipefail
+          [[ "$TARGET_DAY" =~ ^20[0-9]{6}$ ]]
+          case "$SIGNER_ID" in ''|[!a-z0-9]*|*[!a-z0-9._-]*) exit 64;; esac
+          test "${#SIGNER_ID}" -le 128
+          created_at="$(date -u -d "${TARGET_DAY:0:4}-${TARGET_DAY:4:2}-${TARGET_DAY:6:2}T00:00:00Z" +%s)"
+          test "$(date -u -d "@$created_at" +%Y%m%d)" = "$TARGET_DAY"
+          now="$(date -u +%s)"
+          test "$now" -ge "$created_at" && test "$now" -lt "$((created_at + 86400))"
+          printf 'signer_id=%s\ncreated_at=%s\nexpires_at=%s\n' "$SIGNER_ID" "$created_at" "$((created_at + 604800))" >>"$GITHUB_OUTPUT"
+      - name: Assemble and pin renewal verifier
+        env:
+          SIGNER_ID: ${{ steps.identity.outputs.signer_id }}
+        run: |
+          set -euo pipefail
+          umask 077
+          mkdir -p renewal-tools/scripts
+          cp packages/control-plane/package.json packages/control-plane/package-lock.json renewal-tools/
+          cp packages/control-plane/scripts/publish-release-to-r2.mjs \
+             packages/control-plane/scripts/release-publication.mjs \
+             packages/control-plane/scripts/r2-publication-storage.mjs renewal-tools/scripts/
+          cp scripts/sign-bootstrap-renewal.sh renewal-tools/sign-bootstrap-renewal.sh
+          printf '%s  %s\n' "$RENEWAL_SIGNER_SCRIPT_SHA256" renewal-tools/sign-bootstrap-renewal.sh | sha256sum --check --strict
+          npm --prefix renewal-tools ci --omit=dev --ignore-scripts --no-audit --no-fund
+          jq -er --arg id "$SIGNER_ID" '.signers[$id] | select(type == "string")' \
+            packages/control-plane/src/release-trust.json >renewal-tools/release-public-key
+          grep -Eq '^ssh-ed25519 [A-Za-z0-9+/]+={0,3}( [^[:cntrl:]]{1,128})?$' renewal-tools/release-public-key
+          chmod 0600 renewal-tools/release-public-key
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: bootstrap-renewal-tools-${{ github.run_id }}
+          path: renewal-tools
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 1
+
+  prepare:
+    name: Prepare renewal from exact active envelope
+    needs: assemble
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: bootstrap-release-renew-prepare
+    permissions:
+      id-token: write
+    outputs:
+      release_id: ${{ steps.bundle.outputs.release_id }}
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: bootstrap-renewal-tools-${{ github.run_id }}
+          path: renewal-tools
+      - uses: Infisical/secrets-action@d2e351f16c6ca20d17c85e6c992e04bdeb64e87d # v1.0.18
+        name: Resolve read-only release and channel credentials through GitHub OIDC
+        with:
+          method: oidc
+          identity-id: ${{ vars.INFISICAL_BOOTSTRAP_RELEASE_RENEW_PREPARER_ID }}
+          project-slug: ${{ vars.INFISICAL_PROJECT_SLUG }}
+          env-slug: prod
+          secret-path: /ci/bootstrap-release/renew-preparer
+          include-imports: false
+          recursive: false
+      - id: bundle
+        name: Bind deterministic target to the current signed source
+        env:
+          TARGET_DAY: ${{ inputs.renewal_utc_day }}
+          CREATED_AT: ${{ needs.assemble.outputs.created_at }}
+          EXPIRES_AT: ${{ needs.assemble.outputs.expires_at }}
+          INSTALL_DOCTOR_RELEASE_SIGNER_ID: ${{ needs.assemble.outputs.signer_id }}
+          INSTALL_DOCTOR_RELEASE_PUBLIC_KEY: ${{ github.workspace }}/renewal-tools/release-public-key
+        run: |
+          set -euo pipefail
+          set +e
+          freshness="$(node renewal-tools/scripts/publish-release-to-r2.mjs freshness stable 345600)"
+          freshness_status=$?
+          set -e
+          test "$freshness_status" -eq 75
+          test "$(jq -er '.status' <<<"$freshness")" = renewal-required
+          source_digest="$(jq -er '.manifestSha256 | select(test("^[a-f0-9]{64}$"))' <<<"$freshness")"
+          release_id="renew-v1-$TARGET_DAY-${source_digest:0:16}"
+          node renewal-tools/scripts/publish-release-to-r2.mjs renew \
+            "$release_id" stable "$CREATED_AT" "$EXPIRES_AT" renewal-bundle
+          printf 'release_id=%s\n' "$release_id" >>"$GITHUB_OUTPUT"
+          printf 'INSTALL_DOCTOR_RELEASE_R2_ACCESS_KEY_ID=\nINSTALL_DOCTOR_RELEASE_R2_SECRET_ACCESS_KEY=\nINSTALL_DOCTOR_CHANNEL_R2_ACCESS_KEY_ID=\nINSTALL_DOCTOR_CHANNEL_R2_SECRET_ACCESS_KEY=\n' >>"$GITHUB_ENV"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: bootstrap-renewal-bundle-${{ github.run_id }}
+          path: renewal-bundle
+          if-no-files-found: error
+          retention-days: 1
+
+  sign:
+    name: Sign renewal in protected no-checkout boundary
+    needs: [assemble, prepare]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: bootstrap-release-renew-sign
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: bootstrap-renewal-tools-${{ github.run_id }}
+          path: renewal-tools
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: bootstrap-renewal-bundle-${{ github.run_id }}
+          path: renewal-bundle
+      - name: Verify the dedicated signer before secret resolution
+        run: printf '%s  %s\n' "$RENEWAL_SIGNER_SCRIPT_SHA256" renewal-tools/sign-bootstrap-renewal.sh | sha256sum --check --strict
+      - uses: Infisical/secrets-action@d2e351f16c6ca20d17c85e6c992e04bdeb64e87d # v1.0.18
+        with:
+          method: oidc
+          identity-id: ${{ vars.INFISICAL_BOOTSTRAP_RELEASE_RENEW_SIGNER_ID }}
+          project-slug: ${{ vars.INFISICAL_PROJECT_SLUG }}
+          env-slug: prod
+          secret-path: /ci/bootstrap-release/renew-signer
+          secret-name: INSTALL_DOCTOR_RELEASE_SIGNING_KEY
+          include-imports: false
+          recursive: false
+      - name: Sign exact same-payload renewal and erase private material
+        env:
+          SIGNER_ID: ${{ needs.assemble.outputs.signer_id }}
+        run: |
+          set -euo pipefail
+          umask 077
+          key="$(mktemp "$RUNNER_TEMP/bootstrap-renewal-key.XXXXXXXX")"
+          cleanup() { rm -f "$key"; }
+          trap cleanup EXIT HUP INT TERM
+          printf '%s' "$INSTALL_DOCTOR_RELEASE_SIGNING_KEY" >"$key"
+          chmod 0600 "$key"
+          bash renewal-tools/sign-bootstrap-renewal.sh "$SIGNER_ID" "$key" renewal-bundle signed-release renewal-plan.sig
+          cp renewal-bundle/renewal-plan.json renewal-plan.json
+          rm -f "$key"
+          trap - EXIT HUP INT TERM
+          printf 'INSTALL_DOCTOR_RELEASE_SIGNING_KEY=\n' >>"$GITHUB_ENV"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: bootstrap-renewal-signed-${{ github.run_id }}
+          path: |
+            signed-release
+            renewal-plan.json
+            renewal-plan.sig
+          if-no-files-found: error
+          retention-days: 1
+
+  publish:
+    name: Publish immutable renewed release
+    needs: [assemble, prepare, sign]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: bootstrap-release-renew-publish
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: bootstrap-renewal-tools-${{ github.run_id }}
+          path: renewal-tools
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: bootstrap-renewal-signed-${{ github.run_id }}
+          path: renewal-output
+      - uses: Infisical/secrets-action@d2e351f16c6ca20d17c85e6c992e04bdeb64e87d # v1.0.18
+        with:
+          method: oidc
+          identity-id: ${{ vars.INFISICAL_BOOTSTRAP_RELEASE_RENEW_PUBLISHER_ID }}
+          project-slug: ${{ vars.INFISICAL_PROJECT_SLUG }}
+          env-slug: prod
+          secret-path: /ci/bootstrap-release/renew-publisher
+          include-imports: false
+          recursive: false
+      - name: Create and read back renewed immutable objects
+        env:
+          INSTALL_DOCTOR_RELEASE_SIGNER_ID: ${{ needs.assemble.outputs.signer_id }}
+          INSTALL_DOCTOR_RELEASE_PUBLIC_KEY: ${{ github.workspace }}/renewal-tools/release-public-key
+        run: node renewal-tools/scripts/publish-release-to-r2.mjs publish renewal-output/signed-release "${{ needs.prepare.outputs.release_id }}"
+
+  activate:
+    name: Constrained renewal CAS and public proof
+    needs: [assemble, prepare, publish]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: bootstrap-release-renew-activate
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: bootstrap-renewal-tools-${{ github.run_id }}
+          path: renewal-tools
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: bootstrap-renewal-signed-${{ github.run_id }}
+          path: renewal-output
+      - uses: Infisical/secrets-action@d2e351f16c6ca20d17c85e6c992e04bdeb64e87d # v1.0.18
+        with:
+          method: oidc
+          identity-id: ${{ vars.INFISICAL_BOOTSTRAP_RELEASE_RENEW_ACTIVATOR_ID }}
+          project-slug: ${{ vars.INFISICAL_PROJECT_SLUG }}
+          env-slug: prod
+          secret-path: /ci/bootstrap-release/renew-activator
+          include-imports: false
+          recursive: false
+      - name: Activate only while captured source remains authoritative
+        env:
+          RELEASE_ID: ${{ needs.prepare.outputs.release_id }}
+          INSTALL_DOCTOR_RELEASE_SIGNER_ID: ${{ needs.assemble.outputs.signer_id }}
+          INSTALL_DOCTOR_RELEASE_PUBLIC_KEY: ${{ github.workspace }}/renewal-tools/release-public-key
+        run: |
+          set -euo pipefail
+          plan_digest="$(sha256sum renewal-output/renewal-plan.json | awk '{print $1}')"
+          activation_id="${plan_digest:0:8}-${plan_digest:8:4}-5${plan_digest:13:3}-a${plan_digest:17:3}-${plan_digest:20:12}"
+          activated_at="$(jq -er '.createdAt | todateiso8601' renewal-output/renewal-plan.json)"
+          set +e
+          activation_output="$(node renewal-tools/scripts/publish-release-to-r2.mjs activate-renewal \
+            renewal-output/renewal-plan.json renewal-output/renewal-plan.sig "$activation_id" "$activated_at")"
+          activation_status=$?
+          set -e
+          printf '%s\n' "$activation_output"
+          if [ "$activation_status" -eq 75 ]; then
+            node renewal-tools/scripts/publish-release-to-r2.mjs reconcile stable "$activation_id"
+          elif [ "$activation_status" -ne 0 ]; then
+            exit "$activation_status"
+          fi
+          curl --fail --silent --show-error --proto '=https' --tlsv1.2 --max-time 30 --retry 3 --retry-all-errors --output "$RUNNER_TEMP/start" https://app.install.doctor/start
+          bash -n "$RUNNER_TEMP/start"
+          grep -Fq "https://app.install.doctor/releases/$RELEASE_ID/manifest" "$RUNNER_TEMP/start"
+          curl --fail --silent --show-error --proto '=https' --tlsv1.2 --max-time 30 --retry 3 --retry-all-errors --output "$RUNNER_TEMP/manifest" "https://app.install.doctor/releases/$RELEASE_ID/manifest"
+          curl --fail --silent --show-error --proto '=https' --tlsv1.2 --max-time 30 --retry 3 --retry-all-errors --output "$RUNNER_TEMP/manifest.sig" "https://app.install.doctor/releases/$RELEASE_ID/manifest.sig"
+          expected_manifest_digest="$(sha256sum renewal-output/signed-release/manifest | awk '{print $1}')"
+          test "$(sha256sum "$RUNNER_TEMP/manifest" | awk '{print $1}')" = "$expected_manifest_digest"
+          grep -qx "release_id=$RELEASE_ID" "$RUNNER_TEMP/manifest"
+          printf '%s %s\n' "$INSTALL_DOCTOR_RELEASE_SIGNER_ID" "$(cat "$INSTALL_DOCTOR_RELEASE_PUBLIC_KEY")" >"$RUNNER_TEMP/allowed-signers"
+          ssh-keygen -Y verify -f "$RUNNER_TEMP/allowed-signers" -I "$INSTALL_DOCTOR_RELEASE_SIGNER_ID" -n install.doctor.release -s "$RUNNER_TEMP/manifest.sig" <"$RUNNER_TEMP/manifest"
+          printf 'INSTALL_DOCTOR_RELEASE_R2_ACCESS_KEY_ID=\nINSTALL_DOCTOR_RELEASE_R2_SECRET_ACCESS_KEY=\nINSTALL_DOCTOR_CHANNEL_R2_ACCESS_KEY_ID=\nINSTALL_DOCTOR_CHANNEL_R2_SECRET_ACCESS_KEY=\n' >>"$GITHUB_ENV"

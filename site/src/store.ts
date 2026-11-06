@@ -59,7 +59,7 @@ export const defaults = {
       newsletterButtonText: 'Get Beta Access',
       newsletterButtonSecondaryText: 'Join Community',
       newsletterButtonSecondaryLink: '/community',
-      secondButtonHref: 'https://gitlab.com/megabyte-labs',
+      secondButtonHref: 'https://github.com/heymegabyte/install.doctor',
       secondButtonText: 'Browse Code',
     },
     topSection: {
@@ -1635,31 +1635,6 @@ export const CommunityPageData = {
       link: {
         target: '_blank',
         url: 'https://www.youtube.com/@InstallDoctor',
-      },
-    },
-    {
-      image: {
-        dimensions: {},
-        alt: 'Card with GitLab graphic',
-        copyright: null,
-        url: 'https://install.doctor/assets/img/community/gitlab-graphic.png',
-        '2x': {},
-      },
-      text: [
-        {
-          type: 'heading4',
-          spans: [],
-          text: 'Connect on GitLab',
-        },
-        {
-          type: 'paragraph',
-          spans: [],
-          text: `We deeply value our GitLab family, but we've made the exciting move to GitHub to broaden our reach and enhance community engagement. However, our commitment to our GitLab supporters remains strong, and we'd be thrilled to have you join us there too!`,
-        },
-      ],
-      link: {
-        target: '_blank',
-        url: 'https://github.com/heymegabyte/install.doctor',
       },
     },
   ],

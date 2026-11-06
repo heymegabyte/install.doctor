@@ -46,32 +46,21 @@ if [[ $EUID -eq 0 ]]; then
 fi
 
 # ──────────────────────────────────────────────────────────────────────────────
-# Shell Expert library bootstrap (source.sh)
+# Managed Shell Expert library
 # ──────────────────────────────────────────────────────────────────────────────
-U="${SE_LIB_URL:-https://public.megabyte.space/source.sh}"
-P="${SE_LIB_PATH:-}"
-if [[ -n "$P" && -r "$P" ]]; then . "$P"; else
-  C=(/usr/local/lib/shell-expert/source.sh ./source.sh "${XDG_CACHE_HOME:-$HOME/.cache}/shell-expert/source.sh")
-  for p in "${C[@]}"; do [[ -r "$p" ]] && { . "$p"; P="$p"; break; }; done
-  if [[ -z "$P" ]]; then
-    D="${XDG_CACHE_HOME:-$HOME/.cache}/shell-expert"; mkdir -p "$D" || { printf 'ERR: cache\n' >&2; exit 74; }
-    T="$(mktemp "$D/.dl.XXXX")" || { printf 'ERR: mktemp\n' >&2; exit 70; }
-    if command -v curl >/dev/null 2>&1; then curl -fsS --connect-timeout 5 -m 20 --retry 3 --retry-all-errors -o "$T" "$U" || { printf 'ERR: fetch\n' >&2; exit 69; }
-    elif command -v wget >/dev/null 2>&1; then wget -q -O "$T" "$U" || { printf 'ERR: fetch\n' >&2; exit 69; }
-    else printf 'ERR: need curl/wget\n' >&2; exit 69; fi
-    bash -n "$T" || { printf 'ERR: syntax\n' >&2; exit 70; }
-    P="$D/source.sh"; mv -f "$T" "$P"; chmod 0644 "$P" || true
-    [[ -d /usr/local/lib && -w /usr/local/lib ]] && { mkdir -p /usr/local/lib/shell-expert 2>/dev/null || true; cp -f "$P" /usr/local/lib/shell-expert/source.sh 2>/dev/null || true; }
-    . "$P"
-  fi
-fi
+P=/usr/local/lib/shell-expert/source.sh
+[[ -f "$P" && ! -L "$P" && -r "$P" ]] || {
+  printf 'ERR: managed Shell Expert library is unavailable; reapply the signed Install Doctor release\n' >&2
+  exit 78
+}
+# shellcheck source=/usr/local/lib/shell-expert/source.sh
+. "$P"
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Constants / Defaults
 # ──────────────────────────────────────────────────────────────────────────────
 VERSION="${VERSION:-$(se_ts_ny_compact)}"
 SLUG="zfs-r2"
-UPDATE_URL="${UPDATE_URL:-}" # leave empty to skip self-update checks
 DEFAULT_HC_URL="https://healthchecks.megabyte.space/ping/csjKSM11DRvU5ZjHMmYxYg/zfs-r2"
 
 HOSTNAME_SHORT="$(hostname -s 2>/dev/null || printf 'host')"
@@ -91,11 +80,8 @@ ABORT_REASON=""
 # ──────────────────────────────────────────────────────────────────────────────
 # Initialize library context & update metadata
 # ──────────────────────────────────────────────────────────────────────────────
-se_init_context "$SLUG" "${UPDATE_URL:-local}"
-se_set_update_url "$SLUG" "${UPDATE_URL:-}"
-if [[ -n "$UPDATE_URL" ]]; then
-  se_self_update "$SLUG" "$UPDATE_URL" "/usr/local/bin/$SLUG" || true
-fi
+se_init_context "$SLUG" local
+se_set_update_url "$SLUG" ""
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Helpers: paths, JSON helpers, R2 naming, compression verify
@@ -269,7 +255,7 @@ _r2_write_test() {
 
 step_50_install_test_r2() { _r2_write_test || se_log_warn "R2 write test failed — verify credentials/endpoint/bucket."; }
 
-step_60_install_persist_update_url() { se_set_update_url "$SLUG" "${UPDATE_URL:-}"; }
+step_60_install_persist_update_url() { se_set_update_url "$SLUG" ""; }
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Run steps
@@ -555,7 +541,6 @@ Commands
   run          Execute backup now (default)
   debug        Verbose run; set CONFIRM_COMMAND=1 to confirm each command
   uninstall    Remove XDG config/state/cache
-  self-update  Update from UPDATE_URL (must be set)
   recover      Recovery shell (15-min inactivity auto-exit)
   help         Show this help
 
@@ -584,7 +569,6 @@ Environment (read at install; persisted to config.json[.enc])
 | ZSTD_LEVEL           | 19                                          | Opt       | zstd compression level                      |
 | RUN_PARANOID_SCRUB   | 0                                           | Opt       | 1 = run zpool scrub before backup           |
 | HEALTHCHECKS_URL     | https://healthchecks.megabyte.space/ping/...| Opt/Def   | Healthchecks endpoint for this job          |
-| UPDATE_URL           | ""                                          | Opt       | Self-update URL for this script             |
 | STREAM_MODE          | 0                                           | Opt       | 1 = stream-only mode (no local dump)        |
 +----------------------+---------------------------------------------+-----------+--------------------------------------------+
 
@@ -595,7 +579,6 @@ Examples
   sudo STREAM_MODE=1 zfs-r2 run
   sudo REMOTE_VERIFY=1 STREAM_MODE=1 zfs-r2 run
   sudo CONFIRM_COMMAND=1 zfs-r2 debug
-  sudo UPDATE_URL="https://example.org/zfs-r2" zfs-r2 self-update
 
 EOF
 }
@@ -609,7 +592,6 @@ main() {
     run)         shift; _run "$@";;
     debug)       DEBUG=1 CONFIRM_COMMAND=${CONFIRM_COMMAND:-1} shift; _run "$@";;
     uninstall)   rm -rf "$(se_xdg_config_dir "$SLUG")" "$(se_xdg_state_dir "$SLUG")" "$(se_xdg_cache_dir "$SLUG")";;
-    self-update) [[ -n "$UPDATE_URL" ]] && se_self_update "$SLUG" "$UPDATE_URL" "/usr/local/bin/$SLUG" || se_log_warn "UPDATE_URL is empty; skipping.";;
     recover)     se_recover_shell "$SLUG";;
     help|-h|--help) _help;;
     *)           printf 'Unknown command: %s\n' "$1" >&2; _help; exit 64;;

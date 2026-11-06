@@ -12,7 +12,7 @@
 #   • INFO/WARN/ERROR logs with step banners (library-driven)
 #   • During "install": first test SSH access; only if it fails do gh auth/key
 #   • During "run": NEVER do gh routines; rely on existing access
-#   • Trust GitHub SSH host key (ssh-keyscan)
+#   • Enroll GitHub's independently published, pinned SSH host key
 #   • Installs nodejs/npm; installs aicommits if missing
 #   • Prompts once for OPENAI_KEY (TTY only); token never logged
 #   • AI commits non-interactively: `echo | aicommits --force` or `aic --force`
@@ -94,31 +94,19 @@
 #
 # ============================================================================
 
-# --- Bootstrap: Shell Expert library (do not modify) -------------------------
-U="${SE_LIB_URL:-https://public.megabyte.space/source.sh}"
-P="${SE_LIB_PATH:-}"
-if [[ -n "$P" && -r "$P" ]]; then . "$P"; else
-  C=(/usr/local/lib/shell-expert/source.sh ./source.sh "${XDG_CACHE_HOME:-$HOME/.cache}/shell-expert/source.sh")
-  for p in "${C[@]}"; do [[ -r "$p" ]] && { . "$p"; P="$p"; break; }; done
-  if [[ -z "$P" ]]; then
-    D="${XDG_CACHE_HOME:-$HOME/.cache}/shell-expert"; mkdir -p "$D" || { D="/tmp/se-${USER:-$(id -u)}"; mkdir -p "$D" || { printf 'ERR: cache\n' >&2; exit 74; }; }
-    T="$(mktemp "$D/.dl.XXXX")" || { printf 'ERR: mktemp\n' >&2; exit 70; }
-    if command -v curl >/dev/null; then curl -fsS --connect-timeout 5 -m 20 --retry 3 --retry-all-errors -o "$T" "$U" || { printf 'ERR: fetch\n' >&2; exit 69; }
-    elif command -v wget >/dev/null; then wget -q -O "$T" "$U" || { printf 'ERR: fetch\n' >&2; exit 69; }
-    else printf 'ERR: need curl/wget\n' >&2; exit 69; fi
-    bash -n "$T" || { printf 'ERR: syntax\n' >&2; exit 70; }
-    P="$D/source.sh"; mv -f "$T" "$P"; chmod 0644 "$P" || true
-    [[ -d /usr/local/lib && -w /usr/local/lib ]] && { mkdir -p /usr/local/lib/shell-expert 2>/dev/null || true; cp -f "$P" /usr/local/lib/shell-expert/source.sh 2>/dev/null || true; }
-    . "$P"
-  fi
-fi
+# Executable library authority must arrive with the signed desired state.
+P=/usr/local/lib/shell-expert/source.sh
+[[ -f "$P" && ! -L "$P" && -r "$P" ]] || {
+  printf 'ERR: managed Shell Expert library is unavailable; reapply the signed Install Doctor release\n' >&2
+  exit 78
+}
+# shellcheck source=/usr/local/lib/shell-expert/source.sh
+. "$P"
 VERSION="${VERSION:-$(TZ=America/New_York date +'%Y%m%d-%H%M%S')}"
 
 # Immediately after sourcing:
-UPDATE_URL="https://raw.githubusercontent.com/HeyMegabyte/install.doctor/refs/heads/master/home/dot_config/system/usr/local/bin/executable_git-sync"   # TODO: set to your canonical raw script URL
 SLUG="git-sync"
-se_init_context "$SLUG" "$UPDATE_URL"; se_set_update_url "$SLUG" "$UPDATE_URL"
-se_self_update "$SLUG" "$UPDATE_URL" "/usr/local/bin/$SLUG"
+se_init_context "$SLUG" local; se_set_update_url "$SLUG" ""
 
 set -Eeuo pipefail
 
@@ -262,15 +250,15 @@ _hc_fail(){ local base="${HEALTHCHECK_URL%/}/fail"; _hc_post_file "$base" "$LOG_
 # --- Dependencies ------------------------------------------------------------
 _ensure_deps(){
   STEP "Ensuring required packages"
-  se_ensure_cmds git rsync curl jq || return 69
-  if ! command -v node >/dev/null || ! command -v npm >/dev/null; then
-    INFO "Installing Node.js + npm via system package manager"
-    if ! se_ensure_cmds nodejs npm; then WARN "Could not auto-install nodejs/npm"; fi
-  fi
+  local required
+  for required in git rsync curl jq; do
+    command -v "$required" >/dev/null 2>&1 || {
+      ERROR "$required is absent; select it through Install Doctor desired state"
+      return 69
+    }
+  done
   if ! command -v aic >/dev/null && ! command -v aicommits >/dev/null; then
-    INFO "Installing aicommits (npm i -g aicommits)"
-    _run "npm install -g aicommits" || WARN "Failed to install aicommits; AI commit messages disabled"
-    hash -r || true
+    INFO "aicommits is not selected; AI commit messages remain disabled"
   fi
 }
 
@@ -289,22 +277,21 @@ _configure_aic_openai_key(){
 
 _install_gh_if_needed(){
   command -v gh >/dev/null && return 0
-  STEP "Installing GitHub CLI (gh)"
-  se_ensure_cmds gh || {
-    # Fallback manual repo addition for Debian-like systems
-    local arch codename keyring listfile; arch="$(dpkg --print-architecture 2>/dev/null || echo amd64)"; codename="$(. /etc/os-release 2>/dev/null; echo "${VERSION_CODENAME:-bookworm}")"; keyring="/usr/share/keyrings/githubcli-archive-keyring.gpg"; listfile="/etc/apt/sources.list.d/github-cli.list"
-    se_ensure_cmds curl ca-certificates gnupg lsb-release || true
-    _run "install -d -m 0755 /usr/share/keyrings"
-    _run "curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg -o '$keyring'"
-    _run "chmod 0644 '$keyring'"
-    printf 'deb [arch=%s signed-by=%s] https://cli.github.com/packages stable main\n' "$arch" "$keyring" > "$listfile"
-    _run "apt-get update -y" || true
-    _run "apt-get install -y gh" || WARN "Failed to auto-install gh; key upload may need manual steps"
-  }
+  ERROR "GitHub CLI is absent; select gh through Install Doctor desired state"
+  return 69
 }
 
 # --- Git / SSH helpers -------------------------------------------------------
-_ensure_github_known_host(){ _run "install -d -m 0700 /root/.ssh"; _run "touch /root/.ssh/known_hosts"; _run "chmod 0600 /root/.ssh/known_hosts"; ssh-keygen -F github.com >/dev/null 2>&1 || _run "ssh-keyscan -H github.com >> /root/.ssh/known_hosts"; }
+_ensure_github_known_host(){
+  local enroll=/usr/local/bin/ssh-host-key-enrollment
+  [[ -x "$enroll" ]] || { ERROR "Pinned SSH enrollment command is unavailable: $enroll"; return 78; }
+  _run "install -d -m 0700 /root/.ssh"
+  "$enroll" enroll \
+    --hostname github.com --port 22 --key-type ssh-ed25519 \
+    --key-base64 'AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl' \
+    --fingerprint 'SHA256:+DiY3wvvV6TuJJhbpZisF/zLDA0zPMSvHdkr4UvCOqU' \
+    --known-hosts /root/.ssh/known_hosts
+}
 _can_access_repo(){ local url="$1"; [[ -n "$url" ]] || return 1; GIT_SSH_COMMAND="ssh -o StrictHostKeyChecking=yes" git ls-remote "$url" &>/dev/null; }
 _ensure_gh_auth_if_needed(){
   local repo_url="$1"; [[ -n "$repo_url" ]] || { ERROR "Repository URL empty"; return 64; }
@@ -632,7 +619,6 @@ Subcommands
   run           Perform a one-off sync now (default action)
   status        Show systemd status and recent logs
   uninstall     Remove installed service + timer
-  self-update   Fetch, validate, stage, and atomically link latest script
   recover       Interactive recovery shell (vim; auto-exits after inactivity)
   help          Show this help, env vars table, examples, key paths
   debug         Run with verbose logging; confirm each command when configured
@@ -654,7 +640,6 @@ case "${1:-run}" in
   run|"")      MODE=run _main ;;
   status)      _cfg_load; _hc_start; _show_status; _hc_ok ;;
   uninstall)   _cfg_load; _hc_start; _uninstall_units; _hc_ok ;;
-  self-update) se_self_update "$SLUG" "$UPDATE_URL" "/usr/local/bin/$SLUG" ;;
   recover)     se_recover_shell "$SLUG" ;;
   help)        _usage ;;
   debug)       DEBUG=1 CONFIRM_COMMAND=${CONFIRM_COMMAND:-1} MODE=run _main ;;

@@ -24,6 +24,11 @@ set -euo pipefail
 set -Eeo pipefail
 trap "gum log -sl error 'Script encountered an error!'" ERR
 
+if [ "${INSTALL_DOCTOR_GITOMATIC:-0}" != "1" ]; then
+  printf '%s\n' 'gitomatic is lazy; set INSTALL_DOCTOR_GITOMATIC=1 to enable repository synchronization'
+  exit 0
+fi
+
 if command -v gitomatic > /dev/null; then
   ### Copy gitomatic-service to /usr/local/bin
   gum log -sl info "Copying $HOME/.local/bin/gitomatic-service to /usr/local/bin/gitomatic-service"

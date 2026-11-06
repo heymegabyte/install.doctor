@@ -1,0 +1,52 @@
+name: Launchd rollback canary
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: launchd-rollback-canary
+  cancel-in-progress: false
+
+jobs:
+  disposable-macos:
+    runs-on: macos-14
+    timeout-minutes: 10
+    steps:
+      - name: Checkout exact source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.2.2
+        with:
+          persist-credentials: false
+
+      - name: Refuse non-disposable runners
+        shell: bash
+        run: test "${{ runner.environment }}" = github-hosted
+
+      - name: Verify contract
+        shell: bash
+        run: bash scripts/test-launchd-canary-contract.sh
+
+      - name: Build the exact installer engine
+        shell: bash
+        run: |
+          npm --prefix packages/aid-core ci --ignore-scripts
+          npm --prefix packages/installer-engine ci --ignore-scripts
+          npm --prefix packages/installer-engine run build
+
+      - name: Run disposable launchd canary
+        shell: bash
+        env:
+          INSTALL_DOCTOR_LAUNCHD_CANARY: "1"
+          INSTALL_DOCTOR_LAUNCHD_CANARY_EVIDENCE_DIR: ${{ runner.temp }}/launchd-canary-evidence
+        run: bash scripts/test-launchd-rollback-canary.sh
+
+      - name: Upload canary evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: launchd-canary-${{ github.run_id }}
+          path: ${{ runner.temp }}/launchd-canary-evidence
+          if-no-files-found: error
+          retention-days: 7

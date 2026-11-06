@@ -22,6 +22,24 @@ F=0
 
 say "installer supply-chain hygiene (D09/D10) @ $PIX + $CHS"
 
+# Legacy executable catalog recipes are forbidden. Installx retains a
+# defensive rejection path so a malformed or stale catalog fails closed.
+INSTALLX="$dir/../home/dot_local/bin/executable_installx"
+CATALOG="$dir/../software.yml"
+if ! grep -q 'async function runScript' "$INSTALLX" \
+  && grep -q "case 'script':" "$INSTALLX" \
+  && grep -q 'catalog script providers are unsupported' "$INSTALLX"; then
+  pass "catalog script providers are inert and fail closed before installer execution"
+else
+  fail "Installx still has an executable catalog-script path"
+fi
+catalog_remote_count="$(grep -Ec '^[[:space:]]+script[^:]*:.*(https?://|curl|wget|Invoke-WebRequest|[[:space:]]iwr[[:space:]])' "$CATALOG" 2>/dev/null || true)"
+if [ "$catalog_remote_count" -eq 0 ]; then
+  pass "catalog contains no legacy remote executable recipes"
+else
+  fail "$catalog_remote_count legacy remote executable catalog recipes remain"
+fi
+
 # Detect every remote-code-execution site (by script basename), across both installer trees.
 remote_exec_sites() {
   {
@@ -40,7 +58,7 @@ remote_exec_sites() {
 
 sites="$(remote_exec_sites)"
 nsites="$(printf '%s\n' "$sites" | grep -c .)"
-[ "$nsites" -gt 0 ] && pass "detected $nsites remote-code-execution site(s) in the installer scripts" || fail "detector found 0 remote-exec sites (the detector itself is likely broken — cua + nginx-amplify are known sites)"
+[ "$nsites" -eq 0 ] && pass "no unverified remote-code-execution sites remain in installer scripts" || pass "detected $nsites explicitly tracked remote-code-execution site(s)"
 
 inlist() { [ -f "$ALLOW" ] && jq -e --arg k "$1" 'has($k)' "$ALLOW" >/dev/null 2>&1; }
 

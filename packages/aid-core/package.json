@@ -3,9 +3,15 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "exports": {
+    ".": "./dist/core.js",
+    "./installer-contracts": "./dist/installer-contracts.js",
+    "./redaction": "./dist/redaction.js"
+  },
+  "types": "./dist/core.d.ts",
   "description": "Tested contracts for Install Doctor aid; not a deployed daemon or gateway",
   "scripts": {
-    "build": "tsc --strict --target ES2022 --module ES2022 --moduleResolution bundler --lib ES2022,DOM --declaration src/core.ts src/probabilistic-intent.ts src/fleet-recovery.ts src/infisical-workload.ts --outDir dist",
+    "build": "tsc --strict --target ES2022 --module ES2022 --moduleResolution bundler --lib ES2022,DOM --declaration src/core.ts src/probabilistic-intent.ts src/fleet-recovery.ts src/infisical-workload.ts src/installer-contracts.ts src/redaction.ts --outDir dist",
     "test": "npm run build && node --test test/*.test.mjs"
   },
   "engines": {
@@ -15,6 +21,6 @@
     "typescript": "5.8.3"
   },
   "dependencies": {
-    "zod": "4.1.12"
+    "zod": "4.6.7"
   }
 }

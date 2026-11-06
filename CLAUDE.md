@@ -17,7 +17,7 @@ separate product-runtime decision in `AGENTS.md`: `aid` uses ProjectSites routin
 
 The provisioner is multi-machine first, single-laptop never. Every design decision must answer: *"does this work the same across the entire fleet?"* If a feature only makes sense on macOS or only on a server, it is gated by detected OS + role — never deleted, never assumed.
 
-Entry point: `bash <(curl -sSL https://install.doctor/start)` → `start.sh` → `provision.sh` → `chezmoi apply` → `installx` → per-platform post-install hooks.
+Entry point: `curl -fsSL https://app.install.doctor/start | bash` → signed stage zero → verified `provision.sh` release → `chezmoi apply` → `installx` → per-platform post-install hooks. Repository-root `start.sh` is only the local Task bootstrap.
 
 ---
 
@@ -70,7 +70,7 @@ Every `software.yml` entry carries `tier: essential | workstation | server | coo
 `{{ if eq .chezmoi.hostname "coolify-prod" }}...{{ end }}` blocks render host-specific values. Hostnames listed in §2 above drive the per-host config matrix.
 
 ### post-installx hooks
-`home/dot_local/bin/post-installx/post-<tool>.sh` is the post-install CONFIG hook for `<tool>`. **Two dispatch paths** (traced #250, wired #251): (1) the GENERAL dispatcher — `run_after_20-post-install.sh.tmpl`'s `runPostInstallxHooks` loops `~/.local/bin/post-installx/post-*.sh` and runs each AFTER installx (`run_after_10`), error-tolerant + stdin-isolated (`bash "$HOOK" </dev/null || gum log warn` — a bad hook can't abort provisioning, and a hook's interactive `read` gets EOF instead of hanging a headless provision, CLAUDE.md §3); each hook self-guards on OS + tool-presence + idempotency (per `_TEMPLATE.sh`), so a hook whose tool isn't installed self-skips. (2) a per-tool `software.yml` `script:` key (installx `case 'script'`→runScript→bash) — `wazuh` uses this (and also runs via the loop, harmlessly idempotent). installx itself has NO readdir of the hooks dir; `postInstall()` does only flatpak links. **File-wired + gate-locked #251 (`scripts/test-post-installx-dispatch.sh` 7/7); the LIVE run (hooks executing + configuring on a provisioned machine) is HOST-GATED** — this closed the #250 29/30-undispatched gap. Each hook is platform-aware (early-exit on wrong OS) + idempotent. `post-coolify.sh`/`post-proxmox.sh` are PLANNED (§9 #7/#8), not yet built.
+`home/dot_local/bin/post-installx/post-<tool>.sh` is the post-install CONFIG hook for `<tool>`. The only executable dispatch path is `run_after_20-post-install.sh.tmpl`'s `runPostInstallxHooks`, which runs the selected eager closure after installx (`run_after_10`) with stdin isolated. Catalog `script:` providers are inert migration data: Installx rejects them before installer execution because mutable YAML must not grant shell authority. The `wazuh` reference remains visible until it is replaced by a verified package/artifact provider; it does not execute. Each live hook self-guards on OS + tool presence + idempotency. **File-wired + gate-locked #251 (`scripts/test-post-installx-dispatch.sh`); live execution on a provisioned machine remains host-gated.** `post-coolify.sh`/`post-proxmox.sh` are planned (§9 #7/#8), not yet built.
 
 ### Fail-safe sudo
 `scripts/provision.sh:setupPasswordlessSudo` validates the password before writing `/etc/sudoers`. `home/.chezmoitemplates/universal/profile-inline` wraps `sudo` so chezmoi scripts skip-with-warning instead of blocking on a `Password:` prompt mid-run.

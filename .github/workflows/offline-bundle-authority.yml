@@ -1,0 +1,149 @@
+name: Protected offline bundle authority
+
+on:
+  workflow_dispatch:
+    inputs:
+      request_run_id:
+        description: GitHub run id that uploaded offline-bundle-authority-input
+        required: true
+        type: string
+
+permissions: {}
+
+concurrency:
+  group: offline-bundle-authority
+  cancel-in-progress: false
+
+jobs:
+  seal-input:
+    name: Admit credential-free authority inputs
+    if: github.ref == 'refs/heads/master'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - name: Validate immutable source run identity
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REQUEST_RUN_ID: ${{ inputs.request_run_id }}
+        run: |
+          set -euo pipefail
+          case "$REQUEST_RUN_ID" in ''|*[!0-9]*|0*) exit 64;; esac
+          run="$(gh api -H 'Accept: application/vnd.github+json' "/repos/${GITHUB_REPOSITORY}/actions/runs/${REQUEST_RUN_ID}")"
+          test "$(jq -r .repository.id <<<"$run")" = "$GITHUB_REPOSITORY_ID"
+          test "$(jq -r .head_repository.id <<<"$run")" = "$GITHUB_REPOSITORY_ID"
+          test "$(jq -r .head_branch <<<"$run")" = master
+          test "$(jq -r .path <<<"$run")" = '.github/workflows/offline-bundle-request.yml'
+          test "$(jq -r .head_sha <<<"$run")" = "$GITHUB_WORKFLOW_SHA"
+          test "$(jq -r .event <<<"$run")" = workflow_dispatch
+          test "$(jq -r .status <<<"$run")" = completed
+          test "$(jq -r .conclusion <<<"$run")" = success
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: offline-bundle-authority-input
+          path: authority-input
+          github-token: ${{ github.token }}
+          run-id: ${{ inputs.request_run_id }}
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+          path: source
+          ref: ${{ github.workflow_sha }}
+      - name: Assemble credential-free pinned authority implementation
+        env:
+          RELEASE_ROOT_SIGNER_ID: ${{ vars.INSTALL_DOCTOR_RELEASE_SIGNER_ID }}
+        run: |
+          set -euo pipefail
+          umask 077
+          expected='bundle.tar delegation.json manifest.json request-authority-delegation.json request-authority.json request.json'
+          actual="$(find authority-input -mindepth 1 -maxdepth 1 -type f -printf '%f\n' | sort | tr '\n' ' ' | sed 's/ $//')"
+          test "$actual" = "$expected"
+          test "$(find authority-input -mindepth 1 -maxdepth 1 \! -type f -print -quit)" = ''
+          mkdir -p authority-tools/scripts
+          cp source/packages/control-plane/package.json source/packages/control-plane/package-lock.json authority-tools/
+          cp source/packages/control-plane/scripts/offline-bundle-publication.mjs \
+             source/packages/control-plane/scripts/publish-offline-bundle.mjs \
+             source/packages/control-plane/scripts/r2-publication-storage.mjs authority-tools/scripts/
+          npm --prefix authority-tools ci --omit=dev --ignore-scripts --no-audit --no-fund
+          jq -er --arg id "$RELEASE_ROOT_SIGNER_ID" '.signers[$id] | select(type == "string")' \
+            source/packages/control-plane/src/release-trust.json >authority-tools/release-root-public-key
+          (cd authority-tools && find . -type f -print0 | sort -z | xargs -0 sha256sum) >authority-tools.sha256
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: offline-bundle-authority-sealed-${{ github.run_id }}
+          path: |
+            authority-input
+            authority-tools
+            authority-tools.sha256
+          if-no-files-found: error
+          include-hidden-files: true
+          retention-days: 1
+
+  sign-and-publish:
+    name: Sign and privately publish inside protected authority
+    needs: seal-input
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: offline-bundle-authority
+    permissions:
+      actions: read
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: offline-bundle-authority-sealed-${{ github.run_id }}
+          path: sealed
+      - name: Verify sealed no-checkout authority inventory
+        run: |
+          set -euo pipefail
+          cd sealed/authority-tools
+          sha256sum --check --strict ../authority-tools.sha256
+      - name: Independently revalidate exact producer workflow and immutable revision
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REQUEST_RUN_ID: ${{ inputs.request_run_id }}
+        run: |
+          set -euo pipefail
+          run="$(gh api -H 'Accept: application/vnd.github+json' "/repos/${GITHUB_REPOSITORY}/actions/runs/${REQUEST_RUN_ID}")"
+          test "$(jq -r .repository.id <<<"$run")" = "$GITHUB_REPOSITORY_ID"
+          test "$(jq -r .head_repository.id <<<"$run")" = "$GITHUB_REPOSITORY_ID"
+          test "$(jq -r .path <<<"$run")" = '.github/workflows/offline-bundle-request.yml'
+          test "$(jq -r .head_sha <<<"$run")" = "$GITHUB_WORKFLOW_SHA"
+          test "$(jq -r .event <<<"$run")" = workflow_dispatch
+          test "$(jq -r .conclusion <<<"$run")" = success
+          test "$(jq -r .id <<<"$run")" = "$REQUEST_RUN_ID"
+      - uses: Infisical/secrets-action@d2e351f16c6ca20d17c85e6c992e04bdeb64e87d # v1.0.18
+        name: Resolve only offline authority material through claim-bound GitHub OIDC
+        with:
+          method: oidc
+          identity-id: ${{ vars.INFISICAL_OFFLINE_BUNDLE_AUTHORITY_ID }}
+          project-slug: ${{ vars.INFISICAL_PROJECT_SLUG }}
+          env-slug: prod
+          secret-path: /ci/offline-bundle/authority
+          include-imports: false
+          recursive: false
+      - name: Sign, create-only publish, and erase private material
+        env:
+          GITHUB_WORKFLOW_SHA: ${{ github.workflow_sha }}
+          INSTALL_DOCTOR_AUTHORITY_ENVIRONMENT: offline-bundle-authority
+          INSTALL_DOCTOR_REQUEST_RUN_ID: ${{ inputs.request_run_id }}
+          INSTALL_DOCTOR_RELEASE_ROOT_PUBLIC_KEY_PATH: ${{ github.workspace }}/sealed/authority-tools/release-root-public-key
+          INSTALL_DOCTOR_RELEASE_ROOT_SIGNER_ID: ${{ vars.INSTALL_DOCTOR_RELEASE_SIGNER_ID }}
+        run: |
+          set -euo pipefail
+          umask 077
+          key="$(mktemp "$RUNNER_TEMP/offline-signing-key.XXXXXXXX")"
+          cleanup() { rm -f "$key"; }
+          trap cleanup EXIT HUP INT TERM
+          printf '%s' "$INSTALL_DOCTOR_OFFLINE_SIGNING_KEY" >"$key"
+          chmod 0600 "$key"
+          INSTALL_DOCTOR_OFFLINE_SIGNING_KEY_PATH="$key" node sealed/authority-tools/scripts/publish-offline-bundle.mjs \
+            sealed/authority-input/request.json sealed/authority-input/delegation.json \
+            sealed/authority-input/request-authority-delegation.json sealed/authority-input/request-authority.json \
+            sealed/authority-input/manifest.json sealed/authority-input/bundle.tar >publication-result.json
+          jq -e '{schemaVersion,status,objectKey,receiptKey} | .schemaVersion == 1 and (.status == "published" or .status == "already-published")' publication-result.json
+          rm -f "$key"
+          trap - EXIT HUP INT TERM
+          printf 'INSTALL_DOCTOR_OFFLINE_SIGNING_KEY=\n' >>"$GITHUB_ENV"

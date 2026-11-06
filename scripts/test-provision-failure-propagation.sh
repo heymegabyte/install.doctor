@@ -8,7 +8,7 @@ trap 'rm -rf "$TMP_DIR"' EXIT
 
 awk '/^runChezmoi\(\) \{/{copy=1} copy{print} copy && /^\}/{exit}' "$PROVISIONER" > "$TMP_DIR/run-chezmoi.sh"
 
-mkdir -p "$TMP_DIR/bin" "$TMP_DIR/home"
+mkdir -p "$TMP_DIR/bin" "$TMP_DIR/home" "$TMP_DIR/source"
 cat > "$TMP_DIR/bin/chezmoi" <<'SCRIPT'
 #!/usr/bin/env bash
 exit 7
@@ -21,9 +21,11 @@ chmod +x "$TMP_DIR/bin/chezmoi" "$TMP_DIR/bin/xrandr"
 
 set +e
 PATH="$TMP_DIR/bin:$PATH" HOME="$TMP_DIR/home" bash -c '
-  set -u
+  set -uo pipefail
   logg() { :; }
   detect_os() { printf "%s\n" linux; }
+  loadHomebrew() { :; }
+  INSTALL_DOCTOR_CHEZMOI_SOURCE="$2"
   HEADLESS_INSTALL=true
   KEEP_GOING=
   DEBUG_MODE=
@@ -31,7 +33,7 @@ PATH="$TMP_DIR/bin:$PATH" HOME="$TMP_DIR/home" bash -c '
   NO_RESTART=true
   source "$1"
   runChezmoi
-' _ "$TMP_DIR/run-chezmoi.sh"
+' _ "$TMP_DIR/run-chezmoi.sh" "$TMP_DIR/source"
 STATUS=$?
 set -e
 
@@ -45,11 +47,13 @@ from pathlib import Path
 import sys
 
 text = Path(sys.argv[1]).read_text()
-run = text.index('runChezmoi || CHEZMOI_STATUS=$?')
-cleanup = text.index('removePasswordlessSudo', run)
+run = text.index('runCanonicalProvisionEngine || CHEZMOI_STATUS=$?')
+fallback_gate = text.index('if [ "${INSTALL_DOCTOR_SUDO_FINALIZER_VERIFIED:-false}" != true ]', run)
+cleanup = text.index('removePasswordlessSudo', fallback_gate)
 failure_gate = text.index('if [ "$CHEZMOI_STATUS" -ne 0 ]', cleanup)
 post = text.index('postProvision', failure_gate)
-assert run < cleanup < failure_gate < post
+assert run < fallback_gate < cleanup < failure_gate < post
+assert 'protected engine evidence does not prove' in text[fallback_gate:failure_gate]
 PY
 
 printf 'Provision failure propagation tests passed.\n'

@@ -231,17 +231,35 @@ fixHomebrewSharePermissions() {
   fi
 }
 
+runPinnedHomebrewInstaller() {
+  local installer actual status=0 commit='959bdd728192d78c47287c177796c3d86d111f09'
+  local expected='5f333bbe53bc490e51e7ccb1df8779b3dd6ee73a1a7379efda216edb08ccb148'
+  installer="$(mktemp)" || return 1
+  if ! curl -fsSL --proto '=https' --tlsv1.2 --connect-timeout 10 --max-time 60 "https://raw.githubusercontent.com/Homebrew/install/$commit/install.sh" -o "$installer"; then
+    rm -f "$installer"
+    return 1
+  fi
+  [ "$(wc -c < "$installer")" -le 1048576 ] || { rm -f "$installer"; return 1; }
+  if command -v sha256sum >/dev/null 2>&1; then actual="$(sha256sum "$installer" | awk '{print $1}')";
+  elif command -v shasum >/dev/null 2>&1; then actual="$(shasum -a 256 "$installer" | awk '{print $1}')";
+  else rm -f "$installer"; return 1; fi
+  [ "$actual" = "$expected" ] || { rm -f "$installer"; return 1; }
+  NONINTERACTIVE=1 bash "$installer" || status=$?
+  rm -f "$installer"
+  return "$status"
+}
+
 ### Installs Homebrew
 ensurePackageManagerHomebrew() {
   if ! command -v brew > /dev/null; then
     ### Select install type based off of whether or not sudo privileges are available
     if command -v sudo > /dev/null && sudo -n true; then
       logg info 'Installing Homebrew. Sudo privileges available.'
-      echo | bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)" || BREW_EXIT_CODE="$?"
+      runPinnedHomebrewInstaller || BREW_EXIT_CODE="$?"
       fixHomebrewSharePermissions
     else
       logg info 'Installing Homebrew. Sudo privileges not available. Password may be required.'
-      bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)" || BREW_EXIT_CODE="$?"
+      runPinnedHomebrewInstaller || BREW_EXIT_CODE="$?"
       fixHomebrewSharePermissions
     fi
 

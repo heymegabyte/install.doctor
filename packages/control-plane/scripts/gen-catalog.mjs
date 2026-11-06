@@ -9,12 +9,32 @@ import { readFileSync, writeFileSync, mkdtempSync, readdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { validateArtifactDeclarations } from '../../../scripts/validate-catalog-artifacts.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(HERE, '..', '..', '..'); // repo root (packages/control-plane/scripts → repo)
 const SOFTWARE = process.argv[2] || join(ROOT, 'software.yml');
 const OUT = process.argv[3] || join(HERE, '..', 'src', 'catalog.json');
 const BUILDER = join(ROOT, 'home', 'dot_local', 'bin', 'executable_cnf-build-index');
+
+async function loadArtifactsByPackage() {
+  const declared = JSON.parse(execFileSync(
+    'yq',
+    [
+      '-o',
+      'json',
+      '[.softwarePackages | to_entries[] | select(.value | has("_artifacts")) | {"key": .key, "bin": .value._bin, "artifacts": .value._artifacts}]',
+      SOFTWARE,
+    ],
+    { encoding: 'utf8' },
+  ));
+  return { declared, validated: await validateArtifactDeclarations(declared) };
+}
+
+// Artifact metadata is executable authority. Unlike optional human-facing
+// enrichment below, it is always parsed through the shared strict runtime
+// contract and any malformed declaration aborts generation.
+const { declared: artifactDeclarations, validated: artifactsByPackage } = await loadArtifactsByPackage();
 
 // index columns (per not-found-hook.sh): 1 bin 2 key 3 brew 4 apt 5 dnf 6 pacman 7 cask 8 choco
 // 9 scoop 10 go 11 cargo 12 npm 13 pipx 14 pip 15 gem 16 apk
@@ -52,7 +72,51 @@ for (const line of rows) {
   if (!providers.length) continue; // an entry with no installable provider is not browseable
   // installMode default = lazy CLI (installed on first command use via the cnf hook). Overridden below to
   // 'app' (a GUI desktop app, software.yml `_app`) or 'service' (a required service, `_service`) — D06.
-  items.push({ name, bin, providers, pkgs, platforms: [...platforms].sort(), installMode: 'cli', preload: false });
+  const artifacts = artifactsByPackage.get(name);
+  if (artifacts) {
+    for (const artifact of artifacts) {
+      platforms.add({ linux: 'linux', darwin: 'macos', win32: 'windows' }[artifact.platform.os]);
+    }
+  }
+  items.push({
+    name,
+    bin,
+    providers,
+    pkgs,
+    platforms: [...platforms].sort(),
+    installMode: 'cli',
+    preload: false,
+    loadPolicy: 'lazy',
+    loadRationale: 'default-lazy',
+    ...(artifacts ? { artifacts } : {}),
+  });
+}
+
+// The command-not-found index intentionally contains package-manager rows
+// only. Preserve artifact-only packages in the generated catalog so replacing
+// a legacy script provider does not make the package disappear.
+for (const declaration of artifactDeclarations) {
+  if (items.some((item) => item.name === declaration.key)) continue;
+  const bins = typeof declaration.bin === 'string' ? [declaration.bin] : declaration.bin;
+  if (!Array.isArray(bins) || bins.length < 1 || bins.some((bin) => typeof bin !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._+-]{0,127}$/.test(bin))) {
+    throw new Error(`artifact-only catalog entry ${declaration.key} requires a valid _bin string or array`);
+  }
+  const artifacts = artifactsByPackage.get(declaration.key);
+  const platforms = [...new Set(artifacts.map((artifact) => ({ linux: 'linux', darwin: 'macos', win32: 'windows' })[artifact.platform.os]))].sort();
+  for (const bin of bins) {
+    items.push({
+      name: declaration.key,
+      bin,
+      providers: [],
+      pkgs: {},
+      platforms,
+      installMode: 'cli',
+      preload: false,
+      loadPolicy: 'lazy',
+      loadRationale: 'default-lazy',
+      artifacts,
+    });
+  }
 }
 
 // Merge the human-facing metadata from software.yml (the cnf index carries only bin+providers): _short
@@ -67,7 +131,7 @@ try {
       [
         '-o',
         'json',
-        '.softwarePackages | to_entries | map({"key":.key,"short":.value._short,"github":.value._github,"home":.value._home,"docs":.value._docs,"app":(.value._app != null),"service":(.value._service != null),"preload":(.value._preload == true),"preloadReason":.value._preloadReason,"deprecated":.value._deprecated,"replacement":.value._replacement,"deps":.value._deps})',
+        '.softwarePackages | to_entries | map({"key":.key,"short":.value._short,"github":.value._github,"home":.value._home,"docs":.value._docs,"app":(.value._app != null),"service":(.value._service != null),"serviceEnabled":(.value._serviceEnabled == true),"preload":(.value._preload == true),"preloadReason":.value._preloadReason,"deprecated":.value._deprecated,"replacement":.value._replacement,"deps":.value._deps})',
         SOFTWARE,
       ],
       { encoding: 'utf8' },
@@ -111,13 +175,29 @@ try {
     // cask→app would mislabel MORE than it fixes. A few real GUI casks lacking _app (adobe-creative-cloud,
     // lm-studio) fall to cli — an accepted edge, far better than mislabeling the CLI-casks.
     it.installMode = m.app ? 'app' : m.service ? 'service' : 'cli';
-    it.deliveryMode = m.app || m.service || m.preload ? 'eager' : 'lazy';
+    // Delivery is derived from the actual installx selection contract, not from
+    // package shape. Merely being a GUI app or having service metadata does not
+    // authorize eager installation/startup.
+    it.deliveryMode = m.preload || m.serviceEnabled ? 'eager' : 'lazy';
     modes[it.installMode]++;
     // #153 eager-vs-lazy ACCURACY — software.yml `_preload:true` means installx EAGER-installs it at provisioning
     // (executable_installx --lazy installs casks/flatpaks/_app/_serviceEnabled/_preload), so a `_preload:true`
     // CLI is NOT "on first use" — the App Store must say "installed at setup". Carry the boolean so the badge is honest.
     it.preload = !!m.preload;
     if (it.preload && typeof m.preloadReason === 'string') it.preloadReason = m.preloadReason;
+    if (m.serviceEnabled) {
+      it.loadPolicy = 'eager-service';
+      it.loadRationale = 'desired-state:_serviceEnabled';
+    } else if (it.preload) {
+      const loadClass = {
+        'bootstrap-critical': ['eager-bootstrap', 'bootstrap:scripts/provision.sh'],
+        'lazy-installer-substrate': ['eager-bootstrap', 'lazy-resolver:home/dot_config/shell/not-found-hook.sh'],
+        'security-recovery-prerequisite': ['eager-security-recovery', 'security-recovery:pre-lazy-offline'],
+        'desired-state-service': ['eager-service', 'desired-state:_serviceEnabled'],
+      }[m.preloadReason];
+      if (!loadClass) throw new Error(`unknown eager reason for ${it.name}: ${m.preloadReason}`);
+      [it.loadPolicy, it.loadRationale] = loadClass;
+    }
     if (it.installMode === 'cli' && it.preload) modes.preloadCli = (modes.preloadCli || 0) + 1;
   }
   console.error(`gen-catalog: enriched ${enriched} with _short; ${linked} with _home/_docs links; modes app=${modes.app} service=${modes.service} cli=${modes.cli} (preloadCli=${modes.preloadCli || 0} eager, not on-first-use)`);

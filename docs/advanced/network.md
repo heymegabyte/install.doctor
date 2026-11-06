@@ -37,7 +37,7 @@ OpenVPN is supported through NetworkManager plugins:
 
 Install Doctor has deep integration with Cloudflare services:
 
-- **Cloudflare Tunnel (cloudflared)** - Expose local services securely without opening firewall ports. See the [Cloudflare integration page](/docs/features/cloudflare) for details.
+- **Cloudflare Tunnel (cloudflared)** - Expose local services securely without opening firewall ports. See the [Cloudflare integration page](/docs/integrations/cloudflare) for details.
 - **Cloudflare WARP** - Encrypted DNS and VPN client
 - **Cloudflare SSL certificates** - Automatic import of Cloudflare origin certificates into the system trust store (macOS)
 
@@ -71,6 +71,22 @@ Install Doctor includes application-level firewall packages in its software cata
 ### SSH
 
 Install Doctor configures SSH access with hardened defaults:
+
+- Strict host-key checking is mandatory; network-discovered trust and trust-on-first-use are rejected.
+- Enroll a host only after verifying its public key and SHA-256 fingerprint through an independent channel:
+
+  ```bash
+  sudo ssh-host-key-enrollment enroll \
+    --hostname host.example --port 22 \
+    --key-type ssh-ed25519 --key-base64 '<approved-public-key>' \
+    --fingerprint 'SHA256:<independently-verified-fingerprint>' \
+    --known-hosts /root/.ssh/known_hosts
+  ```
+
+  The command is offline-only, validates that the key produces the approved fingerprint, writes atomically,
+  refuses ambiguous aliases and conflicting pins, and supports exact `rotate` and `revoke` operations. A host
+  key is public material, but its authenticity still has to be established out of band; never copy a key from
+  the same unauthenticated connection it is intended to secure.
 
 - Custom SSH port support (configurable via `.chezmoi.yaml.tmpl`)
 - SELinux port registration on Fedora/RHEL systems

@@ -1,98 +1,20 @@
 #!/usr/bin/env bash
 
-# @description Installs glow (a markdown renderer) from GitHub releases
-installGlow() {
-  # TODO: Add support for other architecture types
-  if [ -d '/Applications' ] && [ -d '/Library' ] && [ -d '/Users' ]; then
-    GLOW_DOWNLOAD_URL="https://github.com/charmbracelet/glow/releases/download/v1.4.1/glow_1.4.1_Darwin_x86_64.tar.gz"
-  elif [ -f '/etc/ubuntu-release' ] || [ -f '/etc/debian_version' ] || [ -f '/etc/redhat-release' ] || [ -f '/etc/SuSE-release' ] || [ -f '/etc/arch-release' ] || [ -f '/etc/alpine-release' ]; then
-    GLOW_DOWNLOAD_URL="https://github.com/charmbracelet/glow/releases/download/v1.4.1/glow_1.4.1_linux_x86_64.tar.gz"
-  fi
-  if type curl &> /dev/null; then
-    if { [ -d '/Applications' ] && [ -d '/Library' ] && [ -d '/Users' ]; } || [ -f '/etc/ubuntu-release' ] || [ -f '/etc/debian_version' ] || [ -f '/etc/redhat-release' ] || [ -f '/etc/SuSE-release' ] || [ -f '/etc/arch-release' ] || [ -f '/etc/alpine-release' ]; then
-      TMP="$(mktemp)"
-      TMP_DIR="$(dirname "$TMP")"
-      curl -sSL "$GLOW_DOWNLOAD_URL" > "$TMP"
-      tar -xzf "$TMP" -C "$TMP_DIR"
-      if [ -n "$HOME" ]; then
-        if mkdir -p "$HOME/.local/bin" && mv "$TMP_DIR/glow" "$HOME/.local/bin/glow"; then
-          GLOW_PATH="$HOME/.local/bin/glow"
-        else
-          GLOW_PATH="$(dirname "${BASH_SOURCE[0]}")/glow"
-          mv "$TMP_DIR/glow" "$GLOW_PATH"
-        fi
-        chmod +x "$GLOW_PATH"
-      else
-        echo "WARNING: The HOME environment variable is not set! (Glow)"
-      fi
-    else
-      echo "WARNING: Unable to detect system type. (Glow)"
-    fi
-  fi
-}
-
-# @description Installs gum (a logging CLI) from GitHub releases
-installGum() {
-  # TODO: Add support for other architecture types
-  if [ -d '/Applications' ] && [ -d '/Library' ] && [ -d '/Users' ]; then
-    if [ "$(uname -m)" == "arm64" ]; then
-      GUM_DOWNLOAD_URL="https://github.com/charmbracelet/gum/releases/download/v0.14.5/gum_0.14.5_Darwin_arm64.tar.gz"
-    else
-      GUM_DOWNLOAD_URL="https://github.com/charmbracelet/gum/releases/download/v0.14.5/gum_0.14.5_Darwin_x86_64.tar.gz"
-    fi
-  elif [ -f '/etc/ubuntu-release' ] || [ -f '/etc/debian_version' ] || [ -f '/etc/redhat-release' ] || [ -f '/etc/SuSE-release' ] || [ -f '/etc/arch-release' ] || [ -f '/etc/alpine-release' ]; then
-    if [ "$(uname -m)" == "arm64" ]; then
-      GUM_DOWNLOAD_URL="https://github.com/charmbracelet/gum/releases/download/v0.14.5/gum_0.14.5_Linux_arm64.tar.gz"
-    else
-      GUM_DOWNLOAD_URL="https://github.com/charmbracelet/gum/releases/download/v0.14.5/gum_0.14.5_Linux_x86_64.tar.gz"
-    fi
-  fi
-  if type curl &> /dev/null; then
-    if { [ -d '/Applications' ] && [ -d '/Library' ] && [ -d '/Users' ]; } || [ -f '/etc/ubuntu-release' ] || [ -f '/etc/debian_version' ] || [ -f '/etc/redhat-release' ] || [ -f '/etc/SuSE-release' ] || [ -f '/etc/arch-release' ] || [ -f '/etc/alpine-release' ]; then
-      TMP="$(mktemp)"
-      TMP_DIR="$(dirname "$TMP")"
-      curl -sSL "$GUM_DOWNLOAD_URL" > "$TMP"
-      tar -xzf "$TMP" -C "$TMP_DIR"
-      if [ -n "$HOME" ]; then
-        if mkdir -p "$HOME/.local/bin" && mv "$TMP_DIR/gum" "$HOME/.local/bin/gum"; then
-          GUM_PATH="$HOME/.local/bin/gum"
-        else
-          GUM_PATH="$(dirname "${BASH_SOURCE[0]}")/gum"
-          mv "$TMP_DIR/gum" "$GUM_PATH"
-        fi
-        chmod +x "$GUM_PATH"
-      else
-        echo "WARNING: The HOME environment variable is not set! (Gum)"
-      fi
-    else
-      echo "WARNING: Unable to detect system type. (Gum)"
-    fi
-  fi
-}
+# This early template has no installation authority. Optional presentation
+# binaries are consumed only when already present in the admitted environment.
 
 # @description Configure the logger to use echo or gum
+GUM_PATH=""
 if [ "${container:=}" != 'docker' ]; then
-  # Acquire gum's path or attempt to install it
   if type gum &> /dev/null; then
-    GUM_PATH="$(which gum)"
-  elif [ -f "$HOME/.local/bin/gum" ]; then
+    GUM_PATH="$(command -v gum)"
+  elif [ -x "${HOME:-}/.local/bin/gum" ]; then
     GUM_PATH="$HOME/.local/bin/gum"
-  elif [ -f "$(dirname "${BASH_SOURCE[0]}")/gum" ]; then
+  elif [ -x "$(dirname "${BASH_SOURCE[0]}")/gum" ]; then
     GUM_PATH="$(dirname "${BASH_SOURCE[0]}")/gum"
-  elif type brew &> /dev/null; then
-    brew install --quiet gum
-    GUM_PATH="$(which gum)"
-  else
-    if ! command -v qubesctl > /dev/null; then
-      # Qubes dom0
-      installGum
-    fi
   fi
 
   # If gum's path was set, then turn on enhanced logging
-  if [ -n "$GUM_PATH" ]; then
-    chmod +x "$GUM_PATH"
-  fi
 fi
 
 format() {
@@ -129,34 +51,16 @@ formatFaint() {
 logg() {
   TYPE="$1"
   MSG="$2"
+  if [ -z "$GUM_PATH" ]; then
+    if [ "$TYPE" = 'md' ] && [ -f "$MSG" ]; then cat "$MSG"; else printf '%s: %s\n' "$TYPE" "$MSG"; fi
+    return 0
+  fi
   if [ "$TYPE" == 'error' ]; then
     "$GUM_PATH" style --border="thick" "$("$GUM_PATH" style --foreground="#ff0000" "✖") $("$GUM_PATH" style --bold --background="#ff0000" --foreground="#ffffff"  " ERROR ") $("$GUM_PATH" style --bold "$(format "$MSG")")"
   elif [ "$TYPE" == 'info' ]; then
     "$GUM_PATH" style " $("$GUM_PATH" style --foreground="#00ffff" "○") $("$GUM_PATH" style --faint --foreground="#ffffff" "$(formatFaint "$MSG")")"
   elif [ "$TYPE" == 'md' ]; then
-    # @description Ensure glow is installed
-    if [ "${container:=}" != 'docker' ]; then
-      if type glow &> /dev/null; then
-        GLOW_PATH="$(which glow)"
-      elif [ -f "$HOME/.local/bin/glow" ]; then
-        GLOW_PATH="$HOME/.local/bin/glow"
-      elif [ -f "$(dirname "${BASH_SOURCE[0]}")/glow" ]; then
-        GLOW_PATH="$(dirname "${BASH_SOURCE[0]}")/glow"
-      elif type brew &> /dev/null; then
-        brew install --quiet glow
-        GLOW_PATH="$(which glow)"
-      else
-        if ! command -v qubesctl > /dev/null; then
-          # Qubes dom0
-          installGlow
-        fi
-      fi
-
-      if [ -n "$GLOW_PATH" ]; then
-        chmod +x "$GLOW_PATH"
-      fi
-    fi
-    "$GLOW_PATH" "$MSG"
+    if command -v glow >/dev/null 2>&1; then glow "$MSG"; else cat "$MSG"; fi
   elif [ "$TYPE" == 'prompt' ]; then
     "$GUM_PATH" style " $("$GUM_PATH" style --foreground="#00008b" "▶") $("$GUM_PATH" style --bold "$(format "$MSG")")"
   elif [ "$TYPE" == 'star' ]; then

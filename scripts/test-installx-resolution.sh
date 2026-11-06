@@ -19,10 +19,11 @@ for expected in \
   fi
 done
 
-if grep -Fq 'if (!pkgs[i] || seen.has(i)) continue' "$INSTALLX"; then
-  pass "dependency expansion tolerates unknown and cyclic package keys"
+if grep -Fq 'if (!pkgs[i]) throw new Error(`unknown package dependency: ${i}`)' "$INSTALLX" \
+  && grep -Fq 'if (visiting.has(i)) throw new Error(`dependency cycle detected at package: ${i}`)' "$INSTALLX"; then
+  pass "dependency expansion rejects unknown and cyclic package keys"
 else
-  fail "dependency expansion must guard unknown and cyclic package keys"
+  fail "dependency expansion must reject unknown and cyclic package keys"
 fi
 
 if grep -Fq 'case '\''pipx'\'':' "$INSTALLX" && grep -Fq 'uv tool install' "$INSTALLX" \

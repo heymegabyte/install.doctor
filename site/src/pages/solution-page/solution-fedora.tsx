@@ -53,7 +53,7 @@ export const SolutionFedora = () => {
             <code-snippet
               language="shell-session"
               code={`
-bash <(curl -sSL https://install.doctor/start)
+curl -fsSL https://app.install.doctor/start | bash
 `}
             />
           </div>

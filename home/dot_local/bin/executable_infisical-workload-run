@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 // Directly execs one command with only its exact manifest-declared secret mappings.
-import { readFileSync, realpathSync, statSync } from 'node:fs';
-import { delimiter, join } from 'node:path';
-import { execFileSync } from 'node:child_process';
-import process from 'node:process';
+const { readFileSync, realpathSync, statSync } = require('node:fs');
+const { delimiter, join } = require('node:path');
+const { execFileSync } = require('node:child_process');
+const process = require('node:process');
 
 function fail(message) { console.error(`infisical-workload-run: ${message}`); process.exit(1); }
 function exact(value, keys, label) {

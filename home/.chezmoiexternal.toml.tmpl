@@ -1,11 +1,7 @@
-{{ $gitArgs := "clone.args = ['--depth', '1']\n    pull.args = ['--ff-only']" }}
-
 ### Qubes OS Ansible Playbooks (Qubes only)
 {{- if .host.qubes }}
-[".local/share/ansible-qubes"]
-    type = "git-repo"
-    url = "https://github.com/ProfessorManhattan/ansible-qubes.git"
-    {{ $gitArgs }}
+# The former ProfessorManhattan/ansible-qubes source is unavailable. Qubes
+# plugins remain unsupported instead of silently executing a replacement fork.
 {{- end }}
 
 ######################################
@@ -15,34 +11,50 @@
 ### Bash (Sensible defaults)
 [".local/share/shell/sensible.bash"]
     type = "file"
-    url = "https://raw.githubusercontent.com/mrzool/bash-sensible/master/sensible.bash"
+    url = "https://raw.githubusercontent.com/mrzool/bash-sensible/eb82f9e87728ea10423a2a2b039a4b491d10c733/sensible.bash"
+    checksum.sha256 = "0fc4fe8e6ef27b11a82d1bdf83bdf7527c933e5b8991813a2e4cf67f82c0eccc"
+    checksum.size = 3266
 
 ### fzf (68k+ stars)
 [".local/share/fzf/fzf-git.bash"]
     type = "file"
-    url = "https://raw.githubusercontent.com/junegunn/fzf-git.sh/main/fzf-git.sh"
+    url = "https://raw.githubusercontent.com/junegunn/fzf-git.sh/57ef995e245923ae05721e876c42100a1896ad6c/fzf-git.sh"
+    checksum.sha256 = "a2b1502d169fefca863b51c419bfdc8d45683a8815b2c3fa1885ace0a2e173be"
+    checksum.size = 16914
 [".local/share/fzf/fzf-tmux.bash"]
     type = "file"
-    url = "https://raw.githubusercontent.com/junegunn/fzf/master/bin/fzf-tmux"
+    url = "https://raw.githubusercontent.com/junegunn/fzf/96028e2a54023a8ff8240e985ae9c8e4f25c0089/bin/fzf-tmux"
+    checksum.sha256 = "d6f25d7ed61fab3c4d14920bd211d9efbb5beafd2cc4dcbe9accb6a441dcdabc"
+    checksum.size = 7382
 [".local/share/zsh/site-functions/fzf.zsh"]
     type = "file"
-    url = "https://raw.githubusercontent.com/junegunn/fzf/master/shell/completion.zsh"
+    url = "https://raw.githubusercontent.com/junegunn/fzf/96028e2a54023a8ff8240e985ae9c8e4f25c0089/shell/completion.zsh"
+    checksum.sha256 = "ce0ba5acc4c6bf5b349349731ffd6e755fb403e08d30566daa75542f0d0c08b5"
+    checksum.size = 16430
 [".local/share/zsh/site-functions/fzf-key-bindings.zsh"]
     type = "file"
-    url = "https://raw.githubusercontent.com/junegunn/fzf/master/shell/key-bindings.zsh"
+    url = "https://raw.githubusercontent.com/junegunn/fzf/96028e2a54023a8ff8240e985ae9c8e4f25c0089/shell/key-bindings.zsh"
+    checksum.sha256 = "88e9e813a62e737ee1dc0bb638c171301bb1bc03edc363346fb7026b94280e50"
+    checksum.size = 7578
 
 ### LSColors
 [".config/shell/lscolors.sh"]
     type = "file"
-    url = "https://raw.githubusercontent.com/trapd00r/LS_COLORS/master/lscolors.sh"
+    url = "https://raw.githubusercontent.com/trapd00r/LS_COLORS/810ce8cac886ac50e75d84fb438b549a1f9478ee/lscolors.sh"
+    checksum.sha256 = "847d21d07ad061bc1c9d256563e0e233ba9284b8fd2be0f99086679a3c57f107"
+    checksum.size = 10619
 
 ### TMux (gpakosz/.tmux — 23k+ stars)
 [".config/tmux/tmux.conf"]
     type = "file"
-    url = "https://raw.githubusercontent.com/gpakosz/.tmux/master/.tmux.conf"
+    url = "https://raw.githubusercontent.com/gpakosz/.tmux/58a3dcc0d718ec0fa1c0d5a2fddd640a1ad7a5b7/.tmux.conf"
+    checksum.sha256 = "30850a2e23ca1707a675e870e9c448971538d48fcd8e2f2681a1f004fe9d4ce0"
+    checksum.size = 102222
 [".config/tmux/tmux.conf.local"]
     type = "file"
-    url = "https://raw.githubusercontent.com/gpakosz/.tmux/master/.tmux.conf.local"
+    url = "https://raw.githubusercontent.com/gpakosz/.tmux/58a3dcc0d718ec0fa1c0d5a2fddd640a1ad7a5b7/.tmux.conf.local"
+    checksum.sha256 = "41a7d6aedab5f39f5a1350d060b5409026d8ab7cffa0de8cc662a71d24a3df7c"
+    checksum.size = 19625
 
 ######################################
 ### Fonts ############################
@@ -51,7 +63,7 @@
 ### Hack Nerd Font (4 core weights only — eliminates 30 redundant font HTTP requests)
 {{- if not .host.headless }}
 {{-   $fontDir := "" }}
-{{-   $fontUrlBase := "https://github.com/ryanoasis/nerd-fonts/raw/v3.2.1/patched-fonts/Hack" }}
+{{-   $fontUrlBase := "https://raw.githubusercontent.com/ryanoasis/nerd-fonts/b6c7639200240f2608e751a3aafe1720125895b3/patched-fonts/Hack" }}
 {{-   if eq .host.distro.family "darwin" }}
 {{-     $fontDir = "Library/Fonts" }}
 {{-   else if eq .host.distro.family "linux" }}
@@ -62,15 +74,23 @@
 ["{{ $fontDir }}/Hack-Regular-Nerd-Font.ttf"]
     type = "file"
     url = "{{ $fontUrlBase }}/Regular/HackNerdFont-Regular.ttf"
+    checksum.sha256 = "0aa54352dfb5a20a736e384409e378f22fde3726bf5d30318934e4ee6853b2b1"
+    checksum.size = 2445204
 ["{{ $fontDir }}/Hack-Bold-Nerd-Font.ttf"]
     type = "file"
     url = "{{ $fontUrlBase }}/Bold/HackNerdFont-Bold.ttf"
+    checksum.sha256 = "8c02ee30eb4e371e3e769fc17f761d08b0d6665af623ca8ef7d86819c77b5498"
+    checksum.size = 2453600
 ["{{ $fontDir }}/Hack-Italic-Nerd-Font.ttf"]
     type = "file"
     url = "{{ $fontUrlBase }}/Italic/HackNerdFont-Italic.ttf"
+    checksum.sha256 = "0bd831dcf9cf0e51a7f5b346a414340cb4edf7c5d1c23915fe742223b2c37827"
+    checksum.size = 2452644
 ["{{ $fontDir }}/Hack-Bold-Italic-Nerd-Font.ttf"]
     type = "file"
     url = "{{ $fontUrlBase }}/BoldItalic/HackNerdFont-BoldItalic.ttf"
+    checksum.sha256 = "746205166b20dd962aafca3971c7fedd4c87e59b17f4fe8569e61467bcea9766"
+    checksum.size = 2459276
 {{- end }}
 
 ######################################
@@ -80,7 +100,9 @@
 ### cURL / Mozilla CA Bundle
 [".local/etc/ssl/curl/cacert.pem"]
     type = "file"
-    url = "https://curl.se/ca/cacert.pem"
+    url = "https://curl.se/ca/cacert-2026-11-05.pem"
+    checksum.sha256 = "427c064216761a1e72a8b30f0d954d08cb6e4435a82091fb865afd20c8497285"
+    checksum.size = 200116
 
 ######################################
 ### Theme (Linux Desktop Only) #######
@@ -88,9 +110,12 @@
 
 {{- if and (eq .chezmoi.os "linux") (not .host.headless) }}
 [".local/share/betelgeuse"]
-    type = "git-repo"
-    url = "https://gitlab.com/megabyte-labs/misc/betelgeuse.git"
-    {{ $gitArgs }}
+    type = "archive"
+    url = "https://gitlab.com/api/v4/projects/megabyte-labs%2Fmisc%2Fbetelgeuse/repository/archive.tar.gz?sha=854b544c4161a128dfa0da022016ea556b1c56b0"
+    exact = true
+    stripComponents = 1
+    checksum.sha256 = "a0b1b5cb2c7b69d72cc9401a9becda3b7fb8e208b0f97460107a577c3ef99436"
+    checksum.size = 215306143
 {{- end }}
 
 ######################################
@@ -100,12 +125,16 @@
 ### VIM (vim-plug only; coc.nvim removed in favor of native LSP servers)
 [".config/vim/autoload/plug.vim"]
     type = "file"
-    url = "https://raw.githubusercontent.com/junegunn/vim-plug/master/plug.vim"
-{{- $vimPlugins := .softwarePlugins.vim.plugins }}
+    url = "https://raw.githubusercontent.com/junegunn/vim-plug/7e5aae5e1187842cb0b1d8def986e48d481c4410/plug.vim"
+    checksum.sha256 = "4243c1d2a5d9a1012aca536315e69aab8549e60926b3dd80ee1f973954d77f9d"
+    checksum.size = 86115
+{{- $vimPlugins := .vimPlugins }}
 {{- range $vimPlugin := $vimPlugins }}
-{{-   $folderName := trimSuffix ".git" (last (splitList "/" $vimPlugin)) }}
-[".local/share/vim/plugged/{{ $folderName }}"]
-    type = "git-repo"
-    url = "{{ $vimPlugin }}"
-    {{ $gitArgs }}
+[".local/share/vim/plugged/{{ $vimPlugin.name }}"]
+    type = "archive"
+    url = "https://codeload.github.com/{{ $vimPlugin.repo }}/tar.gz/{{ $vimPlugin.commit }}"
+    exact = true
+    stripComponents = 1
+    checksum.sha256 = "{{ $vimPlugin.sha256 }}"
+    checksum.size = {{ $vimPlugin.size }}
 {{- end }}

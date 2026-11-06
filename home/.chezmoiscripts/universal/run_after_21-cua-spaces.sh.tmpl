@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
 # @file home/.chezmoiscripts/universal/run_after_21-cua-spaces.sh.tmpl
-# @brief Install Cua Spaces on GUI desktops with >= 16 GiB RAM (gated, idempotent, consent-safe)
+# @brief Verify or explicitly defer Cua Spaces until a signed artifact is selected
 # @description
 #     Cua Spaces (https://cua.ai) is a computer-use execution SUBSTRATE (isolated desktops for
 #     agents), not a governance plane. Brian directive 2026-10-28: "ensure Cua Spaces is installed
 #     on any desktop with 16GB+ RAM." Per the `cua-spaces-integration` rule it is OFFERED during
 #     provisioning only on a GUI DESKTOP with >= 16 GiB RAM and a supported OS (macOS / Linux).
 #
-#     This provisioning step is deliberately CONSERVATIVE: it installs the Cua Spaces app + the `cua`
-#     CLI (dry-run first), and NOTHING that needs explicit per-action consent. It does NOT pair the
+#     This provisioning step verifies an existing Cua Spaces app and otherwise refuses mutable remote
+#     installer execution. It does NOT pair the
 #     machine to an account (--pair), does NOT sign in, does NOT run `cua connect setup` to attach
 #     agents, and NEVER unlocks the Keyvault or copies host credentials — those remain the user's
 #     explicit later action. The Linux AppImage is excluded (the installer selects the native package).
@@ -21,9 +21,9 @@ trap "command -v gum >/dev/null 2>&1 && gum log -sl error 'post run_after_21-cua
 log() { if command -v gum >/dev/null 2>&1; then gum log -sl info "$1"; else echo "[INFO] $1"; fi; }
 warn() { if command -v gum >/dev/null 2>&1; then gum log -sl warn "$1"; else echo "[WARN] $1" >&2; fi; }
 
-### Opt-out
-if [ "${INSTALL_DOCTOR_CUA:-1}" = "0" ]; then
-  log 'Cua Spaces install opted out (INSTALL_DOCTOR_CUA=0) — skipping'
+### Explicit selection. Optional desktop software is lazy and unselected by default.
+if [ "${INSTALL_DOCTOR_CUA:-0}" != "1" ]; then
+  log 'Cua Spaces is not selected in desired state (INSTALL_DOCTOR_CUA=1) — skipping'
   exit 0
 fi
 
@@ -79,29 +79,5 @@ if command -v cua >/dev/null 2>&1; then
   exit 0
 fi
 
-log "GUI desktop with ${CUA_RAM_GIB} GiB RAM (${CUA_OS}) — installing Cua Spaces (dry-run first)"
-
-### Step 1 — dry-run (shows what WOULD happen; installs nothing) per the cua-spaces rule
-if ! curl -fsSL https://cua.ai/install.sh | sh -s -- --dry-run; then
-  warn 'Cua Spaces dry-run failed — NOT installing'
-  exit 0
-fi
-
-### Step 2 — real install, non-interactive: the Cua Spaces app + the `cua` CLI (native package; NOT
-### the Linux AppImage). `--yes` installs without prompts and WITHOUT signing in or pairing — there is
-### no auto account-join, no credential copy. The user finishes sign-in / pairing / Keyvault later.
-if ! curl -fsSL https://cua.ai/install.sh | sh -s -- --yes; then
-  warn 'Cua Spaces install failed — leaving the system unchanged'
-  exit 0
-fi
-
-### Step 3 — verify (never claim success without evidence)
-if command -v cua >/dev/null 2>&1; then
-  if cua runtime doctor >/dev/null 2>&1; then
-    log "Cua Spaces installed ($(cua --version 2>/dev/null || echo installed)) — runtime doctor OK"
-  else
-    warn 'Cua installed but runtime doctor reported issues — review with: cua runtime doctor'
-  fi
-else
-  warn 'Cua installer ran but `cua` is not on PATH yet — open a new shell or review the installer output'
-fi
+warn "Cua Spaces was selected for a qualifying ${CUA_OS} desktop, but no immutable signed artifact is configured. Refusing the mutable cua.ai installer; add a verified artifact to desired state and rerun install.doctor."
+exit 69

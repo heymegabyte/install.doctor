@@ -57,6 +57,16 @@ else
   else
     fail "generated catalog omits or invalidates delivery mode"
   fi
+  if jq -e '
+    all(.[]; (.loadPolicy == "lazy" or .loadPolicy == "eager-bootstrap" or .loadPolicy == "eager-supported-path" or .loadPolicy == "eager-security-recovery" or .loadPolicy == "eager-service")) and
+    all(.[] | select(.loadPolicy == "lazy"); .loadRationale == "default-lazy") and
+    all(.[] | select(.loadPolicy != "lazy"); (.loadRationale | type == "string" and contains(":"))) and
+    all(.[] | select(.installMode == "app" and .preload == false); .loadPolicy == "lazy" and .deliveryMode == "lazy")
+  ' "$GENERATED" >/dev/null; then
+    pass "generated catalog exposes deterministic lazy-by-default load policy and owning rationale"
+  else
+    fail "generated catalog load policy is missing, unbounded, or shape-derived instead of desired-state-derived"
+  fi
 fi
 
 for contract in \

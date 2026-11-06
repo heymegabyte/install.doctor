@@ -1,34 +1,9 @@
 {{- if (eq .host.distro.id "qubes") -}}
 #!/usr/bin/env bash
-# @file Qubes `sys-usb`
-# @brief Enables `sys-usb` and configures it with ideal security settings
-# @description
-#     This script ensures that Qubes uses `sys-usb` for USB connections. It also optimizes the configuration
-#     by applying security configurations that the Qubes documentation recommends.
+set -euo pipefail
 
-{{ includeTemplate "universal/profile-before" }}
 {{ includeTemplate "universal/logg-before" }}
 
-### Enable sys-usb
-gum log -sl info 'Modifying Salt configuration to be able to enable sys-usb'
-qubesctl top.enabled pillar=True || EXIT_CODE=$?
-qubesctl state.highstate || EXIT_CODE=$?
-gum log -sl info 'Ensuring sys-net-as-usbvm is removed'
-qubesctl top.disable qvm.sys-net-as-usbvm pillar=True || EXIT_CODE=$?
-gum log -sl info 'Ensuring sys-usb is setup and that it is properly configured with the keyboard'
-qubesctl state.sls qvm.usb-keyboard
-
-### Configure USB keyboard settings
-if [ "{{ .qubes.promptKeyboards }}" = 'true' ]; then
-  gum log -sl info 'Ensure USB keyboards are only allows to connect after prompt is answered'
-  gum log -sl warn 'This can potentially lock you out if all you have are USB keyboards'
-  echo "sys-usb dom0 ask,user=root,default_target=dom0" | sudo tee /etc/qubes-rpc/policy/qubes.InputKeyboard
-else
-  gum log -sl info 'Ensuring USB keyboards can connect without a prompt'
-  echo "sys-usb dom0 allow,user=root" | sudo tee /etc/qubes-rpc/policy/qubes.InputKeyboard
-fi
-
-### Configure USB mouse settings
-gum log -sl info 'Ensuring newly connected USB mouse devices are only allowed to connect after a prompt is accepted'
-echo "sys-usb dom0 ask,default_target=dom0" | sudo tee /etc/qubes-rpc/policy/qubes.InputMouse
+gum log -sl error 'Qubes USB policy reconciliation is unsupported until typed rollback and lockout-safe canary evidence exist; refusing Salt and RPC-policy mutation'
+exit 78
 {{ end -}}

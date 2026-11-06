@@ -134,6 +134,38 @@ fi
 # ---------------------------------------------------------------------------
 # Results
 # ---------------------------------------------------------------------------
+# Executable shell metadata and unverified provider shortcuts were retired in
+# R09. Only typed `_artifacts` may carry non-package-manager acquisition
+# authority; moving Go references are equally forbidden.
+LEGACY_AUTHORITY="$(python3 - "$SW_YML" <<'PY'
+import re, sys, yaml
+packages = (yaml.safe_load(open(sys.argv[1], encoding="utf-8")) or {}).get("softwarePackages", {})
+bad = []
+legacy = re.compile(r"^(?:_pre|_post|_when|script|binary|appimage|github)(?::|$)")
+exact_go = re.compile(r"@v\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$")
+for name, value in packages.items():
+    if not isinstance(value, dict):
+        continue
+    for key, provider in value.items():
+        key = str(key)
+        if legacy.match(key):
+            bad.append(f"{name}:{key}")
+        if key.split(":", 1)[0] == "go" and (not isinstance(provider, str) or not exact_go.search(provider)):
+            bad.append(f"{name}:{key}:mutable")
+        if not key.startswith("_") and isinstance(provider, str) and re.match(r"^https?://", provider):
+            bad.append(f"{name}:{key}:unverified-url")
+print("\n".join(sorted(bad)))
+PY
+)"
+if [ -z "$LEGACY_AUTHORITY" ]; then
+  echo "PASS: Catalog contains no legacy executable metadata, mutable Go providers, or URL-valued package shortcuts"
+  PASS=$((PASS + 1))
+else
+  echo "FAIL: Legacy executable catalog authority remains:"
+  printf '  %s\n' "$LEGACY_AUTHORITY"
+  FAIL=$((FAIL + 1))
+fi
+
 echo ""
 echo "=== Results: $PASS passed, $FAIL failed ==="
 

@@ -49,7 +49,7 @@ export const SolutionQubes = () => {
             <code-snippet
               language="shell-session"
               code={`
-qvm-run --pass-io sys-firewall "curl -sSL https://install.doctor/qubes" > ~/setup.sh && bash ~/setup.sh
+# No release-verified Qubes entrypoint is currently published.
 `}
             />
           </div>

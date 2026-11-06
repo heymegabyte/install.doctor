@@ -4,7 +4,7 @@
 # The `curl|bash` installer's clone/fetch URLs must point at the CANONICAL OWNED org
 # `heymegabyte/install.doctor`, NEVER the legacy `megabyte-labs/install.doctor`. The legacy org name
 # is a name-squat supply-chain risk: it resolves today ONLY via GitHub's transfer-redirect, and if that
-# org name is ever re-registered, every default `bash <(curl -sSL https://install.doctor/start)` would
+# org name is ever re-registered, every default `curl -fsSL https://app.install.doctor/start | bash` would
 # clone an attacker-controlled repo. This guard asserts every EXECUTED clone/fetch default + the `/start`
 # redirect is on the canonical org, and that the `/start` redirect targets a file that actually exists.
 #
@@ -26,7 +26,6 @@ say "Bootstrap clone-URL provenance (D09/D11)"
 # The EXECUTED clone/fetch defaults — each must be canonical heymegabyte, never legacy megabyte-labs/install.doctor.
 EXEC_FILES=(
   "scripts/provision.sh"
-  "scripts/src/provision.sh.tmpl"
   "home/.chezmoi.yaml.tmpl"
   "home/.chezmoiexternal.toml.tmpl"
 )
@@ -40,8 +39,8 @@ for rel in "${EXEC_FILES[@]}"; do
   fi
 done
 
-# provision.sh + its template must default START_REPO to the canonical org (positive assertion, not just absence).
-for rel in "scripts/provision.sh" "scripts/src/provision.sh.tmpl"; do
+# The canonical provisioner must default START_REPO to the canonical org.
+for rel in "scripts/provision.sh"; do
   grep -q 'START_REPO="https://github.com/heymegabyte/install.doctor.git"' "$ROOT/$rel" \
     && pass "$rel: default START_REPO = canonical heymegabyte" \
     || fail "$rel: default START_REPO is not the canonical heymegabyte clone URL"
@@ -50,9 +49,8 @@ done
 # CI-env defaults must RESPECT an externally-provided value (${VAR:-default}), never UNCONDITIONALLY
 # overwrite it. A bare `export PRIMARY_EMAIL="brian@..."` in setCIEnvironmentVariables clobbers a secret/
 # CI-provided identity, which post-postfix then uses for root-mail forwarding (.forward / aliases) — the
-# #254 cross-machine class. Guard BOTH the generated provision.sh AND its template SoT (they drifted: the
-# template set them unconditionally while the deployed used ${VAR:-}; fixed #258). Identity/mail vars only.
-for rel in "scripts/provision.sh" "scripts/src/provision.sh.tmpl"; do
+# #254 cross-machine class. Guard the single authored provisioner. Identity/mail vars only.
+for rel in "scripts/provision.sh"; do
   f="$ROOT/$rel"
   envbad=""
   for v in PRIMARY_EMAIL PUBLIC_SERVICES_DOMAIN; do
@@ -63,11 +61,8 @@ for rel in "scripts/provision.sh" "scripts/src/provision.sh.tmpl"; do
     || fail "$rel: unconditionally overwrites CI-provided$envbad (clobbers a secret-provided identity → postfix root-mail misrouting; use \${VAR:-})"
 done
 
-# The SoT template src/provision.sh.tmpl is STALE — ~530 lines behind the hand-maintained, SERVED
-# scripts/provision.sh. A gomplate regen (scripts/.gomplate.yaml: src/ -> provision.sh) would CLOBBER
-# deployed-only, load-bearing functions + the #258 env-safe CI defaults. Lock BOTH halves: (1) the deployed
-# keeps its critical functions (a regen/edit dropping them REDs); (2) the template carries a DO-NOT-REGENERATE
-# warning so it can't silently look authoritative. Full reconciliation = a focused-session item (TOP-next). #259.
+# The served provisioner is the single source of truth. Keep its critical functions and reject reintroduction
+# of the stale generator template that previously could clobber them.
 PROV="$ROOT/scripts/provision.sh"
 dmiss=""
 for fn in setEnvironmentVariables applyEnvClassDefaults; do
@@ -75,11 +70,11 @@ for fn in setEnvironmentVariables applyEnvClassDefaults; do
 done
 [ -z "$dmiss" ] \
   && pass "deployed provision.sh keeps its critical hand-maintained functions (setEnvironmentVariables, applyEnvClassDefaults)" \
-  || fail "deployed provision.sh is MISSING$dmiss — a stale-template regen likely clobbered it (see scripts/.gomplate.yaml)"
-if grep -qE 'DO NOT REGENERATE|STALE TEMPLATE' "$ROOT/scripts/src/provision.sh.tmpl" 2> /dev/null; then
-  pass "src/provision.sh.tmpl carries the STALE / DO-NOT-REGENERATE warning (won't silently clobber the served provision.sh)"
+  || fail "deployed provision.sh is MISSING$dmiss"
+if [ ! -e "$ROOT/scripts/src/provision.sh.tmpl" ]; then
+  pass "stale provision.sh generator template remains absent"
 else
-  fail "src/provision.sh.tmpl has NO stale/do-not-regenerate warning — a gomplate regen would clobber the served provision.sh (#259)"
+  fail "stale provision.sh generator template was reintroduced"
 fi
 
 # provision.sh OS detection is a SOURCE-ELSE-INLINE pattern (#266, verify-against-source + the prompt's "no
@@ -160,23 +155,20 @@ grep -qE 'HEADLESS_INSTALL' "$fda" 2> /dev/null || fdabad="$fdabad no-HEADLESS-g
   || fail "partials/full-disk-access still drifted from the deployed ensureFullDiskAccess:$fdabad"
 
 # homebrew partial (ensurePackageManagerHomebrew, inlined into provision.sh's ensureHomebrew) was the LAST
-# mapped partial drift. Two deployed improvements the partial lacked: (1) its NO-SUDO install path used a BARE
-# `bash -c "$(curl …install.sh)"` — the Homebrew installer blocks on an interactive RETURN prompt, so a
-# headless / no-sudo provision HANGS; the deployed pipes `echo |` into BOTH install paths (non-interactive).
+# mapped partial drift. The installer is downloaded from one immutable commit into a local file and run with
+# NONINTERACTIVE=1 on both paths; no moving HEAD or command-substitution execution is permitted.
 # (2) its single trailing `/opt/homebrew` chown used an UNGUARDED `$USER` (empty USER → `sudo chown -R ""
 # /opt/homebrew` errors); the deployed guards it `[ -n "$USER" ]` (warn-and-skip when unset), per branch.
 # Reconciled to the deployed #263 → the src↔deployed PARTIAL axis is now FULLY reconciled (basic-deps #260 ·
 # import-cloudflare+reboot #261 · full-disk-access #262 · homebrew #263). The other 5 homebrew fns were already
-# identical. Lock: echo-pipe on BOTH install paths (count == 2) + the USER-guarded chown present.
+# identical. Lock: pinned helper on BOTH install paths (count == 2) + the USER-guarded chown present.
 hb="$ROOT/scripts/partials/homebrew"
 hbbad=""
-# -F (fixed string): the literal carries `|` + `$(` + `"` — BSD grep's BRE mishandles the mid-pattern `$(` as
-# an EOL anchor and matches 0 (the macOS-grep-quirk family, cf. the `\b`-unreliable reminder), making a plain
-# `grep -c` a vacuously-broken sub-check. `-Fc` matches the literal: 1 (sudo path only) now → 2 (both) on port.
-[ "$(grep -Fc 'echo | bash -c "$(curl' "$hb" 2> /dev/null)" = 2 ] || hbbad="$hbbad echo-pipe-not-on-both-install-paths"
+grep -qF "commit='959bdd728192d78c47287c177796c3d86d111f09'" "$hb" 2>/dev/null || hbbad="$hbbad pinned-homebrew-commit-missing"
+[ "$(grep -Fc 'runPinnedHomebrewInstaller || BREW_EXIT_CODE="$?"' "$hb" 2> /dev/null)" = 2 ] || hbbad="$hbbad pinned-installer-not-on-both-install-paths"
 grep -qE '\[ -n "\$USER" \]' "$hb" 2> /dev/null || hbbad="$hbbad unguarded-opt-homebrew-chown"
 [ -z "$hbbad" ] \
-  && pass "partials/homebrew ensurePackageManagerHomebrew: echo-pipe on both install paths + USER-guarded /opt/homebrew chown (reconciled to the deployed, no interactive-hang / empty-USER chown)" \
+  && pass "partials/homebrew: immutable noninteractive installer on both paths + USER-guarded /opt/homebrew chown" \
   || fail "partials/homebrew still drifted from the deployed ensurePackageManagerHomebrew:$hbbad"
 
 # CHEZMOISCRIPT headless-safety (#264, verify-against-source): the run_* chezmoiscript scan found they are NOT
@@ -213,25 +205,21 @@ prov_legacy=0
 prov_n=0
 while IFS= read -r pf; do
   [ -n "$pf" ] || continue
+  [ -f "$ROOT/$pf" ] || continue
   prov_n=$((prov_n + 1))
   grep -q 'megabyte-labs/install\.doctor' "$ROOT/$pf" && { prov_legacy=$((prov_legacy + 1)); fail "provision variant $pf carries the LEGACY megabyte-labs clone URL"; }
 done < <(git -C "$ROOT" ls-files | grep -E '(^|/)provision\.sh(\.tmpl)?$' | grep -vE '^site/')
 [ "$prov_legacy" -eq 0 ] && pass "no provision.sh variant carries a legacy megabyte-labs clone URL ($prov_n variants globbed)"
 
-# The /start firebase redirect must serve from the canonical org AND target a file that EXISTS (no dangling redirect).
+# The public /start route must converge on the signed-manifest stage zero and
+# never bypass verification by redirecting directly to a moving Git ref.
 FB="$ROOT/site/firebase.json"
 if [ -f "$FB" ]; then
-  start_dest="$(grep -A2 '"/start"' "$FB" | grep -oE 'https://raw.githubusercontent.com/[^"]+' | head -1)"
-  case "$start_dest" in
-    *heymegabyte/install.doctor/*) pass "/start redirect serves from canonical heymegabyte" ;;
-    *) fail "/start redirect not on canonical heymegabyte: $start_dest" ;;
-  esac
-  # the target path (scripts/<file>) must exist in the repo — a redirect to a non-existent file is dangling
-  tgt_file="${start_dest##*/master/}"
-  if [ -n "$tgt_file" ] && [ -f "$ROOT/$tgt_file" ]; then
-    pass "/start redirect targets an existing file ($tgt_file)"
+  start_dest="$(grep -A2 '"/start"' "$FB" | grep -oE 'https://[^"]+' | head -1)"
+  if [ "$start_dest" = 'https://app.install.doctor/start' ]; then
+    pass "/start redirects to the canonical signed stage-zero endpoint"
   else
-    fail "/start redirect targets a NON-existent file ($tgt_file) — dangling"
+    fail "/start bypasses the canonical signed stage zero: $start_dest"
   fi
 else
   fail "site/firebase.json missing"
@@ -248,7 +236,7 @@ if [ -f "$FB" ]; then
     checked=$((checked + 1))
     [ -f "$ROOT/$rel_tgt" ] || { dangling=$((dangling + 1)); fail "firebase redirect → NON-existent $rel_tgt (dangling)"; }
   done < <(grep -oE 'https://raw.githubusercontent.com/[^"]+install.doctor/master/[^"]+' "$FB")
-  [ "$dangling" -eq 0 ] && pass "no dangling firebase redirects ($checked install.doctor redirect target(s) all exist)"
+  [ "$dangling" -eq 0 ] && pass "no dangling raw-script redirects ($checked remaining install.doctor redirect target(s) all exist)"
   # the dead Vagrant redirects must be GONE (the landing-page Vagrant surfaces are scoped to #183 — need a site build).
   grep -qE '"/vagrant(-windows)?"' "$FB" && fail "dead /vagrant redirect still present (removed #182)" || pass "dead /vagrant + /vagrant-windows redirects removed"
 fi
@@ -275,7 +263,14 @@ for f in "$ROOT"/scripts/*.sh; do
   for e in $ORPHAN_ENTRY; do [ "$b" = "$e" ] && skip=1; done
   [ "$skip" = 1 ] && continue
   orphan_cand=$((orphan_cand + 1))
-  refs="$(git -C "$ROOT" grep -l --fixed-strings "$b" -- ':!scripts/'"$b" 2> /dev/null | wc -l | tr -d ' ')"
+  # Scan the current worktree, not only the Git index. Release tooling is
+  # generated and validated before its first commit, and treating a real
+  # untracked caller/documentation reference as absent makes this gate report
+  # a false orphan during the release build itself.
+  refs="$(rg -l --fixed-strings "$b" "$ROOT" \
+    --glob '!node_modules/**' --glob '!site/node_modules/**' --glob '!packages/**/node_modules/**' \
+    --glob '!site/.wrangler/**' --glob '!packages/**/.wrangler/**' \
+    --glob "!scripts/$b" 2> /dev/null | wc -l | tr -d ' ')"
   [ "$refs" = 0 ] && orphan_hits="$orphan_hits $b"
 done
 [ "$orphan_cand" -ge 4 ] \
@@ -285,28 +280,27 @@ done
   && pass "no orphan scripts/*.sh (every non-test/non-entrypoint script has >=1 textual reference — no dead code)" \
   || fail "ORPHAN scripts/*.sh (zero textual references — dead code, remove or wire up):$orphan_hits"
 
-# installx (the bulk installer) has unimplemented installer-key cases — `github` (GitHub-release binary) +
-# `sbopkg` (Slackware) are `// TODO` + a bare `break`. Its `default:` case LOGS "Unable to find install key
-# instructions"; these KNOWN-but-unimplemented cases must ALSO surface a warning, not SILENTLY skip — else an
-# entry whose chosen installer is github/sbopkg is dropped with NO trace (the operator believes it installed →
-# a "quality of the software it delivers" defect). #271 made them warn (listing the skipped packages); the FULL
-# GitHub-release install (arch/OS asset selection + extract to PATH) + the installerPreference reach-analysis
-# are a BACKLOG focused session. 118 software.yml entries carry a `github:` key (mostly as a fallback).
+# Unsupported providers are explicit failures, never successful no-ops. Their
+# acquisition authority must be migrated to a verified adapter or typed
+# immutable artifact before selection.
 IX="$ROOT/home/dot_local/bin/executable_installx"
-if grep -qF "Install key 'github' not yet implemented" "$IX" 2> /dev/null && grep -qF "Install key 'sbopkg' not yet implemented" "$IX" 2> /dev/null; then
-  pass "installx warns on unimplemented installer keys (github, sbopkg) — a skipped install is VISIBLE, not silently swallowed (quality)"
+if grep -qF "catalog provider '\${key}' has no verified check/apply/verify adapter" "$IX" 2> /dev/null \
+  && grep -qF "throw new Error(\`catalog provider" "$IX" 2> /dev/null; then
+  pass "installx fails closed on providers without verified check/apply/verify adapters"
 else
-  fail "installx silently 'break's on an unimplemented installer key (github/sbopkg) — an entry using it is skipped with no trace; warn like the default case"
+  fail "installx can silently succeed on a provider without a verified adapter"
 fi
 
 # installx has ZERO behavioral coverage (#272) — lock its two PROMPT-CENTRAL invariants. (1) The lazy/MINIMUM-
 # install gate (the prompt's "install closer to the minimum … lazy loading … only pre-load what needs pre-config
-# or desktop apps"): `--lazy` installs only desktop-apps + items flagged `_preload: true`, leaving every other
-# CLI for the cnf hook to lazy-install on demand. If the `_preload` gate were dropped, `--lazy` would install
-# EVERYTHING → the minimum-install promise breaks SILENTLY. (2) Headless-safety (CLAUDE.md §3): on a headless box
+# or desktop apps"): `--lazy` installs items flagged `_preload: true` plus service packages explicitly selected
+# in the immutable desired-state plan, leaving every other CLI for the cnf hook to lazy-install on demand. If the
+# `_preload` gate were dropped, `--lazy` could install EVERYTHING → the minimum-install promise breaks SILENTLY.
+# (2) Headless-safety (CLAUDE.md §3): on a headless box
 # `--lazy` must SKIP GUI apps (`_app`/flatpak/appimage → false), never pull a desktop app onto a server.
-if grep -qF 'customArgv.lazy' "$IX" 2> /dev/null && grep -qF 'return !!x._preload' "$IX" 2> /dev/null; then
-  pass "installx --lazy gates on _preload (the prompt's MINIMUM-install: only desktop-apps + _preload items; the rest lazy-load via cnf)"
+if grep -qF 'customArgv.lazy' "$IX" 2> /dev/null \
+  && grep -qF 'return !!x._preload || selectedPackageKeys.has(x.listKey) || selectedServiceKeys.has(x.listKey)' "$IX" 2> /dev/null; then
+  pass "installx --lazy gates on _preload plus explicitly selected packages and service dependencies (all other tools lazy-load via cnf)"
 else
   fail "installx --lazy no longer gates on _preload — minimum-install would regress to installing EVERYTHING (breaks the prompt's 'install closer to the minimum')"
 fi

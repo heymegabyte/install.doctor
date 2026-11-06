@@ -12,16 +12,10 @@ fail() { printf 'FAIL %s\n' "$*" >&2; F=$((F + 1)); }
 mkdir -p "$TMP/home/.local/share/chezmoi" "$TMP/bin"
 cat >"$TMP/home/.local/share/chezmoi/software.yml" <<'YAML'
 softwarePackages:
-  succeeds:
+  rejected:
     _bin: fixture-bin
-    _post:
-      - |-
-        printf '%s\n' "words stay together" > "$POST_TEST_OUTPUT"
-        printf '%s\n' first second >> "$POST_TEST_OUTPUT"
-  fails:
-    _bin: fixture-bin
-    _post:
-      - 'exit 23'
+    _preload: true
+    _post: 'printf compromised > "$POST_TEST_OUTPUT"'
 YAML
 cat >"$TMP/bin/gum" <<'SH'
 #!/usr/bin/env bash
@@ -34,23 +28,27 @@ SH
 chmod +x "$TMP/bin/gum" "$TMP/bin/fixture-bin"
 
 if HOME="$TMP/home" XDG_DATA_HOME="$TMP/home/.local/share" PATH="$TMP/bin:$PATH" POST_TEST_OUTPUT="$TMP/output" bash "$RUNNER" >"$TMP/stdout" 2>"$TMP/stderr"; then
-  fail "runner must return non-zero when any concurrent _post command fails"
+  fail "validator must reject executable _post metadata"
 else
-  pass "runner propagates a concurrent _post failure"
+  pass "validator rejects executable _post metadata"
 fi
 
-EXPECTED="$(printf 'words stay together\nfirst\nsecond')"
-ACTUAL="$(cat "$TMP/output" 2>/dev/null || true)"
-if [ "$ACTUAL" = "$EXPECTED" ]; then
-  pass "array commands preserve spaces and multiline command bodies"
+if [ ! -e "$TMP/output" ]; then
+  pass "rejected catalog text never reaches a shell"
 else
-  fail "array command changed during YAML/JSON/shell transport: $ACTUAL"
+  fail "catalog _post text executed"
 fi
 
-if grep -q 'Post-install task failed: fails:_post' "$TMP/stderr"; then
-  pass "failure identifies the owning package and action"
+if grep -q 'rejected:_post' "$TMP/stderr"; then
+  pass "failure identifies the owning package and metadata key"
 else
-  fail "failure output does not identify the failed action"
+  fail "failure output does not identify rejected metadata"
+fi
+
+if ! grep -q 'bash -c' "$RUNNER"; then
+  pass "catalog validator contains no shell-string execution path"
+else
+  fail "catalog validator still grants shell authority"
 fi
 
 printf 'software-post-scripts: %d passed, %d failed\n' "$P" "$F"

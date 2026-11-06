@@ -33,7 +33,7 @@ Here's a summary of what Install Doctor configured on your system:
 | 4 | **Fork the project** | [Fork on GitHub](https://github.com/heymegabyte/install.doctor/fork) to add your customizations |
 | 5 | **Add your secrets** | See the [Secrets guide](/docs/customization/secrets) to encrypt and store your API keys |
 | 6 | **Customize software** | Edit `software.yml` and `home/.chezmoidata.yaml` to tailor your software stack |
-| 7 | **Re-provision safely** | Run `bash <(curl -sSL https://install.doctor/start)` again anytime — it skips already-installed software |
+| 7 | **Re-provision safely** | Run `curl -fsSL https://app.install.doctor/start | bash` again anytime — it skips already-installed software |
 
 ## Useful Post-Install Commands
 

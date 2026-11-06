@@ -1,0 +1,24 @@
+export {
+  DesiredStateInputSchema,
+  ExecutionPolicySchema,
+  HostFactsSchema,
+  InstallerEventSchema,
+  ImmutableArtifactDescriptorSchema,
+  NativeOfflinePayloadDescriptorSchema,
+  JournalSchema,
+  NormalizedPlanSchema,
+  TaskNodeSchema,
+  TerminalReceiptSchema,
+} from '@install-doctor/aid-core/installer-contracts';
+export type {
+  DesiredStateInput,
+  ExecutionPolicy,
+  HostFacts,
+  InstallerEvent,
+  ImmutableArtifactDescriptor,
+  NativeOfflinePayloadDescriptor,
+  Journal,
+  NormalizedPlan,
+  TaskNode,
+  TerminalReceipt,
+} from '@install-doctor/aid-core/installer-contracts';

@@ -1,0 +1,97 @@
+name: Independent platform promotion verifier
+
+on:
+  workflow_dispatch:
+    inputs:
+      canary_run_id:
+        description: Successful bootstrap-real-host-canary run containing the unpromoted receipt
+        required: true
+        type: string
+      evidence_object_key:
+        description: Immutable private promotion-inputs/sha256/<digest>.json object
+        required: true
+        type: string
+
+permissions: {}
+
+concurrency:
+  group: platform-promotion-verifier
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: platform-promotion-verifier
+    permissions:
+      actions: read
+      contents: read
+      id-token: write
+      attestations: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+          ref: ${{ github.workflow_sha }}
+      - name: Admit exact immutable canary workflow run
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ inputs.canary_run_id }}
+        run: |
+          set -euo pipefail
+          case "$RUN_ID" in ''|*[!0-9]*|0*) exit 64;; esac
+          run="$(gh api -H 'Accept: application/vnd.github+json' "/repos/${GITHUB_REPOSITORY}/actions/runs/${RUN_ID}")"
+          test "$(jq -r .repository.id <<<"$run")" = "$GITHUB_REPOSITORY_ID"
+          test "$(jq -r .head_repository.id <<<"$run")" = "$GITHUB_REPOSITORY_ID"
+          test "$(jq -r .path <<<"$run")" = '.github/workflows/bootstrap-real-host-canary.yml'
+          test "$(jq -r .head_sha <<<"$run")" = "$GITHUB_WORKFLOW_SHA"
+          test "$(jq -r .event <<<"$run")" = workflow_dispatch
+          test "$(jq -r .conclusion <<<"$run")" = success
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: bootstrap-real-host-canary-${{ inputs.canary_run_id }}
+          path: canary
+          github-token: ${{ github.token }}
+          run-id: ${{ inputs.canary_run_id }}
+      - uses: Infisical/secrets-action@d2e351f16c6ca20d17c85e6c992e04bdeb64e87d # v1.0.18
+        name: Resolve read-only promotion evidence identity through GitHub OIDC
+        with:
+          method: oidc
+          identity-id: ${{ vars.INFISICAL_PLATFORM_PROMOTION_READER_ID }}
+          project-slug: ${{ vars.INFISICAL_PROJECT_SLUG }}
+          env-slug: prod
+          secret-path: /ci/offline-bundle/promotion-read
+          include-imports: false
+          recursive: false
+      - name: Fetch exact content-addressed private evidence
+        env:
+          OBJECT_KEY: ${{ inputs.evidence_object_key }}
+        run: |
+          set -euo pipefail
+          umask 077
+          case "$OBJECT_KEY" in promotion-inputs/sha256/[a-f0-9][a-f0-9]*.json) ;; *) exit 64;; esac
+          digest="${OBJECT_KEY#promotion-inputs/sha256/}"; digest="${digest%.json}"
+          test "${#digest}" = 64
+          AWS_ACCESS_KEY_ID="$INSTALL_DOCTOR_PROMOTION_R2_ACCESS_KEY_ID" \
+          AWS_SECRET_ACCESS_KEY="$INSTALL_DOCTOR_PROMOTION_R2_SECRET_ACCESS_KEY" \
+          aws s3api get-object --no-cli-pager --endpoint-url "$INSTALL_DOCTOR_PROMOTION_R2_ENDPOINT" \
+            --bucket "$INSTALL_DOCTOR_PROMOTION_R2_BUCKET" --key "$OBJECT_KEY" promotion-input.json >/dev/null
+          test "$(sha256sum promotion-input.json | cut -d' ' -f1)" = "$digest"
+          printf 'INSTALL_DOCTOR_PROMOTION_R2_ACCESS_KEY_ID=\nINSTALL_DOCTOR_PROMOTION_R2_SECRET_ACCESS_KEY=\n' >>"$GITHUB_ENV"
+      - name: Build pinned verifier and promote only cryptographically complete evidence
+        env:
+          GITHUB_ACTIONS: 'true'
+          RUNNER_ENVIRONMENT: github-hosted
+        run: |
+          set -euo pipefail
+          npm --prefix packages/installer-engine ci --ignore-scripts --no-audit --no-fund
+          npm --prefix packages/installer-engine run build
+          canary="$(find canary -type f -name receipt.json -print -quit)"
+          test -n "$canary"
+          node scripts/promote-platform-canary-receipt.mjs promotion-input.json "$canary" promoted-receipt.json
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: promoted-platform-receipt-${{ github.run_id }}
+          path: promoted-receipt.json
+          if-no-files-found: error
+          retention-days: 90

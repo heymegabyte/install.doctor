@@ -448,17 +448,8 @@ step_node_exporter(){
   local ver="$NODE_EXPORTER_VERSION" dir="/opt/node_exporter" svc="/etc/systemd/system/node_exporter.service"
   mkdir -p "$dir"
   if [[ ! -x "$dir/node_exporter" ]]; then
-    echo -e "$RUN Installing node_exporter $ver"
-    tmpdir="$(mktemp -d)"; pushd "$tmpdir" >/dev/null
-    arch="$(uname -m)"; case "$arch" in
-      x86_64|amd64) pkg="node_exporter-${ver}.linux-amd64" ;;
-      aarch64|arm64) pkg="node_exporter-${ver}.linux-arm64" ;;
-      *) _abort "Unsupported arch: $arch" ;;
-    esac
-    url="https://github.com/prometheus/node_exporter/releases/download/v${ver}/${pkg}.tar.gz"
-    curl -fsSL "$url" -o ne.tgz; tar -xzf ne.tgz
-    install -m 0755 "${pkg}/node_exporter" "$dir/node_exporter"
-    popd >/dev/null; rm -rf "$tmpdir"
+    echo -e "$WARN node_exporter $ver is selected but absent; admit a verified package or immutable artifact through desired state."
+    return 20
   fi
   # choose a safe group
   ne_group="$(getent group nogroup >/dev/null 2>&1 && echo nogroup || echo nobody)"

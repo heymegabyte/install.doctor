@@ -1,82 +1,45 @@
 #!/usr/bin/env bash
+# @file post-installx/executable_post-wazuh.sh
+# @brief Verifies and starts an already selected Wazuh agent.
+# @description Package/repository enrollment is owned by the signed desired-state
+# closure. This hook never downloads packages or repository trust roots.
 set -euo pipefail
-# @file Wazuh Client Install
-# @brief Installs the Wazuh client and connects to the manager if configured to do so through secrets / environment variables
 
-set -Eeo pipefail
-trap "gum log -sl error 'Script encountered an error!'" ERR
-
-### Ensure secrets
-get-secret --exists WAZUH_MANAGER WAZUH_REGISTRATION_PASSWORD
-
-if [ -d /Applications ] && [ -d /System ]; then
-    ### macOS
-    gum log -sl info 'Downloading the macOS Wazuh agent pkg'
-    if [[ $(uname -m) == 'arm64' ]]; then
-        PKG_URL="https://packages.wazuh.com/4.x/macos/wazuh-agent-4.7.4-1.arm64.pkg"
-    else
-        PKG_URL="https://packages.wazuh.com/4.x/macos/wazuh-agent-4.7.4-1.intel64.pkg"
-    fi
-    wget -q "$PKG_URL" -O /tmp/wazuh-agent.pkg &> /dev/null
-    gum log -sl info 'Setting Wazuh launch parameters in /tmp/wazuh_envs'
-    # https://documentation.wazuh.com/current/user-manual/agent/deployment-variables/deployment-variables-macos.html
-    # The env file carries WAZUH_REGISTRATION_PASSWORD in PLAINTEXT — remove it on ANY exit (trap set BEFORE
-    # the write so a failure can't strand it) + restrict to owner (root still reads it via `sudo installer`),
-    # so the secret never lingers world-readable in /tmp after provisioning (#295).
-    trap 'rm -f /tmp/wazuh_envs' EXIT
-    echo "WAZUH_MANAGER=$(get-secret WAZUH_MANAGER) && WAZUH_REGISTRATION_PASSWORD=$(get-secret WAZUH_REGISTRATION_PASSWORD)" > /tmp/wazuh_envs
-    chmod 600 /tmp/wazuh_envs
-    gum log -sl info 'Installing the Wazuh agent pkg'
-    sudo installer -pkg /tmp/wazuh-agent.pkg -target /
-    sudo chmod 755 /Library/Ossec
-    sudo chmod 755 /Library/Ossec/bin
-    find "/Library/Ossec/bin" -mindepth 1 -maxdepth 1 -type f | while read BIN_FILE; do
-        sudo chmod +x "$BIN_FILE"
-    done
-    rm -f /tmp/wazuh-agent.pkg
-    gum log -sl info 'Running sudo wazuh-control start'
-    sudo wazuh-control start
+if command -v gum >/dev/null 2>&1; then
+  log() { gum log -sl info "$*"; }
+  warn() { gum log -sl warn "$*"; }
 else
-    if command -v apt-get > /dev/null; then
-        gum log -sl info 'Importing GPG-KEY-WAZUH'
-        curl -s https://packages.wazuh.com/key/GPG-KEY-WAZUH | sudo gpg --no-default-keyring --keyring gnupg-ring:/usr/share/keyrings/wazuh.gpg --import
-        sudo chmod 644 /usr/share/keyrings/wazuh.gpg
-        echo "deb [signed-by=/usr/share/keyrings/wazuh.gpg] https://packages.wazuh.com/4.x/apt/ stable main" | sudo tee -a /etc/apt/sources.list.d/wazuh.list
-        sudo apt-get update
-        gum log -sl info 'Installing the Wazuh agent'
-        sudo apt-get install -y wazuh-agent
-    elif command -v dnf > /dev/null; then
-        gum log -sl info 'Configuring /etc/yum.repos.d/wazuh.repo'
-        echo "[wazuh]" | sudo tee -a /etc/yum.repos.d/wazuh.repo && echo "gpgcheck=1" | sudo tee -a /etc/yum.repos.d/wazuh.repo
-        echo "gpgkey=https://packages.wazuh.com/key/GPG-KEY-WAZUH" | sudo tee -a /etc/yum.repos.d/wazuh.repo
-        echo "enabled=1" | sudo tee -a /etc/yum.repos.d/wazuh.repo
-        echo "name=EL-\$releasever - Wazuh" | sudo tee -a /etc/yum.repos.d/wazuh.repo
-        echo "baseurl=https://packages.wazuh.com/4.x/yum/" | sudo tee -a /etc/yum.repos.d/wazuh.repo
-        echo "protect=1" | sudo tee -a /etc/yum.repos.d/wazuh.repo
-        gum log -sl info 'Importing GPG-KEY-WAZUH'
-        sudo rpm --import https://packages.wazuh.com/key/GPG-KEY-WAZUH
-        gum log -sl info 'Installing Wazuh agent'
-        sudo dnf install -y wazuh-agent
-    elif command -v zypper > /dev/null; then
-        gum log -sl info 'Configuring /etc/zypp/repos.d/wazuh.repo'
-        echo "[wazuh]" | sudo tee -a /etc/zypp/repos.d/wazuh.repo
-        echo "gpgcheck=1" | sudo tee -a /etc/zypp/repos.d/wazuh.repo
-        echo "gpgkey=https://packages.wazuh.com/key/GPG-KEY-WAZUH" | sudo tee -a /etc/zypp/repos.d/wazuh.repo
-        echo "enabled=1" | sudo tee -a /etc/zypp/repos.d/wazuh.repo
-        echo "name=EL-\$releasever - Wazuh" | sudo tee -a /etc/zypp/repos.d/wazuh.repo
-        echo "baseurl=https://packages.wazuh.com/4.x/yum/" | sudo tee -a /etc/zypp/repos.d/wazuh.repo
-        echo "protect=1" | sudo tee -a /etc/zypp/repos.d/wazuh.repo
-        gum log -sl info 'Importing GPG-KEY-WAZUH'
-        sudo rpm --import https://packages.wazuh.com/key/GPG-KEY-WAZUH
-        gum log -sl info 'Installing Wazuh agent'
-        sudo zypper install -y wazuh-agent
-    elif command -v apk > /dev/null; then
-        gum log -sl info 'Importing Wazuh repository'
-        sudo wget -O /etc/apk/keys/alpine-devel@wazuh.com-633d7457.rsa.pub https://packages.wazuh.com/key/alpine-devel%40wazuh.com-633d7457.rsa.pub
-        echo "https://packages.wazuh.com/4.x/alpine/v3.12/main" | sudo tee -a /etc/apk/repositories
-        gum log -sl info 'Running sudo apk update'
-        sudo apk update
-        gum log -sl info 'Installing Wazuh agent'
-        sudo apk add wazuh-agent
-    fi
+  log() { printf '[post-wazuh] %s\n' "$*"; }
+  warn() { printf '[post-wazuh] WARNING: %s\n' "$*" >&2; }
+fi
+
+WAZUH_CONTROL=''
+for candidate in /Library/Ossec/bin/wazuh-control /var/ossec/bin/wazuh-control; do
+  if [ -x "$candidate" ]; then
+    WAZUH_CONTROL="$candidate"
+    break
+  fi
+done
+if [ -z "$WAZUH_CONTROL" ] && command -v wazuh-control >/dev/null 2>&1; then
+  WAZUH_CONTROL="$(command -v wazuh-control)"
+fi
+
+if [ -z "$WAZUH_CONTROL" ]; then
+  warn 'Wazuh agent is absent; select a platform-pinned agent through Install Doctor desired state'
+  exit 20
+fi
+
+# Enrollment secrets are intentionally not passed on argv or persisted in a
+# temporary installer environment. Existing enrollment is preserved; typed
+# secret-FD enrollment owns any future first-registration workflow.
+if [ -f /Library/Ossec/etc/ossec.conf ] || [ -f /var/ossec/etc/ossec.conf ]; then
+  log 'Starting the existing Wazuh agent configuration'
+  if [ "$(id -u)" -eq 0 ]; then
+    "$WAZUH_CONTROL" start
+  else
+    sudo -n "$WAZUH_CONTROL" start
+  fi
+else
+  warn 'Wazuh is installed but has no admitted configuration; registration remains pending'
+  exit 20
 fi

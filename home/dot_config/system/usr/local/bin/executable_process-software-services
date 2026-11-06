@@ -3,30 +3,145 @@
 # @brief Manages services for software packages based on YAML configuration
 
 set -euo pipefail
-trap 'echo "An error occurred. Exiting." >&2; exit 1' ERR
+trap 'status=$?; echo "An error occurred. Exiting." >&2; exit "$status"' ERR
 
 SOFTWARE_YAML="${XDG_DATA_HOME:-$HOME/.local/share}/chezmoi/software.yml"
+MODE="apply"
+case "${1:-}" in
+  --check|check) MODE="check"; shift ;;
+  "") ;;
+  *) echo "Usage: process-software-services [--check]" >&2; exit 20 ;;
+esac
 
-if ! command -v gum &>/dev/null; then
-  echo "gum is not installed. Please install gum to proceed." >&2
-  exit 1
+# Exit 10 is an expected reconciliation result, not a shell error.
+[[ "$MODE" == "check" ]] && trap - ERR
+
+SELECTED_SERVICES="${INSTALL_DOCTOR_SELECTED_SERVICES:-}"
+if [[ -z "$SELECTED_SERVICES" ]]; then
+  [[ "$MODE" == "check" ]] && printf 'CONVERGED\tno-selected-services\n' || printf 'No selected services; nothing to apply.\n'
+  exit 0
+fi
+if (( ${#SELECTED_SERVICES} > 8192 )); then printf 'INVALID\tselected-services-too-large\n' >&2; exit 20; fi
+if [[ ! "$SELECTED_SERVICES" =~ ^[A-Za-z0-9][A-Za-z0-9._+-]{0,127}(,[A-Za-z0-9][A-Za-z0-9._+-]{0,127})*$ ]]; then
+  printf 'INVALID\tselected-services-format\n' >&2
+  exit 20
 fi
 
 if ! command -v yq &>/dev/null; then
-  gum log -sl error "yq is not installed. Please install yq to proceed." >&2
-  exit 1
+  if [[ "$MODE" == "check" ]]; then printf 'UNINSPECTABLE\tyq-not-installed\n' >&2; exit 20
+  else gum log -sl error "yq is not installed. Please install yq to proceed." >&2; exit 1
+  fi
 fi
 
-# Detect service manager
+# The apply manager is detected only after explicit selection is validated.
 SERVICE_MANAGER=""
-if command -v systemctl &>/dev/null; then
-  SERVICE_MANAGER="systemctl"
-elif command -v brew &>/dev/null; then
-  SERVICE_MANAGER="brew"
-else
-  gum log -sl error "No supported service manager found. Please install systemctl or brew."
-  exit 1
-fi
+detectApplyManager() {
+  if command -v systemctl &>/dev/null; then
+    SERVICE_MANAGER="systemctl"
+  elif command -v brew &>/dev/null; then
+    SERVICE_MANAGER="brew"
+  else
+    gum log -sl error "No supported service manager found. Please install systemctl or brew."
+    return 20
+  fi
+}
+
+resolveSelectedPackages() {
+  local -a requested=(); local key eligible seen="" IFS=','
+  read -r -a requested <<<"$SELECTED_SERVICES"
+  (( ${#requested[@]} > 0 && ${#requested[@]} <= 256 )) || { printf 'INVALID\tselected-services-count\n' >&2; return 20; }
+  eligible="$(yq -r '.softwarePackages | with_entries(select(.value._default != false and .value._serviceEnabled == true)) | keys[]' "$SOFTWARE_YAML")" || return 20
+  for key in "${requested[@]}"; do
+    [[ "$key" =~ ^[A-Za-z0-9][A-Za-z0-9._+-]{0,127}$ ]] || { printf 'INVALID\tselected-service-key\t%s\n' "$key" >&2; return 20; }
+    [[ ",$seen," != *",$key,"* ]] || { printf 'INVALID\tduplicate-selected-service\t%s\n' "$key" >&2; return 20; }
+    seen="${seen:+$seen,}$key"
+    grep -Fxq -- "$key" <<<"$eligible" || { printf 'INVALID\tunknown-or-inapplicable-service\t%s\n' "$key" >&2; return 20; }
+  done
+  printf '%s\n' "${requested[@]}" | LC_ALL=C sort
+}
+
+detectInspectionManager() {
+  local library="${INSTALL_DOCTOR_DETECT_OS_LIB:-}"
+  if [[ -z "$library" ]]; then
+    for library in \
+      "${XDG_DATA_HOME:-$HOME/.local/share}/chezmoi/scripts/lib/detect_os.sh" \
+      "/usr/local/lib/install.doctor/detect_os.sh"; do
+      [[ -r "$library" ]] && break
+      library=""
+    done
+  fi
+  if [[ -n "$library" ]]; then
+    # shellcheck source=/dev/null
+    source "$library"
+    declare -F detect_service_manager >/dev/null || return 20
+    detect_service_manager
+    return $?
+  fi
+  # Compatibility fallback for an installation that predates the shared SSOT.
+  if command -v launchctl >/dev/null 2>&1; then printf '%s\n' launchd
+  elif command -v systemctl >/dev/null 2>&1; then printf '%s\n' systemd
+  else printf '%s\n' unknown; return 20
+  fi
+}
+
+brewServiceState() {
+  local name="$1" line
+  line="$(brew services list 2>/dev/null | awk -v service="$name" '$1 == service { print; exit }')" || return 20
+  [[ -n "$line" ]] || return 1
+  [[ "$(awk '{print $2}' <<<"$line")" == "started" ]]
+}
+
+inspectService() {
+  local package="$1" service="$2" manager="$3"
+  if command -v brew >/dev/null 2>&1 && brew services list 2>/dev/null | awk -v name="$service" '$1 == name { found=1 } END { exit !found }'; then
+    if brewServiceState "$service"; then printf 'CONVERGED\t%s\t%s\tbrew\n' "$package" "$service"; return 0
+    else printf 'NEEDS_MUTATION\t%s\t%s\tbrew\n' "$package" "$service"; return 10
+    fi
+  fi
+  case "$manager" in
+    systemd)
+      if systemctl is-enabled --quiet "$service" >/dev/null 2>&1 && systemctl is-active --quiet "$service" >/dev/null 2>&1; then
+        printf 'CONVERGED\t%s\t%s\tsystemd\n' "$package" "$service"; return 0
+      fi
+      printf 'NEEDS_MUTATION\t%s\t%s\tsystemd\n' "$package" "$service"; return 10
+      ;;
+    launchd)
+      if launchctl print "system/$service" >/dev/null 2>&1 || launchctl print "gui/${UID:-$(id -u)}/$service" >/dev/null 2>&1; then
+        printf 'CONVERGED\t%s\t%s\tlaunchd\n' "$package" "$service"; return 0
+      fi
+      printf 'NEEDS_MUTATION\t%s\t%s\tlaunchd\n' "$package" "$service"; return 10
+      ;;
+    *) printf 'UNINSPECTABLE\t%s\t%s\t%s\n' "$package" "$service" "$manager" >&2; return 20 ;;
+  esac
+}
+
+checkDesiredServices() {
+  [[ -f "$SOFTWARE_YAML" ]] || { printf 'INVALID\tconfiguration-not-found\t%s\n' "$SOFTWARE_YAML" >&2; return 20; }
+  local manager packages package bin_list services service_entry service_name package_needed=false needed=false invalid=false
+  packages="$(resolveSelectedPackages)" || return $?
+  manager="$(detectInspectionManager)" || { printf 'UNINSPECTABLE\tservice-manager\n' >&2; return 20; }
+  while IFS= read -r package; do
+    [[ -n "$package" ]] || continue
+    bin_list="$(yq -r '(.softwarePackages["'"$package"'"])._bin // ""' "$SOFTWARE_YAML")" || { invalid=true; continue; }
+    services="$(yq -r '(.softwarePackages["'"$package"'"])._service // [] | @json' "$SOFTWARE_YAML")" || { invalid=true; continue; }
+    [[ -n "$bin_list" && "$services" != "[]" ]] || { printf 'INVALID\t%s\tmissing-bin-or-service\n' "$package" >&2; invalid=true; continue; }
+    package_needed=false
+    if [[ "$(printf '%s\n' "$bin_list" | yq -r 'type')" == "!!seq" ]]; then
+      while IFS= read -r binary; do command -v "$binary" >/dev/null 2>&1 && package_needed=true; done < <(printf '%s\n' "$bin_list" | yq -r '.[]? | select(. != null)')
+    else command -v "$bin_list" >/dev/null 2>&1 && package_needed=true
+    fi
+    if [[ "$package_needed" != true ]]; then printf 'NEEDS_MUTATION\t%s\tpackage-binary\n' "$package"; needed=true; continue; fi
+    while IFS= read -r service_entry; do
+      [[ -n "$service_entry" ]] || continue
+      if [[ "$service_entry" == \{* ]]; then service_name="$(jq -er '.name | strings | select(length > 0)' <<<"$service_entry")" || { invalid=true; continue; }
+      else service_name="${service_entry//\"/}"; fi
+      inspectService "$package" "$service_name" "$manager" || case $? in 10) needed=true ;; *) invalid=true ;; esac
+    done < <(printf '%s\n' "$services" | yq -r '.[] | @json')
+  done <<<"$packages"
+  [[ "$invalid" == false ]] || return 20
+  [[ "$needed" == false ]] || return 10
+  return 0
+}
 
 # Check if binary exists in PATH
 isBinaryInPath() {
@@ -87,7 +202,7 @@ processServiceManagement() {
           gum log -sl info "Running manageService: $SERVICE_ENTRY"
           manageService "$SERVICE_ENTRY"
         else
-          manageService "$SERVICE_ENTRY" &
+          manageService "$SERVICE_ENTRY"
         fi
       fi
     done
@@ -108,12 +223,21 @@ manageService() {
 
   # Detect if SERVICE_ENTRY is an object or a string
   if echo "$SERVICE_ENTRY" | grep "{" > /dev/null ; then
-    SERVICE_NAME=$(echo "$SERVICE_ENTRY" | jq -r '.name // '$SERVICE_ENTRY)
-    REQUIRES_SUDO=$(echo "$SERVICE_ENTRY" | jq -r '.sudo // false')
-    PKG=$(echo "$SERVICE_ENTRY" | yq -r ".pkg // \"\"")
+    SERVICE_NAME=$(jq -er '.name | strings | select(length > 0)' <<<"$SERVICE_ENTRY") || return 20
+    REQUIRES_SUDO=$(jq -er '.sudo // false | if type == "boolean" then . else error("sudo must be boolean") end' <<<"$SERVICE_ENTRY") || return 20
+    PKG=$(jq -er '.pkg // "" | strings' <<<"$SERVICE_ENTRY") || return 20
   else
-    SERVICE_NAME="$(echo "$SERVICE_ENTRY" | sed 's/"//g')"
+    SERVICE_NAME=$(jq -er 'strings | select(length > 0)' <<<"$SERVICE_ENTRY") || return 20
   fi
+
+  [[ "$SERVICE_NAME" =~ ^[A-Za-z0-9][A-Za-z0-9@._:+-]{0,127}$ ]] || {
+    gum log -sl error "Invalid service name in desired state"
+    return 20
+  }
+  [[ -z "$PKG" || "$PKG" =~ ^[A-Za-z0-9][A-Za-z0-9._+-]{0,127}$ ]] || {
+    gum log -sl error "Invalid service prerequisite in desired state"
+    return 20
+  }
 
   # Debug extracted values
   if [[ -n "${DEBUG:-}" ]]; then
@@ -131,42 +255,60 @@ manageService() {
   fi
 
   # Determine correct service command
-  local CMD=""
+  local -a CMD=()
   if [[ "$SERVICE_MANAGER" == "systemctl" ]]; then
-    if brew services list | grep -q "^$SERVICE_NAME"; then
+    if command -v brew >/dev/null 2>&1 && brew services list 2>/dev/null | awk -v name="$SERVICE_NAME" '$1 == name { found=1 } END { exit !found }'; then
       gum log -sl info "$SERVICE_NAME is a Homebrew package - starting using brew services"
-      CMD="brew services start $SERVICE_NAME"
+      CMD=(brew services start "$SERVICE_NAME")
     else
-      CMD="systemctl enable --now $SERVICE_NAME"
+      CMD=(systemctl enable --now "$SERVICE_NAME")
     fi
   elif [[ "$SERVICE_MANAGER" == "brew" ]]; then
-    CMD="brew services start $SERVICE_NAME"
+    CMD=(brew services start "$SERVICE_NAME")
+  else
+    gum log -sl error "Unsupported service manager"
+    return 20
   fi
-  [[ "$REQUIRES_SUDO" == "true" ]] && CMD="sudo $CMD"
+  [[ "$REQUIRES_SUDO" == "true" ]] && CMD=(sudo -n "${CMD[@]}")
 
-  gum log -sl info "Executing: $CMD"
-  bash -c "$CMD" || gum log -sl error "Failed to run $CMD"
+  gum log -sl info "Starting service: $SERVICE_NAME"
+  if ! "${CMD[@]}"; then
+    gum log -sl error "Failed to start service: $SERVICE_NAME"
+    return 1
+  fi
 }
 
 # Main execution function
 main() {
+  if [[ "$MODE" == "check" ]]; then checkDesiredServices; return $?; fi
   if [[ ! -f "$SOFTWARE_YAML" ]]; then
-    gum log -sl error "Configuration file not found: $SOFTWARE_YAML"
-    exit 1
+    printf 'INVALID\tconfiguration-not-found\t%s\n' "$SOFTWARE_YAML" >&2
+    return 20
   fi
 
-  PACKAGES=$(yq -r ".softwarePackages | with_entries(select(.value._serviceEnabled == true)) | keys[]" "$SOFTWARE_YAML")
+  # Services are desired state only when explicitly enabled and not globally
+  # opted out. Merely finding an optional service binary must never start it.
+  PACKAGES="$(resolveSelectedPackages)" || return $?
+  command -v gum >/dev/null 2>&1 || { echo "gum is not installed. Please install gum to proceed." >&2; return 20; }
+  detectApplyManager || return $?
 
-  echo "$PACKAGES" | while IFS= read -r PACKAGE; do
-    if [[ -n "${DEBUG:-}" ]]; then
-      processServiceManagement "$PACKAGE"
-    else
-      processServiceManagement "$PACKAGE" &
+  local -a SERVICE_PIDS=() SERVICE_LABELS=()
+  while IFS= read -r PACKAGE; do
+    [ -n "$PACKAGE" ] || continue
+    processServiceManagement "$PACKAGE" &
+    SERVICE_PIDS+=("$!")
+    SERVICE_LABELS+=("$PACKAGE")
+  done <<< "$PACKAGES"
+
+  local failures=0 i
+  for ((i = 0; i < ${#SERVICE_PIDS[@]}; i++)); do
+    if ! wait "${SERVICE_PIDS[$i]}"; then
+      gum log -sl error "Service management failed for ${SERVICE_LABELS[$i]}"
+      failures=$((failures + 1))
     fi
   done
-
-  wait
+  [ "$failures" -eq 0 ] || return 1
   gum log -sl info "Enabling / starting background processes complete"
 }
 
-main
+main "$@"

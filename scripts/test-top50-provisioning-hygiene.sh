@@ -30,9 +30,9 @@ else
   fail "2. Hardcoded 'vncpass' or macosRemoteLogin:'on' still present"
 fi
 
-# 3. No hardcoded 'bananas' SUDO_PASSWORD in scripts/provision.sh or scripts/src/provision.sh.tmpl
-if ! grep -q 'SUDO_PASSWORD="bananas"' scripts/provision.sh scripts/src/provision.sh.tmpl; then
-  pass "3. Hardcoded SUDO_PASSWORD='bananas' removed from provision.sh and provision.sh.tmpl"
+# 3. No hardcoded 'bananas' SUDO_PASSWORD in the canonical provisioner
+if ! grep -q 'SUDO_PASSWORD="bananas"' scripts/provision.sh; then
+  pass "3. Hardcoded SUDO_PASSWORD='bananas' removed from provision.sh"
 else
   fail "3. Hardcoded SUDO_PASSWORD='bananas' still present"
 fi

@@ -8,7 +8,7 @@ Five focused passes were applied to the requested repository-wide change.
 4. **Security and network** — removed Tailscale secret export/population and implicit firewall trust; retained consent boundaries and did not uninstall or stop an existing live daemon.
 5. **Consistency and agent throughput** — added Codex/Gemini project pointers to the canonical OpenCode/LiteLLM policy, generated the complete catalog audit, validated OpenSpec, and ran control-plane, catalog, syntax, and policy gates.
 
-The generated [`artifacts/software-catalog-audit.json`](../../artifacts/software-catalog-audit.json) contains every catalog entry, sorted by GitHub stars when `--github` data is requested. It supplies deterministic fallback names/descriptions for review without inventing upstream facts in `software.yml`. On this run GitHub credentials were unavailable, so volatile star counts remain `null`; run:
+The generated `artifacts/software-catalog-audit.json` contains every catalog entry, sorted by GitHub stars when `--github` data is requested. It supplies deterministic fallback names/descriptions for review without inventing upstream facts in `software.yml`. On this run GitHub credentials were unavailable, so volatile star counts remain `null`; run:
 
 ```bash
 GITHUB_TOKEN=... node scripts/audit-software-catalog.mjs --github \

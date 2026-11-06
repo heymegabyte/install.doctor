@@ -45,10 +45,8 @@ fi
 #   macOS — brew install --cask font-meslo-lg-nerd-font (handled at
 #           install time via run_before_04-requirements.sh.tmpl); this
 #           hook just verifies the install
-#   Linux — download p10k-media's pre-patched .ttf files (the canonical
-#           source for powerlevel10k) into ~/.local/share/fonts/, then
-#           refresh fc-cache. Works on Ubuntu/Debian/Fedora/Arch/Alpine/
-#           Coolify/Proxmox identically; no apt-vs-dnf forking needed.
+#   Linux — verify the font selected by desired state. Artifact acquisition
+#           belongs to the signed installer plan, not a configuration hook.
 ###########################################################################
 installNerdFont() {
   local FONT_DIR
@@ -67,86 +65,17 @@ installNerdFont() {
     return 0
   fi
 
-  ### macOS path — brew cask should have landed it via the requirements
-  ### step. If it didn't (cask broken, network failure during install),
-  ### fall through to the direct download.
-  if [ "$_IS_MAC" = "1" ] && command -v brew > /dev/null 2>&1; then
-    if ! brew list --cask font-meslo-lg-nerd-font > /dev/null 2>&1; then
-      gum log -sl info 'Installing font-meslo-lg-nerd-font via Homebrew cask'
-      brew install --cask --quiet font-meslo-lg-nerd-font 2>/dev/null || gum log -sl warn 'brew cask install failed; falling back to direct download'
-    fi
-    if ls "$FONT_DIR"/MesloLGS*NF*.ttf "$FONT_DIR"/MesloLGSNerd*.ttf 2>/dev/null | head -1 | grep -q .; then
-      gum log -sl info 'MesloLGS NF installed via brew cask'
-      return 0
-    fi
-  fi
-
-  ### Direct download from romkatv/powerlevel10k-media — the canonical
-  ### p10k-blessed font drop. Works on every OS that has curl/wget. The
-  ### URLs are stable (it's a GitHub raw asset, not a release tarball).
-  local URL_BASE='https://github.com/romkatv/powerlevel10k-media/raw/master'
-  local FACES=(
-    'MesloLGS NF Regular.ttf'
-    'MesloLGS NF Bold.ttf'
-    'MesloLGS NF Italic.ttf'
-    'MesloLGS NF Bold Italic.ttf'
-  )
-  local _need_cache_refresh=0
-  for face in "${FACES[@]}"; do
-    local enc_face
-    enc_face=$(printf %s "$face" | sed 's/ /%20/g')
-    local dest="$FONT_DIR/$face"
-    if [ -f "$dest" ]; then continue; fi
-    gum log -sl info "Downloading $face"
-    if command -v curl > /dev/null 2>&1; then
-      curl -fsSL --output "$dest" "$URL_BASE/$enc_face" 2>/dev/null || gum log -sl warn "Download failed: $face"
-    elif command -v wget > /dev/null 2>&1; then
-      wget -q -O "$dest" "$URL_BASE/$enc_face" 2>/dev/null || gum log -sl warn "Download failed: $face"
-    else
-      gum log -sl warn 'Neither curl nor wget available; cannot download Nerd Font'
-      return 1
-    fi
-    [ -s "$dest" ] && _need_cache_refresh=1
-  done
-
-  ### Refresh the font cache so apps see the new fonts immediately.
-  ### macOS handles this via atsutil; Linux uses fc-cache.
-  if (( _need_cache_refresh )); then
-    if [ "$_IS_MAC" = "1" ]; then
-      atsutil databases -remove > /dev/null 2>&1 || true
-    elif command -v fc-cache > /dev/null 2>&1; then
-      gum log -sl info 'Refreshing Linux font cache via fc-cache'
-      fc-cache -f "$FONT_DIR" > /dev/null 2>&1 || gum log -sl warn 'fc-cache returned non-zero'
-    fi
-    gum log -sl info "Nerd Font ready at $FONT_DIR"
-  fi
+  gum log -sl warn 'MesloLGS NF is absent; select a checksummed font artifact in desired state'
+  return 20
 }
 
 ###########################################################################
-# 1. Pre-warm zinit plugin cache + zcompile .zshrc
+# 1. Compile the local-only shell configuration
 ###########################################################################
 preWarmZinit() {
   if ! command -v zsh > /dev/null; then
-    gum log -sl warn 'zsh not found on PATH; skipping zsh pre-warm'
+    gum log -sl warn 'zsh not found on PATH; skipping zsh compilation'
     return 0
-  fi
-  local ZINIT_HOME="${XDG_DATA_HOME:-$HOME/.local/share}/zinit/zinit.git"
-  local P10K_BUNDLE="${XDG_DATA_HOME:-$HOME/.local/share}/zinit/plugins/romkatv---powerlevel10k"
-
-  if [ -d "$ZINIT_HOME" ] && [ -d "$P10K_BUNDLE" ]; then
-    gum log -sl info 'zinit + powerlevel10k already populated; skipping plugin pre-warm'
-  else
-    gum log -sl info 'Pre-warming zinit plugins by sourcing ~/.zshrc once headless'
-    ### POWERLEVEL9K_INSTANT_PROMPT=quiet suppresses the p10k console-output
-    ### warning during the first sourcing (zinit clone output triggers it).
-    ### `< /dev/null` keeps zsh from blocking on a tty read; `wait` lets
-    ### turbo-mode plugins finish loading before we exit.
-    POWERLEVEL9K_INSTANT_PROMPT=quiet zsh -i -c 'zinit wait_for_complete 2>/dev/null; sleep 1; exit 0' < /dev/null > /dev/null 2>&1 || true
-    if [ -d "$P10K_BUNDLE" ]; then
-      gum log -sl info 'zinit plugin cache pre-warmed'
-    else
-      gum log -sl warn 'zinit pre-warm finished but powerlevel10k not present; first interactive zsh will clone it'
-    fi
   fi
 
   ### zcompile ~/.zshrc → ~/.zshrc.zwc. zsh checks for the .zwc on every

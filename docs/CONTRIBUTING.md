@@ -86,12 +86,12 @@ The safest way to test changes is in a virtual machine or container:
 # Test on Ubuntu via Docker
 docker run -it ubuntu:22.04 bash
 apt update && apt install -y curl
-bash <(curl -sSL https://install.doctor/start)
+curl -fsSL https://app.install.doctor/start | bash
 
 # Test with headless mode
 export HEADLESS_INSTALL=true
 export SOFTWARE_GROUP=Minimal
-bash <(curl -sSL https://install.doctor/start)
+curl -fsSL https://app.install.doctor/start | bash
 ```
 
 ### Re-Provisioning

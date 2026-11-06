@@ -20,6 +20,12 @@ export const Env = z
     AI_GATEWAY_NAME: z.string().min(1).optional(),
     DEEPSEEK_API_KEY: z.string().min(1).optional(),
     MAX_TASK_COST_MICROS: z.coerce.number().int().positive().optional(),
+    // Validated against the minimal R2-compatible read boundary at request time.
+    // Optional here so deployments without release storage fail closed at the route.
+    RELEASES: z.unknown().optional(),
+    // Separate R2 binding for CAS channel pointers/intents/receipts. Keeping this
+    // distinct from RELEASES makes publication and activation authority separable.
+    RELEASE_CHANNELS: z.unknown().optional(),
   })
   .passthrough();
 

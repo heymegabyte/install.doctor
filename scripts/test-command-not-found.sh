@@ -134,6 +134,30 @@ else
   skip "no yq+jq or python3+pyyaml — index builder test skipped"
 fi
 
+# R09: mutable Go references are executable authority. The index must omit
+# them, and the resolver independently refuses a planted mutable row.
+cat > "$tmp/go-authority.yml" <<'YAML'
+softwarePackages:
+  moving:
+    _bin: moving
+    go: example.invalid/moving@latest
+  pinned:
+    _bin: pinned
+    go: example.invalid/pinned@v1.2.3
+YAML
+if bash "$BUILDER" "$tmp/go-authority.yml" "$tmp/go-authority.tsv" >/dev/null 2>&1 \
+  && [ -z "$(awk -F '\t' '$1=="moving" {print $10}' "$tmp/go-authority.tsv")" ] \
+  && [ "$(awk -F '\t' '$1=="pinned" {print $10}' "$tmp/go-authority.tsv")" = 'example.invalid/pinned@v1.2.3' ]; then
+  pass 'R09 — command-not-found index exports only exact-version Go providers'
+else
+  fail 'R09 — command-not-found index admitted a mutable Go provider or dropped an exact one'
+fi
+if __cnf_do_install go 'example.invalid/moving@latest' >/dev/null 2>&1; then
+  fail 'R09 — resolver accepted a planted mutable Go provider'
+else
+  pass 'R09 — resolver independently rejects mutable Go providers'
+fi
+
 # 3. AI-fallback safety contract (master-prompt §10: never run arbitrary web-found install commands).
 # CNF_AI_CMD is a deterministic seam (manual override / test): it supplies the "AI suggestion"
 # without a real mods call. A fake 'brew' on PATH touches a sentinel IFF a suggestion is executed,
@@ -210,6 +234,27 @@ wait
 ic="$(grep -c . "$tmp/installcount" 2>/dev/null || echo 0)"
 [ "$ic" = "1" ] && pass "E11 concurrency — 2 shells missing footool -> exactly ONE install (lock serialized)" || fail "E11 concurrency installs=$ic (want 1)"
 
+# A live owner identity outranks lock age: even an apparently old lock must never be reaped while its
+# exact PID/start identity is still alive.
+CNF_LOCK_DIR="$tmp/live-owner-locks" CNF_LOCK_WAIT=0 CNF_LOCK_STALE=0
+__CNF_LOCK_RESULT=""; __cnf_acquire neverinstalled; live_first=$?; live_lock="$__CNF_LOCK_RESULT"
+sleep 1
+__CNF_LOCK_RESULT=""; __cnf_acquire neverinstalled; live_second=$?
+__cnf_release_install_lock "$live_lock" >/dev/null 2>&1 || true
+if [ "$live_first" -eq 0 ] && [ "$live_second" -eq 11 ]; then
+  pass "E11 — stale-age heuristic never reaps an exact live install-lock owner"
+else
+  fail "live install owner was reaped or reacquired first=$live_first second=$live_second"
+fi
+
+# A bounded lock wait must fail honestly instead of starting a second package-manager mutation.
+timeout_bin="$tmp/timeout-bin"; timeout_locks="$tmp/timeout-locks"; mkdir -p "$timeout_bin" "$timeout_locks/timeouttool.lock"
+timeout_idx="$tmp/timeout.tsv"; printf 'timeouttool\ttimeouttool\ttimeouttool\n' > "$timeout_idx"
+printf '#!/usr/bin/env bash\n: > "%s/timeout-brew-ran"\n' "$tmp" > "$timeout_bin/brew"; chmod +x "$timeout_bin/brew"
+rm -f "$tmp/timeout-brew-ran"
+CNF_LOCK_WAIT=0 CNF_LOCK_STALE=999999 CNF_ALLOW_NONINTERACTIVE=1 PATH="$timeout_bin:$PATH" CNF_INDEX="$timeout_idx" CNF_LOCK_DIR="$timeout_locks" __cnf_resolve timeouttool >/dev/null 2>&1; timeout_rc=$?
+{ [ "$timeout_rc" -eq 75 ] && [ ! -f "$tmp/timeout-brew-ran" ]; } && pass "E11 concurrency timeout -> bounded retry result, no duplicate install" || fail "E11 timeout rc=$timeout_rc duplicate=$([ -f "$tmp/timeout-brew-ran" ] && echo yes || echo no)"
+
 # 7. E09/E08 — installer progress + hook status go to STDERR; a resolved command's STDOUT stays CLEAN.
 # Fake brew prints noise to STDOUT then installs 'cleantool' (which echoes a sentinel). Capturing the
 # resolve's stdout (2>/dev/null) must yield ONLY the sentinel — no install chatter.
@@ -239,6 +284,27 @@ rm -f "$tmp/n8installed"
 printf '#!/usr/bin/env bash\n: > "%s/n8installed"\nprintf "#!/usr/bin/env bash\\necho ok\\n" > "%s/noauto"\nchmod +x "%s/noauto"\n' "$tmp" "$nbin" "$nbin" > "$nbin/brew"; chmod +x "$nbin/brew"
 CNF_ALLOW_NONINTERACTIVE=1 PATH="$nbin:$PATH" CNF_INDEX="$n8idx" CNF_LOCK_DIR="$tmp/n8locks2" __cnf_resolve noauto >/dev/null 2>&1 || true
 [ -f "$tmp/n8installed" ] && pass "E13 — CNF_ALLOW_NONINTERACTIVE opt-in permits install (aid exec/prewarm)" || fail "E13 opt-in did not permit install"
+
+# 8c. Explicit policy boundaries refuse before touching a package manager and provide actionable remediation.
+rm -f "$tmp/n8installed"
+offline_msg="$(CNF_OFFLINE=1 CNF_ALLOW_NONINTERACTIVE=1 PATH="$nbin:$PATH" CNF_INDEX="$n8idx" __cnf_resolve noauto 2>&1 >/dev/null)"; offline_rc=$?
+if [ "$offline_rc" -eq 69 ] && [ ! -f "$tmp/n8installed" ] && printf '%s' "$offline_msg" | grep -q 'signed offline bundle'; then
+  pass "L05 — offline first invocation fails before install with exact bundle remediation"
+else
+  fail "offline guard rc=$offline_rc installed=$([ -f "$tmp/n8installed" ] && echo yes || echo no) msg=$offline_msg"
+fi
+disabled_msg="$(CNF_DISABLE=1 CNF_ALLOW_NONINTERACTIVE=1 PATH="$nbin:$PATH" CNF_INDEX="$n8idx" __cnf_resolve noauto 2>&1 >/dev/null)"; disabled_rc=$?
+if [ "$disabled_rc" -eq 127 ] && printf '%s' "$disabled_msg" | grep -q 'select.*desired state'; then
+  pass "L05 — policy-disabled invocation fails with desired-state remediation"
+else
+  fail "policy-disabled guard rc=$disabled_rc msg=$disabled_msg"
+fi
+privileged_result="$( ( __cnf_effective_uid(){ printf '0'; }; CNF_ALLOW_NONINTERACTIVE=1 PATH="$nbin:$PATH" CNF_INDEX="$n8idx" __cnf_resolve noauto ) 2>&1 >/dev/null)"; privileged_rc=$?
+if [ "$privileged_rc" -eq 77 ] && printf '%s' "$privileged_result" | grep -q 'enrolled install user'; then
+  pass "L05 — privileged first invocation refuses with least-privilege remediation"
+else
+  fail "privileged guard rc=$privileged_rc msg=$privileged_result"
+fi
 
 # 9. D13/B07 — the index build is ATOMIC + fail-soft: a FAILED/empty rebuild must NOT clobber a good
 # index. Write a 3-row "good" index, then rebuild from a BROKEN source into the SAME path; the good
@@ -429,6 +495,121 @@ printf '#!/usr/bin/env bash\nprintf "#!/usr/bin/env bash\\necho CFG_CLEAN_STDOUT
 printf '#!/usr/bin/env bash\necho HOOK_NOISE_TO_STDOUT\n: > "%s/hook-ran"\n' "$phdir" > "$phhooks/post-cfgpkg.sh"; chmod +x "$phhooks/post-cfgpkg.sh"
 phout="$(PATH="$phbin:$PATH" CNF_ALLOW_NONINTERACTIVE=1 CNF_INDEX="$phidx" CNF_LOCK_DIR="$phdir/locks" CNF_POST_HOOK_DIR="$phhooks" __cnf_resolve cfgbin 2>/dev/null)"
 { [ -f "$phdir/hook-ran" ] && [ "$phout" = "CFG_CLEAN_STDOUT" ]; } && pass "R14/F06 — lazy install auto-runs post-<key>.sh config hook with clean stdout isolation" || fail "post-installx hook on lazy install failed (ran=$([ -f "$phdir/hook-ran" ] && echo y || echo n) out='$phout')"
+
+# Configuration is part of the owning lazy-install operation: a failed hook must not execute the
+# newly installed command or emit a successful-install journal record.
+rm -f "$phbin/cfgbin" "$phdir/hook-ran" "$phdir/failed.ndjson"
+printf '#!/usr/bin/env bash\nif [ ! -f "%s/first-failure" ]; then : > "%s/first-failure"; exit 23; fi\n: > "%s/configured"\n' "$phdir" "$phdir" "$phdir" > "$phhooks/post-cfgpkg.sh"; chmod +x "$phhooks/post-cfgpkg.sh"
+PATH="$phbin:$PATH" CNF_ALLOW_NONINTERACTIVE=1 CNF_JOURNAL="$phdir/failed.ndjson" CNF_INDEX="$phidx" CNF_LOCK_DIR="$phdir/locks-failed" CNF_REPAIR_DIR="$phdir/repair" CNF_POST_HOOK_DIR="$phhooks" __cnf_resolve cfgbin >/dev/null 2>&1; phrc=$?
+if [ "$phrc" -ne 0 ] && ! grep -q '"outcome":"installed"' "$phdir/failed.ndjson" 2>/dev/null; then
+  pass "R14/F06 — failed lazy post-install hook fails the owning operation without success evidence"
+else
+  fail "failed lazy post-install hook was treated as success (rc=$phrc journal=$(cat "$phdir/failed.ndjson" 2>/dev/null))"
+fi
+
+# L05/L06: configuration debt survives the binary becoming available, is private and bound to the
+# exact command/package/hook/index evidence, then one explicit bounded repair atomically clears it.
+phstate="$phdir/repair/cfgbin.repair"
+phmode="$(stat -f '%Lp' "$phstate" 2>/dev/null || stat -c '%a' "$phstate" 2>/dev/null)"
+if [ -f "$phstate" ] && [ ! -L "$phstate" ] && [ "$phmode" = 600 ] \
+  && grep -qx 'cmd=cfgbin' "$phstate" && grep -qx 'key=cfgpkg' "$phstate" \
+  && grep -q '^hook_sha256=[a-f0-9]\{64\}$' "$phstate" && grep -q '^index_sha256=[a-f0-9]\{64\}$' "$phstate"; then
+  pass "L05/L06 — failed configuration persists private command/package/hook/index-bound repair state"
+else
+  fail "repair state missing, unsafe, or unbound (mode=$phmode state=$(cat "$phstate" 2>/dev/null))"
+fi
+PATH="$phbin:$PATH" CNF_INDEX="$phidx" CNF_REPAIR_DIR="$phdir/repair" CNF_POST_HOOK_DIR="$phhooks" cnf_repair cfgbin >/dev/null 2>&1; phrepair=$?
+if [ "$phrepair" -eq 0 ] && [ -f "$phdir/configured" ] && [ ! -e "$phstate" ]; then
+  pass "L05/L06 — explicit repair succeeds after binary exists and atomically clears configuration debt"
+else
+  fail "durable repair failed rc=$phrepair configured=$([ -f "$phdir/configured" ] && echo y || echo n) state=$([ -e "$phstate" ] && echo present || echo cleared)"
+fi
+
+# Exact binding is fail-closed: a changed package row cannot redirect a saved repair to another hook.
+rm -f "$phdir/configured" "$phdir/first-failure" "$phbin/cfgbin"
+PATH="$phbin:$PATH" CNF_ALLOW_NONINTERACTIVE=1 CNF_INDEX="$phidx" CNF_LOCK_DIR="$phdir/locks-binding" CNF_REPAIR_DIR="$phdir/repair" CNF_POST_HOOK_DIR="$phhooks" __cnf_resolve cfgbin >/dev/null 2>&1 || true
+printf 'cfgbin\totherpkg\totherpkg\n' > "$phidx"
+PATH="$phbin:$PATH" CNF_INDEX="$phidx" CNF_REPAIR_DIR="$phdir/repair" CNF_POST_HOOK_DIR="$phhooks" cnf_repair cfgbin >/dev/null 2>&1; phbindrc=$?
+if [ "$phbindrc" -ne 0 ] && [ ! -f "$phdir/configured" ] && [ -f "$phstate" ]; then
+  pass "L05/L06 — repair rejects changed index/package binding without executing configuration"
+else
+  fail "repair accepted changed binding rc=$phbindrc configured=$([ -f "$phdir/configured" ] && echo y || echo n)"
+fi
+
+# A symlinked debt record is never read, executed, or removed.
+rm -f "$phstate"; printf 'do-not-touch\n' > "$phdir/target"; ln -s "$phdir/target" "$phstate"
+PATH="$phbin:$PATH" CNF_INDEX="$phidx" CNF_REPAIR_DIR="$phdir/repair" CNF_POST_HOOK_DIR="$phhooks" cnf_repair cfgbin >/dev/null 2>&1; phsymlinkrc=$?
+if [ "$phsymlinkrc" -ne 0 ] && [ -L "$phstate" ] && grep -qx 'do-not-touch' "$phdir/target"; then
+  pass "L05/L06 — repair state is symlink-safe and leaves the target untouched"
+else
+  fail "symlinked repair state was accepted or altered rc=$phsymlinkrc"
+fi
+
+# An interrupted repair keeps its exact debt record and can be retried successfully. The bounded
+# runner must also advertise the no-service-auto-enable policy to the selected hook.
+rm -f "$phstate" "$phbin/cfgbin" "$phdir/debt-created" "$phdir/repair-entered" "$phdir/interrupted-configured"
+printf 'cfgbin\tcfgpkg\tcfgpkg\n' > "$phidx"
+printf '#!/usr/bin/env bash\nif [ ! -f "%s/debt-created" ]; then : > "%s/debt-created"; exit 23; fi\n[ "${INSTALL_DOCTOR_NO_SERVICE_AUTO_ENABLE:-}" = 1 ] || exit 24\n: > "%s/repair-entered"\nwhile [ -f "%s/hold-repair" ]; do sleep 0.1; done\n: > "%s/interrupted-configured"\n' "$phdir" "$phdir" "$phdir" "$phdir" "$phdir" > "$phhooks/post-cfgpkg.sh"; chmod +x "$phhooks/post-cfgpkg.sh"
+PATH="$phbin:$PATH" CNF_ALLOW_NONINTERACTIVE=1 CNF_INDEX="$phidx" CNF_LOCK_DIR="$phdir/locks-interrupt" CNF_REPAIR_DIR="$phdir/repair" CNF_POST_HOOK_DIR="$phhooks" __cnf_resolve cfgbin >/dev/null 2>&1 || true
+: > "$phdir/hold-repair"
+( PATH="$phbin:$PATH" CNF_INDEX="$phidx" CNF_REPAIR_DIR="$phdir/repair" CNF_POST_HOOK_DIR="$phhooks" CNF_REPAIR_TIMEOUT=10 cnf_repair cfgbin ) >/dev/null 2>&1 & phrepairpid=$!
+phwait=0; while [ ! -f "$phdir/repair-entered" ] && [ "$phwait" -lt 50 ]; do sleep 0.1; phwait=$((phwait + 1)); done
+kill -TERM "$phrepairpid" 2>/dev/null || true; wait "$phrepairpid" 2>/dev/null; phinterrupt=$?
+if [ "$phinterrupt" -ne 0 ] && [ -f "$phstate" ] && [ ! -f "$phdir/interrupted-configured" ]; then
+  pass "L05/L06 — interrupted bounded repair preserves debt and does not report configuration success"
+else
+  fail "interrupted repair lost debt or reported success rc=$phinterrupt state=$([ -f "$phstate" ] && echo present || echo missing)"
+fi
+rm -f "$phdir/hold-repair"
+# Simulate a legacy/crash-truncated ownerless lock. It may self-heal only after explicit bounded age proof.
+rm -f "$phstate.lock/owner" "$phstate.lock/hook-owner" 2>/dev/null || true
+sleep 1
+PATH="$phbin:$PATH" CNF_INDEX="$phidx" CNF_REPAIR_DIR="$phdir/repair" CNF_REPAIR_LOCK_STALE=0 CNF_POST_HOOK_DIR="$phhooks" cnf_repair cfgbin >/dev/null 2>&1; phretryrc=$?
+if [ "$phretryrc" -eq 0 ] && [ -f "$phdir/interrupted-configured" ] && [ ! -e "$phstate" ]; then
+  pass "L05/L06 — interrupted repair retries once and clears debt only after hook success"
+else
+  fail "post-interruption retry failed rc=$phretryrc state=$([ -e "$phstate" ] && echo present || echo cleared)"
+fi
+
+# The public entrypoint is subshell-isolated: missing/no-op repairs cannot erase or replace caller traps,
+# and an unchanged second run cannot rerun a completed hook or recreate debt.
+trap 'true' INT
+phtrap_before="$(trap -p INT)"
+phmtime="$(stat -f %m "$phdir/interrupted-configured" 2>/dev/null || stat -c %Y "$phdir/interrupted-configured")"
+PATH="$phbin:$PATH" CNF_INDEX="$phidx" CNF_REPAIR_DIR="$phdir/repair" CNF_POST_HOOK_DIR="$phhooks" cnf_repair cfgbin >/dev/null 2>&1; phnooprc=$?
+phtrap_after="$(trap -p INT)"; trap - INT
+phmtime_after="$(stat -f %m "$phdir/interrupted-configured" 2>/dev/null || stat -c %Y "$phdir/interrupted-configured")"
+if [ "$phnooprc" -ne 0 ] && [ "$phtrap_before" = "$phtrap_after" ] && [ "$phmtime" = "$phmtime_after" ] && [ ! -e "$phstate" ]; then
+  pass "L05/L06 — unchanged second repair is a no-op and preserves caller traps"
+else
+  fail "unchanged repair mutated state or caller traps rc=$phnooprc"
+fi
+
+# Service activation is rejected before hook execution, not merely discouraged through an env hint.
+rm -f "$phbin/cfgbin" "$phdir/service-attempt" "$phdir/service-first"
+printf '#!/usr/bin/env bash\nset -e\nif [ ! -f "%s/service-first" ]; then : > "%s/service-first"; exit 23; fi\ncase "$(uname -s)" in Darwin) actuator=/bin/launchctl; "$actuator" load /definitely/not/a/service.plist;; Linux) actuator="$(command -v systemctl)"; "$actuator" enable definitely-not-a.service;; *) exit 78;; esac\n: > "%s/service-attempt"\n' "$phdir" "$phdir" "$phdir" > "$phhooks/post-cfgpkg.sh"; chmod +x "$phhooks/post-cfgpkg.sh"
+PATH="$phbin:$PATH" CNF_ALLOW_NONINTERACTIVE=1 CNF_INDEX="$phidx" CNF_LOCK_DIR="$phdir/locks-service" CNF_REPAIR_DIR="$phdir/repair-service" CNF_POST_HOOK_DIR="$phhooks" __cnf_resolve cfgbin >/dev/null 2>&1 || true
+phservicemsg="$(PATH="$phbin:$PATH" CNF_INDEX="$phidx" CNF_REPAIR_DIR="$phdir/repair-service" CNF_POST_HOOK_DIR="$phhooks" cnf_repair cfgbin 2>&1 >/dev/null)"; phservicerc=$?
+if [ "$phservicerc" -ne 0 ] && [ ! -f "$phdir/service-attempt" ] && printf '%s' "$phservicemsg" | grep -q "selectedServices entry 'cfgpkg'"; then
+  pass "L06 — capability sandbox blocks dynamic absolute-path service activation and hands off to desired state"
+else
+  fail "service activation hook was not rejected rc=$phservicerc"
+fi
+
+rm -f "$phdir/no-boundary-ran"
+printf '#!/usr/bin/env bash\n: > "%s/no-boundary-ran"\n' "$phdir" > "$phhooks/no-boundary.sh"; chmod +x "$phhooks/no-boundary.sh"
+( __cnf_trusted_root_binary(){ return 1; }; __cnf_run_hook_isolated "$phhooks/no-boundary.sh" ) >/dev/null 2>&1; phboundaryrc=$?
+if [ "$phboundaryrc" -eq 78 ] && [ ! -f "$phdir/no-boundary-ran" ]; then
+  pass "L06 — missing enforceable platform primitive fails closed without executing the hook"
+else
+  fail "hook ran without a trusted enforcement primitive rc=$phboundaryrc"
+fi
+
+if ! grep -vE '^[[:space:]]*#' "$HANDLER" | grep -qE '^[[:space:]]*(sudo[[:space:]]+)?(systemctl|launchctl)[[:space:]].*(enable|start)|^[[:space:]]*brew[[:space:]]+services[[:space:]]+(start|restart)'; then
+  pass "L06 — lazy runtime and repair entrypoint never auto-enable or start services"
+else
+  fail "lazy runtime contains an implicit service enable/start operation"
+fi
 rm -rf "$phdir"
 
 say "command-not-found: $PASS passed, $FAIL failed"

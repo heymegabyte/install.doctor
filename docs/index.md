@@ -11,16 +11,13 @@ Install Doctor is a cross-platform desktop provisioning system that transforms a
 
 ```bash
 # macOS / Linux
-bash <(curl -sSL https://install.doctor/start)
+curl -fsSL https://app.install.doctor/start | bash
 
 # Headless (no prompts)
-HEADLESS_INSTALL=true SOFTWARE_GROUP=Standard bash <(curl -sSL https://install.doctor/start)
+curl -fsSL https://app.install.doctor/start | HEADLESS_INSTALL=true INSTALL_DOCTOR_CONSENT_PRIVILEGED=true SOFTWARE_GROUP=Standard bash
+# Review the persisted normalized plan, then rerun with INSTALL_DOCTOR_APPROVED_PLAN_DIGEST=<printed-sha256>.
 
-# Windows (PowerShell as Administrator)
-iex ((New-Object System.Net.WebClient).DownloadString('https://install.doctor/windows'))
-
-# Qubes (from dom0)
-qvm-run --pass-io sys-firewall "curl -sSL https://install.doctor/qubes" > ~/setup.sh && bash ~/setup.sh
+# Native Windows and Qubes entrypoints remain unpublished until their signed-release cells are verified.
 ```
 
 ## Platform Support
@@ -60,7 +57,7 @@ The provisioning process follows this sequence:
 
 ## Multi-OS Provisioning
 
-Install Doctor includes its own [ZX-based installer](/docs/advanced/installer) that resolves the correct installation method for each package on each platform. For example, a single `imagemagick` entry in `software.yml` can specify:
+Install Doctor includes its own [ZX-based installer](/docs/features/installer) that resolves the correct installation method for each package on each platform. For example, a single `imagemagick` entry in `software.yml` can specify:
 
 ```yaml
 imagemagick:

@@ -167,13 +167,9 @@ function install_shell_extensions() {
     if [ -d "$target_installation_dir" ] && [ "$OVERWRITE_EXISTING" = "false" ]; then
       confirm_action "${normal_text}This extension is already installed. Do you want to overwrite it? (y/n): " || continue
     fi
-    printf "\n%sPlease wait...\n" "$info_text_blue"
-    filename="$(basename "$download_url" | sed 's/\?version_tag.*$//' | sed 's/shell-extension.zip/v'"$ext_version"'.shell-extension.zip/' | sed 's/@//')"
-    wget -q "$download_url" \
-      && mkdir -p "$target_installation_dir" \
-      && unzip -q -o "$filename" -d "$target_installation_dir" \
-      && sleep 1 \
-      && rm "$filename"
+    printf "\n%sInstall blocked: extension archive v%s has no desired-state SHA-256 authority.%s\n" "$error_text" "$ext_version" "$normal_text"
+    printf "%sAdmit the exact archive and digest through Install Doctor before enabling this extension.%s\n" "$info_text_blue" "$normal_text"
+    continue
     schemas_dir="$target_installation_dir/schemas"
 
     if [ -d "$schemas_dir" ]; then

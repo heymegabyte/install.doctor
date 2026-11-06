@@ -31,8 +31,8 @@ fi
 # 2. FIXTURE — two entries sharing a bin on an OVERLAPPING platform → the validator MUST flag it (exit 1).
 fx1="$(mktemp)"
 cat >"$fx1" <<'JSON'
-[{"name":"a","bin":"x","providers":["brew"],"pkgs":{"brew":"a"},"platforms":["macos","linux"],"installMode":"cli","deliveryMode":"lazy","preload":false},
- {"name":"b","bin":"x","providers":["brew"],"pkgs":{"brew":"b"},"platforms":["macos"],"installMode":"cli","deliveryMode":"lazy","preload":false}]
+[{"name":"a","bin":"x","providers":["brew"],"pkgs":{"brew":"a"},"platforms":["macos","linux"],"installMode":"cli","deliveryMode":"lazy","preload":false,"loadPolicy":"lazy","loadRationale":"default-lazy"},
+ {"name":"b","bin":"x","providers":["brew"],"pkgs":{"brew":"b"},"platforms":["macos"],"installMode":"cli","deliveryMode":"lazy","preload":false,"loadPolicy":"lazy","loadRationale":"default-lazy"}]
 JSON
 if python3 "$VAL" "$fx1" >/dev/null 2>&1; then fail "validator MISSED a same-bin overlapping-platform conflict (fixture)"; else pass "validator catches a same-bin overlapping-platform conflict (fixture RED → the detector can fail)"; fi
 rm -f "$fx1"
@@ -40,8 +40,8 @@ rm -f "$fx1"
 # 3. FIXTURE — a DISJOINT-platform same-bin split (like devtoys/devtoys-windows) is legitimate → exit 0.
 fx2="$(mktemp)"
 cat >"$fx2" <<'JSON'
-[{"name":"a","bin":"x","providers":["brew"],"pkgs":{"brew":"a"},"platforms":["macos"],"installMode":"app","deliveryMode":"eager","preload":false},
- {"name":"a-win","bin":"x","providers":["choco"],"pkgs":{"choco":"a"},"platforms":["windows"],"installMode":"cli","deliveryMode":"lazy","preload":false}]
+[{"name":"a","bin":"x","providers":["brew"],"pkgs":{"brew":"a"},"platforms":["macos"],"installMode":"app","deliveryMode":"lazy","preload":false,"loadPolicy":"lazy","loadRationale":"default-lazy"},
+ {"name":"a-win","bin":"x","providers":["choco"],"pkgs":{"choco":"a"},"platforms":["windows"],"installMode":"cli","deliveryMode":"lazy","preload":false,"loadPolicy":"lazy","loadRationale":"default-lazy"}]
 JSON
 if python3 "$VAL" "$fx2" >/dev/null 2>&1; then pass "validator ALLOWS a disjoint-platform same-bin split (no false positive)"; else fail "validator false-flagged a legitimate disjoint-platform split"; fi
 rm -f "$fx2"
@@ -49,7 +49,7 @@ rm -f "$fx2"
 # 4. FIXTURE — providers[] not matching pkgs keys → exit 1.
 fx3="$(mktemp)"
 cat >"$fx3" <<'JSON'
-[{"name":"a","bin":"a","providers":["brew","apt"],"pkgs":{"brew":"a"},"platforms":["macos"],"installMode":"cli","deliveryMode":"lazy","preload":false}]
+[{"name":"a","bin":"a","providers":["brew","apt"],"pkgs":{"brew":"a"},"platforms":["macos"],"installMode":"cli","deliveryMode":"lazy","preload":false,"loadPolicy":"lazy","loadRationale":"default-lazy"}]
 JSON
 if python3 "$VAL" "$fx3" >/dev/null 2>&1; then fail "validator MISSED a providers<->pkgs mismatch (fixture)"; else pass "validator catches a providers<->pkgs mismatch (fixture)"; fi
 rm -f "$fx3"
@@ -57,7 +57,7 @@ rm -f "$fx3"
 # 5. FIXTURE — a bad installMode → exit 1.
 fx4="$(mktemp)"
 cat >"$fx4" <<'JSON'
-[{"name":"a","bin":"a","providers":["brew"],"pkgs":{"brew":"a"},"platforms":["macos"],"installMode":"wat","deliveryMode":"lazy","preload":false}]
+[{"name":"a","bin":"a","providers":["brew"],"pkgs":{"brew":"a"},"platforms":["macos"],"installMode":"wat","deliveryMode":"lazy","preload":false,"loadPolicy":"lazy","loadRationale":"default-lazy"}]
 JSON
 if python3 "$VAL" "$fx4" >/dev/null 2>&1; then fail "validator MISSED a bad installMode (fixture)"; else pass "validator catches an invalid installMode (fixture)"; fi
 rm -f "$fx4"
@@ -65,7 +65,7 @@ rm -f "$fx4"
 # 5b. FIXTURE — an unknown package manager provider → exit 1 (VALID_MANAGERS).
 fx5="$(mktemp)"
 cat >"$fx5" <<'JSON'
-[{"name":"a","bin":"a","providers":["unknown_pm"],"pkgs":{"unknown_pm":"a"},"platforms":["linux"],"installMode":"cli","deliveryMode":"lazy","preload":false}]
+[{"name":"a","bin":"a","providers":["unknown_pm"],"pkgs":{"unknown_pm":"a"},"platforms":["linux"],"installMode":"cli","deliveryMode":"lazy","preload":false,"loadPolicy":"lazy","loadRationale":"default-lazy"}]
 JSON
 if python3 "$VAL" "$fx5" >/dev/null 2>&1; then fail "validator MISSED an unknown package manager provider (fixture)"; else pass "validator catches an unknown package manager provider via VALID_MANAGERS (fixture)"; fi
 rm -f "$fx5"
@@ -73,7 +73,7 @@ rm -f "$fx5"
 # 5c. FIXTURE — eager delivery needs a bounded reason, while a lazy CLI cannot claim one.
 fx6="$(mktemp)"
 cat >"$fx6" <<'JSON'
-[{"name":"a","bin":"a","providers":["brew"],"pkgs":{"brew":"a"},"platforms":["macos"],"installMode":"cli","deliveryMode":"eager","preload":true,"preloadReason":"because-fast"}]
+[{"name":"a","bin":"a","providers":["brew"],"pkgs":{"brew":"a"},"platforms":["macos"],"installMode":"cli","deliveryMode":"eager","preload":true,"preloadReason":"because-fast","loadPolicy":"eager-bootstrap","loadRationale":"bootstrap:test-fixture"}]
 JSON
 if python3 "$VAL" "$fx6" >/dev/null 2>&1; then fail "validator MISSED an invalid eager delivery reason"; else pass "validator catches an invalid eager delivery reason"; fi
 rm -f "$fx6"
@@ -85,7 +85,10 @@ for nm in xz bzip2 kvm rar; do
   [ "$gotbin" = "$nm" ] && pass "GET /api/catalog/$nm -> canonical bin '$nm' (multi-bin package resolves to its namesake command; #133 D02/D12)" || fail "/api/catalog/$nm returned bin '$gotbin' (want canonical '$nm')"
 done
 
-# 10. D13 — the deploy is GATED on catalog validity: packages/control-plane/wrangler.toml runs
+load_contract="$(python3 -c 'import json,sys; xs=json.load(open(sys.argv[1])); d=next(x for x in xs if x["name"] == "xz" and x["bin"] == "xz"); print(d.get("deliveryMode"), d.get("loadPolicy"), bool(d.get("loadRationale")))' "$CAT" 2>/dev/null)"
+[ "$load_contract" = "lazy lazy True" ] && pass "canonical xz entry carries its validated lazy-load policy and rationale" || fail "canonical xz entry omitted or contradicted load policy: '$load_contract'"
+
+# D13 — the deploy is GATED on catalog validity: packages/control-plane/wrangler.toml runs
 #     validate-catalog.py as its [build] command, so a catalog conflict ABORTS `wrangler deploy` (and
 #     --dry-run) BEFORE the worker is bundled/shipped — an invalid catalog can never reach prod (fire #134).
 WT="$dir/../packages/control-plane/wrangler.toml"

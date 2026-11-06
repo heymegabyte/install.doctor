@@ -1,4 +1,5 @@
 ---
+# `scripts/provision.sh` is the authored provisioner source of truth; signed releases serve it only after stage-zero verification.
 inputDir: src/
 outputMap: |
   ./{{ .in | strings.ReplaceAll ".tmpl" "" }}

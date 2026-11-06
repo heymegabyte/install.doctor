@@ -14,14 +14,18 @@ import { reserveBudget, DEFAULT_CEILING_MICROS } from './budget';
 // Better Auth — O-series sign-in (GitHub + Google), fire #102. See ./auth.ts.
 import { auth } from './auth';
 import { isAllowedAdminEmail } from './admin-allowlist';
-import { redactSecrets } from './redact';
+import { redactSecrets } from '../../aid-core/src/redaction';
 import { getMigrations } from 'better-auth/db/migration';
 import { errorEnvelope, requestSecurity, requestIdFor } from './http-security';
+import { renderBootstrap } from './bootstrap';
+import { pinnedReleaseSigner } from './release-keyring';
+import { lookupReleaseObject } from './release-store';
+import { resolveActiveRelease } from './release-channel';
 // App Store catalog — generated from software.yml by the canonical validated parser
 // (scripts/gen-catalog.mjs → the cnf index builder; D01/D02/D13). Read-only, bundled at deploy;
 // regenerate + redeploy when software.yml changes. No runtime YAML at the edge.
 import catalogData from './catalog.json';
-type CatalogEntry = { name: string; bin: string; providers: string[]; pkgs: Record<string, string>; platforms: string[]; short?: string; github?: string; home?: string; docs?: string; installMode?: 'app' | 'service' | 'cli'; deliveryMode: 'eager' | 'lazy'; preload?: boolean; preloadReason?: 'bootstrap-critical' | 'lazy-installer-substrate' | 'security-recovery-prerequisite' | 'desired-state-service'; deprecated?: string; replacement?: string; deps?: string[]; configured?: boolean; postInstall?: string };
+type CatalogEntry = { name: string; bin: string; providers: string[]; pkgs: Record<string, string>; platforms: string[]; short?: string; github?: string; home?: string; docs?: string; installMode?: 'app' | 'service' | 'cli'; deliveryMode: 'eager' | 'lazy'; loadPolicy: 'lazy' | 'eager-bootstrap' | 'eager-supported-path' | 'eager-security-recovery' | 'eager-service'; loadRationale: string; preload?: boolean; preloadReason?: 'bootstrap-critical' | 'lazy-installer-substrate' | 'security-recovery-prerequisite' | 'desired-state-service'; deprecated?: string; replacement?: string; deps?: string[]; configured?: boolean; postInstall?: string };
 const CATALOG = catalogData as CatalogEntry[];
 // Name → entry. One package can legitimately provide SEVERAL bins (xz → lzma/xz/unlzma/unxz), one entry per
 // bin, all sharing the package `name`. Prefer the CANONICAL entry whose bin IS the name (so /api/catalog/xz
@@ -374,7 +378,7 @@ app.get('/', (c) =>
 
 <div class=card id=setup><h3>Bootstrap a machine</h3>
 <p class=muted>macOS &amp; Linux — run on the machine:</p>
-<p class=mono>bash &lt;(curl -sSL https://install.doctor/start)</p>
+<p class=mono>curl -fsSL https://app.install.doctor/start | bash</p>
 <p class=muted>then pair it:</p>
 <p class=mono>aid-pair</p>
 <p class=muted>Native Windows PowerShell entrypoint — coming.</p></div>
@@ -1165,7 +1169,7 @@ app.get('/api/catalog/:name', (c) => {
   // ALREADY on PATH, so a run can ADOPT an existing install (F04) instead of reinstalling (B10/W02). Derived from
   // the bin field (every entry has one); universal + accurate, no per-tool guessing (unlike a verify `--version`).
   const detectCommand = e.bin ? `command -v ${e.bin}` : undefined;
-  return c.json({ name: e.name, bin: e.bin, platforms: e.platforms, unavailablePlatforms, providers: e.providers, short: e.short, github: e.github, owner, home: e.home, docs: e.docs, installMode: e.installMode || 'cli', deliveryMode: e.deliveryMode || (e.preload ? 'eager' : 'lazy'), preload: e.preload === true, preloadReason: e.preloadReason, deprecated: e.deprecated, replacement: e.replacement, deps: e.deps, configured: e.configured, postInstall: e.postInstall, detectCommand, commands, updateCommands, uninstallCommands });
+  return c.json({ name: e.name, bin: e.bin, platforms: e.platforms, unavailablePlatforms, providers: e.providers, short: e.short, github: e.github, owner, home: e.home, docs: e.docs, installMode: e.installMode || 'cli', deliveryMode: e.deliveryMode, loadPolicy: e.loadPolicy, loadRationale: e.loadRationale, preload: e.preload === true, preloadReason: e.preloadReason, deprecated: e.deprecated, replacement: e.replacement, deps: e.deps, configured: e.configured, postInstall: e.postInstall, detectCommand, commands, updateCommands, uninstallCommands });
 });
 
 app.post('/api/ai/v1/resolve', async (c) => {
@@ -2558,70 +2562,52 @@ app.post('/api/v1/keys/mint', async (c) => {
   }, 501);
 });
 
-// Terminal-safe stage-zero bootstrap for macOS, Unix/Linux, Qubes, FreeBSD, and Windows through WSL/Git Bash.
-app.get('/start', (c) => {
-  const script = `#!/usr/bin/env bash
-# app.install.doctor/start — secure stage-zero fleet bootstrap
-set -euo pipefail
+// Immutable release bytes. Storage is deliberately an optional binding: a deployment that has not
+// provisioned it returns 503 rather than falling through to a mutable source or another bucket.
+app.get('/releases/:releaseId/:file', async (c) => {
+  const env = Env.parse(c.env);
+  const release = await lookupReleaseObject(env.RELEASES, c.req.param('releaseId'), c.req.param('file'));
+  if (release.status === 'invalid') return c.json({ error: 'release_not_found' }, 404);
+  if (release.status === 'unavailable') {
+    return c.json({ error: 'release_storage_not_configured' }, 503);
+  }
+  if (release.status === 'missing') return c.json({ error: 'release_not_found' }, 404);
 
-export AID_CONTROL_PLANE_URL="\${AID_CONTROL_PLANE_URL:-https://app.install.doctor}"
-export START_REPO="\${START_REPO:-heymegabyte/install.doctor}"
-export START_REF="\${START_REF:-master}"
-export HOST_NAMESPACE="\${HOST_NAMESPACE:-megabyte.space}"
+  const headers = new Headers({
+    'content-type': release.contentType,
+    'cache-control': 'public, max-age=31536000, immutable, no-transform',
+    'x-content-type-options': 'nosniff',
+  });
+  if (release.body.size !== undefined) headers.set('content-length', String(release.body.size));
+  return new Response(release.body.body, { status: 200, headers });
+});
 
-cyan() { printf '\\033[38;2;0;229;255m%s\\033[0m\\n' "$*"; }
-hdr()  { printf '\\033[48;2;6;6;16m\\033[38;2;0;229;255m ✦ INSTALL.DOCTOR // AID UNIVERSAL PROVISIONER ✦ \\033[0m\\n'; }
-die()  { printf 'install.doctor: %s\\n' "$*" >&2; exit 1; }
-sha256() {
-  if command -v sha256sum >/dev/null 2>&1; then sha256sum "$1" | awk '{print $1}'
-  elif command -v shasum >/dev/null 2>&1; then shasum -a 256 "$1" | awk '{print $1}'
-  else die 'sha256sum or shasum is required when START_SHA256 is set'; fi
-}
-
-hdr
-OS_KERNEL="$(uname -s 2>/dev/null || echo unknown)"
-HOST_SHORT="$(hostname -s 2>/dev/null || hostname 2>/dev/null || echo workstation)"
-HOST_FQDN="\${AID_HOST:-\${HOST_SHORT}.\${HOST_NAMESPACE}}"
-cyan "Detected OS: \${OS_KERNEL} · Host: \${HOST_SHORT} · Target Host Repo: \${HOST_FQDN}"
-
-if [ -n "\${AID_API_KEY:-}" ]; then
-  cyan "✓ AID_API_KEY detected — bypassing browser OAuth sequence (headless zero-touch mode)"
-  export HEADLESS_INSTALL="\${HEADLESS_INSTALL:-1}"
-elif [ "\${HEADLESS_INSTALL:-0}" != "1" ] && command -v aid-pair >/dev/null 2>&1; then
-  cyan "Starting real-time GitHub OAuth & Host Repository pairing..."
-  aid-pair || true
-fi
-
-umask 077
-START_TMP="$(mktemp -d 2>/dev/null || mktemp -d -t install-doctor)"
-cleanup() { rm -rf -- "$START_TMP"; }
-trap cleanup EXIT HUP INT TERM
-PROVISIONER="$START_TMP/provision.sh"
-PROVISION_URL="https://raw.githubusercontent.com/\${START_REPO}/\${START_REF}/scripts/provision.sh"
-cyan "Fetching pinned provisioner: \${START_REPO}@\${START_REF}"
-curl -fL --retry 3 --connect-timeout 15 --max-time 300 "$PROVISION_URL" -o "$PROVISIONER"
-chmod 0700 "$PROVISIONER"
-if [ -n "\${START_SHA256:-}" ]; then
-  ACTUAL_SHA256="$(sha256 "$PROVISIONER")"
-  [ "$ACTUAL_SHA256" = "$START_SHA256" ] || die "provisioner sha256 mismatch"
-  cyan '✓ Provisioner integrity verified'
-fi
-
-set +e
-if [ "\${HEADLESS_INSTALL:-0}" != "1" ] && [ -r /dev/tty ] && [ -w /dev/tty ]; then
-  bash "$PROVISIONER" "$@" < /dev/tty
-else
-  export HEADLESS_INSTALL=1
-  bash "$PROVISIONER" "$@" < /dev/null
-fi
-STATUS=$?
-cleanup
-trap - EXIT HUP INT TERM
-exit "$STATUS"
-`;
+// Terminal-safe signed stage-zero bootstrap for the explicitly gated macOS and Linux x64/arm64 cells.
+app.get('/start', async (c) => {
+  const env = Env.parse(c.env);
+  let active;
+  try {
+    active = await resolveActiveRelease(env.RELEASE_CHANNELS, env.RELEASES, 'stable');
+  } catch {
+    return c.json({ error: 'release_channel_unavailable', detail: 'The signed stable release channel is unavailable or invalid; no mutable fallback is permitted.' }, 503);
+  }
+  const configured = {
+    manifestUrl: `https://app.install.doctor/releases/${active.releaseId}/manifest`,
+    signatureUrl: `https://app.install.doctor/releases/${active.releaseId}/manifest.sig`,
+    signerIdentity: active.signerId,
+    signerPublicKey: pinnedReleaseSigner(active.signerId),
+  };
+  if (Object.values(configured).some((value) => !value)) {
+    return c.json({ error: 'release_trust_not_configured', detail: 'The signed release channel is unavailable; no mutable fallback is permitted.' }, 503);
+  }
+  const script = renderBootstrap(configured);
   return new Response(script, {
     status: 200,
-    headers: { 'content-type': 'text/x-shellscript; charset=utf-8' },
+    headers: {
+      'content-type': 'text/x-shellscript; charset=utf-8',
+      'cache-control': 'no-store',
+      'x-content-type-options': 'nosniff',
+    },
   });
 });
 

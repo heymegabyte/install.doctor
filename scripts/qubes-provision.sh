@@ -1,59 +1,19 @@
 #!/usr/bin/env bash
-# @file Provision Qubes
-# @brief Provisions Qubes
-# @description
-#     Provisions Qubes.
-
+# @file Provision Qubes through the canonical install.doctor lifecycle.
+# @brief Preserves the historical Qubes entrypoint without a competing installer.
 set -euo pipefail
 
-PROJECT_HOME="$HOME/qubes-cluster"
-LOG_FILE="/var/log/qubes-cluster-install.log"
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
+PROVISIONER="$ROOT/scripts/provision.sh"
 
-log_message() {
-    echo "$(date '+%Y-%m-%d %H:%M:%S') - $1" | tee -a "$LOG_FILE"
-}
-
-log_message "🚀 Starting Qubes Cluster installation..."
-
-# Install system dependencies
-log_message "Installing system dependencies..."
-sudo dnf install -y nodejs npm glusterfs-server pulumi
-
-# Clone repository
-if [ ! -d "$PROJECT_HOME" ]; then
-    log_message "Cloning repository..."
-    git clone https://github.com/your-repo/qubes-cluster.git "$PROJECT_HOME"
+if [ ! -f "$PROVISIONER" ] || [ -L "$PROVISIONER" ]; then
+  printf 'install.doctor: trusted provisioner is missing; use the signed /start release\n' >&2
+  exit 66
 fi
 
-# Install Node.js dependencies
-log_message "Installing Node.js dependencies..."
-cd "$PROJECT_HOME/ts-services/nestjs-app"
-npm install
-
-cd "$PROJECT_HOME/ts-services/electron-app"
-npm install
-
-cd "$PROJECT_HOME/ts-services/angular-ui"
-npm install
-
-# Build applications
-log_message "Building applications..."
-cd "$PROJECT_HOME/ts-services/nestjs-app"
-npm run build
-
-cd "$PROJECT_HOME/ts-services/electron-app"
-npm run build
-
-cd "$PROJECT_HOME/ts-services/angular-ui"
-npm run build
-
-# Deploy infrastructure with Pulumi
-log_message "Deploying Qubes infrastructure with Pulumi..."
-cd "$PROJECT_HOME/ts-services/pulumi-config"
-pulumi up --yes
-
-# Start system services
-log_message "Starting system services..."
-systemctl enable --now qubes-cluster.service
-
-log_message "✅ Qubes Cluster installation completed successfully!"
+# The canonical provisioner owns capability discovery, exact-plan approval,
+# dom0/AppVM delegation, privilege consent, journaling, and terminal evidence.
+# Do not infer privileged consent or service activation in this compatibility
+# adapter; unattended callers must provide the normal approved-plan inputs.
+export INSTALL_DOCTOR_ROLE="${INSTALL_DOCTOR_ROLE:-qubes}"
+exec bash "$PROVISIONER" "$@"

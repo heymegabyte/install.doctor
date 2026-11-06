@@ -80,18 +80,36 @@ fixHomebrewPermissions() {
   fi
 }
 
+runPinnedHomebrewInstaller() {
+  local installer actual status=0 commit='959bdd728192d78c47287c177796c3d86d111f09'
+  local expected='5f333bbe53bc490e51e7ccb1df8779b3dd6ee73a1a7379efda216edb08ccb148'
+  installer="$(mktemp)" || return 1
+  if ! curl -fsSL --proto '=https' --tlsv1.2 --connect-timeout 10 --max-time 60 "https://raw.githubusercontent.com/Homebrew/install/$commit/install.sh" -o "$installer"; then
+    rm -f "$installer"
+    return 1
+  fi
+  [ "$(wc -c < "$installer")" -le 1048576 ] || { rm -f "$installer"; return 1; }
+  if command -v sha256sum >/dev/null 2>&1; then actual="$(sha256sum "$installer" | awk '{print $1}')";
+  elif command -v shasum >/dev/null 2>&1; then actual="$(shasum -a 256 "$installer" | awk '{print $1}')";
+  else rm -f "$installer"; return 1; fi
+  [ "$actual" = "$expected" ] || { rm -f "$installer"; return 1; }
+  NONINTERACTIVE=1 bash "$installer" || status=$?
+  rm -f "$installer"
+  return "$status"
+}
+
 # @description This script ensures Homebrew is installed.
 ensurePackageManagerHomebrew() {
   if ! command -v brew > /dev/null; then
     if command -v sudo > /dev/null && sudo -n true; then
-      echo | bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+      runPinnedHomebrewInstaller
       fixHomebrewPermissions
       if [ -d "/opt/homebrew" ]; then
         gum log -sl info "Setting owner of /opt/homebrew to '$USER'" && sudo chown -R "$USER" /opt/homebrew || gum log -sl warn "Failed to chown /opt/homebrew to '$USER'"
       fi
     else
       gum log -sl info 'Homebrew is not installed. Password may be required.'
-      echo | bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)" || BREW_EXIT_CODE="$?"
+      runPinnedHomebrewInstaller || BREW_EXIT_CODE="$?"
       fixHomebrewPermissions
       if [ -d "/opt/homebrew" ]; then
         gum log -sl info "Setting owner of /opt/homebrew to '$USER'" && sudo chown -R "$USER" /opt/homebrew || gum log -sl warn "Failed to chown /opt/homebrew to '$USER'"
@@ -197,11 +215,7 @@ upgradeDarwin() {
       # Source: https://community.jamf.com/t5/jamf-pro/determine-if-update-requires-restart/m-p/11682
       gum log -sl info 'Checking if softwareupdate requires a reboot'
       if softwareupdate -l | grep restart > /dev/null; then
-        ### Add kickstart script to .zshrc so it triggers automatically
-        if [ ! -f "$HOME/.zshrc" ] || ! cat "$HOME/.zshrc" | grep '# TEMPORARY FOR INSTALL DOCTOR MACOS' > /dev/null; then
-          gum log -sl info 'Adding kickstart script to ~/.zshrc so script continues automatically if reboot is necessary'
-          echo 'bash <(curl -sSL --compressed https://install.doctor/start) # TEMPORARY FOR INSTALL DOCTOR MACOS' >> "$HOME/.zshrc"
-        fi
+        gum log -sl info 'After reboot, resume explicitly with the receipt-bound command shown by install.doctor.'
 
         ### Configure secure Infisical-backed desktop autologin (in-memory 11-byte XOR cipher)
         enableSecureDesktopAutologin
@@ -215,20 +229,6 @@ upgradeDarwin() {
       gum log -sl info 'There are no available OS upgrades'
     fi
 
-    if [ -f "$HOME/.zshrc" ]; then
-      gum log -sl info 'Ensuring provision kickstart script is removed from ~/.zshrc'
-      if command -v gsed > /dev/null; then
-        gsed -i '/# TEMPORARY FOR INSTALL DOCTOR MACOS/d' "$HOME/.zshrc" || gum log -sl warn "Failed to remove kickstart script from .zshrc"
-      else
-        if [ -d /Applications ] && [ -d /System ]; then
-          ### macOS
-          sed -i '' '/# TEMPORARY FOR INSTALL DOCTOR MACOS/d' "$HOME/.zshrc" || gum log -sl warn "Failed to remove kickstart script from .zshrc"
-        else
-          ### Linux
-          sed -i '/# TEMPORARY FOR INSTALL DOCTOR MACOS/d' "$HOME/.zshrc" || gum log -sl warn "Failed to remove kickstart script from .zshrc"
-        fi
-      fi
-    fi
   fi
 }
 

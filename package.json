@@ -1,5 +1,5 @@
 {
-  "private": false,
+  "private": true,
   "name": "@mblabs/install-doctor",
   "version": "0.0.1",
   "description": "A glorious combination of application / theme settings and a performant cross-platform, desktop-oriented software suite.",
@@ -19,24 +19,11 @@
     "build": "task validate:software",
     "help": "task --list",
     "lint": "task test:scripts",
-    "repair": "bash <(curl -sS https://install.doctor/repair)",
+    "repair": "curl -fsSL https://app.install.doctor/start | bash -s -- --repair",
     "sort:software": "yq -i 'sort_keys(..)' software.yml",
-    "start": "task provision",
+    "start": "bash start.sh",
     "test": "task test",
     "validate:software": "task validate:software"
-  },
-  "dependencies": {
-    "bin-wrapper": "latest",
-    "nestia": "latest",
-    "tslib": "latest"
-  },
-  "peerDependenciesMeta": {
-    "eslint": {
-      "optional": true
-    }
-  },
-  "devDependencies": {
-    "@types/node": "^16.11.6"
   },
   "keywords": [
     "common",

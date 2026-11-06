@@ -4,24 +4,23 @@
 # The prompt's "commonly used ... software should be pre-installed AND CONFIGURED" + "ensuring that
 # cloudflared has the machine connected, CloudFlare WARP ... including the right certificate" promise
 # depends on the post-installx hooks ACTUALLY RUNNING. Tracing installx (fire #250, verify-against-
-# source) established the dispatch paths:
-#   (a) a software.yml package entry may carry a `script:` key invoking its hook — installx `case 'script'`
-#       (home/dot_local/bin/executable_installx:436) -> runScript (:46) -> `bash`. Only `wazuh` uses this.
-#   (b) #251 added the GENERAL dispatcher: run_after_20-post-install.sh.tmpl (runs AFTER installx at
+# source) established the old dispatch paths. Catalog `script:` providers are now inert migration
+# data and fail closed before execution; #251's GENERAL dispatcher is the only executable path:
+#   run_after_20-post-install.sh.tmpl (runs AFTER installx at
 #       run_after_10) iterates ~/.local/bin/post-installx/post-*.sh and runs each — error-tolerant, and
-#       each hook self-guards on OS + tool-presence + idempotency (post-installx/_TEMPLATE.sh), so running
-#       them all is safe. This closed the #250 gap (29/30 config hooks were built but undispatched).
+#       each hook self-guards on OS + tool-presence + idempotency (post-installx/_TEMPLATE.sh). This closed
+#       the #250 gap (29/30 config hooks were built but undispatched).
 #   installx itself still has NO readdir of the hooks dir; postInstall() (:469) does only flatpak links.
 #
 # This gate is hermetic (pure file assertions, no network):
 #   A1 sanity   — enumerate hooks on disk.
-#   A2 LOCK     — the per-tool dispatch example (wazuh) stays wired (hook on disk + a software.yml
-#                 `script:` entry invokes it). Breaking either side REDs.
-#   A3 integrity— no software.yml `script:` entry points at a MISSING hook (dangling dispatch).
+#   A2 LOCK     — the wazuh hook stays reachable through the general dispatcher, its legacy executable
+#                 catalog recipe has been removed, and Installx continues to reject any script provider.
+#   A3 integrity— no legacy software.yml hook reference points at a missing hook.
 #   A4 LOCK     — the #251 GENERAL dispatcher exists in run_after_20 (defines runPostInstallxHooks +
 #                 globs post-installx/post-*.sh). Removing it REDs (the gap reopens).
-#   A5 LOCK     — the dispatcher is INVOKED (not just defined) AND error-tolerant (one hook's failure
-#                 is logged, never fatal) — so provisioning can't be aborted by a single bad hook.
+#   A5 LOCK     — the dispatcher is INVOKED, attempts every selected hook, and returns failure after
+#                 aggregating failures so provisioning cannot publish partial success.
 #   A6 coverage — every on-disk hook is reachable by the dispatcher glob (#250's 29/30 gap is CLOSED).
 #   A7 headless — the dispatcher runs each hook with stdin </dev/null, so an interactive read/prompt in a
 #                 hook gets EOF (never HANGS a non-interactive / headless provision). CLAUDE.md §3. #252.
@@ -51,19 +50,21 @@ fail() { command -v gum >/dev/null 2>&1 && gum style --foreground 196 -- "FAIL $
 P=0
 F=0
 
-say "post-installx dispatch contract (run_after_20 loop + wazuh script: entry)"
+say "post-installx dispatch contract (general dispatcher; legacy scripts inert)"
 
 # A1 — sanity: hooks exist on disk (executable_post-*.sh; _TEMPLATE.sh excluded by the glob).
 nhooks=$(find "$HOOKS" -maxdepth 1 -name 'executable_post-*.sh' 2>/dev/null | wc -l | tr -d ' ')
 if [ "$nhooks" -gt 0 ]; then pass "enumerated $nhooks post-installx hooks on disk"; else fail "no post-installx hooks found at $HOOKS"; fi
 
-# A2 — the per-tool dispatch example (wazuh) is intact. Regression lock: break the hook OR its
-#      software.yml `script:` reference and this REDs.
+# A2 — wazuh remains reachable only through the general dispatcher. Its former catalog `script:` field
+#      must stay removed: retaining dead executable-looking metadata obscures the single execution path.
+#      Installx must still reject every script provider if one is introduced elsewhere.
 if [ -f "$HOOKS/executable_post-wazuh.sh" ]; then pass "post-wazuh.sh present on disk (the per-tool dispatch example)"; else fail "post-wazuh.sh missing from $HOOKS"; fi
-if grep -qE 'script:[[:space:]]*bash[^#]*post-installx/post-wazuh\.sh' "$SW"; then
-  pass "software.yml dispatches post-wazuh.sh via a script: entry (per-tool mechanism intact)"
+if ! grep -qE 'script:[[:space:]]*bash[^#]*post-installx/post-wazuh\.sh' "$SW" \
+  && grep -q 'catalog script providers are unsupported' "$ROOT/home/dot_local/bin/executable_installx"; then
+  pass "legacy wazuh recipe is absent and Installx rejects reintroduced catalog script providers"
 else
-  fail "post-wazuh.sh not dispatched by any software.yml script: entry (the working example regressed)"
+  fail "wazuh legacy recipe returned or Installx's fail-closed script guard regressed"
 fi
 
 # A3 — integrity: every hook a software.yml `script:` entry points at must exist on disk (no dangling dispatch).
@@ -72,32 +73,39 @@ while IFS= read -r ref; do
   [ -n "$ref" ] || continue
   [ -f "$HOOKS/executable_$ref" ] || dangling="$dangling $ref"
 done < <(grep -oE 'post-installx/post-[a-z0-9-]+\.sh' "$SW" | sed 's#post-installx/##' | sort -u)
-if [ -z "$dangling" ]; then pass "every software.yml script:-dispatched hook exists on disk (no dangling dispatch)"; else fail "dangling dispatch — script: entry points at a missing hook:$dangling"; fi
+if [ -z "$dangling" ]; then pass "every legacy catalog hook reference resolves to an on-disk migration target"; else fail "legacy hook reference points at a missing migration target:$dangling"; fi
 
-# A4 — the #251 GENERAL dispatcher exists (closes the #250 gap). Defines the function + globs the hooks dir.
-if [ -f "$DISPATCHER" ] && grep -q 'runPostInstallxHooks' "$DISPATCHER" && grep -qE 'post-installx' "$DISPATCHER" && grep -qE 'post-\*\.sh' "$DISPATCHER"; then
-  pass "run_after_20 defines runPostInstallxHooks + globs ~/.local/bin/post-installx/post-*.sh (general dispatcher present)"
+# A4 — the dispatcher exists but only targets the eager desired-state closure. Optional integrations
+# remain inert until explicit first use; the cnf hook dispatches their one matching hook then.
+if [ -f "$DISPATCHER" ] && grep -q 'runPostInstallxHooks' "$DISPATCHER" \
+  && grep -Fq '.value._default != false and (.value._preload == true or .value._serviceEnabled == true)' "$DISPATCHER" \
+  && grep -Fq 'post-$PACKAGE.sh' "$DISPATCHER"; then
+  pass "run_after_20 dispatches hooks only for the eager desired-state closure"
 else
-  fail "run_after_20 post-installx dispatcher MISSING — the 29/30 undispatched gap (#250) is OPEN"
+  fail "run_after_20 dispatcher is missing or can initialize optional integrations eagerly"
 fi
 
-# A5 — the dispatcher is INVOKED (name appears >=2x: definition + call) AND error-tolerant (a `||` fallback
-#      so one hook's non-zero exit is logged, never aborts provisioning).
+# A5 — the dispatcher is INVOKED (name appears >=2x: definition + call), attempts all selected hooks, and
+#      returns non-zero after the loop if any failed. This preserves independent progress without allowing
+#      the owning Chezmoi operation to publish a false success.
 calls=$(grep -cE 'runPostInstallxHooks' "$DISPATCHER" 2>/dev/null)
 calls=${calls:-0}
-if [ "$calls" -ge 2 ] && grep -qE '\|\|[[:space:]]*gum log' "$DISPATCHER" 2>/dev/null; then
-  pass "dispatcher is invoked (${calls}x: def+call) + error-tolerant (one hook's failure is non-fatal)"
+if [ "$calls" -ge 2 ] \
+  && grep -Fq 'POST_INSTALLX_FAILURES=$((POST_INSTALLX_FAILURES + 1))' "$DISPATCHER" \
+  && grep -Fq 'if [ "$POST_INSTALLX_FAILURES" -gt 0 ]' "$DISPATCHER" \
+  && grep -qE '^[[:space:]]*return 1' "$DISPATCHER"; then
+  pass "dispatcher is invoked (${calls}x), attempts all hooks, and fails the owning operation after aggregated failures"
 else
-  fail "dispatcher not invoked (${calls}x, need >=2: def+call) OR not error-tolerant (no '|| gum log' fallback on the hook run)"
+  fail "dispatcher not invoked (${calls}x, need >=2) or does not propagate aggregated hook failures"
 fi
 
-# A6 — coverage: the hooks dir holds only _TEMPLATE + executable_post-*.sh, so the dispatcher's post-*.sh
-#      glob misses NONE. A stray hook named outside post-* (e.g. configure-foo.sh) would be undispatchable.
+# A6 — naming: each catalog-selected package and the cnf first-use path resolve hooks by post-<key>.sh.
+#      A stray hook named outside post-* (e.g. configure-foo.sh) would be undispatchable.
 stray=$(find "$HOOKS" -maxdepth 1 -type f -name '*.sh' ! -name '_TEMPLATE.sh' ! -name 'executable_post-*.sh' 2>/dev/null | wc -l | tr -d ' ')
 if [ "${stray:-0}" -eq 0 ]; then
-  pass "dispatch coverage: all $nhooks hooks match the post-*.sh glob, no stray undispatchable hook (#250 gap CLOSED)"
+  pass "dispatch naming: all $nhooks hooks match post-<key>.sh, no stray undispatchable hook"
 else
-  fail "$stray hook(s) in $HOOKS not named post-*.sh — the run_after_20 glob would MISS them"
+  fail "$stray hook(s) in $HOOKS not named post-*.sh — desired-state and first-use dispatch would miss them"
 fi
 
 # A7 — headless-safe: the dispatcher runs each hook with stdin from /dev/null. 4 hooks have `read` loops

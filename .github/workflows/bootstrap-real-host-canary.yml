@@ -1,0 +1,99 @@
+name: Bootstrap real-host lifecycle canary
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_v1:
+        description: First already-published immutable release ID
+        required: true
+        type: string
+      release_v2:
+        description: Second already-published immutable release ID
+        required: true
+        type: string
+      offline_bundle_url:
+        description: HTTPS URL of the release-v2, Debian 12 x64 container-bound signed offline bundle tar archive
+        required: true
+        type: string
+      offline_bundle_sha256:
+        description: Exact lowercase SHA-256 of the signed offline bundle tar archive
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: bootstrap-real-host-canary
+  cancel-in-progress: false
+
+jobs:
+  debian-12-x64-container:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    container:
+      image: node@sha256:8fa96264f302f58bbb13aa7339c541547b56975766ce956c875da149452a3e40
+    steps:
+      - name: Refuse non-disposable runners
+        shell: bash
+        run: test '${{ runner.environment }}' = github-hosted
+      - name: Install stage-zero tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          apt-get update -qq
+          apt-get install -y --no-install-recommends bash ca-certificates curl git openssh-client rsync sudo tar util-linux
+          useradd --create-home --shell /bin/bash canary
+          printf '%s\n' 'canary ALL=(ALL) NOPASSWD: ALL' >/etc/sudoers.d/install-doctor-canary
+          chmod 0440 /etc/sudoers.d/install-doctor-canary
+      - name: Checkout exact receipt finalizer
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.2.2
+        with:
+          persist-credentials: false
+      - name: Run immutable v1 to v2 lifecycle
+        shell: bash
+        env:
+          CANARY_RELEASE_V1: ${{ inputs.release_v1 }}
+          CANARY_RELEASE_V2: ${{ inputs.release_v2 }}
+          CANARY_RUNNER_ENVIRONMENT: ${{ runner.environment }}
+          CANARY_RUN_ID: ${{ github.run_id }}
+          CANARY_RUNNER_TEMP: ${{ runner.temp }}
+          CANARY_OFFLINE_BUNDLE_URL: ${{ inputs.offline_bundle_url }}
+          CANARY_OFFLINE_BUNDLE_SHA256: ${{ inputs.offline_bundle_sha256 }}
+        run: |
+          set -euo pipefail
+          canary_root="$CANARY_RUNNER_TEMP/bootstrap-real-host-canary"
+          install -d -m 0700 -o canary -g canary "$canary_root"
+          install -d -m 0700 -o canary -g canary "$canary_root/work"
+          sudo --user canary env \
+            GITHUB_ACTIONS=true \
+            RUNNER_ENVIRONMENT="$CANARY_RUNNER_ENVIRONMENT" \
+            GITHUB_RUN_ID="$CANARY_RUN_ID" \
+            RELEASE_V1="$CANARY_RELEASE_V1" \
+            RELEASE_V2="$CANARY_RELEASE_V2" \
+            RUNNER_TEMP="$canary_root/work" \
+            CANARY_EVIDENCE_ROOT="$canary_root/raw" \
+            CANARY_REPORT="$canary_root/report.json" \
+            CANARY_OFFLINE_BUNDLE_URL="$CANARY_OFFLINE_BUNDLE_URL" \
+            CANARY_OFFLINE_BUNDLE_SHA256="$CANARY_OFFLINE_BUNDLE_SHA256" \
+            bash scripts/run-bootstrap-real-host-canary.sh
+      - name: Finalize tuple-bound receipt
+        shell: bash
+        env:
+          RUNNER_ENVIRONMENT: ${{ runner.environment }}
+        run: |
+          set -euo pipefail
+          node scripts/finalize-platform-canary-receipt.mjs \
+            scripts/platform-support-matrix.json \
+            '${{ runner.temp }}/bootstrap-real-host-canary/report.json' \
+            '${{ runner.temp }}/bootstrap-real-host-canary/raw' \
+            '${{ runner.temp }}/bootstrap-real-host-canary/receipt.json'
+      - name: Upload raw phases and uncommitted receipt
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: bootstrap-real-host-canary-${{ github.run_id }}
+          path: ${{ runner.temp }}/bootstrap-real-host-canary
+          if-no-files-found: error
+          include-hidden-files: true
+          retention-days: 14

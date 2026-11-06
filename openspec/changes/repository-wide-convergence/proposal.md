@@ -16,14 +16,17 @@ Install Doctor spans fleet bootstrap, dotfiles, system automation, an isolated a
 - Repeat the architecture loop until two consecutive passes find no new justified change above the value threshold.
 - Apply the approved 30-item security, bootstrap, CI, control-plane, catalog, provenance, dependency, consent, and documentation program as an append-only follow-on wave; prior convergence evidence does not mark these newly accepted findings complete.
 - Make lazy loading the deterministic catalog default and require every eager exception to prove that it is bootstrap-critical, inevitably required by a supported path, needed for security/recovery before lazy infrastructure, or an always-on service explicitly selected by desired state.
+- Converge the public install routine on one release-pinned, provenance-verified bootstrap engine with interactive TUI and noninteractive renderers over the same plan, a bounded dependency DAG, durable resume and evidence, configuration rollback, and signed offline bundles.
 
 ## Capabilities
 
 - `repository-convergence`: complete per-file accounting, prioritized findings, safe automated remediation, and convergence evidence.
 - `repository-quality-gates`: reusable validation of source, generated, encrypted, and binary file classes.
+- `fleet-bootstrap`: secure stage-zero delivery and a deterministic cross-platform plan/apply/resume/rollback/status contract with measurable completion evidence.
 
 ## Boundaries
 
 - Preserve user-authored dirty-worktree changes and do not rewrite healthy files merely to create churn.
 - Do not decode secrets, replace running applications, uninstall live services, deploy, or make external infrastructure changes without separate authorization.
 - Full visual redesign remains blocked on approved Figma designs; this change may fix objective accessibility, correctness, and content defects without redesigning the product.
+- Package removal, operating-system rollback, live network enrollment, reboot, and destructive storage actions remain explicit consent boundaries. Automatic rollback is limited to installer-owned configuration and service state captured before mutation.

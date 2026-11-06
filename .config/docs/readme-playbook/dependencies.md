@@ -19,15 +19,11 @@ You can also run `bash start.sh` if you do not mind development dependencies bei
 
 ### Operating System
 
-**This playbook is built and tested to run on fresh installs of Windows, Mac OS X, Ubuntu, Fedora, Debian, CentOS, Archlinux, and Qubes**. It may still be possible to run the playbook on your current machine. However, installing the playbook on a fresh install is the only thing we actively support. That said, if you come across an issue with an environment that already has configurations and software present, please do not hesitate to [open an issue]({{ repository.gitlab }}{{ repository.location.issue.gitlab }}).
+The current support matrix is authoritative. Native Windows remains unsupported; WSL may use a supported Linux cell. macOS and Linux cells remain best-effort until current real-host lifecycle receipts promote them.
 
 ### Connection
 
-SSH (or WinRM in the case of Windows) and Python should be available on the target systems you would like to provision. If you are attempting to provision a Windows machine, you can ensure that WinRM is enabled and configured so that you can remotely provision the Windows target by running the following command with PowerShell:
-
-```powershell
-Set-ExecutionPolicy Bypass -Scope Process -Force; [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072; iex ((New-Object System.Net.WebClient).DownloadString('https://install.doctor/windows-client'))
-```
+SSH and Python should be available on managed Unix targets. Native Windows provisioning is not published until its separately signed PowerShell entrypoint has current lifecycle evidence; do not download and evaluate remote PowerShell.
 
 ### MAS on Mac OS X
 

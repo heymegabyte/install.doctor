@@ -47,16 +47,16 @@ decryptionFailure() {
 # @description Helper function utilized by [[decryptKey]] to ensure the `age` command is available
 installAge() {
   if ! command -v age > /dev/null; then
-    gum log -sl info 'Running brew install age'
-    brew install --quiet age
+    gum log -sl warn 'age is not selected; offline decryption is unavailable'
+    return 1
   fi
 }
 
 # @description Helper function utilized by [[decryptKey]] to ensure the `expect` command is available
 installExpect() {
   if ! command -v unbuffer > /dev/null; then
-    gum log -sl info 'Running brew install expect / unbuffer'
-    brew install --quiet expect
+    gum log -sl warn 'expect is not selected; automated offline decryption is unavailable'
+    return 1
   fi
 }
 
@@ -82,7 +82,7 @@ decryptKey() {
       if [ -z "$AGE_PASSWORD" ]; then
         decryptionFailure
       else
-        installExpect
+        installExpect || return 1
         expect -c "set timeout -1
         spawn age --decrypt --output "${XDG_CONFIG_HOME:-$HOME/.config}/age/chezmoi.txt" "${XDG_DATA_HOME:-$HOME/.local/share}/chezmoi/home/key.txt.age"
         expect \"Enter passphrase:\"
@@ -101,10 +101,10 @@ decryptKey() {
 
 ### Only run decryption process if HEADLESS_INSTALL variable is not set
 if [ -z "$HEADLESS_INSTALL" ]; then
-  installAge
+  installAge || exit 0
   decryptKey
 elif [ -n "$HEADLESS_INSTALL" ] && [ -n "$AGE_PASSWORD" ]; then
-  installAge
+  installAge || exit 0
   decryptKey
 else
   gum log -sl info 'Skipping Age key decryption process - HEADLESS_INSTALL and AGE_PASSWORD should be passed in as env variables to automate the process'

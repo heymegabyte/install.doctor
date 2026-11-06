@@ -15,7 +15,8 @@ OUT="${2:-$HOME/.cache/cnf/index.tsv}"
 mkdir -p "$(dirname "$OUT")"
 [ -f "$SRC" ] || { echo "software.yml not found at $SRC" >&2; exit 1; }
 
-JQ='to_entries[] | . as $e | $e.value as $v |
+JQ='to_entries[] | . as $e |
+  ($e.value | .go = (if (.go | type) == "string" and (.go | test("@v[0-9]+\\.[0-9]+\\.[0-9]+([-+][0-9A-Za-z.-]+)?$")) then .go else null end)) as $v |
   (([$v.brew,$v.apt,$v.dnf,$v.pacman,$v.cask,$v.choco,$v.scoop,$v.go,$v.cargo,$v.npm,$v.pipx,$v.pip,$v.gem,$v.apk]
     | map(if . == null then "" elif type=="array" then (map(tostring)|join(" ")) else tostring end))) as $cols |
   (($v["_bin"] // $e.key) | if type=="array" then . else [.] end) as $bins |
@@ -30,7 +31,7 @@ if command -v yq >/dev/null 2>&1 && command -v jq >/dev/null 2>&1; then
   yq -o=json '.softwarePackages' "$SRC" | jq -r "$JQ" > "$TMP"
 elif python3 -c 'import yaml' 2>/dev/null; then
   python3 - "$SRC" "$TMP" <<'PY'
-import sys, yaml
+import re, sys, yaml
 src, out = sys.argv[1], sys.argv[2]
 pk = (yaml.safe_load(open(src)) or {}).get("softwarePackages", {})
 cols = ["brew","apt","dnf","pacman","cask","choco","scoop","go","cargo","npm","pipx","pip","gem","apk"]
@@ -41,6 +42,8 @@ with open(out, "w") as fh:
         b = v.get("_bin") or k
         bins = b if isinstance(b, list) else [b]
         c = [f(v.get(col)) for col in cols]
+        if c[7] and not re.search(r"@v\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$", c[7]):
+            c[7] = ""
         for bn in bins:
             if isinstance(bn, str): fh.write("\t".join([bn, k] + c) + "\n")
 PY

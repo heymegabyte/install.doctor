@@ -1,29 +1,22 @@
 #!/usr/bin/env bash
 
 # @file start.sh
-# @brief Bootstrap script that ensures Task is installed and up-to-date, then runs `task start`.
+# @brief Local bootstrap that installs the repository-pinned Task runner, then runs `task provision`.
 # @description
-#   This is the LOCAL Task-runner bootstrap (invoked by the npm/`task` scripts in `package.json`, e.g.
-#   `bash start.sh && task <x>`). NOTE: the DEPLOYED `bash <(curl -sSL https://install.doctor/start)`
-#   entrypoint serves `scripts/provision.sh` (the self-contained provisioner), NOT this file — edit
-#   `scripts/provision.sh` to change the deployed bootstrap.
+#   This local launcher validates its tiny prerequisite set, installs the exact
+#   repository-pinned Task runner, and delegates to the canonical signed
+#   app.install.doctor release endpoint through `task provision`.
 #   It performs the following steps:
 #
-#   1. **Environment Setup**: Configures git, PATH, and SSH known hosts
-#   2. **Dependency Installation**: Ensures curl, git, gzip, sudo, and jq are installed
-#   3. **Homebrew Setup**: Installs Homebrew (with non-interactive mode support)
-#   4. **Task Installation**: Downloads and installs the [Task](https://github.com/go-task/task) runner
-#   5. **Taskfile Setup**: Downloads shared Taskfile library from upstream
-#   6. **Execution**: Runs `task start` to begin the main provisioning process
-#
-#   The script supports running as root by creating a `megabyte` user and re-executing
-#   under that user (required because Homebrew cannot run as root).
+#   1. **Environment Setup**: Configures PATH and preserves the SSH trust store
+#   2. **Prerequisite Validation**: Requires curl, gzip, and tar without mutating package indexes
+#   3. **Task Installation**: Verifies and installs the pinned [Task](https://github.com/go-task/task) runner
+#   4. **Execution**: Enters the signed release workflow through `task provision`
 #
 #   ## Non-Interactive Mode
 #
-#   All package manager operations use non-interactive flags (`-y`, `--noconfirm`, etc.)
-#   to prevent blocking on prompts. Homebrew installation is piped an empty string to
-#   bypass its confirmation prompt.
+#   Package acquisition is deferred to signed desired state. Headless runs must
+#   provide every required consent explicitly through the documented environment.
 #
 #   Documentation on Taskfile.yml syntax can be found [here](https://taskfile.dev/).
 git config url."https://gitlab.com/".insteadOf git@gitlab.com:
@@ -129,74 +122,6 @@ function logger() {
   fi
 }
 
-# @description Helper function for ensurePackageInstalled for Alpine installations
-function ensureAlpinePackageInstalled() {
-  if type sudo &> /dev/null && [ "$CAN_USE_SUDO" != 'false' ]; then
-    sudo apk --no-cache add "$1"
-  else
-    apk --no-cache add "$1"
-  fi
-}
-
-# @description Helper function for ensurePackageInstalled for ArchLinux installations.
-#     Uses `--noconfirm` flag to prevent interactive prompts during automated installs.
-function ensureArchPackageInstalled() {
-  if type sudo &> /dev/null && [ "$CAN_USE_SUDO" != 'false' ]; then
-    sudo pacman -Sy --noconfirm
-    sudo pacman -S --noconfirm "$1"
-  else
-    pacman -Sy --noconfirm
-    pacman -S --noconfirm "$1"
-  fi
-}
-
-# @description Helper function for ensurePackageInstalled for Debian installations
-function ensureDebianPackageInstalled() {
-  if type sudo &> /dev/null && [ "$CAN_USE_SUDO" != 'false' ]; then
-    sudo apt-get update
-    sudo apt-get install -y "$1"
-  else
-    apt-get update
-    apt-get install -y "$1"
-  fi
-}
-
-# @description Helper function for ensurePackageInstalled for RedHat installations
-function ensureRedHatPackageInstalled() {
-  if type sudo &> /dev/null && [ "$CAN_USE_SUDO" != 'false' ]; then
-    if type dnf &> /dev/null; then
-      sudo dnf install -y "$1"
-    else
-      sudo yum install -y "$1"
-    fi
-  else
-    if type dnf &> /dev/null; then
-      dnf install -y "$1"
-    else
-      yum install -y "$1"
-    fi
-  fi
-}
-
-# @description Installs package when user is root on Linux
-#
-# @arg $1 string The name of the package that must be present
-#
-# @exitcode 0 The package was successfully installed
-# @exitcode 1+ If there was an error, the package needs to be installed manually, or if the OS is unsupported
-function ensureRootPackageInstalled() {
-  export CAN_USE_SUDO='false'
-  if ! type "$1" &> /dev/null; then
-    local os; os="$(detect_os)"
-    case "$os" in
-      fedora)     ensureRedHatPackageInstalled "$1" ;;
-      ubuntu|debian) ensureDebianPackageInstalled "$1" ;;
-      arch)       ensureArchPackageInstalled "$1" ;;
-      alpine)     ensureAlpinePackageInstalled "$1" ;;
-    esac
-  fi
-}
-
 # Homebrew refuses root and an automatically-created blanket-sudo account is
 # not an acceptable workaround. The served provisioner has an explicit,
 # audited root-to-user handoff for fleet images.
@@ -227,197 +152,34 @@ function ensureLocalPath() {
   fi
 }
 
-# @description Ensures given package is installed on a system.
-#
-# @arg $1 string The name of the package that must be present
-#
-# @exitcode 0 The package(s) were successfully installed
-# @exitcode 1+ If there was an error, the package needs to be installed manually, or if the OS is unsupported
-function ensurePackageInstalled() {
-  export CAN_USE_SUDO='true'
-  if ! type "$1" &> /dev/null; then
-    local os; os="$(detect_os)"
-    case "$os" in
-      macos) brew install "$1" ;;
-      ubuntu|debian) ensureDebianPackageInstalled "$1" ;;
-      fedora) ensureRedHatPackageInstalled "$1" ;;
-      arch) ensureArchPackageInstalled "$1" ;;
-      alpine) ensureAlpinePackageInstalled "$1" ;;
-      *) logger error "$1 is missing. Please install $1 to continue." && exit 1 ;;
-    esac
-  fi
-}
-
-# @description Ensures the latest version of Task is installed to `/usr/local/bin` (or `~/.local/bin`, as
-# a fallback.
+# @description Ensures the immutable repository-approved Task version is installed
+# under the current user's private executable prefix.
 #
 # @noarg
 #
 # @exitcode 0 If the package is already present and up-to-date or if it was installed/updated
 # @exitcode 1+ If the OS is unsupported or if there was an error either installing the package or setting the PATH
 function ensureTaskInstalled() {
-  # @description Release API URL used to get the latest release's version
-  TASK_RELEASE_API="https://api.github.com/repos/go-task/task/releases/latest"
-  if ! type task &> /dev/null; then
-    local os; os="$(detect_os)"
-    case "$os" in
-      macos|ubuntu|debian|fedora|alpine|arch|linux) installTask ;;
-      *) logger error "System type not recognized ($os). You must install task manually." && exit 1 ;;
-    esac
-  else
-    mkdir -p "${XDG_CACHE_HOME:-$HOME/.cache}/megabyte/start.sh"
-    if [ -f "${XDG_CACHE_HOME:-$HOME/.cache}/megabyte/start.sh/bodega-update-check" ]; then
-      TASK_UPDATE_TIME="$(cat "${XDG_CACHE_HOME:-$HOME/.cache}/megabyte/start.sh/bodega-update-check")"
-    else
-      TASK_UPDATE_TIME="$(date +%s)"
-      echo "$TASK_UPDATE_TIME" > "${XDG_CACHE_HOME:-$HOME/.cache}/megabyte/start.sh/bodega-update-check"
-    fi
-    # shellcheck disable=SC2004
-    TIME_DIFF="$(($(date +%s) - $TASK_UPDATE_TIME))"
-    # Only run if it has been at least 15 minutes since last attempt
-    if [ "$TIME_DIFF" -gt 900 ] || [ "$TIME_DIFF" -lt 5 ]; then
-      date +%s > "${XDG_CACHE_HOME:-$HOME/.cache}/megabyte/start.sh/bodega-update-check"
-      logger info "Checking for latest version of Task"
-      CURRENT_VERSION="$(task --version | cut -d' ' -f3 | cut -c 2-)"
-      LATEST_VERSION="$(curl -s "$TASK_RELEASE_API" | grep tag_name | cut -c 17- | sed 's/\",//')"
-      if printf '%s\n%s\n' "$LATEST_VERSION" "$CURRENT_VERSION" | sort -V -c &> /dev/null; then
-        logger info "Task is already up-to-date"
-      else
-        logger info "A new version of Task is available (version $LATEST_VERSION)"
-        logger info "The current version of Task installed is $CURRENT_VERSION"
-        if ! type task &> /dev/null; then
-          logger info "Task is not available in the PATH"
-          installTask
-        else
-          if rm -f "$(which task)"; then
-            logger info "Removing task was successfully done without sudo"
-            installTask
-          elif sudo rm -f "$(which task)"; then
-            logger info "Removing task was successfully done with sudo"
-            installTask
-          else
-            logger warn "Unable to remove previous version of Task"
-          fi
-        fi
-      fi
-    fi
+  local target="$HOME/.local/bin/task" platform arch asset expected_binary
+  platform="$(task_bootstrap_platform "$(detect_os)")" || return
+  arch="$(task_bootstrap_arch "$(uname -m 2>/dev/null)")" || return
+  asset="task_${platform}_${arch}.tar.gz"
+  expected_binary="$(task_bootstrap_binary_sha256 "$asset")" || return
+  if task_bootstrap_is_expected_binary "$target" "$expected_binary"; then
+    logger info "Task $INSTALL_DOCTOR_TASK_VERSION is already installed"
+    return 0
   fi
+  logger info "Installing immutable Task $INSTALL_DOCTOR_TASK_VERSION"
+  install_pinned_task "$(detect_os)" "$(uname -m 2>/dev/null)" "$target"
+  logger success "Installed Task $INSTALL_DOCTOR_TASK_VERSION to $target"
 }
 
-# @description Helper function for ensureTaskInstalled that performs the installation of Task.
-#
-# @see ensureTaskInstalled
-#
-# @noarg
-#
-# @exitcode 0 If Task installs/updates properly
-# @exitcode 1+ If the installation fails
-# @description Normalize the host CPU to the architecture token used in go-task release
-# assets (task_<os>_<arch>.tar.gz — arch ∈ amd64|arm64|386|arm). Mirrors the detect_arch
-# helper in scripts/lib/detect_os.sh but emits go-task's `arm` (not armv7/armv6) for 32-bit
-# ARM. Embedded (not sourced) because start.sh runs before the repo is cloned. Safe default
-# is amd64 (the most broadly published asset) for unrecognized machines.
-detectArchSuffix() {
-  case "$(uname -m 2>/dev/null)" in
-    x86_64 | amd64) echo "amd64" ;;
-    aarch64 | arm64) echo "arm64" ;;
-    i386 | i486 | i586 | i686) echo "386" ;;
-    armv7l | armv7 | armv6l | armv6 | armhf | arm) echo "arm" ;;
-    *) echo "amd64" ;;
-  esac
-}
-
-function installTask() {
-  # @description Release URL to use when downloading [Task](https://github.com/go-task/task)
-  TASK_RELEASE_URL="https://github.com/go-task/task/releases/latest"
-  CHECKSUM_DESTINATION=/tmp/megabytelabs/task_checksums.txt
-  CHECKSUMS_URL="$TASK_RELEASE_URL/download/task_checksums.txt"
-  DOWNLOAD_DESTINATION=/tmp/megabytelabs/task.tar.gz
-  TMP_DIR=/tmp/megabytelabs
-  local os; os="$(detect_os)"
-  local arch; arch="$(detectArchSuffix)"
-  logger info "Detected OS: $os (arch: $arch)"
-  if [ "$os" = "macos" ]; then
-    DOWNLOAD_URL="$TASK_RELEASE_URL/download/task_darwin_${arch}.tar.gz"
-  else
-    DOWNLOAD_URL="$TASK_RELEASE_URL/download/task_linux_${arch}.tar.gz"
-  fi
-  logger info "Creating folder for Task download"
-  mkdir -p "$(dirname "$DOWNLOAD_DESTINATION")"
-  logger info "Downloading latest version of Task"
-  curl -sSL "$DOWNLOAD_URL" -o "$DOWNLOAD_DESTINATION"
-  curl -sSL "$CHECKSUMS_URL" -o "$CHECKSUM_DESTINATION"
-  DOWNLOAD_BASENAME="$(basename "$DOWNLOAD_URL")"
-  DOWNLOAD_SHA256="$(grep "$DOWNLOAD_BASENAME" < "$CHECKSUM_DESTINATION" | cut -d ' ' -f 1)"
-  sha256 "$DOWNLOAD_DESTINATION" "$DOWNLOAD_SHA256" > /dev/null
-  logger success "Validated checksum"
-  mkdir -p "$TMP_DIR/task"
-  tar -xzf "$DOWNLOAD_DESTINATION" -C "$TMP_DIR/task" > /dev/null
-  if type task &> /dev/null && [ -w "$(which task)" ]; then
-    TARGET_BIN_DIR="$(dirname "$(which task)")"
-    TARGET_DEST="$(which task)"
-  else
-    if [ "$USER" == "root" ] || (type sudo &> /dev/null && sudo -n true); then
-      TARGET_BIN_DIR='/usr/local/bin'
-    else
-      TARGET_BIN_DIR="$HOME/.local/bin"
-    fi
-    TARGET_DEST="$TARGET_BIN_DIR/task"
-  fi
-  if [ "$USER" == "root" ]; then
-    mkdir -p "$TARGET_BIN_DIR"
-    mv "$TMP_DIR/task/task" "$TARGET_DEST"
-  elif type sudo &> /dev/null && sudo -n true; then
-    sudo mkdir -p "$TARGET_BIN_DIR"
-    sudo mv "$TMP_DIR/task/task" "$TARGET_DEST"
-  else
-    mkdir -p "$TARGET_BIN_DIR"
-    mv "$TMP_DIR/task/task" "$TARGET_DEST"
-  fi
-  logger success "Installed Task to $TARGET_DEST"
-  rm "$CHECKSUM_DESTINATION"
-  rm "$DOWNLOAD_DESTINATION"
-}
-
-# @description Verifies the SHA256 checksum of a file
-#
-# @arg $1 string Path to the file
-# @arg $2 string The SHA256 signature
-#
-# @exitcode 0 The checksum is valid or the system is unrecognized
-# @exitcode 1+ The OS is unsupported or if the checksum is invalid
-function sha256() {
-  local os; os="$(detect_os)"
-  if [ "$os" = "macos" ]; then
-    if type brew &> /dev/null && ! type sha256sum &> /dev/null; then
-      brew install coreutils
-    else
-      logger warn "Brew is not installed - this may cause issues"
-    fi
-    if type brew &> /dev/null; then
-      PATH="$(brew --prefix)/opt/coreutils/libexec/gnubin:$PATH"
-    fi
-    if type sha256sum &> /dev/null; then
-      echo "$2 $1" | sha256sum -c
-    else
-      logger warn "Checksum validation is being skipped for $1 because the sha256sum program is not available"
-    fi
-  elif [ "$os" = "alpine" ]; then
-    if ! type sha256sum &> /dev/null; then
-      logger warn "Checksum validation is being skipped for $1 because the sha256sum program is not available"
-    else
-      echo "$2  $1" | sha256sum -c
-    fi
-  elif [ "$os" != "unknown" ] && [ "$os" != "wsl" ] && [ "$os" != "container" ]; then
-    if ! type shasum &> /dev/null; then
-      logger warn "Checksum validation is being skipped for $1 because the shasum program is not installed"
-    else
-      echo "$2  $1" | shasum -s -a 256 -c
-    fi
-  else
-    logger warn "System type not recognized. Skipping checksum validation."
-  fi
-}
+# The local bootstrap runs from a complete checkout, so keep its independently
+# testable release verifier in the repository instead of duplicating it inline.
+START_SH_ROOT="$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+readonly START_SH_ROOT
+# shellcheck source=scripts/lib/task-bootstrap.sh
+. "$START_SH_ROOT/scripts/lib/task-bootstrap.sh"
 
 ##### Main Logic #####
 
@@ -435,168 +197,21 @@ chmod 600 ~/.ssh/known_hosts
 # @description Ensures ~/.local/bin is in PATH
 ensureLocalPath
 
-# @description Ensures base dependencies are installed
+# @description Validates the tiny local-launcher prerequisite set. Package
+# acquisition belongs to signed stage zero or selected desired state; this
+# checkout launcher must not mutate current package indexes before planning.
 OS="$(detect_os)"
-if [ "$OS" = "macos" ]; then
-  if ! type curl &> /dev/null && type brew &> /dev/null; then
-    brew install curl
+for START_REQUIRED_COMMAND in curl gzip tar; do
+  if ! command -v "$START_REQUIRED_COMMAND" >/dev/null 2>&1; then
+    logger error "Missing bootstrap prerequisite: $START_REQUIRED_COMMAND. Install it with the operating system's trusted package workflow, then rerun."
+    exit 69
   fi
-  if ! type git &> /dev/null; then
-    if [ -n "${HEADLESS_INSTALL:-}" ]; then
-      logger warn 'Git is not present but HEADLESS_INSTALL is set — skipping xcode-select GUI dialog'
-    else
-      # shellcheck disable=SC2016
-      logger info 'Git is not present. A password may be required to run sudo xcode-select --install'
-      sudo xcode-select --install
-    fi
-  fi
-elif [ "$OS" != "unknown" ] && [ "$OS" != "wsl" ] && [ "$OS" != "container" ]; then
-  if ! type curl &> /dev/null || ! type git &> /dev/null || ! type gzip &> /dev/null || ! type sudo &> /dev/null || ! type jq &> /dev/null; then
-    ensurePackageInstalled "curl"
-    ensurePackageInstalled "file"
-    ensurePackageInstalled "git"
-    ensurePackageInstalled "gzip"
-    ensurePackageInstalled "sudo"
-    ensurePackageInstalled "jq"
-  fi
-fi
+done
+unset START_REQUIRED_COMMAND
 
-# @description Ensures Homebrew, uv, and Volta are installed
-if [ -z "$NO_INSTALL_HOMEBREW" ]; then
-  if [ "$OS" = "macos" ] || [ "$OS" = "ubuntu" ] || [ "$OS" = "debian" ] || [ "$OS" = "fedora" ] || [ "$OS" = "arch" ] || [ "$OS" = "alpine" ] || [ "$OS" = "linux" ]; then
-    if [ -z "$INIT_CWD" ]; then
-      if ! type brew &> /dev/null; then
-        BREW_EXIT_CODE=""
-        HOMEBREW_INSTALL_COMMIT='959bdd728192d78c47287c177796c3d86d111f09'
-        HOMEBREW_INSTALLER="$(mktemp)"
-        trap 'rm -f "$HOMEBREW_INSTALLER"' EXIT
-        curl -fsSL "https://raw.githubusercontent.com/Homebrew/install/$HOMEBREW_INSTALL_COMMIT/install.sh" -o "$HOMEBREW_INSTALLER"
-        if type sudo &> /dev/null && sudo -n true; then
-          NONINTERACTIVE=1 /bin/bash "$HOMEBREW_INSTALLER"
-        else
-          logger warn "Homebrew is not installed. The script will attempt to install Homebrew and you might be prompted for your password."
-          NONINTERACTIVE=1 /bin/bash "$HOMEBREW_INSTALLER" || BREW_EXIT_CODE="$?"
-          if [ -n "$BREW_EXIT_CODE" ]; then
-            if command -v brew > /dev/null; then
-              logger warn "Homebrew was installed but part of the installation failed. Retrying again after changing a few things.."
-              BREW_DIRS="share/man share/doc share/zsh/site-functions etc/bash_completion.d"
-              for BREW_DIR in $BREW_DIRS; do
-                if [ -d "$(brew --prefix)/$BREW_DIR" ]; then
-                  sudo chown -R "$(whoami)" "$(brew --prefix)/$BREW_DIR"
-                fi
-              done
-              brew update --force --quiet
-            fi
-          fi
-        fi
-        rm -f "$HOMEBREW_INSTALLER"
-        trap - EXIT
-      fi
-      if ! (grep "/bin/brew shellenv" < "$HOME/.profile" &> /dev/null) && [ "$OS" != "macos" ]; then
-        # shellcheck disable=SC2016
-        logger info 'Adding linuxbrew source command to ~/.profile'
-        # shellcheck disable=SC2016
-        echo 'eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"' >> "$HOME/.profile"
-      fi
-      if [ -f "$HOME/.profile" ]; then
-        # shellcheck disable=SC1091
-        . "$HOME/.profile" &> /dev/null || true
-      fi
-      if ! type uv &> /dev/null; then
-        # shellcheck disable=SC2016
-        brew install uv || logger info 'There may have been an issue installing uv with brew'
-      fi
-      if ! type jq &> /dev/null; then
-        # shellcheck disable=SC2016
-        brew install jq || logger info 'There may have been an issue installing jq with brew'
-      fi
-      if ! type yq &> /dev/null; then
-        # shellcheck disable=SC2016
-        brew install yq || logger info 'There may have been an issue installing yq with brew'
-      fi
-      if ! type volta &> /dev/null || ! type node &> /dev/null; then
-        brew install volta || logger warn 'Unable to install Volta from the verified Homebrew package index'
-        # shellcheck disable=SC1091
-        . "$HOME/.profile" &> /dev/null || true
-        if type volta &> /dev/null; then
-          volta setup
-          volta install node
-        else
-          logger warn "Volta installation may have failed. Node.js may not be available."
-        fi
-      fi
-    fi
-  fi
-fi
-
-# @description Second attempt to install yq if snap is on system but the Homebrew install was skipped
-if ! type yq &> /dev/null && type snap &> /dev/null; then
-  if type sudo &> /dev/null; then
-    sudo snap install yq
-  else
-    snap install yq
-  fi
-fi
-
-# @description Attempts to pull the latest changes if the folder is a git repository.
-if [ -d .git ] && type git &> /dev/null; then
-  if [ -n "$GROUP_ACCESS_TOKEN" ] && [ -n "$GITLAB_CI_EMAIL" ] && [ -n "$GITLAB_CI_NAME" ] && [ -n "$GITLAB_CI" ]; then
-    git remote set-url origin "https://root:$GROUP_ACCESS_TOKEN@$CI_SERVER_HOST/$CI_PROJECT_PATH.git"
-    git config user.email "$GITLAB_CI_EMAIL"
-    git config user.name "$GITLAB_CI_NAME"
-  fi
-  mkdir -p .cache/start.sh
-  if [ -f .cache/start.sh/git-pull-time ]; then
-    GIT_PULL_TIME="$(cat .cache/start.sh/git-pull-time)"
-  else
-    GIT_PULL_TIME=$(date +%s)
-    echo "$GIT_PULL_TIME" > .cache/start.sh/git-pull-time
-  fi
-  # shellcheck disable=SC2004
-  TIME_DIFF="$(($(date +%s) - $GIT_PULL_TIME))"
-  # Only run if it has been at least 15 minutes since last attempt
-  if [ "$TIME_DIFF" -gt 900 ] || [ "$TIME_DIFF" -lt 5 ]; then
-    date +%s > .cache/start.sh/git-pull-time
-    git fetch origin
-    GIT_POS="$(git rev-parse --abbrev-ref HEAD)"
-    logger info 'Current branch is '"$GIT_POS"
-    if [ "$GIT_POS" == 'synchronize' ] || [ "$CI_COMMIT_REF_NAME" == 'synchronize' ]; then
-      logger warn 'The retired synchronize branch is not rewritten automatically; reconcile it explicitly.'
-    elif [ "$GIT_POS" == 'HEAD' ]; then
-      if [ -n "$GITLAB_CI" ]; then
-        printenv
-      fi
-    fi
-    if [ -n "$(git status --porcelain --untracked-files=no)" ]; then
-      logger warn 'Tracked changes are present; skipping automatic pull to preserve user work.'
-      GIT_PULL_FAIL=1
-    else
-      git pull origin master --ff-only || GIT_PULL_FAIL="$?"
-    fi
-    if [ -n "$GIT_PULL_FAIL" ]; then
-      git config url."https://gitlab.com/".insteadOf git@gitlab.com:
-      git config url."https://github.com/".insteadOf git@github.com:
-      git pull origin master --ff-only || true
-    fi
-    ROOT_DIR="$PWD"
-    if ls .modules/*/ > /dev/null 2>&1; then
-      for SUBMODULE_PATH in .modules/*/; do
-        cd "$SUBMODULE_PATH"
-        DEFAULT_BRANCH=$(git remote show origin | grep 'HEAD branch' | cut -d' ' -f5)
-        if [ -n "$(git status --porcelain)" ]; then
-          logger warn "Skipping dirty module $SUBMODULE_PATH"
-        elif [ "$(git rev-parse --abbrev-ref HEAD)" = "$DEFAULT_BRANCH" ]; then
-          git pull origin "$DEFAULT_BRANCH" --ff-only || true
-        else
-          logger warn "Skipping module $SUBMODULE_PATH because it is not on $DEFAULT_BRANCH"
-        fi
-        cd "$ROOT_DIR"
-      done
-      # shellcheck disable=SC2016
-      logger success 'Ensured submodules in the .modules folder are pointing to the master branch'
-    fi
-  fi
-fi
+# Source updates are an explicit, provenance-checked operator action. The local
+# launcher executes the checkout exactly as supplied and never rewrites remotes,
+# fetches branches, prints CI secrets, or mutates adjacent repositories.
 
 # @description Ensures Task is installed and properly configured
 ensureTaskInstalled
@@ -606,5 +221,6 @@ if [ -z "$CI" ] && [ -z "$START" ] && [ -z "$INIT_CWD" ]; then
   logger info "Sourcing profile located in $HOME/.profile"
   # shellcheck disable=SC1091
   . "$HOME/.profile" &> /dev/null || true
-  task provision
+  # Dispatch `task provision` through the exact verified binary, never an ambient executable.
+  "$HOME/.local/bin/task" provision
 fi

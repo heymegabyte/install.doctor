@@ -1,0 +1,64 @@
+name: Host-bound offline bundle request
+
+on:
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: offline-bundle-request-${{ github.run_id }}
+  cancel-in-progress: false
+
+# Safety boundary: GitHub-hosted runners are destroyed between workflows and the
+# repository does not yet have an enrolled durable runner/delivery-plane contract
+# that can route the published object back to the exact requesting machine. This
+# workflow therefore proves its immutable identity and fails before collecting or
+# uploading host facts. It MUST NOT upload `offline-bundle-authority-input` until
+# a durable runner identity and same-host return channel are implemented and
+# verified. A successful producer run would otherwise authorize a bundle for a
+# machine that can no longer receive it.
+jobs:
+  require-durable-enrolled-target:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - name: Bind this run to the reviewed workflow revision
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PRODUCER_WORKFLOW_SHA: ${{ github.workflow_sha }}
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REPOSITORY" = 'heymegabyte/install.doctor'
+          test "$GITHUB_REF" = 'refs/heads/master'
+          test "$GITHUB_EVENT_NAME" = 'workflow_dispatch'
+          test "$GITHUB_SHA" = "$PRODUCER_WORKFLOW_SHA"
+          run="$(gh api -H 'Accept: application/vnd.github+json' "/repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}")"
+          test "$(jq -r .repository.id <<<"$run")" = "$GITHUB_REPOSITORY_ID"
+          test "$(jq -r .head_repository.id <<<"$run")" = "$GITHUB_REPOSITORY_ID"
+          test "$(jq -r .path <<<"$run")" = '.github/workflows/offline-bundle-request.yml'
+          test "$(jq -r .head_sha <<<"$run")" = "$PRODUCER_WORKFLOW_SHA"
+          test "$(jq -r .run_attempt <<<"$run")" = "$GITHUB_RUN_ATTEMPT"
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+          ref: ${{ github.workflow_sha }}
+      - name: Verify credential-free request reconstruction foundation
+        run: |
+          set -euo pipefail
+          npm --prefix packages/control-plane ci --ignore-scripts --no-audit --no-fund
+          node --test packages/control-plane/test/offline-bundle-request.test.mjs
+      - name: Refuse ephemeral-host authority handoff
+        env:
+          RUNNER_TRUST_CLASS: ${{ runner.environment }}
+        run: |
+          set -euo pipefail
+          {
+            printf '## Offline bundle request blocked safely\n\n'
+            printf 'This run used runner trust class %s; it cannot prove that the exact live host will receive and execute the authority result.\n\n' "$RUNNER_TRUST_CLASS"
+            printf 'Required before enabling authority input upload: a uniquely enrolled durable runner, immutable host-identity revalidation, and a bounded single-object return channel to that same runner.\n'
+          } >>"$GITHUB_STEP_SUMMARY"
+          printf '::error title=Same-host handoff unavailable::Refusing to fabricate a host-bound offline request on an ephemeral GitHub runner.\n'
+          exit 78

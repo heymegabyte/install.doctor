@@ -37,9 +37,12 @@ if [ -f "$HOME/.wget-hsts" ]; then
   rm -f "$HOME/.wget-hsts"
 fi
 
-removeDotVolta &
-cleanAptGet &
-cleanupBrew &
-wait
+PIDS=""
+removeDotVolta & PIDS="$PIDS $!"
+cleanAptGet & PIDS="$PIDS $!"
+cleanupBrew & PIDS="$PIDS $!"
+CLEANUP_STATUS=0
+for PID in $PIDS; do wait "$PID" || CLEANUP_STATUS=1; done
+[ "$CLEANUP_STATUS" -eq 0 ] || { gum log -sl error 'One or more cleanup tasks failed'; exit 1; }
 
-gum log -sl info 'Finished cleanup process' && exit 0
+gum log -sl info 'Finished cleanup process'

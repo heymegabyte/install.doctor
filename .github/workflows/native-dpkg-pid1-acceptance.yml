@@ -1,0 +1,61 @@
+name: Native dpkg PID1 acceptance
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - packages/installer-engine/**
+      - scripts/run-native-dpkg-pid1-acceptance.sh
+      - scripts/test-native-dpkg-pid1-acceptance-contract.sh
+      - .github/workflows/native-dpkg-pid1-acceptance.yml
+  push:
+    branches: [master]
+    paths:
+      - packages/installer-engine/**
+      - scripts/run-native-dpkg-pid1-acceptance.sh
+      - scripts/test-native-dpkg-pid1-acceptance-contract.sh
+      - .github/workflows/native-dpkg-pid1-acceptance.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: native-dpkg-pid1-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  debian-bookworm-systemd:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.2.2
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: |
+            packages/aid-core/package-lock.json
+            packages/installer-engine/package-lock.json
+      - name: Build exact fixture subject
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm --prefix packages/aid-core ci --ignore-scripts --no-audit --no-fund
+          npm --prefix packages/installer-engine ci --ignore-scripts --no-audit --no-fund
+          npm --prefix packages/installer-engine run build
+      - name: Verify fixture contract
+        run: bash scripts/test-native-dpkg-pid1-acceptance-contract.sh
+      - name: Run network-denied Debian PID1 acceptance
+        env:
+          INSTALL_DOCTOR_PID1_EVIDENCE_ROOT: ${{ runner.temp }}/native-dpkg-pid1
+        run: bash scripts/run-native-dpkg-pid1-acceptance.sh
+      - name: Upload machine-verifiable evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: native-dpkg-pid1-${{ github.run_id }}
+          path: ${{ runner.temp }}/native-dpkg-pid1
+          if-no-files-found: error
+          retention-days: 14

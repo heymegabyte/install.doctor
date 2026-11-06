@@ -46,17 +46,8 @@ if command -v vmware > /dev/null; then
     if sudo vmware-modconfig --console --install-all; then
       gum log -sl info 'Built VMWare host modules successfully with sudo vmware-modconfig --console --install-all'
     else
-      gum log -sl info 'Acquiring VMware version from CLI'
-      VMW_VERSION="$(vmware --version | cut -f 3 -d' ')"
-      mkdir -p /tmp/vmw_patch
-      cd /tmp/vmw_patch
-      gum log -sl info 'Downloading VMware host module patches' && curl -sSL "https://github.com/mkubecek/vmware-host-modules/archive/workstation-$VMW_VERSION.tar.gz" -o /tmp/vmw_patch/workstation.tar.gz
-      tar -xzf /tmp/vmw_patch/workstation.tar.gz
-      cd vmware*
-      gum log -sl info 'Running sudo make and sudo make install'
-      sudo make
-      sudo make install
-      gum log -sl info 'Successfully configured VMware host module patches'
+      gum log -sl warn 'Vendor module build failed; unverified third-party kernel-module fallback is unsupported'
+      exit 20
     fi
 
     ### Sign VMware host modules if Secure Boot is enabled
@@ -71,22 +62,9 @@ if command -v vmware > /dev/null; then
       gum log -sl info 'Successfully signed VMware host modules. Reboot the host before powering on VMs'
     fi
 
-    ### Patch VMware with Unlocker
-    if [ ! -f /usr/lib/vmware/isoimages/darwin.iso ]; then
-      gum log -sl info 'Acquiring VMware Unlocker latest release version'
-      UNLOCKER_URL="$(curl -sSL 'https://api.github.com/repos/DrDonk/unlocker/releases/latest' | jq  -r '.assets[0].browser_download_url')"
-      mkdir -p /tmp/vmware-unlocker
-      cd /tmp/vmware-unlocker
-      gum log -sl info 'Downloading unlocker.zip'
-      curl -sSL "$UNLOCKER_URL" -o unlocker.zip
-      unzip unlocker.zip
-      cd linux
-      gum log -sl info 'Running the unlocker'
-      echo "y" | sudo ./unlock
-      gum log -sl info 'Successfully unlocked VMware for macOS compatibility'
-    else
-      gum log -sl info '/usr/lib/vmware/isoimages/darwin.iso is already present on the system so VMware macOS unlocking will not be performed'
-    fi
+    # Third-party root patching is intentionally unsupported: the former
+    # latest-release flow executed replaceable network bytes as root.
+    gum log -sl info 'VMware Unlocker is not managed by Install Doctor'
     if [[ ! "$(test -d /proc && grep Microsoft /proc/version > /dev/null)" ]]; then
       ### Start / enable VMWare service
       gum log -sl info 'Ensuring vmware.service is enabled and running'

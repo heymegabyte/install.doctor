@@ -17,6 +17,7 @@ fail() { printf 'FAIL %s\n' "$*" >&2; F=$((F + 1)); }
 mkdir -p "$TMP_DIR/home"
 
 awk '/^_idTaskJson\(\) \{/{copy=1} copy{print} copy && /^\}/{exit}' "$PROVISIONER" > "$TMP_DIR/json-helper.sh"
+awk '/^idProvisionEvidenceInit\(\) \{/{copy=1} copy{print} copy && /^\}/{exit}' "$PROVISIONER" > "$TMP_DIR/evidence-init.sh"
 awk '/^idEmitProvisionStatus\(\) \{/{copy=1} copy{print} copy && /^\}/{exit}' "$PROVISIONER" > "$TMP_DIR/status-helper.sh"
 awk '/^idOnProvisionExit\(\) \{/{copy=1} copy{print} copy && /^\}/{exit}' "$PROVISIONER" > "$TMP_DIR/exit-guard.sh"
 awk '/^provisionLogic\(\) \{/{copy=1} copy{print} copy && /^\}/{exit}' "$PROVISIONER" > "$TMP_DIR/provision-logic.sh"
@@ -28,32 +29,43 @@ if ! grep -q 'idOnProvisionExit' "$TMP_DIR/exit-guard.sh"; then
   printf 'Failed to extract idOnProvisionExit() from the provisioner\n' >&2
   exit 1
 fi
-cat "$TMP_DIR/json-helper.sh" "$TMP_DIR/status-helper.sh" "$TMP_DIR/exit-guard.sh" "$TMP_DIR/provision-logic.sh" > "$TMP_DIR/combined.sh"
+cat "$TMP_DIR/json-helper.sh" "$TMP_DIR/evidence-init.sh" "$TMP_DIR/status-helper.sh" "$TMP_DIR/exit-guard.sh" "$TMP_DIR/provision-logic.sh" > "$TMP_DIR/combined.sh"
 
 runScenario() {
-  local label="$1" chezmoi_status="$2" event_log="$3" cleanup_marker="$4"
+  local label="$1" chezmoi_status="$2" event_log="$3" cleanup_marker="$4" preengine_status="${5:-0}" finalizer_verified="${6:-true}"
   rm -f "$event_log" "$cleanup_marker"
   set +e
   HOME="$TMP_DIR/home" \
   INSTALL_DOCTOR_EVENT_LOG="$event_log" \
   TEST_CHEZMOI_STATUS="$chezmoi_status" \
+  TEST_PREENGINE_STATUS="$preengine_status" \
+  TEST_FINALIZER_VERIFIED="$finalizer_verified" \
   TEST_EARLY_EXIT="${TEST_EARLY_EXIT:-0}" \
   TEST_EARLY_REDIRECT="${TEST_EARLY_REDIRECT:-0}" \
   CLEANUP_MARKER="$cleanup_marker" \
   bash -c '
     set -u
     logg() { :; }
+    idRunRequiredProvisionStep() { shift; "$@"; }
+    idRequireRootInstallUserEnrollment() { :; }
+    idProvisionExit() { if [ "${INSTALL_DOCTOR_SUDO_PREPARED:-false}" = true ]; then removePasswordlessSudo || true; fi; idOnProvisionExit "$1"; }
+    idPersistVerifiedReleaseProvenance() { :; }
     detect_os() { printf "%s\n" linux; }
-    configureInstallPlan() { if [ "${TEST_EARLY_EXIT:-0}" -ne 0 ]; then exit "$TEST_EARLY_EXIT"; fi; if [ "${TEST_EARLY_REDIRECT:-0}" -eq 1 ]; then exit 0; fi; :; }
+    configureInstallPlan() { if [ "${TEST_EARLY_EXIT:-0}" -ne 0 ]; then exit "$TEST_EARLY_EXIT"; fi; if [ "${TEST_EARLY_REDIRECT:-0}" -eq 1 ]; then exit 0; fi; INSTALL_DOCTOR_NETWORK=none; export INSTALL_DOCTOR_NETWORK; }
     ensureInstallUser() { :; }
     loadHomebrew() { :; }
     setEnvironmentVariables() { :; }
     setCIEnvironmentVariables() { :; }
     applyEnvClassDefaults() { :; }
+    idResolvePlatform() { :; }
+    idAuthorizePlatform() { :; }
     collectInputsUpfront() { :; }
     ensureWarpDisconnected() { :; }
-    setupPasswordlessSudo() { :; }
+    setupPasswordlessSudo() { return "${TEST_PREENGINE_STATUS:-0}"; }
     ensureBasicDeps() { :; }
+    ensureProvisionerNodeRuntime() { :; }
+    idReconcileStaleSudoOwnership() { :; }
+    idRetireSudoOwnership() { :; }
     cloneChezmoiSourceRepo() { :; }
     ensureFullDiskAccess() { :; }
     importCloudFlareCert() { :; }
@@ -62,6 +74,14 @@ runScenario() {
     handleQubesDom0() { :; }
     initChezmoiAndPrompt() { :; }
     runChezmoi() { return "${TEST_CHEZMOI_STATUS:-0}"; }
+    runCanonicalProvisionEngine() {
+      [ "${1:-}" = --plan-only ] && return 0
+      local status=0
+      runChezmoi || status=$?
+      INSTALL_DOCTOR_SUDO_FINALIZER_VERIFIED="${TEST_FINALIZER_VERIFIED:-true}"
+      export INSTALL_DOCTOR_SUDO_FINALIZER_VERIFIED
+      return "$status"
+    }
     removePasswordlessSudo() { : > "$CLEANUP_MARKER"; }
     handleRequiredReboot() { :; }
     postProvision() { :; }
@@ -86,13 +106,37 @@ if ! grep -q '"status":"failed"' "$TMP_DIR/events-success.ndjson"; then pass "su
 # Scenario 2: failed run (chezmoi returns 7)
 runScenario "failure" 7 "$TMP_DIR/events-failure.ndjson" "$TMP_DIR/cleanup-failure"
 if [ "$(cat "$TMP_DIR/last-status")" -eq 7 ]; then pass "failed run propagates its exit code"; else fail "failed run swallowed its exit code"; fi
-if [ -f "$TMP_DIR/cleanup-failure" ]; then pass "failed run still runs temporary-sudo cleanup"; else fail "failed run skipped cleanup"; fi
+if [ ! -f "$TMP_DIR/cleanup-failure" ]; then pass "ordinary failure delegates cleanup to the engine finalizer"; else fail "ordinary failure ran competing shell cleanup"; fi
 LAST="$(tail -n 1 "$TMP_DIR/events-failure.ndjson")"
 if printf '%s' "$LAST" | grep -q '"status":"failed"'; then pass "failed run terminates with a failed event"; else fail "failed run did not terminate with a failed event"; fi
 if printf '%s' "$LAST" | grep -q '"exitCode":7'; then pass "failed event carries the real exit code"; else fail "failed event omitted the exit code"; fi
 if ! grep -q '"status":"success"' "$TMP_DIR/events-failure.ndjson"; then pass "failed run records no success event"; else fail "failed run recorded a false success event"; fi
 
-# Scenario 3: a phase hard-exits non-zero (e.g. `exit 1` in ensureGcc/ensureHomebrew/ensureInstallUser),
+runScenario "finalizer-failure" 7 "$TMP_DIR/events-finalizer-failure.ndjson" "$TMP_DIR/cleanup-finalizer-failure" 0 false
+if [ -f "$TMP_DIR/cleanup-finalizer-failure" ]; then pass "missing verified finalizer evidence triggers shell fallback"; else fail "finalizer failure skipped evidence-driven fallback"; fi
+
+# Engine exit 6 is pending verification, not a generic failure.
+runScenario "pending" 6 "$TMP_DIR/events-pending.ndjson" "$TMP_DIR/cleanup-pending"
+if [ "$(cat "$TMP_DIR/last-status")" -eq 6 ]; then pass "pending run preserves engine exit 6"; else fail "pending run changed its exit code"; fi
+LAST="$(tail -n 1 "$TMP_DIR/events-pending.ndjson")"
+if printf '%s' "$LAST" | grep -q '"status":"pending"'; then pass "pending verification has a truthful terminal event"; else fail "pending verification was mislabeled"; fi
+if ! grep -q '"status":"failed"' "$TMP_DIR/events-pending.ndjson"; then pass "pending verification is distinct from failure"; else fail "pending verification recorded failure"; fi
+
+runScenario "cancelled" 130 "$TMP_DIR/events-cancelled.ndjson" "$TMP_DIR/cleanup-cancelled"
+if [ "$(cat "$TMP_DIR/last-status")" -eq 130 ]; then pass "cancelled run preserves exit 130"; else fail "cancelled run changed its exit code"; fi
+LAST="$(tail -n 1 "$TMP_DIR/events-cancelled.ndjson")"
+if printf '%s' "$LAST" | grep -q '"status":"cancelled"'; then pass "cancelled run has a truthful terminal event"; else fail "cancelled run was mislabeled"; fi
+
+# A required failure before the engine must stop immediately, clean temporary
+# privilege state, and never reach the canonical apply.
+runScenario "preengine-failure" 0 "$TMP_DIR/events-preengine.ndjson" "$TMP_DIR/cleanup-preengine" 23
+if [ "$(cat "$TMP_DIR/last-status")" -eq 23 ]; then pass "pre-engine failure propagates its exit code"; else fail "pre-engine failure was swallowed"; fi
+if [ ! -f "$TMP_DIR/cleanup-preengine" ]; then pass "credential-bootstrap failure does not clean an unprepared sudo cache"; else fail "credential-bootstrap failure ran cleanup before preparation"; fi
+LAST="$(tail -n 1 "$TMP_DIR/events-preengine.ndjson")"
+if printf '%s' "$LAST" | grep -q '"status":"failed"' && printf '%s' "$LAST" | grep -q '"exitCode":23'; then pass "pre-engine failure records truthful terminal evidence"; else fail "pre-engine failure terminal evidence is false"; fi
+if ! grep -q '"status":"success"' "$TMP_DIR/events-preengine.ndjson"; then pass "pre-engine failure records no success"; else fail "pre-engine failure recorded false success"; fi
+
+# Scenario 3: a phase hard-exits non-zero (for example, root-user handoff),
 # bypassing the explicit emits — the EXIT trap must still record a truthful "failed" terminal event.
 TEST_EARLY_EXIT=9 runScenario "early-exit" 0 "$TMP_DIR/events-early.ndjson" "$TMP_DIR/cleanup-early"
 if [ "$(cat "$TMP_DIR/last-status")" -eq 9 ]; then pass "early-exit run propagates its exit code"; else fail "early-exit run swallowed its exit code"; fi
@@ -128,14 +172,15 @@ import sys
 
 text = Path(sys.argv[1]).read_text()
 started = text.index('idEmitProvisionStatus provision started 0')
-run = text.index('runChezmoi || CHEZMOI_STATUS=$?')
-cleanup = text.index('removePasswordlessSudo', run)
-gate = text.index('if [ "$CHEZMOI_STATUS" -ne 0 ]', cleanup)
+run = text.index('runCanonicalProvisionEngine || CHEZMOI_STATUS=$?')
+gate = text.index('if [ "$CHEZMOI_STATUS" -ne 0 ]', run)
+fallback = text.index('if [ "${INSTALL_DOCTOR_SUDO_FINALIZER_VERIFIED:-false}" != true ]', run)
+cleanup = text.index('removePasswordlessSudo', fallback)
 fail_emit = text.index('idEmitProvisionStatus provision failed "$CHEZMOI_STATUS"', gate)
 fail_return = text.index('return "$CHEZMOI_STATUS"', fail_emit)
 post = text.index('postProvision', fail_return)
 success_emit = text.index('idEmitProvisionStatus provision success 0', post)
-assert started < run < cleanup < gate < fail_emit < fail_return < post < success_emit
+assert started < run < fallback < cleanup < gate < fail_emit < fail_return < post < success_emit
 PY
 if [ $? -eq 0 ]; then pass "terminal-status emission is ordered correctly around cleanup and failure propagation"; else fail "terminal-status emission ordering is wrong"; fi
 

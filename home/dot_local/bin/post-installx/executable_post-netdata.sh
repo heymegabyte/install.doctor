@@ -37,19 +37,8 @@ ensureNetdataOwnership() {
 ### Ensure Netdata is installed and bound to loopback (127.0.0.1 ::1) on Debian/Ubuntu Linux
 if [ "$(uname -s)" = "Linux" ] && command -v apt-get > /dev/null && { [ "$(id -u)" -eq 0 ] || sudo -n true 2>/dev/null; }; then
   if ! command -v netdata > /dev/null; then
-    gum log -sl info 'Installing Netdata from official repository (with Ubuntu 26.04 APT 3.x Pin-Priority fix)...'
-    sudo env DEBIAN_FRONTEND=noninteractive apt-get update -qq || true
-    sudo env DEBIAN_FRONTEND=noninteractive apt-get install -y -qq debian-keyring curl ca-certificates || true
-    TMP_ND="$(mktemp -d)"
-    trap 'rm -rf "$TMP_ND" 2>/dev/null || true' EXIT
-    if curl -fsSL "https://repo.netdata.cloud/repos/repoconfig/ubuntu/jammy/netdata-repo_4-2+ubuntu22.04_all.deb" -o "$TMP_ND/netdata-repo.deb"; then
-      sudo dpkg -i "$TMP_ND/netdata-repo.deb" >/dev/null 2>&1 || true
-      if [ -f /etc/apt/preferences.d/80netdata ]; then
-        sudo sed -i 's/^Priority:/Pin-Priority:/' /etc/apt/preferences.d/80netdata
-      fi
-      sudo env DEBIAN_FRONTEND=noninteractive apt-get update -qq || true
-      sudo env DEBIAN_FRONTEND=noninteractive apt-get install -y -qq netdata || true
-    fi
+    gum log -sl warn 'Netdata is absent; select it through Install Doctor desired state'
+    exit 20
   elif [ -f /etc/apt/preferences.d/80netdata ]; then
     sudo sed -i 's/^Priority:/Pin-Priority:/' /etc/apt/preferences.d/80netdata || true
   fi

@@ -8,7 +8,10 @@
 #     Chezmoi which handles the dotfile application and synchronous scripts. Task is used in conjunction with
 #     Chezmoi to boost the performance in some spots by introducing asynchronous features.
 #
-#     **Note**: `https://install.doctor/start` points to this file.
+#     **Note**: the signed `https://app.install.doctor/start` launcher verifies an immutable release containing this file.
+
+# Preserve the owning command's failure through display/logging pipelines such as chezmoi | tee | ts.
+set -o pipefail
 
 # Source centralized OS detection (replaces ad-hoc checks throughout)
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -16,12 +19,24 @@ if [ -f "$SCRIPT_DIR/lib/detect_os.sh" ]; then
   # shellcheck disable=SC1090
   source "$SCRIPT_DIR/lib/detect_os.sh"
 else
-  # Minimal fallback for when the library isn't available
+  # Standalone signed-release fallback. Keep the platform facts needed for
+  # admission equivalent to scripts/lib/detect_os.sh: curl|bash receives this
+  # file without the repository library beside it.
   detect_os() {
+    if [ -f /usr/bin/qubes-session ] && [ -f /etc/qubes/dom0 ]; then echo "qubes-dom0"; return 0; fi
+    if [ -f /usr/bin/qubes-session ] || [ -d /usr/share/qubes ]; then echo "qubes-appvm"; return 0; fi
+    if [ -f /proc/sys/fs/binfmt_misc/WSLInterop ] || grep -qi microsoft /proc/version 2>/dev/null; then echo "wsl"; return 0; fi
+    if [ -f /.dockerenv ] || grep -qE 'docker|lxc|containerd' /proc/1/cgroup 2>/dev/null; then echo "container"; return 0; fi
     if [[ "$OSTYPE" == 'darwin'* ]]; then echo "macos"; return 0; fi
+    if [ -f /etc/pve/pve.cfg ] || [ -x /usr/bin/pvesh ]; then echo "proxmox"; return 0; fi
     if [ -f /etc/os-release ]; then
       local id; id="$(. /etc/os-release && echo "${ID:-unknown}")"
-      case "$id" in ubuntu|debian|fedora|arch|alpine) echo "$id"; return 0 ;; esac
+      case "$id" in
+        ubuntu|debian|arch|alpine) echo "$id"; return 0 ;;
+        fedora) [ -f /run/ostree-booted ] && echo silverblue || echo fedora; return 0 ;;
+        rhel|centos|rocky|almalinux|ol|opensuse*|sles) echo fedora; return 0 ;;
+        *) echo "$id"; return 0 ;;
+      esac
     fi
     [ -f /etc/debian_version ] && { echo "debian"; return 0; }
     [ -f /etc/redhat-release ] && { echo "fedora"; return 0; }
@@ -29,13 +44,478 @@ else
     [ -f /etc/alpine-release ] && { echo "alpine"; return 0; }
     [[ "$OSTYPE" == 'linux'* ]] && { echo "linux"; return 0; }
     echo "unknown"
+    return 1
   }
-  detect_role() { echo "${INSTALL_DOCTOR_ROLE:-unknown}"; }
+  detect_arch() {
+    case "$(uname -m 2>/dev/null)" in
+      x86_64|amd64) echo amd64 ;; aarch64|arm64) echo arm64 ;;
+      armv7l|armv7|armhf) echo armv7 ;; armv6l|armv6) echo armv6 ;;
+      i386|i486|i586|i686) echo 386 ;; riscv64) echo riscv64 ;;
+      ppc64le) echo ppc64le ;; s390x) echo s390x ;; '') echo unknown; return 1 ;;
+      *) uname -m ;;
+    esac
+  }
+  detect_release() {
+    if [ "$(detect_os)" = macos ]; then command -v sw_vers >/dev/null 2>&1 && sw_vers -productVersion && return 0; echo unknown; return 1; fi
+    if [ -f /etc/os-release ]; then
+      local version; version="$(. /etc/os-release && echo "${VERSION_ID:-}")"
+      [ -n "$version" ] && { echo "$version"; return 0; }
+      echo rolling; return 0
+    fi
+    [ -f /etc/debian_version ] && { cat /etc/debian_version; return 0; }
+    echo unknown; return 1
+  }
+  detect_role() {
+    [ -n "${INSTALL_DOCTOR_ROLE:-}" ] && { echo "$INSTALL_DOCTOR_ROLE"; return 0; }
+    case "$(detect_os)" in
+      qubes-dom0|qubes-appvm|proxmox|wsl|container) detect_os; return 0 ;;
+      macos) echo workstation; return 0 ;;
+    esac
+    [ -d /data/coolify ] || [ -f /etc/coolify/.installed ] && { echo coolify; return 0; }
+    [ -n "${XDG_CURRENT_DESKTOP:-}${DISPLAY:-}" ] && echo workstation || echo server
+  }
   detect_package_manager() { detect_os; }
   # Mirror lib/detect_os.sh precedence: HEADLESS_INSTALL -> macOS has Aqua GUI -> Wayland/X11 check.
   # (A bare `-z "$DISPLAY"` would wrongly call every GUI macOS headless — Macs never set DISPLAY.)
   is_headless() { [ "${HEADLESS_INSTALL:-}" = "true" ] && return 0; [[ "$OSTYPE" == 'darwin'* ]] && return 1; [ -z "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ] && return 0; return 1; }
 fi
+
+# The signed provision artifact is the executable platform-policy authority for
+# this release. This pure resolver intentionally mirrors
+# scripts/platform-support-matrix.json; the parity test rejects drift.
+idResolvePlatformAdmission() {
+  local OS="$1" RELEASE="$2" ARCH="$3" ENVIRONMENT="$4" ROLE="$5"
+  case "$OS:$RELEASE:$ARCH:$ENVIRONMENT:$ROLE" in
+    macos:14:arm64:native:macos) printf '%s\n' 'macos-14-arm64-native|best-effort|GitHub retired the macOS 14 runner and no current clean-host receipt covers the complete install lifecycle.' ;;
+    macos:15:arm64:native:macos) printf '%s\n' 'macos-15-arm64-native|best-effort|No current clean-host receipt covers the complete install lifecycle.' ;;
+    macos:15:x64:native:macos) printf '%s\n' 'macos-15-x64-native|best-effort|No current clean-host receipt covers the complete install lifecycle.' ;;
+    macos:14:x64:native:macos) printf '%s\n' 'macos-14-x64-native|best-effort|GitHub retired the macOS 14 runner and no current clean-host receipt covers the complete install lifecycle.' ;;
+    ubuntu:22.04:x64:container:ubuntu) printf '%s\n' 'ubuntu-22-04-x64-container|best-effort|The workflow does not produce a durable full-lifecycle canary receipt.' ;;
+    ubuntu:24.04:x64:container:ubuntu) printf '%s\n' 'ubuntu-24-04-x64-container|best-effort|The workflow does not produce a durable full-lifecycle canary receipt.' ;;
+    debian:12:x64:container:debian) printf '%s\n' 'debian-12-x64-container|best-effort|The workflow does not produce a durable full-lifecycle canary receipt.' ;;
+    debian:12:arm64:container:debian) printf '%s\n' 'debian-12-arm64-container|best-effort|The hermetic signed-install fixture is not a durable full-lifecycle real-host canary receipt.' ;;
+    debian:12:x64:native:debian) printf '%s\n' 'debian-12-x64-native|best-effort|No current native-host full-lifecycle canary receipt exists.' ;;
+    debian:12:arm64:native:debian) printf '%s\n' 'debian-12-arm64-native|best-effort|No current native-host full-lifecycle canary receipt exists.' ;;
+    fedora:44:x64:container:fedora) printf '%s\n' 'fedora-44-x64-container|best-effort|The workflow does not produce a durable full-lifecycle canary receipt.' ;;
+    arch:rolling:x64:container:arch) printf '%s\n' 'arch-rolling-x64-container|best-effort|Rolling releases can drift after the workflow definition is authored.' ;;
+    alpine:3.19:x64:container:alpine) printf '%s\n' 'alpine-3-19-x64-container|unsupported|The signed bootstrap publishes only glibc Linux runtimes and cannot safely execute them on musl when a compatible system Node is absent.' ;;
+    linux:unspecified:x64:container:container) printf '%s\n' 'generic-linux-x64-container|best-effort|Generic containers vary in init, privileges, libc, and package manager.' ;;
+    silverblue:40:x64:native:silverblue) printf '%s\n' 'silverblue-40-x64-native|unsupported|No rpm-ostree fixture or current lifecycle canary is committed.' ;;
+    qubes-dom0:4.2:x64:qubes:qubes-dom0) printf '%s\n' 'qubes-4-2-x64-dom0|unsupported|No safe dom0 fixture or current canary demonstrates the restricted Salt path.' ;;
+    qubes-appvm:4.2:x64:qubes:qubes-appvm) printf '%s\n' 'qubes-4-2-x64-appvm|unsupported|No TemplateVM/AppVM lifecycle canary is committed.' ;;
+    proxmox:8:x64:native:proxmox) printf '%s\n' 'proxmox-8-x64-native|unsupported|No current server-role canary proves host-safe provisioning and rollback.' ;;
+    ubuntu:unspecified:x64:native:coolify) printf '%s\n' 'coolify-ubuntu-x64-native|unsupported|No canary proves that provisioning preserves an existing Coolify installation.' ;;
+    ubuntu:unspecified:x64:wsl:wsl) printf '%s\n' 'wsl2-ubuntu-x64|unsupported|Linux workflow definitions do not prove WSL init, mount, or Windows interop behavior.' ;;
+    windows:unspecified:x64:native:windows) printf '%s\n' 'windows-native-x64|unsupported|The PowerShell source is unpublished and has no real-host runtime canary.' ;;
+    *) return 1 ;;
+  esac
+}
+
+idNormalizePlatformArch() {
+  case "${1:-$(uname -m 2>/dev/null)}" in x86_64|amd64) echo x64 ;; aarch64|arm64) echo arm64 ;; *) echo "${1:-unknown}" ;; esac
+}
+
+idPlatformEnvironment() {
+  case "$(detect_os 2>/dev/null || echo unknown)" in
+    wsl) echo wsl ;; container) echo container ;; qubes-dom0|qubes-appvm) echo qubes ;; *) echo native ;;
+  esac
+}
+
+idPlatformMatrixFacts() {
+  local DETECTED RELEASE ARCH ENVIRONMENT ROLE BASE_OS
+  DETECTED="$(detect_os 2>/dev/null || echo unknown)"
+  RELEASE="$(detect_release 2>/dev/null || echo unknown)"
+  ARCH="$(idNormalizePlatformArch)"; ENVIRONMENT="$(idPlatformEnvironment)"
+  BASE_OS="$DETECTED"; ROLE="$DETECTED"
+  if [ "$DETECTED" = container ]; then
+    BASE_OS="$(. /etc/os-release 2>/dev/null && echo "${ID:-linux}")"
+    case "$BASE_OS" in ubuntu|debian|fedora|arch|alpine) ROLE="$BASE_OS" ;; *) BASE_OS=linux; RELEASE=unspecified; ROLE=container ;; esac
+  elif [ "$DETECTED" = wsl ]; then BASE_OS=ubuntu; RELEASE=unspecified; ROLE=wsl
+  elif [ "$DETECTED" = macos ]; then RELEASE="${RELEASE%%.*}"; ROLE=macos
+  elif [ "$DETECTED" = qubes-dom0 ] || [ "$DETECTED" = qubes-appvm ]; then RELEASE="$(printf '%s' "$RELEASE" | cut -d. -f1,2)"; ROLE="$DETECTED"
+  elif [ "$DETECTED" = proxmox ]; then RELEASE="${RELEASE%%.*}"; ROLE=proxmox
+  elif [ "$DETECTED" = silverblue ]; then RELEASE="${RELEASE%%.*}"; ROLE=silverblue
+  fi
+  if [ -d /data/coolify ] || [ -f /etc/coolify/.installed ]; then BASE_OS=ubuntu; RELEASE=unspecified; ENVIRONMENT=native; ROLE=coolify; fi
+  printf '%s|%s|%s|%s|%s\n' "$BASE_OS" "$RELEASE" "$ARCH" "$ENVIRONMENT" "$ROLE"
+}
+
+idResolvePlatform() {
+  local FACTS RESOLUTION CELL STATUS LIMITATION
+  FACTS="$(idPlatformMatrixFacts)" || return 2
+  IFS='|' read -r INSTALL_DOCTOR_PLATFORM_OS INSTALL_DOCTOR_PLATFORM_RELEASE INSTALL_DOCTOR_PLATFORM_ARCH INSTALL_DOCTOR_PLATFORM_ENVIRONMENT INSTALL_DOCTOR_PLATFORM_ROLE <<EOF
+$FACTS
+EOF
+  RESOLUTION="$(idResolvePlatformAdmission "$INSTALL_DOCTOR_PLATFORM_OS" "$INSTALL_DOCTOR_PLATFORM_RELEASE" "$INSTALL_DOCTOR_PLATFORM_ARCH" "$INSTALL_DOCTOR_PLATFORM_ENVIRONMENT" "$INSTALL_DOCTOR_PLATFORM_ROLE")" || {
+    logg error "This exact host tuple is absent from the signed platform policy: $FACTS"; return 2;
+  }
+  IFS='|' read -r CELL STATUS LIMITATION <<EOF
+$RESOLUTION
+EOF
+  case "$STATUS" in
+    verified|best-effort) ;;
+    unsupported) logg error "Platform $CELL is unsupported: $LIMITATION"; return 2 ;;
+    *) logg error 'Platform support status is invalid'; return 2 ;;
+  esac
+  INSTALL_DOCTOR_PLATFORM_CELL="$CELL"; INSTALL_DOCTOR_PLATFORM_STATUS="$STATUS"; INSTALL_DOCTOR_PLATFORM_LIMITATION="$LIMITATION"
+  export INSTALL_DOCTOR_PLATFORM_OS INSTALL_DOCTOR_PLATFORM_RELEASE INSTALL_DOCTOR_PLATFORM_ARCH INSTALL_DOCTOR_PLATFORM_ENVIRONMENT INSTALL_DOCTOR_PLATFORM_ROLE
+  export INSTALL_DOCTOR_PLATFORM_CELL INSTALL_DOCTOR_PLATFORM_STATUS INSTALL_DOCTOR_PLATFORM_LIMITATION INSTALL_DOCTOR_CONSENT_BEST_EFFORT
+  logg info "Resolved $CELL as $STATUS under signed platform policy v1"
+}
+
+idAuthorizePlatform() {
+  case "${INSTALL_DOCTOR_PLATFORM_STATUS:-}:${INSTALL_DOCTOR_CONSENT_BEST_EFFORT:-false}" in
+    verified:true|verified:false|best-effort:true) ;;
+    best-effort:false) logg error "Platform ${INSTALL_DOCTOR_PLATFORM_CELL:-unknown} is best-effort: ${INSTALL_DOCTOR_PLATFORM_LIMITATION:-No limitation recorded}. Explicit consent is required."; return 2 ;;
+    *) logg error 'Platform must be resolved before authorization'; return 2 ;;
+  esac
+  logg info "Admitted $INSTALL_DOCTOR_PLATFORM_CELL as $INSTALL_DOCTOR_PLATFORM_STATUS under signed platform policy v1"
+}
+
+idAdmitPlatform() {
+  idResolvePlatform && idAuthorizePlatform
+}
+
+# BEGIN INSTALL_DOCTOR_TASK_UI
+_idTaskJson() {
+  local VALUE="${1-}"
+  VALUE="${VALUE//\\/\\\\}"
+  VALUE="${VALUE//\"/\\\"}"
+  VALUE="${VALUE//$'\b'/\\u0008}"
+  VALUE="${VALUE//$'\f'/\\u000c}"
+  VALUE="${VALUE//$'\n'/\\n}"
+  VALUE="${VALUE//$'\r'/\\r}"
+  VALUE="${VALUE//$'\t'/\\t}"
+  printf '%s' "$VALUE"
+}
+
+_idTaskSafeId() {
+  local RAW="${1-}" SAFE SUM
+  SAFE="$(printf '%s' "$RAW" | tr -c '[:alnum:]_.-' '-')"
+  SUM="$(printf '%s' "$RAW" | cksum | awk '{print $1}')"
+  printf '%s-%s' "${SAFE:-task}" "$SUM"
+}
+
+_idTaskLock() {
+  local LOCK="$INSTALL_DOCTOR_TUI_STATE/.event-lock" COUNT=0
+  while ! mkdir "$LOCK" 2>/dev/null; do
+    COUNT=$((COUNT + 1))
+    [ "$COUNT" -lt 1000 ] || return 1
+    sleep 0.01
+  done
+}
+
+_idTaskUnlock() { rmdir "$INSTALL_DOCTOR_TUI_STATE/.event-lock" 2>/dev/null || true; }
+
+_idTaskEmit() {
+  _idTaskLock || return 1
+  printf '%s\n' "$1" >> "$INSTALL_DOCTOR_TUI_EVENTS"
+  _idTaskUnlock
+}
+
+idTaskTerminalWidth() {
+  local WIDTH="${COLUMNS:-}"
+  if [ -t 1 ] && command -v tput >/dev/null 2>&1; then
+    WIDTH="$(tput cols 2>/dev/null || printf '%s' "${WIDTH:-120}")"
+  fi
+  case "$WIDTH" in ''|*[!0-9]*) WIDTH=120 ;; esac
+  [ "$WIDTH" -ge 20 ] || WIDTH=20
+  [ "$WIDTH" -le 500 ] || WIDTH=500
+  printf '%s\n' "$WIDTH"
+}
+
+idTaskRenderLine() {
+  local WORKER="$1" LIMIT="$2" LABEL="$3" LINE="$4" WIDTH RENDERED
+  WIDTH="$(idTaskTerminalWidth)"
+  LINE="${LINE//$'\r'/}"
+  RENDERED="[worker $WORKER/$LIMIT] $LABEL | $LINE"
+  if [ "${#RENDERED}" -gt "$WIDTH" ]; then
+    if [ "$WIDTH" -gt 3 ]; then RENDERED="${RENDERED:0:$((WIDTH - 3))}..."
+    else RENDERED="${RENDERED:0:$WIDTH}"; fi
+  fi
+  printf '%s\n' "$RENDERED"
+}
+
+idTaskUiInit() {
+  local STATE="${INSTALL_DOCTOR_TUI_STATE:-${XDG_STATE_HOME:-$HOME/.local/state}/install-doctor/task-ui}"
+  umask 077
+  if [ -L "$STATE" ]; then return 1; fi
+  if [ -e "$STATE" ] && [ ! -d "$STATE" ]; then return 1; fi
+  if [ -d "$STATE" ] && [ ! -f "$STATE/.install-doctor-task-ui" ]; then return 1; fi
+  if [ ! -d "$STATE" ]; then
+    mkdir -p "$STATE" || return 1
+    chmod 700 "$STATE" || return 1
+    : > "$STATE/.install-doctor-task-ui"
+  fi
+  INSTALL_DOCTOR_TUI_STATE="$STATE"
+  INSTALL_DOCTOR_TUI_EVENTS="$STATE/events.ndjson"
+  export INSTALL_DOCTOR_TUI_STATE INSTALL_DOCTOR_TUI_EVENTS
+  mkdir -p "$STATE/logs"
+  chmod 700 "$STATE" "$STATE/logs"
+  : > "$INSTALL_DOCTOR_TUI_EVENTS"
+  date +%s > "$STATE/started-at"
+}
+
+_idTaskConsume() {
+  local WORKER="$1" TASK="$2" LABEL="$3" ATTEMPT="$4" LOG="$5" LINE ESC_TASK ESC_LABEL ESC_LINE
+  ESC_TASK="$(_idTaskJson "$TASK")"; ESC_LABEL="$(_idTaskJson "$LABEL")"
+  while IFS= read -r LINE || [ -n "$LINE" ]; do
+    printf '%s\n' "$LINE" >> "$LOG"
+    ESC_LINE="$(_idTaskJson "$LINE")"
+    _idTaskLock || return 1
+    printf '{"type":"output","task":"%s","label":"%s","worker":%s,"attempt":%s,"line":"%s"}\n' "$ESC_TASK" "$ESC_LABEL" "$WORKER" "$ATTEMPT" "$ESC_LINE" >> "$INSTALL_DOCTOR_TUI_EVENTS"
+    idTaskRenderLine "$WORKER" "${INSTALL_DOCTOR_CONCURRENCY:-1}" "$LABEL" "$LINE"
+    _idTaskUnlock
+  done
+}
+
+idTaskRun() {
+  local WORKER="$1" TASK="$2" LABEL="$3" ATTEMPT=1 RETRIES="${INSTALL_DOCTOR_TASK_RETRIES:-0}" RC=0
+  local SAFE LOG FIFO FIFO_DIR NONCE READER PREVIEW ESC_TASK ESC_LABEL ESC_PREVIEW ESC_LOG
+  shift 3
+  ESC_TASK="$(_idTaskJson "$TASK")"; ESC_LABEL="$(_idTaskJson "$LABEL")"
+  while :; do
+    SAFE="$(_idTaskSafeId "$TASK")"
+    FIFO_DIR="$(mktemp -d "$INSTALL_DOCTOR_TUI_STATE/.task.XXXXXX")" || return 1
+    NONCE="${FIFO_DIR##*/}"
+    LOG="$INSTALL_DOCTOR_TUI_STATE/logs/${SAFE}-${NONCE}.attempt-${ATTEMPT}.log"
+    : > "$LOG"
+    chmod 0600 "$LOG" || return 1
+    ESC_LOG="$(_idTaskJson "$LOG")"
+    FIFO="$FIFO_DIR/output"
+    if ! mkfifo "$FIFO"; then rmdir "$FIFO_DIR" 2>/dev/null || true; return 1; fi
+    _idTaskEmit "{\"type\":\"status\",\"task\":\"$ESC_TASK\",\"label\":\"$ESC_LABEL\",\"status\":\"running\",\"worker\":$WORKER,\"attempt\":$ATTEMPT,\"log\":\"$ESC_LOG\"}"
+    _idTaskConsume "$WORKER" "$TASK" "$LABEL" "$ATTEMPT" "$LOG" < "$FIFO" & READER=$!
+    if "$@" > "$FIFO" 2>&1; then RC=0; else RC=$?; fi
+    wait "$READER" || true
+    rm -f "$FIFO"
+    rmdir "$FIFO_DIR" 2>/dev/null || true
+    if [ "$RC" -eq 0 ]; then
+      _idTaskEmit "{\"type\":\"status\",\"task\":\"$ESC_TASK\",\"label\":\"$ESC_LABEL\",\"status\":\"passed\",\"worker\":$WORKER,\"attempt\":$ATTEMPT,\"log\":\"$ESC_LOG\"}"
+      return 0
+    fi
+    if [ "$RC" -eq 130 ] || [ "$RC" -eq 143 ]; then
+      _idTaskEmit "{\"type\":\"status\",\"task\":\"$ESC_TASK\",\"label\":\"$ESC_LABEL\",\"status\":\"cancelled\",\"worker\":$WORKER,\"attempt\":$ATTEMPT,\"exitCode\":$RC,\"log\":\"$ESC_LOG\"}"
+      return "$RC"
+    fi
+    if [ "$ATTEMPT" -le "$RETRIES" ]; then
+      PREVIEW="$(tail -n 1 "$LOG" 2>/dev/null || true)"; ESC_PREVIEW="$(_idTaskJson "$PREVIEW")"
+      _idTaskEmit "{\"type\":\"status\",\"task\":\"$ESC_TASK\",\"label\":\"$ESC_LABEL\",\"status\":\"retrying\",\"worker\":$WORKER,\"attempt\":$ATTEMPT,\"preview\":\"$ESC_PREVIEW\"}"
+      ATTEMPT=$((ATTEMPT + 1))
+      continue
+    fi
+    _idTaskEmit "{\"type\":\"status\",\"task\":\"$ESC_TASK\",\"label\":\"$ESC_LABEL\",\"status\":\"failed\",\"worker\":$WORKER,\"attempt\":$ATTEMPT,\"exitCode\":$RC,\"log\":\"$ESC_LOG\"}"
+    return "$RC"
+  done
+}
+
+idTaskSummary() {
+  local COUNTS START NOW
+  COUNTS="$(node - "$INSTALL_DOCTOR_TUI_EVENTS" <<'NODE'
+const fs = require('node:fs');
+const terminal = new Map();
+for (const line of fs.readFileSync(process.argv[2], 'utf8').split('\n')) {
+  if (!line) continue;
+  const event = JSON.parse(line);
+  if (event.type === 'status' && typeof event.task === 'string' && typeof event.status === 'string') terminal.set(event.task, event.status);
+}
+const values = [...terminal.values()];
+const count = status => values.filter(value => status.includes(value)).length;
+process.stdout.write(`passed=${count(['passed'])} failed=${count(['failed'])} pending=${count(['pending'])} cancelled=${count(['cancelled'])} running=${count(['running','retrying'])}`);
+NODE
+)" || return 1
+  START="$(cat "$INSTALL_DOCTOR_TUI_STATE/started-at" 2>/dev/null || date +%s)"; NOW="$(date +%s)"
+  printf '%s elapsed=%ss logs=%s\n' "$COUNTS" "$((NOW - START))" "$INSTALL_DOCTOR_TUI_STATE/logs"
+}
+
+idTaskResolveTrustedDir() {
+  local DIR="$1" RESOLVED MODE PERM
+  [ "${INSTALL_DOCTOR_AGENT_TASKS_CONSENT:-0}" = 1 ] || return 1
+  [ -d "$DIR" ] && [ ! -L "$DIR" ] || return 1
+  RESOLVED="$(cd -P "$DIR" && pwd)" || return 1
+  MODE="$(stat -c '%a' "$RESOLVED" 2>/dev/null || stat -f '%Lp' "$RESOLVED" 2>/dev/null)" || return 1
+  PERM=$((8#$MODE))
+  [ $((PERM & 8#022)) -eq 0 ] || return 1
+  printf '%s\n' "$RESOLVED"
+}
+
+idTaskPool() {
+  local LIMIT="${INSTALL_DOCTOR_CONCURRENCY:-2}" INDEX=0 FAILED=0 POLICY="${INSTALL_DOCTOR_AGENT_FAILURE_POLICY:-fail}"
+  local TASK WORKER PID
+  local PIDS=()
+  idTaskUiInit || return 1
+  for TASK in "$@"; do
+    [ -f "$TASK" ] && [ -x "$TASK" ] || continue
+    WORKER=$((INDEX % LIMIT + 1)); INDEX=$((INDEX + 1))
+    idTaskRun "$WORKER" "$(basename "$TASK" .sh)" "$(basename "$TASK" .sh)" "$TASK" & PIDS+=("$!")
+    if [ "${#PIDS[@]}" -ge "$LIMIT" ]; then
+      for PID in "${PIDS[@]}"; do wait "$PID" || FAILED=1; done
+      PIDS=()
+    fi
+  done
+  for PID in "${PIDS[@]}"; do wait "$PID" || FAILED=1; done
+  [ "$FAILED" -eq 0 ] || [ "$POLICY" = continue ]
+}
+
+idRunConfiguredAgentTasks() {
+  local TRUSTED TASK
+  local AGENT_TASKS=()
+  [ -n "${INSTALL_DOCTOR_AGENT_TASK_DIR:-}" ] || return 0
+  TRUSTED="$(idTaskResolveTrustedDir "$INSTALL_DOCTOR_AGENT_TASK_DIR")" || return 1
+  for TASK in "$TRUSTED"/*.sh; do
+    [ -x "$TASK" ] || continue
+    [ -f "$TASK" ] && [ ! -L "$TASK" ] || return 1
+    AGENT_TASKS+=("$TASK")
+  done
+  [ "${#AGENT_TASKS[@]}" -eq 0 ] || idTaskPool "${AGENT_TASKS[@]}"
+}
+
+idVerifyConfiguredAgentTaskManifest() {
+  local TRUSTED
+  [ -n "${INSTALL_DOCTOR_AGENT_TASK_DIR:-}" ] || return 2
+  TRUSTED="$(idTaskResolveTrustedDir "$INSTALL_DOCTOR_AGENT_TASK_DIR")" || return 2
+  node - "$TRUSTED" "${INSTALL_DOCTOR_AGENT_TASKS_DIGEST:-}" <<'NODE'
+const fs = require('node:fs');
+const crypto = require('node:crypto');
+const [directory, expected] = process.argv.slice(2);
+const canonical = value => Array.isArray(value) ? value.map(canonical) : value && typeof value === 'object'
+  ? Object.fromEntries(Object.entries(value).sort(([a], [b]) => a.localeCompare(b)).map(([key, child]) => [key, canonical(child)])) : value;
+const manifest = [];
+for (const name of fs.readdirSync(directory).filter(name => name.endsWith('.sh')).sort()) {
+  const path = `${directory}/${name}`;
+  const metadata = fs.lstatSync(path);
+  if (!metadata.isFile() || metadata.isSymbolicLink() || metadata.uid !== process.geteuid() || (metadata.mode & 0o022) !== 0) process.exit(2);
+  if ((metadata.mode & 0o111) === 0) continue;
+  manifest.push({ name, sha256: crypto.createHash('sha256').update(fs.readFileSync(path)).digest('hex') });
+}
+const actual = crypto.createHash('sha256').update(JSON.stringify(canonical(manifest))).digest('hex');
+process.exit(actual === expected ? 0 : 2);
+NODE
+}
+
+idConfiguredAgentTasksReceipt() {
+  printf '%s/configured-agent-tasks/%s.receipt\n' "${XDG_STATE_HOME:-$HOME/.local/state}/install.doctor" "${INSTALL_DOCTOR_AGENT_TASKS_DIGEST:-invalid}"
+}
+
+idVerifyConfiguredAgentTasksReceipt() {
+  local RECEIPT EXPECTED
+  idVerifyConfiguredAgentTaskManifest || return $?
+  RECEIPT="$(idConfiguredAgentTasksReceipt)" || return 2
+  EXPECTED="${INSTALL_DOCTOR_AGENT_TASKS_DIGEST:-}"
+  [ -f "$RECEIPT" ] && [ ! -L "$RECEIPT" ] || return 10
+  [ "$(cat "$RECEIPT" 2>/dev/null)" = "$EXPECTED" ] || return 2
+}
+
+idApplyConfiguredAgentTasks() {
+  local RECEIPT ROOT TEMP
+  idVerifyConfiguredAgentTaskManifest || return $?
+  idRunConfiguredAgentTasks || return $?
+  RECEIPT="$(idConfiguredAgentTasksReceipt)" || return 2
+  ROOT="$(dirname "$RECEIPT")"
+  [ ! -L "$ROOT" ] || return 2
+  umask 077
+  mkdir -p "$ROOT" || return 1
+  chmod 0700 "$ROOT" || return 1
+  TEMP="$ROOT/.receipt.$$"
+  printf '%s\n' "${INSTALL_DOCTOR_AGENT_TASKS_DIGEST:-}" > "$TEMP" || return 1
+  chmod 0600 "$TEMP" || { rm -f "$TEMP"; return 1; }
+  mv "$TEMP" "$RECEIPT" || { rm -f "$TEMP"; return 1; }
+}
+# END INSTALL_DOCTOR_TASK_UI
+
+idProvisionEvidenceInit() {
+  local STATE_HOME ROOT RUN_ID HOST_LABEL ENV_LABEL
+  STATE_HOME="${XDG_STATE_HOME:-${HOME:-/tmp}/.local/state}"
+  [ ! -L "$STATE_HOME" ] || return 1
+  ROOT="$STATE_HOME/install-doctor/evidence/provision"
+  [ ! -L "$STATE_HOME/install-doctor" ] && [ ! -L "$STATE_HOME/install-doctor/evidence" ] && [ ! -L "$ROOT" ] || return 1
+  umask 077
+  mkdir -p "$ROOT" || return 1
+  chmod 0700 "$STATE_HOME/install-doctor" "$STATE_HOME/install-doctor/evidence" "$ROOT" || return 1
+  RUN_ID="$(date -u +%Y%m%dT%H%M%SZ)-$$"
+  case "$RUN_ID" in *[!a-zA-Z0-9._-]*) return 1 ;; esac
+  HOST_LABEL="$(printf '%s' "${HOST:-$(hostname -s 2>/dev/null || hostname)}" | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9._-' '-' | cut -c1-64)"
+  ENV_LABEL="$(printf '%s' "${WORK_ENVIRONMENT:-native}" | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9._-' '-' | cut -c1-64)"
+  HOST_LABEL="${HOST_LABEL:--}"
+  ENV_LABEL="${ENV_LABEL:--}"
+  INSTALL_DOCTOR_EVIDENCE_STARTED_AT="$(date +%s)"
+  INSTALL_DOCTOR_EVIDENCE_HOST="$HOST_LABEL"
+  INSTALL_DOCTOR_EVIDENCE_ENVIRONMENT="$ENV_LABEL"
+  INSTALL_DOCTOR_EVENT_LOG="${INSTALL_DOCTOR_EVENT_LOG:-$ROOT/$RUN_ID.ndjson}"
+  INSTALL_DOCTOR_TERMINAL_RECEIPT="${INSTALL_DOCTOR_TERMINAL_RECEIPT:-$ROOT/$RUN_ID.receipt.json}"
+  [ ! -L "$INSTALL_DOCTOR_EVENT_LOG" ] && [ ! -L "$INSTALL_DOCTOR_TERMINAL_RECEIPT" ] || return 1
+  : > "$INSTALL_DOCTOR_EVENT_LOG" || return 1
+  chmod 0600 "$INSTALL_DOCTOR_EVENT_LOG" || return 1
+  export INSTALL_DOCTOR_EVIDENCE_STARTED_AT INSTALL_DOCTOR_EVIDENCE_HOST INSTALL_DOCTOR_EVIDENCE_ENVIRONMENT
+  export INSTALL_DOCTOR_EVENT_LOG INSTALL_DOCTOR_TERMINAL_RECEIPT
+}
+
+idEmitProvisionStatus() {
+  local PHASE="$1" STATUS="$2" EXIT_CODE="${3:-0}" LOG START NOW DURATION RSS HOST_LABEL ENV_LABEL TERMINAL TEMP
+  LOG="${INSTALL_DOCTOR_EVENT_LOG:-${XDG_STATE_HOME:-${HOME:-/tmp}/.local/state}/install-doctor/provision-events.ndjson}"
+  START="${INSTALL_DOCTOR_EVIDENCE_STARTED_AT:-$(date +%s)}"
+  NOW="$(date +%s)"
+  case "$START:$NOW:$EXIT_CODE" in *[!0-9:]*) return 1 ;; esac
+  DURATION=$(((NOW - START) * 1000))
+  [ "$DURATION" -ge 0 ] || DURATION=0
+  RSS="$(ps -o rss= -p $$ 2>/dev/null | awk '{print $1; exit}')"
+  case "$RSS" in ''|*[!0-9]*) RSS=0 ;; esac
+  HOST_LABEL="${INSTALL_DOCTOR_EVIDENCE_HOST:-host}"
+  ENV_LABEL="${INSTALL_DOCTOR_EVIDENCE_ENVIRONMENT:-native}"
+  TERMINAL=false
+  case "$STATUS" in success|failed|redirected|cancelled|pending) TERMINAL=true ;; esac
+  umask 077
+  mkdir -p "$(dirname "$LOG")" || return 1
+  [ ! -L "$(dirname "$LOG")" ] && [ ! -L "$LOG" ] || return 1
+  if [ -e "$LOG" ] && [ ! -f "$LOG" ]; then return 1; fi
+  : >> "$LOG" || return 1
+  chmod 0600 "$LOG" || return 1
+  printf '{"schemaVersion":1,"type":"provision","phase":"%s","status":"%s","exitCode":%s,"durationMs":%s,"rssKiB":%s,"terminal":%s,"labels":{"host":"%s","environment":"%s","service":"install-doctor"}}\n' \
+    "$(_idTaskJson "$PHASE")" "$(_idTaskJson "$STATUS")" "$EXIT_CODE" "$DURATION" "$RSS" "$TERMINAL" \
+    "$(_idTaskJson "$HOST_LABEL")" "$(_idTaskJson "$ENV_LABEL")" >> "$LOG" || return 1
+  if [ "$TERMINAL" = true ] && [ -n "${INSTALL_DOCTOR_TERMINAL_RECEIPT:-}" ]; then
+    [ ! -L "$INSTALL_DOCTOR_TERMINAL_RECEIPT" ] || return 1
+    TEMP="$INSTALL_DOCTOR_TERMINAL_RECEIPT.tmp.$$"
+    printf '{"schemaVersion":1,"type":"provision-terminal-receipt","status":"%s","exitCode":%s,"durationMs":%s,"rssKiB":%s,"terminal":true,"labels":{"host":"%s","environment":"%s","service":"install-doctor"}}\n' \
+      "$(_idTaskJson "$STATUS")" "$EXIT_CODE" "$DURATION" "$RSS" "$(_idTaskJson "$HOST_LABEL")" "$(_idTaskJson "$ENV_LABEL")" > "$TEMP" || return 1
+    chmod 0600 "$TEMP" || { rm -f "$TEMP"; return 1; }
+    mv "$TEMP" "$INSTALL_DOCTOR_TERMINAL_RECEIPT" || { rm -f "$TEMP"; return 1; }
+  fi
+  INSTALL_DOCTOR_TERMINAL_STATUS="$STATUS"
+  export INSTALL_DOCTOR_TERMINAL_STATUS
+}
+
+idOnProvisionExit() {
+  local EXIT_CODE="${1:-$?}"
+  case "${INSTALL_DOCTOR_TERMINAL_STATUS:-}" in success|failed|redirected|pending|cancelled) return 0 ;; esac
+  if [ "$EXIT_CODE" -eq 0 ]; then idEmitProvisionStatus provision redirected 0; else idEmitProvisionStatus provision failed "$EXIT_CODE"; fi
+}
+
+idPersistVerifiedReleaseProvenance() {
+  local MANIFEST="${INSTALL_DOCTOR_VERIFIED_MANIFEST:-}" SIGNATURE="${INSTALL_DOCTOR_VERIFIED_SIGNATURE:-}"
+  local RELEASE_ID="${INSTALL_DOCTOR_RELEASE_ID:-}" MANIFEST_SHA="${INSTALL_DOCTOR_MANIFEST_SHA256:-}"
+  local ARTIFACT_SHA="${INSTALL_DOCTOR_ARTIFACT_SHA256:-}" ENGINE_SHA="${INSTALL_DOCTOR_ENGINE_SHA256:-}" ROOT TEMP
+  [ -n "$MANIFEST" ] || return 0
+  case "$RELEASE_ID" in ''|[!a-z0-9]*|*[!a-z0-9._-]*) return 1 ;; esac
+  case "$MANIFEST_SHA:$ARTIFACT_SHA:$ENGINE_SHA" in *[!a-f0-9:]*) return 1 ;; esac
+  [ "${#MANIFEST_SHA}" -eq 64 ] && [ "${#ARTIFACT_SHA}" -eq 64 ] && [ "${#ENGINE_SHA}" -eq 64 ] || return 1
+  [ -f "$MANIFEST" ] && [ ! -L "$MANIFEST" ] && [ -f "$SIGNATURE" ] && [ ! -L "$SIGNATURE" ] || return 1
+  ROOT="${XDG_STATE_HOME:-${HOME:-/tmp}/.local/state}/install-doctor/releases/$RELEASE_ID"
+  [ ! -L "$ROOT" ] || return 1
+  umask 077
+  mkdir -p "$ROOT" || return 1
+  chmod 0700 "$ROOT" || return 1
+  TEMP="$ROOT/.provenance.$$"
+  mkdir "$TEMP" || return 1
+  trap 'rm -rf -- "$TEMP"' RETURN
+  cp "$MANIFEST" "$TEMP/manifest" || return 1
+  cp "$SIGNATURE" "$TEMP/manifest.sig" || return 1
+  printf '%s  manifest\n%s  provision.sh\n%s  install-doctor-engine.mjs\n' "$MANIFEST_SHA" "$ARTIFACT_SHA" "$ENGINE_SHA" > "$TEMP/sha256sums" || return 1
+  chmod 0600 "$TEMP/manifest" "$TEMP/manifest.sig" "$TEMP/sha256sums" || return 1
+  mv "$TEMP/manifest" "$TEMP/manifest.sig" "$TEMP/sha256sums" "$ROOT/" || return 1
+  rmdir "$TEMP"
+  trap - RETURN
+}
 #
 #     ## Dependencies
 #
@@ -84,26 +564,20 @@ fi
 #
 #     ```bash
 #     HEADLESS_INSTALL=true SOFTWARE_GROUP=Full SUDO_PASSWORD=your_password \
-#       bash <(curl -sSL https://install.doctor/start)
+#       curl -fsSL https://app.install.doctor/start | bash
 #     ```
 #
 #     For a full list of variables you can use to customize Install Doctor, check out our [Customization](https://install.doctor/docs/customization)
 #     and [Secrets](https://install.doctor/docs/customization/secrets) documentation.
 #
-#     ## Supported Platforms
+#     ## Platform admission status
 #
 #     | Platform       | Status       | Notes                                           |
 #     |----------------|--------------|-------------------------------------------------|
-#     | macOS          | Supported    | Intel and Apple Silicon (Rosetta 2 auto-installed)|
-#     | Ubuntu/Debian  | Supported    | Tested on latest LTS releases                    |
-#     | Fedora/RHEL    | Supported    | Tested on latest releases                        |
-#     | Archlinux      | Supported    | Tested on rolling release                        |
-#     | CentOS         | Supported    | Via yum/dnf                                      |
-#     | OpenSUSE       | Supported    | Via zypper                                       |
-#     | Alpine         | Supported    | Via apk                                          |
-#     | Qubes OS       | In Progress  | Dom0 and AppVM provisioning                      |
-#     | Windows        | Roadmap      | Planned via WSL                                  |
-#     | FreeBSD        | Roadmap      | Not yet implemented                              |
+#     | macOS/Linux matrix tuples | Best effort | Requires explicit recorded best-effort consent until a fresh full-lifecycle canary exists |
+#     | Silverblue/Qubes/Proxmox/Coolify/WSL | Unsupported | Rejected before plan approval until their matrix remediation is complete |
+#     | Native Windows/FreeBSD | Unsupported | Not accepted by this Bash endpoint               |
+#     | Unknown OS/version/architecture/role tuple | Unsupported | Fails closed before mutation                     |
 #
 #     ## Links
 #
@@ -223,80 +697,39 @@ setEnvironmentVariables() {
   fi
 }
 
-# @description Ensures essential system dependencies are installed using the platform's native package manager.
-#     This function detects the operating system and installs the following packages if missing:
-#
-#     - `curl` - HTTP client for downloading files
-#     - `git` - Version control system
-#     - `expect` / `unbuffer` - Terminal automation utilities
-#     - `rsync` - File synchronization tool
-#     - `file` - File type detection utility
-#     - `procps` / `procps-ng` - Process utilities (ps, top, etc.)
-#     - `moreutils` - Additional Unix utilities (ts, sponge, etc.)
-#     - Build tools (`build-essential`, `base-devel`, etc.)
-#
-#     On macOS, this function also ensures:
-#     - Xcode Command Line Tools are installed (via `softwareupdate`)
-#     - Rosetta 2 is installed on Apple Silicon Macs
-#
-#     Supported package managers: apt-get, dnf, yum, pacman, zypper, apk, choco (Windows)
+# @description Installs only the native tools required before the selected desired state can run.
+#     The current signed engine requires Node.js 22+ as an explicit host prerequisite; this
+#     closure adds git and rsync when absent. Rsync is still required by the system-files task.
+#     Compilers, terminal cosmetics, compatibility tools, and language runtimes belong to the
+#     selected catalog closure and remain lazy unless a later task proves it needs them.
 ensureBasicDeps() {
-  if ! command -v curl > /dev/null || ! command -v git > /dev/null || ! command -v expect > /dev/null || ! command -v rsync > /dev/null || ! command -v unbuffer > /dev/null; then
+  if ! command -v curl > /dev/null || ! command -v git > /dev/null || ! command -v rsync > /dev/null; then
     if command -v apt-get > /dev/null; then
       ### Debian / Ubuntu
-      logg info 'Running sudo apt-get update' && sudo apt-get update
-      logg info 'Running sudo apt-get install -y build-essential curl expect git moreutils rsync procps file' && sudo apt-get install -y build-essential curl expect git moreutils rsync procps file
+      logg info 'Running sudo apt-get update' && sudo apt-get update \
+        && logg info 'Installing the minimal bootstrap tools (curl, git, and rsync)' \
+        && sudo apt-get install -y curl git rsync
     elif command -v dnf > /dev/null; then
       ### Fedora
-      logg info 'Running sudo dnf groupinstall -y "Development Tools"' && sudo dnf groupinstall -y 'Development Tools'
-      logg info 'Running sudo dnf install -y curl expect git moreutils rsync procps-ng file' && sudo dnf install -y curl expect git moreutils rsync procps-ng file
+      logg info 'Installing the minimal bootstrap tools (curl, git, and rsync)' && sudo dnf install -y curl git rsync
     elif command -v yum > /dev/null; then
       ### CentOS
-      logg info 'Running sudo yum groupinstall -y "Development Tools"' && sudo yum groupinstall -y 'Development Tools'
-      logg info 'Running sudo yum install -y curl expect git moreutils rsync procps-ng file' && sudo yum install -y curl expect git moreutils rsync procps-ng file
+      logg info 'Installing the minimal bootstrap tools (curl, git, and rsync)' && sudo yum install -y curl git rsync
     elif command -v pacman > /dev/null; then
       ### Archlinux
-      logg info 'Running sudo pacman -Sy --noconfirm' && sudo pacman -Sy --noconfirm
-      logg info 'Running sudo pacman -Syu --noconfirm base-devel curl expect git moreutils rsync procps-ng file' && sudo pacman -Syu --noconfirm base-devel curl expect git moreutils rsync procps-ng file
+      logg info 'Installing the minimal bootstrap tools (curl, git, and rsync)' && sudo pacman -S --needed --noconfirm curl git rsync
     elif command -v zypper > /dev/null; then
       ### OpenSUSE
-      logg info 'Running sudo zypper install -yt pattern devel_basis' && sudo zypper install -yt pattern devel_basis
-      logg info 'Running sudo zypper install -y curl expect git moreutils rsync procps file' && sudo zypper install -y curl expect git moreutils rsync procps file
+      logg info 'Installing the minimal bootstrap tools (curl, git, and rsync)' && sudo zypper install -y curl git rsync
     elif command -v apk > /dev/null; then
       ### Alpine
-      logg info 'Running sudo apk add build-base curl expect git moreutils rsync ruby procps file' && sudo apk add build-base curl expect git moreutils rsync ruby procps file
+      logg info 'Installing the minimal bootstrap tools (curl, git, and rsync)' && sudo apk add curl git rsync
     elif [ "$(detect_os)" = "macos" ]; then
-      ### macOS
-      logg info "Ensuring Xcode Command Line Tools are installed.."
-      if ! xcode-select -p >/dev/null 2>&1; then
-        if [ -n "${HEADLESS_INSTALL:-}" ]; then
-          logg warn 'Command Line Tools not installed but HEADLESS_INSTALL is set — skipping GUI softwareupdate'
-        else
-          logg info "Command Line Tools for Xcode not found"
-          ### This temporary file prompts the 'softwareupdate' utility to list the Command Line Tools
-          touch /tmp/.com.apple.dt.CommandLineTools.installondemand.in-progress;
-          XCODE_PKG="$(softwareupdate -l | grep "\*.*Command Line" | tail -n 1 | sed 's/^[^C]* //')"
-          logg info "Installing from softwareupdate" && softwareupdate -i "$XCODE_PKG" && logg info "Successfully installed $XCODE_PKG"
-        fi
-        if command -v xcodebuild > /dev/null; then
-          logg info 'Running xcodebuild -license accept'
-          sudo xcodebuild -license accept
-          logg info 'Running sudo xcodebuild -runFirstLaunch'
-          sudo xcodebuild -runFirstLaunch
-        else
-          logg warn 'xcodebuild is not available'
-        fi
-      fi
-      if /usr/bin/pgrep -q oahd; then
-        logg info 'Rosetta 2 is already installed'
-      elif [ -n "${HEADLESS_INSTALL:-}" ]; then
-        logg warn 'Rosetta 2 not installed but HEADLESS_INSTALL is set — skipping'
-      else
-        logg info 'Ensuring Rosetta 2 is installed' && softwareupdate --install-rosetta --agree-to-license
-      fi
+      logg error 'macOS is missing curl, git, or rsync; install Apple Command Line Tools before provisioning'
+      return 2
     elif [[ "$OSTYPE" == 'cygwin' ]] || [[ "$OSTYPE" == 'msys' ]] || [[ "$OSTYPE" == 'win32' ]]; then
       ### Windows
-      logg info 'Running choco install -y curl expect git moreutils rsync' && choco install -y curl expect git moreutils rsync
+      logg info 'Installing the minimal bootstrap tools (curl, git, and rsync)' && choco install -y curl git rsync
     elif [[ "$OSTYPE" == 'freebsd'* ]]; then
       ### FreeBSD
       logg warn "FreeBSD is not yet supported"
@@ -310,6 +743,124 @@ ensureBasicDeps() {
   fi
 }
 
+# Acquire the signed, release-scoped Node runtime only when the host has no
+# acceptable system Node. The archive is never generally extracted: after the
+# signed byte envelope is verified, exactly one regular */bin/node member is
+# selected into a private directory and its exact version is revalidated.
+unset _ID_PROVISIONER_RUNTIME_STAGE 2>/dev/null || true
+ensureProvisionerNodeRuntime() {
+  local REQUIRED="${INSTALL_DOCTOR_ENGINE_NODE_MIN:-22}" SOURCE="${INSTALL_DOCTOR_RUNTIME_SOURCE:-}" SYSTEM_NODE="" SYSTEM_MAJOR=""
+  local URL SHA SIZE PLATFORM VERSION ARCHIVE STAGE DOWNLOAD MEMBER ACTUAL_SIZE ACTUAL_SHA NODE_PATH NODE_MAJOR RELEASE_ID
+  case "$REQUIRED" in ''|*[!0-9]*) logg error 'Invalid engine Node minimum'; return 20 ;; esac
+  if [ -z "$SOURCE" ] && [ -z "${INSTALL_DOCTOR_RELEASE_ID:-}" ]; then
+    SOURCE='system'
+  fi
+  case "$SOURCE" in system|signed-archive) ;; *) logg error 'Installer Node runtime source is missing or invalid'; return 20 ;; esac
+  if [ "$SOURCE" = 'system' ] && command -v node >/dev/null 2>&1; then
+    SYSTEM_NODE="$(command -v node)"
+    SYSTEM_MAJOR="$("$SYSTEM_NODE" --version 2>/dev/null | sed -nE 's/^v([0-9]+)\..*/\1/p')"
+    case "$SYSTEM_MAJOR" in ''|*[!0-9]*) SYSTEM_MAJOR=0 ;; esac
+    if { [ "$SYSTEM_MAJOR" -eq 22 ] || [ "$SYSTEM_MAJOR" -eq 24 ]; } && [ "$SYSTEM_MAJOR" -ge "$REQUIRED" ]; then
+      [ -z "${INSTALL_DOCTOR_RUNTIME_ARCHIVE:-}" ] || { logg error 'System runtime selection cannot carry a staged archive'; return 20; }
+      [ -z "${INSTALL_DOCTOR_RUNTIME_NODE:-}" ] || [ "$INSTALL_DOCTOR_RUNTIME_NODE" = "$SYSTEM_NODE" ] \
+        || { logg error 'System Node runtime changed after stage-zero selection'; return 20; }
+      INSTALL_DOCTOR_RUNTIME_NODE="$SYSTEM_NODE"
+      export INSTALL_DOCTOR_RUNTIME_NODE
+      return 0
+    fi
+  fi
+  if [ "$SOURCE" = 'system' ]; then
+    logg error 'Selected system Node runtime is no longer compatible or available'
+    return 20
+  fi
+  if [ -n "${INSTALL_DOCTOR_RUNTIME_NODE:-}" ]; then
+    logg error 'Signed-archive selection cannot accept a caller-provided runtime executable'
+    return 20
+  fi
+  URL="${INSTALL_DOCTOR_RUNTIME_URL:-}"; SHA="${INSTALL_DOCTOR_RUNTIME_SHA256:-}"; SIZE="${INSTALL_DOCTOR_RUNTIME_SIZE:-}"
+  PLATFORM="${INSTALL_DOCTOR_RUNTIME_PLATFORM:-}"; VERSION="${INSTALL_DOCTOR_RUNTIME_NODE_VERSION:-}"; ARCHIVE="${INSTALL_DOCTOR_RUNTIME_ARCHIVE:-}"
+  RELEASE_ID="${INSTALL_DOCTOR_RELEASE_ID:-}"
+  [ -n "$RELEASE_ID" ] && [[ "$RELEASE_ID" =~ ^[A-Za-z0-9._-]+$ ]] || { logg error 'Signed release identifier is invalid'; return 20; }
+  [ "$URL" = "https://app.install.doctor/releases/$RELEASE_ID/node-$PLATFORM.tar.gz" ] \
+    || { logg error 'Signed Node runtime URL is not the canonical release artifact'; return 20; }
+  case "$SHA" in ''|*[!a-f0-9]*) logg error 'Signed Node runtime SHA-256 is invalid'; return 20 ;; esac
+  [ "${#SHA}" -eq 64 ] || { logg error 'Signed Node runtime SHA-256 is invalid'; return 20; }
+  case "$SIZE" in ''|*[!0-9]*) logg error 'Signed Node runtime size is invalid'; return 20 ;; esac
+  [ "$SIZE" -gt 0 ] && [ "$SIZE" -le 100663296 ] || { logg error 'Signed Node runtime size is outside policy'; return 20; }
+  local HOST_RUNTIME_PLATFORM="${INSTALL_DOCTOR_BOOTSTRAP_PLATFORM:-}"
+  export INSTALL_DOCTOR_BOOTSTRAP_PLATFORM
+  if [[ "$HOST_RUNTIME_PLATFORM" == linux-* ]] && compgen -G '/lib/ld-musl-*.so.1' >/dev/null 2>&1; then HOST_RUNTIME_PLATFORM="$HOST_RUNTIME_PLATFORM-musl"; fi
+  [ "$PLATFORM" = "$HOST_RUNTIME_PLATFORM" ] || { logg error 'Signed Node runtime platform does not match this host libc/platform'; return 20; }
+  [ -f "$ARCHIVE" ] && [ ! -L "$ARCHIVE" ] || { logg error 'Signed Node runtime archive is unavailable or unsafe'; return 20; }
+  [[ "$VERSION" =~ ^24\.[0-9]+\.[0-9]+$ ]] || { logg error 'Signed Node runtime must identify an exact Node 24 version'; return 20; }
+  NODE_MAJOR="${VERSION%%.*}"; [ "$NODE_MAJOR" -ge "$REQUIRED" ] || { logg error 'Signed Node runtime is below the engine minimum'; return 20; }
+  command -v tar >/dev/null 2>&1 || { logg error 'tar is required to acquire the signed runtime'; return 20; }
+  STAGE="$(mktemp -d "${TMPDIR:-/tmp}/install-doctor-runtime.XXXXXX")" || return 20
+  chmod 0700 "$STAGE" || { rm -rf -- "$STAGE"; return 20; }
+  [ -d "$STAGE" ] && [ ! -L "$STAGE" ] || { rm -rf -- "$STAGE"; return 20; }
+  DOWNLOAD="$STAGE/runtime.tar.gz"
+  install -m 0600 "$ARCHIVE" "$DOWNLOAD" || { rm -rf -- "$STAGE"; logg error 'Signed Node runtime staging failed'; return 20; }
+  [ -f "$DOWNLOAD" ] && [ ! -L "$DOWNLOAD" ] || { rm -rf -- "$STAGE"; return 20; }
+  if command -v stat >/dev/null 2>&1 && stat -c %s "$DOWNLOAD" >/dev/null 2>&1; then ACTUAL_SIZE="$(stat -c %s "$DOWNLOAD")"
+  else ACTUAL_SIZE="$(stat -f %z "$DOWNLOAD")"; fi
+  [ "$ACTUAL_SIZE" = "$SIZE" ] || { rm -rf -- "$STAGE"; logg error 'Signed Node runtime size mismatch'; return 20; }
+  if command -v sha256sum >/dev/null 2>&1; then ACTUAL_SHA="$(sha256sum "$DOWNLOAD" | awk '{print $1}')"
+  elif command -v shasum >/dev/null 2>&1; then ACTUAL_SHA="$(shasum -a 256 "$DOWNLOAD" | awk '{print $1}')"
+  else rm -rf -- "$STAGE"; logg error 'SHA-256 verifier is required for the signed runtime'; return 20; fi
+  [ "$ACTUAL_SHA" = "$SHA" ] || { rm -rf -- "$STAGE"; logg error 'Signed Node runtime checksum mismatch'; return 20; }
+  MEMBER="$(tar -tzf "$DOWNLOAD" | awk '/^[A-Za-z0-9._+-]+\/bin\/node$/ { print }')"
+  [ -n "$MEMBER" ] && [ "$(printf '%s\n' "$MEMBER" | wc -l | tr -d ' ')" -eq 1 ] || { rm -rf -- "$STAGE"; logg error 'Runtime archive must contain exactly one bounded bin/node member'; return 20; }
+  case "$MEMBER" in /*|*../*|*\\*) rm -rf -- "$STAGE"; logg error 'Runtime archive member is unsafe'; return 20 ;; esac
+  tar -tvzf "$DOWNLOAD" "$MEMBER" | awk 'NR == 1 && substr($1,1,1) == "-" { ok=1 } END { exit !ok }' \
+    || { rm -rf -- "$STAGE"; logg error 'Runtime node member is not a regular file'; return 20; }
+  mkdir -p "$STAGE/root" || { rm -rf -- "$STAGE"; return 20; }
+  tar -xzf "$DOWNLOAD" -C "$STAGE/root" --no-same-owner --no-same-permissions "$MEMBER" \
+    || { rm -rf -- "$STAGE"; logg error 'Runtime node extraction failed'; return 20; }
+  NODE_PATH="$STAGE/root/$MEMBER"
+  [ -f "$NODE_PATH" ] && [ ! -L "$NODE_PATH" ] || { rm -rf -- "$STAGE"; return 20; }
+  chmod 0700 "$NODE_PATH" || { rm -rf -- "$STAGE"; return 20; }
+  [ "$("$NODE_PATH" --version 2>/dev/null)" = "v$VERSION" ] || { rm -rf -- "$STAGE"; logg error 'Runtime Node exact version mismatch'; return 20; }
+  INSTALL_DOCTOR_RUNTIME_STAGE="$STAGE"; INSTALL_DOCTOR_RUNTIME_NODE="$NODE_PATH"; INSTALL_DOCTOR_RUNTIME_NODE_VERSION="$VERSION"
+  _ID_PROVISIONER_RUNTIME_STAGE="$STAGE"
+  readonly _ID_PROVISIONER_RUNTIME_STAGE
+  PATH="$(dirname "$NODE_PATH"):$PATH"
+  export INSTALL_DOCTOR_RUNTIME_STAGE INSTALL_DOCTOR_RUNTIME_NODE INSTALL_DOCTOR_RUNTIME_NODE_VERSION PATH
+}
+
+idCleanupProvisionerRuntime() {
+  local STAGE="${INSTALL_DOCTOR_RUNTIME_STAGE:-}"
+  [ -n "$STAGE" ] || return 0
+  [ "$STAGE" = "${_ID_PROVISIONER_RUNTIME_STAGE:-}" ] || return 1
+  [ -d "$STAGE" ] && [ ! -L "$STAGE" ] || return 1
+  case "$STAGE" in "${TMPDIR:-/tmp}"/install-doctor-runtime.*) rm -rf -- "$STAGE" ;; *) return 1 ;; esac
+  INSTALL_DOCTOR_RUNTIME_STAGE=""
+  export INSTALL_DOCTOR_RUNTIME_STAGE
+}
+
+idSha256File() {
+  [ -f "$1" ] && [ ! -L "$1" ] || return 20
+  if command -v sha256sum >/dev/null 2>&1; then sha256sum "$1" | awk '{print $1}'
+  elif command -v shasum >/dev/null 2>&1; then shasum -a 256 "$1" | awk '{print $1}'
+  else return 20
+  fi
+}
+
+idVerifySealedHandoffFile() {
+  local FILE="$1" EXPECTED="$2" ACTUAL
+  case "$EXPECTED" in ''|*[!a-f0-9]*) return 20 ;; esac
+  [ "${#EXPECTED}" -eq 64 ] || return 20
+  ACTUAL="$(idSha256File "$FILE")" || return 20
+  [ "$ACTUAL" = "$EXPECTED" ]
+}
+
+idInstallSealedHandoffFile() {
+  local SOURCE="$1" TARGET="$2" MODE="$3" EXPECTED="$4"
+  [ -f "$SOURCE" ] && [ ! -L "$SOURCE" ] || return 20
+  [ ! -e "$TARGET" ] && [ ! -L "$TARGET" ] || return 20
+  install -m "$MODE" "$SOURCE" "$TARGET" || return 20
+  idVerifySealedHandoffFile "$TARGET" "$EXPECTED" || { rm -f -- "$TARGET"; return 20; }
+}
+
 ### Ensure Homebrew is loaded
 loadHomebrew() {
   if ! command -v brew > /dev/null; then
@@ -317,9 +868,9 @@ loadHomebrew() {
       logg info "Using /usr/local/bin/brew" && eval "$(/usr/local/bin/brew shellenv)"
     elif [ -f "${HOMEBREW_PREFIX:-/opt/homebrew}/bin/brew" ]; then
       logg info "Using ${HOMEBREW_PREFIX:-/opt/homebrew}/bin/brew" && eval "$("${HOMEBREW_PREFIX:-/opt/homebrew}/bin/brew" shellenv)"
-    elif [ -d "$HOME/.linuxbrew" ]; then
+    elif [ -x "$HOME/.linuxbrew/bin/brew" ]; then
       logg info "Using $HOME/.linuxbrew/bin/brew" && eval "$("$HOME/.linuxbrew/bin/brew" shellenv)"
-    elif [ -d "/home/linuxbrew/.linuxbrew" ]; then
+    elif [ -x "/home/linuxbrew/.linuxbrew/bin/brew" ]; then
       logg info 'Using /home/linuxbrew/.linuxbrew/bin/brew' && eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
     else
       logg info 'Could not find Homebrew installation'
@@ -361,17 +912,29 @@ ensurePackageManagerHomebrew() {
   if ! command -v brew > /dev/null; then
     local BREW_EXIT_CODE=""
     local HOMEBREW_INSTALL_COMMIT='959bdd728192d78c47287c177796c3d86d111f09'
-    local HOMEBREW_INSTALLER
+    local HOMEBREW_INSTALL_SHA256='5f333bbe53bc490e51e7ccb1df8779b3dd6ee73a1a7379efda216edb08ccb148'
+    local HOMEBREW_INSTALLER HOMEBREW_INSTALL_ACTUAL_SHA256
     HOMEBREW_INSTALLER="$(mktemp)"
-    if ! curl -fsSL "https://raw.githubusercontent.com/Homebrew/install/$HOMEBREW_INSTALL_COMMIT/install.sh" -o "$HOMEBREW_INSTALLER"; then
+    if ! curl -fsSL --proto '=https' --tlsv1.2 --connect-timeout 10 --max-time 60 \
+      "https://raw.githubusercontent.com/Homebrew/install/$HOMEBREW_INSTALL_COMMIT/install.sh" -o "$HOMEBREW_INSTALLER"; then
       rm -f "$HOMEBREW_INSTALLER"
       logg error 'Unable to download the pinned Homebrew installer'
-      return 1
+      return 75
     fi
+    [ "$(wc -c < "$HOMEBREW_INSTALLER")" -le 1048576 ] || { rm -f "$HOMEBREW_INSTALLER"; logg error 'Pinned Homebrew installer exceeded its size bound'; return 2; }
+    if command -v sha256sum >/dev/null 2>&1; then HOMEBREW_INSTALL_ACTUAL_SHA256="$(sha256sum "$HOMEBREW_INSTALLER" | awk '{print $1}')";
+    elif command -v shasum >/dev/null 2>&1; then HOMEBREW_INSTALL_ACTUAL_SHA256="$(shasum -a 256 "$HOMEBREW_INSTALLER" | awk '{print $1}')";
+    else rm -f "$HOMEBREW_INSTALLER"; logg error 'SHA-256 support is required to verify Homebrew'; return 2; fi
+    [ "$HOMEBREW_INSTALL_ACTUAL_SHA256" = "$HOMEBREW_INSTALL_SHA256" ] || { rm -f "$HOMEBREW_INSTALLER"; logg error 'Pinned Homebrew installer checksum mismatch'; return 2; }
     ### Select install type based off of whether or not sudo privileges are available
     if command -v sudo > /dev/null && sudo -n true; then
       logg info 'Installing Homebrew. Sudo privileges available.'
       NONINTERACTIVE=1 bash "$HOMEBREW_INSTALLER" || BREW_EXIT_CODE="$?"
+      if [ -n "$BREW_EXIT_CODE" ]; then
+        rm -f "$HOMEBREW_INSTALLER"
+        logg error "Pinned Homebrew installer failed (exit $BREW_EXIT_CODE)"
+        return "$BREW_EXIT_CODE"
+      fi
       if [ -d "/opt/homebrew" ]; then
         if [ -n "$USER" ]; then
           logg info "Setting owner of /opt/homebrew to '$USER'" && sudo chown -R "$USER" /opt/homebrew || logg warn "Failed to chown /opt/homebrew to '$USER'"
@@ -383,6 +946,11 @@ ensurePackageManagerHomebrew() {
     else
       logg info 'Installing Homebrew. Sudo privileges not available. Password may be required.'
       NONINTERACTIVE=1 bash "$HOMEBREW_INSTALLER" || BREW_EXIT_CODE="$?"
+      if [ -n "$BREW_EXIT_CODE" ]; then
+        rm -f "$HOMEBREW_INSTALLER"
+        logg error "Pinned Homebrew installer failed (exit $BREW_EXIT_CODE)"
+        return "$BREW_EXIT_CODE"
+      fi
       if [ -d "/opt/homebrew" ]; then
         if [ -n "$USER" ]; then
           logg info "Setting owner of /opt/homebrew to '$USER'" && sudo chown -R "$USER" /opt/homebrew || logg warn "Failed to chown /opt/homebrew to '$USER'"
@@ -394,24 +962,6 @@ ensurePackageManagerHomebrew() {
     fi
     rm -f "$HOMEBREW_INSTALLER"
 
-    ### Attempt to fix problematic installs
-    if [ -n "$BREW_EXIT_CODE" ]; then
-        logg warn 'Homebrew was installed but part of the installation failed to complete successfully.'
-        fixHomebrewPermissions
-      fi
-  fi
-}
-
-### Ensures gcc is installed
-ensureGcc() {
-  if command -v brew > /dev/null; then
-    if ! brew list | grep gcc > /dev/null; then
-      logg info 'Installing Homebrew gcc' && brew install --quiet gcc
-    else
-      logg info 'Homebrew gcc is available'
-    fi
-  else
-    logg error 'Failed to initialize Homebrew' && exit 1
   fi
 }
 
@@ -420,46 +970,25 @@ ensureGcc() {
 #     directories falling out of the correct ownership and permission states. Finally, it loads Homebrew into the active profile (allowing other parts of the script
 #     to use the `brew` command).
 #
-#     With Homebrew installed and available, the script finishes by installing the `gcc` Homebrew package which is a very common dependency.
+#     Optional compilers are selected by desired state and are not part of bootstrap.
 ensureHomebrew() {
   loadHomebrew
   ensurePackageManagerHomebrew
   loadHomebrew
-  ensureGcc
+  command -v brew >/dev/null 2>&1 || { logg error 'Homebrew installation did not produce an executable brew command'; return 1; }
 }
 
-# @description This function determines whether or not a reboot is required on the target system.
-#     On Linux, it will check for the presence of the `/var/run/reboot-required` file to determine
-#     whether or not a reboot is required. On macOS, it will read `/Library/Updates/index.plist`
-#     to determine whether or not a reboot is required.
-#
-#     After determining whether or not a reboot is required, the script will attempt to automatically
-#     reboot the machine.
-handleRequiredReboot() {
-  if [ "${NO_RESTART:-}" = "true" ] || [ -n "${HEADLESS_INSTALL:-}" ]; then
-    logg info "NO_RESTART or HEADLESS_INSTALL is set — skipping automatic reboot"
+# @description Read-only reboot requirement detection. Reboot is an explicit
+#     operator boundary: the canonical engine records pending-reboot and never
+#     restarts a host behind the approved task graph.
+isRebootRequired() {
+  if [ "$(detect_os)" = "macos" ]; then
+    command -v defaults >/dev/null 2>&1 || return 1
+    defaults read /Library/Updates/index.plist InstallAtLogout 2>/dev/null | grep -Eq '^(1|true|YES)$'
+  elif [ -f /var/run/reboot-required ]; then
     return 0
   fi
-
-  if [ "$(detect_os)" = "macos" ]; then
-    ### macOS
-    if ! defaults read /Library/Updates/index.plist InstallAtLogout 2>&1 | grep 'does not exist' > /dev/null; then
-      logg info 'There appears to be an update that requires a reboot'
-      logg info 'Attempting to reboot gracefully' && osascript -e 'tell application "Finder" to shut down'
-    fi
-  elif [ -f /var/run/reboot-required ]; then
-    ### Linux
-    logg info '/var/run/reboot-required is present so a reboot is required'
-    if command -v systemctl > /dev/null; then
-      logg info 'systemctl present so rebooting with sudo systemctl start reboot.target' && sudo systemctl start reboot.target
-    elif command -v reboot > /dev/null; then
-      logg info 'reboot available as command so rebooting with sudo reboot' && sudo reboot
-    elif command -v shutdown > /dev/null; then
-      logg info 'shutdown command available so rebooting with sudo shutdown -r now' && sudo shutdown -r now
-    else
-      logg warn 'Reboot required but unable to determine appropriate restart command'
-    fi
-  fi
+  return 1
 }
 # @description Prints information describing why full disk access is required for the script to run on macOS.
 printFullDiskAccessNotice() {
@@ -478,8 +1007,7 @@ printFullDiskAccessNotice() {
 #     - In headless mode (`HEADLESS_INSTALL=true`): Logs a warning and continues (some operations may fail)
 #     - In interactive mode: Opens the macOS System Preferences pane and exits so the user can grant access
 #
-#     After granting access, the user must restart the terminal. A temporary entry is added to `~/.zshrc`
-#     to automatically re-run the install script on the next terminal launch.
+#     After granting access, the user restarts the terminal and explicitly reruns the same verified command.
 #
 #     @envvar HEADLESS_INSTALL  If set, skips the interactive full disk access prompt
 #     @see [Detecting Full Disk Access on macOS](https://www.dzombak.com/blog/2021/11/macOS-Scripting-How-to-tell-if-the-Terminal-app-has-Full-Disk-Access.html)
@@ -493,19 +1021,10 @@ ensureFullDiskAccess() {
       printFullDiskAccessNotice
       logg star 'Opening Full Disk Access preference pane.. Grant full-disk access for the terminal you would like to run the provisioning process with.' && open "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles"
       logg info 'You may have to force quit the terminal and have it reload.'
-      if [ ! -f "$HOME/.zshrc" ] || ! grep -q '# TEMPORARY FOR INSTALL DOCTOR MACOS' "$HOME/.zshrc"; then
-        echo 'bash <(curl -sSL https://install.doctor/start) # TEMPORARY FOR INSTALL DOCTOR MACOS' >> "$HOME/.zshrc"
-      fi
+      logg info 'After granting access, rerun the original verified install command explicitly.'
       exit 0
     else
       logg info 'Current terminal has full disk access'
-      if [ -f "$HOME/.zshrc" ]; then
-        if command -v gsed > /dev/null; then
-          gsed -i '/# TEMPORARY FOR INSTALL DOCTOR MACOS/d' "$HOME/.zshrc" || logg warn "Failed to remove kickstart script from .zshrc"
-        else
-          sed -i '' '/# TEMPORARY FOR INSTALL DOCTOR MACOS/d' "$HOME/.zshrc" || logg warn "Failed to remove kickstart script from .zshrc"
-        fi
-      fi
     fi
   fi
 }
@@ -633,15 +1152,42 @@ collectInputsUpfront() {
   fi
 }
 
-# @description Disconnect from WARP, if connected
-ensureWarpDisconnected() {
-  if [ -z "$DEBUG" ]; then
-    if command -v warp-cli > /dev/null; then
-      if warp-cli status | grep 'Connected' > /dev/null; then
-        logg info "Disconnecting from WARP" && warp-cli disconnect && logg info "Disconnected WARP to prevent conflicts"
-      fi
-    fi
-  fi
+# Resolve Cloudflare WARP only from installation-owned, fixed absolute paths.
+# The caller cannot select an executable through PATH or an environment value.
+idResolveWarpCli() {
+  local CANDIDATE="${INSTALL_DOCTOR_WARP_CLI_PATH:-}" EXPECTED="${INSTALL_DOCTOR_WARP_CLI_SHA256:-}" ACTUAL
+  case "$CANDIDATE" in /usr/local/bin/warp-cli|/opt/homebrew/bin/warp-cli|/usr/bin/warp-cli|/bin/warp-cli) ;; *) return 2 ;; esac
+  case "$EXPECTED" in ''|*[!a-f0-9]*) return 2 ;; esac
+  [ "${#EXPECTED}" -eq 64 ] || return 2
+  [ -f "$CANDIDATE" ] && [ ! -L "$CANDIDATE" ] && [ -x "$CANDIDATE" ] || return 2
+  ACTUAL="$(idSha256File "$CANDIDATE")" || return 2
+  [ "$ACTUAL" = "$EXPECTED" ] || return 2
+  printf '%s\n' "$CANDIDATE"
+}
+
+# Return 0 only for the required disconnected postcondition, 10 when apply is
+# needed, and 2 for missing tooling, command failure, or an ambiguous state.
+idWarpDisconnectedCheck() {
+  local WARP_CLI STATUS
+  WARP_CLI="$(idResolveWarpCli)" || return 2
+  STATUS="$("$WARP_CLI" status 2>/dev/null)" || return 2
+  case "$STATUS" in *[Dd]isconnected*) return 0 ;; *[Cc]onnected*) return 10 ;; *) return 2 ;; esac
+}
+
+idWarpDisconnectedApply() {
+  local WARP_CLI STATUS
+  idWarpDisconnectedCheck
+  STATUS=$?
+  [ "$STATUS" -ne 0 ] || return 0
+  [ "$STATUS" -eq 10 ] || return 2
+  WARP_CLI="$(idResolveWarpCli)" || return 2
+  "$WARP_CLI" disconnect || return 2
+  idWarpDisconnectedVerify
+}
+
+idWarpDisconnectedVerify() {
+  idWarpDisconnectedCheck
+  [ "$?" -eq 0 ]
 }
 
 # @description Validates and caches the current user's sudo credential for this provisioning process.
@@ -655,6 +1201,99 @@ ensureWarpDisconnected() {
 #
 #     @envvar SUDO_PASSWORD  If set, used to authenticate sudo without interactive prompts
 #     @envvar HEADLESS_INSTALL  If set, skips interactive prompts entirely
+idSudoOwnershipPath() {
+  local ROOT HOST UID_VALUE RELEASE KEY
+  ROOT="${XDG_STATE_HOME:-$HOME/.local/state}/install.doctor/sudo-ownership"
+  HOST="$(hostname -s 2>/dev/null || hostname)"; UID_VALUE="$(id -u)"; RELEASE="${INSTALL_DOCTOR_RELEASE_ID:-unknown}"
+  KEY="$(printf '%s-%s-%s' "$HOST" "$UID_VALUE" "$RELEASE" | tr -c 'a-zA-Z0-9._-' '_')"
+  printf '%s/%s.intent\n' "$ROOT" "$KEY"
+}
+
+idSudoProcessStart() {
+  local PID_VALUE="$1" VALUE
+  case "$PID_VALUE" in ''|*[!0-9]*) return 2 ;; esac
+  VALUE="$(ps -o lstart= -p "$PID_VALUE" 2>/dev/null | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
+  [ -n "$VALUE" ] || return 1
+  printf '%s\n' "$VALUE"
+}
+
+idPrepareSudoOwnershipRoot() {
+  local BASE DOCTOR ROOT PATH_VALUE UID_VALUE OWNER MODE
+  BASE="${XDG_STATE_HOME:-$HOME/.local/state}"; DOCTOR="$BASE/install.doctor"; ROOT="$DOCTOR/sudo-ownership"; UID_VALUE="$(id -u)"
+  for PATH_VALUE in "$BASE" "$DOCTOR" "$ROOT"; do
+    if [ ! -e "$PATH_VALUE" ]; then mkdir "$PATH_VALUE" 2>/dev/null || return 2; fi
+    [ -d "$PATH_VALUE" ] && [ ! -L "$PATH_VALUE" ] || return 2
+    OWNER="$(stat -c '%u' "$PATH_VALUE" 2>/dev/null || stat -f '%u' "$PATH_VALUE" 2>/dev/null || true)"
+    [ "$OWNER" = "$UID_VALUE" ] || return 2
+    chmod 0700 "$PATH_VALUE" || return 2
+    MODE="$(stat -c '%a' "$PATH_VALUE" 2>/dev/null || stat -f '%Lp' "$PATH_VALUE" 2>/dev/null || true)"
+    [ "$MODE" = 700 ] || return 2
+  done
+  printf '%s\n' "$ROOT"
+}
+
+idRetireSudoOwnership() {
+  local INTENT ROOT OWNER_PID OWNER_UID OWNER_START CURRENT_START OWNER MODE
+  ROOT="$(idPrepareSudoOwnershipRoot)" || return 1; INTENT="$(idSudoOwnershipPath)"; [ "${INTENT%/*}" = "$ROOT" ] || return 1
+  [ -f "$INTENT" ] && [ ! -L "$INTENT" ] || return 1
+  OWNER="$(stat -c '%u' "$INTENT" 2>/dev/null || stat -f '%u' "$INTENT" 2>/dev/null || true)"; [ "$OWNER" = "$(id -u)" ] || return 1
+  MODE="$(stat -c '%a' "$INTENT" 2>/dev/null || stat -f '%Lp' "$INTENT" 2>/dev/null || true)"; [ "$MODE" = 600 ] || return 1
+  OWNER_PID="$(sed -n 's/^pid=//p' "$INTENT")"; OWNER_UID="$(sed -n 's/^uid=//p' "$INTENT")"; OWNER_START="$(sed -n 's/^process_start=//p' "$INTENT")"
+  CURRENT_START="$(idSudoProcessStart "$$")" || return 1
+  [ "$OWNER_PID" = "$$" ] && [ "$OWNER_UID" = "$(id -u)" ] && [ "$OWNER_START" = "$CURRENT_START" ] || return 1
+  rm -f -- "$INTENT" 2>/dev/null || return 1
+}
+
+idReconcileStaleSudoOwnership() {
+  local INTENT ROOT OWNER_PID OWNER_UID OWNER_START LIVE_START MODE OWNER
+  ROOT="$(idPrepareSudoOwnershipRoot)" || return 2
+  for INTENT in "$ROOT"/*.intent; do
+    [ -e "$INTENT" ] || continue
+    [ -f "$INTENT" ] && [ ! -L "$INTENT" ] || return 2
+    MODE="$(stat -c '%a' "$INTENT" 2>/dev/null || stat -f '%Lp' "$INTENT" 2>/dev/null || true)"; [ "$MODE" = 600 ] || return 2
+    OWNER="$(stat -c '%u' "$INTENT" 2>/dev/null || stat -f '%u' "$INTENT" 2>/dev/null || true)"; [ "$OWNER" = "$(id -u)" ] || return 2
+    OWNER_PID="$(sed -n 's/^pid=//p' "$INTENT")"; OWNER_UID="$(sed -n 's/^uid=//p' "$INTENT")"; OWNER_START="$(sed -n 's/^process_start=//p' "$INTENT")"
+    case "$OWNER_PID:$OWNER_UID" in *[!0-9:]*) return 2 ;; esac
+    [ "$OWNER_UID" = "$(id -u)" ] && [ -n "$OWNER_START" ] || return 2
+    LIVE_START="$(idSudoProcessStart "$OWNER_PID" 2>/dev/null || true)"
+    if [ "$OWNER_PID" != "$$" ] && [ -n "$LIVE_START" ] && [ "$LIVE_START" = "$OWNER_START" ]; then
+      logg error "Another live installer owns sudo acquisition intent (pid $OWNER_PID)"
+      return 2
+    fi
+    # `-K` removes every timestamp owned by this uid, including a ticket from
+    # the dead run's former tty/session. This may also expire unrelated sudo
+    # tickets for the same user; that fail-closed tradeoff is required because
+    # sudo's tty_tickets policy cannot otherwise address an unknown stale tty.
+    sudo -K 2>/dev/null || true
+    if sudo -n true 2>/dev/null; then
+      logg error 'Unable to revoke stale installer-owned sudo authority'
+      return 2
+    fi
+    rm -f -- "$INTENT" || return 2
+    logg info 'Reconciled stale installer-owned sudo authority before planning'
+  done
+}
+
+idCreateSudoOwnershipIntent() {
+  local INTENT ROOT TEMP PROCESS_START
+  INTENT="$(idSudoOwnershipPath)"; ROOT="$(idPrepareSudoOwnershipRoot)" || return 2; TEMP="$INTENT.tmp.$$"; PROCESS_START="$(idSudoProcessStart "$$")" || return 2
+  idReconcileStaleSudoOwnership || return $?
+  umask 077
+  ( set -C; printf 'schema=1\npid=%s\nuid=%s\nprocess_start=%s\nhost=%s\nrelease=%s\nstate=acquiring\n' "$$" "$(id -u)" "$PROCESS_START" "$(hostname -s 2>/dev/null || hostname)" "${INSTALL_DOCTOR_RELEASE_ID:-unknown}" > "$TEMP" ) || return 2
+  chmod 0600 "$TEMP" || { rm -f -- "$TEMP"; return 2; }
+  mv "$TEMP" "$INTENT" || { rm -f -- "$TEMP"; return 2; }
+}
+
+idBindSudoOwnershipProvenance() {
+  local INTENT TEMP SESSION
+  INTENT="$(idSudoOwnershipPath)"; [ -f "$INTENT" ] && [ ! -L "$INTENT" ] || return 2
+  TEMP="$INTENT.bound.$$"; SESSION="$(tty 2>/dev/null || printf 'notty')"; SESSION="$(printf '%s' "$SESSION" | tr -c 'a-zA-Z0-9._/-' '_')"
+  umask 077
+  sed 's/^state=.*/state=acquired/' "$INTENT" > "$TEMP" || return 2
+  printf 'session=%s\nacquired_at=%s\n' "$SESSION" "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" >> "$TEMP" || { rm -f -- "$TEMP"; return 2; }
+  chmod 0600 "$TEMP" && mv "$TEMP" "$INTENT"
+}
+
 setupPasswordlessSudo() {
   ### Helper: confirm a candidate password actually works for `sudo`.
   ### Uses `sudo -k` first to invalidate any cached timestamp so that a
@@ -666,24 +1305,24 @@ setupPasswordlessSudo() {
     printf '%s\n' "$CANDIDATE" | sudo -S -p '' -k true >/dev/null 2>&1
   }
 
-  ### Helper: record a validated sudo timestamp for the rest of the run.
-  ### The historical marker path is retained for downstream compatibility;
-  ### it means `sudo -n` was verified, not that sudoers was modified. When
-  ### sudo is NOT active we
+  ### Record only process-local behavior. The sudo timestamp itself is the
+  ### authority; a forgeable shared /tmp marker must never claim privilege.
+  ### When sudo is NOT active we
   ### export SUDO_ASKPASS=/usr/bin/false so any stray `sudo` call in a
   ### chezmoi script fails fast instead of blocking on an interactive
   ### password prompt — which is what was happening mid-run before.
   _idMarkPasswordless() {
-    : > /tmp/install-doctor-passwordless-sudo
     unset SUDO_ASKPASS
+    unset INSTALL_DOCTOR_NO_SUDO
   }
   _idMarkBlocked() {
-    rm -f /tmp/install-doctor-passwordless-sudo
     export SUDO_ASKPASS=/usr/bin/false
     export INSTALL_DOCTOR_NO_SUDO=1
   }
 
   sudo -n true 2>/dev/null && { logg info 'A valid non-interactive sudo credential is already available'; _idMarkPasswordless; return 0; }
+
+  idCreateSudoOwnershipIntent || return $?
 
   logg info 'Validating sudo once so its credential cache can be used during provisioning'
 
@@ -774,6 +1413,7 @@ PY
   if [ -n "$SUDO_PASSWORD" ] && _idSudoPasswordWorks "$SUDO_PASSWORD"; then
     logg info 'Caching the validated sudo credential without changing sudoers'
     if printf '%s\n' "$SUDO_PASSWORD" | sudo -S -p '' -v >/dev/null 2>&1 && sudo -n true 2>/dev/null; then
+      idBindSudoOwnershipProvenance || { sudo -K 2>/dev/null || true; return 2; }
       _idMarkPasswordless
       return 0
     fi
@@ -786,109 +1426,13 @@ PY
     logg warn 'No sudo password was acquired. Sudo-requiring steps will be skipped instead of prompting interactively.'
   fi
   _idMarkBlocked
+  sudo -K 2>/dev/null || true
+  idRetireSudoOwnership || return 2
   return 0
 }
 
-# @description Ensure sys-whonix is configured (for Qubes dom0)
-ensureSysWhonix() {
-  CONFIG_WIZARD_COUNT=0
-  function configureWizard() {
-    if xwininfo -root -tree | grep "Anon Connection Wizard"; then
-      WINDOW_ID="$(xwininfo -root -tree | grep "Anon Connection Wizard" | sed 's/^ *\([^ ]*\) .*/\1/')"
-      xdotool windowactivate "$WINDOW_ID" && sleep 1 && xdotool key 'Enter' && sleep 1 && xdotool key 'Tab Tab Enter' && sleep 24 && xdotool windowactivate "$WINDOW_ID" && sleep 1 && xdotool key 'Enter' && sleep 300
-      qvm-shutdown --wait sys-whonix
-      sleep 3
-      qvm-start sys-whonix
-      if xwininfo -root -tree | grep "systemcheck | Whonix" > /dev/null; then
-        WINDOW_ID_SYS_CHECK="$(xwininfo -root -tree | grep "systemcheck | Whonix" | sed 's/^ *\([^ ]*\) .*/\1/')"
-        if xdotool windowactivate "$WINDOW_ID_SYS_CHECK"; then
-          sleep 1
-          xdotool key 'Enter'
-        fi
-      fi
-    else
-      sleep 3
-      CONFIG_WIZARD_COUNT=$((CONFIG_WIZARD_COUNT + 1))
-      if [[ "$CONFIG_WIZARD_COUNT" == '4' ]]; then
-        echo "The sys-whonix anon-connection-wizard utility did not open."
-      else
-        echo "Checking for anon-connection-wizard again.."
-        configureWizard
-      fi
-    fi
-  }
-}
-
-# @description Ensure dom0 is updated
-ensureDom0Updated() {
-  if [ ! -f /root/dom0-updated ]; then
-    sudo qubesctl --show-output state.sls update.qubes-dom0
-    sudo qubes-dom0-update --clean -y
-    touch /root/dom0-updated
-  fi
-}
-
-# @description Ensure sys-whonix is running
-ensureSysWhonixRunning() {
-  if ! qvm-check --running sys-whonix; then
-    qvm-start sys-whonix --skip-if-running
-    configureWizard > /dev/null
-  fi
-}
-
-# @description Ensure TemplateVMs are updated
-ensureTemplateVMsUpdated() {
-  if [ ! -f /root/templatevms-updated ]; then
-    # timeout of 10 minutes is added here because the whonix-gw VM does not like to get updated
-    # with this method. Anyone know how to fix this?
-    sudo timeout 600 qubesctl --show-output --skip-dom0 --templates state.sls update.qubes-vm &> /dev/null || true
-    while read -r RESTART_VM; do
-      qvm-shutdown --wait "$RESTART_VM"
-    done< <(qvm-ls --all --no-spinner --fields=name,state | grep Running | grep -v sys-net | grep -v sys-firewall | grep -v sys-whonix | grep -v dom0 | awk '{print $1}')
-    sudo touch /root/templatevms-updated
-  fi
-}
-
-# @description Ensure provisioning VM can run commands on any VM
-ensureProvisioningVMPermissions() {
-  echo "/bin/bash" | sudo tee /etc/qubes-rpc/qubes.VMShell
-  sudo chmod 755 /etc/qubes-rpc/qubes.VMShell
-  echo "${ANSIBLE_PROVISION_VM:=provision}"' dom0 allow' | sudo tee /etc/qubes-rpc/policy/qubes.VMShell
-  echo "$ANSIBLE_PROVISION_VM"' $anyvm allow' | sudo tee -a /etc/qubes-rpc/policy/qubes.VMShell
-  sudo chown "$(whoami):$(whoami)" /etc/qubes-rpc/policy/qubes.VMShell
-  sudo chmod 644 /etc/qubes-rpc/policy/qubes.VMShell
-}
-
-# @description Create provisioning VM and initialize the provisioning process from there
-createAndInitProvisionVM() {
-  qvm-create --label red --template debian-11 "$ANSIBLE_PROVISION_VM" &> /dev/null || true
-  qvm-volume extend "$ANSIBLE_PROVISION_VM:private" "40G"
-  if [ -f ~/.vaultpass ]; then
-    qvm-run "$ANSIBLE_PROVISION_VM" 'rm -f ~/QubesIncoming/dom0/.vaultpass'
-    qvm-copy-to-vm "$ANSIBLE_PROVISION_VM" ~/.vaultpass
-    qvm-run "$ANSIBLE_PROVISION_VM" 'cp ~/QubesIncoming/dom0/.vaultpass ~/.vaultpass'
-  fi
-}
-
-# @description Restart the provisioning process with the same script but from the provisioning VM
-runStartScriptInProvisionVM() {
-  qvm-run --pass-io "$ANSIBLE_PROVISION_VM" 'curl -sSL https://install.doctor/start > ~/start.sh && bash ~/start.sh'
-}
-
-# @description Perform Qubes dom0 specific logic like updating system packages, setting up the Tor VM, updating TemplateVMs, and
-#     beginning the provisioning process using Ansible and an AppVM used to handle the provisioning process
-handleQubesDom0() {
-  if command -v qubesctl > /dev/null; then
-    ensureSysWhonix
-    ensureDom0Updated
-    ensureSysWhonixRunning
-    ensureTemplateVMsUpdated
-    ensureProvisioningVMPermissions
-    createAndInitProvisionVM
-    runStartScriptInProvisionVM
-    exit 0
-  fi
-}
+# Qubes dom0 mutation helpers were retired while the platform cell is unsupported.
+# Future support must use independently verified typed operations and signed canary evidence.
 
 # @description Helper function used by [[ensureHomebrewDeps]] to ensure a Homebrew package is installed after
 #     first checking if it is already available on the system.
@@ -899,71 +1443,63 @@ installBrewPackage() {
   fi
 }
 
-# @description Installs various dependencies using Homebrew.
-#
-#     1. Ensures Glow, Gum, Chezmoi, Node.js, and ZX are installed.
-#     2. If the system is macOS, then also install `gsed` and `coreutils`.
+# @description Installs the Homebrew tools the current desired-state apply directly requires.
+#     Node.js 22+ is validated before this point. Gum and zx remain temporary apply-spine
+#     dependencies until all Chezmoi scripts use engine events and installx is compiled JS.
 ensureHomebrewDeps() {
-  ### Base dependencies
-  installBrewPackage "glow"
   installBrewPackage "gum"
   installBrewPackage "chezmoi"
-  installBrewPackage "node"
   installBrewPackage "zx"
-
-  ### macOS
-  if [ "$(detect_os)" = "macos" ]; then
-    ### gsed
-    installBrewPackage "gsed"
-    ### unbuffer / expect
-    if ! command -v unbuffer > /dev/null; then
-      brew install --quiet expect
-    fi
-    ### gtimeout / coreutils
-    if ! command -v gtimeout > /dev/null; then
-      brew install --quiet coreutils
-    fi
-    ### ts / moreutils
-    if ! command -v ts > /dev/null; then
-      brew install --quiet moreutils
-    fi
-  fi
 }
 
 # @description Ensure the `${XDG_DATA_HOME:-$HOME/.local/share}/chezmoi` directory is cloned and up-to-date using the previously
 #     set `START_REPO` as the source repository.
 cloneChezmoiSourceRepo() {
-  ### Accept Xcode licenses if full Xcode (not just Command Line Tools) is installed.
-  ### When only CLT is present, xcodebuild exists as a stub but fails with
-  ### "tool 'xcodebuild' requires Xcode" because the active developer dir
-  ### points at /Library/Developer/CommandLineTools.
-  if [ "$(detect_os)" = "macos" ]; then
-    if command -v xcode-select > /dev/null && xcode-select -p 2>/dev/null | grep -q "Xcode.app"; then
-      if command -v xcodebuild > /dev/null; then
-        logg info 'Running xcodebuild -license accept'
-        sudo xcodebuild -license accept
-        logg info 'Running sudo xcodebuild -runFirstLaunch'
-        sudo xcodebuild -runFirstLaunch
-      else
-        logg warn 'xcodebuild is not available'
-      fi
-    else
-      logg info 'Full Xcode is not installed (only Command Line Tools); skipping xcodebuild license/setup steps'
-    fi
-  fi
-
-  if [ -d "${XDG_DATA_HOME:-$HOME/.local/share}/chezmoi/.git" ]; then
-    logg info "Changing directory to ${XDG_DATA_HOME:-$HOME/.local/share}/chezmoi" && cd "${XDG_DATA_HOME:-$HOME/.local/share}/chezmoi" || exit 1
-    if ! git config --get http.postBuffer > /dev/null; then
-      logg info 'Setting git http.postBuffer value high for large source repository' && git config http.postBuffer 524288000
-    fi
-    logg info "Pulling the latest changes in ${XDG_DATA_HOME:-$HOME/.local/share}/chezmoi" && git pull origin master
+  local SOURCE_COMMIT="${INSTALL_DOCTOR_SOURCE_COMMIT:-}" RELEASE_ID="${INSTALL_DOCTOR_RELEASE_ID:-}" RELEASE_ROOT SOURCE_ROOT TEMP_ROOT ACTUAL_COMMIT
+  case "$SOURCE_COMMIT" in ''|*[!0-9a-f]*) logg error 'A full signed source commit is required'; return 2 ;; esac
+  [ "${#SOURCE_COMMIT}" -eq 40 ] || { logg error 'The signed source commit must be a full SHA-1'; return 2; }
+  case "$RELEASE_ID" in ''|*[!a-zA-Z0-9._-]*) logg error 'A valid signed release identifier is required'; return 2 ;; esac
+  RELEASE_ROOT="${XDG_DATA_HOME:-$HOME/.local/share}/install.doctor/releases/$RELEASE_ID"
+  SOURCE_ROOT="$RELEASE_ROOT/source"
+  mkdir -p "$RELEASE_ROOT" || return 1
+  chmod 0700 "${XDG_DATA_HOME:-$HOME/.local/share}/install.doctor" "${XDG_DATA_HOME:-$HOME/.local/share}/install.doctor/releases" "$RELEASE_ROOT" 2>/dev/null || return 1
+  if [ -e "$SOURCE_ROOT" ]; then
+    [ -d "$SOURCE_ROOT/.git" ] && [ ! -L "$SOURCE_ROOT" ] || { logg error 'Existing immutable source path is invalid'; return 2; }
   else
-    logg info "Ensuring ${XDG_DATA_HOME:-$HOME/.local/share} is a folder" && mkdir -p "${XDG_DATA_HOME:-$HOME/.local/share}"
-    logg info "Cloning ${START_REPO} to ${XDG_DATA_HOME:-$HOME/.local/share}/chezmoi" && git clone "${START_REPO}" "${XDG_DATA_HOME:-$HOME/.local/share}/chezmoi"
-    logg info "Changing directory to ${XDG_DATA_HOME:-$HOME/.local/share}/chezmoi" && cd "${XDG_DATA_HOME:-$HOME/.local/share}/chezmoi" || exit 1
-    logg info 'Setting git http.postBuffer value high for large source repository' && git config http.postBuffer 524288000
+    TEMP_ROOT="$RELEASE_ROOT/.source.$$"
+    [ ! -e "$TEMP_ROOT" ] || { logg error 'Temporary immutable source path already exists'; return 2; }
+    mkdir -m 0700 "$TEMP_ROOT" || return 1
+    git -C "$TEMP_ROOT" init --quiet || { rm -rf -- "$TEMP_ROOT"; return 1; }
+    git -C "$TEMP_ROOT" remote add origin "$START_REPO" || { rm -rf -- "$TEMP_ROOT"; return 1; }
+    if ! git -C "$TEMP_ROOT" fetch --quiet --depth=1 origin "$SOURCE_COMMIT"; then
+      logg error 'Unable to fetch the signed immutable source commit'
+      rm -rf -- "$TEMP_ROOT"
+      return 1
+    fi
+    git -C "$TEMP_ROOT" checkout --quiet --detach FETCH_HEAD || { rm -rf -- "$TEMP_ROOT"; return 1; }
+    ACTUAL_COMMIT="$(git -C "$TEMP_ROOT" rev-parse HEAD)" || { rm -rf -- "$TEMP_ROOT"; return 1; }
+    [ "$ACTUAL_COMMIT" = "$SOURCE_COMMIT" ] || { logg error 'Fetched source does not match the signed commit'; rm -rf -- "$TEMP_ROOT"; return 2; }
+    mv "$TEMP_ROOT" "$SOURCE_ROOT" || { rm -rf -- "$TEMP_ROOT"; return 1; }
   fi
+  verifyChezmoiSourceRepo
+}
+
+verifyChezmoiSourceRepo() {
+  local SOURCE_COMMIT="${INSTALL_DOCTOR_SOURCE_COMMIT:-}" RELEASE_ID="${INSTALL_DOCTOR_RELEASE_ID:-}" SOURCE_ROOT ACTUAL_COMMIT ACTUAL_ORIGIN
+  case "$SOURCE_COMMIT" in ''|*[!0-9a-f]*) return 2 ;; esac
+  [ "${#SOURCE_COMMIT}" -eq 40 ] || return 2
+  case "$RELEASE_ID" in ''|*[!a-zA-Z0-9._-]*) return 2 ;; esac
+  SOURCE_ROOT="${XDG_DATA_HOME:-$HOME/.local/share}/install.doctor/releases/$RELEASE_ID/source"
+  [ -d "$SOURCE_ROOT/.git" ] && [ ! -L "$SOURCE_ROOT" ] || return 10
+  ACTUAL_COMMIT="$(git -C "$SOURCE_ROOT" rev-parse HEAD)" || return 2
+  ACTUAL_ORIGIN="$(git -C "$SOURCE_ROOT" remote get-url origin)" || return 2
+  [ "$ACTUAL_COMMIT" = "$SOURCE_COMMIT" ] || { logg error 'Immutable source checkout no longer matches the signed commit'; return 2; }
+  [ "$ACTUAL_ORIGIN" = "$START_REPO" ] || { logg error 'Immutable source checkout has an unexpected origin'; return 2; }
+  [ -z "$(git -C "$SOURCE_ROOT" status --porcelain --untracked-files=all)" ] || { logg error 'Immutable source checkout was modified'; return 2; }
+  [ -f "$SOURCE_ROOT/.chezmoiroot" ] && [ -d "$SOURCE_ROOT/home" ] || { logg error 'Signed source commit is not an Install Doctor source tree'; return 2; }
+  INSTALL_DOCTOR_CHEZMOI_SOURCE="$SOURCE_ROOT/home"
+  export INSTALL_DOCTOR_CHEZMOI_SOURCE
+  logg info "Using signed source commit $SOURCE_COMMIT from $SOURCE_ROOT; existing checkouts were not modified"
 }
 
 # @description Guide the user through the initial setup by showing TUI introduction and accepting input through various prompts.
@@ -985,22 +1521,97 @@ writeInstallPlan() {
   PLAN_TMP="$PLAN_FILE.tmp.$$"
   mkdir -p "$PLAN_DIR"
   umask 077
-  cat > "$PLAN_TMP" <<EOF
-{"schemaVersion":1,"host":{"hostname":"$(hostname -s 2>/dev/null || hostname)","os":"$(detect_os)"},"role":"${INSTALL_DOCTOR_ROLE}","capability":"${INSTALL_DOCTOR_CAPABILITY}","network":"${INSTALL_DOCTOR_NETWORK}","concurrency":${INSTALL_DOCTOR_CONCURRENCY},"consents":{"privileged":${INSTALL_DOCTOR_CONSENT_PRIVILEGED},"network":${INSTALL_DOCTOR_CONSENT_NETWORK}},"createdAt":"$(date -u +%Y-%m-%dT%H:%M:%SZ)"}
-EOF
+  command -v node >/dev/null 2>&1 || { logg error 'Node.js is required to create a validated install plan'; return 2; }
+  if ! node - "$PLAN_TMP" "$(hostname -s 2>/dev/null || hostname)" "$(detect_os)" <<'NODE'
+const fs = require('node:fs');
+const [path, hostname, os] = process.argv.slice(2);
+const required = name => {
+  const value = process.env[name];
+  if (!value) throw new Error(`missing ${name}`);
+  return value;
+};
+const boolean = name => {
+  const value = required(name);
+  if (value !== 'true' && value !== 'false') throw new Error(`invalid ${name}`);
+  return value === 'true';
+};
+const concurrency = Number(required('INSTALL_DOCTOR_CONCURRENCY'));
+if (!Number.isSafeInteger(concurrency) || concurrency < 1 || concurrency > 16) throw new Error('invalid concurrency');
+const selectedList = (name, maximum, pattern) => {
+  const raw = process.env[name] || '';
+  if (raw.length > 524_288 || (raw && !pattern.test(raw))) throw new Error(`invalid ${name}`);
+  const values = [...new Set(raw.split(',').filter(Boolean))].sort();
+  if (values.length > maximum || values.some(value => value.length > 128)) throw new Error(`invalid ${name}`);
+  return values;
+};
+const catalogListPattern = /^[a-z0-9][a-z0-9._:-]*(?:,[a-z0-9][a-z0-9._:-]*)*$/;
+const identifierListPattern = /^[a-z0-9][a-z0-9._-]*(?:,[a-z0-9][a-z0-9._-]*)*$/;
+const selectedPackages = selectedList('INSTALL_DOCTOR_SELECTED_PACKAGES', 4096, catalogListPattern);
+const selectedServices = selectedList('INSTALL_DOCTOR_SELECTED_SERVICES', 1024, catalogListPattern);
+const selectedSupportedPaths = selectedList('INSTALL_DOCTOR_SELECTED_SUPPORTED_PATHS', 1024, identifierListPattern);
+const lazyResolverRequirements = selectedList('INSTALL_DOCTOR_LAZY_RESOLVER_REQUIREMENTS', 128, catalogListPattern);
+const plan = {
+  schemaVersion: 2, host: { hostname, os }, role: required('INSTALL_DOCTOR_ROLE'),
+  capability: required('INSTALL_DOCTOR_CAPABILITY'), network: required('INSTALL_DOCTOR_NETWORK'),
+  softwareGroup: required('SOFTWARE_GROUP'), installUser: required('INSTALL_DOCTOR_USER'),
+  offline: boolean('INSTALL_DOCTOR_OFFLINE'), concurrency, selectedPackages, selectedServices,
+  selectedSupportedPaths, lazyResolverRequirements,
+  consents: { privileged: boolean('INSTALL_DOCTOR_CONSENT_PRIVILEGED'), network: boolean('INSTALL_DOCTOR_CONSENT_NETWORK'), bestEffort: boolean('INSTALL_DOCTOR_CONSENT_BEST_EFFORT') },
+  platformAdmission: {
+    policyRevision: 'platform-support-matrix-v1', cellId: required('INSTALL_DOCTOR_PLATFORM_CELL'),
+    status: required('INSTALL_DOCTOR_PLATFORM_STATUS'), os: required('INSTALL_DOCTOR_PLATFORM_OS'),
+    release: required('INSTALL_DOCTOR_PLATFORM_RELEASE'), arch: required('INSTALL_DOCTOR_PLATFORM_ARCH'),
+    environment: required('INSTALL_DOCTOR_PLATFORM_ENVIRONMENT'), role: required('INSTALL_DOCTOR_PLATFORM_ROLE'),
+    limitation: required('INSTALL_DOCTOR_PLATFORM_LIMITATION'),
+  },
+  privilegeContext: { sudoPreexisting: boolean('INSTALL_DOCTOR_SUDO_PREEXISTING') },
+  createdAt: new Date().toISOString(),
+};
+fs.writeFileSync(path, `${JSON.stringify(plan)}\n`, { mode: 0o600, flag: 'wx' });
+NODE
+  then
+    rm -f -- "$PLAN_TMP"
+    logg error 'Unable to create the validated install plan'
+    return 2
+  fi
   mv "$PLAN_TMP" "$PLAN_FILE"
   export INSTALL_DOCTOR_PLAN="$PLAN_FILE"
+  INSTALL_DOCTOR_PLAN_CREATED=1
+  export INSTALL_DOCTOR_PLAN_CREATED
   logg info "Install plan saved to $PLAN_FILE"
 }
 
 configureInstallPlan() {
-  if [ -n "${INSTALL_DOCTOR_PLAN:-}" ] && [ -f "$INSTALL_DOCTOR_PLAN" ]; then return 0; fi
+  case "${HEADLESS_INSTALL:-}" in
+    true|1) HEADLESS_INSTALL=true ;;
+    false|0|'') HEADLESS_INSTALL='' ;;
+    *) logg error 'HEADLESS_INSTALL must be true, false, 1, or 0'; return 2 ;;
+  esac
+  export HEADLESS_INSTALL
+  if [ -n "${INSTALL_DOCTOR_PLAN:-}" ]; then
+    if [ "${INSTALL_DOCTOR_PLAN_CREATED:-0}" = 1 ] && [ -f "$INSTALL_DOCTOR_PLAN" ]; then return 0; fi
+    logg error 'Caller-supplied install plans are not accepted until their approval digest is verified by the canonical engine'
+    return 2
+  fi
   INSTALL_DOCTOR_ROLE="${INSTALL_DOCTOR_ROLE:-$(detect_role 2>/dev/null || detect_os)}"
   INSTALL_DOCTOR_CAPABILITY="${INSTALL_DOCTOR_CAPABILITY:-developer}"
   INSTALL_DOCTOR_NETWORK="${INSTALL_DOCTOR_NETWORK:-none}"
   INSTALL_DOCTOR_CONCURRENCY="${INSTALL_DOCTOR_CONCURRENCY:-4}"
   INSTALL_DOCTOR_CONSENT_PRIVILEGED="${INSTALL_DOCTOR_CONSENT_PRIVILEGED:-false}"
   INSTALL_DOCTOR_CONSENT_NETWORK="${INSTALL_DOCTOR_CONSENT_NETWORK:-false}"
+  INSTALL_DOCTOR_CONSENT_BEST_EFFORT="${INSTALL_DOCTOR_CONSENT_BEST_EFFORT:-false}"
+  if sudo -n true >/dev/null 2>&1; then INSTALL_DOCTOR_SUDO_PREEXISTING=true
+  else INSTALL_DOCTOR_SUDO_PREEXISTING=false; fi
+  INSTALL_DOCTOR_OFFLINE="${INSTALL_DOCTOR_OFFLINE:-false}"
+  INSTALL_DOCTOR_SELECTED_PACKAGES="${INSTALL_DOCTOR_SELECTED_PACKAGES:-}"
+  INSTALL_DOCTOR_SELECTED_SERVICES="${INSTALL_DOCTOR_SELECTED_SERVICES:-}"
+  INSTALL_DOCTOR_SELECTED_SUPPORTED_PATHS="${INSTALL_DOCTOR_SELECTED_SUPPORTED_PATHS:-}"
+  INSTALL_DOCTOR_LAZY_RESOLVER_REQUIREMENTS="${INSTALL_DOCTOR_LAZY_RESOLVER_REQUIREMENTS:-}"
+  if [ -z "${INSTALL_DOCTOR_USER:-}" ]; then
+    if [ "$(id -u)" -eq 0 ]; then INSTALL_DOCTOR_USER="${SUDO_USER:-install-doctor}"
+    else INSTALL_DOCTOR_USER="$(id -un)"; fi
+  fi
+  SOFTWARE_GROUP="${SOFTWARE_GROUP:-Full}"
 
   if [ -z "${HEADLESS_INSTALL:-}" ] && command -v gum >/dev/null 2>&1 && [ -t 0 ]; then
     gum style --border rounded --border-foreground '#00E5FF' --foreground '#00E5FF' --padding '1 3' 'INSTALL.DOCTOR' 'Fast, explicit fleet provisioning'
@@ -1013,7 +1624,7 @@ configureInstallPlan() {
     else
       INSTALL_DOCTOR_NETWORK=none
     fi
-  elif [ -z "${HEADLESS_INSTALL:-}" ] && [ -t 0 ]; then
+  elif [ -z "${HEADLESS_INSTALL:-}" ] && [ -r /dev/tty ] && [ -w /dev/tty ]; then
     printf '\033[48;2;6;6;16m\033[38;2;0;229;255m ✦ INSTALL.DOCTOR // PLAN ✦ \033[0m\n'
     printf 'Machine role [%s]: ' "$INSTALL_DOCTOR_ROLE" > /dev/tty
     read -r PLAN_ROLE < /dev/tty || true
@@ -1021,14 +1632,41 @@ configureInstallPlan() {
     printf 'Capability (developer/ai/web/media/security/minimal) [%s]: ' "$INSTALL_DOCTOR_CAPABILITY" > /dev/tty
     read -r PLAN_CAPABILITY < /dev/tty || true
     [ -z "${PLAN_CAPABILITY:-}" ] || INSTALL_DOCTOR_CAPABILITY="$PLAN_CAPABILITY"
+    printf 'Allow reviewed privileged system changes? [y/N]: ' > /dev/tty
+    PLAN_PRIVILEGED=""
+    read -r -t 30 PLAN_PRIVILEGED < /dev/tty || true
+    case "$PLAN_PRIVILEGED" in y|Y|yes|YES) INSTALL_DOCTOR_CONSENT_PRIVILEGED=true ;; esac
+  fi
+  if [ "${INSTALL_DOCTOR_PLATFORM_STATUS:-}" = best-effort ] && [ "$INSTALL_DOCTOR_CONSENT_BEST_EFFORT" != true ]; then
+    if [ -z "${HEADLESS_INSTALL:-}" ] && command -v gum >/dev/null 2>&1 && [ -t 0 ]; then
+      gum confirm "This platform is best-effort: ${INSTALL_DOCTOR_PLATFORM_LIMITATION:-limitations apply}. Continue?" && INSTALL_DOCTOR_CONSENT_BEST_EFFORT=true
+    elif [ -z "${HEADLESS_INSTALL:-}" ] && [ -r /dev/tty ] && [ -w /dev/tty ]; then
+      printf 'This platform is best-effort: %s Continue? [y/N]: ' "${INSTALL_DOCTOR_PLATFORM_LIMITATION:-limitations apply}." > /dev/tty
+      PLAN_BEST_EFFORT=""
+      read -r -t 30 PLAN_BEST_EFFORT < /dev/tty || true
+      case "$PLAN_BEST_EFFORT" in y|Y|yes|YES) INSTALL_DOCTOR_CONSENT_BEST_EFFORT=true ;; esac
+    fi
   fi
   case "$INSTALL_DOCTOR_ROLE" in workstation|server|proxmox|coolify|qubes|container|custom|macos|ubuntu|debian|fedora|silverblue|alpine|arch|qubes-dom0|qubes-appvm|wsl) ;; *) logg error "Invalid INSTALL_DOCTOR_ROLE: $INSTALL_DOCTOR_ROLE"; return 2 ;; esac
   case "$INSTALL_DOCTOR_CAPABILITY" in developer|ai|web|media|security|minimal) ;; *) logg error "Invalid INSTALL_DOCTOR_CAPABILITY: $INSTALL_DOCTOR_CAPABILITY"; return 2 ;; esac
   case "$INSTALL_DOCTOR_NETWORK" in none|cloudflare-warp|cloudflare-tunnel|ssh) ;; *) logg error "Invalid INSTALL_DOCTOR_NETWORK: $INSTALL_DOCTOR_NETWORK"; return 2 ;; esac
+  case "$INSTALL_DOCTOR_CONSENT_PRIVILEGED:$INSTALL_DOCTOR_CONSENT_NETWORK:$INSTALL_DOCTOR_CONSENT_BEST_EFFORT:$INSTALL_DOCTOR_OFFLINE" in
+    true:true:true:true|true:true:true:false|true:true:false:true|true:true:false:false|true:false:true:true|true:false:true:false|true:false:false:true|true:false:false:false|false:true:true:true|false:true:true:false|false:true:false:true|false:true:false:false|false:false:true:true|false:false:true:false|false:false:false:true|false:false:false:false) ;;
+    *) logg error 'Install consent and offline values must be true or false'; return 2 ;;
+  esac
   case "$INSTALL_DOCTOR_CONCURRENCY" in ''|*[!0-9]*) logg error 'INSTALL_DOCTOR_CONCURRENCY must be a positive integer'; return 2 ;; esac
   [ "$INSTALL_DOCTOR_CONCURRENCY" -ge 1 ] || { logg error 'INSTALL_DOCTOR_CONCURRENCY must be at least 1'; return 2; }
-  export INSTALL_DOCTOR_ROLE INSTALL_DOCTOR_CAPABILITY INSTALL_DOCTOR_NETWORK INSTALL_DOCTOR_CONCURRENCY
-  export INSTALL_DOCTOR_CONSENT_PRIVILEGED INSTALL_DOCTOR_CONSENT_NETWORK
+  [ "$INSTALL_DOCTOR_CONCURRENCY" -le 16 ] || { logg error 'INSTALL_DOCTOR_CONCURRENCY must not exceed 16'; return 2; }
+  case "$INSTALL_DOCTOR_USER" in ''|*[!a-zA-Z0-9._-]*|[0-9.-]*) logg error 'INSTALL_DOCTOR_USER is invalid'; return 2 ;; esac
+  case "$INSTALL_DOCTOR_SELECTED_PACKAGES:$INSTALL_DOCTOR_SELECTED_SERVICES:$INSTALL_DOCTOR_LAZY_RESOLVER_REQUIREMENTS" in *[!a-z0-9._,:-]*) logg error 'Selected packages, services, and resolver requirements must be comma-separated catalog keys'; return 2 ;; esac
+  case "$INSTALL_DOCTOR_SELECTED_SUPPORTED_PATHS" in *[!a-z0-9._,-]*) logg error 'INSTALL_DOCTOR_SELECTED_SUPPORTED_PATHS must be a comma-separated list of identifiers'; return 2 ;; esac
+  if [ "$INSTALL_DOCTOR_CONSENT_PRIVILEGED" != true ]; then
+    logg error 'Provisioning requires explicit consent for reviewed privileged changes; set INSTALL_DOCTOR_CONSENT_PRIVILEGED=true in noninteractive mode'
+    return 2
+  fi
+  export INSTALL_DOCTOR_ROLE INSTALL_DOCTOR_CAPABILITY INSTALL_DOCTOR_NETWORK INSTALL_DOCTOR_CONCURRENCY INSTALL_DOCTOR_OFFLINE INSTALL_DOCTOR_USER INSTALL_DOCTOR_SELECTED_SERVICES INSTALL_DOCTOR_SELECTED_PACKAGES SOFTWARE_GROUP
+  export INSTALL_DOCTOR_SELECTED_SUPPORTED_PATHS INSTALL_DOCTOR_LAZY_RESOLVER_REQUIREMENTS
+  export INSTALL_DOCTOR_CONSENT_PRIVILEGED INSTALL_DOCTOR_CONSENT_NETWORK INSTALL_DOCTOR_CONSENT_BEST_EFFORT INSTALL_DOCTOR_SUDO_PREEXISTING
   writeInstallPlan
 }
 
@@ -1045,27 +1683,22 @@ initChezmoiAndPrompt() {
   fi
   logg info "Software group set to: $SOFTWARE_GROUP"
 
-  ### Ensure gum is available (used for TUI prompts elsewhere)
-  if ! command -v gum > /dev/null; then
-    logg warn 'Gum is not installed. Attempting to install via Homebrew.'
-    if command -v brew > /dev/null; then
-      brew install --quiet gum || logg warn 'Failed to install gum via Homebrew'
-    else
-      logg warn 'Homebrew is not available. Some interactive features may be unavailable.'
-    fi
-  fi
-
-  configureInstallPlan
-
   if [ ! -f "${XDG_CONFIG_HOME:-$HOME/.config}/chezmoi/chezmoi.yaml" ]; then
     ### Run `chezmoi init` when the Chezmoi configuration is missing
     logg info "Running chezmoi init since ${XDG_CONFIG_HOME:-$HOME/.config}/chezmoi/chezmoi.yaml is not present"
     if [ -n "$HEADLESS_INSTALL" ]; then
-      chezmoi init --force
+      idChezmoi init --force
     else
-      chezmoi init
+      idChezmoi init
     fi
   fi
+}
+
+idChezmoi() {
+  [ -n "${INSTALL_DOCTOR_CHEZMOI_SOURCE:-}" ] || { logg error 'Verified Chezmoi source is unavailable'; return 2; }
+  loadHomebrew
+  command -v chezmoi >/dev/null 2>&1 || { logg error 'Chezmoi is unavailable after loading Homebrew'; return 2; }
+  chezmoi --source "$INSTALL_DOCTOR_CHEZMOI_SOURCE" "$@"
 }
 
 # @description Runs `chezmoi apply` with appropriate flags and logging.
@@ -1075,7 +1708,7 @@ initChezmoiAndPrompt() {
 #     - Adds debug flags (`-vvv --debug --verbose`) when `DEBUG_MODE` or `DEBUG` is set
 #     - On macOS, uses `caffeinate` to prevent system sleep during provisioning
 #     - Uses `unbuffer` when available for cleaner log output
-#     - Handles macOS-specific exit code 140 (reboot required for system updates)
+#     - Reports macOS-specific exit code 140 without rebooting outside the engine
 #
 #     @envvar HEADLESS_INSTALL  If set, adds --force flag to chezmoi apply
 #     @envvar KEEP_GOING  If set, adds -k flag to continue past errors
@@ -1083,76 +1716,39 @@ initChezmoiAndPrompt() {
 #     @envvar DEBUG  Alternative to DEBUG_MODE
 runChezmoi() {
   local CHEZMOI_EXIT_CODE=0
+  [ -n "${INSTALL_DOCTOR_CHEZMOI_SOURCE:-}" ] || { logg error 'Verified Chezmoi source is unavailable'; return 2; }
+  loadHomebrew
+  command -v chezmoi >/dev/null 2>&1 || { logg error 'Chezmoi is unavailable after loading Homebrew'; return 2; }
+  local -a CHEZMOI_COMMAND=(chezmoi --source "$INSTALL_DOCTOR_CHEZMOI_SOURCE" apply --no-pager)
   ### Set up logging
   mkdir -p "$HOME/.local/var/log/install.doctor"
   LOG_FILE="$HOME/.local/var/log/install.doctor/chezmoi-apply-$(date +%s).log"
 
   ### Apply command flags
-  COMMON_MODIFIERS="--no-pager"
-  FORCE_MODIFIER=""
   if [ -n "$HEADLESS_INSTALL" ]; then
     logg info 'Running chezmoi apply forcefully because HEADLESS_INSTALL is set'
-    FORCE_MODIFIER="--force"
+    CHEZMOI_COMMAND+=(--force)
   fi
   # TODO: https://github.com/twpayne/chezmoi/discussions/3448
-  KEEP_GOING_MODIFIER=""
   if [ -n "$KEEP_GOING" ]; then
     logg info 'Instructing chezmoi to keep going in the case of errors because KEEP_GOING is set'
-    KEEP_GOING_MODIFIER="-k"
+    CHEZMOI_COMMAND+=(-k)
   fi
-  DEBUG_MODIFIER=""
   if [ -n "$DEBUG_MODE" ] || [ -n "$DEBUG" ]; then
     logg info "Either DEBUG_MODE or DEBUG environment variables were set so Chezmoi will be run in debug mode"
-    export DEBUG_MODIFIER="-vvv --debug --verbose"
+    CHEZMOI_COMMAND+=(-vvv --debug --verbose)
   fi
 
-  ### Run chezmoi apply
-  if [ "$(detect_os)" = "macos" ]; then
-    # macOS: Check if display information is available
-    system_profiler SPDisplaysDataType > /dev/null 2>&1
+  logg info 'Applying the selected desired state from the verified immutable source'
+  if [ "$(detect_os)" = macos ] && command -v caffeinate >/dev/null 2>&1; then
+    caffeinate "${CHEZMOI_COMMAND[@]}" 2>&1 | tee "$LOG_FILE" || CHEZMOI_EXIT_CODE=$?
   else
-    # Linux: Check if xrandr can list monitors
-    xrandr --listmonitors > /dev/null 2>&1
-  fi
-
-  # Check if the last command failed
-  if [ $? -ne 0 ]; then
-    logg info "Fallback: Running in headless mode"
-    chezmoi apply $COMMON_MODIFIERS $DEBUG_MODIFIER $KEEP_GOING_MODIFIER $FORCE_MODIFIER || CHEZMOI_EXIT_CODE=$?
-  else
-    logg info "Running with a display"
-    if command -v unbuffer > /dev/null; then
-      if command -v caffeinate > /dev/null; then
-        logg info "Running: unbuffer -p caffeinate chezmoi apply $COMMON_MODIFIERS $DEBUG_MODIFIER $KEEP_GOING_MODIFIER $FORCE_MODIFIER"
-        unbuffer -p caffeinate chezmoi apply $COMMON_MODIFIERS $DEBUG_MODIFIER $KEEP_GOING_MODIFIER $FORCE_MODIFIER 2>&1 | tee /dev/tty | ts '[%Y-%m-%d %H:%M:%S]' > "$LOG_FILE" || CHEZMOI_EXIT_CODE=$?
-      else
-        logg info "Running: unbuffer -p chezmoi apply $COMMON_MODIFIERS $DEBUG_MODIFIER $KEEP_GOING_MODIFIER $FORCE_MODIFIER"
-        unbuffer -p chezmoi apply $COMMON_MODIFIERS $DEBUG_MODIFIER $KEEP_GOING_MODIFIER $FORCE_MODIFIER 2>&1 | tee /dev/tty | ts '[%Y-%m-%d %H:%M:%S]' > "$LOG_FILE" || CHEZMOI_EXIT_CODE=$?
-      fi
-      logg info "Unbuffering log file $LOG_FILE"
-      UNBUFFER_TMP="$(mktemp)"
-      unbuffer cat "$LOG_FILE" > "$UNBUFFER_TMP"
-      mv -f "$UNBUFFER_TMP" "$LOG_FILE"
-    else
-      if command -v caffeinate > /dev/null; then
-        logg info "Running: caffeinate chezmoi apply $COMMON_MODIFIERS $DEBUG_MODIFIER $KEEP_GOING_MODIFIER $FORCE_MODIFIER"
-        caffeinate chezmoi apply $COMMON_MODIFIERS $DEBUG_MODIFIER $KEEP_GOING_MODIFIER $FORCE_MODIFIER 2>&1 | tee /dev/tty | ts '[%Y-%m-%d %H:%M:%S]' > "$LOG_FILE" || CHEZMOI_EXIT_CODE=$?
-      else
-        logg info "Running: chezmoi apply $COMMON_MODIFIERS $DEBUG_MODIFIER $KEEP_GOING_MODIFIER $FORCE_MODIFIER"
-        chezmoi apply $COMMON_MODIFIERS $DEBUG_MODIFIER $KEEP_GOING_MODIFIER $FORCE_MODIFIER 2>&1 | tee /dev/tty | ts '[%Y-%m-%d %H:%M:%S]' > "$LOG_FILE" || CHEZMOI_EXIT_CODE=$?
-      fi
-    fi
+    "${CHEZMOI_COMMAND[@]}" 2>&1 | tee "$LOG_FILE" || CHEZMOI_EXIT_CODE=$?
   fi
 
   ### Handle exit codes in log
   if [ -f "$LOG_FILE" ] && grep -q 'chezmoi: exit status 140' "$LOG_FILE"; then
-    logg info "Chezmoi signalled that a reboot is necessary to apply a system update"
-    if [ "${NO_RESTART:-}" = "true" ] || [ -n "${HEADLESS_INSTALL:-}" ]; then
-      logg warn "NO_RESTART or HEADLESS_INSTALL is set — skipping softwareupdate reboot"
-    else
-      logg info "Running softwareupdate with the reboot flag"
-      sudo softwareupdate -i -a -R --agree-to-license && exit
-    fi
+    logg warn "Chezmoi signalled that a reboot is necessary; Install Doctor will never restart the host outside the approved engine boundary"
   fi
 
   ### Handle actual process exit code
@@ -1164,18 +1760,1232 @@ runChezmoi() {
   fi
 }
 
+# Admit the generated catalog through one FD before it can influence a plan.
+# Signed remote launches must carry the stage-zero path and digest. A local
+# developer checkout may derive them only from the exact clean source commit.
+idAdmitVerifiedCatalog() {
+  local STATE_ROOT="$1" SOURCE_PATH="${INSTALL_DOCTOR_CATALOG_PATH:-}" EXPECTED_SHA="${INSTALL_DOCTOR_CATALOG_SHA256:-}"
+  local SOURCE_ROOT COMMIT BLOB ACTUAL_BLOB MODE=remote ADMITTED
+  if { [ -n "$SOURCE_PATH" ] && [ -z "$EXPECTED_SHA" ]; } || { [ -z "$SOURCE_PATH" ] && [ -n "$EXPECTED_SHA" ]; }; then
+    logg error 'Catalog path and digest must be supplied together'
+    return 2
+  fi
+  if [ -z "$SOURCE_PATH" ]; then
+    if [ -n "${INSTALL_DOCTOR_VERIFIED_MANIFEST:-}${INSTALL_DOCTOR_VERIFIED_SIGNATURE:-}${INSTALL_DOCTOR_ARTIFACT_SHA256:-}" ]; then
+      logg error 'Signed remote bootstrap requires INSTALL_DOCTOR_CATALOG_PATH and INSTALL_DOCTOR_CATALOG_SHA256'
+      return 2
+    fi
+    MODE=local
+    SOURCE_ROOT="$(dirname "${INSTALL_DOCTOR_CHEZMOI_SOURCE:-}")"
+    COMMIT="${INSTALL_DOCTOR_SOURCE_COMMIT:-}"
+    case "$COMMIT" in ''|*[!0-9a-f]*) logg error 'Local catalog derivation requires a full source commit'; return 2 ;; esac
+    [ "${#COMMIT}" -eq 40 ] && [ -d "$SOURCE_ROOT/.git" ] && [ ! -L "$SOURCE_ROOT" ] \
+      || { logg error 'Local catalog derivation requires the verified source checkout'; return 2; }
+    [ "$(git -C "$SOURCE_ROOT" rev-parse HEAD 2>/dev/null)" = "$COMMIT" ] \
+      && [ -z "$(git -C "$SOURCE_ROOT" status --porcelain --untracked-files=all 2>/dev/null)" ] \
+      || { logg error 'Local catalog checkout is not the exact clean source commit'; return 2; }
+    SOURCE_PATH="$SOURCE_ROOT/packages/control-plane/src/catalog.json"
+    BLOB="$(git -C "$SOURCE_ROOT" rev-parse "$COMMIT:packages/control-plane/src/catalog.json" 2>/dev/null)" \
+      || { logg error 'The source commit does not contain the generated catalog'; return 2; }
+    ACTUAL_BLOB="$(git -C "$SOURCE_ROOT" hash-object -- "$SOURCE_PATH" 2>/dev/null)" \
+      || { logg error 'Unable to bind the local catalog to its source commit'; return 2; }
+    [ "$ACTUAL_BLOB" = "$BLOB" ] || { logg error 'Local catalog bytes differ from the source commit'; return 2; }
+    EXPECTED_SHA="$(idSha256File "$SOURCE_PATH")" || return 2
+  fi
+  case "$SOURCE_PATH" in /*) ;; *) logg error 'Verified catalog path must be absolute'; return 2 ;; esac
+  case "$EXPECTED_SHA" in *[!a-f0-9]*|'') logg error 'Verified catalog SHA-256 is malformed'; return 2 ;; esac
+  [ "${#EXPECTED_SHA}" -eq 64 ] || { logg error 'Verified catalog SHA-256 is malformed'; return 2; }
+  mkdir -p "$STATE_ROOT/catalogs" || return 1
+  chmod 0700 "$STATE_ROOT/catalogs" || return 1
+  ADMITTED="$(node - "$SOURCE_PATH" "$EXPECTED_SHA" "$STATE_ROOT/catalogs" "$MODE" <<'NODE'
+const fs = require('node:fs');
+const path = require('node:path');
+const crypto = require('node:crypto');
+const [source, expected, destination, mode] = process.argv.slice(2);
+const fail = message => { throw new Error(message); };
+if (!path.isAbsolute(source)) fail('catalog path must be absolute');
+const before = fs.lstatSync(source, { bigint: true });
+if (!before.isFile() || before.isSymbolicLink() || before.nlink !== 1n) fail('catalog must be a single-linked regular non-symlink file');
+if (typeof process.geteuid !== 'function' || before.uid !== BigInt(process.geteuid())) fail('catalog must be owned by the current user');
+const permissions = Number(before.mode & 0o777n);
+if ((mode === 'remote' && (permissions & 0o077) !== 0) || (mode === 'local' && (permissions & 0o022) !== 0)) fail('catalog permissions are unsafe');
+if (before.size < 2n || before.size > 16n * 1024n * 1024n) fail('catalog size is outside the 2 byte to 16 MiB boundary');
+const nofollow = fs.constants.O_NOFOLLOW || 0;
+const fd = fs.openSync(source, fs.constants.O_RDONLY | nofollow);
+let bytes;
+try {
+  const opened = fs.fstatSync(fd, { bigint: true });
+  if (!opened.isFile() || opened.dev !== before.dev || opened.ino !== before.ino || opened.nlink !== 1n || opened.size !== before.size
+    || opened.uid !== before.uid || opened.mode !== before.mode) fail('catalog changed while being opened');
+  bytes = Buffer.alloc(Number(opened.size));
+  let offset = 0;
+  while (offset < bytes.length) { const count = fs.readSync(fd, bytes, offset, bytes.length - offset, offset); if (count === 0) fail('catalog was truncated while reading'); offset += count; }
+  const after = fs.fstatSync(fd, { bigint: true });
+  if (after.dev !== opened.dev || after.ino !== opened.ino || after.nlink !== 1n || after.size !== opened.size
+    || after.mtimeNs !== opened.mtimeNs || after.ctimeNs !== opened.ctimeNs) fail('catalog changed while being read');
+} finally { fs.closeSync(fd); }
+const actual = crypto.createHash('sha256').update(bytes).digest('hex');
+if (actual !== expected) fail('catalog SHA-256 does not match stage-zero authority');
+let catalog;
+try { catalog = JSON.parse(bytes.toString('utf8')); } catch { fail('catalog is not valid JSON'); }
+if (!Array.isArray(catalog) || catalog.length > 16384) fail('catalog must be an array with at most 16384 entries');
+const finalPath = path.join(destination, `${actual}.json`);
+const validateFinal = () => {
+  const info = fs.lstatSync(finalPath, { bigint: true });
+  if (!info.isFile() || info.isSymbolicLink() || info.nlink !== 1n || info.uid !== BigInt(process.geteuid()) || (Number(info.mode & 0o777n) & 0o077) !== 0
+    || info.size !== BigInt(bytes.length) || !fs.readFileSync(finalPath).equals(bytes)) fail('existing admitted catalog is unsafe or inconsistent');
+};
+if (fs.existsSync(finalPath)) validateFinal();
+else {
+  const temporary = path.join(destination, `.${actual}.${process.pid}.${crypto.randomBytes(8).toString('hex')}.tmp`);
+  try {
+    const output = fs.openSync(temporary, fs.constants.O_CREAT | fs.constants.O_EXCL | fs.constants.O_WRONLY, 0o600);
+    try { fs.writeFileSync(output, bytes); fs.fsyncSync(output); } finally { fs.closeSync(output); }
+    try { fs.linkSync(temporary, finalPath); } catch (error) { if (error.code !== 'EEXIST') throw error; }
+    fs.unlinkSync(temporary);
+    validateFinal();
+  } finally { try { fs.unlinkSync(temporary); } catch {} }
+}
+process.stdout.write(finalPath);
+NODE
+)" || { logg error 'Verified catalog admission failed'; return 2; }
+  INSTALL_DOCTOR_CATALOG_PATH="$ADMITTED"
+  INSTALL_DOCTOR_CATALOG_SHA256="$EXPECTED_SHA"
+  export INSTALL_DOCTOR_CATALOG_PATH INSTALL_DOCTOR_CATALOG_SHA256
+}
+
+# @description Execute the desired-state apply through the signed canonical engine.
+runCanonicalProvisionEngine() {
+  local MODE="${1:-apply}" ENGINE="${INSTALL_DOCTOR_ENGINE_PATH:-}" PROVISIONER INVOCATION INVOCATION_DIR NORMALIZED_PLAN APPROVAL_PLAN EVIDENCE_INVOCATION EVIDENCE_RESULT CLEANUP_EVIDENCE_INVOCATION CLEANUP_EVIDENCE_RESULT RUNS_INVOCATION RUNS_RESULT RESUME_RUN_ID STATE_ROOT NODE_MAJOR EXPECTED_NODE RENDERER GENERATE_STATUS ENGINE_STATUS EVIDENCE_STATUS CLEANUP_EVIDENCE_STATUS PLAN_DIGEST APPROVAL ACTUAL_SHA
+  local LOAD_PLAN_INVOCATION LOAD_PLAN_RESULT ARTIFACT_DERIVE_INVOCATION ARTIFACT_DERIVE_RESULT ARTIFACT_CACHE_ROOT USER_BIN_ROOT DOCKER_PLUGIN_ROOT ARTIFACT_COUNT
+  case "$MODE" in apply|--plan-only) ;; *) logg error "Unknown canonical engine mode: $MODE"; return 2 ;; esac
+  [ -n "$ENGINE" ] && [ -f "$ENGINE" ] && [ ! -L "$ENGINE" ] || { logg error 'Verified installer engine is unavailable'; return 2; }
+  command -v node >/dev/null 2>&1 || { logg error 'Node.js is required by the verified installer engine'; return 2; }
+  NODE_MAJOR="$(node --version 2>/dev/null | sed -E 's/^v([0-9]+).*/\1/')"
+  EXPECTED_NODE="${INSTALL_DOCTOR_ENGINE_NODE_MIN:-22}"
+  case "$NODE_MAJOR:$EXPECTED_NODE" in *[!0-9:]*) logg error 'Unable to validate the installer engine Node.js requirement'; return 2 ;; esac
+  [ "$NODE_MAJOR" -ge "$EXPECTED_NODE" ] || { logg error "Installer engine requires Node.js $EXPECTED_NODE or newer"; return 2; }
+  [ -n "${INSTALL_DOCTOR_RELEASE_ID:-}" ] || { logg error 'Verified release identity is required by the canonical engine'; return 2; }
+  case "$INSTALL_DOCTOR_RELEASE_ID" in ''|*[!a-zA-Z0-9._-]*) logg error 'Verified release identity is malformed'; return 2 ;; esac
+  PROVISIONER="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "${BASH_SOURCE[0]}")"
+  [ -n "${INSTALL_DOCTOR_ENGINE_SHA256:-}" ] || { logg error 'Verified installer engine checksum is required'; return 2; }
+  if command -v sha256sum >/dev/null 2>&1; then ACTUAL_SHA="$(sha256sum "$ENGINE" | awk '{print $1}')";
+  elif command -v shasum >/dev/null 2>&1; then ACTUAL_SHA="$(shasum -a 256 "$ENGINE" | awk '{print $1}')";
+  else logg error 'A SHA-256 verifier is required by the canonical engine'; return 2; fi
+  [ "$ACTUAL_SHA" = "$INSTALL_DOCTOR_ENGINE_SHA256" ] || { logg error 'Installer engine checksum changed after release verification'; return 2; }
+  STATE_ROOT="${XDG_STATE_HOME:-$HOME/.local/state}/install.doctor/engine"
+  INSTALL_DOCTOR_CHEZMOI_SOURCE="${XDG_DATA_HOME:-$HOME/.local/share}/install.doctor/releases/$INSTALL_DOCTOR_RELEASE_ID/source/home"
+  export INSTALL_DOCTOR_CHEZMOI_SOURCE
+  [ ! -L "$STATE_ROOT" ] && [ ! -L "$STATE_ROOT/invocations" ] || { logg error 'Installer engine state paths must not be symbolic links'; return 2; }
+  mkdir -p "$STATE_ROOT/invocations" || return 1
+  chmod 0700 "$STATE_ROOT" "$STATE_ROOT/invocations" || return 1
+  idAdmitVerifiedCatalog "$STATE_ROOT" || return $?
+  INVOCATION_DIR="$(mktemp -d "$STATE_ROOT/invocations/provision.XXXXXX")" || return 1
+  chmod 0700 "$INVOCATION_DIR" || { rmdir "$INVOCATION_DIR" 2>/dev/null || true; return 1; }
+  INVOCATION="$INVOCATION_DIR/invocation.json"
+  LOAD_PLAN_INVOCATION="$INVOCATION_DIR/load-plan-invocation.json"
+  LOAD_PLAN_RESULT="$INVOCATION_DIR/load-plan.json"
+  ARTIFACT_DERIVE_INVOCATION="$INVOCATION_DIR/artifact-derive-invocation.json"
+  ARTIFACT_DERIVE_RESULT="$INVOCATION_DIR/artifact-derive.json"
+  ARTIFACT_CACHE_ROOT="$STATE_ROOT/artifacts"
+  USER_BIN_ROOT="$HOME/.local/bin"
+  DOCKER_PLUGIN_ROOT="$HOME/.docker/cli-plugins"
+  RENDERER=tui
+  if [ -n "${HEADLESS_INSTALL:-}" ] || [ ! -t 1 ]; then RENDERER=headless; fi
+  umask 077
+  node - "$LOAD_PLAN_INVOCATION" "${INSTALL_DOCTOR_CATALOG_PATH:?}" <<'NODE'
+const fs = require('node:fs');
+const [destination, catalogPath] = process.argv.slice(2);
+const rawPlan = JSON.parse(fs.readFileSync(process.env.INSTALL_DOCTOR_PLAN, 'utf8'));
+const catalog = JSON.parse(fs.readFileSync(catalogPath, 'utf8'));
+const platform = process.platform === 'darwin' ? 'macos' : process.platform === 'linux' ? 'linux' : process.platform === 'win32' ? 'windows' : process.platform;
+fs.writeFileSync(destination, `${JSON.stringify({
+  schemaVersion: 1, command: 'load-plan', platform, architecture: process.arch,
+  roles: [rawPlan.role], selectedPackages: rawPlan.selectedPackages,
+  selectedServices: rawPlan.selectedServices, selectedSupportedPaths: rawPlan.selectedSupportedPaths,
+  lazyResolverRequirements: rawPlan.lazyResolverRequirements, catalog,
+})}\n`, { mode: 0o600, flag: 'wx' });
+NODE
+  GENERATE_STATUS=$?
+  if [ "$GENERATE_STATUS" -eq 0 ]; then node "$ENGINE" --input "$LOAD_PLAN_INVOCATION" > "$LOAD_PLAN_RESULT"; GENERATE_STATUS=$?; fi
+  [ "$GENERATE_STATUS" -eq 0 ] || { logg error 'Unable to derive the selected catalog load plan'; return "$GENERATE_STATUS"; }
+  ARTIFACT_COUNT="$(node -e 'const p=JSON.parse(require("node:fs").readFileSync(process.argv[1],"utf8")); process.stdout.write(String(p.items.filter(i => i.selected && i.applicable && i.actions.includes("install") && i.artifact).length))' "$LOAD_PLAN_RESULT")" || return 2
+  if [ "$ARTIFACT_COUNT" -gt 0 ]; then
+    node - "$ARTIFACT_DERIVE_INVOCATION" "$LOAD_PLAN_RESULT" "$ARTIFACT_CACHE_ROOT" "$USER_BIN_ROOT" "$DOCKER_PLUGIN_ROOT" <<'NODE'
+const fs = require('node:fs');
+const [destination, loadPlanPath, cacheRoot, userBinRoot, dockerPluginRoot] = process.argv.slice(2);
+const loadPlan = JSON.parse(fs.readFileSync(loadPlanPath, 'utf8'));
+const items = loadPlan.items.filter(item => item.selected && item.applicable && item.actions.includes('install') && item.artifact);
+fs.writeFileSync(destination, `${JSON.stringify({
+  schemaVersion: 1, command: 'artifact-derive', loadPlan, items, approvedLoadPlanDigest: loadPlan.digest,
+  host: { os: process.platform, arch: process.arch }, cacheRoot,
+  destinationRoots: { 'user-bin': userBinRoot, 'docker-cli-plugin': dockerPluginRoot },
+})}\n`, { mode: 0o600, flag: 'wx' });
+NODE
+    GENERATE_STATUS=$?
+    if [ "$GENERATE_STATUS" -eq 0 ]; then node "$ENGINE" --input "$ARTIFACT_DERIVE_INVOCATION" > "$ARTIFACT_DERIVE_RESULT"; GENERATE_STATUS=$?; fi
+    [ "$GENERATE_STATUS" -eq 0 ] || { logg error 'Unable to derive immutable artifact operations'; return "$GENERATE_STATUS"; }
+  else
+    printf '%s\n' '{"schemaVersion":1,"artifacts":[]}' > "$ARTIFACT_DERIVE_RESULT"
+  fi
+  export INSTALL_DOCTOR_LOAD_PLAN_PATH="$LOAD_PLAN_RESULT" INSTALL_DOCTOR_ARTIFACT_DERIVATION_PATH="$ARTIFACT_DERIVE_RESULT"
+  node - "$INVOCATION" "$PROVISIONER" "$STATE_ROOT" "$RENDERER" <<'NODE'
+const fs = require('node:fs');
+const os = require('node:os');
+const crypto = require('node:crypto');
+const [invocationPath, provisioner, stateRoot, renderer] = process.argv.slice(2);
+const planPath = process.env.INSTALL_DOCTOR_PLAN;
+if (!planPath) throw new Error('INSTALL_DOCTOR_PLAN is required');
+const planMetadata = fs.lstatSync(planPath);
+if (!planMetadata.isFile() || planMetadata.isSymbolicLink() || planMetadata.size < 2 || planMetadata.size > 1_048_576) throw new Error('install plan must be a bounded regular non-symlink file');
+if (process.platform !== 'win32' && (planMetadata.uid !== process.geteuid() || (planMetadata.mode & 0o022) !== 0)) throw new Error('install plan ownership or mode is unsafe');
+const rawPlan = JSON.parse(fs.readFileSync(planPath, 'utf8'));
+const exactKeys = (value, keys, label) => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)
+    || JSON.stringify(Object.keys(value).sort()) !== JSON.stringify([...keys].sort())) throw new Error(`${label} shape is invalid`);
+};
+exactKeys(rawPlan, ['schemaVersion', 'host', 'role', 'capability', 'network', 'softwareGroup', 'installUser', 'offline', 'concurrency',
+  'selectedPackages', 'selectedServices', 'selectedSupportedPaths', 'lazyResolverRequirements', 'consents', 'platformAdmission', 'privilegeContext', 'createdAt'], 'install plan');
+if (rawPlan.schemaVersion !== 2) throw new Error('install plan schema version is unsupported');
+exactKeys(rawPlan.host, ['hostname', 'os'], 'install plan host');
+exactKeys(rawPlan.consents, ['privileged', 'network', 'bestEffort'], 'install plan consents');
+exactKeys(rawPlan.platformAdmission, ['policyRevision', 'cellId', 'status', 'os', 'release', 'arch', 'environment', 'role', 'limitation'], 'platform admission');
+exactKeys(rawPlan.privilegeContext, ['sudoPreexisting'], 'privilege context');
+const expectedAdmission = {
+  policyRevision: 'platform-support-matrix-v1', cellId: process.env.INSTALL_DOCTOR_PLATFORM_CELL,
+  status: process.env.INSTALL_DOCTOR_PLATFORM_STATUS, os: process.env.INSTALL_DOCTOR_PLATFORM_OS,
+  release: process.env.INSTALL_DOCTOR_PLATFORM_RELEASE, arch: process.env.INSTALL_DOCTOR_PLATFORM_ARCH,
+  environment: process.env.INSTALL_DOCTOR_PLATFORM_ENVIRONMENT, role: process.env.INSTALL_DOCTOR_PLATFORM_ROLE,
+  limitation: process.env.INSTALL_DOCTOR_PLATFORM_LIMITATION,
+};
+if (JSON.stringify(rawPlan.platformAdmission) !== JSON.stringify(expectedAdmission)) throw new Error('platform admission changed after signed-policy evaluation');
+const boundedString = (value, pattern, maximum, label) => {
+  if (typeof value !== 'string' || value.length < 1 || value.length > maximum || !pattern.test(value)) throw new Error(`${label} is invalid`);
+};
+boundedString(rawPlan.host.hostname, /^[A-Za-z0-9][A-Za-z0-9._-]*$/, 255, 'install plan hostname');
+boundedString(rawPlan.host.os, /^[a-z0-9][a-z0-9._-]*$/, 64, 'install plan os');
+if (!['workstation', 'server', 'proxmox', 'coolify', 'qubes', 'container', 'custom', 'macos', 'ubuntu', 'debian', 'fedora', 'silverblue', 'alpine', 'arch', 'qubes-dom0', 'qubes-appvm', 'wsl'].includes(rawPlan.role)) throw new Error('install plan role is invalid');
+if (!['developer', 'ai', 'web', 'media', 'security', 'minimal'].includes(rawPlan.capability)) throw new Error('install plan capability is invalid');
+if (!['none', 'cloudflare-warp', 'cloudflare-tunnel', 'ssh'].includes(rawPlan.network)) throw new Error('install plan network is invalid');
+boundedString(rawPlan.softwareGroup, /^[A-Za-z0-9][A-Za-z0-9._ -]*$/, 128, 'install plan softwareGroup');
+boundedString(rawPlan.installUser, /^(?![0-9.-])[A-Za-z0-9._-]+$/, 128, 'install plan installUser');
+if (typeof rawPlan.offline !== 'boolean' || !Number.isSafeInteger(rawPlan.concurrency) || rawPlan.concurrency < 1 || rawPlan.concurrency > 16
+  || typeof rawPlan.consents.privileged !== 'boolean' || typeof rawPlan.consents.network !== 'boolean' || typeof rawPlan.consents.bestEffort !== 'boolean'
+  || typeof rawPlan.privilegeContext.sudoPreexisting !== 'boolean') throw new Error('install plan scalar fields are invalid');
+for (const [key, value] of Object.entries(rawPlan.platformAdmission)) boundedString(value, /^[A-Za-z0-9][A-Za-z0-9 ,.'_:/()-]*$/, key === 'limitation' ? 512 : 128, `platform admission ${key}`);
+if (rawPlan.platformAdmission.policyRevision !== 'platform-support-matrix-v1') throw new Error('platform admission policy revision is unsupported');
+if (!['verified', 'best-effort'].includes(rawPlan.platformAdmission.status)) throw new Error('platform admission status cannot authorize execution');
+if (rawPlan.platformAdmission.status === 'best-effort' && !rawPlan.consents.bestEffort) throw new Error('best-effort platform admission lacks explicit consent');
+if (typeof rawPlan.createdAt !== 'string' || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(rawPlan.createdAt)
+  || new Date(rawPlan.createdAt).toISOString() !== rawPlan.createdAt) throw new Error('install plan createdAt is invalid');
+const canonicalList = (value, maximum, pattern, label) => {
+  if (!Array.isArray(value) || value.length > maximum || value.some(item => typeof item !== 'string' || item.length > 128 || !pattern.test(item))
+    || JSON.stringify(value) !== JSON.stringify([...new Set(value)].sort())) throw new Error(`install plan ${label} is invalid`);
+  return value;
+};
+const selectedPackages = canonicalList(rawPlan.selectedPackages, 4096, /^[a-z0-9][a-z0-9._:-]*$/, 'selectedPackages');
+const selectedServices = canonicalList(rawPlan.selectedServices, 1024, /^[a-z0-9][a-z0-9._:-]*$/, 'selectedServices');
+const selectedSupportedPaths = canonicalList(rawPlan.selectedSupportedPaths, 1024, /^[a-z0-9][a-z0-9._-]*$/, 'selectedSupportedPaths');
+const lazyResolverRequirements = canonicalList(rawPlan.lazyResolverRequirements, 128, /^[a-z0-9][a-z0-9._:-]*$/, 'lazyResolverRequirements');
+const loadPlan = JSON.parse(fs.readFileSync(process.env.INSTALL_DOCTOR_LOAD_PLAN_PATH, 'utf8'));
+if (!loadPlan || !Array.isArray(loadPlan.items)) throw new Error('load plan is malformed');
+const selectedPackageClosure = [...new Set(loadPlan.items
+  .filter(item => item && item.selected === true && item.applicable === true)
+  .map(item => {
+    boundedString(item.name, /^[a-z0-9][a-z0-9._:-]*$/, 128, 'load plan package name');
+    return item.name;
+  }))].sort();
+const artifactDerivation = JSON.parse(fs.readFileSync(process.env.INSTALL_DOCTOR_ARTIFACT_DERIVATION_PATH, 'utf8'));
+if (!Array.isArray(artifactDerivation.artifacts)) throw new Error('artifact derivation is malformed');
+const directoryRequirements = new Map();
+for (const artifact of artifactDerivation.artifacts) {
+  if (!Array.isArray(artifact.directoryRequirements)) throw new Error('artifact directory requirements are malformed');
+  for (const requirement of artifact.directoryRequirements) {
+    const key = `${requirement.targetPath}\0${requirement.targetMode}`;
+    const existing = directoryRequirements.get(key);
+    if (existing && (existing.targetPath !== requirement.targetPath || existing.targetMode !== requirement.targetMode)) {
+      throw new Error('conflicting artifact directory requirements');
+    }
+    directoryRequirements.set(key, { targetPath: requirement.targetPath, targetMode: requirement.targetMode });
+  }
+}
+const directoryEntries = [...directoryRequirements.entries()].sort(([left], [right]) => left.localeCompare(right));
+const directoryTaskIdByKey = new Map(directoryEntries.map(([key, requirement]) => [key, `directory.${digest(requirement).slice(0, 24)}`]));
+const semanticPlan = { ...rawPlan };
+delete semanticPlan.createdAt;
+const canonical = value => Array.isArray(value) ? value.map(canonical) : value && typeof value === 'object'
+  ? Object.fromEntries(Object.entries(value).sort(([a], [b]) => a.localeCompare(b)).map(([key, child]) => [key, canonical(child)])) : value;
+const digest = value => crypto.createHash('sha256').update(JSON.stringify(canonical(value))).digest('hex');
+const desiredDigest = digest(semanticPlan);
+const sanitize = value => String(value || 'host').toLowerCase().replace(/[^a-z0-9._-]+/g, '-').replace(/^[^a-z0-9]+/, '').slice(0, 128) || 'host';
+if (process.platform !== 'darwin' && process.platform !== 'linux') throw new Error(`unsupported platform: ${process.platform}`);
+if (process.arch !== 'arm64' && process.arch !== 'x64') throw new Error(`unsupported architecture: ${process.arch}`);
+const platform = process.platform;
+const arch = process.arch;
+const environment = rawPlan.platformAdmission.environment;
+const role = sanitize(rawPlan.role || platform);
+const capability = sanitize(rawPlan.capability || 'minimal');
+const consents = [];
+if (rawPlan.consents.privileged) consents.push('privileged');
+if (rawPlan.consents.network) consents.push('network');
+if (rawPlan.consents.bestEffort) consents.push('best-effort-platform');
+const agentTaskDirectory = process.env.INSTALL_DOCTOR_AGENT_TASK_DIR || '';
+const agentTasksConsent = process.env.INSTALL_DOCTOR_AGENT_TASKS_CONSENT === '1';
+if (agentTaskDirectory && agentTasksConsent) consents.push('agent-tasks');
+const agentTaskManifest = [];
+if (agentTaskDirectory) {
+  const directory = fs.lstatSync(agentTaskDirectory);
+  if (!directory.isDirectory() || directory.isSymbolicLink() || (directory.mode & 0o022) !== 0) throw new Error('configured agent task directory is unsafe');
+  if (process.platform !== 'win32' && directory.uid !== process.geteuid()) throw new Error('configured agent task directory must be owned by the current user');
+  for (const name of fs.readdirSync(agentTaskDirectory).filter(name => name.endsWith('.sh')).sort()) {
+    const taskPath = `${agentTaskDirectory}/${name}`;
+    const metadata = fs.lstatSync(taskPath);
+    if (!metadata.isFile() || metadata.isSymbolicLink()) throw new Error(`configured agent task is not a regular file: ${name}`);
+    if (process.platform !== 'win32' && (metadata.uid !== process.geteuid() || (metadata.mode & 0o022) !== 0)) throw new Error(`configured agent task has unsafe ownership or mode: ${name}`);
+    if ((metadata.mode & 0o111) === 0) continue;
+    agentTaskManifest.push({ name, sha256: crypto.createHash('sha256').update(fs.readFileSync(taskPath)).digest('hex') });
+  }
+}
+const agentTaskManifestDigest = digest(agentTaskManifest);
+let warpCliPath = '';
+let warpCliDigest = 'absent';
+if (rawPlan.network === 'cloudflare-warp' && rawPlan.consents.network === true) {
+  for (const candidate of ['/usr/local/bin/warp-cli', '/opt/homebrew/bin/warp-cli', '/usr/bin/warp-cli', '/bin/warp-cli']) {
+    try {
+      const metadata = fs.lstatSync(candidate);
+      if (!metadata.isFile() || metadata.isSymbolicLink() || (metadata.mode & 0o111) === 0 || (metadata.mode & 0o022) !== 0) continue;
+      if (metadata.uid !== 0 && metadata.uid !== process.geteuid()) continue;
+      warpCliPath = candidate;
+      warpCliDigest = crypto.createHash('sha256').update(fs.readFileSync(candidate)).digest('hex');
+      break;
+    } catch (error) {
+      if (!error || error.code !== 'ENOENT') throw error;
+    }
+  }
+}
+const operationEnvironment = {
+  SOFTWARE_GROUP: rawPlan.softwareGroup,
+  INSTALL_DOCTOR_ROLE: rawPlan.role,
+  INSTALL_DOCTOR_CAPABILITY: rawPlan.capability,
+  INSTALL_DOCTOR_NETWORK: rawPlan.network,
+  INSTALL_DOCTOR_CONCURRENCY: String(rawPlan.concurrency),
+  INSTALL_DOCTOR_CONSENT_PRIVILEGED: String(rawPlan.consents.privileged),
+  INSTALL_DOCTOR_CONSENT_NETWORK: String(rawPlan.consents.network),
+  INSTALL_DOCTOR_CONSENT_BEST_EFFORT: String(rawPlan.consents.bestEffort),
+  INSTALL_DOCTOR_SUDO_PREEXISTING: String(rawPlan.privilegeContext.sudoPreexisting),
+  INSTALL_DOCTOR_OFFLINE: String(rawPlan.offline),
+  INSTALL_DOCTOR_USER: rawPlan.installUser,
+  INSTALL_DOCTOR_AGENT_TASK_DIR: agentTaskDirectory,
+  INSTALL_DOCTOR_AGENT_TASKS_CONSENT: agentTasksConsent ? '1' : '0',
+  INSTALL_DOCTOR_AGENT_TASKS_DIGEST: agentTaskManifestDigest,
+  INSTALL_DOCTOR_AGENT_FAILURE_POLICY: process.env.INSTALL_DOCTOR_AGENT_FAILURE_POLICY === 'continue' ? 'continue' : 'fail',
+  INSTALL_DOCTOR_EFFECT_RECEIPT_DIR: `${stateRoot}/effects`,
+  INSTALL_DOCTOR_ENGINE_OWNS_PACKAGES: '1',
+  INSTALL_DOCTOR_ENGINE_OWNS_SERVICES: '1',
+  INSTALL_DOCTOR_ENGINE_OWNS_SOFTWARE_GROUPS: '1',
+  INSTALL_DOCTOR_ENGINE_OWNS_CATALOG_POST_HOOKS: '1',
+  INSTALL_DOCTOR_ENGINE_OWNS_CUSTOM_POST_HOOKS: '1',
+  INSTALL_DOCTOR_SELECTED_PACKAGES: selectedPackages.join(','),
+  INSTALL_DOCTOR_SELECTED_SERVICES: selectedServices.join(','),
+  INSTALL_DOCTOR_WARP_CLI_PATH: warpCliPath,
+  INSTALL_DOCTOR_WARP_CLI_SHA256: warpCliDigest,
+};
+const stageZeroInstallUserTask = {
+  schemaVersion: 1, id: 'stage-zero.install-user-transition',
+  inputDigest: digest({ installUser: rawPlan.installUser, policy: 'root-handoff-v1' }),
+  dependencies: [], predicate: 'host-supported', requiredCapabilities: [],
+  operations: { check: 'stage-zero-install-user-check', apply: 'stage-zero-install-user-apply', verify: 'stage-zero-install-user-verify' },
+  timeoutMs: 30_000, retry: { class: 'never', maxAttempts: 1, backoffMs: 0 },
+  resources: { cpu: 1, memoryMiB: 64, network: false }, privilege: 'admin', network: 'none',
+  consent: 'privileged', lockDomains: ['privilege', 'user-account'], cleanup: 'none', compensation: 'none',
+  failurePolicy: 'abort-run',
+};
+const stageZeroSudoTask = {
+  schemaVersion: 1, id: 'stage-zero.sudo-credential',
+  inputDigest: digest({ installUser: rawPlan.installUser, sudoPreexisting: rawPlan.privilegeContext.sudoPreexisting, policy: 'externally-acquired-ephemeral-cache-v2' }),
+  dependencies: [stageZeroInstallUserTask.id], predicate: 'host-supported', requiredCapabilities: [],
+  operations: { check: 'stage-zero-sudo-check', apply: 'stage-zero-sudo-apply', verify: 'stage-zero-sudo-verify' },
+  timeoutMs: 30_000, retry: { class: 'never', maxAttempts: 1, backoffMs: 0 },
+  resources: { cpu: 1, memoryMiB: 64, network: false }, privilege: 'admin', network: 'none',
+  consent: 'privileged', lockDomains: ['privilege'], cleanup: 'none', compensation: 'none',
+  failurePolicy: 'abort-run',
+};
+const warpDisconnectTask = rawPlan.network === 'cloudflare-warp' && rawPlan.consents.network === true ? {
+  schemaVersion: 1, id: 'network.warp-disconnect',
+  inputDigest: digest({ network: rawPlan.network, consent: rawPlan.consents.network, warpCliPath, warpCliDigest, policy: 'disconnect-no-automatic-reconnect-v1' }),
+  dependencies: [stageZeroSudoTask.id], predicate: 'host-supported', requiredCapabilities: [],
+  operations: { check: 'warp-disconnect-check', apply: 'warp-disconnect-apply', verify: 'warp-disconnect-verify' },
+  timeoutMs: 30_000, retry: { class: 'never', maxAttempts: 1, backoffMs: 0 },
+  resources: { cpu: 1, memoryMiB: 64, network: false }, privilege: 'user', network: 'none',
+  consent: 'network', lockDomains: ['network:cloudflare-warp'], cleanup: 'none', compensation: 'none',
+  failurePolicy: 'abort-run',
+} : null;
+const nativeDependenciesTask = {
+  schemaVersion: 1, id: 'bootstrap.native-dependencies',
+  inputDigest: digest({ platform, arch, commands: ['curl', 'git', 'rsync'] }),
+  dependencies: [warpDisconnectTask?.id ?? stageZeroSudoTask.id], predicate: 'host-supported', requiredCapabilities: [],
+  operations: { check: 'native-dependencies-check', apply: 'native-dependencies-apply', verify: 'native-dependencies-verify' },
+  timeoutMs: 1_800_000, retry: { class: 'transient', maxAttempts: 2, backoffMs: 1_000 },
+  resources: { cpu: 1, memoryMiB: 512, network: true }, privilege: 'admin', network: 'required',
+  consent: 'privileged', lockDomains: ['package-manager', 'privilege'], cleanup: 'none', compensation: 'none',
+  failurePolicy: 'abort-run',
+};
+const sourceTask = {
+  schemaVersion: 1, id: 'bootstrap.source',
+  inputDigest: digest({ release: process.env.INSTALL_DOCTOR_RELEASE_ID, sourceCommit: process.env.INSTALL_DOCTOR_SOURCE_COMMIT, origin: process.env.START_REPO }),
+  dependencies: [nativeDependenciesTask.id], predicate: 'host-supported', requiredCapabilities: [],
+  operations: { check: 'source-check', apply: 'source-apply', verify: 'source-verify' },
+  timeoutMs: 900_000, retry: { class: 'transient', maxAttempts: 3, backoffMs: 1_000 },
+  resources: { cpu: 1, memoryMiB: 256, network: true }, privilege: 'user', network: 'required',
+  consent: 'none', lockDomains: ['source-cache'], cleanup: 'none', compensation: 'none',
+  failurePolicy: 'abort-run',
+};
+const homebrewTask = {
+  schemaVersion: 1, id: 'bootstrap.homebrew',
+  inputDigest: digest({ platform, installerCommit: '959bdd728192d78c47287c177796c3d86d111f09' }),
+  dependencies: [nativeDependenciesTask.id], predicate: 'host-supported', requiredCapabilities: [],
+  operations: { check: 'homebrew-check', apply: 'homebrew-apply', verify: 'homebrew-verify' },
+  timeoutMs: 1_800_000, retry: { class: 'transient', maxAttempts: 2, backoffMs: 2_000 },
+  resources: { cpu: 1, memoryMiB: 1024, network: true }, privilege: 'admin', network: 'required',
+  consent: 'privileged', lockDomains: ['package-manager', 'privilege'], cleanup: 'none', compensation: 'none',
+  failurePolicy: 'abort-run',
+};
+const homebrewToolsTask = {
+  schemaVersion: 1, id: 'bootstrap.homebrew-tools',
+  inputDigest: digest({ tools: ['chezmoi', 'gum', 'zx'] }),
+  dependencies: [homebrewTask.id], predicate: 'host-supported', requiredCapabilities: [],
+  operations: { check: 'homebrew-tools-check', apply: 'homebrew-tools-apply', verify: 'homebrew-tools-verify' },
+  timeoutMs: 1_800_000, retry: { class: 'transient', maxAttempts: 2, backoffMs: 1_000 },
+  resources: { cpu: 1, memoryMiB: 1024, network: true }, privilege: 'user', network: 'required',
+  consent: 'privileged', lockDomains: ['package-manager'], cleanup: 'none', compensation: 'none',
+  failurePolicy: 'abort-run',
+};
+const chezmoiInitTask = {
+  schemaVersion: 1, id: 'bootstrap.chezmoi-init',
+  inputDigest: digest({ semanticPlan, source: process.env.INSTALL_DOCTOR_SOURCE_COMMIT }),
+  dependencies: [sourceTask.id, homebrewToolsTask.id], predicate: 'host-supported', requiredCapabilities: [],
+  operations: { check: 'chezmoi-init-check', apply: 'chezmoi-init-apply', verify: 'chezmoi-init-verify' },
+  timeoutMs: 900_000, retry: { class: 'never', maxAttempts: 1, backoffMs: 0 },
+  resources: { cpu: 1, memoryMiB: 512, network: false }, privilege: 'user', network: 'none',
+  consent: 'privileged', lockDomains: ['chezmoi'], cleanup: 'none', compensation: 'none',
+  failurePolicy: 'abort-run',
+};
+const installxToolTask = {
+  schemaVersion: 1, id: 'bootstrap.installx-tool',
+  inputDigest: digest({ source: process.env.INSTALL_DOCTOR_SOURCE_COMMIT, target: '.local/bin/installx' }),
+  dependencies: [chezmoiInitTask.id], predicate: 'host-supported', requiredCapabilities: [],
+  operations: { check: 'installx-tool-check', apply: 'installx-tool-apply', verify: 'installx-tool-verify' },
+  timeoutMs: 120_000, retry: { class: 'never', maxAttempts: 1, backoffMs: 0 },
+  resources: { cpu: 1, memoryMiB: 256, network: false }, privilege: 'user', network: 'none',
+  consent: 'none', lockDomains: ['chezmoi', 'installx-tool'], cleanup: 'none', compensation: 'none',
+  failurePolicy: 'abort-run',
+};
+const desiredPackagesTask = {
+  schemaVersion: 1, id: 'desired.packages',
+  inputDigest: digest({ source: process.env.INSTALL_DOCTOR_SOURCE_COMMIT, softwareGroup: rawPlan.softwareGroup, selectedPackages, selectedServices, policy: 'approved-plus-eager-lazy-v2' }),
+  dependencies: [installxToolTask.id], predicate: 'host-supported', requiredCapabilities: [],
+  operations: { check: 'desired-packages-check', apply: 'desired-packages-apply', verify: 'desired-packages-verify' },
+  timeoutMs: 14_400_000, retry: { class: 'transient', maxAttempts: 2, backoffMs: 2_000 },
+  resources: { cpu: Math.min(rawPlan.concurrency, 16), memoryMiB: 2048, network: true }, privilege: 'admin', network: 'required',
+  consent: 'privileged', lockDomains: ['package-manager', 'privilege'], cleanup: 'none', compensation: 'none',
+  failurePolicy: 'abort-run',
+};
+const directoryTasks = directoryEntries.map(([key, requirement]) => {
+  const id = directoryTaskIdByKey.get(key);
+  if (!id) throw new Error('artifact directory task identity is unavailable');
+  return {
+    schemaVersion: 1, id, inputDigest: digest(requirement), dependencies: [desiredPackagesTask.id],
+    predicate: 'host-supported', requiredCapabilities: [],
+    operations: { check: `${id}-check`, apply: `${id}-apply`, verify: `${id}-verify` },
+    timeoutMs: 30_000, retry: { class: 'never', maxAttempts: 1, backoffMs: 0 },
+    resources: { cpu: 1, memoryMiB: 32, network: false }, privilege: 'user', network: 'none',
+    consent: 'none', lockDomains: ['installer-configuration'], cleanup: 'none', compensation: 'configuration',
+    failurePolicy: 'abort-run',
+  };
+});
+const directoryOperations = Object.fromEntries(directoryEntries.flatMap(([key, requirement]) => {
+  const id = directoryTaskIdByKey.get(key);
+  if (!id) throw new Error('artifact directory operation identity is unavailable');
+  return ['check', 'apply', 'verify'].map(action => [`${id}-${action}`, {
+    kind: 'managed-directory', action, targetPath: requirement.targetPath, candidateMode: requirement.targetMode,
+  }]);
+}));
+const artifactTasks = artifactDerivation.artifacts.map((artifact, index) => {
+  const prefix = `artifact-${index}-${sanitize(artifact.itemName)}`;
+  const directoryTaskIds = artifact.directoryRequirements.map(requirement => {
+    const id = directoryTaskIdByKey.get(`${requirement.targetPath}\0${requirement.targetMode}`);
+    if (!id) throw new Error('artifact dependency directory is unavailable');
+    return id;
+  });
+  return {
+    schemaVersion: 1, id: `artifact.${sanitize(artifact.itemName)}`,
+    inputDigest: digest({ loadPlanDigest: loadPlan.digest, descriptorDigest: artifact.descriptorDigest, operations: artifact.operations }),
+    dependencies: [desiredPackagesTask.id, ...directoryTaskIds], predicate: 'host-supported', requiredCapabilities: [],
+    operations: { check: `${prefix}-check`, apply: `${prefix}-apply`, verify: `${prefix}-verify` },
+    timeoutMs: 120_000, retry: { class: 'never', maxAttempts: 1, backoffMs: 0 },
+    resources: { cpu: 1, memoryMiB: 128, network: true }, privilege: 'user', network: 'required',
+    consent: 'network', lockDomains: [`artifact:${sanitize(artifact.itemName)}`], cleanup: 'none', compensation: 'configuration',
+    failurePolicy: 'abort-run',
+  };
+});
+const artifactOperations = Object.fromEntries(artifactDerivation.artifacts.flatMap((artifact, index) => {
+  const prefix = `artifact-${index}-${sanitize(artifact.itemName)}`;
+  return [['check', artifact.operations.check], ['apply', artifact.operations.apply], ['verify', artifact.operations.verify]]
+    .map(([phase, operation]) => [`${prefix}-${phase}`, operation]);
+}));
+const macosFullDiskAccessTask = {
+  schemaVersion: 1, id: 'bootstrap.macos-full-disk-access',
+  inputDigest: digest({ platform, policy: 'interactive-request-v1', headless: Boolean(process.env.HEADLESS_INSTALL) }),
+  dependencies: [nativeDependenciesTask.id], predicate: 'host-supported', requiredCapabilities: [],
+  operations: { check: 'macos-full-disk-access-check', apply: 'macos-full-disk-access-apply', verify: 'macos-full-disk-access-verify' },
+  timeoutMs: 120_000, retry: { class: 'never', maxAttempts: 1, backoffMs: 0 },
+  resources: { cpu: 1, memoryMiB: 128, network: false }, privilege: 'user', network: 'none',
+  consent: 'none', lockDomains: ['macos-privacy'], cleanup: 'none', compensation: 'none',
+  failurePolicy: 'abort-run',
+};
+const certificatePath = `${process.env.HOME}/.local/etc/ssl/cloudflare/cloudflare.crt`;
+let certificateDigest = 'absent';
+try {
+  const metadata = fs.lstatSync(certificatePath);
+  if (!metadata.isFile() || metadata.isSymbolicLink()) throw new Error('Cloudflare certificate path must be a regular non-symlink file');
+  certificateDigest = crypto.createHash('sha256').update(fs.readFileSync(certificatePath)).digest('hex');
+} catch (error) {
+  if (error && error.code !== 'ENOENT') throw error;
+}
+const macosCertificateTask = {
+  schemaVersion: 1, id: 'bootstrap.macos-cloudflare-certificate',
+  inputDigest: digest({ platform, certificatePath, certificateDigest, headless: Boolean(process.env.HEADLESS_INSTALL) }),
+  dependencies: [nativeDependenciesTask.id], predicate: 'host-supported', requiredCapabilities: [],
+  operations: { check: 'macos-certificate-check', apply: 'macos-certificate-apply', verify: 'macos-certificate-verify' },
+  timeoutMs: 120_000, retry: { class: 'never', maxAttempts: 1, backoffMs: 0 },
+  resources: { cpu: 1, memoryMiB: 128, network: false }, privilege: 'admin', network: 'none',
+  consent: 'privileged', lockDomains: ['macos-keychain', 'privilege'], cleanup: 'none', compensation: 'none',
+  failurePolicy: 'abort-run',
+};
+const qubesDom0Task = rawPlan.role === 'qubes-dom0' ? {
+  schemaVersion: 1, id: 'bootstrap.qubes-dom0-delegation',
+  inputDigest: digest({ role: rawPlan.role, release: process.env.INSTALL_DOCTOR_RELEASE_ID, policy: 'delegated-provision-v1' }),
+  dependencies: [nativeDependenciesTask.id], predicate: 'host-supported', requiredCapabilities: [],
+  operations: { check: 'qubes-dom0-check', apply: 'qubes-dom0-apply', verify: 'qubes-dom0-verify' },
+  timeoutMs: 7_200_000, retry: { class: 'never', maxAttempts: 1, backoffMs: 0 },
+  resources: { cpu: 2, memoryMiB: 2048, network: true }, privilege: 'admin', network: 'required',
+  consent: 'privileged', lockDomains: ['package-manager', 'privilege', 'qubes-dom0'], cleanup: 'none', compensation: 'none',
+  failurePolicy: 'abort-run',
+} : null;
+const agentTasksTask = agentTaskDirectory ? {
+  schemaVersion: 1, id: 'bootstrap.configured-agent-tasks',
+  inputDigest: digest({ directory: agentTaskDirectory, manifest: agentTaskManifest, failurePolicy: operationEnvironment.INSTALL_DOCTOR_AGENT_FAILURE_POLICY }),
+  dependencies: [chezmoiInitTask.id], predicate: 'host-supported', requiredCapabilities: [],
+  operations: { check: 'configured-agent-tasks-check', apply: 'configured-agent-tasks-apply', verify: 'configured-agent-tasks-verify' },
+  timeoutMs: 3_600_000, retry: { class: 'never', maxAttempts: 1, backoffMs: 0 },
+  resources: { cpu: Math.min(rawPlan.concurrency, 16), memoryMiB: 2048, network: true }, privilege: 'admin', network: 'required',
+  consent: 'agent-tasks', lockDomains: ['agent-tasks', 'package-manager', 'privilege'], cleanup: 'none', compensation: 'none',
+  failurePolicy: 'abort-run',
+} : null;
+const finalDependencies = [desiredPackagesTask.id, macosFullDiskAccessTask.id, macosCertificateTask.id];
+if (qubesDom0Task) finalDependencies.push(qubesDom0Task.id);
+if (agentTasksTask) finalDependencies.push(agentTasksTask.id);
+const task = {
+  schemaVersion: 1, id: 'provision.chezmoi', inputDigest: digest({ semanticPlan, release: process.env.INSTALL_DOCTOR_RELEASE_ID }),
+  dependencies: finalDependencies, predicate: 'host-supported', requiredCapabilities: [],
+  operations: { check: 'chezmoi-check', apply: 'chezmoi-apply', verify: 'chezmoi-verify' },
+  timeoutMs: 14_400_000, retry: { class: 'never', maxAttempts: 1, backoffMs: 0 },
+  resources: { cpu: 2, memoryMiB: 1024, network: true }, privilege: 'admin', network: 'required',
+  consent: 'privileged', lockDomains: ['chezmoi', 'package-manager'], cleanup: 'none', compensation: 'none',
+  failurePolicy: 'abort-run',
+};
+const configurationRoot = process.env.XDG_CONFIG_HOME || `${process.env.HOME}/.config`;
+if (!configurationRoot || !configurationRoot.startsWith('/')) throw new Error('installer configuration root must be absolute');
+const bootstrapPolicyPath = `${configurationRoot}/install.doctor-policy.json`;
+const bootstrapPolicy = `${JSON.stringify(canonical({
+  schemaVersion: 1,
+  releaseId: process.env.INSTALL_DOCTOR_RELEASE_ID,
+  sourceCommit: process.env.INSTALL_DOCTOR_SOURCE_COMMIT,
+  desiredStateRevision: `desired-${desiredDigest.slice(0, 24)}`,
+  role: rawPlan.role,
+  capability: rawPlan.capability,
+  softwareGroup: rawPlan.softwareGroup,
+  offline: rawPlan.offline,
+  selectedServices,
+  selectedPackages,
+  selectedPackageClosure,
+}))}\n`;
+const bootstrapPolicyCandidate = Buffer.from(bootstrapPolicy, 'utf8').toString('base64');
+const bootstrapPolicyTask = {
+  schemaVersion: 1, id: 'installer.bootstrap-policy',
+  inputDigest: digest({ targetPath: bootstrapPolicyPath, candidate: bootstrapPolicy, policy: 'managed-file-v1' }),
+  dependencies: [task.id], predicate: 'host-supported', requiredCapabilities: [],
+  operations: { check: 'bootstrap-policy-check', apply: 'bootstrap-policy-apply', verify: 'bootstrap-policy-verify' },
+  timeoutMs: 30_000, retry: { class: 'never', maxAttempts: 1, backoffMs: 0 },
+  resources: { cpu: 1, memoryMiB: 64, network: false }, privilege: 'user', network: 'none',
+  consent: 'none', lockDomains: ['installer-configuration'], cleanup: 'none', compensation: 'configuration',
+  failurePolicy: 'abort-run',
+};
+const softwareGroupsTask = {
+  schemaVersion: 1, id: 'desired.software-groups',
+  inputDigest: digest({ source: process.env.INSTALL_DOCTOR_SOURCE_COMMIT, packages: selectedPackages, services: selectedServices, policy: 'selected-groups-current-state-v2' }),
+  dependencies: [bootstrapPolicyTask.id], predicate: 'host-supported', requiredCapabilities: [],
+  operations: { check: 'software-groups-check', apply: 'software-groups-apply', verify: 'software-groups-verify' },
+  timeoutMs: 900_000, retry: { class: 'never', maxAttempts: 1, backoffMs: 0 },
+  resources: { cpu: 1, memoryMiB: 256, network: false }, privilege: 'admin', network: 'none',
+  consent: 'privileged', lockDomains: ['software-groups', 'filesystem-ownership', 'privilege'], cleanup: 'none', compensation: 'none',
+  failurePolicy: 'abort-run',
+};
+const catalogPostValidationTask = {
+  schemaVersion: 1, id: 'desired.catalog-post-validation',
+  inputDigest: digest({ source: process.env.INSTALL_DOCTOR_SOURCE_COMMIT, policy: 'reject-executable-catalog-post-v2' }),
+  dependencies: [softwareGroupsTask.id], predicate: 'host-supported', requiredCapabilities: [],
+  operations: { check: 'catalog-post-validation-check', apply: 'catalog-post-validation-apply', verify: 'catalog-post-validation-verify' },
+  timeoutMs: 30_000, retry: { class: 'never', maxAttempts: 1, backoffMs: 0 },
+  resources: { cpu: 1, memoryMiB: 128, network: false }, privilege: 'user', network: 'none',
+  consent: 'none', lockDomains: [], cleanup: 'none', compensation: 'none',
+  failurePolicy: 'abort-run',
+};
+const customHookRoot = `${process.env.INSTALL_DOCTOR_CHEZMOI_SOURCE}/dot_local/bin/post-installx`;
+const selectedHookClosure = loadPlan.items.filter(item => item.selected).map(item => item.name).sort();
+const customHookManifest = selectedHookClosure.flatMap(packageName => {
+  const sourcePath = `${customHookRoot}/executable_post-${packageName}.sh`;
+  try {
+    const metadata = fs.lstatSync(sourcePath);
+    if (!metadata.isFile() || metadata.isSymbolicLink()) throw new Error(`custom hook is not a regular file: ${packageName}`);
+    return [{ package: packageName, sha256: crypto.createHash('sha256').update(fs.readFileSync(sourcePath)).digest('hex') }];
+  } catch (error) {
+    if (error && error.code === 'ENOENT') return [];
+    throw error;
+  }
+});
+const customHookManifestEnvironment = customHookManifest.map(entry => `${entry.package}=${entry.sha256}`).join('\n');
+const customHookKeysEnvironment = customHookManifest.map(entry => entry.package).join(',');
+const customPostHooksTask = {
+  schemaVersion: 1, id: 'desired.custom-post-hooks',
+  inputDigest: digest({ source: process.env.INSTALL_DOCTOR_SOURCE_COMMIT, softwareGroup: rawPlan.softwareGroup, hooks: customHookManifest, policy: 'typed-custom-post-v2' }),
+  dependencies: [catalogPostValidationTask.id], predicate: 'host-supported', requiredCapabilities: [],
+  operations: { check: 'custom-post-hooks-check', apply: 'custom-post-hooks-apply', verify: 'custom-post-hooks-verify' },
+  timeoutMs: 7_200_000, retry: { class: 'never', maxAttempts: 1, backoffMs: 0 },
+  resources: { cpu: 1, memoryMiB: 1024, network: true }, privilege: 'admin', network: 'required',
+  consent: 'privileged', lockDomains: ['custom-post-hooks', 'package-manager', 'service-manager', 'privilege'], cleanup: 'none', compensation: 'none',
+  failurePolicy: 'abort-run',
+};
+const desiredServicesTask = {
+  schemaVersion: 1, id: 'desired.services',
+  inputDigest: digest({ source: process.env.INSTALL_DOCTOR_SOURCE_COMMIT, services: selectedServices }),
+  dependencies: [customPostHooksTask.id], predicate: 'host-supported', requiredCapabilities: [],
+  operations: { check: 'desired-services-check', apply: 'desired-services-apply', verify: 'desired-services-verify' },
+  timeoutMs: 300_000, retry: { class: 'transient', maxAttempts: 2, backoffMs: 1_000 },
+  resources: { cpu: 1, memoryMiB: 256, network: false }, privilege: 'admin', network: 'none',
+  consent: 'privileged', lockDomains: ['service-manager', 'privilege'], cleanup: 'none', compensation: 'none',
+  failurePolicy: 'abort-run',
+};
+const rebootAssessmentTask = {
+  schemaVersion: 1, id: 'system.reboot-assessment',
+  inputDigest: digest({ platform, policy: 'explicit-operator-reboot-v1' }),
+  dependencies: [desiredServicesTask.id, ...artifactTasks.map(task => task.id)], predicate: 'host-supported', requiredCapabilities: [],
+  operations: { check: 'reboot-assessment-check', apply: 'reboot-assessment-apply', verify: 'reboot-assessment-verify' },
+  timeoutMs: 30_000, retry: { class: 'never', maxAttempts: 1, backoffMs: 0 },
+  resources: { cpu: 1, memoryMiB: 64, network: false }, privilege: 'user', network: 'none',
+  consent: 'none', lockDomains: [], cleanup: 'none', compensation: 'none',
+  failurePolicy: 'abort-run',
+};
+const sudoCleanupTask = {
+  schemaVersion: 1, id: 'system.sudo-credential-cleanup',
+  inputDigest: digest({ installUser: rawPlan.installUser, sudoPreexisting: rawPlan.privilegeContext.sudoPreexisting, policy: 'preserve-preexisting-or-invalidate-acquired-v2' }),
+  dependencies: [], predicate: 'host-supported', requiredCapabilities: [],
+  operations: { check: 'sudo-cleanup-check', apply: 'sudo-cleanup-apply', verify: 'sudo-cleanup-verify' },
+  timeoutMs: 30_000, retry: { class: 'never', maxAttempts: 1, backoffMs: 0 },
+  resources: { cpu: 1, memoryMiB: 32, network: false }, privilege: 'user', network: 'none',
+  consent: 'none', lockDomains: ['privilege'], cleanup: 'none', compensation: 'none',
+  lifecycle: 'run-finalizer',
+  failurePolicy: 'abort-run',
+};
+const invocation = {
+  schemaVersion: 1, command: 'plan', runId: `install-${crypto.randomBytes(12).toString('hex')}`,
+  releaseId: process.env.INSTALL_DOCTOR_RELEASE_ID,
+  facts: {
+    schemaVersion: 1, hostId: sanitize(os.hostname()), collectedAt: new Date().toISOString(), os: platform,
+    osVersion: os.release(), arch, environment, roles: [role], packageManagers: [], capabilities: [capability],
+  },
+  desiredState: {
+    schemaVersion: 1, revision: `desired-${desiredDigest.slice(0, 24)}`, hostId: sanitize(os.hostname()),
+    packages: selectedPackageClosure, services: selectedServices, consents,
+    offline: rawPlan.offline,
+  },
+    plan: {
+      tasks: [stageZeroInstallUserTask, stageZeroSudoTask, ...(warpDisconnectTask ? [warpDisconnectTask] : []), nativeDependenciesTask, sourceTask, homebrewTask, homebrewToolsTask, chezmoiInitTask, installxToolTask, desiredPackagesTask, ...directoryTasks, ...artifactTasks, macosFullDiskAccessTask, macosCertificateTask, ...(qubesDom0Task ? [qubesDom0Task] : []), ...(agentTasksTask ? [agentTasksTask] : []), task, bootstrapPolicyTask, softwareGroupsTask, catalogPostValidationTask, customPostHooksTask, desiredServicesTask, rebootAssessmentTask, sudoCleanupTask],
+      selectedTaskIds: [rebootAssessmentTask.id, sudoCleanupTask.id],
+      executionPolicy: {
+        maxConcurrency: rawPlan.concurrency,
+        resourceLimits: { cpu: 64, memoryMiB: 8192, networkConcurrency: rawPlan.concurrency },
+      },
+    },
+  operations: {
+    ...directoryOperations,
+    ...artifactOperations,
+    'stage-zero-install-user-check': { argv: ['/bin/bash', provisioner, '--engine-operation', 'stage-zero-install-user-check'], env: operationEnvironment },
+    'stage-zero-install-user-apply': { argv: ['/bin/bash', provisioner, '--engine-operation', 'stage-zero-install-user-apply'], env: operationEnvironment },
+    'stage-zero-install-user-verify': { argv: ['/bin/bash', provisioner, '--engine-operation', 'stage-zero-install-user-verify'], env: operationEnvironment },
+    'stage-zero-sudo-check': { argv: ['/bin/bash', provisioner, '--engine-operation', 'stage-zero-sudo-check'], env: operationEnvironment },
+    'stage-zero-sudo-apply': { argv: ['/bin/bash', provisioner, '--engine-operation', 'stage-zero-sudo-apply'], env: operationEnvironment },
+    'stage-zero-sudo-verify': { argv: ['/bin/bash', provisioner, '--engine-operation', 'stage-zero-sudo-verify'], env: operationEnvironment },
+    'sudo-cleanup-check': { argv: ['/bin/bash', provisioner, '--engine-operation', 'sudo-cleanup-check'], env: operationEnvironment },
+    'sudo-cleanup-apply': { argv: ['/bin/bash', provisioner, '--engine-operation', 'sudo-cleanup-apply'], env: operationEnvironment },
+    'sudo-cleanup-verify': { argv: ['/bin/bash', provisioner, '--engine-operation', 'sudo-cleanup-verify'], env: operationEnvironment },
+    ...(warpDisconnectTask ? {
+      'warp-disconnect-check': { argv: ['/bin/bash', provisioner, '--engine-operation', 'warp-disconnect-check'], env: operationEnvironment },
+      'warp-disconnect-apply': { argv: ['/bin/bash', provisioner, '--engine-operation', 'warp-disconnect-apply'], env: operationEnvironment },
+      'warp-disconnect-verify': { argv: ['/bin/bash', provisioner, '--engine-operation', 'warp-disconnect-verify'], env: operationEnvironment },
+    } : {}),
+    'native-dependencies-check': { argv: ['/bin/bash', provisioner, '--engine-operation', 'native-dependencies-check'], env: operationEnvironment },
+    'native-dependencies-apply': { argv: ['/bin/bash', provisioner, '--engine-operation', 'native-dependencies-apply'], env: operationEnvironment },
+    'native-dependencies-verify': { argv: ['/bin/bash', provisioner, '--engine-operation', 'native-dependencies-verify'], env: operationEnvironment },
+    'source-check': { argv: ['/bin/bash', provisioner, '--engine-operation', 'source-check'], env: operationEnvironment },
+    'source-apply': { argv: ['/bin/bash', provisioner, '--engine-operation', 'source-apply'], env: operationEnvironment },
+    'source-verify': { argv: ['/bin/bash', provisioner, '--engine-operation', 'source-verify'], env: operationEnvironment },
+    'homebrew-check': { argv: ['/bin/bash', provisioner, '--engine-operation', 'homebrew-check'], env: operationEnvironment },
+    'homebrew-apply': { argv: ['/bin/bash', provisioner, '--engine-operation', 'homebrew-apply'], env: operationEnvironment },
+    'homebrew-verify': { argv: ['/bin/bash', provisioner, '--engine-operation', 'homebrew-verify'], env: operationEnvironment },
+    'homebrew-tools-check': { argv: ['/bin/bash', provisioner, '--engine-operation', 'homebrew-tools-check'], env: operationEnvironment },
+    'homebrew-tools-apply': { argv: ['/bin/bash', provisioner, '--engine-operation', 'homebrew-tools-apply'], env: operationEnvironment },
+    'homebrew-tools-verify': { argv: ['/bin/bash', provisioner, '--engine-operation', 'homebrew-tools-verify'], env: operationEnvironment },
+    'chezmoi-init-check': { argv: ['/bin/bash', provisioner, '--engine-operation', 'chezmoi-init-check'], env: operationEnvironment },
+    'chezmoi-init-apply': { argv: ['/bin/bash', provisioner, '--engine-operation', 'chezmoi-init-apply'], env: operationEnvironment },
+    'chezmoi-init-verify': { argv: ['/bin/bash', provisioner, '--engine-operation', 'chezmoi-init-verify'], env: operationEnvironment },
+    'installx-tool-check': { argv: ['/bin/bash', provisioner, '--engine-operation', 'installx-tool-check'], env: operationEnvironment },
+    'installx-tool-apply': { argv: ['/bin/bash', provisioner, '--engine-operation', 'installx-tool-apply'], env: operationEnvironment },
+    'installx-tool-verify': { argv: ['/bin/bash', provisioner, '--engine-operation', 'installx-tool-verify'], env: operationEnvironment },
+    'desired-packages-check': { argv: ['/bin/bash', provisioner, '--engine-operation', 'desired-packages-check'], env: operationEnvironment },
+    'desired-packages-apply': { argv: ['/bin/bash', provisioner, '--engine-operation', 'desired-packages-apply'], env: operationEnvironment },
+    'desired-packages-verify': { argv: ['/bin/bash', provisioner, '--engine-operation', 'desired-packages-verify'], env: operationEnvironment },
+    'macos-full-disk-access-check': { argv: ['/bin/bash', provisioner, '--engine-operation', 'macos-full-disk-access-check'], env: operationEnvironment },
+    'macos-full-disk-access-apply': { argv: ['/bin/bash', provisioner, '--engine-operation', 'macos-full-disk-access-apply'], env: operationEnvironment },
+    'macos-full-disk-access-verify': { argv: ['/bin/bash', provisioner, '--engine-operation', 'macos-full-disk-access-verify'], env: operationEnvironment },
+    'macos-certificate-check': { argv: ['/bin/bash', provisioner, '--engine-operation', 'macos-certificate-check'], env: operationEnvironment },
+    'macos-certificate-apply': { argv: ['/bin/bash', provisioner, '--engine-operation', 'macos-certificate-apply'], env: operationEnvironment },
+    'macos-certificate-verify': { argv: ['/bin/bash', provisioner, '--engine-operation', 'macos-certificate-verify'], env: operationEnvironment },
+    'qubes-dom0-check': { argv: ['/bin/bash', provisioner, '--engine-operation', 'qubes-dom0-check'], env: operationEnvironment },
+    'qubes-dom0-apply': { argv: ['/bin/bash', provisioner, '--engine-operation', 'qubes-dom0-apply'], env: operationEnvironment },
+    'qubes-dom0-verify': { argv: ['/bin/bash', provisioner, '--engine-operation', 'qubes-dom0-verify'], env: operationEnvironment },
+    'configured-agent-tasks-check': { argv: ['/bin/bash', provisioner, '--engine-operation', 'configured-agent-tasks-check'], env: operationEnvironment },
+    'configured-agent-tasks-apply': { argv: ['/bin/bash', provisioner, '--engine-operation', 'configured-agent-tasks-apply'], env: operationEnvironment },
+    'configured-agent-tasks-verify': { argv: ['/bin/bash', provisioner, '--engine-operation', 'configured-agent-tasks-verify'], env: operationEnvironment },
+    'chezmoi-check': { argv: ['/bin/bash', provisioner, '--engine-operation', 'chezmoi-check'], env: operationEnvironment },
+    'chezmoi-apply': { argv: ['/bin/bash', provisioner, '--engine-operation', 'chezmoi-apply'], env: operationEnvironment },
+    'chezmoi-verify': { argv: ['/bin/bash', provisioner, '--engine-operation', 'chezmoi-verify'], env: operationEnvironment },
+    'bootstrap-policy-check': { kind: 'managed-file', action: 'check', targetPath: bootstrapPolicyPath, candidateBase64: bootstrapPolicyCandidate, candidateMode: 0o600 },
+    'bootstrap-policy-apply': { kind: 'managed-file', action: 'apply', targetPath: bootstrapPolicyPath, candidateBase64: bootstrapPolicyCandidate, candidateMode: 0o600 },
+    'bootstrap-policy-verify': { kind: 'managed-file', action: 'verify', targetPath: bootstrapPolicyPath, candidateBase64: bootstrapPolicyCandidate, candidateMode: 0o600 },
+    'software-groups-check': { argv: ['/bin/bash', provisioner, '--engine-operation', 'software-groups-check'], env: operationEnvironment },
+    'software-groups-apply': { argv: ['/bin/bash', provisioner, '--engine-operation', 'software-groups-apply'], env: operationEnvironment },
+    'software-groups-verify': { argv: ['/bin/bash', provisioner, '--engine-operation', 'software-groups-verify'], env: operationEnvironment },
+    'catalog-post-validation-check': { argv: ['/bin/bash', provisioner, '--engine-operation', 'catalog-post-validation-check'], env: operationEnvironment },
+    'catalog-post-validation-apply': { argv: ['/bin/bash', provisioner, '--engine-operation', 'catalog-post-validation-apply'], env: operationEnvironment },
+    'catalog-post-validation-verify': { argv: ['/bin/bash', provisioner, '--engine-operation', 'catalog-post-validation-verify'], env: operationEnvironment },
+    'custom-post-hooks-check': { argv: ['/bin/bash', provisioner, '--engine-operation', 'custom-post-hooks-check'], env: { ...operationEnvironment, INSTALL_DOCTOR_CUSTOM_HOOK_MANIFEST: customHookManifestEnvironment, INSTALL_DOCTOR_CUSTOM_HOOK_KEYS: customHookKeysEnvironment } },
+    'custom-post-hooks-apply': { argv: ['/bin/bash', provisioner, '--engine-operation', 'custom-post-hooks-apply'], env: { ...operationEnvironment, INSTALL_DOCTOR_CUSTOM_HOOK_MANIFEST: customHookManifestEnvironment, INSTALL_DOCTOR_CUSTOM_HOOK_KEYS: customHookKeysEnvironment } },
+    'custom-post-hooks-verify': { argv: ['/bin/bash', provisioner, '--engine-operation', 'custom-post-hooks-verify'], env: { ...operationEnvironment, INSTALL_DOCTOR_CUSTOM_HOOK_MANIFEST: customHookManifestEnvironment, INSTALL_DOCTOR_CUSTOM_HOOK_KEYS: customHookKeysEnvironment } },
+    'desired-services-check': { argv: ['/bin/bash', provisioner, '--engine-operation', 'desired-services-check'], env: operationEnvironment },
+    'desired-services-apply': { argv: ['/bin/bash', provisioner, '--engine-operation', 'desired-services-apply'], env: operationEnvironment },
+    'desired-services-verify': { argv: ['/bin/bash', provisioner, '--engine-operation', 'desired-services-verify'], env: operationEnvironment },
+    'reboot-assessment-check': { argv: ['/bin/bash', provisioner, '--engine-operation', 'reboot-assessment-check'], env: operationEnvironment },
+    'reboot-assessment-apply': { argv: ['/bin/bash', provisioner, '--engine-operation', 'reboot-assessment-apply'], env: operationEnvironment },
+    'reboot-assessment-verify': { argv: ['/bin/bash', provisioner, '--engine-operation', 'reboot-assessment-verify'], env: operationEnvironment },
+  },
+};
+const provisionerDigest = crypto.createHash('sha256').update(fs.readFileSync(provisioner)).digest('hex');
+for (const operation of Object.values(invocation.operations)) {
+  if (operation.kind !== 'managed-file') operation.verifiedExecutable = { argvIndex: 1, sha256: provisionerDigest };
+}
+fs.writeFileSync(invocationPath, `${JSON.stringify(invocation)}\n`, { mode: 0o600, flag: 'wx' });
+NODE
+  GENERATE_STATUS=$?
+  [ "$GENERATE_STATUS" -eq 0 ] || { rm -f "$INVOCATION"; rmdir "$INVOCATION_DIR" 2>/dev/null || true; logg error 'Unable to create the canonical engine invocation'; return "$GENERATE_STATUS"; }
+  NORMALIZED_PLAN="$INVOCATION_DIR/normalized-plan.json"
+  node "$ENGINE" --input "$INVOCATION" > "$NORMALIZED_PLAN"
+  GENERATE_STATUS=$?
+  if [ "$GENERATE_STATUS" -ne 0 ]; then
+    rm -f "$INVOCATION" "$NORMALIZED_PLAN"
+    rmdir "$INVOCATION_DIR" 2>/dev/null || true
+    logg error 'Unable to normalize the canonical install plan'
+    return "$GENERATE_STATUS"
+  fi
+  PLAN_DIGEST="$(node -e "const p=JSON.parse(require('node:fs').readFileSync(process.argv[1],'utf8')); if(!/^[a-f0-9]{64}$/.test(p.digest)) process.exit(2); process.stdout.write(p.digest)" "$NORMALIZED_PLAN")" || return 2
+  mkdir -p "$STATE_ROOT/approvals" || return 1
+  chmod 0700 "$STATE_ROOT/approvals" || return 1
+  APPROVAL_PLAN="$STATE_ROOT/approvals/$PLAN_DIGEST.json"
+  if [ -e "$APPROVAL_PLAN" ]; then
+    node - "$NORMALIZED_PLAN" "$APPROVAL_PLAN" <<'NODE' || { logg error 'Normalized plan digest collided with different persisted semantics'; return 2; }
+const fs = require('node:fs');
+const semantic = file => { const value = JSON.parse(fs.readFileSync(file, 'utf8')); delete value.createdAt; return JSON.stringify(value); };
+if (semantic(process.argv[2]) !== semantic(process.argv[3])) process.exit(1);
+NODE
+  else
+    install -m 0600 "$NORMALIZED_PLAN" "$APPROVAL_PLAN" || return 1
+  fi
+  APPROVAL="${INSTALL_DOCTOR_APPROVED_PLAN_DIGEST:-}"
+  if [ -z "${HEADLESS_INSTALL:-}" ] && [ -t 0 ]; then
+    printf '\nNormalized install plan (%s):\n' "$PLAN_DIGEST" > /dev/tty
+    sed -n '1,240p' "$NORMALIZED_PLAN" > /dev/tty
+    if command -v gum >/dev/null 2>&1; then
+      gum confirm "Approve exact plan $PLAN_DIGEST?" < /dev/tty > /dev/tty && APPROVAL="$PLAN_DIGEST"
+    else
+      printf 'Approve this exact plan? [y/N]: ' > /dev/tty
+      read -r APPROVE_CURRENT_PLAN < /dev/tty || true
+      case "${APPROVE_CURRENT_PLAN:-}" in y|Y|yes|YES) APPROVAL="$PLAN_DIGEST" ;; esac
+    fi
+  fi
+  if [ "$APPROVAL" != "$PLAN_DIGEST" ]; then
+    logg error "Plan approval required; review $APPROVAL_PLAN and rerun with INSTALL_DOCTOR_APPROVED_PLAN_DIGEST=$PLAN_DIGEST"
+    rm -f "$INVOCATION" "$NORMALIZED_PLAN" "$LOAD_PLAN_INVOCATION" "$LOAD_PLAN_RESULT" \
+      "$ARTIFACT_DERIVE_INVOCATION" "$ARTIFACT_DERIVE_RESULT"
+    rmdir "$INVOCATION_DIR" 2>/dev/null || true
+    return 3
+  fi
+  INSTALL_DOCTOR_APPROVED_PLAN_DIGEST="$PLAN_DIGEST"
+  export INSTALL_DOCTOR_APPROVED_PLAN_DIGEST
+  if [ "$MODE" = --plan-only ]; then
+    logg info "Approved normalized plan $PLAN_DIGEST before host mutation"
+    rm -f "$INVOCATION" "$NORMALIZED_PLAN" "$LOAD_PLAN_INVOCATION" "$LOAD_PLAN_RESULT" \
+      "$ARTIFACT_DERIVE_INVOCATION" "$ARTIFACT_DERIVE_RESULT"
+    rmdir "$INVOCATION_DIR" 2>/dev/null || true
+    return 0
+  fi
+  RUNS_INVOCATION="$INVOCATION_DIR/runs-list.json"
+  RUNS_RESULT="$INVOCATION_DIR/runs-list-result.json"
+  node - "$RUNS_INVOCATION" "$STATE_ROOT" <<'NODE'
+const fs = require('node:fs');
+const [path, stateRoot] = process.argv.slice(2);
+fs.writeFileSync(path, `${JSON.stringify({ schemaVersion: 1, command: 'runs-list', stateRoot })}\n`, { mode: 0o600, flag: 'wx' });
+NODE
+  GENERATE_STATUS=$?
+  if [ "$GENERATE_STATUS" -eq 0 ]; then
+    node "$ENGINE" --input "$RUNS_INVOCATION" > "$RUNS_RESULT"
+    GENERATE_STATUS=$?
+  fi
+  if [ "$GENERATE_STATUS" -ne 0 ]; then
+    rm -f "$INVOCATION" "$NORMALIZED_PLAN" "$RUNS_INVOCATION" "$RUNS_RESULT"
+    rmdir "$INVOCATION_DIR" 2>/dev/null || true
+    logg error 'Unable to inspect protected resumable runs'
+    return "$GENERATE_STATUS"
+  fi
+  RESUME_RUN_ID="$(node - "$RUNS_RESULT" "$PLAN_DIGEST" <<'NODE'
+const fs = require('node:fs');
+const [path, planDigest] = process.argv.slice(2);
+const value = JSON.parse(fs.readFileSync(path, 'utf8'));
+const matches = value.runs.filter(run => run.planDigest === planDigest && run.resumeCandidate === true);
+if (matches.length > 1) {
+  process.stderr.write(`multiple resumable runs match plan ${planDigest}; inspect them with the engine runs-list command\n`);
+  process.exit(2);
+}
+if (matches.length === 1) process.stdout.write(matches[0].runId);
+NODE
+)"
+  GENERATE_STATUS=$?
+  if [ "$GENERATE_STATUS" -ne 0 ]; then
+    rm -f "$INVOCATION" "$NORMALIZED_PLAN" "$RUNS_INVOCATION" "$RUNS_RESULT"
+    rmdir "$INVOCATION_DIR" 2>/dev/null || true
+    return "$GENERATE_STATUS"
+  fi
+  node - "$INVOCATION" "$PLAN_DIGEST" "$RENDERER" "$STATE_ROOT" "$RESUME_RUN_ID" <<'NODE'
+const fs = require('node:fs');
+const [invocationPath, approvedPlanDigest, renderer, stateRoot, resumeRunId] = process.argv.slice(2);
+const planned = JSON.parse(fs.readFileSync(invocationPath, 'utf8'));
+const running = resumeRunId
+  ? { ...planned, command: 'resume', runId: resumeRunId, planDigest: approvedPlanDigest, renderer, stateRoot }
+  : { ...planned, command: 'run', approvedPlanDigest, renderer, stateRoot };
+const temporary = `${invocationPath}.approved`;
+fs.writeFileSync(temporary, `${JSON.stringify(running)}\n`, { mode: 0o600, flag: 'wx' });
+fs.renameSync(temporary, invocationPath);
+NODE
+  GENERATE_STATUS=$?
+  rm -f "$RUNS_INVOCATION" "$RUNS_RESULT"
+  [ "$GENERATE_STATUS" -eq 0 ] || { rm -f "$INVOCATION" "$NORMALIZED_PLAN"; rmdir "$INVOCATION_DIR" 2>/dev/null || true; return "$GENERATE_STATUS"; }
+  if [ -n "$RESUME_RUN_ID" ]; then
+    logg info "Resuming protected run $RESUME_RUN_ID for exact plan $PLAN_DIGEST"
+  fi
+  node "$ENGINE" --input "$INVOCATION"
+  ENGINE_STATUS=$?
+  INSTALL_DOCTOR_SUDO_FINALIZER_VERIFIED=false
+  export INSTALL_DOCTOR_SUDO_FINALIZER_VERIFIED
+  EVIDENCE_INVOCATION="$INVOCATION_DIR/evidence.json"
+  EVIDENCE_RESULT="$INVOCATION_DIR/evidence-result.json"
+  node - "$INVOCATION" "$EVIDENCE_INVOCATION" <<'NODE'
+const fs = require('node:fs');
+const path = require('node:path');
+const [invocationPath, evidencePath] = process.argv.slice(2);
+const invocation = JSON.parse(fs.readFileSync(invocationPath, 'utf8'));
+const runsRoot = path.join(invocation.stateRoot, 'runs');
+const matches = fs.existsSync(runsRoot) ? fs.readdirSync(runsRoot).filter(planDigest => {
+  if (!/^[a-f0-9]{64}$/.test(planDigest)) return false;
+  const candidate = path.join(runsRoot, planDigest, invocation.runId);
+  try { return fs.lstatSync(candidate).isDirectory() && !fs.lstatSync(candidate).isSymbolicLink(); } catch { return false; }
+}) : [];
+if (matches.length !== 1) process.exit(1);
+fs.writeFileSync(evidencePath, `${JSON.stringify({
+  schemaVersion: 1, command: 'evidence-verify', runId: invocation.runId,
+  planDigest: matches[0], stateRoot: invocation.stateRoot,
+})}\n`, { mode: 0o600, flag: 'wx' });
+NODE
+  if [ "$?" -eq 0 ]; then
+    node "$ENGINE" --input "$EVIDENCE_INVOCATION" > "$EVIDENCE_RESULT"
+    EVIDENCE_STATUS=$?
+  else
+    EVIDENCE_STATUS=1
+  fi
+  CLEANUP_EVIDENCE_INVOCATION="$INVOCATION_DIR/cleanup-evidence.json"
+  CLEANUP_EVIDENCE_RESULT="$INVOCATION_DIR/cleanup-evidence-result.json"
+  node - "$INVOCATION" "$PLAN_DIGEST" "$CLEANUP_EVIDENCE_INVOCATION" <<'NODE'
+const fs = require('node:fs');
+const [invocationPath, planDigest, evidencePath] = process.argv.slice(2);
+const invocation = JSON.parse(fs.readFileSync(invocationPath, 'utf8'));
+fs.writeFileSync(evidencePath, `${JSON.stringify({
+  schemaVersion: 1, command: 'task-evidence', runId: invocation.runId, planDigest,
+  taskId: 'system.sudo-credential-cleanup', stateRoot: invocation.stateRoot,
+})}\n`, { mode: 0o600, flag: 'wx' });
+NODE
+  if [ "$?" -eq 0 ]; then
+    node "$ENGINE" --input "$CLEANUP_EVIDENCE_INVOCATION" > "$CLEANUP_EVIDENCE_RESULT"
+    CLEANUP_EVIDENCE_STATUS=$?
+  else
+    CLEANUP_EVIDENCE_STATUS=1
+  fi
+  [ "$CLEANUP_EVIDENCE_STATUS" -eq 0 ] && INSTALL_DOCTOR_SUDO_FINALIZER_VERIFIED=true
+  if [ "$ENGINE_STATUS" -eq 0 ] && [ "$EVIDENCE_STATUS" -ne 0 ]; then
+    logg error 'Engine exited successfully without independently verifiable committed evidence'
+    ENGINE_STATUS=2
+  elif [ "$ENGINE_STATUS" -eq 0 ]; then
+    logg info 'Verified authoritative engine completion evidence'
+  fi
+  rm -f "$INVOCATION" "$NORMALIZED_PLAN" "$LOAD_PLAN_INVOCATION" "$LOAD_PLAN_RESULT" \
+    "$ARTIFACT_DERIVE_INVOCATION" "$ARTIFACT_DERIVE_RESULT"
+  rm -f "$EVIDENCE_INVOCATION" "$EVIDENCE_RESULT"
+  rm -f "$CLEANUP_EVIDENCE_INVOCATION" "$CLEANUP_EVIDENCE_RESULT"
+  rmdir "$INVOCATION_DIR" 2>/dev/null || true
+  return "$ENGINE_STATUS"
+}
+
+idEffectReceiptPath() {
+  case "${INSTALL_DOCTOR_EFFECT_ID:-}" in custom-post-hooks) ;; *) return 2 ;; esac
+  case "${INSTALL_DOCTOR_EFFECT_DIGEST:-}" in ''|*[!a-f0-9]*) return 2 ;; esac
+  [ "${#INSTALL_DOCTOR_EFFECT_DIGEST}" -eq 64 ] || return 2
+  [ -n "${INSTALL_DOCTOR_EFFECT_RECEIPT_DIR:-}" ] || return 2
+  printf '%s/%s.verified\n' "$INSTALL_DOCTOR_EFFECT_RECEIPT_DIR" "$INSTALL_DOCTOR_EFFECT_ID"
+}
+
+idValidateCatalogPostMetadata() {
+  command -v process-software-post-scripts >/dev/null 2>&1 || return 2
+  process-software-post-scripts
+}
+
+idCheckEffectReceipt() {
+  local RECEIPT
+  RECEIPT="$(idEffectReceiptPath)" || return 2
+  [ -f "$RECEIPT" ] && [ ! -L "$RECEIPT" ] || return 10
+  [ "$(cat "$RECEIPT" 2>/dev/null)" = "$INSTALL_DOCTOR_EFFECT_DIGEST" ] || return 10
+}
+
+idRecordEffectReceipt() {
+  local RECEIPT RECEIPT_DIR RECEIPT_TMP
+  RECEIPT="$(idEffectReceiptPath)" || return 2
+  RECEIPT_DIR="$(dirname "$RECEIPT")"
+  [ ! -L "$RECEIPT_DIR" ] || return 2
+  mkdir -p "$RECEIPT_DIR" || return 1
+  chmod 0700 "$RECEIPT_DIR" || return 1
+  RECEIPT_TMP="$(mktemp "$RECEIPT_DIR/.${INSTALL_DOCTOR_EFFECT_ID}.XXXXXX")" || return 1
+  printf '%s\n' "$INSTALL_DOCTOR_EFFECT_DIGEST" > "$RECEIPT_TMP" || { rm -f "$RECEIPT_TMP"; return 1; }
+  chmod 0600 "$RECEIPT_TMP" || { rm -f "$RECEIPT_TMP"; return 1; }
+  mv -f "$RECEIPT_TMP" "$RECEIPT"
+}
+
+idRunSelectedPostInstallxHooks() {
+  local PHASE="${1:-}" POST_INSTALLX_DIR PACKAGE HOOK STATUS EXPECTED ACTUAL MATCHES ENTRY_PACKAGE ENTRY_SHA
+  local NEEDS_APPLY=0 PENDING=0 FAILURES=0 FAILED_HOOKS=''
+  case "$PHASE" in check|apply|verify) ;; *) return 2 ;; esac
+  POST_INSTALLX_DIR="$HOME/.local/bin/post-installx"
+  case "${INSTALL_DOCTOR_CUSTOM_HOOK_KEYS:-}" in *[!a-z0-9._,:-]*) return 2 ;; esac
+  if [ -z "${INSTALL_DOCTOR_CUSTOM_HOOK_KEYS:-}" ]; then
+    [ -z "${INSTALL_DOCTOR_CUSTOM_HOOK_MANIFEST:-}" ] || return 2
+    return 0
+  fi
+  [ -d "$POST_INSTALLX_DIR" ] && [ ! -L "$POST_INSTALLX_DIR" ] || return 2
+  [ -n "${INSTALL_DOCTOR_CUSTOM_HOOK_MANIFEST:-}" ] || return 2
+  while IFS= read -r MATCHES; do
+    ENTRY_PACKAGE="${MATCHES%%=*}"; ENTRY_SHA="${MATCHES#*=}"
+    [ "$ENTRY_PACKAGE" != "$MATCHES" ] || return 2
+    case "$ENTRY_PACKAGE" in ''|*[!a-z0-9._:-]*) return 2 ;; esac
+    case "$ENTRY_SHA" in *[!a-f0-9]*) return 2 ;; esac
+    [ "${#ENTRY_PACKAGE}" -le 128 ] && [ "${#ENTRY_SHA}" -eq 64 ] || return 2
+  done <<EOF
+$INSTALL_DOCTOR_CUSTOM_HOOK_MANIFEST
+EOF
+  while IFS= read -r PACKAGE; do
+    [ -n "$PACKAGE" ] || continue
+    HOOK="$POST_INSTALLX_DIR/post-$PACKAGE.sh"
+    [ -f "$HOOK" ] && [ ! -L "$HOOK" ] || continue
+    MATCHES="$(printf '%s\n' "$INSTALL_DOCTOR_CUSTOM_HOOK_MANIFEST" | awk -F= -v package="$PACKAGE" '$1 == package { count++; value=$2 } END { if (count == 1) print value }')"
+    [ "${#MATCHES}" -eq 64 ] || return 2
+    EXPECTED="$MATCHES"
+    ACTUAL="$(idSha256File "$HOOK")" || return 2
+    [ "$ACTUAL" = "$EXPECTED" ] || { logg error "custom hook digest mismatch: $(basename "$HOOK")"; return 2; }
+    if [ "$PHASE" = apply ]; then
+      if bash "$HOOK" --check </dev/null; then STATUS=0; else STATUS=$?; fi
+      case "$STATUS" in
+        0) continue ;;
+        10)
+          if bash "$HOOK" --apply </dev/null; then STATUS=0; else STATUS=$?; fi
+          if [ "$STATUS" -eq 0 ]; then
+            if bash "$HOOK" --verify </dev/null; then STATUS=0; else STATUS=$?; fi
+            [ "$STATUS" -eq 0 ] || FAILURES=$((FAILURES + 1))
+          elif [ "$STATUS" -eq 20 ]; then PENDING=1
+          else FAILURES=$((FAILURES + 1)); fi
+          ;;
+        20) PENDING=1 ;;
+        *) FAILURES=$((FAILURES + 1)) ;;
+      esac
+    else
+      if bash "$HOOK" "--$PHASE" </dev/null; then STATUS=0; else STATUS=$?; fi
+      case "$STATUS" in 0) ;; 10) NEEDS_APPLY=1 ;; 20) PENDING=1 ;; *) FAILURES=$((FAILURES + 1)) ;; esac
+    fi
+    [ "$FAILURES" -eq 0 ] || FAILED_HOOKS="$FAILED_HOOKS $(basename "$HOOK")"
+  done < <(printf '%s\n' "${INSTALL_DOCTOR_CUSTOM_HOOK_KEYS//,/$'\n'}")
+  [ "$FAILURES" -eq 0 ] || { logg error "$FAILURES selected post-installx hook(s) failed:$FAILED_HOOKS"; return 1; }
+  [ "$PENDING" -eq 0 ] || return 20
+  [ "$NEEDS_APPLY" -eq 0 ] || return 10
+}
+
+idRunEngineOperation() {
+  local OPERATION_STATUS
+  case "${1:-}" in
+    stage-zero-install-user-check|stage-zero-install-user-verify)
+      [ "$(id -u)" -ne 0 ] || return 10
+      [ "$(id -un)" = "${INSTALL_DOCTOR_USER:-}" ] || return 2
+      return 0
+      ;;
+    stage-zero-install-user-apply) return 2 ;;
+    stage-zero-sudo-check|stage-zero-sudo-verify)
+      sudo -n true >/dev/null 2>&1 && return 0
+      return 10
+      ;;
+    stage-zero-sudo-apply) return 2 ;;
+    sudo-cleanup-check)
+      [ "${INSTALL_DOCTOR_SUDO_PREEXISTING:-false}" = true ] && return 0
+      sudo -n true >/dev/null 2>&1 && return 10
+      return 0
+      ;;
+    sudo-cleanup-apply)
+      [ "${INSTALL_DOCTOR_SUDO_PREEXISTING:-false}" = true ] && return 0
+      sudo -K >/dev/null 2>&1 || return 2
+      sudo -n true >/dev/null 2>&1 && return 2
+      return 0
+      ;;
+    sudo-cleanup-verify)
+      [ "${INSTALL_DOCTOR_SUDO_PREEXISTING:-false}" = true ] && return 0
+      sudo -n true >/dev/null 2>&1 && return 30
+      return 0
+      ;;
+    warp-disconnect-check) idWarpDisconnectedCheck ;;
+    warp-disconnect-apply) idWarpDisconnectedApply ;;
+    warp-disconnect-verify) idWarpDisconnectedVerify ;;
+    native-dependencies-check|native-dependencies-verify)
+      command -v curl >/dev/null 2>&1 && command -v git >/dev/null 2>&1 && command -v rsync >/dev/null 2>&1 && return 0
+      return 10
+      ;;
+    native-dependencies-apply)
+      ensureBasicDeps
+      OPERATION_STATUS=$?
+      [ "$OPERATION_STATUS" -ne 1 ] || return 75
+      return "$OPERATION_STATUS"
+      ;;
+    source-check) verifyChezmoiSourceRepo >/dev/null 2>&1 ;;
+    source-apply)
+      cloneChezmoiSourceRepo
+      OPERATION_STATUS=$?
+      [ "$OPERATION_STATUS" -ne 1 ] || return 75
+      return "$OPERATION_STATUS"
+      ;;
+    source-verify) verifyChezmoiSourceRepo ;;
+    homebrew-check|homebrew-verify)
+      loadHomebrew
+      command -v brew >/dev/null 2>&1 && return 0
+      [ "${1:-}" = homebrew-check ] && return 10
+      return 2
+      ;;
+    homebrew-apply)
+      ensureHomebrew
+      ;;
+    homebrew-tools-check|homebrew-tools-verify)
+      loadHomebrew
+      command -v chezmoi >/dev/null 2>&1 && command -v gum >/dev/null 2>&1 && command -v zx >/dev/null 2>&1 && return 0
+      [ "${1:-}" = homebrew-tools-check ] && return 10
+      return 2
+      ;;
+    homebrew-tools-apply)
+      loadHomebrew
+      ensureHomebrewDeps
+      ;;
+    chezmoi-init-check)
+      [ -f "${XDG_CONFIG_HOME:-$HOME/.config}/chezmoi/chezmoi.yaml" ] || return 10
+      idChezmoi data >/dev/null 2>&1
+      ;;
+    chezmoi-init-apply) initChezmoiAndPrompt ;;
+    chezmoi-init-verify)
+      [ -f "${XDG_CONFIG_HOME:-$HOME/.config}/chezmoi/chezmoi.yaml" ] || return 2
+      idChezmoi data >/dev/null 2>&1
+      ;;
+    installx-tool-check|installx-tool-verify)
+      idChezmoi verify --no-pager --exclude=scripts "$HOME/.local/bin/installx" >/dev/null 2>&1 && return 0
+      [ "${1:-}" = installx-tool-check ] && return 10
+      return 2
+      ;;
+    installx-tool-apply) idChezmoi apply --no-pager --force --exclude=scripts "$HOME/.local/bin/installx" ;;
+    desired-packages-check)
+      (cd "$(dirname "$INSTALL_DOCTOR_CHEZMOI_SOURCE")" && "$HOME/.local/bin/installx" --check --all --lazy)
+      ;;
+    desired-packages-apply)
+      (cd "$(dirname "$INSTALL_DOCTOR_CHEZMOI_SOURCE")" && "$HOME/.local/bin/installx" --all --lazy)
+      ;;
+    desired-packages-verify)
+      (cd "$(dirname "$INSTALL_DOCTOR_CHEZMOI_SOURCE")" && "$HOME/.local/bin/installx" --check --all --lazy)
+      OPERATION_STATUS=$?
+      [ "$OPERATION_STATUS" -eq 0 ] && return 0
+      return 2
+      ;;
+    macos-full-disk-access-check)
+      [ "$(detect_os)" = macos ] || return 20
+      [ -z "${HEADLESS_INSTALL:-}" ] || return 20
+      plutil -lint /Library/Preferences/com.apple.TimeMachine.plist >/dev/null 2>&1 && return 0
+      return 10
+      ;;
+    macos-full-disk-access-apply) ensureFullDiskAccess ;;
+    macos-full-disk-access-verify)
+      [ "$(detect_os)" = macos ] || return 20
+      [ -z "${HEADLESS_INSTALL:-}" ] || return 20
+      plutil -lint /Library/Preferences/com.apple.TimeMachine.plist >/dev/null 2>&1 && return 0
+      return 30
+      ;;
+    macos-certificate-check)
+      [ "$(detect_os)" = macos ] || return 20
+      [ -z "${HEADLESS_INSTALL:-}" ] || return 20
+      [ -f "$HOME/.local/etc/ssl/cloudflare/cloudflare.crt" ] || return 20
+      security verify-cert -c "$HOME/.local/etc/ssl/cloudflare/cloudflare.crt" >/dev/null 2>&1 && return 0
+      return 10
+      ;;
+    macos-certificate-apply) importCloudFlareCert ;;
+    macos-certificate-verify)
+      [ "$(detect_os)" = macos ] || return 20
+      [ -z "${HEADLESS_INSTALL:-}" ] || return 20
+      [ -f "$HOME/.local/etc/ssl/cloudflare/cloudflare.crt" ] || return 20
+      security verify-cert -c "$HOME/.local/etc/ssl/cloudflare/cloudflare.crt" >/dev/null 2>&1
+      ;;
+    qubes-dom0-check)
+      return 78
+      ;;
+    qubes-dom0-apply) return 78 ;;
+    qubes-dom0-verify)
+      return 78
+      ;;
+    configured-agent-tasks-check) idVerifyConfiguredAgentTasksReceipt ;;
+    configured-agent-tasks-apply) idApplyConfiguredAgentTasks ;;
+    configured-agent-tasks-verify)
+      idVerifyConfiguredAgentTasksReceipt
+      OPERATION_STATUS=$?
+      [ "$OPERATION_STATUS" -eq 0 ] && return 0
+      return 2
+      ;;
+    chezmoi-check)
+      idChezmoi verify --no-pager >/dev/null 2>&1 && return 0
+      return 10
+      ;;
+    chezmoi-apply) runChezmoi ;;
+    chezmoi-verify) idChezmoi verify --no-pager ;;
+    software-groups-check)
+      command -v process-software-groups >/dev/null 2>&1 || return 2
+      process-software-groups --check
+      OPERATION_STATUS=$?
+      case "$OPERATION_STATUS" in 0|10) return "$OPERATION_STATUS" ;; *) return 2 ;; esac
+      ;;
+    custom-post-hooks-check) idRunSelectedPostInstallxHooks check ;;
+    software-groups-apply)
+      command -v process-software-groups >/dev/null 2>&1 || return 2
+      process-software-groups
+      OPERATION_STATUS=$?
+      [ "$OPERATION_STATUS" -eq 0 ] && return 0
+      return 2
+      ;;
+    software-groups-verify)
+      command -v process-software-groups >/dev/null 2>&1 || return 2
+      process-software-groups --check
+      OPERATION_STATUS=$?
+      [ "$OPERATION_STATUS" -eq 0 ] && return 0
+      return 2
+      ;;
+    custom-post-hooks-verify) idRunSelectedPostInstallxHooks verify ;;
+    catalog-post-validation-check|catalog-post-validation-verify) idValidateCatalogPostMetadata ;;
+    catalog-post-validation-apply) return 2 ;;
+    custom-post-hooks-apply) idRunSelectedPostInstallxHooks apply ;;
+    desired-services-check)
+      [ -n "${INSTALL_DOCTOR_SELECTED_SERVICES:-}" ] || return 0
+      command -v process-software-services >/dev/null 2>&1 || return 2
+      process-software-services --check
+      ;;
+    desired-services-apply)
+      [ -n "${INSTALL_DOCTOR_SELECTED_SERVICES:-}" ] || return 0
+      command -v process-software-services >/dev/null 2>&1 || return 2
+      process-software-services
+      ;;
+    desired-services-verify)
+      [ -n "${INSTALL_DOCTOR_SELECTED_SERVICES:-}" ] || return 0
+      command -v process-software-services >/dev/null 2>&1 || return 2
+      process-software-services --check
+      OPERATION_STATUS=$?
+      [ "$OPERATION_STATUS" -eq 0 ] && return 0
+      return 2
+      ;;
+    reboot-assessment-check)
+      if isRebootRequired; then
+        logg warn 'A reboot is required before convergence can be verified'
+        return 11
+      fi
+      return 0
+      ;;
+    reboot-assessment-verify)
+      if isRebootRequired; then
+        logg warn 'A reboot is required before convergence can be verified'
+        return 31
+      fi
+      return 0
+      ;;
+    reboot-assessment-apply) return 2 ;;
+    *) logg error 'Unknown canonical engine operation'; return 2 ;;
+  esac
+}
+
+idRunRequiredProvisionStep() {
+  local LABEL="$1" STATUS
+  shift
+  logg info "$LABEL"
+  "$@"
+  STATUS=$?
+  if [ "$STATUS" -ne 0 ]; then
+    logg error "$LABEL failed (exit $STATUS)"
+    idEmitProvisionStatus provision failed "$STATUS"
+    return "$STATUS"
+  fi
+}
+
+idProvisionExit() {
+  local STATUS="$1"
+  if [ "${INSTALL_DOCTOR_SUDO_PREPARED:-false}" = true ]; then
+    removePasswordlessSudo || true
+    INSTALL_DOCTOR_SUDO_PREPARED=false
+  fi
+  idCleanupProvisionerRuntime || true
+  idOnProvisionExit "$STATUS"
+}
+
 # @description Invalidate the temporary sudo credential cache and remove legacy bootstrap state.
 removePasswordlessSudo() {
-  if [ "$(detect_os)" = "macos" ]; then
-    logg info "Ensuring $USER is still an admin"
-    sudo dscl . -merge /Groups/admin GroupMembership "$USER"
-  fi
-  # Remove only the old dedicated drop-in. Modern runs never write sudoers.
-  sudo rm -f /etc/sudoers.d/install-doctor 2>/dev/null || true
-  sudo -k 2>/dev/null || true
-  ### Drop the passwordless-sudo marker so a future re-run of the script
-  ### re-evaluates from scratch.
-  rm -f /tmp/install-doctor-passwordless-sudo
+  # Safety fallback for interruption before the journaled terminal cleanup
+  # node can run. Never mutate admin membership or sudoers here.
+  [ "${INSTALL_DOCTOR_SUDO_PREEXISTING:-false}" = true ] || sudo -K 2>/dev/null || true
 }
 
 # @description Render the `docs/terminal/post-install.md` file to the terminal at the end of the provisioning process
@@ -1186,84 +2996,180 @@ postProvision() {
   fi
 }
 
-# @description Creates the install user when running as root so Homebrew/provisioning
-#     can continue under a non-root account. Uses INSTALL_DOCTOR_USER env var if set,
-#     falls back to $SUDO_USER, then $USER, then "install-doctor".
-function ensureInstallUser() {
-  local INSTALL_USER="${INSTALL_DOCTOR_USER:-${SUDO_USER:-${USER:-install-doctor}}}"
-  local USER_HOME_DIR="/home/$INSTALL_USER"
-  if [ "$(detect_os)" = "macos" ]; then
-    USER_HOME_DIR="/Users/$INSTALL_USER"
+# Validate a previously enrolled target account without changing identity,
+# password, group, home, or administrator state. Cross-UID account creation
+# cannot yet share the target user's protected journal, so it fails closed.
+idValidateInstallUserAccount() {
+  local INSTALL_USER="$1" EXPECTED_HOME ACCOUNT_HOME ACCOUNT_SHELL ACCOUNT_UID HOME_UID HOME_MODE HOME_PERMISSIONS ACCOUNT_GROUPS ENTRY GETENT
+  case "$INSTALL_USER" in ''|*[!a-zA-Z0-9._-]*|[0-9.-]*) return 2 ;; esac
+  id "$INSTALL_USER" >/dev/null 2>&1 || return 2
+  ACCOUNT_UID="$(id -u "$INSTALL_USER" 2>/dev/null)" || return 2
+  case "$ACCOUNT_UID" in ''|*[!0-9]*|0) return 2 ;; esac
+  if [ "$(detect_os)" = macos ]; then
+    EXPECTED_HOME="/Users/$INSTALL_USER"
+    [ -x /usr/bin/dscl ] || return 2
+    ACCOUNT_HOME="$(/usr/bin/dscl . -read "/Users/$INSTALL_USER" NFSHomeDirectory 2>/dev/null | sed -n 's/^NFSHomeDirectory: //p')"
+    ACCOUNT_SHELL="$(/usr/bin/dscl . -read "/Users/$INSTALL_USER" UserShell 2>/dev/null | sed -n 's/^UserShell: //p')"
+  else
+    EXPECTED_HOME="/home/$INSTALL_USER"
+    if [ -x /usr/bin/getent ]; then GETENT=/usr/bin/getent
+    elif [ -x /bin/getent ]; then GETENT=/bin/getent
+    else return 2; fi
+    ENTRY="$("$GETENT" passwd "$INSTALL_USER" 2>/dev/null)" || return 2
+    [ "$(printf '%s\n' "$ENTRY" | wc -l | tr -d ' ')" -eq 1 ] || return 2
+    IFS=: read -r _ _ _ _ _ ACCOUNT_HOME ACCOUNT_SHELL <<EOF
+$ENTRY
+EOF
   fi
+  [ "$ACCOUNT_HOME" = "$EXPECTED_HOME" ] || return 2
+  case "$ACCOUNT_SHELL" in /bin/bash|/bin/zsh|/usr/bin/bash|/usr/bin/zsh) ;; *) return 2 ;; esac
+  [ -x "$ACCOUNT_SHELL" ] || return 2
+  [ -d "$EXPECTED_HOME" ] && [ ! -L "$EXPECTED_HOME" ] || return 2
+  HOME_UID="$(stat -c '%u' "$EXPECTED_HOME" 2>/dev/null || stat -f '%u' "$EXPECTED_HOME" 2>/dev/null)" || return 2
+  HOME_MODE="$(stat -c '%a' "$EXPECTED_HOME" 2>/dev/null || stat -f '%Lp' "$EXPECTED_HOME" 2>/dev/null)" || return 2
+  case "$HOME_UID:$HOME_MODE" in *[!0-9:]*) return 2 ;; esac
+  [ "$HOME_UID" = "$ACCOUNT_UID" ] || return 2
+  HOME_PERMISSIONS=$((8#$HOME_MODE))
+  [ $((HOME_PERMISSIONS & 8#022)) -eq 0 ] || return 2
+  ACCOUNT_GROUPS="$(id -Gn "$INSTALL_USER" 2>/dev/null)" || return 2
+  case " $ACCOUNT_GROUPS " in *' admin '*|*' sudo '*|*' wheel '*) ;; *) return 2 ;; esac
+  printf '%s\n' "$EXPECTED_HOME"
+}
+
+idRequireRootInstallUserEnrollment() {
+  [ "$(id -u)" -eq 0 ] || return 0
+  INSTALL_DOCTOR_USER="${INSTALL_DOCTOR_USER:-${SUDO_USER:-}}"
+  if [ -z "$INSTALL_DOCTOR_USER" ] || ! idValidateInstallUserAccount "$INSTALL_DOCTOR_USER" >/dev/null; then
+    logg error 'Root provisioning requires an exact pre-existing non-root target account with its standard owned home, interactive shell, and admin/sudo/wheel membership.'
+    logg error 'Install Doctor does not automatically create or elevate accounts; create or enroll the target account explicitly, then rerun with INSTALL_DOCTOR_USER set.'
+    return 2
+  fi
+  export INSTALL_DOCTOR_USER
+}
+
+# @description Continue a root launch under an already enrolled compatible
+#     non-root account. Account creation and elevation are intentionally not
+#     performed outside the canonical journal.
+function ensureInstallUser() {
+  local INSTALL_USER="${INSTALL_DOCTOR_USER:-}"
+  [ -n "$INSTALL_USER" ] || { logg error 'Approved install-user identity is missing'; return 2; }
+  local USER_HOME_DIR
   # Check if the script is running as root
   if [ "$(id -u)" -eq 0 ]; then
-    logg info "You are running as root. Proceeding with user creation."
+    USER_HOME_DIR="$(idValidateInstallUserAccount "$INSTALL_USER")" || {
+      logg error 'The enrolled target account changed after admission; refusing root-to-user handoff.'
+      return 2
+    }
+    logg info "Continuing with pre-enrolled target account '$INSTALL_USER'."
 
-    # Resolve SUDO_PASSWORD from Infisical when available (never fall back to a hardcoded default password)
-    if [ -z "${SUDO_PASSWORD:-}" ] && command -v infisical >/dev/null 2>&1 && [ -n "${INFISICAL_TOKEN:-}" ]; then
-      SUDO_PASSWORD="$(infisical secrets get SUDO_PASSWORD --plain --silent 2>/dev/null || true)"
-      export SUDO_PASSWORD
-    fi
-
-    # Check if the install user exists
-    if id "$INSTALL_USER" &>/dev/null; then
-      logg info "User '$INSTALL_USER' already exists. Skipping creation."
-    else
-      # Create a new user
-      logg info "Creating user '$INSTALL_USER'..."
-      if command -v useradd &>/dev/null; then
-        useradd -m -s /bin/bash "$INSTALL_USER"
-      elif command -v dscl &>/dev/null; then
-        dscl . -create "/Users/$INSTALL_USER"
-        dscl . -create "/Users/$INSTALL_USER" UserShell /bin/bash
-        NEW_UID="$(dscl . -list /Users UniqueID | awk '{print $2}' | sort -n | tail -1)"
-        dscl . -create "/Users/$INSTALL_USER" UniqueID "$((NEW_UID + 1))"
-        dscl . -create "/Users/$INSTALL_USER" PrimaryGroupID 20
-        dscl . -create "/Users/$INSTALL_USER" NFSHomeDirectory "/Users/$INSTALL_USER"
-        mkdir -p "/Users/$INSTALL_USER"
-        chown -R "${INSTALL_USER}:staff" "/Users/$INSTALL_USER"
-      else
-        logg info "Unsupported system. Exiting."
-        exit 1
-      fi
-
-      if [ -n "${SUDO_PASSWORD:-}" ]; then
-        logg info "Setting Infisical/env password for '$INSTALL_USER'..."
-        echo "$INSTALL_USER:$SUDO_PASSWORD" | chpasswd 2>/dev/null || \
-        (echo "$SUDO_PASSWORD" | passwd --stdin "$INSTALL_USER" 2>/dev/null || \
-        (echo "$SUDO_PASSWORD" | dscl . -passwd "/Users/$INSTALL_USER" "$SUDO_PASSWORD" 2>/dev/null))
-      fi
-
-      # Grant sudo privileges to the install user
-      logg info "Granting sudo privileges to '$INSTALL_USER'..."
-      if command -v usermod &>/dev/null; then
-        usermod -aG sudo "$INSTALL_USER" 2>/dev/null || usermod -aG wheel "$INSTALL_USER" 2>/dev/null || true
-      elif command -v dseditgroup &>/dev/null; then
-        dseditgroup -o edit -a "$INSTALL_USER" -t user admin
-      fi
-    fi
-
-    # Switch to the install user to continue the script
-    local CURRENT_PROVISIONER USER_PROVISIONER ENV_EXPORT
+    # Seal the complete handoff in a root-owned unpredictable directory. No
+    # path is exposed to the target user until every copy and digest verifies.
+    local CURRENT_PROVISIONER VERIFIED_ENGINE VERIFIED_MANIFEST VERIFIED_SIGNATURE VERIFIED_CATALOG HANDOFF_ROOT USER_PROVISIONER USER_ENGINE USER_MANIFEST USER_SIGNATURE USER_CATALOG ENV_EXPORT USER_RUNTIME
+    local PROVISIONER_SHA MANIFEST_SHA SIGNATURE_SHA ENGINE_SHA CATALOG_SHA RUNTIME_SHA ENV_SHA HANDOFF_STATUS
     CURRENT_PROVISIONER="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "${BASH_SOURCE[0]}")"
-    USER_PROVISIONER="$USER_HOME_DIR/.cache/install.doctor/provision-$$.sh"
-    ENV_EXPORT="/tmp/install-doctor-env-$$.sh"
-    _idCleanupHandoff() { rm -f "$ENV_EXPORT" "$USER_PROVISIONER"; }
-    trap '_idCleanupHandoff' EXIT INT TERM
-    mkdir -p "$USER_HOME_DIR/.cache/install.doctor"
-    chown -R "$INSTALL_USER" "$USER_HOME_DIR/.cache/install.doctor"
-    install -m 0700 "$CURRENT_PROVISIONER" "$USER_PROVISIONER"
-    chown "$INSTALL_USER" "$USER_PROVISIONER"
-    logg warn "Exporting environment variables for the target user"
+    VERIFIED_ENGINE="${INSTALL_DOCTOR_ENGINE_PATH:-}"
+    VERIFIED_MANIFEST="${INSTALL_DOCTOR_VERIFIED_MANIFEST:-}"
+    VERIFIED_SIGNATURE="${INSTALL_DOCTOR_VERIFIED_SIGNATURE:-}"
+    VERIFIED_CATALOG="${INSTALL_DOCTOR_CATALOG_PATH:-}"
+    HANDOFF_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/install-doctor-handoff.XXXXXX")" || return 1
+    chmod 0700 "$HANDOFF_ROOT" || { rm -rf -- "$HANDOFF_ROOT"; return 1; }
+    USER_PROVISIONER="$HANDOFF_ROOT/provision.sh"; USER_ENGINE="$HANDOFF_ROOT/install-doctor-engine.mjs"
+    USER_MANIFEST="$HANDOFF_ROOT/manifest"; USER_SIGNATURE="$HANDOFF_ROOT/manifest.sig"; USER_CATALOG="$HANDOFF_ROOT/catalog.json"; ENV_EXPORT="$HANDOFF_ROOT/environment.sh"
+    USER_RUNTIME="$HANDOFF_ROOT/node"
+    _idCleanupHandoff() { case "${HANDOFF_ROOT:-}" in "${TMPDIR:-/tmp}"/install-doctor-handoff.*) rm -rf -- "$HANDOFF_ROOT" ;; esac; }
+    _idCleanupHandoffAndReport() { local STATUS=$?; _idCleanupHandoff; idCleanupProvisionerRuntime || true; idOnProvisionExit "$STATUS"; }
+    trap '_idCleanupHandoffAndReport' EXIT
+    trap '_idCleanupHandoff; idCleanupProvisionerRuntime || true; exit 130' INT
+    trap '_idCleanupHandoff; idCleanupProvisionerRuntime || true; exit 143' TERM
+    [ -f "$CURRENT_PROVISIONER" ] && [ ! -L "$CURRENT_PROVISIONER" ] || return 1
+    [ -f "$VERIFIED_ENGINE" ] && [ ! -L "$VERIFIED_ENGINE" ] || { logg error 'Verified installer engine is unavailable for user handoff'; return 1; }
+    [ -f "$VERIFIED_MANIFEST" ] && [ ! -L "$VERIFIED_MANIFEST" ] || { logg error 'Verified release manifest is unavailable for user handoff'; return 1; }
+    [ -f "$VERIFIED_SIGNATURE" ] && [ ! -L "$VERIFIED_SIGNATURE" ] || { logg error 'Verified release signature is unavailable for user handoff'; return 1; }
+    [ -f "$VERIFIED_CATALOG" ] && [ ! -L "$VERIFIED_CATALOG" ] || { logg error 'Verified catalog is unavailable for user handoff'; return 1; }
+    PROVISIONER_SHA="$(idSha256File "$CURRENT_PROVISIONER")"; MANIFEST_SHA="$(idSha256File "$VERIFIED_MANIFEST")"
+    SIGNATURE_SHA="$(idSha256File "$VERIFIED_SIGNATURE")"; ENGINE_SHA="$(idSha256File "$VERIFIED_ENGINE")"; CATALOG_SHA="$(idSha256File "$VERIFIED_CATALOG")"
+    [ "$PROVISIONER_SHA" = "${INSTALL_DOCTOR_ARTIFACT_SHA256:-}" ] && [ "$MANIFEST_SHA" = "${INSTALL_DOCTOR_MANIFEST_SHA256:-}" ] \
+      && [ "$ENGINE_SHA" = "${INSTALL_DOCTOR_ENGINE_SHA256:-}" ] && [ "$CATALOG_SHA" = "${INSTALL_DOCTOR_CATALOG_SHA256:-}" ] \
+      || { logg error 'Root handoff source digest mismatch'; return 1; }
+    idInstallSealedHandoffFile "$CURRENT_PROVISIONER" "$USER_PROVISIONER" 0700 "$PROVISIONER_SHA" \
+      && idInstallSealedHandoffFile "$VERIFIED_ENGINE" "$USER_ENGINE" 0700 "$ENGINE_SHA" \
+      && idInstallSealedHandoffFile "$VERIFIED_MANIFEST" "$USER_MANIFEST" 0600 "$MANIFEST_SHA" \
+      && idInstallSealedHandoffFile "$VERIFIED_SIGNATURE" "$USER_SIGNATURE" 0600 "$SIGNATURE_SHA" \
+      && idInstallSealedHandoffFile "$VERIFIED_CATALOG" "$USER_CATALOG" 0600 "$CATALOG_SHA" \
+      || { logg error 'Copied handoff set failed checksum verification'; return 1; }
+    if [ -n "${INSTALL_DOCTOR_RUNTIME_STAGE:-}" ]; then
+      [ -f "${INSTALL_DOCTOR_RUNTIME_NODE:-}" ] && [ ! -L "${INSTALL_DOCTOR_RUNTIME_NODE:-}" ] || return 1
+      RUNTIME_SHA="$(idSha256File "$INSTALL_DOCTOR_RUNTIME_NODE")"
+      idInstallSealedHandoffFile "$INSTALL_DOCTOR_RUNTIME_NODE" "$USER_RUNTIME" 0700 "$RUNTIME_SHA" || return 1
+      INSTALL_DOCTOR_RUNTIME_NODE="$USER_RUNTIME"
+    else
+      USER_RUNTIME="${INSTALL_DOCTOR_RUNTIME_NODE:-}"
+      if [ -L "$USER_RUNTIME" ]; then
+        if command -v realpath >/dev/null 2>&1; then USER_RUNTIME="$(realpath "$USER_RUNTIME")"
+        elif readlink -f "$USER_RUNTIME" >/dev/null 2>&1; then USER_RUNTIME="$(readlink -f "$USER_RUNTIME")"
+        else logg error 'Cannot safely resolve the system Node runtime for handoff'; return 1
+        fi
+      fi
+      [ -f "$USER_RUNTIME" ] && [ ! -L "$USER_RUNTIME" ] && [ -x "$USER_RUNTIME" ] \
+        || { logg error 'System Node runtime is unsafe for handoff'; return 1; }
+      INSTALL_DOCTOR_RUNTIME_NODE="$USER_RUNTIME"
+      RUNTIME_SHA="$(idSha256File "$USER_RUNTIME")"
+    fi
+    INSTALL_DOCTOR_ENGINE_PATH="$USER_ENGINE"
+    INSTALL_DOCTOR_VERIFIED_MANIFEST="$USER_MANIFEST"
+    INSTALL_DOCTOR_VERIFIED_SIGNATURE="$USER_SIGNATURE"
+    INSTALL_DOCTOR_CATALOG_PATH="$USER_CATALOG"
+    export INSTALL_DOCTOR_ENGINE_PATH INSTALL_DOCTOR_VERIFIED_MANIFEST INSTALL_DOCTOR_VERIFIED_SIGNATURE INSTALL_DOCTOR_CATALOG_PATH INSTALL_DOCTOR_CATALOG_SHA256
+    logg info "Writing the bounded provisioning environment for the target user"
     umask 077
-    export -p > "$ENV_EXPORT"
-    chmod 0600 "$ENV_EXPORT"
-    chown "$INSTALL_USER" "$ENV_EXPORT"
+    : > "$ENV_EXPORT"
+    local HANDOFF_VARIABLE HANDOFF_VALUE
+    # This is intentionally a fixed allowlist. In particular, arbitrary
+    # provider tokens, proxy variables, shell hooks, and caller credentials
+    # must not cross the root-to-user trust boundary.
+    for HANDOFF_VARIABLE in \
+      ANSIBLE_PROVISION_VM CI COLORTERM DEBUG DEBUG_MODE FULL_NAME HEADLESS_INSTALL \
+      HOST INSTALL_DOCTOR_ARTIFACT_SHA256 INSTALL_DOCTOR_ENGINE_NODE_MIN \
+      INSTALL_DOCTOR_BOOTSTRAP_PLATFORM \
+      INSTALL_DOCTOR_CATALOG_PATH INSTALL_DOCTOR_CATALOG_SHA256 \
+      INSTALL_DOCTOR_ENGINE_PATH INSTALL_DOCTOR_ENGINE_SHA256 INSTALL_DOCTOR_MANIFEST_SHA256 \
+      INSTALL_DOCTOR_ROLE INSTALL_DOCTOR_CAPABILITY INSTALL_DOCTOR_NETWORK INSTALL_DOCTOR_CONCURRENCY \
+      INSTALL_DOCTOR_USER INSTALL_DOCTOR_SELECTED_SERVICES INSTALL_DOCTOR_SELECTED_PACKAGES \
+      INSTALL_DOCTOR_SELECTED_SUPPORTED_PATHS INSTALL_DOCTOR_LAZY_RESOLVER_REQUIREMENTS \
+      INSTALL_DOCTOR_CONSENT_PRIVILEGED INSTALL_DOCTOR_CONSENT_NETWORK INSTALL_DOCTOR_CONSENT_BEST_EFFORT INSTALL_DOCTOR_OFFLINE \
+      INSTALL_DOCTOR_PLATFORM_CELL INSTALL_DOCTOR_PLATFORM_STATUS INSTALL_DOCTOR_PLATFORM_OS \
+      INSTALL_DOCTOR_PLATFORM_RELEASE INSTALL_DOCTOR_PLATFORM_ARCH INSTALL_DOCTOR_PLATFORM_ENVIRONMENT \
+      INSTALL_DOCTOR_PLATFORM_ROLE INSTALL_DOCTOR_PLATFORM_LIMITATION \
+      INSTALL_DOCTOR_SUDO_PREEXISTING \
+      INSTALL_DOCTOR_AGENT_TASK_DIR INSTALL_DOCTOR_AGENT_TASKS_CONSENT \
+      INSTALL_DOCTOR_AGENT_FAILURE_POLICY INSTALL_DOCTOR_TASK_RETRIES \
+      INSTALL_DOCTOR_APPROVED_PLAN_DIGEST \
+      INSTALL_DOCTOR_CHEZMOI_SOURCE \
+      INSTALL_DOCTOR_RELEASE_ID INSTALL_DOCTOR_SOURCE_COMMIT \
+      INSTALL_DOCTOR_RUNTIME_NODE INSTALL_DOCTOR_RUNTIME_NODE_VERSION \
+      INSTALL_DOCTOR_VERIFIED_MANIFEST INSTALL_DOCTOR_VERIFIED_SIGNATURE \
+      KEEP_GOING LANG LC_ALL NO_RESTART PRIMARY_EMAIL PUBLIC_SERVICES_DOMAIN \
+      REPO RESTRICTED_ENVIRONMENT SOFTWARE_GROUP START_REPO TERM TEST_INSTALL \
+      WORK_ENVIRONMENT; do
+      HANDOFF_VALUE="${!HANDOFF_VARIABLE-}"
+      [ -n "$HANDOFF_VALUE" ] || continue
+      printf 'export %s=%q\n' "$HANDOFF_VARIABLE" "$HANDOFF_VALUE" >> "$ENV_EXPORT"
+    done
+    chmod 0444 "$ENV_EXPORT"
+    ENV_SHA="$(idSha256File "$ENV_EXPORT")"
+    # Keep the handoff root-owned and non-writable until execution completes.
+    # The target can traverse the unpredictable directory and read/execute only
+    # the sealed files; another process under that UID cannot replace them.
+    chmod 0711 "$HANDOFF_ROOT"
+    chmod 0555 "$USER_PROVISIONER" "$USER_ENGINE"
+    [ -z "${INSTALL_DOCTOR_RUNTIME_STAGE:-}" ] || chmod 0555 "$USER_RUNTIME"
+    chmod 0444 "$USER_MANIFEST" "$USER_SIGNATURE" "$ENV_EXPORT"
+    chown "$INSTALL_USER" "$USER_CATALOG" && chmod 0600 "$USER_CATALOG" \
+      || { logg error 'Unable to make the sealed catalog readable only by the target user'; return 1; }
     logg info "Continuing with the locally staged provisioner as $INSTALL_USER"
-    su - "$INSTALL_USER" -c "source '$ENV_EXPORT' && rm -f '$ENV_EXPORT' && export HOME='$USER_HOME_DIR' && export USER='$INSTALL_USER' && cd '$USER_HOME_DIR' && bash '$USER_PROVISIONER'; STATUS=\$?; rm -f '$USER_PROVISIONER'; exit \$STATUS"
+    su - "$INSTALL_USER" -c "hash_file() { if command -v sha256sum >/dev/null 2>&1; then sha256sum \"\$1\" | awk '{print \$1}'; else shasum -a 256 \"\$1\" | awk '{print \$1}'; fi; }; [ \"\$(hash_file '$ENV_EXPORT')\" = '$ENV_SHA' ] && [ \"\$(hash_file '$USER_PROVISIONER')\" = '$PROVISIONER_SHA' ] && [ \"\$(hash_file '$USER_ENGINE')\" = '$ENGINE_SHA' ] && [ \"\$(hash_file '$USER_MANIFEST')\" = '$MANIFEST_SHA' ] && [ \"\$(hash_file '$USER_SIGNATURE')\" = '$SIGNATURE_SHA' ] && [ \"\$(hash_file '$USER_CATALOG')\" = '$CATALOG_SHA' ] && [ \"\$(hash_file '$USER_RUNTIME')\" = '$RUNTIME_SHA' ] || exit 20; source '$ENV_EXPORT' && export HOME='$USER_HOME_DIR' USER='$INSTALL_USER' PATH='$(dirname "$USER_RUNTIME")':\"\$PATH\" && cd '$USER_HOME_DIR' && bash '$USER_PROVISIONER'"
     HANDOFF_STATUS=$?
     _idCleanupHandoff
-    trap - EXIT INT TERM
     exit "$HANDOFF_STATUS"
   else
     logg info "You are not running as root. Proceeding with the current user."
@@ -1273,35 +3179,61 @@ function ensureInstallUser() {
 # @description Main orchestration function that defines the execution order of all provisioning steps.
 provisionLogic() {
   local CHEZMOI_STATUS=0
-  logg info "Resolving the install plan before mutation" && configureInstallPlan
-  logg info "Ensuring script is not run with root" && ensureInstallUser
-  logg info "Attempting to load Homebrew" && loadHomebrew
-  logg info "Setting environment variables" && setEnvironmentVariables
-  logg info "Handling CI variables" && setCIEnvironmentVariables
-  logg info "Applying env-class defaults" && applyEnvClassDefaults
-  logg info "Collecting required inputs up front" && collectInputsUpfront
-  logg info "Ensuring WARP is disconnected" && ensureWarpDisconnected
-  logg info "Applying passwordless sudo" && setupPasswordlessSudo
-  logg info "Ensuring system dependencies are installed" && ensureBasicDeps
-  logg info "Cloning / updating source repository" && cloneChezmoiSourceRepo
-  if [ "$(detect_os)" = "macos" ]; then
-    ### macOS only
-    logg info "Ensuring full disk access from current terminal application" && ensureFullDiskAccess
-    logg info "Ensuring CloudFlare certificate imported into system certificates" && importCloudFlareCert
-  fi
-  logg info "Ensuring Homebrew is available" && ensureHomebrew
-  logg info "Installing Homebrew packages" && ensureHomebrewDeps
-  logg info "Handling Qubes dom0 logic (if applicable)" && handleQubesDom0
-  logg info "Handling pre-provision logic" && initChezmoiAndPrompt
+  INSTALL_DOCTOR_TERMINAL_STATUS=""
+  export INSTALL_DOCTOR_TERMINAL_STATUS
+  INSTALL_DOCTOR_SUDO_PREPARED=false
+  export INSTALL_DOCTOR_SUDO_PREPARED
+  # This read-only gate deliberately precedes both the exit recorder and the
+  # evidence initializer so an unenrolled root target causes zero filesystem
+  # or account mutation.
+  idRequireRootInstallUserEnrollment || return $?
+  trap 'idProvisionExit "$?"' EXIT
+  idRunRequiredProvisionStep "Initializing protected local run evidence" idProvisionEvidenceInit || return $?
+  idEmitProvisionStatus provision started 0 || return $?
+  idRunRequiredProvisionStep "Setting environment variables" setEnvironmentVariables || return $?
+  idRunRequiredProvisionStep "Handling CI variables" setCIEnvironmentVariables || return $?
+  idRunRequiredProvisionStep "Applying env-class defaults" applyEnvClassDefaults || return $?
+  idRunRequiredProvisionStep "Resolving the exact host against signed platform policy" idResolvePlatform || return $?
+  idRunRequiredProvisionStep "Collecting required inputs up front" collectInputsUpfront || return $?
+  idRunRequiredProvisionStep "Ensuring the signed installer Node runtime" ensureProvisionerNodeRuntime || return $?
+  idRunRequiredProvisionStep "Reconciling stale sudo acquisition ownership" idReconcileStaleSudoOwnership || return $?
+  idRunRequiredProvisionStep "Resolving the install plan before mutation" configureInstallPlan || return $?
+  idRunRequiredProvisionStep "Authorizing the exact host and recorded consent" idAuthorizePlatform || return $?
+  idRunRequiredProvisionStep "Normalizing and approving the exact engine plan before mutation" runCanonicalProvisionEngine --plan-only || return $?
+  idRunRequiredProvisionStep "Persisting verified release provenance" idPersistVerifiedReleaseProvenance || return $?
+  idRunRequiredProvisionStep "Ensuring script is not run with root" ensureInstallUser || return $?
+  idRunRequiredProvisionStep "Applying temporary sudo credential" setupPasswordlessSudo || return $?
+  INSTALL_DOCTOR_SUDO_PREPARED=true
   export INSTALL_DOCTOR_PROVISION_BOOTSTRAPPED=1
   logg info "Running the Chezmoi provisioning"
-  runChezmoi || CHEZMOI_STATUS=$?
-  logg info "Ensuring temporary passwordless sudo is removed" && removePasswordlessSudo
+  runCanonicalProvisionEngine || CHEZMOI_STATUS=$?
+  if [ "${INSTALL_DOCTOR_SUDO_FINALIZER_VERIFIED:-false}" != true ]; then
+    # Fall back only when protected engine evidence does not prove the
+    # run-finalizer reached a verified/inapplicable cleanup postcondition.
+    removePasswordlessSudo || true
+  fi
+  if [ "${INSTALL_DOCTOR_SUDO_FINALIZER_VERIFIED:-false}" = true ] || ! sudo -n true 2>/dev/null; then
+    idRetireSudoOwnership || true
+  fi
+  INSTALL_DOCTOR_SUDO_PREPARED=false
   if [ "$CHEZMOI_STATUS" -ne 0 ]; then
     logg error "Provisioning failed during chezmoi apply (exit $CHEZMOI_STATUS)"
+    case "$CHEZMOI_STATUS" in
+      6) idEmitProvisionStatus provision pending "$CHEZMOI_STATUS" ;;
+      130) idEmitProvisionStatus provision cancelled "$CHEZMOI_STATUS" ;;
+      *) idEmitProvisionStatus provision failed "$CHEZMOI_STATUS" ;;
+    esac
     return "$CHEZMOI_STATUS"
   fi
-  logg info "Determining whether or not to reboot" && handleRequiredReboot
-  logg info "Handling post-provision logic" && postProvision
+  idRunRequiredProvisionStep "Handling post-provision logic" postProvision || return $?
+  idEmitProvisionStatus provision success 0
 }
+if [ "${BASH_SOURCE[0]}" != "$0" ]; then
+  return 0
+fi
+if [ "${1:-}" = '--engine-operation' ]; then
+  shift
+  idRunEngineOperation "${1:-}"
+  exit $?
+fi
 provisionLogic

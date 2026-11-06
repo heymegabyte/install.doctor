@@ -1,0 +1,47 @@
+#!/usr/bin/env bash
+set -uo pipefail
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+WORKFLOW="$ROOT/.github/workflows/bootstrap-real-host-canary.yml"
+DRIVER="$ROOT/scripts/run-bootstrap-real-host-canary.sh"
+P=0 F=0
+pass(){ printf 'PASS %s\n' "$*"; P=$((P+1)); }
+fail(){ printf 'FAIL %s\n' "$*" >&2; F=$((F+1)); }
+check(){ local label="$1"; shift; if "$@"; then pass "$label"; else fail "$label"; fi; }
+check 'manual-only workflow' grep -q '^  workflow_dispatch:' "$WORKFLOW"
+check 'no automatic trigger' bash -c '! grep -Eq "^  (push|pull_request|schedule):" "$1"' _ "$WORKFLOW"
+check 'bounded job timeout' grep -q '^    timeout-minutes: 60$' "$WORKFLOW"
+check 'pinned disposable image' grep -Eq '^      image: node@sha256:[a-f0-9]{64}$' "$WORKFLOW"
+check 'immutable v1 input' grep -q 'release_v1:' "$WORKFLOW"
+check 'immutable v2 input' grep -q 'release_v2:' "$WORKFLOW"
+check 'immutable offline bundle URL input' grep -q 'offline_bundle_url:' "$WORKFLOW"
+check 'immutable offline bundle digest input' grep -q 'offline_bundle_sha256:' "$WORKFLOW"
+check 'GitHub-hosted guard' grep -q 'runner.environment.*github-hosted' "$WORKFLOW"
+check 'disposable nonroot principal' grep -q 'useradd --create-home --shell /bin/bash canary' "$WORKFLOW"
+check 'network namespace tools are explicit dependencies' grep -q 'tar util-linux' "$WORKFLOW"
+check 'driver runs as nonroot principal' grep -q 'sudo --user canary env' "$WORKFLOW"
+check 'driver receives runner authority' grep -q 'RUNNER_ENVIRONMENT="$CANARY_RUNNER_ENVIRONMENT"' "$WORKFLOW"
+check 'valid non-network enrollment mode' grep -q 'INSTALL_DOCTOR_NETWORK=none' "$DRIVER"
+check 'unused network consent denied' grep -q 'INSTALL_DOCTOR_CONSENT_NETWORK=false' "$DRIVER"
+check 'workflow inputs are data, not shell source' bash -c '! grep -Eq "RELEASE_V[12]=.[$][{][{] inputs" "$1"' _ "$WORKFLOW"
+check 'receipt finalizer invoked' grep -q 'finalize-platform-canary-receipt.mjs' "$WORKFLOW"
+check 'immutable release launchers used' grep -Fq '"$BASE/$id/start"' "$DRIVER"
+for phase in clean-install signed-release upgrade interrupted-resume unchanged-second-run offline-execution config-rollback; do
+  check "structured $phase phase" grep -q "$phase.json" "$DRIVER"
+done
+check 'caller mutation constants removed' bash -c '! grep -q mutation_count "$1"' _ "$DRIVER"
+check 'complete committed authority closure exported' grep -q 'native-transaction-index.json' "$DRIVER"
+check 'terminal commit authority exported' grep -q 'terminal-authority.json' "$DRIVER"
+check 'real signed offline bundle is mandatory' grep -q 'CANARY_OFFLINE_BUNDLE_URL:?signed offline bundle URL is required' "$DRIVER"
+check 'offline archive digest is mandatory' grep -q 'CANARY_OFFLINE_BUNDLE_SHA256:?signed offline bundle digest is required' "$DRIVER"
+check 'offline archive rejects symlinks' grep -q 'offline bundle archive contains a link' "$DRIVER"
+check 'offline archive rejects traversal and absolute paths' grep -q 'offline bundle archive contains an unsafe path' "$DRIVER"
+check 'offline execution uses a distinct network namespace' grep -q 'unshare --net' "$DRIVER"
+check 'offline execution denies ambient capabilities' grep -q -- '--bounding-set=-all --no-new-privs' "$DRIVER"
+check 'offline evidence brackets committed receipt' grep -q 'network isolation does not bracket the committed receipt' "$DRIVER"
+check 'launcher policy run cannot mint offline phase' bash -c '! grep -q "run_start v2.*offline" "$1"' _ "$DRIVER"
+check 'observed OS release is captured' grep -q '/etc/os-release' "$DRIVER"
+check 'observed architecture is captured' grep -q 'uname -m' "$DRIVER"
+check 'observed container identity is captured' grep -q '/.dockerenv' "$DRIVER"
+check 'driver syntax' bash -n "$DRIVER"
+printf 'bootstrap-real-host-canary-contract: %d passed, %d failed\n' "$P" "$F"
+[ "$F" -eq 0 ]

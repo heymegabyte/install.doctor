@@ -6,6 +6,6 @@
 #     UniFi service to start up after `service unifi.sh start` is run because the start service exits fast while booting up
 #     the UniFi service in the background.
 enableUniFi() {
-  fetch -o - https://raw.githubusercontent.com/unofficial-unifi/unifi-pfsense/master/install-unifi/install-unifi.sh | sh -s
-  service unifi.sh start
+  logg error 'UniFi installation is unsupported until an immutable verified pfSense artifact is declared'
+  return 78
 }

@@ -46,6 +46,9 @@ Host *
     ServerAliveInterval 60
     ServerAliveCountMax 30
     IdentitiesOnly yes
+    StrictHostKeyChecking yes
+    UpdateHostKeys no
+    UserKnownHostsFile ~/.ssh/known_hosts
     IdentityAgent ~/.ssh/agent.sock
     {{ if eq .host.hostname "automation" -}}
     IdentityFile ~/.ssh/ssh-13147527
@@ -85,18 +88,18 @@ Host workstation
 # so the unattended /loop deploys without a browser login. See coolify-ssh-proxy.sh.
 Host ssh-coolify.megabyte.space
   ProxyCommand "/Users/Apple/.ssh/coolify-ssh-proxy.sh" "/opt/homebrew/bin/cloudflared" %h
-  StrictHostKeyChecking accept-new
+  StrictHostKeyChecking yes
   User root
 
 # ssh-proxmox.megabyte.space via Cloudflare Access (added by Claude 2026-10-11)
 Host ssh-proxmox.megabyte.space
   ProxyCommand /opt/homebrew/bin/cloudflared access ssh --hostname %h
-  StrictHostKeyChecking accept-new
+  StrictHostKeyChecking yes
   User root
 
 # proxmox.megabyte.space resolves to the Proxmox WEB UI (:8006); SSH is routed via the
 # ssh-proxmox tunnel hostname. This alias makes 'ssh proxmox.megabyte.space' reach the host's SSH.
 Host proxmox.megabyte.space
   ProxyCommand /opt/homebrew/bin/cloudflared access ssh --hostname ssh-proxmox.megabyte.space
-  StrictHostKeyChecking accept-new
+  StrictHostKeyChecking yes
   User root

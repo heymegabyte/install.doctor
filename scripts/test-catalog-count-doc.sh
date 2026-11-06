@@ -3,15 +3,16 @@
 # software.yml on every catalog change). A hardcoded present-tense count in the ledgers therefore ROTS
 # the moment the catalog grows (#156 added alloy 1068→1069; #157 "reconciled" one surface but missed the
 # siblings + added NO guard → re-drift). This guard makes the drift class impossible: (1) the bundled
-# catalog.json length is the ground truth; (2) the LIVE /api/catalog `total` must equal it (deploy/source
+# catalog.json length is the ground truth; (2) an explicitly requested LIVE /api/catalog smoke check must equal it (deploy/source
 # consistency — the real verify-against-source-of-truth reconciliation); (3) no ledger may carry a
 # present-tense catalog-TOTAL claim (`N entries` / `N apps` / `N-entry` / `of N apps` / `N of N apps`)
 # whose N != the ground truth — HISTORICAL `N→M` transition records and quoted `'N entries'` references
-# are exempt. Pure file assertions for (1)+(3); (2) soft-skips when the network is unreachable.
+# are exempt. Pure file assertions for (1)+(3); (2) runs only when CONTROL_PLANE_URL is explicitly supplied,
+# so required revision tests never become coupled to mutable production state.
 set -uo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 CATALOG="$ROOT/packages/control-plane/src/catalog.json"
-URL="${CONTROL_PLANE_URL:-https://app.install.doctor}"
+URL="${CONTROL_PLANE_URL:-}"
 UA="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/154.0.0.0 Safari/537.36"
 
 say() { command -v gum >/dev/null 2>&1 && gum style --foreground 51 -- "$*" || printf '\033[1;36m%s\033[0m\n' "$*"; }
@@ -39,14 +40,18 @@ else
   exit 1
 fi
 
-# (2) live /api/catalog `total` must equal the bundled length (deploy ↔ source consistency). Soft-skip offline.
-LIVE="$(curl -fsS --max-time 12 "$URL/api/catalog?limit=1" -H "User-Agent: $UA" 2>/dev/null | python3 -c "import sys,json;print(json.load(sys.stdin).get('total',''))" 2>/dev/null || echo "")"
-if [ -z "$LIVE" ]; then
-  skip "live /api/catalog unreachable — skipping deploy↔source total check (offline/CI)"
-elif [ "$LIVE" = "$GROUND" ]; then
-  pass "live /api/catalog total ($LIVE) == bundled catalog.json length (deploy matches source)"
+# (2) live /api/catalog is a separate, explicitly targeted deployment smoke test.
+if [ -z "$URL" ]; then
+  skip "CONTROL_PLANE_URL unset — repository validation does not test mutable production"
 else
-  fail "live /api/catalog total ($LIVE) != bundled catalog.json length ($GROUND) — deploy/source drift"
+  LIVE="$(curl -fsS --max-time 12 "$URL/api/catalog?limit=1" -H "User-Agent: $UA" 2>/dev/null | python3 -c "import sys,json;print(json.load(sys.stdin).get('total',''))" 2>/dev/null || echo "")"
+  if [ -z "$LIVE" ]; then
+  skip "live /api/catalog unreachable — skipping deploy↔source total check (offline/CI)"
+  elif [ "$LIVE" = "$GROUND" ]; then
+    pass "live /api/catalog total ($LIVE) == bundled catalog.json length (deploy matches source)"
+  else
+    fail "live /api/catalog total ($LIVE) != bundled catalog.json length ($GROUND) — deploy/source drift"
+  fi
 fi
 
 # (3) no ledger may carry a STALE present-tense catalog-TOTAL claim. Historical N→M transitions + quoted

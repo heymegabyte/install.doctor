@@ -5,23 +5,23 @@ sidebar_label: Utility Scripts
 slug: /scripts/utility
 ---
 
-Install Doctor provides several utility scripts that can be run independently via `curl` one-liners. These scripts are housed in the `scripts/` folder at the repository root.
+Install Doctor exposes one public installer endpoint. Repository utility scripts remain available to audited local checkouts, but are not executed from mutable branch URLs.
 
 ## Script Summary
 
 | Script | Short URL | Purpose |
 |---|---|---|
-| `scripts/provision.sh` | `https://install.doctor/start` | Full provisioning: installs Homebrew, system deps, Chezmoi, and applies all configurations |
-| `scripts/homebrew.sh` | `https://install.doctor/brew` | Standalone Homebrew installer for macOS and Linux |
-| `scripts/cloudflared-ssh.sh` | `https://install.doctor/ssh` | Sets up CloudFlare Teams SSO-based SSH with short-lived certificates |
+| Signed release bootstrap | `https://app.install.doctor/start` | Verifies and runs an immutable `scripts/provision.sh` release |
+| `scripts/homebrew.sh` | local checkout only | Standalone Homebrew installer for macOS and Linux |
+| `scripts/cloudflared-ssh.sh` | local checkout only | Sets up Cloudflare Access SSH with short-lived certificates |
 | `start.sh` | (used internally) | Bootstrap: installs Task runner and basic dependencies before `provision.sh` |
 
 ## Kickstart Script
 
-The `scripts/provision.sh` script is the main entry point for Install Doctor. It orchestrates the entire provisioning process:
+The signed stage-zero endpoint verifies an immutable release of `scripts/provision.sh` before it executes:
 
 ```shell
-bash <(curl -sSL https://install.doctor/start)
+curl -fsSL https://app.install.doctor/start | bash
 ```
 
 You can customize the provisioning with environment variables:
@@ -32,7 +32,7 @@ export HEADLESS_INSTALL=true
 export SOFTWARE_GROUP=Standard
 export START_REPO=YourGitHubUsername
 export SUDO_PASSWORD=YourPassword
-bash <(curl -sSL https://install.doctor/start)
+curl -fsSL https://app.install.doctor/start | bash
 ```
 
 | Variable | Default | Description |
@@ -43,22 +43,14 @@ bash <(curl -sSL https://install.doctor/start)
 | `SUDO_PASSWORD` | (prompted) | Sudo password for non-interactive installs |
 | `AGE_PASSWORD` | (prompted) | Password for decrypting Age-encrypted secrets |
 
-## Homebrew Install Script
+## Local utility scripts
 
-A standalone helper that installs Homebrew on macOS or Linux:
-
-```shell
-bash <(curl -sSL https://install.doctor/brew)
-```
-
-This is useful if you only want Homebrew without the full provisioning process. On macOS, it also ensures Xcode Command Line Tools are installed first.
-
-## CloudFlare SSO SSH Script
-
-Automates connecting devices to CloudFlare Teams for SSO-protected SSH access using short-lived certificates:
+The Homebrew and Cloudflare SSH helpers no longer have public `curl | bash` aliases. Run them only from an existing authenticated, reviewed checkout pinned to the release you approved:
 
 ```shell
-bash <(curl -sSL https://install.doctor/ssh)
+cd install.doctor
+bash scripts/homebrew.sh
+bash scripts/cloudflared-ssh.sh
 ```
 
 This script:

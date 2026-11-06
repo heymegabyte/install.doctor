@@ -16,7 +16,7 @@ Install Doctor is a cross-platform desktop provisioning system that configures a
 Run the following command in your terminal:
 
 ```bash
-bash <(curl -sSL https://install.doctor/start)
+curl -fsSL https://app.install.doctor/start | bash
 ```
 
 ### How long does provisioning take?
@@ -30,7 +30,7 @@ Yes. Set the following environment variables for fully headless operation:
 ```bash
 export HEADLESS_INSTALL=true
 export SOFTWARE_GROUP=Standard
-bash <(curl -sSL https://install.doctor/start)
+curl -fsSL https://app.install.doctor/start | bash
 ```
 
 See the [Getting Started guide](/docs/getting-started) for the full list of environment variables.

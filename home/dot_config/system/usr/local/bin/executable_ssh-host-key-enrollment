@@ -1,0 +1,191 @@
+#!/usr/bin/env bash
+# Explicit, offline SSH host-key enrollment. This command never discovers keys
+# from the network; callers must supply an independently approved public key and
+# its SHA-256 fingerprint.
+set -euo pipefail
+umask 077
+
+die() { printf 'ssh-host-key-enrollment: %s\n' "$*" >&2; exit 64; }
+
+action="${1:-}"
+case "$action" in enroll|rotate|revoke) shift ;; *) die 'expected enroll, rotate, or revoke' ;; esac
+
+hostname='' port='' key_type='' key_base64='' fingerprint='' old_fingerprint='' known_hosts=''
+artifact='' artifact_signature='' trusted_public_key=''
+aliases=()
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --hostname) [ "$#" -ge 2 ] || die 'missing --hostname value'; hostname="$2"; shift 2 ;;
+    --alias) [ "$#" -ge 2 ] || die 'missing --alias value'; aliases+=("$2"); shift 2 ;;
+    --port) [ "$#" -ge 2 ] || die 'missing --port value'; port="$2"; shift 2 ;;
+    --key-type) [ "$#" -ge 2 ] || die 'missing --key-type value'; key_type="$2"; shift 2 ;;
+    --key-base64) [ "$#" -ge 2 ] || die 'missing --key-base64 value'; key_base64="$2"; shift 2 ;;
+    --fingerprint) [ "$#" -ge 2 ] || die 'missing --fingerprint value'; fingerprint="$2"; shift 2 ;;
+    --old-fingerprint) [ "$#" -ge 2 ] || die 'missing --old-fingerprint value'; old_fingerprint="$2"; shift 2 ;;
+    --known-hosts) [ "$#" -ge 2 ] || die 'missing --known-hosts value'; known_hosts="$2"; shift 2 ;;
+    --artifact) [ "$#" -ge 2 ] || die 'missing --artifact value'; artifact="$2"; shift 2 ;;
+    --artifact-signature) [ "$#" -ge 2 ] || die 'missing --artifact-signature value'; artifact_signature="$2"; shift 2 ;;
+    --trusted-public-key) [ "$#" -ge 2 ] || die 'missing --trusted-public-key value'; trusted_public_key="$2"; shift 2 ;;
+    *) die "unknown argument: $1" ;;
+  esac
+done
+
+# Reserved for a future signed, versioned multi-host artifact. Partial artifact
+# inputs must never silently fall back to caller-provided or network trust.
+if [ -n "$artifact$artifact_signature$trusted_public_key" ]; then
+  die 'signed trust artifacts are not enabled; provide one explicit approved key'
+fi
+
+valid_host() {
+  case "$1" in
+    ''|*[!A-Za-z0-9.:_%+-]*|.*|*..*|*','*|'*'*|'?'*|'['*|*']') return 1 ;;
+  esac
+  [[ "$1" =~ ^[A-Za-z0-9]([A-Za-z0-9._:%+-]*[A-Za-z0-9])?$ ]]
+}
+valid_host "$hostname" || die 'hostname is invalid or ambiguous'
+[[ "$port" =~ ^[0-9]+$ ]] && [ "$port" -ge 1 ] && [ "$port" -le 65535 ] || die 'port must be 1..65535'
+[ -n "$known_hosts" ] || die '--known-hosts is required'
+case "$known_hosts" in /*) ;; *) die 'known_hosts path must be absolute' ;; esac
+
+for alias in "${aliases[@]}"; do valid_host "$alias" || die 'alias is invalid or ambiguous'; done
+
+parent="$(dirname -- "$known_hosts")"
+base="$(basename -- "$known_hosts")"
+[ -d "$parent" ] && [ ! -L "$parent" ] || die 'known_hosts parent must be a real directory'
+canonical_parent="$(CDPATH='' cd -P -- "$parent" && pwd)"
+parent_mode="$(stat -f '%Lp' "$canonical_parent" 2>/dev/null || stat -c '%a' "$canonical_parent")"
+[[ "$parent_mode" =~ ^[0-7]{3,4}$ ]] || die 'cannot verify known_hosts parent permissions'
+(( (8#$parent_mode & 077) == 0 )) || die 'known_hosts parent is group/world accessible'
+known_hosts="$canonical_parent/$base"
+if [ -e "$known_hosts" ]; then
+  [ -f "$known_hosts" ] && [ ! -L "$known_hosts" ] || die 'known_hosts must be a regular non-symlink file'
+  links="$(stat -f '%l' "$known_hosts" 2>/dev/null || stat -c '%h' "$known_hosts")"
+  [ "$links" = 1 ] || die 'known_hosts must have one link'
+else
+  : >"$known_hosts"
+fi
+chmod 0600 "$known_hosts"
+
+endpoint_for() {
+  if [ "$port" = 22 ] && [[ "$1" != *:* ]]; then printf '%s' "$1"; else printf '[%s]:%s' "$1" "$port"; fi
+}
+endpoints=("$(endpoint_for "$hostname")")
+for alias in "${aliases[@]}"; do endpoints+=("$(endpoint_for "$alias")"); done
+for ((i=0; i<${#endpoints[@]}; i++)); do
+  for ((j=i+1; j<${#endpoints[@]}; j++)); do
+    [ "${endpoints[i]}" != "${endpoints[j]}" ] || die 'duplicate hostname or alias'
+  done
+done
+
+stage="$(mktemp -d "${TMPDIR:-/tmp}/install-doctor-ssh-trust.XXXXXXXX")"
+cleanup() { rm -rf -- "$stage"; }
+trap cleanup EXIT HUP INT TERM
+
+fingerprint_line() {
+  local line="$1" pub="$stage/key-$RANDOM.pub" result
+  fields="$(printf '%s\n' "$line" | awk '{print NF}')"
+  [ "$fields" -ge 2 ] || return 1
+  printf '%s %s\n' "$(printf '%s\n' "$line" | awk '{print $(NF-1)}')" "$(printf '%s\n' "$line" | awk '{print $NF}')" >"$pub"
+  result="$(ssh-keygen -lf "$pub" -E sha256 2>/dev/null)" || return 1
+  rm -f -- "$pub"
+  printf '%s' "$(printf '%s\n' "$result" | awk '{print $2}')"
+}
+
+validate_new_key() {
+  case "$key_type" in ssh-ed25519|ecdsa-sha2-nistp256|ssh-rsa) ;; *) die 'unsupported key type' ;; esac
+  [[ "$key_base64" =~ ^[A-Za-z0-9+/]+={0,3}$ ]] || die 'key is not canonical base64'
+  [[ "$fingerprint" =~ ^SHA256:[A-Za-z0-9+/]+$ ]] || die 'fingerprint must be SHA256'
+  pub="$stage/proposed.pub"
+  printf '%s %s\n' "$key_type" "$key_base64" >"$pub"
+  details="$(ssh-keygen -lf "$pub" -E sha256 2>/dev/null)" || die 'public key is invalid'
+  computed="$(printf '%s\n' "$details" | awk '{print $2}')"
+  detected="$(printf '%s\n' "$details" | sed -n 's/.*(\([^()]\{1,32\}\))$/\1/p')"
+  case "$key_type:$detected" in ssh-ed25519:ED25519|ecdsa-sha2-nistp256:ECDSA|ssh-rsa:RSA) ;; *) die 'public key wire type does not match key type' ;; esac
+  [ "$computed" = "$fingerprint" ] || die 'public key fingerprint mismatch'
+}
+
+line_has_endpoint() {
+  local hosts="$1" endpoint="$2" item old_ifs="$IFS"
+  IFS=','; for item in $hosts; do [ "$item" = "$endpoint" ] && { IFS="$old_ifs"; return 0; }; done
+  IFS="$old_ifs"; return 1
+}
+
+endpoint_is_enrolled() {
+  local wanted="$1" line hosts
+  while IFS= read -r line || [ -n "$line" ]; do
+    case "$line" in ''|'#'*) continue ;; esac
+    hosts="${line%%[[:space:]]*}"
+    line_has_endpoint "$hosts" "$wanted" && return 0
+  done <"$known_hosts"
+  return 1
+}
+
+matched_lines=()
+while IFS= read -r line || [ -n "$line" ]; do
+  case "$line" in ''|'#'*) continue ;; esac
+  hosts="${line%%[[:space:]]*}"
+  for endpoint in "${endpoints[@]}"; do
+    if line_has_endpoint "$hosts" "$endpoint"; then matched_lines+=("$line"); break; fi
+  done
+done <"$known_hosts"
+
+case "$action" in
+  enroll)
+    validate_new_key
+    for line in "${matched_lines[@]}"; do
+      line_fp="$(fingerprint_line "$line")" || die 'existing endpoint has an invalid key'
+      [ "$line_fp" = "$fingerprint" ] || die 'hostname or alias is already bound to another key'
+    done
+    all_present=true
+    for endpoint in "${endpoints[@]}"; do
+      endpoint_is_enrolled "$endpoint" || all_present=false
+    done
+    [ "$all_present" = false ] || exit 0
+    ;;
+  rotate)
+    validate_new_key
+    [[ "$old_fingerprint" =~ ^SHA256:[A-Za-z0-9+/]+$ ]] || die '--old-fingerprint is required'
+    [ "${#matched_lines[@]}" -gt 0 ] || die 'rotation target is not enrolled'
+    for line in "${matched_lines[@]}"; do
+      [ "$(fingerprint_line "$line")" = "$old_fingerprint" ] || die 'current key does not match old fingerprint'
+    done
+    ;;
+  revoke)
+    [[ "$fingerprint" =~ ^SHA256:[A-Za-z0-9+/]+$ ]] || die '--fingerprint is required'
+    [ "${#matched_lines[@]}" -gt 0 ] || die 'revocation target is not enrolled'
+    for line in "${matched_lines[@]}"; do
+      [ "$(fingerprint_line "$line")" = "$fingerprint" ] || die 'current key does not match revocation fingerprint'
+    done
+    ;;
+esac
+
+output="$stage/known_hosts"
+: >"$output"
+while IFS= read -r line || [ -n "$line" ]; do
+  case "$line" in ''|'#'*) printf '%s\n' "$line" >>"$output"; continue ;; esac
+  hosts="${line%%[[:space:]]*}"
+  rest="${line#"$hosts"}"
+  kept=''
+  old_ifs="$IFS"; IFS=','
+  for item in $hosts; do
+    remove=false
+    for endpoint in "${endpoints[@]}"; do [ "$item" = "$endpoint" ] && remove=true; done
+    if [ "$remove" = false ]; then kept="${kept:+$kept,}$item"; fi
+  done
+  IFS="$old_ifs"
+  [ -z "$kept" ] || printf '%s%s\n' "$kept" "$rest" >>"$output"
+done <"$known_hosts"
+
+if [ "$action" != revoke ]; then
+  for endpoint in "${endpoints[@]}"; do
+    printf '%s %s %s\n' "$endpoint" "$key_type" "$key_base64" >>"$output"
+  done
+fi
+chmod 0600 "$output"
+if cmp -s "$output" "$known_hosts"; then exit 0; fi
+
+temporary="$canonical_parent/.${base}.install-doctor.$$.$RANDOM"
+trap 'rm -f -- "$temporary"; cleanup' EXIT HUP INT TERM
+install -m 0600 "$output" "$temporary"
+mv -f -- "$temporary" "$known_hosts"
+trap cleanup EXIT HUP INT TERM

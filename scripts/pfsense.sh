@@ -157,14 +157,15 @@ enableNetdata
 #     UniFi service to start up after `service unifi.sh start` is run because the start service exits fast while booting up
 #     the UniFi service in the background.
 enableUniFi() {
-  fetch -o - https://raw.githubusercontent.com/unofficial-unifi/unifi-pfsense/master/install-unifi/install-unifi.sh | sh -s
-  service unifi.sh start
+  logg error 'UniFi installation is unsupported until an immutable verified pfSense artifact is declared'
+  return 78
 }
 enableUniFi
 
 # @description This function adds an unofficial package that adds SAML2 support to pfSense for SSO logins over
 #     the web portal. For more information, see the project's [GitHub page](https://github.com/jaredhendrickson13/pfsense-saml2-auth).
 enablePFsenseSAML() {
-  pkg add https://github.com/jaredhendrickson13/pfsense-saml2-auth/releases/latest/download/pfSense-2.7-pkg-saml2-auth.pkg
+  logg error 'pfSense SAML installation is unsupported until an exact package digest is declared'
+  return 78
 }
 enablePFsenseSAML

@@ -3,7 +3,7 @@
 set -euo pipefail
 
 log() { printf '[desktop:kasmvnc] %s\n' "$*"; }
-[ "${INSTALL_DOCTOR_KASMVNC:-1}" != "0" ] || { log 'disabled by INSTALL_DOCTOR_KASMVNC=0'; exit 0; }
+[ "${INSTALL_DOCTOR_KASMVNC:-0}" = "1" ] || { log 'lazy by default; set INSTALL_DOCTOR_KASMVNC=1 to configure the desktop proxy'; exit 0; }
 [ "$(uname -s)" = "Linux" ] || exit 0
 if [ -n "${INSTALL_DOCTOR_MEM_TOTAL_KIB:-}" ]; then
   memory_kib="$INSTALL_DOCTOR_MEM_TOTAL_KIB"
@@ -71,9 +71,16 @@ if { [ -z "$xkasm" ] || [ -z "$viewer" ] || [ -z "$openbox" ]; } && command -v a
   log 'installing native KasmVNC, TigerVNC viewer, and Openbox via apt...'
   sudo -n env DEBIAN_FRONTEND=noninteractive apt-get update -qq >/dev/null 2>&1 || true
   if [ -z "$xkasm" ]; then
-    wget -qO /tmp/kasmvncserver.deb https://github.com/kasmtech/KasmVNC/releases/download/v1.5.2/kasmvncserver_ubuntu_noble_1.5.2_amd64.deb \
-      && sudo -n env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends /tmp/kasmvncserver.deb \
-      && rm -f /tmp/kasmvncserver.deb || true
+    kasm_deb="$(mktemp)"
+    trap 'rm -f "$kasm_deb"' EXIT
+    curl --fail --silent --show-error --proto '=https' --tlsv1.2 --location --max-time 120 \
+      https://github.com/kasmtech/KasmVNC/releases/download/v1.5.2/kasmvncserver_ubuntu_noble_1.5.2_amd64.deb -o "$kasm_deb"
+    [ "$(wc -c < "$kasm_deb")" -eq 2687950 ]
+    if command -v sha256sum >/dev/null 2>&1; then kasm_sha="$(sha256sum "$kasm_deb" | awk '{print $1}')";
+    else kasm_sha="$(shasum -a 256 "$kasm_deb" | awk '{print $1}')"; fi
+    [ "$kasm_sha" = '89a5d1fbe9e032b122202be158a2b25f15c97e0a5b8dcf92a5e6835c7b7b2acd' ]
+    sudo -n env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends "$kasm_deb"
+    rm -f "$kasm_deb"
   fi
   sudo -n env DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends tigervnc-viewer openbox >/dev/null 2>&1 || true
   sudo -n usermod -aG ssl-cert "${USER:-$(id -un)}" 2>/dev/null || true

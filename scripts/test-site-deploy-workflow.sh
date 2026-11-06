@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Deploy-pipeline integrity gate (fire #352). The CORE deliverable — `install.doctor/start` — is served by
-# Firebase Hosting: `site/firebase.json` 301-redirects /start → raw.githubusercontent.com/<org>/…/provision.sh,
-# and #305 locks the canonical ORG in that redirect. But the DEPLOY PIPELINE that pushes firebase.json live was
+# Firebase Hosting routes /start to the control-plane signed stage-zero endpoint.
+# The deploy pipeline that pushes firebase.json live was
 # UNGATED — `.github/workflows/site-deploy.yml` is the last mile, and nothing asserted it is correctly wired.
 # Prod /start is currently STALE (serves the old megabyte-labs org) blocked ONLY on the human re-adding the
 # FIREBASE_SERVICE_ACCOUNT_INSTALL_DOCTOR secret (CLAUDE.md §9 #21; the cred is confirmed-absent from the secret

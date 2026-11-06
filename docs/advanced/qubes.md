@@ -12,7 +12,7 @@ Install Doctor includes comprehensive support for [Qubes OS](https://www.qubes-o
 From a fresh Qubes OS installation, run the following in a dom0 terminal:
 
 ```bash
-bash <(curl -sSL https://install.doctor/start)
+curl -fsSL https://app.install.doctor/start | bash
 ```
 
 This will provision dom0, install template VMs, configure AppVMs, and apply your customizations.

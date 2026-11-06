@@ -8,6 +8,11 @@ set -euo pipefail
 log_info() { printf '\033[0;34mINFO\033[0m %s\n' "$*"; }
 log_warn() { printf '\033[0;33mWARN\033[0m %s\n' "$*"; }
 
+if [[ "${INSTALL_DOCTOR_LITELLM_ENROLL:-0}" != "1" ]]; then
+  log_info "LiteLLM/Ollama gateway enrollment is lazy; set INSTALL_DOCTOR_LITELLM_ENROLL=1 to enable it."
+  exit 0
+fi
+
 if ! command -v ollama >/dev/null 2>&1; then
   log_info "Ollama is not installed on this host; skipping LiteLLM node enrollment."
   exit 0

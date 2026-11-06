@@ -31,10 +31,10 @@ else
   fail "inert artifacts restored: ${missing[*]}"
 fi
 
-if [ -f "$ROOT/home/dot_config/docker/TODO/config.json.tmpl" ]; then
-  pass "Docker client configuration template is preserved"
+if [ ! -e "$ROOT/home/dot_config/docker/TODO/config.json.tmpl" ]; then
+  pass "inert empty Docker client TODO template remains absent"
 else
-  fail "Docker client configuration template was removed with the eight inert stack drafts"
+  fail "inert empty Docker client TODO template was restored"
 fi
 
 approved_dead_paths=(

@@ -31,7 +31,7 @@ headless supervisor and an emergency CLI (`aid`) work **without a desktop or GUI
 On macOS or Linux, run the minimal bootstrap, then pair the machine from any browser:
 
 ```bash
-bash <(curl -sSL https://install.doctor/start)   # bootstrap (installs base deps + the aid client)
+curl -fsSL https://app.install.doctor/start | bash   # bootstrap (installs base deps + the aid client)
 aid-pair                                          # prints a short code + opens app.install.doctor/pair
 ```
 
@@ -147,14 +147,18 @@ In progress / **blocked** on external configuration (tracked honestly in `docs/a
 
 ## Provisioning (the installer layer)
 
-The original provisioning system is preserved and still drives eager install + host configuration.
+The signed bootstrap currently delegates Chezmoi convergence to the resumable installer engine; remaining bootstrap steps are being migrated into the same typed task graph.
 
 ```bash
 # interactive
-bash <(curl -sSL https://install.doctor/start)
+curl -fsSL https://app.install.doctor/start | bash
 
-# fully unattended (prompts auto-proceed with defaults)
-HEADLESS_INSTALL=true bash <(curl -sSL https://install.doctor/start)
+# fully unattended (privileged work requires explicit consent)
+# First pass validates and persists the normalized plan, then prints its digest.
+curl -fsSL https://app.install.doctor/start | HEADLESS_INSTALL=true INSTALL_DOCTOR_CONSENT_PRIVILEGED=true bash
+
+# After reviewing the persisted plan, approve that exact digest (never a moving "latest" plan).
+curl -fsSL https://app.install.doctor/start | HEADLESS_INSTALL=true INSTALL_DOCTOR_CONSENT_PRIVILEGED=true INSTALL_DOCTOR_APPROVED_PLAN_DIGEST=<sha256> bash
 ```
 
 Key environment variables:
@@ -163,6 +167,7 @@ Key environment variables:
 |---|---|---|
 | `START_REPO` (or `REPO`) | Git repo URL or GitHub `user/repo` to provision from | `heymegabyte/install.doctor` |
 | `HEADLESS_INSTALL` | Skip interactive prompts, use defaults | unset |
+| `INSTALL_DOCTOR_CONSENT_PRIVILEGED` | Explicitly approve reviewed privileged plan nodes | `false` |
 | `SOFTWARE_GROUP` | `Basic` / `Server` / `Standard` / `Full` | `Full` |
 | `SUDO_PASSWORD` | Password for automated passwordless-sudo setup | unset (30s prompt) |
 | `CI` / `TEST_INSTALL` | CI mode with predefined test defaults | unset |
@@ -170,8 +175,12 @@ Key environment variables:
 | `AGE_PASSWORD` | Passphrase to decrypt Age-encrypted secrets | unset |
 | `DEBUG_MODE` / `KEEP_GOING` / `NO_RESTART` | Verbose / continue-on-error / no auto-reboot | unset |
 
-Supported platforms: **macOS** (Intel + Apple Silicon), **Ubuntu/Debian**, **Fedora/RHEL/CentOS**,
-**Arch**, **openSUSE**, **Alpine**; **Qubes OS** in progress; **Windows** on the roadmap. Reset a
+Implemented or best-effort targets include **macOS** (Intel + Apple Silicon), **Ubuntu/Debian**,
+**Fedora/RHEL/CentOS**, **Arch**, **openSUSE**, and **Alpine**. Do not infer verified support from
+that list: the machine-readable [platform evidence matrix](scripts/platform-support-matrix.json)
+is authoritative, and currently contains no verified full-lifecycle cell. Qubes, Silverblue,
+Proxmox, Coolify, WSL, and native Windows remain explicit unsupported cells until their required
+canary evidence exists. Reset a
 broken chezmoi state with `rm -rf ~/.config/chezmoi ~/.cache/chezmoi` then re-run the bootstrap. See
 the project CLAUDE.md for the full fleet/roles model.
 
@@ -192,7 +201,7 @@ the project CLAUDE.md for the full fleet/roles model.
 
 ## Development
 
-- Control plane: `cd packages/control-plane && npx wrangler deploy` (build check: `--dry-run`).
+- Control plane: `cd packages/control-plane && npm ci && npm run deploy --` (build check: `npm run check`).
 - Tests: `bash scripts/test-control-plane.sh` (set `CONTROL_PLANE_URL=https://app.install.doctor` for
   the live gates) · `bash scripts/test-command-not-found.sh` · `bash scripts/test-aid-client.sh` ·
   `bash scripts/test-readme.sh`.

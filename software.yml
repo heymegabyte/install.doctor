@@ -147,12 +147,10 @@ softwarePackages:
     choco: act-cli
     scoop: act
     yay: act
-    go: github.com/nektos/act@
   adobe-creative-cloud:
     _name: Adobe Creative Cloud
     _github: false
     _bin: adobe-creative-cloud
-    _when:cask: '! test -d "/Applications/Adobe Creative Cloud" && ! test -d "$HOME/Applications/Adobe Creative Cloud"'
     _deprecated: Creates distracting boot window pop-up
     cask: adobe-creative-cloud
   aerospace:
@@ -177,7 +175,6 @@ softwarePackages:
     _github: https://github.com/gofireflyio/aiac
     _bin: aiac
     brew: gofireflyio/aiac/aiac
-    go: github.com/gofireflyio/aiac/v3@latest
   aichat:
     _name: aichat
     _short: aichat — AI chat interface by sigoden
@@ -322,7 +319,6 @@ softwarePackages:
     _bin: false
     _deps:
     - java
-    _when:cask: '! test -d "${HOMEBREW_PREFIX:-/opt/homebrew}/share/android-commandlinetools"'
     cask: android-commandlinetools
   android-platform-tools:
     _name: Android Platform Tools
@@ -426,7 +422,6 @@ softwarePackages:
     _deprecated: Unneeded
     cask: appium
     choco: appium-desktop
-    appimage: appium/appium-desktop
   appium-inspector:
     _name: Appium Inspector
     _short: Appium Inspector is a tool for inspecting and recording interactions with mobile apps for testing purposes.
@@ -437,7 +432,6 @@ softwarePackages:
     _deprecated: Unneeded
     cask: appium-inspector
     choco: appium-desktop
-    appimage: appium/appium-inspector
   appnest-readme:
     _name: Readme
     _short: 'Description: A GitHub repository for the readme-md-generator tool by Andreas Baum.'
@@ -453,9 +447,6 @@ softwarePackages:
     _desc: Apprise is a Python library that simplifies the process of sending notifications to multiple messaging services. It supports various notification services like Slack, Discord, Telegram, and more. With Apprise, you can easily integrate notifications into your scripts or applications by providing a unified interface to interact with different messaging platforms. It's a convenient tool for developers and system administrators to streamline their notification workflows.
     _github: https://github.com/caronc/apprise
     _bin: apprise
-    _deps:
-    - pywin32
-    - terminal-notifier
     dnf: apprise
     pipx: apprise
   apt-cacher-ng:
@@ -475,17 +466,9 @@ softwarePackages:
     _desc: '[aqua](https://aquaproj.github.io/) is a Declarative CLI Version manager written in Go. It supports Lazy Install, Registry, and continuous update with Renovate.'
     _github: https://github.com/aquaproj/aqua
     _bin: aqua
-    _post: 'aqua update-aqua
-
-      aqua install -a
-
-      '
     _home: https://aquaproj.github.io
     _docs: https://aquaproj.github.io
     brew: aquaproj/aqua/aqua
-    go: github.com/aquaproj/aqua/v2/cmd/aqua@latest
-    binary:linux: https://github.com/aquaproj/aqua/releases/download/v2.0.0-0/aqua_linux_amd64.tar.gz
-    binary:windows: https://github.com/aquaproj/aqua/releases/download/v2.0.0-0/aqua_windows_amd64.tar.gz
   arc:
     _default: false
     _desc: A replacement for Chrome browser
@@ -524,7 +507,6 @@ softwarePackages:
     - argocd
     - argocd-cli
     choco: argocd-cli
-    github: https://github.com/argoproj/argo-workflows
   aria2:
     _name: Aria2/AriaNg
     _short: aria2 is a lightweight multi-protocol & multi-source command-line download utility.
@@ -593,7 +575,6 @@ softwarePackages:
     _docs: https://github.com/moul/assh
     brew: assh
     yay: assh
-    go: moul.io/assh/v2
   astronvim:
     _name: AstroNvim
     _short: AstroNvim is a plugin for Neovim that provides astronomy-related features and tools for users interested in astronomy while coding.
@@ -607,19 +588,13 @@ softwarePackages:
     - python
     - ripgrep
     - tree-sitter
-    _post: '#!/usr/bin/env bash
-
-      bash -ci "nvim --headless +q"
-
-      '
     _home: https://astronvim.github.io/
     _docs: https://astronvim.github.io/
     _deprecated: AstronVIM is deprecated in favor of NvChad which has more stars and is less troublesome to install (in our experience)
     brew: astrovim
     npm: astronvim
   atuin:
-    _preload: true
-    _preloadReason: shell-profile-core
+    _preload: false
     _name: Atuin
     _short: Atuin is a shell history tool — a searchable, synced, SQLite-backed replacement for Ctrl-R.
     _desc: Atuin replaces your shell history with a SQLite database — a fuzzy Ctrl-R search TUI, rich per-command context (exit code, cwd, duration), stats, and optional end-to-end-encrypted sync across machines. Written in Rust, open-source.
@@ -647,7 +622,6 @@ softwarePackages:
     choco: audacity
     scoop: extras/audacity
     snap: audacity
-    appimage: Audacity
   auto-install:
     _name: auto-install
     _short: auto-install is a tool that automatically installs dependencies for your Node.js projects based on the packages you import in your code.
@@ -701,7 +675,6 @@ softwarePackages:
   avifquicklook:
     _name: AVIFQuickLook
     _github: https://github.com/dreampiggy/AVIFQuickLook
-    _when:cask: test -d "$HOME/Library/QuickLook/AVIFQuickLook.qlgenerator"
     cask: avifquicklook
   aws-shell:
     _name: AWS Shell
@@ -723,9 +696,6 @@ softwarePackages:
     _docs: https://docs.aws.amazon.com/cli/index.html
     brew: awscli@2
     choco: awscli
-    binary:darwin: https://awscli.amazonaws.com/AWSCLIV2.pkg
-    binary:linux: https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip
-    binary:windows: https://awscli.amazonaws.com/AWSCLIV2.msi
   awxcli:
     _name: AWX CLI
     _short: AWX is an open-source automation platform that provides a web-based user interface, REST API, and task engine built on top of Ansible.
@@ -734,7 +704,6 @@ softwarePackages:
     _bin: awx
     _home: https://docs.ansible.com/automation.html
     _docs: https://docs.ansible.com/ansible-tower/latest/html/towercli/index.html
-    pipx: https://releases.ansible.com/ansible-tower/cli/ansible-tower-cli-latest.tar.gz
   axel:
     _name: Axel
     _short: Axel is a command-line download accelerator for Linux and Unix-like systems.
@@ -767,7 +736,6 @@ softwarePackages:
     brew: azure/functions/azure-functions-core-tools@4
     npm: azure-functions-core-tools@4
     choco: azure-functions-core-tools
-    github: github.com/Azure/azure-functions-core-tools
   backup:
     _name: Backup
     _short: Backup is an open-source backup system for Unix-like systems, including macOS. It allows you to easily perform backups and store them on various cloud storage services.
@@ -787,7 +755,6 @@ softwarePackages:
     cask: balenaetcher
     choco: etcher
     yay: balena-etcher
-    appimage: etcher
     _appImageName: balenaEtcher.AppImage
   bandwhich:
     _name: Bandwhich
@@ -797,7 +764,6 @@ softwarePackages:
     _bin: bandwhich
     brew: bandwhich
     pacman: bandwhich
-    github: github.com/imsnif/bandwhich
     pkg: bandwhich
   bane:
     _name: bane
@@ -805,8 +771,6 @@ softwarePackages:
     _desc: '[bane](https://github.com/genuinetools/bane) Custom & better AppArmor profile generator for Docker containers'
     _github: https://github.com/genuinetools/bane
     _bin: bane
-    github: github.com/genuinetools/bane
-    go: github.com/genuinetools/bane@latest
   barrier:
     _name: Barrier
     _short: Barrier is an open-source software that allows you to share your mouse and keyboard between multiple computers.
@@ -832,8 +796,7 @@ softwarePackages:
     dnf: bash-completion
     pacman: bash-completion
   bash-language-server:
-    _preload: true
-    _preloadReason: lsp-core
+    _preload: false
     _name: Bash Language Server
     _short: bash-language-server is a language server for Bash scripts based on Tree Sitter and ShellCheck.
     _desc: A language server for Bash scripts that provides code completion, hover diagnostics, go-to-definition, and ShellCheck/shfmt integration for coding agents and editors.
@@ -854,11 +817,9 @@ softwarePackages:
   basictex:
     _name: Basictex
     _github: false
-    _when: '! test -d /Library/TeX'
     cask: basictex
   bat:
-    _preload: true
-    _preloadReason: shell-profile-core
+    _preload: false
     _name: bat
     _short: bat is a cat(1) clone with syntax highlighting and Git integration.
     _desc: '[bat](https://github.com/sharkdp/bat) is a cat(1) clone with syntax highlighting and Git integration.'
@@ -902,7 +863,6 @@ softwarePackages:
     npm: '@bazel/bazelisk'
     choco: bazelisk
     scoop: main/bazel
-    go: github.com/bazelbuild/bazelisk@latest
   beekeeper-studio:
     _name: Beekeeper Studio
     _short: Beekeeper Studio is an open-source SQL editor and database manager for MacOS.
@@ -928,7 +888,6 @@ softwarePackages:
     _desc: Web Debugging Proxy based on Chrome DevTools Network panel
     _github: https://github.com/kdzwinel/betwixt
     _bin: betwixt
-    _post: "CRT_PATH=\"/Users/apple/Library/Application Support/betwixt/ssl/certs/ca.pem\"\n### TODO: Add location for Linux / Windows ca.pem\n\nif [ ! -f \"$CRT_PATH\" ]; then\n  gum log -sl error \"$CRT_PATH is missing\"\n  return 1\nfi\n\nif [ -d /Applications ] && [ -d /System ] && [ -z \"$HEADLESS_INSTALL\" ]; then\n  # macOS Certificate Import\n  security verify-cert -c \"$CRT_PATH\" > /dev/null 2>&1\n  if [ $? != 0 ]; then\n    gum log -sl info '**macOS Manual Security Permission** Requesting security authorization for Betwixt MITM proxy'\n    sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain \"$CRT_PATH\" && gum log -sl info 'Successfully imported cloudflare.crt into System.keychain'\n  fi\nelif [ \"$(uname)\" = \"Linux\" ]; then\n  # Linux Certificate Import\n  gum log -sl info \"Adding Cloudflare certificate to system trust store\"\n\n  if command -v update-ca-certificates > /dev/null 2>&1; then\n    # Debian-based (Ubuntu, Debian)\n    sudo mkdir -p /usr/local/share/ca-certificates\n    sudo cp \"$CRT_PATH\" /usr/local/share/ca-certificates/cloudflare.crt\n    sudo update-ca-certificates && gum log -sl info \"Certificate imported using update-ca-certificates\"\n  elif command -v trust > /dev/null 2>&1; then\n    # Fedora-based\n    sudo mkdir -p /etc/pki/ca-trust/source/anchors\n    sudo cp \"$CRT_PATH\" /etc/pki/ca-trust/source/anchors/cloudflare.crt\n    sudo update-ca-trust && gum log -sl info \"Certificate imported using update-ca-trust\"\n  elif [ -d /etc/ssl/certs ]; then\n    # Generic method\n    sudo cp \"$CRT_PATH\" /etc/ssl/certs/cloudflare.crt\n    sudo openssl rehash /etc/ssl/certs && gum log -sl info \"Certificate imported using OpenSSL rehash\"\n  else\n    gum log -sl warn \"Unsupported Linux distribution. Please install the certificate manually.\"\n    return 1\n  fi\nelse\n  gum log -sl error \"Unsupported operating system\"\n  return 1\nfi\n"
     _home: https://github.com/kdzwinel/betwixt
     _docs: https://github.com/kdzwinel/betwixt
     _app: Betwixt.app
@@ -949,8 +908,6 @@ softwarePackages:
     _desc: Effortless binary manager
     _github: https://github.com/marcosnils/bin
     _bin: bin
-    github: github.com/marcosnils/bin
-    go: github.com/marcosnils/bin@latest
   binwalk:
     _name: Binwalk
     _short: Binwalk is a tool for analyzing, reverse engineering, and extracting firmware images.
@@ -989,7 +946,6 @@ softwarePackages:
     cask: bitwarden
     choco: bitwarden
     snap: bitwarden
-    github: github.com/bitwarden/desktop
     yay: bitwarden-git
     _env:
       BITWARDEN_APPDATA:
@@ -1016,7 +972,6 @@ softwarePackages:
     _bin: null
     _home: https://bivac.io/
     _deprecated: Deprecated in favor of using the RClone Docker plugin for S3-backed mounts
-    github: github.com/camptocamp/bivac
   blackhole:
     _name: BlackHole
     _short: BlackHole is a modern macOS virtual audio driver that allows applications to pass audio to other applications with zero additional latency.
@@ -1025,7 +980,6 @@ softwarePackages:
     _bin: false
     _home: https://github.com/ExistentialAudio/BlackHole
     _docs: https://github.com/ExistentialAudio/BlackHole#user-guides
-    _when:cask: '! test -d /Library/Audio/Plug-Ins/HAL/BlackHole16ch.driver && ! test -d ~/Library/Audio/Plug-Ins/HAL/BlackHole16ch.driver'
     cask: blackhole-16ch
   blender:
     _name: Blender
@@ -1069,7 +1023,6 @@ softwarePackages:
     - name: blocky
       pkg: brew
     brew: blocky
-    go: github.com/0xERR0R/blocky@mastergithub.com/0xERR0R/blocky@master
     _serviceEnabled: false
   blueutil:
     _name: BlueUtil
@@ -1085,8 +1038,6 @@ softwarePackages:
     _github: https://github.com/tmrts/boilr
     _bin: null
     _deprecated: Deprecated in favor of using `gomplate`
-    github: github.com/tmrts/boilr
-    go: github.com/tmrts/boilr@latest
   boringtun:
     _name: BoringTun
     _short: BoringTun is a lightweight WireGuard VPN implementation designed for embedded systems and low-resource environments.
@@ -1159,7 +1110,6 @@ softwarePackages:
     _desc: brew-pkg is a tool available on GitHub at https://github.com/timsutton/brew-pkg that allows you to build macOS installer packages directly from Homebrew formulae. It simplifies the process of creating installer packages for software installed via Homebrew, making it easier to distribute and deploy software on macOS systems. This tool can be particularly useful for system administrators and developers who need to package Homebrew-installed software for deployment across multiple machines.
     _github: https://github.com/timsutton/brew-pkg
     brew:darwin: timsutton/formulae/brew-pkg
-    _when:brew:darwin: '! brew list brew-pkg'
   broot:
     _name: Broot
     _short: broot is a command-line interactive tree view tool for navigating directories efficiently.
@@ -1202,7 +1152,6 @@ softwarePackages:
     _home: https://budibase.com
     _docs: https://docs.budibase.com/docs/budibase-cli-reference
     npm: '@budibase/cli'
-    github: github.com/Budibase/budibase
   buildkite-agent:
     _name: BuildKite Agent
     _short: buildkite/agent is a lightweight build runner for continuous integration.
@@ -1211,8 +1160,7 @@ softwarePackages:
     _bin: buildkite-agent
     brew: buildkite/buildkite/buildkite-agent
   bun:
-    _preload: true
-    _preloadReason: web-dev-core
+    _preload: false
     _name: Bun
     _short: Bun is a tool for managing macOS development environments using Homebrew and Ansible.
     _desc: Bun is a tool developed by oven-sh available on GitHub at https://github.com/oven-sh/bun. It is a command-line utility for managing project-specific environments using Docker. Bun simplifies the process of setting up and managing development environments by defining project-specific configurations in a Bunfile. This allows developers to easily reproduce the same environment across different machines. Bun also supports Docker Compose integration, making it easier to work with multi-container applications. It's a handy tool for streamlining development workflows and ensuring consistency across environments.
@@ -1298,10 +1246,8 @@ softwarePackages:
     _github: https://github.com/jenssegers/captain
     _bin: captain
     _deprecated: Unused Docker assistance package
-    go: github.com/jenssegers/captain@latest
   carapace:
-    _preload: true
-    _preloadReason: shell-profile-core
+    _preload: false
     _name: Carapace
     _short: carapace-bin is a collection of shell completion scripts for various commands and tools, designed to enhance the command-line user experience.
     _desc: carapace-bin is a repository on GitHub maintained by rsteube. It contains shell completion scripts for various commands and utilities. These completion scripts help users by providing auto-completion suggestions when typing commands in the shell, making it easier and faster to navigate and use these commands. The repository likely includes scripts for popular tools and commands, enhancing the user experience for those working in the shell environment.
@@ -1347,7 +1293,6 @@ softwarePackages:
     _app: Catlight.app
     _deprecated: Free tier has strict limitations and app is not very polished
     cask: catlight
-    deb: https://catlight.io/downloads/linux/beta
   ccat:
     _name: ccat
     _short: ccat is a colorizing cat command that highlights syntax in terminal output.
@@ -1357,7 +1302,6 @@ softwarePackages:
     _deprecated: bat can be used instead and has more features
     brew: ccat
     pacman: ccat
-    go: github.com/owenthereal/ccat@latest
   ceph:
     _name: CephFS
     _short: Ceph is a distributed storage system designed to provide excellent performance, reliability, and scalability.
@@ -1380,7 +1324,6 @@ softwarePackages:
     _deprecated: macOS system search more native way of providing similar features. Better alternatives are available.
     cask: cerebro
     choco: cerebro
-    github: github.com/cerebroapp/cerebro
     yay: cerebro
   certbot:
     _name: CertBot
@@ -1388,7 +1331,6 @@ softwarePackages:
     _desc: '[Certbot](https://certbot.eff.org/) is part of EFF’s effort to encrypt the entire Internet. Secure communication over the Web relies on HTTPS, which requires the use of a digital certificate that lets browsers verify the identity of web servers (e.g., is that really google.com?). Web servers obtain their certificates from trusted third parties called certificate authorities (CAs). Certbot is an easy-to-use client that fetches a certificate from [Let’s Encrypt](https://letsencrypt.org/)—an open certificate authority launched by the EFF, Mozilla, and others—and deploys it to a web server.'
     _github: https://github.com/certbot/certbot
     _bin: certbot
-    _post: uv tool install --force --with certbot-dns-cloudflare certbot
     _home: https://certbot.eff.org/
     _docs: https://eff-certbot.readthedocs.io/en/stable/
     pipx: certbot
@@ -1420,7 +1362,6 @@ softwarePackages:
     _docs: https://github.com/charmbracelet/charm
     brew: charmbracelet/tap/charm
     pacman: charm
-    go: github.com/charmbracelet/charm@main
   chatgpt:
     _name: ChatGPT Official Desktop Application
     _desc: Official ChatGPT application for desktop for macOS and fallbacks for ChatGPT desktop on other platforms
@@ -1445,9 +1386,6 @@ softwarePackages:
     _app: NoFWL.app
     _deprecated: Deprecated in favor of the official ChatGPT application
     cask: lencx/nofwl/nofwl
-    apt: https://github.com/lencx/nofwl/releases/download/v0.1.0/NoFWL_0.1.0_linux_x86_64.deb
-    appimage: lencx/nofwl
-    msi: https://github.com/lencx/nofwl/releases/download/v0.1.0/NoFWL_0.1.0_windows_x86_64.msi
   cheat:
     _name: Cheat
     _short: cheat is a command-line tool that allows you to create and view interactive cheatsheets for the command line.
@@ -1459,7 +1397,6 @@ softwarePackages:
     brew: cheat
     snap: cheat
     yay: cheat
-    go: github.com/cheat/cheat/cmd/cheat@latest
     _docker: docker run --rm bannmann/docker-cheat
   chef-workstation:
     _name: Chef Workstation
@@ -1470,8 +1407,6 @@ softwarePackages:
     _app: Chef Workstation App.app
     _deprecated: Not utilizing Chef and it automatically adds a top bar menu item that causes load delay
     cask: chef-workstation
-    apt: https://packages.chef.io/files/stable/chef-workstation/21.10.640/ubuntu/20.04/chef-workstation_21.10.640-1_amd64.deb
-    dnf: https://packages.chef.io/files/stable/chef-workstation/21.10.640/el/8/chef-workstation-21.10.640-1.el8.x86_64.rpm
     choco: chef-workstation
   chezmoi:
     _preload: true
@@ -1483,7 +1418,6 @@ softwarePackages:
     _bin: chezmoi
     _home: https://www.chezmoi.io/
     _docs: https://www.chezmoi.io/user-guide/command-overview/
-    _version: '>=2.40'
     brew: chezmoi
     pacman: chezmoi
     choco: chezmoi
@@ -1539,7 +1473,6 @@ softwarePackages:
     _bin: clair
     _docs: https://quay.github.io/clair/
     brew: clair
-    github: github.com/quay/clair
   clamav:
     _default: false
     _name: ClamAV
@@ -1547,7 +1480,6 @@ softwarePackages:
     _desc: '[ClamAV](https://www.clamav.net/) is an open-source antivirus engine for detecting trojans, viruses, malware & other malicious threats.'
     _github: https://github.com/Cisco-Talos/clamav
     _bin: clamav-config
-    _post: "if [ -d /Applications ] && [ -d /System ]; then\n  load-service clamav.clamdscan\n  load-service clamav.freshclam\n  load-service clamav.notification\nfi\nsudo add-usergroup clamav clamav\nchown -Rf clamav:clamav /etc/clamav\nsudo mkdir -p /var/lib/clamav\nsudo chown -Rf clamav:clamav /var/lib/clamav\nsudo mkdir -p /var/log/clamav\nsudo chown -Rf clamav:clamav /var/log/clamav\nsudo -u clamav freshclam\n"
     _home: https://www.clamav.net/
     _docs: https://docs.clamav.net/
     _service:
@@ -1588,8 +1520,7 @@ softwarePackages:
     - /var/log/clamav
     - /etc/clamav
   clangd:
-    _preload: true
-    _preloadReason: lsp-core
+    _preload: false
     _name: clangd
     _short: clangd is a language server for C++. It provides IDE-like features such as code completion, find references, and more for C and C++ codebases.
     _desc: '[clangd](https://clangd.llvm.org/) is an language server that understands your C++ code and adds smart features to your editor'
@@ -1667,7 +1598,6 @@ softwarePackages:
     _bin: cloudflared
     brew:darwin: cloudflare/cloudflare/cloudflared
     brew:linux: cloudflared
-    github: github.com/cloudflare/cloudflared
   cmake:
     _name: Chezmoi
     _short: CMake is an open-source cross-platform build system designed to build, test, and package software.
@@ -1694,7 +1624,6 @@ softwarePackages:
     _desc: '[Cockpit](https://cockpit-project.org/) allows you to view many aspects of system performance and make configuration changes, though the task list may depend on the particular flavor of Linux that you are using.'
     _github: https://github.com/cockpit-project/cockpit
     _bin: cockpit
-    _post: sudo usermod -a -G libvirtdbus libvirt
     _home: https://cockpit-project.org/
     _docs: https://cockpit-project.org/documentation.html
     _service:
@@ -1759,8 +1688,7 @@ softwarePackages:
     brew:darwin: cocoapods
     gem:darwin: cocoapods
   cod:
-    _preload: true
-    _preloadReason: shell-profile-core
+    _preload: false
     _name: Cod
     _short: cod is a lightweight, fast, and powerful code editor designed for macOS.
     _desc: Cod is a completion daemon for bash/fish/zsh that automatically adds auto-completions when --help is used
@@ -1768,7 +1696,6 @@ softwarePackages:
     _bin: cod
     _home: https://github.com/dim-an/cod
     _docs: https://github.com/dim-an/cod
-    go: github.com/dim-an/cod@master
   code2prompt:
     _name: code2prompt
     _desc: Converts git repository or folder to LLM digestible markdown file
@@ -1786,7 +1713,6 @@ softwarePackages:
     brew: codeclimate/formulae/codeclimate
     brew:darwin: codeclimate/formulae/codeclimate
     _usesDocker: true
-    script:linux: cd /tmp && curl -L https://github.com/codeclimate/codeclimate/archive/master.tar.gz | tar xvz && cd codeclimate-* && sudo make install
   codeedit:
     _name: CodeEdit
     _short: CodeEdit is a collaborative code editor for developers to work together in real-time on coding projects.
@@ -1851,8 +1777,6 @@ softwarePackages:
     pacman: composer
     choco: composer
     scoop: composer
-    script:darwin: cd ~ && curl -sS https://getcomposer.org/installer | php && sudo mv composer.phar /usr/local/bin/composer &&  sudo chmod +x /usr/local/bin/composer
-    script:linux: cd ~ && curl -sS https://getcomposer.org/installer | php && sudo mv composer.phar /usr/local/bin/composer &&  sudo chmod +x /usr/local/bin/composer
   confd:
     _name: confd
     _short: confd is a lightweight configuration management tool designed to help manage application configuration files dynamically using templates and backends like etcd, consul, or environment variables.
@@ -1861,7 +1785,6 @@ softwarePackages:
     _bin: confd
     brew: confd
     choco: confd
-    github: github.com/kelseyhightower/confd
     yay: confd
   connections:
     _github: false
@@ -1946,8 +1869,6 @@ softwarePackages:
     pacman: croc
     choco: croc
     scoop: croc
-    github: github.com/schollz/croc
-    go: github.com/schollz/croc/v9@latest
     pkg: croc
   crunch:
     _name: Crunch
@@ -1960,7 +1881,6 @@ softwarePackages:
     _app: Crunch.app
     _deprecated: Deprecated in favor of ImageOptim which has a more polished interface and can handle files other than PNGs
     cask: crunch
-    script: cd /tmp && rm -rf Crunch && git clone https://github.com/chrissimpkins/Crunch.git && make build-dependencies && make install-executable && cd /tmp && rm -rf Crunch && rm -rf ~/zopfli && rm -rf ~/pngquant && echo "TODO WARNING - The ~/zopfli and ~/pngquant directories were deleted and may be required (but were removed due to HOME directory pollution)"
   crush:
     _name: Crush AI Terminal
     _short: Colorful, beautiful way to interact with AI from terminal
@@ -1994,7 +1914,6 @@ softwarePackages:
     _github: https://github.com/bcicen/ctop
     _bin: ctop
     brew: ctop
-    github: github.com/bcicen/ctop
     yay: ctop-bin
   cumulus:
     _name: Cumulus
@@ -2005,7 +1924,6 @@ softwarePackages:
     _app: Cumulus.app
     _deprecated: Unnecessary menu bar widget for SoundCloud.
     cask: cumulus
-    github: github.com/gillesdemey/Cumulus
   cups:
     _name: CUPS
     _short: CUPS (Common UNIX Printing System) is an open-source printing system developed by Apple for Unix-like operating systems.
@@ -2054,8 +1972,7 @@ softwarePackages:
     xbps: curl
     zypper: curl
   curlie:
-    _preload: true
-    _preloadReason: shell-profile-core
+    _preload: false
     _name: Curlie
     _short: curlie is a modern command-line interface for curl.
     _desc: Curlie is a frontend to curl that adds the ease of use of httpie, without compromising on features and performance.
@@ -2065,7 +1982,6 @@ softwarePackages:
     _docs: https://curlie.io/
     brew: curlie
     scoop: curlie
-    go: github.com/rs/curlie@latest
     pkg: curlie
   cursor:
     _name: Cursor
@@ -2133,8 +2049,6 @@ softwarePackages:
     _github: https://github.com/TomWright/dasel
     _bin: dasel
     brew: dasel
-    github: github.com/TomWright/dasel
-    go: github.com/tomwright/dasel/cmd/dasel@master
   dat:
     _name: dat
     _short: dat is a decentralized data sharing tool for efficiently syncing and versioning files across multiple devices.
@@ -2142,7 +2056,6 @@ softwarePackages:
     _github: https://github.com/datproject/dat
     _bin: dat
     npm: dat@next
-    github: github.com/dat-ecosystem-archive/dat
   dconf-editor:
     _name: 'dconf-editor                                                                                                                                                                                              '
     _short: dconf-editor is a graphical editor for the Dconf configuration system used in GNOME.
@@ -2166,8 +2079,7 @@ softwarePackages:
     flatpak: org.gnome.DejaDup
     _gitlab: https://gitlab.gnome.org/World/deja-dup
   delta:
-    _preload: true
-    _preloadReason: shell-profile-core
+    _preload: false
     _name: Delta
     _short: Delta is a tool for viewing git diff output with syntax highlighting and line decorations.
     _desc: '[delta](https://github.com/dandavison/delta) is a viewer for git and diff output'
@@ -2191,7 +2103,6 @@ softwarePackages:
     _home: https://github.com/go-delve/delve
     _docs: https://github.com/go-delve/delve/tree/master/Documentation
     brew: delve
-    go: github.com/go-delve/delve/cmd/dlv@latest
   deno:
     _name: Deno
     _short: Deno is a secure runtime for JavaScript and TypeScript.
@@ -2214,7 +2125,6 @@ softwarePackages:
     _docs: https://github.com/SoptikHa2/desed#controls
     dnf:fedora: desed
     cargo: desed
-    github: github.com/SoptikHa2/desed
     pkg: desed
     xbps-freebsd: desed
   desk:
@@ -2224,18 +2134,6 @@ softwarePackages:
     _github: https://github.com/jamesob/desk
     _bin: desk
     brew: desk
-  deta:
-    _name: deta
-    _short: deta-cli is a command-line interface tool for Deta, a platform for building and deploying scalable cloud applications.
-    _desc: Command line interface for managing Deta micros and deployments
-    _github: https://github.com/deta/deta-cli
-    _bin: deta
-    _home: https://www.deta.sh/
-    _docs: https://docs.deta.sh/docs/cli/install
-    github: github.com/deta/deta-cli
-    script:darwin: curl -fsSL https://get.deta.dev/cli.sh | sh
-    script:linux: curl -fsSL https://get.deta.dev/cli.sh | sh
-    script:windows: iwr https://get.deta.dev/cli.ps1 -useb | iex
   devbox:
     _name: 'devbox                                                                                                                                                                                                    '
     _short: devbox is a tool for creating and managing development environments using Docker.
@@ -2315,8 +2213,7 @@ softwarePackages:
     brew: difftastic
     cargo: difftastic
   direnv:
-    _preload: true
-    _preloadReason: shell-profile-core
+    _preload: false
     _name: direnv
     _short: direnv is a tool that helps automate loading and unloading of environment variables based on the current directory.
     _desc: '[direnv](https://direnv.net/) is an extension for your shell. It augments existing shells with a new feature that can load and unload environment variables depending on the current directory.'
@@ -2326,7 +2223,6 @@ softwarePackages:
     _docs: https://direnv.net/
     brew: direnv
     apt: direnv
-    github: github.com/direnv/direnv
   discord:
     _name: Discord
     _github: false
@@ -2354,9 +2250,7 @@ softwarePackages:
     _bin: dive
     _home: https://github.com/wagoodman/dive
     brew: dive
-    github: github.com/wagoodman/dive
     yay: dive
-    go: github.com/wagoodman/dive@latest
     _description: A tool for exploring each layer in a docker image
   dnsmasq:
     _name: dnsmasq
@@ -2378,8 +2272,6 @@ softwarePackages:
     _desc: Docker CLI and Engine tooling for building, running, and managing OCI containers.
     _github: https://github.com/docker/cli
     _bin: docker
-    _deps:
-    - docker-images
     apt:
     - containerd.io
     - docker-ce
@@ -2397,7 +2289,7 @@ softwarePackages:
     - docker
     - docker-buildx
     - docker-compose
-    script:darwin: echo "Docker CLI installed by Docker Desktop on macOS"
+    brew: docker
     zypper:
     - containerd.io
     - docker-ce
@@ -2424,22 +2316,12 @@ softwarePackages:
     _docs: https://docs.docker.com/
     _app: Docker.app
     cask: docker
-    apt: https://desktop.docker.com/linux/main/amd64/docker-desktop-4.16.2-amd64.deb
-    dnf: https://desktop.docker.com/linux/main/amd64/docker-desktop-4.16.2-x86_64.rpm
-    pacman: https://desktop.docker.com/linux/main/amd64/docker-desktop-4.16.2-x86_64.pkg.tar.zst
     choco: docker-desktop
     _env:
       DOCKER_DESKTOP_APPDATA:
         cask: $HOME/Library/Application Support/Docker Desktop
-  docker-images:
-    _desc: This entry is used to trigger a post-installation docker image pre-load. See the `docker-images` entry in `.chezmoidata.yaml`.
-    _github: 'false'
-    _bin: docker-images
-    script: echo "Enabling docker-images pre-load"
-    _name: Docker Images
   docker-langserver:
-    _preload: true
-    _preloadReason: lsp-core
+    _preload: false
     _name: Docker Language Server
     _short: dockerfile-language-server-nodejs is a language server for Dockerfiles, written in Node.js.
     _desc: A Docker language server
@@ -2454,11 +2336,41 @@ softwarePackages:
     _name: Docker Plugins
   docker-pushrm:
     _name: Docker PushRM
-    _short: docker-pushrm is a tool that simplifies pushing Docker images to AWS Elastic Container Registry (ECR) with reduced manual steps.
-    _desc: The repository at https://github.com/christian-korneck/docker-pushrm appears to be a tool or script related to Docker. The name "docker-pushrm" suggests it might be related to pushing Docker images to a registry. To get more details, you can check the repository's README file or explore the code to understand its functionality, usage, and any specific requirements or dependencies it might have.
+    _short: docker-pushrm adds README content to images pushed to container registries.
+    _desc: A Docker CLI plugin that pushes a README file alongside an image so supported registries can display it as the repository overview.
     _github: https://github.com/christian-korneck/docker-pushrm
     _bin: docker-pushrm
-    script: "#!/usr/bin/env bash\nif [ ! -f \"${XDG_CONFIG_HOME:-$HOME/.config}/docker/cli-plugins/docker-pushrm\" ]; then\n  gum log -sl info 'Acquiring release information for Docker push-rm'\n  RELEASE_TAG=\"$(curl -sSL https://api.github.com/repos/christian-korneck/docker-pushrm/releases/latest | jq -r '.tag_name')\"\n  mkdir -p \"${XDG_CONFIG_HOME:-$HOME/.config}/docker/cli-plugins\"\n  gum log -sl info 'Downloading Docker push-rm' && curl https://github.com/christian-korneck/docker-pushrm/releases/download/$RELEASE_TAG/docker-pushrm_darwin_amd64 -o \"${XDG_CONFIG_HOME:-$HOME/.config}/docker/cli-plugins/docker-pushrm\"\n  chmod +x \"${XDG_CONFIG_HOME:-$HOME/.config}/docker/cli-plugins/docker-pushrm\"\n  gum log -sl info 'Added Docker push-rm'\nelse\n  gum log -sl info 'Docker push-rm already added'\nfi\n"
+    _artifacts:
+    - schemaVersion: 1
+      id: docker-pushrm
+      version: 1.9.0
+      platform: { os: darwin, arch: x64 }
+      source: { url: https://github.com/christian-korneck/docker-pushrm/releases/download/v1.9.0/docker-pushrm_darwin_amd64, sha256: b99b22f22beeb75d3e6c5a37bd2477f39b8e7181e0c3d7b242c8de5d36c20ba2, sizeBytes: 8425168 }
+      destination: { root: docker-cli-plugin, filename: docker-pushrm, mode: '0700' }
+    - schemaVersion: 1
+      id: docker-pushrm
+      version: 1.9.0
+      platform: { os: darwin, arch: arm64 }
+      source: { url: https://github.com/christian-korneck/docker-pushrm/releases/download/v1.9.0/docker-pushrm_darwin_arm64, sha256: 8dcbac5229e4e78c9c727b393802a8e676ff3b2cdb31e1312f8acf3a63e7b0ae, sizeBytes: 8153184 }
+      destination: { root: docker-cli-plugin, filename: docker-pushrm, mode: '0700' }
+    - schemaVersion: 1
+      id: docker-pushrm
+      version: 1.9.0
+      platform: { os: linux, arch: x64 }
+      source: { url: https://github.com/christian-korneck/docker-pushrm/releases/download/v1.9.0/docker-pushrm_linux_amd64, sha256: 2f48649ce6c6aba1656a0fb3fc7a82971caf8ece7d86e6eed3d10c106d20fac8, sizeBytes: 2896800 }
+      destination: { root: docker-cli-plugin, filename: docker-pushrm, mode: '0700' }
+    - schemaVersion: 1
+      id: docker-pushrm
+      version: 1.9.0
+      platform: { os: linux, arch: arm64 }
+      source: { url: https://github.com/christian-korneck/docker-pushrm/releases/download/v1.9.0/docker-pushrm_linux_arm64, sha256: 4509cbc5b25c2ca60d2287048265ba21247a5b01bbd16d88546ecf1db53f143a, sizeBytes: 2616252 }
+      destination: { root: docker-cli-plugin, filename: docker-pushrm, mode: '0700' }
+    - schemaVersion: 1
+      id: docker-pushrm
+      version: 1.9.0
+      platform: { os: win32, arch: x64 }
+      source: { url: https://github.com/christian-korneck/docker-pushrm/releases/download/v1.9.0/docker-pushrm_windows_amd64.exe, sha256: e1e084bc8968c0d4183c63d7c4090d4479e4c01e380454a52a798605d132e268, sizeBytes: 2934904 }
+      destination: { root: docker-cli-plugin, filename: docker-pushrm.exe, mode: '0700' }
   docker-slim:
     _name: Docker Slim
     _short: docker-slim is a tool to create smaller and more secure Docker images by analyzing and optimizing them.
@@ -2469,7 +2381,6 @@ softwarePackages:
     _docs: https://github.com/docker-slim/docker-slim#basic-usage-info
     brew: docker-slim
     dnf:fedora: golang-github-docker-slim
-    github: github.com/docker-slim/docker-slim
     yay: docker-slim
   dockfmt:
     _name: dockfmt
@@ -2477,7 +2388,6 @@ softwarePackages:
     _desc: Dockfmt is a tool created by jessfraz that formats Dockerfiles in a consistent and easy-to-read manner. It helps maintain a standardized structure in Dockerfiles, making them more readable and maintainable. By using Dockfmt, you can ensure that your Dockerfiles follow best practices and adhere to a specific style guide. It can be integrated into your workflow to automatically format Dockerfiles, saving time and reducing errors related to inconsistent formatting.
     _github: https://github.com/jessfraz/dockfmt
     _bin: dockfmt
-    go: github.com/jessfraz/dockfmt@latest
   dockle:
     _name: dockle
     _short: Dockle is a security and compliance scanner for Docker containers.
@@ -2485,7 +2395,6 @@ softwarePackages:
     _github: https://github.com/goodwithtech/dockle
     _bin: dockle
     brew: goodwithtech/r/dockle
-    github: github.com/goodwithtech/dockle
     yay: dockle-bin
   dockly:
     _name: Dockly
@@ -2510,11 +2419,9 @@ softwarePackages:
     brew: doctl
     pacman: doctl
     snap: doctl
-    github: github.com/digitalocean/doctl
     pkg: doctl
   dog:
-    _preload: true
-    _preloadReason: shell-profile-core
+    _preload: false
     _name: dog
     _short: Dog is a command-line DNS client for DNS-over-HTTPS.
     _desc: A command-line DNS client
@@ -2522,7 +2429,6 @@ softwarePackages:
     _bin: dog
     brew: dog
     pacman: dog
-    github: github.com/ogham/dog
     pkg: dog
   doitlive:
     _name: Do It Live!
@@ -2582,9 +2488,6 @@ softwarePackages:
     npm: dprint
     scoop: dprint
     cargo: dprint
-    script:darwin: curl -fsSL https://dprint.dev/install.sh | sh
-    script:linux: curl -fsSL https://dprint.dev/install.sh | sh
-    script:windows: iwr https://dprint.dev/install.ps1 -useb | iex
   drawing:
     _name: 'drawing                                                                                                                                                                                                   '
     _short: drawing is a simple drawing program written in Python using the Tkinter library.
@@ -2604,7 +2507,6 @@ softwarePackages:
     _deprecated: Deprecated in favor of web app
     cask: drawio
     choco: drawio
-    appimage: draw.io
   drone-cli:
     _name: Drone CLI
     _short: drone-cli is a command-line interface (CLI) tool for interacting with the Drone CI/CD platform.
@@ -2615,7 +2517,6 @@ softwarePackages:
     _docs: https://docs.drone.io/cli/install/
     brew: drone/drone/drone
     scoop: drone
-    github: github.com/harness/drone-cli
   dua:
     _name: 'dua-cli                                                                                                                                                                                                   '
     _short: dua-cli is a fast, interactive disk usage analyzer with a colorful interface for the command line.
@@ -2641,7 +2542,6 @@ softwarePackages:
     pacman: duf
     choco: duf
     scoop: duf
-    github: github.com/muesli/duf
     pkg: duf
   dust:
     _name: dust
@@ -2655,7 +2555,6 @@ softwarePackages:
     brew:linux: tgotwig/linux-dust/dust
     pacman: dust
     cargo: du-dust
-    github: github.com/bootandy/dust
     apk: dust
   duti:
     _name: Duti
@@ -2680,16 +2579,10 @@ softwarePackages:
     _desc: '[EasyEngine](https://easyengine.io/) is a command-line control panel for Nginx to manage WordPress sites running on Nginx, PHP, MySQL, and Let''s Encrypt.'
     _github: https://github.com/EasyEngine/easyengine
     _bin: ee
-    _post: 'ee config set le-mail "$(get-secret CLOUDFLARE_EMAIL)"
-
-      ee config set cloudflare-api-key "$(get-secret CLOUDFLARE_API_KEY)"
-
-      '
     _home: https://easyengine.io/
     _docs: https://easyengine.io/handbook/
     _deprecated: Deprecated for regular installs - install manually
     brew: easyengine
-    script:linux: wget -qO ee rt.cx/ee4 && sudo bash ee
   editly:
     _name: Editly
     _short: Editly is a tool for creating videos programmatically using JavaScript.
@@ -2708,7 +2601,6 @@ softwarePackages:
     _bin: eget
     brew: eget
     choco: eget
-    go: github.com/zyedidia/eget@latest
   ejs:
     _name: EJS
     _short: EJS is a simple templating language that lets you generate HTML markup with plain JavaScript.
@@ -2754,8 +2646,7 @@ softwarePackages:
     _bin: emoj
     npm: emoj
   emplace:
-    _preload: true
-    _preloadReason: shell-profile-core
+    _preload: false
     _name: Emplace
     _short: Emplace is a tool for quickly creating and managing GitHub repositories from the command line.
     _desc: Emplace objects and arrays - pointer to pointer style
@@ -2800,7 +2691,6 @@ softwarePackages:
     _bin: enola
     _home: https://github.com/TheYahya/enola
     _docs: https://github.com/TheYahya/enola
-    go: github.com/theyahya/enola/cmd/enola@latest
   envchain:
     _name: envchain
     _short: envchain is a tool that securely stores and manages environment variables for command-line applications.
@@ -2812,7 +2702,6 @@ softwarePackages:
     _home: https://github.com/sorah/envchain
     _docs: https://github.com/sorah/envchain#usage
     brew: envchain
-    github: github.com/sorah/envchain
   envconsul:
     _name: envconsul
     _short: Envconsul is a tool by HashiCorp that updates environment variables in running processes from Consul.
@@ -2820,7 +2709,6 @@ softwarePackages:
     _github: https://github.com/hashicorp/envconsul
     _bin: envconsul
     brew: envconsul
-    github: github.com/hashicorp/envconsul
   envio:
     _name: Envio
     _short: envio is a lightweight command-line tool for sending files securely over the internet using end-to-end encryption.
@@ -2873,9 +2761,6 @@ softwarePackages:
     cask: espanso
     choco: espanso
     snap: espanso --channel=latest/edge --classic
-    appimage: federico-terzi/espanso
-    _post:appimage: espanso service register && espanso start
-    _post:snap: espanso service register && espanso start
   esprint:
     _name: ESPrint
     _short: esprint is a tool by Pinterest for running JavaScript tests with parallel processes to speed up the testing process.
@@ -2896,7 +2781,6 @@ softwarePackages:
     brew: etcd
     dnf:fedora: etcd
     choco: etcd
-    github: github.com/etcd-io/etcd
     yay: etcd
   ettercap:
     _name: Ettercap
@@ -2938,8 +2822,7 @@ softwarePackages:
     emerge: sys-apps/exa
     zypper: exa
   exiftool:
-    _preload: true
-    _preloadReason: media-management-core
+    _preload: false
     _name: exiftool
     _short: ExifTool is a powerful command-line tool for reading, writing, and editing metadata in a wide variety of files, including images, videos, and documents.
     _desc: '[exiftool](https://exiftool.org/) is a platform-independent Perl library plus a command-line application for reading, writing and editing meta information in a wide variety of files'
@@ -2962,8 +2845,7 @@ softwarePackages:
     dnf: expect
     pacman: expect
   eza:
-    _preload: true
-    _preloadReason: shell-profile-core
+    _preload: false
     _name: Eza
     _desc: A modern replacement for ls. Active fork of exa.
     _github: https://github.com/eza-community/eza
@@ -3002,7 +2884,6 @@ softwarePackages:
     _notes: 'fail2ban cannot be installed on Qubes Fedora 36 without messing with the qubes-firewall since firewalld is required.
 
       '
-    _when:linux: '! command -v qubes-firewall > /dev/null && test -f /proc/version && ! grep Microsoft /proc/version > /dev/null'
   fastify:
     _name: fastify
     _short: fastify-cli is a command-line interface tool for generating Fastify application templates quickly and efficiently.
@@ -3031,8 +2912,7 @@ softwarePackages:
     brew: fcp
     cargo: fcp
   fd:
-    _preload: true
-    _preloadReason: shell-profile-core
+    _preload: false
     _name: fd
     _short: fd is a simple, fast and user-friendly alternative to find command, written in Rust.
     _desc: '[fd](https://github.com/sharkdp/fd) is a program that can search for files on your filesystem. It is a simple, fast, and user-friendly alternative to find. While it does not aim to support all of find''s powerful functionality, it provides sensible (opinionated) defaults for a majority of use cases.'
@@ -3044,7 +2924,6 @@ softwarePackages:
     choco: fd
     scoop: fd
     cargo: fd-find
-    github: github.com/sharkdp/fd
     pkg: fd
     _bin:apt: fdfind
     apk: fd
@@ -3083,8 +2962,7 @@ softwarePackages:
         flatpak: $HOME/.var/app/org.ferdium.Ferdium/config/Ferdium
         snap: $HOME/snap/ferdium/current/.config/Ferdium
   ffmpeg:
-    _preload: true
-    _preloadReason: media-management-core
+    _preload: false
     _name: FFmpeg
     _short: FFmpeg is a powerful multimedia framework that can decode, encode, transcode, mux, demux, stream, filter, and play almost anything that humans and machines have created.
     _desc: '[FFmpeg](https://www.ffmpeg.org/) is the leading multimedia framework. It is able to decode, encode, transcode, mux, demux, stream, filter and play pretty much anything that humans and machines have created. It supports the most obscure ancient formats up to the cutting edge.'
@@ -3105,7 +2983,6 @@ softwarePackages:
     _bin: ffsend
     brew: ffsend
     scoop: ffsend
-    github: github.com/timvisee/ffsend
     yay: ffsend
     pkg: ffsend
     apk: ffsend
@@ -3154,7 +3031,6 @@ softwarePackages:
     cask: figma
     choco: figma
     snap: figma-linux
-    appimage: Figma-Linux/figma-linux
   filebrowser:
     _name: File Browser
     _short: Filebrowser is an open-source, self-hosted web-based file manager with a simple and intuitive interface for managing files on a server.
@@ -3164,7 +3040,6 @@ softwarePackages:
     _home: https://filebrowser.org/
     _docs: https://filebrowser.org/installation
     brew: filebrowser/tap/filebrowser
-    github: github.com/filebrowser/filebrowser
   filezilla:
     _name: FileZilla
     _short: This is the URL for the FileZilla project's Subversion repository.
@@ -3241,11 +3116,6 @@ softwarePackages:
     _desc: Firewalld is a dynamic firewall management tool for Linux systems. It provides a dynamically managed firewall with support for network zones, services, and rich rules. It allows for easy configuration of firewall rules through a command-line interface or graphical user interface. Firewalld is designed to be more user-friendly and flexible compared to traditional static firewall configurations. It is actively maintained and widely used in various Linux distributions to enhance network security and manage firewall settings efficiently.
     _github: https://github.com/firewalld/firewalld
     _bin: firewall-cmd
-    _pre: '#!/usr/bin/env bash
-
-      if command -v ufw > /dev/null; then sudo ufw disable; fi
-
-      '
     _service:
     - name: firewalld
       sudo: false
@@ -3271,10 +3141,7 @@ softwarePackages:
     _bin: fission
     _home: https://fission.io/
     _docs: https://fission.io/docs/
-    github: github.com/fission/fission
-    exe: https://github.com/fission/fission/releases/download/v1.19.0/fission-v1.19.0-windows-amd64.exe
-    script:darwin: cd /tmp && curl -sSLo fission https://github.com/fission/fission/releases/download/v1.19.0/fission-v1.19.0-darwin-amd64 && chmod +x fission && sudo mv fission /usr/local/bin/
-    script:linux: cd /tmp && curl -sSLo fission https://github.com/fission/fission/releases/download/v1.19.0/fission-v1.19.0-linux-amd64 && chmod +x fission && sudo mv fission /usr/local/bin/
+    scoop: fission-cli
   fixkey:
     _name: Fixkey
     _github: false
@@ -3379,7 +3246,6 @@ softwarePackages:
     _bin: fly
     _home: https://concourse-ci.org/
     cask: fly
-    github: https://github.com/concourse/concourse
     yay: fly-cli
   flyctl:
     _name: Fly CLI
@@ -3388,16 +3254,13 @@ softwarePackages:
     _home: https://fly.io/
     _docs: https://fly.io/docs/
     brew: flyctl
-    script:linux: curl -L https://fly.io/install.sh | sh
-    script:windows: pwsh -Command "iwr https://fly.io/install.ps1 -useb | iex"
+    winget: Fly-io.flyctl
   fm:
     _name: fm
     _short: fm is a simple file manager for the terminal.
     _desc: Terminal file manager
     _github: https://github.com/mistakenelf/fm
     _bin: fm
-    github: github.com/mistakenelf/fm
-    go: github.com/mistakenelf/fm@latest
   follow:
     _name: Follow
     _github: https://github.com/RSSNext/follow
@@ -3414,7 +3277,6 @@ softwarePackages:
     _home: https://github.com/weaveworks/footloose
     _docs: https://github.com/weaveworks/footloose
     brew: weaveworks/tap/footloose
-    go: github.com/weaveworks/footloose@master
   forever:
     _name: Forever
     _short: forever is a simple CLI tool for ensuring that a given script runs continuously.
@@ -3465,8 +3327,6 @@ softwarePackages:
     brew: wader/tap/fq
     pacman: fq
     scoop: fq
-    github: github.com/wader/fq
-    go: github.com/wader/fq@latest
     apk: fq
   fritzing:
     _name: Fritzing
@@ -3506,7 +3366,6 @@ softwarePackages:
     brew: fselect
     choco: fselect
     cargo: fselect
-    github: github.com/jhspetersson/fselect
     yay: fselect
   fuego:
     _name: Fuego
@@ -3517,7 +3376,6 @@ softwarePackages:
     _home: https://github.com/sgarciac/fuego
     _docs: https://github.com/sgarciac/fuego
     brew: fuego-firestore
-    go: github.com/sgarciac/fuego@latest
   fury:
     _name: Fury
     _short: Gemfury is a platform for hosting and sharing private RubyGems, Python packages, and NPM modules.
@@ -3546,11 +3404,9 @@ softwarePackages:
     pacman: fx
     scoop: fx
     snap: fx
-    go: github.com/antonmedv/fx@latest
     pkg: fx
   fzf:
-    _preload: true
-    _preloadReason: shell-profile-core
+    _preload: false
     _name: fzf
     _short: fzf is a command-line fuzzy finder for searching and selecting items interactively.
     _desc: '[fzf](https://github.com/junegunn/fzf) is a general-purpose command-line fuzzy finder. It''s an interactive Unix filter for command-line that can be used with any list; files, command history, processes, hostnames, bookmarks, git commits, etc.'
@@ -3632,9 +3488,7 @@ softwarePackages:
     brew: gdrive
     choco: gdrive
     scoop: gdrive
-    github: github.com/prasmussen/gdrive
     yay: gdrive
-    go: github.com/prasmussen/gdrive@latest
   generator-ngx-rocket:
     _name: Angular
     _short: generator-ngx-rocket is a Yeoman generator for Angular applications, providing a solid foundation with best practices and a modular architecture.
@@ -3656,8 +3510,7 @@ softwarePackages:
     _bin: gfi
     npm: google-font-installer
   gh:
-    _preload: true
-    _preloadReason: web-dev-core
+    _preload: false
     _name: Github CLI
     _short: GitHub CLI is a command-line tool that brings GitHub to your terminal.
     _desc: '[gh](https://cli.github.com/) is GitHub on the command line. It brings pull requests, issues, and other GitHub concepts to the terminal next to where you are already working with git and your code.'
@@ -3682,11 +3535,8 @@ softwarePackages:
     _desc: '[ghorg](https://github.com/gabrie30/ghorg) allows you to quickly clone all of an org''s, or user''s repositories into a single directory.'
     _github: https://github.com/gabrie30/ghorg
     _bin: ghorg
-    _post: ghorg reclone
     brew: gabrie30/utils/ghorg
-    github: github.com/gabrie30/ghorg
     yay: ghorg
-    go: github.com/gabrie30/ghorg@latest
   gifsicle:
     _name: Gifsicle
     _short: gifsicle is a powerful command-line tool for creating, editing, and optimizing GIF images.
@@ -3799,9 +3649,6 @@ softwarePackages:
     _bin: git-lfs
     _deps:
     - git
-    _post: 'sudo git lfs install --system
-
-      '
     brew: git-lfs
     scoop: git-lfs
   git-notify:
@@ -3851,7 +3698,6 @@ softwarePackages:
     _github: https://github.com/git-town/git-town
     _bin: git-town
     brew: git-town
-    go: github.com/git-town/git-town@latest
   gitdock:
     _name: GitDock
     _short: gitdock is a GitLab repository belonging to mvanremmerden.
@@ -3890,7 +3736,6 @@ softwarePackages:
     _home: https://github.com/manosim/gitify
     _app: Gitify.app
     cask: gitify
-    github: github.com/manosim/gitify
     yay: gitify-bin
     _description: GitHub notifications on the menu bar
   gitkraken:
@@ -3940,7 +3785,6 @@ softwarePackages:
     _bin: gitleaks
     brew: gitleaks
     dnf:fedora: gitleaks
-    github: github.com/zricethezav/gitleaks
     yay: gitleaks
     pkg: gitleaks
   gitmoji-cli:
@@ -3960,8 +3804,6 @@ softwarePackages:
     _bin: gitomatic
     pacman: gitomatic
     scoop: gitomatic
-    github: github.com/muesli/gitomatic
-    go: github.com/muesli/gitomatic@latest
   gitql:
     _name: GitQL
     _short: gitql is a command-line tool that allows you to query your Git repositories using SQL-like syntax.
@@ -4000,12 +3842,10 @@ softwarePackages:
     _bin: glab
     brew: glab
     scoop: glab
-    github: github.com/profclems/glab
     yay: gitlab-glab-bin
     apk: glab
   glances:
-    _preload: true
-    _preloadReason: shell-profile-core
+    _preload: false
     _name: Glances
     _short: Glances is a cross-platform monitoring tool that provides real-time system information in a visually appealing way.
     _desc: '[Glances](https://github.com/nicolargo/glances) is a cross-platform monitoring tool which aims to present a maximum of information in a minimum of space through a curses or a web interface. It can adapt the displayed information depending on the terminal size dynamically. It is a top/htop alternative for Linux, BSD, macOS, and even Windows.'
@@ -4024,7 +3864,6 @@ softwarePackages:
     - lm_sensors
     - wireless_tools
     pipx: glances
-    _post:pipx: uv tool install --force --with 'glances[all]' glances
     apt:ubuntu:
     - python3-dev
     - python3-jinja2
@@ -4041,19 +3880,15 @@ softwarePackages:
     _desc: A CLI to gather GitLab project and group variables
     _github: https://github.com/lingrino/glen
     _bin: glen
-    go: github.com/lingrino/glen@latest
   glow:
-    _preload: true
-    _preloadReason: shell-profile-core
+    _preload: false
     _name: glow
     _short: Glow is a terminal markdown viewer for Unix systems.
     _desc: Glow is a terminal based markdown reader designed from the ground up to bring out the beauty—and power—of the CLI
     _github: https://github.com/charmbracelet/glow
     _bin: glow
-    _version: '>=1.5'
     brew: glow
     scoop: glow
-    github: github.com/charmbracelet/glow
     yay: glow
     pkg: glow
   glusterfs:
@@ -4240,15 +4075,12 @@ softwarePackages:
     _desc: CLI for Google Chromecast, Home devices and Cast Groups
     _github: https://github.com/vishen/go-chromecast
     _bin: go-chromecast
-    github: github.com/vishen/go-chromecast
-    go: github.com/vishen/go-chromecast@latest
   go-outline:
     _name: 'go-outline                                                                                                                                                                                                '
     _short: go-outline is a Go language tool that generates code outline information for Go source files.
     _desc: go-outline is a tool for Go programming language that generates outline information for Go source code. It provides a way to extract structural information like types, functions, and methods from Go files. This can be useful for understanding the overall structure of a Go project or for tools that need to analyze Go code programmatically. The tool is typically used by Go developers and integrated into IDEs or text editors to enhance code navigation and understanding.
     _github: https://github.com/ramya-rao-a/go-outline
     _bin: go-outline
-    go: github.com/ramya-rao-a/go-outline@latest
   goaccess:
     _name: GoAccess
     _short: GoAccess is a real-time web log analyzer and interactive viewer that runs in a terminal.
@@ -4270,8 +4102,6 @@ softwarePackages:
     _github: https://github.com/itchyny/gojq
     _bin: gojq
     brew: gojq
-    github: github.com/itchyny/gojq
-    go: github.com/itchyny/gojq@latest
   golangci-lint:
     _name: 'golangci-lint                                                                                                                                                                                             '
     _short: golangci-lint is a fast Go linter.
@@ -4280,7 +4110,6 @@ softwarePackages:
     _bin: golangci-lint
     _home: https://golangci-lint.run/
     brew: golangci-lint
-    go: github.com/golangci/golangci-lint/cmd/golangci-lint@latest
   gomodifytags:
     _name: 'gomodifytags                                                                                                                                                                                              '
     _short: gomodifytags is a tool for Go programming language that allows you to modify struct tags in Go source files easily.
@@ -4288,7 +4117,6 @@ softwarePackages:
     _github: https://github.com/fatih/gomodifytags
     _bin: gomodifytags
     brew: gomodifytags
-    go: github.com/fatih/gomodifytags@latest
   gomplate:
     _name: Gomplate
     _short: gomplate is a versatile command-line tool for manipulating text templates with data.
@@ -4312,7 +4140,6 @@ softwarePackages:
     _home: https://github.com/kahing/goofys
     _docs: https://github.com/kahing/goofys#usage
     brew:linux: goofys
-    go:linux: github.com/kahing/goofys@latest
   google-assistant:
     _default: false
     _name: Google Assistant for Desktop
@@ -4324,7 +4151,6 @@ softwarePackages:
     cask: google-assistant
     snap: g-assist
     winget: g-assist
-    github: github.com/Melvin-Abraham/Google-Assistant-Unofficial-Desktop-Client
   google-chrome:
     _name: Google Chrome
     _short: $'Not open-source' is a string in zsh shell that uses single quotes to interpret escape sequences like \n for newline.
@@ -4377,7 +4203,6 @@ softwarePackages:
     - gopass
     scoop: gopass
     winget: gopass.gopass
-    go: github.com/gopasspw/gopass@latest
     apk: gopass
   gopkgs:
     _name: 'gopkgs                                                                                                                                                                                                    '
@@ -4385,17 +4210,14 @@ softwarePackages:
     _desc: Tool to get list available Go packages
     _github: https://github.com/uudashr/gopkgs
     _bin: gopkgs
-    go: github.com/uudashr/gopkgs/v2/cmd/gopkgs@latest
   gopls:
-    _preload: true
-    _preloadReason: lsp-core
+    _preload: false
     _name: gopls
     _short: gopls is the official Go language server maintained by the Go team.
     _desc: gopls (pronounced "Go please") is the official Go language server developed by the Go team. It provides IDE and coding agent features such as workspace symbol navigation, diagnostics, and refactoring to any LSP-compatible client.
     _github: false
     _bin: gopls
     brew: gopls
-    go: golang.org/x/tools/gopls@latest
   goreleaser:
     _name: Go Releaser
     _short: goreleaser is a tool that automates Go software releases.
@@ -4405,7 +4227,6 @@ softwarePackages:
     brew: goreleaser
     snap: goreleaser --classic
     yay: goreleaser-bin
-    go: github.com/goreleaser/goreleaser@latest
   gotests:
     _name: 'gotests                                                                                                                                                                                                   '
     _short: gotests is a tool that generates Go tests from your source code.
@@ -4413,7 +4234,6 @@ softwarePackages:
     _github: https://github.com/cweill/gotests
     _bin: gotests
     brew: gotests
-    go: github.com/cweill/gotests/...@latest
   gphotos-sync:
     _name: Google Photos Sync
     _short: gphotos-sync is a tool for syncing Google Photos to a local directory.
@@ -4425,8 +4245,7 @@ softwarePackages:
     pacman: gphotos-sync
     pipx: gphotos-sync
   gping:
-    _preload: true
-    _preloadReason: shell-profile-core
+    _preload: false
     _name: gping
     _short: gping is a modern ping tool that shows a graph of ping responses over time.
     _desc: '[gping](https://github.com/orf/gping) is like the regular ping command except it also displays a chart labeled with response timing statistics.'
@@ -4437,7 +4256,6 @@ softwarePackages:
     choco: gping
     scoop: gping
     cargo: gping
-    github: github.com/orf/gping
   gpt-engineer:
     _name: GPT Engineer
     _short: gpt-engineer is a tool for generating code using GPT-3.
@@ -4466,8 +4284,6 @@ softwarePackages:
     _app: GraphQL Playground.app
     _deprecated: Altair is more popular and well-maintained on GitHub
     cask: graphql-playground
-    appimage: graphql/graphql-playground
-    exe: https://github.com/graphql/graphql-playground/releases/download/v1.8.10/graphql-playground-electron-setup-1.8.10.exe
   grep:
     _github: false
     _bin: grep
@@ -4489,7 +4305,6 @@ softwarePackages:
     scoop: grex
     snap: grex
     cargo: grex
-    github: github.com/pemistahl/grex
   gron:
     _name: gron
     _short: gron is a tool that transforms JSON into easily greppable format.
@@ -4497,8 +4312,6 @@ softwarePackages:
     _github: https://github.com/tomnomnom/gron
     _bin: gron
     brew: gron
-    github: github.com/tomnomnom/gron
-    go: github.com/tomnomnom/gron@latest
   grype:
     _name: Grype
     _short: Grype is a vulnerability scanner for container images.
@@ -4546,10 +4359,8 @@ softwarePackages:
     _bin: gum
     _home: https://charm.sh/
     _docs: https://github.com/charmbracelet/gum
-    _version: '>=0.14'
     brew: gum
     pacman: gum
-    go: github.com/charmbracelet/gum@latest
     apk: gum
     pkg-termux: gum
   gup:
@@ -4559,7 +4370,6 @@ softwarePackages:
     _github: https://github.com/nao1215/gup
     _bin: gup
     brew: nao1215/tap/gup
-    go: github.com/nao1215/gup@latest
   hadolint:
     _name: hadolint
     _short: Hadolint is a Dockerfile linter that checks for best practices and errors in Dockerfiles.
@@ -4634,8 +4444,6 @@ softwarePackages:
     _desc: Command-line processor for HashiCorp config files, like sed for HCL — Terraform, Consul, Nomad, Vault
     _github: https://github.com/mattolenik/hclq
     _bin: hclq
-    github: github.com/mattolenik/hclq
-    go: github.com/mattolenik/hclq@latest
   helix:
     _name: Helix Editor
     _short: Helix is a modern text editor for terminal-based systems, designed for speed and ease of use.
@@ -4705,7 +4513,6 @@ softwarePackages:
     pkg-freebsd: hexyl
     scoop: hexyl
     cargo: hexyl
-    github: github.com/sharkdp/hexyl
     pkg-termux: hexyl
     xbps: hexyl
   hey:
@@ -4715,7 +4522,6 @@ softwarePackages:
     _github: https://github.com/rakyll/hey
     _bin: hey
     brew: hey
-    github: github.com/rakyll/hey
   hiddenbar:
     _name: Hidden Bar
     _short: hidden is a tool that helps you hide files and directories in macOS using the chflags command.
@@ -4742,13 +4548,10 @@ softwarePackages:
     _desc: hiSHtory (https://github.com/ddworken/hishtory) is a better shell command history — it records each command with context (exit code, cwd, hostname, duration, timestamp), stores it locally in SQLite, and offers a fuzzy Ctrl-R TUI plus optional end-to-end-encrypted sync across machines. aid standardizes on it over Atuin (see docs/aid/decisions/0001). Caveat — it auto-manages ~/.bashrc/~/.zshrc and 'which hishtory' points at a non-existent path, but it works.
     _github: https://github.com/ddworken/hishtory
     _bin: hishtory
-    _post: echo y | hishtory init "$HISHTORY_USER_SECRET"
-    script: curl -sSL --compressed https://hishtory.dev/install.py | python3 -
     brew: hishtory
     cargo: hishtory
   hoard:
-    _preload: true
-    _preloadReason: shell-profile-core
+    _preload: false
     _name: Hoard
     _short: Hoard is a tool for managing secrets securely in macOS keychain.
     _desc: Hoard is a tool available on GitHub at https://github.com/Hyde46/hoard. It is a simple shell script designed to help users manage their dotfiles by storing them in a Git repository. Dotfiles are configuration files for various programs in Unix-like systems. Hoard simplifies the process of backing up and syncing these files across multiple machines. Users can easily add, commit, and push changes to their dotfiles repository using this tool. It provides a convenient way to keep configurations consistent across different environments.
@@ -4778,7 +4581,6 @@ softwarePackages:
     _bin: hostctl
     brew: guumaster/tap/hostctl
     scoop: hostctl
-    github: github.com/guumaster/hostctl
     yay: hostctl
   how2:
     _name: how2
@@ -4804,10 +4606,8 @@ softwarePackages:
     _github: https://github.com/six-ddc/hss
     _bin: hss
     brew: hss
-    script: cd /tmp && git clone https://github.com/six-ddc/hss.git && cd hss && make && make install && cd /tmp && rm -rf hss
   hstr:
-    _preload: true
-    _preloadReason: shell-profile-core
+    _preload: false
     _name: HiSToRy
     _short: hstr is a command-line utility that enhances the history search functionality in Unix-based systems, allowing users to easily search and execute past commands using a fuzzy search algorithm.
     _desc: hstr is a command-line utility for managing command history in Unix-like systems. It enhances the history search functionality in the terminal by providing a more interactive and powerful way to search and execute past commands. Users can search their command history with incremental search, view and filter results, and execute commands directly from the search results. It also supports fuzzy matching and can be integrated with various shells like zsh and bash. Overall, hstr aims to make working with command history more efficient and user-friendly.
@@ -4837,10 +4637,8 @@ softwarePackages:
     _bin: htmlq
     brew: htmlq
     cargo: htmlq
-    github: github.com/mgdm/htmlq
   htop:
-    _preload: true
-    _preloadReason: shell-profile-core
+    _preload: false
     _name: htop
     _short: htop is a popular interactive process viewer for Unix systems, providing a more user-friendly and feature-rich alternative to the traditional top command.
     _desc: '[htop](https://htop.dev/) is an interactive system-monitor process-viewer and process-manager. It is designed as an alternative to the Unix program top. It shows a frequently updated list of the processes running on a computer, normally ordered by the amount of CPU usage.'
@@ -4928,7 +4726,6 @@ softwarePackages:
     choco: hugo
     scoop: main/hugo
     snap: hugo
-    go: github.com/gohugoio/hugo@latest
     eopkg: hugo
     zypper: hugo
   hurl:
@@ -4964,7 +4761,6 @@ softwarePackages:
     brew: hyper
     choco: hyper
     yay: hyper
-    appimage: hyper
     _appImageName: Hyper
   hyperfine:
     _name: hyperfine
@@ -4978,7 +4774,6 @@ softwarePackages:
     pacman: hyperfine
     choco: hyperfine
     cargo: hyperfine
-    github: github.com/sharkdp/hyperfine
     pkg: hyperfine
     apk: hyperfine
   hyperkit:
@@ -5017,8 +4812,7 @@ softwarePackages:
     _app: iina.app
     cask: iina
   imagemagick:
-    _preload: true
-    _preloadReason: media-management-core
+    _preload: false
     _name: 'ImageMagick                                                                                                                                                                                               '
     _short: ImageMagick is an open-source software suite for creating, editing, composing, or converting bitmap images.
     _desc: ImageMagick is an open-source software suite used for creating, editing, composing, or converting bitmap images. It supports a wide range of image formats and includes tools for image manipulation, such as resizing, cropping, and applying filters. The software can be accessed via command line or through various programming languages like C++, Python, and Perl. It is widely used in web development, graphic design, and scientific applications for its versatility and powerful image processing capabilities. The GitHub repository for ImageMagick contains the source code, documentation, and community contributions related to the project.
@@ -5062,9 +4856,6 @@ softwarePackages:
     _docs: https://github.com/meowtec/Imagine
     _app: Imagine.app
     _deprecated: Deprecated in favor of ImageOptim (only available for macOS)
-    appimage: meowtec/Imagine
-    exe: https://github.com/meowtec/Imagine/releases/download/v0.7.4/Imagine-Setup-0.7.4.exe
-    script:darwin: curl -sSL https://github.com/meowtec/Imagine/releases/download/v0.7.4/Imagine-0.7.4.dmg > /tmp/Imagine.dmg && sudo hdiutil attach /tmp/Imagine.dmg && sudo cp -R "/Volumes/Imagine 0.7.4/Imagine.app" /Applications && sudo hdiutil detach "/Volumes/Imagine 0.7.4" && rm -f /tmp/Imagine.dmg
   imgur-uploader:
     _name: 'imgur-uploader-cli                                                                                                                                                                                        '
     _short: imgur-uploader-cli is a command-line tool for uploading images to Imgur.
@@ -5078,7 +4869,6 @@ softwarePackages:
     _desc: impl generates method stubs for implementing an interface
     _github: https://github.com/josharian/impl
     _bin: impl
-    go: github.com/josharian/impl@latest
   infracost:
     _name: infracost
     _short: Infracost is an open-source tool that helps you calculate the cost of your cloud infrastructure using Terraform.
@@ -5124,7 +4914,6 @@ softwarePackages:
     _name: Invoice
     _github: https://github.com/maaslalani/invoice
     _bin: invoice
-    go: github.com/maaslalani/invoice@main
   iodine:
     _name: Iodine
     _short: Iodine is a tool that allows you to tunnel IPv4 data through a DNS server.
@@ -5195,7 +4984,6 @@ softwarePackages:
     choco: ipfs-desktop
     scoop: extras/ipfs-desktop
     winget: IPFS.IPFS-Desktop
-    appimage: https://github.com/ipfs-shipyard/ipfs-desktop/releases/download/v0.28.0/ipfs-desktop-0.28.0-linux-x86_64.AppImage
   ipmitool:
     _name: IPMI Tool
     _short: ipmitool is a command-line tool for managing and configuring IPMI-enabled devices.
@@ -5266,11 +5054,6 @@ softwarePackages:
     _desc: '[iTerm2](https://eugeny.github.io/iterm2/) is a highly configurable terminal emulator, SSH and serial client for Windows, macOS and Linux.'
     _github: https://github.com/gnachman/iTerm2
     _bin: iterm2
-    _post: 'gum log -sl info "Setting iTerm2 options location to Install Doctor Chezmoi location" && defaults write com.googlecode.iterm2 PrefsCustomFolder -string "${XDG_DATA_HOME:-$HOME/.local/share}/chezmoi/home/Library/Preferences/com.googlecode.iterm2.plist"
-
-      gum log -sl info "Setting iTerm2 to automatically sync with managed options" && defaults write com.googlecode.iterm2 NoSyncNeverRemindPrefsChangesLostForFile_selection -int 2
-
-      '
     _home: https://iterm2.com/
     _docs: https://iterm2.com/documentation.html
     _app: iTerm.app
@@ -5287,7 +5070,6 @@ softwarePackages:
     _docs: https://openjdk.org/
     _deprecated: Replaced by the canonical OpenJDK entry
     _replacement: openjdk
-    _when:cask: '! brew list temurin > /dev/null'
     brew: openjdk
     cask: temurin
     apt: openjdk-11-jdk
@@ -5331,8 +5113,6 @@ softwarePackages:
     _desc: Create jq queries interactively by leveraging a live reload feature in the terminal
     _github: https://github.com/fiatjaf/jiq
     _bin: jiq
-    github: github.com/fiatjaf/jiq/cmd/jiq
-    go: github.com/fiatjaf/jiq/cmd/jiq@latest
   jitsi-meet:
     _name: Jitsi Meet Electron
     _short: jitsi-meet-electron is a desktop application that wraps the Jitsi Meet web application into a standalone Electron app for video conferencing and collaboration.
@@ -5344,7 +5124,6 @@ softwarePackages:
     flatpak: org.jitsi.jitsi-meet
     cask: jitsi-meet
     choco: jitsi-meet-electron
-    github: github.com/jitsi/jitsi-meet-electron
     yay: jitsi-meet-desktop-bin
     pkg: jitsi-meet
   jo:
@@ -5357,7 +5136,6 @@ softwarePackages:
     apt: jo
     scoop: jo
     snap: jo
-    github: github.com/jpmens/jo
     yay: jo
     pkg: jo
   john:
@@ -5397,7 +5175,6 @@ softwarePackages:
     apt: jq
     dnf: jq
     choco: jq
-    github: github.com/stedolan/jq
     pkg: jq
     apk: jq
   jqp:
@@ -5428,8 +5205,7 @@ softwarePackages:
     scoop: juicefs
     snap: juicefs
     yay: juicefs
-    script: sudo curl -L https://juicefs.com/static/juicefs -o /usr/local/bin/juicefs && sudo chmod +x /usr/local/bin/juicefs
-    _brew: juicefs
+    brew: juicefs
   juju:
     _name: Juju
     _short: Juju is an open-source application modeling tool that allows you to deploy, configure, manage, and scale applications in the cloud easily.
@@ -5494,8 +5270,6 @@ softwarePackages:
     yay: kasmvncserver-bin
     _groups:
     - kasmvnc-cert
-    script:linux: "RELEASES=$(curl -sS \"https://api.github.com/repos/kasmtech/KasmVNC/releases/latest\") || :\nLATEST_VERSION=$(echo $RELEASES | grep -o '\"tag_name\": \"[^\"]*' | grep -o '[^\"]*$') || LATEST_VERSION=v1.5.2\n[ -n \"$LATEST_VERSION\" ] || LATEST_VERSION=v1.5.2\nif command -v apt-get > /dev/null; then\n  . /etc/os-release\n  cd /tmp\n  case $VERSION_CODENAME in\n  bullseye )\n    wget -qO kasmvncserver.deb \"https://github.com/kasmtech/KasmVNC/releases/download/$LATEST_VERSION/kasmvncserver_bullseye_${LATEST_VERSION:1}_amd64.deb\" || :\n    ;;\n  bookworm )\n    wget -qO kasmvncserver.deb \"https://github.com/kasmtech/KasmVNC/releases/download/$LATEST_VERSION/kasmvncserver_bookworm_${LATEST_VERSION:1}_amd64.deb\" || :\n    ;;\n  focal )\n    wget -qO kasmvncserver.deb \"https://github.com/kasmtech/KasmVNC/releases/download/$LATEST_VERSION/kasmvncserver_focal_${LATEST_VERSION:1}_amd64.deb\" || :\n    ;;\n  jammy )\n    wget -qO kasmvncserver.deb \"https://github.com/kasmtech/KasmVNC/releases/download/$LATEST_VERSION/kasmvncserver_jammy_${LATEST_VERSION:1}_amd64.deb\" || :\n    ;;\n  noble | plucky | questing | resolute | * )\n    wget -qO kasmvncserver.deb \"https://github.com/kasmtech/KasmVNC/releases/download/$LATEST_VERSION/kasmvncserver_ubuntu_noble_${LATEST_VERSION:1}_amd64.deb\" || :\n    ;;\n  esac\n  if [ -s kasmvncserver.deb ]; then sudo apt-get install -y --no-install-recommends ./kasmvncserver.deb tigervnc-viewer openbox; rm -f kasmvncserver.deb; sudo usermod -aG ssl-cert \"$USER\" 2>/dev/null || true; fi\nelif command -v dnf > /dev/null; then\n  wget \"https://github.com/kasmtech/KasmVNC/releases/download/$LATEST_VERSION/kasmvncserver_centos_core_${LATEST_VERSION:1}_x86_64.rpm\" || :\n  if ls kasmvncserver*.rpm > /dev/null 2>&1; then sudo rpm -ivh ./kasmvncserver_*.rpm; sudo usermod -a -G kasmvnc-cert $USER; fi\nelif command -v zypper > /dev/null; then\n  wget \"https://github.com/kasmtech/KasmVNC/releases/download/$LATEST_VERSION/kasmvncserver_opensuse_15_${LATEST_VERSION:1}_x86_64.rpm\" || :\n  if ls kasmvncserver*.rpm > /dev/null 2>&1; then sudo rpm -ivh ./kasmvncserver_*.rpm; sudo usermod -a -G kasmvnc-cert $USER; fi\nelif command -v apk > /dev/null; then\n  wget \"https://github.com/kasmtech/KasmVNC/releases/download/$LATEST_VERSION/kasmvnc.alpine_317_x86_64.tgz\" || :\n  if ls kasmvncserver*.rpm > /dev/null 2>&1; then sudo tar -xzf \"./kasmvnc.alpine_317_x86_64.tgz\" -C /; fi\nfi\n"
-    script:darwin: null
   kcpassword:
     _name: kcpassword
     _short: kcpassword is a tool used to decrypt and manipulate the macOS user password stored in the Keychain.
@@ -5514,7 +5288,6 @@ softwarePackages:
     choco: kdash
     scoop: kdash
     cargo: kdash
-    github: github.com/kdash-rs/kdash
   kde-plasma-desktop:
     _name: 'plasma-desktop                                                                                                                                                                                            '
     _short: 'KDE Plasma Desktop: Open-source desktop environment for Linux systems with a modern and customizable user interface.'
@@ -5560,7 +5333,6 @@ softwarePackages:
     - keybase-gui
     choco: keybase
     yay: keybase-bin
-    _when:ansible: '! test -f /opt/keybase/Keybase'
   keycastr:
     _name: Keycastr
     _short: Keycastr is a keystroke visualizer for macOS.
@@ -5588,7 +5360,6 @@ softwarePackages:
     _github: https://github.com/knative/client
     _bin: kn
     brew: kn
-    github: github.com/knative/client
     yay: knative-client-bin
   kodi:
     _name: Kodi
@@ -5662,7 +5433,6 @@ softwarePackages:
     cask: ksnip
     choco: ksnip
     snap: ksnip
-    _post:snap: sudo snap connect ksnip:network-observe && sudo snap connect ksnip:network-manager-observe && sudo snap connect ksnip:removable-media
   kube-shell:
     _name: Kube Shell
     _short: kube-shell is a Kubernetes shell that provides an interactive shell with auto-completion and syntax highlighting for Kubernetes commands.
@@ -5703,7 +5473,6 @@ softwarePackages:
     _docs: https://github.com/kubenav/kubenav
     _app: kubenav.app
     cask: kubenav
-    github: github.com/kubenav/kubenav
     yay: kubenav-bin
   kubernetes-cli:
     _name: kubectl
@@ -5734,8 +5503,6 @@ softwarePackages:
     _bin: kubeval
     _home: https://www.kubeval.com/
     scoop: kubeval
-    go: github.com/instrumenta/kubeval@latest
-    _pre:scoop: scoop bucket add instrumenta https://github.com/instrumenta/scoop-instrumenta
   kustomize:
     _name: Kustomize
     _short: Kustomize is a tool for customizing Kubernetes configurations without modifying the original YAML files.
@@ -5744,7 +5511,6 @@ softwarePackages:
     _bin: kustomize
     brew: kustomize
     choco: kustomize
-    go: sigs.k8s.io/kustomize/kustomize/v5@latest
   kvantum:
     _name: Kvantum
     _short: Kvantum is a theme manager for Linux desktop environments that allows users to customize the look and feel of their system.
@@ -5866,7 +5632,6 @@ softwarePackages:
     pacman: lazygit
     choco: lazygit
     scoop: lazygit
-    go: github.com/jesseduffield/lazygit@latest
     eopkg: lazygit
     xbps: lazygit
   ledger-live:
@@ -5879,7 +5644,6 @@ softwarePackages:
     _app: Ledger Live.app
     cask: ledger-live
     choco: ledger-live
-    appimage: ledger-live-desktop
   lens:
     _name: Lens
     _short: Lens is an open-source Kubernetes IDE that provides a visual way to work with Kubernetes clusters.
@@ -5913,7 +5677,6 @@ softwarePackages:
     _github: https://github.com/AnalogJ/lexicon
     _bin: lexicon
     pipx: dns-lexicon
-    _post:pipx: uv tool install --force --with 'dns-lexicon[full]' dns-lexicon
   libguestfs-tools:
     _name: 'libguestfs                                                                                                                                                                                                '
     _short: libguestfs is a set of tools for accessing and modifying virtual machine disk images.
@@ -5971,7 +5734,6 @@ softwarePackages:
     _github: https://github.com/nishanths/license
     _bin: license
     yay: nishanths-license-git
-    go: github.com/nishanths/license@latest
   lighthouse:
     _name: Lighthouse
     _short: Lighthouse is an open-source tool from Google Chrome for improving the quality of web pages.
@@ -6003,7 +5765,6 @@ softwarePackages:
     _bin: linkerd
     _home: https://linkerd.io/
     brew: linkerd
-    github: github.com/linkerd/linkerd2
     yay: linkerd
   linkliar:
     _name: Link Liar
@@ -6050,7 +5811,6 @@ softwarePackages:
     _bin: lm-studio
     cask: lm-studio
     choco: lm-studio
-    appimage: https://lmstudio.ai/download/latest/linux/x64
   lms:
     _github: https://github.com/lmstudio-ai/lms
     _bin: lms
@@ -6080,7 +5840,6 @@ softwarePackages:
     _bin: logcli
     _home: https://grafana.com/loki
     brew: logcli
-    github: github.com/grafana/loki
     yay: logcli-git
   logi-options-plus:
     _name: Logi Options+
@@ -6094,13 +5853,10 @@ softwarePackages:
       LOGI_OPTIONS_PLUS_APPDATA:
         cask: $HOME/Library/Application Support/LogiOptionsPlus
         choco: TODO
-    exe: https://download01.logi.com/web/ftp/pub/techsupport/optionsplus/logioptionsplus_installer.exe
   logi-tune:
     _name: Logi Tune
     _github: false
     _bin: logi-tune
-    dmg: https://software.vc.logitech.com/downloads/tune/LogiTuneInstaller.dmg
-    exe: https://software.vc.logitech.com/downloads/tune/LogiTuneInstall.exe
   logitech-presentation:
     _name: Logitech Presentation
     _bin: logitech-presentation
@@ -6218,7 +5974,6 @@ softwarePackages:
     brew: lux
     choco: github.com/iawia002/lux
     scoop: lux
-    go: github.com/iawia002/lux@latest
     xbps: lux
   lxc:
     _name: LXC
@@ -6252,7 +6007,6 @@ softwarePackages:
     _desc: LXD-UI is a web-based graphical user interface for managing LXD containers. It provides a user-friendly way to interact with LXD, a system container manager. With LXD-UI, users can easily create, start, stop, and manage containers through a web interface. It offers features like container creation, deletion, and monitoring of container resources. The interface is designed to simplify container management tasks for users who prefer a graphical interface over the command line.
     _github: https://github.com/canonical/lxd-ui
     _bin: lxd-ui
-    _post: lxd init && lxc config set core.https_address "[::]:8443"
     snap: lxd
   lxdc:
     _github: false
@@ -6404,16 +6158,16 @@ softwarePackages:
     _deprecated: Not best security method
     cask: malwarebytes
     choco: malwarebytes
-  mambaforge:
-    _name: Mamba Forge
-    _short: mamba is a fast, scalable package manager for data science and scientific computing.
-    _desc: Mamba is a fast, reliable, and easy-to-use package manager for the conda package manager ecosystem. It aims to improve the performance of package management operations by utilizing parallel downloading and processing. Mamba is compatible with conda packages and environments, making it a suitable alternative for users looking for faster package management on their systems. It is particularly useful for managing large-scale data science and scientific computing environments efficiently. Mamba can be easily installed alongside conda and used as a drop-in replacement for faster package installations and updates.
-    _github: https://github.com/mamba-org/mamba
+  miniforge:
+    _name: Miniforge
+    _short: Miniforge provides conda and mamba with conda-forge as the default package source.
+    _desc: Miniforge is the maintained conda-forge distribution for managing Python and scientific-computing environments. It replaces the retired Mambaforge installers.
+    _github: https://github.com/conda-forge/miniforge
     _bin: conda
-    _post: echo y | conda update -n base -c conda-forge conda
-    cask: mambaforge
-    choco: mambaforge
-    script:linux: bash <(curl -L -O "https://github.com/conda-forge/miniforge/releases/latest/download/Mambaforge-$(uname)-$(uname -m).sh")
+    _home: https://conda-forge.org/download/
+    _docs: https://github.com/conda-forge/miniforge#readme
+    cask: miniforge
+    choco: miniforge3
   manta:
     _name: Manta
     _short: Manta is a lightweight, blazing fast full-text search engine in pure Swift.
@@ -6423,9 +6177,6 @@ softwarePackages:
     _app: Manta.app
     _deprecated: Replaced by web apps like waveapps.com
     cask: manta
-    github: github.com/hql287/Manta
-    appimage: https://github.com/hql287/Manta/releases/download/v1.1.4/Manta-1.1.4-x86_64.AppImage
-    exe: https://github.com/hql287/Manta/releases/download/v1.1.4/Manta.Setup.1.1.4.exe
   mariadb:
     _name: MariaDB
     _github: false
@@ -6520,7 +6271,6 @@ softwarePackages:
     _app: massCode.app
     _deprecated: Deprecated in favor of [Pieces](https://pieces.app/). The core components of Pieces are not open-source but the functionality is significantly better than massCode.
     cask: masscode
-    github: github.com/antonreshetov/massCode
   mc:
     _name: mc
     _short: 'MinIO Client (mc): A command-line tool for managing MinIO and Amazon S3 compatible object storage servers.'
@@ -6529,7 +6279,6 @@ softwarePackages:
     _bin: mc
     _home: https://min.io/
     brew: minio/stable/mc
-    go: github.com/minio/mc@latest
   mcfly:
     _name: McFly
     _short: McFly is a tool that enhances your command line history search and navigation, making it faster and more efficient.
@@ -6538,8 +6287,6 @@ softwarePackages:
     _bin: mcfly
     _deprecated: Deprecated in favor of atuin
     brew: mcfly
-    script:darwin: curl -LSfs https://raw.githubusercontent.com/cantino/mcfly/master/ci/install.sh | sh -s -- --git cantino/mcfly
-    script:linux: curl -LSfs https://raw.githubusercontent.com/cantino/mcfly/master/ci/install.sh | sh -s -- --git cantino/mcfly
   medis:
     _name: Medis
     _short: Medis is a graphical Redis client for MacOS.
@@ -6597,16 +6344,13 @@ softwarePackages:
     _short: metasploit-framework is an open-source penetration testing framework used for developing, testing, and executing exploit code against a remote target machine.
     _desc: Metasploit Framework Metasploit Framework is an open-source penetration testing tool developed by Rapid7. It provides information about security vulnerabilities and aids in penetration testing and IDS signature development. The framework includes a suite of tools, including exploits, payloads, auxiliary modules, and post-exploitation modules. It is widely used by security professionals and researchers to test the security of networks and applications. The tool is regularly updated with new exploits and features to keep up with the evolving threat landscape.
     _github: https://github.com/rapid7/metasploit-framework
-    _when: '! test -f /opt/metasploit-framework/bin/msfconsole'
     _deprecated: Determine whether or not this will be flagged by management settings
-    script: curl -sSL --compressed https://raw.githubusercontent.com/rapid7/metasploit-omnibus/master/config/templates/metasploit-framework-wrappers/msfupdate.erb > /tmp/msfinstall && chmod 755 /tmp/msfinstall && sudo /tmp/msfinstall
   micromamba:
     _name: MicroMamba
     _short: mamba is a fast, scalable package manager for data science and scientific computing.
     _desc: Mamba is a fast, reliable, and easy-to-use package manager for the conda package manager ecosystem. It aims to improve the performance of package management operations by utilizing parallel downloading and processing. Mamba is compatible with conda packages and environments, making it a suitable alternative for users looking for faster package management on their systems. It is particularly useful for managing large-scale data science and scientific computing environments efficiently. Mamba can be easily installed alongside conda and used as a drop-in replacement for faster package installations and updates.
     _github: https://github.com/mamba-org/mamba
     _bin: micromamba
-    _post: micromamba config append channels conda-forge && micromamba self-update
     _deprecated: Keeps creating .condarc in HOME even when CONDARC is defined (tried other methods as well)
     brew: micromamba
   microsoft-edge:
@@ -6635,21 +6379,6 @@ softwarePackages:
     _bin: scalar
     cask: microsoft/git/microsoft-git
     winget: microsoft.git
-    script:linux: '#!/usr/bin/env bash
-
-      mkdir -p "$HOME/.local/src"
-
-      rm -rf "$HOME/.local/src/microsoft-git"
-
-      git clone https://github.com/microsoft/git "$HOME/.local/src/microsoft-git"
-
-      cd "$HOME/.local/src/microsoft-git"
-
-      make -j12 prefix=/usr/local
-
-      sudo make -j12 prefix=/usr/local install
-
-      '
   microsoft-office:
     _name: Office
     _desc: '[Microsoft Office](https://www.microsoft.com/en-us/microsoft-365/microsoft-office), or simply Office, is a family of client software, server software, and services developed by Microsoft.'
@@ -6709,7 +6438,6 @@ softwarePackages:
     _bin: minikube
     _deps:
     - docker
-    _post: if command -v hyperkit > /dev/null; then minikube config set driver hyperkit; elif command -v docker > /dev/null; then minikube config set driver docker; elif command -v VBoxManage > /dev/null; then minikube config set driver virtualbox; fi
     _docs: https://minikube.sigs.k8s.io/docs/
     _todo: A full installation of Xcode.app 9.0 is required. Also, hyperkit x86_64 architecture is required for this software. So automate install of Xcode.app 9.0 and add check for x86_64 prior to installing this
     brew: minikube
@@ -6755,7 +6483,6 @@ softwarePackages:
     _docs: https://documentation.mjml.io/
     _app: MJML.app
     cask: mjml
-    github: github.com/mjmlio/mjml-app
   mkcert:
     _name: mkcert
     _short: mkcert is a simple tool for making locally-trusted development certificates.
@@ -6766,7 +6493,6 @@ softwarePackages:
     pacman: mkcert
     choco: mkcert
     scoop: mkcert
-    github: github.com/FiloSottile/mkcert
   mockoon:
     _name: Mockoon
     _short: Mockoon is an open-source API mocking tool that helps developers simulate backend services quickly and easily.
@@ -6779,7 +6505,6 @@ softwarePackages:
     choco: mockoon
     snap: mockoon
     winget: mockoon
-    github: github.com/mockoon/mockoon
     yay: mockoon-bin
     _bin:snap: mockoon
   modern-flyouts:
@@ -6792,8 +6517,7 @@ softwarePackages:
     winget: ModernFlyouts.ModernFlyouts
     winapp: modernflyouts-preview/9MT60QV066RP
   mods:
-    _preload: true
-    _preloadReason: shell-profile-core
+    _preload: false
     _name: Mods
     _short: mods is a collection of terminal utilities for building modern CLI applications in Go.
     _desc: AI for the command-line that leverages OpenAI or LocalAI (if configured to do so)
@@ -6803,7 +6527,6 @@ softwarePackages:
     _docs: https://github.com/charmbracelet/mods
     brew: charmbracelet/tap/mods
     yay: mods
-    go: github.com/charmbracelet/mods@latest
   mole:
     _name: mole
     _short: Mole is a CLI application that helps you create SSH tunnels with ease.
@@ -6813,7 +6536,6 @@ softwarePackages:
     _home: https://davrodpin.github.io/mole/
     _docs: https://davrodpin.github.io/mole/
     brew: davrodpin/homebrew-mole/mole
-    github: github.com/davrodpin/mole
     yay: mole-bin
   molecule:
     _name: Ansible Molecule
@@ -6824,7 +6546,6 @@ softwarePackages:
     _home: https://molecule.readthedocs.io/en/latest/
     _docs: https://molecule.readthedocs.io/en/latest/getting-started.html
     pipx: molecule
-    _post:pipx: uv tool install --force --with ansible --with PyObjC --with PyObjC-core --with docker --with lxml --with netaddr --with pexpect --with pywinrm --with requests-credssp --with watchdog --with apache-libcloud --with gcloud --with junit-xml --with molecule-docker --with molecule-gce --with pycrypto molecule
   monero:
     _name: Monero
     _short: Monero is an open-source cryptocurrency that focuses on privacy, security, and decentralization.
@@ -6947,7 +6668,6 @@ softwarePackages:
     cask: motrix
     choco: motrix
     scoop: motrix
-    github: github.com/agalwood/Motrix
     yay: motrix-bin
   mpg123:
     _name: mpg123
@@ -6983,7 +6703,6 @@ softwarePackages:
     flatpak: com.emqx.MQTTX
     cask: mqttx
     snap: mqttx
-    github: github.com/emqx/MQTTX
     yay: mqttx-bin
   msty:
     _default: false
@@ -7013,9 +6732,7 @@ softwarePackages:
     _github: https://github.com/raviqqe/muffet
     _bin: muffet
     brew: muffet
-    github: github.com/raviqqe/muffet
     yay: muffet-bin
-    go: github.com/raviqqe/muffet/v2@latest
   mullvad-vpn:
     _name: Mullvad VPN
     _short: mullvadvpn-app is an open-source VPN application developed by Mullvad for secure and private internet connections.
@@ -7025,11 +6742,7 @@ softwarePackages:
     _app: Mullvad VPN.app
     _deprecated: Switched to ProtonVPN exclusively
     cask: mullvadvpn
-    apt: https://github.com/mullvad/mullvadvpn-app/releases/download/2022.5/MullvadVPN-2022.5_amd64.deb
-    dnf: https://github.com/mullvad/mullvadvpn-app/releases/download/2022.5/MullvadVPN-2022.5_x86_64.rpm
-    github: github.com/mullvad/mullvadvpn-app
     yay: mullvad-vpn
-    exe: https://github.com/mullvad/mullvadvpn-app/releases/download/2022.5/MullvadVPN-2022.5.exe
   multi-gitter:
     _name: Multi-Gitter
     _short: multi-gitter is a tool that allows you to run multiple GitHub actions workflows in parallel.
@@ -7037,7 +6750,6 @@ softwarePackages:
     _github: https://github.com/lindell/multi-gitter
     _bin: multi-gitter
     brew: lindell/multi-gitter/multi-gitter
-    go: github.com/lindell/multi-gitter@latest
   multipass:
     _name: Multipass
     _short: Multipass is a lightweight VM manager for Linux, Windows, and macOS.
@@ -7051,15 +6763,12 @@ softwarePackages:
     cask: multipass
     choco: multipass
     snap: multipass
-    _post:cask: multipass set local.driver=virtualbox
-    _post:choco: multipass set local.driver=virtualbox
   mutagen:
     _name: Mutagen
     _short: Mutagen is a file synchronization and networking tool for developers, providing fast and efficient file synchronization for local development environments.
     _desc: Mutagen is an open-source file synchronization and network forwarding tool that simplifies the process of keeping files in sync between multiple machines. It supports bi-directional synchronization, automatic conflict resolution, and real-time updates. Mutagen can be used for development, deployment, and other scenarios where keeping files in sync is crucial. It works efficiently with large files and is designed to be fast and reliable. The tool is available for various operating systems, including macOS, and can be easily integrated into existing workflows.
     _github: https://github.com/mutagen-io/mutagen
     _bin: mutagen
-    _post: mutagen daemon register
     brew: mutagen-io/mutagen/mutagen
   mycli:
     _name: MyCLI
@@ -7144,8 +6853,7 @@ softwarePackages:
     apt: nautilus-wipe
     pacman: nautilus-wipe
   navi:
-    _preload: true
-    _preloadReason: shell-profile-core
+    _preload: false
     _name: Navi
     _short: navi is a command-line cheat sheet tool that helps users navigate commands more efficiently.
     _desc: An interactive cheatsheet tool for the command-line
@@ -7250,8 +6958,7 @@ softwarePackages:
     scoop: neovide
     snap: neovide
   neovim:
-    _preload: true
-    _preloadReason: shell-profile-core
+    _preload: false
     _name: neovim
     _short: Neovim is a highly extensible text editor based on Vim, with improved performance and features for modern development workflows.
     _desc: '[neovim](https://neovim.io/) is Vim-fork focused on extensibility and usability'
@@ -7325,7 +7032,6 @@ softwarePackages:
       sudo: true
     brew: netdata
     pacman: netdata
-    script: curl https://my-netdata.io/kickstart.sh > /tmp/netdata-kickstart.sh && sh /tmp/netdata-kickstart.sh
     _groups:
     - netdata
   networkmanager:
@@ -7455,10 +7161,8 @@ softwarePackages:
     choco: nmap
     scoop: nmap
     snap: nmap
-    _post:snap: sudo snap connect nmap:network-control
   nnn:
-    _preload: true
-    _preloadReason: shell-profile-core
+    _preload: false
     _name: nnn
     _short: nnn is a fast and resource-friendly file manager for the terminal.
     _desc: A full-featured terminal file manager
@@ -7467,7 +7171,6 @@ softwarePackages:
     brew: nnn
     apt: nnn
     pacman: nnn
-    github: github.com/jarun/nnn
     pkg: nnn
     apk: nnn
   node:
@@ -7480,7 +7183,6 @@ softwarePackages:
     _bin: node
     _home: https://nodejs.org/en/
     _docs: https://nodejs.org/en/docs/
-    _version: '>=22'
     brew: node
     apt: nodejs
     dnf: nodejs
@@ -7494,8 +7196,6 @@ softwarePackages:
     _desc: Extension to remove unnecessary files from node_modules
     _github: https://github.com/tj/node-prune
     _bin: node-prune
-    github: github.com/tj/node-prune
-    go: github.com/tj/node-prune@latest
   nodemon:
     _name: Nodemon
     _short: nodemon is a tool that helps develop Node.js applications by automatically restarting the server when file changes are detected.
@@ -7524,7 +7224,6 @@ softwarePackages:
     _github: https://github.com/yaa110/nomino
     _bin: nomino
     cargo: nomino
-    github: github.com/yaa110/nomino
     yay: nomino
   normit:
     _name: Normit
@@ -7586,8 +7285,7 @@ softwarePackages:
     _github: https://github.com/google/nsjail
     _todo: add this, at time of adding there was no easily installable source but 3.2k stars and seems active
   ntfy:
-    _preload: true
-    _preloadReason: shell-profile-core
+    _preload: false
     _name: NFTY
     _short: ntfy is a command-line utility that sends notifications when a command finishes.
     _desc: ntfy is a command-line utility that sends desktop notifications when a command finishes. It supports various notification backends like Pushbullet, Pushover, Slack, Telegram, and more. It can be used to keep track of long-running commands or scripts without having to constantly check the terminal. It's easy to install and configure, making it a handy tool for system administrators and developers who want to stay updated on their command executions.
@@ -7614,7 +7312,6 @@ softwarePackages:
     cask: nuclear
     choco: nuclear
     snap: nuclear
-    github: github.com/nukeop/nuclear
     yay: nuclear-player-bin
   nugetpackageexplorer:
     _name: NuGet Package Explorer
@@ -7676,7 +7373,6 @@ softwarePackages:
     choco: obsidian
     scoop: extras/obsidian
     winget: Obsidian.Obsidian
-    appimage: Obsidian
     _env:
       OBSIDIAN_APPDATA:
         cask: $HOME/Library/Application Support/obsidian
@@ -7688,7 +7384,6 @@ softwarePackages:
     _bin: obs
     brew: megabyte-labs/tap/obs-cli
     scoop: obs
-    _pre:scoop: scoop bucket add scoop-yakitrak https://github.com/yakitrak/scoop-yakitrak.git
   oclif:
     _name: oclif
     _short: oclif is a Command Line Interface framework for building CLIs in Node.js.
@@ -7707,8 +7402,7 @@ softwarePackages:
     brew: cube2222/octosql/octosql
     scoop: octosql
   oh-my-posh:
-    _preload: true
-    _preloadReason: shell-profile-core
+    _preload: false
     _name: oh-my-posh
     _short: oh-my-posh is a prompt theme engine for PowerShell, providing a customizable and visually appealing prompt for the shell.
     _desc: A blazing fast cross platform/shell prompt renderer
@@ -7720,7 +7414,6 @@ softwarePackages:
     scoop:
     - clink
     - https://github.com/JanDeDobbeleer/oh-my-posh/releases/latest/download/oh-my-posh.json
-    _post:scoop: clink autorun install
   ollama:
     _name: Ollama
     _desc: Get up and running with Llama 3.3, DeepSeek-R1, Phi-4, Gemma 2, and other large language models.
@@ -7756,16 +7449,6 @@ softwarePackages:
     choco: onlykey
     snap: onlykey-app
     _bin:snap: onlykey-app
-    _post:snap: 'sudo curl -sSL https://raw.githubusercontent.com/trustcrypto/trustcrypto.github.io/pages/49-onlykey.rules -o /etc/udev/rules.d/49-onlykey.rules
-
-      sudo chmod 644 /etc/udev/rules.d/49-onlykey.rules
-
-      sudo udevadm control --reload-rules
-
-      sudo udevadm trigger
-
-      '
-    script:darwin: cd /tmp && curl -sSL https://github.com/trustcrypto/OnlyKey-App/releases/download/v5.3.6/OnlyKey.App.5.3.6.dmg > OnlyKey.dmg  && hdiutil attach "/tmp/OnlyKey.dmg" &&  sudo cp -R "/Volumes/OnlyKey App/OnlyKey App.app" /Applications && sudo hdiutil detach "/Volumes/OnlyKey App" && rm -f "/tmp/OnlyKey.dmg"
   onlykey-agent:
     _name: OnlyKey Agent
     _short: onlykey-agent lets you use an OnlyKey hardware security device as an SSH and GPG agent.
@@ -7808,15 +7491,6 @@ softwarePackages:
     - python3
     - libusb
     - python3-pip
-    _post:linux: 'sudo curl -sSL https://raw.githubusercontent.com/trustcrypto/trustcrypto.github.io/pages/49-onlykey.rules -o /etc/udev/rules.d/49-onlykey.rules
-
-      sudo chmod 644 /etc/udev/rules.d/49-onlykey.rules
-
-      sudo udevadm control --reload-rules
-
-      sudo udevadm trigger
-
-      '
     zypper:
     - python3-pip
     - python3-devel
@@ -7830,7 +7504,6 @@ softwarePackages:
     _bin: opencode
     brew: anomalyco/tap/opencode
     npm: opencode-ai@latest
-    script: curl -fsSL https://opencode.ai/install | bash
     paru: opencode-bin
   opencommit:
     _name: OpenCommit
@@ -7882,7 +7555,6 @@ softwarePackages:
     _service:
     - name: sshd
       sudo: false
-    _when: test -f /proc/version && ! grep Microsoft /proc/version > /dev/null && ! test -d /Applications'
     apt: openssh-server
     dnf: openssh-server
     pacman: openssh
@@ -7935,7 +7607,6 @@ softwarePackages:
     _home: https://blacksmoke16.github.io/oq/
     brew: oq
     snap: oq
-    github: github.com/Blacksmoke16/oq
     yay: oq
   orbstack:
     _name: OrbStack
@@ -7956,7 +7627,6 @@ softwarePackages:
     _docs: https://osquery.readthedocs.io/en/stable/
     cask: osquery
     choco: osquery
-    github: github.com/osquery/osquery
     yay: osquery-git
   osx-sign:
     _name: macOS Code Sign
@@ -7973,11 +7643,8 @@ softwarePackages:
     _bin: ots
     _home: https://ots.sniptt.com/
     brew: ots
-    github: github.com/sniptt-official/ots
-    go: github.com/sniptt-official/ots@latest
   p7zip:
-    _preload: true
-    _preloadReason: web-dev-core
+    _preload: false
     _name: p7zip
     _short: p7zip is a high compression ratio file archiver with support for various archive formats, including 7z, ZIP, and TAR. It is a command-line tool available on multiple platforms, including MacOS.
     _desc: p7zip is a port of the command-line version of the 7-Zip file archiver to Unix-like operating systems. It supports a wide range of archive formats and provides high compression ratios. The project is hosted on GitHub at https://github.com/p7zip-project/p7zip. Users can download, compile, and use p7zip to create, extract, and manage compressed files efficiently from the terminal. It is a popular tool for managing archives on Unix-based systems.
@@ -8012,7 +7679,6 @@ softwarePackages:
     _desc: Fetch web pages using headless Chrome, storing all fetched resources including JavaScript files
     _github: https://github.com/detectify/page-fetch
     _bin: page-fetch
-    go: github.com/detectify/page-fetch@latest
   pageres:
     _name: pageres
     _short: pageres-cli is a command-line interface for generating screenshots of websites in various resolutions using headless Chrome.
@@ -8028,8 +7694,7 @@ softwarePackages:
     _bin: pake
     npm: pake-cli
   pandoc:
-    _preload: true
-    _preloadReason: media-management-core
+    _preload: false
     _name: Pandoc
     _short: Pandoc is a versatile tool for converting between various document formats.
     _desc: '[Pandoc](https://pandoc.org/) is a Haskell library for converting from one documentation markup format to another. If you need to convert files from one markup format into another, then look no further. Pandoc is your swiss-army knife. It converts from and to dozens of formats like HTML, markdown, docx, JSON, YAML, and CSV, to name a few.'
@@ -8093,7 +7758,6 @@ softwarePackages:
     brew: pastel
     snap: pastel
     cargo: pastel
-    github: github.com/sharkdp/pastel
     yay: pastel
   patch-package:
     _name: Patch Package
@@ -8103,8 +7767,7 @@ softwarePackages:
     _bin: patch-package
     npm: patch-package
   pay-respects:
-    _preload: true
-    _preloadReason: shell-profile-core
+    _preload: false
     _desc: pay-respects corrects your commands when you make a mistake
     _github: https://github.com/iffse/pay-respects
     _bin: pay-respects
@@ -8125,7 +7788,6 @@ softwarePackages:
     _deprecated: Deprecated in favor of SMS / e-mail alternatives
     cask: pb
     choco: pushbullet
-    appimage: sidneys/pb-for-desktop
   peco:
     _name: Peco
     _short: Peco is a interactive filtering tool for the command line.
@@ -8137,7 +7799,6 @@ softwarePackages:
     apt: peco
     pacman: peco
     choco: peco
-    github: github.com/peco/peco
   peek:
     _name: Peek
     _short: Peek is a simple screen recorder tool for Linux that allows you to easily capture and record your screen activities.
@@ -8295,7 +7956,6 @@ softwarePackages:
     _desc: phpmon is a tool available on GitHub created by nicoverbruggen. It is designed to monitor PHP scripts and display real-time statistics about their performance. This tool can be useful for developers and system administrators to identify bottlenecks, optimize code, and improve the overall performance of PHP scripts. It provides insights into memory usage, execution time, and other relevant metrics to help users understand and enhance the efficiency of their PHP applications.
     _github: https://github.com/nicoverbruggen/phpmon
     _bin: phpmon
-    _pre: "#!/usr/bin/env bash\nif ! command -v valet > /dev/null; then\n  if ! command -v composer > /dev/null; then\n    brew install composer\n  fi\n  composer global require laravel/valet\n  valet install\n  valet trust\nfi\n"
     _app: PHP Monitor.app
     cask: nicoverbruggen/homebrew-cask/phpmon
   pick:
@@ -8330,8 +7990,6 @@ softwarePackages:
     _deprecated: Deprecated in favor of open-source software
     cask: pieces
     snap: pieces-for-developers
-    appinstaller: https://builds.pieces.app/stages/production/appinstaller/pieces_for_x.appinstaller
-    exe: https://builds.pieces.app/stages/production/pieces_for_x/windows-exe/download
   pieces-cli:
     _name: Pieces CLI
     _desc: Pieces is a first-in-kind productivity suite that optimizes developer tools and eliminates the chaos of context switching.
@@ -8356,9 +8014,6 @@ softwarePackages:
         cask: $HOME/Library/Application Support/com.pieces.os
         snap: TODO
     _note: Waiting for choco package
-    _post:snap: sudo snap connect pieces-os:dotnet-runtime-aspnetcore
-    appinstaller: https://builds.pieces.app/stages/production/appinstaller/os_server.appinstaller
-    exe: https://builds.pieces.app/stages/production/os_server/windows-exe/download
   pigz:
     _name: PIGZ
     _short: pigz is a parallel implementation of gzip for modern multi-core processors.
@@ -8413,7 +8068,6 @@ softwarePackages:
     _docs: https://pypa.github.io/pipx/
     _deprecated: The `pipx` installation is handled by the `install-program` program bundled with Install Doctor.
     brew: pipx
-    _post:brew: pipx ensurepath
   pkg:
     _name: pkg
     _short: pkg is a tool that packages Node.js projects into executable binaries for various platforms.
@@ -8422,14 +8076,12 @@ softwarePackages:
     _bin: pkg
     npm: pkg
   pkgx:
-    _preload: true
-    _preloadReason: shell-profile-core
+    _preload: false
     _name: pkgx
     _short: pkgx is a tool that simplifies package management for Go projects by providing a centralized configuration file to manage dependencies.
     _desc: The next-generation, cross‐platform package manager
     _github: https://github.com/pkgxdev/pkgx
     _bin: pkgx
-    _post: pkgx dev integrate
     _home: https://pkgx.sh/
     _docs: https://docs.pkgx.sh/
     brew: pkgx
@@ -8511,7 +8163,6 @@ softwarePackages:
     _github: https://github.com/streamdal/plumber
     _bin: plumber
     brew: streamdal/public/plumber
-    exe: https://github.com/streamdal/plumber/releases/latest/download/plumber-windows.exe
   plymouth:
     _github: false
     apt:
@@ -8534,8 +8185,7 @@ softwarePackages:
     _docs: https://pm2.keymetrics.io/docs/usage/quick-start/
     npm: pm2
   pnpm:
-    _preload: true
-    _preloadReason: web-dev-core
+    _preload: false
     _name: pnpm
     _short: pnpm is a fast, disk space-efficient package manager for Node.js projects.
     _desc: '[pnpm](https://github.com/pnpm/pnpm) is a fast, disk space efficient package manager'
@@ -8609,11 +8259,8 @@ softwarePackages:
     _desc: Local file-based password, API key, secret, recovery code store backed by GPG
     _github: https://github.com/jessfraz/pony
     _bin: pony
-    github: github.com/jessfraz/pony
-    go: github.com/jessfraz/pony@latest
   poppler:
-    _preload: true
-    _preloadReason: media-management-core
+    _preload: false
     _name: 'pdf2image                                                                                                                                                                                                 '
     _short: pdf2image is a Python library that converts PDF files into images.
     _desc: pdf2image is a Python library that converts PDF files into a sequence of PIL (Python Imaging Library) images. It provides a simple interface to extract images from PDFs, making it easier to work with PDF content in image processing tasks. The library supports multiple backends for PDF rendering, such as Poppler and Ghostscript, giving users flexibility in choosing the rendering engine. This tool can be useful for tasks like extracting images from PDF documents for further analysis or manipulation.
@@ -8640,9 +8287,7 @@ softwarePackages:
     _bin: porter
     _home: https://getporter.org/
     _docs: https://getporter.org/docs/
-    script:darwin: curl -L https://cdn.porter.sh/latest/install-mac.sh | bash
-    script:linux: curl -L https://cdn.porter.sh/latest/install-linux.sh | bash
-    script:windows: iwr "https://cdn.porter.sh/latest/install-windows.ps1" -UseBasicParsing | iex
+    brew: porter
   portmaster:
     _name: Portmaster
     _short: Portmaster is a tool for managing network connections on MacOS, allowing users to control which apps can access the internet.
@@ -8652,12 +8297,8 @@ softwarePackages:
     _home: https://safing.io/
     _docs: https://docs.safing.io/portmaster/architecture/overview
     _todo: Wait for macOS version to be released
-    apt: https://updates.safing.io/latest/linux_amd64/packages/portmaster-installer.deb
-    dnf: https://updates.safing.io/latest/linux_amd64/packages/portmaster-installer.rpm
     choco: portmaster
     scoop: portmaster-np
-    _when:linux: '! test -f /opt/safing/portmaster/portmaster-start'
-    exe: https://updates.safing.io/latest/windows_amd64/packages/portmaster-installer.exe
   postfix:
     _name: Postfix
     _short: Postfix is a popular open-source mail transfer agent (MTA) known for its security features and ease of configuration.
@@ -8718,7 +8359,6 @@ softwarePackages:
     _app: PowerShell.app
     cask: powershell
     snap: powershell --classic
-    _post:cask: brew install mono-libgdiplus
   pppc-utility:
     _name: Privacy Preferences Policy Control (PPPC) Utility
     _short: PPPC-Utility is a tool on GitHub by Jamf that simplifies managing Privacy Preferences Policy Control (PPPC) profiles on macOS systems.
@@ -8788,9 +8428,6 @@ softwarePackages:
     _docs: false
     _app: Privaxy.app
     _deprecated: No cask available
-    apt: https://github.com/Barre/privaxy/releases/download/v0.5.2/privaxy_0.5.2_amd64.deb
-    appimage: barre/privaxy
-    script:darwin: curl -sSL https://github.com/Barre/privaxy/releases/download/v0.5.2/Privaxy_0.5.2_universal.dmg > /tmp/Privaxy.dmg && sudo hdiutil attach /tmp/Privaxy.dmg && sudo cp -R /Volumes/Privaxy/Privaxy.app /Applications && sudo hdiutil detach /Volumes/Privaxy && rm -f /tmp/Privaxy.dmg
   privileges:
     _name: Privileges
     _short: macOS Enterprise Privileges is a repository by SAP providing scripts and configuration profiles for managing user privileges on macOS systems in enterprise environments.
@@ -8829,7 +8466,6 @@ softwarePackages:
     scoop: procs
     snap: procs
     cargo: procs
-    github: github.com/dalance/procs
     apk: procs
   profilecreator:
     _name: Profile Creator
@@ -8841,7 +8477,6 @@ softwarePackages:
     _docs: https://github.com/ProfileCreator/ProfileCreator
     _app: ProfileCreator.app
     __cask: profilecreator - disabled - ideally, wait for rerelease and add cask again
-    dmg: https://github.com/ProfileCreator/ProfileCreator/releases/download/0.3.7/ProfileCreator-0.3.7.dmg
     mas: 2141249187
   progress:
     _name: Progress
@@ -8912,24 +8547,16 @@ softwarePackages:
     - protonvpn
   protonvpn-cli:
     _name: ProtonVPN CLI
-    _short: ProtonVPN Linux CLI is a command-line interface tool for managing ProtonVPN connections on Linux systems.
-    _desc: The ProtonVPN CLI official release for Linux along with an unofficial ProtonVPN CLI for macOS
-    _github: https://github.com/ProtonVPN/linux-cli
+    _short: Official Proton VPN command-line client for supported Linux desktops.
+    _desc: The official Proton VPN CLI for supported Debian, Ubuntu, Fedora, and Arch Linux desktop environments. Headless systems are not currently supported upstream.
+    _github: https://github.com/ProtonVPN/proton-vpn-cli
     _bin: protonvpn
-    _deps:
-    - dialog
-    - openvpn
-    - python
-    _todo: Get this once official macOS version is released
-    dnf:fedora: protonvpn-cli
-    pacman: protonvpn-cli
-    script: sudo pip3 install protonvpn-cli
+    pacman: proton-vpn-cli
   provisionql:
     _name: ProvisionQL
     _short: ProvisionQL is a Quick Look plugin for macOS that allows you to preview Provisioning Profiles.
     _desc: ProvisionQL is a Quick Look plugin for macOS that allows you to preview Provisioning Profiles (.mobileprovision files) directly in the Finder with a quick look. This plugin enhances the user experience by providing a convenient way to view the details of provisioning profiles without needing to open them in a separate application. It simplifies the process of managing provisioning profiles for developers working on iOS and macOS projects.
     _github: https://github.com/ealeksandrov/ProvisionQL
-    _when:cask: '! test -d "$HOME/Library/QuickLook/ProvisionQL.qlgenerator"'
     cask: provisionql
   proxyman:
     _name: Proxyman
@@ -8961,7 +8588,6 @@ softwarePackages:
     _bin: portainer-stack-utils
     _home: https://hub.docker.com/r/greenled/portainer-stack-utils/
     _docs: https://github.com/greenled/portainer-stack-utils
-    go: github.com/greenled/portainer-stack-utils@master
   pueue:
     _name: Pueue
     _short: Pueue is a command-line task queue manager for handling long-running processes.
@@ -8994,8 +8620,6 @@ softwarePackages:
     _github: https://github.com/ericchiang/pup
     _bin: pup
     brew: pup
-    github: github.com/ericchiang/pup
-    go: github.com/ericchiang/pup@latest
   pushpin:
     _name: Pushpin
     _short: Pushpin is an open-source proxy server for realtime web services.
@@ -9040,13 +8664,11 @@ softwarePackages:
     - python-pip
     - python-setuptools
     scoop: python
-    _post:brew: python3 -m pip install --upgrade setuptools && python3 -m pip install --upgrade pip
     zypper:
     - python3-pip
     - python3-setuptools
   pyright:
-    _preload: true
-    _preloadReason: lsp-core
+    _preload: false
     _name: Pyright
     _short: Pyright is a fast, full-featured static type checker and language server for Python.
     _desc: Pyright is a fast static type checker and Language Server Protocol (LSP) server for Python created by Microsoft, providing type checking, symbol navigation, and code intelligence for agents and IDEs.
@@ -9104,14 +8726,12 @@ softwarePackages:
     _short: QLColorCode is a Quick Look plugin for syntax highlighting source code files on macOS.
     _desc: QLColorCode is a Quick Look plugin for macOS that allows you to preview the source code files with syntax highlighting directly in the Finder. It supports a wide range of programming languages and file types, making it easier to quickly glance at code files without opening them in an editor. This plugin enhances the user experience by providing a convenient way to preview code files without the need to open them in a separate application.
     _github: https://github.com/n8gray/QLColorCode
-    _when:cask: '! test -d "$HOME/Library/QuickLook/QLColorCode.qlgenerator"'
     cask: qlcolorcode
   qlmarkdown:
     _name: QLMarkdown
     _short: qlmarkdown is a Quick Look plugin for macOS that allows you to preview Markdown files in Finder using Quick Look.
     _desc: qlmarkdown is a Quick Look plugin for macOS that allows you to preview Markdown files (.md) directly in the Finder with a quick preview. It enhances the Quick Look feature by rendering Markdown files as formatted text for easy viewing without needing to open them in a separate application. This plugin provides a convenient way to quickly glance through Markdown files without the need for a dedicated Markdown editor, making it a handy tool for developers and writers working with Markdown documents on macOS.
     _github: https://github.com/toland/qlmarkdown
-    _when:cask: '! test -d "$HOME/Library/QuickLook/ProvisionQL.qlgenerator"'
     cask: qlmarkdown
   qlplugins:
     _name: null
@@ -9133,25 +8753,21 @@ softwarePackages:
   qlprettypatch:
     _name: QLPrettyPatch
     _github: https://github.com/atnan/QLPrettyPatch
-    _when:cask: '! test -d "$HOME/Library/QuickLook/QLPrettyPatch.qlgenerator"'
     cask: qlprettypatch
   qlstephen:
     _name: QLStephen
     _short: qlstephen is a Quick Look plugin for macOS that lets you view plain text files without needing to open them in a separate application.
     _desc: QLStephen is a Quick Look plugin for macOS that allows you to view plain text files without a file extension. It enables you to preview files like README, CHANGELOG, or any text file that doesn't have a recognized extension directly in the Quick Look feature of macOS. This plugin enhances the usability of Quick Look by providing support for a wider range of file types, making it easier to quickly glance through text-based files without needing to open them in a separate application.
     _github: https://github.com/whomwah/qlstephen
-    _when:cask: '! test -d "$HOME/Library/QuickLook/QLStephen.qlgenerator"'
     cask: qlstephen
   qlvideo:
     _name: QLVideo
     _short: QLVideo is a Quick Look plugin for macOS that allows you to preview video files directly in the Finder without opening them in a separate application.
     _desc: QLVideo is a Quick Look plugin for macOS that allows you to preview video files directly in the Finder without needing to open them in a separate application. This plugin supports various video formats, making it convenient for quickly previewing video content without the need for a dedicated video player. It enhances the user experience by providing a seamless way to preview video files within the macOS Finder interface.
     _github: https://github.com/Marginal/QLVideo
-    _when:cask: '! test -d "$HOME/Library/QuickLook/ProvisionQL.qlgenerator"'
     cask: qlvideo
   qpdf:
-    _preload: true
-    _preloadReason: media-management-core
+    _preload: false
     _name: qpdf
     _desc: Decompresses *.zlib files
     _github: https://github.com/qpdf/qpdf
@@ -9183,32 +8799,27 @@ softwarePackages:
     _desc: Quickemu is a project hosted on GitHub that provides a simple script to set up and run virtual machines using QEMU on Linux. It aims to make running virtual machines quick and easy by automating the process of creating and launching VMs. Users can specify various options like disk size, memory, CPU cores, and more in a configuration file. Quickemu simplifies the setup of virtual machines for testing, development, or any other purpose where virtualization is needed.
     _github: https://github.com/quickemu-project/quickemu
     _bin: quickemu
-    _pre:ubuntu: sudo apt-add-repository ppa:flexiondotorg/quickemu && sudo apt update
     apt:ubuntu: quickemu
   quickgui:
     _name: 'quickgui                                                                                                                                                                                                  '
     _short: quickgui is a graphical user interface for QuickEMU, a tool that simplifies running virtual machines on Linux using QEMU.
     _desc: quickgui is a graphical user interface (GUI) for quickemu, a tool that simplifies managing virtual machines using QEMU on Linux. quickgui provides a user-friendly way to create, manage, and run virtual machines without needing to use the command line. It offers features like creating new VMs, editing existing ones, and launching VMs with various options. This GUI makes it easier for users to interact with quickemu and manage their virtual machines efficiently.
     _github: https://github.com/quickemu-project/quickgui
-    _pre:ubuntu: sudo add-apt-repository ppa:yannick-mauray/quickgui && sudo apt update
     apt:ubuntu: quickgui
   quicklook-csv:
     _name: Quicklook CSV
     _desc: Quick Look plugin for macOS that aids with CSV files
     _github: https://github.com/p2/quicklook-csv
-    _when:cask: '! test -d "$HOME/Library/QuickLook/QuickLookCSV.qlgenerator"'
     cask: quicklook-csv
   quicklook-json:
     _name: QLJSON
     _github: false
-    _when:cask: '! test -d "$HOME/Library/QuickLook/QuickLookJSON.qlgenerator"'
     cask: quicklook-json
   quicklookapk:
     _name: QLAPK
     _short: QuickLookAPK is a plugin for macOS that allows you to preview Android APK files using Quick Look.
     _desc: QuickLookAPK is a tool that allows you to preview the contents of Android APK files directly in macOS Finder using Quick Look. This tool enhances the user experience by providing a quick way to view the contents of APK files without needing to extract them. It is a useful utility for developers and users who frequently work with APK files and want to quickly glance at their contents without opening them in an Android emulator or decompiling them.
     _github: https://github.com/hezi/QuickLookAPK
-    _when:cask: '! test -d "$HOME/Library/QuickLook/QuickLookAPK.qlgenerator"'
     __cask: quicklookapk
   quicktype:
     _name: Quicktype
@@ -9234,7 +8845,6 @@ softwarePackages:
     _bin: rancher
     _docs: https://ranchermanager.docs.rancher.com/reference-guides/cli-with-rancher/rancher-cli
     brew: rancher-cli
-    github: github.com/rancher/cli
     yay: rancher-cli-bin
   rancher-desktop:
     _name: 'rancher-desktop                                                                                                                                                                                           '
@@ -9294,6 +8904,13 @@ softwarePackages:
   rclone:
     _preload: true
     _preloadReason: security-recovery-prerequisite
+    _serviceEnabled: false
+    _serviceBlockedReason: >-
+      Fail closed: Linux units are s3-private/s3-public while macOS labels are
+      rclone.private/rclone.public, and no typed platform-specific declaration
+      owns the required rclone account, protected system configuration, mount
+      directories, or rollback boundary. Keep services unselected until those
+      prerequisites have independent check/apply/verify operations.
     _name: Rclone
     _short: rclone is a command-line program to manage files on cloud storage.
     _desc: '[Rclone](https://rclone.org/) is an open source, multi threaded, command line computer program to manage content on cloud and other high latency storage. Its capabilities include sync, transfer, crypt, cache, union, compress and mount. The rclone website lists [fifty supported backends](https://rclone.org/overview/) including S3 services and Google Drive.'
@@ -9325,8 +8942,7 @@ softwarePackages:
     - util-linux
     _home: https://github.com/PabloLec/RecoverPy
     _docs: https://github.com/PabloLec/RecoverPy#usage
-    _when: echo '! pip3 list | grep recoverpy > /dev/null' | bash
-    script:linux: python3 -m pip install recoverpy
+    pipx: recoverpy
   recuva:
     _name: Recuva
     _desc: Recuva recovers files from your Windows computer, recycle bin, digital camera card, or MP3 player!
@@ -9344,7 +8960,6 @@ softwarePackages:
     _bin:
     - redis-cli
     - redis-server
-    _post: "if command -v snap > /dev/null && command -v redis.cli > /dev/null && ! command -v redis-cli > /dev/null; then\n  sudo snap alias redis.cli redis-cli\nfi\n"
     _home: https://redis.io/
     _docs: https://redis.io/docs/latest/
     _service:
@@ -9429,7 +9044,6 @@ softwarePackages:
     _app: ResponsivelyApp.app
     cask: responsively
     choco: responsively
-    github: github.com/responsively-org/responsively-app
   restic:
     _preload: true
     _preloadReason: security-recovery-prerequisite
@@ -9460,8 +9074,7 @@ softwarePackages:
     _docs: https://jsonresume.org/getting-started/
     npm: resume-cli
   ripgrep:
-    _preload: true
-    _preloadReason: shell-profile-core
+    _preload: false
     _name: ripgrep
     _short: ripgrep is a fast, line-oriented search tool that recursively searches your current directory for a regex pattern while respecting your gitignore rules.
     _desc: '[ripgrep](https://github.com/BurntSushi/ripgrep) is a line-oriented search tool that recursively searches your current directory for a regex pattern. By default, ripgrep will respect your .gitignore and automatically skip hidden files/directories and binary files. This role also installs ripgrep-all. [ripgrep-all](https://github.com/phiresky/ripgrep-all) is just like ripgrep except it also searches in PDFs, E-Books, Office documents, zip, tar.gz, etc.'
@@ -9525,7 +9138,6 @@ softwarePackages:
     _docs: https://github.com/nivekuil/rip
     brew: rm-improved
     cargo: rm-improved
-    github: github.com/nivekuil/rip
     yay: rm-improved
   robotframework:
     _name: Robot Framework
@@ -9550,8 +9162,7 @@ softwarePackages:
     pkg: rofi
     zypper: rofi
   rsync:
-    _preload: true
-    _preloadReason: web-dev-core
+    _preload: false
     _name: rsync
     _short: rsync is a fast and versatile file synchronization tool for Unix-like systems.
     _desc: rsync is an open source utility that provides fast incremental file transfer.
@@ -9585,7 +9196,6 @@ softwarePackages:
     _desc: rtop is a remote system monitoring tool that allows you to monitor server resources in real-time through a web interface. It provides information on CPU usage, memory usage, network activity, and disk I/O. rtop is written in Go and is designed to be lightweight and efficient. It can be useful for monitoring multiple servers from a central location, making it easier to keep track of system performance across your network.
     _github: https://github.com/rapidloop/rtop
     _bin: rtop
-    go: github.com/rapidloop/rtop@latest
   rubocop:
     _name: Rubocop
     _short: RuboCop is a Ruby static code analyzer and code formatter.
@@ -9627,7 +9237,6 @@ softwarePackages:
     _desc: Runitor is a tool available at https://github.com/bdd/runitor designed for monitoring and restarting processes. It allows you to define processes in a configuration file and then monitors them, restarting any that exit unexpectedly. This can be useful for ensuring critical processes stay running without manual intervention. Runitor is written in Go and provides a simple yet effective way to manage process monitoring and restarting tasks.
     _github: https://github.com/bdd/runitor
     _bin: runitor
-    go: bdd.fi/x/runitor/cmd/runitor@latest
   runjs:
     _name: RunJS
     _short: RunJS is a lightweight and portable JavaScript playground that allows you to quickly test and run JavaScript code in a clean and simple interface.
@@ -9637,7 +9246,6 @@ softwarePackages:
     _app: RunJS.app
     cask: runjs
     choco: runjs
-    github: github.com/lukehaas/RunJS
     yay: runjs-bin
   rust:
     _preload: true
@@ -9650,17 +9258,23 @@ softwarePackages:
     _home: https://www.rust-lang.org/
     _docs: https://www.rust-lang.org/learn
     brew: rust
+    apt:
+    - cargo
+    - rustc
+    apk:
+    - cargo
+    - rust
     dnf:
     - cargo
     - rust
     pacman: rust
     choco: rust
     scoop: rust
-    script:darwin: curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
-    script:linux: curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+    zypper:
+    - cargo
+    - rust
   rust-analyzer:
-    _preload: true
-    _preloadReason: lsp-core
+    _preload: false
     _name: rust-analyzer
     _short: rust-analyzer is a modular compiler frontend and Language Server Protocol implementation for Rust.
     _desc: rust-analyzer is the official Language Server Protocol (LSP) implementation for the Rust programming language, providing semantic analysis, code completion, and go-to-definition for coding agents and editors.
@@ -9726,8 +9340,6 @@ softwarePackages:
     _github: https://github.com/peak/s5cmd
     _bin: s5cmd
     brew: peak/tap/s5cmd
-    github: github.com/peak/s5cmd
-    go: github.com/peak/s5cmd@latest
   sad:
     _name: 'sad                                                                                                                                                                                                       '
     _short: SAD is a fast, lightweight alternative to fzf for zsh shell.
@@ -9737,8 +9349,7 @@ softwarePackages:
     brew: ms-jpq/sad/sad
     pacman: sad
   safe-rm:
-    _preload: true
-    _preloadReason: shell-profile-core
+    _preload: false
     _name: safe-rm
     _short: shell-safe-rm is a safer alternative to the rm command in Unix-like systems, designed to prevent accidental deletion of important files by moving them to a trash directory instead of permanently deleting them.
     _desc: shell-safe-rm is a tool on GitHub created by kaelzhang that aims to prevent accidental deletion of important files by enhancing the rm command in Unix-like systems. It adds a safety net by moving files to a trash directory instead of permanently deleting them. This can help prevent data loss by allowing users to easily recover files that were mistakenly deleted. The tool provides options to configure the behavior of the rm command, making it a useful addition for users who want an extra layer of protection when managing their files.
@@ -9762,9 +9373,6 @@ softwarePackages:
     _home: https://sakecli.com/
     _docs: https://sakecli.com/examples
     brew: alajmo/sake/sake
-    go: github.com/alajmo/sake@latest
-    script:darwin: curl -sfL https://raw.githubusercontent.com/alajmo/sake/main/install.sh | sh
-    script:linux: curl -sfL https://raw.githubusercontent.com/alajmo/sake/main/install.sh | sh
   samba:
     _default: false
     _name: Samba
@@ -9815,7 +9423,6 @@ softwarePackages:
     - libconfig-inifiles-perl
     - libdata-dump-perl
     - sanoid
-    _when:linux: command -v zfs > /dev/null && ! zfs list
   santa:
     _name: A binary authorization system for MacOS
     _short: Santa is a macOS application whitelisting/blacklisting tool developed by Google for enforcing security policies on macOS systems.
@@ -9834,15 +9441,6 @@ softwarePackages:
     _bin: sl
     brew: sapling
     pacman: sapling-scm-bin
-    script:windows: 'curl -sSL https://github.com/facebook/sapling/releases/latest > ~/Downloads/sapling_windows_0.2.20231113-145254+995db0d6_amd64.zip
-
-      Expand-Archive ~/Downloads/sapling_windows_0.2.20231113-145254+995db0d6_amd64.zip ''C:\Program Files''
-
-      setx PATH "$env:PATH;C:\Program Files\Sapling" -m
-
-      Set-Alias -Name sl -Value ''C:\Program Files\Sapling\sl.exe'' -Force -Option Constant,ReadOnly,AllScope
-
-      '
   scap-security-guide:
     _name: OpenSCAP
     _short: scap-security-guide (ComplianceAsCode) provides security-hardening and compliance automation content in SCAP, Bash, and Ansible formats.
@@ -9862,7 +9460,6 @@ softwarePackages:
     _desc: A tool to infer and instantiate schemas and translate between data formats
     _github: https://github.com/Confbase/schema
     _bin: schema
-    go: github.com/Confbase/schema@latest
   scrcpy:
     _name: scrcpy
     _short: scrcpy is a free and open-source tool that allows you to display and control Android devices connected via USB or TCP/IP.
@@ -9874,7 +9471,6 @@ softwarePackages:
     dnf: scrcpy
     choco: scrcpy
     snap: scrcpy
-    github: github.com/Genymobile/scrcpy
     yay: scrcpy
     pkg: scrcpy
   scrcpy-gui:
@@ -9895,7 +9491,6 @@ softwarePackages:
     pacman: sd
     choco: sd-cli
     cargo: sd
-    github: github.com/chmln/sd
     pkg: sd
     apk: sd
   sddm:
@@ -9904,7 +9499,6 @@ softwarePackages:
     _desc: SDDM (Simple Desktop Display Manager) is a display manager for X11 and Wayland windowing systems. It is designed to be lightweight, fast, and customizable, making it a popular choice for managing user sessions on Linux desktop environments. SDDM supports multiple user sessions, themes, and greeters, allowing for a personalized login experience. It is written in C++ and QML, making it highly customizable and extensible. SDDM is widely used in various Linux distributions as the default display manager due to its simplicity and flexibility.
     _github: https://github.com/sddm/sddm
     _bin: sddm
-    _post: sudo systemctl set-default graphical.target
     _service:
     - name: sddm
       sudo: true
@@ -9912,14 +9506,6 @@ softwarePackages:
     dnf: sddm
     pacman: sddm
     zypper: sddm
-  sdkman-cli:
-    _name: SDKMan
-    _short: sdkman-cli is a command-line tool for managing software development kits (SDKs) on Unix-based systems. It simplifies the installation, management, and switching between different SDK versions for languages like Java, Kotlin, and more.
-    _desc: SDKMAN! is a tool that helps with managing software development kits (SDKs) and package dependencies for various programming languages. It simplifies the process of installing, switching between, and managing multiple versions of SDKs like Java, Kotlin, Groovy, and more. The SDKMAN! CLI provides commands to install, list, use, and manage SDKs effortlessly. It's a popular choice among developers for maintaining different versions of SDKs on their systems. The project is open-source and actively maintained on GitHub.
-    _github: https://github.com/sdkman/sdkman-cli
-    _bin: sdk
-    _deprecated: Deprecated in favor of mise
-    script: "#!/usr/bin/env bash\n# @file SDKMAN Install\n# @brief Ensures SDKMAN is installed.\n# @description\n#     This script ensures SDKMAN (a Java version manager) is installed using the method recommended on [their\n#     website](https://sdkman.io/).\n### Re-source ~/.bashrc\nif [ -z \"$SDKMAN_DIR\" ]; then\n  gum log -sl info 'SDKMAN_DIR is undefined so ~/.bashrc is being re-sourced' && source ~/.bashrc\nfi\n### SDKMan ~/.bashrc settings\nif command -v brew > /dev/null && command -v sdkman-cli > /dev/null; then\n  export SDKMAN_DIR=\"$(brew --prefix sdkman-cli)/libexec\"\n  . \"$SDKMAN_DIR/bin/sdkman-init.sh\"\nelif [ -d \"${XDG_DATA_HOME:-$HOME/.local/share}/sdkman\" ]; then\n  export SDKMAN_DIR=\"${XDG_DATA_HOME:-$HOME/.local/share}/sdkman\"\n  . \"$SDKMAN_DIR/bin/sdkman-init.sh\"\nelse\n  logg logg 'Unable to find SDKMAN instance'\nfi\n### Ensure SDKMan is installed (https://sdkman.io/)\nif [ ! -d \"$SDKMAN_DIR\" ]; then\n  gum log -sl info 'Installing SDKMan via curl -s https://get.sdkman.io?rcupdate=false'\n  gum log -sl info \"Install directory: $SDKMAN_DIR\"\n  curl -s \"https://get.sdkman.io?rcupdate=false\" | bash\n  if [ -f \"$SDKMAN_DIR/bin/sdkman-init.sh\" ]; then\n    . \"$SDKMAN_DIR/bin/sdkman-init.sh\"\n    gum log -sl info 'Running sdk install java' && sdk install java\n  else\n    gum log -sl warn 'SDKMAN_DIR/bin/sdkman-init.sh is missing'\n  fi\nelse\n  gum log -sl info 'SDKMan appears to already be installed.'\n  gum log -sl info 'Running sdk update'\n  if command -v sdk > /dev/null; then\n    sdk update\n  else\n    gum log -sl warn 'Unable to run sdk update because the sdk command is unavailable'\n  fi\nfi\n"
   seafile-client:
     _name: 'seafile-client                                                                                                                                                                                            '
     _short: Seafile Client is an open-source file synchronization and collaboration tool for securely storing, accessing, and sharing files across devices.
@@ -9964,7 +9550,6 @@ softwarePackages:
     brew:darwin: getsentry/tools/sentry-cli
     npm: '@sentry/cli'
     scoop: sentry-cli
-    github: github.com/getsentry/sentry-cli
     yay: sentry-cli-bin
   serve:
     _name: serve
@@ -9990,17 +9575,11 @@ softwarePackages:
     _desc: Fully featured and highly configurable SFTP server with optional HTTP/S, FTP/S and WebDAV support - S3, Google Cloud Storage, Azure Blob
     _github: https://github.com/drakkan/sftpgo
     _bin: sftpgo
-    _deps:
-    - sftpgo-plugin-auth
-    _post: 'sudo sftpgo initprovider
-
-      '
     _service:
     - name: sftpgo
       sudo: true
     brew: sftpgo
     choco: sftpgo
-    github: github.com/drakkan/sftpgo
     yay: sftpgo-bin
     pkg: sftpgo
   sftpgo-plugin-auth:
@@ -10009,10 +9588,6 @@ softwarePackages:
     _desc: A plugin for SFTPGo to enable LDAP/Active Directory authentication
     _github: https://github.com/sftpgo/sftpgo-plugin-auth
     _bin: sftpgo-plugin-auth
-    _post: if [ "$(which sftpgo-plugin-auth)" != '/usr/local/bin/sftpgo-plugin-auth' ]; then sudo cp -f $(which sftpgo-plugin-auth) /usr/local/bin/sftpgo-plugin-auth || true; fi
-    go: github.com/sftpgo/sftpgo-plugin-auth@latest
-    script:darwin: curl -sSf https://github.com/sftpgo/sftpgo-plugin-auth/releases/download/v1.0.4/sftpgo-plugin-auth-darwin-amd64 -o /usr/local/bin/sftpgo-plugin-auth
-    script:linux: curl -sSf https://github.com/sftpgo/sftpgo-plugin-auth/releases/download/v1.0.4/sftpgo-plugin-auth-linux-amd64 -o /usr/local/bin/sftpgo-plugin-auth
   share:
     _name: share
     _short: share-cli is a command-line tool for sharing files and directories securely using a temporary URL.
@@ -10060,13 +9635,11 @@ softwarePackages:
     _github: https://github.com/reconquest/shdoc
     _bin: shdoc
     yay: shdoc-git
+    dnf: shdoc
     _deps:script:
     - gawk
-    script:darwin: cd /tmp && git clone --recursive https://github.com/reconquest/shdoc && cd shdoc && sudo make install && cd /tmp && sudo rm -rf shdoc
-    script:linux: cd /tmp && git clone --recursive https://github.com/reconquest/shdoc && cd shdoc && sudo make install && cd /tmp && sudo rm -rf shdoc
   sheldon:
-    _preload: true
-    _preloadReason: shell-profile-core
+    _preload: false
     _name: Sheldon
     _short: sheldon is a macOS shell configuration framework that aims to make your shell experience more efficient and enjoyable.
     _desc: Sheldon is a command-line tool for managing macOS preferences. It allows users to easily view, set, and remove macOS system and application preferences using a simple command-line interface. With Sheldon, users can manage preferences for various system components like Dock, Finder, Safari, and more, making it convenient for system administrators and power users to customize and automate macOS settings. It simplifies the process of managing preferences without needing to navigate through multiple settings menus, providing a more efficient way to handle macOS configurations.
@@ -10117,8 +9690,6 @@ softwarePackages:
     pacman: shfmt
     scoop: shfmt
     snap: shfmt
-    github: github.com/mvdan/sh
-    go: mvdan.cc/sh/v3/cmd/shfmt@latest
     pkg: shfmt
     apk: shfmt
   shml:
@@ -10165,7 +9736,6 @@ softwarePackages:
     _bin: cargo-shuttle
     pacman: cargo-shuttle
     cargo: cargo-shuttle
-    script: curl -sSfL https://www.shuttle.rs/install | bash
   shx:
     _name: shx
     _short: shx is a wrapper around Node.js's child_process module and cross-platform commands for easier shell scripting in JavaScript.
@@ -10211,7 +9781,6 @@ softwarePackages:
     _bin: skate
     brew: charmbracelet/tap/skate
     pacman: skate
-    go: github.com/charmbracelet/skate@latest
   skhd:
     _name: skhd
     _short: skhd is a simple hotkey daemon for macOS.
@@ -10221,15 +9790,12 @@ softwarePackages:
     _home: https://github.com/koekeishiya/skhd
     _docs: https://github.com/koekeishiya/skhd/issues/1
     brew:darwin: koekeishiya/formulae/skhd
-    _post:brew: skhd --start-service
   skm:
     _name: skm
     _short: skm is a command-line tool for managing SSH keys.
     _desc: A simple and powerful SSH keys manager
     _github: https://github.com/TimothyYe/skm
     _bin: skm
-    github: github.com/TimothyYe/skm
-    go: github.com/TimothyYe/skm/cmd/skm@latest
   skype:
     _name: Skype
     _short: $'Not open-source' is a string enclosed in single quotes preceded by a dollar sign and is typically used in Unix-like systems to enable escape sequences like \n for new lines.
@@ -10267,7 +9833,6 @@ softwarePackages:
     _desc: '[slack-term](https://github.com/erroneousboat/slack-term) features a colorful interface as well as keyboard shortcuts. It is one of, if not the, most well-received [Slack](https://slack.com/) client available on GitHub.'
     _github: https://github.com/erroneousboat/slack-term
     _bin: slack-term
-    go: github.com/erroneousboat/slack-term@latest
   slides:
     _name: Slides
     _short: maaslalani/slides is a tool for creating terminal-based presentations using Markdown.
@@ -10279,7 +9844,6 @@ softwarePackages:
     brew: slides
     snap: slides
     yay: slides
-    go: github.com/maaslalani/slides@latest
   sloth:
     _name: Sloth
     _short: Sloth is a macOS tool that shows all open files and sockets in use by all running processes on your system.
@@ -10296,7 +9860,7 @@ softwarePackages:
     _desc: Snapcraft is a tool developed by Canonical for building and packaging software as snaps, which are universal Linux packages that work across different distributions. It simplifies the process of creating snaps by providing a clean and easy-to-use interface. Snapcraft allows developers to define the build process in a single YAML file, making it easier to automate and reproduce builds. It supports various programming languages and frameworks, making it a versatile tool for packaging applications on Linux systems. Overall, Snapcraft streamlines the packaging process and helps developers distribute their software efficiently.
     _github: https://github.com/canonical/snapcraft
     _bin: snapcraft
-    _deps:
+    _deps:snap:
     - snapd
     brew: snapcraft
     snap: snapcraft --classic
@@ -10347,7 +9911,6 @@ softwarePackages:
     _docs: https://github.com/charmbracelet/soft-serve
     brew: charmbracelet/tap/soft-serve
     pacman: soft-serve
-    go: github.com/charmbracelet/soft-serve/cmd/soft@latest
   solargraph:
     _name: Solargraph
     _short: Solargraph is a Ruby language server that provides intellisense, code completion, and other IDE features for Ruby development.
@@ -10371,11 +9934,9 @@ softwarePackages:
     _bin: spacedrive
     _app: Spacedrive.app
     cask: spacedrive
-    appimage: https://www.spacedrive.com/api/releases/desktop/stable/linux/x86_64
     _env:
       SPACEDRIVE_APPDATA:
         cask: $HOME/Library/Application Support/spacedrive
-    msi: https://www.spacedrive.com/api/releases/desktop/stable/windows/x86_64
   sparkleshare:
     _name: Sparkle Share
     _short: SparkleShare is an open-source file synchronization and collaboration tool that uses Git under the hood. It allows users to easily share and collaborate on files and folders across multiple devices.
@@ -10422,8 +9983,7 @@ softwarePackages:
     _docs: https://spotdl.readthedocs.io/en/latest/
     pipx: spotdl
   sql-language-server:
-    _preload: true
-    _preloadReason: lsp-core
+    _preload: false
     _name: SQL Language Server
     _short: sql-language-server provides SQL autocompletion, linting, and diagnostics to editors via the Language Server Protocol.
     _desc: An SQL language server
@@ -10442,7 +10002,6 @@ softwarePackages:
     _app: sqlectron.app
     _deprecated: beekeeper-studio preferred
     cask: sqlectron
-    github: github.com/sqlectron/sqlectron-gui
     yay: sqlectron-gui
   sqlite:
     _name: SQLite
@@ -10480,7 +10039,6 @@ softwarePackages:
     _home: https://ssh-vault.com/
     _docs: https://ssh-vault.com/post/how-it-works/
     brew: ssh-vault
-    github: github.com/ssh-vault/ssh-vault
   sshfs:
     _name: SSHFS
     _short: SSHFS is a file system client based on the SSH File Transfer Protocol. It allows you to mount remote directories over an SSH connection as if they were local.
@@ -10530,7 +10088,6 @@ softwarePackages:
     _desc: Simple zero-config SSL reverse proxy with real autogenerated certificates
     _github: https://github.com/suyashkumar/ssl-proxy
     _bin: ssl-proxy
-    go: github.com/suyashkumar/ssl-proxy@latest
   stacer:
     _name: Stacer
     _short: Stacer is a GUI-based system optimizer and monitoring tool for Linux systems.
@@ -10539,11 +10096,8 @@ softwarePackages:
     _bin: stacer
     _home: https://oguzhaninan.github.io/Stacer-Web/
     _docs: https://github.com/oguzhaninan/Stacer/blob/native/README.md
-    apt: https://github.com/oguzhaninan/Stacer/releases/download/v1.1.0/stacer_1.1.0_amd64.deb
-    dnf: https://github.com/oguzhaninan/Stacer/releases/download/v1.1.0/stacer-1.1.0-amd64.rpm
     dnf:fedora: stacer
     yay: stacer
-    appimage: https://github.com/oguzhaninan/Stacer/releases/download/v1.1.0/Stacer-1.1.0-x64.AppImage
     apt:debian: stacer
     apt:ubuntu: stacer
   standard-notes:
@@ -10588,7 +10142,6 @@ softwarePackages:
     dnf:fedora: golang-honnef-tools
     pacman: staticcheck
     scoop: staticcheck
-    go: honnef.co/go/tools/cmd/staticcheck@latest
   stats:
     _name: stats
     _short: stats is a command-line tool that provides system statistics in real-time for macOS.
@@ -10639,7 +10192,6 @@ softwarePackages:
     brew: abhimanyu003/sttr/sttr
     snap: sttr
     yay: sttr-bin
-    go: github.com/abhimanyu003/sttr@latest
   stubby:
     _name: Stubby
     _short: Stubby is a DNS privacy tool that encrypts DNS queries to enhance online privacy and security.
@@ -10652,7 +10204,6 @@ softwarePackages:
       sudo: true
     _deprecated: Causes issues when other programs are modifying the DNS resolving endpoint. Might be worth reinvestigating but ideally the DNS should be encrypted on pfSense or use CloudFlare WARP to handle it.
     brew:darwin: stubby
-    _post:brew:darwin: bash "$(brew --prefix stubby)/sbin/stubby-setdns-macos.sh"
   supervisor:
     _name: Supervisor
     _short: Supervisor is a client/server system that allows its users to monitor and control a number of processes on UNIX-like operating systems.
@@ -10709,8 +10260,6 @@ softwarePackages:
     _app: Swifty.app
     _deprecated: Deprecated in favor of BitWarden
     cask: swifty
-    appimage: swiftyapp/swifty
-    exe: https://github.com/swiftyapp/swifty/releases/download/v0.6.13/Swifty-Setup-0.6.13.exe
   swimat:
     _name: Swimat
     _short: Swimat is a tool for automatically formatting Swift code in Xcode projects.
@@ -10735,8 +10284,6 @@ softwarePackages:
     cask: switchhosts
     choco: switchhosts
     scoop: switchhosts
-    github: github.com/oldj/SwitchHosts
-    appimage: oldj/SwitchHosts
   sync-ssh-keys:
     _name: sync-ssh-keys
     _short: sync-ssh-keys is a tool for synchronizing SSH keys across multiple servers.
@@ -10744,7 +10291,6 @@ softwarePackages:
     _github: https://github.com/samber/sync-ssh-keys
     _bin: sync-ssh-keys
     yay: sync-ssh-keys-bin
-    go: github.com/samber/sync-ssh-keys@latest
   syncpack:
     _name: Syncpack
     _short: syncpack is a tool that keeps dependencies in sync between multiple package.json files in a project.
@@ -10802,8 +10348,8 @@ softwarePackages:
     _bin: sysget
     _note: TODO
   sysz:
-    _name: syz
-    _short: sysz is a tool for live kernel tracing on macOS.
+    _name: sysz
+    _short: sysz is an fzf terminal interface for inspecting and controlling systemd units.
     _desc: An fzf terminal UI for systemctl
     _github: https://github.com/joehillen/sysz
     _bin: sysz
@@ -10811,9 +10357,19 @@ softwarePackages:
     - fzf
     _home: https://github.com/joehillen/sysz
     _docs: https://github.com/joehillen/sysz
-    pacman: sysz
-    bin: https://github.com/joehillen/sysz
-    script:linux: cd /tmp && git clone https://github.com/joehillen/sysz.git && cd sysz && sudo make install && cd /tmp && rm -rf sysz
+    _artifacts:
+    - schemaVersion: 1
+      id: sysz
+      version: 1.4.3
+      platform: { os: linux, arch: x64 }
+      source: { url: https://github.com/joehillen/sysz/releases/download/1.4.3/sysz, sha256: 875f8ddfb7d339979ca9b36907f2640cbbd4e9ac861d40188455926dfdcdd576, sizeBytes: 12734 }
+      destination: { root: user-bin, filename: sysz, mode: '0700' }
+    - schemaVersion: 1
+      id: sysz
+      version: 1.4.3
+      platform: { os: linux, arch: arm64 }
+      source: { url: https://github.com/joehillen/sysz/releases/download/1.4.3/sysz, sha256: 875f8ddfb7d339979ca9b36907f2640cbbd4e9ac861d40188455926dfdcdd576, sizeBytes: 12734 }
+      destination: { root: user-bin, filename: sysz, mode: '0700' }
   t:
     _name: 't                                                                                                                                                                                                         '
     _short: t is a command-line power tool for Twitter.
@@ -10846,11 +10402,7 @@ softwarePackages:
     _app: Tabby.app
     _deprecated: Deprecated in favor of Warp terminal
     cask: tabby
-    apt: https://github.com/Eugeny/tabby/releases/download/v1.0.188/tabby-1.0.188-linux-x64.deb
-    dnf: https://github.com/Eugeny/tabby/releases/download/v1.0.188/tabby-1.0.188-linux-x64.rpm
-    pacman: https://github.com/Eugeny/tabby/releases/download/v1.0.188/tabby-1.0.188-linux-x64.pacman
     choco: tabby
-    github: github.com/Eugeny/tabby
     _notes: TODO Update the direct links periodically and keep eye out for Snap / Flatpak
   talksheet:
     _name: Talksheet
@@ -10860,8 +10412,7 @@ softwarePackages:
     _bin: talksheet
     pip: talksheet
   taplo:
-    _preload: true
-    _preloadReason: lsp-core
+    _preload: false
     _name: Taplo
     _short: taplo is a TOML parser and serializer written in Rust.
     _desc: A TOML toolkit written in Rust that includes TOML formatting abilities
@@ -10893,8 +10444,6 @@ softwarePackages:
     brew: go-task
     choco: go-task
     scoop: task
-    github: github.com/go-task/task
-    go: github.com/go-task/task/v3/cmd/task@latest
   taskwarrior:
     _name: Task Warrior
     _short: Taskwarrior is an open-source task management tool for the command line.
@@ -10924,11 +10473,8 @@ softwarePackages:
     _app: TeamViewer.app
     _deprecated: Deprecated in favor of RustDesk
     cask: teamviewer
-    apt: https://download.teamviewer.com/download/linux/teamviewer_amd64.deb
-    dnf: https://download.teamviewer.com/download/linux/teamviewer.x86_64.rpm
     choco: teamviewer
     yay: teamviewer
-    zypper: https://download.teamviewer.com/download/linux/teamviewer-suse.x86_64.rpm
   telegram:
     _name: Telegram
     _short: Telegram Desktop is an open-source messaging app that allows users to securely communicate through text, voice, and video.
@@ -10957,7 +10503,6 @@ softwarePackages:
     _github: https://github.com/tellerops/teller
     _bin: teller
     brew: spectralops/tap/teller
-    github: github.com/tellerops/teller
   temps:
     _name: Temps
     _short: temps is a simple temperature converter tool created by jackd248 on GitHub.
@@ -10965,7 +10510,6 @@ softwarePackages:
     _github: https://github.com/jackd248/temps
     _bin: null
     _deprecated: macOS menu bar app for weather. Buggy software.
-    github: github.com/jackd248/temps
   terminal-notifier:
     _name: Terminal Notifier
     _short: terminal-notifier is a command-line tool for sending macOS notifications.
@@ -11025,9 +10569,6 @@ softwarePackages:
     _desc: '[tfenv](https://github.com/tfutils/tfenv) is a Terraform version manager inspired by [rbenv](https://github.com/rbenv/rbenv). It supports macOS, Linux, and Windows.'
     _github: https://github.com/tfutils/tfenv
     _bin: tfenv
-    _post: 'tfenv use latest
-
-      '
     _home: https://github.com/tfutils/tfenv
     _docs: https://github.com/tfutils/tfenv#usage
     brew: tfenv
@@ -11040,7 +10581,6 @@ softwarePackages:
     _bin: tflint
     brew: tflint
     choco: tflint
-    github: github.com/terraform-linters/tflint
   tfsec:
     _name: Aqua TFSec
     _short: tfsec is a security scanner for your Terraform code, helping you identify potential security issues and best practices violations.
@@ -11057,9 +10597,7 @@ softwarePackages:
     _github: https://github.com/aandrew-me/tgpt
     _bin: tgpt
     _todo: Find best ChatGPT terminal extension
-    scoop: https://raw.githubusercontent.com/aandrew-me/tgpt/main/tgpt.json
     yay: tgpt-bin
-    go: github.com/aandrew-me/tgpt/v2@latest
   the-unarchiver:
     _name: The Unarchiver
     _desc: Multi-purpose compressed archive extractor for macOS
@@ -11120,7 +10658,6 @@ softwarePackages:
     _home: https://tilt.dev/
     _docs: https://docs.tilt.dev/
     brew: tilt
-    github: github.com/tilt-dev/tilt
     yay: tilt-bin
   timeshift:
     _name: Timeshift
@@ -11175,8 +10712,7 @@ softwarePackages:
     pkg_add: tmate
     zypper: tmate
   tmux:
-    _preload: true
-    _preloadReason: shell-profile-core
+    _preload: false
     _name: tmux
     _short: tmux is a terminal multiplexer for Unix-like operating systems that allows multiple terminal sessions to be accessed and controlled from a single window.
     _desc: '[Tmux](https://github.com/tmux/tmux/wiki) is a terminal multiplexer. It enables a number of terminals to be created, accessed, and controlled from a single screen. Tmux may be detached from a screen and continue running in the background, then later reattached.'
@@ -11214,7 +10750,6 @@ softwarePackages:
     pacman: tokei
     scoop: tokei
     cargo: tokei
-    github: github.com/XAMPPRocky/tokei
     pkg: tokei
     apk: tokei
   tomcat:
@@ -11231,8 +10766,6 @@ softwarePackages:
     dnf: tomcat
     pacman: tomcat
     choco: tomcat
-    _post:darwin: sed 's/8080/8180/g' /usr/local/etc/tomcat/server.xml > /usr/local/etc/tomcat/server.xml
-    _post:linux: sed 's/8080/8180/g' /usr/local/etc/tomcat/server.xml > /usr/local/etc/tomcat/server.xml
   toml-sort:
     _name: TOML Sort
     _short: toml-sort is a tool that sorts TOML files alphabetically.
@@ -11287,7 +10820,6 @@ softwarePackages:
     _app: TradingView.app
     cask: tradingview
     snap: tradingview
-    msix: https://tvd-packages.tradingview.com/stable/latest/win32/TradingView.msix
   trae:
     _default: false
     _name: Trae
@@ -11308,8 +10840,7 @@ softwarePackages:
     pacman: translate-shell
     apt:ubuntu: translate-shell
   tree:
-    _preload: true
-    _preloadReason: shell-profile-core
+    _preload: false
     _name: tree-cli
     _short: tree-cli is a command-line tool that generates directory trees in a visually appealing way.
     _desc: '[tree-cli](https://github.com/MrRaindrop/tree-cli) is a recursive directory listing program that produces a depth indented listing of files. With no arguments, tree lists the files in the current directory. When directory arguments are given, tree lists all the files and/or directories found in the given directories each in turn. Upon completion of listing all files/directories found, tree returns the total number of files and/or directories listed.'
@@ -11344,7 +10875,6 @@ softwarePackages:
     _github: https://github.com/aquasecurity/trivy
     _bin: trivy
     brew: trivy
-    github: github.com/aquasecurity/trivy
     yay: trivy-bin
   trufflehog:
     _name: trufflehog
@@ -11362,7 +10892,6 @@ softwarePackages:
     _docs: https://docs.trunk.io/
     cask: trunk-io
     npm: '@trunkio/launcher'
-    script: curl https://get.trunk.io -fsSL | bash -s -- -y
   ts2c:
     _name: ts2c
     _short: ts2c is a tool that converts TypeScript code to C code.
@@ -11388,8 +10917,7 @@ softwarePackages:
     _bin: turbo
     npm: turbo
   typescript:
-    _preload: true
-    _preloadReason: web-dev-core
+    _preload: false
     _name: TypeScript
     _short: TypeScript is a superset of JavaScript that adds static typing to the language, making it easier to build and maintain large-scale applications.
     _desc: TypeScript is a strongly typed programming language that builds on JavaScript, giving you better tooling at any scale.
@@ -11400,8 +10928,7 @@ softwarePackages:
     brew: typescript
     npm: typescript
   typescript-language-server:
-    _preload: true
-    _preloadReason: lsp-core
+    _preload: false
     _name: TypeScript Language Server
     _short: typescript-language-server is a Language Server Protocol implementation for TypeScript and JavaScript wrapping tsserver.
     _desc: Language Server Protocol (LSP) implementation for TypeScript and JavaScript using tsserver, enabling semantic code navigation, diagnostics, and refactoring for coding agents and editors.
@@ -11428,7 +10955,6 @@ softwarePackages:
     _home: https://github.com/ariasmn/ugm
     _docs: https://github.com/ariasmn/ugm
     _deprecated: Error encountered while installing with Go reported [here](https://github.com/ariasmn/ugm/issues/2).
-    go: github.com/ariasmn/ugm@latest
   ultra:
     _name: Ultra Task Runner
     _short: Ultra-runner is a tool for running multiple commands in parallel, designed for developers and system administrators to improve workflow efficiency.
@@ -11471,7 +10997,6 @@ softwarePackages:
     _github: https://github.com/unikraft/unikraft
     _bin: kraft
     brew: unikraft/cli/kraftkit
-    script: curl --proto '=https' --tlsv1.2 -sSf https://get.kraftkit.sh | sh
   unison:
     _name: Unison
     _short: Unison is a file-synchronization tool for Unix and Windows.
@@ -11487,7 +11012,6 @@ softwarePackages:
     _github: https://github.com/akavel/up
     _bin: up
     brew: up
-    github: github.com/akavel/up
     yay: up
     pkg: up
   upscayl:
@@ -11501,7 +11025,6 @@ softwarePackages:
     cask: upscayl
     choco: upscayl
     snap: upscayl
-    appimage: Upscayl
   upt:
     _name: upt
     _short: upt is a lightweight uptime monitor written in Go.
@@ -11532,7 +11055,6 @@ softwarePackages:
     brew: xo/xo/usql
     choco: usql
     scoop: usql
-    go: github.com/xo/usql@latest
   util-linux:
     _github: false
     _bin:
@@ -11572,7 +11094,6 @@ softwarePackages:
     _bin: vale
     brew: vale
     choco: vale
-    go: github.com/errata-ai/vale@latest
   vault:
     _name: HashiCorp Vault
     _short: Vault is a tool for securely accessing secrets.
@@ -11610,9 +11131,6 @@ softwarePackages:
       sudo: false
     brew: vectordotdev/brew/vector
     pacman: vector
-    helm: https://helm.vector.dev
-    script:darwin: curl --proto '=https' --tlsv1.2 -sSf https://sh.vector.dev | bash
-    script:linux: curl --proto '=https' --tlsv1.2 -sSf https://sh.vector.dev | bash
   velero:
     _name: velero
     _short: Velero is an open-source tool to back up, recover, and migrate Kubernetes cluster resources and persistent volumes.
@@ -11623,7 +11141,6 @@ softwarePackages:
     _docs: https://velero.io/docs/
     brew: velero
     choco: velero
-    github: github.com/vmware-tanzu/velero
     yay: velero-bin
   vermin:
     _name: Vermin
@@ -11631,7 +11148,6 @@ softwarePackages:
     _desc: Vermin is a tool available on GitHub at https://github.com/mhewedy/vermin designed for managing virtual machines on macOS using Hypervisor.framework. It allows users to create, start, stop, and manage virtual machines directly from the command line. Vermin simplifies the process of working with virtual machines on macOS by providing a convenient interface for managing VMs without the need for third-party virtualization software. It is a useful tool for developers and system administrators who need to work with virtual environments on macOS.
     _github: https://github.com/mhewedy/vermin
     _bin: vermin
-    go: github.com/mhewedy/vermin@latest
   vhs:
     _name: VHS
     _short: vhs is a terminal-based VHS tape player simulator for nostalgic fun on the command line.
@@ -11643,7 +11159,6 @@ softwarePackages:
     brew: vhs
     pacman: vhs
     scoop: vhs
-    go: github.com/charmbracelet/vhs@latest
     xbps: vhs
   vidmerger:
     _name: VidMerger
@@ -11658,8 +11173,7 @@ softwarePackages:
     brew: tgotwig/vidmerger/vidmerger
     choco: vidmerger
   vim:
-    _preload: true
-    _preloadReason: shell-profile-core
+    _preload: false
     _name: VIM
     _short: Vim is a highly configurable text editor built for efficiency and speed, with a focus on keyboard shortcuts for navigation and editing.
     _desc: '[Vim](https://www.vim.org/) is a greatly improved version of the good old UNIX editor Vi'
@@ -11689,33 +11203,6 @@ softwarePackages:
     dnf: virtualbox
     pacman: virtualbox
     choco: virtualbox
-    _pre:dnf: '#!/usr/bin/env bash
-
-      . /etc/os-release
-
-      cat <<EOF | sudo tee /etc/yum.repos.d/virtualbox.repo
-
-      [virtualbox]
-
-      name=Fedora $releasever - $basearch - VirtualBox
-
-      baseurl=http://download.virtualbox.org/virtualbox/rpm/$ID/$VERSION_ID/\$basearch
-
-      enabled=1
-
-      gpgcheck=1
-
-      repo_gpgcheck=1
-
-      gpgkey=https://www.virtualbox.org/download/oracle_vbox.asc
-
-      EOF
-
-      sudo dnf -y install @development-tools
-
-      sudo dnf -y install kernel-headers kernel-devel dkms elfutils-libelf-devel qt5-qtx11extras
-
-      '
   virtualenv:
     _name: virtualenv
     _short: virtualenv is a tool to create isolated Python environments.
@@ -11774,7 +11261,6 @@ softwarePackages:
     _app: VMware Fusion.app
     cask: vmware-fusion
     _bin:cask: vmware-id
-    script:linux: "if ! command -v vmware > /dev/null; then\n  ### Download VMWare Workstation\n  VMWARE_WORKSTATION_URL=https://www.vmware.com/go/getworkstation-linux\n  VMWARE_WORKSTATION_DIR=/tmp/workstation-downloads\n  mkdir -p \"$VMWARE_WORKSTATION_DIR\"\n  gum log -sl info 'Downloading VMware Workstation Installer' && curl -sSLA \"Mozilla/5.0 (X11; Linux x86_64; rv:102.0) Gecko/20220101 Firefox/102.0\" \"$VMWARE_WORKSTATION_URL\" -o \"$VMWARE_WORKSTATION_DIR/tryworkstation-linux-64.sh\"\n  ### Register product key / license\n  if [ -n \"$VMWARE_WORKSTATION_LICENSE_KEY\" ]; then\n    gum log -sl info 'Registering VMware Workstation Pro license with serial number' && sudo \"$VMWARE_WORKSTATION_DIR/tryworkstation-linux-64.sh\" --eulas-agreed --console --required --set-setting vmware-workstation serialNumber \"$VMWARE_WORKSTATION_LICENSE_KEY\"\n  else\n    gum log -sl info 'Agreeing to VMWare Workstation Pro license (without serial number)' && sudo \"$VMWARE_WORKSTATION_DIR/tryworkstation-linux-64.sh\" --eulas-agreed --console --required\n  fi\n  gum log -sl info 'VMware Workstation installed successfully'\nelse\n  gum log -sl info 'VMware Workstation is already installed'\nfi\n"
   volta:
     _name: Volta
     _short: Volta is a tool for managing JavaScript command-line tools.
@@ -11797,7 +11283,6 @@ softwarePackages:
     _desc: '[Visual Studio Code](https://code.visualstudio.com/) is a freeware source-code editor made by Microsoft for Windows, Linux and macOS. Features include support for debugging, syntax highlighting, intelligent code completion, snippets, code refactoring, and embedded Git.'
     _github: https://github.com/microsoft/vscode
     _bin: code
-    _post: "if ! code --list-extensions | grep openai-chatgpt > /dev/null; then\n  TMP=\"$(mktemp)\"\n  wget -O \"$TMP\" \"https://persistent.oaistatic.com/pair-with-ai/openai-chatgpt-latest.vsix?t=261124\" > /dev/null\n  code --install-extension \"$TMP\"\nfi\n"
     _home: https://code.visualstudio.com/
     _docs: https://code.visualstudio.com/api/references/vscode-api
     _app: Visual Studio Code.app
@@ -11807,8 +11292,7 @@ softwarePackages:
     snap: code --classic
     yay: visual-studio-code-bin
   vscode-langservers-extracted:
-    _preload: true
-    _preloadReason: lsp-core
+    _preload: false
     _name: VSCode Extracted Language Servers (HTML/CSS/JSON/ESLint)
     _short: vscode-langservers-extracted provides HTML, CSS, JSON, and ESLint language servers extracted from VS Code.
     _desc: HTML, CSS, JSON, and ESLint Language Server Protocol (LSP) servers extracted from Visual Studio Code (vscode-css-language-server, vscode-html-language-server, vscode-json-language-server) for coding agents and editors.
@@ -11837,7 +11321,6 @@ softwarePackages:
     snap: codium --classic
     winget: vscodium
     yay: vscodium-bin
-    appimage: vscodium/vscodium
   vup:
     _name: 'vup                                                                                                                                                                                                       '
     _short: vup is a tool for updating macOS applications from the command line.
@@ -11864,7 +11347,6 @@ softwarePackages:
     _desc: '[Wails](https://github.com/wailsapp/wails) offers a different approach to providing web interfaces to Go programs: it provides the ability to wrap both Go code and a web frontend into a single binary.'
     _github: https://github.com/wailsapp/wails
     _bin: wails
-    go: github.com/wailsapp/wails/cmd/wails@latest
   wallpaper-cli:
     _name: Wallpaper CLI
     _short: wallpaper-cli is a command-line interface for setting the desktop wallpaper on macOS.
@@ -11892,10 +11374,6 @@ softwarePackages:
     _docs: https://docs.warp.dev/getting-started/readme
     _app: Warp.app
     cask: warp
-    apt: https://app.warp.dev/get_warp?package=deb
-    dnf: https://app.warp.dev/get_warp?package=rpm
-    pacman: https://app.warp.dev/get_warp?linux=true&package=pacman
-    appimage: https://app.warp.dev/get_warp?linux=true&package=appimage
     _env:
       WARP_TERMINAL_APPDATA:
         cask: $HOME/Library/Application Support/dev.warp.Warp-Stable
@@ -11952,10 +11430,6 @@ softwarePackages:
       sudo: true
     _todo: Add in with proper env variables
     choco: wazuh-agent
-    script: bash "$HOME/.local/bin/post-installx/post-wazuh.sh"
-    _when:darwin: csrutil status | grep enabled > /dev/null && ! test -f /Library/Ossec/bin/agent-auth
-    _when:linux: '! test -f /var/ossec/bin/agent-auth'
-    _when:windows: '! test -f "C:\Program Files (x86)\ossec-agent\agent-auth.exe"'
   web-ext:
     _name: Web Extension CLI by Mozilla
     _short: web-ext is a command-line tool for developing web extensions for Firefox.
@@ -11978,11 +11452,9 @@ softwarePackages:
     _todo: TODO - add this to the stack
     brew: webhook
     snap: webhook
-    go: github.com/adnanh/webhook@latest
   webpquicklook:
     _name: WebPQuickLook
     _github: https://github.com/emin/WebPQuickLook
-    _when:cask: '! test -d "$HOME/Library/QuickLook/WebpQuickLook.qlgenerator"'
     cask: webpquicklook
   websocat:
     _name: websocat
@@ -11992,7 +11464,6 @@ softwarePackages:
     _bin: websocat
     brew: websocat
     cargo: websocat
-    github: github.com/vi/websocat
     pkg: websocat
   webtorrent:
     _name: WebTorrent Desktop
@@ -12006,18 +11477,15 @@ softwarePackages:
     flatpak: io.webtorrent.WebTorrent
     cask: webtorrent
     choco: webtorrent-desktop
-    github: github.com/webtorrent/webtorrent-desktop
     yay: webtorrent-desktop
   wego:
-    _preload: true
-    _preloadReason: shell-profile-core
+    _preload: false
     _name: WeGo
     _short: wego is a terminal weather app for the terminal.
     _desc: wego is a weather client for the terminal. It provides current weather conditions and forecasts in a simple and visually appealing way. It supports various backends for weather data retrieval and can display information like temperature, wind speed, humidity, and more. Users can customize the output to suit their preferences and even view weather maps. It's a lightweight and convenient tool for checking the weather directly from the command line.
     _github: https://github.com/schachmat/wego
     _bin: wego
     brew: wego
-    go: github.com/schachmat/wego@latest
   wetty:
     _name: Wetty
     _short: Wetty is a web-based terminal emulator that allows users to access a terminal session through a web browser.
@@ -12100,7 +11568,6 @@ softwarePackages:
     _home: https://github.com/masterzen/winrm-cli
     _docs: https://github.com/masterzen/winrm-cli
     yay: winrm-cli-git
-    go: github.com/masterzen/winrm-cli@latest
   winui-gallery:
     _name: WinUI Gallery
     _short: WinUI-Gallery is a showcase of Microsoft's Windows UI Library controls and features for building modern Windows apps.
@@ -12160,11 +11627,6 @@ softwarePackages:
     - wireshark-cli
     - wireshark-qt
     choco: wireshark
-    _pre:cask: '#!/usr/bin/env bash
-
-      if command -v idl2wrs > /dev/null; then brew uninstall wireshark; fi
-
-      '
   wishlist:
     _name: Wishlist
     _short: wishlist is a command-line utility for managing wishlists in a simple and efficient manner.
@@ -12187,7 +11649,6 @@ softwarePackages:
     apt: wkhtmltopdf
     pacman: wkhtmltopdf
     choco: wkhtmltopdf
-    github: github.com/wkhtmltopdf/wkhtmltopdf
   wordops:
     _name: WordOps
     _short: WordOps is a high-performance server stack for WordPress sites, designed to simplify and automate server management tasks.
@@ -12197,7 +11658,6 @@ softwarePackages:
     _home: https://wordops.net/
     _docs: https://docs.wordops.net/
     _deprecated: Prefer EasyEngine instead
-    script:debian: wget -qO wo wops.cc && sudo bash wo
   wordpresscom:
     _name: WordPress Jetpack Desktop Client
     _github: false
@@ -12272,7 +11732,6 @@ softwarePackages:
     _desc: '[Xcode](https://developer.apple.com/xcode/) is Apple''s integrated development environment for macOS, used to develop software for macOS, iOS, iPadOS, watchOS, and tvOS.'
     _github: false
     _bin: xcode
-    _post: sudo xcodebuild -license accept && sudo xcodebuild -runFirstLaunch
     _home: https://developer.apple.com/xcode/
     _docs: https://developer.apple.com/documentation/xcode
     _app: Xcode.app
@@ -12322,7 +11781,6 @@ softwarePackages:
     dnf: xdotool
     pacman: xdotool
     pkg-freebsd: xdotool
-    _post:brew:darwin: defaults write org.x.X11 enable_test_extensions -boolean true
     zypper: xdotool
   xh:
     _name: XH
@@ -12355,9 +11813,7 @@ softwarePackages:
     _github: https://github.com/greymd/tmux-xpanes
     _bin: xpanes
     brew: tmux-xpanes
-    apt: https://github.com/greymd/tmux-xpanes/releases/download/v4.1.4/tmux-xpanes_v4.1.4.deb
     dnf: xpanes
-    script: curl -sSL --compressed https://raw.githubusercontent.com/greymd/tmux-xpanes/v4.1.4/bin/xpanes > /tmp/xpanes && sudo mv /tmp/xpanes /usr/local/bin/xpanes
   xpra:
     _name: xpra
     _short: xpra is a tool for screen sharing and remote desktop control.
@@ -12368,15 +11824,12 @@ softwarePackages:
     flatpak: org.xpra.xpra
     cask: xpra
     choco: xpra
-    exe: https://xpra.org/dists/windows/Xpra-x86_64_Setup.exe
-    msi: https://xpra.org/dists/windows/Xpra-x86_64.msi
   xrdp:
     _name: xrdp
     _short: xrdp is an open-source remote desktop protocol (RDP) server for Linux.
     _desc: xrdp is an open-source remote desktop protocol (RDP) server that allows users to connect to a Linux machine using a Windows Remote Desktop client. It provides a graphical interface for remote access, enabling users to interact with their Linux system as if they were physically present. xrdp is commonly used for remote administration, accessing graphical applications, and desktop sharing. It is compatible with various Linux distributions and offers features like session management, encryption, and customizability. The project is actively maintained by neutrinolabs on GitHub.
     _github: https://github.com/neutrinolabs/xrdp
     _bin: xrdp
-    _post: sudo adduser xrdp ssl-cert
     _home: http://www.xrdp.org/
     _service:
     - name: xrdp
@@ -12415,7 +11868,6 @@ softwarePackages:
     _github: https://github.com/mvdan/xurls
     _bin: xurls
     brew: xurls
-    go: mvdan.cc/xurls/v2/cmd/xurls@latest
   xxh:
     _name: xxh
     _short: xxh is a tool for shell users to bring their favorite shell with them to any host.
@@ -12442,8 +11894,7 @@ softwarePackages:
     scoop: xz
     apk: xz
   yaml-language-server:
-    _preload: true
-    _preloadReason: lsp-core
+    _preload: false
     _name: YAML Language Server
     _short: yaml-language-server is a Language Server Protocol implementation for YAML files developed by Red Hat.
     _desc: Language Server for YAML files supporting JSON Schema validation, hover documentation, autocompletion, and diagnostics for coding agents and editors.
@@ -12463,8 +11914,7 @@ softwarePackages:
     brew: yamllint
     pipx: yamllint
   yank:
-    _preload: true
-    _preloadReason: shell-profile-core
+    _preload: false
     _name: yank
     _short: Yank is a tool that allows you to copy text from your terminal to your clipboard.
     _desc: '[yank](https://github.com/mptre/yank) is a terminal agnostic solution which allows copying output from Termial easily, without the need to use Terminal multiplexers.'
@@ -12502,7 +11952,6 @@ softwarePackages:
     npm: yarn
     choco: yarn
     scoop: yarn
-    script: curl -o- -L https://yarnpkg.com/install.sh | bash
   yarnhook:
     _name: Yarnhook
     _short: yarnhook automatically runs yarn, npm, or pnpm install on git hooks when lockfiles change after checkout or merge.
@@ -12551,21 +12000,6 @@ softwarePackages:
     _docs: https://github.com/ytdl-org/youtube-dl/blob/master/README.md#readme
     brew: youtube-dl
     pipx: youtube-dl
-  youtube-music:
-    _name: 'youtube-music                                                                                                                                                                                             '
-    _short: youtube-music is a command-line tool for downloading music from YouTube.
-    _desc: YouTube Music desktop app bundled with custom plugins (and built-in ad blocker / downloader)
-    _github: https://github.com/th-ch/youtube-music
-    _home: https://th-ch.github.io/youtube-music/
-    _app: YouTube Music.app
-    _deprecated: Deprecated in favor of browser app
-    apt: https://github.com/th-ch/youtube-music/releases/download/v1.19.0/youtube-music_1.19.0_amd64.deb
-    scoop: extras/youtube-music
-    winget: th-ch.YouTubeMusic
-    yay: youtube-music-bin
-    appimage: th-ch/youtube-music
-    exe: https://github.com/th-ch/youtube-music/releases/download/v1.19.0/YouTube-Music-Setup-1.19.0.exe
-    script:darwin: "DL_URL=\"https://github.com/th-ch/youtube-music/releases/download/v1.20.0/YouTube-Music-1.20.0.dmg\"\nif [ $(arch) = 'arm64' ]; then\n  DL_URL=\"https://github.com/th-ch/youtube-music/releases/download/v1.20.0/YouTube-Music-1.20.0-arm64.dmg\"\nfi\necho \"Downloading YouTube Music\" && curl -sSL \"$DL_URL\" > /tmp/YouTube-Music.dmg\necho \"Attaching volume\" && sudo hdiutil attach /tmp/YouTube-Music.dmg\necho \"Copying to /Applications\"\nif [ -d \"/Volumes/YouTube Music 1.20.0\" ]; then\n  sudo cp -R \"/Volumes/YouTube Music 1.20.0/YouTube Music.app\" /Applications\n  echo \"Detaching\" && sudo hdiutil detach \"/Volumes/YouTube Music 1.20.0\"\nelif [ -d \"/Volumes/YouTube Music 1.20.0-arm64\" ]; then\n  sudo cp -R \"/Volumes/YouTube Music 1.20.0-arm64/YouTube Music.app\" /Applications\n  echo \"Detaching\" && sudo hdiutil detach \"/Volumes/YouTube Music 1.20.0-arm64\"\nfi\necho \"Removing /tmp/YouTube-Music.dmg\" && rm -f /tmp/YouTube-Music.dmg\n"
   yq:
     _preload: true
     _preloadReason: bootstrap-critical
@@ -12579,12 +12013,9 @@ softwarePackages:
     brew: yq
     choco: yq
     snap: yq
-    github: github.com/stedolan/jq
-    go: github.com/mikefarah/yq/v4@latest
     apk: yq
   yt-dlp:
-    _preload: true
-    _preloadReason: media-management-core
+    _preload: false
     _name: YouTube Download
     _short: To install yt-dlp, visit the GitHub page and follow the installation instructions provided in the wiki section.
     _desc: 'To install yt-dlp, a fork of youtube-dl, you can follow these steps: 1 Clone the Repository: Use git clone https://github.com/yt-dlp/yt-dlp.git to download the repository. 2 Navigate to the Directory: Move into the yt-dlp directory using cd yt-dlp. 3 Install yt-dlp: Run sudo python3 setup.py install to install yt-dlp system-wide. 4 Verify Installation: To confirm the installation, run yt-dlp --version. These steps will help you install yt-dlp on your system.'
@@ -12623,7 +12054,6 @@ softwarePackages:
     cask: yubico-authenticator
     choco: yubico-authenticator
     mas: 1497506650
-    script:darwin: curl -sSL https://developers.yubico.com/yubioath-flutter/Releases/yubico-authenticator-latest-mac.dmg > "/tmp/Yubico Authenticator.dmg" && hdiutil attach "/tmp/Yubico Authenticator.dmg" &&  sudo cp -R "/Volumes/Yubico Authenticator/Yubico Authenticator.app" /Applications && sudo hdiutil detach "/Volumes/Yubico Authenticator" && rm -f "/tmp/Yubico Authenticator.dmg"
   yubikey-manager:
     _name: Yubikey Manager
     _short: YubiKey Manager is a tool for configuring and managing YubiKeys, which are hardware security keys used for two-factor authentication.
@@ -12648,7 +12078,6 @@ softwarePackages:
     pacman: yubikey-manager-qt
     choco: yubikey-manager
     scoop: yubikey-manager-qt
-    appimage: Yubico/yubikey-manager-qt
   zap:
     _name: Zap
     _short: Zap is a fast and lightweight cross-platform package manager for macOS.
@@ -12657,8 +12086,6 @@ softwarePackages:
     _bin: zap
     _home: https://zap.srev.in/
     _docs: https://zap.srev.in/
-    binary:linux: https://github.com/srevinsaju/zap/releases/download/continuous/zap-amd64
-    script:linux: curl https://raw.githubusercontent.com/srevinsaju/zap/main/install.sh | sudo bash -s
   zaproxy:
     _name: OWASP ZAP
     _short: ZAP (Zed Attack Proxy) is an open-source web application security scanner used for finding vulnerabilities in web applications.
@@ -12681,8 +12108,6 @@ softwarePackages:
     _github: https://github.com/ncruces/zenity
     _bin: zenity
     brew: ncruces/tap/zenity
-    scoop: https://ncruces.github.io/scoop/zenity.json
-    go: github.com/ncruces/zenity/cmd/zenity@latest
   zola:
     _name: 'Zola                                                                                                                                                                                                      '
     _short: Zola is a fast static site generator written in Rust.
@@ -12715,8 +12140,7 @@ softwarePackages:
     snap: zoom
     yay: zoom
   zoxide:
-    _preload: true
-    _preloadReason: shell-profile-core
+    _preload: false
     _name: zoxide
     _short: zoxide is a blazing fast replacement for cd, allowing you to navigate your filesystem with ease using fuzzy matching and tracking your most used directories.
     _desc: '[zoxide](https://github.com/ajeetdsouza/zoxide) is a blazing fast replacement for your cd command, inspired by z and autojump'

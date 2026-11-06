@@ -3,14 +3,14 @@
 .SYNOPSIS
   Install Doctor — native Windows PowerShell bootstrap entrypoint.
 .DESCRIPTION
-  Windows counterpart of scripts/provision.sh (the bash bootstrap that https://install.doctor/start
-  serves). The redirect https://install.doctor/windows points here. It ensures a Windows package
+  Experimental Windows counterpart of scripts/provision.sh. It is not currently published as a remote
+  installer. It ensures a Windows package
   manager (winget, with a scoop/choco fallback), installs the bootstrap dependencies git + chezmoi,
   then hands provisioning to chezmoi — mirroring the POSIX bootstrap intent (detect -> ensure deps ->
   chezmoi) natively, without requiring bash or WSL.
 
   Run it:
-    irm https://install.doctor/windows | iex
+    # Clone and review the repository, then run this local script explicitly.
     powershell -ExecutionPolicy Bypass -File scripts\provision.ps1
 
   Honors the same environment contract as provision.sh:
@@ -100,10 +100,10 @@ function Install-Dependency {
 }
 
 # ---- main ----------------------------------------------------------------------------------------
-Write-Step 'Install Doctor — Windows bootstrap (https://install.doctor/windows)'
+Write-Step 'Install Doctor — experimental local Windows bootstrap'
 
 if (-not (Test-IsWindows)) {
-  Write-Err 'This entrypoint is for native Windows. On macOS/Linux use: bash <(curl -sSL https://install.doctor/start)'
+  Write-Err 'This entrypoint is for native Windows. On macOS/Linux use: curl -fsSL https://app.install.doctor/start | bash'
   exit 1
 }
 
@@ -145,5 +145,5 @@ chezmoi init --apply $repoUrl
 Write-Step 'Bootstrap complete'
 Write-Ok 'Pair this machine and manage it at: https://app.install.doctor'
 if (Test-HasCommand 'wsl') {
-  Write-Ok 'WSL detected — the POSIX path (bash <(curl -sSL https://install.doctor/start)) also works inside WSL.'
+  Write-Ok 'WSL detected — the POSIX path (curl -fsSL https://app.install.doctor/start | bash) also works inside WSL.'
 }

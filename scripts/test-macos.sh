@@ -47,7 +47,11 @@ runInstallDoctor() {
   export HEADLESS_INSTALL=true
   export NO_RESTART=true
 
-  bash <(curl -sSL https://install.doctor/start)
+  if [ -n "${INSTALLER_PATH:-}" ]; then
+    bash "$INSTALLER_PATH"
+  else
+    curl -fsSL https://app.install.doctor/start | bash
+  fi
 }
 
 # ==============================================================================

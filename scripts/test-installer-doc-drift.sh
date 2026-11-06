@@ -38,9 +38,10 @@ doc_providers() {
     | sort -u
 }
 
-# Extract the provider `case` labels from installx's install switch (approx. lines 329-460).
+# Extract provider labels from the install switch by syntax markers so ordinary
+# edits above it cannot silently truncate the policy comparison.
 installx_providers() {
-  sed -n '329,460p' "$INSTALLX" \
+  awk '/switch \(key\)/{in_switch=1; next} in_switch && /^[[:space:]]+default:/{exit} in_switch{print}' "$INSTALLX" \
     | grep -oE "case '[^']+'" \
     | sed -E "s/case '//; s/'//" \
     | sort -u

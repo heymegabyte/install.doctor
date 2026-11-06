@@ -267,24 +267,28 @@ fi
 [ -d "${XDG_DATA_HOME:-$HOME/.local/share}/zsh-completion" ] && export FPATH="${XDG_DATA_HOME:-$HOME/.local/share}/zsh-completion:$FPATH"
 
 # ---------------------------------------------------------------------------
-# zinit — turbo-mode plugin manager
+# Local-only shell integrations
 # ---------------------------------------------------------------------------
-### Bootstrap zinit if missing. Single git clone; only happens once on a
-### fresh machine. After that the chezmoi-managed `~/.local/share/zinit`
-### is reused.
-export ZINIT_HOME="${XDG_DATA_HOME:-$HOME/.local/share}/zinit/zinit.git"
-if [ ! -f "$ZINIT_HOME/zinit.zsh" ]; then
-  mkdir -p "${ZINIT_HOME:h}"
-  command git clone --depth 1 https://github.com/zdharma-continuum/zinit.git "$ZINIT_HOME" 2>/dev/null
-fi
-source "$ZINIT_HOME/zinit.zsh"
+# Shell startup never acquires code or updates plugins. It may preserve an
+# existing local installation or use a package supplied by selected desired
+# state. Missing optional integrations degrade to the built-in Zsh prompt.
+_id_source_first() {
+  local _candidate
+  for _candidate in "$@"; do
+    if [[ -r "$_candidate" ]]; then
+      source "$_candidate"
+      return 0
+    fi
+  done
+  return 1
+}
 
-# ---------------------------------------------------------------------------
-# Powerlevel10k — synchronous (it IS the prompt; instant-prompt already
-# painted the cached version above)
-# ---------------------------------------------------------------------------
-zinit ice depth=1
-zinit light romkatv/powerlevel10k
+_id_source_first \
+  "${XDG_DATA_HOME:-$HOME/.local/share}/zinit/plugins/romkatv---powerlevel10k/powerlevel10k.zsh-theme" \
+  "${HOMEBREW_PREFIX:-/nonexistent}/share/powerlevel10k/powerlevel10k.zsh-theme" \
+  /usr/share/zsh-theme-powerlevel10k/powerlevel10k.zsh-theme \
+  /usr/share/powerlevel10k/powerlevel10k.zsh-theme \
+  >/dev/null 2>&1 || true
 
 ### p10k visual config — sourced from chezmoi-managed file. If absent we
 ### fall back to the legacy inline POWERLEVEL9K_* settings preserved in
@@ -292,55 +296,25 @@ zinit light romkatv/powerlevel10k
 [ ! -f "${XDG_CONFIG_HOME:-$HOME/.config}/shell/p10k.zsh" ] || source "${XDG_CONFIG_HOME:-$HOME/.config}/shell/p10k.zsh"
 
 # ---------------------------------------------------------------------------
-# Deferred plugins — every line below loads 0ms AFTER the first prompt
-# renders. Slowness here is invisible to the user.
-#
-# Ordering of `wait'<N><letter>'` matters:
-#   - Same N = same wait batch
-#   - Letter (a/b/c…) = sequence within a batch
-#   - zsh-syntax-highlighting MUST be last (it hooks ZLE), so it gets the
-#     latest wait + atinit'zicompinit; zicdreplay' to finalize compinit.
+# Optional plugins supplied locally by desired state. Syntax highlighting is
+# sourced last because it hooks ZLE.
 # ---------------------------------------------------------------------------
-
-### Syntax highlighting + autosuggestions + extra completions + fzf-tab.
-###
-### `zicompinit` is the correct zinit function (an earlier draft used
-### `zicompinit_fast` which does not exist and produced
-### "ERROR The 'zicompinit_fast' command was not found and could not be
-### loaded." on every shell launch). `zicompinit; zicdreplay` runs the
-### real `compinit` once + replays any pending `compdef` calls.
-zinit wait'0a' lucid light-mode for \
-  atinit"zicompinit; zicdreplay" \
-    zdharma-continuum/fast-syntax-highlighting \
-  atload"_zsh_autosuggest_start" \
-    zsh-users/zsh-autosuggestions \
-  blockf atpull'zinit creinstall -q .' \
-    zsh-users/zsh-completions \
-  aloxaf/fzf-tab
-### REMOVED 2026-06-09: marlonrichert/zsh-autocomplete. The plugin
-### auto-completes inline as the user types — it runs `compgen` on every
-### keystroke. Combined with fzf-tab (TAB-driven menu) + zsh-autosuggestions
-### (async ghost text) + fast-syntax-highlighting (re-highlights on buffer
-### change), the four plugins together caused visible flicker, delayed
-### keystrokes, and prompt redraws that read as "the terminal messes up
-### after a few commands". fzf-tab + autosuggestions already cover the
-### completion UX without the per-keystroke cost. To re-enable, add the
-### line back AND set `zstyle ':autocomplete:*' min-input 3` so it only
-### fires after 3 chars typed (kills the per-keystroke spike).
-
-### Oh-My-Zsh plugin snippets — only the ones whose underlying tool is
-### actually installed or whose pure-zsh helper has lasting value
-zinit wait'0b' lucid for \
-  OMZP::command-not-found \
-  OMZP::sudo \
-  OMZP::safe-paste
-
-### Tool-specific plugins — gated on tool presence so an uninstalled
-### tool doesn't drag in dead completion definitions.
-(( $+commands[docker] ))    && zinit wait'0d' lucid for OMZP::docker OMZP::docker-compose
-(( $+commands[kubectl] ))   && zinit wait'0d' lucid for OMZP::kubectx
-(( $+commands[terraform] )) && zinit wait'0d' lucid for OMZP::terraform
-(( $+commands[go] ))        && zinit wait'0d' lucid for OMZP::golang
+_id_source_first \
+  "${XDG_DATA_HOME:-$HOME/.local/share}/zinit/plugins/zsh-users---zsh-autosuggestions/zsh-autosuggestions.zsh" \
+  "${HOMEBREW_PREFIX:-/nonexistent}/share/zsh-autosuggestions/zsh-autosuggestions.zsh" \
+  /usr/share/zsh-autosuggestions/zsh-autosuggestions.zsh \
+  >/dev/null 2>&1 || true
+_id_source_first \
+  "${XDG_DATA_HOME:-$HOME/.local/share}/zinit/plugins/Aloxaf---fzf-tab/fzf-tab.plugin.zsh" \
+  "${HOMEBREW_PREFIX:-/nonexistent}/share/fzf-tab/fzf-tab.plugin.zsh" \
+  /usr/share/zsh/plugins/fzf-tab/fzf-tab.plugin.zsh \
+  >/dev/null 2>&1 || true
+_id_source_first \
+  "${XDG_DATA_HOME:-$HOME/.local/share}/zinit/plugins/zdharma-continuum---fast-syntax-highlighting/fast-syntax-highlighting.plugin.zsh" \
+  "${HOMEBREW_PREFIX:-/nonexistent}/share/zsh-fast-syntax-highlighting/fast-syntax-highlighting.plugin.zsh" \
+  /usr/share/zsh/plugins/fast-syntax-highlighting/fast-syntax-highlighting.plugin.zsh \
+  /usr/share/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh \
+  >/dev/null 2>&1 || true
 
 # ---------------------------------------------------------------------------
 # compinit — cached. Rebuilds the dump at most once per day instead of on

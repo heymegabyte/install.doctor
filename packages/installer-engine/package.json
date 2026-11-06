@@ -1,0 +1,27 @@
+{
+  "name": "@install-doctor/installer-engine",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Renderer-neutral lifecycle engine for Install Doctor",
+  "bin": {
+    "install-doctor-engine": "./dist/install-doctor-engine.mjs"
+  },
+  "scripts": {
+    "build": "npm --prefix ../aid-core run build && tsc -p tsconfig.json",
+    "bundle": "esbuild src/cli.ts --bundle --platform=node --format=esm --target=node22 --legal-comments=none --charset=utf8 --minify-syntax --minify-whitespace --outfile=dist/install-doctor-engine.mjs",
+    "test": "npm run build && npm run bundle && node --test test/*.test.mjs"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "@install-doctor/aid-core": "file:../aid-core",
+    "zod": "4.6.7"
+  },
+  "devDependencies": {
+    "@types/node": "24.10.0",
+    "esbuild": "0.28.2",
+    "typescript": "5.8.3"
+  }
+}

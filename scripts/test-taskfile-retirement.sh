@@ -10,7 +10,7 @@ for retired in .config/taskfiles .config/hbs.cjs .config/husky .config/run pnpm-
   [ ! -e "$retired" ] || fail "retired root build artifact exists: $retired"
 done
 
-node -e 'const p=require("./package.json"); const allowed=new Set(["build","help","lint","repair","sort:software","start","test","validate:software"]); for (const [name,command] of Object.entries(p.scripts)) { if (!allowed.has(name)) throw new Error(`obsolete script: ${name}`); if (/bash start\.sh|task (npm:|commit|fix|preload|publish:|update|vscode)/.test(command)) throw new Error(`legacy task caller: ${name}`); }'
+node -e 'const p=require("./package.json"); const allowed=new Set(["build","help","lint","repair","sort:software","start","test","validate:software"]); for (const [name,command] of Object.entries(p.scripts)) { if (!allowed.has(name)) throw new Error(`obsolete script: ${name}`); if (/task (npm:|commit|fix|preload|publish:|update|vscode)/.test(command)) throw new Error(`legacy task caller: ${name}`); } if (p.scripts.start !== "bash start.sh") throw new Error("npm start must enter the pinned local bootstrap");'
 
 grep -q 'task provision' start.sh || fail 'start.sh does not dispatch the repository provision task'
 if rg -n 'ensureTaskfiles|task (donothing|ci:synchronize|install:software:pipx|new:project|-vvv start)|shared-master/common/\.config/taskfiles' start.sh; then
@@ -18,6 +18,10 @@ if rg -n 'ensureTaskfiles|task (donothing|ci:synchronize|install:software:pipx|n
 fi
 
 grep -q '^  provision:$' Taskfile.yml || fail 'root Taskfile lacks provision task'
+grep -Fq "curl --proto '=https' --tlsv1.2 -fsSL {{.START_URL}} | bash" Taskfile.yml || fail 'provision does not use the HTTPS-only canonical signed bootstrap endpoint'
+if awk '/^  provision:$/{found=1; next} found && /^  [a-z]/{exit} found && /bash scripts\/provision\.sh/{direct=1} END{exit !direct}' Taskfile.yml; then
+  fail 'provision bypasses signed release verification with the repository provisioner'
+fi
 grep -q '^  test:scripts:$' Taskfile.yml || fail 'root Taskfile lacks test:scripts task'
 
 printf 'PASS: repository-owned Taskfile is self-contained; dead shared Taskfiles and root locks are retired\n'

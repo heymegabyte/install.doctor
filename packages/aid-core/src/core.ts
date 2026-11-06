@@ -1,4 +1,5 @@
 /** Pure, side-effect-free contracts for aid. No network, PTY, or privileged execution. */
+export * from './installer-contracts.js';
 export const APP_URL = 'https://app.install.doctor' as const;
 export const ROUTES = ['general', 'economy', 'code', 'architect', 'research', 'critical', 'batch', 'restricted'] as const;
 export type Route = typeof ROUTES[number];

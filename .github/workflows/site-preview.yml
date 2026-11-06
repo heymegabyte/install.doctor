@@ -13,23 +13,30 @@ jobs:
       run:
         working-directory: site
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 20
           cache: "npm"
           cache-dependency-path: site/package-lock.json
 
       - name: Install shdoc
-        run: curl -sSL https://github.com/reconquest/shdoc/releases/download/v1.1/shdoc > /usr/local/bin/shdoc && chmod +x /usr/local/bin/shdoc
+        run: |
+          tmp="$(mktemp)"
+          trap 'rm -f "$tmp"' EXIT
+          curl --fail --silent --show-error --proto '=https' --tlsv1.2 --location --max-time 30 \
+            https://github.com/reconquest/shdoc/releases/download/v1.1/shdoc -o "$tmp"
+          test "$(wc -c < "$tmp" | tr -d ' ')" = 11466
+          echo '3bda94dbe6efb789c8c5349e0d554c8f7841611ee0ff2c34a757541262d1c033  '"$tmp" | sha256sum --check --status
+          sudo install -m 0755 "$tmp" /usr/local/bin/shdoc
 
       - name: Install and build
         run: npm ci --force && npm run build:prod
 
       - name: Deploy preview to Firebase
-        uses: FirebaseExtended/action-hosting-deploy@v0
+        uses: FirebaseExtended/action-hosting-deploy@7c850a480ce753f4f06f010801fc5a43787740bb # v0
         with:
           repoToken: "${{ secrets.GITHUB_TOKEN }}"
           firebaseServiceAccount: "${{ secrets.FIREBASE_SERVICE_ACCOUNT_INSTALL_DOCTOR }}"

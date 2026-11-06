@@ -8,4 +8,6 @@ grep -q 'OLLAMA_MIN_GPU_VRAM_MIB:-8192' "$HOOK"
 grep -q 'memory.total' "$HOOK"
 grep -q 'OLLAMA_ALLOW_LOW_VRAM_GPU:-0' "$HOOK"
 grep -q 'GPU VRAM' "$HOOK"
+! grep -vE '^[[:space:]]*#' "$HOOK" | grep -Eq '(curl|wget).*(ollama\.com/install\.sh)'
+grep -q 'signed desired-state closure' "$HOOK"
 printf 'ollama-gpu-eligibility: pass\n'

@@ -1,1 +1,1 @@
-. /tmp/tmp-logg
+{{ includeTemplate "universal/logg-inline" }}

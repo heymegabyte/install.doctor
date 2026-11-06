@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # @file post-installx/executable_post-ollama.sh
-# @brief Capability-gated Ollama installation, GPU/Metal binding, and approved model manifest
+# @brief Opt-in, capability-gated Ollama service and approved model setup
 # @description
 #   Evaluates host eligibility for local Ollama inference using measured available memory
 #   (>= 8 GiB available RAM, zero heavy swap thrashing), free disk headroom (>= 25 GiB),
@@ -34,8 +34,8 @@ else
   warn() { echo "[WARN] $1" >&2; }
 fi
 
-if [ "${INSTALL_DOCTOR_OLLAMA:-1}" = "0" ]; then
-  log "Ollama installation opted out (INSTALL_DOCTOR_OLLAMA=0) — skipping"
+if [ "${INSTALL_DOCTOR_OLLAMA:-0}" != "1" ]; then
+  log "Ollama is lazy by default; set INSTALL_DOCTOR_OLLAMA=1 to install, start, and pull a model"
   exit 0
 fi
 
@@ -68,19 +68,54 @@ if [ "$AVAIL_RAM_GIB" -lt 8 ] || [ "$SWAP_USED_GIB" -ge 4 ] || [ "$FREE_DISK_GIB
   exit 0
 fi
 
+# A Linux host with an NVIDIA GPU must have enough VRAM for the default local
+# model before this hook creates directories, installs Ollama, or changes its
+# service. CPU-only Linux remains available through its existing explicit
+# override, and non-NVIDIA hosts retain their existing skip behavior.
+if [ "$OS" != "macos" ]; then
+  NVIDIA_GPU_AVAILABLE=0
+  if command -v nvidia-smi >/dev/null 2>&1 && nvidia-smi -L >/dev/null 2>&1; then
+    NVIDIA_GPU_AVAILABLE=1
+  fi
+
+  if [ "$NVIDIA_GPU_AVAILABLE" -eq 0 ]; then
+    if [ "${OLLAMA_ALLOW_LINUX_CPU:-0}" != "1" ]; then
+      log "No NVIDIA GPU detected on Linux host and OLLAMA_ALLOW_LINUX_CPU!=1 — skipping Ollama"
+      exit 0
+    fi
+  else
+    MIN_GPU_VRAM_MIB="${OLLAMA_MIN_GPU_VRAM_MIB:-8192}"
+    case "$MIN_GPU_VRAM_MIB" in
+      ''|*[!0-9]*)
+        warn "OLLAMA_MIN_GPU_VRAM_MIB must be a non-negative integer — skipping Ollama"
+        exit 0
+        ;;
+    esac
+
+    GPU_VRAM_MIB="$(nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits 2>/dev/null \
+      | awk 'NF {gsub(/[[:space:]]/, "", $1); print $1; exit}' || true)"
+    case "$GPU_VRAM_MIB" in
+      ''|*[!0-9]*)
+        warn "Unable to measure NVIDIA GPU VRAM with nvidia-smi — skipping Ollama"
+        exit 0
+        ;;
+    esac
+
+    if [ "$GPU_VRAM_MIB" -lt "$MIN_GPU_VRAM_MIB" ] && [ "${OLLAMA_ALLOW_LOW_VRAM_GPU:-0}" != "1" ]; then
+      log "NVIDIA GPU VRAM ${GPU_VRAM_MIB} MiB is below the required ${MIN_GPU_VRAM_MIB} MiB (set OLLAMA_ALLOW_LOW_VRAM_GPU=1 to override) — skipping Ollama"
+      exit 0
+    fi
+  fi
+fi
+
 APPROVED_MODEL="${OLLAMA_DEFAULT_MODEL:-qwen2.5:7b-instruct}"
 CACHE_ROOT="${XDG_CACHE_HOME:-$HOME/.cache}/megabyte/ai/ollama"
 mkdir -p "$CACHE_ROOT"
 
 if [ "$OS" = "macos" ]; then
   if ! command -v ollama >/dev/null 2>&1; then
-    if command -v brew >/dev/null 2>&1; then
-      log "Installing native Ollama on macOS via Homebrew..."
-      (yes || true) | HOMEBREW_NO_AUTO_UPDATE=1 brew install ollama
-    else
-      warn "Homebrew not available on macOS — skipping Ollama install"
-      exit 0
-    fi
+    warn "Ollama was selected but its admitted package is absent; install it through desired state before configuration"
+    exit 20
   fi
 
   MODEL_DIR="$CACHE_ROOT/models"
@@ -130,18 +165,12 @@ EOF
   launchctl unload "$PLIST" >/dev/null 2>&1 || true
   launchctl load -w "$PLIST"
 else
-  # Linux: require NVIDIA GPU or explicit CPU override
-  if ! command -v nvidia-smi >/dev/null 2>&1 && [ "${OLLAMA_ALLOW_LINUX_CPU:-0}" != "1" ]; then
-    log "No NVIDIA GPU detected on Linux host and OLLAMA_ALLOW_LINUX_CPU!=1 — skipping Ollama"
-    exit 0
-  fi
-
   SUDO=""
   [ "$(id -u)" -ne 0 ] && SUDO="sudo"
 
   if ! command -v ollama >/dev/null 2>&1; then
-    log "Installing official Ollama on Linux..."
-    curl -fsSL https://ollama.com/install.sh | $SUDO sh
+    warn "Ollama was selected but its verified package artifact is absent. Refusing the mutable ollama.com installer; add Ollama to the signed desired-state closure and rerun install.doctor."
+    exit 69
   fi
 
   $SUDO install -d -m 0755 /etc/systemd/system/ollama.service.d
@@ -170,11 +199,9 @@ for _ in $(seq 1 30); do
   sleep 1
 done
 
-if [ "${OLLAMA_SKIP_PULL:-0}" != "1" ]; then
-  if ! ollama list 2>/dev/null | awk '{print $1}' | grep -qx "$APPROVED_MODEL"; then
-    log "Pulling approved model $APPROVED_MODEL..."
-    OLLAMA_HOST=127.0.0.1:11434 ollama pull "$APPROVED_MODEL"
-  fi
+if ! ollama list 2>/dev/null | awk '{print $1}' | grep -qx "$APPROVED_MODEL"; then
+  warn "Approved model $APPROVED_MODEL is absent; admit its immutable manifest through desired state before loading it"
+  exit 20
 fi
 
 log "Ollama active on 127.0.0.1:11434 with model $APPROVED_MODEL"

@@ -19,7 +19,7 @@ Our project is the most elaborate and full-featured implementation of Chezmoi we
 
 ## Prompts
 
-If you run Install Doctor for the first time, you might want to just run `bash <(curl -sSL https://install.doctor/start)` on Linux / macOS or `iex ((New-Object System.Net.WebClient).DownloadString('https://install.doctor/windows'))` on Windows. This will utilize Install Doctor's default settings along with prompts that gather some basic information about the type of installation you would like to perform.
+For a first Linux or macOS installation, run `curl -fsSL https://app.install.doctor/start | bash`. Native Windows remains unpublished until its signed release path and clean-host acceptance matrix are verified.
 
 One of the first things you will be prompted for is to select the type of software install you want to perform. You can choose one of the following:
 
@@ -146,21 +146,21 @@ Then, with these customizations saved to your fork on GitHub, you would run:
 
 ```shell
 export START_REPO=my-gh-user/my-fork-name
-bash <(curl -sSL https://install.doctor/start)
+curl -fsSL https://app.install.doctor/start | bash
 ```
 
 **Windows:**
 
 ```powershell
 $env:START_REPO = 'my-gh-user/my-fork-name'
-iex ((New-Object System.Net.WebClient).DownloadString('https://install.doctor/windows'))
+# Native Windows installer is not published until its signed release path is verified.
 ```
 
 **Qubes:**
 
 ```shell
 export START_REPO=my-gh-user/my-fork-name
-qvm-run --pass-io sys-firewall "curl -sSL https://install.doctor/qubes" > ~/setup.sh && bash ~/setup.sh
+# Qubes entrypoint is not published until its signed delivery and dom0/AppVM matrix are verified.
 ```
 
 ## Automating the Prompts
@@ -176,7 +176,7 @@ export FULL_NAME="Joe Shmoe"
 export PRIMARY_EMAIL="help@megabyte.space"
 export PUBLIC_SERVICES_DOMAIN="megabyte.space"
 export START_REPO=my-gh-user/my-fork-name
-bash <(curl -sSL https://install.doctor/start)
+curl -fsSL https://app.install.doctor/start | bash
 ```
 
 **Windows:**
@@ -188,7 +188,7 @@ $env:FULL_NAME = 'Joe Shmoe'
 $env:PRIMARY_EMAIL = 'help@megabyte.space'
 $env:PUBLIC_SERVICES_DOMAIN = 'megabyte.space'
 $env:START_REPO = 'my-gh-user/my-fork-name'
-iex ((New-Object System.Net.WebClient).DownloadString('https://install.doctor/windows'))
+# Native Windows installer is not published until its signed release path is verified.
 ```
 
 **Qubes:**
@@ -200,7 +200,7 @@ export FULL_NAME="Joe Shmoe"
 export PRIMARY_EMAIL="help@megabyte.space"
 export PUBLIC_SERVICES_DOMAIN="megabyte.space"
 export START_REPO=my-gh-user/my-fork-name
-qvm-run --pass-io sys-firewall "curl -sSL https://install.doctor/qubes" > ~/setup.sh
+# Qubes entrypoint is not published until its signed delivery and dom0/AppVM matrix are verified.
 bash ~/setup.sh
 ```
 

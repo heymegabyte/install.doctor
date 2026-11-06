@@ -60,8 +60,8 @@ for retired in tailscale trayscale syncthing beszel beszel-agent gemini-cli; do
   fi
 done
 
-if grep -Fq '.filter(x => !customArgv.all || x._default !== false)' "$INSTALLX"; then
-  pass "--all excludes entries marked _default: false"
+if grep -Fq '.filter(x => !customArgv.all || x._default !== false || explicitRequestedKeys.has(x.listKey))' "$INSTALLX"; then
+  pass "--all excludes default-off entries unless they are explicitly selected"
 else
   fail "installx does not enforce _default: false for --all"
 fi

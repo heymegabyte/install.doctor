@@ -68,7 +68,7 @@ softwarePlugins:
 
 After reading our [Customization](/customization) documentation, you will begin to realize how easy it is to define software package installations across many different operating systems. This can be done with very little code by editing the YAML definitions either in the `software.yml` file (if you decide to open a pull request so that the definitions can be made available to everyone) or in the `software-custom.yml` file that can contain definitions that you do not wish to contribute.
 
-There are a handful of ways to customize the definitions. You can make definitions that will only use a certain method on a specific operating system, add pre-install / post-install logic, and more. The particulars are outlined below as well as in comments at the top of the `software.yml` file. Similarly, the following video walks through the process of creating new software definitions in either `software.yml` or `software-custom.yml`:
+Definitions may select package-manager coordinates per operating system. Catalog YAML is data, not a shell program: legacy `script*`, `_when*`, `_pre*`, and `_post*` fields are rejected or inert while they are migrated. Reviewed typed hooks own any necessary post-install configuration.
 
 <iframe width="100%" height="430" src="https://www.youtube-nocookie.com/embed/UHpoYumybeY" title="YouTube video player" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen></iframe>
 
@@ -80,7 +80,6 @@ Each package definition can (and should) contain definitions for every type of i
 ---
 softwarePackages:
   altair:
-    ansible: professormanhattan.docker
     apk: altair
     appimage: https://developers.yubico.com/yubikey-manager-qt/Releases/yubikey-manager-qt-1.2.4b-linux.AppImage
     basher: xwmx/nb
@@ -107,10 +106,6 @@ softwarePackages:
     pkg-termux: altair
     port: altair
     scoop: altair
-    script: >-
-      curl -sS https://getcomposer.org/installer | php
-      sudo mv composer.phar /usr/local/bin/composer
-      sudo chmod +x /usr/local/bin/composer
     snap: altair
     whalebrew:
     winget: Neovim.Neovim
@@ -119,11 +114,10 @@ softwarePackages:
     zypper: altair
 ```
 
-All of the package definitions above can be either strings, arrays, or even blocks of code, in the case of the `script` definition. You can find out more about each of the package managers that are supported by referring to the table below:
+Package definitions are package coordinates or arrays of coordinates. Executable code is not a supported catalog value. You can find out more about each package manager below:
 
 | Package Manager | Description |
 | --------------- | ----------- |
-| `ansible` | Downloads the Ansible role from Ansible Galaxy (uses the [Gas Station](https://github.com/megabyte-labs/gas-station) project for roles that are prefixed by `professormanhattan.`) |
 | `apk` | Linux Alpine system package manager |
 | `appimage` | AppImages installed by [Zap](https://github.com/srevinsaju/zap) |
 | `basher` | Packages installed by [Basher](https://github.com/basherpm/basher) |
@@ -133,9 +127,9 @@ All of the package definitions above can be either strings, arrays, or even bloc
 
 Browsing through the `software.yml` file, you might notice `appimage` definitions defined several different ways. [Zap](https://github.com/srevinsaju/zap) is used to install AppImages so you can install AppImages any way that Zap supports. This includes direct links to the AppImage file as well as simple names if the AppImage is in the [AppImage catalog](https://g.srev.in/get-appimage/) that Zap supports.
 
-#### Scripts
+#### Typed configuration hooks
 
-You can define scripts in the YAML that handle the installation. These scripts should be defined similar to how the script is defined in the example above by beginning the code block with `>-` and a line return.
+Do not define shell scripts in YAML. Add a reviewed `post-installx/post-<package>.sh` hook only when package-manager installation is insufficient; its execution must remain selected and bounded by the provisioning graph.
 
 #### Package Manager Preference
 

@@ -11,7 +11,7 @@ skips gracefully. The bootstrap installs the provisioning foundations (chezmoi, 
 `mise`, hiSHtory), the `aid` CLI, and the command-not-found hook:
 
 ```sh
-HEADLESS_INSTALL=1 bash <(curl -sSL https://install.doctor/start)
+curl -fsSL https://app.install.doctor/start | HEADLESS_INSTALL=1 bash
 ```
 
 Re-running on an already-provisioned host is a no-op (idempotent).
@@ -84,8 +84,7 @@ Honestly **not wired yet** — do not expect these to work on a headless host:
 - **Account sign-in (Better Auth — GitHub, Google, email magic-link).** The dashboard is gated by an
   admin token today, not a user login. Planned.
 - **Native Windows PowerShell bootstrap entrypoint — experimental.** The `install.doctor/start` one-liner
-  is for Unix shells; a native PowerShell entrypoint is now PUBLISHED at `install.doctor/windows`
-  (`provision.ps1`) + structurally verified, but its RUNTIME on a real Windows host is not yet verified (no
+  is for Unix shells; `provision.ps1` exists in source but no native public endpoint is published. Its RUNTIME on a real Windows host is not yet verified (no
   Windows CI) — WSL is the proven route. (fish and PowerShell command-not-found adapters exist in the repo
   but are not yet verified on a live fish/pwsh host.)
 - **Per-host private Git repository + encrypted backups.** Designed, not built.

@@ -1,17 +1,1 @@
-{
-  "executable_post-legion-workstation.sh": {
-    "status": "sanctioned",
-    "pattern": "official vendor CLI installers (chezmoi, taskfile, uv, ruff, mise, bun, deno, rustup) gated by host workstation convergence",
-    "reason": "Workstation convergence script (post-legion-workstation.sh) runs official vendor bootstrap installers only when the corresponding binary is absent from ~/.local/bin, with all git asset fetches pinned to immutable commit SHAs or release tags."
-  },
-  "executable_post-ollama.sh": {
-    "status": "sanctioned",
-    "pattern": "curl -fsSL https://ollama.com/install.sh | $SUDO sh  (official Ollama Linux installer)",
-    "reason": "Official Ollama Linux installer (https://ollama.com/install.sh) used only on Linux hosts when an active NVIDIA GPU is detected (or OLLAMA_ALLOW_LINUX_CPU=1 is explicitly set), with the systemd service immediately locked to 127.0.0.1:11434."
-  },
-  "run_after_21-cua-spaces.sh.tmpl": {
-    "status": "sanctioned",
-    "pattern": "curl -fsSL https://cua.ai/install.sh | sh  (official cua.ai installer)",
-    "reason": "Official cua.ai installer and the only install method cua offers. Mitigated: the gate runs it with --dry-run FIRST and only proceeds to --yes if the dry-run succeeds (per cua-spaces-integration.md). cua publishes no upstream checksum; the dry-run is the mitigation. Gated behind the #101 Cua Spaces provisioning gate (RAM/OS/consent)."
-  }
-}
+{}

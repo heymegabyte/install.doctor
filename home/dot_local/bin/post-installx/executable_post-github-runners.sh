@@ -76,8 +76,16 @@ if [[ ! -f "$RUNNER_TEMPLATE_DIR/config.sh" ]]; then
     log_info "Downloading GitHub Actions runner binary..."
     $SUDO install -d -m 0755 "$RUNNER_TEMPLATE_DIR"
     RUNNER_VER="2.322.0"
-    curl -fsSL "https://github.com/actions/runner/releases/download/v${RUNNER_VER}/actions-runner-linux-x64-${RUNNER_VER}.tar.gz" \
-      | $SUDO tar -xz -C "$RUNNER_TEMPLATE_DIR"
+    runner_archive="$(mktemp)"
+    trap 'rm -f "$runner_archive"' EXIT
+    curl --fail --silent --show-error --proto '=https' --tlsv1.2 --location --max-time 300 \
+      "https://github.com/actions/runner/releases/download/v${RUNNER_VER}/actions-runner-linux-x64-${RUNNER_VER}.tar.gz" -o "$runner_archive"
+    [[ "$(wc -c < "$runner_archive")" -eq 119302750 ]]
+    if command -v sha256sum >/dev/null 2>&1; then runner_sha="$(sha256sum "$runner_archive" | awk '{print $1}')";
+    else runner_sha="$(shasum -a 256 "$runner_archive" | awk '{print $1}')"; fi
+    [[ "$runner_sha" == 'b13b784808359f31bc79b08a191f5f83757852957dd8fe3dbfcc38202ccf5768' ]]
+    $SUDO tar -xzf "$runner_archive" -C "$RUNNER_TEMPLATE_DIR"
+    rm -f "$runner_archive"
   fi
 fi
 

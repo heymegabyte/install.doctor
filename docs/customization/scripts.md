@@ -9,7 +9,7 @@ Install Doctor leverages shell scripting for many of the complex tasks that cann
 
 ## Script Phases
 
-Scripts are run in three phases. The first phase is the start script. This is the code that runs when you run `bash <(curl -sSL https://install.doctor/start)`. The second phase begins when the start script begins the Chezmoi provisioning process. In this second phase, all the scripts that contain `before_` in their file name run (that in stored somewhere under `home/` in the Install Doctor repository). Then, after Chezmoi applies all the configuration (i.e. dotfile) changes, the scripts that contain `after_` in their file name are run.
+Scripts are run in three phases. The first phase is the start script. This is the code that runs when you run `curl -fsSL https://app.install.doctor/start | bash`. The second phase begins when the start script begins the Chezmoi provisioning process. In this second phase, all the scripts that contain `before_` in their file name run (that in stored somewhere under `home/` in the Install Doctor repository). Then, after Chezmoi applies all the configuration (i.e. dotfile) changes, the scripts that contain `after_` in their file name are run.
 
 In summary:
 
@@ -36,7 +36,7 @@ Chezmoi allows you to add a file name label called `onchange_`. This file name d
 echo "Install Doctor rocks!"
 ```
 
-Then, the second time you run `chezmoi apply` or use the quick start script (i.e. `bash <(curl -sSL https://install.doctor/start)` for standard macOS / Linux provisioning), the script will bypass the script execution since the script was already run and has not changed.
+Then, the second time you run `chezmoi apply` or use the quick start script (i.e. `curl -fsSL https://app.install.doctor/start | bash` for standard macOS / Linux provisioning), the script will bypass the script execution since the script was already run and has not changed.
 
 ### Conditional Script Usage Example
 

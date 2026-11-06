@@ -10,13 +10,13 @@ Install Doctor is a batteries-included provisioning framework with minimal prere
 
 | Platform | Prerequisites | Install Command | Notes |
 |---|---|---|---|
-| macOS (Ventura+) | Xcode CLI Tools (auto-prompted) | `bash <(curl -sSL https://install.doctor/start)` | Grant [Full Disk Access](/docs/terminal/full-disk-access) for full functionality |
-| Ubuntu / Debian | `bash`, `curl` (pre-installed) | `bash <(curl -sSL https://install.doctor/start)` | Sudo privileges required |
-| Fedora / CentOS | `bash`, `curl` (pre-installed) | `bash <(curl -sSL https://install.doctor/start)` | Sudo privileges required |
-| Arch Linux | `bash`, `curl` | `bash <(curl -sSL https://install.doctor/start)` | Install with `pacman -Syu --noconfirm bash curl` |
-| Alpine | `bash`, `curl` | `bash <(curl -sSL https://install.doctor/start)` | Install with `apk add bash curl` |
-| openSUSE | `bash`, `curl` (pre-installed) | `bash <(curl -sSL https://install.doctor/start)` | Sudo privileges required |
-| Windows 11 | Administrator PowerShell | `iex ((New-Object System.Net.WebClient).DownloadString('https://install.doctor/windows'))` | Run as Administrator |
+| macOS (Ventura+) | `bash`, `curl`, current OpenSSH `ssh-keygen`, `tar`, SHA-256 tool, Xcode CLI Tools | `curl -fsSL https://app.install.doctor/start | bash` | Grant [Full Disk Access](/docs/terminal/full-disk-access) for full functionality |
+| Ubuntu / Debian | `bash`, `curl`, current OpenSSH client, `tar`, SHA-256 tool | `curl -fsSL https://app.install.doctor/start | bash` | Sudo privileges required |
+| Fedora / CentOS | `bash`, `curl`, current OpenSSH client, `tar`, SHA-256 tool | `curl -fsSL https://app.install.doctor/start | bash` | Sudo privileges required |
+| Arch Linux | `bash`, `curl`, `openssh`, `tar`, SHA-256 tool | `curl -fsSL https://app.install.doctor/start | bash` | Install prerequisites with `pacman`; live lifecycle evidence remains pending |
+| Alpine | `bash`, `curl`, `openssh-client`, `tar`, SHA-256 tool, compatible system Node 22 or 24 | `curl -fsSL https://app.install.doctor/start | bash` | The signed portable runtime is glibc-only; musl clean-host closure remains unverified |
+| openSUSE | `bash`, `curl`, current OpenSSH client, `tar`, SHA-256 tool | `curl -fsSL https://app.install.doctor/start | bash` | Sudo privileges required; live lifecycle evidence remains pending |
+| Windows 11 | — | Not currently published | Native PowerShell remains experimental; use a separately verified WSL2 cell |
 | Qubes OS | dom0 terminal access | See [Qubes docs](/docs/advanced/qubes) | Must run from dom0 |
 
 ## Hardware Requirements
@@ -30,29 +30,35 @@ Install Doctor is a batteries-included provisioning framework with minimal prere
 
 ## Linux
 
-On Linux, you need `bash` and `curl` installed. Most distributions ship with both pre-installed. If not:
+Stage zero intentionally stays small: it requires Bash, curl, an OpenSSH client whose `ssh-keygen`
+supports SSHSIG verification, `tar`, and either `sha256sum` or `shasum`. Node is not a prerequisite on
+the glibc macOS/Linux cells: the signed release carries an exact Node 24 runtime and reuses an existing
+supported Node 22 or 24 when present. Alpine/musl currently requires a compatible system Node and remains
+best-effort until a signed musl runtime and clean-host canary exist.
+
+On Linux, install the prerequisites with the native package manager if they are absent:
 
 ```shell
 # Arch Linux
-sudo pacman -Syu --noconfirm bash curl
+sudo pacman -Syu --noconfirm bash curl openssh tar
 
 # CentOS / Fedora
-sudo dnf install -y bash curl
+sudo dnf install -y bash curl openssh-clients tar
 
 # Debian / Ubuntu
-sudo apt-get install -y bash curl
+sudo apt-get install -y bash curl openssh-client tar
 
 # Alpine
-apk add bash curl
+apk add bash curl openssh-client tar nodejs
 
 # openSUSE
-sudo zypper install -y bash curl
+sudo zypper install -y bash curl openssh-clients tar
 ```
 
 Then run the kickstart script:
 
 ```shell
-bash <(curl -sSL https://install.doctor/start)
+curl -fsSL https://app.install.doctor/start | bash
 ```
 
 ## macOS
@@ -95,7 +101,7 @@ For full functionality (modifying system preferences, accessing protected direct
 Begin the provisioning process from a **dom0** terminal session:
 
 ```shell
-qvm-run --pass-io sys-firewall "curl -sSL https://install.doctor/qubes" > ~/setup.sh && bash ~/setup.sh
+# Qubes entrypoint is not published until its signed delivery and dom0/AppVM matrix are verified.
 ```
 
 See the [Qubes documentation](/docs/advanced/qubes) for full details on template VMs, AppVM provisioning, and customization.
@@ -105,7 +111,7 @@ See the [Qubes documentation](/docs/advanced/qubes) for full details on template
 Windows 11 requires elevated administrator privileges. Open an **Administrator PowerShell** terminal (right-click PowerShell > "Run as Administrator") and run:
 
 ```powershell
-iex ((New-Object System.Net.WebClient).DownloadString('https://install.doctor/windows'))
+# Native Windows installer is not published until its signed release path is verified.
 ```
 
 The Windows provisioning process uses [Chocolatey](https://chocolatey.org/), [Scoop](https://scoop.sh/), and [winget](https://learn.microsoft.com/en-us/windows/package-manager/winget/) for package management.

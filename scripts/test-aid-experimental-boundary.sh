@@ -3,7 +3,7 @@ set -uo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 FAIL=0
 
-for path in start.sh scripts/provision.sh scripts/src/provision.sh.tmpl site/src; do
+for path in start.sh scripts/provision.sh site/src; do
   if rg -q 'probabilistic-intent|createSpeculativeBranch|evaluateEasterEgg|cloudflareEdgeRoute' "$ROOT/$path"; then
     printf 'FAIL experimental aid contracts reached product/runtime surface: %s\n' "$path" >&2
     FAIL=$((FAIL + 1))

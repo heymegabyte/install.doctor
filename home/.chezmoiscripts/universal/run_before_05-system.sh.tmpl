@@ -77,8 +77,17 @@ configureGPG() {
     find "$HOME/.gnupg" -type d -exec chmod 700 {} \;
     if [ ! -f "$HOME/.gnupg/gpg.conf" ]; then
       logg 'Downloading hardened gpg.conf file to ~/.gnupg/gpg.conf'
-      curl -sSL --compressed "{{ .config.gpg }}" > "$HOME/.gnupg/gpg.conf"
-      chmod 600 "$HOME/.gnupg/gpg.conf"
+      GPG_CONF_TEMP="$(mktemp "$HOME/.gnupg/.gpg.conf.XXXXXX")"
+      if curl -fL --proto '=https' --tlsv1.2 --compressed "{{ .config.gpg.url }}" -o "$GPG_CONF_TEMP" \
+        && [ "$(wc -c < "$GPG_CONF_TEMP" | tr -d ' ')" = "{{ .config.gpg.size }}" ] \
+        && printf '%s  %s\n' '{{ .config.gpg.sha256 }}' "$GPG_CONF_TEMP" | sha256sum -c - >/dev/null; then
+        chmod 600 "$GPG_CONF_TEMP"
+        mv -f "$GPG_CONF_TEMP" "$HOME/.gnupg/gpg.conf"
+      else
+        rm -f "$GPG_CONF_TEMP"
+        logg_error 'Refusing unverified hardened gpg.conf bytes'
+        return 69
+      fi
     fi
     if [ -n "$KEYID" ]; then
       KEYID_TRIMMED="$(echo "$KEYID" | sed 's/^0x//')"
@@ -110,60 +119,6 @@ enableDarkTransparentMode() {
   fi
 }
 
-# @description Helper function for installing Homebrew packages that have a matching package name and binary executable name.
-ensureBrewPackageInstalled() {
-  if ! command -v "$1" > /dev/null; then
-    if command -v brew; then
-      gum log -sl info "Installing $1 via Homebrew"
-      brew install --quiet "$1" || EXIT_CODE=$?
-      if [ -n "$EXIT_CODE" ]; then
-        gum log -sl error "$1 was not successfully installed via Homebrew"
-        unset EXIT_CODE
-      fi
-    else
-      gum log -sl error "brew is unavailable. Cannot use it to perform installation of $1"
-    fi
-  else
-    gum log -sl info "$1 is already installed"
-  fi
-}
-
-# @description Ensure delta is installed via Homebrew
-ensureDeltaInstalled() {
-  if ! command -v delta > /dev/null; then
-    if command -v brew; then
-      logg 'Installing delta via Homebrew'
-      brew install --quiet git-delta || DELTA_EXIT_CODE=$?
-      if [ -n "$DELTA_EXIT_CODE" ]; then
-        gum log -sl error 'git-delta was not successfully installed via Homebrew'
-      fi
-    else
-      logg 'brew is unavailable. Cannot use it to perform a system installation of node.'
-    fi
-  else
-    logg 'delta is available'
-  fi
-}
-
-# @description Ensure Node is installed via Homebrew
-ensureNodeInstalled() {
-  ### Ensure node is installed
-  if ! command -v node > /dev/null; then
-    if command -v brew; then
-      logg 'Installing node via Homebrew'
-      brew install --quiet node || NODE_EXIT_CODE=$?
-      if [ -n "$NODE_EXIT_CODE" ]; then
-        gum log -sl warn 'Calling brew link --overwrite node because the Node.js installation seems to be misconfigured'
-        brew link --overwrite node
-      fi
-    else
-      logg 'brew is unavailable. Cannot use it to perform a system installation of node.'
-    fi
-  else
-    logg 'node is available'
-  fi
-}
-
 # @description Increases the amount of memory a process can consume on Linux. In the case of `netdata` and other programs, many systems will suggest
 #     increasing the `vm.max_map_count`. According to a [RedHat article](https://access.redhat.com/solutions/99913), the default value is `65530`.
 #     This function increases that value to `262144` if `sysctl` is available on the system.
@@ -179,8 +134,18 @@ increaseMapCount() {
 
 # @description Helper function for installDocker that Installs systemsecret credential helper for Linux
 function installCredentialSecretService() {
-  curl -sSL https://github.com/docker/docker-credential-helpers/releases/download/v0.7.0/docker-credential-secretservice-v0.7.0.linux-amd64 > /tmp/docker-credential-secretservice
-  sudo mv /tmp/docker-credential-secretservice /usr/local/bin/docker-credential-secretservice
+  local helper actual expected='3fa0d96428d1e013b13be11c321ff912ae31860f09eb8ac2a5fd75f8946bdff2'
+  helper="$(mktemp)" || return 1
+  chmod 0600 "$helper"
+  trap 'rm -f "$helper"' RETURN
+  curl --fail --silent --show-error --proto '=https' --tlsv1.2 --location --max-time 60 \
+    https://github.com/docker/docker-credential-helpers/releases/download/v0.7.0/docker-credential-secretservice-v0.7.0.linux-amd64 -o "$helper"
+  [ "$(wc -c < "$helper")" -eq 1579992 ] || return 1
+  if command -v sha256sum >/dev/null 2>&1; then actual="$(sha256sum "$helper" | awk '{print $1}')";
+  elif command -v shasum >/dev/null 2>&1; then actual="$(shasum -a 256 "$helper" | awk '{print $1}')";
+  else return 1; fi
+  [ "$actual" = "$expected" ] || return 1
+  sudo install -m 0755 "$helper" /usr/local/bin/docker-credential-secretservice
 }
 
 # @description
@@ -195,193 +160,33 @@ function installCredentialSecretService() {
 #     and the source build takes 10 min and needs a full bazel toolchain). The default `runc` runtime is sufficient
 #     for Brian's workloads; users who need sandbox isolation can install runsc from `pkgs.k8s.io` post-install.
 installDocker() {
-  ### Ensures `~/.config/docker` is symlinked to `~/.docker` which is required for Docker Desktop compatibility since it currently does not honor XDG spec. This will
-  ### remove the current configuration at `~/.docker` if it is present and not symlinked to `~/.config/docker`.
-  if [ "$(readlink -f "$HOME/.docker")" != "${XDG_CONFIG_HOME:-$HOME/.config}/docker" ]; then
-    gum log -sl info 'Removing ~/.docker if present' && rm -rf "$HOME/.docker"
-    gum log -sl info 'Ensuring ~/.config/docker exists' && mkdir -p "${XDG_CONFIG_HOME:-$HOME/.config}/docker"
-    gum log -sl info 'Symlinking ~/.config/docker to ~/.docker for Docker Desktop compatibility' && ln -s "${XDG_CONFIG_HOME:-$HOME/.config}/docker" "$HOME/.docker"
+  # Docker installation and repository enrollment are owned by the signed,
+  # selected desired-state closure. Preliminary setup never acquires package
+  # trust, installs Docker, changes groups, or enables its service.
+  if command -v docker >/dev/null 2>&1; then
+    gum log -sl info 'Docker is already provided by selected desired state'
   else
-    gum log -sl info 'Symlink from ~/.config/docker to ~/.docker is already present'
+    gum log -sl info 'Docker is not selected; preliminary setup will leave it absent'
   fi
-
-  ### Install Docker
-  if [ -d /Applications ] && [ -d /System ]; then
-    ### macOS
-    if [ ! -d /Applications/Docker.app ]; then
-      gum log -sl info 'Installing Docker on macOS via Homebrew cask'
-      brew install --cask --quiet docker
-    else
-      gum log -sl info 'Docker appears to be installed already'
-    fi
-    gum log -sl info 'Opening the Docker for Desktop app so that the Docker engine starts running'
-    # TODO - --install-privileged-components may be necessary for `docker extension` command but it causes the command to no longer work
-    # open --background -a Docker --args --accept-license --unattended --install-privileged-components
-    open --background -a Docker --args --accept-license --unattended
-  elif command -v apt-get > /dev/null; then
-    . /etc/os-release
-    if [ "$ID" == 'ubuntu' ]; then
-      gum log -sl info 'Installing Docker on Ubuntu'
-    else
-      gum log -sl info 'Installing Docker on Debian'
-    fi
-    sudo apt-get update
-    sudo apt-get install -y ca-certificates curl gnupg lsb-release
-    sudo mkdir -p /etc/apt/keyrings
-    curl -fsSL "https://download.docker.com/linux/$ID/gpg" | sudo gpg --dearmor --yes -o /etc/apt/keyrings/docker.gpg
-    sudo chmod a+r /etc/apt/keyrings/docker.gpg
-    echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/$ID $(lsb_release -cs) stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
-    sudo apt-get update
-    sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
-  elif command -v dnf > /dev/null; then
-    . /etc/os-release
-    if [ "$ID" == 'centos' ]; then
-      gum log -sl info 'Installing Docker on CentOS'
-    elif [ "$ID" == 'fedora' ]; then
-      gum log -sl info 'Installing Docker on Fedora'
-    else
-      gum log -sl error 'Unknown OS - cannot install Docker' && exit 1
-    fi
-    sudo dnf -y install dnf-plugins-core
-    sudo dnf config-manager --add-repo "https://download.docker.com/linux/$ID/docker-ce.repo"
-    sudo dnf install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
-  elif command -v yum > /dev/null; then
-    # CentOS
-    gum log -sl info 'Installing Docker on CentOS'
-    sudo yum install -y yum-utils
-    sudo yum-config-manager --add-repo https://download.docker.com/linux/centos/docker-ce.repo
-    sudo yum install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
-  elif command -v apk > /dev/null; then
-    # Alpine
-    gum log -sl info 'Installing Docker on Alpine'
-    sudo apk add --update docker
-  elif command -v pacman > /dev/null; then
-    # Archlinux
-    gum log -sl info 'Installing Docker on Archlinux'
-    sudo pacman -Syu --noconfirm
-    sudo pacman -S --noconfirm docker
-  elif command -v zypper > /dev/null; then
-    # OpenSUSE
-    gum log -sl info 'Installing Docker on OpenSUSE'
-    sudo zypper addrepo https://download.docker.com/linux/sles/docker-ce.repo || true
-    sudo zypper install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
-  fi
-
-  ### Add Docker group on Linux
-  if command -v groupadd > /dev/null; then
-    # Linux
-    if ! cat /etc/group | grep docker > /dev/null; then
-      gum log -sl info 'Creating Docker group'
-      sudo groupadd docker
-    fi
-    gum log -sl info 'Adding user to Docker group'
-    sudo usermod -aG docker "$USER"
-  fi
-
-  ### Boot Docker on start with systemd on Linux machines
-  if command -v systemctl > /dev/null; then
-    # Systemd Linux
-    sudo systemctl start docker.service
-    sudo systemctl enable docker.service
-    sudo systemctl enable containerd.service
-  fi
-
-  ### Linux post-install: secret-service credential helper + daemon.json
-  ### + a one-time hello-world smoke test under the default `runc`
-  ### runtime. macOS Docker Desktop manages all of this internally and
-  ### needs none of it.
-  if [ ! -d /Applications ] || [ ! -d /System ]; then
-    if ! command -v docker-credential-secretservice > /dev/null; then
-      installCredentialSecretService
-    fi
-
-    if [ ! -f /etc/docker/daemon.json ]; then
-      gum log -sl info 'Creating /etc/docker'
-      sudo mkdir -p /etc/docker
-      if [ -f "${XDG_DATA_HOME:-$HOME/.local/share}/chezmoi/home/dot_config/docker/daemon.json.tmpl" ]; then
-        gum log -sl info 'Creating /etc/docker/daemon.json from chezmoi template'
-        chezmoi cat "${XDG_CONFIG_HOME:-$HOME/.config}/docker/daemon.json" | sudo tee /etc/docker/daemon.json > /dev/null
-      else
-        gum log -sl warn "${XDG_DATA_HOME:-$HOME/.local/share}/chezmoi/home/dot_config/docker/daemon.json.tmpl is not available so the /etc/docker/daemon.json file cannot be populated"
-      fi
-
-      ### Restart / enable Docker so daemon.json is picked up
-      if [[ ! "$(test -d /proc && grep Microsoft /proc/version > /dev/null)" ]] && command -v systemctl > /dev/null; then
-        gum log -sl info 'Restarting Docker service'
-        sudo systemctl restart docker.service
-        sudo systemctl restart containerd.service
-      fi
-
-      ### Smoke test under the default runc runtime
-      gum log -sl info 'Smoke-testing Docker with hello-world'
-      docker run --rm hello-world || DOCKER_EXIT_CODE=$?
-      if [ -n "${DOCKER_EXIT_CODE:-}" ]; then
-        gum log -sl warn 'Failed to run the Docker hello-world container; check `docker info` and `systemctl status docker`'
-      else
-        gum log -sl info 'Docker successfully ran the hello-world container'
-      fi
-    fi
-  fi
-
-  ### Docker rclone volume plugin install was removed: it hung waiting on the
-  ### Docker daemon to come up on macOS (Docker Desktop is opened seconds
-  ### earlier and is still starting), and it requires a populated
-  ### `~/.config/rclone` config that fresh installs do not have. If you need
-  ### the plugin, run `docker plugin install rclone/docker-volume-rclone:...`
-  ### manually after Docker Desktop is fully running.
 }
-
-# @description
-#     This script enrolls the device as a JumpCloud managed asset. The `JUMPCLOUD_CONNECT_KEY` secret should
-#     be populated using one of the methods described in the [Secrets documentation](https://install.doctor/docs/customization/secrets).
-#
-#     *Note: You should check out the supported systems before trying to enroll devices.*
-#
-#     #### JumpCloud on macOS
-#
-#     macOS offers a native device management feature offered through Apple Business. It is the preferred
-#     method since it offers most of the desirable features (like remote wipe). The [JumpCloud MDM documentation](https://support.jumpcloud.com/support/s/article/Getting-Started-MDM)
-#     details the steps required to register macOS MDM profiles with JumpCloud.
-#
-#     ## Links
-#
-#     * [JumpCloud device management requirements](https://support.jumpcloud.com/support/s/article/jumpcloud-agent-compatibility-system-requirements-and-impacts1)
 installJumpCloud() {
   if [ "{{ .host.distro.family }}" = "linux" ]; then
     if [ "{{ if (stat (joinPath .chezmoi.sourceDir ".chezmoitemplates" (printf "%s%s" "secrets-" .chezmoi.hostname) "JUMPCLOUD_CONNECT_KEY")) }}{{- includeTemplate (printf "%s%s" (printf "%s%s" "secrets-" .chezmoi.hostname) "/JUMPCLOUD_CONNECT_KEY") | decrypt | trim -}}{{ else }}{{- env "JUMPCLOUD_CONNECT_KEY" -}}{{ end }}" != "" ]; then
-      gum log -sl info 'Enrolling device with JumpCloud by running the kickstart script'
-      curl --tlsv1.2 --silent --show-error --header 'x-connect-key: {{ if (stat (joinPath .chezmoi.sourceDir ".chezmoitemplates" (printf "%s%s" "secrets-" .chezmoi.hostname) "JUMPCLOUD_CONNECT_KEY")) }}{{- includeTemplate (printf "%s%s" (printf "%s%s" "secrets-" .chezmoi.hostname) "/JUMPCLOUD_CONNECT_KEY") | decrypt | trim -}}{{ else }}{{- env "JUMPCLOUD_CONNECT_KEY" -}}{{ end }}' https://kickstart.jumpcloud.com/Kickstart | sudo bash
+      gum log -sl error 'JumpCloud enrollment requires a verified package path; remote root-script execution is disabled'
+      return 78
     fi
   fi
 }
 
 # @description Installs commonly depended on Python packages
 installSystemPips() {
-  ### Upgrade on macOS
-  if [ -f /Library/Developer/CommandLineTools/usr/bin/python3 ]; then
-    gum log -sl info 'Ensuring macOS system python3 has latest version of pip'
-    /Library/Developer/CommandLineTools/usr/bin/python3 -m pip install --upgrade pip
-  fi
-
-  ### Python 3
-  if command -v pip3 > /dev/null; then
-    if command -v python3 > /dev/null; then
-      if ! python3 -m certifi > /dev/null; then
-        if command -v brew > /dev/null; then
-          gum log -sl info 'Installing certifi via Homebrew to avoid brew link errors'
-          brew install certifi
-        else
-          gum log -sl info 'Installing Python 3 certifi package'
-          pip3 install --break-system-packages certifi
-        fi
-      else
-        gum log -sl info 'certifi is available to python3'
-      fi
-    else
-      gum log -sl warn 'python3 is not available on the system'
-    fi
+  # System Python and certificate packages are selected desired-state inputs.
+  # This preliminary hook observes them but never upgrades a platform Python,
+  # mutates its package database, or creates an unversioned secondary authority.
+  if command -v python3 >/dev/null 2>&1 && python3 -m certifi >/dev/null 2>&1; then
+    gum log -sl info 'Python certifi is already available'
   else
-    gum log -sl warn 'pip3 is not available on the system'
+    gum log -sl info 'Python certifi is absent; leaving it to selected desired state'
   fi
 }
 
@@ -490,94 +295,78 @@ setTimezone() {
 }
 
 installBrewPackages() {
-  ensureNodeInstalled
-  ensureDeltaInstalled
-  ensureBrewPackageInstalled "pipx"
-  pipx ensurepath &
-  ensureBrewPackageInstalled "gh"
-  ensureBrewPackageInstalled "go"
-  ensureBrewPackageInstalled "ruby"
-  ensureBrewPackageInstalled "rustup"
-  ensureBrewPackageInstalled "zx"
-  wait
-  gum log -sl info 'Finished installing auxiliary Homebrew packages'
+  gum log -sl info 'Auxiliary packages are owned by selected desired state'
 }
 
 setupSnap() {
   if [ ! -d /Applications ] && [ ! -d /System ] && command -v snap > /dev/null; then
-    gum log -sl info 'Enabling snapd' && sudo systemctl enable snapd
-    gum log -sl info 'Starting snapd' && sudo systemctl start snapd
-    if [ -d /snap ]; then
-      gum log -sl info 'Linking /var/lib/snapd/snap to /snap' && sudo ln -s /var/lib/snapd/snap /snap
-    fi
-    gum log -sl info 'Running sudo snap info core' && sudo snap info core
-    gum log -sl info 'Running sudo snap wait system seed.loaded' && sudo snap wait system seed.loaded
-    gum log -sl info 'Running sudo snap install core' && sudo snap install core
+    gum log -sl info 'snap is present; service enablement and core packages remain selected desired state'
   fi
 }
 
 installYay() {
   if [ -f /etc/arch-release ] && ! command -v yay > /dev/null; then
-    sudo rm -rf /usr/local/src/yay
-    sudo git clone https://aur.archlinux.org/yay.git /usr/local/src/yay
-    cd /usr/local/src/yay
-    sudo makepkg -si --noconfirm
+    gum log -sl info 'yay is not selected; preliminary setup will not clone or execute an AUR PKGBUILD'
   fi
 }
 
 rustUpInit() {
-  if command -v rustup-init > /dev/null && ! command -v rustc > /dev/null; then
-    gum log -sl info 'Running rustup-init -y' && rustup-init -y
-  fi
-  if command -v rustup > /dev/null; then
-    gum log -sl info 'Running rustup default stable' && rustup default stable
-  fi
+  gum log -sl info 'Rust toolchain selection remains selected desired state'
 }
 
 addFlathub() {
   if command -v flatpak > /dev/null; then
-    gum log -sl info 'Adding flatpak flathub repository' && sudo flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
+    gum log -sl info 'Flatpak is present; repository enrollment remains selected desired state'
   fi
+}
+
+waitForPids() {
+  local STATUS=0 PID
+  for PID in "$@"; do
+    wait "$PID" || STATUS=1
+  done
+  return "$STATUS"
 }
 
 if [ -n "$DEBUG" ] || [ -n "$DEBUG_MODE" ]; then
   gum log -sl info 'The DEBUG or DEBUG_MODE environment variable is set so preliminary system tweaks will be run synchronously'
-  addFlathub
-  allocateSwap
-  configureGPG
-  disableDStoreFileCreation
-  enableDarkTransparentMode
-  increaseMapCount
-  installBrewPackages
-  installDocker
-  installJumpCloud
-  installSystemPips
-  installYay
-  removeLinuxBloatware
-  rustUpInit
-  setHostname
-  setNtpServer
-  setTimezone
-  setupSnap
+  addFlathub || exit 1
+  allocateSwap || exit 1
+  configureGPG || exit 1
+  disableDStoreFileCreation || exit 1
+  enableDarkTransparentMode || exit 1
+  increaseMapCount || exit 1
+  installBrewPackages || exit 1
+  installDocker || exit 1
+  installJumpCloud || exit 1
+  installSystemPips || exit 1
+  installYay || exit 1
+  removeLinuxBloatware || exit 1
+  rustUpInit || exit 1
+  setHostname || exit 1
+  setNtpServer || exit 1
+  setTimezone || exit 1
+  setupSnap || exit 1
 else
-  installBrewPackages
-  addFlathub &
-  allocateSwap &
-  configureGPG &
-  disableDStoreFileCreation &
-  enableDarkTransparentMode &
-  increaseMapCount &
-  installDocker &
-  installJumpCloud &
-  installSystemPips &
-  installYay &
-  removeLinuxBloatware &
-  rustUpInit &
-  setHostname &
-  setNtpServer &
-  setTimezone &
-  setupSnap &
-  wait
+  installBrewPackages || exit 1
+  SYSTEM_TASK_PIDS=""
+  addFlathub & SYSTEM_TASK_PIDS="$SYSTEM_TASK_PIDS $!"
+  allocateSwap & SYSTEM_TASK_PIDS="$SYSTEM_TASK_PIDS $!"
+  configureGPG & SYSTEM_TASK_PIDS="$SYSTEM_TASK_PIDS $!"
+  disableDStoreFileCreation & SYSTEM_TASK_PIDS="$SYSTEM_TASK_PIDS $!"
+  enableDarkTransparentMode & SYSTEM_TASK_PIDS="$SYSTEM_TASK_PIDS $!"
+  increaseMapCount & SYSTEM_TASK_PIDS="$SYSTEM_TASK_PIDS $!"
+  installDocker & SYSTEM_TASK_PIDS="$SYSTEM_TASK_PIDS $!"
+  installJumpCloud & SYSTEM_TASK_PIDS="$SYSTEM_TASK_PIDS $!"
+  installSystemPips & SYSTEM_TASK_PIDS="$SYSTEM_TASK_PIDS $!"
+  installYay & SYSTEM_TASK_PIDS="$SYSTEM_TASK_PIDS $!"
+  removeLinuxBloatware & SYSTEM_TASK_PIDS="$SYSTEM_TASK_PIDS $!"
+  rustUpInit & SYSTEM_TASK_PIDS="$SYSTEM_TASK_PIDS $!"
+  setHostname & SYSTEM_TASK_PIDS="$SYSTEM_TASK_PIDS $!"
+  setNtpServer & SYSTEM_TASK_PIDS="$SYSTEM_TASK_PIDS $!"
+  setTimezone & SYSTEM_TASK_PIDS="$SYSTEM_TASK_PIDS $!"
+  setupSnap & SYSTEM_TASK_PIDS="$SYSTEM_TASK_PIDS $!"
+  waitForPids $SYSTEM_TASK_PIDS || { gum log -sl error 'One or more preliminary system tasks failed'; exit 1; }
 fi
 
 gum log -sl info 'Successfully applied preliminary system tweaks'
