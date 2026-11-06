@@ -535,42 +535,18 @@ if command -v batcat >/dev/null 2>&1 && ! command -v bat >/dev/null 2>&1; then
 fi
 
 # -----------------------------------------------------------------------------
-# 2. Bootstrap & Runtime Substrates (chezmoi, task, gum, yq, mise, node, bun, uv, go, rust)
-#    (actionlint, ruff, deno, ffmpeg, pandoc, imagemagick, rclone, restic, etc. lazy-load via CNF shims)
+# 2. Bootstrap & Runtime Substrates
+#    Installation belongs to the signed desired-state closure. This host hook
+#    configures tools that are already present and never becomes a second,
+#    mutable remote package manager.
 # -----------------------------------------------------------------------------
-if ! command -v chezmoi >/dev/null 2>&1; then
-  log "Installing chezmoi..."
-  sh -c "$(curl -fsLS get.chezmoi.io)" -- -b "$HOME/.local/bin" >/dev/null 2>&1 || true
-fi
-
-if ! command -v task >/dev/null 2>&1; then
-  log "Installing go-task (task)..."
-  sh -c "$(curl -fsSL https://taskfile.dev/install.sh)" -- -d -b "$HOME/.local/bin" >/dev/null 2>&1 || true
-fi
-
-if ! command -v yq >/dev/null 2>&1; then
-  log "Installing yq..."
-  curl -fsSL "https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64" -o "$HOME/.local/bin/yq" && chmod +x "$HOME/.local/bin/yq" || true
-fi
-
-if ! command -v gum >/dev/null 2>&1; then
-  log "Installing gum..."
-  GUM_VER="0.16.0"
-  if curl -fsSL "https://github.com/charmbracelet/gum/releases/download/v${GUM_VER}/gum_${GUM_VER}_Linux_x86_64.tar.gz" -o "$TMP_DIR/gum.tar.gz"; then
-    tar -xzf "$TMP_DIR/gum.tar.gz" -C "$TMP_DIR"
-    find "$TMP_DIR" -name gum -type f -exec mv {} "$HOME/.local/bin/gum" \;
-    chmod +x "$HOME/.local/bin/gum"
-  fi
-fi
-
-if ! command -v uv >/dev/null 2>&1; then
-  log "Installing uv + uvx..."
-  curl -LsSf https://astral.sh/uv/install.sh | env UV_INSTALL_DIR="$HOME/.local/bin" sh >/dev/null 2>&1 || true
-fi
-
-if ! command -v mise >/dev/null 2>&1; then
-  log "Installing mise..."
-  curl -fsSL https://mise.run | sh >/dev/null 2>&1 || true
+missing_managed=()
+for managed_command in chezmoi task gum yq uv mise; do
+  command -v "$managed_command" >/dev/null 2>&1 || missing_managed+=("$managed_command")
+done
+if [ "${#missing_managed[@]}" -gt 0 ]; then
+  warn "Desired-state closure omitted managed Legion prerequisites: ${missing_managed[*]}. Rerun install.doctor with the Legion supported path selected."
+  exit 69
 fi
 
 if command -v mise >/dev/null 2>&1; then
@@ -584,19 +560,6 @@ if command -v mise >/dev/null 2>&1; then
   fi
 fi
 
-if ! command -v bun >/dev/null 2>&1; then
-  log "Installing bun..."
-  curl -fsSL https://bun.sh/install | bash >/dev/null 2>&1 || true
-  if [ -x "$HOME/.bun/bin/bun" ]; then
-    ln -sf "$HOME/.bun/bin/bun" "$HOME/.local/bin/bun"
-    ln -sf "$HOME/.bun/bin/bun" "$HOME/.local/bin/bunx"
-  fi
-fi
-
-if ! command -v cargo >/dev/null 2>&1; then
-  log "Installing Rust toolchain (rustup/cargo/rustc)..."
-  curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --no-modify-path >/dev/null 2>&1 || true
-fi
 for rust_dir in "$HOME/.cargo/bin" "$HOME/.local/share/cargo/bin"; do
   if [ -d "$rust_dir" ]; then
     for rbin in cargo rustc rustup rustfmt cargo-clippy rust-analyzer; do
@@ -617,10 +580,6 @@ if command -v npm >/dev/null 2>&1; then
   if ! command -v typescript-language-server >/dev/null 2>&1 || ! command -v bash-language-server >/dev/null 2>&1 || ! command -v pyright >/dev/null 2>&1; then
     npm install -g pnpm typescript typescript-language-server bash-language-server vscode-langservers-extracted yaml-language-server pyright sql-language-server dockerfile-language-server-nodejs >/dev/null 2>&1 || true
   fi
-fi
-
-if [ ! -x "$HOME/.local/bin/oh-my-posh" ] && ! command -v oh-my-posh >/dev/null 2>&1; then
-  curl -fsSL https://ohmyposh.dev/install.sh | bash -s -- -d "$HOME/.local/bin" >/dev/null 2>&1 || true
 fi
 
 # -----------------------------------------------------------------------------
@@ -2094,7 +2053,7 @@ EOF
       for pool in rpool bpool; do
         if zpool list -H -o name "$pool" >/dev/null 2>&1; then
           run_root zpool set autotrim=off "$pool" 2>/dev/null || true
-          if zpool status "$pool" 2>/dev/null | grep -q "state: DEGRADED" && zpool status "$pool" 2>/dev/null | grep -q "No known data errors"; then
+          if zpool status "$pool" 2>/dev/null | grep -qE "state: DEGRADED|zpool clear" && zpool status "$pool" 2>/dev/null | grep -q "No known data errors"; then
             run_root zpool clear "$pool" 2>/dev/null || true
           fi
         fi
@@ -2296,6 +2255,7 @@ EOF
   cat > "$TMP_DIR/fleet-dr-verify" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
+export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:${PATH:-}"
 HOST="$(hostname -s)"
 PBS_VER="$(proxmox-backup-client version 2>/dev/null | head -n1 || printf "missing")"
 if command -v zfs >/dev/null 2>&1; then
