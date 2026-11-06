@@ -219,7 +219,7 @@ jobs:
           # engine-less checkout. Exercise only its read-only tuple admission
           # here; the dedicated signed acceptance workflow owns installation.
           bash -c '
-            set -euo pipefail
+            set -eo pipefail
             source /tmp/install-doctor-provision.sh
             export CI=true TEST_INSTALL=true HEADLESS_INSTALL=true NO_RESTART=true SOFTWARE_GROUP=Basic
             export INSTALL_DOCTOR_CONSENT_PRIVILEGED=true INSTALL_DOCTOR_CONSENT_NETWORK=true
