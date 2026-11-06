@@ -5,7 +5,8 @@ diagnose_failure() {
   local status="$1" file
   [ "$status" -ne 0 ] || return 0
   printf 'installx-check failed at line %s (status %s)\n' "${BASH_LINENO[0]:-unknown}" "$status" >&2
-  for file in "${FIXTURE:-}/error" "${FIXTURE:-}/output" "${FIXTURE:-}/predicate-check-error" "${FIXTURE:-}/provider-error"; do
+  for file in "${FIXTURE:-}/error" "${FIXTURE:-}/output" "${FIXTURE:-}/predicate-check-error" \
+    "${FIXTURE:-}/rejected-error" "${FIXTURE:-}/provider-error"; do
     [ -f "$file" ] && { printf '%s\n' "--- $file" >&2; tail -20 "$file" >&2; }
   done
 }
@@ -34,9 +35,9 @@ mkdir -p "$FIXTURE/home/.config/chezmoi" "$FIXTURE/work" "$FIXTURE/bin"
 printf '{}\n' > "$FIXTURE/home/.config/chezmoi/chezmoi.yaml"
 cat > "$FIXTURE/work/software.yml" <<'YAML'
 installerPreference:
-  apt: [apt]
+  apt: [apt, appimage, script, binary, go, github, pkg-darwin, sbopkg, pkg]
   darwin: [brew, appimage, script, binary, go, github, pkg-darwin, sbopkg, pkg]
-  linux: [apt, appimage, script, binary, go]
+  linux: [apt, appimage, script, binary, go, github, pkg-darwin, sbopkg, pkg]
 softwarePackages:
   fixture-present:
     _bin: fixture-present-command
