@@ -70,7 +70,8 @@ $ExecutionContext.InvokeCommand.CommandNotFoundAction = {
   if (-not (Test-Path $hook)) { return }
   if (-not (Get-Command bash -ErrorAction SilentlyContinue)) { return }
   # install-only via the ONE resolver; all install/status chatter -> stderr (keep stdout clean)
-  & env CNF_ALLOW_NONINTERACTIVE=1 CNF_NO_EXEC=1 bash -c 'source "$1"; __cnf_resolve "$2"' _ $hook $CommandName 1>&2
+  & env CNF_ALLOW_NONINTERACTIVE=1 CNF_NO_EXEC=1 bash -c 'source "$1"; __cnf_resolve "$2"' _ $hook $CommandName |
+    ForEach-Object { [Console]::Error.WriteLine($_) }
   if (Get-Command $CommandName -CommandType Application -ErrorAction SilentlyContinue) {
     # installed -> re-run the exact command in pwsh, preserving arguments + exit status
     $CommandLookupEventArgs.CommandScriptBlock = {

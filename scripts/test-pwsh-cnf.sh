@@ -31,7 +31,7 @@ else
 fi
 
 if command -v pwsh >/dev/null 2>&1; then
-  if pwsh -NoProfile -Command "\$e=\$null; [System.Management.Automation.Language.Parser]::ParseFile('$PROFILE_PS',[ref]\$null,[ref]\$e) > \$null; if (\$e.Count -gt 0) { exit 1 }" >/dev/null 2>&1; then
+  if pwsh -NoProfile -Command "\$tokens=\$null; \$errors=\$null; [System.Management.Automation.Language.Parser]::ParseFile('$PROFILE_PS',[ref]\$tokens,[ref]\$errors) > \$null; if (\$errors.Count -gt 0) { \$errors | ForEach-Object { [Console]::Error.WriteLine(('{0}:{1}: {2}' -f \$_.Extent.StartLineNumber, \$_.Extent.StartColumnNumber, \$_.Message)) }; exit 1 }"; then
     pass "pwsh parse-check OK ($(pwsh --version 2>/dev/null))"
   else
     fail "pwsh parse-check reported a syntax error"
