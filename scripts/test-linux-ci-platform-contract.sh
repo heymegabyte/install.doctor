@@ -50,6 +50,10 @@ if (/^\s*test-vm:/m.test(workflow)) failures.push('unversioned mutable VM jobs m
 
 requireMatch(/name: Assert observed container tuple[\s\S]*EXPECTED_OS_ID: \$\{\{ matrix\.osId \}\}[\s\S]*EXPECTED_VERSION: \$\{\{ matrix\.version \}\}[\s\S]*EXPECTED_ARCHITECTURE: \$\{\{ matrix\.architecture \}\}/,
   'workflow must bind every declared tuple to an observed platform assertion');
+requireMatch(/name: Install pinned system Node runtime[\s\S]*uses: actions\/setup-node@[a-f0-9]{40}[\s\S]*node-version: 24\.22\.2[\s\S]*name: Expose the selected runtime to the isolated login user[\s\S]*install -m 0755 "\$\(command -v node\)" \/usr\/local\/bin\/node[\s\S]*\[ "\$\(\/usr\/local\/bin\/node --version\)" = v24\.22\.2 \]/,
+  'container matrix must expose the pinned supported Node runtime at a stable system path');
+requireMatch(/name: Create isolated non-root smoke user[\s\S]*\[ "\$\(su - testuser -c 'node --version'\)" = v24\.22\.2 \]/,
+  'container matrix must prove the isolated login user resolves the pinned Node runtime');
 requireMatch(/\. \/etc\/os-release[\s\S]*observed_id="\$\{ID:-\}"/, 'platform assertion must observe distro identity from /etc/os-release');
 requireMatch(/\. \/etc\/os-release[\s\S]*observed_version="\$\{VERSION_ID:-\}"/, 'platform assertion must observe distro version from /etc/os-release');
 requireMatch(/observed_architecture="\$\(uname -m\)"/, 'platform assertion must observe machine architecture');

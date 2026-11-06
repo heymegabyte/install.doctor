@@ -132,6 +132,16 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Install pinned system Node runtime
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 24.22.2
+
+      - name: Expose the selected runtime to the isolated login user
+        run: |
+          install -m 0755 "$(command -v node)" /usr/local/bin/node
+          [ "$(/usr/local/bin/node --version)" = v24.22.2 ]
+
       - name: Assert observed container tuple
         shell: bash
         env:
@@ -197,6 +207,7 @@ jobs:
             adduser -D -s /bin/bash testuser
           fi
           printf 'testuser ALL=(ALL) NOPASSWD:ALL\n' >> /etc/sudoers
+          [ "$(su - testuser -c 'node --version')" = v24.22.2 ]
 
       - name: "Best-effort checked-out bootstrap smoke — ${{ matrix.cell }} (not signed lifecycle proof)"
         timeout-minutes: 60
