@@ -8,7 +8,11 @@
 # succeeds (a legit sign-in is NOT blocked), the window then 429s, and the 429 carries a retry hint.
 # The 429 body/behaviour is identical whether or not the account exists → no account-existence leak (O10).
 set -uo pipefail
-u="${CONTROL_PLANE_URL:-https://app.install.doctor}"
+if [ -z "${CONTROL_PLANE_URL:-}" ]; then
+  printf 'SKIP rate-limit: CONTROL_PLANE_URL unset — live rate-limit acceptance requires an explicit deployed target\n'
+  exit 0
+fi
+u="${CONTROL_PLANE_URL%/}"
 path="/api/auth/sign-in/social"
 
 say() { command -v gum >/dev/null 2>&1 && gum style --foreground 51 -- "$*" || printf '\033[1;36m%s\033[0m\n' "$*"; }

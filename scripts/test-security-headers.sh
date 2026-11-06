@@ -11,7 +11,11 @@
 # fetch + the server-to-server aid CLI are unaffected). COEP require-corp is DELIBERATELY omitted: zero
 # cross-origin subresources today (no benefit) + it would break future legit embeds (Maps/R2 images).
 set -uo pipefail
-u="${CONTROL_PLANE_URL:-https://app.install.doctor}"
+if [ -z "${CONTROL_PLANE_URL:-}" ]; then
+  printf 'SKIP security-headers: CONTROL_PLANE_URL unset — live header acceptance requires an explicit deployed target\n'
+  exit 0
+fi
+u="${CONTROL_PLANE_URL%/}"
 
 say() { command -v gum >/dev/null 2>&1 && gum style --foreground 51 -- "$*" || printf '\033[1;36m%s\033[0m\n' "$*"; }
 pass() { command -v gum >/dev/null 2>&1 && gum style --foreground 46 -- "PASS $*" || printf '\033[1;32mPASS\033[0m %s\n' "$*"; P=$((P + 1)); }

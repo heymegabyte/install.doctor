@@ -5,7 +5,11 @@
 # carrying the configured client_id + the app.install.doctor callback. Sign-in COMPLETION (callback → session)
 # is human-gated on the OAuth app having the callback URL registered, and is NOT asserted here (honest).
 set -uo pipefail
-u="${CONTROL_PLANE_URL:-https://app.install.doctor}"
+if [ -z "${CONTROL_PLANE_URL:-}" ]; then
+  printf 'SKIP auth: CONTROL_PLANE_URL unset — live OAuth acceptance requires an explicit deployed target\n'
+  exit 0
+fi
+u="${CONTROL_PLANE_URL%/}"
 
 say() { command -v gum >/dev/null 2>&1 && gum style --foreground 51 -- "$*" || printf '\033[1;36m%s\033[0m\n' "$*"; }
 pass() { command -v gum >/dev/null 2>&1 && gum style --foreground 46 -- "PASS $*" || printf '\033[1;32mPASS\033[0m %s\n' "$*"; P=$((P + 1)); }

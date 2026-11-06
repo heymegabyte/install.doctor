@@ -4,7 +4,6 @@
 # (2) run it on the COMMITTED catalog.json (must be conflict-free), (3) live-assert /api/catalog/:name
 # returns the CANONICAL entry (bin===name) for a multi-bin package (e.g. xz → the `xz` bin, not `unxz`).
 set -uo pipefail
-u="${CONTROL_PLANE_URL:-https://app.install.doctor}"
 dir="$(cd "$(dirname "$0")" && pwd)"
 CAT="$dir/../packages/control-plane/src/catalog.json"
 VAL="$dir/validate-catalog.py"
@@ -80,10 +79,15 @@ rm -f "$fx6"
 
 # 6-9. LIVE — /api/catalog/:name returns the CANONICAL entry (bin===name) for a multi-bin package (#133 fix).
 #      Pre-fix the name-keyed Map kept the LAST sibling (xz→unxz, bzip2→bunzip2, kvm→qemu-img, rar→unrar).
-for nm in xz bzip2 kvm rar; do
-  gotbin="$(curl -s "$u/api/catalog/$nm" 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin).get('bin',''))" 2>/dev/null)"
-  [ "$gotbin" = "$nm" ] && pass "GET /api/catalog/$nm -> canonical bin '$nm' (multi-bin package resolves to its namesake command; #133 D02/D12)" || fail "/api/catalog/$nm returned bin '$gotbin' (want canonical '$nm')"
-done
+if [ -n "${CONTROL_PLANE_URL:-}" ]; then
+  u="${CONTROL_PLANE_URL%/}"
+  for nm in xz bzip2 kvm rar; do
+    gotbin="$(curl -s "$u/api/catalog/$nm" 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin).get('bin',''))" 2>/dev/null)"
+    [ "$gotbin" = "$nm" ] && pass "GET /api/catalog/$nm -> canonical bin '$nm' (multi-bin package resolves to its namesake command; #133 D02/D12)" || fail "/api/catalog/$nm returned bin '$gotbin' (want canonical '$nm')"
+  done
+else
+  say "SKIP live catalog resolution: CONTROL_PLANE_URL unset"
+fi
 
 load_contract="$(python3 -c 'import json,sys; xs=json.load(open(sys.argv[1])); d=next(x for x in xs if x["name"] == "xz" and x["bin"] == "xz"); print(d.get("deliveryMode"), d.get("loadPolicy"), bool(d.get("loadRationale")))' "$CAT" 2>/dev/null)"
 [ "$load_contract" = "lazy lazy True" ] && pass "canonical xz entry carries its validated lazy-load policy and rationale" || fail "canonical xz entry omitted or contradicted load policy: '$load_contract'"

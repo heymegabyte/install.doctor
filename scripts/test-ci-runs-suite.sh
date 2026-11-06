@@ -68,5 +68,21 @@ else
   fail "pr-install-doctor.yml duplicates tuple-bound PR validation and must remain retired"
 fi
 
+# Mutable production is never an implicit dependency of the hermetic repository
+# suite. Live acceptance scripts may run only when CI or an operator supplies an
+# explicit target; otherwise test-all must remain deterministic and offline-safe.
+live_suites="test-auth.sh test-rate-limit.sh test-security-headers.sh test-catalog-integrity.sh"
+live_contract_ok=1
+for suite in $live_suites; do
+  if grep -q 'CONTROL_PLANE_URL:-https://' "$ROOT/scripts/$suite"; then
+    live_contract_ok=0
+  fi
+done
+if [ "$live_contract_ok" -eq 1 ]; then
+  pass "live acceptance suites do not silently default hermetic CI to mutable production"
+else
+  fail "a live acceptance suite defaults CONTROL_PLANE_URL to production"
+fi
+
 say "ci-runs-suite: $P passed, $F failed"
 [ "$F" -eq 0 ]
