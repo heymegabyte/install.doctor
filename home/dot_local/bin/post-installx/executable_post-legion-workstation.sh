@@ -890,6 +890,62 @@ EOF
     run_root install -m 0755 "$TMP_DIR/legion-ec-ctl" /usr/local/bin/legion-ec-ctl
   fi
 
+  # #13b: Intel Wireless 7260/AX (iwlwifi/iwlmvm) Always-Active CAM Low-Latency Tuning & ASUS ZenBook Pro N501JW CLI
+  if grep -qE 'iwlwifi|iwlmvm' /proc/modules 2>/dev/null; then
+    run_root install -d -m 0755 /etc/modprobe.d /etc/NetworkManager/conf.d
+    cat > "$TMP_DIR/iwlwifi-fleet.conf" <<'EOF'
+options iwlwifi power_save=0 swcrypto=0 bt_coex_active=0 uapsd_disable=3
+options iwlmvm power_scheme=1
+EOF
+    run_root cp "$TMP_DIR/iwlwifi-fleet.conf" /etc/modprobe.d/iwlwifi-zen.conf
+    printf '[connection]\nwifi.powersave = 2\n' > "$TMP_DIR/default-wifi-powersave-off.conf"
+    run_root cp "$TMP_DIR/default-wifi-powersave-off.conf" /etc/NetworkManager/conf.d/default-wifi-powersave-off.conf
+    if command -v iw >/dev/null 2>&1; then
+      for wlan_if in $(iw dev 2>/dev/null | awk '$1=="Interface"{print $2}'); do
+        run_root iw dev "$wlan_if" set power_save off 2>/dev/null || true
+      done
+    fi
+  fi
+  if grep -qE 'asus_nb_wmi|asus_wmi' /proc/modules 2>/dev/null; then
+    cat > "$TMP_DIR/zen-asus-ctl" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+case "${1:-status}" in
+  status)
+    printf '=== ASUS ZenBook Pro Hardware & Thermal Status ===\n'
+    printf 'Vendor/Model: %s %s (BIOS %s)\n' \
+      "$(cat /sys/devices/virtual/dmi/id/sys_vendor 2>/dev/null || echo ASUS)" \
+      "$(cat /sys/devices/virtual/dmi/id/product_name 2>/dev/null || echo N501JW)" \
+      "$(cat /sys/devices/virtual/dmi/id/bios_version 2>/dev/null || echo unknown)"
+    printf 'CPU Scaling Driver/Governor: %s / %s (cur: %s kHz)\n' \
+      "$(cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_driver 2>/dev/null || echo unknown)" \
+      "$(cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor 2>/dev/null || echo unknown)" \
+      "$(cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_cur_freq 2>/dev/null || echo 0)"
+    for t in /sys/class/hwmon/hwmon*/temp1_input; do
+      [ -r "$t" ] || continue
+      name="$(cat "$(dirname "$t")/name" 2>/dev/null || echo sensor)"
+      val="$(cat "$t" 2>/dev/null || echo 0)"
+      printf 'Temp [%s]: %d.%d C\n' "$name" "$((val / 1000))" "$(((val % 1000) / 100))"
+    done
+    [ -r /proc/net/wireless ] && awk 'NR>2 {gsub(":", "", $1); printf "Wi-Fi [%s]: link=%s level=%s dBm noise=%s dBm\n", $1, $3, $4, $5}' /proc/net/wireless
+    command -v nvidia-smi >/dev/null 2>&1 && nvidia-smi --query-gpu=name,temperature.gpu,power.draw,utilization.gpu,memory.used,memory.total --format=csv,noheader 2>/dev/null || true
+    ;;
+  governor)
+    gov="${2:-schedutil}"
+    for g in /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor; do [ -w "$g" ] && echo "$gov" > "$g"; done
+    ;;
+  wifi-fast)
+    for wlan_if in $(iw dev 2>/dev/null | awk '$1=="Interface"{print $2}'); do iw dev "$wlan_if" set power_save off 2>/dev/null || true; done
+    ;;
+  *)
+    printf 'Usage: zen-asus-ctl {status|governor <schedutil|performance|powersave>|wifi-fast}\n' >&2
+    exit 1
+    ;;
+esac
+EOF
+    run_root install -m 0755 "$TMP_DIR/zen-asus-ctl" /usr/local/bin/zen-asus-ctl
+  fi
+
   # #14: TI TAS2781 Smart Amplifier Speaker Fix (Legion 9i 16IRX9)
   if grep -q 'snd_hda_scodec_tas2781' /proc/modules 2>/dev/null; then
     log "Applying TI TAS2781 Smart Amplifier audio configuration..."
@@ -1014,8 +1070,12 @@ if cur.exists():
         data = {}
 data.setdefault("ip", "127.0.0.1")
 data.setdefault("live-restore", True)
+data["userland-proxy"] = False
+data.setdefault("max-concurrent-downloads", 10)
+data.setdefault("max-concurrent-uploads", 5)
 data.setdefault("log-driver", "local")
 data.setdefault("log-opts", {"max-size": "10m", "max-file": "3"})
+data.setdefault("builder", {"gc": {"enabled": True, "defaultKeepStorage": "20GB"}})
 mirrors = data.setdefault("registry-mirrors", [])
 if "https://registry.megabyte.space" not in mirrors:
     mirrors.append("https://registry.megabyte.space")
@@ -1120,8 +1180,39 @@ def collect_metrics() -> str:
         except Exception:
             pass
 
+    lines.append("# HELP hwmon_temperature_celsius Hardware thermal sensor temperature in Celsius")
+    lines.append("# TYPE hwmon_temperature_celsius gauge")
+    for path in sorted(glob.glob("/sys/class/hwmon/hwmon*/temp*_input")):
+        try:
+            sensor = open(os.path.join(os.path.dirname(path), "name")).read().strip()
+            label_file = path.replace("_input", "_label")
+            label = open(label_file).read().strip() if os.path.exists(label_file) else os.path.basename(path)
+            val = float(open(path).read().strip()) / 1000.0
+            lines.append(f'hwmon_temperature_celsius{{sensor="{sensor}",label="{label}"}} {val:.1f}')
+        except Exception:
+            pass
+
+    if os.path.exists("/proc/net/wireless"):
+        lines.append("# HELP wifi_signal_dbm Wireless interface signal level in dBm")
+        lines.append("# TYPE wifi_signal_dbm gauge")
+        lines.append("# HELP wifi_link_quality Wireless interface link quality score")
+        lines.append("# TYPE wifi_link_quality gauge")
+        try:
+            for row in open("/proc/net/wireless").read().splitlines()[2:]:
+                parts = row.split()
+                if len(parts) >= 4:
+                    iface = parts[0].rstrip(":")
+                    qual = float(parts[2].rstrip("."))
+                    sig = float(parts[3].rstrip("."))
+                    lines.append(f'wifi_link_quality{{interface="{iface}"}} {qual:.1f}')
+                    lines.append(f'wifi_signal_dbm{{interface="{iface}"}} {sig:.1f}')
+        except Exception:
+            pass
+
     lines.append("# HELP nvme_smart_critical_warning NVMe SMART critical warning bitmap")
     lines.append("# TYPE nvme_smart_critical_warning gauge")
+    lines.append("# HELP smart_device_health_ok SMART overall health assessment (1=OK, 0=FAIL)")
+    lines.append("# TYPE smart_device_health_ok gauge")
     for dev in ("/dev/nvme0", "/dev/nvme1", "/dev/sda"):
         if not os.path.exists(dev):
             continue
@@ -1131,7 +1222,9 @@ def collect_metrics() -> str:
             )
             data = json.loads(out)
             cw = data.get("nvme_smart_health_information_log", {}).get("critical_warning", 0)
+            passed = 1 if data.get("smart_status", {}).get("passed", True) else 0
             lines.append(f'nvme_smart_critical_warning{{device="{dev}"}} {int(cw)}')
+            lines.append(f'smart_device_health_ok{{device="{dev}"}} {passed}')
         except Exception:
             pass
 
@@ -1221,14 +1314,34 @@ EOF
   run_root systemctl daemon-reload
   run_root systemctl enable --now "${HOST_SHORT}-hw-exporter.service" >/dev/null 2>&1 || true
 
-  # #18: Grafana Alloy Observability Shipper (127.0.0.1:12345 -> 10.0.0.155 Prometheus & Loki)
+    # #18: Grafana Alloy Observability Shipper (127.0.0.1:12345 -> 10.0.0.155 Prometheus & Loki) + Autoheal
   if command -v docker >/dev/null 2>&1; then
+    if ! run_root docker ps --format '{{.Names}}' 2>/dev/null | grep -qx 'autoheal'; then
+      run_root docker rm -f autoheal >/dev/null 2>&1 || true
+      run_root docker run -d --name autoheal --restart=always \
+        -e AUTOHEAL_CONTAINER_LABEL=all \
+        -e AUTOHEAL_INTERVAL=15 \
+        -e AUTOHEAL_START_PERIOD=30 \
+        -v /var/run/docker.sock:/var/run/docker.sock \
+        willfarrell/autoheal:1.2.0 >/dev/null 2>&1 || true
+    fi
     run_root install -d -m 0755 /etc/alloy
     cat > "$TMP_DIR/config.alloy" <<EOF
 prometheus.exporter.unix "node" {}
 
 prometheus.scrape "node" {
   targets    = prometheus.exporter.unix.node.targets
+  forward_to = [prometheus.remote_write.central.receiver]
+}
+
+prometheus.exporter.cadvisor "containers" {
+  docker_only      = true
+  disabled_metrics = ["disk", "cpu_topology", "sched", "referenced_memory"]
+  storage_duration = "1m"
+}
+
+prometheus.scrape "cadvisor" {
+  targets    = prometheus.exporter.cadvisor.containers.targets
   forward_to = [prometheus.remote_write.central.receiver]
 }
 
@@ -1241,6 +1354,16 @@ prometheus.scrape "hw_exporter" {
   forward_to = [prometheus.remote_write.central.receiver]
 }
 
+prometheus.scrape "cloudflared" {
+  targets = [{
+    __address__ = "127.0.0.1:20241",
+    instance    = "${HOST_SHORT}",
+    host        = "${HOST_SHORT}",
+    job         = "cloudflared",
+  }]
+  forward_to = [prometheus.remote_write.central.receiver]
+}
+
 prometheus.remote_write "central" {
   endpoint {
     url = "http://10.0.0.155:9090/api/v1/write"
@@ -1248,6 +1371,20 @@ prometheus.remote_write "central" {
   external_labels = {
     host = "${HOST_SHORT}",
   }
+}
+
+discovery.docker "local_containers" {
+  host = "unix:///var/run/docker.sock"
+}
+
+loki.source.docker "containers" {
+  host       = "unix:///var/run/docker.sock"
+  targets    = discovery.docker.local_containers.targets
+  labels     = {
+    host = "${HOST_SHORT}",
+    job  = "docker",
+  }
+  forward_to = [loki.write.central.receiver]
 }
 
 loki.relabel "journal" {
@@ -1277,10 +1414,14 @@ EOF
     if ! run_root docker ps --format '{{.Names}}' 2>/dev/null | grep -qx 'alloy'; then
       run_root docker rm -f alloy >/dev/null 2>&1 || true
       run_root docker run -d --name alloy --restart unless-stopped --net host \
+        -e GOMEMLIMIT=768MiB \
         -v /etc/alloy/config.alloy:/etc/alloy/config.alloy:ro \
         -v /var/log/journal:/var/log/journal:ro \
         -v /run/log/journal:/run/log/journal:ro \
         -v /etc/machine-id:/etc/machine-id:ro \
+        -v /var/run/docker.sock:/var/run/docker.sock:ro \
+        -v /sys:/sys:ro \
+        -v /var/lib/docker:/var/lib/docker:ro \
         grafana/alloy:v1.21.2 \
         run --server.http.listen-addr=127.0.0.1:12345 /etc/alloy/config.alloy >/dev/null 2>&1 || true
     fi
@@ -1438,8 +1579,12 @@ EOF
 
   BPOOL_CONF=""
   if zfs list bpool/BOOT >/dev/null 2>&1; then
-    BPOOL_CONF=$'[bpool/BOOT]\n  use_template = proxmox_fleet\n  recursive = yes\n\n'
+    BPOOL_CONF=$'[bpool/BOOT]\n  use_template = boot\n  recursive = yes\n\n'
   fi
+  for child_ds in $(zfs list -H -o name -r rpool bpool 2>/dev/null || true); do
+    run_root zfs set atime=off "$child_ds" >/dev/null 2>&1 || true
+    run_root zfs set xattr=sa "$child_ds" >/dev/null 2>&1 || true
+  done
   cat > "$TMP_DIR/sanoid.conf" <<EOF
 ${BPOOL_CONF}[${ROOT_DS}]
   use_template = proxmox_fleet
@@ -1458,19 +1603,30 @@ ${BPOOL_CONF}[${ROOT_DS}]
   yearly = 0
   autosnap = yes
   autoclean = yes
+
+[template_boot]
+  frequently = 0
+  hourly = 0
+  daily = 3
+  weekly = 1
+  monthly = 0
+  yearly = 0
+  autosnap = yes
+  autoclean = yes
 EOF
   run_root cp "$TMP_DIR/sanoid.conf" /etc/sanoid/sanoid.conf
 
   cat > "$TMP_DIR/fleet-zfs-autosnap-guard" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
-MAX_CAP="${FLEET_ZFS_MAX_CAP:-85}"
 for pool in $(zpool list -H -o name 2>/dev/null || true); do
+  max_cap="${FLEET_ZFS_MAX_CAP:-85}"
+  [ "$pool" = "bpool" ] && max_cap=65
   cap="$(zpool list -H -o capacity "$pool" 2>/dev/null | tr -d '%' || echo 0)"
-  if [ "${cap:-0}" -ge "$MAX_CAP" ]; then
-    logger -t fleet-zfs-autosnap-guard "Pool $pool at ${cap}% (>= ${MAX_CAP}%); pruning oldest autosnap snapshots"
+  if [ "${cap:-0}" -ge "$max_cap" ]; then
+    logger -t fleet-zfs-autosnap-guard "Pool $pool at ${cap}% (>= ${max_cap}%); pruning oldest snapshots"
     zfs list -H -t snapshot -o name -s creation -r "$pool" 2>/dev/null \
-      | grep '@autosnap_' \
+      | grep -E '@(autosnap_|autozsys_)' \
       | head -n 15 \
       | xargs -r -n 1 zfs destroy || true
   fi
@@ -1710,11 +1866,11 @@ table inet fleet_egress_guard {
   }
   set whitelisted_egress_tcp_ports {
     type inet_service
-    elements = { 22, 53, 80, 443, 2222, 3003, 5432, 6379, 7844, 8006, 8007, 8080, 8188, 8443, 8444, 9000, 9222, 11434 }
+    elements = { 22, 53, 80, 443, 853, 2222, 3000, 3003, 3100, 4000, 4317, 4318, 5432, 6379, 7844, 8006, 8007, 8080, 8188, 8222, 8443, 8444, 9000, 9090, 9100, 9222, 11434 }
   }
   set whitelisted_egress_udp_ports {
     type inet_service
-    elements = { 53, 123, 443, 1701, 2408, 4500, 7844 }
+    elements = { 53, 123, 443, 853, 1701, 2408, 4500, 7844 }
   }
   chain output {
     type filter hook output priority 10; policy accept;
@@ -1751,16 +1907,26 @@ EOF
   run_root cp "$TMP_DIR/fleet-egress-guard.service" /etc/systemd/system/fleet-egress-guard.service
   run_root systemctl enable --now fleet-egress-guard.service >/dev/null 2>&1 || true
 
-  if ! command -v cscli >/dev/null 2>&1; then
-    run_root env DEBIAN_FRONTEND=noninteractive apt-get install -y -qq crowdsec >/dev/null 2>&1 || true
+  if ! command -v cscli >/dev/null 2>&1 || ! dpkg -s crowdsec-firewall-bouncer >/dev/null 2>&1; then
+    run_root env DEBIAN_FRONTEND=noninteractive apt-get install -y -qq crowdsec crowdsec-firewall-bouncer >/dev/null 2>&1 \
+      || run_root env DEBIAN_FRONTEND=noninteractive apt-get install -y -qq crowdsec crowdsec-firewall-bouncer-nftables >/dev/null 2>&1 || true
   fi
   if [ -f /etc/crowdsec/config.yaml ]; then
     run_root sed -i 's/127\.0\.0\.1:8080/127.0.0.1:18080/g' /etc/crowdsec/config.yaml /etc/crowdsec/local_api_credentials.yaml 2>/dev/null || true
     run_root systemctl enable --now crowdsec.service >/dev/null 2>&1 || true
   fi
-  if [ -f /etc/crowdsec/bouncers/crowdsec-firewall-bouncer.yaml ]; then
+  if [ -f /etc/crowdsec/bouncers/crowdsec-firewall-bouncer.yaml ] && command -v cscli >/dev/null 2>&1; then
     run_root sed -i 's/127\.0\.0\.1:8080/127.0.0.1:18080/g' /etc/crowdsec/bouncers/crowdsec-firewall-bouncer.yaml 2>/dev/null || true
+    run_root sed -i -E 's|^mode:.*|mode: nftables|' /etc/crowdsec/bouncers/crowdsec-firewall-bouncer.yaml 2>/dev/null || true
     run_root sed -i 's/iptables_chains:/iptables_chains:\n  - OUTPUT/' /etc/crowdsec/bouncers/crowdsec-firewall-bouncer.yaml 2>/dev/null || true
+    if grep -q 'API_KEY' /etc/crowdsec/bouncers/crowdsec-firewall-bouncer.yaml 2>/dev/null || ! systemctl is-active --quiet crowdsec-firewall-bouncer.service; then
+      run_root cscli bouncers delete "${HOST_SHORT}-nftables-bouncer" >/dev/null 2>&1 || true
+      BOUNCER_KEY="$(run_root cscli bouncers add "${HOST_SHORT}-nftables-bouncer" -o raw 2>/dev/null | tr -d '\n\r ' || true)"
+      if [ -n "$BOUNCER_KEY" ]; then
+        run_root sed -i -E "s|^api_key:.*|api_key: ${BOUNCER_KEY}|" /etc/crowdsec/bouncers/crowdsec-firewall-bouncer.yaml
+      fi
+    fi
+    run_root systemctl enable --now crowdsec-firewall-bouncer.service >/dev/null 2>&1 || true
     run_root systemctl restart crowdsec-firewall-bouncer.service >/dev/null 2>&1 || true
   fi
 
@@ -1955,6 +2121,8 @@ exec bwrap \
   --unshare-pid \
   --unshare-ipc \
   --unshare-uts \
+  --new-session \
+  --cap-drop ALL \
   --die-with-parent \
   "$@"
 EOF
@@ -1966,13 +2134,15 @@ EOF
     run_root cp "$TMP_DIR/fleet-flash-q8.conf" /etc/systemd/system/ollama.service.d/fleet-flash-q8.conf
   fi
 
-  run_root install -d -m 1777 /var/cache/ai-models/huggingface /var/cache/ai-models/torch /var/cache/ai-models/uv /var/cache/ai-models/ms-playwright /var/cache/ai-models/bun-cache
+  run_root install -d -m 1777 /var/cache/ai-models/huggingface /var/cache/ai-models/torch /var/cache/ai-models/uv /var/cache/ai-models/ms-playwright /var/cache/ai-models/bun-cache /var/tmp/langfuse-spool
   cat > "$TMP_DIR/99-fleet-ai-and-fast-io.sh" <<'EOF'
 export HF_HOME="/var/cache/ai-models/huggingface"
 export TORCH_HOME="/var/cache/ai-models/torch"
 export UV_CACHE_DIR="/var/cache/ai-models/uv"
 export PLAYWRIGHT_BROWSERS_PATH="/var/cache/ai-models/ms-playwright"
 export BUN_INSTALL_CACHE_DIR="/var/cache/ai-models/bun-cache"
+export LANGFUSE_SPOOL_DIR="/var/tmp/langfuse-spool"
+export LANGFUSE_TIMEOUT_MS=2500
 export ZSTD_CLEVEL=3
 export ZSTD_NBTHREADS=0
 alias cp='cp --reflink=auto'
