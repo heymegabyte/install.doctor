@@ -6,6 +6,9 @@ P=0 F=0
 pass() { printf 'PASS %s\n' "$*"; P=$((P + 1)); }
 fail() { printf 'FAIL %s\n' "$*" >&2; F=$((F + 1)); }
 
+# Deliberately shaped as a one-item loop so additional generated provisioners
+# can be added without duplicating the contract assertions.
+# shellcheck disable=SC2066
 for source_file in "$ROOT/scripts/provision.sh"; do
   extracted="$(mktemp)"
   sed -n '/^# BEGIN INSTALL_DOCTOR_TASK_UI$/,/^# END INSTALL_DOCTOR_TASK_UI$/p' "$source_file" > "$extracted"
@@ -28,9 +31,14 @@ for source_file in "$ROOT/scripts/provision.sh"; do
   rm -f "$extracted"
 done
 
-# The test intentionally loads the delimited implementation under test.
+# The test intentionally loads the delimited implementation under test. Use a
+# real temporary file: Bash 3.2 can close process-substitution producers early
+# while sourcing, leaving a partial definition set.
+task_ui_source="$(mktemp)"
+sed -n '/^# BEGIN INSTALL_DOCTOR_TASK_UI$/,/^# END INSTALL_DOCTOR_TASK_UI$/p' "$ROOT/scripts/provision.sh" >"$task_ui_source"
 # shellcheck disable=SC1090
-source <(sed -n '/^# BEGIN INSTALL_DOCTOR_TASK_UI$/,/^# END INSTALL_DOCTOR_TASK_UI$/p' "$ROOT/scripts/provision.sh")
+source "$task_ui_source"
+rm -f "$task_ui_source"
 state_parent="$(mktemp -d)"
 state="$state_parent/run"
 trap 'rm -rf "$state_parent"' EXIT

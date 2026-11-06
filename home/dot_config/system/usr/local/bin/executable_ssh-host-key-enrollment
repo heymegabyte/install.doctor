@@ -47,7 +47,7 @@ valid_host "$hostname" || die 'hostname is invalid or ambiguous'
 [ -n "$known_hosts" ] || die '--known-hosts is required'
 case "$known_hosts" in /*) ;; *) die 'known_hosts path must be absolute' ;; esac
 
-for alias in "${aliases[@]}"; do valid_host "$alias" || die 'alias is invalid or ambiguous'; done
+for alias in ${aliases[@]+"${aliases[@]}"}; do valid_host "$alias" || die 'alias is invalid or ambiguous'; done
 
 parent="$(dirname -- "$known_hosts")"
 base="$(basename -- "$known_hosts")"
@@ -70,7 +70,7 @@ endpoint_for() {
   if [ "$port" = 22 ] && [[ "$1" != *:* ]]; then printf '%s' "$1"; else printf '[%s]:%s' "$1" "$port"; fi
 }
 endpoints=("$(endpoint_for "$hostname")")
-for alias in "${aliases[@]}"; do endpoints+=("$(endpoint_for "$alias")"); done
+for alias in ${aliases[@]+"${aliases[@]}"}; do endpoints+=("$(endpoint_for "$alias")"); done
 for ((i=0; i<${#endpoints[@]}; i++)); do
   for ((j=i+1; j<${#endpoints[@]}; j++)); do
     [ "${endpoints[i]}" != "${endpoints[j]}" ] || die 'duplicate hostname or alias'
@@ -121,18 +121,19 @@ endpoint_is_enrolled() {
 }
 
 matched_lines=()
+matched_count=0
 while IFS= read -r line || [ -n "$line" ]; do
   case "$line" in ''|'#'*) continue ;; esac
   hosts="${line%%[[:space:]]*}"
   for endpoint in "${endpoints[@]}"; do
-    if line_has_endpoint "$hosts" "$endpoint"; then matched_lines+=("$line"); break; fi
+    if line_has_endpoint "$hosts" "$endpoint"; then matched_lines+=("$line"); matched_count=$((matched_count + 1)); break; fi
   done
 done <"$known_hosts"
 
 case "$action" in
   enroll)
     validate_new_key
-    for line in "${matched_lines[@]}"; do
+    for line in ${matched_lines[@]+"${matched_lines[@]}"}; do
       line_fp="$(fingerprint_line "$line")" || die 'existing endpoint has an invalid key'
       [ "$line_fp" = "$fingerprint" ] || die 'hostname or alias is already bound to another key'
     done
@@ -145,15 +146,15 @@ case "$action" in
   rotate)
     validate_new_key
     [[ "$old_fingerprint" =~ ^SHA256:[A-Za-z0-9+/]+$ ]] || die '--old-fingerprint is required'
-    [ "${#matched_lines[@]}" -gt 0 ] || die 'rotation target is not enrolled'
-    for line in "${matched_lines[@]}"; do
+    [ "$matched_count" -gt 0 ] || die 'rotation target is not enrolled'
+    for line in ${matched_lines[@]+"${matched_lines[@]}"}; do
       [ "$(fingerprint_line "$line")" = "$old_fingerprint" ] || die 'current key does not match old fingerprint'
     done
     ;;
   revoke)
     [[ "$fingerprint" =~ ^SHA256:[A-Za-z0-9+/]+$ ]] || die '--fingerprint is required'
-    [ "${#matched_lines[@]}" -gt 0 ] || die 'revocation target is not enrolled'
-    for line in "${matched_lines[@]}"; do
+    [ "$matched_count" -gt 0 ] || die 'revocation target is not enrolled'
+    for line in ${matched_lines[@]+"${matched_lines[@]}"}; do
       [ "$(fingerprint_line "$line")" = "$fingerprint" ] || die 'current key does not match revocation fingerprint'
     done
     ;;

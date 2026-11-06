@@ -70,8 +70,8 @@ for t in "$DIR"/test-*.sh "$DIR"/validate-software-yml.sh; do
     # Preserve enough context to identify the first failed assertion. Six
     # lines routinely showed only a suite footer, forcing an otherwise
     # unnecessary rerun on the same platform before a defect was actionable.
-    printf '%s\n' "    ---- last 40 lines of $b ----"
-    tail -40 "$log" | sed 's/^/    /'
+    printf '%s\n' "    ---- last 80 lines of $b ----"
+    tail -80 "$log" | sed 's/^/    /'
   fi
   rm -f "$log"
 done

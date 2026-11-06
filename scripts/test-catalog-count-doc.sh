@@ -56,7 +56,8 @@ fi
 
 # (3) no ledger may carry a STALE present-tense catalog-TOTAL claim. Historical N→M transitions + quoted
 # 'N entries' references are stripped first so only present-tense claims are scanned.
-SCAN="$(GROUND="$GROUND" python3 - "$ROOT/docs/aid/CURRENT-STATE.md" "$ROOT/docs/aid/NEXT-STEPS.md" "$ROOT/docs/aid/REQUIREMENTS.md" "$ROOT/docs/aid/MASTER-PROMPT.md" <<'PY'
+SCAN_FILE="$(mktemp)"
+GROUND="$GROUND" python3 - "$ROOT/docs/aid/CURRENT-STATE.md" "$ROOT/docs/aid/NEXT-STEPS.md" "$ROOT/docs/aid/REQUIREMENTS.md" "$ROOT/docs/aid/MASTER-PROMPT.md" >"$SCAN_FILE" <<'PY'
 import os, re, sys
 ground = int(os.environ["GROUND"])
 bad, seen = [], set()
@@ -93,7 +94,8 @@ for path in sys.argv[1:]:
 if bad:
     print("\n".join(bad))
 PY
-)"
+SCAN="$(cat "$SCAN_FILE")"
+rm -f "$SCAN_FILE"
 if [ -z "$SCAN" ]; then
   pass "no stale present-tense catalog-total claims in the ledgers (all == $GROUND)"
 else
