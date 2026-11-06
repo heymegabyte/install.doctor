@@ -172,7 +172,7 @@ import sys
 
 text = Path(sys.argv[1]).read_text()
 started = text.index('idEmitProvisionStatus provision started 0')
-run = text.index('runCanonicalProvisionEngine || CHEZMOI_STATUS=$?')
+run = text.index('runCanonicalProvisionEngine apply || CHEZMOI_STATUS=$?')
 gate = text.index('if [ "$CHEZMOI_STATUS" -ne 0 ]', run)
 fallback = text.index('if [ "${INSTALL_DOCTOR_SUDO_FINALIZER_VERIFIED:-false}" != true ]', run)
 cleanup = text.index('removePasswordlessSudo', fallback)

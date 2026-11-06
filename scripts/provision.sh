@@ -125,7 +125,7 @@ idPlatformMatrixFacts() {
   local DETECTED RELEASE ARCH ENVIRONMENT ROLE BASE_OS
   DETECTED="$(detect_os 2>/dev/null || echo unknown)"
   RELEASE="$(detect_release 2>/dev/null || echo unknown)"
-  ARCH="$(idNormalizePlatformArch)"; ENVIRONMENT="$(idPlatformEnvironment)"
+  ARCH="$(idNormalizePlatformArch "$(uname -m)")"; ENVIRONMENT="$(idPlatformEnvironment)"
   BASE_OS="$DETECTED"; ROLE="$DETECTED"
   if [ "$DETECTED" = container ]; then
     BASE_OS="$(. /etc/os-release 2>/dev/null && echo "${ID:-linux}")"
@@ -3207,7 +3207,7 @@ provisionLogic() {
   INSTALL_DOCTOR_SUDO_PREPARED=true
   export INSTALL_DOCTOR_PROVISION_BOOTSTRAPPED=1
   logg info "Running the Chezmoi provisioning"
-  runCanonicalProvisionEngine || CHEZMOI_STATUS=$?
+  runCanonicalProvisionEngine apply || CHEZMOI_STATUS=$?
   if [ "${INSTALL_DOCTOR_SUDO_FINALIZER_VERIFIED:-false}" != true ]; then
     # Fall back only when protected engine evidence does not prove the
     # run-finalizer reached a verified/inapplicable cleanup postcondition.

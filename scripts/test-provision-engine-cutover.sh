@@ -34,7 +34,7 @@ else
 fi
 if grep -q -- '--engine-operation' "$PROVISION" && grep -q 'chezmoi-check\|chezmoi-apply\|chezmoi-verify' "$PROVISION"; then pass 'engine operations use the staged provisioner adapter'; else fail 'engine operation adapter is absent'; fi
 logic="$(sed -n '/^provisionLogic() {/,/^}/p' "$PROVISION")"
-if printf '%s\n' "$logic" | grep -q 'runCanonicalProvisionEngine || CHEZMOI_STATUS=$?' && ! printf '%s\n' "$logic" | grep -q 'runChezmoi || CHEZMOI_STATUS=$?'; then
+if printf '%s\n' "$logic" | grep -q 'runCanonicalProvisionEngine apply || CHEZMOI_STATUS=$?' && ! printf '%s\n' "$logic" | grep -q 'runChezmoi || CHEZMOI_STATUS=$?'; then
   pass 'production orchestration executes chezmoi through the canonical engine'
 else
   fail 'production orchestration still bypasses the canonical engine'

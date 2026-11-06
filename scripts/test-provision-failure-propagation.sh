@@ -47,7 +47,7 @@ from pathlib import Path
 import sys
 
 text = Path(sys.argv[1]).read_text()
-run = text.index('runCanonicalProvisionEngine || CHEZMOI_STATUS=$?')
+run = text.index('runCanonicalProvisionEngine apply || CHEZMOI_STATUS=$?')
 fallback_gate = text.index('if [ "${INSTALL_DOCTOR_SUDO_FINALIZER_VERIFIED:-false}" != true ]', run)
 cleanup = text.index('removePasswordlessSudo', fallback_gate)
 failure_gate = text.index('if [ "$CHEZMOI_STATUS" -ne 0 ]', cleanup)
