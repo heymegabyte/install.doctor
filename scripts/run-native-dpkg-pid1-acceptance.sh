@@ -50,4 +50,8 @@ docker exec "$CONTAINER" /usr/bin/setpriv --bounding-set=-net_admin --no-new-pri
   node /opt/install.doctor/packages/installer-engine/acceptance.mjs /evidence/receipt.json \
   | tee "$EVIDENCE_ROOT/run.ndjson"
 test -s "$EVIDENCE_ROOT/receipt.json"
-chmod 0644 "$EVIDENCE_ROOT/receipt.json" "$EVIDENCE_ROOT/run.ndjson"
+# The container creates the receipt as root under a deliberately restrictive
+# umask. Make the evidence readable before crossing back to the unprivileged
+# CI host; the host cannot chmod a root-owned bind-mounted file.
+docker exec "$CONTAINER" chmod 0644 /evidence/receipt.json
+chmod 0644 "$EVIDENCE_ROOT/run.ndjson"

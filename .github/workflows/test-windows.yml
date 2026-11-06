@@ -47,6 +47,10 @@ jobs:
           npm ci --prefix packages/aid-core
           npm ci --prefix packages/installer-engine
 
-      - name: Test installer engine
+      - name: Build installer engine
         shell: pwsh
-        run: npm test --prefix packages/installer-engine
+        run: npm run build --prefix packages/installer-engine
+
+      - name: Test native Windows process-tree cancellation
+        shell: pwsh
+        run: node --test packages/installer-engine/test/process-runner.windows.test.mjs
