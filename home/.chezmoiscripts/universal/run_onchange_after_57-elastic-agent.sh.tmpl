@@ -1,0 +1,29 @@
+{{- if and (ne .host.distro.family "windows") (stat (joinPath .host.home ".config" "age" "chezmoi.txt")) (or (stat (joinPath .chezmoi.sourceDir ".chezmoitemplates" "secrets" "ELASTIC_TOKEN")) (env "ELASTIC_TOKEN")) -}}
+#!/usr/bin/env bash
+# @file Netdata
+# @brief Enrolls Elastic Agent with Elastic Fleet Server
+# @description
+#     This script enrolls Elastic Agent with Elastic Fleet Server if Elastic Agent is installed, the `ELASTIC_TOKEN` is provided, and the
+#     `elastic_fleet_server` is defined.
+#
+#     Fleet provides a web-based UI in Kibana for centrally managing Elastic Agents and their policies. Fleet Server is the mechanism
+#     to connect Elastic Agents to Fleet. All communication between the Fleet UI and Fleet Server happens through Elasticsearch.
+#
+#     [Integrations](https://www.elastic.co/guide/en/fleet/current/integrations.html) and [Policies](https://www.elastic.co/guide/en/fleet/current/agent-policy.html)
+#     are configured using Fleet UI in Kibana. The [enrollment-token](https://www.elastic.co/guide/en/fleet/current/install-fleet-managed-elastic-agent.html)
+#     can be obtained from Fleet UI, and, one token can be used to add multiple agents to the corresponding policy.
+
+{{ includeTemplate "universal/profile" }}
+{{ includeTemplate "universal/logg" }}
+
+### Enroll Elastic Agent with Elastic Fleet Server
+if command -v elastic-agent > /dev/null; then
+    ELASTIC_TOKEN="{{- if (stat (joinPath .chezmoi.sourceDir ".chezmoitemplates" "secrets" "ELASTIC_TOKEN")) -}}{{- includeTemplate "secrets/ELASTIC_TOKEN" | decrypt | trim -}}{{- else -}}{{- env "ELASTIC_TOKEN" -}}{{- end -}}"
+    FLEET_URL="{{ .host.data.elastic_fleet_server }}"
+    logg info 'Enrolling Elastic Agent'
+    sudo elastic-agent install --url="$FLEET_URL" --enrollment-token="$ELASTIC_TOKEN"
+else
+    logg info '`elastic-agent` is not installed or it is not available in the PATH'
+fi
+
+{{ end -}}

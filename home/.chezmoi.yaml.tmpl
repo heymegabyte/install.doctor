@@ -132,6 +132,7 @@ data:
     docker:
       doRegion: nyc1
     domain: "{{ $domain }}"
+    elastic_fleet_server: "https://es-fleet.megabyte.space:8220"
     headless: {{ $headless }}
     home: "{{ .chezmoi.homeDir }}"
     homeParentFolder: "{{ if eq .chezmoi.os "linux" }}/home{{ else if eq .chezmoi.os "darwin" }}/Users{{ else }}C:\Users{{ end }}"
