@@ -411,7 +411,10 @@ cp -a "$REPOSITORY" "$FIXTURE/container-fixture/repository"
 cp "$FIXTURE/start.sh" "$FIXTURE/container-fixture/start.sh"
 cp "$FIXTURE/container-run.sh" "$FIXTURE/container-fixture/container-run.sh"
 cp -a "$FIXTURE/container-tools" "$FIXTURE/container-fixture/tools"
-chmod 0700 "$FIXTURE/container-fixture/container-run.sh"
+# Everything in this read-only mount is public release/canary material. The
+# pinned image UID intentionally differs from the CI host UID, so permit read
+# and directory/script traversal while stripping every group/other write bit.
+chmod -R a+rX,go-w "$FIXTURE/container-fixture"
 
 printf 'bootstrap-install-acceptance: running pinned, network-disabled container\n'
 OUTPUT="$FIXTURE/canary.out"
