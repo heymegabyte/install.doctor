@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-LEDGER="$(mktemp -t install-doctor-file-ledger).json"
+LEDGER="$(mktemp "${TMPDIR:-/tmp}/install-doctor-file-ledger.XXXXXXXX").json"
 trap 'rm -f "$LEDGER"' EXIT
 cd "$ROOT"
 node scripts/audit-repository-files.mjs --output="$LEDGER" >/dev/null

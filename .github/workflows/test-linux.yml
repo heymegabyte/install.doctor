@@ -28,10 +28,25 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Install ShellCheck
+      - name: Install structural-test prerequisites
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends shellcheck
+          sudo apt-get install -y --no-install-recommends ripgrep rsync shellcheck
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 24.22.2
+          cache: npm
+          cache-dependency-path: |
+            packages/aid-core/package-lock.json
+            packages/installer-engine/package-lock.json
+            packages/control-plane/package-lock.json
+
+      - name: Install locked test dependencies
+        run: |
+          npm --prefix packages/aid-core ci --ignore-scripts --no-audit --no-fund
+          npm --prefix packages/installer-engine ci --ignore-scripts --no-audit --no-fund
+          npm --prefix packages/control-plane ci --ignore-scripts --no-audit --no-fund
 
       - name: Lint core scripts
         run: shellcheck --severity=error -x scripts/provision.sh start.sh
@@ -45,8 +60,6 @@ jobs:
           printf 'Existing ShellCheck findings: %s\n' "$violations"
 
       - name: Verify repository structural contracts
-        env:
-          CONTROL_PLANE_URL: https://app.install.doctor
         run: bash scripts/test-all.sh
 
       - name: Audit deprecated packages

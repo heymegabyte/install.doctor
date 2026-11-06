@@ -130,6 +130,7 @@ idPlatformMatrixFacts() {
   if [ "$DETECTED" = container ]; then
     BASE_OS="$(. /etc/os-release 2>/dev/null && echo "${ID:-linux}")"
     case "$BASE_OS" in ubuntu|debian|fedora|arch|alpine) ROLE="$BASE_OS" ;; *) BASE_OS=linux; RELEASE=unspecified; ROLE=container ;; esac
+    [ "$BASE_OS" != arch ] || RELEASE=rolling
   elif [ "$DETECTED" = wsl ]; then BASE_OS=ubuntu; RELEASE=unspecified; ROLE=wsl
   elif [ "$DETECTED" = macos ]; then RELEASE="${RELEASE%%.*}"; ROLE=macos
   elif [ "$DETECTED" = qubes-dom0 ] || [ "$DETECTED" = qubes-appvm ]; then RELEASE="$(printf '%s' "$RELEASE" | cut -d. -f1,2)"; ROLE="$DETECTED"
