@@ -4,7 +4,7 @@
 # Exits non-zero on violations.
 set -euo pipefail
 
-SW_YML="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/software.yml"
+SW_YML="${SOFTWARE_YML:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/software.yml}"
 PASS=0
 FAIL=0
 
@@ -101,29 +101,13 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# Check 8: Eager installation is an explicit, bounded exception. Every `_preload: true` entry must explain
-# why command-not-found cannot safely install it later; lazy entries must not carry a misleading reason.
+# Check 8: Lazy loading is the deterministic default. Every eager exception
+# carries an explicit bounded policy and an owning rationale. The policy is
+# checked against the existing preload reason so two fields cannot silently
+# disagree about when a package mutates the host.
 # ---------------------------------------------------------------------------
-PRELOAD_SCHEMA="$(python3 - "$SW_YML" <<'PY'
-import sys, yaml
-allowed = {"bootstrap-critical", "lazy-installer-substrate", "security-recovery-prerequisite", "desired-state-service"}
-doc = yaml.safe_load(open(sys.argv[1], encoding="utf-8")) or {}
-packages = doc.get("softwarePackages", {})
-bad = []
-for name, value in packages.items():
-    if not isinstance(value, dict):
-        continue
-    eager = value.get("_preload") is True
-    reason = value.get("_preloadReason")
-    if eager and reason not in allowed:
-        bad.append(f"{name}: missing/invalid _preloadReason")
-    if not eager and "_preloadReason" in value:
-        bad.append(f"{name}: _preloadReason requires _preload: true")
-print("\n".join(bad))
-PY
-)"
-if [ -z "$PRELOAD_SCHEMA" ]; then
-  echo "PASS: Every eager package has a bounded reason; lazy packages have none"
+if PRELOAD_SCHEMA="$(node "$(dirname "${BASH_SOURCE[0]}")/validate-software-load-policy.mjs" "$SW_YML" 2>&1)"; then
+  echo "PASS: Load policy defaults to lazy; every eager exception has a bounded class and owning rationale"
   PASS=$((PASS + 1))
 else
   echo "FAIL: Invalid preload policy:"
