@@ -31,11 +31,15 @@ test('real headless CLI uses strict argv operations and emits canonical NDJSON',
     approvedPlanDigest: digest('0'),
     renderer: 'ndjson',
     stateRoot: join(directory, 'state'),
+    telemetry: {
+      schemaVersion: 1, consent: true, endpoint: 'https://127.0.0.1:9/installer', timeoutMs: 100,
+      labels: { platform: 'darwin', environment: 'native', service: 'install-doctor' },
+    },
     facts: {
       schemaVersion: 1, hostId: 'cli-host', collectedAt: '2026-11-06T00:00:00.000Z', os: 'darwin', osVersion: '15.7',
       arch: 'arm64', environment: 'native', roles: ['fixture'], packageManagers: [], capabilities: [],
     },
-    desiredState: { schemaVersion: 1, revision: 'revision-1', hostId: 'cli-host', packages: [], services: [], consents: [], offline: true },
+    desiredState: { schemaVersion: 1, revision: 'revision-1', hostId: 'cli-host', packages: [], services: [], consents: ['telemetry'], offline: false },
     plan: { tasks: [task], selectedTaskIds: [task.id] },
     operations: {
       'fixture-check': { argv: [process.execPath, '-e', nodeCheck] },
@@ -44,7 +48,7 @@ test('real headless CLI uses strict argv operations and emits canonical NDJSON',
     },
   };
   const cli = new URL('../dist/cli.js', import.meta.url).pathname;
-  const { renderer: _renderer, stateRoot: _stateRoot, approvedPlanDigest: _approval, ...planInvocation } = invocation;
+  const { renderer: _renderer, stateRoot: _stateRoot, approvedPlanDigest: _approval, telemetry: _telemetry, ...planInvocation } = invocation;
   await writeFile(invocationPath, `${JSON.stringify({ ...planInvocation, command: 'plan' })}\n`, { mode: 0o600 });
   const planned = await execute(process.execPath, [cli, '--input', invocationPath], {
     env: { PATH: process.env.PATH ?? '' }, input: '', timeout: 10_000, maxBuffer: 1_000_000,

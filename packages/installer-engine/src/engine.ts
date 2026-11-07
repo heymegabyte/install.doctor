@@ -20,6 +20,8 @@ import type {
 import type { JournalClaim, JournalEntry, JournalStore } from './journal.js';
 import type { ConfigurationCompensationPersistence } from './config-transaction.js';
 import type { NativeDpkgTransactionPersistence } from './native-dpkg-transaction-record.js';
+import { TelemetryExportConfigSchema, exportInstallerTelemetry } from './telemetry.js';
+import type { TelemetryExportResult, TelemetryTransport } from './telemetry.js';
 
 const identifier = z.string().min(1).max(128).regex(/^[a-z0-9][a-z0-9._-]*$/);
 const digest = z.string().regex(/^[a-f0-9]{64}$/);
@@ -128,6 +130,11 @@ export interface EngineOptions {
   readonly resourcePressureSampler?: ResourcePressureSampler;
   readonly resourcePressureSampleTimeoutMs?: number;
   readonly journal?: JournalStore;
+  readonly telemetry?: {
+    readonly config: unknown;
+    readonly transport: TelemetryTransport;
+    readonly onResult?: (result: TelemetryExportResult) => void;
+  };
 }
 
 export interface ResourcePressureSample {
@@ -343,6 +350,40 @@ function outcome(statuses: Readonly<Record<string, TaskTerminalStatus>>): { stat
 
 export function createInstallerEngine(options: EngineOptions): InstallerEngine {
   const now = options.now ?? (() => new Date().toISOString());
+  const telemetry = options.telemetry
+    ? Object.freeze({
+        config: TelemetryExportConfigSchema.parse(options.telemetry.config),
+        transport: options.telemetry.transport,
+        onResult: options.telemetry.onResult,
+      })
+    : undefined;
+  const completeRun = async (
+    result: InstallerRunResult,
+    desiredState: DesiredStateInput,
+  ): Promise<InstallerRunResult> => {
+    if (!telemetry) return result;
+    const consent = telemetry.config.consent && !desiredState.offline && desiredState.consents.includes('telemetry');
+    let exportResult: TelemetryExportResult;
+    try {
+      exportResult = await exportInstallerTelemetry(
+        { ...telemetry.config, consent },
+        result.events,
+        telemetry.transport,
+      );
+    } catch {
+      exportResult = Object.freeze({
+        status: 'failed', exportedEvents: 0,
+        droppedOutputEvents: result.events.filter(event => event.kind === 'output').length,
+        droppedCapacityEvents: 0,
+      });
+    }
+    if (telemetry.onResult) {
+      try {
+        void Promise.resolve(telemetry.onResult(exportResult)).catch(() => {});
+      } catch { /* Telemetry observers cannot change install semantics. */ }
+    }
+    return result;
+  };
   const resourcePressureSampleTimeoutMs = z.number().int().min(10).max(5_000).parse(options.resourcePressureSampleTimeoutMs ?? 250);
   const configuredExecutionPolicy = ExecutionPolicySchema.parse({
     maxConcurrency: options.maxConcurrency ?? 4,
@@ -463,7 +504,10 @@ export function createInstallerEngine(options: EngineOptions): InstallerEngine {
         });
         phase('record', 'succeeded');
         emit({ kind: 'run-status', status: 'rejected' });
-        return { schemaVersion: 1, phaseOrder, plan, events, taskStatuses: statuses, receipt, exitCode: 3, rendererFailures };
+        return completeRun(
+          { schemaVersion: 1, phaseOrder, plan, events, taskStatuses: statuses, receipt, exitCode: 3, rendererFailures },
+          request.desiredState,
+        );
       }
 
       phase('approve', 'succeeded');
@@ -814,7 +858,10 @@ export function createInstallerEngine(options: EngineOptions): InstallerEngine {
         phase('record', 'succeeded');
         emit({ kind: 'run-status', status: terminal.status === 'success' ? 'success' : terminal.status === 'cancelled' ? 'cancelled' : 'failed' });
       }
-      return { schemaVersion: 1, phaseOrder, plan, events, taskStatuses: statuses, receipt, exitCode: terminal.exitCode, rendererFailures };
+      return completeRun(
+        { schemaVersion: 1, phaseOrder, plan, events, taskStatuses: statuses, receipt, exitCode: terminal.exitCode, rendererFailures },
+        request.desiredState,
+      );
       } finally {
         let heartbeatError: unknown;
         try { await stopHeartbeat(); } catch (error) { heartbeatError = error; }

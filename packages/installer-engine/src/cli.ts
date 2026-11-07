@@ -31,6 +31,8 @@ import { RollbackEvidenceError, RollbackLiveOwnerError, createRollbackRunStore }
 import { discoverNativeServiceStateAdapters } from './service-state-adapters.js';
 import type { ServiceStateAdapter, ServiceStateSnapshot } from './config-transaction.js';
 import { applyConfigurationTransaction, applyManagedDirectoryTransaction } from './config-transaction.js';
+import { TelemetryExportConfigSchema } from './telemetry.js';
+import type { TelemetryTransport } from './telemetry.js';
 
 const identifier = z.string().min(1).max(128).regex(/^[a-z0-9][a-z0-9._-]*$/);
 const argument = z.string().max(4096).refine(value => !value.includes('\0'), 'arguments cannot contain NUL');
@@ -124,10 +126,12 @@ const ReadOnlyInvocationSchema = z.strictObject({ ...common, command: z.enum(['d
 const RunInvocationSchema = z.strictObject({
   ...common, command: z.literal('run'), approvedPlanDigest: z.string().regex(/^[a-f0-9]{64}$/), renderer: RendererModeSchema,
   stateRoot: z.string().min(1).max(4096).refine(isAbsolute, 'state root must be absolute'),
+  telemetry: TelemetryExportConfigSchema.optional(),
 });
 const ResumeInvocationSchema = z.strictObject({
   ...common, command: z.literal('resume'), planDigest: z.string().regex(/^[a-f0-9]{64}$/), renderer: RendererModeSchema,
   stateRoot: z.string().min(1).max(4096).refine(isAbsolute, 'state root must be absolute'),
+  telemetry: TelemetryExportConfigSchema.optional(),
 });
 const StatusInvocationSchema = z.strictObject({
   schemaVersion: z.literal(1), command: z.literal('status'), runId: identifier, renderer: RendererModeSchema,
@@ -531,6 +535,17 @@ function childEnvironment(): NodeJS.ProcessEnv {
   ] as const;
   return Object.fromEntries(allowed.flatMap(key => process.env[key] === undefined ? [] : [[key, process.env[key]]])) as NodeJS.ProcessEnv;
 }
+
+const telemetryTransport: TelemetryTransport = async ({ endpoint, batch, signal }) => {
+  const response = await fetch(endpoint, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(batch),
+    redirect: 'error',
+    signal,
+  });
+  if (!response.ok) throw new Error(`telemetry collector returned HTTP ${response.status}`);
+};
 
 function adapterFor(invocation: OperationInvocation): InstallerAdapter {
   const digestOpenFile = async (handle: Awaited<ReturnType<typeof open>>, size: number): Promise<string> => {
@@ -1106,6 +1121,9 @@ async function main(): Promise<void> {
       adapter: adapterFor(invocation), ...(journal ? { journal } : {}),
       maxConcurrency: executionPolicy.maxConcurrency,
       resourceLimits: executionPolicy.resourceLimits,
+      ...('telemetry' in invocation && invocation.telemetry ? {
+        telemetry: { config: invocation.telemetry, transport: telemetryTransport },
+      } : {}),
     });
     if (invocation.command === 'resume') {
       if (!journal) throw new Error('resume requires protected journal ownership');

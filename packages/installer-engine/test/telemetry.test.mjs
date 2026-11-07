@@ -52,6 +52,7 @@ test('batch capacity truncation is explicit rather than silent', async () => {
 test('rejects insecure endpoints, unbounded labels, and malformed events before transport', async () => {
   let called = false;
   await assert.rejects(exportInstallerTelemetry({ ...config, endpoint: 'http://logs.example.test' }, events, async () => { called = true; }));
+  await assert.rejects(exportInstallerTelemetry({ ...config, endpoint: 'https://token@logs.example.test/installer' }, events, async () => { called = true; }));
   await assert.rejects(exportInstallerTelemetry({ ...config, labels: { ...config.labels, host: 'private-host' } }, events, async () => { called = true; }));
   await assert.rejects(exportInstallerTelemetry(config, [{ ...events[0], secret: 'x' }], async () => { called = true; }));
   assert.equal(called, false);

@@ -94,6 +94,106 @@ test('runs one deterministic renderer-neutral lifecycle', async () => {
   TerminalReceiptSchema.parse(result.receipt);
 });
 
+test('exports bounded secret-free lifecycle telemetry only with desired-state consent', async () => {
+  const batches = [];
+  const exportResults = [];
+  const engine = createInstallerEngine({
+    adapter: {
+      discover: async () => facts,
+      plan: async () => planDraft,
+      check: async () => 'needed',
+      apply: async (_node, context) => context.output('stderr', 'token=never-export-this-secret'),
+      verify: async () => 'verified',
+    },
+    now: (() => { let tick = 0; return () => new Date(Date.UTC(2026, 10, 6, 2, 0, tick++)).toISOString(); })(),
+    telemetry: {
+      config: {
+        schemaVersion: 1, consent: true, endpoint: 'https://logs.example.test/installer', timeoutMs: 100,
+        labels: { platform: 'darwin', environment: 'native', service: 'install-doctor' },
+      },
+      transport: async input => { batches.push(input.batch); },
+      onResult: result => { exportResults.push(result); },
+    },
+  });
+  const result = await runApproved(engine, {
+    runId: 'run-telemetry', releaseId: 'release-1',
+    desiredState: { ...desired, consents: ['network', 'telemetry'] },
+  });
+  assert.equal(result.receipt.status, 'success');
+  assert.equal(batches.length, 1);
+  assert.equal(batches[0].events.some(event => event.kind === 'output'), false);
+  assert.equal(JSON.stringify(batches[0]).includes('never-export-this-secret'), false);
+  assert.ok(batches[0].events.some(event => event.kind === 'run-status' && event.status === 'success'));
+  assert.deepEqual(exportResults, [{
+    status: 'succeeded', exportedEvents: batches[0].events.length,
+    droppedOutputEvents: 1, droppedCapacityEvents: 0,
+  }]);
+});
+
+test('telemetry transport failure is fail-open and missing desired-state consent disables transport', async () => {
+  let transportCalls = 0;
+  const exportResults = [];
+  const engine = createInstallerEngine({
+    adapter: {
+      discover: async () => facts,
+      plan: async () => planDraft,
+      check: async () => 'verified',
+      apply: async () => assert.fail('verified task cannot mutate'),
+      verify: async () => assert.fail('verified task does not need verification'),
+    },
+    telemetry: {
+      config: {
+        schemaVersion: 1, consent: true, endpoint: 'https://logs.example.test/installer', timeoutMs: 100,
+        labels: { platform: 'darwin', environment: 'native', service: 'install-doctor' },
+      },
+      transport: async () => { transportCalls += 1; throw new Error('collector unavailable'); },
+      onResult: result => { exportResults.push(result); },
+    },
+  });
+  const withoutConsent = await runApproved(engine, {
+    runId: 'run-telemetry-disabled', releaseId: 'release-1', desiredState: desired,
+  });
+  assert.equal(withoutConsent.receipt.status, 'success');
+  assert.equal(transportCalls, 0);
+  assert.equal(exportResults[0].status, 'disabled');
+
+  const offlineTask = {
+    ...task, id: 'offline.task', operations: { check: 'offline-check', apply: 'offline-apply', verify: 'offline-verify' },
+    resources: { ...task.resources, network: false }, network: 'none', consent: 'none', lockDomains: [],
+  };
+  const offlineEngine = createInstallerEngine({
+    adapter: {
+      discover: async () => facts,
+      plan: async () => ({ tasks: [offlineTask], selectedTaskIds: [offlineTask.id] }),
+      check: async () => 'verified', apply: async () => {}, verify: async () => 'verified',
+    },
+    telemetry: {
+      config: {
+        schemaVersion: 1, consent: true, endpoint: 'https://logs.example.test/installer', timeoutMs: 100,
+        labels: { platform: 'darwin', environment: 'native', service: 'install-doctor' },
+      },
+      transport: async () => { transportCalls += 1; },
+      onResult: result => { exportResults.push(result); },
+    },
+  });
+  const offline = await runApproved(offlineEngine, {
+    runId: 'run-telemetry-offline', releaseId: 'release-1',
+    desiredState: { ...desired, consents: ['network', 'telemetry'], offline: true },
+  });
+  assert.equal(offline.receipt.status, 'success');
+  assert.equal(transportCalls, 0);
+  assert.equal(exportResults[1].status, 'disabled');
+
+  const withConsent = await runApproved(engine, {
+    runId: 'run-telemetry-failed', releaseId: 'release-1',
+    desiredState: { ...desired, consents: ['network', 'telemetry'] },
+  });
+  assert.equal(withConsent.receipt.status, 'success');
+  assert.equal(withConsent.exitCode, 0);
+  assert.equal(transportCalls, 1);
+  assert.equal(exportResults[2].status, 'failed');
+});
+
 test('online output evidence is bounded while terminal capacity is preserved', async () => {
   const { engine } = harness({
     apply: async (_node, context) => {
