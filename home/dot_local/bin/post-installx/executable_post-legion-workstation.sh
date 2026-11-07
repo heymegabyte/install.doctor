@@ -1729,10 +1729,25 @@ EOF
   run_root cp "$TMP_DIR/pbs-workstation-backup.timer" /etc/systemd/system/pbs-workstation-backup.timer
   run_root systemctl enable --now pbs-workstation-backup.timer >/dev/null 2>&1 || true
 
-  # Journald 500M cap + ZSTD compression
-  run_root install -d -m 0755 /etc/systemd/journald.conf.d
-  printf '[Journal]\nSystemMaxUse=500M\nRuntimeMaxUse=100M\nMaxRetentionSec=14day\nCompress=yes\n' > "$TMP_DIR/99-fleet-limits.conf"
+  # Journald 512M cap + ZSTD compression + coredump cap + earlyoom desktop protection + AppArmor override + UFW multicast silence
+  run_root install -d -m 0755 /etc/systemd/journald.conf.d /etc/systemd/coredump.conf.d /etc/apparmor.d/local
+  printf '[Journal]\nSystemMaxUse=512M\nSystemMaxFileSize=64M\nRuntimeMaxUse=128M\nMaxRetentionSec=14day\nCompress=yes\nRateLimitIntervalSec=30s\nRateLimitBurst=5000\n' > "$TMP_DIR/99-fleet-limits.conf"
   run_root cp "$TMP_DIR/99-fleet-limits.conf" /etc/systemd/journald.conf.d/99-fleet-limits.conf
+  run_root journalctl --vacuum-size=512M >/dev/null 2>&1 || true
+  printf '[Coredump]\nStorage=external\nCompress=yes\nProcessSizeMax=1G\nMaxUse=512M\nKeepFree=4G\n' > "$TMP_DIR/99-fleet-coredump.conf"
+  run_root cp "$TMP_DIR/99-fleet-coredump.conf" /etc/systemd/coredump.conf.d/99-fleet.conf
+  cat > "$TMP_DIR/earlyoom-default" <<'EOF'
+EARLYOOM_ARGS="-r 3600 -m 5 -s 20 --prefer '(Web Content|Isolated Web|chromium|chrome|node|python3)' --avoid '(^|/)(init|systemd|sshd|gnome-shell|gnome-session|Xwayland|wayland|pipewire|wireplumber|Xkasmvnc|xtigervncviewer|cloudflared|dockerd|containerd|cua-driver)$'"
+EOF
+  run_root cp "$TMP_DIR/earlyoom-default" /etc/default/earlyoom
+  run_root systemctl restart earlyoom.service >/dev/null 2>&1 || true
+  if [ -f /etc/apparmor.d/systemd-detect-virt ]; then
+    printf '/{,att/systemd-detect-virt/}run/systemd/journal*/socket rw,\n' | run_root tee /etc/apparmor.d/local/systemd-detect-virt >/dev/null 2>&1 || true
+    run_root apparmor_parser -r /etc/apparmor.d/systemd-detect-virt >/dev/null 2>&1 || true
+  fi
+  if command -v ufw >/dev/null 2>&1; then
+    run_root ufw logging low >/dev/null 2>&1 || true
+  fi
 
   # systemd-oomd User-Slice PSI Protection + DefaultIPAccounting + background-agents.slice
   run_root install -d -m 0755 /etc/systemd/system/user@.service.d /etc/systemd/system.conf.d
@@ -1858,9 +1873,13 @@ net.core.wmem_max = 134217728
 net.ipv4.tcp_rmem = 4096 87380 134217728
 net.ipv4.tcp_wmem = 4096 65536 134217728
 net.ipv4.tcp_window_scaling = 1
+net.core.netdev_max_backlog = 16384
+net.ipv4.tcp_max_syn_backlog = 8192
 net.ipv4.tcp_keepalive_time = 300
 net.ipv4.tcp_keepalive_intvl = 15
 net.ipv4.tcp_keepalive_probes = 5
+net.ipv4.tcp_fin_timeout = 15
+net.ipv4.tcp_tw_reuse = 1
 vm.swappiness = 100
 vm.page-cluster = 0
 vm.dirty_ratio = 10
@@ -1950,9 +1969,15 @@ EOF
   run_root systemctl enable --now fstrim.timer >/dev/null 2>&1 || true
   if command -v zpool >/dev/null 2>&1; then
     [ -w /sys/module/zfs/parameters/zfs_arc_dnode_limit_percent ] && echo 20 | run_root tee /sys/module/zfs/parameters/zfs_arc_dnode_limit_percent >/dev/null 2>&1 || true
+    [ -w /sys/module/zfs/parameters/zfs_dirty_data_max_percent ] && echo 10 | run_root tee /sys/module/zfs/parameters/zfs_dirty_data_max_percent >/dev/null 2>&1 || true
     for ds in $(zfs list -H -o name -r rpool 2>/dev/null || true); do
       run_root zfs set compression=zstd-fast-3 "$ds" 2>/dev/null || true
     done
+    if zfs list rpool/ai-models >/dev/null 2>&1; then
+      run_root zfs set recordsize=1M rpool/ai-models 2>/dev/null || true
+      run_root zfs set logbias=throughput rpool/ai-models 2>/dev/null || true
+      run_root zfs set primarycache=metadata rpool/ai-models 2>/dev/null || true
+    fi
     # Disable continuous NCQ autotrim on Samsung SM951 (MZHPV512HDGL) AHCI PCIe SSDs to prevent concurrent FPDMA TRIM+WRITE aborts
     if lsblk -d -no MODEL 2>/dev/null | grep -qi 'MZHPV512HDGL'; then
       for pool in rpool bpool; do
