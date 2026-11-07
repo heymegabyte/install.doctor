@@ -1749,6 +1749,14 @@ EOF
     printf '/{,att/systemd-detect-virt/}run/systemd/journal*/socket rw,\n' | run_root tee /etc/apparmor.d/local/systemd-detect-virt >/dev/null 2>&1 || true
     run_root apparmor_parser -r /etc/apparmor.d/systemd-detect-virt >/dev/null 2>&1 || true
   fi
+  if [ -f /etc/apparmor.d/lsblk ]; then
+    printf 'capability dac_read_search,\ncapability dac_override,\n' | run_root tee /etc/apparmor.d/local/lsblk >/dev/null 2>&1 || true
+    run_root apparmor_parser -r /etc/apparmor.d/lsblk >/dev/null 2>&1 || true
+  fi
+  if command -v snap >/dev/null 2>&1; then
+    run_root snap set system refresh.timer=03:00-04:00 >/dev/null 2>&1 || true
+    run_root snap remove --purge hwctl >/dev/null 2>&1 || true
+  fi
   if command -v ufw >/dev/null 2>&1; then
     run_root ufw logging low >/dev/null 2>&1 || true
   fi
@@ -2131,6 +2139,9 @@ net.ipv4.icmp_ignore_bogus_error_responses = 1
 net.ipv4.icmp_echo_ignore_broadcasts = 1
 vm.min_free_kbytes = 65536
 net.ipv4.tcp_limit_output_bytes = 262144
+fs.suid_dumpable = 0
+fs.protected_fifos = 2
+fs.protected_regular = 2
 EOF
   run_root cp "$TMP_DIR/99-fleet-wave3-ai-kernel.conf" /etc/sysctl.d/99-fleet-wave3-ai-kernel.conf
   run_root sysctl --system >/dev/null 2>&1 || true
