@@ -34,3 +34,4 @@ export * from './native-dpkg-transaction.js';
 export * from './debian-gpgv.js';
 export * from './native-policy-rcd.js';
 export * from './offline-authority.js';
+export * from './deprovision-plan.js';
