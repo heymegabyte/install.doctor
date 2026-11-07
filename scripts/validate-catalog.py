@@ -36,6 +36,10 @@ PRELOAD_REASONS = {
     "lazy-installer-substrate",
     "security-recovery-prerequisite",
     "desired-state-service",
+    "shell-profile-core",
+    "web-dev-core",
+    "media-management-core",
+    "lsp-core",
 }
 VALID_MANAGERS = {
     "brew",
