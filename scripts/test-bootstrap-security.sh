@@ -23,6 +23,10 @@ done
 
 ! grep -Eq '(curl|wget)[^|;]*\|[[:space:]]*(/bin/)?(ba)?sh|bash -c "\$\(curl' "$ROOT/start.sh" \
   || fail 'start.sh executes mutable remote installer output'
+grep -Fq 'shasum -a 256 "$0"' "$ROOT/start.sh" \
+  || fail 'start.sh lacks the macOS-native SHA-256 fallback'
+! grep -Fq 'date -r "$0"' "$ROOT/start.sh" \
+  || fail 'start.sh misuses the nonportable date -r file fallback'
 TASK_BOOTSTRAP="$ROOT/scripts/lib/task-bootstrap.sh"
 grep -Eq "readonly INSTALL_DOCTOR_TASK_VERSION='v[0-9]+\.[0-9]+\.[0-9]+'" "$TASK_BOOTSTRAP" \
   || fail 'legacy Task bootstrap does not pin an immutable release'

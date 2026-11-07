@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import childProcess from 'node:child_process';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
@@ -110,7 +111,13 @@ const evidence = {
   generatedAt:new Date().toISOString(), runtime:{node:process.version,platform:process.platform,arch:process.arch},
   authority:{
     releaseId:'fixture-release', sourceCommit, planDigest:planDigests[0],
-    fixturePlatform:{os:'darwin',osVersion:'15',arch:'arm64',environment:'native',packageManager:'brew'},
+    fixturePlatform:{
+      os:process.platform,
+      osVersion:os.release(),
+      arch:process.arch,
+      environment:'native',
+      packageManager:process.platform === 'darwin' ? 'brew' : process.platform === 'win32' ? 'winget' : 'native',
+    },
     hardwareClass:'local-unclassified', isolation:'fresh-process-and-loopback-fixture',
   },
   sampling:{ cold:'fresh-process-per-sample', warm:'persistent-process-repeated-samples', minimumSamples:policy.minimumSamples },

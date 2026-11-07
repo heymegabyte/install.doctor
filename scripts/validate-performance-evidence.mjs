@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import fs from 'node:fs';
+import os from 'node:os';
 import childProcess from 'node:child_process';
 import path from 'node:path';
 import process from 'node:process';
@@ -16,6 +17,13 @@ const planEvidence = JSON.parse(childProcess.execFileSync(process.execPath, [pat
   cwd:root, encoding:'utf8', maxBuffer:4 * 1024 * 1024, env:{ ...process.env, NODE_NO_WARNINGS:'1' },
 }));
 const authoritativePlanDigest = planEvidence?.samples?.[0]?.planDigest;
+const authoritativeFixturePlatform = {
+  os:process.platform,
+  osVersion:os.release(),
+  arch:process.arch,
+  environment:'native',
+  packageManager:process.platform === 'darwin' ? 'brew' : process.platform === 'win32' ? 'winget' : 'native',
+};
 const exact = (value, keys, location) => {
   if (!value || typeof value !== 'object' || Array.isArray(value)) { errors.push(`${location} must be an object`); return; }
   for (const key of Object.keys(value)) if (!keys.includes(key)) errors.push(`${location}.${key} is unknown`);
@@ -46,7 +54,7 @@ exact(evidence.authority?.fixturePlatform,['os','osVersion','arch','environment'
 if (evidence.authority?.releaseId !== 'fixture-release'
   || evidence.authority?.sourceCommit !== sourceCommit
   || evidence.authority?.planDigest !== authoritativePlanDigest
-  || JSON.stringify(evidence.authority?.fixturePlatform) !== JSON.stringify({os:'darwin',osVersion:'15',arch:'arm64',environment:'native',packageManager:'brew'})
+  || JSON.stringify(evidence.authority?.fixturePlatform) !== JSON.stringify(authoritativeFixturePlatform)
   || evidence.authority?.hardwareClass !== 'local-unclassified'
   || evidence.authority?.isolation !== 'fresh-process-and-loopback-fixture') errors.push('fixture authority binding is invalid');
 exact(evidence.sampling,['cold','warm','minimumSamples'],'$.sampling');

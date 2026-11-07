@@ -71,10 +71,14 @@ chmod +x .config/log
 
 # @description Acquire unique ID for this script
 if [ -z "$CI" ]; then
-  if type md5sum &> /dev/null; then
-    FILE_HASH="$(md5sum "$0" | sed 's/\s.*$//')"
+  if command -v sha256sum >/dev/null 2>&1; then
+    FILE_HASH="$(sha256sum "$0" | awk '{print $1}')"
+  elif command -v shasum >/dev/null 2>&1; then
+    FILE_HASH="$(shasum -a 256 "$0" | awk '{print $1}')"
+  elif command -v openssl >/dev/null 2>&1; then
+    FILE_HASH="$(openssl dgst -sha256 "$0" | awk '{print $NF}')"
   else
-    FILE_HASH="$(date -r "$0" +%s)"
+    FILE_HASH="$(cksum "$0" | awk '{print $1 "-" $2}')"
   fi
 else
   FILE_HASH="none"

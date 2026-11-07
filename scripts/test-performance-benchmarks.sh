@@ -18,10 +18,16 @@ if node "$VALIDATOR" "$TMP/evidence.json" "$BUDGETS"; then pass 'measured eviden
 
 if node - "$TMP/evidence.json" <<'NODE'
 const value = JSON.parse(require('node:fs').readFileSync(process.argv[2], 'utf8'));
+const os = require('node:os');
 if (value.schemaVersion !== 2 || value.fixtureId !== 'installer-hermetic-v2') process.exit(1);
 if (value.scope !== 'hermetic-fixture' || value.claimsProductionPerformance !== false) process.exit(2);
 if (!value.authority || value.authority.releaseId !== 'fixture-release' || !/^[a-f0-9]{64}$/.test(value.authority.planDigest)) process.exit(8);
 if (!/^[a-f0-9]{40}$/.test(value.authority.sourceCommit) || value.authority.fixturePlatform.environment !== 'native') process.exit(9);
+const expectedPackageManager = process.platform === 'darwin' ? 'brew' : process.platform === 'win32' ? 'winget' : 'native';
+if (value.authority.fixturePlatform.os !== process.platform
+  || value.authority.fixturePlatform.osVersion !== os.release()
+  || value.authority.fixturePlatform.arch !== process.arch
+  || value.authority.fixturePlatform.packageManager !== expectedPackageManager) process.exit(10);
 if (value.sampling.cold !== 'fresh-process-per-sample' || value.sampling.warm !== 'persistent-process-repeated-samples') process.exit(3);
 const names = new Set(value.measurements.map(item => `${item.name}:${item.temperature}`));
 for (const expected of ['launcher-render:cold','launcher-render:warm','time-to-plan:cold','time-to-plan:warm','unchanged-run:cold','unchanged-run:warm','task-latency:cold','task-latency:warm','queue-wait:warm','queue-utilization:warm','critical-path:warm','observed-makespan:warm','cpu-time:warm','peak-rss:warm','fixture-disk-read-bytes:warm','fixture-disk-write-bytes:warm','fixture-network-received-bytes:warm','fixture-network-sent-bytes:warm','peak-cpu-percent:warm','peak-disk-throughput:warm','peak-network-throughput:warm']) if (!names.has(expected)) process.exit(4);
