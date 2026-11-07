@@ -1,0 +1,44 @@
+{
+  "schemaVersion": 2,
+  "revision": "migration-source",
+  "appUrl": "https://app.install.doctor",
+  "routing": {
+    "engine": "projectsites",
+    "preferredProvider": "deepseek",
+    "allowPremium": false,
+    "maxTaskCostMicros": 250000
+  },
+  "skills": {
+    "repository": "heymegabyte/agent-skills",
+    "commit": "0000000000000000000000000000000000000000",
+    "include": ["desktop-provisioning"]
+  },
+  "defaults": {
+    "packages": ["git", "chezmoi"],
+    "shellHistory": "hishtory"
+  },
+  "roles": [
+    { "id": "runner", "packages": ["alloy"] },
+    { "id": "workstation", "packages": ["mise"] }
+  ],
+  "machines": [
+    { "id": "runner-a", "os": "linux", "role": "runner", "packageOverrides": { "add": ["restic"], "remove": [] } },
+    { "id": "runner-b", "os": "linux", "role": "runner", "packageOverrides": { "add": ["jq"], "remove": [] } },
+    { "id": "laptop", "os": "darwin", "role": "workstation", "packageOverrides": { "add": [], "remove": [] } }
+  ],
+  "services": [
+    {
+      "id": "logs",
+      "kind": "loki",
+      "pushUrl": "https://logs.example.invalid/loki/api/v1/push",
+      "credentialRef": "infisical://fleet/loki",
+      "machineIds": ["runner-a", "runner-b", "laptop"]
+    }
+  ],
+  "privacy": {
+    "shellAnalysis": "local",
+    "screenshots": "off",
+    "terminalInput": false,
+    "productLearning": false
+  }
+}

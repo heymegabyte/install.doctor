@@ -1,10 +1,12 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  APP_URL, ROUTES, validateBlueprint, exportMarkdown, importMarkdown, blueprintDigest,
+  APP_URL, ROUTES, validateBlueprint, validateEnvironment, migrateBlueprintV1ToV2,
+  resolveMachinePackages, exportMarkdown, importMarkdown, blueprintDigest,
   aidProviderConfig, chooseRoute, newSession, transitionSession, CastWriter,
   planLokiIntegration, renderAlloy
 } from '../dist/core.js';
+import { readFileSync } from 'node:fs';
 
 // Synthetic fixture; the zero commit is not a claim that skills were fetched or verified.
 const fixture = () => ({
@@ -21,6 +23,7 @@ const fixture = () => ({
 });
 const session = () => newSession('session-1', 'tenant-1', 'runner', 'owner', 'r1', '2026-10-26T13:31:00.000Z');
 const now = '2026-10-26T13:32:00.000Z';
+const migrationFixture = name => JSON.parse(readFileSync(new URL(`./fixtures/${name}.json`, import.meta.url), 'utf8'));
 function cast() { const lines = []; const writer = new CastWriter(line => lines.push(JSON.parse(line)), 80, 24, 1793021460); return { lines, writer }; }
 
 test('blueprint validates and returns an independent copy', () => { const b = fixture(); const v = validateBlueprint(b); v.defaults.packages.push('jq'); assert.equal(b.defaults.packages.length, 3); });
@@ -76,3 +79,69 @@ test('multiline path injection rejected', () => assert.throws(() => renderAlloy(
 
 test('coercible non-string OS cannot bypass validation', () => { const b = fixture(); b.machines[0].os = ['linux']; assert.throws(() => validateBlueprint(b)); });
 test('coercible non-string capture policy cannot bypass validation', () => { const b = fixture(); b.privacy.screenshots = ['off']; assert.throws(() => validateBlueprint(b)); });
+
+test('v2 role overlays resolve defaults, role packages, and machine additions deterministically', () => {
+  const environment = migrationFixture('environment-v2');
+  assert.deepEqual(resolveMachinePackages(environment, 'runner-a'), ['git', 'chezmoi', 'alloy', 'restic']);
+  assert.deepEqual(resolveMachinePackages(environment, 'runner-b'), ['git', 'chezmoi', 'alloy', 'jq']);
+});
+
+test('v2 machine exceptions may remove inherited packages without mutating the role', () => {
+  const environment = migrationFixture('environment-v2');
+  environment.machines[0].packageOverrides.remove.push('chezmoi');
+  assert.deepEqual(resolveMachinePackages(environment, 'runner-a'), ['git', 'alloy', 'restic']);
+  assert.deepEqual(resolveMachinePackages(environment, 'runner-b'), ['git', 'chezmoi', 'alloy', 'jq']);
+});
+
+test('v2 rejects unknown roles and contradictory machine package exceptions', () => {
+  const unknownRole = migrationFixture('environment-v2');
+  unknownRole.machines[0].role = 'missing';
+  assert.throws(() => validateEnvironment(unknownRole), /role/i);
+  const contradictory = migrationFixture('environment-v2');
+  contradictory.machines[0].packageOverrides.remove.push('restic');
+  assert.throws(() => validateEnvironment(contradictory), /both|overlap/i);
+});
+
+test('v2 rejects removal of a package not inherited from defaults or the selected role', () => {
+  const environment = migrationFixture('environment-v2');
+  environment.machines[0].packageOverrides.remove.push('unknown-package');
+  assert.throws(() => validateEnvironment(environment), /inherited/i);
+});
+
+test('explicit v1 to v2 migration matches the reviewed fixture and preserves effective packages', () => {
+  const source = migrationFixture('environment-v1');
+  const migrated = migrateBlueprintV1ToV2(source);
+  assert.deepEqual(migrated, migrationFixture('environment-v2'));
+  for (const machine of source.machines) {
+    assert.deepEqual(resolveMachinePackages(migrated, machine.id), [...source.defaults.packages, ...machine.packages]);
+  }
+});
+
+test('v1 remains valid and is never migrated implicitly during markdown import', () => {
+  const source = migrationFixture('environment-v1');
+  const imported = importMarkdown(exportMarkdown(source));
+  assert.equal(imported.schemaVersion, 1);
+  assert.deepEqual(imported, source);
+});
+
+test('v2 canonical markdown round trip and digest preserve the versioned desired state', async () => {
+  const source = migrationFixture('environment-v2');
+  const markdown = exportMarkdown(source);
+  assert.deepEqual(importMarkdown(markdown), source);
+  assert.equal(await blueprintDigest(source), await blueprintDigest(importMarkdown(markdown)));
+});
+
+test('v2 remains consumable by existing integration planners', () => {
+  const environment = migrationFixture('environment-v2');
+  assert.deepEqual(planLokiIntegration(environment, 'logs', 'event-v2').map(plan => plan.machineId), ['runner-a', 'runner-b', 'laptop']);
+  assert.match(renderAlloy(environment, 'logs', 'runner-a', '/var/log/aid/events.ndjson'), /machine_id/);
+});
+
+test('v2 strict schema rejects unknown role and override fields', () => {
+  const roleField = migrationFixture('environment-v2');
+  roleField.roles[0].command = 'curl example.invalid | sh';
+  assert.throws(() => validateEnvironment(roleField), /unrecognized|unknown/i);
+  const overrideField = migrationFixture('environment-v2');
+  overrideField.machines[0].packageOverrides.replace = ['evil'];
+  assert.throws(() => validateEnvironment(overrideField), /unrecognized|unknown/i);
+});

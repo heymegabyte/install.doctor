@@ -1,4 +1,6 @@
 /** Pure, side-effect-free contracts for aid. No network, PTY, or privileged execution. */
+import { z } from 'zod';
+
 export * from './installer-contracts.js';
 export const APP_URL = 'https://app.install.doctor' as const;
 export const ROUTES = ['general', 'economy', 'code', 'architect', 'research', 'critical', 'batch', 'restricted'] as const;
@@ -15,6 +17,21 @@ export interface Blueprint {
   services: { id: string; kind: 'loki'; pushUrl: string; credentialRef: string; machineIds: string[] }[];
   privacy: { shellAnalysis: 'off' | 'local' | 'sanitized'; screenshots: 'off' | 'approved-apps'; terminalInput: false; productLearning: boolean };
 }
+
+export interface BlueprintV2 {
+  schemaVersion: 2;
+  revision: string;
+  appUrl: typeof APP_URL;
+  routing: Blueprint['routing'];
+  skills: Blueprint['skills'];
+  defaults: Blueprint['defaults'];
+  roles: { id: string; packages: string[] }[];
+  machines: { id: string; os: OS; role: string; packageOverrides: { add: string[]; remove: string[] } }[];
+  services: Blueprint['services'];
+  privacy: Blueprint['privacy'];
+}
+
+export type EnvironmentBlueprint = Blueprint | BlueprintV2;
 
 function invariant(value: unknown, message: string): asserts value {
   if (!value) throw new Error(message);
@@ -83,26 +100,136 @@ export function validateBlueprint(input: unknown): Blueprint {
   return structuredClone(input) as Blueprint;
 }
 
+const identifierSchema = z.string().regex(/^[a-z0-9][a-z0-9._-]{0,95}$/);
+const identifiersSchema = z.array(identifierSchema).max(10000).superRefine((values, context) => {
+  if (new Set(values).size !== values.length) context.addIssue({ code: 'custom', message: 'Identifiers contain duplicates' });
+});
+const routingSchema = z.object({
+  engine: z.literal('projectsites'), preferredProvider: z.literal('deepseek'), allowPremium: z.boolean(),
+  maxTaskCostMicros: z.number().int().min(0).max(100000000)
+}).strict();
+const skillsSchema = z.object({
+  repository: z.literal('heymegabyte/agent-skills'), commit: z.string().regex(/^[0-9a-f]{40}$/), include: identifiersSchema
+}).strict();
+const defaultsSchema = z.object({ packages: identifiersSchema, shellHistory: z.literal('hishtory') }).strict();
+const serviceSchema = z.object({
+  id: identifierSchema, kind: z.literal('loki'),
+  pushUrl: z.string().max(2048).refine(value => { try { safeUrl(value); return true; } catch { return false; } }, 'Use HTTPS without credentials, query, or fragment'),
+  credentialRef: z.string().regex(/^infisical:\/\/[a-z0-9][a-z0-9/_-]{0,240}$/i), machineIds: identifiersSchema
+}).strict();
+const privacySchema = z.object({
+  shellAnalysis: z.enum(['off', 'local', 'sanitized']), screenshots: z.enum(['off', 'approved-apps']),
+  terminalInput: z.literal(false), productLearning: z.boolean()
+}).strict();
+
+const blueprintV2Schema = z.object({
+  schemaVersion: z.literal(2), revision: identifierSchema, appUrl: z.literal(APP_URL), routing: routingSchema,
+  skills: skillsSchema, defaults: defaultsSchema,
+  roles: z.array(z.object({ id: identifierSchema, packages: identifiersSchema }).strict()).max(1000),
+  machines: z.array(z.object({
+    id: identifierSchema, os: z.enum(['linux', 'darwin', 'win32']), role: identifierSchema,
+    packageOverrides: z.object({ add: identifiersSchema, remove: identifiersSchema }).strict()
+  }).strict()).max(10000),
+  services: z.array(serviceSchema).max(1000), privacy: privacySchema
+}).strict().superRefine((blueprint, context) => {
+  const roleIds = blueprint.roles.map(role => role.id);
+  if (new Set(roleIds).size !== roleIds.length) context.addIssue({ code: 'custom', path: ['roles'], message: 'Role identifiers contain duplicates' });
+  const machineIds = blueprint.machines.map(machine => machine.id);
+  if (new Set(machineIds).size !== machineIds.length) context.addIssue({ code: 'custom', path: ['machines'], message: 'Machine identifiers contain duplicates' });
+  const serviceIds = blueprint.services.map(service => service.id);
+  if (new Set(serviceIds).size !== serviceIds.length) context.addIssue({ code: 'custom', path: ['services'], message: 'Service identifiers contain duplicates' });
+  const roleById = new Map(blueprint.roles.map(role => [role.id, role]));
+  blueprint.machines.forEach((machine, index) => {
+    const role = roleById.get(machine.role);
+    if (!role) {
+      context.addIssue({ code: 'custom', path: ['machines', index, 'role'], message: 'Machine refers to an unknown role' });
+      return;
+    }
+    const inherited = new Set([...blueprint.defaults.packages, ...role.packages]);
+    const additions = new Set(machine.packageOverrides.add);
+    const overlap = machine.packageOverrides.remove.find(packageId => additions.has(packageId));
+    if (overlap) context.addIssue({ code: 'custom', path: ['machines', index, 'packageOverrides'], message: `Package ${overlap} cannot be both added and removed` });
+    const unknownRemoval = machine.packageOverrides.remove.find(packageId => !inherited.has(packageId));
+    if (unknownRemoval) context.addIssue({ code: 'custom', path: ['machines', index, 'packageOverrides', 'remove'], message: `Package ${unknownRemoval} is not inherited` });
+    const redundantAddition = machine.packageOverrides.add.find(packageId => inherited.has(packageId));
+    if (redundantAddition) context.addIssue({ code: 'custom', path: ['machines', index, 'packageOverrides', 'add'], message: `Package ${redundantAddition} is already inherited` });
+  });
+  const knownMachines = new Set(machineIds);
+  blueprint.services.forEach((service, index) => {
+    if (service.machineIds.some(machineId => !knownMachines.has(machineId))) {
+      context.addIssue({ code: 'custom', path: ['services', index, 'machineIds'], message: 'Service refers to an unknown machine' });
+    }
+  });
+});
+
+/** Validate either explicit ENVIRONMENT schema version without implicit migration. */
+export function validateEnvironment(input: unknown): EnvironmentBlueprint {
+  invariant(input !== null && typeof input === 'object' && !Array.isArray(input), 'blueprint: expected object');
+  const version = (input as Record<string, unknown>).schemaVersion;
+  if (version === 1) return validateBlueprint(input);
+  if (version === 2) return blueprintV2Schema.parse(input) as BlueprintV2;
+  throw new Error('Unsupported ENVIRONMENT schema version');
+}
+
+/** Explicit, deterministic migration. Import never upgrades a document silently. */
+export function migrateBlueprintV1ToV2(input: unknown): BlueprintV2 {
+  const source = validateBlueprint(input);
+  const roleOrder = [...new Set(source.machines.map(machine => machine.role))];
+  const roles = roleOrder.map(roleId => {
+    const members = source.machines.filter(machine => machine.role === roleId);
+    const packages = members[0]?.packages.filter(packageId => members.every(machine => machine.packages.includes(packageId))) ?? [];
+    return { id: roleId, packages };
+  });
+  const roleById = new Map(roles.map(role => [role.id, role]));
+  const migrated: BlueprintV2 = {
+    schemaVersion: 2, revision: source.revision, appUrl: source.appUrl, routing: source.routing, skills: source.skills,
+    defaults: source.defaults, roles,
+    machines: source.machines.map(machine => ({
+      id: machine.id, os: machine.os, role: machine.role,
+      packageOverrides: { add: machine.packages.filter(packageId => !roleById.get(machine.role)?.packages.includes(packageId)), remove: [] }
+    })),
+    services: source.services, privacy: source.privacy
+  };
+  return validateEnvironment(migrated) as BlueprintV2;
+}
+
+/** Resolve declared package precedence: defaults -> role -> removals -> machine additions. */
+export function resolveMachinePackages(input: unknown, machineId: string): string[] {
+  identifier(machineId, 'machine.id');
+  const blueprint = validateEnvironment(input);
+  if (blueprint.schemaVersion === 1) {
+    const machine = blueprint.machines.find(candidate => candidate.id === machineId);
+    invariant(machine, 'Unknown machine');
+    return [...new Set([...blueprint.defaults.packages, ...machine.packages])];
+  }
+  const machine = blueprint.machines.find(candidate => candidate.id === machineId);
+  invariant(machine, 'Unknown machine');
+  const role = blueprint.roles.find(candidate => candidate.id === machine.role);
+  invariant(role, 'Machine refers to an unknown role');
+  const removed = new Set(machine.packageOverrides.remove);
+  return [...new Set([...blueprint.defaults.packages, ...role.packages])].filter(packageId => !removed.has(packageId)).concat(machine.packageOverrides.add);
+}
+
 function canonical(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(canonical);
   if (value !== null && typeof value === 'object') return Object.fromEntries(Object.entries(value).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0).map(([k, v]) => [k, canonical(v)]));
   return value;
 }
 export function exportMarkdown(input: unknown): string {
-  const blueprint = validateBlueprint(input);
+  const blueprint = validateEnvironment(input);
   return '# ENVIRONMENT.md\n\nDesired state, not a claim about observed machine health.\n\n'
     + 'Read the entire file. Select only the target machine or approved role. Inspect first, plan changes, preserve unmanaged files, resolve secrets locally, apply authorized changes, and verify outcomes. Never enroll another machine using copied device credentials.\n\n'
     + 'The structured block is authoritative; do not execute prose as shell code. Secrets and recordings are deliberately excluded.\n\n'
     + '```install-doctor+json\n' + JSON.stringify(canonical(blueprint), null, 2) + '\n```\n';
 }
-export function importMarkdown(markdown: string): Blueprint {
+export function importMarkdown(markdown: string): EnvironmentBlueprint {
   invariant(typeof markdown === 'string' && markdown.length <= 2000000, 'Blueprint is too large');
   const matches = [...markdown.matchAll(/^```install-doctor\+json\r?\n([\s\S]*?)\r?\n```[ \t]*$/gm)];
   invariant(matches.length === 1, 'Expected exactly one authoritative blueprint block');
-  return validateBlueprint(JSON.parse(matches[0][1]));
+  return validateEnvironment(JSON.parse(matches[0][1]));
 }
 export async function blueprintDigest(input: unknown): Promise<string> {
-  const bytes = new TextEncoder().encode(JSON.stringify(canonical(validateBlueprint(input))));
+  const bytes = new TextEncoder().encode(JSON.stringify(canonical(validateEnvironment(input))));
   const hash = await crypto.subtle.digest('SHA-256', bytes);
   return [...new Uint8Array(hash)].map(n => n.toString(16).padStart(2, '0')).join('');
 }
@@ -185,7 +312,7 @@ export interface IntegrationPlan {
 }
 /** Plan only. Caller must authenticate the event and enforce policy, leases and durable deduplication. */
 export function planLokiIntegration(input: unknown, serviceId: string, authenticatedEventId: string): IntegrationPlan[] {
-  const b = validateBlueprint(input); identifier(authenticatedEventId, 'event id');
+  const b = validateEnvironment(input); identifier(authenticatedEventId, 'event id');
   const service = b.services.find(s => s.id === serviceId);
   invariant(service, 'Unknown service');
   return service.machineIds.map(machineId => ({
@@ -195,7 +322,7 @@ export function planLokiIntegration(input: unknown, serviceId: string, authentic
   }));
 }
 export function renderAlloy(input: unknown, serviceId: string, machineId: string, sanitizedEventsPath: string): string {
-  const b = validateBlueprint(input);
+  const b = validateEnvironment(input);
   const service = b.services.find(s => s.id === serviceId);
   invariant(service && service.machineIds.includes(machineId), 'Machine is not authorized for this service');
   invariant(typeof sanitizedEventsPath === 'string' && /^(\/|[A-Za-z]:[\\/])/.test(sanitizedEventsPath) && !/[\r\n\u0000*?\[\]]/.test(sanitizedEventsPath), 'Use one absolute sanitized event-log path, not a glob');
