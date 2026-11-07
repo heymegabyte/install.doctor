@@ -80,24 +80,25 @@ else
   pass "python3 absent — volta.node JSON check skipped (the CI node-version is still gated above)"
 fi
 
-# 6 (#353). The SIBLING Firebase-deploy workflow — site-preview.yml (the PR preview) — shares the deploy path
-#    and MUST hold the same invariants. It is NOT a push/live deploy (ephemeral PR channel, no channelId:live),
-#    so only the SHARED invariants apply: same secret + Firebase project + a SUPPORTED Node. #352 fixed Node on
-#    site-deploy.yml but MISSED this sibling (it kept EOL 16) — this closes that gate gap so neither can drift.
+# 6. Pull-request validation builds the site but MUST NOT deploy a preview or receive deployment secrets.
+#    Production is the only environment; tests validate the checked-out revision without external mutation.
 PREVIEW="${SITE_PREVIEW_WF:-$ROOT/.github/workflows/site-preview.yml}"
 if [ ! -f "$PREVIEW" ]; then
-  pass "no site-preview.yml sibling (nothing to drift)"
+  fail "site-preview.yml build validation is missing"
 else
-  if has "$PREVIEW" 'secrets\.FIREBASE_SERVICE_ACCOUNT_INSTALL_DOCTOR' && has "$PREVIEW" 'projectId:[[:space:]]*install-doctor'; then
-    pass "sibling site-preview.yml wired to the same Firebase project + secret (consistent deploy path)"
+  if has "$PREVIEW" 'FirebaseExtended/action-hosting-deploy|firebaseServiceAccount|secrets\.FIREBASE_SERVICE_ACCOUNT|channelId:'; then
+    fail "site-preview.yml may validate builds but must not deploy or receive Firebase credentials"
   else
-    fail "site-preview.yml drifted — must deploy projectId install-doctor via secrets.FIREBASE_SERVICE_ACCOUNT_INSTALL_DOCTOR"
+    pass "pull-request site validation has no deployment action or Firebase credential"
   fi
+  has "$PREVIEW" 'npm run build:prod' && has "$PREVIEW" 'test -s www/index.html' \
+    && pass "pull-request site validation builds and verifies output" \
+    || fail "site-preview.yml must build the checked-out site and verify output"
   pvnode="$(grep -oE 'node-version:[[:space:]]*"?[0-9]+' "$PREVIEW" | grep -oE '[0-9]+$' | head -1)"
   if [ -n "$pvnode" ] && [ "$pvnode" -ge 18 ]; then
-    pass "sibling site-preview.yml builds on a supported Node (node-version: $pvnode >= 18 — off EOL 16, consistent with site-deploy.yml)"
+    pass "pull-request site validation uses supported Node (node-version: $pvnode >= 18)"
   else
-    fail "site-preview.yml node-version '${pvnode:-none}' is EOL/unsupported (<18) — the PR-preview build runs on a dead runtime; match site-deploy.yml (#352/#353)"
+    fail "site-preview.yml node-version '${pvnode:-none}' is EOL/unsupported (<18)"
   fi
 fi
 

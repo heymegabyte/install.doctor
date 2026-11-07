@@ -1,19 +1,23 @@
-name: "Deploy Site Preview on PR"
+name: "Validate Site on PR"
 
 on:
   pull_request:
     paths:
       - "site/**"
 
+permissions:
+  contents: read
+
 jobs:
-  build_and_preview:
-    if: "${{ github.event.pull_request.head.repo.full_name == github.repository }}"
+  build:
     runs-on: ubuntu-latest
     defaults:
       run:
         working-directory: site
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Setup Node
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
@@ -35,10 +39,5 @@ jobs:
       - name: Install and build
         run: npm ci --force && npm run build:prod
 
-      - name: Deploy preview to Firebase
-        uses: FirebaseExtended/action-hosting-deploy@7c850a480ce753f4f06f010801fc5a43787740bb # v0
-        with:
-          repoToken: "${{ secrets.GITHUB_TOKEN }}"
-          firebaseServiceAccount: "${{ secrets.FIREBASE_SERVICE_ACCOUNT_INSTALL_DOCTOR }}"
-          projectId: install-doctor
-          entryPoint: site
+      - name: Verify build output without deployment
+        run: test -s www/index.html
