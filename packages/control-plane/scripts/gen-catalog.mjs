@@ -194,6 +194,10 @@ try {
         'lazy-installer-substrate': ['eager-bootstrap', 'lazy-resolver:home/dot_config/shell/not-found-hook.sh'],
         'security-recovery-prerequisite': ['eager-security-recovery', 'security-recovery:pre-lazy-offline'],
         'desired-state-service': ['eager-service', 'desired-state:_serviceEnabled'],
+        'shell-profile-core': ['eager-supported-path', 'supported-path:shell-profile-core'],
+        'web-dev-core': ['eager-supported-path', 'supported-path:web-dev-core'],
+        'media-management-core': ['eager-supported-path', 'supported-path:media-management-core'],
+        'lsp-core': ['eager-supported-path', 'supported-path:lsp-core'],
       }[m.preloadReason];
       if (!loadClass) throw new Error(`unknown eager reason for ${it.name}: ${m.preloadReason}`);
       [it.loadPolicy, it.loadRationale] = loadClass;

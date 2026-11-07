@@ -618,10 +618,6 @@ softwarePackages:
     brew: astrovim
     npm: astronvim
   atuin:
-    _preload: true
-    _preloadReason: shell-profile-core
-    _loadPolicy: eager-supported-path
-    _loadRationale: supported-path:shell-profile-core
     _name: Atuin
     _short: Atuin is a shell history tool — a searchable, synced, SQLite-backed replacement for Ctrl-R.
     _desc: Atuin replaces your shell history with a SQLite database — a fuzzy Ctrl-R search TUI, rich per-command context (exit code, cwd, duration), stats, and optional end-to-end-encrypted sync across machines. Written in Rust, open-source.
@@ -7668,10 +7664,6 @@ softwarePackages:
     _github: https://github.com/google/nsjail
     _todo: add this, at time of adding there was no easily installable source but 3.2k stars and seems active
   ntfy:
-    _preload: true
-    _preloadReason: shell-profile-core
-    _loadPolicy: eager-supported-path
-    _loadRationale: supported-path:shell-profile-core
     _name: NFTY
     _short: ntfy is a command-line utility that sends notifications when a command finishes.
     _desc: ntfy is a command-line utility that sends desktop notifications when a command finishes. It supports various notification backends like Pushbullet, Pushover, Slack, Telegram, and more. It can be used to keep track of long-running commands or scripts without having to constantly check the terminal. It's easy to install and configure, making it a handy tool for system administrators and developers who want to stay updated on their command executions.

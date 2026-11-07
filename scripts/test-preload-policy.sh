@@ -17,7 +17,7 @@ set -uo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 YML="$ROOT/software.yml"
 # Ratchet: the current preload count. LOWER it as the favorite-gated convenience trim lands; never raise it.
-PRELOAD_CEILING="${PRELOAD_CEILING:-81}"
+PRELOAD_CEILING="${PRELOAD_CEILING:-79}"
 
 say() { command -v gum >/dev/null 2>&1 && gum style --foreground 51 -- "$*" || printf '\033[1;36m%s\033[0m\n' "$*"; }
 pass() { command -v gum >/dev/null 2>&1 && gum style --foreground 46 -- "PASS $*" || printf '\033[1;32mPASS\033[0m %s\n' "$*"; P=$((P + 1)); }
@@ -86,8 +86,11 @@ done
 # 2b. Shell-profile built-ins, language servers, web-development core CLIs, media-management pipeline tools,
 #     and backup/recovery CLIs stay preloaded for zero-latency shell startup and daily workflows, while
 #     cluster/cloud orchestration CLIs (kubectl, helm, terraform, ansible, vagrant) remain lazy via CNF shims.
-for t in gh zoxide eza bat fd fzf ripgrep delta direnv oh-my-posh tmux vim neovim pnpm typescript ffmpeg imagemagick exiftool qpdf rclone restic atuin carapace; do
+for t in gh zoxide eza bat fd fzf ripgrep delta direnv oh-my-posh tmux vim neovim pnpm typescript ffmpeg imagemagick exiftool qpdf rclone restic carapace; do
   is_pre "$t" && pass "shell/web-dev/media/backup core CLI preloaded: $t" || fail "shell/web-dev/media/backup core CLI NOT preloaded: $t"
+done
+for t in atuin ntfy; do
+  is_pre "$t" && fail "superseded or optional CLI is eager instead of lazy: $t" || pass "superseded or optional CLI remains lazy: $t"
 done
 for t in bash-language-server clangd vscode-langservers-extracted gopls pyright rust-analyzer typescript-language-server yaml-language-server; do
   is_pre "$t" && pass "LSP server preloaded: $t" || fail "LSP server NOT preloaded: $t"

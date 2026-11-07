@@ -27,7 +27,11 @@ else
     select(.value._preloadReason != "bootstrap-critical" and
       .value._preloadReason != "lazy-installer-substrate" and
       .value._preloadReason != "security-recovery-prerequisite" and
-      .value._preloadReason != "desired-state-service") |
+      .value._preloadReason != "desired-state-service" and
+      .value._preloadReason != "shell-profile-core" and
+      .value._preloadReason != "web-dev-core" and
+      .value._preloadReason != "media-management-core" and
+      .value._preloadReason != "lsp-core") |
     .key
   ' "$SOFTWARE")"
   orphan_preload_reasons="$(yq -r '.softwarePackages | to_entries[] | select((.value | has("_preloadReason")) and .value._preload != true) | .key' "$SOFTWARE")"
@@ -47,7 +51,7 @@ else
     fail "generated catalog must expose Poetry's uv replacement"
   fi
 
-  if jq -e 'all(.[] | select(.preload == true); (.preloadReason == "bootstrap-critical" or .preloadReason == "lazy-installer-substrate" or .preloadReason == "security-recovery-prerequisite" or .preloadReason == "desired-state-service"))' "$GENERATED" >/dev/null; then
+  if jq -e 'all(.[] | select(.preload == true); (.preloadReason == "bootstrap-critical" or .preloadReason == "lazy-installer-substrate" or .preloadReason == "security-recovery-prerequisite" or .preloadReason == "desired-state-service" or .preloadReason == "shell-profile-core" or .preloadReason == "web-dev-core" or .preloadReason == "media-management-core" or .preloadReason == "lsp-core"))' "$GENERATED" >/dev/null; then
     pass "generated catalog exposes every eager-install reason"
   else
     fail "generated catalog omits or invalidates an eager-install reason"
