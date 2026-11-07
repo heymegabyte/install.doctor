@@ -15,6 +15,10 @@ grep -Fq "const offlineSecretNames" "$target"
 grep -Fq "offlineSecretNames.has(secretName)" "$target"
 grep -Fq "backend === 'auto'" "$target"
 grep -Fq 'return getInfisicalSecret(secretName)' "$target"
+if grep -Fq 'process.env[secretName]' "$target"; then
+  printf 'get-secret accepts an ambient variable as authoritative secret input\n' >&2
+  exit 1
+fi
 ! grep -Fq 'environment variables, or Chezmoi Age-encrypted host store' "$target"
 zfs_hook=home/dot_local/bin/post-installx/executable_post-zfs-prep.sh
 ! grep -Fq 'infisical secrets get' "$zfs_hook"
