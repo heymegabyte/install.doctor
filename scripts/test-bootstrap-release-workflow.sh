@@ -17,7 +17,8 @@ check() { description="$1"; shift; if "$@"; then pass "$description"; else fail 
 test -f "$WORKFLOW" && test -f "$ACTIVATION_WORKFLOW" && test -f "$CONTINUITY_WORKFLOW" && test -f "$RENEWAL_WORKFLOW" || { printf 'missing production bootstrap release workflow\n' >&2; exit 1; }
 tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' EXIT
 sed -n '/^  build:/,/^  sign:/p' "$WORKFLOW" >"$tmp/build"
-sed -n '/^  sign:/,/^  publish:/p' "$WORKFLOW" >"$tmp/sign"
+sed -n '/^  sign:/,/^  attest:/p' "$WORKFLOW" >"$tmp/sign"
+sed -n '/^  attest:/,/^  publish:/p' "$WORKFLOW" >"$tmp/attest"
 sed -n '/^  publish:/,$p' "$WORKFLOW" >"$tmp/publish"
 sed -n '/^  activate:/,$p' "$ACTIVATION_WORKFLOW" >"$tmp/activate"
 sed -n '/^  assemble:/,/^  prepare:/p' "$RENEWAL_WORKFLOW" >"$tmp/renew-assemble"
@@ -44,6 +45,19 @@ check 'signer executable is digest-pinned before execution' grep -q 'SIGNER_SCRI
 check 'signer fetches one exact Infisical leaf' grep -q 'secret-name: INSTALL_DOCTOR_RELEASE_SIGNING_KEY' "$tmp/sign"
 check 'signer disables recursive/imported secret expansion' grep -q 'include-imports: false' "$tmp/sign"
 check 'signer erases key material before artifact upload' grep -q 'INSTALL_DOCTOR_RELEASE_SIGNING_KEY=\\n' "$tmp/sign"
+
+check 'attestor has only source-read and attestation token permissions' bash -c '
+  grep -q "contents: read" "$1" &&
+  grep -q "id-token: write" "$1" &&
+  grep -q "attestations: write" "$1" &&
+  grep -q "artifact-metadata: write" "$1"
+' _ "$tmp/attest"
+if grep -Eq 'Infisical|INSTALL_DOCTOR_RELEASE_SIGNING_KEY|publish-release-to-r2' "$tmp/attest"; then
+  fail 'attestor has signing, secret-resolution, or publication authority'
+else
+  pass 'attestor has no signing, secret-resolution, or publication authority'
+fi
+check 'publication is gated on successful release attestations' grep -Fq 'needs: [build, sign, attest]' "$tmp/publish"
 
 check 'publisher uses a separate protected environment' grep -q 'environment: bootstrap-release-publish' "$tmp/publish"
 if grep -q 'actions/checkout@\|INSTALL_DOCTOR_RELEASE_SIGNING_KEY\|INSTALL_DOCTOR_CHANNEL_R2_' "$tmp/publish"; then

@@ -182,9 +182,79 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
+  attest:
+    name: Bind provenance and SBOM to signed release bytes
+    needs: [build, sign]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+      artifact-metadata: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: bootstrap-release-signed-${{ github.run_id }}
+          path: signed-release
+      - name: Generate exact release SBOM and subject checksums
+        env:
+          RELEASE_ID: ${{ needs.build.outputs.release_id }}
+        run: |
+          set -euo pipefail
+          umask 077
+          source_commit="$(awk -F= '$1 == "source_commit" { print $2 }' signed-release/manifest)"
+          created_epoch="$(awk -F= '$1 == "created_at" { print $2 }' signed-release/manifest)"
+          test "$(awk -F= '$1 == "source_commit" { count++ } END { print count + 0 }' signed-release/manifest)" -eq 1
+          test "$(awk -F= '$1 == "created_at" { count++ } END { print count + 0 }' signed-release/manifest)" -eq 1
+          created_at="$(node -e 'const value=Number(process.argv[1]); if(!Number.isSafeInteger(value)) process.exit(65); process.stdout.write(new Date(value*1000).toISOString().replace(".000Z","Z"))' "$created_epoch")"
+          bash scripts/generate-sbom.sh \
+            --release-dir signed-release \
+            --release-id "$RELEASE_ID" \
+            --source-commit "$source_commit" \
+            --created-at "$created_at" \
+            --file release.cdx.json
+          (
+            cd signed-release
+            find . -maxdepth 1 -type f -print0 | LC_ALL=C sort -z | xargs -0 sha256sum
+          ) | sed 's#  \./#  #' >release-subjects.sha256
+          test "$(wc -l < release-subjects.sha256 | tr -d '[:space:]')" -eq 10
+      - id: provenance
+        name: Attest SLSA provenance for every signed release subject
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-checksums: release-subjects.sha256
+      - id: sbom
+        name: Attest exact CycloneDX inventory for every signed release subject
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-checksums: release-subjects.sha256
+          sbom-path: release.cdx.json
+      - name: Assemble offline-verifiable attestation evidence
+        env:
+          PROVENANCE_BUNDLE: ${{ steps.provenance.outputs.bundle-path }}
+          SBOM_BUNDLE: ${{ steps.sbom.outputs.bundle-path }}
+        run: |
+          set -euo pipefail
+          umask 077
+          mkdir attestation-evidence
+          cp release.cdx.json release-subjects.sha256 attestation-evidence/
+          cp "$PROVENANCE_BUNDLE" attestation-evidence/provenance.sigstore.json
+          cp "$SBOM_BUNDLE" attestation-evidence/sbom.sigstore.json
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        name: Upload release SBOM and offline attestation bundles
+        with:
+          name: bootstrap-release-attestations-${{ github.run_id }}
+          path: attestation-evidence
+          if-no-files-found: error
+          retention-days: 90
+
   publish:
     name: Publish immutable release objects
-    needs: [build, sign]
+    needs: [build, sign, attest]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     environment: bootstrap-release-publish
