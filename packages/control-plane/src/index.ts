@@ -1484,7 +1484,7 @@ async function sha256hex(s: string): Promise<string> {
 async function resolveDevice(
   db: any,
   authHeader: string | undefined,
-): Promise<{ deviceId: string; tenant: string; label: string | null; createdAt: string; permissions: string[] } | null> {
+): Promise<{ deviceId: string; tenant: string; label: string | null; createdAt: string; permissions: string[] | null } | null> {
   const token = (authHeader || '').startsWith('Bearer ') ? (authHeader as string).slice(7) : '';
   if (!token) return null;
   const row = await db
@@ -1492,9 +1492,12 @@ async function resolveDevice(
     .bind(await sha256hex(token))
     .first();
   if (!row || row.revoked_at) return null;
-  let permissions: string[] = [];
+  let permissions: string[] | null = null;
   try {
-    if (row.permissions) permissions = JSON.parse(row.permissions as string);
+    if (row.permissions !== null && row.permissions !== undefined) {
+      const parsed = JSON.parse(row.permissions as string);
+      permissions = Array.isArray(parsed) ? parsed.map(String) : [];
+    }
   } catch {
     /* tolerate a legacy/unparseable value — read as no recorded scope */
   }
@@ -1505,8 +1508,8 @@ async function resolveDevice(
 // short-circuit, or null when allowed. A device with an EMPTY recorded scope is GRANDFATHERED
 // (legacy devices enrolled before the scope was persisted) so enforcement never breaks an
 // already-paired machine. 403 (not 404) — the device is known; the ACTION isn't granted.
-function requireScope(c: any, dev: { permissions: string[] }, permission: string): Response | null {
-  if (!dev.permissions || dev.permissions.length === 0) return null; // grandfathered (pre-#53)
+function requireScope(c: any, dev: { permissions: string[] | null }, permission: string): Response | null {
+  if (dev.permissions === null) return null; // grandfathered only when the pre-scope row has SQL NULL
   if (dev.permissions.includes(permission)) return null; // granted
   return c.json({ error: 'insufficient_scope', required: permission, granted: dev.permissions }, 403);
 }
@@ -1556,7 +1559,11 @@ app.post('/api/devices/enroll', async (c) => {
     const deviceId = 'dev_' + Date.now().toString(36) + '_' + randHex(6);
     const token = 'aid_' + randHex(32);
     const now = new Date().toISOString();
-    const perms = JSON.stringify(Array.isArray(body.permissions) ? body.permissions.slice(0, 32).map(String) : []); // P05: admin enroll may grant a scope
+    const perms = JSON.stringify(
+      Array.isArray(body.permissions)
+        ? body.permissions.slice(0, 32).map(String)
+        : ['pull-desired-state', 'report-status'],
+    ); // P05: minimum direct-enrollment scope; an explicit [] remains default-deny
     await db
       .prepare('INSERT INTO devices (device_id, tenant, token_sha256, label, permissions, created_at) VALUES (?,?,?,?,?,?)')
       .bind(deviceId, tenant, await sha256hex(token), body.label ?? null, perms, now)
@@ -1749,7 +1756,7 @@ app.get('/api/devices/me', async (c) => {
   try {
     const dev = await resolveDevice(db, c.req.header('authorization'));
     if (!dev) return c.json({ error: 'unauthorized' }, 401);
-    return c.json({ deviceId: dev.deviceId, tenant: dev.tenant, label: dev.label, enrolledAt: dev.createdAt, grantedPermissions: dev.permissions });
+    return c.json({ deviceId: dev.deviceId, tenant: dev.tenant, label: dev.label, enrolledAt: dev.createdAt, grantedPermissions: dev.permissions ?? [] });
   } catch (e) {
     return c.json({ error: 'store_error', detail: e instanceof Error ? e.message : String(e) }, 503);
   }

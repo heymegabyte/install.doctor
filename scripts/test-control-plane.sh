@@ -21,6 +21,13 @@ if [ ! -f "$CP/wrangler.toml" ] || [ ! -f "$CP/src/index.ts" ]; then
   fail "control-plane not scaffolded (packages/control-plane/{wrangler.toml,src/index.ts})"
 else
   pass "control-plane scaffolded"
+  if grep -Fq 'if (dev.permissions === null) return null' "$CP/src/index.ts" \
+    && ! grep -Fq 'dev.permissions.length === 0) return null' "$CP/src/index.ts" \
+    && grep -Fq ": ['pull-desired-state', 'report-status']" "$CP/src/index.ts"; then
+    pass "device authorization defaults deny and only SQL-NULL legacy rows are grandfathered"
+  else
+    fail "device authorization permits an explicit empty scope or lacks minimum direct-enrollment scope"
+  fi
   if grep -q 'binding = "RELEASES"' "$CP/wrangler.toml" \
     && grep -q 'bucket_name = "install-doctor-bootstrap-releases"' "$CP/wrangler.toml" \
     && grep -q 'binding = "RELEASE_CHANNELS"' "$CP/wrangler.toml" \
