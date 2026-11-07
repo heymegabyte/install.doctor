@@ -9,8 +9,9 @@ starting processes, modifying a workstation, or contacting an AI provider.
 
 ## Implemented and tested
 
-- Strict v1 desired-state schema; unknown fields fail instead of disappearing on export.
-- Single-file `ENVIRONMENT.md` import/export and canonical SHA-256 content digests.
+- Strict v1 and v2 desired-state schemas; unknown fields fail instead of disappearing on export.
+- Single-file `ENVIRONMENT.md` import/export and canonical SHA-256 content digests, with explicit
+  v1-to-v2 migration, role package overlays, and per-machine package add/remove exceptions.
 - Proposed OpenCode provider configuration for an Install Doctor endpoint, with eight
   ProjectSites routing aliases and an environment-variable token reference.
 - Policy-oriented route selection, including restricted-data precedence and explicit premium opt-in.
@@ -34,10 +35,12 @@ with `node --test test/core.test.mjs` without building. No root privileges are n
 
 ## Important boundaries
 
-The v1 schema exports every setting it supports, **not every eventual product setting**.
-It currently covers basic machines, package IDs, routing policy, skill pins, privacy, and Loki bindings.
-Role inheritance, recipe/config snapshots, automations, retention, team policy and migration
-contracts must be added through explicit schema versions before claiming complete product export.
+The schemas export every setting they support, **not every eventual product setting**. V1 covers basic
+machines, package IDs, routing policy, skill pins, privacy, and Loki bindings. V2 adds role package
+overlays and per-machine package exceptions through an explicit migration; import never upgrades a
+document implicitly. Recipe/config snapshots, automations, retention, maintenance windows, permissions,
+budgets, and team policy remain absent and must be added through explicit schema versions before claiming
+complete product export.
 
 A SHA-256 digest detects content changes; it is not a signature or proof of trust.
 Commit pins are syntax-checked, not fetched or verified. The synthetic test fixture uses an

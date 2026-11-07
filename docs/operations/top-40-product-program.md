@@ -27,7 +27,7 @@ documentation, or a started workflow is not operational proof.
 | 18 | Device scopes default deny | R03, R18 | Implemented in `2648d4ac`; production deployment/evidence pending |
 | 19 | Hardened browser pairing | R03, R21 | Pending entropy, quota, rate-limit, and privacy work |
 | 20 | Cloudflare-first OIDC onboarding | R03, IG07 | Partial; OAuth callback registration/live session proof pending |
-| 21 | Complete versioned `ENVIRONMENT.md` model | B01, B03, R23 | Partial v1 schema |
+| 21 | Complete versioned `ENVIRONMENT.md` model | B01, B03, R23 | Partial v2: explicit v1 migration, role overlays, and machine exceptions; recipes, automations, retention, permissions, budgets, and team policy remain |
 | 22 | First-class plan/diff/recovery preview | B03, B06, L04 | Partial |
 | 23 | Package and service rollback | B06, B12 | Configuration plus bounded service state only |
 | 24 | Declarative native Windows path | B09, B12 | Unsupported until signed native lifecycle exists |
