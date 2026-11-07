@@ -1783,11 +1783,23 @@ EOF
   printf '[Unit]\nDescription=Background Monitoring & Non-Interactive Agents Slice\n\n[Slice]\nMemoryHigh=2G\nMemoryZSwapWriteback=false\nIOWeight=20\nCPUWeight=20\n' > "$TMP_DIR/background-agents.slice"
   run_root cp "$TMP_DIR/background-agents.slice" /etc/systemd/system/background-agents.slice
 
-  # Canonical Ubuntu 26.04 telemetry, redundant sysstat/lynis timers & wsdd multicast eradication
-  for t_unit in ubuntu-insights-upload.timer ubuntu-insights-collect.timer ubuntu-insights-upload.service motd-news.timer motd-news.service sysstat-collect.timer sysstat-summary.timer sysstat-rotate.timer lynis.timer wsdd.service wsdd-server.service; do
+  # Canonical Ubuntu 26.04 telemetry, redundant sysstat/lynis timers, unneeded root daemons (CUPS, Avahi, ModemManager) & wsdd multicast eradication
+  for t_unit in ubuntu-insights-upload.timer ubuntu-insights-collect.timer ubuntu-insights-upload.service ubuntu-insights-collect.service motd-news.timer motd-news.service sysstat-collect.timer sysstat-summary.timer sysstat-rotate.timer lynis.timer wsdd.service wsdd-server.service cups.service cups.socket cups.path cups-browsed.service avahi-daemon.service avahi-daemon.socket ModemManager.service; do
     run_root systemctl disable --now "$t_unit" >/dev/null 2>&1 || true
     run_root systemctl mask "$t_unit" >/dev/null 2>&1 || true
   done
+  run_root install -d -m 0755 /etc/systemd/system/smartmontools.service.d /etc/systemd/system/zfs-zed.service.d /etc/systemd/system/thermald.service.d /etc/systemd/system/crowdsec.service.d /etc/systemd/system/crowdsec-firewall-bouncer.service.d /etc/systemd/system/switcheroo-control.service.d
+  printf '[Service]\nNoNewPrivileges=yes\nPrivateTmp=yes\nProtectSystem=strict\nProtectHome=yes\nProtectClock=yes\nProtectHostname=yes\nProtectControlGroups=yes\nProtectKernelTunables=yes\nProtectKernelModules=yes\nProtectKernelLogs=yes\nRestrictNamespaces=yes\nRestrictRealtime=yes\nRestrictSUIDSGID=yes\nLockPersonality=yes\nMemoryDenyWriteExecute=yes\nSystemCallArchitectures=native\nReadWritePaths=-/var/lib/smartmontools -/run\n' > "$TMP_DIR/smartd-sandbox.conf"
+  run_root cp "$TMP_DIR/smartd-sandbox.conf" /etc/systemd/system/smartmontools.service.d/99-fleet-sandbox.conf
+  printf '[Service]\nNoNewPrivileges=yes\nPrivateTmp=yes\nProtectHome=yes\nProtectClock=yes\nProtectHostname=yes\nProtectControlGroups=yes\nProtectKernelTunables=yes\nProtectKernelModules=yes\nRestrictNamespaces=yes\nRestrictRealtime=yes\nRestrictSUIDSGID=yes\nLockPersonality=yes\nMemoryDenyWriteExecute=yes\nSystemCallArchitectures=native\n' > "$TMP_DIR/zed-sandbox.conf"
+  run_root cp "$TMP_DIR/zed-sandbox.conf" /etc/systemd/system/zfs-zed.service.d/99-fleet-sandbox.conf
+  printf '[Service]\nNoNewPrivileges=yes\nPrivateTmp=yes\nProtectSystem=strict\nProtectHome=yes\nProtectClock=yes\nProtectHostname=yes\nProtectControlGroups=yes\nProtectKernelModules=yes\nProtectKernelLogs=yes\nRestrictAddressFamilies=AF_UNIX AF_NETLINK\nRestrictNamespaces=yes\nRestrictRealtime=yes\nRestrictSUIDSGID=yes\nLockPersonality=yes\nMemoryDenyWriteExecute=yes\nSystemCallArchitectures=native\nReadWritePaths=-/run/thermald -/var/run\n' > "$TMP_DIR/thermald-sandbox.conf"
+  run_root cp "$TMP_DIR/thermald-sandbox.conf" /etc/systemd/system/thermald.service.d/99-fleet-sandbox.conf
+  printf '[Service]\nNoNewPrivileges=yes\nPrivateTmp=yes\nProtectHome=read-only\nProtectClock=yes\nProtectHostname=yes\nProtectControlGroups=yes\nProtectKernelTunables=yes\nProtectKernelModules=yes\nRestrictNamespaces=yes\nRestrictRealtime=yes\nRestrictSUIDSGID=yes\nLockPersonality=yes\nSystemCallArchitectures=native\n' > "$TMP_DIR/crowdsec-sandbox.conf"
+  run_root cp "$TMP_DIR/crowdsec-sandbox.conf" /etc/systemd/system/crowdsec.service.d/99-fleet-sandbox.conf
+  run_root cp "$TMP_DIR/crowdsec-sandbox.conf" /etc/systemd/system/crowdsec-firewall-bouncer.service.d/99-fleet-sandbox.conf
+  printf '[Service]\nNoNewPrivileges=yes\nPrivateDevices=yes\nProtectClock=yes\nProtectHostname=yes\nProtectKernelTunables=yes\nProtectKernelLogs=yes\nRestrictNamespaces=yes\nRestrictSUIDSGID=yes\nLockPersonality=yes\nSystemCallArchitectures=native\n' > "$TMP_DIR/switcheroo-sandbox.conf"
+  run_root cp "$TMP_DIR/switcheroo-sandbox.conf" /etc/systemd/system/switcheroo-control.service.d/99-fleet-sandbox.conf
 
   # Post-Quantum OpenSSH 10.x (mlkem768x25519-sha256) + PerSourcePenalties + RekeyLimit & Compression Hardening
   if [ -x /usr/sbin/sshd ]; then
@@ -1813,10 +1825,12 @@ EOF
   fi
   run_root install -d -m 0755 /etc/udev/rules.d
   cat > "$TMP_DIR/65-fleet-ssd-latency.rules" <<'EOF'
+ACTION=="add|change", SUBSYSTEM=="block", KERNEL=="nvme[0-9]*n[0-9]*", ATTR{queue/scheduler}="none"
 ACTION=="add|change", SUBSYSTEM=="block", KERNEL=="nvme[0-9]*n[0-9]*|sd[a-z]", ATTR{queue/rotational}=="0", ATTR{queue/rq_affinity}="2", ATTR{queue/add_random}="0", ATTR{queue/nomerges}="2", ATTR{queue/wbt_lat_usec}="2000"
 ACTION=="add|change", SUBSYSTEM=="block", KERNEL=="sd[a-z]", ATTRS{model}=="*MZHPV512*", ATTR{queue/max_sectors_kb}="32", ATTR{queue/nr_requests}="32", ATTR{queue/nomerges}="2"
 EOF
   run_root cp "$TMP_DIR/65-fleet-ssd-latency.rules" /etc/udev/rules.d/65-fleet-ssd-latency.rules
+  run_root rm -f /etc/udev/rules.d/99-fleet-nvme-io.rules
   run_root udevadm control --reload-rules >/dev/null 2>&1 || true
   run_root udevadm trigger --subsystem-match=block --action=change >/dev/null 2>&1 || true
 
@@ -2139,10 +2153,12 @@ net.ipv4.icmp_ignore_bogus_error_responses = 1
 net.ipv4.icmp_echo_ignore_broadcasts = 1
 vm.min_free_kbytes = 65536
 net.ipv4.tcp_limit_output_bytes = 262144
+kernel.core_pattern = |/bin/false
 fs.suid_dumpable = 0
 fs.protected_fifos = 2
 fs.protected_regular = 2
 EOF
+  run_root ln -sf /dev/null /etc/sysctl.d/10-coredump-debian.conf
   run_root cp "$TMP_DIR/99-fleet-wave3-ai-kernel.conf" /etc/sysctl.d/99-fleet-wave3-ai-kernel.conf
   run_root sysctl --system >/dev/null 2>&1 || true
 
