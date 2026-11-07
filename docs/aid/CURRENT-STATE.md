@@ -1,16 +1,23 @@
 # aid — CURRENT STATE (verified audit)
 
-**Refreshed:** fire #367 (dot_config MODERNIZATION arc (from the #362 audit — 448 files, ~15 ideas) draining 1 verified slice/fire: #364 git-config (zdiff3/autostash/difftastic `git dft`); #365–#366 mise (versions java→21/ruby→3.3/python+3.13 + idiomatic_version_file); gates test-git-config 11/11 + test-mise-config 8/8. Prior: CI-workflow arc #352–#356 + Taskfile #357 (`git log`); BACKLOG #0 Firebase secret = the sole deploy blocker. Full suite **908/57 GREEN**) — NEW ARC: bootstrap/provisioning QUALITY + deploy SPEED (the v2 control-plane arc converged #195–#197). The master prompt PIVOTED to: `start.sh`→chezmoi (dot configs **and** system files), minimum-install + lazy-everywhere, a preinstalled cnf-substrate toolchain, cloudflared+WARP, file cleanup/de-dup, a Monday-02:00 auto-update cron. **⚠️ app.install.doctor is being RETIRED → absorbed by https://desktop.tools** — do NOT keep hardening the control-plane surface; the suite still verifies it until the migration lands. Per-fire arc history (#198→) lives in `git log` + the §Built/§Gated sections below. Verified: full suite **908 / 57 suites GREEN** vs live prod. **Branch:** `master`.
+**Refreshed:** fire #367. Repository evidence was reconciled on 2026-11-06 against the active OpenSpec, live public endpoint, support matrix, and package boundaries. The contract suite remains **908 assertions / 57 suites GREEN**, but that proves repository behavior—not a complete production product. **Branch:** `master`.
 Full spec: `MASTER-PROMPT.md` · resume pointer: `NEXT-STEPS.md` · matrix: `REQUIREMENTS.md`. Nothing here
 is inherited without evidence; every count below is from a live `scripts/test-all.sh` run.
 
 ## Headline
 
-The UNBLOCKED functional product has **converged**: the control plane, the full `aid` CLI, the browser
-dashboard, the honest-docs set, and a one-command test suite are built + live-verified at
-**https://app.install.doctor**. The remaining high-value requirements are **GATED on external action**
-(see § Gated). Loop fires now harden docs/tests/honesty until a gated dep is provisioned. Verified by
-**`scripts/test-all.sh` → 908 assertions / 57 suites GREEN (1 OS-skipped)** with the prod URL.
+Install Doctor has a live, thin control-plane dashboard and strong tested foundations, but the integrated
+product is **not complete**. As of this refresh, `https://app.install.doctor/start` returns **HTTP 503**
+(`release_channel_unavailable`), the committed support matrix has **zero verified platform cells**, and
+`packages/aid-core` is a **pre-production**, side-effect-free foundation—not a working OpenCode fork,
+local supervisor, browser terminal, or production routing service. Real host mutation from the control
+plane remains an honest `501` boundary. Passing suites and isolated contracts must not be presented as
+proof of a signed public installer, durable PTY, recording pipeline, or verified fleet lifecycle.
+
+The highest-value path is therefore activation and vertical integration: establish production signer
+authority, activate a signed release, make installer-engine the sole mutation authority, promote one
+complete platform lifecycle, and then ship one authenticated browser → local-supervisor → verified
+mutation slice. The full SaaS visual replacement remains gated on approved Figma designs.
 
 ## ✅ Built + live-verified
 

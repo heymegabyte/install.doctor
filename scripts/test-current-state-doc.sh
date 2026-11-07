@@ -1,8 +1,6 @@
 #!/usr/bin/env bash
-# X14 gate — CURRENT-STATE.md must reflect the HONEST CONVERGED state (the loop reads it FIRST each
-# fire, so a stale one mis-orients every future fire). Asserts: freshness (mentions a recent fire),
-# names the live dashboard read surfaces + the honest-docs set + the test-all suite, names the GATED
-# external-dep blockers, and carries NO stale control-plane count. Pure file assertions, no network.
+# X14 gate — CURRENT-STATE.md must reflect verified product truth (the loop reads it FIRST each
+# fire, so a stale or aspirational claim mis-orients every future fire). Pure file assertions, no network.
 set -uo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 DOC="$ROOT/docs/aid/CURRENT-STATE.md"
@@ -53,6 +51,16 @@ chk "Recommendations" "live read surface: Recommendations"
 # The honest-docs set + the one-command suite.
 chkre "getting-started|api-reference|operations|provenance|adoption|platform-support" "names the honest-docs set"
 chkre "test-all|315 assertion|19 suites" "names the one-command test aggregator"
+
+# Product-boundary truth: a live dashboard and passing contract tests do not make the installer or
+# browser-supervisor product complete. These three facts are the current release gates and must remain
+# explicit until independently verified evidence changes them.
+chkre "HTTP 503|returns 503|release_channel_unavailable" "names the unavailable public /start release"
+chkre "zero verified|0 verified|no verified platform" "names the zero-verified-platform support state"
+chkre "pre-production|not a working OpenCode fork|not a.*daemon" "keeps aid-core's pre-production boundary explicit"
+grep -qiE "functional product has.*converged|full aid CLI.*built.*live-verified" "$DOC" \
+  && fail "CURRENT-STATE still claims the unintegrated product is fully converged/live" \
+  || pass "no full-product convergence claim without end-to-end evidence"
 
 # The GATED external-dep blockers (honest 'remaining needs external action').
 chkre "Better Auth|O.series" "names the Better-Auth blocker (O)"
