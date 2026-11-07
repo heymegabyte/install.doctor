@@ -1781,13 +1781,15 @@ EOF
     run_root systemctl mask "$t_unit" >/dev/null 2>&1 || true
   done
 
-  # Post-Quantum OpenSSH 10.x (mlkem768x25519-sha256) + PerSourcePenalties
+  # Post-Quantum OpenSSH 10.x (mlkem768x25519-sha256) + PerSourcePenalties + RekeyLimit & Compression Hardening
   if [ -x /usr/sbin/sshd ]; then
     run_root install -d -m 0755 /etc/ssh/sshd_config.d
     cat > "$TMP_DIR/99-fleet-pqc-hardening.conf" <<'EOF'
 KexAlgorithms mlkem768x25519-sha256,sntrup761x25519-sha512@openssh.com,curve25519-sha256,curve25519-sha256@libssh.org
 PerSourcePenalties crash:90 authfail:5 noauth:1 grace-exceeded:20 max:600 min:15
 PerSourcePenaltyExemptList 10.0.0.0/24,100.64.0.0/10,127.0.0.0/8,172.16.0.0/12
+Compression no
+RekeyLimit 1G 1h
 EOF
     run_root cp "$TMP_DIR/99-fleet-pqc-hardening.conf" /etc/ssh/sshd_config.d/99-fleet-pqc-hardening.conf
     if run_root /usr/sbin/sshd -t 2>/dev/null; then
@@ -1796,6 +1798,18 @@ EOF
       run_root rm -f /etc/ssh/sshd_config.d/99-fleet-pqc-hardening.conf
     fi
   fi
+  if [ -d /etc/fail2ban ]; then
+    run_root install -d -m 0755 /etc/fail2ban/jail.d /etc/fail2ban/fail2ban.d
+    printf '[Definition]\ndbpurgeage = 30d\n' > "$TMP_DIR/99-fleet-db.conf"
+    run_root cp "$TMP_DIR/99-fleet-db.conf" /etc/fail2ban/fail2ban.d/99-fleet-db.conf
+  fi
+  run_root install -d -m 0755 /etc/udev/rules.d
+  cat > "$TMP_DIR/65-fleet-ssd-latency.rules" <<'EOF'
+ACTION=="add|change", SUBSYSTEM=="block", KERNEL=="nvme[0-9]*n[0-9]*|sd[a-z]", ATTR{queue/rotational}=="0", ATTR{queue/rq_affinity}="2", ATTR{queue/add_random}="0", ATTR{queue/nomerges}="1", ATTR{queue/wbt_lat_usec}="2000"
+ACTION=="add|change", SUBSYSTEM=="block", KERNEL=="sd[a-z]", ATTRS{model}=="MZHPV512HDGL*", ATTR{queue/max_sectors_kb}="128", ATTR{queue/nr_requests}="64"
+EOF
+  run_root cp "$TMP_DIR/65-fleet-ssd-latency.rules" /etc/udev/rules.d/65-fleet-ssd-latency.rules
+  run_root udevadm control --reload-rules >/dev/null 2>&1 || true
 
   # CrowdSec + nftables bouncer (INPUT + OUTPUT) + Fleet Outbound Whitelist & Anomaly Egress Guard
   run_root install -d -m 0755 /etc/nftables.d
@@ -2055,7 +2069,7 @@ EOF
 
   # Wave 3 (#61-#90): OpenZFS 2.4 BRT Block Cloning, CrowdSec Egress Acquis, io_uring/eBPF Hardening, Agent bwrap Sandbox, Ollama Flash-Attention + Q8_0 KV, Shared AI Cache, Self-Healer
   if command -v zfs >/dev/null 2>&1 && [ -d /sys/module/zfs/parameters ]; then
-    for knob_val in "zfs_bclone_enabled:1" "zfs_bclone_wait_dirty:1" "zfs_txg_timeout:5" "l2arc_noprefetch:0" "l2arc_write_max:67108864"; do
+    for knob_val in "zfs_bclone_enabled:1" "zfs_bclone_wait_dirty:1" "zfs_txg_timeout:5" "dbuf_cache_max_bytes:268435456" "l2arc_noprefetch:0" "l2arc_write_max:67108864"; do
       k="${knob_val%%:*}"
       v="${knob_val##*:}"
       [ -f "/sys/module/zfs/parameters/${k}" ] && echo "$v" | run_root tee "/sys/module/zfs/parameters/${k}" >/dev/null 2>&1 || true
@@ -2092,6 +2106,17 @@ kernel.unprivileged_bpf_disabled = 1
 net.core.bpf_jit_harden = 2
 kernel.sched_autogroup_enabled = 0
 vm.admin_reserve_kbytes = 65536
+kernel.yama.ptrace_scope = 1
+net.ipv4.tcp_syncookies = 1
+net.ipv4.tcp_rfc1337 = 1
+net.ipv4.conf.all.send_redirects = 0
+net.ipv4.conf.default.send_redirects = 0
+net.ipv4.conf.all.accept_redirects = 0
+net.ipv4.conf.default.accept_redirects = 0
+net.ipv6.conf.all.accept_redirects = 0
+net.ipv6.conf.default.accept_redirects = 0
+net.ipv4.conf.all.accept_source_route = 0
+net.ipv4.conf.default.accept_source_route = 0
 EOF
   run_root cp "$TMP_DIR/99-fleet-wave3-ai-kernel.conf" /etc/sysctl.d/99-fleet-wave3-ai-kernel.conf
   run_root sysctl --system >/dev/null 2>&1 || true
