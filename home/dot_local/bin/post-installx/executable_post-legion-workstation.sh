@@ -392,10 +392,14 @@ PY
     "$HOME/.agentskills/bin/opencode-deepseek-auth.sh" sync >/dev/null 2>&1 || true
   fi
 
-  # 7. Ensure Git global identity defaults, KasmVNC -AcceptSetDesktopSize 1, and Cloudflare Zero Trust CA
+  # 7. Ensure Git global identity defaults, monorepo ZFS acceleration, KasmVNC -AcceptSetDesktopSize 1, and Cloudflare Zero Trust CA
   [ -z "$(git config --global user.name 2>/dev/null || true)" ] && git config --global user.name "Brian Zalewski" || true
   [ -z "$(git config --global user.email 2>/dev/null || true)" ] && git config --global user.email "brian@megabyte.space" || true
   git config --global init.defaultBranch main || true
+  git config --global feature.manyFiles true 2>/dev/null || true
+  git config --global index.version 4 2>/dev/null || true
+  git config --global core.untrackedCache true 2>/dev/null || true
+  git config --global fetch.writeCommitGraph true 2>/dev/null || true
 
   for krun in "$HOME/.local/bin"/*-kasmvnc-run; do
     if [ -f "$krun" ] && grep -q -- "-AcceptSetDesktopSize 0" "$krun" 2>/dev/null; then
@@ -475,8 +479,8 @@ EOF
       fi
     done
 
-    # Mask noisy background desktop file-indexers (Tracker / LocalSearch) so idle CPU/IO stays at 0%
-    systemctl --user mask tracker-miner-fs-3.service tracker-extract-3.service localsearch-3.service >/dev/null 2>&1 || true
+    # Mask noisy background desktop file-indexers (Tracker / LocalSearch) and Launchpad/Ubuntu telemetry timers so idle CPU/IO stays at 0%
+    systemctl --user mask tracker-miner-fs-3.service tracker-extract-3.service localsearch-3.service launchpadlib-cache-clean.timer ubuntu-insights-collect.timer ubuntu-insights-upload.timer >/dev/null 2>&1 || true
 
     # Configure GNOME 50 Dark Theme, zero-latency KasmVNC/Selkies rendering (animations off), and clean Dock
     if command -v gsettings >/dev/null 2>&1 && [ -e "/run/user/$(id -u)/bus" ]; then
@@ -1749,17 +1753,30 @@ EOF
     run_root ufw logging low >/dev/null 2>&1 || true
   fi
 
-  # systemd-oomd User-Slice PSI Protection + DefaultIPAccounting + background-agents.slice
-  run_root install -d -m 0755 /etc/systemd/system/user@.service.d /etc/systemd/system.conf.d
+  # systemd-oomd User-Slice PSI Protection + DefaultIPAccounting + AI Workstation NOFILE/MEMLOCK Ulimits + background-agents.slice
+  run_root install -d -m 0755 /etc/systemd/system/user@.service.d /etc/systemd/system.conf.d /etc/systemd/user.conf.d /etc/security/limits.d
   printf '[Service]\nManagedOOMSwap=auto\nManagedOOMMemoryPressure=auto\nManagedOOMMemoryPressureLimit=80%%\n' > "$TMP_DIR/oomd-protect.conf"
   run_root cp "$TMP_DIR/oomd-protect.conf" /etc/systemd/system/user@.service.d/oomd-protect.conf
-  printf '[Manager]\nDefaultIPAccounting=yes\nDefaultCPUAccounting=yes\nDefaultIOAccounting=yes\nDefaultMemoryAccounting=yes\n' > "$TMP_DIR/99-fleet-accounting.conf"
+  printf '[Manager]\nDefaultIPAccounting=yes\nDefaultCPUAccounting=yes\nDefaultIOAccounting=yes\nDefaultMemoryAccounting=yes\nDefaultLimitNOFILE=65536:524288\nDefaultLimitMEMLOCK=infinity\n' > "$TMP_DIR/99-fleet-accounting.conf"
   run_root cp "$TMP_DIR/99-fleet-accounting.conf" /etc/systemd/system.conf.d/99-fleet-accounting.conf
+  printf '[Manager]\nDefaultLimitNOFILE=65536:524288\nDefaultLimitMEMLOCK=infinity\n' > "$TMP_DIR/99-fleet-user-limits.conf"
+  run_root cp "$TMP_DIR/99-fleet-user-limits.conf" /etc/systemd/user.conf.d/99-fleet-limits.conf
+  cat > "$TMP_DIR/99-fleet-ai.conf" <<'EOF'
+* soft nofile 65536
+* hard nofile 524288
+* soft memlock unlimited
+* hard memlock unlimited
+root soft nofile 65536
+root hard nofile 524288
+root soft memlock unlimited
+root hard memlock unlimited
+EOF
+  run_root cp "$TMP_DIR/99-fleet-ai.conf" /etc/security/limits.d/99-fleet-ai.conf
   printf '[Unit]\nDescription=Background Monitoring & Non-Interactive Agents Slice\n\n[Slice]\nMemoryHigh=2G\nMemoryZSwapWriteback=false\nIOWeight=20\nCPUWeight=20\n' > "$TMP_DIR/background-agents.slice"
   run_root cp "$TMP_DIR/background-agents.slice" /etc/systemd/system/background-agents.slice
 
-  # Canonical Ubuntu 26.04 telemetry & wsdd multicast eradication
-  for t_unit in ubuntu-insights-upload.timer ubuntu-insights-collect.timer ubuntu-insights-upload.service motd-news.timer motd-news.service wsdd.service wsdd-server.service; do
+  # Canonical Ubuntu 26.04 telemetry, redundant sysstat/lynis timers & wsdd multicast eradication
+  for t_unit in ubuntu-insights-upload.timer ubuntu-insights-collect.timer ubuntu-insights-upload.service motd-news.timer motd-news.service sysstat-collect.timer sysstat-summary.timer sysstat-rotate.timer lynis.timer wsdd.service wsdd-server.service; do
     run_root systemctl disable --now "$t_unit" >/dev/null 2>&1 || true
     run_root systemctl mask "$t_unit" >/dev/null 2>&1 || true
   done
@@ -1885,6 +1902,9 @@ vm.page-cluster = 0
 vm.dirty_ratio = 10
 vm.dirty_background_ratio = 3
 vm.vfs_cache_pressure = 50
+vm.watermark_boost_factor = 0
+vm.watermark_scale_factor = 125
+vm.compaction_proactiveness = 20
 EOF
   run_root cp "$TMP_DIR/99-fleet-bbrv3-memory-io.conf" /etc/sysctl.d/99-fleet-bbrv3-memory-io.conf
   run_root sysctl --system >/dev/null 2>&1 || true
@@ -1972,6 +1992,8 @@ EOF
     [ -w /sys/module/zfs/parameters/zfs_dirty_data_max_percent ] && echo 10 | run_root tee /sys/module/zfs/parameters/zfs_dirty_data_max_percent >/dev/null 2>&1 || true
     for ds in $(zfs list -H -o name -r rpool 2>/dev/null || true); do
       run_root zfs set compression=zstd-fast-3 "$ds" 2>/dev/null || true
+      run_root zfs set dnodesize=auto "$ds" 2>/dev/null || true
+      run_root zfs set redundant_metadata=most "$ds" 2>/dev/null || true
     done
     if zfs list rpool/ai-models >/dev/null 2>&1; then
       run_root zfs set recordsize=1M rpool/ai-models 2>/dev/null || true
@@ -2219,10 +2241,11 @@ RETIRED_VPN="tail""scale"
 RETIRED_VPN_STATE="$(! command -v "$RETIRED_VPN" >/dev/null 2>&1 && printf "purged" || printf "present")"
 EGRESS_GUARD="$(systemctl is-active fleet-egress-guard.service 2>/dev/null || true)"
 CROWDSEC_STATE="$(systemctl is-active crowdsec 2>/dev/null || true)"
+EARLYOOM_STATE="$(systemctl is-active earlyoom.service 2>/dev/null || true)"
 SANDBOX_READY="$(command -v fleet-agent-sandbox >/dev/null 2>&1 && command -v bwrap >/dev/null 2>&1 && printf "ready" || printf "missing")"
 FAILED_UNITS="$(systemctl --failed --no-legend --plain 2>/dev/null | wc -l | tr -d " ")"
-printf "host=%s pbs=\"%s\" zfs_snaps=%s zpool_health=%s bclone=%s bbr=%s thp=%s ssh_pqc=%s %s=%s egress_nft=%s crowdsec=%s sandbox=%s failed=%s\n" \
-  "$HOST" "$PBS_VER" "$ZFS_SNAPS" "$ZPOOL_HEALTH" "$BCLONE" "$BBR" "$THP_DEFRAG" "$PQC" "$RETIRED_VPN" "$RETIRED_VPN_STATE" "$EGRESS_GUARD" "$CROWDSEC_STATE" "$SANDBOX_READY" "$FAILED_UNITS"
+printf "host=%s pbs=\"%s\" zfs_snaps=%s zpool_health=%s bclone=%s bbr=%s thp=%s ssh_pqc=%s %s=%s egress_nft=%s crowdsec=%s earlyoom=%s sandbox=%s failed=%s\n" \
+  "$HOST" "$PBS_VER" "$ZFS_SNAPS" "$ZPOOL_HEALTH" "$BCLONE" "$BBR" "$THP_DEFRAG" "$PQC" "$RETIRED_VPN" "$RETIRED_VPN_STATE" "$EGRESS_GUARD" "$CROWDSEC_STATE" "$EARLYOOM_STATE" "$SANDBOX_READY" "$FAILED_UNITS"
 EOF
   run_root install -m 0755 "$TMP_DIR/fleet-dr-verify" /usr/local/bin/fleet-dr-verify
   run_root ln -sf /usr/local/bin/fleet-dr-verify /usr/local/bin/fleet-parity-audit
