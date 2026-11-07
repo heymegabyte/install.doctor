@@ -1805,11 +1805,12 @@ EOF
   fi
   run_root install -d -m 0755 /etc/udev/rules.d
   cat > "$TMP_DIR/65-fleet-ssd-latency.rules" <<'EOF'
-ACTION=="add|change", SUBSYSTEM=="block", KERNEL=="nvme[0-9]*n[0-9]*|sd[a-z]", ATTR{queue/rotational}=="0", ATTR{queue/rq_affinity}="2", ATTR{queue/add_random}="0", ATTR{queue/nomerges}="1", ATTR{queue/wbt_lat_usec}="2000"
-ACTION=="add|change", SUBSYSTEM=="block", KERNEL=="sd[a-z]", ATTRS{model}=="MZHPV512HDGL*", ATTR{queue/max_sectors_kb}="128", ATTR{queue/nr_requests}="64"
+ACTION=="add|change", SUBSYSTEM=="block", KERNEL=="nvme[0-9]*n[0-9]*|sd[a-z]", ATTR{queue/rotational}=="0", ATTR{queue/rq_affinity}="2", ATTR{queue/add_random}="0", ATTR{queue/nomerges}="2", ATTR{queue/wbt_lat_usec}="2000"
+ACTION=="add|change", SUBSYSTEM=="block", KERNEL=="sd[a-z]", ATTRS{model}=="*MZHPV512*", ATTR{queue/max_sectors_kb}="32", ATTR{queue/nr_requests}="32", ATTR{queue/nomerges}="2"
 EOF
   run_root cp "$TMP_DIR/65-fleet-ssd-latency.rules" /etc/udev/rules.d/65-fleet-ssd-latency.rules
   run_root udevadm control --reload-rules >/dev/null 2>&1 || true
+  run_root udevadm trigger --subsystem-match=block --action=change >/dev/null 2>&1 || true
 
   # CrowdSec + nftables bouncer (INPUT + OUTPUT) + Fleet Outbound Whitelist & Anomaly Egress Guard
   run_root install -d -m 0755 /etc/nftables.d
@@ -1836,9 +1837,11 @@ table inet fleet_egress_guard {
   }
   chain output {
     type filter hook output priority 10; policy accept;
-    oifname "lo" accept
+    oifname { "lo", "docker*", "br-*", "veth*" } accept
     ct state established,related accept
     ip daddr @allowed_lan_v4 accept
+    ip daddr 224.0.0.0/4 accept
+    ip6 daddr { ::1, fe80::/10, ff00::/8 } accept
     tcp dport @blocked_egress_ports reject with tcp reset
     udp dport @blocked_egress_ports drop
     ip daddr { 10.0.0.0/8, 192.168.0.0/16 } ip daddr != @allowed_lan_v4 drop
@@ -1942,8 +1945,9 @@ for q in /sys/block/nvme*n1/queue /sys/block/sd*/queue; do
   [ -w "$q/add_random" ] && echo 0 > "$q/add_random" 2>/dev/null || true
   dev_qd="$(cat "$(dirname "$q")/device/queue_depth" 2>/dev/null || echo 32)"
   if [ "${dev_qd:-32}" -le 1 ]; then
-    [ -w "$q/nr_requests" ] && echo 64 > "$q/nr_requests" 2>/dev/null || true
-    [ -w "$q/max_sectors_kb" ] && echo 128 > "$q/max_sectors_kb" 2>/dev/null || true
+    [ -w "$q/nr_requests" ] && echo 32 > "$q/nr_requests" 2>/dev/null || true
+    [ -w "$q/max_sectors_kb" ] && echo 32 > "$q/max_sectors_kb" 2>/dev/null || true
+    [ -w "$q/nomerges" ] && echo 2 > "$q/nomerges" 2>/dev/null || true
     [ -w "$(dirname "$q")/device/power/control" ] && echo on > "$(dirname "$q")/device/power/control" 2>/dev/null || true
   else
     [ -w "$q/nr_requests" ] && echo 2048 > "$q/nr_requests" 2>/dev/null || true
@@ -2069,7 +2073,7 @@ EOF
 
   # Wave 3 (#61-#90): OpenZFS 2.4 BRT Block Cloning, CrowdSec Egress Acquis, io_uring/eBPF Hardening, Agent bwrap Sandbox, Ollama Flash-Attention + Q8_0 KV, Shared AI Cache, Self-Healer
   if command -v zfs >/dev/null 2>&1 && [ -d /sys/module/zfs/parameters ]; then
-    for knob_val in "zfs_bclone_enabled:1" "zfs_bclone_wait_dirty:1" "zfs_txg_timeout:5" "dbuf_cache_max_bytes:268435456" "l2arc_noprefetch:0" "l2arc_write_max:67108864"; do
+    for knob_val in "zfs_bclone_enabled:1" "zfs_bclone_wait_dirty:1" "zfs_txg_timeout:5" "zfs_arc_pc_percent:25" "dbuf_cache_max_bytes:268435456" "l2arc_noprefetch:0" "l2arc_write_max:67108864"; do
       k="${knob_val%%:*}"
       v="${knob_val##*:}"
       [ -f "/sys/module/zfs/parameters/${k}" ] && echo "$v" | run_root tee "/sys/module/zfs/parameters/${k}" >/dev/null 2>&1 || true
@@ -2125,6 +2129,8 @@ net.ipv4.conf.all.rp_filter = 1
 net.ipv4.conf.default.rp_filter = 1
 net.ipv4.icmp_ignore_bogus_error_responses = 1
 net.ipv4.icmp_echo_ignore_broadcasts = 1
+vm.min_free_kbytes = 65536
+net.ipv4.tcp_limit_output_bytes = 262144
 EOF
   run_root cp "$TMP_DIR/99-fleet-wave3-ai-kernel.conf" /etc/sysctl.d/99-fleet-wave3-ai-kernel.conf
   run_root sysctl --system >/dev/null 2>&1 || true
