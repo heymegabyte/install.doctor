@@ -28,6 +28,15 @@ async function loadWorkerApp() {
         CREATE TABLE IF NOT EXISTS "account" ("id" text not null primary key, "accountId" text not null, "providerId" text not null, "userId" text not null references "user" ("id") on delete cascade, "accessToken" text, "refreshToken" text, "idToken" text, "accessTokenExpiresAt" date, "refreshTokenExpiresAt" date, "scope" text, "password" text, "createdAt" date not null, "updatedAt" date not null);
         CREATE TABLE IF NOT EXISTS "verification" ("id" text not null primary key, "identifier" text not null, "value" text not null, "expiresAt" date not null, "createdAt" date not null, "updatedAt" date not null);
         CREATE TABLE IF NOT EXISTS "rateLimit" ("id" text not null primary key, "key" text not null, "count" integer not null, "lastRequest" integer not null);
+        CREATE TABLE IF NOT EXISTS pairings (
+          code text primary key, poll_sha256 text not null unique, tenant text not null, label text,
+          permissions text, status text not null, device_id text, created_at text not null,
+          expires_at text not null, approved_at text, claimed_at text
+        );
+        CREATE TABLE IF NOT EXISTS devices (
+          device_id text primary key, tenant text not null, token_sha256 text not null unique,
+          label text, permissions text, created_at text not null, revoked_at text
+        );
       \`);
       const mockD1 = {
         prepare(rawSql) {
@@ -70,6 +79,7 @@ async function loadWorkerApp() {
         async batch(stmts) { return Promise.all(stmts.map(s => s.all())); },
         async exec(sql) { sqlite.exec(sql); return { count: 1, duration: 1 }; }
       };
+      globalThis.__AID_TEST_DB__ = mockD1;
       export const env = {
         DB: mockD1,
         AID_ADMIN_TOKEN: 'test_admin_secret_token_123456',
@@ -101,6 +111,115 @@ const TEST_ENV = {
 };
 
 const shellLiteral = (value) => `'${value.replaceAll("'", "'\\''")}'`;
+
+test('pairing start uses a high-entropy human code and rejects oversized requests before parsing', async () => {
+  const app = await loadWorkerApp();
+  const env = { ...TEST_ENV, DB: globalThis.__AID_TEST_DB__ };
+  const response = await app.fetch(
+    new Request('https://app.install.doctor/api/devices/pair/start', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ tenant: 'pairing-security', label: 'workstation' }),
+    }),
+    env,
+  );
+  assert.equal(response.status, 201, await response.clone().text());
+  const body = await response.json();
+  assert.match(body.code, /^[2-9A-HJ-NP-Z]{4}(?:-[2-9A-HJ-NP-Z]{4}){2}$/);
+  assert.equal(body.code.length, 14);
+  assert.equal(body.verifyUrl, `https://app.install.doctor/pair?code=${body.code}`);
+
+  const alphabet = '23456789ABCDEFGHJKLMNPQRSTUVWXYZ';
+  const codeBytes = [...body.code.replaceAll('-', '')].map((character) => alphabet.indexOf(character));
+  const originalGetRandomValues = globalThis.crypto.getRandomValues;
+  let replayedCode = false;
+  globalThis.crypto.getRandomValues = (array) => {
+    if (!replayedCode && array.byteLength === 12) {
+      replayedCode = true;
+      array.set(codeBytes);
+      return array;
+    }
+    return originalGetRandomValues.call(globalThis.crypto, array);
+  };
+  try {
+    const collisionSafe = await app.fetch(
+      new Request('https://app.install.doctor/api/devices/pair/start', {
+        method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}',
+      }),
+      env,
+    );
+    assert.equal(collisionSafe.status, 201, await collisionSafe.clone().text());
+    assert.notEqual((await collisionSafe.json()).code, body.code);
+    assert.equal(replayedCode, true, 'test must force an issuance collision');
+  } finally {
+    globalThis.crypto.getRandomValues = originalGetRandomValues;
+  }
+
+  const oversized = await app.fetch(
+    new Request('https://app.install.doctor/api/devices/pair/start', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'content-length': '4097' },
+      body: '{}',
+    }),
+    env,
+  );
+  assert.equal(oversized.status, 413);
+  assert.deepEqual(await oversized.json(), { error: 'payload_too_large', limitBytes: 4096 });
+
+  const chunkedOversized = await app.fetch(
+    new Request('https://app.install.doctor/api/devices/pair/start', {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: ' '.repeat(4097),
+    }),
+    env,
+  );
+  assert.equal(chunkedOversized.status, 413);
+  assert.deepEqual(await chunkedOversized.json(), { error: 'payload_too_large', limitBytes: 4096 });
+});
+
+test('public pairing lookup normalizes malformed, unknown, and claimed responses', async () => {
+  const app = await loadWorkerApp();
+  const env = { ...TEST_ENV, DB: globalThis.__AID_TEST_DB__ };
+  const unavailable = { error: 'pairing_unavailable' };
+
+  for (const code of ['', 'bad-code', '2222-2222-2222']) {
+    const suffix = code ? `?code=${encodeURIComponent(code)}` : '';
+    const response = await app.fetch(new Request(`https://app.install.doctor/api/devices/pair/info${suffix}`), env);
+    assert.equal(response.status, 404, await response.clone().text());
+    assert.deepEqual(await response.json(), unavailable);
+  }
+
+  const started = await app.fetch(
+    new Request('https://app.install.doctor/api/devices/pair/start', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ tenant: 'private-tenant', label: 'private-host' }),
+    }),
+    env,
+  );
+  const pairing = await started.json();
+  const pending = await app.fetch(new Request(`https://app.install.doctor/api/devices/pair/info?code=${pairing.code}`), env);
+  assert.equal(pending.status, 200);
+  assert.equal((await pending.json()).host, 'private-host');
+
+  const approved = await app.fetch(
+    new Request('https://app.install.doctor/api/devices/pair/approve', {
+      method: 'POST',
+      headers: { authorization: `Bearer ${TEST_ENV.AID_ADMIN_TOKEN}`, 'content-type': 'application/json' },
+      body: JSON.stringify({ code: pairing.code }),
+    }),
+    env,
+  );
+  assert.equal(approved.status, 200);
+  const claimed = await app.fetch(
+    new Request('https://app.install.doctor/api/devices/pair/poll', {
+      headers: { authorization: `Bearer ${pairing.pollSecret}` },
+    }),
+    env,
+  );
+  assert.equal(claimed.status, 200);
+  const afterClaim = await app.fetch(new Request(`https://app.install.doctor/api/devices/pair/info?code=${pairing.code}`), env);
+  assert.equal(afterClaim.status, 404);
+  assert.deepEqual(await afterClaim.json(), unavailable);
+});
 
 function makeBootstrapRuntimeFixture(t) {
   const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'install-doctor-bootstrap-test-'));

@@ -1,4 +1,4 @@
-import { Hono } from 'hono';
+import { Hono, type Context } from 'hono';
 import { z } from 'zod';
 // Reuse aid-core's route contract (don't re-implement — MASTER-PROMPT §8). Relative import so
 // esbuild bundles the zero-dep contracts at deploy time; no workspace link needed.
@@ -2062,6 +2062,33 @@ app.post('/api/history/prune', async (c) => {
 // token exactly once. The reusable device token is minted at claim + returned ONLY in the poll body —
 // never in a URL or log; only hashes are stored. ---
 const PAIR_TTL_MS = 10 * 60 * 1000;
+const PAIR_START_MAX_BYTES = 4096;
+const PAIR_CODE_ALPHABET = '23456789ABCDEFGHJKLMNPQRSTUVWXYZ';
+const PAIR_CODE_PATTERN = /^(?:[2-9A-HJ-NP-Z]{4}-){2}[2-9A-HJ-NP-Z]{4}$/;
+const LEGACY_PAIR_CODE_PATTERN = /^[A-F0-9]{8}$/;
+const PAIR_ISSUANCE_ATTEMPTS = 5;
+
+function newPairCode(): string {
+  const random = new Uint8Array(12);
+  crypto.getRandomValues(random);
+  const compact = [...random].map((byte) => PAIR_CODE_ALPHABET[byte & 31]).join('');
+  return `${compact.slice(0, 4)}-${compact.slice(4, 8)}-${compact.slice(8)}`;
+}
+
+function normalizePairCode(raw: string): string | null {
+  const code = raw.trim().toUpperCase();
+  return PAIR_CODE_PATTERN.test(code) || LEGACY_PAIR_CODE_PATTERN.test(code) ? code : null;
+}
+
+function pairingUnavailable(c: Context): Response {
+  return c.json({ error: 'pairing_unavailable' }, 404);
+}
+
+function isPairCodeCollision(error: unknown): boolean {
+  const detail = error instanceof Error ? error.message : String(error);
+  return /unique constraint failed:\s*pairings\.code/i.test(detail);
+}
+
 const PairStartRequest = z
   .object({
     tenant: z.string().max(200).optional(),
@@ -2072,43 +2099,66 @@ const PairStartRequest = z
 app.post('/api/devices/pair/start', async (c) => {
   const db = (c.env as Record<string, any>).DB;
   if (!db) return c.json({ error: 'store_unavailable' }, 503);
-  const parsed = PairStartRequest.safeParse(await c.req.json().catch(() => ({})));
+  const declaredLength = Number(c.req.header('content-length') || '0');
+  if (Number.isFinite(declaredLength) && declaredLength > PAIR_START_MAX_BYTES) {
+    return c.json({ error: 'payload_too_large', limitBytes: PAIR_START_MAX_BYTES }, 413);
+  }
+  const rawBody = await c.req.text();
+  if (new TextEncoder().encode(rawBody).byteLength > PAIR_START_MAX_BYTES) {
+    return c.json({ error: 'payload_too_large', limitBytes: PAIR_START_MAX_BYTES }, 413);
+  }
+  let input: unknown;
+  try {
+    input = rawBody ? JSON.parse(rawBody) : {};
+  } catch {
+    return c.json({ error: 'invalid_request', detail: 'body must be JSON' }, 400);
+  }
+  const parsed = PairStartRequest.safeParse(input);
   if (!parsed.success) return c.json({ error: 'invalid_request', issues: parsed.error.issues }, 400);
   try {
-    const code = randHex(4).toUpperCase(); // 8 hex chars, human-typable
-    const pollSecret = 'aidp_' + randHex(32);
     const tenant = (parsed.data.tenant || '_default').trim() || '_default';
     const nowMs = Date.now();
     const createdAt = new Date(nowMs).toISOString();
     const expiresAt = new Date(nowMs + PAIR_TTL_MS).toISOString();
     const permissions = JSON.stringify(parsed.data.permissions ?? []); // stored as a JSON array (P03)
-    await db
-      .prepare('INSERT INTO pairings (code, poll_sha256, tenant, label, permissions, status, created_at, expires_at) VALUES (?,?,?,?,?,?,?,?)')
-      .bind(code, await sha256hex(pollSecret), tenant, parsed.data.label ?? null, permissions, 'pending', createdAt, expiresAt)
-      .run();
-    return c.json(
-      { code, pollSecret, tenant, verifyUrl: `${APP_URL}/pair?code=${code}`, expiresAt, note: 'show the code to the operator; keep pollSecret private (never in a URL/log)' },
-      201,
-    );
+    for (let attempt = 0; attempt < PAIR_ISSUANCE_ATTEMPTS; attempt++) {
+      const code = newPairCode(); // 60 random bits, grouped for accurate human transcription
+      const pollSecret = 'aidp_' + randHex(32);
+      try {
+        await db
+          .prepare('INSERT INTO pairings (code, poll_sha256, tenant, label, permissions, status, created_at, expires_at) VALUES (?,?,?,?,?,?,?,?)')
+          .bind(code, await sha256hex(pollSecret), tenant, parsed.data.label ?? null, permissions, 'pending', createdAt, expiresAt)
+          .run();
+        return c.json(
+          { code, pollSecret, tenant, verifyUrl: `${APP_URL}/pair?code=${code}`, expiresAt, note: 'show the code to the operator; keep pollSecret private (never in a URL/log)' },
+          201,
+        );
+      } catch (error) {
+        if (!isPairCodeCollision(error)) throw error;
+      }
+    }
+    return c.json({ error: 'pairing_code_exhausted' }, 503);
   } catch (e) {
     return c.json({ error: 'store_error', detail: e instanceof Error ? e.message : String(e) }, 503);
   }
 });
 // Public pairing INFO (P03 — the approver MUST see WHAT they're approving before granting). Returns the
-// machine's self-reported identity (label = its hostname) + tenant + status + expiry for a code. NO
-// secrets (never the poll hash or any token). Visiting this does NOT approve — approval is the explicit
-// admin-authed POST below ("visiting a URL doesn't approve it").
+// machine's self-reported identity (label = its hostname) + tenant + status + expiry for an ACTIVE code.
+// Missing, malformed, expired, and claimed codes have the same privacy-preserving response. NO secrets
+// (never the poll hash or any token). Visiting this does NOT approve — approval is the explicit admin-authed
+// POST below ("visiting a URL doesn't approve it").
 app.get('/api/devices/pair/info', async (c) => {
   const db = (c.env as Record<string, any>).DB;
   if (!db) return c.json({ error: 'store_unavailable' }, 503);
-  const code = (c.req.query('code') || '').trim().toUpperCase();
-  if (!code) return c.json({ error: 'invalid_request', detail: 'code required' }, 400);
+  const code = normalizePairCode(c.req.query('code') || '');
+  if (!code) return pairingUnavailable(c);
   const row = await db
     .prepare('SELECT code, tenant, label, permissions, status, created_at, expires_at FROM pairings WHERE code = ?')
     .bind(code)
     .first();
-  if (!row) return c.json({ error: 'not_found', code }, 404);
+  if (!row) return pairingUnavailable(c);
   const expired = new Date(row.expires_at).getTime() < Date.now();
+  if (expired || row.status === 'claimed') return pairingUnavailable(c);
   let permissions: string[] = [];
   try {
     if (row.permissions) permissions = JSON.parse(row.permissions as string);
