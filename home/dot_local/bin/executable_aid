@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+# Compatibility entrypoint only. Desktop Tools owns all behavior and state migration policy.
+set -uo pipefail
+
+printf 'aid: deprecated compatibility alias; use desktop-tools\n' >&2
+
+resolve_desktop_tools() {
+  if [ -n "${DESKTOP_TOOLS_BIN:-}" ] && [ -x "$DESKTOP_TOOLS_BIN" ]; then
+    printf '%s\n' "$DESKTOP_TOOLS_BIN"
+  elif command -v desktop-tools >/dev/null 2>&1; then
+    command -v desktop-tools
+  elif [ -x "$HOME/.local/bin/desktop-tools" ]; then
+    printf '%s\n' "$HOME/.local/bin/desktop-tools"
+  elif [ -x "$(dirname "$0")/executable_desktop-tools" ]; then
+    printf '%s\n' "$(dirname "$0")/executable_desktop-tools"
+  else
+    return 1
+  fi
+}
+
+desktop_tools_bin="$(resolve_desktop_tools)" || {
+  printf 'aid: desktop-tools is not installed; run the Desktop Tools bootstrap\n' >&2
+  exit 127
+}
+exec "$desktop_tools_bin" "$@"

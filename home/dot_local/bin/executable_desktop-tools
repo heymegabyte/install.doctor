@@ -471,8 +471,32 @@ cmdSearch() {
   fi
 }
 
+previewPath() {
+  local kind="$1" legacy="$2" canonical="$3" state
+  if [ -e "$legacy" ] || [ -L "$legacy" ]; then
+    state=present
+  else
+    state=absent
+  fi
+  printf '%s\t%s\t%s\t%s\tpreserve-and-read-fallback\n' "$kind" "$state" "$legacy" "$canonical"
+}
+
+cmdMigrate() {
+  local mode="${1:---preview}" state_home="${XDG_STATE_HOME:-$HOME/.local/state}"
+  if [ "$mode" != "--preview" ]; then
+    err "migration is preview-only; Desktop Tools never moves legacy state implicitly"
+    return 2
+  fi
+  printf 'kind\tstate\tlegacy\tcanonical\taction\n'
+  previewPath config "$HOME/.config/aid" "$HOME/.config/desktop-tools"
+  previewPath state "$state_home/aid" "$state_home/desktop-tools"
+  previewPath state "$state_home/install.doctor" "$state_home/desktop-tools"
+  previewPath token "$HOME/.config/aid/device-token" "$HOME/.config/desktop-tools/device-token"
+  previewPath environment "$HOME/.config/aid/ENVIRONMENT.md" "$HOME/.config/desktop-tools/ENVIRONMENT.md"
+}
+
 usage() {
-  printf 'usage: desktop-tools <up|status|pull|plan|report|apply|provider|exec|prewarm|installs|doctor|search>\n' >&2
+  printf 'usage: desktop-tools <up|status|pull|plan|report|apply|provider|exec|prewarm|installs|doctor|search|migrate>\n' >&2
   return 1
 }
 
@@ -490,6 +514,7 @@ main() {
   installs) cmdInstalls ;;
   doctor) cmdDoctor ;;
   search) shift; cmdSearch "$@" ;;
+  migrate) shift; cmdMigrate "$@" ;;
   *) usage ;;
   esac
 }

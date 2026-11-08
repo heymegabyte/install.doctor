@@ -6,7 +6,7 @@
 #            aid-pair claims + stores the device token at a 0600 path.
 set -uo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-SRC="$ROOT/home/dot_local/bin/executable_aid-pair"
+SRC="$ROOT/home/dot_local/bin/executable_desktop-tools-pair"
 CP="$ROOT/packages/control-plane"
 
 say() { command -v gum >/dev/null 2>&1 && gum style --foreground 51 -- "$*" || printf '\033[1;36m%s\033[0m\n' "$*"; }

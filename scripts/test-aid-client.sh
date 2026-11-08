@@ -5,7 +5,7 @@
 #            device token, then `aid status` -> paired summary, `aid pull` -> writes ENVIRONMENT.md.
 set -uo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-SRC="$ROOT/home/dot_local/bin/executable_aid"
+SRC="$ROOT/home/dot_local/bin/executable_desktop-tools"
 CP="$ROOT/packages/control-plane"
 
 say() { command -v gum >/dev/null 2>&1 && gum style --foreground 51 -- "$*" || printf '\033[1;36m%s\033[0m\n' "$*"; }
@@ -195,13 +195,13 @@ else
   printf '#!/usr/bin/env bash\necho "$@" >> "%s"\n' "$CALLS" >"$STUB"
   chmod +x "$STUB"
   rc=0
-  AID_TOKEN_PATH="/nonexistent/aid-$$" AID_BIN="$STUB" bash "$REND" || rc=$?
+  DESKTOP_TOOLS_TOKEN_PATH="/nonexistent/aid-$$" DESKTOP_TOOLS_BIN="$STUB" bash "$REND" || rc=$?
   { [ "$rc" = 0 ] && [ ! -s "$CALLS" ]; } && pass "aid-report (unpaired) -> skips, invokes aid 0 times" || fail "aid-report unpaired rc=$rc calls=$(cat "$CALLS" 2>/dev/null)"
   TOKF="$(mktemp)"
   printf 'aid_faketoken' >"$TOKF"
   : >"$CALLS"
   rc=0
-  AID_TOKEN_PATH="$TOKF" AID_BIN="$STUB" bash "$REND" || rc=$?
+  DESKTOP_TOOLS_TOKEN_PATH="$TOKF" DESKTOP_TOOLS_BIN="$STUB" bash "$REND" || rc=$?
   { [ "$rc" = 0 ] && grep -q '^pull$' "$CALLS" && grep -q '^plan$' "$CALLS" && ! grep -q 'apply' "$CALLS"; } && pass "aid-report (paired) -> runs pull + plan, never apply" || fail "aid-report paired rc=$rc calls=$(cat "$CALLS" 2>/dev/null)"
   rm -f "$REND" "$STUB" "$CALLS" "$TOKF"
 fi
