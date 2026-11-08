@@ -51,7 +51,7 @@ $SUDO install -d -m 0755 /usr/local/libexec
 # Verify TPM2 seal + unseal roundtrip using PCR 7 (Secure Boot state) so kernel upgrades (PCR 4) do not cause lockout
 TMP_PLAIN="$(mktemp)"
 TMP_CRED="/etc/credstore.encrypted/tpm2-selftest.cred"
-printf 'legion-tpm2-keyring-selftest-ok' > "$TMP_PLAIN"
+printf 'tpm2-keyring-selftest-ok' > "$TMP_PLAIN"
 $SUDO systemd-creds encrypt --with-key=tpm2 --tpm2-pcrs=7 --name=tpm2-selftest "$TMP_PLAIN" "$TMP_CRED"
 UNSEALED="$($SUDO systemd-creds decrypt --name=tpm2-selftest "$TMP_CRED" -)"
 rm -f "$TMP_PLAIN"
@@ -59,7 +59,7 @@ $SUDO rm -f "$TMP_CRED"
 TMP_PLAIN=""
 TMP_CRED=""
 
-if [[ "$UNSEALED" != "legion-tpm2-keyring-selftest-ok" ]]; then
+if [[ "$UNSEALED" != "tpm2-keyring-selftest-ok" ]]; then
   log_warn "TPM2 seal/unseal roundtrip verification failed; refusing to enable TPM2 keyring unlock."
   exit 1
 fi
@@ -67,7 +67,7 @@ log_info "TPM2 seal/unseal roundtrip verified via /dev/tpmrm0 (PCR 7)."
 
 # Install the keyring unlock helper (uses /etc/credstore.encrypted/gnome-keyring.cred when provisioned,
 # falling back cleanly to PAM/interactive password unlock if absent or if PCR policy changes).
-$SUDO tee /usr/local/libexec/legion-tpm2-keyring-unlock >/dev/null <<'EOF'
+$SUDO tee /usr/local/libexec/tpm2-keyring-unlock >/dev/null <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
 CRED_FILE="/etc/credstore.encrypted/gnome-keyring.cred"
@@ -87,10 +87,10 @@ systemd-creds decrypt --name=gnome-keyring "$CRED_FILE" - \
       DBUS_SESSION_BUS_ADDRESS="unix:path=${RUNTIME_DIR}/bus" \
       /usr/bin/gnome-keyring-daemon --unlock >/dev/null 2>&1 || true
 EOF
-$SUDO chmod 0755 /usr/local/libexec/legion-tpm2-keyring-unlock
+$SUDO chmod 0755 /usr/local/libexec/tpm2-keyring-unlock
 
 # Install systemd system unit triggered after user@1000.service starts
-$SUDO tee /etc/systemd/system/legion-tpm2-keyring-unlock.service >/dev/null <<'EOF'
+$SUDO tee /etc/systemd/system/tpm2-keyring-unlock.service >/dev/null <<'EOF'
 [Unit]
 Description=TPM2-Backed GNOME Keyring Unlock Helper (with PAM Password Fallback)
 After=user@1000.service
@@ -99,23 +99,24 @@ ConditionPathExists=/dev/tpmrm0
 
 [Service]
 Type=oneshot
-ExecStart=/usr/local/libexec/legion-tpm2-keyring-unlock 1000
+ExecStart=/usr/local/libexec/tpm2-keyring-unlock 1000
 RemainAfterExit=yes
 
 [Install]
 WantedBy=multi-user.target
 EOF
 
-# If Kasm/local keyring secret file exists on Legion, seal a copy into /etc/credstore.encrypted/gnome-keyring.cred
-if [[ -s /home/ubuntu/legion-provision/private/kasm-password ]] && ! $SUDO test -f /etc/credstore.encrypted/gnome-keyring.cred; then
+# If a local keyring secret file is provided, seal a copy into /etc/credstore.encrypted/gnome-keyring.cred
+KEYRING_SECRET_SRC="${TPM2_KEYRING_SECRET_FILE:-/etc/credstore/gnome-keyring.secret}"
+if [[ -s "$KEYRING_SECRET_SRC" ]] && ! $SUDO test -f /etc/credstore.encrypted/gnome-keyring.cred; then
   $SUDO systemd-creds encrypt --with-key=tpm2 --tpm2-pcrs=7 --name=gnome-keyring \
-    /home/ubuntu/legion-provision/private/kasm-password \
+    "$KEYRING_SECRET_SRC" \
     /etc/credstore.encrypted/gnome-keyring.cred
   $SUDO chmod 0600 /etc/credstore.encrypted/gnome-keyring.cred
   log_info "Sealed keyring credential into /etc/credstore.encrypted/gnome-keyring.cred (PCR 7)."
 fi
 
 $SUDO systemctl daemon-reload
-$SUDO systemctl enable --now legion-tpm2-keyring-unlock.service
+$SUDO systemctl enable --now tpm2-keyring-unlock.service
 
 log_info "TPM2-backed GNOME Keyring unlock service enabled and verified."

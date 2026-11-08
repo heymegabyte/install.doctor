@@ -71,9 +71,9 @@ if command -v apt-get >/dev/null 2>&1; then
 fi
 
 # 2. Scale ZFS ARC limit proportionally to total system RAM:
-#    - < 20 GiB RAM (e.g. Zen 16 GiB): 2 GiB max (2147483648 bytes)
-#    - 20..45 GiB RAM (e.g. Omen 32 GiB): 4 GiB max (4294967296 bytes)
-#    - > 45 GiB RAM (e.g. Legion 64 GiB): 8 GiB max (8589934592 bytes)
+#    - < 20 GiB RAM (16 GiB class): 2 GiB max (2147483648 bytes)
+#    - 20..45 GiB RAM (32 GiB class): 4 GiB max (4294967296 bytes)
+#    - > 45 GiB RAM (64+ GiB class): 8 GiB max (8589934592 bytes)
 MEM_TOTAL_KIB="$(awk '/^MemTotal:/ {print $2; exit}' /proc/meminfo 2>/dev/null || echo 16777216)"
 MEM_TOTAL_GIB=$(( MEM_TOTAL_KIB / 1048576 ))
 if [[ "$MEM_TOTAL_GIB" -lt 20 ]]; then

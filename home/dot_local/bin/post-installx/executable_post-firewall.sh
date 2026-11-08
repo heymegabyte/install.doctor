@@ -145,7 +145,7 @@ configure_linux_ufw_and_fail2ban() {
     $SUDO sed -i 's/^DEFAULT_FORWARD_POLICY=.*/DEFAULT_FORWARD_POLICY="DROP"/' /etc/default/ufw
   fi
 
-  # Dynamically detect primary RFC1918 LAN subnet and IP (works on Zen, Omen, Legion, Ubuntu, or any LAN host)
+  # Dynamically detect primary RFC1918 LAN subnet and IP on any LAN host
   local lan_cidr="" lan_ip="" admin_cidr=""
   if command -v ip >/dev/null 2>&1; then
     lan_cidr="$(ip -4 route show proto kernel scope link 2>/dev/null | awk '/^(10\.|192\.168\.|172\.(1[6-9]|2[0-9]|3[0-1])\.)/ {print $1; exit}')"

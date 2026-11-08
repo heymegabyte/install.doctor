@@ -8,4 +8,4 @@
 ## 2. Verification & Fleet Rollout
 - [x] 2.1 Verify `bash tests/test-workstation-guards.sh` and `langfuse-safe-ping` execution.
 - [x] 2.2 Sync OpenSpec change to Paperclip project `install.doctor` (`d97b0204-ca63-4117-b469-2fe0f2470d18`) on `ubuntu.megabyte.space`.
-- [ ] 2.3 Enroll `legion.megabyte.space` and `omen.megabyte.space` OpenClaw worker heartbeats into the Paperclip fleet registry via `executable_post-legion-workstation.sh`.
+- [ ] 2.3 Enroll workstation OpenClaw worker heartbeats into the Paperclip fleet registry via `executable_post-workstation.sh`.

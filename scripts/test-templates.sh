@@ -95,7 +95,7 @@ if python3 -m py_compile "$REPO_ROOT/home/dot_local/bin/executable_megabyte-loca
    bash -n "$REPO_ROOT/home/dot_local/bin/executable_kasmvnc-gnome-loopback-run" && \
    bash -n "$REPO_ROOT/home/dot_local/bin/executable_cnf-build-shims" && \
    bash -n "$REPO_ROOT/home/dot_local/bin/post-installx/executable_post-nexus-cache.sh" && \
-   bash -n "$REPO_ROOT/home/dot_local/bin/post-installx/executable_post-legion-workstation.sh"; then
+   bash -n "$REPO_ROOT/home/dot_local/bin/post-installx/executable_post-workstation.sh"; then
   echo "  PASS: Loopback proxy and KasmVNC helper scripts passed syntax validation"
   PASS=$((PASS + 1))
 else

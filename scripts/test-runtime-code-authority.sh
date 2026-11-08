@@ -54,7 +54,7 @@ reject_pattern 'npm project initialization has no remote Taskfile execution' \
   'gitsync\.org/init|Taskfile-init\.yml' "$ROOT/home/dot_config/npm/config/npm-init.js"
 reject_pattern 'workstation setup contains no latest Emdash executable' \
   'generalaction/emdash/releases/latest/' \
-  "$ROOT/home/dot_local/bin/post-installx/executable_post-legion-workstation.sh"
+  "$ROOT/home/dot_local/bin/post-installx/executable_post-workstation.sh"
 reject_pattern 'VMware setup contains no latest-release root patch execution' \
   'DrDonk/unlocker/releases/latest|sudo[[:space:]]+\./unlock' \
   "$ROOT/home/dot_local/bin/post-installx/executable_post-vmware.sh"
@@ -133,23 +133,23 @@ else
   fail 'GitHub Actions runner artifact authority is incomplete'
 fi
 
-LEGION_HOOK="$ROOT/home/dot_local/bin/post-installx/executable_post-legion-workstation.sh"
-reject_pattern 'Legion configuration hook cannot bypass selected desired state' \
+WORKSTATION_HOOK="$ROOT/home/dot_local/bin/post-installx/executable_post-workstation.sh"
+reject_pattern 'Workstation configuration hook cannot bypass selected desired state' \
   'mise use|go install|npm (uninstall|install) -g|rustup component add|releases/download|auto-updater|agy"? update|gh repo clone' \
-  "$LEGION_HOOK"
-require_pattern 'Legion destructive cleanup requires explicit consent' \
+  "$WORKSTATION_HOOK"
+require_pattern 'Workstation destructive cleanup requires explicit consent' \
   'INSTALL_DOCTOR_CONSENT_REMOVE_LEGACY' \
-  "$LEGION_HOOK"
-require_pattern 'Legion workstation capability is lazy and explicitly selected' \
-  'INSTALL_DOCTOR_ENABLE_LEGION_WORKSTATION' \
-  "$LEGION_HOOK"
-require_pattern 'Legion typed phases fail pending before legacy mutation' \
-  '--check\|--apply\|--verify' "$LEGION_HOOK"
-reject_pattern 'Legion provisioning never clears ZFS error evidence or prunes recovery points under pressure' \
-  'zpool clear|zfs destroy' "$LEGION_HOOK"
+  "$WORKSTATION_HOOK"
+require_pattern 'Workstation capability is lazy and explicitly selected' \
+  'INSTALL_DOCTOR_ENABLE_WORKSTATION' \
+  "$WORKSTATION_HOOK"
+require_pattern 'Workstation typed phases fail pending before legacy mutation' \
+  '--check\|--apply\|--verify' "$WORKSTATION_HOOK"
+reject_pattern 'Workstation provisioning never clears ZFS error evidence or prunes recovery points under pressure' \
+  'zpool clear|zfs destroy' "$WORKSTATION_HOOK"
 reject_pattern 'workstation hooks never acquire fonts from a moving branch' \
   'powerlevel10k-media/raw/(master|main)|raw\.githubusercontent\.com/.*/(master|main)/.*\.(ttf|otf)' \
-  "$LEGION_HOOK" "$ROOT/home/dot_local/bin/post-installx/executable_post-zsh-bootstrap.sh"
+  "$WORKSTATION_HOOK" "$ROOT/home/dot_local/bin/post-installx/executable_post-zsh-bootstrap.sh"
 reject_pattern 'bootstrap loggers never acquire optional presentation executables' \
   'install(Gum|Glow)|charmbracelet/(gum|glow)/releases|brew install( --quiet)? (gum|glow)|curl.*(GUM|GLOW)_DOWNLOAD_URL' \
   "$ROOT/.config/log" "$ROOT/home/.chezmoitemplates/universal/logg-inline"
@@ -193,9 +193,9 @@ reject_pattern 'VS Code configuration never performs ambient dependency installa
 reject_pattern 'GNOME settings never evaluate configuration as shell code' \
   'eval[[:space:]]+"?\$EXT_SETTING' \
   "$ROOT/home/.chezmoiscripts/universal/run_after_01-pre-install.sh.tmpl"
-reject_pattern 'Legion configuration never starts mutable-tag containers or pulls mutable models' \
+reject_pattern 'Workstation configuration never starts mutable-tag containers or pulls mutable models' \
   'docker run.*(willfarrell/autoheal|grafana/alloy)|ollama pull|nomic-embed-text:latest' \
-  "$LEGION_HOOK" "$ROOT/home/dot_local/bin/post-installx/executable_post-ollama.sh"
+  "$WORKSTATION_HOOK" "$ROOT/home/dot_local/bin/post-installx/executable_post-ollama.sh"
 
 QUBES_TEMPLATES="$ROOT/home/.chezmoiscripts/qubes/run_before_51-install-templates.sh.tmpl"
 reject_pattern 'Qubes dom0 path has no mutable latest-release artifact' \
@@ -222,7 +222,7 @@ require_pattern 'GPG policy bytes are verified before atomic installation' \
 REPOSITORY_AUTHORITY_PATHS=(
   "$ROOT/home/.chezmoiscripts/universal/run_before_05-system.sh.tmpl"
   "$ROOT/home/dot_config/system/usr/local/bin/executable_git-sync"
-  "$ROOT/home/dot_local/bin/post-installx/executable_post-legion-workstation.sh"
+  "$ROOT/home/dot_local/bin/post-installx/executable_post-workstation.sh"
   "$ROOT/home/dot_local/bin/post-installx/executable_post-nvidia-toolkit.sh"
   "$ROOT/home/dot_local/bin/post-installx/executable_post-vscode.sh"
   "$ROOT/home/dot_local/bin/post-installx/executable_post-warp.sh"

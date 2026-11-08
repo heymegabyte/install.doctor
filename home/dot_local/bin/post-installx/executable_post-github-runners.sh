@@ -16,21 +16,23 @@ fi
 
 HOSTNAME_SHORT="$(hostname -s 2>/dev/null || hostname)"
 RUNNER_COUNT="${GITHUB_RUNNER_COUNT:-0}"
-if [[ "$HOSTNAME_SHORT" == "legion" && "$RUNNER_COUNT" == "0" ]]; then
-  RUNNER_COUNT=3
-fi
 
 if [[ "$RUNNER_COUNT" -le 0 ]]; then
   log_info "Host profile ($HOSTNAME_SHORT) does not request GitHub Actions runners (GITHUB_RUNNER_COUNT=0). Skipping."
   exit 0
 fi
 
+DEFAULT_LABELS="self-hosted,Linux,X64,${HOSTNAME_SHORT},trusted"
+if command -v nvidia-smi >/dev/null 2>&1; then
+  DEFAULT_LABELS="${DEFAULT_LABELS},gpu,nvidia"
+fi
+
 RUNNER_ORG_URL="${GITHUB_RUNNER_ORG_URL:-https://github.com/heymegabyte}"
 RUNNER_GROUP="${GITHUB_RUNNER_GROUP:-persistent-agent-fleet}"
-RUNNER_NAME_PREFIX="${GITHUB_RUNNER_NAME_PREFIX:-Legion Runner}"
-RUNNER_LABELS="${GITHUB_RUNNER_LABELS:-self-hosted,Linux,X64,legion,trusted,gpu,nvidia}"
-RUNNER_BASE_DIR="${GITHUB_RUNNER_BASE_DIR:-/var/lib/legion-runners}"
-RUNNER_TEMPLATE_DIR="${GITHUB_RUNNER_TEMPLATE_DIR:-/home/ubuntu/ai/runners/legion-01}"
+RUNNER_NAME_PREFIX="${GITHUB_RUNNER_NAME_PREFIX:-${HOSTNAME_SHORT} Runner}"
+RUNNER_LABELS="${GITHUB_RUNNER_LABELS:-${DEFAULT_LABELS}}"
+RUNNER_BASE_DIR="${GITHUB_RUNNER_BASE_DIR:-/var/lib/github-runners}"
+RUNNER_TEMPLATE_DIR="${GITHUB_RUNNER_TEMPLATE_DIR:-/var/lib/github-runners/template}"
 RUNNER_REG_TOKEN="${GITHUB_RUNNER_REG_TOKEN:-}"
 
 if [[ $EUID -ne 0 ]]; then
@@ -40,9 +42,9 @@ else
 fi
 
 # 1. Create systemd slice for all runners so they cannot starve interactive desktop or Ollama
-$SUDO tee /etc/systemd/system/legion-runners.slice >/dev/null <<'EOF'
+$SUDO tee /etc/systemd/system/github-runners.slice >/dev/null <<'EOF'
 [Unit]
-Description=Legion GitHub Actions Runners Resource Slice
+Description=GitHub Actions Self-Hosted Runners Resource Slice
 Before=slices.target
 
 [Slice]
@@ -56,7 +58,7 @@ EOF
 
 # 2. Create pre/post-job cleanup hook script
 $SUDO install -d -m 0755 /usr/local/libexec
-$SUDO tee /usr/local/libexec/legion-runner-hook.sh >/dev/null <<'EOF'
+$SUDO tee /usr/local/libexec/github-runner-hook.sh >/dev/null <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
 # Runs before and after each GitHub Actions job to prune stale temp artifacts and dangling containers
@@ -66,7 +68,7 @@ mkdir -p "${XDG_CACHE_HOME:-$HOME/.cache}/megabyte/packages" \
          "${XDG_CACHE_HOME:-$HOME/.cache}/megabyte/ai" \
          "${XDG_CACHE_HOME:-$HOME/.cache}/megabyte/agents"
 EOF
-$SUDO chmod 0755 /usr/local/libexec/legion-runner-hook.sh
+$SUDO chmod 0755 /usr/local/libexec/github-runner-hook.sh
 
 # 3. Ensure runner binary template exists
 $SUDO install -d -m 0755 "$RUNNER_BASE_DIR"
@@ -91,7 +93,7 @@ fi
 
 # 4. Provision each isolated runner account, directory, and service
 for i in $(seq 1 "$RUNNER_COUNT"); do
-  RUNNER_USER="legion-runner-${i}"
+  RUNNER_USER="github-runner-${i}"
   RUNNER_DIR="${RUNNER_BASE_DIR}/runner-${i}"
   RUNNER_NAME="${RUNNER_NAME_PREFIX} ${i}"
   CACHE_ROOT="/var/cache/megabyte/runner-${i}"
@@ -124,7 +126,7 @@ for i in $(seq 1 "$RUNNER_COUNT"); do
       --replace"
   fi
 
-  $SUDO tee "/etc/systemd/system/legion-runner-${i}.service" >/dev/null <<EOF
+  $SUDO tee "/etc/systemd/system/github-runner-${i}.service" >/dev/null <<EOF
 [Unit]
 Description=GitHub Actions Runner (${RUNNER_NAME})
 After=network-online.target docker.service
@@ -137,9 +139,9 @@ User=${RUNNER_USER}
 Group=${RUNNER_USER}
 SupplementaryGroups=docker
 WorkingDirectory=${RUNNER_DIR}
-ExecStartPre=/usr/local/libexec/legion-runner-hook.sh
+ExecStartPre=/usr/local/libexec/github-runner-hook.sh
 ExecStart=${RUNNER_DIR}/run.sh
-ExecStopPost=/usr/local/libexec/legion-runner-hook.sh
+ExecStopPost=/usr/local/libexec/github-runner-hook.sh
 Environment=HOME=${RUNNER_DIR}
 Environment=XDG_CACHE_HOME=${CACHE_ROOT}
 Environment=PIP_CACHE_DIR=${CACHE_ROOT}/megabyte/packages/pip
@@ -149,14 +151,14 @@ Environment=CARGO_HOME=${CACHE_ROOT}/megabyte/packages/cargo
 Environment=GOMODCACHE=${CACHE_ROOT}/megabyte/packages/gomod
 Environment=GOCACHE=${CACHE_ROOT}/megabyte/build/go-build
 Environment=HF_HOME=${CACHE_ROOT}/megabyte/ai/huggingface
-Environment=ACTIONS_RUNNER_HOOK_JOB_STARTED=/usr/local/libexec/legion-runner-hook.sh
-Environment=ACTIONS_RUNNER_HOOK_JOB_COMPLETED=/usr/local/libexec/legion-runner-hook.sh
+Environment=ACTIONS_RUNNER_HOOK_JOB_STARTED=/usr/local/libexec/github-runner-hook.sh
+Environment=ACTIONS_RUNNER_HOOK_JOB_COMPLETED=/usr/local/libexec/github-runner-hook.sh
 Environment=AI_MACHINE_ID=${HOSTNAME_SHORT}-runner-${i}
 Restart=always
 RestartSec=10
 KillSignal=SIGINT
 TimeoutStopSec=120
-Slice=legion-runners.slice
+Slice=github-runners.slice
 Nice=5
 UMask=0077
 NoNewPrivileges=true
@@ -168,16 +170,10 @@ WantedBy=multi-user.target
 EOF
 done
 
-# Retire legacy single legion-runner.service if present
-if systemctl list-unit-files legion-runner.service >/dev/null 2>&1; then
-  $SUDO systemctl disable --now legion-runner.service 2>/dev/null || true
-  $SUDO rm -f /etc/systemd/system/legion-runner.service
-fi
-
 $SUDO systemctl daemon-reload
 for i in $(seq 1 "$RUNNER_COUNT"); do
   if $SUDO test -f "${RUNNER_BASE_DIR}/runner-${i}/.runner"; then
-    $SUDO systemctl enable --now "legion-runner-${i}.service"
+    $SUDO systemctl enable --now "github-runner-${i}.service"
   fi
 done
 

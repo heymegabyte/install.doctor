@@ -81,7 +81,7 @@ EOF
     $SUDO chmod 0600 /etc/backrest/config.json
   fi
 
-  $SUDO tee /etc/systemd/system/legion-backrest.service >/dev/null <<EOF
+  $SUDO tee /etc/systemd/system/backrest.service >/dev/null <<EOF
 [Unit]
 Description=Backrest Web UI and Restic Orchestrator (Loopback Only - ${HOST_SHORT})
 After=network-online.target
@@ -91,7 +91,7 @@ Wants=network-online.target
 Type=simple
 User=root
 EnvironmentFile=-/etc/${HOST_SHORT}-backup.env
-EnvironmentFile=-/etc/legion-backup.env
+EnvironmentFile=-/etc/backrest/backup.env
 Environment=BACKREST_PORT=127.0.0.1:9898
 Environment=BACKREST_CONFIG=/etc/backrest/config.json
 Environment=BACKREST_DATA=/var/lib/backrest
@@ -116,7 +116,7 @@ EOF
 /var/cache
 /var/lib/docker
 /var/lib/containerd
-/var/lib/legion-runners
+/var/lib/github-runners
 /tmp
 /var/tmp
 node_modules
@@ -127,7 +127,7 @@ __pycache__
 EOF
 
   # 5. Create host-aware restic backup helper & daily timer
-  $SUDO tee /usr/local/sbin/legion-restic-backup >/dev/null <<EOF
+  $SUDO tee /usr/local/sbin/restic-host-backup >/dev/null <<EOF
 #!/usr/bin/env bash
 set -euo pipefail
 HOST_SHORT="${HOST_SHORT}"
@@ -135,15 +135,15 @@ if [[ -f "/etc/\${HOST_SHORT}-backup.env" ]]; then
   set -a
   . "/etc/\${HOST_SHORT}-backup.env"
   set +a
-elif [[ -f /etc/legion-backup.env ]]; then
+elif [[ -f /etc/backrest/backup.env ]]; then
   set -a
-  . /etc/legion-backup.env
+  . /etc/backrest/backup.env
   set +a
 else
   echo "ERROR: /etc/\${HOST_SHORT}-backup.env missing" >&2
   exit 1
 fi
-export RESTIC_REPOSITORY="\${RESTIC_REPOSITORY_HOST:-\${RESTIC_REPOSITORY_LEGION:-\${RESTIC_REPOSITORY}/\${HOST_SHORT}-host}}"
+export RESTIC_REPOSITORY="\${RESTIC_REPOSITORY_HOST:-\${RESTIC_REPOSITORY}/\${HOST_SHORT}-host}"
 export XDG_CACHE_HOME="/var/cache/megabyte/backrest"
 
 restic snapshots >/dev/null 2>&1 || restic init
@@ -168,25 +168,25 @@ restic backup \\
 restic forget --keep-daily 7 --keep-weekly 4 --keep-monthly 6 --prune
 restic check --read-data-subset=5%
 EOF
-  $SUDO chmod 0750 /usr/local/sbin/legion-restic-backup
+  $SUDO chmod 0750 /usr/local/sbin/restic-host-backup
 
-  $SUDO tee /etc/systemd/system/legion-restic-backup.service >/dev/null <<'EOF'
+  $SUDO tee /etc/systemd/system/restic-host-backup.service >/dev/null <<'EOF'
 [Unit]
-Description=Legion Restic Snapshot + Prune + Integrity Check to Cloudflare R2
+Description=Workstation Restic Snapshot + Prune + Integrity Check to Cloudflare R2
 After=network-online.target
 Wants=network-online.target
 
 [Service]
 Type=oneshot
-ExecStart=/usr/local/sbin/legion-restic-backup
+ExecStart=/usr/local/sbin/restic-host-backup
 Nice=10
 IOSchedulingClass=best-effort
 IOSchedulingPriority=7
 EOF
 
-  $SUDO tee /etc/systemd/system/legion-restic-backup.timer >/dev/null <<'EOF'
+  $SUDO tee /etc/systemd/system/restic-host-backup.timer >/dev/null <<'EOF'
 [Unit]
-Description=Daily Legion Restic Backup to Cloudflare R2
+Description=Daily Workstation Restic Backup to Cloudflare R2
 
 [Timer]
 OnCalendar=*-*-* 04:15:00
@@ -198,7 +198,7 @@ WantedBy=timers.target
 EOF
 
   $SUDO systemctl daemon-reload
-  $SUDO systemctl enable --now legion-backrest.service legion-restic-backup.timer
+  $SUDO systemctl enable --now backrest.service restic-host-backup.timer
 fi
 
 log_info "Backrest + Restic provisioning complete."

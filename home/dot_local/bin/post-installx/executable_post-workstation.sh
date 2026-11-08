@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
-# @file ~/.local/bin/post-installx/post-legion-workstation.sh
-# @brief Capability-aware AI workstation & hardware provisioning (Legion 9i 16IRX9, Omen 17t-ck100, macOS parity).
+# @file ~/.local/bin/post-installx/post-workstation.sh
+# @brief Capability-aware AI workstation & hardware provisioning (Linux & macOS).
 # @description
-#   Implements the 30-item workstation specification with Eager-Minimum + Lazy-Everywhere CLI architecture:
+#   Implements the workstation specification with Eager-Minimum + Lazy-Everywhere CLI architecture:
 #   - Removes Superset completely across all platforms
 #   - Installs CNF lazy-loading substrates (mise, node, bun, deno, uv, go, rust, chezmoi, task, gum, jq, yq)
 #   - Installs AI coding agents (claude, opencode, gemini, codex, cua-driver, emdash) & syncs ~/.agentskills
 #   - Installs #11 secrets stack (infisical, age, sops — without onlykey/fido2 tools)
 #   - Materializes ~/.cache/cnf/index.tsv and tail-of-PATH ~/.cache/cnf/shims for non-interactive/agent lazy CLIs
 #   - Applies ZFS sanoid/syncoid + monthly scrub timers + atime=off + rpool/ai-models (recordsize=1M)
-#   - Applies Lenovo Legion 9i (16IRX9) hardware fixes: conservation_mode=1, TAS2781 smart-amp init, EC/fan ctl
+#   - Applies capability-detected laptop/workstation hardware tuning: battery conservation, TAS2781 smart-amp init, WMI/EC/thermal ctl
 #   - Purges orphaned xfce4-* packages on GNOME 50 loopback hosts while preserving live GNOME + KasmVNC
 set -euo pipefail
 
@@ -17,7 +17,7 @@ log() {
   if command -v gum >/dev/null 2>&1; then
     gum log -sl info "$*"
   else
-    printf '[post-legion-workstation] %s\n' "$*"
+    printf '[post-workstation] %s\n' "$*"
   fi
 }
 
@@ -25,14 +25,14 @@ warn() {
   if command -v gum >/dev/null 2>&1; then
     gum log -sl warn "$*"
   else
-    printf '[post-legion-workstation] WARNING: %s\n' "$*" >&2
+    printf '[post-workstation] WARNING: %s\n' "$*" >&2
   fi
 }
 
-# This host-specific capability must be selected explicitly. Keeping the hook
+# This workstation capability must be selected explicitly. Keeping the hook
 # installed is not consent to provision a workstation or mutate host services.
-if [ "${INSTALL_DOCTOR_ENABLE_LEGION_WORKSTATION:-0}" != "1" ]; then
-  log 'Legion workstation capability is not selected; leaving the host unchanged'
+if [ "${INSTALL_DOCTOR_ENABLE_WORKSTATION:-0}" != "1" ]; then
+  log 'Workstation capability is not selected; leaving the host unchanged'
   exit 0
 fi
 
@@ -42,7 +42,7 @@ fi
 # reporting success during --verify.
 case "${1:-}" in
   --check|--apply|--verify)
-    warn 'Legion workstation reconciliation is pending migration to typed desired-state tasks'
+    warn 'Workstation reconciliation is pending migration to typed desired-state tasks'
     exit 20
     ;;
 esac
@@ -89,7 +89,7 @@ PY
 }
 
 SUDO=""
-COOLIFY_KEY="$HOME/legion-provision/private/coolify-legion-ed25519"
+COOLIFY_KEY="${COOLIFY_SSH_KEY:-$HOME/.ssh/coolify-ed25519}"
 if [ "$(id -u)" -ne 0 ]; then
   if sudo -n true 2>/dev/null; then
     SUDO="sudo"
@@ -365,19 +365,20 @@ elif t2.exists() and not t1.exists():
     t1.write_bytes(t2.read_bytes())
     t1.chmod(0o600)
 
-# 5-node LAN SSH mesh in ~/.ssh/config
+# Optional LAN SSH mesh from ~/.config/agent-fleet/peers.json in ~/.ssh/config
 ssh_dir = home / ".ssh"
 ssh_dir.mkdir(parents=True, exist_ok=True)
 ssh_dir.chmod(0o700)
 ssh_cfg = ssh_dir / "config"
 cfg_txt = ssh_cfg.read_text() if ssh_cfg.exists() else ""
-mesh = [
-    ("zen.megabyte.space", "zen", "10.0.0.162", "ubuntu"),
-    ("omen.megabyte.space", "omen", "10.0.0.161", "ubuntu"),
-    ("legion.megabyte.space", "legion", "10.0.0.143", "ubuntu"),
-    ("ubuntu.megabyte.space", "ubuntu", "10.0.0.156", "professormanhattan"),
-    ("macbook-pro.megabyte.space", "macos", "10.0.0.138", "Apple"),
-]
+peers_path = home / ".config/agent-fleet/peers.json"
+mesh = []
+if peers_path.exists():
+    try:
+        for peer in json.loads(peers_path.read_text()):
+            mesh.append((peer["fqdn"], peer["short"], peer["ip"], peer.get("user", "ubuntu")))
+    except Exception:
+        pass
 added = []
 for fqdn, short, ip, usr in mesh:
     if f"Host {fqdn}" not in cfg_txt:
@@ -574,7 +575,7 @@ for managed_command in chezmoi task gum yq uv mise; do
   command -v "$managed_command" >/dev/null 2>&1 || missing_managed+=("$managed_command")
 done
 if [ "${#missing_managed[@]}" -gt 0 ]; then
-  warn "Desired-state closure omitted managed Legion prerequisites: ${missing_managed[*]}. Rerun install.doctor with the Legion supported path selected."
+  warn "Desired-state closure omitted managed workstation prerequisites: ${missing_managed[*]}. Rerun install.doctor with the workstation supported path selected."
   exit 69
 fi
 
@@ -756,17 +757,17 @@ if [ ! -f "$FONT_DIR/MesloLGS NF Regular.ttf" ]; then
 fi
 
 # -----------------------------------------------------------------------------
-# 5. Tier 3: Lenovo Legion 9i (16IRX9) Hardware, Audio, EC & Sysctl Optimizations
+# 5. Tier 3: Capability-Detected Workstation Hardware, Audio, EC & Sysctl Optimizations
 # -----------------------------------------------------------------------------
 if [ "$(id -u)" -eq 0 ] || [ -n "$SUDO" ]; then
-  # #12: Battery Conservation Mode (Lenovo ideapad_acpi VPC2004:00)
+  # #12: Battery Conservation Mode (ACPI ideapad_acpi / charge_control_end_threshold capability)
   CONSERVATION_NODE="$(find -L /sys/bus/platform/drivers/ideapad_acpi -maxdepth 3 -name conservation_mode 2>/dev/null | head -n 1 || true)"
   if [ -n "$CONSERVATION_NODE" ]; then
-    log "Enabling Lenovo Legion Battery Conservation Mode ($CONSERVATION_NODE = 1)..."
+    log "Enabling ACPI Battery Conservation Mode ($CONSERVATION_NODE = 1)..."
     printf '1\n' | run_root tee "$CONSERVATION_NODE" >/dev/null 2>&1 || true
-    cat > "$TMP_DIR/legion-conservation-mode.service" <<EOF
+    cat > "$TMP_DIR/battery-conservation-mode.service" <<EOF
 [Unit]
-Description=Lenovo Legion Battery Conservation Mode (60-80%% Charge Cap)
+Description=Workstation ACPI Battery Conservation Mode (60-80%% Charge Cap)
 After=multi-user.target
 
 [Service]
@@ -777,54 +778,19 @@ RemainAfterExit=yes
 [Install]
 WantedBy=multi-user.target
 EOF
-    run_root cp "$TMP_DIR/legion-conservation-mode.service" /etc/systemd/system/legion-conservation-mode.service
+    run_root cp "$TMP_DIR/battery-conservation-mode.service" /etc/systemd/system/battery-conservation-mode.service
     run_root systemctl daemon-reload
-    run_root systemctl enable --now legion-conservation-mode.service >/dev/null 2>&1 || true
+    run_root systemctl enable --now battery-conservation-mode.service >/dev/null 2>&1 || true
   fi
 
-  # #13: Lenovo Legion EC / WMI / Thermal & Fan Control CLI (/usr/local/bin/legion-ec-ctl)
-  if grep -qE 'lenovo_wmi|ideapad_laptop' /proc/modules 2>/dev/null; then
-    cat > "$TMP_DIR/legion-ec-ctl" <<'EOF'
-#!/usr/bin/env bash
-set -euo pipefail
-case "${1:-status}" in
-  status)
-    printf '=== Lenovo Legion Hardware & EC Status ===\n'
-    printf 'Platform Profile: %s\n' "$(cat /sys/firmware/acpi/platform_profile 2>/dev/null || echo unknown)"
-    printf 'Available Profiles: %s\n' "$(cat /sys/firmware/acpi/platform_profile_choices 2>/dev/null || echo unknown)"
-    printf 'CPU Scaling Governor: %s\n' "$(cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor 2>/dev/null || echo unknown)"
-    printf 'CPU EPP: %s\n' "$(cat /sys/devices/system/cpu/cpu0/cpufreq/energy_performance_preference 2>/dev/null || echo unknown)"
-    for f in /sys/bus/platform/drivers/ideapad_acpi/*/conservation_mode /sys/bus/platform/drivers/ideapad_acpi/*/fan_mode; do
-      [ -r "$f" ] && printf '%s: %s\n' "$(basename "$f")" "$(cat "$f")"
-    done
-    command -v sensors >/dev/null 2>&1 && sensors 2>/dev/null | head -n 25 || true
-    ;;
-  conservation-on)
-    for f in /sys/bus/platform/drivers/ideapad_acpi/*/conservation_mode; do [ -w "$f" ] && echo 1 > "$f"; done
-    ;;
-  conservation-off)
-    for f in /sys/bus/platform/drivers/ideapad_acpi/*/conservation_mode; do [ -w "$f" ] && echo 0 > "$f"; done
-    ;;
-  profile)
-    [ -n "${2:-}" ] && echo "$2" > /sys/firmware/acpi/platform_profile
-    ;;
-  *)
-    printf 'Usage: legion-ec-ctl {status|conservation-on|conservation-off|profile <quiet|balanced|performance>}\n' >&2
-    exit 1
-    ;;
-esac
-EOF
-    run_root install -m 0755 "$TMP_DIR/legion-ec-ctl" /usr/local/bin/legion-ec-ctl
-  fi
-
-  # #13b: Intel Wireless 7260/AX (iwlwifi/iwlmvm) Always-Active CAM Low-Latency Tuning & ASUS ZenBook Pro N501JW CLI
+  # #13: Intel Wireless (iwlwifi/iwlmvm) Always-Active CAM Low-Latency Tuning
   if grep -qE 'iwlwifi|iwlmvm' /proc/modules 2>/dev/null; then
     run_root install -d -m 0755 /etc/modprobe.d /etc/NetworkManager/conf.d
-    cat > "$TMP_DIR/iwlwifi-fleet.conf" <<'EOF'
+    cat > "$TMP_DIR/iwlwifi-workstation.conf" <<'EOF'
 options iwlwifi power_save=0 swcrypto=0 bt_coex_active=0 uapsd_disable=3
 options iwlmvm power_scheme=1
 EOF
-    run_root cp "$TMP_DIR/iwlwifi-fleet.conf" /etc/modprobe.d/iwlwifi-zen.conf
+    run_root cp "$TMP_DIR/iwlwifi-workstation.conf" /etc/modprobe.d/iwlwifi-workstation.conf
     printf '[connection]\nwifi.powersave = 2\n' > "$TMP_DIR/default-wifi-powersave-off.conf"
     run_root cp "$TMP_DIR/default-wifi-powersave-off.conf" /etc/NetworkManager/conf.d/default-wifi-powersave-off.conf
     if command -v iw >/dev/null 2>&1; then
@@ -833,21 +799,30 @@ EOF
       done
     fi
   fi
-  if grep -qE 'asus_nb_wmi|asus_wmi' /proc/modules 2>/dev/null; then
-    cat > "$TMP_DIR/zen-asus-ctl" <<'EOF'
+
+  # #13b: Capability-Driven Workstation EC / WMI / Thermal & Power CLI (/usr/local/bin/workstation-hw-ctl)
+  if [ "$(uname -s)" = "Linux" ]; then
+    cat > "$TMP_DIR/workstation-hw-ctl" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
 case "${1:-status}" in
   status)
-    printf '=== ASUS ZenBook Pro Hardware & Thermal Status ===\n'
+    printf '=== Workstation Hardware, Thermal & EC Status ===\n'
     printf 'Vendor/Model: %s %s (BIOS %s)\n' \
-      "$(cat /sys/devices/virtual/dmi/id/sys_vendor 2>/dev/null || echo ASUS)" \
-      "$(cat /sys/devices/virtual/dmi/id/product_name 2>/dev/null || echo N501JW)" \
+      "$(cat /sys/devices/virtual/dmi/id/sys_vendor 2>/dev/null || echo unknown)" \
+      "$(cat /sys/devices/virtual/dmi/id/product_name 2>/dev/null || echo unknown)" \
       "$(cat /sys/devices/virtual/dmi/id/bios_version 2>/dev/null || echo unknown)"
-    printf 'CPU Scaling Driver/Governor: %s / %s (cur: %s kHz)\n' \
+    printf 'Platform Profile: %s (choices: %s)\n' \
+      "$(cat /sys/firmware/acpi/platform_profile 2>/dev/null || echo n/a)" \
+      "$(cat /sys/firmware/acpi/platform_profile_choices 2>/dev/null || echo n/a)"
+    printf 'CPU Scaling Driver/Governor: %s / %s (EPP: %s, cur: %s kHz)\n' \
       "$(cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_driver 2>/dev/null || echo unknown)" \
       "$(cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor 2>/dev/null || echo unknown)" \
+      "$(cat /sys/devices/system/cpu/cpu0/cpufreq/energy_performance_preference 2>/dev/null || echo n/a)" \
       "$(cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_cur_freq 2>/dev/null || echo 0)"
+    for f in /sys/bus/platform/drivers/ideapad_acpi/*/conservation_mode /sys/bus/platform/drivers/ideapad_acpi/*/fan_mode; do
+      [ -r "$f" ] && printf '%s: %s\n' "$(basename "$f")" "$(cat "$f")"
+    done
     for t in /sys/class/hwmon/hwmon*/temp1_input; do
       [ -r "$t" ] || continue
       name="$(cat "$(dirname "$t")/name" 2>/dev/null || echo sensor)"
@@ -857,6 +832,15 @@ case "${1:-status}" in
     [ -r /proc/net/wireless ] && awk 'NR>2 {gsub(":", "", $1); printf "Wi-Fi [%s]: link=%s level=%s dBm noise=%s dBm\n", $1, $3, $4, $5}' /proc/net/wireless
     command -v nvidia-smi >/dev/null 2>&1 && nvidia-smi --query-gpu=name,temperature.gpu,power.draw,utilization.gpu,memory.used,memory.total --format=csv,noheader 2>/dev/null || true
     ;;
+  conservation-on)
+    for f in /sys/bus/platform/drivers/ideapad_acpi/*/conservation_mode; do [ -w "$f" ] && echo 1 > "$f"; done
+    ;;
+  conservation-off)
+    for f in /sys/bus/platform/drivers/ideapad_acpi/*/conservation_mode; do [ -w "$f" ] && echo 0 > "$f"; done
+    ;;
+  profile)
+    [ -n "${2:-}" ] && [ -w /sys/firmware/acpi/platform_profile ] && echo "$2" > /sys/firmware/acpi/platform_profile
+    ;;
   governor)
     gov="${2:-schedutil}"
     for g in /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor; do [ -w "$g" ] && echo "$gov" > "$g"; done
@@ -865,23 +849,23 @@ case "${1:-status}" in
     for wlan_if in $(iw dev 2>/dev/null | awk '$1=="Interface"{print $2}'); do iw dev "$wlan_if" set power_save off 2>/dev/null || true; done
     ;;
   *)
-    printf 'Usage: zen-asus-ctl {status|governor <schedutil|performance|powersave>|wifi-fast}\n' >&2
+    printf 'Usage: workstation-hw-ctl {status|conservation-on|conservation-off|profile <quiet|balanced|performance>|governor <schedutil|performance|powersave>|wifi-fast}\n' >&2
     exit 1
     ;;
 esac
 EOF
-    run_root install -m 0755 "$TMP_DIR/zen-asus-ctl" /usr/local/bin/zen-asus-ctl
+    run_root install -m 0755 "$TMP_DIR/workstation-hw-ctl" /usr/local/bin/workstation-hw-ctl
   fi
 
-  # #14: TI TAS2781 Smart Amplifier Speaker Fix (Legion 9i 16IRX9)
+  # #14: TI TAS2781 Smart Amplifier Speaker Initialization (capability-detected via snd_hda_scodec_tas2781)
   if grep -q 'snd_hda_scodec_tas2781' /proc/modules 2>/dev/null; then
     log "Applying TI TAS2781 Smart Amplifier audio configuration..."
-    cat > "$TMP_DIR/legion-tas2781-audio.conf" <<'EOF'
-# Lenovo Legion 9i (16IRX9) Realtek ALC287 + TI TAS2781 Smart Amplifier config
+    cat > "$TMP_DIR/tas2781-hda-audio.conf" <<'EOF'
+# Realtek HDA + TI TAS2781 Smart Amplifier config
 options snd-hda-intel model=auto
 blacklist snd_soc_avs
 EOF
-    run_root cp "$TMP_DIR/legion-tas2781-audio.conf" /etc/modprobe.d/legion-tas2781-audio.conf
+    run_root cp "$TMP_DIR/tas2781-hda-audio.conf" /etc/modprobe.d/tas2781-hda-audio.conf
     cat > "$TMP_DIR/tas2781-init.sh" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
@@ -894,9 +878,9 @@ for card in 0 1 2; do
 done
 EOF
     run_root install -m 0755 "$TMP_DIR/tas2781-init.sh" /usr/local/bin/tas2781-init.sh
-    cat > "$TMP_DIR/legion-tas2781-init.service" <<'EOF'
+    cat > "$TMP_DIR/tas2781-amp-init.service" <<'EOF'
 [Unit]
-Description=Initialize Lenovo Legion TI TAS2781 Smart Amplifiers
+Description=Initialize TI TAS2781 Smart Amplifiers
 After=sound.target
 
 [Service]
@@ -907,9 +891,9 @@ RemainAfterExit=yes
 [Install]
 WantedBy=multi-user.target
 EOF
-    run_root cp "$TMP_DIR/legion-tas2781-init.service" /etc/systemd/system/legion-tas2781-init.service
+    run_root cp "$TMP_DIR/tas2781-amp-init.service" /etc/systemd/system/tas2781-amp-init.service
     run_root systemctl daemon-reload
-    run_root systemctl enable --now legion-tas2781-init.service >/dev/null 2>&1 || true
+    run_root systemctl enable --now tas2781-amp-init.service >/dev/null 2>&1 || true
   fi
 
   # #15: Kernel Sysctl (TCP BBR, fq, swappiness=10) & CPU EPP Tuning
@@ -1382,18 +1366,16 @@ EOF
     fi
   fi
 
-  # #19: /etc/hosts LAN Mesh, Backrest excludes, Snap Retain=2, and Orca Screen Reader Masking
-  for entry in \
-    "10.0.0.143 legion.lan legion.megabyte.space" \
-    "10.0.0.161 omen.lan omen.megabyte.space" \
-    "10.0.0.162 zen.lan zen.megabyte.space" \
-    "10.0.0.156 ubuntu.lan ubuntu.megabyte.space" \
-    "10.0.0.155 coolify.lan coolify.megabyte.space"; do
-    ip_addr="${entry%% *}"
-    if ! grep -qE "^[[:space:]]*${ip_addr}[[:space:]]" /etc/hosts 2>/dev/null; then
-      printf '%s\n' "$entry" | run_root tee -a /etc/hosts >/dev/null || true
-    fi
-  done
+  # #19: Optional /etc/hosts LAN Mesh (from ~/.config/agent-fleet/hosts.list), Backrest excludes, Snap Retain=2, and Orca Screen Reader Masking
+  if [ -f "$HOME/.config/agent-fleet/hosts.list" ]; then
+    while IFS= read -r entry; do
+      [ -n "$entry" ] || continue
+      ip_addr="${entry%% *}"
+      if ! grep -qE "^[[:space:]]*${ip_addr}[[:space:]]" /etc/hosts 2>/dev/null; then
+        printf '%s\n' "$entry" | run_root tee -a /etc/hosts >/dev/null || true
+      fi
+    done < "$HOME/.config/agent-fleet/hosts.list"
+  fi
 
   run_root install -d -m 0755 /etc/backrest
   cat > "$TMP_DIR/backrest-excludes.txt" <<'EOF'
@@ -1405,7 +1387,7 @@ EOF
 /var/cache
 /var/lib/docker
 /var/lib/containerd
-/var/lib/legion-runners
+/var/lib/github-runners
 /tmp
 /var/tmp
 node_modules
@@ -2216,15 +2198,12 @@ alias cp='cp --reflink=auto'
 EOF
   run_root install -m 0644 "$TMP_DIR/99-fleet-ai-and-fast-io.sh" /etc/profile.d/99-fleet-ai-and-fast-io.sh
 
-  # Fleet DR & 140-Point Resilience Verifier (/usr/local/bin/fleet-dr-verify) + Wave 4 (#91-#140) Convergence
-  HOST_LC="$(hostname -s | tr '[:upper:]' '[:lower:]')"
-  case "$HOST_LC" in
-    *zen*)    PBS_CAL="*-*-* 01:45:00" ;;
-    *omen*)   PBS_CAL="*-*-* 02:00:00" ;;
-    *legion*) PBS_CAL="*-*-* 02:15:00" ;;
-    *ubuntu*) PBS_CAL="*-*-* 02:45:00" ;;
-    *)        PBS_CAL="*-*-* 02:30:00" ;;
-  esac
+  # Fleet DR & Resilience Verifier (/usr/local/bin/fleet-dr-verify) + deterministic machine-id PBS stagger
+  HOST_HASH="$( (cat /etc/machine-id 2>/dev/null || hostname -s) | cksum | awk '{print $1}' )"
+  PBS_OFFSET_MIN="$(( HOST_HASH % 90 ))"
+  PBS_HOUR="$(( 1 + (45 + PBS_OFFSET_MIN) / 60 ))"
+  PBS_MIN="$(( (45 + PBS_OFFSET_MIN) % 60 ))"
+  PBS_CAL="$(printf '*-*-* %02d:%02d:00' "$PBS_HOUR" "$PBS_MIN")"
   run_root install -d -m 0755 /etc/systemd/system/pbs-workstation-backup.timer.d
   printf '[Timer]\nOnCalendar=\nOnCalendar=%s\nRandomizedDelaySec=5m\n' "$PBS_CAL" > "$TMP_DIR/pbs-stagger.conf"
   run_root cp "$TMP_DIR/pbs-stagger.conf" /etc/systemd/system/pbs-workstation-backup.timer.d/stagger.conf
@@ -2358,9 +2337,41 @@ if [ "$(id -u)" -eq 0 ] || [ -n "$SUDO" ]; then
 fi
 
 # -----------------------------------------------------------------------------
-# 9. Fleet Convergence: machine.json, agent-skills & ~/.claude/bin symlinks,
-#    Global Doctrine (CLAUDE.md / AGENTS.md / GEMINI.md), 4-Harness cua-driver MCP,
-#    Git Identity, KasmVNC -AcceptSetDesktopSize 1, and Cloudflare Zero Trust CA
+# 9. macOS Apple Silicon (Darwin) Spotlight Exclusions, Node 24 CA & Cache Reclamation
+# -----------------------------------------------------------------------------
+if [ "$(uname -s)" = "Darwin" ]; then
+  for dir in \
+    "$HOME/.cache" \
+    "$HOME/.bun/install/cache" \
+    "$HOME/.npm" \
+    "$HOME/.local/share/pnpm" \
+    "$HOME/.local/share/uv" \
+    "$HOME/.local/share/cargo" \
+    "$HOME/Library/Caches"; do
+    if [ -d "$dir" ] && [ ! -f "$dir/.metadata_never_index" ]; then
+      touch "$dir/.metadata_never_index" 2>/dev/null || true
+    fi
+  done
+
+  mkdir -p "$HOME/.config/environment.d"
+  cat > "$HOME/.config/environment.d/20-workstation-runtime.conf" <<EOF
+NODE_OPTIONS=--use-system-ca --max-old-space-size=8192
+BUN_INSTALL_CACHE_DIR=$HOME/.bun/install/cache
+UV_LINK_MODE=clone
+EOF
+
+  AVAIL_GB="$(df -g / | awk 'NR==2 {print $4}')"
+  if [ "${AVAIL_GB:-100}" -lt 50 ]; then
+    log "Free disk space on / is ${AVAIL_GB}GiB (<50GiB threshold); pruning stale caches and logs..."
+    find "$HOME/Library/Logs" -type f -mtime +7 -delete 2>/dev/null || true
+    rm -rf "$HOME/Library/Caches/Homebrew/downloads/"*.incomplete 2>/dev/null || true
+  fi
+fi
+
+# -----------------------------------------------------------------------------
+# 10. Fleet Convergence: machine.json, agent-skills & ~/.claude/bin symlinks,
+#     Global Doctrine (CLAUDE.md / AGENTS.md / GEMINI.md), 4-Harness cua-driver MCP,
+#     Git Identity, KasmVNC -AcceptSetDesktopSize 1, and Cloudflare Zero Trust CA
 # -----------------------------------------------------------------------------
 converge_fleet_host
 

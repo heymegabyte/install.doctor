@@ -124,3 +124,5 @@ Brewfile
 Library/VirtualBox
 .gemini/oauth_creds.json
 .gemini/google_accounts.json
+.local/bin/post-installx/post-legion-workstation.sh
+.local/bin/post-installx/post-macos-workstation.sh
