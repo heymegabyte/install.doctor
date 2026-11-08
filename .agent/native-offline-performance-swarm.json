@@ -1,0 +1,17 @@
+[
+  {
+    "id": "dpkg-contract-adversary",
+    "cwd": "..",
+    "task": "Read-only adversarial review of the current worktree's proposed signed Debian offline payload authority. Read AGENTS.md, OpenSpec repository-wide-convergence design/spec/tasks, aid-core installer contracts, installer-engine lazy-plan/offline bundle/offline execution and tests. Do not edit. Identify any field or invariant missing to prove the chain InRelease signature -> Packages index digest -> exact .deb digest/name/version/arch/dependencies, including expiry, key rotation, maintainer scripts, conffiles, service units, Essential/Pre-Depends/Multi-Arch, and duplicate authority. Return concise path/symbol evidence and test cases. OpenCode is not the architect; review only."
+  },
+  {
+    "id": "native-runtime-adversary",
+    "cwd": "..",
+    "task": "Read-only adversarial review of the current worktree's proposed native offline dpkg/systemd runtime. Read AGENTS.md, the Frontier-authored OpenSpec design, installer-engine sandbox, process runner, service adapters, journal, compensation, offline orchestrator/execution, and tests. Do not edit. Find privilege, namespace, FD, TOCTOU, maintainer-script, service-start, resume, partial-dpkg, lock, cancellation, and recovery hazards. Return concise path/symbol evidence and test-first mitigations. OpenCode is not the architect; review only."
+  },
+  {
+    "id": "performance-evidence-adversary",
+    "cwd": "..",
+    "task": "Read-only adversarial review of scripts/run-performance-benchmarks.mjs, its budgets/schema/validator/tests/docs, engine scheduling events, and signed clean/upgrade acceptance. Do not edit. Identify misleading names, vacuous cold/warm samples, incorrect critical path/utilization math, missing descendant resource/network/disk coverage, insufficient percentile samples, and missing release/plan/platform binding. Return exact path/symbol evidence and tests."
+  }
+]

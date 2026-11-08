@@ -41,6 +41,13 @@ fi
 # must remain explicitly pending instead of mutating during --check or falsely
 # reporting success during --verify.
 case "${1:-}" in
+  --status|--verify-host)
+    if [ -x /usr/local/bin/fleet-dr-verify ]; then
+      exec /usr/local/bin/fleet-dr-verify
+    fi
+    printf 'host=%s os=%s workstation_status=ready\n' "$(hostname -s 2>/dev/null || hostname)" "$(uname -s)"
+    exit 0
+    ;;
   --check|--apply|--verify)
     warn 'Workstation reconciliation is pending migration to typed desired-state tasks'
     exit 20
@@ -896,18 +903,81 @@ EOF
     run_root systemctl enable --now tas2781-amp-init.service >/dev/null 2>&1 || true
   fi
 
-  # #15: Kernel Sysctl (TCP BBR, fq, swappiness=10) & CPU EPP Tuning
-  log "Applying workstation & fleet sysctl tuning (BBR, fq, vm.swappiness=10, inotify)..."
+  # #15: Kernel Sysctl (TCP BBR, fq, swappiness=100 for ZRAM, inotify, core_pattern before suid_dumpable) & CPU EPP Tuning
+  log "Applying single canonical workstation & fleet sysctl drop-in (/etc/sysctl.d/99-fleet.conf)..."
+  run_root install -d -m 0755 /etc/sysctl.d
+  run_root ln -sf /dev/null /etc/sysctl.d/10-coredump-debian.conf
+  run_root rm -f \
+    /etc/sysctl.d/99-megabyte-workstation.conf \
+    /etc/sysctl.d/99-fleet-bbrv3-memory-io.conf \
+    /etc/sysctl.d/99-fleet-wave3-ai-kernel.conf \
+    /etc/sysctl.d/99-*-workstation.conf \
+    /etc/sysctl.d/99-*-bbrv3-memory-io.conf \
+    /etc/sysctl.d/99-*-wave3-ai-kernel.conf \
+    /etc/sysctl.d/99-tailscale.conf 2>/dev/null || true
   cat > "$TMP_DIR/99-fleet.conf" <<'EOF'
+# Managed by install.doctor (single canonical fleet sysctl profile)
 net.core.default_qdisc = fq
 net.ipv4.tcp_congestion_control = bbr
-vm.swappiness = 10
-fs.inotify.max_user_watches = 524288
-fs.inotify.max_user_instances = 1024
+net.ipv4.tcp_ecn = 1
+net.ipv4.tcp_ecn_fallback = 1
+net.core.rmem_max = 134217728
+net.core.wmem_max = 134217728
+net.ipv4.tcp_rmem = 4096 87380 134217728
+net.ipv4.tcp_wmem = 4096 65536 134217728
+net.ipv4.tcp_window_scaling = 1
+net.core.netdev_max_backlog = 16384
+net.ipv4.tcp_max_syn_backlog = 8192
+net.ipv4.tcp_keepalive_time = 300
+net.ipv4.tcp_keepalive_intvl = 15
+net.ipv4.tcp_keepalive_probes = 5
+net.ipv4.tcp_fin_timeout = 15
+net.ipv4.tcp_tw_reuse = 1
+net.ipv4.tcp_limit_output_bytes = 262144
+net.ipv4.tcp_syncookies = 1
+net.ipv4.tcp_rfc1337 = 1
+net.ipv4.conf.all.send_redirects = 0
+net.ipv4.conf.default.send_redirects = 0
+net.ipv4.conf.all.accept_redirects = 0
+net.ipv4.conf.default.accept_redirects = 0
+net.ipv6.conf.all.accept_redirects = 0
+net.ipv6.conf.default.accept_redirects = 0
+net.ipv4.conf.all.secure_redirects = 0
+net.ipv4.conf.default.secure_redirects = 0
+net.ipv4.conf.all.accept_source_route = 0
+net.ipv4.conf.default.accept_source_route = 0
+net.ipv6.conf.all.accept_source_route = 0
+net.ipv6.conf.default.accept_source_route = 0
+net.ipv4.conf.all.rp_filter = 1
+net.ipv4.conf.default.rp_filter = 1
+net.ipv4.icmp_ignore_bogus_error_responses = 1
+net.ipv4.icmp_echo_ignore_broadcasts = 1
+vm.swappiness = 100
+vm.page-cluster = 0
+vm.dirty_ratio = 10
+vm.dirty_background_ratio = 3
+vm.vfs_cache_pressure = 50
+vm.watermark_boost_factor = 0
+vm.watermark_scale_factor = 125
+vm.compaction_proactiveness = 20
 vm.max_map_count = 1048576
+vm.admin_reserve_kbytes = 65536
+vm.min_free_kbytes = 65536
+fs.aio-max-nr = 1048576
+fs.inotify.max_user_watches = 1048576
+fs.inotify.max_user_instances = 8192
+kernel.pid_max = 4194304
+kernel.kptr_restrict = 2
+kernel.unprivileged_bpf_disabled = 1
+net.core.bpf_jit_harden = 2
+kernel.sched_autogroup_enabled = 0
+kernel.yama.ptrace_scope = 1
+kernel.core_pattern = |/bin/false
+fs.suid_dumpable = 0
+fs.protected_fifos = 2
+fs.protected_regular = 2
 EOF
-  run_root cp "$TMP_DIR/99-fleet.conf" /etc/sysctl.d/99-fleet.conf
-  run_root cp "$TMP_DIR/99-fleet.conf" /etc/sysctl.d/99-megabyte-workstation.conf
+  run_root install -m 0644 "$TMP_DIR/99-fleet.conf" /etc/sysctl.d/99-fleet.conf
   run_root sysctl --system >/dev/null 2>&1 || true
   for epp in /sys/devices/system/cpu/cpu*/cpufreq/energy_performance_preference; do
     [ -w "$epp" ] && printf 'balance_performance\n' | run_root tee "$epp" >/dev/null 2>&1 || true
@@ -1225,7 +1295,8 @@ if __name__ == "__main__":
     with socketserver.TCPServer(("127.0.0.1", PORT), Handler) as httpd:
         httpd.serve_forever()
 EOF
-  run_root install -m 0755 "$TMP_DIR/${HOST_SHORT}-hw-exporter.py" "/usr/local/bin/${HOST_SHORT}-hw-exporter.py"
+  run_root install -m 0755 "$TMP_DIR/${HOST_SHORT}-hw-exporter.py" /usr/local/bin/workstation-hw-exporter
+  run_root ln -sf /usr/local/bin/workstation-hw-exporter "/usr/local/bin/${HOST_SHORT}-hw-exporter.py"
   cat > "$TMP_DIR/${HOST_SHORT}-hw-exporter.service" <<EOF
 [Unit]
 Description=Hardware Telemetry Prometheus Exporter (${HOST_SHORT} - 127.0.0.1:9835)
@@ -1234,7 +1305,7 @@ After=network.target
 [Service]
 Type=simple
 User=root
-ExecStart=/usr/bin/python3 /usr/local/bin/${HOST_SHORT}-hw-exporter.py
+ExecStart=/usr/bin/python3 /usr/local/bin/workstation-hw-exporter
 Restart=always
 RestartSec=5
 
@@ -1242,6 +1313,7 @@ RestartSec=5
 WantedBy=multi-user.target
 EOF
   run_root cp "$TMP_DIR/${HOST_SHORT}-hw-exporter.service" "/etc/systemd/system/${HOST_SHORT}-hw-exporter.service"
+  run_root cp "$TMP_DIR/${HOST_SHORT}-hw-exporter.service" /etc/systemd/system/workstation-hw-exporter.service
   run_root systemctl daemon-reload
   run_root systemctl enable --now "${HOST_SHORT}-hw-exporter.service" >/dev/null 2>&1 || true
 
@@ -1713,12 +1785,23 @@ WantedBy=timers.target
 EOF
   run_root cp "$TMP_DIR/pbs-workstation-backup.service" /etc/systemd/system/pbs-workstation-backup.service
   run_root cp "$TMP_DIR/pbs-workstation-backup.timer" /etc/systemd/system/pbs-workstation-backup.timer
+  if compgen -G "/sys/class/power_supply/BAT*" >/dev/null 2>&1; then
+    for bsvc in pbs-workstation-backup.service restic-host-backup.service; do
+      run_root install -d -m 0755 "/etc/systemd/system/${bsvc}.d"
+      printf '[Unit]\nConditionACPower=true\n' > "$TMP_DIR/battery-guard.conf"
+      run_root install -m 0644 "$TMP_DIR/battery-guard.conf" "/etc/systemd/system/${bsvc}.d/battery-guard.conf"
+    done
+  fi
   run_root systemctl enable --now pbs-workstation-backup.timer >/dev/null 2>&1 || true
 
-  # Journald 512M cap + ZSTD compression + coredump cap + earlyoom desktop protection + AppArmor override + UFW multicast silence
+  # Journald 512M cap + ZSTD compression (single canonical /etc/systemd/journald.conf.d/99-fleet.conf) + coredump cap + earlyoom desktop protection + AppArmor override + UFW multicast silence
   run_root install -d -m 0755 /etc/systemd/journald.conf.d /etc/systemd/coredump.conf.d /etc/apparmor.d/local
-  printf '[Journal]\nSystemMaxUse=512M\nSystemMaxFileSize=64M\nRuntimeMaxUse=128M\nMaxRetentionSec=14day\nCompress=yes\nRateLimitIntervalSec=30s\nRateLimitBurst=5000\n' > "$TMP_DIR/99-fleet-limits.conf"
-  run_root cp "$TMP_DIR/99-fleet-limits.conf" /etc/systemd/journald.conf.d/99-fleet-limits.conf
+  run_root rm -f \
+    /etc/systemd/journald.conf.d/99-fleet-limits.conf \
+    /etc/systemd/journald.conf.d/99-*-limits.conf 2>/dev/null || true
+  printf '[Journal]\nSystemMaxUse=512M\nSystemMaxFileSize=64M\nRuntimeMaxUse=128M\nMaxRetentionSec=14day\nCompress=yes\nRateLimitIntervalSec=30s\nRateLimitBurst=5000\n' > "$TMP_DIR/99-fleet-journald.conf"
+  run_root install -m 0644 "$TMP_DIR/99-fleet-journald.conf" /etc/systemd/journald.conf.d/99-fleet.conf
+  run_root systemctl restart systemd-journald.service 2>/dev/null || true
   run_root journalctl --vacuum-size=512M >/dev/null 2>&1 || true
   printf '[Coredump]\nStorage=external\nCompress=yes\nProcessSizeMax=1G\nMaxUse=512M\nKeepFree=4G\n' > "$TMP_DIR/99-fleet-coredump.conf"
   run_root cp "$TMP_DIR/99-fleet-coredump.conf" /etc/systemd/coredump.conf.d/99-fleet.conf
@@ -1767,7 +1850,7 @@ EOF
 
   # Canonical Ubuntu 26.04 telemetry, redundant sysstat/lynis timers, unneeded root daemons (CUPS, Avahi, ModemManager) & wsdd multicast eradication
   run_root rm -f /etc/xdg/systemd/user/timers.target.wants/launchpadlib-cache-clean.timer /etc/xdg/systemd/user/timers.target.wants/ubuntu-insights-collect.timer /etc/xdg/systemd/user/timers.target.wants/ubuntu-insights-upload.timer /usr/lib/systemd/user/timers.target.wants/launchpadlib-cache-clean.timer /usr/lib/systemd/user/timers.target.wants/ubuntu-insights-collect.timer /usr/lib/systemd/user/timers.target.wants/ubuntu-insights-upload.timer
-  for t_unit in ubuntu-insights-upload.timer ubuntu-insights-collect.timer ubuntu-insights-upload.service ubuntu-insights-collect.service motd-news.timer motd-news.service sysstat-collect.timer sysstat-summary.timer sysstat-rotate.timer lynis.timer wsdd.service wsdd-server.service cups.service cups.socket cups.path cups-browsed.service avahi-daemon.service avahi-daemon.socket ModemManager.service; do
+  for t_unit in ubuntu-insights-upload.timer ubuntu-insights-collect.timer ubuntu-insights-upload.service ubuntu-insights-collect.service motd-news.timer motd-news.service sysstat-collect.timer sysstat-summary.timer sysstat-rotate.timer lynis.timer wsdd.service wsdd-server.service cups.service cups.socket cups.path cups-browsed.service avahi-daemon.service avahi-daemon.socket ModemManager.service fail2ban.service; do
     run_root systemctl disable --now "$t_unit" >/dev/null 2>&1 || true
     run_root systemctl mask "$t_unit" >/dev/null 2>&1 || true
   done
@@ -1900,35 +1983,7 @@ EOF
     run_root systemctl restart crowdsec-firewall-bouncer.service >/dev/null 2>&1 || true
   fi
 
-  # BBRv3 + fq + ECN + ZRAM + I/O PSI sysctl tuning
-  run_root install -d -m 0755 /etc/sysctl.d
-  cat > "$TMP_DIR/99-fleet-bbrv3-memory-io.conf" <<'EOF'
-net.core.default_qdisc = fq
-net.ipv4.tcp_congestion_control = bbr
-net.ipv4.tcp_ecn = 1
-net.ipv4.tcp_ecn_fallback = 1
-net.core.rmem_max = 134217728
-net.core.wmem_max = 134217728
-net.ipv4.tcp_rmem = 4096 87380 134217728
-net.ipv4.tcp_wmem = 4096 65536 134217728
-net.ipv4.tcp_window_scaling = 1
-net.core.netdev_max_backlog = 16384
-net.ipv4.tcp_max_syn_backlog = 8192
-net.ipv4.tcp_keepalive_time = 300
-net.ipv4.tcp_keepalive_intvl = 15
-net.ipv4.tcp_keepalive_probes = 5
-net.ipv4.tcp_fin_timeout = 15
-net.ipv4.tcp_tw_reuse = 1
-vm.swappiness = 100
-vm.page-cluster = 0
-vm.dirty_ratio = 10
-vm.dirty_background_ratio = 3
-vm.vfs_cache_pressure = 50
-vm.watermark_boost_factor = 0
-vm.watermark_scale_factor = 125
-vm.compaction_proactiveness = 20
-EOF
-  run_root cp "$TMP_DIR/99-fleet-bbrv3-memory-io.conf" /etc/sysctl.d/99-fleet-bbrv3-memory-io.conf
+  # Sysctl tuning is consolidated in /etc/sysctl.d/99-fleet.conf above.
   run_root sysctl --system >/dev/null 2>&1 || true
 
   # Happy Eyeballs IPv4 Precedence (/etc/gai.conf)
@@ -2105,44 +2160,7 @@ EOF
   run_root cp "$TMP_DIR/user-oomd-protect.conf" /etc/systemd/system/user@.service.d/oomd-protect.conf
   run_root systemctl restart systemd-oomd.service >/dev/null 2>&1 || true
 
-  cat > "$TMP_DIR/99-fleet-wave3-ai-kernel.conf" <<'EOF'
-fs.aio-max-nr = 1048576
-fs.inotify.max_user_watches = 1048576
-fs.inotify.max_user_instances = 8192
-kernel.pid_max = 4194304
-kernel.kptr_restrict = 2
-kernel.unprivileged_bpf_disabled = 1
-net.core.bpf_jit_harden = 2
-kernel.sched_autogroup_enabled = 0
-vm.admin_reserve_kbytes = 65536
-kernel.yama.ptrace_scope = 1
-net.ipv4.tcp_syncookies = 1
-net.ipv4.tcp_rfc1337 = 1
-net.ipv4.conf.all.send_redirects = 0
-net.ipv4.conf.default.send_redirects = 0
-net.ipv4.conf.all.accept_redirects = 0
-net.ipv4.conf.default.accept_redirects = 0
-net.ipv6.conf.all.accept_redirects = 0
-net.ipv6.conf.default.accept_redirects = 0
-net.ipv4.conf.all.secure_redirects = 0
-net.ipv4.conf.default.secure_redirects = 0
-net.ipv4.conf.all.accept_source_route = 0
-net.ipv4.conf.default.accept_source_route = 0
-net.ipv6.conf.all.accept_source_route = 0
-net.ipv6.conf.default.accept_source_route = 0
-net.ipv4.conf.all.rp_filter = 1
-net.ipv4.conf.default.rp_filter = 1
-net.ipv4.icmp_ignore_bogus_error_responses = 1
-net.ipv4.icmp_echo_ignore_broadcasts = 1
-vm.min_free_kbytes = 65536
-net.ipv4.tcp_limit_output_bytes = 262144
-kernel.core_pattern = |/bin/false
-fs.suid_dumpable = 0
-fs.protected_fifos = 2
-fs.protected_regular = 2
-EOF
   run_root ln -sf /dev/null /etc/sysctl.d/10-coredump-debian.conf
-  run_root cp "$TMP_DIR/99-fleet-wave3-ai-kernel.conf" /etc/sysctl.d/99-fleet-wave3-ai-kernel.conf
   run_root sysctl --system >/dev/null 2>&1 || true
 
   if ! command -v bwrap >/dev/null 2>&1; then

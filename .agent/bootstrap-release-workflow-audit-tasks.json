@@ -1,0 +1,17 @@
+[
+  {
+    "id": "release-workflow-threat-audit",
+    "cwd": "..",
+    "task": "Read AGENTS.md, CLAUDE.md, CODEX.md, the repository-wide-convergence OpenSpec fleet-bootstrap B02/B12 requirements, scripts/publish-bootstrap-release.sh, scripts/sign-bootstrap-release.sh, packages/control-plane/scripts/release-publication.mjs, and all .github/workflows. Do not edit files. Produce a concise adversarial audit of the desired GitHub Actions production release workflow: identify exact trust boundaries, ways repository-controlled build code could reach the signing key, artifact substitution/replay risks, required environment separation, permissions, concurrency, retention, and fail-closed checks. Cite exact repo paths/lines and propose mechanically testable workflow invariants. Do not author or modify OpenSpec artifacts. Never print or resolve secrets."
+  },
+  {
+    "id": "infisical-oidc-repo-audit",
+    "cwd": "..",
+    "task": "Read AGENTS.md, CLAUDE.md, CODEX.md, .github/workflows/infisical-policy.yml, scripts/test-infisical-identity-policy.sh, all Infisical policy/manifests in the repository, and the release publication scripts. Do not edit files. Determine the existing repository-native pattern for GitHub OIDC to Infisical, the minimum distinct machine identities/secret leaf paths needed for release signing, R2 publication, and channel activation, and which details are unknowable without external provisioning. Cite exact repo paths/lines and propose testable workflow/policy invariants. Do not author or modify OpenSpec. Never fetch, print, or resolve secret values."
+  },
+  {
+    "id": "workflow-contract-test-design",
+    "cwd": "..",
+    "task": "Inspect all GitHub workflows and shell test conventions, especially scripts/test-workflow-action-pins.sh, scripts/test-bootstrap-release-publisher.sh, bootstrap-install-acceptance.yml, and package scripts. Do not edit files. Design a bounded static contract test for a future production bootstrap-release workflow that proves: build job has checkout but no id-token/secrets; signer has no checkout and only signer environment/OIDC; publisher cannot sign or activate; activator cannot sign or publish release bytes; artifact handoffs are digest-bound; all actions use full SHAs; explicit manual activation and concurrency guards exist. Cite exact existing patterns and give concrete assertions robust to YAML formatting. Do not author OpenSpec."
+  }
+]

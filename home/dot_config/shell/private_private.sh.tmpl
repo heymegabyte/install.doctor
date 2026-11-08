@@ -11,13 +11,15 @@ export ANSIBLE_GALAXY_TOKEN="{{ if (stat (joinPath .chezmoi.sourceDir ".chezmoit
 export ANSIBLE_VAULT_PASSWORD="{{ if (stat (joinPath .chezmoi.sourceDir ".chezmoitemplates" (printf "%s%s" "secrets-" .chezmoi.hostname) "ANSIBLE_VAULT_PASSWORD")) }}{{ includeTemplate (printf "%s%s" (printf "%s%s" "secrets-" .chezmoi.hostname) "/ANSIBLE_VAULT_PASSWORD") | decrypt | trim }}{{ else }}{{ env "ANSIBLE_VAULT_PASSWORD" }}{{ end }}"
 export AVP="$ANSIBLE_VAULT_PASSWORD"
 
-### Infisical & Install Doctor
-if command -v get-secret > /dev/null 2>&1; then
-  [ -z "${INFISICAL_TOKEN:-}" ] && INFISICAL_TOKEN="$(get-secret INFISICAL_TOKEN 2>/dev/null || true)"
-  [ -z "${DEEPSEEK_API_KEY:-}" ] && DEEPSEEK_API_KEY="$(get-secret DEEPSEEK_API_KEY 2>/dev/null || true)"
-  [ -z "${AID_API_KEY:-}" ] && AID_API_KEY="$(get-secret AID_API_KEY 2>/dev/null || true)"
-  export INFISICAL_TOKEN DEEPSEEK_API_KEY AID_API_KEY
-fi
+### Infisical & Desktop Tools (lazy on-demand loader — never blocks shell startup)
+load_vault_secrets() {
+  if command -v get-secret > /dev/null 2>&1; then
+    [ -z "${INFISICAL_TOKEN:-}" ] && INFISICAL_TOKEN="$(get-secret INFISICAL_TOKEN 2>/dev/null || true)"
+    [ -z "${DEEPSEEK_API_KEY:-}" ] && DEEPSEEK_API_KEY="$(get-secret DEEPSEEK_API_KEY 2>/dev/null || true)"
+    [ -z "${DESKTOP_TOOLS_API_KEY:-}" ] && DESKTOP_TOOLS_API_KEY="$(get-secret DESKTOP_TOOLS_API_KEY 2>/dev/null || get-secret AID_API_KEY 2>/dev/null || true)"
+    export INFISICAL_TOKEN DEEPSEEK_API_KEY DESKTOP_TOOLS_API_KEY
+  fi
+}
 
 ### AWS
 export AWS_ACCESS_KEY_ID="{{ if (stat (joinPath .chezmoi.sourceDir ".chezmoitemplates" (printf "%s%s" "secrets-" .chezmoi.hostname) "AWS_ACCESS_KEY_ID")) }}{{ includeTemplate (printf "%s%s" (printf "%s%s" "secrets-" .chezmoi.hostname) "/AWS_ACCESS_KEY_ID") | decrypt | trim }}{{ else }}{{ env "AWS_ACCESS_KEY_ID" }}{{ end }}"

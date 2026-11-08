@@ -1,0 +1,17 @@
+[
+  {
+    "id": "transaction-state-machine",
+    "cwd": "..",
+    "task": "Read-only adversarial design audit in install.doctor. Inspect packages/installer-engine/src/{offline-execution,offline-orchestrator,native-dpkg-state,native-dpkg-fence,native-policy-rcd,journal,engine}.ts and their tests. Design the smallest complete durable native Debian transaction state machine that can safely compose the existing fence, policy-rc.d transaction, sealed payloads, exact dpkg invocations, cancellation-at-boundary semantics, service snapshots, and resume reconciliation. Identify every mutation checkpoint and crash state. Give concrete strict TypeScript interfaces and tests. Do not edit files and do not author OpenSpec."
+  },
+  {
+    "id": "debian-dependency-semantics",
+    "cwd": "..",
+    "task": "Read-only audit in install.doctor. Inspect the signed NativeOfflinePayloadDescriptor schema, Debian metadata verifier, and native package closure validation. Determine exact missing validation for Debian Depends/Pre-Depends semantics, alternatives, version relations, architecture qualifiers, Multi-Arch, Essential, and Architecture: all. Propose a deliberately bounded production-admissible subset and fail-closed parser/topological ordering tests without invoking apt. Do not edit files and do not author OpenSpec."
+  },
+  {
+    "id": "real-debian-acceptance",
+    "cwd": "..",
+    "task": "Read-only audit in install.doctor. Inspect release/offline bundle workflows and native Debian code. Specify a reproducible disposable Debian acceptance test using a tiny locally generated signed repository and package, network namespace denial, real gpgv/xz/dpkg-deb/dpkg/systemd where available, interruption injection, unchanged second run, service policy restoration, and evidence capture. Separate what can run in an ordinary container from what needs PID1 systemd. Do not edit files and do not author OpenSpec."
+  }
+]

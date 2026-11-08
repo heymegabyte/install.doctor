@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+# desktop-tools — machine-side client for https://desktop.tools (replaces aidl.ink and aid).
+# Reads the device token stored by `desktop-tools-pair` (~/.config/desktop-tools/device-token)
+# and delegates to the machine desired-state reconciler.
+set -euo pipefail
+
+export AID_CONTROL_PLANE_URL="${DESKTOP_TOOLS_CONTROL_PLANE_URL:-${AID_CONTROL_PLANE_URL:-https://desktop.tools}}"
+export AID_TOKEN_PATH="${DESKTOP_TOOLS_TOKEN_PATH:-${AID_TOKEN_PATH:-$HOME/.config/desktop-tools/device-token}}"
+export AID_ENV_PATH="${DESKTOP_TOOLS_ENV_PATH:-${AID_ENV_PATH:-$HOME/.config/desktop-tools/ENVIRONMENT.md}}"
+
+SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [ -x "$SELF_DIR/aid" ]; then
+  exec "$SELF_DIR/aid" "$@"
+elif [ -x "$SELF_DIR/executable_aid" ]; then
+  exec "$SELF_DIR/executable_aid" "$@"
+elif command -v aid >/dev/null 2>&1; then
+  exec "$(command -v aid)" "$@"
+else
+  printf '[desktop-tools] error: runtime engine missing\n' >&2
+  exit 1
+fi

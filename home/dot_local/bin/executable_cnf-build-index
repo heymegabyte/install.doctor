@@ -51,8 +51,56 @@ with open(out, "w") as fh:
         for bn in bins:
             if isinstance(bn, str): fh.write("\t".join([bn, k] + c) + "\n")
 PY
+elif command -v node >/dev/null 2>&1; then
+  node - "$SRC" "$TMP" <<'JS'
+const fs = require("node:fs");
+const [src, out] = process.argv.slice(2);
+const lines = fs.readFileSync(src, "utf8").split(/\r?\n/);
+const cols = ["brew","apt","dnf","pacman","cask","choco","scoop","go","cargo","npm","pipx","pip","gem","apk"];
+const pkgs = {};
+let inSoftware = false, curPkg = null, curProp = null;
+for (const raw of lines) {
+  if (/^softwarePackages:\s*$/.test(raw)) { inSoftware = true; continue; }
+  if (!inSoftware) continue;
+  if (/^[A-Za-z0-9_-]+:\s*$/.test(raw)) break;
+  const mPkg = raw.match(/^  ([A-Za-z0-9._+-]+):\s*$/);
+  if (mPkg) { curPkg = mPkg[1]; pkgs[curPkg] = {}; curProp = null; continue; }
+  if (!curPkg) continue;
+  const mProp = raw.match(/^    ([A-Za-z0-9_:-]+):\s*(.*)$/);
+  if (mProp) {
+    curProp = mProp[1];
+    const val = mProp[2].trim();
+    if (val === "") { pkgs[curPkg][curProp] = []; }
+    else if (val.startsWith("[") && val.endsWith("]")) {
+      pkgs[curPkg][curProp] = val.slice(1, -1).split(",").map(s => s.trim().replace(/^['"]|['"]$/g, "")).filter(Boolean);
+    } else {
+      pkgs[curPkg][curProp] = val.replace(/^['"]|['"]$/g, "");
+    }
+    continue;
+  }
+  const mItem = raw.match(/^      -\s*(.+)$/);
+  if (mItem && curProp && Array.isArray(pkgs[curPkg][curProp])) {
+    pkgs[curPkg][curProp].push(mItem[1].trim().replace(/^['"]|['"]$/g, ""));
+  }
+}
+const rows = [];
+for (const [k, v] of Object.entries(pkgs)) {
+  const b = v._bin || k;
+  const bins = Array.isArray(b) ? b : [b];
+  const c = cols.map(col => {
+    const x = v[col];
+    if (Array.isArray(x)) return x.join(" ");
+    return x && x !== "false" && x !== "null" ? String(x) : "";
+  });
+  if (c[7] && !/@v\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/.test(c[7])) c[7] = "";
+  for (const bn of bins) {
+    if (bn) rows.push([bn, k, ...c].join("\t"));
+  }
+}
+fs.writeFileSync(out, rows.join("\n") + (rows.length ? "\n" : ""));
+JS
 else
-  echo "need (yq + jq) or python3+pyyaml to parse software.yml" >&2; exit 1
+  echo "need (yq + jq), python3+pyyaml, or node to parse software.yml" >&2; exit 1
 fi
 
 rows="$(wc -l < "$TMP" | tr -d ' ')"

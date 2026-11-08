@@ -32,16 +32,21 @@
 {{ includeTemplate "universal/logg-before" }}
 {{ includeTemplate "universal/profile-before" }}
 
-# @description Helper function utilized by [[decryptKey]] that removes all `encrypted_` files from the Chezmoi source
-#     if the Age decryption process fails due to wrong password or from not being set up yet.
+# @description Helper function utilized by [[decryptKey]] when Age decryption is skipped or fails.
+#     Preserves tracked encrypted_* ciphertext in the Chezmoi source tree by default instead of
+#     destructively deleting git-tracked files unless INSTALL_DOCTOR_CONSENT_DELETE_ENCRYPTED=1 is set.
 decryptionFailure() {
   gum log -sl info 'Proceeding without decrypting age encryption key stored at ~/.local/share/chezmoi/home/key.txt.age'
   gum log -sl info 'To have Chezmoi handle your encryption (so you can store your private files publicly) take a look at https://shorturl.at/jkpzG'
-  gum log -sl info 'Removing all files that begin with encrypted_ because decryption failed'
-  find "${XDG_DATA_HOME:-$HOME/.local/share}/chezmoi" -type f -name "encrypted_*" | while read ENCRYPTED_FILE; do
-    gum log -sl info "Removing $ENCRYPTED_FILE"
-    rm -f "$ENCRYPTED_FILE"
-  done
+  if [ "${INSTALL_DOCTOR_CONSENT_DELETE_ENCRYPTED:-0}" = "1" ]; then
+    gum log -sl info 'Removing all files that begin with encrypted_ because decryption failed and INSTALL_DOCTOR_CONSENT_DELETE_ENCRYPTED=1'
+    find "${XDG_DATA_HOME:-$HOME/.local/share}/chezmoi" -type f -name "encrypted_*" | while read -r ENCRYPTED_FILE; do
+      gum log -sl info "Removing $ENCRYPTED_FILE"
+      rm -f "$ENCRYPTED_FILE"
+    done
+  else
+    gum log -sl warn 'Skipping encrypted_* files non-destructively (set INSTALL_DOCTOR_CONSENT_DELETE_ENCRYPTED=1 to purge source ciphertext)'
+  fi
 }
 
 # @description Helper function utilized by [[decryptKey]] to ensure the `age` command is available

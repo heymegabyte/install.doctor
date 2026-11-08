@@ -173,6 +173,15 @@ function ensureTaskInstalled() {
     logger info "Task $INSTALL_DOCTOR_TASK_VERSION is already installed"
     return 0
   fi
+  for candidate in "$(command -v task 2>/dev/null || true)" "$(command -v go-task 2>/dev/null || true)"; do
+    if [ -n "$candidate" ] && task_bootstrap_is_expected_binary "$candidate" "$expected_binary"; then
+      mkdir -p "$(dirname "$target")"
+      cp -f "$candidate" "$target"
+      chmod 0755 "$target"
+      logger info "Linked verified system Task $INSTALL_DOCTOR_TASK_VERSION ($candidate) to $target"
+      return 0
+    fi
+  done
   logger info "Installing immutable Task $INSTALL_DOCTOR_TASK_VERSION"
   install_pinned_task "$(detect_os)" "$(uname -m 2>/dev/null)" "$target"
   logger success "Installed Task $INSTALL_DOCTOR_TASK_VERSION to $target"

@@ -1,0 +1,17 @@
+[
+    {
+      "id": "metadata-parser-adversary",
+      "cwd": "..",
+      "task": "Read-only audit in install.doctor. Inspect packages/aid-core/src/installer-contracts.ts and installer-engine offline bundle/execution tests. Design a strict bounded parser/verifier for OpenPGP-clearsigned InRelease -> SHA256 index entry -> optionally gzip/xz Packages -> exact stanza -> .deb, including duplicate-field, continuation, CRLF, dash-escaping, expiry, architecture all, and ambiguity attacks. Give concrete TypeScript interfaces and tests. Do not edit files or author OpenSpec."
+    },
+    {
+      "id": "dpkg-runtime-adversary",
+      "cwd": "..",
+      "task": "Read-only audit in install.doctor. Inspect installer-engine engine/journal/locks/process runner/service adapters/offline execution. Design the safest separate root Debian offline executor using fixed trusted binaries, host-global locks, exact .deb descriptors, policy-rc.d suppression with atomic preservation, service snapshots, dpkg-query postconditions, half-configured recovery truth, cancellation, and no generic root argv. Give concrete code/test guidance. Do not edit files or author OpenSpec."
+    },
+    {
+      "id": "debian-fixture-design",
+      "cwd": "..",
+      "task": "Read-only audit in install.doctor. Design a hermetic/disposable Debian acceptance fixture that creates a tiny signed local repository and .deb with a service maintainer script, creates a signed offline bundle, denies network, installs through the real engine, proves service suppression/restoration, unchanged second run, interruption truth, and no undeclared artifacts. Identify CI/container constraints and exact assertions. Do not edit files or author OpenSpec."
+    }
+]

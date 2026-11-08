@@ -1,0 +1,32 @@
+[
+  {
+    "id": "stage-zero-security",
+    "cwd": "..",
+    "task": "Read-only audit of the current install.doctor worktree. Find high-severity trust, provenance, privilege, secret, or shell-injection gaps in the signed curl-to-bootstrap path. Cite exact files and lines. Do not edit files."
+  },
+  {
+    "id": "engine-lifecycle",
+    "cwd": "..",
+    "task": "Read-only audit of installer-engine and scripts/provision.sh for lifecycle gaps against secure deterministic resumable idempotent selected-desired-state installation. Focus journal authority, interruption, cancellation, rollback, and second-run behavior. Cite exact files and lines. Do not edit."
+  },
+  {
+    "id": "offline-closure",
+    "cwd": "..",
+    "task": "Read-only audit of signed offline bundle implementation. Identify concrete missing behavior preventing supported-platform offline installation of selected desired state. Separate documented unsupported scope from high-severity defects. Cite exact files and lines. Do not edit."
+  },
+  {
+    "id": "tui-ux",
+    "cwd": "..",
+    "task": "Read-only audit of terminal TUI/event/rendering path for attributable concurrent output, accessibility, crash isolation, truthfulness, bounded memory, and curl-to-TUI integration. Cite exact files/tests and prioritized gaps. Do not edit."
+  },
+  {
+    "id": "platform-proof",
+    "cwd": "..",
+    "task": "Read-only audit of platform support matrix, real-host canary workflow, and documentation. Find any path that could overclaim support or any defect that prevents the manual canary from running truthfully. Cite exact files and lines. Do not edit."
+  },
+  {
+    "id": "performance",
+    "cwd": "..",
+    "task": "Read-only audit of install performance and parallel scheduling evidence. Identify unmeasured bottlenecks or unsafe concurrency and concrete locally testable improvements. Cite exact files and lines. Do not edit."
+  }
+]

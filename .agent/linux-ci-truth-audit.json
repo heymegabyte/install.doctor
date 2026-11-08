@@ -1,0 +1,7 @@
+[
+  {
+    "id": "linux-ci-truth-audit",
+    "task": "Read only. Audit .github/workflows/test-linux.yml against scripts/platform-support-matrix.json. Identify every active job tuple that has no exact best-effort or verified cell, every unsupported cell treated as a successful install, mutable container/action input, missing observed tuple assertion, and any conflation of structural checks with signed full-lifecycle proof. Recommend a minimal exact contract. Do not edit files or OpenSpec.",
+    "cwd": ".."
+  }
+]

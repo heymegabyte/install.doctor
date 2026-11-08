@@ -93,6 +93,14 @@ if [ -z "$xkasm" ] || [ -z "$viewer" ] || [ -z "$openbox" ]; then
   exit 1
 fi
 
+if [ ! -s "$secret_dir/vnc-password" ] && command -v get-secret >/dev/null 2>&1; then
+  vnc_secret="$(get-secret VNC_PASSWORD 2>/dev/null || true)"
+  if [ -n "$vnc_secret" ]; then
+    (umask 077 && printf '%s\n' "$vnc_secret" >"$secret_dir/vnc-password")
+    chmod 600 "$secret_dir/vnc-password"
+  fi
+fi
+
 python3 - "$secret_dir" <<'PY'
 from pathlib import Path
 import secrets

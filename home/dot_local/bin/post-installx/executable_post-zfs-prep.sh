@@ -91,20 +91,49 @@ else
 fi
 
 $SUDO tee /etc/modprobe.d/zfs.conf >/dev/null <<EOF
-# Proportional ZFS ARC cap (${ARC_LABEL} max on ${MEM_TOTAL_GIB} GiB RAM host ${HOSTNAME_SHORT})
+# Proportional ZFS ARC cap (${ARC_LABEL} max on ${MEM_TOTAL_GIB} GiB RAM host ${HOSTNAME_SHORT}) + OpenZFS 2.4 Tunables
 options zfs zfs_arc_max=${ARC_MAX_BYTES}
 options zfs zfs_arc_min=${ARC_MIN_BYTES}
+options zfs zfs_bclone_enabled=1
+options zfs zfs_bclone_wait_dirty=1
+options zfs zfs_txg_timeout=5
+options zfs zfs_arc_dnode_limit_percent=20
+options zfs zfs_dirty_data_max_percent=10
+options zfs l2arc_noprefetch=0
 EOF
+$SUDO chmod 0644 /etc/modprobe.d/zfs.conf
 
 $SUDO modprobe zfs 2>/dev/null || true
 if [[ -w /sys/module/zfs/parameters/zfs_arc_max ]]; then
   echo "$ARC_MAX_BYTES" | $SUDO tee /sys/module/zfs/parameters/zfs_arc_max >/dev/null || true
 fi
+for zfs_knob in "zfs_bclone_enabled:1" "zfs_bclone_wait_dirty:1" "zfs_txg_timeout:5" "zfs_arc_dnode_limit_percent:20" "zfs_dirty_data_max_percent:10" "l2arc_noprefetch:0"; do
+  k="${zfs_knob%%:*}"
+  v="${zfs_knob##*:}"
+  if [[ -w "/sys/module/zfs/parameters/${k}" ]]; then
+    echo "$v" | $SUDO tee "/sys/module/zfs/parameters/${k}" >/dev/null || true
+  fi
+done
 $SUDO systemctl enable --now zfs-zed.service 2>/dev/null || true
 
 # 3. Policy-owned Sanoid snapshots, capacity alerts, and monthly scrubs. Existing
 # dataset properties and deliberate Sanoid policies are preserved.
 if [[ "$HAS_ZFS_POOL" -eq 1 ]]; then
+  # Provision dedicated rpool/ai-models dataset (recordsize=1M, primarycache=metadata, logbias=throughput)
+  # and 5% rpool/reservation dataset when rpool has >= 50 GiB available.
+  if zpool list rpool >/dev/null 2>&1; then
+    RPOOL_AVAIL_BYTES="$(zfs get -Hp -o value available rpool 2>/dev/null || echo 0)"
+    RPOOL_SIZE_BYTES="$(zpool get -Hp -o value size rpool 2>/dev/null || echo 0)"
+    if [[ "${RPOOL_AVAIL_BYTES:-0}" -ge 53687091200 ]] && ! zfs list rpool/ai-models >/dev/null 2>&1; then
+      $SUDO zfs create -o recordsize=1M -o compression=zstd-fast-3 -o atime=off -o primarycache=metadata -o logbias=throughput -o mountpoint=/var/lib/ai-models rpool/ai-models 2>/dev/null || true
+    fi
+    if [[ "${RPOOL_AVAIL_BYTES:-0}" -ge 53687091200 && "${RPOOL_SIZE_BYTES:-0}" -gt 0 ]] && ! zfs list rpool/reservation >/dev/null 2>&1; then
+      RES_GIB=$(( (RPOOL_SIZE_BYTES / 1073741824) / 20 ))
+      [[ "$RES_GIB" -lt 4 ]] && RES_GIB=4
+      [[ "$RES_GIB" -gt 32 ]] && RES_GIB=32
+      $SUDO zfs create -o mountpoint=none -o refreservation="${RES_GIB}G" rpool/reservation 2>/dev/null || true
+    fi
+  fi
 
   HOME_DS="$(zfs list -H -o name /home 2>/dev/null | tr -d ' ' || true)"
   if [[ -n "$HOME_DS" ]]; then

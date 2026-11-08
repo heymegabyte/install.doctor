@@ -1,0 +1,14 @@
+[
+    {
+      "id": "pid1-fixture-review",
+      "task": "Read-only review. Inspect the native Debian runtime, existing canary workflows, and tests. Design the smallest reproducible real Debian PID-1 systemd acceptance fixture that truthfully proves network isolation, clean install, interruption/resume, unchanged reapply, policy-rc.d restoration, trigger state, and exact service restoration. Return exact files, commands, assertions, and safety constraints. Do not edit files or architecture artifacts."
+    },
+    {
+      "id": "dpkg-trigger-review",
+      "task": "Read-only adversarial review of packages/installer-engine/src/native-dpkg-transaction.ts and related state/control inspection. Determine whether --no-triggers can ever yield a successful final state and specify exact real-package or generated-package acceptance cases needed to prove no pending triggers or silent side effects. Do not edit files."
+    },
+    {
+      "id": "cross-platform-proof-review",
+      "task": "Read-only audit of existing platform support matrix, clean/upgrade/interruption/rollback/offline/second-run scripts and workflows. Identify the most severe unsupported or weakly proven platform cell after Debian native runtime work. Cite exact repository files and propose one bounded next implementation slice. Do not edit files."
+    }
+]

@@ -10,11 +10,11 @@
 # Usage: aid-pair [--force]   (re-pairs even if a token already exists)
 set -uo pipefail
 
-AID_CONTROL_PLANE_URL="${AID_CONTROL_PLANE_URL:-https://aid-control-plane.manhattan.workers.dev}"
-AID_TENANT="${AID_TENANT:-_default}"
-AID_TOKEN_PATH="${AID_TOKEN_PATH:-$HOME/.config/aid/device-token}"
-AID_PAIR_TIMEOUT="${AID_PAIR_TIMEOUT:-300}"
-AID_PAIR_INTERVAL="${AID_PAIR_INTERVAL:-3}"
+AID_CONTROL_PLANE_URL="${DESKTOP_TOOLS_CONTROL_PLANE_URL:-${AID_CONTROL_PLANE_URL:-https://aid-control-plane.manhattan.workers.dev}}"
+AID_TENANT="${DESKTOP_TOOLS_TENANT:-${AID_TENANT:-_default}}"
+AID_TOKEN_PATH="${DESKTOP_TOOLS_TOKEN_PATH:-${AID_TOKEN_PATH:-$HOME/.config/aid/device-token}}"
+AID_PAIR_TIMEOUT="${DESKTOP_TOOLS_PAIR_TIMEOUT:-${AID_PAIR_TIMEOUT:-300}}"
+AID_PAIR_INTERVAL="${DESKTOP_TOOLS_PAIR_INTERVAL:-${AID_PAIR_INTERVAL:-3}}"
 FORCE=0
 [ "${1:-}" = "--force" ] && FORCE=1
 

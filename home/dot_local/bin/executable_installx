@@ -9,7 +9,7 @@ const cacheDir = os.homedir() + '/.cache/installx'
 const IMPLEMENTED_PROVIDER_TYPES = new Set([
   'apk', 'apt', 'basher', 'baulk', 'brew', 'cargo', 'cask', 'choco',
   'crew', 'dnf', 'emerge', 'flatpak', 'gem', 'go', 'npm', 'pacman',
-  'pip', 'pipx', 'pkg_add', 'scoop', 'snap', 'winget', 'xbps', 'yay',
+  'pip', 'pipx', 'pkg_add', 'rpm-ostree', 'scoop', 'snap', 'winget', 'xbps', 'yay',
   'yum', 'zypper'
 ])
 
@@ -19,10 +19,14 @@ const customArgv = minimist(process.argv.slice(3), {
     'lazy',
     'check'
   ],
+  string: [
+    'tier'
+  ],
   alias: {
     a: 'all',
     l: 'lazy',
-    c: 'check'
+    c: 'check',
+    t: 'tier'
   }
 })
 
@@ -144,7 +148,9 @@ async function getSystemType() {
   if (process.platform === "win32") {
     return "windows"
   } else if (process.platform === "linux") {
-    if (which.sync('apk', { nothrow: true })) {
+    if (fs.existsSync('/run/ostree-booted') && which.sync('rpm-ostree', { nothrow: true })) {
+      return "dnf"
+    } else if (which.sync('apk', { nothrow: true })) {
       return "apk"
     } else if (which.sync('apt-get', { nothrow: true })) {
       return "apt"
@@ -400,7 +406,14 @@ async function installPackages(pkgInstructions) {
         break
       case 'dnf':
       case 'yum':
-        tasks.push(() => $`sudo ${key} install -y ${combined[key].flatMap(x => x.installList).join(' ')}`)
+        if (fs.existsSync('/run/ostree-booted') && which.sync('rpm-ostree', { nothrow: true })) {
+          tasks.push(() => $`sudo rpm-ostree install --idempotent --allow-inactive ${combined[key].flatMap(x => x.installList)}`)
+        } else {
+          tasks.push(() => $`sudo ${key} install -y ${combined[key].flatMap(x => x.installList).join(' ')}`)
+        }
+        break
+      case 'rpm-ostree':
+        tasks.push(() => $`sudo rpm-ostree install --idempotent --allow-inactive ${combined[key].flatMap(x => x.installList)}`)
         break
       case 'zypper':
         tasks.push(() => $`sudo ${key} --non-interactive install -y ${combined[key].flatMap(x => x.installList).join(' ')}`)
@@ -716,6 +729,11 @@ async function main() {
     .filter(x => !!x.installList)
     .filter(x => !x._deprecated)
     .filter(x => {
+      const tier = String(customArgv.tier || process.env.INSTALL_DOCTOR_TIER || '').trim().toLowerCase()
+      if (tier === 'minimal' || tier === 'server') {
+        if ((x._app || x.flatpak || x.appimage || x.cask) && !explicitRequestedKeys.has(x.listKey)) return false
+        if (tier === 'minimal') return !!x._preload || explicitRequestedKeys.has(x.listKey)
+      }
       if (!customArgv.lazy) return true
       if (isHeadless && (x._app || x.flatpak || x.appimage) && !explicitRequestedKeys.has(x.listKey)) return false
       // A lazy run installs the minimum baseline plus only those service

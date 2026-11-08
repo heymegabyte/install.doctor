@@ -1,30 +1,40 @@
 #!/usr/bin/env bash
 # @file run_after_30-aid-report.sh
-# @brief After every `chezmoi apply`, a PAIRED machine fetches its desired state + records a reconcile.
+# @brief After every `chezmoi apply`, emits a structured NDJSON event and reconciles desired state with desktop.tools.
 # @description
-#     If this machine has been paired with the aid control plane (a device token exists), run
-#     `aid pull` (fetch the desired ENVIRONMENT.md) + `aid plan` (reconcile vs installed + auto-register
-#     a History event) so a provisioned box automatically reports its state (MASTER-PROMPT §2). This
-#     NEVER mutates packages — `aid apply` stays an explicit, opt-in action. Unpaired machines skip
-#     silently (pairing is the deliberate `aid-pair` step). Best-effort, headless-safe, idempotent,
-#     universal (all roles). Set AID_SKIP_REPORT=1 to skip. Seams: AID_BIN, AID_TOKEN_PATH.
+#     1. Appends a structured JSON apply receipt to ~/.local/var/log/install.doctor/events.ndjson for Alloy/Loki.
+#     2. If this machine has been paired with desktop.tools (or legacy aid), runs pull + plan (read-only reconcile).
 set -euo pipefail
 
-[ "${AID_SKIP_REPORT:-0}" = "1" ] && exit 0
+LOG_DIR="${XDG_STATE_HOME:-$HOME/.local/var/log}/install.doctor"
+mkdir -p "$LOG_DIR" 2>/dev/null || true
+TS="$(date -u '+%Y-%m-%dT%H:%M:%SZ' 2>/dev/null || echo unknown)"
+HOST_SHORT="$(hostname -s 2>/dev/null || hostname || echo unknown)"
+OS_NAME="$(uname -s 2>/dev/null | tr '[:upper:]' '[:lower:]' || echo unknown)"
+printf '{"ts":"%s","event":"chezmoi_apply_completed","host":"%s","os":"%s","controlPlane":"desktop.tools","status":"ok"}\n' \
+  "$TS" "$HOST_SHORT" "$OS_NAME" >> "$LOG_DIR/events.ndjson" 2>/dev/null || true
 
-AID_TOKEN_PATH="${AID_TOKEN_PATH:-$HOME/.config/aid/device-token}"
-# Unpaired → nothing to report; skip silently.
-[ -s "$AID_TOKEN_PATH" ] || exit 0
+[ "${DESKTOP_TOOLS_SKIP_REPORT:-${AID_SKIP_REPORT:-0}}" = "1" ] && exit 0
 
-AID_BIN="${AID_BIN:-$HOME/.local/bin/aid}"
-if [ ! -x "$AID_BIN" ]; then
-  if command -v aid >/dev/null 2>&1; then
-    AID_BIN="$(command -v aid)"
+DESKTOP_TOOLS_TOKEN_PATH="${DESKTOP_TOOLS_TOKEN_PATH:-${AID_TOKEN_PATH:-$HOME/.config/desktop-tools/device-token}}"
+if [ ! -s "$DESKTOP_TOOLS_TOKEN_PATH" ] && [ -s "$HOME/.config/aid/device-token" ]; then
+  DESKTOP_TOOLS_TOKEN_PATH="$HOME/.config/aid/device-token"
+fi
+[ -s "$DESKTOP_TOOLS_TOKEN_PATH" ] || exit 0
+
+CLIENT_BIN="${DESKTOP_TOOLS_BIN:-${AID_BIN:-$HOME/.local/bin/desktop-tools}}"
+if [ ! -x "$CLIENT_BIN" ]; then
+  if command -v desktop-tools >/dev/null 2>&1; then
+    CLIENT_BIN="$(command -v desktop-tools)"
+  elif [ -x "$HOME/.local/bin/aid" ]; then
+    CLIENT_BIN="$HOME/.local/bin/aid"
+  elif command -v aid >/dev/null 2>&1; then
+    CLIENT_BIN="$(command -v aid)"
   else
-    exit 0 # aid client not deployed yet
+    exit 0
   fi
 fi
 
-# Best-effort: fetch desired + reconcile + record. NEVER mutate (no `aid apply`), NEVER fail the apply.
-"$AID_BIN" pull >/dev/null 2>&1 || true
-"$AID_BIN" plan >/dev/null 2>&1 || true
+# Best-effort: fetch desired + reconcile + record. NEVER mutate packages.
+"$CLIENT_BIN" pull >/dev/null 2>&1 || true
+"$CLIENT_BIN" plan >/dev/null 2>&1 || true

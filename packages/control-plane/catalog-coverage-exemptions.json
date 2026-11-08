@@ -1,5 +1,6 @@
 {
   "backrest": "Internal Restic + Backrest loopback backup orchestrator hook (post-backrest.sh) for encrypted Cloudflare R2 host backups; infrastructure backup plumbing rather than a browseable catalog app.",
+  "coolify": "Internal Coolify Docker edge proxy, error-page health check, and Traefik dynamic compression/security-header convergence hook (post-coolify.sh); infrastructure container orchestration plumbing rather than a browseable catalog app.",
   "cloudflared": "In software.yml (the Cloudflare Tunnel daemon) but installed via a custom method with no package-manager provider column, so gen-catalog.mjs skips it (providerless entries are not browseable). Configured by post-cloudflared.sh; intentionally not in the App Store catalog.",
   "cua-driver": "Internal desktop automation driver and MCP registration hook (post-cua-driver.sh) installed automatically on desktop hosts via the official cua.ai installer; not a standalone user-browseable catalog app.",
   "firewall": "Internal OS-native Zero-Trust firewall and DOCKER-USER ingress protection hook (post-firewall.sh); part of host security provisioning rather than a browseable user application.",
@@ -7,6 +8,7 @@
   "nexus-cache": "Internal Sonatype Nexus package/model cache and scoped ~/.cache/megabyte hierarchy hook (post-nexus-cache.sh); host cache plumbing rather than a browseable catalog app.",
   "ntfy": "In software.yml (the ntfy pub-sub notification service) but installed via a custom method with no package-manager provider column, so gen-catalog.mjs skips it (providerless entries are not browseable). Configured by post-ntfy.sh; intentionally not in the App Store catalog.",
   "nvidia-toolkit": "Internal capability-gated NVIDIA Container Toolkit and CDI specification hook (post-nvidia-toolkit.sh) for Linux GPU container hosts; infrastructure runtime plumbing rather than a browseable catalog app.",
+  "proxmox": "Internal Proxmox VE hypervisor and Proxmox Backup Server (PBS) convergence hook (post-proxmox.sh) for Linux virtualization hosts; hypervisor infrastructure plumbing rather than a browseable catalog app.",
   "github-runner": "Internal CI self-hosted-runner enrollment hook (post-github-runner.sh). Not in software.yml and not a user-facing installable application — it configures a runner on an already-provisioned host, so it is intentionally not browseable.",
   "github-runners": "Internal multi-runner GitHub Actions self-hosted runner fleet enrollment hook (post-github-runners.sh). Infrastructure provisioning hook rather than a user-browseable catalog application.",
   "kasmvnc": "KasmVNC is present in software.yml but uses a custom Linux release installer with no generated provider column, so gen-catalog.mjs omits it. The post-kasmvnc hook prepares the browser-fit webroot after that custom install.",

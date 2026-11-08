@@ -1,0 +1,32 @@
+[
+  {
+    "id": "legion-selected-state",
+    "cwd": "..",
+    "task": "Read-only audit of home/dot_local/bin/post-installx/executable_post-legion-workstation.sh. Identify every eager install or mutation that belongs in selected desired state or lazy resolution. Return exact file:line evidence and minimal safe refactors. Do not edit files or OpenSpec."
+  },
+  {
+    "id": "legion-preservation",
+    "cwd": "..",
+    "task": "Read-only adversarial audit of the Legion workstation hook for destructive removals, service masking, storage mutations, credential changes, and false-success error swallowing. Return exact file:line evidence and regression-test patterns. Do not edit."
+  },
+  {
+    "id": "runtime-downloads",
+    "cwd": "..",
+    "task": "Read-only scan of executable installer/runtime paths for remote downloads that are mutable, unverified, non-atomic, or executed with privilege. Rank findings with exact file:line evidence. Exclude ordinary API health calls. Do not edit."
+  },
+  {
+    "id": "lazy-closure",
+    "cwd": "..",
+    "task": "Read-only audit of install.doctor's bootstrap and post-install dispatch for capabilities loaded eagerly even when not selected. Focus on closure reachability and second-run idempotence. Return concrete evidence and tests. Do not edit."
+  },
+  {
+    "id": "installer-failure-truth",
+    "cwd": "..",
+    "task": "Read-only audit for swallowed failures or progress/status that can report success without verified outcomes in bootstrap/install runtime. Return exact file:line findings and minimal tests. Do not edit."
+  },
+  {
+    "id": "r09-test-gaps",
+    "cwd": "..",
+    "task": "Read-only adversarial review of scripts/test-runtime-code-authority.sh and related supply-chain tests. Identify bypasses and propose precise additional assertions without editing."
+  }
+]

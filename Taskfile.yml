@@ -82,3 +82,22 @@ tasks:
     desc: Compatibility alias for the canonical signed bootstrap
     cmds:
       - task: provision
+
+  ssh:deploy:
+    desc: Push and apply install.doctor desired state to a remote fleet host (HOST=zen|omen|legion|ubuntu)
+    cmds:
+      - ssh -o BatchMode=yes {{.HOST}} 'cd ~/.local/share/chezmoi && git pull --ff-only && ~/.local/bin/chezmoi apply'
+
+  verify:parity:
+    desc: Run fleet disaster-recovery and host posture verification across reachable fleet computers
+    cmds:
+      - |
+        for h in zen omen legion ubuntu; do
+          printf "=== %s ===\n" "$h"
+          ssh -o BatchMode=yes -o ConnectTimeout=5 "$h" '/usr/local/bin/fleet-dr-verify || true' 2>/dev/null || printf "unreachable: %s\n" "$h"
+        done
+
+  fleet:status:
+    desc: Query desktop-tools and systemd posture across local and remote fleet hosts
+    cmds:
+      - bash home/dot_local/bin/executable_desktop-tools doctor || true

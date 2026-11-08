@@ -1,8 +1,8 @@
 # Repository agent guidance
 
 Read CLAUDE.md for the existing fleet provisioning implementation and platform constraints.
-For the new app.install.doctor / aid product direction, also read
-packages/aid-core/README.md and packages/aid-core/docs/PRODUCT-SPEC.md.
+For the desktop.tools product direction (which replaces retired aidl.ink, aid, and app.install.doctor),
+also read packages/aid-core/README.md and packages/aid-core/docs/PRODUCT-SPEC.md.
 
 As of 2026-10-26, packages/aid-core is an isolated pre-production TypeScript foundation.
 It is not wired into the bootstrap, site, a daemon, or production routing. Do not claim
@@ -14,12 +14,12 @@ and Easter-Egg contracts. They are unit-tested but are not wired into the bootst
 control plane, daemon, routing, or UI. Treat them as experimental contracts, never as shipped
 product capability, until an explicit integration decision exists.
 
-New product decisions: app.install.doctor is browser-first; aid is the intended OpenCode
-derivative; reuse shared ProjectSites routing with DeepSeek preferred and no LiteLLM;
-hiSHtory is preferred over Atuin; Alloy replaces Promtail for new Loki integration work.
-Existing history and running services must be preserved until tested migrations exist.
+New product decisions: desktop.tools (replacing aidl.ink, aid, and app.install.doctor) is browser-first;
+desktop-tools is the intended OpenCode derivative; reuse shared ProjectSites routing with DeepSeek
+preferred and no LiteLLM; hiSHtory is preferred over Atuin; Alloy replaces Promtail for new Loki
+integration work. Existing history and running services must be preserved until tested migrations exist.
 
-The no-LiteLLM decision above applies only to the customer-facing `aid` product runtime.
+The no-LiteLLM decision above applies only to the customer-facing `desktop-tools` product runtime.
 Internal development, research, and test-generation agents follow the canonical
 `~/.agentskills/rules/agent-provider-policy.md`: first offload every effectively executable
 unit through OpenCode → LiteLLM → local Ollama or rotating DeepSeek, and assess safe swarm

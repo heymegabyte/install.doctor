@@ -3,6 +3,7 @@ import { z } from 'zod';
 
 export * from './installer-contracts.js';
 export const APP_URL = 'https://app.install.doctor' as const;
+export const DESKTOP_TOOLS_URL = 'https://desktop.tools' as const;
 export const ROUTES = ['general', 'economy', 'code', 'architect', 'research', 'critical', 'batch', 'restricted'] as const;
 export type Route = typeof ROUTES[number];
 export type OS = 'linux' | 'darwin' | 'win32';
@@ -31,7 +32,29 @@ export interface BlueprintV2 {
   privacy: Blueprint['privacy'];
 }
 
-export type EnvironmentBlueprint = Blueprint | BlueprintV2;
+export type EnvironmentTier = 'minimal' | 'workstation' | 'server' | 'hypervisor' | 'full';
+
+export interface BlueprintV3 {
+  schemaVersion: 3;
+  revision: string;
+  appUrl: typeof APP_URL | typeof DESKTOP_TOOLS_URL;
+  routing: Blueprint['routing'];
+  skills: Blueprint['skills'];
+  defaults: Blueprint['defaults'] & { tier?: EnvironmentTier };
+  roles: { id: string; tier?: EnvironmentTier; packages: string[]; capabilities?: string[] }[];
+  machines: {
+    id: string;
+    os: OS;
+    role: string;
+    tier?: EnvironmentTier;
+    capabilities?: string[];
+    packageOverrides: { add: string[]; remove: string[] };
+  }[];
+  services: Blueprint['services'];
+  privacy: Blueprint['privacy'];
+}
+
+export type EnvironmentBlueprint = Blueprint | BlueprintV2 | BlueprintV3;
 
 function invariant(value: unknown, message: string): asserts value {
   if (!value) throw new Error(message);
@@ -162,13 +185,111 @@ const blueprintV2Schema = z.object({
   });
 });
 
-/** Validate either explicit ENVIRONMENT schema version without implicit migration. */
+const tierSchema = z.enum(['minimal', 'workstation', 'server', 'hypervisor', 'full']);
+
+const blueprintV3Schema = z.object({
+  schemaVersion: z.literal(3),
+  revision: identifierSchema,
+  appUrl: z.union([z.literal(APP_URL), z.literal(DESKTOP_TOOLS_URL)]),
+  routing: routingSchema,
+  skills: skillsSchema,
+  defaults: z.object({
+    packages: identifiersSchema,
+    shellHistory: z.literal('hishtory'),
+    tier: tierSchema.optional()
+  }).strict(),
+  roles: z.array(z.object({
+    id: identifierSchema,
+    tier: tierSchema.optional(),
+    packages: identifiersSchema,
+    capabilities: identifiersSchema.optional()
+  }).strict()).max(1000),
+  machines: z.array(z.object({
+    id: identifierSchema,
+    os: z.enum(['linux', 'darwin', 'win32']),
+    role: identifierSchema,
+    tier: tierSchema.optional(),
+    capabilities: identifiersSchema.optional(),
+    packageOverrides: z.object({ add: identifiersSchema, remove: identifiersSchema }).strict()
+  }).strict()).max(10000),
+  services: z.array(serviceSchema).max(1000),
+  privacy: privacySchema
+}).strict().superRefine((blueprint, context) => {
+  const roleIds = blueprint.roles.map(role => role.id);
+  if (new Set(roleIds).size !== roleIds.length) context.addIssue({ code: 'custom', path: ['roles'], message: 'Role identifiers contain duplicates' });
+  const machineIds = blueprint.machines.map(machine => machine.id);
+  if (new Set(machineIds).size !== machineIds.length) context.addIssue({ code: 'custom', path: ['machines'], message: 'Machine identifiers contain duplicates' });
+  const serviceIds = blueprint.services.map(service => service.id);
+  if (new Set(serviceIds).size !== serviceIds.length) context.addIssue({ code: 'custom', path: ['services'], message: 'Service identifiers contain duplicates' });
+  const roleById = new Map(blueprint.roles.map(role => [role.id, role]));
+  blueprint.machines.forEach((machine, index) => {
+    const role = roleById.get(machine.role);
+    if (!role) {
+      context.addIssue({ code: 'custom', path: ['machines', index, 'role'], message: 'Machine refers to an unknown role' });
+      return;
+    }
+    const inherited = new Set([...blueprint.defaults.packages, ...role.packages]);
+    const additions = new Set(machine.packageOverrides.add);
+    const overlap = machine.packageOverrides.remove.find(packageId => additions.has(packageId));
+    if (overlap) context.addIssue({ code: 'custom', path: ['machines', index, 'packageOverrides'], message: `Package ${overlap} cannot be both added and removed` });
+    const unknownRemoval = machine.packageOverrides.remove.find(packageId => !inherited.has(packageId));
+    if (unknownRemoval) context.addIssue({ code: 'custom', path: ['machines', index, 'packageOverrides', 'remove'], message: `Package ${unknownRemoval} is not inherited` });
+    const redundantAddition = machine.packageOverrides.add.find(packageId => inherited.has(packageId));
+    if (redundantAddition) context.addIssue({ code: 'custom', path: ['machines', index, 'packageOverrides', 'add'], message: `Package ${redundantAddition} is already inherited` });
+  });
+  const knownMachines = new Set(machineIds);
+  blueprint.services.forEach((service, index) => {
+    if (service.machineIds.some(machineId => !knownMachines.has(machineId))) {
+      context.addIssue({ code: 'custom', path: ['services', index, 'machineIds'], message: 'Service refers to an unknown machine' });
+    }
+  });
+});
+
+/** Validate any explicit ENVIRONMENT schema version (1, 2, or 3) without implicit migration. */
 export function validateEnvironment(input: unknown): EnvironmentBlueprint {
   invariant(input !== null && typeof input === 'object' && !Array.isArray(input), 'blueprint: expected object');
   const version = (input as Record<string, unknown>).schemaVersion;
   if (version === 1) return validateBlueprint(input);
   if (version === 2) return blueprintV2Schema.parse(input) as BlueprintV2;
+  if (version === 3) return blueprintV3Schema.parse(input) as BlueprintV3;
   throw new Error('Unsupported ENVIRONMENT schema version');
+}
+
+/** Explicit, deterministic v2 -> v3 migration adding desktop.tools origin and capability-driven tiers. */
+export function migrateBlueprintV2ToV3(input: unknown): BlueprintV3 {
+  const source = validateEnvironment(input);
+  invariant(source.schemaVersion === 2, 'Expected schemaVersion 2 blueprint');
+  const inferTier = (roleId: string): EnvironmentTier => {
+    if (roleId.includes('proxmox') || roleId.includes('hypervisor')) return 'hypervisor';
+    if (roleId.includes('runner') || roleId.includes('server') || roleId.includes('coolify')) return 'server';
+    if (roleId.includes('minimal')) return 'minimal';
+    return 'workstation';
+  };
+  const migrated: BlueprintV3 = {
+    schemaVersion: 3,
+    revision: source.revision,
+    appUrl: DESKTOP_TOOLS_URL,
+    routing: source.routing,
+    skills: source.skills,
+    defaults: { ...source.defaults, tier: 'workstation' },
+    roles: source.roles.map(role => ({
+      id: role.id,
+      tier: inferTier(role.id),
+      packages: role.packages,
+      capabilities: [inferTier(role.id)]
+    })),
+    machines: source.machines.map(machine => ({
+      id: machine.id,
+      os: machine.os,
+      role: machine.role,
+      tier: inferTier(machine.role),
+      capabilities: [machine.os, inferTier(machine.role)],
+      packageOverrides: machine.packageOverrides
+    })),
+    services: source.services,
+    privacy: source.privacy
+  };
+  return validateEnvironment(migrated) as BlueprintV3;
 }
 
 /** Explicit, deterministic migration. Import never upgrades a document silently. */

@@ -1,0 +1,22 @@
+[
+  {
+    "id": "linux-matrix-runtime",
+    "cwd": "..",
+    "task": "Read-only audit. Review .github/workflows/test-linux.yml and scripts/provision.sh for the selected Node 24 runtime flow inside container matrix jobs. Identify portability, permission, checksum, PATH, and isolated-login-user failures. Report exact evidence and minimal fixes; do not edit files."
+  },
+  {
+    "id": "signed-bootstrap-gaps",
+    "cwd": "..",
+    "task": "Read-only audit. Review signed bootstrap acceptance workflows and installer code for remaining untested clean-install, upgrade, interruption, rollback, offline, and unchanged-second-run gaps. Rank concrete gaps with file references; do not edit files."
+  },
+  {
+    "id": "lazy-install-gaps",
+    "cwd": "..",
+    "task": "Read-only audit. Inspect install routine desired-state and lazy-loading behavior. Find anything optional that is still eagerly installed or initialized, and any required dependency deferred too late. Give evidence and safe changes; do not edit files."
+  },
+  {
+    "id": "cross-platform-ci-gaps",
+    "cwd": "..",
+    "task": "Read-only audit. Inspect GitHub workflows and platform contracts for unsupported or falsely claimed macOS/Linux/Windows install coverage. Identify the highest-value executable CI additions under five minutes; do not edit files."
+  }
+]

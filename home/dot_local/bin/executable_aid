@@ -6,9 +6,9 @@
 # Headless-safe, dependency-light (no jq). URL + paths are env-overridable.
 set -uo pipefail
 
-AID_CONTROL_PLANE_URL="${AID_CONTROL_PLANE_URL:-https://aid-control-plane.manhattan.workers.dev}"
-AID_TOKEN_PATH="${AID_TOKEN_PATH:-$HOME/.config/aid/device-token}"
-AID_ENV_PATH="${AID_ENV_PATH:-$HOME/.config/aid/ENVIRONMENT.md}"
+AID_CONTROL_PLANE_URL="${DESKTOP_TOOLS_CONTROL_PLANE_URL:-${AID_CONTROL_PLANE_URL:-https://aid-control-plane.manhattan.workers.dev}}"
+AID_TOKEN_PATH="${DESKTOP_TOOLS_TOKEN_PATH:-${AID_TOKEN_PATH:-$HOME/.config/aid/device-token}}"
+AID_ENV_PATH="${DESKTOP_TOOLS_ENV_PATH:-${AID_ENV_PATH:-$HOME/.config/aid/ENVIRONMENT.md}}"
 AID_CNF_HOOK="${AID_CNF_HOOK:-$HOME/.config/shell/not-found-hook.sh}" # the ONE cnf resolver (install path)
 AID_CNF_JOURNAL="${AID_CNF_JOURNAL:-${CNF_JOURNAL:-$HOME/.local/var/log/install.doctor/cnf-installs.ndjson}}" # U09/U10 lazy-install telemetry
 AID_TOTAL=0

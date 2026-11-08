@@ -1,0 +1,17 @@
+[
+  {
+    "id": "execution-policy-authority",
+    "cwd": "..",
+    "task": "Read-only adversarial audit of the current execution-policy changes in packages/aid-core/src/installer-contracts.ts, packages/installer-engine/src/engine.ts, packages/installer-engine/src/cli.ts, scripts/provision.sh, and related tests. Determine whether maxConcurrency/resourceLimits are cryptographically bound to approval and enforced identically on plan/run/resume/status. Find authority bypasses or incompatible defaults. Do not edit. Cite exact files/lines."
+  },
+  {
+    "id": "offline-authoring-authority",
+    "cwd": "..",
+    "task": "Read-only adversarial audit of creation-time offline execution closure validation in packages/installer-engine/src/offline-bundle.ts and offline execution tests. Look for partial metadata, signature-before-validation, TOCTOU, circular validation, missing engine/catalog binding, or a path that signs an unusable/malicious closure. Do not edit. Cite exact files/lines."
+  },
+  {
+    "id": "tui-retention-bounds",
+    "cwd": "..",
+    "task": "Read-only adversarial audit of bounded concurrent TUI output retention in packages/installer-engine/src/renderers.ts and tests. Check exact byte/line accounting, deterministic eviction, attribution, memory growth, Unicode/control text, and whether presentation defects can affect execution. Do not edit. Cite exact files/lines."
+  }
+]

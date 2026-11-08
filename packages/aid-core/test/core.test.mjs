@@ -1,7 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  APP_URL, ROUTES, validateBlueprint, validateEnvironment, migrateBlueprintV1ToV2,
+  APP_URL, DESKTOP_TOOLS_URL, ROUTES, validateBlueprint, validateEnvironment,
+  migrateBlueprintV1ToV2, migrateBlueprintV2ToV3,
   resolveMachinePackages, exportMarkdown, importMarkdown, blueprintDigest,
   aidProviderConfig, chooseRoute, newSession, transitionSession, CastWriter,
   planLokiIntegration, renderAlloy
@@ -144,4 +145,14 @@ test('v2 strict schema rejects unknown role and override fields', () => {
   const overrideField = migrationFixture('environment-v2');
   overrideField.machines[0].packageOverrides.replace = ['evil'];
   assert.throws(() => validateEnvironment(overrideField), /unrecognized|unknown/i);
+});
+
+test('explicit v2 to v3 migration upgrades appUrl to desktop.tools and preserves machine package resolution', () => {
+  const v2 = migrationFixture('environment-v2');
+  const v3 = migrateBlueprintV2ToV3(v2);
+  assert.equal(v3.schemaVersion, 3);
+  assert.equal(v3.appUrl, DESKTOP_TOOLS_URL);
+  assert.deepEqual(resolveMachinePackages(v3, 'runner-a'), resolveMachinePackages(v2, 'runner-a'));
+  assert.deepEqual(resolveMachinePackages(v3, 'laptop'), resolveMachinePackages(v2, 'laptop'));
+  assert.deepEqual(importMarkdown(exportMarkdown(v3)), v3);
 });
