@@ -1784,6 +1784,7 @@ EOF
   run_root cp "$TMP_DIR/background-agents.slice" /etc/systemd/system/background-agents.slice
 
   # Canonical Ubuntu 26.04 telemetry, redundant sysstat/lynis timers, unneeded root daemons (CUPS, Avahi, ModemManager) & wsdd multicast eradication
+  run_root rm -f /etc/xdg/systemd/user/timers.target.wants/launchpadlib-cache-clean.timer /etc/xdg/systemd/user/timers.target.wants/ubuntu-insights-collect.timer /etc/xdg/systemd/user/timers.target.wants/ubuntu-insights-upload.timer /usr/lib/systemd/user/timers.target.wants/launchpadlib-cache-clean.timer /usr/lib/systemd/user/timers.target.wants/ubuntu-insights-collect.timer /usr/lib/systemd/user/timers.target.wants/ubuntu-insights-upload.timer
   for t_unit in ubuntu-insights-upload.timer ubuntu-insights-collect.timer ubuntu-insights-upload.service ubuntu-insights-collect.service motd-news.timer motd-news.service sysstat-collect.timer sysstat-summary.timer sysstat-rotate.timer lynis.timer wsdd.service wsdd-server.service cups.service cups.socket cups.path cups-browsed.service avahi-daemon.service avahi-daemon.socket ModemManager.service; do
     run_root systemctl disable --now "$t_unit" >/dev/null 2>&1 || true
     run_root systemctl mask "$t_unit" >/dev/null 2>&1 || true
@@ -2256,6 +2257,9 @@ http:
         stsPreload: true
 EOF
     run_root cp "$TMP_DIR/security-headers-compression.yaml" /data/coolify/proxy/dynamic/security-headers-compression.yaml
+  fi
+  if [ -d /data/coolify/proxy/error-pages ] && [ -f /data/coolify/proxy/error-pages/503.html ] && [ ! -f /data/coolify/proxy/error-pages/404.html ]; then
+    run_root cp /data/coolify/proxy/error-pages/503.html /data/coolify/proxy/error-pages/404.html
   fi
 
   # #119 & #124: Persistent NVIDIA persistence mode + mobile GPU thermal power cap service
