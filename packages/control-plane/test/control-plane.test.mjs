@@ -221,7 +221,11 @@ test('public pairing lookup normalizes malformed, unknown, and claimed responses
   assert.deepEqual(await afterClaim.json(), unavailable);
 });
 
-function makeBootstrapRuntimeFixture(t) {
+function makeBootstrapRuntimeFixture(t, product = 'legacy-install-doctor') {
+  const desktop = product === 'desktop-tools';
+  const origin = desktop ? 'https://desktop.tools' : 'https://app.install.doctor';
+  const engineFilename = desktop ? 'desktop-tools-engine.mjs' : 'install-doctor-engine.mjs';
+  const signatureNamespace = desktop ? 'desktop.tools.release' : 'install.doctor.release';
   const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'install-doctor-bootstrap-test-'));
   const downloadRoot = path.join(fixtureRoot, 'downloads');
   const stageRoot = path.join(fixtureRoot, 'staging');
@@ -251,15 +255,15 @@ done
 url="\${!#}"
 [ -z "\${MOCK_CURL_LOG:-}" ] || printf '%s\n' "$url" >> "$MOCK_CURL_LOG"
 case "$url" in
-  https://app.install.doctor/releases/test/manifest) source="$MOCK_MANIFEST" ;;
-  https://app.install.doctor/releases/test/manifest.sig) source="$MOCK_SIGNATURE" ;;
-  https://app.install.doctor/releases/test/provision.sh) source="$MOCK_ARTIFACT" ;;
-  https://app.install.doctor/releases/test/install-doctor-engine.mjs) source="$MOCK_ENGINE" ;;
-  https://app.install.doctor/releases/test/catalog.json) source="$MOCK_CATALOG" ;;
-  https://app.install.doctor/releases/test/node-macos-x64.tar.gz) source="$MOCK_RUNTIME_MACOS_X64" ;;
-  https://app.install.doctor/releases/test/node-macos-arm64.tar.gz) source="$MOCK_RUNTIME_MACOS_ARM64" ;;
-  https://app.install.doctor/releases/test/node-linux-x64.tar.gz) source="$MOCK_RUNTIME_LINUX_X64" ;;
-  https://app.install.doctor/releases/test/node-linux-arm64.tar.gz) source="$MOCK_RUNTIME_LINUX_ARM64" ;;
+  ${origin}/releases/test/manifest) source="$MOCK_MANIFEST" ;;
+  ${origin}/releases/test/manifest.sig) source="$MOCK_SIGNATURE" ;;
+  ${origin}/releases/test/provision.sh) source="$MOCK_ARTIFACT" ;;
+  ${origin}/releases/test/${engineFilename}) source="$MOCK_ENGINE" ;;
+  ${origin}/releases/test/catalog.json) source="$MOCK_CATALOG" ;;
+  ${origin}/releases/test/node-macos-x64.tar.gz) source="$MOCK_RUNTIME_MACOS_X64" ;;
+  ${origin}/releases/test/node-macos-arm64.tar.gz) source="$MOCK_RUNTIME_MACOS_ARM64" ;;
+  ${origin}/releases/test/node-linux-x64.tar.gz) source="$MOCK_RUNTIME_LINUX_X64" ;;
+  ${origin}/releases/test/node-linux-arm64.tar.gz) source="$MOCK_RUNTIME_LINUX_ARM64" ;;
   *) exit 65 ;;
 esac
 /bin/cp "$source" "$destination"
@@ -282,17 +286,18 @@ esac
   );
 
   const config = {
-    manifestUrl: TEST_ENV.INSTALL_DOCTOR_MANIFEST_URL,
-    signatureUrl: TEST_ENV.INSTALL_DOCTOR_MANIFEST_SIGNATURE_URL,
-    signerIdentity: 'install-doctor-test',
+    product,
+    manifestUrl: `${origin}/releases/test/manifest`,
+    signatureUrl: `${origin}/releases/test/manifest.sig`,
+    signerIdentity: desktop ? 'desktop-tools-test' : 'install-doctor-test',
     signerPublicKey: publicKey,
   };
 
   const createRelease = ({
     keyId = config.signerIdentity,
     releaseId = 'test',
-    artifactUrl = 'https://app.install.doctor/releases/test/provision.sh',
-    catalogUrl = 'https://app.install.doctor/releases/test/catalog.json',
+    artifactUrl = `${origin}/releases/test/provision.sh`,
+    catalogUrl = `${origin}/releases/test/catalog.json`,
     createdAt = Math.floor(Date.now() / 1000) - 60,
     expiresAt = Math.floor(Date.now() / 1000) + 600,
     artifactBody,
@@ -319,7 +324,8 @@ esac
     const engineDigest = crypto.createHash('sha256').update(engineBody).digest('hex');
     const catalogDigest = crypto.createHash('sha256').update(catalogBody).digest('hex');
     const manifestBody = [
-      'schema_version=5',
+      `schema_version=${desktop ? 6 : 5}`,
+      ...(desktop ? ['product_id=desktop-tools'] : []),
       `release_id=${releaseId}`,
       `source_commit=${'a'.repeat(40)}`,
       `created_at=${createdAt}`,
@@ -328,13 +334,13 @@ esac
       `artifact_url=${artifactUrl}`,
       `artifact_sha256=${digest}`,
       `artifact_size=${Buffer.byteLength(body)}`,
-      'engine_url=https://app.install.doctor/releases/test/install-doctor-engine.mjs',
+      `engine_url=${origin}/releases/test/${engineFilename}`,
       `engine_sha256=${engineDigest}`,
       `engine_size=${Buffer.byteLength(engineBody)}`,
       `catalog_url=${catalogUrl}`,
       `catalog_sha256=${catalogDigest}`,
       `catalog_size=${Buffer.byteLength(catalogBody)}`,
-      `launcher_url=https://app.install.doctor/releases/${releaseId}/start`,
+      `launcher_url=${origin}/releases/${releaseId}/start`,
       `launcher_sha256=${crypto.createHash('sha256').update(launcherBody).digest('hex')}`,
       `launcher_size=${Buffer.byteLength(launcherBody)}`,
       'engine_node_min=22',
@@ -344,7 +350,7 @@ esac
         const runtime = runtimes[platform];
         const runtimeBody = fs.readFileSync(runtime);
         return [
-          `runtime_${key}_url=https://app.install.doctor/releases/test/node-${platform}.tar.gz`,
+          `runtime_${key}_url=${origin}/releases/test/node-${platform}.tar.gz`,
           `runtime_${key}_sha256=${crypto.createHash('sha256').update(runtimeBody).digest('hex')}`,
           `runtime_${key}_size=${runtimeBody.byteLength}`,
         ];
@@ -352,7 +358,7 @@ esac
       '',
     ].join('\n');
     fs.writeFileSync(manifest, manifestBody);
-    execFileSync('ssh-keygen', ['-Y', 'sign', '-q', '-f', privateKey, '-n', 'install.doctor.release', manifest]);
+    execFileSync('ssh-keygen', ['-Y', 'sign', '-q', '-f', privateKey, '-n', signatureNamespace, manifest]);
     return { artifact, engine, catalog, launcher, runtimes, manifest, signature: `${manifest}.sig` };
   };
 
@@ -1105,6 +1111,21 @@ test('Desktop Tools release policy is source-owned while legacy release verifica
     manifestUrl: 'https://app.install.doctor/releases/release-1/manifest'
   }));
   assert.throws(() => releaseObjectUrl('desktop-tools', 'release-1', 'install-doctor-engine.mjs'));
+});
+
+test('Desktop Tools profile stage-zero executes a verified v6 release with immutable profile binding', async (t) => {
+  const fixture = makeBootstrapRuntimeFixture(t, 'desktop-tools');
+  const { renderBootstrap } = await import('../src/bootstrap.ts');
+  const profile = {
+    id: 'profile-example', slug: 'example', revision: 'revision-7', digest: 'c'.repeat(64)
+  };
+  const release = fixture.createRelease({
+    artifactBody: '#!/usr/bin/env bash\nset -euo pipefail\nprintf "%s|%s|%s|%s\\n" "$DESKTOP_TOOLS_PROFILE_ID" "$DESKTOP_TOOLS_PROFILE_SLUG" "$DESKTOP_TOOLS_PROFILE_REVISION" "$DESKTOP_TOOLS_PROFILE_DIGEST"\n'
+  });
+  const result = fixture.run(renderBootstrap({ ...fixture.config, profile }), release);
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(result.stdout.trim(), `profile-example|example|revision-7|${'c'.repeat(64)}`);
+  fixture.assertStageClean();
 });
 
 test('Rendered /start gates the kernel and architecture before any release download', async (t) => {
