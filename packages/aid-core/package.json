@@ -6,12 +6,13 @@
   "exports": {
     ".": "./dist/core.js",
     "./installer-contracts": "./dist/installer-contracts.js",
+    "./product-identity": "./dist/product-identity.js",
     "./redaction": "./dist/redaction.js"
   },
   "types": "./dist/core.d.ts",
   "description": "Tested contracts for Install Doctor aid; not a deployed daemon or gateway",
   "scripts": {
-    "build": "tsc --strict --target ES2022 --module ES2022 --moduleResolution bundler --lib ES2022,DOM --declaration src/core.ts src/probabilistic-intent.ts src/fleet-recovery.ts src/infisical-workload.ts src/installer-contracts.ts src/redaction.ts --outDir dist",
+    "build": "tsc --strict --target ES2022 --module ES2022 --moduleResolution bundler --lib ES2022,DOM --declaration src/core.ts src/probabilistic-intent.ts src/fleet-recovery.ts src/infisical-workload.ts src/installer-contracts.ts src/product-identity.ts src/redaction.ts --outDir dist",
     "test": "npm run build && node --test test/*.test.mjs"
   },
   "engines": {

@@ -1,5 +1,7 @@
 # Design
 
+**Architect Role:** assigned
+
 ## Context
 
 See `proposal.md` for motivation. The repository currently combines a mature cross-platform desired-state tree, a partially integrated installer engine, an aid-core contract package, and a live Cloudflare control-plane skeleton. The public `/start` route fails closed because no trusted stable release is active; real device mutation is intentionally unavailable from the server. Pairing, signed-release publication, environment schemas, event rendering, and OpenCode-oriented contracts exist at different maturity levels.
@@ -31,7 +33,7 @@ The change crosses naming, DNS, release trust, enrollment, authorization, OpenCo
 
 ### 1. Wildcard subdomains identify profiles, not principals
 
-Cloudflare wildcard DNS and TLS route `<profile>.desktop.tools` to one bootstrap handler. The handler validates a normalized, reserved-name-aware profile slug and resolves an immutable public profile descriptor. Tenant and owner identity come only from authenticated server state during approval.
+Cloudflare wildcard DNS and TLS route `<profile>.desktop.tools` to one bootstrap handler. The handler validates a normalized, reserved-name-aware profile slug and resolves a versioned public profile descriptor; authorization later binds the run to one immutable profile revision and digest. Tenant and owner identity come only from authenticated server state during approval.
 
 Alternative: make an unguessable subdomain a bearer secret. Rejected because URLs leak through shell history, DNS, logs, proxies, support transcripts, and copy/paste.
 
@@ -51,7 +53,7 @@ Alternative: require target-browser OAuth. Rejected because headless machines ar
 
 ### 4. OpenCode is pinned and private
 
-The verified release supplies a pinned OpenCode distribution and a Desktop Tools configuration that binds its server locally. The supervisor starts it with a minimized environment, scoped session token, selected skills, exact prompt version, and typed Desktop Tools tools. Provider access uses the product's approved routing boundary and a short-lived inference credential distinct from device/control-plane authority.
+The verified release supplies a pinned OpenCode distribution exposed as the `desktop-tools` executable and a Desktop Tools configuration that binds its server locally. The supervisor starts it with a minimized environment, scoped session token, selected skills, exact prompt version, and typed Desktop Tools tools. Customer-facing provider access uses the shared ProjectSites routing boundary, prefers DeepSeek, does not introduce LiteLLM, and uses a short-lived inference credential distinct from device/control-plane authority.
 
 Alternative: expose `opencode serve` through the public Worker. Rejected because the control plane must mediate authorization, tenancy, capability grants, and evidence.
 

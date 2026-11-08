@@ -1,12 +1,14 @@
 # Proposal
 
+**Architect Role:** assigned
+
 ## Why
 
 The repository currently mixes a provisioning engine with an unfinished Install Doctor management product. The product is now Desktop Tools: a user should be able to publish a customized provisioning profile at a personal subdomain and provision a graphical or headless machine with one command, while preserving signed releases, explicit remote approval, deterministic mutation, and standalone operation.
 
 ## What Changes
 
-- **BREAKING**: Rename the user-facing product, executable surfaces, documentation, and hosted management experience from Install Doctor/aid to Desktop Tools, with an explicit compatibility and migration period for existing entrypoints and state.
+- **BREAKING**: Rename the user-facing product, executable surfaces, documentation, and hosted management experience from Install Doctor/aid to Desktop Tools, with `desktop-tools` as the intended OpenCode-derived executable and an explicit compatibility and migration period for existing entrypoints and state.
 - Make `https://<profile>.desktop.tools` a permanent, shareable, nonsecret bootstrap endpoint that can be invoked as `curl -fsSL https://<profile>.desktop.tools | bash`.
 - Serve only a small signed stage-zero launcher at that endpoint; it verifies and installs a pinned OpenCode runtime plus the deterministic Desktop Tools provisioning tools rather than embedding credentials or the full mutable implementation in the response.
 - Create a new machine identity, initiate a cross-device authorization flow, and allow the headless target to wait while an owner approves the displayed code, machine fingerprint, profile, and requested scopes from another device.
