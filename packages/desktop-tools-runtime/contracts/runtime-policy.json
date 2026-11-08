@@ -1,0 +1,9 @@
+{
+  "schemaVersion": 1,
+  "commands": ["validate", "prepare", "run", "service", "status"],
+  "network": {
+    "opencodeHost": "127.0.0.1",
+    "privilegedPortsAllowed": false
+  },
+  "ambientShell": false
+}

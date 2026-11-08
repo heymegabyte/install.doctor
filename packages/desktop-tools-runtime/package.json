@@ -1,0 +1,14 @@
+{
+  "name": "@desktop-tools/runtime",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Least-privilege local Desktop Tools supervisor and typed tool contracts.",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "test": "node --test test/*.test.mjs"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

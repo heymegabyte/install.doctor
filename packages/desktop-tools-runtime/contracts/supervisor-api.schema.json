@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://desktop.tools/schemas/local-supervisor-v1.json",
+  "title": "Desktop Tools local supervisor contract",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "commands", "network", "ambientShell"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "commands": {
+      "const": ["validate", "prepare", "run", "service", "status"]
+    },
+    "network": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["opencodeHost", "privilegedPortsAllowed"],
+      "properties": {
+        "opencodeHost": { "const": "127.0.0.1" },
+        "privilegedPortsAllowed": { "const": false }
+      }
+    },
+    "ambientShell": { "const": false }
+  }
+}

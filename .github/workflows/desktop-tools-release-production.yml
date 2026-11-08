@@ -41,6 +41,7 @@ jobs:
           cache: npm
           cache-dependency-path: |
             packages/aid-core/package-lock.json
+            packages/desktop-tools-runtime/package-lock.json
             packages/installer-engine/package-lock.json
             packages/control-plane/package-lock.json
       - id: identity
@@ -64,6 +65,8 @@ jobs:
           # the task-5 runtime closure has not yet been committed.
           jq -er --arg id "$SIGNER_ID" '.products["desktop-tools"].signers[$id] | select(type == "string")' packages/control-plane/src/release-trust.json \
             | grep -Eq '^ssh-ed25519 [A-Za-z0-9+/]+={0,3}( [^[:cntrl:]]{1,128})?$'
+          npm --prefix packages/desktop-tools-runtime ci --ignore-scripts --no-audit --no-fund
+          npm --prefix packages/desktop-tools-runtime run build
           test -f packages/desktop-tools-runtime/dist/desktop-tools-supervisor.mjs
           test -f packages/desktop-tools-runtime/dist/desktop-tools-tools.tar.gz
           npm --prefix packages/aid-core ci --ignore-scripts --no-audit --no-fund
