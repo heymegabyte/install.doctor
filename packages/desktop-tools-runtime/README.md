@@ -9,10 +9,15 @@ creates user-owned `0700` state, installs a persistent local server credential a
 removes inherited credentials from the child environment, denies OpenCode shell/edit and
 external-directory permissions, and binds the server to `127.0.0.1` on an unprivileged port.
 The generated OpenCode 2 configuration hard-denies ambient providers, integrations, plugins,
-skills, MCP servers, web-search providers, and tools before allowing only the ProjectSites
+skills, MCP servers, and tools before allowing only the ProjectSites
 provider, the pinned on-demand Desktop Tools skill, its typed read/plan/status tools, and
 workspace-local inspection. ProjectSites is the customer inference boundary, prefers DeepSeek,
 and does not use LiteLLM.
+
+OpenCode 2.2.5 does not enforce the later `websearch.use` policy action. Desktop Tools therefore
+does not rely on it: the ordered v2 permission list begins with a deny-all rule and contains no
+`websearch` exception, so web search remains denied by the pinned runtime's supported permission
+boundary.
 
 The enrollment boundary must place the short-lived inference credential at
 `<state>/config/inference-token` as a user-owned `0600` regular file. OpenCode receives only a

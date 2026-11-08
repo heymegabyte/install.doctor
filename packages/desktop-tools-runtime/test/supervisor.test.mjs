@@ -104,6 +104,9 @@ test('strict config permits only ProjectSites, pinned skills, and task-specific 
   assert.equal(config.providers.projectsites.settings.apiKey, `{file:${credential}}`);
   assert.ok(config.policies.some(rule => rule.action === 'integration.use' && rule.resource === '*' && rule.effect === 'deny'));
   assert.ok(config.policies.some(rule => rule.action === 'tool.use' && rule.resource === 'external_directory:*' && rule.effect === 'deny'));
+  assert.equal(config.policies.some(rule => rule.action === 'websearch.use'), false);
+  assert.deepEqual(config.permissions[0], { action: '*', resource: '*', effect: 'deny' });
+  assert.equal(config.permissions.some(rule => rule.action === 'websearch' && rule.effect === 'allow'), false);
   for (const action of ['shell', 'edit', 'execute']) {
     assert.ok(config.policies.some(rule => rule.action === 'tool.use' && rule.resource === `${action}:*` && rule.effect === 'deny'));
   }

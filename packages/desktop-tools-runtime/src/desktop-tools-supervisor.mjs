@@ -103,7 +103,6 @@ function generateOpenCodeConfig(credentialPath) {
       { action: 'skill.use', resource: '*', effect: 'deny' },
       ...approvedSkills.map(skill => ({ action: 'skill.use', resource: skill.id, effect: 'allow' })),
       { action: 'plugin.use', resource: '*', effect: 'deny' },
-      { action: 'websearch.use', resource: '*', effect: 'deny' },
       { action: 'tool.use', resource: '*', effect: 'deny' },
       { action: 'tool.use', resource: 'read:*', effect: 'allow' },
       { action: 'tool.use', resource: 'glob:*', effect: 'allow' },
