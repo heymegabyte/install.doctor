@@ -402,17 +402,12 @@ test('public product status is generated from evidence-backed Desktop Tools trut
   assert.equal(JSON.stringify(body).includes('verified-live'), false);
 });
 
-test('Desktop Tools wildcard profile routing is isolated and enrollment remains fail-closed', async () => {
+test('Desktop Tools wildcard profile routing is isolated and unknown profiles fail closed', async () => {
   const app = await loadWorkerApp();
   const response = await app.fetch(new Request('https://example.desktop.tools/'), TEST_ENV);
-  assert.equal(response.status, 503);
+  assert.equal(response.status, 404);
   assert.equal(response.headers.get('cache-control'), 'no-store');
-  assert.equal(response.headers.get('retry-after'), '3600');
-  assert.deepEqual(await response.json(), {
-    error: 'profile_bootstrap_unavailable',
-    profile: 'example',
-    message: 'This Desktop Tools profile is not accepting bootstrap requests yet.'
-  });
+  assert.deepEqual(await response.json(), { error: 'profile_unavailable' });
 
   const apex = await app.fetch(new Request('https://desktop.tools/health'), TEST_ENV);
   assert.equal(apex.status, 200);
@@ -420,6 +415,9 @@ test('Desktop Tools wildcard profile routing is isolated and enrollment remains 
   assert.equal(reserved.status, 200);
   const nested = await app.fetch(new Request('https://nested.example.desktop.tools/'), TEST_ENV);
   assert.equal(nested.status, 400);
+  const unrelatedPath = await app.fetch(new Request('https://example.desktop.tools/api'), TEST_ENV);
+  assert.equal(unrelatedPath.status, 404);
+  assert.deepEqual(await unrelatedPath.json(), { error: 'profile_route_not_found' });
 });
 
 test('public profile descriptor is bounded, cache-controlled, and contains no authority', async () => {
@@ -456,6 +454,26 @@ test('public profile descriptor is bounded, cache-controlled, and contains no au
     assert.equal(denied.status, 404);
     assert.deepEqual(await denied.json(), { error: 'profile_unavailable' });
   }
+});
+
+test('public profile root resolves its immutable profile before the signed release and has no fallback', async () => {
+  const app = await loadWorkerApp();
+  const profile = {
+    id: 'profile-example', tenantId: 'tenant-private', slug: 'example', revision: 'revision-7',
+    digest: 'c'.repeat(64), visibility: 'public-bootstrap', enabled: true
+  };
+  const response = await app.fetch(new Request('https://example.desktop.tools/'), {
+    ...TEST_ENV,
+    DESKTOP_TOOLS_PUBLIC_PROFILES: [profile],
+    RELEASES: undefined,
+    RELEASE_CHANNELS: undefined,
+  });
+  assert.equal(response.status, 503);
+  assert.equal(response.headers.get('cache-control'), 'no-store');
+  assert.deepEqual(await response.json(), {
+    error: 'release_channel_unavailable',
+    detail: 'The signed stable release channel is unavailable or invalid; no mutable fallback is permitted.'
+  });
 });
 
 test('Control Plane Phase 1: PIA endpoints (/api/v1/intent/* and /api/v1/easter-eggs/oracle)', async () => {
@@ -1055,13 +1073,18 @@ test('Desktop Tools release policy is source-owned while legacy release verifica
     manifestUrl: 'https://desktop.tools/releases/release-1/manifest',
     signatureUrl: 'https://desktop.tools/releases/release-1/manifest.sig',
     signerIdentity: 'desktop-tools-production-1',
-    signerPublicKey: key
+    signerPublicKey: key,
+    profile: {
+      id: 'profile-example', slug: 'example', revision: 'revision-7', digest: 'c'.repeat(64)
+    }
   };
   const script = renderBootstrap(desktopConfig);
   assert.match(script, /readonly RELEASE_ORIGIN='https:\/\/desktop\.tools'/);
   assert.match(script, /readonly SIGNATURE_NAMESPACE='desktop\.tools\.release'/);
   assert.match(script, /readonly EXPECTED_MANIFEST_SCHEMA='6'/);
   assert.match(script, /readonly EXPECTED_PRODUCT_ID='desktop-tools'/);
+  assert.match(script, /readonly DESKTOP_TOOLS_PROFILE_SLUG='example'/);
+  assert.match(script, /DESKTOP_TOOLS_PROFILE_REVISION="\$DESKTOP_TOOLS_PROFILE_REVISION"/);
   assert.match(script, /release manifest product does not match the bootstrap product/);
   assert.match(script, /desktop-tools\.engine|desktop-tools-engine\.mjs/);
   assert.match(script, /desktop-tools\.XXXXXXXX/);

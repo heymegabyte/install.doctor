@@ -7,6 +7,12 @@ const BootstrapReleaseConfig = z.strictObject({
   signatureUrl: z.string().url(),
   signerIdentity: z.string().regex(/^[a-z0-9][a-z0-9._-]{0,127}$/),
   signerPublicKey: z.string().regex(/^ssh-ed25519 [A-Za-z0-9+/]+={0,3}(?: [^\r\n]{1,128})?$/),
+  profile: z.strictObject({
+    id: z.string().regex(/^[a-z0-9][a-z0-9._-]{0,95}$/),
+    slug: z.string().regex(/^[a-z0-9](?:[a-z0-9]|-(?=[a-z0-9])){1,61}[a-z0-9]$/),
+    revision: z.string().regex(/^[a-z0-9][a-z0-9._-]{0,95}$/),
+    digest: z.string().regex(/^[0-9a-f]{64}$/),
+  }).optional(),
 }).superRefine((config, context) => {
   const policy = releasePolicy(config.product);
   const manifestUrl = new URL(config.manifestUrl);
@@ -28,6 +34,9 @@ const BootstrapReleaseConfig = z.strictObject({
       path: ['manifestUrl'],
       message: 'manifest and signature URLs must bind the same immutable release identifier',
     });
+  }
+  if (config.product !== 'desktop-tools' && config.profile) {
+    context.addIssue({ code: 'custom', path: ['profile'], message: 'profiles are valid only for Desktop Tools' });
   }
 });
 
@@ -60,6 +69,10 @@ readonly SIGNER_KEY=${literal(config.signerPublicKey)}
 readonly EXPECTED_RELEASE_ID=${literal(expectedReleaseId)}
 readonly EXPECTED_MANIFEST_SCHEMA=${literal(config.product === 'desktop-tools' ? '6' : '5')}
 readonly EXPECTED_PRODUCT_ID=${literal(config.product === 'desktop-tools' ? 'desktop-tools' : '')}
+readonly DESKTOP_TOOLS_PROFILE_ID=${literal(config.profile?.id ?? '')}
+readonly DESKTOP_TOOLS_PROFILE_SLUG=${literal(config.profile?.slug ?? '')}
+readonly DESKTOP_TOOLS_PROFILE_REVISION=${literal(config.profile?.revision ?? '')}
+readonly DESKTOP_TOOLS_PROFILE_DIGEST=${literal(config.profile?.digest ?? '')}
 readonly RELEASE_ORIGIN=${literal(policy.origin)}
 readonly SIGNATURE_NAMESPACE=${literal(policy.signatureNamespace)}
 readonly MAX_MANIFEST_BYTES=16384
@@ -331,6 +344,9 @@ env -i \\
   INSTALL_DOCTOR_CONSENT_BEST_EFFORT="\${INSTALL_DOCTOR_CONSENT_BEST_EFFORT:-false}" INSTALL_DOCTOR_OFFLINE="\${INSTALL_DOCTOR_OFFLINE:-false}" \\
   INSTALL_DOCTOR_APPROVED_PLAN_DIGEST="\${INSTALL_DOCTOR_APPROVED_PLAN_DIGEST:-}" \\
   INSTALL_DOCTOR_RELEASE_ID="$release_id" INSTALL_DOCTOR_SOURCE_COMMIT="$source_commit" \\
+  DESKTOP_TOOLS_RELEASE_ID="$release_id" DESKTOP_TOOLS_SOURCE_COMMIT="$source_commit" \\
+  DESKTOP_TOOLS_PROFILE_ID="$DESKTOP_TOOLS_PROFILE_ID" DESKTOP_TOOLS_PROFILE_SLUG="$DESKTOP_TOOLS_PROFILE_SLUG" \\
+  DESKTOP_TOOLS_PROFILE_REVISION="$DESKTOP_TOOLS_PROFILE_REVISION" DESKTOP_TOOLS_PROFILE_DIGEST="$DESKTOP_TOOLS_PROFILE_DIGEST" \\
   INSTALL_DOCTOR_BOOTSTRAP_PLATFORM="$BOOTSTRAP_PLATFORM" \\
   INSTALL_DOCTOR_VERIFIED_MANIFEST="$MANIFEST" INSTALL_DOCTOR_VERIFIED_SIGNATURE="$SIGNATURE" \\
   INSTALL_DOCTOR_MANIFEST_SHA256="$manifest_sha256" INSTALL_DOCTOR_ARTIFACT_SHA256="$artifact_sha256" \\

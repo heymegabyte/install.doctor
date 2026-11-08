@@ -222,7 +222,8 @@ app.use('*', requestSecurity);
 app.use('*', async (c, next) => {
   const target = classifyDesktopToolsHostname(new URL(c.req.url).hostname);
   if (target.kind === 'profile') {
-    if (new URL(c.req.url).pathname === '/.well-known/desktop-tools-profile.json') {
+    const pathname = new URL(c.req.url).pathname;
+    if (pathname === '/.well-known/desktop-tools-profile.json') {
       try {
         const descriptor = resolvePublicProfileDescriptor(
           (c.env as Record<string, unknown>).DESKTOP_TOOLS_PUBLIC_PROFILES ?? [],
@@ -238,11 +239,46 @@ app.use('*', async (c, next) => {
         return c.json({ error: 'profile_unavailable' }, 404, { 'cache-control': 'no-store' });
       }
     }
+    if (pathname === '/') {
+      let descriptor;
+      try {
+        descriptor = resolvePublicProfileDescriptor(
+          (c.env as Record<string, unknown>).DESKTOP_TOOLS_PUBLIC_PROFILES ?? [],
+          target.slug
+        );
+      } catch {
+        return c.json({ error: 'profile_unavailable' }, 404, { 'cache-control': 'no-store' });
+      }
+      const env = Env.parse(c.env);
+      let active;
+      try {
+        active = await resolveActiveDesktopRelease(env.RELEASE_CHANNELS, env.RELEASES, 'stable');
+      } catch {
+        return c.json({ error: 'release_channel_unavailable', detail: 'The signed stable release channel is unavailable or invalid; no mutable fallback is permitted.' }, 503, { 'cache-control': 'no-store' });
+      }
+      const configured = {
+        product: 'desktop-tools' as const,
+        manifestUrl: `https://desktop.tools/releases/${active.releaseId}/manifest`,
+        signatureUrl: `https://desktop.tools/releases/${active.releaseId}/manifest.sig`,
+        signerIdentity: active.signerId,
+        signerPublicKey: pinnedReleaseSigner('desktop-tools', active.signerId),
+        profile: descriptor.profile,
+      };
+      if (!configured.signerPublicKey) {
+        return c.json({ error: 'release_trust_not_configured', detail: 'The signed release channel is unavailable; no mutable fallback is permitted.' }, 503, { 'cache-control': 'no-store' });
+      }
+      return new Response(renderBootstrap(configured), {
+        status: 200,
+        headers: {
+          'content-type': 'text/x-shellscript; charset=utf-8',
+          'cache-control': 'no-store',
+          'x-content-type-options': 'nosniff',
+        },
+      });
+    }
     return c.json({
-      error: 'profile_bootstrap_unavailable',
-      profile: target.slug,
-      message: 'This Desktop Tools profile is not accepting bootstrap requests yet.'
-    }, 503, { 'cache-control': 'no-store', 'retry-after': '3600' });
+      error: 'profile_route_not_found'
+    }, 404, { 'cache-control': 'no-store' });
   }
   if (target.kind === 'invalid' && new URL(c.req.url).hostname.endsWith('.desktop.tools')) {
     return c.json({ error: 'invalid_desktop_tools_hostname' }, 400, { 'cache-control': 'no-store' });

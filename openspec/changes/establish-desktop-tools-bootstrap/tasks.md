@@ -17,7 +17,7 @@
 
 ## 3. Signed stage-zero and release activation
 
-- [ ] 3.1 Adapt the signed release manifest and trust policy to Desktop Tools naming while preserving source/release provenance and rollback protection; verify legacy trusted releases remain independently verifiable during migration.
+- [x] 3.1 Adapt the signed release manifest and trust policy to Desktop Tools naming while preserving source/release provenance and rollback protection; verify legacy trusted releases remain independently verifiable during migration.
 - [ ] 3.2 Implement the minimal profile-subdomain stage-zero launcher with private staging, bounded HTTPS/origin/redirect/size/time policy, immutable verification, cleanup, and no mutable fallback; verify tampering, expiry, wrong origin, redirect, oversize, truncation, and verifier failure execute nothing.
 - [ ] 3.3 Package a pinned supported OpenCode runtime and Desktop Tools supervisor/tools in the signed release closure; verify exact hashes, SBOM, provenance, licenses, and offline verification for every selected platform artifact.
 - [ ] 3.4 Provision the protected production signer and immutable release publication boundary, activate one canary release through compare-and-swap, and verify the private key is absent from builders, publishers, logs, and targets.
