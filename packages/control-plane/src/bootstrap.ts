@@ -58,6 +58,8 @@ readonly SIGNATURE_URL=${literal(config.signatureUrl)}
 readonly SIGNER_ID=${literal(config.signerIdentity)}
 readonly SIGNER_KEY=${literal(config.signerPublicKey)}
 readonly EXPECTED_RELEASE_ID=${literal(expectedReleaseId)}
+readonly EXPECTED_MANIFEST_SCHEMA=${literal(config.product === 'desktop-tools' ? '6' : '5')}
+readonly EXPECTED_PRODUCT_ID=${literal(config.product === 'desktop-tools' ? 'desktop-tools' : '')}
 readonly RELEASE_ORIGIN=${literal(policy.origin)}
 readonly SIGNATURE_NAMESPACE=${literal(policy.signatureNamespace)}
 readonly MAX_MANIFEST_BYTES=16384
@@ -143,13 +145,14 @@ printf '%s %s\\n' "$SIGNER_ID" "$SIGNER_KEY" > "$ALLOWED_SIGNERS"
 ssh-keygen -Y verify -f "$ALLOWED_SIGNERS" -I "$SIGNER_ID" -n "$SIGNATURE_NAMESPACE" -s "$SIGNATURE" < "$MANIFEST" >/dev/null \\
   || die 'release manifest signature verification failed'
 
-schema_version= release_id= source_commit= created_at= expires_at= key_id= artifact_url= artifact_sha256= artifact_size= engine_url= engine_sha256= engine_size= catalog_url= catalog_sha256= catalog_size= launcher_url= launcher_sha256= launcher_size= engine_node_min= runtime_node_version=
+schema_version= product_id= release_id= source_commit= created_at= expires_at= key_id= artifact_url= artifact_sha256= artifact_size= engine_url= engine_sha256= engine_size= catalog_url= catalog_sha256= catalog_size= launcher_url= launcher_sha256= launcher_size= engine_node_min= runtime_node_version=
 runtime_macos_x64_url= runtime_macos_x64_sha256= runtime_macos_x64_size= runtime_macos_arm64_url= runtime_macos_arm64_sha256= runtime_macos_arm64_size=
 runtime_linux_x64_url= runtime_linux_x64_sha256= runtime_linux_x64_size= runtime_linux_arm64_url= runtime_linux_arm64_sha256= runtime_linux_arm64_size=
 while IFS='=' read -r key value; do
   [ -n "$key" ] && [ -n "$value" ] || die 'release manifest contains an empty field'
   case "$key" in
     schema_version) [ -z "$schema_version" ] || die 'release manifest repeats schema_version'; schema_version="$value" ;;
+    product_id) [ -z "$product_id" ] || die 'release manifest repeats product_id'; product_id="$value" ;;
     release_id) [ -z "$release_id" ] || die 'release manifest repeats release_id'; release_id="$value" ;;
     source_commit) [ -z "$source_commit" ] || die 'release manifest repeats source_commit'; source_commit="$value" ;;
     created_at) [ -z "$created_at" ] || die 'release manifest repeats created_at'; created_at="$value" ;;
@@ -196,7 +199,12 @@ done < "$MANIFEST"
   && [ -n "$runtime_macos_arm64_url" ] && [ -n "$runtime_macos_arm64_sha256" ] && [ -n "$runtime_macos_arm64_size" ] \
   && [ -n "$runtime_linux_x64_url" ] && [ -n "$runtime_linux_x64_sha256" ] && [ -n "$runtime_linux_x64_size" ] \
   && [ -n "$runtime_linux_arm64_url" ] && [ -n "$runtime_linux_arm64_sha256" ] && [ -n "$runtime_linux_arm64_size" ] || die 'release manifest is incomplete'
-[ "$schema_version" = 5 ] || die 'unsupported release manifest schema'
+[ "$schema_version" = "$EXPECTED_MANIFEST_SCHEMA" ] || die 'unsupported release manifest schema'
+if [ -n "$EXPECTED_PRODUCT_ID" ]; then
+  [ "$product_id" = "$EXPECTED_PRODUCT_ID" ] || die 'release manifest product does not match the bootstrap product'
+else
+  [ -z "$product_id" ] || die 'legacy release manifest must not claim a Desktop Tools product identity'
+fi
 [ "$key_id" = "$SIGNER_ID" ] || die 'release manifest uses an unknown signing identity'
 [ "$release_id" = "$EXPECTED_RELEASE_ID" ] || die 'release manifest identity does not match the configured immutable release'
 case "$release_id" in *[!a-zA-Z0-9._-]*|'') die 'invalid release identifier' ;; esac

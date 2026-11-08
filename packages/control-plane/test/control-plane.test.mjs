@@ -1060,17 +1060,23 @@ test('Desktop Tools release policy is source-owned while legacy release verifica
   const script = renderBootstrap(desktopConfig);
   assert.match(script, /readonly RELEASE_ORIGIN='https:\/\/desktop\.tools'/);
   assert.match(script, /readonly SIGNATURE_NAMESPACE='desktop\.tools\.release'/);
+  assert.match(script, /readonly EXPECTED_MANIFEST_SCHEMA='6'/);
+  assert.match(script, /readonly EXPECTED_PRODUCT_ID='desktop-tools'/);
+  assert.match(script, /release manifest product does not match the bootstrap product/);
   assert.match(script, /desktop-tools\.engine|desktop-tools-engine\.mjs/);
   assert.match(script, /desktop-tools\.XXXXXXXX/);
   assert.doesNotThrow(() => execFileSync('bash', ['-n'], { input: script }));
   assert.equal(releaseObjectUrl('desktop-tools', 'release-1', 'desktop-tools-engine.mjs'),
     'https://desktop.tools/releases/release-1/desktop-tools-engine.mjs');
   assert.equal(releasePolicy('legacy-install-doctor').signatureNamespace, 'install.doctor.release');
-  assert.doesNotThrow(() => parseBootstrapReleaseConfig({
+  const legacyScript = renderBootstrap({
     manifestUrl: 'https://app.install.doctor/releases/legacy-1/manifest',
     signatureUrl: 'https://app.install.doctor/releases/legacy-1/manifest.sig',
     signerIdentity: 'legacy-production-1', signerPublicKey: key
-  }));
+  });
+  assert.match(legacyScript, /readonly EXPECTED_MANIFEST_SCHEMA='5'/);
+  assert.match(legacyScript, /readonly EXPECTED_PRODUCT_ID=''/);
+  assert.match(legacyScript, /legacy release manifest must not claim a Desktop Tools product identity/);
   assert.throws(() => parseBootstrapReleaseConfig({
     ...desktopConfig,
     manifestUrl: 'https://app.install.doctor/releases/release-1/manifest'
