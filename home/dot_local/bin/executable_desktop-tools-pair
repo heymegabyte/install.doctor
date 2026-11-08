@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # desktop-tools-pair — browser-first one-link device enrollment for https://desktop.tools.
-# Starts a pairing with the desktop.tools control plane, prints a short code + verify URL for the
-# operator to approve, polls until approved, then stores the minted device token locally (0600).
+# Starts a pairing with the desktop.tools control plane, prints a short code + a browser verify URL
+# for the operator to approve, polls until approved, then stores the minted device token locally (0600).
 #
-# Env seams: DESKTOP_TOOLS_CONTROL_PLANE_URL · DESKTOP_TOOLS_TENANT · DESKTOP_TOOLS_TOKEN_PATH
+# Env seams: DESKTOP_TOOLS_CONTROL_PLANE_URL · DESKTOP_TOOLS_TENANT · DESKTOP_TOOLS_TOKEN_PATH · DESKTOP_TOOLS_PAIR_TIMEOUT · DESKTOP_TOOLS_PAIR_INTERVAL
 # Usage: desktop-tools-pair [--force]
 set -uo pipefail
 
@@ -35,11 +35,13 @@ main() {
     log "already paired (token at $DESKTOP_TOOLS_TOKEN_PATH); pass --force to re-pair"
     return 0
   fi
-  local hostLabel start code pollSecret verifyUrl
+  local hostLabel
   hostLabel="$(hostname 2>/dev/null || echo unknown)"
   log "starting pairing with $u (tenant ${DESKTOP_TOOLS_TENANT})…"
+  local start
   start="$(curl -fsS --connect-timeout 5 --max-time 20 -X POST -H 'content-type: application/json' \
     -d "{\"tenant\":\"${DESKTOP_TOOLS_TENANT}\",\"label\":\"${hostLabel}\",\"permissions\":[\"pull-desired-state\",\"report-status\"]}" "$u/api/devices/pair/start" 2>/dev/null)"
+  local code pollSecret verifyUrl
   code="$(jsonStr "$start" code)"
   pollSecret="$(jsonStr "$start" pollSecret)"
   verifyUrl="$(jsonStr "$start" verifyUrl)"
@@ -60,32 +62,32 @@ main() {
     status="$(jsonStr "$resp" status)"
     errf="$(jsonStr "$resp" error)"
     case "$status" in
-      claimed)
-        token="$(jsonStr "$resp" token)"
-        deviceId="$(jsonStr "$resp" deviceId)"
-        if [ -z "$token" ]; then
-          err "pairing claimed but no token in response"
-          return 1
-        fi
-        mkdir -p "$(dirname "$DESKTOP_TOOLS_TOKEN_PATH")"
-        (
-          umask 077
-          printf '%s' "$token" >"$DESKTOP_TOOLS_TOKEN_PATH"
-        )
-        chmod 600 "$DESKTOP_TOOLS_TOKEN_PATH" 2>/dev/null || true
-        log "paired ✓ device ${deviceId} — token stored at ${DESKTOP_TOOLS_TOKEN_PATH} (mode 0600)"
-        return 0
-        ;;
-      expired)
-        err "pairing expired before approval"
+    claimed)
+      token="$(jsonStr "$resp" token)"
+      deviceId="$(jsonStr "$resp" deviceId)"
+      if [ -z "$token" ]; then
+        err "pairing claimed but no token in response"
         return 1
-        ;;
+      fi
+      mkdir -p "$(dirname "$DESKTOP_TOOLS_TOKEN_PATH")"
+      (
+        umask 077
+        printf '%s' "$token" >"$DESKTOP_TOOLS_TOKEN_PATH"
+      )
+      chmod 600 "$DESKTOP_TOOLS_TOKEN_PATH" 2>/dev/null || true
+      log "paired ✓ device ${deviceId} — token stored at ${DESKTOP_TOOLS_TOKEN_PATH} (mode 0600)"
+      return 0
+      ;;
+    expired)
+      err "pairing expired before approval"
+      return 1
+      ;;
     esac
     case "$errf" in
-      already_claimed | not_found)
-        err "pairing not claimable: ${errf}"
-        return 1
-        ;;
+    already_claimed | not_found)
+      err "pairing not claimable: ${errf}"
+      return 1
+      ;;
     esac
     sleep "$DESKTOP_TOOLS_PAIR_INTERVAL"
     waited=$((waited + DESKTOP_TOOLS_PAIR_INTERVAL))

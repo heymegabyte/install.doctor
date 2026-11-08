@@ -1,21 +1,450 @@
 #!/usr/bin/env bash
-# desktop-tools — machine-side client for https://desktop.tools (replaces aidl.ink and aid).
+# desktop-tools — machine-side client for the desktop.tools control plane (https://desktop.tools).
 # Reads the device token stored by `desktop-tools-pair` (~/.config/desktop-tools/device-token)
-# and delegates to the machine desired-state reconciler.
-set -euo pipefail
+# and talks to the control plane as THIS device (tenant from the token).
+#   desktop-tools status   pairing + desired-state summary (tenant / revision / digest)
+#   desktop-tools pull     fetch this device's desired ENVIRONMENT.md and write it to DESKTOP_TOOLS_ENV_PATH
+# Headless-safe, dependency-light (no jq required for pairing/status/pull). URL + paths are env-overridable.
+set -uo pipefail
 
-export AID_CONTROL_PLANE_URL="${DESKTOP_TOOLS_CONTROL_PLANE_URL:-${AID_CONTROL_PLANE_URL:-https://desktop.tools}}"
-export AID_TOKEN_PATH="${DESKTOP_TOOLS_TOKEN_PATH:-${AID_TOKEN_PATH:-$HOME/.config/desktop-tools/device-token}}"
-export AID_ENV_PATH="${DESKTOP_TOOLS_ENV_PATH:-${AID_ENV_PATH:-$HOME/.config/desktop-tools/ENVIRONMENT.md}}"
-
-SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-if [ -x "$SELF_DIR/aid" ]; then
-  exec "$SELF_DIR/aid" "$@"
-elif [ -x "$SELF_DIR/executable_aid" ]; then
-  exec "$SELF_DIR/executable_aid" "$@"
-elif command -v aid >/dev/null 2>&1; then
-  exec "$(command -v aid)" "$@"
-else
-  printf '[desktop-tools] error: runtime engine missing\n' >&2
-  exit 1
+DESKTOP_TOOLS_CONTROL_PLANE_URL="${DESKTOP_TOOLS_CONTROL_PLANE_URL:-${AID_CONTROL_PLANE_URL:-https://desktop.tools}}"
+if [ -z "${DESKTOP_TOOLS_TOKEN_PATH:-}" ]; then
+  if [ -s "$HOME/.config/desktop-tools/device-token" ] || [ ! -s "$HOME/.config/aid/device-token" ]; then
+    DESKTOP_TOOLS_TOKEN_PATH="${AID_TOKEN_PATH:-$HOME/.config/desktop-tools/device-token}"
+  else
+    DESKTOP_TOOLS_TOKEN_PATH="$HOME/.config/aid/device-token"
+  fi
 fi
+if [ -z "${DESKTOP_TOOLS_ENV_PATH:-}" ]; then
+  if [ -s "$HOME/.config/desktop-tools/ENVIRONMENT.md" ] || [ ! -s "$HOME/.config/aid/ENVIRONMENT.md" ]; then
+    DESKTOP_TOOLS_ENV_PATH="${AID_ENV_PATH:-$HOME/.config/desktop-tools/ENVIRONMENT.md}"
+  else
+    DESKTOP_TOOLS_ENV_PATH="$HOME/.config/aid/ENVIRONMENT.md"
+  fi
+fi
+DESKTOP_TOOLS_CNF_HOOK="${DESKTOP_TOOLS_CNF_HOOK:-${AID_CNF_HOOK:-$HOME/.config/shell/not-found-hook.sh}}"
+DESKTOP_TOOLS_CNF_JOURNAL="${DESKTOP_TOOLS_CNF_JOURNAL:-${AID_CNF_JOURNAL:-${CNF_JOURNAL:-$HOME/.local/var/log/install.doctor/cnf-installs.ndjson}}}"
+DT_TOTAL=0
+DT_PRESENT=0
+DT_MISSING=""
+
+genRunId() {
+  local r
+  r="$(od -A n -N 8 -t x1 /dev/urandom 2>/dev/null | tr -d ' \n')"
+  [ -n "$r" ] || r="$(date +%s 2>/dev/null)$$"
+  printf 'run_%s' "$r"
+}
+DESKTOP_TOOLS_RUN_ID="${DESKTOP_TOOLS_RUN_ID:-${AID_RUN_ID:-$(genRunId)}}"
+DESKTOP_TOOLS_PARENT_RUN_ID="${DESKTOP_TOOLS_PARENT_RUN_ID:-${AID_PARENT_RUN_ID:-}}"
+
+log() { command -v gum >/dev/null 2>&1 && gum log --level info -- "$*" >&2 || printf '\033[1;36m[desktop-tools]\033[0m %s\n' "$*" >&2; }
+err() { command -v gum >/dev/null 2>&1 && gum log --level error -- "$*" || printf '\033[1;31m[desktop-tools]\033[0m %s\n' "$*" >&2; }
+
+jsonStr() { printf '%s' "$1" | grep -oE "\"$2\":\"[^\"]*\"" | head -1 | sed -E "s/\"$2\":\"([^\"]*)\"/\1/"; }
+jsonArr() { printf '%s' "$1" | grep -oE "\"$2\":\[[^]]*\]" | head -1 | sed -E "s/.*:\[(.*)\]/\1/; s/\"//g; s/,/, /g"; }
+
+readToken() { [ -s "$DESKTOP_TOOLS_TOKEN_PATH" ] && cat "$DESKTOP_TOOLS_TOKEN_PATH"; }
+
+postReport() {
+  local kind="$1" status="$2" summary="$3" detail="$4" token u body rj
+  token="$(readToken)" || true
+  [ -z "$token" ] && return 2
+  u="${DESKTOP_TOOLS_CONTROL_PLANE_URL%/}"
+  if command -v jq >/dev/null 2>&1; then
+    if [ -n "$detail" ]; then
+      body="$(jq -nc --arg k "$kind" --arg s "$status" --arg sm "$summary" --argjson d "$detail" --arg c "$DESKTOP_TOOLS_RUN_ID" --arg p "$DESKTOP_TOOLS_PARENT_RUN_ID" '{kind:$k,status:$s,summary:$sm,detail:$d,correlationId:$c} + (if $p=="" then {} else {parentRunId:$p} end)')"
+    else
+      body="$(jq -nc --arg k "$kind" --arg s "$status" --arg sm "$summary" --arg c "$DESKTOP_TOOLS_RUN_ID" --arg p "$DESKTOP_TOOLS_PARENT_RUN_ID" '{kind:$k,status:$s,summary:$sm,correlationId:$c} + (if $p=="" then {} else {parentRunId:$p} end)')"
+    fi
+    rj="${DESKTOP_TOOLS_REDACT_JQ:-${AID_REDACT_JQ:-$HOME/.local/bin/aid-redact.jq}}"
+    [ -f "$rj" ] || rj="$(dirname "$0")/aid-redact.jq"
+    [ -f "$rj" ] && body="$(printf '%s' "$body" | jq -c -f "$rj" 2>/dev/null || printf '%s' "$body")"
+  elif [ -n "$DESKTOP_TOOLS_PARENT_RUN_ID" ]; then
+    body="{\"kind\":\"${kind}\",\"status\":\"${status}\",\"correlationId\":\"${DESKTOP_TOOLS_RUN_ID}\",\"parentRunId\":\"${DESKTOP_TOOLS_PARENT_RUN_ID}\"}"
+  else
+    body="{\"kind\":\"${kind}\",\"status\":\"${status}\",\"correlationId\":\"${DESKTOP_TOOLS_RUN_ID}\"}"
+  fi
+  curl -fsS --connect-timeout 5 --max-time 20 -X POST -H "authorization: Bearer ${token}" -H 'content-type: application/json' -d "$body" "${u}/api/device/report" 2>/dev/null
+}
+
+cmdStatus() {
+  local u token me code body device tenant scopes resp revision digest
+  u="${DESKTOP_TOOLS_CONTROL_PLANE_URL%/}"
+  token="$(readToken)" || true
+  if [ -z "$token" ]; then
+    err "not paired — run: desktop-tools-pair"
+    return 2
+  fi
+  me="$(curl -sS --connect-timeout 5 --max-time 20 -w $'\n%{http_code}' -H "authorization: Bearer ${token}" "$u/api/devices/me" 2>/dev/null || true)"
+  code="${me##*$'\n'}"
+  body="${me%$'\n'*}"
+  if [ "$code" = 401 ]; then
+    err "token not recognized (revoked or unknown) — re-pair: desktop-tools-pair"
+    return 1
+  fi
+  if [ "$code" != 200 ]; then
+    err "could not reach the control plane (HTTP ${code})"
+    return 1
+  fi
+  device="$(jsonStr "$body" deviceId)"
+  tenant="$(jsonStr "$body" tenant)"
+  scopes="$(jsonArr "$body" grantedPermissions)"
+  [ -z "$scopes" ] && scopes="(none recorded — full access, legacy pairing)"
+  log "paired ✓  device=${device}  tenant=${tenant}"
+  log "authorized for: ${scopes}"
+  resp="$(curl -sS --connect-timeout 5 --max-time 20 -w $'\n%{http_code}' -H "authorization: Bearer ${token}" "$u/api/device/current" 2>/dev/null || true)"
+  code="${resp##*$'\n'}"
+  body="${resp%$'\n'*}"
+  case "$code" in
+  200)
+    revision="$(jsonStr "$body" revision)"
+    digest="$(jsonStr "$body" digest)"
+    log "desired state: revision=${revision}  digest=${digest:0:12}"
+    ;;
+  403)
+    err "desired state: NOT authorized — this device token lacks '$(jsonStr "$body" required)'. Re-pair to widen scope: desktop-tools-pair"
+    ;;
+  404)
+    log "desired state: none set for tenant ${tenant} yet"
+    ;;
+  *)
+    err "desired state: fetch failed (HTTP ${code})"
+    ;;
+  esac
+  return 0
+}
+
+cmdPull() {
+  local u token code
+  u="${DESKTOP_TOOLS_CONTROL_PLANE_URL%/}"
+  token="$(readToken)" || true
+  if [ -z "$token" ]; then
+    err "not paired — run: desktop-tools-pair"
+    return 2
+  fi
+  mkdir -p "$(dirname "$DESKTOP_TOOLS_ENV_PATH")"
+  code="$(curl -fsS --connect-timeout 5 --max-time 20 -H "authorization: Bearer ${token}" -o "${DESKTOP_TOOLS_ENV_PATH}.tmp" -w '%{http_code}' "$u/api/device/current.md" 2>/dev/null || echo 000)"
+  if [ "$code" != 200 ]; then
+    rm -f "${DESKTOP_TOOLS_ENV_PATH}.tmp"
+    err "pull failed (HTTP ${code} — token revoked, or no blueprint for this tenant)"
+    return 1
+  fi
+  mv "${DESKTOP_TOOLS_ENV_PATH}.tmp" "$DESKTOP_TOOLS_ENV_PATH"
+  log "pulled desired ENVIRONMENT.md -> ${DESKTOP_TOOLS_ENV_PATH} ($(wc -c <"$DESKTOP_TOOLS_ENV_PATH" | tr -d ' ') bytes)"
+}
+
+computeReconcile() {
+  command -v jq >/dev/null 2>&1 || {
+    err "this requires jq"
+    return 3
+  }
+  if [ ! -s "$DESKTOP_TOOLS_ENV_PATH" ]; then
+    cmdPull || return $?
+  fi
+  local json pkgs p
+  json="$(awk '/^```install-doctor[+]json[[:space:]]*$/{f=1;next} /^```[[:space:]]*$/{f=0} f' "$DESKTOP_TOOLS_ENV_PATH")"
+  if [ -z "$json" ]; then
+    err "no install-doctor+json blueprint fence in $DESKTOP_TOOLS_ENV_PATH"
+    return 1
+  fi
+  pkgs="$(printf '%s' "$json" | jq -r '.defaults.packages[]?' 2>/dev/null)"
+  DT_TOTAL=0
+  DT_PRESENT=0
+  DT_MISSING=""
+  while IFS= read -r p; do
+    [ -z "$p" ] && continue
+    DT_TOTAL=$((DT_TOTAL + 1))
+    if isInstalled "$p"; then
+      DT_PRESENT=$((DT_PRESENT + 1))
+    else
+      DT_MISSING="${DT_MISSING} ${p}"
+    fi
+  done < <(printf '%s\n' "$pkgs")
+  DT_MISSING="${DT_MISSING# }"
+}
+
+detectManager() {
+  if command -v brew >/dev/null 2>&1; then
+    echo brew
+  elif command -v apt-get >/dev/null 2>&1; then
+    echo apt
+  elif command -v dnf >/dev/null 2>&1; then
+    echo dnf
+  elif command -v pacman >/dev/null 2>&1; then
+    echo pacman
+  elif command -v apk >/dev/null 2>&1; then
+    echo apk
+  else
+    echo ""
+  fi
+}
+
+resolvePkg() {
+  local key="$1" col="$2" idx="${DESKTOP_TOOLS_CNF_INDEX:-${AID_CNF_INDEX:-$HOME/.cache/cnf/index.tsv}}" val=""
+  if [ -n "$col" ] && [ -f "$idx" ]; then
+    val="$(awk -F'\t' -v k="$key" -v c="$col" '$2==k {print $c; exit}' "$idx")"
+  fi
+  printf '%s' "${val:-$key}"
+}
+
+isInstalled() {
+  local key="$1" idx="${DESKTOP_TOOLS_CNF_INDEX:-${AID_CNF_INDEX:-$HOME/.cache/cnf/index.tsv}}" bins="" b
+  if [ -f "$idx" ]; then
+    bins="$(awk -F'\t' -v k="$key" '$2 == k && $1 != "" {print $1}' "$idx")"
+  fi
+  [ -z "$bins" ] && bins="$key"
+  while IFS= read -r b; do
+    [ -z "$b" ] && continue
+    command -v "$b" >/dev/null 2>&1 && return 0
+  done < <(printf '%s\n' "$bins")
+  return 1
+}
+
+cmdPlan() {
+  computeReconcile || return $?
+  log "desired packages: ${DT_TOTAL} · present: ${DT_PRESENT} · missing: $((DT_TOTAL - DT_PRESENT))"
+  if [ -n "$DT_MISSING" ]; then
+    log "to install:${DT_MISSING:+ }${DT_MISSING}"
+  else
+    log "all desired packages present ✓"
+  fi
+  local detail
+  detail="$(jq -nc --argjson t "$DT_TOTAL" --argjson p "$DT_PRESENT" --arg m "$DT_MISSING" '{total:$t,present:$p,missing:($m|split(" ")|map(select(length>0)))}')"
+  postReport check success "plan: ${DT_PRESENT}/${DT_TOTAL} present" "$detail" >/dev/null 2>&1 && log "recorded to History ✓" || true
+}
+
+cmdReport() {
+  local kind="run" status="success" summary="" detail="" resp id
+  while [ $# -gt 0 ]; do
+    case "$1" in
+    --kind) kind="${2:-}"; shift 2 ;;
+    --status) status="${2:-}"; shift 2 ;;
+    --summary) summary="${2:-}"; shift 2 ;;
+    --detail) detail="${2:-}"; shift 2 ;;
+    *) shift ;;
+    esac
+  done
+  if ! readToken >/dev/null 2>&1; then
+    err "not paired — run: desktop-tools-pair"
+    return 2
+  fi
+  resp="$(postReport "$kind" "$status" "$summary" "$detail")" || {
+    err "report failed (token revoked / offline)"
+    return 1
+  }
+  id="$(jsonStr "$resp" id)"
+  log "reported ✓ ${kind}/${status} (id ${id})"
+}
+
+cmdApply() {
+  local doIt=0 p mgr col n
+  [ "${1:-}" = "--yes" ] && doIt=1
+  [ "${DESKTOP_TOOLS_APPLY:-${AID_APPLY:-0}}" = "1" ] && doIt=1
+  computeReconcile || return $?
+  if [ -z "$DT_MISSING" ]; then
+    log "nothing to install — all desired packages present ✓"
+    postReport apply success "apply: 0 to install" '{"installed":0}' >/dev/null 2>&1 || true
+    return 0
+  fi
+  mgr="$(detectManager)"
+  if [ -z "$mgr" ]; then
+    err "no supported package manager found (brew/apt/dnf/pacman/apk)"
+    return 1
+  fi
+  case "$mgr" in
+  brew) col=3 ;;
+  apt) col=4 ;;
+  dnf) col=5 ;;
+  pacman) col=6 ;;
+  *) col="" ;;
+  esac
+  local -a names=() runCmd=()
+  for p in $DT_MISSING; do names+=("$(resolvePkg "$p" "$col")"); done
+  case "$mgr" in
+  brew) runCmd=(brew install "${names[@]}") ;;
+  apt) runCmd=(sudo apt-get install -y "${names[@]}") ;;
+  dnf) runCmd=(sudo dnf install -y "${names[@]}") ;;
+  pacman) runCmd=(sudo pacman -S --noconfirm --needed "${names[@]}") ;;
+  apk) runCmd=(sudo apk add "${names[@]}") ;;
+  esac
+  n="${#names[@]}"
+  if [ "$doIt" != 1 ]; then
+    log "DRY-RUN — would install ${n} package(s) via ${mgr}:"
+    log "  ${runCmd[*]}"
+    log "(run 'desktop-tools apply --yes' or set DESKTOP_TOOLS_APPLY=1 to execute)"
+    postReport apply preview "apply dry-run: ${n} via ${mgr}" "$(jq -nc --arg c "${runCmd[*]}" --argjson n "$n" '{installed:0,planned:$n,command:$c}' 2>/dev/null)" >/dev/null 2>&1 || true
+    return 0
+  fi
+  [ "${HEADLESS_INSTALL:-0}" = "1" ] && log "HEADLESS_INSTALL=1 — non-interactive"
+  log "installing ${n} package(s) via ${mgr}…"
+  if "${runCmd[@]}"; then
+    log "apply ✓ installed ${n} via ${mgr}"
+    postReport apply success "apply: installed ${n} via ${mgr}" "$(jq -nc --argjson n "$n" --arg m "$mgr" '{installed:$n,manager:$m}' 2>/dev/null)" >/dev/null 2>&1 || true
+  else
+    err "apply failed (${mgr} returned non-zero)"
+    postReport apply failed "apply failed via ${mgr}" "$(jq -nc --arg m "$mgr" '{manager:$m}' 2>/dev/null)" >/dev/null 2>&1 || true
+    return 1
+  fi
+}
+
+cmdUp() {
+  if ! readToken >/dev/null 2>&1; then
+    err "not paired — run: desktop-tools-pair"
+    return 2
+  fi
+  log "desktop-tools up — syncing this machine's view to its desired state…"
+  cmdPull || return $?
+  cmdPlan || return $?
+  log "desktop-tools up ✓ (view synced + recorded; run 'desktop-tools apply' to install missing packages)"
+}
+
+cmdProvider() {
+  local force=0 u out code
+  [ "${1:-}" = "--force" ] && force=1
+  u="${DESKTOP_TOOLS_CONTROL_PLANE_URL%/}"
+  out="${DESKTOP_TOOLS_OPENCODE_CONFIG_PATH:-${AID_OPENCODE_CONFIG_PATH:-$HOME/.config/opencode/opencode.json}}"
+  if [ -s "$out" ] && [ "$force" -ne 1 ]; then
+    err "OpenCode config already exists at ${out} — pass --force to overwrite"
+    return 1
+  fi
+  mkdir -p "$(dirname "$out")"
+  code="$(curl -fsS --connect-timeout 5 --max-time 20 -o "${out}.tmp" -w '%{http_code}' "$u/api/provider-config" 2>/dev/null || echo 000)"
+  if [ "$code" != 200 ]; then
+    rm -f "${out}.tmp"
+    err "fetch provider-config failed (HTTP ${code})"
+    return 1
+  fi
+  mv "${out}.tmp" "$out"
+  log "wrote OpenCode provider config -> ${out} (desktop.tools routes via ${u}/api/ai/v1; set DESKTOP_TOOLS_INFERENCE_TOKEN to use)"
+}
+
+cnfInstall() {
+  local cmd="$1"
+  [ -f "$DESKTOP_TOOLS_CNF_HOOK" ] || { err "cnf resolver not found at $DESKTOP_TOOLS_CNF_HOOK"; return 127; }
+  # shellcheck source=/dev/null
+  ( export CNF_ALLOW_NONINTERACTIVE=1 CNF_NO_EXEC=1; . "$DESKTOP_TOOLS_CNF_HOOK"; __cnf_resolve "$cmd" ) >&2 </dev/null
+  hash -r 2>/dev/null || true
+  command -v "$cmd" >/dev/null 2>&1
+}
+
+cmdExec() {
+  local cmd="${1:-}"
+  [ -z "$cmd" ] && { err "usage: desktop-tools exec <command> [args...]"; return 2; }
+  shift
+  if command -v "$cmd" >/dev/null 2>&1; then exec "$cmd" "$@"; fi
+  log "desktop-tools exec: '$cmd' not installed — installing via install.doctor…"
+  if cnfInstall "$cmd"; then
+    postReport exec ok "desktop-tools exec installed $cmd" "" >/dev/null 2>&1 || true
+    exec "$cmd" "$@"
+  fi
+  err "desktop-tools exec: '$cmd' still not found after install"
+  return 127
+}
+
+cmdPrewarm() {
+  [ "$#" -ge 1 ] || { err "usage: desktop-tools prewarm <command> [command...]"; return 2; }
+  local rc=0 cmd
+  for cmd in "$@"; do
+    if command -v "$cmd" >/dev/null 2>&1; then log "prewarm: $cmd already present"; continue; fi
+    log "prewarm: installing ${cmd}…"
+    if cnfInstall "$cmd"; then
+      log "prewarm: $cmd installed"
+      postReport prewarm ok "desktop-tools prewarm installed $cmd" "" >/dev/null 2>&1 || true
+    else
+      err "prewarm: $cmd failed"; rc=1
+    fi
+  done
+  return "$rc"
+}
+
+cmdInstalls() {
+  [ -s "$DESKTOP_TOOLS_CNF_JOURNAL" ] || { log "no lazy-install telemetry yet ($DESKTOP_TOOLS_CNF_JOURNAL)"; return 0; }
+  if command -v jq >/dev/null 2>&1; then
+    jq -s '{total:length,
+            installed:([.[]|select(.outcome=="installed")]|length),
+            failed:([.[]|select(.outcome=="failed")]|length),
+            warm_skips:([.[]|select(.outcome=="concurrent-skip")]|length),
+            avg_install_ms:([.[]|select(.outcome=="installed").duration_ms]|if length>0 then (add/length|floor) else 0 end)}' "$DESKTOP_TOOLS_CNF_JOURNAL"
+  else
+    log "installs: $(wc -l < "$DESKTOP_TOOLS_CNF_JOURNAL" | tr -d ' ') recorded in $DESKTOP_TOOLS_CNF_JOURNAL (install jq for a summary)"
+  fi
+}
+
+cmdDoctor() {
+  local ok=0 warn=0
+  log "desktop-tools doctor — checking local host posture & Zero-Trust readiness…"
+  if [ -s "$DESKTOP_TOOLS_TOKEN_PATH" ]; then
+    log "  [✓] device token present at $DESKTOP_TOOLS_TOKEN_PATH"
+    ok=$((ok + 1))
+  else
+    log "  [!] device token not found at $DESKTOP_TOOLS_TOKEN_PATH (run: desktop-tools-pair)"
+    warn=$((warn + 1))
+  fi
+  if [ -s "$DESKTOP_TOOLS_ENV_PATH" ]; then
+    log "  [✓] desired-state blueprint present at $DESKTOP_TOOLS_ENV_PATH"
+    ok=$((ok + 1))
+  else
+    log "  [!] ENVIRONMENT.md not found at $DESKTOP_TOOLS_ENV_PATH (run: desktop-tools pull)"
+    warn=$((warn + 1))
+  fi
+  if [ -f "$DESKTOP_TOOLS_CNF_HOOK" ]; then
+    log "  [✓] lazy-install CNF resolver present at $DESKTOP_TOOLS_CNF_HOOK"
+    ok=$((ok + 1))
+  else
+    err "  [✗] CNF resolver missing at $DESKTOP_TOOLS_CNF_HOOK"
+    warn=$((warn + 1))
+  fi
+  if command -v cloudflare-firewall >/dev/null 2>&1 || [ -x "$HOME/.local/bin/cloudflare-firewall" ]; then
+    log "  [✓] Cloudflare-Only Zero-Trust Firewall helper installed"
+    ok=$((ok + 1))
+  else
+    log "  [!] cloudflare-firewall helper not found in ~/.local/bin"
+    warn=$((warn + 1))
+  fi
+  if command -v get-secret >/dev/null 2>&1 || [ -x "$HOME/.local/bin/get-secret" ]; then
+    log "  [✓] Infisical / age secret resolver (get-secret) installed"
+    ok=$((ok + 1))
+  else
+    log "  [!] get-secret helper not found in ~/.local/bin"
+    warn=$((warn + 1))
+  fi
+  log "desktop-tools doctor summary: ${ok} checks passed, ${warn} warning(s)"
+  return 0
+}
+
+cmdSearch() {
+  local q="${1:-}" idx
+  [ -z "$q" ] && { err "usage: desktop-tools search <query>"; return 2; }
+  idx="${DESKTOP_TOOLS_CNF_INDEX:-${AID_CNF_INDEX:-${CNF_INDEX:-$HOME/.cache/cnf/index.tsv}}}"
+  if [ -s "$idx" ]; then
+    grep -i -- "$q" "$idx" | head -n 25 || log "no local index matches for '$q'"
+  else
+    err "local CNF index not found at $idx (run: cnf-build-index)"
+    return 1
+  fi
+}
+
+usage() {
+  printf 'usage: desktop-tools <up|status|pull|plan|report|apply|provider|exec|prewarm|installs|doctor|search>\n' >&2
+  return 1
+}
+
+main() {
+  case "${1:-}" in
+  up) cmdUp ;;
+  provider) shift; cmdProvider "$@" ;;
+  status) cmdStatus ;;
+  pull) cmdPull ;;
+  plan) cmdPlan ;;
+  report) shift; cmdReport "$@" ;;
+  apply) shift; cmdApply "$@" ;;
+  exec) shift; cmdExec "$@" ;;
+  prewarm) shift; cmdPrewarm "$@" ;;
+  installs) cmdInstalls ;;
+  doctor) cmdDoctor ;;
+  search) shift; cmdSearch "$@" ;;
+  *) usage ;;
+  esac
+}
+
+main "$@"
