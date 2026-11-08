@@ -4,7 +4,9 @@ import { mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
-import { DESKTOP_RELEASE_FILES, publishDesktopRelease } from '../scripts/desktop-release-publication.mjs';
+import {
+  activateDesktopRelease, DESKTOP_RELEASE_FILES, inspectPublishedDesktopRelease, publishDesktopRelease
+} from '../scripts/desktop-release-publication.mjs';
 
 const digest = bytes => createHash('sha256').update(bytes).digest('hex');
 
@@ -41,7 +43,14 @@ function storage() {
   const creates = [];
   return { objects, creates,
     async create(key, bytes, metadata) { creates.push([key, metadata]); if (objects.has(key)) return false; objects.set(key, { bytes: Buffer.from(bytes) }); return true; },
-    async read(key) { return objects.get(key) ?? null; }
+    async read(key) { return objects.get(key) ?? null; },
+    async compareAndSwap(key, bytes, expectedEtag) {
+      const current = objects.get(key);
+      if ((current?.etag ?? undefined) !== expectedEtag) return { ok: false };
+      const etag = `etag-${objects.size + 1}`;
+      objects.set(key, { bytes: Buffer.from(bytes), etag });
+      return { ok: true, etag };
+    }
   };
 }
 
@@ -57,6 +66,33 @@ test('publishes an exact Desktop Tools v6 release in a product-qualified immutab
   assert.equal(target.creates.some(([key]) => key.startsWith('bootstrap/')), false);
   const retry = await publishDesktopRelease({ ...release, expectedReleaseId: release.releaseId, storage: target, verifySignature: async () => {} });
   assert.equal(retry.outcomes.every(item => item.outcome === 'already-present'), true);
+});
+
+test('activates only inspected Desktop Tools releases with product-qualified CAS and exact rollback', async t => {
+  const now = Math.floor(Date.now() / 1_000);
+  const target = storage();
+  const channels = storage();
+  const verifySignature = async () => {};
+  const firstFixture = await fixture(t);
+  const secondFixture = await fixture(t);
+  await publishDesktopRelease({ ...firstFixture, expectedReleaseId: firstFixture.releaseId, storage: target, verifySignature, now });
+  await publishDesktopRelease({ ...secondFixture, expectedReleaseId: secondFixture.releaseId, storage: target, verifySignature, now });
+  const first = await inspectPublishedDesktopRelease({ expectedReleaseId: firstFixture.releaseId, storage: target, verifySignature, now });
+  const second = await inspectPublishedDesktopRelease({ expectedReleaseId: secondFixture.releaseId, storage: target, verifySignature, now });
+  const promoted1 = await activateDesktopRelease({ channel: 'stable', release: first, storage: channels,
+    expectedEtag: undefined, activationId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+    activatedAt: '2026-11-08T12:00:00.000Z', now, minimumPromotionRemainingSeconds: 3_600 });
+  const promoted2 = await activateDesktopRelease({ channel: 'stable', release: second, storage: channels,
+    expectedEtag: promoted1.etag, activationId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+    activatedAt: '2026-11-08T12:01:00.000Z', now, minimumPromotionRemainingSeconds: 3_600 });
+  const rollback = await activateDesktopRelease({ channel: 'stable', release: first, storage: channels,
+    expectedEtag: promoted2.etag, kind: 'rollback', rollbackOfActivationId: promoted2.pointer.activationId,
+    activationId: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc', activatedAt: '2026-11-08T12:02:00.000Z', now });
+  assert.equal(rollback.pointer.generation, 3);
+  assert.equal(JSON.parse(channels.objects.get('desktop-tools/channels/stable.json').bytes).product, 'desktop-tools');
+  assert.equal([...channels.objects.keys()].some(key => key.startsWith('bootstrap/')), false);
+  await assert.rejects(activateDesktopRelease({ channel: 'stable', release: { ...second, product: 'legacy-install-doctor' }, storage: channels,
+    expectedEtag: rollback.etag, activationId: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd', activatedAt: '2026-11-08T12:03:00.000Z', now }), /product mismatch/);
 });
 
 test('rejects legacy identity, origin substitution, surplus files, and altered payloads', async t => {

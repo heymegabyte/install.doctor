@@ -28,6 +28,18 @@ const REQUIRED_KEYS = Object.freeze([
 ]);
 const digest = bytes => createHash('sha256').update(bytes).digest('hex');
 const same = (left, right) => Buffer.compare(Buffer.from(left), Buffer.from(right)) === 0;
+const canonical = value => Buffer.from(`${JSON.stringify(value)}\n`, 'utf8');
+const DesktopPointer = z.strictObject({
+  schemaVersion: z.literal(2), product: z.literal('desktop-tools'), channel: id,
+  generation: z.number().int().positive().safe(), kind: z.enum(['promote', 'rollback']),
+  releaseId: id, signerId: id, manifestSha256: sha256, activatedAt: z.string().datetime({ offset: true }),
+  activationId: z.string().uuid(),
+  previous: z.nullable(z.strictObject({
+    generation: z.number().int().positive().safe(), activationId: z.string().uuid(), releaseId: id,
+    manifestSha256: sha256, etag: z.string().min(1).max(512)
+  })),
+  rollbackOfActivationId: z.string().uuid().nullable()
+});
 
 function parseManifest(bytes) {
   if (!(bytes instanceof Uint8Array) || bytes.byteLength < 1 || bytes.byteLength > 16_384) throw new Error('manifest size is outside policy');
@@ -114,4 +126,85 @@ export async function publishDesktopRelease({ directory, expectedReleaseId, stor
   outcomes.push({ name: 'manifest', outcome: created ? 'created' : 'already-present' });
   return Object.freeze({ schemaVersion: 1, product: policy.product, releaseId: release.releaseId,
     signerId: release.signerId, manifestSha256: release.manifestSha256, outcomes });
+}
+
+export async function inspectPublishedDesktopRelease({ expectedReleaseId, storage, verifySignature, now }) {
+  if (typeof storage?.read !== 'function' || typeof verifySignature !== 'function') throw new Error('inspection dependencies are invalid');
+  const releaseId = id.parse(expectedReleaseId);
+  const files = new Map();
+  for (const name of DESKTOP_RELEASE_FILES) {
+    const stored = await storage.read(`desktop-tools/bootstrap/${releaseId}/${name}`);
+    if (!stored?.bytes) throw new Error(`published Desktop Tools release object is missing: ${name}`);
+    files.set(name, Buffer.from(stored.bytes));
+  }
+  const release = inspectFiles(files, releaseId, now);
+  await verifySignature({ manifest: files.get('manifest'), signature: files.get('manifest.sig'),
+    signerId: release.signerId, namespace: policy.signatureNamespace });
+  return release;
+}
+
+async function createCanonical(storage, key, value) {
+  const bytes = canonical(value);
+  const created = await storage.create(key, bytes, { sha256: digest(bytes) });
+  const stored = await storage.read(key);
+  if (!stored?.bytes || !same(stored.bytes, bytes)) throw new Error(`canonical read-back mismatch: ${key}`);
+  return created;
+}
+
+export async function activateDesktopRelease({
+  channel, release, storage, expectedEtag, activationId, activatedAt, kind = 'promote',
+  rollbackOfActivationId = null, now = Math.floor(Date.now() / 1_000),
+  minimumPromotionRemainingSeconds = 345_600, minimumRollbackRemainingSeconds = 3_600
+}) {
+  if (typeof storage?.read !== 'function' || typeof storage?.create !== 'function' || typeof storage?.compareAndSwap !== 'function') {
+    throw new Error('activation storage adapter is invalid');
+  }
+  const channelId = id.parse(channel);
+  if (release?.product !== 'desktop-tools') throw new Error('activation release product mismatch');
+  const expiresAt = z.number().int().positive().safe().parse(release.expiresAt);
+  const minimum = kind === 'rollback' ? minimumRollbackRemainingSeconds : minimumPromotionRemainingSeconds;
+  if (![now, minimum].every(value => Number.isSafeInteger(value) && value > 0) || minimum < 3_600 || minimum > 604_800) {
+    throw new Error('activation freshness policy is invalid');
+  }
+  if (expiresAt - now < minimum) throw new Error('release has insufficient remaining validity for activation');
+  const channelKey = `desktop-tools/channels/${channelId}.json`;
+  const current = await storage.read(channelKey);
+  if ((current?.etag ?? undefined) !== expectedEtag) throw new Error('activation expected etag is stale');
+  let previous = null;
+  let generation = 1;
+  let currentPointer = null;
+  if (current) {
+    currentPointer = DesktopPointer.parse(JSON.parse(Buffer.from(current.bytes).toString('utf8')));
+    if (!same(current.bytes, canonical(currentPointer)) || currentPointer.channel !== channelId) throw new Error('current pointer is not canonical for this channel');
+    generation = currentPointer.generation + 1;
+    previous = { generation: currentPointer.generation, activationId: currentPointer.activationId,
+      releaseId: currentPointer.releaseId, manifestSha256: currentPointer.manifestSha256, etag: current.etag };
+  }
+  if ((kind === 'rollback') !== (rollbackOfActivationId !== null)) throw new Error('rollback must identify the activation it reverses');
+  if (kind === 'rollback') {
+    if (!currentPointer?.previous || rollbackOfActivationId !== currentPointer.activationId
+      || release.releaseId !== currentPointer.previous.releaseId
+      || release.manifestSha256 !== currentPointer.previous.manifestSha256) {
+      throw new Error('rollback target must be the exact prior Desktop Tools release');
+    }
+  }
+  const pointer = DesktopPointer.parse({
+    schemaVersion: 2, product: 'desktop-tools', channel: channelId, generation, kind,
+    releaseId: release.releaseId, signerId: release.signerId, manifestSha256: release.manifestSha256,
+    activatedAt, activationId, previous, rollbackOfActivationId
+  });
+  const pointerBytes = canonical(pointer);
+  const intentKey = `desktop-tools/activations/${channelId}/${pointer.activationId}.json`;
+  const receiptKey = `desktop-tools/activation-receipts/${channelId}/${String(generation).padStart(12, '0')}-${pointer.activationId}.json`;
+  await createCanonical(storage, intentKey, pointer);
+  const result = await storage.compareAndSwap(channelKey, pointerBytes, expectedEtag);
+  if (!result?.ok || typeof result.etag !== 'string') throw new Error('activation compare-and-swap failed');
+  const committed = await storage.read(channelKey);
+  if (!committed?.bytes || committed.etag !== result.etag || !same(committed.bytes, pointerBytes)) throw new Error('activation read-back mismatch');
+  try {
+    await createCanonical(storage, receiptKey, pointer);
+    return Object.freeze({ schemaVersion: 2, status: 'activated', product: 'desktop-tools', pointer, etag: result.etag, intentKey, receiptKey });
+  } catch {
+    return Object.freeze({ schemaVersion: 2, status: 'activated_receipt_pending', product: 'desktop-tools', pointer, etag: result.etag, intentKey, receiptKey });
+  }
 }
