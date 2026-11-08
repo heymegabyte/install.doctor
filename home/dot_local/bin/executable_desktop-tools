@@ -56,7 +56,8 @@ postReport() {
     else
       body="$(jq -nc --arg k "$kind" --arg s "$status" --arg sm "$summary" --arg c "$DESKTOP_TOOLS_RUN_ID" --arg p "$DESKTOP_TOOLS_PARENT_RUN_ID" '{kind:$k,status:$s,summary:$sm,correlationId:$c} + (if $p=="" then {} else {parentRunId:$p} end)')"
     fi
-    rj="${DESKTOP_TOOLS_REDACT_JQ:-${AID_REDACT_JQ:-$HOME/.local/bin/aid-redact.jq}}"
+    rj="${DESKTOP_TOOLS_REDACT_JQ:-$HOME/.local/bin/desktop-tools-redact.jq}"
+    [ -f "$rj" ] || rj="$(dirname "$0")/desktop-tools-redact.jq"
     [ -f "$rj" ] || rj="$(dirname "$0")/aid-redact.jq"
     [ -f "$rj" ] && body="$(printf '%s' "$body" | jq -c -f "$rj" 2>/dev/null || printf '%s' "$body")"
   elif [ -n "$DESKTOP_TOOLS_PARENT_RUN_ID" ]; then

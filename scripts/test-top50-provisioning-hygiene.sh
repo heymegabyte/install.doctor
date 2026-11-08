@@ -129,13 +129,13 @@ else
   fail "12. Slow pip3/flatpak/brew subshell forks still present in shell startup templates"
 fi
 
-# 13. aid doctor & aid search subcommands + Television (tv) fuzzy channels wired
-if bash home/dot_local/bin/executable_aid doctor 2>&1 | grep -q 'aid doctor summary:' \
+# 13. desktop-tools doctor & desktop-tools search subcommands + Television (tv) fuzzy channels wired
+if bash home/dot_local/bin/executable_desktop-tools doctor 2>&1 | grep -q 'desktop-tools doctor summary:' \
   && [ -f home/dot_config/television/cable/apps.toml ] \
   && [ -f home/dot_config/television/cable/posture.toml ]; then
-  pass "13. aid doctor diagnostic command and Television (tv) fuzzy cable channels wired"
+  pass "13. desktop-tools doctor diagnostic command and Television (tv) fuzzy cable channels wired"
 else
-  fail "13. aid doctor or Television fuzzy cable channels missing"
+  fail "13. desktop-tools doctor or Television fuzzy cable channels missing"
 fi
 
 say "top50-provisioning-hygiene: $P passed, $F failed"
