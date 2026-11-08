@@ -2277,8 +2277,8 @@ After=syslog.target systemd-modules-load.service
 
 [Service]
 Type=oneshot
-ExecStart=/usr/bin/nvidia-smi -pm 1
-ExecStart=/usr/bin/nvidia-smi -pl ${PL_WATTS}
+ExecStart=-/usr/bin/nvidia-smi -pm 1
+ExecStart=-/usr/bin/nvidia-smi -pl ${PL_WATTS}
 RemainAfterExit=yes
 
 [Install]
@@ -2313,6 +2313,8 @@ RETIRED_VPN_STATE="$(! command -v "$RETIRED_VPN" >/dev/null 2>&1 && printf "purg
 EGRESS_GUARD="$(systemctl is-active fleet-egress-guard.service 2>/dev/null || true)"
 CROWDSEC_STATE="$(systemctl is-active crowdsec 2>/dev/null || true)"
 EARLYOOM_STATE="$(systemctl is-active earlyoom.service 2>/dev/null || true)"
+CUA_STATE="$(XDG_RUNTIME_DIR="/run/user/$(id -u)" systemctl --user is-active agent-fleet-cua.service 2>/dev/null || XDG_RUNTIME_DIR="/run/user/$(id -u)" systemctl --user is-active cua-driver.service 2>/dev/null || printf "inactive")"
+KASM_RESIZE="$(ps -ef 2>/dev/null | grep '[X]kasmvnc' | grep -q -- '-AcceptSetDesktopSize 1' && printf "1" || printf "0")"
 EMDASH_WS="idle"
 for _esock in "$HOME/.emdash/workspace-server/run/workspace.sock" /home/*/.emdash/workspace-server/run/workspace.sock; do
   if [ -S "$_esock" ]; then
@@ -2331,21 +2333,37 @@ done
 LOCAL_PROXY="$(curl -fsS --max-time 2 http://127.0.0.1:4880/healthz >/dev/null 2>&1 && printf "4880" || printf "down")"
 BACKREST_PORT="$(ss -tln 2>/dev/null | grep -q ':9898 ' && printf "9898" || printf "down")"
 NOFILE_CFG="$(grep -q 'DefaultLimitNOFILE=65536:524288' /etc/systemd/system.conf.d/99-fleet-accounting.conf 2>/dev/null && printf "524288" || printf "default")"
+NODE_OK="$(command -v node >/dev/null 2>&1 && printf "1" || printf "0")"
 SYS_FAILED="$(systemctl --failed --no-legend --plain 2>/dev/null | wc -l | tr -d " ")"
 USR_FAILED="$(XDG_RUNTIME_DIR="/run/user/$(id -u)" systemctl --user --failed --no-legend --plain 2>/dev/null | wc -l | tr -d " ")"
 FAILED_UNITS="$(( ${SYS_FAILED:-0} + ${USR_FAILED:-0} ))"
-printf "host=%s pbs=\"%s\" zpool_health=%s zfs_snaps=%s bclone=%s bbr=%s thp=%s ssh_pqc=%s %s=%s egress_nft=%s crowdsec=%s earlyoom=%s emdash_ws=%s local_proxy=%s backrest=%s nofile=%s cf_metrics=%s sandbox=%s failed=%s\n" \
-  "$HOST" "$PBS_VER" "$ZPOOL_HEALTH" "$ZFS_SNAPS" "$BCLONE" "$BBR" "$THP_DEFRAG" "$PQC" "$RETIRED_VPN" "$RETIRED_VPN_STATE" "$EGRESS_GUARD" "$CROWDSEC_STATE" "$EARLYOOM_STATE" "$EMDASH_WS" "$LOCAL_PROXY" "$BACKREST_PORT" "$NOFILE_CFG" "$CF_METRICS" "$SANDBOX_READY" "$FAILED_UNITS"
+printf "host=%s pbs=\"%s\" zpool_health=%s zfs_snaps=%s bclone=%s bbr=%s thp=%s ssh_pqc=%s %s=%s egress_nft=%s crowdsec=%s earlyoom=%s cua=%s kasm_resize=%s emdash_ws=%s local_proxy=%s backrest=%s nofile=%s cf_metrics=%s node_ok=%s sandbox=%s failed=%s\n" \
+  "$HOST" "$PBS_VER" "$ZPOOL_HEALTH" "$ZFS_SNAPS" "$BCLONE" "$BBR" "$THP_DEFRAG" "$PQC" "$RETIRED_VPN" "$RETIRED_VPN_STATE" "$EGRESS_GUARD" "$CROWDSEC_STATE" "$EARLYOOM_STATE" "$CUA_STATE" "$KASM_RESIZE" "$EMDASH_WS" "$LOCAL_PROXY" "$BACKREST_PORT" "$NOFILE_CFG" "$CF_METRICS" "$NODE_OK" "$SANDBOX_READY" "$FAILED_UNITS"
 EOF
   run_root install -m 0755 "$TMP_DIR/fleet-dr-verify" /usr/local/bin/fleet-dr-verify
   run_root ln -sf /usr/local/bin/fleet-dr-verify /usr/local/bin/fleet-parity-audit
 
-  # Ensure ZFS pools have autotrim=on and autoexpand=on
+  # Ensure primary workstation user belongs to render, video, ssl-cert, and docker groups when those groups exist
+  for _grp in render video ssl-cert docker; do
+    if getent group "$_grp" >/dev/null 2>&1; then
+      run_root usermod -aG "$_grp" "$(id -un)" 2>/dev/null || true
+    fi
+  done
+
+  # Converge /etc/sanoid/sanoid.conf [template_boot] retention policy (hourly=6, daily=7, monthly=1)
+  if [ -f /etc/sanoid/sanoid.conf ]; then
+    run_root sed -i '/^\[template_boot\]/,/^\[/{s/hourly = 0/hourly = 6/;s/daily = 3/daily = 7/;s/monthly = 0/monthly = 1/}' /etc/sanoid/sanoid.conf 2>/dev/null || true
+  fi
+
+  # Ensure ZFS pools have autotrim=on, autoexpand=on, compression=zstd-fast-3, atime=off, xattr=sa, acltype=posixacl, relatime=on
   if command -v zpool >/dev/null 2>&1; then
     for zp in $(zpool list -H -o name 2>/dev/null || true); do
       run_root zpool set autotrim=on "$zp" 2>/dev/null || true
       run_root zpool set autoexpand=on "$zp" 2>/dev/null || true
     done
+    if command -v zfs >/dev/null 2>&1 && zfs list rpool >/dev/null 2>&1; then
+      run_root zfs set compression=zstd-fast-3 atime=off xattr=sa acltype=posixacl relatime=on rpool 2>/dev/null || true
+    fi
   fi
 
   # Remove antique pam_ssh_agent_auth.so from /etc/pam.d/sudo to prevent LOG_ERR key_from_blob spam on Ed25519-SK/Secretive keys
@@ -2353,9 +2371,11 @@ EOF
     run_root sed -i '/pam_ssh_agent_auth\.so/d' /etc/pam.d/sudo 2>/dev/null || true
   fi
 
-  # Ensure earlyoom is installed, tuned to protect session/tunnel/container daemons, and active
-  if ! command -v earlyoom >/dev/null 2>&1 && command -v apt-get >/dev/null 2>&1; then
-    run_root env DEBIAN_FRONTEND=noninteractive apt-get install -y -qq earlyoom >/dev/null 2>&1 || true
+  # Ensure earlyoom and zsh are installed, tuned to protect session/tunnel/container daemons, and active
+  if command -v apt-get >/dev/null 2>&1; then
+    if ! command -v earlyoom >/dev/null 2>&1 || ! command -v zsh >/dev/null 2>&1; then
+      run_root env DEBIAN_FRONTEND=noninteractive apt-get install -y -qq earlyoom zsh >/dev/null 2>&1 || true
+    fi
   fi
   if command -v earlyoom >/dev/null 2>&1; then
     cat > "$TMP_DIR/earlyoom.default" <<'EOF'
@@ -2447,13 +2467,16 @@ EOF
   fi
 fi
 
-# Clean retired post-installx scripts and stale temp binaries across all hosts
+# Clean retired post-installx scripts, host-specific plays, and stale temp binaries across all hosts
 rm -f "$HOME/.local/bin/post-installx/post-atuin.sh" \
       "$HOME/.local/bin/post-installx/post-tailscale.sh" \
+      "$HOME/.local/bin/post-installx/post-legion-workstation.sh" \
       "$HOME/.local/bin"/get-secret-*.mjs \
-      "$HOME/.local/bin"/agy.*.old 2>/dev/null || true
+      "$HOME/.local/bin"/agy.*.old \
+      "$HOME/.local/bin"/*-kasmvnc-run.backup* \
+      "$HOME/.local/bin"/*-kasmvnc-run.before-* 2>/dev/null || true
 
-# Self-healing user systemd agent-skills-sync.service & emdash-workspace-server.service on Linux
+# Self-healing user systemd agent-skills-sync.service/.timer, emdash-workspace-server.service, & bloat/telemetry masking on Linux
 if [ "$(uname -s)" = "Linux" ] && [ -d "$HOME/.config/systemd/user" ]; then
   cat > "$HOME/.config/systemd/user/agent-skills-sync.service" <<'EOF'
 [Unit]
@@ -2466,6 +2489,38 @@ ExecStart=/bin/sh -c 'git -C "$HOME/.agentskills" fetch origin master && git -C 
 Environment="PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin"
 UMask=0077
 EOF
+  cat > "$HOME/.config/systemd/user/agent-skills-sync.timer" <<'EOF'
+[Unit]
+Description=Periodic canonical skill synchronization (not project scheduling)
+
+[Timer]
+OnBootSec=3m
+OnUnitActiveSec=15m
+RandomizedDelaySec=45s
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+EOF
+  for _u_mask in \
+    evolution-addressbook-factory.service \
+    evolution-calendar-factory.service \
+    evolution-source-registry.service \
+    evolution-user-prompter.service \
+    ubuntu-insights-upload.timer \
+    ubuntu-insights-collect.timer \
+    ubuntu-insights-upload.service \
+    ubuntu-insights-collect.service \
+    launchpadlib-cache-clean.timer \
+    launchpadlib-cache-clean.service; do
+    XDG_RUNTIME_DIR="/run/user/$(id -u)" systemctl --user disable --now "$_u_mask" >/dev/null 2>&1 || true
+    ln -sf /dev/null "$HOME/.config/systemd/user/$_u_mask" 2>/dev/null || true
+  done
+  pkill -f '/usr/libexec/evolution-' 2>/dev/null || true
+  if [ -f "$HOME/.config/systemd/user/agent-fleet-cua.service" ] && [ -f "$HOME/.config/systemd/user/cua-driver.service" ]; then
+    XDG_RUNTIME_DIR="/run/user/$(id -u)" systemctl --user disable --now cua-driver.service >/dev/null 2>&1 || true
+    rm -f "$HOME/.config/systemd/user/cua-driver.service" 2>/dev/null || true
+  fi
   if [ -x "$HOME/.emdash/workspace-server/current/bin/emdash-workspace-server" ]; then
     mkdir -p "$HOME/.emdash/workspace-server/run"
     cat > "$HOME/.config/systemd/user/emdash-workspace-server.service" <<'EOF'
@@ -2488,6 +2543,7 @@ EOF
     XDG_RUNTIME_DIR="/run/user/$(id -u)" systemctl --user enable --now emdash-workspace-server.service 2>/dev/null || true
   fi
   XDG_RUNTIME_DIR="/run/user/$(id -u)" systemctl --user daemon-reload 2>/dev/null || true
+  XDG_RUNTIME_DIR="/run/user/$(id -u)" systemctl --user enable --now agent-skills-sync.timer 2>/dev/null || true
   XDG_RUNTIME_DIR="/run/user/$(id -u)" systemctl --user reset-failed agent-skills-sync.service 2>/dev/null || true
 fi
 
@@ -2522,6 +2578,8 @@ if [ "$(id -u)" -eq 0 ] || [ -n "$SUDO" ]; then
     src_bin=""
     if [ -x "$HOME/.local/bin/$bin_name" ]; then
       src_bin="$HOME/.local/bin/$bin_name"
+    elif [ -x "$HOME/.volta/bin/$bin_name" ]; then
+      src_bin="$HOME/.volta/bin/$bin_name"
     elif command -v "$bin_name" >/dev/null 2>&1; then
       src_bin="$(command -v "$bin_name")"
     fi
@@ -2529,6 +2587,12 @@ if [ "$(id -u)" -eq 0 ] || [ -n "$SUDO" ]; then
       run_root ln -sf "$src_bin" "/usr/local/bin/$bin_name" 2>/dev/null || true
     fi
   done
+fi
+
+# Prune accumulated zsh debug startup logs and precompile ~/.zshrc.zwc bytecode
+rm -f "$HOME/.local/state/zsh"/startup-*.log 2>/dev/null || true
+if command -v zsh >/dev/null 2>&1 && [ -f "$HOME/.zshrc" ]; then
+  zsh -c 'zcompile "$HOME/.zshrc" 2>/dev/null || true' || true
 fi
 
 # -----------------------------------------------------------------------------

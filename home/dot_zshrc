@@ -333,29 +333,29 @@ _id_source_first \
 {
   local _zdir="${XDG_DATA_HOME:-$HOME/.local/share}/zinit/completions"
   if [[ -d "$_zdir" ]]; then
-    local _pruned=( "${(@f)$(/usr/bin/find "$_zdir" -maxdepth 1 -type l ! -exec test -e {} \; -print -delete 2>/dev/null)}" )
-    if (( ${#_pruned} > 0 && ${#_pruned[1]} > 0 )); then
+    local -a _pruned=( "$_zdir"/*(-@N) )
+    if (( ${#_pruned} > 0 )); then
+      rm -f -- "${_pruned[@]}" "$ZSH_COMPDUMP" 2>/dev/null
       _id_log "PRUNE  ${#_pruned} dangling zinit completion symlink(s)"
-      rm -f "$ZSH_COMPDUMP"  # force rebuild since the dump references them
     fi
   fi
 }
 autoload -Uz compinit
 {
   local _zcd="$ZSH_COMPDUMP"
-  if [[ ! -e "$_zcd" || -n "$(find "$_zcd" -mtime +1 2>/dev/null)" ]]; then
+  local -a _stale_dump=( "$_zcd"(Nm+1) )
+  if [[ ! -e "$_zcd" ]] || (( ${#_stale_dump} > 0 )); then
     compinit -d "$_zcd"
   else
     compinit -C -d "$_zcd"
   fi
 }
-### bashcompinit is slow (~20ms) and only matters when bash-completion
-### files exist. Skip entirely if neither the bash_completion.sh nor any
-### bash-style completion file is present.
-if [ -f "/usr/local/etc/profile.d/bash_completion.sh" ] || [ -f "$HOMEBREW_PREFIX/etc/profile.d/bash_completion.sh" ]; then
+### bashcompinit is only needed for tools like `vault` that use `complete -C`.
+### Do NOT source Homebrew's 2,500-line bash_completion.sh inside zsh when
+### $HOMEBREW_PREFIX/share/zsh/site-functions already provides native zsh
+### completions (sourcing bash_completion.sh in zsh costs ~400ms on macOS).
+if command -v vault >/dev/null 2>&1; then
   autoload -Uz bashcompinit && bashcompinit
-  [ -f "$HOMEBREW_PREFIX/etc/profile.d/bash_completion.sh" ] && source "$HOMEBREW_PREFIX/etc/profile.d/bash_completion.sh"
-  [ -f "/usr/local/etc/profile.d/bash_completion.sh" ] && source "/usr/local/etc/profile.d/bash_completion.sh"
 fi
 
 # ---------------------------------------------------------------------------
@@ -547,6 +547,21 @@ _id_panic_reload() {
 }
 zle -N _id_panic_reload
 bindkey '^[^X' _id_panic_reload
+
+# ---------------------------------------------------------------------------
+# Megabyte Nexus & Scoped Cache Configuration + Lazy Browserbase CLI wrapper
+# ---------------------------------------------------------------------------
+[ -f "${XDG_CONFIG_HOME:-$HOME/.config}/shell/megabyte-cache.sh" ] && source "${XDG_CONFIG_HOME:-$HOME/.config}/shell/megabyte-cache.sh"
+
+if command -v browse >/dev/null 2>&1; then
+  browse() {
+    unfunction browse
+    if [[ -z "${BROWSERBASE_API_KEY:-}" && -x "$HOME/.local/bin/get-secret" ]]; then
+      export BROWSERBASE_API_KEY="$("$HOME/.local/bin/get-secret" BROWSERBASE_API_KEY 2>/dev/null || true)"
+    fi
+    command browse "$@"
+  }
+fi
 
 ### Mark end of rcfile — if the user reports a freeze and the log shows
 ### "rcfile DONE" before the freeze, the issue is in a precmd / preexec
