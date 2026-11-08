@@ -905,7 +905,10 @@ EOF
 
   # #15: Kernel Sysctl (TCP BBR, fq, swappiness=100 for ZRAM, inotify, core_pattern before suid_dumpable) & CPU EPP Tuning
   log "Applying single canonical workstation & fleet sysctl drop-in (/etc/sysctl.d/99-fleet.conf)..."
-  run_root install -d -m 0755 /etc/sysctl.d
+  run_root modprobe tcp_bbr 2>/dev/null || true
+  run_root install -d -m 0755 /etc/sysctl.d /etc/modules-load.d
+  printf 'tcp_bbr\n' > "$TMP_DIR/99-fleet-bbr.conf"
+  run_root install -m 0644 "$TMP_DIR/99-fleet-bbr.conf" /etc/modules-load.d/99-fleet-bbr.conf
   run_root ln -sf /dev/null /etc/sysctl.d/10-coredump-debian.conf
   run_root rm -f \
     /etc/sysctl.d/99-megabyte-workstation.conf \
