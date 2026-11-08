@@ -35,7 +35,7 @@
 ## 5. OpenCode supervisor and provisioning boundary
 
 - [x] 5.1 Implement a least-privilege local supervisor that binds OpenCode privately, validates the pinned runtime, creates protected state, and survives target restart; verify no public listener or unrestricted shell is exposed.
-- [ ] 5.2 Generate a strict Desktop Tools OpenCode configuration with scoped inference credentials, approved provider routes, pinned on-demand skills, denied external directories, and task-specific tool permissions; verify unrelated inherited secrets and ambient provider credentials are absent.
+- [x] 5.2 Generate a strict Desktop Tools OpenCode configuration with scoped inference credentials, approved provider routes, pinned on-demand skills, denied external directories, and task-specific tool permissions; verify unrelated inherited secrets and ambient provider credentials are absent.
 - [ ] 5.3 Define and version the provisioning prompt that binds the profile revision, release, discovered facts, policy, capabilities, and permitted tools; verify prompt and context digests are recorded before execution.
 - [ ] 5.4 Expose discover, validate, plan, approve, apply, verify, status, resume, rollback-config, and deprovision-preview only through strict typed tool adapters; verify model-generated text or shell cannot bypass engine schemas, consent, locks, or journal ownership.
 - [ ] 5.5 Cut remaining selected bootstrap, Installx, service, privilege, and configuration mutations into installer-engine tasks in bounded vertical slices; verify each migrated effect has preconditions, postconditions, interruption recovery, and an unchanged no-op run before retiring its legacy writer.
