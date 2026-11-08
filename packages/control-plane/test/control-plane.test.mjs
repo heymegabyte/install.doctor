@@ -247,8 +247,12 @@ set -euo pipefail
 [ -z "\${MOCK_CURL_MARKER:-}" ] || : > "$MOCK_CURL_MARKER"
 destination=''
 previous=''
+maximum=''
+max_redirs=''
 for argument in "$@"; do
   if [ "$previous" = '--output' ]; then destination="$argument"; fi
+  if [ "$previous" = '--max-filesize' ]; then maximum="$argument"; fi
+  if [ "$previous" = '--max-redirs' ]; then max_redirs="$argument"; fi
   previous="$argument"
 done
 [ -n "$destination" ] || exit 64
@@ -266,6 +270,15 @@ case "$url" in
   ${origin}/releases/test/node-linux-arm64.tar.gz) source="$MOCK_RUNTIME_LINUX_ARM64" ;;
   *) exit 65 ;;
 esac
+[ "$url" != "\${MOCK_REDIRECT_URL:-}" ] || { [ "$max_redirs" = 0 ] || exit 66; exit 47; }
+if [ "$url" = "\${MOCK_OVERSIZE_URL:-}" ]; then
+  [ -n "$maximum" ] && [ "$(wc -c < "$source" | tr -d '[:space:]')" -gt "$maximum" ] || exit 67
+  exit 63
+fi
+if [ "$url" = "\${MOCK_TRUNCATE_URL:-}" ]; then
+  head -c 1 "$source" > "$destination"
+  exit 0
+fi
 /bin/cp "$source" "$destination"
 `,
     { mode: 0o700 }
@@ -1125,6 +1138,44 @@ test('Desktop Tools profile stage-zero executes a verified v6 release with immut
   const result = fixture.run(renderBootstrap({ ...fixture.config, profile }), release);
   assert.equal(result.status, 0, result.stderr);
   assert.equal(result.stdout.trim(), `profile-example|example|revision-7|${'c'.repeat(64)}`);
+  fixture.assertStageClean();
+});
+
+test('Desktop Tools stage-zero redirect, transfer ceiling, and truncation failures execute nothing', async (t) => {
+  const fixture = makeBootstrapRuntimeFixture(t, 'desktop-tools');
+  const { renderBootstrap } = await import('../src/bootstrap.ts');
+  const marker = path.join(os.tmpdir(), `desktop-tools-executed-${crypto.randomUUID()}`);
+  t.after(() => fs.rmSync(marker, { force: true }));
+  const artifactBody = `#!/usr/bin/env bash\n: > ${JSON.stringify(marker)}\n`;
+  const script = renderBootstrap({
+    ...fixture.config,
+    profile: { id: 'profile-example', slug: 'example', revision: 'revision-7', digest: 'c'.repeat(64) }
+  });
+
+  const redirect = fixture.createRelease({ artifactBody });
+  const redirectResult = fixture.run(script, redirect, {
+    MOCK_REDIRECT_URL: 'https://desktop.tools/releases/test/provision.sh'
+  });
+  assert.notEqual(redirectResult.status, 0);
+  assert.equal(fs.existsSync(marker), false, 'redirect failure must not execute the provisioner');
+  fixture.assertStageClean();
+
+  const truncated = fixture.createRelease({ artifactBody });
+  const truncatedResult = fixture.run(script, truncated, {
+    MOCK_TRUNCATE_URL: 'https://desktop.tools/releases/test/provision.sh'
+  });
+  assert.notEqual(truncatedResult.status, 0);
+  assert.match(truncatedResult.stderr, /provisioner size does not match/);
+  assert.equal(fs.existsSync(marker), false, 'truncated download must not execute the provisioner');
+  fixture.assertStageClean();
+
+  const oversized = fixture.createRelease({ artifactBody });
+  fs.appendFileSync(oversized.manifest, `#${'x'.repeat(16_384)}\n`);
+  const oversizedResult = fixture.run(script, oversized, {
+    MOCK_OVERSIZE_URL: 'https://desktop.tools/releases/test/manifest'
+  });
+  assert.notEqual(oversizedResult.status, 0);
+  assert.equal(fs.existsSync(marker), false, 'oversized transfer must not execute the provisioner');
   fixture.assertStageClean();
 });
 
