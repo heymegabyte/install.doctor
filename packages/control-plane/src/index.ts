@@ -24,6 +24,8 @@ import { pinnedReleaseSigner } from './release-keyring';
 import { lookupDesktopReleaseObject, lookupReleaseObject } from './release-store';
 import { resolveActiveRelease } from './release-channel';
 import { resolveActiveDesktopRelease } from './desktop-release-channel';
+import { authorizeOwnerContextRead, authorizeOwnerDecision, OwnerApprovalDecision } from './owner-approval';
+import { DEVICE_CLAIM_MIN_POLL_INTERVAL_MS, DEVICE_CREDENTIAL_MAX_LIFETIME_MS, matchesPresentedClaimBinding } from './atomic-credential-claim';
 // App Store catalog — generated from software.yml by the canonical validated parser
 // (scripts/gen-catalog.mjs → the cnf index builder; D01/D02/D13). Read-only, bundled at deploy;
 // regenerate + redeploy when software.yml changes. No runtime YAML at the edge.
@@ -1846,13 +1848,24 @@ app.post('/api/devices/:id/revoke', async (c) => {
   if (!db) return c.json({ error: 'store_unavailable' }, 503);
   try {
     const id = c.req.param('id');
+    const body = (await c.req.json().catch(() => ({}))) as { tenant?: unknown; deviceFingerprint?: unknown };
+    const tenant = typeof body.tenant === 'string' && body.tenant.length <= 128 ? body.tenant : null;
+    const deviceFingerprint = typeof body.deviceFingerprint === 'string' && /^[a-f0-9]{64}$/.test(body.deviceFingerprint)
+      ? body.deviceFingerprint : null;
     const now = new Date().toISOString();
-    const res = await db.prepare('UPDATE devices SET revoked_at = ? WHERE device_id = ? AND revoked_at IS NULL').bind(now, id).run();
+    // Legacy directly-enrolled credentials have no device binding and retain id-only revocation.
+    // Bound Desktop Tools credentials require the exact tenant + device fingerprint presented together.
+    const res = await db.prepare(`
+      UPDATE devices SET revoked_at = ?
+       WHERE device_id = ? AND revoked_at IS NULL
+         AND ((machine_fingerprint IS NULL AND ? IS NULL AND (? IS NULL OR tenant = ?))
+           OR (machine_fingerprint IS NOT NULL AND tenant = ? AND machine_fingerprint = ?))
+    `).bind(now, id, deviceFingerprint, tenant, tenant, tenant, deviceFingerprint).run();
     const changed = res.meta?.changes ?? 0;
-    if (!changed) return c.json({ error: 'not_found_or_already_revoked', deviceId: id }, 404);
+    if (!changed) return c.json({ error: 'credential_unavailable' }, 404);
     return c.json({ deviceId: id, revokedAt: now });
   } catch (e) {
-    return c.json({ error: 'invalid_request', detail: e instanceof Error ? e.message : String(e) }, 400);
+    return c.json({ error: 'credential_unavailable' }, 404);
   }
 });
 
@@ -2170,8 +2183,18 @@ const PairStartRequest = z
     tenant: z.string().max(200).optional(),
     label: z.string().max(200).optional(),
     permissions: z.array(z.string().max(64)).max(32).optional(), // P03: capability scope the device requests
+    machineFingerprint: z.string().regex(/^[a-f0-9]{64}$/i).optional(),
+    profileRevision: z.string().min(1).max(128).optional(),
+    ownerActor: z.string().email().max(320).optional(),
   })
-  .strict();
+  .strict()
+  .superRefine((value, context) => {
+    const ownerFields = [value.machineFingerprint, value.profileRevision, value.ownerActor];
+    const present = ownerFields.filter((field) => field !== undefined).length;
+    if (present !== 0 && present !== ownerFields.length) {
+      context.addIssue({ code: 'custom', message: 'machineFingerprint, profileRevision, and ownerActor must be supplied together' });
+    }
+  });
 app.post('/api/devices/pair/start', async (c) => {
   const db = (c.env as Record<string, any>).DB;
   if (!db) return c.json({ error: 'store_unavailable' }, 503);
@@ -2202,8 +2225,8 @@ app.post('/api/devices/pair/start', async (c) => {
       const pollSecret = 'aidp_' + randHex(32);
       try {
         await db
-          .prepare('INSERT INTO pairings (code, poll_sha256, tenant, label, permissions, status, created_at, expires_at) VALUES (?,?,?,?,?,?,?,?)')
-          .bind(code, await sha256hex(pollSecret), tenant, parsed.data.label ?? null, permissions, 'pending', createdAt, expiresAt)
+          .prepare('INSERT INTO pairings (code, poll_sha256, tenant, label, permissions, status, created_at, expires_at, machine_fingerprint, profile_revision, owner_actor) VALUES (?,?,?,?,?,?,?,?,?,?,?)')
+          .bind(code, await sha256hex(pollSecret), tenant, parsed.data.label ?? null, permissions, 'pending', createdAt, expiresAt, parsed.data.machineFingerprint ?? null, parsed.data.profileRevision ?? null, parsed.data.ownerActor?.trim().toLowerCase() ?? null)
           .run();
         return c.json(
           { code, pollSecret, tenant, verifyUrl: `${APP_URL}/pair?code=${code}`, expiresAt, note: 'show the code to the operator; keep pollSecret private (never in a URL/log)' },
@@ -2229,12 +2252,15 @@ app.get('/api/devices/pair/info', async (c) => {
   const code = normalizePairCode(c.req.query('code') || '');
   if (!code) return pairingUnavailable(c);
   const row = await db
-    .prepare('SELECT code, tenant, label, permissions, status, created_at, expires_at FROM pairings WHERE code = ?')
+    .prepare('SELECT code, tenant, label, permissions, status, created_at, expires_at, machine_fingerprint, profile_revision, owner_actor FROM pairings WHERE code = ?')
     .bind(code)
     .first();
   if (!row) return pairingUnavailable(c);
   const expired = new Date(row.expires_at).getTime() < Date.now();
   if (expired || row.status === 'claimed') return pairingUnavailable(c);
+  // Owner-bound approval context is sensitive. The compatibility public endpoint intentionally reveals
+  // nothing about its existence; intended owners retrieve it through the fresh-session endpoint below.
+  if (row.owner_actor) return pairingUnavailable(c);
   let permissions: string[] = [];
   try {
     if (row.permissions) permissions = JSON.parse(row.permissions as string);
@@ -2243,13 +2269,86 @@ app.get('/api/devices/pair/info', async (c) => {
   }
   return c.json({
     code: row.code,
+    matchingCode: row.code,
     tenant: row.tenant,
     host: row.label || null,
     permissions,
+    scopes: permissions,
+    machineFingerprint: row.machine_fingerprint || null,
+    profileRevision: row.profile_revision || null,
+    actor: row.owner_actor || null,
     status: expired && row.status !== 'claimed' ? 'expired' : row.status,
     createdAt: row.created_at,
     expiresAt: row.expires_at,
   });
+});
+app.get('/api/devices/pair/owner-info', async (c) => {
+  const db = (c.env as Record<string, any>).DB;
+  if (!db) return c.json({ error: 'store_unavailable' }, 503);
+  const code = normalizePairCode(c.req.query('code') || '');
+  if (!code) return pairingUnavailable(c);
+  const row = await db
+    .prepare('SELECT code, tenant, label, permissions, status, created_at, expires_at, machine_fingerprint, profile_revision, owner_actor FROM pairings WHERE code = ?')
+    .bind(code)
+    .first();
+  if (!row || !row.owner_actor || !row.machine_fingerprint || !row.profile_revision) return pairingUnavailable(c);
+  if (row.status !== 'pending' || Date.parse(row.expires_at as string) <= Date.now()) return pairingUnavailable(c);
+  const session = (await auth.api.getSession({ headers: c.req.raw.headers }).catch(() => null)) as
+    | { user?: { email?: string | null }; session?: { createdAt?: string | Date } }
+    | null;
+  const authenticatedAt = session?.session?.createdAt instanceof Date
+    ? session.session.createdAt.toISOString()
+    : session?.session?.createdAt;
+  const access = authorizeOwnerContextRead(
+    row.owner_actor as string,
+    session?.user?.email && authenticatedAt ? { actor: session.user.email, authenticatedAt } : null,
+  );
+  if (!access.ok) return c.json({ error: access.error }, access.status);
+  let scopes: string[] = [];
+  try { if (row.permissions) scopes = JSON.parse(row.permissions as string); } catch { /* fail to empty */ }
+  return c.json({
+    matchingCode: row.code,
+    host: row.label || null,
+    tenant: row.tenant,
+    machineFingerprint: row.machine_fingerprint,
+    profileRevision: row.profile_revision,
+    scopes,
+    actor: access.actor,
+    status: row.status,
+    createdAt: row.created_at,
+    expiresAt: row.expires_at,
+  });
+});
+// Desktop Tools owner decision. Unlike the compatibility admin-token endpoint, this boundary requires
+// a freshly authenticated Better Auth session and binds the decision to every value shown to the owner.
+app.post('/api/devices/pair/owner-decision', async (c) => {
+  const db = (c.env as Record<string, any>).DB;
+  if (!db) return c.json({ error: 'store_unavailable' }, 503);
+  const parsed = OwnerApprovalDecision.safeParse(await c.req.json().catch(() => ({})));
+  if (!parsed.success) return c.json({ error: 'invalid_request', issues: parsed.error.issues }, 400);
+  const code = normalizePairCode(parsed.data.code);
+  if (!code) return c.json({ error: 'matching_code_mismatch' }, 400);
+  const row = await db.prepare('SELECT code, status, expires_at, profile_revision, owner_actor FROM pairings WHERE code = ?').bind(code).first();
+  if (!row || !row.profile_revision || !row.owner_actor) return pairingUnavailable(c);
+  const session = (await auth.api.getSession({ headers: c.req.raw.headers }).catch(() => null)) as
+    | { user?: { id?: string; email?: string | null }; session?: { createdAt?: string | Date } }
+    | null;
+  const authenticatedAt = session?.session?.createdAt instanceof Date
+    ? session.session.createdAt.toISOString()
+    : session?.session?.createdAt;
+  const decision = authorizeOwnerDecision(
+    { code: row.code as string, status: row.status as string, expiresAt: row.expires_at as string, profileRevision: row.profile_revision as string, ownerActor: row.owner_actor as string },
+    { ...parsed.data, code },
+    session?.user?.email && authenticatedAt ? { actor: session.user.email, authenticatedAt } : null,
+  );
+  if (!decision.ok) return c.json({ error: decision.error }, decision.status);
+  const timestampColumn = decision.nextStatus === 'approved' ? 'approved_at' : 'denied_at';
+  const updated = await db
+    .prepare(`UPDATE pairings SET status=?, ${timestampColumn}=?, decided_by=? WHERE code=? AND status='pending'`)
+    .bind(decision.nextStatus, decision.decidedAt, decision.actor, code)
+    .run();
+  if ((updated.meta?.changes ?? 0) !== 1) return c.json({ error: 'pairing_not_pending' }, 409);
+  return c.json({ code, status: decision.nextStatus, actor: decision.actor, decidedAt: decision.decidedAt });
 });
 // Owner approves a pending pairing (the browser leg). Admin-gated — stands in for the owner session
 // until Better Auth lands. Mints NO token (claim does), so no plaintext token is ever stored.
@@ -2262,8 +2361,9 @@ app.post('/api/devices/pair/approve', async (c) => {
     const body = (await c.req.json().catch(() => ({}))) as { code?: string };
     const code = (body.code || '').trim().toUpperCase();
     if (!code) return c.json({ error: 'invalid_request', detail: 'code required' }, 400);
-    const row = await db.prepare('SELECT status, expires_at FROM pairings WHERE code = ?').bind(code).first();
+    const row = await db.prepare('SELECT status, expires_at, owner_actor FROM pairings WHERE code = ?').bind(code).first();
     if (!row) return c.json({ error: 'not_found', code }, 404);
+    if (row.owner_actor) return c.json({ error: 'owner_approval_required', code }, 409);
     if (row.status === 'claimed') return c.json({ error: 'already_claimed', code }, 409);
     if (new Date(row.expires_at).getTime() < Date.now()) return c.json({ error: 'expired', code }, 410);
     await db.prepare("UPDATE pairings SET status='approved', approved_at=? WHERE code=? AND status='pending'").bind(new Date().toISOString(), code).run();
@@ -2272,34 +2372,60 @@ app.post('/api/devices/pair/approve', async (c) => {
     return c.json({ error: 'invalid_request', detail: e instanceof Error ? e.message : String(e) }, 400);
   }
 });
-// Machine polls with its poll-secret. pending → {status:pending}; approved → atomically CLAIM (mint a
-// device + token, deliver once, mark claimed); already-claimed/expired → 410.
+// Machine polls with its poll-secret. A single INSERT plus the migration-owned trigger atomically
+// creates the digest-only credential and consumes the approval. Every unavailable terminal/binding
+// state has the same public response, preventing tenant/profile/device and lifecycle enumeration.
 app.get('/api/devices/pair/poll', async (c) => {
   const db = (c.env as Record<string, any>).DB;
   if (!db) return c.json({ error: 'store_unavailable' }, 503);
   const auth = c.req.header('authorization') || '';
   const pollSecret = auth.startsWith('Bearer ') ? auth.slice(7) : '';
-  if (!pollSecret) return c.json({ error: 'unauthorized' }, 401);
+  const claimUnavailable = () => c.json({ error: 'claim_unavailable' }, 404);
+  if (!pollSecret) return claimUnavailable();
   try {
     const pollHash = await sha256hex(pollSecret);
-    const row = await db.prepare('SELECT code, tenant, label, permissions, status, expires_at FROM pairings WHERE poll_sha256 = ?').bind(pollHash).first();
-    if (!row) return c.json({ error: 'not_found' }, 404);
-    if (row.status === 'claimed') return c.json({ error: 'already_claimed' }, 410);
-    if (new Date(row.expires_at).getTime() < Date.now()) return c.json({ status: 'expired' }, 410);
+    const row = await db.prepare('SELECT code, tenant, label, permissions, status, expires_at, machine_fingerprint, profile_revision FROM pairings WHERE poll_sha256 = ?').bind(pollHash).first();
+    if (!row) return claimUnavailable();
+    if (row.status === 'claimed' || row.status === 'denied') return claimUnavailable();
+    if (new Date(row.expires_at).getTime() <= Date.now()) return claimUnavailable();
+    const presentedTenant = c.req.header('x-desktop-tools-tenant');
+    const presentedProfile = c.req.header('x-desktop-tools-profile-revision');
+    const presentedFingerprint = c.req.header('x-desktop-tools-device-fingerprint');
+    if (!matchesPresentedClaimBinding(
+      { tenantId: row.tenant as string, profileRevision: (row.profile_revision as string | null) ?? null, deviceKeyFingerprint: (row.machine_fingerprint as string | null) ?? null },
+      { tenantId: presentedTenant, profileRevision: presentedProfile, deviceKeyFingerprint: presentedFingerprint },
+    )) return claimUnavailable();
+    const polledAt = new Date();
+    const cadenceBoundary = new Date(polledAt.getTime() - DEVICE_CLAIM_MIN_POLL_INTERVAL_MS).toISOString();
+    const admitted = await db.prepare(`
+      UPDATE pairings SET last_polled_at = ?
+       WHERE poll_sha256 = ? AND status IN ('pending', 'approved')
+         AND (last_polled_at IS NULL OR last_polled_at <= ?)
+    `).bind(polledAt.toISOString(), pollHash, cadenceBoundary).run();
+    if ((admitted.meta?.changes ?? 0) !== 1) {
+      c.header('retry-after', String(Math.ceil(DEVICE_CLAIM_MIN_POLL_INTERVAL_MS / 1000)));
+      return c.json({ error: 'retry_later' }, 429);
+    }
     if (row.status !== 'approved') return c.json({ status: 'pending' });
-    // approved → claim the slot atomically; only the winner mints + delivers the token
+
+    // approved → one statement claims the slot. The token itself exists only in this request's memory;
+    // D1 stores its SHA-256 digest. Trigger failure rolls the INSERT back, including collision/replay.
     const deviceId = 'dev_' + Date.now().toString(36) + '_' + randHex(6);
     const now = new Date().toISOString();
-    const claim = await db
-      .prepare("UPDATE pairings SET status='claimed', claimed_at=?, device_id=? WHERE poll_sha256=? AND status='approved'")
-      .bind(now, deviceId, pollHash)
-      .run();
-    if ((claim.meta?.changes ?? 0) === 0) return c.json({ error: 'already_claimed' }, 410);
     const token = 'aid_' + randHex(32);
-    // P05: the device inherits the GRANTED scope from the pairing it was approved against.
-    await db.prepare('INSERT INTO devices (device_id, tenant, token_sha256, label, permissions, created_at) VALUES (?,?,?,?,?,?)').bind(deviceId, row.tenant, await sha256hex(token), row.label ?? null, (row.permissions as string) || '[]', now).run();
-    return c.json({ status: 'claimed', deviceId, tenant: row.tenant, token, note: 'store the token now — it is not recoverable' });
+    const credentialExpiresAt = new Date(Date.parse(now) + DEVICE_CREDENTIAL_MAX_LIFETIME_MS).toISOString();
+    const claimed = await db.prepare(`
+      INSERT INTO devices
+        (device_id, tenant, token_sha256, label, permissions, created_at, pairing_code, profile_revision, machine_fingerprint, expires_at)
+      SELECT ?, tenant, ?, label, COALESCE(permissions, '[]'), ?, code, profile_revision, machine_fingerprint, ?
+        FROM pairings
+       WHERE poll_sha256 = ? AND status = 'approved' AND expires_at > ?
+    `).bind(deviceId, await sha256hex(token), now, credentialExpiresAt, pollHash, now).run();
+    if ((claimed.meta?.changes ?? 0) !== 1) return claimUnavailable();
+    return c.json({ status: 'claimed', deviceId, tenant: row.tenant, token, expiresAt: credentialExpiresAt, note: 'store the token now — it is not recoverable' });
   } catch (e) {
+    const detail = e instanceof Error ? e.message : String(e);
+    if (/claim unavailable|unique constraint failed|constraint failed/i.test(detail)) return claimUnavailable();
     return c.json({ error: 'store_error', detail: e instanceof Error ? e.message : String(e) }, 503);
   }
 });

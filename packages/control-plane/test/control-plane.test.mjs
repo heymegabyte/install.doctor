@@ -31,12 +31,22 @@ async function loadWorkerApp() {
         CREATE TABLE IF NOT EXISTS pairings (
           code text primary key, poll_sha256 text not null unique, tenant text not null, label text,
           permissions text, status text not null, device_id text, created_at text not null,
-          expires_at text not null, approved_at text, claimed_at text
+          expires_at text not null, approved_at text, claimed_at text,
+          machine_fingerprint text, profile_revision text, owner_actor text,
+          decided_by text, denied_at text, last_polled_at text
         );
         CREATE TABLE IF NOT EXISTS devices (
           device_id text primary key, tenant text not null, token_sha256 text not null unique,
-          label text, permissions text, created_at text not null, revoked_at text
+          label text, permissions text, created_at text not null, revoked_at text,
+          pairing_code text unique references pairings(code), profile_revision text,
+          machine_fingerprint text, expires_at text
         );
+        CREATE TRIGGER IF NOT EXISTS claim_pairing_after_device_insert
+        AFTER INSERT ON devices WHEN NEW.pairing_code IS NOT NULL BEGIN
+          UPDATE pairings SET status='claimed', claimed_at=NEW.created_at, device_id=NEW.device_id
+           WHERE code=NEW.pairing_code AND status='approved' AND expires_at > NEW.created_at;
+          SELECT CASE WHEN changes() != 1 THEN RAISE(ABORT, 'claim unavailable') END;
+        END;
       \`);
       const mockD1 = {
         prepare(rawSql) {
@@ -219,6 +229,173 @@ test('public pairing lookup normalizes malformed, unknown, and claimed responses
   const afterClaim = await app.fetch(new Request(`https://app.install.doctor/api/devices/pair/info?code=${pairing.code}`), env);
   assert.equal(afterClaim.status, 404);
   assert.deepEqual(await afterClaim.json(), unavailable);
+});
+
+test('pair claim is atomic, digest-only, binding-safe, and normalizes terminal failures', async () => {
+  const app = await loadWorkerApp();
+  const db = globalThis.__AID_TEST_DB__;
+  const env = { ...TEST_ENV, DB: db };
+  const fingerprint = 'e'.repeat(64);
+  const profileRevision = 'sha256:profile-atomic-v1';
+  const started = await app.fetch(new Request('https://app.install.doctor/api/devices/pair/start', {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      tenant: 'tenant-atomic', label: 'atomic-host', permissions: ['report-status'],
+      machineFingerprint: fingerprint, profileRevision, ownerActor: 'owner@example.com',
+    }),
+  }), env);
+  assert.equal(started.status, 201);
+  const pairing = await started.json();
+  await db.prepare("UPDATE pairings SET status='approved', approved_at=? WHERE code=? AND status='pending'")
+    .bind(new Date().toISOString(), pairing.code).run();
+
+  const poll = (headers = {}) => {
+    const presented = {
+      authorization: `Bearer ${pairing.pollSecret}`,
+      'x-desktop-tools-tenant': 'tenant-atomic',
+      'x-desktop-tools-profile-revision': profileRevision,
+      'x-desktop-tools-device-fingerprint': fingerprint,
+      ...headers,
+    };
+    for (const [name, value] of Object.entries(presented)) if (value === undefined) delete presented[name];
+    return app.fetch(new Request('https://app.install.doctor/api/devices/pair/poll', { headers: presented }), env);
+  };
+  for (const headers of [
+    { 'x-desktop-tools-tenant': undefined },
+    { 'x-desktop-tools-tenant': 'tenant-other' },
+    { 'x-desktop-tools-profile-revision': 'sha256:profile-other' },
+    { 'x-desktop-tools-device-fingerprint': 'f'.repeat(64) },
+  ]) {
+    const denied = await poll(headers);
+    assert.equal(denied.status, 404);
+    assert.deepEqual(await denied.json(), { error: 'claim_unavailable' });
+  }
+
+  const attempts = await Promise.all([poll(), poll()]);
+  assert.equal(attempts.filter(response => response.status === 200).length, 1);
+  assert.ok([404, 429].includes(attempts.find(response => response.status !== 200).status));
+  const winner = attempts.find(response => response.status === 200);
+  const loser = attempts.find(response => response.status !== 200);
+  const credential = await winner.json();
+  assert.match(credential.token, /^aid_[a-f0-9]{64}$/);
+  assert.ok(Date.parse(credential.expiresAt) > Date.now());
+  assert.deepEqual(await loser.json(), loser.status === 429 ? { error: 'retry_later' } : { error: 'claim_unavailable' });
+
+  const replay = await poll();
+  assert.equal(replay.status, 404);
+  assert.deepEqual(await replay.json(), { error: 'claim_unavailable' });
+  const device = await db.prepare('SELECT token_sha256, pairing_code, tenant, permissions, profile_revision, machine_fingerprint, expires_at FROM devices WHERE device_id=?')
+    .bind(credential.deviceId).first();
+  assert.equal(device.pairing_code, pairing.code);
+  assert.equal(device.tenant, 'tenant-atomic');
+  assert.equal(device.profile_revision, profileRevision);
+  assert.equal(device.machine_fingerprint, fingerprint);
+  assert.equal(device.permissions, '["report-status"]');
+  assert.notEqual(device.token_sha256, credential.token);
+  assert.equal(device.token_sha256, crypto.createHash('sha256').update(credential.token).digest('hex'));
+  assert.equal(device.expires_at, credential.expiresAt);
+
+  const revoke = (body) => app.fetch(new Request(`https://app.install.doctor/api/devices/${credential.deviceId}/revoke`, {
+    method: 'POST',
+    headers: { authorization: `Bearer ${TEST_ENV.AID_ADMIN_TOKEN}`, 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+  }), env);
+  for (const body of [
+    {},
+    { tenant: 'tenant-other', deviceFingerprint: fingerprint },
+    { tenant: 'tenant-atomic', deviceFingerprint: 'f'.repeat(64) },
+  ]) {
+    const denied = await revoke(body);
+    assert.equal(denied.status, 404);
+    assert.deepEqual(await denied.json(), { error: 'credential_unavailable' });
+  }
+  const revoked = await revoke({ tenant: 'tenant-atomic', deviceFingerprint: fingerprint });
+  assert.equal(revoked.status, 200);
+  assert.equal((await revoked.json()).deviceId, credential.deviceId);
+  const revokeReplay = await revoke({ tenant: 'tenant-atomic', deviceFingerprint: fingerprint });
+  assert.equal(revokeReplay.status, 404);
+  assert.deepEqual(await revokeReplay.json(), { error: 'credential_unavailable' });
+
+  const legacyEnrollment = await app.fetch(new Request('https://app.install.doctor/api/devices/enroll', {
+    method: 'POST',
+    headers: { authorization: `Bearer ${TEST_ENV.AID_ADMIN_TOKEN}`, 'content-type': 'application/json' },
+    body: JSON.stringify({ tenant: 'tenant-legacy', label: 'legacy-host' }),
+  }), env);
+  assert.equal(legacyEnrollment.status, 201);
+  const legacy = await legacyEnrollment.json();
+  const legacyRevocation = await app.fetch(new Request(`https://app.install.doctor/api/devices/${legacy.deviceId}/revoke`, {
+    method: 'POST', headers: { authorization: `Bearer ${TEST_ENV.AID_ADMIN_TOKEN}`, 'content-type': 'application/json' }, body: '{}',
+  }), env);
+  assert.equal(legacyRevocation.status, 200, 'legacy unbound admin revocation remains compatible');
+
+  for (const status of ['denied', 'claimed']) {
+    const another = await app.fetch(new Request('https://app.install.doctor/api/devices/pair/start', {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ tenant: `tenant-${status}` }),
+    }), env);
+    const terminal = await another.json();
+    await db.prepare('UPDATE pairings SET status=? WHERE code=?').bind(status, terminal.code).run();
+    const response = await app.fetch(new Request('https://app.install.doctor/api/devices/pair/poll', {
+      headers: { authorization: `Bearer ${terminal.pollSecret}` },
+    }), env);
+    assert.equal(response.status, 404);
+    assert.deepEqual(await response.json(), { error: 'claim_unavailable' });
+  }
+});
+
+test('pending pairing polling has a durable bounded cadence and normalized 429 response', async () => {
+  const app = await loadWorkerApp();
+  const db = globalThis.__AID_TEST_DB__;
+  const env = { ...TEST_ENV, DB: db };
+  const started = await app.fetch(new Request('https://app.install.doctor/api/devices/pair/start', {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ tenant: 'tenant-cadence' }),
+  }), env);
+  const pairing = await started.json();
+  const poll = () => app.fetch(new Request('https://app.install.doctor/api/devices/pair/poll', {
+    headers: { authorization: `Bearer ${pairing.pollSecret}` },
+  }), env);
+  const first = await poll();
+  assert.equal(first.status, 200);
+  assert.deepEqual(await first.json(), { status: 'pending' });
+  const rapid = await poll();
+  assert.equal(rapid.status, 429);
+  assert.equal(rapid.headers.get('retry-after'), '5');
+  assert.deepEqual(await rapid.json(), { error: 'retry_later' });
+  await db.prepare('UPDATE pairings SET last_polled_at=? WHERE code=?').bind('2026-01-01T00:00:00.000Z', pairing.code).run();
+  const resumed = await poll();
+  assert.equal(resumed.status, 200);
+  assert.deepEqual(await resumed.json(), { status: 'pending' });
+});
+
+test('owner-bound pairing context is private and cannot use legacy token approval', async () => {
+  const app = await loadWorkerApp();
+  const env = { ...TEST_ENV, DB: globalThis.__AID_TEST_DB__ };
+  const started = await app.fetch(new Request('https://app.install.doctor/api/devices/pair/start', {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      tenant: 'owner-bound', label: 'workstation',
+      permissions: ['pull-desired-state', 'report-status'],
+      machineFingerprint: 'a'.repeat(64), profileRevision: 'sha256:profile-v7',
+      ownerActor: 'owner@example.com',
+    }),
+  }), env);
+  assert.equal(started.status, 201);
+  const pairing = await started.json();
+  const info = await app.fetch(new Request(`https://app.install.doctor/api/devices/pair/info?code=${pairing.code}`), env);
+  assert.equal(info.status, 404);
+  assert.deepEqual(await info.json(), { error: 'pairing_unavailable' });
+  const unauthenticatedOwnerInfo = await app.fetch(
+    new Request(`https://app.install.doctor/api/devices/pair/owner-info?code=${pairing.code}`), env,
+  );
+  assert.equal(unauthenticatedOwnerInfo.status, 401);
+  assert.deepEqual(await unauthenticatedOwnerInfo.json(), { error: 'reauthentication_required' });
+
+  const bypass = await app.fetch(new Request('https://app.install.doctor/api/devices/pair/approve', {
+    method: 'POST',
+    headers: { authorization: `Bearer ${TEST_ENV.AID_ADMIN_TOKEN}`, 'content-type': 'application/json' },
+    body: JSON.stringify({ code: pairing.code }),
+  }), env);
+  assert.equal(bypass.status, 409);
+  assert.equal((await bypass.json()).error, 'owner_approval_required');
 });
 
 function makeBootstrapRuntimeFixture(t, product = 'legacy-install-doctor') {
