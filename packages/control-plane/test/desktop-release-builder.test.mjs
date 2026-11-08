@@ -1,72 +1,123 @@
 import assert from 'node:assert/strict';
-import { chmod, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
+import { chmod, cp, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { execFileSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 import { buildDesktopToolsRelease } from '../../../scripts/build-desktop-tools-release.mjs';
+import { verifyDesktopToolsReleaseOffline } from '../../../scripts/verify-desktop-tools-release.mjs';
 import { publishDesktopRelease } from '../scripts/desktop-release-publication.mjs';
 
-test('builds deterministic unsigned Desktop Tools v6 release input without a signing key', async t => {
+const digest = bytes => createHash('sha256').update(bytes).digest('hex');
+const platforms = ['macos-x64', 'macos-arm64', 'linux-x64', 'linux-arm64'];
+const opencodeName = platform => platform.startsWith('macos-') ? `opencode-${platform}.zip` : `opencode-${platform}.tar.gz`;
+
+async function inputs(root, { releaseId = 'desktop-test-1', sourceCommit = 'a'.repeat(40), opencodeVersion = '2.2.5' } = {}) {
+  const outputBodies = new Map([
+    ['provision.sh', Buffer.from('provision\n')], ['desktop-tools-engine.mjs', Buffer.from('engine\n')],
+    ['catalog.json', Buffer.from('[]\n')], ['desktop-tools-supervisor.mjs', Buffer.from('supervisor\n')],
+    ['desktop-tools-tools.tar.gz', Buffer.from('tools\n')]
+  ]);
+  for (const platform of platforms) {
+    outputBodies.set(`node-${platform}.tar.gz`, Buffer.from(`node-${platform}\n`));
+    outputBodies.set(opencodeName(platform), Buffer.from(`opencode-${platform}\n`));
+  }
+  const lock = { schemaVersion: 1, name: 'opencode', version: opencodeVersion, sourceCommit: 'c'.repeat(40), license: 'MIT',
+    sourceVerification: { tagCommit: 'c'.repeat(40), gitHubVerified: false, assetDigestSource: 'github-release-api' }, artifacts: {} };
+  for (const platform of platforms) {
+    const key = platform.replace('-', '_'); const name = opencodeName(platform); const bytes = outputBodies.get(name);
+    lock.artifacts[key] = { releaseFilename: name,
+      upstreamUrl: `https://github.com/anomalyco/opencode/releases/download/v${opencodeVersion}/fixture-${platform}${name.endsWith('.zip') ? '.zip' : '.tar.gz'}`,
+      sha256: digest(bytes), size: bytes.byteLength };
+  }
+  outputBodies.set('opencode.lock.json', Buffer.from(`${JSON.stringify(lock)}\n`));
+  const paths = {};
+  for (const [name, bytes] of outputBodies) {
+    const path = join(root, `input-${name}`); await writeFile(path, bytes, { mode: 0o600 }); paths[name] = path;
+  }
+  paths.licenses = join(root, 'input-licenses.txt'); await writeFile(paths.licenses, `OpenCode ${opencodeVersion}\nMIT License\n`);
+  return { releaseId, sourceCommit, opencodeVersion, provisioner: paths['provision.sh'], engine: paths['desktop-tools-engine.mjs'],
+    catalog: paths['catalog.json'], supervisor: paths['desktop-tools-supervisor.mjs'], tools: paths['desktop-tools-tools.tar.gz'],
+    opencodeLock: paths['opencode.lock.json'], licenses: paths.licenses,
+    runtimes: Object.fromEntries(platforms.map(platform => [platform.replace('-', '_'), paths[`node-${platform}.tar.gz`]])),
+    opencode: Object.fromEntries(platforms.map(platform => [platform.replace('-', '_'), paths[opencodeName(platform)]])) };
+}
+
+test('builds deterministic unsigned Desktop Tools v7 closure with every platform and validated metadata', async t => {
   const root = await mkdtemp(join(tmpdir(), 'desktop-builder-test-'));
   t.after(() => rm(root, { recursive: true, force: true }));
-  const paths = {};
-  for (const name of ['provision.sh','engine.mjs','catalog.json','macos-x64','macos-arm64','linux-x64','linux-arm64']) {
-    paths[name] = join(root, name);
-    await writeFile(paths[name], name === 'catalog.json' ? '[]\n' : `${name}\n`, { mode: 0o600 });
-  }
   const now = Math.floor(Date.now() / 1_000);
-  const base = {
-    releaseId: 'desktop-test-1', sourceCommit: 'a'.repeat(40), createdAt: now - 1, expiresAt: now + 86_400,
-    signerId: 'desktop-production-1',
+  const source = await inputs(root);
+  const base = { ...source, createdAt: now - 1, expiresAt: now + 86_400, signerId: 'desktop-production-1',
     signerPublicKey: 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
-    runtimeNodeVersion: '24.11.0', provisioner: paths['provision.sh'], engine: paths['engine.mjs'], catalog: paths['catalog.json'],
-    runtimes: { macos_x64: paths['macos-x64'], macos_arm64: paths['macos-arm64'], linux_x64: paths['linux-x64'], linux_arm64: paths['linux-arm64'] }
-  };
+    runtimeNodeVersion: '24.11.0' };
   const first = await buildDesktopToolsRelease({ ...base, outputDirectory: join(root, 'out-1') }, now);
   const second = await buildDesktopToolsRelease({ ...base, outputDirectory: join(root, 'out-2') }, now);
-  const expected = ['catalog.json','desktop-tools-engine.mjs','manifest','node-linux-arm64.tar.gz','node-linux-x64.tar.gz','node-macos-arm64.tar.gz','node-macos-x64.tar.gz','provision.sh','start'];
+  const expected = ['THIRD_PARTY_LICENSES.txt','catalog.json','desktop-tools-engine.mjs','desktop-tools-supervisor.mjs',
+    'desktop-tools-tools.tar.gz','manifest','node-linux-arm64.tar.gz','node-linux-x64.tar.gz','node-macos-arm64.tar.gz',
+    'node-macos-x64.tar.gz','opencode-linux-arm64.tar.gz','opencode-linux-x64.tar.gz','opencode-macos-arm64.zip',
+    'opencode-macos-x64.zip','opencode.lock.json','provision.sh','release.provenance.json','release.sbom.json','start'];
   assert.deepEqual((await readdir(first.outputDirectory)).sort(), expected);
   assert.deepEqual(await readFile(join(first.outputDirectory, 'manifest')), await readFile(join(second.outputDirectory, 'manifest')));
   assert.deepEqual(await readFile(join(first.outputDirectory, 'start')), await readFile(join(second.outputDirectory, 'start')));
   const manifest = await readFile(join(first.outputDirectory, 'manifest'), 'utf8');
-  assert.match(manifest, /^schema_version=6$/m);
-  assert.match(manifest, /^product_id=desktop-tools$/m);
-  assert.match(manifest, /engine_url=https:\/\/desktop\.tools\/releases\/desktop-test-1\/desktop-tools-engine\.mjs/);
+  assert.match(manifest, /^schema_version=7$/m);
+  assert.match(manifest, /^opencode_version=2\.2\.5$/m);
+  for (const platform of platforms) assert.match(manifest, new RegExp(`opencode_${platform.replace('-', '_')}_url=https://desktop\\.tools/releases/desktop-test-1/${opencodeName(platform).replaceAll('.', '\\.')}`));
   assert.equal((await readdir(first.outputDirectory)).includes('manifest.sig'), false);
   await assert.rejects(buildDesktopToolsRelease({ ...base, outputDirectory: first.outputDirectory }, now), /overwrite/);
+
 });
 
-test('isolated signer verifies bindings, matching trust root, and Desktop Tools SSHSIG namespace', async t => {
+test('rejects malformed, stale, or substituted lock and license metadata before signing', async t => {
+  const root = await mkdtemp(join(tmpdir(), 'desktop-metadata-test-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const now = Math.floor(Date.now() / 1_000);
+  const source = await inputs(root);
+  const common = { ...source, createdAt: now - 1, expiresAt: now + 86_400, signerId: 'desktop-production-1',
+    signerPublicKey: 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA', runtimeNodeVersion: '24.11.0' };
+  await writeFile(source.opencodeLock, '{}\n');
+  await assert.rejects(buildDesktopToolsRelease({ ...common, outputDirectory: join(root, 'bad-lock') }, now), /invalid|expected|lock/i);
+  const fresh = await inputs(root, { releaseId: 'desktop-test-2' });
+  await writeFile(fresh.licenses, 'unrelated notices\n');
+  await assert.rejects(buildDesktopToolsRelease({ ...common, ...fresh, outputDirectory: join(root, 'bad-license') }, now), /licenses/);
+});
+
+test('signs and verifies the complete closure offline; tamper, surplus, and every platform substitution fail', async t => {
   const root = await mkdtemp(join(tmpdir(), 'desktop-signer-test-'));
   t.after(() => rm(root, { recursive: true, force: true }));
   const privateKey = join(root, 'signer');
   execFileSync('ssh-keygen', ['-q', '-t', 'ed25519', '-N', '', '-f', privateKey]);
   await chmod(privateKey, 0o600);
   const publicKey = execFileSync('ssh-keygen', ['-y', '-f', privateKey], { encoding: 'utf8' }).trim();
-  const paths = {};
-  for (const name of ['provision.sh','engine.mjs','catalog.json','macos-x64','macos-arm64','linux-x64','linux-arm64']) {
-    paths[name] = join(root, name); await writeFile(paths[name], name === 'catalog.json' ? '[]\n' : `${name}\n`);
-  }
+  const publicKeyFile = join(root, 'signer.pub'); await writeFile(publicKeyFile, `${publicKey}\n`, { mode: 0o600 });
   const now = Math.floor(Date.now() / 1_000);
+  const source = await inputs(root, { releaseId: 'desktop-signed-1', sourceCommit: 'b'.repeat(40), opencodeVersion: '2.0.1' });
   const unsigned = join(root, 'unsigned');
-  await buildDesktopToolsRelease({ releaseId: 'desktop-signed-1', sourceCommit: 'b'.repeat(40), createdAt: now - 1,
-    expiresAt: now + 86_400, signerId: 'desktop-production-1', signerPublicKey: publicKey,
-    runtimeNodeVersion: '24.11.0', provisioner: paths['provision.sh'], engine: paths['engine.mjs'], catalog: paths['catalog.json'],
-    runtimes: { macos_x64: paths['macos-x64'], macos_arm64: paths['macos-arm64'], linux_x64: paths['linux-x64'], linux_arm64: paths['linux-arm64'] },
-    outputDirectory: unsigned }, now);
+  await buildDesktopToolsRelease({ ...source, createdAt: now - 1, expiresAt: now + 86_400,
+    signerId: 'desktop-production-1', signerPublicKey: publicKey, runtimeNodeVersion: '24.11.0', outputDirectory: unsigned }, now);
   const signed = join(root, 'signed');
   execFileSync('bash', ['../../../scripts/sign-desktop-tools-release.sh', 'desktop-production-1', privateKey, unsigned, signed], { cwd: new URL('.', import.meta.url).pathname });
-  assert.equal((await readdir(signed)).includes('manifest.sig'), true);
-  const allowed = join(root, 'allowed'); await writeFile(allowed, `desktop-production-1 ${publicKey}\n`);
-  execFileSync('ssh-keygen', ['-Y','verify','-f',allowed,'-I','desktop-production-1','-n','desktop.tools.release','-s',join(signed,'manifest.sig')], { input: await readFile(join(signed,'manifest')) });
+  const verified = await verifyDesktopToolsReleaseOffline({ directory: signed, expectedReleaseId: source.releaseId,
+    signerId: 'desktop-production-1', publicKeyPath: publicKeyFile, now });
+  assert.equal(verified.verified, true); assert.equal(verified.opencodeVersion, '2.0.1');
   const objects = new Map();
-  const published = await publishDesktopRelease({ directory: signed, expectedReleaseId: 'desktop-signed-1',
+  const allowed = join(root, 'allowed'); await writeFile(allowed, `desktop-production-1 ${publicKey}\n`, { mode: 0o600 });
+  await publishDesktopRelease({ directory: signed, expectedReleaseId: source.releaseId,
     storage: { async create(key, bytes) { if (objects.has(key)) return false; objects.set(key, { bytes: Buffer.from(bytes) }); return true; }, async read(key) { return objects.get(key) ?? null; } },
-    verifySignature: async ({ manifest, signature, signerId, namespace }) => {
+    verifySignature: async ({ manifest, signerId, namespace }) => {
       assert.equal(namespace, 'desktop.tools.release');
       execFileSync('ssh-keygen', ['-Y','verify','-f',allowed,'-I',signerId,'-n',namespace,'-s',join(signed,'manifest.sig')], { input: manifest });
-      assert.deepEqual(Buffer.from(signature), await readFile(join(signed, 'manifest.sig')));
-    }, now });
-  assert.equal(published.releaseId, 'desktop-signed-1');
+    }, now }).catch(async error => { throw error; });
+
+  for (const platform of platforms) {
+    const tampered = join(root, `tampered-${platform}`); await cp(signed, tampered, { recursive: true });
+    await writeFile(join(tampered, opencodeName(platform)), `substituted-${platform}\n`);
+    await assert.rejects(verifyDesktopToolsReleaseOffline({ directory: tampered, expectedReleaseId: source.releaseId,
+      signerId: 'desktop-production-1', publicKeyPath: publicKeyFile, now }), /artifact binding/);
+  }
+  const surplus = join(root, 'surplus'); await cp(signed, surplus, { recursive: true }); await writeFile(join(surplus, 'unexpected'), 'x');
+  await assert.rejects(verifyDesktopToolsReleaseOffline({ directory: surplus, expectedReleaseId: source.releaseId,
+    signerId: 'desktop-production-1', publicKeyPath: publicKeyFile, now }), /exact allowlist/);
 });

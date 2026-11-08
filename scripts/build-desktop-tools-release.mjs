@@ -1,32 +1,127 @@
 #!/usr/bin/env node
 import { createHash } from 'node:crypto';
-import { chmod, copyFile, lstat, mkdir, mkdtemp, readFile, rename, rm, writeFile } from 'node:fs/promises';
+import { chmod, copyFile, lstat, mkdtemp, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { createRequire } from 'node:module';
+import { TextDecoder } from 'node:util';
 import { renderBootstrap } from '../packages/control-plane/src/bootstrap.ts';
 
 const { z } = createRequire(new URL('../packages/control-plane/package.json', import.meta.url))('zod');
 
 const id = z.string().regex(/^[a-z0-9][a-z0-9._-]{0,127}$/);
 const regularPath = z.string().min(1).max(4096);
+const version = z.string().regex(/^2\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-[0-9A-Za-z.-]+)?$/);
+const platforms = ['macos_x64', 'macos_arm64', 'linux_x64', 'linux_arm64'];
 const Configuration = z.strictObject({
   releaseId: id, sourceCommit: z.string().regex(/^[a-f0-9]{40}$/),
   createdAt: z.number().int().positive().safe(), expiresAt: z.number().int().positive().safe(),
   signerId: z.string().regex(/^desktop-[a-z0-9][a-z0-9._-]{0,119}$/),
   signerPublicKey: z.string().regex(/^ssh-ed25519 [A-Za-z0-9+/]+={0,3}(?: [^\r\n]{1,128})?$/),
   runtimeNodeVersion: z.string().regex(/^24\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$/),
-  provisioner: regularPath, engine: regularPath, catalog: regularPath,
-  runtimes: z.strictObject({ macos_x64: regularPath, macos_arm64: regularPath, linux_x64: regularPath, linux_arm64: regularPath }),
+  opencodeVersion: version,
+  opencodeLock: regularPath,
+  provisioner: regularPath, engine: regularPath, catalog: regularPath, supervisor: regularPath,
+  tools: regularPath, licenses: regularPath,
+  runtimes: z.strictObject(Object.fromEntries(platforms.map(name => [name, regularPath]))),
+  opencode: z.strictObject(Object.fromEntries(platforms.map(name => [name, regularPath]))),
   outputDirectory: regularPath
 });
-const limits = { provisioner: 8_388_608, engine: 8_388_608, catalog: 8_388_608, launcher: 8_388_608, runtime: 100_663_296 };
+const limits = Object.freeze({
+  executable: 8_388_608, metadata: 8_388_608, runtime: 100_663_296,
+  opencode: 167_772_160, tools: 33_554_432, manifest: 16_384
+});
 const sha256 = bytes => createHash('sha256').update(bytes).digest('hex');
+const outputPlatform = name => name.replace('_', '-');
+const opencodeFilename = platform => platform.startsWith('macos_')
+  ? `opencode-${outputPlatform(platform)}.zip` : `opencode-${outputPlatform(platform)}.tar.gz`;
+const OpenCodeLock = z.strictObject({
+  schemaVersion: z.literal(1), name: z.literal('opencode'), version,
+  sourceCommit: z.string().regex(/^[a-f0-9]{40}$/), license: z.literal('MIT'),
+  sourceVerification: z.strictObject({ tagCommit: z.string().regex(/^[a-f0-9]{40}$/),
+    gitHubVerified: z.boolean(), assetDigestSource: z.literal('github-release-api') }),
+  artifacts: z.strictObject(Object.fromEntries(platforms.map(platform => [platform, z.strictObject({
+    releaseFilename: z.literal(opencodeFilename(platform)), upstreamUrl: z.string().url().startsWith('https://'),
+    sha256: z.string().regex(/^[a-f0-9]{64}$/), size: z.number().int().positive().max(limits.opencode)
+  })])))
+});
 
 async function input(pathInput, maximum, label) {
   const path = resolve(pathInput);
   const info = await lstat(path);
-  if (!info.isFile() || info.isSymbolicLink() || info.nlink !== 1 || info.size < 1 || info.size > maximum) throw new Error(`${label} is not one safe bounded regular file`);
+  if (!info.isFile() || info.isSymbolicLink() || info.nlink !== 1 || info.size < 1 || info.size > maximum) {
+    throw new Error(`${label} is not one safe bounded regular file`);
+  }
   return { path, bytes: await readFile(path) };
+}
+
+function jsonObject(source, label) {
+  let value;
+  try { value = JSON.parse(source.bytes.toString('utf8')); } catch { throw new Error(`${label} is not valid JSON`); }
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error(`${label} must be a JSON object`);
+  return value;
+}
+
+function expectedPayloads(sources) {
+  return new Map([...sources.entries()]
+    .filter(([name]) => !['release.sbom.json', 'release.provenance.json', 'THIRD_PARTY_LICENSES.txt'].includes(name))
+    .map(([name, source]) => [name, sha256(source.bytes)]));
+}
+
+function validateSbom(value, expected, config) {
+  if (value.bomFormat !== 'CycloneDX' || value.specVersion !== '1.6' || value.version !== 1
+    || value.metadata?.component?.name !== 'desktop-tools-release'
+    || value.metadata.component.version !== config.releaseId) throw new Error('SBOM identity is invalid');
+  const properties = new Map((value.metadata.component.properties ?? []).map(item => [item?.name, item?.value]));
+  if (properties.get('desktop.tools:source-commit') !== config.sourceCommit
+    || properties.get('desktop.tools:opencode-version') !== config.opencodeVersion) throw new Error('SBOM release pins are invalid');
+  const actual = new Map();
+  for (const component of value.components ?? []) {
+    const digest = component?.hashes?.find(item => item?.alg === 'SHA-256')?.content;
+    if (typeof component?.name !== 'string' || typeof digest !== 'string' || actual.has(component.name)) throw new Error('SBOM components are ambiguous');
+    actual.set(component.name, digest);
+  }
+  if (JSON.stringify([...actual.entries()].sort()) !== JSON.stringify([...expected.entries()].sort())) {
+    throw new Error('SBOM does not bind the exact release payload closure');
+  }
+}
+
+function validateProvenance(value, expected, config, lock) {
+  if (value._type !== 'https://in-toto.io/Statement/v1' || value.predicateType !== 'https://slsa.dev/provenance/v1') {
+    throw new Error('provenance statement type is invalid');
+  }
+  const parameters = value.predicate?.buildDefinition?.externalParameters;
+  if (parameters?.releaseId !== config.releaseId || parameters?.sourceCommit !== config.sourceCommit
+    || parameters?.opencodeVersion !== config.opencodeVersion) throw new Error('provenance release pins are invalid');
+  const actual = new Map();
+  for (const subject of value.subject ?? []) {
+    if (typeof subject?.name !== 'string' || typeof subject?.digest?.sha256 !== 'string' || actual.has(subject.name)) {
+      throw new Error('provenance subjects are ambiguous');
+    }
+    actual.set(subject.name, subject.digest.sha256);
+  }
+  if (JSON.stringify([...actual.entries()].sort()) !== JSON.stringify([...expected.entries()].sort())) {
+    throw new Error('provenance does not bind the exact release payload closure');
+  }
+  const resolved = new Map();
+  for (const dependency of value.predicate?.buildDefinition?.resolvedDependencies ?? []) {
+    if (typeof dependency?.uri !== 'string' || typeof dependency?.digest?.sha256 !== 'string' || resolved.has(dependency.uri)) {
+      throw new Error('provenance resolved dependencies are ambiguous');
+    }
+    resolved.set(dependency.uri, dependency.digest.sha256);
+  }
+  const locked = new Map(platforms.map(platform => [lock.artifacts[platform].upstreamUrl, lock.artifacts[platform].sha256]));
+  if (JSON.stringify([...resolved.entries()].sort()) !== JSON.stringify([...locked.entries()].sort())) {
+    throw new Error('provenance does not bind the exact OpenCode upstream inputs');
+  }
+}
+
+function validateLicenses(source, opencodeVersion) {
+  let text;
+  try { text = new TextDecoder('utf-8', { fatal: true }).decode(source.bytes); } catch { throw new Error('third-party licenses are not valid UTF-8'); }
+  if (/[\0\u0001-\u0008\u000b\u000c\u000e-\u001f\u007f]/.test(text)
+    || !/opencode/i.test(text) || !text.includes(opencodeVersion)) {
+    throw new Error('third-party licenses do not identify the pinned OpenCode version');
+  }
 }
 
 export async function buildDesktopToolsRelease(configurationInput, now = Math.floor(Date.now() / 1_000)) {
@@ -42,57 +137,105 @@ export async function buildDesktopToolsRelease(configurationInput, now = Math.fl
   try { await lstat(output); throw new Error('refusing to overwrite release output'); }
   catch (error) { if (error?.code !== 'ENOENT') throw error; }
 
-  const sources = {
-    'provision.sh': await input(config.provisioner, limits.provisioner, 'provisioner'),
-    'desktop-tools-engine.mjs': await input(config.engine, limits.engine, 'engine'),
-    'catalog.json': await input(config.catalog, limits.catalog, 'catalog'),
-    'node-macos-x64.tar.gz': await input(config.runtimes.macos_x64, limits.runtime, 'macOS x64 runtime'),
-    'node-macos-arm64.tar.gz': await input(config.runtimes.macos_arm64, limits.runtime, 'macOS arm64 runtime'),
-    'node-linux-x64.tar.gz': await input(config.runtimes.linux_x64, limits.runtime, 'Linux x64 runtime'),
-    'node-linux-arm64.tar.gz': await input(config.runtimes.linux_arm64, limits.runtime, 'Linux arm64 runtime')
-  };
-  JSON.parse(sources['catalog.json'].bytes.toString('utf8'));
+  const lockSource = await input(config.opencodeLock, limits.metadata, 'OpenCode lock');
+  const lock = OpenCodeLock.parse(jsonObject(lockSource, 'OpenCode lock'));
+  if (lock.version !== config.opencodeVersion) throw new Error('OpenCode lock version does not match the configured pin');
+  const sources = new Map([
+    ['provision.sh', await input(config.provisioner, limits.executable, 'provisioner')],
+    ['desktop-tools-engine.mjs', await input(config.engine, limits.executable, 'engine')],
+    ['catalog.json', await input(config.catalog, limits.metadata, 'catalog')],
+    ['desktop-tools-supervisor.mjs', await input(config.supervisor, limits.executable, 'supervisor')],
+    ['desktop-tools-tools.tar.gz', await input(config.tools, limits.tools, 'tools archive')],
+    ...await Promise.all(platforms.map(async platform => [
+      `node-${outputPlatform(platform)}.tar.gz`, await input(config.runtimes[platform], limits.runtime, `${platform} Node runtime`)
+    ])),
+    ...await Promise.all(platforms.map(async platform => [
+      opencodeFilename(platform), await input(config.opencode[platform], limits.opencode, `${platform} OpenCode runtime`)
+    ])),
+    ['opencode.lock.json', lockSource],
+    ['THIRD_PARTY_LICENSES.txt', await input(config.licenses, limits.metadata, 'third-party licenses')]
+  ]);
+  for (const platform of platforms) {
+    const artifact = lock.artifacts[platform];
+    const bytes = sources.get(opencodeFilename(platform)).bytes;
+    if (artifact.size !== bytes.byteLength || artifact.sha256 !== sha256(bytes)
+      || !artifact.upstreamUrl.includes(`/v${config.opencodeVersion}/`)) {
+      throw new Error(`OpenCode lock binding mismatch: ${platform}`);
+    }
+  }
+  try { JSON.parse(sources.get('catalog.json').bytes.toString('utf8')); } catch { throw new Error('catalog is not valid JSON'); }
+  validateLicenses(sources.get('THIRD_PARTY_LICENSES.txt'), config.opencodeVersion);
+
   const origin = 'https://desktop.tools';
   const launcher = Buffer.from(renderBootstrap({
     product: 'desktop-tools', manifestUrl: `${origin}/releases/${config.releaseId}/manifest`,
     signatureUrl: `${origin}/releases/${config.releaseId}/manifest.sig`,
     signerIdentity: config.signerId, signerPublicKey: config.signerPublicKey
   }), 'utf8');
-  if (launcher.byteLength > limits.launcher) throw new Error('launcher exceeds size policy');
+  if (launcher.byteLength > limits.executable) throw new Error('launcher exceeds size policy');
+  sources.set('start', { path: null, bytes: launcher });
+  const expected = expectedPayloads(sources);
+  const components = [...expected.entries()].sort().map(([name, content]) => ({
+    type: 'file', name, hashes: [{ alg: 'SHA-256', content }]
+  }));
+  const sbom = {
+    bomFormat: 'CycloneDX', specVersion: '1.6', version: 1,
+    metadata: { component: { type: 'application', name: 'desktop-tools-release', version: config.releaseId,
+      properties: [{ name: 'desktop.tools:source-commit', value: config.sourceCommit },
+        { name: 'desktop.tools:opencode-version', value: config.opencodeVersion }] } },
+    components
+  };
+  const provenance = {
+    _type: 'https://in-toto.io/Statement/v1',
+    subject: [...expected.entries()].sort().map(([name, value]) => ({ name, digest: { sha256: value } })),
+    predicateType: 'https://slsa.dev/provenance/v1',
+    predicate: { buildDefinition: {
+      buildType: 'https://desktop.tools/build-types/release-closure/v1',
+      externalParameters: { releaseId: config.releaseId, sourceCommit: config.sourceCommit, opencodeVersion: config.opencodeVersion },
+      resolvedDependencies: platforms.map(platform => ({ uri: lock.artifacts[platform].upstreamUrl,
+        digest: { sha256: lock.artifacts[platform].sha256 } }))
+    }, runDetails: { builder: { id: 'https://desktop.tools/builders/release-closure/v1' } } }
+  };
+  sources.set('release.sbom.json', { path: null, bytes: Buffer.from(`${JSON.stringify(sbom)}\n`) });
+  sources.set('release.provenance.json', { path: null, bytes: Buffer.from(`${JSON.stringify(provenance)}\n`) });
+  validateSbom(sbom, expected, config);
+  validateProvenance(provenance, expected, config, lock);
   const artifacts = [
-    ['artifact','provision.sh', sources['provision.sh'].bytes],
-    ['engine','desktop-tools-engine.mjs', sources['desktop-tools-engine.mjs'].bytes],
-    ['catalog','catalog.json', sources['catalog.json'].bytes], ['launcher','start',launcher],
-    ['runtime_macos_x64','node-macos-x64.tar.gz',sources['node-macos-x64.tar.gz'].bytes],
-    ['runtime_macos_arm64','node-macos-arm64.tar.gz',sources['node-macos-arm64.tar.gz'].bytes],
-    ['runtime_linux_x64','node-linux-x64.tar.gz',sources['node-linux-x64.tar.gz'].bytes],
-    ['runtime_linux_arm64','node-linux-arm64.tar.gz',sources['node-linux-arm64.tar.gz'].bytes]
+    ['artifact', 'provision.sh'], ['engine', 'desktop-tools-engine.mjs'], ['catalog', 'catalog.json'],
+    ['launcher', 'start'], ['supervisor', 'desktop-tools-supervisor.mjs'], ['tools', 'desktop-tools-tools.tar.gz'],
+    ['opencode_lock', 'opencode.lock.json'], ['sbom', 'release.sbom.json'], ['provenance', 'release.provenance.json'], ['licenses', 'THIRD_PARTY_LICENSES.txt'],
+    ...platforms.map(platform => [`runtime_${platform}`, `node-${outputPlatform(platform)}.tar.gz`]),
+    ...platforms.map(platform => [`opencode_${platform}`, opencodeFilename(platform)])
   ];
-  const lines = ['schema_version=6', 'product_id=desktop-tools', `release_id=${config.releaseId}`,
+  const bytesByName = new Map([...sources.entries()].map(([name, source]) => [name, source.bytes]));
+  const lines = ['schema_version=7', 'product_id=desktop-tools', `release_id=${config.releaseId}`,
     `source_commit=${config.sourceCommit}`, `created_at=${config.createdAt}`, `expires_at=${config.expiresAt}`,
-    `key_id=${config.signerId}`, 'engine_node_min=22', `runtime_node_version=${config.runtimeNodeVersion}`];
-  for (const [prefix, filename, bytes] of artifacts) lines.push(
-    `${prefix}_url=${origin}/releases/${config.releaseId}/${filename}`,
-    `${prefix}_sha256=${sha256(bytes)}`, `${prefix}_size=${bytes.byteLength}`
-  );
+    `key_id=${config.signerId}`, 'engine_node_min=22', `runtime_node_version=${config.runtimeNodeVersion}`,
+    `opencode_version=${config.opencodeVersion}`];
+  for (const [prefix, filename] of artifacts) {
+    const bytes = bytesByName.get(filename);
+    lines.push(`${prefix}_url=${origin}/releases/${config.releaseId}/${filename}`,
+      `${prefix}_sha256=${sha256(bytes)}`, `${prefix}_size=${bytes.byteLength}`);
+  }
   const manifest = Buffer.from(`${lines.join('\n')}\n`, 'utf8');
-  if (manifest.byteLength > 16_384) throw new Error('manifest exceeds size policy');
+  if (manifest.byteLength > limits.manifest) throw new Error('manifest exceeds size policy');
 
   const stage = await mkdtemp(join(parent, '.desktop-tools-unsigned-'));
   await chmod(stage, 0o700);
   try {
-    for (const [filename, source] of Object.entries(sources)) {
-      await copyFile(source.path, join(stage, filename));
-      await chmod(join(stage, filename), filename.endsWith('.sh') || filename.endsWith('.mjs') ? 0o700 : 0o600);
+    for (const [filename, source] of sources) {
+      if (source.path) await copyFile(source.path, join(stage, filename));
+      else await writeFile(join(stage, filename), source.bytes, { mode: 0o600, flag: 'wx' });
+      await chmod(join(stage, filename), filename === 'start' || filename.endsWith('.sh') || filename.endsWith('.mjs') ? 0o700 : 0o600);
     }
-    await writeFile(join(stage, 'start'), launcher, { mode: 0o700, flag: 'wx' });
     await writeFile(join(stage, 'manifest'), manifest, { mode: 0o600, flag: 'wx' });
     await rename(stage, output);
   } catch (error) {
     await rm(stage, { recursive: true, force: true });
     throw error;
   }
-  return Object.freeze({ schemaVersion: 1, product: 'desktop-tools', releaseId: config.releaseId,
+  return Object.freeze({ schemaVersion: 2, manifestSchemaVersion: 7, product: 'desktop-tools',
+    releaseId: config.releaseId, opencodeVersion: config.opencodeVersion,
     outputDirectory: output, manifestSha256: sha256(manifest) });
 }
 

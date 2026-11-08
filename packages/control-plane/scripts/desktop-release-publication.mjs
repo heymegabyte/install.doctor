@@ -17,6 +17,16 @@ const ARTIFACTS = Object.freeze([
   ['runtime_macos_arm64', 'node-macos-arm64.tar.gz', 100_663_296],
   ['runtime_linux_x64', 'node-linux-x64.tar.gz', 100_663_296],
   ['runtime_linux_arm64', 'node-linux-arm64.tar.gz', 100_663_296],
+  ['opencode_macos_x64', 'opencode-macos-x64.zip', 167_772_160],
+  ['opencode_macos_arm64', 'opencode-macos-arm64.zip', 167_772_160],
+  ['opencode_linux_x64', 'opencode-linux-x64.tar.gz', 167_772_160],
+  ['opencode_linux_arm64', 'opencode-linux-arm64.tar.gz', 167_772_160],
+  ['supervisor', 'desktop-tools-supervisor.mjs', 8_388_608],
+  ['tools', 'desktop-tools-tools.tar.gz', 33_554_432],
+  ['opencode_lock', 'opencode.lock.json', 8_388_608],
+  ['sbom', 'release.sbom.json', 8_388_608],
+  ['provenance', 'release.provenance.json', 8_388_608],
+  ['licenses', 'THIRD_PARTY_LICENSES.txt', 8_388_608],
 ]);
 export const DESKTOP_RELEASE_FILES = Object.freeze([
   ...ARTIFACTS.map(([, filename]) => filename), 'manifest.sig', 'manifest'
@@ -24,11 +34,13 @@ export const DESKTOP_RELEASE_FILES = Object.freeze([
 const REQUIRED_KEYS = Object.freeze([
   'schema_version', 'product_id', 'release_id', 'source_commit', 'created_at', 'expires_at', 'key_id',
   ...ARTIFACTS.flatMap(([prefix]) => [`${prefix}_url`, `${prefix}_sha256`, `${prefix}_size`]),
-  'engine_node_min', 'runtime_node_version'
+  'engine_node_min', 'runtime_node_version', 'opencode_version'
 ]);
 const digest = bytes => createHash('sha256').update(bytes).digest('hex');
 const same = (left, right) => Buffer.compare(Buffer.from(left), Buffer.from(right)) === 0;
 const canonical = value => Buffer.from(`${JSON.stringify(value)}\n`, 'utf8');
+const CLOSURE_PAYLOAD_NAMES = Object.freeze(ARTIFACTS.map(([, name]) => name)
+  .filter(name => !['release.sbom.json', 'release.provenance.json', 'THIRD_PARTY_LICENSES.txt'].includes(name)));
 const DesktopPointer = z.strictObject({
   schemaVersion: z.literal(2), product: z.literal('desktop-tools'), channel: id,
   generation: z.number().int().positive().safe(), kind: z.enum(['promote', 'rollback']),
@@ -52,8 +64,89 @@ function parseManifest(bytes) {
     if (separator < 1 || !/^[a-z0-9_]+$/.test(key) || !value || values.has(key)) throw new Error('manifest contains malformed or duplicate data');
     values.set(key, value);
   }
-  if (JSON.stringify([...values.keys()].sort()) !== JSON.stringify([...REQUIRED_KEYS].sort())) throw new Error('manifest key set does not match Desktop Tools schema v6');
+  if (JSON.stringify([...values.keys()].sort()) !== JSON.stringify([...REQUIRED_KEYS].sort())) throw new Error('manifest key set does not match Desktop Tools schema v7');
   return values;
+}
+
+function parseJsonObject(bytes, label) {
+  let value;
+  try { value = JSON.parse(Buffer.from(bytes).toString('utf8')); } catch { throw new Error(`${label} is not valid JSON`); }
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error(`${label} must be a JSON object`);
+  return value;
+}
+
+function exactMetadataDigests(items, label, files) {
+  const actual = new Map();
+  for (const item of items ?? []) {
+    const name = item?.name;
+    const value = label === 'SBOM'
+      ? item?.hashes?.find(hash => hash?.alg === 'SHA-256')?.content
+      : item?.digest?.sha256;
+    if (typeof name !== 'string' || typeof value !== 'string' || actual.has(name)) throw new Error(`${label} payload bindings are ambiguous`);
+    actual.set(name, value);
+  }
+  const expected = new Map(CLOSURE_PAYLOAD_NAMES.map(name => [name, digest(files.get(name))]));
+  if (JSON.stringify([...actual.entries()].sort()) !== JSON.stringify([...expected.entries()].sort())) {
+    throw new Error(`${label} does not bind the exact release payload closure`);
+  }
+}
+
+function validateClosureMetadata(files, releaseId, sourceCommit, opencodeVersion) {
+  try { JSON.parse(Buffer.from(files.get('catalog.json')).toString('utf8')); } catch { throw new Error('catalog is not valid JSON'); }
+  const lock = parseJsonObject(files.get('opencode.lock.json'), 'OpenCode lock');
+  const expectedNames = { macos_x64: 'opencode-macos-x64.zip', macos_arm64: 'opencode-macos-arm64.zip',
+    linux_x64: 'opencode-linux-x64.tar.gz', linux_arm64: 'opencode-linux-arm64.tar.gz' };
+  if (lock.schemaVersion !== 1 || lock.name !== 'opencode' || lock.version !== opencodeVersion
+    || !/^[a-f0-9]{40}$/.test(lock.sourceCommit ?? '') || lock.license !== 'MIT'
+    || lock.sourceVerification?.tagCommit !== lock.sourceCommit
+    || typeof lock.sourceVerification?.gitHubVerified !== 'boolean'
+    || lock.sourceVerification?.assetDigestSource !== 'github-release-api'
+    || !lock.artifacts || Object.keys(lock.artifacts).sort().join(',') !== Object.keys(expectedNames).sort().join(',')) {
+    throw new Error('OpenCode lock identity is invalid');
+  }
+  const lockedDependencies = new Map();
+  for (const [platform, filename] of Object.entries(expectedNames)) {
+    const artifact = lock.artifacts[platform];
+    let url;
+    try { url = new URL(artifact?.upstreamUrl); } catch { throw new Error(`OpenCode lock URL is invalid: ${platform}`); }
+    if (artifact?.releaseFilename !== filename || url.protocol !== 'https:' || url.username || url.password || url.search || url.hash
+      || !url.pathname.includes(`/v${opencodeVersion}/`) || artifact?.sha256 !== digest(files.get(filename))
+      || artifact?.size !== files.get(filename).byteLength || artifact.size > 167_772_160) {
+      throw new Error(`OpenCode lock binding mismatch: ${platform}`);
+    }
+    lockedDependencies.set(artifact.upstreamUrl, artifact.sha256);
+  }
+  const sbom = parseJsonObject(files.get('release.sbom.json'), 'release SBOM');
+  const properties = new Map((sbom.metadata?.component?.properties ?? []).map(item => [item?.name, item?.value]));
+  if (sbom.bomFormat !== 'CycloneDX' || sbom.specVersion !== '1.6' || sbom.version !== 1
+    || sbom.metadata?.component?.name !== 'desktop-tools-release' || sbom.metadata.component.version !== releaseId
+    || properties.get('desktop.tools:source-commit') !== sourceCommit
+    || properties.get('desktop.tools:opencode-version') !== opencodeVersion) throw new Error('SBOM identity or release pins are invalid');
+  exactMetadataDigests(sbom.components, 'SBOM', files);
+
+  const provenance = parseJsonObject(files.get('release.provenance.json'), 'release provenance');
+  const parameters = provenance.predicate?.buildDefinition?.externalParameters;
+  if (provenance._type !== 'https://in-toto.io/Statement/v1' || provenance.predicateType !== 'https://slsa.dev/provenance/v1'
+    || parameters?.releaseId !== releaseId || parameters?.sourceCommit !== sourceCommit
+    || parameters?.opencodeVersion !== opencodeVersion) throw new Error('provenance identity or release pins are invalid');
+  exactMetadataDigests(provenance.subject, 'provenance', files);
+  const resolvedDependencies = new Map();
+  for (const dependency of provenance.predicate?.buildDefinition?.resolvedDependencies ?? []) {
+    if (typeof dependency?.uri !== 'string' || typeof dependency?.digest?.sha256 !== 'string' || resolvedDependencies.has(dependency.uri)) {
+      throw new Error('provenance resolved dependencies are ambiguous');
+    }
+    resolvedDependencies.set(dependency.uri, dependency.digest.sha256);
+  }
+  if (JSON.stringify([...resolvedDependencies.entries()].sort()) !== JSON.stringify([...lockedDependencies.entries()].sort())) {
+    throw new Error('provenance does not bind the exact OpenCode upstream inputs');
+  }
+
+  const licenses = Buffer.from(files.get('THIRD_PARTY_LICENSES.txt')).toString('utf8');
+  if (!Buffer.from(licenses, 'utf8').equals(Buffer.from(files.get('THIRD_PARTY_LICENSES.txt')))
+    || /[\0\u0001-\u0008\u000b\u000c\u000e-\u001f\u007f]/.test(licenses)
+    || !/opencode/i.test(licenses) || !licenses.includes(opencodeVersion)) {
+    throw new Error('third-party licenses do not identify the pinned OpenCode version');
+  }
 }
 
 function inspectFiles(files, expectedReleaseIdInput, now = Math.floor(Date.now() / 1_000)) {
@@ -62,7 +155,7 @@ function inspectFiles(files, expectedReleaseIdInput, now = Math.floor(Date.now()
     throw new Error('Desktop Tools release object set does not match the exact allowlist');
   }
   const manifest = parseManifest(files.get('manifest'));
-  if (manifest.get('schema_version') !== '6' || manifest.get('product_id') !== 'desktop-tools' || manifest.get('release_id') !== releaseId) {
+  if (manifest.get('schema_version') !== '7' || manifest.get('product_id') !== 'desktop-tools' || manifest.get('release_id') !== releaseId) {
     throw new Error('Desktop Tools release identity mismatch');
   }
   if (!/^[a-f0-9]{40}$/.test(manifest.get('source_commit') ?? '')) throw new Error('source commit is invalid');
@@ -74,6 +167,10 @@ function inspectFiles(files, expectedReleaseIdInput, now = Math.floor(Date.now()
   if (manifest.get('engine_node_min') !== '22' || !/^24\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$/.test(manifest.get('runtime_node_version') ?? '')) {
     throw new Error('runtime policy is invalid');
   }
+  const opencodeVersion = manifest.get('opencode_version');
+  if (!/^2\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-[0-9A-Za-z.-]+)?$/.test(opencodeVersion ?? '')) {
+    throw new Error('OpenCode version pin is invalid');
+  }
   for (const [prefix, filename, maximum] of ARTIFACTS) {
     const bytes = files.get(filename);
     const size = positive.parse(manifest.get(`${prefix}_size`));
@@ -84,7 +181,8 @@ function inspectFiles(files, expectedReleaseIdInput, now = Math.floor(Date.now()
       throw new Error(`URL binding mismatch: ${filename}`);
     }
   }
-  return Object.freeze({ product: policy.product, releaseId, signerId: id.parse(manifest.get('key_id')),
+  validateClosureMetadata(files, releaseId, manifest.get('source_commit'), opencodeVersion);
+  return Object.freeze({ product: policy.product, releaseId, signerId: id.parse(manifest.get('key_id')), opencodeVersion,
     sourceCommit: manifest.get('source_commit'), createdAt, expiresAt, manifestSha256: digest(files.get('manifest')), files });
 }
 

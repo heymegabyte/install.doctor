@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Validate and sign an inert Desktop Tools v6 release. This boundary performs no build or network work.
+# Validate and sign an inert Desktop Tools v7 release. This boundary performs no build or network work.
 set -euo pipefail
 umask 077
 export LC_ALL=C
@@ -17,7 +17,7 @@ value() { awk -F= -v key="$1" '$1 == key { count++; sub(/^[^=]*=/, ""); found=$0
 mode() { if stat -c '%a' "$1" >/dev/null 2>&1; then stat -c '%a' "$1"; else stat -f '%Lp' "$1"; fi; }
 
 [ -d "$unsigned_dir" ] && [ ! -L "$unsigned_dir" ] || { printf 'unsigned release is not a real directory\n' >&2; exit 66; }
-expected='catalog.json desktop-tools-engine.mjs manifest node-linux-arm64.tar.gz node-linux-x64.tar.gz node-macos-arm64.tar.gz node-macos-x64.tar.gz provision.sh start'
+expected='THIRD_PARTY_LICENSES.txt catalog.json desktop-tools-engine.mjs desktop-tools-supervisor.mjs desktop-tools-tools.tar.gz manifest node-linux-arm64.tar.gz node-linux-x64.tar.gz node-macos-arm64.tar.gz node-macos-x64.tar.gz opencode-linux-arm64.tar.gz opencode-linux-x64.tar.gz opencode-macos-arm64.zip opencode-macos-x64.zip opencode.lock.json provision.sh release.provenance.json release.sbom.json start'
 actual="$(find "$unsigned_dir" -mindepth 1 -maxdepth 1 -print | sed 's#^.*/##' | LC_ALL=C sort | tr '\n' ' ' | sed 's/ $//')"
 [ "$actual" = "$expected" ] || { printf 'unsigned release does not match the exact allowlist\n' >&2; exit 65; }
 for name in $expected; do
@@ -26,10 +26,10 @@ for name in $expected; do
     || { printf 'unsafe unsigned artifact: %s\n' "$name" >&2; exit 66; }
 done
 manifest="$unsigned_dir/manifest"
-[ "$(size "$manifest")" -le 16384 ] && [ "$(wc -l < "$manifest" | tr -d '[:space:]')" -eq 33 ] \
+[ "$(size "$manifest")" -le 16384 ] && [ "$(wc -l < "$manifest" | tr -d '[:space:]')" -eq 64 ] \
   || { printf 'Desktop Tools manifest size or key count is invalid\n' >&2; exit 65; }
-[ "$(value schema_version)" = 6 ] && [ "$(value product_id)" = desktop-tools ] \
-  || { printf 'manifest is not Desktop Tools schema v6\n' >&2; exit 65; }
+[ "$(value schema_version)" = 7 ] && [ "$(value product_id)" = desktop-tools ] \
+  || { printf 'manifest is not Desktop Tools schema v7\n' >&2; exit 65; }
 [ "$(value key_id)" = "$signer_id" ] || { printf 'manifest signer identity mismatch\n' >&2; exit 65; }
 release_id="$(value release_id)"; case "$release_id" in ''|[!a-z0-9]*|*[!a-z0-9._-]*) printf 'invalid release identifier\n' >&2; exit 65 ;; esac
 created="$(value created_at)"; expires="$(value expires_at)"; now="$(date -u +%s)"
@@ -37,7 +37,11 @@ case "$created:$expires" in *[!0-9:]*|:|*:) printf 'invalid release validity win
 [ "$created" -le "$((now + 300))" ] && [ "$expires" -gt "$now" ] && [ "$created" -lt "$expires" ] && [ "$((expires-created))" -le 604800 ] \
   || { printf 'release validity window is not current and bounded\n' >&2; exit 65; }
 [ "$(value engine_node_min)" = 22 ] || { printf 'unsupported engine runtime\n' >&2; exit 65; }
-case "$(value runtime_node_version)" in 24.[0-9]*.[0-9]*) ;; *) printf 'unsupported bundled runtime\n' >&2; exit 65 ;; esac
+[[ "$(value runtime_node_version)" =~ ^24\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] \
+  || { printf 'unsupported bundled runtime\n' >&2; exit 65; }
+opencode_version="$(value opencode_version)"
+[[ "$opencode_version" =~ ^2\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z.-]+)?$ ]] \
+  || { printf 'invalid pinned OpenCode version\n' >&2; exit 65; }
 validate() {
   prefix="$1"; filename="$2"; maximum="$3"; path="$unsigned_dir/$filename"
   [ "$(value "${prefix}_url")" = "https://desktop.tools/releases/$release_id/$filename" ] \
@@ -50,6 +54,14 @@ validate engine desktop-tools-engine.mjs 8388608
 validate catalog catalog.json 8388608
 validate launcher start 8388608
 for platform in macos-x64 macos-arm64 linux-x64 linux-arm64; do validate "runtime_${platform//-/_}" "node-$platform.tar.gz" 100663296; done
+for platform in macos-x64 macos-arm64; do validate "opencode_${platform//-/_}" "opencode-$platform.zip" 167772160; done
+for platform in linux-x64 linux-arm64; do validate "opencode_${platform//-/_}" "opencode-$platform.tar.gz" 167772160; done
+validate supervisor desktop-tools-supervisor.mjs 8388608
+validate tools desktop-tools-tools.tar.gz 33554432
+validate opencode_lock opencode.lock.json 8388608
+validate sbom release.sbom.json 8388608
+validate provenance release.provenance.json 8388608
+validate licenses THIRD_PARTY_LICENSES.txt 8388608
 
 [ -f "$signing_key" ] && [ ! -L "$signing_key" ] || { printf 'signing key is unsafe\n' >&2; exit 66; }
 key_mode=$((8#$(mode "$signing_key"))); (( (key_mode & 077) == 0 )) || { printf 'signing key permissions are too broad\n' >&2; exit 77; }
@@ -69,6 +81,6 @@ printf '%s %s\n' "$signer_id" "$public_key" > "$stage/allowed-signers"
 ssh-keygen -Y verify -f "$stage/allowed-signers" -I "$signer_id" -n desktop.tools.release -s "$stage/manifest.sig" < "$stage/manifest" >/dev/null
 rm -f "$stage/allowed-signers"; [ "$(size "$stage/manifest.sig")" -le 8192 ] || { printf 'signature is oversized\n' >&2; exit 69; }
 chmod 0600 "$stage/manifest" "$stage/manifest.sig" "$stage"/*.json "$stage"/*.tar.gz 2>/dev/null || true
-chmod 0700 "$stage/provision.sh" "$stage/desktop-tools-engine.mjs" "$stage/start"
+chmod 0700 "$stage/provision.sh" "$stage/desktop-tools-engine.mjs" "$stage/desktop-tools-supervisor.mjs" "$stage/start"
 mv "$stage" "$output_dir"; trap - EXIT HUP INT TERM
 printf 'signed Desktop Tools release %s created at %s\n' "$release_id" "$output_dir"

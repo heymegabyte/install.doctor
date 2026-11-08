@@ -16,17 +16,43 @@ async function fixture(t, mutate = value => value) {
   t.after(async () => { const { rm } = await import('node:fs/promises'); await rm(directory, { recursive: true, force: true }); });
   const releaseId = `desktop-${randomUUID()}`;
   const bodies = new Map();
-  for (const name of DESKTOP_RELEASE_FILES.filter(name => !['manifest', 'manifest.sig'].includes(name))) bodies.set(name, Buffer.from(`${name}\n`));
+  const evidence = ['manifest', 'manifest.sig', 'release.sbom.json', 'release.provenance.json', 'THIRD_PARTY_LICENSES.txt'];
+  for (const name of DESKTOP_RELEASE_FILES.filter(name => !evidence.includes(name))) bodies.set(name, Buffer.from(`${name}\n`));
+  bodies.set('catalog.json', Buffer.from('[]\n'));
   const now = Math.floor(Date.now() / 1_000);
+  const opencodeVersion = '2.2.5';
+  const lockedNames = { macos_x64: 'opencode-macos-x64.zip', macos_arm64: 'opencode-macos-arm64.zip',
+    linux_x64: 'opencode-linux-x64.tar.gz', linux_arm64: 'opencode-linux-arm64.tar.gz' };
+  const lock = { schemaVersion: 1, name: 'opencode', version: opencodeVersion, sourceCommit: 'c'.repeat(40), license: 'MIT',
+    sourceVerification: { tagCommit: 'c'.repeat(40), gitHubVerified: false, assetDigestSource: 'github-release-api' }, artifacts: {} };
+  for (const [platform, name] of Object.entries(lockedNames)) lock.artifacts[platform] = { releaseFilename: name,
+    upstreamUrl: `https://github.com/anomalyco/opencode/releases/download/v${opencodeVersion}/fixture-${name}`,
+    sha256: digest(bodies.get(name)), size: bodies.get(name).byteLength };
+  bodies.set('opencode.lock.json', Buffer.from(`${JSON.stringify(lock)}\n`));
+  const closure = [...bodies.entries()];
+  bodies.set('release.sbom.json', Buffer.from(`${JSON.stringify({ bomFormat: 'CycloneDX', specVersion: '1.6', version: 1,
+    metadata: { component: { name: 'desktop-tools-release', version: releaseId, properties: [
+      { name: 'desktop.tools:source-commit', value: 'a'.repeat(40) }, { name: 'desktop.tools:opencode-version', value: opencodeVersion }
+    ] } }, components: closure.map(([name, bytes]) => ({ name, hashes: [{ alg: 'SHA-256', content: digest(bytes) }] })) })}\n`));
+  const provenance = { _type: 'https://in-toto.io/Statement/v1',
+    predicateType: 'https://slsa.dev/provenance/v1', subject: closure.map(([name, bytes]) => ({ name, digest: { sha256: digest(bytes) } })),
+    predicate: { buildDefinition: { externalParameters: { releaseId, sourceCommit: 'a'.repeat(40), opencodeVersion },
+      resolvedDependencies: Object.values(lock.artifacts).map(artifact => ({ uri: artifact.upstreamUrl, digest: { sha256: artifact.sha256 } })) } } };
+  bodies.set('release.provenance.json', Buffer.from(`${JSON.stringify(provenance)}\n`));
+  bodies.set('THIRD_PARTY_LICENSES.txt', Buffer.from(`OpenCode ${opencodeVersion}\nMIT License\n`));
   const entries = [
-    'schema_version=6', 'product_id=desktop-tools', `release_id=${releaseId}`, `source_commit=${'a'.repeat(40)}`,
+    'schema_version=7', 'product_id=desktop-tools', `release_id=${releaseId}`, `source_commit=${'a'.repeat(40)}`,
     `created_at=${now - 1}`, `expires_at=${now + 86_400}`, 'key_id=desktop-production-1',
-    'engine_node_min=22', 'runtime_node_version=24.11.0'
+    'engine_node_min=22', 'runtime_node_version=24.11.0', `opencode_version=${opencodeVersion}`
   ];
   const artifacts = [
     ['artifact','provision.sh'], ['engine','desktop-tools-engine.mjs'], ['catalog','catalog.json'], ['launcher','start'],
     ['runtime_macos_x64','node-macos-x64.tar.gz'], ['runtime_macos_arm64','node-macos-arm64.tar.gz'],
-    ['runtime_linux_x64','node-linux-x64.tar.gz'], ['runtime_linux_arm64','node-linux-arm64.tar.gz']
+    ['runtime_linux_x64','node-linux-x64.tar.gz'], ['runtime_linux_arm64','node-linux-arm64.tar.gz'],
+    ['opencode_macos_x64','opencode-macos-x64.zip'], ['opencode_macos_arm64','opencode-macos-arm64.zip'],
+    ['opencode_linux_x64','opencode-linux-x64.tar.gz'], ['opencode_linux_arm64','opencode-linux-arm64.tar.gz'],
+    ['supervisor','desktop-tools-supervisor.mjs'], ['tools','desktop-tools-tools.tar.gz'], ['opencode_lock','opencode.lock.json'],
+    ['sbom','release.sbom.json'], ['provenance','release.provenance.json'], ['licenses','THIRD_PARTY_LICENSES.txt']
   ];
   for (const [prefix, name] of artifacts) entries.push(
     `${prefix}_url=https://desktop.tools/releases/${releaseId}/${name}`,
@@ -55,7 +81,7 @@ function storage() {
   };
 }
 
-test('publishes an exact Desktop Tools v6 release in a product-qualified immutable keyspace', async t => {
+test('publishes an exact Desktop Tools v7 release in a product-qualified immutable keyspace', async t => {
   const release = await fixture(t);
   const target = storage();
   let verified;
