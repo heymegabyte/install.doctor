@@ -496,7 +496,10 @@ Environment=HOME=${HOME}
 Environment=MEGABYTE_CACHE_ROOT=${CACHE_ROOT}
 Environment=MEGABYTE_NEXUS_URL=${NEXUS_BASE}
 Environment=MEGABYTE_LOCAL_PROXY_PORT=${LOCAL_PROXY_PORT}
+Environment=MALLOC_TRIM_THRESHOLD_=65536
 ExecStart=/usr/bin/python3 ${HOME}/.local/bin/megabyte-local-proxy
+MemoryHigh=256M
+MemoryMax=512M
 Restart=always
 RestartSec=2
 
@@ -518,7 +521,10 @@ Type=simple
 Environment=MEGABYTE_CACHE_ROOT=${CACHE_ROOT}
 Environment=MEGABYTE_NEXUS_URL=${NEXUS_BASE}
 Environment=MEGABYTE_LOCAL_PROXY_PORT=${LOCAL_PROXY_PORT}
+Environment=MALLOC_TRIM_THRESHOLD_=65536
 ExecStart=/usr/bin/python3 ${HOME}/.local/bin/megabyte-local-proxy
+MemoryHigh=256M
+MemoryMax=512M
 Restart=always
 RestartSec=2
 

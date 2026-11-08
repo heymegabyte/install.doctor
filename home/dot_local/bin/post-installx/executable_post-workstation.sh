@@ -2299,6 +2299,7 @@ if command -v zfs >/dev/null 2>&1; then
   ZFS_SNAPS="$(zfs list -H -t snapshot 2>/dev/null | wc -l | tr -d " ")"
   BCLONE="$(cat /sys/module/zfs/parameters/zfs_bclone_enabled 2>/dev/null || printf "n/a")"
   ZPOOL_HEALTH="$(zpool list -H -o health 2>/dev/null | sort -u | paste -sd, - || printf "n/a")"
+  [ -z "$ZPOOL_HEALTH" ] && ZPOOL_HEALTH="n/a"
 else
   ZFS_SNAPS="0"
   BCLONE="n/a"
@@ -2312,13 +2313,186 @@ RETIRED_VPN_STATE="$(! command -v "$RETIRED_VPN" >/dev/null 2>&1 && printf "purg
 EGRESS_GUARD="$(systemctl is-active fleet-egress-guard.service 2>/dev/null || true)"
 CROWDSEC_STATE="$(systemctl is-active crowdsec 2>/dev/null || true)"
 EARLYOOM_STATE="$(systemctl is-active earlyoom.service 2>/dev/null || true)"
+EMDASH_WS="idle"
+for _esock in "$HOME/.emdash/workspace-server/run/workspace.sock" /home/*/.emdash/workspace-server/run/workspace.sock; do
+  if [ -S "$_esock" ]; then
+    EMDASH_WS="ready"
+    break
+  fi
+done
 SANDBOX_READY="$(command -v fleet-agent-sandbox >/dev/null 2>&1 && command -v bwrap >/dev/null 2>&1 && printf "ready" || printf "missing")"
-FAILED_UNITS="$(systemctl --failed --no-legend --plain 2>/dev/null | wc -l | tr -d " ")"
-printf "host=%s pbs=\"%s\" zfs_snaps=%s zpool_health=%s bclone=%s bbr=%s thp=%s ssh_pqc=%s %s=%s egress_nft=%s crowdsec=%s earlyoom=%s sandbox=%s failed=%s\n" \
-  "$HOST" "$PBS_VER" "$ZFS_SNAPS" "$ZPOOL_HEALTH" "$BCLONE" "$BBR" "$THP_DEFRAG" "$PQC" "$RETIRED_VPN" "$RETIRED_VPN_STATE" "$EGRESS_GUARD" "$CROWDSEC_STATE" "$EARLYOOM_STATE" "$SANDBOX_READY" "$FAILED_UNITS"
+CF_METRICS="down"
+for _cfp in 20241 18891; do
+  if curl -fsS --max-time 2 "http://127.0.0.1:${_cfp}/metrics" >/dev/null 2>&1; then
+    CF_METRICS="$_cfp"
+    break
+  fi
+done
+LOCAL_PROXY="$(curl -fsS --max-time 2 http://127.0.0.1:4880/healthz >/dev/null 2>&1 && printf "4880" || printf "down")"
+BACKREST_PORT="$(ss -tln 2>/dev/null | grep -q ':9898 ' && printf "9898" || printf "down")"
+NOFILE_CFG="$(grep -q 'DefaultLimitNOFILE=65536:524288' /etc/systemd/system.conf.d/99-fleet-accounting.conf 2>/dev/null && printf "524288" || printf "default")"
+SYS_FAILED="$(systemctl --failed --no-legend --plain 2>/dev/null | wc -l | tr -d " ")"
+USR_FAILED="$(XDG_RUNTIME_DIR="/run/user/$(id -u)" systemctl --user --failed --no-legend --plain 2>/dev/null | wc -l | tr -d " ")"
+FAILED_UNITS="$(( ${SYS_FAILED:-0} + ${USR_FAILED:-0} ))"
+printf "host=%s pbs=\"%s\" zpool_health=%s zfs_snaps=%s bclone=%s bbr=%s thp=%s ssh_pqc=%s %s=%s egress_nft=%s crowdsec=%s earlyoom=%s emdash_ws=%s local_proxy=%s backrest=%s nofile=%s cf_metrics=%s sandbox=%s failed=%s\n" \
+  "$HOST" "$PBS_VER" "$ZPOOL_HEALTH" "$ZFS_SNAPS" "$BCLONE" "$BBR" "$THP_DEFRAG" "$PQC" "$RETIRED_VPN" "$RETIRED_VPN_STATE" "$EGRESS_GUARD" "$CROWDSEC_STATE" "$EARLYOOM_STATE" "$EMDASH_WS" "$LOCAL_PROXY" "$BACKREST_PORT" "$NOFILE_CFG" "$CF_METRICS" "$SANDBOX_READY" "$FAILED_UNITS"
 EOF
   run_root install -m 0755 "$TMP_DIR/fleet-dr-verify" /usr/local/bin/fleet-dr-verify
   run_root ln -sf /usr/local/bin/fleet-dr-verify /usr/local/bin/fleet-parity-audit
+
+  # Ensure ZFS pools have autotrim=on and autoexpand=on
+  if command -v zpool >/dev/null 2>&1; then
+    for zp in $(zpool list -H -o name 2>/dev/null || true); do
+      run_root zpool set autotrim=on "$zp" 2>/dev/null || true
+      run_root zpool set autoexpand=on "$zp" 2>/dev/null || true
+    done
+  fi
+
+  # Remove antique pam_ssh_agent_auth.so from /etc/pam.d/sudo to prevent LOG_ERR key_from_blob spam on Ed25519-SK/Secretive keys
+  if [ -f /etc/pam.d/sudo ] && grep -q 'pam_ssh_agent_auth\.so' /etc/pam.d/sudo 2>/dev/null; then
+    run_root sed -i '/pam_ssh_agent_auth\.so/d' /etc/pam.d/sudo 2>/dev/null || true
+  fi
+
+  # Ensure earlyoom is installed, tuned to protect session/tunnel/container daemons, and active
+  if ! command -v earlyoom >/dev/null 2>&1 && command -v apt-get >/dev/null 2>&1; then
+    run_root env DEBIAN_FRONTEND=noninteractive apt-get install -y -qq earlyoom >/dev/null 2>&1 || true
+  fi
+  if command -v earlyoom >/dev/null 2>&1; then
+    cat > "$TMP_DIR/earlyoom.default" <<'EOF'
+EARLYOOM_ARGS="-r 3600 -m 5 -s 20 --prefer '(Web Content|Isolated Web|chromium|chrome|node|python3)' --avoid '(^|/)(init|systemd|sshd|gnome-shell|gnome-session|Xwayland|wayland|pipewire|wireplumber|Xkasmvnc|xtigervncviewer|cloudflared|dockerd|containerd|cua-driver)$'"
+EOF
+    run_root install -m 0644 "$TMP_DIR/earlyoom.default" /etc/default/earlyoom
+    run_root systemctl enable --now earlyoom.service >/dev/null 2>&1 || true
+  fi
+
+  # Converge systemd accounting & DefaultLimitNOFILE=65536:524288 across all Linux hosts (with 0755 dir perms)
+  run_root install -d -m 0755 /etc/systemd/system.conf.d
+  run_root chmod 0755 /etc/systemd/system.conf.d 2>/dev/null || true
+  cat > "$TMP_DIR/99-fleet-accounting.conf" <<'EOF'
+[Manager]
+DefaultIPAccounting=yes
+DefaultCPUAccounting=yes
+DefaultIOAccounting=yes
+DefaultMemoryAccounting=yes
+DefaultLimitNOFILE=65536:524288
+DefaultLimitMEMLOCK=infinity
+EOF
+  run_root install -m 0644 "$TMP_DIR/99-fleet-accounting.conf" /etc/systemd/system.conf.d/99-fleet-accounting.conf
+
+  # Converge low-latency NVMe & SATA/AHCI SSD blk-mq udev rules
+  cat > "$TMP_DIR/65-fleet-ssd-latency.rules" <<'EOF'
+# Persistent low-latency blk-mq queue tuning for NVMe & SATA/AHCI SSDs + Samsung S4LN058A01/SM951 (MZHPV512) 32 KiB DMA bound
+ACTION=="add|change", SUBSYSTEM=="block", KERNEL=="nvme[0-9]*n[0-9]*", ATTR{queue/scheduler}="none"
+ACTION=="add|change", SUBSYSTEM=="block", KERNEL=="nvme[0-9]*n[0-9]*|sd[a-z]", ATTR{queue/rotational}=="0", ATTR{queue/rq_affinity}="2", ATTR{queue/add_random}="0", ATTR{queue/nomerges}="2", ATTR{queue/wbt_lat_usec}="2000"
+ACTION=="add|change", SUBSYSTEM=="block", KERNEL=="sd[a-z]", ATTRS{model}=="*MZHPV512*", ATTR{queue/max_sectors_kb}="32", ATTR{queue/nr_requests}="32", ATTR{queue/nomerges}="2"
+EOF
+  run_root install -m 0644 "$TMP_DIR/65-fleet-ssd-latency.rules" /etc/udev/rules.d/65-fleet-ssd-latency.rules
+  run_root rm -f /etc/udev/rules.d/70-snap.canonical-livepatch.rules 2>/dev/null || true
+
+  # Stop and mask noisy timers & stray WS-Discovery multicast helper (gvfsd-wsdd / wsdd :3702)
+  run_root systemctl disable --now apport-autoreport.timer snapd.snap-repair.timer wsdd.service 2>/dev/null || true
+  run_root systemctl mask apport-autoreport.timer snapd.snap-repair.timer wsdd.service 2>/dev/null || true
+  if [ -e /usr/libexec/gvfsd-wsdd ]; then
+    run_root chmod 0000 /usr/libexec/gvfsd-wsdd 2>/dev/null || true
+  fi
+  run_root pkill -f '/usr/bin/wsdd' 2>/dev/null || true
+
+  # Lock down KasmVNC UDP ports (6901, 8444) from non-loopback ingress
+  if command -v ufw >/dev/null 2>&1; then
+    run_root ufw deny in to any port 6901 proto udp comment 'Block external KasmVNC UDP 6901' >/dev/null 2>&1 || true
+    run_root ufw deny in to any port 8444 proto udp comment 'Block external KasmVNC UDP 8444' >/dev/null 2>&1 || true
+  fi
+
+  # Weekly Docker Image/BuildKit GC & Primary SSD SMART Short Self-Test
+  if command -v docker >/dev/null 2>&1; then
+    cat > "$TMP_DIR/fleet-docker-gc.service" <<'EOF'
+[Unit]
+Description=Weekly Docker Image/BuildKit GC & Primary SSD SMART Short Self-Test
+After=docker.service
+
+[Service]
+Type=oneshot
+IOWeight=20
+CPUWeight=20
+Nice=19
+PrivateTmp=yes
+ProtectSystem=full
+UMask=0077
+ExecStart=-/usr/sbin/smartctl -t short /dev/sda
+ExecStart=/usr/bin/docker image prune -af --filter "until=168h"
+ExecStart=/usr/bin/docker builder prune -af --keep-storage 20GB
+EOF
+    cat > "$TMP_DIR/fleet-docker-gc.timer" <<'EOF'
+[Unit]
+Description=Weekly Docker Image/BuildKit GC & SSD SMART Short Test Timer
+
+[Timer]
+OnCalendar=Sun *-*-* 03:45:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+EOF
+    run_root install -m 0644 "$TMP_DIR/fleet-docker-gc.service" /etc/systemd/system/fleet-docker-gc.service
+    run_root install -m 0644 "$TMP_DIR/fleet-docker-gc.timer" /etc/systemd/system/fleet-docker-gc.timer
+    run_root systemctl daemon-reload >/dev/null 2>&1 || true
+    run_root systemctl enable --now fleet-docker-gc.timer >/dev/null 2>&1 || true
+  fi
+
+  # Capability-aware swappiness (100 when /dev/zram0 is active, 10 when only disk swap is present)
+  if [ -b /dev/zram0 ]; then
+    run_root sysctl -w vm.swappiness=100 >/dev/null 2>&1 || true
+  else
+    run_root sysctl -w vm.swappiness=10 >/dev/null 2>&1 || true
+  fi
+fi
+
+# Clean retired post-installx scripts and stale temp binaries across all hosts
+rm -f "$HOME/.local/bin/post-installx/post-atuin.sh" \
+      "$HOME/.local/bin/post-installx/post-tailscale.sh" \
+      "$HOME/.local/bin"/get-secret-*.mjs \
+      "$HOME/.local/bin"/agy.*.old 2>/dev/null || true
+
+# Self-healing user systemd agent-skills-sync.service & emdash-workspace-server.service on Linux
+if [ "$(uname -s)" = "Linux" ] && [ -d "$HOME/.config/systemd/user" ]; then
+  cat > "$HOME/.config/systemd/user/agent-skills-sync.service" <<'EOF'
+[Unit]
+Description=Synchronize canonical agent skills and derived search
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/bin/sh -c 'git -C "$HOME/.agentskills" fetch origin master && git -C "$HOME/.agentskills" reset --hard origin/master'
+Environment="PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin"
+UMask=0077
+EOF
+  if [ -x "$HOME/.emdash/workspace-server/current/bin/emdash-workspace-server" ]; then
+    mkdir -p "$HOME/.emdash/workspace-server/run"
+    cat > "$HOME/.config/systemd/user/emdash-workspace-server.service" <<'EOF'
+[Unit]
+Description=Emdash remote workspace wire daemon
+After=default.target
+
+[Service]
+Type=simple
+ExecStartPre=-/bin/rm -f %h/.emdash/workspace-server/run/workspace.sock %h/.emdash/workspace-server/run/workspace.sock.lock
+ExecStart=%h/.emdash/workspace-server/current/bin/emdash-workspace-server serve --socket %h/.emdash/workspace-server/run/workspace.sock
+Restart=always
+RestartSec=2
+UMask=0077
+
+[Install]
+WantedBy=default.target
+EOF
+    XDG_RUNTIME_DIR="/run/user/$(id -u)" systemctl --user daemon-reload 2>/dev/null || true
+    XDG_RUNTIME_DIR="/run/user/$(id -u)" systemctl --user enable --now emdash-workspace-server.service 2>/dev/null || true
+  fi
+  XDG_RUNTIME_DIR="/run/user/$(id -u)" systemctl --user daemon-reload 2>/dev/null || true
+  XDG_RUNTIME_DIR="/run/user/$(id -u)" systemctl --user reset-failed agent-skills-sync.service 2>/dev/null || true
+fi
+
+if [ -x "$HOME/.local/bin/desktop-tools" ]; then
+  "$HOME/.local/bin/desktop-tools" doctor >/dev/null 2>&1 || true
 fi
 
 # GNOME 50 Mutter adaptive VSync for smooth remote desktop streaming

@@ -14,15 +14,16 @@ OS_NAME="$(uname -s 2>/dev/null | tr '[:upper:]' '[:lower:]' || echo unknown)"
 printf '{"ts":"%s","event":"chezmoi_apply_completed","host":"%s","os":"%s","controlPlane":"desktop.tools","status":"ok"}\n' \
   "$TS" "$HOST_SHORT" "$OS_NAME" >> "$LOG_DIR/events.ndjson" 2>/dev/null || true
 
-[ "${DESKTOP_TOOLS_SKIP_REPORT:-${AID_SKIP_REPORT:-0}}" = "1" ] && exit 0
+SKIP_REPORT="${DESKTOP_TOOLS_SKIP_REPORT:-0}"
+[ "$SKIP_REPORT" = "1" ] && exit 0
 
-DESKTOP_TOOLS_TOKEN_PATH="${DESKTOP_TOOLS_TOKEN_PATH:-${AID_TOKEN_PATH:-$HOME/.config/desktop-tools/device-token}}"
+DESKTOP_TOOLS_TOKEN_PATH="${DESKTOP_TOOLS_TOKEN_PATH:-$HOME/.config/desktop-tools/device-token}"
 if [ ! -s "$DESKTOP_TOOLS_TOKEN_PATH" ] && [ -s "$HOME/.config/aid/device-token" ]; then
   DESKTOP_TOOLS_TOKEN_PATH="$HOME/.config/aid/device-token"
 fi
 [ -s "$DESKTOP_TOOLS_TOKEN_PATH" ] || exit 0
 
-CLIENT_BIN="${DESKTOP_TOOLS_BIN:-${AID_BIN:-$HOME/.local/bin/desktop-tools}}"
+CLIENT_BIN="${DESKTOP_TOOLS_BIN:-$HOME/.local/bin/desktop-tools}"
 if [ ! -x "$CLIENT_BIN" ]; then
   if command -v desktop-tools >/dev/null 2>&1; then
     CLIENT_BIN="$(command -v desktop-tools)"

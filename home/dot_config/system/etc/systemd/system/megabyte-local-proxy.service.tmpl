@@ -10,7 +10,10 @@ Environment=HOME={{ .chezmoi.homeDir }}
 Environment=MEGABYTE_CACHE_ROOT={{ .chezmoi.homeDir }}/.cache/megabyte
 Environment=MEGABYTE_NEXUS_URL=https://nexus.megabyte.space
 Environment=MEGABYTE_LOCAL_PROXY_PORT=4880
+Environment=MALLOC_TRIM_THRESHOLD_=65536
 ExecStart=/usr/bin/python3 {{ .chezmoi.homeDir }}/.local/bin/megabyte-local-proxy
+MemoryHigh=256M
+MemoryMax=512M
 Restart=always
 RestartSec=2
 
