@@ -1046,6 +1046,38 @@ printf 'VERIFIED_CATALOG_MODE=%s\nVERIFIED_CATALOG_BODY=%s\n' "$catalog_mode" "$
   fixture.assertStageClean();
 });
 
+test('Desktop Tools release policy is source-owned while legacy release verification remains available', async () => {
+  const { renderBootstrap, parseBootstrapReleaseConfig } = await import('../src/bootstrap.ts');
+  const { releaseObjectUrl, releasePolicy } = await import('../src/release-policy.ts');
+  const key = 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
+  const desktopConfig = {
+    product: 'desktop-tools',
+    manifestUrl: 'https://desktop.tools/releases/release-1/manifest',
+    signatureUrl: 'https://desktop.tools/releases/release-1/manifest.sig',
+    signerIdentity: 'desktop-tools-production-1',
+    signerPublicKey: key
+  };
+  const script = renderBootstrap(desktopConfig);
+  assert.match(script, /readonly RELEASE_ORIGIN='https:\/\/desktop\.tools'/);
+  assert.match(script, /readonly SIGNATURE_NAMESPACE='desktop\.tools\.release'/);
+  assert.match(script, /desktop-tools\.engine|desktop-tools-engine\.mjs/);
+  assert.match(script, /desktop-tools\.XXXXXXXX/);
+  assert.doesNotThrow(() => execFileSync('bash', ['-n'], { input: script }));
+  assert.equal(releaseObjectUrl('desktop-tools', 'release-1', 'desktop-tools-engine.mjs'),
+    'https://desktop.tools/releases/release-1/desktop-tools-engine.mjs');
+  assert.equal(releasePolicy('legacy-install-doctor').signatureNamespace, 'install.doctor.release');
+  assert.doesNotThrow(() => parseBootstrapReleaseConfig({
+    manifestUrl: 'https://app.install.doctor/releases/legacy-1/manifest',
+    signatureUrl: 'https://app.install.doctor/releases/legacy-1/manifest.sig',
+    signerIdentity: 'legacy-production-1', signerPublicKey: key
+  }));
+  assert.throws(() => parseBootstrapReleaseConfig({
+    ...desktopConfig,
+    manifestUrl: 'https://app.install.doctor/releases/release-1/manifest'
+  }));
+  assert.throws(() => releaseObjectUrl('desktop-tools', 'release-1', 'install-doctor-engine.mjs'));
+});
+
 test('Rendered /start gates the kernel and architecture before any release download', async (t) => {
   const fixture = makeBootstrapRuntimeFixture(t);
   const { renderBootstrap } = await import('../src/bootstrap.ts');

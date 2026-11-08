@@ -1,11 +1,14 @@
 import { z } from 'zod';
+import { releasePolicy, ReleaseProduct } from './release-policy.ts';
 
 const BootstrapReleaseConfig = z.strictObject({
-  manifestUrl: z.string().url().startsWith('https://app.install.doctor/releases/'),
-  signatureUrl: z.string().url().startsWith('https://app.install.doctor/releases/'),
+  product: ReleaseProduct.default('legacy-install-doctor'),
+  manifestUrl: z.string().url(),
+  signatureUrl: z.string().url(),
   signerIdentity: z.string().regex(/^[a-z0-9][a-z0-9._-]{0,127}$/),
   signerPublicKey: z.string().regex(/^ssh-ed25519 [A-Za-z0-9+/]+={0,3}(?: [^\r\n]{1,128})?$/),
 }).superRefine((config, context) => {
+  const policy = releasePolicy(config.product);
   const manifestUrl = new URL(config.manifestUrl);
   const signatureUrl = new URL(config.signatureUrl);
   const manifestMatch = manifestUrl.pathname.match(
@@ -15,8 +18,8 @@ const BootstrapReleaseConfig = z.strictObject({
     /^\/releases\/([a-z0-9][a-z0-9._-]{0,127})\/manifest\.sig$/,
   );
   if (
-    manifestUrl.origin !== 'https://app.install.doctor'
-    || signatureUrl.origin !== 'https://app.install.doctor'
+    manifestUrl.origin !== policy.origin
+    || signatureUrl.origin !== policy.origin
     || manifestUrl.search || manifestUrl.hash || signatureUrl.search || signatureUrl.hash
     || !manifestMatch || !signatureMatch || manifestMatch[1] !== signatureMatch[1]
   ) {
@@ -42,10 +45,11 @@ export function parseBootstrapReleaseConfig(input: unknown): BootstrapReleaseCon
  */
 export function renderBootstrap(configInput: unknown): string {
   const config = parseBootstrapReleaseConfig(configInput);
+  const policy = releasePolicy(config.product);
   const expectedReleaseId = new URL(config.manifestUrl).pathname.split('/')[2];
   const literal = (value: string): string => `'${value.replaceAll("'", "'\\''")}'`;
   return `#!/usr/bin/env bash
-# app.install.doctor/start — signed release bootstrap
+# ${policy.origin}/start — signed release bootstrap
 set -euo pipefail
 umask 077
 
@@ -54,7 +58,8 @@ readonly SIGNATURE_URL=${literal(config.signatureUrl)}
 readonly SIGNER_ID=${literal(config.signerIdentity)}
 readonly SIGNER_KEY=${literal(config.signerPublicKey)}
 readonly EXPECTED_RELEASE_ID=${literal(expectedReleaseId)}
-readonly SIGNATURE_NAMESPACE='install.doctor.release'
+readonly RELEASE_ORIGIN=${literal(policy.origin)}
+readonly SIGNATURE_NAMESPACE=${literal(policy.signatureNamespace)}
 readonly MAX_MANIFEST_BYTES=16384
 readonly MAX_SIGNATURE_BYTES=8192
 readonly MAX_ARTIFACT_BYTES=8388608
@@ -64,7 +69,7 @@ readonly MIN_ENGINE_NODE_MAJOR=22
 readonly MAX_RELEASE_LIFETIME=604800
 readonly APPROVED_PATH='/opt/homebrew/bin:/home/linuxbrew/.linuxbrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin'
 
-die() { printf 'install.doctor: %s\\n' "$*" >&2; exit 1; }
+die() { printf '${policy.diagnosticName}: %s\\n' "$*" >&2; exit 1; }
 need() { command -v "$1" >/dev/null 2>&1 || die "$1 is required before installation; install it from your operating-system package manager"; }
 size() { wc -c < "$1" | tr -d '[:space:]'; }
 sha256() {
@@ -74,7 +79,7 @@ sha256() {
 }
 download() {
   local url="$1" destination="$2" limit="$3"
-  case "$url" in https://app.install.doctor/releases/*) ;; *) die 'release URL is outside the approved HTTPS origin' ;; esac
+  case "$url" in "$RELEASE_ORIGIN"/releases/*) ;; *) die 'release URL is outside the approved HTTPS origin' ;; esac
   curl -q --fail --show-error --silent --proto '=https' --proto-redir '=https' --tlsv1.2 \\
     --max-redirs 0 --retry 2 --retry-all-errors --retry-delay 1 --connect-timeout 10 --max-time 60 \\
     --max-filesize "$limit" --output "$destination" "$url"
@@ -102,7 +107,7 @@ ssh_y_help="$(ssh-keygen -Y 2>&1 || true)"
 case "$ssh_y_help" in *'ssh-keygen -Y verify'*) ;; *) die 'this ssh-keygen lacks SSHSIG support; install a current OpenSSH client' ;; esac
 
 case "\${TMPDIR:-/tmp}" in /*) ;; *) die 'TMPDIR must be an absolute path' ;; esac
-STAGE="$(mktemp -d "\${TMPDIR:-/tmp}/install-doctor.XXXXXXXX")" || die 'could not create private staging directory'
+STAGE="$(mktemp -d "\${TMPDIR:-/tmp}/${policy.stagePrefix}.XXXXXXXX")" || die 'could not create private staging directory'
 [ ! -L "$STAGE" ] || die 'refusing a symlink staging directory'
 [ -O "$STAGE" ] || die 'staging directory is not owned by the current user'
 chmod 0700 "$STAGE"
@@ -124,10 +129,10 @@ MANIFEST="$STAGE/manifest"
 SIGNATURE="$STAGE/manifest.sig"
 ALLOWED_SIGNERS="$STAGE/allowed_signers"
 ARTIFACT="$STAGE/provision.sh"
-ENGINE="$STAGE/install-doctor-engine.mjs"
+ENGINE="$STAGE/${policy.engineFilename}"
 CATALOG="$STAGE/catalog.json"
 RUNTIME_ARCHIVE="$STAGE/node-runtime.tar.gz"
-printf 'install.doctor: fetching signed release metadata...\n' >&2
+printf '${policy.diagnosticName}: fetching signed release metadata...\n' >&2
 download "$MANIFEST_URL" "$MANIFEST" "$MAX_MANIFEST_BYTES" & DOWNLOAD_PIDS+=("$!")
 download "$SIGNATURE_URL" "$SIGNATURE" "$MAX_SIGNATURE_BYTES" & DOWNLOAD_PIDS+=("$!")
 download_failed=0
@@ -207,13 +212,13 @@ case "$catalog_sha256" in *[!0-9a-f]*|'') die 'invalid catalog digest' ;; esac
 [ "\${#catalog_sha256}" -eq 64 ] || die 'catalog digest must be SHA-256'
 case "$launcher_sha256" in *[!0-9a-f]*|'') die 'invalid launcher digest' ;; esac
 [ "\${#launcher_sha256}" -eq 64 ] || die 'launcher digest must be SHA-256'
-[ "$artifact_url" = "https://app.install.doctor/releases/$release_id/provision.sh" ] \
+[ "$artifact_url" = "$RELEASE_ORIGIN/releases/$release_id/provision.sh" ] \
   || die 'release artifact URL does not match the signed immutable release'
-[ "$engine_url" = "https://app.install.doctor/releases/$release_id/install-doctor-engine.mjs" ] \\
+[ "$engine_url" = "$RELEASE_ORIGIN/releases/$release_id/${policy.engineFilename}" ] \\
   || die 'release engine URL does not match the signed immutable release'
-[ "$catalog_url" = "https://app.install.doctor/releases/$release_id/catalog.json" ] \\
+[ "$catalog_url" = "$RELEASE_ORIGIN/releases/$release_id/catalog.json" ] \\
   || die 'release catalog URL does not match the signed immutable release'
-[ "$launcher_url" = "https://app.install.doctor/releases/$release_id/start" ] \\
+[ "$launcher_url" = "$RELEASE_ORIGIN/releases/$release_id/start" ] \\
   || die 'release launcher URL does not match the signed immutable release'
 [ "$artifact_size" -gt 0 ] && [ "$artifact_size" -le "$MAX_ARTIFACT_BYTES" ] || die 'artifact size is outside policy'
 [ "$engine_size" -gt 0 ] && [ "$engine_size" -le "$MAX_ARTIFACT_BYTES" ] || die 'engine size is outside policy'
@@ -228,7 +233,7 @@ for runtime_platform in macos-x64 macos-arm64 linux-x64 linux-arm64; do
   runtime_url="\${!runtime_url_name}"
   runtime_sha256="\${!runtime_sha256_name}"
   runtime_size="\${!runtime_size_name}"
-  [ "$runtime_url" = "https://app.install.doctor/releases/$release_id/node-$runtime_platform.tar.gz" ] || die 'runtime URL does not match the signed immutable release and platform'
+  [ "$runtime_url" = "$RELEASE_ORIGIN/releases/$release_id/node-$runtime_platform.tar.gz" ] || die 'runtime URL does not match the signed immutable release and platform'
   case "$runtime_sha256" in *[!0-9a-f]*|'') die 'invalid runtime digest' ;; esac
   [ "\${#runtime_sha256}" -eq 64 ] || die 'runtime digest must be SHA-256'
   [ "$runtime_size" -gt 0 ] && [ "$runtime_size" -le "$MAX_RUNTIME_BYTES" ] || die 'runtime size is outside policy'
@@ -274,7 +279,7 @@ fi
 if [ "$runtime_source" = 'signed-archive' ]; then
   :
 fi
-printf 'install.doctor: fetching verified release payloads in parallel...\n' >&2
+printf '${policy.diagnosticName}: fetching verified release payloads in parallel...\n' >&2
 download "$artifact_url" "$ARTIFACT" "$artifact_size" & DOWNLOAD_PIDS+=("$!")
 download "$engine_url" "$ENGINE" "$engine_size" & DOWNLOAD_PIDS+=("$!")
 download "$catalog_url" "$CATALOG" "$catalog_size" & DOWNLOAD_PIDS+=("$!")
