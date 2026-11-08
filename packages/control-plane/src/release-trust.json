@@ -1,4 +1,15 @@
 {
-  "schemaVersion": 1,
-  "signers": {}
+  "schemaVersion": 2,
+  "products": {
+    "legacy-install-doctor": {
+      "origin": "https://app.install.doctor",
+      "signatureNamespace": "install.doctor.release",
+      "signers": {}
+    },
+    "desktop-tools": {
+      "origin": "https://desktop.tools",
+      "signatureNamespace": "desktop.tools.release",
+      "signers": {}
+    }
+  }
 }

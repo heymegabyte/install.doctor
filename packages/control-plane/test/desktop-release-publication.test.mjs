@@ -5,7 +5,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 import {
-  activateDesktopRelease, DESKTOP_RELEASE_FILES, inspectPublishedDesktopRelease, publishDesktopRelease
+  activateDesktopRelease, DESKTOP_RELEASE_FILES, inspectPublishedDesktopRelease, publishDesktopRelease,
+  reconcileDesktopActivationReceipt
 } from '../scripts/desktop-release-publication.mjs';
 
 const digest = bytes => createHash('sha256').update(bytes).digest('hex');
@@ -93,6 +94,32 @@ test('activates only inspected Desktop Tools releases with product-qualified CAS
   assert.equal([...channels.objects.keys()].some(key => key.startsWith('bootstrap/')), false);
   await assert.rejects(activateDesktopRelease({ channel: 'stable', release: { ...second, product: 'legacy-install-doctor' }, storage: channels,
     expectedEtag: rollback.etag, activationId: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd', activatedAt: '2026-11-08T12:03:00.000Z', now }), /product mismatch/);
+});
+
+test('reconciles a post-CAS receipt failure without repeating activation', async t => {
+  const now = Math.floor(Date.now() / 1_000);
+  const releaseStorage = storage();
+  const channels = storage();
+  const releaseFixture = await fixture(t);
+  const verifySignature = async () => {};
+  await publishDesktopRelease({ ...releaseFixture, expectedReleaseId: releaseFixture.releaseId, storage: releaseStorage, verifySignature, now });
+  const release = await inspectPublishedDesktopRelease({ expectedReleaseId: releaseFixture.releaseId, storage: releaseStorage, verifySignature, now });
+  const originalCreate = channels.create;
+  let failReceipt = true;
+  channels.create = async (key, bytes, metadata) => {
+    if (failReceipt && key.startsWith('desktop-tools/activation-receipts/')) throw new Error('injected receipt outage');
+    return originalCreate(key, bytes, metadata);
+  };
+  const activationId = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee';
+  const activated = await activateDesktopRelease({ channel: 'stable', release, storage: channels,
+    expectedEtag: undefined, activationId, activatedAt: '2026-11-08T13:00:00.000Z', now,
+    minimumPromotionRemainingSeconds: 3_600 });
+  assert.equal(activated.status, 'activated_receipt_pending');
+  failReceipt = false;
+  const reconciled = await reconcileDesktopActivationReceipt({ channel: 'stable', activationId, storage: channels });
+  assert.equal(reconciled.status, 'reconciled');
+  assert.equal((await reconcileDesktopActivationReceipt({ channel: 'stable', activationId, storage: channels })).status, 'already-present');
+  assert.equal(JSON.parse(channels.objects.get('desktop-tools/channels/stable.json').bytes).generation, 1);
 });
 
 test('rejects legacy identity, origin substitution, surplus files, and altered payloads', async t => {

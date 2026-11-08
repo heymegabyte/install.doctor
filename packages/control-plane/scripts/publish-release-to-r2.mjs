@@ -7,7 +7,9 @@ import {
   activateRelease, activateSamePayloadRenewal, inspectActiveReleaseFreshness, inspectPublishedRelease, prepareSamePayloadRenewal,
   publishRelease, reconcileActivationReceipt,
 } from './release-publication.mjs';
-import { publishDesktopRelease } from './desktop-release-publication.mjs';
+import {
+  activateDesktopRelease, inspectPublishedDesktopRelease, publishDesktopRelease, reconcileDesktopActivationReceipt
+} from './desktop-release-publication.mjs';
 import { createR2PublicationStorage } from './r2-publication-storage.mjs';
 
 function requiredEnvironment(name, minimum = 1) {
@@ -67,12 +69,32 @@ function storageFromEnvironment(prefix) {
 
 async function main() {
   const [action, ...arguments_] = process.argv.slice(2);
-  const product = action === 'desktop-publish' ? 'desktop-tools' : 'legacy-install-doctor';
+  const product = action?.startsWith('desktop-') ? 'desktop-tools' : 'legacy-install-doctor';
   const verifySignature = await createSignatureVerifier(product);
   if (action === 'desktop-publish' && arguments_.length === 2) {
     const [directory, releaseId] = arguments_;
     const releaseStorage = storageFromEnvironment('DESKTOP_TOOLS_RELEASE_R2');
     const receipt = await publishDesktopRelease({ directory, expectedReleaseId: releaseId, storage: releaseStorage, verifySignature });
+    process.stdout.write(`${JSON.stringify(receipt)}\n`);
+    return;
+  }
+  if (action === 'desktop-activate' && (arguments_.length === 5 || arguments_.length === 7)) {
+    const [releaseId, channel, expectedEtagValue, activationId, activatedAt, kind = 'promote', rollbackOfActivationId = null] = arguments_;
+    const releaseStorage = storageFromEnvironment('DESKTOP_TOOLS_RELEASE_R2');
+    const channelStorage = storageFromEnvironment('DESKTOP_TOOLS_CHANNEL_R2');
+    const release = await inspectPublishedDesktopRelease({ expectedReleaseId: releaseId, storage: releaseStorage, verifySignature });
+    const receipt = await activateDesktopRelease({ channel, release, storage: channelStorage,
+      expectedEtag: expectedEtagValue === '-' ? undefined : expectedEtagValue,
+      activationId, activatedAt, kind, rollbackOfActivationId });
+    const { pointer, ...safeReceipt } = receipt;
+    process.stdout.write(`${JSON.stringify({ ...safeReceipt, pointer })}\n`);
+    if (receipt.status !== 'activated') process.exitCode = 75;
+    return;
+  }
+  if (action === 'desktop-reconcile' && arguments_.length === 2) {
+    const [channel, activationId] = arguments_;
+    const receipt = await reconcileDesktopActivationReceipt({ channel, activationId,
+      storage: storageFromEnvironment('DESKTOP_TOOLS_CHANNEL_R2') });
     process.stdout.write(`${JSON.stringify(receipt)}\n`);
     return;
   }
@@ -165,7 +187,7 @@ async function main() {
     process.stdout.write(`${JSON.stringify(receipt)}\n`);
     return;
   }
-  throw new Error('usage: publish-release-to-r2.mjs desktop-publish RELEASE_DIRECTORY RELEASE_ID | publish RELEASE_DIRECTORY RELEASE_ID | activate RELEASE_ID CHANNEL EXPECTED_ETAG_OR_- ACTIVATION_UUID ACTIVATED_AT [rollback ROLLBACK_OF_UUID] | freshness CHANNEL [RENEWAL_WINDOW_SECONDS] | renew RELEASE_ID CHANNEL CREATED_AT EXPIRES_AT OUTPUT_DIRECTORY | activate-renewal PLAN_JSON PLAN_SIG ACTIVATION_UUID ACTIVATED_AT | reconcile CHANNEL ACTIVATION_UUID');
+  throw new Error('usage: publish-release-to-r2.mjs desktop-publish RELEASE_DIRECTORY RELEASE_ID | desktop-activate RELEASE_ID CHANNEL EXPECTED_ETAG_OR_- ACTIVATION_UUID ACTIVATED_AT [rollback ROLLBACK_OF_UUID] | desktop-reconcile CHANNEL ACTIVATION_UUID | publish RELEASE_DIRECTORY RELEASE_ID | activate RELEASE_ID CHANNEL EXPECTED_ETAG_OR_- ACTIVATION_UUID ACTIVATED_AT [rollback ROLLBACK_OF_UUID] | freshness CHANNEL [RENEWAL_WINDOW_SECONDS] | renew RELEASE_ID CHANNEL CREATED_AT EXPIRES_AT OUTPUT_DIRECTORY | activate-renewal PLAN_JSON PLAN_SIG ACTIVATION_UUID ACTIVATED_AT | reconcile CHANNEL ACTIVATION_UUID');
 }
 
 main().catch(error => {

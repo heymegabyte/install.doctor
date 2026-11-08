@@ -208,3 +208,28 @@ export async function activateDesktopRelease({
     return Object.freeze({ schemaVersion: 2, status: 'activated_receipt_pending', product: 'desktop-tools', pointer, etag: result.etag, intentKey, receiptKey });
   }
 }
+
+export async function reconcileDesktopActivationReceipt({ channel, activationId, storage }) {
+  if (typeof storage?.read !== 'function' || typeof storage?.create !== 'function') throw new Error('reconciliation storage adapter is invalid');
+  const channelId = id.parse(channel);
+  const activationUuid = z.string().uuid().parse(activationId);
+  const intentKey = `desktop-tools/activations/${channelId}/${activationUuid}.json`;
+  const intentObject = await storage.read(intentKey);
+  if (!intentObject?.bytes) throw new Error('Desktop Tools activation intent is missing');
+  const intentBytes = Buffer.from(intentObject.bytes);
+  const pointer = DesktopPointer.parse(JSON.parse(intentBytes.toString('utf8')));
+  const expected = canonical(pointer);
+  if (!same(intentBytes, expected) || pointer.channel !== channelId || pointer.activationId !== activationUuid) {
+    throw new Error('Desktop Tools activation intent is not canonical for its identity');
+  }
+  const receiptKey = `desktop-tools/activation-receipts/${channelId}/${String(pointer.generation).padStart(12, '0')}-${activationUuid}.json`;
+  const receipt = await storage.read(receiptKey);
+  if (receipt) {
+    if (!same(receipt.bytes, expected)) throw new Error('Desktop Tools activation receipt conflicts with its intent');
+    return Object.freeze({ schemaVersion: 2, product: 'desktop-tools', status: 'already-present', intentKey, receiptKey });
+  }
+  const current = await storage.read(`desktop-tools/channels/${channelId}.json`);
+  if (!current?.bytes || !same(current.bytes, expected)) throw new Error('current Desktop Tools channel does not prove this activation');
+  await createCanonical(storage, receiptKey, pointer);
+  return Object.freeze({ schemaVersion: 2, product: 'desktop-tools', status: 'reconciled', intentKey, receiptKey });
+}

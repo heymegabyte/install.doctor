@@ -116,8 +116,13 @@ check 'promotion verifier has an exact read-only OIDC identity' jq -e '
 check 'every release identity binds immutable repository IDs and an exact workflow ref' jq -e 'all(.workloads[]; .auth.claims.repository_id == "588807533" and .auth.claims.repository_owner_id == "82490183" and (.auth.claims.workflow_ref | test("^heymegabyte/install\\.doctor/\\.github/workflows/[a-z0-9._-]+\\.yml@refs/heads/master$")))' "$POLICY"
 check 'Worker trust is sourced from the versioned trust manifest' grep -q "import trust from './release-trust.json'" "$ROOT/packages/control-plane/src/release-keyring.ts"
 if jq -e '
-  .schemaVersion == 1 and (.signers | type == "object") and
-  ([.signers | to_entries[] | select((.key | test("^[a-z0-9][a-z0-9._-]{0,127}$") | not) or (.value | test("^ssh-ed25519 [A-Za-z0-9+/]+={0,3}( [^[:cntrl:]]{1,128})?$") | not))] | length == 0)
+  .schemaVersion == 2 and (.products | keys == ["desktop-tools","legacy-install-doctor"]) and
+  .products["desktop-tools"].origin == "https://desktop.tools" and
+  .products["desktop-tools"].signatureNamespace == "desktop.tools.release" and
+  .products["legacy-install-doctor"].origin == "https://app.install.doctor" and
+  .products["legacy-install-doctor"].signatureNamespace == "install.doctor.release" and
+  (all(.products[]; (.signers | type == "object") and
+    ([.signers | to_entries[] | select((.key | test("^[a-z0-9][a-z0-9._-]{0,127}$") | not) or (.value | test("^ssh-ed25519 [A-Za-z0-9+/]+={0,3}( [^[:cntrl:]]{1,128})?$") | not))] | length == 0)))
 ' "$ROOT/packages/control-plane/src/release-trust.json" >/dev/null; then pass 'versioned release trust manifest is strict'; else fail 'release trust manifest is malformed'; fi
 if grep -q 'secrets\.' "$WORKFLOW" "$ACTIVATION_WORKFLOW" "$CONTINUITY_WORKFLOW" "$RENEWAL_WORKFLOW"; then fail 'workflow consumes long-lived GitHub Actions secrets'; else pass 'workflow has no GitHub Actions secret dependency'; fi
 

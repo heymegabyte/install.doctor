@@ -2699,7 +2699,7 @@ app.get('/start', async (c) => {
     manifestUrl: `${desktopHost ? 'https://desktop.tools' : 'https://app.install.doctor'}/releases/${active.releaseId}/manifest`,
     signatureUrl: `${desktopHost ? 'https://desktop.tools' : 'https://app.install.doctor'}/releases/${active.releaseId}/manifest.sig`,
     signerIdentity: active.signerId,
-    signerPublicKey: pinnedReleaseSigner(active.signerId),
+    signerPublicKey: pinnedReleaseSigner(desktopHost ? 'desktop-tools' : 'legacy-install-doctor', active.signerId),
   };
   if (Object.values(configured).some((value) => !value)) {
     return c.json({ error: 'release_trust_not_configured', detail: 'The signed release channel is unavailable; no mutable fallback is permitted.' }, 503);
