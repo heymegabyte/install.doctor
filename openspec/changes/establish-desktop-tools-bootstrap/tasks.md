@@ -3,7 +3,7 @@
 ## 1. Product identity and capability truth
 
 - [x] 1.1 Define the canonical Desktop Tools product, package, executable, environment-variable, state-directory, domain, and legacy-name mapping in one strict registry; verify schema validation rejects duplicate, ambiguous, or unowned names.
-- [ ] 1.2 Generate user-facing capability and migration status from the registry rather than contradictory ledgers; verify repository docs and hosted capability claims cannot mark contract-only behavior as live.
+- [x] 1.2 Generate user-facing capability and migration status from the registry rather than contradictory ledgers; verify repository docs and hosted capability claims cannot mark contract-only behavior as live.
 - [ ] 1.3 Add additive compatibility shims for supported Install Doctor and aid commands/state without moving or deleting user data; verify legacy fixtures produce deterministic migration previews and unchanged reapplication.
 - [ ] 1.4 Update product-boundary documentation and operating guidance for Desktop Tools while preserving historical attribution; verify documentation tests reject the retired two-product architecture.
 

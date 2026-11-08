@@ -382,6 +382,26 @@ esac
   return { config, createRelease, run, assertStageClean, mockBin };
 }
 
+test('public product status is generated from evidence-backed Desktop Tools truth', async () => {
+  const app = await loadWorkerApp();
+  const response = await app.fetch(
+    new Request('https://app.install.doctor/api/v1/product-status'),
+    TEST_ENV
+  );
+  assert.equal(response.status, 200);
+  const body = await response.json();
+  assert.equal(body.product, 'Desktop Tools');
+  assert.equal(
+    body.capabilities.find(item => item.id === 'device-authorization').status,
+    'contract-only'
+  );
+  assert.equal(
+    body.migrations.find(item => item.legacy === 'app.install.doctor').canonical,
+    'desktop.tools'
+  );
+  assert.equal(JSON.stringify(body).includes('verified-live'), false);
+});
+
 test('Control Plane Phase 1: PIA endpoints (/api/v1/intent/* and /api/v1/easter-eggs/oracle)', async () => {
   const app = await loadWorkerApp();
 

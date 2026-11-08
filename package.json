@@ -17,12 +17,14 @@
   "type": "commonjs",
   "scripts": {
     "build": "task validate:software",
+    "generate:desktop-tools-status": "cd packages/aid-core && npm run build && cd ../.. && node scripts/generate-desktop-tools-status.mjs",
     "help": "task --list",
     "lint": "task test:scripts",
     "repair": "curl -fsSL https://app.install.doctor/start | bash -s -- --repair",
     "sort:software": "yq -i 'sort_keys(..)' software.yml",
     "start": "bash start.sh",
     "test": "task test",
+    "test:desktop-tools-status": "cd packages/aid-core && npm run build && cd ../.. && node scripts/generate-desktop-tools-status.mjs --check",
     "validate:software": "task validate:software"
   },
   "keywords": [

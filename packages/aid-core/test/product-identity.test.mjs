@@ -2,7 +2,10 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   PRODUCT_IDENTITY,
+  assertCapabilityClaim,
   canonicalIdentity,
+  productStatusPayload,
+  renderProductStatusMarkdown,
   validateProductIdentityRegistry
 } from '../dist/product-identity.js';
 
@@ -57,4 +60,50 @@ test('rejects unknown fields and incomplete canonical registries', () => {
   const incomplete = registry();
   incomplete.canonical = incomplete.canonical.filter(entry => entry.kind !== 'domain-template');
   assert.throws(() => validateProductIdentityRegistry(incomplete), /missing canonical identity kinds/i);
+});
+
+test('prevents contract-only behavior from being claimed as implemented or live', () => {
+  assert.throws(
+    () => assertCapabilityClaim('device-authorization', 'implemented-unverified'),
+    /exceeds evidence/i
+  );
+  assert.throws(
+    () => assertCapabilityClaim('agent-provisioning-session', 'verified-live'),
+    /exceeds evidence/i
+  );
+  assert.doesNotThrow(() => assertCapabilityClaim('product-identity', 'implemented-unverified'));
+});
+
+test('requires evidence appropriate to every capability status', () => {
+  const invalid = registry();
+  invalid.capabilities[0].status = 'verified-live';
+  assert.throws(() => validateProductIdentityRegistry(invalid), /runtime evidence/i);
+
+  const duplicate = registry();
+  duplicate.capabilities.push({ ...duplicate.capabilities[0] });
+  assert.throws(() => validateProductIdentityRegistry(duplicate), /capability ids must be unique/i);
+});
+
+test('generates capability and migration status from the registry', () => {
+  const markdown = renderProductStatusMarkdown();
+  assert.match(markdown, /Desktop Tools capability and migration status/);
+  assert.match(markdown, /Cross-device authorization \| `contract-only`/);
+  assert.match(markdown, /`app\.install\.doctor` \| `desktop\.tools` \| `migration-only`/);
+  assert.doesNotMatch(markdown, /Cross-device authorization \| `verified-live`/);
+});
+
+test('serves a public status payload without a second capability ledger', () => {
+  const payload = productStatusPayload();
+  assert.equal(payload.product, 'Desktop Tools');
+  assert.equal(payload.capabilities.find(item => item.id === 'device-authorization').status, 'contract-only');
+  assert.deepEqual(
+    payload.migrations.find(item => item.legacy === 'aid'),
+    {
+      kind: 'executable',
+      legacy: 'aid',
+      canonical: 'desktop-tools',
+      disposition: 'compatibility-alias',
+      removeAfter: null
+    }
+  );
 });

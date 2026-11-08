@@ -7,6 +7,7 @@ import {
   predictIntentDistribution, createSpeculativeBranch, collapseSpeculativeBranch, evaporateSpeculativeBranch,
   evaluateEasterEgg, generateEdgeHeaders, calculateCadenceEntropy,
   analyzeFleetDrift, mintExecutionReceipt, verifyExecutionReceipt, rankSemanticCatalogMatches,
+  productStatusPayload,
   type IntentKind, type EasterEggTriggerKind
 } from '../../aid-core/src/core';
 import { Env, providerConfigured } from './env';
@@ -299,6 +300,10 @@ const ResolveRequest = z
 app.get('/health', (c) =>
   c.json({ status: 'ok', service: 'aid-control-plane', phase: 'A-skeleton', routes: ROUTES.length }),
 );
+
+// Public product truth is derived from the canonical registry. The hosted surface cannot
+// maintain a second ledger or promote contract-only behavior without evidence-backed source changes.
+app.get('/api/v1/product-status', (c) => c.json(productStatusPayload()));
 
 // Minimal browser surface at app.install.doctor (MASTER-PROMPT §2). The full cinematic 5-section app is
 // the §16 build; this is an HONEST landing + a working pairing-approval page so the domain is live and
@@ -2680,6 +2685,17 @@ const OPENAPI_31_SPEC = {
   jsonSchemaDialect: 'https://spec.openapis.org/oas/3.1/dialect/base',
   servers: [{ url: APP_URL, description: 'Cloudflare Global Edge Production' }],
   paths: {
+    '/api/v1/product-status': {
+      get: {
+        summary: 'Return evidence-backed Desktop Tools capability and migration status',
+        responses: {
+          '200': {
+            description: 'Canonical public product status',
+            content: { 'application/json': { schema: { type: 'object' } } }
+          }
+        }
+      }
+    },
     '/api/v1/intent/telemetry': {
       post: {
         operationId: 'predictIntentTelemetry',

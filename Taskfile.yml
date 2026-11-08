@@ -16,6 +16,7 @@ tasks:
     cmds:
       - bash scripts/test-all.sh
       - cd packages/aid-core && npm test
+      - npm run test:desktop-tools-status
       - cd packages/control-plane && npm test
 
   test:scripts:
