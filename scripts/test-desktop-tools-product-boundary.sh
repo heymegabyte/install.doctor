@@ -54,5 +54,25 @@ else
   fail 'capability evidence boundary is absent'
 fi
 
+for lifecycle in 'Create' 'Export and standalone recovery' 'Disable' 'Recover'; do
+  grep -Fq "**$lifecycle**" "$BOUNDARY" \
+    && pass "profile lifecycle documents $lifecycle" \
+    || fail "profile lifecycle omits $lifecycle"
+done
+
+if grep -Fq 'https://example.desktop.tools/.well-known/desktop-tools-profile.json' "$BOUNDARY" \
+  && grep -Fq 'Sharing that URL grants no enrollment, secret, fleet, or mutation authority' "$BOUNDARY" \
+  && grep -Fq 'must not substitute the hosted current revision' "$BOUNDARY"; then
+  pass 'profile descriptor, non-authority, and standalone recovery boundaries are documented'
+else
+  fail 'profile descriptor or recovery boundary is incomplete'
+fi
+
+if grep -Eq 'curl.*https://(app\.install\.doctor|install\.doctor|desktop\.tools)(/start)?[ |]' "$BOUNDARY"; then
+  fail 'Desktop Tools lifecycle publishes a non-profile curl command'
+else
+  pass 'every Desktop Tools lifecycle curl command uses an explicit profile subdomain'
+fi
+
 printf 'desktop-tools product boundary: %s passed, %s failed\n' "$P" "$F"
 [ "$F" -eq 0 ]
