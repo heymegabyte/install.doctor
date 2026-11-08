@@ -12,7 +12,7 @@ function fixture(overrides = {}) {
   const releaseId = 'desktop-release-1';
   const signerId = 'desktop-production-1';
   const manifest = Buffer.from([
-    'schema_version=6', 'product_id=desktop-tools', `release_id=${releaseId}`,
+    'schema_version=7', 'product_id=desktop-tools', `release_id=${releaseId}`,
     `source_commit=${'a'.repeat(40)}`, `created_at=${now - 1}`, `expires_at=${now + 86_400}`,
     `key_id=${signerId}`
   ].join('\n') + '\n');
@@ -25,7 +25,7 @@ function fixture(overrides = {}) {
   return { now, releaseId, manifest, pointer, pointerBytes };
 }
 
-test('resolves only a canonical product-qualified pointer and digest-bound v6 manifest', async () => {
+test('resolves only a canonical product-qualified pointer and digest-bound v7 manifest', async () => {
   const value = fixture();
   const requested = [];
   const channels = { async get(key) { requested.push(key); return key === 'desktop-tools/channels/stable.json' ? body(value.pointerBytes) : null; } };
@@ -52,6 +52,19 @@ test('serves only Desktop Tools release filenames from its isolated prefix', asy
   assert.equal(found.status, 'found');
   assert.equal(found.contentType, 'text/javascript; charset=utf-8');
   assert.deepEqual(requested, ['desktop-tools/bootstrap/desktop-release-1/desktop-tools-engine.mjs']);
+  for (const [filename, contentType] of [
+    ['opencode-linux-arm64.tar.gz', 'application/gzip'],
+    ['opencode-macos-arm64.zip', 'application/zip'],
+    ['desktop-tools-supervisor.mjs', 'text/javascript; charset=utf-8'],
+    ['release.sbom.json', 'application/json; charset=utf-8'],
+    ['release.provenance.json', 'application/json; charset=utf-8'],
+    ['opencode.lock.json', 'application/json; charset=utf-8'],
+    ['THIRD_PARTY_LICENSES.txt', 'text/plain; charset=utf-8'],
+  ]) {
+    const closure = await lookupDesktopReleaseObject(bucket, 'desktop-release-1', filename);
+    assert.equal(closure.status, 'found');
+    assert.equal(closure.contentType, contentType);
+  }
   assert.equal((await lookupDesktopReleaseObject(bucket, 'desktop-release-1', 'install-doctor-engine.mjs')).status, 'invalid');
-  assert.equal(requested.length, 1);
+  assert.equal(requested.length, 8);
 });

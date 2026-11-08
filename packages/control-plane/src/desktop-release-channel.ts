@@ -29,7 +29,7 @@ async function digest(value: Uint8Array): Promise<string> {
   return [...new Uint8Array(await crypto.subtle.digest('SHA-256', value))].map(byte => byte.toString(16).padStart(2, '0')).join('');
 }
 
-/** Resolve only the product-qualified v2 pointer and its exact Desktop Tools v6 manifest. */
+/** Resolve only the product-qualified v2 pointer and its exact Desktop Tools v7 manifest. */
 export async function resolveActiveDesktopRelease(channelBinding: unknown, releaseBinding: unknown, channelInput: unknown,
   now = Math.floor(Date.now() / 1_000)) {
   const channels = Bucket.parse(channelBinding);
@@ -58,7 +58,7 @@ export async function resolveActiveDesktopRelease(channelBinding: unknown, relea
   const integer = z.string().regex(/^[1-9][0-9]*$/).transform(Number).refine(Number.isSafeInteger);
   const createdAt = integer.parse(values.get('created_at'));
   const expiresAt = integer.parse(values.get('expires_at'));
-  if (values.get('schema_version') !== '6' || values.get('product_id') !== 'desktop-tools'
+  if (values.get('schema_version') !== '7' || values.get('product_id') !== 'desktop-tools'
     || values.get('release_id') !== pointer.releaseId || values.get('key_id') !== pointer.signerId
     || !/^desktop-[a-z0-9._-]+$/.test(pointer.signerId)
     || !/^[a-f0-9]{40}$/.test(values.get('source_commit') ?? '')

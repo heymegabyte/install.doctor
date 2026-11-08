@@ -8,6 +8,9 @@ const ReleaseFileSchema = z.enum([
 const DesktopReleaseFileSchema = z.enum([
   'manifest', 'manifest.sig', 'provision.sh', 'start', 'desktop-tools-engine.mjs', 'catalog.json',
   'node-macos-x64.tar.gz', 'node-macos-arm64.tar.gz', 'node-linux-x64.tar.gz', 'node-linux-arm64.tar.gz',
+  'opencode-macos-x64.zip', 'opencode-macos-arm64.zip', 'opencode-linux-x64.tar.gz', 'opencode-linux-arm64.tar.gz',
+  'desktop-tools-supervisor.mjs', 'desktop-tools-tools.tar.gz', 'release.sbom.json', 'release.provenance.json',
+  'THIRD_PARTY_LICENSES.txt', 'opencode.lock.json',
 ]);
 
 type ReleaseObjectBody = {
@@ -101,7 +104,9 @@ export async function lookupDesktopReleaseObject(binding: unknown, releaseIdValu
   const contentType = file.data === 'manifest' ? 'application/vnd.desktop-tools.release-manifest'
     : file.data === 'manifest.sig' ? 'application/octet-stream'
     : file.data === 'provision.sh' || file.data === 'start' ? 'text/x-shellscript; charset=utf-8'
-    : file.data === 'desktop-tools-engine.mjs' ? 'text/javascript; charset=utf-8'
-    : file.data === 'catalog.json' ? 'application/json; charset=utf-8' : 'application/gzip';
+    : file.data === 'desktop-tools-engine.mjs' || file.data === 'desktop-tools-supervisor.mjs' ? 'text/javascript; charset=utf-8'
+    : file.data === 'catalog.json' || file.data === 'release.sbom.json' || file.data === 'release.provenance.json' || file.data === 'opencode.lock.json' ? 'application/json; charset=utf-8'
+    : file.data === 'THIRD_PARTY_LICENSES.txt' ? 'text/plain; charset=utf-8'
+    : file.data.endsWith('.zip') ? 'application/zip' : 'application/gzip';
   return { status: 'found', body: object.data, contentType };
 }

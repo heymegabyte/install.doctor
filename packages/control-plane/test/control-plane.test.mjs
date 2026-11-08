@@ -264,6 +264,16 @@ case "$url" in
   ${origin}/releases/test/provision.sh) source="$MOCK_ARTIFACT" ;;
   ${origin}/releases/test/${engineFilename}) source="$MOCK_ENGINE" ;;
   ${origin}/releases/test/catalog.json) source="$MOCK_CATALOG" ;;
+  ${origin}/releases/test/desktop-tools-supervisor.mjs) source="$MOCK_SUPERVISOR" ;;
+  ${origin}/releases/test/desktop-tools-tools.tar.gz) source="$MOCK_TOOLS" ;;
+  ${origin}/releases/test/release.sbom.json) source="$MOCK_SBOM" ;;
+  ${origin}/releases/test/release.provenance.json) source="$MOCK_PROVENANCE" ;;
+  ${origin}/releases/test/THIRD_PARTY_LICENSES.txt) source="$MOCK_LICENSES" ;;
+  ${origin}/releases/test/opencode.lock.json) source="$MOCK_OPENCODE_LOCK" ;;
+  ${origin}/releases/test/opencode-macos-x64.zip) source="$MOCK_OPENCODE_MACOS_X64" ;;
+  ${origin}/releases/test/opencode-macos-arm64.zip) source="$MOCK_OPENCODE_MACOS_ARM64" ;;
+  ${origin}/releases/test/opencode-linux-x64.tar.gz) source="$MOCK_OPENCODE_LINUX_X64" ;;
+  ${origin}/releases/test/opencode-linux-arm64.tar.gz) source="$MOCK_OPENCODE_LINUX_ARM64" ;;
   ${origin}/releases/test/node-macos-x64.tar.gz) source="$MOCK_RUNTIME_MACOS_X64" ;;
   ${origin}/releases/test/node-macos-arm64.tar.gz) source="$MOCK_RUNTIME_MACOS_ARM64" ;;
   ${origin}/releases/test/node-linux-x64.tar.gz) source="$MOCK_RUNTIME_LINUX_X64" ;;
@@ -327,6 +337,25 @@ esac
       fs.writeFileSync(runtime, `fixture Node 24.11.0 runtime for ${platform}\n`, { mode: 0o600 });
       return [platform, runtime];
     }));
+    const opencode = Object.fromEntries(['macos-x64', 'macos-arm64', 'linux-x64', 'linux-arm64'].map((platform) => {
+      const archive = path.join(downloadRoot, `opencode-${platform}-${crypto.randomUUID()}.tar.gz`);
+      fs.writeFileSync(archive, `fixture OpenCode 2.2.5 runtime for ${platform}\n`, { mode: 0o600 });
+      return [platform, archive];
+    }));
+    const closure = {
+      supervisor: path.join(downloadRoot, `supervisor-${crypto.randomUUID()}.mjs`),
+      tools: path.join(downloadRoot, `tools-${crypto.randomUUID()}.tar.gz`),
+      sbom: path.join(downloadRoot, `sbom-${crypto.randomUUID()}.json`),
+      provenance: path.join(downloadRoot, `provenance-${crypto.randomUUID()}.json`),
+      licenses: path.join(downloadRoot, `licenses-${crypto.randomUUID()}.txt`),
+      opencodeLock: path.join(downloadRoot, `opencode-lock-${crypto.randomUUID()}.json`),
+    };
+    fs.writeFileSync(closure.supervisor, '#!/usr/bin/env node\nprocess.exit(0)\n');
+    fs.writeFileSync(closure.tools, 'fixture typed tools archive\n');
+    fs.writeFileSync(closure.sbom, '{"bomFormat":"CycloneDX","specVersion":"1.6"}\n');
+    fs.writeFileSync(closure.provenance, '{"_type":"https://in-toto.io/Statement/v1"}\n');
+    fs.writeFileSync(closure.licenses, 'OpenCode — MIT\nDesktop Tools — MIT\n');
+    fs.writeFileSync(closure.opencodeLock, '{"schemaVersion":1,"version":"2.2.5"}\n');
     const body = artifactBody ?? '#!/usr/bin/env bash\nset -euo pipefail\n';
     fs.writeFileSync(artifact, body, { mode: 0o700 });
     fs.writeFileSync(engine, engineBody, { mode: 0o700 });
@@ -337,7 +366,7 @@ esac
     const engineDigest = crypto.createHash('sha256').update(engineBody).digest('hex');
     const catalogDigest = crypto.createHash('sha256').update(catalogBody).digest('hex');
     const manifestBody = [
-      `schema_version=${desktop ? 6 : 5}`,
+      `schema_version=${desktop ? 7 : 5}`,
       ...(desktop ? ['product_id=desktop-tools'] : []),
       `release_id=${releaseId}`,
       `source_commit=${'a'.repeat(40)}`,
@@ -358,6 +387,25 @@ esac
       `launcher_size=${Buffer.byteLength(launcherBody)}`,
       'engine_node_min=22',
       'runtime_node_version=24.11.0',
+      ...(desktop ? [
+        'opencode_version=2.2.5',
+        ...[
+          ['supervisor', 'desktop-tools-supervisor.mjs', closure.supervisor],
+          ['tools', 'desktop-tools-tools.tar.gz', closure.tools],
+          ['sbom', 'release.sbom.json', closure.sbom],
+          ['provenance', 'release.provenance.json', closure.provenance],
+          ['licenses', 'THIRD_PARTY_LICENSES.txt', closure.licenses],
+          ['opencode_lock', 'opencode.lock.json', closure.opencodeLock],
+        ].flatMap(([prefix, filename, file]) => {
+          const bytes = fs.readFileSync(file);
+          return [`${prefix}_url=${origin}/releases/test/${filename}`, `${prefix}_sha256=${crypto.createHash('sha256').update(bytes).digest('hex')}`, `${prefix}_size=${bytes.byteLength}`];
+        }),
+        ...['macos-x64', 'macos-arm64', 'linux-x64', 'linux-arm64'].flatMap(platform => {
+          const key = platform.replaceAll('-', '_'); const bytes = fs.readFileSync(opencode[platform]);
+          const extension = platform.startsWith('macos-') ? 'zip' : 'tar.gz';
+          return [`opencode_${key}_url=${origin}/releases/test/opencode-${platform}.${extension}`, `opencode_${key}_sha256=${crypto.createHash('sha256').update(bytes).digest('hex')}`, `opencode_${key}_size=${bytes.byteLength}`];
+        }),
+      ] : []),
       ...['macos-x64', 'macos-arm64', 'linux-x64', 'linux-arm64'].flatMap((platform) => {
         const key = platform.replaceAll('-', '_');
         const runtime = runtimes[platform];
@@ -372,7 +420,7 @@ esac
     ].join('\n');
     fs.writeFileSync(manifest, manifestBody);
     execFileSync('ssh-keygen', ['-Y', 'sign', '-q', '-f', privateKey, '-n', signatureNamespace, manifest]);
-    return { artifact, engine, catalog, launcher, runtimes, manifest, signature: `${manifest}.sig` };
+    return { artifact, engine, catalog, launcher, runtimes, opencode, closure, manifest, signature: `${manifest}.sig` };
   };
 
   const run = (script, release, extraEnv = {}) =>
@@ -389,6 +437,16 @@ esac
         MOCK_ARTIFACT: release.artifact,
         MOCK_ENGINE: release.engine,
         MOCK_CATALOG: release.catalog,
+        MOCK_SUPERVISOR: release.closure?.supervisor ?? '',
+        MOCK_TOOLS: release.closure?.tools ?? '',
+        MOCK_SBOM: release.closure?.sbom ?? '',
+        MOCK_PROVENANCE: release.closure?.provenance ?? '',
+        MOCK_LICENSES: release.closure?.licenses ?? '',
+        MOCK_OPENCODE_LOCK: release.closure?.opencodeLock ?? '',
+        MOCK_OPENCODE_MACOS_X64: release.opencode?.['macos-x64'] ?? '',
+        MOCK_OPENCODE_MACOS_ARM64: release.opencode?.['macos-arm64'] ?? '',
+        MOCK_OPENCODE_LINUX_X64: release.opencode?.['linux-x64'] ?? '',
+        MOCK_OPENCODE_LINUX_ARM64: release.opencode?.['linux-arm64'] ?? '',
         MOCK_RUNTIME_MACOS_X64: release.runtimes['macos-x64'],
         MOCK_RUNTIME_MACOS_ARM64: release.runtimes['macos-arm64'],
         MOCK_RUNTIME_LINUX_X64: release.runtimes['linux-x64'],
@@ -1100,7 +1158,7 @@ test('Desktop Tools release policy is source-owned while legacy release verifica
   const script = renderBootstrap(desktopConfig);
   assert.match(script, /readonly RELEASE_ORIGIN='https:\/\/desktop\.tools'/);
   assert.match(script, /readonly SIGNATURE_NAMESPACE='desktop\.tools\.release'/);
-  assert.match(script, /readonly EXPECTED_MANIFEST_SCHEMA='6'/);
+  assert.match(script, /readonly EXPECTED_MANIFEST_SCHEMA='7'/);
   assert.match(script, /readonly EXPECTED_PRODUCT_ID='desktop-tools'/);
   assert.match(script, /readonly DESKTOP_TOOLS_PROFILE_SLUG='example'/);
   assert.match(script, /DESKTOP_TOOLS_PROFILE_REVISION="\$DESKTOP_TOOLS_PROFILE_REVISION"/);
@@ -1126,18 +1184,20 @@ test('Desktop Tools release policy is source-owned while legacy release verifica
   assert.throws(() => releaseObjectUrl('desktop-tools', 'release-1', 'install-doctor-engine.mjs'));
 });
 
-test('Desktop Tools profile stage-zero executes a verified v6 release with immutable profile binding', async (t) => {
+test('Desktop Tools profile stage-zero executes a verified v7 runtime closure with immutable profile binding', async (t) => {
   const fixture = makeBootstrapRuntimeFixture(t, 'desktop-tools');
   const { renderBootstrap } = await import('../src/bootstrap.ts');
   const profile = {
     id: 'profile-example', slug: 'example', revision: 'revision-7', digest: 'c'.repeat(64)
   };
   const release = fixture.createRelease({
-    artifactBody: '#!/usr/bin/env bash\nset -euo pipefail\nprintf "%s|%s|%s|%s\\n" "$DESKTOP_TOOLS_PROFILE_ID" "$DESKTOP_TOOLS_PROFILE_SLUG" "$DESKTOP_TOOLS_PROFILE_REVISION" "$DESKTOP_TOOLS_PROFILE_DIGEST"\n'
+    artifactBody: '#!/usr/bin/env bash\nset -euo pipefail\nprintf "%s|%s|%s|%s\\n" "$DESKTOP_TOOLS_PROFILE_ID" "$DESKTOP_TOOLS_PROFILE_SLUG" "$DESKTOP_TOOLS_PROFILE_REVISION" "$DESKTOP_TOOLS_PROFILE_DIGEST"\nprintf "%s|%s|%s|%s|%s\\n" "$DESKTOP_TOOLS_OPENCODE_VERSION" "$DESKTOP_TOOLS_OPENCODE_SHA256" "$DESKTOP_TOOLS_SUPERVISOR_SHA256" "$DESKTOP_TOOLS_TOOLS_SHA256" "$DESKTOP_TOOLS_SBOM_PATH"\n'
   });
   const result = fixture.run(renderBootstrap({ ...fixture.config, profile }), release);
   assert.equal(result.status, 0, result.stderr);
-  assert.equal(result.stdout.trim(), `profile-example|example|revision-7|${'c'.repeat(64)}`);
+  const [profileBinding, runtimeBinding] = result.stdout.trim().split('\n');
+  assert.equal(profileBinding, `profile-example|example|revision-7|${'c'.repeat(64)}`);
+  assert.match(runtimeBinding, /^2\.2\.5\|[a-f0-9]{64}\|[a-f0-9]{64}\|[a-f0-9]{64}\|\/.+\/release\.sbom\.json$/);
   fixture.assertStageClean();
 });
 
