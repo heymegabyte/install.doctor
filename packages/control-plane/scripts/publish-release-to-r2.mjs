@@ -7,6 +7,7 @@ import {
   activateRelease, activateSamePayloadRenewal, inspectActiveReleaseFreshness, inspectPublishedRelease, prepareSamePayloadRenewal,
   publishRelease, reconcileActivationReceipt,
 } from './release-publication.mjs';
+import { publishDesktopRelease } from './desktop-release-publication.mjs';
 import { createR2PublicationStorage } from './r2-publication-storage.mjs';
 
 function requiredEnvironment(name, minimum = 1) {
@@ -26,17 +27,22 @@ async function command(file, arguments_, input) {
   });
 }
 
-async function createSignatureVerifier() {
-  const signerId = requiredEnvironment('INSTALL_DOCTOR_RELEASE_SIGNER_ID');
-  const publicKeyPath = requiredEnvironment('INSTALL_DOCTOR_RELEASE_PUBLIC_KEY');
+async function createSignatureVerifier(product = 'legacy-install-doctor') {
+  const desktop = product === 'desktop-tools';
+  const environmentPrefix = desktop ? 'DESKTOP_TOOLS' : 'INSTALL_DOCTOR';
+  const signerId = requiredEnvironment(`${environmentPrefix}_RELEASE_SIGNER_ID`);
+  const publicKeyPath = requiredEnvironment(`${environmentPrefix}_RELEASE_PUBLIC_KEY`);
   const info = await lstat(publicKeyPath);
   if (!info.isFile() || info.isSymbolicLink() || info.size < 32 || info.size > 8_192) throw new Error('release public key path is unsafe');
   const publicKey = (await readFile(publicKeyPath, 'utf8')).trim();
   if (!/^ssh-ed25519 [A-Za-z0-9+/]+={0,3}(?: [^\r\n]{1,128})?$/.test(publicKey)) throw new Error('release public key is not a canonical Ed25519 key');
-  return async ({ manifest, signature, signerId: manifestSignerId, namespace = 'install.doctor.release' }) => {
+  const allowedNamespaces = desktop
+    ? ['desktop.tools.release', 'desktop.tools.release-renewal-plan']
+    : ['install.doctor.release', 'install.doctor.release-renewal-plan'];
+  return async ({ manifest, signature, signerId: manifestSignerId, namespace = allowedNamespaces[0] }) => {
     if (manifestSignerId !== signerId) throw new Error('manifest signer is not the configured release signer');
-    if (!['install.doctor.release', 'install.doctor.release-renewal-plan'].includes(namespace)) throw new Error('signature namespace is not allowed');
-    const stage = await mkdtemp(join(tmpdir(), 'install-doctor-release-verify-'));
+    if (!allowedNamespaces.includes(namespace)) throw new Error('signature namespace is not allowed');
+    const stage = await mkdtemp(join(tmpdir(), `${desktop ? 'desktop-tools' : 'install-doctor'}-release-verify-`));
     await chmod(stage, 0o700);
     try {
       const allowedSigners = join(stage, 'allowed-signers');
@@ -61,7 +67,15 @@ function storageFromEnvironment(prefix) {
 
 async function main() {
   const [action, ...arguments_] = process.argv.slice(2);
-  const verifySignature = await createSignatureVerifier();
+  const product = action === 'desktop-publish' ? 'desktop-tools' : 'legacy-install-doctor';
+  const verifySignature = await createSignatureVerifier(product);
+  if (action === 'desktop-publish' && arguments_.length === 2) {
+    const [directory, releaseId] = arguments_;
+    const releaseStorage = storageFromEnvironment('DESKTOP_TOOLS_RELEASE_R2');
+    const receipt = await publishDesktopRelease({ directory, expectedReleaseId: releaseId, storage: releaseStorage, verifySignature });
+    process.stdout.write(`${JSON.stringify(receipt)}\n`);
+    return;
+  }
   if (action === 'publish' && arguments_.length === 2) {
     const [directory, releaseId] = arguments_;
     const releaseStorage = storageFromEnvironment('INSTALL_DOCTOR_RELEASE_R2');
@@ -151,7 +165,7 @@ async function main() {
     process.stdout.write(`${JSON.stringify(receipt)}\n`);
     return;
   }
-  throw new Error('usage: publish-release-to-r2.mjs publish RELEASE_DIRECTORY RELEASE_ID | activate RELEASE_ID CHANNEL EXPECTED_ETAG_OR_- ACTIVATION_UUID ACTIVATED_AT [rollback ROLLBACK_OF_UUID] | freshness CHANNEL [RENEWAL_WINDOW_SECONDS] | renew RELEASE_ID CHANNEL CREATED_AT EXPIRES_AT OUTPUT_DIRECTORY | activate-renewal PLAN_JSON PLAN_SIG ACTIVATION_UUID ACTIVATED_AT | reconcile CHANNEL ACTIVATION_UUID');
+  throw new Error('usage: publish-release-to-r2.mjs desktop-publish RELEASE_DIRECTORY RELEASE_ID | publish RELEASE_DIRECTORY RELEASE_ID | activate RELEASE_ID CHANNEL EXPECTED_ETAG_OR_- ACTIVATION_UUID ACTIVATED_AT [rollback ROLLBACK_OF_UUID] | freshness CHANNEL [RENEWAL_WINDOW_SECONDS] | renew RELEASE_ID CHANNEL CREATED_AT EXPIRES_AT OUTPUT_DIRECTORY | activate-renewal PLAN_JSON PLAN_SIG ACTIVATION_UUID ACTIVATED_AT | reconcile CHANNEL ACTIVATION_UUID');
 }
 
 main().catch(error => {
