@@ -2,6 +2,7 @@
 import { z } from 'zod';
 
 export * from './installer-contracts.js';
+export * from './device-authorization.js';
 export * from './product-identity.js';
 export * from './profile-resolution.js';
 export const APP_URL = 'https://app.install.doctor' as const;
