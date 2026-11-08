@@ -2333,15 +2333,36 @@ done
 LOCAL_PROXY="$(curl -fsS --max-time 2 http://127.0.0.1:4880/healthz >/dev/null 2>&1 && printf "4880" || printf "down")"
 BACKREST_PORT="$(ss -tln 2>/dev/null | grep -q ':9898 ' && printf "9898" || printf "down")"
 NOFILE_CFG="$(grep -q 'DefaultLimitNOFILE=65536:524288' /etc/systemd/system.conf.d/99-fleet-accounting.conf 2>/dev/null && printf "524288" || printf "default")"
+LIMITS_OK="$( [ -f /etc/security/limits.d/99-fleet-ai.conf ] && printf "1" || printf "0" )"
 NODE_OK="$(command -v node >/dev/null 2>&1 && printf "1" || printf "0")"
+DANGLING_BINS="$(find "$HOME/.local/bin" /usr/local/bin -maxdepth 1 -type l ! -exec test -e {} \; -print 2>/dev/null | wc -l | tr -d " ")"
 SYS_FAILED="$(systemctl --failed --no-legend --plain 2>/dev/null | wc -l | tr -d " ")"
 USR_FAILED="$(XDG_RUNTIME_DIR="/run/user/$(id -u)" systemctl --user --failed --no-legend --plain 2>/dev/null | wc -l | tr -d " ")"
 FAILED_UNITS="$(( ${SYS_FAILED:-0} + ${USR_FAILED:-0} ))"
-printf "host=%s pbs=\"%s\" zpool_health=%s zfs_snaps=%s bclone=%s bbr=%s thp=%s ssh_pqc=%s %s=%s egress_nft=%s crowdsec=%s earlyoom=%s cua=%s kasm_resize=%s emdash_ws=%s local_proxy=%s backrest=%s nofile=%s cf_metrics=%s node_ok=%s sandbox=%s failed=%s\n" \
-  "$HOST" "$PBS_VER" "$ZPOOL_HEALTH" "$ZFS_SNAPS" "$BCLONE" "$BBR" "$THP_DEFRAG" "$PQC" "$RETIRED_VPN" "$RETIRED_VPN_STATE" "$EGRESS_GUARD" "$CROWDSEC_STATE" "$EARLYOOM_STATE" "$CUA_STATE" "$KASM_RESIZE" "$EMDASH_WS" "$LOCAL_PROXY" "$BACKREST_PORT" "$NOFILE_CFG" "$CF_METRICS" "$NODE_OK" "$SANDBOX_READY" "$FAILED_UNITS"
+printf "host=%s pbs=\"%s\" zpool_health=%s zfs_snaps=%s bclone=%s bbr=%s thp=%s ssh_pqc=%s %s=%s egress_nft=%s crowdsec=%s earlyoom=%s cua=%s kasm_resize=%s emdash_ws=%s local_proxy=%s backrest=%s nofile=%s limits_ok=%s cf_metrics=%s node_ok=%s dangling_bins=%s sandbox=%s failed=%s\n" \
+  "$HOST" "$PBS_VER" "$ZPOOL_HEALTH" "$ZFS_SNAPS" "$BCLONE" "$BBR" "$THP_DEFRAG" "$PQC" "$RETIRED_VPN" "$RETIRED_VPN_STATE" "$EGRESS_GUARD" "$CROWDSEC_STATE" "$EARLYOOM_STATE" "$CUA_STATE" "$KASM_RESIZE" "$EMDASH_WS" "$LOCAL_PROXY" "$BACKREST_PORT" "$NOFILE_CFG" "$LIMITS_OK" "$CF_METRICS" "$NODE_OK" "$DANGLING_BINS" "$SANDBOX_READY" "$FAILED_UNITS"
 EOF
   run_root install -m 0755 "$TMP_DIR/fleet-dr-verify" /usr/local/bin/fleet-dr-verify
   run_root ln -sf /usr/local/bin/fleet-dr-verify /usr/local/bin/fleet-parity-audit
+
+  # Ensure PAM security limits (/etc/security/limits.d/99-fleet-ai.conf) and SSH agent forwarding parity
+  run_root install -d -m 0755 /etc/security/limits.d
+  cat > "$TMP_DIR/99-fleet-ai.conf" <<'EOF'
+* soft nofile 65536
+* hard nofile 524288
+* soft memlock unlimited
+* hard memlock unlimited
+root soft nofile 65536
+root hard nofile 524288
+root soft memlock unlimited
+root hard memlock unlimited
+EOF
+  run_root install -m 0644 "$TMP_DIR/99-fleet-ai.conf" /etc/security/limits.d/99-fleet-ai.conf
+  if [ -d /etc/ssh/sshd_config.d ]; then
+    printf 'AllowAgentForwarding yes\n' > "$TMP_DIR/agent-forwarding.conf"
+    run_root install -m 0644 "$TMP_DIR/agent-forwarding.conf" /etc/ssh/sshd_config.d/agent-forwarding.conf
+    run_root rm -f /etc/ssh/sshd_config.d/*.pre-coolify /etc/ssh/sshd_config.d/*.bak* 2>/dev/null || true
+  fi
 
   # Ensure primary workstation user belongs to render, video, ssl-cert, and docker groups when those groups exist
   for _grp in render video ssl-cert docker; do
@@ -2512,7 +2533,9 @@ EOF
     ubuntu-insights-upload.service \
     ubuntu-insights-collect.service \
     launchpadlib-cache-clean.timer \
-    launchpadlib-cache-clean.service; do
+    launchpadlib-cache-clean.service \
+    snap.firmware-updater.firmware-notifier.timer \
+    snap.firmware-updater.firmware-notifier.service; do
     XDG_RUNTIME_DIR="/run/user/$(id -u)" systemctl --user disable --now "$_u_mask" >/dev/null 2>&1 || true
     ln -sf /dev/null "$HOME/.config/systemd/user/$_u_mask" 2>/dev/null || true
   done
@@ -2567,9 +2590,14 @@ EOF
   cp "$TMP_DIR/bashrc.head" "$HOME/.bashrc"
 fi
 
+if [ -d "$HOME/.local/bin" ]; then
+  find "$HOME/.local/bin" -maxdepth 1 -type l ! -exec test -e {} \; -delete 2>/dev/null || true
+fi
+
 if [ "$(id -u)" -eq 0 ] || [ -n "$SUDO" ]; then
   log "Symlinking user/runtime CLIs into /usr/local/bin for system-wide and non-interactive SSH parity..."
   run_root rm -f /usr/local/bin/gemini 2>/dev/null || true
+  run_root find /usr/local/bin -maxdepth 1 -type l ! -exec test -e {} \; -delete 2>/dev/null || true
   for bin_name in \
     rg tmux jq fzf fd bat htop btop ncdu gh rclone restic age sops yq \
     uv uvx ruff bun bunx pnpm deno node npm npx go gofmt cargo rustc \
@@ -2599,6 +2627,10 @@ fi
 # 9. macOS Apple Silicon (Darwin) Spotlight Exclusions, Node 24 CA & Cache Reclamation
 # -----------------------------------------------------------------------------
 if [ "$(uname -s)" = "Darwin" ]; then
+  if [ -f "$HOME/Library/LaunchAgents/com.heymegabyte.oneprompt-convergence.plist" ] && [ ! -d "/Users/Apple/emdash/repositories/oneprompt.site-2" ]; then
+    launchctl bootout "gui/$(id -u)" "$HOME/Library/LaunchAgents/com.heymegabyte.oneprompt-convergence.plist" 2>/dev/null || true
+    rm -f "$HOME/Library/LaunchAgents/com.heymegabyte.oneprompt-convergence.plist" 2>/dev/null || true
+  fi
   for dir in \
     "$HOME/.cache" \
     "$HOME/.bun/install/cache" \
