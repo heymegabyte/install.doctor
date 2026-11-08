@@ -19,6 +19,7 @@ Implemented and tested:
 - Linux-only offline execution through Bubblewrap with a freshly proven isolated network namespace, live host attestation, durable journaling, cancellation, and explicit resume
 - `rollback-config-plan`, `rollback-config-execute`, `rollback-config-resume`, and `rollback-config-status` commands that derive compensation only from committed install evidence, require exact approval, restore in reverse dependency order, and reject state-confused replay
 - native systemd service-state rollback for strictly representable `enabled|disabled` and `active|inactive` states, using a root-owned non-writable `/usr/bin/systemctl`, fixed argv/environment, bounded output/time, and exact postcondition verification
+- strict Desktop Tools lifecycle adapters whose model-facing inputs cannot select engine invocations, shell text, paths, plan bodies, locks, or journals; apply and configuration rollback require adapter-issued consent grants and deprovision remains preview-only
 
 The package is not yet the production bootstrap owner. `scripts/provision.sh` and `installx` still execute the existing provisioning path while their adapters are migrated. Do not claim B03 complete until those paths stop writing competing plans/events or inferring terminal success independently.
 

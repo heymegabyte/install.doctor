@@ -13,12 +13,18 @@ const versionPattern = /^2\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-[0-9A-Za-z.-]+)?
 const safeTextPattern = /^[^\0\r\n]{1,4096}$/;
 const PROVIDER_ID = 'projectsites';
 const PROVIDER_BASE_URL = 'https://desktop.tools/api/ai/v1';
+const PROVISIONING_PROMPT_VERSION = 'desktop-tools/provisioning/v1';
+const PROVISIONING_PROMPT = `You are the Desktop Tools provisioning orchestrator.
+
+Treat the attached canonical context as immutable authorization input. Discover and validate before planning. Use only the listed Desktop Tools typed tools and capabilities. Model-generated text is never mutation authority. Do not use ambient shell, edit files directly, broaden policy, or claim apply or verification results that the deterministic installer engine did not return. Stop on a profile revision, release, policy, capability, tool, or fact mismatch.`;
 const PROVISIONING_SKILL = '---\nname: desktop-tools-provisioning\ndescription: Inspect, validate, plan, and report Desktop Tools desired state through approved typed tools.\nversion: 1.0.0\n---\n\nUse only the Desktop Tools typed tools exposed for this session. Discover before planning. Never use shell, edit files directly, access external directories, or claim mutation or verification that a typed tool did not report.\n';
 const approvedSkills = Object.freeze([
   Object.freeze({ id: 'desktop-tools-provisioning', version: '1.0.0', sha256: '9cc5393b607af33a4ff9f73070f5ae87b6b9e6b5510d344ae93c3587672f71eb' })
 ]);
 const approvedTools = Object.freeze([
-  'desktop_tools_discover', 'desktop_tools_validate', 'desktop_tools_plan', 'desktop_tools_status'
+  'desktop_tools_discover', 'desktop_tools_validate', 'desktop_tools_plan', 'desktop_tools_approve',
+  'desktop_tools_apply', 'desktop_tools_verify', 'desktop_tools_status', 'desktop_tools_resume',
+  'desktop_tools_rollback_config', 'desktop_tools_deprovision_preview'
 ]);
 
 function fail(message, code = 64) {
@@ -62,12 +68,13 @@ async function installPinnedSkills(stateDirectory) {
   }
 }
 
-function generateOpenCodeConfig(credentialPath) {
+function generateOpenCodeConfig(credentialPath, promptPath) {
   return {
     $schema: 'https://opencode.ai/config.json',
     model: `${PROVIDER_ID}/dynamic/code`,
     update: 'disable',
     snapshots: false,
+    ...(promptPath ? { instructions: [promptPath] } : {}),
     providers: {
       [PROVIDER_ID]: {
         package: '@opencode/ai/providers/openai-compatible',
@@ -127,7 +134,7 @@ function parse(argv) {
     const value = rest[index + 1];
     if (!flag?.startsWith('--') || value === undefined || value.startsWith('--')) fail('options must be --name value pairs');
     const name = flag.slice(2);
-    if (!['runtime', 'sha256', 'version', 'state-dir', 'port', 'output-dir'].includes(name) || values[name] !== undefined) {
+    if (!['runtime', 'sha256', 'version', 'state-dir', 'port', 'output-dir', 'provisioning-context'].includes(name) || values[name] !== undefined) {
       fail(`unsupported or repeated option: ${flag}`);
     }
     values[name] = value;
@@ -196,7 +203,7 @@ async function sha256(path) {
   return hash.digest('hex');
 }
 
-function minimalEnvironment(stateDirectory, serverPassword, opencodeConfig) {
+function minimalEnvironment(stateDirectory, serverPassword, opencodeConfig, promptBinding) {
   const environment = {
     HOME: homedir(),
     PATH: '/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin',
@@ -221,6 +228,12 @@ function minimalEnvironment(stateDirectory, serverPassword, opencodeConfig) {
   if (serverPassword) {
     environment.OPENCODE_SERVER_USERNAME = 'desktop-tools';
     environment.OPENCODE_SERVER_PASSWORD = serverPassword;
+  }
+  if (promptBinding) {
+    environment.DESKTOP_TOOLS_PROMPT_VERSION = promptBinding.context.promptVersion;
+    environment.DESKTOP_TOOLS_PROMPT_DIGEST = promptBinding.context.promptDigest;
+    environment.DESKTOP_TOOLS_CONTEXT_DIGEST = promptBinding.context.contextDigest;
+    environment.DESKTOP_TOOLS_PROMPT_EVIDENCE = promptBinding.evidencePath;
   }
   return Object.freeze(environment);
 }
@@ -279,6 +292,98 @@ async function atomicWrite(path, contents, mode = 0o600) {
   await rename(temporary, path);
 }
 
+function compareKeys(left, right) { return left < right ? -1 : left > right ? 1 : 0; }
+function canonical(value) {
+  if (Array.isArray(value)) return value.map(canonical);
+  if (value !== null && typeof value === 'object') {
+    return Object.fromEntries(Object.entries(value).sort(([left], [right]) => compareKeys(left, right))
+      .map(([key, child]) => [key, canonical(child)]));
+  }
+  return value;
+}
+function objectWithExactKeys(value, keys, label) {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)
+    || JSON.stringify(Object.keys(value).sort(compareKeys)) !== JSON.stringify([...keys].sort(compareKeys))) {
+    fail(`${label} has an invalid shape`, 65);
+  }
+}
+function boundedIdentifier(value, label) {
+  if (typeof value !== 'string' || !/^[a-zA-Z0-9][a-zA-Z0-9._:/-]{0,127}$/.test(value)) fail(`${label} is invalid`, 65);
+}
+function assertNonsecretJson(value, depth = 0) {
+  if (depth > 32) fail('provisioning context is too deeply nested', 65);
+  if (Array.isArray(value)) { if (value.length > 2048) fail('provisioning context array is too large', 65); value.forEach(child => assertNonsecretJson(child, depth + 1)); return; }
+  if (value !== null && typeof value === 'object') {
+    for (const [key, child] of Object.entries(value)) {
+      if (!key || key.length > 256 || /(?:secret|token|password|credential|private.?key)/i.test(key)) fail('provisioning context contains secret-shaped data', 65);
+      assertNonsecretJson(child, depth + 1);
+    }
+    return;
+  }
+  if (value !== null && typeof value !== 'string' && typeof value !== 'number' && typeof value !== 'boolean') fail('provisioning context contains unsupported data', 65);
+  if (typeof value === 'string' && value.length > 16384) fail('provisioning context string is too large', 65);
+  if (typeof value === 'number' && !Number.isFinite(value)) fail('provisioning context number is invalid', 65);
+}
+
+async function prepareProvisioningPrompt(contextPath, stateDirectory) {
+  const path = absoluteSafePath(contextPath, 'provisioning context');
+  const metadata = await lstat(path);
+  if (!metadata.isFile() || metadata.isSymbolicLink() || metadata.nlink !== 1 || metadata.size < 1 || metadata.size > 262_144) {
+    fail('provisioning context must be one bounded regular file', 65);
+  }
+  let context;
+  try { context = JSON.parse(await readFile(path, 'utf8')); } catch { fail('provisioning context must be valid JSON', 65); }
+  objectWithExactKeys(context, ['schemaVersion', 'promptVersion', 'promptDigest', 'profile', 'release', 'discoveredFacts', 'policy', 'capabilities', 'permittedTools', 'contextDigest'], 'provisioning context');
+  objectWithExactKeys(context.profile, ['id', 'revision', 'digest'], 'profile binding');
+  objectWithExactKeys(context.release, ['id', 'version', 'digest'], 'release binding');
+  if (context.schemaVersion !== 1 || context.promptVersion !== PROVISIONING_PROMPT_VERSION) fail('unsupported provisioning prompt context version', 65);
+  for (const [label, value] of [['profile id', context.profile.id], ['profile revision', context.profile.revision], ['release id', context.release.id], ['release version', context.release.version]]) boundedIdentifier(value, label);
+  for (const value of [context.promptDigest, context.contextDigest, context.profile.digest, context.release.digest]) if (!digestPattern.test(value || '')) fail('provisioning context digest is invalid', 65);
+  for (const [label, values] of [['capabilities', context.capabilities], ['permitted tools', context.permittedTools]]) {
+    if (!Array.isArray(values) || values.length > 128 || values.some((value, index) => {
+      try { boundedIdentifier(value, label); } catch { return true; }
+      return index > 0 && values[index - 1] >= value;
+    })) fail(`${label} must be a sorted unique bounded list`, 65);
+  }
+  if (context.permittedTools.some(tool => !approvedTools.includes(tool))) fail('provisioning context permits an unapproved tool', 77);
+  assertNonsecretJson(context.discoveredFacts);
+  assertNonsecretJson(context.policy);
+  const promptDigest = createHash('sha256').update(PROVISIONING_PROMPT, 'utf8').digest('hex');
+  if (context.promptDigest !== promptDigest) fail('provisioning prompt digest mismatch', 65);
+  const unsigned = { ...context }; delete unsigned.contextDigest;
+  const canonicalContext = `${JSON.stringify(canonical(unsigned))}\n`;
+  const canonicalFullContext = `${JSON.stringify(canonical(context))}\n`;
+  const contextDigest = createHash('sha256').update(canonicalContext, 'utf8').digest('hex');
+  if (context.contextDigest !== contextDigest) fail('provisioning context digest mismatch', 65);
+  const promptDirectory = join(stateDirectory, 'config', 'prompts', contextDigest);
+  await mkdir(promptDirectory, { recursive: true, mode: 0o700 });
+  await chmod(promptDirectory, 0o700);
+  const promptPath = join(promptDirectory, 'provisioning.md');
+  const contextOutputPath = join(promptDirectory, 'context.json');
+  const promptBundle = `${PROVISIONING_PROMPT}\n\nCanonical nonsecret provisioning context (${contextDigest}):\n\n\`\`\`json\n${canonicalContext}\`\`\`\n`;
+  await atomicWrite(promptPath, promptBundle);
+  await atomicWrite(contextOutputPath, canonicalFullContext);
+  const evidenceDirectory = join(stateDirectory, 'history', 'prompt-bindings');
+  await mkdir(evidenceDirectory, { recursive: true, mode: 0o700 });
+  await chmod(evidenceDirectory, 0o700);
+  const evidencePath = join(evidenceDirectory, `${contextDigest}.json`);
+  const evidence = `${JSON.stringify(canonical({
+    schemaVersion: 1, state: 'recorded-before-execution', promptVersion: context.promptVersion,
+    promptDigest, contextDigest, profile: context.profile, release: context.release,
+    capabilities: context.capabilities, permittedTools: context.permittedTools,
+  }))}\n`;
+  let evidenceHandle;
+  try {
+    evidenceHandle = await open(evidencePath, 'wx', 0o600);
+    await evidenceHandle.writeFile(evidence);
+    await evidenceHandle.sync();
+  } catch (error) {
+    if (error?.code !== 'EEXIST') throw error;
+    if (await readFile(evidencePath, 'utf8') !== evidence) fail('provisioning prompt evidence collision', 73);
+  } finally { await evidenceHandle?.close(); }
+  return { context, promptPath, contextOutputPath, evidencePath };
+}
+
 async function installPinnedFile(source, destination, expectedDigest, mode) {
   try {
     const info = await lstat(destination);
@@ -332,8 +437,10 @@ async function writeService(values, stateDirectory, runtime) {
   const supervisorDigest = await sha256(supervisorSource);
   const supervisor = await installPinnedFile(supervisorSource, join(stateDirectory, 'bin', 'desktop-tools-supervisor.mjs'), supervisorDigest, 0o700);
   const installedRuntime = await installPinnedFile(runtime, join(stateDirectory, 'runtime', `opencode-${values.sha256}`), values.sha256, 0o700);
+  if (!values['provisioning-context']) fail('service requires --provisioning-context', 64);
+  const promptBinding = await prepareProvisioningPrompt(values['provisioning-context'], stateDirectory);
   const fixed = [supervisor, 'run', '--runtime', installedRuntime, '--sha256', values.sha256, '--version', values.version,
-    '--state-dir', stateDirectory, '--port', String(port)];
+    '--state-dir', stateDirectory, '--port', String(port), '--provisioning-context', promptBinding.contextOutputPath];
   const unit = `[Unit]\nDescription=Desktop Tools private OpenCode supervisor\nAfter=network-online.target\nWants=network-online.target\n\n[Service]\nType=simple\nExecStart=${fixed.map(systemdEscape).join(' ')}\nRestart=on-failure\nRestartSec=5s\nNoNewPrivileges=yes\nPrivateTmp=yes\nProtectSystem=strict\nProtectHome=read-only\nReadWritePaths=${systemdEscape(stateDirectory)}\nUMask=0077\n\n[Install]\nWantedBy=default.target\n`;
   const argumentsXml = fixed.map(value => `      <string>${xml(value)}</string>`).join('\n');
   const plist = `<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n<plist version="1.0"><dict>\n  <key>Label</key><string>tools.desktop.supervisor</string>\n  <key>ProgramArguments</key><array>\n${argumentsXml}\n  </array>\n  <key>RunAtLoad</key><true/>\n  <key>KeepAlive</key><dict><key>SuccessfulExit</key><false/></dict>\n  <key>ProcessType</key><string>Background</string>\n  <key>Umask</key><integer>63</integer>\n</dict></plist>\n`;
@@ -365,10 +472,12 @@ async function main(argv) {
   const password = await serverPassword(stateDirectory);
   const inferenceCredential = await validateInferenceCredential(stateDirectory);
   await installPinnedSkills(stateDirectory);
-  const opencodeConfig = generateOpenCodeConfig(inferenceCredential);
+  if (!values['provisioning-context']) fail('run requires --provisioning-context', 64);
+  const promptBinding = await prepareProvisioningPrompt(values['provisioning-context'], stateDirectory);
+  const opencodeConfig = generateOpenCodeConfig(inferenceCredential, promptBinding.promptPath);
   const releaseLock = await acquireLock(stateDirectory);
   const child = spawn(runtime, ['serve', '--hostname', '127.0.0.1', '--port', String(port)], {
-    shell: false, env: minimalEnvironment(stateDirectory, password, opencodeConfig), stdio: 'inherit'
+    shell: false, env: minimalEnvironment(stateDirectory, password, opencodeConfig, promptBinding), stdio: 'inherit'
   });
   const forward = signal => { if (!child.killed) child.kill(signal); };
   process.once('SIGINT', forward); process.once('SIGTERM', forward);
@@ -385,7 +494,7 @@ async function main(argv) {
   return { stopped: true };
 }
 
-export { VERSION, approvedSkills, approvedTools, generateOpenCodeConfig, main, minimalEnvironment, protectedDirectory, validateInferenceCredential, validateRuntime };
+export { PROVISIONING_PROMPT, PROVISIONING_PROMPT_VERSION, VERSION, approvedSkills, approvedTools, generateOpenCodeConfig, main, minimalEnvironment, prepareProvisioningPrompt, protectedDirectory, validateInferenceCredential, validateRuntime };
 
 if (import.meta.url === `file://${process.argv[1]}`) {
   main(process.argv.slice(2))

@@ -22,5 +22,9 @@
     }
   ],
   "externalDirectories": "deny",
-  "tools": ["desktop_tools_discover", "desktop_tools_validate", "desktop_tools_plan", "desktop_tools_status"]
+  "tools": [
+    "desktop_tools_discover", "desktop_tools_validate", "desktop_tools_plan", "desktop_tools_approve",
+    "desktop_tools_apply", "desktop_tools_verify", "desktop_tools_status", "desktop_tools_resume",
+    "desktop_tools_rollback_config", "desktop_tools_deprovision_preview"
+  ]
 }

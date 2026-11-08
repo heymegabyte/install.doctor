@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "authority": {
+    "implementation": "@install-doctor/installer-engine/typed-tool-adapters",
+    "ambientShell": false,
+    "modelSuppliedEngineInvocation": false,
+    "consent": "out-of-band-broker",
+    "locks": "installer-engine",
+    "journal": "installer-engine"
+  },
+  "tools": [
+    { "name": "desktop_tools_discover", "mutation": false },
+    { "name": "desktop_tools_validate", "mutation": false },
+    { "name": "desktop_tools_plan", "mutation": false },
+    { "name": "desktop_tools_approve", "mutation": false, "consent": "required" },
+    { "name": "desktop_tools_apply", "mutation": true, "approval": "adapter-issued-one-use" },
+    { "name": "desktop_tools_verify", "mutation": false },
+    { "name": "desktop_tools_status", "mutation": false },
+    { "name": "desktop_tools_resume", "mutation": true, "approval": "adapter-issued" },
+    { "name": "desktop_tools_rollback_config", "mutation": true, "approval": "adapter-issued-one-use" },
+    { "name": "desktop_tools_deprovision_preview", "mutation": false, "executable": false }
+  ]
+}

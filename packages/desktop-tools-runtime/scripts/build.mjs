@@ -34,7 +34,7 @@ const supervisor = await readFile(join(root, 'src', 'desktop-tools-supervisor.mj
 await writeFile(join(output, 'desktop-tools-supervisor.mjs'), supervisor, { mode: 0o700 });
 await chmod(join(output, 'desktop-tools-supervisor.mjs'), 0o700);
 const entries = [];
-for (const name of ['runtime-policy.json', 'supervisor-api.schema.json']) {
+for (const name of ['runtime-policy.json', 'supervisor-api.schema.json', 'typed-tools.json']) {
   const bytes = await readFile(join(root, 'contracts', name));
   entries.push(tarEntry(`contracts/${name}`, bytes, 0o600));
 }

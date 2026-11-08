@@ -36,3 +36,5 @@ export * from './native-policy-rcd.js';
 export * from './offline-authority.js';
 export * from './deprovision-plan.js';
 export * from './target-device-authorization.js';
+export * from './typed-tool-adapters.js';
+export * from './provisioning-prompt.js';

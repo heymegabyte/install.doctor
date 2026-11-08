@@ -10,9 +10,16 @@ removes inherited credentials from the child environment, denies OpenCode shell/
 external-directory permissions, and binds the server to `127.0.0.1` on an unprivileged port.
 The generated OpenCode 2 configuration hard-denies ambient providers, integrations, plugins,
 skills, MCP servers, and tools before allowing only the ProjectSites
-provider, the pinned on-demand Desktop Tools skill, its typed read/plan/status tools, and
+provider, the pinned on-demand Desktop Tools skill, its ten typed lifecycle tools, and
 workspace-local inspection. ProjectSites is the customer inference boundary, prefers DeepSeek,
 and does not use LiteLLM.
+
+`contracts/typed-tools.json` is the signed runtime allowlist for discover, validate, plan,
+approve, apply, verify, status, resume, configuration rollback, and deprovision preview.
+Their implementation lives in the installer engine: model input cannot supply an engine
+invocation, executable, shell text, state root, plan body, or journal. Apply and rollback
+consume approvals issued by an out-of-band consent broker; the engine independently owns
+schema validation, mutation locks, durable evidence, verification, and rollback fencing.
 
 OpenCode 2.2.5 does not enforce the later `websearch.use` policy action. Desktop Tools therefore
 does not rely on it: the ordered v2 permission list begins with a deny-all rule and contains no
