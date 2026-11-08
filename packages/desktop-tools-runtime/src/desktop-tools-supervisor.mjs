@@ -11,11 +11,112 @@ const VERSION = '1';
 const digestPattern = /^[a-f0-9]{64}$/;
 const versionPattern = /^2\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-[0-9A-Za-z.-]+)?$/;
 const safeTextPattern = /^[^\0\r\n]{1,4096}$/;
+const PROVIDER_ID = 'projectsites';
+const PROVIDER_BASE_URL = 'https://desktop.tools/api/ai/v1';
+const PROVISIONING_SKILL = '---\nname: desktop-tools-provisioning\ndescription: Inspect, validate, plan, and report Desktop Tools desired state through approved typed tools.\nversion: 1.0.0\n---\n\nUse only the Desktop Tools typed tools exposed for this session. Discover before planning. Never use shell, edit files directly, access external directories, or claim mutation or verification that a typed tool did not report.\n';
+const approvedSkills = Object.freeze([
+  Object.freeze({ id: 'desktop-tools-provisioning', version: '1.0.0', sha256: '9cc5393b607af33a4ff9f73070f5ae87b6b9e6b5510d344ae93c3587672f71eb' })
+]);
+const approvedTools = Object.freeze([
+  'desktop_tools_discover', 'desktop_tools_validate', 'desktop_tools_plan', 'desktop_tools_status'
+]);
 
 function fail(message, code = 64) {
   const error = new Error(message);
   error.exitCode = code;
   throw error;
+}
+
+async function validateInferenceCredential(stateDirectory) {
+  const path = join(stateDirectory, 'config', 'inference-token');
+  const info = await lstat(path).catch(error => {
+    if (error?.code === 'ENOENT') fail('scoped inference credential is unavailable', 78);
+    throw error;
+  });
+  if (!info.isFile() || info.isSymbolicLink() || info.nlink !== 1 || info.size < 32 || info.size > 4096
+    || (info.mode & 0o077) !== 0 || (typeof info.uid === 'number' && info.uid !== process.getuid?.())) {
+    fail('scoped inference credential state is unsafe', 77);
+  }
+  const value = await readFile(path, 'utf8');
+  const token = value.endsWith('\n') ? value.slice(0, -1) : value;
+  if (token.includes('\0') || /[\r\n]/.test(token) || token.length < 32 || token !== token.trim()) fail('scoped inference credential is malformed', 65);
+  return path;
+}
+
+async function installPinnedSkills(stateDirectory) {
+  for (const skill of approvedSkills) {
+    const directory = join(stateDirectory, 'config', 'skills', skill.id);
+    await mkdir(directory, { recursive: true, mode: 0o700 });
+    await chmod(directory, 0o700);
+    const path = join(directory, 'SKILL.md');
+    try {
+      const info = await lstat(path);
+      if (!info.isFile() || info.isSymbolicLink() || info.nlink !== 1 || (info.mode & 0o077) !== 0 || await sha256(path) !== skill.sha256) {
+        fail(`installed OpenCode skill is not the pinned artifact: ${skill.id}`, 65);
+      }
+    } catch (error) {
+      if (error?.code !== 'ENOENT') throw error;
+      await atomicWrite(path, PROVISIONING_SKILL, 0o600);
+      if (await sha256(path) !== skill.sha256) fail(`OpenCode skill digest mismatch: ${skill.id}`, 65);
+    }
+  }
+}
+
+function generateOpenCodeConfig(credentialPath) {
+  return {
+    $schema: 'https://opencode.ai/config.json',
+    model: `${PROVIDER_ID}/dynamic/code`,
+    update: 'disable',
+    snapshots: false,
+    providers: {
+      [PROVIDER_ID]: {
+        package: '@opencode/ai/providers/openai-compatible',
+        name: 'Desktop Tools / ProjectSites (DeepSeek preferred)',
+        settings: { baseURL: PROVIDER_BASE_URL, apiKey: `{file:${credentialPath}}` },
+        models: {
+          'dynamic/code': { name: 'ProjectSites code (DeepSeek preferred)' },
+          'dynamic/economy': { name: 'ProjectSites economy (DeepSeek preferred)' },
+          'dynamic/restricted': { name: 'ProjectSites restricted' }
+        }
+      }
+    },
+    permissions: [
+      { action: '*', resource: '*', effect: 'deny' },
+      { action: 'read', resource: '*', effect: 'allow' },
+      { action: 'glob', resource: '*', effect: 'allow' },
+      { action: 'grep', resource: '*', effect: 'allow' },
+      { action: 'question', resource: '*', effect: 'allow' },
+      { action: 'read', resource: '*.env', effect: 'deny' },
+      { action: 'read', resource: '*.env.*', effect: 'deny' },
+      { action: 'read', resource: '*/.ssh/*', effect: 'deny' },
+      { action: 'skill', resource: '*', effect: 'deny' },
+      ...approvedSkills.map(skill => ({ action: 'skill', resource: skill.id, effect: 'allow' })),
+      ...approvedTools.map(tool => ({ action: tool, resource: '*', effect: 'allow' }))
+    ],
+    policies: [
+      { action: 'provider.use', resource: '*', effect: 'deny' },
+      { action: 'provider.use', resource: PROVIDER_ID, effect: 'allow' },
+      { action: 'integration.connect', resource: '*', effect: 'deny' },
+      { action: 'integration.use', resource: '*', effect: 'deny' },
+      { action: 'mcp.use', resource: '*', effect: 'deny' },
+      { action: 'mcp.use', resource: 'desktop-tools', effect: 'allow' },
+      { action: 'skill.use', resource: '*', effect: 'deny' },
+      ...approvedSkills.map(skill => ({ action: 'skill.use', resource: skill.id, effect: 'allow' })),
+      { action: 'plugin.use', resource: '*', effect: 'deny' },
+      { action: 'websearch.use', resource: '*', effect: 'deny' },
+      { action: 'tool.use', resource: '*', effect: 'deny' },
+      { action: 'tool.use', resource: 'read:*', effect: 'allow' },
+      { action: 'tool.use', resource: 'glob:*', effect: 'allow' },
+      { action: 'tool.use', resource: 'grep:*', effect: 'allow' },
+      { action: 'tool.use', resource: 'question:*', effect: 'allow' },
+      { action: 'tool.use', resource: 'skill:*', effect: 'allow' },
+      ...approvedTools.map(tool => ({ action: 'tool.use', resource: `${tool}:*`, effect: 'allow' })),
+      { action: 'tool.use', resource: 'shell:*', effect: 'deny' },
+      { action: 'tool.use', resource: 'edit:*', effect: 'deny' },
+      { action: 'tool.use', resource: 'execute:*', effect: 'deny' },
+      { action: 'tool.use', resource: 'external_directory:*', effect: 'deny' }
+    ]
+  };
 }
 
 function parse(argv) {
@@ -96,7 +197,7 @@ async function sha256(path) {
   return hash.digest('hex');
 }
 
-function minimalEnvironment(stateDirectory, serverPassword) {
+function minimalEnvironment(stateDirectory, serverPassword, opencodeConfig) {
   const environment = {
     HOME: homedir(),
     PATH: '/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin',
@@ -106,9 +207,17 @@ function minimalEnvironment(stateDirectory, serverPassword) {
     XDG_DATA_HOME: join(stateDirectory, 'data'),
     XDG_STATE_HOME: stateDirectory,
     DESKTOP_TOOLS_STATE_DIR: stateDirectory,
-    // This fail-closed baseline remains in force until task 5.2 supplies the
-    // complete signed Desktop Tools OpenCode configuration.
-    OPENCODE_CONFIG_CONTENT: '{"permission":{"bash":"deny","edit":"deny","external_directory":"deny"}}'
+    OPENCODE_CONFIG_DIR: join(stateDirectory, 'config'),
+    OPENCODE_DISABLE_PROJECT_CONFIG: '1',
+    OPENCODE_CONFIG_CONTENT: JSON.stringify(opencodeConfig || {
+      $schema: 'https://opencode.ai/config.json',
+      permissions: [{ action: '*', resource: '*', effect: 'deny' }],
+      policies: [
+        { action: 'provider.use', resource: '*', effect: 'deny' },
+        { action: 'integration.use', resource: '*', effect: 'deny' },
+        { action: 'tool.use', resource: '*', effect: 'deny' }
+      ]
+    })
   };
   if (serverPassword) {
     environment.OPENCODE_SERVER_USERNAME = 'desktop-tools';
@@ -255,9 +364,12 @@ async function main(argv) {
   if (command === 'service') return { outputDirectory: await writeService(values, stateDirectory, runtime) };
   const port = portValue(values.port);
   const password = await serverPassword(stateDirectory);
+  const inferenceCredential = await validateInferenceCredential(stateDirectory);
+  await installPinnedSkills(stateDirectory);
+  const opencodeConfig = generateOpenCodeConfig(inferenceCredential);
   const releaseLock = await acquireLock(stateDirectory);
   const child = spawn(runtime, ['serve', '--hostname', '127.0.0.1', '--port', String(port)], {
-    shell: false, env: minimalEnvironment(stateDirectory, password), stdio: 'inherit'
+    shell: false, env: minimalEnvironment(stateDirectory, password, opencodeConfig), stdio: 'inherit'
   });
   const forward = signal => { if (!child.killed) child.kill(signal); };
   process.once('SIGINT', forward); process.once('SIGTERM', forward);
@@ -274,7 +386,7 @@ async function main(argv) {
   return { stopped: true };
 }
 
-export { VERSION, main, minimalEnvironment, protectedDirectory, validateRuntime };
+export { VERSION, approvedSkills, approvedTools, generateOpenCodeConfig, main, minimalEnvironment, protectedDirectory, validateInferenceCredential, validateRuntime };
 
 if (import.meta.url === `file://${process.argv[1]}`) {
   main(process.argv.slice(2))

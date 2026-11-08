@@ -1,9 +1,26 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "commands": ["validate", "prepare", "run", "service", "status"],
   "network": {
     "opencodeHost": "127.0.0.1",
     "privilegedPortsAllowed": false
   },
-  "ambientShell": false
+  "ambientShell": false,
+  "inference": {
+    "provider": "projectsites",
+    "baseUrl": "https://desktop.tools/api/ai/v1",
+    "preferredProvider": "deepseek",
+    "liteLlmAllowed": false,
+    "credentialSource": "protected-file"
+  },
+  "skills": [
+    {
+      "id": "desktop-tools-provisioning",
+      "version": "1.0.0",
+      "sha256": "9cc5393b607af33a4ff9f73070f5ae87b6b9e6b5510d344ae93c3587672f71eb",
+      "load": "on-demand"
+    }
+  ],
+  "externalDirectories": "deny",
+  "tools": ["desktop_tools_discover", "desktop_tools_validate", "desktop_tools_plan", "desktop_tools_status"]
 }

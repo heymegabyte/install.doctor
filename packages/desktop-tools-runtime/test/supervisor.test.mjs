@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { chmod, mkdtemp, readFile, stat, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
-import { main, minimalEnvironment } from '../src/desktop-tools-supervisor.mjs';
+import { approvedSkills, approvedTools, generateOpenCodeConfig, main, minimalEnvironment } from '../src/desktop-tools-supervisor.mjs';
 
 async function fixture() {
   const root = await mkdtemp(join(tmpdir(), 'desktop-tools-runtime-'));
@@ -12,7 +12,10 @@ async function fixture() {
   await writeFile(runtime, '#!/bin/sh\nif [ "$1" = --version ]; then printf "opencode 2.2.5\\n"; exit 0; fi\nprintf "%s\\n" "$@" >"$DESKTOP_TOOLS_STATE_DIR/argv"\nprintf "%s\\n" "${API_TOKEN-unset}" >"$DESKTOP_TOOLS_STATE_DIR/secret"\nprintf "%s\\n" "$OPENCODE_SERVER_USERNAME" >"$DESKTOP_TOOLS_STATE_DIR/username"\ntest -n "$OPENCODE_SERVER_PASSWORD" && printf present >"$DESKTOP_TOOLS_STATE_DIR/password-present"\nprintf "%s\\n" "$OPENCODE_CONFIG_CONTENT" >"$DESKTOP_TOOLS_STATE_DIR/opencode-config"\n', { mode: 0o700 });
   await chmod(runtime, 0o700);
   const sha256 = createHash('sha256').update(await readFile(runtime)).digest('hex');
-  return { root, runtime, sha256, state: join(root, 'state') };
+  const state = join(root, 'state');
+  await mkdir(join(state, 'config'), { recursive: true, mode: 0o700 });
+  await writeFile(join(state, 'config', 'inference-token'), 'scoped-test-token-abcdefghijklmnopqrstuvwxyz\n', { mode: 0o600 });
+  return { root, runtime, sha256, state };
 }
 
 test('prepares protected state and validates an exact pinned runtime', async () => {
@@ -32,7 +35,18 @@ test('run binds only private loopback and strips inherited secret variables', as
   assert.equal(await readFile(join(item.state, 'secret'), 'utf8'), 'unset\n');
   assert.equal(await readFile(join(item.state, 'username'), 'utf8'), 'desktop-tools\n');
   assert.equal(await readFile(join(item.state, 'password-present'), 'utf8'), 'present');
-  assert.match(await readFile(join(item.state, 'opencode-config'), 'utf8'), /"bash":"deny"/);
+  const config = JSON.parse(await readFile(join(item.state, 'opencode-config'), 'utf8'));
+  assert.equal(config.model, 'projectsites/dynamic/code');
+  assert.equal(config.providers.projectsites.settings.apiKey, `{file:${join(item.state, 'config', 'inference-token')}}`);
+  assert.equal(config.providers.projectsites.settings.baseURL, 'https://desktop.tools/api/ai/v1');
+  assert.deepEqual(config.policies.slice(0, 2), [
+    { action: 'provider.use', resource: '*', effect: 'deny' },
+    { action: 'provider.use', resource: 'projectsites', effect: 'allow' }
+  ]);
+  assert.equal(JSON.stringify(config).toLowerCase().includes('litellm'), false);
+  assert.equal(JSON.stringify(config).includes('scoped-test-token'), false);
+  assert.equal(createHash('sha256').update(await readFile(join(item.state, 'config', 'skills', 'desktop-tools-provisioning', 'SKILL.md'))).digest('hex'), approvedSkills[0].sha256);
+  assert.equal((await stat(join(item.state, 'config', 'skills', 'desktop-tools-provisioning', 'SKILL.md'))).mode & 0o777, 0o600);
   assert.equal((await stat(join(item.state, 'config', 'server-password'))).mode & 0o777, 0o600);
   delete process.env.API_TOKEN;
 });
@@ -66,9 +80,47 @@ test('generates restart-survivable hardened service definitions without secrets'
 
 test('minimal environment contains no inherited credential-shaped values', () => {
   process.env.AWS_SECRET_ACCESS_KEY = 'secret';
+  process.env.ANTHROPIC_API_KEY = 'ambient-anthropic';
+  process.env.DEEPSEEK_API_KEY = 'ambient-deepseek';
+  process.env.OPENAI_API_KEY = 'ambient-openai';
   const environment = minimalEnvironment('/tmp/desktop-tools-state');
   assert.equal(environment.AWS_SECRET_ACCESS_KEY, undefined);
+  assert.equal(environment.ANTHROPIC_API_KEY, undefined);
+  assert.equal(environment.DEEPSEEK_API_KEY, undefined);
+  assert.equal(environment.OPENAI_API_KEY, undefined);
   assert.equal(environment.DESKTOP_TOOLS_STATE_DIR, '/tmp/desktop-tools-state');
-  assert.match(environment.OPENCODE_CONFIG_CONTENT, /"bash":"deny"/);
+  assert.equal(environment.OPENCODE_DISABLE_PROJECT_CONFIG, '1');
+  assert.deepEqual(JSON.parse(environment.OPENCODE_CONFIG_CONTENT).permissions, [{ action: '*', resource: '*', effect: 'deny' }]);
   delete process.env.AWS_SECRET_ACCESS_KEY;
+  delete process.env.ANTHROPIC_API_KEY;
+  delete process.env.DEEPSEEK_API_KEY;
+  delete process.env.OPENAI_API_KEY;
+});
+
+test('strict config permits only ProjectSites, pinned skills, and task-specific typed tools', () => {
+  const credential = '/private/state/config/inference-token';
+  const config = generateOpenCodeConfig(credential);
+  assert.deepEqual(Object.keys(config.providers), ['projectsites']);
+  assert.equal(config.providers.projectsites.settings.apiKey, `{file:${credential}}`);
+  assert.ok(config.policies.some(rule => rule.action === 'integration.use' && rule.resource === '*' && rule.effect === 'deny'));
+  assert.ok(config.policies.some(rule => rule.action === 'tool.use' && rule.resource === 'external_directory:*' && rule.effect === 'deny'));
+  for (const action of ['shell', 'edit', 'execute']) {
+    assert.ok(config.policies.some(rule => rule.action === 'tool.use' && rule.resource === `${action}:*` && rule.effect === 'deny'));
+  }
+  assert.deepEqual(config.policies.filter(rule => rule.action === 'skill.use' && rule.effect === 'allow').map(rule => rule.resource), approvedSkills.map(skill => skill.id));
+  assert.deepEqual(config.permissions.filter(rule => rule.action.startsWith('desktop_tools_')).map(rule => rule.action), approvedTools);
+  assert.equal(config.permissions.some(rule => rule.action === 'shell' && rule.effect === 'allow'), false);
+  assert.equal(config.permissions.some(rule => rule.action === 'edit' && rule.effect === 'allow'), false);
+});
+
+test('run refuses missing, permissive, and malformed inference credential state', async () => {
+  const item = await fixture();
+  await rm(join(item.state, 'config', 'inference-token'));
+  await assert.rejects(main(['run', '--state-dir', item.state, '--runtime', item.runtime, '--sha256', item.sha256, '--version', '2.2.5']), /credential is unavailable/);
+  await writeFile(join(item.state, 'config', 'inference-token'), 'scoped-test-token-abcdefghijklmnopqrstuvwxyz\n', { mode: 0o600 });
+  await chmod(join(item.state, 'config', 'inference-token'), 0o644);
+  await assert.rejects(main(['run', '--state-dir', item.state, '--runtime', item.runtime, '--sha256', item.sha256, '--version', '2.2.5']), /credential state is unsafe/);
+  await chmod(join(item.state, 'config', 'inference-token'), 0o600);
+  await writeFile(join(item.state, 'config', 'inference-token'), 'short\n', { mode: 0o600 });
+  await assert.rejects(main(['run', '--state-dir', item.state, '--runtime', item.runtime, '--sha256', item.sha256, '--version', '2.2.5']), /credential/);
 });

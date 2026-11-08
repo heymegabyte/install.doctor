@@ -4,9 +4,9 @@
   "title": "Desktop Tools local supervisor contract",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schemaVersion", "commands", "network", "ambientShell"],
+  "required": ["schemaVersion", "commands", "network", "ambientShell", "inference", "skills", "externalDirectories", "tools"],
   "properties": {
-    "schemaVersion": { "const": 1 },
+    "schemaVersion": { "const": 2 },
     "commands": {
       "const": ["validate", "prepare", "run", "service", "status"]
     },
@@ -19,6 +19,37 @@
         "privilegedPortsAllowed": { "const": false }
       }
     },
-    "ambientShell": { "const": false }
+    "ambientShell": { "const": false },
+    "inference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["provider", "baseUrl", "preferredProvider", "liteLlmAllowed", "credentialSource"],
+      "properties": {
+        "provider": { "const": "projectsites" },
+        "baseUrl": { "const": "https://desktop.tools/api/ai/v1" },
+        "preferredProvider": { "const": "deepseek" },
+        "liteLlmAllowed": { "const": false },
+        "credentialSource": { "const": "protected-file" }
+      }
+    },
+    "skills": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "version", "sha256", "load"],
+        "properties": {
+          "id": { "type": "string", "minLength": 1 },
+          "version": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$" },
+          "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+          "load": { "const": "on-demand" }
+        }
+      }
+    },
+    "externalDirectories": { "const": "deny" },
+    "tools": {
+      "const": ["desktop_tools_discover", "desktop_tools_validate", "desktop_tools_plan", "desktop_tools_status"]
+    }
   }
 }
