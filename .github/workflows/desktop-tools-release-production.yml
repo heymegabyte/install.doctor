@@ -1,0 +1,237 @@
+name: Desktop Tools production release
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_id:
+        description: Immutable Desktop Tools release id
+        required: true
+        type: string
+
+permissions: {}
+
+concurrency:
+  group: desktop-tools-release-production
+  cancel-in-progress: false
+
+env:
+  NODE_RELEASE_VERSION: 24.22.2
+  NODE_RELEASE_KEYS_COMMIT: 481637f813e912c4aa3622d7964ab426c97b8e8d
+  OPENCODE_LOCK: config/desktop-tools-opencode.lock.json
+  SIGNER_SCRIPT_SHA256: d3e8c01b379787ad56b58e69616c61a785b09169ec7558153c4b66f1c18f3a60
+
+jobs:
+  build:
+    name: Build inert Desktop Tools v7 closure
+    if: github.ref == 'refs/heads/master'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    outputs:
+      release_id: ${{ steps.identity.outputs.release_id }}
+      signer_id: ${{ steps.identity.outputs.signer_id }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24.22.2
+          cache: npm
+          cache-dependency-path: |
+            packages/aid-core/package-lock.json
+            packages/installer-engine/package-lock.json
+            packages/control-plane/package-lock.json
+      - id: identity
+        name: Validate immutable product identities
+        env:
+          RELEASE_ID: ${{ inputs.release_id }}
+          SIGNER_ID: ${{ vars.DESKTOP_TOOLS_RELEASE_SIGNER_ID }}
+        run: |
+          set -euo pipefail
+          case "$RELEASE_ID" in ''|[!a-z0-9]*|*[!a-z0-9._-]*) exit 64;; esac
+          case "$SIGNER_ID" in desktop-*) ;; *) exit 64;; esac
+          test "${#RELEASE_ID}" -le 128
+          test "${#SIGNER_ID}" -le 128
+          printf 'release_id=%s\nsigner_id=%s\n' "$RELEASE_ID" "$SIGNER_ID" >>"$GITHUB_OUTPUT"
+      - name: Build source-owned runtime outputs
+        env:
+          SIGNER_ID: ${{ steps.identity.outputs.signer_id }}
+        run: |
+          set -euo pipefail
+          # Fail before any release download when the protected signer trust root or
+          # the task-5 runtime closure has not yet been committed.
+          jq -er --arg id "$SIGNER_ID" '.products["desktop-tools"].signers[$id] | select(type == "string")' packages/control-plane/src/release-trust.json \
+            | grep -Eq '^ssh-ed25519 [A-Za-z0-9+/]+={0,3}( [^[:cntrl:]]{1,128})?$'
+          test -f packages/desktop-tools-runtime/dist/desktop-tools-supervisor.mjs
+          test -f packages/desktop-tools-runtime/dist/desktop-tools-tools.tar.gz
+          npm --prefix packages/aid-core ci --ignore-scripts --no-audit --no-fund
+          npm --prefix packages/installer-engine ci --ignore-scripts --no-audit --no-fund
+          npm --prefix packages/aid-core run build
+          npm --prefix packages/installer-engine run bundle
+      - name: Acquire and verify exact Node and OpenCode runtimes
+        run: |
+          set -euo pipefail
+          umask 077
+          mkdir -p .release-work/runtime .release-work/opencode .release-work/node-keys
+          base="https://nodejs.org/dist/v${NODE_RELEASE_VERSION}"
+          curl=(curl --fail --silent --show-error --proto '=https' --tlsv1.2 --max-time 300 --retry 3 --retry-all-errors)
+          "${curl[@]}" --output .release-work/SHASUMS256.txt "$base/SHASUMS256.txt"
+          "${curl[@]}" --output .release-work/SHASUMS256.txt.sig "$base/SHASUMS256.txt.sig"
+          git clone --quiet --no-checkout https://github.com/nodejs/release-keys.git .release-work/node-keys
+          git -C .release-work/node-keys checkout --quiet --detach "$NODE_RELEASE_KEYS_COMMIT"
+          test "$(git -C .release-work/node-keys rev-parse HEAD)" = "$NODE_RELEASE_KEYS_COMMIT"
+          gpgv --keyring .release-work/node-keys/gpg-only-active-keys/pubring.kbx \
+            .release-work/SHASUMS256.txt.sig .release-work/SHASUMS256.txt
+          for platform in darwin-x64 darwin-arm64 linux-x64 linux-arm64; do
+            name="node-v${NODE_RELEASE_VERSION}-${platform}.tar.gz"
+            "${curl[@]}" --max-filesize 100663296 --output ".release-work/runtime/$name" "$base/$name"
+            (cd .release-work/runtime && grep "  $name$" ../SHASUMS256.txt | sha256sum --check --strict)
+          done
+          while IFS=$'\t' read -r platform filename url digest size; do
+            "${curl[@]}" --max-filesize 167772160 --output ".release-work/opencode/$filename" "$url"
+            test "$(wc -c < ".release-work/opencode/$filename" | tr -d '[:space:]')" = "$size"
+            printf '%s  %s\n' "$digest" ".release-work/opencode/$filename" | sha256sum --check --strict
+          done < <(jq -r '.artifacts | to_entries[] | [.key,.value.releaseFilename,.value.upstreamUrl,.value.sha256,(.value.size|tostring)] | @tsv' "$OPENCODE_LOCK")
+      - name: Build exact unsigned closure
+        env:
+          RELEASE_ID: ${{ steps.identity.outputs.release_id }}
+          SIGNER_ID: ${{ steps.identity.outputs.signer_id }}
+        run: |
+          set -euo pipefail
+          umask 077
+          mkdir -p .release-work/output
+          created="$(date -u +%s)"; expires="$((created + 604800))"
+          public_key="$(jq -er --arg id "$SIGNER_ID" '.products["desktop-tools"].signers[$id]' packages/control-plane/src/release-trust.json)"
+          jq -n \
+            --arg releaseId "$RELEASE_ID" --arg sourceCommit "$GITHUB_SHA" \
+            --argjson createdAt "$created" --argjson expiresAt "$expires" \
+            --arg signerId "$SIGNER_ID" --arg signerPublicKey "$public_key" \
+            --arg runtimeNodeVersion "$NODE_RELEASE_VERSION" \
+            --arg opencodeVersion "$(jq -er .version "$OPENCODE_LOCK")" \
+            --arg opencodeLock "$PWD/$OPENCODE_LOCK" \
+            --arg provisioner "$PWD/scripts/provision.sh" \
+            --arg engine "$PWD/packages/installer-engine/dist/install-doctor-engine.mjs" \
+            --arg catalog "$PWD/packages/control-plane/src/catalog.json" \
+            --arg supervisor "$PWD/packages/desktop-tools-runtime/dist/desktop-tools-supervisor.mjs" \
+            --arg tools "$PWD/packages/desktop-tools-runtime/dist/desktop-tools-tools.tar.gz" \
+            --arg licenses "$PWD/config/desktop-tools-third-party-licenses.txt" \
+            --arg outputDirectory "$PWD/.release-work/output/unsigned" \
+            --arg nodeMacosX64 "$PWD/.release-work/runtime/node-v$NODE_RELEASE_VERSION-darwin-x64.tar.gz" \
+            --arg nodeMacosArm64 "$PWD/.release-work/runtime/node-v$NODE_RELEASE_VERSION-darwin-arm64.tar.gz" \
+            --arg nodeLinuxX64 "$PWD/.release-work/runtime/node-v$NODE_RELEASE_VERSION-linux-x64.tar.gz" \
+            --arg nodeLinuxArm64 "$PWD/.release-work/runtime/node-v$NODE_RELEASE_VERSION-linux-arm64.tar.gz" \
+            --arg opencodeMacosX64 "$PWD/.release-work/opencode/opencode-macos-x64.zip" \
+            --arg opencodeMacosArm64 "$PWD/.release-work/opencode/opencode-macos-arm64.zip" \
+            --arg opencodeLinuxX64 "$PWD/.release-work/opencode/opencode-linux-x64.tar.gz" \
+            --arg opencodeLinuxArm64 "$PWD/.release-work/opencode/opencode-linux-arm64.tar.gz" \
+            '{releaseId:$releaseId,sourceCommit:$sourceCommit,createdAt:$createdAt,expiresAt:$expiresAt,signerId:$signerId,signerPublicKey:$signerPublicKey,runtimeNodeVersion:$runtimeNodeVersion,opencodeVersion:$opencodeVersion,opencodeLock:$opencodeLock,provisioner:$provisioner,engine:$engine,catalog:$catalog,supervisor:$supervisor,tools:$tools,licenses:$licenses,outputDirectory:$outputDirectory,runtimes:{macos_x64:$nodeMacosX64,macos_arm64:$nodeMacosArm64,linux_x64:$nodeLinuxX64,linux_arm64:$nodeLinuxArm64},opencode:{macos_x64:$opencodeMacosX64,macos_arm64:$opencodeMacosArm64,linux_x64:$opencodeLinuxX64,linux_arm64:$opencodeLinuxArm64}}' \
+            >.release-work/config.json
+          node scripts/build-desktop-tools-release.mjs .release-work/config.json
+          cp scripts/sign-desktop-tools-release.sh .release-work/output/sign-desktop-tools-release.sh
+          printf '%s  %s\n' "$SIGNER_SCRIPT_SHA256" .release-work/output/sign-desktop-tools-release.sh | sha256sum --check --strict
+      - name: Assemble credential-free publication tools
+        env:
+          SIGNER_ID: ${{ steps.identity.outputs.signer_id }}
+        run: |
+          set -euo pipefail
+          umask 077
+          mkdir -p .release-work/publisher/scripts .release-work/publisher/src
+          cp packages/control-plane/package.json packages/control-plane/package-lock.json .release-work/publisher/
+          cp packages/control-plane/scripts/*.mjs .release-work/publisher/scripts/
+          cp packages/control-plane/src/release-policy.ts .release-work/publisher/src/
+          npm --prefix .release-work/publisher ci --omit=dev --ignore-scripts --no-audit --no-fund
+          jq -er --arg id "$SIGNER_ID" '.products["desktop-tools"].signers[$id]' packages/control-plane/src/release-trust.json >.release-work/publisher/release-public-key
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: desktop-tools-release-unsigned-${{ github.run_id }}
+          path: .release-work/output
+          if-no-files-found: error
+          retention-days: 1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: desktop-tools-release-tools-${{ github.run_id }}
+          path: .release-work/publisher
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 1
+
+  sign:
+    name: Sign in protected no-checkout boundary
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: desktop-tools-release-sign
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: desktop-tools-release-unsigned-${{ github.run_id }}
+          path: release-input
+      - name: Verify the only admitted executable
+        run: |
+          set -euo pipefail
+          printf '%s  %s\n' "$SIGNER_SCRIPT_SHA256" release-input/sign-desktop-tools-release.sh | sha256sum --check --strict
+          test -d release-input/unsigned
+      - uses: Infisical/secrets-action@d2e351f16c6ca20d17c85e6c992e04bdeb64e87d # v1.0.18
+        with:
+          method: oidc
+          identity-id: ${{ vars.INFISICAL_DESKTOP_TOOLS_RELEASE_SIGNER_ID }}
+          project-slug: ${{ vars.INFISICAL_PROJECT_SLUG }}
+          env-slug: prod
+          secret-path: /ci/desktop-tools/release/signer
+          secret-name: DESKTOP_TOOLS_RELEASE_SIGNING_KEY
+          include-imports: false
+          recursive: false
+      - name: Sign and erase private material
+        env:
+          SIGNER_ID: ${{ needs.build.outputs.signer_id }}
+        run: |
+          set -euo pipefail
+          umask 077
+          key="$(mktemp "$RUNNER_TEMP/desktop-tools-signing-key.XXXXXXXX")"
+          cleanup() { rm -f "$key"; }; trap cleanup EXIT HUP INT TERM
+          printf '%s' "$DESKTOP_TOOLS_RELEASE_SIGNING_KEY" >"$key"; chmod 0600 "$key"
+          bash release-input/sign-desktop-tools-release.sh "$SIGNER_ID" "$key" release-input/unsigned signed-release
+          rm -f "$key"; trap - EXIT HUP INT TERM
+          printf 'DESKTOP_TOOLS_RELEASE_SIGNING_KEY=\n' >>"$GITHUB_ENV"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: desktop-tools-release-signed-${{ github.run_id }}
+          path: signed-release
+          if-no-files-found: error
+          retention-days: 1
+
+  publish:
+    name: Publish immutable Desktop Tools objects
+    needs: [build, sign]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: desktop-tools-release-publish
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: desktop-tools-release-signed-${{ github.run_id }}
+          path: signed-release
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: desktop-tools-release-tools-${{ github.run_id }}
+          path: release-tools
+      - uses: Infisical/secrets-action@d2e351f16c6ca20d17c85e6c992e04bdeb64e87d # v1.0.18
+        with:
+          method: oidc
+          identity-id: ${{ vars.INFISICAL_DESKTOP_TOOLS_RELEASE_PUBLISHER_ID }}
+          project-slug: ${{ vars.INFISICAL_PROJECT_SLUG }}
+          env-slug: prod
+          secret-path: /ci/desktop-tools/release/publisher
+          include-imports: false
+          recursive: false
+      - name: Create and read back immutable release objects
+        env:
+          DESKTOP_TOOLS_RELEASE_SIGNER_ID: ${{ needs.build.outputs.signer_id }}
+          DESKTOP_TOOLS_RELEASE_PUBLIC_KEY: ${{ github.workspace }}/release-tools/release-public-key
+        run: node release-tools/scripts/publish-release-to-r2.mjs desktop-publish signed-release "${{ needs.build.outputs.release_id }}"

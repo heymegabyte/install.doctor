@@ -23,11 +23,11 @@ node "$ROOT/scripts/infisical-identity-policy.mjs" validate "$ROOT/config/infisi
 grep -Fq '"valid": true' "$TMP/bootstrap-release.out" || fail "bootstrap release identity policy was rejected"
 node "$ROOT/scripts/infisical-identity-policy.mjs" plan "$ROOT/config/infisical/bootstrap-release-identities.json" >"$TMP/bootstrap-release-plan.json"
 jq -e '
-  (.workloads | length) == 11 and all(.workloads[]; .authMode == "github-oidc") and
-  ([.workloads[].claims.environment] | unique | length) == 11 and
-  ([.workloads[].claims.workflowRef] | unique | length) == 7 and
-  ([.workloads[].authorization.path] | unique | length) == 11
-' "$TMP/bootstrap-release-plan.json" >/dev/null || fail "CI workloads do not have eleven disjoint workflow-bound OIDC/environment/path boundaries"
+  (.workloads | length) == 14 and all(.workloads[]; .authMode == "github-oidc") and
+  ([.workloads[].claims.environment] | unique | length) == 14 and
+  ([.workloads[].claims.workflowRef] | unique | length) == 9 and
+  ([.workloads[].authorization.path] | unique | length) == 14
+' "$TMP/bootstrap-release-plan.json" >/dev/null || fail "CI workloads do not have fourteen disjoint workflow-bound OIDC/environment/path boundaries"
 jq -e '
   (.workloads | map(select(.id == "github-bootstrap-release-signer"))[0].authorization.secretNames == ["INSTALL_DOCTOR_RELEASE_SIGNING_KEY"]) and
   (.workloads | map(select(.id == "github-bootstrap-release-publisher"))[0].authorization.secretNames == [
@@ -51,6 +51,17 @@ jq -e '
     (.authorization.secretNames | index("INSTALL_DOCTOR_RELEASE_SIGNING_KEY") == null) and
     (.platformBindings | length == 1) and
     (.platformBindings[0].platform == "cloudflare-r2-channel-and-release-read-only")) and
+  (.workloads | map(select(.id == "github-desktop-tools-release-signer"))[0] |
+    (.authorization.secretNames == ["DESKTOP_TOOLS_RELEASE_SIGNING_KEY"]) and
+    (.auth.claims.environment == "desktop-tools-release-sign")) and
+  (.workloads | map(select(.id == "github-desktop-tools-release-publisher"))[0] |
+    (.authorization.secretNames | all(startswith("DESKTOP_TOOLS_RELEASE_R2_"))) and
+    (.authorization.secretNames | index("DESKTOP_TOOLS_RELEASE_SIGNING_KEY") == null) and
+    (.auth.claims.environment == "desktop-tools-release-publish")) and
+  (.workloads | map(select(.id == "github-desktop-tools-release-activator"))[0] |
+    (.authorization.secretNames | index("DESKTOP_TOOLS_RELEASE_SIGNING_KEY") == null) and
+    (.authorization.secretNames | any(startswith("DESKTOP_TOOLS_CHANNEL_R2_"))) and
+    (.auth.claims.environment == "desktop-tools-release-activate")) and
   (.workloads | map(select(.id == "github-control-plane-deployer"))[0] |
     (.authorization.secretNames == ["CLOUDFLARE_ACCOUNT_ID", "CLOUDFLARE_API_TOKEN", "CLOUDFLARE_ZONE_ID"]) and
     (.authorization.secretNames | index("INSTALL_DOCTOR_RELEASE_SIGNING_KEY") == null) and

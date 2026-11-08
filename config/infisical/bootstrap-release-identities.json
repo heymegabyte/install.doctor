@@ -483,6 +483,69 @@
       }
     },
     {
+      "id": "github-desktop-tools-release-signer",
+      "runtime": "github-actions",
+      "availableAuthModes": ["github-oidc"],
+      "auth": {
+        "mode": "github-oidc", "issuer": "https://token.actions.githubusercontent.com",
+        "claims": {
+          "repository": "heymegabyte/install.doctor", "repository_id": "588807533", "repository_owner_id": "82490183",
+          "ref": "refs/heads/master", "environment": "desktop-tools-release-sign",
+          "workflow_ref": "heymegabyte/install.doctor/.github/workflows/desktop-tools-release-production.yml@refs/heads/master",
+          "event_name": "workflow_dispatch", "aud": "https://github.com/heymegabyte",
+          "sub": "repo:heymegabyte/install.doctor:environment:desktop-tools-release-sign"
+        },
+        "accessTokenTtlSeconds": 300, "accessTokenMaxTtlSeconds": 600, "accessTokenMaxUses": 4,
+        "trustedIpRationale": "Exact repository IDs, ref, workflow, dispatch event, audience, and protected environment bind this short-lived signer identity."
+      },
+      "authorization": { "project": "install-doctor", "environment": "prod", "path": "/ci/desktop-tools/release/signer", "secretNames": ["DESKTOP_TOOLS_RELEASE_SIGNING_KEY"], "inheritedGrants": [] },
+      "platformBindings": [],
+      "revocation": { "tokenCacheWindowSeconds": 60, "urgentProcedure": ["disable-identity", "revoke-issuing-credential", "wait-cache-window", "verify-denied"] },
+      "rotation": { "overlapSeconds": 300, "steps": ["issue-new", "reload-consumer", "health-check", "revoke-old", "verify-old-denied"], "healthCheck": "sign-and-offline-verify-one-inert-desktop-tools-v7-manifest" }
+    },
+    {
+      "id": "github-desktop-tools-release-publisher",
+      "runtime": "github-actions",
+      "availableAuthModes": ["github-oidc"],
+      "auth": {
+        "mode": "github-oidc", "issuer": "https://token.actions.githubusercontent.com",
+        "claims": {
+          "repository": "heymegabyte/install.doctor", "repository_id": "588807533", "repository_owner_id": "82490183",
+          "ref": "refs/heads/master", "environment": "desktop-tools-release-publish",
+          "workflow_ref": "heymegabyte/install.doctor/.github/workflows/desktop-tools-release-production.yml@refs/heads/master",
+          "event_name": "workflow_dispatch", "aud": "https://github.com/heymegabyte",
+          "sub": "repo:heymegabyte/install.doctor:environment:desktop-tools-release-publish"
+        },
+        "accessTokenTtlSeconds": 300, "accessTokenMaxTtlSeconds": 600, "accessTokenMaxUses": 8,
+        "trustedIpRationale": "Exact repository IDs, ref, workflow, dispatch event, audience, and protected environment bind immutable release-only authority."
+      },
+      "authorization": { "project": "install-doctor", "environment": "prod", "path": "/ci/desktop-tools/release/publisher", "secretNames": ["DESKTOP_TOOLS_RELEASE_R2_ACCESS_KEY_ID", "DESKTOP_TOOLS_RELEASE_R2_BUCKET", "DESKTOP_TOOLS_RELEASE_R2_ENDPOINT", "DESKTOP_TOOLS_RELEASE_R2_SECRET_ACCESS_KEY"], "inheritedGrants": [] },
+      "platformBindings": [{ "platform": "cloudflare-r2-desktop-tools-release-create-read", "binding": "DESKTOP_TOOLS_RELEASE_PUBLISHER_CREDENTIALS", "sourceRef": "infisical://install-doctor/prod/ci/desktop-tools/release/publisher", "authority": "infisical" }],
+      "revocation": { "tokenCacheWindowSeconds": 60, "urgentProcedure": ["disable-identity", "revoke-issuing-credential", "wait-cache-window", "verify-denied"] },
+      "rotation": { "overlapSeconds": 300, "steps": ["issue-new", "reload-consumer", "health-check", "revoke-old", "verify-old-denied"], "healthCheck": "create-and-read-back-one-immutable-desktop-tools-release-object-with-channel-write-denied" }
+    },
+    {
+      "id": "github-desktop-tools-release-activator",
+      "runtime": "github-actions",
+      "availableAuthModes": ["github-oidc"],
+      "auth": {
+        "mode": "github-oidc", "issuer": "https://token.actions.githubusercontent.com",
+        "claims": {
+          "repository": "heymegabyte/install.doctor", "repository_id": "588807533", "repository_owner_id": "82490183",
+          "ref": "refs/heads/master", "environment": "desktop-tools-release-activate",
+          "workflow_ref": "heymegabyte/install.doctor/.github/workflows/desktop-tools-release-activate.yml@refs/heads/master",
+          "event_name": "workflow_dispatch", "aud": "https://github.com/heymegabyte",
+          "sub": "repo:heymegabyte/install.doctor:environment:desktop-tools-release-activate"
+        },
+        "accessTokenTtlSeconds": 300, "accessTokenMaxTtlSeconds": 600, "accessTokenMaxUses": 8,
+        "trustedIpRationale": "Exact repository IDs, ref, workflow, dispatch event, audience, and protected environment bind product-qualified channel authority."
+      },
+      "authorization": { "project": "install-doctor", "environment": "prod", "path": "/ci/desktop-tools/release/activator", "secretNames": ["DESKTOP_TOOLS_CHANNEL_R2_ACCESS_KEY_ID", "DESKTOP_TOOLS_CHANNEL_R2_BUCKET", "DESKTOP_TOOLS_CHANNEL_R2_ENDPOINT", "DESKTOP_TOOLS_CHANNEL_R2_SECRET_ACCESS_KEY", "DESKTOP_TOOLS_RELEASE_R2_ACCESS_KEY_ID", "DESKTOP_TOOLS_RELEASE_R2_BUCKET", "DESKTOP_TOOLS_RELEASE_R2_ENDPOINT", "DESKTOP_TOOLS_RELEASE_R2_SECRET_ACCESS_KEY"], "inheritedGrants": [] },
+      "platformBindings": [{ "platform": "cloudflare-r2-desktop-tools-channel-cas-and-release-read", "binding": "DESKTOP_TOOLS_RELEASE_ACTIVATOR_CREDENTIALS", "sourceRef": "infisical://install-doctor/prod/ci/desktop-tools/release/activator", "authority": "infisical" }],
+      "revocation": { "tokenCacheWindowSeconds": 60, "urgentProcedure": ["disable-identity", "revoke-issuing-credential", "wait-cache-window", "verify-denied"] },
+      "rotation": { "overlapSeconds": 300, "steps": ["issue-new", "reload-consumer", "health-check", "revoke-old", "verify-old-denied"], "healthCheck": "inspect-signed-release-and-cas-canary-pointer-with-release-create-denied" }
+    },
+    {
       "id": "github-bootstrap-release-monitor",
       "runtime": "github-actions",
       "availableAuthModes": ["github-oidc"],
