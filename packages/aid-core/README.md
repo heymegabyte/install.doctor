@@ -1,9 +1,10 @@
-# aid: Install Doctor environment-engineering foundation
+# Desktop Tools core contracts
 
 **Status: pre-production core, not a working OpenCode fork, daemon, web application, or hosted routing service.**
 
-The product target is `app.install.doctor`, with Machines, App Store, Recommendations,
-Automations, and History. The future OpenCode-derived executable is named `aid`.
+The product target is Desktop Tools at `desktop.tools`; personalized bootstrap profiles use
+`https://<profile>.desktop.tools`, and the intended OpenCode-derived executable is `desktop-tools`.
+`Install Doctor` and `aid` are compatibility and historical names, not a second product.
 This isolated package implements deterministic building blocks without installing software,
 starting processes, modifying a workstation, or contacting an AI provider.
 
@@ -12,7 +13,7 @@ starting processes, modifying a workstation, or contacting an AI provider.
 - Strict v1 and v2 desired-state schemas; unknown fields fail instead of disappearing on export.
 - Single-file `ENVIRONMENT.md` import/export and canonical SHA-256 content digests, with explicit
   v1-to-v2 migration, role package overlays, and per-machine package add/remove exceptions.
-- Proposed OpenCode provider configuration for an Install Doctor endpoint, with eight
+- Proposed OpenCode provider configuration for the Desktop Tools endpoint, with eight
   ProjectSites routing aliases and an environment-variable token reference.
 - Policy-oriented route selection, including restricted-data precedence and explicit premium opt-in.
 - Tenant-scoped session metadata and legal lifecycle transitions.
@@ -20,7 +21,7 @@ starting processes, modifying a workstation, or contacting an AI provider.
 - Per-machine Loki reconciliation plans with stable keys for a future durable deduplication store.
 - Managed Grafana Alloy fragments using credential references, not inline secrets.
 
-`npm test` passes **52 tests** with Node 22.16.0 and TypeScript 5.8.3 in the authoring environment.
+The current test count is reported by `npm test`; do not copy a stale count into product claims.
 
 ## Run
 
@@ -62,14 +63,14 @@ checks, configure Grafana data sources, or coordinate live machines.
 
 ## Product decisions
 
-- Browser-first management at `app.install.doctor`; headless daemon plus optional desktop companion.
+- Browser-first Desktop Tools management; headless operation remains first-class.
 - Preserve chezmoi, software.yml, existing OS/role paths, and explicit local configuration ownership.
 - Reuse the shared ProjectSites routing policy/service; default to DeepSeek. No LiteLLM layer.
 - Select hiSHtory instead of Atuin; do not delete or migrate existing history without verification.
 - Use Grafana Alloy for new Loki integrations, not end-of-life Promtail.
 - Automatically materialize approved, pinned agent-skills; load only relevant skills into context.
 - One canonical desired-state Markdown file; observed state and execution evidence remain separate.
-- Every aid execution, including local CLI and scheduled runs, must register a History session.
+- Every Desktop Tools execution, including local CLI and scheduled runs, must register a History session.
 - Do not reintroduce Nix, force GUI prerequisites, or background-replace running applications.
 
 See `docs/PRODUCT-SPEC.md` for the architecture, 30 prioritized improvements, acceptance

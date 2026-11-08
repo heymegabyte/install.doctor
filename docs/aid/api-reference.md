@@ -102,6 +102,7 @@ on the OAuth apps — a one-time human step on the OAuth-app settings; magic-lin
 | Route | Auth | Purpose |
 | --- | --- | --- |
 | `GET /start` | public | Signed immutable-release bootstrap (`curl -fsSL https://app.install.doctor/start \| bash`) for the currently gated macOS and Linux x64/arm64 stage-zero cells. Unsupported kernels and architectures fail before download. |
+| `GET /api/v1/product-status` | public | Evidence-backed Desktop Tools capability and migration status generated from the canonical product registry. |
 | `POST /api/v1/intent/telemetry` | public | Ingest terminal interaction cadence intervals and command buffer to compute Shannon cadence entropy and predict intent probability distribution. |
 | `POST /api/v1/intent/speculate` | public | Fork an isolated edge speculative shadow branch (`SpeculativeBranch`) for high-confidence predicted intents. |
 | `POST /api/v1/intent/collapse` | public | Commit a verified `SpeculativeBranch` with a cryptographic `ActionVoucher` for 0ms perceived latency, or evaporate on mismatch. |

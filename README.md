@@ -1,19 +1,19 @@
 <div align="center">
-  <a href="https://install.doctor">
-    <img width="320" alt="Install Doctor" src="https://raw.githubusercontent.com/heymegabyte/install.doctor/master/docs/logo-full.png" />
+  <a href="https://desktop.tools">
+    <img width="320" alt="Desktop Tools" src="https://raw.githubusercontent.com/heymegabyte/install.doctor/master/docs/logo-full.png" />
   </a>
-  <h1>Install Doctor</h1>
+  <h1>Desktop Tools</h1>
   <p><strong>One command brings up any computer — and keeps it that way.</strong></p>
   <p>Set up and maintain desktops, laptops, servers, and headless boxes from one place:
-  <a href="https://app.install.doctor">app.install.doctor</a>.</p>
+  <a href="https://desktop.tools">desktop.tools</a>.</p>
 </div>
 
 ---
 
-> **Status:** Install Doctor is evolving from a hardcoded chezmoi-and-shell provisioner into a
+> **Status:** Desktop Tools is evolving from the Install Doctor chezmoi-and-shell provisioner into a
 > **configurable system for setting up and maintaining computers**. The provisioning machinery
 > (chezmoi + `software.yml` + the ZX `installx` installer) is preserved; a Cloudflare-native control
-> plane (**aid**) layers configuration, a browser dashboard, lazy CLI installation, per-host
+> plane and the canonical `desktop-tools` client layer configuration, a browser dashboard, lazy CLI installation, per-host
 > recovery, and bounded improvement cycles on top. This README describes what actually ships today —
 > see **[Honest status](#honest-status)** for what is live vs. still in progress.
 
@@ -23,27 +23,35 @@ Describe the environment you want once; make each authorized machine a verified,
 it. Selected **desktop applications** install now; optional **command-line tools install the first
 time you run them**. Every host stays reconciled to its desired state, observable, and recoverable.
 
-The browser app at **[app.install.doctor](https://app.install.doctor)** is the normal interface. A
-headless supervisor and an emergency CLI (`aid`) work **without a desktop or GUI**.
+The intended browser-first product lives at **[desktop.tools](https://desktop.tools)**. The
+OpenCode-derived `desktop-tools` supervisor is still pre-production; deterministic provisioning
+and recovery must remain usable without a desktop, GUI, or paid inference. See the generated
+[capability status](docs/desktop-tools/status.md) for evidence-backed truth.
 
 ## Quick start
 
 On macOS or Linux, run the minimal bootstrap, then pair the machine from any browser:
 
 ```bash
-curl -fsSL https://app.install.doctor/start | bash   # bootstrap (installs base deps + the aid client)
-aid-pair                                          # prints a short code + opens app.install.doctor/pair
+curl -fsSL https://example.desktop.tools | bash
 ```
 
-- **Desktop (with a browser):** `aid-pair` opens the approval page automatically.
-- **Headless / server:** `aid-pair` prints a short code + URL you approve from any other browser —
+- **Desktop (with a browser):** `desktop-tools-pair` will open the approval page automatically.
+- **Headless / server:** `desktop-tools-pair` prints a short code + URL you approve from any other browser —
   no GUI required. Approval is an explicit, authenticated action (visiting the URL does **not**
   approve the device); the approver sees the machine's identity before granting.
 
 > A native **Windows PowerShell** bootstrap entrypoint is not shipped yet (the lazy
 > command-not-found installer already has a PowerShell adapter — see below).
 
-## The browser app (app.install.doctor)
+## Product boundary
+
+Desktop Tools is the only product. Install Doctor remains the repository name and historical
+provisioning lineage; `aid`, `aid-pair`, `app.install.doctor`, and old state paths are bounded
+compatibility surfaces. Read [the operating boundary](docs/desktop-tools/README.md) before changing
+naming, hosted routing, state ownership, or migration behavior.
+
+## Legacy control-plane implementation
 
 A server-rendered dashboard (CF Worker + Hono). Live sections — each reads **observed** state, never
 optimistic success:
@@ -62,28 +70,28 @@ pairing `POST /api/devices/pair/{start,approve}` + `GET /api/devices/pair/{info,
 devices `POST /api/devices/{enroll,:id/revoke}` + `GET /api/devices/me` ·
 device-scoped `GET /api/device/{current,current.md,history}` + `POST /api/device/{apply,report}`.
 
-## The `aid` CLI
+## The `desktop-tools` CLI
 
-`aid` is the machine-side client. It reads the device token stored by `aid-pair` and talks to the
+`desktop-tools` is the canonical machine-side client. It reads the device token stored by
+`desktop-tools-pair` and talks to the
 control plane as **that device** (headless-safe, dependency-light):
 
 | Command | What it does |
 | --- | --- |
-| `aid-pair` | Pair this machine (print code → approve in browser → claim a revocable device token). |
-| `aid status` | Pairing + desired-state summary (tenant / revision / digest). |
-| `aid pull` | Fetch this device's desired `ENVIRONMENT.md`. |
-| `aid plan` | Reconcile desired vs installed, **offline/local** (present / missing / to-install). |
-| `aid apply` | Install the missing packages — **dry-run by default**; real install is opt-in (`--yes`). |
-| `aid up` | One command: `pull` + `plan` (read-only; records a History event). |
-| `aid exec <cmd>` | Run a command, installing it first if missing (authorized install-on-demand). |
-| `aid prewarm <cmd…>` | Install tools now without running them. |
-| `aid installs` | Summarize lazy-install telemetry (cold / warm latency, cache effectiveness). |
-| `aid report …` | Record a run to History. |
-| `aid provider` | Write the OpenCode provider config so routing goes through the control plane. |
+| `desktop-tools-pair` | Pair this machine (print code → approve in browser → claim a revocable device token). |
+| `desktop-tools status` | Pairing + desired-state summary (tenant / revision / digest). |
+| `desktop-tools pull` | Fetch this device's desired `ENVIRONMENT.md`. |
+| `desktop-tools plan` | Reconcile desired vs installed, **offline/local** (present / missing / to-install). |
+| `desktop-tools apply` | Install missing packages; dry-run by default and mutation requires explicit consent. |
+| `desktop-tools up` | One command: `pull` + `plan` (read-only; records a History event). |
+| `desktop-tools exec <cmd>` | Run a command, installing it first if missing (authorized install-on-demand). |
+| `desktop-tools prewarm <cmd…>` | Install tools now without running them. |
+| `desktop-tools installs` | Summarize lazy-install telemetry. |
+| `desktop-tools migrate --preview` | Report legacy state mappings without copying, moving, or deleting data. |
 
 ## Eager vs. lazy install
 
-Install Doctor installs **two ways**, on purpose:
+Desktop Tools installs **two ways**, on purpose:
 
 - **Eager** — selected **desktop applications** and the few dependencies needed to bootstrap and
   recover are installed up front during provisioning (via `installx` + `software.yml` +
@@ -103,16 +111,18 @@ Install Doctor installs **two ways**, on purpose:
   The lazy installer (`home/dot_config/shell/not-found-hook.sh`) works across **bash, zsh, fish, and
   PowerShell** over one resolver, is safe-by-default (no unauthorized installs in CI / non-interactive
   shells), serializes concurrent installs to exactly one, never consumes a command's stdin/stdout, and
-  records per-install telemetry (`aid installs`). Mise-managed runtimes are deferred to mise, not
+  records per-install telemetry (`desktop-tools installs`). Mise-managed runtimes are deferred to mise, not
   duplicated.
 
 ## Architecture
 
 Responsibilities are separated (Cloudflare-first: Workers/Hono + D1 + schema-validated contracts):
 
-- **Web control plane** (`packages/control-plane`) — accounts, machines, desired state, catalog,
-  plans, jobs, history, recovery. Deployed at app.install.doctor.
-- **aid runtime** (`packages/aid-core` + `home/dot_local/bin/executable_aid`) — interpretation,
+- **Desktop Tools control plane** (`packages/control-plane`) — accounts, machines, desired state,
+  catalog, plans, jobs, history, and recovery. The current legacy deployment at
+  `app.install.doctor` remains a compatibility implementation; production `desktop.tools` routing
+  is not yet activated.
+- **Desktop Tools core and client** (`packages/aid-core` + `home/dot_local/bin/executable_desktop-tools`) — interpretation,
   recommendations, typed contracts; routes model calls through the shared ProjectSites/OnePrompt
   inference service + Cloudflare AI Gateway (DeepSeek-first).
 - **Deterministic executor** — typed install / configure / inspect / verify operations on the host.
@@ -128,11 +138,12 @@ for selected interactive credentials; secret values never enter Git, logs, or re
 
 ## Honest status
 
-Built + verified (live on app.install.doctor, with tests):
+Implemented in the legacy compatibility control plane and covered by local tests; this is not
+evidence that the Desktop Tools production profile flow is live:
 
 - ✅ Landing + onboarding, browser-first **device pairing** (admin-approved, revocable device tokens).
 - ✅ **Machines / App Store / Recommendations / History** dashboard (4 of 5 nav sections).
-- ✅ **Lazy CLI install** across bash / zsh / fish / PowerShell + the `aid` CLI + install telemetry.
+- ✅ **Lazy CLI install** across bash / zsh / fish / PowerShell + the `desktop-tools` CLI + install telemetry.
 - ✅ Per-device **freshness + drift**, rule-based recommendations, the 1,068-tool catalog.
 
 In progress / **blocked** on external configuration (tracked honestly in `docs/aid/`):
@@ -147,21 +158,23 @@ In progress / **blocked** on external configuration (tracked honestly in `docs/a
 
 ## Provisioning (the installer layer)
 
-The signed bootstrap currently delegates Chezmoi convergence to the resumable installer engine; remaining bootstrap steps are being migrated into the same typed task graph.
+The intended Desktop Tools bootstrap is shown below. It remains gated until the signed release,
+profile routing, device authorization, and canary tasks in the generated status are verified.
 
 ```bash
 # interactive
-curl -fsSL https://app.install.doctor/start | bash
+curl -fsSL https://example.desktop.tools | bash
 
 # fully unattended (privileged work requires explicit consent)
 # First pass validates and persists the normalized plan, then prints its digest.
-curl -fsSL https://app.install.doctor/start | HEADLESS_INSTALL=true INSTALL_DOCTOR_CONSENT_PRIVILEGED=true bash
+curl -fsSL https://example.desktop.tools | HEADLESS_INSTALL=true INSTALL_DOCTOR_CONSENT_PRIVILEGED=true bash
 
 # After reviewing the persisted plan, approve that exact digest (never a moving "latest" plan).
-curl -fsSL https://app.install.doctor/start | HEADLESS_INSTALL=true INSTALL_DOCTOR_CONSENT_PRIVILEGED=true INSTALL_DOCTOR_APPROVED_PLAN_DIGEST=<sha256> bash
+curl -fsSL https://example.desktop.tools | HEADLESS_INSTALL=true INSTALL_DOCTOR_CONSENT_PRIVILEGED=true INSTALL_DOCTOR_APPROVED_PLAN_DIGEST=<sha256> bash
 ```
 
-Key environment variables:
+Key environment variables in the existing installer compatibility layer (canonical
+`DESKTOP_TOOLS_*` replacements land through explicit migrations rather than undocumented aliases):
 
 | Variable | Description | Default |
 |---|---|---|
@@ -188,24 +201,27 @@ the project CLAUDE.md for the full fleet/roles model.
 
 | Path | What |
 | --- | --- |
-| `packages/control-plane/` | The CF Worker (app.install.doctor) + its tests. |
-| `packages/aid-core/` | Shared typed contracts (blueprint, routing, provider config). |
+| `packages/control-plane/` | Desktop Tools CF Worker foundation and compatibility routes. |
+| `packages/aid-core/` | Desktop Tools shared typed contracts. |
 | `home/dot_config/shell/not-found-hook.sh` | The canonical lazy command-not-found installer. |
-| `home/dot_local/bin/executable_aid` · `executable_aid-pair` | The `aid` CLI + pairing bootstrap. |
+| `home/dot_local/bin/executable_desktop-tools` · `executable_desktop-tools-pair` | Canonical Desktop Tools client and pairing bootstrap. |
+| `home/dot_local/bin/executable_aid` · `executable_aid-pair` | Deprecated behavior-free compatibility aliases. |
 | `home/dot_local/bin/executable_cnf-build-index` | Builds the catalog index from `software.yml`. |
 | `home/dot_local/bin/executable_installx` | The ZX software installer. |
 | `software.yml` | The authoritative software catalog. |
 | `home/.chezmoiscripts/` · `home/dot_local/bin/post-installx/` | Provisioning + first-run hooks. |
-| `scripts/test-*.sh` | Test suites (control-plane, cnf hook, aid client, fish/pwsh adapters, this README). |
-| `docs/aid/` | v2 continuation state: `REQUIREMENTS.md` (A01–X15 matrix), `NEXT-STEPS.md`, `CURRENT-STATE.md`, `decisions/`. |
+| `scripts/test-*.sh` | Test suites for the control plane, clients, installer, platform contracts, and docs. |
+| `docs/desktop-tools/` | Current product boundary and generated capability status. |
+| `docs/aid/` | Historical implementation research and compatibility-era ledgers. |
 
 ## Development
 
 - Control plane: `cd packages/control-plane && npm ci && npm run deploy --` (build check: `npm run check`).
-- Tests: `bash scripts/test-control-plane.sh` (set `CONTROL_PLANE_URL=https://app.install.doctor` for
-  the live gates) · `bash scripts/test-command-not-found.sh` · `bash scripts/test-aid-client.sh` ·
+- Tests: `bash scripts/test-control-plane.sh` (an explicit compatibility endpoint may be supplied
+  for legacy live gates) · `bash scripts/test-command-not-found.sh` · `bash scripts/test-aid-client.sh` ·
   `bash scripts/test-readme.sh`.
-- The project ships its own improvement loop under `docs/aid/` with fire-numbered commits to `master`.
+- Historical bounded-loop evidence remains under `docs/aid/`; current product truth lives under
+  `docs/desktop-tools/` and the active OpenSpec change.
 
 ## Contributing & License
 

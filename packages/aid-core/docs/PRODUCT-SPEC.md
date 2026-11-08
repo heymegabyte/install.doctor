@@ -1,11 +1,14 @@
-# Install Doctor / aid: implementation contract
+# Desktop Tools implementation contract
 
 Status: proposed architecture, 2026-10-26. Only the pure TypeScript foundations listed in
 README.md are implemented. No deployed app, OpenCode fork, daemon, or live integration is implied.
 
-## Product boundaries
+## Product boundary
 
-The web app is app.install.doctor. The intended OpenCode-derived executable is aid.
+Desktop Tools is the only product. The hosted root is `desktop.tools`, personalized bootstrap
+profiles use `<profile>.desktop.tools`, and the intended OpenCode-derived executable is
+`desktop-tools`. Install Doctor names the repository and historical provisioning lineage; `aid`
+is a bounded compatibility alias during migration, not a separate product.
 A headless supervisor owns identity, local state, jobs and PTYs; an optional desktop
 companion owns native recording permissions, notifications and tray controls.
 Machines, App Store, Recommendations, Automations and History are the five top-level sections.
@@ -18,10 +21,10 @@ The core deterministic provisioning path must work without paid AI inference.
 
 ## Shared routing, not a divergent copy
 
-Aid -> authenticated Install Doctor adapter -> shared ProjectSites orchestrator -> one
+Desktop Tools -> authenticated product adapter -> shared ProjectSites orchestrator -> one
 Cloudflare AI Gateway -> permitted provider. Prefer DeepSeek. No LiteLLM layer.
 Automatically obtain a short-lived inference credential during enrollment, separate from
-control-plane/device credentials. Never embed provider or Cloudflare account keys in aid.
+control-plane/device credentials. Never embed provider or Cloudflare account keys in Desktop Tools.
 
 Use the versioned routes general, economy, code, architect, research, critical, batch,
 restricted. Compression, decomposition, bounded parallel subtasks, synthesis, retrieval,
@@ -69,7 +72,7 @@ opt-ins. Prefer minimized on-device summaries. Do not promise perfect secret red
 
 ## Real browser terminals and mandatory session evidence
 
-Render a real local PTY running aid using xterm.js through the authenticated outbound relay.
+Render a real local PTY running `desktop-tools` using xterm.js through the authenticated outbound relay.
 Keep OpenCode's programmatic server private; a raw iframe or log panel is not terminal parity.
 Before every launch, durably persist History and a recording header. Cover browser, local CLI,
 scheduled/event and child runs. Offline runs use a durable local outbox. Reconnect attaches to
@@ -107,7 +110,7 @@ These are recommendations, not completed end-to-end features.
 | 1 | Portability | Lossless Markdown export/import with schema migrations. |
 | 2 | Portability | Desired/observed diffs with evidence freshness and explicit offline state. |
 | 3 | Portability | Role overlays, machine exceptions and reproducible restore previews. |
-| 4 | Onboarding | One-link pairing with automatically configured aid and approved skills. |
+| 4 | Onboarding | One-link pairing with automatically configured Desktop Tools and approved skills. |
 | 5 | Onboarding | Non-destructive adoption of an existing workstation. |
 | 6 | Onboarding | App-store installed/configured/connected/healthy states and first-use probes. |
 | 7 | AI quality/cost | Shared DeepSeek-first routing with protocol compatibility tests. |
@@ -117,7 +120,7 @@ These are recommendations, not completed end-to-end features.
 | 11 | Orchestration | Coolify service discovery and automatic tested integration binding. |
 | 12 | Orchestration | Impact previews, canaries, blast-radius limits and honest rollback capabilities. |
 | 13 | Remote operation | Persistent browser PTYs with detach/stop and mobile recovery. |
-| 14 | Remote operation | Every aid launch creates correlated History, including offline/child runs. |
+| 14 | Remote operation | Every Desktop Tools launch creates correlated History, including offline/child runs. |
 | 15 | Remote operation | Searchable replay linked to diffs, checks, cost and capture completeness. |
 | 16 | Extensibility | Automatic pinned skill installation and reversible verified updates. |
 | 17 | Extensibility | Task-scoped skill loading and capability grants. |

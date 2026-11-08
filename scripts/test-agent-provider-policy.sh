@@ -24,10 +24,11 @@ for entry in AGENTS.md CLAUDE.md CODEX.md GEMINI.md .agents/rules/antigravity.md
 done
 
 assert_file_has AGENTS.md 'product runtime' 'AGENTS.md scopes the no-LiteLLM exception to product runtime'
-assert_file_has AGENTS.md 'ProjectSites.*no LiteLLM' 'AGENTS.md preserves aid ProjectSites/no-LiteLLM routing'
-assert_file_has CODEX.md 'ProjectSites/no-LiteLLM' 'CODEX.md preserves the aid runtime boundary'
-assert_file_has GEMINI.md 'ProjectSites.*without LiteLLM' 'GEMINI.md preserves the aid runtime boundary'
-assert_file_has CLAUDE.md 'ProjectSites routing without LiteLLM' 'CLAUDE.md preserves the aid runtime boundary'
+assert_file_has AGENTS.md 'ProjectSites routing' 'AGENTS.md preserves Desktop Tools ProjectSites routing'
+assert_file_has AGENTS.md 'preferred and no LiteLLM' 'AGENTS.md preserves Desktop Tools no-LiteLLM runtime boundary'
+assert_file_has CODEX.md 'ProjectSites/no-LiteLLM' 'CODEX.md preserves the product runtime boundary'
+assert_file_has GEMINI.md 'ProjectSites.*without LiteLLM' 'GEMINI.md preserves the product runtime boundary'
+assert_file_has CLAUDE.md 'ProjectSites routing without LiteLLM' 'CLAUDE.md preserves the product runtime boundary'
 
 printf '%s passed, %s failed\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]
