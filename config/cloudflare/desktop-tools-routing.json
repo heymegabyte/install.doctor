@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "zone": "desktop.tools",
+  "activation": "manual-only",
+  "enrollmentEnabled": false,
+  "dns": {
+    "type": "AAAA",
+    "name": "*",
+    "content": "100::",
+    "proxied": true,
+    "purpose": "Originless wildcard required before the Worker route can receive profile traffic"
+  },
+  "tls": {
+    "requiredHostnames": ["desktop.tools", "*.desktop.tools"],
+    "minimumVersion": "1.2",
+    "verifyBeforeActivation": true
+  },
+  "worker": {
+    "apex": { "pattern": "desktop.tools", "mode": "custom-domain" },
+    "profiles": { "pattern": "*.desktop.tools/*", "mode": "route" },
+    "reservedHostsRemainExplicit": true
+  }
+}

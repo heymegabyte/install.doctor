@@ -16,6 +16,7 @@ import { reserveBudget, DEFAULT_CEILING_MICROS } from './budget';
 import { auth } from './auth';
 import { isAllowedAdminEmail } from './admin-allowlist';
 import { redactSecrets } from '../../aid-core/src/redaction';
+import { classifyDesktopToolsHostname, resolvePublicProfileDescriptor } from '../../aid-core/src/profile-resolution';
 import { getMigrations } from 'better-auth/db/migration';
 import { errorEnvelope, requestSecurity, requestIdFor } from './http-security';
 import { renderBootstrap } from './bootstrap';
@@ -214,6 +215,39 @@ const InferRequest = z.object({ estimateMicros: z.number().int().nonnegative().d
 
 const app = new Hono();
 app.use('*', requestSecurity);
+
+// Wildcard profile traffic is deliberately inert until the public descriptor and authenticated
+// enrollment stages exist. It must never inherit the legacy app.install.doctor UI or APIs.
+app.use('*', async (c, next) => {
+  const target = classifyDesktopToolsHostname(new URL(c.req.url).hostname);
+  if (target.kind === 'profile') {
+    if (new URL(c.req.url).pathname === '/.well-known/desktop-tools-profile.json') {
+      try {
+        const descriptor = resolvePublicProfileDescriptor(
+          (c.env as Record<string, unknown>).DESKTOP_TOOLS_PUBLIC_PROFILES ?? [],
+          target.slug
+        );
+        return c.json(descriptor, 200, {
+          'cache-control': 'public, max-age=60, s-maxage=300, stale-if-error=60',
+          etag: `\"${descriptor.profile.digest}\"`,
+          'x-content-type-options': 'nosniff'
+        });
+      } catch {
+        // Missing, disabled, private, and malformed records are deliberately indistinguishable.
+        return c.json({ error: 'profile_unavailable' }, 404, { 'cache-control': 'no-store' });
+      }
+    }
+    return c.json({
+      error: 'profile_bootstrap_unavailable',
+      profile: target.slug,
+      message: 'This Desktop Tools profile is not accepting bootstrap requests yet.'
+    }, 503, { 'cache-control': 'no-store', 'retry-after': '3600' });
+  }
+  if (target.kind === 'invalid' && new URL(c.req.url).hostname.endsWith('.desktop.tools')) {
+    return c.json({ error: 'invalid_desktop_tools_hostname' }, 400, { 'cache-control': 'no-store' });
+  }
+  await next();
+});
 
 // Security headers (O14 / web-security baseline; fire #106). CF-zone Managed Transforms already set HSTS /
 // X-Frame-Options / nosniff / Referrer-Policy; the Worker adds the two it doesn't: a Content-Security-Policy

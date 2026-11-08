@@ -17,6 +17,10 @@ routes = [
   # deployment credential while leaving every other install.doctor path on its
   # existing origin.
   { pattern = "install.doctor/start", zone_name = "install.doctor" },
+  # Desktop Tools apex is an explicit origin. Personalized hosts use a Worker
+  # route because Cloudflare Custom Domains do not support wildcard DNS.
+  { pattern = "desktop.tools", custom_domain = true },
+  { pattern = "*.desktop.tools/*", zone_name = "desktop.tools" },
 ]
 
 # D13 — validate the software catalog BEFORE every build/deploy (fire #134). wrangler runs this build

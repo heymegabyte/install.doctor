@@ -26,6 +26,8 @@ export const Env = z
     // Separate R2 binding for CAS channel pointers/intents/receipts. Keeping this
     // distinct from RELEASES makes publication and activation authority separable.
     RELEASE_CHANNELS: z.unknown().optional(),
+    // Public, versioned profile records only. The response projector strips tenant identity and authority.
+    DESKTOP_TOOLS_PUBLIC_PROFILES: z.unknown().optional(),
   })
   .passthrough();
 

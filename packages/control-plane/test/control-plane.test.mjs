@@ -402,6 +402,62 @@ test('public product status is generated from evidence-backed Desktop Tools trut
   assert.equal(JSON.stringify(body).includes('verified-live'), false);
 });
 
+test('Desktop Tools wildcard profile routing is isolated and enrollment remains fail-closed', async () => {
+  const app = await loadWorkerApp();
+  const response = await app.fetch(new Request('https://example.desktop.tools/'), TEST_ENV);
+  assert.equal(response.status, 503);
+  assert.equal(response.headers.get('cache-control'), 'no-store');
+  assert.equal(response.headers.get('retry-after'), '3600');
+  assert.deepEqual(await response.json(), {
+    error: 'profile_bootstrap_unavailable',
+    profile: 'example',
+    message: 'This Desktop Tools profile is not accepting bootstrap requests yet.'
+  });
+
+  const apex = await app.fetch(new Request('https://desktop.tools/health'), TEST_ENV);
+  assert.equal(apex.status, 200);
+  const reserved = await app.fetch(new Request('https://api.desktop.tools/health'), TEST_ENV);
+  assert.equal(reserved.status, 200);
+  const nested = await app.fetch(new Request('https://nested.example.desktop.tools/'), TEST_ENV);
+  assert.equal(nested.status, 400);
+});
+
+test('public profile descriptor is bounded, cache-controlled, and contains no authority', async () => {
+  const app = await loadWorkerApp();
+  const profile = {
+    id: 'profile-example', tenantId: 'tenant-private', slug: 'example', revision: 'revision-7',
+    digest: 'c'.repeat(64), visibility: 'public-bootstrap', enabled: true
+  };
+  const response = await app.fetch(
+    new Request('https://example.desktop.tools/.well-known/desktop-tools-profile.json'),
+    { ...TEST_ENV, DESKTOP_TOOLS_PUBLIC_PROFILES: [profile] }
+  );
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get('cache-control'), 'public, max-age=60, s-maxage=300, stale-if-error=60');
+  assert.equal(response.headers.get('etag'), `\"${profile.digest}\"`);
+  const text = await response.text();
+  assert.deepEqual(JSON.parse(text), {
+    schemaVersion: 1,
+    profile: { id: profile.id, slug: profile.slug, revision: profile.revision, digest: profile.digest }
+  });
+  for (const forbidden of ['tenant-private', 'credential', 'secret', 'token', 'permission', 'enrollment']) {
+    assert.equal(text.toLowerCase().includes(forbidden), false);
+  }
+
+  for (const unavailable of [
+    [],
+    [{ ...profile, enabled: false }],
+    [{ ...profile, visibility: 'private' }]
+  ]) {
+    const denied = await app.fetch(
+      new Request('https://example.desktop.tools/.well-known/desktop-tools-profile.json'),
+      { ...TEST_ENV, DESKTOP_TOOLS_PUBLIC_PROFILES: unavailable }
+    );
+    assert.equal(denied.status, 404);
+    assert.deepEqual(await denied.json(), { error: 'profile_unavailable' });
+  }
+});
+
 test('Control Plane Phase 1: PIA endpoints (/api/v1/intent/* and /api/v1/easter-eggs/oracle)', async () => {
   const app = await loadWorkerApp();
 

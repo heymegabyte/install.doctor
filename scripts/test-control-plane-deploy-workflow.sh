@@ -5,12 +5,23 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 WORKFLOW="$ROOT/.github/workflows/control-plane-production.yml"
 POLICY="$ROOT/config/infisical/bootstrap-release-identities.json"
 WRANGLER="$ROOT/packages/control-plane/wrangler.toml"
+DESKTOP_ROUTING="$ROOT/config/cloudflare/desktop-tools-routing.json"
 fail() { printf 'FAIL %s\n' "$*" >&2; exit 1; }
 pass() { printf 'PASS %s\n' "$*"; }
 
 test -f "$WORKFLOW" || fail "control-plane production workflow missing"
 grep -Fq 'pattern = "install.doctor/start", zone_name = "install.doctor"' "$WRANGLER" \
   || fail "canonical curl endpoint is not owned by the source-pinned Worker"
+grep -Fq 'pattern = "desktop.tools", custom_domain = true' "$WRANGLER" \
+  || fail "Desktop Tools apex is not an explicit custom domain"
+grep -Fq 'pattern = "*.desktop.tools/*", zone_name = "desktop.tools"' "$WRANGLER" \
+  || fail "Desktop Tools wildcard profile route is missing"
+jq -e '
+  .zone == "desktop.tools" and .activation == "manual-only" and .enrollmentEnabled == false and
+  .dns == {"type":"AAAA","name":"*","content":"100::","proxied":true,"purpose":"Originless wildcard required before the Worker route can receive profile traffic"} and
+  .tls.requiredHostnames == ["desktop.tools","*.desktop.tools"] and
+  .worker.reservedHostsRemainExplicit == true
+' "$DESKTOP_ROUTING" >/dev/null || fail "Desktop Tools DNS/TLS routing contract is unsafe or incomplete"
 grep -Fq 'workflow_dispatch:' "$WORKFLOW" || fail "deployment is not manual"
 ! grep -Eq '^  (push|pull_request|schedule):' "$WORKFLOW" || fail "deployment has an automatic trigger"
 grep -Fq "if: github.ref == 'refs/heads/master'" "$WORKFLOW" || fail "master guard missing"
