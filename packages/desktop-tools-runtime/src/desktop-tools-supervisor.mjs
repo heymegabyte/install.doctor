@@ -6,6 +6,7 @@ import { chmod, copyFile, lstat, mkdir, open, readFile, rename, rm, stat, writeF
 import { homedir, tmpdir } from 'node:os';
 import { dirname, isAbsolute, join, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { initializeSessionEvidence, loadSessionContext, persistSessionContext } from './session-evidence.mjs';
 
 const VERSION = '1';
 const digestPattern = /^[a-f0-9]{64}$/;
@@ -134,7 +135,7 @@ function parse(argv) {
     const value = rest[index + 1];
     if (!flag?.startsWith('--') || value === undefined || value.startsWith('--')) fail('options must be --name value pairs');
     const name = flag.slice(2);
-    if (!['runtime', 'sha256', 'version', 'state-dir', 'port', 'output-dir', 'provisioning-context'].includes(name) || values[name] !== undefined) {
+    if (!['runtime', 'sha256', 'version', 'state-dir', 'port', 'output-dir', 'provisioning-context', 'session-context'].includes(name) || values[name] !== undefined) {
       fail(`unsupported or repeated option: ${flag}`);
     }
     values[name] = value;
@@ -436,11 +437,23 @@ async function writeService(values, stateDirectory, runtime) {
   const supervisorSource = fileURLToPath(import.meta.url);
   const supervisorDigest = await sha256(supervisorSource);
   const supervisor = await installPinnedFile(supervisorSource, join(stateDirectory, 'bin', 'desktop-tools-supervisor.mjs'), supervisorDigest, 0o700);
+  const evidenceSource = fileURLToPath(new URL('./session-evidence.mjs', import.meta.url));
+  try {
+    const evidenceDigest = await sha256(evidenceSource);
+    await installPinnedFile(evidenceSource, join(stateDirectory, 'bin', 'session-evidence.mjs'), evidenceDigest, 0o600);
+  } catch (error) {
+    // Release builds inline this module into the signed supervisor. Source-tree
+    // execution retains the adjacent module and installs it for restart parity.
+    if (error?.code !== 'ENOENT') throw error;
+  }
   const installedRuntime = await installPinnedFile(runtime, join(stateDirectory, 'runtime', `opencode-${values.sha256}`), values.sha256, 0o700);
   if (!values['provisioning-context']) fail('service requires --provisioning-context', 64);
+  if (!values['session-context']) fail('service requires --session-context', 64);
   const promptBinding = await prepareProvisioningPrompt(values['provisioning-context'], stateDirectory);
+  const sessionContextPath = await persistSessionContext(stateDirectory, await loadSessionContext(values['session-context']));
   const fixed = [supervisor, 'run', '--runtime', installedRuntime, '--sha256', values.sha256, '--version', values.version,
-    '--state-dir', stateDirectory, '--port', String(port), '--provisioning-context', promptBinding.contextOutputPath];
+    '--state-dir', stateDirectory, '--port', String(port), '--provisioning-context', promptBinding.contextOutputPath,
+    '--session-context', sessionContextPath];
   const unit = `[Unit]\nDescription=Desktop Tools private OpenCode supervisor\nAfter=network-online.target\nWants=network-online.target\n\n[Service]\nType=simple\nExecStart=${fixed.map(systemdEscape).join(' ')}\nRestart=on-failure\nRestartSec=5s\nNoNewPrivileges=yes\nPrivateTmp=yes\nProtectSystem=strict\nProtectHome=read-only\nReadWritePaths=${systemdEscape(stateDirectory)}\nUMask=0077\n\n[Install]\nWantedBy=default.target\n`;
   const argumentsXml = fixed.map(value => `      <string>${xml(value)}</string>`).join('\n');
   const plist = `<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n<plist version="1.0"><dict>\n  <key>Label</key><string>tools.desktop.supervisor</string>\n  <key>ProgramArguments</key><array>\n${argumentsXml}\n  </array>\n  <key>RunAtLoad</key><true/>\n  <key>KeepAlive</key><dict><key>SuccessfulExit</key><false/></dict>\n  <key>ProcessType</key><string>Background</string>\n  <key>Umask</key><integer>63</integer>\n</dict></plist>\n`;
@@ -473,8 +486,18 @@ async function main(argv) {
   const inferenceCredential = await validateInferenceCredential(stateDirectory);
   await installPinnedSkills(stateDirectory);
   if (!values['provisioning-context']) fail('run requires --provisioning-context', 64);
+  if (!values['session-context']) fail('run requires --session-context', 64);
   const promptBinding = await prepareProvisioningPrompt(values['provisioning-context'], stateDirectory);
   const opencodeConfig = generateOpenCodeConfig(inferenceCredential, promptBinding.promptPath);
+  const session = await loadSessionContext(values['session-context']);
+  const evidence = await initializeSessionEvidence({
+    stateDirectory,
+    session,
+    promptBinding,
+    runtime: { version: values.version, digest: values.sha256 },
+    skills: approvedSkills,
+    tools: promptBinding.context.permittedTools,
+  });
   const releaseLock = await acquireLock(stateDirectory);
   const child = spawn(runtime, ['serve', '--hostname', '127.0.0.1', '--port', String(port)], {
     shell: false, env: minimalEnvironment(stateDirectory, password, opencodeConfig, promptBinding), stdio: 'inherit'
@@ -491,10 +514,10 @@ async function main(argv) {
   });
   if (result.signal) fail(`OpenCode stopped by ${result.signal}`, 1);
   if (result.code !== 0) fail(`OpenCode exited with status ${result.code}`, result.code || 1);
-  return { stopped: true };
+  return { stopped: true, evidence };
 }
 
-export { PROVISIONING_PROMPT, PROVISIONING_PROMPT_VERSION, VERSION, approvedSkills, approvedTools, generateOpenCodeConfig, main, minimalEnvironment, prepareProvisioningPrompt, protectedDirectory, validateInferenceCredential, validateRuntime };
+export { PROVISIONING_PROMPT, PROVISIONING_PROMPT_VERSION, VERSION, approvedSkills, approvedTools, generateOpenCodeConfig, initializeSessionEvidence, loadSessionContext, main, minimalEnvironment, persistSessionContext, prepareProvisioningPrompt, protectedDirectory, validateInferenceCredential, validateRuntime };
 
 if (import.meta.url === `file://${process.argv[1]}`) {
   main(process.argv.slice(2))

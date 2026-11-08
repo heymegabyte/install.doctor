@@ -30,6 +30,24 @@ async function writePromptContext(root) {
   return { context, path };
 }
 
+async function writeSessionContext(root, overrides = {}) {
+  const context = {
+    schemaVersion: 1,
+    sessionId: 'session-1',
+    runId: 'run-1',
+    parentSessionId: null,
+    parentRunId: null,
+    createdAt: '2026-11-08T12:00:00.000Z',
+    machine: { id: 'machine-1', fingerprint: '3'.repeat(64) },
+    actor: { id: 'actor-1' },
+    authorization: { id: 'authorization-1', scopes: ['profile:read', 'session:create'], expiresAt: '2026-11-08T12:10:00.000Z' },
+    ...overrides,
+  };
+  const path = join(root, `session-context-${context.sessionId}.json`);
+  await writeFile(path, `${JSON.stringify(context)}\n`, { mode: 0o600 });
+  return { context, path };
+}
+
 async function fixture() {
   const root = await mkdtemp(join(tmpdir(), 'desktop-tools-runtime-'));
   const runtime = join(root, 'opencode');
@@ -40,7 +58,8 @@ async function fixture() {
   await mkdir(join(state, 'config'), { recursive: true, mode: 0o700 });
   await writeFile(join(state, 'config', 'inference-token'), 'scoped-test-token-abcdefghijklmnopqrstuvwxyz\n', { mode: 0o600 });
   const prompt = await writePromptContext(root);
-  return { root, runtime, sha256, state, prompt };
+  const session = await writeSessionContext(root);
+  return { root, runtime, sha256, state, prompt, session };
 }
 
 test('prepares protected state and validates an exact pinned runtime', async () => {
@@ -55,7 +74,7 @@ test('prepares protected state and validates an exact pinned runtime', async () 
 test('run binds only private loopback and strips inherited secret variables', async () => {
   const item = await fixture();
   process.env.API_TOKEN = 'must-not-leak';
-  await main(['run', '--state-dir', item.state, '--runtime', item.runtime, '--sha256', item.sha256, '--version', '2.2.5', '--port', '4123', '--provisioning-context', item.prompt.path]);
+  const result = await main(['run', '--state-dir', item.state, '--runtime', item.runtime, '--sha256', item.sha256, '--version', '2.2.5', '--port', '4123', '--provisioning-context', item.prompt.path, '--session-context', item.session.path]);
   assert.equal(await readFile(join(item.state, 'argv'), 'utf8'), 'serve\n--hostname\n127.0.0.1\n--port\n4123\n');
   assert.equal(await readFile(join(item.state, 'secret'), 'utf8'), 'unset\n');
   assert.equal(await readFile(join(item.state, 'username'), 'utf8'), 'desktop-tools\n');
@@ -82,6 +101,24 @@ test('run binds only private loopback and strips inherited secret variables', as
   assert.equal(createHash('sha256').update(await readFile(join(item.state, 'config', 'skills', 'desktop-tools-provisioning', 'SKILL.md'))).digest('hex'), approvedSkills[0].sha256);
   assert.equal((await stat(join(item.state, 'config', 'skills', 'desktop-tools-provisioning', 'SKILL.md'))).mode & 0o777, 0o600);
   assert.equal((await stat(join(item.state, 'config', 'server-password'))).mode & 0o777, 0o600);
+  assert.equal(result.evidence.captureComplete, false);
+  const history = JSON.parse(await readFile(result.evidence.historyPath, 'utf8'));
+  const recording = JSON.parse(await readFile(result.evidence.recordingPath, 'utf8'));
+  assert.deepEqual(recording, history);
+  assert.equal(history.evidenceState, 'headers-persisted');
+  assert.equal(history.captureComplete, false);
+  assert.deepEqual(history.profile, item.prompt.context.profile);
+  assert.deepEqual(history.machine, item.session.context.machine);
+  assert.deepEqual(history.actor, item.session.context.actor);
+  assert.deepEqual(history.authorization, item.session.context.authorization);
+  assert.deepEqual(history.release, item.prompt.context.release);
+  assert.deepEqual(history.prompt, { version: PROVISIONING_PROMPT_VERSION, digest: item.prompt.context.promptDigest, contextDigest: item.prompt.context.contextDigest });
+  assert.deepEqual(history.runtime, { version: '2.2.5', digest: item.sha256 });
+  assert.deepEqual(history.skills, approvedSkills);
+  assert.deepEqual(history.tools, item.prompt.context.permittedTools);
+  assert.equal(history.parentSessionId, null);
+  assert.equal((await stat(result.evidence.historyPath)).mode & 0o777, 0o600);
+  assert.equal((await stat(result.evidence.recordingPath)).mode & 0o777, 0o600);
   delete process.env.API_TOKEN;
 });
 
@@ -94,7 +131,7 @@ test('rejects arbitrary options and privileged ports', async () => {
 test('generates restart-survivable hardened service definitions without secrets', async () => {
   const item = await fixture();
   const output = join(item.root, 'service');
-  await main(['service', '--state-dir', item.state, '--runtime', item.runtime, '--sha256', item.sha256, '--version', '2.2.5', '--output-dir', output, '--port', '4444', '--provisioning-context', item.prompt.path]);
+  await main(['service', '--state-dir', item.state, '--runtime', item.runtime, '--sha256', item.sha256, '--version', '2.2.5', '--output-dir', output, '--port', '4444', '--provisioning-context', item.prompt.path, '--session-context', item.session.path]);
   const unit = await readFile(join(output, 'desktop-tools-supervisor.service'), 'utf8');
   const plist = await readFile(join(output, 'tools.desktop.supervisor.plist'), 'utf8');
   assert.match(unit, /Restart=on-failure/);
@@ -104,6 +141,7 @@ test('generates restart-survivable hardened service definitions without secrets'
   assert.match(unit, new RegExp(`${item.state.replaceAll('/', '\\/')}\\/runtime\\/opencode-${item.sha256}`));
   assert.match(unit, /--port" "4444"/);
   assert.match(unit, /--provisioning-context/);
+  assert.match(unit, /--session-context/);
   assert.match(plist, /<key>KeepAlive<\/key>/);
   assert.match(plist, /<string>127\.0\.0\.1<\/string>|--port/);
   assert.doesNotMatch(`${unit}${plist}`, /API_TOKEN|must-not-leak/);
@@ -111,6 +149,30 @@ test('generates restart-survivable hardened service definitions without secrets'
   assert.equal((await stat(join(item.state, 'bin', 'desktop-tools-supervisor.mjs'))).mode & 0o777, 0o700);
   assert.equal((await stat(join(item.state, 'runtime', `opencode-${item.sha256}`))).mode & 0o777, 0o700);
   await assert.rejects(stat(join(output, 'run')), /ENOENT/);
+});
+
+test('evidence collision fails closed before OpenCode launch and cannot claim complete capture', async () => {
+  const item = await fixture();
+  await main(['prepare', '--state-dir', item.state]);
+  const recordingPath = join(item.state, 'recordings', `${item.session.context.sessionId}.header.json`);
+  await writeFile(recordingPath, '{"captureComplete":true}\n', { mode: 0o600 });
+  await assert.rejects(
+    main(['run', '--state-dir', item.state, '--runtime', item.runtime, '--sha256', item.sha256, '--version', '2.2.5', '--provisioning-context', item.prompt.path, '--session-context', item.session.path]),
+    /evidence collision/,
+  );
+  await assert.rejects(readFile(join(item.state, 'argv'), 'utf8'), /ENOENT/);
+  const history = JSON.parse(await readFile(join(item.state, 'history', `${item.session.context.sessionId}.json`), 'utf8'));
+  assert.equal(history.captureComplete, false);
+});
+
+test('session evidence rejects invalid lineage context before OpenCode launch', async () => {
+  const item = await fixture();
+  const invalid = await writeSessionContext(item.root, { sessionId: 'session-invalid', parentSessionId: '../parent' });
+  await assert.rejects(
+    main(['run', '--state-dir', item.state, '--runtime', item.runtime, '--sha256', item.sha256, '--version', '2.2.5', '--provisioning-context', item.prompt.path, '--session-context', invalid.path]),
+    /parent session id is invalid/,
+  );
+  await assert.rejects(readFile(join(item.state, 'argv'), 'utf8'), /ENOENT/);
 });
 
 test('minimal environment contains no inherited credential-shaped values', () => {

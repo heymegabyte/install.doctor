@@ -30,7 +30,16 @@ function tarEntry(name, bytes, mode) {
 
 await rm(output, { recursive: true, force: true });
 await mkdir(output, { recursive: true, mode: 0o700 });
-const supervisor = await readFile(join(root, 'src', 'desktop-tools-supervisor.mjs'));
+const supervisorSource = await readFile(join(root, 'src', 'desktop-tools-supervisor.mjs'), 'utf8');
+const evidenceSource = await readFile(join(root, 'src', 'session-evidence.mjs'), 'utf8');
+const bundledEvidence = evidenceSource
+  .replace(/^import .*;\n/gm, '')
+  .replaceAll('export ', '')
+  .replace(/\bfail\(/g, 'evidenceFail(')
+  .replaceAll('canonical', 'evidenceCanonical')
+  .replaceAll('digestPattern', 'evidenceDigestPattern');
+const supervisor = supervisorSource.replace("import { initializeSessionEvidence, loadSessionContext, persistSessionContext } from './session-evidence.mjs';", bundledEvidence.trim());
+if (supervisor === supervisorSource) throw new Error('session evidence import was not bundled');
 await writeFile(join(output, 'desktop-tools-supervisor.mjs'), supervisor, { mode: 0o700 });
 await chmod(join(output, 'desktop-tools-supervisor.mjs'), 0o700);
 const entries = [];

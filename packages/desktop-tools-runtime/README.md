@@ -37,6 +37,16 @@ under protected state, then emits hardened user-service definitions for systemd 
 It does not activate them; the provisioning engine remains responsible for preview,
 consent, atomic installation, validation, activation, and rollback.
 
+Both `run` and `service` require a strict `--session-context` JSON file. It binds the
+session/run and optional parent identifiers to the machine fingerprint, actor, authorization
+scopes, authorization expiry, profile revision, release, prompt, runtime, pinned skills, and
+permitted tools. `service` copies the validated context into protected persistent state.
+Immediately before OpenCode launch, `run` durably creates separate History and recording
+headers under `<state>/history` and `<state>/recordings`. Conflicting or failed header writes
+abort before process creation. These initialization headers always say
+`captureComplete: false`; only subsequent recording and verification work may establish a
+complete capture, so an evidence-storage failure cannot be presented as success.
+
 Build outputs are deterministic inputs to the release builder:
 
 - `dist/desktop-tools-supervisor.mjs`
