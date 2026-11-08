@@ -25,7 +25,7 @@
 
 ## 4. Cross-device authorization
 
-- [ ] 4.1 Introduce strict authorization request, approval, poll, claim, denial, revocation, and audit schemas bound to tenant, profile, target public key, fingerprint, scopes, nonce, and expiry; verify unknown fields and scope broadening are rejected.
+- [x] 4.1 Introduce strict authorization request, approval, poll, claim, denial, revocation, and audit schemas bound to tenant, profile, target public key, fingerprint, scopes, nonce, and expiry; verify unknown fields and scope broadening are rejected.
 - [ ] 4.2 Implement target-generated key material, protected polling state, human code, approval URI, bounded poll interval, cancellation, and restart-safe resume; verify secrets never appear in arguments, terminal output, Markdown, or telemetry.
 - [ ] 4.3 Implement authenticated owner approval displaying the matching code, machine fingerprint, profile revision, scopes, actor, and expiry; verify approve, deny, stale revision, wrong actor, and reauthentication paths.
 - [ ] 4.4 Implement one-time atomic credential claim with minimum device scopes, finite lifetime, independent revocation, and normalized privacy-preserving errors; verify replay, collision, cross-device, cross-profile, cross-tenant, expired, denied, and over-polling attempts fail.
