@@ -26,7 +26,7 @@
 ## 4. Cross-device authorization
 
 - [x] 4.1 Introduce strict authorization request, approval, poll, claim, denial, revocation, and audit schemas bound to tenant, profile, target public key, fingerprint, scopes, nonce, and expiry; verify unknown fields and scope broadening are rejected.
-- [ ] 4.2 Implement target-generated key material, protected polling state, human code, approval URI, bounded poll interval, cancellation, and restart-safe resume; verify secrets never appear in arguments, terminal output, Markdown, or telemetry.
+- [x] 4.2 Implement target-generated key material, protected polling state, human code, approval URI, bounded poll interval, cancellation, and restart-safe resume; verify secrets never appear in arguments, terminal output, Markdown, or telemetry.
 - [ ] 4.3 Implement authenticated owner approval displaying the matching code, machine fingerprint, profile revision, scopes, actor, and expiry; verify approve, deny, stale revision, wrong actor, and reauthentication paths.
 - [ ] 4.4 Implement one-time atomic credential claim with minimum device scopes, finite lifetime, independent revocation, and normalized privacy-preserving errors; verify replay, collision, cross-device, cross-profile, cross-tenant, expired, denied, and over-polling attempts fail.
 - [ ] 4.5 Complete the Cloudflare-first OIDC callback/session path for ordinary approval and keep token entry only as labelled audited break-glass access; verify a real owner session completes enrollment without a pasted admin token.
@@ -34,7 +34,7 @@
 
 ## 5. OpenCode supervisor and provisioning boundary
 
-- [ ] 5.1 Implement a least-privilege local supervisor that binds OpenCode privately, validates the pinned runtime, creates protected state, and survives target restart; verify no public listener or unrestricted shell is exposed.
+- [x] 5.1 Implement a least-privilege local supervisor that binds OpenCode privately, validates the pinned runtime, creates protected state, and survives target restart; verify no public listener or unrestricted shell is exposed.
 - [ ] 5.2 Generate a strict Desktop Tools OpenCode configuration with scoped inference credentials, approved provider routes, pinned on-demand skills, denied external directories, and task-specific tool permissions; verify unrelated inherited secrets and ambient provider credentials are absent.
 - [ ] 5.3 Define and version the provisioning prompt that binds the profile revision, release, discovered facts, policy, capabilities, and permitted tools; verify prompt and context digests are recorded before execution.
 - [ ] 5.4 Expose discover, validate, plan, approve, apply, verify, status, resume, rollback-config, and deprovision-preview only through strict typed tool adapters; verify model-generated text or shell cannot bypass engine schemas, consent, locks, or journal ownership.
