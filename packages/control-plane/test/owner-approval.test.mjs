@@ -9,6 +9,7 @@ const record = {
   profileRevision: 'sha256:profile-v7',
   ownerActor: 'owner@example.com',
   expiresAt: '2026-11-08T12:05:00.000Z',
+  requestedScopes: ['pull-desired-state', 'report-status'],
 };
 const owner = { actor: 'OWNER@example.com', authenticatedAt: '2026-11-08T11:58:00.000Z' };
 const request = { code: record.code, matchingCode: record.code, profileRevision: record.profileRevision, decision: 'approve' };
@@ -16,9 +17,20 @@ const request = { code: record.code, matchingCode: record.code, profileRevision:
 test('owner can approve or deny the exact displayed request', () => {
   assert.deepEqual(authorizeOwnerDecision(record, request, owner, now), {
     ok: true, nextStatus: 'approved', actor: 'owner@example.com', decidedAt: now.toISOString(),
+    approvedScopes: ['pull-desired-state', 'report-status'],
   });
   assert.equal(authorizeOwnerDecision(record, { ...request, decision: 'deny' }, owner, now).ok, true);
   assert.equal(authorizeOwnerDecision(record, { ...request, decision: 'deny' }, owner, now).nextStatus, 'denied');
+});
+
+test('owner may narrow requested scopes but cannot broaden them', () => {
+  assert.deepEqual(authorizeOwnerDecision(record, { ...request, approvedScopes: ['report-status'] }, owner, now), {
+    ok: true, nextStatus: 'approved', actor: 'owner@example.com', decidedAt: now.toISOString(),
+    approvedScopes: ['report-status'],
+  });
+  assert.deepEqual(authorizeOwnerDecision(record, { ...request, approvedScopes: ['pull-desired-state', 'tenant:admin'] }, owner, now), {
+    ok: false, status: 400, error: 'invalid_approved_scopes',
+  });
 });
 
 test('owner decision rejects a mismatched code and stale profile revision', () => {

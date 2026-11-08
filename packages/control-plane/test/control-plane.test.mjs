@@ -33,7 +33,7 @@ async function loadWorkerApp() {
           permissions text, status text not null, device_id text, created_at text not null,
           expires_at text not null, approved_at text, claimed_at text,
           machine_fingerprint text, profile_revision text, owner_actor text,
-          decided_by text, denied_at text, last_polled_at text
+          decided_by text, denied_at text, last_polled_at text, approved_scopes text
         );
         CREATE TABLE IF NOT EXISTS devices (
           device_id text primary key, tenant text not null, token_sha256 text not null unique,
@@ -294,6 +294,12 @@ test('pair claim is atomic, digest-only, binding-safe, and normalizes terminal f
   assert.notEqual(device.token_sha256, credential.token);
   assert.equal(device.token_sha256, crypto.createHash('sha256').update(credential.token).digest('hex'));
   assert.equal(device.expires_at, credential.expiresAt);
+  await db.prepare('UPDATE devices SET expires_at=? WHERE device_id=?').bind('2026-01-01T00:00:00.000Z', credential.deviceId).run();
+  const expiredIdentity = await app.fetch(new Request('https://app.install.doctor/api/devices/me', {
+    headers: { authorization: `Bearer ${credential.token}` },
+  }), env);
+  assert.equal(expiredIdentity.status, 401);
+  assert.deepEqual(await expiredIdentity.json(), { error: 'unauthorized' });
 
   const revoke = (body) => app.fetch(new Request(`https://app.install.doctor/api/devices/${credential.deviceId}/revoke`, {
     method: 'POST',
@@ -364,6 +370,59 @@ test('pending pairing polling has a durable bounded cadence and normalized 429 r
   const resumed = await poll();
   assert.equal(resumed.status, 200);
   assert.deepEqual(await resumed.json(), { status: 'pending' });
+});
+
+test('claim persists only explicitly approved scopes and rejects broadening or unapproved bound scopes', async () => {
+  const app = await loadWorkerApp();
+  const db = globalThis.__AID_TEST_DB__;
+  const env = { ...TEST_ENV, DB: db };
+  for (const permissions of [[], ['tenant:admin']]) {
+    const rejected = await app.fetch(new Request('https://app.install.doctor/api/devices/pair/start', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        tenant: 'tenant-scopes', permissions, machineFingerprint: '1'.repeat(64),
+        profileRevision: 'profile-scopes-v1', ownerActor: 'owner@example.com',
+      }),
+    }), env);
+    assert.equal(rejected.status, 400);
+    assert.equal((await rejected.json()).error, 'invalid_request');
+  }
+
+  const started = await app.fetch(new Request('https://app.install.doctor/api/devices/pair/start', {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ tenant: 'tenant-scopes', permissions: ['pull-desired-state', 'report-status'] }),
+  }), env);
+  const pairing = await started.json();
+  const approve = (approvedScopes) => app.fetch(new Request('https://app.install.doctor/api/devices/pair/approve', {
+    method: 'POST', headers: { authorization: `Bearer ${TEST_ENV.AID_ADMIN_TOKEN}`, 'content-type': 'application/json' },
+    body: JSON.stringify({ code: pairing.code, approvedScopes }),
+  }), env);
+  const broadened = await approve(['pull-desired-state', 'report-status', 'tenant:admin']);
+  assert.equal(broadened.status, 400);
+  assert.deepEqual(await broadened.json(), { error: 'invalid_approved_scopes' });
+  const narrowed = await approve(['report-status']);
+  assert.equal(narrowed.status, 200);
+  const claimed = await app.fetch(new Request('https://app.install.doctor/api/devices/pair/poll', {
+    headers: { authorization: `Bearer ${pairing.pollSecret}` },
+  }), env);
+  assert.equal(claimed.status, 200);
+  const credential = await claimed.json();
+  const stored = await db.prepare('SELECT permissions FROM devices WHERE device_id=?').bind(credential.deviceId).first();
+  assert.equal(stored.permissions, '["report-status"]');
+});
+
+test('unexpected claim database failures expose no internal detail', async () => {
+  const app = await loadWorkerApp();
+  const response = await app.fetch(new Request('https://app.install.doctor/api/devices/pair/poll', {
+    headers: { authorization: 'Bearer aidp_private' },
+  }), {
+    ...TEST_ENV,
+    DB: { prepare() { throw new Error('SECRET sqlite topology and raw query'); } },
+  });
+  assert.equal(response.status, 503);
+  const raw = await response.text();
+  assert.deepEqual(JSON.parse(raw), { error: 'claim_unavailable' });
+  assert.doesNotMatch(raw, /SECRET|sqlite|query/i);
 });
 
 test('owner-bound pairing context is private and cannot use legacy token approval', async () => {

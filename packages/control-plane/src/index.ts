@@ -24,7 +24,7 @@ import { pinnedReleaseSigner } from './release-keyring';
 import { lookupDesktopReleaseObject, lookupReleaseObject } from './release-store';
 import { resolveActiveRelease } from './release-channel';
 import { resolveActiveDesktopRelease } from './desktop-release-channel';
-import { authorizeOwnerContextRead, authorizeOwnerDecision, OwnerApprovalDecision } from './owner-approval';
+import { authorizeOwnerContextRead, authorizeOwnerDecision, DESKTOP_DEVICE_SCOPE_ALLOWLIST, OwnerApprovalDecision } from './owner-approval';
 import { DEVICE_CLAIM_MIN_POLL_INTERVAL_MS, DEVICE_CREDENTIAL_MAX_LIFETIME_MS, matchesPresentedClaimBinding } from './atomic-credential-claim';
 // App Store catalog — generated from software.yml by the canonical validated parser
 // (scripts/gen-catalog.mjs → the cnf index builder; D01/D02/D13). Read-only, bundled at deploy;
@@ -1566,10 +1566,10 @@ async function resolveDevice(
   const token = (authHeader || '').startsWith('Bearer ') ? (authHeader as string).slice(7) : '';
   if (!token) return null;
   const row = await db
-    .prepare('SELECT device_id, tenant, label, permissions, created_at, revoked_at FROM devices WHERE token_sha256 = ?')
+    .prepare('SELECT device_id, tenant, label, permissions, created_at, revoked_at, expires_at FROM devices WHERE token_sha256 = ?')
     .bind(await sha256hex(token))
     .first();
-  if (!row || row.revoked_at) return null;
+  if (!row || row.revoked_at || (row.expires_at && Date.parse(row.expires_at as string) <= Date.now())) return null;
   let permissions: string[] | null = null;
   try {
     if (row.permissions !== null && row.permissions !== undefined) {
@@ -2194,6 +2194,16 @@ const PairStartRequest = z
     if (present !== 0 && present !== ownerFields.length) {
       context.addIssue({ code: 'custom', message: 'machineFingerprint, profileRevision, and ownerActor must be supplied together' });
     }
+    if (present === ownerFields.length) {
+      const requested = value.permissions ?? [];
+      if (requested.length === 0) context.addIssue({ code: 'custom', path: ['permissions'], message: 'bound enrollment requires at least one device scope' });
+      for (const [index, permission] of requested.entries()) {
+        if (!(DESKTOP_DEVICE_SCOPE_ALLOWLIST as readonly string[]).includes(permission)) {
+          context.addIssue({ code: 'custom', path: ['permissions', index], message: 'scope is not allowed for Desktop Tools devices' });
+        }
+      }
+      if (new Set(requested).size !== requested.length) context.addIssue({ code: 'custom', path: ['permissions'], message: 'duplicate device scopes are not allowed' });
+    }
   });
 app.post('/api/devices/pair/start', async (c) => {
   const db = (c.env as Record<string, any>).DB;
@@ -2328,7 +2338,7 @@ app.post('/api/devices/pair/owner-decision', async (c) => {
   if (!parsed.success) return c.json({ error: 'invalid_request', issues: parsed.error.issues }, 400);
   const code = normalizePairCode(parsed.data.code);
   if (!code) return c.json({ error: 'matching_code_mismatch' }, 400);
-  const row = await db.prepare('SELECT code, status, expires_at, profile_revision, owner_actor FROM pairings WHERE code = ?').bind(code).first();
+  const row = await db.prepare('SELECT code, status, expires_at, profile_revision, owner_actor, permissions FROM pairings WHERE code = ?').bind(code).first();
   if (!row || !row.profile_revision || !row.owner_actor) return pairingUnavailable(c);
   const session = (await auth.api.getSession({ headers: c.req.raw.headers }).catch(() => null)) as
     | { user?: { id?: string; email?: string | null }; session?: { createdAt?: string | Date } }
@@ -2336,19 +2346,21 @@ app.post('/api/devices/pair/owner-decision', async (c) => {
   const authenticatedAt = session?.session?.createdAt instanceof Date
     ? session.session.createdAt.toISOString()
     : session?.session?.createdAt;
+  let requestedScopes: string[] = [];
+  try { requestedScopes = JSON.parse((row.permissions as string) || '[]'); } catch { /* fail closed below */ }
   const decision = authorizeOwnerDecision(
-    { code: row.code as string, status: row.status as string, expiresAt: row.expires_at as string, profileRevision: row.profile_revision as string, ownerActor: row.owner_actor as string },
+    { code: row.code as string, status: row.status as string, expiresAt: row.expires_at as string, profileRevision: row.profile_revision as string, ownerActor: row.owner_actor as string, requestedScopes },
     { ...parsed.data, code },
     session?.user?.email && authenticatedAt ? { actor: session.user.email, authenticatedAt } : null,
   );
   if (!decision.ok) return c.json({ error: decision.error }, decision.status);
   const timestampColumn = decision.nextStatus === 'approved' ? 'approved_at' : 'denied_at';
   const updated = await db
-    .prepare(`UPDATE pairings SET status=?, ${timestampColumn}=?, decided_by=? WHERE code=? AND status='pending'`)
-    .bind(decision.nextStatus, decision.decidedAt, decision.actor, code)
+    .prepare(`UPDATE pairings SET status=?, ${timestampColumn}=?, decided_by=?, approved_scopes=? WHERE code=? AND status='pending'`)
+    .bind(decision.nextStatus, decision.decidedAt, decision.actor, decision.approvedScopes ? JSON.stringify(decision.approvedScopes) : null, code)
     .run();
   if ((updated.meta?.changes ?? 0) !== 1) return c.json({ error: 'pairing_not_pending' }, 409);
-  return c.json({ code, status: decision.nextStatus, actor: decision.actor, decidedAt: decision.decidedAt });
+  return c.json({ code, status: decision.nextStatus, actor: decision.actor, decidedAt: decision.decidedAt, approvedScopes: decision.approvedScopes });
 });
 // Owner approves a pending pairing (the browser leg). Admin-gated — stands in for the owner session
 // until Better Auth lands. Mints NO token (claim does), so no plaintext token is ever stored.
@@ -2358,15 +2370,21 @@ app.post('/api/devices/pair/approve', async (c) => {
   const db = (c.env as Record<string, any>).DB;
   if (!db) return c.json({ error: 'store_unavailable' }, 503);
   try {
-    const body = (await c.req.json().catch(() => ({}))) as { code?: string };
+    const body = (await c.req.json().catch(() => ({}))) as { code?: string; approvedScopes?: unknown };
     const code = (body.code || '').trim().toUpperCase();
     if (!code) return c.json({ error: 'invalid_request', detail: 'code required' }, 400);
-    const row = await db.prepare('SELECT status, expires_at, owner_actor FROM pairings WHERE code = ?').bind(code).first();
+    const row = await db.prepare('SELECT status, expires_at, owner_actor, permissions FROM pairings WHERE code = ?').bind(code).first();
     if (!row) return c.json({ error: 'not_found', code }, 404);
     if (row.owner_actor) return c.json({ error: 'owner_approval_required', code }, 409);
     if (row.status === 'claimed') return c.json({ error: 'already_claimed', code }, 409);
     if (new Date(row.expires_at).getTime() < Date.now()) return c.json({ error: 'expired', code }, 410);
-    await db.prepare("UPDATE pairings SET status='approved', approved_at=? WHERE code=? AND status='pending'").bind(new Date().toISOString(), code).run();
+    let requestedScopes: string[] = [];
+    try { requestedScopes = JSON.parse((row.permissions as string) || '[]'); } catch { return c.json({ error: 'invalid_approved_scopes' }, 400); }
+    const approvedScopes = body.approvedScopes === undefined ? requestedScopes : body.approvedScopes;
+    if (!Array.isArray(approvedScopes) || approvedScopes.length > requestedScopes.length
+      || approvedScopes.some(scope => typeof scope !== 'string' || !requestedScopes.includes(scope))
+      || new Set(approvedScopes).size !== approvedScopes.length) return c.json({ error: 'invalid_approved_scopes' }, 400);
+    await db.prepare("UPDATE pairings SET status='approved', approved_at=?, approved_scopes=? WHERE code=? AND status='pending'").bind(new Date().toISOString(), JSON.stringify(approvedScopes), code).run();
     return c.json({ code, status: 'approved' });
   } catch (e) {
     return c.json({ error: 'invalid_request', detail: e instanceof Error ? e.message : String(e) }, 400);
@@ -2377,14 +2395,14 @@ app.post('/api/devices/pair/approve', async (c) => {
 // state has the same public response, preventing tenant/profile/device and lifecycle enumeration.
 app.get('/api/devices/pair/poll', async (c) => {
   const db = (c.env as Record<string, any>).DB;
-  if (!db) return c.json({ error: 'store_unavailable' }, 503);
+  if (!db) return c.json({ error: 'claim_unavailable' }, 503);
   const auth = c.req.header('authorization') || '';
   const pollSecret = auth.startsWith('Bearer ') ? auth.slice(7) : '';
   const claimUnavailable = () => c.json({ error: 'claim_unavailable' }, 404);
   if (!pollSecret) return claimUnavailable();
   try {
     const pollHash = await sha256hex(pollSecret);
-    const row = await db.prepare('SELECT code, tenant, label, permissions, status, expires_at, machine_fingerprint, profile_revision FROM pairings WHERE poll_sha256 = ?').bind(pollHash).first();
+    const row = await db.prepare('SELECT code, tenant, label, permissions, approved_scopes, status, expires_at, machine_fingerprint, profile_revision FROM pairings WHERE poll_sha256 = ?').bind(pollHash).first();
     if (!row) return claimUnavailable();
     if (row.status === 'claimed' || row.status === 'denied') return claimUnavailable();
     if (new Date(row.expires_at).getTime() <= Date.now()) return claimUnavailable();
@@ -2417,16 +2435,14 @@ app.get('/api/devices/pair/poll', async (c) => {
     const claimed = await db.prepare(`
       INSERT INTO devices
         (device_id, tenant, token_sha256, label, permissions, created_at, pairing_code, profile_revision, machine_fingerprint, expires_at)
-      SELECT ?, tenant, ?, label, COALESCE(permissions, '[]'), ?, code, profile_revision, machine_fingerprint, ?
+      SELECT ?, tenant, ?, label, COALESCE(approved_scopes, permissions, '[]'), ?, code, profile_revision, machine_fingerprint, ?
         FROM pairings
        WHERE poll_sha256 = ? AND status = 'approved' AND expires_at > ?
     `).bind(deviceId, await sha256hex(token), now, credentialExpiresAt, pollHash, now).run();
     if ((claimed.meta?.changes ?? 0) !== 1) return claimUnavailable();
     return c.json({ status: 'claimed', deviceId, tenant: row.tenant, token, expiresAt: credentialExpiresAt, note: 'store the token now — it is not recoverable' });
-  } catch (e) {
-    const detail = e instanceof Error ? e.message : String(e);
-    if (/claim unavailable|unique constraint failed|constraint failed/i.test(detail)) return claimUnavailable();
-    return c.json({ error: 'store_error', detail: e instanceof Error ? e.message : String(e) }, 503);
+  } catch {
+    return c.json({ error: 'claim_unavailable' }, 503);
   }
 });
 

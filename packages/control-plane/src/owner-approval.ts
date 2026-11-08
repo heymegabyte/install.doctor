@@ -1,12 +1,15 @@
 import { z } from 'zod';
 
 export const OWNER_REAUTH_MAX_AGE_MS = 5 * 60 * 1000;
+export const DESKTOP_DEVICE_SCOPE_ALLOWLIST = ['pull-desired-state', 'report-status'] as const;
+const deviceScope = z.enum(DESKTOP_DEVICE_SCOPE_ALLOWLIST);
 
 export const OwnerApprovalDecision = z.object({
   code: z.string().min(1).max(32),
   matchingCode: z.string().min(1).max(32),
   profileRevision: z.string().min(1).max(128),
   decision: z.enum(['approve', 'deny']),
+  approvedScopes: z.array(deviceScope).min(1).max(DESKTOP_DEVICE_SCOPE_ALLOWLIST.length).optional(),
 }).strict();
 
 export type OwnerApprovalRequest = z.infer<typeof OwnerApprovalDecision>;
@@ -17,6 +20,7 @@ export type OwnerApprovalRecord = {
   profileRevision: string;
   ownerActor: string;
   expiresAt: string;
+  requestedScopes?: readonly string[];
 };
 
 export type AuthenticatedOwner = {
@@ -25,7 +29,7 @@ export type AuthenticatedOwner = {
 };
 
 export type OwnerApprovalResult =
-  | { ok: true; nextStatus: 'approved' | 'denied'; actor: string; decidedAt: string }
+  | { ok: true; nextStatus: 'approved' | 'denied'; actor: string; decidedAt: string; approvedScopes: string[] | null }
   | { ok: false; status: 400 | 401 | 403 | 409 | 410; error: string };
 
 export type OwnerContextReadResult =
@@ -69,10 +73,19 @@ export function authorizeOwnerDecision(
   if (request.profileRevision !== record.profileRevision) {
     return { ok: false, status: 409, error: 'stale_profile_revision' };
   }
+  const requestedScopes = [...new Set(record.requestedScopes ?? [])].sort();
+  const approvedScopes = request.approvedScopes ? [...new Set(request.approvedScopes)].sort() : requestedScopes;
+  if (request.decision === 'approve'
+    && (approvedScopes.length === 0
+      || requestedScopes.some(scope => !(DESKTOP_DEVICE_SCOPE_ALLOWLIST as readonly string[]).includes(scope))
+      || approvedScopes.some(scope => !requestedScopes.includes(scope)))) {
+    return { ok: false, status: 400, error: 'invalid_approved_scopes' };
+  }
   return {
     ok: true,
     nextStatus: request.decision === 'approve' ? 'approved' : 'denied',
     actor: contextAccess.actor,
     decidedAt: now.toISOString(),
+    approvedScopes: request.decision === 'approve' ? approvedScopes : null,
   };
 }
