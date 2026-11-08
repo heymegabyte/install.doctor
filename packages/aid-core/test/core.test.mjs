@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   APP_URL, DESKTOP_TOOLS_URL, ROUTES, validateBlueprint, validateEnvironment,
-  migrateBlueprintV1ToV2, migrateBlueprintV2ToV3,
+  migrateBlueprintV1ToV2, migrateBlueprintV2ToV3, migrateBlueprintV3ToV4,
   resolveMachinePackages, exportMarkdown, importMarkdown, blueprintDigest,
   aidProviderConfig, chooseRoute, newSession, transitionSession, CastWriter,
   planLokiIntegration, renderAlloy
@@ -155,4 +155,74 @@ test('explicit v2 to v3 migration upgrades appUrl to desktop.tools and preserves
   assert.deepEqual(resolveMachinePackages(v3, 'runner-a'), resolveMachinePackages(v2, 'runner-a'));
   assert.deepEqual(resolveMachinePackages(v3, 'laptop'), resolveMachinePackages(v2, 'laptop'));
   assert.deepEqual(importMarkdown(exportMarkdown(v3)), v3);
+});
+
+test('explicit v3 to v4 migration binds profile, prompt policy, and secret references losslessly', async () => {
+  const v3 = migrateBlueprintV2ToV3(migrationFixture('environment-v2'));
+  const v4 = migrateBlueprintV3ToV4(v3, {
+    profileId: 'example',
+    visibility: 'public-bootstrap',
+    promptPolicyId: 'provision-v1',
+    promptPolicyVersion: 'v1',
+    promptMode: 'agent-assisted',
+    allowedRoutes: ['economy', 'code'],
+    secretReferences: [{
+      id: 'loki-writer',
+      reference: 'infisical://desktop-tools/profiles/example/loki-writer',
+      requiredAt: 'apply',
+      offlineRecovery: 'not-required'
+    }]
+  });
+  assert.equal(v4.schemaVersion, 4);
+  assert.equal(v4.profile.revision, v4.revision);
+  assert.equal(v4.profile.id, 'example');
+  assert.deepEqual(v4.promptPolicy.allowedRoutes, ['economy', 'code']);
+  assert.deepEqual(resolveMachinePackages(v4, 'runner-a'), resolveMachinePackages(v3, 'runner-a'));
+  const markdown = exportMarkdown(v4);
+  assert.deepEqual(importMarkdown(markdown), v4);
+  assert.equal(await blueprintDigest(importMarkdown(markdown)), await blueprintDigest(v4));
+});
+
+test('v4 rejects implicit migration, stale profile revisions, unsafe prompt policy, and secret values', () => {
+  const v3 = migrateBlueprintV2ToV3(migrationFixture('environment-v2'));
+  assert.throws(() => migrateBlueprintV3ToV4(v3, undefined), /required/i);
+  const v4 = migrateBlueprintV3ToV4(v3, {
+    profileId: 'example',
+    visibility: 'private',
+    promptPolicyId: 'offline-v1',
+    promptPolicyVersion: 'v1',
+    promptMode: 'deterministic-only',
+    allowedRoutes: []
+  });
+  const stale = structuredClone(v4);
+  stale.profile.revision = 'different';
+  assert.throws(() => validateEnvironment(stale), /must match/i);
+  const inferenceLeak = structuredClone(v4);
+  inferenceLeak.promptPolicy.allowedRoutes = ['code'];
+  assert.throws(() => validateEnvironment(inferenceLeak), /cannot authorize inference/i);
+  const plaintext = structuredClone(v4);
+  plaintext.secretReferences = [{
+    id: 'bad-secret',
+    reference: 'hunter2',
+    requiredAt: 'apply',
+    offlineRecovery: 'not-required'
+  }];
+  assert.throws(() => validateEnvironment(plaintext), /invalid string|infisical/i);
+  const traversal = structuredClone(v4);
+  traversal.secretReferences = [{
+    id: 'bad-path',
+    reference: 'infisical://desktop-tools/../recovery-root',
+    requiredAt: 'apply',
+    offlineRecovery: 'escrow-required'
+  }];
+  assert.throws(() => validateEnvironment(traversal), /normalized fixed path/i);
+  const duplicate = structuredClone(v4);
+  duplicate.secretReferences = [
+    { id: 'one', reference: 'infisical://desktop-tools/one', requiredAt: 'plan', offlineRecovery: 'not-required' },
+    { id: 'one', reference: 'infisical://desktop-tools/two', requiredAt: 'apply', offlineRecovery: 'not-required' }
+  ];
+  assert.throws(() => validateEnvironment(duplicate), /unique ids/i);
+  const unknown = structuredClone(v4);
+  unknown.profile.ownerToken = 'secret';
+  assert.throws(() => validateEnvironment(unknown), /unrecognized/i);
 });

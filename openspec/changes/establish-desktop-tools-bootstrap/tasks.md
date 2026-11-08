@@ -9,8 +9,8 @@
 
 ## 2. Profile model and wildcard routing
 
-- [ ] 2.1 Extend the strict versioned `ENVIRONMENT.md` model with Desktop Tools profile identity, revision, visibility, prompt policy, and secret references; verify lossless import/export, explicit migration, and stable digests.
-- [ ] 2.2 Implement reserved-name-aware profile slug validation and tenant-scoped profile resolution; verify unknown, disabled, cross-tenant, Unicode-confusable, oversized, and malformed slugs fail closed.
+- [x] 2.1 Extend the strict versioned `ENVIRONMENT.md` model with Desktop Tools profile identity, revision, visibility, prompt policy, and secret references; verify lossless import/export, explicit migration, and stable digests.
+- [x] 2.2 Implement reserved-name-aware profile slug validation and tenant-scoped profile resolution; verify unknown, disabled, cross-tenant, Unicode-confusable, oversized, and malformed slugs fail closed.
 - [ ] 2.3 Add wildcard `*.desktop.tools` routing and TLS/DNS deployment configuration without activating enrollment; verify `example.desktop.tools` resolves only `example` and apex/reserved hosts retain their explicit routes.
 - [ ] 2.4 Serve a bounded cache-controlled public profile descriptor containing no credentials, private inventory, secret values, or enrollment authority; verify adversarial response and log scans remain secret-free.
 - [ ] 2.5 Document profile creation, portable export, standalone use, disablement, and recovery; verify all published commands use the profile-subdomain form exactly.

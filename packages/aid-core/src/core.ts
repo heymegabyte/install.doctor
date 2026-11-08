@@ -3,6 +3,7 @@ import { z } from 'zod';
 
 export * from './installer-contracts.js';
 export * from './product-identity.js';
+export * from './profile-resolution.js';
 export const APP_URL = 'https://app.install.doctor' as const;
 export const DESKTOP_TOOLS_URL = 'https://desktop.tools' as const;
 export const ROUTES = ['general', 'economy', 'code', 'architect', 'research', 'critical', 'batch', 'restricted'] as const;
@@ -55,7 +56,29 @@ export interface BlueprintV3 {
   privacy: Blueprint['privacy'];
 }
 
-export type EnvironmentBlueprint = Blueprint | BlueprintV2 | BlueprintV3;
+export interface BlueprintV4 extends Omit<BlueprintV3, 'schemaVersion' | 'appUrl'> {
+  schemaVersion: 4;
+  appUrl: typeof DESKTOP_TOOLS_URL;
+  profile: {
+    id: string;
+    revision: string;
+    visibility: 'public-bootstrap' | 'private';
+  };
+  promptPolicy: {
+    id: string;
+    version: string;
+    mode: 'deterministic-only' | 'agent-assisted';
+    allowedRoutes: Route[];
+  };
+  secretReferences: {
+    id: string;
+    reference: string;
+    requiredAt: 'enrollment' | 'plan' | 'apply' | 'runtime';
+    offlineRecovery: 'not-required' | 'escrow-required';
+  }[];
+}
+
+export type EnvironmentBlueprint = Blueprint | BlueprintV2 | BlueprintV3 | BlueprintV4;
 
 function invariant(value: unknown, message: string): asserts value {
   if (!value) throw new Error(message);
@@ -246,14 +269,140 @@ const blueprintV3Schema = z.object({
   });
 });
 
-/** Validate any explicit ENVIRONMENT schema version (1, 2, or 3) without implicit migration. */
+const infisicalReferenceSchema = z.string().min(1).max(512)
+  .regex(/^infisical:\/\/[a-z0-9][a-z0-9._/-]*[a-z0-9]$/)
+  .superRefine((reference, context) => {
+    const path = reference.slice('infisical://'.length);
+    if (path.includes('..') || path.includes('//')) {
+      context.addIssue({ code: 'custom', message: 'Infisical reference must use one normalized fixed path' });
+    }
+  });
+
+const secretReferenceSchema = z.object({
+  id: identifierSchema,
+  reference: infisicalReferenceSchema,
+  requiredAt: z.enum(['enrollment', 'plan', 'apply', 'runtime']),
+  offlineRecovery: z.enum(['not-required', 'escrow-required'])
+}).strict();
+
+const blueprintV4Schema = z.object({
+  schemaVersion: z.literal(4),
+  appUrl: z.literal(DESKTOP_TOOLS_URL),
+  revision: identifierSchema,
+  routing: routingSchema,
+  skills: skillsSchema,
+  defaults: z.object({
+    packages: identifiersSchema,
+    shellHistory: z.literal('hishtory'),
+    tier: tierSchema.optional()
+  }).strict(),
+  roles: z.array(z.object({
+    id: identifierSchema,
+    tier: tierSchema.optional(),
+    packages: identifiersSchema,
+    capabilities: identifiersSchema.optional()
+  }).strict()).max(1000),
+  machines: z.array(z.object({
+    id: identifierSchema,
+    os: z.enum(['linux', 'darwin', 'win32']),
+    role: identifierSchema,
+    tier: tierSchema.optional(),
+    capabilities: identifiersSchema.optional(),
+    packageOverrides: z.object({ add: identifiersSchema, remove: identifiersSchema }).strict()
+  }).strict()).max(10000),
+  services: z.array(serviceSchema).max(1000),
+  privacy: privacySchema,
+  profile: z.object({
+    id: identifierSchema,
+    revision: identifierSchema,
+    visibility: z.enum(['public-bootstrap', 'private'])
+  }).strict(),
+  promptPolicy: z.object({
+    id: identifierSchema,
+    version: identifierSchema,
+    mode: z.enum(['deterministic-only', 'agent-assisted']),
+    allowedRoutes: z.array(z.enum(ROUTES)).max(ROUTES.length)
+  }).strict(),
+  secretReferences: z.array(secretReferenceSchema).max(256)
+}).strict().superRefine((blueprint, context) => {
+  const v3Result = blueprintV3Schema.safeParse({
+    schemaVersion: 3,
+    revision: blueprint.revision,
+    appUrl: blueprint.appUrl,
+    routing: blueprint.routing,
+    skills: blueprint.skills,
+    defaults: blueprint.defaults,
+    roles: blueprint.roles,
+    machines: blueprint.machines,
+    services: blueprint.services,
+    privacy: blueprint.privacy
+  });
+  if (!v3Result.success) {
+    for (const issue of v3Result.error.issues) {
+      context.addIssue({ code: 'custom', path: issue.path, message: issue.message });
+    }
+  }
+  if (blueprint.profile.revision !== blueprint.revision) {
+    context.addIssue({ code: 'custom', path: ['profile', 'revision'], message: 'Profile revision must match desired-state revision' });
+  }
+  if (new Set(blueprint.promptPolicy.allowedRoutes).size !== blueprint.promptPolicy.allowedRoutes.length) {
+    context.addIssue({ code: 'custom', path: ['promptPolicy', 'allowedRoutes'], message: 'Prompt routes contain duplicates' });
+  }
+  if (blueprint.promptPolicy.mode === 'deterministic-only' && blueprint.promptPolicy.allowedRoutes.length > 0) {
+    context.addIssue({ code: 'custom', path: ['promptPolicy', 'allowedRoutes'], message: 'Deterministic-only profiles cannot authorize inference routes' });
+  }
+  if (blueprint.promptPolicy.mode === 'agent-assisted' && blueprint.promptPolicy.allowedRoutes.length === 0) {
+    context.addIssue({ code: 'custom', path: ['promptPolicy', 'allowedRoutes'], message: 'Agent-assisted profiles require at least one explicit route' });
+  }
+  const referenceIds = blueprint.secretReferences.map(reference => reference.id);
+  const references = blueprint.secretReferences.map(reference => reference.reference);
+  if (new Set(referenceIds).size !== referenceIds.length || new Set(references).size !== references.length) {
+    context.addIssue({ code: 'custom', path: ['secretReferences'], message: 'Secret references must have unique ids and locations' });
+  }
+});
+
+/** Validate any explicit ENVIRONMENT schema version without implicit migration. */
 export function validateEnvironment(input: unknown): EnvironmentBlueprint {
   invariant(input !== null && typeof input === 'object' && !Array.isArray(input), 'blueprint: expected object');
   const version = (input as Record<string, unknown>).schemaVersion;
   if (version === 1) return validateBlueprint(input);
   if (version === 2) return blueprintV2Schema.parse(input) as BlueprintV2;
   if (version === 3) return blueprintV3Schema.parse(input) as BlueprintV3;
+  if (version === 4) return blueprintV4Schema.parse(input) as BlueprintV4;
   throw new Error('Unsupported ENVIRONMENT schema version');
+}
+
+/** Explicit v3 -> v4 migration; caller must supply product profile and prompt policy identity. */
+export function migrateBlueprintV3ToV4(input: unknown, options: {
+  profileId: string;
+  visibility: BlueprintV4['profile']['visibility'];
+  promptPolicyId: string;
+  promptPolicyVersion: string;
+  promptMode: BlueprintV4['promptPolicy']['mode'];
+  allowedRoutes: Route[];
+  secretReferences?: BlueprintV4['secretReferences'];
+}): BlueprintV4 {
+  const source = validateEnvironment(input);
+  invariant(source.schemaVersion === 3, 'Expected schemaVersion 3 blueprint');
+  invariant(options !== null && typeof options === 'object', 'Explicit v4 migration options are required');
+  const migrated: BlueprintV4 = {
+    ...source,
+    schemaVersion: 4,
+    appUrl: DESKTOP_TOOLS_URL,
+    profile: {
+      id: options.profileId,
+      revision: source.revision,
+      visibility: options.visibility
+    },
+    promptPolicy: {
+      id: options.promptPolicyId,
+      version: options.promptPolicyVersion,
+      mode: options.promptMode,
+      allowedRoutes: [...options.allowedRoutes]
+    },
+    secretReferences: structuredClone(options.secretReferences ?? [])
+  };
+  return validateEnvironment(migrated) as BlueprintV4;
 }
 
 /** Explicit, deterministic v2 -> v3 migration adding desktop.tools origin and capability-driven tiers. */
