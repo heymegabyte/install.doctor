@@ -21,8 +21,9 @@ import { getMigrations } from 'better-auth/db/migration';
 import { errorEnvelope, requestSecurity, requestIdFor } from './http-security';
 import { renderBootstrap } from './bootstrap';
 import { pinnedReleaseSigner } from './release-keyring';
-import { lookupReleaseObject } from './release-store';
+import { lookupDesktopReleaseObject, lookupReleaseObject } from './release-store';
 import { resolveActiveRelease } from './release-channel';
+import { resolveActiveDesktopRelease } from './desktop-release-channel';
 // App Store catalog — generated from software.yml by the canonical validated parser
 // (scripts/gen-catalog.mjs → the cnf index builder; D01/D02/D13). Read-only, bundled at deploy;
 // regenerate + redeploy when software.yml changes. No runtime YAML at the edge.
@@ -2662,7 +2663,10 @@ app.post('/api/v1/keys/mint', async (c) => {
 // provisioned it returns 503 rather than falling through to a mutable source or another bucket.
 app.get('/releases/:releaseId/:file', async (c) => {
   const env = Env.parse(c.env);
-  const release = await lookupReleaseObject(env.RELEASES, c.req.param('releaseId'), c.req.param('file'));
+  const desktopHost = new URL(c.req.url).hostname === 'desktop.tools';
+  const release = desktopHost
+    ? await lookupDesktopReleaseObject(env.RELEASES, c.req.param('releaseId'), c.req.param('file'))
+    : await lookupReleaseObject(env.RELEASES, c.req.param('releaseId'), c.req.param('file'));
   if (release.status === 'invalid') return c.json({ error: 'release_not_found' }, 404);
   if (release.status === 'unavailable') {
     return c.json({ error: 'release_storage_not_configured' }, 503);
@@ -2681,15 +2685,19 @@ app.get('/releases/:releaseId/:file', async (c) => {
 // Terminal-safe signed stage-zero bootstrap for the explicitly gated macOS and Linux x64/arm64 cells.
 app.get('/start', async (c) => {
   const env = Env.parse(c.env);
+  const desktopHost = new URL(c.req.url).hostname === 'desktop.tools';
   let active;
   try {
-    active = await resolveActiveRelease(env.RELEASE_CHANNELS, env.RELEASES, 'stable');
+    active = desktopHost
+      ? await resolveActiveDesktopRelease(env.RELEASE_CHANNELS, env.RELEASES, 'stable')
+      : await resolveActiveRelease(env.RELEASE_CHANNELS, env.RELEASES, 'stable');
   } catch {
     return c.json({ error: 'release_channel_unavailable', detail: 'The signed stable release channel is unavailable or invalid; no mutable fallback is permitted.' }, 503);
   }
   const configured = {
-    manifestUrl: `https://app.install.doctor/releases/${active.releaseId}/manifest`,
-    signatureUrl: `https://app.install.doctor/releases/${active.releaseId}/manifest.sig`,
+    product: desktopHost ? 'desktop-tools' as const : 'legacy-install-doctor' as const,
+    manifestUrl: `${desktopHost ? 'https://desktop.tools' : 'https://app.install.doctor'}/releases/${active.releaseId}/manifest`,
+    signatureUrl: `${desktopHost ? 'https://desktop.tools' : 'https://app.install.doctor'}/releases/${active.releaseId}/manifest.sig`,
     signerIdentity: active.signerId,
     signerPublicKey: pinnedReleaseSigner(active.signerId),
   };

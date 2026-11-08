@@ -5,6 +5,10 @@ const ReleaseFileSchema = z.enum([
   'manifest', 'manifest.sig', 'provision.sh', 'start', 'install-doctor-engine.mjs', 'catalog.json',
   'node-macos-x64.tar.gz', 'node-macos-arm64.tar.gz', 'node-linux-x64.tar.gz', 'node-linux-arm64.tar.gz',
 ]);
+const DesktopReleaseFileSchema = z.enum([
+  'manifest', 'manifest.sig', 'provision.sh', 'start', 'desktop-tools-engine.mjs', 'catalog.json',
+  'node-macos-x64.tar.gz', 'node-macos-arm64.tar.gz', 'node-linux-x64.tar.gz', 'node-linux-arm64.tar.gz',
+]);
 
 type ReleaseObjectBody = {
   body: ReadableStream<Uint8Array>;
@@ -79,4 +83,25 @@ export async function lookupReleaseObject(
     body: object.data,
     contentType: CONTENT_TYPES[file.data],
   };
+}
+
+/** Desktop Tools objects are deliberately isolated from the legacy bootstrap prefix and allowlist. */
+export async function lookupDesktopReleaseObject(binding: unknown, releaseIdValue: unknown, fileValue: unknown): Promise<ReleaseLookup> {
+  const releaseId = ReleaseIdSchema.safeParse(releaseIdValue);
+  const file = DesktopReleaseFileSchema.safeParse(fileValue);
+  if (!releaseId.success || !file.success) return { status: 'invalid' };
+  const bucket = ReleaseBucketSchema.safeParse(binding);
+  if (!bucket.success) return { status: 'unavailable' };
+  let stored: unknown;
+  try { stored = await bucket.data.get(`desktop-tools/bootstrap/${releaseId.data}/${file.data}`); }
+  catch { return { status: 'unavailable' }; }
+  if (stored === null || stored === undefined) return { status: 'missing' };
+  const object = ReleaseObjectBodySchema.safeParse(stored);
+  if (!object.success) return { status: 'unavailable' };
+  const contentType = file.data === 'manifest' ? 'application/vnd.desktop-tools.release-manifest'
+    : file.data === 'manifest.sig' ? 'application/octet-stream'
+    : file.data === 'provision.sh' || file.data === 'start' ? 'text/x-shellscript; charset=utf-8'
+    : file.data === 'desktop-tools-engine.mjs' ? 'text/javascript; charset=utf-8'
+    : file.data === 'catalog.json' ? 'application/json; charset=utf-8' : 'application/gzip';
+  return { status: 'found', body: object.data, contentType };
 }
