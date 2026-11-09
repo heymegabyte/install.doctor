@@ -2064,6 +2064,30 @@ if (rawPlan.network === 'cloudflare-warp' && rawPlan.consents.network === true) 
     }
   }
 }
+let sudoPath = '';
+let sudoDigest = '';
+let sudoDigestKind = '';
+for (const candidate of ['/usr/bin/sudo', '/bin/sudo']) {
+  try {
+    const metadata = fs.lstatSync(candidate);
+    const parent = fs.lstatSync(require('node:path').dirname(candidate));
+    if (!metadata.isFile() || metadata.isSymbolicLink() || metadata.nlink !== 1 || (metadata.mode & 0o111) === 0
+      || (metadata.mode & 0o4000) === 0 || (metadata.mode & 0o022) !== 0 || metadata.uid !== 0
+      || !parent.isDirectory() || parent.isSymbolicLink() || parent.uid !== 0 || (parent.mode & 0o022) !== 0) continue;
+    sudoPath = candidate;
+    try { sudoDigest = crypto.createHash('sha256').update(fs.readFileSync(candidate)).digest('hex'); sudoDigestKind = 'content-sha256'; }
+    catch (error) {
+      if (!error || error.code !== 'EACCES') throw error;
+      sudoDigest = crypto.createHash('sha256').update(JSON.stringify({ dev: metadata.dev, ino: metadata.ino, size: metadata.size,
+        mode: metadata.mode, uid: metadata.uid, mtimeMs: metadata.mtimeMs, ctimeMs: metadata.ctimeMs })).digest('hex');
+      sudoDigestKind = 'stat-identity-sha256';
+    }
+    break;
+  } catch (error) {
+    if (!error || error.code !== 'ENOENT') throw error;
+  }
+}
+if (!sudoPath) throw new Error('no safe fixed sudo executable is available for credential cleanup');
 const operationEnvironment = {
   SOFTWARE_GROUP: rawPlan.softwareGroup,
   INSTALL_DOCTOR_ROLE: rawPlan.role,
@@ -2410,7 +2434,8 @@ const rebootAssessmentTask = {
 };
 const sudoCleanupTask = {
   schemaVersion: 1, id: 'system.sudo-credential-cleanup',
-  inputDigest: digest({ installUser: rawPlan.installUser, sudoPreexisting: rawPlan.privilegeContext.sudoPreexisting, policy: 'preserve-preexisting-or-invalidate-acquired-v2' }),
+  inputDigest: digest({ installUser: rawPlan.installUser, sudoPreexisting: rawPlan.privilegeContext.sudoPreexisting,
+    sudoPath, sudoDigest, sudoDigestKind, policy: 'native-plan-bound-sudo-cleanup-v3' }),
   dependencies: [], predicate: 'host-supported', requiredCapabilities: [],
   operations: { check: 'sudo-cleanup-check', apply: 'sudo-cleanup-apply', verify: 'sudo-cleanup-verify' },
   timeoutMs: 30_000, retry: { class: 'never', maxAttempts: 1, backoffMs: 0 },
@@ -2448,9 +2473,12 @@ const invocation = {
     'stage-zero-sudo-check': { argv: ['/bin/bash', provisioner, '--engine-operation', 'stage-zero-sudo-check'], env: operationEnvironment },
     'stage-zero-sudo-apply': { argv: ['/bin/bash', provisioner, '--engine-operation', 'stage-zero-sudo-apply'], env: operationEnvironment },
     'stage-zero-sudo-verify': { argv: ['/bin/bash', provisioner, '--engine-operation', 'stage-zero-sudo-verify'], env: operationEnvironment },
-    'sudo-cleanup-check': { argv: ['/bin/bash', provisioner, '--engine-operation', 'sudo-cleanup-check'], env: operationEnvironment },
-    'sudo-cleanup-apply': { argv: ['/bin/bash', provisioner, '--engine-operation', 'sudo-cleanup-apply'], env: operationEnvironment },
-    'sudo-cleanup-verify': { argv: ['/bin/bash', provisioner, '--engine-operation', 'sudo-cleanup-verify'], env: operationEnvironment },
+    'sudo-cleanup-check': { kind: 'sudo-credential-cleanup', action: 'check', sudoPath, digestKind: sudoDigestKind, sudoSha256: sudoDigest,
+      sudoPreexisting: rawPlan.privilegeContext.sudoPreexisting },
+    'sudo-cleanup-apply': { kind: 'sudo-credential-cleanup', action: 'apply', sudoPath, digestKind: sudoDigestKind, sudoSha256: sudoDigest,
+      sudoPreexisting: rawPlan.privilegeContext.sudoPreexisting },
+    'sudo-cleanup-verify': { kind: 'sudo-credential-cleanup', action: 'verify', sudoPath, digestKind: sudoDigestKind, sudoSha256: sudoDigest,
+      sudoPreexisting: rawPlan.privilegeContext.sudoPreexisting },
     ...(warpDisconnectTask ? {
       'warp-disconnect-check': { argv: ['/bin/bash', provisioner, '--engine-operation', 'warp-disconnect-check'], env: operationEnvironment },
       'warp-disconnect-apply': { argv: ['/bin/bash', provisioner, '--engine-operation', 'warp-disconnect-apply'], env: operationEnvironment },
@@ -2790,22 +2818,6 @@ idRunEngineOperation() {
       return 10
       ;;
     stage-zero-sudo-apply) return 2 ;;
-    sudo-cleanup-check)
-      [ "${INSTALL_DOCTOR_SUDO_PREEXISTING:-false}" = true ] && return 0
-      sudo -n true >/dev/null 2>&1 && return 10
-      return 0
-      ;;
-    sudo-cleanup-apply)
-      [ "${INSTALL_DOCTOR_SUDO_PREEXISTING:-false}" = true ] && return 0
-      sudo -K >/dev/null 2>&1 || return 2
-      sudo -n true >/dev/null 2>&1 && return 2
-      return 0
-      ;;
-    sudo-cleanup-verify)
-      [ "${INSTALL_DOCTOR_SUDO_PREEXISTING:-false}" = true ] && return 0
-      sudo -n true >/dev/null 2>&1 && return 30
-      return 0
-      ;;
     warp-disconnect-check) idWarpDisconnectedCheck ;;
     warp-disconnect-apply) idWarpDisconnectedApply ;;
     warp-disconnect-verify) idWarpDisconnectedVerify ;;

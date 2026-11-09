@@ -14,6 +14,7 @@ import { createTerminalController } from './terminal-controller.js';
 import { createProtectedRendererSpillLog } from './renderer-spill-log.js';
 import type { ProtectedRendererSpillLog } from './renderer-spill-log.js';
 import { runProcess } from './process-runner.js';
+import { executeSudoCredentialCleanup } from './sudo-credential-cleanup.js';
 import { JournalIntegrityError, LiveOwnerError, createJournalStore } from './journal.js';
 import { resolvePlatformProcessIdentity } from './process-identity.js';
 import { applyOfflineBundle, createOfflineBundle, planOfflineBundle, verifyOfflineBundle } from './offline-bundle.js';
@@ -89,6 +90,14 @@ const ManagedDirectoryOperationSchema = z.strictObject({
     .refine(path => resolve(path) === path && dirname(path) !== path, 'managed directory target must be normalized and non-root'),
   candidateMode: z.literal(0o700),
 });
+const SudoCredentialCleanupOperationSchema = z.strictObject({
+  kind: z.literal('sudo-credential-cleanup'),
+  action: z.enum(['check', 'apply', 'verify']),
+  sudoPath: z.enum(['/usr/bin/sudo', '/bin/sudo']),
+  digestKind: z.enum(['content-sha256', 'stat-identity-sha256']),
+  sudoSha256: z.string().regex(/^[a-f0-9]{64}$/),
+  sudoPreexisting: z.boolean(),
+});
 const ManagedArtifactOperationSchema = z.strictObject({
   kind: z.literal('managed-artifact'),
   action: z.enum(['check', 'apply', 'verify']),
@@ -107,7 +116,8 @@ const ManagedArtifactOperationSchema = z.strictObject({
     context.addIssue({ code: 'custom', message: 'managed artifact candidate and target must be distinct paths' });
   }
 });
-const OperationSchema = z.union([ManagedFileOperationSchema, ManagedDirectoryOperationSchema, ManagedArtifactOperationSchema, ProcessOperationSchema]);
+const OperationSchema = z.union([ManagedFileOperationSchema, ManagedDirectoryOperationSchema, ManagedArtifactOperationSchema,
+  SudoCredentialCleanupOperationSchema, ProcessOperationSchema]);
 const PlanDraftSchema = z.strictObject({
   tasks: z.array(TaskNodeSchema).max(10_000),
   selectedTaskIds: z.array(identifier).max(10_000).refine(values => new Set(values).size === values.length, 'duplicate selected task identifiers'),
@@ -378,6 +388,9 @@ function bindOperationsToPlan(invocation: PlanBindingInvocation): z.infer<typeof
           if (task.compensation !== 'configuration') usageError(`${label} task must declare configuration compensation: ${task.id}`);
           if (operation.action !== phase) usageError(`${label} operation phase mismatch: ${operationId}`);
         }
+        if (operation.kind === 'sudo-credential-cleanup' && operation.action !== phase) {
+          usageError(`sudo credential cleanup operation phase mismatch: ${operationId}`);
+        }
         const approvalOperation = structuredClone(operation);
         if (approvalOperation.kind === 'managed-artifact') {
           if ('facts' in invocation && invocation.facts.os === 'win32') usageError('managed artifact activation is unsupported on win32');
@@ -404,6 +417,19 @@ function bindOperationsToPlan(invocation: PlanBindingInvocation): z.infer<typeof
               || operation.authority.loadPlanDigest !== first.authority.loadPlanDigest
               || operation.authority.descriptorDigest !== first.authority.descriptorDigest)))) {
           usageError(`managed configuration task operations must bind identical target, candidate, and mode: ${task.id}`);
+        }
+      }
+      const sudoCleanupOperations = Object.values(referencedOperations)
+        .filter(operation => operation.kind === 'sudo-credential-cleanup');
+      if (sudoCleanupOperations.length > 0) {
+        if (task.id !== 'system.sudo-credential-cleanup' || task.lifecycle !== 'run-finalizer'
+          || task.compensation !== 'none' || sudoCleanupOperations.length !== 3) {
+          usageError('sudo credential cleanup requires one non-compensating run-finalizer triplet');
+        }
+        const first = sudoCleanupOperations[0]!;
+        if (sudoCleanupOperations.some(operation => operation.sudoPath !== first.sudoPath
+          || operation.digestKind !== first.digestKind || operation.sudoSha256 !== first.sudoSha256 || operation.sudoPreexisting !== first.sudoPreexisting)) {
+          usageError('sudo credential cleanup operations must bind identical executable and preexisting authority');
         }
       }
       const inputDigest = createHash('sha256').update(JSON.stringify(canonical({
@@ -564,6 +590,53 @@ function adapterFor(invocation: OperationInvocation): InstallerAdapter {
     }
     return hash.digest('hex');
   };
+  const runSudoCredentialCommand = async (operation: z.infer<typeof SudoCredentialCleanupOperationSchema>,
+    args: readonly string[], task: TaskNode, context?: TaskExecutionContext): Promise<number> => {
+    if (process.platform === 'win32') throw new Error('sudo credential cleanup is unsupported on win32');
+    if (operation.sudoPath !== '/usr/bin/sudo' && operation.sudoPath !== '/bin/sudo') throw new Error('sudo executable path is not allowed');
+    const parent = dirname(operation.sudoPath);
+    const parentMetadata = await lstat(parent);
+    const canonicalParent = await realpath(parent);
+    const uid = process.geteuid?.();
+    if (uid === undefined || !parentMetadata.isDirectory() || parentMetadata.isSymbolicLink()
+      || resolve(canonicalParent) !== resolve(parent) || (parentMetadata.mode & 0o022) !== 0
+      || parentMetadata.uid !== 0) {
+      throw new Error('sudo executable parent directory is unsafe');
+    }
+    const before = await lstat(operation.sudoPath);
+    let handle: Awaited<ReturnType<typeof open>> | undefined;
+    try {
+      try { handle = await open(operation.sudoPath, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0)); }
+      catch (error) { if ((error as NodeJS.ErrnoException).code !== 'EACCES') throw error; }
+      const metadata = handle ? await handle.stat() : before;
+      if (!before.isFile() || before.isSymbolicLink() || !metadata.isFile() || metadata.nlink !== 1
+        || before.dev !== metadata.dev || before.ino !== metadata.ino || (metadata.mode & 0o111) === 0
+        || (metadata.mode & 0o022) !== 0 || (metadata.mode & 0o4000) === 0 || metadata.uid !== 0) {
+        throw new Error('sudo executable is not one executable single-linked regular file');
+      }
+      if ((handle && operation.digestKind !== 'content-sha256') || (!handle && operation.digestKind !== 'stat-identity-sha256')) {
+        throw new Error('sudo executable digest kind does not match host readability');
+      }
+      const identityDigest = handle ? await digestOpenFile(handle, metadata.size) : createHash('sha256').update(JSON.stringify({
+        dev: metadata.dev, ino: metadata.ino, size: metadata.size, mode: metadata.mode, uid: metadata.uid,
+        mtimeMs: metadata.mtimeMs, ctimeMs: metadata.ctimeMs,
+      })).digest('hex');
+      if (identityDigest !== operation.sudoSha256) {
+        throw new Error('sudo executable digest does not match the approved plan');
+      }
+      const after = await lstat(operation.sudoPath);
+      if (!after.isFile() || after.isSymbolicLink() || after.dev !== metadata.dev || after.ino !== metadata.ino
+        || after.size !== metadata.size || after.mtimeMs !== metadata.mtimeMs || after.ctimeMs !== metadata.ctimeMs) {
+        throw new Error('sudo executable identity changed during verification');
+      }
+      return await runProcess({
+        argv: [operation.sudoPath, ...args],
+        timeoutMs: task.timeoutMs, terminationGraceMs: 1_000, cwd: process.cwd(),
+        env: { PATH: '/usr/bin:/bin', LANG: 'C' },
+        ...(context ? { signal: context.signal, onOutput: context.output } : {}),
+      });
+    } finally { await handle?.close(); }
+  };
   const managedFileMatches = async (operation: z.infer<typeof ManagedFileOperationSchema>, path = operation.targetPath): Promise<boolean> => {
     let before;
     try { before = await lstat(path); }
@@ -700,6 +773,16 @@ function adapterFor(invocation: OperationInvocation): InstallerAdapter {
         persistence,
       });
       return 0;
+    }
+    if (selected.kind === 'sudo-credential-cleanup') {
+      if (selected.action !== expectedAction) throw new Error(`sudo credential cleanup operation phase mismatch: ${id}`);
+      if (task.id !== 'system.sudo-credential-cleanup' || task.lifecycle !== 'run-finalizer' || task.compensation !== 'none') {
+        throw new Error('sudo credential cleanup is restricted to its non-compensating run finalizer');
+      }
+      return executeSudoCredentialCleanup({
+        action: selected.action, sudoPreexisting: selected.sudoPreexisting,
+        runExact: async argv => runSudoCredentialCommand(selected, argv, task, context),
+      });
     }
     if (selected.kind === 'managed-directory') {
       if (selected.action !== expectedAction) throw new Error(`managed directory operation phase mismatch: ${id}`);

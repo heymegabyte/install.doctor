@@ -31,22 +31,6 @@ else
 fi
 : > "$STATE"
 run_operation false stage-zero-sudo-check
-if run_operation false sudo-cleanup-check; then
-  printf 'installer-acquired credential did not require cleanup\n' >&2; exit 1
-else
-  [ "$?" -eq 10 ]
-fi
-run_operation false sudo-cleanup-apply
-[ ! -e "$STATE" ]
-run_operation false sudo-cleanup-verify
-
-# Authority that existed before planning is not owned by this run. Cleanup is
-# inapplicable and must not invalidate it.
-: > "$STATE"
-run_operation true sudo-cleanup-check
-run_operation true sudo-cleanup-apply
-run_operation true sudo-cleanup-verify
-[ -e "$STATE" ]
 
 sudo_function="$(sed -n '/^removePasswordlessSudo() {/,/^}/p' "$PROVISION")"
 ! grep -qE 'dscl|sudoers\.d|rm -f /tmp/install-doctor-passwordless-sudo' <<< "$sudo_function"
@@ -55,6 +39,8 @@ grep -q "id: 'system.sudo-credential-cleanup'" "$PROVISION"
 grep -q "lifecycle: 'run-finalizer'" "$PROVISION"
 grep -q "selectedTaskIds: \[rebootAssessmentTask.id, sudoCleanupTask.id\]" "$PROVISION"
 grep -q "sudoPreexisting: rawPlan.privilegeContext.sudoPreexisting" "$PROVISION"
+grep -q "kind: 'sudo-credential-cleanup'" "$PROVISION"
+! grep -q 'sudo-cleanup-check)' "$PROVISION"
 
 # A dead owner from a different release is reconciled before the next plan can
 # classify its timestamp as preexisting. No credential value is persisted.
@@ -126,48 +112,13 @@ if XDG_STATE_HOME="$TMP/symlink-state" INSTALL_DOCTOR_RELEASE_ID=new-release \
   printf 'symlinked sudo ownership root was accepted\n' >&2; exit 1
 fi
 
-# Exercise the real journal/CLI boundary: the credential is already active
-# when the graph begins, the terminal cleanup node mutates it, verifies the
-# postcondition, and commits both task outcomes.
+# Exercise the real journal/CLI boundary with a fixed executable. The fixture
+# records exact argv and the bounded environment visible to the executable.
 npm --prefix "$ROOT/packages/installer-engine" run bundle >/dev/null
 ENGINE="$ROOT/packages/installer-engine/dist/install-doctor-engine.mjs"
-INVOCATION="$TMP/invocation.json"; PLAN="$TMP/normalized-plan.json"
-PROVISION_SHA="$(shasum -a 256 "$PROVISION" | awk '{print $1}')"
-: > "$STATE"
-node - "$INVOCATION" "$PROVISION" "$PROVISION_SHA" "$TMP" "$STATE" <<'NODE'
-const fs = require('node:fs');
-const crypto = require('node:crypto');
-const [path, provisioner, sha256, temporary, sudoState] = process.argv.slice(2);
-const digest = value => crypto.createHash('sha256').update(value).digest('hex');
-const task = (id, dependencies, operations) => ({ schemaVersion: 1, id, inputDigest: digest(id), dependencies,
-  predicate: 'host-supported', requiredCapabilities: [], operations, timeoutMs: 5_000,
-  retry: { class: 'never', maxAttempts: 1, backoffMs: 0 }, resources: { cpu: 1, memoryMiB: 32, network: false },
-  privilege: 'user', network: 'none', consent: 'none', lockDomains: ['privilege'], cleanup: 'none',
-  compensation: 'none', failurePolicy: 'abort-run' });
-const credential = task('stage-zero.sudo-credential', [], { check: 'stage-zero-sudo-check', apply: 'stage-zero-sudo-apply', verify: 'stage-zero-sudo-verify' });
-const cleanup = task('system.sudo-credential-cleanup', [credential.id], { check: 'sudo-cleanup-check', apply: 'sudo-cleanup-apply', verify: 'sudo-cleanup-verify' });
-cleanup.dependencies = [];
-cleanup.lifecycle = 'run-finalizer';
-const environment = { PATH: `${temporary}:/usr/bin:/bin`, FAKE_SUDO_STATE: sudoState, INSTALL_DOCTOR_SUDO_PREEXISTING: 'false' };
-const operation = name => ({ argv: ['/bin/bash', provisioner, '--engine-operation', name], env: environment,
-  verifiedExecutable: { argvIndex: 1, sha256 } });
-fs.writeFileSync(path, `${JSON.stringify({ schemaVersion: 1, command: 'plan', runId: 'sudo-lifecycle-run', releaseId: 'sudo-lifecycle-release',
-  facts: { schemaVersion: 1, hostId: 'sudo-fixture', collectedAt: '2026-11-06T00:00:00.000Z', os: process.platform === 'darwin' ? 'darwin' : 'linux',
-    osVersion: 'fixture', arch: process.arch, environment: 'native', roles: ['fixture'], packageManagers: [], capabilities: [] },
-  desiredState: { schemaVersion: 1, revision: 'sudo-lifecycle-v1', hostId: 'sudo-fixture', packages: [], services: [], consents: [], offline: true },
-  plan: { tasks: [credential, cleanup], selectedTaskIds: [credential.id, cleanup.id] },
-  operations: Object.fromEntries(['stage-zero-sudo-check','stage-zero-sudo-apply','stage-zero-sudo-verify','sudo-cleanup-check','sudo-cleanup-apply','sudo-cleanup-verify'].map(name => [name, operation(name)])) })}\n`, { mode: 0o600 });
-NODE
-node "$ENGINE" --input "$INVOCATION" > "$PLAN"
-PLAN_DIGEST="$(node -e 'process.stdout.write(JSON.parse(require("node:fs").readFileSync(process.argv[1])).digest)' "$PLAN")"
-node - "$INVOCATION" "$PLAN_DIGEST" "$TMP/state" <<'NODE'
-const fs = require('node:fs'); const [path, digest, stateRoot] = process.argv.slice(2);
-const value = JSON.parse(fs.readFileSync(path)); value.command = 'run'; value.approvedPlanDigest = digest;
-value.renderer = 'ndjson'; value.stateRoot = stateRoot; fs.writeFileSync(path, `${JSON.stringify(value)}\n`, { mode: 0o600 });
-NODE
-node "$ENGINE" --input "$INVOCATION" > "$TMP/events.ndjson"
-[ ! -e "$STATE" ]
-grep -q '"taskId":"system.sudo-credential-cleanup","status":"verified"' "$TMP/events.ndjson"
-grep -q '"kind":"run-status","status":"success"' "$TMP/events.ndjson"
-
+node --test "$ROOT/packages/installer-engine/test/sudo-credential-cleanup.test.mjs"
+# Runtime acceptance uses the actual pinned sudo identity only through the
+# preexisting-authority branch; that branch must not spawn it. Exact lifecycle
+# calls are covered by the injected runner above without weakening root-owned
+# sudo invariants for a user-owned fixture.
 printf 'provision-sudo-lifecycle: pass\n'
