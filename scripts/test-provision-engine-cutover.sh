@@ -66,6 +66,14 @@ if grep -q 'Handing off planning and execution to the enrolled user' "$PROVISION
 else
   fail 'root broker coordination is incomplete or bypasses the enrolled-user invocation'
 fi
+approval_line="$(grep -n "command:'broker-approval-claim'" "$PROVISION" | head -1 | cut -d: -f1)"
+controller_line="$(grep -n 'DESKTOP_TOOLS_BROKER_CONTROLLER_PATH.*BROKER_CONTROLLER_INPUT' "$PROVISION" | head -1 | cut -d: -f1)"
+if [ -n "$approval_line" ] && [ -n "$controller_line" ] && [ "$approval_line" -lt "$controller_line" ] \
+  && grep -q 'signed-device mode has no local fallback' "$PROVISION"; then
+  pass 'signed device approval is obtained before controller start and cannot fall back locally'
+else
+  fail 'signed device approval does not strictly precede the privileged controller'
+fi
 if grep -q "command: 'runs-list'" "$PROVISION" && grep -q "command: 'resume'" "$PROVISION"; then pass 'shell discovers and resumes exact protected interrupted runs'; else fail 'shell always abandons interrupted run identity'; fi
 if grep -q "id: 'system.reboot-assessment'" "$PROVISION" \
   && grep -q "policy: 'explicit-operator-reboot-v1'" "$PROVISION" \

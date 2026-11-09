@@ -3345,7 +3345,7 @@ function ensureInstallUser() {
     # path is exposed to the target user until every copy and digest verifies.
     local CURRENT_PROVISIONER VERIFIED_ENGINE VERIFIED_MANIFEST VERIFIED_SIGNATURE VERIFIED_CATALOG HANDOFF_ROOT USER_PROVISIONER USER_ENGINE USER_MANIFEST USER_SIGNATURE USER_CATALOG ENV_EXPORT USER_RUNTIME
     local PROVISIONER_SHA MANIFEST_SHA SIGNATURE_SHA ENGINE_SHA CATALOG_SHA RUNTIME_SHA ENV_SHA HANDOFF_STATUS
-    local BROKER_COORD_ROOT BROKER_USER_ROOT BROKER_ROOT_ROOT BROKER_REQUEST BROKER_RESPONSE BROKER_DERIVE_INPUT BROKER_DERIVED BROKER_CONTROLLER_INPUT BROKER_READY BROKER_ERROR BROKER_PAYLOAD
+    local BROKER_COORD_ROOT BROKER_USER_ROOT BROKER_ROOT_ROOT BROKER_REQUEST BROKER_RESPONSE BROKER_DERIVE_INPUT BROKER_DERIVED BROKER_APPROVAL_INPUT BROKER_APPROVAL_OUTPUT BROKER_CONTROLLER_INPUT BROKER_READY BROKER_ERROR BROKER_PAYLOAD
     local BROKER_CHILD_PID='' BROKER_CONTROLLER_PID='' BROKER_SOCKET_DIR='' BROKER_WAIT=0 INSTALL_UID INSTALL_GID
     CURRENT_PROVISIONER="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "${BASH_SOURCE[0]}")"
     VERIFIED_ENGINE="${INSTALL_DOCTOR_ENGINE_PATH:-}"
@@ -3415,6 +3415,7 @@ function ensureInstallUser() {
       chown "$INSTALL_UID:$INSTALL_GID" "$BROKER_USER_ROOT" || return 1
       BROKER_REQUEST="$BROKER_USER_ROOT/request.json"; BROKER_RESPONSE="$BROKER_ROOT_ROOT/response.json"
       BROKER_DERIVE_INPUT="$BROKER_ROOT_ROOT/derive.json"; BROKER_DERIVED="$BROKER_ROOT_ROOT/derived.json"
+      BROKER_APPROVAL_INPUT="$BROKER_ROOT_ROOT/approval-request.json"; BROKER_APPROVAL_OUTPUT="$BROKER_ROOT_ROOT/approval.json"
       BROKER_CONTROLLER_INPUT="$BROKER_ROOT_ROOT/controller.json"; BROKER_READY="$BROKER_ROOT_ROOT/ready.ndjson"
       BROKER_ERROR="$BROKER_ROOT_ROOT/controller.err"; BROKER_PAYLOAD="$BROKER_ROOT_ROOT/tree.deb"
       DESKTOP_TOOLS_BROKER_COORDINATION_USER_REQUEST="$BROKER_REQUEST"
@@ -3522,12 +3523,35 @@ NODE
           kill -TERM "$BROKER_CHILD_PID" 2>/dev/null || true; wait "$BROKER_CHILD_PID" 2>/dev/null || true; return 2
         fi
         chmod 0400 "$BROKER_DERIVED"
+        if [ "$(node -e 'const value=JSON.parse(require("node:fs").readFileSync(process.argv[1],"utf8"));process.stdout.write(value.controllerInput.approvalMode)' "$BROKER_DERIVED")" = signed-device ]; then
+          node - "$BROKER_DERIVED" "$BROKER_APPROVAL_INPUT" "$USER_HOME_DIR/.config/desktop-tools/device-token" \
+            "${DESKTOP_TOOLS_PROFILE_ID:-}" "${DESKTOP_TOOLS_PROFILE_DIGEST:-}" <<'NODE'
+const fs=require('node:fs');const crypto=require('node:crypto');
+const [derivedPath,outputPath,tokenPath,profileId,profileRevisionDigest]=process.argv.slice(2);
+if(!/^[a-z0-9][a-z0-9._-]{0,127}$/.test(profileId)||!/^[a-f0-9]{64}$/.test(profileRevisionDigest)||!tokenPath.startsWith('/'))throw new Error('signed profile or enrollment token path is unavailable');
+const derived=JSON.parse(fs.readFileSync(derivedPath,'utf8'));const suffix=()=>crypto.randomBytes(16).toString('hex');
+const value={schemaVersion:1,command:'broker-approval-claim',origin:'https://desktop.tools',tokenPath,grant:derived.grant,
+  bootstrapBinding:{profileId,profileRevisionDigest,runIntentId:`intent-${suffix()}`,authorizationId:`authorization-${suffix()}`}};
+fs.writeFileSync(outputPath,`${JSON.stringify(value)}\n`,{mode:0o400,flag:'wx'});
+NODE
+          if [ "$?" -ne 0 ] || ! su -s /bin/sh "$INSTALL_USER" -c \
+            "exec env -i HOME='$USER_HOME_DIR' PATH='$(dirname "$DESKTOP_TOOLS_BROKER_RUNTIME_PATH"):/usr/bin:/bin' '$DESKTOP_TOOLS_BROKER_RUNTIME_PATH' '$VERIFIED_ENGINE' --input /dev/stdin" \
+            < "$BROKER_APPROVAL_INPUT" > "$BROKER_APPROVAL_OUTPUT"; then
+            kill -TERM "$BROKER_CHILD_PID" 2>/dev/null || true; wait "$BROKER_CHILD_PID" 2>/dev/null || true
+            logg error 'Bound device approval was not obtained; signed-device mode has no local fallback'
+            return 2
+          fi
+          chmod 0400 "$BROKER_APPROVAL_OUTPUT"
+        fi
         BROKER_SOCKET_DIR="$(node -e 'const d=JSON.parse(require("node:fs").readFileSync(process.argv[1],"utf8"));const p=require("node:path").dirname(d.controllerInput.socketPath);if(!/^\/run\/desktop-tools\/broker\/[a-z0-9][a-z0-9._-]{0,127}$/.test(p))process.exit(2);process.stdout.write(p)' "$BROKER_DERIVED")" \
           || { kill -TERM "$BROKER_CHILD_PID" 2>/dev/null || true; wait "$BROKER_CHILD_PID" 2>/dev/null || true; return 2; }
-        node - "$BROKER_DERIVED" "$BROKER_CONTROLLER_INPUT" "$BROKER_PAYLOAD" "$INSTALL_UID" "$INSTALL_GID" <<'NODE'
-const fs=require('node:fs');const path=require('node:path');const crypto=require('node:crypto');const [derivedPath,controllerPath,payloadPath,uidText,gidText]=process.argv.slice(2);const uid=Number(uidText),gid=Number(gidText);const derived=JSON.parse(fs.readFileSync(derivedPath,'utf8'));const socketParent=path.dirname(derived.controllerInput.socketPath);
+        node - "$BROKER_DERIVED" "$BROKER_CONTROLLER_INPUT" "$BROKER_PAYLOAD" "$INSTALL_UID" "$INSTALL_GID" \
+          "${BROKER_APPROVAL_OUTPUT:-}" "${DESKTOP_TOOLS_BROKER_DELEGATION_PATH:-}" \
+          "${DESKTOP_TOOLS_BROKER_DELEGATION_SHA256:-}" "${DESKTOP_TOOLS_BROKER_APPROVAL_MINIMUM_REVOCATION_EPOCH:-}" <<'NODE'
+const fs=require('node:fs');const path=require('node:path');const crypto=require('node:crypto');const [derivedPath,controllerPath,payloadPath,uidText,gidText,approvalPath,delegationPath,delegationDigest,minimumEpochText]=process.argv.slice(2);const uid=Number(uidText),gid=Number(gidText);const derived=JSON.parse(fs.readFileSync(derivedPath,'utf8'));const socketParent=path.dirname(derived.controllerInput.socketPath);
 for(const [directory,mode,ownerGid] of [['/run/desktop-tools',0o711,0],['/run/desktop-tools/broker',0o711,0],[socketParent,0o710,gid]]){try{fs.mkdirSync(directory,{mode});}catch(e){if(e.code!=='EEXIST')throw e;}const m=fs.lstatSync(directory);if(!m.isDirectory()||m.isSymbolicLink()||m.uid!==0||m.gid!==ownerGid||(m.mode&0o777)!==mode)throw new Error('broker socket directory is unsafe');}
-fs.writeFileSync(controllerPath,`${JSON.stringify(derived.controllerInput)}\n`,{mode:0o400,flag:'wx'});
+let controllerInput=derived.controllerInput;if(controllerInput.approvalMode==='signed-device'){const before=fs.lstatSync(approvalPath,{bigint:true});if(!before.isFile()||before.isSymbolicLink()||before.nlink!==1n||before.uid!==0n||(before.mode&0o777n)!==0o400n||before.size<2n||before.size>65536n)throw new Error('broker approval output is unsafe');const deviceApproval=JSON.parse(fs.readFileSync(approvalPath,'utf8'));const minimumEpoch=Number(minimumEpochText);if(!delegationPath.startsWith('/run/desktop-tools/authority/')||!/^[a-f0-9]{64}$/.test(delegationDigest)||!Number.isSafeInteger(minimumEpoch)||minimumEpoch<0)throw new Error('sealed broker delegation authority is incomplete');controllerInput={...controllerInput,deviceApproval,brokerApprovalDelegationPath:delegationPath,brokerApprovalDelegationDigest:delegationDigest,brokerApprovalMinimumRevocationEpoch:minimumEpoch};}
+fs.writeFileSync(controllerPath,`${JSON.stringify(controllerInput)}\n`,{mode:0o400,flag:'wx'});
 const source=derived.authority.artifacts.find(item=>item.artifactId===derived.authority.descriptor.artifact.id);const bytes=fs.readFileSync(source.sourcePath);if(bytes.length!==source.sizeBytes||crypto.createHash('sha256').update(bytes).digest('hex')!==source.sha256)throw new Error('broker payload source differs from authority');const fd=fs.openSync(payloadPath,fs.constants.O_CREAT|fs.constants.O_EXCL|fs.constants.O_WRONLY,0o600);try{fs.writeFileSync(fd,bytes);fs.fsyncSync(fd);fs.fchownSync(fd,uid,gid);}finally{fs.closeSync(fd);}
 NODE
         if [ "$?" -ne 0 ]; then kill -TERM "$BROKER_CHILD_PID" 2>/dev/null || true; wait "$BROKER_CHILD_PID" 2>/dev/null || true; return 2; fi
