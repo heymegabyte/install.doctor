@@ -120,20 +120,93 @@ EOF
     systemctl daemon-reload
   fi
 
-  # #123: Throttle vzdump I/O (120 MB/s, ionice 7) for Exos HDD thermals, preserve vzdump-hc-hook.sh, and disable VFIO idle D3cold
+  # #123: Throttle vzdump I/O (120 MB/s, ionice 7) for Exos HDD thermals, guard stopped VFIO VMs in D3cold, and disable VFIO idle D3cold
   if [ "$MODE" = "--apply" ]; then
     cat > /etc/modprobe.d/vfio-d3cold.conf <<'EOF'
 options vfio_pci disable_idle_d3=1
 EOF
+    if [ ! -e /usr/local/bin/vzdump-hc-hook.sh ] || ! grep -q 'vzdump-d3cold-stash' /usr/local/bin/vzdump-hc-hook.sh 2>/dev/null; then
+      HOOK_TARGET="/usr/local/bin/vzdump-hc-hook.sh"
+      if [ -L /usr/local/bin/vzdump-hc-hook.sh ]; then
+        HOOK_TARGET="$(readlink -f /usr/local/bin/vzdump-hc-hook.sh)"
+      fi
+      cat > "$HOOK_TARGET" <<'EOF'
+#!/usr/bin/env bash
+# vzdump hook:
+# 1) Stashes D3cold-wedged hostpci lines on stopped QEMU VMs during job-init and restores them
+#    in job-end/job-abort so QEMU backup helper never aborts on VFIO PCI interrupt pin 255.
+# 2) Reports start/success/fail to Healthchecks (pve-vzdump) with curl retry resilience.
+
+stash_d3cold_stopped_vms() {
+  local cfg vmid tmp changed in_snap line bdf full_bdf ps
+  for cfg in /etc/pve/qemu-server/*.conf; do
+    [ -f "$cfg" ] || continue
+    vmid="$(basename "$cfg" .conf)"
+    qm status "$vmid" 2>/dev/null | grep -q "status: stopped" || continue
+    grep -q "^hostpci" "$cfg" 2>/dev/null || continue
+    tmp="$(mktemp)"
+    changed=0
+    in_snap=0
+    while IFS= read -r line || [ -n "$line" ]; do
+      case "$line" in
+        \[*) in_snap=1 ;;
+      esac
+      if [ "$in_snap" -eq 0 ] && [[ "$line" =~ ^hostpci[0-9]+:[[:space:]]*([0-9a-fA-F:.]+) ]]; then
+        bdf="${BASH_REMATCH[1]}"
+        case "$bdf" in
+          *:*:*) full_bdf="$bdf" ;;
+          *)     full_bdf="0000:$bdf" ;;
+        esac
+        ps="/sys/bus/pci/devices/${full_bdf}/power_state"
+        if [ -f "$ps" ] && [ "$(cat "$ps" 2>/dev/null)" = "D3cold" ]; then
+          printf '#vzdump-d3cold-stash#%s\n' "$line" >> "$tmp"
+          changed=1
+          continue
+        fi
+      fi
+      printf '%s\n' "$line" >> "$tmp"
+    done < "$cfg"
+    if [ "$changed" -eq 1 ]; then
+      cat "$tmp" > "$cfg"
+    fi
+    rm -f "$tmp"
+  done
+}
+
+restore_d3cold_stopped_vms() {
+  local cfg
+  for cfg in /etc/pve/qemu-server/*.conf; do
+    [ -f "$cfg" ] || continue
+    if grep -q "^#vzdump-d3cold-stash#hostpci" "$cfg" 2>/dev/null; then
+      sed -i "s/^#vzdump-d3cold-stash#//" "$cfg"
+    fi
+  done
+}
+
+case "${1:-}" in
+  job-init)          stash_d3cold_stopped_vms ;;
+  job-end|job-abort) restore_d3cold_stopped_vms ;;
+esac
+
+. /etc/pve-backup-coverage.env 2>/dev/null || exit 0
+[ -n "${HC_URL:-}" ] && [ -n "${HC_KEY:-}" ] || exit 0
+P="$HC_URL/ping/$HC_KEY/pve-vzdump"
+case "${1:-}" in
+  job-start) curl -fsS -m 15 --retry 3 --retry-delay 3 --retry-all-errors "$P/start?create=1" >/dev/null 2>&1 || true ;;
+  job-end)   curl -fsS -m 15 --retry 3 --retry-delay 3 --retry-all-errors "$P?create=1"       >/dev/null 2>&1 || true ;;
+  job-abort) curl -fsS -m 15 --retry 3 --retry-delay 3 --retry-all-errors "$P/fail?create=1"  >/dev/null 2>&1 || true ;;
+esac
+exit 0
+EOF
+      chmod 0755 "$HOOK_TARGET"
+    fi
     cat > /etc/vzdump.conf <<'EOF'
 bwlimit: 120000
 ionice: 7
 pigz: 1
 zstd: 1
+script: /usr/local/bin/vzdump-hc-hook.sh
 EOF
-    if [ -x /usr/local/bin/vzdump-hc-hook.sh ]; then
-      printf 'script: /usr/local/bin/vzdump-hc-hook.sh\n' >> /etc/vzdump.conf
-    fi
   fi
 
   # #124: Harden Healthchecks heartbeat script with curl retries so transient tunnel flaps never fire false DOWN emails
