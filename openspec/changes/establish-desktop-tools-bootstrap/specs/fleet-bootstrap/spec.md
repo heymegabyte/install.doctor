@@ -94,11 +94,27 @@ Native Debian package cutovers SHALL derive mutation authority from exact signed
 
 #### Scenario: Privileged native-package dispatch
 - **WHEN** the enrolled-user engine dispatches an approved native-package check, apply, or verify operation that requires root
-- **THEN** a release-pinned root-owned broker requires a previously validated root-protected grant for the exact approved plan, independently validates the host, release, consent, grant, plan, task, operation, phase, descriptor, closure, nonce, and enrolled-UID peer identity, accepts package bytes only through an exactly verified sealed anonymous file descriptor, and exposes no general shell, path, argv, environment, or package-selection authority
+- **THEN** a release-pinned root-owned broker requires a previously validated root-protected grant for the exact approved plan, independently validates the host, release, consent, grant, plan, task, operation, phase, descriptor, closure, nonce, enrolled-UID peer identity, and either explicit trusted-local evidence or signed-device evidence under a currently valid release-root delegation, accepts package bytes only through an exactly verified sealed anonymous file descriptor, and exposes no general shell, path, argv, environment, or package-selection authority
 
 #### Scenario: Endpoint possession is not approval
 - **WHEN** the enrolled user or another process with access to the bounded broker endpoint submits an ungranted plan or attempts to broaden a granted plan
 - **THEN** the broker rejects it because only explicit local or device approval may create the root-protected exact-plan execution grant
+
+#### Scenario: Caller-controlled approval trust is attempted
+- **WHEN** a caller supplies or substitutes an approval public key, key identifier, minimum revocation epoch, trust path, profile value, stdin field, or environment value
+- **THEN** root rejects it because signer trust is derived only from a root-owned immutable delegation artifact whose digest and release-root signature are bound into the verified release handoff
+
+#### Scenario: Approval delegation rotates or is revoked
+- **WHEN** signed-device evidence uses a signer outside the currently verified release delegation set, outside its validity, below the release-bound revocation epoch, or after the approval, grant, delegation, or release expiry
+- **THEN** root rejects grant publication before starting the broker, while historical delegation material remains verification-only for retained evidence
+
+#### Scenario: Signed approval survives brief disconnection
+- **WHEN** the target loses connectivity after receiving valid evidence for an exact already-approved grant
+- **THEN** root may use it only until the earliest bound approval, grant, delegation, or release expiry and cannot renew, broaden, or silently replace it
+
+#### Scenario: Fully offline approval
+- **WHEN** an offline bundle has no live approval service
+- **THEN** it contains no approval signing secret or reusable signed grant and execution requires a separately selected trusted-local approval with distinct durable evidence
 
 #### Scenario: Privileged execution is network denied
 - **WHEN** the broker performs dpkg, policy, service-quiescence, fence, or recovery work

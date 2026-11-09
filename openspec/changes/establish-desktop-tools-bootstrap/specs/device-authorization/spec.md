@@ -52,3 +52,22 @@ Public authorization endpoints SHALL enforce bounded bodies, expiry, polling int
 #### Scenario: Excess polling
 - **WHEN** a target polls faster than allowed
 - **THEN** it receives bounded retry guidance without extending authorization lifetime
+
+### Requirement: Release-delegated privileged approval
+An authenticated owner decision MAY authorize one exact privileged-broker grant through a dedicated online Ed25519 approval signer, but the signing service SHALL reconstruct the grant from durable owner-decision and run state, the signer SHALL be distinct from release and device-credential signers, and root SHALL trust it only through a bounded release-root-signed delegation delivered in the immutable verified release closure.
+
+#### Scenario: Exact privileged grant is approved
+- **WHEN** an authorized recently reauthenticated owner approves a run whose tenant, profile revision, device identity, requested operations, plan, consent, release, and expiry match durable server state
+- **THEN** the signing boundary emits evidence bound to those values, the owner-decision and authorization audit identifiers, and the exact delegated signer identity without exposing the private key
+
+#### Scenario: Caller supplies or broadens authority
+- **WHEN** a target submits an arbitrary grant, changes a profile, device, run, operation, consent, expiry, signer key, delegation, or audit binding, or asks root to trust a caller-provided key, epoch, path, profile value, stdin field, or environment value
+- **THEN** the signing service or root coordinator rejects the request before grant publication or mutation
+
+#### Scenario: Approval signer rotates or is revoked
+- **WHEN** a release introduces an overlapping replacement delegation or raises the minimum revocation epoch
+- **THEN** fresh approvals accept only currently delegated nonrevoked keys within their validity and lifetime limits, while retained old delegation material may verify historical evidence but cannot authorize fresh work
+
+#### Scenario: Hosted approval is unavailable
+- **WHEN** the signing service or network is unavailable
+- **THEN** no signed-device approval is minted or renewed and the run does not silently downgrade; a fully offline operator must separately select the evidenced trusted-local approval path
