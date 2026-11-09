@@ -6,6 +6,8 @@ WORKFLOW="$ROOT/.github/workflows/control-plane-production.yml"
 POLICY="$ROOT/config/infisical/bootstrap-release-identities.json"
 WRANGLER="$ROOT/packages/control-plane/wrangler.toml"
 DESKTOP_ROUTING="$ROOT/config/cloudflare/desktop-tools-routing.json"
+BETTER_AUTH_MIGRATION="$ROOT/packages/control-plane/migrations/0018_better_auth_schema.sql"
+CONTROL_PLANE_SOURCE="$ROOT/packages/control-plane/src/index.ts"
 fail() { printf 'FAIL %s\n' "$*" >&2; exit 1; }
 pass() { printf 'PASS %s\n' "$*"; }
 
@@ -40,6 +42,11 @@ grep -Fq 'include-imports: false' "$WORKFLOW" && grep -Fq 'recursive: false' "$W
 grep -Fq 'd1 time-travel info aid-control-plane --remote --json' "$WORKFLOW" || fail "pre-migration recovery bookmark missing"
 grep -Fq 'd1 migrations apply aid-control-plane --remote' "$WORKFLOW" || fail "reviewed migration apply missing"
 grep -Fq "grep -Fq 'No migrations to apply'" "$WORKFLOW" || fail "post-migration empty-plan proof missing"
+test -f "$BETTER_AUTH_MIGRATION" || fail "reviewed Better Auth migration missing"
+grep -Fq 'CREATE UNIQUE INDEX IF NOT EXISTS "rateLimit_key_unique"' "$BETTER_AUTH_MIGRATION" \
+  || fail "Better Auth rate-limit key uniqueness is not migration-owned"
+! grep -Fq 'runMigrations()' "$CONTROL_PLANE_SOURCE" \
+  || fail "runtime Better Auth schema mutation authority remains enabled"
 grep -Fq './node_modules/.bin/wrangler deploy --strict --keep-vars' "$WORKFLOW" || fail "lockfile Wrangler strict deploy missing"
 grep -Fq 'deployments-before.json' "$WORKFLOW" && grep -Fq 'previousVersionId' "$WORKFLOW" || fail "rollback receipt missing"
 grep -Fq '"hosts":["app.install.doctor"]' "$WORKFLOW" && grep -Fq 'jq -r .success' "$WORKFLOW" || fail "scoped purge proof missing"

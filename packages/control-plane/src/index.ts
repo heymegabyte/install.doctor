@@ -2983,22 +2983,27 @@ app.on(['GET', 'POST'], '/api/auth/*', (c) => {
   return auth.handler(c.req.raw);
 });
 
-// Admin-guarded D1 schema migration for Better Auth (the CLI can't reach D1 — run programmatically).
-// Creates the user/session/account/verification tables; idempotent (reports "no migrations needed" after).
+// Admin-guarded Better Auth drift inspection. Reviewed D1 files are the sole schema-mutation authority.
 app.post('/api/auth-migrate', async (c) => {
   const denied = await requireAdmin(c);
   if (denied) return denied;
   try {
-    const { toBeCreated, toBeAdded, runMigrations } = await getMigrations(auth.options);
-    if (toBeCreated.length === 0 && toBeAdded.length === 0) {
-      return c.json({ message: 'no migrations needed', created: [], added: [] });
+    const plan = await getMigrations(auth.options, { throwOnUnsafe: false });
+    const drift = plan.toBeCreated.length > 0 || plan.toBeAdded.length > 0
+      || plan.toBeAddedIndexes.length > 0 || plan.unsafeChanges.length > 0
+      || plan.schemaProblems.length > 0;
+    if (!drift) {
+      return c.json({ message: 'no migrations needed', created: [], added: [], indexes: [] });
     }
-    await runMigrations();
     return c.json({
-      message: 'migrations completed',
-      created: toBeCreated.map((t: any) => t.table),
-      added: toBeAdded.map((t: any) => t.table),
-    });
+      error: 'schema_drift',
+      detail: 'apply the reviewed D1 migration chain; runtime repair is disabled',
+      created: plan.toBeCreated.map((t: any) => t.table),
+      added: plan.toBeAdded.map((t: any) => t.table),
+      indexes: plan.toBeAddedIndexes.map((t: any) => t.table),
+      unsafeChangeCount: plan.unsafeChanges.length,
+      schemaProblemCount: plan.schemaProblems.length,
+    }, 409);
   } catch (e) {
     return c.json({ error: 'migration_failed', detail: e instanceof Error ? e.message : String(e) }, 500);
   }

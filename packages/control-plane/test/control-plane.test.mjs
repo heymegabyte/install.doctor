@@ -28,7 +28,10 @@ async function loadWorkerApp() {
         CREATE TABLE IF NOT EXISTS "session" ("id" text not null primary key, "expiresAt" date not null, "token" text not null unique, "createdAt" date not null, "updatedAt" date not null, "ipAddress" text, "userAgent" text, "userId" text not null references "user" ("id") on delete cascade);
         CREATE TABLE IF NOT EXISTS "account" ("id" text not null primary key, "accountId" text not null, "providerId" text not null, "userId" text not null references "user" ("id") on delete cascade, "accessToken" text, "refreshToken" text, "idToken" text, "accessTokenExpiresAt" date, "refreshTokenExpiresAt" date, "scope" text, "password" text, "createdAt" date not null, "updatedAt" date not null);
         CREATE TABLE IF NOT EXISTS "verification" ("id" text not null primary key, "identifier" text not null, "value" text not null, "expiresAt" date not null, "createdAt" date not null, "updatedAt" date not null);
-        CREATE TABLE IF NOT EXISTS "rateLimit" ("id" text not null primary key, "key" text not null, "count" integer not null, "lastRequest" integer not null);
+        CREATE TABLE IF NOT EXISTS "rateLimit" ("id" text not null primary key, "key" text not null unique, "count" integer not null, "lastRequest" bigint not null);
+        CREATE INDEX IF NOT EXISTS "session_userId_idx" ON "session" ("userId");
+        CREATE INDEX IF NOT EXISTS "account_userId_idx" ON "account" ("userId");
+        CREATE INDEX IF NOT EXISTS "verification_identifier_idx" ON "verification" ("identifier");
         CREATE TABLE IF NOT EXISTS pairings (
           code text primary key, poll_sha256 text not null unique, tenant text not null, label text,
           permissions text, status text not null, device_id text, created_at text not null,
@@ -1970,7 +1973,7 @@ test('Rendered /start gates the kernel and architecture before any release downl
   }
 });
 
-test('Control Plane Phase 1: Better Auth D1 migrations and session handling under cloudflare:workers mock', async () => {
+test('Control Plane Phase 1: Better Auth D1 drift inspection and session handling under cloudflare:workers mock', async () => {
   const app = await loadWorkerApp();
 
   // 1. Unauthenticated POST /api/auth-migrate must fail closed (401)
@@ -1980,7 +1983,7 @@ test('Control Plane Phase 1: Better Auth D1 migrations and session handling unde
   );
   assert.equal(unauthMig.status, 401);
 
-  // 2. Admin-authenticated POST /api/auth-migrate runs Better Auth schema inspection / migration against mock D1
+  // 2. Admin-authenticated POST /api/auth-migrate inspects the reviewed schema without mutating it.
   const authMig = await app.fetch(
     new Request('https://app.install.doctor/api/auth-migrate', {
       method: 'POST',
@@ -1990,8 +1993,10 @@ test('Control Plane Phase 1: Better Auth D1 migrations and session handling unde
   );
   assert.equal(authMig.status, 200);
   const migBody = await authMig.json();
-  assert.ok(migBody.message === 'no migrations needed' || migBody.message === 'migrations applied');
-  assert.ok(Array.isArray(migBody.created));
+  assert.equal(migBody.message, 'no migrations needed');
+  assert.deepEqual(migBody.created, []);
+  assert.deepEqual(migBody.added, []);
+  assert.deepEqual(migBody.indexes, []);
 
   // 3. GET /api/auth/get-session returns clean null session when unauthenticated (with Cache-Control: no-store)
   const sessRes = await app.fetch(
