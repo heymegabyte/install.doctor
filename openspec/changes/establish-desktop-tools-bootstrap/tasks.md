@@ -29,7 +29,7 @@
 - [x] 4.2 Implement target-generated key material, protected polling state, human code, approval URI, bounded poll interval, cancellation, and restart-safe resume; verify secrets never appear in arguments, terminal output, Markdown, or telemetry.
 - [x] 4.3 Implement authenticated owner approval displaying the matching code, machine fingerprint, profile revision, scopes, actor, and expiry; verify approve, deny, stale revision, wrong actor, and reauthentication paths.
 - [x] 4.4 Implement one-time atomic credential claim with minimum device scopes, finite lifetime, independent revocation, and normalized privacy-preserving errors; verify replay, collision, cross-device, cross-profile, cross-tenant, expired, denied, and over-polling attempts fail.
-- [ ] 4.5 Complete the Cloudflare-first OIDC callback/session path for ordinary approval and keep token entry only as labelled audited break-glass access; verify a real owner session completes enrollment without a pasted admin token.
+- [x] 4.5 Complete the Cloudflare-first OIDC callback/session path for ordinary approval and keep token entry only as labelled audited break-glass access; verify a real owner session completes enrollment without a pasted admin token.
 - [x] 4.6 Document headless enrollment, phishing-resistant code comparison, denial, timeout, revocation, and recovery; verify the instructions work from a machine with no browser or graphical session.
 - [x] 4.7 Implement the dedicated online Ed25519 broker-approval signing boundary backed by durable authenticated owner-decision, run-intent, immutable profile revision, device identity, and exact-plan state; make the server reconstruct rather than trust the submitted grant; verify signer isolation, minimum scope, exact binding, denial, expiry, replay, cross-tenant/profile/device/run substitution, rotation overlap, emergency revocation, and audit correlation without exporting the private key.
 
@@ -64,7 +64,7 @@
 
 ## 8. Canary promotion and integration evidence
 
-- [ ] 8.1 Run focused strict TypeScript, schema, auth, profile, release, engine, terminal, secret, and documentation suites for each preceding group and resolve introduced regressions without weakening gates.
+- [x] 8.1 Run focused strict TypeScript, schema, auth, profile, release, engine, terminal, secret, and documentation suites for each preceding group and resolve introduced regressions without weakening gates.
 - [ ] 8.2 Complete one disposable headless platform lifecycle from profile URL through approval, OpenCode launch, plan, apply, verify, unchanged rerun, interruption/resume, rollback, and deprovision preview; publish a redacted signed receipt bound to the release and platform cell.
 - [ ] 8.3 Verify denial, expiry, replay, profile-race, provider outage, hosted-service outage, recording failure, telemetry timeout, and rollback scenarios on the canary without mutating unrelated hosts.
 - [ ] 8.4 Run the full repository suite, generated-artifact drift checks, secret scans, action validation, strict OpenSpec validation, and independent promotion verification; record failures and external blockers without converting them to success.
