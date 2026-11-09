@@ -50,10 +50,10 @@ jobs:
       - name: Verify provisioner-to-broker cutover
         run: |
           set -euo pipefail
-          bash -n scripts/provision.sh
-          bash scripts/test-provision-engine-cutover.sh
           npm --prefix packages/aid-core ci --ignore-scripts --no-audit --no-fund
           npm --prefix packages/installer-engine ci --ignore-scripts --no-audit --no-fund
+          bash -n scripts/provision.sh
+          bash scripts/test-provision-engine-cutover.sh
           npm --prefix packages/installer-engine run build
           node --test packages/installer-engine/test/privileged-broker-*.test.mjs
       - name: Test strict protocol and Linux transport
