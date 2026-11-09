@@ -405,7 +405,7 @@ test('CLI rejects insecure bundle schema v1 instead of falling back', async t =>
   assert.deepEqual(await readdir(state.bundles), []);
 });
 
-test('CLI offline execution contract rejects clock overrides and network access before authority checks', async t => {
+test('CLI offline execution contract rejects clocks, network, and cloud recovery authority before trust checks', async t => {
   const state = await fixture(t);
   const created = await createOfflineBundle(state.base);
   const cli = new URL('../dist/cli.js', import.meta.url).pathname;
@@ -423,6 +423,8 @@ test('CLI offline execution contract rejects clock overrides and network access 
   for (const invalid of [
     { ...base, now: '2026-11-06T04:30:00.000Z' },
     { ...base, networkPolicy: 'allow' },
+    { ...base, provider: 'openai' },
+    { ...base, recovery: { kind: 'model', endpoint: 'https://api.openai.com' } },
   ]) {
     await writeFile(invocationPath, `${JSON.stringify(invalid)}\n`, { mode: 0o600 });
     await assert.rejects(

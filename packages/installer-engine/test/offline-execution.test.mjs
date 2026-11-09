@@ -1167,7 +1167,14 @@ test('journal-required orchestration attests live Linux facts before sandbox mut
   assert.equal((await journal.inspectCompletion('offline-authority-run', state.plan.digest)).authority, 'committed');
 });
 
-test('offline interruption resumes the same journal and rechecks before replaying mutation', async t => {
+test('provider outage cannot fabricate recovery: offline interruption resumes only from durable journal evidence', async t => {
+  let providerAttempts = 0;
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => {
+    providerAttempts += 1;
+    throw new Error('all inference and cloud providers are unavailable');
+  };
+  t.after(() => { globalThis.fetch = originalFetch; });
   const state = await fixture(t);
   const created = await state.makeBundle();
   const expected = {
@@ -1224,6 +1231,7 @@ test('offline interruption resumes the same journal and rechecks before replayin
   controller.abort(new Error('fixture interruption'));
   const cancelled = await interrupted;
   assert.equal(cancelled.receipt.status, 'cancelled');
+  assert.equal(providerAttempts, 0, 'offline cancellation does not ask a provider to classify or repair failure');
   assert.equal((await journal.inspectCompletion('offline-resume-run', state.plan.digest)).authority, 'uncommitted');
 
   const resumed = await executeOfflineBundle({
@@ -1232,6 +1240,7 @@ test('offline interruption resumes the same journal and rechecks before replayin
     now: () => at, resume: true,
   });
   assert.equal(resumed.receipt.status, 'success');
+  assert.equal(providerAttempts, 0, 'offline recovery uses signed plan and journal evidence without cloud inference');
   assert.equal(applies, 2, 'resume skips the already-applied prepare task and applies only its pending dependent');
   assert.equal((await journal.inspectCompletion('offline-resume-run', state.plan.digest)).authority, 'committed');
   await assert.rejects(executeOfflineBundle({
