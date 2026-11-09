@@ -194,6 +194,63 @@ test('telemetry transport failure is fail-open and missing desired-state consent
   assert.equal(exportResults[2].status, 'failed');
 });
 
+test('provider outage, telemetry timeout, and telemetry observer failure preserve the authoritative terminal receipt', async t => {
+  const originalFetch = globalThis.fetch;
+  let providerAttempts = 0;
+  globalThis.fetch = async () => {
+    providerAttempts += 1;
+    throw new Error('all hosted providers are unavailable');
+  };
+  t.after(() => { globalThis.fetch = originalFetch; });
+
+  const exportResults = [];
+  let observerAttempts = 0;
+  const engine = createInstallerEngine({
+    adapter: {
+      discover: async () => facts,
+      plan: async () => planDraft,
+      check: async () => 'needed',
+      apply: async () => {},
+      verify: async () => 'verified',
+    },
+    telemetry: {
+      config: {
+        schemaVersion: 1, consent: true, endpoint: 'https://logs.example.test/installer', timeoutMs: 100,
+        labels: { platform: 'darwin', environment: 'native', service: 'install-doctor' },
+      },
+      // Model a collector that never acknowledges the batch. The production
+      // exporter owns the deadline and must classify this as timed-out.
+      transport: async ({ signal }) => new Promise((_resolve, reject) => {
+        signal.addEventListener('abort', () => reject(signal.reason), { once: true });
+      }),
+      // A telemetry observer sink is advisory. Its failure cannot rewrite the
+      // already-created local terminal authority into success or failure.
+      onResult: result => {
+        observerAttempts += 1;
+        exportResults.push(result);
+        throw new Error('recording observer unavailable');
+      },
+    },
+  });
+
+  const result = await runApproved(engine, {
+    runId: 'run-outage-receipt-slice', releaseId: 'release-1',
+    desiredState: { ...desired, consents: ['network', 'telemetry'] },
+  });
+
+  TerminalReceiptSchema.parse(result.receipt);
+  assert.equal(result.receipt.status, 'success');
+  assert.equal(result.receipt.planDigest, result.plan.digest);
+  assert.equal(result.exitCode, 0);
+  assert.equal(providerAttempts, 0, 'deterministic execution must not consult an inference provider');
+  assert.equal(observerAttempts, 1);
+  assert.deepEqual(exportResults, [{
+    status: 'timed-out', exportedEvents: 0,
+    droppedOutputEvents: 0, droppedCapacityEvents: 0,
+  }]);
+  assert.ok(result.events.some(event => event.kind === 'run-status' && event.status === 'success'));
+});
+
 test('online output evidence is bounded while terminal capacity is preserved', async () => {
   const { engine } = harness({
     apply: async (_node, context) => {
