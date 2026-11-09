@@ -15,6 +15,7 @@ import {
   applyOfflineBundle,
   createOfflineBundle,
   createOfflineInstallerAdapter,
+  createOnlineReleaseArtifactResolver,
   createInstallerEngine,
   createRollbackPlan,
   InstallerOperationError,
@@ -24,6 +25,7 @@ import {
   offlineExecutionGraphDigest,
   planOfflineBundle,
   validateOfflineExecutionClosure,
+  verifyNativeDebianMetadataWithResolver,
   verifyOfflineNativeDebianMetadata,
   verifyOfflineBundle,
 } from '../dist/index.js';
@@ -447,6 +449,41 @@ test('v4 admits only an exact signed native dpkg package triple and runtime rema
   );
   assert.equal(metadata['fixture-operation'].payloadSha256, sha(payloadBytes));
 
+  const onlineCache = join(state.root, 'native-online-cache');
+  await mkdir(onlineCache, { mode: 0o700 });
+  const onlineObjects = new Map(await Promise.all(nativeArtifacts.map(async item => [item.id, await readFile(item.sourcePath)])));
+  const onlineFilenames = {
+    'fixture-package': 'tree_2.1.0-1_amd64.deb',
+    'fixture-inrelease': 'debian-bookworm-inrelease',
+    'fixture-repository-keyring': 'debian-bookworm-archive-keyring.gpg',
+    'fixture-packages-index': 'debian-bookworm-main-amd64-Packages.xz',
+  };
+  let onlineFetches = 0;
+  const onlineResolver = await createOnlineReleaseArtifactResolver({
+    releaseId: plan.releaseId,
+    cacheRoot: onlineCache,
+    artifacts: nativeArtifacts.map(item => ({
+      artifactId: item.id,
+      url: `https://desktop.tools/releases/${plan.releaseId}/${onlineFilenames[item.id]}`,
+      authority: { sha256: sha(onlineObjects.get(item.id)), sizeBytes: onlineObjects.get(item.id).length, mode: '0600' },
+    })),
+    fetcher: async url => {
+      onlineFetches += 1;
+      const filename = new URL(url).pathname.split('/').at(-1);
+      const artifactId = Object.entries(onlineFilenames).find(([, value]) => value === filename)?.[0];
+      const bytes = onlineObjects.get(artifactId);
+      return new Response(bytes, { status: 200, headers: { 'content-length': String(bytes.length) } });
+    },
+  });
+  const metadataVerifier = {
+    verifyInRelease: async () => ({ cleartext: Buffer.from(releaseText), signingKeyFingerprint: 'A'.repeat(40) }),
+    decompressPackages: async (_path, bytes) => bytes,
+    now: () => new Date('2026-11-06T04:30:00.000Z'),
+  };
+  const onlineMetadata = await verifyNativeDebianMetadataWithResolver({ closure, resolver: onlineResolver, verifier: metadataVerifier });
+  assert.deepEqual(onlineMetadata, metadata);
+  assert.equal(onlineFetches, 4, 'online metadata admission fetches the exact four-object closure once');
+
   const bundlePlan = await planOfflineBundle({
     bundleDirectory: created.bundleDirectory, trust: state.trust, releaseTrust: state.releaseTrust,
     expected: {
@@ -534,6 +571,74 @@ test('v4 admits only an exact signed native dpkg package triple and runtime rema
   }
   await assert.rejects(runtimeClaims[0].persistence.load('0'.repeat(64)), /lease|owner/i,
     'owner-bound persistence is fenced after terminal journal release');
+
+  const onlineRuntimeCalls = [];
+  const onlineRuntimeClaims = [];
+  const onlineRuntime = Object.fromEntries(['check', 'apply', 'verify'].map(action => [action, async authority => {
+    onlineRuntimeCalls.push(action);
+    await authority.withPayload('fixture-operation', async payload => assert.deepEqual(await payload.readFile(), payloadBytes));
+    return action === 'check' ? 'needed' : action === 'verify' ? 'verified' : undefined;
+  }]));
+  const onlineAdapter = await createOfflineInstallerAdapter({
+    closure, materializedRoot: destination, artifactResolver: onlineResolver,
+    nativePackageRuntimeFactory: claim => { onlineRuntimeClaims.push(claim); return onlineRuntime; },
+    verifiedNativeMetadata: onlineMetadata,
+    compareDebianVersions: (left, right) => left.localeCompare(right, undefined, { numeric: true }),
+    inspectNativePackage: async ({ descriptor }) => ({
+      control: { packageName: descriptor.package.name, version: descriptor.package.version,
+        architecture: descriptor.package.architecture, depends: descriptor.metadataProof.packageStanza.depends,
+        preDepends: descriptor.metadataProof.packageStanza.preDepends, essential: descriptor.metadataProof.packageStanza.essential,
+        multiArch: descriptor.metadataProof.packageStanza.multiArch }, conffiles: descriptor.conffiles, members: [],
+    }),
+  });
+  const onlineJournal = createJournalStore({
+    stateRoot: join(state.root, 'native-online-journal'), hostId: state.facts.hostId,
+    bootId: 'linux-boot:native-online', processStart: 'linux-jiffies:3', pid: 44,
+    now: () => at, isProcessAlive: async () => true,
+  });
+  const onlineResult = await createInstallerEngine({ adapter: onlineAdapter, journal: onlineJournal, now: () => at }).run({
+    runId: 'native-online-runtime-boundary', releaseId: plan.releaseId, desiredState, approvedPlanDigest: plan.digest,
+  });
+  assert.equal(onlineResult.exitCode, result.exitCode);
+  assert.deepEqual(onlineRuntimeCalls, ['check', 'apply', 'verify']);
+  assert.ok(onlineRuntimeClaims.every(claim => claim.identity.planDigest === plan.digest));
+  const [offlineParityPlan, onlineParityPlan] = await Promise.all([
+    createInstallerEngine({ adapter, now: () => at }).plan(state.facts, desiredState, plan.releaseId),
+    createInstallerEngine({ adapter: onlineAdapter, now: () => at }).plan(state.facts, desiredState, plan.releaseId),
+  ]);
+  assert.equal(onlineParityPlan.digest, offlineParityPlan.digest,
+    'online and offline execution produce the same normalized plan digest');
+  assert.deepEqual(onlineParityPlan.tasks, offlineParityPlan.tasks,
+    'online and offline execution retain the exact same normalized native task authority');
+  assert.equal(onlineFetches, 4, 'native check/apply/verify use admitted cache bytes with zero apply-time network');
+  assert.equal(nativeTask.network, 'none');
+  assert.equal(sha(canonicalOfflineOperationManifestBytes(operations)), sha(canonicalOfflineOperationManifestBytes(closure.operations)));
+
+  let substitutedRuntimeCalls = 0;
+  const substitutedResolver = async artifactId => {
+    const candidate = await onlineResolver(artifactId);
+    return artifactId === 'fixture-package'
+      ? { ...candidate, authority: { ...candidate.authority, sha256: '0'.repeat(64) } } : candidate;
+  };
+  const substitutedAdapter = await createOfflineInstallerAdapter({
+    closure, materializedRoot: destination, artifactResolver: substitutedResolver,
+    nativePackageRuntimeFactory: () => ({
+      check: async () => { substitutedRuntimeCalls += 1; return 'needed'; },
+      apply: async () => { substitutedRuntimeCalls += 1; },
+      verify: async () => { substitutedRuntimeCalls += 1; return 'verified'; },
+    }),
+    verifiedNativeMetadata: onlineMetadata,
+    compareDebianVersions: (left, right) => left.localeCompare(right, undefined, { numeric: true }),
+    inspectNativePackage: async () => { throw new Error('authority mismatch must fail before package inspection'); },
+  });
+  const substitutedJournal = createJournalStore({ stateRoot: join(state.root, 'native-substituted-journal'), hostId: state.facts.hostId,
+    bootId: 'linux-boot:native-substituted', processStart: 'linux-jiffies:4', pid: 45,
+    now: () => at, isProcessAlive: async () => true });
+  const substitutedResult = await createInstallerEngine({ adapter: substitutedAdapter, journal: substitutedJournal, now: () => at }).run({
+    runId: 'native-substituted-runtime', releaseId: plan.releaseId, desiredState, approvedPlanDigest: plan.digest,
+  });
+  assert.notEqual(substitutedResult.exitCode, 0);
+  assert.equal(substitutedRuntimeCalls, 0, 'resolver authority substitution fails before native runtime invocation');
 
   const orchestratedJournal = createJournalStore({
     stateRoot: join(state.root, 'native-orchestrated-journal'), hostId: state.facts.hostId,
@@ -644,6 +749,7 @@ test('native Debian verification recursively proves every dependency payload bef
   });
   const manifestArtifacts = artifacts.map(([id, bytes]) => ({
     id, path: `artifacts/${id}`, sha256: sha(bytes), sizeBytes: bytes.length,
+    mode: '0600',
     ...(id === 'root-deb' ? { catalogDescriptor: rootDescriptor } : {}),
     ...(id === 'dependency-deb' ? { catalogDescriptor: dependencyDescriptor } : {}),
   }));

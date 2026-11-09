@@ -23,7 +23,8 @@ import { constants } from 'node:fs';
 import { lstat, open, readFile, realpath } from 'node:fs/promises';
 import type { FileHandle } from 'node:fs/promises';
 import { dirname, isAbsolute, join, normalize, relative, resolve } from 'node:path';
-import { openVerifiedArtifactSnapshot, VerifiedArtifactMaterializationError } from './verified-artifact-materializer.js';
+import { createMaterializedArtifactResolver, openVerifiedArtifactSnapshot, VerifiedArtifactMaterializationError } from './verified-artifact-materializer.js';
+import type { VerifiedArtifactResolver } from './verified-artifact-materializer.js';
 
 const identifier = z.string().min(1).max(128).regex(/^[a-z0-9][a-z0-9._-]*$/);
 const packageKey = z.string().min(1).max(128).regex(/^[a-z0-9][a-z0-9.+-]*(?::[a-z0-9][a-z0-9-]*)?$/);
@@ -499,6 +500,36 @@ export async function verifyOfflineNativeDebianMetadata(
     readonly keyringBytes: Buffer;
   }) => Promise<DebianMetadataVerifier>),
 ): Promise<Readonly<Record<string, VerifiedDebianMetadata>>> {
+  for (const [packageKey, descriptor] of Object.entries(closure.nativePackageDescriptors)) {
+    const artifact = verified.manifest.artifacts.find(candidate => candidate.id === descriptor.artifact.id);
+    if (!artifact?.catalogDescriptor || artifact.catalogDescriptor.kind !== 'native-offline-package'
+      || artifact.catalogDescriptor.packageKey !== packageKey
+      || JSON.stringify(artifact.catalogDescriptor) !== JSON.stringify(descriptor)) {
+      throw new OfflineBundleError(`offline native package metadata authority is missing: ${packageKey}`);
+    }
+  }
+  const bundleArtifacts = new Map(verified.manifest.artifacts.map(item => [item.id, item]));
+  const resolver: VerifiedArtifactResolver = async artifactId => {
+    const item = bundleArtifacts.get(artifactId);
+    if (!item) throw new OfflineBundleError(`verified bundle artifact is missing: ${artifactId}`);
+    return { sourcePath: join(verified.bundleDirectory, item.path), authority: {
+      sha256: item.sha256, sizeBytes: item.sizeBytes, mode: item.mode,
+    } };
+  };
+  return verifyNativeDebianMetadataWithResolver({ closure, resolver, verifier });
+}
+
+/** Transport-neutral native metadata/runtime admission. Online release objects
+ * and verified offline bundles must both resolve the exact descriptor closure. */
+export async function verifyNativeDebianMetadataWithResolver(input: {
+  closure: OfflineExecutionClosure;
+  resolver: VerifiedArtifactResolver;
+  verifier: DebianMetadataVerifier | ((input: {
+    readonly descriptor: NativeOfflinePayloadDescriptor;
+    readonly keyringBytes: Buffer;
+  }) => Promise<DebianMetadataVerifier>);
+}): Promise<Readonly<Record<string, VerifiedDebianMetadata>>> {
+  const { closure, resolver, verifier } = input;
   const payloads = new Map<string, string>();
   const pending: Array<{ packageKey: string; artifactId: string }> = [];
   for (const operation of Object.values(closure.operations.operations)) {
@@ -523,22 +554,24 @@ export async function verifyOfflineNativeDebianMetadata(
   }
   const results: Record<string, VerifiedDebianMetadata> = {};
   for (const [packageKey, artifactId] of [...payloads].sort(([left], [right]) => left.localeCompare(right))) {
-    const artifact = verified.manifest.artifacts.find(candidate => candidate.id === artifactId);
-    if (!artifact?.catalogDescriptor || artifact.catalogDescriptor.kind !== 'native-offline-package'
-      || artifact.catalogDescriptor.packageKey !== packageKey) {
-      throw new OfflineBundleError(`offline native package metadata authority is missing: ${packageKey}`);
-    }
-    const descriptor = artifact.catalogDescriptor;
-    const keyringBytes = await readVerifiedOfflineArtifact(verified, descriptor.metadataProof.inRelease.keyring.artifactId);
+    const descriptor = closure.nativePackageDescriptors[packageKey];
+    if (!descriptor || descriptor.artifact.id !== artifactId) throw new OfflineBundleError(`native package descriptor closure is incomplete: ${packageKey}`);
+    const read = async (id: string, authority: { sha256: string; sizeBytes: number }): Promise<Buffer> => {
+      const handle = await materializeVerifiedArtifactHandle(resolver, id, {
+        sha256: authority.sha256, sizeBytes: authority.sizeBytes, mode: '0600',
+      });
+      try { return Buffer.from(await handle.readFile()); } finally { await handle.close(); }
+    };
+    const keyringBytes = await read(descriptor.metadataProof.inRelease.keyring.artifactId, descriptor.metadataProof.inRelease.keyring);
     const packageVerifier = typeof verifier === 'function'
       ? await verifier({ descriptor, keyringBytes: Buffer.from(keyringBytes) })
       : verifier;
     results[packageKey] = await verifyDebianRepositoryMetadata({
       descriptor,
-      inReleaseBytes: await readVerifiedOfflineArtifact(verified, descriptor.metadataProof.inRelease.artifactId),
+      inReleaseBytes: await read(descriptor.metadataProof.inRelease.artifactId, descriptor.metadataProof.inRelease),
       keyringBytes,
-      packagesIndexBytes: await readVerifiedOfflineArtifact(verified, descriptor.metadataProof.packagesIndex.artifactId),
-      payloadBytes: await readVerifiedOfflineArtifact(verified, descriptor.artifact.id),
+      packagesIndexBytes: await read(descriptor.metadataProof.packagesIndex.artifactId, descriptor.metadataProof.packagesIndex),
+      payloadBytes: await read(descriptor.artifact.id, descriptor.artifact),
       verifier: packageVerifier,
     });
   }
@@ -548,16 +581,22 @@ export async function verifyOfflineNativeDebianMetadata(
 /** Shared online/offline materialization boundary: returns an unlinked, private,
  * content-verified snapshot handle rather than the mutable source inode. */
 async function materializeVerifiedArtifactHandle(
-  root: string,
+  resolveArtifact: VerifiedArtifactResolver,
   artifactId: string,
   expected: { sha256: string; sizeBytes: number; mode: '0600' | '0700' },
 ): Promise<FileHandle> {
   try {
-    return await openVerifiedArtifactSnapshot({ sourcePath: join(root, artifactId), artifactId, authority: expected });
+    const candidate = await resolveArtifact(artifactId);
+    if (candidate.authority.sha256 !== expected.sha256 || candidate.authority.sizeBytes !== expected.sizeBytes
+      || candidate.authority.mode !== expected.mode) {
+      throw new OfflineBundleError(`artifact resolver authority differs from the approved closure: ${artifactId}`);
+    }
+    return await openVerifiedArtifactSnapshot({ sourcePath: candidate.sourcePath, artifactId, authority: expected });
   } catch (error) {
     if (error instanceof OfflineBundleError) throw error;
     if (error instanceof VerifiedArtifactMaterializationError) throw new OfflineBundleError(error.message);
-    throw new OfflineBundleError(`materialized artifact could not be opened safely: ${artifactId}`);
+    const reason = error instanceof Error && !error.message.includes('/') ? `: ${error.message}` : '';
+    throw new OfflineBundleError(`materialized artifact could not be opened safely: ${artifactId}${reason}`);
   }
 }
 
@@ -573,6 +612,8 @@ export async function createOfflineInstallerAdapter(input: {
   compareDebianVersions?: DebianVersionComparator;
   inspectNativePackage?: (input: NativeDebInspectionInput) => Promise<ParsedDebianControlArchive>;
   observeInstalledWitness?: (packageName: string, signal?: AbortSignal) => Promise<import('./native-dpkg-state.js').DpkgPackageState | null>;
+  /** Transport seam. Online release cache and offline bundle resolution both enter here. */
+  artifactResolver?: VerifiedArtifactResolver;
 }): Promise<InstallerAdapter> {
   if (!isAbsolute(input.materializedRoot)) throw new OfflineBundleError('materialized root must be absolute');
   const materializedRoot = await realpath(input.materializedRoot);
@@ -582,6 +623,9 @@ export async function createOfflineInstallerAdapter(input: {
   if (effectiveUserId === undefined || rootMetadata.uid !== effectiveUserId || (rootMetadata.mode & 0o077) !== 0) {
     throw new OfflineBundleError('materialized root must be private and owned by the current user');
   }
+  const artifactResolver = input.artifactResolver ?? await createMaterializedArtifactResolver({
+    materializedRoot, artifacts: input.closure.runtimeArtifacts,
+  });
   const configurationRoots = new Map<string, { device: number; inode: number }>();
   for (const root of input.closure.operations.configurationRoots) {
     let metadata: Awaited<ReturnType<typeof lstat>>;
@@ -686,7 +730,7 @@ export async function createOfflineInstallerAdapter(input: {
           || expected.sizeBytes !== descriptor.artifact.sizeBytes) {
           throw new OfflineBundleError(`offline native package payload is not authorized: ${descriptor.artifact.id}`);
         }
-        const payload = await materializeVerifiedArtifactHandle(materializedRoot, descriptor.artifact.id, expected);
+        const payload = await materializeVerifiedArtifactHandle(artifactResolver, descriptor.artifact.id, expected);
         try {
           const control = await inspectPackage({
             descriptor, payloadHandle: payload,
@@ -706,7 +750,7 @@ export async function createOfflineInstallerAdapter(input: {
         || expected.sizeBytes !== descriptor.artifact.sizeBytes) {
         throw new OfflineBundleError(`offline native package payload is not authorized: ${descriptor.artifact.id}`);
       }
-      const payload = await materializeVerifiedArtifactHandle(materializedRoot, descriptor.artifact.id, expected);
+      const payload = await materializeVerifiedArtifactHandle(artifactResolver, descriptor.artifact.id, expected);
       try { return await use(payload); }
       finally { await payload.close(); }
     };
@@ -741,7 +785,7 @@ export async function createOfflineInstallerAdapter(input: {
     const executableExpected = input.closure.runtimeArtifacts[registered.executableArtifactId];
     if (!executableExpected || executableExpected.mode !== '0700') throw new OfflineBundleError(`offline executable is not authorized: ${registered.executableArtifactId}`);
     const handles: FileHandle[] = [];
-    const executable = await materializeVerifiedArtifactHandle(materializedRoot, registered.executableArtifactId, executableExpected);
+    const executable = await materializeVerifiedArtifactHandle(artifactResolver, registered.executableArtifactId, executableExpected);
     handles.push(executable);
     const argumentsList: string[] = [];
     const artifactFileDescriptors: Array<{ argumentIndex: number; fileDescriptor: number }> = [];
@@ -751,7 +795,7 @@ export async function createOfflineInstallerAdapter(input: {
         else {
           const expected = input.closure.runtimeArtifacts[argument.artifactId];
           if (!expected) throw new OfflineBundleError(`offline argument artifact is not authorized: ${argument.artifactId}`);
-          const handle = await materializeVerifiedArtifactHandle(materializedRoot, argument.artifactId, expected);
+          const handle = await materializeVerifiedArtifactHandle(artifactResolver, argument.artifactId, expected);
           handles.push(handle);
           artifactFileDescriptors.push({ argumentIndex: argumentsList.length, fileDescriptor: handle.fd });
           argumentsList.push(argument.artifactId);
@@ -778,7 +822,7 @@ export async function createOfflineInstallerAdapter(input: {
     await assertManagedTargetAuthority(operation.targetPath);
     const expected = input.closure.runtimeArtifacts[operation.candidateArtifactId];
     if (!expected || expected.mode !== '0600') throw new OfflineBundleError(`offline managed-file candidate is not authorized: ${operation.candidateArtifactId}`);
-    const handle = await materializeVerifiedArtifactHandle(materializedRoot, operation.candidateArtifactId, expected);
+    const handle = await materializeVerifiedArtifactHandle(artifactResolver, operation.candidateArtifactId, expected);
     try {
       const candidateBytes = await handle.readFile();
       if (candidateBytes.length !== expected.sizeBytes

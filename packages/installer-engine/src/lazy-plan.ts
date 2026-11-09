@@ -246,7 +246,9 @@ export function buildLoadPlan(rawInput: unknown): LoadPlanReport {
   };
   const applicable = (name: string): boolean => {
     const entry = entries.get(name);
-    return entry?.platforms.includes(input.platform) === true && (entry.artifacts.length === 0 || selectedArtifact(entry) !== null);
+    return entry?.platforms.includes(input.platform) === true
+      && (entry.artifacts.length === 0 || selectedArtifact(entry) !== null)
+      && (entry.offlinePayloads.length === 0 || selectedNativePayload(entry) !== null);
   };
   const selected = new Set<string>();
   const reasons = new Map<string, LoadPlanReport['items'][number]['selectionReason']>();

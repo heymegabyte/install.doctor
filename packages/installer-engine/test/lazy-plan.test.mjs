@@ -182,6 +182,17 @@ test('preserves exact native payload authority only for an explicitly selected l
       ? { ...candidate, offlinePayloads: [substitutedPayload] } : candidate),
   }));
   assert.notEqual(substituted.digest, selected.digest, 'native payload substitution must change the approved plan digest');
+
+  assert.throws(
+    () => buildLoadPlan(input({ selectedPackages: ['tool'], architecture: 'arm64', catalog })),
+    /tool is unavailable on linux\/arm64/,
+    'an explicitly selected package without signed native authority must fail closed',
+  );
+  const wrongArchitecture = buildLoadPlan(input({ architecture: 'arm64', catalog }));
+  const wrongArchitectureTool = wrongArchitecture.items.find(item => item.name === 'tool');
+  assert.equal(wrongArchitectureTool.applicable, false);
+  assert.equal(wrongArchitectureTool.nativePayload, null);
+  assert.equal(wrongArchitecture.installOrder.includes('tool'), false);
 });
 
 test('binds the exact immutable artifact for the selected OS and architecture into the plan digest', () => {
