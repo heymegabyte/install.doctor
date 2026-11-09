@@ -2957,6 +2957,8 @@ else {
   installxCandidate = fs.readFileSync(installxSourcePath);
 }
 const installxCandidateBase64 = installxCandidate.toString('base64');
+const installxCandidateDigest = crypto.createHash('sha256').update(installxCandidate).digest('hex');
+operationEnvironment.INSTALL_DOCTOR_BOOTSTRAP_INSTALLX_SHA256 = installxCandidateDigest;
 const installxBinDirectoryTask = {
   schemaVersion: 1, id: 'bootstrap.installx-bin-directory',
   inputDigest: digest({ targetPath: installxBinPath, mode: 0o700, policy: 'managed-directory-v1' }),
@@ -2970,7 +2972,7 @@ const installxBinDirectoryTask = {
 const installxToolTask = {
   schemaVersion: 1, id: 'bootstrap.installx-tool',
   inputDigest: digest({ source: process.env.INSTALL_DOCTOR_SOURCE_COMMIT, targetPath: installxTargetPath,
-    candidateDigest: crypto.createHash('sha256').update(installxCandidate).digest('hex'), policy: 'isolated-managed-file-v1' }),
+    candidateDigest: installxCandidateDigest, policy: 'isolated-managed-file-v1' }),
   dependencies: [installxBinDirectoryTask.id], predicate: 'host-supported', requiredCapabilities: [],
   operations: { check: 'installx-tool-check', apply: 'installx-tool-apply', verify: 'installx-tool-verify' },
   timeoutMs: 120_000, retry: { class: 'never', maxAttempts: 1, backoffMs: 0 },
@@ -3674,6 +3676,27 @@ idRunVerifiedHookPhase() (
 # `installx --all` is deliberately forbidden here: catalog defaults are
 # discoverability policy, not authority to mutate a target. Installx expands
 # dependencies for these exact roots and retains lazy acquisition semantics.
+idRunVerifiedInstallx() (
+  local SOURCE="${INSTALL_DOCTOR_BOOTSTRAP_INSTALLX:-}" EXPECTED="${INSTALL_DOCTOR_BOOTSTRAP_INSTALLX_SHA256:-}"
+  local STAGED BEFORE AFTER SNAPSHOT
+  case "$SOURCE" in /*) ;; *) return 2 ;; esac
+  case "$EXPECTED" in ''|*[!a-f0-9]*) return 2 ;; esac
+  [ "${#EXPECTED}" -eq 64 ] || return 2
+  [ -f "$SOURCE" ] && [ ! -L "$SOURCE" ] && [ -x "$SOURCE" ] || return 2
+  umask 077
+  STAGED="$(mktemp "${TMPDIR:-/tmp}/desktop-tools-installx.XXXXXX")" || return 1
+  trap '/bin/rm -f -- "$STAGED"' EXIT
+  trap 'exit 130' HUP INT TERM
+  BEFORE="$(idSha256File "$SOURCE")" || return 2
+  [ "$BEFORE" = "$EXPECTED" ] || return 2
+  /bin/cp -- "$SOURCE" "$STAGED" || return 1
+  /bin/chmod 0700 "$STAGED" || return 1
+  SNAPSHOT="$(idSha256File "$STAGED")" || return 2
+  AFTER="$(idSha256File "$SOURCE")" || return 2
+  [ "$SNAPSHOT" = "$EXPECTED" ] && [ "$AFTER" = "$EXPECTED" ] || return 2
+  "$STAGED" "$@" </dev/null
+)
+
 idRunSelectedDesiredPackages() {
   local PHASE="${1:-}" RAW="${INSTALL_DOCTOR_SELECTED_PACKAGES:-}" PACKAGE
   local -a PACKAGES=() INSTALLX_COMMAND
@@ -3686,10 +3709,10 @@ idRunSelectedDesiredPackages() {
     case "$PACKAGE" in ''|*[!a-z0-9._:-]*) return 2 ;; esac
     [ "${#PACKAGE}" -le 128 ] || return 2
   done
-  INSTALLX_COMMAND=("$INSTALL_DOCTOR_BOOTSTRAP_INSTALLX")
+  INSTALLX_COMMAND=()
   [ "$PHASE" != check ] || INSTALLX_COMMAND+=(--check)
   INSTALLX_COMMAND+=(--lazy "${PACKAGES[@]}")
-  (cd "$(dirname "$INSTALL_DOCTOR_CHEZMOI_SOURCE")" && "${INSTALLX_COMMAND[@]}")
+  (cd "$(dirname "$INSTALL_DOCTOR_CHEZMOI_SOURCE")" && idRunVerifiedInstallx "${INSTALLX_COMMAND[@]}")
 }
 
 idRunSelectedPostInstallxHooks() {

@@ -20,6 +20,8 @@ printf '\n' >> "$INSTALLX_LEDGER"
 INSTALLX
 chmod 0700 "$TMP_DIR/bin/installx"
 export INSTALL_DOCTOR_BOOTSTRAP_INSTALLX="$TMP_DIR/bin/installx"
+export INSTALL_DOCTOR_BOOTSTRAP_INSTALLX_SHA256
+INSTALL_DOCTOR_BOOTSTRAP_INSTALLX_SHA256="$(shasum -a 256 "$INSTALL_DOCTOR_BOOTSTRAP_INSTALLX" | awk '{print $1}')"
 export INSTALL_DOCTOR_CHEZMOI_SOURCE="$TMP_DIR/source/home"
 export INSTALLX_LEDGER="$LEDGER"
 
@@ -46,6 +48,13 @@ if idRunSelectedDesiredPackages check; then
   else fail 'check argv broadened selection'; fi
 else
   fail 'valid selected package check was rejected'
+fi
+
+printf '# substituted after approval\n' >> "$INSTALL_DOCTOR_BOOTSTRAP_INSTALLX"
+if idRunSelectedDesiredPackages apply >/dev/null 2>&1; then
+  fail 'selected package apply accepted a substituted installx executable'
+else
+  pass 'selected package apply rejects installx substitution after approval'
 fi
 
 for invalid in 'alpha,,beta' 'alpha bad' '../alpha' 'alpha;beta'; do
