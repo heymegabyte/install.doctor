@@ -21,7 +21,9 @@ for required in \
   'scripts/test-bootstrap-release-workflow.sh' \
   'scripts/test-bootstrap-install-acceptance.sh' \
   'scripts/test-bootstrap-upgrade-acceptance.sh' \
-  'packages/installer-engine/test/offline-sandbox.test.mjs'; do
+  'packages/installer-engine/test/offline-sandbox.test.mjs' \
+  'packages/installer-engine/test/offline-bundle.test.mjs' \
+  'packages/installer-engine/test/offline-execution.test.mjs'; do
   grep -Fq "$required" "$WORKFLOW" || fail "workflow does not execute $required"
 done
 
