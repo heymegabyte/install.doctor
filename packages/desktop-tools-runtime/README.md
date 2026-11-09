@@ -47,6 +47,17 @@ abort before process creation. These initialization headers always say
 `captureComplete: false`; only subsequent recording and verification work may establish a
 complete capture, so an evidence-storage failure cannot be presented as success.
 
+`src/encrypted-recording.mjs` provides the signed, local recording boundary for sanitized
+asciicast v3 output, resize, marker, and exit events. It requires explicit output-only consent,
+an injected sanitizer, and a caller-supplied in-memory 256-bit secret `KeyObject`; it accepts
+neither raw keyboard input nor environment capture. Each cast line is independently protected
+with AES-256-GCM and sequence-bound authenticated data. Retention evaluation is preview-only,
+while export and deletion require separate actor-bound authorization and policy permission.
+Capture status is a protected sidecar that remains visibly incomplete until an exit event is
+durably stored. The current supervisor does not yet own a PTY capture stream or an enrolled
+recording-key provider, so its prelaunch header truthfully records
+`consent-key-and-capture-stream-not-attached` instead of pretending recording is active.
+
 Build outputs are deterministic inputs to the release builder:
 
 - `dist/desktop-tools-supervisor.mjs`

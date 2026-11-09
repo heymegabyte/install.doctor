@@ -131,6 +131,10 @@ export async function initializeSessionEvidence(input) {
     runtime,
     skills,
     tools,
+    recording: {
+      state: 'incomplete',
+      incompleteReason: 'consent-key-and-capture-stream-not-attached',
+    },
   });
   const historyPath = join(stateDirectory, 'history', `${session.sessionId}.json`);
   const recordingPath = join(stateDirectory, 'recordings', `${session.sessionId}.header.json`);

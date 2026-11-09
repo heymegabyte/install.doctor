@@ -47,5 +47,6 @@ for (const name of ['runtime-policy.json', 'supervisor-api.schema.json', 'typed-
   const bytes = await readFile(join(root, 'contracts', name));
   entries.push(tarEntry(`contracts/${name}`, bytes, 0o600));
 }
+entries.push(tarEntry('runtime/encrypted-recording.mjs', await readFile(join(root, 'src', 'encrypted-recording.mjs')), 0o600));
 entries.push(Buffer.alloc(1024));
 await writeFile(join(output, 'desktop-tools-tools.tar.gz'), gzipSync(Buffer.concat(entries), { level: 9, mtime: 0 }), { mode: 0o600 });
