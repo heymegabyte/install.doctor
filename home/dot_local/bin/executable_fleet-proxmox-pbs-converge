@@ -119,9 +119,26 @@ EOF
     printf '[Service]\nEnvironment="TUNNEL_POST_QUANTUM=true"\n' > /etc/systemd/system/cloudflared.service.d/post-quantum.conf
     systemctl daemon-reload
   fi
+
+  # #123: Throttle vzdump I/O (120 MB/s, ionice 7) so nightly S3/ZFS backups never overheat Exos HDDs above 55C
+  if [ "$MODE" = "--apply" ]; then
+    cat > /etc/vzdump.conf <<'EOF'
+bwlimit: 120000
+ionice: 7
+pigz: 1
+zstd: 1
+EOF
+  fi
+
+  # #124: Harden Healthchecks heartbeat script with curl retries so transient tunnel flaps never fire false DOWN emails
+  if [ -f /usr/local/bin/proxmox-healthcheck.sh ] && [ "$MODE" = "--apply" ]; then
+    if ! grep -q -- '--retry 3' /usr/local/bin/proxmox-healthcheck.sh 2>/dev/null; then
+      sed -i 's/curl -fsS -m 15/curl -fsS -m 20 --retry 3 --retry-delay 5 --retry-all-errors/g' /usr/local/bin/proxmox-healthcheck.sh 2>/dev/null || true
+    fi
+  fi
 fi
 
-# 2. Proxmox Backup Server (PBS 4.2) S3/R2 Local Cache Offload & ZFS/Ext4 Tuning (#101-#108)
+# 2. Proxmox Backup Server (PBS 4.2) S3/R2 Local Cache Offload & ZFS/Ext4 Tuning (#101-#108, #125)
 if command -v proxmox-backup-manager >/dev/null 2>&1; then
   log "Converging Proxmox Backup Server (PBS 4.2)..."
   if [ -d /mnt/datastore/pbs-local ] && [ "$MODE" = "--apply" ]; then
@@ -141,6 +158,18 @@ if command -v proxmox-backup-manager >/dev/null 2>&1; then
           printf '%s %s none bind,nofail 0 0\n' "$dst" "$src" >> /etc/fstab
         fi
       fi
+      # #125: Remove empty ownerless backup group directories so PBS datastore GC never fails with missing owner errors
+      for ns_type in vm ct host; do
+        if [ -d "${src}/${ns_type}" ]; then
+          for grp_dir in "${src}/${ns_type}"/*; do
+            [ -d "$grp_dir" ] || continue
+            if [ ! -f "$grp_dir/owner" ] && [ -z "$(ls -A "$grp_dir" 2>/dev/null)" ]; then
+              log "Removing empty ownerless PBS backup group directory: $grp_dir"
+              rmdir "$grp_dir" 2>/dev/null || true
+            fi
+          done
+        fi
+      done
     done
     cat > /etc/sysctl.d/99-pbs-s3-tuning.conf <<'EOF'
 net.core.default_qdisc = fq

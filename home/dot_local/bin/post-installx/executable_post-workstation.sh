@@ -531,6 +531,243 @@ if present:
 PY
     fi
   fi
+
+  # 9. Non-Interactive Proxmox SSH Proxy, Fleet Disk Hygiene & WARP Keepalive
+  mkdir -p "$HOME/.ssh" "$HOME/.local/bin"
+  chmod 0700 "$HOME/.ssh"
+  cat > "$HOME/.ssh/proxmox-ssh-proxy.sh" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+cf=${1:?cloudflared path required}
+host=${2:?SSH hostname required}
+export PATH="$HOME/.local/share/volta/bin:$HOME/.local/share/mise/shims:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:$HOME/.local/bin:$PATH"
+probe_ssh_banner() {
+  local target_ip="$1"
+  if command -v node >/dev/null 2>&1; then
+    node -e '
+      const net = require("node:net");
+      const s = net.createConnection({ host: process.argv[1], port: 22 });
+      const t = setTimeout(() => { s.destroy(); process.exit(1); }, 1000);
+      s.on("data", (b) => { clearTimeout(t); s.destroy(); process.exit(b.toString("utf8", 0, 4) === "SSH-" ? 0 : 1); });
+      s.on("error", () => { clearTimeout(t); process.exit(1); });
+    ' "$target_ip" </dev/null >/dev/null 2>&1
+  else
+    return 1
+  fi
+}
+KEY_ARGS=(-o IdentityAgent=none)
+if [ -f "$HOME/.ssh/id_ed25519" ]; then
+  KEY_ARGS+=(-o IdentitiesOnly=yes -i "$HOME/.ssh/id_ed25519")
+elif [ -f "$HOME/.ssh/id_rsa" ]; then
+  KEY_ARGS+=(-o IdentitiesOnly=yes -i "$HOME/.ssh/id_rsa")
+fi
+if probe_ssh_banner 10.0.0.114; then
+  exec nc 10.0.0.114 22
+fi
+if probe_ssh_banner 10.0.0.155; then
+  exec ssh -q -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10 "${KEY_ARGS[@]}" -W 10.0.0.114:22 root@10.0.0.155
+fi
+exec ssh -q -o BatchMode=yes -o ConnectTimeout=15 "${KEY_ARGS[@]}" -W 10.0.0.114:22 coolify.megabyte.space
+EOF
+  chmod 0700 "$HOME/.ssh/proxmox-ssh-proxy.sh"
+
+  if [ -f "$HOME/.ssh/config" ] && ! grep -qE '^Host .*\bproxmox\b' "$HOME/.ssh/config" 2>/dev/null; then
+    _cf_bin="$(command -v cloudflared 2>/dev/null || echo /usr/local/bin/cloudflared)"
+    _id_file="$HOME/.ssh/id_ed25519"
+    [ -f "$_id_file" ] || _id_file="$HOME/.ssh/id_rsa"
+    cat >> "$HOME/.ssh/config" <<EOF
+
+Host proxmox proxmox.megabyte.space ssh-proxmox.megabyte.space
+    HostName proxmox.megabyte.space
+    User root
+    Port 22
+    ProxyCommand "$HOME/.ssh/proxmox-ssh-proxy.sh" "$_cf_bin" ssh-proxmox.megabyte.space
+    IdentityFile "$_id_file"
+    IdentitiesOnly yes
+    ForwardAgent no
+    ServerAliveInterval 30
+    ServerAliveCountMax 3
+    ConnectTimeout 30
+    StrictHostKeyChecking accept-new
+EOF
+    chmod 0600 "$HOME/.ssh/config"
+  fi
+
+  cat > "$HOME/.local/bin/fleet-disk-hygiene" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+export PATH="$HOME/.local/bin:$HOME/.local/share/volta/bin:$HOME/.local/share/mise/shims:/opt/homebrew/bin:/home/linuxbrew/.linuxbrew/bin:/usr/local/bin:/usr/bin:/bin"
+
+used_pct="$(df -P / | awk 'NR==2 {gsub(/%/,"",$5); print $5}')"
+used_pct="${used_pct:-0}"
+
+command -v pnpm >/dev/null 2>&1 && pnpm store prune >/dev/null 2>&1 || true
+command -v uv >/dev/null 2>&1 && uv cache prune >/dev/null 2>&1 || true
+
+if [ -d "$HOME/.cache/megabyte/packages/npm" ]; then
+  find "$HOME/.cache/megabyte/packages/npm" -type f -mtime +14 -delete 2>/dev/null || true
+fi
+
+if command -v node >/dev/null 2>&1; then
+  node -e '
+    const fs = require("node:fs");
+    const path = require("node:path");
+    const os = require("node:os");
+    const roots = [
+      path.join(os.homedir(), "Library/Caches/ms-playwright"),
+      path.join(os.homedir(), ".cache/ms-playwright"),
+    ];
+    for (const root of roots) {
+      if (!fs.existsSync(root)) continue;
+      const groups = new Map();
+      for (const entry of fs.readdirSync(root, { withFileTypes: true })) {
+        if (!entry.isDirectory()) continue;
+        const m = /^([a-z0-9_]+)-(\d+)$/i.exec(entry.name);
+        if (!m) continue;
+        const [, family, rev] = m;
+        const list = groups.get(family) ?? [];
+        list.push({ name: entry.name, rev: Number(rev) });
+        groups.set(family, list);
+      }
+      for (const list of groups.values()) {
+        list.sort((a, b) => b.rev - a.rev);
+        for (const stale of list.slice(1)) {
+          fs.rmSync(path.join(root, stale.name), { recursive: true, force: true });
+        }
+      }
+    }
+  ' </dev/null >/dev/null 2>&1 || true
+fi
+
+if [ "$(uname -s)" = "Darwin" ]; then
+  find "$HOME/Library/Logs" -type f -mtime +7 -delete 2>/dev/null || true
+  find "$HOME/Library/Caches/Homebrew/downloads" -maxdepth 1 -name '*.incomplete' -delete 2>/dev/null || true
+  rm -rf "$HOME/Library/Caches"/*.ShipIt 2>/dev/null || true
+  if [ "$used_pct" -ge 70 ] && command -v brew >/dev/null 2>&1; then
+    brew cleanup --prune=7 -s >/dev/null 2>&1 || true
+  fi
+else
+  if [ "$used_pct" -ge 70 ] && sudo -n true 2>/dev/null; then
+    sudo -n journalctl --vacuum-size=200M >/dev/null 2>&1 || true
+  fi
+fi
+
+if [ "$used_pct" -ge 75 ]; then
+  command -v npm >/dev/null 2>&1 && npm cache clean --force >/dev/null 2>&1 || true
+fi
+if [ "$used_pct" -ge 82 ]; then
+  command -v go >/dev/null 2>&1 && go clean -cache >/dev/null 2>&1 || true
+fi
+EOF
+  chmod 0755 "$HOME/.local/bin/fleet-disk-hygiene"
+
+  if [ "$os_name" = "darwin" ]; then
+    mkdir -p "$HOME/Library/LaunchAgents" "$HOME/.cache/megabyte/logs"
+    cat > "$HOME/.local/bin/fleet-warp-keepalive" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+export PATH="/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:$HOME/.local/bin"
+command -v warp-cli >/dev/null 2>&1 || exit 0
+status_out="$(warp-cli status 2>/dev/null || true)"
+case "$status_out" in
+  *"Status update: Disconnected"*)
+    if command -v node >/dev/null 2>&1; then
+      node -e '
+        const net = require("node:net");
+        const s = net.createConnection({ host: "1.1.1.1", port: 443 });
+        const t = setTimeout(() => { s.destroy(); process.exit(1); }, 1500);
+        s.on("connect", () => { clearTimeout(t); s.destroy(); process.exit(0); });
+        s.on("error", () => { clearTimeout(t); process.exit(1); });
+      ' </dev/null >/dev/null 2>&1 || exit 0
+    fi
+    warp-cli connect >/dev/null 2>&1 || true
+    ;;
+esac
+EOF
+    chmod 0755 "$HOME/.local/bin/fleet-warp-keepalive"
+
+    cat > "$HOME/Library/LaunchAgents/space.megabyte.disk-hygiene.plist" <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>space.megabyte.disk-hygiene</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>${HOME}/.local/bin/fleet-disk-hygiene</string>
+  </array>
+  <key>StartInterval</key>
+  <integer>86400</integer>
+  <key>RunAtLoad</key>
+  <false/>
+  <key>StandardOutPath</key>
+  <string>${HOME}/.cache/megabyte/logs/disk-hygiene.log</string>
+  <key>StandardErrorPath</key>
+  <string>${HOME}/.cache/megabyte/logs/disk-hygiene.err.log</string>
+</dict>
+</plist>
+EOF
+
+    cat > "$HOME/Library/LaunchAgents/space.megabyte.warp-keepalive.plist" <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>space.megabyte.warp-keepalive</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>${HOME}/.local/bin/fleet-warp-keepalive</string>
+  </array>
+  <key>StartInterval</key>
+  <integer>120</integer>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>StandardOutPath</key>
+  <string>${HOME}/.cache/megabyte/logs/warp-keepalive.log</string>
+  <key>StandardErrorPath</key>
+  <string>${HOME}/.cache/megabyte/logs/warp-keepalive.err.log</string>
+</dict>
+</plist>
+EOF
+    launchctl bootout "gui/$(id -u)" "$HOME/Library/LaunchAgents/space.megabyte.disk-hygiene.plist" >/dev/null 2>&1 || true
+    launchctl bootstrap "gui/$(id -u)" "$HOME/Library/LaunchAgents/space.megabyte.disk-hygiene.plist" >/dev/null 2>&1 || true
+    launchctl bootout "gui/$(id -u)" "$HOME/Library/LaunchAgents/space.megabyte.warp-keepalive.plist" >/dev/null 2>&1 || true
+    launchctl bootstrap "gui/$(id -u)" "$HOME/Library/LaunchAgents/space.megabyte.warp-keepalive.plist" >/dev/null 2>&1 || true
+  elif [ "$os_name" = "linux" ]; then
+    mkdir -p "$HOME/.config/systemd/user"
+    cat > "$HOME/.config/systemd/user/fleet-disk-hygiene.service" <<'EOF'
+[Unit]
+Description=Daily Fleet Package & Browser Cache Hygiene
+
+[Service]
+Type=oneshot
+ExecStart=%h/.local/bin/fleet-disk-hygiene
+Nice=19
+IOSchedulingClass=idle
+EOF
+    cat > "$HOME/.config/systemd/user/fleet-disk-hygiene.timer" <<'EOF'
+[Unit]
+Description=Run Fleet Disk Hygiene Daily
+
+[Timer]
+OnCalendar=daily
+Persistent=true
+RandomizedDelaySec=15m
+
+[Install]
+WantedBy=timers.target
+EOF
+    XDG_RUNTIME_DIR="/run/user/$(id -u)" systemctl --user daemon-reload >/dev/null 2>&1 || true
+    XDG_RUNTIME_DIR="/run/user/$(id -u)" systemctl --user enable --now fleet-disk-hygiene.timer >/dev/null 2>&1 || true
+    if has_root && [ -f /etc/systemd/system/pulse-agent.service ]; then
+      run_root install -d -m 0755 /etc/systemd/system/pulse-agent.service.d
+      printf '[Service]\nRestart=always\nRestartSec=5s\nMemoryMax=512M\n' > "$TMP_DIR/pulse-agent-hardening.conf"
+      run_root install -m 0644 "$TMP_DIR/pulse-agent-hardening.conf" /etc/systemd/system/pulse-agent.service.d/hardening.conf
+      run_root systemctl daemon-reload >/dev/null 2>&1 || true
+    fi
+  fi
 }
 
 # Run fleet convergence + CNF shims refresh on macOS (or when --converge-only is passed) and exit cleanly
