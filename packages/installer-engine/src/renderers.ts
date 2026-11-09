@@ -370,7 +370,7 @@ export function renderTuiFrame(model: TuiModel, optionsInput: unknown = {}): str
     ? `  view ${taskStart + 1}-${taskStart + visibleTasks.length} of ${tasks.length}`
     : '';
   const lines = [
-    tuiColor(fitTerminalWidth(`INSTALL DOCTOR  ${phase}  ${model.runStatus}`, options.width), '1;36', options.color),
+    tuiColor(fitTerminalWidth(`DESKTOP TOOLS  ${phase}  ${model.runStatus}`, options.width), '1;36', options.color),
     fitTerminalWidth(`Workers  ${active} active  ${waiting} waiting  ${done}/${tasks.length} done${viewport}   [j/k] select  [enter] inspect  [c] critical  [f] follow  [/] filter  [q] cancel`, options.width),
     fitTerminalWidth('─'.repeat(Math.max(1, options.width)), options.width),
   ];

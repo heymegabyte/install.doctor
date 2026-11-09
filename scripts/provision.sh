@@ -2044,8 +2044,16 @@ runCanonicalProvisionEngine() {
   ARTIFACT_CACHE_ROOT="$STATE_ROOT/artifacts"
   USER_BIN_ROOT="$HOME/.local/bin"
   DOCKER_PLUGIN_ROOT="$HOME/.docker/cli-plugins"
-  RENDERER=tui
-  if [ -n "${HEADLESS_INSTALL:-}" ] || [ ! -t 1 ]; then RENDERER=headless; fi
+  RENDERER="${INSTALL_DOCTOR_RENDERER:-}"
+  if [ -n "${HEADLESS_INSTALL:-}" ]; then
+    RENDERER=headless
+  elif [ -z "$RENDERER" ]; then
+    if [ -t 0 ] && [ -t 1 ] && [ "${TERM:-dumb}" != dumb ]; then RENDERER=tui; else RENDERER=headless; fi
+  fi
+  case "$RENDERER" in
+    plain|json|ndjson|headless|ci|tui) ;;
+    *) logg error 'Installer renderer is invalid'; return 2 ;;
+  esac
   umask 077
   node - "$LOAD_PLAN_INVOCATION" "${INSTALL_DOCTOR_CATALOG_PATH:?}" <<'NODE'
 const fs = require('node:fs');

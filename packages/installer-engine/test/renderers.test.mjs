@@ -293,7 +293,7 @@ test('interactive TUI owns full-screen lifecycle while noninteractive TUI remain
   session.close();
   const transcript = interactive.join('');
   assert.match(transcript, /\u001b\[\?1049h/);
-  assert.match(transcript, /INSTALL DOCTOR/);
+  assert.match(transcript, /DESKTOP TOOLS/);
   assert.ok(transcript.endsWith('\u001b[?25h\u001b[?1049l'));
 
   const noninteractive = [];
