@@ -78,6 +78,27 @@ else
   pass 'changed configured agent task invalidates its approved manifest'
 fi
 
+mkdir -m 0700 "$TMP/too-many"
+for index in $(seq 1 65); do printf '#!/usr/bin/env bash\nexit 0\n' > "$TMP/too-many/task-$index.sh"; chmod 0700 "$TMP/too-many/task-$index.sh"; done
+if HOME="$TMP/home" INSTALL_DOCTOR_AGENT_TASK_DIR="$TMP/too-many" INSTALL_DOCTOR_AGENT_TASKS_CONSENT=1 \
+  INSTALL_DOCTOR_AGENT_TASKS_DIGEST="$(printf 0%.0s {1..64})" \
+  bash -c 'source "$1"; idVerifyConfiguredAgentTaskManifest' _ "$PROVISION"; then
+  fail 'oversized configured-agent task set passed verification'
+else
+  pass 'configured-agent task count is bounded before execution'
+fi
+
+mkdir -m 0700 "$TMP/oversized"
+dd if=/dev/zero of="$TMP/oversized/large.sh" bs=1048577 count=1 2>/dev/null
+chmod 0700 "$TMP/oversized/large.sh"
+if HOME="$TMP/home" INSTALL_DOCTOR_AGENT_TASK_DIR="$TMP/oversized" INSTALL_DOCTOR_AGENT_TASKS_CONSENT=1 \
+  INSTALL_DOCTOR_AGENT_TASKS_DIGEST="$(printf 0%.0s {1..64})" \
+  bash -c 'source "$1"; idVerifyConfiguredAgentTaskManifest' _ "$PROVISION"; then
+  fail 'oversized configured-agent task passed verification'
+else
+  pass 'configured-agent task bytes are bounded before hashing or execution'
+fi
+
 if HEADLESS_INSTALL=true bash -c 'source "$1"; detect_os() { printf "macos\n"; }; idRunEngineOperation macos-full-disk-access-check; [ "$?" -eq 20 ]' _ "$PROVISION"; then
   pass 'headless macOS full-disk-access task is explicitly inapplicable'
 else

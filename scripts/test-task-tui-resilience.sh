@@ -56,6 +56,24 @@ log="$(find "$TMP/run-state/logs" -type f -name '*.log' -print -quit)"
 if [ -n "$log" ] && [ -f "$log" ] && [ ! -L "$log" ] && [ "$(stat -c '%a' "$log" 2>/dev/null || stat -f '%Lp' "$log")" = 600 ]; then pass 'spill logs are private regular files'; else fail 'spill log is unsafe or not mode 0600'; fi
 if grep -q '"log":"' "$TMP/run-state/events.ndjson" && grep -q '"status":"failed"' "$TMP/run-state/events.ndjson"; then pass 'failure evidence identifies its spill log'; else fail 'failure evidence does not identify spill log'; fi
 
+cat > "$TMP/noisy.sh" <<'SH'
+#!/usr/bin/env bash
+line="$(printf '%01000d' 0)"
+for _ in $(seq 1 700); do printf '%s\n' "$line"; done
+SH
+chmod 0700 "$TMP/noisy.sh"
+INSTALL_DOCTOR_TUI_STATE="$TMP/noisy-state" INSTALL_DOCTOR_CONCURRENCY=1 \
+  bash -c 'source "$1"; idTaskUiInit; idTaskRun 1 noisy-task "Noisy task" "$2"' _ "$PROVISION" "$TMP/noisy.sh" >/dev/null 2>&1
+noisy_log="$(find "$TMP/noisy-state/logs" -type f -name '*.log' -print -quit)"
+noisy_size="$(wc -c < "$noisy_log" | tr -d '[:space:]')"
+if [ "$noisy_size" -le 530000 ] \
+  && [ "$(grep -c '"type":"output-gap"' "$TMP/noisy-state/events.ndjson")" -eq 1 ] \
+  && grep -Fq 'retained log limit reached' "$noisy_log"; then
+  pass 'noisy task output is bounded with one truthful retained-output gap'
+else
+  fail "noisy task evidence is unbounded or ambiguous (bytes=$noisy_size)"
+fi
+
 cat > "$TMP/cancel.sh" <<'SH'
 #!/usr/bin/env bash
 exit 143

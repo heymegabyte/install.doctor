@@ -261,14 +261,27 @@ idTaskUiInit() {
 
 _idTaskConsume() {
   local WORKER="$1" TASK="$2" LABEL="$3" ATTEMPT="$4" LOG="$5" LINE ESC_TASK ESC_LABEL ESC_LINE
+  local RETAINED_CHARS=0 RETAINED_LINES=0 LINE_CHARS TRUNCATED=0
   ESC_TASK="$(_idTaskJson "$TASK")"; ESC_LABEL="$(_idTaskJson "$LABEL")"
   while IFS= read -r LINE || [ -n "$LINE" ]; do
-    printf '%s\n' "$LINE" >> "$LOG"
-    ESC_LINE="$(_idTaskJson "$LINE")"
-    _idTaskLock || return 1
-    printf '{"type":"output","task":"%s","label":"%s","worker":%s,"attempt":%s,"line":"%s"}\n' "$ESC_TASK" "$ESC_LABEL" "$WORKER" "$ATTEMPT" "$ESC_LINE" >> "$INSTALL_DOCTOR_TUI_EVENTS"
-    idTaskRenderLine "$WORKER" "${INSTALL_DOCTOR_CONCURRENCY:-1}" "$LABEL" "$LINE"
-    _idTaskUnlock
+    LINE_CHARS="${#LINE}"
+    if [ "$RETAINED_LINES" -lt 10000 ] && [ "$((RETAINED_CHARS + LINE_CHARS))" -le 524288 ]; then
+      printf '%s\n' "$LINE" >> "$LOG"
+      ESC_LINE="$(_idTaskJson "$LINE")"
+      _idTaskLock || return 1
+      printf '{"type":"output","task":"%s","label":"%s","worker":%s,"attempt":%s,"line":"%s"}\n' "$ESC_TASK" "$ESC_LABEL" "$WORKER" "$ATTEMPT" "$ESC_LINE" >> "$INSTALL_DOCTOR_TUI_EVENTS"
+      idTaskRenderLine "$WORKER" "${INSTALL_DOCTOR_CONCURRENCY:-1}" "$LABEL" "$LINE"
+      _idTaskUnlock
+      RETAINED_CHARS=$((RETAINED_CHARS + LINE_CHARS)); RETAINED_LINES=$((RETAINED_LINES + 1))
+    elif [ "$TRUNCATED" -eq 0 ]; then
+      LINE='[further task output omitted: retained log limit reached]'
+      printf '%s\n' "$LINE" >> "$LOG"
+      _idTaskLock || return 1
+      printf '{"type":"output-gap","task":"%s","label":"%s","worker":%s,"attempt":%s,"reason":"retained-output-limit"}\n' "$ESC_TASK" "$ESC_LABEL" "$WORKER" "$ATTEMPT" >> "$INSTALL_DOCTOR_TUI_EVENTS"
+      idTaskRenderLine "$WORKER" "${INSTALL_DOCTOR_CONCURRENCY:-1}" "$LABEL" "$LINE"
+      _idTaskUnlock
+      TRUNCATED=1
+    fi
   done
 }
 
@@ -384,10 +397,14 @@ const [directory, expected] = process.argv.slice(2);
 const canonical = value => Array.isArray(value) ? value.map(canonical) : value && typeof value === 'object'
   ? Object.fromEntries(Object.entries(value).sort(([a], [b]) => a.localeCompare(b)).map(([key, child]) => [key, canonical(child)])) : value;
 const manifest = [];
-for (const name of fs.readdirSync(directory).filter(name => name.endsWith('.sh')).sort()) {
+const names = fs.readdirSync(directory).filter(name => name.endsWith('.sh')).sort();
+if (names.length > 64) process.exit(2);
+for (const name of names) {
+  if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}\.sh$/.test(name)) process.exit(2);
   const path = `${directory}/${name}`;
   const metadata = fs.lstatSync(path);
-  if (!metadata.isFile() || metadata.isSymbolicLink() || metadata.uid !== process.geteuid() || (metadata.mode & 0o022) !== 0) process.exit(2);
+  if (!metadata.isFile() || metadata.isSymbolicLink() || metadata.nlink !== 1 || metadata.size < 1 || metadata.size > 1_048_576
+    || metadata.uid !== process.geteuid() || (metadata.mode & 0o022) !== 0) process.exit(2);
   if ((metadata.mode & 0o111) === 0) continue;
   manifest.push({ name, sha256: crypto.createHash('sha256').update(fs.readFileSync(path)).digest('hex') });
 }
@@ -2310,10 +2327,13 @@ if (agentTaskDirectory) {
   const directory = fs.lstatSync(agentTaskDirectory);
   if (!directory.isDirectory() || directory.isSymbolicLink() || (directory.mode & 0o022) !== 0) throw new Error('configured agent task directory is unsafe');
   if (process.platform !== 'win32' && directory.uid !== process.geteuid()) throw new Error('configured agent task directory must be owned by the current user');
-  for (const name of fs.readdirSync(agentTaskDirectory).filter(name => name.endsWith('.sh')).sort()) {
+  const names = fs.readdirSync(agentTaskDirectory).filter(name => name.endsWith('.sh')).sort();
+  if (names.length > 64) throw new Error('configured agent task count exceeds the bounded policy');
+  for (const name of names) {
+    if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}\.sh$/.test(name)) throw new Error(`configured agent task name is invalid: ${name}`);
     const taskPath = `${agentTaskDirectory}/${name}`;
     const metadata = fs.lstatSync(taskPath);
-    if (!metadata.isFile() || metadata.isSymbolicLink()) throw new Error(`configured agent task is not a regular file: ${name}`);
+    if (!metadata.isFile() || metadata.isSymbolicLink() || metadata.nlink !== 1 || metadata.size < 1 || metadata.size > 1_048_576) throw new Error(`configured agent task is not one bounded regular file: ${name}`);
     if (process.platform !== 'win32' && (metadata.uid !== process.geteuid() || (metadata.mode & 0o022) !== 0)) throw new Error(`configured agent task has unsafe ownership or mode: ${name}`);
     if ((metadata.mode & 0o111) === 0) continue;
     agentTaskManifest.push({ name, sha256: crypto.createHash('sha256').update(fs.readFileSync(taskPath)).digest('hex') });
