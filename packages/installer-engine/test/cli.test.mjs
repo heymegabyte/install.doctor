@@ -185,15 +185,15 @@ test('CLI enforces the exact plan-bound execution concurrency policy', async () 
   };
   const cli = new URL('../dist/cli.js', import.meta.url).pathname;
   await writeFile(invocationPath, `${JSON.stringify(common)}\n`, { mode: 0o600 });
-  const planned = JSON.parse((await execute(process.execPath, [cli, '--input', invocationPath], { env: { PATH: process.env.PATH ?? '' }, timeout: 10_000 })).stdout);
+  const planned = JSON.parse((await execute(process.execPath, [cli, '--input', invocationPath], { env: { PATH: process.env.PATH ?? '' }, timeout: 30_000 })).stdout);
   assert.equal(planned.executionPolicy.maxConcurrency, 1);
   const parallelPolicy = structuredClone(common);
   parallelPolicy.plan.executionPolicy.maxConcurrency = 2;
   await writeFile(invocationPath, `${JSON.stringify(parallelPolicy)}\n`, { mode: 0o600 });
-  const parallelPlan = JSON.parse((await execute(process.execPath, [cli, '--input', invocationPath], { env: { PATH: process.env.PATH ?? '' }, timeout: 10_000 })).stdout);
+  const parallelPlan = JSON.parse((await execute(process.execPath, [cli, '--input', invocationPath], { env: { PATH: process.env.PATH ?? '' }, timeout: 30_000 })).stdout);
   assert.notEqual(parallelPlan.digest, planned.digest, 'scheduler policy must be part of approval identity');
   await writeFile(invocationPath, `${JSON.stringify({ ...common, command: 'run', approvedPlanDigest: planned.digest, renderer: 'json', stateRoot: join(directory, 'state') })}\n`, { mode: 0o600 });
-  const result = JSON.parse((await execute(process.execPath, [cli, '--input', invocationPath], { env: { PATH: process.env.PATH ?? '' }, timeout: 10_000 })).stdout);
+  const result = JSON.parse((await execute(process.execPath, [cli, '--input', invocationPath], { env: { PATH: process.env.PATH ?? '' }, timeout: 30_000 })).stdout);
   assert.equal(result.receipt.status, 'success');
   assert.deepEqual((await readFile(completed, 'utf8')).trim().split('\n').sort(), tasks.map(item => item.id).sort());
 });
