@@ -60,6 +60,33 @@ The public descriptor lives at
 profile ID, slug, revision, and SHA-256 digest, uses bounded caching, and carries no enrollment
 authority. The root bootstrap remains fail-closed until the signed stage-zero and canary gates pass.
 
+## Headless enrollment and recovery
+
+The target does not need a browser or graphical session. On the target, use the shipped compatibility
+client with browser opening disabled:
+
+```bash
+HEADLESS_INSTALL=true desktop-tools-pair
+```
+
+Keep that terminal visible. It prints a bounded verification code, approval URL, and expiry but never
+prints the private polling authority or resulting credential. On a separate trusted phone or computer,
+open the printed HTTPS URL and compare the complete code, machine label and fingerprint, immutable
+profile revision, requested scopes, actor, and expiry before approving. A QR code or opened URL is not
+approval. Deny the request if any value differs; the target terminates without writing a credential.
+
+Timeout, denial, cancellation, revocation, or loss of protected polling state requires a new pairing
+request. Do not reuse a code or copy a token between machines. After approval, confirm the granted
+identity and scopes with `desktop-tools status`. Revoke a lost or retired device through the authenticated
+device-management surface, then run `HEADLESS_INSTALL=true desktop-tools-pair --force` to create a new
+identity. Revocation is not deletion: retain signed run and recovery evidence that still depends on the
+old identity.
+
+Today this command uses the compatibility control-plane pairing route. The profile-subdomain bootstrap
+must not be described as production enrollment until its OIDC owner-session and disposable canary gates
+are verified. The browserless client is covered with a no-op browser fixture, terminal denial, bounded
+polling, and owner-only atomic credential persistence.
+
 ## Operating rules
 
 - `desktop-tools` is the canonical executable; `aid` delegates during the compatibility window.

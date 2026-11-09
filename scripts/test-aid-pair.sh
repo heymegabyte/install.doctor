@@ -110,5 +110,50 @@ FINGERPRINT_MODE="$(stat -c '%a' "$PAIR_FIXTURE/home/.config/desktop-tools/devic
 [ "$FINGERPRINT_MODE" = 600 ] && pass 'profile-bound pairing fingerprint is owner-only' || fail "fingerprint mode $FINGERPRINT_MODE (want 600)"
 rm -rf -- "$PAIR_FIXTURE"
 
+# Browserless operation accepts the documented boolean spelling, never invokes
+# a local opener, and treats owner denial as terminal rather than polling until
+# timeout. Polling bounds also reject zero/oversized loops before transport.
+HEADLESS_FIXTURE="$(mktemp -d)"
+mkdir -p "$HEADLESS_FIXTURE/bin" "$HEADLESS_FIXTURE/home"
+cat > "$HEADLESS_FIXTURE/bin/curl" <<'MOCK_CURL'
+#!/usr/bin/env bash
+case " $* " in
+  *'/api/devices/pair/start'*) printf '%s\n' '{"code":"2345-6789-ABCD","pollSecret":"poll-secret-value","verifyUrl":"https://desktop.tools/pair?code=2345-6789-ABCD"}' ;;
+  *'/api/devices/pair/poll'*) printf '%s\n' '{"status":"denied"}' ;;
+  *) exit 22 ;;
+esac
+MOCK_CURL
+cat > "$HEADLESS_FIXTURE/bin/open" <<'MOCK_OPEN'
+#!/usr/bin/env bash
+printf 'opened\n' >> "$BROWSER_CAPTURE"
+MOCK_OPEN
+cp "$HEADLESS_FIXTURE/bin/open" "$HEADLESS_FIXTURE/bin/xdg-open"
+chmod 0700 "$HEADLESS_FIXTURE/bin/curl" "$HEADLESS_FIXTURE/bin/open" "$HEADLESS_FIXTURE/bin/xdg-open"
+if HOME="$HEADLESS_FIXTURE/home" PATH="$HEADLESS_FIXTURE/bin:$PATH" BROWSER_CAPTURE="$HEADLESS_FIXTURE/browser" \
+  HEADLESS_INSTALL=true DESKTOP_TOOLS_PAIR_TIMEOUT=2 DESKTOP_TOOLS_PAIR_INTERVAL=1 bash "$SRC" >"$HEADLESS_FIXTURE/output" 2>&1; then
+  fail 'headless denied enrollment returned success'
+elif [ ! -e "$HEADLESS_FIXTURE/browser" ] && grep -q 'ended without authorization: denied' "$HEADLESS_FIXTURE/output" \
+  && [ ! -e "$HEADLESS_FIXTURE/home/.config/desktop-tools/device-token" ]; then
+  pass 'headless true skips browser launch and owner denial terminates without a credential'
+else
+  fail 'headless denial handling launched a browser, hid denial, or stored a credential'
+fi
+if HOME="$HEADLESS_FIXTURE/home" PATH="$HEADLESS_FIXTURE/bin:$PATH" DESKTOP_TOOLS_PAIR_INTERVAL=0 bash "$SRC" >/dev/null 2>&1; then
+  fail 'zero polling interval was accepted'
+else
+  pass 'poll timeout and interval are validated before transport'
+fi
+printf 'preserve-me\n' > "$HEADLESS_FIXTURE/target"
+ln -s "$HEADLESS_FIXTURE/target" "$HEADLESS_FIXTURE/device-token"
+if HOME="$HEADLESS_FIXTURE/home" PATH="$HEADLESS_FIXTURE/bin:$PATH" DESKTOP_TOOLS_TOKEN_PATH="$HEADLESS_FIXTURE/device-token" \
+  HEADLESS_INSTALL=true DESKTOP_TOOLS_PAIR_TIMEOUT=2 DESKTOP_TOOLS_PAIR_INTERVAL=1 bash "$SRC" >/dev/null 2>&1; then
+  fail 'symbolic-link credential target was accepted'
+elif [ "$(cat "$HEADLESS_FIXTURE/target")" = 'preserve-me' ]; then
+  pass 'credential persistence rejects symbolic-link targets without modifying their referent'
+else
+  fail 'credential persistence modified a symbolic-link referent'
+fi
+rm -rf -- "$HEADLESS_FIXTURE"
+
 say "aid-pair: $P passed, $F failed"
 [ "$F" -eq 0 ]
