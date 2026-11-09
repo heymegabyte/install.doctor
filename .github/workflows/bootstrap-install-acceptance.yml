@@ -42,6 +42,26 @@ jobs:
         run: bash scripts/test-bootstrap-acceptance-workflow.sh
       - name: Verify protected production release authority boundaries
         run: bash scripts/test-bootstrap-release-workflow.sh
+      - name: Acquire the exact pinned OpenCode acceptance runtime
+        run: |
+          set -euo pipefail
+          umask 077
+          root="$RUNNER_TEMP/desktop-tools-opencode-acceptance"
+          mkdir -m 700 "$root"
+          url="$(jq -er '.artifacts.linux_x64.upstreamUrl' config/desktop-tools-opencode.lock.json)"
+          digest="$(jq -er '.artifacts.linux_x64.sha256' config/desktop-tools-opencode.lock.json)"
+          size="$(jq -er '.artifacts.linux_x64.size' config/desktop-tools-opencode.lock.json)"
+          archive="$root/opencode.tar.gz"
+          curl --fail --silent --show-error --proto '=https' --tlsv1.2 --max-time 300 --retry 3 --retry-all-errors \
+            --max-filesize 167772160 --output "$archive" "$url"
+          test "$(wc -c < "$archive" | tr -d '[:space:]')" = "$size"
+          printf '%s  %s\n' "$digest" "$archive" | sha256sum --check --strict
+          tar -tzf "$archive" | awk '/(^\/|(^|\/)\.\.($|\/))/ { exit 1 } END { if (NR < 1 || NR > 32) exit 1 }'
+          tar --no-same-owner --no-same-permissions -xzf "$archive" -C "$root"
+          runtime="$(find "$root" -type f -name opencode -perm -u+x -print)"
+          test -n "$runtime" && test "$(printf '%s\n' "$runtime" | wc -l | tr -d '[:space:]')" = 1
+          "$runtime" --version | grep -Fq "$(jq -er .version config/desktop-tools-opencode.lock.json)"
+          printf 'OPENCODE_PINNED_BINARY=%s\n' "$runtime" >> "$GITHUB_ENV"
       - name: Verify typed agent-to-engine authority and evidence boundaries
         run: |
           npm --prefix packages/installer-engine run bundle
