@@ -29,6 +29,7 @@ import { LoadPlanInputSchema, LoadPlanItemSchema, LoadPlanReportSchema, buildLoa
 import { composeSelectedNativeDebianPackageSlice } from './native-debian-composition.js';
 import { composeArtifactLegacyCutover, derivePlannedArtifactOperations, preparePlannedArtifact } from './planned-artifact.js';
 import { CaskLauncherOperationSchema, composeSelectedCaskLaunchers } from './cask-launcher-composition.js';
+import { FlatpakLauncherOperationSchema, composeSelectedFlatpakLaunchers, flatpakLauncherCandidate } from './flatpak-launcher-composition.js';
 import { fetchImmutableArtifact } from './immutable-artifact.js';
 import { createRollbackPlan } from './rollback.js';
 import { RollbackEvidenceError, RollbackLiveOwnerError, createRollbackRunStore } from './rollback-journal.js';
@@ -130,7 +131,8 @@ const ManagedArtifactOperationSchema = z.strictObject({
     context.addIssue({ code: 'custom', message: 'managed artifact candidate and target must be distinct paths' });
   }
 });
-const OperationSchema = z.union([ManagedFileOperationSchema, ManagedDirectoryOperationSchema, ManagedArtifactOperationSchema, CaskLauncherOperationSchema,
+const OperationSchema = z.union([ManagedFileOperationSchema, ManagedDirectoryOperationSchema, ManagedArtifactOperationSchema,
+  CaskLauncherOperationSchema, FlatpakLauncherOperationSchema,
   SudoCredentialCleanupOperationSchema, NativePackageOperationSchema, ProcessOperationSchema]);
 const PlanDraftSchema = z.strictObject({
   tasks: z.array(TaskNodeSchema).max(10_000),
@@ -335,6 +337,18 @@ const CaskLauncherDeriveInvocationSchema = z.strictObject({
     'home directory must be canonical and absolute'),
   legacyPackages: z.array(z.string().min(1).max(128).regex(/^[a-z0-9][a-z0-9._:-]*$/)).max(4096),
 });
+const FlatpakLauncherDeriveInvocationSchema = z.strictObject({
+  schemaVersion: z.literal(1), command: z.literal('flatpak-launcher-derive'),
+  loadPlan: LoadPlanReportSchema, approvedLoadPlanDigest: z.string().regex(/^[a-f0-9]{64}$/),
+  homeDirectory: z.string().min(1).max(4096).refine(value => isAbsolute(value) && resolve(value) === value,
+    'home directory must be canonical and absolute'),
+  legacyPackages: z.array(z.string().min(1).max(128).regex(/^[a-z0-9][a-z0-9._:-]*$/)).max(4096),
+  flatpakExecutable: z.strictObject({
+    path: z.string().min(1).max(4096).refine(value => isAbsolute(value) && resolve(value) === value,
+      'Flatpak executable path must be canonical and absolute'),
+    sha256: z.string().regex(/^[a-f0-9]{64}$/),
+  }),
+});
 const PrivilegedBrokerAuthorityDeriveInvocationSchema = PrivilegedBrokerDerivationInputSchema
   .extend({ command: z.literal('privileged-broker-authority-derive') });
 const artifactAuthority = {
@@ -362,7 +376,8 @@ const InvocationSchema = z.discriminatedUnion('command', [
   BundleCreateInvocationSchema, BundleVerifyInvocationSchema, BundlePlanInvocationSchema, BundleApplyInvocationSchema,
   OfflineExecuteInvocationSchema, OfflineResumeInvocationSchema,
   RollbackPlanInvocationSchema, RollbackExecuteInvocationSchema, RollbackResumeInvocationSchema, RollbackStatusInvocationSchema,
-  LoadPlanInvocationSchema, NativeDebianDeriveInvocationSchema, CaskLauncherDeriveInvocationSchema, PrivilegedBrokerAuthorityDeriveInvocationSchema,
+  LoadPlanInvocationSchema, NativeDebianDeriveInvocationSchema, CaskLauncherDeriveInvocationSchema,
+  FlatpakLauncherDeriveInvocationSchema, PrivilegedBrokerAuthorityDeriveInvocationSchema,
   ArtifactDeriveInvocationSchema, ArtifactPrepareInvocationSchema,
   BrokerApprovalClaimInvocationSchema,
   DeviceAuthorizationStartInvocationSchema, DeviceAuthorizationStatusInvocationSchema,
@@ -488,7 +503,7 @@ function bindOperationsToPlan(invocation: PlanBindingInvocation): z.infer<typeof
         const operation = invocation.operations[operationId];
         if (!operation) throw new Error(`operation is not registered: ${operationId}`);
         if (operation.kind === 'managed-file' || operation.kind === 'managed-directory' || operation.kind === 'managed-artifact'
-          || operation.kind === 'managed-cask-launcher') {
+          || operation.kind === 'managed-cask-launcher' || operation.kind === 'managed-flatpak-launcher') {
           const label = operation.kind.replace('-', ' ');
           if (task.compensation !== 'configuration') usageError(`${label} task must declare configuration compensation: ${task.id}`);
           if (operation.action !== phase) usageError(`${label} operation phase mismatch: ${operationId}`);
@@ -510,7 +525,8 @@ function bindOperationsToPlan(invocation: PlanBindingInvocation): z.infer<typeof
       }));
       const managedOperations = Object.values(referencedOperations)
         .filter(operation => operation.kind === 'managed-file' || operation.kind === 'managed-directory'
-          || operation.kind === 'managed-artifact' || operation.kind === 'managed-cask-launcher');
+          || operation.kind === 'managed-artifact' || operation.kind === 'managed-cask-launcher'
+          || operation.kind === 'managed-flatpak-launcher');
       if (managedOperations.length > 0) {
         if (managedOperations.length !== 3) usageError(`managed configuration task cannot mix operation kinds: ${task.id}`);
         const [first] = managedOperations;
@@ -521,6 +537,10 @@ function bindOperationsToPlan(invocation: PlanBindingInvocation): z.infer<typeof
             && (operation.packageKey !== first.packageKey || operation.appBundle !== first.appBundle
               || JSON.stringify(canonical(operation.appPaths)) !== JSON.stringify(canonical(first.appPaths))
               || operation.policy !== first.policy))
+          || (operation.kind === 'managed-flatpak-launcher' && first.kind === 'managed-flatpak-launcher'
+            && (operation.packageKey !== first.packageKey || operation.appId !== first.appId
+              || operation.flatpakPath !== first.flatpakPath || operation.flatpakSha256 !== first.flatpakSha256
+              || operation.homeDirectory !== first.homeDirectory || operation.policy !== first.policy))
           || (operation.kind === 'managed-artifact' && first.kind === 'managed-artifact'
             && (operation.candidateSha256 !== first.candidateSha256 || operation.candidateSizeBytes !== first.candidateSizeBytes
               || JSON.stringify(canonical(operation.descriptor)) !== JSON.stringify(canonical(first.descriptor))
@@ -793,6 +813,45 @@ function baseAdapterFor(invocation: OperationInvocation, nativeBinding?: {
     }
     throw new Error(`approved cask application bundle is unavailable: ${operation.packageKey}`);
   };
+  const flatpakApplicationInstalled = async (operation: z.infer<typeof FlatpakLauncherOperationSchema>,
+    context?: TaskExecutionContext): Promise<boolean> => {
+    if (process.platform !== 'linux') throw new Error('managed Flatpak launcher execution requires Linux');
+    const uid = process.geteuid?.();
+    if (uid === undefined) throw new Error('Flatpak executable ownership cannot be proven');
+    const parent = dirname(operation.flatpakPath);
+    const parentMetadata = await lstat(parent);
+    const canonicalParent = await realpath(parent);
+    if (!parentMetadata.isDirectory() || parentMetadata.isSymbolicLink() || resolve(canonicalParent) !== resolve(parent)
+      || (parentMetadata.mode & 0o022) !== 0 || (parentMetadata.uid !== 0 && parentMetadata.uid !== uid)) {
+      throw new Error('Flatpak executable parent directory is unsafe');
+    }
+    const before = await lstat(operation.flatpakPath);
+    const handle = await open(operation.flatpakPath, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
+    try {
+      const opened = await handle.stat();
+      if (!before.isFile() || before.isSymbolicLink() || !opened.isFile() || opened.nlink !== 1
+        || before.dev !== opened.dev || before.ino !== opened.ino || (opened.mode & 0o111) === 0
+        || (opened.mode & 0o022) !== 0 || (opened.uid !== 0 && opened.uid !== uid)) {
+        throw new Error('Flatpak executable is not one protected executable regular file');
+      }
+      if (await digestOpenFile(handle, opened.size) !== operation.flatpakSha256) {
+        throw new Error('Flatpak executable digest does not match the approved plan');
+      }
+      const code = await runProcess({
+        argv: [operation.flatpakPath, 'info', '--show-ref', operation.appId], cwd: operation.homeDirectory,
+        env: { PATH: '/usr/bin:/bin', LANG: 'C', HOME: operation.homeDirectory,
+          XDG_DATA_HOME: join(operation.homeDirectory, '.local', 'share') },
+        timeoutMs: 10_000, terminationGraceMs: 1_000,
+        ...(context ? { signal: context.signal } : {}),
+      });
+      const after = await lstat(operation.flatpakPath);
+      if (!after.isFile() || after.isSymbolicLink() || after.dev !== opened.dev || after.ino !== opened.ino
+        || after.size !== opened.size || after.mtimeMs !== opened.mtimeMs || after.ctimeMs !== opened.ctimeMs) {
+        throw new Error('Flatpak executable identity changed during inspection');
+      }
+      return code === 0;
+    } finally { await handle.close(); }
+  };
   const managedDirectoryMatches = async (operation: z.infer<typeof ManagedDirectoryOperationSchema>): Promise<boolean> => {
     if (process.platform === 'win32' || typeof constants.O_NOFOLLOW !== 'number') throw new Error('managed directories require POSIX no-follow filesystem semantics');
     const uid = process.geteuid?.();
@@ -947,6 +1006,53 @@ function baseAdapterFor(invocation: OperationInvocation, nativeBinding?: {
             const currentCandidate = await resolveCaskLauncherCandidate(selected);
             return currentCandidate.equals(candidateBytes) && managedFileMatches({ ...fileOperation, targetPath });
           },
+        },
+        persistence,
+      });
+      return 0;
+    }
+    if (selected.kind === 'managed-flatpak-launcher') {
+      if (selected.action !== expectedAction) throw new Error(`managed Flatpak launcher operation phase mismatch: ${id}`);
+      if (task.compensation !== 'configuration') throw new Error(`managed Flatpak launcher task must declare configuration compensation: ${task.id}`);
+      if (context?.signal.aborted) throw new InstallerOperationError('operation cancelled', 'cancelled');
+      if (!await flatpakApplicationInstalled(selected, context)) {
+        throw new Error(`approved Flatpak application is unavailable: ${selected.packageKey}`);
+      }
+      const candidateBytes = flatpakLauncherCandidate(selected.appId, selected.flatpakPath);
+      const fileOperation = ManagedFileOperationSchema.parse({
+        kind: 'managed-file', action: selected.action, targetPath: selected.targetPath,
+        candidateBase64: candidateBytes.toString('base64'), candidateMode: selected.candidateMode,
+      });
+      const targetMatches = await managedFileMatches(fileOperation);
+      if (!targetMatches && selected.action !== 'verify') {
+        try {
+          await lstat(selected.targetPath);
+          throw new Error('refusing to replace an existing unowned Flatpak launcher');
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+        }
+      }
+      if (selected.action === 'check') return targetMatches ? 0 : 10;
+      if (selected.action === 'verify') return await managedFileMatches(fileOperation) ? 0 : 30;
+      const persistence = context?.configurationCompensation;
+      if (!persistence) throw new Error('managed Flatpak launcher activation requires durable configuration compensation');
+      await applyConfigurationTransaction({
+        spec: {
+          schemaVersion: 1, taskId: task.id, targetPath: selected.targetPath,
+          effect: 'installer-configuration', dependencies: task.dependencies, candidateMode: selected.candidateMode,
+        },
+        candidateBytes,
+        hooks: {
+          validateCandidate: async candidatePath => {
+            if (!await managedFileMatches({ ...fileOperation, targetPath: candidatePath })) {
+              throw new Error('managed Flatpak launcher candidate validation failed');
+            }
+            if (!await flatpakApplicationInstalled(selected, context)) {
+              throw new Error('Flatpak application disappeared before activation');
+            }
+          },
+          verifyPostcondition: async targetPath => await flatpakApplicationInstalled(selected, context)
+            && managedFileMatches({ ...fileOperation, targetPath }),
         },
         persistence,
       });
@@ -1367,6 +1473,11 @@ async function main(): Promise<void> {
     if (invocation.command === 'cask-launcher-derive') {
       const { command: _command, schemaVersion: _schemaVersion, ...input } = invocation;
       process.stdout.write(`${JSON.stringify(composeSelectedCaskLaunchers(input))}\n`);
+      return;
+    }
+    if (invocation.command === 'flatpak-launcher-derive') {
+      const { command: _command, schemaVersion: _schemaVersion, ...input } = invocation;
+      process.stdout.write(`${JSON.stringify(composeSelectedFlatpakLaunchers(input))}\n`);
       return;
     }
     if (invocation.command === 'privileged-broker-authority-derive') {

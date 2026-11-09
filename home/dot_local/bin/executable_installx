@@ -267,10 +267,14 @@ async function createCaskLinks(caskMap) {
 }
 
 async function createFlatpakLinks(flatpakMap) {
-  const flatpakInstallations = await $`flatpak --installations`
-  const flatpakDir = flatpakInstallations.stdout.replace('\n', '')
+  const engineOwnedRaw = process.env.INSTALL_DOCTOR_ENGINE_FLATPAK_LAUNCHERS || ''
+  if (engineOwnedRaw && !/^[a-z0-9._:+-]+(?:,[a-z0-9._:+-]+)*$/.test(engineOwnedRaw)) {
+    throw new Error('INSTALL_DOCTOR_ENGINE_FLATPAK_LAUNCHERS is malformed')
+  }
+  const engineOwned = new Set(engineOwnedRaw.split(',').filter(Boolean))
   const flatpakApps = flatpakMap
     .filter(x => {
+      if (engineOwned.has(x.listKey)) return false
       if (x.installType === 'flatpak') {
         const binField = getPkgData('_bin', x, x.installType)
         const binFile = fs.existsSync(`${os.homedir()}/.local/bin/flatpak/${x[binField]}`)
@@ -278,6 +282,9 @@ async function createFlatpakLinks(flatpakMap) {
       }
       return false
     })
+  if (!flatpakApps.length) return
+  const flatpakInstallations = await $`flatpak --installations`
+  const flatpakDir = flatpakInstallations.stdout.replace('\n', '')
   flatpakApps.length && await $`mkdir -p "$HOME/.local/bin/flatpak"`
   for (const app of flatpakApps) {
     const binField = getPkgData('_bin', app, app.installType)

@@ -353,6 +353,78 @@ test('managed cask launcher is reversible and an unchanged rerun preserves inode
   assert.equal(await readFile(target, 'utf8'), '#!/bin/sh\necho user-owned\n');
 });
 
+test('managed Flatpak launcher verifies the installed app, is reversible, and preserves an unchanged target', async t => {
+  if (process.platform !== 'linux') { t.skip('Flatpak launcher runtime requires Linux'); return; }
+  const directory = await realpath(await mkdtemp(join(tmpdir(), 'desktop-tools-flatpak-launcher-')));
+  await chmod(directory, 0o700);
+  const executableRoot = join(directory, 'bin');
+  const flatpakPath = join(executableRoot, 'flatpak');
+  const installedMarker = join(directory, '.fixture-flatpak-installed');
+  const launcherRoot = join(directory, '.local', 'bin', 'flatpak');
+  const target = join(launcherRoot, 'fixture-app');
+  await mkdir(executableRoot, { recursive: true, mode: 0o700 });
+  await mkdir(launcherRoot, { recursive: true, mode: 0o700 });
+  const flatpakBytes = Buffer.from('#!/bin/sh\n[ "$1" = info ] && [ "$2" = --show-ref ] && [ "$3" = org.example.Fixture ] && [ -f "$HOME/.fixture-flatpak-installed" ]\n', 'utf8');
+  await writeFile(flatpakPath, flatpakBytes, { mode: 0o700 });
+  await chmod(flatpakPath, 0o700);
+  await writeFile(installedMarker, 'installed\n', { mode: 0o600 });
+  const flatpakSha256 = createHash('sha256').update(flatpakBytes).digest('hex');
+  const stateRoot = join(directory, 'state');
+  const invocationPath = join(directory, 'invocation.json');
+  const task = {
+    schemaVersion: 1, id: 'installer.flatpak-launcher.fixture-app', inputDigest: digest('f'), dependencies: [], predicate: 'linux-native',
+    operations: { check: 'flatpak-check', apply: 'flatpak-apply', verify: 'flatpak-verify' }, timeoutMs: 5_000,
+    retry: { class: 'never', maxAttempts: 1, backoffMs: 0 }, resources: { cpu: 1, memoryMiB: 32, network: false },
+    privilege: 'user', network: 'none', consent: 'none', lockDomains: ['installer-configuration'], cleanup: 'none',
+    compensation: 'configuration', failurePolicy: 'abort-run',
+  };
+  const operation = action => ({
+    kind: 'managed-flatpak-launcher', action, packageKey: 'fixture-app', appId: 'org.example.Fixture',
+    flatpakPath, flatpakSha256, homeDirectory: directory, targetPath: target, candidateMode: 0o700,
+    policy: 'flatpak-info-all-installations-v1',
+  });
+  const common = {
+    schemaVersion: 1, releaseId: 'release-flatpak',
+    facts: { schemaVersion: 1, hostId: 'flatpak-host', collectedAt: '2026-11-09T00:00:00.000Z', os: 'linux', osVersion: '6.1',
+      arch: process.arch, environment: 'native', roles: ['workstation'], packageManagers: ['flatpak'], capabilities: [] },
+    desiredState: { schemaVersion: 1, revision: 'flatpak-revision', hostId: 'flatpak-host', packages: ['fixture-app'], services: [], consents: [], offline: false },
+    plan: { tasks: [task], selectedTaskIds: [task.id] },
+    operations: { 'flatpak-check': operation('check'), 'flatpak-apply': operation('apply'), 'flatpak-verify': operation('verify') },
+  };
+  const cli = new URL('../dist/cli.js', import.meta.url).pathname;
+  const invoke = async input => {
+    await writeFile(invocationPath, `${JSON.stringify(input)}\n`, { mode: 0o600 });
+    return execute(process.execPath, [cli, '--input', invocationPath], { env: { PATH: process.env.PATH ?? '' }, timeout: 10_000 });
+  };
+  const planned = JSON.parse((await invoke({ ...common, command: 'plan', runId: 'flatpak-plan' })).stdout);
+  const sourceRunId = 'flatpak-install';
+  const installed = JSON.parse((await invoke({ ...common, command: 'run', runId: sourceRunId,
+    approvedPlanDigest: planned.digest, renderer: 'json', stateRoot })).stdout);
+  assert.equal(installed.receipt.status, 'success');
+  assert.equal(await readFile(target, 'utf8'), `#!/usr/bin/env bash\nexec ${JSON.stringify(flatpakPath)} run "org.example.Fixture" "$@"\n`);
+  const first = await lstat(target);
+
+  const unchanged = JSON.parse((await invoke({ ...common, command: 'run', runId: 'flatpak-unchanged',
+    approvedPlanDigest: planned.digest, renderer: 'json', stateRoot })).stdout);
+  assert.equal(unchanged.receipt.status, 'success');
+  const second = await lstat(target);
+  assert.equal(second.ino, first.ino);
+  assert.equal(second.mtimeMs, first.mtimeMs);
+  assert.deepEqual(await readdir(join(stateRoot, 'runs', planned.digest, 'flatpak-unchanged', 'compensations')), []);
+
+  const source = { schemaVersion: 1, stateRoot, sourceRunId, sourcePlanDigest: planned.digest };
+  const rollbackPlan = JSON.parse((await invoke({ ...source, command: 'rollback-config-plan' })).stdout);
+  const rollback = JSON.parse((await invoke({ ...source, command: 'rollback-config-execute', rollbackRunId: 'flatpak-rollback',
+    approvedPlanDigest: rollbackPlan.digest })).stdout);
+  assert.equal(rollback.receipt.completed, true);
+  await assert.rejects(lstat(target), error => error.code === 'ENOENT');
+
+  await writeFile(target, '#!/bin/sh\necho user-owned\n', { mode: 0o700 });
+  await assert.rejects(invoke({ ...common, command: 'run', runId: 'flatpak-conflict',
+    approvedPlanDigest: planned.digest, renderer: 'json', stateRoot }));
+  assert.equal(await readFile(target, 'utf8'), '#!/bin/sh\necho user-owned\n');
+});
+
 test('native managed-directory operation records durable authority and rolls back only its empty directory', async () => {
   if (process.platform === 'win32') return;
   const directory = await realpath(await mkdtemp(join(tmpdir(), 'install-doctor-managed-directory-cli-')));

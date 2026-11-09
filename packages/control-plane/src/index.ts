@@ -36,7 +36,7 @@ import { authorizeTargetAuthorizationDecision } from './target-authorization-own
 // (scripts/gen-catalog.mjs → the cnf index builder; D01/D02/D13). Read-only, bundled at deploy;
 // regenerate + redeploy when software.yml changes. No runtime YAML at the edge.
 import catalogData from './catalog.json';
-type CatalogEntry = { name: string; bin: string; providers: string[]; pkgs: Record<string, string>; platforms: string[]; short?: string; github?: string; home?: string; docs?: string; installMode?: 'app' | 'service' | 'cli'; deliveryMode: 'eager' | 'lazy'; loadPolicy: 'lazy' | 'eager-bootstrap' | 'eager-supported-path' | 'eager-security-recovery' | 'eager-service'; loadRationale: string; preload?: boolean; preloadReason?: 'bootstrap-critical' | 'lazy-installer-substrate' | 'security-recovery-prerequisite' | 'desired-state-service'; deprecated?: string; replacement?: string; deps?: string[]; configured?: boolean; postInstall?: string };
+type CatalogEntry = { name: string; bin: string; providers: string[]; pkgs: Record<string, string>; platforms: string[]; short?: string; github?: string; home?: string; docs?: string; installMode?: 'app' | 'service' | 'cli'; deliveryMode: 'eager' | 'lazy'; loadPolicy: 'lazy' | 'eager-bootstrap' | 'eager-supported-path' | 'eager-security-recovery' | 'eager-service'; loadRationale: string; preload?: boolean; preloadReason?: 'bootstrap-critical' | 'lazy-installer-substrate' | 'security-recovery-prerequisite' | 'desired-state-service'; deprecated?: string; replacement?: string; deps?: string[]; configured?: boolean; postInstall?: string; caskLauncher?: { appBundle: string; bin: string }; flatpakLauncher?: { appId: string; bin: string } };
 const CATALOG = catalogData as CatalogEntry[];
 // Name → entry. One package can legitimately provide SEVERAL bins (xz → lzma/xz/unlzma/unxz), one entry per
 // bin, all sharing the package `name`. Prefer the CANONICAL entry whose bin IS the name (so /api/catalog/xz
@@ -154,6 +154,10 @@ const INSTALL_CMD: Record<string, (pkg: string) => string> = {
   gem: (p) => `gem install ${p}`,
   apk: (p) => `sudo apk add ${p}`,
 };
+const DESIRED_STATE_INSTALL_CMD: Record<string, (pkg: string) => string> = {
+  flatpak: (p) => `sudo flatpak install -y flathub ${p}`,
+};
+const CATALOG_INSTALL_CMD = { ...INSTALL_CMD, ...DESIRED_STATE_INSTALL_CMD };
 
 // D11 (#147) update-channel — the per-provider UPDATE command (how to keep a tool CURRENT; intended-experience
 // promise #8). Mirrors INSTALL_CMD but with each manager's UPGRADE form, which genuinely differs from install
@@ -174,6 +178,7 @@ const UPDATE_CMD: Record<string, (pkg: string) => string> = {
   gem: (p) => `gem update ${p}`,
   apk: (p) => `sudo apk upgrade ${p}`,
 };
+const CATALOG_UPDATE_CMD = { ...UPDATE_CMD, flatpak: (p: string) => `sudo flatpak update -y ${p}` };
 
 // R02/B14 (#152) uninstall — the per-provider UNINSTALL/REMOVE command (how to cleanly REMOVE a tool;
 // maintenance-lifecycle completion alongside install #R13 + update #147). Mirrors UPDATE_CMD. `go` is OMITTED
@@ -195,11 +200,12 @@ const UNINSTALL_CMD: Record<string, (pkg: string) => string> = {
   gem: (p) => `gem uninstall ${p}`,
   apk: (p) => `sudo apk del ${p}`,
 };
+const CATALOG_UNINSTALL_CMD = { ...UNINSTALL_CMD, flatpak: (p: string) => `sudo flatpak uninstall -y ${p}` };
 
 // C12 (#162) — providers whose install command REQUIRES ELEVATION (sudo), DERIVED from the INSTALL_CMD templates
 // so the set can't drift (a system package manager: apt/dnf/pacman). User-space managers (brew/cargo/npm/pipx/
 // pip/gem/go/scoop/cask/choco) install without root.
-const SUDO_PROVIDERS = new Set(Object.entries(INSTALL_CMD).filter(([, fn]) => fn('x').startsWith('sudo ')).map(([k]) => k));
+const SUDO_PROVIDERS = new Set(Object.entries(CATALOG_INSTALL_CMD).filter(([, fn]) => fn('x').startsWith('sudo ')).map(([k]) => k));
 // PRIVILEGES coverage of the plan (step-5 "review a concrete plan showing ... privileges"): plan packages that
 // REQUIRE ELEVATION (sudo) to install — a service (installs + enables a system unit) OR a package whose only
 // INSTALLABLE providers all need sudo (a system-PM-only tool). The service set overlaps installModes.service, but
@@ -212,7 +218,7 @@ function collectPrivileges(bp: { defaults?: { packages?: string[] }; machines?: 
   for (const name of names) {
     const e = CATALOG_BY_NAME.get(name);
     if (!e) continue;
-    const installable = (e.providers ?? []).filter((p) => INSTALL_CMD[p]);
+    const installable = (e.providers ?? []).filter((p) => CATALOG_INSTALL_CMD[p]);
     const elevated = e.installMode === 'service' || (installable.length > 0 && installable.every((p) => SUDO_PROVIDERS.has(p)));
     if (elevated) packages.push(name);
   }
@@ -1317,17 +1323,17 @@ app.get('/api/catalog/:name', (c) => {
   if (!e) return c.json({ error: 'not_found' }, 404);
   const pkgs = e.pkgs || {};
   const commands = (e.providers || [])
-    .filter((p) => INSTALL_CMD[p] && pkgs[p])
-    .map((p) => ({ provider: p, pkg: pkgs[p], command: INSTALL_CMD[p](pkgs[p]) }));
+    .filter((p) => CATALOG_INSTALL_CMD[p] && pkgs[p])
+    .map((p) => ({ provider: p, pkg: pkgs[p], command: CATALOG_INSTALL_CMD[p](pkgs[p]) }));
   // D11 (#147) — the matching per-provider UPDATE command (keep-current; promise #8), built the same way.
   const updateCommands = (e.providers || [])
-    .filter((p) => UPDATE_CMD[p] && pkgs[p])
-    .map((p) => ({ provider: p, pkg: pkgs[p], command: UPDATE_CMD[p](pkgs[p]) }));
+    .filter((p) => CATALOG_UPDATE_CMD[p] && pkgs[p])
+    .map((p) => ({ provider: p, pkg: pkgs[p], command: CATALOG_UPDATE_CMD[p](pkgs[p]) }));
   // R02/B14 (#152) — the matching per-provider UNINSTALL command (cleanly remove the tool), built the same way.
   // `go` has no uninstall verb so it's absent from UNINSTALL_CMD → go-only tools get an empty set (honest).
   const uninstallCommands = (e.providers || [])
-    .filter((p) => UNINSTALL_CMD[p] && pkgs[p])
-    .map((p) => ({ provider: p, pkg: pkgs[p], command: UNINSTALL_CMD[p](pkgs[p]) }));
+    .filter((p) => CATALOG_UNINSTALL_CMD[p] && pkgs[p])
+    .map((p) => ({ provider: p, pkg: pkgs[p], command: CATALOG_UNINSTALL_CMD[p](pkgs[p]) }));
   // A10 (#137) — state platform availability EXPLICITLY: the OSes this tool is NOT installable on (the
   // complement of its declared `platforms`), so the detail says what it's missing (empty = every platform).
   const unavailablePlatforms = AID_PLATFORMS.filter((p) => !(e.platforms || []).includes(p));
@@ -1339,7 +1345,7 @@ app.get('/api/catalog/:name', (c) => {
   // ALREADY on PATH, so a run can ADOPT an existing install (F04) instead of reinstalling (B10/W02). Derived from
   // the bin field (every entry has one); universal + accurate, no per-tool guessing (unlike a verify `--version`).
   const detectCommand = e.bin ? `command -v ${e.bin}` : undefined;
-  return c.json({ name: e.name, bin: e.bin, platforms: e.platforms, unavailablePlatforms, providers: e.providers, short: e.short, github: e.github, owner, home: e.home, docs: e.docs, installMode: e.installMode || 'cli', deliveryMode: e.deliveryMode, loadPolicy: e.loadPolicy, loadRationale: e.loadRationale, preload: e.preload === true, preloadReason: e.preloadReason, deprecated: e.deprecated, replacement: e.replacement, deps: e.deps, configured: e.configured, postInstall: e.postInstall, detectCommand, commands, updateCommands, uninstallCommands });
+  return c.json({ name: e.name, bin: e.bin, platforms: e.platforms, unavailablePlatforms, providers: e.providers, short: e.short, github: e.github, owner, home: e.home, docs: e.docs, installMode: e.installMode || 'cli', deliveryMode: e.deliveryMode, loadPolicy: e.loadPolicy, loadRationale: e.loadRationale, preload: e.preload === true, preloadReason: e.preloadReason, deprecated: e.deprecated, replacement: e.replacement, deps: e.deps, configured: e.configured, postInstall: e.postInstall, caskLauncher: e.caskLauncher, flatpakLauncher: e.flatpakLauncher, detectCommand, commands, updateCommands, uninstallCommands });
 });
 
 app.post('/api/ai/v1/resolve', async (c) => {

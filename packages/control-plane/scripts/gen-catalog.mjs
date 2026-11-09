@@ -131,13 +131,24 @@ try {
       [
         '-o',
         'json',
-        '.softwarePackages | to_entries | map({"key":.key,"short":.value._short,"github":.value._github,"home":.value._home,"docs":.value._docs,"app":(.value._app != null),"appBundle":.value._app,"launcherBin":.value._bin,"cask":(.value.cask != null),"service":(.value._service != null),"serviceEnabled":(.value._serviceEnabled == true),"preload":(.value._preload == true),"preloadReason":.value._preloadReason,"deprecated":.value._deprecated,"replacement":.value._replacement,"deps":.value._deps})',
+        '.softwarePackages | to_entries | map({"key":.key,"short":.value._short,"github":.value._github,"home":.value._home,"docs":.value._docs,"app":(.value._app != null),"appBundle":.value._app,"launcherBin":.value._bin,"cask":(.value.cask != null),"flatpak":.value.flatpak,"service":(.value._service != null),"serviceEnabled":(.value._serviceEnabled == true),"preload":(.value._preload == true),"preloadReason":.value._preloadReason,"deprecated":.value._deprecated,"replacement":.value._replacement,"deps":.value._deps})',
         SOFTWARE,
       ],
       { encoding: 'utf8' },
     ),
   );
   const byKey = new Map(meta.filter((m) => m && m.key).map((m) => [m.key, m]));
+  const safeFlatpak = value => typeof value === 'string'
+    && /^[A-Za-z][A-Za-z0-9_-]*(?:\.[A-Za-z][A-Za-z0-9_-]*){2,}$/.test(value);
+  for (const m of meta) {
+    if (!safeFlatpak(m?.flatpak) || items.some(item => item.name === m.key)) continue;
+    const bins = typeof m.launcherBin === 'string' ? [m.launcherBin] : m.launcherBin;
+    if (!Array.isArray(bins) || bins.length < 1) continue;
+    for (const bin of bins.filter(value => typeof value === 'string' && /^[a-z0-9][a-z0-9._+-]*$/.test(value))) {
+      items.push({ name: m.key, bin, providers: ['flatpak'], pkgs: { flatpak: m.flatpak }, platforms: ['linux'],
+        installMode: 'cli', preload: false, loadPolicy: 'lazy', loadRationale: 'default-lazy' });
+    }
+  }
   let enriched = 0;
   let linked = 0;
   const modes = { app: 0, service: 0, cli: 0 };
@@ -178,6 +189,18 @@ try {
     if (m.app && m.cask && typeof m.appBundle === 'string' && /^[A-Za-z0-9][A-Za-z0-9 ._+()-]*\.app$/.test(m.appBundle)
       && typeof m.launcherBin === 'string' && /^[a-z0-9][a-z0-9._+-]*$/.test(m.launcherBin)) {
       it.caskLauncher = { appBundle: m.appBundle, bin: m.launcherBin };
+    }
+    const flatpakAppId = m.flatpak;
+    if (typeof flatpakAppId === 'string' && /^[A-Za-z][A-Za-z0-9_-]*(?:\.[A-Za-z][A-Za-z0-9_-]*){2,}$/.test(flatpakAppId)) {
+      if (!it.providers.includes('flatpak')) it.providers.push('flatpak');
+      it.providers.sort();
+      it.pkgs.flatpak = flatpakAppId;
+      if (!it.platforms.includes('linux')) it.platforms.push('linux');
+      it.platforms.sort();
+      if (typeof m.launcherBin === 'string' && m.launcherBin === it.bin
+        && /^[a-z0-9][a-z0-9._+-]*$/.test(m.launcherBin)) {
+        it.flatpakLauncher = { appId: flatpakAppId, bin: m.launcherBin };
+      }
     }
     // Delivery is derived from the actual installx selection contract, not from
     // package shape. Merely being a GUI app or having service metadata does not

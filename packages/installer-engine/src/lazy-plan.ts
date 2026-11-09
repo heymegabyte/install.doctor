@@ -50,6 +50,10 @@ export const LoadCatalogEntrySchema = z.object({
     appBundle: z.string().min(5).max(256),
     bin: z.string().min(1).max(128),
   }).optional(),
+  flatpakLauncher: z.strictObject({
+    appId: z.string().min(5).max(256),
+    bin: z.string().min(1).max(128),
+  }).optional(),
 }).strict();
 
 export const LoadPlanInputSchema = z.object({
@@ -75,6 +79,10 @@ export const LoadPlanItemSchema = z.object({
   nativePayload: NativeOfflinePayloadDescriptorSchema.nullable(),
   caskLauncher: z.strictObject({
     appBundle: z.string().min(5).max(256),
+    bin: z.string().min(1).max(128),
+  }).nullable(),
+  flatpakLauncher: z.strictObject({
+    appId: z.string().min(5).max(256),
     bin: z.string().min(1).max(128),
   }).nullable(),
   actions: z.array(z.enum(['install', 'start'])),
@@ -351,6 +359,7 @@ export function buildLoadPlan(rawInput: unknown): LoadPlanReport {
         artifact: selectedArtifact(entry),
         nativePayload: isSelected ? selectedNativePayload(entry) : null,
         caskLauncher: isSelected ? entry.caskLauncher ?? null : null,
+        flatpakLauncher: isSelected ? entry.flatpakLauncher ?? null : null,
         actions,
         selectionReason,
       };

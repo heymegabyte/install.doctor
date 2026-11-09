@@ -2034,7 +2034,7 @@ idInstallDesktopToolsRuntimeClosure() {
 runCanonicalProvisionEngine() {
   local MODE="${1:-apply}" ENGINE="${INSTALL_DOCTOR_ENGINE_PATH:-}" PROVISIONER INVOCATION INVOCATION_DIR NORMALIZED_PLAN APPROVAL_PLAN EVIDENCE_INVOCATION EVIDENCE_RESULT CLEANUP_EVIDENCE_INVOCATION CLEANUP_EVIDENCE_RESULT RUNS_INVOCATION RUNS_RESULT RESUME_RUN_ID STATE_ROOT NODE_MAJOR EXPECTED_NODE RENDERER GENERATE_STATUS ENGINE_STATUS EVIDENCE_STATUS CLEANUP_EVIDENCE_STATUS PLAN_DIGEST APPROVAL ACTUAL_SHA
   local LOAD_PLAN_INVOCATION LOAD_PLAN_RESULT ARTIFACT_DERIVE_INVOCATION ARTIFACT_DERIVE_RESULT ARTIFACT_CACHE_ROOT USER_BIN_ROOT DOCKER_PLUGIN_ROOT
-  local CASK_DERIVE_INVOCATION CASK_DERIVE_RESULT
+  local CASK_DERIVE_INVOCATION CASK_DERIVE_RESULT FLATPAK_DERIVE_INVOCATION FLATPAK_DERIVE_RESULT FLATPAK_EXECUTABLE FLATPAK_SHA256
   local NATIVE_DERIVE_INVOCATION NATIVE_DERIVE_RESULT NATIVE_COUNT
   case "$MODE" in apply|--plan-only) ;; *) logg error "Unknown canonical engine mode: $MODE"; return 2 ;; esac
   [ -n "$ENGINE" ] && [ -f "$ENGINE" ] && [ ! -L "$ENGINE" ] || { logg error 'Verified installer engine is unavailable'; return 2; }
@@ -2069,6 +2069,8 @@ runCanonicalProvisionEngine() {
   NATIVE_DERIVE_RESULT="$INVOCATION_DIR/native-debian-derive.json"
   CASK_DERIVE_INVOCATION="$INVOCATION_DIR/cask-launcher-derive-invocation.json"
   CASK_DERIVE_RESULT="$INVOCATION_DIR/cask-launcher-derive.json"
+  FLATPAK_DERIVE_INVOCATION="$INVOCATION_DIR/flatpak-launcher-derive-invocation.json"
+  FLATPAK_DERIVE_RESULT="$INVOCATION_DIR/flatpak-launcher-derive.json"
   ARTIFACT_CACHE_ROOT="$STATE_ROOT/artifacts"
   USER_BIN_ROOT="$HOME/.local/bin"
   DOCKER_PLUGIN_ROOT="$HOME/.docker/cli-plugins"
@@ -2175,7 +2177,29 @@ NODE
   else
     printf '%s\n' '{"schemaVersion":1,"loadPlanDigest":null,"launcherRoot":null,"directoryRequirements":[],"launchers":[],"migratedLauncherPackages":[],"remainingLegacyLauncherPackages":[]}' > "$CASK_DERIVE_RESULT"
   fi
-  export INSTALL_DOCTOR_LOAD_PLAN_PATH="$LOAD_PLAN_RESULT" INSTALL_DOCTOR_ARTIFACT_DERIVATION_PATH="$ARTIFACT_DERIVE_RESULT" INSTALL_DOCTOR_NATIVE_DERIVATION_PATH="$NATIVE_DERIVE_RESULT" INSTALL_DOCTOR_CASK_DERIVATION_PATH="$CASK_DERIVE_RESULT"
+  if [ "$(uname -s)" = Linux ] && command -v flatpak >/dev/null 2>&1; then
+    FLATPAK_EXECUTABLE="$(command -v flatpak)" || return 1
+    FLATPAK_EXECUTABLE="$(realpath "$FLATPAK_EXECUTABLE")" || return 1
+    FLATPAK_SHA256="$(idSha256File "$FLATPAK_EXECUTABLE")" || return 1
+    FLATPAK_EXECUTABLE="$FLATPAK_EXECUTABLE" FLATPAK_SHA256="$FLATPAK_SHA256" \
+      node - "$FLATPAK_DERIVE_INVOCATION" "$LOAD_PLAN_RESULT" "$ARTIFACT_DERIVE_RESULT" <<'NODE'
+const fs = require('node:fs');
+const [destination, loadPlanPath, artifactDerivationPath] = process.argv.slice(2);
+const loadPlan = JSON.parse(fs.readFileSync(loadPlanPath, 'utf8'));
+const artifactDerivation = JSON.parse(fs.readFileSync(artifactDerivationPath, 'utf8'));
+fs.writeFileSync(destination, `${JSON.stringify({
+  schemaVersion: 1, command: 'flatpak-launcher-derive', loadPlan, approvedLoadPlanDigest: loadPlan.digest,
+  homeDirectory: process.env.HOME, legacyPackages: artifactDerivation.remainingLegacyPackages,
+  flatpakExecutable: { path: process.env.FLATPAK_EXECUTABLE, sha256: process.env.FLATPAK_SHA256 },
+})}\n`, { mode: 0o600, flag: 'wx' });
+NODE
+    GENERATE_STATUS=$?
+    if [ "$GENERATE_STATUS" -eq 0 ]; then node "$ENGINE" --input "$FLATPAK_DERIVE_INVOCATION" > "$FLATPAK_DERIVE_RESULT"; GENERATE_STATUS=$?; fi
+    [ "$GENERATE_STATUS" -eq 0 ] || { logg error 'Unable to derive selected Flatpak launcher operations'; return "$GENERATE_STATUS"; }
+  else
+    printf '%s\n' '{"schemaVersion":1,"loadPlanDigest":null,"launcherRoot":null,"directoryRequirements":[],"launchers":[],"migratedLauncherPackages":[],"remainingLegacyLauncherPackages":[]}' > "$FLATPAK_DERIVE_RESULT"
+  fi
+  export INSTALL_DOCTOR_LOAD_PLAN_PATH="$LOAD_PLAN_RESULT" INSTALL_DOCTOR_ARTIFACT_DERIVATION_PATH="$ARTIFACT_DERIVE_RESULT" INSTALL_DOCTOR_NATIVE_DERIVATION_PATH="$NATIVE_DERIVE_RESULT" INSTALL_DOCTOR_CASK_DERIVATION_PATH="$CASK_DERIVE_RESULT" INSTALL_DOCTOR_FLATPAK_DERIVATION_PATH="$FLATPAK_DERIVE_RESULT"
   node - "$INVOCATION" "$PROVISIONER" "$STATE_ROOT" "$RENDERER" <<'NODE'
 const fs = require('node:fs');
 const os = require('node:os');
@@ -2342,6 +2366,27 @@ if (process.platform === 'darwin') {
   || migratedLauncherPackages.length !== 0 || remainingLegacyLauncherPackages.length !== 0) {
   throw new Error('cask launcher derivation is not empty on a non-macOS target');
 }
+const flatpakDerivation = JSON.parse(fs.readFileSync(process.env.INSTALL_DOCTOR_FLATPAK_DERIVATION_PATH, 'utf8'));
+if (!Array.isArray(flatpakDerivation.launchers) || !Array.isArray(flatpakDerivation.directoryRequirements)
+  || !Array.isArray(flatpakDerivation.migratedLauncherPackages)
+  || !Array.isArray(flatpakDerivation.remainingLegacyLauncherPackages)) throw new Error('Flatpak launcher derivation is malformed');
+const migratedFlatpakLauncherPackages = canonicalList(flatpakDerivation.migratedLauncherPackages, 4096,
+  /^[a-z0-9][a-z0-9._:-]*$/, 'migratedFlatpakLauncherPackages');
+const remainingLegacyFlatpakLauncherPackages = canonicalList(flatpakDerivation.remainingLegacyLauncherPackages, 4096,
+  /^[a-z0-9][a-z0-9._:-]*$/, 'remainingLegacyFlatpakLauncherPackages');
+if (process.platform === 'linux' && flatpakDerivation.loadPlanDigest !== null) {
+  const expectedRemainingFlatpakLauncherPackages = legacySelectedPackages
+    .filter(packageName => !migratedFlatpakLauncherPackages.includes(packageName));
+  if (flatpakDerivation.loadPlanDigest !== loadPlan.digest || flatpakDerivation.launchers.length !== migratedFlatpakLauncherPackages.length
+    || JSON.stringify([...migratedFlatpakLauncherPackages, ...remainingLegacyFlatpakLauncherPackages].sort()) !== JSON.stringify([...legacySelectedPackages].sort())
+    || JSON.stringify(remainingLegacyFlatpakLauncherPackages) !== JSON.stringify(expectedRemainingFlatpakLauncherPackages)
+    || migratedFlatpakLauncherPackages.some(packageName => !legacySelectedPackages.includes(packageName))) {
+    throw new Error('Flatpak launcher derivation lacks exact load-plan and legacy ownership authority');
+  }
+} else if (flatpakDerivation.launchers.length !== 0 || flatpakDerivation.directoryRequirements.length !== 0
+  || migratedFlatpakLauncherPackages.length !== 0 || remainingLegacyFlatpakLauncherPackages.length !== 0) {
+  throw new Error('Flatpak launcher derivation is not empty without Linux Flatpak authority');
+}
 const directoryRequirements = new Map();
 for (const artifact of artifactDerivation.artifacts) {
   if (!Array.isArray(artifact.directoryRequirements)) throw new Error('artifact directory requirements are malformed');
@@ -2460,6 +2505,7 @@ const operationEnvironment = {
   INSTALL_DOCTOR_BOOTSTRAP_INSTALLX: `${stateRoot}/tools/installx`,
   INSTALL_DOCTOR_SELECTED_PACKAGES: legacySelectedPackages.join(','),
   INSTALL_DOCTOR_ENGINE_CASK_LAUNCHERS: migratedLauncherPackages.join(','),
+  INSTALL_DOCTOR_ENGINE_FLATPAK_LAUNCHERS: migratedFlatpakLauncherPackages.join(','),
   INSTALL_DOCTOR_SELECTED_SERVICES: selectedServices.join(','),
   INSTALL_DOCTOR_WARP_CLI_PATH: warpCliPath,
   INSTALL_DOCTOR_WARP_CLI_SHA256: warpCliDigest,
@@ -2614,6 +2660,32 @@ const caskLauncherOperations = Object.fromEntries(caskDerivation.launchers.flatM
   [`cask-launcher-${launcher.packageKey}-check`, launcher.operations.check],
   [`cask-launcher-${launcher.packageKey}-apply`, launcher.operations.apply],
   [`cask-launcher-${launcher.packageKey}-verify`, launcher.operations.verify],
+]));
+const flatpakDirectoryIds = ['installer.flatpak-launcher-directory'];
+const flatpakDirectoryTasks = flatpakDerivation.directoryRequirements.map((requirement, index) => {
+  const id = flatpakDirectoryIds[index];
+  if (!id || flatpakDerivation.directoryRequirements.length !== 1) throw new Error('Flatpak launcher directory closure is invalid');
+  return {
+    schemaVersion: 1, id, inputDigest: digest({ requirement, policy: 'flatpak-launcher-directory-v1' }),
+    dependencies: [desiredPackagesTask.id], predicate: 'linux-native', requiredCapabilities: [],
+    operations: { check: `${id}-check`, apply: `${id}-apply`, verify: `${id}-verify` },
+    timeoutMs: 30_000, retry: { class: 'never', maxAttempts: 1, backoffMs: 0 },
+    resources: { cpu: 1, memoryMiB: 32, network: false }, privilege: 'user', network: 'none',
+    consent: 'none', lockDomains: ['installer-configuration'], cleanup: 'none', compensation: 'configuration',
+    failurePolicy: 'abort-run',
+  };
+});
+const flatpakDirectoryOperations = Object.fromEntries(flatpakDirectoryTasks.flatMap((task, index) => {
+  const requirement = flatpakDerivation.directoryRequirements[index];
+  return ['check', 'apply', 'verify'].map(action => [`${task.id}-${action}`, {
+    kind: 'managed-directory', action, targetPath: requirement.targetPath, candidateMode: requirement.targetMode,
+  }]);
+}));
+const flatpakLauncherTasks = flatpakDerivation.launchers.map(launcher => launcher.task);
+const flatpakLauncherOperations = Object.fromEntries(flatpakDerivation.launchers.flatMap(launcher => [
+  [`flatpak-launcher-${launcher.packageKey}-check`, launcher.operations.check],
+  [`flatpak-launcher-${launcher.packageKey}-apply`, launcher.operations.apply],
+  [`flatpak-launcher-${launcher.packageKey}-verify`, launcher.operations.verify],
 ]));
 const directoryTasks = directoryEntries.map(([key, requirement]) => {
   const id = directoryTaskIdByKey.get(key);
@@ -2808,7 +2880,7 @@ const desiredServicesTask = {
 const rebootAssessmentTask = {
   schemaVersion: 1, id: 'system.reboot-assessment',
   inputDigest: digest({ platform, policy: 'explicit-operator-reboot-v1' }),
-  dependencies: [desiredServicesTask.id, ...caskLauncherTasks.map(task => task.id), ...artifactTasks.map(task => task.id)], predicate: 'host-supported', requiredCapabilities: [],
+  dependencies: [desiredServicesTask.id, ...caskLauncherTasks.map(task => task.id), ...flatpakLauncherTasks.map(task => task.id), ...artifactTasks.map(task => task.id)], predicate: 'host-supported', requiredCapabilities: [],
   operations: { check: 'reboot-assessment-check', apply: 'reboot-assessment-apply', verify: 'reboot-assessment-verify' },
   timeoutMs: 30_000, retry: { class: 'never', maxAttempts: 1, backoffMs: 0 },
   resources: { cpu: 1, memoryMiB: 64, network: false }, privilege: 'user', network: 'none',
@@ -2840,8 +2912,8 @@ const invocation = {
     offline: rawPlan.offline,
   },
     plan: {
-      tasks: [stageZeroInstallUserTask, stageZeroSudoTask, ...(warpDisconnectTask ? [warpDisconnectTask] : []), ...(nativeComposition ? [nativeComposition.task] : []), nativeDependenciesTask, sourceTask, homebrewTask, homebrewToolsTask, chezmoiInitTask, installxBinDirectoryTask, installxToolTask, desiredPackagesTask, ...caskDirectoryTasks, ...caskLauncherTasks, ...directoryTasks, ...artifactTasks, macosFullDiskAccessTask, macosCertificateTask, ...(qubesDom0Task ? [qubesDom0Task] : []), ...(agentTasksTask ? [agentTasksTask] : []), task, bootstrapPolicyTask, softwareGroupsTask, catalogPostValidationTask, customPostHooksTask, desiredServicesTask, rebootAssessmentTask, sudoCleanupTask],
-      selectedTaskIds: [...(nativeComposition ? [nativeComposition.task.id] : []), ...caskLauncherTasks.map(task => task.id), ...artifactTasks.map(task => task.id), rebootAssessmentTask.id, sudoCleanupTask.id],
+      tasks: [stageZeroInstallUserTask, stageZeroSudoTask, ...(warpDisconnectTask ? [warpDisconnectTask] : []), ...(nativeComposition ? [nativeComposition.task] : []), nativeDependenciesTask, sourceTask, homebrewTask, homebrewToolsTask, chezmoiInitTask, installxBinDirectoryTask, installxToolTask, desiredPackagesTask, ...caskDirectoryTasks, ...caskLauncherTasks, ...flatpakDirectoryTasks, ...flatpakLauncherTasks, ...directoryTasks, ...artifactTasks, macosFullDiskAccessTask, macosCertificateTask, ...(qubesDom0Task ? [qubesDom0Task] : []), ...(agentTasksTask ? [agentTasksTask] : []), task, bootstrapPolicyTask, softwareGroupsTask, catalogPostValidationTask, customPostHooksTask, desiredServicesTask, rebootAssessmentTask, sudoCleanupTask],
+      selectedTaskIds: [...(nativeComposition ? [nativeComposition.task.id] : []), ...caskLauncherTasks.map(task => task.id), ...flatpakLauncherTasks.map(task => task.id), ...artifactTasks.map(task => task.id), rebootAssessmentTask.id, sudoCleanupTask.id],
       executionPolicy: {
         maxConcurrency: rawPlan.concurrency,
         resourceLimits: { cpu: 64, memoryMiB: 8192, networkConcurrency: rawPlan.concurrency },
@@ -2853,6 +2925,8 @@ const invocation = {
     ...artifactOperations,
     ...caskDirectoryOperations,
     ...caskLauncherOperations,
+    ...flatpakDirectoryOperations,
+    ...flatpakLauncherOperations,
     'stage-zero-install-user-check': { argv: ['/bin/bash', provisioner, '--engine-operation', 'stage-zero-install-user-check'], env: operationEnvironment },
     'stage-zero-install-user-apply': { argv: ['/bin/bash', provisioner, '--engine-operation', 'stage-zero-install-user-apply'], env: operationEnvironment },
     'stage-zero-install-user-verify': { argv: ['/bin/bash', provisioner, '--engine-operation', 'stage-zero-install-user-verify'], env: operationEnvironment },
@@ -2975,7 +3049,7 @@ NODE
     logg error "Plan approval required; review $APPROVAL_PLAN and rerun with INSTALL_DOCTOR_APPROVED_PLAN_DIGEST=$PLAN_DIGEST"
     rm -f "$INVOCATION" "$NORMALIZED_PLAN" "$LOAD_PLAN_INVOCATION" "$LOAD_PLAN_RESULT" \
       "$ARTIFACT_DERIVE_INVOCATION" "$ARTIFACT_DERIVE_RESULT" "$NATIVE_DERIVE_INVOCATION" "$NATIVE_DERIVE_RESULT" \
-      "$CASK_DERIVE_INVOCATION" "$CASK_DERIVE_RESULT"
+      "$CASK_DERIVE_INVOCATION" "$CASK_DERIVE_RESULT" "$FLATPAK_DERIVE_INVOCATION" "$FLATPAK_DERIVE_RESULT"
     rmdir "$INVOCATION_DIR" 2>/dev/null || true
     return 3
   fi
@@ -3045,7 +3119,7 @@ NODE
     logg info "Approved normalized plan $PLAN_DIGEST before host mutation"
     rm -f "$INVOCATION" "$NORMALIZED_PLAN" "$LOAD_PLAN_INVOCATION" "$LOAD_PLAN_RESULT" \
       "$ARTIFACT_DERIVE_INVOCATION" "$ARTIFACT_DERIVE_RESULT" "$NATIVE_DERIVE_INVOCATION" "$NATIVE_DERIVE_RESULT" \
-      "$CASK_DERIVE_INVOCATION" "$CASK_DERIVE_RESULT"
+      "$CASK_DERIVE_INVOCATION" "$CASK_DERIVE_RESULT" "$FLATPAK_DERIVE_INVOCATION" "$FLATPAK_DERIVE_RESULT"
     rmdir "$INVOCATION_DIR" 2>/dev/null || true
     return 0
   fi
@@ -3162,7 +3236,7 @@ NODE
   fi
   rm -f "$INVOCATION" "$NORMALIZED_PLAN" "$LOAD_PLAN_INVOCATION" "$LOAD_PLAN_RESULT" \
     "$ARTIFACT_DERIVE_INVOCATION" "$ARTIFACT_DERIVE_RESULT" "$NATIVE_DERIVE_INVOCATION" "$NATIVE_DERIVE_RESULT" \
-    "$CASK_DERIVE_INVOCATION" "$CASK_DERIVE_RESULT"
+    "$CASK_DERIVE_INVOCATION" "$CASK_DERIVE_RESULT" "$FLATPAK_DERIVE_INVOCATION" "$FLATPAK_DERIVE_RESULT"
   rm -f "$EVIDENCE_INVOCATION" "$EVIDENCE_RESULT"
   rm -f "$CLEANUP_EVIDENCE_INVOCATION" "$CLEANUP_EVIDENCE_RESULT"
   rmdir "$INVOCATION_DIR" 2>/dev/null || true

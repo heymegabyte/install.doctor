@@ -56,6 +56,7 @@ VALID_MANAGERS = {
     "pip",
     "gem",
     "apk",
+    "flatpak",
 }
 def validate(cat):
     problems = []
