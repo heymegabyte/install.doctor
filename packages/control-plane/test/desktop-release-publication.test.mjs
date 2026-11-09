@@ -1,15 +1,21 @@
 import assert from 'node:assert/strict';
-import { createHash, randomUUID } from 'node:crypto';
+import { createHash, generateKeyPairSync, randomUUID } from 'node:crypto';
 import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 import {
-  activateDesktopRelease, DESKTOP_RELEASE_FILES, DESKTOP_RELEASE_V8_FILES, inspectPublishedDesktopRelease, publishDesktopRelease,
+  activateDesktopRelease, DESKTOP_RELEASE_FILES, DESKTOP_RELEASE_V8_FILES, DESKTOP_RELEASE_V9_FILES,
+  inspectPublishedDesktopRelease, publishDesktopRelease,
   reconcileDesktopActivationReceipt
 } from '../scripts/desktop-release-publication.mjs';
 
 const digest = bytes => createHash('sha256').update(bytes).digest('hex');
+const canonicalValue = value => Array.isArray(value) ? value.map(canonicalValue)
+  : value && typeof value === 'object'
+    ? Object.fromEntries(Object.entries(value).sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, entry]) => [key, canonicalValue(entry)])) : value;
+const semanticDigest = (domain, value) => digest(Buffer.from(`${domain}\0${JSON.stringify(canonicalValue(value))}`));
 
 async function fixture(t, mutate = value => value, schemaVersion = 7) {
   const directory = await mkdtemp(join(tmpdir(), 'desktop-release-test-'));
@@ -17,10 +23,23 @@ async function fixture(t, mutate = value => value, schemaVersion = 7) {
   const releaseId = `desktop-${randomUUID()}`;
   const bodies = new Map();
   const evidence = ['manifest', 'manifest.sig', 'release.sbom.json', 'release.provenance.json', 'THIRD_PARTY_LICENSES.txt'];
-  const releaseFiles = schemaVersion === 8 ? DESKTOP_RELEASE_V8_FILES : DESKTOP_RELEASE_FILES;
+  const releaseFiles = schemaVersion === 9 ? DESKTOP_RELEASE_V9_FILES
+    : schemaVersion === 8 ? DESKTOP_RELEASE_V8_FILES : DESKTOP_RELEASE_FILES;
   for (const name of releaseFiles.filter(name => !evidence.includes(name))) bodies.set(name, Buffer.from(`${name}\n`));
   bodies.set('catalog.json', Buffer.from('[]\n'));
   const now = Math.floor(Date.now() / 1_000);
+  if (schemaVersion === 9) {
+    const { publicKey } = generateKeyPairSync('ed25519');
+    const projection = { schemaVersion: 1, kind: 'desktop-tools-broker-approval-signer-delegation',
+      keyId: 'broker-approval-production-1', algorithm: 'Ed25519', signatureDomain: 'desktop-tools-broker-approval-v1',
+      product: 'desktop-tools', releaseId, channel: 'stable',
+      publicKeySpki: publicKey.export({ type: 'spki', format: 'der' }).toString('base64url'),
+      notBefore: new Date((now - 60) * 1_000).toISOString(), notAfter: new Date((now + 172_800) * 1_000).toISOString(),
+      maximumApprovalLifetimeSeconds: 600, revocationEpoch: 7 };
+    const delegation = { ...projection, delegationDigest:
+      semanticDigest('desktop-tools:broker-approval-signer-delegation:v1', projection) };
+    bodies.set('broker-approval-signer-delegation.json', Buffer.from(`${JSON.stringify(canonicalValue(delegation))}\n`));
+  }
   const opencodeVersion = '2.2.5';
   const lockedNames = { macos_x64: 'opencode-macos-x64.zip', macos_arm64: 'opencode-macos-arm64.zip',
     linux_x64: 'opencode-linux-x64.tar.gz', linux_arm64: 'opencode-linux-arm64.tar.gz' };
@@ -39,7 +58,7 @@ async function fixture(t, mutate = value => value, schemaVersion = 7) {
     predicateType: 'https://slsa.dev/provenance/v1', subject: closure.map(([name, bytes]) => ({ name, digest: { sha256: digest(bytes) } })),
     predicate: { buildDefinition: { externalParameters: { releaseId, sourceCommit: 'a'.repeat(40), opencodeVersion },
       resolvedDependencies: Object.values(lock.artifacts).map(artifact => ({ uri: artifact.upstreamUrl, digest: { sha256: artifact.sha256 } })) } } };
-  if (schemaVersion === 8) {
+  if (schemaVersion >= 8) {
     const parameters = provenance.predicate.buildDefinition.externalParameters;
     parameters.debianTrustPolicySha256 = 'd'.repeat(64);
     parameters.debianCompositionSha256 = 'e'.repeat(64);
@@ -58,6 +77,7 @@ async function fixture(t, mutate = value => value, schemaVersion = 7) {
     `created_at=${now - 1}`, `expires_at=${now + 86_400}`, 'key_id=desktop-production-1',
     'engine_node_min=22', 'runtime_node_version=24.11.0', `opencode_version=${opencodeVersion}`
   ];
+  if (schemaVersion === 9) entries.push('broker_approval_minimum_revocation_epoch=7');
   const artifacts = [
     ['artifact','provision.sh'], ['engine','desktop-tools-engine.mjs'], ['catalog','catalog.json'], ['launcher','start'],
     ['runtime_macos_x64','node-macos-x64.tar.gz'], ['runtime_macos_arm64','node-macos-arm64.tar.gz'],
@@ -67,9 +87,12 @@ async function fixture(t, mutate = value => value, schemaVersion = 7) {
     ['supervisor','desktop-tools-supervisor.mjs'], ['tools','desktop-tools-tools.tar.gz'], ['opencode_lock','opencode.lock.json'],
     ['sbom','release.sbom.json'], ['provenance','release.provenance.json'], ['licenses','THIRD_PARTY_LICENSES.txt']
   ];
-  if (schemaVersion === 8) artifacts.push(
+  if (schemaVersion >= 8) artifacts.push(
     ['debian_inrelease','debian-bookworm-inrelease'], ['debian_keyring','debian-bookworm-archive-keyring.gpg'],
     ['debian_packages','debian-bookworm-main-amd64-Packages.xz'], ['debian_tree','tree_2.1.0-1_amd64.deb']
+  );
+  if (schemaVersion === 9) artifacts.push(
+    ['broker_approval_delegation','broker-approval-signer-delegation.json']
   );
   for (const [prefix, name] of artifacts) entries.push(
     `${prefix}_url=https://desktop.tools/releases/${releaseId}/${name}`,
@@ -140,6 +163,48 @@ test('publishes and reinspects an exact Desktop Tools v8 release with four Debia
   await writeFile(manifestPath, alteredManifest);
   await assert.rejects(publishDesktopRelease({ ...unbound, expectedReleaseId: unbound.releaseId, storage: storage(),
     verifySignature: async () => {} }), /SBOM does not bind the exact release payload closure/);
+});
+
+test('publishes and reinspects an exact v9 release with a release-root-bound approval signer delegation', async t => {
+  const release = await fixture(t, value => value, 9);
+  const target = storage();
+  const result = await publishDesktopRelease({ ...release, expectedReleaseId: release.releaseId, storage: target,
+    verifySignature: async () => {} });
+  assert.equal(target.creates.at(-1)[0], `desktop-tools/bootstrap/${release.releaseId}/manifest`);
+  assert.equal(target.objects.has(`desktop-tools/bootstrap/${release.releaseId}/broker-approval-signer-delegation.json`), true);
+  const inspected = await inspectPublishedDesktopRelease({ expectedReleaseId: release.releaseId, storage: target,
+    verifySignature: async () => {} });
+  assert.equal(inspected.schemaVersion, 9);
+  assert.equal(inspected.minimumRevocationEpoch, 7);
+  assert.equal(inspected.brokerApprovalDelegation.releaseId, release.releaseId);
+  assert.equal(result.releaseId, release.releaseId);
+});
+
+test('rejects noncanonical, substituted, stale, revoked, wrong-channel, and non-Ed25519 v9 delegations', async t => {
+  async function alterDelegation(transform, expected) {
+    const release = await fixture(t, value => value, 9);
+    const path = join(release.directory, 'broker-approval-signer-delegation.json');
+    const original = JSON.parse(await readFile(path, 'utf8'));
+    const altered = transform(original);
+    const bytes = Buffer.from(`${JSON.stringify(altered)}\n`);
+    await writeFile(path, bytes);
+    const manifestPath = join(release.directory, 'manifest');
+    const manifest = (await readFile(manifestPath, 'utf8')).split('\n').map(line =>
+      line.startsWith('broker_approval_delegation_sha256=')
+        ? `broker_approval_delegation_sha256=${digest(bytes)}`
+        : line.startsWith('broker_approval_delegation_size=')
+          ? `broker_approval_delegation_size=${bytes.byteLength}` : line).join('\n');
+    await writeFile(manifestPath, manifest);
+    await assert.rejects(publishDesktopRelease({ ...release, expectedReleaseId: release.releaseId, storage: storage(),
+      verifySignature: async () => {} }), expected);
+  }
+  await alterDelegation(value => Object.fromEntries(Object.entries(value).reverse()), /not canonical JSON/);
+  await alterDelegation(value => ({ ...canonicalValue(value), releaseId: 'other-release' }), /identity or policy/);
+  await alterDelegation(value => ({ ...canonicalValue(value), channel: 'beta' }), /identity or policy/);
+  await alterDelegation(value => ({ ...canonicalValue(value), revocationEpoch: 6 }), /identity or policy/);
+  await alterDelegation(value => ({ ...canonicalValue(value), notAfter: new Date().toISOString() }), /validity window/);
+  await alterDelegation(value => ({ ...canonicalValue(value), publicKeySpki: Buffer.from('not-an-ed25519-key').toString('base64url') }), /Ed25519/);
+  await alterDelegation(value => ({ ...canonicalValue(value), delegationDigest: 'f'.repeat(64) }), /digest is invalid/);
 });
 
 test('activates only inspected Desktop Tools releases with product-qualified CAS and exact rollback', async t => {

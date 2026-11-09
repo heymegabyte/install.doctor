@@ -40,7 +40,8 @@ export function releaseObjectUrl(policyInput: unknown, releaseId: string, filena
     'opencode-macos-x64.zip', 'opencode-macos-arm64.zip', 'opencode-linux-x64.tar.gz', 'opencode-linux-arm64.tar.gz',
     'desktop-tools-supervisor.mjs', 'desktop-tools-tools.tar.gz', 'release.sbom.json', 'release.provenance.json',
     'THIRD_PARTY_LICENSES.txt', 'opencode.lock.json', 'debian-bookworm-inrelease',
-    'debian-bookworm-archive-keyring.gpg', 'debian-bookworm-main-amd64-Packages.xz', 'tree_2.1.0-1_amd64.deb');
+    'debian-bookworm-archive-keyring.gpg', 'debian-bookworm-main-amd64-Packages.xz', 'tree_2.1.0-1_amd64.deb',
+    'broker-approval-signer-delegation.json');
   if (!allowed.includes(filename)) throw new Error('release filename is outside policy');
   return `${policy.origin}/releases/${releaseId}/${filename}`;
 }

@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto';
+import { createHash, createPublicKey } from 'node:crypto';
 import { lstat, readFile, readdir } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { z } from 'zod';
@@ -8,6 +8,7 @@ const policy = releasePolicy('desktop-tools');
 const id = z.string().regex(/^[a-z0-9][a-z0-9._-]{0,127}$/);
 const sha256 = z.string().regex(/^[a-f0-9]{64}$/);
 const positive = z.string().regex(/^[1-9][0-9]*$/).transform(Number).refine(Number.isSafeInteger);
+const nonnegative = z.string().regex(/^(0|[1-9][0-9]*)$/).transform(Number).refine(Number.isSafeInteger);
 const V7_ARTIFACTS = Object.freeze([
   ['artifact', 'provision.sh', 8_388_608],
   ['engine', policy.engineFilename, 8_388_608],
@@ -34,22 +35,33 @@ const V8_DEBIAN_ARTIFACTS = Object.freeze([
   ['debian_packages', 'debian-bookworm-main-amd64-Packages.xz', 268_435_456],
   ['debian_tree', 'tree_2.1.0-1_amd64.deb', 268_435_456],
 ]);
-const artifactsForSchema = schemaVersion => schemaVersion === '7'
-  ? V7_ARTIFACTS
-  : Object.freeze([...V7_ARTIFACTS, ...V8_DEBIAN_ARTIFACTS]);
+const V9_BROKER_ARTIFACTS = Object.freeze([
+  ['broker_approval_delegation', 'broker-approval-signer-delegation.json', 65_536],
+]);
+const artifactsForSchema = schemaVersion => schemaVersion === '7' ? V7_ARTIFACTS
+  : schemaVersion === '8' ? Object.freeze([...V7_ARTIFACTS, ...V8_DEBIAN_ARTIFACTS])
+  : Object.freeze([...V7_ARTIFACTS, ...V8_DEBIAN_ARTIFACTS, ...V9_BROKER_ARTIFACTS]);
 const filesForSchema = schemaVersion => Object.freeze([
   ...artifactsForSchema(schemaVersion).map(([, filename]) => filename), 'manifest.sig', 'manifest'
 ].sort());
 export const DESKTOP_RELEASE_FILES = filesForSchema('7');
 export const DESKTOP_RELEASE_V8_FILES = filesForSchema('8');
+export const DESKTOP_RELEASE_V9_FILES = filesForSchema('9');
 const requiredKeysForSchema = schemaVersion => Object.freeze([
   'schema_version', 'product_id', 'release_id', 'source_commit', 'created_at', 'expires_at', 'key_id',
   ...artifactsForSchema(schemaVersion).flatMap(([prefix]) => [`${prefix}_url`, `${prefix}_sha256`, `${prefix}_size`]),
-  'engine_node_min', 'runtime_node_version', 'opencode_version'
+  'engine_node_min', 'runtime_node_version', 'opencode_version',
+  ...(schemaVersion === '9' ? ['broker_approval_minimum_revocation_epoch'] : [])
 ]);
 const digest = bytes => createHash('sha256').update(bytes).digest('hex');
 const same = (left, right) => Buffer.compare(Buffer.from(left), Buffer.from(right)) === 0;
 const canonical = value => Buffer.from(`${JSON.stringify(value)}\n`, 'utf8');
+const canonicalValue = value => Array.isArray(value) ? value.map(canonicalValue)
+  : value && typeof value === 'object'
+    ? Object.fromEntries(Object.entries(value).sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, entry]) => [key, canonicalValue(entry)]))
+    : value;
+const semanticDigest = (domain, value) => digest(Buffer.from(`${domain}\0${JSON.stringify(canonicalValue(value))}`, 'utf8'));
 const closurePayloadNames = artifacts => artifacts.map(([, name]) => name)
   .filter(name => !['release.sbom.json', 'release.provenance.json', 'THIRD_PARTY_LICENSES.txt'].includes(name));
 const DesktopPointer = z.strictObject({
@@ -76,11 +88,54 @@ function parseManifest(bytes) {
     values.set(key, value);
   }
   const schemaVersion = values.get('schema_version');
-  if (schemaVersion !== '7' && schemaVersion !== '8') throw new Error('manifest schema is unsupported');
+  if (!['7', '8', '9'].includes(schemaVersion)) throw new Error('manifest schema is unsupported');
   if (JSON.stringify([...values.keys()].sort()) !== JSON.stringify([...requiredKeysForSchema(schemaVersion)].sort())) {
     throw new Error(`manifest key set does not match Desktop Tools schema v${schemaVersion}`);
   }
   return values;
+}
+
+function validateBrokerApprovalDelegation(bytes, { releaseId, createdAt, expiresAt, minimumRevocationEpoch }) {
+  const delegation = parseJsonObject(bytes, 'broker approval signer delegation');
+  const keys = ['algorithm', 'channel', 'delegationDigest', 'keyId', 'kind', 'maximumApprovalLifetimeSeconds',
+    'notAfter', 'notBefore', 'product', 'publicKeySpki', 'releaseId', 'revocationEpoch', 'schemaVersion', 'signatureDomain'];
+  if (JSON.stringify(Object.keys(delegation).sort()) !== JSON.stringify(keys)) {
+    throw new Error('broker approval signer delegation key set is invalid');
+  }
+  if (!same(bytes, Buffer.from(`${JSON.stringify(canonicalValue(delegation))}\n`, 'utf8'))) {
+    throw new Error('broker approval signer delegation is not canonical JSON');
+  }
+  if (delegation.schemaVersion !== 1 || delegation.kind !== 'desktop-tools-broker-approval-signer-delegation'
+    || delegation.algorithm !== 'Ed25519' || delegation.signatureDomain !== 'desktop-tools-broker-approval-v1'
+    || delegation.product !== 'desktop-tools' || delegation.releaseId !== releaseId || delegation.channel !== 'stable'
+    || !id.safeParse(delegation.keyId).success || !sha256.safeParse(delegation.delegationDigest).success
+    || !Number.isSafeInteger(delegation.maximumApprovalLifetimeSeconds)
+    || delegation.maximumApprovalLifetimeSeconds < 1 || delegation.maximumApprovalLifetimeSeconds > 1_800
+    || !Number.isSafeInteger(delegation.revocationEpoch) || delegation.revocationEpoch < minimumRevocationEpoch) {
+    throw new Error('broker approval signer delegation identity or policy is invalid');
+  }
+  const notBefore = Date.parse(delegation.notBefore);
+  const notAfter = Date.parse(delegation.notAfter);
+  if (!Number.isFinite(notBefore) || !Number.isFinite(notAfter)
+    || new Date(notBefore).toISOString() !== delegation.notBefore || new Date(notAfter).toISOString() !== delegation.notAfter
+    || notBefore > createdAt * 1_000 || notAfter < expiresAt * 1_000 || notBefore >= notAfter) {
+    throw new Error('broker approval signer delegation does not contain the release validity window');
+  }
+  let publicKey;
+  try {
+    const encoded = delegation.publicKeySpki;
+    if (typeof encoded !== 'string' || !/^[A-Za-z0-9_-]+$/.test(encoded) || encoded.length < 32 || encoded.length > 512) throw new Error();
+    const der = Buffer.from(encoded, 'base64url');
+    if (der.toString('base64url') !== encoded) throw new Error();
+    publicKey = createPublicKey({ key: der, type: 'spki', format: 'der' });
+    if (publicKey.asymmetricKeyType !== 'ed25519'
+      || !same(publicKey.export({ type: 'spki', format: 'der' }), der)) throw new Error();
+  } catch { throw new Error('broker approval signer delegation SPKI is not an exact Ed25519 public key'); }
+  const { delegationDigest, ...projection } = delegation;
+  if (delegationDigest !== semanticDigest('desktop-tools:broker-approval-signer-delegation:v1', projection)) {
+    throw new Error('broker approval signer delegation digest is invalid');
+  }
+  return delegation;
 }
 
 function parseJsonObject(bytes, label) {
@@ -106,7 +161,7 @@ function exactMetadataDigests(items, label, files, artifacts) {
   }
 }
 
-function validateClosureMetadata(files, releaseId, sourceCommit, opencodeVersion, artifacts) {
+function validateClosureMetadata(files, releaseId, sourceCommit, opencodeVersion, artifacts, schemaVersion) {
   try { JSON.parse(Buffer.from(files.get('catalog.json')).toString('utf8')); } catch { throw new Error('catalog is not valid JSON'); }
   const lock = parseJsonObject(files.get('opencode.lock.json'), 'OpenCode lock');
   const expectedNames = { macos_x64: 'opencode-macos-x64.zip', macos_arm64: 'opencode-macos-arm64.zip',
@@ -156,8 +211,7 @@ function validateClosureMetadata(files, releaseId, sourceCommit, opencodeVersion
     if (resolvedDependencies.get(uri) !== dependencyDigest) throw new Error('provenance does not bind the exact OpenCode upstream inputs');
     resolvedDependencies.delete(uri);
   }
-  const schemaVersion = files.has('debian-bookworm-inrelease') ? '8' : '7';
-  const expectedAdditionalDigests = schemaVersion === '8' ? [
+  const expectedAdditionalDigests = schemaVersion !== '7' ? [
     digest(files.get('debian-bookworm-archive-keyring.gpg')), digest(files.get('debian-bookworm-inrelease')),
     digest(files.get('debian-bookworm-main-amd64-Packages.xz')), digest(files.get('tree_2.1.0-1_amd64.deb')),
     parameters?.debianTrustPolicySha256, parameters?.debianCompositionSha256
@@ -211,10 +265,16 @@ function inspectFiles(files, expectedReleaseIdInput, now = Math.floor(Date.now()
       throw new Error(`URL binding mismatch: ${filename}`);
     }
   }
-  validateClosureMetadata(files, releaseId, manifest.get('source_commit'), opencodeVersion, artifacts);
+  const minimumRevocationEpoch = schemaVersion === '9'
+    ? nonnegative.parse(manifest.get('broker_approval_minimum_revocation_epoch')) : null;
+  const brokerApprovalDelegation = schemaVersion === '9'
+    ? validateBrokerApprovalDelegation(files.get('broker-approval-signer-delegation.json'), {
+      releaseId, createdAt, expiresAt, minimumRevocationEpoch
+    }) : null;
+  validateClosureMetadata(files, releaseId, manifest.get('source_commit'), opencodeVersion, artifacts, schemaVersion);
   return Object.freeze({ product: policy.product, releaseId, signerId: id.parse(manifest.get('key_id')), opencodeVersion,
     schemaVersion: Number(schemaVersion), releaseFiles, sourceCommit: manifest.get('source_commit'), createdAt, expiresAt,
-    manifestSha256: digest(files.get('manifest')), files });
+    manifestSha256: digest(files.get('manifest')), minimumRevocationEpoch, brokerApprovalDelegation, files });
 }
 
 export async function inspectDesktopReleaseDirectory(directoryInput, expectedReleaseId, now) {
@@ -223,7 +283,8 @@ export async function inspectDesktopReleaseDirectory(directoryInput, expectedRel
   if (!root.isDirectory() || root.isSymbolicLink()) throw new Error('release path is not a real directory');
   const names = (await readdir(directory)).sort();
   const releaseFiles = JSON.stringify(names) === JSON.stringify(DESKTOP_RELEASE_FILES) ? DESKTOP_RELEASE_FILES
-    : JSON.stringify(names) === JSON.stringify(DESKTOP_RELEASE_V8_FILES) ? DESKTOP_RELEASE_V8_FILES : null;
+    : JSON.stringify(names) === JSON.stringify(DESKTOP_RELEASE_V8_FILES) ? DESKTOP_RELEASE_V8_FILES
+    : JSON.stringify(names) === JSON.stringify(DESKTOP_RELEASE_V9_FILES) ? DESKTOP_RELEASE_V9_FILES : null;
   if (!releaseFiles) throw new Error('release directory does not match the exact allowlist');
   const files = new Map();
   for (const name of releaseFiles) {

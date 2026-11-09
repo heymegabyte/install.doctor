@@ -19,7 +19,8 @@ env:
   NODE_RELEASE_KEYS_COMMIT: 481637f813e912c4aa3622d7964ab426c97b8e8d
   OPENCODE_LOCK: config/desktop-tools-opencode.lock.json
   DEBIAN_TREE_TRUST_POLICY: config/debian-bookworm-tree-trust-policy.json
-  SIGNER_SCRIPT_SHA256: 006dc16cd678124a13b9bb809c1e9a5aecd07eac3a6da89ca09e45f7d6669cf3
+  BROKER_APPROVAL_POLICY: config/desktop-tools-broker-approval-policy.json
+  SIGNER_SCRIPT_SHA256: 05c2ba3e3a2f368078d505c2ac939bbd5a35b8ba2e6cacc630b62eb70c8ed7f7
 
 jobs:
   build:
@@ -204,17 +205,30 @@ jobs:
         env:
           RELEASE_ID: ${{ steps.identity.outputs.release_id }}
           SIGNER_ID: ${{ steps.identity.outputs.signer_id }}
+          BROKER_APPROVAL_SIGNER_KEY_ID: ${{ vars.DESKTOP_TOOLS_BROKER_APPROVAL_SIGNER_KEY_ID }}
+          BROKER_APPROVAL_SIGNER_PUBLIC_KEY_SPKI: ${{ vars.DESKTOP_TOOLS_BROKER_APPROVAL_SIGNER_PUBLIC_KEY_SPKI }}
         run: |
           set -euo pipefail
           umask 077
           mkdir -p .release-work/output
           created="$(jq -er '.createdAt|tostring' .release-work/debian/release-times.json)"
           expires="$(jq -er '.expiresAt|tostring' .release-work/debian/release-times.json)"
+          test -n "$BROKER_APPROVAL_SIGNER_KEY_ID"
+          test -n "$BROKER_APPROVAL_SIGNER_PUBLIC_KEY_SPKI"
+          node scripts/create-broker-approval-signer-delegation.mjs \
+            "$BROKER_APPROVAL_POLICY" "$RELEASE_ID" "$created" "$expires" \
+            "$BROKER_APPROVAL_SIGNER_KEY_ID" "$BROKER_APPROVAL_SIGNER_PUBLIC_KEY_SPKI" \
+            .release-work/broker-approval-signer-delegation.json
+          release_channel="$(jq -er '.channel' "$BROKER_APPROVAL_POLICY")"
+          minimum_revocation_epoch="$(jq -er '.minimumRevocationEpoch' "$BROKER_APPROVAL_POLICY")"
           public_key="$(jq -er --arg id "$SIGNER_ID" '.products["desktop-tools"].signers[$id]' packages/control-plane/src/release-trust.json)"
           jq -n \
             --arg releaseId "$RELEASE_ID" --arg sourceCommit "$GITHUB_SHA" \
             --argjson createdAt "$created" --argjson expiresAt "$expires" \
             --arg signerId "$SIGNER_ID" --arg signerPublicKey "$public_key" \
+            --arg releaseChannel "$release_channel" \
+            --arg brokerApprovalSignerDelegation "$PWD/.release-work/broker-approval-signer-delegation.json" \
+            --argjson brokerApprovalMinimumRevocationEpoch "$minimum_revocation_epoch" \
             --arg runtimeNodeVersion "$NODE_RELEASE_VERSION" \
             --arg opencodeVersion "$(jq -er .version "$OPENCODE_LOCK")" \
             --arg opencodeLock "$PWD/$OPENCODE_LOCK" \
@@ -239,7 +253,7 @@ jobs:
             --arg opencodeMacosArm64 "$PWD/.release-work/opencode/opencode-macos-arm64.zip" \
             --arg opencodeLinuxX64 "$PWD/.release-work/opencode/opencode-linux-x64.tar.gz" \
             --arg opencodeLinuxArm64 "$PWD/.release-work/opencode/opencode-linux-arm64.tar.gz" \
-            '{releaseId:$releaseId,sourceCommit:$sourceCommit,createdAt:$createdAt,expiresAt:$expiresAt,signerId:$signerId,signerPublicKey:$signerPublicKey,runtimeNodeVersion:$runtimeNodeVersion,opencodeVersion:$opencodeVersion,opencodeLock:$opencodeLock,provisioner:$provisioner,engine:$engine,catalog:$catalog,supervisor:$supervisor,tools:$tools,licenses:$licenses,outputDirectory:$outputDirectory,debian:{inRelease:$debianInRelease,archiveKeyring:$debianKeyring,packagesIndex:$debianPackages,treePayload:$debianTree,compositionReceipt:$debianCompositionReceipt,trustPolicy:$debianTrustPolicy},runtimes:{macos_x64:$nodeMacosX64,macos_arm64:$nodeMacosArm64,linux_x64:$nodeLinuxX64,linux_arm64:$nodeLinuxArm64},opencode:{macos_x64:$opencodeMacosX64,macos_arm64:$opencodeMacosArm64,linux_x64:$opencodeLinuxX64,linux_arm64:$opencodeLinuxArm64}}' \
+            '{releaseId:$releaseId,sourceCommit:$sourceCommit,createdAt:$createdAt,expiresAt:$expiresAt,signerId:$signerId,signerPublicKey:$signerPublicKey,releaseChannel:$releaseChannel,brokerApprovalSignerDelegation:$brokerApprovalSignerDelegation,brokerApprovalMinimumRevocationEpoch:$brokerApprovalMinimumRevocationEpoch,runtimeNodeVersion:$runtimeNodeVersion,opencodeVersion:$opencodeVersion,opencodeLock:$opencodeLock,provisioner:$provisioner,engine:$engine,catalog:$catalog,supervisor:$supervisor,tools:$tools,licenses:$licenses,outputDirectory:$outputDirectory,debian:{inRelease:$debianInRelease,archiveKeyring:$debianKeyring,packagesIndex:$debianPackages,treePayload:$debianTree,compositionReceipt:$debianCompositionReceipt,trustPolicy:$debianTrustPolicy},runtimes:{macos_x64:$nodeMacosX64,macos_arm64:$nodeMacosArm64,linux_x64:$nodeLinuxX64,linux_arm64:$nodeLinuxArm64},opencode:{macos_x64:$opencodeMacosX64,macos_arm64:$opencodeMacosArm64,linux_x64:$opencodeLinuxX64,linux_arm64:$opencodeLinuxArm64}}' \
             >.release-work/config.json
           node scripts/build-desktop-tools-release.mjs .release-work/config.json
           cp scripts/sign-desktop-tools-release.sh .release-work/output/sign-desktop-tools-release.sh

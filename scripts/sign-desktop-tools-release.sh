@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Validate and sign an inert Desktop Tools v7 or v8 release. This boundary performs no build or network work.
+# Validate and sign an inert Desktop Tools v7, v8, or v9 release. This boundary performs no build or network work.
 set -euo pipefail
 umask 077
 export LC_ALL=C
@@ -19,12 +19,14 @@ mode() { if stat -c '%a' "$1" >/dev/null 2>&1; then stat -c '%a' "$1"; else stat
 [ -d "$unsigned_dir" ] && [ ! -L "$unsigned_dir" ] || { printf 'unsigned release is not a real directory\n' >&2; exit 66; }
 expected_v7='THIRD_PARTY_LICENSES.txt catalog.json desktop-tools-engine.mjs desktop-tools-supervisor.mjs desktop-tools-tools.tar.gz manifest node-linux-arm64.tar.gz node-linux-x64.tar.gz node-macos-arm64.tar.gz node-macos-x64.tar.gz opencode-linux-arm64.tar.gz opencode-linux-x64.tar.gz opencode-macos-arm64.zip opencode-macos-x64.zip opencode.lock.json provision.sh release.provenance.json release.sbom.json start'
 expected_v8='THIRD_PARTY_LICENSES.txt catalog.json debian-bookworm-archive-keyring.gpg debian-bookworm-inrelease debian-bookworm-main-amd64-Packages.xz desktop-tools-engine.mjs desktop-tools-supervisor.mjs desktop-tools-tools.tar.gz manifest node-linux-arm64.tar.gz node-linux-x64.tar.gz node-macos-arm64.tar.gz node-macos-x64.tar.gz opencode-linux-arm64.tar.gz opencode-linux-x64.tar.gz opencode-macos-arm64.zip opencode-macos-x64.zip opencode.lock.json provision.sh release.provenance.json release.sbom.json start tree_2.1.0-1_amd64.deb'
+expected_v9='THIRD_PARTY_LICENSES.txt broker-approval-signer-delegation.json catalog.json debian-bookworm-archive-keyring.gpg debian-bookworm-inrelease debian-bookworm-main-amd64-Packages.xz desktop-tools-engine.mjs desktop-tools-supervisor.mjs desktop-tools-tools.tar.gz manifest node-linux-arm64.tar.gz node-linux-x64.tar.gz node-macos-arm64.tar.gz node-macos-x64.tar.gz opencode-linux-arm64.tar.gz opencode-linux-x64.tar.gz opencode-macos-arm64.zip opencode-macos-x64.zip opencode.lock.json provision.sh release.provenance.json release.sbom.json start tree_2.1.0-1_amd64.deb'
 manifest="$unsigned_dir/manifest"
 [ -f "$manifest" ] && [ ! -L "$manifest" ] || { printf 'manifest is unsafe\n' >&2; exit 66; }
 schema_version="$(value schema_version)" || { printf 'manifest schema is malformed\n' >&2; exit 65; }
 case "$schema_version" in
   7) expected="$expected_v7"; expected_lines=64 ;;
   8) expected="$expected_v8"; expected_lines=76 ;;
+  9) expected="$expected_v9"; expected_lines=80 ;;
   *) printf 'manifest schema is unsupported\n' >&2; exit 65 ;;
 esac
 actual="$(find "$unsigned_dir" -mindepth 1 -maxdepth 1 -print | sed 's#^.*/##' | LC_ALL=C sort | tr '\n' ' ' | sed 's/ $//')"
@@ -69,11 +71,17 @@ validate opencode_lock opencode.lock.json 8388608
 validate sbom release.sbom.json 8388608
 validate provenance release.provenance.json 8388608
 validate licenses THIRD_PARTY_LICENSES.txt 8388608
-if [ "$schema_version" = 8 ]; then
+if [ "$schema_version" -ge 8 ]; then
   validate debian_inrelease debian-bookworm-inrelease 16777216
   validate debian_keyring debian-bookworm-archive-keyring.gpg 16777216
   validate debian_packages debian-bookworm-main-amd64-Packages.xz 268435456
   validate debian_tree tree_2.1.0-1_amd64.deb 268435456
+fi
+if [ "$schema_version" = 9 ]; then
+  minimum_revocation_epoch="$(value broker_approval_minimum_revocation_epoch)" \
+    || { printf 'broker approval minimum revocation epoch is missing\n' >&2; exit 65; }
+  case "$minimum_revocation_epoch" in ''|*[!0-9]*) printf 'broker approval minimum revocation epoch is invalid\n' >&2; exit 65 ;; esac
+  validate broker_approval_delegation broker-approval-signer-delegation.json 65536
 fi
 
 [ -f "$signing_key" ] && [ ! -L "$signing_key" ] || { printf 'signing key is unsafe\n' >&2; exit 66; }

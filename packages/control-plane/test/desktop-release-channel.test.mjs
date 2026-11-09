@@ -60,11 +60,16 @@ test('serves only Desktop Tools release filenames from its isolated prefix', asy
     ['release.provenance.json', 'application/json; charset=utf-8'],
     ['opencode.lock.json', 'application/json; charset=utf-8'],
     ['THIRD_PARTY_LICENSES.txt', 'text/plain; charset=utf-8'],
+    ['debian-bookworm-inrelease', 'text/plain; charset=utf-8'],
+    ['debian-bookworm-archive-keyring.gpg', 'application/pgp-keys'],
+    ['debian-bookworm-main-amd64-Packages.xz', 'application/x-xz'],
+    ['tree_2.1.0-1_amd64.deb', 'application/vnd.debian.binary-package'],
+    ['broker-approval-signer-delegation.json', 'application/json; charset=utf-8'],
   ]) {
     const closure = await lookupDesktopReleaseObject(bucket, 'desktop-release-1', filename);
     assert.equal(closure.status, 'found');
     assert.equal(closure.contentType, contentType);
   }
   assert.equal((await lookupDesktopReleaseObject(bucket, 'desktop-release-1', 'install-doctor-engine.mjs')).status, 'invalid');
-  assert.equal(requested.length, 8);
+  assert.equal(requested.length, 13);
 });

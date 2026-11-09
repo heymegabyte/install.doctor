@@ -1,10 +1,11 @@
 #!/usr/bin/env node
-import { createHash } from 'node:crypto';
+import { createHash, createPublicKey } from 'node:crypto';
 import { chmod, copyFile, lstat, mkdtemp, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { createRequire } from 'node:module';
 import { TextDecoder } from 'node:util';
 import { renderBootstrap } from '../packages/control-plane/src/bootstrap.ts';
+import { BrokerApprovalSignerDelegation } from '../packages/aid-core/src/broker-approval-contracts.ts';
 
 const { z } = createRequire(new URL('../packages/control-plane/package.json', import.meta.url))('zod');
 
@@ -17,6 +18,9 @@ const Configuration = z.strictObject({
   createdAt: z.number().int().positive().safe(), expiresAt: z.number().int().positive().safe(),
   signerId: z.string().regex(/^desktop-[a-z0-9][a-z0-9._-]{0,119}$/),
   signerPublicKey: z.string().regex(/^ssh-ed25519 [A-Za-z0-9+/]+={0,3}(?: [^\r\n]{1,128})?$/),
+  releaseChannel: z.literal('stable'),
+  brokerApprovalSignerDelegation: regularPath,
+  brokerApprovalMinimumRevocationEpoch: z.number().int().nonnegative().safe(),
   runtimeNodeVersion: z.string().regex(/^24\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$/),
   opencodeVersion: version,
   opencodeLock: regularPath,
@@ -30,9 +34,13 @@ const Configuration = z.strictObject({
 });
 const limits = Object.freeze({
   executable: 8_388_608, metadata: 8_388_608, runtime: 100_663_296,
-  opencode: 167_772_160, tools: 33_554_432, debian: 268_435_456, manifest: 32_768
+  opencode: 167_772_160, tools: 33_554_432, debian: 268_435_456, delegation: 65_536, manifest: 32_768
 });
 const sha256 = bytes => createHash('sha256').update(bytes).digest('hex');
+const canonical = value => Array.isArray(value) ? value.map(canonical)
+  : value && typeof value === 'object' ? Object.fromEntries(Object.entries(value)
+    .sort(([left], [right]) => left.localeCompare(right)).map(([key, entry]) => [key, canonical(entry)])) : value;
+const semanticDigest = (domain, value) => sha256(`${domain}\0${JSON.stringify(canonical(value))}`);
 const outputPlatform = name => name.replace('_', '-');
 const opencodeFilename = platform => platform.startsWith('macos_')
   ? `opencode-${outputPlatform(platform)}.zip` : `opencode-${outputPlatform(platform)}.tar.gz`;
@@ -76,6 +84,8 @@ function validateSbom(value, expected, config) {
   const properties = new Map((value.metadata.component.properties ?? []).map(item => [item?.name, item?.value]));
   if (properties.get('desktop.tools:source-commit') !== config.sourceCommit
     || properties.get('desktop.tools:opencode-version') !== config.opencodeVersion
+    || properties.get('desktop.tools:broker-approval-delegation-sha256') !== config.brokerApprovalDelegationSha256
+    || properties.get('desktop.tools:broker-approval-minimum-revocation-epoch') !== String(config.brokerApprovalMinimumRevocationEpoch)
     || properties.get('desktop.tools:debian-trust-policy-sha256') !== config.debianTrustPolicySha256
     || properties.get('desktop.tools:debian-composition-sha256') !== config.debianCompositionSha256) throw new Error('SBOM release pins are invalid');
   const actual = new Map();
@@ -95,7 +105,11 @@ function validateProvenance(value, expected, config, lock) {
   }
   const parameters = value.predicate?.buildDefinition?.externalParameters;
   if (parameters?.releaseId !== config.releaseId || parameters?.sourceCommit !== config.sourceCommit
-    || parameters?.opencodeVersion !== config.opencodeVersion) throw new Error('provenance release pins are invalid');
+    || parameters?.opencodeVersion !== config.opencodeVersion
+    || parameters?.brokerApprovalDelegationSha256 !== config.brokerApprovalDelegationSha256
+    || parameters?.brokerApprovalMinimumRevocationEpoch !== config.brokerApprovalMinimumRevocationEpoch) {
+    throw new Error('provenance release pins are invalid');
+  }
   const actual = new Map();
   for (const subject of value.subject ?? []) {
     if (typeof subject?.name !== 'string' || typeof subject?.digest?.sha256 !== 'string' || actual.has(subject.name)) {
@@ -145,6 +159,42 @@ export async function buildDesktopToolsRelease(configurationInput, now = Math.fl
   const lockSource = await input(config.opencodeLock, limits.metadata, 'OpenCode lock');
   const lock = OpenCodeLock.parse(jsonObject(lockSource, 'OpenCode lock'));
   if (lock.version !== config.opencodeVersion) throw new Error('OpenCode lock version does not match the configured pin');
+  const brokerApprovalDelegationSource = await input(config.brokerApprovalSignerDelegation, limits.delegation,
+    'broker approval signer delegation');
+  const brokerApprovalDelegation = BrokerApprovalSignerDelegation.parse(
+    jsonObject(brokerApprovalDelegationSource, 'broker approval signer delegation'));
+  if (!brokerApprovalDelegationSource.bytes.equals(Buffer.from(`${JSON.stringify(canonical(brokerApprovalDelegation))}\n`, 'utf8'))) {
+    throw new Error('broker approval signer delegation is not canonical JSON');
+  }
+  const { delegationDigest, ...delegationProjection } = brokerApprovalDelegation;
+  if (delegationDigest !== semanticDigest(
+    'desktop-tools:broker-approval-signer-delegation:v1', delegationProjection,
+  )) throw new Error('broker approval signer delegation digest is invalid');
+  if (brokerApprovalDelegation.releaseId !== config.releaseId
+    || brokerApprovalDelegation.channel !== config.releaseChannel) {
+    throw new Error('broker approval signer delegation release or channel scope is invalid');
+  }
+  if (brokerApprovalDelegation.revocationEpoch < config.brokerApprovalMinimumRevocationEpoch) {
+    throw new Error('broker approval signer delegation is below the release minimum revocation epoch');
+  }
+  const delegationStart = Date.parse(brokerApprovalDelegation.notBefore);
+  const delegationEnd = Date.parse(brokerApprovalDelegation.notAfter);
+  if (new Date(delegationStart).toISOString() !== brokerApprovalDelegation.notBefore
+    || new Date(delegationEnd).toISOString() !== brokerApprovalDelegation.notAfter
+    || delegationStart > config.createdAt * 1000 || delegationEnd < config.expiresAt * 1000) {
+    throw new Error('broker approval signer delegation does not cover the release validity window');
+  }
+  try {
+    const spki = Buffer.from(brokerApprovalDelegation.publicKeySpki, 'base64url');
+    const key = createPublicKey({ key: spki, format: 'der', type: 'spki' });
+    const canonicalSpki = key.export({ format: 'der', type: 'spki' }).toString('base64url');
+    if (key.asymmetricKeyType !== 'ed25519' || canonicalSpki !== brokerApprovalDelegation.publicKeySpki) {
+      throw new Error('not canonical Ed25519 SPKI');
+    }
+  } catch {
+    throw new Error('broker approval signer delegation SPKI is not canonical Ed25519');
+  }
+  config.brokerApprovalDelegationSha256 = sha256(brokerApprovalDelegationSource.bytes);
   const debianInputs = {
     'debian-bookworm-archive-keyring.gpg': await input(config.debian.archiveKeyring, limits.metadata, 'Debian archive keyring'),
     'debian-bookworm-inrelease': await input(config.debian.inRelease, limits.metadata, 'Debian InRelease'),
@@ -205,6 +255,7 @@ export async function buildDesktopToolsRelease(configurationInput, now = Math.fl
       opencodeFilename(platform), await input(config.opencode[platform], limits.opencode, `${platform} OpenCode runtime`)
     ])),
     ['opencode.lock.json', lockSource],
+    ['broker-approval-signer-delegation.json', brokerApprovalDelegationSource],
     ['THIRD_PARTY_LICENSES.txt', await input(config.licenses, limits.metadata, 'third-party licenses')],
     ...Object.entries(debianInputs)
   ]);
@@ -243,6 +294,8 @@ export async function buildDesktopToolsRelease(configurationInput, now = Math.fl
     metadata: { component: { type: 'application', name: 'desktop-tools-release', version: config.releaseId,
       properties: [{ name: 'desktop.tools:source-commit', value: config.sourceCommit },
         { name: 'desktop.tools:opencode-version', value: config.opencodeVersion },
+        { name: 'desktop.tools:broker-approval-delegation-sha256', value: config.brokerApprovalDelegationSha256 },
+        { name: 'desktop.tools:broker-approval-minimum-revocation-epoch', value: String(config.brokerApprovalMinimumRevocationEpoch) },
         { name: 'desktop.tools:debian-trust-policy-sha256', value: config.debianTrustPolicySha256 },
         { name: 'desktop.tools:debian-composition-sha256', value: config.debianCompositionSha256 }] } },
     components
@@ -254,6 +307,8 @@ export async function buildDesktopToolsRelease(configurationInput, now = Math.fl
     predicate: { buildDefinition: {
       buildType: 'https://desktop.tools/build-types/release-closure/v1',
       externalParameters: { releaseId: config.releaseId, sourceCommit: config.sourceCommit, opencodeVersion: config.opencodeVersion,
+        brokerApprovalDelegationSha256: config.brokerApprovalDelegationSha256,
+        brokerApprovalMinimumRevocationEpoch: config.brokerApprovalMinimumRevocationEpoch,
         debianTrustPolicySha256: sha256(trustPolicySource.bytes), debianCompositionSha256: sha256(compositionSource.bytes) },
       resolvedDependencies: platforms.map(platform => ({ uri: lock.artifacts[platform].upstreamUrl,
         digest: { sha256: lock.artifacts[platform].sha256 } })).concat(config.debianResolvedDependencies.map(item => ({ uri: item.uri, digest: { sha256: item.sha256 } })))
@@ -267,16 +322,18 @@ export async function buildDesktopToolsRelease(configurationInput, now = Math.fl
     ['artifact', 'provision.sh'], ['engine', 'desktop-tools-engine.mjs'], ['catalog', 'catalog.json'],
     ['launcher', 'start'], ['supervisor', 'desktop-tools-supervisor.mjs'], ['tools', 'desktop-tools-tools.tar.gz'],
     ['opencode_lock', 'opencode.lock.json'], ['sbom', 'release.sbom.json'], ['provenance', 'release.provenance.json'], ['licenses', 'THIRD_PARTY_LICENSES.txt'],
+    ['broker_approval_delegation', 'broker-approval-signer-delegation.json'],
     ['debian_keyring', 'debian-bookworm-archive-keyring.gpg'], ['debian_inrelease', 'debian-bookworm-inrelease'],
     ['debian_packages', 'debian-bookworm-main-amd64-Packages.xz'], ['debian_tree', 'tree_2.1.0-1_amd64.deb'],
     ...platforms.map(platform => [`runtime_${platform}`, `node-${outputPlatform(platform)}.tar.gz`]),
     ...platforms.map(platform => [`opencode_${platform}`, opencodeFilename(platform)])
   ];
   const bytesByName = new Map([...sources.entries()].map(([name, source]) => [name, source.bytes]));
-  const lines = ['schema_version=8', 'product_id=desktop-tools', `release_id=${config.releaseId}`,
+  const lines = ['schema_version=9', 'product_id=desktop-tools', `release_id=${config.releaseId}`,
     `source_commit=${config.sourceCommit}`, `created_at=${config.createdAt}`, `expires_at=${config.expiresAt}`,
     `key_id=${config.signerId}`, 'engine_node_min=22', `runtime_node_version=${config.runtimeNodeVersion}`,
-    `opencode_version=${config.opencodeVersion}`];
+    `opencode_version=${config.opencodeVersion}`,
+    `broker_approval_minimum_revocation_epoch=${config.brokerApprovalMinimumRevocationEpoch}`];
   for (const [prefix, filename] of artifacts) {
     const bytes = bytesByName.get(filename);
     lines.push(`${prefix}_url=${origin}/releases/${config.releaseId}/${filename}`,
@@ -299,7 +356,7 @@ export async function buildDesktopToolsRelease(configurationInput, now = Math.fl
     await rm(stage, { recursive: true, force: true });
     throw error;
   }
-  return Object.freeze({ schemaVersion: 2, manifestSchemaVersion: 8, product: 'desktop-tools',
+  return Object.freeze({ schemaVersion: 2, manifestSchemaVersion: 9, product: 'desktop-tools',
     releaseId: config.releaseId, opencodeVersion: config.opencodeVersion,
     outputDirectory: output, manifestSha256: sha256(manifest) });
 }

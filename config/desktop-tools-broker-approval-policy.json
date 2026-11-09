@@ -1,0 +1,7 @@
+{
+  "channel": "stable",
+  "maximumApprovalLifetimeSeconds": 600,
+  "minimumRevocationEpoch": 1,
+  "product": "desktop-tools",
+  "schemaVersion": 1
+}
