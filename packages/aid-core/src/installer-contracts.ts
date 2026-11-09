@@ -615,6 +615,7 @@ export const DisposableProductCompositionReceiptSchema = strict({
   }),
   limitations: z.tuple([
     z.literal('fixture-signer'),
+    z.literal('fixture-owner-decision'),
     z.literal('in-memory-control-plane'),
     z.literal('protocol-opencode'),
   ]),

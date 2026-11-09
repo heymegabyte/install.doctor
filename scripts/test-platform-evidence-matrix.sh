@@ -146,7 +146,7 @@ const receipt = {
     authorizationId: 'authorization-1', sessionId: 'session-1', runId: 'run-1', planDigest: '8'.repeat(64) },
   phases: { profileResolution: phase('1'), authorization: phase('2'), supervisorLaunch: phase('3'), planApplyVerify: phase('4'),
     unchangedSecondRun: phase('5'), interruptedResume: phase('6'), rollback: phase('7'), deprovisionPreview: phase('8') },
-  limitations: ['fixture-signer', 'in-memory-control-plane', 'protocol-opencode'],
+  limitations: ['fixture-signer', 'fixture-owner-decision', 'in-memory-control-plane', 'protocol-opencode'],
 };
 fs.writeFileSync(process.argv[3], JSON.stringify(matrix));
 fs.writeFileSync(process.argv[4], JSON.stringify(receipt));

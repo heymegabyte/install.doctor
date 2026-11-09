@@ -18,6 +18,7 @@ grep -Eq '^  workflow_dispatch:' "$WORKFLOW" \
   || fail 'manual signed lifecycle dispatch must remain available'
 
 for required in \
+  'packages/control-plane/test/disposable-product-composition.test.mjs' \
   'scripts/test-bootstrap-release-workflow.sh' \
   'scripts/test-bootstrap-install-acceptance.sh' \
   'scripts/test-bootstrap-upgrade-acceptance.sh' \
@@ -33,6 +34,18 @@ for required in \
   'packages/installer-engine/test/offline-execution.test.mjs'; do
   grep -Fq "$required" "$WORKFLOW" || fail "workflow does not execute $required"
 done
+
+node - "$WORKFLOW" <<'NODE' || fail 'disposable composition job has production authority or external-write capability'
+const fs = require('node:fs');
+const workflow = fs.readFileSync(process.argv[2], 'utf8');
+const match = workflow.match(/^  disposable-product-composition:\n([\s\S]*?)(?=^  [a-z0-9][a-z0-9-]*:\n)/m);
+if (!match) process.exit(1);
+const job = match[0];
+for (const forbidden of ['environment:', 'id-token:', 'secrets.', 'INFISICAL', 'wrangler deploy', 'rclone', 'aws s3', 'firebase']) {
+  if (job.includes(forbidden)) process.exit(2);
+}
+if (!job.includes('Disposable Desktop Tools product composition') || !job.includes('persist-credentials: false')) process.exit(3);
+NODE
 
 grep -Fq 'INSTALL_DOCTOR_REQUIRE_REAL_OFFLINE_SANDBOX: "1"' "$WORKFLOW" \
   || fail 'offline lifecycle job must require real Linux namespace isolation'

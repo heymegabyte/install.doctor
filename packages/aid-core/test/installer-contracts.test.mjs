@@ -123,7 +123,7 @@ const disposableCompositionReceipt = {
     'profileResolution', 'authorization', 'supervisorLaunch', 'planApplyVerify',
     'unchangedSecondRun', 'interruptedResume', 'rollback', 'deprovisionPreview',
   ].map((phase, index) => [phase, { result: 'passed', evidenceDigest: String(index + 1).repeat(64) }])),
-  limitations: ['fixture-signer', 'in-memory-control-plane', 'protocol-opencode'],
+  limitations: ['fixture-signer', 'fixture-owner-decision', 'in-memory-control-plane', 'protocol-opencode'],
 };
 
 const cases = [
@@ -155,7 +155,7 @@ test('disposable composition evidence cannot be confused with real-host or produ
   }));
   assert.throws(() => DisposableProductCompositionReceiptSchema.parse({
     ...disposableCompositionReceipt,
-    limitations: ['fixture-signer', 'protocol-opencode', 'in-memory-control-plane'],
+    limitations: ['fixture-signer', 'in-memory-control-plane', 'fixture-owner-decision', 'protocol-opencode'],
   }));
 });
 

@@ -14,6 +14,31 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  disposable-product-composition:
+    name: Disposable Desktop Tools product composition
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24.22.2
+          cache: npm
+          cache-dependency-path: |
+            packages/aid-core/package-lock.json
+            packages/control-plane/package-lock.json
+      - name: Install locked composition dependencies
+        run: |
+          npm --prefix packages/aid-core ci --ignore-scripts --no-audit --no-fund
+          npm --prefix packages/control-plane ci --ignore-scripts --no-audit --no-fund
+      - name: Verify disposable profile and target authorization composition
+        run: |
+          npm --prefix packages/aid-core run build
+          npm --prefix packages/control-plane run check
+          node --test packages/control-plane/test/disposable-product-composition.test.mjs
+
   linux-signed-start:
     runs-on: ubuntu-latest
     timeout-minutes: 15
