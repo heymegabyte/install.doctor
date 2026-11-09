@@ -295,6 +295,36 @@ test('v1 target authorization persists exact public binding and atomically claim
     fingerprint: persisted.target_key_fingerprint, scopes: JSON.parse(persisted.scopes) }, {
     tenantId: profile.tenantId, profileId: profile.id, fingerprint: binding.targetKeyFingerprint, scopes: binding.scopes,
   });
+
+  const identity = await app.fetch(new Request('https://brian.desktop.tools/api/devices/me', {
+    headers: { authorization: `Bearer ${credential.credential}` },
+  }), env);
+  assert.equal(identity.status, 200, await identity.clone().text());
+  const resolvedIdentity = await identity.json();
+  assert.ok(Number.isFinite(Date.parse(resolvedIdentity.enrolledAt)));
+  assert.deepEqual({ ...resolvedIdentity, enrolledAt: '<timestamp>' }, {
+    deviceId: credential.credentialId, tenant: profile.tenantId, label: 'Zen',
+    enrolledAt: '<timestamp>', grantedPermissions: binding.scopes, profileRevision: profile.revision,
+    machineFingerprint: binding.targetKeyFingerprint,
+  });
+  const desired = await app.fetch(new Request('https://brian.desktop.tools/api/device/current', {
+    headers: { authorization: `Bearer ${credential.credential}` },
+  }), env);
+  assert.equal(desired.status, 503, 'profile credential authenticates and reaches its tenant desired-state store');
+  assert.equal((await desired.json()).error, 'store_error');
+
+  await db.prepare('UPDATE device_authorization_credentials SET scopes=? WHERE credential_id=?')
+    .bind('["session:create"]', credential.credentialId).run();
+  const deniedDesired = await app.fetch(new Request('https://brian.desktop.tools/api/device/current', {
+    headers: { authorization: `Bearer ${credential.credential}` },
+  }), env);
+  assert.equal(deniedDesired.status, 403, 'persisted target scope is enforced on every desired-state request');
+  await db.prepare('UPDATE device_authorization_credentials SET revoked_at=? WHERE credential_id=?')
+    .bind(new Date().toISOString(), credential.credentialId).run();
+  const revoked = await app.fetch(new Request('https://brian.desktop.tools/api/devices/me', {
+    headers: { authorization: `Bearer ${credential.credential}` },
+  }), env);
+  assert.equal(revoked.status, 401, 'target credential revocation is effective on the next request');
   assert.equal((await poll()).status, 404, 'claimed polling authority must not replay');
   assert.equal((await poll('q'.repeat(43))).status, 404, 'substituted polling authority must be indistinguishable');
 

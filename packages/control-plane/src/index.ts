@@ -230,8 +230,15 @@ app.use('*', async (c, next) => {
   const target = classifyDesktopToolsHostname(new URL(c.req.url).hostname);
   if (target.kind === 'profile') {
     const pathname = new URL(c.req.url).pathname;
+    const targetCredentialRoute = pathname === '/api/devices/me'
+      || pathname === '/api/device/current'
+      || pathname === '/api/device/current.md'
+      || pathname === '/api/device/apply'
+      || pathname === '/api/device/report'
+      || pathname === '/api/device/history';
     if (pathname === '/api/v1/device-authorizations/start'
-      || /^\/api\/v1\/device-authorizations\/[a-z0-9][a-z0-9._-]{0,127}\/(?:poll|cancel)$/.test(pathname)) {
+      || /^\/api\/v1\/device-authorizations\/[a-z0-9][a-z0-9._-]{0,127}\/(?:poll|cancel)$/.test(pathname)
+      || targetCredentialRoute) {
       await next();
       return;
     }
@@ -1637,13 +1644,28 @@ async function resolveDevice(
   db: any,
   authHeader: string | undefined,
 ): Promise<{ deviceId: string; tenant: string; label: string | null; createdAt: string; permissions: string[] | null;
-  profileRevision: string | null; machineFingerprint: string | null } | null> {
+  profileRevision: string | null; machineFingerprint: string | null; credentialKind: 'legacy' | 'desktop-tools' } | null> {
   const token = (authHeader || '').startsWith('Bearer ') ? (authHeader as string).slice(7) : '';
   if (!token) return null;
-  const row = await db
-    .prepare('SELECT device_id, tenant, label, permissions, created_at, revoked_at, expires_at, profile_revision, machine_fingerprint FROM devices WHERE token_sha256 = ?')
-    .bind(await sha256hex(token))
-    .first();
+  const tokenHash = await sha256hex(token);
+  // The additive Desktop Tools authorization protocol deliberately stores target credentials
+  // separately from compatibility pairings. Select by the non-secret token namespace so a dtc_
+  // credential can never fall through to the legacy table or inherit legacy scope semantics.
+  const row = token.startsWith('dtc_')
+    ? await db.prepare(`
+        SELECT c.credential_id AS device_id, c.tenant_id AS tenant,
+               a.machine_label AS label, c.scopes AS permissions,
+               c.issued_at AS created_at, c.revoked_at, c.expires_at,
+               a.profile_revision, c.target_key_fingerprint AS machine_fingerprint,
+               'desktop-tools' AS credential_kind
+          FROM device_authorization_credentials c
+          JOIN device_authorizations a ON a.request_id = c.request_id
+         WHERE c.secret_sha256 = ?
+      `).bind(tokenHash).first()
+    : await db
+      .prepare("SELECT device_id, tenant, label, permissions, created_at, revoked_at, expires_at, profile_revision, machine_fingerprint, 'legacy' AS credential_kind FROM devices WHERE token_sha256 = ?")
+      .bind(tokenHash)
+      .first();
   if (!row || row.revoked_at || (row.expires_at && Date.parse(row.expires_at as string) <= Date.now())) return null;
   let permissions: string[] | null = null;
   try {
@@ -1652,19 +1674,26 @@ async function resolveDevice(
       permissions = Array.isArray(parsed) ? parsed.map(String) : [];
     }
   } catch {
-    /* tolerate a legacy/unparseable value — read as no recorded scope */
+    // SQL NULL is the only grandfathered legacy state. Any persisted but malformed
+    // scope value (including every new credential) is known authority and fails closed.
+    permissions = row.permissions === null || row.permissions === undefined ? null : [];
   }
   return { deviceId: row.device_id, tenant: row.tenant, label: row.label, createdAt: row.created_at, permissions,
-    profileRevision: row.profile_revision ?? null, machineFingerprint: row.machine_fingerprint ?? null };
+    profileRevision: row.profile_revision ?? null, machineFingerprint: row.machine_fingerprint ?? null,
+    credentialKind: row.credential_kind };
 }
 // P05-enforcement (O12 — authorize each host action server-side): gate a device action on the
 // device's RECORDED granted scope (persisted at claim, fire #53). Returns a 403 Response to
 // short-circuit, or null when allowed. A device with an EMPTY recorded scope is GRANDFATHERED
 // (legacy devices enrolled before the scope was persisted) so enforcement never breaks an
 // already-paired machine. 403 (not 404) — the device is known; the ACTION isn't granted.
-function requireScope(c: any, dev: { permissions: string[] | null }, permission: string): Response | null {
+function requireScope(c: any, dev: { permissions: string[] | null; credentialKind: 'legacy' | 'desktop-tools' }, permission: string): Response | null {
   if (dev.permissions === null) return null; // grandfathered only when the pre-scope row has SQL NULL
   if (dev.permissions.includes(permission)) return null; // granted
+  // Additive target credentials use protocol-qualified scope names. Keep their recorded authority
+  // unchanged and bridge only the exact compatibility action that implements that scope.
+  if (dev.credentialKind === 'desktop-tools' && permission === 'pull-desired-state'
+    && dev.permissions.includes('profile:read')) return null;
   return c.json({ error: 'insufficient_scope', required: permission, granted: dev.permissions }, 403);
 }
 // Shared admin gate (reused by enroll + revoke + the PUT write path + every admin read). Returns a
