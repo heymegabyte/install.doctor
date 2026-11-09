@@ -897,20 +897,48 @@ idInstallSealedHandoffFile() {
 }
 
 ### Ensure Homebrew is loaded
-loadHomebrew() {
-  if ! command -v brew > /dev/null; then
-    if [ -f /usr/local/bin/brew ]; then
-      logg info "Using /usr/local/bin/brew" && eval "$(/usr/local/bin/brew shellenv)"
-    elif [ -f "${HOMEBREW_PREFIX:-/opt/homebrew}/bin/brew" ]; then
-      logg info "Using ${HOMEBREW_PREFIX:-/opt/homebrew}/bin/brew" && eval "$("${HOMEBREW_PREFIX:-/opt/homebrew}/bin/brew" shellenv)"
-    elif [ -x "$HOME/.linuxbrew/bin/brew" ]; then
-      logg info "Using $HOME/.linuxbrew/bin/brew" && eval "$("$HOME/.linuxbrew/bin/brew" shellenv)"
-    elif [ -x "/home/linuxbrew/.linuxbrew/bin/brew" ]; then
-      logg info 'Using /home/linuxbrew/.linuxbrew/bin/brew' && eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
-    else
-      logg info 'Could not find Homebrew installation'
-    fi
+idTrustedHomebrewExecutable() {
+  local candidate="${INSTALL_DOCTOR_HOMEBREW_PATH:-}" expected="${INSTALL_DOCTOR_HOMEBREW_SHA256:-}" actual owner mode parent parent_owner parent_mode
+  if [ -z "$candidate" ]; then candidate="$(command -v brew 2>/dev/null || true)"; fi
+  case "$candidate" in /*) ;; *) return 1 ;; esac
+  [ -f "$candidate" ] && [ ! -L "$candidate" ] && [ -x "$candidate" ] || return 1
+  parent="$(dirname "$candidate")"
+  [ -d "$parent" ] && [ ! -L "$parent" ] || return 1
+  if stat -f '%u %Lp' "$candidate" >/dev/null 2>&1; then
+    read -r owner mode <<EOF
+$(stat -f '%u %Lp' "$candidate")
+EOF
+    read -r parent_owner parent_mode <<EOF
+$(stat -f '%u %Lp' "$parent")
+EOF
+  else
+    read -r owner mode <<EOF
+$(stat -c '%u %a' "$candidate")
+EOF
+    read -r parent_owner parent_mode <<EOF
+$(stat -c '%u %a' "$parent")
+EOF
   fi
+  case "$owner:$parent_owner" in
+    "$(id -u):$(id -u)"|"$(id -u):0"|"0:0"|"0:$(id -u)") ;;
+    *) return 1 ;;
+  esac
+  [ $((8#$mode & 2)) -eq 0 ] && [ $((8#$parent_mode & 2)) -eq 0 ] || return 1
+  case "$expected" in
+    absent|'') ;;
+    *[!a-f0-9]*) return 1 ;;
+    *) [ "${#expected}" -eq 64 ] || return 1; actual="$(idSha256File "$candidate")" || return 1; [ "$actual" = "$expected" ] || return 1 ;;
+  esac
+  printf '%s\n' "$candidate"
+}
+
+loadHomebrew() {
+  local brew_path
+  brew_path="$(idTrustedHomebrewExecutable)" || { logg info 'Could not find the exact trusted Homebrew executable'; return 1; }
+  PATH="$(dirname "$brew_path"):$PATH"
+  export PATH
+  hash -r
+  [ "$(command -v brew)" = "$brew_path" ] || return 1
 }
 
 ### Ensures Homebrew folders have proper owners / permissions
@@ -944,7 +972,11 @@ fixHomebrewSharePermissions() {
 
 ### Installs Homebrew
 ensurePackageManagerHomebrew() {
-  if ! command -v brew > /dev/null; then
+  if ! idTrustedHomebrewExecutable >/dev/null 2>&1; then
+    if [ -n "${INSTALL_DOCTOR_HOMEBREW_PATH:-}" ] && [ -e "$INSTALL_DOCTOR_HOMEBREW_PATH" ]; then
+      logg error 'The plan-bound Homebrew executable changed or has unsafe ownership or permissions'
+      return 2
+    fi
     local BREW_EXIT_CODE=""
     local HOMEBREW_INSTALL_COMMIT='959bdd728192d78c47287c177796c3d86d111f09'
     local HOMEBREW_INSTALL_SHA256='5f333bbe53bc490e51e7ccb1df8779b3dd6ee73a1a7379efda216edb08ccb148'
@@ -1007,9 +1039,9 @@ ensurePackageManagerHomebrew() {
 #
 #     Optional compilers are selected by desired state and are not part of bootstrap.
 ensureHomebrew() {
-  loadHomebrew
+  loadHomebrew || true
   ensurePackageManagerHomebrew
-  loadHomebrew
+  loadHomebrew || { logg error 'Homebrew installation did not produce the exact trusted executable'; return 1; }
   command -v brew >/dev/null 2>&1 || { logg error 'Homebrew installation did not produce an executable brew command'; return 1; }
 }
 
@@ -2469,6 +2501,28 @@ if (agentTaskDirectory) {
   }
 }
 const agentTaskManifestDigest = digest(agentTaskManifest);
+let homebrewPath = '';
+let homebrewDigest = 'absent';
+for (const directory of (process.env.PATH || '').split(':')) {
+  if (!directory.startsWith('/')) continue;
+  const candidate = `${directory.replace(/\/$/, '')}/brew`;
+  try {
+    const metadata = fs.lstatSync(candidate);
+    if (!metadata.isFile() || metadata.isSymbolicLink() || (metadata.mode & 0o111) === 0) continue;
+    const parent = fs.lstatSync(require('node:path').dirname(candidate));
+    if ((metadata.uid !== 0 && metadata.uid !== process.geteuid()) || (metadata.mode & 0o002) !== 0
+      || !parent.isDirectory() || parent.isSymbolicLink() || (parent.uid !== 0 && parent.uid !== process.geteuid())
+      || (parent.mode & 0o002) !== 0) throw new Error('ambient Homebrew executable has unsafe ownership or permissions');
+    homebrewPath = candidate;
+    homebrewDigest = crypto.createHash('sha256').update(fs.readFileSync(candidate)).digest('hex');
+    break;
+  } catch (error) {
+    if (!error || error.code !== 'ENOENT') throw error;
+  }
+}
+if (!homebrewPath) homebrewPath = platform === 'darwin'
+  ? (arch === 'arm64' ? '/opt/homebrew/bin/brew' : '/usr/local/bin/brew')
+  : '/home/linuxbrew/.linuxbrew/bin/brew';
 let warpCliPath = '';
 let warpCliDigest = 'absent';
 if (rawPlan.network === 'cloudflare-warp' && rawPlan.consents.network === true) {
@@ -2539,6 +2593,8 @@ const operationEnvironment = {
   INSTALL_DOCTOR_AGENT_TASKS_DIGEST: agentTaskManifestDigest,
   INSTALL_DOCTOR_AGENT_FAILURE_POLICY: process.env.INSTALL_DOCTOR_AGENT_FAILURE_POLICY === 'continue' ? 'continue' : 'fail',
   INSTALL_DOCTOR_EFFECT_RECEIPT_DIR: `${stateRoot}/effects`,
+  INSTALL_DOCTOR_HOMEBREW_PATH: homebrewPath,
+  INSTALL_DOCTOR_HOMEBREW_SHA256: homebrewDigest,
   INSTALL_DOCTOR_ENGINE_OWNS_PACKAGES: '1',
   INSTALL_DOCTOR_ENGINE_OWNS_SERVICES: '1',
   INSTALL_DOCTOR_ENGINE_OWNS_SOFTWARE_GROUPS: '1',
@@ -2605,7 +2661,7 @@ const sourceTask = {
 };
 const homebrewTask = {
   schemaVersion: 1, id: 'bootstrap.homebrew',
-  inputDigest: digest({ platform, installerCommit: '959bdd728192d78c47287c177796c3d86d111f09' }),
+  inputDigest: digest({ platform, installerCommit: '959bdd728192d78c47287c177796c3d86d111f09', homebrewPath, homebrewDigest }),
   dependencies: [nativeDependenciesTask.id], predicate: 'host-supported', requiredCapabilities: [],
   operations: { check: 'homebrew-check', apply: 'homebrew-apply', verify: 'homebrew-verify' },
   timeoutMs: 1_800_000, retry: { class: 'transient', maxAttempts: 2, backoffMs: 2_000 },
@@ -3454,8 +3510,7 @@ idRunEngineOperation() {
       ;;
     source-verify) verifyChezmoiSourceRepo ;;
     homebrew-check|homebrew-verify)
-      loadHomebrew
-      command -v brew >/dev/null 2>&1 && return 0
+      loadHomebrew && command -v brew >/dev/null 2>&1 && return 0
       [ "${1:-}" = homebrew-check ] && return 10
       return 2
       ;;
@@ -3463,13 +3518,13 @@ idRunEngineOperation() {
       ensureHomebrew
       ;;
     homebrew-tools-check|homebrew-tools-verify)
-      loadHomebrew
+      loadHomebrew || return 2
       command -v chezmoi >/dev/null 2>&1 && command -v gum >/dev/null 2>&1 && command -v zx >/dev/null 2>&1 && return 0
       [ "${1:-}" = homebrew-tools-check ] && return 10
       return 2
       ;;
     homebrew-tools-apply)
-      loadHomebrew
+      loadHomebrew || return 2
       ensureHomebrewDeps
       ;;
     chezmoi-init-check)

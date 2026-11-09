@@ -37,6 +37,13 @@ else
   fail 'bootstrap installx materialization retains a legacy writer or lacks native ownership'
 fi
 if grep -q -- '--engine-operation' "$PROVISION" && grep -q 'chezmoi-check\|chezmoi-apply\|chezmoi-verify' "$PROVISION"; then pass 'engine operations use the staged provisioner adapter'; else fail 'engine operation adapter is absent'; fi
+if grep -q 'INSTALL_DOCTOR_HOMEBREW_PATH: homebrewPath' "$PROVISION" \
+  && grep -q 'INSTALL_DOCTOR_HOMEBREW_SHA256: homebrewDigest' "$PROVISION" \
+  && grep -q "installerCommit: .*homebrewPath, homebrewDigest" "$PROVISION"; then
+  pass 'Homebrew execution identity is bound into the approved plan and operation environment'
+else
+  fail 'Homebrew execution still depends on unbound ambient PATH authority'
+fi
 chezmoi_task="$(sed -n "/const task = {/,/const configurationRoot =/p" "$PROVISION")"
 if printf '%s\n' "$chezmoi_task" | grep -q "id: 'provision.chezmoi'" \
   && printf '%s\n' "$chezmoi_task" | grep -q "privilege: 'user'" \
@@ -279,6 +286,31 @@ if make_brew_fixture "$TMP_DIR/tool-failure" zx 42; then
   fi
 else
   fail 'Homebrew-tools operation swallowed or remapped the fake brew failure'
+fi
+
+mkdir -p "$TMP_DIR/brew-trust/bin" "$TMP_DIR/brew-trust/home"
+printf '#!/usr/bin/env bash\nexit 0\n' > "$TMP_DIR/brew-trust/bin/brew"
+chmod 0700 "$TMP_DIR/brew-trust/bin/brew"
+brew_digest="$(shasum -a 256 "$TMP_DIR/brew-trust/bin/brew" | awk '{print $1}')"
+if HOME="$TMP_DIR/brew-trust/home" INSTALL_DOCTOR_HOMEBREW_PATH="$TMP_DIR/brew-trust/bin/brew" \
+  INSTALL_DOCTOR_HOMEBREW_SHA256="$brew_digest" bash -c 'source "$1"; loadHomebrew' _ "$PROVISION"; then
+  pass 'exact plan-bound Homebrew executable is admitted'
+else
+  fail 'exact plan-bound Homebrew executable was rejected'
+fi
+printf '# changed after approval\n' >> "$TMP_DIR/brew-trust/bin/brew"
+if HOME="$TMP_DIR/brew-trust/home" INSTALL_DOCTOR_HOMEBREW_PATH="$TMP_DIR/brew-trust/bin/brew" \
+  INSTALL_DOCTOR_HOMEBREW_SHA256="$brew_digest" bash -c 'source "$1"; loadHomebrew' _ "$PROVISION"; then
+  fail 'changed Homebrew executable retained stale plan authority'
+else
+  pass 'changed Homebrew executable invalidates stale plan authority'
+fi
+chmod 0702 "$TMP_DIR/brew-trust/bin"
+if HOME="$TMP_DIR/brew-trust/home" INSTALL_DOCTOR_HOMEBREW_PATH="$TMP_DIR/brew-trust/bin/brew" \
+  INSTALL_DOCTOR_HOMEBREW_SHA256=absent bash -c 'source "$1"; loadHomebrew' _ "$PROVISION"; then
+  fail 'Homebrew executable beneath a world-writable directory was admitted'
+else
+  pass 'Homebrew executable beneath a world-writable directory is rejected'
 fi
 
 if npm --prefix "$ROOT/packages/installer-engine" run bundle >/dev/null 2>&1; then
