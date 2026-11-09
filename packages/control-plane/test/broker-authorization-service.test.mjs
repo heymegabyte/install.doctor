@@ -25,10 +25,10 @@ const principal = {
 const owner = { actor: 'OWNER@example.com', authenticatedAt: '2026-11-09T11:58:00.000Z' };
 
 function fixture(overrides = {}) {
-  const calls = { intents: [], decisions: [], lookups: [], statuses: [] };
+  const calls = { intents: [], decisions: [], lookups: [], statuses: [], states: [], approvals: [] };
   const reconstruction = {
     schemaVersion: 1, authorizationId: intent.authorizationId, ownerDecisionId: 'decision-1',
-    ownerActorId: 'owner@example.com', ownerDecision: 'approved',
+    ownerActorId: 'owner-1', ownerDecision: 'approved',
     ownerReauthenticatedAt: owner.authenticatedAt, ownerDecidedAt: now.toISOString(),
     ownerDecisionExpiresAt: '2026-11-09T12:10:00.000Z', tenantId: intent.tenantId,
     profileId: intent.profileId, profileRevisionDigest: intent.profileRevisionDigest,
@@ -56,6 +56,18 @@ function fixture(overrides = {}) {
       async loadRunIntent(id) { return id === intent.runIntentId ? intent : null; },
       async ownerForTenant() { return { authenticationActor: 'owner@example.com', ownerActorId: 'owner-1' }; },
       ...overrides,
+    },
+    approval: {
+      async delegationForRelease(releaseId) {
+        assert.equal(releaseId, intent.releaseId);
+        return { schemaVersion: 1, kind: 'desktop-tools-broker-approval-signer-delegation',
+          keyId: 'approval-key-1', algorithm: 'Ed25519', signatureDomain: 'desktop-tools-broker-approval-v1',
+          product: 'desktop-tools', releaseId, channel: 'stable', publicKeySpki: 'A'.repeat(64),
+          notBefore: '2026-11-09T11:00:00.000Z', notAfter: '2026-11-09T13:00:00.000Z',
+          maximumApprovalLifetimeSeconds: 600, revocationEpoch: 1, delegationDigest: hex('4') };
+      },
+      async persistApprovedState(value) { calls.states.push(value); return true; },
+      async approve(value) { calls.approvals.push(value); return { approvalId: 'approval-1' }; },
     },
   });
   return { service, calls, reconstruction };
@@ -110,7 +122,7 @@ test('owner review and decision require current matching authentication and exac
   assert.deepEqual(calls.decisions, [result.decision]);
 });
 
-test('claim is exact, device-scoped, bounded, and returns only durable reconstruction', async () => {
+test('claim is exact, device-scoped, persists reconstructed authority, and returns only signed evidence', async () => {
   const { service, calls, reconstruction } = fixture();
   const lookup = {
     schemaVersion: 1, authorizationId: intent.authorizationId, ownerDecisionId: 'decision-1',
@@ -118,8 +130,11 @@ test('claim is exact, device-scoped, bounded, and returns only durable reconstru
     profileRevisionDigest: intent.profileRevisionDigest, deviceCredentialId: intent.deviceCredentialId,
     deviceFingerprint: intent.deviceFingerprint, runIntentId: intent.runIntentId, grantId: intent.grantId,
   };
-  assert.deepEqual(await service.claimApprovedAuthorization(lookup, principal), reconstruction);
+  assert.deepEqual(await service.claimApprovedAuthorization(lookup, principal), { approval: { approvalId: 'approval-1' } });
   assert.deepEqual(calls.lookups, [lookup]);
+  assert.equal(calls.states.length, 1);
+  assert.deepEqual(calls.states[0].grant, reconstruction.grant);
+  assert.deepEqual(calls.approvals, [lookup]);
   await assert.rejects(service.claimApprovedAuthorization({ ...lookup, extra: true }, principal));
 });
 

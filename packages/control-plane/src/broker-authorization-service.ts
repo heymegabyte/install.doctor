@@ -11,6 +11,12 @@ import {
   type BrokerRunIntentValue,
 } from './broker-run-intent-d1-store.ts';
 import { authorizeOwnerContextRead, type AuthenticatedOwner } from './owner-approval.ts';
+import {
+  BrokerApprovalDurableState,
+  BrokerApprovalRequest,
+  BrokerApprovalSignerDelegation,
+  type SignedBrokerApprovalValue,
+} from './broker-approval-signer.ts';
 
 const DECISION_LIFETIME_MS = 10 * 60 * 1000;
 
@@ -49,6 +55,12 @@ export type BrokerAuthorizationAuthority = Readonly<{
   reconstructRunIntent(request: BrokerRunIntentValue, principal: BrokerDevicePrincipal): Promise<BrokerRunIntentValue | null>;
   loadRunIntent(runIntentId: string): Promise<BrokerRunIntentValue | null>;
   ownerForTenant(tenantId: string): Promise<Readonly<{ authenticationActor: string; ownerActorId: string }> | null>;
+}>;
+
+export type BrokerApprovalIssuer = Readonly<{
+  delegationForRelease(releaseId: string): Promise<z.infer<typeof BrokerApprovalSignerDelegation> | null>;
+  persistApprovedState(value: unknown): Promise<boolean>;
+  approve(request: unknown): Promise<SignedBrokerApprovalValue>;
 }>;
 
 export type BrokerAuthorizationServiceErrorCode =
@@ -91,6 +103,7 @@ function requireDeviceBinding(intent: BrokerRunIntentValue, principal: BrokerDev
 export function createBrokerAuthorizationService(input: Readonly<{
   store: BrokerAuthorizationStore;
   authority: BrokerAuthorizationAuthority;
+  approval: BrokerApprovalIssuer;
   now?: () => Date;
 }>) {
   const now = input.now ?? (() => new Date());
@@ -163,7 +176,33 @@ export function createBrokerAuthorizationService(input: Readonly<{
       }
       const reconstruction = await input.store.loadApprovedReconstruction(lookup);
       if (!reconstruction) throw new BrokerAuthorizationServiceError('approval_unavailable', 404);
-      return reconstruction;
+      try {
+        const delegation = await input.approval.delegationForRelease(reconstruction.grant.releaseId);
+        if (!delegation) throw new Error('delegation unavailable');
+        const state = BrokerApprovalDurableState.parse({
+          schemaVersion: 1,
+          authorizationId: reconstruction.authorizationId,
+          ownerDecisionId: reconstruction.ownerDecisionId,
+          ownerActorId: reconstruction.ownerActorId,
+          ownerDecision: reconstruction.ownerDecision,
+          ownerReauthenticatedAt: reconstruction.ownerReauthenticatedAt,
+          tenantId: reconstruction.tenantId,
+          profileId: reconstruction.profileId,
+          profileRevisionDigest: reconstruction.profileRevisionDigest,
+          deviceCredentialId: reconstruction.deviceCredentialId,
+          deviceFingerprint: reconstruction.deviceFingerprint,
+          runIntentId: reconstruction.runIntentId,
+          status: reconstruction.status,
+          grant: reconstruction.grant,
+          delegation,
+        });
+        await input.approval.persistApprovedState(state);
+        const request = BrokerApprovalRequest.parse({ ...lookup, schemaVersion: 1 });
+        return { approval: await input.approval.approve(request) };
+      } catch (error) {
+        if (error instanceof BrokerAuthorizationServiceError) throw error;
+        throw new BrokerAuthorizationServiceError('authority_unavailable', 503);
+      }
     },
 
     async authorizationStatus(raw: unknown, principal: BrokerDevicePrincipal) {
