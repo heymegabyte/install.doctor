@@ -75,7 +75,8 @@ test('bounded CLI exports a catalog-verified profile without source-private stat
   await writeFile(factsPath, `${JSON.stringify(facts)}\n`, { mode: 0o600 });
   await writeFile(catalogPath, catalogBytes, { mode: 0o600 });
   const release = await signedRelease(root);
-  const result = spawnSync(process.execPath, [resolve('bin/desktop-tools-profile-export.mjs'), 'export',
+  const cliBin = resolve(import.meta.dirname, '../bin/desktop-tools-profile-export.mjs');
+  const result = spawnSync(process.execPath, [cliBin, 'export',
     '--environment', environmentPath, '--machine', 'private-source-host', '--facts', factsPath,
     '--catalog', catalogPath, '--release-manifest', release.manifestPath, '--release-signature', release.signaturePath,
     '--release-id', release.releaseId, '--signer-id', 'desktop-test', '--signer-public-key', `${release.key}.pub`,
@@ -86,7 +87,7 @@ test('bounded CLI exports a catalog-verified profile without source-private stat
   assert.deepEqual(profile.recipes.map(recipe => recipe.id), ['bootstrap-runtime', 'git']);
   assert.equal((await stat(outputPath)).mode & 0o777, 0o600);
   assert.doesNotMatch(await readFile(outputPath, 'utf8'), /private-source-host|infisical:|credential/i);
-  const replay = spawnSync(process.execPath, [resolve('bin/desktop-tools-profile-export.mjs'), 'export',
+  const replay = spawnSync(process.execPath, [cliBin, 'export',
     '--environment', environmentPath, '--machine', 'private-source-host', '--facts', factsPath,
     '--catalog', catalogPath, '--release-manifest', release.manifestPath, '--release-signature', release.signaturePath,
     '--release-id', release.releaseId, '--signer-id', 'desktop-test', '--signer-public-key', `${release.key}.pub`,

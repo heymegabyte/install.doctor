@@ -29,7 +29,7 @@ async function fixture() {
     privilege: 'user', network: 'none', consent: 'none', lockDomains: ['fixture.lock'], cleanup: 'none', compensation: 'none',
   };
   const nodeCheck = `const fs=require('node:fs');process.exit(fs.existsSync(${JSON.stringify(marker)})?0:10)`;
-  const nodeApply = `setTimeout(()=>require('node:fs').appendFileSync(${JSON.stringify(marker)},'x'),500)`;
+  const nodeApply = `setTimeout(()=>require('node:fs').appendFileSync(${JSON.stringify(marker)},'x'),800)`;
   const context = {
     schemaVersion: 1, sessionId: 'session-one', runId: 'mcp-run-one', authorizationId: 'authorization-one',
     releaseId: 'release-one', releaseDigest: digest('1'),
@@ -51,8 +51,8 @@ async function fixture() {
     authorizationId: context.authorizationId, producer: { kind: 'supervisor', id: 'desktop-tools-supervisor', parentId: null },
     kind: 'session-status', status: 'started',
   })}\n`, { mode: 0o600 });
-  const engine = resolve('dist/install-doctor-engine.mjs');
-  const server = resolve('dist/desktop-tools-mcp-server.mjs');
+  const engine = resolve(import.meta.dirname, '../dist/install-doctor-engine.mjs');
+  const server = resolve(import.meta.dirname, '../dist/desktop-tools-mcp-server.mjs');
   const options = { engine, engineSha256: await sha256(engine), context: contextPath, stateRoot, consentDirectory };
   return { root, stateRoot, consentDirectory, marker, context, contextPath, engine, server, options };
 }
@@ -99,7 +99,12 @@ test('real MCP plan/apply requires out-of-band consent and engine journal owners
   await writeConsent(item, 'apply', secondPlan.digest);
   const secondApproval = await second.call('desktop_tools_approve', { schemaVersion: 1, planDigest: secondPlan.digest });
   const applying = first.call('desktop_tools_apply', { schemaVersion: 1, approvalId: firstApproval.approvalId });
-  await new Promise(resolvePromise => setTimeout(resolvePromise, 100));
+  const deadline = Date.now() + 3_000;
+  while (Date.now() < deadline) {
+    const activeRuns = await readdir(join(item.stateRoot, 'runs')).catch(() => []);
+    if (activeRuns.length > 0) break;
+    await new Promise(resolvePromise => setTimeout(resolvePromise, 25));
+  }
   await assert.rejects(second.call('desktop_tools_apply', { schemaVersion: 1, approvalId: secondApproval.approvalId }), /engine rejected.*class [34]/);
   const result = await applying;
   assert.ok(result.events.some(event => event.kind === 'run-status' && event.status === 'success'));

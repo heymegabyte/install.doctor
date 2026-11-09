@@ -2335,12 +2335,19 @@ BACKREST_PORT="$(ss -tln 2>/dev/null | grep -q ':9898 ' && printf "9898" || prin
 NOFILE_CFG="$(grep -q 'DefaultLimitNOFILE=65536:524288' /etc/systemd/system.conf.d/99-fleet-accounting.conf 2>/dev/null && printf "524288" || printf "default")"
 LIMITS_OK="$( [ -f /etc/security/limits.d/99-fleet-ai.conf ] && printf "1" || printf "0" )"
 NODE_OK="$(command -v node >/dev/null 2>&1 && printf "1" || printf "0")"
+NO_VOLTA_SHIM="1"
+for _nbin in "$HOME/.local/bin/node" "$HOME/.local/bin/npm" /usr/local/bin/node /usr/local/bin/npm; do
+  if [ -L "$_nbin" ] && readlink -f "$_nbin" 2>/dev/null | grep -q 'volta-shim$'; then
+    NO_VOLTA_SHIM="0"
+    break
+  fi
+done
 DANGLING_BINS="$(find "$HOME/.local/bin" /usr/local/bin -maxdepth 1 -type l ! -exec test -e {} \; -print 2>/dev/null | wc -l | tr -d " ")"
 SYS_FAILED="$(systemctl --failed --no-legend --plain 2>/dev/null | wc -l | tr -d " ")"
 USR_FAILED="$(XDG_RUNTIME_DIR="/run/user/$(id -u)" systemctl --user --failed --no-legend --plain 2>/dev/null | wc -l | tr -d " ")"
 FAILED_UNITS="$(( ${SYS_FAILED:-0} + ${USR_FAILED:-0} ))"
-printf "host=%s pbs=\"%s\" zpool_health=%s zfs_snaps=%s bclone=%s bbr=%s thp=%s ssh_pqc=%s %s=%s egress_nft=%s crowdsec=%s earlyoom=%s cua=%s kasm_resize=%s emdash_ws=%s local_proxy=%s backrest=%s nofile=%s limits_ok=%s cf_metrics=%s node_ok=%s dangling_bins=%s sandbox=%s failed=%s\n" \
-  "$HOST" "$PBS_VER" "$ZPOOL_HEALTH" "$ZFS_SNAPS" "$BCLONE" "$BBR" "$THP_DEFRAG" "$PQC" "$RETIRED_VPN" "$RETIRED_VPN_STATE" "$EGRESS_GUARD" "$CROWDSEC_STATE" "$EARLYOOM_STATE" "$CUA_STATE" "$KASM_RESIZE" "$EMDASH_WS" "$LOCAL_PROXY" "$BACKREST_PORT" "$NOFILE_CFG" "$LIMITS_OK" "$CF_METRICS" "$NODE_OK" "$DANGLING_BINS" "$SANDBOX_READY" "$FAILED_UNITS"
+printf "host=%s pbs=\"%s\" zpool_health=%s zfs_snaps=%s bclone=%s bbr=%s thp=%s ssh_pqc=%s %s=%s egress_nft=%s crowdsec=%s earlyoom=%s cua=%s kasm_resize=%s emdash_ws=%s local_proxy=%s backrest=%s nofile=%s limits_ok=%s cf_metrics=%s node_ok=%s no_volta_shim=%s dangling_bins=%s sandbox=%s failed=%s\n" \
+  "$HOST" "$PBS_VER" "$ZPOOL_HEALTH" "$ZFS_SNAPS" "$BCLONE" "$BBR" "$THP_DEFRAG" "$PQC" "$RETIRED_VPN" "$RETIRED_VPN_STATE" "$EGRESS_GUARD" "$CROWDSEC_STATE" "$EARLYOOM_STATE" "$CUA_STATE" "$KASM_RESIZE" "$EMDASH_WS" "$LOCAL_PROXY" "$BACKREST_PORT" "$NOFILE_CFG" "$LIMITS_OK" "$CF_METRICS" "$NODE_OK" "$NO_VOLTA_SHIM" "$DANGLING_BINS" "$SANDBOX_READY" "$FAILED_UNITS"
 EOF
   run_root install -m 0755 "$TMP_DIR/fleet-dr-verify" /usr/local/bin/fleet-dr-verify
   run_root ln -sf /usr/local/bin/fleet-dr-verify /usr/local/bin/fleet-parity-audit
@@ -2582,9 +2589,10 @@ fi
 # -----------------------------------------------------------------------------
 # 8. Non-Interactive PATH (Top of ~/.bashrc), System-Wide /usr/local/bin Symlinks & CNF Shims
 # -----------------------------------------------------------------------------
-if [ -f "$HOME/.bashrc" ] && ! head -n 5 "$HOME/.bashrc" | grep -q '\.local/bin'; then
+if [ -f "$HOME/.bashrc" ] && ! head -n 5 "$HOME/.bashrc" | grep -q '/usr/sbin'; then
+  sed -i '1{/^export PATH="\$HOME\/\.local\/bin:/d;}' "$HOME/.bashrc" 2>/dev/null || true
   cat > "$TMP_DIR/bashrc.head" <<'EOF'
-export PATH="$HOME/.local/bin:$HOME/.local/share/mise/shims:$HOME/.bun/bin:$HOME/.cargo/bin:/usr/local/go/bin:/usr/local/bin:$PATH"
+export PATH="$HOME/.local/bin:$HOME/.local/share/mise/shims:$HOME/.bun/bin:$HOME/.cargo/bin:/usr/local/go/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/sbin:$PATH"
 EOF
   cat "$HOME/.bashrc" >> "$TMP_DIR/bashrc.head"
   cp "$TMP_DIR/bashrc.head" "$HOME/.bashrc"
@@ -2592,6 +2600,17 @@ fi
 
 if [ -d "$HOME/.local/bin" ]; then
   find "$HOME/.local/bin" -maxdepth 1 -type l ! -exec test -e {} \; -delete 2>/dev/null || true
+  # Prevent recursive volta-shim fork loops when ~/.local/bin/{node,npm,npx,corepack} points to volta-shim
+  for _vbin in node npm npx corepack; do
+    if [ -L "$HOME/.local/bin/$_vbin" ] && readlink -f "$HOME/.local/bin/$_vbin" 2>/dev/null | grep -q 'volta-shim$'; then
+      _real_vbin="$(ls -1d "$HOME/.volta/tools/image/node"/*/bin/"$_vbin" 2>/dev/null | sort -V | tail -n 1 || true)"
+      if [ -n "$_real_vbin" ] && [ -x "$_real_vbin" ]; then
+        ln -sf "$_real_vbin" "$HOME/.local/bin/$_vbin"
+      else
+        rm -f "$HOME/.local/bin/$_vbin"
+      fi
+    fi
+  done
 fi
 
 if [ "$(id -u)" -eq 0 ] || [ -n "$SUDO" ]; then
@@ -2600,16 +2619,20 @@ if [ "$(id -u)" -eq 0 ] || [ -n "$SUDO" ]; then
   run_root find /usr/local/bin -maxdepth 1 -type l ! -exec test -e {} \; -delete 2>/dev/null || true
   for bin_name in \
     rg tmux jq fzf fd bat htop btop ncdu gh rclone restic age sops yq \
-    uv uvx ruff bun bunx pnpm deno node npm npx go gofmt cargo rustc \
+    uv uvx ruff bun bunx pnpm deno node npm npx corepack go gofmt cargo rustc \
     cloudflared warp-cli claude codex opencode agy openspec \
     ffmpeg cua-driver actionlint just yt-dlp task chezmoi gum infisical code; do
     src_bin=""
-    if [ -x "$HOME/.local/bin/$bin_name" ]; then
+    if [ -x "$HOME/.local/bin/$bin_name" ] && ! (readlink -f "$HOME/.local/bin/$bin_name" 2>/dev/null | grep -q 'volta-shim$'); then
       src_bin="$HOME/.local/bin/$bin_name"
-    elif [ -x "$HOME/.volta/bin/$bin_name" ]; then
-      src_bin="$HOME/.volta/bin/$bin_name"
-    elif command -v "$bin_name" >/dev/null 2>&1; then
-      src_bin="$(command -v "$bin_name")"
+    elif [ -d "$HOME/.volta/tools/image/node" ]; then
+      src_bin="$(ls -1d "$HOME/.volta/tools/image/node"/*/bin/"$bin_name" 2>/dev/null | sort -V | tail -n 1 || true)"
+    fi
+    if [ -z "$src_bin" ] && command -v "$bin_name" >/dev/null 2>&1; then
+      _cand="$(command -v "$bin_name")"
+      if ! (readlink -f "$_cand" 2>/dev/null | grep -q 'volta-shim$'); then
+        src_bin="$_cand"
+      fi
     fi
     if [ -n "$src_bin" ] && [ "$src_bin" != "/usr/local/bin/$bin_name" ] && [ "$src_bin" != "/usr/bin/$bin_name" ]; then
       run_root ln -sf "$src_bin" "/usr/local/bin/$bin_name" 2>/dev/null || true
