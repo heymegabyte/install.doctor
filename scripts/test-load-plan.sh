@@ -29,7 +29,7 @@ fi
 
 if printf '%s' "$first" | jq -e '
   (.items[] | select(.name == "rclone") | .postInstallPrivilege) == "user" and
-  (.items[] | select(.name == "mise") | .postInstallPrivilege) == "admin"
+  (.items[] | select(.name == "mise") | .postInstallPrivilege) == "user"
 ' >/dev/null; then
   pass 'post-install privilege authority survives catalog and load planning'
 else

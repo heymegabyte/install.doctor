@@ -6534,7 +6534,7 @@ softwarePackages:
     _deps:darwin:
     - hyperkit
   mise:
-    _postInstallPrivilege: admin
+    _postInstallPrivilege: user
     _preload: true
     _preloadReason: bootstrap-critical
     _loadPolicy: eager-bootstrap

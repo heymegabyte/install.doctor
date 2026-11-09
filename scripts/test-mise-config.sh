@@ -10,6 +10,7 @@
 set -uo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 CFG="${MISE_CONFIG:-$ROOT/home/dot_config/mise/config.toml}"
+HOOK="$ROOT/home/dot_local/bin/post-installx/executable_post-mise.sh"
 
 say() { command -v gum >/dev/null 2>&1 && gum style --foreground 51 -- "$*" || printf '\033[1;36m%s\033[0m\n' "$*"; }
 pass() { command -v gum >/dev/null 2>&1 && gum style --foreground 46 -- "PASS $*" || printf '\033[1;32mPASS\033[0m %s\n' "$*"; P=$((P + 1)); }
@@ -43,6 +44,12 @@ if printf '%s' "$pyline" | grep -qE "'3\.10'"; then fail "python still pins EOL 
 # .python-version / .ruby-version are silently unread. Lock the modern setting + forbid the removed one.
 grep -qE '^idiomatic_version_file_enable_tools = ' "$CFG" && pass "idiomatic_version_file_enable_tools set (current mise setting for .nvmrc/.python-version/… — replaces the removed legacy_version_file)" || fail "missing idiomatic_version_file_enable_tools (mise 2026 removed legacy_version_file; idiomatic version files silently unread)"
 if grep -qE '^legacy_version_file' "$CFG"; then fail "stale legacy_version_file present — REMOVED in mise 2026 (dead no-op); switch to idiomatic_version_file_enable_tools"; else pass "no dead legacy_version_file setting (removed in mise 2026)"; fi
+
+if grep -qE '(^|[^[:alnum:]_-])sudo([^[:alnum:]_-]|$)|/Library/Java/JavaVirtualMachines|openjdk-20' "$HOOK"; then
+  fail "mise user hook still carries obsolete privileged Java mutation authority"
+else
+  pass "mise hook is user-scoped and preserves existing system Java state"
+fi
 
 say "mise-config: $P passed, $F failed"
 [ "$F" -eq 0 ]
