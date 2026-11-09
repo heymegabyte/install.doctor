@@ -48,10 +48,14 @@ esac
 SH
 chmod 0700 "$TMP/bin/"* "$TMP/home/.local/bin/post-installx/post-eager.sh"
 if command -v sha256sum >/dev/null 2>&1; then
+  SOFTWARE_GROUPS_SHA="$(sha256sum "$TMP/bin/process-software-groups" | awk '{print $1}')"
   CUSTOM_HOOK_SHA="$(sha256sum "$TMP/home/.local/bin/post-installx/post-eager.sh" | awk '{print $1}')"
 else
+  SOFTWARE_GROUPS_SHA="$(shasum -a 256 "$TMP/bin/process-software-groups" | awk '{print $1}')"
   CUSTOM_HOOK_SHA="$(shasum -a 256 "$TMP/home/.local/bin/post-installx/post-eager.sh" | awk '{print $1}')"
 fi
+export INSTALL_DOCTOR_SOFTWARE_GROUPS_PATH="$TMP/bin/process-software-groups"
+export INSTALL_DOCTOR_SOFTWARE_GROUPS_SHA256="$SOFTWARE_GROUPS_SHA"
 export INSTALL_DOCTOR_CUSTOM_HOOK_MANIFEST="eager=$CUSTOM_HOOK_SHA"
 export INSTALL_DOCTOR_CUSTOM_HOOK_KEYS=eager
 : > "$TMP/ledger"

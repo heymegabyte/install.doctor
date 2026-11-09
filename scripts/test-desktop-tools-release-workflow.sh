@@ -43,8 +43,16 @@ grep -q 'desktop-reconcile' "$tmp/activate"
 ! grep -q 'DESKTOP_TOOLS_RELEASE_SIGNING_KEY' "$tmp/publish" "$tmp/activate"
 ! grep -q 'secrets\.' "$RELEASE" "$ACTIVATE"
 jq -e '
-  ([.workloads[] | select(.id | startswith("github-desktop-tools-release-"))] | length) == 3 and
-  all(.workloads[] | select(.id | startswith("github-desktop-tools-release-"));
-    .auth.claims.event_name == "workflow_dispatch" and .authorization.inheritedGrants == [])
+  ([.workloads[] | select(.id | startswith("github-desktop-tools-release-"))] | map(.id) | sort) ==
+    (["github-desktop-tools-release-activator", "github-desktop-tools-release-monitor",
+      "github-desktop-tools-release-publisher", "github-desktop-tools-release-signer"] | sort) and
+  all(.workloads[] | select(.id == "github-desktop-tools-release-signer" or
+                            .id == "github-desktop-tools-release-publisher" or
+                            .id == "github-desktop-tools-release-activator");
+    .auth.claims.event_name == "workflow_dispatch" and .authorization.inheritedGrants == []) and
+  (.workloads[] | select(.id == "github-desktop-tools-release-monitor") |
+    .auth.claims.workflow_ref == "heymegabyte/install.doctor/.github/workflows/bootstrap-release-continuity.yml@refs/heads/master" and
+    .auth.claims.environment == "desktop-tools-release-monitor" and
+    .authorization.inheritedGrants == [])
 ' "$POLICY" >/dev/null
 printf 'desktop-tools-release-workflow: PASS\n'
