@@ -554,6 +554,20 @@ function bindOperationsToPlan(invocation: PlanBindingInvocation): z.infer<typeof
         }
         return [phase, { id: operationId, ...approvalOperation }];
       }));
+      const processOperations = Object.values(referencedOperations)
+        .filter((operation): operation is z.infer<typeof ProcessOperationSchema> & { readonly id: string } =>
+          operation.kind === undefined || operation.kind === 'process');
+      if (processOperations.length > 0) {
+        const expectedLegacyAdminBridge = legacyAdminBridgeByTask[task.id as keyof typeof legacyAdminBridgeByTask];
+        if (task.privilege === 'admin') {
+          if (!expectedLegacyAdminBridge || processOperations.length !== 3
+            || processOperations.some(operation => operation.legacyAdminBridge !== expectedLegacyAdminBridge)) {
+            usageError(`admin process task is not an explicitly admitted legacy bridge: ${task.id}`);
+          }
+        } else if (processOperations.some(operation => operation.legacyAdminBridge !== undefined)) {
+          usageError(`legacy admin bridge marker is forbidden on a non-admin task: ${task.id}`);
+        }
+      }
       const managedOperations = Object.values(referencedOperations)
         .filter(operation => operation.kind === 'managed-file' || operation.kind === 'managed-directory'
           || operation.kind === 'managed-artifact' || operation.kind === 'managed-cask-launcher'

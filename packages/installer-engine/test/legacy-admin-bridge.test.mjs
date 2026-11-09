@@ -40,17 +40,11 @@ async function assertRejectedBeforeMutation(directory, taskId, privilege, bridge
   const { base, marker } = invocation(directory, taskId, privilege, bridge);
   const input = join(directory, `${taskId.replaceAll('.', '-')}-${privilege}.json`);
   await writeFile(input, `${JSON.stringify(base)}\n`, { mode: 0o600 });
-  const planned = await execute(process.execPath, [cli, '--input', input], { env: { PATH: process.env.PATH ?? '' } });
-  const planDigest = JSON.parse(planned.stdout).digest;
-  const running = { ...base, command: 'run', approvedPlanDigest: planDigest, renderer: 'ndjson',
-    stateRoot: join(directory, `${taskId.replaceAll('.', '-')}-${privilege}-state`) };
-  await writeFile(input, `${JSON.stringify(running)}\n`, { mode: 0o600 });
   await assert.rejects(execute(process.execPath, [cli, '--input', input], {
     env: { PATH: process.env.PATH ?? '' }, maxBuffer: 1_000_000,
-  }), error => error.code === 7
-    && (error.stdout.includes('admin process operation is not an explicitly admitted legacy bridge')
-      || error.stdout.includes('legacy admin bridge marker is forbidden on a non-admin task'))
-    && error.stdout.trim().split('\n').map(line => JSON.parse(line)).at(-1)?.status === 'failed');
+  }), error => error.code === 2
+    && (error.stderr.includes('admin process task is not an explicitly admitted legacy bridge')
+      || error.stderr.includes('legacy admin bridge marker is forbidden on a non-admin task')));
   await assert.rejects(readFile(marker), { code: 'ENOENT' });
 }
 
@@ -59,4 +53,11 @@ test('process operations fail closed unless an exact enumerated legacy admin bri
   await assertRejectedBeforeMutation(directory, 'desired.packages', 'admin', undefined);
   await assertRejectedBeforeMutation(directory, 'fixture.unlisted-admin', 'admin', 'selected-packages');
   await assertRejectedBeforeMutation(directory, 'fixture.user', 'user', 'selected-packages');
+
+  const admitted = invocation(directory, 'desired.packages', 'admin', 'selected-packages');
+  const admittedInput = join(directory, 'admitted.json');
+  await writeFile(admittedInput, `${JSON.stringify(admitted.base)}\n`, { mode: 0o600 });
+  const planned = await execute(process.execPath, [cli, '--input', admittedInput], { env: { PATH: process.env.PATH ?? '' } });
+  assert.match(JSON.parse(planned.stdout).digest, /^[a-f0-9]{64}$/);
+  await assert.rejects(readFile(admitted.marker), { code: 'ENOENT' });
 });
