@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { gzipSync } from 'node:zlib';
+import { spawnSync } from 'node:child_process';
 import { chmod, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -42,11 +43,15 @@ const supervisor = supervisorSource.replace("import { initializeSessionEvidence,
 if (supervisor === supervisorSource) throw new Error('session evidence import was not bundled');
 await writeFile(join(output, 'desktop-tools-supervisor.mjs'), supervisor, { mode: 0o700 });
 await chmod(join(output, 'desktop-tools-supervisor.mjs'), 0o700);
+const enginePackage = resolve(root, '..', 'installer-engine');
+const mcpBuild = spawnSync('npm', ['run', 'bundle:mcp'], { cwd: enginePackage, stdio: 'inherit', shell: false });
+if (mcpBuild.status !== 0) throw new Error('failed to build the Desktop Tools MCP server');
 const entries = [];
 for (const name of ['runtime-policy.json', 'supervisor-api.schema.json', 'typed-tools.json']) {
   const bytes = await readFile(join(root, 'contracts', name));
   entries.push(tarEntry(`contracts/${name}`, bytes, 0o600));
 }
+entries.push(tarEntry('bin/desktop-tools-mcp-server.mjs', await readFile(join(enginePackage, 'dist', 'desktop-tools-mcp-server.mjs')), 0o700));
 entries.push(tarEntry('runtime/encrypted-recording.mjs', await readFile(join(root, 'src', 'encrypted-recording.mjs')), 0o600));
 entries.push(Buffer.alloc(1024));
 await writeFile(join(output, 'desktop-tools-tools.tar.gz'), gzipSync(Buffer.concat(entries), { level: 9, mtime: 0 }), { mode: 0o600 });

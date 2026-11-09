@@ -39,3 +39,4 @@ export * from './target-device-authorization.js';
 export * from './typed-tool-adapters.js';
 export * from './provisioning-prompt.js';
 export * from './session-events.js';
+export * from './mcp-server.js';

@@ -6,6 +6,7 @@ import { chmod, copyFile, lstat, mkdir, open, readFile, rename, rm, stat, writeF
 import { homedir, tmpdir } from 'node:os';
 import { dirname, isAbsolute, join, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { gunzipSync } from 'node:zlib';
 import { initializeSessionEvidence, loadSessionContext, persistSessionContext } from './session-evidence.mjs';
 
 const VERSION = '1';
@@ -69,13 +70,19 @@ async function installPinnedSkills(stateDirectory) {
   }
 }
 
-function generateOpenCodeConfig(credentialPath, promptPath) {
+function generateOpenCodeConfig(credentialPath, promptPath, toolRuntime) {
   return {
     $schema: 'https://opencode.ai/config.json',
     model: `${PROVIDER_ID}/dynamic/code`,
     update: 'disable',
     snapshots: false,
     ...(promptPath ? { instructions: [promptPath] } : {}),
+    ...(toolRuntime ? { mcp: { 'desktop-tools': {
+      type: 'local', enabled: true,
+      command: ['/usr/bin/env', '-i', 'PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin', 'LANG=C.UTF-8', process.execPath,
+        toolRuntime.server, '--engine', toolRuntime.engine, '--engine-sha256', toolRuntime.engineSha256,
+        '--context', toolRuntime.context, '--state-root', toolRuntime.stateRoot, '--consent-dir', toolRuntime.consentDirectory],
+    } } } : {}),
     providers: {
       [PROVIDER_ID]: {
         package: '@opencode/ai/providers/openai-compatible',
@@ -135,7 +142,8 @@ function parse(argv) {
     const value = rest[index + 1];
     if (!flag?.startsWith('--') || value === undefined || value.startsWith('--')) fail('options must be --name value pairs');
     const name = flag.slice(2);
-    if (!['runtime', 'sha256', 'version', 'state-dir', 'port', 'output-dir', 'provisioning-context', 'session-context'].includes(name) || values[name] !== undefined) {
+    if (!['runtime', 'sha256', 'version', 'state-dir', 'port', 'output-dir', 'provisioning-context', 'session-context',
+      'engine', 'engine-sha256', 'tools-archive', 'tools-sha256', 'tool-context'].includes(name) || values[name] !== undefined) {
       fail(`unsupported or repeated option: ${flag}`);
     }
     values[name] = value;
@@ -409,6 +417,74 @@ async function installPinnedFile(source, destination, expectedDigest, mode) {
   return destination;
 }
 
+function tarEntries(bytes) {
+  const entries = new Map();
+  for (let offset = 0; offset + 512 <= bytes.length;) {
+    const header = bytes.subarray(offset, offset + 512); offset += 512;
+    if (header.every(byte => byte === 0)) {
+      if (offset + 512 > bytes.length || !bytes.subarray(offset, offset + 512).every(byte => byte === 0)
+        || !bytes.subarray(offset + 512).every(byte => byte === 0)) fail('tools archive has invalid trailing structure', 65);
+      return entries;
+    }
+    const name = header.subarray(0, 100).toString('utf8').split('\0', 1)[0];
+    const sizeText = header.subarray(124, 136).toString('ascii').replaceAll('\0', '').trim();
+    const checksumText = header.subarray(148, 156).toString('ascii').replaceAll('\0', '').trim();
+    const checksumHeader = Buffer.from(header); checksumHeader.fill(0x20, 148, 156);
+    if (!name || !/^[0-7]+$/.test(sizeText) || !/^[0-7]+$/.test(checksumText)
+      || Number.parseInt(checksumText, 8) !== checksumHeader.reduce((sum, byte) => sum + byte, 0)
+      || (header[156] !== 0 && header[156] !== 0x30) || name.startsWith('/') || name.split('/').includes('..') || entries.has(name)) fail('tools archive is malformed', 65);
+    const size = Number.parseInt(sizeText, 8);
+    if (!Number.isSafeInteger(size) || size < 0 || offset + size > bytes.length) fail('tools archive entry is malformed', 65);
+    entries.set(name, bytes.subarray(offset, offset + size));
+    offset += Math.ceil(size / 512) * 512;
+  }
+  fail('tools archive lacks its two-block terminator', 65);
+}
+
+async function prepareToolRuntime(values, stateDirectory, promptBinding, session) {
+  for (const name of ['engine', 'engine-sha256', 'tools-archive', 'tools-sha256', 'tool-context']) {
+    if (!values[name]) fail(`run and service require --${name}`, 64);
+  }
+  if (!digestPattern.test(values['engine-sha256']) || !digestPattern.test(values['tools-sha256'])) fail('tool runtime digests must be lowercase SHA-256', 65);
+  const engineSource = absoluteSafePath(values.engine, 'installer engine');
+  const toolsSource = absoluteSafePath(values['tools-archive'], 'tools archive');
+  const contextSource = absoluteSafePath(values['tool-context'], 'tool context');
+  for (const [path, label, maximum] of [[engineSource, 'installer engine', 67_108_864], [toolsSource, 'tools archive', 33_554_432], [contextSource, 'tool context', 4_194_304]]) {
+    const info = await lstat(path);
+    if (!info.isFile() || info.isSymbolicLink() || info.nlink !== 1 || info.size < 1 || info.size > maximum) fail(`${label} must be one bounded regular file`, 65);
+  }
+  if (await sha256(engineSource) !== values['engine-sha256'] || await sha256(toolsSource) !== values['tools-sha256']) fail('tool runtime digest mismatch', 65);
+  const engine = await installPinnedFile(engineSource, join(stateDirectory, 'runtime', `desktop-tools-engine-${values['engine-sha256']}.mjs`), values['engine-sha256'], 0o700);
+  const toolsArchive = await installPinnedFile(toolsSource, join(stateDirectory, 'runtime', `desktop-tools-tools-${values['tools-sha256']}.tar.gz`), values['tools-sha256'], 0o600);
+  let expanded;
+  try { expanded = gunzipSync(await readFile(toolsArchive), { maxOutputLength: 64 * 1024 * 1024 }); } catch { fail('tools archive cannot be safely expanded', 65); }
+  const entries = tarEntries(expanded);
+  const expectedEntries = ['bin/desktop-tools-mcp-server.mjs', 'contracts/runtime-policy.json', 'contracts/supervisor-api.schema.json', 'contracts/typed-tools.json'];
+  if (JSON.stringify([...entries.keys()].sort()) !== JSON.stringify(expectedEntries)) fail('tools archive contains an unexpected closure', 65);
+  const serverBytes = entries.get('bin/desktop-tools-mcp-server.mjs');
+  if (!serverBytes || serverBytes.length < 1 || serverBytes.length > 8 * 1024 * 1024) fail('signed tools archive lacks the MCP server', 65);
+  const serverDigest = createHash('sha256').update(serverBytes).digest('hex');
+  const server = join(stateDirectory, 'bin', `desktop-tools-mcp-server-${serverDigest}.mjs`);
+  try {
+    const info = await lstat(server);
+    if (!info.isFile() || info.isSymbolicLink() || info.nlink !== 1 || await sha256(server) !== serverDigest) fail('installed MCP server is not the signed artifact', 65);
+    await chmod(server, 0o700);
+  } catch (error) { if (error?.code === 'ENOENT') await atomicWrite(server, serverBytes, 0o700); else throw error; }
+  const contextDigest = await sha256(contextSource);
+  let toolContext;
+  try { toolContext = JSON.parse(await readFile(contextSource, 'utf8')); } catch { fail('tool context must be valid JSON', 65); }
+  objectWithExactKeys(toolContext, ['schemaVersion', 'sessionId', 'runId', 'releaseId', 'releaseDigest', 'profileRevision', 'profileDigest',
+    'facts', 'desiredState', 'plan', 'operations'], 'tool context');
+  if (toolContext.schemaVersion !== 1 || toolContext.sessionId !== session.sessionId || toolContext.runId !== session.runId
+    || toolContext.releaseId !== promptBinding.context.release.id || toolContext.releaseDigest !== promptBinding.context.release.digest
+    || toolContext.profileRevision !== promptBinding.context.profile.revision || toolContext.profileDigest !== promptBinding.context.profile.digest
+    || promptBinding.context.policy?.toolContextDigest !== contextDigest) fail('tool context is not bound to the verified provisioning session', 77);
+  const context = await installPinnedFile(contextSource, join(stateDirectory, 'config', `tool-context-${contextDigest}.json`), contextDigest, 0o600);
+  const consentDirectory = join(stateDirectory, 'run', 'consents');
+  await mkdir(consentDirectory, { recursive: true, mode: 0o700 }); await chmod(consentDirectory, 0o700);
+  return Object.freeze({ server, engine, engineSha256: values['engine-sha256'], toolsArchive, context, stateRoot: stateDirectory, consentDirectory });
+}
+
 async function acquireLock(stateDirectory) {
   const path = join(stateDirectory, 'run', 'supervisor.pid');
   try {
@@ -450,10 +526,13 @@ async function writeService(values, stateDirectory, runtime) {
   if (!values['provisioning-context']) fail('service requires --provisioning-context', 64);
   if (!values['session-context']) fail('service requires --session-context', 64);
   const promptBinding = await prepareProvisioningPrompt(values['provisioning-context'], stateDirectory);
-  const sessionContextPath = await persistSessionContext(stateDirectory, await loadSessionContext(values['session-context']));
+  const session = await loadSessionContext(values['session-context']);
+  const sessionContextPath = await persistSessionContext(stateDirectory, session);
+  const toolRuntime = await prepareToolRuntime(values, stateDirectory, promptBinding, session);
   const fixed = [supervisor, 'run', '--runtime', installedRuntime, '--sha256', values.sha256, '--version', values.version,
     '--state-dir', stateDirectory, '--port', String(port), '--provisioning-context', promptBinding.contextOutputPath,
-    '--session-context', sessionContextPath];
+    '--session-context', sessionContextPath, '--engine', toolRuntime.engine, '--engine-sha256', toolRuntime.engineSha256,
+    '--tools-archive', toolRuntime.toolsArchive, '--tools-sha256', values['tools-sha256'], '--tool-context', toolRuntime.context];
   const unit = `[Unit]\nDescription=Desktop Tools private OpenCode supervisor\nAfter=network-online.target\nWants=network-online.target\n\n[Service]\nType=simple\nExecStart=${fixed.map(systemdEscape).join(' ')}\nRestart=on-failure\nRestartSec=5s\nNoNewPrivileges=yes\nPrivateTmp=yes\nProtectSystem=strict\nProtectHome=read-only\nReadWritePaths=${systemdEscape(stateDirectory)}\nUMask=0077\n\n[Install]\nWantedBy=default.target\n`;
   const argumentsXml = fixed.map(value => `      <string>${xml(value)}</string>`).join('\n');
   const plist = `<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n<plist version="1.0"><dict>\n  <key>Label</key><string>tools.desktop.supervisor</string>\n  <key>ProgramArguments</key><array>\n${argumentsXml}\n  </array>\n  <key>RunAtLoad</key><true/>\n  <key>KeepAlive</key><dict><key>SuccessfulExit</key><false/></dict>\n  <key>ProcessType</key><string>Background</string>\n  <key>Umask</key><integer>63</integer>\n</dict></plist>\n`;
@@ -488,8 +567,9 @@ async function main(argv) {
   if (!values['provisioning-context']) fail('run requires --provisioning-context', 64);
   if (!values['session-context']) fail('run requires --session-context', 64);
   const promptBinding = await prepareProvisioningPrompt(values['provisioning-context'], stateDirectory);
-  const opencodeConfig = generateOpenCodeConfig(inferenceCredential, promptBinding.promptPath);
   const session = await loadSessionContext(values['session-context']);
+  const toolRuntime = await prepareToolRuntime(values, stateDirectory, promptBinding, session);
+  const opencodeConfig = generateOpenCodeConfig(inferenceCredential, promptBinding.promptPath, toolRuntime);
   const evidence = await initializeSessionEvidence({
     stateDirectory,
     session,

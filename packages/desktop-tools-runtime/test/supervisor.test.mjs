@@ -4,6 +4,7 @@ import { chmod, mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/pr
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
+import { gzipSync } from 'node:zlib';
 import { PROVISIONING_PROMPT, PROVISIONING_PROMPT_VERSION, approvedSkills, approvedTools, generateOpenCodeConfig, main, minimalEnvironment, prepareProvisioningPrompt } from '../src/desktop-tools-supervisor.mjs';
 
 function canonical(value) {
@@ -11,8 +12,17 @@ function canonical(value) {
   if (value !== null && typeof value === 'object') return Object.fromEntries(Object.entries(value).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0).map(([key, child]) => [key, canonical(child)]));
   return value;
 }
+function octal(value, length) { return `${value.toString(8).padStart(length - 1, '0')}\0`; }
+function tarEntry(name, bytes, mode) {
+  const header = Buffer.alloc(512); header.write(name, 0, 100); header.write(octal(mode, 8), 100, 8, 'ascii');
+  header.write(octal(0, 8), 108, 8, 'ascii'); header.write(octal(0, 8), 116, 8, 'ascii'); header.write(octal(bytes.length, 12), 124, 12, 'ascii');
+  header.write(octal(0, 12), 136, 12, 'ascii'); header.fill(0x20, 148, 156); header[156] = 0x30;
+  header.write('ustar\0', 257, 6, 'ascii'); header.write('00', 263, 2, 'ascii');
+  header.write(`${header.reduce((sum, byte) => sum + byte, 0).toString(8).padStart(6, '0')}\0 `, 148, 8, 'ascii');
+  return Buffer.concat([header, bytes, Buffer.alloc((512 - bytes.length % 512) % 512)]);
+}
 
-async function writePromptContext(root) {
+async function writePromptContext(root, toolContextDigest) {
   const unsigned = {
     schemaVersion: 1,
     promptVersion: PROVISIONING_PROMPT_VERSION,
@@ -20,7 +30,7 @@ async function writePromptContext(root) {
     profile: { id: 'profile-1', revision: 'revision-7', digest: '1'.repeat(64) },
     release: { id: 'release-1', version: '2.2.5', digest: '2'.repeat(64) },
     discoveredFacts: { arch: 'x64', platform: 'linux' },
-    policy: { concurrency: 2, network: false },
+    policy: { concurrency: 2, network: false, toolContextDigest },
     capabilities: ['configuration.read', 'packages.plan'],
     permittedTools: ['desktop_tools_discover', 'desktop_tools_plan'],
   };
@@ -57,9 +67,26 @@ async function fixture() {
   const state = join(root, 'state');
   await mkdir(join(state, 'config'), { recursive: true, mode: 0o700 });
   await writeFile(join(state, 'config', 'inference-token'), 'scoped-test-token-abcdefghijklmnopqrstuvwxyz\n', { mode: 0o600 });
-  const prompt = await writePromptContext(root);
   const session = await writeSessionContext(root);
-  return { root, runtime, sha256, state, prompt, session };
+  const engine = join(root, 'desktop-tools-engine.mjs');
+  await writeFile(engine, '#!/usr/bin/env node\n', { mode: 0o700 });
+  const engineSha256 = createHash('sha256').update(await readFile(engine)).digest('hex');
+  const toolsArchive = join(root, 'desktop-tools-tools.tar.gz');
+  await writeFile(toolsArchive, gzipSync(Buffer.concat([
+    tarEntry('contracts/runtime-policy.json', Buffer.from('{}\n'), 0o600),
+    tarEntry('contracts/supervisor-api.schema.json', Buffer.from('{}\n'), 0o600),
+    tarEntry('contracts/typed-tools.json', Buffer.from('{}\n'), 0o600),
+    tarEntry('bin/desktop-tools-mcp-server.mjs', Buffer.from('#!/usr/bin/env node\n'), 0o700), Buffer.alloc(1024),
+  ]), { mtime: 0 }));
+  const toolsSha256 = createHash('sha256').update(await readFile(toolsArchive)).digest('hex');
+  const toolContext = join(root, 'tool-context.json');
+  await writeFile(toolContext, `${JSON.stringify({ schemaVersion: 1, sessionId: session.context.sessionId, runId: session.context.runId,
+    releaseId: 'release-1', releaseDigest: '2'.repeat(64), profileRevision: 'revision-7', profileDigest: '1'.repeat(64),
+    facts: {}, desiredState: {}, plan: {}, operations: {} })}\n`, { mode: 0o600 });
+  const toolContextDigest = createHash('sha256').update(await readFile(toolContext)).digest('hex');
+  const prompt = await writePromptContext(root, toolContextDigest);
+  const toolArgs = ['--engine', engine, '--engine-sha256', engineSha256, '--tools-archive', toolsArchive, '--tools-sha256', toolsSha256, '--tool-context', toolContext];
+  return { root, runtime, sha256, state, prompt, session, toolArgs };
 }
 
 test('prepares protected state and validates an exact pinned runtime', async () => {
@@ -74,7 +101,7 @@ test('prepares protected state and validates an exact pinned runtime', async () 
 test('run binds only private loopback and strips inherited secret variables', async () => {
   const item = await fixture();
   process.env.API_TOKEN = 'must-not-leak';
-  const result = await main(['run', '--state-dir', item.state, '--runtime', item.runtime, '--sha256', item.sha256, '--version', '2.2.5', '--port', '4123', '--provisioning-context', item.prompt.path, '--session-context', item.session.path]);
+  const result = await main(['run', '--state-dir', item.state, '--runtime', item.runtime, '--sha256', item.sha256, '--version', '2.2.5', '--port', '4123', '--provisioning-context', item.prompt.path, '--session-context', item.session.path, ...item.toolArgs]);
   assert.equal(await readFile(join(item.state, 'argv'), 'utf8'), 'serve\n--hostname\n127.0.0.1\n--port\n4123\n');
   assert.equal(await readFile(join(item.state, 'secret'), 'utf8'), 'unset\n');
   assert.equal(await readFile(join(item.state, 'username'), 'utf8'), 'desktop-tools\n');
@@ -91,6 +118,12 @@ test('run binds only private loopback and strips inherited secret variables', as
   assert.equal(config.providers.projectsites.settings.apiKey, `{file:${join(item.state, 'config', 'inference-token')}}`);
   assert.equal(config.providers.projectsites.settings.baseURL, 'https://desktop.tools/api/ai/v1');
   assert.equal(config.instructions.length, 1);
+  assert.equal(config.mcp['desktop-tools'].type, 'local');
+  assert.equal(config.mcp['desktop-tools'].enabled, true);
+  assert.equal(config.mcp['desktop-tools'].command[0], '/usr/bin/env');
+  assert.ok(config.mcp['desktop-tools'].command.includes('-i'));
+  assert.ok(config.mcp['desktop-tools'].command.some(value => /desktop-tools-mcp-server-[a-f0-9]{64}\.mjs$/.test(value)));
+  assert.equal(JSON.stringify(config.mcp).includes('scoped-test-token'), false);
   assert.match(config.instructions[0], /config\/prompts\/[a-f0-9]{64}\/provisioning\.md$/);
   assert.deepEqual(config.policies.slice(0, 2), [
     { action: 'provider.use', resource: '*', effect: 'deny' },
@@ -131,7 +164,7 @@ test('rejects arbitrary options and privileged ports', async () => {
 test('generates restart-survivable hardened service definitions without secrets', async () => {
   const item = await fixture();
   const output = join(item.root, 'service');
-  await main(['service', '--state-dir', item.state, '--runtime', item.runtime, '--sha256', item.sha256, '--version', '2.2.5', '--output-dir', output, '--port', '4444', '--provisioning-context', item.prompt.path, '--session-context', item.session.path]);
+  await main(['service', '--state-dir', item.state, '--runtime', item.runtime, '--sha256', item.sha256, '--version', '2.2.5', '--output-dir', output, '--port', '4444', '--provisioning-context', item.prompt.path, '--session-context', item.session.path, ...item.toolArgs]);
   const unit = await readFile(join(output, 'desktop-tools-supervisor.service'), 'utf8');
   const plist = await readFile(join(output, 'tools.desktop.supervisor.plist'), 'utf8');
   assert.match(unit, /Restart=on-failure/);
@@ -157,7 +190,7 @@ test('evidence collision fails closed before OpenCode launch and cannot claim co
   const recordingPath = join(item.state, 'recordings', `${item.session.context.sessionId}.header.json`);
   await writeFile(recordingPath, '{"captureComplete":true}\n', { mode: 0o600 });
   await assert.rejects(
-    main(['run', '--state-dir', item.state, '--runtime', item.runtime, '--sha256', item.sha256, '--version', '2.2.5', '--provisioning-context', item.prompt.path, '--session-context', item.session.path]),
+    main(['run', '--state-dir', item.state, '--runtime', item.runtime, '--sha256', item.sha256, '--version', '2.2.5', '--provisioning-context', item.prompt.path, '--session-context', item.session.path, ...item.toolArgs]),
     /evidence collision/,
   );
   await assert.rejects(readFile(join(item.state, 'argv'), 'utf8'), /ENOENT/);
@@ -169,8 +202,21 @@ test('session evidence rejects invalid lineage context before OpenCode launch', 
   const item = await fixture();
   const invalid = await writeSessionContext(item.root, { sessionId: 'session-invalid', parentSessionId: '../parent' });
   await assert.rejects(
-    main(['run', '--state-dir', item.state, '--runtime', item.runtime, '--sha256', item.sha256, '--version', '2.2.5', '--provisioning-context', item.prompt.path, '--session-context', invalid.path]),
+    main(['run', '--state-dir', item.state, '--runtime', item.runtime, '--sha256', item.sha256, '--version', '2.2.5', '--provisioning-context', item.prompt.path, '--session-context', invalid.path, ...item.toolArgs]),
     /parent session id is invalid/,
+  );
+  await assert.rejects(readFile(join(item.state, 'argv'), 'utf8'), /ENOENT/);
+});
+
+test('tool authority must be the exact closure digest bound into the verified prompt', async () => {
+  const item = await fixture();
+  const contextPath = item.toolArgs[item.toolArgs.indexOf('--tool-context') + 1];
+  const changed = JSON.parse(await readFile(contextPath, 'utf8')); changed.operations = { injected: { argv: ['/bin/sh'] } };
+  await writeFile(contextPath, `${JSON.stringify(changed)}\n`, { mode: 0o600 });
+  await assert.rejects(
+    main(['run', '--state-dir', item.state, '--runtime', item.runtime, '--sha256', item.sha256, '--version', '2.2.5',
+      '--provisioning-context', item.prompt.path, '--session-context', item.session.path, ...item.toolArgs]),
+    /tool context is not bound/,
   );
   await assert.rejects(readFile(join(item.state, 'argv'), 'utf8'), /ENOENT/);
 });
