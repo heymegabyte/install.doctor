@@ -42,10 +42,9 @@ export const PrivilegedBrokerGrantSchema = z.strictObject({
   }
 });
 
-export const PrivilegedBrokerApprovalEvidenceSchema = z.strictObject({
+const PrivilegedBrokerApprovalBindingSchema = z.strictObject({
   schemaVersion: z.literal(1),
   approvalId: identifier,
-  method: z.enum(['trusted-local', 'signed-device']),
   grantId: identifier,
   grantDigest: digest,
   hostId: identifier,
@@ -62,6 +61,23 @@ export const PrivilegedBrokerApprovalEvidenceSchema = z.strictObject({
   evidenceDigest: digest,
   approvedAt: timestamp,
 });
+
+export const PrivilegedBrokerApprovalEvidenceSchema = z.discriminatedUnion('method', [
+  PrivilegedBrokerApprovalBindingSchema.extend({
+    method: z.literal('trusted-local'),
+    proof: z.strictObject({
+      challengeNonce: nonce,
+      confirmationDigest: digest,
+    }),
+  }),
+  PrivilegedBrokerApprovalBindingSchema.extend({
+    method: z.literal('signed-device'),
+    proof: z.strictObject({
+      signerKeyId: identifier,
+      signature: z.string().min(64).max(2048).regex(/^[A-Za-z0-9_-]+$/),
+    }),
+  }),
+]);
 
 export const PrivilegedBrokerRequestSchema = z.strictObject({
   schemaVersion: z.literal(1),

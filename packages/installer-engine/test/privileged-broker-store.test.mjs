@@ -30,6 +30,7 @@ function approval(overrides = {}, exactGrant = grant()) {
     workerDigest: exactGrant.workerDigest, descriptorDigest: exactGrant.descriptorDigest,
     closureDigest: exactGrant.closureDigest, consentDigest: exactGrant.consentDigest,
     evidenceDigest: hex('9'), approvedAt: '2026-11-08T12:00:00.000Z', ...overrides,
+    proof: { signerKeyId: 'device-key-1', signature: 'a'.repeat(64) },
   };
 }
 

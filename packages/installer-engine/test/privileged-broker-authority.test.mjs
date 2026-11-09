@@ -78,7 +78,8 @@ test('root execution authority is exact, grant-bound, create-only, and independe
     runId: grant.runId, planDigest: plan.digest, enrolledUid: grant.enrolledUid,
     brokerExecutableDigest: grant.brokerExecutableDigest, runtimeDigest: grant.runtimeDigest, workerDigest: grant.workerDigest,
     descriptorDigest: grant.descriptorDigest, closureDigest: grant.closureDigest,
-    consentDigest: grant.consentDigest, evidenceDigest: '3'.repeat(64), approvedAt: '2026-11-08T12:00:00.000Z' };
+    consentDigest: grant.consentDigest, evidenceDigest: '3'.repeat(64), approvedAt: '2026-11-08T12:00:00.000Z',
+    proof: { signerKeyId: 'device-key-1', signature: 'a'.repeat(64) } };
   await store.publishGrant(grant, approval);
   const published = await store.publishAuthority('grant-1', authority);
   assert.equal(published.digest, closureDigest);
