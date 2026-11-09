@@ -284,7 +284,7 @@ test('pair claim is atomic, digest-only, binding-safe, and normalizes terminal f
   const replay = await poll();
   assert.equal(replay.status, 404);
   assert.deepEqual(await replay.json(), { error: 'claim_unavailable' });
-  const device = await db.prepare('SELECT token_sha256, pairing_code, tenant, permissions, profile_revision, machine_fingerprint, expires_at FROM devices WHERE device_id=?')
+  const device = await db.prepare('SELECT token_sha256, pairing_code, tenant, permissions, profile_revision, machine_fingerprint, created_at, expires_at FROM devices WHERE device_id=?')
     .bind(credential.deviceId).first();
   assert.equal(device.pairing_code, pairing.code);
   assert.equal(device.tenant, 'tenant-atomic');
@@ -294,6 +294,15 @@ test('pair claim is atomic, digest-only, binding-safe, and normalizes terminal f
   assert.notEqual(device.token_sha256, credential.token);
   assert.equal(device.token_sha256, crypto.createHash('sha256').update(credential.token).digest('hex'));
   assert.equal(device.expires_at, credential.expiresAt);
+  const identity = await app.fetch(new Request('https://app.install.doctor/api/devices/me', {
+    headers: { authorization: `Bearer ${credential.token}` },
+  }), env);
+  assert.equal(identity.status, 200);
+  assert.deepEqual(await identity.json(), {
+    deviceId: credential.deviceId, tenant: 'tenant-atomic', label: 'atomic-host',
+    enrolledAt: device.created_at, grantedPermissions: ['report-status'],
+    profileRevision, machineFingerprint: fingerprint,
+  });
   await db.prepare('UPDATE devices SET expires_at=? WHERE device_id=?').bind('2026-01-01T00:00:00.000Z', credential.deviceId).run();
   const expiredIdentity = await app.fetch(new Request('https://app.install.doctor/api/devices/me', {
     headers: { authorization: `Bearer ${credential.token}` },

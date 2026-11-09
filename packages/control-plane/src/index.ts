@@ -1562,11 +1562,12 @@ async function sha256hex(s: string): Promise<string> {
 async function resolveDevice(
   db: any,
   authHeader: string | undefined,
-): Promise<{ deviceId: string; tenant: string; label: string | null; createdAt: string; permissions: string[] | null } | null> {
+): Promise<{ deviceId: string; tenant: string; label: string | null; createdAt: string; permissions: string[] | null;
+  profileRevision: string | null; machineFingerprint: string | null } | null> {
   const token = (authHeader || '').startsWith('Bearer ') ? (authHeader as string).slice(7) : '';
   if (!token) return null;
   const row = await db
-    .prepare('SELECT device_id, tenant, label, permissions, created_at, revoked_at, expires_at FROM devices WHERE token_sha256 = ?')
+    .prepare('SELECT device_id, tenant, label, permissions, created_at, revoked_at, expires_at, profile_revision, machine_fingerprint FROM devices WHERE token_sha256 = ?')
     .bind(await sha256hex(token))
     .first();
   if (!row || row.revoked_at || (row.expires_at && Date.parse(row.expires_at as string) <= Date.now())) return null;
@@ -1579,7 +1580,8 @@ async function resolveDevice(
   } catch {
     /* tolerate a legacy/unparseable value — read as no recorded scope */
   }
-  return { deviceId: row.device_id, tenant: row.tenant, label: row.label, createdAt: row.created_at, permissions };
+  return { deviceId: row.device_id, tenant: row.tenant, label: row.label, createdAt: row.created_at, permissions,
+    profileRevision: row.profile_revision ?? null, machineFingerprint: row.machine_fingerprint ?? null };
 }
 // P05-enforcement (O12 — authorize each host action server-side): gate a device action on the
 // device's RECORDED granted scope (persisted at claim, fire #53). Returns a 403 Response to
@@ -1834,7 +1836,9 @@ app.get('/api/devices/me', async (c) => {
   try {
     const dev = await resolveDevice(db, c.req.header('authorization'));
     if (!dev) return c.json({ error: 'unauthorized' }, 401);
-    return c.json({ deviceId: dev.deviceId, tenant: dev.tenant, label: dev.label, enrolledAt: dev.createdAt, grantedPermissions: dev.permissions ?? [] });
+    return c.json({ deviceId: dev.deviceId, tenant: dev.tenant, label: dev.label, enrolledAt: dev.createdAt,
+      grantedPermissions: dev.permissions ?? [], profileRevision: dev.profileRevision,
+      machineFingerprint: dev.machineFingerprint });
   } catch (e) {
     return c.json({ error: 'store_error', detail: e instanceof Error ? e.message : String(e) }, 503);
   }
