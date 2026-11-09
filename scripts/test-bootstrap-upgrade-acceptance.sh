@@ -6,8 +6,13 @@ umask 077
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 IMAGE="${INSTALL_DOCTOR_CANARY_IMAGE:-node@sha256:8fa96264f302f58bbb13aa7339c541547b56975766ce956c875da149452a3e40}"
-FIXTURE="$(mktemp -d "${TMPDIR:-/tmp}/install-doctor-upgrade-acceptance.XXXXXXXX")"
+FIXTURE_PARENT="${INSTALL_DOCTOR_CANARY_FIXTURE_PARENT:-$ROOT/.agent/tmp}"
+mkdir -p "$FIXTURE_PARENT"
+chmod 0700 "$FIXTURE_PARENT"
+FIXTURE="$(mktemp -d "$FIXTURE_PARENT/install-doctor-upgrade-acceptance.XXXXXXXX")"
+CANARY_IMAGE=''
 cleanup() {
+  [ -z "$CANARY_IMAGE" ] || docker image rm --force "$CANARY_IMAGE" >/dev/null 2>&1 || true
   if [ "${INSTALL_DOCTOR_KEEP_CANARY_FIXTURE:-0}" = 1 ]; then
     printf 'bootstrap-upgrade-acceptance: retained fixture %s\n' "$FIXTURE" >&2
   else
@@ -212,6 +217,14 @@ INSTALLX
       chmod 0700 "$HOME/.local/bin/installx"
       printf 'apply:installx-tool\n' >> "$HOME/mutation-ledger"
     else
+      if [ "$version" = v2 ] && [ ! -e "$HOME/.fixture/v2-interruption-triggered" ]; then
+        : > "$HOME/.fixture/v2-interruption-triggered"
+        operation_pid="$PPID"
+        engine_pid="$(awk '{print $4}' "/proc/$operation_pid/stat")"
+        kill -INT "$engine_pid"
+        sleep 30
+        exit 130
+      fi
       printf '%s\n' "$version" > "$HOME/.fixture/chezmoi-version"
       printf 'apply:chezmoi:%s\n' "$version" >> "$HOME/mutation-ledger"
     fi
@@ -262,7 +275,11 @@ run_start() { bash "/fixture/start-$1.sh" >"$HOME/$1-$2.stdout" 2>"$HOME/$1-$2.s
 plan_digest() { set -- "$HOME/.local/state/install.doctor/engine/approvals/"*.json; basename "$1" .json; }
 
 set +e; run_start v1 plan; status=$?; set -e
-[ "$status" -eq 3 ] && [ ! -e "$HOME/mutation-ledger" ] || exit 80
+[ "$status" -eq 3 ] && [ ! -e "$HOME/mutation-ledger" ] || {
+  printf 'v1 planning status=%s ledger=%s\n' "$status" "$([ -e "$HOME/mutation-ledger" ] && printf present || printf absent)" >&2
+  cat "$HOME/v1-plan.stdout" "$HOME/v1-plan.stderr" >&2
+  exit 80
+}
 v1_digest="$(plan_digest)"
 env INSTALL_DOCTOR_APPROVED_PLAN_DIGEST="$v1_digest" bash /fixture/start-v1.sh >"$HOME/v1-apply.stdout" 2>"$HOME/v1-apply.stderr"
 cp "$HOME/mutation-ledger" "$HOME/v1-ledger"
@@ -279,6 +296,26 @@ set -- "$HOME/.local/state/install.doctor/engine/approvals/"*.json
 v2_digest=''
 for approval in "$@"; do candidate="$(basename "$approval" .json)"; [ "$candidate" = "$v1_digest" ] || v2_digest="$candidate"; done
 [ -n "$v2_digest" ] && [ "$v1_digest" != "$v2_digest" ] || exit 86
+
+set +e
+env INSTALL_DOCTOR_APPROVED_PLAN_DIGEST="$v2_digest" bash /fixture/start-v2.sh >"$HOME/v2-interrupted.stdout" 2>"$HOME/v2-interrupted.stderr"
+v2_interrupted_status=$?
+set -e
+[ "$v2_interrupted_status" -eq 130 ] || { printf 'interrupted v2 status=%s\n' "$v2_interrupted_status" >&2; exit 87; }
+[ "$v1_hash" = "$(sha256sum "$HOME/mutation-ledger" | awk '{print $1}')" ] || { printf 'interrupted upgrade mutated the ledger\n' >&2; exit 87; }
+[ "$(cat "$HOME/.fixture/chezmoi-version")" = v1 ] || { printf 'interrupted upgrade changed live configuration\n' >&2; exit 87; }
+cat > "$HOME/v2-interrupted-runs-input.json" <<RUNS
+{"schemaVersion":1,"command":"runs-list","stateRoot":"$HOME/.local/state/install.doctor/engine"}
+RUNS
+node /fixture/releases/acceptance-v2/install-doctor-engine.mjs --input "$HOME/v2-interrupted-runs-input.json" > "$HOME/v2-interrupted-runs.json"
+node - "$HOME/v2-interrupted-runs.json" "$v2_digest" <<'VERIFY_INTERRUPTED_UPGRADE'
+const fs = require('node:fs');
+const [reportPath, digest] = process.argv.slice(2);
+const matches = JSON.parse(fs.readFileSync(reportPath, 'utf8')).runs.filter(run => run.planDigest === digest);
+if (matches.length !== 1 || matches[0].authority !== 'uncommitted' || matches[0].resumeCandidate !== true) {
+  throw new Error(`upgrade interruption is not uniquely resumable: ${JSON.stringify(matches)}`);
+}
+VERIFY_INTERRUPTED_UPGRADE
 
 env INSTALL_DOCTOR_APPROVED_PLAN_DIGEST="$v2_digest" bash /fixture/start-v2.sh >"$HOME/v2-apply.stdout" 2>"$HOME/v2-apply.stderr"
 [ "$(cat "$HOME/.fixture/chezmoi-version")" = v2 ] || exit 87
@@ -322,8 +359,12 @@ for (const [digest, expectedRuns] of [[v1Digest, 1], [v2Digest, 2]]) {
   }
 }
 VERIFY
-[ "$(wc -l < "$HOME/release-requests.log" | tr -d ' ')" -eq 25 ] || exit 90
-printf 'distinct_releases=1\ndistinct_commits=1\ndistinct_plans=1\nv2_unchanged_mutations=0\n'
+[ "$(wc -l < "$HOME/release-requests.log" | tr -d ' ')" -eq 30 ] || {
+  printf 'unexpected signed release request count\n' >&2
+  cat "$HOME/release-requests.log" >&2
+  exit 90
+}
+printf 'distinct_releases=1\ndistinct_commits=1\ndistinct_plans=1\nv2_interruption_resumed=1\nv2_unchanged_mutations=0\n'
 RUN
 chmod 0700 /canary-home/run-as-node.sh
 chown node:node /canary-home/run-as-node.sh
@@ -334,17 +375,25 @@ SH
 chmod -R a+rX,go-w "$FIXTURE/container-fixture"
 
 MOUNTS=()
-for TOOL in curl sudo rsync brew gum zx chezmoi process-software-groups process-software-post-scripts; do
+for TOOL in curl rsync brew gum zx chezmoi process-software-groups process-software-post-scripts; do
   MOUNTS+=(--mount "type=bind,src=$FIXTURE/container-tools/$TOOL,dst=/usr/local/bin/$TOOL,readonly")
 done
 OUTPUT="$FIXTURE/canary.out"
+cat > "$FIXTURE/Dockerfile" <<'DOCKERFILE'
+ARG BASE_IMAGE=node@sha256:8fa96264f302f58bbb13aa7339c541547b56975766ce956c875da149452a3e40
+FROM ${BASE_IMAGE}
+COPY --chown=0:0 --chmod=4755 container-tools/sudo /usr/bin/sudo
+DOCKERFILE
+CANARY_IMAGE="install-doctor/bootstrap-upgrade-acceptance-${$}"
+docker build --network=none --build-arg "BASE_IMAGE=$IMAGE" --tag "$CANARY_IMAGE" --file "$FIXTURE/Dockerfile" "$FIXTURE" >/dev/null
 docker run --rm --network=none --read-only --entrypoint /bin/bash \
   --tmpfs /tmp:rw,nosuid,nodev,noexec,mode=1777 --tmpfs /canary-home:rw,nosuid,nodev,exec,mode=0700 \
   --mount "type=bind,src=$FIXTURE/container-fixture,dst=/fixture,readonly" "${MOUNTS[@]}" \
-  "$IMAGE" /fixture/container-run.sh | tee "$OUTPUT"
+  "$CANARY_IMAGE" /fixture/container-run.sh | tee "$OUTPUT"
 grep -q '^distinct_releases=1$' "$OUTPUT"
 grep -q '^distinct_commits=1$' "$OUTPUT"
 grep -q '^distinct_plans=1$' "$OUTPUT"
+grep -q '^v2_interruption_resumed=1$' "$OUTPUT"
 printf 'bootstrap-upgrade-acceptance: covered %s committed desired-state inputs across both signed releases\n' "$DESIRED_STATE_FILE_COUNT"
 grep -q '^v2_unchanged_mutations=0$' "$OUTPUT"
-printf 'bootstrap-upgrade-acceptance: PASS (signed v1 apply, v2 approval boundary, changed closure, unchanged v2)\n'
+printf 'bootstrap-upgrade-acceptance: PASS (signed v1 apply, v2 approval boundary, interrupted upgrade resume, changed closure, unchanged v2)\n'
