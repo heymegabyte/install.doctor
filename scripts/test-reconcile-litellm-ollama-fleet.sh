@@ -51,6 +51,8 @@ if models:
     print("LAST_API_KEY", lp.get("api_key"))
     print("LAST_RPM", lp.get("rpm"))
     print("LAST_MODEL", lp.get("model"))
+    mi = last.get("model_info", {}) or {}
+    print("LAST_INFO_ID", mi.get("id", ""))
 PY
 }
 
@@ -98,6 +100,23 @@ out="$(bash "$RECONCILE" "$CFG" --api-base https://ollama.example.test --rpm 60)
 FACTS="$(facts_of "$CFG")"
 [ "$out" = "0" ] && pass "no eligible qwen template -> 0 added" || fail "expected 0 when no template, got '$out'"
 [ "$(fact COUNT)" = "1" ] && pass "no eligible template leaves the list at 1 entry (nothing invented)" || fail "expected 1 entry, got '$(fact COUNT)'"
+
+# --- 4. supports explicit --template-model and derives unique model_info.id ---
+cat > "$CFG" <<'YAML'
+model_list:
+  - model_name: ollama-coder
+    litellm_params:
+      model: ollama_chat/qwen2.5-coder:14b
+      api_base: https://ollama-legion.example.test
+    model_info:
+      id: ollama-coder-legion-rtx4080
+      description: Legion RTX 4080 node
+YAML
+out="$(bash "$RECONCILE" "$CFG" --api-base https://ollama-omen.example.test --rpm 60 --template-model ollama_chat/qwen2.5-coder:14b)"
+FACTS="$(facts_of "$CFG")"
+[ "$out" = "1" ] && pass "supports explicit --template-model (qwen2.5-coder:14b)" || fail "expected 1 added for explicit template-model, got '$out'"
+[ "$(fact LAST_MODEL)" = "ollama_chat/qwen2.5-coder:14b" ] && pass "added deployment preserves requested template model" || fail "added model is '$(fact LAST_MODEL)'"
+[ "$(fact LAST_INFO_ID)" = "ollama-coder-ollama-omen-example-test" ] && pass "derives unique model_info.id per enrolled origin" || fail "unexpected LAST_INFO_ID '$(fact LAST_INFO_ID)'"
 
 say "reconcile-litellm-ollama-fleet: $P passed, $F failed"
 [ "$F" -eq 0 ]

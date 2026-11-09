@@ -62,12 +62,8 @@ if [[ "$OS_KERNEL" == "Linux" ]] && ! command -v backrest >/dev/null 2>&1; then
   fi
 fi
 
-# 3. Configure Backrest loopback systemd service (127.0.0.1:9898) on Linux
-if [[ "$OS_KERNEL" == "Linux" ]] && [[ -x /usr/local/bin/backrest ]]; then
-  if $SUDO systemctl list-unit-files "${HOST_SHORT}-backrest.service" 2>/dev/null | grep -Fq "${HOST_SHORT}-backrest.service"; then
-    log_warn "Existing ${HOST_SHORT}-backrest.service is preserved; migrate it explicitly before enabling the managed Backrest service"
-    exit 0
-  fi
+# 3. Configure Backrest loopback systemd service (127.0.0.1:9898) and Restic host backup timer on Linux
+if [[ "$OS_KERNEL" == "Linux" ]]; then
   $SUDO install -d -m 0700 /etc/backrest /var/lib/backrest /var/cache/megabyte/backrest
   for env_file in "/etc/${HOST_SHORT}-backup.env" /etc/backrest/backup.env; do
     if $SUDO test -f "$env_file"; then
@@ -75,8 +71,16 @@ if [[ "$OS_KERNEL" == "Linux" ]] && [[ -x /usr/local/bin/backrest ]]; then
       $SUDO chmod 0600 "$env_file"
     fi
   done
-  if [[ ! -f /etc/backrest/config.json ]]; then
-    $SUDO tee /etc/backrest/config.json >/dev/null <<EOF
+
+  MANAGE_BACKREST_UNIT=1
+  if $SUDO systemctl list-unit-files "${HOST_SHORT}-backrest.service" 2>/dev/null | grep -Fq "${HOST_SHORT}-backrest.service"; then
+    log_warn "Existing ${HOST_SHORT}-backrest.service is preserved; skipping duplicate backrest.service while still reconciling restic-host-backup"
+    MANAGE_BACKREST_UNIT=0
+  fi
+
+  if [[ "$MANAGE_BACKREST_UNIT" -eq 1 ]] && [[ -x /usr/local/bin/backrest ]]; then
+    if [[ ! -f /etc/backrest/config.json ]]; then
+      $SUDO tee /etc/backrest/config.json >/dev/null <<EOF
 {
   "modno": 1,
   "version": 4,
@@ -88,10 +92,10 @@ if [[ "$OS_KERNEL" == "Linux" ]] && [[ -x /usr/local/bin/backrest ]]; then
   "plans": []
 }
 EOF
-    $SUDO chmod 0600 /etc/backrest/config.json
-  fi
+      $SUDO chmod 0600 /etc/backrest/config.json
+    fi
 
-  $SUDO tee /etc/systemd/system/backrest.service >/dev/null <<EOF
+    $SUDO tee /etc/systemd/system/backrest.service >/dev/null <<EOF
 [Unit]
 Description=Backrest Web UI and Restic Orchestrator (Loopback Only - ${HOST_SHORT})
 After=network-online.target
@@ -116,6 +120,7 @@ ReadWritePaths=/etc/backrest /var/lib/backrest /var/cache/megabyte/backrest
 [Install]
 WantedBy=multi-user.target
 EOF
+  fi
 
   # 4. Create Restic exclude file
   $SUDO tee /etc/backrest/excludes.txt >/dev/null <<'EOF'
@@ -159,16 +164,15 @@ export XDG_CACHE_HOME="/var/cache/megabyte/backrest"
 
 restic snapshots >/dev/null 2>&1 || restic init
 
-BACKUP_PATHS=(
-  /etc/ufw
-  /etc/fail2ban
-  /etc/netdata
-  /etc/sanoid
-  /etc/backrest/excludes.txt
-)
-for p in "/etc/smartd.conf" "/home/ubuntu/.cloudflared/\${HOST_SHORT}.yaml" "/home/ubuntu/ai/repos/\${HOST_SHORT}.megabyte.space" "/home/ubuntu/\${HOST_SHORT}.megabyte.space"; do
+BACKUP_PATHS=()
+for base_path in /etc/ufw /etc/fail2ban /etc/netdata /etc/sanoid /etc/backrest/excludes.txt /etc/smartd.conf; do
+  [[ -e "\$base_path" ]] && BACKUP_PATHS+=("\$base_path")
+done
+shopt -s nullglob
+for p in /home/*/.cloudflared/"\${HOST_SHORT}.yaml" /home/*/.cloudflared/config.yml /home/*/ai/repos/"\${HOST_SHORT}.megabyte.space" /home/*/"\${HOST_SHORT}.megabyte.space"; do
   [[ -e "\$p" ]] && BACKUP_PATHS+=("\$p")
 done
+shopt -u nullglob
 
 restic backup \\
   --exclude-file=/etc/backrest/excludes.txt \\
@@ -209,7 +213,10 @@ WantedBy=timers.target
 EOF
 
   $SUDO systemctl daemon-reload
-  $SUDO systemctl enable --now backrest.service restic-host-backup.timer
+  if [[ "$MANAGE_BACKREST_UNIT" -eq 1 ]] && [[ -x /usr/local/bin/backrest ]]; then
+    $SUDO systemctl enable --now backrest.service
+  fi
+  $SUDO systemctl enable --now restic-host-backup.timer
 fi
 
 log_info "Backrest + Restic provisioning complete."

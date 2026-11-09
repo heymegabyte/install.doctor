@@ -7,10 +7,10 @@ set -euo pipefail
 
 usage() {
   cat >&2 <<'EOF'
-Usage: reconcile-litellm-ollama-fleet.sh CONFIG --api-base URL --rpm NUMBER
+Usage: reconcile-litellm-ollama-fleet.sh CONFIG --api-base URL --rpm NUMBER [--template-model MODEL]
 
-Adds one deployment per model alias that already has an exact
-ollama_chat/qwen2.5:7b-instruct template. Prints the number added.
+Adds one deployment per model alias that already has an exact template
+(default: ollama_chat/qwen2.5:7b-instruct). Prints the number added.
 EOF
 }
 
@@ -24,6 +24,7 @@ config=$1
 shift
 api_base=
 rpm=
+template_model=
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
@@ -39,6 +40,12 @@ while [ "$#" -gt 0 ]; do
       rpm=$2
       shift 2
       ;;
+    --template-model)
+      [ -z "$template_model" ] || die '--template-model may be specified only once'
+      [ "$#" -ge 2 ] || die '--template-model requires a value'
+      template_model=$2
+      shift 2
+      ;;
     -h|--help)
       usage
       exit 0
@@ -46,6 +53,8 @@ while [ "$#" -gt 0 ]; do
     *) die "unknown argument: $1" ;;
   esac
 done
+
+[ -n "$template_model" ] || template_model="ollama_chat/qwen2.5:7b-instruct"
 
 [ -n "$api_base" ] || die '--api-base is required'
 [ -n "$rpm" ] || die '--rpm is required'
@@ -69,18 +78,21 @@ case "$api_base" in
   *[[:space:]]*|*'#'*|*'?'*) die '--api-base contains unsupported URL characters' ;;
 esac
 
-python3 - "$config" "$api_base" "$rpm" <<'PY'
+python3 - "$config" "$api_base" "$rpm" "$template_model" <<'PY'
 import copy
 import os
+import re
 import stat
 import sys
 import tempfile
+from urllib.parse import urlparse
 
 import yaml
 
-path, api_base, rpm_text = sys.argv[1:]
+path, api_base, rpm_text, template_model = sys.argv[1:]
 rpm = int(rpm_text)
-template_model = "ollama_chat/qwen2.5:7b-instruct"
+host_part = urlparse(api_base).hostname or api_base
+origin_slug = re.sub(r"[^a-z0-9]+", "-", host_part.lower()).strip("-") or "node"
 
 try:
     with open(path, "r", encoding="utf-8") as stream:
@@ -121,6 +133,11 @@ for alias, template in templates.items():
     params["api_base"] = api_base
     params["api_key"] = "os.environ/OLLAMA_GATEWAY_TOKEN"
     params["rpm"] = rpm
+    model_info = deployment.get("model_info")
+    if isinstance(model_info, dict):
+        if "id" in model_info:
+            model_info["id"] = f"{alias}-{origin_slug}"
+        model_info.pop("description", None)
     additions.append(deployment)
 
 if not additions:

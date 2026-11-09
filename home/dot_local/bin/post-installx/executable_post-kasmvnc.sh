@@ -203,7 +203,7 @@ Environment=DISPLAY=:0
 Environment=XDG_RUNTIME_DIR=/run/user/$(id -u)
 Environment=DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$(id -u)/bus
 ExecStart=$chromium --ozone-platform=wayland --user-data-dir=%h/.local/state/remote-desktop/chromium --remote-debugging-address=127.0.0.1 --remote-debugging-port=9222 --no-first-run --no-default-browser-check --restore-last-session about:blank
-Restart=on-failure
+Restart=always
 RestartSec=10
 UMask=0077
 

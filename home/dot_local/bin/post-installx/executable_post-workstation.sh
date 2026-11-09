@@ -1370,6 +1370,26 @@ prometheus.scrape "cloudflared" {
   forward_to = [prometheus.remote_write.central.receiver]
 }
 
+prometheus.scrape "megabyte_local_proxy" {
+  targets = [{
+    __address__ = "127.0.0.1:4880",
+    instance    = "${HOST_SHORT}",
+    host        = "${HOST_SHORT}",
+    job         = "megabyte-local-proxy",
+  }]
+  forward_to = [prometheus.remote_write.central.receiver]
+}
+
+prometheus.scrape "pulse_agent" {
+  targets = [{
+    __address__ = "127.0.0.1:9191",
+    instance    = "${HOST_SHORT}",
+    host        = "${HOST_SHORT}",
+    job         = "pulse-agent",
+  }]
+  forward_to = [prometheus.remote_write.central.receiver]
+}
+
 prometheus.remote_write "central" {
   endpoint {
     url = "http://10.0.0.155:9090/api/v1/write"
@@ -1396,6 +1416,13 @@ loki.relabel "docker" {
   }
 }
 
+loki.process "drop_stale" {
+  forward_to = [loki.write.central.receiver]
+  stage.drop {
+    older_than = "24h"
+  }
+}
+
 loki.source.docker "containers" {
   host          = "unix:///var/run/docker.sock"
   targets       = discovery.docker.local_containers.targets
@@ -1404,7 +1431,7 @@ loki.source.docker "containers" {
     host = "${HOST_SHORT}",
     job  = "docker",
   }
-  forward_to = [loki.write.central.receiver]
+  forward_to = [loki.process.drop_stale.receiver]
 }
 
 loki.relabel "journal" {
@@ -1420,7 +1447,7 @@ loki.relabel "journal" {
 }
 
 loki.source.journal "systemd" {
-  forward_to    = [loki.write.central.receiver]
+  forward_to    = [loki.process.drop_stale.receiver]
   relabel_rules = loki.relabel.journal.rules
   labels        = {
     host = "${HOST_SHORT}",
@@ -1823,6 +1850,20 @@ EOF
   if command -v snap >/dev/null 2>&1; then
     run_root snap set system refresh.timer=03:00-04:00 >/dev/null 2>&1 || true
     run_root snap remove --purge hwctl >/dev/null 2>&1 || true
+    pkill -f '/snap/desktop-security-center/' 2>/dev/null || true
+    run_root snap remove --purge desktop-security-center >/dev/null 2>&1 || true
+  fi
+  run_root find /var/crash -maxdepth 1 -type f -delete 2>/dev/null || true
+  if [ -f /etc/systemd/system/pulse-agent.service ] && grep -q -- '--enable-commands' /etc/systemd/system/pulse-agent.service 2>/dev/null; then
+    run_root sed -i 's/ --enable-commands --command-authority command-capable//g' /etc/systemd/system/pulse-agent.service 2>/dev/null || true
+    run_root systemctl daemon-reload >/dev/null 2>&1 || true
+    run_root systemctl restart pulse-agent.service >/dev/null 2>&1 || true
+  fi
+  if systemctl list-unit-files warp-svc.service >/dev/null 2>&1; then
+    run_root install -d -m 0755 /etc/systemd/system/warp-svc.service.d
+    printf '[Service]\nLogLevelMax=warning\n' > "$TMP_DIR/warp-quiet-debug.conf"
+    run_root install -m 0644 "$TMP_DIR/warp-quiet-debug.conf" /etc/systemd/system/warp-svc.service.d/quiet-debug.conf
+    run_root systemctl daemon-reload >/dev/null 2>&1 || true
   fi
   if command -v ufw >/dev/null 2>&1; then
     run_root ufw logging low >/dev/null 2>&1 || true
@@ -2452,7 +2493,13 @@ EOF
 
   # Weekly Docker Image/BuildKit GC & Primary SSD SMART Short Self-Test
   if command -v docker >/dev/null 2>&1; then
-    cat > "$TMP_DIR/fleet-docker-gc.service" <<'EOF'
+    SMART_EXEC_LINE=""
+    if [ -c /dev/nvme0 ]; then
+      SMART_EXEC_LINE="ExecStart=-/usr/sbin/smartctl -t short /dev/nvme0"
+    elif [ -b /dev/sda ] && ! systemd-detect-virt --vm >/dev/null 2>&1; then
+      SMART_EXEC_LINE="ExecStart=-/usr/sbin/smartctl -t short /dev/sda"
+    fi
+    cat > "$TMP_DIR/fleet-docker-gc.service" <<EOF
 [Unit]
 Description=Weekly Docker Image/BuildKit GC & Primary SSD SMART Short Self-Test
 After=docker.service
@@ -2465,7 +2512,7 @@ Nice=19
 PrivateTmp=yes
 ProtectSystem=full
 UMask=0077
-ExecStart=-/usr/sbin/smartctl -t short /dev/sda
+${SMART_EXEC_LINE}
 ExecStart=/usr/bin/docker image prune -af --filter "until=168h"
 ExecStart=/usr/bin/docker builder prune -af --keep-storage 20GB
 EOF
@@ -2532,6 +2579,16 @@ EOF
     evolution-calendar-factory.service \
     evolution-source-registry.service \
     evolution-user-prompter.service \
+    localsearch-3.service \
+    localsearch-extractor-3.service \
+    localsearch-writeback-3.service \
+    localsearch-control-3.service \
+    tracker-miner-fs-3.service \
+    tracker-extract-3.service \
+    update-notifier-crash.path \
+    update-notifier-crash.service \
+    speech-dispatcher.service \
+    speech-dispatcher.socket \
     ubuntu-insights-upload.timer \
     ubuntu-insights-collect.timer \
     ubuntu-insights-upload.service \
@@ -2544,6 +2601,8 @@ EOF
     ln -sf /dev/null "$HOME/.config/systemd/user/$_u_mask" 2>/dev/null || true
   done
   pkill -f '/usr/libexec/evolution-' 2>/dev/null || true
+  pkill -f '[l]ocalsearch' 2>/dev/null || true
+  pkill -f '[s]peech-dispatcher' 2>/dev/null || true
   if [ -f "$HOME/.config/systemd/user/agent-fleet-cua.service" ] && [ -f "$HOME/.config/systemd/user/cua-driver.service" ]; then
     XDG_RUNTIME_DIR="/run/user/$(id -u)" systemctl --user disable --now cua-driver.service >/dev/null 2>&1 || true
     rm -f "$HOME/.config/systemd/user/cua-driver.service" 2>/dev/null || true
@@ -2671,7 +2730,219 @@ EOF
   if [ "${AVAIL_GB:-100}" -lt 50 ]; then
     log "Free disk space on / is ${AVAIL_GB}GiB (<50GiB threshold); pruning stale caches and logs..."
     find "$HOME/Library/Logs" -type f -mtime +7 -delete 2>/dev/null || true
-    rm -rf "$HOME/Library/Caches/Homebrew/downloads/"*.incomplete 2>/dev/null || true
+    find "$HOME/Library/Caches/Homebrew/downloads" -maxdepth 1 -name '*.incomplete' -delete 2>/dev/null || true
+  fi
+
+  # macOS Grafana Alloy + Apple-signed /usr/bin/python3 loopback relay (avoids macOS Tahoe LaunchAgent Local Network TCC EHOSTUNREACH)
+  ALLOY_BIN=""
+  if [ -x /opt/homebrew/opt/grafana-alloy/bin/alloy ]; then
+    ALLOY_BIN="/opt/homebrew/opt/grafana-alloy/bin/alloy"
+    ALLOY_ETC="/opt/homebrew/etc/grafana-alloy"
+  elif command -v alloy >/dev/null 2>&1; then
+    ALLOY_BIN="$(command -v alloy)"
+    ALLOY_ETC="$HOME/.config/grafana-alloy"
+  fi
+  if [ -n "$ALLOY_BIN" ]; then
+    MAC_HOST_SHORT="$(hostname -s 2>/dev/null || hostname)"
+    mkdir -p "$ALLOY_ETC" "$HOME/.local/bin" "$HOME/.cache/megabyte/alloy/data" "$HOME/Library/LaunchAgents"
+    cat > "$HOME/.local/bin/macos-obs-relay.py" <<'PY'
+#!/usr/bin/env python3
+"""Loopback-to-LAN HTTP observability relay for macOS Tahoe LaunchAgents.
+Apple-signed /usr/bin/python3 avoids ad-hoc Homebrew binary Local Network TCC EHOSTUNREACH.
+Uses ThreadedHTTPServer + fresh HTTPConnection per request so upstream idle timeouts never reset Alloy."""
+import http.client
+import http.server
+import socketserver
+import threading
+
+ROUTES = [
+    ("127.0.0.1", 19090, "10.0.0.155", 9090),
+    ("127.0.0.1", 13100, "10.0.0.155", 3100),
+]
+
+class ThreadedHTTPServer(socketserver.ThreadingMixIn, http.server.HTTPServer):
+    daemon_threads = True
+    allow_reuse_address = True
+
+def make_handler(dst_host, dst_port):
+    class RelayHandler(http.server.BaseHTTPRequestHandler):
+        protocol_version = "HTTP/1.1"
+        def log_message(self, fmt, *args):
+            pass
+        def _proxy(self):
+            length = int(self.headers.get("Content-Length", "0"))
+            body = self.rfile.read(length) if length > 0 else None
+            fwd = {k: v for k, v in self.headers.items() if k.lower() not in ("host", "connection", "transfer-encoding")}
+            fwd["Host"] = f"{dst_host}:{dst_port}"
+            fwd["Connection"] = "close"
+            conn = http.client.HTTPConnection(dst_host, dst_port, timeout=15)
+            try:
+                conn.request(self.command, self.path, body=body, headers=fwd)
+                resp = conn.getresponse()
+                data = resp.read()
+                self.send_response(resp.status)
+                for hk, hv in resp.getheaders():
+                    if hk.lower() not in ("transfer-encoding", "connection", "content-length"):
+                        self.send_header(hk, hv)
+                self.send_header("Content-Length", str(len(data)))
+                self.send_header("Connection", "close")
+                self.end_headers()
+                if self.command != "HEAD" and data:
+                    self.wfile.write(data)
+            except Exception as exc:
+                err = f'{{"error":"Upstream observability relay error: {exc}"}}\n'.encode()
+                self.send_response(502)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(err)))
+                self.send_header("Connection", "close")
+                self.end_headers()
+                if self.command != "HEAD":
+                    self.wfile.write(err)
+            finally:
+                conn.close()
+        do_GET = do_POST = do_PUT = do_HEAD = _proxy
+    return RelayHandler
+
+def serve(bind_host, bind_port, dst_host, dst_port):
+    ThreadedHTTPServer((bind_host, bind_port), make_handler(dst_host, dst_port)).serve_forever()
+
+for bh, bp, dh, dp in ROUTES[:-1]:
+    threading.Thread(target=serve, args=(bh, bp, dh, dp), daemon=True).start()
+serve(*ROUTES[-1])
+PY
+    chmod 0755 "$HOME/.local/bin/macos-obs-relay.py"
+
+    cat > "$ALLOY_ETC/config.alloy" <<EOF
+prometheus.exporter.unix "node" {
+  disable_collectors = ["thermal"]
+}
+
+prometheus.exporter.self "alloy" {}
+
+prometheus.scrape "node" {
+  targets         = prometheus.exporter.unix.node.targets
+  forward_to      = [prometheus.remote_write.obs.receiver]
+  scrape_interval = "15s"
+}
+
+prometheus.scrape "alloy_self" {
+  targets         = prometheus.exporter.self.alloy.targets
+  forward_to      = [prometheus.remote_write.obs.receiver]
+  scrape_interval = "30s"
+}
+
+prometheus.scrape "megabyte_local_proxy" {
+  targets = [{
+    __address__ = "127.0.0.1:4880",
+    instance    = "${MAC_HOST_SHORT}",
+    host        = "${MAC_HOST_SHORT}",
+    job         = "megabyte-local-proxy",
+  }]
+  forward_to      = [prometheus.remote_write.obs.receiver]
+  scrape_interval = "30s"
+}
+
+prometheus.scrape "cloudflared" {
+  targets = [{
+    __address__ = "127.0.0.1:20242",
+    instance    = "${MAC_HOST_SHORT}",
+    host        = "${MAC_HOST_SHORT}",
+    job         = "cloudflared",
+  }]
+  forward_to      = [prometheus.remote_write.obs.receiver]
+  scrape_interval = "30s"
+}
+
+prometheus.scrape "pulse_agent" {
+  targets = [{
+    __address__ = "127.0.0.1:9191",
+    instance    = "${MAC_HOST_SHORT}",
+    host        = "${MAC_HOST_SHORT}",
+    job         = "pulse-agent",
+  }]
+  forward_to      = [prometheus.remote_write.obs.receiver]
+  scrape_interval = "30s"
+}
+
+prometheus.remote_write "obs" {
+  endpoint { url = "http://127.0.0.1:19090/api/v1/write" }
+  external_labels = { host = "${MAC_HOST_SHORT}" }
+}
+
+loki.write "obs" {
+  endpoint { url = "http://127.0.0.1:13100/loki/api/v1/push" }
+  external_labels = { host = "${MAC_HOST_SHORT}" }
+}
+
+local.file_match "macos_logs" {
+  path_targets = [
+    { __path__ = "${HOME}/.cache/megabyte/*.log", job = "macos-services", host = "${MAC_HOST_SHORT}" },
+    { __path__ = "${HOME}/.cache/megabyte/*.err", job = "macos-services", host = "${MAC_HOST_SHORT}" },
+    { __path__ = "${HOME}/.cache/megabyte/ai/ollama/*.log", job = "macos-ollama", host = "${MAC_HOST_SHORT}" },
+  ]
+}
+
+loki.source.file "macos_logs" {
+  targets    = local.file_match.macos_logs.targets
+  forward_to = [loki.write.obs.receiver]
+}
+EOF
+
+    cat > "$HOME/Library/LaunchAgents/space.megabyte.obs-relay.plist" <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>space.megabyte.obs-relay</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/usr/bin/python3</string>
+    <string>${HOME}/.local/bin/macos-obs-relay.py</string>
+  </array>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <key>StandardOutPath</key>
+  <string>${HOME}/.cache/megabyte/alloy/obs-relay.log</string>
+  <key>StandardErrorPath</key>
+  <string>${HOME}/.cache/megabyte/alloy/obs-relay.err.log</string>
+</dict>
+</plist>
+EOF
+
+    cat > "$HOME/Library/LaunchAgents/space.megabyte.alloy.plist" <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>space.megabyte.alloy</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>${ALLOY_BIN}</string>
+    <string>run</string>
+    <string>--disable-reporting</string>
+    <string>--server.http.listen-addr=127.0.0.1:12345</string>
+    <string>--storage.path=${HOME}/.cache/megabyte/alloy/data</string>
+    <string>${ALLOY_ETC}/config.alloy</string>
+  </array>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <key>StandardOutPath</key>
+  <string>${HOME}/.cache/megabyte/alloy/alloy.log</string>
+  <key>StandardErrorPath</key>
+  <string>${HOME}/.cache/megabyte/alloy/alloy.err.log</string>
+</dict>
+</plist>
+EOF
+    launchctl bootout "gui/$(id -u)" "$HOME/Library/LaunchAgents/space.megabyte.obs-relay.plist" >/dev/null 2>&1 || true
+    launchctl bootstrap "gui/$(id -u)" "$HOME/Library/LaunchAgents/space.megabyte.obs-relay.plist" >/dev/null 2>&1 || true
+    launchctl bootout "gui/$(id -u)" "$HOME/Library/LaunchAgents/space.megabyte.alloy.plist" >/dev/null 2>&1 || true
+    launchctl bootstrap "gui/$(id -u)" "$HOME/Library/LaunchAgents/space.megabyte.alloy.plist" >/dev/null 2>&1 || true
   fi
 fi
 
