@@ -571,6 +571,56 @@ export const RealHostCanaryReceiptSchema = strict({
 });
 export type RealHostCanaryReceipt = z.infer<typeof RealHostCanaryReceiptSchema>;
 
+const disposableCompositionPhaseProof = strict({ result: z.literal('passed'), evidenceDigest: digest });
+
+/**
+ * Hermetic product-composition evidence is useful for proving that repository
+ * components interoperate, but it is never release, DNS, OIDC, or real-host
+ * evidence. Keep this contract deliberately disjoint from
+ * RealHostCanaryReceiptSchema so no promotion path can accept it by accident.
+ */
+export const DisposableProductCompositionReceiptSchema = strict({
+  schemaVersion: VERSION,
+  evidenceClass: z.literal('disposable-composition'),
+  scope: z.literal('local-product-composition'),
+  production: z.literal(false),
+  publicDns: z.literal(false),
+  productionSigner: z.literal(false),
+  realOpenCode: z.literal(false),
+  source: strict({ commit: z.string().regex(/^[a-f0-9]{40}$/) }),
+  components: strict({
+    aidCoreDigest: digest,
+    controlPlaneDigest: digest,
+    installerEngineDigest: digest,
+    supervisorDigest: digest,
+  }),
+  identity: strict({
+    profile: strict({ slug: id, revision: id, digest }),
+    release: strict({ releaseId: id, manifestDigest: digest }),
+    deviceFingerprint: digest,
+    authorizationId: id,
+    sessionId: id,
+    runId: id,
+    planDigest: digest,
+  }),
+  phases: strict({
+    profileResolution: disposableCompositionPhaseProof,
+    authorization: disposableCompositionPhaseProof,
+    supervisorLaunch: disposableCompositionPhaseProof,
+    planApplyVerify: disposableCompositionPhaseProof,
+    unchangedSecondRun: disposableCompositionPhaseProof,
+    interruptedResume: disposableCompositionPhaseProof,
+    rollback: disposableCompositionPhaseProof,
+    deprovisionPreview: disposableCompositionPhaseProof,
+  }),
+  limitations: z.tuple([
+    z.literal('fixture-signer'),
+    z.literal('in-memory-control-plane'),
+    z.literal('protocol-opencode'),
+  ]),
+});
+export type DisposableProductCompositionReceipt = z.infer<typeof DisposableProductCompositionReceiptSchema>;
+
 export const OfflineBundleSchema = strict({
   schemaVersion: VERSION, bundleId: id, releaseId: id, platformCellDigest: digest, planDigest: digest,
   createdAt: timestamp, expiresAt: timestamp, artifactDigests: z.array(digest).min(1).max(4096), graphDigest: digest,
@@ -596,6 +646,7 @@ export const InstallerContractSchemas = Object.freeze({
   immutableArtifact: ImmutableArtifactDescriptorSchema,
   hostFacts: HostFactsSchema, desiredState: DesiredStateInputSchema,
   plan: NormalizedPlanSchema, task: TaskNodeSchema, event: InstallerEventSchema, journal: JournalSchema,
-  compensation: CompensationRecordSchema, platformSupport: PlatformSupportCellSchema, offlineBundle: OfflineBundleSchema,
+  compensation: CompensationRecordSchema, platformSupport: PlatformSupportCellSchema,
+  disposableProductCompositionReceipt: DisposableProductCompositionReceiptSchema, offlineBundle: OfflineBundleSchema,
   terminalReceipt: TerminalReceiptSchema
 });

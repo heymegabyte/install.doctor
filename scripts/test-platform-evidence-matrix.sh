@@ -126,6 +126,38 @@ fs.writeFileSync(process.argv[3], JSON.stringify(value));
 NODE
 if node "$VALIDATOR" "$TMP/hermetic-matrix.json" "$ROOT" >/dev/null 2>&1; then fail 'hermetic evidence promoted a verified cell'; else pass 'hermetic evidence cannot promote verified support'; fi
 
+# A cross-component disposable composition receipt is intentionally stronger
+# than a collection of unit tests and intentionally weaker than real-host
+# evidence. It must remain ineligible for both matrix validation and staging.
+mkdir -p "$TMP/disposable/receipts"
+node - "$TMP/evidence/matrix.json" "$TMP/disposable/matrix.json" "$TMP/disposable/receipts/composition.json" <<'NODE'
+const fs = require('node:fs');
+const matrix = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
+matrix.cells[0].status = 'verified';
+matrix.cells[0].evidence = [{ kind: 'canary-receipt', path: 'receipts/composition.json' }];
+const phase = digit => ({ result: 'passed', evidenceDigest: digit.repeat(64) });
+const receipt = {
+  schemaVersion: 1, evidenceClass: 'disposable-composition', scope: 'local-product-composition',
+  production: false, publicDns: false, productionSigner: false, realOpenCode: false,
+  source: { commit: 'a'.repeat(40) },
+  components: { aidCoreDigest: '1'.repeat(64), controlPlaneDigest: '2'.repeat(64), installerEngineDigest: '3'.repeat(64), supervisorDigest: '4'.repeat(64) },
+  identity: { profile: { slug: 'example', revision: 'revision-1', digest: '5'.repeat(64) },
+    release: { releaseId: 'fixture-release-1', manifestDigest: '6'.repeat(64) }, deviceFingerprint: '7'.repeat(64),
+    authorizationId: 'authorization-1', sessionId: 'session-1', runId: 'run-1', planDigest: '8'.repeat(64) },
+  phases: { profileResolution: phase('1'), authorization: phase('2'), supervisorLaunch: phase('3'), planApplyVerify: phase('4'),
+    unchangedSecondRun: phase('5'), interruptedResume: phase('6'), rollback: phase('7'), deprovisionPreview: phase('8') },
+  limitations: ['fixture-signer', 'in-memory-control-plane', 'protocol-opencode'],
+};
+fs.writeFileSync(process.argv[3], JSON.stringify(matrix));
+fs.writeFileSync(process.argv[4], JSON.stringify(receipt));
+NODE
+if node "$VALIDATOR" "$TMP/disposable/matrix.json" "$TMP/disposable" >/dev/null 2>&1; then
+  fail 'disposable product composition evidence promoted a verified cell'
+else pass 'disposable product composition evidence cannot validate platform support'; fi
+if node "$STAGER" "$MATRIX" "$TMP/disposable/receipts/composition.json" "$TMP/disposable-candidate" >/dev/null 2>&1; then
+  fail 'promotion stager accepted disposable product composition evidence'
+else pass 'promotion stager rejects disposable product composition evidence'; fi
+
 # Unsupported cells must remain actionable.
 node - "$MATRIX" "$TMP/no-remediation.json" <<'NODE'
 const fs = require('node:fs');

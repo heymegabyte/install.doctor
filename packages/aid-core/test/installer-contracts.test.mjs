@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   CompensationRecordSchema, DesiredStateInputSchema, HostFactsSchema, InstallerEventSchema,
+  DisposableProductCompositionReceiptSchema,
   ImmutableArtifactDescriptorSchema,
   NativeOfflinePayloadDescriptorSchema,
   JournalSchema, NormalizedPlanSchema, OfflineBundleSchema, PlatformSupportCellSchema,
@@ -94,6 +95,36 @@ const canaryReceipt = {
           completionTranscriptDigest: sha, completionAuthorityDigest: sha, completionExitStatus: 0, completionAltScreenEntered: true,
           completionTerminalRestored: true, completionDesktopToolsIdentity: true, completionRunId: 'root-run', completionPlanDigest: sha, completionStatus: 'success' } } } },
 };
+const disposableCompositionReceipt = {
+  schemaVersion: 1,
+  evidenceClass: 'disposable-composition',
+  scope: 'local-product-composition',
+  production: false,
+  publicDns: false,
+  productionSigner: false,
+  realOpenCode: false,
+  source: { commit: 'b'.repeat(40) },
+  components: {
+    aidCoreDigest: '1'.repeat(64),
+    controlPlaneDigest: '2'.repeat(64),
+    installerEngineDigest: '3'.repeat(64),
+    supervisorDigest: '4'.repeat(64),
+  },
+  identity: {
+    profile: { slug: 'example', revision: 'revision-1', digest: '5'.repeat(64) },
+    release: { releaseId: 'fixture-release-1', manifestDigest: '6'.repeat(64) },
+    deviceFingerprint: '7'.repeat(64),
+    authorizationId: 'authorization-1',
+    sessionId: 'session-1',
+    runId: 'run-1',
+    planDigest: '8'.repeat(64),
+  },
+  phases: Object.fromEntries([
+    'profileResolution', 'authorization', 'supervisorLaunch', 'planApplyVerify',
+    'unchangedSecondRun', 'interruptedResume', 'rollback', 'deprovisionPreview',
+  ].map((phase, index) => [phase, { result: 'passed', evidenceDigest: String(index + 1).repeat(64) }])),
+  limitations: ['fixture-signer', 'in-memory-control-plane', 'protocol-opencode'],
+};
 
 const cases = [
   [ImmutableArtifactDescriptorSchema, { schemaVersion: 1, id: 'sysz', version: '1.4.3', platform: { os: 'linux', arch: 'x64' }, source: { url: 'https://github.com/joehillen/sysz/releases/download/1.4.3/sysz', sha256: sha, sizeBytes: 12734 }, destination: { root: 'user-bin', filename: 'sysz', mode: '0700' } }],
@@ -110,7 +141,23 @@ const cases = [
   [OfflineBundleSchema, { schemaVersion: 1, bundleId: 'bundle-1', releaseId: 'release-1', platformCellDigest: sha, planDigest: sha, createdAt: at, expiresAt: '2026-12-05T12:00:00.000Z', artifactDigests: [sha], graphDigest: sha, containsSecrets: false, signature: { keyId: 'release-key-1', algorithm: 'sshsig-ed25519', namespace: 'install.doctor.release', detached: true } }],
   [TerminalReceiptSchema, { schemaVersion: 1, runId: 'run-1', planDigest: sha, status: 'success', startedAt: at, finishedAt: '2026-11-05T12:01:00.000Z', taskCounts: { verified: 1, inapplicable: 0, skipped: 0, blocked: 0, pending: 0, failed: 0 }, evidencePaths: ['/var/lib/install-doctor/runs/run-1'], nextAction: null }]
   ,[RealHostCanaryReceiptSchema, canaryReceipt]
+  ,[DisposableProductCompositionReceiptSchema, disposableCompositionReceipt]
 ];
+
+test('disposable composition evidence cannot be confused with real-host or production evidence', () => {
+  assert.throws(() => RealHostCanaryReceiptSchema.parse(disposableCompositionReceipt));
+  for (const field of ['production', 'publicDns', 'productionSigner', 'realOpenCode']) {
+    assert.throws(() => DisposableProductCompositionReceiptSchema.parse({ ...disposableCompositionReceipt, [field]: true }));
+  }
+  assert.throws(() => DisposableProductCompositionReceiptSchema.parse({
+    ...disposableCompositionReceipt,
+    evidenceClass: 'real-host-canary',
+  }));
+  assert.throws(() => DisposableProductCompositionReceiptSchema.parse({
+    ...disposableCompositionReceipt,
+    limitations: ['fixture-signer', 'protocol-opencode', 'in-memory-control-plane'],
+  }));
+});
 
 test('all installer runtime contracts accept their bounded current-version fixtures', () => {
   for (const [schema, fixture] of cases) assert.deepEqual(schema.parse(fixture), fixture);
