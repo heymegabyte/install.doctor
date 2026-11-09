@@ -250,6 +250,12 @@ export function createBrokerRunIntentD1Store(
 ) {
   const now = options.now ?? (() => new Date());
   return Object.freeze({
+    async loadRunIntent(runIntentIdValue: string): Promise<BrokerRunIntentValue | null> {
+      const runIntentId = id.parse(runIntentIdValue);
+      const row = await db.prepare(LOAD_RUN_INTENT_BY_ID).bind(runIntentId).first<RunIntentRow>();
+      return row ? rowToRunIntent(row) : null;
+    },
+
     async persistRunIntent(raw: unknown): Promise<boolean> {
       const value = BrokerRunIntent.parse(raw);
       const result = await db.prepare(INSERT_RUN_INTENT).bind(
