@@ -40,8 +40,8 @@ import { PrivilegedBrokerDerivationInputSchema, derivePrivilegedBrokerAuthority 
 import { PrivilegedBrokerClientConfigSchema, createPrivilegedBrokerNativeRuntime } from './privileged-broker-client.js';
 import { privilegedBrokerDescriptorDigest } from './privileged-broker-authority.js';
 import { openVerifiedArtifactSnapshot } from './verified-artifact-materializer.js';
-import { BrokerApprovalTargetBindingSchema, createBrokerApprovalTransport } from './broker-approval-transport.js';
-import { BrokerApprovalPollPolicySchema, orchestrateBrokerApproval } from './broker-approval-orchestrator.js';
+import { createBrokerApprovalTransport } from './broker-approval-transport.js';
+import { BrokerApprovalBootstrapBindingSchema, BrokerApprovalPollPolicySchema, orchestrateBrokerApproval } from './broker-approval-orchestrator.js';
 import { PrivilegedBrokerGrantSchema } from './privileged-broker-protocol.js';
 
 const identifier = z.string().min(1).max(128).regex(/^[a-z0-9][a-z0-9._-]*$/);
@@ -189,7 +189,7 @@ const BrokerApprovalClaimInvocationSchema = z.strictObject({
   tokenPath: z.string().min(1).max(4096).refine(value => isAbsolute(value) && resolve(value) === value,
     'device token path must be canonical and absolute'),
   grant: PrivilegedBrokerGrantSchema,
-  binding: BrokerApprovalTargetBindingSchema,
+  bootstrapBinding: BrokerApprovalBootstrapBindingSchema,
   poll: BrokerApprovalPollPolicySchema.optional(),
 });
 const bundlePlatform = z.strictObject({
@@ -1124,7 +1124,7 @@ async function main(): Promise<void> {
       phase = 'execute';
       const approval = await orchestrateBrokerApproval({
         transport: createBrokerApprovalTransport({ origin: invocation.origin, tokenPath: invocation.tokenPath }),
-        grant: invocation.grant, binding: invocation.binding, poll: invocation.poll,
+        grant: invocation.grant, bootstrapBinding: invocation.bootstrapBinding, poll: invocation.poll,
       });
       process.stdout.write(`${JSON.stringify(approval)}\n`);
       return;

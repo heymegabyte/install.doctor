@@ -19,6 +19,13 @@ export const BrokerApprovalPollPolicySchema = z.strictObject({
   }
 });
 
+export const BrokerApprovalBootstrapBindingSchema = z.strictObject({
+  profileId: z.string().min(1).max(128).regex(/^[a-z0-9][a-z0-9._-]*$/),
+  profileRevisionDigest: z.string().regex(/^[a-f0-9]{64}$/),
+  runIntentId: z.string().min(1).max(128).regex(/^[a-z0-9][a-z0-9._-]*$/),
+  authorizationId: z.string().min(1).max(128).regex(/^[a-z0-9][a-z0-9._-]*$/),
+});
+
 export interface BrokerApprovalOrchestrationTransport {
   identity(): Promise<unknown>;
   request(grant: unknown, binding: unknown): Promise<unknown>;
@@ -29,20 +36,27 @@ export interface BrokerApprovalOrchestrationTransport {
 export interface BrokerApprovalOrchestrationOptions {
   readonly transport: BrokerApprovalOrchestrationTransport;
   readonly grant: unknown;
-  readonly binding: unknown;
+  readonly bootstrapBinding: unknown;
   readonly poll?: unknown;
   readonly now?: () => number;
   readonly sleep?: (milliseconds: number) => Promise<void>;
 }
 
-function assertBoundIdentity(identityValue: unknown, binding: BrokerApprovalTargetBinding): void {
+function bindingFromAuthenticatedIdentity(identityValue: unknown, bootstrapValue: unknown): BrokerApprovalTargetBinding {
   const identity = BrokerApprovalDeviceIdentitySchema.parse(identityValue);
-  if (identity.tenant !== binding.tenantId
-    || identity.deviceId !== binding.deviceCredentialId
-    || identity.profileRevision !== binding.profileRevisionDigest
-    || identity.machineFingerprint !== binding.deviceFingerprint) {
-    throw new Error('broker approval device identity differs from the exact target binding');
+  const bootstrap = BrokerApprovalBootstrapBindingSchema.parse(bootstrapValue);
+  if (identity.profileRevision !== bootstrap.profileRevisionDigest) {
+    throw new Error('authenticated device profile revision differs from the signed bootstrap profile');
   }
+  return BrokerApprovalTargetBindingSchema.parse({
+    tenantId: identity.tenant,
+    profileId: bootstrap.profileId,
+    profileRevisionDigest: bootstrap.profileRevisionDigest,
+    deviceCredentialId: identity.deviceId,
+    deviceFingerprint: identity.machineFingerprint,
+    runIntentId: bootstrap.runIntentId,
+    authorizationId: bootstrap.authorizationId,
+  });
 }
 
 /**
@@ -51,14 +65,14 @@ function assertBoundIdentity(identityValue: unknown, binding: BrokerApprovalTarg
  */
 export async function orchestrateBrokerApproval(options: BrokerApprovalOrchestrationOptions) {
   const grant = PrivilegedBrokerGrantSchema.parse(options.grant);
-  const binding = BrokerApprovalTargetBindingSchema.parse(options.binding);
+  const bootstrapBinding = BrokerApprovalBootstrapBindingSchema.parse(options.bootstrapBinding);
   const poll = BrokerApprovalPollPolicySchema.parse(options.poll ?? {});
   const now = options.now ?? Date.now;
   const sleep = options.sleep ?? (milliseconds => new Promise(resolve => setTimeout(resolve, milliseconds)));
   const startedAt = now();
   if (!Number.isSafeInteger(startedAt) || startedAt < 0) throw new Error('broker approval clock is invalid');
 
-  assertBoundIdentity(await options.transport.identity(), binding);
+  const binding = bindingFromAuthenticatedIdentity(await options.transport.identity(), bootstrapBinding);
   await options.transport.request(grant, binding);
 
   let delay = poll.initialDelayMs;

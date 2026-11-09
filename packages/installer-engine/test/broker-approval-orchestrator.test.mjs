@@ -13,6 +13,8 @@ const grant = { schemaVersion: 1, grantId: 'grant-1', hostId: 'host-1', releaseI
   descriptorDigest: digest, closureDigest: digest, consentDigest: digest, issuedAt, expiresAt };
 const binding = { tenantId: 'tenant-1', profileId: 'profile-1', profileRevisionDigest: digest,
   deviceCredentialId: 'device-1', deviceFingerprint: digest, runIntentId: 'intent-1', authorizationId: 'authorization-1' };
+const bootstrapBinding = { profileId: binding.profileId, profileRevisionDigest: binding.profileRevisionDigest,
+  runIntentId: binding.runIntentId, authorizationId: binding.authorizationId };
 const identity = { deviceId: binding.deviceCredentialId, tenant: binding.tenantId, label: null, enrolledAt: issuedAt,
   grantedPermissions: ['authorize-privileged-run'], profileRevision: binding.profileRevisionDigest,
   machineFingerprint: binding.deviceFingerprint };
@@ -44,7 +46,7 @@ test('binds identity, submits one exact intent, backs off, and returns only clai
     async status(actualGrant, actualBinding) { calls.push(['status', actualGrant, actualBinding]); return statuses.shift(); },
     async claim(actualGrant, actualBinding, locator) { calls.push(['claim', actualGrant, actualBinding, locator]); return expected; },
   };
-  const actual = await orchestrateBrokerApproval({ transport, grant, binding,
+  const actual = await orchestrateBrokerApproval({ transport, grant, bootstrapBinding,
     poll: { timeoutMs: 10_000, initialDelayMs: 200, maximumDelayMs: 1_000, backoffFactor: 2 },
     now: () => clock, sleep: async milliseconds => { calls.push(['sleep', milliseconds]); clock += milliseconds; } });
   assert.deepEqual(actual, expected);
@@ -55,14 +57,28 @@ test('binds identity, submits one exact intent, backs off, and returns only clai
   assert.deepEqual(calls[1][2], binding);
 });
 
-test('rejects mismatched bound identity before submitting a run intent', async () => {
+test('rejects an authenticated identity with a different signed profile revision before submitting a run intent', async () => {
   let requested = false;
   const transport = {
-    async identity() { return { ...identity, machineFingerprint: 'b'.repeat(64) }; },
+    async identity() { return { ...identity, profileRevision: 'b'.repeat(64) }; },
     async request() { requested = true; }, async status() {}, async claim() {},
   };
-  await assert.rejects(orchestrateBrokerApproval({ transport, grant, binding }), /exact target binding/);
+  await assert.rejects(orchestrateBrokerApproval({ transport, grant, bootstrapBinding }), /signed bootstrap profile/);
   assert.equal(requested, false);
+});
+
+test('bootstrap binding rejects caller-asserted tenant, device credential, or fingerprint fields', async () => {
+  let identified = false;
+  const transport = { async identity() { identified = true; return identity; }, async request() {}, async status() {}, async claim() {} };
+  for (const surplus of [
+    { tenantId: binding.tenantId },
+    { deviceCredentialId: binding.deviceCredentialId },
+    { deviceFingerprint: binding.deviceFingerprint },
+  ]) {
+    await assert.rejects(orchestrateBrokerApproval({ transport, grant,
+      bootstrapBinding: { ...bootstrapBinding, ...surplus } }));
+  }
+  assert.equal(identified, false, 'untrusted surplus identity fields fail before transport use');
 });
 
 for (const terminal of ['denied', 'expired', 'not-found']) {
@@ -70,7 +86,7 @@ for (const terminal of ['denied', 'expired', 'not-found']) {
     let slept = false;
     const transport = { async identity() { return identity; }, async request() {},
       async status() { return { schemaVersion: 1, status: terminal }; }, async claim() {} };
-    await assert.rejects(orchestrateBrokerApproval({ transport, grant, binding,
+    await assert.rejects(orchestrateBrokerApproval({ transport, grant, bootstrapBinding,
       sleep: async () => { slept = true; } }), new RegExp(`terminal status: ${terminal}`));
     assert.equal(slept, false);
   });
@@ -81,7 +97,7 @@ test('bounds pending polling by timeout and caps the final sleep to remaining ti
   const sleeps = [];
   const transport = { async identity() { return identity; }, async request() {},
     async status() { return { schemaVersion: 1, status: 'pending' }; }, async claim() {} };
-  await assert.rejects(orchestrateBrokerApproval({ transport, grant, binding,
+  await assert.rejects(orchestrateBrokerApproval({ transport, grant, bootstrapBinding,
     poll: { timeoutMs: 1_000, initialDelayMs: 700, maximumDelayMs: 900, backoffFactor: 2 },
     now: () => clock, sleep: async milliseconds => { sleeps.push(milliseconds); clock += milliseconds; } }), /timed out/);
   assert.deepEqual(sleeps, [700, 300]);
