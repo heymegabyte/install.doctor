@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { chmod, mkdir, mkdtemp, readFile, readdir, writeFile } from 'node:fs/promises';
+import { chmod, copyFile, mkdir, mkdtemp, readFile, readdir, rename, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { createServer } from 'node:net';
@@ -51,7 +51,9 @@ async function fixture() {
     authorizationId: context.authorizationId, producer: { kind: 'supervisor', id: 'desktop-tools-supervisor', parentId: null },
     kind: 'session-status', status: 'started',
   })}\n`, { mode: 0o600 });
-  const engine = resolve(import.meta.dirname, '../dist/install-doctor-engine.mjs');
+  const engine = join(root, 'install-doctor-engine.mjs');
+  await copyFile(resolve(import.meta.dirname, '../dist/install-doctor-engine.mjs'), engine);
+  await chmod(engine, 0o700);
   const server = resolve(import.meta.dirname, '../dist/desktop-tools-mcp-server.mjs');
   const options = { engine, engineSha256: await sha256(engine), context: contextPath, stateRoot, consentDirectory };
   return { root, stateRoot, consentDirectory, marker, context, contextPath, engine, server, options };
@@ -123,6 +125,17 @@ test('MCP startup rejects permissive context/consent state and a substituted eng
   await assert.rejects(createDesktopToolsMcpRuntime(item.options), /consent directory is not a protected/);
   await chmod(item.consentDirectory, 0o700);
   await assert.rejects(createDesktopToolsMcpRuntime({ ...item.options, engineSha256: digest('f') }), /digest does not match/);
+});
+
+test('typed calls never reopen an engine pathname that changed after startup verification', async () => {
+  const item = await fixture();
+  const runtime = await createDesktopToolsMcpRuntime(item.options);
+  const marker = join(item.root, 'substituted-engine-ran');
+  const replacement = join(item.root, 'replacement-engine.mjs');
+  await writeFile(replacement, `require('node:fs').writeFileSync(${JSON.stringify(marker)}, 'bypass')\n`, { mode: 0o700 });
+  await rename(replacement, item.engine);
+  await assert.rejects(runtime.call('desktop_tools_plan', { schemaVersion: 1 }), /digest does not match/);
+  await assert.rejects(readFile(marker), /ENOENT/);
 });
 
 test('pinned OpenCode discovers the signed local Desktop Tools MCP server', {

@@ -1,16 +1,15 @@
 #!/usr/bin/env node
 import { createHash, randomUUID } from 'node:crypto';
-import { execFile } from 'node:child_process';
+import { spawn } from 'node:child_process';
+import { constants as fsConstants } from 'node:fs';
 import { chmod, lstat, mkdir, open, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { createInterface } from 'node:readline';
-import { promisify } from 'node:util';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { z } from 'zod';
 import { createDesktopToolsToolAdapters, DESKTOP_TOOLS_TYPED_TOOL_NAMES } from './typed-tool-adapters.js';
 import type { ConsentBroker, DesktopToolsTypedToolName, EngineInvoker } from './typed-tool-adapters.js';
 import { createProvisioningSessionEventJournal } from './session-events.js';
 
-const executeFile = promisify(execFile);
 const identifier = z.string().min(1).max(128).regex(/^[A-Za-z0-9][A-Za-z0-9._:-]*$/);
 const digest = z.string().regex(/^[a-f0-9]{64}$/);
 const absolutePath = z.string().min(1).max(4096).refine(isAbsolute, 'path must be absolute');
@@ -89,6 +88,62 @@ async function sha256(path: string): Promise<string> {
   return hash.digest('hex');
 }
 
+async function validateOpenEngine(path: string, expectedDigest: string) {
+  const handle = await open(path, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW);
+  try {
+    const info = await handle.stat();
+    if (!info.isFile() || info.nlink !== 1 || info.size < 1 || info.size > 64 * 1024 * 1024
+      || (info.mode & 0o022) !== 0 || (typeof info.uid === 'number' && info.uid !== process.getuid?.())) {
+      throw new Error('installer engine is not a protected bounded regular file');
+    }
+    const hash = createHash('sha256');
+    const buffer = Buffer.allocUnsafe(1024 * 1024);
+    let position = 0;
+    while (true) {
+      const { bytesRead } = await handle.read(buffer, 0, buffer.length, position);
+      if (!bytesRead) break;
+      hash.update(buffer.subarray(0, bytesRead)); position += bytesRead;
+    }
+    if (hash.digest('hex') !== expectedDigest) throw new Error('installer engine digest does not match the signed runtime');
+    return handle;
+  } catch (error) {
+    await handle.close();
+    throw error;
+  }
+}
+
+async function executeOpenedEngine(engine: Awaited<ReturnType<typeof open>>, invocation: Awaited<ReturnType<typeof open>>) {
+  const descriptorRoot = process.platform === 'linux' ? '/proc/self/fd' : process.platform === 'darwin' ? '/dev/fd' : null;
+  if (!descriptorRoot) throw new Error(`descriptor-bound engine execution is unsupported on ${process.platform}`);
+  return new Promise<{ stdout: string }>((resolvePromise, reject) => {
+    const enginePath = `${descriptorRoot}/3`; const inputPath = `${descriptorRoot}/4`;
+    const loader = `process.argv.splice(1,0,${JSON.stringify(enginePath)});await import(${JSON.stringify(`file://${enginePath}`)})`;
+    const child = spawn(process.execPath, ['--input-type=module', '--eval', loader, '--', '--input', inputPath], {
+      shell: false, windowsHide: true,
+      env: { PATH: '/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin', LANG: 'C.UTF-8' },
+      stdio: ['ignore', 'pipe', 'pipe', engine.fd, invocation.fd],
+    });
+    const stdout: Buffer[] = []; const stderr: Buffer[] = [];
+    let stdoutBytes = 0; let stderrBytes = 0; let overflow = false;
+    const limit = 16 * 1024 * 1024;
+    const timer = setTimeout(() => child.kill('SIGKILL'), 86_400_000);
+    const collect = (chunks: Buffer[], kind: 'stdout' | 'stderr') => (chunk: Buffer) => {
+      const bytes = kind === 'stdout' ? (stdoutBytes += chunk.length) : (stderrBytes += chunk.length);
+      if (bytes > limit) { overflow = true; child.kill('SIGKILL'); return; }
+      chunks.push(chunk);
+    };
+    child.stdout!.on('data', collect(stdout, 'stdout')); child.stderr!.on('data', collect(stderr, 'stderr'));
+    child.once('error', error => { clearTimeout(timer); reject(error); });
+    child.once('exit', (code, signal) => {
+      clearTimeout(timer);
+      if (overflow) return reject(Object.assign(new Error('installer engine output exceeded the bounded buffer'), { code: 7 }));
+      if (signal || code !== 0) return reject(Object.assign(new Error(Buffer.concat(stderr).toString('utf8').slice(0, 1024)
+        || `installer engine exited with ${signal ?? code}`), { code: Number.isSafeInteger(code) ? code : 7 }));
+      resolvePromise({ stdout: Buffer.concat(stdout).toString('utf8') });
+    });
+  });
+}
+
 async function safeFile(path: string, label: string, maximumBytes: number): Promise<void> {
   const info = await lstat(path);
   if (!info.isFile() || info.isSymbolicLink() || info.nlink !== 1 || info.size < 1 || info.size > maximumBytes
@@ -118,19 +173,31 @@ async function createEngineInvoker(options: ServerOptions): Promise<EngineInvoke
   await protectedDirectory(invocationDirectory, 'MCP invocation directory');
   return async invocation => {
     const path = join(invocationDirectory, `${randomUUID()}.json`);
-    await writeFile(path, `${JSON.stringify(invocation)}\n`, { flag: 'wx', mode: 0o600 });
+    const engine = await validateOpenEngine(options.engine, options.engineSha256);
+    let input;
     try {
-      const result = await executeFile(process.execPath, [options.engine, '--input', path], {
-        env: { PATH: '/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin', LANG: 'C.UTF-8' },
-        timeout: 86_400_000, maxBuffer: 16 * 1024 * 1024, windowsHide: true,
-      });
-      return parseEngineOutput(result.stdout);
-    } catch (error) {
-      const candidate = error as { code?: number };
-      const exitClass = Number.isSafeInteger(candidate.code) && Number(candidate.code) >= 2 && Number(candidate.code) <= 8
-        ? Number(candidate.code) : 7;
-      throw new Error(`installer engine rejected the typed operation (class ${exitClass})`);
-    } finally { await rm(path, { force: true }); }
+      input = await open(path, fsConstants.O_RDWR | fsConstants.O_CREAT | fsConstants.O_EXCL | fsConstants.O_NOFOLLOW, 0o600);
+      const bytes = Buffer.from(`${JSON.stringify(invocation)}\n`, 'utf8');
+      let offset = 0;
+      while (offset < bytes.length) {
+        const { bytesWritten } = await input.write(bytes, offset, bytes.length - offset, offset);
+        if (!bytesWritten) throw new Error('installer invocation could not be persisted');
+        offset += bytesWritten;
+      }
+      await input.sync();
+      try {
+        const result = await executeOpenedEngine(engine, input);
+        return parseEngineOutput(result.stdout);
+      } catch (error) {
+        const candidate = error as { code?: number };
+        const exitClass = Number.isSafeInteger(candidate.code) && Number(candidate.code) >= 2 && Number(candidate.code) <= 8
+          ? Number(candidate.code) : 7;
+        throw new Error(`installer engine rejected the typed operation (class ${exitClass})`);
+      }
+    } finally {
+      await Promise.allSettled([engine?.close(), input?.close()]);
+      await rm(path, { force: true });
+    }
   };
 }
 
