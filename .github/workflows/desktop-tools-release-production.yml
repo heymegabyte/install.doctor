@@ -24,7 +24,7 @@ env:
 
 jobs:
   build:
-    name: Build inert Desktop Tools v8 closure
+    name: Build inert Desktop Tools v9 closure
     if: github.ref == 'refs/heads/master'
     runs-on: ubuntu-latest
     timeout-minutes: 45
