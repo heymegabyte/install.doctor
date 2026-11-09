@@ -64,6 +64,8 @@ test('verify, status, and resume remain bound to the session plan and journal ro
   const { adapters, invocations } = harness();
   const plan = await adapters.desktop_tools_plan({ schemaVersion: 1 });
   const approval = await adapters.desktop_tools_approve({ schemaVersion: 1, planDigest: plan.digest });
+  await assert.rejects(adapters.desktop_tools_resume({ schemaVersion: 1, approvalId: approval.approvalId }), /execution has started/);
+  await adapters.desktop_tools_apply({ schemaVersion: 1, approvalId: approval.approvalId });
   await adapters.desktop_tools_verify({ schemaVersion: 1, runId: 'run-one', planDigest: plan.digest });
   await adapters.desktop_tools_status({ schemaVersion: 1, runId: 'run-one', planDigest: plan.digest });
   await adapters.desktop_tools_resume({ schemaVersion: 1, approvalId: approval.approvalId });
@@ -82,13 +84,16 @@ test('rollback is plan-first, separately consented, exact, and engine-owned', as
   const approval = await adapters.desktop_tools_rollback_config({ schemaVersion: 1, action: 'approve', sourceRunId: 'source-one',
     sourcePlanDigest, rollbackPlanDigest: plan.digest });
   assert.deepEqual(consents[0], { operation: 'rollback-config', planDigest: digest('b'), runId: 'rollback-id-1', sourceRunId: 'source-one' });
+  await assert.rejects(adapters.desktop_tools_rollback_config({ schemaVersion: 1, action: 'resume', approvalId: approval.approvalId }),
+    /correct execution state/);
   await adapters.desktop_tools_rollback_config({ schemaVersion: 1, action: 'execute', approvalId: approval.approvalId });
   const execution = invocations.at(-1);
   assert.equal(execution.command, 'rollback-config-execute');
   assert.equal(execution.sourcePlanDigest, sourcePlanDigest);
   assert.equal(execution.approvedPlanDigest, digest('b'));
   assert.equal(execution.rollbackRunId, approval.rollbackRunId);
-  await assert.rejects(adapters.desktop_tools_rollback_config({ schemaVersion: 1, action: 'execute', approvalId: approval.approvalId }), /unused adapter-issued/);
+  await assert.rejects(adapters.desktop_tools_rollback_config({ schemaVersion: 1, action: 'execute', approvalId: approval.approvalId }),
+    /correct execution state/);
 });
 
 test('deprovision is an ownership-aware non-executable preview with no engine mutation', async () => {

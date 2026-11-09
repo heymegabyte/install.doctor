@@ -136,7 +136,9 @@ export function createDesktopToolsToolAdapters(options: DesktopToolsToolAdapterO
     async desktop_tools_resume(input) {
       const { approvalId } = grantReference.parse(input);
       const grant = grants.get(approvalId);
-      if (!grant || grant.operation !== 'apply') throw new Error('resume requires an adapter-issued approval');
+      if (!grant || grant.operation !== 'apply' || !grant.used) {
+        throw new Error('resume requires an adapter-issued approval whose execution has started');
+      }
       return invoke('resume', { planDigest: grant.planDigest, renderer, stateRoot: options.stateRoot });
     },
     async desktop_tools_rollback_config(input) {
@@ -170,8 +172,8 @@ export function createDesktopToolsToolAdapters(options: DesktopToolsToolAdapterO
       }
       const grant = grants.get(request.approvalId);
       if (!grant || grant.operation !== 'rollback-config' || !grant.sourceRunId || !grant.sourcePlanDigest
-        || (request.action === 'execute' && grant.used)) {
-        throw new Error(`${request.action} requires an ${request.action === 'execute' ? 'unused ' : ''}adapter-issued rollback approval`);
+        || (request.action === 'execute' ? grant.used : !grant.used)) {
+        throw new Error(`${request.action} requires an adapter-issued rollback approval in the correct execution state`);
       }
       if (request.action === 'execute') grants.set(request.approvalId, Object.freeze({ ...grant, used: true }));
       return options.invokeEngine(Object.freeze({ schemaVersion: 1,
