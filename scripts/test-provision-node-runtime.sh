@@ -62,6 +62,20 @@ if env PATH="$TMP/bin:/usr/bin:/bin" FAKE_SYSTEM_NODE_VERSION=v20.0.0 INSTALL_DO
   fail 'signed-archive handoff accepted a caller-provided runtime executable'
 else pass 'signed-archive handoff rejects a caller-provided runtime executable'; fi
 
+SEALED_NODE="$TMP/sealed-node"
+cp "$TMP/archive/node-v24.1.0/bin/node" "$SEALED_NODE"; chmod 0555 "$SEALED_NODE"
+if command -v sha256sum >/dev/null 2>&1; then SEALED_SHA="$(sha256sum "$SEALED_NODE" | awk '{print $1}')"; else SEALED_SHA="$(shasum -a 256 "$SEALED_NODE" | awk '{print $1}')"; fi
+if env INSTALL_DOCTOR_RUNTIME_SOURCE=sealed-handoff INSTALL_DOCTOR_RUNTIME_NODE="$SEALED_NODE" \
+  INSTALL_DOCTOR_HANDOFF_RUNTIME_SHA256="$SEALED_SHA" INSTALL_DOCTOR_ENGINE_NODE_MIN=22 \
+  bash -c 'source "$1"; ensureProvisionerNodeRuntime; [ "$INSTALL_DOCTOR_RUNTIME_NODE" = "$2" ]' _ "$PROVISION" "$SEALED_NODE"; then
+  pass 'sealed root-to-user runtime is independently digest and version verified'
+else fail 'valid sealed root-to-user runtime was rejected'; fi
+if env INSTALL_DOCTOR_RUNTIME_SOURCE=sealed-handoff INSTALL_DOCTOR_RUNTIME_NODE="$SEALED_NODE" \
+  INSTALL_DOCTOR_HANDOFF_RUNTIME_SHA256="$(printf '0%.0s' {1..64})" INSTALL_DOCTOR_ENGINE_NODE_MIN=22 \
+  bash -c 'source "$1"; ensureProvisionerNodeRuntime' _ "$PROVISION" >/dev/null 2>&1; then
+  fail 'sealed handoff accepted a substituted runtime digest'
+else pass 'sealed handoff rejects a substituted runtime digest'; fi
+
 : >"$TMP/calls"
 if env PATH="$TMP/bin:/usr/bin:/bin" CALL_LOG="$TMP/calls" FAKE_SYSTEM_NODE_VERSION=v20.0.0 INSTALL_DOCTOR_ENGINE_NODE_MIN=22 \
   INSTALL_DOCTOR_RUNTIME_SOURCE=signed-archive \

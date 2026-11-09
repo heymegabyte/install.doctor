@@ -758,7 +758,22 @@ ensureProvisionerNodeRuntime() {
   if [ -z "$SOURCE" ] && [ -z "${INSTALL_DOCTOR_RELEASE_ID:-}" ]; then
     SOURCE='system'
   fi
-  case "$SOURCE" in system|signed-archive) ;; *) logg error 'Installer Node runtime source is missing or invalid'; return 20 ;; esac
+  case "$SOURCE" in system|signed-archive|sealed-handoff) ;; *) logg error 'Installer Node runtime source is missing or invalid'; return 20 ;; esac
+  if [ "$SOURCE" = sealed-handoff ]; then
+    NODE_PATH="${INSTALL_DOCTOR_RUNTIME_NODE:-}"; SHA="${INSTALL_DOCTOR_HANDOFF_RUNTIME_SHA256:-}"
+    [ -n "$NODE_PATH" ] && [ -f "$NODE_PATH" ] && [ ! -L "$NODE_PATH" ] && [ -x "$NODE_PATH" ] \
+      || { logg error 'Sealed handoff runtime is unavailable or unsafe'; return 20; }
+    case "$SHA" in ''|*[!a-f0-9]*) logg error 'Sealed handoff runtime digest is invalid'; return 20 ;; esac
+    [ "${#SHA}" -eq 64 ] && [ "$(idSha256File "$NODE_PATH")" = "$SHA" ] \
+      || { logg error 'Sealed handoff runtime digest mismatch'; return 20; }
+    NODE_MAJOR="$("$NODE_PATH" --version 2>/dev/null | sed -nE 's/^v([0-9]+)\..*/\1/p')"
+    case "$NODE_MAJOR" in ''|*[!0-9]*) logg error 'Sealed handoff runtime version is invalid'; return 20 ;; esac
+    { [ "$NODE_MAJOR" -eq 22 ] || [ "$NODE_MAJOR" -eq 24 ]; } && [ "$NODE_MAJOR" -ge "$REQUIRED" ] \
+      || { logg error 'Sealed handoff runtime is outside the supported version policy'; return 20; }
+    PATH="$(dirname "$NODE_PATH"):$PATH"
+    export INSTALL_DOCTOR_RUNTIME_NODE PATH
+    return 0
+  fi
   if [ "$SOURCE" = 'system' ] && command -v node >/dev/null 2>&1; then
     SYSTEM_NODE="$(command -v node)"
     SYSTEM_MAJOR="$("$SYSTEM_NODE" --version 2>/dev/null | sed -nE 's/^v([0-9]+)\..*/\1/p')"
@@ -3496,30 +3511,36 @@ function ensureInstallUser() {
       fi
       [ -f "$USER_RUNTIME" ] && [ ! -L "$USER_RUNTIME" ] && [ -x "$USER_RUNTIME" ] \
         || { logg error 'System Node runtime is unsafe for handoff'; return 1; }
-      INSTALL_DOCTOR_RUNTIME_NODE="$USER_RUNTIME"
       RUNTIME_SHA="$(idSha256File "$USER_RUNTIME")"
+      idInstallSealedHandoffFile "$USER_RUNTIME" "$HANDOFF_ROOT/node" 0700 "$RUNTIME_SHA" || return 1
+      USER_RUNTIME="$HANDOFF_ROOT/node"
+      INSTALL_DOCTOR_RUNTIME_NODE="$USER_RUNTIME"
     fi
+    INSTALL_DOCTOR_RUNTIME_SOURCE=sealed-handoff
+    INSTALL_DOCTOR_HANDOFF_RUNTIME_SHA256="$RUNTIME_SHA"
+    export INSTALL_DOCTOR_RUNTIME_SOURCE INSTALL_DOCTOR_HANDOFF_RUNTIME_SHA256
     INSTALL_DOCTOR_ENGINE_PATH="$USER_ENGINE"
     INSTALL_DOCTOR_VERIFIED_MANIFEST="$USER_MANIFEST"
     INSTALL_DOCTOR_VERIFIED_SIGNATURE="$USER_SIGNATURE"
     INSTALL_DOCTOR_CATALOG_PATH="$USER_CATALOG"
     export INSTALL_DOCTOR_ENGINE_PATH INSTALL_DOCTOR_VERIFIED_MANIFEST INSTALL_DOCTOR_VERIFIED_SIGNATURE INSTALL_DOCTOR_CATALOG_PATH INSTALL_DOCTOR_CATALOG_SHA256
-    if [ "${DESKTOP_TOOLS_NATIVE_BROKER_REQUESTED:-false}" = true ]; then
-      INSTALL_UID="$(id -u "$INSTALL_USER")"; INSTALL_GID="$(id -g "$INSTALL_USER")"
-      BROKER_COORD_ROOT="$HANDOFF_ROOT/broker-coordination"
-      BROKER_USER_ROOT="$BROKER_COORD_ROOT/user"; BROKER_ROOT_ROOT="$BROKER_COORD_ROOT/root"
-      mkdir -m 0711 "$BROKER_COORD_ROOT" "$BROKER_ROOT_ROOT" || return 1
-      mkdir -m 0700 "$BROKER_USER_ROOT" || return 1
-      chown "$INSTALL_UID:$INSTALL_GID" "$BROKER_USER_ROOT" || return 1
-      BROKER_REQUEST="$BROKER_USER_ROOT/request.json"; BROKER_RESPONSE="$BROKER_ROOT_ROOT/response.json"
-      BROKER_DERIVE_INPUT="$BROKER_ROOT_ROOT/derive.json"; BROKER_DERIVED="$BROKER_ROOT_ROOT/derived.json"
-      BROKER_APPROVAL_INPUT="$BROKER_ROOT_ROOT/approval-request.json"; BROKER_APPROVAL_OUTPUT="$BROKER_ROOT_ROOT/approval.json"
-      BROKER_CONTROLLER_INPUT="$BROKER_ROOT_ROOT/controller.json"; BROKER_READY="$BROKER_ROOT_ROOT/ready.ndjson"
-      BROKER_ERROR="$BROKER_ROOT_ROOT/controller.err"; BROKER_PAYLOAD="$BROKER_ROOT_ROOT/tree.deb"
-      DESKTOP_TOOLS_BROKER_COORDINATION_USER_REQUEST="$BROKER_REQUEST"
-      DESKTOP_TOOLS_BROKER_COORDINATION_ROOT_RESPONSE="$BROKER_RESPONSE"
-      export DESKTOP_TOOLS_BROKER_COORDINATION_USER_REQUEST DESKTOP_TOOLS_BROKER_COORDINATION_ROOT_RESPONSE
-    fi
+    # The user-owned plan decides whether a privileged broker is needed. Root
+    # creates only private coordination paths before handoff and acquires no
+    # native artifacts unless the approved user plan publishes a request.
+    INSTALL_UID="$(id -u "$INSTALL_USER")"; INSTALL_GID="$(id -g "$INSTALL_USER")"
+    BROKER_COORD_ROOT="$HANDOFF_ROOT/broker-coordination"
+    BROKER_USER_ROOT="$BROKER_COORD_ROOT/user"; BROKER_ROOT_ROOT="$BROKER_COORD_ROOT/root"
+    mkdir -m 0711 "$BROKER_COORD_ROOT" "$BROKER_ROOT_ROOT" || return 1
+    mkdir -m 0700 "$BROKER_USER_ROOT" || return 1
+    chown "$INSTALL_UID:$INSTALL_GID" "$BROKER_USER_ROOT" || return 1
+    BROKER_REQUEST="$BROKER_USER_ROOT/request.json"; BROKER_RESPONSE="$BROKER_ROOT_ROOT/response.json"
+    BROKER_DERIVE_INPUT="$BROKER_ROOT_ROOT/derive.json"; BROKER_DERIVED="$BROKER_ROOT_ROOT/derived.json"
+    BROKER_APPROVAL_INPUT="$BROKER_ROOT_ROOT/approval-request.json"; BROKER_APPROVAL_OUTPUT="$BROKER_ROOT_ROOT/approval.json"
+    BROKER_CONTROLLER_INPUT="$BROKER_ROOT_ROOT/controller.json"; BROKER_READY="$BROKER_ROOT_ROOT/ready.ndjson"
+    BROKER_ERROR="$BROKER_ROOT_ROOT/controller.err"; BROKER_PAYLOAD="$BROKER_ROOT_ROOT/tree.deb"
+    DESKTOP_TOOLS_BROKER_COORDINATION_USER_REQUEST="$BROKER_REQUEST"
+    DESKTOP_TOOLS_BROKER_COORDINATION_ROOT_RESPONSE="$BROKER_RESPONSE"
+    export DESKTOP_TOOLS_BROKER_COORDINATION_USER_REQUEST DESKTOP_TOOLS_BROKER_COORDINATION_ROOT_RESPONSE
     logg info "Writing the bounded provisioning environment for the target user"
     umask 077
     : > "$ENV_EXPORT"
@@ -3547,7 +3568,7 @@ function ensureInstallUser() {
       INSTALL_DOCTOR_CHEZMOI_SOURCE \
       INSTALL_DOCTOR_RELEASE_ID INSTALL_DOCTOR_SOURCE_COMMIT \
       INSTALL_DOCTOR_RELEASE_SIGNER_ID INSTALL_DOCTOR_RELEASE_SIGNER_PUBLIC_KEY \
-      INSTALL_DOCTOR_RUNTIME_NODE INSTALL_DOCTOR_RUNTIME_NODE_VERSION \
+      INSTALL_DOCTOR_RUNTIME_NODE INSTALL_DOCTOR_RUNTIME_NODE_VERSION INSTALL_DOCTOR_RUNTIME_SOURCE INSTALL_DOCTOR_HANDOFF_RUNTIME_SHA256 \
       INSTALL_DOCTOR_VERIFIED_MANIFEST INSTALL_DOCTOR_VERIFIED_SIGNATURE \
       DESKTOP_TOOLS_PROFILE_ID DESKTOP_TOOLS_PROFILE_SLUG DESKTOP_TOOLS_PROFILE_REVISION DESKTOP_TOOLS_PROFILE_DIGEST \
       DESKTOP_TOOLS_NATIVE_BROKER_REQUESTED \
@@ -3577,7 +3598,7 @@ function ensureInstallUser() {
     # the sealed files; another process under that UID cannot replace them.
     chmod 0711 "$HANDOFF_ROOT"
     chmod 0555 "$USER_PROVISIONER" "$USER_ENGINE"
-    [ -z "${INSTALL_DOCTOR_RUNTIME_STAGE:-}" ] || chmod 0555 "$USER_RUNTIME"
+    chmod 0555 "$USER_RUNTIME"
     chmod 0444 "$USER_MANIFEST" "$USER_SIGNATURE" "$ENV_EXPORT"
     chown "$INSTALL_USER" "$USER_CATALOG" && chmod 0600 "$USER_CATALOG" \
       || { logg error 'Unable to make the sealed catalog readable only by the target user'; return 1; }
@@ -3585,19 +3606,16 @@ function ensureInstallUser() {
     _idRunSealedUserHandoff() {
       su - "$INSTALL_USER" -c "hash_file() { if command -v sha256sum >/dev/null 2>&1; then sha256sum \"\$1\" | awk '{print \$1}'; else shasum -a 256 \"\$1\" | awk '{print \$1}'; fi; }; [ \"\$(hash_file '$ENV_EXPORT')\" = '$ENV_SHA' ] && [ \"\$(hash_file '$USER_PROVISIONER')\" = '$PROVISIONER_SHA' ] && [ \"\$(hash_file '$USER_ENGINE')\" = '$ENGINE_SHA' ] && [ \"\$(hash_file '$USER_MANIFEST')\" = '$MANIFEST_SHA' ] && [ \"\$(hash_file '$USER_SIGNATURE')\" = '$SIGNATURE_SHA' ] && [ \"\$(hash_file '$USER_CATALOG')\" = '$CATALOG_SHA' ] && [ \"\$(hash_file '$USER_RUNTIME')\" = '$RUNTIME_SHA' ] || exit 20; source '$ENV_EXPORT' && export HOME='$USER_HOME_DIR' USER='$INSTALL_USER' PATH='$(dirname "$USER_RUNTIME")':\"\$PATH\" && cd '$USER_HOME_DIR' && bash '$USER_PROVISIONER'"
     }
-    if [ "${DESKTOP_TOOLS_NATIVE_BROKER_REQUESTED:-false}" != true ]; then
-      _idRunSealedUserHandoff
-      HANDOFF_STATUS=$?
+    _idRunSealedUserHandoff & BROKER_CHILD_PID=$!
+    while [ ! -f "$BROKER_REQUEST" ] && kill -0 "$BROKER_CHILD_PID" 2>/dev/null && [ "$BROKER_WAIT" -lt 180 ]; do
+      sleep 1; BROKER_WAIT=$((BROKER_WAIT + 1))
+    done
+    if [ ! -f "$BROKER_REQUEST" ]; then
+      wait "$BROKER_CHILD_PID" 2>/dev/null; HANDOFF_STATUS=$?; BROKER_CHILD_PID=''
+      [ "$HANDOFF_STATUS" -eq 0 ] || logg error 'Enrolled-user provisioning failed before publishing broker work'
     else
-      _idRunSealedUserHandoff & BROKER_CHILD_PID=$!
-      while [ ! -f "$BROKER_REQUEST" ] && kill -0 "$BROKER_CHILD_PID" 2>/dev/null && [ "$BROKER_WAIT" -lt 180 ]; do
-        sleep 1; BROKER_WAIT=$((BROKER_WAIT + 1))
-      done
-      if [ ! -f "$BROKER_REQUEST" ]; then
-        wait "$BROKER_CHILD_PID" 2>/dev/null; HANDOFF_STATUS=$?; BROKER_CHILD_PID=''
-        [ "$HANDOFF_STATUS" -ne 0 ] || HANDOFF_STATUS=4
-        logg error 'Enrolled-user broker preparation was not published'
-      else
+        DESKTOP_TOOLS_NATIVE_BROKER_REQUESTED=true
+        export DESKTOP_TOOLS_NATIVE_BROKER_REQUESTED
         idStageNativeBrokerAuthority || { kill -TERM "$BROKER_CHILD_PID" 2>/dev/null || true; wait "$BROKER_CHILD_PID" 2>/dev/null || true; return 2; }
         node - "$BROKER_REQUEST" "$BROKER_DERIVE_INPUT" "$INSTALL_UID" "$INSTALL_GID" <<'NODE'
 const fs = require('node:fs'); const crypto = require('node:crypto');
@@ -3668,7 +3686,6 @@ NODE
         BROKER_CONTROLLER_PID=''
         rmdir "$BROKER_SOCKET_DIR" 2>/dev/null || { [ "$HANDOFF_STATUS" -ne 0 ] || HANDOFF_STATUS=2; }
         BROKER_SOCKET_DIR=''
-      fi
     fi
     _idCleanupHandoff
     exit "$HANDOFF_STATUS"
@@ -3776,23 +3793,24 @@ provisionLogic() {
   idRunRequiredProvisionStep "Validating offline execution selection" idNormalizeOfflineMode || return $?
   if [ "$INSTALL_DOCTOR_OFFLINE" = true ]; then
     idRunRequiredProvisionStep "Ensuring the signed installer Node runtime" ensureProvisionerNodeRuntime || return $?
+    if [ "$(id -u)" -eq 0 ]; then
+      idRunRequiredProvisionStep "Handing off planning and execution to the enrolled user" ensureInstallUser || return $?
+      return 0
+    fi
     idRunRequiredProvisionStep "Executing the independently approved offline bundle" runOfflineBundleProvisioning || return $?
     idEmitProvisionStatus provision success 0
     return 0
   fi
   idRunRequiredProvisionStep "Collecting required inputs up front" collectInputsUpfront || return $?
   idRunRequiredProvisionStep "Ensuring the signed installer Node runtime" ensureProvisionerNodeRuntime || return $?
-  if [ "$(id -u)" -ne 0 ]; then
-    idRunRequiredProvisionStep "Authorizing this Desktop Tools target" idEnsureDesktopToolsDeviceAuthorization || return $?
-  fi
-  idRunRequiredProvisionStep "Reconciling stale sudo acquisition ownership" idReconcileStaleSudoOwnership || return $?
-  idRunRequiredProvisionStep "Resolving the install plan before mutation" configureInstallPlan || return $?
-  idRunRequiredProvisionStep "Authorizing the exact host and recorded consent" idAuthorizePlatform || return $?
   if [ "$(id -u)" -eq 0 ]; then
-    idRunRequiredProvisionStep "Persisting verified release provenance" idPersistVerifiedReleaseProvenance || return $?
     idRunRequiredProvisionStep "Handing off planning and execution to the enrolled user" ensureInstallUser || return $?
     return 0
   fi
+  idRunRequiredProvisionStep "Authorizing this Desktop Tools target" idEnsureDesktopToolsDeviceAuthorization || return $?
+  idRunRequiredProvisionStep "Reconciling stale sudo acquisition ownership" idReconcileStaleSudoOwnership || return $?
+  idRunRequiredProvisionStep "Resolving the install plan before mutation" configureInstallPlan || return $?
+  idRunRequiredProvisionStep "Authorizing the exact host and recorded consent" idAuthorizePlatform || return $?
   if [ "${DESKTOP_TOOLS_NATIVE_BROKER_REQUESTED:-false}" = true ]; then
     [ -n "${DESKTOP_TOOLS_BROKER_COORDINATION_USER_REQUEST:-}" ] \
       && [ -n "${DESKTOP_TOOLS_BROKER_COORDINATION_ROOT_RESPONSE:-}" ] \

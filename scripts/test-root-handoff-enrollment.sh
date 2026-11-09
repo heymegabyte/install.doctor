@@ -25,6 +25,24 @@ else
   fail 'root enrollment is not the first mutation gate'
 fi
 
+handoff_line="$(printf '%s\n' "$logic" | grep -n 'Handing off planning and execution to the enrolled user' | head -1 | cut -d: -f1)"
+plan_line="$(printf '%s\n' "$logic" | grep -n 'Resolving the install plan before mutation' | head -1 | cut -d: -f1)"
+authorization_line="$(printf '%s\n' "$logic" | grep -n 'Authorizing this Desktop Tools target' | head -1 | cut -d: -f1)"
+if [ -n "$handoff_line" ] && [ -n "$plan_line" ] && [ -n "$authorization_line" ] \
+  && [ "$handoff_line" -lt "$authorization_line" ] && [ "$handoff_line" -lt "$plan_line" ]; then
+  pass 'root hands off before target enrollment, planning, approval, or mutation'
+else
+  fail 'root still performs target enrollment or planning before user handoff'
+fi
+
+if printf '%s\n' "$section" | grep -q "The user-owned plan decides whether a privileged broker is needed" \
+  && printf '%s\n' "$section" | grep -q 'if \[ ! -f "\$BROKER_REQUEST" \]' \
+  && printf '%s\n' "$section" | grep -q 'DESKTOP_TOOLS_NATIVE_BROKER_REQUESTED=true'; then
+  pass 'root broker authority is demand-driven by the approved user plan'
+else
+  fail 'root broker authority is still selected before the user-owned plan'
+fi
+
 if grep -q 'Install Doctor does not automatically create or elevate accounts' "$PROVISION" \
   && grep -q 'create or enroll the target account explicitly, then rerun' "$PROVISION"; then
   pass 'failure gives explicit enrollment remediation without claiming auto-create support'
