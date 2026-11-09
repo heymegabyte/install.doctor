@@ -31,6 +31,7 @@ for phase in clean-install signed-release upgrade interrupted-resume unchanged-s
   check "structured $phase phase" grep -q "$phase.json" "$DRIVER"
 done
 check 'fixed failure matrix runner' grep -q 'run-canary-failure-matrix.mjs' "$DRIVER"
+check 'failure matrix strips ambient secrets' bash -c '! grep -Fq "...process.env" "$1" && grep -Fq "childEnvironment" "$1"' _ "$ROOT/scripts/run-canary-failure-matrix.mjs"
 check 'caller mutation constants removed' bash -c '! grep -q mutation_count "$1"' _ "$DRIVER"
 check 'complete committed authority closure exported' grep -q 'native-transaction-index.json' "$DRIVER"
 check 'terminal commit authority exported' grep -q 'terminal-authority.json' "$DRIVER"
