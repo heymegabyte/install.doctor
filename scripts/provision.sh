@@ -873,11 +873,14 @@ idCleanupProvisionerRuntime() {
 }
 
 idSha256File() {
+  local output
   [ -f "$1" ] && [ ! -L "$1" ] || return 20
-  if command -v sha256sum >/dev/null 2>&1; then sha256sum "$1" | awk '{print $1}'
-  elif command -v shasum >/dev/null 2>&1; then shasum -a 256 "$1" | awk '{print $1}'
+  if [ -x /usr/bin/sha256sum ]; then output="$(/usr/bin/sha256sum "$1")" || return 20
+  elif [ -x /bin/sha256sum ]; then output="$(/bin/sha256sum "$1")" || return 20
+  elif [ -x /usr/bin/shasum ]; then output="$(/usr/bin/shasum -a 256 "$1")" || return 20
   else return 20
   fi
+  printf '%s\n' "${output%%[[:space:]]*}"
 }
 
 idVerifySealedHandoffFile() {
@@ -900,7 +903,7 @@ idTrustedGitExecutable() {
   local candidate="${INSTALL_DOCTOR_GIT_PATH:-}" expected="${INSTALL_DOCTOR_GIT_SHA256:-}" actual owner mode parent parent_owner parent_mode
   case "$candidate" in /*) ;; *) return 1 ;; esac
   [ -f "$candidate" ] && [ ! -L "$candidate" ] && [ -x "$candidate" ] || return 1
-  parent="$(dirname "$candidate")"
+  parent="${candidate%/*}"
   [ -d "$parent" ] && [ ! -L "$parent" ] || return 1
   if stat -f '%u %Lp' "$candidate" >/dev/null 2>&1; then
     read -r owner mode <<EOF
@@ -933,10 +936,9 @@ EOF
 ### Ensure Homebrew is loaded
 idTrustedHomebrewExecutable() {
   local candidate="${INSTALL_DOCTOR_HOMEBREW_PATH:-}" expected="${INSTALL_DOCTOR_HOMEBREW_SHA256:-}" actual owner mode parent parent_owner parent_mode
-  if [ -z "$candidate" ]; then candidate="$(command -v brew 2>/dev/null || true)"; fi
   case "$candidate" in /*) ;; *) return 1 ;; esac
   [ -f "$candidate" ] && [ ! -L "$candidate" ] && [ -x "$candidate" ] || return 1
-  parent="$(dirname "$candidate")"
+  parent="${candidate%/*}"
   [ -d "$parent" ] && [ ! -L "$parent" ] || return 1
   if stat -f '%u %Lp' "$candidate" >/dev/null 2>&1; then
     read -r owner mode <<EOF

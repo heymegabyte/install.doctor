@@ -241,7 +241,7 @@ CATALOG_SHA="$(shasum -a 256 "$SOURCE_ROOT/packages/control-plane/src/catalog.js
 # the engine's check operation skip the mutation and leave this cutover
 # untested.
 make_brew_fixture() {
-  local FIXTURE_ROOT="$1" FAIL_TOOL="${2:-}"
+  local FIXTURE_ROOT="$1" FAIL_TOOL="${2:-}" BREW_DIGEST
   mkdir -p "$FIXTURE_ROOT/bin" "$FIXTURE_ROOT/home"
   cat > "$FIXTURE_ROOT/bin/brew" <<'SCRIPT'
 #!/usr/bin/env bash
@@ -259,9 +259,11 @@ EOF
 chmod 0700 "$BREW_FAKE_BIN/$tool"
 SCRIPT
   chmod 0700 "$FIXTURE_ROOT/bin/brew"
+  BREW_DIGEST="$(shasum -a 256 "$FIXTURE_ROOT/bin/brew" | awk '{print $1}')"
   : > "$FIXTURE_ROOT/ledger"
   if PATH="$FIXTURE_ROOT/bin:/usr/bin:/bin" HOME="$FIXTURE_ROOT/home" \
     BREW_LEDGER="$FIXTURE_ROOT/ledger" BREW_FAKE_BIN="$FIXTURE_ROOT/bin" BREW_FAIL_TOOL="$FAIL_TOOL" \
+    INSTALL_DOCTOR_HOMEBREW_PATH="$FIXTURE_ROOT/bin/brew" INSTALL_DOCTOR_HOMEBREW_SHA256="$BREW_DIGEST" \
     bash -c '
       source "$1"
       idRunEngineOperation homebrew-tools-check
@@ -343,6 +345,41 @@ if HOME="$TMP_DIR/git-trust/home" INSTALL_DOCTOR_GIT_PATH="$TMP_DIR/git-trust/bi
   fail 'Git executable beneath a world-writable directory was admitted'
 else
   pass 'Git executable beneath a world-writable directory is rejected'
+fi
+chmod 0700 "$TMP_DIR/git-trust/bin"
+mkdir -p "$TMP_DIR/hostile-path"
+cat > "$TMP_DIR/hostile-path/sha256sum" <<SCRIPT
+#!/usr/bin/env bash
+printf '%s  %s\n' '$git_digest' "\${1:-}"
+SCRIPT
+cat > "$TMP_DIR/hostile-path/shasum" <<SCRIPT
+#!/usr/bin/env bash
+printf '%s  %s\n' '$git_digest' "\${3:-}"
+SCRIPT
+cat > "$TMP_DIR/hostile-path/dirname" <<'SCRIPT'
+#!/usr/bin/env bash
+: > "$HOSTILE_DIRNAME_MARKER"
+printf '%s\n' /tmp
+SCRIPT
+chmod 0700 "$TMP_DIR/hostile-path/sha256sum" "$TMP_DIR/hostile-path/shasum" "$TMP_DIR/hostile-path/dirname"
+chmod 0700 "$TMP_DIR/brew-trust/bin"
+if PATH="$TMP_DIR/hostile-path:/usr/bin:/bin" HOSTILE_DIRNAME_MARKER="$TMP_DIR/hostile-dirname-used" \
+  HOME="$TMP_DIR/brew-trust/home" INSTALL_DOCTOR_HOMEBREW_PATH="$TMP_DIR/brew-trust/bin/brew" \
+  INSTALL_DOCTOR_HOMEBREW_SHA256="$brew_digest" bash -c 'source "$1"; rm -f -- "$HOSTILE_DIRNAME_MARKER"; loadHomebrew' _ "$PROVISION"; then
+  fail 'hostile PATH utilities forged plan-bound Homebrew verification'
+elif [ -e "$TMP_DIR/hostile-dirname-used" ]; then
+  fail 'plan-bound Homebrew verification invoked ambient dirname'
+else
+  pass 'plan-bound Homebrew verification ignores hostile PATH hash and path helpers'
+fi
+if PATH="$TMP_DIR/hostile-path:/usr/bin:/bin" HOSTILE_DIRNAME_MARKER="$TMP_DIR/hostile-dirname-used" \
+  HOME="$TMP_DIR/git-trust/home" INSTALL_DOCTOR_GIT_PATH="$TMP_DIR/git-trust/bin/git" \
+  INSTALL_DOCTOR_GIT_SHA256="$git_digest" bash -c 'source "$1"; rm -f -- "$HOSTILE_DIRNAME_MARKER"; idTrustedGitExecutable >/dev/null' _ "$PROVISION"; then
+  fail 'hostile PATH utilities forged plan-bound Git verification'
+elif [ -e "$TMP_DIR/hostile-dirname-used" ]; then
+  fail 'plan-bound Git verification invoked ambient dirname'
+else
+  pass 'plan-bound Git verification ignores hostile PATH hash and path helpers'
 fi
 
 if npm --prefix "$ROOT/packages/installer-engine" run bundle >/dev/null 2>&1; then
