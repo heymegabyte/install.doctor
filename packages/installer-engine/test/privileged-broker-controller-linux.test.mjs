@@ -126,7 +126,7 @@ test('Linux root controller admits an enrolled UID through the real sealed-FD br
   const helperPath = join(authorityRoot, 'desktop-tools-privileged-broker');
   const runtimePath = join(authorityRoot, 'runtime');
   const workerPath = join(authorityRoot, 'worker.mjs');
-  const clientModulePath = join(authorityRoot, 'client.mjs');
+  const clientModulePath = join('/tmp', `${runId}-client.mjs`);
   const payloadPath = join('/tmp', `${runId}.deb`);
   await mkdir(authorityRoot, { recursive: true, mode: 0o700 });
   await mkdir(socketRoot, { recursive: true, mode: 0o710 });
@@ -152,7 +152,7 @@ writeSync(4,Buffer.from(JSON.stringify(receipt)));
     chown(clientModulePath, 0, 0), chown(socketRoot, 0, enrolledGid), chown(payloadPath, 1000, enrolledGid)]);
   t.after(async () => {
     await rm(socketRoot, { recursive: true, force: true }); await rm(authorityRoot, { recursive: true, force: true });
-    await rm(payloadPath, { force: true });
+    await rm(payloadPath, { force: true }); await rm(clientModulePath, { force: true });
   });
   const input = await exactInput(runId, authorityRoot, helperPath, runtimePath, workerPath);
   input.socketGid = enrolledGid;
