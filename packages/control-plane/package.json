@@ -7,7 +7,7 @@
   "scripts": {
     "precheck": "npm --prefix ../aid-core run build",
     "check": "wrangler deploy --dry-run --outdir dist",
-    "test": "npm run check && node --test test/*.test.mjs",
+    "test": "npm run check && node --test --test-concurrency=4 test/*.test.mjs",
     "release:publish": "node scripts/publish-release-to-r2.mjs publish",
     "release:activate": "node scripts/publish-release-to-r2.mjs activate",
     "dev": "wrangler dev",
