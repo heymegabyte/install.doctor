@@ -97,6 +97,7 @@ test('authority rejects path, operation, artifact, and semantic identity drift',
     value => { value.artifacts[0].sourcePath = 'relative'; },
     value => { value.artifacts[0].sha256 = 'f'.repeat(64); },
     value => { value.operations.operations['native-debian-tree-apply'].packageKey = 'other'; },
+    value => { value.operations.operations['native-debian-tree-check'].expectedPackage.version = '9.9.9'; },
     value => { value.hostId = 'other'; },
   ]) {
     const candidate = structuredClone(authority); mutate(candidate);

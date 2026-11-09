@@ -64,7 +64,7 @@ export function derivePrivilegedBrokerServiceAuthority(inputValue: unknown) {
   const descriptor = PrivilegedBrokerServiceDescriptorSchema.parse({
     kind: 'native-service', manager: 'systemd', serviceKey: 'alloy', unit: 'alloy.service', desiredState: 'enabled-and-started',
   });
-  const operations = OfflineOperationManifestSchema.parse({ schemaVersion: 4, configurationRoots: [],
+  const operations = OfflineOperationManifestSchema.parse({ schemaVersion: 5, configurationRoots: [],
     operations: Object.fromEntries(candidate.operations.map(item => [item.operationId, item.operation])) });
   const authority = PrivilegedBrokerServiceExecutionAuthoritySchema.parse({
     schemaVersion: 1, authorityKind: 'native-service', hostId: input.hostFacts.hostId,

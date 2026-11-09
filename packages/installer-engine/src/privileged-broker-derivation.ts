@@ -77,7 +77,7 @@ export function derivePrivilegedBrokerAuthority(inputValue: unknown) {
     }
   }
   const operations = OfflineOperationManifestSchema.parse({
-    schemaVersion: 4,
+    schemaVersion: 5,
     configurationRoots: [],
     operations: Object.fromEntries(candidate.operations.map(item => [item.operationId, item.operation])),
   });

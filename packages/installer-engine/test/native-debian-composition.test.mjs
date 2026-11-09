@@ -45,6 +45,8 @@ test('composes one canonical native task with witness kept outside mutation auth
   assert.deepEqual(first.operations.operations['native-debian-tree-check'].installedWitnesses, [
     { kind: 'preexisting-witness', manager: 'dpkg', packageName: 'libc6', minimumVersion: '2.34', architecture: 'amd64' },
   ]);
+  assert.deepEqual(first.operations.operations['native-debian-tree-check'].expectedPackage,
+    { name: 'tree', version: '2.1.0-1', architecture: 'amd64' });
   assert.equal(JSON.stringify(first.operations).match(/libc6/g).length, 3);
   assert.ok(!JSON.stringify(first).includes('installx'));
   assert.equal(first.task.network, 'none');

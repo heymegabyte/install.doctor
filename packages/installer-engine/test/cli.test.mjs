@@ -740,7 +740,8 @@ test('normal CLI plans native package operations but rejects mutation without th
   const directory = await mkdtemp(join(tmpdir(), 'desktop-tools-native-cli-authority-'));
   const invocationPath = join(directory, 'invocation.json');
   const operation = action => ({ kind: 'native-package', effectClass: 'native-package', action,
-    packageKey: 'tree', payloadArtifactId: 'tree-deb-bookworm-amd64', installedWitnesses: [{
+    packageKey: 'tree', payloadArtifactId: 'tree-deb-bookworm-amd64',
+    expectedPackage: { name: 'tree', version: '2.1.0-1', architecture: 'amd64' }, installedWitnesses: [{
       kind: 'preexisting-witness', manager: 'dpkg', packageName: 'libc6', minimumVersion: '2.34', architecture: 'amd64',
     }] });
   const task = { schemaVersion: 1, id: 'package.native.tree', inputDigest: digest('a'), dependencies: [], predicate: 'host-supported',
@@ -762,6 +763,17 @@ test('normal CLI plans native package operations but rejects mutation without th
   });
   const plan = JSON.parse(planned.stdout);
   assert.match(plan.digest, /^[a-f0-9]{64}$/);
+  if (process.platform === 'linux') {
+    await writeFile(invocationPath, `${JSON.stringify({ schemaVersion: 1, command: 'status', runId: 'native-status-read-only',
+      renderer: 'ndjson', plan, approvedPlanDigest: plan.digest, operations: invocation.operations })}\n`, { mode: 0o600 });
+    await assert.rejects(execute(process.execPath, [cli, '--input', invocationPath], {
+      env: { PATH: process.env.PATH ?? '' }, timeout: 5_000,
+    }), error => {
+      const events = error.stdout.trim().split('\n').map(line => JSON.parse(line));
+      return error.code === 6 && error.stderr === ''
+        && events.some(event => event.kind === 'task-status' && event.taskId === task.id && event.status === 'pending');
+    });
+  }
   await writeFile(invocationPath, `${JSON.stringify({ ...invocation, command: 'run', approvedPlanDigest: plan.digest,
     renderer: 'headless', stateRoot: join(directory, 'state') })}\n`, { mode: 0o600 });
   await assert.rejects(execute(process.execPath, [cli, '--input', invocationPath], {

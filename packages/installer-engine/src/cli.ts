@@ -23,6 +23,7 @@ import type { NativePackageRuntime } from './offline-execution.js';
 import { executeOfflineBundle } from './offline-orchestrator.js';
 import { createDefaultDebianMetadataVerifier } from './debian-gpgv.js';
 import { createTrustedDebianVersionComparator } from './debian-version.js';
+import { createNativeDpkgQueryRunner, inspectDpkgPackage } from './native-dpkg-state.js';
 import { createNativeDpkgTransactionRuntime } from './native-dpkg-transaction.js';
 import { collectLinuxOfflineHostFacts } from './linux-host-facts.js';
 import { LoadPlanInputSchema, LoadPlanItemSchema, LoadPlanReportSchema, buildLoadPlan, calculateLoadPlanReportDigest } from './lazy-plan.js';
@@ -1174,8 +1175,29 @@ function baseAdapterFor(invocation: OperationInvocation, nativeBinding?: {
       return await serviceBinding.runtime.verify(selected) === 'verified' ? 0 : 30;
     }
     if (selected.kind === 'native-package') {
+      if (!nativeBinding && invocation.command === 'status' && selected.action === 'check') {
+        const assessment = await inspectDpkgPackage({
+          runner: createNativeDpkgQueryRunner(), packageName: selected.expectedPackage.name,
+          version: selected.expectedPackage.version, architecture: selected.expectedPackage.architecture,
+          ...(context?.signal ? { signal: context.signal } : {}),
+        });
+        if (assessment.disposition === 'verified') return 0;
+        if (assessment.disposition === 'needed') {
+          if (assessment.reason === 'version-drift' && assessment.observed !== null) {
+            const compareVersions = await createTrustedDebianVersionComparator();
+            if (compareVersions(selected.expectedPackage.version, assessment.observed.version) < 0) {
+              throw new Error('native package status is blocked: installed version is newer than signed desired state');
+            }
+          }
+          return 10;
+        }
+        throw new Error(`native package status is blocked: ${assessment.reason}`);
+      }
       if (!nativeBinding || selected.action !== expectedAction || selected.packageKey !== nativeBinding.descriptor.packageKey
-        || selected.payloadArtifactId !== nativeBinding.descriptor.artifact.id) {
+        || selected.payloadArtifactId !== nativeBinding.descriptor.artifact.id
+        || selected.expectedPackage.name !== nativeBinding.descriptor.package.name
+        || selected.expectedPackage.version !== nativeBinding.descriptor.package.version
+        || selected.expectedPackage.architecture !== nativeBinding.descriptor.package.architecture) {
         throw new Error('native package operation requires matching approved privileged broker authority');
       }
       const authority = Object.freeze({
@@ -1334,9 +1356,12 @@ async function adapterFor(invocation: OperationInvocation): Promise<InstallerAda
     || phases.some(phase => {
     const operationId = task.operations[phase];
     const operation = invocation.operations[operationId];
-    return operation?.kind !== 'native-package' || operation.action !== phase
+      return operation?.kind !== 'native-package' || operation.action !== phase
       || operation.packageKey !== binding.descriptor.packageKey
       || operation.payloadArtifactId !== binding.descriptor.artifact.id
+      || operation.expectedPackage.name !== binding.descriptor.package.name
+      || operation.expectedPackage.version !== binding.descriptor.package.version
+      || operation.expectedPackage.architecture !== binding.descriptor.package.architecture
       || !grant.operations.some(candidate => candidate.taskId === task.id && candidate.operationId === operationId && candidate.phase === phase);
   })) {
     throw new Error('privileged broker binding does not own the exact native operation triplet');

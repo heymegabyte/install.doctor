@@ -58,7 +58,7 @@ export function composeSelectedNativeSystemdService(input: {
     manager: 'systemd', unit: 'alloy.service', desiredState: 'enabled-and-started',
   });
   const operations = OfflineOperationManifestSchema.parse({
-    schemaVersion: 4, configurationRoots: [], operations: {
+    schemaVersion: 5, configurationRoots: [], operations: {
       [operationIds.check]: operation('check'),
       [operationIds.apply]: operation('apply'),
       [operationIds.verify]: operation('verify'),

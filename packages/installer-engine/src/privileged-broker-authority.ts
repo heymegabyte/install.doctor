@@ -68,7 +68,10 @@ export const PrivilegedBrokerPackageExecutionAuthoritySchema = z.strictObject({
   if (operations.length !== 3
     || JSON.stringify(operations.map(([, operation]) => operation.action).sort()) !== JSON.stringify(expectedActions)
     || operations.some(([, operation]) => operation.packageKey !== value.descriptor.packageKey
-      || operation.payloadArtifactId !== value.descriptor.artifact.id)) {
+      || operation.payloadArtifactId !== value.descriptor.artifact.id
+      || operation.expectedPackage.name !== value.descriptor.package.name
+      || operation.expectedPackage.version !== value.descriptor.package.version
+      || operation.expectedPackage.architecture !== value.descriptor.package.architecture)) {
     context.addIssue({ code: 'custom', message: 'broker authority requires one exact native check/apply/verify operation triplet' });
   }
   const expected = new Map<string, { sha256: string; sizeBytes: number }>([

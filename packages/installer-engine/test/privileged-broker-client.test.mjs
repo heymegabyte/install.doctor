@@ -40,7 +40,7 @@ test('user runtime sends exact fd-bound operations and accepts only matching rec
     socketPath: '/run/desktop-tools/privileged/run-1/broker.sock', hostId: 'host-1', releaseId: 'release-1', runId: 'run-1',
     planDigest: hex('a'), taskId: 'package.tree', grant: grant() }, transport, () => new Date('2026-11-08T12:01:00.000Z'));
   const authority = phase => ({ operation: { kind: 'native-package', effectClass: 'native-package', action: phase,
-    packageKey: 'tree', payloadArtifactId: 'tree-deb' }, rootDescriptor: descriptor(7), packages: [], installedWitnesses: [],
+    packageKey: 'tree', payloadArtifactId: 'tree-deb', expectedPackage: { name: 'tree', version: '2.1.0-1', architecture: 'amd64' } }, rootDescriptor: descriptor(7), packages: [], installedWitnesses: [],
     withPayload: async (_packageKey, use) => { const handle = await open(payloadPath, 'r'); try { return await use(handle); } finally { await handle.close(); } },
     context: undefined });
   assert.equal(await runtime.check(authority('check')), 'needed');
@@ -59,7 +59,7 @@ test('user runtime rejects missing phase authority and substituted receipts', as
   const config = value => ({ helperPath: '/run/desktop-tools/bin/broker', socketPath: '/run/desktop-tools/privileged/run-1/broker.sock',
     hostId: 'host-1', releaseId: 'release-1', runId: 'run-1', planDigest: hex('a'), taskId: 'package.tree', grant: value });
   const runtime = createPrivilegedBrokerNativeRuntime(config(missing), { invoke: async () => { throw new Error('must not invoke'); } });
-  const authority = { operation: { kind: 'native-package', effectClass: 'native-package', action: 'apply', packageKey: 'tree', payloadArtifactId: 'tree-deb' },
+  const authority = { operation: { kind: 'native-package', effectClass: 'native-package', action: 'apply', packageKey: 'tree', payloadArtifactId: 'tree-deb', expectedPackage: { name: 'tree', version: '2.1.0-1', architecture: 'amd64' } },
     rootDescriptor: descriptor(7), packages: [], installedWitnesses: [], withPayload: async () => { throw new Error('must not open payload'); }, context: undefined };
   await assert.rejects(runtime.apply(authority), /lacks the apply operation/);
 

@@ -373,7 +373,7 @@ process.stdout.write(JSON.stringify({check,apply:'applied',verify})+'\\n');
     consent: 'package-install', lockDomains: ['package-manager.dpkg'], cleanup: 'none', compensation: 'none', failurePolicy: 'abort-run' };
   const operations = Object.fromEntries(Object.entries(operationIds).map(([phase, operationId]) => [operationId,
     { kind: 'native-package', effectClass: 'native-package', action: phase, packageKey: PACKAGE_KEY,
-      payloadArtifactId: descriptor.artifact.id, installedWitnesses: [] }]));
+      payloadArtifactId: descriptor.artifact.id, expectedPackage: { name: descriptor.package.name, version: descriptor.package.version, architecture: descriptor.package.architecture }, installedWitnesses: [] }]));
   const plan = await deriveBoundNormalizedPlan({ tasks: [task], selectedTaskIds: [task.id],
     executionPolicy: { maxConcurrency: 1, resourceLimits: { cpu: 1, memoryMiB: 512, networkConcurrency: 0 } } },
   facts, desiredState, release.releaseId, new Date().toISOString());
@@ -521,7 +521,7 @@ async function main() {
     async save(value) { transaction = structuredClone(value); await atomicJson(TRANSACTION_PATH, value); },
   };
   const authority = (action, signal) => ({
-    operation: { kind: 'native-package', effectClass: 'native-package', action, packageKey: PACKAGE_KEY, payloadArtifactId: descriptor.artifact.id },
+    operation: { kind: 'native-package', effectClass: 'native-package', action, packageKey: PACKAGE_KEY, payloadArtifactId: descriptor.artifact.id, expectedPackage: { name: descriptor.package.name, version: descriptor.package.version, architecture: descriptor.package.architecture } },
     rootDescriptor: descriptor,
     packages: [{
       descriptor,

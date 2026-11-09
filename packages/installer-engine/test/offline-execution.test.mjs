@@ -168,7 +168,7 @@ async function fixture(t, options = {}) {
     now: () => fixtureAt,
   }).plan(facts, desiredState, 'release-1');
   const operations = {
-    schemaVersion: 4,
+    schemaVersion: 5,
     configurationRoots: [],
     operations: Object.fromEntries(tasks.flatMap(item => Object.values(item.operations).map(operationId => [operationId, {
       kind: 'process', effectClass: 'catalog-executable',
@@ -200,7 +200,7 @@ async function fixture(t, options = {}) {
         { id: 'release-envelope', sourcePath: releaseEnvelope, mediaType: 'text/plain', mode: '0600', license: 'MIT', schema: { id: 'stage-zero-release-envelope', version: '4' }, containsSecrets: false },
         { id: 'release-signature', sourcePath: releaseSignature, mediaType: 'application/octet-stream', mode: '0600', license: 'MIT', schema: null, containsSecrets: false },
         { id: 'normalized-plan', sourcePath: planPath, mediaType: 'application/json', mode: '0600', license: 'MIT', schema: { id: 'normalized-plan', version: '1' }, containsSecrets: false },
-        { id: 'operation-manifest', sourcePath: operationsPath, mediaType: 'application/json', mode: '0600', license: 'MIT', schema: { id: 'operation-manifest', version: '4' }, containsSecrets: false },
+        { id: 'operation-manifest', sourcePath: operationsPath, mediaType: 'application/json', mode: '0600', license: 'MIT', schema: { id: 'operation-manifest', version: '5' }, containsSecrets: false },
         { id: 'desired-state', sourcePath: desiredStatePath, mediaType: 'application/json', mode: '0600', license: 'MIT', schema: { id: 'desired-state', version: '1' }, containsSecrets: false },
         { id: 'host-facts', sourcePath: hostFactsPath, mediaType: 'application/json', mode: '0600', license: 'MIT', schema: { id: 'host-facts', version: '1' }, containsSecrets: false },
         ...(includeFixtureExecutable ? [{ id: 'fixture-operation', sourcePath: executable, mediaType: 'application/octet-stream', mode: '0700', license: 'MIT', schema: null, catalogDescriptor: { ...executableDescriptor, kind: 'immutable-executable' }, containsSecrets: false }] : []),
@@ -243,7 +243,7 @@ async function managedFileFixture(t) {
     { taskId: 'task.managed-new', artifactId: 'candidate-new', targetPath: newTarget },
   ];
   const operations = {
-    schemaVersion: 4,
+    schemaVersion: 5,
     configurationRoots: [targetDirectory],
     operations: Object.fromEntries(authority.flatMap(item => ['check', 'apply', 'verify'].map(action => [
       `${item.taskId}.${action}`,
@@ -365,18 +365,18 @@ test('runtime package artifacts require exact selected signed-catalog authority 
   await assert.rejects(duplicate.makeBundle({ includeFixtureExecutable: false, extraArtifacts: [artifact, artifact] }), /duplicate artifact ids/);
 });
 
-test('offline operation v4 rejects generic v3 migration, implicit effects, and unsupported native mutation domains', async t => {
-  assert.throws(() => canonicalOfflineOperationManifestBytes({ schemaVersion: 3, configurationRoots: [], operations: {} }), /expected 4/i);
+test('offline operation v5 rejects earlier formats, implicit effects, and unsupported native mutation domains', async t => {
+  assert.throws(() => canonicalOfflineOperationManifestBytes({ schemaVersion: 4, configurationRoots: [], operations: {} }), /expected 5/i);
   assert.throws(() => canonicalOfflineOperationManifestBytes({
-    schemaVersion: 4, configurationRoots: [],
+    schemaVersion: 5, configurationRoots: [],
     operations: { check: { kind: 'process', executableArtifactId: 'fixture-operation', arguments: [] } },
   }), /effectClass/i);
   assert.throws(() => canonicalOfflineOperationManifestBytes({
-    schemaVersion: 4, configurationRoots: [],
+    schemaVersion: 5, configurationRoots: [],
     operations: { apply: { kind: 'package-manager', manager: 'apt', packages: ['fixture'] } },
   }), /invalid input|kind/i);
   assert.doesNotThrow(() => canonicalOfflineOperationManifestBytes({
-    schemaVersion: 4, configurationRoots: [],
+    schemaVersion: 5, configurationRoots: [],
     operations: Object.fromEntries(['check', 'apply', 'verify'].map(action => [`service.${action}`, {
       kind: 'native-service', effectClass: 'native-service', action,
       manager: 'systemd', unit: 'fixture.service', desiredState: 'started',
@@ -399,7 +399,7 @@ test('offline operation v4 rejects generic v3 migration, implicit effects, and u
   }
 });
 
-test('v4 admits only an exact signed native dpkg package triple and runtime remains fail-closed', async t => {
+test('v5 admits only an exact signed native dpkg package triple and runtime remains fail-closed', async t => {
   const state = await fixture(t);
   const payloadBytes = await readFile(state.nativePayload);
   const packagesBytes = await readFile(state.packagesIndex);
@@ -422,10 +422,11 @@ test('v4 admits only an exact signed native dpkg package triple and runtime rema
     now: () => at,
   }).plan(state.facts, desiredState, 'release-1');
   const operations = {
-    schemaVersion: 4, configurationRoots: [],
+    schemaVersion: 5, configurationRoots: [],
     operations: Object.fromEntries(['check', 'apply', 'verify'].map(action => [nativeTask.operations[action], {
       kind: 'native-package', effectClass: 'native-package', action,
       packageKey: 'fixture-operation', payloadArtifactId: 'fixture-package',
+      expectedPackage: { name: 'fixture-operation', version: '1.0.0-1', architecture: 'amd64' },
     }])),
   };
   const nativeArtifacts = [
@@ -438,6 +439,14 @@ test('v4 admits only an exact signed native dpkg package triple and runtime rema
     candidatePlan: plan, candidateOperations: operations, candidateDesiredState: desiredState,
     includeFixtureExecutable: false, extraArtifacts: nativeArtifacts,
   });
+  const mismatchedStatusAuthority = structuredClone(operations);
+  mismatchedStatusAuthority.operations[nativeTask.operations.apply].expectedPackage.version = '9.9.9';
+  const mismatchedOutput = join(state.root, 'mismatched-status-authority');
+  await mkdir(mismatchedOutput, { mode: 0o700 });
+  await assert.rejects(state.makeBundle({
+    candidatePlan: plan, candidateOperations: mismatchedStatusAuthority, candidateDesiredState: desiredState,
+    includeFixtureExecutable: false, extraArtifacts: nativeArtifacts, bundleOutputRoot: mismatchedOutput,
+  }), /native package operations disagree on their authority/);
   const closure = await validateOfflineExecutionClosure({
     bundleDirectory: created.bundleDirectory, manifest: created.manifest, manifestDigest: created.manifestDigest,
   });
@@ -759,7 +768,8 @@ test('native Debian verification recursively proves every dependency payload bef
   }));
   const verified = { bundleDirectory: root, manifest: { artifacts: manifestArtifacts }, manifestDigest: sha(Buffer.from('manifest')) };
   const closure = {
-    operations: { operations: { check: { kind: 'native-package', packageKey: 'fixture-operation', payloadArtifactId: 'root-deb' } } },
+    operations: { operations: { check: { kind: 'native-package', packageKey: 'fixture-operation', payloadArtifactId: 'root-deb',
+      expectedPackage: { name: rootDescriptor.package.name, version: rootDescriptor.package.version, architecture: rootDescriptor.package.architecture } } } },
     nativePackageDescriptors: { 'fixture-dependency': dependencyDescriptor, 'fixture-operation': rootDescriptor },
   };
   const releaseText = [
@@ -832,29 +842,29 @@ test('offline managed-file authority rejects unsafe schema, mismatched triplets,
   const state = await managedFileFixture(t);
   const base = state.operations.operations['task.managed-existing.check'];
   assert.throws(() => canonicalOfflineOperationManifestBytes({
-    schemaVersion: 4, configurationRoots: [state.targetDirectory], operations: { operation: { ...base, targetPath: 'relative.conf' } },
+    schemaVersion: 5, configurationRoots: [state.targetDirectory], operations: { operation: { ...base, targetPath: 'relative.conf' } },
   }), /absolute/);
   assert.throws(() => canonicalOfflineOperationManifestBytes({
-    schemaVersion: 4, configurationRoots: [state.targetDirectory], operations: { operation: { ...base, targetPath: `${state.targetDirectory}/nested/../escape.conf` } },
+    schemaVersion: 5, configurationRoots: [state.targetDirectory], operations: { operation: { ...base, targetPath: `${state.targetDirectory}/nested/../escape.conf` } },
   }), /canonical absolute/);
   assert.throws(() => canonicalOfflineOperationManifestBytes({
-    schemaVersion: 4, configurationRoots: [state.targetDirectory], operations: { operation: { ...base, candidateMode: 0o666 } },
+    schemaVersion: 5, configurationRoots: [state.targetDirectory], operations: { operation: { ...base, candidateMode: 0o666 } },
   }), /invalid|union/i);
   assert.throws(() => canonicalOfflineOperationManifestBytes({
-    schemaVersion: 4, configurationRoots: [state.targetDirectory], operations: { operation: { ...base, unexpected: true } },
+    schemaVersion: 5, configurationRoots: [state.targetDirectory], operations: { operation: { ...base, unexpected: true } },
   }), /unrecognized key/i);
 
   assert.throws(() => canonicalOfflineOperationManifestBytes({
-    schemaVersion: 4, configurationRoots: [], operations: { operation: base },
+    schemaVersion: 5, configurationRoots: [], operations: { operation: base },
   }), /allowed configuration root|configuration root/i);
   assert.throws(() => canonicalOfflineOperationManifestBytes({
-    schemaVersion: 4, configurationRoots: ['/'], operations: { operation: base },
+    schemaVersion: 5, configurationRoots: ['/'], operations: { operation: base },
   }), /non-root/i);
   assert.throws(() => canonicalOfflineOperationManifestBytes({
-    schemaVersion: 4, configurationRoots: [state.existingTarget], operations: { operation: base },
+    schemaVersion: 5, configurationRoots: [state.existingTarget], operations: { operation: base },
   }), /strict descendant/i);
   assert.throws(() => canonicalOfflineOperationManifestBytes({
-    schemaVersion: 4, configurationRoots: [`${state.targetDirectory}/z`, state.targetDirectory], operations: { operation: base },
+    schemaVersion: 5, configurationRoots: [`${state.targetDirectory}/z`, state.targetDirectory], operations: { operation: base },
   }), /sorted|overlap/i);
 
   const candidateArtifacts = state.created.manifest.artifacts.filter(item => item.id.startsWith('candidate-')).map(item => ({

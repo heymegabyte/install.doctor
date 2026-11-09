@@ -94,11 +94,15 @@ export function composeNativeDebianPackageSlice(input: {
   const nativeOperation = (action: 'check' | 'apply' | 'verify') => ({
     kind: 'native-package' as const, effectClass: 'native-package' as const, action,
     packageKey: descriptor.packageKey, payloadArtifactId: descriptor.artifact.id,
+    expectedPackage: {
+      name: descriptor.package.name, version: descriptor.package.version,
+      architecture: descriptor.package.architecture,
+    },
     installedWitnesses: [NativePackageInstalledWitnessSchema.parse({
       kind: 'preexisting-witness', manager: 'dpkg', packageName: 'libc6', minimumVersion: '2.34', architecture: 'amd64',
     })],
   });
-  const operations = OfflineOperationManifestSchema.parse({ schemaVersion: 4, configurationRoots: [], operations: {
+  const operations = OfflineOperationManifestSchema.parse({ schemaVersion: 5, configurationRoots: [], operations: {
     [operationIds.check]: nativeOperation('check'), [operationIds.apply]: nativeOperation('apply'), [operationIds.verify]: nativeOperation('verify'),
   } });
   const packages = [...new Set([...desiredState.packages, descriptor.packageKey])].sort();

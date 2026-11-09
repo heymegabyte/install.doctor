@@ -98,7 +98,7 @@ function authority(action = 'apply', signal = new AbortController().signal, serv
     },
   });
   return {
-    operation: { kind: 'native-package', effectClass: 'native-package', action, packageKey: 'root', payloadArtifactId: 'deb-root' },
+    operation: { kind: 'native-package', effectClass: 'native-package', action, packageKey: 'root', payloadArtifactId: 'deb-root', expectedPackage: { name: root.package.name, version: root.package.version, architecture: root.package.architecture } },
     rootDescriptor: root,
     packages: [packageItem(dep), packageItem(root)],
     withPayload: async (key, use) => await use({ fd: key === 'dep' ? 41 : 42 }),

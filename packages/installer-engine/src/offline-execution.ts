@@ -143,6 +143,11 @@ export const NativePackageOperationSchema = z.strictObject({
   action: z.enum(['check', 'apply', 'verify']),
   packageKey,
   payloadArtifactId: identifier,
+  expectedPackage: z.strictObject({
+    name: z.string().regex(/^[a-z0-9][a-z0-9+.-]{0,127}$/),
+    version: z.string().min(1).max(128).refine(value => !/[\0\r\n]/.test(value)),
+    architecture: z.enum(['amd64', 'arm64', 'all']),
+  }),
   installedWitnesses: z.array(NativePackageInstalledWitnessSchema).max(16).optional(),
 });
 export const NativeServiceOperationSchema = z.strictObject({
@@ -165,7 +170,7 @@ function isStrictDescendant(root: string, target: string): boolean {
 }
 
 export const OfflineOperationManifestSchema = z.strictObject({
-  schemaVersion: z.literal(4),
+  schemaVersion: z.literal(5),
   configurationRoots: z.array(configurationRoot).max(128),
   operations: z.record(identifier, operation).refine(value => Object.keys(value).length <= 30_000, 'too many offline operations'),
 }).superRefine((value, context) => {
@@ -410,6 +415,7 @@ export async function validateOfflineExecutionClosure(
         const candidate = item.operation;
         if (candidate.kind !== 'native-package' || candidate.action !== item.action
           || candidate.packageKey !== authority.packageKey || candidate.payloadArtifactId !== authority.payloadArtifactId
+          || JSON.stringify(candidate.expectedPackage) !== JSON.stringify(authority.expectedPackage)
           || JSON.stringify(candidate.installedWitnesses ?? []) !== JSON.stringify(authority.installedWitnesses ?? [])) {
           throw new OfflineBundleError(`offline native package operations disagree on their authority: ${task.id}`);
         }
@@ -468,6 +474,11 @@ export async function validateOfflineExecutionClosure(
           throw new OfflineBundleError(`offline native package lacks exact signed payload authority: ${expected.packageKey}`);
         }
         const descriptor = payload.catalogDescriptor;
+        if (registered.expectedPackage.name !== descriptor.package.name
+          || registered.expectedPackage.version !== descriptor.package.version
+          || registered.expectedPackage.architecture !== descriptor.package.architecture) {
+          throw new OfflineBundleError(`offline native package status authority differs from its signed descriptor: ${expected.packageKey}`);
+        }
         const existingDescriptor = nativePackageDescriptors.get(expected.packageKey);
         if (existingDescriptor && existingDescriptor.artifact.id !== descriptor.artifact.id) {
           throw new OfflineBundleError(`offline native package has conflicting payload authority: ${expected.packageKey}`);
@@ -586,6 +597,13 @@ export async function verifyNativeDebianMetadataWithResolver(input: {
     const descriptor = closure.nativePackageDescriptors[expected.packageKey];
     if (!descriptor || descriptor.artifact.id !== expected.artifactId) {
       throw new OfflineBundleError(`offline native package descriptor closure is incomplete: ${expected.packageKey}`);
+    }
+    const packageOperations = Object.values(closure.operations.operations)
+      .filter((operation): operation is NativePackageOperation => operation.kind === 'native-package' && operation.packageKey === expected.packageKey);
+    if (packageOperations.some(operation => operation.expectedPackage.name !== descriptor.package.name
+      || operation.expectedPackage.version !== descriptor.package.version
+      || operation.expectedPackage.architecture !== descriptor.package.architecture)) {
+      throw new OfflineBundleError(`offline native package status authority differs from its descriptor: ${expected.packageKey}`);
     }
     payloads.set(expected.packageKey, expected.artifactId);
     pending.push(...descriptor.dependencyClosure.preDepends, ...descriptor.dependencyClosure.depends);
@@ -741,6 +759,9 @@ export async function createOfflineInstallerAdapter(input: {
     const rootMetadata = input.verifiedNativeMetadata?.[operation.packageKey];
     if (!runtime || !rootDescriptor || !rootMetadata
       || rootDescriptor.artifact.id !== operation.payloadArtifactId
+      || rootDescriptor.package.name !== operation.expectedPackage.name
+      || rootDescriptor.package.version !== operation.expectedPackage.version
+      || rootDescriptor.package.architecture !== operation.expectedPackage.architecture
       || rootMetadata.packageName !== rootDescriptor.package.name
       || rootMetadata.payloadSha256 !== rootDescriptor.artifact.sha256) {
       throw new OfflineBundleError(`offline native package lacks matching verified runtime authority: ${operation.packageKey}`);
