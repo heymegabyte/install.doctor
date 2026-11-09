@@ -11,7 +11,7 @@
 import { env } from 'cloudflare:workers';
 import { betterAuth } from 'better-auth';
 import { Env } from './env';
-import { DESKTOP_TOOLS_AUTH_HOSTS, DESKTOP_TOOLS_TRUSTED_AUTH_ORIGINS } from './auth-origin-policy';
+import { DESKTOP_TOOLS_CANONICAL_AUTH_ORIGIN, DESKTOP_TOOLS_TRUSTED_AUTH_ORIGINS } from './auth-origin-policy';
 
 const e = Env.parse(env);
 
@@ -19,10 +19,9 @@ export const auth = betterAuth({
   // D1 binding (auto-detected). The user/session/account/verification tables are created by the
   // admin-guarded POST /api/auth-migrate endpoint (getMigrations/runMigrations) — the CLI can't reach D1.
   database: e.DB,
-  baseURL: {
-    allowedHosts: [...DESKTOP_TOOLS_AUTH_HOSTS],
-    protocol: 'https',
-  },
+  // One origin owns OAuth state, callback cookies, and session creation. Allowing the incoming Host
+  // header to choose this URL would split the trust boundary across the retired compatibility host.
+  baseURL: DESKTOP_TOOLS_CANONICAL_AUTH_ORIGIN,
   secret: e.BETTER_AUTH_SECRET,
   // Owner enrollment decisions require a newly established OAuth session. Keep Better Auth's
   // native freshness policy aligned with the independently enforced owner-decision window.

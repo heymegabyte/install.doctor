@@ -397,6 +397,9 @@ test('pairing page preserves the canonical human code and exposes owner approve 
   assert.match(html, /Array\.isArray\(j\.scopes\)\?j\.scopes/);
   assert.doesNotMatch(html, /code:OWNER_INFO\.code/);
   assert.match(html, /id=denyBtn/);
+  assert.match(html, /id=legacyConfig class=card hidden/);
+  assert.match(html, /id=legacyToken hidden/);
+  assert.match(html, /if\(r\.ok\)\{\s*document\.getElementById\('legacyConfig'\)\.hidden=false;/);
   assert.match(html, /\/login\?returnTo=%2Fpair%3Fcode%3D2345-6789-ABCD/);
   const v1Code = '2345-6789';
   const v1 = await app.fetch(new Request(`https://desktop.tools/pair?code=${v1Code}`), TEST_ENV);
@@ -407,6 +410,8 @@ test('pairing page preserves the canonical human code and exposes owner approve 
   assert.match(v1Html, /\/api\/v1\/device-authorizations\/decision/);
   assert.match(v1Html, /requestId:OWNER_INFO\.requestId/);
   assert.match(v1Html, /targetKeyFingerprint:OWNER_INFO\.machineFingerprint/);
+  assert.match(v1Html, /id=legacyConfig class=card hidden/);
+  assert.match(v1Html, /id=legacyToken hidden/);
   const malformed = await app.fetch(new Request('https://desktop.tools/pair?code=23456789ABCD'), TEST_ENV);
   assert.doesNotMatch(await malformed.text(), /var CODE="23456789ABCD"/);
 });
@@ -433,6 +438,27 @@ test('OIDC sign-in returns to an exact pairing review without accepting an open 
   const hostileHtml = await hostile.text();
   assert.match(hostileHtml, /var RETURN_TO="\/"/);
   assert.doesNotMatch(hostileHtml, /evil\.example/);
+
+  const legacyLogin = await app.fetch(new Request(
+    `https://app.install.doctor/login?returnTo=${encodeURIComponent(`/pair?code=${code}`)}`,
+  ), TEST_ENV);
+  assert.equal(legacyLogin.status, 308);
+  assert.equal(legacyLogin.headers.get('location'),
+    `https://desktop.tools/login?returnTo=${encodeURIComponent(`/pair?code=${code}`)}`);
+
+  const legacySignIn = await app.fetch(new Request('https://app.install.doctor/api/auth/sign-in/social', {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ provider: 'github', callbackURL: `/pair?code=${code}` }),
+  }), TEST_ENV);
+  assert.equal(legacySignIn.status, 400);
+  assert.deepEqual(await legacySignIn.json(), { error: 'canonical_auth_origin_required' });
+  assert.equal(legacySignIn.headers.get('cache-control'), 'no-store');
+
+  const legacyCallback = await app.fetch(new Request(
+    'https://app.install.doctor/api/auth/callback/github?code=untrusted&state=untrusted',
+  ), TEST_ENV);
+  assert.equal(legacyCallback.status, 400);
+  assert.deepEqual(await legacyCallback.json(), { error: 'canonical_auth_origin_required' });
 });
 
 test('public pairing lookup normalizes malformed, unknown, and claimed responses', async () => {

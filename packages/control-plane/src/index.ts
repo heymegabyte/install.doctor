@@ -14,6 +14,7 @@ import { Env, providerConfigured } from './env';
 import { reserveBudget, DEFAULT_CEILING_MICROS } from './budget';
 // Better Auth — O-series sign-in (GitHub + Google), fire #102. See ./auth.ts.
 import { auth } from './auth';
+import { DESKTOP_TOOLS_CANONICAL_AUTH_ORIGIN, isCanonicalAuthOrigin, requiresCanonicalAuthOrigin } from './auth-origin-policy';
 import { normalizeAuthReturnPath } from './auth-return-policy';
 import { isAllowedAdminEmail } from './admin-allowlist';
 import { redactSecrets } from '../../aid-core/src/redaction';
@@ -503,6 +504,11 @@ app.get('/', (c) =>
 // genuinely initiates OAuth either way. No backticks in the inline script (TS template literal, #91).
 app.get('/login', (c) => {
   const returnTo = normalizeAuthReturnPath(c.req.query('returnTo'));
+  if (!isCanonicalAuthOrigin(new URL(c.req.url).origin)) {
+    const canonical = new URL('/login', DESKTOP_TOOLS_CANONICAL_AUTH_ORIGIN);
+    if (returnTo !== '/') canonical.searchParams.set('returnTo', returnTo);
+    return c.redirect(canonical.toString(), 308);
+  }
   return c.html(
     htmlPage(
       'Sign in · install.doctor',
@@ -1141,19 +1147,19 @@ app.get('/pair', (c) => {
   const signInHref = `/login?returnTo=${encodeURIComponent(code ? `/pair?code=${code}` : '/')}`;
   return c.html(
     htmlPage(
-      'Pair device · aid',
-      `<nav class=muted><a href="/">aid</a></nav>
+      'Pair device · Desktop Tools',
+      `<nav class=muted><a href="/">Desktop Tools</a></nav>
 <h1>Pair this device</h1>
 ${code ? `<p class=muted>Pairing code:</p><p class=code>${code}</p><div id=info class=card>Loading device details…</div>` : '<p class=muted>No code in the URL. Run <span class=mono>aid-pair</span> on the machine to get one.</p>'}
-<div id=legacyConfig class=card><h3>1. GitHub Repository &amp; Host Identity</h3>
+<div id=legacyConfig class=card hidden><h3>1. GitHub Repository &amp; Host Identity</h3>
 <p class=muted>Select your master <span class=mono>install.doctor</span> blueprint repository and bind or create the host-specific repository (<span class=mono>&lt;hostname&gt;.&lt;namespace&gt;</span>, e.g. <span class=mono>ubuntu.megabyte.space</span>) as the source of truth for backups, restores, and posture.</p>
 <p><label class=muted>Master Blueprint Repository</label><br><input id=masterRepo value="heymegabyte/install.doctor" style="width:100%"></p>
 <p><label class=muted>Hostname / FQDN Repository</label><br><input id=hostRepo placeholder="ubuntu.megabyte.space (or hostname fallback)" style="width:100%"></p>
 <p><label class=muted>Namespace (optional)</label><br><input id=hostNs value="megabyte.space" placeholder="megabyte.space" style="width:100%"></p>
 </div>
 <div class=card><h3 id=approvalHeading>2. Approve (administrator)</h3>
-<p id=approvalGuidance class=muted>Review the device above, then <a href=${JSON.stringify(signInHref)}>sign in</a> or use the labelled legacy administrator-token path for an ordinary compatibility pairing.</p>
-<p id=legacyToken><input id=tok type=password placeholder="AID_ADMIN_TOKEN (legacy break-glass)" style="width:100%"></p>
+<p id=approvalGuidance class=muted>Review the device above, then <a href=${JSON.stringify(signInHref)}>sign in</a>. Compatibility controls appear only for a confirmed ordinary legacy pairing.</p>
+<p id=legacyToken hidden><input id=tok type=password placeholder="AID_ADMIN_TOKEN (legacy break-glass)" style="width:100%"></p>
 <p><button id=approveBtn>Approve pairing</button> <button id=denyBtn type=button style="background:#2a3147;color:#e6e8ef">Deny</button></p>
 <p id=out class=muted></p></div>
 <script>
@@ -1181,6 +1187,11 @@ async function loadInfo(){
       document.getElementById('approvalGuidance').textContent='Compare every value with the target. This decision is bound to your recently authenticated account and exact profile revision.';
     }else{
       r=await fetch('/api/devices/pair/info?code='+encodeURIComponent(CODE),{credentials:'include'});j=await r.json();
+      if(r.ok){
+        document.getElementById('legacyConfig').hidden=false;
+        document.getElementById('legacyToken').hidden=false;
+        document.getElementById('approvalGuidance').textContent='Review the device above, then use the labelled legacy administrator-token path for this confirmed ordinary compatibility pairing.';
+      }
     }
     if(!r.ok){
       var ownerResponse=await fetch('/api/devices/pair/owner-info?code='+encodeURIComponent(CODE),{credentials:'include'});
@@ -2963,7 +2974,14 @@ app.all('/api/ai/v1/:route', (c) => {
 // Forward every /api/auth/* request to the Better Auth handler (its basePath defaults to /api/auth).
 // This exposes sign-in/social, the OAuth callback, session, sign-out, etc. Authorize-INITIATION is live +
 // verifiable now; sign-in COMPLETION still needs the callback URL registered on the OAuth apps (human step).
-app.on(['GET', 'POST'], '/api/auth/*', (c) => auth.handler(c.req.raw));
+app.on(['GET', 'POST'], '/api/auth/*', (c) => {
+  const requestUrl = new URL(c.req.url);
+  if (requiresCanonicalAuthOrigin(c.req.method, requestUrl.pathname)
+    && !isCanonicalAuthOrigin(requestUrl.origin)) {
+    return c.json({ error: 'canonical_auth_origin_required' }, 400, { 'cache-control': 'no-store' });
+  }
+  return auth.handler(c.req.raw);
+});
 
 // Admin-guarded D1 schema migration for Better Auth (the CLI can't reach D1 — run programmatically).
 // Creates the user/session/account/verification tables; idempotent (reports "no migrations needed" after).
