@@ -19,6 +19,14 @@ on:
         description: Exact lowercase SHA-256 of the signed offline bundle tar archive
         required: true
         type: string
+      offline_signer_id:
+        description: Exact offline-authority signer identity named by the signed bundle manifest
+        required: true
+        type: string
+      offline_signer_public_key:
+        description: Public Ed25519 key for the offline authority signer (not the release signer)
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -60,6 +68,8 @@ jobs:
           CANARY_RUNNER_TEMP: ${{ runner.temp }}
           CANARY_OFFLINE_BUNDLE_URL: ${{ inputs.offline_bundle_url }}
           CANARY_OFFLINE_BUNDLE_SHA256: ${{ inputs.offline_bundle_sha256 }}
+          CANARY_OFFLINE_SIGNER_ID: ${{ inputs.offline_signer_id }}
+          CANARY_OFFLINE_SIGNER_PUBLIC_KEY: ${{ inputs.offline_signer_public_key }}
         run: |
           set -euo pipefail
           canary_root="$CANARY_RUNNER_TEMP/bootstrap-real-host-canary"
@@ -76,6 +86,8 @@ jobs:
             CANARY_REPORT="$canary_root/report.json" \
             CANARY_OFFLINE_BUNDLE_URL="$CANARY_OFFLINE_BUNDLE_URL" \
             CANARY_OFFLINE_BUNDLE_SHA256="$CANARY_OFFLINE_BUNDLE_SHA256" \
+            CANARY_OFFLINE_SIGNER_ID="$CANARY_OFFLINE_SIGNER_ID" \
+            CANARY_OFFLINE_SIGNER_PUBLIC_KEY="$CANARY_OFFLINE_SIGNER_PUBLIC_KEY" \
             bash scripts/run-bootstrap-real-host-canary.sh
       - name: Finalize tuple-bound receipt
         shell: bash

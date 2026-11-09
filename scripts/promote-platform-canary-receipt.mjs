@@ -26,10 +26,17 @@ if (canary.value.schemaVersion !== 2 || canary.value.evidenceClass !== 'real-hos
 }
 const expected = input.expected ?? {};
 const offlineProof = canary.value.proof?.phases?.offlineExecution;
+const expectedTuple = (() => {
+  const platform = expected.platform ?? {};
+  const linuxNames = { debian: 'Debian', ubuntu: 'Ubuntu', fedora: 'Fedora', arch: 'Arch Linux', container: 'Linux' };
+  const os = platform.os === 'darwin' ? 'macOS' : platform.os === 'win32' ? 'Windows' : linuxNames[platform.role];
+  if (!os) throw new Error('independent platform authority has no canonical canary tuple mapping');
+  return { os, version: platform.version, arch: platform.arch, environment: platform.environment, role: platform.role };
+})();
 if (canary.value.release?.releaseId !== expected.releaseId || canary.value.release?.manifestDigest !== expected.releaseManifestDigest
   || canary.value.proof?.workflowCommit !== input.ciAttestation?.workflowRevision
   || canary.value.proof?.workflowRunId !== input.ciAttestation?.workflowRunId
-  || canary.value.tuple?.arch !== expected.platform?.arch || canary.value.tuple?.environment !== expected.platform?.environment
+  || JSON.stringify(canary.value.tuple) !== JSON.stringify(expectedTuple)
   || offlineProof?.runId !== input.journal?.runId || offlineProof?.planDigest !== input.request?.normalizedPlanDigest
   || offlineProof?.authorityDigest !== input.executionAuthority?.journalCommitDigest
   || offlineProof?.offlineBundle?.manifestDigest !== input.bundle?.manifestDigest

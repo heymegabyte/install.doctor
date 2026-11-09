@@ -11,11 +11,15 @@ umask 077
 : "${CANARY_REPORT:?report path is required}"
 : "${CANARY_OFFLINE_BUNDLE_URL:?signed offline bundle URL is required}"
 : "${CANARY_OFFLINE_BUNDLE_SHA256:?signed offline bundle digest is required}"
+: "${CANARY_OFFLINE_SIGNER_ID:?offline authority signer identity is required}"
+: "${CANARY_OFFLINE_SIGNER_PUBLIC_KEY:?offline authority public key is required}"
 [ "${RUNNER_ENVIRONMENT:-}" = github-hosted ] || exit 64
 case "$RELEASE_V1:$RELEASE_V2" in *[!a-z0-9._:-]*|:*|*:) exit 64;; esac
 [ "$RELEASE_V1" != "$RELEASE_V2" ] || exit 64
 case "$CANARY_OFFLINE_BUNDLE_SHA256" in *[!a-f0-9]*|'') exit 64;; esac
 [ "${#CANARY_OFFLINE_BUNDLE_SHA256}" -eq 64 ] || exit 64
+case "$CANARY_OFFLINE_SIGNER_ID" in ''|[!a-z0-9]*|*[!a-z0-9._-]*) exit 64;; esac
+case "$CANARY_OFFLINE_SIGNER_PUBLIC_KEY" in 'ssh-ed25519 '[A-Za-z0-9+/]*|'ssh-ed25519 '[A-Za-z0-9+/]*' '*) ;; *) exit 64;; esac
 case "$CANARY_OFFLINE_BUNDLE_URL" in "https://app.install.doctor/releases/$RELEASE_V2/"*.tar) ;; *) exit 64;; esac
 
 mkdir -p "$CANARY_EVIDENCE_ROOT" "$(dirname "$CANARY_REPORT")"
@@ -330,8 +334,8 @@ offline_materialized="$RUNNER_TEMP/offline-materialized"
 offline_invocation="$CANARY_EVIDENCE_ROOT/offline-invocation.json"
 offline_isolation_raw="$RUNNER_TEMP/offline-isolation"
 mkdir -m 0700 "$offline_state" "$offline_isolation_raw"
-node - "$offline_bundle/manifest.json" "$offline_invocation" "$offline_bundle" "$offline_materialized" "$offline_state" "$offline_run" "$offline_manifest_digest" "$signer_id" "$signer_key" <<'NODE'
-const fs=require('node:fs');const [manifestPath,output,bundleDirectory,materializedRoot,stateRoot,runId,manifestDigest,keyId,publicKey]=process.argv.slice(2);const manifest=JSON.parse(fs.readFileSync(manifestPath));const expected={releaseId:manifest.releaseId,planDigest:manifest.planDigest,platform:manifest.platform,selectedTaskIds:manifest.selectedTaskIds,artifactIds:manifest.artifacts.map(item=>item.id).sort()};const trust={keyId,publicKey};const invocation={schemaVersion:2,command:'bundle-execute',runId,bundleDirectory,materializedRoot,stateRoot,trust,releaseTrust:trust,expected,approvedManifestDigest:manifestDigest,approvedPlanDigest:manifest.planDigest,renderer:'ndjson',offline:true,networkPolicy:'deny'};fs.writeFileSync(output,JSON.stringify(invocation)+'\n',{mode:0o600,flag:'wx'});
+node - "$offline_bundle/manifest.json" "$offline_invocation" "$offline_bundle" "$offline_materialized" "$offline_state" "$offline_run" "$offline_manifest_digest" "$CANARY_OFFLINE_SIGNER_ID" "$CANARY_OFFLINE_SIGNER_PUBLIC_KEY" "$signer_id" "$signer_key" <<'NODE'
+const fs=require('node:fs');const [manifestPath,output,bundleDirectory,materializedRoot,stateRoot,runId,manifestDigest,offlineKeyId,offlinePublicKey,releaseKeyId,releasePublicKey]=process.argv.slice(2);const manifest=JSON.parse(fs.readFileSync(manifestPath));if(manifest.signature?.keyId!==offlineKeyId)throw new Error('offline bundle signer differs from independently supplied offline authority');const expected={releaseId:manifest.releaseId,planDigest:manifest.planDigest,platform:manifest.platform,selectedTaskIds:manifest.selectedTaskIds,artifactIds:manifest.artifacts.map(item=>item.id).sort()};const trust={keyId:offlineKeyId,publicKey:offlinePublicKey};const releaseTrust={keyId:releaseKeyId,publicKey:releasePublicKey};const invocation={schemaVersion:2,command:'bundle-execute',runId,bundleDirectory,materializedRoot,stateRoot,trust,releaseTrust,expected,approvedManifestDigest:manifestDigest,approvedPlanDigest:manifest.planDigest,renderer:'ndjson',offline:true,networkPolicy:'deny'};fs.writeFileSync(output,JSON.stringify(invocation)+'\n',{mode:0o600,flag:'wx'});
 NODE
 
 parent_namespace="$(readlink /proc/self/ns/net)"
@@ -369,7 +373,7 @@ state="$online_state"
 
 cp "$offline_bundle/manifest.json" "$CANARY_EVIDENCE_ROOT/offline-bundle.manifest.json"
 cp "$offline_bundle/manifest.sig" "$CANARY_EVIDENCE_ROOT/offline-bundle.manifest.json.sig"
-printf '%s %s\n' "$signer_id" "$signer_key" >"$CANARY_EVIDENCE_ROOT/offline-bundle.allowed-signers"
+printf '%s %s\n' "$CANARY_OFFLINE_SIGNER_ID" "$CANARY_OFFLINE_SIGNER_PUBLIC_KEY" >"$CANARY_EVIDENCE_ROOT/offline-bundle.allowed-signers"
 node - "$CANARY_EVIDENCE_ROOT/offline-execution.json" "$CANARY_EVIDENCE_ROOT/offline-network-isolation.json" "$offline_invocation" "$offline_isolation_raw" "$parent_namespace" "$offline_manifest_digest" <<'NODE'
 const fs=require('node:fs'),crypto=require('node:crypto'),path=require('node:path');const [phasePath,isolationPath,invocationPath,raw,parentNamespaceId,manifestDigest]=process.argv.slice(2);const phase=JSON.parse(fs.readFileSync(phasePath));const invocationBytes=fs.readFileSync(invocationPath);const read=name=>fs.readFileSync(path.join(raw,name),'utf8').trim();const interfaces=read('interfaces').split('\n').filter(Boolean);const isolation={schemaVersion:1,kind:'linux-network-namespace',runId:phase.runId,planDigest:phase.planDigest,bundleManifestDigest:manifestDigest,invocationDigest:crypto.createHash('sha256').update(invocationBytes).digest('hex'),parentNamespaceId,executionNamespaceId:read('namespace'),defaultRoutePresent:read('default-route')==='true',loopbackOnly:interfaces.every(name=>name==='lo'),dnsProbe:Number(read('dns-status'))===0?'reachable':'denied',tcpProbe:Number(read('tcp-status'))===0?'reachable':'denied',startedAt:read('started-at'),finishedAt:read('finished-at'),exitCode:Number(read('exit-code'))};const receipt=JSON.parse(fs.readFileSync(path.join(path.dirname(phasePath),phase.authorityRoot,'receipt.json')));if(Date.parse(isolation.startedAt)>Date.parse(receipt.startedAt)||Date.parse(isolation.finishedAt)<Date.parse(receipt.finishedAt))throw new Error('network isolation does not bracket the committed receipt');fs.writeFileSync(isolationPath,JSON.stringify(isolation)+'\n',{mode:0o600,flag:'wx'});phase.offlineBundle={manifestPath:'offline-bundle.manifest.json',signaturePath:'offline-bundle.manifest.json.sig',allowedSignersPath:'offline-bundle.allowed-signers',signerId:JSON.parse(fs.readFileSync(path.join(path.dirname(phasePath),'offline-bundle.manifest.json'))).signature.keyId,manifestDigest};phase.networkIsolation={evidencePath:'offline-network-isolation.json',invocationPath:'offline-invocation.json'};fs.writeFileSync(phasePath,JSON.stringify(phase)+'\n');
 NODE
