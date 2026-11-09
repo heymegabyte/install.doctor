@@ -25,10 +25,10 @@ function descriptor() {
     distro: { id: 'debian', versionId: '12', codename: 'bookworm' },
     repository: { repositoryOrigin: 'https://deb.debian.org/debian', suite: 'bookworm', component: 'main' },
     metadataProof: {
-      inRelease: { artifactId: 'release', path: 'dists/bookworm/InRelease', sha256: hash('release'), sizeBytes: 10,
+      inRelease: { artifactId: 'release', path: 'dists/bookworm/InRelease', sha256: hash('release'), sizeBytes: Buffer.byteLength('release'),
         signedAt: '2026-01-01T00:00:00.000Z', validUntil: '2027-01-01T00:00:00.000Z', maximumDateAgeSeconds: null,
-        signingKeyFingerprint: 'A'.repeat(40), keyring: { artifactId: 'keyring', sha256: hash('keyring'), sizeBytes: 10, mediaType: 'application/vnd.gnupg.keyring' } },
-      packagesIndex: { artifactId: 'packages', path: 'dists/bookworm/main/binary-amd64/Packages.xz', sha256: hash('packages'), sizeBytes: 10, architecture: 'amd64' },
+        signingKeyFingerprint: 'A'.repeat(40), keyring: { artifactId: 'keyring', sha256: hash('keyring'), sizeBytes: Buffer.byteLength('keyring'), mediaType: 'application/vnd.gnupg.keyring' } },
+      packagesIndex: { artifactId: 'packages', path: 'dists/bookworm/main/binary-amd64/Packages.xz', sha256: hash('packages'), sizeBytes: Buffer.byteLength('packages'), architecture: 'amd64' },
       packageStanza: { filename: 'pool/main/t/tree/tree_2.1.0-1_amd64.deb', sha256: hash('tree'), sizeBytes: 4,
         depends: 'libc6 (>= 2.34)', preDepends: null, essential: 'no', multiArch: 'foreign' },
     }, dependencyClosure: { depends: [], preDepends: [] }, affectedServiceUnits: [], conffiles: [],
