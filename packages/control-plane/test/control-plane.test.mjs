@@ -336,6 +336,20 @@ test('v1 target authorization persists exact public binding and atomically claim
   assert.equal(resolvedDesired.digest, desiredDigest);
   assert.equal(resolvedDesired.markdown, exportMarkdown(desiredEnvironment));
 
+  const substitutedEnvironment = structuredClone(desiredEnvironment);
+  substitutedEnvironment.profile.id = 'profile-other';
+  await db.prepare('UPDATE blueprints SET markdown=? WHERE tenant=?')
+    .bind(exportMarkdown(substitutedEnvironment), profile.tenantId).run();
+  for (const path of ['/api/device/current', '/api/device/current.md']) {
+    const substituted = await app.fetch(new Request(`https://brian.desktop.tools${path}`, {
+      headers: { authorization: `Bearer ${credential.credential}` },
+    }), env);
+    assert.equal(substituted.status, 409);
+    assert.deepEqual(await substituted.json(), { error: 'desired_state_authority_mismatch' });
+  }
+  await db.prepare('UPDATE blueprints SET markdown=? WHERE tenant=?')
+    .bind(exportMarkdown(desiredEnvironment), profile.tenantId).run();
+
   await db.prepare('UPDATE device_authorization_credentials SET scopes=? WHERE credential_id=?')
     .bind('["session:create"]', credential.credentialId).run();
   const deniedDesired = await app.fetch(new Request('https://brian.desktop.tools/api/device/current', {

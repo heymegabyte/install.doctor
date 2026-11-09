@@ -1644,7 +1644,8 @@ async function resolveDevice(
   db: any,
   authHeader: string | undefined,
 ): Promise<{ deviceId: string; tenant: string; label: string | null; createdAt: string; permissions: string[] | null;
-  profileRevision: string | null; machineFingerprint: string | null; credentialKind: 'legacy' | 'desktop-tools' } | null> {
+  profileRevision: string | null; profileId: string | null; profileDigest: string | null;
+  machineFingerprint: string | null; credentialKind: 'legacy' | 'desktop-tools' } | null> {
   const token = (authHeader || '').startsWith('Bearer ') ? (authHeader as string).slice(7) : '';
   if (!token) return null;
   const tokenHash = await sha256hex(token);
@@ -1656,14 +1657,15 @@ async function resolveDevice(
         SELECT c.credential_id AS device_id, c.tenant_id AS tenant,
                a.machine_label AS label, c.scopes AS permissions,
                c.issued_at AS created_at, c.revoked_at, c.expires_at,
-               a.profile_revision_digest AS profile_revision, c.target_key_fingerprint AS machine_fingerprint,
+               a.profile_revision_digest AS profile_revision, a.profile_id, a.profile_revision_digest AS profile_digest,
+               c.target_key_fingerprint AS machine_fingerprint,
                'desktop-tools' AS credential_kind
           FROM device_authorization_credentials c
           JOIN device_authorizations a ON a.request_id = c.request_id
          WHERE c.secret_sha256 = ?
       `).bind(tokenHash).first()
     : await db
-      .prepare("SELECT device_id, tenant, label, permissions, created_at, revoked_at, expires_at, profile_revision, machine_fingerprint, 'legacy' AS credential_kind FROM devices WHERE token_sha256 = ?")
+      .prepare("SELECT device_id, tenant, label, permissions, created_at, revoked_at, expires_at, profile_revision, profile_id, profile_revision_digest AS profile_digest, machine_fingerprint, 'legacy' AS credential_kind FROM devices WHERE token_sha256 = ?")
       .bind(tokenHash)
       .first();
   if (!row || row.revoked_at || (row.expires_at && Date.parse(row.expires_at as string) <= Date.now())) return null;
@@ -1679,7 +1681,8 @@ async function resolveDevice(
     permissions = row.permissions === null || row.permissions === undefined ? null : [];
   }
   return { deviceId: row.device_id, tenant: row.tenant, label: row.label, createdAt: row.created_at, permissions,
-    profileRevision: row.profile_revision ?? null, machineFingerprint: row.machine_fingerprint ?? null,
+    profileRevision: row.profile_revision ?? null, profileId: row.profile_id ?? null, profileDigest: row.profile_digest ?? null,
+    machineFingerprint: row.machine_fingerprint ?? null,
     credentialKind: row.credential_kind };
 }
 // P05-enforcement (O12 — authorize each host action server-side): gate a device action on the
@@ -1699,6 +1702,14 @@ function requireScope(c: any, dev: { permissions: string[] | null; credentialKin
   };
   if (dev.credentialKind === 'desktop-tools' && dev.permissions.includes(desktopScopeAliases[permission] ?? '')) return null;
   return c.json({ error: 'insufficient_scope', required: permission, granted: dev.permissions }, 403);
+}
+async function authorizeDeviceBlueprint(dev: Awaited<ReturnType<typeof resolveDevice>>, markdown: string) {
+  if (!dev) return null;
+  const blueprint = importMarkdown(markdown);
+  const digest = await blueprintDigest(blueprint);
+  if (dev.credentialKind === 'desktop-tools'
+    && (blueprint.schemaVersion !== 4 || blueprint.profile.id !== dev.profileId || digest !== dev.profileDigest)) return null;
+  return { blueprint, digest };
 }
 // Shared admin gate (reused by enroll + revoke + the PUT write path + every admin read). Returns a
 // Response to short-circuit on failure, or null when authorized. TWO accepted credentials, checked in
@@ -2067,8 +2078,10 @@ app.get('/api/device/current', async (c) => {
   try {
     const row = await db.prepare('SELECT markdown, updated_at FROM blueprints WHERE tenant = ?').bind(dev.tenant).first();
     if (!row) return c.json({ error: 'not_found', tenant: dev.tenant, deviceId: dev.deviceId }, 404);
-    const bp = importMarkdown(row.markdown);
-    return c.json({ tenant: dev.tenant, deviceId: dev.deviceId, revision: bp.revision, digest: await blueprintDigest(bp), updatedAt: row.updated_at, markdown: row.markdown });
+    const authorized = await authorizeDeviceBlueprint(dev, row.markdown as string);
+    if (!authorized) return c.json({ error: 'desired_state_authority_mismatch' }, 409);
+    return c.json({ tenant: dev.tenant, deviceId: dev.deviceId, revision: authorized.blueprint.revision,
+      digest: authorized.digest, updatedAt: row.updated_at, markdown: row.markdown });
   } catch (e) {
     return c.json({ error: 'store_error', detail: e instanceof Error ? e.message : String(e) }, 503);
   }
@@ -2085,6 +2098,9 @@ app.get('/api/device/current.md', async (c) => {
   try {
     const row = await db.prepare('SELECT markdown FROM blueprints WHERE tenant = ?').bind(dev.tenant).first();
     if (!row) return c.json({ error: 'not_found', tenant: dev.tenant }, 404);
+    if (!await authorizeDeviceBlueprint(dev, row.markdown as string)) {
+      return c.json({ error: 'desired_state_authority_mismatch' }, 409);
+    }
     return c.text(row.markdown, 200, { 'content-type': 'text/markdown; charset=utf-8' });
   } catch (e) {
     return c.json({ error: 'store_error', detail: e instanceof Error ? e.message : String(e) }, 503);
