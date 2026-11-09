@@ -565,7 +565,9 @@ if probe_ssh_banner 10.0.0.114; then
   exec nc 10.0.0.114 22
 fi
 if probe_ssh_banner 10.0.0.155; then
-  exec ssh -q -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10 "${KEY_ARGS[@]}" -W 10.0.0.114:22 root@10.0.0.155
+  exec ssh -q -o BatchMode=yes -o StrictHostKeyChecking=yes -o UpdateHostKeys=no \
+    -o UserKnownHostsFile="$HOME/.ssh/known_hosts" -o ConnectTimeout=10 \
+    "${KEY_ARGS[@]}" -W 10.0.0.114:22 root@10.0.0.155
 fi
 exec ssh -q -o BatchMode=yes -o ConnectTimeout=15 "${KEY_ARGS[@]}" -W 10.0.0.114:22 coolify.megabyte.space
 EOF
@@ -588,7 +590,9 @@ Host proxmox proxmox.megabyte.space ssh-proxmox.megabyte.space
     ServerAliveInterval 30
     ServerAliveCountMax 3
     ConnectTimeout 30
-    StrictHostKeyChecking accept-new
+    StrictHostKeyChecking yes
+    UpdateHostKeys no
+    UserKnownHostsFile ~/.ssh/known_hosts
 EOF
     chmod 0600 "$HOME/.ssh/config"
   fi
