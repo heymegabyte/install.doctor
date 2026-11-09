@@ -25,6 +25,7 @@ for required in \
   'packages/installer-engine/test/mcp-server.test.mjs' \
   'packages/installer-engine/test/provisioning-prompt.test.mjs' \
   'packages/installer-engine/test/session-events.test.mjs' \
+  'packages/installer-engine/test/adoption-plan.test.mjs' \
   'packages/installer-engine/test/deprovision-plan.test.mjs' \
   'packages/installer-engine/test/deprovision-lifecycle-canary.test.mjs' \
   'packages/installer-engine/test/offline-sandbox.test.mjs' \

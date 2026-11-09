@@ -16,10 +16,22 @@ DESKTOP_TOOLS_PAIR_INTERVAL="${DESKTOP_TOOLS_PAIR_INTERVAL:-${AID_PAIR_INTERVAL:
 FORCE=0
 [ "${1:-}" = "--force" ] && FORCE=1
 
-log() { command -v gum >/dev/null 2>&1 && gum log --level info -- "$*" || printf '\033[1;36m[desktop-tools-pair]\033[0m %s\n' "$*"; }
-err() { command -v gum >/dev/null 2>&1 && gum log --level error -- "$*" || printf '\033[1;31m[desktop-tools-pair]\033[0m %s\n' "$*" >&2; }
-
 isTrue() { case "${1:-}" in 1|true|TRUE|yes|YES|on|ON) return 0 ;; *) return 1 ;; esac; }
+
+# Headless output is a durable operator/API boundary. Never let an ambient TUI
+# formatter hide, rewrite, or require a terminal for the approval URL or denial.
+log() {
+  if isTrue "${HEADLESS_INSTALL:-0}"; then printf '[desktop-tools-pair] %s\n' "$*"
+  elif command -v gum >/dev/null 2>&1; then gum log --level info -- "$*"
+  else printf '\033[1;36m[desktop-tools-pair]\033[0m %s\n' "$*"
+  fi
+}
+err() {
+  if isTrue "${HEADLESS_INSTALL:-0}"; then printf '[desktop-tools-pair] ERROR %s\n' "$*" >&2
+  elif command -v gum >/dev/null 2>&1; then gum log --level error -- "$*"
+  else printf '\033[1;31m[desktop-tools-pair]\033[0m %s\n' "$*" >&2
+  fi
+}
 
 writePrivateFile() {
   local destination="$1" directory temporary

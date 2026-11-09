@@ -47,4 +47,5 @@ export * from './privileged-broker-device-approval.js';
 export * from './typed-tool-adapters.js';
 export * from './provisioning-prompt.js';
 export * from './session-events.js';
+export * from './adoption-plan.js';
 export * from './mcp-server.js';
