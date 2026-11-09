@@ -22,6 +22,7 @@ import {
   createJournalStore,
   executeApprovedUserFileRollback,
   executeOfflineBundle,
+  inspectOfflinePlanReadiness,
   offlineExecutionGraphDigest,
   planOfflineBundle,
   validateOfflineExecutionClosure,
@@ -1011,6 +1012,31 @@ test('execution closure rejects a mismatched graph digest and noncanonical depen
     state.makeBundle({ candidatePlan: incompletePlan, bundleOutputRoot: incompleteRoot }),
     /dependency closure/,
   );
+});
+
+test('offline readiness reports every deterministic legacy blocker in task order', () => {
+  const tasks = [
+    {
+      ...task('provision.chezmoi'), network: 'required', resources: { cpu: 1, memoryMiB: 32, network: true },
+      lockDomains: ['chezmoi', 'package-manager'],
+    },
+    {
+      ...task('desired.services'),
+      lockDomains: ['service-manager', 'privilege'], privilege: 'admin', consent: 'privileged',
+    },
+    {
+      ...task('desired.packages'), network: 'required', resources: { cpu: 1, memoryMiB: 32, network: true },
+      lockDomains: ['package-manager', 'privilege'], privilege: 'admin', consent: 'privileged',
+    },
+    { ...task('native.tree'), lockDomains: ['package-manager.dpkg'], privilege: 'admin', consent: 'package-install' },
+  ];
+  assert.deepEqual(inspectOfflinePlanReadiness(tasks), [
+    { taskId: 'desired.packages', kind: 'package-manager-authority', authority: 'package-manager' },
+    { taskId: 'desired.packages', kind: 'network', authority: null },
+    { taskId: 'desired.services', kind: 'service-state-authority', authority: 'service-manager' },
+    { taskId: 'provision.chezmoi', kind: 'package-manager-authority', authority: 'package-manager' },
+    { taskId: 'provision.chezmoi', kind: 'network', authority: null },
+  ]);
 });
 
 test('execution closure rejects network tasks, missing operations, and unreferenced runtime artifacts', async t => {

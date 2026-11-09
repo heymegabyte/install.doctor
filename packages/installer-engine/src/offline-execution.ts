@@ -26,6 +26,38 @@ import { dirname, isAbsolute, join, normalize, relative, resolve } from 'node:pa
 import { createMaterializedArtifactResolver, openVerifiedArtifactSnapshot, VerifiedArtifactMaterializationError } from './verified-artifact-materializer.js';
 import type { VerifiedArtifactResolver } from './verified-artifact-materializer.js';
 
+export type OfflinePlanReadinessBlocker = Readonly<{
+  taskId: string;
+  kind: 'network' | 'package-manager-authority' | 'service-state-authority';
+  authority: string | null;
+}>;
+
+/**
+ * Report every transport-level blocker in a selected task closure.  Bundle
+ * composition uses this before operation admission so a migration cannot hide
+ * behind whichever legacy task happens to sort first.
+ */
+export function inspectOfflinePlanReadiness(
+  tasks: readonly NormalizedPlan['tasks'][number][],
+): readonly OfflinePlanReadinessBlocker[] {
+  const blockers: OfflinePlanReadinessBlocker[] = [];
+  for (const task of [...tasks].sort((left, right) => left.id.localeCompare(right.id))) {
+    for (const domain of task.lockDomains) {
+      if ((domain === 'package-manager' || domain.startsWith('package-manager.')) && domain !== 'package-manager.dpkg') {
+        blockers.push({ taskId: task.id, kind: 'package-manager-authority', authority: domain });
+      } else if (domain === 'service-manager' || domain.startsWith('service-manager.')) {
+        // Native systemd operations have a schema but remain fail-closed until
+        // service compensation is honest, so they are still readiness blockers.
+        blockers.push({ taskId: task.id, kind: 'service-state-authority', authority: domain });
+      }
+    }
+    if (task.network !== 'none' || task.resources.network) {
+      blockers.push({ taskId: task.id, kind: 'network', authority: null });
+    }
+  }
+  return blockers;
+}
+
 const identifier = z.string().min(1).max(128).regex(/^[a-z0-9][a-z0-9._-]*$/);
 const packageKey = z.string().min(1).max(128).regex(/^[a-z0-9][a-z0-9.+-]*(?::[a-z0-9][a-z0-9-]*)?$/);
 const literalArgument = z.strictObject({
@@ -304,21 +336,12 @@ export async function validateOfflineExecutionClosure(
     throw new OfflineBundleError('normalized plan does not contain its exact dependency closure');
   }
   const selectedTasks = new Map(plan.tasks.filter(task => plan.selectedTaskIds.includes(task.id)).map(task => [task.id, task]));
-  for (const task of selectedTasks.values()) {
-    if (task.lockDomains.includes('service-manager.systemd')) {
-      throw new OfflineBundleError(`offline selected task requires unsupported service-state authority: ${task.id}; native service execution remains fail-closed`);
-    }
-    const unsupportedDomain = task.lockDomains.find(domain => (domain === 'package-manager'
-      || domain.startsWith('package-manager.')) && domain !== 'package-manager.dpkg'
-      || (domain === 'service-manager' || domain.startsWith('service-manager.')) && domain !== 'service-manager.systemd');
-    if (unsupportedDomain) {
-      throw new OfflineBundleError(
-        `offline selected task requires unsupported ${unsupportedDomain.startsWith('package-manager') ? 'package-manager' : 'service-state'} authority: ${task.id}; create an online plan or provide a future signed native closure`,
-      );
-    }
-    if (task.network !== 'none' || task.resources.network) {
-      throw new OfflineBundleError(`offline task is not network-free: ${task.id}`);
-    }
+  const readinessBlockers = inspectOfflinePlanReadiness([...selectedTasks.values()]);
+  if (readinessBlockers.length > 0) {
+    const details = readinessBlockers.map(blocker => blocker.kind === 'network'
+      ? `${blocker.taskId}: network-free execution required`
+      : `${blocker.taskId}: unsupported ${blocker.kind === 'package-manager-authority' ? 'package-manager' : 'service-state'} authority ${blocker.authority}`);
+    throw new OfflineBundleError(`offline selected task closure is incomplete: ${details.join('; ')}`);
   }
   const reproduced = await reproduceNormalizedPlan(
     { tasks: plan.tasks, selectedTaskIds: plan.selectedTaskIds, executionPolicy: plan.executionPolicy },
