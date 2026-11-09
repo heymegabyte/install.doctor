@@ -28,7 +28,8 @@ export interface VerifiedDebianMetadata {
   readonly packageFilename: string;
   readonly inReleaseFingerprint: string;
   readonly inReleaseDate: string;
-  readonly inReleaseValidUntil: string;
+  readonly inReleaseValidUntil: string | null;
+  readonly inReleaseMaximumDateAgeSeconds: number | null;
   readonly packagesIndexSha256: string;
   readonly payloadSha256: string;
 }
@@ -136,15 +137,21 @@ export async function verifyDebianRepositoryMetadata(input: {
   if (releaseParagraphs.length !== 1) throw new DebianMetadataError('InRelease must contain exactly one Release paragraph');
   const release = releaseParagraphs[0]!;
   const date = required(release, 'Date', 'InRelease');
-  const validUntil = required(release, 'Valid-Until', 'InRelease');
   const dateMs = exactTimestamp(date, 'InRelease Date');
-  const validUntilMs = exactTimestamp(validUntil, 'InRelease Valid-Until');
+  const validUntil = release.get('valid-until') ?? null;
+  const expectedValidUntil = descriptor.metadataProof.inRelease.validUntil;
+  const maximumDateAgeSeconds = descriptor.metadataProof.inRelease.maximumDateAgeSeconds;
   if (dateMs !== Date.parse(descriptor.metadataProof.inRelease.signedAt)
-    || validUntilMs !== Date.parse(descriptor.metadataProof.inRelease.validUntil)) {
-    throw new DebianMetadataError('InRelease timestamps differ from signed catalog authority');
+    || (validUntil === null) !== (expectedValidUntil === null)
+    || (validUntil !== null && exactTimestamp(validUntil, 'InRelease Valid-Until') !== Date.parse(expectedValidUntil!))) {
+    throw new DebianMetadataError('InRelease timestamps or Valid-Until presence differ from signed catalog authority');
   }
   const nowMs = (input.verifier.now ?? (() => new Date()))().getTime();
-  if (nowMs < dateMs || nowMs >= validUntilMs) throw new DebianMetadataError('InRelease is not currently valid');
+  if (!Number.isFinite(nowMs) || nowMs < dateMs - 10_000) throw new DebianMetadataError('InRelease Date is unacceptably far in the future');
+  const expiryMs = validUntil === null
+    ? dateMs + maximumDateAgeSeconds! * 1000
+    : exactTimestamp(validUntil, 'InRelease Valid-Until');
+  if (nowMs >= expiryMs) throw new DebianMetadataError('InRelease is not currently valid');
   const suite = release.get('suite'); const codename = release.get('codename');
   if (suite !== descriptor.repository.suite && codename !== descriptor.repository.suite
     && codename !== descriptor.distro.codename) throw new DebianMetadataError('InRelease suite/codename does not match signed catalog authority');
@@ -193,7 +200,9 @@ export async function verifyDebianRepositoryMetadata(input: {
     packageName: descriptor.package.name, packageVersion: descriptor.package.version,
     packageArchitecture: descriptor.package.architecture, packageFilename: proof.filename,
     inReleaseFingerprint: expectedFingerprint, inReleaseDate: new Date(dateMs).toISOString(),
-    inReleaseValidUntil: new Date(validUntilMs).toISOString(), packagesIndexSha256: indexAuthority.sha256,
+    inReleaseValidUntil: validUntil === null ? null : new Date(expiryMs).toISOString(),
+    inReleaseMaximumDateAgeSeconds: maximumDateAgeSeconds,
+    packagesIndexSha256: indexAuthority.sha256,
     payloadSha256: descriptor.artifact.sha256,
   });
 }

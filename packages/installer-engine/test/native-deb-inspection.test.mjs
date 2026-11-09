@@ -67,7 +67,7 @@ const descriptor = {
   metadataProof: {
     inRelease: {
       artifactId: 'release', path: 'dists/bookworm/InRelease', sha256: 'b'.repeat(64), sizeBytes: 100,
-      signedAt: '2026-01-01T00:00:00.000Z', validUntil: '2027-01-01T00:00:00.000Z',
+      signedAt: '2026-01-01T00:00:00.000Z', validUntil: '2027-01-01T00:00:00.000Z', maximumDateAgeSeconds: null,
       signingKeyFingerprint: 'A'.repeat(40),
       keyring: { artifactId: 'keyring', sha256: 'c'.repeat(64), sizeBytes: 100, mediaType: 'application/vnd.gnupg.keyring' },
     },

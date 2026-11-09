@@ -111,7 +111,7 @@ async function createDescriptor(packagePath, architecture) {
     metadataProof: {
       inRelease: {
         artifactId: 'fixture-inrelease', path: 'dists/bookworm/InRelease', sha256: '1'.repeat(64), sizeBytes: 1,
-        signedAt: '2026-01-01T00:00:00.000Z', validUntil: '2027-01-01T00:00:00.000Z',
+        signedAt: '2026-01-01T00:00:00.000Z', validUntil: '2027-01-01T00:00:00.000Z', maximumDateAgeSeconds: null,
         signingKeyFingerprint: 'A'.repeat(40),
         keyring: { artifactId: 'fixture-keyring', sha256: '2'.repeat(64), sizeBytes: 1, mediaType: 'application/vnd.gnupg.keyring' },
       },

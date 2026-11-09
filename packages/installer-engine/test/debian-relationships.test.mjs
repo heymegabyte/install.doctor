@@ -18,7 +18,7 @@ function descriptor(key, name, { depends = null, preDepends = null, closureDepen
     distro: { id: 'debian', versionId: '12', codename: 'bookworm' },
     repository: { repositoryOrigin: 'https://deb.example.invalid', suite: 'bookworm', component: 'main' },
     metadataProof: {
-      inRelease: { artifactId: 'shared-release', path: 'dists/bookworm/InRelease', sha256: hash('a'), sizeBytes: 10, signedAt: '2026-01-01T00:00:00.000Z', validUntil: '2027-01-01T00:00:00.000Z', signingKeyFingerprint: 'A'.repeat(40), keyring: { artifactId: 'shared-keyring', sha256: hash('b'), sizeBytes: 10, mediaType: 'application/vnd.gnupg.keyring' } },
+      inRelease: { artifactId: 'shared-release', path: 'dists/bookworm/InRelease', sha256: hash('a'), sizeBytes: 10, signedAt: '2026-01-01T00:00:00.000Z', validUntil: '2027-01-01T00:00:00.000Z', maximumDateAgeSeconds: null, signingKeyFingerprint: 'A'.repeat(40), keyring: { artifactId: 'shared-keyring', sha256: hash('b'), sizeBytes: 10, mediaType: 'application/vnd.gnupg.keyring' } },
       packagesIndex: { artifactId: 'shared-packages', path: 'dists/bookworm/main/binary-amd64/Packages.xz', sha256: hash('c'), sizeBytes: 10, architecture: 'amd64' },
       packageStanza: { filename: `pool/${name}.deb`, sha256: hash(key), sizeBytes: 10, depends, preDepends, essential: 'absent', multiArch },
     },

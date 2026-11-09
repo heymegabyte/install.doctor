@@ -30,7 +30,7 @@ const nativeOfflinePayload = {
   metadataProof: {
     inRelease: {
       artifactId: 'postgresql-noble-inrelease', path: 'dists/noble-pgdg/InRelease', sha256: 'b'.repeat(64), sizeBytes: 98_765,
-      signedAt: '2026-11-01T00:00:00.000Z', validUntil: '2026-11-15T00:00:00.000Z', signingKeyFingerprint: 'C'.repeat(40),
+      signedAt: '2026-11-01T00:00:00.000Z', validUntil: '2026-11-15T00:00:00.000Z', maximumDateAgeSeconds: null, signingKeyFingerprint: 'C'.repeat(40),
       keyring: { artifactId: 'postgresql-keyring', sha256: 'f'.repeat(64), sizeBytes: 4096, mediaType: 'application/vnd.gnupg.keyring' },
     },
     packagesIndex: {

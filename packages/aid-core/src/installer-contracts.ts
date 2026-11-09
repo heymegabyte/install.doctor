@@ -117,7 +117,8 @@ export const NativeOfflinePayloadDescriptorSchema = strict({
       sha256: digest,
       sizeBytes: z.number().int().positive().max(16_777_216),
       signedAt: timestamp,
-      validUntil: timestamp,
+      validUntil: timestamp.nullable(),
+      maximumDateAgeSeconds: z.number().int().positive().max(15_552_000).nullable(),
       signingKeyFingerprint: z.string().regex(/^(?:[A-Fa-f0-9]{40}|[A-Fa-f0-9]{64})$/),
       keyring: strict({
         artifactId: id,
@@ -175,7 +176,12 @@ export const NativeOfflinePayloadDescriptorSchema = strict({
       message: `Packages index architecture must match platform architecture (${expectedArchitecture})`,
     });
   }
-  if (new Date(value.metadataProof.inRelease.validUntil).getTime() <= new Date(value.metadataProof.inRelease.signedAt).getTime()) {
+  const freshness = value.metadataProof.inRelease;
+  if ((freshness.validUntil === null) === (freshness.maximumDateAgeSeconds === null)) {
+    context.addIssue({ code: 'custom', path: ['metadataProof', 'inRelease'], message: 'InRelease freshness must bind exactly one of Valid-Until or a maximum Date age' });
+  }
+  if (freshness.validUntil !== null
+    && new Date(freshness.validUntil).getTime() <= new Date(freshness.signedAt).getTime()) {
     context.addIssue({ code: 'custom', path: ['metadataProof', 'inRelease', 'validUntil'], message: 'InRelease Valid-Until must follow Date' });
   }
   const expectedInReleasePath = `dists/${value.repository.suite}/InRelease`;

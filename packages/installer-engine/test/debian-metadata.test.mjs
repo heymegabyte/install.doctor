@@ -46,7 +46,7 @@ function fixture() {
       distro: { id: 'debian', versionId: '13', codename: 'stable' },
       repository: { repositoryOrigin: 'https://deb.debian.org/debian', suite: 'stable', component: 'main' },
       metadataProof: {
-        inRelease: { artifactId: 'inrelease', path: 'dists/stable/InRelease', sha256: sha(inRelease), sizeBytes: inRelease.length, signedAt: at, validUntil: expires, signingKeyFingerprint: fingerprint, keyring: { artifactId: 'keyring', sha256: sha(keyring), sizeBytes: keyring.length, mediaType: 'application/vnd.gnupg.keyring' } },
+        inRelease: { artifactId: 'inrelease', path: 'dists/stable/InRelease', sha256: sha(inRelease), sizeBytes: inRelease.length, signedAt: at, validUntil: expires, maximumDateAgeSeconds: null, signingKeyFingerprint: fingerprint, keyring: { artifactId: 'keyring', sha256: sha(keyring), sizeBytes: keyring.length, mediaType: 'application/vnd.gnupg.keyring' } },
         packagesIndex: { artifactId: 'packages', path: 'dists/stable/main/binary-amd64/Packages', sha256: sha(packages), sizeBytes: packages.length, architecture: 'amd64' },
         packageStanza: { filename: 'pool/main/f/fixture/fixture_1.2.3-1_amd64.deb', sha256: sha(payload), sizeBytes: payload.length, depends: 'libc6 (>= 2.36)', preDepends: null, essential: 'no', multiArch: 'absent' },
       },
@@ -63,7 +63,8 @@ test('proves the exact InRelease to Packages stanza to Debian payload chain', as
   assert.deepEqual(result, {
     packageName: 'fixture', packageVersion: '1.2.3-1', packageArchitecture: 'amd64',
     packageFilename: 'pool/main/f/fixture/fixture_1.2.3-1_amd64.deb', inReleaseFingerprint: fingerprint,
-    inReleaseDate: at, inReleaseValidUntil: expires, packagesIndexSha256: sha(packages), payloadSha256: sha(payload),
+    inReleaseDate: at, inReleaseValidUntil: expires, inReleaseMaximumDateAgeSeconds: null,
+    packagesIndexSha256: sha(packages), payloadSha256: sha(payload),
   });
 });
 

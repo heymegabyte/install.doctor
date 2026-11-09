@@ -31,6 +31,7 @@ export * from './native-dpkg-fence.js';
 export * from './native-dpkg-quiescence.js';
 export * from './native-dpkg-transaction-record.js';
 export * from './native-dpkg-transaction.js';
+export * from './native-debian-composition.js';
 export * from './debian-gpgv.js';
 export * from './native-policy-rcd.js';
 export * from './offline-authority.js';

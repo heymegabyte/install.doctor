@@ -59,7 +59,7 @@ function descriptor(key, { pre = [], depends = [], services = [] } = {}) {
     metadataProof: {
       inRelease: {
         artifactId: 'inrelease', path: 'dists/bookworm/InRelease', sha256: digest('c'), sizeBytes: 200,
-        signedAt: '2026-01-01T00:00:00.000Z', validUntil: '2027-01-01T00:00:00.000Z', signingKeyFingerprint: 'D'.repeat(40),
+        signedAt: '2026-01-01T00:00:00.000Z', validUntil: '2027-01-01T00:00:00.000Z', maximumDateAgeSeconds: null, signingKeyFingerprint: 'D'.repeat(40),
         keyring: { artifactId: 'keyring', sha256: digest('e'), sizeBytes: 300, mediaType: 'application/vnd.gnupg.keyring' },
       },
       packagesIndex: { artifactId: 'packages', path: 'dists/bookworm/main/binary-amd64/Packages.xz', sha256: digest('f'), sizeBytes: 400, architecture: 'amd64' },

@@ -115,7 +115,7 @@ async function fixture(t) {
     distro: { id: 'ubuntu', versionId: '24.04', codename: 'noble' },
     repository: { repositoryOrigin: 'https://archive.ubuntu.com/ubuntu', suite: 'noble', component: 'main' },
     metadataProof: {
-      inRelease: { artifactId: 'fixture-inrelease', path: 'dists/noble/InRelease', sha256: sha(inReleaseBytes), sizeBytes: inReleaseBytes.length, signedAt: at, validUntil: later, signingKeyFingerprint: 'A'.repeat(40), keyring: { artifactId: 'fixture-repository-keyring', sha256: sha(repositoryKeyringBytes), sizeBytes: repositoryKeyringBytes.length, mediaType: 'application/vnd.gnupg.keyring' } },
+      inRelease: { artifactId: 'fixture-inrelease', path: 'dists/noble/InRelease', sha256: sha(inReleaseBytes), sizeBytes: inReleaseBytes.length, signedAt: at, validUntil: later, maximumDateAgeSeconds: null, signingKeyFingerprint: 'A'.repeat(40), keyring: { artifactId: 'fixture-repository-keyring', sha256: sha(repositoryKeyringBytes), sizeBytes: repositoryKeyringBytes.length, mediaType: 'application/vnd.gnupg.keyring' } },
       packagesIndex: { artifactId: 'fixture-packages-index', path: 'dists/noble/main/binary-amd64/Packages.xz', sha256: sha(packagesBytes), sizeBytes: packagesBytes.length, architecture: 'amd64' },
       packageStanza: { filename: 'pool/main/f/fixture-operation/fixture-operation_1.0.0-1_amd64.deb', sha256: sha(nativeBytes), sizeBytes: nativeBytes.length, depends: null, preDepends: null, essential: 'no', multiArch: 'absent' },
     },
@@ -620,7 +620,7 @@ test('native Debian verification recursively proves every dependency payload bef
   const proof = {
     inRelease: {
       artifactId: 'proof-inrelease', path: 'dists/noble/InRelease', sha256: sha(inReleaseBytes),
-      sizeBytes: inReleaseBytes.length, signedAt: at, validUntil: later, signingKeyFingerprint: 'A'.repeat(40),
+      sizeBytes: inReleaseBytes.length, signedAt: at, validUntil: later, maximumDateAgeSeconds: null, signingKeyFingerprint: 'A'.repeat(40),
       keyring: { artifactId: 'proof-keyring', sha256: sha(keyringBytes), sizeBytes: keyringBytes.length, mediaType: 'application/vnd.gnupg.keyring' },
     },
     packagesIndex: {

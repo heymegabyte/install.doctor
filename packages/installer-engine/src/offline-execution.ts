@@ -17,7 +17,7 @@ import { verifyDebianRepositoryMetadata } from './debian-metadata.js';
 import type { DebianMetadataVerifier, VerifiedDebianMetadata } from './debian-metadata.js';
 import { inspectNativeDebianPackage } from './native-deb-inspection.js';
 import type { NativeDebInspectionInput, ParsedDebianControlArchive } from './native-deb-inspection.js';
-import { validateDebianDependencyClosure } from './debian-relationships.js';
+import { parseDebianRelationships, validateDebianDependencyClosure } from './debian-relationships.js';
 import type { DebianVersionComparator } from './debian-relationships.js';
 import { constants } from 'node:fs';
 import { lstat, mkdtemp, open, readFile, realpath, rmdir, unlink } from 'node:fs/promises';
@@ -49,12 +49,54 @@ const managedFileOperation = z.strictObject({
   ),
   candidateMode: z.union([z.literal(0o600), z.literal(0o640), z.literal(0o644)]),
 });
+export const NativePackageInstalledWitnessSchema = z.strictObject({
+  kind: z.literal('preexisting-witness'), manager: z.literal('dpkg'),
+  packageName: z.string().regex(/^[a-z0-9][a-z0-9+.-]{0,127}$/),
+  minimumVersion: z.string().min(1).max(128), architecture: z.enum(['amd64', 'arm64']),
+});
+export type NativePackageInstalledWitness = z.infer<typeof NativePackageInstalledWitnessSchema>;
+export async function assertNativePackageInstalledWitnesses(input: {
+  witnesses: readonly NativePackageInstalledWitness[];
+  observe: (packageName: string, signal?: AbortSignal) => Promise<import('./native-dpkg-state.js').DpkgPackageState | null>;
+  compareDebianVersions: DebianVersionComparator;
+  signal?: AbortSignal;
+}): Promise<void> {
+  for (const witnessInput of input.witnesses) {
+    const witness = NativePackageInstalledWitnessSchema.parse(witnessInput);
+    const observed = await input.observe(witness.packageName, input.signal);
+    const comparison = observed ? input.compareDebianVersions(observed.version, witness.minimumVersion) : Number.NaN;
+    if (!observed || observed.packageName !== witness.packageName || observed.architecture !== witness.architecture
+      || observed.status !== 'installed' || observed.errorFlag !== 'ok' || observed.want !== 'install'
+      || !Number.isFinite(comparison) || comparison < 0) {
+      throw new OfflineBundleError(`installed package witness is not satisfied: ${witness.packageName}`);
+    }
+  }
+}
+export function validateNativePackageWitnessClosure(input: {
+  rootPackageKey: string; descriptors: readonly NativeOfflinePayloadDescriptor[];
+  installedWitnesses: readonly NativePackageInstalledWitness[]; compareDebianVersions: DebianVersionComparator;
+}) {
+  const descriptors = input.descriptors.map(candidate => {
+    if (candidate.packageKey !== input.rootPackageKey || input.installedWitnesses.length === 0) return candidate;
+    const relationships = parseDebianRelationships(candidate.metadataProof.packageStanza.depends);
+    if (candidate.metadataProof.packageStanza.preDepends !== null
+      || candidate.dependencyClosure.depends.length !== 0 || candidate.dependencyClosure.preDepends.length !== 0
+      || relationships.length !== input.installedWitnesses.length || relationships.some((relationship, index) => {
+        const witness = input.installedWitnesses[index];
+        return !witness || relationship.packageName !== witness.packageName || relationship.architectureQualifier !== null
+          || relationship.operator !== '>=' || relationship.version !== witness.minimumVersion;
+      })) throw new OfflineBundleError(`installed witness relationships do not exactly match signed package authority: ${input.rootPackageKey}`);
+    const admitted = structuredClone(candidate); admitted.metadataProof.packageStanza.depends = null; return admitted;
+  });
+  return validateDebianDependencyClosure({ rootPackageKey: input.rootPackageKey, descriptors, compareVersions: input.compareDebianVersions });
+}
 const nativePackageOperation = z.strictObject({
   kind: z.literal('native-package'),
   effectClass: z.literal('native-package'),
   action: z.enum(['check', 'apply', 'verify']),
   packageKey,
   payloadArtifactId: identifier,
+  installedWitnesses: z.array(NativePackageInstalledWitnessSchema).max(16).optional(),
 });
 const nativeServiceOperation = z.strictObject({
   kind: z.literal('native-service'),
@@ -111,6 +153,7 @@ export interface NativePackageRuntimeAuthority {
     metadata: VerifiedDebianMetadata;
     control: ParsedDebianControlArchive;
   }>[];
+  readonly installedWitnesses: readonly NativePackageInstalledWitness[];
   /** Opens a fresh verified, already-unlinked borrowed descriptor for one package in the signed closure. */
   readonly withPayload: <T>(packageKey: string, use: (payload: FileHandle) => Promise<T>) => Promise<T>;
   readonly context: TaskExecutionContext | undefined;
@@ -327,7 +370,8 @@ export async function validateOfflineExecutionClosure(
       for (const item of nativePackages) {
         const candidate = item.operation;
         if (candidate.kind !== 'native-package' || candidate.action !== item.action
-          || candidate.packageKey !== authority.packageKey || candidate.payloadArtifactId !== authority.payloadArtifactId) {
+          || candidate.packageKey !== authority.packageKey || candidate.payloadArtifactId !== authority.payloadArtifactId
+          || JSON.stringify(candidate.installedWitnesses ?? []) !== JSON.stringify(authority.installedWitnesses ?? [])) {
           throw new OfflineBundleError(`offline native package operations disagree on their authority: ${task.id}`);
         }
       }
@@ -577,6 +621,7 @@ export async function createOfflineInstallerAdapter(input: {
   verifiedNativeMetadata?: Readonly<Record<string, VerifiedDebianMetadata>>;
   compareDebianVersions?: DebianVersionComparator;
   inspectNativePackage?: (input: NativeDebInspectionInput) => Promise<ParsedDebianControlArchive>;
+  observeInstalledWitness?: (packageName: string, signal?: AbortSignal) => Promise<import('./native-dpkg-state.js').DpkgPackageState | null>;
 }): Promise<InstallerAdapter> {
   if (!isAbsolute(input.materializedRoot)) throw new OfflineBundleError('materialized root must be absolute');
   const materializedRoot = await realpath(input.materializedRoot);
@@ -667,11 +712,9 @@ export async function createOfflineInstallerAdapter(input: {
       || rootMetadata.payloadSha256 !== rootDescriptor.artifact.sha256) {
       throw new OfflineBundleError(`offline native package lacks matching verified runtime authority: ${operation.packageKey}`);
     }
-    const validatedClosure = validateDebianDependencyClosure({
-      rootPackageKey: operation.packageKey,
-      descriptors: Object.values(input.closure.nativePackageDescriptors),
-      compareVersions: input.compareDebianVersions!,
-    });
+    const validatedClosure = validateNativePackageWitnessClosure({ rootPackageKey: operation.packageKey,
+      descriptors: Object.values(input.closure.nativePackageDescriptors), installedWitnesses: operation.installedWitnesses ?? [],
+      compareDebianVersions: input.compareDebianVersions! });
     const inspectPackage = input.inspectNativePackage ?? inspectNativeDebianPackage;
     const packages = [] as Array<{
       descriptor: NativeOfflinePayloadDescriptor;
@@ -719,8 +762,19 @@ export async function createOfflineInstallerAdapter(input: {
     if (packages.length === 0) {
       throw new OfflineBundleError(`offline native package closure is empty: ${operation.packageKey}`);
     }
+    const installedWitnesses = operation.installedWitnesses ?? [];
+    const observeWitness = input.observeInstalledWitness ?? (async (packageName: string, signal?: AbortSignal) => {
+      const { createNativeDpkgQueryRunner, parseDpkgQueryState } = await import('./native-dpkg-state.js');
+      const result = await createNativeDpkgQueryRunner().query(packageName, signal);
+      if (result.code === 1 && result.stdout.length === 0) return null;
+      if (result.code !== 0) throw new OfflineBundleError(`installed witness query failed with exit ${result.code}`);
+      return parseDpkgQueryState(result.stdout);
+    });
+    await assertNativePackageInstalledWitnesses({ witnesses: installedWitnesses, observe: observeWitness,
+      compareDebianVersions: input.compareDebianVersions!, ...(context ? { signal: context.signal } : {}) });
     return invoke(runtime, Object.freeze({
       operation, rootDescriptor, packages: Object.freeze(packages), withPayload, context,
+      installedWitnesses: Object.freeze([...installedWitnesses]),
     }));
   };
   const selectedTaskIds = new Set(input.closure.plan.selectedTaskIds);
