@@ -389,7 +389,9 @@ rollback_digest="$(node - "$HOME/rollback-plan-output.json" <<'READ_ROLLBACK_PLA
 const fs = require('node:fs');
 const plan = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
 if (!/^[a-f0-9]{64}$/.test(plan.digest)) throw new Error('rollback plan digest is invalid');
-if (JSON.stringify(plan.taskOrder) !== JSON.stringify(['installer.bootstrap-policy'])) {
+if (JSON.stringify(plan.taskOrder) !== JSON.stringify([
+  'installer.bootstrap-policy', 'bootstrap.installx-tool', 'bootstrap.installx-bin-directory',
+])) {
   throw new Error(`unexpected rollback task order: ${JSON.stringify(plan.taskOrder)}`);
 }
 process.stdout.write(plan.digest);
@@ -401,6 +403,8 @@ ROLLBACK_EXECUTE
 chmod 0600 "$HOME/rollback-execute.json"
 node "$INSTALL_DOCTOR_ENGINE_PATH" --input "$HOME/rollback-execute.json" > "$HOME/rollback-execute-output.json"
 [ ! -e "$HOME/.config/install.doctor-policy.json" ] || { printf 'rollback did not restore the absent policy state\n' >&2; exit 88; }
+[ ! -e "$HOME/.local/state/install.doctor/engine/tools/installx" ] || { printf 'rollback did not restore the absent engine installx state\n' >&2; exit 88; }
+[ ! -d "$HOME/.local/state/install.doctor/engine/tools" ] || { printf 'rollback did not restore the absent engine tools directory state\n' >&2; exit 88; }
 cat > "$HOME/rollback-status.json" <<ROLLBACK_STATUS
 {"schemaVersion":1,"command":"rollback-config-status","stateRoot":"$HOME/.local/state/install.doctor/engine","rollbackRunId":"bootstrap-policy-rollback","planDigest":"$rollback_digest"}
 ROLLBACK_STATUS
@@ -421,6 +425,7 @@ set -e
 # subsequent unchanged run performs no fixture or managed-file mutation.
 run_provision_approved "$HOME/reapply.stdout" "$HOME/reapply.stderr" "$digest" || { cat "$HOME/reapply.stdout" "$HOME/reapply.stderr" >&2; exit 88; }
 [ -f "$HOME/.config/install.doctor-policy.json" ] || { printf 'approved reapply did not restore managed policy\n' >&2; exit 88; }
+[ -x "$HOME/.local/state/install.doctor/engine/tools/installx" ] || { printf 'approved reapply did not restore managed engine installx\n' >&2; exit 88; }
 [ "$clean_hash" = "$(shasum -a 256 "$HOME/mutation-ledger" | awk '{print $1}')" ] || { printf 'config reapply duplicated an external fixture mutation\n' >&2; exit 89; }
 
 run_provision_approved "$HOME/unchanged.stdout" "$HOME/unchanged.stderr" "$digest" || { cat "$HOME/unchanged.stdout" "$HOME/unchanged.stderr" >&2; exit 88; }

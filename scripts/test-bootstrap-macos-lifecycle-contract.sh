@@ -25,13 +25,15 @@ const requireMatch = (text, pattern, message) => {
 const nativeJob = workflow.match(/^  macos-signed-lifecycle:\n[\s\S]*$/m)?.[0] ?? '';
 requireMatch(nativeJob, /^  macos-signed-lifecycle:\n[\s\S]*?^    runs-on: \$\{\{ matrix\.runner \}\}$/m,
   'workflow must have a tuple-bound native macOS signed lifecycle job');
-requireMatch(nativeJob, /include:\s*\n\s*- architecture: arm64\s*\n\s*runner: macos-15\s*\n\s*- architecture: x64\s*\n\s*runner: macos-15-intel/,
-  'workflow must prove lifecycle semantics on both native macOS 15 architectures');
+requireMatch(nativeJob, /include:\s*\n\s*- osMajor: "26"\s*\n\s*architecture: arm64\s*\n\s*runner: macos-26\s*\n\s*- osMajor: "26"\s*\n\s*architecture: x64\s*\n\s*runner: macos-26-intel/,
+  'workflow must prove lifecycle semantics on both current native macOS 26 architectures');
 requireMatch(nativeJob, /uses: actions\/setup-node@[a-f0-9]{40}[\s\S]*?node-version: 24\.22\.2/,
   'workflow must install the pinned supported Node runtime');
 requireMatch(nativeJob, /timeout-minutes: 20/, 'native lifecycle job must have a bounded timeout');
 requireMatch(nativeJob, /name: Verify native macOS signed lifecycle fixture \(not platform promotion or canonical \/start transport proof\)[\s\S]*?bash scripts\/test-bootstrap-macos-lifecycle-contract\.sh[\s\S]*?INSTALL_DOCTOR_RUN_NATIVE_MACOS_LIFECYCLE=1 bash scripts\/test-bootstrap-macos-lifecycle-acceptance\.sh/,
   'workflow must run the contract before the native lifecycle acceptance and state its evidence limits');
+requireMatch(nativeJob, /INSTALL_DOCTOR_EXPECTED_MACOS_MAJOR: \$\{\{ matrix\.osMajor \}\}/,
+  'workflow must bind lifecycle acceptance to the declared macOS major');
 requireMatch(nativeJob, /npm --prefix packages\/aid-core ci --ignore-scripts --no-audit --no-fund[\s\S]*?npm --prefix packages\/control-plane ci --ignore-scripts --no-audit --no-fund[\s\S]*?npm --prefix packages\/installer-engine ci --ignore-scripts --no-audit --no-fund/,
   'native job must install every locked release-build dependency');
 if (/continue-on-error:\s*true/.test(nativeJob)) failures.push('native lifecycle job must remain blocking');

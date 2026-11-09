@@ -20,11 +20,11 @@ const rows = [...include.matchAll(/^\s*- osMajor: "([0-9]+)"\s*\n\s*architecture
   .map(match => ({ osMajor: match[1], architecture: match[2], unameArchitecture: match[3], runner: match[4] }));
 
 const expected = [
-  { osMajor: '15', architecture: 'arm64', unameArchitecture: 'arm64', runner: 'macos-15' },
-  { osMajor: '15', architecture: 'x64', unameArchitecture: 'x86_64', runner: 'macos-15-intel' },
+  { osMajor: '26', architecture: 'arm64', unameArchitecture: 'arm64', runner: 'macos-26' },
+  { osMajor: '26', architecture: 'x64', unameArchitecture: 'x86_64', runner: 'macos-26-intel' },
 ];
 if (JSON.stringify(rows) !== JSON.stringify(expected)) {
-  failures.push(`matrix must declare exactly the current macOS 15 ARM64 and Intel tuples; observed ${JSON.stringify(rows)}`);
+  failures.push(`matrix must declare exactly the current macOS 26 ARM64 and Intel tuples; observed ${JSON.stringify(rows)}`);
 }
 
 const runnerArchitectures = new Map();

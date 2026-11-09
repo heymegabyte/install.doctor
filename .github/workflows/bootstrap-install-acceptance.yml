@@ -87,10 +87,12 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - architecture: arm64
-            runner: macos-15
-          - architecture: x64
-            runner: macos-15-intel
+          - osMajor: "26"
+            architecture: arm64
+            runner: macos-26
+          - osMajor: "26"
+            architecture: x64
+            runner: macos-26-intel
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -109,6 +111,8 @@ jobs:
           npm --prefix packages/control-plane ci --ignore-scripts --no-audit --no-fund
           npm --prefix packages/installer-engine ci --ignore-scripts --no-audit --no-fund
       - name: Verify native macOS signed lifecycle fixture (not platform promotion or canonical /start transport proof)
+        env:
+          INSTALL_DOCTOR_EXPECTED_MACOS_MAJOR: ${{ matrix.osMajor }}
         run: |
           bash scripts/test-bootstrap-macos-lifecycle-contract.sh
           INSTALL_DOCTOR_RUN_NATIVE_MACOS_LIFECYCLE=1 bash scripts/test-bootstrap-macos-lifecycle-acceptance.sh

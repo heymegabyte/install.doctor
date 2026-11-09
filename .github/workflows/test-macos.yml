@@ -25,14 +25,14 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - osMajor: "15"
+          - osMajor: "26"
             architecture: arm64
             unameArchitecture: arm64
-            runner: macos-15
-          - osMajor: "15"
+            runner: macos-26
+          - osMajor: "26"
             architecture: x64
             unameArchitecture: x86_64
-            runner: macos-15-intel
+            runner: macos-26-intel
 
     steps:
       - name: Checkout Repository

@@ -89,6 +89,8 @@ idResolvePlatformAdmission() {
     macos:14:arm64:native:macos) printf '%s\n' 'macos-14-arm64-native|best-effort|GitHub retired the macOS 14 runner and no current clean-host receipt covers the complete install lifecycle.' ;;
     macos:15:arm64:native:macos) printf '%s\n' 'macos-15-arm64-native|best-effort|No current clean-host receipt covers the complete install lifecycle.' ;;
     macos:15:x64:native:macos) printf '%s\n' 'macos-15-x64-native|best-effort|No current clean-host receipt covers the complete install lifecycle.' ;;
+    macos:26:arm64:native:macos) printf '%s\n' 'macos-26-arm64-native|best-effort|No current clean-host receipt covers the complete install lifecycle.' ;;
+    macos:26:x64:native:macos) printf '%s\n' 'macos-26-x64-native|best-effort|No current clean-host receipt covers the complete install lifecycle.' ;;
     macos:14:x64:native:macos) printf '%s\n' 'macos-14-x64-native|best-effort|GitHub retired the macOS 14 runner and no current clean-host receipt covers the complete install lifecycle.' ;;
     ubuntu:22.04:x64:container:ubuntu) printf '%s\n' 'ubuntu-22-04-x64-container|best-effort|The workflow does not produce a durable full-lifecycle canary receipt.' ;;
     ubuntu:24.04:x64:container:ubuntu) printf '%s\n' 'ubuntu-24-04-x64-container|best-effort|The workflow does not produce a durable full-lifecycle canary receipt.' ;;
