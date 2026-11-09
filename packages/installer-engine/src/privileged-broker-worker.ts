@@ -26,6 +26,10 @@ import {
 import type { PrivilegedBrokerReceipt } from './privileged-broker-protocol.js';
 import { createPrivilegedBrokerStore } from './privileged-broker-store.js';
 import { createPrivilegedBrokerTransactionPersistence } from './privileged-broker-transaction-store.js';
+import { createPrivilegedSystemdTransactionPersistence } from './privileged-systemd-transaction-store.js';
+import { createNativeSystemdTransaction } from './native-systemd-transaction.js';
+import { createSystemdServiceStateAdapter } from './service-state-adapters.js';
+import { PrivilegedBrokerPackageExecutionAuthoritySchema, privilegedBrokerDescriptorDigest } from './privileged-broker-authority.js';
 
 const STORE_ROOT = '/run/desktop-tools/privileged';
 const MAX_ENVELOPE_BYTES = 65_536;
@@ -119,7 +123,58 @@ export async function executePrivilegedBrokerWorker(input: {
   if (!await store.consumeNonce(grant.grantId, envelope.request.nonce, validated.requestDigest)) {
     throw new Error('broker nonce was already durably consumed');
   }
-  const { authority } = await store.readAuthority(grant.grantId);
+  const { authority: storedAuthority } = await store.readAuthority(grant.grantId);
+  if ('authorityKind' in storedAuthority && storedAuthority.authorityKind === 'native-service') {
+    const authority = storedAuthority;
+    const operation = authority.operations.operations[envelope.request.operationId];
+    const task = authority.plan.tasks.find(candidate => candidate.id === envelope.request.taskId);
+    if (!operation || operation.kind !== 'native-service' || operation.action !== envelope.request.phase || !task
+      || !authority.plan.selectedTaskIds.includes(task.id) || task.operations[envelope.request.phase] !== envelope.request.operationId
+      || operation.manager !== authority.descriptor.manager || operation.unit !== authority.descriptor.unit
+      || operation.desiredState !== authority.descriptor.desiredState) {
+      throw new Error('broker service request is outside the selected authority operation');
+    }
+    const descriptorBytes = Buffer.from(JSON.stringify(canonical(authority.descriptor)), 'utf8');
+    const descriptorSha256 = createHash('sha256').update(descriptorBytes).digest('hex');
+    if (envelope.request.payload.sha256 !== descriptorSha256 || envelope.request.payload.sizeBytes !== descriptorBytes.length
+      || envelope.request.descriptorDigest !== privilegedBrokerDescriptorDigest(authority.descriptor)) {
+      throw new Error('broker service payload differs from signed descriptor authority');
+    }
+    const reproduced = await deriveBoundNormalizedPlan({ tasks: authority.plan.tasks, selectedTaskIds: authority.plan.selectedTaskIds,
+      executionPolicy: authority.plan.executionPolicy }, authority.hostFacts, authority.desiredState, authority.releaseId, authority.plan.createdAt);
+    if (JSON.stringify(canonical(reproduced)) !== JSON.stringify(canonical(authority.plan))) {
+      throw new Error('broker approved service plan does not reproduce from semantic authority');
+    }
+    const catalogBytes = await readProtectedRootFile(authority.releaseProof.catalogPath, 8_388_608);
+    const release = await verifyDesktopReleaseCatalog({ manifestPath: authority.releaseProof.manifestPath,
+      signaturePath: authority.releaseProof.signaturePath, trust: authority.releaseProof.trust,
+      expectedReleaseId: authority.releaseId, catalogBytes });
+    if (release.manifestSha256 !== authority.releaseProof.manifestSha256) throw new Error('broker service release differs from bootstrap authority');
+    const liveFacts = await collectLinuxOfflineHostFacts();
+    if (!sameHostAuthority(liveFacts, authority.hostFacts)) throw new Error('broker service live host differs from approved host authority');
+    const staged = await stagePayload({ requestDigest: validated.requestDigest,
+      sha256: envelope.request.payload.sha256, sizeBytes: envelope.request.payload.sizeBytes });
+    try {
+      const stagedBytes = await readFile(staged.path);
+      if (!stagedBytes.equals(descriptorBytes)) throw new Error('broker service descriptor payload is not canonical');
+      const persistence = await createPrivilegedSystemdTransactionPersistence({ root: join(authority.transactionRoot, 'systemd'),
+        runId: authority.runId, hostId: authority.hostId, planDigest: authority.planDigest });
+      const runtime = createNativeSystemdTransaction({
+        identity: { runId: authority.runId, hostId: authority.hostId, planDigest: authority.planDigest },
+        unit: authority.descriptor.unit, desiredState: { enabled: true, running: true },
+        adapter: createSystemdServiceStateAdapter({ systemctlPath: '/usr/bin/systemctl' }), persistence,
+      });
+      let status: PrivilegedBrokerReceipt['status'];
+      if (envelope.request.phase === 'check') status = await runtime.check();
+      else if (envelope.request.phase === 'apply') { await runtime.apply(); status = 'applied'; }
+      else status = await runtime.verify();
+      const fenceDigest = envelope.request.phase === 'apply' ? await persistence.evidenceDigest()
+        : privilegedBrokerDigest({ requestDigest: validated.requestDigest, status, closureDigest: grant.closureDigest });
+      return createPrivilegedBrokerReceipt({ request: envelope.request, grantDigest: validated.grantDigest,
+        status, fenceDigest, completedAt: new Date().toISOString() });
+    } finally { await rm(staged.root, { recursive: true, force: true }); }
+  }
+  const authority = PrivilegedBrokerPackageExecutionAuthoritySchema.parse(storedAuthority);
   if (envelope.request.payload.sha256 !== authority.descriptor.artifact.sha256
     || envelope.request.payload.sizeBytes !== authority.descriptor.artifact.sizeBytes) {
     throw new Error('broker payload request differs from signed descriptor authority');

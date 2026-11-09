@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { DesiredStateInputSchema, HostFactsSchema, NativeOfflinePayloadDescriptorSchema, NormalizedPlanSchema } from './contracts.js';
 import { NativePackageOperationSchema, OfflineOperationManifestSchema } from './offline-execution.js';
-import { PrivilegedBrokerExecutionAuthoritySchema,
+import { PrivilegedBrokerExecutionAuthoritySchema, PrivilegedBrokerPackageExecutionAuthoritySchema,
   privilegedBrokerDescriptorDigest, privilegedBrokerExecutionAuthorityDigest } from './privileged-broker-authority.js';
 import { PrivilegedBrokerControllerDraftInputSchema } from './privileged-broker-controller-contract.js';
 import { PrivilegedBrokerClientConfigSchema } from './privileged-broker-client.js';
@@ -22,9 +22,9 @@ export const PrivilegedBrokerDerivationInputSchema = z.strictObject({
   desiredState: DesiredStateInputSchema,
   hostFacts: HostFactsSchema,
   descriptor: NativeOfflinePayloadDescriptorSchema,
-  releaseProof: PrivilegedBrokerExecutionAuthoritySchema.shape.releaseProof,
-  artifacts: PrivilegedBrokerExecutionAuthoritySchema.shape.artifacts,
-  transactionRoot: PrivilegedBrokerExecutionAuthoritySchema.shape.transactionRoot,
+  releaseProof: PrivilegedBrokerPackageExecutionAuthoritySchema.shape.releaseProof,
+  artifacts: PrivilegedBrokerPackageExecutionAuthoritySchema.shape.artifacts,
+  transactionRoot: PrivilegedBrokerPackageExecutionAuthoritySchema.shape.transactionRoot,
   enrolledUid: z.number().int().positive(),
   socketGid: z.number().int().nonnegative(),
   helperPath: authorityPath,

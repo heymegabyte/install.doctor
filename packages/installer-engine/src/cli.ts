@@ -18,7 +18,7 @@ import { executeSudoCredentialCleanup } from './sudo-credential-cleanup.js';
 import { JournalIntegrityError, LiveOwnerError, createJournalStore } from './journal.js';
 import { resolvePlatformProcessIdentity } from './process-identity.js';
 import { applyOfflineBundle, createOfflineBundle, planOfflineBundle, verifyOfflineBundle } from './offline-bundle.js';
-import { NativePackageOperationSchema, validateOfflineExecutionClosure } from './offline-execution.js';
+import { NativePackageOperationSchema, NativeServiceOperationSchema, validateOfflineExecutionClosure } from './offline-execution.js';
 import type { NativePackageRuntime } from './offline-execution.js';
 import { executeOfflineBundle } from './offline-orchestrator.js';
 import { createDefaultDebianMetadataVerifier } from './debian-gpgv.js';
@@ -39,8 +39,9 @@ import { applyConfigurationTransaction, applyManagedDirectoryTransaction } from 
 import { TelemetryExportConfigSchema } from './telemetry.js';
 import type { TelemetryTransport } from './telemetry.js';
 import { PrivilegedBrokerDerivationInputSchema, derivePrivilegedBrokerAuthority } from './privileged-broker-derivation.js';
-import { PrivilegedBrokerClientConfigSchema, createPrivilegedBrokerNativeRuntime } from './privileged-broker-client.js';
-import { privilegedBrokerDescriptorDigest } from './privileged-broker-authority.js';
+import { PrivilegedBrokerServiceDerivationInputSchema, derivePrivilegedBrokerServiceAuthority } from './privileged-broker-service-derivation.js';
+import { PrivilegedBrokerClientConfigSchema, createPrivilegedBrokerNativeRuntime, createPrivilegedBrokerServiceRuntime } from './privileged-broker-client.js';
+import { PrivilegedBrokerServiceDescriptorSchema, privilegedBrokerDescriptorDigest } from './privileged-broker-authority.js';
 import { openVerifiedArtifactSnapshot } from './verified-artifact-materializer.js';
 import { createBrokerApprovalTransport } from './broker-approval-transport.js';
 import { BrokerApprovalBootstrapBindingSchema, BrokerApprovalPollPolicySchema, orchestrateBrokerApproval } from './broker-approval-orchestrator.js';
@@ -133,7 +134,7 @@ const ManagedArtifactOperationSchema = z.strictObject({
 });
 const OperationSchema = z.union([ManagedFileOperationSchema, ManagedDirectoryOperationSchema, ManagedArtifactOperationSchema,
   CaskLauncherOperationSchema, FlatpakLauncherOperationSchema,
-  SudoCredentialCleanupOperationSchema, NativePackageOperationSchema, ProcessOperationSchema]);
+  SudoCredentialCleanupOperationSchema, NativePackageOperationSchema, NativeServiceOperationSchema, ProcessOperationSchema]);
 const PlanDraftSchema = z.strictObject({
   tasks: z.array(TaskNodeSchema).max(10_000),
   selectedTaskIds: z.array(identifier).max(10_000).refine(values => new Set(values).size === values.length, 'duplicate selected task identifiers'),
@@ -148,7 +149,7 @@ const common = {
   plan: PlanDraftSchema,
   operations: z.record(identifier, OperationSchema).refine(value => Object.keys(value).length <= 30_000, 'too many operations'),
 };
-const PrivilegedBrokerRunBindingSchema = z.strictObject({
+const PrivilegedBrokerPackageRunBindingSchema = z.strictObject({
   client: PrivilegedBrokerClientConfigSchema,
   descriptor: NativeOfflinePayloadDescriptorSchema,
   payload: z.strictObject({
@@ -158,6 +159,11 @@ const PrivilegedBrokerRunBindingSchema = z.strictObject({
     mode: z.literal('0600'),
   }),
 });
+const PrivilegedBrokerServiceRunBindingSchema = z.strictObject({
+  kind: z.literal('native-service'), client: PrivilegedBrokerClientConfigSchema,
+  descriptor: PrivilegedBrokerServiceDescriptorSchema,
+});
+const PrivilegedBrokerRunBindingSchema = z.union([PrivilegedBrokerPackageRunBindingSchema, PrivilegedBrokerServiceRunBindingSchema]);
 const ReadOnlyInvocationSchema = z.strictObject({ ...common, command: z.enum(['discover', 'validate', 'plan']) });
 const RunInvocationSchema = z.strictObject({
   ...common, command: z.literal('run'), approvedPlanDigest: z.string().regex(/^[a-f0-9]{64}$/), renderer: RendererModeSchema,
@@ -351,6 +357,8 @@ const FlatpakLauncherDeriveInvocationSchema = z.strictObject({
 });
 const PrivilegedBrokerAuthorityDeriveInvocationSchema = PrivilegedBrokerDerivationInputSchema
   .extend({ command: z.literal('privileged-broker-authority-derive') });
+const PrivilegedBrokerServiceAuthorityDeriveInvocationSchema = PrivilegedBrokerServiceDerivationInputSchema
+  .extend({ command: z.literal('privileged-broker-service-authority-derive') });
 const artifactAuthority = {
   loadPlan: LoadPlanReportSchema,
   items: z.array(LoadPlanItemSchema).max(4096),
@@ -378,6 +386,7 @@ const InvocationSchema = z.discriminatedUnion('command', [
   RollbackPlanInvocationSchema, RollbackExecuteInvocationSchema, RollbackResumeInvocationSchema, RollbackStatusInvocationSchema,
   LoadPlanInvocationSchema, NativeDebianDeriveInvocationSchema, CaskLauncherDeriveInvocationSchema,
   FlatpakLauncherDeriveInvocationSchema, PrivilegedBrokerAuthorityDeriveInvocationSchema,
+  PrivilegedBrokerServiceAuthorityDeriveInvocationSchema,
   ArtifactDeriveInvocationSchema, ArtifactPrepareInvocationSchema,
   BrokerApprovalClaimInvocationSchema,
   DeviceAuthorizationStartInvocationSchema, DeviceAuthorizationStatusInvocationSchema,
@@ -387,7 +396,7 @@ const InvocationSchema = z.discriminatedUnion('command', [
 type Invocation = z.infer<typeof InvocationSchema>;
 type OperationInvocation = Extract<Invocation, { command: 'discover' | 'validate' | 'plan' | 'run' | 'resume' | 'status' }>;
 type PlanBindingInvocation = Exclude<Extract<Invocation, { plan: unknown; operations: unknown }>,
-  { command: 'privileged-broker-authority-derive' }>;
+  { command: 'privileged-broker-authority-derive' | 'privileged-broker-service-authority-derive' }>;
 
 async function presentRun(input: {
   readonly rendererMode: z.infer<typeof RendererModeSchema>;
@@ -707,7 +716,10 @@ const telemetryTransport: TelemetryTransport = async ({ endpoint, batch, signal 
 function baseAdapterFor(invocation: OperationInvocation, nativeBinding?: {
   readonly runtime: NativePackageRuntime;
   readonly descriptor: z.infer<typeof NativeOfflinePayloadDescriptorSchema>;
-  readonly payload: z.infer<typeof PrivilegedBrokerRunBindingSchema>['payload'];
+  readonly payload: z.infer<typeof PrivilegedBrokerPackageRunBindingSchema>['payload'];
+}, serviceBinding?: {
+  readonly runtime: ReturnType<typeof createPrivilegedBrokerServiceRuntime>;
+  readonly descriptor: z.infer<typeof PrivilegedBrokerServiceDescriptorSchema>;
 }): InstallerAdapter {
   const digestOpenFile = async (handle: Awaited<ReturnType<typeof open>>, size: number): Promise<string> => {
     if (!Number.isSafeInteger(size) || size < 1 || size > 16 * 1024 * 1024) {
@@ -1120,6 +1132,18 @@ function baseAdapterFor(invocation: OperationInvocation, nativeBinding?: {
       });
       return 0;
     }
+    if (selected.kind === 'native-service') {
+      if (!serviceBinding || selected.action !== expectedAction || selected.manager !== serviceBinding.descriptor.manager
+        || selected.unit !== serviceBinding.descriptor.unit || selected.desiredState !== serviceBinding.descriptor.desiredState) {
+        throw new Error('native service operation requires matching approved privileged broker authority');
+      }
+      if (selected.action === 'check') {
+        const status = await serviceBinding.runtime.check(selected);
+        return status === 'verified' ? 0 : 10;
+      }
+      if (selected.action === 'apply') { await serviceBinding.runtime.apply(selected); return 0; }
+      return await serviceBinding.runtime.verify(selected) === 'verified' ? 0 : 30;
+    }
     if (selected.kind === 'native-package') {
       if (!nativeBinding || selected.action !== expectedAction || selected.packageKey !== nativeBinding.descriptor.packageKey
         || selected.payloadArtifactId !== nativeBinding.descriptor.artifact.id) {
@@ -1225,15 +1249,20 @@ function baseAdapterFor(invocation: OperationInvocation, nativeBinding?: {
 }
 
 async function adapterFor(invocation: OperationInvocation): Promise<InstallerAdapter> {
-  const nativeOperations = Object.entries(invocation.operations)
+  const nativePackageOperations = Object.entries(invocation.operations)
     .filter((entry): entry is [string, z.infer<typeof NativePackageOperationSchema>] => entry[1].kind === 'native-package');
+  const nativeServiceOperations = Object.entries(invocation.operations)
+    .filter((entry): entry is [string, z.infer<typeof NativeServiceOperationSchema>] => entry[1].kind === 'native-service');
   if (invocation.command !== 'run' && invocation.command !== 'resume') return baseAdapterFor(invocation);
   const binding = invocation.privilegedBroker;
-  if (nativeOperations.length === 0) {
-    if (binding) throw new Error('privileged broker authority is forbidden without native package operations');
+  if (nativePackageOperations.length === 0 && nativeServiceOperations.length === 0) {
+    if (binding) throw new Error('privileged broker authority is forbidden without native package or service operations');
     return baseAdapterFor(invocation);
   }
-  if (!binding) throw new Error('native package operations require the approved privileged broker');
+  if (nativePackageOperations.length > 0 && nativeServiceOperations.length > 0) {
+    throw new Error('one privileged broker invocation cannot combine native package and service authority');
+  }
+  if (!binding) throw new Error('native package or service operations require the approved privileged broker');
   const expectedPlanDigest = invocation.command === 'run' ? invocation.approvedPlanDigest : invocation.planDigest;
   const normalized = await deriveBoundNormalizedPlan(bindOperationsToPlan(invocation), invocation.facts,
     invocation.desiredState, invocation.releaseId, new Date().toISOString());
@@ -1244,13 +1273,29 @@ async function adapterFor(invocation: OperationInvocation): Promise<InstallerAda
     || binding.client.planDigest !== expectedPlanDigest || grant.approvedPlanDigest !== expectedPlanDigest
     || binding.client.hostId !== invocation.facts.hostId || binding.client.releaseId !== invocation.releaseId
     || binding.client.runId !== invocation.runId || !task || !selected.has(task.id)
-    || privilegedBrokerDescriptorDigest(binding.descriptor) !== grant.descriptorDigest
-    || binding.payload.sha256 !== binding.descriptor.artifact.sha256
-    || binding.payload.sizeBytes !== binding.descriptor.artifact.sizeBytes) {
+    || privilegedBrokerDescriptorDigest(binding.descriptor) !== grant.descriptorDigest) {
     throw new Error('privileged broker binding differs from the exact approved plan, host, release, run, or descriptor');
   }
   const phases = ['check', 'apply', 'verify'] as const;
-  if (nativeOperations.length !== 3 || phases.some(phase => {
+  if ('kind' in binding) {
+    if (nativePackageOperations.length > 0 || nativeServiceOperations.length !== 3 || phases.some(phase => {
+      const operationId = task.operations[phase];
+      const operation = invocation.operations[operationId];
+      return operation?.kind !== 'native-service' || operation.action !== phase
+        || operation.manager !== binding.descriptor.manager || operation.unit !== binding.descriptor.unit
+        || operation.desiredState !== binding.descriptor.desiredState
+        || !grant.operations.some(candidate => candidate.taskId === task.id && candidate.operationId === operationId && candidate.phase === phase);
+    })) {
+      throw new Error('privileged broker binding does not own the exact native service operation triplet');
+    }
+    return baseAdapterFor(invocation, undefined, {
+      runtime: createPrivilegedBrokerServiceRuntime(binding.client, binding.descriptor),
+      descriptor: binding.descriptor,
+    });
+  }
+  if (nativeServiceOperations.length > 0 || binding.payload.sha256 !== binding.descriptor.artifact.sha256
+    || binding.payload.sizeBytes !== binding.descriptor.artifact.sizeBytes || nativePackageOperations.length !== 3
+    || phases.some(phase => {
     const operationId = task.operations[phase];
     const operation = invocation.operations[operationId];
     return operation?.kind !== 'native-package' || operation.action !== phase
@@ -1483,6 +1528,11 @@ async function main(): Promise<void> {
     if (invocation.command === 'privileged-broker-authority-derive') {
       const { command: _command, ...derivationInput } = invocation;
       process.stdout.write(`${JSON.stringify(derivePrivilegedBrokerAuthority(derivationInput))}\n`);
+      return;
+    }
+    if (invocation.command === 'privileged-broker-service-authority-derive') {
+      const { command: _command, ...derivationInput } = invocation;
+      process.stdout.write(`${JSON.stringify(derivePrivilegedBrokerServiceAuthority(derivationInput))}\n`);
       return;
     }
     if (invocation.command === 'artifact-derive') {

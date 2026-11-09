@@ -1,12 +1,15 @@
 import { createHash, randomBytes } from 'node:crypto';
 import { constants } from 'node:fs';
-import { lstat, open, realpath } from 'node:fs/promises';
+import { chmod, lstat, mkdtemp, open, realpath, rm, unlink, writeFile } from 'node:fs/promises';
 import { isAbsolute, resolve } from 'node:path';
 import { spawn } from 'node:child_process';
 import { z } from 'zod';
 import type { FileHandle } from 'node:fs/promises';
 import type { Inspection, Verification } from './engine.js';
 import type { NativePackageRuntime, NativePackageRuntimeAuthority } from './offline-execution.js';
+import { NativeServiceOperationSchema } from './offline-execution.js';
+import type { NativeServiceOperation } from './offline-execution.js';
+import { PrivilegedBrokerServiceDescriptorSchema, privilegedBrokerDescriptorDigest } from './privileged-broker-authority.js';
 import {
   PrivilegedBrokerGrantSchema,
   PrivilegedBrokerReceiptSchema,
@@ -176,6 +179,68 @@ export function createPrivilegedBrokerNativeRuntime(
     async verify(authority: NativePackageRuntimeAuthority): Promise<Verification> {
       const receipt = await invoke('verify', authority);
       if (!['verified', 'inapplicable', 'pending'].includes(receipt.status)) throw new Error('broker verify receipt has an invalid status');
+      return receipt.status as Verification;
+    },
+  });
+}
+
+export function createPrivilegedBrokerServiceRuntime(
+  configInput: PrivilegedBrokerClientConfig,
+  descriptorInput: unknown,
+  transport: PrivilegedBrokerTransport = defaultPrivilegedBrokerTransport,
+  now: () => Date = () => new Date(),
+) {
+  const config = PrivilegedBrokerClientConfigSchema.parse(configInput);
+  const grant = config.grant as PrivilegedBrokerGrant;
+  const descriptor = PrivilegedBrokerServiceDescriptorSchema.parse(descriptorInput);
+  if (grant.hostId !== config.hostId || grant.releaseId !== config.releaseId || grant.runId !== config.runId
+    || grant.planDigest !== config.planDigest || grant.descriptorDigest !== privilegedBrokerDescriptorDigest(descriptor)) {
+    throw new Error('privileged service client configuration differs from its exact grant');
+  }
+  const descriptorBytes = Buffer.from(JSON.stringify(Object.fromEntries(Object.entries(descriptor).sort(([a], [b]) => a.localeCompare(b)))), 'utf8');
+  const descriptorSha256 = createHash('sha256').update(descriptorBytes).digest('hex');
+  const invoke = async (phase: 'check' | 'apply' | 'verify', operationInput: NativeServiceOperation): Promise<PrivilegedBrokerReceipt> => {
+    const operation = NativeServiceOperationSchema.parse(operationInput);
+    if (operation.action !== phase || operation.manager !== descriptor.manager || operation.unit !== descriptor.unit
+      || operation.desiredState !== descriptor.desiredState) throw new Error('privileged service runtime operation differs from descriptor authority');
+    const granted = grant.operations.find(candidate => candidate.taskId === config.taskId && candidate.phase === phase);
+    if (!granted) throw new Error(`privileged broker grant lacks the ${phase} service operation`);
+    const root = await mkdtemp('/tmp/desktop-tools-service-');
+    await chmod(root, 0o700);
+    const path = `${root}/descriptor.json`;
+    try {
+      await writeFile(path, descriptorBytes, { mode: 0o600, flag: 'wx' });
+      const payload = await open(path, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
+      await unlink(path);
+      try {
+        const requestedAt = now().toISOString();
+        const request = PrivilegedBrokerRequestSchema.parse({ schemaVersion: 1, hostId: config.hostId,
+          releaseId: config.releaseId, runId: config.runId, planDigest: config.planDigest,
+          grantId: grant.grantId, grantDigest: privilegedBrokerDigest(grant), taskId: config.taskId,
+          operationId: granted.operationId, phase, consentDigest: grant.consentDigest,
+          descriptorDigest: grant.descriptorDigest, closureDigest: grant.closureDigest,
+          payload: { sha256: descriptorSha256, sizeBytes: descriptorBytes.length,
+            requiredSeals: ['seal', 'shrink', 'grow', 'write'] },
+          nonce: randomBytes(32).toString('base64url'), requestedAt });
+        return await transport.invoke({ helperPath: config.helperPath, helperDigest: grant.brokerExecutableDigest,
+          socketPath: config.socketPath, request, payload });
+      } finally { await payload.close(); }
+    } finally { await rm(root, { recursive: true, force: true }); }
+  };
+  return Object.freeze({
+    descriptor,
+    async check(operation: NativeServiceOperation): Promise<Inspection> {
+      const receipt = await invoke('check', operation);
+      if (!['verified', 'needed'].includes(receipt.status)) throw new Error('broker service check receipt has an invalid status');
+      return receipt.status as Inspection;
+    },
+    async apply(operation: NativeServiceOperation): Promise<void> {
+      const receipt = await invoke('apply', operation);
+      if (receipt.status !== 'applied') throw new Error('broker service apply receipt is not applied');
+    },
+    async verify(operation: NativeServiceOperation): Promise<Verification> {
+      const receipt = await invoke('verify', operation);
+      if (!['verified', 'pending'].includes(receipt.status)) throw new Error('broker service verify receipt has an invalid status');
       return receipt.status as Verification;
     },
   });

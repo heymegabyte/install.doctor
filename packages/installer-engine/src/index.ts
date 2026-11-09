@@ -23,6 +23,7 @@ export * from './service-state-adapters.js';
 export * from './native-service-composition.js';
 export * from './native-systemd-transaction.js';
 export * from './privileged-systemd-transaction-store.js';
+export * from './privileged-broker-service-derivation.js';
 export * from './immutable-artifact.js';
 export * from './verified-artifact-materializer.js';
 export * from './planned-artifact.js';
