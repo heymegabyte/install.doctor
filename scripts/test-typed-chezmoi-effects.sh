@@ -11,7 +11,7 @@ trap 'rm -rf -- "$TMP"' EXIT HUP INT TERM
 for node in desired.software-groups desired.catalog-post-validation desired.custom-post-hooks; do
   grep -Fq "id: '$node'" "$PROVISION"
 done
-grep -Fq 'dependencies: [customPostHooksTask.id, ...caskLauncherTasks.map' "$PROVISION"
+grep -Fq 'dependencies: [customPostHooksTask?.id ?? catalogPostValidationTask.id, ...caskLauncherTasks.map' "$PROVISION"
 grep -Fq 'INSTALL_DOCTOR_ENGINE_OWNS_SOFTWARE_GROUPS' "$AFTER_10"
 grep -Fq 'INSTALL_DOCTOR_ENGINE_OWNS_CATALOG_POST_HOOKS' "$AFTER_10"
 grep -Fq 'INSTALL_DOCTOR_ENGINE_OWNS_CUSTOM_POST_HOOKS' "$AFTER_20"

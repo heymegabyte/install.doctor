@@ -2869,7 +2869,7 @@ const customHookManifest = selectedHookClosure.flatMap(packageName => {
 });
 const customHookManifestEnvironment = customHookManifest.map(entry => `${entry.package}=${entry.sha256}`).join('\n');
 const customHookKeysEnvironment = customHookManifest.map(entry => entry.package).join(',');
-const customPostHooksTask = {
+const customPostHooksTask = customHookManifest.length > 0 ? {
   schemaVersion: 1, id: 'desired.custom-post-hooks',
   inputDigest: digest({ source: process.env.INSTALL_DOCTOR_SOURCE_COMMIT, softwareGroup: rawPlan.softwareGroup, hooks: customHookManifest, policy: 'typed-custom-post-v2' }),
   dependencies: [catalogPostValidationTask.id], predicate: 'host-supported', requiredCapabilities: [],
@@ -2878,11 +2878,11 @@ const customPostHooksTask = {
   resources: { cpu: 1, memoryMiB: 1024, network: true }, privilege: 'admin', network: 'required',
   consent: 'privileged', lockDomains: ['custom-post-hooks', 'package-manager', 'service-manager', 'privilege'], cleanup: 'none', compensation: 'none',
   failurePolicy: 'abort-run',
-};
+} : null;
 const rebootAssessmentTask = {
   schemaVersion: 1, id: 'system.reboot-assessment',
   inputDigest: digest({ platform, policy: 'explicit-operator-reboot-v1' }),
-  dependencies: [customPostHooksTask.id, ...caskLauncherTasks.map(task => task.id), ...flatpakLauncherTasks.map(task => task.id), ...artifactTasks.map(task => task.id)], predicate: 'host-supported', requiredCapabilities: [],
+  dependencies: [customPostHooksTask?.id ?? catalogPostValidationTask.id, ...caskLauncherTasks.map(task => task.id), ...flatpakLauncherTasks.map(task => task.id), ...artifactTasks.map(task => task.id)], predicate: 'host-supported', requiredCapabilities: [],
   operations: { check: 'reboot-assessment-check', apply: 'reboot-assessment-apply', verify: 'reboot-assessment-verify' },
   timeoutMs: 30_000, retry: { class: 'never', maxAttempts: 1, backoffMs: 0 },
   resources: { cpu: 1, memoryMiB: 64, network: false }, privilege: 'user', network: 'none',
@@ -2914,7 +2914,7 @@ const invocation = {
     offline: rawPlan.offline,
   },
     plan: {
-      tasks: [stageZeroInstallUserTask, stageZeroSudoTask, ...(warpDisconnectTask ? [warpDisconnectTask] : []), ...(nativeComposition ? [nativeComposition.task] : []), nativeDependenciesTask, sourceTask, homebrewTask, homebrewToolsTask, chezmoiInitTask, installxBinDirectoryTask, installxToolTask, desiredPackagesTask, ...caskDirectoryTasks, ...caskLauncherTasks, ...flatpakDirectoryTasks, ...flatpakLauncherTasks, ...directoryTasks, ...artifactTasks, macosFullDiskAccessTask, ...(macosCertificateTask ? [macosCertificateTask] : []), ...(qubesDom0Task ? [qubesDom0Task] : []), ...(agentTasksTask ? [agentTasksTask] : []), task, bootstrapPolicyTask, ...(softwareGroupsTask ? [softwareGroupsTask] : []), catalogPostValidationTask, customPostHooksTask, rebootAssessmentTask, sudoCleanupTask],
+      tasks: [stageZeroInstallUserTask, stageZeroSudoTask, ...(warpDisconnectTask ? [warpDisconnectTask] : []), ...(nativeComposition ? [nativeComposition.task] : []), nativeDependenciesTask, sourceTask, homebrewTask, homebrewToolsTask, chezmoiInitTask, installxBinDirectoryTask, installxToolTask, desiredPackagesTask, ...caskDirectoryTasks, ...caskLauncherTasks, ...flatpakDirectoryTasks, ...flatpakLauncherTasks, ...directoryTasks, ...artifactTasks, macosFullDiskAccessTask, ...(macosCertificateTask ? [macosCertificateTask] : []), ...(qubesDom0Task ? [qubesDom0Task] : []), ...(agentTasksTask ? [agentTasksTask] : []), task, bootstrapPolicyTask, ...(softwareGroupsTask ? [softwareGroupsTask] : []), catalogPostValidationTask, ...(customPostHooksTask ? [customPostHooksTask] : []), rebootAssessmentTask, sudoCleanupTask],
       selectedTaskIds: [...(nativeComposition ? [nativeComposition.task.id] : []), ...caskLauncherTasks.map(task => task.id), ...flatpakLauncherTasks.map(task => task.id), ...artifactTasks.map(task => task.id), rebootAssessmentTask.id, sudoCleanupTask.id],
       executionPolicy: {
         maxConcurrency: rawPlan.concurrency,
@@ -2998,9 +2998,11 @@ const invocation = {
     'catalog-post-validation-check': { argv: ['/bin/bash', provisioner, '--engine-operation', 'catalog-post-validation-check'], env: operationEnvironment },
     'catalog-post-validation-apply': { argv: ['/bin/bash', provisioner, '--engine-operation', 'catalog-post-validation-apply'], env: operationEnvironment },
     'catalog-post-validation-verify': { argv: ['/bin/bash', provisioner, '--engine-operation', 'catalog-post-validation-verify'], env: operationEnvironment },
-    'custom-post-hooks-check': { argv: ['/bin/bash', provisioner, '--engine-operation', 'custom-post-hooks-check'], env: { ...operationEnvironment, INSTALL_DOCTOR_CUSTOM_HOOK_MANIFEST: customHookManifestEnvironment, INSTALL_DOCTOR_CUSTOM_HOOK_KEYS: customHookKeysEnvironment } },
-    'custom-post-hooks-apply': { argv: ['/bin/bash', provisioner, '--engine-operation', 'custom-post-hooks-apply'], env: { ...operationEnvironment, INSTALL_DOCTOR_CUSTOM_HOOK_MANIFEST: customHookManifestEnvironment, INSTALL_DOCTOR_CUSTOM_HOOK_KEYS: customHookKeysEnvironment } },
-    'custom-post-hooks-verify': { argv: ['/bin/bash', provisioner, '--engine-operation', 'custom-post-hooks-verify'], env: { ...operationEnvironment, INSTALL_DOCTOR_CUSTOM_HOOK_MANIFEST: customHookManifestEnvironment, INSTALL_DOCTOR_CUSTOM_HOOK_KEYS: customHookKeysEnvironment } },
+    ...(customPostHooksTask ? {
+      'custom-post-hooks-check': { argv: ['/bin/bash', provisioner, '--engine-operation', 'custom-post-hooks-check'], env: { ...operationEnvironment, INSTALL_DOCTOR_CUSTOM_HOOK_MANIFEST: customHookManifestEnvironment, INSTALL_DOCTOR_CUSTOM_HOOK_KEYS: customHookKeysEnvironment } },
+      'custom-post-hooks-apply': { argv: ['/bin/bash', provisioner, '--engine-operation', 'custom-post-hooks-apply'], env: { ...operationEnvironment, INSTALL_DOCTOR_CUSTOM_HOOK_MANIFEST: customHookManifestEnvironment, INSTALL_DOCTOR_CUSTOM_HOOK_KEYS: customHookKeysEnvironment } },
+      'custom-post-hooks-verify': { argv: ['/bin/bash', provisioner, '--engine-operation', 'custom-post-hooks-verify'], env: { ...operationEnvironment, INSTALL_DOCTOR_CUSTOM_HOOK_MANIFEST: customHookManifestEnvironment, INSTALL_DOCTOR_CUSTOM_HOOK_KEYS: customHookKeysEnvironment } },
+    } : {}),
     'reboot-assessment-check': { argv: ['/bin/bash', provisioner, '--engine-operation', 'reboot-assessment-check'], env: operationEnvironment },
     'reboot-assessment-apply': { argv: ['/bin/bash', provisioner, '--engine-operation', 'reboot-assessment-apply'], env: operationEnvironment },
     'reboot-assessment-verify': { argv: ['/bin/bash', provisioner, '--engine-operation', 'reboot-assessment-verify'], env: operationEnvironment },
