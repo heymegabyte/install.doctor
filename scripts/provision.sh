@@ -1596,6 +1596,9 @@ const catalogListPattern = /^[a-z0-9][a-z0-9._:-]*(?:,[a-z0-9][a-z0-9._:-]*)*$/;
 const identifierListPattern = /^[a-z0-9][a-z0-9._-]*(?:,[a-z0-9][a-z0-9._-]*)*$/;
 const selectedPackages = selectedList('INSTALL_DOCTOR_SELECTED_PACKAGES', 4096, catalogListPattern);
 const selectedServices = selectedList('INSTALL_DOCTOR_SELECTED_SERVICES', 1024, catalogListPattern);
+if (selectedServices.length > 0) {
+  throw new Error('selected services are unsupported until an installer-engine-owned, manager-specific privileged operation is available');
+}
 const selectedSupportedPaths = selectedList('INSTALL_DOCTOR_SELECTED_SUPPORTED_PATHS', 1024, identifierListPattern);
 const lazyResolverRequirements = selectedList('INSTALL_DOCTOR_LAZY_RESOLVER_REQUIREMENTS', 128, catalogListPattern);
 const plan = {
@@ -2867,20 +2870,10 @@ const customPostHooksTask = {
   consent: 'privileged', lockDomains: ['custom-post-hooks', 'package-manager', 'service-manager', 'privilege'], cleanup: 'none', compensation: 'none',
   failurePolicy: 'abort-run',
 };
-const desiredServicesTask = {
-  schemaVersion: 1, id: 'desired.services',
-  inputDigest: digest({ source: process.env.INSTALL_DOCTOR_SOURCE_COMMIT, services: selectedServices }),
-  dependencies: [customPostHooksTask.id], predicate: 'host-supported', requiredCapabilities: [],
-  operations: { check: 'desired-services-check', apply: 'desired-services-apply', verify: 'desired-services-verify' },
-  timeoutMs: 300_000, retry: { class: 'transient', maxAttempts: 2, backoffMs: 1_000 },
-  resources: { cpu: 1, memoryMiB: 256, network: false }, privilege: 'admin', network: 'none',
-  consent: 'privileged', lockDomains: ['service-manager', 'privilege'], cleanup: 'none', compensation: 'none',
-  failurePolicy: 'abort-run',
-};
 const rebootAssessmentTask = {
   schemaVersion: 1, id: 'system.reboot-assessment',
   inputDigest: digest({ platform, policy: 'explicit-operator-reboot-v1' }),
-  dependencies: [desiredServicesTask.id, ...caskLauncherTasks.map(task => task.id), ...flatpakLauncherTasks.map(task => task.id), ...artifactTasks.map(task => task.id)], predicate: 'host-supported', requiredCapabilities: [],
+  dependencies: [customPostHooksTask.id, ...caskLauncherTasks.map(task => task.id), ...flatpakLauncherTasks.map(task => task.id), ...artifactTasks.map(task => task.id)], predicate: 'host-supported', requiredCapabilities: [],
   operations: { check: 'reboot-assessment-check', apply: 'reboot-assessment-apply', verify: 'reboot-assessment-verify' },
   timeoutMs: 30_000, retry: { class: 'never', maxAttempts: 1, backoffMs: 0 },
   resources: { cpu: 1, memoryMiB: 64, network: false }, privilege: 'user', network: 'none',
@@ -2912,7 +2905,7 @@ const invocation = {
     offline: rawPlan.offline,
   },
     plan: {
-      tasks: [stageZeroInstallUserTask, stageZeroSudoTask, ...(warpDisconnectTask ? [warpDisconnectTask] : []), ...(nativeComposition ? [nativeComposition.task] : []), nativeDependenciesTask, sourceTask, homebrewTask, homebrewToolsTask, chezmoiInitTask, installxBinDirectoryTask, installxToolTask, desiredPackagesTask, ...caskDirectoryTasks, ...caskLauncherTasks, ...flatpakDirectoryTasks, ...flatpakLauncherTasks, ...directoryTasks, ...artifactTasks, macosFullDiskAccessTask, macosCertificateTask, ...(qubesDom0Task ? [qubesDom0Task] : []), ...(agentTasksTask ? [agentTasksTask] : []), task, bootstrapPolicyTask, softwareGroupsTask, catalogPostValidationTask, customPostHooksTask, desiredServicesTask, rebootAssessmentTask, sudoCleanupTask],
+      tasks: [stageZeroInstallUserTask, stageZeroSudoTask, ...(warpDisconnectTask ? [warpDisconnectTask] : []), ...(nativeComposition ? [nativeComposition.task] : []), nativeDependenciesTask, sourceTask, homebrewTask, homebrewToolsTask, chezmoiInitTask, installxBinDirectoryTask, installxToolTask, desiredPackagesTask, ...caskDirectoryTasks, ...caskLauncherTasks, ...flatpakDirectoryTasks, ...flatpakLauncherTasks, ...directoryTasks, ...artifactTasks, macosFullDiskAccessTask, macosCertificateTask, ...(qubesDom0Task ? [qubesDom0Task] : []), ...(agentTasksTask ? [agentTasksTask] : []), task, bootstrapPolicyTask, softwareGroupsTask, catalogPostValidationTask, customPostHooksTask, rebootAssessmentTask, sudoCleanupTask],
       selectedTaskIds: [...(nativeComposition ? [nativeComposition.task.id] : []), ...caskLauncherTasks.map(task => task.id), ...flatpakLauncherTasks.map(task => task.id), ...artifactTasks.map(task => task.id), rebootAssessmentTask.id, sudoCleanupTask.id],
       executionPolicy: {
         maxConcurrency: rawPlan.concurrency,
@@ -2995,9 +2988,6 @@ const invocation = {
     'custom-post-hooks-check': { argv: ['/bin/bash', provisioner, '--engine-operation', 'custom-post-hooks-check'], env: { ...operationEnvironment, INSTALL_DOCTOR_CUSTOM_HOOK_MANIFEST: customHookManifestEnvironment, INSTALL_DOCTOR_CUSTOM_HOOK_KEYS: customHookKeysEnvironment } },
     'custom-post-hooks-apply': { argv: ['/bin/bash', provisioner, '--engine-operation', 'custom-post-hooks-apply'], env: { ...operationEnvironment, INSTALL_DOCTOR_CUSTOM_HOOK_MANIFEST: customHookManifestEnvironment, INSTALL_DOCTOR_CUSTOM_HOOK_KEYS: customHookKeysEnvironment } },
     'custom-post-hooks-verify': { argv: ['/bin/bash', provisioner, '--engine-operation', 'custom-post-hooks-verify'], env: { ...operationEnvironment, INSTALL_DOCTOR_CUSTOM_HOOK_MANIFEST: customHookManifestEnvironment, INSTALL_DOCTOR_CUSTOM_HOOK_KEYS: customHookKeysEnvironment } },
-    'desired-services-check': { argv: ['/bin/bash', provisioner, '--engine-operation', 'desired-services-check'], env: operationEnvironment },
-    'desired-services-apply': { argv: ['/bin/bash', provisioner, '--engine-operation', 'desired-services-apply'], env: operationEnvironment },
-    'desired-services-verify': { argv: ['/bin/bash', provisioner, '--engine-operation', 'desired-services-verify'], env: operationEnvironment },
     'reboot-assessment-check': { argv: ['/bin/bash', provisioner, '--engine-operation', 'reboot-assessment-check'], env: operationEnvironment },
     'reboot-assessment-apply': { argv: ['/bin/bash', provisioner, '--engine-operation', 'reboot-assessment-apply'], env: operationEnvironment },
     'reboot-assessment-verify': { argv: ['/bin/bash', provisioner, '--engine-operation', 'reboot-assessment-verify'], env: operationEnvironment },
@@ -3502,24 +3492,6 @@ idRunEngineOperation() {
     catalog-post-validation-check|catalog-post-validation-verify) idValidateCatalogPostMetadata ;;
     catalog-post-validation-apply) return 2 ;;
     custom-post-hooks-apply) idRunSelectedPostInstallxHooks apply ;;
-    desired-services-check)
-      [ -n "${INSTALL_DOCTOR_SELECTED_SERVICES:-}" ] || return 0
-      command -v process-software-services >/dev/null 2>&1 || return 2
-      process-software-services --check
-      ;;
-    desired-services-apply)
-      [ -n "${INSTALL_DOCTOR_SELECTED_SERVICES:-}" ] || return 0
-      command -v process-software-services >/dev/null 2>&1 || return 2
-      process-software-services
-      ;;
-    desired-services-verify)
-      [ -n "${INSTALL_DOCTOR_SELECTED_SERVICES:-}" ] || return 0
-      command -v process-software-services >/dev/null 2>&1 || return 2
-      process-software-services --check
-      OPERATION_STATUS=$?
-      [ "$OPERATION_STATUS" -eq 0 ] && return 0
-      return 2
-      ;;
     reboot-assessment-check)
       if isRebootRequired; then
         logg warn 'A reboot is required before convergence can be verified'

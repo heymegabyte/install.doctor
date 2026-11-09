@@ -16,10 +16,12 @@ if grep -q 'maxConcurrency: rawPlan.concurrency' "$PROVISION" \
 else
   fail 'concurrency selection is not bound to scheduler authority'
 fi
-if grep -q "id: 'bootstrap.installx-tool'" "$PROVISION" && grep -q "id: 'desired.packages'" "$PROVISION" && grep -q "id: 'desired.services'" "$PROVISION"; then
-  pass 'package tooling, package closure, and explicit services are separate typed nodes'
+if grep -q "id: 'bootstrap.installx-tool'" "$PROVISION" && grep -q "id: 'desired.packages'" "$PROVISION" \
+  && ! grep -q "id: 'desired.services'" "$PROVISION" \
+  && grep -q 'selected services are unsupported until an installer-engine-owned, manager-specific privileged operation is available' "$PROVISION"; then
+  pass 'package tooling is engine-owned and uncompensated legacy service mutation fails closed'
 else
-  fail 'desired package/service typed-node cutover is incomplete'
+  fail 'package authority or selected-service fail-closed boundary is incomplete'
 fi
 if grep -q 'INSTALL_DOCTOR_ENGINE_OWNS_PACKAGES' "$ROOT/home/.chezmoiscripts/universal/run_after_10-install.sh.tmpl" \
   && grep -q 'INSTALL_DOCTOR_ENGINE_OWNS_SERVICES' "$ROOT/home/.chezmoiscripts/universal/run_after_10-install.sh.tmpl"; then

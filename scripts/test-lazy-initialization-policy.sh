@@ -33,8 +33,10 @@ grep -Fq 'post-${__key:-$cmd}.sh' "$CNF_HOOK" \
   || fail 'first-use installation no longer configures its selected package'
 
 grep -Fq '.value._default != false and .value._serviceEnabled == true' "$SERVICE_PROCESSOR" \
-  && pass 'optional service binaries are not started without desired-state selection' \
-  || fail 'service processor can start an opted-out optional service'
+  && grep -Fq 'selected services are unsupported until an installer-engine-owned, manager-specific privileged operation is available' "$PROVISION" \
+  && ! grep -Fq "id: 'desired.services'" "$PROVISION" \
+  && pass 'legacy service mutation is preserved for compatibility but excluded from provisioning authority' \
+  || fail 'provisioning can still reach an uncompensated legacy service mutation'
 
 if grep -Fq 'for HOOK in "$POST_INSTALLX_DIR"/post-*.sh' "$POST_DISPATCHER"; then
   fail 'provisioning still blindly dispatches every optional integration hook'

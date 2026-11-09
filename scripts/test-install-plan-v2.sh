@@ -20,7 +20,7 @@ export INSTALL_DOCTOR_PLATFORM_ENVIRONMENT=container INSTALL_DOCTOR_PLATFORM_ROL
 export INSTALL_DOCTOR_PLATFORM_LIMITATION='Fixture lifecycle evidence is incomplete.'
 export INSTALL_DOCTOR_SUDO_PREEXISTING=false
 export INSTALL_DOCTOR_SELECTED_PACKAGES='zeta,alpha,zeta'
-export INSTALL_DOCTOR_SELECTED_SERVICES='worker,api,worker'
+export INSTALL_DOCTOR_SELECTED_SERVICES=''
 export INSTALL_DOCTOR_SELECTED_SUPPORTED_PATHS='web,developer,web'
 export INSTALL_DOCTOR_LAZY_RESOLVER_REQUIREMENTS='installx,chezmoi,installx'
 
@@ -33,7 +33,7 @@ const fs = require('node:fs');
 const value = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
 if (value.schemaVersion !== 2) throw new Error('install plan is not schema v2');
 const expected = {
-  selectedPackages: ['alpha', 'zeta'], selectedServices: ['api', 'worker'],
+  selectedPackages: ['alpha', 'zeta'], selectedServices: [],
   selectedSupportedPaths: ['developer', 'web'], lazyResolverRequirements: ['chezmoi', 'installx'],
 };
 for (const [key, list] of Object.entries(expected)) {
@@ -46,6 +46,12 @@ if INSTALL_DOCTOR_SELECTED_PACKAGES='bad key' INSTALL_DOCTOR_PLAN='' writeInstal
   exit 1
 fi
 
+if INSTALL_DOCTOR_SELECTED_SERVICES='worker' INSTALL_DOCTOR_PLAN='' writeInstallPlan >"$TMP/service.out" 2>"$TMP/service.err"; then
+  printf 'selected service mutation was accepted without native engine authority\n' >&2
+  exit 1
+fi
+grep -Fq 'installer-engine-owned, manager-specific privileged operation' "$TMP/service.err"
+
 resolver_overflow="$(node -e 'process.stdout.write(Array.from({length:129},(_,i)=>`r${i}`).join(","))')"
 if INSTALL_DOCTOR_LAZY_RESOLVER_REQUIREMENTS="$resolver_overflow" INSTALL_DOCTOR_PLAN='' writeInstallPlan >/dev/null 2>&1; then
   printf 'resolver requirement count bound was not enforced\n' >&2
@@ -55,8 +61,9 @@ fi
 grep -q 'INSTALL_DOCTOR_USER INSTALL_DOCTOR_SELECTED_SERVICES INSTALL_DOCTOR_SELECTED_PACKAGES' "$PROVISION"
 grep -q 'INSTALL_DOCTOR_SELECTED_SUPPORTED_PATHS INSTALL_DOCTOR_LAZY_RESOLVER_REQUIREMENTS' "$PROVISION"
 operation_environment="$(sed -n '/^const operationEnvironment = {/,/^};$/p' "$PROVISION")"
-# Package and service selections are execution authority for the catalog and
-# software-group reconcilers. Supported-path and resolver intent remain
+# Package selections are execution authority for the catalog and software-group
+# reconcilers. Service selections fail before planning until native mutation is
+# available. Supported-path and resolver intent remain
 # planning-only and must not leak into operation subprocesses.
 if printf '%s\n' "$operation_environment" | grep -Eq 'INSTALL_DOCTOR_SELECTED_SUPPORTED_PATHS|INSTALL_DOCTOR_LAZY_RESOLVER_REQUIREMENTS'; then
   printf 'planning-only selected intent leaked into operation environments\n' >&2

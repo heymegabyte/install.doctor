@@ -33,7 +33,8 @@ if rg -q 'sudo|systemctl|launchctl|load-service|add-usergroup|/var/(cache|log)/r
 fi
 grep -Fq '.value._serviceEnabled == true' "$PROCESSOR"
 grep -Fq 'unknown-or-inapplicable-service' "$PROCESSOR"
-grep -Fq "consent: 'privileged', lockDomains: ['service-manager', 'privilege'], cleanup: 'none', compensation: 'none'" "$PROVISION"
-grep -Fq "inputDigest: digest({ source: process.env.INSTALL_DOCTOR_SOURCE_COMMIT, services: selectedServices })" "$PROVISION"
+grep -Fq 'selected services are unsupported until an installer-engine-owned, manager-specific privileged operation is available' "$PROVISION"
+! grep -Fq "id: 'desired.services'" "$PROVISION"
+! grep -Fq "'desired-services-apply'" "$PROVISION"
 
-printf '%s\n' 'rclone-service-boundary: 17 passed, 0 failed'
+printf '%s\n' 'rclone-service-boundary: 18 passed, 0 failed'
