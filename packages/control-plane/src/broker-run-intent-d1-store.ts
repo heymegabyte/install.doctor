@@ -90,6 +90,24 @@ export const BrokerRunApprovalLookup = z.object({
   grantId: id,
 }).strict();
 
+export const BrokerAuthorizationStatusLookup = z.object({
+  schemaVersion: z.literal(1),
+  authorizationId: id,
+  runIntentId: id,
+  grantId: id,
+  tenantId: id,
+  deviceCredentialId: id,
+  deviceFingerprint: digest,
+}).strict();
+
+export const BrokerAuthorizationStatus = z.discriminatedUnion('status', [
+  z.object({ schemaVersion: z.literal(1), status: z.literal('not-found') }).strict(),
+  z.object({ schemaVersion: z.literal(1), status: z.literal('pending') }).strict(),
+  z.object({ schemaVersion: z.literal(1), status: z.literal('denied') }).strict(),
+  z.object({ schemaVersion: z.literal(1), status: z.literal('expired') }).strict(),
+  z.object({ schemaVersion: z.literal(1), status: z.literal('approved'), ownerDecisionId: id }).strict(),
+]);
+
 export const BrokerApprovalReconstruction = z.object({
   schemaVersion: z.literal(1),
   authorizationId: id,
@@ -112,6 +130,8 @@ export const BrokerApprovalReconstruction = z.object({
 export type BrokerRunIntentValue = z.infer<typeof BrokerRunIntent>;
 export type BrokerOwnerDecisionValue = z.infer<typeof BrokerOwnerDecision>;
 export type BrokerRunApprovalLookupValue = z.infer<typeof BrokerRunApprovalLookup>;
+export type BrokerAuthorizationStatusLookupValue = z.infer<typeof BrokerAuthorizationStatusLookup>;
+export type BrokerAuthorizationStatusValue = z.infer<typeof BrokerAuthorizationStatus>;
 export type BrokerApprovalReconstructionValue = z.infer<typeof BrokerApprovalReconstruction>;
 
 type D1Result = { readonly meta?: { readonly changes?: number } };
@@ -135,6 +155,14 @@ type ReconstructionRow = RunIntentRow & {
   owner_decision_id: string; owner_actor_id: string; decision: string;
   owner_reauthenticated_at: string; decided_at: string; decision_expires_at: string;
   approved_plan_digest: string;
+};
+
+type StatusRow = {
+  grant_expires_at: string;
+  owner_decision_id: string | null;
+  decision: string | null;
+  decided_at: string | null;
+  decision_expires_at: string | null;
 };
 
 const INSERT_RUN_INTENT = `INSERT OR IGNORE INTO broker_run_intents (
@@ -172,6 +200,23 @@ SELECT i.*, d.owner_decision_id, d.owner_actor_id, d.decision,
    AND i.tenant_id = ? AND i.profile_id = ? AND i.profile_revision_digest = ?
    AND i.device_credential_id = ? AND i.device_fingerprint = ?
    AND i.run_intent_id = ? AND i.grant_id = ? AND d.decision = 'approved'
+ LIMIT 1`;
+
+const LOAD_AUTHORIZATION_STATUS = `
+SELECT i.grant_expires_at, d.owner_decision_id, d.decision, d.decided_at,
+       d.expires_at AS decision_expires_at
+  FROM broker_run_intents i
+  LEFT JOIN broker_owner_decisions d ON d.run_intent_id = i.run_intent_id
+   AND d.authorization_id = i.authorization_id
+   AND d.tenant_id = i.tenant_id
+   AND d.profile_id = i.profile_id
+   AND d.profile_revision_digest = i.profile_revision_digest
+   AND d.device_credential_id = i.device_credential_id
+   AND d.device_fingerprint = i.device_fingerprint
+   AND d.approved_plan_digest = i.plan_digest
+   AND d.consent_digest = i.consent_digest
+ WHERE i.authorization_id = ? AND i.run_intent_id = ? AND i.grant_id = ?
+   AND i.tenant_id = ? AND i.device_credential_id = ? AND i.device_fingerprint = ?
  LIMIT 1`;
 
 function rowToRunIntent(row: RunIntentRow): BrokerRunIntentValue {
@@ -250,6 +295,25 @@ export function createBrokerRunIntentD1Store(
         throw new Error('broker owner decision identifier collision');
       }
       return false;
+    },
+
+    async loadAuthorizationStatus(rawLookup: unknown): Promise<BrokerAuthorizationStatusValue> {
+      const lookup = BrokerAuthorizationStatusLookup.parse(rawLookup);
+      const row = await db.prepare(LOAD_AUTHORIZATION_STATUS).bind(
+        lookup.authorizationId, lookup.runIntentId, lookup.grantId, lookup.tenantId,
+        lookup.deviceCredentialId, lookup.deviceFingerprint,
+      ).first<StatusRow>();
+      if (!row) return { schemaVersion: 1, status: 'not-found' };
+      const current = now().getTime();
+      if (current >= Date.parse(row.grant_expires_at)) return { schemaVersion: 1, status: 'expired' };
+      if (!row.owner_decision_id) return { schemaVersion: 1, status: 'pending' };
+      if (row.decision === 'denied') return { schemaVersion: 1, status: 'denied' };
+      if (row.decision !== 'approved' || !row.decided_at || !row.decision_expires_at
+        || current < Date.parse(row.decided_at) || current >= Date.parse(row.decision_expires_at)) {
+        return { schemaVersion: 1, status: 'expired' };
+      }
+      return BrokerAuthorizationStatus.parse({ schemaVersion: 1, status: 'approved',
+        ownerDecisionId: row.owner_decision_id });
     },
 
     async loadApprovedReconstruction(rawLookup: unknown): Promise<BrokerApprovalReconstructionValue | null> {

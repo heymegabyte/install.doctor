@@ -25,7 +25,7 @@ const principal = {
 const owner = { actor: 'OWNER@example.com', authenticatedAt: '2026-11-09T11:58:00.000Z' };
 
 function fixture(overrides = {}) {
-  const calls = { intents: [], decisions: [], lookups: [] };
+  const calls = { intents: [], decisions: [], lookups: [], statuses: [] };
   const reconstruction = {
     schemaVersion: 1, authorizationId: intent.authorizationId, ownerDecisionId: 'decision-1',
     ownerActorId: 'owner@example.com', ownerDecision: 'approved',
@@ -49,6 +49,7 @@ function fixture(overrides = {}) {
       async persistRunIntent(value) { calls.intents.push(value); return true; },
       async persistOwnerDecision(value) { calls.decisions.push(value); return true; },
       async loadApprovedReconstruction(value) { calls.lookups.push(value); return reconstruction; },
+      async loadAuthorizationStatus(value) { calls.statuses.push(value); return { schemaVersion: 1, status: 'approved', ownerDecisionId: 'decision-1' }; },
     },
     authority: {
       async reconstructRunIntent() { return intent; },
@@ -130,4 +131,17 @@ test('authority failures fail closed and cannot persist caller facts', async () 
   const absent = fixture({ async reconstructRunIntent() { return null; } });
   await rejectsCode(absent.service.requestAuthorization(intent, principal), 'authoritative_state_mismatch');
   assert.equal(absent.calls.intents.length, 0);
+});
+
+test('target status derives hidden identity only from the authenticated principal', async () => {
+  const { service, calls } = fixture();
+  const request = { schemaVersion: 1, authorizationId: intent.authorizationId,
+    runIntentId: intent.runIntentId, grantId: intent.grantId };
+  assert.deepEqual(await service.authorizationStatus(request, principal), {
+    schemaVersion: 1, status: 'approved', ownerDecisionId: 'decision-1',
+  });
+  assert.deepEqual(calls.statuses, [{ ...request, tenantId: principal.tenantId,
+    deviceCredentialId: principal.deviceCredentialId, deviceFingerprint: principal.deviceFingerprint }]);
+  await rejectsCode(service.authorizationStatus(request, { ...principal, permissions: null }), 'insufficient_scope');
+  await assert.rejects(service.authorizationStatus({ ...request, tenantId: 'tenant-2' }, principal));
 });

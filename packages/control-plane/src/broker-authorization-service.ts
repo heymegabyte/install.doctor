@@ -1,9 +1,11 @@
 import { z } from 'zod';
 import {
   BrokerOwnerDecision,
+  BrokerAuthorizationStatusLookup,
   BrokerRunApprovalLookup,
   BrokerRunIntent,
   type BrokerApprovalReconstructionValue,
+  type BrokerAuthorizationStatusValue,
   type BrokerOwnerDecisionValue,
   type BrokerRunApprovalLookupValue,
   type BrokerRunIntentValue,
@@ -22,6 +24,13 @@ export const BrokerAuthorizationDecisionRequest = z.object({
   decision: z.enum(['approved', 'denied']),
 }).strict();
 
+export const BrokerAuthorizationTargetStatusRequest = z.object({
+  schemaVersion: z.literal(1),
+  authorizationId: z.string().min(1).max(128).regex(/^[a-z0-9][a-z0-9._-]*$/),
+  runIntentId: z.string().min(1).max(128).regex(/^[a-z0-9][a-z0-9._-]*$/),
+  grantId: z.string().min(1).max(128).regex(/^[a-z0-9][a-z0-9._-]*$/),
+}).strict();
+
 export type BrokerDevicePrincipal = Readonly<{
   deviceCredentialId: string;
   deviceFingerprint: string;
@@ -32,6 +41,7 @@ export type BrokerDevicePrincipal = Readonly<{
 export type BrokerAuthorizationStore = Readonly<{
   persistRunIntent(value: unknown): Promise<boolean>;
   persistOwnerDecision(value: unknown): Promise<boolean>;
+  loadAuthorizationStatus(value: unknown): Promise<BrokerAuthorizationStatusValue>;
   loadApprovedReconstruction(value: unknown): Promise<BrokerApprovalReconstructionValue | null>;
 }>;
 
@@ -154,6 +164,15 @@ export function createBrokerAuthorizationService(input: Readonly<{
       const reconstruction = await input.store.loadApprovedReconstruction(lookup);
       if (!reconstruction) throw new BrokerAuthorizationServiceError('approval_unavailable', 404);
       return reconstruction;
+    },
+
+    async authorizationStatus(raw: unknown, principal: BrokerDevicePrincipal) {
+      requirePrivilegedScope(principal);
+      const request = BrokerAuthorizationTargetStatusRequest.parse(raw);
+      return input.store.loadAuthorizationStatus(BrokerAuthorizationStatusLookup.parse({
+        ...request, tenantId: principal.tenantId, deviceCredentialId: principal.deviceCredentialId,
+        deviceFingerprint: principal.deviceFingerprint,
+      }));
     },
   });
 }

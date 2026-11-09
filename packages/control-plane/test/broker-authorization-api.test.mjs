@@ -12,13 +12,15 @@ function fixture({ device = principal, owner = null } = {}) {
     async reviewAuthorization(id, identity) { calls.push(['review', id, identity]); return { id }; },
     async decideAuthorization(value, identity) { calls.push(['decide', value, identity]); return { created: true }; },
     async claimApprovedAuthorization(value, identity) { calls.push(['claim', value, identity]); return { approval: true }; },
+    async authorizationStatus(value, identity) { calls.push(['status', value, identity]); return { schemaVersion: 1, status: 'pending' }; },
   };
   return { app: createBrokerAuthorizationApi({ service, resolveDevice: async () => device, resolveFreshOwner: async () => owner }), service, calls };
 }
 
 test('device routes require explicit authentication before invoking the service', async () => {
   const { app, calls } = fixture({ device: null });
-  for (const path of ['/api/devices/broker-authorizations', '/api/devices/broker-approvals/claim']) {
+  for (const path of ['/api/devices/broker-authorizations', '/api/devices/broker-approvals/claim',
+    '/api/devices/broker-authorizations/status']) {
     const response = await app.request(path, { method: 'POST', body: '{}' });
     assert.equal(response.status, 401);
   }
@@ -32,7 +34,8 @@ test('routes pass authenticated principals and owner sessions to the bounded ser
   assert.equal((await app.request('/api/owner/broker-authorizations/intent-1')).status, 200);
   assert.equal((await app.request('/api/owner/broker-authorizations/decisions', { method: 'POST', body: '{"a":1}' })).status, 201);
   assert.equal((await app.request('/api/devices/broker-approvals/claim', { method: 'POST', body: '{"a":1}' })).status, 200);
-  assert.deepEqual(calls.map(value => value[0]), ['request', 'review', 'decide', 'claim']);
+  assert.equal((await app.request('/api/devices/broker-authorizations/status', { method: 'POST', body: '{"a":1}' })).status, 200);
+  assert.deepEqual(calls.map(value => value[0]), ['request', 'review', 'decide', 'claim', 'status']);
   assert.equal(calls[0][2], principal);
   assert.equal(calls[1][2], owner);
 });

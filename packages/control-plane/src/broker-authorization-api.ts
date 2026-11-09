@@ -11,6 +11,7 @@ type BrokerAuthorizationService = Readonly<{
   reviewAuthorization(runIntentId: string, owner: AuthenticatedOwner | null): Promise<unknown>;
   decideAuthorization(raw: unknown, owner: AuthenticatedOwner | null): Promise<unknown>;
   claimApprovedAuthorization(raw: unknown, principal: BrokerDevicePrincipal): Promise<unknown>;
+  authorizationStatus(raw: unknown, principal: BrokerDevicePrincipal): Promise<unknown>;
 }>;
 
 const MAX_BODY_BYTES = 64 * 1024;
@@ -97,6 +98,13 @@ export function createBrokerAuthorizationApi(input: Readonly<{
       const principal = await input.resolveDevice(c.req.raw);
       if (!principal) return c.json({ error: 'unauthorized' }, 401);
       return c.json(await input.service.claimApprovedAuthorization(await body(c.req.raw), principal));
+    } catch (error) { return handle(error); }
+  });
+  app.post('/api/devices/broker-authorizations/status', async c => {
+    try {
+      const principal = await input.resolveDevice(c.req.raw);
+      if (!principal) return c.json({ error: 'unauthorized' }, 401);
+      return c.json(await input.service.authorizationStatus(await body(c.req.raw), principal));
     } catch (error) { return handle(error); }
   });
   return app;

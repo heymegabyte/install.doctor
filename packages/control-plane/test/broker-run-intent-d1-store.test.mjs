@@ -155,3 +155,42 @@ test('database foreign keys reject plan, consent, device, and run decision subst
     ...setup.decision, ownerDecisionId: `decision-substitution-${index++}`, ...changed,
   }), /FOREIGN KEY constraint failed/);
 });
+
+test('status reveals a decision locator only for an exact live approved binding', async () => {
+  const setup = fixture();
+  const statusLookup = {
+    schemaVersion: 1, authorizationId: setup.intent.authorizationId,
+    runIntentId: setup.intent.runIntentId, grantId: setup.intent.grantId,
+    tenantId: setup.intent.tenantId, deviceCredentialId: setup.intent.deviceCredentialId,
+    deviceFingerprint: setup.intent.deviceFingerprint,
+  };
+  assert.deepEqual(await setup.store.loadAuthorizationStatus(statusLookup), { schemaVersion: 1, status: 'not-found' });
+  await setup.store.persistRunIntent(setup.intent);
+  assert.deepEqual(await setup.store.loadAuthorizationStatus(statusLookup), { schemaVersion: 1, status: 'pending' });
+  await setup.store.persistOwnerDecision(setup.decision);
+  assert.deepEqual(await setup.store.loadAuthorizationStatus(statusLookup), {
+    schemaVersion: 1, status: 'approved', ownerDecisionId: setup.decision.ownerDecisionId,
+  });
+  for (const substitution of [
+    { authorizationId: 'authorization-2' }, { runIntentId: 'intent-2' }, { grantId: 'grant-2' },
+    { tenantId: 'tenant-2' }, { deviceCredentialId: 'credential-2' }, { deviceFingerprint: hex('9') },
+  ]) assert.deepEqual(await setup.store.loadAuthorizationStatus({ ...statusLookup, ...substitution }), {
+    schemaVersion: 1, status: 'not-found',
+  });
+});
+
+test('status normalizes denied and expired authority without exposing its locator', async () => {
+  const denied = fixture();
+  await denied.store.persistRunIntent(denied.intent);
+  await denied.store.persistOwnerDecision({ ...denied.decision, decision: 'denied' });
+  const lookup = { schemaVersion: 1, authorizationId: denied.intent.authorizationId,
+    runIntentId: denied.intent.runIntentId, grantId: denied.intent.grantId,
+    tenantId: denied.intent.tenantId, deviceCredentialId: denied.intent.deviceCredentialId,
+    deviceFingerprint: denied.intent.deviceFingerprint };
+  assert.deepEqual(await denied.store.loadAuthorizationStatus(lookup), { schemaVersion: 1, status: 'denied' });
+
+  const stale = fixture('2026-11-09T12:08:00.000Z');
+  await stale.store.persistRunIntent(stale.intent);
+  await stale.store.persistOwnerDecision(stale.decision);
+  assert.deepEqual(await stale.store.loadAuthorizationStatus(lookup), { schemaVersion: 1, status: 'expired' });
+});
