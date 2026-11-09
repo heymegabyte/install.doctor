@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { createHash } from 'node:crypto';
+import { createHash, generateKeyPairSync } from 'node:crypto';
 import { chmod, chown, copyFile, lstat, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import test from 'node:test';
@@ -7,6 +7,7 @@ import { deriveBoundNormalizedPlan } from '../dist/engine.js';
 import { composeNativeDebianPackageSlice } from '../dist/native-debian-composition.js';
 import { derivePrivilegedBrokerAuthority } from '../dist/privileged-broker-derivation.js';
 import { runPrivilegedBrokerController } from '../dist/privileged-broker-controller.js';
+import { createSignedDeviceBrokerApproval } from '../dist/privileged-broker-device-approval.js';
 
 const helperSource = process.env.DESKTOP_TOOLS_PRIVILEGED_BROKER_TEST_BINARY;
 const enabled = process.platform === 'linux' && process.geteuid?.() === 0 && helperSource;
@@ -67,8 +68,8 @@ async function absent(path) {
   await assert.rejects(lstat(path), error => error?.code === 'ENOENT');
 }
 
-test('Linux root controller publishes only a listening broker and retires all volatile authority', { skip: !enabled }, async t => {
-  const runId = `controller-test-${process.pid}`;
+async function exerciseController(t, suffix, authorize) {
+  const runId = `controller-test-${process.pid}-${suffix}`;
   const authorityRoot = `/run/desktop-tools/authority/${runId}`;
   const socketRoot = `/run/desktop-tools/broker/${runId}`;
   const helperPath = join(authorityRoot, 'desktop-tools-privileged-broker');
@@ -84,17 +85,37 @@ test('Linux root controller publishes only a listening broker and retires all vo
     await rm(authorityRoot, { recursive: true, force: true });
   });
   const input = await exactInput(runId, authorityRoot, helperPath, runtimePath, workerPath);
-  const controller = runPrivilegedBrokerController(input, { confirmation: { confirm: async () => true } });
+  const { controllerInput, options = {} } = authorize(input);
+  const controller = runPrivilegedBrokerController(controllerInput, options);
   for (let attempt = 0; attempt < 250; attempt += 1) {
-    try { if ((await lstat(input.socketPath)).isSocket()) break; } catch (error) { if (error?.code !== 'ENOENT') throw error; }
+    try { if ((await lstat(controllerInput.socketPath)).isSocket()) break; } catch (error) { if (error?.code !== 'ENOENT') throw error; }
     await new Promise(resolve => setTimeout(resolve, 20));
   }
-  assert.equal((await lstat(input.socketPath)).isSocket(), true);
+  assert.equal((await lstat(controllerInput.socketPath)).isSocket(), true);
   process.emit('SIGTERM');
   const result = await controller;
   assert.equal(result.exitCode, 0);
-  await absent(input.socketPath);
-  await absent(`${input.socketPath}.starting`);
-  await absent(`/run/desktop-tools/privileged/grants/${input.grant.grantId}.json`);
-  await absent(`/run/desktop-tools/privileged/authorities/${input.grant.grantId}.json`);
+  await absent(controllerInput.socketPath);
+  await absent(`${controllerInput.socketPath}.starting`);
+  await absent(`/run/desktop-tools/privileged/grants/${controllerInput.grant.grantId}.json`);
+  await absent(`/run/desktop-tools/privileged/authorities/${controllerInput.grant.grantId}.json`);
+}
+
+test('Linux root controller publishes only a listening broker and retires all volatile authority', { skip: !enabled }, async t => {
+  await exerciseController(t, 'local', controllerInput => ({ controllerInput,
+    options: { confirmation: { confirm: async () => true } } }));
+});
+
+test('Linux root controller accepts exact signed-device authority without local confirmation', { skip: !enabled }, async t => {
+  await exerciseController(t, 'device', controllerInput => {
+    const signer = generateKeyPairSync('ed25519');
+    const signerKeyId = 'controller-device-key-1';
+    const deviceApproval = createSignedDeviceBrokerApproval({ grant: controllerInput.grant,
+      approvalId: `approval-${controllerInput.grant.runId}`, signerKeyId,
+      privateKey: signer.privateKey.export({ type: 'pkcs8', format: 'pem' }).toString(),
+      approvedAt: new Date(Date.parse(controllerInput.grant.issuedAt) + 1).toISOString() });
+    return { controllerInput: { ...controllerInput, deviceApproval,
+      deviceApprovalTrust: { signerKeyId,
+        publicKey: signer.publicKey.export({ type: 'spki', format: 'pem' }).toString() } } };
+  });
 });
