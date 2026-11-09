@@ -89,6 +89,8 @@ test('generates capability and migration status from the registry', () => {
   assert.match(markdown, /Desktop Tools capability and migration status/);
   assert.match(markdown, /Cross-device authorization \| `contract-only`/);
   assert.match(markdown, /`app\.install\.doctor` \| `desktop\.tools` \| `migration-only`/);
+  assert.match(markdown, /<br \/>/);
+  assert.doesNotMatch(markdown, /<br>/);
   assert.doesNotMatch(markdown, /Cross-device authorization \| `verified-live`/);
 });
 

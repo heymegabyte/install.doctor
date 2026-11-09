@@ -256,8 +256,8 @@ export function renderProductStatusMarkdown(input: unknown = PRODUCT_IDENTITY): 
     '|---|---|---|'
   ];
   for (const capability of registry.capabilities) {
-    const references = capability.evidence.map(item => `${item.kind}: \`${item.reference}\``).join('<br>');
-    lines.push(`| ${capability.name} | \`${capability.status}\` | ${capability.summary}<br>${references} |`);
+    const references = capability.evidence.map(item => `${item.kind}: \`${item.reference}\``).join('<br />');
+    lines.push(`| ${capability.name} | \`${capability.status}\` | ${capability.summary}<br />${references} |`);
   }
   lines.push('', '## Compatibility and migration names', '', '| Kind | Legacy name | Canonical target | Disposition | Removal date |', '|---|---|---|---|---|');
   for (const legacy of registry.legacy) {

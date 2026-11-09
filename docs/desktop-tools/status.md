@@ -8,12 +8,12 @@ Statuses are evidence boundaries: `contract-only` is designed but not shipped; `
 
 | Capability | Status | Evidence-backed summary |
 |---|---|---|
-| Canonical product identity | `implemented-unverified` | Strict Desktop Tools identity and compatibility mappings are implemented and unit-tested, but not yet propagated to every consumer.<br>code: `packages/aid-core/src/product-identity.ts`<br>test: `packages/aid-core/test/product-identity.test.mjs` |
-| Portable desired-state contracts | `implemented-unverified` | Versioned ENVIRONMENT.md contracts and migrations are implemented as pure code; hosted profile integration is not live.<br>code: `packages/aid-core/src/core.ts`<br>test: `packages/aid-core/test/core.test.mjs` |
-| Profile-subdomain bootstrap | `contract-only` | The personalized wildcard-subdomain bootstrap is specified but not deployed or verified.<br>architecture: `openspec/changes/establish-desktop-tools-bootstrap/specs/desktop-profile-bootstrap/spec.md` |
-| Cross-device authorization | `contract-only` | The headless cross-device enrollment protocol is specified but not integrated end to end.<br>architecture: `openspec/changes/establish-desktop-tools-bootstrap/specs/device-authorization/spec.md` |
-| OpenCode provisioning session | `contract-only` | Pinned OpenCode supervision and typed deterministic mutation authority are specified but not shipped.<br>architecture: `openspec/changes/establish-desktop-tools-bootstrap/specs/agent-provisioning-session/spec.md` |
-| Production profile routing | `blocked` | Production wildcard routing remains disabled pending signed-release and canary evidence.<br>architecture: `openspec/changes/establish-desktop-tools-bootstrap/design.md#migration-plan` |
+| Canonical product identity | `implemented-unverified` | Strict Desktop Tools identity and compatibility mappings are implemented and unit-tested, but not yet propagated to every consumer.<br />code: `packages/aid-core/src/product-identity.ts`<br />test: `packages/aid-core/test/product-identity.test.mjs` |
+| Portable desired-state contracts | `implemented-unverified` | Versioned ENVIRONMENT.md contracts and migrations are implemented as pure code; hosted profile integration is not live.<br />code: `packages/aid-core/src/core.ts`<br />test: `packages/aid-core/test/core.test.mjs` |
+| Profile-subdomain bootstrap | `contract-only` | The personalized wildcard-subdomain bootstrap is specified but not deployed or verified.<br />architecture: `openspec/changes/establish-desktop-tools-bootstrap/specs/desktop-profile-bootstrap/spec.md` |
+| Cross-device authorization | `contract-only` | The headless cross-device enrollment protocol is specified but not integrated end to end.<br />architecture: `openspec/changes/establish-desktop-tools-bootstrap/specs/device-authorization/spec.md` |
+| OpenCode provisioning session | `contract-only` | Pinned OpenCode supervision and typed deterministic mutation authority are specified but not shipped.<br />architecture: `openspec/changes/establish-desktop-tools-bootstrap/specs/agent-provisioning-session/spec.md` |
+| Production profile routing | `blocked` | Production wildcard routing remains disabled pending signed-release and canary evidence.<br />architecture: `openspec/changes/establish-desktop-tools-bootstrap/design.md#migration-plan` |
 
 ## Compatibility and migration names
 
