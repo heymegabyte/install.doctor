@@ -331,10 +331,9 @@ detect_graphical_session() {
 
   # Explicit headless override wins over everything (parity with the 89
   # HEADLESS_INSTALL gating sites across provision.sh + post-installx).
-  if [ "${HEADLESS_INSTALL:-}" = "true" ]; then
-    echo "headless"
-    return 0
-  fi
+  case "${HEADLESS_INSTALL:-}" in
+    true|1) echo "headless"; return 0 ;;
+  esac
 
   # macOS always has the Aqua GUI (no X/Wayland env vars) unless HEADLESS_INSTALL.
   if [ "$(detect_os)" = "macos" ]; then

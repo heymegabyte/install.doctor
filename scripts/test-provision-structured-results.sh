@@ -56,6 +56,14 @@ runScenario() {
     loadHomebrew() { :; }
     setEnvironmentVariables() { :; }
     setCIEnvironmentVariables() { :; }
+    idNormalizeHeadlessMode() {
+      case "${HEADLESS_INSTALL:-}" in
+        true|1) HEADLESS_INSTALL=true ;;
+        false|0|"") HEADLESS_INSTALL="" ;;
+        *) return 2 ;;
+      esac
+      export HEADLESS_INSTALL
+    }
     applyEnvClassDefaults() { :; }
     idResolvePlatform() { :; }
     idNormalizeOfflineMode() { INSTALL_DOCTOR_OFFLINE=false; export INSTALL_DOCTOR_OFFLINE; }

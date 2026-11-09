@@ -208,6 +208,16 @@ else
   FAIL=$((FAIL + 1))
 fi
 
+# Numeric 1 is the other documented public spelling and must behave identically
+# for library consumers that do not pass through provision.sh normalization.
+if HEADLESS_INSTALL=1 is_headless; then
+  echo "  PASS: is_headless with HEADLESS_INSTALL=1 (exit 0)"
+  PASS=$((PASS + 1))
+else
+  echo "  FAIL: is_headless with HEADLESS_INSTALL=1 returned non-zero"
+  FAIL=$((FAIL + 1))
+fi
+
 # Without HEADLESS_INSTALL, macOS should return 1 (has GUI)
 if [ "$OS" = "macos" ]; then
   if is_headless; then

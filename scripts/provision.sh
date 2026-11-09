@@ -77,7 +77,7 @@ else
   detect_package_manager() { detect_os; }
   # Mirror lib/detect_os.sh precedence: HEADLESS_INSTALL -> macOS has Aqua GUI -> Wayland/X11 check.
   # (A bare `-z "$DISPLAY"` would wrongly call every GUI macOS headless — Macs never set DISPLAY.)
-  is_headless() { [ "${HEADLESS_INSTALL:-}" = "true" ] && return 0; [[ "$OSTYPE" == 'darwin'* ]] && return 1; [ -z "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ] && return 0; return 1; }
+  is_headless() { case "${HEADLESS_INSTALL:-}" in true|1) return 0 ;; esac; [[ "$OSTYPE" == 'darwin'* ]] && return 1; [ -z "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ] && return 0; return 1; }
 fi
 
 # The signed provision artifact is the executable platform-policy authority for
@@ -1086,6 +1086,19 @@ setCIEnvironmentVariables() {
   fi
 }
 
+# Normalize the public headless flag before any function decides whether it may
+# read from a terminal. Keeping one canonical representation prevents values
+# such as `false` from being misread as enabled merely because they are
+# non-empty, and rejects ambiguous automation input before prompts or mutation.
+idNormalizeHeadlessMode() {
+  case "${HEADLESS_INSTALL:-}" in
+    true|1) HEADLESS_INSTALL=true ;;
+    false|0|'') HEADLESS_INSTALL='' ;;
+    *) logg error 'HEADLESS_INSTALL must be true, false, 1, or 0'; return 2 ;;
+  esac
+  export HEADLESS_INSTALL
+}
+
 # @description Applies capability-based defaults derived from the host's environment CLASS (A5/B4/H15/A10).
 #     The capability ADAPTERS that consume the detectors instead of hostname/OS conditionals: a host that
 #     should NOT get desktop components (a container, or a host with no graphical session) defaults to an
@@ -1585,12 +1598,7 @@ NODE
 }
 
 configureInstallPlan() {
-  case "${HEADLESS_INSTALL:-}" in
-    true|1) HEADLESS_INSTALL=true ;;
-    false|0|'') HEADLESS_INSTALL='' ;;
-    *) logg error 'HEADLESS_INSTALL must be true, false, 1, or 0'; return 2 ;;
-  esac
-  export HEADLESS_INSTALL
+  idNormalizeHeadlessMode || return $?
   if [ -n "${INSTALL_DOCTOR_PLAN:-}" ]; then
     if [ "${INSTALL_DOCTOR_PLAN_CREATED:-0}" = 1 ] && [ -f "$INSTALL_DOCTOR_PLAN" ]; then return 0; fi
     logg error 'Caller-supplied install plans are not accepted until their approval digest is verified by the canonical engine'
@@ -3685,6 +3693,7 @@ provisionLogic() {
   idEmitProvisionStatus provision started 0 || return $?
   idRunRequiredProvisionStep "Setting environment variables" setEnvironmentVariables || return $?
   idRunRequiredProvisionStep "Handling CI variables" setCIEnvironmentVariables || return $?
+  idRunRequiredProvisionStep "Normalizing terminal interaction policy" idNormalizeHeadlessMode || return $?
   idRunRequiredProvisionStep "Applying env-class defaults" applyEnvClassDefaults || return $?
   idRunRequiredProvisionStep "Resolving the exact host against signed platform policy" idResolvePlatform || return $?
   idRunRequiredProvisionStep "Validating offline execution selection" idNormalizeOfflineMode || return $?
