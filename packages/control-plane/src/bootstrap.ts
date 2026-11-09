@@ -485,6 +485,15 @@ chmod 0600 "$CATALOG"
 if [ -n "$EXPECTED_PRODUCT_ID" ]; then chmod 0700 "$SUPERVISOR"; chmod 0600 "$OPENCODE_ARCHIVE" "$TOOLS" "$SBOM" "$PROVENANCE" "$LICENSES" "$OPENCODE_LOCK" "$BROKER_APPROVAL_DELEGATION"; fi
 manifest_sha256="$(sha256 "$MANIFEST")"
 
+# Legacy schema-v5 releases do not carry the Desktop Tools runtime closure.
+# Keep every v9-only path and digest absent so the provisioner cannot mistake
+# empty stage filenames for partial signed authority.
+if [ -z "$EXPECTED_PRODUCT_ID" ]; then
+  OPENCODE_ARCHIVE=''; SUPERVISOR=''; TOOLS=''; SBOM=''; PROVENANCE=''; LICENSES=''; OPENCODE_LOCK=''; BROKER_APPROVAL_DELEGATION=''
+  opencode_version=''; opencode_sha256=''; supervisor_sha256=''; tools_sha256=''; sbom_sha256=''; provenance_sha256=''; licenses_sha256=''; opencode_lock_sha256=''
+  broker_approval_delegation_sha256=''; broker_approval_minimum_revocation_epoch=''
+fi
+
 # Do not forward arbitrary caller state, proxy configuration, shell startup hooks,
 # credentials, or debugging controls into the verified provisioner.
 case "\${HEADLESS_INSTALL:-}" in
