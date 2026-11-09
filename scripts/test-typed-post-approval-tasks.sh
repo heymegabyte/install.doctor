@@ -25,6 +25,15 @@ else
   fail 'macOS Cloudflare trust-root mutation is not bound to selected WARP desired state'
 fi
 
+if grep -Fq "const macosFullDiskAccessSelected = platform === 'darwin' && !process.env.HEADLESS_INSTALL;" "$PROVISION" \
+  && grep -Fq 'const macosFullDiskAccessTask = macosFullDiskAccessSelected ? {' "$PROVISION" \
+  && grep -Fq '...(macosFullDiskAccessTask ? [macosFullDiskAccessTask] : [])' "$PROVISION" \
+  && grep -Fq '...(macosFullDiskAccessTask ? {' "$PROVISION"; then
+  pass 'macOS Full Disk Access authority exists only for interactive macOS plans'
+else
+  fail 'macOS Full Disk Access authority leaks into Linux or headless plans'
+fi
+
 for operation in macos-full-disk-access macos-certificate configured-agent-tasks; do
   section="$(grep -F -A 12 "id: 'bootstrap.${operation/macos-certificate/macos-cloudflare-certificate}'" "$PROVISION")"
   if printf '%s\n' "$section" | grep -q 'inputDigest:' \

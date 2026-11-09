@@ -2733,7 +2733,8 @@ const artifactOperations = Object.fromEntries(artifactDerivation.artifacts.flatM
   return [['check', artifact.operations.check], ['apply', artifact.operations.apply], ['verify', artifact.operations.verify]]
     .map(([phase, operation]) => [`${prefix}-${phase}`, operation]);
 }));
-const macosFullDiskAccessTask = {
+const macosFullDiskAccessSelected = platform === 'darwin' && !process.env.HEADLESS_INSTALL;
+const macosFullDiskAccessTask = macosFullDiskAccessSelected ? {
   schemaVersion: 1, id: 'bootstrap.macos-full-disk-access',
   inputDigest: digest({ platform, policy: 'interactive-request-v1', headless: Boolean(process.env.HEADLESS_INSTALL) }),
   dependencies: [nativeDependenciesTask.id], predicate: 'host-supported', requiredCapabilities: [],
@@ -2742,7 +2743,7 @@ const macosFullDiskAccessTask = {
   resources: { cpu: 1, memoryMiB: 128, network: false }, privilege: 'user', network: 'none',
   consent: 'none', lockDomains: ['macos-privacy'], cleanup: 'none', compensation: 'none',
   failurePolicy: 'abort-run',
-};
+} : null;
 const certificatePath = `${process.env.HOME}/.local/etc/ssl/cloudflare/cloudflare.crt`;
 const warpSelected = platform === 'darwin' && selectedPackageClosure.includes('warp');
 let certificateDigest = 'absent';
@@ -2785,7 +2786,8 @@ const agentTasksTask = agentTaskDirectory ? {
   consent: 'agent-tasks', lockDomains: ['agent-tasks', 'package-manager', 'privilege'], cleanup: 'none', compensation: 'none',
   failurePolicy: 'abort-run',
 } : null;
-const finalDependencies = [desiredPackagesTask.id, macosFullDiskAccessTask.id];
+const finalDependencies = [desiredPackagesTask.id];
+if (macosFullDiskAccessTask) finalDependencies.push(macosFullDiskAccessTask.id);
 if (macosCertificateTask) finalDependencies.push(macosCertificateTask.id);
 if (qubesDom0Task) finalDependencies.push(qubesDom0Task.id);
 if (agentTasksTask) finalDependencies.push(agentTasksTask.id);
@@ -2914,7 +2916,7 @@ const invocation = {
     offline: rawPlan.offline,
   },
     plan: {
-      tasks: [stageZeroInstallUserTask, stageZeroSudoTask, ...(warpDisconnectTask ? [warpDisconnectTask] : []), ...(nativeComposition ? [nativeComposition.task] : []), nativeDependenciesTask, sourceTask, homebrewTask, homebrewToolsTask, chezmoiInitTask, installxBinDirectoryTask, installxToolTask, desiredPackagesTask, ...caskDirectoryTasks, ...caskLauncherTasks, ...flatpakDirectoryTasks, ...flatpakLauncherTasks, ...directoryTasks, ...artifactTasks, macosFullDiskAccessTask, ...(macosCertificateTask ? [macosCertificateTask] : []), ...(qubesDom0Task ? [qubesDom0Task] : []), ...(agentTasksTask ? [agentTasksTask] : []), task, bootstrapPolicyTask, ...(softwareGroupsTask ? [softwareGroupsTask] : []), catalogPostValidationTask, ...(customPostHooksTask ? [customPostHooksTask] : []), rebootAssessmentTask, sudoCleanupTask],
+      tasks: [stageZeroInstallUserTask, stageZeroSudoTask, ...(warpDisconnectTask ? [warpDisconnectTask] : []), ...(nativeComposition ? [nativeComposition.task] : []), nativeDependenciesTask, sourceTask, homebrewTask, homebrewToolsTask, chezmoiInitTask, installxBinDirectoryTask, installxToolTask, desiredPackagesTask, ...caskDirectoryTasks, ...caskLauncherTasks, ...flatpakDirectoryTasks, ...flatpakLauncherTasks, ...directoryTasks, ...artifactTasks, ...(macosFullDiskAccessTask ? [macosFullDiskAccessTask] : []), ...(macosCertificateTask ? [macosCertificateTask] : []), ...(qubesDom0Task ? [qubesDom0Task] : []), ...(agentTasksTask ? [agentTasksTask] : []), task, bootstrapPolicyTask, ...(softwareGroupsTask ? [softwareGroupsTask] : []), catalogPostValidationTask, ...(customPostHooksTask ? [customPostHooksTask] : []), rebootAssessmentTask, sudoCleanupTask],
       selectedTaskIds: [...(nativeComposition ? [nativeComposition.task.id] : []), ...caskLauncherTasks.map(task => task.id), ...flatpakLauncherTasks.map(task => task.id), ...artifactTasks.map(task => task.id), rebootAssessmentTask.id, sudoCleanupTask.id],
       executionPolicy: {
         maxConcurrency: rawPlan.concurrency,
@@ -2970,9 +2972,11 @@ const invocation = {
     'desired-packages-check': { argv: ['/bin/bash', provisioner, '--engine-operation', 'desired-packages-check'], env: operationEnvironment },
     'desired-packages-apply': { argv: ['/bin/bash', provisioner, '--engine-operation', 'desired-packages-apply'], env: operationEnvironment },
     'desired-packages-verify': { argv: ['/bin/bash', provisioner, '--engine-operation', 'desired-packages-verify'], env: operationEnvironment },
-    'macos-full-disk-access-check': { argv: ['/bin/bash', provisioner, '--engine-operation', 'macos-full-disk-access-check'], env: operationEnvironment },
-    'macos-full-disk-access-apply': { argv: ['/bin/bash', provisioner, '--engine-operation', 'macos-full-disk-access-apply'], env: operationEnvironment },
-    'macos-full-disk-access-verify': { argv: ['/bin/bash', provisioner, '--engine-operation', 'macos-full-disk-access-verify'], env: operationEnvironment },
+    ...(macosFullDiskAccessTask ? {
+      'macos-full-disk-access-check': { argv: ['/bin/bash', provisioner, '--engine-operation', 'macos-full-disk-access-check'], env: operationEnvironment },
+      'macos-full-disk-access-apply': { argv: ['/bin/bash', provisioner, '--engine-operation', 'macos-full-disk-access-apply'], env: operationEnvironment },
+      'macos-full-disk-access-verify': { argv: ['/bin/bash', provisioner, '--engine-operation', 'macos-full-disk-access-verify'], env: operationEnvironment },
+    } : {}),
     ...(macosCertificateTask ? {
       'macos-certificate-check': { argv: ['/bin/bash', provisioner, '--engine-operation', 'macos-certificate-check'], env: operationEnvironment },
       'macos-certificate-apply': { argv: ['/bin/bash', provisioner, '--engine-operation', 'macos-certificate-apply'], env: operationEnvironment },
