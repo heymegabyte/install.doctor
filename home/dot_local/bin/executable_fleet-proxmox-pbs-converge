@@ -125,7 +125,7 @@ EOF
     cat > /etc/modprobe.d/vfio-d3cold.conf <<'EOF'
 options vfio_pci disable_idle_d3=1
 EOF
-    if [ ! -e /usr/local/bin/vzdump-hc-hook.sh ] || ! grep -q 'vzdump-d3cold-stash' /usr/local/bin/vzdump-hc-hook.sh 2>/dev/null; then
+    if [ ! -e /usr/local/bin/vzdump-hc-hook.sh ] || ! grep -q '/run/vzdump-d3cold-stash' /usr/local/bin/vzdump-hc-hook.sh 2>/dev/null; then
       HOOK_TARGET="/usr/local/bin/vzdump-hc-hook.sh"
       if [ -L /usr/local/bin/vzdump-hc-hook.sh ]; then
         HOOK_TARGET="$(readlink -f /usr/local/bin/vzdump-hc-hook.sh)"
@@ -133,18 +133,24 @@ EOF
       cat > "$HOOK_TARGET" <<'EOF'
 #!/usr/bin/env bash
 # vzdump hook:
-# 1) Stashes D3cold-wedged hostpci lines on stopped QEMU VMs during job-init and restores them
-#    in job-end/job-abort so QEMU backup helper never aborts on VFIO PCI interrupt pin 255.
+# 1) Stashes D3cold-wedged hostpci lines on stopped QEMU VMs into /run/vzdump-d3cold-stash/<vmid>.stash
+#    during job-init and restores them in job-end/job-abort so QEMU backup helper never aborts on
+#    VFIO PCI interrupt pin 255 and PVE snapshot parsers never URL-encode stashed lines.
 # 2) Reports start/success/fail to Healthchecks (pve-vzdump) with curl retry resilience.
 
+STASH_DIR="/run/vzdump-d3cold-stash"
+
 stash_d3cold_stopped_vms() {
-  local cfg vmid tmp changed in_snap line bdf full_bdf ps
+  local cfg vmid tmp stash changed in_snap line bdf full_bdf ps
+  mkdir -p "$STASH_DIR"
   for cfg in /etc/pve/qemu-server/*.conf; do
     [ -f "$cfg" ] || continue
     vmid="$(basename "$cfg" .conf)"
     qm status "$vmid" 2>/dev/null | grep -q "status: stopped" || continue
     grep -q "^hostpci" "$cfg" 2>/dev/null || continue
     tmp="$(mktemp)"
+    stash="${STASH_DIR}/${vmid}.stash"
+    : > "$stash"
     changed=0
     in_snap=0
     while IFS= read -r line || [ -n "$line" ]; do
@@ -159,27 +165,40 @@ stash_d3cold_stopped_vms() {
         esac
         ps="/sys/bus/pci/devices/${full_bdf}/power_state"
         if [ -f "$ps" ] && [ "$(cat "$ps" 2>/dev/null)" = "D3cold" ]; then
-          printf '#vzdump-d3cold-stash#%s\n' "$line" >> "$tmp"
+          printf "%s\n" "$line" >> "$stash"
           changed=1
           continue
         fi
       fi
-      printf '%s\n' "$line" >> "$tmp"
+      printf "%s\n" "$line" >> "$tmp"
     done < "$cfg"
     if [ "$changed" -eq 1 ]; then
       cat "$tmp" > "$cfg"
+    else
+      rm -f "$stash"
     fi
     rm -f "$tmp"
   done
 }
 
 restore_d3cold_stopped_vms() {
-  local cfg
-  for cfg in /etc/pve/qemu-server/*.conf; do
-    [ -f "$cfg" ] || continue
-    if grep -q "^#vzdump-d3cold-stash#hostpci" "$cfg" 2>/dev/null; then
-      sed -i "s/^#vzdump-d3cold-stash#//" "$cfg"
+  local stash vmid cfg tmp sline key
+  [ -d "$STASH_DIR" ] || return 0
+  for stash in "$STASH_DIR"/*.stash; do
+    [ -f "$stash" ] || continue
+    vmid="$(basename "$stash" .stash)"
+    cfg="/etc/pve/qemu-server/${vmid}.conf"
+    if [ -f "$cfg" ] && [ -s "$stash" ]; then
+      tmp="$(mktemp)"
+      while IFS= read -r sline || [ -n "$sline" ]; do
+        key="${sline%%:*}"
+        grep -q "^${key}:" "$cfg" 2>/dev/null || printf "%s\n" "$sline" >> "$tmp"
+      done < "$stash"
+      cat "$cfg" >> "$tmp"
+      cat "$tmp" > "$cfg"
+      rm -f "$tmp"
     fi
+    rm -f "$stash"
   done
 }
 
@@ -199,6 +218,10 @@ esac
 exit 0
 EOF
       chmod 0755 "$HOOK_TARGET"
+    fi
+    if [ -f /usr/local/bin/pbs-backup-coverage.sh ]; then
+      COV_TARGET="$(readlink -f /usr/local/bin/pbs-backup-coverage.sh 2>/dev/null || echo /usr/local/bin/pbs-backup-coverage.sh)"
+      sed -i "s/tr ',' ' '/tr ',\\\\n\\\\t' '   '/g" "$COV_TARGET" 2>/dev/null || true
     fi
     cat > /etc/vzdump.conf <<'EOF'
 bwlimit: 120000
