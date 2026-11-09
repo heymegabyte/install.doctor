@@ -1,0 +1,63 @@
+name: Privileged broker transport acceptance
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - packages/privileged-broker/**
+      - packages/installer-engine/src/privileged-broker-**
+      - packages/installer-engine/test/privileged-broker-**
+      - .github/workflows/privileged-broker-transport.yml
+  push:
+    branches: [master]
+    paths:
+      - packages/privileged-broker/**
+      - packages/installer-engine/src/privileged-broker-**
+      - packages/installer-engine/test/privileged-broker-**
+      - .github/workflows/privileged-broker-transport.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: privileged-broker-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  linux-amd64:
+    name: Linux amd64 sealed transport
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: 1.27.3
+          cache-dependency-path: packages/privileged-broker/go.mod
+      - name: Test strict protocol and Linux transport
+        working-directory: packages/privileged-broker
+        run: |
+          set -euo pipefail
+          go test ./...
+          go test -race ./...
+          go vet ./...
+          sudo "$(command -v go)" test ./internal/transport
+      - name: Prove reproducible static helper
+        working-directory: packages/privileged-broker
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/broker-a" "$RUNNER_TEMP/broker-b"
+          for output in "$RUNNER_TEMP/broker-a/broker" "$RUNNER_TEMP/broker-b/broker"; do
+            CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath \
+              -ldflags='-buildid= -X main.version=acceptance' \
+              -o "$output" ./cmd/desktop-tools-privileged-broker
+          done
+          cmp "$RUNNER_TEMP/broker-a/broker" "$RUNNER_TEMP/broker-b/broker"
+          test "$("$RUNNER_TEMP/broker-a/broker" version)" = acceptance
+          if ldd "$RUNNER_TEMP/broker-a/broker" 2>&1 | grep -qv 'not a dynamic executable'; then
+            echo 'broker unexpectedly has dynamic dependencies' >&2
+            exit 1
+          fi
+          sha256sum "$RUNNER_TEMP/broker-a/broker"
