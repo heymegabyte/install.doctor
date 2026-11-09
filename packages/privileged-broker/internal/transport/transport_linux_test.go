@@ -18,6 +18,20 @@ import (
 	"github.com/heymegabyte/install.doctor/packages/privileged-broker/internal/protocol"
 )
 
+// Serve deliberately re-executes /proc/self/exe with a fixed hidden command so
+// no caller can select a worker executable. Under `go test`, /proc/self/exe is
+// the generated test binary rather than cmd/desktop-tools-privileged-broker;
+// mirror the production main dispatch before the test runner parses argv.
+func TestMain(m *testing.M) {
+	if len(os.Args) == 2 && os.Args[1] == "__worker-launch" {
+		if err := LaunchWorker(); err != nil {
+			os.Exit(1)
+		}
+		os.Exit(0)
+	}
+	os.Exit(m.Run())
+}
+
 func payloadAuthority(value []byte) protocol.Payload {
 	digest := sha256.Sum256(value)
 	return protocol.Payload{
@@ -190,5 +204,8 @@ func TestRootServerRunsOnlyVerifiedWorkerAndCancelsBelowRequestLimit(t *testing.
 	}
 	if _, err := os.Lstat(socketPath); !os.IsNotExist(err) {
 		t.Fatal("terminal broker socket was not removed")
+	}
+	if _, err := os.Lstat(socketPath + ".starting"); !os.IsNotExist(err) {
+		t.Fatal("terminal broker staging socket was not removed")
 	}
 }

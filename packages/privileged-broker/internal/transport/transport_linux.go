@@ -153,11 +153,18 @@ func Client(socketPath string, requestBytes []byte, payloadFD int, output io.Wri
 }
 
 func listen(socketPath string, socketGID int) (int, error) {
-	if !filepath.IsAbs(socketPath) || filepath.Clean(socketPath) != socketPath || filepath.Dir(socketPath) == socketPath {
+	// Linux sockaddr_un.sun_path is 108 bytes including its trailing NUL. Keep
+	// room for the private pre-listen name so the final path can be published
+	// only after listen(2) succeeds.
+	if !filepath.IsAbs(socketPath) || filepath.Clean(socketPath) != socketPath || filepath.Dir(socketPath) == socketPath || len(socketPath) > 98 {
 		return -1, errors.New("broker socket path must be absolute, normalized, and non-root")
 	}
+	stagingPath := socketPath + ".starting"
 	if _, err := os.Lstat(socketPath); err == nil || !errors.Is(err, os.ErrNotExist) {
 		return -1, errors.New("broker socket path must be absent")
+	}
+	if _, err := os.Lstat(stagingPath); err == nil || !errors.Is(err, os.ErrNotExist) {
+		return -1, errors.New("broker staging socket path must be absent")
 	}
 	parent, err := os.Lstat(filepath.Dir(socketPath))
 	if err != nil || !parent.IsDir() || parent.Mode()&os.ModeSymlink != 0 || parent.Sys().(*syscall.Stat_t).Uid != 0 || parent.Mode().Perm()&0o027 != 0 {
@@ -167,23 +174,28 @@ func listen(socketPath string, socketGID int) (int, error) {
 	if err != nil {
 		return -1, err
 	}
-	if err := syscall.Bind(fd, &syscall.SockaddrUnix{Name: socketPath}); err != nil {
+	if err := syscall.Bind(fd, &syscall.SockaddrUnix{Name: stagingPath}); err != nil {
 		syscall.Close(fd)
 		return -1, err
 	}
-	if err := os.Chown(socketPath, 0, socketGID); err != nil {
+	if err := os.Chown(stagingPath, 0, socketGID); err != nil {
 		syscall.Close(fd)
-		_ = os.Remove(socketPath)
+		_ = os.Remove(stagingPath)
 		return -1, err
 	}
-	if err := os.Chmod(socketPath, 0o660); err != nil {
+	if err := os.Chmod(stagingPath, 0o660); err != nil {
 		syscall.Close(fd)
-		_ = os.Remove(socketPath)
+		_ = os.Remove(stagingPath)
 		return -1, err
 	}
 	if err := syscall.Listen(fd, 8); err != nil {
 		syscall.Close(fd)
-		_ = os.Remove(socketPath)
+		_ = os.Remove(stagingPath)
+		return -1, err
+	}
+	if err := os.Rename(stagingPath, socketPath); err != nil {
+		syscall.Close(fd)
+		_ = os.Remove(stagingPath)
 		return -1, err
 	}
 	return fd, nil

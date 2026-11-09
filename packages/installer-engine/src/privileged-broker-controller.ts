@@ -73,16 +73,22 @@ async function waitForBrokerSocket(input: PrivilegedBrokerControllerInput, child
   throw new Error('privileged broker did not become ready within five seconds');
 }
 
-async function removeOwnedSocket(input: PrivilegedBrokerControllerInput): Promise<void> {
+async function removeOwnedSocketPath(input: PrivilegedBrokerControllerInput, path: string, staging: boolean): Promise<void> {
   try {
-    const socket = await lstat(input.socketPath);
-    if (!socket.isSocket() || socket.isSymbolicLink() || socket.uid !== 0 || socket.gid !== input.socketGid) {
+    const socket = await lstat(path);
+    if (!socket.isSocket() || socket.isSymbolicLink() || socket.uid !== 0
+      || (!staging && socket.gid !== input.socketGid)) {
       throw new Error('refusing to remove a substituted broker socket');
     }
-    await rm(input.socketPath);
+    await rm(path);
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
   }
+}
+
+async function removeOwnedSocket(input: PrivilegedBrokerControllerInput): Promise<void> {
+  await removeOwnedSocketPath(input, input.socketPath, false);
+  await removeOwnedSocketPath(input, `${input.socketPath}.starting`, true);
 }
 
 export async function runPrivilegedBrokerController(inputValue: unknown): Promise<Readonly<{
