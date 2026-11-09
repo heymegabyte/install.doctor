@@ -100,6 +100,11 @@ export class EncryptedCastWriter {
   #lastSeconds = 0;
   #bytes = 0;
   #closed = false;
+  #accepting = true;
+  #pending = Promise.resolve();
+  #failure;
+  #terminalRequest;
+  #terminalState;
 
   static async create(input) {
     exact(input, ['path', 'sessionId', 'createdAt', 'cols', 'rows', 'consent', 'policy', 'key', 'sanitizeOutput'], 'recording initialization');
@@ -163,40 +168,87 @@ export class EncryptedCastWriter {
 
   #relative(seconds) {
     if (!Number.isFinite(seconds) || seconds < this.#lastSeconds) fail('recording timestamp is invalid');
-    const delta = seconds - this.#lastSeconds;
+    return seconds - this.#lastSeconds;
+  }
+
+  #enqueue(operation) {
+    if (!this.#accepting) return Promise.reject(Object.assign(new Error('recording is closed'), { exitCode: 65 }));
+    const result = this.#pending.then(async () => {
+      if (this.#failure) throw this.#failure;
+      try {
+        return await operation();
+      } catch (error) {
+        // Once an accepted event is lost, this capture can no longer truthfully
+        // become complete. Preserve the first cause until markIncomplete closes it.
+        this.#failure = error;
+        throw error;
+      }
+    });
+    this.#pending = result.catch(() => {});
+    return result;
+  }
+
+  async #event(seconds, code, data) {
+    const delta = this.#relative(seconds);
+    await this.#writePlaintext(`${JSON.stringify([delta, code, data])}\n`);
+    // Advance time only after the authenticated event is durably appended. A
+    // sanitizer, capacity, or storage failure must not create a hidden gap.
     this.#lastSeconds = seconds;
-    return delta;
   }
 
-  async output(seconds, value) {
+  output(seconds, value) {
     if (typeof value !== 'string') fail('recording output must be text');
-    const sanitized = await this.#sanitize(value);
-    if (typeof sanitized !== 'string') fail('output sanitizer returned an invalid result', 78);
-    await this.#writePlaintext(`${JSON.stringify([this.#relative(seconds), 'o', sanitized])}\n`);
+    return this.#enqueue(async () => {
+      const sanitized = await this.#sanitize(value);
+      if (typeof sanitized !== 'string') fail('output sanitizer returned an invalid result', 78);
+      await this.#event(seconds, 'o', sanitized);
+    });
   }
 
-  async resize(seconds, cols, rows) {
+  resize(seconds, cols, rows) {
     if (!Number.isSafeInteger(cols) || cols < 1 || cols > 1000 || !Number.isSafeInteger(rows) || rows < 1 || rows > 1000) fail('recording geometry is invalid');
-    await this.#writePlaintext(`${JSON.stringify([this.#relative(seconds), 'r', `${cols}x${rows}`])}\n`);
+    return this.#enqueue(() => this.#event(seconds, 'r', `${cols}x${rows}`));
   }
 
-  async marker(seconds, label) {
+  marker(seconds, label) {
     identifier(label, 'recording marker');
-    await this.#writePlaintext(`${JSON.stringify([this.#relative(seconds), 'm', label])}\n`);
+    return this.#enqueue(() => this.#event(seconds, 'm', label));
   }
 
-  async finish(seconds, exitCode) {
+  finish(seconds, exitCode) {
     if (!Number.isSafeInteger(exitCode) || exitCode < 0 || exitCode > 255) fail('recording exit code is invalid');
-    await this.#writePlaintext(`${JSON.stringify([this.#relative(seconds), 'x', String(exitCode)])}\n`);
-    this.#closed = true;
-    await this.#handle.close();
-    await atomicStatus(this.#statusPath, { schemaVersion: 1, sessionId: this.#header.sessionId, state: 'complete', captureComplete: true, reason: null });
+    if (!this.#accepting) return Promise.reject(Object.assign(new Error('recording is closed'), { exitCode: 65 }));
+    this.#accepting = false;
+    this.#terminalRequest = 'complete';
+    const result = this.#pending.then(async () => {
+      if (this.#failure) throw this.#failure;
+      try {
+        await this.#event(seconds, 'x', String(exitCode));
+        this.#closed = true;
+        await this.#handle.close();
+        await atomicStatus(this.#statusPath, { schemaVersion: 1, sessionId: this.#header.sessionId, state: 'complete', captureComplete: true, reason: null });
+        this.#terminalState = 'complete';
+      } catch (error) {
+        this.#failure = error;
+        throw error;
+      }
+    });
+    this.#pending = result.catch(() => {});
+    return result;
   }
 
   async markIncomplete(reason) {
     identifier(reason, 'incomplete capture reason');
+    if (this.#terminalState || this.#terminalRequest === 'incomplete') fail('recording already has a terminal state');
+    const waitsForFailedFinish = this.#terminalRequest === 'complete';
+    if (!waitsForFailedFinish) this.#terminalRequest = 'incomplete';
+    this.#accepting = false;
+    await this.#pending;
+    if (this.#terminalState === 'complete') fail('completed recording cannot be marked incomplete');
+    if (waitsForFailedFinish && !this.#failure) fail('completed recording cannot be marked incomplete');
     if (!this.#closed) { this.#closed = true; await this.#handle.close(); }
     await atomicStatus(this.#statusPath, { schemaVersion: 1, sessionId: this.#header.sessionId, state: 'incomplete', captureComplete: false, reason });
+    this.#terminalState = 'incomplete';
   }
 }
 

@@ -117,6 +117,10 @@ test('offline CLI preflight fails with value-free escrow remediation and succeed
   assert.equal(missing.status, 3, missing.stderr);
   const missingResult = JSON.parse(missing.stdout);
   assert.deepEqual(missingResult.missingSecretIds, ['backup-key']);
+  assert.deepEqual(missingResult.remediation, [{
+    secretId: 'backup-key', action: 'provide-offline-escrow',
+    guidance: "Provide protected offline escrow for secret reference 'backup-key' before planning; do not add secret values to the profile or bundle.",
+  }]);
   assert.doesNotMatch(missing.stdout + missing.stderr, /infisical:|client_secret|password|token/i);
   await writeFile(availablePath, '["backup-key"]\n', { mode: 0o600 });
   const ready = spawnSync(process.execPath, [cliBin, 'preflight-offline', '--profile', profilePath, '--available-secret-ids', availablePath], { encoding: 'utf8' });

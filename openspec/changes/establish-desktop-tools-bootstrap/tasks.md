@@ -52,8 +52,8 @@
 
 - [x] 6.1 Persist History and recording headers before PTY or OpenCode launch with profile, machine, actor, authorization, release, prompt, runtime, skills, tools, and parent identifiers; verify evidence failure cannot be reported as complete capture.
 - [ ] 6.2 Correlate child agents, approvals, plans, diffs, events, costs, output gaps, verification, cancellation, and terminal status through one bounded event protocol; verify parallel output remains attributable and sequence gaps are detected.
-- [ ] 6.3 Add consented sanitized asciicast v3 output, resize, marker, and exit recording with encrypted storage, retention, deletion, export, and visible incomplete-capture states; verify raw keyboard input and excess environment values are excluded by default.
-- [ ] 6.4 Implement detach/reconnect/stop semantics and bounded flow control for future browser terminals without making the edge coordinator a PTY host; verify tab loss does not kill the run and explicit stop remains separately authorized.
+- [x] 6.3 Add consented sanitized asciicast v3 output, resize, marker, and exit recording with encrypted storage, retention, deletion, export, and visible incomplete-capture states; verify raw keyboard input and excess environment values are excluded by default.
+- [x] 6.4 Implement detach/reconnect/stop semantics and bounded flow control for future browser terminals without making the edge coordinator a PTY host; verify tab loss does not kill the run and explicit stop remains separately authorized.
 
 ## 7. Portability, recovery, and lifecycle
 

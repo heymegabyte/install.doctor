@@ -109,6 +109,7 @@ jobs:
         run: |
           npm --prefix packages/installer-engine run build
           node --test \
+            packages/installer-engine/test/profile-export-parity.test.mjs \
             packages/installer-engine/test/offline-sandbox.test.mjs \
             packages/installer-engine/test/offline-bundle.test.mjs \
             packages/installer-engine/test/offline-execution.test.mjs

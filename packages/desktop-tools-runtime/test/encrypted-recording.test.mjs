@@ -65,6 +65,52 @@ test('keeps interrupted or failed capture visibly incomplete', async () => {
   await assert.rejects(value.writer.finish(2, 0), /closed/);
 });
 
+test('serializes concurrent events in invocation order despite asynchronous sanitization', async () => {
+  let releaseFirst;
+  const firstSanitizer = new Promise(resolve => { releaseFirst = resolve; });
+  let calls = 0;
+  const value = await fixture({ sanitizeOutput: async output => {
+    calls += 1;
+    if (calls === 1) await firstSanitizer;
+    return output;
+  } });
+  const first = value.writer.output(1, 'first');
+  const second = value.writer.output(2, 'second');
+  const resized = value.writer.resize(3, 100, 30);
+  releaseFirst();
+  await Promise.all([first, second, resized]);
+  await value.writer.finish(4, 0);
+  const plaintext = await exportRecording({ path: value.path, key: value.encryptionKey, authorization: exportAuthorization });
+  const lines = plaintext.trimEnd().split('\n').map(line => JSON.parse(line));
+  assert.deepEqual(lines.slice(1), [[1, 'o', 'first'], [1, 'o', 'second'], [1, 'r', '100x30'], [1, 'x', '0']]);
+});
+
+test('does not accept output after finish has been requested', async () => {
+  const value = await fixture();
+  const finish = value.writer.finish(1, 0);
+  await assert.rejects(value.writer.output(2, 'too late'), /closed/);
+  await finish;
+});
+
+test('a failed accepted event prevents a false complete capture', async () => {
+  const value = await fixture({ sanitizeOutput: () => { throw new Error('sanitizer unavailable'); } });
+  await assert.rejects(value.writer.output(1, 'not recorded'), /sanitizer unavailable/);
+  await assert.rejects(value.writer.finish(2, 0), /sanitizer unavailable/);
+  await value.writer.markIncomplete('sanitizer-failure');
+  const status = JSON.parse(await readFile(value.writer.statusPath, 'utf8'));
+  assert.deepEqual(status, { schemaVersion: 1, sessionId: 'session-1', state: 'incomplete', captureComplete: false, reason: 'sanitizer-failure' });
+});
+
+test('markIncomplete racing a successful finish cannot overwrite complete status', async () => {
+  const value = await fixture();
+  const finish = value.writer.finish(1, 0);
+  const incomplete = value.writer.markIncomplete('late-disconnect');
+  await finish;
+  await assert.rejects(incomplete, /completed recording/);
+  const status = JSON.parse(await readFile(value.writer.statusPath, 'utf8'));
+  assert.deepEqual(status, { schemaVersion: 1, sessionId: 'session-1', state: 'complete', captureComplete: true, reason: null });
+});
+
 test('enforces encryption authentication and actor-bound export authorization', async () => {
   const value = await fixture();
   await value.writer.finish(1, 0);

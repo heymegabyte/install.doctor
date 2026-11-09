@@ -1448,10 +1448,24 @@ test('production provisioner dispatches and reruns a real signed bundle through 
   const first = await invoke('product-offline-first');
   assert.equal(first.stderr, '');
   const materialized = join(stateRoot, 'install.doctor', 'offline', 'materialized', created.manifestDigest);
+  const engineState = join(stateRoot, 'install.doctor', 'offline', 'engine');
+  const committedRun = runId => createJournalStore({
+    stateRoot: engineState, hostId: facts.hostId, bootId: 'inspection-only', processStart: 'inspection-only',
+  }).inspectCompletion(runId, state.plan.digest);
+  const firstEvidence = await committedRun('product-offline-first');
+  assert.equal(firstEvidence.authority, 'committed');
+  assert.equal(firstEvidence.receipt?.status, 'success');
+  assert.deepEqual(firstEvidence.receipt?.taskCounts, {
+    verified: 2, inapplicable: 0, skipped: 0, blocked: 0, pending: 0, failed: 0,
+  });
   assert.equal((await stat(materialized)).isDirectory(), true);
   const materializedIdentity = await lstat(materialized);
   const second = await invoke('product-offline-second');
   assert.equal(second.stderr, '');
+  const secondEvidence = await committedRun('product-offline-second');
+  assert.equal(secondEvidence.authority, 'committed');
+  assert.equal(secondEvidence.receipt?.status, 'success');
+  assert.equal(secondEvidence.receipt?.taskCounts.verified, 2);
   assert.equal((await lstat(materialized)).ino, materializedIdentity.ino, 'unchanged rerun must reuse the verified materialization');
   assert.doesNotMatch(first.stdout + second.stdout, /opencode|provider|infisical|https?:\/\//i);
 });

@@ -11,12 +11,13 @@
     "./profile-resolution": "./dist/profile-resolution.js",
     "./product-identity": "./dist/product-identity.js",
     "./redaction": "./dist/redaction.js",
-    "./profile-export": "./dist/profile-export.js"
+    "./profile-export": "./dist/profile-export.js",
+    "./terminal-lifecycle": "./dist/terminal-lifecycle.js"
   },
   "types": "./dist/core.d.ts",
   "description": "Tested contracts for Install Doctor aid; not a deployed daemon or gateway",
   "scripts": {
-    "build": "tsc --strict --target ES2022 --module ES2022 --moduleResolution bundler --lib ES2022,DOM --declaration src/core.ts src/probabilistic-intent.ts src/fleet-recovery.ts src/infisical-workload.ts src/installer-contracts.ts src/broker-approval-contracts.ts src/device-authorization.ts src/product-identity.ts src/profile-resolution.ts src/profile-export.ts src/redaction.ts --outDir dist",
+    "build": "tsc --strict --target ES2022 --module ES2022 --moduleResolution bundler --lib ES2022,DOM --declaration src/core.ts src/probabilistic-intent.ts src/fleet-recovery.ts src/infisical-workload.ts src/installer-contracts.ts src/broker-approval-contracts.ts src/device-authorization.ts src/product-identity.ts src/profile-resolution.ts src/profile-export.ts src/redaction.ts src/terminal-lifecycle.ts --outDir dist",
     "test": "npm run build && node --test test/*.test.mjs"
   },
   "engines": {
