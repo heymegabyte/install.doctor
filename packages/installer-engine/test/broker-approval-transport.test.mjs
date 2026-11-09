@@ -54,6 +54,25 @@ test('submits an exact run intent and never places the credential in URL or body
   assert.equal(intent.deviceFingerprint, binding.deviceFingerprint);
 });
 
+test('loads only a server-bound device identity with explicit privileged-run scope', async () => {
+  const fixture = await tokenFixture();
+  let response = { deviceId: binding.deviceCredentialId, tenant: binding.tenantId, label: 'workstation',
+    enrolledAt: now, grantedPermissions: ['pull-desired-state', 'authorize-privileged-run'],
+    profileRevision: binding.profileRevisionDigest, machineFingerprint: binding.deviceFingerprint };
+  const transport = createBrokerApprovalTransport({ origin: 'https://desktop.tools', tokenPath: fixture.path,
+    fetch: async (url, init) => {
+      assert.equal(String(url), 'https://desktop.tools/api/devices/me');
+      assert.equal(init.method, 'GET');
+      assert.equal(init.body, undefined);
+      return Response.json(response);
+    } });
+  assert.deepEqual(await transport.identity(), response);
+  response = { ...response, grantedPermissions: ['pull-desired-state'] };
+  await assert.rejects(transport.identity(), /privileged-run authority/);
+  response = { ...response, grantedPermissions: ['authorize-privileged-run'], machineFingerprint: null };
+  await assert.rejects(transport.identity());
+});
+
 test('requires a server-issued claim locator and rejects substituted approval bindings', async () => {
   const fixture = await tokenFixture();
   const grantDigest = await brokerApprovalSemanticDigest('desktop-tools:privileged-broker:v1', grant);

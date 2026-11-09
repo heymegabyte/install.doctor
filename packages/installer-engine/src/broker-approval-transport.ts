@@ -21,6 +21,20 @@ export const BrokerApprovalTargetBindingSchema = z.strictObject({
   authorizationId: id,
 });
 
+export const BrokerApprovalDeviceIdentitySchema = z.strictObject({
+  deviceId: id,
+  tenant: id,
+  label: z.string().max(200).nullable(),
+  enrolledAt: z.string().datetime({ offset: true }),
+  grantedPermissions: z.array(z.string().min(1).max(64)).max(32),
+  profileRevision: digest,
+  machineFingerprint: digest,
+}).superRefine((value, context) => {
+  if (!value.grantedPermissions.includes('authorize-privileged-run')) {
+    context.addIssue({ code: 'custom', path: ['grantedPermissions'], message: 'device lacks privileged-run authority' });
+  }
+});
+
 export const BrokerApprovalClaimLocatorSchema = z.strictObject({
   ownerDecisionId: id,
 });
@@ -137,22 +151,27 @@ export function createBrokerApprovalTransport(options: BrokerApprovalTransportOp
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   if (!Number.isInteger(timeoutMs) || timeoutMs < 1_000 || timeoutMs > 60_000) throw new Error('invalid broker approval timeout');
 
-  const post = async (path: string, body: unknown): Promise<unknown> => {
+  const request = async (path: string, init: { method: 'GET' } | { method: 'POST'; body: unknown }): Promise<unknown> => {
     const token = await readPrivateDeviceToken(options.tokenPath);
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
     try {
       const response = await fetcher(new URL(path, origin), {
-        method: 'POST', signal: controller.signal,
+        method: init.method, signal: controller.signal,
         headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json', accept: 'application/json' },
-        body: JSON.stringify(body),
+        ...('body' in init ? { body: JSON.stringify(init.body) } : {}),
       });
       if (!response.ok) throw new Error(`broker approval request failed with HTTP ${response.status}`);
       return await boundedJson(response);
     } finally { clearTimeout(timer); }
   };
+  const post = (path: string, body: unknown) => request(path, { method: 'POST', body });
 
   return Object.freeze({
+    async identity() {
+      return BrokerApprovalDeviceIdentitySchema.parse(await request('/api/devices/me', { method: 'GET' }));
+    },
+
     async request(grantValue: unknown, bindingValue: unknown) {
       const intent = runIntent(grantValue, bindingValue);
       const response = z.strictObject({ created: z.boolean(), runIntent: z.unknown() }).parse(
