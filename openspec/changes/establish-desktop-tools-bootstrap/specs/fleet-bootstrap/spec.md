@@ -64,6 +64,30 @@ Native Debian package cutovers SHALL derive mutation authority from exact signed
 - **WHEN** signed repository metadata no longer has both exact `Codename: bookworm` and exact `Suite: oldstable`
 - **THEN** the existing descriptor and plan are rejected and the new phase requires newly reviewed and signed Desktop Tools release authority
 
+#### Scenario: Trusted release composition
+- **WHEN** the release builder composes the native `tree` slice
+- **THEN** a source-owned policy pins the archive-keyring digest, permitted signing fingerprints, origin, and exact repository paths, and the builder verifies the bounded keyring, InRelease, Packages index, package stanza, payload, control metadata, and freshness chain before staging one canonical catalog descriptor
+
+#### Scenario: Immutable release closure expands
+- **WHEN** the four Debian proof and payload objects are admitted to a Desktop Tools release
+- **THEN** a versioned next-schema manifest and exact publication allowlist bind every object URL, digest, and size, the SBOM and provenance cover the complete expanded closure and source trust policy, immutable publication is read back, and previously published schema-v7 releases retain their original inspection contract
+
+#### Scenario: Release expiry is covered by repository authority
+- **WHEN** an admitted InRelease contains `Valid-Until`
+- **THEN** the Desktop Tools release expiry is no later than `Valid-Until`
+
+#### Scenario: Selected native authority survives load planning
+- **WHEN** load-plan admits the native `tree` descriptor
+- **THEN** the complete descriptor reaches one engine-owned native-package composer that derives the check, apply, and verify operations without transport-specific plan semantics
+
+#### Scenario: Shared native materialization
+- **WHEN** the native artifacts are resolved from the immutable online release namespace or an offline bundle
+- **THEN** one materializer enforces the same identifiers, bytes, digests, sizes, and boundaries and supplies protected handles to one runtime adapter, producing identical task, operation, and plan digests without apt, ambient keyrings, target mirror access, or apply-time network
+
+#### Scenario: Native artifacts remain lazy
+- **WHEN** a bootstrap does not select the native `tree` slice
+- **THEN** it does not acquire the four Debian objects, while an offline export selecting the slice contains the identical signed objects and authority
+
 #### Scenario: Package authority is incomplete or incompatible
 - **WHEN** libc6 is missing, unhealthy, held at an incompatible version, or has an incompatible architecture, or the target has the wrong distribution or architecture, or repository metadata is expired, future-dated beyond tolerance, forged, ambiguously missing freshness state, outside the signed composition-age bound, or bound to a different suite or codename, or a payload digest differs
 - **THEN** the native package task is rejected before mutation
@@ -71,6 +95,10 @@ Native Debian package cutovers SHALL derive mutation authority from exact signed
 #### Scenario: Bounded selection cutover
 - **WHEN** the native tree task is fully admitted
 - **THEN** only `tree` is removed from the legacy Installx package selection and every unsupported package remains on the legacy path
+
+#### Scenario: Native authority fails after admission
+- **WHEN** admitted native authority is later missing, substituted, malformed, or not executable
+- **THEN** execution fails closed with durable evidence and does not silently invoke the legacy writer
 
 #### Scenario: Interrupted package mutation
 - **WHEN** execution is interrupted after dpkg state changes
