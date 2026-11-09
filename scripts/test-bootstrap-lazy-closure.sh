@@ -26,7 +26,9 @@ else
   fail 'rsync is missing from the current system-files dependency closure'
 fi
 
-if printf '%s\n' "$basic" | grep -Fq 'idTrustedGitExecutable' \
+if printf '%s\n' "$basic" | grep -Fq 'idTrustedBootstrapDependency curl' \
+  && printf '%s\n' "$basic" | grep -Fq 'idTrustedGitExecutable' \
+  && printf '%s\n' "$basic" | grep -Fq 'idTrustedBootstrapDependency rsync' \
   && printf '%s\n' "$basic" | grep -Fq 'Minimal bootstrap dependencies did not satisfy their approved postcondition'; then
   pass 'native bootstrap dependency apply has an exact fail-closed postcondition'
 else
@@ -51,6 +53,7 @@ if PATH="$TMP_DIR/empty" /bin/bash -c '
   eval "$1"
   logg() { :; }
   detect_os() { printf "%s\n" linux; }
+  idTrustedBootstrapDependency() { return 1; }
   idTrustedGitExecutable() { return 1; }
   idTrustedNativePackageManager() { return 1; }
   ensureBasicDeps
@@ -63,6 +66,7 @@ if PATH="$TMP_DIR/tools" /bin/bash -c '
   eval "$1"
   logg() { :; }
   detect_os() { printf "%s\n" linux; }
+  idTrustedBootstrapDependency() { return 0; }
   idTrustedGitExecutable() { return 0; }
   idTrustedNativePackageManager() { return 1; }
   ensureBasicDeps

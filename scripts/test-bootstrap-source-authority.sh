@@ -22,13 +22,17 @@ COMMIT="$(git -C "$FIXTURE" rev-parse HEAD)"
 printf 'preserve\n' > "$TMP/data/chezmoi/user-work"
 awk '/^idSha256File\(\) \{/{copy=1} copy{print} /^idTrustedGitExecutable\(\) \{/{git=1} copy && git && /^\}/{exit}' "$ROOT/scripts/provision.sh" > "$TMP/clone-function.sh"
 awk '/^cloneChezmoiSourceRepo\(\) \{/{copy=1} copy{print} /^verifyChezmoiSourceRepo\(\) \{/{verify=1} copy && verify && /^\}/{exit}' "$ROOT/scripts/provision.sh" >> "$TMP/clone-function.sh"
-GIT_PATH="$(command -v git)"
+GIT_PATH=''
+for candidate in /usr/bin/git /bin/git; do
+  if [ -f "$candidate" ] && [ ! -L "$candidate" ] && [ -x "$candidate" ]; then GIT_PATH="$candidate"; break; fi
+done
+test -n "$GIT_PATH"
 GIT_SHA256="$(shasum -a 256 "$GIT_PATH" | awk '{print $1}')"
 
 XDG_DATA_HOME="$TMP/data" HOME="$TMP/home" START_REPO="$FIXTURE" \
   INSTALL_DOCTOR_RELEASE_ID=fixture-release INSTALL_DOCTOR_SOURCE_COMMIT="$COMMIT" \
   INSTALL_DOCTOR_GIT_PATH="$GIT_PATH" INSTALL_DOCTOR_GIT_SHA256="$GIT_SHA256" \
-  bash -c 'set -u; logg() { :; }; detect_os() { printf linux; }; source "$1"; cloneChezmoiSourceRepo; test "$INSTALL_DOCTOR_CHEZMOI_SOURCE" = "$XDG_DATA_HOME/install.doctor/releases/fixture-release/source/home"' _ "$TMP/clone-function.sh"
+  bash -c 'set -u; logg() { :; }; detect_os() { printf linux; }; source "$1"; cloneChezmoiSourceRepo || exit $?; test "$INSTALL_DOCTOR_CHEZMOI_SOURCE" = "$XDG_DATA_HOME/install.doctor/releases/fixture-release/source/home"' _ "$TMP/clone-function.sh"
 test "$(git -C "$TMP/data/install.doctor/releases/fixture-release/source" rev-parse HEAD)" = "$COMMIT"
 test "$(cat "$TMP/data/chezmoi/user-work")" = preserve
 

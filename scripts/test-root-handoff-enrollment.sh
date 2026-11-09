@@ -8,7 +8,7 @@ pass() { printf 'PASS %s\n' "$*"; P=$((P + 1)); }
 fail() { printf 'FAIL %s\n' "$*" >&2; F=$((F + 1)); }
 
 section="$(sed -n '/^function ensureInstallUser()/,/^}/p' "$PROVISION")"
-if ! printf '%s\n' "$section" | grep -Eq '(^|[^[:alnum:]_])(useradd|chpasswd|usermod|dseditgroup)([^[:alnum:]_]|$)|dscl[^\n]* -(create|passwd)([^[:alnum:]_]|$)|passwd --stdin'; then
+if ! grep -Eq '(^|[^[:alnum:]_])(useradd|chpasswd|usermod|dseditgroup)([^[:alnum:]_]|$)|dscl[^\n]* -(create|passwd)([^[:alnum:]_]|$)|passwd --stdin' <<<"$section"; then
   pass 'root handoff contains no account, password, or administrator mutation path'
 else
   fail 'root handoff still mutates account, password, or administrator state'
@@ -35,9 +35,9 @@ else
   fail 'root still performs target enrollment or planning before user handoff'
 fi
 
-if printf '%s\n' "$section" | grep -q "The user-owned plan decides whether a privileged broker is needed" \
-  && printf '%s\n' "$section" | grep -q 'if \[ ! -f "\$BROKER_REQUEST" \]' \
-  && printf '%s\n' "$section" | grep -q 'DESKTOP_TOOLS_NATIVE_BROKER_REQUESTED=true'; then
+if grep -q "The user-owned plan decides whether a privileged broker is needed" <<<"$section" \
+  && grep -q 'if \[ ! -f "\$BROKER_REQUEST" \]' <<<"$section" \
+  && grep -q 'DESKTOP_TOOLS_NATIVE_BROKER_REQUESTED=true' <<<"$section"; then
   pass 'root broker authority is demand-driven by the approved user plan'
 else
   fail 'root broker authority is still selected before the user-owned plan'

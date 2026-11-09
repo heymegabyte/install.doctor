@@ -783,7 +783,21 @@ setEnvironmentVariables() {
 #     selected catalog closure and remain lazy unless a later task proves it needs them.
 ensureBasicDeps() {
   local NATIVE_MANAGER NATIVE_MANAGER_NAME SUDO_EXECUTABLE="${INSTALL_DOCTOR_SUDO_PATH:-}"
-  if ! command -v curl > /dev/null || ! command -v git > /dev/null || ! command -v rsync > /dev/null; then
+  local NEED_CURL=0 NEED_RSYNC=0
+  local -a NATIVE_PACKAGES=()
+  if ! idTrustedBootstrapDependency curl >/dev/null 2>&1; then
+    [ "${INSTALL_DOCTOR_CURL_SHA256:-}" = absent ] || return 2
+    NATIVE_PACKAGES+=(curl); NEED_CURL=1
+  fi
+  if ! idTrustedGitExecutable >/dev/null 2>&1; then
+    [ "${INSTALL_DOCTOR_GIT_SHA256:-}" = absent ] || return 2
+    NATIVE_PACKAGES+=(git)
+  fi
+  if ! idTrustedBootstrapDependency rsync >/dev/null 2>&1; then
+    [ "${INSTALL_DOCTOR_RSYNC_SHA256:-}" = absent ] || return 2
+    NATIVE_PACKAGES+=(rsync); NEED_RSYNC=1
+  fi
+  if [ "${#NATIVE_PACKAGES[@]}" -gt 0 ]; then
     NATIVE_MANAGER="$(idTrustedNativePackageManager)" \
       || { logg error 'No exact plan-bound native package manager is available'; return 2; }
     NATIVE_MANAGER_NAME="${INSTALL_DOCTOR_NATIVE_MANAGER_NAME:-}"
@@ -792,34 +806,36 @@ ensureBasicDeps() {
     if [ "$NATIVE_MANAGER_NAME" = apt-get ]; then
       ### Debian / Ubuntu
       logg info 'Running the approved apt-get update' && "$SUDO_EXECUTABLE" "$NATIVE_MANAGER" update \
-        && logg info 'Installing the minimal bootstrap tools (curl, git, and rsync)' \
-        && "$SUDO_EXECUTABLE" "$NATIVE_MANAGER" install -y curl git rsync
+        && logg info 'Installing the missing minimal bootstrap tools' \
+        && "$SUDO_EXECUTABLE" "$NATIVE_MANAGER" install -y "${NATIVE_PACKAGES[@]}"
     elif [ "$NATIVE_MANAGER_NAME" = dnf ]; then
       ### Fedora
-      logg info 'Installing the minimal bootstrap tools (curl, git, and rsync)' && "$SUDO_EXECUTABLE" "$NATIVE_MANAGER" install -y curl git rsync
+      logg info 'Installing the minimal bootstrap tools' && "$SUDO_EXECUTABLE" "$NATIVE_MANAGER" install -y "${NATIVE_PACKAGES[@]}"
     elif [ "$NATIVE_MANAGER_NAME" = yum ]; then
       ### CentOS
-      logg info 'Installing the minimal bootstrap tools (curl, git, and rsync)' && "$SUDO_EXECUTABLE" "$NATIVE_MANAGER" install -y curl git rsync
+      logg info 'Installing the minimal bootstrap tools' && "$SUDO_EXECUTABLE" "$NATIVE_MANAGER" install -y "${NATIVE_PACKAGES[@]}"
     elif [ "$NATIVE_MANAGER_NAME" = pacman ]; then
       ### Archlinux
-      logg info 'Installing the minimal bootstrap tools (curl, git, and rsync)' && "$SUDO_EXECUTABLE" "$NATIVE_MANAGER" -S --needed --noconfirm curl git rsync
+      logg info 'Installing the minimal bootstrap tools' && "$SUDO_EXECUTABLE" "$NATIVE_MANAGER" -S --needed --noconfirm "${NATIVE_PACKAGES[@]}"
     elif [ "$NATIVE_MANAGER_NAME" = zypper ]; then
       ### OpenSUSE
-      logg info 'Installing the minimal bootstrap tools (curl, git, and rsync)' && "$SUDO_EXECUTABLE" "$NATIVE_MANAGER" install -y curl git rsync
+      logg info 'Installing the minimal bootstrap tools' && "$SUDO_EXECUTABLE" "$NATIVE_MANAGER" install -y "${NATIVE_PACKAGES[@]}"
     elif [ "$NATIVE_MANAGER_NAME" = apk ]; then
       ### Alpine
-      logg info 'Installing the minimal bootstrap tools (curl, git, and rsync)' && "$SUDO_EXECUTABLE" "$NATIVE_MANAGER" add curl git rsync
+      logg info 'Installing the minimal bootstrap tools' && "$SUDO_EXECUTABLE" "$NATIVE_MANAGER" add "${NATIVE_PACKAGES[@]}"
     else return 2
     fi || return $?
+    [ "$NEED_CURL" -eq 0 ] || idRecordBootstrapDependencyReceipt curl || return 2
+    [ "$NEED_RSYNC" -eq 0 ] || idRecordBootstrapDependencyReceipt rsync || return 2
   fi
   # Package-manager exit status is not authoritative: an unsupported branch,
   # a partial transaction, or a manager that returned success without
   # installing every requested tool must never let the engine commit this
   # bootstrap boundary. Git is additionally bound to the executable identity
   # captured by the approved plan.
-  if ! command -v curl >/dev/null 2>&1 \
+  if ! idTrustedBootstrapDependency curl >/dev/null 2>&1 \
     || ! idTrustedGitExecutable >/dev/null 2>&1 \
-    || ! command -v rsync >/dev/null 2>&1; then
+    || ! idTrustedBootstrapDependency rsync >/dev/null 2>&1; then
     logg error 'Minimal bootstrap dependencies did not satisfy their approved postcondition'
     return 2
   fi
@@ -978,6 +994,112 @@ idSha256File() {
   else return 20
   fi
   printf '%s\n' "${output%%[[:space:]]*}"
+}
+
+idBootstrapDependencyReceiptPath() {
+  local name="${1:-}"
+  case "$name" in
+    curl) [ "${INSTALL_DOCTOR_CURL_SHA256:-}" = absent ] || return 1 ;;
+    rsync) [ "${INSTALL_DOCTOR_RSYNC_SHA256:-}" = absent ] || return 1 ;;
+    *) return 1 ;;
+  esac
+  printf '%s/install.doctor/engine/effects/bootstrap-%s-created.receipt\n' "${XDG_STATE_HOME:-$HOME/.local/state}" "$name"
+}
+
+idVerifyBootstrapDependencyReceipt() {
+  local name="$1" candidate="$2" actual="$3" receipt receipt_dir recorded_name recorded_path recorded_sha recorded_manager
+  local owner mode links size directory_owner directory_mode lines expected_manager="${INSTALL_DOCTOR_NATIVE_MANAGER_SHA256:-}"
+  receipt="$(idBootstrapDependencyReceiptPath "$name")" || return 1
+  receipt_dir="${receipt%/*}"
+  [ -d "$receipt_dir" ] && [ ! -L "$receipt_dir" ] && [ -f "$receipt" ] && [ ! -L "$receipt" ] || return 1
+  if stat -f '%u %Lp %l %z' "$receipt" >/dev/null 2>&1; then
+    read -r owner mode links size <<EOF
+$(stat -f '%u %Lp %l %z' "$receipt")
+EOF
+    read -r directory_owner directory_mode <<EOF
+$(stat -f '%u %Lp' "$receipt_dir")
+EOF
+  else
+    read -r owner mode links size <<EOF
+$(stat -c '%u %a %h %s' "$receipt")
+EOF
+    read -r directory_owner directory_mode <<EOF
+$(stat -c '%u %a' "$receipt_dir")
+EOF
+  fi
+  [ "$owner" -eq "$(id -u)" ] && [ "$directory_owner" -eq "$(id -u)" ] \
+    && [ "$mode" = 600 ] && [ "$directory_mode" = 700 ] && [ "$links" -eq 1 ] \
+    && [ "$size" -ge 140 ] && [ "$size" -le 768 ] || return 1
+  lines="$(wc -l < "$receipt" | tr -d '[:space:]')" || return 1
+  [ "$lines" = 1 ] || return 1
+  IFS=$'\t' read -r recorded_name recorded_path recorded_sha recorded_manager < "$receipt" || return 1
+  [ "$recorded_name" = "$name" ] && [ "$recorded_path" = "$candidate" ] \
+    && [ "$recorded_sha" = "$actual" ] && [ "$recorded_manager" = "$expected_manager" ] || return 1
+  case "$recorded_sha:$recorded_manager" in *[!a-f0-9:]*) return 1 ;; esac
+  [ "${#recorded_sha}" -eq 64 ] && [ "${#recorded_manager}" -eq 64 ]
+}
+
+idTrustedBootstrapDependency() {
+  local name="${1:-}" candidate expected actual owner mode parent parent_owner parent_mode
+  case "$name" in
+    curl) candidate="${INSTALL_DOCTOR_CURL_PATH:-}"; expected="${INSTALL_DOCTOR_CURL_SHA256:-}" ;;
+    rsync) candidate="${INSTALL_DOCTOR_RSYNC_PATH:-}"; expected="${INSTALL_DOCTOR_RSYNC_SHA256:-}" ;;
+    *) return 1 ;;
+  esac
+  case "$name:$candidate" in curl:/usr/bin/curl|curl:/bin/curl|rsync:/usr/bin/rsync|rsync:/bin/rsync) ;; *) return 1 ;; esac
+  [ -f "$candidate" ] && [ ! -L "$candidate" ] && [ -x "$candidate" ] || return 1
+  parent="${candidate%/*}"
+  [ -d "$parent" ] && [ ! -L "$parent" ] || return 1
+  if stat -f '%u %Lp' "$candidate" >/dev/null 2>&1; then
+    read -r owner mode <<EOF
+$(stat -f '%u %Lp' "$candidate")
+EOF
+    read -r parent_owner parent_mode <<EOF
+$(stat -f '%u %Lp' "$parent")
+EOF
+  else
+    read -r owner mode <<EOF
+$(stat -c '%u %a' "$candidate")
+EOF
+    read -r parent_owner parent_mode <<EOF
+$(stat -c '%u %a' "$parent")
+EOF
+  fi
+  [ "$owner" -eq 0 ] && [ "$parent_owner" -eq 0 ] \
+    && [ $((8#$mode & 8#22)) -eq 0 ] && [ $((8#$parent_mode & 8#22)) -eq 0 ] || return 1
+  actual="$(idSha256File "$candidate")" || return 1
+  case "$expected" in
+    absent) idVerifyBootstrapDependencyReceipt "$name" "$candidate" "$actual" || return 1 ;;
+    ''|*[!a-f0-9]*) return 1 ;;
+    *) [ "${#expected}" -eq 64 ] && [ "$actual" = "$expected" ] || return 1 ;;
+  esac
+  printf '%s\n' "$candidate"
+}
+
+idRecordBootstrapDependencyReceipt() {
+  local name="${1:-}" candidate actual receipt receipt_dir temporary manager="${INSTALL_DOCTOR_NATIVE_MANAGER_SHA256:-}"
+  case "$name" in
+    curl) candidate="${INSTALL_DOCTOR_CURL_PATH:-}" ;;
+    rsync) candidate="${INSTALL_DOCTOR_RSYNC_PATH:-}" ;;
+    *) return 1 ;;
+  esac
+  actual="$(idSha256File "$candidate")" || return 1
+  case "$name" in
+    curl) INSTALL_DOCTOR_CURL_SHA256="$actual" idTrustedBootstrapDependency curl >/dev/null || return 1 ;;
+    rsync) INSTALL_DOCTOR_RSYNC_SHA256="$actual" idTrustedBootstrapDependency rsync >/dev/null || return 1 ;;
+  esac
+  case "$manager" in ''|*[!a-f0-9]*) return 1 ;; esac
+  [ "${#manager}" -eq 64 ] || return 1
+  receipt="$(idBootstrapDependencyReceiptPath "$name")" || return 1
+  receipt_dir="${receipt%/*}"
+  [ ! -L "$receipt_dir" ] || return 1
+  mkdir -p "$receipt_dir" && chmod 0700 "$receipt_dir" || return 1
+  temporary="$(mktemp "$receipt_dir/.bootstrap-$name-created.XXXXXX")" || return 1
+  printf '%s\t%s\t%s\t%s\n' "$name" "$candidate" "$actual" "$manager" > "$temporary" \
+    || { rm -f -- "$temporary"; return 1; }
+  chmod 0600 "$temporary" || { rm -f -- "$temporary"; return 1; }
+  mv -f -- "$temporary" "$receipt" || { rm -f -- "$temporary"; return 1; }
+  idVerifyBootstrapDependencyReceipt "$name" "$candidate" "$actual"
 }
 
 idVerifySealedHandoffFile() {
@@ -2787,6 +2909,24 @@ for (const directory of (process.env.PATH || '').split(':')) {
   }
 }
 if (!gitPath) gitPath = '/usr/bin/git';
+function resolveNativeBootstrapExecutable(name) {
+  const allowed = [`/usr/bin/${name}`, `/bin/${name}`];
+  for (const candidate of allowed) {
+    try {
+      const metadata = fs.lstatSync(candidate);
+      const parent = fs.lstatSync(require('node:path').dirname(candidate));
+      if (!metadata.isFile() || metadata.isSymbolicLink() || (metadata.mode & 0o111) === 0
+        || (metadata.mode & 0o022) !== 0 || metadata.uid !== 0 || !parent.isDirectory()
+        || parent.isSymbolicLink() || parent.uid !== 0 || (parent.mode & 0o022) !== 0) continue;
+      return { path: candidate, digest: crypto.createHash('sha256').update(fs.readFileSync(candidate)).digest('hex') };
+    } catch (error) {
+      if (!error || error.code !== 'ENOENT') throw error;
+    }
+  }
+  return { path: `/usr/bin/${name}`, digest: 'absent' };
+}
+const curlIdentity = resolveNativeBootstrapExecutable('curl');
+const rsyncIdentity = resolveNativeBootstrapExecutable('rsync');
 let homebrewPath = '';
 let homebrewDigest = 'absent';
 for (const directory of (process.env.PATH || '').split(':')) {
@@ -2911,6 +3051,10 @@ const operationEnvironment = {
   INSTALL_DOCTOR_EFFECT_RECEIPT_DIR: `${stateRoot}/effects`,
   INSTALL_DOCTOR_GIT_PATH: gitPath,
   INSTALL_DOCTOR_GIT_SHA256: gitDigest,
+  INSTALL_DOCTOR_CURL_PATH: curlIdentity.path,
+  INSTALL_DOCTOR_CURL_SHA256: curlIdentity.digest,
+  INSTALL_DOCTOR_RSYNC_PATH: rsyncIdentity.path,
+  INSTALL_DOCTOR_RSYNC_SHA256: rsyncIdentity.digest,
   INSTALL_DOCTOR_HOMEBREW_PATH: homebrewPath,
   INSTALL_DOCTOR_HOMEBREW_SHA256: homebrewDigest,
   INSTALL_DOCTOR_ENGINE_OWNS_PACKAGES: '1',
@@ -2961,6 +3105,7 @@ const warpDisconnectTask = rawPlan.network === 'cloudflare-warp' && rawPlan.cons
 const nativeDependenciesTask = {
   schemaVersion: 1, id: 'bootstrap.native-dependencies',
   inputDigest: digest({ platform, arch, commands: ['curl', 'git', 'rsync'], gitPath, gitDigest,
+    curlPath: curlIdentity.path, curlDigest: curlIdentity.digest, rsyncPath: rsyncIdentity.path, rsyncDigest: rsyncIdentity.digest,
     nativeManagerName, nativeManagerPath, nativeManagerDigest, sudoPath, sudoDigest, sudoDigestKind }),
   dependencies: [warpDisconnectTask?.id ?? stageZeroSudoTask.id], predicate: 'host-supported', requiredCapabilities: [],
   operations: { check: 'native-dependencies-check', apply: 'native-dependencies-apply', verify: 'native-dependencies-verify' },
@@ -3907,7 +4052,8 @@ idRunEngineOperation() {
     warp-disconnect-apply) idWarpDisconnectedApply ;;
     warp-disconnect-verify) idWarpDisconnectedVerify ;;
     native-dependencies-check|native-dependencies-verify)
-      command -v curl >/dev/null 2>&1 && idTrustedGitExecutable >/dev/null 2>&1 && command -v rsync >/dev/null 2>&1 && return 0
+      idTrustedBootstrapDependency curl >/dev/null 2>&1 && idTrustedGitExecutable >/dev/null 2>&1 \
+        && idTrustedBootstrapDependency rsync >/dev/null 2>&1 && return 0
       return 10
       ;;
     native-dependencies-apply)
