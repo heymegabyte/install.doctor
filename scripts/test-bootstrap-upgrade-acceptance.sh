@@ -283,6 +283,7 @@ set +e; run_start v1 plan; status=$?; set -e
 v1_digest="$(plan_digest)"
 env INSTALL_DOCTOR_APPROVED_PLAN_DIGEST="$v1_digest" bash /fixture/start-v1.sh >"$HOME/v1-apply.stdout" 2>"$HOME/v1-apply.stderr"
 cp "$HOME/mutation-ledger" "$HOME/v1-ledger"
+cp "$HOME/.config/install.doctor-policy.json" "$HOME/v1-policy.json"
 v1_hash="$(sha256sum "$HOME/mutation-ledger" | awk '{print $1}')"
 v1_mutations="$(wc -l < "$HOME/mutation-ledger" | tr -d ' ')"
 [ "$(cat "$HOME/.fixture/chezmoi-version")" = v1 ] || exit 81
@@ -320,6 +321,8 @@ VERIFY_INTERRUPTED_UPGRADE
 env INSTALL_DOCTOR_APPROVED_PLAN_DIGEST="$v2_digest" bash /fixture/start-v2.sh >"$HOME/v2-apply.stdout" 2>"$HOME/v2-apply.stderr"
 [ "$(cat "$HOME/.fixture/chezmoi-version")" = v2 ] || exit 87
 grep -q '^apply:chezmoi:v2$' "$HOME/mutation-ledger" || exit 88
+cp "$HOME/.config/install.doctor-policy.json" "$HOME/v2-policy.json"
+! cmp -s "$HOME/v1-policy.json" "$HOME/v2-policy.json" || { printf 'v2 managed policy did not change\n' >&2; exit 88; }
 tail -n "+$((v1_mutations + 1))" "$HOME/mutation-ledger" > "$HOME/v2-delta"
 cat > "$HOME/v2-expected-delta" <<'DELTA'
 apply:chezmoi:v2
@@ -328,6 +331,28 @@ DELTA
 cmp -s "$HOME/v2-expected-delta" "$HOME/v2-delta" \
   || { printf 'unexpected v2 mutation closure\n' >&2; diff -u "$HOME/v2-expected-delta" "$HOME/v2-delta" >&2 || true; exit 88; }
 v2_hash="$(sha256sum "$HOME/mutation-ledger" | awk '{print $1}')"
+
+v2_run="$(find "$HOME/.local/state/install.doctor/engine/runs/$v2_digest" -mindepth 1 -maxdepth 1 -type d -printf '%T@ %f\n' | sort -nr | head -1 | awk '{print $2}')"
+[ -n "$v2_run" ] || { printf 'resumed v2 run is missing\n' >&2; exit 88; }
+cat > "$HOME/v2-rollback-plan.json" <<ROLLBACK_PLAN
+{"schemaVersion":1,"command":"rollback-config-plan","stateRoot":"$HOME/.local/state/install.doctor/engine","sourceRunId":"$v2_run","sourcePlanDigest":"$v2_digest"}
+ROLLBACK_PLAN
+node /fixture/releases/acceptance-v2/install-doctor-engine.mjs --input "$HOME/v2-rollback-plan.json" > "$HOME/v2-rollback-plan-output.json"
+v2_rollback_digest="$(node -e 'const p=JSON.parse(require("node:fs").readFileSync(process.argv[1],"utf8"));if(!/^[a-f0-9]{64}$/.test(p.digest))process.exit(2);process.stdout.write(p.digest)' "$HOME/v2-rollback-plan-output.json")"
+cat > "$HOME/v2-rollback-execute.json" <<ROLLBACK_EXECUTE
+{"schemaVersion":1,"command":"rollback-config-execute","stateRoot":"$HOME/.local/state/install.doctor/engine","sourceRunId":"$v2_run","sourcePlanDigest":"$v2_digest","rollbackRunId":"upgrade-v2-to-v1-policy","approvedPlanDigest":"$v2_rollback_digest"}
+ROLLBACK_EXECUTE
+node /fixture/releases/acceptance-v2/install-doctor-engine.mjs --input "$HOME/v2-rollback-execute.json" > "$HOME/v2-rollback-execute-output.json"
+cmp -s "$HOME/v1-policy.json" "$HOME/.config/install.doctor-policy.json" \
+  || { printf 'v2 rollback did not restore the exact v1 managed policy\n' >&2; exit 88; }
+[ "$v2_hash" = "$(sha256sum "$HOME/mutation-ledger" | awk '{print $1}')" ] \
+  || { printf 'configuration rollback changed live application data\n' >&2; exit 88; }
+
+env INSTALL_DOCTOR_APPROVED_PLAN_DIGEST="$v2_digest" bash /fixture/start-v2.sh >"$HOME/v2-reapply.stdout" 2>"$HOME/v2-reapply.stderr"
+cmp -s "$HOME/v2-policy.json" "$HOME/.config/install.doctor-policy.json" \
+  || { printf 'v2 reapply did not restore the exact v2 managed policy\n' >&2; exit 88; }
+[ "$v2_hash" = "$(sha256sum "$HOME/mutation-ledger" | awk '{print $1}')" ] \
+  || { printf 'v2 configuration reapply duplicated application mutation\n' >&2; exit 88; }
 env INSTALL_DOCTOR_APPROVED_PLAN_DIGEST="$v2_digest" bash /fixture/start-v2.sh >"$HOME/v2-unchanged.stdout" 2>"$HOME/v2-unchanged.stderr"
 [ "$v2_hash" = "$(sha256sum "$HOME/mutation-ledger" | awk '{print $1}')" ] || exit 89
 
@@ -347,7 +372,7 @@ for (const release of ['acceptance-v1', 'acceptance-v2']) {
     if (!fs.existsSync(provenancePath)) throw new Error(`${release} provenance missing ${name}`);
   }
 }
-for (const [digest, expectedRuns] of [[v1Digest, 1], [v2Digest, 2]]) {
+for (const [digest, expectedRuns] of [[v1Digest, 1], [v2Digest, 3]]) {
   const root = path.join(home, '.local/state/install.doctor/engine/runs', digest);
   const runs = fs.readdirSync(root).filter(name => !name.startsWith('.'));
   if (runs.length !== expectedRuns) throw new Error(`${digest} expected ${expectedRuns} runs, found ${runs.length}`);
@@ -359,12 +384,12 @@ for (const [digest, expectedRuns] of [[v1Digest, 1], [v2Digest, 2]]) {
   }
 }
 VERIFY
-[ "$(wc -l < "$HOME/release-requests.log" | tr -d ' ')" -eq 30 ] || {
+[ "$(wc -l < "$HOME/release-requests.log" | tr -d ' ')" -eq 35 ] || {
   printf 'unexpected signed release request count\n' >&2
   cat "$HOME/release-requests.log" >&2
   exit 90
 }
-printf 'distinct_releases=1\ndistinct_commits=1\ndistinct_plans=1\nv2_interruption_resumed=1\nv2_unchanged_mutations=0\n'
+printf 'distinct_releases=1\ndistinct_commits=1\ndistinct_plans=1\nv2_interruption_resumed=1\nv2_config_rollback_restored_v1=1\nv2_unchanged_mutations=0\n'
 RUN
 chmod 0700 /canary-home/run-as-node.sh
 chown node:node /canary-home/run-as-node.sh
@@ -394,6 +419,7 @@ grep -q '^distinct_releases=1$' "$OUTPUT"
 grep -q '^distinct_commits=1$' "$OUTPUT"
 grep -q '^distinct_plans=1$' "$OUTPUT"
 grep -q '^v2_interruption_resumed=1$' "$OUTPUT"
+grep -q '^v2_config_rollback_restored_v1=1$' "$OUTPUT"
 printf 'bootstrap-upgrade-acceptance: covered %s committed desired-state inputs across both signed releases\n' "$DESIRED_STATE_FILE_COUNT"
 grep -q '^v2_unchanged_mutations=0$' "$OUTPUT"
-printf 'bootstrap-upgrade-acceptance: PASS (signed v1 apply, v2 approval boundary, interrupted upgrade resume, changed closure, unchanged v2)\n'
+printf 'bootstrap-upgrade-acceptance: PASS (signed v1 apply, v2 approval boundary, interrupted upgrade resume, exact v1 config rollback, v2 reapply, unchanged v2)\n'
