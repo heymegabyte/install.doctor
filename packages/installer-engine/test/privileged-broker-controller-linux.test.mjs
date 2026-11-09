@@ -79,7 +79,6 @@ async function exerciseController(t, suffix, authorize) {
   const helperPath = join(authorityRoot, 'desktop-tools-privileged-broker');
   const runtimePath = join(authorityRoot, 'runtime');
   const workerPath = join(authorityRoot, 'worker.mjs');
-  const clientModulePath = join(authorityRoot, 'client.mjs');
   await mkdir(authorityRoot, { recursive: true, mode: 0o700 });
   await mkdir(socketRoot, { recursive: true, mode: 0o710 });
   await chmod(authorityRoot, 0o711);
@@ -127,6 +126,7 @@ test('Linux root controller admits an enrolled UID through the real sealed-FD br
   const helperPath = join(authorityRoot, 'desktop-tools-privileged-broker');
   const runtimePath = join(authorityRoot, 'runtime');
   const workerPath = join(authorityRoot, 'worker.mjs');
+  const clientModulePath = join(authorityRoot, 'client.mjs');
   const payloadPath = join('/tmp', `${runId}.deb`);
   await mkdir(authorityRoot, { recursive: true, mode: 0o700 });
   await mkdir(socketRoot, { recursive: true, mode: 0o710 });
