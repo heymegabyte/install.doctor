@@ -309,18 +309,22 @@ export_install_authority unchanged-second-run "$unchanged_run" "$v2_digest" onli
 # namespace with every ambient capability removed from the non-root process.
 offline_archive="$RUNNER_TEMP/offline-bundle.tar"
 offline_unpack="$RUNNER_TEMP/offline-bundle-unpacked"
+offline_entries="$RUNNER_TEMP/offline-bundle.entries"
 mkdir -m 0700 "$offline_unpack"
 curl "${curl_args[@]}" --max-filesize 1073741824 --output "$offline_archive" "$CANARY_OFFLINE_BUNDLE_URL"
 printf '%s  %s\n' "$CANARY_OFFLINE_BUNDLE_SHA256" "$offline_archive" | sha256sum --check --strict >/dev/null
-if tar -tvf "$offline_archive" | awk '$1 ~ /^[lhbcp]/ { found=1 } END { exit !found }'; then
-  printf 'offline bundle archive contains a link or special file\n' >&2; exit 1
+tar -tf "$offline_archive" >"$offline_entries"
+[ "$(wc -l <"$offline_entries")" -le 10000 ] || { printf 'offline bundle archive contains too many entries\n' >&2; exit 1; }
+[ -z "$(LC_ALL=C sort "$offline_entries" | uniq -d)" ] || { printf 'offline bundle archive contains duplicate paths\n' >&2; exit 1; }
+if tar --numeric-owner -tvf "$offline_archive" | awk '$1 ~ /^[lhbcp]/ { special=1 } { size += $3 } END { exit !(special || size > 1073741824) }'; then
+  printf 'offline bundle archive contains a link, special file, or oversized expansion\n' >&2; exit 1
 fi
 while IFS= read -r archive_path; do
-  case "/$archive_path/" in
-    //*|*/../*|*/./../*|*$'\n'*|*$'\r'*)
+  case "$archive_path" in
+    ''|/*|./*|../*|*/../*|*/..|*/./*|*//*|*$'\n'*|*$'\r'*)
       printf 'offline bundle archive contains an unsafe path\n' >&2; exit 1 ;;
   esac
-done < <(tar -tf "$offline_archive")
+done <"$offline_entries"
 tar --extract --file "$offline_archive" --directory "$offline_unpack" --no-same-owner --no-same-permissions
 offline_bundle="$(find "$offline_unpack" -mindepth 1 -maxdepth 1 -type d -name '[a-f0-9]*' -print -quit)"
 [ -n "$offline_bundle" ] && [ "$(find "$offline_unpack" -mindepth 1 -maxdepth 1 -print | wc -l)" -eq 1 ] || exit 1
