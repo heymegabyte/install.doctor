@@ -32,4 +32,10 @@ for required in \
   grep -Fq "$required" "$WORKFLOW" || fail "workflow does not execute $required"
 done
 
+grep -Fq 'INSTALL_DOCTOR_REQUIRE_REAL_OFFLINE_SANDBOX: "1"' "$WORKFLOW" \
+  || fail 'offline lifecycle job must require real Linux namespace isolation'
+grep -Fq 'production provisioner dispatches and reruns a real signed bundle through the network-denied CLI' \
+  "$ROOT/packages/installer-engine/test/offline-execution.test.mjs" \
+  || fail 'offline lifecycle suite must drive the production provisioner dispatcher and unchanged rerun'
+
 printf 'bootstrap-acceptance-workflow: PASS\n'

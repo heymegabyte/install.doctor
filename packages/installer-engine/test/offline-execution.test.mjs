@@ -28,6 +28,7 @@ import {
   verifyNativeDebianMetadataWithResolver,
   verifyOfflineNativeDebianMetadata,
   verifyOfflineBundle,
+  collectLinuxOfflineHostFacts,
 } from '../dist/index.js';
 
 const digest = character => character.repeat(64);
@@ -43,7 +44,9 @@ const task = (id, dependencies = []) => ({
   lockDomains: [], cleanup: 'always', compensation: 'none', failurePolicy: 'continue-independent',
 });
 
-async function fixture(t) {
+async function fixture(t, options = {}) {
+  const fixtureAt = options.at ?? at;
+  const fixtureLater = options.later ?? later;
   const root = await mkdtemp(join(tmpdir(), 'install-doctor-offline-execution-'));
   t.after(() => rm(root, { recursive: true, force: true }));
   const source = join(root, 'source');
@@ -135,7 +138,7 @@ async function fixture(t) {
   const releaseSignature = join(source, 'release-signature');
   await writeFile(releaseEnvelope, serializeStageZeroReleaseEnvelope({
     schemaVersion: 4, releaseId: 'release-1', sourceCommit: '1'.repeat(40),
-    createdAt: Date.parse(at) / 1000, expiresAt: Date.parse(later) / 1000, keyId: releaseTrust.keyId,
+    createdAt: Date.parse(fixtureAt) / 1000, expiresAt: Date.parse(fixtureLater) / 1000, keyId: releaseTrust.keyId,
     artifactUrl: 'https://app.install.doctor/releases/release-1/provision.sh', artifactSha256: '1'.repeat(64), artifactSize: 1,
     engineUrl: 'https://app.install.doctor/releases/release-1/install-doctor-engine.mjs', engineSha256: sha(await readFile(engine)), engineSize: (await stat(engine)).size, engineNodeMin: 22,
     catalogUrl: 'https://app.install.doctor/releases/release-1/catalog.json', catalogSha256: sha(await readFile(catalog)), catalogSize: (await stat(catalog)).size,
@@ -147,7 +150,7 @@ async function fixture(t) {
   execFileSync('ssh-keygen', ['-Y', 'sign', '-q', '-f', releaseKeyPath, '-n', 'install.doctor.release', releaseEnvelope]);
   await rename(`${releaseEnvelope}.sig`, releaseSignature);
   const tasks = [task('task.install', ['task.prepare']), task('task.prepare')];
-  const facts = {
+  const facts = options.facts ?? {
     schemaVersion: 1, hostId: 'offline-host', collectedAt: at, os: 'linux', osVersion: '24.04', arch: 'x64',
     environment: 'native', roles: ['fixture'], packageManagers: [], capabilities: [],
   };
@@ -161,7 +164,7 @@ async function fixture(t) {
       plan: async () => ({ tasks, selectedTaskIds: ['task.install'] }),
       check: async () => 'needed', apply: async () => {}, verify: async () => 'verified',
     },
-    now: () => at,
+    now: () => fixtureAt,
   }).plan(facts, desiredState, 'release-1');
   const operations = {
     schemaVersion: 4,
@@ -188,8 +191,8 @@ async function fixture(t) {
     return createOfflineBundle({
       outputRoot: bundleOutputRoot, releaseId: candidatePlan.releaseId, planDigest: candidatePlan.digest,
       graphDigest: graphDigest ?? offlineExecutionGraphDigest(candidatePlan, candidateOperations, candidateDesiredState, candidateFacts),
-      platform: { os: 'linux', arch: 'x64', environment: 'native' }, selectedTaskIds: candidatePlan.selectedTaskIds,
-      createdAt: at, expiresAt: later, signer: { keyId: trust.keyId, privateKeyPath }, releaseTrust,
+      platform: { os: candidateFacts.os, arch: candidateFacts.arch, environment: candidateFacts.environment }, selectedTaskIds: candidatePlan.selectedTaskIds,
+      createdAt: fixtureAt, expiresAt: fixtureLater, signer: { keyId: trust.keyId, privateKeyPath }, releaseTrust,
       artifacts: [
         { id: 'engine', sourcePath: engine, mediaType: 'text/javascript', mode: '0700', license: 'MIT', schema: null, containsSecrets: false },
         { id: 'catalog', sourcePath: catalog, mediaType: 'application/json', mode: '0600', license: 'MIT', schema: { id: 'software-catalog', version: '1' }, containsSecrets: false },
@@ -1355,6 +1358,65 @@ test('provider outage cannot fabricate recovery: offline interruption resumes on
     now: () => at, resume: true,
   }), /requires released uncommitted evidence; found committed/);
   assert.equal(applies, 2, 'committed evidence cannot be replayed as a resume');
+});
+
+test('production provisioner dispatches and reruns a real signed bundle through the network-denied CLI', async t => {
+  if (process.env.INSTALL_DOCTOR_REQUIRE_REAL_OFFLINE_SANDBOX !== '1' || process.platform !== 'linux' || process.arch !== 'x64') {
+    t.skip('requires the explicit Linux x64 real-offline canary');
+    return;
+  }
+  const now = new Date();
+  const fixtureAt = new Date(now.getTime() - 60_000).toISOString();
+  const fixtureLater = new Date(now.getTime() + 3_600_000).toISOString();
+  const facts = await collectLinuxOfflineHostFacts({ now: () => now.toISOString() });
+  const state = await fixture(t, { at: fixtureAt, later: fixtureLater, facts });
+  const created = await state.makeBundle();
+  const artifactIds = ['catalog', 'desired-state', 'engine', 'fixture-operation', 'host-facts', 'normalized-plan', 'operation-manifest', 'release-envelope', 'release-signature'];
+  const authorityPath = join(state.root, 'offline-authority.json');
+  await writeFile(authorityPath, `${JSON.stringify({
+    trust: state.trust,
+    releaseTrust: state.releaseTrust,
+    expected: {
+      releaseId: state.plan.releaseId,
+      planDigest: state.plan.digest,
+      platform: { os: facts.os, arch: facts.arch, environment: facts.environment },
+      selectedTaskIds: state.plan.selectedTaskIds,
+      artifactIds,
+    },
+    approvedManifestDigest: created.manifestDigest,
+    approvedPlanDigest: state.plan.digest,
+  })}\n`, { mode: 0o600 });
+  const repositoryRoot = new URL('../../../', import.meta.url).pathname;
+  const provisioner = join(repositoryRoot, 'scripts', 'provision.sh');
+  const engine = new URL('../dist/cli.js', import.meta.url).pathname;
+  const home = join(state.root, 'product-home');
+  const stateRoot = join(state.root, 'product-state');
+  await mkdir(home, { mode: 0o700 });
+  await mkdir(stateRoot, { mode: 0o700 });
+  const baseEnvironment = {
+    HOME: home,
+    XDG_STATE_HOME: stateRoot,
+    PATH: process.env.PATH ?? '/usr/bin:/bin',
+    INSTALL_DOCTOR_ENGINE_PATH: engine,
+    INSTALL_DOCTOR_ENGINE_SHA256: sha(await readFile(engine)),
+    INSTALL_DOCTOR_RUNTIME_NODE: process.execPath,
+    INSTALL_DOCTOR_OFFLINE_BUNDLE_DIR: created.bundleDirectory,
+    INSTALL_DOCTOR_OFFLINE_AUTHORITY_PATH: authorityPath,
+    INSTALL_DOCTOR_OFFLINE_MODE: 'execute',
+    INSTALL_DOCTOR_RENDERER: 'headless',
+  };
+  const invoke = runId => execute('/bin/bash', ['-c', 'source "$1"; runOfflineBundleProvisioning', '_', provisioner], {
+    env: { ...baseEnvironment, INSTALL_DOCTOR_OFFLINE_RUN_ID: runId }, timeout: 30_000, maxBuffer: 2_000_000,
+  });
+  const first = await invoke('product-offline-first');
+  assert.equal(first.stderr, '');
+  const materialized = join(stateRoot, 'install.doctor', 'offline', 'materialized', created.manifestDigest);
+  assert.equal((await stat(materialized)).isDirectory(), true);
+  const materializedIdentity = await lstat(materialized);
+  const second = await invoke('product-offline-second');
+  assert.equal(second.stderr, '');
+  assert.equal((await lstat(materialized)).ino, materializedIdentity.ino, 'unchanged rerun must reuse the verified materialization');
+  assert.doesNotMatch(first.stdout + second.stdout, /opencode|provider|infisical|https?:\/\//i);
 });
 
 test('offline orchestration rejects a missing journal factory before trust-boundary work', async () => {
