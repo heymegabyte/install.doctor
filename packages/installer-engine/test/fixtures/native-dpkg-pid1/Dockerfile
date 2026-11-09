@@ -3,7 +3,7 @@ FROM node:24-bookworm@sha256:8fa96264f302f58bbb13aa7339c541547b56975766ce956c875
 ENV container=docker
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends dbus dpkg-dev systemd systemd-sysv \
+  && apt-get install -y --no-install-recommends dbus dpkg-dev gnupg systemd systemd-sysv xz-utils \
   && apt-get clean \
   && rm -rf /var/lib/apt/lists/* \
   && systemctl mask dev-hugepages.mount sys-fs-fuse-connections.mount systemd-remount-fs.service

@@ -10,8 +10,10 @@ import { dirname, join } from 'node:path';
 import {
   createNativeDpkgTransactionRuntime,
   createTrustedDebianVersionComparator,
+  createDefaultDebianMetadataVerifier,
   assertNativeDpkgNetworkDenied,
   inspectNativeDebianPackage,
+  verifyDebianRepositoryMetadata,
 } from './dist/index.js';
 
 const receiptPath = process.argv[2];
@@ -142,6 +144,83 @@ async function createDescriptor(packagePath, architecture) {
   };
 }
 
+async function createAndVerifyRepositoryAuthority(work, packagePath, architecture) {
+  const repository = join(work, 'repository-authority');
+  const gnupg = join(repository, 'gnupg');
+  await mkdir(gnupg, { recursive: true, mode: 0o700 });
+  await chmod(gnupg, 0o700);
+  const identity = 'Desktop Tools Disposable Repository <fixture@desktop.tools>';
+  await command('/usr/bin/gpg', ['--batch', '--homedir', gnupg, '--pinentry-mode', 'loopback', '--passphrase', '',
+    '--quick-generate-key', identity, 'ed25519', 'sign', '1y']);
+  const listing = await command('/usr/bin/gpg', ['--batch', '--homedir', gnupg, '--with-colons', '--fingerprint', identity]);
+  const fingerprint = listing.stdout.split('\n').map(line => line.split(':')).find(fields => fields[0] === 'fpr')?.[9];
+  assert.match(fingerprint ?? '', /^(?:[A-F0-9]{40}|[A-F0-9]{64})$/);
+
+  const payloadBytes = await readFile(packagePath);
+  const payloadDigest = sha256(payloadBytes);
+  const filename = `pool/main/i/${PACKAGE_NAME}/${PACKAGE_NAME}_${PACKAGE_VERSION}_${architecture}.deb`;
+  const packagesText = [
+    `Package: ${PACKAGE_NAME}`, `Version: ${PACKAGE_VERSION}`, `Architecture: ${architecture}`,
+    `Filename: ${filename}`, `Size: ${payloadBytes.length}`, `SHA256: ${payloadDigest}`, '',
+  ].join('\n');
+  // Keep compressed bytes on disk so they never cross a text conversion boundary.
+  const packagesRaw = join(repository, 'Packages');
+  const packagesPath = join(repository, 'Packages.xz');
+  await writeFile(packagesRaw, packagesText, { mode: 0o600 });
+  await command('/usr/bin/xz', ['--compress', '--keep', '--threads=1', '--check=crc64', '--', packagesRaw], {
+    env: { PATH: '/usr/bin:/bin', LANG: 'C', LC_ALL: 'C', XZ_OPT: '-9e' },
+  });
+  const exactPackagesBytes = await readFile(packagesPath);
+  assert.ok(exactPackagesBytes.length > 0);
+  const signedAt = new Date('2026-01-01T00:00:00.000Z');
+  const validUntil = new Date('2027-01-01T00:00:00.000Z');
+  const indexRelativePath = `main/binary-${architecture}/Packages.xz`;
+  const releaseText = [
+    'Origin: Desktop Tools Disposable Fixture', 'Suite: bookworm', 'Codename: bookworm',
+    `Date: ${signedAt.toUTCString()}`, `Valid-Until: ${validUntil.toUTCString()}`,
+    `Architectures: ${architecture}`, 'Components: main', 'SHA256:',
+    ` ${sha256(exactPackagesBytes)} ${exactPackagesBytes.length} ${indexRelativePath}`, '',
+  ].join('\n');
+  const releasePath = join(repository, 'Release');
+  const inReleasePath = join(repository, 'InRelease');
+  const keyringPath = join(repository, 'fixture-keyring.gpg');
+  await writeFile(releasePath, releaseText, { mode: 0o600 });
+  await command('/usr/bin/gpg', ['--batch', '--homedir', gnupg, '--armor', '--local-user', fingerprint,
+    '--output', inReleasePath, '--clear-sign', '--', releasePath]);
+  // Export directly to a file so the binary keyring is never decoded as text.
+  await command('/usr/bin/gpg', ['--batch', '--homedir', gnupg, '--output', keyringPath, '--export', fingerprint]);
+  const [inReleaseBytes, keyringBytes] = await Promise.all([readFile(inReleasePath), readFile(keyringPath)]);
+  const descriptor = await createDescriptor(packagePath, architecture);
+  descriptor.metadataProof.inRelease = {
+    artifactId: 'fixture-inrelease', path: 'dists/bookworm/InRelease', sha256: sha256(inReleaseBytes),
+    sizeBytes: inReleaseBytes.length, signedAt: signedAt.toISOString(), validUntil: validUntil.toISOString(),
+    maximumDateAgeSeconds: null, signingKeyFingerprint: fingerprint,
+    keyring: { artifactId: 'fixture-keyring', sha256: sha256(keyringBytes), sizeBytes: keyringBytes.length,
+      mediaType: 'application/vnd.gnupg.keyring' },
+  };
+  descriptor.metadataProof.packagesIndex = {
+    artifactId: 'fixture-packages', path: `dists/bookworm/${indexRelativePath}`,
+    sha256: sha256(exactPackagesBytes), sizeBytes: exactPackagesBytes.length, architecture,
+  };
+  descriptor.metadataProof.packageStanza = {
+    filename, sha256: payloadDigest, sizeBytes: payloadBytes.length,
+    depends: null, preDepends: null, essential: 'absent', multiArch: 'absent',
+  };
+  const verified = await verifyDebianRepositoryMetadata({ descriptor, inReleaseBytes, keyringBytes,
+    packagesIndexBytes: exactPackagesBytes, payloadBytes,
+    verifier: createDefaultDebianMetadataVerifier({ keyring: { kind: 'path', absolutePath: keyringPath },
+      now: () => new Date('2026-06-01T00:00:00.000Z') }) });
+  assert.equal(verified.inReleaseFingerprint, fingerprint);
+  assert.equal(verified.payloadSha256, payloadDigest);
+  const substitutedIndex = Buffer.from(exactPackagesBytes);
+  substitutedIndex[0] ^= 0x01;
+  await assert.rejects(verifyDebianRepositoryMetadata({ descriptor, inReleaseBytes, keyringBytes,
+    packagesIndexBytes: substitutedIndex, payloadBytes,
+    verifier: createDefaultDebianMetadataVerifier({ keyring: { kind: 'path', absolutePath: keyringPath },
+      now: () => new Date('2026-06-01T00:00:00.000Z') }) }), /Packages index (?:bytes differ|digest does not match)/);
+  return { descriptor, fingerprint, payloadDigest, tamperRejected: true };
+}
+
 async function exactPolicyState() {
   const [bytes, metadata] = await Promise.all([readFile(POLICY_PATH), stat(POLICY_PATH)]);
   return { sha256: sha256(bytes), mode: metadata.mode & 0o7777, uid: metadata.uid, gid: metadata.gid };
@@ -209,6 +288,7 @@ async function main() {
   const architecture = (await command('/usr/bin/dpkg', ['--print-architecture'])).stdout.trim();
   assert.ok(architecture === 'amd64' || architecture === 'arm64');
   const packagePath = await buildPackage(work, architecture);
+  const repositoryAuthority = await createAndVerifyRepositoryAuthority(work, packagePath, architecture);
   const reproductionRoot = join(work, 'reproduction');
   await mkdir(reproductionRoot, { recursive: true });
   const reproducedPackagePath = await buildPackage(reproductionRoot, architecture);
@@ -304,9 +384,13 @@ async function main() {
     subject: { runtimeSha256: sha256(runtimeBytes), packageSha256: descriptor.artifact.sha256 },
     assertions: {
       realControlAdmission: true, realDpkgMutation: true, networkDenied: true,
+      repositoryMetadataVerified: true,
+      repositoryTamperRejected: repositoryAuthority.tamperRejected,
       boundaryInterruptionRecorded: true, resumeConfigureOnly, unchangedSecondApply,
       policyRestoredExactly, serviceRestoredExactly, noPendingTriggers, reproduciblePackage,
     },
+    repositoryAuthority: { signingKeyFingerprint: repositoryAuthority.fingerprint,
+      payloadSha256: repositoryAuthority.payloadDigest },
     limitation: 'Interruption is injected after a real dpkg unpack returns at the runtime safe boundary; this fixture does not claim SIGKILL or power-loss coverage inside dpkg.',
     finishedAt: new Date().toISOString(),
   };

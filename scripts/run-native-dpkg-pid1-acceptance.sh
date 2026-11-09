@@ -46,6 +46,30 @@ for _ in $(seq 1 60); do
 done
 [ "$ready" -eq 1 ] || { docker logs "$CONTAINER" >&2; exit 1; }
 
+# Enroll the fixed unprivileged peer used by the composed broker acceptance.
+# The pinned Node base already supplies uid 1000; fail closed if that identity
+# disappears instead of silently substituting a root or arbitrary host user.
+docker exec "$CONTAINER" /bin/sh -ceu '
+  enrolled_uid=1000
+  passwd_entry="$(getent passwd "$enrolled_uid")"
+  [ -n "$passwd_entry" ]
+  enrolled_name="${passwd_entry%%:*}"
+  [ -n "$enrolled_name" ]
+  [ "$(id -u "$enrolled_name")" -eq "$enrolled_uid" ]
+  enrolled_gid="$(id -g "$enrolled_name")"
+  [ "$enrolled_gid" -gt 0 ]
+  for path in /run/user/1000 /run/install.doctor /run/install.doctor/broker; do
+    [ ! -L "$path" ]
+  done
+  install -d -o "$enrolled_uid" -g "$enrolled_gid" -m 0700 /run/user/1000
+  install -d -o 0 -g "$enrolled_gid" -m 0750 /run/install.doctor /run/install.doctor/broker
+  [ "$(stat -c %u:%g:%a /run/user/1000)" = "$enrolled_uid:$enrolled_gid:700" ]
+  [ "$(stat -c %u:%g:%a /run/install.doctor)" = "0:$enrolled_gid:750" ]
+  [ "$(stat -c %u:%g:%a /run/install.doctor/broker)" = "0:$enrolled_gid:750" ]
+  setpriv --reuid="$enrolled_uid" --regid="$enrolled_gid" --init-groups --reset-env \
+    /bin/sh -ceu '\''[ "$(id -u)" -eq 1000 ]; [ -w /run/user/1000 ]; [ -x /run/install.doctor/broker ]; [ ! -w /run/install.doctor/broker ]'\''
+'
+
 docker exec "$CONTAINER" /usr/bin/setpriv --bounding-set=-net_admin --no-new-privs -- \
   node /opt/install.doctor/packages/installer-engine/acceptance.mjs /evidence/receipt.json \
   | tee "$EVIDENCE_ROOT/run.ndjson"
