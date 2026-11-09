@@ -79,5 +79,36 @@ fi
 pair_noto="$(grep -nE '\bcurl ' "$SRC" | grep -cvE -- '--connect-timeout')"
 { [ "$pair_noto" = 0 ]; } && pass "A11 — every aid-pair control-plane curl carries --connect-timeout (pairing fails fast on an unreachable CP, never hangs)" || fail "$pair_noto aid-pair curl call(s) lack --connect-timeout (pairing would hang on an unreachable control plane)"
 
+# A profile-bound invocation requests privileged authority only with an exact signed profile digest
+# and a stable local fingerprint, then repeats the binding during the one-time claim.
+PAIR_FIXTURE="$(mktemp -d)"
+mkdir -p "$PAIR_FIXTURE/bin" "$PAIR_FIXTURE/home"
+cat > "$PAIR_FIXTURE/bin/curl" <<'MOCK_CURL'
+#!/usr/bin/env bash
+printf '%q ' "$@" >> "$PAIR_CAPTURE"
+printf '\n' >> "$PAIR_CAPTURE"
+case " $* " in
+  *'/api/devices/pair/start'*) printf '%s\n' '{"code":"2345-6789-ABCD","pollSecret":"poll-secret-value","verifyUrl":"https://desktop.tools/pair?code=2345-6789-ABCD"}' ;;
+  *'/api/devices/pair/poll'*) printf '%s\n' '{"status":"claimed","deviceId":"device-1","token":"aid_fixture_token"}' ;;
+  *) exit 22 ;;
+esac
+MOCK_CURL
+chmod 0700 "$PAIR_FIXTURE/bin/curl"
+PROFILE_DIGEST="$(printf 'a%.0s' {1..64})"
+if HOME="$PAIR_FIXTURE/home" PATH="$PAIR_FIXTURE/bin:$PATH" PAIR_CAPTURE="$PAIR_FIXTURE/calls" \
+  HEADLESS_INSTALL=1 DESKTOP_TOOLS_PROFILE_ID=profile-1 DESKTOP_TOOLS_PROFILE_DIGEST="$PROFILE_DIGEST" \
+  DESKTOP_TOOLS_PAIR_TIMEOUT=2 DESKTOP_TOOLS_PAIR_INTERVAL=1 bash "$SRC" >/dev/null 2>&1 \
+  && grep -q 'authorize-privileged-run' "$PAIR_FIXTURE/calls" \
+  && grep -q 'profileRevisionDigest' "$PAIR_FIXTURE/calls" \
+  && grep -q 'x-desktop-tools-device-fingerprint' "$PAIR_FIXTURE/calls" \
+  && [ "$(wc -c < "$PAIR_FIXTURE/home/.config/desktop-tools/device-fingerprint" | tr -d ' ')" = 64 ]; then
+  pass 'profile-bound pairing requests and claims exact privileged device authority'
+else
+  fail 'profile-bound pairing omitted exact privileged device authority'
+fi
+FINGERPRINT_MODE="$(stat -c '%a' "$PAIR_FIXTURE/home/.config/desktop-tools/device-fingerprint" 2>/dev/null || stat -f '%Lp' "$PAIR_FIXTURE/home/.config/desktop-tools/device-fingerprint" 2>/dev/null || echo '?')"
+[ "$FINGERPRINT_MODE" = 600 ] && pass 'profile-bound pairing fingerprint is owner-only' || fail "fingerprint mode $FINGERPRINT_MODE (want 600)"
+rm -rf -- "$PAIR_FIXTURE"
+
 say "aid-pair: $P passed, $F failed"
 [ "$F" -eq 0 ]

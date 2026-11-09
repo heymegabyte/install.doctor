@@ -3,13 +3,14 @@
 # Starts a pairing with the desktop.tools control plane, prints a short code + a browser verify URL
 # for the operator to approve, polls until approved, then stores the minted device token locally (0600).
 #
-# Env seams: DESKTOP_TOOLS_CONTROL_PLANE_URL · DESKTOP_TOOLS_TENANT · DESKTOP_TOOLS_TOKEN_PATH · DESKTOP_TOOLS_PAIR_TIMEOUT · DESKTOP_TOOLS_PAIR_INTERVAL
+# Env seams: DESKTOP_TOOLS_CONTROL_PLANE_URL · DESKTOP_TOOLS_TENANT · DESKTOP_TOOLS_TOKEN_PATH · DESKTOP_TOOLS_DEVICE_FINGERPRINT_PATH · DESKTOP_TOOLS_PROFILE_ID · DESKTOP_TOOLS_PROFILE_DIGEST · DESKTOP_TOOLS_PAIR_TIMEOUT · DESKTOP_TOOLS_PAIR_INTERVAL
 # Usage: desktop-tools-pair [--force]
 set -uo pipefail
 
 DESKTOP_TOOLS_CONTROL_PLANE_URL="${DESKTOP_TOOLS_CONTROL_PLANE_URL:-${AID_CONTROL_PLANE_URL:-https://desktop.tools}}"
 DESKTOP_TOOLS_TENANT="${DESKTOP_TOOLS_TENANT:-${AID_TENANT:-_default}}"
 DESKTOP_TOOLS_TOKEN_PATH="${DESKTOP_TOOLS_TOKEN_PATH:-${AID_TOKEN_PATH:-$HOME/.config/desktop-tools/device-token}}"
+DESKTOP_TOOLS_DEVICE_FINGERPRINT_PATH="${DESKTOP_TOOLS_DEVICE_FINGERPRINT_PATH:-$HOME/.config/desktop-tools/device-fingerprint}"
 DESKTOP_TOOLS_PAIR_TIMEOUT="${DESKTOP_TOOLS_PAIR_TIMEOUT:-${AID_PAIR_TIMEOUT:-300}}"
 DESKTOP_TOOLS_PAIR_INTERVAL="${DESKTOP_TOOLS_PAIR_INTERVAL:-${AID_PAIR_INTERVAL:-3}}"
 FORCE=0
@@ -31,16 +32,36 @@ openBrowser() {
 
 main() {
   local u="${DESKTOP_TOOLS_CONTROL_PLANE_URL%/}"
+  case "$DESKTOP_TOOLS_TENANT" in ''|*[!a-z0-9._-]*|[-.]* ) err 'tenant identifier is invalid'; return 2 ;; esac
   if [ -s "$DESKTOP_TOOLS_TOKEN_PATH" ] && [ "$FORCE" -ne 1 ]; then
     log "already paired (token at $DESKTOP_TOOLS_TOKEN_PATH); pass --force to re-pair"
     return 0
   fi
-  local hostLabel
-  hostLabel="$(hostname 2>/dev/null || echo unknown)"
+  local hostLabel requestBody profileId="${DESKTOP_TOOLS_PROFILE_ID:-}" profileDigest="${DESKTOP_TOOLS_PROFILE_DIGEST:-}" fingerprint=''
+  hostLabel="$(hostname 2>/dev/null | tr -cd 'A-Za-z0-9._-' | cut -c1-200)"
+  [ -n "$hostLabel" ] || hostLabel=unknown
+  requestBody="{\"tenant\":\"${DESKTOP_TOOLS_TENANT}\",\"label\":\"${hostLabel}\",\"permissions\":[\"pull-desired-state\",\"report-status\"]}"
+  if [ -n "$profileId" ] || [ -n "$profileDigest" ]; then
+    case "$profileId" in ''|*[!a-z0-9._-]*|[-.]* ) err 'profile identifier is invalid'; return 2 ;; esac
+    case "$profileDigest" in *[!a-f0-9]*|'') err 'profile digest is invalid'; return 2 ;; esac
+    [ "${#profileDigest}" -eq 64 ] || { err 'profile digest is invalid'; return 2; }
+    mkdir -p "$(dirname "$DESKTOP_TOOLS_DEVICE_FINGERPRINT_PATH")" || return 1
+    if [ ! -s "$DESKTOP_TOOLS_DEVICE_FINGERPRINT_PATH" ]; then
+      (
+        umask 077
+        od -An -N32 -tx1 /dev/urandom | tr -d ' \n' > "$DESKTOP_TOOLS_DEVICE_FINGERPRINT_PATH"
+      ) || return 1
+    fi
+    chmod 600 "$DESKTOP_TOOLS_DEVICE_FINGERPRINT_PATH" 2>/dev/null || true
+    fingerprint="$(tr -d '\r\n' < "$DESKTOP_TOOLS_DEVICE_FINGERPRINT_PATH")"
+    case "$fingerprint" in *[!a-f0-9]*|'') err 'device fingerprint is invalid'; return 2 ;; esac
+    [ "${#fingerprint}" -eq 64 ] || { err 'device fingerprint is invalid'; return 2; }
+    requestBody="{\"tenant\":\"${DESKTOP_TOOLS_TENANT}\",\"label\":\"${hostLabel}\",\"permissions\":[\"pull-desired-state\",\"report-status\",\"authorize-privileged-run\"],\"machineFingerprint\":\"${fingerprint}\",\"profileId\":\"${profileId}\",\"profileRevisionDigest\":\"${profileDigest}\"}"
+  fi
   log "starting pairing with $u (tenant ${DESKTOP_TOOLS_TENANT})…"
   local start
   start="$(curl -fsS --connect-timeout 5 --max-time 20 -X POST -H 'content-type: application/json' \
-    -d "{\"tenant\":\"${DESKTOP_TOOLS_TENANT}\",\"label\":\"${hostLabel}\",\"permissions\":[\"pull-desired-state\",\"report-status\",\"authorize-privileged-run\"]}" "$u/api/devices/pair/start" 2>/dev/null)"
+    -d "$requestBody" "$u/api/devices/pair/start" 2>/dev/null)"
   local code pollSecret verifyUrl
   code="$(jsonStr "$start" code)"
   pollSecret="$(jsonStr "$start" pollSecret)"
@@ -58,7 +79,14 @@ main() {
   log "waiting for approval (timeout ${DESKTOP_TOOLS_PAIR_TIMEOUT}s)…"
   local waited=0 resp status errf token deviceId
   while [ "$waited" -lt "$DESKTOP_TOOLS_PAIR_TIMEOUT" ]; do
-    resp="$(curl -sS --connect-timeout 5 --max-time 20 -H "authorization: Bearer ${pollSecret}" "$u/api/devices/pair/poll" 2>/dev/null || true)"
+    local -a claimHeaders=()
+    if [ -n "$fingerprint" ]; then
+      claimHeaders=(-H "x-desktop-tools-tenant: ${DESKTOP_TOOLS_TENANT}" \
+        -H "x-desktop-tools-profile-revision: ${profileDigest}" \
+        -H "x-desktop-tools-device-fingerprint: ${fingerprint}")
+    fi
+    resp="$(curl -sS --connect-timeout 5 --max-time 20 -H "authorization: Bearer ${pollSecret}" \
+      "${claimHeaders[@]}" "$u/api/devices/pair/poll" 2>/dev/null || true)"
     status="$(jsonStr "$resp" status)"
     errf="$(jsonStr "$resp" error)"
     case "$status" in
