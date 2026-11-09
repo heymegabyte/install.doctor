@@ -1366,6 +1366,8 @@ test('production provisioner dispatches and reruns a real signed bundle through 
     return;
   }
   const now = new Date();
+  // Release envelopes use whole epoch seconds; keep the bundle lifetime exactly inside that signed interval.
+  now.setMilliseconds(0);
   const fixtureAt = new Date(now.getTime() - 60_000).toISOString();
   const fixtureLater = new Date(now.getTime() + 3_600_000).toISOString();
   const facts = await collectLinuxOfflineHostFacts({ now: () => now.toISOString() });

@@ -34,8 +34,9 @@ async function fixture() {
     schemaVersion: 1, sessionId: 'session-one', runId: 'mcp-run-one', authorizationId: 'authorization-one',
     releaseId: 'release-one', releaseDigest: digest('1'),
     profileRevision: 'revision-one', profileDigest: digest('2'),
-    facts: { schemaVersion: 1, hostId: 'mcp-host', collectedAt: '2026-11-08T00:00:00.000Z', os: 'darwin', osVersion: '26.0',
-      arch: 'arm64', environment: 'native', roles: ['fixture'], packageManagers: [], capabilities: [] },
+    facts: { schemaVersion: 1, hostId: 'mcp-host', collectedAt: '2026-11-08T00:00:00.000Z',
+      os: process.platform === 'win32' ? 'windows' : process.platform, osVersion: 'fixture',
+      arch: process.arch, environment: 'native', roles: ['fixture'], packageManagers: [], capabilities: [] },
     desiredState: { schemaVersion: 1, revision: 'revision-one', hostId: 'mcp-host', packages: [], services: [], consents: [], offline: false },
     plan: { tasks: [task], selectedTaskIds: [task.id] },
     operations: {
