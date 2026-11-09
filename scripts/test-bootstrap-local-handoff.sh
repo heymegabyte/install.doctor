@@ -74,6 +74,15 @@ for file in "$PROVISION"; do
   else
     fail "$label root handoff re-downloads the mutable entrypoint"
   fi
+
+  if grep -Fq 'exec 9</dev/tty' "$file" \
+    && grep -Fq '_idRunSealedUserHandoff <&9 9<&- & BROKER_CHILD_PID=$!' "$file" \
+    && grep -Fq 'exec 9<&-' "$file" \
+    && grep -Fq '_idRunSealedUserHandoff </dev/null & BROKER_CHILD_PID=$!' "$file"; then
+    pass "$label preserves interactive stdin across root-to-user handoff and isolates headless stdin"
+  else
+    fail "$label loses or ambiguously inherits stdin across root-to-user handoff"
+  fi
 done
 
 printf 'bootstrap-local-handoff: %d passed, %d failed\n' "$P" "$F"

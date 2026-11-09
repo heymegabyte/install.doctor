@@ -1981,12 +1981,12 @@ NODE
 #     user. Legacy releases do not carry this closure and remain unchanged.
 idInstallDesktopToolsRuntimeClosure() {
   [ -n "${DESKTOP_TOOLS_PROFILE_ID:-}" ] || return 0
-  local RUNTIME="${INSTALL_DOCTOR_RUNTIME_NODE:-}" SUPERVISOR="${DESKTOP_TOOLS_SUPERVISOR_PATH:-}"
+  local RUNTIME="${INSTALL_DOCTOR_RUNTIME_NODE:-}" SUPERVISOR="${DESKTOP_TOOLS_SUPERVISOR_PATH:-}" RESULT EXECUTABLE CHANGED
   [ -x "$RUNTIME" ] && [ -f "$RUNTIME" ] && [ ! -L "$RUNTIME" ] \
     || { logg error 'Verified Node runtime is unavailable for Desktop Tools runtime installation'; return 2; }
   [ -f "$SUPERVISOR" ] && [ ! -L "$SUPERVISOR" ] \
     || { logg error 'Verified Desktop Tools supervisor is unavailable'; return 2; }
-  "$RUNTIME" "$SUPERVISOR" install \
+  RESULT="$("$RUNTIME" "$SUPERVISOR" install \
     --runtime-archive "${DESKTOP_TOOLS_OPENCODE_ARCHIVE:-}" \
     --sha256 "${DESKTOP_TOOLS_OPENCODE_SHA256:-}" \
     --version "${DESKTOP_TOOLS_OPENCODE_VERSION:-}" \
@@ -1995,7 +1995,14 @@ idInstallDesktopToolsRuntimeClosure() {
     --tools-archive "${DESKTOP_TOOLS_TOOLS_ARCHIVE:-}" \
     --tools-sha256 "${DESKTOP_TOOLS_TOOLS_SHA256:-}" \
     --lock "${DESKTOP_TOOLS_OPENCODE_LOCK_PATH:-}" \
-    --lock-sha256 "${DESKTOP_TOOLS_OPENCODE_LOCK_SHA256:-}"
+    --lock-sha256 "${DESKTOP_TOOLS_OPENCODE_LOCK_SHA256:-}")" || return $?
+  EXECUTABLE="$($RUNTIME -e 'const value=JSON.parse(process.argv[1]);if(value.schemaVersion!==1||typeof value.executable!=="string"||!value.executable.startsWith("/")||typeof value.changed!=="boolean"||!/^[a-f0-9]{64}$/.test(value.closureDigest||""))process.exit(2);process.stdout.write(value.executable)' "$RESULT")" \
+    || { logg error 'Desktop Tools runtime installer returned invalid evidence'; return 2; }
+  CHANGED="$($RUNTIME -e 'process.stdout.write(String(JSON.parse(process.argv[1]).changed))' "$RESULT")" || return 2
+  DESKTOP_TOOLS_EXECUTABLE="$EXECUTABLE"
+  export DESKTOP_TOOLS_EXECUTABLE
+  if [ "$CHANGED" = true ]; then logg success "Installed the verified Desktop Tools runtime at $EXECUTABLE"
+  else logg info "Verified the unchanged Desktop Tools runtime at $EXECUTABLE"; fi
 }
 
 # @description Execute the desired-state apply through the signed canonical engine.
@@ -3694,7 +3701,17 @@ function ensureInstallUser() {
     _idRunSealedUserHandoff() {
       su - "$INSTALL_USER" -c "hash_file() { if command -v sha256sum >/dev/null 2>&1; then sha256sum \"\$1\" | awk '{print \$1}'; else shasum -a 256 \"\$1\" | awk '{print \$1}'; fi; }; [ \"\$(hash_file '$ENV_EXPORT')\" = '$ENV_SHA' ] && [ \"\$(hash_file '$USER_PROVISIONER')\" = '$PROVISIONER_SHA' ] && [ \"\$(hash_file '$USER_ENGINE')\" = '$ENGINE_SHA' ] && [ \"\$(hash_file '$USER_MANIFEST')\" = '$MANIFEST_SHA' ] && [ \"\$(hash_file '$USER_SIGNATURE')\" = '$SIGNATURE_SHA' ] && [ \"\$(hash_file '$USER_CATALOG')\" = '$CATALOG_SHA' ] && [ \"\$(hash_file '$USER_RUNTIME')\" = '$RUNTIME_SHA' ] || exit 20; source '$ENV_EXPORT'; if [ -n \"\${DESKTOP_TOOLS_PROFILE_ID:-}\" ]; then [ \"\$(hash_file \"\$DESKTOP_TOOLS_OPENCODE_ARCHIVE\")\" = \"\$DESKTOP_TOOLS_OPENCODE_SHA256\" ] && [ \"\$(hash_file \"\$DESKTOP_TOOLS_SUPERVISOR_PATH\")\" = \"\$DESKTOP_TOOLS_SUPERVISOR_SHA256\" ] && [ \"\$(hash_file \"\$DESKTOP_TOOLS_TOOLS_ARCHIVE\")\" = \"\$DESKTOP_TOOLS_TOOLS_SHA256\" ] && [ \"\$(hash_file \"\$DESKTOP_TOOLS_OPENCODE_LOCK_PATH\")\" = \"\$DESKTOP_TOOLS_OPENCODE_LOCK_SHA256\" ] || exit 20; fi; export HOME='$USER_HOME_DIR' USER='$INSTALL_USER' PATH='$(dirname "$USER_RUNTIME")':\"\$PATH\" && cd '$USER_HOME_DIR' && bash '$USER_PROVISIONER'"
     }
-    _idRunSealedUserHandoff & BROKER_CHILD_PID=$!
+    # Bash redirects stdin from /dev/null for asynchronous commands when job
+    # control is unavailable. Preserve the controlling terminal explicitly so
+    # the enrolled-user installer retains its interactive TUI after the
+    # privileged handoff; headless runs remain deliberately non-interactive.
+    if [ -z "${HEADLESS_INSTALL:-}" ] && [ -t 1 ] && [ -r /dev/tty ]; then
+      exec 9</dev/tty || { logg error 'Unable to preserve the terminal for enrolled-user provisioning'; return 1; }
+      _idRunSealedUserHandoff <&9 9<&- & BROKER_CHILD_PID=$!
+      exec 9<&-
+    else
+      _idRunSealedUserHandoff </dev/null & BROKER_CHILD_PID=$!
+    fi
     while [ ! -f "$BROKER_REQUEST" ] && kill -0 "$BROKER_CHILD_PID" 2>/dev/null && [ "$BROKER_WAIT" -lt 180 ]; do
       sleep 1; BROKER_WAIT=$((BROKER_WAIT + 1))
     done

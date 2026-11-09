@@ -16,7 +16,7 @@ for(const flag of ['--runtime-archive','--sha256','--version','--supervisor','--
 if(take('--version')!=='2.2.5')throw new Error('version changed');
 for(const flag of ['--runtime-archive','--supervisor','--tools-archive','--lock'])if(!fs.statSync(take(flag)).isFile())throw new Error(`${flag} is not a file`);
 fs.writeFileSync(process.env.CALL_LEDGER,`${JSON.stringify(args)}\n`,{flag:'a'});
-process.stdout.write('{"schemaVersion":1,"changed":false}\n');
+process.stdout.write('{"schemaVersion":1,"changed":false,"closureDigest":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","executable":"/tmp/desktop-tools"}\n');
 NODE
 chmod 0700 "$FIXTURE/supervisor.mjs"
 sha() { if command -v sha256sum >/dev/null 2>&1; then sha256sum "$1" | awk '{print $1}'; else shasum -a 256 "$1" | awk '{print $1}'; fi; }
@@ -29,6 +29,7 @@ export DESKTOP_TOOLS_TOOLS_ARCHIVE="$FIXTURE/tools" DESKTOP_TOOLS_TOOLS_SHA256="
 export DESKTOP_TOOLS_OPENCODE_LOCK_PATH="$FIXTURE/lock" DESKTOP_TOOLS_OPENCODE_LOCK_SHA256="$(sha "$FIXTURE/lock")"
 
 idInstallDesktopToolsRuntimeClosure >/dev/null
+[ "$DESKTOP_TOOLS_EXECUTABLE" = /tmp/desktop-tools ]
 [ "$(wc -l < "$CALL_LEDGER" | tr -d '[:space:]')" = 1 ]
 grep -Fq -- '--runtime-archive' "$CALL_LEDGER"
 grep -Fq -- '--lock-sha256' "$CALL_LEDGER"
