@@ -13,6 +13,7 @@ const ActiveV9ReleaseAuthority = z.object({
   schemaVersion: z.literal(9),
   channel: z.literal('stable'),
   releaseId: id,
+  createdAt: z.number().int().positive().safe(),
   expiresAt: z.number().int().positive().safe(),
   brokerApproval: z.object({
     delegationUrl: z.string().url(),
@@ -130,7 +131,8 @@ export async function loadImmutableBrokerReleaseDelegation(input: Readonly<{
   )) throw new Error('broker delegation semantic digest is invalid');
   const startsAt = Date.parse(delegation.notBefore);
   const endsAt = Date.parse(delegation.notAfter);
-  if (now < startsAt || now >= endsAt || endsAt > release.expiresAt * 1000 || startsAt >= endsAt) {
+  if (now < startsAt || now >= endsAt || startsAt > release.createdAt * 1000
+    || endsAt < release.expiresAt * 1000 || startsAt >= endsAt) {
     throw new Error('broker delegation is outside the exact release validity window');
   }
   await requireEd25519PublicKey(delegation.publicKeySpki);

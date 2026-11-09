@@ -21,7 +21,7 @@ async function fixture(transform = value => value, recompute = false) {
     algorithm: 'Ed25519', signatureDomain: 'desktop-tools-broker-approval-v1', product: 'desktop-tools',
     releaseId: 'release-1', channel: 'stable',
     publicKeySpki: publicKey.export({ type: 'spki', format: 'der' }).toString('base64url'),
-    notBefore: '2026-11-09T11:00:00.000Z', notAfter: '2026-11-09T13:00:00.000Z',
+    notBefore: '2026-11-09T11:00:00.000Z', notAfter: '2026-11-09T15:00:00.000Z',
     maximumApprovalLifetimeSeconds: 600, revocationEpoch: 7,
   };
   let delegation = transform({ ...projection, delegationDigest: await brokerApprovalSemanticDigest(
@@ -36,6 +36,7 @@ async function fixture(transform = value => value, recompute = false) {
   const body = bytes(delegation);
   const release = {
     schemaVersion: 9, product: 'desktop-tools', channel: 'stable', releaseId: 'release-1',
+    createdAt: Date.parse('2026-11-09T11:00:00.000Z') / 1000,
     expiresAt: Date.parse('2026-11-09T14:00:00.000Z') / 1000,
     brokerApproval: {
       delegationUrl: 'https://desktop.tools/releases/release-1/broker-approval-signer-delegation.json',
@@ -100,13 +101,16 @@ test('rejects size substitution, truncation, excess bytes, digest substitution, 
     now: new Date('2026-11-09T12:00:00.000Z') }), /canonical JSON/);
 });
 
-test('rejects expired release, premature or expired delegation, and delegation beyond release lifetime', async () => {
+test('rejects expired release and delegations that do not cover the full release lifetime', async () => {
   const setup = await fixture();
-  for (const now of ['2026-11-09T10:59:59.000Z', '2026-11-09T13:00:00.000Z', '2026-11-09T14:00:00.000Z']) {
+  for (const now of ['2026-11-09T10:59:59.000Z', '2026-11-09T14:00:00.000Z', '2026-11-09T15:00:00.000Z']) {
     await assert.rejects(loadImmutableBrokerReleaseDelegation({ bucket: setup.bucket, release: setup.release,
       now: new Date(now) }), /expired|validity window/);
   }
-  const beyond = await fixture(value => ({ ...value, notAfter: '2026-11-09T15:00:00.000Z' }), true);
-  await assert.rejects(loadImmutableBrokerReleaseDelegation({ bucket: beyond.bucket, release: beyond.release,
+  const short = await fixture(value => ({ ...value, notAfter: '2026-11-09T13:59:59.000Z' }), true);
+  await assert.rejects(loadImmutableBrokerReleaseDelegation({ bucket: short.bucket, release: short.release,
+    now: new Date('2026-11-09T12:00:00.000Z') }), /validity window/);
+  const late = await fixture(value => ({ ...value, notBefore: '2026-11-09T11:00:01.000Z' }), true);
+  await assert.rejects(loadImmutableBrokerReleaseDelegation({ bucket: late.bucket, release: late.release,
     now: new Date('2026-11-09T12:00:00.000Z') }), /validity window/);
 });
