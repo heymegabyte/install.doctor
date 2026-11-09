@@ -1114,26 +1114,29 @@ document.addEventListener('visibilitychange',function(){if(!document.hidden&&POL
   ),
 );
 app.get('/pair', (c) => {
-  const code = (c.req.query('code') || '').replace(/[^0-9A-Za-z]/g, '').slice(0, 16);
+  // Preserve the canonical separators. Stripping them made every current XXXX-XXXX-XXXX
+  // verify URL impossible to resolve because the API deliberately accepts only canonical codes.
+  const code = normalizePairCode(c.req.query('code') || '') ?? '';
   return c.html(
     htmlPage(
       'Pair device · aid',
       `<nav class=muted><a href="/">aid</a></nav>
 <h1>Pair this device</h1>
 ${code ? `<p class=muted>Pairing code:</p><p class=code>${code}</p><div id=info class=card>Loading device details…</div>` : '<p class=muted>No code in the URL. Run <span class=mono>aid-pair</span> on the machine to get one.</p>'}
-<div class=card><h3>1. GitHub Repository &amp; Host Identity</h3>
+<div id=legacyConfig class=card><h3>1. GitHub Repository &amp; Host Identity</h3>
 <p class=muted>Select your master <span class=mono>install.doctor</span> blueprint repository and bind or create the host-specific repository (<span class=mono>&lt;hostname&gt;.&lt;namespace&gt;</span>, e.g. <span class=mono>ubuntu.megabyte.space</span>) as the source of truth for backups, restores, and posture.</p>
 <p><label class=muted>Master Blueprint Repository</label><br><input id=masterRepo value="heymegabyte/install.doctor" style="width:100%"></p>
 <p><label class=muted>Hostname / FQDN Repository</label><br><input id=hostRepo placeholder="ubuntu.megabyte.space (or hostname fallback)" style="width:100%"></p>
 <p><label class=muted>Namespace (optional)</label><br><input id=hostNs value="megabyte.space" placeholder="megabyte.space" style="width:100%"></p>
 </div>
-<div class=card><h3>2. Approve (administrator)</h3>
-<p class=muted>Review the device above, then sign in with GitHub or paste your admin token to approve it. A signed-in owner session replaces this step soon.</p>
-<p><input id=tok type=password placeholder="AID_ADMIN_TOKEN" style="width:100%"></p>
-<p><button id=approveBtn>Approve pairing</button></p>
+<div class=card><h3 id=approvalHeading>2. Approve (administrator)</h3>
+<p id=approvalGuidance class=muted>Review the device above, then sign in or use the labelled legacy administrator-token path for an ordinary compatibility pairing.</p>
+<p id=legacyToken><input id=tok type=password placeholder="AID_ADMIN_TOKEN (legacy break-glass)" style="width:100%"></p>
+<p><button id=approveBtn>Approve pairing</button> <button id=denyBtn type=button style="background:#2a3147;color:#e6e8ef">Deny</button></p>
 <p id=out class=muted></p></div>
 <script>
 var CODE=${JSON.stringify(code)};
+var OWNER_INFO=null;
 async function loadInfo(){
   if(!CODE)return;var el=document.getElementById('info');if(!el)return;
   // #127 Trusted-Types-safe render (no innerHTML, toward require-trusted-types-for 'script') — build the
@@ -1141,8 +1144,20 @@ async function loadInfo(){
   function errP(msg){var p=document.createElement('p');p.className='muted';p.textContent='✗ '+msg;return p;}
   function labeled(label,valueNode,muted){var p=document.createElement('p');if(muted)p.className='muted';var b=document.createElement('b');b.textContent=label;p.append(b,' ',valueNode);return p;}
   try{
-    var r=await fetch('/api/devices/pair/info?code='+encodeURIComponent(CODE));var j=await r.json();
-    if(!r.ok){el.replaceChildren(errP((j.error||r.status)+' — no pending pairing for this code.'));return}
+    var r=await fetch('/api/devices/pair/info?code='+encodeURIComponent(CODE),{credentials:'include'});var j=await r.json();
+    if(!r.ok){
+      var ownerResponse=await fetch('/api/devices/pair/owner-info?code='+encodeURIComponent(CODE),{credentials:'include'});
+      var ownerBody=await ownerResponse.json();
+      if(!ownerResponse.ok){
+        var suffix=ownerResponse.status===401?' — sign in again to review this owner-bound request.':' — no pending pairing is available to this account.';
+        el.replaceChildren(errP((ownerBody.error||ownerResponse.status)+suffix));return;
+      }
+      OWNER_INFO=ownerBody;j=ownerBody;r=ownerResponse;
+      document.getElementById('legacyConfig').hidden=true;
+      document.getElementById('legacyToken').hidden=true;
+      document.getElementById('approvalHeading').textContent='Approve as profile owner';
+      document.getElementById('approvalGuidance').textContent='Compare every value with the target. This decision is bound to your recently authenticated account and exact profile revision.';
+    }
     var hr=document.getElementById('hostRepo');
     if(hr&&!hr.value&&j.host){hr.value=j.host.indexOf('.')>-1?j.host:(j.host+'.megabyte.space');}
     var frag=document.createDocumentFragment();
@@ -1152,6 +1167,11 @@ async function loadInfo(){
     var hostSpan=document.createElement('span');hostSpan.className='mono';hostSpan.textContent=j.host||'(unnamed machine)';
     frag.append(labeled('Host:',hostSpan,false));
     frag.append(labeled('Tenant:',document.createTextNode(j.tenant||''),false));
+    if(j.machineFingerprint){var fp=document.createElement('span');fp.className='mono';fp.textContent=j.machineFingerprint;frag.append(labeled('Machine fingerprint:',fp,false));}
+    if(j.profileId){var pi=document.createElement('span');pi.className='mono';pi.textContent=j.profileId;frag.append(labeled('Profile:',pi,false));}
+    if(j.profileRevision){var pr=document.createElement('span');pr.className='mono';pr.textContent=j.profileRevision;frag.append(labeled('Profile revision:',pr,false));}
+    if(j.actor){var ac=document.createElement('span');ac.className='mono';ac.textContent=j.actor;frag.append(labeled('Approving actor:',ac,false));}
+    if(j.expiresAt){frag.append(labeled('Expires:',document.createTextNode(new Date(j.expiresAt).toLocaleString()),false));}
     if(j.permissions&&j.permissions.length){
       var pp=document.createElement('p');var pb=document.createElement('b');pb.textContent='Requesting:';pp.append(pb,' ');
       j.permissions.forEach(function(p,i){if(i)pp.append(' ');var t=document.createElement('span');t.className='tag';t.textContent=p;pp.append(t);});
@@ -1164,19 +1184,30 @@ async function loadInfo(){
     el.replaceChildren(frag);
   }catch(e){el.replaceChildren(errP(String(e)))}
 }
-async function approve(){
+async function decide(decision){
   var out=document.getElementById('out'),tok=document.getElementById('tok').value.trim();
   var mr=(document.getElementById('masterRepo')||{}).value||'heymegabyte/install.doctor';
   var hr=(document.getElementById('hostRepo')||{}).value||'';
   var ns=(document.getElementById('hostNs')||{}).value||'';
-  out.textContent='Approving…';
+  out.textContent=decision==='approve'?'Approving…':'Denying…';
   try{
-    var r=await fetch('/api/devices/pair/approve',{method:'POST',headers:aidAdminHeaders({'content-type':'application/json'}),body:JSON.stringify({code:CODE,masterRepo:mr,hostRepo:hr,namespace:ns})});
+    var r;
+    if(OWNER_INFO){
+      var body={code:OWNER_INFO.code,matchingCode:OWNER_INFO.matchingCode,profileRevision:OWNER_INFO.profileRevision,
+        decision:decision,approvedScopes:decision==='approve'?OWNER_INFO.scopes:undefined};
+      if(OWNER_INFO.profileId){body.profileId=OWNER_INFO.profileId;body.profileRevisionDigest=OWNER_INFO.profileRevisionDigest;}
+      r=await fetch('/api/devices/pair/owner-decision',{method:'POST',credentials:'include',headers:{'content-type':'application/json'},body:JSON.stringify(body)});
+    }else{
+      if(decision==='deny'){out.textContent='Legacy compatibility pairings can be denied by letting them expire or revoking them from the administrator surface.';return;}
+      r=await fetch('/api/devices/pair/approve',{method:'POST',headers:aidAdminHeaders({'content-type':'application/json'}),body:JSON.stringify({code:CODE,masterRepo:mr,hostRepo:hr,namespace:ns})});
+    }
     var j=await r.json();
-    out.textContent=r.ok?'✓ approved — the machine will claim its token shortly. You can close the browser now and the TUI will pick up where it left off.':('✗ '+(j.error||r.status)+aidAuthHint(r.status));
+    out.textContent=r.ok?(decision==='approve'?'✓ approved — the target may claim its scoped credential once.':'✓ denied — no credential will be minted.'):
+      ('✗ '+(j.error||r.status)+aidAuthHint(r.status));
   }catch(e){out.textContent='✗ '+e}
 }
-document.getElementById('approveBtn').addEventListener('click',approve); // CSP STEP-1 (#117) — no inline on*=
+document.getElementById('approveBtn').addEventListener('click',function(){decide('approve')});
+document.getElementById('denyBtn').addEventListener('click',function(){decide('deny')});
 loadInfo();
 </script>`,
     ),
@@ -2273,7 +2304,9 @@ app.post('/api/devices/pair/start', async (c) => {
             privilegedBinding?.profileId ?? null, privilegedBinding?.profileRevisionDigest ?? null)
           .run();
         return c.json(
-          { code, pollSecret, tenant, verifyUrl: `${APP_URL}/pair?code=${code}`, expiresAt, note: 'show the code to the operator; keep pollSecret private (never in a URL/log)' },
+          { code, pollSecret, tenant,
+            verifyUrl: `${privilegedBinding ? 'https://desktop.tools' : APP_URL}/pair?code=${code}`,
+            expiresAt, note: 'show the code to the operator; keep pollSecret private (never in a URL/log)' },
           201,
         );
       } catch (error) {

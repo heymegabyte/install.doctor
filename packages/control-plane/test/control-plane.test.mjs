@@ -192,6 +192,20 @@ test('pairing start uses a high-entropy human code and rejects oversized request
   assert.deepEqual(await chunkedOversized.json(), { error: 'payload_too_large', limitBytes: 4096 });
 });
 
+test('pairing page preserves the canonical human code and exposes owner approve and deny paths', async () => {
+  const app = await loadWorkerApp();
+  const code = '2345-6789-ABCD';
+  const response = await app.fetch(new Request(`https://desktop.tools/pair?code=${code}`), TEST_ENV);
+  assert.equal(response.status, 200);
+  const html = await response.text();
+  assert.match(html, new RegExp(code));
+  assert.match(html, /\/api\/devices\/pair\/owner-info/);
+  assert.match(html, /\/api\/devices\/pair\/owner-decision/);
+  assert.match(html, /id=denyBtn/);
+  const malformed = await app.fetch(new Request('https://desktop.tools/pair?code=23456789ABCD'), TEST_ENV);
+  assert.doesNotMatch(await malformed.text(), /var CODE="23456789ABCD"/);
+});
+
 test('public pairing lookup normalizes malformed, unknown, and claimed responses', async () => {
   const app = await loadWorkerApp();
   const env = { ...TEST_ENV, DB: globalThis.__AID_TEST_DB__ };
@@ -494,6 +508,7 @@ test('privileged pairing derives tenant, profile, digest, and owner from server 
   }), env);
   assert.equal(started.status, 201, await started.clone().text());
   const pairing = await started.json();
+  assert.equal(pairing.verifyUrl, `https://desktop.tools/pair?code=${pairing.code}`);
   assert.equal(pairing.tenant, 'tenant-authoritative');
   const stored = await db.prepare(`SELECT tenant, owner_actor, profile_id, profile_revision,
     profile_revision_digest, machine_fingerprint FROM pairings WHERE code=?`).bind(pairing.code).first();

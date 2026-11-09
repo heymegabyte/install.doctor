@@ -5,11 +5,13 @@
 // browser only ever sees the provider authorize URL, never a client_secret).
 //
 // Honest scope: this wires the GitHub + Google authorize-INITIATION. Sign-in COMPLETION (callback → session)
-// additionally requires `https://app.install.doctor/api/auth/callback/{github,google}` to be registered on
-// the OAuth apps — a human step on the OAuth-app settings, NOT claimable from this code alone.
+// additionally requires each canonical callback origin below to be registered on the OAuth apps — a human
+// step on the OAuth-app settings, NOT claimable from this code alone. Profile wildcard hosts are deliberately
+// excluded: owner authorization happens on the Desktop Tools apex, never on caller-selected profile origins.
 import { env } from 'cloudflare:workers';
 import { betterAuth } from 'better-auth';
 import { Env } from './env';
+import { DESKTOP_TOOLS_AUTH_HOSTS, DESKTOP_TOOLS_TRUSTED_AUTH_ORIGINS } from './auth-origin-policy';
 
 const e = Env.parse(env);
 
@@ -17,10 +19,14 @@ export const auth = betterAuth({
   // D1 binding (auto-detected). The user/session/account/verification tables are created by the
   // admin-guarded POST /api/auth-migrate endpoint (getMigrations/runMigrations) — the CLI can't reach D1.
   database: e.DB,
-  baseURL: 'https://app.install.doctor',
+  baseURL: {
+    allowedHosts: [...DESKTOP_TOOLS_AUTH_HOSTS],
+    protocol: 'https',
+  },
   secret: e.BETTER_AUTH_SECRET,
-  // Only our own origin may drive the auth flow (CSRF / open-redirect defense, O14).
-  trustedOrigins: ['https://app.install.doctor'],
+  // Only the two canonical approval origins may drive auth (CSRF/open-redirect defense). Do not add the
+  // wildcard: a public profile hostname identifies desired state, not an authenticated principal.
+  trustedOrigins: [...DESKTOP_TOOLS_TRUSTED_AUTH_ORIGINS],
   socialProviders: {
     github: {
       clientId: e.GITHUB_CLIENT_ID,
