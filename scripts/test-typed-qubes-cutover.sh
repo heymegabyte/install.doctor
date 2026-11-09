@@ -19,8 +19,10 @@ done
 logic="$(sed -n '/^provisionLogic() {/,/^}/p' "$PROVISION")"
 if printf '%s\n' "$logic" | grep -Fq 'handleQubesDom0'; then fail 'Qubes still mutates before the canonical engine'; else pass 'Qubes no longer mutates before the canonical engine'; fi
 if printf '%s\n' "$logic" | grep -Fq 'ensureInstallUser' \
-  && printf '%s\n' "$logic" | grep -Fq 'setupPasswordlessSudo'; then
-  pass 'unmigrated handoff and credential bootstrap remain explicit'
+  && grep -Fq 'setupPasswordlessSudo || return $?' "$PROVISION" \
+  && grep -Fq "id: 'stage-zero.install-user-transition'" "$PROVISION" \
+  && grep -Fq "id: 'stage-zero.sudo-credential'" "$PROVISION"; then
+  pass 'sealed user handoff and canonical credential bootstrap remain explicit'
 else
   fail 'handoff or credential bootstrap was silently removed'
 fi

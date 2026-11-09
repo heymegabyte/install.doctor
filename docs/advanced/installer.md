@@ -66,6 +66,7 @@ This is the catalog resolution order, not a promise that every legacy provider e
 | `pkg-freebsd`| FreeBSD pkg                                   | FreeBSD            |
 | `pkg-termux`| Termux package manager                         | Android/Termux     |
 | `pkgin`     | pkgsrc package manager                         | NetBSD/pkgsrc      |
+| `rpm-ostree`| Transactional RPM package manager              | Fedora Atomic      |
 | `sbopkg`    | SlackBuild package manager (planned)           | Slackware          |
 | `scoop`     | Scoop package                                  | Windows            |
 | `script`    | Legacy migration data; rejected before execution | None              |

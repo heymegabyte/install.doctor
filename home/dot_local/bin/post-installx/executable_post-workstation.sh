@@ -916,8 +916,7 @@ EOF
     /etc/sysctl.d/99-fleet-wave3-ai-kernel.conf \
     /etc/sysctl.d/99-*-workstation.conf \
     /etc/sysctl.d/99-*-bbrv3-memory-io.conf \
-    /etc/sysctl.d/99-*-wave3-ai-kernel.conf \
-    /etc/sysctl.d/99-tailscale.conf 2>/dev/null || true
+    /etc/sysctl.d/99-*-wave3-ai-kernel.conf 2>/dev/null || true
   cat > "$TMP_DIR/99-fleet.conf" <<'EOF'
 # Managed by install.doctor (single canonical fleet sysctl profile)
 net.core.default_qdisc = fq
@@ -2497,8 +2496,6 @@ fi
 
 # Clean retired post-installx scripts, host-specific plays, and stale temp binaries across all hosts
 rm -f "$HOME/.local/bin/post-installx/post-atuin.sh" \
-      "$HOME/.local/bin/post-installx/post-tailscale.sh" \
-      "$HOME/.local/bin/post-installx/post-legion-workstation.sh" \
       "$HOME/.local/bin"/get-secret-*.mjs \
       "$HOME/.local/bin"/agy.*.old \
       "$HOME/.local/bin"/*-kasmvnc-run.backup* \
@@ -2650,10 +2647,6 @@ fi
 # 9. macOS Apple Silicon (Darwin) Spotlight Exclusions, Node 24 CA & Cache Reclamation
 # -----------------------------------------------------------------------------
 if [ "$(uname -s)" = "Darwin" ]; then
-  if [ -f "$HOME/Library/LaunchAgents/com.heymegabyte.oneprompt-convergence.plist" ] && [ ! -d "/Users/Apple/emdash/repositories/oneprompt.site-2" ]; then
-    launchctl bootout "gui/$(id -u)" "$HOME/Library/LaunchAgents/com.heymegabyte.oneprompt-convergence.plist" 2>/dev/null || true
-    rm -f "$HOME/Library/LaunchAgents/com.heymegabyte.oneprompt-convergence.plist" 2>/dev/null || true
-  fi
   for dir in \
     "$HOME/.cache" \
     "$HOME/.bun/install/cache" \

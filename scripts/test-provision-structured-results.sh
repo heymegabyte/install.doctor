@@ -76,6 +76,11 @@ runScenario() {
     runChezmoi() { return "${TEST_CHEZMOI_STATUS:-0}"; }
     runCanonicalProvisionEngine() {
       [ "${1:-}" = --plan-only ] && return 0
+      if [ "${INSTALL_DOCTOR_SUDO_PREPARED:-false}" != true ]; then
+        setupPasswordlessSudo || return $?
+        INSTALL_DOCTOR_SUDO_PREPARED=true
+        export INSTALL_DOCTOR_SUDO_PREPARED
+      fi
       local status=0
       runChezmoi || status=$?
       INSTALL_DOCTOR_SUDO_FINALIZER_VERIFIED="${TEST_FINALIZER_VERIFIED:-true}"

@@ -67,7 +67,7 @@ grep -q 'Authorizing the exact host and recorded consent.*idAuthorizePlatform' "
 resolve_line="$(grep -n 'idRunRequiredProvisionStep "Resolving the exact host' "$PROVISION" | cut -d: -f1)"
 configure_line="$(grep -n 'idRunRequiredProvisionStep "Resolving the install plan' "$PROVISION" | cut -d: -f1)"
 admit_line="$(grep -n 'idRunRequiredProvisionStep "Authorizing the exact host' "$PROVISION" | cut -d: -f1)"
-plan_line="$(grep -n 'idRunRequiredProvisionStep "Normalizing and approving' "$PROVISION" | cut -d: -f1)"
+plan_line="$(grep -n 'Approving and executing one canonical provisioning plan' "$PROVISION" | cut -d: -f1)"
 [ "$resolve_line" -lt "$configure_line" ] || { printf 'platform resolution occurs after interactive planning\n' >&2; exit 1; }
 [ "$configure_line" -lt "$admit_line" ] || { printf 'platform authorization occurs before consent can be recorded\n' >&2; exit 1; }
 [ "$admit_line" -lt "$plan_line" ] || { printf 'platform admission occurs after plan approval\n' >&2; exit 1; }

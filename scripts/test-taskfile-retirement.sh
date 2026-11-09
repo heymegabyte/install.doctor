@@ -10,7 +10,7 @@ for retired in .config/taskfiles .config/hbs.cjs .config/husky .config/run pnpm-
   [ ! -e "$retired" ] || fail "retired root build artifact exists: $retired"
 done
 
-node -e 'const p=require("./package.json"); const allowed=new Set(["build","help","lint","repair","sort:software","start","test","validate:software"]); for (const [name,command] of Object.entries(p.scripts)) { if (!allowed.has(name)) throw new Error(`obsolete script: ${name}`); if (/task (npm:|commit|fix|preload|publish:|update|vscode)/.test(command)) throw new Error(`legacy task caller: ${name}`); } if (p.scripts.start !== "bash start.sh") throw new Error("npm start must enter the pinned local bootstrap");'
+node -e 'const p=require("./package.json"); const allowed=new Set(["build","generate:desktop-tools-status","help","lint","repair","sort:software","start","test","test:desktop-tools-status","validate:software"]); for (const [name,command] of Object.entries(p.scripts)) { if (!allowed.has(name)) throw new Error(`obsolete script: ${name}`); if (/task (npm:|commit|fix|preload|publish:|update|vscode)/.test(command)) throw new Error(`legacy task caller: ${name}`); } if (p.scripts.start !== "bash start.sh") throw new Error("npm start must enter the pinned local bootstrap");'
 
 grep -q 'task provision' start.sh || fail 'start.sh does not dispatch the repository provision task'
 if rg -n 'ensureTaskfiles|task (donothing|ci:synchronize|install:software:pipx|new:project|-vvv start)|shared-master/common/\.config/taskfiles' start.sh; then

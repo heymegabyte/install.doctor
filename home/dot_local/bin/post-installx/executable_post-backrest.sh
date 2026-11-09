@@ -64,6 +64,10 @@ fi
 
 # 3. Configure Backrest loopback systemd service (127.0.0.1:9898) on Linux
 if [[ "$OS_KERNEL" == "Linux" ]] && [[ -x /usr/local/bin/backrest ]]; then
+  if $SUDO systemctl list-unit-files "${HOST_SHORT}-backrest.service" 2>/dev/null | grep -Fq "${HOST_SHORT}-backrest.service"; then
+    log_warn "Existing ${HOST_SHORT}-backrest.service is preserved; migrate it explicitly before enabling the managed Backrest service"
+    exit 0
+  fi
   $SUDO install -d -m 0700 /etc/backrest /var/lib/backrest /var/cache/megabyte/backrest
   for env_file in "/etc/${HOST_SHORT}-backup.env" /etc/backrest/backup.env; do
     if $SUDO test -f "$env_file"; then
@@ -71,10 +75,6 @@ if [[ "$OS_KERNEL" == "Linux" ]] && [[ -x /usr/local/bin/backrest ]]; then
       $SUDO chmod 0600 "$env_file"
     fi
   done
-  if $SUDO systemctl list-unit-files "${HOST_SHORT}-backrest.service" >/dev/null 2>&1; then
-    $SUDO systemctl disable --now "${HOST_SHORT}-backrest.service" >/dev/null 2>&1 || true
-    $SUDO rm -f "/etc/systemd/system/${HOST_SHORT}-backrest.service"
-  fi
   if [[ ! -f /etc/backrest/config.json ]]; then
     $SUDO tee /etc/backrest/config.json >/dev/null <<EOF
 {

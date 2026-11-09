@@ -42,7 +42,7 @@ else
   pass 'provisioning does not blindly dispatch every optional integration hook'
 fi
 
-grep -Fq "INSTALL_DOCTOR_SELECTED_PACKAGES: selectedPackages.join(',')" "$PROVISION" \
+grep -Fq "INSTALL_DOCTOR_SELECTED_PACKAGES: legacySelectedPackages.join(',')" "$PROVISION" \
   && grep -Fq 'selectedPackages, selectedServices' "$PROVISION" \
   && grep -Fq 'selectedPackageKeys.has(x.listKey)' "$INSTALLX" \
   && pass 'approved native packages are digest-bound and added to the eager baseline' \
