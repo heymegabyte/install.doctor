@@ -46,7 +46,9 @@ jobs:
           npm --prefix packages/installer-engine ci --ignore-scripts --no-audit --no-fund
           npm --prefix packages/installer-engine run build
       - name: Verify fixture contract
-        run: bash scripts/test-native-dpkg-pid1-acceptance-contract.sh
+        run: |
+          bash scripts/test-native-dpkg-pid1-acceptance-contract.sh
+          node --test packages/installer-engine/test/release-native-authority.test.mjs
       - name: Run network-denied Debian PID1 acceptance
         env:
           INSTALL_DOCTOR_PID1_EVIDENCE_ROOT: ${{ runner.temp }}/native-dpkg-pid1

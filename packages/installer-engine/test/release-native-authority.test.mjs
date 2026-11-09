@@ -9,7 +9,7 @@ import { verifyDesktopReleaseCatalog } from '../dist/offline-bundle.js';
 
 const sha = bytes => createHash('sha256').update(bytes).digest('hex');
 
-test('signed schema-v8 release independently binds the exact native descriptor and four objects', async () => {
+for (const schemaVersion of [8, 9]) test(`signed schema-v${schemaVersion} release independently binds the exact native descriptor and four objects`, async () => {
   const root = await mkdtemp(join(tmpdir(), 'desktop-tools-native-release-'));
   const key = join(root, 'release-key');
   const generated = spawnSync('/usr/bin/ssh-keygen', ['-q', '-t', 'ed25519', '-N', '', '-f', key], { encoding: 'utf8' });
@@ -48,9 +48,10 @@ test('signed schema-v8 release independently binds the exact native descriptor a
   const artifactPrefixes = ['artifact', 'engine', 'catalog', 'launcher', 'supervisor', 'tools', 'opencode_lock', 'sbom', 'provenance', 'licenses',
     'debian_keyring', 'debian_inrelease', 'debian_packages', 'debian_tree', 'runtime_macos_x64', 'runtime_macos_arm64',
     'runtime_linux_x64', 'runtime_linux_arm64', 'opencode_macos_x64', 'opencode_macos_arm64', 'opencode_linux_x64', 'opencode_linux_arm64'];
-  const lines = ['schema_version=8', 'product_id=desktop-tools', `release_id=${releaseId}`, `source_commit=${'1'.repeat(40)}`,
+  const lines = [`schema_version=${schemaVersion}`, 'product_id=desktop-tools', `release_id=${releaseId}`, `source_commit=${'1'.repeat(40)}`,
     'created_at=1794080000', 'expires_at=1794083600', 'key_id=desktop-test', 'engine_node_min=22',
     'runtime_node_version=24.1.0', 'opencode_version=2.0.0'];
+  if (schemaVersion === 9) lines.push('broker_approval_minimum_revocation_epoch=1');
   for (const prefix of artifactPrefixes) {
     const native = objects.find(([candidate]) => candidate === prefix);
     const filename = native?.[2] ?? (prefix === 'catalog' ? 'catalog.json' : `${prefix}.fixture`); const bytes = native?.[3] ?? Buffer.from(prefix);
@@ -58,7 +59,12 @@ test('signed schema-v8 release independently binds the exact native descriptor a
     lines.push(`${prefix}_url=https://desktop.tools/releases/${releaseId}/${filename}`,
       `${prefix}_sha256=${sha(effectiveBytes)}`, `${prefix}_size=${effectiveBytes.length}`);
   }
-  assert.equal(lines.length, 76);
+  if (schemaVersion === 9) {
+    const delegation = Buffer.from('delegation');
+    lines.push(`broker_approval_delegation_url=https://desktop.tools/releases/${releaseId}/broker-approval-signer-delegation.json`,
+      `broker_approval_delegation_sha256=${sha(delegation)}`, `broker_approval_delegation_size=${delegation.length}`);
+  }
+  assert.equal(lines.length, schemaVersion === 8 ? 76 : 80);
   const manifestPath = join(root, 'manifest');
   await writeFile(manifestPath, `${lines.join('\n')}\n`, { mode: 0o600 });
   const signed = spawnSync('/usr/bin/ssh-keygen', ['-Y', 'sign', '-q', '-f', key, '-n', 'desktop.tools.release', manifestPath], { encoding: 'utf8' });
@@ -74,4 +80,14 @@ test('signed schema-v8 release independently binds the exact native descriptor a
   const substituted = { ...input, nativeAuthority: structuredClone(input.nativeAuthority) };
   substituted.nativeAuthority.artifacts.find(item => item.artifactId === descriptor.artifact.id).authority.sha256 = 'f'.repeat(64);
   await assert.rejects(verifyDesktopReleaseCatalog(substituted), /not an exact member/);
+  if (schemaVersion === 9) {
+    const invalidManifest = (await readFile(manifestPath, 'utf8'))
+      .replace('broker_approval_minimum_revocation_epoch=1', 'broker_approval_minimum_revocation_epoch=caller');
+    const invalidManifestPath = join(root, 'invalid-manifest');
+    await writeFile(invalidManifestPath, invalidManifest, { mode: 0o600 });
+    const resigned = spawnSync('/usr/bin/ssh-keygen', ['-Y', 'sign', '-q', '-f', key, '-n', 'desktop.tools.release', invalidManifestPath], { encoding: 'utf8' });
+    assert.equal(resigned.status, 0, resigned.stderr);
+    await assert.rejects(verifyDesktopReleaseCatalog({ ...input, manifestPath: invalidManifestPath,
+      signaturePath: `${invalidManifestPath}.sig` }), /delegation authority/);
+  }
 });

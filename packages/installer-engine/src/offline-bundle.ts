@@ -233,13 +233,25 @@ export async function verifyDesktopReleaseCatalog(input: {
   }
   const schemaVersion = values.get('schema_version');
   if ((schemaVersion === '7' && lines.length !== 64) || (schemaVersion === '8' && lines.length !== 76)
-    || (schemaVersion !== '7' && schemaVersion !== '8')) {
+    || (schemaVersion === '9' && lines.length !== 80)
+    || (schemaVersion !== '7' && schemaVersion !== '8' && schemaVersion !== '9')) {
     throw new OfflineBundleError('signed release manifest key count or schema is invalid');
   }
   const releaseId = id.parse(values.get('release_id'));
   if (values.get('product_id') !== 'desktop-tools'
     || values.get('key_id') !== trust.keyId || releaseId !== id.parse(input.expectedReleaseId)) {
     throw new OfflineBundleError('signed release identity is not trusted');
+  }
+  if (schemaVersion === '9') {
+    const minimumRevocationEpoch = Number(values.get('broker_approval_minimum_revocation_epoch'));
+    const delegationSize = Number(values.get('broker_approval_delegation_size'));
+    if (!Number.isSafeInteger(minimumRevocationEpoch) || minimumRevocationEpoch < 0
+      || values.get('broker_approval_delegation_url')
+        !== `https://desktop.tools/releases/${releaseId}/broker-approval-signer-delegation.json`
+      || !digest.safeParse(values.get('broker_approval_delegation_sha256')).success
+      || !Number.isSafeInteger(delegationSize) || delegationSize < 1 || delegationSize > 65_536) {
+      throw new OfflineBundleError('signed release broker approval delegation authority is invalid');
+    }
   }
   const createdAt = Number(values.get('created_at')); const expiresAt = Number(values.get('expires_at'));
   const now = input.now ?? Math.floor(Date.now() / 1_000);
@@ -255,8 +267,8 @@ export async function verifyDesktopReleaseCatalog(input: {
     throw new OfflineBundleError('catalog is not an exact member of the authenticated release');
   }
   if (input.nativeAuthority) {
-    if (schemaVersion !== '8' || input.nativeAuthority.artifacts.length !== 4) {
-      throw new OfflineBundleError('native Debian authority requires the signed schema-v8 release closure');
+    if ((schemaVersion !== '8' && schemaVersion !== '9') || input.nativeAuthority.artifacts.length !== 4) {
+      throw new OfflineBundleError('native Debian authority requires a signed schema-v8 or schema-v9 release closure');
     }
     let catalog;
     try { catalog = z.array(LoadCatalogEntrySchema).max(16_384).parse(JSON.parse(input.catalogBytes.toString('utf8'))); }
