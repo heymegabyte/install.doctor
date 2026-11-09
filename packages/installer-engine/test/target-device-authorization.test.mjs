@@ -21,7 +21,7 @@ async function fixture() {
         request: {
           schemaVersion: 1,
           requestId: 'request-1',
-          binding: input.binding,
+          binding: { tenantId: 'tenant-server-owned', ...input.binding },
           machineLabel: input.machineLabel,
           verificationCode: 'ABCD-EF12',
           pollKeyFingerprint: createHash('sha256').update(input.pollSecret).digest('hex'),
@@ -47,7 +47,7 @@ async function fixture() {
 }
 
 const startInput = {
-  tenantId: 'tenant-1', profileId: 'workstation', machineLabel: 'Zen workstation',
+  profileId: 'workstation', machineLabel: 'Zen workstation',
   scopes: ['session:create', 'profile:read'], expiresAt: '2026-11-08T15:10:00.000Z',
 };
 
@@ -63,6 +63,7 @@ test('generates target authority, persists it owner-only, and exposes only the h
   assert.match(stored.privateKeyPem, /BEGIN PRIVATE KEY/);
   assert.equal((await lstat(state.statePath)).mode & 0o777, 0o600);
   assert.deepEqual(stored.request.binding.scopes, ['profile:read', 'session:create']);
+  assert.equal(stored.request.binding.tenantId, 'tenant-server-owned');
   assert.equal(stored.request.binding.targetKeyFingerprint, createHash('sha256').update(Buffer.from(stored.request.binding.targetPublicKey, 'base64url')).digest('hex'));
   assert.doesNotMatch(JSON.stringify(prompt), new RegExp(stored.pollSecret));
   assert.doesNotMatch(JSON.stringify(state.events), new RegExp(stored.pollSecret));

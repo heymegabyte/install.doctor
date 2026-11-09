@@ -239,7 +239,7 @@ test('v1 target authorization persists exact public binding and atomically claim
   const env = { ...TEST_ENV, DB: db, DESKTOP_TOOLS_PUBLIC_PROFILES: [profile] };
   const pollSecret = 'p'.repeat(43);
   const binding = {
-    tenantId: profile.tenantId, profileId: profile.id, targetPublicKey: 'A'.repeat(43),
+    profileId: profile.id, targetPublicKey: 'A'.repeat(43),
     targetKeyFingerprint: 'b'.repeat(64), scopes: ['profile:read'], nonce: 'n'.repeat(32),
     expiresAt: new Date(Date.now() + 5 * 60_000).toISOString(),
   };
@@ -254,7 +254,7 @@ test('v1 target authorization persists exact public binding and atomically claim
   const authorization = await started.json();
   assert.match(authorization.request.requestId, /^auth_[a-f0-9]{32}$/);
   assert.match(authorization.request.verificationCode, /^[2-9A-HJ-NP-Z]{4}-[2-9A-HJ-NP-Z]{4}$/);
-  assert.deepEqual(authorization.request.binding, binding);
+  assert.deepEqual(authorization.request.binding, { tenantId: profile.tenantId, ...binding });
   assert.equal(authorization.request.pollKeyFingerprint, crypto.createHash('sha256').update(pollSecret).digest('hex'));
   assert.equal(JSON.stringify(authorization).includes(pollSecret), false);
 
@@ -299,9 +299,10 @@ test('v1 target authorization persists exact public binding and atomically claim
   assert.equal((await poll('q'.repeat(43))).status, 404, 'substituted polling authority must be indistinguishable');
 
   for (const changed of [
-    { ...binding, tenantId: 'tenant-other' },
     { ...binding, profileId: 'profile-other' },
   ]) assert.equal((await start({ binding: changed, machineLabel: 'Zen' }, 'r'.repeat(43))).status, 404);
+  assert.equal((await start({ binding: { tenantId: 'tenant-other', ...binding }, machineLabel: 'Zen' }, 'u'.repeat(43))).status, 400,
+    'target callers cannot submit server-owned tenant authority');
 
   const oversized = await start({ binding, machineLabel: 'x'.repeat(4097) }, 't'.repeat(43));
   assert.equal(oversized.status, 413, 'undeclared streaming bodies must be rejected at the byte ceiling');

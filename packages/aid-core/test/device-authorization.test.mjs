@@ -8,6 +8,7 @@ import {
   DeviceAuthorizationPollSchema,
   DeviceAuthorizationRequestSchema,
   DeviceAuthorizationRevocationSchema,
+  TargetDeviceAuthorizationBindingSchema,
   assertDeviceAuthorizationTransition,
 } from '../dist/device-authorization.js';
 
@@ -21,6 +22,12 @@ const request = {
   verificationCode: 'ABCD-EF12', pollKeyFingerprint: 'b'.repeat(64), createdAt: '2026-11-08T15:00:00.000Z',
 };
 const common = { schemaVersion: 1, requestId: request.requestId, binding };
+
+test('target start authority excludes the server-owned tenant binding', () => {
+  const { tenantId: _tenantId, ...targetBinding } = binding;
+  assert.deepEqual(TargetDeviceAuthorizationBindingSchema.parse(targetBinding), targetBinding);
+  assert.throws(() => TargetDeviceAuthorizationBindingSchema.parse(binding));
+});
 
 test('strictly parses every authorization protocol and audit payload', () => {
   DeviceAuthorizationRequestSchema.parse(request);

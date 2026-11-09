@@ -14,15 +14,21 @@ const scopes = z.array(scope).min(1).max(64).superRefine((values, context) => {
   }
 });
 
-/** Public request authority. It never contains a polling secret or device credential. */
-export const DeviceAuthorizationBindingSchema = strict({
-  tenantId: identifier,
+/** Target-generated request authority. Tenant identity is server-owned. */
+export const TargetDeviceAuthorizationBindingSchema = strict({
   profileId: identifier,
   targetPublicKey: z.string().min(43).max(1024).regex(/^[A-Za-z0-9_-]+$/),
   targetKeyFingerprint: digest,
   scopes,
   nonce,
   expiresAt: timestamp,
+});
+export type TargetDeviceAuthorizationBinding = z.infer<typeof TargetDeviceAuthorizationBindingSchema>;
+
+/** Durable public request authority after the server supplies its tenant binding. */
+export const DeviceAuthorizationBindingSchema = strict({
+  tenantId: identifier,
+  ...TargetDeviceAuthorizationBindingSchema.shape,
 });
 export type DeviceAuthorizationBinding = z.infer<typeof DeviceAuthorizationBindingSchema>;
 

@@ -4,7 +4,7 @@ import { chmod, lstat, mkdir, open, readFile, rename, rm } from 'node:fs/promise
 import { dirname, join } from 'node:path';
 import {
   DeviceAuthorizationRequestSchema,
-  type DeviceAuthorizationBinding,
+  type TargetDeviceAuthorizationBinding,
   type DeviceAuthorizationRequest,
 } from '@install-doctor/aid-core/device-authorization';
 import { z } from 'zod';
@@ -25,7 +25,6 @@ const StoredStateSchema = z.strictObject({
 export type StoredTargetAuthorization = z.infer<typeof StoredStateSchema>;
 
 export interface AuthorizationStartInput {
-  readonly tenantId: string;
   readonly profileId: string;
   readonly machineLabel: string;
   readonly scopes: readonly string[];
@@ -33,7 +32,7 @@ export interface AuthorizationStartInput {
 }
 
 export interface AuthorizationStartRequest {
-  readonly binding: DeviceAuthorizationBinding;
+  readonly binding: TargetDeviceAuthorizationBinding;
   readonly machineLabel: string;
   /** Secret request-body field. Callers MUST use authenticated HTTPS. */
   readonly pollSecret: string;
@@ -177,8 +176,7 @@ export class TargetDeviceAuthorization {
     const { publicKey, privateKey } = generateKeyPairSync('ed25519');
     const publicDer = publicKey.export({ type: 'spki', format: 'der' });
     const targetPublicKey = base64Url(publicDer);
-    const binding: DeviceAuthorizationBinding = {
-      tenantId: input.tenantId,
+    const binding: TargetDeviceAuthorizationBinding = {
       profileId: input.profileId,
       targetPublicKey,
       targetKeyFingerprint: createHash('sha256').update(publicDer).digest('hex'),
@@ -190,7 +188,8 @@ export class TargetDeviceAuthorization {
     const expectedBinding = structuredClone(binding);
     const response = await this.#transport.start({ binding: structuredClone(binding), machineLabel: input.machineLabel, pollSecret }, signal);
     const request = DeviceAuthorizationRequestSchema.parse(response.request);
-    if (JSON.stringify(request.binding) !== JSON.stringify(expectedBinding)
+    const { tenantId: _serverTenantId, ...returnedTargetBinding } = request.binding;
+    if (JSON.stringify(returnedTargetBinding) !== JSON.stringify(expectedBinding)
       || request.pollKeyFingerprint !== createHash('sha256').update(pollSecret).digest('hex')) {
       throw new Error('authorization response is not bound to target-generated authority');
     }

@@ -18,7 +18,7 @@ import { normalizeAuthReturnPath } from './auth-return-policy';
 import { isAllowedAdminEmail } from './admin-allowlist';
 import { redactSecrets } from '../../aid-core/src/redaction';
 import { classifyDesktopToolsHostname, resolvePublicProfileDescriptor, validateProfileDirectory } from '../../aid-core/src/profile-resolution';
-import { DeviceAuthorizationBindingSchema, DeviceAuthorizationRequestSchema } from '../../aid-core/src/device-authorization';
+import { DeviceAuthorizationRequestSchema, TargetDeviceAuthorizationBindingSchema } from '../../aid-core/src/device-authorization';
 import { getMigrations } from 'better-auth/db/migration';
 import { errorEnvelope, requestSecurity, requestIdFor } from './http-security';
 import { renderBootstrap } from './bootstrap';
@@ -2235,7 +2235,7 @@ const DEVICE_AUTHORIZATION_TTL_MS = 10 * 60 * 1000;
 const DEVICE_AUTHORIZATION_BODY_MAX_BYTES = 4096;
 const DEVICE_AUTHORIZATION_POLL_INTERVAL_MS = 5_000;
 const DeviceAuthorizationStartBody = z.strictObject({
-  binding: DeviceAuthorizationBindingSchema,
+  binding: TargetDeviceAuthorizationBindingSchema,
   machineLabel: z.string().min(1).max(128),
 });
 const DeviceAuthorizationDecisionBody = z.strictObject({
@@ -2373,7 +2373,7 @@ app.post('/api/v1/device-authorizations/start', async (c) => {
     profile = validateProfileDirectory((c.env as Record<string, unknown>).DESKTOP_TOOLS_PUBLIC_PROFILES ?? [])
       .find(candidate => candidate.slug === host.slug && candidate.enabled && candidate.visibility === 'public-bootstrap');
   } catch { return deviceAuthorizationUnavailable(c); }
-  if (!profile || parsed.data.binding.tenantId !== profile.tenantId || parsed.data.binding.profileId !== profile.id) {
+  if (!profile || parsed.data.binding.profileId !== profile.id) {
     return deviceAuthorizationUnavailable(c);
   }
   const nowMs = Date.now();
@@ -2387,7 +2387,7 @@ app.post('/api/v1/device-authorizations/start', async (c) => {
     const requestId = `auth_${randHex(16)}`;
     const verificationCode = newDeviceAuthorizationCode();
     const request = DeviceAuthorizationRequestSchema.parse({
-      schemaVersion: 1, requestId, binding: parsed.data.binding,
+      schemaVersion: 1, requestId, binding: { tenantId: profile.tenantId, ...parsed.data.binding },
       machineLabel: parsed.data.machineLabel, verificationCode,
       pollKeyFingerprint, createdAt,
     });

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createTargetAuthorizationHttpTransport } from '../dist/target-device-authorization-http.js';
 
-const binding = { tenantId: 'tenant-1', profileId: 'profile-1', targetPublicKey: 'A'.repeat(43),
+const binding = { profileId: 'profile-1', targetPublicKey: 'A'.repeat(43),
   targetKeyFingerprint: 'a'.repeat(64), scopes: ['profile:read'], nonce: 'n'.repeat(32), expiresAt: '2026-11-08T15:10:00.000Z' };
 const json = (value, status = 200, headers = {}) => new Response(JSON.stringify(value),
   { status, headers: { 'content-type': 'application/json', ...headers } });
