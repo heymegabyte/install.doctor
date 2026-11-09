@@ -5,6 +5,9 @@ import {
   BrokerApprovalRequest,
   BrokerApprovalSignerDelegation,
   SignedBrokerApproval,
+  brokerApprovalAuditDigest,
+  brokerApprovalSemanticDigest,
+  brokerApprovalSigningBytes,
   type BrokerApprovalDurableStateValue,
   type BrokerApprovalRequestValue,
   type SignedBrokerApprovalValue,
@@ -35,25 +38,6 @@ export interface BrokerApprovalStateStore {
 export interface BrokerApprovalManagedSigner {
   readonly keyId: string;
   sign(message: Uint8Array): Promise<Uint8Array>;
-}
-
-function canonical(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(canonical);
-  if (value && typeof value === 'object') {
-    return Object.fromEntries(Object.entries(value as Record<string, unknown>)
-      .sort(([left], [right]) => left.localeCompare(right))
-      .map(([key, entry]) => [key, canonical(entry)]));
-  }
-  return value;
-}
-
-async function sha256(value: string): Promise<string> {
-  const bytes = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value));
-  return [...new Uint8Array(bytes)].map(byte => byte.toString(16).padStart(2, '0')).join('');
-}
-
-async function semanticDigest(domain: string, value: unknown): Promise<string> {
-  return sha256(`${domain}\0${JSON.stringify(canonical(value))}`);
 }
 
 function base64url(bytes: Uint8Array): string {
@@ -94,7 +78,7 @@ export function createBrokerApprovalSigningBoundary(input: {
       if (state.delegation.revocationEpoch < input.minimumRevocationEpoch) throw new Error('approval signer delegation is revoked');
 
       const { delegationDigest, ...delegationProjection } = state.delegation;
-      const expectedDelegationDigest = await semanticDigest(
+      const expectedDelegationDigest = await brokerApprovalSemanticDigest(
         'desktop-tools:broker-approval-signer-delegation:v1', delegationProjection,
       );
       if (delegationDigest !== expectedDelegationDigest) throw new Error('release delegation digest is invalid');
@@ -117,7 +101,7 @@ export function createBrokerApprovalSigningBoundary(input: {
 
       const approvalId = (input.randomId ?? (() => crypto.randomUUID()))();
       if (!id.safeParse(approvalId).success) throw new Error('approval identifier is invalid');
-      const grantDigest = await semanticDigest('desktop-tools:privileged-broker:v1', state.grant);
+      const grantDigest = await brokerApprovalSemanticDigest('desktop-tools:privileged-broker:v1', state.grant);
       const unsigned = {
         schemaVersion: 1 as const,
         kind: 'desktop-tools-broker-approval' as const,
@@ -140,7 +124,7 @@ export function createBrokerApprovalSigningBoundary(input: {
         approvedAt: now.toISOString(),
         expiresAt: new Date(expiresMs).toISOString(),
       };
-      const message = new TextEncoder().encode(`${state.delegation.signatureDomain}\0${JSON.stringify(canonical(unsigned))}`);
+      const message = brokerApprovalSigningBytes(unsigned);
       const consumed = await input.store.consumeApproval({ approvalId, authorizationId: state.authorizationId,
         ownerDecisionId: state.ownerDecisionId, runIntentId: state.runIntentId });
       if (!consumed) throw new Error('broker approval was already consumed');
@@ -148,7 +132,7 @@ export function createBrokerApprovalSigningBoundary(input: {
       if (!(signatureBytes instanceof Uint8Array) || signatureBytes.byteLength !== 64) {
         throw new Error('managed signer returned an invalid Ed25519 signature');
       }
-      const auditDigest = await semanticDigest('desktop-tools:broker-approval-audit:v1', unsigned);
+      const auditDigest = await brokerApprovalAuditDigest(unsigned);
       return SignedBrokerApproval.parse({ ...unsigned,
         signature: base64url(signatureBytes), auditDigest });
     },

@@ -127,7 +127,9 @@ export async function runPrivilegedBrokerController(inputValue: unknown, testOpt
               expectedDigest: input.brokerApprovalDelegationDigest!,
               minimumRevocationEpoch: input.brokerApprovalMinimumRevocationEpoch!, grant: input.grant });
             return await publishSignedDeviceBrokerGrant({ grant: input.grant, authority: input.authority,
-              approval: input.deviceApproval, trust });
+              approval: input.deviceApproval, trust, delegationDigest: trust.delegationDigest,
+              minimumRevocationEpoch: input.brokerApprovalMinimumRevocationEpoch!,
+              maximumApprovalLifetimeSeconds: trust.maximumApprovalLifetimeSeconds });
           } finally { await delegation.close(); }
         })()
       : await publishTrustedLocalBrokerGrant({ grant: input.grant, authority: input.authority,

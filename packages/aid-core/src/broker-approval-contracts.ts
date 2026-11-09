@@ -89,7 +89,7 @@ export const BrokerApprovalRequest = z.object({
   grantId: id,
 }).strict();
 
-export const SignedBrokerApproval = z.object({
+export const SignedBrokerApprovalUnsigned = z.object({
   schemaVersion: z.literal(1),
   kind: z.literal('desktop-tools-broker-approval'),
   signerKeyId: id,
@@ -110,10 +110,40 @@ export const SignedBrokerApproval = z.object({
   revocationEpoch: z.number().int().nonnegative(),
   approvedAt: timestamp,
   expiresAt: timestamp,
+}).strict();
+
+export const SignedBrokerApproval = SignedBrokerApprovalUnsigned.extend({
   signature: z.string().min(64).max(512).regex(/^[A-Za-z0-9_-]+$/),
   auditDigest: digest,
 }).strict();
 
+function canonical(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(canonical);
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(Object.entries(value as Record<string, unknown>)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, entry]) => [key, canonical(entry)]));
+  }
+  return value;
+}
+
+export function brokerApprovalSigningBytes(value: unknown): Uint8Array {
+  const unsigned = SignedBrokerApprovalUnsigned.parse(value);
+  return new TextEncoder().encode(`${unsigned.signatureDomain}\0${JSON.stringify(canonical(unsigned))}`);
+}
+
+export async function brokerApprovalSemanticDigest(domain: string, value: unknown): Promise<string> {
+  const bytes = new TextEncoder().encode(`${domain}\0${JSON.stringify(canonical(value))}`);
+  const result = await crypto.subtle.digest('SHA-256', bytes);
+  return [...new Uint8Array(result)].map(byte => byte.toString(16).padStart(2, '0')).join('');
+}
+
+export async function brokerApprovalAuditDigest(value: unknown): Promise<string> {
+  return brokerApprovalSemanticDigest('desktop-tools:broker-approval-audit:v1',
+    SignedBrokerApprovalUnsigned.parse(value));
+}
+
 export type BrokerApprovalRequestValue = z.infer<typeof BrokerApprovalRequest>;
 export type BrokerApprovalDurableStateValue = z.infer<typeof BrokerApprovalDurableState>;
 export type SignedBrokerApprovalValue = z.infer<typeof SignedBrokerApproval>;
+export type SignedBrokerApprovalUnsignedValue = z.infer<typeof SignedBrokerApprovalUnsigned>;

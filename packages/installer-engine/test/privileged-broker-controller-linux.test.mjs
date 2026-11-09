@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { createHash, generateKeyPairSync } from 'node:crypto';
+import { createHash, generateKeyPairSync, sign } from 'node:crypto';
 import { chmod, chown, copyFile, lstat, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import test from 'node:test';
@@ -7,7 +7,8 @@ import { deriveBoundNormalizedPlan } from '../dist/engine.js';
 import { composeNativeDebianPackageSlice } from '../dist/native-debian-composition.js';
 import { derivePrivilegedBrokerAuthority } from '../dist/privileged-broker-derivation.js';
 import { runPrivilegedBrokerController } from '../dist/privileged-broker-controller.js';
-import { createSignedDeviceBrokerApproval } from '../dist/privileged-broker-device-approval.js';
+import { brokerApprovalAuditDigest, brokerApprovalSemanticDigest,
+  brokerApprovalSigningBytes } from '../../aid-core/dist/broker-approval-contracts.js';
 
 const helperSource = process.env.DESKTOP_TOOLS_PRIVILEGED_BROKER_TEST_BINARY;
 const enabled = process.platform === 'linux' && process.geteuid?.() === 0 && helperSource;
@@ -110,10 +111,16 @@ test('Linux root controller accepts exact signed-device authority without local 
   await exerciseController(t, 'device', async controllerInput => {
     const signer = generateKeyPairSync('ed25519');
     const signerKeyId = 'controller-device-key-1';
-    const deviceApproval = createSignedDeviceBrokerApproval({ grant: controllerInput.grant,
-      approvalId: `approval-${controllerInput.grant.runId}`, signerKeyId,
-      privateKey: signer.privateKey.export({ type: 'pkcs8', format: 'pem' }).toString(),
-      approvedAt: new Date(Date.parse(controllerInput.grant.issuedAt) + 1).toISOString() });
+    const unsigned = { schemaVersion: 1, kind: 'desktop-tools-broker-approval', signerKeyId,
+      signatureDomain: 'desktop-tools-broker-approval-v1', approvalId: `approval-${controllerInput.grant.runId}`,
+      authorizationId: 'authorization-controller', ownerDecisionId: 'decision-controller', ownerActorId: 'owner-controller',
+      tenantId: 'tenant-controller', profileId: 'profile-controller', profileRevisionDigest: hash('profile'),
+      deviceCredentialId: 'credential-controller', deviceFingerprint: hash('device'), runIntentId: 'intent-controller',
+      grant: controllerInput.grant,
+      grantDigest: await brokerApprovalSemanticDigest('desktop-tools:privileged-broker:v1', controllerInput.grant),
+      delegationDigest: '', revocationEpoch: 1,
+      approvedAt: new Date(Date.parse(controllerInput.grant.issuedAt) + 1).toISOString(),
+      expiresAt: new Date(Date.parse(controllerInput.grant.expiresAt) - 1).toISOString() };
     const projection = { schemaVersion: 1, kind: 'desktop-tools-broker-approval-signer-delegation', keyId: signerKeyId,
       algorithm: 'Ed25519', signatureDomain: 'desktop-tools-broker-approval-v1', product: 'desktop-tools',
       releaseId: controllerInput.grant.releaseId, channel: 'stable',
@@ -125,6 +132,10 @@ test('Linux root controller accepts exact signed-device authority without local 
       : Array.isArray(value) ? value.map(sorted) : value;
     const delegationDigest = hash(`desktop-tools:broker-approval-signer-delegation:v1\0${JSON.stringify(sorted(projection))}`);
     const bytes = Buffer.from(`${JSON.stringify(sorted({ ...projection, delegationDigest }))}\n`);
+    unsigned.delegationDigest = delegationDigest;
+    const deviceApproval = { ...unsigned,
+      signature: sign(null, brokerApprovalSigningBytes(unsigned), signer.privateKey).toString('base64url'),
+      auditDigest: await brokerApprovalAuditDigest(unsigned) };
     const brokerApprovalDelegationPath = join(dirname(controllerInput.helperPath), 'broker-approval-signer-delegation.json');
     await writeFile(brokerApprovalDelegationPath, bytes, { mode: 0o400 });
     await chown(brokerApprovalDelegationPath, 0, 0);

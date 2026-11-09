@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict';
-import { generateKeyPairSync } from 'node:crypto';
+import { generateKeyPairSync, sign } from 'node:crypto';
 import test from 'node:test';
-import { createSignedDeviceBrokerApproval, verifySignedDeviceBrokerApproval } from '../dist/privileged-broker-device-approval.js';
+import { brokerApprovalAuditDigest, brokerApprovalSemanticDigest, brokerApprovalSigningBytes } from '../../aid-core/dist/broker-approval-contracts.js';
+import { createSignedDeviceBrokerApproval, verifyControlPlaneBrokerApproval,
+  verifySignedDeviceBrokerApproval } from '../dist/privileged-broker-device-approval.js';
 
 const hex = character => character.repeat(64);
 const grant = (overrides = {}) => ({ schemaVersion: 1, grantId: 'grant-device-1', hostId: 'host-1', releaseId: 'release-1', runId: 'run-1',
@@ -25,6 +27,33 @@ test('signed device approval verifies only for its exact grant and pinned Ed2551
   assert.equal(verifySignedDeviceBrokerApproval({ grant: exactGrant,
     approval: { ...approval, proof: { ...approval.proof,
       signature: `${approval.proof.signature[0] === 'A' ? 'B' : 'A'}${approval.proof.signature.slice(1)}` } }, trust }), false);
+});
+
+test('root verifier accepts exact shared control-plane signature bytes and rejects substitutions', async () => {
+  const signer = generateKeyPairSync('ed25519');
+  const exactGrant = grant();
+  const unsigned = {
+    schemaVersion: 1, kind: 'desktop-tools-broker-approval', signerKeyId: 'device-approval-key-1',
+    signatureDomain: 'desktop-tools-broker-approval-v1', approvalId: 'approval-shared-1',
+    authorizationId: 'authorization-1', ownerDecisionId: 'decision-1', ownerActorId: 'owner-1',
+    tenantId: 'tenant-1', profileId: 'profile-1', profileRevisionDigest: hex('1'),
+    deviceCredentialId: 'credential-1', deviceFingerprint: hex('2'), runIntentId: 'intent-1',
+    grant: exactGrant, grantDigest: await brokerApprovalSemanticDigest('desktop-tools:privileged-broker:v1', exactGrant),
+    delegationDigest: hex('3'), revocationEpoch: 7, approvedAt: '2026-11-08T12:01:00.000Z',
+    expiresAt: '2026-11-08T12:04:00.000Z',
+  };
+  const approval = { ...unsigned,
+    signature: sign(null, brokerApprovalSigningBytes(unsigned), signer.privateKey).toString('base64url'),
+    auditDigest: await brokerApprovalAuditDigest(unsigned) };
+  const input = { grant: exactGrant, approval,
+    trust: { signerKeyId: unsigned.signerKeyId, publicKey: signer.publicKey.export({ type: 'spki', format: 'pem' }).toString() },
+    delegationDigest: unsigned.delegationDigest, minimumRevocationEpoch: 7,
+    maximumApprovalLifetimeSeconds: 600,
+    now: new Date('2026-11-08T12:02:00.000Z') };
+  assert.equal(await verifyControlPlaneBrokerApproval(input), true);
+  assert.equal(await verifyControlPlaneBrokerApproval({ ...input,
+    approval: { ...approval, deviceFingerprint: hex('4') } }), false);
+  assert.equal(await verifyControlPlaneBrokerApproval({ ...input, minimumRevocationEpoch: 8 }), false);
 });
 
 test('signed device approval rejects invalid time, key type, and unknown fields', () => {

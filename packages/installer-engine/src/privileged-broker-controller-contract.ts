@@ -1,6 +1,7 @@
 import { dirname, isAbsolute, resolve } from 'node:path';
 import { z } from 'zod';
-import { PrivilegedBrokerApprovalEvidenceSchema, PrivilegedBrokerGrantSchema } from './privileged-broker-protocol.js';
+import { PrivilegedBrokerGrantSchema } from './privileged-broker-protocol.js';
+import { SignedBrokerApproval } from '@install-doctor/aid-core/broker-approval-contracts';
 import { PrivilegedBrokerExecutionAuthoritySchema } from './privileged-broker-authority.js';
 
 const digest = z.string().regex(/^[a-f0-9]{64}$/);
@@ -24,8 +25,7 @@ export const PrivilegedBrokerControllerInputSchema = z.strictObject({
   helperDigest: digest,
   runtimeDigest: digest,
   workerDigest: digest,
-  deviceApproval: PrivilegedBrokerApprovalEvidenceSchema.refine(value => value.method === 'signed-device',
-    'controller device approval must be signed-device evidence').optional(),
+  deviceApproval: SignedBrokerApproval.optional(),
   brokerApprovalDelegationPath: runtimePath.optional(),
   brokerApprovalDelegationDigest: digest.optional(),
   brokerApprovalMinimumRevocationEpoch: z.number().int().nonnegative().safe().optional(),

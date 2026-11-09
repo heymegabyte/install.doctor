@@ -14,7 +14,8 @@ export function deriveReleaseBrokerApprovalTrust(input: {
   readonly expectedDigest: string;
   readonly minimumRevocationEpoch: number;
   readonly grant: PrivilegedBrokerGrant;
-}): PrivilegedBrokerDeviceApprovalTrust {
+}): PrivilegedBrokerDeviceApprovalTrust & { readonly maximumApprovalLifetimeSeconds: number;
+  readonly delegationDigest: string; readonly revocationEpoch: number } {
   if (digest(input.bytes) !== input.expectedDigest) throw new Error('broker approval delegation differs from signed release authority');
   const value = BrokerApprovalSignerDelegation.parse(JSON.parse(input.bytes.toString('utf8')) as unknown);
   if (!input.bytes.equals(Buffer.from(`${JSON.stringify(canonical(value))}\n`, 'utf8'))) {
@@ -40,5 +41,7 @@ export function deriveReleaseBrokerApprovalTrust(input: {
     throw new Error('broker approval delegation key is not canonical Ed25519');
   }
   return Object.freeze({ signerKeyId: value.keyId,
-    publicKey: key.export({ format: 'pem', type: 'spki' }).toString() });
+    publicKey: key.export({ format: 'pem', type: 'spki' }).toString(),
+    maximumApprovalLifetimeSeconds: value.maximumApprovalLifetimeSeconds,
+    delegationDigest: value.delegationDigest, revocationEpoch: value.revocationEpoch });
 }
