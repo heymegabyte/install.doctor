@@ -77,6 +77,23 @@ test('requires a server-issued claim locator and rejects substituted approval bi
   await assert.rejects(transport.claim(grant, binding, { ownerDecisionId: 'decision-1' }), /exact target binding/);
 });
 
+test('polls only the exact authorization, run intent, and grant for a server-issued locator', async () => {
+  const fixture = await tokenFixture();
+  let response = { schemaVersion: 1, status: 'pending' };
+  const transport = createBrokerApprovalTransport({ origin: 'https://desktop.tools', tokenPath: fixture.path,
+    fetch: async (url, init) => {
+      assert.equal(String(url), 'https://desktop.tools/api/devices/broker-authorizations/status');
+      assert.deepEqual(JSON.parse(init.body), { schemaVersion: 1, authorizationId: binding.authorizationId,
+        runIntentId: binding.runIntentId, grantId: grant.grantId });
+      return Response.json(response);
+    } });
+  assert.deepEqual(await transport.status(grant, binding), response);
+  response = { schemaVersion: 1, status: 'approved', ownerDecisionId: 'decision-1' };
+  assert.deepEqual(await transport.status(grant, binding), response);
+  response = { schemaVersion: 1, status: 'approved', ownerDecisionId: 'decision-1', tenantId: 'tenant-2' };
+  await assert.rejects(transport.status(grant, binding));
+});
+
 test('fails closed on insecure origins, non-success status, oversized and malformed responses', async () => {
   const fixture = await tokenFixture();
   assert.throws(() => createBrokerApprovalTransport({ origin: 'http://desktop.tools', tokenPath: fixture.path }), /HTTPS origin/);

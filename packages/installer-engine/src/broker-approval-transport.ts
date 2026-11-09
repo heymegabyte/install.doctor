@@ -25,6 +25,14 @@ export const BrokerApprovalClaimLocatorSchema = z.strictObject({
   ownerDecisionId: id,
 });
 
+export const BrokerApprovalTargetStatusSchema = z.discriminatedUnion('status', [
+  z.strictObject({ schemaVersion: z.literal(1), status: z.literal('not-found') }),
+  z.strictObject({ schemaVersion: z.literal(1), status: z.literal('pending') }),
+  z.strictObject({ schemaVersion: z.literal(1), status: z.literal('denied') }),
+  z.strictObject({ schemaVersion: z.literal(1), status: z.literal('expired') }),
+  z.strictObject({ schemaVersion: z.literal(1), status: z.literal('approved'), ownerDecisionId: id }),
+]);
+
 export type BrokerApprovalTargetBinding = z.infer<typeof BrokerApprovalTargetBindingSchema>;
 export type BrokerApprovalClaimLocator = z.infer<typeof BrokerApprovalClaimLocatorSchema>;
 
@@ -152,6 +160,15 @@ export function createBrokerApprovalTransport(options: BrokerApprovalTransportOp
       );
       if (!exact(response.runIntent, intent)) throw new Error('broker authorization response changed the exact run intent');
       return intent;
+    },
+
+    async status(grantValue: unknown, bindingValue: unknown) {
+      const grant = PrivilegedBrokerGrantSchema.parse(grantValue);
+      const binding = BrokerApprovalTargetBindingSchema.parse(bindingValue);
+      return BrokerApprovalTargetStatusSchema.parse(await post('/api/devices/broker-authorizations/status', {
+        schemaVersion: 1, authorizationId: binding.authorizationId,
+        runIntentId: binding.runIntentId, grantId: grant.grantId,
+      }));
     },
 
     async claim(grantValue: unknown, bindingValue: unknown, locatorValue: unknown) {
