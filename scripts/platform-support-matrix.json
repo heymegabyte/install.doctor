@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "verifiedMaxAgeDays": 90,
-  "requiredVerifiedCoverage": ["stage-zero", "plan", "apply", "verify", "unchanged-reapply", "interrupted-resume", "config-rollback", "headless", "offline"],
+  "requiredVerifiedCoverage": ["stage-zero", "plan", "apply", "verify", "unchanged-reapply", "interrupted-resume", "config-rollback", "headless", "interactive-tui", "offline"],
   "cells": [
     {"id":"macos-14-arm64-native","os":"macOS","version":"14","arch":"arm64","environment":"native","role":"macos","status":"best-effort","evidence":[{"kind":"fixture-definition","path":"scripts/test-macos.sh","assertion":"The platform-specific fixture exercises macOS behavior when run on a matching host; GitHub retired its macOS 14 runner, so this is not current tuple-specific CI or a full-lifecycle canary receipt."}],"limitation":"GitHub retired the macOS 14 runner and no current clean-host receipt covers the complete install lifecycle.","remediation":"Run the signed entrypoint on an authorized disposable macOS 14 ARM64 host and commit a redacted receipt covering every required phase."},
     {"id":"macos-15-arm64-native","os":"macOS","version":"15","arch":"arm64","environment":"native","role":"macos","status":"best-effort","evidence":[{"kind":"fixture-definition","path":"scripts/test-macos.sh","assertion":"The platform-specific fixture exercises macOS behavior when run on a matching host; there is no current tuple-specific lifecycle job or clean-host receipt."}],"limitation":"No current clean-host receipt covers the complete install lifecycle.","remediation":"Run the signed entrypoint on an authorized disposable clean host and commit a redacted receipt covering every required phase."},

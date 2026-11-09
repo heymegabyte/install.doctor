@@ -78,12 +78,17 @@ const canaryReceipt = {
   schemaVersion: 2, receiptId: 'canary-1', evidenceClass: 'real-host-canary', scope: 'full-lifecycle', cellId: 'macos-15-arm64-native',
   tuple: { os: 'macOS', version: '15', arch: 'arm64', environment: 'native', role: 'macos' },
   release: { releaseId: 'release-1', sourceCommit: 'b'.repeat(40), manifestDigest: sha }, result: 'passed', recordedAt: at,
-  coverage: ['stage-zero','plan','apply','verify','unchanged-reapply','interrupted-resume','config-rollback','headless','offline'],
+  coverage: ['stage-zero','plan','apply','verify','unchanged-reapply','interrupted-resume','config-rollback','headless','interactive-tui','offline'],
   proof: { provider: 'github-actions', runnerEnvironment: 'github-hosted', disposable: true, hermetic: false,
     workflowCommit: 'c'.repeat(40), workflowRunId: '12345', evidenceDigest: sha,
     phases: { cleanInstall: canaryPhase(), signedRelease: { result: 'passed', evidenceDigest: sha }, upgrade: canaryPhase(),
       interruptedResume: canaryPhase('online', ['install.git'], ['install.git']), unchangedSecondRun: canaryPhase('online', []), offlineExecution: canaryPhase('offline', [], [], 'd'.repeat(64)),
-      configRollback: { result: 'passed', evidenceDigest: sha, authorityDigest: sha, rollbackRunId: 'rollback-1', planDigest: sha, restoredTaskIds: ['install.git'] } } },
+      configRollback: { result: 'passed', evidenceDigest: sha, authorityDigest: sha, rollbackRunId: 'rollback-1', planDigest: sha, restoredTaskIds: ['install.git'] },
+      interactiveTui: { result: 'passed', evidenceDigest: sha, releaseId: 'release-1', sourceCommit: 'b'.repeat(40), manifestDigest: sha,
+        directUser: { transcriptDigest: sha, runsListDigest: sha, planArtifactDigest: sha, journalHeadDigest: sha, journalObjectDigest: sha, planDigest: sha,
+          exitStatus: 130, altScreenEntered: true, terminalRestored: true, desktopToolsIdentity: true, workerAttribution: true, runId: 'direct-run', resumeCandidate: true },
+        rootHandoff: { transcriptDigest: sha, runsListDigest: sha, planArtifactDigest: sha, journalHeadDigest: sha, journalObjectDigest: sha, planDigest: sha,
+          exitStatus: 130, altScreenEntered: true, terminalRestored: true, desktopToolsIdentity: true, workerAttribution: true, runId: 'root-run', resumeCandidate: true } } } },
 };
 
 const cases = [

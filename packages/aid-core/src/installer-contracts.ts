@@ -481,6 +481,16 @@ const canaryRollbackPhaseProof = strict({
   restoredTaskIds: canaryTaskIds,
 });
 const canarySignedReleaseProof = strict({ result: z.literal('passed'), evidenceDigest: digest });
+const canaryInteractiveSessionProof = strict({
+  transcriptDigest: digest, runsListDigest: digest, planArtifactDigest: digest, journalHeadDigest: digest, journalObjectDigest: digest,
+  exitStatus: z.literal(130), altScreenEntered: z.literal(true), terminalRestored: z.literal(true),
+  desktopToolsIdentity: z.literal(true), workerAttribution: z.literal(true), runId: id, planDigest: digest, resumeCandidate: z.literal(true),
+});
+const canaryInteractiveTuiProof = strict({
+  result: z.literal('passed'), evidenceDigest: digest, releaseId: id,
+  sourceCommit: z.string().regex(/^[a-f0-9]{40}$/), manifestDigest: digest,
+  directUser: canaryInteractiveSessionProof, rootHandoff: canaryInteractiveSessionProof,
+});
 
 export const RealHostCanaryReceiptSchema = strict({
   schemaVersion: z.literal(2),
@@ -496,7 +506,8 @@ export const RealHostCanaryReceiptSchema = strict({
   recordedAt: timestamp,
   coverage: z.tuple([
     z.literal('stage-zero'), z.literal('plan'), z.literal('apply'), z.literal('verify'),
-    z.literal('unchanged-reapply'), z.literal('interrupted-resume'), z.literal('config-rollback'), z.literal('headless'), z.literal('offline'),
+    z.literal('unchanged-reapply'), z.literal('interrupted-resume'), z.literal('config-rollback'), z.literal('headless'),
+    z.literal('interactive-tui'), z.literal('offline'),
   ]),
   proof: strict({
     provider: z.literal('github-actions'), runnerEnvironment: z.literal('github-hosted'), disposable: z.literal(true), hermetic: z.literal(false),
@@ -509,9 +520,18 @@ export const RealHostCanaryReceiptSchema = strict({
       unchangedSecondRun: canaryInstallPhaseProof,
       offlineExecution: canaryInstallPhaseProof,
       configRollback: canaryRollbackPhaseProof,
+      interactiveTui: canaryInteractiveTuiProof,
     }),
   }),
 }).superRefine((value, context) => {
+  const interactive = value.proof.phases.interactiveTui;
+  if (interactive.releaseId !== value.release.releaseId || interactive.sourceCommit !== value.release.sourceCommit
+    || interactive.manifestDigest !== value.release.manifestDigest) {
+    context.addIssue({ code: 'custom', path: ['proof', 'phases', 'interactiveTui'], message: 'interactive TUI proof must bind the promoted release' });
+  }
+  if (interactive.directUser.runId === interactive.rootHandoff.runId) {
+    context.addIssue({ code: 'custom', path: ['proof', 'phases', 'interactiveTui'], message: 'interactive TUI sessions must bind distinct interrupted runs' });
+  }
   if (value.proof.phases.offlineExecution.executionMode !== 'offline') {
     context.addIssue({ code: 'custom', path: ['proof', 'phases', 'offlineExecution', 'executionMode'], message: 'offline phase must be marked offline' });
   }

@@ -19,7 +19,7 @@ const exact = (value, keys, label) => {
   const actual = Object.keys(value).sort(); const expected = [...keys].sort();
   if (JSON.stringify(actual) !== JSON.stringify(expected)) throw new Error(`${label} fields are invalid`);
 };
-const phaseNames = ['cleanInstall', 'signedRelease', 'upgrade', 'interruptedResume', 'unchangedSecondRun', 'offlineExecution', 'configRollback'];
+const phaseNames = ['cleanInstall', 'signedRelease', 'upgrade', 'interruptedResume', 'unchangedSecondRun', 'offlineExecution', 'configRollback', 'interactiveTui'];
 exact(report, ['schemaVersion', 'cellId', 'observed', 'release', 'disposable', 'hermetic', 'phases'], 'report');
 if (report.schemaVersion !== 3 || report.disposable !== true || report.hermetic !== false) throw new Error('report is not schema-v3 non-hermetic disposable-host evidence');
 const cell = matrix.cells?.find(candidate => candidate.id === report.cellId);
@@ -294,6 +294,86 @@ if (sha256(fs.readFileSync(manifest)) !== signed.manifestDigest) throw new Error
 const manifestText = fs.readFileSync(manifest, 'utf8');
 if (!manifestText.split('\n').includes(`release_id=${signed.releaseId}`) || !manifestText.split('\n').includes(`source_commit=${signed.sourceCommit}`)) throw new Error('manifest metadata mismatch');
 execFileSync('ssh-keygen', ['-Y','verify','-f',evidenceFile(signed.allowedSignersPath,'allowed signers'),'-I',signed.signerId,'-n','install.doctor.release','-s',evidenceFile(signed.signaturePath,'manifest signature')], { input: fs.readFileSync(manifest), stdio: ['pipe','ignore','ignore'] });
+
+const interactiveTui = structured.interactiveTui;
+exact(interactiveTui, ['schemaVersion','release','directUser','rootHandoff'], 'interactiveTui');
+exact(interactiveTui.release, ['releaseId','sourceCommit','manifestDigest'], 'interactiveTui.release');
+if (interactiveTui.schemaVersion !== 1
+  || interactiveTui.release.releaseId !== report.release.releaseId
+  || interactiveTui.release.sourceCommit !== report.release.sourceCommit
+  || interactiveTui.release.manifestDigest !== report.release.manifestDigest) {
+  throw new Error('interactive TUI release identity mismatch');
+}
+const validateInteractiveSession = (session, label) => {
+  exact(session, ['transcriptPath','transcriptDigest','exitStatus','runsListPath','runsListDigest','authorityRoot','runId','planDigest'], label);
+  if (session.exitStatus !== 130 || !/^[a-f0-9]{64}$/.test(session.transcriptDigest)
+    || !/^[a-f0-9]{64}$/.test(session.runsListDigest) || !/^[a-f0-9]{64}$/.test(session.planDigest)
+    || !/^[a-z0-9][a-z0-9._-]{0,127}$/.test(session.runId)) throw new Error(`${label} identity is invalid`);
+  const transcriptBytes = fs.readFileSync(evidenceFile(session.transcriptPath, `${label} transcript`));
+  if (sha256(transcriptBytes) !== session.transcriptDigest) throw new Error(`${label} transcript digest mismatch`);
+  const transcript = transcriptBytes.toString('utf8');
+  const visibleTranscript = transcript.replaceAll(/\u001b\[[0-?]*[ -/]*[@-~]/gu, '');
+  const assertions = {
+    altScreenEntered: transcript.includes('\u001b[?1049h') && transcript.includes('\u001b[?25l'),
+    terminalRestored: transcript.includes('\u001b[?25h\u001b[?1049l'),
+    desktopToolsIdentity: visibleTranscript.includes('DESKTOP TOOLS'),
+    workerAttribution: /Workers\s+\d+ active\s+\d+ waiting\s+\d+\/\d+ done/u.test(visibleTranscript),
+  };
+  if (Object.values(assertions).some(value => value !== true)) throw new Error(`${label} transcript lacks required TUI lifecycle evidence`);
+  const runsListBytes = fs.readFileSync(evidenceFile(session.runsListPath, `${label} runs-list evidence`));
+  if (sha256(runsListBytes) !== session.runsListDigest) throw new Error(`${label} runs-list digest mismatch`);
+  const runsList = JSON.parse(runsListBytes.toString('utf8'));
+  exact(runsList, ['schemaVersion','runs'], `${label}.runsList`);
+  if (runsList.schemaVersion !== 1 || !Array.isArray(runsList.runs)) throw new Error(`${label} runs-list is invalid`);
+  const matches = runsList.runs.filter(run => run?.runId === session.runId && run?.planDigest === session.planDigest);
+  if (matches.length !== 1) throw new Error(`${label} runs-list lacks one exact interrupted run`);
+  const summary = matches[0];
+  exact(summary, ['schemaVersion','runId','planDigest','releaseId','desiredRevision','updatedAt','journalRevision','authority','resumeCandidate','taskCounts'], `${label}.runSummary`);
+  exact(summary.taskCounts, ['running','verified','inapplicable','blocked','failed','interrupted'], `${label}.runSummary.taskCounts`);
+  if (summary.schemaVersion !== 1 || summary.releaseId !== report.release.releaseId || summary.authority !== 'uncommitted'
+    || summary.resumeCandidate !== true || !Number.isSafeInteger(summary.journalRevision) || summary.journalRevision < 1
+    || !Number.isFinite(Date.parse(summary.updatedAt)) || !Number.isSafeInteger(summary.taskCounts.interrupted)
+    || summary.taskCounts.interrupted < 1) throw new Error(`${label} runs-list does not prove resumable interruption`);
+  const authorityState = evidenceDirectory(session.authorityRoot, `${label} uncommitted authority`);
+  const authorityDirectory = path.join(authorityState, 'runs', session.planDigest, session.runId);
+  const authorityStat = fs.lstatSync(authorityDirectory);
+  if (!authorityStat.isDirectory() || authorityStat.isSymbolicLink()) throw new Error(`${label} run authority is unsafe`);
+  const planPath = path.join(authorityDirectory, 'plan.json');
+  const headPath = path.join(authorityDirectory, 'journal-head.json');
+  const objectPath = path.join(authorityDirectory, 'journal-object.json');
+  for (const [artifactPath, artifactLabel] of [[planPath,'plan'],[headPath,'journal head'],[objectPath,'journal object']]) {
+    const stat = fs.lstatSync(artifactPath);
+    if (!stat.isFile() || stat.isSymbolicLink() || stat.size < 2 || stat.size > 16_777_216) throw new Error(`${label} ${artifactLabel} is unsafe`);
+  }
+  const planBytes = fs.readFileSync(planPath); const plan = JSON.parse(planBytes.toString('utf8'));
+  const headBytes = fs.readFileSync(headPath); const head = JSON.parse(headBytes.toString('utf8'));
+  const objectBytes = fs.readFileSync(objectPath); const object = JSON.parse(objectBytes.toString('utf8'));
+  exact(head, ['schemaVersion','generation','previousDigest','journalDigest'], `${label}.journalHead`);
+  exact(object, ['schemaVersion','generation','previousDigest','journal'], `${label}.journalObject`);
+  if (plan.digest !== session.planDigest || head.schemaVersion !== 1 || object.schemaVersion !== 1
+    || head.generation !== object.generation || head.previousDigest !== object.previousDigest
+    || head.journalDigest !== sha256(objectBytes) || object.journal?.runId !== session.runId
+    || object.journal?.planDigest !== session.planDigest || object.journal?.releaseId !== report.release.releaseId
+    || object.journal?.desiredRevision !== summary.desiredRevision || object.journal?.updatedAt !== summary.updatedAt
+    || object.journal?.revision !== summary.journalRevision) throw new Error(`${label} uncommitted journal authority is inconsistent`);
+  const counts = { running: 0, verified: 0, inapplicable: 0, blocked: 0, failed: 0, interrupted: 0 };
+  if (!Array.isArray(object.journal?.entries)) throw new Error(`${label} journal entries are missing`);
+  for (const entry of object.journal.entries) if (Object.hasOwn(counts, entry?.status)) counts[entry.status] += 1;
+  if (JSON.stringify(counts) !== JSON.stringify(summary.taskCounts) || counts.interrupted < 1) throw new Error(`${label} runs-list counts differ from journal authority`);
+  const commits = path.join(authorityDirectory, 'commits');
+  const commitStat = fs.lstatSync(commits);
+  if (!commitStat.isDirectory() || commitStat.isSymbolicLink() || fs.readdirSync(commits).length !== 0
+    || fs.existsSync(path.join(authorityState, 'owner.json'))) throw new Error(`${label} run is committed or actively owned`);
+  return { transcriptDigest: session.transcriptDigest, runsListDigest: session.runsListDigest,
+    planArtifactDigest: sha256(planBytes), journalHeadDigest: sha256(headBytes), journalObjectDigest: sha256(objectBytes),
+    exitStatus: session.exitStatus, ...assertions, runId: session.runId, planDigest: session.planDigest, resumeCandidate: true };
+};
+const directTui = validateInteractiveSession(interactiveTui.directUser, 'interactiveTui.directUser');
+const rootTui = validateInteractiveSession(interactiveTui.rootHandoff, 'interactiveTui.rootHandoff');
+if (directTui.runId === rootTui.runId) throw new Error('interactive TUI sessions must prove distinct interrupted runs');
+phaseProof.interactiveTui = { ...phaseProof.interactiveTui, releaseId: report.release.releaseId,
+  sourceCommit: report.release.sourceCommit, manifestDigest: report.release.manifestDigest,
+  directUser: directTui, rootHandoff: rootTui };
 
 const clean = validateInstallAuthority(structured.cleanInstall, 'cleanInstall', 'online');
 const upgrade = validateInstallAuthority(structured.upgrade, 'upgrade', 'online');

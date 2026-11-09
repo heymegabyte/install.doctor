@@ -56,10 +56,10 @@ const receipt = {
   tuple: Object.fromEntries(['os','version','arch','environment','role'].map(key => [key, cell[key]])),
   release: { releaseId: 'release-test', sourceCommit: 'a'.repeat(40), manifestDigest: 'b'.repeat(64) }, result: 'passed',
   recordedAt: new Date().toISOString(),
-  coverage: ['stage-zero','plan','apply','verify','unchanged-reapply','interrupted-resume','config-rollback','headless','offline'],
+  coverage: ['stage-zero','plan','apply','verify','unchanged-reapply','interrupted-resume','config-rollback','headless','interactive-tui','offline'],
   proof: { provider: 'github-actions', runnerEnvironment: 'github-hosted', disposable: true, hermetic: false,
     workflowCommit: 'c'.repeat(40), workflowRunId: '12345', evidenceDigest: 'd'.repeat(64),
-    phases: {cleanInstall:installPhase(),signedRelease:{result:'passed',evidenceDigest:'e'.repeat(64)},upgrade:installPhase(),interruptedResume:installPhase('online',['task.one'],['task.one']),unchangedSecondRun:installPhase('online',[]),offlineExecution:installPhase('offline',[],[],'b'.repeat(64)),configRollback:{result:'passed',evidenceDigest:'e'.repeat(64),authorityDigest:'f'.repeat(64),rollbackRunId:'rollback-one',planDigest:'c'.repeat(64),restoredTaskIds:['task.one']}} },
+    phases: {cleanInstall:installPhase(),signedRelease:{result:'passed',evidenceDigest:'e'.repeat(64)},upgrade:installPhase(),interruptedResume:installPhase('online',['task.one'],['task.one']),unchangedSecondRun:installPhase('online',[]),offlineExecution:installPhase('offline',[],[],'b'.repeat(64)),configRollback:{result:'passed',evidenceDigest:'e'.repeat(64),authorityDigest:'f'.repeat(64),rollbackRunId:'rollback-one',planDigest:'c'.repeat(64),restoredTaskIds:['task.one']},interactiveTui:{result:'passed',evidenceDigest:'e'.repeat(64),releaseId:'release-test',sourceCommit:'a'.repeat(40),manifestDigest:'b'.repeat(64),directUser:{transcriptDigest:'1'.repeat(64),runsListDigest:'2'.repeat(64),planArtifactDigest:'3'.repeat(64),journalHeadDigest:'4'.repeat(64),journalObjectDigest:'5'.repeat(64),exitStatus:130,altScreenEntered:true,terminalRestored:true,desktopToolsIdentity:true,workerAttribution:true,runId:'direct-run',planDigest:'6'.repeat(64),resumeCandidate:true},rootHandoff:{transcriptDigest:'7'.repeat(64),runsListDigest:'8'.repeat(64),planArtifactDigest:'9'.repeat(64),journalHeadDigest:'a'.repeat(64),journalObjectDigest:'b'.repeat(64),exitStatus:130,altScreenEntered:true,terminalRestored:true,desktopToolsIdentity:true,workerAttribution:true,runId:'root-run',planDigest:'c'.repeat(64),resumeCandidate:true}}} },
   promotion:{schemaVersion:1,verifier:'independent-offline-authority',canaryDigest:'1'.repeat(64),promotionDigest:'2'.repeat(64),verifiedAt:new Date().toISOString(),bindings:{requestDigest:'3'.repeat(64),requestAuthorityDelegationDigest:'4'.repeat(64),requestAttestationDigest:'5'.repeat(64),delegationDigest:'6'.repeat(64),manifestDigest:'7'.repeat(64),ciEvidenceDigest:'8'.repeat(64),journalRevision:2,journalDigest:'9'.repeat(64),journalCommitDigest:'a'.repeat(64),networkIsolationDigest:'b'.repeat(64)}}
 };
 const canonical=input=>Array.isArray(input)?input.map(canonical):input!==null&&typeof input==='object'?Object.fromEntries(Object.entries(input).sort(([a],[b])=>a.localeCompare(b)).map(([k,v])=>[k,canonical(v)])):input;
@@ -85,6 +85,10 @@ reject_mutation wrong-scope "value.scope='unit-test'"
 reject_mutation hermetic "value.evidenceClass='hermetic'"
 reject_mutation hermetic-proof "value.proof.hermetic=true"
 reject_mutation missing-upgrade-proof "delete value.proof.phases.upgrade"
+reject_mutation missing-interactive-tui-proof "delete value.proof.phases.interactiveTui"
+reject_mutation tampered-direct-tui-digest "value.proof.phases.interactiveTui.directUser.transcriptDigest='0'"
+reject_mutation unrestored-root-tui "value.proof.phases.interactiveTui.rootHandoff.terminalRestored=false"
+reject_mutation reused-tui-run "value.proof.phases.interactiveTui.rootHandoff.runId=value.proof.phases.interactiveTui.directUser.runId"
 reject_mutation missing-offline-authority "delete value.proof.phases.offlineExecution.authorityDigest"
 reject_mutation caller-mutation-claim "value.proof.phases.unchangedSecondRun.mutatedTaskIds=['task.one']"
 reject_mutation self-authored-unpromoted "value.schemaVersion=2;delete value.promotion"
@@ -184,12 +188,14 @@ Object.assign(offline,{offlineBundle:{manifestPath:'offline-bundle.manifest.json
 fs.writeFileSync(path.join(root,'offline-execution.json'),JSON.stringify(offline));
 fs.writeFileSync(path.join(root,'clean-install.json'),JSON.stringify(clean)); fs.writeFileSync(path.join(root,'upgrade.json'),JSON.stringify(upgrade)); fs.writeFileSync(path.join(root,'unchanged-second-run.json'),JSON.stringify(unchanged)); fs.writeFileSync(path.join(root,'interrupted-resume.json'),JSON.stringify({...upgrade,interruptedRunId:'upgrade-run',interruptStatus:124}));
 const rollbackRoot='config-rollback.authority',rollbackDir=path.join(root,rollbackRoot);fs.mkdirSync(path.join(rollbackDir,'events'),{recursive:true});const rollbackPlan={digest:'e'.repeat(64),taskOrder:['task.one']};const rollbackPlanArtifact=write(path.join(rollbackDir,'plan.json'),rollbackPlan);const rollbackEvents=[{sequence:0,kind:'rollback-run-started'},{sequence:1,kind:'rollback-plan-approved'},{sequence:2,kind:'rollback-task-started',taskId:'task.one'},{sequence:3,kind:'rollback-task-restored',taskId:'task.one'},{sequence:4,kind:'rollback-run-finished',status:'succeeded'}];const rollbackEventArtifacts=rollbackEvents.map((event,index)=>write(path.join(rollbackDir,'events',`${String(index).padStart(8,'0')}.json`),event));const rr={status:'succeeded',completed:true};const rollbackReceiptArtifact=write(path.join(rollbackDir,'receipt.json'),rr);const rollbackCommit={schemaVersion:1,rollbackRunId:'rollback-run',planDigest:rollbackPlan.digest,plan:rollbackPlanArtifact,events:rollbackEventArtifacts,receipt:rollbackReceiptArtifact,evidencePaths:[]};fs.writeFileSync(path.join(rollbackDir,'commit.json'),JSON.stringify(rollbackCommit));fs.writeFileSync(path.join(root,'config-rollback.json'),JSON.stringify({schemaVersion:2,rollbackRunId:'rollback-run',planDigest:rollbackPlan.digest,authorityRoot:rollbackRoot}));
-const paths={cleanInstall:'clean-install.json',signedRelease:'signed-release.json',upgrade:'upgrade.json',interruptedResume:'interrupted-resume.json',unchangedSecondRun:'unchanged-second-run.json',offlineExecution:'offline-execution.json',configRollback:'config-rollback.json'}; const phases=Object.fromEntries(Object.entries(paths).map(([name,path])=>[name,{result:'passed',path}])); fs.writeFileSync(reportFile,JSON.stringify({schemaVersion:3,cellId:'macos-14-arm64-native',observed:{os:'macOS',version:'14',arch:'arm64',environment:'native',role:'macos'},release:{releaseId:'release-test',sourceCommit,manifestDigest},disposable:true,hermetic:false,phases}));
+const tuiSession=(name,runId,planDigest)=>{const transcriptPath=`${name}.typescript`,runsListPath=`${name}.runs-list.json`,authorityRoot=`${name}.uncommitted`;const transcript=Buffer.from('\u001b[?1049h\u001b[?25l\u001b[1;36mDESKTOP TOOLS\u001b[0m\n\u001b[2mWorkers\u001b[0m  1 active  2 waiting  3/6 done\n\u001b[?25h\u001b[?1049l');fs.writeFileSync(path.join(root,transcriptPath),transcript);const authority=path.join(root,authorityRoot,'runs',planDigest,runId);fs.mkdirSync(path.join(authority,'commits'),{recursive:true});const planBytes=Buffer.from(JSON.stringify({digest:planDigest,selectedTaskIds:['task.one']}));fs.writeFileSync(path.join(authority,'plan.json'),planBytes);const updatedAt='2026-11-05T12:00:30.000Z',desiredRevision='revision-one';const journal={runId,planDigest,releaseId:'release-test',desiredRevision,updatedAt,revision:2,entries:[{taskId:'task.one',status:'interrupted'}]};const object={schemaVersion:1,generation:2,previousDigest:'f'.repeat(64),journal};const objectBytes=Buffer.from(JSON.stringify(object));fs.writeFileSync(path.join(authority,'journal-object.json'),objectBytes);const head={schemaVersion:1,generation:2,previousDigest:object.previousDigest,journalDigest:hash(objectBytes)};const headBytes=Buffer.from(JSON.stringify(head));fs.writeFileSync(path.join(authority,'journal-head.json'),headBytes);const summary={schemaVersion:1,runId,planDigest,releaseId:'release-test',desiredRevision,updatedAt,journalRevision:2,authority:'uncommitted',resumeCandidate:true,taskCounts:{running:0,verified:0,inapplicable:0,blocked:0,failed:0,interrupted:1}};const runsListBytes=Buffer.from(JSON.stringify({schemaVersion:1,runs:[summary]}));fs.writeFileSync(path.join(root,runsListPath),runsListBytes);return{transcriptPath,transcriptDigest:hash(transcript),exitStatus:130,runsListPath,runsListDigest:hash(runsListBytes),authorityRoot,runId,planDigest}};
+const interactiveTui={schemaVersion:1,release:{releaseId:'release-test',sourceCommit,manifestDigest},directUser:tuiSession('direct-user-tui','direct-run','1'.repeat(64)),rootHandoff:tuiSession('root-handoff-tui','root-run','2'.repeat(64))};fs.writeFileSync(path.join(root,'interactive-tui.json'),JSON.stringify(interactiveTui));
+const paths={cleanInstall:'clean-install.json',signedRelease:'signed-release.json',upgrade:'upgrade.json',interruptedResume:'interrupted-resume.json',unchangedSecondRun:'unchanged-second-run.json',offlineExecution:'offline-execution.json',configRollback:'config-rollback.json',interactiveTui:'interactive-tui.json'}; const phases=Object.fromEntries(Object.entries(paths).map(([name,path])=>[name,{result:'passed',path}])); fs.writeFileSync(reportFile,JSON.stringify({schemaVersion:3,cellId:'macos-14-arm64-native',observed:{os:'macOS',version:'14',arch:'arm64',environment:'native',role:'macos'},release:{releaseId:'release-test',sourceCommit,manifestDigest},disposable:true,hermetic:false,phases}));
 NODE
 ssh-keygen -Y sign -q -f "$TMP/finalizer/key" -n install.doctor.offline-bundle "$TMP/finalizer/raw/offline-bundle.manifest.json"
 if GITHUB_ACTIONS=true RUNNER_ENVIRONMENT=github-hosted GITHUB_RUN_ID=12345 GITHUB_SHA=cccccccccccccccccccccccccccccccccccccccc \
   node "$FINALIZER" "$MATRIX" "$TMP/finalizer/report.json" "$TMP/finalizer/raw" "$TMP/finalizer/receipt.json" \
-  && node -e 'const r=JSON.parse(require("node:fs").readFileSync(process.argv[1])); process.exit(r.schemaVersion===2&&r.proof.hermetic===false&&Object.keys(r.proof.phases).length===7&&r.proof.phases.cleanInstall.mutatedTaskIds.length===1&&r.proof.phases.unchangedSecondRun.mutatedTaskIds.length===0?0:1)' "$TMP/finalizer/receipt.json"; then
+  && node -e 'const r=JSON.parse(require("node:fs").readFileSync(process.argv[1])); process.exit(r.schemaVersion===2&&r.proof.hermetic===false&&Object.keys(r.proof.phases).length===8&&r.proof.phases.interactiveTui.directUser.terminalRestored===true&&r.proof.phases.interactiveTui.rootHandoff.resumeCandidate===true&&r.proof.phases.cleanInstall.mutatedTaskIds.length===1&&r.proof.phases.unchangedSecondRun.mutatedTaskIds.length===0?0:1)' "$TMP/finalizer/receipt.json"; then
   pass 'GitHub-hosted non-hermetic phase evidence finalizes to a digest-bound receipt'
 else fail 'valid real-host phase evidence did not finalize'; fi
 cp "$TMP/finalizer/report.json" "$TMP/finalizer/wrong-tuple.json"
@@ -208,6 +214,33 @@ reject_structured_mutation clean-receipt clean-install.authority/receipt.json 'v
 reject_structured_mutation resume-identity interrupted-resume.json 'v.interruptedRunId="different-run"'
 reject_structured_mutation unchanged-mutation unchanged-second-run.json 'v.mutationCount=1'
 reject_structured_mutation rollback-receipt config-rollback.authority/receipt.json 'v.completed=false'
+reject_structured_mutation tui-release interactive-tui.json 'v.release.manifestDigest="f".repeat(64)'
+reject_structured_mutation tui-transcript-digest interactive-tui.json 'v.directUser.transcriptDigest="f".repeat(64)'
+reject_structured_mutation tui-exit-status interactive-tui.json 'v.rootHandoff.exitStatus=0'
+reject_structured_mutation tui-resume-authority root-handoff-tui.runs-list.json 'v.runs[0].authority="committed";v.runs[0].resumeCandidate=false'
+reject_structured_mutation tui-journal-identity root-handoff-tui.uncommitted/runs/2222222222222222222222222222222222222222222222222222222222222222/root-run/journal-object.json 'v.journal.runId="foreign-run"'
+
+cp "$TMP/finalizer/raw/direct-user-tui.typescript" "$TMP/finalizer/raw/direct-user-tui.typescript.backup"
+printf 'DESKTOP TOOLS\nWorkers  1 active  2 waiting  3/6 done\n' > "$TMP/finalizer/raw/direct-user-tui.typescript"
+rm -f "$TMP/finalizer/rejected.json"
+if GITHUB_ACTIONS=true RUNNER_ENVIRONMENT=github-hosted GITHUB_RUN_ID=12346 GITHUB_SHA=cccccccccccccccccccccccccccccccccccccccc node "$FINALIZER" "$MATRIX" "$TMP/finalizer/report.json" "$TMP/finalizer/raw" "$TMP/finalizer/rejected.json" >/dev/null 2>&1; then
+  fail 'TUI transcript without terminal lifecycle finalized'
+else pass 'TUI transcript without terminal lifecycle is rejected'; fi
+mv "$TMP/finalizer/raw/direct-user-tui.typescript.backup" "$TMP/finalizer/raw/direct-user-tui.typescript"
+
+printf '{"active":true}\n' > "$TMP/finalizer/raw/direct-user-tui.uncommitted/owner.json"
+rm -f "$TMP/finalizer/rejected.json"
+if GITHUB_ACTIONS=true RUNNER_ENVIRONMENT=github-hosted GITHUB_RUN_ID=12346 GITHUB_SHA=cccccccccccccccccccccccccccccccccccccccc node "$FINALIZER" "$MATRIX" "$TMP/finalizer/report.json" "$TMP/finalizer/raw" "$TMP/finalizer/rejected.json" >/dev/null 2>&1; then
+  fail 'actively owned TUI interruption finalized'
+else pass 'actively owned TUI interruption is rejected'; fi
+rm -f "$TMP/finalizer/raw/direct-user-tui.uncommitted/owner.json"
+
+printf '{"committed":true}\n' > "$TMP/finalizer/raw/root-handoff-tui.uncommitted/runs/2222222222222222222222222222222222222222222222222222222222222222/root-run/commits/commit.json"
+rm -f "$TMP/finalizer/rejected.json"
+if GITHUB_ACTIONS=true RUNNER_ENVIRONMENT=github-hosted GITHUB_RUN_ID=12346 GITHUB_SHA=cccccccccccccccccccccccccccccccccccccccc node "$FINALIZER" "$MATRIX" "$TMP/finalizer/report.json" "$TMP/finalizer/raw" "$TMP/finalizer/rejected.json" >/dev/null 2>&1; then
+  fail 'committed TUI run finalized as resumable'
+else pass 'committed TUI run cannot masquerade as resumable'; fi
+rm -f "$TMP/finalizer/raw/root-handoff-tui.uncommitted/runs/2222222222222222222222222222222222222222222222222222222222222222/root-run/commits/commit.json"
 
 # A running event is only an attempt. Even internally consistent terminal
 # authority cannot promote it to an actual mutation without committed effect

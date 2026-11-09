@@ -103,6 +103,161 @@ engine_url="$(sed -n 's/^engine_url=//p' "$RUNNER_TEMP/manifest-v2")"
 engine_sha="$(sed -n 's/^engine_sha256=//p' "$RUNNER_TEMP/manifest-v2")"
 curl "${curl_args[@]}" --output "$RUNNER_TEMP/engine.mjs" "$engine_url"
 printf '%s  %s\n' "$engine_sha" "$RUNNER_TEMP/engine.mjs" | sha256sum --check --strict >/dev/null
+
+# Prove the release-v2 interactive path independently of the headless lifecycle
+# above. Each session gets a fresh home and engine state. The root session uses
+# a disposable, explicitly enrolled admin account so the evidence covers the
+# real root-to-user handoff without contaminating the runner's normal home.
+command -v script >/dev/null 2>&1 || { printf 'util-linux script is required for the interactive canary\n' >&2; exit 79; }
+direct_tui_home="$RUNNER_TEMP/desktop-tools-direct-tui-home"
+root_tui_suffix="$(printf '%s' "${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT:-1}" | sha256sum | cut -c1-12)"
+root_tui_user="dtcanary${root_tui_suffix}"
+root_tui_home="/home/$root_tui_user"
+mkdir -m 0700 "$direct_tui_home"
+sudo useradd --create-home --home-dir "$root_tui_home" --shell /bin/bash --groups sudo "$root_tui_user"
+sudo chmod 0700 "$root_tui_home"
+cleanup_tui_account() { sudo userdel --remove "$root_tui_user" >/dev/null 2>&1 || true; }
+trap cleanup_tui_account EXIT
+
+tui_common=(
+  SOFTWARE_GROUP=Minimal INSTALL_DOCTOR_ROLE=container INSTALL_DOCTOR_CAPABILITY=minimal
+  INSTALL_DOCTOR_NETWORK=none INSTALL_DOCTOR_CONCURRENCY=2 INSTALL_DOCTOR_SELECTED_SERVICES=
+  INSTALL_DOCTOR_CONSENT_PRIVILEGED=true INSTALL_DOCTOR_CONSENT_NETWORK=false
+  INSTALL_DOCTOR_CONSENT_BEST_EFFORT=true INSTALL_DOCTOR_OFFLINE=false TERM=xterm-256color
+  INSTALL_DOCTOR_RENDERER=tui
+)
+
+approval_for_home() {
+  local approval_home="$1"
+  sudo find "$approval_home/.local/state/install.doctor/engine/approvals" -type f -name '*.json' -printf '%T@ %f\n' \
+    | sort -nr | head -1 | awk '{sub(/\.json$/, "", $2); print $2}'
+}
+
+run_tui_plan() {
+  local mode="$1" plan_home="$2" plan_user="$3" output="$4" status
+  set +e
+  if [ "$mode" = direct ]; then
+    env -u INSTALL_DOCTOR_APPROVED_PLAN_DIGEST HOME="$plan_home" USER="$plan_user" LOGNAME="$plan_user" \
+      HEADLESS_INSTALL=1 INSTALL_DOCTOR_USER="$plan_user" "${tui_common[@]}" \
+      bash "$RUNNER_TEMP/start-v2" >"$output" 2>&1
+  else
+    # The runner owns the diagnostic destination; only the launcher process is elevated.
+    # shellcheck disable=SC2024
+    sudo env -u INSTALL_DOCTOR_APPROVED_PLAN_DIGEST HOME=/root USER=root LOGNAME=root \
+      SUDO_USER="$plan_user" HEADLESS_INSTALL=1 INSTALL_DOCTOR_USER="$plan_user" "${tui_common[@]}" \
+      bash "$RUNNER_TEMP/start-v2" >"$output" 2>&1
+  fi
+  status=$?
+  set -e
+  [ "$status" -eq 3 ] || { printf '%s interactive planning returned %s\n' "$mode" "$status" >&2; cat "$output" >&2; exit 79; }
+}
+
+# Feed the launcher through a real controlling PTY. Cancellation is sent only
+# after a complete worker-attribution frame is durable in the transcript.
+run_tui_cancel() {
+  local mode="$1" session_home="$2" session_user="$3" digest="$4" transcript="$5"
+  local wrapper="$6" fifo="$7" stdout="$8" status='' observed=false script_pid writer_fd deadline
+  if [ "$mode" = direct ]; then
+    printf '%s\n' '#!/usr/bin/env bash' 'set -euo pipefail' \
+      "exec env -u HEADLESS_INSTALL HOME='$session_home' USER='$session_user' LOGNAME='$session_user' INSTALL_DOCTOR_USER='$session_user' INSTALL_DOCTOR_APPROVED_PLAN_DIGEST='$digest' SOFTWARE_GROUP=Minimal INSTALL_DOCTOR_ROLE=container INSTALL_DOCTOR_CAPABILITY=minimal INSTALL_DOCTOR_NETWORK=none INSTALL_DOCTOR_CONCURRENCY=2 INSTALL_DOCTOR_SELECTED_SERVICES='' INSTALL_DOCTOR_CONSENT_PRIVILEGED=true INSTALL_DOCTOR_CONSENT_NETWORK=false INSTALL_DOCTOR_CONSENT_BEST_EFFORT=true INSTALL_DOCTOR_OFFLINE=false INSTALL_DOCTOR_RENDERER=tui TERM=xterm-256color bash '$RUNNER_TEMP/start-v2'" >"$wrapper"
+  else
+    printf '%s\n' '#!/usr/bin/env bash' 'set -euo pipefail' \
+      "exec sudo env -u HEADLESS_INSTALL HOME=/root USER=root LOGNAME=root SUDO_USER='$session_user' INSTALL_DOCTOR_USER='$session_user' INSTALL_DOCTOR_APPROVED_PLAN_DIGEST='$digest' SOFTWARE_GROUP=Minimal INSTALL_DOCTOR_ROLE=container INSTALL_DOCTOR_CAPABILITY=minimal INSTALL_DOCTOR_NETWORK=none INSTALL_DOCTOR_CONCURRENCY=2 INSTALL_DOCTOR_SELECTED_SERVICES='' INSTALL_DOCTOR_CONSENT_PRIVILEGED=true INSTALL_DOCTOR_CONSENT_NETWORK=false INSTALL_DOCTOR_CONSENT_BEST_EFFORT=true INSTALL_DOCTOR_OFFLINE=false INSTALL_DOCTOR_RENDERER=tui TERM=xterm-256color bash '$RUNNER_TEMP/start-v2'" >"$wrapper"
+  fi
+  chmod 0700 "$wrapper"
+  mkfifo -m 0600 "$fifo"
+  exec {writer_fd}<>"$fifo"
+  set +e
+  script -q -e -c "$wrapper" "$transcript" <"$fifo" >"$stdout" 2>&1 &
+  script_pid=$!
+  set -e
+  deadline=$((SECONDS + 300))
+  while kill -0 "$script_pid" 2>/dev/null && [ "$SECONDS" -lt "$deadline" ]; do
+    if [ -f "$transcript" ] && grep -aEq 'Workers[[:space:]]+[1-9][0-9]* active[[:space:]]+[0-9]+ waiting[[:space:]]+[0-9]+/[0-9]+ done' "$transcript"; then
+      observed=true
+      printf '\003' >&"$writer_fd"
+      break
+    fi
+    sleep 1
+  done
+  if [ "$observed" != true ]; then
+    printf '\003' >&"$writer_fd" || true
+    kill -TERM "$script_pid" 2>/dev/null || true
+  fi
+  set +e; wait "$script_pid"; status=$?; set -e
+  eval "exec ${writer_fd}>&-"
+  rm -f -- "$fifo"
+  [ "$observed" = true ] || { printf '%s TUI never rendered worker attribution\n' "$mode" >&2; cat "$stdout" >&2; exit 79; }
+  [ "$status" -eq 130 ] || { printf '%s TUI status=%s\n' "$mode" "$status" >&2; cat "$stdout" >&2; exit 79; }
+  grep -aFq $'\033[?1049h\033[?25l' "$transcript" || { printf '%s TUI did not enter alternate screen\n' "$mode" >&2; exit 79; }
+  grep -aFq $'\033[?25h\033[?1049l' "$transcript" || { printf '%s TUI did not restore terminal\n' "$mode" >&2; exit 79; }
+  grep -aFq 'DESKTOP TOOLS' "$transcript" || { printf '%s TUI lacks Desktop Tools identity\n' "$mode" >&2; exit 79; }
+}
+
+export_tui_authority() {
+  local label="$1" session_home="$2" transcript="$3" digest="$4" exit_status=130
+  local session_state="$session_home/.local/state/install.doctor/engine"
+  local runs_list="$CANARY_EVIDENCE_ROOT/$label.runs-list.json"
+  local authority_name="$label.uncommitted-authority"
+  local authority_root="$CANARY_EVIDENCE_ROOT/$authority_name"
+  local invocation="$RUNNER_TEMP/$label-runs-list-invocation.json"
+  printf '{"schemaVersion":1,"command":"runs-list","stateRoot":"%s"}\n' "$session_state" >"$invocation"
+  local node_command=(node) state_owner
+  state_owner="$(sudo stat -c '%u' "$session_state")"
+  if [ "$state_owner" != "$(id -u)" ]; then node_command=(sudo node); fi
+  "${node_command[@]}" "$RUNNER_TEMP/engine.mjs" --input "$invocation" >"$runs_list"
+  "${node_command[@]}" - "$runs_list" "$session_state" "$authority_root" "$RELEASE_V2" "$digest" <<'NODE'
+const fs=require('node:fs'),path=require('node:path');
+const [runsPath,stateRoot,outputRoot,releaseId,planDigest]=process.argv.slice(2);
+const report=JSON.parse(fs.readFileSync(runsPath));
+const matches=report.runs.filter(run=>run.planDigest===planDigest&&run.releaseId===releaseId&&run.authority==='uncommitted'&&run.resumeCandidate===true&&run.taskCounts?.interrupted>0);
+if(matches.length!==1)throw new Error(`expected one resumable interrupted TUI run, found ${matches.length}`);
+const run=matches[0],source=path.join(stateRoot,'runs',planDigest,run.runId),target=path.join(outputRoot,'runs',planDigest,run.runId);
+if(fs.existsSync(path.join(source,'owner.json')))throw new Error('interrupted TUI run retained a live owner');
+const commits=path.join(source,'commits');if(!fs.statSync(commits).isDirectory()||fs.readdirSync(commits).length!==0)throw new Error('interrupted TUI run has commit authority');
+const heads=fs.readdirSync(path.join(source,'heads')).filter(name=>/^\d{16}-[a-f0-9]{64}\.json$/.test(name)).sort();
+if(heads.length<1)throw new Error('interrupted TUI run has no journal head');
+const headBytes=fs.readFileSync(path.join(source,'heads',heads.at(-1))),head=JSON.parse(headBytes);
+const objectBytes=fs.readFileSync(path.join(source,'objects','sha256',`${head.journalDigest}.json`));
+fs.mkdirSync(path.join(target,'commits'),{recursive:true,mode:0o700});
+for(const [name,bytes] of [['plan.json',fs.readFileSync(path.join(source,'plan.json'))],['journal-head.json',headBytes],['journal-object.json',objectBytes]])fs.writeFileSync(path.join(target,name),bytes,{mode:0o600,flag:'wx'});
+process.stdout.write(`${run.runId}\n`);
+NODE
+  if [ "${node_command[0]}" = sudo ]; then
+    sudo chown -R "$(id -u):$(id -g)" "$authority_root"
+  fi
+  local run_id transcript_digest runs_digest
+  run_id="$(node -e 'const r=JSON.parse(require("node:fs").readFileSync(process.argv[1]));const m=r.runs.filter(v=>v.planDigest===process.argv[2]&&v.releaseId===process.argv[3]&&v.authority==="uncommitted"&&v.resumeCandidate===true&&v.taskCounts.interrupted>0);if(m.length!==1)process.exit(1);process.stdout.write(m[0].runId)' "$runs_list" "$digest" "$RELEASE_V2")"
+  transcript_digest="$(sha256sum "$transcript" | awk '{print $1}')"
+  runs_digest="$(sha256sum "$runs_list" | awk '{print $1}')"
+  node - "$RUNNER_TEMP/$label-session.json" "$(basename "$transcript")" "$transcript_digest" "$exit_status" "$(basename "$runs_list")" "$runs_digest" "$authority_name" "$run_id" "$digest" <<'NODE'
+const fs=require('node:fs');const [file,transcriptPath,transcriptDigest,exitStatus,runsListPath,runsListDigest,authorityRoot,runId,planDigest]=process.argv.slice(2);
+fs.writeFileSync(file,JSON.stringify({transcriptPath,transcriptDigest,exitStatus:Number(exitStatus),runsListPath,runsListDigest,authorityRoot,runId,planDigest})+'\n',{mode:0o600,flag:'wx'});
+NODE
+}
+
+direct_tui_user="$(id -un)"
+run_tui_plan direct "$direct_tui_home" "$direct_tui_user" "$RUNNER_TEMP/direct-tui-plan.log"
+direct_tui_digest="$(approval_for_home "$direct_tui_home")"
+run_tui_cancel direct "$direct_tui_home" "$direct_tui_user" "$direct_tui_digest" \
+  "$CANARY_EVIDENCE_ROOT/direct-user-tui.typescript" "$RUNNER_TEMP/direct-tui-wrapper" \
+  "$RUNNER_TEMP/direct-tui.stdin" "$RUNNER_TEMP/direct-tui.stdout"
+export_tui_authority direct-user-tui "$direct_tui_home" "$CANARY_EVIDENCE_ROOT/direct-user-tui.typescript" "$direct_tui_digest"
+
+run_tui_plan root "$root_tui_home" "$root_tui_user" "$RUNNER_TEMP/root-tui-plan.log"
+root_tui_digest="$(approval_for_home "$root_tui_home")"
+run_tui_cancel root "$root_tui_home" "$root_tui_user" "$root_tui_digest" \
+  "$CANARY_EVIDENCE_ROOT/root-handoff-tui.typescript" "$RUNNER_TEMP/root-tui-wrapper" \
+  "$RUNNER_TEMP/root-tui.stdin" "$RUNNER_TEMP/root-tui.stdout"
+export_tui_authority root-handoff-tui "$root_tui_home" "$CANARY_EVIDENCE_ROOT/root-handoff-tui.typescript" "$root_tui_digest"
+
+node - "$CANARY_EVIDENCE_ROOT/interactive-tui.json" "$RUNNER_TEMP/direct-user-tui-session.json" "$RUNNER_TEMP/root-handoff-tui-session.json" "$RELEASE_V2" "$source_commit" "$manifest_digest" <<'NODE'
+const fs=require('node:fs');const [output,directPath,rootPath,releaseId,sourceCommit,manifestDigest]=process.argv.slice(2);
+const directUser=JSON.parse(fs.readFileSync(directPath)),rootHandoff=JSON.parse(fs.readFileSync(rootPath));
+if(directUser.runId===rootHandoff.runId)throw new Error('interactive sessions reused a run identity');
+fs.writeFileSync(output,JSON.stringify({schemaVersion:1,release:{releaseId,sourceCommit,manifestDigest},directUser,rootHandoff})+'\n',{mode:0o600,flag:'wx'});
+NODE
+
 node -e 'require("node:fs").writeFileSync(process.argv[1],JSON.stringify({schemaVersion:1,command:"rollback-config-plan",stateRoot:process.argv[2],sourceRunId:process.argv[3],sourcePlanDigest:process.argv[4]})+"\n",{mode:384})' \
   "$RUNNER_TEMP/rollback-plan.json" "$state" "$source_run" "$v2_digest"
 node "$RUNNER_TEMP/engine.mjs" --input "$RUNNER_TEMP/rollback-plan.json" >"$RUNNER_TEMP/rollback-derived.json"
@@ -230,7 +385,7 @@ observed_os=Debian observed_version="${observed_version%%.*}" observed_arch=x64 
 
 node - "$CANARY_REPORT" "$RELEASE_V2" "$source_commit" "$manifest_digest" "$observed_os" "$observed_version" "$observed_arch" "$observed_environment" "$observed_role" <<'NODE'
 const fs = require('node:fs'); const [file, releaseId, sourceCommit, manifestDigest, os, version, arch, environment, role] = process.argv.slice(2);
-const paths={cleanInstall:'clean-install.json',signedRelease:'signed-release.json',upgrade:'upgrade.json',interruptedResume:'interrupted-resume.json',unchangedSecondRun:'unchanged-second-run.json',offlineExecution:'offline-execution.json',configRollback:'config-rollback.json'};
+const paths={cleanInstall:'clean-install.json',signedRelease:'signed-release.json',upgrade:'upgrade.json',interruptedResume:'interrupted-resume.json',unchangedSecondRun:'unchanged-second-run.json',offlineExecution:'offline-execution.json',configRollback:'config-rollback.json',interactiveTui:'interactive-tui.json'};
 const phases=Object.fromEntries(Object.entries(paths).map(([name,path])=>[name,{result:'passed',path}]));
 const observed={os,version,arch,environment,role};
 fs.writeFileSync(file,`${JSON.stringify({schemaVersion:3,cellId:'debian-12-x64-container',observed,release:{releaseId,sourceCommit,manifestDigest},disposable:true,hermetic:false,phases})}\n`,{mode:0o600,flag:'wx'});

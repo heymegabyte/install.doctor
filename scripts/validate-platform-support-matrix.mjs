@@ -11,7 +11,7 @@ const evidenceRoot = path.resolve(process.argv[3] ?? repositoryRoot);
 const errors = [];
 const allowedStatuses = new Set(['verified', 'best-effort', 'unsupported']);
 const allowedKinds = new Set(['workflow-definition', 'fixture-definition', 'hermetic-receipt', 'canary-receipt']);
-const requiredCoverage = ['stage-zero', 'plan', 'apply', 'verify', 'unchanged-reapply', 'interrupted-resume', 'config-rollback', 'headless', 'offline'];
+const requiredCoverage = ['stage-zero', 'plan', 'apply', 'verify', 'unchanged-reapply', 'interrupted-resume', 'config-rollback', 'headless', 'interactive-tui', 'offline'];
 const canonicalDigest = value => {
   const canonical = input => Array.isArray(input) ? input.map(canonical) : input !== null && typeof input === 'object'
     ? Object.fromEntries(Object.entries(input).sort(([left], [right]) => left.localeCompare(right)).map(([key, child]) => [key, canonical(child)])) : input;
@@ -80,12 +80,14 @@ const validateCanaryReceipt = (receiptPath, cell, location) => {
   if (!/^[a-f0-9]{40}$/.test(receipt.proof?.workflowCommit ?? '')) report(`${location}.proof.workflowCommit`, 'must be a 40-character lowercase Git commit');
   if (!/^[1-9][0-9]{0,19}$/.test(receipt.proof?.workflowRunId ?? '')) report(`${location}.proof.workflowRunId`, 'must be a decimal GitHub run id');
   if (!/^[a-f0-9]{64}$/.test(receipt.proof?.evidenceDigest ?? '')) report(`${location}.proof.evidenceDigest`, 'must bind the redacted raw evidence bundle');
-  const phases = ['cleanInstall', 'signedRelease', 'upgrade', 'interruptedResume', 'unchangedSecondRun', 'offlineExecution', 'configRollback'];
+  const phases = ['cleanInstall', 'signedRelease', 'upgrade', 'interruptedResume', 'unchangedSecondRun', 'offlineExecution', 'configRollback', 'interactiveTui'];
   exactKeys(receipt.proof?.phases, new Set(phases), `${location}.proof.phases`);
   for (const phase of phases) {
     const value = receipt.proof?.phases?.[phase];
     const authorityFields = phase === 'signedRelease'
       ? new Set(['result', 'evidenceDigest'])
+      : phase === 'interactiveTui'
+        ? new Set(['result','evidenceDigest','releaseId','sourceCommit','manifestDigest','directUser','rootHandoff'])
       : phase === 'configRollback'
         ? new Set(['result', 'evidenceDigest', 'authorityDigest', 'rollbackRunId', 'planDigest', 'restoredTaskIds'])
         : new Set(['result', 'evidenceDigest', 'authorityDigest', 'runId', 'planDigest', 'executionMode', 'selectedTaskIds', 'attemptedTaskIds', 'mutatedTaskIds', 'interruptedTaskIds', 'postconditions', 'serviceRestoration', ...(phase === 'offlineExecution' ? ['offlineBundle'] : [])]);
@@ -93,6 +95,23 @@ const validateCanaryReceipt = (receiptPath, cell, location) => {
     if (value?.result !== 'passed') report(`${location}.proof.phases.${phase}.result`, 'must equal passed');
     if (!/^[a-f0-9]{64}$/.test(value?.evidenceDigest ?? '')) report(`${location}.proof.phases.${phase}.evidenceDigest`, 'must bind phase evidence');
     if (phase === 'signedRelease') continue;
+    if (phase === 'interactiveTui') {
+      if (value?.releaseId !== receipt.release?.releaseId || value?.sourceCommit !== receipt.release?.sourceCommit
+        || value?.manifestDigest !== receipt.release?.manifestDigest) report(`${location}.proof.phases.${phase}`, 'must bind the exact promoted release');
+      const sessionKeys = new Set(['transcriptDigest','runsListDigest','planArtifactDigest','journalHeadDigest','journalObjectDigest','exitStatus','altScreenEntered','terminalRestored','desktopToolsIdentity','workerAttribution','runId','planDigest','resumeCandidate']);
+      for (const sessionName of ['directUser','rootHandoff']) {
+        const session = value?.[sessionName];
+        exactKeys(session, sessionKeys, `${location}.proof.phases.${phase}.${sessionName}`);
+        for (const field of ['transcriptDigest','runsListDigest','planArtifactDigest','journalHeadDigest','journalObjectDigest','planDigest']) if (!/^[a-f0-9]{64}$/.test(session?.[field] ?? '')) report(`${location}.proof.phases.${phase}.${sessionName}.${field}`, 'must be a SHA-256 digest');
+        if (!nonempty(session?.runId) || session?.exitStatus !== 130 || session?.altScreenEntered !== true
+          || session?.terminalRestored !== true || session?.desktopToolsIdentity !== true
+          || session?.workerAttribution !== true || session?.resumeCandidate !== true) {
+          report(`${location}.proof.phases.${phase}.${sessionName}`, 'must prove cancelled, restored, attributable, resumable interactive execution');
+        }
+      }
+      if (value?.directUser?.runId === value?.rootHandoff?.runId) report(`${location}.proof.phases.${phase}`, 'must bind distinct direct-user and root-handoff runs');
+      continue;
+    }
     if (!/^[a-f0-9]{64}$/.test(value?.authorityDigest ?? '')) report(`${location}.proof.phases.${phase}.authorityDigest`, 'must bind committed authority evidence');
     if (phase === 'configRollback') {
       if (!nonempty(value?.rollbackRunId) || !/^[a-f0-9]{64}$/.test(value?.planDigest ?? '')) report(`${location}.proof.phases.${phase}`, 'must identify the committed rollback run and plan');
