@@ -18,6 +18,11 @@ export const ServiceDeclarationSchema = z.strictObject({
   name: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9@._:+\/-]{0,127}$/),
   privilege: z.enum(['user', 'admin']),
   packageProvider: IdentifierSchema.optional(),
+  manager: z.literal('systemd').optional(),
+}).superRefine((declaration, context) => {
+  if (declaration.manager === 'systemd' && !/^[A-Za-z0-9][A-Za-z0-9_.@:-]{0,126}\.service$/.test(declaration.name)) {
+    context.addIssue({ code: z.ZodIssueCode.custom, message: 'systemd service requires an exact .service unit', path: ['name'] });
+  }
 });
 
 export const LoadCatalogEntrySchema = z.object({
@@ -102,6 +107,7 @@ export const LoadPlanItemSchema = z.object({
   dependencies: z.array(CatalogKeySchema),
   artifact: ImmutableArtifactDescriptorSchema.nullable(),
   nativePayload: NativeOfflinePayloadDescriptorSchema.nullable(),
+  serviceDeclarations: z.array(ServiceDeclarationSchema).max(32),
   caskLauncher: z.strictObject({
     appBundle: z.string().min(5).max(256),
     bin: z.string().min(1).max(128),
@@ -316,6 +322,10 @@ export function buildLoadPlan(rawInput: unknown): LoadPlanReport {
     const entry = entries.get(name);
     if (entry?.installMode !== 'service') throw new Error(`selected service ${name} is not declared as a service`);
     if (!applicable(name)) throw new Error(`${name} is unavailable on ${input.platform}/${input.architecture}`);
+    const admitted = (entry.serviceDeclarations ?? []).filter(declaration => declaration.manager === 'systemd' && input.platform === 'linux');
+    if (admitted.length !== 1 || admitted[0]?.privilege !== 'admin') {
+      throw new Error(`selected service ${name} lacks one exact manager-specific privileged target for ${input.platform}`);
+    }
     select(name, 'desired-service');
   }
 
@@ -385,6 +395,7 @@ export function buildLoadPlan(rawInput: unknown): LoadPlanReport {
         dependencies: entry.deps,
         artifact: selectedArtifact(entry),
         nativePayload: isSelected ? selectedNativePayload(entry) : null,
+        serviceDeclarations: isSelected ? entry.serviceDeclarations ?? [] : [],
         caskLauncher: isSelected ? entry.caskLauncher ?? null : null,
         flatpakLauncher: isSelected ? entry.flatpakLauncher ?? null : null,
         systemIdentityReconciliation: entry.systemIdentityReconciliation,

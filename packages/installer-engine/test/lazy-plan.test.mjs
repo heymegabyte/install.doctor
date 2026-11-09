@@ -15,7 +15,7 @@ const input = overrides => ({
     entry('dependency'),
     entry('tool', { deps: ['dependency'] }),
     entry('worker', { installMode: 'service', loadPolicy: 'eager-service', loadRationale: 'desired-state:worker',
-      serviceDeclarations: [{ name: 'worker.service', privilege: 'admin', packageProvider: 'apt' }] }),
+      serviceDeclarations: [{ name: 'worker.service', privilege: 'admin', packageProvider: 'apt', manager: 'systemd' }] }),
     entry('path-tool', { loadPolicy: 'eager-supported-path', loadRationale: 'supported-path:developer' }),
     entry('mac-only', { platforms: ['macos'] }),
   ],
@@ -96,6 +96,8 @@ test('selects a desired service and a supported-path exception explicitly', () =
   const report = buildLoadPlan(input({ selectedServices: ['worker'], selectedSupportedPaths: ['developer'] }));
   assert.deepEqual(report.startOrder, ['worker']);
   assert.deepEqual(report.items.find(item => item.name === 'worker').actions, ['install', 'start']);
+  assert.deepEqual(report.items.find(item => item.name === 'worker').serviceDeclarations,
+    [{ name: 'worker.service', privilege: 'admin', packageProvider: 'apt', manager: 'systemd' }]);
   assert.equal(report.items.find(item => item.name === 'path-tool').selectionReason, 'supported-path');
 });
 
@@ -118,12 +120,25 @@ test('service start order follows dependency topology rather than lexical order'
   const report = buildLoadPlan(input({
     lazyResolverRequirements: [], selectedServices:['service-a','service-z'],
     catalog:[
-      entry('service-a', {installMode:'service',loadPolicy:'eager-service',loadRationale:'desired-state:a',deps:['service-z'],serviceDeclarations:[{name:'service-a',privilege:'user'}]}),
-      entry('service-z', {installMode:'service',loadPolicy:'eager-service',loadRationale:'desired-state:z',serviceDeclarations:[{name:'service-z',privilege:'user'}]}),
+      entry('service-a', {installMode:'service',loadPolicy:'eager-service',loadRationale:'desired-state:a',deps:['service-z'],serviceDeclarations:[{name:'service-a.service',privilege:'admin',manager:'systemd'}]}),
+      entry('service-z', {installMode:'service',loadPolicy:'eager-service',loadRationale:'desired-state:z',serviceDeclarations:[{name:'service-z.service',privilege:'admin',manager:'systemd'}]}),
     ],
   }));
   assert.deepEqual(report.installOrder, ['service-z','service-a']);
   assert.deepEqual(report.startOrder, ['service-z','service-a']);
+});
+
+test('rejects ambiguous or unadmitted service manager authority before planning mutation', () => {
+  assert.throws(() => buildLoadPlan(input({
+    selectedServices: ['worker'],
+    catalog: input({}).catalog.map(candidate => candidate.name === 'worker'
+      ? { ...candidate, serviceDeclarations: [{ name: 'worker', privilege: 'admin' }] } : candidate),
+  })), /lacks one exact manager-specific privileged target/);
+  assert.throws(() => buildLoadPlan(input({
+    selectedServices: ['worker'], platform: 'macos',
+    catalog: input({}).catalog.map(candidate => candidate.name === 'worker'
+      ? { ...candidate, platforms: ['macos'] } : candidate),
+  })), /lacks one exact manager-specific privileged target/);
 });
 
 test('rejects stale dependencies, cycles, invalid services, unavailable closure, and lazy resolver gaps', () => {

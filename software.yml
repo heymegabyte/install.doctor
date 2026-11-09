@@ -250,7 +250,8 @@ softwarePackages:
     _docs: https://grafana.com/docs/alloy/latest/
     _bin: alloy
     _service:
-      - name: alloy
+      - name: alloy.service
+        manager: systemd
         sudo: true
     brew: grafana-alloy
     apt: alloy

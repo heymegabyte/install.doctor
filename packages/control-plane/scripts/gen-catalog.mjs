@@ -55,7 +55,7 @@ function loadServiceDeclarationsByPackage() {
       if (!value || typeof value !== 'object' || Array.isArray(value)) {
         throw new Error(`service declaration ${entry.key}[${index}] must be a string or object`);
       }
-      const allowed = new Set(['name', 'sudo', 'pkg']);
+      const allowed = new Set(['name', 'sudo', 'pkg', 'manager']);
       for (const key of Object.keys(value)) {
         if (!allowed.has(key)) throw new Error(`service declaration ${entry.key}[${index}] has unknown field ${key}`);
       }
@@ -68,10 +68,17 @@ function loadServiceDeclarationsByPackage() {
       if (value.pkg !== undefined && (typeof value.pkg !== 'string' || !/^[a-z0-9][a-z0-9._+-]{0,127}$/.test(value.pkg))) {
         throw new Error(`service declaration ${entry.key}[${index}] has an invalid package provider selector`);
       }
+      if (value.manager !== undefined && value.manager !== 'systemd') {
+        throw new Error(`service declaration ${entry.key}[${index}] has an unsupported manager`);
+      }
+      if (value.manager === 'systemd' && !/^[A-Za-z0-9][A-Za-z0-9_.@:-]{0,126}\.service$/.test(value.name)) {
+        throw new Error(`service declaration ${entry.key}[${index}] has an invalid systemd unit`);
+      }
       return {
         name: value.name,
         privilege: value.sudo === true ? 'admin' : 'user',
         ...(value.pkg === undefined ? {} : { packageProvider: value.pkg }),
+        ...(value.manager === undefined ? {} : { manager: value.manager }),
       };
     });
     byPackage.set(entry.key, normalized);

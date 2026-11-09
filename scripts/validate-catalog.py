@@ -88,7 +88,7 @@ def validate(cat):
                 problems.append(f"{nm}: serviceDeclarations must contain 1..32 entries")
             for declaration_index, declaration in enumerate(service_declarations):
                 prefix = f"{nm}: serviceDeclarations[{declaration_index}]"
-                if not isinstance(declaration, dict) or set(declaration) - {"name", "privilege", "packageProvider"}:
+                if not isinstance(declaration, dict) or set(declaration) - {"name", "privilege", "packageProvider", "manager"}:
                     problems.append(f"{prefix} must be a strict declaration object")
                     continue
                 if not isinstance(declaration.get("name"), str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9@._:+/-]{0,127}", declaration["name"]):
@@ -98,6 +98,11 @@ def validate(cat):
                 selector = declaration.get("packageProvider")
                 if selector is not None and (not isinstance(selector, str) or not re.fullmatch(r"[a-z0-9][a-z0-9._+-]{0,127}", selector)):
                     problems.append(f"{prefix} has an invalid package provider selector")
+                manager = declaration.get("manager")
+                if manager is not None and manager != "systemd":
+                    problems.append(f"{prefix} has an unsupported service manager")
+                if manager == "systemd" and (not isinstance(declaration.get("name"), str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.@:-]{0,126}\.service", declaration["name"])):
+                    problems.append(f"{prefix} has an invalid systemd service unit")
         if e.get("deliveryMode") not in DELIVERY_MODES:
             problems.append(f"{nm}: deliveryMode {e.get('deliveryMode')!r} not in {sorted(DELIVERY_MODES)}")
         if e.get("loadPolicy") not in LOAD_POLICIES:
