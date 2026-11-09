@@ -174,19 +174,23 @@ export const PRODUCT_IDENTITY = {
     {
       id: 'desktop-profile-bootstrap',
       name: 'Profile-subdomain bootstrap',
-      status: 'contract-only',
-      summary: 'The personalized wildcard-subdomain bootstrap is specified but not deployed or verified.',
+      status: 'implemented-unverified',
+      summary: 'Wildcard profile resolution and signed, profile-bound launchers are implemented and tested; production routing has not been verified live.',
       evidence: [
-        { kind: 'architecture', reference: 'openspec/changes/establish-desktop-tools-bootstrap/specs/desktop-profile-bootstrap/spec.md' }
+        { kind: 'code', reference: 'packages/control-plane/src/index.ts' },
+        { kind: 'test', reference: 'packages/control-plane/test/control-plane.test.mjs' }
       ]
     },
     {
       id: 'device-authorization',
       name: 'Cross-device authorization',
-      status: 'contract-only',
-      summary: 'The headless cross-device enrollment protocol is specified but not integrated end to end.',
+      status: 'implemented-unverified',
+      summary: 'Profile-bound target enrollment, polling, credential storage, and desired-state synchronization are integrated and tested; production enrollment has not been verified live.',
       evidence: [
-        { kind: 'architecture', reference: 'openspec/changes/establish-desktop-tools-bootstrap/specs/device-authorization/spec.md' }
+        { kind: 'code', reference: 'packages/installer-engine/src/cli.ts' },
+        { kind: 'code', reference: 'scripts/provision.sh' },
+        { kind: 'test', reference: 'packages/installer-engine/test/device-authorization-cli.test.mjs' },
+        { kind: 'test', reference: 'scripts/test-desktop-tools-device-enrollment.sh' }
       ]
     },
     {

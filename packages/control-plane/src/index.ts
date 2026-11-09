@@ -231,8 +231,8 @@ const InferRequest = z.object({ estimateMicros: z.number().int().nonnegative().d
 const app = new Hono();
 app.use('*', requestSecurity);
 
-// Wildcard profile traffic is deliberately inert until the public descriptor and authenticated
-// enrollment stages exist. It must never inherit the legacy app.install.doctor UI or APIs.
+// Wildcard profile traffic exposes only the public descriptor, signed launcher, and authenticated
+// enrollment surface. It must never inherit the legacy app.install.doctor UI or unrelated APIs.
 app.use('*', async (c, next) => {
   const target = classifyDesktopToolsHostname(new URL(c.req.url).hostname);
   if (target.kind === 'profile') {

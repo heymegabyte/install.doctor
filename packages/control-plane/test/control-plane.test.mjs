@@ -1117,7 +1117,7 @@ test('public product status is generated from evidence-backed Desktop Tools trut
   assert.equal(body.product, 'Desktop Tools');
   assert.equal(
     body.capabilities.find(item => item.id === 'device-authorization').status,
-    'contract-only'
+    'implemented-unverified'
   );
   assert.equal(
     body.migrations.find(item => item.legacy === 'app.install.doctor').canonical,

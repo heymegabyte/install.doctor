@@ -62,9 +62,10 @@ test('rejects unknown fields and incomplete canonical registries', () => {
   assert.throws(() => validateProductIdentityRegistry(incomplete), /missing canonical identity kinds/i);
 });
 
-test('prevents contract-only behavior from being claimed as implemented or live', () => {
+test('prevents capability claims from exceeding their evidence', () => {
+  assert.doesNotThrow(() => assertCapabilityClaim('device-authorization', 'implemented-unverified'));
   assert.throws(
-    () => assertCapabilityClaim('device-authorization', 'implemented-unverified'),
+    () => assertCapabilityClaim('device-authorization', 'verified-live'),
     /exceeds evidence/i
   );
   assert.throws(
@@ -87,7 +88,7 @@ test('requires evidence appropriate to every capability status', () => {
 test('generates capability and migration status from the registry', () => {
   const markdown = renderProductStatusMarkdown();
   assert.match(markdown, /Desktop Tools capability and migration status/);
-  assert.match(markdown, /Cross-device authorization \| `contract-only`/);
+  assert.match(markdown, /Cross-device authorization \| `implemented-unverified`/);
   assert.match(markdown, /`app\.install\.doctor` \| `desktop\.tools` \| `migration-only`/);
   assert.match(markdown, /<br \/>/);
   assert.doesNotMatch(markdown, /<br>/);
@@ -97,7 +98,7 @@ test('generates capability and migration status from the registry', () => {
 test('serves a public status payload without a second capability ledger', () => {
   const payload = productStatusPayload();
   assert.equal(payload.product, 'Desktop Tools');
-  assert.equal(payload.capabilities.find(item => item.id === 'device-authorization').status, 'contract-only');
+  assert.equal(payload.capabilities.find(item => item.id === 'device-authorization').status, 'implemented-unverified');
   assert.deepEqual(
     payload.migrations.find(item => item.legacy === 'aid'),
     {

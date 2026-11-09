@@ -21,7 +21,7 @@ Implemented and tested:
 - native systemd service-state rollback for strictly representable `enabled|disabled` and `active|inactive` states, using a root-owned non-writable `/usr/bin/systemctl`, fixed argv/environment, bounded output/time, and exact postcondition verification
 - strict Desktop Tools lifecycle adapters whose model-facing inputs cannot select engine invocations, shell text, paths, plan bodies, locks, or journals; apply and configuration rollback require adapter-issued consent grants and deprovision remains preview-only
 
-The package is not yet the production bootstrap owner. `scripts/provision.sh` and `installx` still execute the existing provisioning path while their adapters are migrated. Do not claim B03 complete until those paths stop writing competing plans/events or inferring terminal success independently.
+The engine is the canonical lifecycle owner for the production bootstrap. `scripts/provision.sh` builds and approves the exact normalized plan, then delegates selected package, service, file, directory, Chezmoi, installx, hook, and network operations to one engine run. The provisioner rejects an exit-zero engine process unless its committed evidence matches that approved run; installx is materialized by engine-owned operations and may execute only the selected package closure. The outer stage-zero receipt remains separate compatibility evidence and must not be treated as a substitute for the engine journal and receipt.
 
 Run:
 
