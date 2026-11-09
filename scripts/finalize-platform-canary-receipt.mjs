@@ -19,7 +19,7 @@ const exact = (value, keys, label) => {
   const actual = Object.keys(value).sort(); const expected = [...keys].sort();
   if (JSON.stringify(actual) !== JSON.stringify(expected)) throw new Error(`${label} fields are invalid`);
 };
-const phaseNames = ['cleanInstall', 'signedRelease', 'upgrade', 'interruptedResume', 'unchangedSecondRun', 'offlineExecution', 'configRollback', 'interactiveTui'];
+const phaseNames = ['cleanInstall', 'signedRelease', 'upgrade', 'interruptedResume', 'unchangedSecondRun', 'offlineExecution', 'configRollback', 'interactiveTui', 'failureScenarios'];
 exact(report, ['schemaVersion', 'cellId', 'observed', 'release', 'disposable', 'hermetic', 'phases'], 'report');
 if (report.schemaVersion !== 3 || report.disposable !== true || report.hermetic !== false) throw new Error('report is not schema-v3 non-hermetic disposable-host evidence');
 const cell = matrix.cells?.find(candidate => candidate.id === report.cellId);
@@ -434,6 +434,30 @@ const restored = rollbackEvents.filter(event => event.kind === 'rollback-task-re
 if (JSON.stringify(restored) !== JSON.stringify(rollbackPlan.taskOrder)) throw new Error('rollback did not restore its exact committed task order');
 phaseProof.configRollback = { ...phaseProof.configRollback, authorityDigest: sha256(rollbackCommitBytes),
   rollbackRunId: rollback.rollbackRunId, planDigest: rollback.planDigest, restoredTaskIds: restored };
+
+const failureScenarios = structured.failureScenarios;
+exact(failureScenarios, ['schemaVersion','releaseId','sourceCommit','runtime','runnerDigest','scenarios'], 'failureScenarios');
+const requiredFailureScenarios = ['denial','expiry','hosted-service-outage','profile-race','provider-outage','recording-failure','replay','telemetry-timeout'];
+if (failureScenarios.schemaVersion !== 1 || failureScenarios.releaseId !== report.release.releaseId
+  || failureScenarios.sourceCommit !== report.release.sourceCommit || !/^v\d+\.\d+\.\d+/u.test(failureScenarios.runtime)
+  || !/^[a-f0-9]{64}$/u.test(failureScenarios.runnerDigest) || !Array.isArray(failureScenarios.scenarios)) {
+  throw new Error('failure scenario matrix identity is invalid');
+}
+const failureIds = failureScenarios.scenarios.map(item => item?.id).sort();
+if (JSON.stringify(failureIds) !== JSON.stringify(requiredFailureScenarios)) throw new Error('failure scenario matrix coverage is incomplete');
+for (const scenario of failureScenarios.scenarios) {
+  exact(scenario, ['id','source','sourceDigest','testName','exitStatus','transcriptPath','transcriptDigest'], `failureScenarios.${scenario.id}`);
+  if (!requiredFailureScenarios.includes(scenario.id) || scenario.exitStatus !== 0
+    || !scenario.source.startsWith('packages/') || scenario.source.includes('..')
+    || !/^[a-f0-9]{64}$/u.test(scenario.sourceDigest) || !/^[a-f0-9]{64}$/u.test(scenario.transcriptDigest)
+    || typeof scenario.testName !== 'string' || scenario.testName.length < 10) throw new Error(`invalid failure scenario proof: ${scenario.id}`);
+  const transcript = fs.readFileSync(evidenceFile(scenario.transcriptPath, `failureScenarios.${scenario.id}.transcript`));
+  if (sha256(transcript) !== scenario.transcriptDigest || !transcript.toString('utf8').includes(scenario.testName)) {
+    throw new Error(`failure scenario transcript is invalid: ${scenario.id}`);
+  }
+}
+phaseProof.failureScenarios = { ...phaseProof.failureScenarios, releaseId: failureScenarios.releaseId,
+  sourceCommit: failureScenarios.sourceCommit, runtime: failureScenarios.runtime, scenarioIds: failureIds };
 
 const evidenceDigest = sha256(JSON.stringify(phaseProof));
 const receipt = {

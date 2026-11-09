@@ -440,9 +440,13 @@ observed_id="$(. /etc/os-release; printf '%s' "$ID")"; observed_version="$(. /et
 observed_machine="$(uname -m)"; [ "$observed_machine" = x86_64 ] && [ -f /.dockerenv ] || exit 1
 observed_os=Debian observed_version="${observed_version%%.*}" observed_arch=x64 observed_environment=container observed_role=debian
 
+node scripts/run-canary-failure-matrix.mjs \
+  --release-id "$RELEASE_V2" --source-commit "$source_commit" \
+  --output "$CANARY_EVIDENCE_ROOT/failure-scenarios.json"
+
 node - "$CANARY_REPORT" "$RELEASE_V2" "$source_commit" "$manifest_digest" "$observed_os" "$observed_version" "$observed_arch" "$observed_environment" "$observed_role" <<'NODE'
 const fs = require('node:fs'); const [file, releaseId, sourceCommit, manifestDigest, os, version, arch, environment, role] = process.argv.slice(2);
-const paths={cleanInstall:'clean-install.json',signedRelease:'signed-release.json',upgrade:'upgrade.json',interruptedResume:'interrupted-resume.json',unchangedSecondRun:'unchanged-second-run.json',offlineExecution:'offline-execution.json',configRollback:'config-rollback.json',interactiveTui:'interactive-tui.json'};
+const paths={cleanInstall:'clean-install.json',signedRelease:'signed-release.json',upgrade:'upgrade.json',interruptedResume:'interrupted-resume.json',unchangedSecondRun:'unchanged-second-run.json',offlineExecution:'offline-execution.json',configRollback:'config-rollback.json',interactiveTui:'interactive-tui.json',failureScenarios:'failure-scenarios.json'};
 const phases=Object.fromEntries(Object.entries(paths).map(([name,path])=>[name,{result:'passed',path}]));
 const observed={os,version,arch,environment,role};
 fs.writeFileSync(file,`${JSON.stringify({schemaVersion:3,cellId:'debian-12-x64-container',observed,release:{releaseId,sourceCommit,manifestDigest},disposable:true,hermetic:false,phases})}\n`,{mode:0o600,flag:'wx'});

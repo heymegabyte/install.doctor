@@ -67,6 +67,8 @@ chmod 0700 "$fixture/bin/curl" "$fixture/bin/open" "$fixture/bin/xdg-open" "$fix
 
 rc=0
 HOME="$fixture/home" PATH="$fixture/bin:$PATH" BROWSER_SENTINEL="$fixture/browser-opened" \
+  DESKTOP_TOOLS_TOKEN_PATH="$fixture/home/.config/desktop-tools/device-token" \
+  DESKTOP_TOOLS_DEVICE_FINGERPRINT_PATH="$fixture/home/.config/desktop-tools/device-fingerprint" \
   HEADLESS_INSTALL=true DESKTOP_TOOLS_PAIR_TIMEOUT=2 DESKTOP_TOOLS_PAIR_INTERVAL=1 \
   bash "$PAIR" >"$fixture/output" 2>&1 || rc=$?
 if [ "$rc" -ne 0 ] && [ ! -e "$fixture/browser-opened" ] \
@@ -76,6 +78,8 @@ if [ "$rc" -ne 0 ] && [ ! -e "$fixture/browser-opened" ] \
   pass 'documented headless command prints remote approval URL, opens no browser, and persists no denied credential'
 else
   fail 'browserless fixture opened a browser, hid approval, or persisted denied authority'
+  sed -n '1,30p' "$fixture/output" >&2
+  find "$fixture/home" -type f -maxdepth 5 -print >&2 2>/dev/null || true
 fi
 
 printf 'desktop-tools headless enrollment docs: %d passed, %d failed\n' "$P" "$F"

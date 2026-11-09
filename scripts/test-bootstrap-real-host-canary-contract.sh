@@ -27,9 +27,10 @@ check 'receipt finalizer invoked' grep -q 'finalize-platform-canary-receipt.mjs'
 check 'immutable release launchers used' grep -Fq '"$BASE/$id/start"' "$DRIVER"
 check 'canonical Desktop Tools release origin used' grep -Fq 'readonly BASE=https://desktop.tools/releases' "$DRIVER"
 check 'retired Install Doctor release origin absent' bash -c '! grep -Fq "app.install.doctor/releases" "$1"' _ "$DRIVER"
-for phase in clean-install signed-release upgrade interrupted-resume unchanged-second-run offline-execution config-rollback; do
+for phase in clean-install signed-release upgrade interrupted-resume unchanged-second-run offline-execution config-rollback failure-scenarios; do
   check "structured $phase phase" grep -q "$phase.json" "$DRIVER"
 done
+check 'fixed failure matrix runner' grep -q 'run-canary-failure-matrix.mjs' "$DRIVER"
 check 'caller mutation constants removed' bash -c '! grep -q mutation_count "$1"' _ "$DRIVER"
 check 'complete committed authority closure exported' grep -q 'native-transaction-index.json' "$DRIVER"
 check 'terminal commit authority exported' grep -q 'terminal-authority.json' "$DRIVER"

@@ -137,6 +137,8 @@ MOCK_GUM
 cp "$HEADLESS_FIXTURE/bin/open" "$HEADLESS_FIXTURE/bin/xdg-open"
 chmod 0700 "$HEADLESS_FIXTURE/bin/curl" "$HEADLESS_FIXTURE/bin/open" "$HEADLESS_FIXTURE/bin/xdg-open" "$HEADLESS_FIXTURE/bin/gum"
 if HOME="$HEADLESS_FIXTURE/home" PATH="$HEADLESS_FIXTURE/bin:$PATH" BROWSER_CAPTURE="$HEADLESS_FIXTURE/browser" \
+  DESKTOP_TOOLS_TOKEN_PATH="$HEADLESS_FIXTURE/home/.config/desktop-tools/device-token" \
+  DESKTOP_TOOLS_DEVICE_FINGERPRINT_PATH="$HEADLESS_FIXTURE/home/.config/desktop-tools/device-fingerprint" \
   HEADLESS_INSTALL=true DESKTOP_TOOLS_PAIR_TIMEOUT=2 DESKTOP_TOOLS_PAIR_INTERVAL=1 bash "$SRC" >"$HEADLESS_FIXTURE/output" 2>&1; then
   fail 'headless denied enrollment returned success'
 elif [ ! -e "$HEADLESS_FIXTURE/browser" ] && grep -q 'ended without authorization: denied' "$HEADLESS_FIXTURE/output" \
@@ -144,6 +146,8 @@ elif [ ! -e "$HEADLESS_FIXTURE/browser" ] && grep -q 'ended without authorizatio
   pass 'headless true skips browser launch and owner denial terminates without a credential'
 else
   fail 'headless denial handling launched a browser, hid denial, or stored a credential'
+  sed -n '1,30p' "$HEADLESS_FIXTURE/output" >&2
+  find "$HEADLESS_FIXTURE/home" -type f -maxdepth 5 -print >&2 2>/dev/null || true
 fi
 if HOME="$HEADLESS_FIXTURE/home" PATH="$HEADLESS_FIXTURE/bin:$PATH" DESKTOP_TOOLS_PAIR_INTERVAL=0 bash "$SRC" >/dev/null 2>&1; then
   fail 'zero polling interval was accepted'
