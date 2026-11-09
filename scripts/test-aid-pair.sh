@@ -130,8 +130,12 @@ cat > "$HEADLESS_FIXTURE/bin/open" <<'MOCK_OPEN'
 #!/usr/bin/env bash
 printf 'opened\n' >> "$BROWSER_CAPTURE"
 MOCK_OPEN
+cat > "$HEADLESS_FIXTURE/bin/gum" <<'MOCK_GUM'
+#!/usr/bin/env bash
+exit 127
+MOCK_GUM
 cp "$HEADLESS_FIXTURE/bin/open" "$HEADLESS_FIXTURE/bin/xdg-open"
-chmod 0700 "$HEADLESS_FIXTURE/bin/curl" "$HEADLESS_FIXTURE/bin/open" "$HEADLESS_FIXTURE/bin/xdg-open"
+chmod 0700 "$HEADLESS_FIXTURE/bin/curl" "$HEADLESS_FIXTURE/bin/open" "$HEADLESS_FIXTURE/bin/xdg-open" "$HEADLESS_FIXTURE/bin/gum"
 if HOME="$HEADLESS_FIXTURE/home" PATH="$HEADLESS_FIXTURE/bin:$PATH" BROWSER_CAPTURE="$HEADLESS_FIXTURE/browser" \
   HEADLESS_INSTALL=true DESKTOP_TOOLS_PAIR_TIMEOUT=2 DESKTOP_TOOLS_PAIR_INTERVAL=1 bash "$SRC" >"$HEADLESS_FIXTURE/output" 2>&1; then
   fail 'headless denied enrollment returned success'

@@ -61,8 +61,9 @@ printf '%s\n' '#!/usr/bin/env bash' \
   '  *) exit 22 ;;' \
   'esac' >"$fixture/bin/curl"
 printf '%s\n' '#!/usr/bin/env bash' 'touch "$BROWSER_SENTINEL"' >"$fixture/bin/open"
+printf '%s\n' '#!/usr/bin/env bash' 'exit 127' >"$fixture/bin/gum"
 cp "$fixture/bin/open" "$fixture/bin/xdg-open"
-chmod 0700 "$fixture/bin/curl" "$fixture/bin/open" "$fixture/bin/xdg-open"
+chmod 0700 "$fixture/bin/curl" "$fixture/bin/open" "$fixture/bin/xdg-open" "$fixture/bin/gum"
 
 rc=0
 HOME="$fixture/home" PATH="$fixture/bin:$PATH" BROWSER_SENTINEL="$fixture/browser-opened" \

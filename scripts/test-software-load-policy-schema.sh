@@ -54,7 +54,9 @@ sed -i.bak 's/_loadPolicy: eager-bootstrap/_loadPolicy: eager-service/' "$TMP/mi
 expect_reject 'policy inconsistent with the declared preload reason is rejected' "$TMP/mismatched-policy.yml"
 
 cp "$TMP/valid.yml" "$TMP/orphan-lazy-rationale.yml"
-sed -i.bak '/brew: lazy-tool/i\    _loadRationale: default-lazy' "$TMP/orphan-lazy-rationale.yml"
+awk '/brew: lazy-tool/ { print "    _loadRationale: default-lazy" } { print }' \
+  "$TMP/orphan-lazy-rationale.yml" >"$TMP/orphan-lazy-rationale.next"
+mv "$TMP/orphan-lazy-rationale.next" "$TMP/orphan-lazy-rationale.yml"
 expect_reject 'a partial explicit lazy declaration is rejected' "$TMP/orphan-lazy-rationale.yml"
 
 printf 'software-load-policy-schema: %d passed, %d failed\n' "$P" "$F"

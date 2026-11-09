@@ -18,7 +18,7 @@ mkdir -p "$(dirname "$OUT")"
 JQ='to_entries[] | . as $e |
   ($e.value | .go = (if (.go | type) == "string" and (.go | test("@v[0-9]+\\.[0-9]+\\.[0-9]+([-+][0-9A-Za-z.-]+)?$")) then .go else null end)) as $v |
   (([$v.brew,$v.apt,$v.dnf,$v.pacman,$v.cask,$v.choco,$v.scoop,$v.go,$v.cargo,$v.npm,$v.pipx,$v.pip,$v.gem,$v.apk]
-    | map(if . == null then "" elif type=="array" then (map(tostring)|join(" ")) else tostring end))) as $cols |
+    | map(if . == null or . == false or . == "" then "" elif type=="array" then (map(tostring)|join(" ")) else tostring end))) as $cols |
   (($v["_bin"] // $e.key) | if type=="array" then . else [.] end) as $bins |
   $bins[] | [ (tostring), $e.key ] + $cols | @tsv'
 
