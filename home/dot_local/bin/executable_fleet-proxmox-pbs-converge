@@ -232,10 +232,26 @@ script: /usr/local/bin/vzdump-hc-hook.sh
 EOF
   fi
 
-  # #124: Harden Healthchecks heartbeat script with curl retries so transient tunnel flaps never fire false DOWN emails
+  # #124: Harden Healthchecks heartbeat, autosnap vzdump-lock filter, and Postfix SES mail-forward routing
   if [ -f /usr/local/bin/proxmox-healthcheck.sh ] && [ "$MODE" = "--apply" ]; then
     if ! grep -q -- '--retry 3' /usr/local/bin/proxmox-healthcheck.sh 2>/dev/null; then
       sed -i 's/curl -fsS -m 15/curl -fsS -m 20 --retry 3 --retry-delay 5 --retry-all-errors/g' /usr/local/bin/proxmox-healthcheck.sh 2>/dev/null || true
+    fi
+  fi
+  if [ -f /usr/local/bin/autosnap ] && [ "$MODE" = "--apply" ]; then
+    if ! grep -q 'locked..backup' /usr/local/bin/autosnap 2>/dev/null; then
+      sed -i 's/grep -qiE '\''destroy\.\*fail|snapshot\.\*fail|lock|error|unable to delete'\'' <<<"\$OUTPUT"/printf "%s\\n" "\$OUTPUT" | grep -viE "locked \\(backup\\)|lock.*backup" | grep -qiE "destroy.*fail|snapshot.*fail|lock|error|unable to delete"/' /usr/local/bin/autosnap 2>/dev/null || true
+    fi
+  fi
+  if [ -x /usr/libexec/proxmox-mail-forward ] && command -v postconf >/dev/null 2>&1 && [ "$MODE" = "--apply" ]; then
+    if [ -f /etc/apt/apt.conf.d/50unattended-upgrades ]; then
+      sed -i 's|^Unattended-Upgrade::Mail .*|Unattended-Upgrade::Mail "root";|; s|^Unattended-Upgrade::MailReport .*|Unattended-Upgrade::MailReport "only-on-error";|' /etc/apt/apt.conf.d/50unattended-upgrades 2>/dev/null || true
+    fi
+    if [ ! -f /etc/postfix/virtual ] || ! grep -q 'root@localhost' /etc/postfix/virtual 2>/dev/null; then
+      printf 'brian@megabyte.space root@localhost\n' > /etc/postfix/virtual
+      postmap /etc/postfix/virtual >/dev/null 2>&1 || true
+      postconf -e 'virtual_alias_maps = hash:/etc/postfix/virtual' >/dev/null 2>&1 || true
+      systemctl reload postfix >/dev/null 2>&1 || true
     fi
   fi
 fi
