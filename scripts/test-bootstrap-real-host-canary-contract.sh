@@ -38,6 +38,8 @@ check 'fixed failure matrix runner' grep -q 'run-canary-failure-matrix.mjs' "$DR
 check 'failure matrix strips ambient secrets' bash -c '! grep -Fq "...process.env" "$1" && grep -Fq "childEnvironment" "$1"' _ "$ROOT/scripts/run-canary-failure-matrix.mjs"
 check 'caller mutation constants removed' bash -c '! grep -q mutation_count "$1"' _ "$DRIVER"
 check 'complete committed authority closure exported' grep -q 'native-transaction-index.json' "$DRIVER"
+check 'configuration snapshots are not reported as completed service restoration' bash -c \
+  '! grep -Eq "persisted\.serviceSnapshot.*restoredServices\.add" "$1"' _ "$ROOT/scripts/finalize-platform-canary-receipt.mjs"
 check 'terminal commit authority exported' grep -q 'terminal-authority.json' "$DRIVER"
 check 'real signed offline bundle is mandatory' grep -q 'CANARY_OFFLINE_BUNDLE_URL:?signed offline bundle URL is required' "$DRIVER"
 check 'offline archive digest is mandatory' grep -q 'CANARY_OFFLINE_BUNDLE_SHA256:?signed offline bundle digest is required' "$DRIVER"

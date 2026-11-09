@@ -232,7 +232,9 @@ const validateInstallAuthority = (phase, label, expectedMode) => {
         throw new Error(`${label} compensation is not tied to a committed mutation: ${taskId}`);
       }
       mutated.add(taskId);
-      if (persisted.serviceSnapshot !== null) { requiredServiceRestoration.add(taskId); restoredServices.add(taskId); }
+      // A configuration compensation snapshot proves that the prior service
+      // state is recoverable; successful apply intentionally leaves the new
+      // desired state active. It is not evidence that a restoration occurred.
     }
   } else if (fs.readdirSync(compensationDirectory).length !== 0) {
     throw new Error(`${label} unindexed compensation evidence is present`);
