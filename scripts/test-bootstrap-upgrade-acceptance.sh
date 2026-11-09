@@ -326,7 +326,6 @@ cp "$HOME/.config/install.doctor-policy.json" "$HOME/v2-policy.json"
 tail -n "+$((v1_mutations + 1))" "$HOME/mutation-ledger" > "$HOME/v2-delta"
 cat > "$HOME/v2-expected-delta" <<'DELTA'
 apply:chezmoi:v2
-apply:software-groups:v2
 DELTA
 cmp -s "$HOME/v2-expected-delta" "$HOME/v2-delta" \
   || { printf 'unexpected v2 mutation closure\n' >&2; diff -u "$HOME/v2-expected-delta" "$HOME/v2-delta" >&2 || true; exit 88; }
