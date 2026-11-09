@@ -2,46 +2,16 @@
 import { createHash } from 'node:crypto';
 import { constants } from 'node:fs';
 import { lstat, open, realpath, rm } from 'node:fs/promises';
-import { dirname, isAbsolute, resolve } from 'node:path';
+import { dirname } from 'node:path';
 import { spawn } from 'node:child_process';
-import { z } from 'zod';
-import { PrivilegedBrokerGrantSchema } from './privileged-broker-protocol.js';
-import { PrivilegedBrokerExecutionAuthoritySchema } from './privileged-broker-authority.js';
 import { publishTrustedLocalBrokerGrant } from './privileged-broker-local-approval.js';
+import { PrivilegedBrokerControllerInputSchema } from './privileged-broker-controller-contract.js';
+import type { PrivilegedBrokerControllerInput } from './privileged-broker-controller-contract.js';
+
+export { PrivilegedBrokerControllerInputSchema } from './privileged-broker-controller-contract.js';
+export type { PrivilegedBrokerControllerInput } from './privileged-broker-controller-contract.js';
 
 const MAX_INPUT_BYTES = 2_097_152;
-const digest = z.string().regex(/^[a-f0-9]{64}$/);
-const runtimePath = z.string().min(1).max(4096).refine(value => isAbsolute(value) && resolve(value) === value
-  && value.startsWith('/run/desktop-tools/authority/'), 'broker runtime paths must be canonical and inside the root authority directory');
-const socketPath = z.string().min(1).max(4096).refine(value => isAbsolute(value) && resolve(value) === value
-  && /^\/run\/desktop-tools\/broker\/[a-z0-9][a-z0-9._-]{0,127}\/broker\.sock$/.test(value),
-'broker socket must be the exact per-run socket path');
-
-export const PrivilegedBrokerControllerInputSchema = z.strictObject({
-  schemaVersion: z.literal(1),
-  grant: PrivilegedBrokerGrantSchema,
-  authority: PrivilegedBrokerExecutionAuthoritySchema,
-  helperPath: runtimePath,
-  runtimePath,
-  workerPath: runtimePath,
-  socketPath,
-  socketGid: z.number().int().nonnegative(),
-  requestLimit: z.number().int().min(1).max(256),
-  operationTimeoutMs: z.number().int().min(1_000).max(30 * 60 * 1_000),
-  helperDigest: digest,
-  runtimeDigest: digest,
-  workerDigest: digest,
-}).superRefine((value, context) => {
-  if (value.helperDigest !== value.grant.brokerExecutableDigest
-    || value.runtimeDigest !== value.grant.runtimeDigest || value.workerDigest !== value.grant.workerDigest) {
-    context.addIssue({ code: 'custom', message: 'controller executable authority differs from the exact grant' });
-  }
-  if (dirname(value.socketPath).split('/').at(-1) !== value.grant.runId) {
-    context.addIssue({ code: 'custom', message: 'controller socket path differs from the exact run' });
-  }
-});
-
-export type PrivilegedBrokerControllerInput = z.infer<typeof PrivilegedBrokerControllerInputSchema>;
 
 async function hashOpenFile(handle: Awaited<ReturnType<typeof open>>, size: number, maximumBytes: number): Promise<string> {
   if (!Number.isSafeInteger(size) || size < 1 || size > maximumBytes) throw new Error('broker runtime file size is outside policy');

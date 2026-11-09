@@ -2649,6 +2649,66 @@ NODE
   fi
   INSTALL_DOCTOR_APPROVED_PLAN_DIGEST="$PLAN_DIGEST"
   export INSTALL_DOCTOR_APPROVED_PLAN_DIGEST
+  if [ "$MODE" = apply ] && [ "$NATIVE_COUNT" -gt 0 ] \
+    && [ -n "${DESKTOP_TOOLS_BROKER_COORDINATION_USER_REQUEST:-}" ] \
+    && [ -n "${DESKTOP_TOOLS_BROKER_COORDINATION_ROOT_RESPONSE:-}" ]; then
+    local BROKER_REQUEST="$DESKTOP_TOOLS_BROKER_COORDINATION_USER_REQUEST"
+    local BROKER_RESPONSE="$DESKTOP_TOOLS_BROKER_COORDINATION_ROOT_RESPONSE"
+    local BROKER_WAIT=0
+    node - "$INVOCATION" "$NORMALIZED_PLAN" "$LOAD_PLAN_RESULT" "$BROKER_REQUEST" <<'NODE'
+const fs = require('node:fs');
+const [invocationPath, planPath, loadPlanPath, requestPath] = process.argv.slice(2);
+const invocation = JSON.parse(fs.readFileSync(invocationPath, 'utf8'));
+const plan = JSON.parse(fs.readFileSync(planPath, 'utf8'));
+const loadPlan = JSON.parse(fs.readFileSync(loadPlanPath, 'utf8'));
+const matches = loadPlan.items.filter(item => item.name === 'tree' && item.selected === true
+  && item.applicable === true && item.nativePayload);
+if (matches.length !== 1) {
+  throw new Error('native broker preparation lacks one exact selected descriptor');
+}
+const request = {
+  schemaVersion: 1,
+  runId: invocation.runId,
+  approvedPlanDigest: plan.digest,
+  plan,
+  operations: invocation.operations,
+  desiredState: invocation.desiredState,
+  hostFacts: invocation.facts,
+  descriptor: matches[0].nativePayload,
+};
+const temporary = `${requestPath}.tmp`;
+fs.writeFileSync(temporary, `${JSON.stringify(request)}\n`, { mode: 0o600, flag: 'wx' });
+fs.renameSync(temporary, requestPath);
+NODE
+    GENERATE_STATUS=$?
+    [ "$GENERATE_STATUS" -eq 0 ] || { logg error 'Unable to publish the approved native broker preparation'; return "$GENERATE_STATUS"; }
+    while [ ! -f "$BROKER_RESPONSE" ] && [ "$BROKER_WAIT" -lt 180 ]; do
+      sleep 1
+      BROKER_WAIT=$((BROKER_WAIT + 1))
+    done
+    [ -f "$BROKER_RESPONSE" ] || { logg error 'Timed out waiting for the root native broker'; return 4; }
+    node - "$INVOCATION" "$BROKER_RESPONSE" "$PLAN_DIGEST" <<'NODE'
+const fs = require('node:fs');
+const [invocationPath, responsePath, planDigest] = process.argv.slice(2);
+const invocation = JSON.parse(fs.readFileSync(invocationPath, 'utf8'));
+const response = JSON.parse(fs.readFileSync(responsePath, 'utf8'));
+if (response?.schemaVersion !== 1 || response?.status !== 'authorized'
+  || !response.privilegedBroker || response.privilegedBroker.client?.runId !== invocation.runId
+  || response.privilegedBroker.client?.planDigest !== planDigest
+  || response.privilegedBroker.client?.hostId !== invocation.facts.hostId
+  || response.privilegedBroker.client?.releaseId !== invocation.releaseId
+  || response.privilegedBroker.payload?.sha256 !== response.privilegedBroker.descriptor?.artifact?.sha256
+  || response.privilegedBroker.payload?.sizeBytes !== response.privilegedBroker.descriptor?.artifact?.sizeBytes
+  || response.privilegedBroker.payload?.mode !== '0600') {
+  throw new Error('root broker response differs from the exact approved invocation');
+}
+const temporary = `${invocationPath}.broker`;
+fs.writeFileSync(temporary, `${JSON.stringify({ ...invocation, privilegedBroker: response.privilegedBroker })}\n`, { mode: 0o600, flag: 'wx' });
+fs.renameSync(temporary, invocationPath);
+NODE
+    GENERATE_STATUS=$?
+    [ "$GENERATE_STATUS" -eq 0 ] || { logg error 'Unable to bind the authorized broker to the approved invocation'; return "$GENERATE_STATUS"; }
+  fi
   if [ "$MODE" = --plan-only ]; then
     logg info "Approved normalized plan $PLAN_DIGEST before host mutation"
     rm -f "$INVOCATION" "$NORMALIZED_PLAN" "$LOAD_PLAN_INVOCATION" "$LOAD_PLAN_RESULT" \
@@ -3308,6 +3368,7 @@ function ensureInstallUser() {
       INSTALL_DOCTOR_RUNTIME_NODE INSTALL_DOCTOR_RUNTIME_NODE_VERSION \
       INSTALL_DOCTOR_VERIFIED_MANIFEST INSTALL_DOCTOR_VERIFIED_SIGNATURE \
       DESKTOP_TOOLS_NATIVE_BROKER_REQUESTED \
+      DESKTOP_TOOLS_BROKER_COORDINATION_USER_REQUEST DESKTOP_TOOLS_BROKER_COORDINATION_ROOT_RESPONSE \
       DESKTOP_TOOLS_BROKER_HELPER_PATH DESKTOP_TOOLS_BROKER_HELPER_SHA256 \
       DESKTOP_TOOLS_BROKER_CONTROLLER_PATH DESKTOP_TOOLS_BROKER_CONTROLLER_SHA256 \
       DESKTOP_TOOLS_BROKER_WORKER_PATH DESKTOP_TOOLS_BROKER_WORKER_SHA256 \

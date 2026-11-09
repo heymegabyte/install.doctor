@@ -3,7 +3,7 @@ import { DesiredStateInputSchema, HostFactsSchema, NativeOfflinePayloadDescripto
 import { NativePackageOperationSchema, OfflineOperationManifestSchema } from './offline-execution.js';
 import { PrivilegedBrokerExecutionAuthoritySchema,
   privilegedBrokerDescriptorDigest, privilegedBrokerExecutionAuthorityDigest } from './privileged-broker-authority.js';
-import { PrivilegedBrokerControllerInputSchema } from './privileged-broker-controller.js';
+import { PrivilegedBrokerControllerInputSchema } from './privileged-broker-controller-contract.js';
 import { PrivilegedBrokerClientConfigSchema } from './privileged-broker-client.js';
 import { PrivilegedBrokerGrantSchema, privilegedBrokerDigest } from './privileged-broker-protocol.js';
 
