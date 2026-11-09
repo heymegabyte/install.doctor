@@ -1997,8 +1997,16 @@ NODE
 #     OpenCode, supervisor, tools, and lock artifacts durable for the enrolled
 #     user. Legacy releases do not carry this closure and remain unchanged.
 idInstallDesktopToolsRuntimeClosure() {
-  [ -n "${DESKTOP_TOOLS_PROFILE_ID:-}" ] || return 0
   local RUNTIME="${INSTALL_DOCTOR_RUNTIME_NODE:-}" SUPERVISOR="${DESKTOP_TOOLS_SUPERVISOR_PATH:-}" RESULT EXECUTABLE CHANGED
+  if [ -z "${DESKTOP_TOOLS_OPENCODE_ARCHIVE:-}${DESKTOP_TOOLS_OPENCODE_SHA256:-}${DESKTOP_TOOLS_OPENCODE_VERSION:-}${SUPERVISOR}${DESKTOP_TOOLS_SUPERVISOR_SHA256:-}${DESKTOP_TOOLS_TOOLS_ARCHIVE:-}${DESKTOP_TOOLS_TOOLS_SHA256:-}${DESKTOP_TOOLS_OPENCODE_LOCK_PATH:-}${DESKTOP_TOOLS_OPENCODE_LOCK_SHA256:-}" ]; then
+    return 0
+  fi
+  [ -n "${DESKTOP_TOOLS_OPENCODE_ARCHIVE:-}" ] && [ -n "${DESKTOP_TOOLS_OPENCODE_SHA256:-}" ] \
+    && [ -n "${DESKTOP_TOOLS_OPENCODE_VERSION:-}" ] && [ -n "$SUPERVISOR" ] \
+    && [ -n "${DESKTOP_TOOLS_SUPERVISOR_SHA256:-}" ] && [ -n "${DESKTOP_TOOLS_TOOLS_ARCHIVE:-}" ] \
+    && [ -n "${DESKTOP_TOOLS_TOOLS_SHA256:-}" ] && [ -n "${DESKTOP_TOOLS_OPENCODE_LOCK_PATH:-}" ] \
+    && [ -n "${DESKTOP_TOOLS_OPENCODE_LOCK_SHA256:-}" ] \
+    || { logg error 'Desktop Tools runtime closure is incomplete'; return 2; }
   [ -x "$RUNTIME" ] && [ -f "$RUNTIME" ] && [ ! -L "$RUNTIME" ] \
     || { logg error 'Verified Node runtime is unavailable for Desktop Tools runtime installation'; return 2; }
   [ -f "$SUPERVISOR" ] && [ ! -L "$SUPERVISOR" ] \
@@ -3663,7 +3671,7 @@ function ensureInstallUser() {
       && idInstallSealedHandoffFile "$VERIFIED_SIGNATURE" "$USER_SIGNATURE" 0600 "$SIGNATURE_SHA" \
       && idInstallSealedHandoffFile "$VERIFIED_CATALOG" "$USER_CATALOG" 0600 "$CATALOG_SHA" \
       || { logg error 'Copied handoff set failed checksum verification'; return 1; }
-    if [ -n "${DESKTOP_TOOLS_PROFILE_ID:-}" ]; then
+    if [ -n "${DESKTOP_TOOLS_OPENCODE_ARCHIVE:-}${DESKTOP_TOOLS_SUPERVISOR_PATH:-}${DESKTOP_TOOLS_TOOLS_ARCHIVE:-}${DESKTOP_TOOLS_OPENCODE_LOCK_PATH:-}" ]; then
       idInstallSealedHandoffFile "${DESKTOP_TOOLS_OPENCODE_ARCHIVE:-}" "$USER_OPENCODE_ARCHIVE" 0600 "${DESKTOP_TOOLS_OPENCODE_SHA256:-}" \
         && idInstallSealedHandoffFile "${DESKTOP_TOOLS_SUPERVISOR_PATH:-}" "$USER_SUPERVISOR" 0600 "${DESKTOP_TOOLS_SUPERVISOR_SHA256:-}" \
         && idInstallSealedHandoffFile "${DESKTOP_TOOLS_TOOLS_ARCHIVE:-}" "$USER_TOOLS_ARCHIVE" 0600 "${DESKTOP_TOOLS_TOOLS_SHA256:-}" \

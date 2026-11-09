@@ -8,14 +8,14 @@ import test from 'node:test';
 import { buildDesktopToolsRelease } from '../../../scripts/build-desktop-tools-release.mjs';
 import { verifyDesktopToolsReleaseOffline } from '../../../scripts/verify-desktop-tools-release.mjs';
 import { publishDesktopRelease } from '../scripts/desktop-release-publication.mjs';
+import { createDesktopReleaseInputs, desktopReleasePlatforms as platforms,
+  opencodeArtifactName as opencodeName } from './helpers/desktop-release-fixture.mjs';
 
 const digest = bytes => createHash('sha256').update(bytes).digest('hex');
 const canonical = value => Array.isArray(value) ? value.map(canonical)
   : value && typeof value === 'object' ? Object.fromEntries(Object.entries(value)
     .sort(([left], [right]) => left.localeCompare(right)).map(([key, entry]) => [key, canonical(entry)])) : value;
 const semanticDigest = (domain, value) => digest(`${domain}\0${JSON.stringify(canonical(value))}`);
-const platforms = ['macos-x64', 'macos-arm64', 'linux-x64', 'linux-arm64'];
-const opencodeName = platform => platform.startsWith('macos-') ? `opencode-${platform}.zip` : `opencode-${platform}.tar.gz`;
 
 test('creates a canonical public broker approval delegation from source-owned release policy', async t => {
   const root = await mkdtemp(join(tmpdir(), 'desktop-delegation-test-'));
@@ -34,66 +34,7 @@ test('creates a canonical public broker approval delegation from source-owned re
   assert.equal(delegation.maximumApprovalLifetimeSeconds, 600);
 });
 
-async function inputs(root, { releaseId = 'desktop-test-1', sourceCommit = 'a'.repeat(40), opencodeVersion = '2.2.5' } = {}) {
-  const outputBodies = new Map([
-    ['provision.sh', Buffer.from('provision\n')], ['desktop-tools-engine.mjs', Buffer.from('engine\n')],
-    ['desktop-tools-supervisor.mjs', Buffer.from('supervisor\n')],
-    ['desktop-tools-tools.tar.gz', Buffer.from('tools\n')]
-  ]);
-  for (const platform of platforms) {
-    outputBodies.set(`node-${platform}.tar.gz`, Buffer.from(`node-${platform}\n`));
-    outputBodies.set(opencodeName(platform), Buffer.from(`opencode-${platform}\n`));
-  }
-  const lock = { schemaVersion: 1, name: 'opencode', version: opencodeVersion, sourceCommit: 'c'.repeat(40), license: 'MIT',
-    sourceVerification: { tagCommit: 'c'.repeat(40), gitHubVerified: false, assetDigestSource: 'github-release-api' }, artifacts: {} };
-  for (const platform of platforms) {
-    const key = platform.replace('-', '_'); const name = opencodeName(platform); const bytes = outputBodies.get(name);
-    lock.artifacts[key] = { releaseFilename: name,
-      upstreamUrl: `https://github.com/anomalyco/opencode/releases/download/v${opencodeVersion}/fixture-${platform}${name.endsWith('.zip') ? '.zip' : '.tar.gz'}`,
-      sha256: digest(bytes), size: bytes.byteLength };
-  }
-  outputBodies.set('opencode.lock.json', Buffer.from(`${JSON.stringify(lock)}\n`));
-  const debianBodies = {
-    archiveKeyring: Buffer.from('debian keyring\n'), inRelease: Buffer.from('signed InRelease\n'),
-    packagesIndex: Buffer.from('compressed Packages\n'), treePayload: Buffer.from('tree deb\n'),
-  };
-  const receipt = { schemaVersion: 1, descriptor: { packageKey: 'tree', package: { version: '2.1.0-1' },
-    metadataProof: { inRelease: { signedAt: new Date().toISOString(), validUntil: null, maximumDateAgeSeconds: 180 * 86_400 } } }, artifacts: [
-    ['debian-bookworm-inrelease', debianBodies.inRelease], ['debian-bookworm-archive-keyring', debianBodies.archiveKeyring],
-    ['debian-bookworm-main-amd64-packages', debianBodies.packagesIndex], ['tree-deb-bookworm-amd64', debianBodies.treePayload],
-  ].map(([id, bytes]) => ({ id, sha256: digest(bytes), sizeBytes: bytes.length })) };
-  outputBodies.set('catalog.json', Buffer.from(`${JSON.stringify([{ name: 'tree', offlinePayloads: [receipt.descriptor] }])}\n`));
-  const trustPolicy = { archiveKeyringUri: 'https://deb.debian.org/debian/keyring.gpg',
-    inReleaseUri: 'https://deb.debian.org/debian/dists/bookworm/InRelease',
-    packagesIndexUri: 'https://deb.debian.org/debian/dists/bookworm/main/binary-amd64/Packages.xz',
-    treePayloadUri: 'https://deb.debian.org/debian/pool/main/t/tree/tree_2.1.0-1_amd64.deb' };
-  const paths = {};
-  for (const [name, bytes] of outputBodies) {
-    const path = join(root, `input-${name}`); await writeFile(path, bytes, { mode: 0o600 }); paths[name] = path;
-  }
-  paths.licenses = join(root, 'input-licenses.txt'); await writeFile(paths.licenses, `OpenCode ${opencodeVersion}\nMIT License\n`);
-  const debian = {};
-  for (const [name, bytes] of Object.entries(debianBodies)) { debian[name] = join(root, `input-debian-${name}`); await writeFile(debian[name], bytes, { mode: 0o600 }); }
-  debian.trustPolicy = join(root, 'input-debian-trust-policy.json'); await writeFile(debian.trustPolicy, `${JSON.stringify(trustPolicy)}\n`, { mode: 0o600 });
-  debian.compositionReceipt = join(root, 'input-debian-composition.json'); await writeFile(debian.compositionReceipt, `${JSON.stringify(receipt)}\n`, { mode: 0o600 });
-  const approvalKey = generateKeyPairSync('ed25519').publicKey;
-  const delegationProjection = { schemaVersion: 1, kind: 'desktop-tools-broker-approval-signer-delegation',
-    keyId: 'approval-key-1', algorithm: 'Ed25519', signatureDomain: 'desktop-tools-broker-approval-v1',
-    product: 'desktop-tools', releaseId, channel: 'stable',
-    publicKeySpki: approvalKey.export({ type: 'spki', format: 'der' }).toString('base64url'),
-    notBefore: new Date(Date.now() - 86_400_000).toISOString(),
-    notAfter: new Date(Date.now() + 8 * 86_400_000).toISOString(),
-    maximumApprovalLifetimeSeconds: 600, revocationEpoch: 7 };
-  const brokerApprovalSignerDelegation = join(root, `input-${releaseId}-broker-approval-delegation.json`);
-  await writeFile(brokerApprovalSignerDelegation, `${JSON.stringify(canonical({ ...delegationProjection,
-    delegationDigest: semanticDigest('desktop-tools:broker-approval-signer-delegation:v1', delegationProjection) }))}\n`, { mode: 0o600 });
-  return { releaseId, sourceCommit, opencodeVersion, provisioner: paths['provision.sh'], engine: paths['desktop-tools-engine.mjs'],
-    catalog: paths['catalog.json'], supervisor: paths['desktop-tools-supervisor.mjs'], tools: paths['desktop-tools-tools.tar.gz'],
-    opencodeLock: paths['opencode.lock.json'], licenses: paths.licenses, debian,
-    releaseChannel: 'stable', brokerApprovalSignerDelegation, brokerApprovalMinimumRevocationEpoch: 7,
-    runtimes: Object.fromEntries(platforms.map(platform => [platform.replace('-', '_'), paths[`node-${platform}.tar.gz`]])),
-    opencode: Object.fromEntries(platforms.map(platform => [platform.replace('-', '_'), paths[opencodeName(platform)]])) };
-}
+const inputs = createDesktopReleaseInputs;
 
 test('builds deterministic unsigned Desktop Tools v9 closure with release-delegated broker approval authority', async t => {
   const root = await mkdtemp(join(tmpdir(), 'desktop-builder-test-'));

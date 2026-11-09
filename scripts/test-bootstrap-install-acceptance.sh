@@ -33,6 +33,8 @@ command -v ssh-keygen >/dev/null 2>&1 || { printf 'ssh-keygen is required\n' >&2
 
 printf 'bootstrap-install-acceptance: bundling canonical engine\n'
 npm --prefix "$ROOT/packages/installer-engine" run bundle >/dev/null
+printf 'bootstrap-install-acceptance: bundling Desktop Tools runtime\n'
+npm --prefix "$ROOT/packages/desktop-tools-runtime" run build >/dev/null
 
 REPOSITORY="$FIXTURE/repository"
 RELEASE_PARENT="$FIXTURE/releases"
@@ -87,47 +89,60 @@ SOURCE_COMMIT="$(git -C "$REPOSITORY" rev-parse HEAD)"
 git -C "$REPOSITORY" remote add origin 'https://github.com/heymegabyte/install.doctor.git'
 
 SIGNING_KEY="$FIXTURE/release-key"
-ssh-keygen -q -t ed25519 -N '' -C install-doctor-acceptance -f "$SIGNING_KEY"
-RUNTIME_VERSION='24.22.2'
-SHASUMS="$FIXTURE/SHASUMS256.txt"
-for PLATFORM in darwin-x64 darwin-arm64 linux-x64 linux-arm64; do
-  ARCHIVE="$RUNTIME_DIR/node-v$RUNTIME_VERSION-$PLATFORM.tar.gz"
-  printf 'unused system-runtime acceptance fixture: %s\n' "$PLATFORM" > "$ARCHIVE"
-  shasum -a 256 "$ARCHIVE" | awk -v name="node-v$RUNTIME_VERSION-$PLATFORM.tar.gz" '{print $1 "  " name}' >> "$SHASUMS"
-done
-printf 'acceptance-only detached provenance fixture\n' > "$FIXTURE/SHASUMS256.txt.sig"
-printf 'acceptance-only keyring fixture\n' > "$FIXTURE/node-release-keyring.gpg"
-cat > "$TOOLS/gpgv" <<'SH'
-#!/usr/bin/env bash
-exit 0
-SH
-chmod 0700 "$TOOLS/gpgv"
-
+SIGNER_ID='desktop-acceptance'
+ssh-keygen -q -t ed25519 -N '' -C desktop-tools-acceptance -f "$SIGNING_KEY"
+PUBLIC_KEY="$(cat "$SIGNING_KEY.pub")"
 CREATED="$(date -u +%s)"
 EXPIRES="$((CREATED + 3600))"
 UNSIGNED_RELEASE="$RELEASE.unsigned"
-PATH="$TOOLS:$PATH" \
-INSTALL_DOCTOR_RUNTIME_NODE_VERSION="$RUNTIME_VERSION" \
-INSTALL_DOCTOR_RUNTIME_DIR="$RUNTIME_DIR" \
-INSTALL_DOCTOR_NODE_SHASUMS="$SHASUMS" \
-INSTALL_DOCTOR_NODE_SHASUMS_SIGNATURE="$FIXTURE/SHASUMS256.txt.sig" \
-INSTALL_DOCTOR_NODE_RELEASE_KEYRING="$FIXTURE/node-release-keyring.gpg" \
-  bash "$ROOT/scripts/publish-bootstrap-release.sh" \
-    "$RELEASE_ID" "$SOURCE_COMMIT" "$CREATED" "$EXPIRES" install-doctor-acceptance \
-    - "$REPOSITORY/provision.sh" "$REPOSITORY/install-doctor-engine.mjs" "$UNSIGNED_RELEASE"
-bash "$ROOT/scripts/sign-bootstrap-release.sh" install-doctor-acceptance "$SIGNING_KEY" "$UNSIGNED_RELEASE" "$RELEASE"
-
-PUBLIC_KEY="$(cat "$SIGNING_KEY.pub")"
-node - "$FIXTURE/bootstrap-config.json" "$PUBLIC_KEY" <<'NODE'
-const fs = require('node:fs');
-const [destination, signerPublicKey] = process.argv.slice(2);
-fs.writeFileSync(destination, `${JSON.stringify({
-  manifestUrl: 'https://app.install.doctor/releases/acceptance/manifest',
-  signatureUrl: 'https://app.install.doctor/releases/acceptance/manifest.sig',
-  signerIdentity: 'install-doctor-acceptance', signerPublicKey,
-})}\n`, { mode: 0o600, flag: 'wx' });
+node --input-type=module - "$ROOT" "$FIXTURE" "$UNSIGNED_RELEASE" "$RELEASE_ID" "$SOURCE_COMMIT" "$CREATED" "$EXPIRES" "$SIGNER_ID" "$PUBLIC_KEY" <<'NODE'
+import { createHash } from 'node:crypto';
+import { readFile } from 'node:fs/promises';
+import { gzipSync } from 'node:zlib';
+import { join } from 'node:path';
+import { buildDesktopToolsRelease } from './scripts/build-desktop-tools-release.mjs';
+import { createDesktopReleaseInputs } from './packages/control-plane/test/helpers/desktop-release-fixture.mjs';
+const [root, fixture, outputDirectory, releaseId, sourceCommit, createdAt, expiresAt, signerId, signerPublicKey] = process.argv.slice(2);
+const runtime = Buffer.from('#!/usr/bin/env sh\nif [ "${1:-}" = --version ]; then printf "opencode 2.2.5\\n"; exit 0; fi\nexit 0\n');
+const octal = (value, length) => `${value.toString(8).padStart(length - 1, '0')}\0`;
+const tar = bytes => {
+  const header = Buffer.alloc(512); header.write('opencode'); header.write(octal(0o700, 8), 100, 8, 'ascii');
+  header.write(octal(0, 8), 108, 8, 'ascii'); header.write(octal(0, 8), 116, 8, 'ascii');
+  header.write(octal(bytes.length, 12), 124, 12, 'ascii'); header.write(octal(0, 12), 136, 12, 'ascii');
+  header.fill(0x20, 148, 156); header[156] = 0x30; header.write('ustar\0', 257, 6, 'ascii'); header.write('00', 263, 2, 'ascii');
+  header.write(`${header.reduce((sum, byte) => sum + byte, 0).toString(8).padStart(6, '0')}\0 `, 148, 8, 'ascii');
+  return gzipSync(Buffer.concat([header, bytes, Buffer.alloc((512 - bytes.length % 512) % 512), Buffer.alloc(1024)]), { mtime: 0 });
+};
+const crc32 = bytes => { let crc = 0xffffffff; for (const byte of bytes) { crc ^= byte; for (let bit = 0; bit < 8; bit++) crc = (crc >>> 1) ^ (0xedb88320 & -(crc & 1)); } return (crc ^ 0xffffffff) >>> 0; };
+const zip = bytes => {
+  const name = Buffer.from('opencode'); const crc = crc32(bytes);
+  const local = Buffer.alloc(30); local.writeUInt32LE(0x04034b50); local.writeUInt16LE(20, 4); local.writeUInt32LE(crc, 14);
+  local.writeUInt32LE(bytes.length, 18); local.writeUInt32LE(bytes.length, 22); local.writeUInt16LE(name.length, 26);
+  const central = Buffer.alloc(46); central.writeUInt32LE(0x02014b50); central.writeUInt16LE(0x0314, 4); central.writeUInt16LE(20, 6);
+  central.writeUInt32LE(crc, 16); central.writeUInt32LE(bytes.length, 20); central.writeUInt32LE(bytes.length, 24); central.writeUInt16LE(name.length, 28);
+  central.writeUInt32LE((0o100700 << 16) >>> 0, 38);
+  const centralOffset = local.length + name.length + bytes.length; const end = Buffer.alloc(22); end.writeUInt32LE(0x06054b50);
+  end.writeUInt16LE(1, 8); end.writeUInt16LE(1, 10); end.writeUInt32LE(central.length + name.length, 12); end.writeUInt32LE(centralOffset, 16);
+  return Buffer.concat([local, name, bytes, central, name, end]);
+};
+const bodies = {
+  provisioner: await readFile(join(root, 'scripts/provision.sh')),
+  engine: await readFile(join(root, 'packages/installer-engine/dist/install-doctor-engine.mjs')),
+  // Use the signed fixture catalog, whose two host-mutating custom hooks are
+  // deliberately lazy for this hermetic canary. The source tree and its 1,540+
+  // desired-state files remain intact and covered by sourceCommit.
+  catalog: await readFile(join(fixture, 'repository/packages/control-plane/src/catalog.json')),
+  supervisor: await readFile(join(root, 'packages/desktop-tools-runtime/dist/desktop-tools-supervisor.mjs')),
+  tools: await readFile(join(root, 'packages/desktop-tools-runtime/dist/desktop-tools-tools.tar.gz')),
+  opencode: { 'linux-x64': tar(runtime), 'linux-arm64': tar(runtime), 'macos-x64': zip(runtime), 'macos-arm64': zip(runtime) },
+};
+const inputs = await createDesktopReleaseInputs(fixture, { releaseId, sourceCommit, bodies });
+await buildDesktopToolsRelease({ ...inputs, createdAt: Number(createdAt), expiresAt: Number(expiresAt), signerId, signerPublicKey,
+  runtimeNodeVersion: '24.22.2', outputDirectory });
 NODE
-node "$ROOT/scripts/helpers/render-bootstrap.mjs" "$FIXTURE/bootstrap-config.json" > "$FIXTURE/start.sh"
+bash "$ROOT/scripts/sign-desktop-tools-release.sh" "$SIGNER_ID" "$SIGNING_KEY" "$UNSIGNED_RELEASE" "$RELEASE"
+node "$ROOT/scripts/verify-desktop-tools-release.mjs" "$RELEASE" "$RELEASE_ID" "$SIGNER_ID" "$SIGNING_KEY.pub" >/dev/null
+cp "$RELEASE/start" "$FIXTURE/start.sh"
 # The launcher contains only public trust material. A Linux bind mount preserves
 # the host UID, which need not match the pinned image UID, so grant read/execute
 # without granting mutation to the canary process.
@@ -145,12 +160,22 @@ done
 [ -n "$destination" ] || exit 64
 url="${!#}"
 case "$url" in
-  https://app.install.doctor/releases/acceptance/manifest) source=/fixture/release/manifest ;;
-  https://app.install.doctor/releases/acceptance/manifest.sig) source=/fixture/release/manifest.sig ;;
-  https://app.install.doctor/releases/acceptance/provision.sh) source=/fixture/release/provision.sh ;;
-  https://app.install.doctor/releases/acceptance/install-doctor-engine.mjs) source=/fixture/release/install-doctor-engine.mjs ;;
-  https://app.install.doctor/releases/acceptance/catalog.json) source=/fixture/release/catalog.json ;;
-  https://app.install.doctor/releases/acceptance/node-*.tar.gz) source="/fixture/release/${url##*/}" ;;
+  https://desktop.tools/releases/acceptance/manifest) source=/fixture/release/manifest ;;
+  https://desktop.tools/releases/acceptance/manifest.sig) source=/fixture/release/manifest.sig ;;
+  https://desktop.tools/releases/acceptance/provision.sh) source=/fixture/release/provision.sh ;;
+  https://desktop.tools/releases/acceptance/desktop-tools-engine.mjs) source=/fixture/release/desktop-tools-engine.mjs ;;
+  https://desktop.tools/releases/acceptance/catalog.json) source=/fixture/release/catalog.json ;;
+  https://desktop.tools/releases/acceptance/node-linux-x64.tar.gz) source=/fixture/release/node-linux-x64.tar.gz ;;
+  https://desktop.tools/releases/acceptance/node-linux-arm64.tar.gz) source=/fixture/release/node-linux-arm64.tar.gz ;;
+  https://desktop.tools/releases/acceptance/opencode-linux-x64.tar.gz) source=/fixture/release/opencode-linux-x64.tar.gz ;;
+  https://desktop.tools/releases/acceptance/opencode-linux-arm64.tar.gz) source=/fixture/release/opencode-linux-arm64.tar.gz ;;
+  https://desktop.tools/releases/acceptance/desktop-tools-supervisor.mjs) source=/fixture/release/desktop-tools-supervisor.mjs ;;
+  https://desktop.tools/releases/acceptance/desktop-tools-tools.tar.gz) source=/fixture/release/desktop-tools-tools.tar.gz ;;
+  https://desktop.tools/releases/acceptance/release.sbom.json) source=/fixture/release/release.sbom.json ;;
+  https://desktop.tools/releases/acceptance/release.provenance.json) source=/fixture/release/release.provenance.json ;;
+  https://desktop.tools/releases/acceptance/THIRD_PARTY_LICENSES.txt) source=/fixture/release/THIRD_PARTY_LICENSES.txt ;;
+  https://desktop.tools/releases/acceptance/opencode.lock.json) source=/fixture/release/opencode.lock.json ;;
+  https://desktop.tools/releases/acceptance/broker-approval-signer-delegation.json) source=/fixture/release/broker-approval-signer-delegation.json ;;
   *) printf 'unexpected network request: %s\n' "$url" >&2; exit 65 ;;
 esac
 printf '%s\n' "$url" >> "$HOME/release-requests.log"
@@ -350,6 +375,7 @@ export INSTALL_DOCTOR_NETWORK=none INSTALL_DOCTOR_CONCURRENCY=2 INSTALL_DOCTOR_S
 export INSTALL_DOCTOR_CONSENT_PRIVILEGED=true INSTALL_DOCTOR_CONSENT_NETWORK=false INSTALL_DOCTOR_CONSENT_BEST_EFFORT=true INSTALL_DOCTOR_OFFLINE=false
 run_start() { bash /fixture/start.sh >"$1" 2>"$2"; }
 run_start_approved() { env INSTALL_DOCTOR_APPROVED_PLAN_DIGEST="$3" bash /fixture/start.sh >"$1" 2>"$2"; }
+STAGE_BEFORE="$(find /tmp -mindepth 1 -maxdepth 1 -type d -name 'desktop-tools.*' -print | LC_ALL=C sort)"
 
 set +e
 run_start "$HOME/plan.stdout" "$HOME/plan.stderr"
@@ -357,6 +383,23 @@ plan_status=$?
 set -e
 [ "$plan_status" -eq 3 ] || { printf 'planning status=%s\n' "$plan_status" >&2; cat "$HOME/plan.stdout" "$HOME/plan.stderr" >&2; exit 80; }
 [ ! -e "$HOME/mutation-ledger" ] || { printf 'mutation occurred before approval\n' >&2; exit 81; }
+RUNTIME_STATE="$HOME/.local/state/desktop-tools"
+[ -x "$RUNTIME_STATE/bin/desktop-tools" ] || { printf 'Desktop Tools executable was not installed from the signed closure\n' >&2; exit 81; }
+[ ! -e "$RUNTIME_STATE/config/inference-token" ] || { printf 'runtime installation unexpectedly required an inference credential\n' >&2; exit 81; }
+for runtime_pattern in 'bin/desktop-tools-supervisor-*.mjs' 'runtime/desktop-tools-tools-*.tar.gz' \
+  'runtime/opencode-lock-*.json' 'runtime/closure-*.json'; do
+  [ "$(find "$RUNTIME_STATE/${runtime_pattern%/*}" -maxdepth 1 -type f -name "${runtime_pattern##*/}" | wc -l | tr -d ' ')" -eq 1 ] \
+    || { printf 'runtime closure does not contain exactly one %s\n' "$runtime_pattern" >&2; find "$RUNTIME_STATE" -maxdepth 2 -print >&2; exit 81; }
+done
+[ "$($RUNTIME_STATE/bin/desktop-tools --version)" = 'opencode 2.2.5' ] \
+  || { printf 'installed Desktop Tools executable reports the wrong version\n' >&2; exit 81; }
+grep -Fq 'Installed the verified Desktop Tools runtime' "$HOME/plan.stdout" || { cat "$HOME/plan.stdout" "$HOME/plan.stderr" >&2; exit 81; }
+runtime_fingerprint() {
+  find "$RUNTIME_STATE" -type f -exec stat -c '%n|%i|%Y|%s' {} \; -exec sha256sum {} \; | LC_ALL=C sort | sha256sum | awk '{print $1}'
+}
+RUNTIME_FINGERPRINT="$(runtime_fingerprint)"
+[ "$(find /tmp -mindepth 1 -maxdepth 1 -type d -name 'desktop-tools.*' -print | LC_ALL=C sort)" = "$STAGE_BEFORE" ] \
+  || { printf 'stage zero left a private download directory behind\n' >&2; exit 81; }
 set -- "$HOME/.local/state/install.doctor/engine/approvals/"*.json
 [ "$#" -eq 1 ] && [ -f "$1" ] || { printf 'approval plan is missing or ambiguous\n' >&2; exit 82; }
 digest="${1##*/}"; digest="${digest%.json}"
@@ -375,12 +418,14 @@ set -e
   exit 84
 }
 [ ! -e "$HOME/mutation-ledger" ] || { printf 'cancelled operation recorded a completed mutation\n' >&2; exit 85; }
+[ "$(runtime_fingerprint)" = "$RUNTIME_FINGERPRINT" ] || { printf 'interruption changed the installed runtime closure\n' >&2; exit 85; }
+grep -Fq 'Verified the unchanged Desktop Tools runtime' "$HOME/interrupted.stdout" || { cat "$HOME/interrupted.stdout" "$HOME/interrupted.stderr" >&2; exit 85; }
 
 cat > "$HOME/runs-list.json" <<RUNS
 {"schemaVersion":1,"command":"runs-list","stateRoot":"$HOME/.local/state/install.doctor/engine"}
 RUNS
 chmod 0600 "$HOME/runs-list.json"
-node /fixture/release/install-doctor-engine.mjs --input "$HOME/runs-list.json" > "$HOME/interrupted-runs.json"
+node /fixture/release/desktop-tools-engine.mjs --input "$HOME/runs-list.json" > "$HOME/interrupted-runs.json"
 interrupted_run_id="$(node - "$HOME/interrupted-runs.json" "$digest" <<'INSPECT_INTERRUPTED'
 const fs = require('node:fs');
 const path = require('node:path');
@@ -420,7 +465,7 @@ cat > "$HOME/rollback-plan.json" <<ROLLBACK_PLAN
 {"schemaVersion":1,"command":"rollback-config-plan","stateRoot":"$HOME/.local/state/install.doctor/engine","sourceRunId":"$interrupted_run_id","sourcePlanDigest":"$digest"}
 ROLLBACK_PLAN
 chmod 0600 "$HOME/rollback-plan.json"
-node /fixture/release/install-doctor-engine.mjs --input "$HOME/rollback-plan.json" > "$HOME/rollback-plan-output.json"
+node /fixture/release/desktop-tools-engine.mjs --input "$HOME/rollback-plan.json" > "$HOME/rollback-plan-output.json"
 rollback_digest="$(node - "$HOME/rollback-plan-output.json" <<'READ_ROLLBACK_PLAN'
 const fs = require('node:fs');
 const plan = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
@@ -437,7 +482,7 @@ cat > "$HOME/rollback-execute.json" <<ROLLBACK_EXECUTE
 {"schemaVersion":1,"command":"rollback-config-execute","stateRoot":"$HOME/.local/state/install.doctor/engine","sourceRunId":"$interrupted_run_id","sourcePlanDigest":"$digest","rollbackRunId":"bootstrap-policy-rollback","approvedPlanDigest":"$rollback_digest"}
 ROLLBACK_EXECUTE
 chmod 0600 "$HOME/rollback-execute.json"
-node /fixture/release/install-doctor-engine.mjs --input "$HOME/rollback-execute.json" > "$HOME/rollback-execute-output.json"
+node /fixture/release/desktop-tools-engine.mjs --input "$HOME/rollback-execute.json" > "$HOME/rollback-execute-output.json"
 [ ! -e "$HOME/.config/install.doctor-policy.json" ] || { printf 'rollback did not restore the absent policy state\n' >&2; exit 88; }
 [ ! -e "$HOME/.local/state/install.doctor/engine/tools/installx" ] || { printf 'rollback did not restore the absent engine installx state\n' >&2; exit 88; }
 [ ! -d "$HOME/.local/state/install.doctor/engine/tools" ] || { printf 'rollback did not restore the absent engine tools directory state\n' >&2; exit 88; }
@@ -445,14 +490,14 @@ cat > "$HOME/rollback-status.json" <<ROLLBACK_STATUS
 {"schemaVersion":1,"command":"rollback-config-status","stateRoot":"$HOME/.local/state/install.doctor/engine","rollbackRunId":"bootstrap-policy-rollback","planDigest":"$rollback_digest"}
 ROLLBACK_STATUS
 chmod 0600 "$HOME/rollback-status.json"
-node /fixture/release/install-doctor-engine.mjs --input "$HOME/rollback-status.json" > "$HOME/rollback-status-output.json"
+node /fixture/release/desktop-tools-engine.mjs --input "$HOME/rollback-status.json" > "$HOME/rollback-status-output.json"
 node - "$HOME/rollback-status-output.json" <<'VERIFY_ROLLBACK_STATUS'
 const fs = require('node:fs');
 const status = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
 if (status.authority !== 'committed' || status.receipt?.completed !== true) throw new Error('rollback status is not committed');
 VERIFY_ROLLBACK_STATUS
 set +e
-node /fixture/release/install-doctor-engine.mjs --input "$HOME/rollback-execute.json" > "$HOME/rollback-replay.stdout" 2> "$HOME/rollback-replay.stderr"
+node /fixture/release/desktop-tools-engine.mjs --input "$HOME/rollback-execute.json" > "$HOME/rollback-replay.stdout" 2> "$HOME/rollback-replay.stderr"
 rollback_replay_status=$?
 set -e
 [ "$rollback_replay_status" -eq 3 ] || { printf 'committed rollback replay status=%s\n' "$rollback_replay_status" >&2; exit 88; }
@@ -468,6 +513,8 @@ reapply_hash="$(sha256sum "$HOME/mutation-ledger" | awk '{print $1}')"
 run_start_approved "$HOME/unchanged.stdout" "$HOME/unchanged.stderr" "$digest" || { cat "$HOME/unchanged.stdout" "$HOME/unchanged.stderr" >&2; exit 88; }
 unchanged_hash="$(sha256sum "$HOME/mutation-ledger" | awk '{print $1}')"
 [ "$reapply_hash" = "$unchanged_hash" ] || { printf 'unchanged run added a mutation\n' >&2; exit 89; }
+[ "$(runtime_fingerprint)" = "$RUNTIME_FINGERPRINT" ] || { printf 'unchanged run replaced the runtime closure\n' >&2; exit 89; }
+grep -Fq 'Verified the unchanged Desktop Tools runtime' "$HOME/unchanged.stdout" || { cat "$HOME/unchanged.stdout" "$HOME/unchanged.stderr" >&2; exit 89; }
 
 node - "$HOME/.local/state/install.doctor/engine" "$digest" "$interrupted_run_id" <<'VERIFY'
 const fs = require('node:fs');
@@ -489,15 +536,24 @@ for (const run of runs) {
 if (!runs.includes(interruptedRunId)) throw new Error('automatic resume did not commit the interrupted run identity');
 VERIFY
 
-[ "$(wc -l < "$HOME/release-requests.log" | tr -d ' ')" -eq 25 ] || {
-  printf 'unexpected release request count\n' >&2; cat "$HOME/release-requests.log" >&2; exit 88;
-}
+case "$(uname -m)" in
+  x86_64|amd64) runtime_platform=linux-x64 ;;
+  aarch64|arm64) runtime_platform=linux-arm64 ;;
+  *) printf 'unsupported acceptance architecture\n' >&2; exit 88 ;;
+esac
+for artifact in manifest manifest.sig provision.sh desktop-tools-engine.mjs catalog.json "opencode-$runtime_platform.tar.gz" \
+  desktop-tools-supervisor.mjs desktop-tools-tools.tar.gz release.sbom.json release.provenance.json \
+  THIRD_PARTY_LICENSES.txt opencode.lock.json broker-approval-signer-delegation.json; do
+  grep -Fxq "https://desktop.tools/releases/acceptance/$artifact" "$HOME/release-requests.log" \
+    || { printf 'signed stage zero never fetched %s\n' "$artifact" >&2; exit 88; }
+done
 printf 'approved_plan=%s\n' "$digest"
 printf 'mutations=%s\n' "$(wc -l < "$HOME/mutation-ledger" | tr -d ' ')"
 printf 'interrupted_run_resumed=1\n'
 printf 'rollback_config_committed=1\n'
 printf 'committed_runs=3\n'
 printf 'unchanged_mutations=0\n'
+printf 'runtime_closure_durable=1\n'
 NODE_RUN
 chmod 0700 /canary-home/run-as-node.sh
 chown node:node /canary-home/run-as-node.sh
@@ -554,4 +610,5 @@ grep -q '^root_handoff_tui_restored=1$' "$OUTPUT"
 grep -q '^interrupted_run_resumed=1$' "$OUTPUT"
 grep -q '^rollback_config_committed=1$' "$OUTPUT"
 grep -q '^unchanged_mutations=0$' "$OUTPUT"
-printf 'bootstrap-install-acceptance: PASS (signed /start and %s committed desired-state inputs, direct and root-handoff PTY restoration, released cancellation, automatic same-run resume, committed config rollback, unchanged reapply)\n' "$DESIRED_STATE_FILE_COUNT"
+grep -q '^runtime_closure_durable=1$' "$OUTPUT"
+printf 'bootstrap-install-acceptance: PASS (signed Desktop Tools v9 profile bootstrap and %s committed desired-state inputs, durable runtime closure, direct and root-handoff PTY restoration, released cancellation, automatic same-run resume, committed config rollback, unchanged reapply)\n' "$DESIRED_STATE_FILE_COUNT"
