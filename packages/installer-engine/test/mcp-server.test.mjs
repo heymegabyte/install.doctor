@@ -192,9 +192,19 @@ test('pinned OpenCode discovers the signed local Desktop Tools MCP server', {
       headers: { authorization: `Basic ${Buffer.from('opencode:test-password').toString('base64')}` },
     });
     assert.equal(configResponse.ok, true);
-    const loaded = JSON.stringify(await configResponse.json());
+    const loadedConfig = await configResponse.json();
+    const loaded = JSON.stringify(loadedConfig);
+    const rules = [];
+    const collectRules = value => {
+      if (Array.isArray(value)) { for (const item of value) collectRules(item); return; }
+      if (!value || typeof value !== 'object') return;
+      if (typeof value.action === 'string' && typeof value.effect === 'string') rules.push(value);
+      for (const nested of Object.values(value)) collectRules(nested);
+    };
+    collectRules(loadedConfig);
     for (const action of ['shell', 'edit', 'execute', 'external_directory']) {
-      assert.match(loaded, new RegExp(`(?:permissions|permission).*${action}`));
+      assert.equal(rules.some(rule => rule.action === action && rule.resource === '*' && rule.effect === 'deny'), true,
+        `OpenCode did not load the exact deny rule for ${action}`);
     }
     for (const tool of DESKTOP_TOOLS_TYPED_TOOL_NAMES) assert.match(loaded, new RegExp(tool));
   } finally {
