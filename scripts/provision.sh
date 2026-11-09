@@ -783,7 +783,7 @@ setEnvironmentVariables() {
 #     selected catalog closure and remain lazy unless a later task proves it needs them.
 ensureBasicDeps() {
   local NATIVE_MANAGER NATIVE_MANAGER_NAME SUDO_EXECUTABLE="${INSTALL_DOCTOR_SUDO_PATH:-}"
-  local NEED_CURL=0 NEED_RSYNC=0
+  local NEED_CURL=0 NEED_GIT=0 NEED_RSYNC=0
   local -a NATIVE_PACKAGES=()
   if ! idTrustedBootstrapDependency curl >/dev/null 2>&1; then
     [ "${INSTALL_DOCTOR_CURL_SHA256:-}" = absent ] || return 2
@@ -791,7 +791,7 @@ ensureBasicDeps() {
   fi
   if ! idTrustedGitExecutable >/dev/null 2>&1; then
     [ "${INSTALL_DOCTOR_GIT_SHA256:-}" = absent ] || return 2
-    NATIVE_PACKAGES+=(git)
+    NATIVE_PACKAGES+=(git); NEED_GIT=1
   fi
   if ! idTrustedBootstrapDependency rsync >/dev/null 2>&1; then
     [ "${INSTALL_DOCTOR_RSYNC_SHA256:-}" = absent ] || return 2
@@ -826,6 +826,7 @@ ensureBasicDeps() {
     else return 2
     fi || return $?
     [ "$NEED_CURL" -eq 0 ] || idRecordBootstrapDependencyReceipt curl || return 2
+    [ "$NEED_GIT" -eq 0 ] || idRecordBootstrapDependencyReceipt git || return 2
     [ "$NEED_RSYNC" -eq 0 ] || idRecordBootstrapDependencyReceipt rsync || return 2
   fi
   # Package-manager exit status is not authoritative: an unsupported branch,
@@ -1000,6 +1001,7 @@ idBootstrapDependencyReceiptPath() {
   local name="${1:-}"
   case "$name" in
     curl) [ "${INSTALL_DOCTOR_CURL_SHA256:-}" = absent ] || return 1 ;;
+    git) [ "${INSTALL_DOCTOR_GIT_SHA256:-}" = absent ] || return 1 ;;
     rsync) [ "${INSTALL_DOCTOR_RSYNC_SHA256:-}" = absent ] || return 1 ;;
     *) return 1 ;;
   esac
@@ -1080,12 +1082,14 @@ idRecordBootstrapDependencyReceipt() {
   local name="${1:-}" candidate actual receipt receipt_dir temporary manager="${INSTALL_DOCTOR_NATIVE_MANAGER_SHA256:-}"
   case "$name" in
     curl) candidate="${INSTALL_DOCTOR_CURL_PATH:-}" ;;
+    git) candidate="${INSTALL_DOCTOR_GIT_PATH:-}" ;;
     rsync) candidate="${INSTALL_DOCTOR_RSYNC_PATH:-}" ;;
     *) return 1 ;;
   esac
   actual="$(idSha256File "$candidate")" || return 1
   case "$name" in
     curl) INSTALL_DOCTOR_CURL_SHA256="$actual" idTrustedBootstrapDependency curl >/dev/null || return 1 ;;
+    git) INSTALL_DOCTOR_GIT_SHA256="$actual" idTrustedGitExecutable >/dev/null || return 1 ;;
     rsync) INSTALL_DOCTOR_RSYNC_SHA256="$actual" idTrustedBootstrapDependency rsync >/dev/null || return 1 ;;
   esac
   case "$manager" in ''|*[!a-f0-9]*) return 1 ;; esac
@@ -1144,10 +1148,11 @@ EOF
     *) return 1 ;;
   esac
   [ $((8#$mode & 2)) -eq 0 ] && [ $((8#$parent_mode & 2)) -eq 0 ] || return 1
+  actual="$(idSha256File "$candidate")" || return 1
   case "$expected" in
-    absent) [ "$owner" -eq 0 ] || return 1 ;;
+    absent) [ "$owner" -eq 0 ] && idVerifyBootstrapDependencyReceipt git "$candidate" "$actual" || return 1 ;;
     ''|*[!a-f0-9]*) return 1 ;;
-    *) [ "${#expected}" -eq 64 ] || return 1; actual="$(idSha256File "$candidate")" || return 1; [ "$actual" = "$expected" ] || return 1 ;;
+    *) [ "${#expected}" -eq 64 ] && [ "$actual" = "$expected" ] || return 1 ;;
   esac
   printf '%s\n' "$candidate"
 }

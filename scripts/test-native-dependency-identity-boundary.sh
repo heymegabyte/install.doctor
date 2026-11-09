@@ -7,13 +7,15 @@ trap 'rm -rf -- "$TMP"' EXIT HUP INT TERM
 mkdir -p "$TMP/bin" "$TMP/state"
 
 curl_path="$TMP/bin/curl"
+git_path="$TMP/bin/git"
 rsync_path="$TMP/bin/rsync"
 printf '%s\n' '#!/bin/sh' 'exit 0' > "$curl_path"
+printf '%s\n' '#!/bin/sh' 'exit 0' > "$git_path"
 printf '%s\n' '#!/bin/sh' 'exit 0' > "$rsync_path"
-chmod 0755 "$curl_path" "$rsync_path"
+chmod 0755 "$curl_path" "$git_path" "$rsync_path"
 
 # Exercise the production functions against an isolated fixed-path fixture.
-sed -e "s#/usr/bin/curl#$curl_path#g" -e "s#/usr/bin/rsync#$rsync_path#g" \
+sed -e "s#/usr/bin/curl#$curl_path#g" -e "s#/usr/bin/git#$git_path#g" -e "s#/usr/bin/rsync#$rsync_path#g" \
   "$ROOT/scripts/provision.sh" > "$TMP/provision.sh"
 
 sha256_file() {
@@ -23,9 +25,11 @@ sha256_file() {
 }
 
 curl_sha="$(sha256_file "$curl_path")"
+git_sha="$(sha256_file "$git_path")"
 rsync_sha="$(sha256_file "$rsync_path")"
 export XDG_STATE_HOME="$TMP/state"
 export INSTALL_DOCTOR_CURL_PATH="$curl_path" INSTALL_DOCTOR_CURL_SHA256="$curl_sha"
+export INSTALL_DOCTOR_GIT_PATH="$git_path" INSTALL_DOCTOR_GIT_SHA256="$git_sha"
 export INSTALL_DOCTOR_RSYNC_PATH="$rsync_path" INSTALL_DOCTOR_RSYNC_SHA256="$rsync_sha"
 export INSTALL_DOCTOR_NATIVE_MANAGER_SHA256="$(printf 'a%.0s' {1..64})"
 
@@ -36,7 +40,7 @@ source "$TMP/provision.sh"
 stat() {
   local path="${!#}"
   case "$path" in
-    "$curl_path"|"$rsync_path"|"$TMP/bin")
+    "$curl_path"|"$git_path"|"$rsync_path"|"$TMP/bin")
       case "${1:-}" in
         -f|-c) printf '0 755\n' ;;
         *) return 1 ;;
@@ -46,6 +50,7 @@ stat() {
   esac
 }
 test "$(idTrustedBootstrapDependency curl)" = "$curl_path"
+test "$(idTrustedGitExecutable)" = "$git_path"
 test "$(idTrustedBootstrapDependency rsync)" = "$rsync_path"
 
 printf '\n# changed\n' >> "$curl_path"
@@ -73,4 +78,23 @@ if idTrustedBootstrapDependency curl >/dev/null 2>&1; then
   exit 1
 fi
 
-printf 'native-dependency-identity-boundary: 7 passed, 0 failed\n'
+INSTALL_DOCTOR_GIT_SHA256=absent
+export INSTALL_DOCTOR_GIT_SHA256
+idRecordBootstrapDependencyReceipt git
+test "$(idTrustedGitExecutable)" = "$git_path"
+
+git_receipt="$XDG_STATE_HOME/install.doctor/engine/effects/bootstrap-git-created.receipt"
+ln "$git_receipt" "$TMP/git-receipt-hardlink"
+if idTrustedGitExecutable >/dev/null 2>&1; then
+  printf 'hard-linked Git creation receipt retained authority\n' >&2
+  exit 1
+fi
+rm -f "$TMP/git-receipt-hardlink"
+
+printf '\n# substituted\n' >> "$git_path"
+if idTrustedGitExecutable >/dev/null 2>&1; then
+  printf 'substituted created Git retained receipt authority\n' >&2
+  exit 1
+fi
+
+printf 'native-dependency-identity-boundary: 12 passed, 0 failed\n'
