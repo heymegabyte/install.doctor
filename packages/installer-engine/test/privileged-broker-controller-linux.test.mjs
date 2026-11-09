@@ -72,6 +72,17 @@ async function absent(path) {
   await assert.rejects(lstat(path), error => error?.code === 'ENOENT');
 }
 
+async function prepareRuntimeParents(enrolledGid) {
+  await mkdir('/run/desktop-tools', { recursive: true, mode: 0o750 });
+  await mkdir('/run/desktop-tools/authority', { recursive: true, mode: 0o711 });
+  await mkdir('/run/desktop-tools/broker', { recursive: true, mode: 0o750 });
+  await Promise.all([
+    chown('/run/desktop-tools', 0, enrolledGid), chmod('/run/desktop-tools', 0o750),
+    chown('/run/desktop-tools/authority', 0, 0), chmod('/run/desktop-tools/authority', 0o711),
+    chown('/run/desktop-tools/broker', 0, enrolledGid), chmod('/run/desktop-tools/broker', 0o750),
+  ]);
+}
+
 async function exerciseController(t, suffix, authorize) {
   const runId = `controller-test-${process.pid}-${suffix}`;
   const authorityRoot = `/run/desktop-tools/authority/${runId}`;
@@ -120,6 +131,7 @@ test('Linux root controller admits an enrolled UID through the real sealed-FD br
   const identity = await command('/usr/bin/id', ['-g', '1000']).catch(() => '');
   if (!identity.trim()) return t.skip('fixture requires enrolled uid 1000');
   const enrolledGid = Number(identity.trim());
+  await prepareRuntimeParents(enrolledGid);
   const runId = `controller-transport-${process.pid}`;
   const authorityRoot = `/run/desktop-tools/authority/${runId}`;
   const socketRoot = `/run/desktop-tools/broker/${runId}`;

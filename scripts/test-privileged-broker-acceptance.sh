@@ -20,6 +20,8 @@ check 'real transport fixture declares a unique sticky-directory client path' \
   awk '/real sealed-FD broker transport/{seen=1} seen && /const clientModulePath = join\(.\/tmp., `\$\{runId\}-client\.mjs`\)/{found=1} END{exit !found}' "$FIXTURE"
 check 'fixture client is root-owned and non-writable before privilege drop' \
   awk '/chmod\(clientModulePath, 0o444\)/{mode=1} /chown\(clientModulePath, 0, 0\)/{owner=1} END{exit !(mode && owner)}' "$FIXTURE"
+check 'standalone fixture reproduces production runtime parent modes' \
+  awk '/prepareRuntimeParents\(enrolledGid\)/{call=1} /chmod\(.\/run\/desktop-tools., 0o750\)/{root=1} /chmod\(.\/run\/desktop-tools\/authority., 0o711\)/{authority=1} /chmod\(.\/run\/desktop-tools\/broker., 0o750\)/{broker=1} END{exit !(call && root && authority && broker)}' "$FIXTURE"
 check 'controller subscribes to completion before invoking readiness' \
   awk '/const childCompletion = new Promise/{listener=NR} /await testOptions\.onReady/{ready=NR} END{exit !(listener && ready && listener < ready)}' "$CONTROLLER"
 check 'controller escalates bounded failed child cleanup' \
