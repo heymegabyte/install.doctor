@@ -782,43 +782,35 @@ setEnvironmentVariables() {
 #     Compilers, terminal cosmetics, compatibility tools, and language runtimes belong to the
 #     selected catalog closure and remain lazy unless a later task proves it needs them.
 ensureBasicDeps() {
+  local NATIVE_MANAGER NATIVE_MANAGER_NAME SUDO_EXECUTABLE="${INSTALL_DOCTOR_SUDO_PATH:-}"
   if ! command -v curl > /dev/null || ! command -v git > /dev/null || ! command -v rsync > /dev/null; then
-    if command -v apt-get > /dev/null; then
+    NATIVE_MANAGER="$(idTrustedNativePackageManager)" \
+      || { logg error 'No exact plan-bound native package manager is available'; return 2; }
+    NATIVE_MANAGER_NAME="${INSTALL_DOCTOR_NATIVE_MANAGER_NAME:-}"
+    case "$SUDO_EXECUTABLE" in /usr/bin/sudo|/bin/sudo) ;; *) return 2 ;; esac
+    [ -x "$SUDO_EXECUTABLE" ] && [ ! -L "$SUDO_EXECUTABLE" ] || return 2
+    if [ "$NATIVE_MANAGER_NAME" = apt-get ]; then
       ### Debian / Ubuntu
-      logg info 'Running sudo apt-get update' && sudo apt-get update \
+      logg info 'Running the approved apt-get update' && "$SUDO_EXECUTABLE" "$NATIVE_MANAGER" update \
         && logg info 'Installing the minimal bootstrap tools (curl, git, and rsync)' \
-        && sudo apt-get install -y curl git rsync
-    elif command -v dnf > /dev/null; then
+        && "$SUDO_EXECUTABLE" "$NATIVE_MANAGER" install -y curl git rsync
+    elif [ "$NATIVE_MANAGER_NAME" = dnf ]; then
       ### Fedora
-      logg info 'Installing the minimal bootstrap tools (curl, git, and rsync)' && sudo dnf install -y curl git rsync
-    elif command -v yum > /dev/null; then
+      logg info 'Installing the minimal bootstrap tools (curl, git, and rsync)' && "$SUDO_EXECUTABLE" "$NATIVE_MANAGER" install -y curl git rsync
+    elif [ "$NATIVE_MANAGER_NAME" = yum ]; then
       ### CentOS
-      logg info 'Installing the minimal bootstrap tools (curl, git, and rsync)' && sudo yum install -y curl git rsync
-    elif command -v pacman > /dev/null; then
+      logg info 'Installing the minimal bootstrap tools (curl, git, and rsync)' && "$SUDO_EXECUTABLE" "$NATIVE_MANAGER" install -y curl git rsync
+    elif [ "$NATIVE_MANAGER_NAME" = pacman ]; then
       ### Archlinux
-      logg info 'Installing the minimal bootstrap tools (curl, git, and rsync)' && sudo pacman -S --needed --noconfirm curl git rsync
-    elif command -v zypper > /dev/null; then
+      logg info 'Installing the minimal bootstrap tools (curl, git, and rsync)' && "$SUDO_EXECUTABLE" "$NATIVE_MANAGER" -S --needed --noconfirm curl git rsync
+    elif [ "$NATIVE_MANAGER_NAME" = zypper ]; then
       ### OpenSUSE
-      logg info 'Installing the minimal bootstrap tools (curl, git, and rsync)' && sudo zypper install -y curl git rsync
-    elif command -v apk > /dev/null; then
+      logg info 'Installing the minimal bootstrap tools (curl, git, and rsync)' && "$SUDO_EXECUTABLE" "$NATIVE_MANAGER" install -y curl git rsync
+    elif [ "$NATIVE_MANAGER_NAME" = apk ]; then
       ### Alpine
-      logg info 'Installing the minimal bootstrap tools (curl, git, and rsync)' && sudo apk add curl git rsync
-    elif [ "$(detect_os)" = "macos" ]; then
-      logg error 'macOS is missing curl, git, or rsync; install Apple Command Line Tools before provisioning'
-      return 2
-    elif [[ "$OSTYPE" == 'cygwin' ]] || [[ "$OSTYPE" == 'msys' ]] || [[ "$OSTYPE" == 'win32' ]]; then
-      ### Windows
-      logg info 'Installing the minimal bootstrap tools (curl, git, and rsync)' && choco install -y curl git rsync
-    elif [[ "$OSTYPE" == 'freebsd'* ]]; then
-      ### FreeBSD
-      logg warn "FreeBSD is not yet supported"
-    elif command -v pkg > /dev/null; then
-      ### Termux
-      logg warn "Termux is not yet supported"
-    elif command -v xbps-install > /dev/null; then
-      ### Void
-      logg warn "Void is not yet supported"
-    fi
+      logg info 'Installing the minimal bootstrap tools (curl, git, and rsync)' && "$SUDO_EXECUTABLE" "$NATIVE_MANAGER" add curl git rsync
+    else return 2
+    fi || return $?
   fi
   # Package-manager exit status is not authoritative: an unsupported branch,
   # a partial transaction, or a manager that returned success without
@@ -831,6 +823,42 @@ ensureBasicDeps() {
     logg error 'Minimal bootstrap dependencies did not satisfy their approved postcondition'
     return 2
   fi
+}
+
+idTrustedNativePackageManager() {
+  local name="${INSTALL_DOCTOR_NATIVE_MANAGER_NAME:-}" candidate="${INSTALL_DOCTOR_NATIVE_MANAGER_PATH:-}"
+  local expected="${INSTALL_DOCTOR_NATIVE_MANAGER_SHA256:-}" actual owner mode parent parent_owner parent_mode
+  case "$name" in apt-get|dnf|yum|pacman|zypper|apk) ;; *) return 1 ;; esac
+  case "$candidate" in /*) ;; *) return 1 ;; esac
+  case "$name:$candidate" in
+    apt-get:/usr/bin/apt-get|dnf:/usr/bin/dnf|dnf:/usr/bin/dnf-3|dnf:/usr/bin/dnf5|yum:/usr/bin/yum|yum:/usr/bin/dnf|yum:/usr/bin/dnf-3|yum:/usr/bin/dnf5|pacman:/usr/bin/pacman|zypper:/usr/bin/zypper|apk:/sbin/apk|apk:/usr/sbin/apk|apk:/usr/bin/apk) ;;
+    *) return 1 ;;
+  esac
+  [ -f "$candidate" ] && [ ! -L "$candidate" ] && [ -x "$candidate" ] || return 1
+  parent="${candidate%/*}"
+  [ -d "$parent" ] && [ ! -L "$parent" ] || return 1
+  if stat -f '%u %Lp' "$candidate" >/dev/null 2>&1; then
+    read -r owner mode <<EOF
+$(stat -f '%u %Lp' "$candidate")
+EOF
+    read -r parent_owner parent_mode <<EOF
+$(stat -f '%u %Lp' "$parent")
+EOF
+  else
+    read -r owner mode <<EOF
+$(stat -c '%u %a' "$candidate")
+EOF
+    read -r parent_owner parent_mode <<EOF
+$(stat -c '%u %a' "$parent")
+EOF
+  fi
+  [ "$owner" -eq 0 ] && [ "$parent_owner" -eq 0 ] \
+    && [ $((8#$mode & 8#22)) -eq 0 ] && [ $((8#$parent_mode & 8#22)) -eq 0 ] || return 1
+  case "$expected" in ''|*[!a-f0-9]*) return 1 ;; esac
+  [ "${#expected}" -eq 64 ] || return 1
+  actual="$(idSha256File "$candidate")" || return 1
+  [ "$actual" = "$expected" ] || return 1
+  printf '%s\n' "$candidate"
 }
 
 # Acquire the signed, release-scoped Node runtime only when the host has no
@@ -2834,6 +2862,32 @@ for (const candidate of ['/usr/bin/sudo', '/bin/sudo']) {
   }
 }
 if (!sudoPath) throw new Error('no safe fixed sudo executable is available for credential cleanup');
+let nativeManagerName = '';
+let nativeManagerPath = '';
+let nativeManagerDigest = '';
+const nativeManagerCandidates = [
+  ['apt-get', '/usr/bin/apt-get'], ['dnf', '/usr/bin/dnf'], ['yum', '/usr/bin/yum'],
+  ['pacman', '/usr/bin/pacman'], ['zypper', '/usr/bin/zypper'],
+  ['apk', '/sbin/apk'], ['apk', '/usr/sbin/apk'], ['apk', '/usr/bin/apk'],
+];
+for (const [name, unresolved] of nativeManagerCandidates) {
+  try {
+    const candidate = fs.realpathSync(unresolved);
+    const metadata = fs.lstatSync(candidate);
+    const parent = fs.lstatSync(require('node:path').dirname(candidate));
+    const allowedResolved = new Set(['/usr/bin/apt-get','/usr/bin/dnf','/usr/bin/dnf-3','/usr/bin/dnf5','/usr/bin/yum',
+      '/usr/bin/pacman','/usr/bin/zypper','/sbin/apk','/usr/sbin/apk','/usr/bin/apk']);
+    if (!allowedResolved.has(candidate) || !metadata.isFile() || metadata.isSymbolicLink() || (metadata.mode & 0o111) === 0
+      || (metadata.mode & 0o022) !== 0 || metadata.uid !== 0 || !parent.isDirectory() || parent.isSymbolicLink()
+      || parent.uid !== 0 || (parent.mode & 0o022) !== 0) continue;
+    nativeManagerName = name;
+    nativeManagerPath = candidate;
+    nativeManagerDigest = crypto.createHash('sha256').update(fs.readFileSync(candidate)).digest('hex');
+    break;
+  } catch (error) {
+    if (!error || error.code !== 'ENOENT') throw error;
+  }
+}
 const operationEnvironment = {
   SOFTWARE_GROUP: rawPlan.softwareGroup,
   INSTALL_DOCTOR_ROLE: rawPlan.role,
@@ -2844,6 +2898,10 @@ const operationEnvironment = {
   INSTALL_DOCTOR_CONSENT_NETWORK: String(rawPlan.consents.network),
   INSTALL_DOCTOR_CONSENT_BEST_EFFORT: String(rawPlan.consents.bestEffort),
   INSTALL_DOCTOR_SUDO_PREEXISTING: String(rawPlan.privilegeContext.sudoPreexisting),
+  INSTALL_DOCTOR_SUDO_PATH: sudoPath,
+  INSTALL_DOCTOR_NATIVE_MANAGER_NAME: nativeManagerName,
+  INSTALL_DOCTOR_NATIVE_MANAGER_PATH: nativeManagerPath,
+  INSTALL_DOCTOR_NATIVE_MANAGER_SHA256: nativeManagerDigest,
   INSTALL_DOCTOR_OFFLINE: String(rawPlan.offline),
   INSTALL_DOCTOR_USER: rawPlan.installUser,
   INSTALL_DOCTOR_AGENT_TASK_DIR: agentTaskDirectory,
@@ -2902,7 +2960,8 @@ const warpDisconnectTask = rawPlan.network === 'cloudflare-warp' && rawPlan.cons
 } : null;
 const nativeDependenciesTask = {
   schemaVersion: 1, id: 'bootstrap.native-dependencies',
-  inputDigest: digest({ platform, arch, commands: ['curl', 'git', 'rsync'], gitPath, gitDigest }),
+  inputDigest: digest({ platform, arch, commands: ['curl', 'git', 'rsync'], gitPath, gitDigest,
+    nativeManagerName, nativeManagerPath, nativeManagerDigest, sudoPath, sudoDigest, sudoDigestKind }),
   dependencies: [warpDisconnectTask?.id ?? stageZeroSudoTask.id], predicate: 'host-supported', requiredCapabilities: [],
   operations: { check: 'native-dependencies-check', apply: 'native-dependencies-apply', verify: 'native-dependencies-verify' },
   timeoutMs: 1_800_000, retry: { class: 'transient', maxAttempts: 2, backoffMs: 1_000 },

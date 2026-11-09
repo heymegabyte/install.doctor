@@ -32,11 +32,18 @@ if printf '%s\n' "$basic" | grep -Fq 'idTrustedGitExecutable' \
 else
   fail 'native bootstrap dependency apply can return without proving its exact postcondition'
 fi
+if printf '%s\n' "$basic" | grep -Fq 'idTrustedNativePackageManager' \
+  && printf '%s\n' "$basic" | grep -Fq 'INSTALL_DOCTOR_SUDO_PATH' \
+  && ! printf '%s\n' "$basic" | grep -Eq 'command -v (apt-get|dnf|yum|pacman|zypper|apk)|sudo (apt-get|dnf|yum|pacman|zypper|apk)'; then
+  pass 'native dependency mutation uses only plan-bound manager and sudo paths'
+else
+  fail 'native dependency mutation retains ambient privileged executable selection'
+fi
 
 TMP_DIR="$(mktemp -d)"
 trap 'rm -rf -- "$TMP_DIR"' EXIT
 mkdir -p "$TMP_DIR/empty" "$TMP_DIR/tools"
-for tool in curl rsync; do
+for tool in curl git rsync; do
   printf '%s\n' '#!/usr/bin/env bash' 'exit 0' >"$TMP_DIR/tools/$tool"
   chmod 0700 "$TMP_DIR/tools/$tool"
 done
@@ -45,6 +52,7 @@ if PATH="$TMP_DIR/empty" /bin/bash -c '
   logg() { :; }
   detect_os() { printf "%s\n" linux; }
   idTrustedGitExecutable() { return 1; }
+  idTrustedNativePackageManager() { return 1; }
   ensureBasicDeps
 ' _ "$basic"; then
   fail 'native bootstrap dependency apply accepted a host with no usable package manager or tools'
@@ -56,6 +64,7 @@ if PATH="$TMP_DIR/tools" /bin/bash -c '
   logg() { :; }
   detect_os() { printf "%s\n" linux; }
   idTrustedGitExecutable() { return 0; }
+  idTrustedNativePackageManager() { return 1; }
   ensureBasicDeps
 ' _ "$basic"; then
   pass 'native bootstrap dependency apply accepts the exact satisfied closure without mutation'
