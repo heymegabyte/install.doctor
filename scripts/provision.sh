@@ -3579,6 +3579,25 @@ idRecordEffectReceipt() {
   mv -f "$RECEIPT_TMP" "$RECEIPT"
 }
 
+idRunVerifiedHookPhase() (
+  local SOURCE="$1" EXPECTED="$2" PHASE="$3" STAGED BEFORE AFTER SNAPSHOT
+  case "$PHASE" in check|apply|verify) ;; *) return 2 ;; esac
+  case "$EXPECTED" in ''|*[!a-f0-9]*) return 2 ;; esac
+  [ "${#EXPECTED}" -eq 64 ] || return 2
+  [ -f "$SOURCE" ] && [ ! -L "$SOURCE" ] || return 2
+  umask 077
+  STAGED="$(mktemp "${TMPDIR:-/tmp}/desktop-tools-hook.XXXXXX")" || return 1
+  trap '/bin/rm -f -- "$STAGED"' EXIT HUP INT TERM
+  BEFORE="$(idSha256File "$SOURCE")" || return 2
+  [ "$BEFORE" = "$EXPECTED" ] || return 2
+  /bin/cp -- "$SOURCE" "$STAGED" || return 1
+  /bin/chmod 0700 "$STAGED" || return 1
+  SNAPSHOT="$(idSha256File "$STAGED")" || return 2
+  AFTER="$(idSha256File "$SOURCE")" || return 2
+  [ "$SNAPSHOT" = "$EXPECTED" ] && [ "$AFTER" = "$EXPECTED" ] || return 2
+  /bin/bash "$STAGED" "--$PHASE" </dev/null
+)
+
 # Execute only the package roots carried by the normalized desired-state plan.
 # `installx --all` is deliberately forbidden here: catalog defaults are
 # discoverability policy, not authority to mutate a target. Installx expands
@@ -3633,13 +3652,13 @@ EOF
     ACTUAL="$(idSha256File "$HOOK")" || return 2
     [ "$ACTUAL" = "$EXPECTED" ] || { logg error "custom hook digest mismatch: $(basename "$HOOK")"; return 2; }
     if [ "$PHASE" = apply ]; then
-      if /bin/bash "$HOOK" --check </dev/null; then STATUS=0; else STATUS=$?; fi
+      if idRunVerifiedHookPhase "$HOOK" "$EXPECTED" check; then STATUS=0; else STATUS=$?; fi
       case "$STATUS" in
         0) continue ;;
         10)
-          if /bin/bash "$HOOK" --apply </dev/null; then STATUS=0; else STATUS=$?; fi
+          if idRunVerifiedHookPhase "$HOOK" "$EXPECTED" apply; then STATUS=0; else STATUS=$?; fi
           if [ "$STATUS" -eq 0 ]; then
-            if /bin/bash "$HOOK" --verify </dev/null; then STATUS=0; else STATUS=$?; fi
+            if idRunVerifiedHookPhase "$HOOK" "$EXPECTED" verify; then STATUS=0; else STATUS=$?; fi
             [ "$STATUS" -eq 0 ] || FAILURES=$((FAILURES + 1))
           elif [ "$STATUS" -eq 20 ]; then PENDING=1
           else FAILURES=$((FAILURES + 1)); fi
@@ -3648,7 +3667,7 @@ EOF
         *) FAILURES=$((FAILURES + 1)) ;;
       esac
     else
-      if /bin/bash "$HOOK" "--$PHASE" </dev/null; then STATUS=0; else STATUS=$?; fi
+      if idRunVerifiedHookPhase "$HOOK" "$EXPECTED" "$PHASE"; then STATUS=0; else STATUS=$?; fi
       case "$STATUS" in 0) ;; 10) NEEDS_APPLY=1 ;; 20) PENDING=1 ;; *) FAILURES=$((FAILURES + 1)) ;; esac
     fi
     [ "$FAILURES" -eq 0 ] || FAILED_HOOKS="$FAILED_HOOKS $(basename "$HOOK")"

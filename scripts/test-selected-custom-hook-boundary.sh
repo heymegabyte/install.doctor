@@ -38,6 +38,25 @@ HOME="$TMP/home" PATH="$TMP/bin:$PATH" HOSTILE_BASH_MARKER="$TMP/hostile-bash-ra
   /bin/bash -c 'source "$1"; logg() { :; }; idRunSelectedPostInstallxHooks verify' _ "$PROVISION"
 test ! -e "$TMP/hostile-bash-ran"
 
+cat > "$HOOK" <<'HOOK'
+#!/usr/bin/env bash
+case "${1:-}" in
+  --check) printf '# substituted\nexit 0\n' > "$HOOK_SOURCE"; exit 10 ;;
+  --apply) : > "$HOOK_APPLY_MARKER"; exit 0 ;;
+  --verify) exit 0 ;;
+  *) exit 2 ;;
+esac
+HOOK
+chmod 0700 "$HOOK"
+DIGEST="$(shasum -a 256 "$HOOK" | awk '{print $1}')"
+if HOME="$TMP/home" HOOK_SOURCE="$HOOK" HOOK_APPLY_MARKER="$TMP/hook-apply-ran" \
+  INSTALL_DOCTOR_CUSTOM_HOOK_KEYS=fixture INSTALL_DOCTOR_CUSTOM_HOOK_MANIFEST="fixture=$DIGEST" \
+  /bin/bash -c 'source "$1"; logg() { :; }; idRunSelectedPostInstallxHooks apply' _ "$PROVISION"; then
+  printf '%s\n' 'selected custom hook substitution was accepted' >&2
+  exit 1
+fi
+test ! -e "$TMP/hook-apply-ran"
+
 rm -f "$HOOK"
 if HOME="$TMP/home" INSTALL_DOCTOR_CUSTOM_HOOK_KEYS=fixture INSTALL_DOCTOR_CUSTOM_HOOK_MANIFEST="fixture=$DIGEST" \
   /bin/bash -c 'source "$1"; logg() { :; }; idRunSelectedPostInstallxHooks verify' _ "$PROVISION"; then
@@ -45,4 +64,4 @@ if HOME="$TMP/home" INSTALL_DOCTOR_CUSTOM_HOOK_KEYS=fixture INSTALL_DOCTOR_CUSTO
   exit 1
 fi
 
-printf '%s\n' 'selected-custom-hook-boundary: 13 passed, 0 failed'
+printf '%s\n' 'selected-custom-hook-boundary: 15 passed, 0 failed'
