@@ -3,11 +3,12 @@ import { type BlueprintV4, resolveMachinePackages, validateEnvironment } from '.
 import { DesiredStateInputSchema, HostFactsSchema, type DesiredStateInput } from './installer-contracts.js';
 
 const identifier = z.string().regex(/^[a-z0-9][a-z0-9._-]{0,95}$/);
+const recipeIdentifier = z.string().regex(/^[a-z0-9][a-z0-9._:-]{0,127}$/);
 const digest = z.string().regex(/^[a-f0-9]{64}$/);
 const identifiers = z.array(identifier).max(4096).refine(values => new Set(values).size === values.length, 'duplicate identifiers')
   .refine(values => values.every((value, index) => index === 0 || values[index - 1]!.localeCompare(value) < 0), 'identifiers must be sorted');
 const recipeReferenceSchema = z.strictObject({
-  id: identifier,
+  id: recipeIdentifier,
   version: z.string().min(1).max(64).regex(/^[A-Za-z0-9][A-Za-z0-9._+-]*$/),
   sha256: digest,
 });
@@ -46,6 +47,7 @@ const portableProfileExportSchema = z.strictObject({
     commit: z.string().regex(/^[a-f0-9]{40}$/),
     include: identifiers,
   }),
+  catalog: z.strictObject({ sha256: digest }),
   recipes: z.array(recipeReferenceSchema).min(1).max(4096),
   sourceEnvironmentDigest: digest,
   exportDigest: digest,
@@ -98,6 +100,7 @@ export async function createPortableProfileExport(input: {
   environment: unknown;
   machineId: string;
   recipes: readonly { id: string; version: string; sha256: string }[];
+  catalogSha256: string;
   consents?: readonly string[];
   offline?: boolean;
 }): Promise<PortableProfileExport> {
@@ -129,6 +132,7 @@ export async function createPortableProfileExport(input: {
     },
     promptPolicy: { ...environment.promptPolicy, allowedRoutes: sorted(environment.promptPolicy.allowedRoutes) },
     skills: { ...environment.skills, include: sorted(environment.skills.include) },
+    catalog: { sha256: input.catalogSha256 },
     recipes,
     sourceEnvironmentDigest,
   };

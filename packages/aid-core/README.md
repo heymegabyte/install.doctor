@@ -52,6 +52,9 @@ standalone projection, never a competing configuration authority. Their content 
 tampering but is not a signature. Import validates the strict schema and digest before a fresh
 target can bind its own host identity, OS, role, and capabilities. Engine parity tests reproduce
 the same normalized plan digest from the serialized export without carrying source-host identity.
+Recipe references are not accepted as trust merely because they contain a digest: the installer
+export path verifies the exact signed-release catalog bytes, resolves the applicable dependency
+closure through the existing strict load-plan schema, and pins each canonical catalog entry.
 
 A SHA-256 digest detects content changes; it is not a signature or proof of trust.
 Commit pins are syntax-checked, not fetched or verified. The synthetic test fixture uses an

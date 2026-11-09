@@ -46,6 +46,15 @@ Offline execution is intentionally two-step. `bundle-apply` materializes only ve
 
 Configuration rollback is also plan-first. `rollback-config-plan` reads only a committed source run and returns the exact reversible installer-owned configuration closure. The caller approves only its digest: `rollback-config-execute` accepts no plan or compensation payload, reloads the source evidence, independently derives the plan, shares the host mutation lease, and requires absent rollback evidence. `rollback-config-resume` requires released-uncommitted evidence for the same derived plan. Caller-provided plans or compensation bytes and automatic package, operating-system, network, storage, or external rollback are not accepted. Systemd evidence is accepted only on Linux when a trusted native adapter is discovered before any mutation. Static, masked, indirect, generated, failed, activating, and other states are rejected because the v1 systemd snapshot cannot restore them exactly. On macOS, v2 launchd evidence must bind an enrolled system/gui/user domain, a still-identical safe plist with explicit `KeepAlive=false`, exact default/enabled/disabled override state, loaded state, and running/not-running activity. A default state is restored without ever creating an override and fails before mutation if an explicit override appeared concurrently; ambiguous, mixed-privilege, stale, or self-respawning definitions fail during preflight. Windows SCM and Windows file rollback remain explicitly unsupported and fail before mutation.
 
+Portable Desktop Tools profiles have a separate bounded export command after building the
+package: `node bin/desktop-tools-profile-export.mjs export --environment /absolute/ENVIRONMENT.md
+--machine <id> --facts /absolute/facts.json --catalog /absolute/catalog.json
+--catalog-sha256 <digest> --output /absolute/profile.json`. It creates the output exclusively
+as mode `0600`, verifies exact signed-release catalog bytes before resolving recipes, and never
+exports source machine identities, service endpoints, or secret references. Standalone planning
+re-verifies the same catalog, resolves the closure again, verifies every exported recipe digest,
+and reconstructs its plan draft rather than accepting one from the export or caller.
+
 ## Planned behavior — not implemented yet
 
 The following sections are the B04–B13 design target. They are not claims about the current package or production `/start` behavior.

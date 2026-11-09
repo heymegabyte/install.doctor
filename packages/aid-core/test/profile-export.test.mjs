@@ -27,8 +27,8 @@ const recipes = [
 
 test('portable export is deterministic and excludes credentials, endpoints, and source machine identities', async () => {
   const source = await environment();
-  const first = await createPortableProfileExport({ environment: source, machineId: 'runner-a', recipes, consents: ['network'] });
-  const second = await createPortableProfileExport({ environment: structuredClone(source), machineId: 'runner-a', recipes: [...recipes].reverse(), consents: ['network'] });
+  const first = await createPortableProfileExport({ environment: source, machineId: 'runner-a', recipes, catalogSha256: 'c'.repeat(64), consents: ['network'] });
+  const second = await createPortableProfileExport({ environment: structuredClone(source), machineId: 'runner-a', recipes: [...recipes].reverse(), catalogSha256: 'c'.repeat(64), consents: ['network'] });
   assert.deepEqual(second, first);
   const serialized = await serializePortableProfileExport(first);
   assert.deepEqual(await parsePortableProfileExport(serialized), first);
@@ -38,14 +38,14 @@ test('portable export is deterministic and excludes credentials, endpoints, and 
 });
 
 test('strict export rejects unknown fields, mutable recipe refs, and digest tampering', async () => {
-  const value = await createPortableProfileExport({ environment: await environment(), machineId: 'runner-a', recipes });
+  const value = await createPortableProfileExport({ environment: await environment(), machineId: 'runner-a', recipes, catalogSha256: 'c'.repeat(64) });
   await assert.rejects(validatePortableProfileExport({ ...value, token: 'secret' }), /unrecognized|unknown/i);
   await assert.rejects(validatePortableProfileExport({ ...value, recipes: [{ id: 'packages', version: 'main', sha256: 'not-a-digest' }] }), /invalid/i);
   await assert.rejects(validatePortableProfileExport({ ...value, desired: { ...value.desired, offline: !value.desired.offline } }), /digest mismatch/);
 });
 
 test('fresh targets supply their own identity and must satisfy exported platform constraints', async () => {
-  const value = await createPortableProfileExport({ environment: await environment(), machineId: 'runner-a', recipes, consents: ['network'] });
+  const value = await createPortableProfileExport({ environment: await environment(), machineId: 'runner-a', recipes, catalogSha256: 'c'.repeat(64), consents: ['network'] });
   const facts = {
     schemaVersion: 1, hostId: 'fresh-host', collectedAt: '2026-11-08T13:00:00.000Z', os: 'linux', osVersion: '24.04', arch: 'x64',
     environment: 'native', roles: ['runner'], packageManagers: ['apt'], capabilities: ['linux', 'server'],
