@@ -145,15 +145,15 @@ export const NativePackageOperationSchema = z.strictObject({
   payloadArtifactId: identifier,
   installedWitnesses: z.array(NativePackageInstalledWitnessSchema).max(16).optional(),
 });
-const nativeServiceOperation = z.strictObject({
+export const NativeServiceOperationSchema = z.strictObject({
   kind: z.literal('native-service'),
   effectClass: z.literal('native-service'),
   action: z.enum(['check', 'apply', 'verify']),
   manager: z.literal('systemd'),
   unit: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9_.@:-]{0,126}\.service$/),
-  desiredState: z.enum(['enabled', 'disabled', 'started', 'stopped']),
+  desiredState: z.enum(['enabled', 'disabled', 'started', 'stopped', 'enabled-and-started']),
 });
-const operation = z.discriminatedUnion('kind', [processOperation, managedFileOperation, NativePackageOperationSchema, nativeServiceOperation]);
+const operation = z.discriminatedUnion('kind', [processOperation, managedFileOperation, NativePackageOperationSchema, NativeServiceOperationSchema]);
 const configurationRoot = z.string().min(1).max(4096).refine(
   value => isAbsolute(value) && normalize(value) === value && dirname(value) !== value && !value.includes('\0'),
   'configuration root must be a canonical absolute non-root path',
@@ -191,6 +191,7 @@ export const OfflineOperationManifestSchema = z.strictObject({
 export type OfflineOperationManifest = z.infer<typeof OfflineOperationManifestSchema>;
 export type OfflineOperation = OfflineOperationManifest['operations'][string];
 export type NativePackageOperation = Extract<OfflineOperation, { kind: 'native-package' }>;
+export type NativeServiceOperation = Extract<OfflineOperation, { kind: 'native-service' }>;
 
 export interface NativePackageRuntimeAuthority {
   readonly operation: NativePackageOperation;

@@ -20,6 +20,7 @@ export * from './rollback-executor.js';
 export * from './lazy-plan.js';
 export * from './telemetry.js';
 export * from './service-state-adapters.js';
+export * from './native-service-composition.js';
 export * from './immutable-artifact.js';
 export * from './verified-artifact-materializer.js';
 export * from './planned-artifact.js';
