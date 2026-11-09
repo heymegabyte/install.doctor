@@ -444,6 +444,23 @@ export function createJournalStore(options: JournalStoreOptions): JournalStore {
     });
   };
 
+  const readCompetingOwner = async (path: string): Promise<RunOwner> => {
+    // Exclusive publication uses a temporary hard link. A contender can open
+    // the final name after link(2) but before the publisher removes that
+    // temporary link. Retry only that recognizable, bounded publication
+    // transient; persistent or otherwise malformed owner evidence still fails
+    // as an integrity error.
+    for (let attempt = 0; ; attempt += 1) {
+      try { return HostMutationOwnerSchema.parse(await readJson(path)); }
+      catch (error) {
+        const publicationTransient = error instanceof JournalIntegrityError
+          && error.message === `journal artifact has insecure permissions or links: ${path}`;
+        if (!publicationTransient || attempt >= 3) throw error;
+        await new Promise<void>(resolvePromise => setImmediate(resolvePromise));
+      }
+    }
+  };
+
   const requireOwner = async (expected: RunOwner): Promise<RunOwner> => {
     const path = paths(expected.runId, expected.planDigest).owner;
     let current: RunOwner;
@@ -614,7 +631,7 @@ export function createJournalStore(options: JournalStoreOptions): JournalStore {
       }
 
       try {
-        const existing = HostMutationOwnerSchema.parse(await readJson(target.owner));
+        const existing = await readCompetingOwner(target.owner);
         const expired = new Date(existing.leaseUntil).getTime() <= new Date(now()).getTime();
         const alive = existing.bootId === bootId && await isProcessAlive(existing.pid, existing.processStart);
         if (!expired || alive) throw new LiveOwnerError();

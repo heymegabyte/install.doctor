@@ -1681,7 +1681,12 @@ cloneChezmoiSourceRepo() {
     [ "$ACTUAL_COMMIT" = "$SOURCE_COMMIT" ] || { logg error 'Fetched source does not match the signed commit'; rm -rf -- "$TEMP_ROOT"; return 2; }
     mv "$TEMP_ROOT" "$SOURCE_ROOT" || { rm -rf -- "$TEMP_ROOT"; return 1; }
   fi
-  verifyChezmoiSourceRepo
+  verifyChezmoiSourceRepo || return $?
+  # Bash 3.2 on macOS must not rely on a nested verifier's exported assignment
+  # as the caller-visible postcondition. Bind the already verified immutable
+  # source explicitly before returning from the clone operation.
+  INSTALL_DOCTOR_CHEZMOI_SOURCE="$SOURCE_ROOT/home"
+  export INSTALL_DOCTOR_CHEZMOI_SOURCE
 }
 
 verifyChezmoiSourceRepo() {

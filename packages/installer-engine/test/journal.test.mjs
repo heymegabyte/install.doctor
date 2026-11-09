@@ -130,7 +130,8 @@ test('concurrent fresh claims have one typed winner without orphan generations',
   assert.equal(results.filter(result => result.status === 'fulfilled').length, 1);
   const rejected = results.find(result => result.status === 'rejected');
   assert.ok(rejected && rejected.status === 'rejected');
-  assert.equal(rejected.reason instanceof LiveOwnerError, true);
+  assert.equal(rejected.reason instanceof LiveOwnerError, true,
+    `losing claim must report LiveOwnerError, received ${rejected.reason?.constructor?.name}: ${rejected.reason?.message}`);
   const run = join(root, 'runs', plan.digest, 'run-one');
   assert.equal((await readdir(join(run, 'heads'))).length, 1);
 });
