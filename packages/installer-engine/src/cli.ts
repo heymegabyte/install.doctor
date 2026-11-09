@@ -34,7 +34,7 @@ import { FlatpakLauncherOperationSchema, composeSelectedFlatpakLaunchers, flatpa
 import { fetchImmutableArtifact } from './immutable-artifact.js';
 import { createRollbackPlan } from './rollback.js';
 import { RollbackEvidenceError, RollbackLiveOwnerError, createRollbackRunStore } from './rollback-journal.js';
-import { discoverNativeServiceStateAdapters } from './service-state-adapters.js';
+import { discoverNativeServiceStateAdapters, systemdStateMatches } from './service-state-adapters.js';
 import type { ServiceStateAdapter, ServiceStateSnapshot } from './config-transaction.js';
 import { applyConfigurationTransaction, applyManagedDirectoryTransaction, configurationCompensationArtifactDigest } from './config-transaction.js';
 import { TelemetryExportConfigSchema } from './telemetry.js';
@@ -727,7 +727,7 @@ function baseAdapterFor(invocation: OperationInvocation, nativeBinding?: {
 }, serviceBinding?: {
   readonly runtime: ReturnType<typeof createPrivilegedBrokerServiceRuntime>;
   readonly descriptor: z.infer<typeof PrivilegedBrokerServiceDescriptorSchema>;
-}): InstallerAdapter {
+}, readOnlyServiceAdapter?: ServiceStateAdapter): InstallerAdapter {
   const digestOpenFile = async (handle: Awaited<ReturnType<typeof open>>, size: number): Promise<string> => {
     if (!Number.isSafeInteger(size) || size < 1 || size > 16 * 1024 * 1024) {
       throw new Error('verified executable size is outside the 1 byte to 16 MiB boundary');
@@ -1140,6 +1140,13 @@ function baseAdapterFor(invocation: OperationInvocation, nativeBinding?: {
       return 0;
     }
     if (selected.kind === 'native-service') {
+      if (!serviceBinding && invocation.command === 'status' && selected.action === 'check') {
+        if (selected.manager !== 'systemd' || readOnlyServiceAdapter?.manager !== 'systemd') {
+          throw new Error('native service status requires an available read-only systemd adapter');
+        }
+        const observed = await readOnlyServiceAdapter.capture(selected.unit);
+        return systemdStateMatches(observed, selected.desiredState) ? 0 : 10;
+      }
       if (!serviceBinding || selected.action !== expectedAction || selected.manager !== serviceBinding.descriptor.manager
         || selected.unit !== serviceBinding.descriptor.unit || selected.desiredState !== serviceBinding.descriptor.desiredState) {
         throw new Error('native service operation requires matching approved privileged broker authority');
@@ -1275,6 +1282,13 @@ async function adapterFor(invocation: OperationInvocation): Promise<InstallerAda
     .filter((entry): entry is [string, z.infer<typeof NativePackageOperationSchema>] => entry[1].kind === 'native-package');
   const nativeServiceOperations = Object.entries(invocation.operations)
     .filter((entry): entry is [string, z.infer<typeof NativeServiceOperationSchema>] => entry[1].kind === 'native-service');
+  if (invocation.command === 'status' && nativeServiceOperations.length > 0) {
+    const serviceAdapters = await discoverNativeServiceStateAdapters();
+    if (serviceAdapters.systemd?.manager !== 'systemd') {
+      throw new Error('native service status requires a trusted systemd executable');
+    }
+    return baseAdapterFor(invocation, undefined, undefined, serviceAdapters.systemd);
+  }
   if (invocation.command !== 'run' && invocation.command !== 'resume') return baseAdapterFor(invocation);
   const binding = invocation.privilegedBroker;
   if (nativePackageOperations.length === 0 && nativeServiceOperations.length === 0) {
@@ -1372,6 +1386,9 @@ async function requiredServiceAdapters(
   for (const manager of managers) {
     if (adapters[manager]?.manager !== manager) {
       throw new Error(`rollback service-state adapter is not configured for ${manager}`);
+    }
+    if (manager === 'systemd' && process.geteuid?.() !== 0) {
+      throw new Error('systemd rollback requires root authorization before any compensation is applied');
     }
   }
   return adapters;

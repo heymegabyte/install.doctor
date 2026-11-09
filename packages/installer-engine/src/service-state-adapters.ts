@@ -29,6 +29,18 @@ export type NativeServiceCommand = (
   arguments_: readonly string[],
 ) => Promise<z.infer<typeof NativeResult>>;
 
+export function systemdStateMatches(
+  stateInput: unknown,
+  desiredState: 'enabled' | 'disabled' | 'started' | 'stopped' | 'enabled-and-started',
+): boolean {
+  const state = SystemdServiceStateSchema.parse(stateInput);
+  if (desiredState === 'enabled') return state.enabled;
+  if (desiredState === 'disabled') return !state.enabled;
+  if (desiredState === 'started') return state.running;
+  if (desiredState === 'stopped') return !state.running;
+  return state.enabled && state.running;
+}
+
 function launchdDomainTarget(domain: z.infer<typeof LaunchdDomain>): string {
   return domain.kind === 'system' ? 'system' : `${domain.kind}/${domain.uid}`;
 }
