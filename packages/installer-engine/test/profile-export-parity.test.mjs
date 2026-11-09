@@ -23,7 +23,7 @@ const catalog = [
 const catalogBytes = Buffer.from(`${JSON.stringify(catalog)}\n`);
 const catalogSha256 = createHash('sha256').update(catalogBytes).digest('hex');
 
-async function signedRelease(root, bytes = catalogBytes, signingRoot = root) {
+async function signedRelease(root, bytes = catalogBytes, signingRoot = root, now = 1794140000) {
   const key = join(signingRoot, 'release-key');
   if (signingRoot === root) {
     const generated = spawnSync('/usr/bin/ssh-keygen', ['-q', '-t', 'ed25519', '-N', '', '-f', key], { encoding: 'utf8' });
@@ -32,7 +32,7 @@ async function signedRelease(root, bytes = catalogBytes, signingRoot = root) {
   const releaseId = 'release-1';
   const digest = createHash('sha256').update(bytes).digest('hex');
   const lines = ['schema_version=7', 'product_id=desktop-tools', `release_id=${releaseId}`,
-    'source_commit=0000000000000000000000000000000000000000', 'created_at=1794138000', 'expires_at=1794224400',
+    'source_commit=0000000000000000000000000000000000000000', `created_at=${now - 2000}`, `expires_at=${now + 84400}`,
     'key_id=desktop-test', 'engine_node_min=22', 'runtime_node_version=24.1.0', 'opencode_version=2.0.0',
     `catalog_url=https://desktop.tools/releases/${releaseId}/catalog.json`, `catalog_sha256=${digest}`, `catalog_size=${bytes.byteLength}`];
   while (lines.length < 64) lines.push(`test_field_${lines.length}=bound-value-${lines.length}`);
@@ -74,7 +74,7 @@ test('bounded CLI exports a catalog-verified profile without source-private stat
   await writeFile(environmentPath, exportMarkdown(environment()), { mode: 0o600 });
   await writeFile(factsPath, `${JSON.stringify(facts)}\n`, { mode: 0o600 });
   await writeFile(catalogPath, catalogBytes, { mode: 0o600 });
-  const release = await signedRelease(root);
+  const release = await signedRelease(root, catalogBytes, root, Math.floor(Date.now() / 1000));
   const cliBin = resolve(import.meta.dirname, '../bin/desktop-tools-profile-export.mjs');
   const result = spawnSync(process.execPath, [cliBin, 'export',
     '--environment', environmentPath, '--machine', 'private-source-host', '--facts', factsPath,
