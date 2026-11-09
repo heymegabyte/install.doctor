@@ -25,6 +25,14 @@ function buildWorker(output) {
   return readFileSync(output);
 }
 
+function buildController(output) {
+  execFileSync(esbuild, [
+    'src/privileged-broker-controller.ts', '--bundle', '--platform=node', '--format=esm', '--target=node22',
+    '--legal-comments=none', '--charset=utf8', '--minify-syntax', '--minify-whitespace', `--outfile=${output}`,
+  ], { cwd: root, env: { PATH: process.env.PATH ?? '' }, stdio: 'pipe' });
+  return readFileSync(output);
+}
+
 function digest(bytes) {
   return createHash('sha256').update(bytes).digest('hex');
 }
@@ -87,6 +95,18 @@ test('privileged worker artifact is deterministic, self-contained, and bounded',
     assert.equal(digest(first), digest(second));
     assert.match(first.toString('utf8', 0, 64), /^#!\/usr\/bin\/env node/);
     assert.ok(first.length < 2_000_000, `worker bundle is unexpectedly large: ${first.length}`);
+    assert.doesNotMatch(first.toString('utf8'), /from ["'][^n][^o][^d][^e][^:]/);
+  } finally { rmSync(directory, { recursive: true, force: true }); }
+});
+
+test('privileged controller artifact is deterministic, self-contained, and bounded', () => {
+  const directory = mkdtempSync(join(tmpdir(), 'desktop-tools-privileged-controller-bundle-'));
+  try {
+    const first = buildController(join(directory, 'first.mjs'));
+    const second = buildController(join(directory, 'second.mjs'));
+    assert.equal(digest(first), digest(second));
+    assert.match(first.toString('utf8', 0, 64), /^#!\/usr\/bin\/env node/);
+    assert.ok(first.length < 2_000_000, `controller bundle is unexpectedly large: ${first.length}`);
     assert.doesNotMatch(first.toString('utf8'), /from ["'][^n][^o][^d][^e][^:]/);
   } finally { rmSync(directory, { recursive: true, force: true }); }
 });

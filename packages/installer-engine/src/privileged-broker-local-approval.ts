@@ -7,9 +7,17 @@ import {
   privilegedBrokerDigest,
 } from './privileged-broker-protocol.js';
 import type { PrivilegedBrokerApprovalEvidence, PrivilegedBrokerGrant } from './privileged-broker-protocol.js';
+import { createPrivilegedBrokerStore } from './privileged-broker-store.js';
+import {
+  PrivilegedBrokerExecutionAuthoritySchema,
+  privilegedBrokerDescriptorDigest,
+  privilegedBrokerExecutionAuthorityDigest,
+} from './privileged-broker-authority.js';
+import type { PrivilegedBrokerExecutionAuthority } from './privileged-broker-authority.js';
 
 const MAX_CONFIRMATION_BYTES = 256;
 const CONFIRMATION_TIMEOUT_MS = 120_000;
+const PRODUCTION_STORE_ROOT = '/run/desktop-tools/privileged';
 
 export interface TrustedLocalConfirmation {
   readonly confirm: (summary: string, exactPhrase: string) => Promise<boolean>;
@@ -113,5 +121,35 @@ export async function requestTrustedLocalBrokerApproval(input: {
     approval,
     verify: async (candidate: PrivilegedBrokerApprovalEvidence) => candidate.method === 'trusted-local'
       && privilegedBrokerDigest(PrivilegedBrokerApprovalEvidenceSchema.parse(candidate)) === expectedDigest,
+  });
+}
+
+/** Atomically publishes the exact locally approved grant and authority as root. */
+export async function publishTrustedLocalBrokerGrant(input: {
+  readonly grant: unknown;
+  readonly authority: PrivilegedBrokerExecutionAuthority;
+  readonly confirmation?: TrustedLocalConfirmation;
+  readonly now?: () => Date;
+}): Promise<Readonly<{ grantDigest: string; authorityDigest: string; approvalEvidenceDigest: string }>> {
+  const grant = PrivilegedBrokerGrantSchema.parse(input.grant);
+  const authority = PrivilegedBrokerExecutionAuthoritySchema.parse(input.authority);
+  if (authority.hostId !== grant.hostId || authority.releaseId !== grant.releaseId
+    || authority.runId !== grant.runId || authority.planDigest !== grant.planDigest
+    || privilegedBrokerExecutionAuthorityDigest(authority) !== grant.closureDigest
+    || privilegedBrokerDescriptorDigest(authority.descriptor) !== grant.descriptorDigest) {
+    throw new Error('trusted local broker authority differs from the exact grant');
+  }
+  const issued = await requestTrustedLocalBrokerApproval({
+    grant,
+    ...(input.confirmation ? { confirmation: input.confirmation } : {}),
+    ...(input.now ? { now: input.now } : {}),
+  });
+  const store = await createPrivilegedBrokerStore({ root: PRODUCTION_STORE_ROOT, verifyApproval: issued.verify });
+  const publishedGrant = await store.publishGrant(grant, issued.approval);
+  const publishedAuthority = await store.publishAuthority(publishedGrant.grant.grantId, authority);
+  return Object.freeze({
+    grantDigest: publishedGrant.digest,
+    authorityDigest: publishedAuthority.digest,
+    approvalEvidenceDigest: issued.approval.evidenceDigest,
   });
 }

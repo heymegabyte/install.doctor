@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { chmod, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { chmod, mkdtemp, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
@@ -37,7 +37,7 @@ function approval(overrides = {}, exactGrant = grant()) {
 test('root-side store publishes idempotent exact grants and durably consumes each nonce once', async t => {
   const temporary = await mkdtemp(join(tmpdir(), 'broker-store-'));
   t.after(() => rm(temporary, { recursive: true, force: true }));
-  const root = join(temporary, 'authority');
+  const root = join(await realpath(temporary), 'authority');
   const store = await createPrivilegedBrokerStore({ root, ownerUid: uid, verifyApproval: async evidence => evidence.evidenceDigest === hex('9') });
   await assert.rejects(store.publishGrant(grant(), approval({ workerDigest: hex('f') })), /differs from the exact grant/);
   const first = await store.publishGrant(grant(), approval());
@@ -59,7 +59,7 @@ test('root-side store publishes idempotent exact grants and durably consumes eac
 test('root-side store rejects writable and tampered authority', async t => {
   const temporary = await mkdtemp(join(tmpdir(), 'broker-store-'));
   t.after(() => rm(temporary, { recursive: true, force: true }));
-  const root = join(temporary, 'authority');
+  const root = join(await realpath(temporary), 'authority');
   const store = await createPrivilegedBrokerStore({ root, ownerUid: uid, verifyApproval: async () => true });
   await store.publishGrant(grant(), approval());
   const path = join(root, 'grants', 'grant-1.json');
@@ -68,4 +68,15 @@ test('root-side store rejects writable and tampered authority', async t => {
   await chmod(path, 0o600);
   await writeFile(path, JSON.stringify(grant({ grantId: 'grant-2' })));
   await assert.rejects(store.readGrant('grant-1'), /identity mismatch|grant identity/);
+});
+
+test('root-side store rejects a symbolic-link ancestor before creating authority', async t => {
+  const temporary = await mkdtemp(join(tmpdir(), 'broker-store-link-'));
+  t.after(() => rm(temporary, { recursive: true, force: true }));
+  const canonicalTemporary = await realpath(temporary);
+  const target = join(canonicalTemporary, 'target');
+  const link = join(canonicalTemporary, 'link');
+  await symlink(target, link);
+  await assert.rejects(createPrivilegedBrokerStore({ root: join(link, 'authority'), ownerUid: uid,
+    verifyApproval: async () => true }), /ancestry cannot contain symbolic links/);
 });

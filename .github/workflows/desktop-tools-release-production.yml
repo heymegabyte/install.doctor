@@ -84,6 +84,7 @@ jobs:
           DESKTOP_TOOLS_REQUIRE_PRIVILEGED_BROKER=true \
           DESKTOP_TOOLS_PRIVILEGED_BROKER="$PWD/.release-work/broker/desktop-tools-privileged-broker" \
           DESKTOP_TOOLS_PRIVILEGED_WORKER="$PWD/packages/installer-engine/dist/desktop-tools-privileged-worker.mjs" \
+          DESKTOP_TOOLS_PRIVILEGED_CONTROLLER="$PWD/packages/installer-engine/dist/desktop-tools-privileged-controller.mjs" \
             npm --prefix packages/desktop-tools-runtime run build
           test -f packages/desktop-tools-runtime/dist/desktop-tools-supervisor.mjs
           test -f packages/desktop-tools-runtime/dist/desktop-tools-tools.tar.gz

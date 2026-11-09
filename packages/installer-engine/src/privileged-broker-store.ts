@@ -1,6 +1,6 @@
 import { constants } from 'node:fs';
 import { lstat, mkdir, open } from 'node:fs/promises';
-import { dirname, isAbsolute, join, resolve } from 'node:path';
+import { dirname, isAbsolute, join, parse, resolve, sep } from 'node:path';
 import {
   PrivilegedBrokerGrantSchema,
   PrivilegedBrokerApprovalEvidenceSchema,
@@ -29,6 +29,21 @@ async function assertProtectedDirectory(path: string, ownerUid: number): Promise
   if (!metadata.isDirectory() || metadata.isSymbolicLink()
     || metadata.uid !== ownerUid || (metadata.mode & 0o077) !== 0) {
     throw new Error('privileged broker store directory is not private to its owner');
+  }
+}
+
+async function assertNoSymlinkAncestors(path: string): Promise<void> {
+  const root = parse(path).root;
+  let current = root;
+  for (const segment of path.slice(root.length).split(sep).filter(Boolean)) {
+    current = join(current, segment);
+    try {
+      const metadata = await lstat(current);
+      if (metadata.isSymbolicLink()) throw new Error('privileged broker store ancestry cannot contain symbolic links');
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return;
+      throw error;
+    }
   }
 }
 
@@ -81,7 +96,9 @@ export async function createPrivilegedBrokerStore(input: {
   const ownerUid = input.ownerUid ?? 0;
   const root = resolve(input.root);
   if (!isAbsolute(input.root) || root === dirname(root)) throw new Error('privileged broker store root must be absolute and non-root');
+  await assertNoSymlinkAncestors(root);
   await mkdir(root, { recursive: true, mode: 0o700 });
+  await assertNoSymlinkAncestors(root);
   await assertProtectedDirectory(root, ownerUid);
   const grants = join(root, 'grants');
   const nonces = join(root, 'nonces');

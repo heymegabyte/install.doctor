@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, realpath, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
@@ -65,7 +65,7 @@ test('root execution authority is exact, grant-bound, create-only, and independe
   const { authority, plan, payload } = await fixture();
   const root = await mkdtemp(join(tmpdir(), 'broker-authority-'));
   t.after(() => rm(root, { recursive: true, force: true }));
-  const store = await createPrivilegedBrokerStore({ root, ownerUid: process.getuid(), verifyApproval: async () => true });
+  const store = await createPrivilegedBrokerStore({ root: await realpath(root), ownerUid: process.getuid(), verifyApproval: async () => true });
   const closureDigest = privilegedBrokerExecutionAuthorityDigest(authority);
   const grant = { schemaVersion: 1, grantId: 'grant-1', hostId: 'host-1', releaseId: 'release-1', runId: 'run-1',
     planDigest: plan.digest, approvedPlanDigest: plan.digest, enrolledUid: process.getuid(),
