@@ -145,6 +145,22 @@ test('pairing start uses a high-entropy human code and rejects oversized request
   assert.equal(body.code.length, 14);
   assert.equal(body.verifyUrl, `https://app.install.doctor/pair?code=${body.code}`);
 
+  const targetPollSecret = `aidp_${'a'.repeat(64)}`;
+  const targetOwned = await app.fetch(
+    new Request('https://app.install.doctor/api/devices/pair/start', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ tenant: 'pairing-security', label: 'target-owned', pollSecret: targetPollSecret }),
+    }), env,
+  );
+  assert.equal(targetOwned.status, 201, await targetOwned.clone().text());
+  const targetOwnedBody = await targetOwned.json();
+  assert.equal('pollSecret' in targetOwnedBody, false, 'target-generated polling authority must not be echoed');
+  const pending = await app.fetch(new Request('https://app.install.doctor/api/devices/pair/poll', {
+    headers: { authorization: `Bearer ${targetPollSecret}` },
+  }), env);
+  assert.equal(pending.status, 200, await pending.clone().text());
+  assert.deepEqual(await pending.json(), { status: 'pending' });
+
   const alphabet = '23456789ABCDEFGHJKLMNPQRSTUVWXYZ';
   const codeBytes = [...body.code.replaceAll('-', '')].map((character) => alphabet.indexOf(character));
   const originalGetRandomValues = globalThis.crypto.getRandomValues;

@@ -66,10 +66,13 @@ main() {
     log "already paired (token at $DESKTOP_TOOLS_TOKEN_PATH); pass --force to re-pair"
     return 0
   fi
-  local hostLabel requestBody profileId="${DESKTOP_TOOLS_PROFILE_ID:-}" profileDigest="${DESKTOP_TOOLS_PROFILE_DIGEST:-}" fingerprint=''
+  local hostLabel requestBody profileId="${DESKTOP_TOOLS_PROFILE_ID:-}" profileDigest="${DESKTOP_TOOLS_PROFILE_DIGEST:-}" fingerprint='' pollSecret
   hostLabel="$(hostname 2>/dev/null | tr -cd 'A-Za-z0-9._-' | cut -c1-200)"
   [ -n "$hostLabel" ] || hostLabel=unknown
-  requestBody="{\"tenant\":\"${DESKTOP_TOOLS_TENANT}\",\"label\":\"${hostLabel}\",\"permissions\":[\"pull-desired-state\",\"report-status\"]}"
+  pollSecret="aidp_$(od -An -N32 -tx1 /dev/urandom | tr -d ' \n')"
+  case "$pollSecret" in aidp_[a-f0-9][a-f0-9]*) ;; *) err 'could not generate private polling authority'; return 1 ;; esac
+  [ "${#pollSecret}" -eq 69 ] || { err 'could not generate private polling authority'; return 1; }
+  requestBody="{\"tenant\":\"${DESKTOP_TOOLS_TENANT}\",\"label\":\"${hostLabel}\",\"permissions\":[\"pull-desired-state\",\"report-status\"],\"pollSecret\":\"${pollSecret}\"}"
   if [ -n "$profileId" ] || [ -n "$profileDigest" ]; then
     case "$profileId" in ''|*[!a-z0-9._-]*|[-.]* ) err 'profile identifier is invalid'; return 2 ;; esac
     case "$profileDigest" in *[!a-f0-9]*|'') err 'profile digest is invalid'; return 2 ;; esac
@@ -85,18 +88,17 @@ main() {
     fingerprint="$(tr -d '\r\n' < "$DESKTOP_TOOLS_DEVICE_FINGERPRINT_PATH")"
     case "$fingerprint" in *[!a-f0-9]*|'') err 'device fingerprint is invalid'; return 2 ;; esac
     [ "${#fingerprint}" -eq 64 ] || { err 'device fingerprint is invalid'; return 2; }
-    requestBody="{\"tenant\":\"${DESKTOP_TOOLS_TENANT}\",\"label\":\"${hostLabel}\",\"permissions\":[\"pull-desired-state\",\"report-status\",\"authorize-privileged-run\"],\"machineFingerprint\":\"${fingerprint}\",\"profileId\":\"${profileId}\",\"profileRevisionDigest\":\"${profileDigest}\"}"
+    requestBody="{\"tenant\":\"${DESKTOP_TOOLS_TENANT}\",\"label\":\"${hostLabel}\",\"permissions\":[\"pull-desired-state\",\"report-status\",\"authorize-privileged-run\"],\"machineFingerprint\":\"${fingerprint}\",\"profileId\":\"${profileId}\",\"profileRevisionDigest\":\"${profileDigest}\",\"pollSecret\":\"${pollSecret}\"}"
   fi
   log "starting pairing with $u (tenant ${DESKTOP_TOOLS_TENANT})…"
   local start
-  start="$(curl -fsS --connect-timeout 5 --max-time 20 -X POST -H 'content-type: application/json' \
-    -d "$requestBody" "$u/api/devices/pair/start" 2>/dev/null)"
-  local code pollSecret verifyUrl
+  start="$(printf '%s' "$requestBody" | curl -fsS --connect-timeout 5 --max-time 20 -X POST \
+    -H 'content-type: application/json' --data-binary @- "$u/api/devices/pair/start" 2>/dev/null)"
+  local code verifyUrl
   code="$(jsonStr "$start" code)"
-  pollSecret="$(jsonStr "$start" pollSecret)"
   verifyUrl="$(jsonStr "$start" verifyUrl)"
   [ -z "$verifyUrl" ] && verifyUrl="$u/pair?code=${code}"
-  if [ -z "$code" ] || [ -z "$pollSecret" ]; then
+  if [ -z "$code" ]; then
     err "pairing start failed: ${start:-no response from $u}"
     return 1
   fi

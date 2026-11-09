@@ -87,8 +87,9 @@ cat > "$PAIR_FIXTURE/bin/curl" <<'MOCK_CURL'
 #!/usr/bin/env bash
 printf '%q ' "$@" >> "$PAIR_CAPTURE"
 printf '\n' >> "$PAIR_CAPTURE"
+case " $* " in *' --data-binary @- '*) cat >> "$PAIR_CAPTURE"; printf '\n' >> "$PAIR_CAPTURE" ;; esac
 case " $* " in
-  *'/api/devices/pair/start'*) printf '%s\n' '{"code":"2345-6789-ABCD","pollSecret":"poll-secret-value","verifyUrl":"https://desktop.tools/pair?code=2345-6789-ABCD"}' ;;
+  *'/api/devices/pair/start'*) printf '%s\n' '{"code":"2345-6789-ABCD","verifyUrl":"https://desktop.tools/pair?code=2345-6789-ABCD"}' ;;
   *'/api/devices/pair/poll'*) printf '%s\n' '{"status":"claimed","deviceId":"device-1","token":"aid_fixture_token"}' ;;
   *) exit 22 ;;
 esac
@@ -99,6 +100,8 @@ if HOME="$PAIR_FIXTURE/home" PATH="$PAIR_FIXTURE/bin:$PATH" PAIR_CAPTURE="$PAIR_
   HEADLESS_INSTALL=1 DESKTOP_TOOLS_PROFILE_ID=profile-1 DESKTOP_TOOLS_PROFILE_DIGEST="$PROFILE_DIGEST" \
   DESKTOP_TOOLS_PAIR_TIMEOUT=2 DESKTOP_TOOLS_PAIR_INTERVAL=1 bash "$SRC" >/dev/null 2>&1 \
   && grep -q 'authorize-privileged-run' "$PAIR_FIXTURE/calls" \
+  && grep -q 'pollSecret' "$PAIR_FIXTURE/calls" \
+  && ! grep -q -- '-d .*pollSecret' "$PAIR_FIXTURE/calls" \
   && grep -q 'profileRevisionDigest' "$PAIR_FIXTURE/calls" \
   && grep -q 'x-desktop-tools-device-fingerprint' "$PAIR_FIXTURE/calls" \
   && [ "$(wc -c < "$PAIR_FIXTURE/home/.config/desktop-tools/device-fingerprint" | tr -d ' ')" = 64 ]; then
@@ -118,7 +121,7 @@ mkdir -p "$HEADLESS_FIXTURE/bin" "$HEADLESS_FIXTURE/home"
 cat > "$HEADLESS_FIXTURE/bin/curl" <<'MOCK_CURL'
 #!/usr/bin/env bash
 case " $* " in
-  *'/api/devices/pair/start'*) printf '%s\n' '{"code":"2345-6789-ABCD","pollSecret":"poll-secret-value","verifyUrl":"https://desktop.tools/pair?code=2345-6789-ABCD"}' ;;
+  *'/api/devices/pair/start'*) cat >/dev/null; printf '%s\n' '{"code":"2345-6789-ABCD","verifyUrl":"https://desktop.tools/pair?code=2345-6789-ABCD"}' ;;
   *'/api/devices/pair/poll'*) printf '%s\n' '{"status":"denied"}' ;;
   *) exit 22 ;;
 esac

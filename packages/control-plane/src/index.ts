@@ -2233,6 +2233,7 @@ const PairStartRequest = z
     profileId: z.string().min(1).max(128).regex(/^[a-z0-9][a-z0-9._-]*$/).optional(),
     profileRevisionDigest: z.string().regex(/^[a-f0-9]{64}$/).optional(),
     ownerActor: z.string().email().max(320).optional(),
+    pollSecret: z.string().regex(/^aidp_[a-f0-9]{64}$/).optional(),
   })
   .strict()
   .superRefine((value, context) => {
@@ -2298,7 +2299,7 @@ app.post('/api/devices/pair/start', async (c) => {
     const permissions = JSON.stringify(requestedPermissions); // stored as a JSON array (P03)
     for (let attempt = 0; attempt < PAIR_ISSUANCE_ATTEMPTS; attempt++) {
       const code = newPairCode(); // 60 random bits, grouped for accurate human transcription
-      const pollSecret = 'aidp_' + randHex(32);
+      const pollSecret = parsed.data.pollSecret ?? ('aidp_' + randHex(32));
       try {
         await db
           .prepare('INSERT INTO pairings (code, poll_sha256, tenant, label, permissions, status, created_at, expires_at, machine_fingerprint, profile_revision, owner_actor, profile_id, profile_revision_digest) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)')
@@ -2309,7 +2310,7 @@ app.post('/api/devices/pair/start', async (c) => {
             privilegedBinding?.profileId ?? null, privilegedBinding?.profileRevisionDigest ?? null)
           .run();
         return c.json(
-          { code, pollSecret, tenant,
+          { code, ...(parsed.data.pollSecret === undefined ? { pollSecret } : {}), tenant,
             verifyUrl: `${privilegedBinding ? 'https://desktop.tools' : APP_URL}/pair?code=${code}`,
             expiresAt, note: 'show the code to the operator; keep pollSecret private (never in a URL/log)' },
           201,
