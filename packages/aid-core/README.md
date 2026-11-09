@@ -20,6 +20,10 @@ starting processes, modifying a workstation, or contacting an AI provider.
 - Streaming asciicast v3 formatting for already-sanitized output, resize, marker, and exit events.
 - Per-machine Loki reconciliation plans with stable keys for a future durable deduplication store.
 - Managed Grafana Alloy fragments using credential references, not inline secrets.
+- Digest-bound portable Desktop Tools profile exports derived from schema-v4 `ENVIRONMENT.md`.
+  They contain effective desired state and immutable recipe SHA-256 references, but exclude
+  source machine identities, service endpoints, credential references, and secret references.
+  A standalone target supplies its own validated host facts before materializing engine input.
 
 The current test count is reported by `npm test`; do not copy a stale count into product claims.
 
@@ -42,6 +46,12 @@ overlays and per-machine package exceptions through an explicit migration; impor
 document implicitly. Recipe/config snapshots, automations, retention, maintenance windows, permissions,
 budgets, and team policy remain absent and must be added through explicit schema versions before claiming
 complete product export.
+
+Portable profile exports are deliberately narrower than `ENVIRONMENT.md`; they are a derived
+standalone projection, never a competing configuration authority. Their content digest detects
+tampering but is not a signature. Import validates the strict schema and digest before a fresh
+target can bind its own host identity, OS, role, and capabilities. Engine parity tests reproduce
+the same normalized plan digest from the serialized export without carrying source-host identity.
 
 A SHA-256 digest detects content changes; it is not a signature or proof of trust.
 Commit pins are syntax-checked, not fetched or verified. The synthetic test fixture uses an
