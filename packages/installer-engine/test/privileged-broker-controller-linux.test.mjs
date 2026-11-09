@@ -189,7 +189,7 @@ const canonical=value=>Array.isArray(value)?value.map(canonical):value&&typeof v
 const digest=value=>createHash('sha256').update('desktop-tools:privileged-broker:v1\\0').update(JSON.stringify(canonical(value))).digest('hex');
 const payload=fstatSync(3); if(!payload.isFile()||payload.nlink!==0) process.exit(2);
 const statuses={check:'needed',apply:'applied',verify:'verified'};
-const receipt={schemaVersion:1,hostId:request.hostId,releaseId:request.releaseId,runId:request.runId,planDigest:request.planDigest,grantId:request.grantId,grantDigest:request.grantDigest,taskId:request.taskId,operationId:request.operationId,phase:request.phase,nonce:request.nonce,payloadSha256:request.payload.sha256,requestDigest:digest(request),status:statuses[request.phase],fenceDigest:'f'.repeat(64),completedAt:new Date().toISOString(),serviceState:request.phase==='check'?{enabled:false,running:false}:null};
+const receipt={schemaVersion:1,hostId:request.hostId,releaseId:request.releaseId,runId:request.runId,planDigest:request.planDigest,grantId:request.grantId,grantDigest:request.grantDigest,taskId:request.taskId,operationId:request.operationId,phase:request.phase,nonce:request.nonce,payloadSha256:request.payload.sha256,requestDigest:digest(request),status:statuses[request.phase],fenceDigest:'f'.repeat(64),completedAt:new Date().toISOString(),serviceState:null};
 writeSync(4,Buffer.from(JSON.stringify(receipt)));
 `;
   await Promise.all([writeFile(workerPath, worker), writeFile(payloadPath, 'tree')]);
@@ -246,7 +246,7 @@ const canonical=value=>Array.isArray(value)?value.map(canonical):value&&typeof v
 const digest=value=>createHash('sha256').update('desktop-tools:privileged-broker:v1\\0').update(JSON.stringify(canonical(value))).digest('hex');
 const payload=fstatSync(3);const descriptor=JSON.parse(readFileSync(3,'utf8'));if(!payload.isFile()||payload.nlink!==0||JSON.stringify(descriptor)!==JSON.stringify({desiredState:'enabled-and-started',kind:'native-service',manager:'systemd',serviceKey:'alloy',unit:'alloy.service'}))process.exit(2);
 const statuses={check:'needed',apply:'applied',verify:'verified'};
-const receipt={schemaVersion:1,hostId:request.hostId,releaseId:request.releaseId,runId:request.runId,planDigest:request.planDigest,grantId:request.grantId,grantDigest:request.grantDigest,taskId:request.taskId,operationId:request.operationId,phase:request.phase,nonce:request.nonce,payloadSha256:request.payload.sha256,requestDigest:digest(request),status:statuses[request.phase],fenceDigest:'f'.repeat(64),completedAt:new Date().toISOString()};
+const receipt={schemaVersion:1,hostId:request.hostId,releaseId:request.releaseId,runId:request.runId,planDigest:request.planDigest,grantId:request.grantId,grantDigest:request.grantDigest,taskId:request.taskId,operationId:request.operationId,phase:request.phase,nonce:request.nonce,payloadSha256:request.payload.sha256,requestDigest:digest(request),status:statuses[request.phase],fenceDigest:'f'.repeat(64),completedAt:new Date().toISOString(),serviceState:request.phase==='check'?{enabled:false,running:false}:null};
 writeSync(4,Buffer.from(JSON.stringify(receipt)));
 `;
   await writeFile(workerPath, worker);
