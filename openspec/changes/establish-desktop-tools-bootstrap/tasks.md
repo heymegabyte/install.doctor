@@ -39,6 +39,7 @@
 - [x] 5.3 Define and version the provisioning prompt that binds the profile revision, release, discovered facts, policy, capabilities, and permitted tools; verify prompt and context digests are recorded before execution.
 - [ ] 5.4 Expose discover, validate, plan, approve, apply, verify, status, resume, rollback-config, and deprovision-preview only through strict typed tool adapters; verify model-generated text or shell cannot bypass engine schemas, consent, locks, or journal ownership.
 - [ ] 5.5 Cut remaining selected bootstrap, Installx, service, privilege, and configuration mutations into installer-engine tasks in bounded vertical slices; verify each migrated effect has preconditions, postconditions, interruption recovery, and an unchanged no-op run before retiring its legacy writer.
+  - [x] 5.5.a Migrate bootstrap Installx directory and file materialization to native managed operations with protected source validation, durable compensation, rollback, unchanged inode/timestamp no-op evidence, and preservation of the untouched legacy home path.
 - [ ] 5.6 Preserve a deterministic non-AI and offline path for complete supported plans; verify provider outage cannot fabricate failure recovery or force a cloud-model dependency into bootstrap.
 
 ## 6. Session evidence, terminal behavior, and privacy
