@@ -1,9 +1,10 @@
 import assert from 'node:assert/strict';
-import { chmod, mkdtemp, readFile, symlink, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readFile, symlink, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 import { createProvisioningSessionEventJournal, ProvisioningSessionEventSchema, reduceProvisioningSessionEvents } from '../dist/session-events.js';
+import { resolvePlatformProcessIdentity } from '../dist/process-identity.js';
 
 const d = character => character.repeat(64);
 const at = '2026-11-08T12:00:00.000Z';
@@ -187,4 +188,30 @@ test('journal refuses symlink and permissive-file targets before writing', async
   });
   await assert.rejects(permissiveJournal.append({ at, producer: supervisor, kind: 'session-status', status: 'started' }), /protected regular file/);
   assert.equal(await readFile(permissive, 'utf8'), '');
+});
+
+test('journal reclaims a dead PID-reuse-safe lock owner and an old ownerless crash window', {
+  skip: process.platform !== 'linux' && process.platform !== 'darwin',
+}, async () => {
+  const root = await mkdtemp(join(tmpdir(), 'desktop-tools-session-events-'));
+  const path = join(root, 'events.ndjson');
+  const lockPath = `${path}.lock`;
+  const identity = await resolvePlatformProcessIdentity();
+  await mkdir(lockPath, { mode: 0o700 });
+  await writeFile(join(lockPath, 'owner.json'), `${JSON.stringify({ schemaVersion: 1, pid: process.pid,
+    bootId: identity.bootId, processStart: `${identity.processStart}-reused`, token: '00000000-0000-4000-8000-000000000000' })}\n`, { mode: 0o600 });
+  const journal = createProvisioningSessionEventJournal(path, {
+    sessionId: 'session-one', runId: 'run-one', authorizationId: 'authorization-one',
+  });
+  assert.equal((await journal.append({ at, producer: supervisor, kind: 'session-status', status: 'started' })).sequence, 0);
+
+  const secondPath = join(root, 'second.ndjson');
+  const ownerless = `${secondPath}.lock`;
+  await mkdir(ownerless, { mode: 0o700 });
+  const old = new Date(Date.now() - 31_000);
+  await utimes(ownerless, old, old);
+  const second = createProvisioningSessionEventJournal(secondPath, {
+    sessionId: 'session-two', runId: 'run-two', authorizationId: 'authorization-two',
+  });
+  assert.equal((await second.append({ at, producer: { ...supervisor, id: 'supervisor-two' }, kind: 'session-status', status: 'started' })).sequence, 0);
 });

@@ -1,8 +1,10 @@
 import { z } from 'zod';
 import { InstallerEventSchema } from './contracts.js';
+import { randomUUID } from 'node:crypto';
 import { constants } from 'node:fs';
-import { mkdir, open, rm } from 'node:fs/promises';
+import { lstat, mkdir, open, rename, rm } from 'node:fs/promises';
 import { dirname } from 'node:path';
+import { isPlatformProcessIdentityAlive, resolvePlatformProcessIdentity } from './process-identity.js';
 
 const VERSION = z.literal(1);
 const identifier = z.string().min(1).max(128).regex(/^[A-Za-z0-9][A-Za-z0-9._:-]*$/);
@@ -10,6 +12,14 @@ const digest = z.string().regex(/^[a-f0-9]{64}$/);
 const timestamp = z.string().datetime({ offset: true }).max(64);
 const sequence = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
 const boundedText = z.string().max(16_384).refine(value => !value.includes('\0'), 'text cannot contain NUL');
+const lockIdentity = z.string().min(1).max(512).refine(value => !/[\0\r\n]/.test(value), 'lock identity contains unsafe text');
+const lockOwner = z.strictObject({
+  schemaVersion: VERSION,
+  pid: z.number().int().positive().max(2 ** 31 - 1),
+  bootId: lockIdentity,
+  processStart: lockIdentity,
+  token: z.string().uuid(),
+});
 const producer = z.strictObject({
   kind: z.enum(['supervisor', 'engine', 'agent']),
   id: identifier,
@@ -102,6 +112,25 @@ export interface SessionEventJournalIdentity {
 export function createProvisioningSessionEventJournal(path: string, identityInput: SessionEventJournalIdentity) {
   const identity = z.strictObject({ sessionId: identifier, runId: identifier, authorizationId: identifier }).parse(identityInput);
   const lockPath = `${path}.lock`;
+  const lockOwnerPath = `${lockPath}/owner.json`;
+  const localProcessIdentity = resolvePlatformProcessIdentity().catch(error => {
+    if (process.platform === 'linux' || process.platform === 'darwin') throw error;
+    // Unsupported platforms retain fail-closed live-lock behavior. They may
+    // create a lock, but cannot prove an existing process dead and steal it.
+    return { bootId: `unsupported-platform:${process.platform}`, processStart: `unverified-pid:${process.pid}` };
+  });
+  const readLockOwner = async () => {
+    const handle = await open(lockOwnerPath, constants.O_RDONLY | constants.O_NOFOLLOW).catch(error => {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null;
+      throw error;
+    });
+    if (handle === null) return null;
+    try {
+      const info = await handle.stat();
+      if (!info.isFile() || info.nlink !== 1 || info.size < 1 || info.size > 4_096 || (info.mode & 0o077) !== 0) return null;
+      return lockOwner.safeParse(JSON.parse(await handle.readFile('utf8'))).data ?? null;
+    } catch { return null; } finally { await handle.close(); }
+  };
   const read = async (): Promise<ProvisioningSessionEvent[]> => {
     const handle = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW).catch(error => {
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null;
@@ -121,21 +150,50 @@ export function createProvisioningSessionEventJournal(path: string, identityInpu
     if (bytes && !bytes.endsWith('\n')) throw new Error('session event journal has a torn final record');
     return bytes.split('\n').filter(Boolean).map(line => ProvisioningSessionEventSchema.parse(JSON.parse(line)));
   };
-  const acquire = async () => {
+  const acquire = async (): Promise<string> => {
+    const processIdentity = await localProcessIdentity;
     for (let attempt = 0; attempt < 200; attempt += 1) {
-      try { await mkdir(lockPath, { mode: 0o700 }); return; } catch (error) {
+      const token = randomUUID();
+      try {
+        await mkdir(lockPath, { mode: 0o700 });
+        const handle = await open(lockOwnerPath, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY | constants.O_NOFOLLOW, 0o600);
+        try {
+          await handle.writeFile(`${JSON.stringify({ schemaVersion: 1, pid: process.pid, ...processIdentity, token })}\n`);
+          await handle.sync();
+        } catch (error) { await rm(lockPath, { recursive: true, force: true }); throw error; }
+        finally { await handle.close(); }
+        return token;
+      } catch (error) {
         if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
+        const owner = await readLockOwner();
+        const lockInfo = await lstat(lockPath).catch(() => null);
+        const abandonedWithoutOwner = owner === null && lockInfo?.isDirectory() === true && !lockInfo.isSymbolicLink()
+          && (lockInfo.mode & 0o077) === 0 && Date.now() - lockInfo.mtimeMs >= 30_000;
+        const deadOwner = owner !== null && (owner.bootId !== processIdentity.bootId
+          || !await isPlatformProcessIdentityAlive(owner.pid, owner.processStart));
+        if (abandonedWithoutOwner || deadOwner) {
+          const abandonedPath = `${lockPath}.abandoned-${process.pid}-${randomUUID()}`;
+          try { await rename(lockPath, abandonedPath); await rm(abandonedPath, { recursive: true, force: true }); continue; }
+          catch (reclaimError) { if ((reclaimError as NodeJS.ErrnoException).code !== 'ENOENT') throw reclaimError; }
+        }
         await new Promise(resolve => setTimeout(resolve, 5));
       }
     }
     throw new Error('session event journal lock timed out');
+  };
+  const release = async (token: string) => {
+    const owner = await readLockOwner();
+    if (owner === null || owner.pid !== process.pid || owner.token !== token) {
+      throw new Error('session event journal lock ownership changed');
+    }
+    await rm(lockPath, { recursive: true, force: true });
   };
   return Object.freeze({
     path,
     async events() { return Object.freeze(await read()); },
     async append(eventInput: Readonly<Record<string, unknown>>) {
       await mkdir(dirname(path), { recursive: true, mode: 0o700 });
-      await acquire();
+      const lockToken = await acquire();
       try {
         const events = await read();
         if (events.some(event => event.kind === 'terminal')) throw new Error('session event journal is terminal');
@@ -156,7 +214,7 @@ export function createProvisioningSessionEventJournal(path: string, identityInpu
           await handle.sync();
         } finally { await handle.close(); }
         return event;
-      } finally { await rm(lockPath, { recursive: true, force: true }); }
+      } finally { await release(lockToken); }
     },
   });
 }
