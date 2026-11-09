@@ -20,6 +20,9 @@ if (!receiptPath?.startsWith('/evidence/')) throw new Error('an evidence path be
 const PACKAGE_NAME = 'install-doctor-native-fixture';
 const PACKAGE_KEY = 'native-fixture';
 const PACKAGE_VERSION = '1.0.0-1';
+// Keep the generated .deb byte-identical across acceptance runs. dpkg-deb honors the standard
+// reproducible-build timestamp for archive members and control/data tar metadata.
+const PACKAGE_SOURCE_DATE_EPOCH = '1767225600'; // 2026-01-01T00:00:00Z
 const SERVICE = 'install-doctor-native-fixture.service';
 const PLAN_DIGEST = '7'.repeat(64);
 const POLICY_PATH = '/usr/sbin/policy-rc.d';
@@ -88,7 +91,12 @@ async function buildPackage(work, architecture) {
   ].join('\n'), { mode: 0o644 });
   await writeFile(join(root, 'usr', 'share', 'install-doctor', 'native-fixture.txt'), 'verified native payload\n', { mode: 0o644 });
   const output = join(work, `${PACKAGE_NAME}_${PACKAGE_VERSION}_${architecture}.deb`);
-  await command('/usr/bin/dpkg-deb', ['--build', '--root-owner-group', '--', root, output]);
+  await command('/usr/bin/dpkg-deb', ['--build', '--root-owner-group', '--', root, output], {
+    env: {
+      PATH: '/usr/sbin:/usr/bin:/sbin:/bin', LANG: 'C', LC_ALL: 'C',
+      SOURCE_DATE_EPOCH: PACKAGE_SOURCE_DATE_EPOCH,
+    },
+  });
   return output;
 }
 
@@ -201,6 +209,11 @@ async function main() {
   const architecture = (await command('/usr/bin/dpkg', ['--print-architecture'])).stdout.trim();
   assert.ok(architecture === 'amd64' || architecture === 'arm64');
   const packagePath = await buildPackage(work, architecture);
+  const reproductionRoot = join(work, 'reproduction');
+  await mkdir(reproductionRoot, { recursive: true });
+  const reproducedPackagePath = await buildPackage(reproductionRoot, architecture);
+  const reproduciblePackage = sha256(await readFile(packagePath)) === sha256(await readFile(reproducedPackagePath));
+  assert.equal(reproduciblePackage, true, 'fixture package bytes differ across identical builds');
   const descriptor = await createDescriptor(packagePath, architecture);
   const inspectionHandle = await open(packagePath, 'r');
   let control;
@@ -292,7 +305,7 @@ async function main() {
     assertions: {
       realControlAdmission: true, realDpkgMutation: true, networkDenied: true,
       boundaryInterruptionRecorded: true, resumeConfigureOnly, unchangedSecondApply,
-      policyRestoredExactly, serviceRestoredExactly, noPendingTriggers,
+      policyRestoredExactly, serviceRestoredExactly, noPendingTriggers, reproduciblePackage,
     },
     limitation: 'Interruption is injected after a real dpkg unpack returns at the runtime safe boundary; this fixture does not claim SIGKILL or power-loss coverage inside dpkg.',
     finishedAt: new Date().toISOString(),
