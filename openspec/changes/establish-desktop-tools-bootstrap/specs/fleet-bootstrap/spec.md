@@ -42,7 +42,7 @@ Interactive and headless runs SHALL resolve the profile revision, role, capabili
 ## ADDED Requirements
 
 ### Requirement: Release-bound native Debian package slices
-Native Debian package cutovers SHALL derive mutation authority from exact signed release and Debian repository evidence, SHALL preserve online/offline plan parity, and SHALL retain unsupported packages on the legacy path until separately verified.
+Native Debian package cutovers SHALL derive mutation authority from exact signed release and Debian repository evidence, SHALL bind repository codename and suite phase independently, SHALL enforce bounded signed-metadata freshness whether or not the repository supplies `Valid-Until`, SHALL preserve online/offline plan parity, and SHALL retain unsupported packages on the legacy path until separately verified.
 
 #### Scenario: First supported package slice
 - **WHEN** a Debian 12 bookworm amd64 target selects `tree`
@@ -52,8 +52,20 @@ Native Debian package cutovers SHALL derive mutation authority from exact signed
 - **WHEN** the same profile, host facts, release, catalog, and package artifacts are planned online and from an offline bundle
 - **THEN** both paths produce the same native task and plan digest and execute package mutation without network access
 
+#### Scenario: Repository metadata supplies Valid-Until
+- **WHEN** the signed InRelease supplies `Valid-Until`
+- **THEN** the descriptor binds its exact value and execution is rejected at or after the earlier of that value and the signed Desktop Tools release expiry
+
+#### Scenario: Repository metadata omits Valid-Until
+- **WHEN** the signed `Codename: bookworm`, `Suite: oldstable` InRelease omits `Valid-Until`
+- **THEN** the descriptor binds that absence, the signed `Date` is no more than 180 days older than Desktop Tools release creation and no more than 10 seconds in the future, and execution is accepted only while the independently signed Desktop Tools release remains within its seven-day validity window
+
+#### Scenario: Debian suite phase changes
+- **WHEN** signed repository metadata no longer has both exact `Codename: bookworm` and exact `Suite: oldstable`
+- **THEN** the existing descriptor and plan are rejected and the new phase requires newly reviewed and signed Desktop Tools release authority
+
 #### Scenario: Package authority is incomplete or incompatible
-- **WHEN** libc6 is missing, unhealthy, held at an incompatible version, or has an incompatible architecture, or the target has the wrong distribution or architecture, or repository metadata is expired or forged, or a payload digest differs
+- **WHEN** libc6 is missing, unhealthy, held at an incompatible version, or has an incompatible architecture, or the target has the wrong distribution or architecture, or repository metadata is expired, future-dated beyond tolerance, forged, ambiguously missing freshness state, outside the signed composition-age bound, or bound to a different suite or codename, or a payload digest differs
 - **THEN** the native package task is rejected before mutation
 
 #### Scenario: Bounded selection cutover
