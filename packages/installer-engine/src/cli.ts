@@ -930,7 +930,7 @@ function baseAdapterFor(invocation: OperationInvocation): InstallerAdapter {
 
 async function adapterFor(invocation: OperationInvocation): Promise<InstallerAdapter> {
   const nativeOperationCount = Object.values(invocation.operations).filter(operation => operation.kind === 'native-package').length;
-  if (nativeOperationCount !== 0) {
+  if (nativeOperationCount !== 0 && (invocation.command === 'run' || invocation.command === 'resume')) {
     throw new Error('native package operations require the approved privileged broker');
   }
   return baseAdapterFor(invocation);

@@ -1859,6 +1859,7 @@ NODE
 runCanonicalProvisionEngine() {
   local MODE="${1:-apply}" ENGINE="${INSTALL_DOCTOR_ENGINE_PATH:-}" PROVISIONER INVOCATION INVOCATION_DIR NORMALIZED_PLAN APPROVAL_PLAN EVIDENCE_INVOCATION EVIDENCE_RESULT CLEANUP_EVIDENCE_INVOCATION CLEANUP_EVIDENCE_RESULT RUNS_INVOCATION RUNS_RESULT RESUME_RUN_ID STATE_ROOT NODE_MAJOR EXPECTED_NODE RENDERER GENERATE_STATUS ENGINE_STATUS EVIDENCE_STATUS CLEANUP_EVIDENCE_STATUS PLAN_DIGEST APPROVAL ACTUAL_SHA
   local LOAD_PLAN_INVOCATION LOAD_PLAN_RESULT ARTIFACT_DERIVE_INVOCATION ARTIFACT_DERIVE_RESULT ARTIFACT_CACHE_ROOT USER_BIN_ROOT DOCKER_PLUGIN_ROOT ARTIFACT_COUNT
+  local NATIVE_DERIVE_INVOCATION NATIVE_DERIVE_RESULT NATIVE_COUNT
   case "$MODE" in apply|--plan-only) ;; *) logg error "Unknown canonical engine mode: $MODE"; return 2 ;; esac
   [ -n "$ENGINE" ] && [ -f "$ENGINE" ] && [ ! -L "$ENGINE" ] || { logg error 'Verified installer engine is unavailable'; return 2; }
   command -v node >/dev/null 2>&1 || { logg error 'Node.js is required by the verified installer engine'; return 2; }
@@ -1888,6 +1889,8 @@ runCanonicalProvisionEngine() {
   LOAD_PLAN_RESULT="$INVOCATION_DIR/load-plan.json"
   ARTIFACT_DERIVE_INVOCATION="$INVOCATION_DIR/artifact-derive-invocation.json"
   ARTIFACT_DERIVE_RESULT="$INVOCATION_DIR/artifact-derive.json"
+  NATIVE_DERIVE_INVOCATION="$INVOCATION_DIR/native-debian-derive-invocation.json"
+  NATIVE_DERIVE_RESULT="$INVOCATION_DIR/native-debian-derive.json"
   ARTIFACT_CACHE_ROOT="$STATE_ROOT/artifacts"
   USER_BIN_ROOT="$HOME/.local/bin"
   DOCKER_PLUGIN_ROOT="$HOME/.docker/cli-plugins"
@@ -1910,6 +1913,46 @@ NODE
   GENERATE_STATUS=$?
   if [ "$GENERATE_STATUS" -eq 0 ]; then node "$ENGINE" --input "$LOAD_PLAN_INVOCATION" > "$LOAD_PLAN_RESULT"; GENERATE_STATUS=$?; fi
   [ "$GENERATE_STATUS" -eq 0 ] || { logg error 'Unable to derive the selected catalog load plan'; return "$GENERATE_STATUS"; }
+  NATIVE_COUNT="$(node -e 'const p=JSON.parse(require("node:fs").readFileSync(process.argv[1],"utf8")); process.stdout.write(String(p.items.filter(i => i.name === "tree" && i.selected && i.applicable && i.actions.includes("install") && i.nativePayload).length))' "$LOAD_PLAN_RESULT")" || return 2
+  if [ "$NATIVE_COUNT" -gt 0 ] && [ "${INSTALL_DOCTOR_PLATFORM_CELL:-}" = debian-12-x64-native ]; then
+    node - "$NATIVE_DERIVE_INVOCATION" "$LOAD_PLAN_RESULT" <<'NODE'
+const fs = require('node:fs');
+const cp = require('node:child_process');
+const [destination, loadPlanPath] = process.argv.slice(2);
+const loadPlan = JSON.parse(fs.readFileSync(loadPlanPath, 'utf8'));
+const rawPlan = JSON.parse(fs.readFileSync(process.env.INSTALL_DOCTOR_PLAN, 'utf8'));
+const queryPath = '/usr/bin/dpkg-query';
+const metadata = fs.lstatSync(queryPath);
+if (!metadata.isFile() || metadata.isSymbolicLink() || metadata.uid !== 0 || (metadata.mode & 0o022) !== 0 || (metadata.mode & 0o111) === 0) {
+  throw new Error('native Debian composition requires the protected system dpkg-query');
+}
+const query = cp.spawnSync(queryPath, ['-W', '-f=${binary:Package}\t${Version}\t${Architecture}\t${db:Status-Status}\n', 'libc6:amd64'], {
+  shell: false, encoding: 'utf8', env: { PATH: '/usr/bin:/bin', LANG: 'C', LC_ALL: 'C' }, timeout: 10_000,
+});
+if (query.status !== 0 || query.signal !== null || query.stderr !== '') throw new Error('unable to obtain the exact installed libc6 witness');
+const fields = query.stdout.trimEnd().split('\t');
+if (fields.length !== 4 || fields[0] !== 'libc6:amd64' || fields[2] !== 'amd64' || fields[3] !== 'installed'
+  || !/^[0-9A-Za-z.+:~_-]{1,128}$/.test(fields[1])) throw new Error('installed libc6 witness is malformed or unhealthy');
+const hostId = String(rawPlan.host.hostname).toLowerCase().replace(/[^a-z0-9._-]+/g, '-').replace(/^[^a-z0-9]+/, '').slice(0, 128) || 'host';
+const desiredState = {
+  schemaVersion: 1, revision: `desired-native-${loadPlan.digest.slice(0, 24)}`, hostId,
+  packages: [...new Set(rawPlan.selectedPackages)].sort(), services: [...new Set(rawPlan.selectedServices)].sort(),
+  consents: ['package-install'], offline: true,
+};
+fs.writeFileSync(destination, `${JSON.stringify({
+  schemaVersion: 1, command: 'native-debian-derive', loadPlan, approvedLoadPlanDigest: loadPlan.digest,
+  packageKey: 'tree', target: { distroId: 'debian', versionId: '12', codename: 'bookworm', architecture: 'amd64' },
+  installedWitnesses: [{ kind: 'preexisting-witness', manager: 'dpkg', packageName: 'libc6', version: fields[1],
+    architecture: 'amd64', status: 'installed', healthy: true, held: false }],
+  desiredState, legacyPackages: rawPlan.selectedPackages,
+})}\n`, { mode: 0o600, flag: 'wx' });
+NODE
+    GENERATE_STATUS=$?
+    if [ "$GENERATE_STATUS" -eq 0 ]; then node "$ENGINE" --input "$NATIVE_DERIVE_INVOCATION" > "$NATIVE_DERIVE_RESULT"; GENERATE_STATUS=$?; fi
+    [ "$GENERATE_STATUS" -eq 0 ] || { logg error 'Unable to compose the selected native Debian package'; return "$GENERATE_STATUS"; }
+  else
+    printf '%s\n' '{"schemaVersion":1,"composition":null}' > "$NATIVE_DERIVE_RESULT"
+  fi
   ARTIFACT_COUNT="$(node -e 'const p=JSON.parse(require("node:fs").readFileSync(process.argv[1],"utf8")); process.stdout.write(String(p.items.filter(i => i.selected && i.applicable && i.actions.includes("install") && i.artifact).length))' "$LOAD_PLAN_RESULT")" || return 2
   if [ "$ARTIFACT_COUNT" -gt 0 ]; then
     node - "$ARTIFACT_DERIVE_INVOCATION" "$LOAD_PLAN_RESULT" "$ARTIFACT_CACHE_ROOT" "$USER_BIN_ROOT" "$DOCKER_PLUGIN_ROOT" <<'NODE'
@@ -1929,7 +1972,7 @@ NODE
   else
     printf '%s\n' '{"schemaVersion":1,"artifacts":[]}' > "$ARTIFACT_DERIVE_RESULT"
   fi
-  export INSTALL_DOCTOR_LOAD_PLAN_PATH="$LOAD_PLAN_RESULT" INSTALL_DOCTOR_ARTIFACT_DERIVATION_PATH="$ARTIFACT_DERIVE_RESULT"
+  export INSTALL_DOCTOR_LOAD_PLAN_PATH="$LOAD_PLAN_RESULT" INSTALL_DOCTOR_ARTIFACT_DERIVATION_PATH="$ARTIFACT_DERIVE_RESULT" INSTALL_DOCTOR_NATIVE_DERIVATION_PATH="$NATIVE_DERIVE_RESULT"
   node - "$INVOCATION" "$PROVISIONER" "$STATE_ROOT" "$RENDERER" <<'NODE'
 const fs = require('node:fs');
 const os = require('node:os');
@@ -1990,12 +2033,23 @@ const selectedSupportedPaths = canonicalList(rawPlan.selectedSupportedPaths, 102
 const lazyResolverRequirements = canonicalList(rawPlan.lazyResolverRequirements, 128, /^[a-z0-9][a-z0-9._:-]*$/, 'lazyResolverRequirements');
 const loadPlan = JSON.parse(fs.readFileSync(process.env.INSTALL_DOCTOR_LOAD_PLAN_PATH, 'utf8'));
 if (!loadPlan || !Array.isArray(loadPlan.items)) throw new Error('load plan is malformed');
+const nativeDerivation = JSON.parse(fs.readFileSync(process.env.INSTALL_DOCTOR_NATIVE_DERIVATION_PATH, 'utf8'));
+const nativeComposition = nativeDerivation.composition ?? null;
+if (nativeComposition !== null && (!nativeComposition.task || !nativeComposition.operations
+  || nativeComposition.rootPackageKey !== 'tree' || !Array.isArray(nativeComposition.remainingLegacyPackages))) {
+  throw new Error('native Debian derivation is malformed');
+}
 const selectedPackageClosure = [...new Set(loadPlan.items
   .filter(item => item && item.selected === true && item.applicable === true)
   .map(item => {
     boundedString(item.name, /^[a-z0-9][a-z0-9._:-]*$/, 128, 'load plan package name');
     return item.name;
   }))].sort();
+const legacySelectedPackages = nativeComposition === null ? selectedPackages : nativeComposition.remainingLegacyPackages;
+canonicalList(legacySelectedPackages, 4096, /^[a-z0-9][a-z0-9._:-]*$/, 'native remainingLegacyPackages');
+if (nativeComposition !== null && (!selectedPackages.includes('tree') || legacySelectedPackages.includes('tree'))) {
+  throw new Error('native Debian derivation did not subtract only the admitted tree package');
+}
 const artifactDerivation = JSON.parse(fs.readFileSync(process.env.INSTALL_DOCTOR_ARTIFACT_DERIVATION_PATH, 'utf8'));
 if (!Array.isArray(artifactDerivation.artifacts)) throw new Error('artifact derivation is malformed');
 const directoryRequirements = new Map();
@@ -2111,7 +2165,7 @@ const operationEnvironment = {
   INSTALL_DOCTOR_ENGINE_OWNS_CATALOG_POST_HOOKS: '1',
   INSTALL_DOCTOR_ENGINE_OWNS_CUSTOM_POST_HOOKS: '1',
   INSTALL_DOCTOR_BOOTSTRAP_INSTALLX: `${stateRoot}/tools/installx`,
-  INSTALL_DOCTOR_SELECTED_PACKAGES: selectedPackages.join(','),
+  INSTALL_DOCTOR_SELECTED_PACKAGES: legacySelectedPackages.join(','),
   INSTALL_DOCTOR_SELECTED_SERVICES: selectedServices.join(','),
   INSTALL_DOCTOR_WARP_CLI_PATH: warpCliPath,
   INSTALL_DOCTOR_WARP_CLI_SHA256: warpCliDigest,
@@ -2228,7 +2282,7 @@ const installxToolTask = {
 };
 const desiredPackagesTask = {
   schemaVersion: 1, id: 'desired.packages',
-  inputDigest: digest({ source: process.env.INSTALL_DOCTOR_SOURCE_COMMIT, softwareGroup: rawPlan.softwareGroup, selectedPackages, selectedServices, policy: 'approved-plus-eager-lazy-v2' }),
+  inputDigest: digest({ source: process.env.INSTALL_DOCTOR_SOURCE_COMMIT, softwareGroup: rawPlan.softwareGroup, selectedPackages: legacySelectedPackages, selectedServices, policy: 'approved-plus-eager-lazy-v2' }),
   dependencies: [installxToolTask.id], predicate: 'host-supported', requiredCapabilities: [],
   operations: { check: 'desired-packages-check', apply: 'desired-packages-apply', verify: 'desired-packages-verify' },
   timeoutMs: 14_400_000, retry: { class: 'transient', maxAttempts: 2, backoffMs: 2_000 },
@@ -2457,14 +2511,15 @@ const invocation = {
     offline: rawPlan.offline,
   },
     plan: {
-      tasks: [stageZeroInstallUserTask, stageZeroSudoTask, ...(warpDisconnectTask ? [warpDisconnectTask] : []), nativeDependenciesTask, sourceTask, homebrewTask, homebrewToolsTask, chezmoiInitTask, installxBinDirectoryTask, installxToolTask, desiredPackagesTask, ...directoryTasks, ...artifactTasks, macosFullDiskAccessTask, macosCertificateTask, ...(qubesDom0Task ? [qubesDom0Task] : []), ...(agentTasksTask ? [agentTasksTask] : []), task, bootstrapPolicyTask, softwareGroupsTask, catalogPostValidationTask, customPostHooksTask, desiredServicesTask, rebootAssessmentTask, sudoCleanupTask],
-      selectedTaskIds: [rebootAssessmentTask.id, sudoCleanupTask.id],
+      tasks: [stageZeroInstallUserTask, stageZeroSudoTask, ...(warpDisconnectTask ? [warpDisconnectTask] : []), ...(nativeComposition ? [nativeComposition.task] : []), nativeDependenciesTask, sourceTask, homebrewTask, homebrewToolsTask, chezmoiInitTask, installxBinDirectoryTask, installxToolTask, desiredPackagesTask, ...directoryTasks, ...artifactTasks, macosFullDiskAccessTask, macosCertificateTask, ...(qubesDom0Task ? [qubesDom0Task] : []), ...(agentTasksTask ? [agentTasksTask] : []), task, bootstrapPolicyTask, softwareGroupsTask, catalogPostValidationTask, customPostHooksTask, desiredServicesTask, rebootAssessmentTask, sudoCleanupTask],
+      selectedTaskIds: [...(nativeComposition ? [nativeComposition.task.id] : []), rebootAssessmentTask.id, sudoCleanupTask.id],
       executionPolicy: {
         maxConcurrency: rawPlan.concurrency,
         resourceLimits: { cpu: 64, memoryMiB: 8192, networkConcurrency: rawPlan.concurrency },
       },
     },
   operations: {
+    ...(nativeComposition ? nativeComposition.operations.operations : {}),
     ...directoryOperations,
     ...artifactOperations,
     'stage-zero-install-user-check': { argv: ['/bin/bash', provisioner, '--engine-operation', 'stage-zero-install-user-check'], env: operationEnvironment },
@@ -2588,7 +2643,7 @@ NODE
   if [ "$APPROVAL" != "$PLAN_DIGEST" ]; then
     logg error "Plan approval required; review $APPROVAL_PLAN and rerun with INSTALL_DOCTOR_APPROVED_PLAN_DIGEST=$PLAN_DIGEST"
     rm -f "$INVOCATION" "$NORMALIZED_PLAN" "$LOAD_PLAN_INVOCATION" "$LOAD_PLAN_RESULT" \
-      "$ARTIFACT_DERIVE_INVOCATION" "$ARTIFACT_DERIVE_RESULT"
+      "$ARTIFACT_DERIVE_INVOCATION" "$ARTIFACT_DERIVE_RESULT" "$NATIVE_DERIVE_INVOCATION" "$NATIVE_DERIVE_RESULT"
     rmdir "$INVOCATION_DIR" 2>/dev/null || true
     return 3
   fi
@@ -2597,7 +2652,7 @@ NODE
   if [ "$MODE" = --plan-only ]; then
     logg info "Approved normalized plan $PLAN_DIGEST before host mutation"
     rm -f "$INVOCATION" "$NORMALIZED_PLAN" "$LOAD_PLAN_INVOCATION" "$LOAD_PLAN_RESULT" \
-      "$ARTIFACT_DERIVE_INVOCATION" "$ARTIFACT_DERIVE_RESULT"
+      "$ARTIFACT_DERIVE_INVOCATION" "$ARTIFACT_DERIVE_RESULT" "$NATIVE_DERIVE_INVOCATION" "$NATIVE_DERIVE_RESULT"
     rmdir "$INVOCATION_DIR" 2>/dev/null || true
     return 0
   fi
@@ -2708,7 +2763,7 @@ NODE
     logg info 'Verified authoritative engine completion evidence'
   fi
   rm -f "$INVOCATION" "$NORMALIZED_PLAN" "$LOAD_PLAN_INVOCATION" "$LOAD_PLAN_RESULT" \
-    "$ARTIFACT_DERIVE_INVOCATION" "$ARTIFACT_DERIVE_RESULT"
+    "$ARTIFACT_DERIVE_INVOCATION" "$ARTIFACT_DERIVE_RESULT" "$NATIVE_DERIVE_INVOCATION" "$NATIVE_DERIVE_RESULT"
   rm -f "$EVIDENCE_INVOCATION" "$EVIDENCE_RESULT"
   rm -f "$CLEANUP_EVIDENCE_INVOCATION" "$CLEANUP_EVIDENCE_RESULT"
   rmdir "$INVOCATION_DIR" 2>/dev/null || true

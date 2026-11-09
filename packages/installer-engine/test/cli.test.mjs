@@ -570,7 +570,7 @@ test('load-plan CLI emits a stable nonmutating lazy/eager closure report', async
   assert.equal(report.items.find(item => item.name === 'optional').selectionReason, 'unselected-lazy');
 });
 
-test('normal CLI rejects native package operations without the approved privileged broker', async () => {
+test('normal CLI plans native package operations but rejects mutation without the approved privileged broker', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'desktop-tools-native-cli-authority-'));
   const invocationPath = join(directory, 'invocation.json');
   const operation = action => ({ kind: 'native-package', effectClass: 'native-package', action,
@@ -591,6 +591,13 @@ test('normal CLI rejects native package operations without the approved privileg
     operations: { 'native-check': operation('check'), 'native-apply': operation('apply'), 'native-verify': operation('verify') } };
   await writeFile(invocationPath, `${JSON.stringify(invocation)}\n`, { mode: 0o600 });
   const cli = new URL('../dist/cli.js', import.meta.url).pathname;
+  const planned = await execute(process.execPath, [cli, '--input', invocationPath], {
+    env: { PATH: process.env.PATH ?? '' }, timeout: 5_000,
+  });
+  const plan = JSON.parse(planned.stdout);
+  assert.match(plan.digest, /^[a-f0-9]{64}$/);
+  await writeFile(invocationPath, `${JSON.stringify({ ...invocation, command: 'run', approvedPlanDigest: plan.digest,
+    renderer: 'headless', stateRoot: join(directory, 'state') })}\n`, { mode: 0o600 });
   await assert.rejects(execute(process.execPath, [cli, '--input', invocationPath], {
     env: { PATH: process.env.PATH ?? '' }, timeout: 5_000,
   }), error => error.code === 4 && /require the approved privileged broker/i.test(error.stderr));
