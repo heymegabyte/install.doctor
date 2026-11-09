@@ -50,6 +50,15 @@ for operation in macos-full-disk-access macos-certificate configured-agent-tasks
   fi
 done
 
+agent_task="$(grep -F -A 12 "id: 'bootstrap.configured-agent-tasks'" "$PROVISION")"
+if printf '%s\n' "$agent_task" | grep -Fq "privilege: 'user'" \
+  && printf '%s\n' "$agent_task" | grep -Fq "consent: 'agent-tasks', lockDomains: ['agent-tasks']" \
+  && ! printf '%s\n' "$agent_task" | grep -Fq "privilege: 'admin'"; then
+  pass 'configured user-owned agent scripts cannot inherit admin execution authority'
+else
+  fail 'configured user-owned agent scripts retain or imply admin execution authority'
+fi
+
 logic="$(sed -n '/^provisionLogic() {/,/^}/p' "$PROVISION")"
 for legacy in 'ensureFullDiskAccess' 'importCloudFlareCert' 'idRunConfiguredAgentTasks'; do
   if printf '%s\n' "$logic" | grep -Fq "$legacy"; then fail "$legacy still mutates before the engine"; else pass "$legacy is no longer a pre-engine mutation"; fi

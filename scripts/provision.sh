@@ -2782,8 +2782,8 @@ const agentTasksTask = agentTaskDirectory ? {
   dependencies: [chezmoiInitTask.id], predicate: 'host-supported', requiredCapabilities: [],
   operations: { check: 'configured-agent-tasks-check', apply: 'configured-agent-tasks-apply', verify: 'configured-agent-tasks-verify' },
   timeoutMs: 3_600_000, retry: { class: 'never', maxAttempts: 1, backoffMs: 0 },
-  resources: { cpu: Math.min(rawPlan.concurrency, 16), memoryMiB: 2048, network: true }, privilege: 'admin', network: 'required',
-  consent: 'agent-tasks', lockDomains: ['agent-tasks', 'package-manager', 'privilege'], cleanup: 'none', compensation: 'none',
+  resources: { cpu: Math.min(rawPlan.concurrency, 16), memoryMiB: 2048, network: true }, privilege: 'user', network: 'required',
+  consent: 'agent-tasks', lockDomains: ['agent-tasks'], cleanup: 'none', compensation: 'none',
   failurePolicy: 'abort-run',
 } : null;
 const finalDependencies = [desiredPackagesTask.id];
