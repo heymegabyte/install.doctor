@@ -2580,7 +2580,7 @@ const homebrewToolsTask = {
   operations: { check: 'homebrew-tools-check', apply: 'homebrew-tools-apply', verify: 'homebrew-tools-verify' },
   timeoutMs: 1_800_000, retry: { class: 'transient', maxAttempts: 2, backoffMs: 1_000 },
   resources: { cpu: 1, memoryMiB: 1024, network: true }, privilege: 'user', network: 'required',
-  consent: 'privileged', lockDomains: ['package-manager'], cleanup: 'none', compensation: 'none',
+  consent: 'network', lockDomains: ['package-manager'], cleanup: 'none', compensation: 'none',
   failurePolicy: 'abort-run',
 };
 const chezmoiInitTask = {
@@ -2590,7 +2590,7 @@ const chezmoiInitTask = {
   operations: { check: 'chezmoi-init-check', apply: 'chezmoi-init-apply', verify: 'chezmoi-init-verify' },
   timeoutMs: 900_000, retry: { class: 'never', maxAttempts: 1, backoffMs: 0 },
   resources: { cpu: 1, memoryMiB: 512, network: false }, privilege: 'user', network: 'none',
-  consent: 'privileged', lockDomains: ['chezmoi'], cleanup: 'none', compensation: 'none',
+  consent: 'none', lockDomains: ['chezmoi'], cleanup: 'none', compensation: 'none',
   failurePolicy: 'abort-run',
 };
 const installxSourcePath = `${process.env.INSTALL_DOCTOR_CHEZMOI_SOURCE}/dot_local/bin/executable_installx`;

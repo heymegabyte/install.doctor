@@ -45,6 +45,16 @@ if printf '%s\n' "$chezmoi_task" | grep -q "id: 'provision.chezmoi'" \
 else
   fail 'chezmoi execution is over-privileged or no longer requires explicit system-effect consent'
 fi
+homebrew_tools_task="$(sed -n "/const homebrewToolsTask = {/,/const chezmoiInitTask =/p" "$PROVISION")"
+chezmoi_init_task="$(sed -n "/const chezmoiInitTask = {/,/const installxSourcePath =/p" "$PROVISION")"
+if printf '%s\n' "$homebrew_tools_task" | grep -q "privilege: 'user'.*network: 'required'" \
+  && printf '%s\n' "$homebrew_tools_task" | grep -q "consent: 'network'" \
+  && printf '%s\n' "$chezmoi_init_task" | grep -q "privilege: 'user'.*network: 'none'" \
+  && printf '%s\n' "$chezmoi_init_task" | grep -q "consent: 'none'"; then
+  pass 'user-owned bootstrap tasks request only the authority they exercise'
+else
+  fail 'user-owned bootstrap tasks retain unnecessary privileged consent'
+fi
 logic="$(sed -n '/^provisionLogic() {/,/^}/p' "$PROVISION")"
 if printf '%s\n' "$logic" | grep -q 'runCanonicalProvisionEngine apply || CHEZMOI_STATUS=$?' && ! printf '%s\n' "$logic" | grep -q 'runChezmoi || CHEZMOI_STATUS=$?'; then
   pass 'production orchestration executes chezmoi through the canonical engine'
