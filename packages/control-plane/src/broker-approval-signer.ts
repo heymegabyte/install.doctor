@@ -1,0 +1,249 @@
+import { z } from 'zod';
+
+const id = z.string().min(1).max(128).regex(/^[a-z0-9][a-z0-9._-]*$/);
+const digest = z.string().regex(/^[a-f0-9]{64}$/);
+const timestamp = z.string().datetime({ offset: true });
+
+const operation = z.object({
+  taskId: id,
+  operationId: id,
+  phase: z.enum(['check', 'apply', 'verify']),
+}).strict();
+
+export const BrokerApprovalGrant = z.object({
+  schemaVersion: z.literal(1),
+  grantId: id,
+  hostId: id,
+  releaseId: id,
+  runId: id,
+  planDigest: digest,
+  approvedPlanDigest: digest,
+  enrolledUid: z.number().int().nonnegative(),
+  brokerExecutableDigest: digest,
+  runtimeDigest: digest,
+  workerDigest: digest,
+  operations: z.array(operation).min(1).max(256),
+  descriptorDigest: digest,
+  closureDigest: digest,
+  consentDigest: digest,
+  issuedAt: timestamp,
+  expiresAt: timestamp,
+}).strict().superRefine((value, context) => {
+  if (value.planDigest !== value.approvedPlanDigest) {
+    context.addIssue({ code: 'custom', message: 'grant is not bound to the approved plan' });
+  }
+  if (new Set(value.operations.map(entry => entry.operationId)).size !== value.operations.length) {
+    context.addIssue({ code: 'custom', message: 'grant contains duplicate operation identifiers' });
+  }
+  const lifetime = Date.parse(value.expiresAt) - Date.parse(value.issuedAt);
+  if (lifetime <= 0 || lifetime > 30 * 60 * 1000) {
+    context.addIssue({ code: 'custom', message: 'grant lifetime must be positive and no longer than thirty minutes' });
+  }
+});
+
+export const BrokerApprovalSignerDelegation = z.object({
+  schemaVersion: z.literal(1),
+  kind: z.literal('desktop-tools-broker-approval-signer-delegation'),
+  keyId: id,
+  algorithm: z.literal('Ed25519'),
+  signatureDomain: z.literal('desktop-tools-broker-approval-v1'),
+  product: z.literal('desktop-tools'),
+  releaseId: id,
+  channel: id,
+  publicKeySpki: z.string().min(32).max(512).regex(/^[A-Za-z0-9_-]+$/),
+  notBefore: timestamp,
+  notAfter: timestamp,
+  maximumApprovalLifetimeSeconds: z.number().int().positive().max(1800),
+  revocationEpoch: z.number().int().nonnegative(),
+  delegationDigest: digest,
+}).strict();
+
+export const BrokerApprovalDurableState = z.object({
+  schemaVersion: z.literal(1),
+  authorizationId: id,
+  ownerDecisionId: id,
+  ownerActorId: id,
+  ownerDecision: z.literal('approved'),
+  ownerReauthenticatedAt: timestamp,
+  tenantId: id,
+  profileId: id,
+  profileRevisionDigest: digest,
+  deviceCredentialId: id,
+  deviceFingerprint: digest,
+  runIntentId: id,
+  status: z.literal('approved'),
+  grant: BrokerApprovalGrant,
+  delegation: BrokerApprovalSignerDelegation,
+}).strict();
+
+export const BrokerApprovalRequest = z.object({
+  schemaVersion: z.literal(1),
+  authorizationId: id,
+  ownerDecisionId: id,
+  tenantId: id,
+  profileId: id,
+  profileRevisionDigest: digest,
+  deviceCredentialId: id,
+  deviceFingerprint: digest,
+  runIntentId: id,
+  grantId: id,
+}).strict();
+
+export const SignedBrokerApproval = z.object({
+  schemaVersion: z.literal(1),
+  kind: z.literal('desktop-tools-broker-approval'),
+  signerKeyId: id,
+  signatureDomain: z.literal('desktop-tools-broker-approval-v1'),
+  approvalId: id,
+  authorizationId: id,
+  ownerDecisionId: id,
+  ownerActorId: id,
+  tenantId: id,
+  profileId: id,
+  profileRevisionDigest: digest,
+  deviceCredentialId: id,
+  deviceFingerprint: digest,
+  runIntentId: id,
+  grant: BrokerApprovalGrant,
+  grantDigest: digest,
+  delegationDigest: digest,
+  revocationEpoch: z.number().int().nonnegative(),
+  approvedAt: timestamp,
+  expiresAt: timestamp,
+  signature: z.string().min(64).max(512).regex(/^[A-Za-z0-9_-]+$/),
+  auditDigest: digest,
+}).strict();
+
+export type BrokerApprovalRequestValue = z.infer<typeof BrokerApprovalRequest>;
+export type BrokerApprovalDurableStateValue = z.infer<typeof BrokerApprovalDurableState>;
+export type SignedBrokerApprovalValue = z.infer<typeof SignedBrokerApproval>;
+
+export interface BrokerApprovalStateStore {
+  loadExactState(request: BrokerApprovalRequestValue): Promise<unknown>;
+  consumeApproval(input: { readonly approvalId: string; readonly authorizationId: string;
+    readonly ownerDecisionId: string; readonly runIntentId: string }): Promise<boolean>;
+}
+
+/** An opaque managed signer. It deliberately has no private-key export method. */
+export interface BrokerApprovalManagedSigner {
+  readonly keyId: string;
+  sign(message: Uint8Array): Promise<Uint8Array>;
+}
+
+function canonical(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(canonical);
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(Object.entries(value as Record<string, unknown>)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, entry]) => [key, canonical(entry)]));
+  }
+  return value;
+}
+
+async function sha256(value: string): Promise<string> {
+  const bytes = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value));
+  return [...new Uint8Array(bytes)].map(byte => byte.toString(16).padStart(2, '0')).join('');
+}
+
+async function semanticDigest(domain: string, value: unknown): Promise<string> {
+  return sha256(`${domain}\0${JSON.stringify(canonical(value))}`);
+}
+
+function base64url(bytes: Uint8Array): string {
+  let binary = '';
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary).replaceAll('+', '-').replaceAll('/', '_').replace(/=+$/u, '');
+}
+
+function sameRequest(request: BrokerApprovalRequestValue, state: BrokerApprovalDurableStateValue): boolean {
+  return request.authorizationId === state.authorizationId
+    && request.ownerDecisionId === state.ownerDecisionId
+    && request.tenantId === state.tenantId
+    && request.profileId === state.profileId
+    && request.profileRevisionDigest === state.profileRevisionDigest
+    && request.deviceCredentialId === state.deviceCredentialId
+    && request.deviceFingerprint === state.deviceFingerprint
+    && request.runIntentId === state.runIntentId
+    && request.grantId === state.grant.grantId;
+}
+
+export function createBrokerApprovalSigningBoundary(input: {
+  readonly store: BrokerApprovalStateStore;
+  readonly signer: BrokerApprovalManagedSigner;
+  readonly now?: () => Date;
+  readonly randomId?: () => string;
+  readonly minimumRevocationEpoch: number;
+}) {
+  if (!Number.isSafeInteger(input.minimumRevocationEpoch) || input.minimumRevocationEpoch < 0) {
+    throw new Error('minimum revocation epoch is invalid');
+  }
+  return Object.freeze({
+    async approve(rawRequest: unknown): Promise<SignedBrokerApprovalValue> {
+      const request = BrokerApprovalRequest.parse(rawRequest);
+      const state = BrokerApprovalDurableState.parse(await input.store.loadExactState(request));
+      if (!sameRequest(request, state)) throw new Error('approval request differs from durable state');
+      if (state.delegation.keyId !== input.signer.keyId) throw new Error('managed signer differs from release delegation');
+      if (state.delegation.releaseId !== state.grant.releaseId) throw new Error('delegation release differs from grant');
+      if (state.delegation.revocationEpoch < input.minimumRevocationEpoch) throw new Error('approval signer delegation is revoked');
+
+      const { delegationDigest, ...delegationProjection } = state.delegation;
+      const expectedDelegationDigest = await semanticDigest(
+        'desktop-tools:broker-approval-signer-delegation:v1', delegationProjection,
+      );
+      if (delegationDigest !== expectedDelegationDigest) throw new Error('release delegation digest is invalid');
+
+      const now = (input.now ?? (() => new Date()))();
+      const nowMs = now.getTime();
+      const delegationStart = Date.parse(state.delegation.notBefore);
+      const delegationEnd = Date.parse(state.delegation.notAfter);
+      const grantStart = Date.parse(state.grant.issuedAt);
+      const grantEnd = Date.parse(state.grant.expiresAt);
+      const reauthenticatedAt = Date.parse(state.ownerReauthenticatedAt);
+      if (reauthenticatedAt > nowMs || nowMs - reauthenticatedAt > 5 * 60 * 1000) {
+        throw new Error('owner reauthentication is not current');
+      }
+      if (nowMs < delegationStart || nowMs >= delegationEnd) throw new Error('approval signer delegation is outside its validity window');
+      if (nowMs < grantStart || nowMs >= grantEnd) throw new Error('broker grant is outside its validity window');
+      const expiresMs = Math.min(grantEnd, delegationEnd,
+        nowMs + state.delegation.maximumApprovalLifetimeSeconds * 1000);
+      if (expiresMs <= nowMs) throw new Error('broker approval has no valid lifetime');
+
+      const approvalId = (input.randomId ?? (() => crypto.randomUUID()))();
+      if (!id.safeParse(approvalId).success) throw new Error('approval identifier is invalid');
+      const grantDigest = await semanticDigest('desktop-tools:privileged-broker:v1', state.grant);
+      const unsigned = {
+        schemaVersion: 1 as const,
+        kind: 'desktop-tools-broker-approval' as const,
+        signerKeyId: state.delegation.keyId,
+        signatureDomain: state.delegation.signatureDomain,
+        approvalId,
+        authorizationId: state.authorizationId,
+        ownerDecisionId: state.ownerDecisionId,
+        ownerActorId: state.ownerActorId,
+        tenantId: state.tenantId,
+        profileId: state.profileId,
+        profileRevisionDigest: state.profileRevisionDigest,
+        deviceCredentialId: state.deviceCredentialId,
+        deviceFingerprint: state.deviceFingerprint,
+        runIntentId: state.runIntentId,
+        grant: state.grant,
+        grantDigest,
+        delegationDigest: state.delegation.delegationDigest,
+        revocationEpoch: state.delegation.revocationEpoch,
+        approvedAt: now.toISOString(),
+        expiresAt: new Date(expiresMs).toISOString(),
+      };
+      const message = new TextEncoder().encode(`${state.delegation.signatureDomain}\0${JSON.stringify(canonical(unsigned))}`);
+      const consumed = await input.store.consumeApproval({ approvalId, authorizationId: state.authorizationId,
+        ownerDecisionId: state.ownerDecisionId, runIntentId: state.runIntentId });
+      if (!consumed) throw new Error('broker approval was already consumed');
+      const signatureBytes = await input.signer.sign(message);
+      if (!(signatureBytes instanceof Uint8Array) || signatureBytes.byteLength !== 64) {
+        throw new Error('managed signer returned an invalid Ed25519 signature');
+      }
+      const auditDigest = await semanticDigest('desktop-tools:broker-approval-audit:v1', unsigned);
+      return SignedBrokerApproval.parse({ ...unsigned,
+        signature: base64url(signatureBytes), auditDigest });
+    },
+  });
+}
