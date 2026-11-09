@@ -40,6 +40,7 @@ printf 'eager\n'
 SH
 cat > "$TMP/home/.local/bin/post-installx/post-eager.sh" <<'SH'
 #!/usr/bin/env bash
+# INSTALL_DOCTOR_TYPED_HOOK_PROTOCOL=1
 case "${1:-}" in
   --check|--verify) [ -f "$CUSTOM_STATE" ] && exit 0 || exit 10 ;;
   --apply) printf 'custom\n' >> "$EFFECT_LEDGER"; : > "$CUSTOM_STATE" ;;

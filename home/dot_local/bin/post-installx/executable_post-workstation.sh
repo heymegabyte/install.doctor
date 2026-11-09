@@ -12,6 +12,7 @@
 #   - Applies capability-detected laptop/workstation hardware tuning: battery conservation, TAS2781 smart-amp init, WMI/EC/thermal ctl
 #   - Purges orphaned xfce4-* packages on GNOME 50 loopback hosts while preserving live GNOME + KasmVNC
 set -euo pipefail
+# INSTALL_DOCTOR_TYPED_HOOK_PROTOCOL=1
 
 log() {
   if command -v gum >/dev/null 2>&1; then

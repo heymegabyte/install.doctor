@@ -15,6 +15,7 @@ grep -Fq '...(customUserPostHooksTask ? [customUserPostHooksTask] : [])' "$PROVI
 grep -Fq '...(customPostHooksTask ? {' "$PROVISION"
 grep -Fq '...(customUserPostHooksTask ? {' "$PROVISION"
 grep -Fq "task.id === 'desired.custom-post-hooks'" "$ROOT/scripts/test-bootstrap-install-acceptance.sh"
+grep -Fq 'selected custom hook lacks typed check/apply/verify authority' "$PROVISION"
 
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
@@ -22,6 +23,7 @@ mkdir -p "$TMP/home/.local/bin/post-installx" "$TMP/bin"
 HOOK="$TMP/home/.local/bin/post-installx/post-fixture.sh"
 cat > "$HOOK" <<'HOOK'
 #!/usr/bin/env bash
+# INSTALL_DOCTOR_TYPED_HOOK_PROTOCOL=1
 case "${1:-}" in --check|--verify) exit 0 ;; --apply) exit 0 ;; *) exit 2 ;; esac
 HOOK
 chmod 0700 "$HOOK"
@@ -38,8 +40,24 @@ HOME="$TMP/home" PATH="$TMP/bin:$PATH" HOSTILE_BASH_MARKER="$TMP/hostile-bash-ra
   /bin/bash -c 'source "$1"; logg() { :; }; idRunSelectedPostInstallxHooks verify' _ "$PROVISION"
 test ! -e "$TMP/hostile-bash-ran"
 
+UNTYPED="$TMP/home/.local/bin/post-installx/post-untyped.sh"
+cat > "$UNTYPED" <<'HOOK'
+#!/usr/bin/env bash
+: > "$UNTYPED_HOOK_RAN"
+HOOK
+chmod 0700 "$UNTYPED"
+UNTYPED_DIGEST="$(shasum -a 256 "$UNTYPED" | awk '{print $1}')"
+if HOME="$TMP/home" UNTYPED_HOOK_RAN="$TMP/untyped-hook-ran" \
+  INSTALL_DOCTOR_CUSTOM_HOOK_KEYS=untyped INSTALL_DOCTOR_CUSTOM_HOOK_MANIFEST="untyped=$UNTYPED_DIGEST" \
+  /bin/bash -c 'source "$1"; logg() { :; }; idRunSelectedPostInstallxHooks check' _ "$PROVISION"; then
+  printf '%s\n' 'untyped selected custom hook was admitted' >&2
+  exit 1
+fi
+test ! -e "$TMP/untyped-hook-ran"
+
 cat > "$HOOK" <<'HOOK'
 #!/usr/bin/env bash
+# INSTALL_DOCTOR_TYPED_HOOK_PROTOCOL=1
 case "${1:-}" in
   --check) printf '# substituted\nexit 0\n' > "$HOOK_SOURCE"; exit 10 ;;
   --apply) : > "$HOOK_APPLY_MARKER"; exit 0 ;;
@@ -64,4 +82,4 @@ if HOME="$TMP/home" INSTALL_DOCTOR_CUSTOM_HOOK_KEYS=fixture INSTALL_DOCTOR_CUSTO
   exit 1
 fi
 
-printf '%s\n' 'selected-custom-hook-boundary: 15 passed, 0 failed'
+printf '%s\n' 'selected-custom-hook-boundary: 17 passed, 0 failed'

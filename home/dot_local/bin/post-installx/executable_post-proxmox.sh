@@ -4,6 +4,7 @@
 # Detects Proxmox VE (/etc/pve or pveversion) and converges ZFS ARC limits, KSM tuning,
 # bridge networking offloads, PBS verify/prune/GC schedules, and journald/sysctl caps.
 set -euo pipefail
+# INSTALL_DOCTOR_TYPED_HOOK_PROTOCOL=1
 
 log() {
   if command -v gum >/dev/null 2>&1; then

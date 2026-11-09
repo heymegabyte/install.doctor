@@ -5,6 +5,7 @@
 # 100s healthcheck restart loops), installs Traefik dynamic compression + security headers,
 # and configures Docker daemon log-opts and live-restore.
 set -euo pipefail
+# INSTALL_DOCTOR_TYPED_HOOK_PROTOCOL=1
 
 log() {
   if command -v gum >/dev/null 2>&1; then

@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
+# INSTALL_DOCTOR_TYPED_HOOK_PROTOCOL=1
 # @file Mise Install / Tweaks
 # @brief Reconciles the current user's configured mise runtime closure.
 

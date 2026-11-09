@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
+# INSTALL_DOCTOR_TYPED_HOOK_PROTOCOL=1
 # @file Cloudflared Configuration
 # @brief Applies cloudflared configuration, connects to Argo tunnel with managed configuration, and enables it on system start
 # @description

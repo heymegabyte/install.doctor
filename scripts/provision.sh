@@ -3448,12 +3448,14 @@ const catalogPostValidationTask = {
 };
 const customHookRoot = `${process.env.INSTALL_DOCTOR_CHEZMOI_SOURCE}/dot_local/bin/post-installx`;
 const selectedHookItems = loadPlan.items.filter(item => item.selected).sort((left, right) => left.name.localeCompare(right.name));
+const typedHookProtocolMarker = Buffer.from('# INSTALL_DOCTOR_TYPED_HOOK_PROTOCOL=1\n');
 const customHookManifest = selectedHookItems.flatMap(item => {
   const packageName = item.name;
   const sourcePath = `${customHookRoot}/executable_post-${packageName}.sh`;
   if (signedPlanningInputs) {
     const bytes = signedPlanningInputs.get(`provisioning/home/dot_local/bin/post-installx/executable_post-${packageName}.sh`);
     if (!bytes) return [];
+    if (!bytes.includes(typedHookProtocolMarker)) throw new Error(`selected custom hook lacks typed check/apply/verify authority: ${packageName}`);
     if (item.postInstallPrivilege !== 'user' && item.postInstallPrivilege !== 'admin') {
       throw new Error(`selected custom hook lacks explicit privilege authority: ${packageName}`);
     }
@@ -3465,7 +3467,9 @@ const customHookManifest = selectedHookItems.flatMap(item => {
     if (item.postInstallPrivilege !== 'user' && item.postInstallPrivilege !== 'admin') {
       throw new Error(`selected custom hook lacks explicit privilege authority: ${packageName}`);
     }
-    return [{ package: packageName, sha256: crypto.createHash('sha256').update(fs.readFileSync(sourcePath)).digest('hex'), privilege: item.postInstallPrivilege }];
+    const bytes = fs.readFileSync(sourcePath);
+    if (!bytes.includes(typedHookProtocolMarker)) throw new Error(`selected custom hook lacks typed check/apply/verify authority: ${packageName}`);
+    return [{ package: packageName, sha256: crypto.createHash('sha256').update(bytes).digest('hex'), privilege: item.postInstallPrivilege }];
   } catch (error) {
     if (error && error.code === 'ENOENT') return [];
     throw error;
@@ -3939,6 +3943,11 @@ idRunVerifiedHookPhase() (
   case "$EXPECTED" in ''|*[!a-f0-9]*) return 2 ;; esac
   [ "${#EXPECTED}" -eq 64 ] || return 2
   [ -f "$SOURCE" ] && [ ! -L "$SOURCE" ] || return 2
+  local protocol_line='' protocol_count=0
+  while IFS= read -r protocol_line || [ -n "$protocol_line" ]; do
+    [ "$protocol_line" != '# INSTALL_DOCTOR_TYPED_HOOK_PROTOCOL=1' ] || protocol_count=$((protocol_count + 1))
+  done < "$SOURCE"
+  [ "$protocol_count" -eq 1 ] || return 2
   umask 077
   STAGED="$(mktemp "${TMPDIR:-/tmp}/desktop-tools-hook.XXXXXX")" || return 1
   trap '/bin/rm -f -- "$STAGED"' EXIT HUP INT TERM

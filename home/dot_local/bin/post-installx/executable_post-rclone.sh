@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
+# INSTALL_DOCTOR_TYPED_HOOK_PROTOCOL=1
 # @file Rclone S3 Mounts
 # @brief Reconciles the user's protected, Infisical-backed Cloudflare R2 remote
 # @description
