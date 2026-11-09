@@ -14,6 +14,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sync"
 	"syscall"
 	"time"
 	"unsafe"
@@ -48,7 +49,7 @@ type ServerConfig struct {
 	RuntimeSHA256 string
 	WorkerPath    string
 	WorkerSHA256  string
-	RequestCount  int
+	RequestLimit  int
 	Timeout       time.Duration
 }
 
@@ -64,8 +65,8 @@ func (rejection *requestRejection) Error() string { return rejection.cause.Error
 func reject(cause error) error                    { return &requestRejection{cause: cause} }
 
 func Serve(ctx context.Context, config ServerConfig) error {
-	if config.RequestCount < 1 || config.RequestCount > 256 || config.Timeout <= 0 || config.Timeout > 30*time.Minute {
-		return errors.New("server request count or timeout is outside the supported boundary")
+	if config.RequestLimit < 1 || config.RequestLimit > 256 || config.Timeout <= 0 || config.Timeout > 30*time.Minute {
+		return errors.New("server request limit or timeout is outside the supported boundary")
 	}
 	runtime, err := openVerifiedRootFile(config.RuntimePath, config.RuntimeSHA256, true)
 	if err != nil {
@@ -81,13 +82,23 @@ func Serve(ctx context.Context, config ServerConfig) error {
 	if err != nil {
 		return err
 	}
-	defer func() {
-		syscall.Close(listener)
-		_ = os.Remove(config.SocketPath)
+	var closeListenerOnce sync.Once
+	closeListener := func() { closeListenerOnce.Do(func() { _ = syscall.Close(listener) }) }
+	stopped := make(chan struct{})
+	go func() {
+		select {
+		case <-ctx.Done():
+			closeListener()
+		case <-stopped:
+		}
 	}()
+	defer func() { close(stopped); closeListener(); _ = os.Remove(config.SocketPath) }()
 	served, rejected := 0, 0
-	for served < config.RequestCount {
+	for served < config.RequestLimit {
 		if err := serveOne(ctx, listener, runtime, worker, config); err != nil {
+			if ctx.Err() != nil {
+				return nil
+			}
 			var denied *requestRejection
 			if errors.As(err, &denied) {
 				rejected++

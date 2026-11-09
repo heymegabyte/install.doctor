@@ -7,7 +7,7 @@ The helper exists because Node does not expose the Linux primitives required by 
 - `client --socket PATH` reads the strict request from inherited fd 3 and the already-open payload from fd 4, copies exact verified bytes into a sealed anonymous memfd, verifies the server is UID 0, sends one `SOCK_SEQPACKET` message with exactly one `SCM_RIGHTS` descriptor, and prints one bounded response.
 - `serve` is root-only. It accepts a bounded number of operations from one enrolled UID, checks peer credentials and the sealed payload independently, and runs only the already-open root-owned Node runtime and worker script whose digests are release-pinned. The worker receives the sealed payload as fd 3 and the response socket as fd 4. No request can supply a command, path, argument, environment value, package name, or network destination.
 
-The server socket lives in a protected root-owned per-run directory, is group-accessible only to the enrolled user's primary group, and is removed after its exact request count or any failure. The TypeScript worker remains responsible for exact grant, approval, nonce, descriptor, transaction-fence, and receipt validation.
+The server socket lives in a protected root-owned per-run directory, is group-accessible only to the enrolled user's primary group, and is removed after the granted request limit, root-controlled cancellation, or any failure. The limit is an upper bound: a no-op run may make no request, an already-satisfied task may make only its check request, and a mutation may make check, apply, and verify requests. The TypeScript worker remains responsible for exact grant, approval, nonce, descriptor, transaction-fence, and receipt validation.
 
 Build the admitted helper reproducibly:
 

@@ -138,8 +138,19 @@ export async function runPrivilegedBrokerController(inputValue: unknown): Promis
       shell: false, detached: false, windowsHide: true, stdio: ['ignore', 'ignore', 'ignore', helper.fd],
       env: { PATH: '/usr/sbin:/usr/bin:/sbin:/bin', LANG: 'C', LC_ALL: 'C' },
     });
-    const terminate = () => { if (child.exitCode === null && child.signalCode === null) child.kill('SIGTERM'); };
-    process.once('SIGINT', terminate); process.once('SIGTERM', terminate); process.once('SIGHUP', terminate);
+    const lifecycle: { termination: 'none' | 'graceful' | 'interrupted' | 'expired' } = { termination: 'none' };
+    const terminate = (kind: typeof lifecycle.termination) => {
+      if (lifecycle.termination === 'none') lifecycle.termination = kind;
+      if (child.exitCode === null && child.signalCode === null) child.kill('SIGTERM');
+    };
+    const graceful = () => terminate('graceful');
+    const interrupted = () => terminate('interrupted');
+    process.once('SIGTERM', graceful); process.once('SIGINT', interrupted); process.once('SIGHUP', interrupted);
+    const expiresInMs = Date.parse(input.grant.expiresAt) - Date.now();
+    if (!Number.isFinite(expiresInMs) || expiresInMs <= 0) {
+      terminate('expired');
+    }
+    const expiryTimer = setTimeout(() => terminate('expired'), Math.max(1, Math.min(expiresInMs, 2_147_483_647)));
     try {
       await waitForBrokerSocket(input, child);
       process.stdout.write(`${JSON.stringify({ schemaVersion: 1, status: 'authorized', socketPath: input.socketPath,
@@ -148,10 +159,13 @@ export async function runPrivilegedBrokerController(inputValue: unknown): Promis
         child.once('error', reject);
         child.once('close', (code, signal) => resolveResult({ code, signal }));
       });
+      if (lifecycle.termination === 'expired') throw new Error('privileged broker exceeded its grant lifetime');
+      if (lifecycle.termination === 'interrupted') throw new Error('privileged broker controller was interrupted');
       if (result.signal !== null || result.code !== 0) throw new Error('privileged broker terminated without a clean bounded completion');
       return Object.freeze({ ...publication, exitCode: result.code });
     } finally {
-      process.removeListener('SIGINT', terminate); process.removeListener('SIGTERM', terminate); process.removeListener('SIGHUP', terminate);
+      clearTimeout(expiryTimer);
+      process.removeListener('SIGTERM', graceful); process.removeListener('SIGINT', interrupted); process.removeListener('SIGHUP', interrupted);
       await removeOwnedSocket(input);
     }
   } finally {

@@ -106,7 +106,7 @@ func TestReceiveRejectsMultipleDescriptors(t *testing.T) {
 	}
 }
 
-func TestRootServerRunsOnlyVerifiedWorkerAndCleansSocket(t *testing.T) {
+func TestRootServerRunsOnlyVerifiedWorkerAndCancelsBelowRequestLimit(t *testing.T) {
 	if os.Geteuid() != 0 {
 		t.Skip("root-only broker integration")
 	}
@@ -135,12 +135,14 @@ func TestRootServerRunsOnlyVerifiedWorkerAndCleansSocket(t *testing.T) {
 	runtimeDigest := sha256.Sum256(runtimeBytes)
 	socketPath := filepath.Join(directory, "broker.sock")
 	serverResult := make(chan error, 1)
+	serverContext, cancelServer := context.WithCancel(context.Background())
+	defer cancelServer()
 	go func() {
-		serverResult <- Serve(context.Background(), ServerConfig{
+		serverResult <- Serve(serverContext, ServerConfig{
 			SocketPath: socketPath, ExpectedUID: uint32(os.Getuid()), SocketGID: os.Getgid(),
 			RuntimePath: runtimePath, RuntimeSHA256: hex.EncodeToString(runtimeDigest[:]),
 			WorkerPath: workerPath, WorkerSHA256: hex.EncodeToString(workerDigest[:]),
-			RequestCount: 1, Timeout: 5 * time.Second,
+			RequestLimit: 3, Timeout: 5 * time.Second,
 		})
 	}()
 	for attempt := 0; attempt < 100; attempt++ {
@@ -182,6 +184,7 @@ func TestRootServerRunsOnlyVerifiedWorkerAndCleansSocket(t *testing.T) {
 	if response.String() != `{"schemaVersion":1,"status":"applied"}` {
 		t.Fatalf("unexpected response: %s", response.String())
 	}
+	cancelServer()
 	if err := <-serverResult; err != nil {
 		t.Fatal(err)
 	}

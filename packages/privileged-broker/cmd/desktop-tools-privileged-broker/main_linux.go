@@ -9,7 +9,9 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/signal"
 	"strconv"
+	"syscall"
 	"time"
 
 	"github.com/heymegabyte/install.doctor/packages/privileged-broker/internal/protocol"
@@ -73,7 +75,7 @@ func run(args []string, stdout, stderr io.Writer) error {
 		runtimeSHA256 := flags.String("runtime-sha256", "", "signed Node runtime SHA-256")
 		worker := flags.String("worker", "", "absolute signed worker path")
 		workerSHA256 := flags.String("worker-sha256", "", "signed worker SHA-256")
-		requests := flags.Int("requests", 0, "exact operation request count")
+		requests := flags.Int("requests", 0, "maximum operation request count")
 		timeout := flags.Duration("timeout", 2*time.Minute, "per-operation deadline")
 		if err := flags.Parse(args[1:]); err != nil {
 			return err
@@ -82,11 +84,13 @@ func run(args []string, stdout, stderr io.Writer) error {
 		if err != nil || *gid < 0 || flags.NArg() != 0 {
 			return errors.New("serve requires exact uid, gid, and no positional arguments")
 		}
-		return transport.Serve(context.Background(), transport.ServerConfig{
+		ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP)
+		defer stop()
+		return transport.Serve(ctx, transport.ServerConfig{
 			SocketPath: *socket, ExpectedUID: uint32(uid), SocketGID: *gid,
 			RuntimePath: *runtime, RuntimeSHA256: *runtimeSHA256,
 			WorkerPath: *worker, WorkerSHA256: *workerSHA256,
-			RequestCount: *requests, Timeout: *timeout,
+			RequestLimit: *requests, Timeout: *timeout,
 		})
 	default:
 		return fmt.Errorf("unknown command: %s", args[0])
