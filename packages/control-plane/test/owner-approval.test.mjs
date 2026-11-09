@@ -43,6 +43,21 @@ test('privileged-run authority is explicit, narrowable, and never implied for le
   });
 });
 
+test('privileged owner decision binds the exact server-resolved profile id and digest', () => {
+  const digest = 'a'.repeat(64);
+  const privileged = { ...record, profileRevision: digest, profileId: 'profile-1',
+    profileRevisionDigest: digest, requestedScopes: ['authorize-privileged-run'] };
+  const exact = { ...request, profileRevision: digest, profileId: 'profile-1',
+    profileRevisionDigest: digest, approvedScopes: ['authorize-privileged-run'] };
+  assert.equal(authorizeOwnerDecision(privileged, exact, owner, now).ok, true);
+  for (const changed of [{ profileId: undefined }, { profileId: 'profile-2' },
+    { profileRevisionDigest: undefined }, { profileRevisionDigest: 'b'.repeat(64) }]) {
+    assert.deepEqual(authorizeOwnerDecision(privileged, { ...exact, ...changed }, owner, now), {
+      ok: false, status: 409, error: 'stale_profile_revision',
+    });
+  }
+});
+
 test('owner decision rejects a mismatched code and stale profile revision', () => {
   assert.deepEqual(authorizeOwnerDecision(record, { ...request, matchingCode: 'ZZZZ-ZZZZ-ZZZZ' }, owner, now), {
     ok: false, status: 400, error: 'matching_code_mismatch',

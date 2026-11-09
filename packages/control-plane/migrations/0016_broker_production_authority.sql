@@ -5,6 +5,9 @@
 ALTER TABLE devices ADD COLUMN profile_id TEXT;
 ALTER TABLE devices ADD COLUMN profile_revision_digest TEXT
   CHECK (profile_revision_digest IS NULL OR length(profile_revision_digest) = 64);
+ALTER TABLE pairings ADD COLUMN profile_id TEXT;
+ALTER TABLE pairings ADD COLUMN profile_revision_digest TEXT
+  CHECK (profile_revision_digest IS NULL OR length(profile_revision_digest) = 64);
 
 -- Tenant ownership is server-managed state. It must never be inferred from a tenant string,
 -- pairing request, device claim, email allowlist, or caller-supplied owner_actor value.

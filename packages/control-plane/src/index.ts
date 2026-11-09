@@ -26,6 +26,8 @@ import { resolveActiveRelease } from './release-channel';
 import { resolveActiveDesktopRelease } from './desktop-release-channel';
 import { authorizeOwnerContextRead, authorizeOwnerDecision, DESKTOP_DEVICE_SCOPE_ALLOWLIST, OwnerApprovalDecision } from './owner-approval';
 import { DEVICE_CLAIM_MIN_POLL_INTERVAL_MS, DEVICE_CREDENTIAL_MAX_LIFETIME_MS, matchesPresentedClaimBinding } from './atomic-credential-claim';
+import { authenticatedOwnerFromBetterAuthSession, createBrokerProductionAuthorities } from './broker-production-authorities';
+import { resolvePrivilegedPairBinding } from './privileged-pair-binding';
 // App Store catalog — generated from software.yml by the canonical validated parser
 // (scripts/gen-catalog.mjs → the cnf index builder; D01/D02/D13). Read-only, bundled at deploy;
 // regenerate + redeploy when software.yml changes. No runtime YAML at the edge.
@@ -2192,16 +2194,21 @@ const PairStartRequest = z
     permissions: z.array(z.string().max(64)).max(32).optional(), // P03: capability scope the device requests
     machineFingerprint: z.string().regex(/^[a-f0-9]{64}$/i).optional(),
     profileRevision: z.string().min(1).max(128).optional(),
+    profileId: z.string().min(1).max(128).regex(/^[a-z0-9][a-z0-9._-]*$/).optional(),
+    profileRevisionDigest: z.string().regex(/^[a-f0-9]{64}$/).optional(),
     ownerActor: z.string().email().max(320).optional(),
   })
   .strict()
   .superRefine((value, context) => {
     const ownerFields = [value.machineFingerprint, value.profileRevision, value.ownerActor];
     const present = ownerFields.filter((field) => field !== undefined).length;
-    if (present !== 0 && present !== ownerFields.length) {
+    const privileged = value.permissions?.includes('authorize-privileged-run') ?? false;
+    if (privileged && (!value.machineFingerprint || !value.profileId || !value.profileRevisionDigest || value.ownerActor)) {
+      context.addIssue({ code: 'custom', message: 'privileged enrollment requires exact profile identity and forbids caller owner authority' });
+    } else if (!privileged && present !== 0 && present !== ownerFields.length) {
       context.addIssue({ code: 'custom', message: 'machineFingerprint, profileRevision, and ownerActor must be supplied together' });
     }
-    if (present === ownerFields.length) {
+    if (privileged || present === ownerFields.length) {
       const requested = value.permissions ?? [];
       if (requested.length === 0) context.addIssue({ code: 'custom', path: ['permissions'], message: 'bound enrollment requires at least one device scope' });
       for (const [index, permission] of requested.entries()) {
@@ -2232,18 +2239,38 @@ app.post('/api/devices/pair/start', async (c) => {
   const parsed = PairStartRequest.safeParse(input);
   if (!parsed.success) return c.json({ error: 'invalid_request', issues: parsed.error.issues }, 400);
   try {
-    const tenant = (parsed.data.tenant || '_default').trim() || '_default';
+    const requestedPermissions = parsed.data.permissions ?? [];
+    let privilegedBinding: Awaited<ReturnType<typeof resolvePrivilegedPairBinding>> = null;
+    if (requestedPermissions.includes('authorize-privileged-run')) {
+      const env = c.env as Record<string, unknown>;
+      if (!env.DESKTOP_TOOLS_PUBLIC_PROFILES) return c.json({ error: 'privileged_pair_authority_unavailable' }, 503);
+      const authorities = createBrokerProductionAuthorities({ database: db, publicProfiles: env.DESKTOP_TOOLS_PUBLIC_PROFILES });
+      try {
+        privilegedBinding = await resolvePrivilegedPairBinding({ requestedPermissions,
+          machineFingerprint: parsed.data.machineFingerprint?.toLowerCase(), profileId: parsed.data.profileId,
+          profileRevisionDigest: parsed.data.profileRevisionDigest,
+          publicProfiles: env.DESKTOP_TOOLS_PUBLIC_PROFILES,
+          resolveOwnerForTenant: tenantId => authorities.owner.resolveForTenant(tenantId) });
+      } catch {
+        return c.json({ error: 'privileged_pair_authority_unavailable' }, 503);
+      }
+    }
+    const tenant = privilegedBinding?.tenantId ?? ((parsed.data.tenant || '_default').trim() || '_default');
     const nowMs = Date.now();
     const createdAt = new Date(nowMs).toISOString();
     const expiresAt = new Date(nowMs + PAIR_TTL_MS).toISOString();
-    const permissions = JSON.stringify(parsed.data.permissions ?? []); // stored as a JSON array (P03)
+    const permissions = JSON.stringify(requestedPermissions); // stored as a JSON array (P03)
     for (let attempt = 0; attempt < PAIR_ISSUANCE_ATTEMPTS; attempt++) {
       const code = newPairCode(); // 60 random bits, grouped for accurate human transcription
       const pollSecret = 'aidp_' + randHex(32);
       try {
         await db
-          .prepare('INSERT INTO pairings (code, poll_sha256, tenant, label, permissions, status, created_at, expires_at, machine_fingerprint, profile_revision, owner_actor) VALUES (?,?,?,?,?,?,?,?,?,?,?)')
-          .bind(code, await sha256hex(pollSecret), tenant, parsed.data.label ?? null, permissions, 'pending', createdAt, expiresAt, parsed.data.machineFingerprint ?? null, parsed.data.profileRevision ?? null, parsed.data.ownerActor?.trim().toLowerCase() ?? null)
+          .prepare('INSERT INTO pairings (code, poll_sha256, tenant, label, permissions, status, created_at, expires_at, machine_fingerprint, profile_revision, owner_actor, profile_id, profile_revision_digest) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)')
+          .bind(code, await sha256hex(pollSecret), tenant, parsed.data.label ?? null, permissions, 'pending', createdAt, expiresAt,
+            privilegedBinding?.machineFingerprint ?? parsed.data.machineFingerprint ?? null,
+            privilegedBinding?.profileRevision ?? parsed.data.profileRevision ?? null,
+            privilegedBinding?.ownerActor ?? parsed.data.ownerActor?.trim().toLowerCase() ?? null,
+            privilegedBinding?.profileId ?? null, privilegedBinding?.profileRevisionDigest ?? null)
           .run();
         return c.json(
           { code, pollSecret, tenant, verifyUrl: `${APP_URL}/pair?code=${code}`, expiresAt, note: 'show the code to the operator; keep pollSecret private (never in a URL/log)' },
@@ -2269,7 +2296,7 @@ app.get('/api/devices/pair/info', async (c) => {
   const code = normalizePairCode(c.req.query('code') || '');
   if (!code) return pairingUnavailable(c);
   const row = await db
-    .prepare('SELECT code, tenant, label, permissions, status, created_at, expires_at, machine_fingerprint, profile_revision, owner_actor FROM pairings WHERE code = ?')
+    .prepare('SELECT code, tenant, label, permissions, status, created_at, expires_at, machine_fingerprint, profile_revision, owner_actor, profile_id, profile_revision_digest FROM pairings WHERE code = ?')
     .bind(code)
     .first();
   if (!row) return pairingUnavailable(c);
@@ -2305,20 +2332,19 @@ app.get('/api/devices/pair/owner-info', async (c) => {
   const code = normalizePairCode(c.req.query('code') || '');
   if (!code) return pairingUnavailable(c);
   const row = await db
-    .prepare('SELECT code, tenant, label, permissions, status, created_at, expires_at, machine_fingerprint, profile_revision, owner_actor FROM pairings WHERE code = ?')
+    .prepare('SELECT code, tenant, label, permissions, status, created_at, expires_at, machine_fingerprint, profile_revision, owner_actor, profile_id, profile_revision_digest FROM pairings WHERE code = ?')
     .bind(code)
     .first();
   if (!row || !row.owner_actor || !row.machine_fingerprint || !row.profile_revision) return pairingUnavailable(c);
   if (row.status !== 'pending' || Date.parse(row.expires_at as string) <= Date.now()) return pairingUnavailable(c);
-  const session = (await auth.api.getSession({ headers: c.req.raw.headers }).catch(() => null)) as
-    | { user?: { email?: string | null }; session?: { createdAt?: string | Date } }
-    | null;
-  const authenticatedAt = session?.session?.createdAt instanceof Date
-    ? session.session.createdAt.toISOString()
-    : session?.session?.createdAt;
+  const session = await auth.api.getSession({ headers: c.req.raw.headers }).catch(() => null);
+  const stableOwner = row.profile_id ? authenticatedOwnerFromBetterAuthSession(session) : null;
+  const legacySession = session as { user?: { email?: string | null }; session?: { createdAt?: string | Date } } | null;
+  const authenticatedAt = legacySession?.session?.createdAt instanceof Date
+    ? legacySession.session.createdAt.toISOString() : legacySession?.session?.createdAt;
   const access = authorizeOwnerContextRead(
     row.owner_actor as string,
-    session?.user?.email && authenticatedAt ? { actor: session.user.email, authenticatedAt } : null,
+    stableOwner ?? (legacySession?.user?.email && authenticatedAt ? { actor: legacySession.user.email, authenticatedAt } : null),
   );
   if (!access.ok) return c.json({ error: access.error }, access.status);
   let scopes: string[] = [];
@@ -2329,6 +2355,8 @@ app.get('/api/devices/pair/owner-info', async (c) => {
     tenant: row.tenant,
     machineFingerprint: row.machine_fingerprint,
     profileRevision: row.profile_revision,
+    profileId: row.profile_id || null,
+    profileRevisionDigest: row.profile_revision_digest || null,
     scopes,
     actor: access.actor,
     status: row.status,
@@ -2345,20 +2373,22 @@ app.post('/api/devices/pair/owner-decision', async (c) => {
   if (!parsed.success) return c.json({ error: 'invalid_request', issues: parsed.error.issues }, 400);
   const code = normalizePairCode(parsed.data.code);
   if (!code) return c.json({ error: 'matching_code_mismatch' }, 400);
-  const row = await db.prepare('SELECT code, status, expires_at, profile_revision, owner_actor, permissions FROM pairings WHERE code = ?').bind(code).first();
+  const row = await db.prepare('SELECT code, status, expires_at, profile_revision, owner_actor, permissions, profile_id, profile_revision_digest FROM pairings WHERE code = ?').bind(code).first();
   if (!row || !row.profile_revision || !row.owner_actor) return pairingUnavailable(c);
-  const session = (await auth.api.getSession({ headers: c.req.raw.headers }).catch(() => null)) as
-    | { user?: { id?: string; email?: string | null }; session?: { createdAt?: string | Date } }
-    | null;
-  const authenticatedAt = session?.session?.createdAt instanceof Date
-    ? session.session.createdAt.toISOString()
-    : session?.session?.createdAt;
+  const session = await auth.api.getSession({ headers: c.req.raw.headers }).catch(() => null);
+  const stableOwner = row.profile_id ? authenticatedOwnerFromBetterAuthSession(session) : null;
+  const legacySession = session as { user?: { email?: string | null }; session?: { createdAt?: string | Date } } | null;
+  const authenticatedAt = legacySession?.session?.createdAt instanceof Date
+    ? legacySession.session.createdAt.toISOString() : legacySession?.session?.createdAt;
   let requestedScopes: string[] = [];
   try { requestedScopes = JSON.parse((row.permissions as string) || '[]'); } catch { /* fail closed below */ }
   const decision = authorizeOwnerDecision(
-    { code: row.code as string, status: row.status as string, expiresAt: row.expires_at as string, profileRevision: row.profile_revision as string, ownerActor: row.owner_actor as string, requestedScopes },
+    { code: row.code as string, status: row.status as string, expiresAt: row.expires_at as string,
+      profileRevision: row.profile_revision as string, profileId: row.profile_id as string | null,
+      profileRevisionDigest: row.profile_revision_digest as string | null,
+      ownerActor: row.owner_actor as string, requestedScopes },
     { ...parsed.data, code },
-    session?.user?.email && authenticatedAt ? { actor: session.user.email, authenticatedAt } : null,
+    stableOwner ?? (legacySession?.user?.email && authenticatedAt ? { actor: legacySession.user.email, authenticatedAt } : null),
   );
   if (!decision.ok) return c.json({ error: decision.error }, decision.status);
   const timestampColumn = decision.nextStatus === 'approved' ? 'approved_at' : 'denied_at';
@@ -2409,7 +2439,7 @@ app.get('/api/devices/pair/poll', async (c) => {
   if (!pollSecret) return claimUnavailable();
   try {
     const pollHash = await sha256hex(pollSecret);
-    const row = await db.prepare('SELECT code, tenant, label, permissions, approved_scopes, status, expires_at, machine_fingerprint, profile_revision FROM pairings WHERE poll_sha256 = ?').bind(pollHash).first();
+    const row = await db.prepare('SELECT code, tenant, label, permissions, approved_scopes, status, expires_at, machine_fingerprint, profile_revision, profile_id, profile_revision_digest, owner_actor, decided_by FROM pairings WHERE poll_sha256 = ?').bind(pollHash).first();
     if (!row) return claimUnavailable();
     if (row.status === 'claimed' || row.status === 'denied') return claimUnavailable();
     if (new Date(row.expires_at).getTime() <= Date.now()) return claimUnavailable();
@@ -2433,6 +2463,12 @@ app.get('/api/devices/pair/poll', async (c) => {
     }
     if (row.status !== 'approved') return c.json({ status: 'pending' });
 
+    let grantedScopes: string[] = [];
+    try { grantedScopes = JSON.parse((row.approved_scopes as string) || (row.permissions as string) || '[]'); } catch { return claimUnavailable(); }
+    if (grantedScopes.includes('authorize-privileged-run')
+      && (!row.profile_id || !row.profile_revision_digest || !row.machine_fingerprint
+        || !row.owner_actor || row.decided_by !== row.owner_actor)) return claimUnavailable();
+
     // approved → one statement claims the slot. The token itself exists only in this request's memory;
     // D1 stores its SHA-256 digest. Trigger failure rolls the INSERT back, including collision/replay.
     const deviceId = 'dev_' + Date.now().toString(36) + '_' + randHex(6);
@@ -2441,8 +2477,8 @@ app.get('/api/devices/pair/poll', async (c) => {
     const credentialExpiresAt = new Date(Date.parse(now) + DEVICE_CREDENTIAL_MAX_LIFETIME_MS).toISOString();
     const claimed = await db.prepare(`
       INSERT INTO devices
-        (device_id, tenant, token_sha256, label, permissions, created_at, pairing_code, profile_revision, machine_fingerprint, expires_at)
-      SELECT ?, tenant, ?, label, COALESCE(approved_scopes, permissions, '[]'), ?, code, profile_revision, machine_fingerprint, ?
+        (device_id, tenant, token_sha256, label, permissions, created_at, pairing_code, profile_revision, machine_fingerprint, expires_at, profile_id, profile_revision_digest)
+      SELECT ?, tenant, ?, label, COALESCE(approved_scopes, permissions, '[]'), ?, code, profile_revision, machine_fingerprint, ?, profile_id, profile_revision_digest
         FROM pairings
        WHERE poll_sha256 = ? AND status = 'approved' AND expires_at > ?
     `).bind(deviceId, await sha256hex(token), now, credentialExpiresAt, pollHash, now).run();

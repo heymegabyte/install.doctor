@@ -8,6 +8,8 @@ export const OwnerApprovalDecision = z.object({
   code: z.string().min(1).max(32),
   matchingCode: z.string().min(1).max(32),
   profileRevision: z.string().min(1).max(128),
+  profileId: z.string().min(1).max(128).regex(/^[a-z0-9][a-z0-9._-]*$/).optional(),
+  profileRevisionDigest: z.string().regex(/^[a-f0-9]{64}$/).optional(),
   decision: z.enum(['approve', 'deny']),
   approvedScopes: z.array(deviceScope).min(1).max(DESKTOP_DEVICE_SCOPE_ALLOWLIST.length).optional(),
 }).strict();
@@ -18,6 +20,8 @@ export type OwnerApprovalRecord = {
   code: string;
   status: string;
   profileRevision: string;
+  profileId?: string | null;
+  profileRevisionDigest?: string | null;
   ownerActor: string;
   expiresAt: string;
   requestedScopes?: readonly string[];
@@ -71,6 +75,10 @@ export function authorizeOwnerDecision(
   if (record.status !== 'pending') return { ok: false, status: 409, error: 'pairing_not_pending' };
   if (Date.parse(record.expiresAt) <= now.getTime()) return { ok: false, status: 410, error: 'expired' };
   if (request.profileRevision !== record.profileRevision) {
+    return { ok: false, status: 409, error: 'stale_profile_revision' };
+  }
+  if (record.profileId && (request.profileId !== record.profileId
+    || request.profileRevisionDigest !== record.profileRevisionDigest)) {
     return { ok: false, status: 409, error: 'stale_profile_revision' };
   }
   const requestedScopes = [...new Set(record.requestedScopes ?? [])].sort();

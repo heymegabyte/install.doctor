@@ -33,13 +33,19 @@ async function loadWorkerApp() {
           permissions text, status text not null, device_id text, created_at text not null,
           expires_at text not null, approved_at text, claimed_at text,
           machine_fingerprint text, profile_revision text, owner_actor text,
-          decided_by text, denied_at text, last_polled_at text, approved_scopes text
+          decided_by text, denied_at text, last_polled_at text, approved_scopes text,
+          profile_id text, profile_revision_digest text
         );
         CREATE TABLE IF NOT EXISTS devices (
           device_id text primary key, tenant text not null, token_sha256 text not null unique,
           label text, permissions text, created_at text not null, revoked_at text,
           pairing_code text unique references pairings(code), profile_revision text,
-          machine_fingerprint text, expires_at text
+          machine_fingerprint text, expires_at text, profile_id text, profile_revision_digest text
+        );
+        CREATE TABLE IF NOT EXISTS tenant_owner_authority (
+          authority_id text primary key, tenant_id text not null, owner_actor_id text not null,
+          better_auth_user_id text not null, authentication_actor text not null,
+          status text not null, created_at text not null, revoked_at text
         );
         CREATE TRIGGER IF NOT EXISTS claim_pairing_after_device_insert
         AFTER INSERT ON devices WHEN NEW.pairing_code IS NOT NULL BEGIN
@@ -464,6 +470,75 @@ test('owner-bound pairing context is private and cannot use legacy token approva
   }), env);
   assert.equal(bypass.status, 409);
   assert.equal((await bypass.json()).error, 'owner_approval_required');
+});
+
+test('privileged pairing derives tenant, profile, digest, and owner from server authority', async () => {
+  const app = await loadWorkerApp();
+  const db = globalThis.__AID_TEST_DB__;
+  const digest = '7'.repeat(64);
+  const fingerprint = '8'.repeat(64);
+  const profiles = [{ id: 'profile-authoritative', tenantId: 'tenant-authoritative', slug: 'authority-profile',
+    revision: 'revision-authoritative', digest, visibility: 'public-bootstrap', enabled: true }];
+  await db.prepare(`INSERT INTO tenant_owner_authority
+    (authority_id, tenant_id, owner_actor_id, better_auth_user_id, authentication_actor, status, created_at)
+    VALUES (?, ?, ?, ?, ?, 'active', ?)`).bind('authority-control-test', 'tenant-authoritative', 'owner-authoritative',
+      'user_authoritative', 'better-auth-user:user_authoritative', new Date().toISOString()).run();
+  const env = { ...TEST_ENV, DB: db, DESKTOP_TOOLS_PUBLIC_PROFILES: profiles };
+
+  const started = await app.fetch(new Request('https://app.install.doctor/api/devices/pair/start', {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({
+      tenant: 'caller-substituted-tenant', label: 'privileged-host',
+      permissions: ['pull-desired-state', 'authorize-privileged-run'], machineFingerprint: fingerprint,
+      profileId: 'profile-authoritative', profileRevisionDigest: digest,
+    }),
+  }), env);
+  assert.equal(started.status, 201, await started.clone().text());
+  const pairing = await started.json();
+  assert.equal(pairing.tenant, 'tenant-authoritative');
+  const stored = await db.prepare(`SELECT tenant, owner_actor, profile_id, profile_revision,
+    profile_revision_digest, machine_fingerprint FROM pairings WHERE code=?`).bind(pairing.code).first();
+  assert.deepEqual(stored, { tenant: 'tenant-authoritative', owner_actor: 'better-auth-user:user_authoritative',
+    profile_id: 'profile-authoritative', profile_revision: digest,
+    profile_revision_digest: digest, machine_fingerprint: fingerprint });
+
+  const legacyApproval = await app.fetch(new Request('https://app.install.doctor/api/devices/pair/approve', {
+    method: 'POST', headers: { authorization: `Bearer ${TEST_ENV.AID_ADMIN_TOKEN}`, 'content-type': 'application/json' },
+    body: JSON.stringify({ code: pairing.code }),
+  }), env);
+  assert.equal(legacyApproval.status, 409);
+  await db.prepare(`UPDATE pairings SET status='approved', approved_at=?, approved_scopes=permissions,
+    decided_by=owner_actor WHERE code=?`).bind(new Date().toISOString(), pairing.code).run();
+  const claimed = await app.fetch(new Request('https://app.install.doctor/api/devices/pair/poll', { headers: {
+    authorization: `Bearer ${pairing.pollSecret}`,
+    'x-desktop-tools-tenant': 'tenant-authoritative',
+    'x-desktop-tools-profile-revision': digest,
+    'x-desktop-tools-device-fingerprint': fingerprint,
+  } }), env);
+  assert.equal(claimed.status, 200, await claimed.clone().text());
+  const credential = await claimed.json();
+  const device = await db.prepare(`SELECT tenant, profile_id, profile_revision_digest, machine_fingerprint,
+    permissions FROM devices WHERE device_id=?`).bind(credential.deviceId).first();
+  assert.deepEqual(device, { tenant: 'tenant-authoritative', profile_id: 'profile-authoritative',
+    profile_revision_digest: digest, machine_fingerprint: fingerprint,
+    permissions: '["pull-desired-state","authorize-privileged-run"]' });
+
+  const noAuthority = await app.fetch(new Request('https://app.install.doctor/api/devices/pair/start', {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({
+      tenant: 'tenant-without-authority', permissions: ['authorize-privileged-run'],
+      machineFingerprint: fingerprint, profileId: 'missing-profile', profileRevisionDigest: digest,
+    }),
+  }), env);
+  assert.equal(noAuthority.status, 503);
+  assert.deepEqual(await noAuthority.json(), { error: 'privileged_pair_authority_unavailable' });
+
+  const callerOwner = await app.fetch(new Request('https://app.install.doctor/api/devices/pair/start', {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({
+      permissions: ['authorize-privileged-run'], machineFingerprint: fingerprint,
+      profileId: 'profile-authoritative', profileRevisionDigest: digest, ownerActor: 'attacker@example.com',
+    }),
+  }), env);
+  assert.equal(callerOwner.status, 400);
+  assert.equal((await callerOwner.json()).error, 'invalid_request');
 });
 
 function makeBootstrapRuntimeFixture(t, product = 'legacy-install-doctor') {
