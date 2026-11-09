@@ -6,8 +6,13 @@ umask 077
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 IMAGE="${INSTALL_DOCTOR_CANARY_IMAGE:-node@sha256:8fa96264f302f58bbb13aa7339c541547b56975766ce956c875da149452a3e40}"
-FIXTURE="$(mktemp -d "${TMPDIR:-/tmp}/install-doctor-bootstrap-acceptance.XXXXXXXX")"
+FIXTURE_PARENT="${INSTALL_DOCTOR_CANARY_FIXTURE_PARENT:-$ROOT/.agent/tmp}"
+mkdir -p "$FIXTURE_PARENT"
+chmod 0700 "$FIXTURE_PARENT"
+FIXTURE="$(mktemp -d "$FIXTURE_PARENT/install-doctor-bootstrap-acceptance.XXXXXXXX")"
+CANARY_IMAGE=''
 cleanup() {
+  [ -z "$CANARY_IMAGE" ] || docker image rm --force "$CANARY_IMAGE" >/dev/null 2>&1 || true
   if [ "${INSTALL_DOCTOR_KEEP_CANARY_FIXTURE:-0}" = 1 ]; then
     printf 'bootstrap-install-acceptance: retained fixture %s\n' "$FIXTURE" >&2
   else
@@ -354,7 +359,9 @@ rollback_digest="$(node - "$HOME/rollback-plan-output.json" <<'READ_ROLLBACK_PLA
 const fs = require('node:fs');
 const plan = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
 if (!/^[a-f0-9]{64}$/.test(plan.digest)) throw new Error('rollback plan digest is invalid');
-if (JSON.stringify(plan.taskOrder) !== JSON.stringify(['installer.bootstrap-policy'])) {
+if (JSON.stringify(plan.taskOrder) !== JSON.stringify([
+  'installer.bootstrap-policy', 'bootstrap.installx-tool', 'bootstrap.installx-bin-directory',
+])) {
   throw new Error(`unexpected rollback task order: ${JSON.stringify(plan.taskOrder)}`);
 }
 process.stdout.write(plan.digest);
@@ -366,6 +373,8 @@ ROLLBACK_EXECUTE
 chmod 0600 "$HOME/rollback-execute.json"
 node /fixture/release/install-doctor-engine.mjs --input "$HOME/rollback-execute.json" > "$HOME/rollback-execute-output.json"
 [ ! -e "$HOME/.config/install.doctor-policy.json" ] || { printf 'rollback did not restore the absent policy state\n' >&2; exit 88; }
+[ ! -e "$HOME/.local/state/install.doctor/engine/tools/installx" ] || { printf 'rollback did not restore the absent engine installx state\n' >&2; exit 88; }
+[ ! -d "$HOME/.local/state/install.doctor/engine/tools" ] || { printf 'rollback did not restore the absent engine tools directory state\n' >&2; exit 88; }
 cat > "$HOME/rollback-status.json" <<ROLLBACK_STATUS
 {"schemaVersion":1,"command":"rollback-config-status","stateRoot":"$HOME/.local/state/install.doctor/engine","rollbackRunId":"bootstrap-policy-rollback","planDigest":"$rollback_digest"}
 ROLLBACK_STATUS
@@ -386,11 +395,13 @@ set -e
 # subsequent unchanged run performs no fixture or managed-file mutation.
 run_start_approved "$HOME/reapply.stdout" "$HOME/reapply.stderr" "$digest" || { cat "$HOME/reapply.stdout" "$HOME/reapply.stderr" >&2; exit 88; }
 [ -f "$HOME/.config/install.doctor-policy.json" ] || { printf 'approved reapply did not restore managed policy\n' >&2; exit 88; }
-[ "$clean_hash" = "$(sha256sum "$HOME/mutation-ledger" | awk '{print $1}')" ] || { printf 'config reapply duplicated an external fixture mutation\n' >&2; exit 89; }
+[ -x "$HOME/.local/state/install.doctor/engine/tools/installx" ] || { printf 'approved reapply did not restore managed engine installx\n' >&2; exit 88; }
+reapply_hash="$(sha256sum "$HOME/mutation-ledger" | awk '{print $1}')"
+[ "$clean_hash" = "$reapply_hash" ] || { printf 'config reapply duplicated an external fixture mutation\n' >&2; exit 89; }
 
 run_start_approved "$HOME/unchanged.stdout" "$HOME/unchanged.stderr" "$digest" || { cat "$HOME/unchanged.stdout" "$HOME/unchanged.stderr" >&2; exit 88; }
 unchanged_hash="$(sha256sum "$HOME/mutation-ledger" | awk '{print $1}')"
-[ "$clean_hash" = "$unchanged_hash" ] || { printf 'unchanged run added a mutation\n' >&2; diff -u "$HOME/clean-ledger" "$HOME/mutation-ledger" >&2 || true; exit 89; }
+[ "$reapply_hash" = "$unchanged_hash" ] || { printf 'unchanged run added a mutation\n' >&2; exit 89; }
 
 node - "$HOME/.local/state/install.doctor/engine" "$digest" "$interrupted_run_id" <<'VERIFY'
 const fs = require('node:fs');
@@ -446,15 +457,25 @@ chmod -R a+rX,go-w "$FIXTURE/container-fixture"
 printf 'bootstrap-install-acceptance: running pinned, network-disabled container\n'
 OUTPUT="$FIXTURE/canary.out"
 DOCKER_MOUNTS=()
-for TOOL in curl sudo rsync brew gum zx chezmoi process-software-groups process-software-post-scripts; do
+for TOOL in curl rsync brew gum zx chezmoi process-software-groups process-software-post-scripts; do
   DOCKER_MOUNTS+=(--mount "type=bind,src=$FIXTURE/container-fixture/tools/$TOOL,dst=/usr/local/bin/$TOOL,readonly")
 done
+# A bind mount from macOS/Colima preserves the host UID and cannot satisfy the
+# production root-owned setuid sudo boundary. Build one ephemeral layer from
+# the pinned base so the canary exercises the real fixed-path validation.
+cat > "$FIXTURE/Dockerfile" <<'DOCKERFILE'
+ARG BASE_IMAGE=node@sha256:8fa96264f302f58bbb13aa7339c541547b56975766ce956c875da149452a3e40
+FROM ${BASE_IMAGE}
+COPY --chown=0:0 --chmod=4755 container-fixture/tools/sudo /usr/bin/sudo
+DOCKERFILE
+CANARY_IMAGE="install-doctor/bootstrap-acceptance-${$}"
+docker build --network=none --build-arg "BASE_IMAGE=$IMAGE" --tag "$CANARY_IMAGE" --file "$FIXTURE/Dockerfile" "$FIXTURE" >/dev/null
 docker run --rm --network=none --read-only --entrypoint /bin/bash \
   --tmpfs /tmp:rw,nosuid,nodev,noexec,mode=1777 \
   --tmpfs /canary-home:rw,nosuid,nodev,exec,mode=0700 \
   --mount "type=bind,src=$FIXTURE/container-fixture,dst=/fixture,readonly" \
   "${DOCKER_MOUNTS[@]}" \
-  "$IMAGE" /fixture/container-run.sh | tee "$OUTPUT"
+  "$CANARY_IMAGE" /fixture/container-run.sh | tee "$OUTPUT"
 
 grep -q '^committed_runs=3$' "$OUTPUT"
 grep -q '^interrupted_run_resumed=1$' "$OUTPUT"

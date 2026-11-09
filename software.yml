@@ -453,9 +453,6 @@ softwarePackages:
     _desc: Apprise is a Python library that simplifies the process of sending notifications to multiple messaging services. It supports various notification services like Slack, Discord, Telegram, and more. With Apprise, you can easily integrate notifications into your scripts or applications by providing a unified interface to interact with different messaging platforms. It's a convenient tool for developers and system administrators to streamline their notification workflows.
     _github: https://github.com/caronc/apprise
     _bin: apprise
-    _deps:
-    - pywin32
-    - terminal-notifier
     dnf: apprise
     pipx: apprise
   apt-cacher-ng:
@@ -2400,8 +2397,6 @@ softwarePackages:
     _desc: Docker CLI and Engine tooling for building, running, and managing OCI containers.
     _github: https://github.com/docker/cli
     _bin: docker
-    _deps:
-    - docker-images
     apt:
     - containerd.io
     - docker-ce
@@ -10102,8 +10097,6 @@ softwarePackages:
     _desc: Fully featured and highly configurable SFTP server with optional HTTP/S, FTP/S and WebDAV support - S3, Google Cloud Storage, Azure Blob
     _github: https://github.com/drakkan/sftpgo
     _bin: sftpgo
-    _deps:
-    - sftpgo-plugin-auth
     _post: 'sudo sftpgo initprovider
 
       '
@@ -10410,8 +10403,6 @@ softwarePackages:
     _desc: Snapcraft is a tool developed by Canonical for building and packaging software as snaps, which are universal Linux packages that work across different distributions. It simplifies the process of creating snaps by providing a clean and easy-to-use interface. Snapcraft allows developers to define the build process in a single YAML file, making it easier to automate and reproduce builds. It supports various programming languages and frameworks, making it a versatile tool for packaging applications on Linux systems. Overall, Snapcraft streamlines the packaging process and helps developers distribute their software efficiently.
     _github: https://github.com/canonical/snapcraft
     _bin: snapcraft
-    _deps:
-    - snapd
     brew: snapcraft
     snap: snapcraft --classic
   snapd:

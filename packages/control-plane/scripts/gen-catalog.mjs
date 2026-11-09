@@ -238,6 +238,18 @@ try {
 
 items.sort((a, b) => a.name.localeCompare(b.name));
 
+// Runtime dependencies are executable install authority, not optional related
+// software. Reject a broken closure while generating the release instead of
+// shipping a catalog that every target must reject before mutation.
+const catalogNames = new Set(items.map((item) => item.name));
+for (const item of items) {
+  for (const dependency of item.deps ?? []) {
+    if (!catalogNames.has(dependency)) {
+      throw new Error(`catalog dependency ${item.name} -> ${dependency} is not an installable catalog entry`);
+    }
+  }
+}
+
 const json = JSON.stringify(items);
 writeFileSync(OUT, json + '\n');
 console.error(`gen-catalog: ${items.length} entries → ${OUT} (${(json.length / 1024).toFixed(1)} KiB)`);

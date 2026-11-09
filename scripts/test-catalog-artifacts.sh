@@ -54,7 +54,23 @@ assert artifact_only["platforms"] == ["windows"]
 assert artifact_only["artifacts"][0]["id"] == "fixture-artifact"
 PY
 
+# A dependency is hard install authority. Generation must reject an unresolved
+# reference rather than publishing a catalog that fails on every target.
+SOURCE="$SOURCE" node --input-type=module <<'NODE'
+import { readFileSync, writeFileSync } from 'node:fs';
+const path = process.env.SOURCE;
+const source = readFileSync(path, 'utf8');
+const marker = '  ack:\n';
+if (!source.includes(marker)) throw new Error('ack fixture marker missing');
+writeFileSync(path, source.replace(marker, '  ack:\n    _deps:\n    - missing-runtime-dependency\n'));
+NODE
+if node "$GENERATOR" "$SOURCE" "$OUTPUT" >/dev/null 2>&1; then
+  printf 'FAIL generator accepted an unresolved runtime dependency\n' >&2
+  exit 1
+fi
+
 # Unknown descriptor fields are rejected by the shared strict schema.
+make_source
 sed -i.bak "/sizeBytes: 12345/a\\
         unexpected: true" "$SOURCE"
 if node "$GENERATOR" "$SOURCE" "$OUTPUT" >/dev/null 2>&1; then
@@ -104,4 +120,4 @@ printf '[]\n' > "$ISOLATED/catalog.json"
 node "$ISOLATED/scripts/validate-catalog-artifacts.mjs" "$ISOLATED/catalog.json" >/dev/null
 test -f "$ISOLATED/packages/aid-core/dist/installer-contracts.js"
 
-printf 'catalog-artifacts: 8 passed, 0 failed\n'
+printf 'catalog-artifacts: 9 passed, 0 failed\n'
