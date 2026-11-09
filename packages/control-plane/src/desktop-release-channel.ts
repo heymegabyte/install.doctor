@@ -56,9 +56,11 @@ export async function resolveActiveDesktopRelease(channelBinding: unknown, relea
     values.set(key, line.slice(separator + 1));
   }
   const integer = z.string().regex(/^[1-9][0-9]*$/).transform(Number).refine(Number.isSafeInteger);
+  const nonnegative = z.string().regex(/^(?:0|[1-9][0-9]*)$/).transform(Number).refine(Number.isSafeInteger);
+  const schemaVersion = z.enum(['7', '8', '9']).parse(values.get('schema_version'));
   const createdAt = integer.parse(values.get('created_at'));
   const expiresAt = integer.parse(values.get('expires_at'));
-  if (!['7', '8', '9'].includes(values.get('schema_version') ?? '') || values.get('product_id') !== 'desktop-tools'
+  if (values.get('product_id') !== 'desktop-tools'
     || values.get('release_id') !== pointer.releaseId || values.get('key_id') !== pointer.signerId
     || !/^desktop-[a-z0-9._-]+$/.test(pointer.signerId)
     || !/^[a-f0-9]{40}$/.test(values.get('source_commit') ?? '')
@@ -66,5 +68,19 @@ export async function resolveActiveDesktopRelease(channelBinding: unknown, relea
     || createdAt >= expiresAt || expiresAt - createdAt > 604_800) {
     throw new Error('Desktop Tools active manifest identity or validity is invalid');
   }
-  return Object.freeze({ ...pointer, sourceCommit: values.get('source_commit'), createdAt, expiresAt });
+  let brokerApproval: Readonly<{ delegationUrl: string; delegationSha256: string;
+    delegationSize: number; minimumRevocationEpoch: number }> | null = null;
+  if (schemaVersion === '9') {
+    const delegationUrl = values.get('broker_approval_delegation_url') ?? '';
+    const delegationSha256 = Sha256.parse(values.get('broker_approval_delegation_sha256'));
+    const delegationSize = integer.parse(values.get('broker_approval_delegation_size'));
+    const minimumRevocationEpoch = nonnegative.parse(values.get('broker_approval_minimum_revocation_epoch'));
+    if (delegationUrl !== `https://desktop.tools/releases/${pointer.releaseId}/broker-approval-signer-delegation.json`
+      || delegationSize > 1_048_576) {
+      throw new Error('Desktop Tools broker approval delegation authority is invalid');
+    }
+    brokerApproval = Object.freeze({ delegationUrl, delegationSha256, delegationSize, minimumRevocationEpoch });
+  }
+  return Object.freeze({ ...pointer, schemaVersion: Number(schemaVersion), sourceCommit: values.get('source_commit'),
+    createdAt, expiresAt, brokerApproval });
 }

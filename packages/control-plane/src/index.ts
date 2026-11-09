@@ -258,6 +258,9 @@ app.use('*', async (c, next) => {
       } catch {
         return c.json({ error: 'release_channel_unavailable', detail: 'The signed stable release channel is unavailable or invalid; no mutable fallback is permitted.' }, 503, { 'cache-control': 'no-store' });
       }
+      if (active.schemaVersion !== 9 || !active.brokerApproval) {
+        return c.json({ error: 'release_channel_unavailable', detail: 'The active release is not compatible with the current signed launcher; no mutable fallback is permitted.' }, 503, { 'cache-control': 'no-store' });
+      }
       const configured = {
         product: 'desktop-tools' as const,
         manifestUrl: `https://desktop.tools/releases/${active.releaseId}/manifest`,

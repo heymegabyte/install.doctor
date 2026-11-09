@@ -37,13 +37,16 @@ test('resolves only a canonical product-qualified pointer and digest-bound v7 ma
 
 test('resolves the current signed v9 manifest used by the profile bootstrap', async () => {
   const value = fixture();
-  value.manifest = Buffer.from(value.manifest.toString().replace('schema_version=7', 'schema_version=9'));
+  value.manifest = Buffer.from(value.manifest.toString().replace('schema_version=7', 'schema_version=9').trimEnd()
+    + `\nbroker_approval_minimum_revocation_epoch=7\nbroker_approval_delegation_url=https://desktop.tools/releases/${value.releaseId}/broker-approval-signer-delegation.json\nbroker_approval_delegation_sha256=${'b'.repeat(64)}\nbroker_approval_delegation_size=512\n`);
   value.pointer.manifestSha256 = digest(value.manifest);
   value.pointerBytes = Buffer.from(`${JSON.stringify(value.pointer)}\n`);
   const channels = { async get() { return body(value.pointerBytes); } };
   const releases = { async get() { return body(value.manifest); } };
   const result = await resolveActiveDesktopRelease(channels, releases, 'stable', value.now);
   assert.equal(result.releaseId, value.releaseId);
+  assert.equal(result.schemaVersion, 9);
+  assert.equal(result.brokerApproval.minimumRevocationEpoch, 7);
 });
 
 test('rejects legacy prefixes, noncanonical pointers, wrong products, and manifest substitution', async () => {
