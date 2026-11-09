@@ -148,7 +148,7 @@ export async function executePrivilegedBrokerWorker(input: {
     const catalogBytes = await readProtectedRootFile(authority.releaseProof.catalogPath, 8_388_608);
     const release = await verifyDesktopReleaseCatalog({ manifestPath: authority.releaseProof.manifestPath,
       signaturePath: authority.releaseProof.signaturePath, trust: authority.releaseProof.trust,
-      expectedReleaseId: authority.releaseId, catalogBytes });
+      expectedReleaseId: authority.releaseId, catalogBytes, serviceAuthority: authority.descriptor });
     if (release.manifestSha256 !== authority.releaseProof.manifestSha256) throw new Error('broker service release differs from bootstrap authority');
     const liveFacts = await collectLinuxOfflineHostFacts();
     if (!sameHostAuthority(liveFacts, authority.hostFacts)) throw new Error('broker service live host differs from approved host authority');

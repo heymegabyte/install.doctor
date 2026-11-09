@@ -11,6 +11,7 @@ import { z } from 'zod';
 import { parseStageZeroReleaseEnvelope } from '@install-doctor/aid-core/installer-contracts';
 import { ImmutableArtifactDescriptorSchema, NativeOfflinePayloadDescriptorSchema } from './contracts.js';
 import { LoadCatalogEntrySchema } from './lazy-plan.js';
+import { PrivilegedBrokerServiceDescriptorSchema } from './native-service-descriptor.js';
 
 const execute = promisify(execFile);
 const SSH_KEYGEN = '/usr/bin/ssh-keygen';
@@ -214,6 +215,7 @@ export async function verifyDesktopReleaseCatalog(input: {
     descriptor: z.infer<typeof NativeOfflinePayloadDescriptorSchema>;
     artifacts: readonly { artifactId: string; url: string; authority: { sha256: string; sizeBytes: number; mode: '0600' } }[];
   };
+  serviceAuthority?: z.infer<typeof PrivilegedBrokerServiceDescriptorSchema>;
   now?: number;
 }): Promise<{ releaseId: string; catalogSha256: string; manifestSha256: string }> {
   const manifestBytes = await secureRead(input.manifestPath, 16_384);
@@ -298,6 +300,20 @@ export async function verifyDesktopReleaseCatalog(input: {
         || Number(values.get(`${prefix}_size`)) !== artifact.authority.sizeBytes) {
         throw new OfflineBundleError(`native Debian object is not an exact member of the authenticated release: ${artifact.artifactId}`);
       }
+    }
+  }
+  if (input.serviceAuthority) {
+    const descriptor = PrivilegedBrokerServiceDescriptorSchema.parse(input.serviceAuthority);
+    let catalog;
+    try { catalog = z.array(LoadCatalogEntrySchema).max(16_384).parse(JSON.parse(input.catalogBytes.toString('utf8'))); }
+    catch { throw new OfflineBundleError('signed release catalog is not a valid strict catalog'); }
+    const entries = catalog.filter(entry => entry.name === descriptor.serviceKey && entry.installMode === 'service'
+      && entry.platforms.includes('linux'));
+    const expectedDeclaration = { name: descriptor.unit, privilege: 'admin', manager: descriptor.manager };
+    const declarations = entries[0]?.serviceDeclarations ?? [];
+    if (entries.length !== 1 || declarations.length !== 1
+      || JSON.stringify(canonical(declarations[0])) !== JSON.stringify(canonical(expectedDeclaration))) {
+      throw new OfflineBundleError('native service descriptor is not an exact signed catalog member');
     }
   }
   return Object.freeze({ releaseId, catalogSha256, manifestSha256: sha256(manifestBytes) });

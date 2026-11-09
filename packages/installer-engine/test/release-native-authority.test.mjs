@@ -36,9 +36,13 @@ for (const schemaVersion of [8, 9]) test(`signed schema-v${schemaVersion} releas
     dependencyClosure: { depends: [], preDepends: [] }, affectedServiceUnits: [], conffiles: [],
     maintainerScriptPolicy: { trust: 'signed-repository-metadata', network: 'deny', serviceStarts: 'suppress-and-restore', conffiles: 'preserve-local' },
   };
+  const serviceDescriptor = { kind: 'native-service', manager: 'systemd', serviceKey: 'alloy',
+    unit: 'alloy.service', desiredState: 'enabled-and-started' };
   const catalogBytes = Buffer.from(`${JSON.stringify([{ name: 'tree', bin: 'tree', platforms: ['linux'], installMode: 'cli',
     loadPolicy: 'lazy', loadRationale: 'default-lazy', deps: [], artifacts: [], offlinePayloads: [descriptor],
-    providers: ['apt'], pkgs: { apt: 'tree' } }])}\n`);
+    providers: ['apt'], pkgs: { apt: 'tree' } }, { name: 'alloy', bin: 'alloy', platforms: ['linux'], installMode: 'service',
+    loadPolicy: 'eager-service', loadRationale: 'desired-state:alloy', deps: [], artifacts: [], offlinePayloads: [],
+    serviceDeclarations: [{ name: 'alloy.service', privilege: 'admin', manager: 'systemd' }] }])}\n`);
   const objects = [
     ['debian_inrelease', descriptor.metadataProof.inRelease.artifactId, 'debian-bookworm-inrelease', inRelease],
     ['debian_keyring', descriptor.metadataProof.inRelease.keyring.artifactId, 'debian-bookworm-archive-keyring.gpg', keyring],
@@ -77,6 +81,22 @@ for (const schemaVersion of [8, 9]) test(`signed schema-v${schemaVersion} releas
     expectedReleaseId: releaseId, catalogBytes, nativeAuthority: { descriptor, artifacts }, now: 1_794_080_100 };
   const verified = await verifyDesktopReleaseCatalog(input);
   assert.equal(verified.releaseId, releaseId);
+  assert.equal((await verifyDesktopReleaseCatalog({ ...input, nativeAuthority: undefined,
+    serviceAuthority: serviceDescriptor })).releaseId, releaseId);
+  await assert.rejects(verifyDesktopReleaseCatalog({ ...input, nativeAuthority: undefined,
+    serviceAuthority: { ...serviceDescriptor, unit: 'other.service' } }), /Invalid input|not an exact signed catalog member/);
+  const packageOnlyCatalog = Buffer.from(`${JSON.stringify(JSON.parse(catalogBytes).filter(entry => entry.name !== 'alloy'))}\n`);
+  const packageOnlyManifestPath = join(root, 'package-only-manifest');
+  const packageOnlyManifest = (await readFile(manifestPath, 'utf8'))
+    .replace(`catalog_sha256=${sha(catalogBytes)}`, `catalog_sha256=${sha(packageOnlyCatalog)}`)
+    .replace(`catalog_size=${catalogBytes.length}`, `catalog_size=${packageOnlyCatalog.length}`);
+  await writeFile(packageOnlyManifestPath, packageOnlyManifest, { mode: 0o600 });
+  const packageOnlySigned = spawnSync('/usr/bin/ssh-keygen', ['-Y', 'sign', '-q', '-f', key, '-n', 'desktop.tools.release',
+    packageOnlyManifestPath], { encoding: 'utf8' });
+  assert.equal(packageOnlySigned.status, 0, packageOnlySigned.stderr);
+  await assert.rejects(verifyDesktopReleaseCatalog({ ...input, nativeAuthority: undefined,
+    manifestPath: packageOnlyManifestPath, signaturePath: `${packageOnlyManifestPath}.sig`, catalogBytes: packageOnlyCatalog,
+    serviceAuthority: serviceDescriptor }), /not an exact signed catalog member/);
   const substituted = { ...input, nativeAuthority: structuredClone(input.nativeAuthority) };
   substituted.nativeAuthority.artifacts.find(item => item.artifactId === descriptor.artifact.id).authority.sha256 = 'f'.repeat(64);
   await assert.rejects(verifyDesktopReleaseCatalog(substituted), /not an exact member/);

@@ -8,6 +8,8 @@ import {
 } from './contracts.js';
 import { NativePackageOperationSchema, NativeServiceOperationSchema, OfflineOperationManifestSchema } from './offline-execution.js';
 import { privilegedBrokerDigest } from './privileged-broker-protocol.js';
+import { PrivilegedBrokerServiceDescriptorSchema } from './native-service-descriptor.js';
+export { PrivilegedBrokerServiceDescriptorSchema } from './native-service-descriptor.js';
 
 const identifier = z.string().min(1).max(128).regex(/^[a-z0-9][a-z0-9._-]*$/);
 const digest = z.string().regex(/^[a-f0-9]{64}$/);
@@ -84,12 +86,6 @@ export const PrivilegedBrokerPackageExecutionAuthoritySchema = z.strictObject({
       context.addIssue({ code: 'custom', message: `broker artifact differs from descriptor authority: ${artifact.artifactId}` });
     }
   }
-});
-
-export const PrivilegedBrokerServiceDescriptorSchema = z.strictObject({
-  kind: z.literal('native-service'), manager: z.literal('systemd'),
-  serviceKey: z.literal('alloy'), unit: z.literal('alloy.service'),
-  desiredState: z.literal('enabled-and-started'),
 });
 
 export const PrivilegedBrokerServiceExecutionAuthoritySchema = z.strictObject({
