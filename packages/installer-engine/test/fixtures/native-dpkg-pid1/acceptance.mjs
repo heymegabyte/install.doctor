@@ -300,7 +300,7 @@ async function createSignedReleaseAuthority(work, descriptor, artifacts) {
   return { releaseId, releaseProof, approvalSigner, signerKeyId, delegationPath, delegationDigest };
 }
 
-async function runBrokerComposition({ work, packagePath, repositoryAuthority, compareDebianVersions }) {
+async function runBrokerComposition({ work, packagePath, repositoryAuthority }) {
   await command('/usr/bin/dpkg', ['--purge', '--', PACKAGE_NAME]);
   const enrolledUid = 1000;
   const enrolledGid = Number((await command('/usr/bin/id', ['-g', String(enrolledUid)])).stdout.trim());
@@ -358,18 +358,21 @@ process.stdout.write(JSON.stringify({check,apply:'applied',verify})+'\\n');
   }
   const facts = await collectLinuxOfflineHostFacts();
   const desiredState = { schemaVersion: 1, revision: 'pid1-broker', hostId: facts.hostId,
-    packages: [PACKAGE_KEY], services: [], consents: [], offline: true };
-  const libcVersion = (await command('/usr/bin/dpkg-query', ['--show', '--showformat=${Version}', '--', 'libc6'])).stdout.trim();
-  const composed = composeNativeDebianPackageSlice({ descriptor,
-    target: { distroId: 'debian', versionId: '12', codename: 'bookworm', architecture: descriptor.package.architecture },
-    installedWitnesses: [{ kind: 'preexisting-witness', manager: 'dpkg', packageName: 'libc6', version: libcVersion,
-      architecture: 'amd64', status: 'installed', healthy: true, held: false }],
-    desiredState, legacyPackages: [PACKAGE_KEY], compareDebianVersions });
-  const plan = await deriveBoundNormalizedPlan({ tasks: [composed.task], selectedTaskIds: [composed.task.id],
+    packages: [PACKAGE_KEY], services: [], consents: ['package-install'], offline: true };
+  const operationIds = { check: 'native-fixture-check', apply: 'native-fixture-apply', verify: 'native-fixture-verify' };
+  const task = { schemaVersion: 1, id: 'package.native.fixture', inputDigest: sha256(Buffer.from(JSON.stringify(descriptor))),
+    dependencies: [], predicate: 'host-supported', requiredCapabilities: [], operations: operationIds,
+    timeoutMs: 300_000, retry: { class: 'never', maxAttempts: 1, backoffMs: 0 },
+    resources: { cpu: 1, memoryMiB: 256, network: false }, privilege: 'admin', network: 'none',
+    consent: 'package-install', lockDomains: ['package-manager.dpkg'], cleanup: 'none', compensation: 'none', failurePolicy: 'abort-run' };
+  const operations = Object.fromEntries(Object.entries(operationIds).map(([phase, operationId]) => [operationId,
+    { kind: 'native-package', effectClass: 'native-package', action: phase, packageKey: PACKAGE_KEY,
+      payloadArtifactId: descriptor.artifact.id, installedWitnesses: [] }]));
+  const plan = await deriveBoundNormalizedPlan({ tasks: [task], selectedTaskIds: [task.id],
     executionPolicy: { maxConcurrency: 1, resourceLimits: { cpu: 1, memoryMiB: 512, networkConcurrency: 0 } } },
-  facts, composed.desiredState, release.releaseId, new Date().toISOString());
+  facts, desiredState, release.releaseId, new Date().toISOString());
   const derived = derivePrivilegedBrokerAuthority({ schemaVersion: 1, approvalMode: 'signed-device', runId,
-    approvedPlanDigest: plan.digest, plan, operations: composed.operations.operations, desiredState: composed.desiredState,
+    approvedPlanDigest: plan.digest, plan, operations, desiredState,
     hostFacts: facts, descriptor, releaseProof: release.releaseProof, artifacts,
     transactionRoot: `/var/lib/desktop-tools/transactions/${runId}`, enrolledUid, socketGid: enrolledGid,
     helperPath, helperDigest: sha256(await readFile(helperPath)), runtimePath, runtimeDigest: sha256(await readFile(runtimePath)),
@@ -567,7 +570,7 @@ async function main() {
   assert.equal(noPendingTriggers, true);
   const installed = await command('/usr/bin/dpkg-query', ['--show', `--showformat=\${db:Status-Status}\t\${Version}\n`, '--', PACKAGE_NAME]);
   assert.equal(installed.stdout, `installed\t${PACKAGE_VERSION}\n`);
-  const brokerComposition = await runBrokerComposition({ work, packagePath, repositoryAuthority, compareDebianVersions });
+  const brokerComposition = await runBrokerComposition({ work, packagePath, repositoryAuthority });
   const brokerInstalled = await command('/usr/bin/dpkg-query', ['--show', `--showformat=\${db:Status-Status}\t\${Version}\n`, '--', PACKAGE_NAME]);
   assert.equal(brokerInstalled.stdout, `installed\t${PACKAGE_VERSION}\n`);
   assert.equal(JSON.stringify(await exactPolicyState()), JSON.stringify(initialPolicy));
