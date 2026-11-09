@@ -31,7 +31,8 @@ const facts = request => ({
 function fixture(overrides = {}) {
   const values = {
     device: { deviceCredentialId: principal.deviceCredentialId, deviceFingerprint: principal.deviceFingerprint,
-      tenantId: principal.tenantId, active: true },
+      tenantId: principal.tenantId, profileId: intent.profileId,
+      profileRevisionDigest: intent.profileRevisionDigest, active: true },
     profile: { profileId: intent.profileId, tenantId: principal.tenantId, revision: 'revision-7',
       digest: intent.profileRevisionDigest, visibility: 'public-bootstrap', enabled: true },
     release: { product: 'desktop-tools', channel: 'stable', releaseId: intent.releaseId,
@@ -77,6 +78,10 @@ test('rejects every authenticated device and immutable public-profile substituti
     assert.equal(await adapter.reconstructRunIntent({ ...intent, ...changed.request },
       { ...principal, ...changed.principal }), null);
   }
+  for (const device of [
+    { ...fixture().values.device, profileId: 'profile-2' },
+    { ...fixture().values.device, profileRevisionDigest: hex('8') },
+  ]) assert.equal(await fixture({ device }).adapter.reconstructRunIntent(intent, principal), null);
   for (const profile of [
     { ...fixture().values.profile, tenantId: 'tenant-2' },
     { ...fixture().values.profile, visibility: 'private' },

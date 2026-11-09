@@ -11,6 +11,8 @@ export const AuthoritativeBrokerDevice = z.object({
   deviceCredentialId: id,
   deviceFingerprint: digest,
   tenantId: id,
+  profileId: id,
+  profileRevisionDigest: digest,
   active: z.literal(true),
 }).strict();
 
@@ -122,7 +124,9 @@ export function createAuthoritativeBrokerRunIntentAdapter(input: Readonly<{
       if (device.deviceCredentialId !== principal.deviceCredentialId
         || device.deviceFingerprint !== principal.deviceFingerprint || device.tenantId !== principal.tenantId
         || request.deviceCredentialId !== device.deviceCredentialId
-        || request.deviceFingerprint !== device.deviceFingerprint || request.tenantId !== device.tenantId) return null;
+        || request.deviceFingerprint !== device.deviceFingerprint || request.tenantId !== device.tenantId
+        || request.profileId !== device.profileId
+        || request.profileRevisionDigest !== device.profileRevisionDigest) return null;
 
       const profile = AuthoritativePublicProfile.parse(await input.resolvers.profile.resolve(request.profileId));
       // BrokerRunIntent intentionally carries the immutable profile digest, not the human-facing
