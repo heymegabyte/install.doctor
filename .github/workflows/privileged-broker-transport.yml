@@ -82,9 +82,14 @@ jobs:
           fi
           sha256sum "$RUNNER_TEMP/broker-a/broker"
           npm --prefix "$GITHUB_WORKSPACE/packages/installer-engine" run build
-          test -f "$GITHUB_WORKSPACE/packages/installer-engine/dist/privileged-broker-client.js"
-          test ! -L "$GITHUB_WORKSPACE/packages/installer-engine/dist/privileged-broker-client.js"
+          "$GITHUB_WORKSPACE/packages/installer-engine/node_modules/.bin/esbuild" \
+            "$GITHUB_WORKSPACE/packages/installer-engine/src/privileged-broker-client.ts" \
+            --bundle --platform=node --format=esm --target=node22 --legal-comments=none \
+            --outfile="$RUNNER_TEMP/desktop-tools-privileged-broker-client.mjs"
+          test -f "$RUNNER_TEMP/desktop-tools-privileged-broker-client.mjs"
+          test ! -L "$RUNNER_TEMP/desktop-tools-privileged-broker-client.mjs"
           timeout --signal=TERM --kill-after=5s 120s sudo env \
             DESKTOP_TOOLS_PRIVILEGED_BROKER_TEST_BINARY="$RUNNER_TEMP/broker-a/broker" \
+            DESKTOP_TOOLS_PRIVILEGED_BROKER_CLIENT_TEST_MODULE="$RUNNER_TEMP/desktop-tools-privileged-broker-client.mjs" \
             "$(command -v node)" --test \
             "$GITHUB_WORKSPACE/packages/installer-engine/test/privileged-broker-controller-linux.test.mjs"

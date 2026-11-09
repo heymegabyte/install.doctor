@@ -3,6 +3,7 @@ import { createHash, generateKeyPairSync, sign } from 'node:crypto';
 import { chmod, chown, copyFile, lstat, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { spawn } from 'node:child_process';
 import { dirname, join } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import test from 'node:test';
 import { deriveBoundNormalizedPlan } from '../dist/engine.js';
 import { composeNativeDebianPackageSlice } from '../dist/native-debian-composition.js';
@@ -12,7 +13,8 @@ import { brokerApprovalAuditDigest, brokerApprovalSemanticDigest,
   brokerApprovalSigningBytes } from '../../aid-core/dist/broker-approval-contracts.js';
 
 const helperSource = process.env.DESKTOP_TOOLS_PRIVILEGED_BROKER_TEST_BINARY;
-const enabled = process.platform === 'linux' && process.geteuid?.() === 0 && helperSource;
+const clientModuleSource = process.env.DESKTOP_TOOLS_PRIVILEGED_BROKER_CLIENT_TEST_MODULE;
+const enabled = process.platform === 'linux' && process.geteuid?.() === 0 && helperSource && clientModuleSource;
 const hash = value => createHash('sha256').update(value).digest('hex');
 const fileHash = async path => hash(await readFile(path));
 const compare = (left, right) => left.localeCompare(right, undefined, { numeric: true });
@@ -77,6 +79,7 @@ async function exerciseController(t, suffix, authorize) {
   const helperPath = join(authorityRoot, 'desktop-tools-privileged-broker');
   const runtimePath = join(authorityRoot, 'runtime');
   const workerPath = join(authorityRoot, 'worker.mjs');
+  const clientModulePath = join(authorityRoot, 'client.mjs');
   await mkdir(authorityRoot, { recursive: true, mode: 0o700 });
   await mkdir(socketRoot, { recursive: true, mode: 0o710 });
   await chmod(authorityRoot, 0o711);
@@ -128,7 +131,8 @@ test('Linux root controller admits an enrolled UID through the real sealed-FD br
   await mkdir(authorityRoot, { recursive: true, mode: 0o700 });
   await mkdir(socketRoot, { recursive: true, mode: 0o710 });
   await chmod(authorityRoot, 0o711);
-  await Promise.all([copyFile(helperSource, helperPath), copyFile(process.execPath, runtimePath)]);
+  await Promise.all([copyFile(helperSource, helperPath), copyFile(process.execPath, runtimePath),
+    copyFile(clientModuleSource, clientModulePath)]);
   const worker = `
 import { createHash } from 'node:crypto';
 import { fstatSync, writeSync } from 'node:fs';
@@ -142,16 +146,17 @@ const receipt={schemaVersion:1,hostId:request.hostId,releaseId:request.releaseId
 writeSync(4,Buffer.from(JSON.stringify(receipt)));
 `;
   await Promise.all([writeFile(workerPath, worker), writeFile(payloadPath, 'tree')]);
-  await Promise.all([chmod(helperPath, 0o555), chmod(runtimePath, 0o555), chmod(workerPath, 0o400), chmod(payloadPath, 0o400)]);
+  await Promise.all([chmod(helperPath, 0o555), chmod(runtimePath, 0o555), chmod(workerPath, 0o400),
+    chmod(clientModulePath, 0o444), chmod(payloadPath, 0o400)]);
   await Promise.all([chown(helperPath, 0, 0), chown(runtimePath, 0, 0), chown(workerPath, 0, 0),
-    chown(socketRoot, 0, enrolledGid), chown(payloadPath, 1000, enrolledGid)]);
+    chown(clientModulePath, 0, 0), chown(socketRoot, 0, enrolledGid), chown(payloadPath, 1000, enrolledGid)]);
   t.after(async () => {
     await rm(socketRoot, { recursive: true, force: true }); await rm(authorityRoot, { recursive: true, force: true });
     await rm(payloadPath, { force: true });
   });
   const input = await exactInput(runId, authorityRoot, helperPath, runtimePath, workerPath);
   input.socketGid = enrolledGid;
-  const clientModule = new URL('../dist/privileged-broker-client.js', import.meta.url).href;
+  const clientModule = pathToFileURL(clientModulePath).href;
   const clientScript = `import{open,readFile}from'node:fs/promises';import{createPrivilegedBrokerNativeRuntime as create}from'${clientModule}';const input=JSON.parse(await readFile(process.argv[1],'utf8'));const payload=process.argv[2];const runtime=create(input.config);const authority=phase=>({operation:{kind:'native-package',effectClass:'native-package',action:phase,packageKey:'tree',payloadArtifactId:'tree-deb'},rootDescriptor:{packageKey:'tree',artifact:{sha256:'${hash('tree')}',sizeBytes:4}},packages:[],installedWitnesses:[],withPayload:async(_key,use)=>{const handle=await open(payload,'r');try{return await use(handle)}finally{await handle.close()}},context:undefined});if(await runtime.check(authority('check'))!=='needed')process.exit(3);await runtime.apply(authority('apply'));if(await runtime.verify(authority('verify'))!=='verified')process.exit(4);`;
   const clientInputPath = join('/tmp', `${runId}.json`);
   const clientConfig = { helperPath, socketPath: input.socketPath, hostId: input.grant.hostId, releaseId: input.grant.releaseId,
