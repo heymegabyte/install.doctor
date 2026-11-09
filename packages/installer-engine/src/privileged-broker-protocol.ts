@@ -36,6 +36,18 @@ export const PrivilegedBrokerGrantSchema = z.strictObject({
   }
 });
 
+export const PrivilegedBrokerApprovalEvidenceSchema = z.strictObject({
+  schemaVersion: z.literal(1),
+  approvalId: identifier,
+  method: z.enum(['trusted-local', 'signed-device']),
+  hostId: identifier,
+  runId: identifier,
+  planDigest: digest,
+  consentDigest: digest,
+  evidenceDigest: digest,
+  approvedAt: timestamp,
+});
+
 export const PrivilegedBrokerRequestSchema = z.strictObject({
   schemaVersion: z.literal(1),
   hostId: identifier,
@@ -79,6 +91,7 @@ export const PrivilegedBrokerReceiptSchema = z.strictObject({
 });
 
 export type PrivilegedBrokerGrant = z.infer<typeof PrivilegedBrokerGrantSchema>;
+export type PrivilegedBrokerApprovalEvidence = z.infer<typeof PrivilegedBrokerApprovalEvidenceSchema>;
 export type PrivilegedBrokerRequest = z.infer<typeof PrivilegedBrokerRequestSchema>;
 export type PrivilegedBrokerReceipt = z.infer<typeof PrivilegedBrokerReceiptSchema>;
 
