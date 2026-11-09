@@ -3203,6 +3203,59 @@ idRequireRootInstallUserEnrollment() {
 # Stage only the selected Debian native-package authority into a root-owned
 # volatile release directory. The durable transaction fence lives separately
 # under /var/lib; release bytes are re-established from the signed release.
+idSealBrokerApprovalDelegation() {
+  [ "${DESKTOP_TOOLS_NATIVE_BROKER_REQUESTED:-false}" = true ] || return 0
+  [ "$(id -u)" -eq 0 ] || { logg error 'Broker approval delegation must be sealed by the root parent'; return 2; }
+  [ "${INSTALL_DOCTOR_RUNTIME_SOURCE:-}" = signed-archive ] \
+    || { logg error 'Broker approval delegation requires the signed release Node runtime'; return 2; }
+  local SOURCE="${DESKTOP_TOOLS_BROKER_APPROVAL_DELEGATION_PATH:-}"
+  local EXPECTED_SHA="${DESKTOP_TOOLS_BROKER_APPROVAL_DELEGATION_SHA256:-}"
+  local MINIMUM_EPOCH="${DESKTOP_TOOLS_BROKER_APPROVAL_MINIMUM_REVOCATION_EPOCH:-}"
+  local OUTPUT KEY VALUE
+  case "$EXPECTED_SHA" in ''|*[!a-f0-9]*) logg error 'Broker approval delegation digest is malformed'; return 2 ;; esac
+  [ "${#EXPECTED_SHA}" -eq 64 ] || { logg error 'Broker approval delegation digest is malformed'; return 2; }
+  case "$MINIMUM_EPOCH" in ''|*[!0-9]*) logg error 'Broker approval minimum revocation epoch is malformed'; return 2 ;; esac
+  [ -n "$SOURCE" ] && [ -f "$SOURCE" ] && [ ! -L "$SOURCE" ] \
+    || { logg error 'Verified broker approval delegation is unavailable'; return 2; }
+  OUTPUT="$("${INSTALL_DOCTOR_RUNTIME_NODE}" - "$SOURCE" "$EXPECTED_SHA" "$MINIMUM_EPOCH" \
+    "${INSTALL_DOCTOR_RELEASE_ID:-}" "${INSTALL_DOCTOR_VERIFIED_MANIFEST:-}" "${INSTALL_DOCTOR_MANIFEST_SHA256:-}" <<'NODE'
+const fs=require('node:fs');const crypto=require('node:crypto');const path=require('node:path');
+if(process.geteuid?.()!==0)throw new Error('root is required');
+const [source,expectedSha,minimumEpochText,releaseId,manifestPath,manifestSha]=process.argv.slice(2);
+const hash=bytes=>crypto.createHash('sha256').update(bytes).digest('hex');
+const canonical=value=>Array.isArray(value)?value.map(canonical):value&&typeof value==='object'?Object.fromEntries(Object.entries(value).sort(([a],[b])=>a.localeCompare(b)).map(([key,child])=>[key,canonical(child)])):value;
+const readExact=(file,maximum,expected)=>{const before=fs.lstatSync(file,{bigint:true});if(!before.isFile()||before.isSymbolicLink()||before.nlink!==1n||before.size<1n||before.size>BigInt(maximum))throw new Error('delegation authority source is unsafe');const fd=fs.openSync(file,fs.constants.O_RDONLY|(fs.constants.O_NOFOLLOW||0));try{const opened=fs.fstatSync(fd,{bigint:true});if(opened.dev!==before.dev||opened.ino!==before.ino||opened.size!==before.size)throw new Error('delegation authority changed while opening');const bytes=fs.readFileSync(fd);if(BigInt(bytes.length)!==opened.size||hash(bytes)!==expected)throw new Error('delegation authority digest mismatch');return bytes;}finally{fs.closeSync(fd);}};
+if(!/^[a-f0-9]{64}$/.test(expectedSha)||!/^[a-f0-9]{64}$/.test(manifestSha)||!/^[a-z0-9][a-z0-9._-]{0,127}$/.test(releaseId)||!/^\d+$/.test(minimumEpochText))throw new Error('delegation release binding is malformed');
+const minimumEpoch=Number(minimumEpochText);if(!Number.isSafeInteger(minimumEpoch)||minimumEpoch<0)throw new Error('minimum revocation epoch is invalid');
+const manifestBytes=readExact(manifestPath,1_048_576,manifestSha);const manifestText=manifestBytes.toString('utf8');if(!manifestText.endsWith('\n')||manifestText.includes('\r')||manifestText.includes('\n\n'))throw new Error('release manifest encoding is invalid');
+const manifest=new Map();for(const line of manifestText.slice(0,-1).split('\n')){const separator=line.indexOf('=');if(separator<1)throw new Error('release manifest line is malformed');const key=line.slice(0,separator),value=line.slice(separator+1);if(manifest.has(key))throw new Error('release manifest contains duplicate authority');manifest.set(key,value);}
+if(manifest.get('schema_version')!=='9'||manifest.get('product_id')!=='desktop-tools'||manifest.get('release_id')!==releaseId||manifest.get('broker_approval_delegation_sha256')!==expectedSha||manifest.get('broker_approval_minimum_revocation_epoch')!==minimumEpochText)throw new Error('delegation differs from the signed release manifest');
+const expectedUrl=`https://desktop.tools/releases/${releaseId}/broker-approval-signer-delegation.json`;if(manifest.get('broker_approval_delegation_url')!==expectedUrl)throw new Error('delegation URL is outside the exact release');
+const delegationBytes=readExact(source,65_536,expectedSha);if(manifest.get('broker_approval_delegation_size')!==String(delegationBytes.length))throw new Error('delegation size differs from the signed release manifest');
+let delegation;try{delegation=JSON.parse(delegationBytes.toString('utf8'));}catch{throw new Error('delegation is not valid JSON');}
+const keys=['algorithm','channel','delegationDigest','keyId','kind','maximumApprovalLifetimeSeconds','notAfter','notBefore','product','publicKeySpki','releaseId','revocationEpoch','schemaVersion','signatureDomain'];if(!delegation||Array.isArray(delegation)||JSON.stringify(Object.keys(delegation).sort())!==JSON.stringify(keys)||!delegationBytes.equals(Buffer.from(`${JSON.stringify(canonical(delegation))}\n`)))throw new Error('delegation is not exact canonical JSON');
+const id=value=>typeof value==='string'&&/^[a-z0-9][a-z0-9._-]{0,127}$/.test(value);if(delegation.schemaVersion!==1||delegation.kind!=='desktop-tools-broker-approval-signer-delegation'||delegation.algorithm!=='Ed25519'||delegation.signatureDomain!=='desktop-tools-broker-approval-v1'||delegation.product!=='desktop-tools'||delegation.releaseId!==releaseId||delegation.channel!=='stable'||!id(delegation.keyId)||!Number.isSafeInteger(delegation.maximumApprovalLifetimeSeconds)||delegation.maximumApprovalLifetimeSeconds<1||delegation.maximumApprovalLifetimeSeconds>1800||!Number.isSafeInteger(delegation.revocationEpoch)||delegation.revocationEpoch<minimumEpoch)throw new Error('delegation identity or policy is invalid');
+const created=Number(manifest.get('created_at'))*1000,expires=Number(manifest.get('expires_at'))*1000,before=Date.parse(delegation.notBefore),after=Date.parse(delegation.notAfter);if(!Number.isSafeInteger(created)||!Number.isSafeInteger(expires)||!Number.isFinite(before)||!Number.isFinite(after)||new Date(before).toISOString()!==delegation.notBefore||new Date(after).toISOString()!==delegation.notAfter||before>created||after<expires||before>=after)throw new Error('delegation does not contain the signed release validity window');
+let publicKey;try{if(typeof delegation.publicKeySpki!=='string'||!/^[A-Za-z0-9_-]{32,512}$/.test(delegation.publicKeySpki))throw new Error();const der=Buffer.from(delegation.publicKeySpki,'base64url');if(der.toString('base64url')!==delegation.publicKeySpki)throw new Error();publicKey=crypto.createPublicKey({key:der,type:'spki',format:'der'});if(publicKey.asymmetricKeyType!=='ed25519'||!publicKey.export({type:'spki',format:'der'}).equals(der))throw new Error();}catch{throw new Error('delegation public key is not exact Ed25519 SPKI');}
+const {delegationDigest,...projection}=delegation;const semanticDigest=hash(Buffer.from(`desktop-tools:broker-approval-signer-delegation:v1\0${JSON.stringify(canonical(projection))}`));if(delegationDigest!==semanticDigest)throw new Error('delegation semantic digest is invalid');
+for(const [directory,mode] of [['/run/desktop-tools',0o711],['/run/desktop-tools/authority',0o711],[`/run/desktop-tools/authority/${releaseId}`,0o711]]){try{fs.mkdirSync(directory,{mode});}catch(error){if(error.code!=='EEXIST')throw error;}const metadata=fs.lstatSync(directory);if(!metadata.isDirectory()||metadata.isSymbolicLink()||metadata.uid!==0||(metadata.mode&0o777)!==mode)throw new Error('delegation authority directory is unsafe');}
+const root=`/run/desktop-tools/authority/${releaseId}`;const install=(name,bytes,mode)=>{const target=path.join(root,name);try{const metadata=fs.lstatSync(target);if(!metadata.isFile()||metadata.isSymbolicLink()||metadata.nlink!==1||metadata.uid!==0||(metadata.mode&0o777)!==mode||hash(fs.readFileSync(target))!==hash(bytes))throw new Error('existing sealed delegation authority differs');return target;}catch(error){if(error.code!=='ENOENT')throw error;}const temporary=`${target}.tmp-${process.pid}-${crypto.randomBytes(8).toString('hex')}`;const fd=fs.openSync(temporary,fs.constants.O_CREAT|fs.constants.O_EXCL|fs.constants.O_WRONLY,mode);try{fs.writeFileSync(fd,bytes);fs.fsyncSync(fd);}finally{fs.closeSync(fd);}fs.renameSync(temporary,target);return target;};
+const delegationPath=install('broker-approval-signer-delegation.json',delegationBytes,0o400);const evidence={schemaVersion:1,kind:'desktop-tools-broker-approval-authority',releaseId,manifestSha256:manifestSha,delegationSha256:expectedSha,delegationDigest,keyId:delegation.keyId,revocationEpoch:delegation.revocationEpoch,minimumRevocationEpoch:minimumEpoch};const evidenceBytes=Buffer.from(`${JSON.stringify(canonical(evidence))}\n`);const evidencePath=install('broker-approval-authority.json',evidenceBytes,0o400);
+process.stdout.write(`DELEGATION_PATH=${delegationPath}\nDELEGATION_SHA256=${expectedSha}\nDELEGATION_DIGEST=${delegationDigest}\nDELEGATION_EVIDENCE_PATH=${evidencePath}\nDELEGATION_EVIDENCE_SHA256=${hash(evidenceBytes)}\n`);
+NODE
+)" || { logg error 'Unable to seal the signed broker approval delegation'; return 2; }
+  while IFS='=' read -r KEY VALUE; do
+    case "$KEY" in
+      DELEGATION_PATH|DELEGATION_SHA256|DELEGATION_DIGEST|DELEGATION_EVIDENCE_PATH|DELEGATION_EVIDENCE_SHA256)
+        printf -v "DESKTOP_TOOLS_BROKER_$KEY" '%s' "$VALUE"; export "DESKTOP_TOOLS_BROKER_$KEY" ;;
+      *) logg error 'Broker approval delegation sealing returned an unknown field'; return 2 ;;
+    esac
+  done <<< "$OUTPUT"
+  [ -n "${DESKTOP_TOOLS_BROKER_DELEGATION_PATH:-}" ] && [ -n "${DESKTOP_TOOLS_BROKER_DELEGATION_DIGEST:-}" ] \
+    && [ -n "${DESKTOP_TOOLS_BROKER_DELEGATION_EVIDENCE_PATH:-}" ] \
+    || { logg error 'Broker approval delegation sealing returned incomplete authority'; return 2; }
+}
+
 idStageNativeBrokerAuthority() {
   [ "${DESKTOP_TOOLS_NATIVE_BROKER_REQUESTED:-false}" = true ] || return 0
   [ "$(id -u)" -eq 0 ] || { logg error 'Native broker authority must be staged by the root parent'; return 2; }
@@ -3210,6 +3263,7 @@ idStageNativeBrokerAuthority() {
     || { logg error 'Native broker authority is supported only on Debian 12 x64 native hosts'; return 2; }
   [ "${INSTALL_DOCTOR_RUNTIME_SOURCE:-}" = signed-archive ] \
     || { logg error 'Native broker authority requires the signed release Node runtime'; return 2; }
+  idSealBrokerApprovalDelegation || return $?
   local OUTPUT KEY VALUE NATIVE_STAGE DOWNLOAD_STATUS=0 DOWNLOAD_PID
   NATIVE_STAGE="$(mktemp -d "${TMPDIR:-/tmp}/desktop-tools-native.XXXXXX")" || return 1
   chmod 0700 "$NATIVE_STAGE" || { rm -rf -- "$NATIVE_STAGE"; return 1; }
