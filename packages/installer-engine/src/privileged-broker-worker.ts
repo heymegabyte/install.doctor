@@ -165,13 +165,18 @@ export async function executePrivilegedBrokerWorker(input: {
         adapter: createSystemdServiceStateAdapter({ systemctlPath: '/usr/bin/systemctl' }), persistence,
       });
       let status: PrivilegedBrokerReceipt['status'];
-      if (envelope.request.phase === 'check') status = await runtime.check();
+      let serviceState: { enabled: boolean; running: boolean } | null = null;
+      if (envelope.request.phase === 'check') {
+        const inspection = await runtime.check();
+        status = inspection.status;
+        serviceState = inspection.previousState;
+      }
       else if (envelope.request.phase === 'apply') { await runtime.apply(); status = 'applied'; }
       else status = await runtime.verify();
       const fenceDigest = envelope.request.phase === 'apply' ? await persistence.evidenceDigest()
         : privilegedBrokerDigest({ requestDigest: validated.requestDigest, status, closureDigest: grant.closureDigest });
       return createPrivilegedBrokerReceipt({ request: envelope.request, grantDigest: validated.grantDigest,
-        status, fenceDigest, completedAt: new Date().toISOString() });
+        status, fenceDigest, completedAt: new Date().toISOString(), serviceState });
     } finally { await rm(staged.root, { recursive: true, force: true }); }
   }
   const authority = PrivilegedBrokerPackageExecutionAuthoritySchema.parse(storedAuthority);

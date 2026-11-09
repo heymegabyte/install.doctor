@@ -27,7 +27,8 @@ export interface RollbackTargetState { readonly existed: boolean; readonly diges
 
 function isRestoredPostcondition(artifact: PersistedConfigurationCompensation, target: RollbackTargetState): boolean {
   const snapshot = artifact.snapshot;
-  const fileRestored = 'kind' in snapshot ? !target.existed && target.type === 'absent' : snapshot.existed
+  const fileRestored = 'kind' in snapshot && snapshot.kind === 'directory' ? !target.existed && target.type === 'absent'
+    : 'kind' in snapshot && snapshot.kind === 'service' ? true : snapshot.existed
     ? target.existed && target.type === 'regular' && target.links === 1
       && target.digest === snapshot.digest && target.mode === snapshot.mode
       && target.uid === snapshot.uid && target.gid === snapshot.gid
@@ -57,7 +58,7 @@ async function observe(path: string, allowDirectory = false): Promise<RollbackTa
 
 async function restoreManagedDirectory(artifact: PersistedConfigurationCompensation, uid: number, beforeMutation?: () => Promise<void>): Promise<void> {
   const snapshot = artifact.snapshot;
-  if (!('kind' in snapshot)) throw new Error('directory rollback snapshot is missing');
+  if (!('kind' in snapshot) || snapshot.kind !== 'directory') throw new Error('directory rollback snapshot is missing');
   const parent = await safeParent(snapshot.targetPath, uid);
   const info = await lstat(snapshot.targetPath);
   if (!info.isDirectory() || info.isSymbolicLink() || info.uid !== uid || (info.mode & 0o7777) !== 0o700) throw new Error('rollback directory is not installer-owned');
@@ -99,7 +100,8 @@ async function assertSafeTarget(path: string, uid: number): Promise<boolean> {
 
 async function restore(artifact: PersistedConfigurationCompensation, uid: number, beforeMutation?: () => Promise<void>): Promise<void> {
   const snapshot = artifact.snapshot;
-  if ('kind' in snapshot) return restoreManagedDirectory(artifact, uid, beforeMutation);
+  if ('kind' in snapshot && snapshot.kind === 'directory') return restoreManagedDirectory(artifact, uid, beforeMutation);
+  if ('kind' in snapshot && snapshot.kind === 'service') return;
   const parent = await safeParent(snapshot.targetPath, uid);
   const exists = await assertSafeTarget(snapshot.targetPath, uid);
   if (!snapshot.existed) {
@@ -140,7 +142,9 @@ export async function executeApprovedUserFileRollback(input: unknown, compensati
     if (configurationCompensationArtifactDigest(artifact.snapshot, artifactBytes, serviceSnapshot) !== artifact.record.artifactDigest) {
       throw new Error(`rollback compensation artifact digest mismatch: ${taskId}`);
     }
-    let target = await observe(artifact.snapshot.targetPath, 'kind' in artifact.snapshot);
+    let target = 'kind' in artifact.snapshot && artifact.snapshot.kind === 'service'
+      ? { existed: false, digest: null, mode: null, uid: null, gid: null, type: 'absent' as const, links: null, service: null }
+      : await observe(artifact.snapshot.targetPath, 'kind' in artifact.snapshot);
     if (serviceSnapshot !== null) {
       if (observer?.captureService === undefined || observer.restoreService === undefined) throw new Error(`unsupported service manager for rollback: ${serviceSnapshot.manager}`);
       target = { ...target, service: await observer.captureService(serviceSnapshot) };

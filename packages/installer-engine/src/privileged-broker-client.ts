@@ -170,14 +170,18 @@ export function createPrivilegedBrokerNativeRuntime(
   return Object.freeze({
     async check(authority: NativePackageRuntimeAuthority): Promise<Inspection> {
       const receipt = await invoke('check', authority);
+      if (receipt.serviceState !== null) throw new Error('broker package receipt carries unauthorized service state');
       if (!['verified', 'needed', 'inapplicable'].includes(receipt.status)) throw new Error('broker check receipt has an invalid status');
       return receipt.status as Inspection;
     },
     async apply(authority: NativePackageRuntimeAuthority): Promise<void> {
-      if ((await invoke('apply', authority)).status !== 'applied') throw new Error('broker apply receipt is not applied');
+      const receipt = await invoke('apply', authority);
+      if (receipt.serviceState !== null) throw new Error('broker package receipt carries unauthorized service state');
+      if (receipt.status !== 'applied') throw new Error('broker apply receipt is not applied');
     },
     async verify(authority: NativePackageRuntimeAuthority): Promise<Verification> {
       const receipt = await invoke('verify', authority);
+      if (receipt.serviceState !== null) throw new Error('broker package receipt carries unauthorized service state');
       if (!['verified', 'inapplicable', 'pending'].includes(receipt.status)) throw new Error('broker verify receipt has an invalid status');
       return receipt.status as Verification;
     },
@@ -227,19 +231,28 @@ export function createPrivilegedBrokerServiceRuntime(
       } finally { await payload.close(); }
     } finally { await rm(root, { recursive: true, force: true }); }
   };
+  let preparedState: { readonly enabled: boolean; readonly running: boolean } | null = null;
   return Object.freeze({
     descriptor,
     async check(operation: NativeServiceOperation): Promise<Inspection> {
       const receipt = await invoke('check', operation);
       if (!['verified', 'needed'].includes(receipt.status)) throw new Error('broker service check receipt has an invalid status');
+      if (receipt.serviceState === null) throw new Error('broker service check receipt lacks exact pre-state');
+      preparedState = receipt.serviceState;
       return receipt.status as Inspection;
+    },
+    preparedState(): { readonly enabled: boolean; readonly running: boolean } {
+      if (preparedState === null) throw new Error('broker service apply lacks a prepared pre-state');
+      return Object.freeze({ ...preparedState });
     },
     async apply(operation: NativeServiceOperation): Promise<void> {
       const receipt = await invoke('apply', operation);
+      if (receipt.serviceState !== null) throw new Error('broker service apply receipt carries unexpected pre-state');
       if (receipt.status !== 'applied') throw new Error('broker service apply receipt is not applied');
     },
     async verify(operation: NativeServiceOperation): Promise<Verification> {
       const receipt = await invoke('verify', operation);
+      if (receipt.serviceState !== null) throw new Error('broker service verify receipt carries unexpected pre-state');
       if (!['verified', 'pending'].includes(receipt.status)) throw new Error('broker service verify receipt has an invalid status');
       return receipt.status as Verification;
     },

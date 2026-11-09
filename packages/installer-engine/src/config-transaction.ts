@@ -82,9 +82,20 @@ export const DirectoryConfigurationSnapshotSchema = z.strictObject({
     markerDigest: z.string().regex(/^[a-f0-9]{64}$/),
   }),
 });
+export const ServiceOnlyConfigurationSnapshotSchema = z.strictObject({
+  schemaVersion: VERSION,
+  kind: z.literal('service'),
+  targetPath: z.string().regex(/^systemd:[A-Za-z0-9][A-Za-z0-9_.@:-]{0,126}\.service$/),
+  existed: z.literal(false),
+  mode: z.literal(null),
+  uid: z.literal(null),
+  gid: z.literal(null),
+  digest: z.literal(null),
+});
 export const ConfigurationSnapshotSchema = z.union([
   FileConfigurationSnapshotSchema,
   DirectoryConfigurationSnapshotSchema,
+  ServiceOnlyConfigurationSnapshotSchema,
 ]);
 export type ConfigurationSnapshot = z.infer<typeof ConfigurationSnapshotSchema>;
 
@@ -221,12 +232,20 @@ function sha256(bytes: Uint8Array): string {
 }
 
 export function configurationCompensationArtifactDigest(snapshot: ConfigurationSnapshot, bytes: Uint8Array | null, serviceSnapshot: ServiceStateSnapshot | null = null): string {
-  if ('kind' in snapshot) {
+  if ('kind' in snapshot && snapshot.kind === 'directory') {
     if (bytes !== null || serviceSnapshot !== null) throw new ConfigurationTransactionError('directory compensation cannot contain file or service bytes');
     return createHash('sha256').update('install-doctor:managed-directory:v1\0').update(JSON.stringify({
       authority: snapshot.authority,
       targetPath: snapshot.targetPath,
     })).digest('hex');
+  }
+  if ('kind' in snapshot && snapshot.kind === 'service') {
+    if (bytes !== null || serviceSnapshot === null || serviceSnapshot.manager !== 'systemd'
+      || snapshot.targetPath !== `systemd:${serviceSnapshot.serviceId}`) {
+      throw new ConfigurationTransactionError('service-only compensation requires its exact systemd snapshot');
+    }
+    return createHash('sha256').update('desktop-tools:service-only-compensation:v1\0')
+      .update(JSON.stringify(snapshot)).update('\0').update(JSON.stringify(serviceSnapshot)).digest('hex');
   }
   const metadata = JSON.stringify({
     existed: snapshot.existed,

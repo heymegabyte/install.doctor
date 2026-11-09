@@ -163,8 +163,11 @@ export async function createRollbackPlan(
   const tasks = parsed.compensations.map(artifact => {
     if (artifact.record.state !== 'available') throw new Error(`rollback compensation is not available: ${artifact.record.taskId}`);
     const bytes = artifact.bytesBase64 === null ? null : Buffer.from(artifact.bytesBase64, 'base64');
-    const snapshotIntegrity = 'kind' in artifact.snapshot
+    const snapshotIntegrity = 'kind' in artifact.snapshot && artifact.snapshot.kind === 'directory'
       ? bytes === null && artifact.serviceSnapshot === null
+      : 'kind' in artifact.snapshot && artifact.snapshot.kind === 'service'
+        ? bytes === null && artifact.serviceSnapshot?.manager === 'systemd'
+          && artifact.snapshot.targetPath === `systemd:${artifact.serviceSnapshot.serviceId}`
       : artifact.snapshot.existed === (bytes !== null)
         && artifact.snapshot.digest === (bytes === null ? null : createHash('sha256').update(bytes).digest('hex'));
     if (!snapshotIntegrity

@@ -714,8 +714,13 @@ export function createJournalStore(options: JournalStoreOptions): JournalStore {
         const dependencies = z.array(taskIdentifier).max(512).parse(artifactInput.dependencies);
         const bytes = artifactInput.bytes === null ? null : Buffer.from(artifactInput.bytes);
         if (record.state !== 'available') throw new JournalIntegrityError('new compensation evidence must be available');
-        if ('kind' in snapshot) {
+        if ('kind' in snapshot && snapshot.kind === 'directory') {
           if (bytes !== null || serviceSnapshotFromInput(artifactInput) !== null) throw new JournalIntegrityError('directory compensation cannot contain file or service bytes');
+        } else if ('kind' in snapshot && snapshot.kind === 'service') {
+          const service = serviceSnapshotFromInput(artifactInput);
+          if (bytes !== null || service == null || service.manager !== 'systemd' || snapshot.targetPath !== `systemd:${service.serviceId}`) {
+            throw new JournalIntegrityError('service-only compensation does not match its exact systemd state');
+          }
         } else {
           if (snapshot.existed !== (bytes !== null)) throw new JournalIntegrityError('compensation snapshot bytes do not match prior file existence');
           if (snapshot.digest !== (bytes === null ? null : hash(bytes))) throw new JournalIntegrityError('compensation snapshot byte digest mismatch');
@@ -781,8 +786,11 @@ export function createJournalStore(options: JournalStoreOptions): JournalStore {
           throw new JournalIntegrityError('compensation artifact filename does not match its task identity');
         }
         const bytes = persisted.bytesBase64 === null ? null : Buffer.from(persisted.bytesBase64, 'base64');
-        if ((('kind' in persisted.snapshot)
+        if ((('kind' in persisted.snapshot && persisted.snapshot.kind === 'directory')
           ? bytes !== null || persisted.serviceSnapshot !== null
+          : ('kind' in persisted.snapshot && persisted.snapshot.kind === 'service')
+            ? bytes !== null || persisted.serviceSnapshot === null || persisted.serviceSnapshot.manager !== 'systemd'
+              || persisted.snapshot.targetPath !== `systemd:${persisted.serviceSnapshot.serviceId}`
           : persisted.snapshot.existed !== (bytes !== null) || persisted.snapshot.digest !== (bytes === null ? null : hash(bytes)))
           || persisted.record.restores.includes('service-state') !== (persisted.serviceSnapshot !== null)
           || persisted.record.artifactDigest !== configurationCompensationArtifactDigest(persisted.snapshot, bytes, persisted.serviceSnapshot)) {

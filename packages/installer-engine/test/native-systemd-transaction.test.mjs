@@ -24,7 +24,7 @@ function fixture(initial = { enabled: false, running: false }) {
 test('captures pre-state before mutation, verifies, rolls back, and preserves unchanged reruns', async () => {
   const value = fixture();
   const runtime = value.transaction();
-  assert.equal(await runtime.check(), 'needed');
+  assert.deepEqual(await runtime.check(), { status: 'needed', previousState: { enabled: false, running: false } });
   await runtime.apply();
   assert.deepEqual(value.state, { enabled: true, running: true });
   assert.equal(await runtime.verify(), 'verified');

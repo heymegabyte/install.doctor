@@ -70,6 +70,25 @@ test('restores captured service state through injected adapters in reverse depen
   await assert.rejects(executeApprovedUserFileRollback({ plan, approvedPlanDigest: plan.digest }, artifacts), /unsupported service manager/);
 });
 
+test('service-only compensation restores systemd state without touching a synthetic file target', async () => {
+  const serviceSnapshot = { schemaVersion: 1, serviceId: 'alloy.service', manager: 'systemd', enabled: false, running: false };
+  const snapshot = { schemaVersion: 1, kind: 'service', targetPath: 'systemd:alloy.service',
+    existed: false, mode: null, uid: null, gid: null, digest: null };
+  const artifact = { schemaVersion: 1, snapshot, bytesBase64: null, dependencies: [], serviceSnapshot, appliedDigest: null,
+    record: { schemaVersion: 1, taskId: 'service.native.alloy', kind: 'configuration', state: 'available',
+      createdAt: '2026-11-06T05:00:00.000Z', artifactDigest: configurationCompensationArtifactDigest(snapshot, null, serviceSnapshot),
+      restores: ['service-state'] } };
+  const plan = await createRollbackPlan({ sourceRunId: 'source-run', sourcePlanDigest: 'f'.repeat(64), compensations: [artifact] });
+  const restored = [];
+  const result = await executeApprovedUserFileRollback({ plan, approvedPlanDigest: plan.digest }, [artifact], {
+    beforeTask: async () => 'execute', beforeMutation: async () => {}, afterTask: async () => {},
+    captureService: async () => ({ enabled: true, running: true }),
+    restoreService: async value => { restored.push(value); },
+  });
+  assert.equal(result.status, 'succeeded');
+  assert.deepEqual(restored, [serviceSnapshot]);
+});
+
 test('a new retry recognizes an exactly restored configuration without mutating it again', async () => {
   const root = await realpath(await mkdtemp(join(tmpdir(), 'rollback-executor-retry-'))); await chmod(root, 0o700);
   const target = join(root, 'config'); await writeFile(target, 'new\n', { mode: 0o600 });

@@ -119,6 +119,7 @@ export const PrivilegedBrokerReceiptSchema = z.strictObject({
   fenceDigest: digest,
   payloadSha256: digest,
   completedAt: timestamp,
+  serviceState: z.strictObject({ enabled: z.boolean(), running: z.boolean() }).nullable().default(null),
 });
 
 export type PrivilegedBrokerGrant = z.infer<typeof PrivilegedBrokerGrantSchema>;
@@ -187,6 +188,7 @@ export function createPrivilegedBrokerReceipt(input: {
   readonly status: PrivilegedBrokerReceipt['status'];
   readonly fenceDigest: string;
   readonly completedAt: string;
+  readonly serviceState?: { readonly enabled: boolean; readonly running: boolean } | null;
 }): PrivilegedBrokerReceipt {
   return PrivilegedBrokerReceiptSchema.parse({
     schemaVersion: 1,
@@ -205,5 +207,6 @@ export function createPrivilegedBrokerReceipt(input: {
     fenceDigest: input.fenceDigest,
     payloadSha256: input.request.payload.sha256,
     completedAt: input.completedAt,
+    serviceState: input.serviceState ?? null,
   });
 }

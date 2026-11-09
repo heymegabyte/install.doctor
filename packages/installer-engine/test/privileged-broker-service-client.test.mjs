@@ -26,10 +26,12 @@ test('service client sends only the canonical sealed descriptor and validates re
     seen.push({ request: input.request, bytes: bytes.toString('utf8'), links: (await input.payload.stat()).nlink });
     const status = input.request.phase === 'check' ? 'needed' : input.request.phase === 'apply' ? 'applied' : 'verified';
     return createPrivilegedBrokerReceipt({ request: input.request, grantDigest: privilegedBrokerDigest(grant),
-      status, fenceDigest: '1'.repeat(64), completedAt: '2026-11-09T12:00:01.000Z' });
+      status, fenceDigest: '1'.repeat(64), completedAt: '2026-11-09T12:00:01.000Z',
+      serviceState: input.request.phase === 'check' ? { enabled: false, running: false } : null });
   } };
   const runtime = createPrivilegedBrokerServiceRuntime(config, descriptor, transport, () => new Date('2026-11-09T12:00:00.000Z'));
   assert.equal(await runtime.check(operation('check')), 'needed');
+  assert.deepEqual(runtime.preparedState(), { enabled: false, running: false });
   await runtime.apply(operation('apply'));
   assert.equal(await runtime.verify(operation('verify')), 'verified');
   assert.equal(seen.length, 3);

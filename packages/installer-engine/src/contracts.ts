@@ -1,4 +1,5 @@
 export {
+  CompensationRecordSchema,
   DesiredStateInputSchema,
   ExecutionPolicySchema,
   HostFactsSchema,
@@ -11,6 +12,7 @@ export {
   TerminalReceiptSchema,
 } from '@install-doctor/aid-core/installer-contracts';
 export type {
+  CompensationRecord,
   DesiredStateInput,
   ExecutionPolicy,
   HostFacts,

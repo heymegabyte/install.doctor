@@ -48,6 +48,11 @@ test('service snapshots retain v1 systemd compatibility and require lossless v2 
     configurationCompensationArtifactDigest(file, null, launchd),
     configurationCompensationArtifactDigest(file, null, { ...launchd, enablementOverride: 'disabled' }),
   );
+  const serviceOnly = ConfigurationSnapshotSchema.parse({ schemaVersion: 1, kind: 'service',
+    targetPath: 'systemd:fixture.service', existed: false, mode: null, uid: null, gid: null, digest: null });
+  assert.match(configurationCompensationArtifactDigest(serviceOnly, null, systemd), /^[a-f0-9]{64}$/);
+  assert.throws(() => configurationCompensationArtifactDigest(serviceOnly, null, { ...systemd, serviceId: 'other.service' }), /exact systemd snapshot/);
+  assert.throws(() => configurationCompensationArtifactDigest(serviceOnly, Buffer.from('forbidden'), systemd), /exact systemd snapshot/);
 });
 
 const spec = targetPath => ({

@@ -4,7 +4,7 @@ import { constants } from 'node:fs';
 import { createHash, randomUUID } from 'node:crypto';
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
 import { z } from 'zod';
-import { DesiredStateInputSchema, ExecutionPolicySchema, HostFactsSchema, ImmutableArtifactDescriptorSchema, NativeOfflinePayloadDescriptorSchema, NormalizedPlanSchema, TaskNodeSchema } from './contracts.js';
+import { CompensationRecordSchema, DesiredStateInputSchema, ExecutionPolicySchema, HostFactsSchema, ImmutableArtifactDescriptorSchema, NativeOfflinePayloadDescriptorSchema, NormalizedPlanSchema, TaskNodeSchema } from './contracts.js';
 import type { InstallerEvent, TaskNode } from './contracts.js';
 import { createInstallerEngine, deriveBoundNormalizedPlan } from './engine.js';
 import { InstallerOperationError } from './engine.js';
@@ -36,7 +36,7 @@ import { createRollbackPlan } from './rollback.js';
 import { RollbackEvidenceError, RollbackLiveOwnerError, createRollbackRunStore } from './rollback-journal.js';
 import { discoverNativeServiceStateAdapters } from './service-state-adapters.js';
 import type { ServiceStateAdapter, ServiceStateSnapshot } from './config-transaction.js';
-import { applyConfigurationTransaction, applyManagedDirectoryTransaction } from './config-transaction.js';
+import { applyConfigurationTransaction, applyManagedDirectoryTransaction, configurationCompensationArtifactDigest } from './config-transaction.js';
 import { TelemetryExportConfigSchema } from './telemetry.js';
 import type { TelemetryTransport } from './telemetry.js';
 import { PrivilegedBrokerDerivationInputSchema, derivePrivilegedBrokerAuthority } from './privileged-broker-derivation.js';
@@ -1148,7 +1148,22 @@ function baseAdapterFor(invocation: OperationInvocation, nativeBinding?: {
         const status = await serviceBinding.runtime.check(selected);
         return status === 'verified' ? 0 : 10;
       }
-      if (selected.action === 'apply') { await serviceBinding.runtime.apply(selected); return 0; }
+      if (selected.action === 'apply') {
+        const persistence = context?.configurationCompensation;
+        if (!persistence) throw new Error('native service activation requires durable configuration compensation');
+        const state = serviceBinding.runtime.preparedState();
+        const serviceSnapshot = { schemaVersion: 1 as const, serviceId: selected.unit, manager: 'systemd' as const, ...state };
+        const snapshot = { schemaVersion: 1 as const, kind: 'service' as const, targetPath: `systemd:${selected.unit}`,
+          existed: false as const, mode: null, uid: null, gid: null, digest: null };
+        const artifactDigest = configurationCompensationArtifactDigest(snapshot, null, serviceSnapshot);
+        await persistence.prepare({
+          record: CompensationRecordSchema.parse({ schemaVersion: 1, taskId: task.id, kind: 'configuration', state: 'available',
+            createdAt: new Date().toISOString(), artifactDigest, restores: ['service-state'] }),
+          snapshot, bytes: null, dependencies: task.dependencies, serviceSnapshot, appliedDigest: null,
+        });
+        await serviceBinding.runtime.apply(selected);
+        return 0;
+      }
       return await serviceBinding.runtime.verify(selected) === 'verified' ? 0 : 30;
     }
     if (selected.kind === 'native-package') {

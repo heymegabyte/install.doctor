@@ -64,8 +64,21 @@ export function createNativeSystemdTransaction(input: {
   return Object.freeze({
     transactionId,
     authorityDigest,
-    async check(): Promise<'verified' | 'needed'> {
-      return same(await observe(), desiredState) ? 'verified' : 'needed';
+    async check(): Promise<{ readonly status: 'verified' | 'needed'; readonly previousState: { readonly enabled: boolean; readonly running: boolean } }> {
+      const observed = await observe();
+      if (same(observed, desiredState)) return Object.freeze({ status: 'verified', previousState: observed });
+      let record = await load();
+      if (!record) {
+        record = NativeSystemdTransactionRecordSchema.parse({
+          schemaVersion: 1, kind: 'desktop-tools-native-systemd-transaction-record', transactionId,
+          ...identity, authorityDigest, unit, desiredState, previousState: observed,
+          phase: 'prepared', failure: null, createdAt: now(), updatedAt: now(),
+        });
+        await input.persistence.save(record);
+      } else if (!same(observed, record.previousState)) {
+        throw new Error('live systemd state changed outside the approved transaction');
+      }
+      return Object.freeze({ status: 'needed', previousState: record.previousState });
     },
     async apply(): Promise<void> {
       let record = await load();
