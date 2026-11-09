@@ -80,6 +80,11 @@ on the OAuth apps — a one-time human step on the OAuth-app settings; magic-lin
 | `POST /api/devices/pair/owner-decision` | fresh matching Better Auth owner session | Atomically approve or deny the exact reviewed pairing. The request must repeat the displayed code, profile revision/digest, scopes, actor binding, and decision; stale or broadened decisions fail closed. |
 | `POST /api/devices/pair/approve` | admin break-glass | Audited compatibility approval by code for ordinary legacy pairings only; privileged profile-bound enrollment must use the owner-session decision route. |
 | `GET /api/devices/pair/poll` | poll-secret | Claim the device token exactly once after approval (410 on re-claim). |
+| `POST /api/v1/device-authorizations/start` | target-generated poll-secret | Start profile-bound enrollment. The target supplies its Ed25519 public-key binding, fingerprint, nonce, exact requested scopes, expiry, and secret-derived polling fingerprint; the server binds them to the immutable profile selected by the request hostname. |
+| `GET /api/v1/device-authorizations/review` | fresh matching Better Auth owner session | Review the exact profile-bound target request by matching code, including machine label, key fingerprint, profile revision/digest, scopes, and expiry. |
+| `POST /api/v1/device-authorizations/decision` | fresh matching Better Auth owner session | Atomically approve, narrowly scope, or deny the exact reviewed target request; stale revisions, wrong actors, changed bindings, and scope broadening fail closed. |
+| `POST /api/v1/device-authorizations/:requestId/poll` | target-generated poll-secret | Poll at the bounded server cadence and atomically claim one finite device credential after approval. Replay, cross-request secrets, expired requests, and over-polling fail without disclosing request state. |
+| `POST /api/v1/device-authorizations/:requestId/cancel` | target-generated poll-secret | Cancel the target-owned pending or approved request without exposing its polling secret; repeated or mismatched cancellation is normalized as unavailable. |
 
 ## Device-scoped (tenant resolved FROM the token; scope-enforced)
 

@@ -270,8 +270,8 @@ NODE' _ "$PROVISION" >"$TMP_DIR/engine.out" 2>&1; then
     apply_count="$(grep -c '^apply Minimal$' "$TMP_DIR/home/ledger" || true)"
     verify_count="$(grep -c '^verify Minimal$' "$TMP_DIR/home/ledger" || true)"
     package_apply_count="$(grep -c '^package-apply$' "$TMP_DIR/home/ledger" || true)"
-    if [ "$apply_count" -eq 1 ] && [ "$verify_count" -eq 3 ] && [ "$package_apply_count" -eq 1 ]; then
-      pass 'real engine cutover applies once and unchanged reruns preserve the exact installx inode and timestamps'
+    if [ "$apply_count" -eq 1 ] && [ "$verify_count" -eq 3 ] && [ "$package_apply_count" -eq 0 ]; then
+      pass 'real engine cutover applies once, leaves an empty package selection untouched, and unchanged reruns preserve the exact installx inode and timestamps'
     else
       fail "real engine cutover ledger was apply=$apply_count verify=$verify_count package-apply=$package_apply_count"
     fi

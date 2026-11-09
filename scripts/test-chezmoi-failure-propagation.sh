@@ -14,7 +14,11 @@ assert_contains() {
   grep -Fq "$2" "$1" || { printf 'missing failure guard in %s: %s\n' "$1" "$2" >&2; exit 1; }
 }
 
-assert_contains "$AFTER_10" "installx --all --lazy ||"
+assert_contains "$AFTER_10" 'installSelectedPackages || exit 1'
+if grep -Fq 'installx --all' "$AFTER_10"; then
+  printf 'compatibility package path still broadens selection with installx --all\n' >&2
+  exit 1
+fi
 assert_contains "$AFTER_10" "process-software-groups || exit 1"
 assert_contains "$AFTER_20" 'wait "$PID" || POST_TASK_STATUS=1'
 assert_contains "$AFTER_20" "runPostInstallxHooks || exit 1"

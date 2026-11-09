@@ -2983,6 +2983,28 @@ idRecordEffectReceipt() {
   mv -f "$RECEIPT_TMP" "$RECEIPT"
 }
 
+# Execute only the package roots carried by the normalized desired-state plan.
+# `installx --all` is deliberately forbidden here: catalog defaults are
+# discoverability policy, not authority to mutate a target. Installx expands
+# dependencies for these exact roots and retains lazy acquisition semantics.
+idRunSelectedDesiredPackages() {
+  local PHASE="${1:-}" RAW="${INSTALL_DOCTOR_SELECTED_PACKAGES:-}" PACKAGE
+  local -a PACKAGES=() INSTALLX_COMMAND
+  case "$PHASE" in check|apply) ;; *) return 2 ;; esac
+  case "$RAW" in *[!a-z0-9._,:-]*) return 2 ;; esac
+  [ -n "$RAW" ] || return 0
+  IFS=',' read -r -a PACKAGES <<< "$RAW"
+  [ "${#PACKAGES[@]}" -le 4096 ] || return 2
+  for PACKAGE in "${PACKAGES[@]}"; do
+    case "$PACKAGE" in ''|*[!a-z0-9._:-]*) return 2 ;; esac
+    [ "${#PACKAGE}" -le 128 ] || return 2
+  done
+  INSTALLX_COMMAND=("$INSTALL_DOCTOR_BOOTSTRAP_INSTALLX")
+  [ "$PHASE" != check ] || INSTALLX_COMMAND+=(--check)
+  INSTALLX_COMMAND+=(--lazy "${PACKAGES[@]}")
+  (cd "$(dirname "$INSTALL_DOCTOR_CHEZMOI_SOURCE")" && "${INSTALLX_COMMAND[@]}")
+}
+
 idRunSelectedPostInstallxHooks() {
   local PHASE="${1:-}" POST_INSTALLX_DIR PACKAGE HOOK STATUS EXPECTED ACTUAL MATCHES ENTRY_PACKAGE ENTRY_SHA
   local NEEDS_APPLY=0 PENDING=0 FAILURES=0 FAILED_HOOKS=''
@@ -3103,13 +3125,13 @@ idRunEngineOperation() {
       idChezmoi data >/dev/null 2>&1
       ;;
     desired-packages-check)
-      (cd "$(dirname "$INSTALL_DOCTOR_CHEZMOI_SOURCE")" && "$INSTALL_DOCTOR_BOOTSTRAP_INSTALLX" --check --all --lazy)
+      idRunSelectedDesiredPackages check
       ;;
     desired-packages-apply)
-      (cd "$(dirname "$INSTALL_DOCTOR_CHEZMOI_SOURCE")" && "$INSTALL_DOCTOR_BOOTSTRAP_INSTALLX" --all --lazy)
+      idRunSelectedDesiredPackages apply
       ;;
     desired-packages-verify)
-      (cd "$(dirname "$INSTALL_DOCTOR_CHEZMOI_SOURCE")" && "$INSTALL_DOCTOR_BOOTSTRAP_INSTALLX" --check --all --lazy)
+      idRunSelectedDesiredPackages check
       OPERATION_STATUS=$?
       [ "$OPERATION_STATUS" -eq 0 ] && return 0
       return 2
