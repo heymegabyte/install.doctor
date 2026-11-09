@@ -4,7 +4,7 @@ import { chmod, lstat, mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFil
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
-import { buildLoadPlan, derivePlannedArtifactOperations, preparePlannedArtifact } from '../dist/index.js';
+import { buildLoadPlan, composeArtifactLegacyCutover, derivePlannedArtifactOperations, preparePlannedArtifact } from '../dist/index.js';
 
 const bytes = Buffer.from('#!/bin/sh\nprintf planned-artifact\\n\n');
 const sha256 = createHash('sha256').update(bytes).digest('hex');
@@ -145,4 +145,40 @@ test('requires an applicable selected install item with one immutable artifact',
     host: { os: hostOs, arch: hostArch }, cacheRoot: state.cacheRoot,
     destinationRoots: { 'user-bin': state.destinationRoot },
   }), /selected.*install.*artifact/i);
+});
+
+test('cuts over only exact successfully derived artifact roots and preserves every other legacy root', async t => {
+  const state = await fixture(t);
+  const loadPlan = report();
+  const item = loadPlan.items.find(candidate => candidate.name === 'fixture-tool');
+  const artifact = await derivePlannedArtifactOperations({
+    loadPlan, item, approvedLoadPlanDigest: loadPlan.digest,
+    host: { os: hostOs, arch: hostArch }, cacheRoot: state.cacheRoot,
+    destinationRoots: { 'user-bin': state.destinationRoot },
+  });
+  assert.deepEqual(composeArtifactLegacyCutover({
+    loadPlan, artifacts: [artifact], legacyPackages: ['legacy-tool', 'fixture-tool', 'unsupported-tool'],
+  }), {
+    migratedArtifactPackages: ['fixture-tool'],
+    remainingLegacyPackages: ['legacy-tool', 'unsupported-tool'],
+  });
+  assert.deepEqual(composeArtifactLegacyCutover({
+    loadPlan, artifacts: [], legacyPackages: ['legacy-tool'],
+  }), {
+    migratedArtifactPackages: [],
+    remainingLegacyPackages: ['legacy-tool'],
+  });
+  await assert.rejects(async () => composeArtifactLegacyCutover({
+    loadPlan, artifacts: [], legacyPackages: ['fixture-tool', 'legacy-tool'],
+  }), /missing an exact successful derivation.*fixture-tool/i);
+
+  await assert.rejects(async () => composeArtifactLegacyCutover({
+    loadPlan, artifacts: [{ ...artifact, itemName: 'legacy-tool' }], legacyPackages: ['fixture-tool', 'legacy-tool'],
+  }), /exact selected applicable install artifact/i);
+  await assert.rejects(async () => composeArtifactLegacyCutover({
+    loadPlan, artifacts: [{ ...artifact, descriptorDigest: '0'.repeat(64) }], legacyPackages: ['fixture-tool'],
+  }), /descriptor digest/i);
+  await assert.rejects(async () => composeArtifactLegacyCutover({
+    loadPlan, artifacts: [artifact, artifact], legacyPackages: ['fixture-tool'],
+  }), /duplicate artifact derivation/i);
 });

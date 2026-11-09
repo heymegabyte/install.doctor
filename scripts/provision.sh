@@ -2033,7 +2033,7 @@ idInstallDesktopToolsRuntimeClosure() {
 # @description Execute the desired-state apply through the signed canonical engine.
 runCanonicalProvisionEngine() {
   local MODE="${1:-apply}" ENGINE="${INSTALL_DOCTOR_ENGINE_PATH:-}" PROVISIONER INVOCATION INVOCATION_DIR NORMALIZED_PLAN APPROVAL_PLAN EVIDENCE_INVOCATION EVIDENCE_RESULT CLEANUP_EVIDENCE_INVOCATION CLEANUP_EVIDENCE_RESULT RUNS_INVOCATION RUNS_RESULT RESUME_RUN_ID STATE_ROOT NODE_MAJOR EXPECTED_NODE RENDERER GENERATE_STATUS ENGINE_STATUS EVIDENCE_STATUS CLEANUP_EVIDENCE_STATUS PLAN_DIGEST APPROVAL ACTUAL_SHA
-  local LOAD_PLAN_INVOCATION LOAD_PLAN_RESULT ARTIFACT_DERIVE_INVOCATION ARTIFACT_DERIVE_RESULT ARTIFACT_CACHE_ROOT USER_BIN_ROOT DOCKER_PLUGIN_ROOT ARTIFACT_COUNT
+  local LOAD_PLAN_INVOCATION LOAD_PLAN_RESULT ARTIFACT_DERIVE_INVOCATION ARTIFACT_DERIVE_RESULT ARTIFACT_CACHE_ROOT USER_BIN_ROOT DOCKER_PLUGIN_ROOT
   local NATIVE_DERIVE_INVOCATION NATIVE_DERIVE_RESULT NATIVE_COUNT
   case "$MODE" in apply|--plan-only) ;; *) logg error "Unknown canonical engine mode: $MODE"; return 2 ;; esac
   [ -n "$ENGINE" ] && [ -f "$ENGINE" ] && [ ! -L "$ENGINE" ] || { logg error 'Verified installer engine is unavailable'; return 2; }
@@ -2136,25 +2136,25 @@ NODE
   else
     printf '%s\n' '{"schemaVersion":1,"composition":null}' > "$NATIVE_DERIVE_RESULT"
   fi
-  ARTIFACT_COUNT="$(node -e 'const p=JSON.parse(require("node:fs").readFileSync(process.argv[1],"utf8")); process.stdout.write(String(p.items.filter(i => i.selected && i.applicable && i.actions.includes("install") && i.artifact).length))' "$LOAD_PLAN_RESULT")" || return 2
-  if [ "$ARTIFACT_COUNT" -gt 0 ]; then
-    node - "$ARTIFACT_DERIVE_INVOCATION" "$LOAD_PLAN_RESULT" "$ARTIFACT_CACHE_ROOT" "$USER_BIN_ROOT" "$DOCKER_PLUGIN_ROOT" <<'NODE'
+  node - "$ARTIFACT_DERIVE_INVOCATION" "$LOAD_PLAN_RESULT" "$NATIVE_DERIVE_RESULT" "$ARTIFACT_CACHE_ROOT" "$USER_BIN_ROOT" "$DOCKER_PLUGIN_ROOT" <<'NODE'
 const fs = require('node:fs');
-const [destination, loadPlanPath, cacheRoot, userBinRoot, dockerPluginRoot] = process.argv.slice(2);
+const [destination, loadPlanPath, nativeDerivationPath, cacheRoot, userBinRoot, dockerPluginRoot] = process.argv.slice(2);
 const loadPlan = JSON.parse(fs.readFileSync(loadPlanPath, 'utf8'));
+const nativeDerivation = JSON.parse(fs.readFileSync(nativeDerivationPath, 'utf8'));
+const rawPlan = JSON.parse(fs.readFileSync(process.env.INSTALL_DOCTOR_PLAN, 'utf8'));
 const items = loadPlan.items.filter(item => item.selected && item.applicable && item.actions.includes('install') && item.artifact);
+const legacySelectedPackages = nativeDerivation.composition === null
+  ? rawPlan.selectedPackages : nativeDerivation.composition.remainingLegacyPackages;
 fs.writeFileSync(destination, `${JSON.stringify({
   schemaVersion: 1, command: 'artifact-derive', loadPlan, items, approvedLoadPlanDigest: loadPlan.digest,
+  legacyPackages: legacySelectedPackages,
   host: { os: process.platform, arch: process.arch }, cacheRoot,
   destinationRoots: { 'user-bin': userBinRoot, 'docker-cli-plugin': dockerPluginRoot },
 })}\n`, { mode: 0o600, flag: 'wx' });
 NODE
-    GENERATE_STATUS=$?
-    if [ "$GENERATE_STATUS" -eq 0 ]; then node "$ENGINE" --input "$ARTIFACT_DERIVE_INVOCATION" > "$ARTIFACT_DERIVE_RESULT"; GENERATE_STATUS=$?; fi
-    [ "$GENERATE_STATUS" -eq 0 ] || { logg error 'Unable to derive immutable artifact operations'; return "$GENERATE_STATUS"; }
-  else
-    printf '%s\n' '{"schemaVersion":1,"artifacts":[]}' > "$ARTIFACT_DERIVE_RESULT"
-  fi
+  GENERATE_STATUS=$?
+  if [ "$GENERATE_STATUS" -eq 0 ]; then node "$ENGINE" --input "$ARTIFACT_DERIVE_INVOCATION" > "$ARTIFACT_DERIVE_RESULT"; GENERATE_STATUS=$?; fi
+  [ "$GENERATE_STATUS" -eq 0 ] || { logg error 'Unable to derive immutable artifact operations'; return "$GENERATE_STATUS"; }
   export INSTALL_DOCTOR_LOAD_PLAN_PATH="$LOAD_PLAN_RESULT" INSTALL_DOCTOR_ARTIFACT_DERIVATION_PATH="$ARTIFACT_DERIVE_RESULT" INSTALL_DOCTOR_NATIVE_DERIVATION_PATH="$NATIVE_DERIVE_RESULT"
   node - "$INVOCATION" "$PROVISIONER" "$STATE_ROOT" "$RENDERER" <<'NODE'
 const fs = require('node:fs');
@@ -2288,13 +2288,20 @@ const selectedPackageClosure = [...new Set(loadPlan.items
     boundedString(item.name, /^[a-z0-9][a-z0-9._:-]*$/, 128, 'load plan package name');
     return item.name;
   }))].sort();
-const legacySelectedPackages = nativeComposition === null ? selectedPackages : nativeComposition.remainingLegacyPackages;
-canonicalList(legacySelectedPackages, 4096, /^[a-z0-9][a-z0-9._:-]*$/, 'native remainingLegacyPackages');
-if (nativeComposition !== null && (!selectedPackages.includes('tree') || legacySelectedPackages.includes('tree'))) {
+const nativeLegacyPackages = nativeComposition === null ? selectedPackages : nativeComposition.remainingLegacyPackages;
+canonicalList(nativeLegacyPackages, 4096, /^[a-z0-9][a-z0-9._:-]*$/, 'native remainingLegacyPackages');
+if (nativeComposition !== null && (!selectedPackages.includes('tree') || nativeLegacyPackages.includes('tree'))) {
   throw new Error('native Debian derivation did not subtract only the admitted tree package');
 }
 const artifactDerivation = JSON.parse(fs.readFileSync(process.env.INSTALL_DOCTOR_ARTIFACT_DERIVATION_PATH, 'utf8'));
-if (!Array.isArray(artifactDerivation.artifacts)) throw new Error('artifact derivation is malformed');
+if (!Array.isArray(artifactDerivation.artifacts) || !Array.isArray(artifactDerivation.migratedArtifactPackages)
+  || !Array.isArray(artifactDerivation.remainingLegacyPackages)) throw new Error('artifact derivation is malformed');
+const migratedArtifactPackages = canonicalList(artifactDerivation.migratedArtifactPackages, 4096, /^[a-z0-9][a-z0-9._:-]*$/, 'migratedArtifactPackages');
+const legacySelectedPackages = canonicalList(artifactDerivation.remainingLegacyPackages, 4096, /^[a-z0-9][a-z0-9._:-]*$/, 'artifact remainingLegacyPackages');
+if (JSON.stringify([...migratedArtifactPackages, ...legacySelectedPackages].sort()) !== JSON.stringify([...nativeLegacyPackages].sort())
+  || migratedArtifactPackages.some(packageName => !artifactDerivation.artifacts.some(artifact => artifact.itemName === packageName))) {
+  throw new Error('artifact derivation did not exactly partition the remaining legacy package roots');
+}
 const directoryRequirements = new Map();
 for (const artifact of artifactDerivation.artifacts) {
   if (!Array.isArray(artifact.directoryRequirements)) throw new Error('artifact directory requirements are malformed');
@@ -2766,7 +2773,7 @@ const invocation = {
   },
     plan: {
       tasks: [stageZeroInstallUserTask, stageZeroSudoTask, ...(warpDisconnectTask ? [warpDisconnectTask] : []), ...(nativeComposition ? [nativeComposition.task] : []), nativeDependenciesTask, sourceTask, homebrewTask, homebrewToolsTask, chezmoiInitTask, installxBinDirectoryTask, installxToolTask, desiredPackagesTask, ...directoryTasks, ...artifactTasks, macosFullDiskAccessTask, macosCertificateTask, ...(qubesDom0Task ? [qubesDom0Task] : []), ...(agentTasksTask ? [agentTasksTask] : []), task, bootstrapPolicyTask, softwareGroupsTask, catalogPostValidationTask, customPostHooksTask, desiredServicesTask, rebootAssessmentTask, sudoCleanupTask],
-      selectedTaskIds: [...(nativeComposition ? [nativeComposition.task.id] : []), rebootAssessmentTask.id, sudoCleanupTask.id],
+      selectedTaskIds: [...(nativeComposition ? [nativeComposition.task.id] : []), ...artifactTasks.map(task => task.id), rebootAssessmentTask.id, sudoCleanupTask.id],
       executionPolicy: {
         maxConcurrency: rawPlan.concurrency,
         resourceLimits: { cpu: 64, memoryMiB: 8192, networkConcurrency: rawPlan.concurrency },

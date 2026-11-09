@@ -27,7 +27,7 @@ import { createNativeDpkgTransactionRuntime } from './native-dpkg-transaction.js
 import { collectLinuxOfflineHostFacts } from './linux-host-facts.js';
 import { LoadPlanInputSchema, LoadPlanItemSchema, LoadPlanReportSchema, buildLoadPlan, calculateLoadPlanReportDigest } from './lazy-plan.js';
 import { composeSelectedNativeDebianPackageSlice } from './native-debian-composition.js';
-import { derivePlannedArtifactOperations, preparePlannedArtifact } from './planned-artifact.js';
+import { composeArtifactLegacyCutover, derivePlannedArtifactOperations, preparePlannedArtifact } from './planned-artifact.js';
 import { fetchImmutableArtifact } from './immutable-artifact.js';
 import { createRollbackPlan } from './rollback.js';
 import { RollbackEvidenceError, RollbackLiveOwnerError, createRollbackRunStore } from './rollback-journal.js';
@@ -331,7 +331,7 @@ const PrivilegedBrokerAuthorityDeriveInvocationSchema = PrivilegedBrokerDerivati
   .extend({ command: z.literal('privileged-broker-authority-derive') });
 const artifactAuthority = {
   loadPlan: LoadPlanReportSchema,
-  items: z.array(LoadPlanItemSchema).min(1).max(4096),
+  items: z.array(LoadPlanItemSchema).max(4096),
   approvedLoadPlanDigest: z.string().regex(/^[a-f0-9]{64}$/),
   host: z.strictObject({ os: z.enum(['linux', 'darwin', 'win32']), arch: z.enum(['x64', 'arm64']) }),
   cacheRoot: z.string().min(1).max(4096).refine(isAbsolute, 'artifact cache root must be absolute'),
@@ -340,9 +340,13 @@ const artifactAuthority = {
     'docker-cli-plugin': z.string().min(1).max(4096).refine(isAbsolute, 'Docker plugin root must be absolute').optional(),
   }),
 };
-const ArtifactDeriveInvocationSchema = z.strictObject({ schemaVersion: z.literal(1), command: z.literal('artifact-derive'), ...artifactAuthority });
+const ArtifactDeriveInvocationSchema = z.strictObject({
+  schemaVersion: z.literal(1), command: z.literal('artifact-derive'), ...artifactAuthority,
+  legacyPackages: z.array(z.string().min(1).max(128).regex(/^[a-z0-9][a-z0-9._:-]*$/)).max(4096),
+});
 const ArtifactPrepareInvocationSchema = z.strictObject({
   ...common, command: z.literal('artifact-prepare'), ...artifactAuthority,
+  items: z.array(LoadPlanItemSchema).min(1).max(4096),
   approvedPlanDigest: z.string().regex(/^[a-f0-9]{64}$/), offline: z.boolean().optional(),
 });
 const InvocationSchema = z.discriminatedUnion('command', [
@@ -1290,8 +1294,11 @@ async function main(): Promise<void> {
     }
     if (invocation.command === 'artifact-derive') {
       const artifacts = await deriveArtifactBatch(invocation);
+      const cutover = composeArtifactLegacyCutover({
+        loadPlan: invocation.loadPlan, artifacts, legacyPackages: invocation.legacyPackages,
+      });
       process.stdout.write(`${JSON.stringify({
-        schemaVersion: 1, loadPlanDigest: invocation.loadPlan.digest, artifacts,
+        schemaVersion: 1, loadPlanDigest: invocation.loadPlan.digest, artifacts, ...cutover,
       })}\n`);
       return;
     }

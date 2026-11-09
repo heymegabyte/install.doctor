@@ -31,6 +31,14 @@ else
   fail 'artifact operations are not part of the approved engine plan'
 fi
 
+if grep -q 'legacyPackages: legacySelectedPackages' "$PROVISION" \
+  && grep -q 'artifactDerivation.remainingLegacyPackages' "$PROVISION" \
+  && grep -q '...artifactTasks.map(task => task.id)' "$PROVISION"; then
+  pass 'successfully derived artifact roots leave Installx and remain explicit selected native tasks'
+else
+  fail 'artifact roots retain a duplicate Installx writer or lack explicit native selection'
+fi
+
 if grep -q 'dependencies: \[desiredPackagesTask.id, ...directoryTaskIds\]' "$PROVISION" \
   && grep -q 'const directoryTasks = ' "$PROVISION"; then
   pass 'artifact tasks depend on every required directory task'

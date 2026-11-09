@@ -38,6 +38,17 @@ const PreparationInputSchema = DerivationInputSchema.extend({
 
 type Fetcher = (input: string, init: RequestInit) => Promise<Response>;
 type ManagedArtifactOperations = z.infer<typeof ManagedArtifactOperationsSchema>;
+const ArtifactDerivationResultSchema = z.strictObject({
+  schemaVersion: z.literal(1), itemName: z.string().min(1).max(128).regex(/^[a-z0-9][a-z0-9._:-]*$/),
+  loadPlanDigest: DigestSchema, descriptorDigest: DigestSchema,
+  candidatePath: AbsolutePathSchema, targetPath: AbsolutePathSchema,
+  operations: ManagedArtifactOperationsSchema,
+  directoryRequirements: z.array(z.strictObject({
+    kind: z.enum(['cache', 'destination']), targetPath: AbsolutePathSchema,
+    targetMode: z.literal(0o700), exists: z.boolean(),
+  })).min(1).max(2),
+});
+const LegacyPackageSchema = z.string().min(1).max(128).regex(/^[a-z0-9][a-z0-9._:-]*$/);
 
 function canonical(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map(canonical).join(',')}]`;
@@ -50,6 +61,56 @@ function canonical(value: unknown): string {
 
 function digest(value: unknown): string {
   return createHash('sha256').update(canonical(value)).digest('hex');
+}
+
+/**
+ * Removes a legacy Installx root only after the engine has successfully
+ * derived its exact immutable-artifact operation triplet. Unsupported and
+ * non-artifact roots remain untouched; malformed derivation output fails
+ * closed instead of silently restoring the legacy writer.
+ */
+export function composeArtifactLegacyCutover(rawInput: unknown): {
+  migratedArtifactPackages: string[]; remainingLegacyPackages: string[];
+} {
+  const input = z.strictObject({
+    loadPlan: LoadPlanReportSchema,
+    artifacts: z.array(ArtifactDerivationResultSchema).max(4096),
+    legacyPackages: z.array(LegacyPackageSchema).max(4096),
+  }).parse(rawInput);
+  if (calculateLoadPlanReportDigest(input.loadPlan) !== input.loadPlan.digest) {
+    throw new Error('artifact cutover requires the exact load-plan digest');
+  }
+  if (new Set(input.legacyPackages).size !== input.legacyPackages.length) throw new Error('legacy package roots contain duplicates');
+  const migrated = new Set<string>();
+  for (const artifact of input.artifacts) {
+    if (migrated.has(artifact.itemName)) throw new Error(`duplicate artifact derivation: ${artifact.itemName}`);
+    const item = input.loadPlan.items.find(candidate => candidate.name === artifact.itemName);
+    if (!item?.selected || !item.applicable || !item.actions.includes('install') || !item.artifact
+      || !input.loadPlan.installOrder.includes(item.name) || item.artifact.id !== item.name) {
+      throw new Error(`artifact cutover lacks an exact selected applicable install artifact: ${artifact.itemName}`);
+    }
+    const descriptorDigest = digest(item.artifact);
+    if (artifact.loadPlanDigest !== input.loadPlan.digest || artifact.descriptorDigest !== descriptorDigest) {
+      throw new Error(`artifact cutover descriptor digest authority mismatch: ${artifact.itemName}`);
+    }
+    for (const [action, operation] of Object.entries(artifact.operations)) {
+      if (operation.action !== action || operation.authority.loadPlanDigest !== input.loadPlan.digest
+        || operation.authority.descriptorDigest !== descriptorDigest
+        || canonical(operation.descriptor) !== canonical(item.artifact)) {
+        throw new Error(`artifact cutover operation authority mismatch: ${artifact.itemName}`);
+      }
+    }
+    migrated.add(artifact.itemName);
+  }
+  const requiredCutovers = input.loadPlan.items.filter(item => input.legacyPackages.includes(item.name)
+    && item.selected && item.applicable && item.actions.includes('install') && item.artifact !== null);
+  const missing = requiredCutovers.map(item => item.name).filter(packageName => !migrated.has(packageName));
+  if (missing.length > 0) throw new Error(`artifact cutover is missing an exact successful derivation: ${missing.join(',')}`);
+  const migratedArtifactPackages = input.legacyPackages.filter(packageName => migrated.has(packageName));
+  return {
+    migratedArtifactPackages,
+    remainingLegacyPackages: input.legacyPackages.filter(packageName => !migrated.has(packageName)),
+  };
 }
 
 async function inspectRoot(path: string, kind: 'cache' | 'destination'): Promise<{ path: string; exists: boolean }> {

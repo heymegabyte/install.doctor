@@ -59,9 +59,11 @@ test('batch derive, approve, prepare, and run preserve one normalized plan ident
     host: { os: hostOs, arch: hostArch }, cacheRoot: state.cacheRoot,
     destinationRoots: { 'user-bin': state.destinationRoot },
   };
-  const derivedResult = await invoke(state.root, 'derive', { schemaVersion: 1, command: 'artifact-derive', ...authority });
+  const derivedResult = await invoke(state.root, 'derive', { schemaVersion: 1, command: 'artifact-derive', ...authority, legacyPackages: ['fixture-tool'] });
   assert.equal(derivedResult.status, 0, derivedResult.stderr);
   assert.equal(derivedResult.json.artifacts.length, 1);
+  assert.deepEqual(derivedResult.json.migratedArtifactPackages, ['fixture-tool']);
+  assert.deepEqual(derivedResult.json.remainingLegacyPackages, []);
   const derived = derivedResult.json.artifacts[0];
   await assert.rejects(readFile(derived.candidatePath), error => error.code === 'ENOENT');
 
@@ -133,7 +135,7 @@ test('one approved fresh-host graph creates roots before descriptor-bound apply 
     host: { os: hostOs, arch: hostArch }, cacheRoot: state.cacheRoot,
     destinationRoots: { 'user-bin': state.destinationRoot },
   };
-  const derivedResult = await invoke(state.root, 'fresh-derive', { schemaVersion: 1, command: 'artifact-derive', ...authority });
+  const derivedResult = await invoke(state.root, 'fresh-derive', { schemaVersion: 1, command: 'artifact-derive', ...authority, legacyPackages: ['fixture-tool'] });
   assert.equal(derivedResult.status, 0, derivedResult.stderr);
   const derived = derivedResult.json.artifacts[0];
   assert.deepEqual(derived.directoryRequirements.map(item => [item.kind, item.exists]), [['cache', false], ['destination', false]]);
@@ -208,7 +210,9 @@ test('artifact preparation rejects surplus and unselected managed operations bef
     host: { os: hostOs, arch: hostArch }, cacheRoot: state.cacheRoot,
     destinationRoots: { 'user-bin': state.destinationRoot },
   };
-  const derived = (await invoke(state.root, 'derive-closure', { schemaVersion: 1, command: 'artifact-derive', ...authority })).json.artifacts[0];
+  const derived = (await invoke(state.root, 'derive-closure', {
+    schemaVersion: 1, command: 'artifact-derive', ...authority, legacyPackages: ['fixture-tool'],
+  })).json.artifacts[0];
   const operations = Object.fromEntries(Object.entries(derived.operations).map(([phase, operation]) => [`artifact-${phase}`, operation]));
   operations.surplus = { ...derived.operations.check, action: 'check' };
   const task = {
@@ -231,4 +235,33 @@ test('artifact preparation rejects surplus and unselected managed operations bef
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, /unreferenced managed artifact operation|surplus managed artifact operation/i);
   await assert.rejects(readFile(derived.candidatePath), error => error.code === 'ENOENT');
+});
+
+test('artifact derive emits an authoritative unchanged legacy partition when no selected artifact exists', { skip: hostOs === 'win32' }, async t => {
+  const state = await fixture(t);
+  const loadPlan = buildLoadPlan({
+    schemaVersion: 1, platform: planPlatform, architecture: hostArch, roles: ['workstation'],
+    selectedPackages: ['legacy-tool'], selectedServices: [], selectedSupportedPaths: [], lazyResolverRequirements: [],
+    catalog: [{
+      name: 'legacy-tool', bin: 'legacy-tool', platforms: [planPlatform], installMode: 'cli',
+      loadPolicy: 'lazy', loadRationale: 'default-lazy', deps: [], artifacts: [],
+    }],
+  });
+  const result = await invoke(state.root, 'derive-empty', {
+    schemaVersion: 1, command: 'artifact-derive', loadPlan, items: [], approvedLoadPlanDigest: loadPlan.digest,
+    legacyPackages: ['legacy-tool'], host: { os: hostOs, arch: hostArch }, cacheRoot: state.cacheRoot,
+    destinationRoots: { 'user-bin': state.destinationRoot },
+  });
+  assert.equal(result.status, 0, result.stderr);
+  assert.deepEqual(result.json.artifacts, []);
+  assert.deepEqual(result.json.migratedArtifactPackages, []);
+  assert.deepEqual(result.json.remainingLegacyPackages, ['legacy-tool']);
+
+  const malformed = await invoke(state.root, 'derive-missing-legacy-authority', {
+    schemaVersion: 1, command: 'artifact-derive', loadPlan, items: [], approvedLoadPlanDigest: loadPlan.digest,
+    host: { os: hostOs, arch: hostArch }, cacheRoot: state.cacheRoot,
+    destinationRoots: { 'user-bin': state.destinationRoot },
+  });
+  assert.notEqual(malformed.status, 0);
+  assert.match(malformed.stderr, /legacyPackages|invalid input/i);
 });
