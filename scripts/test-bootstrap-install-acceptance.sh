@@ -589,17 +589,20 @@ chmod -R a+rX,go-w "$FIXTURE/container-fixture"
 printf 'bootstrap-install-acceptance: running pinned, network-disabled container\n'
 OUTPUT="$FIXTURE/canary.out"
 DOCKER_MOUNTS=()
-for TOOL in curl rsync gum zx chezmoi process-software-groups process-software-post-scripts; do
+for TOOL in gum zx chezmoi process-software-groups process-software-post-scripts; do
   DOCKER_MOUNTS+=(--mount "type=bind,src=$FIXTURE/container-fixture/tools/$TOOL,dst=/usr/local/bin/$TOOL,readonly")
 done
 # A bind mount from macOS/Colima preserves the host UID and cannot satisfy the
-# production root-owned setuid sudo boundary. Build one ephemeral layer from
-# the pinned base so the canary exercises the real fixed-path validation.
+# production root-owned fixed-path boundaries. Build one ephemeral layer from
+# the pinned base so the canary exercises the real sudo, curl, and rsync
+# identity validation rather than an inadmissible /usr/local/bin test double.
 cat > "$FIXTURE/Dockerfile" <<'DOCKERFILE'
 ARG BASE_IMAGE=node@sha256:8fa96264f302f58bbb13aa7339c541547b56975766ce956c875da149452a3e40
 FROM ${BASE_IMAGE}
 RUN usermod -aG sudo node
 COPY --chown=0:0 --chmod=4755 container-fixture/tools/sudo /usr/bin/sudo
+COPY --chown=0:0 --chmod=0555 container-fixture/tools/curl /usr/bin/curl
+COPY --chown=0:0 --chmod=0555 container-fixture/tools/rsync /usr/bin/rsync
 COPY --chown=0:0 --chmod=0555 container-fixture/tools/brew /usr/local/bin/brew
 DOCKERFILE
 CANARY_IMAGE="install-doctor/bootstrap-acceptance-${$}"
