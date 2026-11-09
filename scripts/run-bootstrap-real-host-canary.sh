@@ -7,6 +7,7 @@ umask 077
 : "${GITHUB_ACTIONS:?GitHub Actions is required}"
 : "${RELEASE_V1:?release_v1 is required}"
 : "${RELEASE_V2:?release_v2 is required}"
+: "${DESKTOP_TOOLS_PROFILE_SLUG:?profile slug is required}"
 : "${CANARY_EVIDENCE_ROOT:?evidence root is required}"
 : "${CANARY_REPORT:?report path is required}"
 : "${CANARY_OFFLINE_BUNDLE_URL:?signed offline bundle URL is required}"
@@ -16,6 +17,10 @@ umask 077
 [ "${RUNNER_ENVIRONMENT:-}" = github-hosted ] || exit 64
 case "$RELEASE_V1:$RELEASE_V2" in *[!a-z0-9._:-]*|:*|*:) exit 64;; esac
 [ "$RELEASE_V1" != "$RELEASE_V2" ] || exit 64
+case "$DESKTOP_TOOLS_PROFILE_SLUG" in
+  ''|?|??|*[^a-z0-9-]*|-*|*-|*--) exit 64 ;;
+esac
+[ "${#DESKTOP_TOOLS_PROFILE_SLUG}" -le 63 ] || exit 64
 case "$CANARY_OFFLINE_BUNDLE_SHA256" in *[!a-f0-9]*|'') exit 64;; esac
 [ "${#CANARY_OFFLINE_BUNDLE_SHA256}" -eq 64 ] || exit 64
 case "$CANARY_OFFLINE_SIGNER_ID" in ''|[!a-z0-9]*|*[!a-z0-9._-]*) exit 64;; esac
@@ -34,13 +39,22 @@ export INSTALL_DOCTOR_CONSENT_PRIVILEGED=true INSTALL_DOCTOR_CONSENT_NETWORK=fal
 
 for version in v1 v2; do
   variable="RELEASE_${version^^}"; id="${!variable}"
-  curl "${curl_args[@]}" --output "$RUNNER_TEMP/start-$version" "$BASE/$id/start"
+  if [ "$version" = v2 ]; then
+    curl "${curl_args[@]}" --output "$RUNNER_TEMP/start-$version" "https://$DESKTOP_TOOLS_PROFILE_SLUG.desktop.tools/"
+  else
+    curl "${curl_args[@]}" --output "$RUNNER_TEMP/start-$version" "$BASE/$id/start"
+  fi
   curl "${curl_args[@]}" --output "$RUNNER_TEMP/manifest-$version" "$BASE/$id/manifest"
   curl "${curl_args[@]}" --output "$RUNNER_TEMP/manifest-$version.sig" "$BASE/$id/manifest.sig"
   chmod 0700 "$RUNNER_TEMP/start-$version"
   grep -Fxq "release_id=$id" "$RUNNER_TEMP/manifest-$version"
   grep -Fxq "launcher_url=$BASE/$id/start" "$RUNNER_TEMP/manifest-$version"
 done
+grep -Fxq "readonly EXPECTED_RELEASE_ID='$RELEASE_V2'" "$RUNNER_TEMP/start-v2"
+grep -Fxq "readonly EXPECTED_PRODUCT_ID='desktop-tools'" "$RUNNER_TEMP/start-v2"
+grep -Fxq "readonly DESKTOP_TOOLS_PROFILE_SLUG='$DESKTOP_TOOLS_PROFILE_SLUG'" "$RUNNER_TEMP/start-v2"
+grep -Eq "^readonly DESKTOP_TOOLS_PROFILE_ID='[a-z0-9][a-z0-9._-]{0,95}'$" "$RUNNER_TEMP/start-v2"
+grep -Eq "^readonly DESKTOP_TOOLS_PROFILE_DIGEST='[a-f0-9]{64}'$" "$RUNNER_TEMP/start-v2"
 manifest_digest="$(sha256sum "$RUNNER_TEMP/manifest-v2" | awk '{print $1}')"
 source_commit="$(sed -n 's/^source_commit=//p' "$RUNNER_TEMP/manifest-v2")"
 signer_id="$(sed -n "s/^readonly SIGNER_ID='\([^']*\)'$/\1/p" "$RUNNER_TEMP/start-v2")"

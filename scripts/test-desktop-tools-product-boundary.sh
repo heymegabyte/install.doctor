@@ -5,6 +5,7 @@ BOUNDARY="$ROOT/docs/desktop-tools/README.md"
 CORE="$ROOT/packages/aid-core/README.md"
 SPEC="$ROOT/packages/aid-core/docs/PRODUCT-SPEC.md"
 STATUS="$ROOT/docs/desktop-tools/status.md"
+PROVISION="$ROOT/home/dot_local/bin/executable_provision"
 P=0 F=0
 pass() { printf 'PASS %s\n' "$*"; P=$((P + 1)); }
 fail() { printf 'FAIL %s\n' "$*"; F=$((F + 1)); }
@@ -72,6 +73,15 @@ if grep -Eq 'curl.*https://(app\.install\.doctor|install\.doctor|desktop\.tools)
   fail 'Desktop Tools lifecycle publishes a non-profile curl command'
 else
   pass 'every Desktop Tools lifecycle curl command uses an explicit profile subdomain'
+fi
+
+if grep -Fq 'https://${profile_slug}.desktop.tools/' "$PROVISION" \
+  && ! grep -Fq 'app.install.doctor/start' "$PROVISION" \
+  && ! grep -Fq 'warp-cli disconnect' "$PROVISION" \
+  && bash -n "$PROVISION"; then
+  pass 'installed provision helper uses the profile root without changing network state'
+else
+  fail 'installed provision helper bypasses Desktop Tools or mutates network state'
 fi
 
 printf 'desktop-tools product boundary: %s passed, %s failed\n' "$P" "$F"

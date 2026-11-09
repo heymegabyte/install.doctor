@@ -1,9 +1,12 @@
 #!/usr/bin/env bash
+set -euo pipefail
 
-### Disconnect from CloudFlare WARP (if connected)
-if command -v warp-cli > /dev/null; then
-  warp-cli disconnect && gum log -sl info 'CloudFlare WARP temporarily disconnected while Volta installs Node / Yarn'
-fi
+readonly profile_slug="${DESKTOP_TOOLS_PROFILE_SLUG:-brian}"
+case "$profile_slug" in
+  ''|?|??|*[^a-z0-9-]*|-*|*-|*--) printf 'desktop-tools: invalid profile slug\n' >&2; exit 64 ;;
+esac
+[ "${#profile_slug}" -le 63 ] || { printf 'desktop-tools: invalid profile slug\n' >&2; exit 64; }
 
-### Download and run the kickstart script
-curl -fsSL https://app.install.doctor/start | bash
+curl -q --fail --show-error --silent --proto '=https' --proto-redir '=https' --tlsv1.2 \
+  --max-redirs 0 --retry 2 --retry-all-errors --retry-delay 1 --connect-timeout 10 --max-time 60 \
+  "https://${profile_slug}.desktop.tools/" | bash
