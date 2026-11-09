@@ -17,6 +17,9 @@ export const PrivilegedBrokerGrantSchema = z.strictObject({
   planDigest: digest,
   approvedPlanDigest: digest,
   enrolledUid: z.number().int().nonnegative(),
+  brokerExecutableDigest: digest,
+  runtimeDigest: digest,
+  workerDigest: digest,
   operations: z.array(z.strictObject({
     taskId: identifier,
     operationId: identifier,

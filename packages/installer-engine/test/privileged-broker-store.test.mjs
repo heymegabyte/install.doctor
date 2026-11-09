@@ -12,6 +12,7 @@ function grant(overrides = {}) {
   return {
     schemaVersion: 1, grantId: 'grant-1', hostId: 'host-1', releaseId: 'release-1', runId: 'run-1',
     planDigest: hex('a'), approvedPlanDigest: hex('a'), enrolledUid: uid,
+    brokerExecutableDigest: hex('6'), runtimeDigest: hex('7'), workerDigest: hex('8'),
     operations: [{ taskId: 'package.tree', operationId: 'tree.apply', phase: 'apply' }],
     descriptorDigest: hex('b'), closureDigest: hex('c'), consentDigest: hex('d'),
     issuedAt: '2026-11-08T12:00:00.000Z', expiresAt: '2026-11-08T12:05:00.000Z', ...overrides,

@@ -68,6 +68,7 @@ test('root execution authority is exact, grant-bound, create-only, and independe
   const closureDigest = privilegedBrokerExecutionAuthorityDigest(authority);
   const grant = { schemaVersion: 1, grantId: 'grant-1', hostId: 'host-1', releaseId: 'release-1', runId: 'run-1',
     planDigest: plan.digest, approvedPlanDigest: plan.digest, enrolledUid: process.getuid(),
+    brokerExecutableDigest: '6'.repeat(64), runtimeDigest: '7'.repeat(64), workerDigest: '8'.repeat(64),
     operations: Object.entries(authority.operations.operations).map(([operationId, operation]) => ({ taskId: authority.plan.selectedTaskIds[0], operationId, phase: operation.action })),
     descriptorDigest: privilegedBrokerDescriptorDigest(payload), closureDigest, consentDigest: '2'.repeat(64),
     issuedAt: '2026-11-08T12:00:00.000Z', expiresAt: '2026-11-08T12:05:00.000Z' };
