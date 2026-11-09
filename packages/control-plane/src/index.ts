@@ -510,10 +510,14 @@ app.get('/login', (c) => {
 <p class=muted>Setting up a headless machine? <a href="/pair">Approve a pairing</a> instead.</p>
 <script>
 var RETURN_TO=${JSON.stringify(returnTo)};
-function signIn(p, btn){
+async function signIn(p, btn){
   var err=document.getElementById('err'); err.textContent='';
   if(btn){btn.disabled=true;}
-  fetch('/api/auth/sign-in/social',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({provider:p,callbackURL:RETURN_TO})})
+  // Delete an existing Better Auth session before OAuth so the callback creates a new session whose
+  // createdAt is valid reauthentication evidence for the bounded owner-approval window.
+  fetch('/api/auth/sign-out',{method:'POST',credentials:'include',headers:{'content-type':'application/json'},body:'{}'})
+    .then(function(r){if(!r.ok)throw new Error('unable to begin fresh authentication')})
+    .then(function(){return fetch('/api/auth/sign-in/social',{method:'POST',credentials:'include',headers:{'content-type':'application/json'},body:JSON.stringify({provider:p,callbackURL:RETURN_TO})})})
     .then(function(r){return r.json()})
     .then(function(j){
       if(j&&j.url){location.href=j.url;return}
@@ -1696,6 +1700,19 @@ async function requireAdmin(c: any): Promise<Response | null> {
   return c.json({ error: 'unauthorized' }, 401);
 }
 
+// Compatibility pairing approval is an explicit break-glass boundary, not an alternative OIDC
+// session path. Its use is persisted in the pairing record so the credential has durable provenance.
+function requireBreakGlassAdminToken(c: any): Response | null {
+  const configured = (c.env as Record<string, unknown>).AID_ADMIN_TOKEN;
+  if (typeof configured !== 'string' || configured.length === 0) {
+    return c.json({ error: 'break_glass_auth_not_configured' }, 503);
+  }
+  const header = c.req.header('authorization') || '';
+  const presented = header.startsWith('Bearer ') ? header.slice(7) : '';
+  if (!presented || !safeEqual(presented, configured)) return c.json({ error: 'unauthorized' }, 401);
+  return null;
+}
+
 // Enroll a device (admin-gated). Mints a device id + a one-time opaque token; stores only its hash.
 app.post('/api/devices/enroll', async (c) => {
   const denied = await requireAdmin(c);
@@ -2757,7 +2774,7 @@ app.post('/api/devices/pair/owner-decision', async (c) => {
 // enrollment uses the freshly authenticated owner-decision boundary above. This route mints no
 // token (claim does), so no plaintext token is ever stored.
 app.post('/api/devices/pair/approve', async (c) => {
-  const denied = await requireAdmin(c);
+  const denied = requireBreakGlassAdminToken(c);
   if (denied) return denied;
   const db = (c.env as Record<string, any>).DB;
   if (!db) return c.json({ error: 'store_unavailable' }, 503);
@@ -2776,8 +2793,10 @@ app.post('/api/devices/pair/approve', async (c) => {
     if (!Array.isArray(approvedScopes) || approvedScopes.length > requestedScopes.length
       || approvedScopes.some(scope => typeof scope !== 'string' || !requestedScopes.includes(scope))
       || new Set(approvedScopes).size !== approvedScopes.length) return c.json({ error: 'invalid_approved_scopes' }, 400);
-    await db.prepare("UPDATE pairings SET status='approved', approved_at=?, approved_scopes=? WHERE code=? AND status='pending'").bind(new Date().toISOString(), JSON.stringify(approvedScopes), code).run();
-    return c.json({ code, status: 'approved' });
+    const updated = await db.prepare("UPDATE pairings SET status='approved', approved_at=?, approved_scopes=?, decided_by='break-glass:admin-token' WHERE code=? AND status='pending' AND owner_actor IS NULL")
+      .bind(new Date().toISOString(), JSON.stringify(approvedScopes), code).run();
+    if ((updated.meta?.changes ?? 0) !== 1) return c.json({ error: 'pairing_not_pending' }, 409);
+    return c.json({ code, status: 'approved', authorization: 'break-glass:admin-token' });
   } catch (e) {
     return c.json({ error: 'invalid_request', detail: e instanceof Error ? e.message : String(e) }, 400);
   }

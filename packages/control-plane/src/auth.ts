@@ -24,6 +24,9 @@ export const auth = betterAuth({
     protocol: 'https',
   },
   secret: e.BETTER_AUTH_SECRET,
+  // Owner enrollment decisions require a newly established OAuth session. Keep Better Auth's
+  // native freshness policy aligned with the independently enforced owner-decision window.
+  session: { freshAge: 5 * 60 },
   // Only the two canonical approval origins may drive auth (CSRF/open-redirect defense). Do not add the
   // wildcard: a public profile hostname identifies desired state, not an authenticated principal.
   trustedOrigins: [...DESKTOP_TOOLS_TRUSTED_AUTH_ORIGINS],
@@ -31,10 +34,12 @@ export const auth = betterAuth({
     github: {
       clientId: e.GITHUB_CLIENT_ID,
       clientSecret: e.GITHUB_CLIENT_SECRET,
+      prompt: 'login',
     },
     google: {
       clientId: e.GOOGLE_CLIENT_ID,
       clientSecret: e.GOOGLE_CLIENT_SECRET,
+      prompt: 'login',
     },
   },
   // O10 — rate-limit sign-in + email issuance (fire #108). Better Auth's limiter was INERT on prod: on

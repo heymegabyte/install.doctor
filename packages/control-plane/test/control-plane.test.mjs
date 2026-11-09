@@ -351,7 +351,13 @@ test('OIDC sign-in returns to an exact pairing review without accepting an open 
     `https://desktop.tools/login?returnTo=${encodeURIComponent(`/pair?code=${code}`)}`,
   ), TEST_ENV);
   assert.equal(login.status, 200);
-  assert.match(await login.text(), /var RETURN_TO="\/pair\?code=2345-6789-ABCD"/);
+  const loginHtml = await login.text();
+  assert.match(loginHtml, /var RETURN_TO="\/pair\?code=2345-6789-ABCD"/);
+  const signOut = loginHtml.indexOf("fetch('/api/auth/sign-out'");
+  const signIn = loginHtml.indexOf("fetch('/api/auth/sign-in/social'");
+  assert.ok(signOut >= 0 && signIn > signOut, 'a prior session is deleted before a fresh OAuth flow starts');
+  assert.match(loginHtml, /sign-out'.*credentials:'include'/s);
+  assert.match(loginHtml, /sign-in\/social'.*credentials:'include'/s);
 
   const hostile = await app.fetch(new Request(
     `https://desktop.tools/login?returnTo=${encodeURIComponent('https://evil.example/steal')}`,
@@ -395,6 +401,11 @@ test('public pairing lookup normalizes malformed, unknown, and claimed responses
     env,
   );
   assert.equal(approved.status, 200);
+  assert.deepEqual(await approved.clone().json(), {
+    code: pairing.code, status: 'approved', authorization: 'break-glass:admin-token',
+  });
+  const approvalRecord = await env.DB.prepare('SELECT decided_by FROM pairings WHERE code=?').bind(pairing.code).first();
+  assert.equal(approvalRecord.decided_by, 'break-glass:admin-token');
   const claimed = await app.fetch(
     new Request('https://app.install.doctor/api/devices/pair/poll', {
       headers: { authorization: `Bearer ${pairing.pollSecret}` },
@@ -405,6 +416,33 @@ test('public pairing lookup normalizes malformed, unknown, and claimed responses
   const afterClaim = await app.fetch(new Request(`https://app.install.doctor/api/devices/pair/info?code=${pairing.code}`), env);
   assert.equal(afterClaim.status, 404);
   assert.deepEqual(await afterClaim.json(), unavailable);
+});
+
+test('compatibility pairing approval is fail-closed break-glass token access', async () => {
+  const app = await loadWorkerApp();
+  const db = globalThis.__AID_TEST_DB__;
+  const started = await app.fetch(new Request('https://desktop.tools/api/devices/pair/start', {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ tenant: 'break-glass-auth', label: 'break-glass-host' }),
+  }), { ...TEST_ENV, DB: db });
+  const pairing = await started.json();
+  const request = (env, authorization) => app.fetch(new Request('https://desktop.tools/api/devices/pair/approve', {
+    method: 'POST',
+    headers: { ...(authorization ? { authorization } : {}), 'content-type': 'application/json' },
+    body: JSON.stringify({ code: pairing.code }),
+  }), env);
+
+  const absent = await request({ ...TEST_ENV, DB: db });
+  assert.equal(absent.status, 401);
+  assert.deepEqual(await absent.json(), { error: 'unauthorized' });
+  const wrong = await request({ ...TEST_ENV, DB: db }, 'Bearer wrong-token');
+  assert.equal(wrong.status, 401);
+  assert.deepEqual(await wrong.json(), { error: 'unauthorized' });
+  const unconfigured = await request({ ...TEST_ENV, DB: db, AID_ADMIN_TOKEN: undefined });
+  assert.equal(unconfigured.status, 503);
+  assert.deepEqual(await unconfigured.json(), { error: 'break_glass_auth_not_configured' });
+  const stillPending = await db.prepare('SELECT status, decided_by FROM pairings WHERE code=?').bind(pairing.code).first();
+  assert.deepEqual(stillPending, { status: 'pending', decided_by: null });
 });
 
 test('pair claim is atomic, digest-only, binding-safe, and normalizes terminal failures', async () => {
