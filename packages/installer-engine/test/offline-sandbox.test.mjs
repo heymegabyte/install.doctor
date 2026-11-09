@@ -95,9 +95,11 @@ test('Linux execution reprobes immediately, contains paths, and invokes only Bub
   assert.ok(calls[1].argv.includes('--cap-drop'));
   assert.ok(calls[1].argv.includes('ALL'));
   assert.equal(calls[1].argv.includes('--bind'), false);
+  assert.ok(calls[1].argv.includes('--ro-bind-data'), 'verified descriptors must be copied without reopening a pathname');
+  assert.equal(calls[1].argv.includes('/proc/self/fd/3'), false, 'Bubblewrap closes unclaimed descriptor paths before mount setup');
   assert.equal(calls[1].argv.includes('/'), false, 'host root must never be mounted into the sandbox');
   assert.deepEqual(calls[1].fileDescriptors, [executableHandle.fd]);
-  assert.equal(calls[1].argv.includes('--preserve-fds'), false, 'Bubblewrap inherits explicitly passed descriptors without a non-portable flag');
+  assert.equal(calls[1].argv.includes('--preserve-fds'), false, 'Bubblewrap 0.9 uses descriptor-backed data mounts');
   assert.ok(calls[1].argv.includes('/run/install-doctor/operation'));
 
   await assert.rejects(runtime.execute({

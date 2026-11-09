@@ -189,10 +189,12 @@ async function createEngineInvoker(options: ServerOptions): Promise<EngineInvoke
         const result = await executeOpenedEngine(engine, input);
         return parseEngineOutput(result.stdout);
       } catch (error) {
-        const candidate = error as { code?: number };
+        const candidate = error as { code?: number; message?: string };
         const exitClass = Number.isSafeInteger(candidate.code) && Number(candidate.code) >= 2 && Number(candidate.code) <= 8
           ? Number(candidate.code) : 7;
-        throw new Error(`installer engine rejected the typed operation (class ${exitClass})`);
+        const parseDiagnostic = exitClass === 2 && typeof candidate.message === 'string'
+          ? `: ${candidate.message.replace(/[\r\n\t]+/g, ' ').replace(/\s{2,}/g, ' ').slice(0, 1_024)}` : '';
+        throw new Error(`installer engine rejected the typed operation (class ${exitClass})${parseDiagnostic}`);
       }
     } finally {
       await Promise.allSettled([engine?.close(), input?.close()]);

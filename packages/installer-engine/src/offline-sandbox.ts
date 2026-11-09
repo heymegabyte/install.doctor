@@ -180,7 +180,8 @@ export function createOfflineSandboxRuntime(dependencies: OfflineSandboxDependen
       const sandboxArguments = [...argumentsList];
       artifactDescriptors.forEach((item, index) => { sandboxArguments[item.argumentIndex] = `/run/install-doctor/artifact-${index}`; });
       const descriptorBinds = fileDescriptors.flatMap((_, index) => [
-        '--ro-bind', `/proc/self/fd/${index + 3}`, index === 0 ? '/run/install-doctor/operation' : `/run/install-doctor/artifact-${index - 1}`,
+        '--perms', index === 0 ? '0500' : '0400', '--ro-bind-data', String(index + 3),
+        index === 0 ? '/run/install-doctor/operation' : `/run/install-doctor/artifact-${index - 1}`,
       ]);
       return dependencies.run({
         purpose: 'operation', timeoutMs,
