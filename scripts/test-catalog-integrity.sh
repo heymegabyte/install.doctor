@@ -77,6 +77,14 @@ JSON
 if python3 "$VAL" "$fx6" >/dev/null 2>&1; then fail "validator MISSED an invalid eager delivery reason"; else pass "validator catches an invalid eager delivery reason"; fi
 rm -f "$fx6"
 
+# 5d. FIXTURE — service mode is not executable authority without exact declarations.
+fx7="$(mktemp)"
+cat >"$fx7" <<'JSON'
+[{"name":"a","bin":"a","providers":["apt"],"pkgs":{"apt":"a"},"platforms":["linux"],"installMode":"service","deliveryMode":"lazy","preload":false,"loadPolicy":"lazy","loadRationale":"default-lazy"}]
+JSON
+if python3 "$VAL" "$fx7" >/dev/null 2>&1; then fail "validator MISSED service mode without exact declarations"; else pass "validator rejects service mode without exact declarations"; fi
+rm -f "$fx7"
+
 # 6-9. LIVE — /api/catalog/:name returns the CANONICAL entry (bin===name) for a multi-bin package (#133 fix).
 #      Pre-fix the name-keyed Map kept the LAST sibling (xz→unxz, bzip2→bunzip2, kvm→qemu-img, rar→unrar).
 if [ -n "${CONTROL_PLANE_URL:-}" ]; then

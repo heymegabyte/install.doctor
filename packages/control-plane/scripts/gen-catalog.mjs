@@ -31,10 +31,62 @@ async function loadArtifactsByPackage() {
   return { declared, validated: await validateArtifactDeclarations(declared) };
 }
 
+function loadServiceDeclarationsByPackage() {
+  const declared = JSON.parse(execFileSync(
+    'yq',
+    [
+      '-o',
+      'json',
+      '[.softwarePackages | to_entries[] | select(.value._service != null) | {"key": .key, "services": .value._service}]',
+      SOFTWARE,
+    ],
+    { encoding: 'utf8' },
+  ));
+  const byPackage = new Map();
+  for (const entry of declared) {
+    if (!entry || typeof entry.key !== 'string' || !/^[a-z0-9][a-z0-9._-]*$/.test(entry.key)) {
+      throw new Error('service declaration has an invalid catalog key');
+    }
+    if (!Array.isArray(entry.services) || entry.services.length === 0 || entry.services.length > 32) {
+      throw new Error(`service declaration for ${entry.key} must be a non-empty bounded array`);
+    }
+    const normalized = entry.services.map((raw, index) => {
+      const value = typeof raw === 'string' ? { name: raw } : raw;
+      if (!value || typeof value !== 'object' || Array.isArray(value)) {
+        throw new Error(`service declaration ${entry.key}[${index}] must be a string or object`);
+      }
+      const allowed = new Set(['name', 'sudo', 'pkg']);
+      for (const key of Object.keys(value)) {
+        if (!allowed.has(key)) throw new Error(`service declaration ${entry.key}[${index}] has unknown field ${key}`);
+      }
+      if (typeof value.name !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9@._:+\/-]{0,127}$/.test(value.name)) {
+        throw new Error(`service declaration ${entry.key}[${index}] has an invalid name`);
+      }
+      if (value.sudo !== undefined && typeof value.sudo !== 'boolean') {
+        throw new Error(`service declaration ${entry.key}[${index}] sudo must be boolean`);
+      }
+      if (value.pkg !== undefined && (typeof value.pkg !== 'string' || !/^[a-z0-9][a-z0-9._+-]{0,127}$/.test(value.pkg))) {
+        throw new Error(`service declaration ${entry.key}[${index}] has an invalid package provider selector`);
+      }
+      return {
+        name: value.name,
+        privilege: value.sudo === true ? 'admin' : 'user',
+        ...(value.pkg === undefined ? {} : { packageProvider: value.pkg }),
+      };
+    });
+    byPackage.set(entry.key, normalized);
+  }
+  return byPackage;
+}
+
 // Artifact metadata is executable authority. Unlike optional human-facing
 // enrichment below, it is always parsed through the shared strict runtime
 // contract and any malformed declaration aborts generation.
 const { declared: artifactDeclarations, validated: artifactsByPackage } = await loadArtifactsByPackage();
+// Service declarations are desired-state data, not executable manager authority.
+// Preserve their exact identity/privilege/provider selectors in the generated
+// catalog, while requiring a later manager-specific admission before mutation.
+const serviceDeclarationsByPackage = loadServiceDeclarationsByPackage();
 
 // index columns (per not-found-hook.sh): 1 bin 2 key 3 brew 4 apt 5 dnf 6 pacman 7 cask 8 choco
 // 9 scoop 10 go 11 cargo 12 npm 13 pipx 14 pip 15 gem 16 apk
@@ -89,6 +141,7 @@ for (const line of rows) {
     loadPolicy: 'lazy',
     loadRationale: 'default-lazy',
     ...(artifacts ? { artifacts } : {}),
+    ...(serviceDeclarationsByPackage.has(name) ? { serviceDeclarations: serviceDeclarationsByPackage.get(name) } : {}),
   });
 }
 
@@ -115,6 +168,7 @@ for (const declaration of artifactDeclarations) {
       loadPolicy: 'lazy',
       loadRationale: 'default-lazy',
       artifacts,
+      ...(serviceDeclarationsByPackage.has(declaration.key) ? { serviceDeclarations: serviceDeclarationsByPackage.get(declaration.key) } : {}),
     });
   }
 }

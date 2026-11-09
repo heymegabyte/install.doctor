@@ -14,7 +14,8 @@ const input = overrides => ({
     entry('security', { loadPolicy: 'eager-security-recovery', loadRationale: 'security-recovery:offline' }),
     entry('dependency'),
     entry('tool', { deps: ['dependency'] }),
-    entry('worker', { installMode: 'service', loadPolicy: 'eager-service', loadRationale: 'desired-state:worker' }),
+    entry('worker', { installMode: 'service', loadPolicy: 'eager-service', loadRationale: 'desired-state:worker',
+      serviceDeclarations: [{ name: 'worker.service', privilege: 'admin', packageProvider: 'apt' }] }),
     entry('path-tool', { loadPolicy: 'eager-supported-path', loadRationale: 'supported-path:developer' }),
     entry('mac-only', { platforms: ['macos'] }),
   ],
@@ -98,12 +99,27 @@ test('selects a desired service and a supported-path exception explicitly', () =
   assert.equal(report.items.find(item => item.name === 'path-tool').selectionReason, 'supported-path');
 });
 
+test('requires strict service declarations without treating them as manager execution authority', () => {
+  assert.throws(() => buildLoadPlan(input({
+    catalog: input({}).catalog.map(candidate => candidate.name === 'worker'
+      ? { ...candidate, serviceDeclarations: undefined } : candidate),
+  })), /serviceDeclarations/);
+  assert.throws(() => buildLoadPlan(input({
+    catalog: input({}).catalog.map(candidate => candidate.name === 'tool'
+      ? { ...candidate, serviceDeclarations: [{ name: 'tool.service', privilege: 'user' }] } : candidate),
+  })), /serviceDeclarations/);
+  assert.throws(() => buildLoadPlan(input({
+    catalog: input({}).catalog.map(candidate => candidate.name === 'worker'
+      ? { ...candidate, serviceDeclarations: [{ name: 'worker.service', privilege: 'root' }] } : candidate),
+  })), /privilege/);
+});
+
 test('service start order follows dependency topology rather than lexical order', () => {
   const report = buildLoadPlan(input({
     lazyResolverRequirements: [], selectedServices:['service-a','service-z'],
     catalog:[
-      entry('service-a', {installMode:'service',loadPolicy:'eager-service',loadRationale:'desired-state:a',deps:['service-z']}),
-      entry('service-z', {installMode:'service',loadPolicy:'eager-service',loadRationale:'desired-state:z'}),
+      entry('service-a', {installMode:'service',loadPolicy:'eager-service',loadRationale:'desired-state:a',deps:['service-z'],serviceDeclarations:[{name:'service-a',privilege:'user'}]}),
+      entry('service-z', {installMode:'service',loadPolicy:'eager-service',loadRationale:'desired-state:z',serviceDeclarations:[{name:'service-z',privilege:'user'}]}),
     ],
   }));
   assert.deepEqual(report.installOrder, ['service-z','service-a']);

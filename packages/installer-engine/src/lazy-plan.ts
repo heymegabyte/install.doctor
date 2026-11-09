@@ -14,6 +14,12 @@ const LoadPolicySchema = z.enum([
   'eager-service',
 ]);
 
+export const ServiceDeclarationSchema = z.strictObject({
+  name: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9@._:+\/-]{0,127}$/),
+  privilege: z.enum(['user', 'admin']),
+  packageProvider: IdentifierSchema.optional(),
+});
+
 export const LoadCatalogEntrySchema = z.object({
   name: CatalogKeySchema,
   bin: z.string().min(1).max(256),
@@ -24,6 +30,7 @@ export const LoadCatalogEntrySchema = z.object({
   deps: z.array(CatalogKeySchema).default([]),
   artifacts: z.array(ImmutableArtifactDescriptorSchema).max(16).default([]),
   offlinePayloads: z.array(NativeOfflinePayloadDescriptorSchema).max(256).default([]),
+  serviceDeclarations: z.array(ServiceDeclarationSchema).min(1).max(32).optional(),
   providers: z.array(IdentifierSchema).max(64).optional(),
   pkgs: z.record(IdentifierSchema, z.string().min(1).max(4096)).optional(),
   deliveryMode: z.enum(['eager', 'lazy']).optional(),
@@ -62,6 +69,14 @@ export const LoadCatalogEntrySchema = z.object({
       code: z.ZodIssueCode.custom,
       message: 'postInstall and postInstallPrivilege must be declared together',
       path: ['postInstallPrivilege'],
+    });
+  }
+  if ((entry.installMode === 'service' && entry.serviceDeclarations === undefined)
+    || (entry.installMode === 'cli' && entry.serviceDeclarations !== undefined)) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: 'service installMode requires serviceDeclarations and CLI entries cannot declare services',
+      path: ['serviceDeclarations'],
     });
   }
 });

@@ -20,6 +20,7 @@ import json
 import sys
 import collections
 import pathlib
+import re
 import subprocess
 
 MODES = {"cli", "app", "service"}
@@ -79,6 +80,24 @@ def validate(cat):
             problems.append(f"{nm}: entry requires a package-manager provider or immutable artifact")
         if e.get("installMode") not in MODES:
             problems.append(f"{nm}: installMode {e.get('installMode')!r} not in {sorted(MODES)}")
+        service_declarations = e.get("serviceDeclarations")
+        if (e.get("installMode") == "service" and not isinstance(service_declarations, list)) or (e.get("installMode") == "cli" and isinstance(service_declarations, list)):
+            problems.append(f"{nm}: service installMode requires serviceDeclarations and CLI entries cannot declare services")
+        if isinstance(service_declarations, list):
+            if not service_declarations or len(service_declarations) > 32:
+                problems.append(f"{nm}: serviceDeclarations must contain 1..32 entries")
+            for declaration_index, declaration in enumerate(service_declarations):
+                prefix = f"{nm}: serviceDeclarations[{declaration_index}]"
+                if not isinstance(declaration, dict) or set(declaration) - {"name", "privilege", "packageProvider"}:
+                    problems.append(f"{prefix} must be a strict declaration object")
+                    continue
+                if not isinstance(declaration.get("name"), str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9@._:+/-]{0,127}", declaration["name"]):
+                    problems.append(f"{prefix} has an invalid service name")
+                if declaration.get("privilege") not in {"user", "admin"}:
+                    problems.append(f"{prefix} has an invalid privilege")
+                selector = declaration.get("packageProvider")
+                if selector is not None and (not isinstance(selector, str) or not re.fullmatch(r"[a-z0-9][a-z0-9._+-]{0,127}", selector)):
+                    problems.append(f"{prefix} has an invalid package provider selector")
         if e.get("deliveryMode") not in DELIVERY_MODES:
             problems.append(f"{nm}: deliveryMode {e.get('deliveryMode')!r} not in {sorted(DELIVERY_MODES)}")
         if e.get("loadPolicy") not in LOAD_POLICIES:
