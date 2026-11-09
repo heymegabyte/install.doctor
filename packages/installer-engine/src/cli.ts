@@ -4,7 +4,7 @@ import { constants } from 'node:fs';
 import { createHash, randomUUID } from 'node:crypto';
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
 import { z } from 'zod';
-import { DesiredStateInputSchema, ExecutionPolicySchema, HostFactsSchema, ImmutableArtifactDescriptorSchema, NormalizedPlanSchema, TaskNodeSchema } from './contracts.js';
+import { DesiredStateInputSchema, ExecutionPolicySchema, HostFactsSchema, ImmutableArtifactDescriptorSchema, NativeOfflinePayloadDescriptorSchema, NormalizedPlanSchema, TaskNodeSchema } from './contracts.js';
 import type { InstallerEvent, TaskNode } from './contracts.js';
 import { createInstallerEngine, deriveBoundNormalizedPlan } from './engine.js';
 import { InstallerOperationError } from './engine.js';
@@ -24,7 +24,8 @@ import { createDefaultDebianMetadataVerifier } from './debian-gpgv.js';
 import { createTrustedDebianVersionComparator } from './debian-version.js';
 import { createNativeDpkgTransactionRuntime } from './native-dpkg-transaction.js';
 import { collectLinuxOfflineHostFacts } from './linux-host-facts.js';
-import { LoadPlanInputSchema, LoadPlanItemSchema, LoadPlanReportSchema, buildLoadPlan } from './lazy-plan.js';
+import { LoadPlanInputSchema, LoadPlanItemSchema, LoadPlanReportSchema, buildLoadPlan, calculateLoadPlanReportDigest } from './lazy-plan.js';
+import { composeSelectedNativeDebianPackageSlice } from './native-debian-composition.js';
 import { derivePlannedArtifactOperations, preparePlannedArtifact } from './planned-artifact.js';
 import { fetchImmutableArtifact } from './immutable-artifact.js';
 import { createRollbackPlan } from './rollback.js';
@@ -174,6 +175,10 @@ const bundleExpected = z.strictObject({
   releaseId: identifier, planDigest: z.string().regex(/^[a-f0-9]{64}$/), platform: bundlePlatform,
   selectedTaskIds: z.array(identifier).min(1).max(10_000), artifactIds: z.array(identifier).min(1).max(4096),
 });
+const bundleCatalogDescriptor = z.discriminatedUnion('kind', [
+  ImmutableArtifactDescriptorSchema.extend({ kind: z.literal('immutable-executable').default('immutable-executable') }),
+  NativeOfflinePayloadDescriptorSchema,
+]);
 const BundleCreateInvocationSchema = z.strictObject({
   schemaVersion: z.literal(2), command: z.literal('bundle-create'),
   outputRoot: z.string().min(1).max(4096).refine(isAbsolute, 'output root must be absolute'),
@@ -189,7 +194,7 @@ const BundleCreateInvocationSchema = z.strictObject({
     mediaType: z.string().min(1).max(128), mode: z.enum(['0600', '0700']),
     license: z.string().min(1).max(128),
     schema: z.strictObject({ id: identifier, version: z.string().min(1).max(64) }).nullable(),
-    catalogDescriptor: ImmutableArtifactDescriptorSchema.nullable().optional(),
+    catalogDescriptor: bundleCatalogDescriptor.nullable().optional(),
     containsSecrets: z.literal(false),
   })).min(1).max(4096),
   maxArtifactBytes: z.number().int().positive().max(268_435_456).optional(),
@@ -243,6 +248,22 @@ const RollbackStatusInvocationSchema = z.strictObject({
   stateRoot: z.string().min(1).max(4096).refine(isAbsolute, 'state root must be absolute'),
 });
 const LoadPlanInvocationSchema = LoadPlanInputSchema.extend({ command: z.literal('load-plan') }).strict();
+const NativeDebianDeriveInvocationSchema = z.strictObject({
+  schemaVersion: z.literal(1), command: z.literal('native-debian-derive'),
+  loadPlan: LoadPlanReportSchema,
+  approvedLoadPlanDigest: z.string().regex(/^[a-f0-9]{64}$/),
+  packageKey: z.literal('tree'),
+  target: z.strictObject({
+    distroId: z.literal('debian'), versionId: z.literal('12'), codename: z.literal('bookworm'), architecture: z.literal('amd64'),
+  }),
+  installedWitnesses: z.array(z.strictObject({
+    kind: z.literal('preexisting-witness'), manager: z.literal('dpkg'), packageName: z.literal('libc6'),
+    version: z.string().min(1).max(128), architecture: z.literal('amd64'), status: z.literal('installed'),
+    healthy: z.literal(true), held: z.literal(false),
+  })).length(1),
+  desiredState: DesiredStateInputSchema,
+  legacyPackages: z.array(z.string().min(1).max(128).regex(/^[a-z0-9][a-z0-9.+-]*(?::[a-z0-9][a-z0-9-]*)?$/)).max(4096),
+});
 const artifactAuthority = {
   loadPlan: LoadPlanReportSchema,
   items: z.array(LoadPlanItemSchema).min(1).max(4096),
@@ -264,7 +285,7 @@ const InvocationSchema = z.discriminatedUnion('command', [
   BundleCreateInvocationSchema, BundleVerifyInvocationSchema, BundlePlanInvocationSchema, BundleApplyInvocationSchema,
   OfflineExecuteInvocationSchema, OfflineResumeInvocationSchema,
   RollbackPlanInvocationSchema, RollbackExecuteInvocationSchema, RollbackResumeInvocationSchema, RollbackStatusInvocationSchema,
-  LoadPlanInvocationSchema, ArtifactDeriveInvocationSchema, ArtifactPrepareInvocationSchema,
+  LoadPlanInvocationSchema, NativeDebianDeriveInvocationSchema, ArtifactDeriveInvocationSchema, ArtifactPrepareInvocationSchema,
 ]);
 type Invocation = z.infer<typeof InvocationSchema>;
 type OperationInvocation = Extract<Invocation, { command: 'discover' | 'validate' | 'plan' | 'run' | 'resume' | 'status' }>;
@@ -983,6 +1004,22 @@ async function main(): Promise<void> {
     if (invocation.command === 'load-plan') {
       const { command: _command, ...loadInput } = invocation;
       process.stdout.write(`${JSON.stringify(buildLoadPlan(loadInput))}\n`);
+      return;
+    }
+    if (invocation.command === 'native-debian-derive') {
+      const calculated = calculateLoadPlanReportDigest(invocation.loadPlan);
+      if (calculated !== invocation.loadPlan.digest || invocation.approvedLoadPlanDigest !== calculated) {
+        throw new Error('native Debian derivation requires the exact approved load-plan digest');
+      }
+      const compareDebianVersions = await createTrustedDebianVersionComparator();
+      const composition = composeSelectedNativeDebianPackageSlice({
+        loadPlan: invocation.loadPlan, packageKey: invocation.packageKey, target: invocation.target,
+        installedWitnesses: invocation.installedWitnesses, desiredState: invocation.desiredState,
+        legacyPackages: invocation.legacyPackages, compareDebianVersions,
+      });
+      process.stdout.write(`${JSON.stringify({
+        schemaVersion: 1, loadPlanDigest: calculated, descriptorDigest: composition.task.inputDigest, composition,
+      })}\n`);
       return;
     }
     if (invocation.command === 'artifact-derive') {

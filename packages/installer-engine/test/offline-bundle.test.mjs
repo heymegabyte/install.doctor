@@ -364,6 +364,85 @@ test('CLI bundle create, verify, plan, and approved deny-network apply share the
   assert.deepEqual(receipt.artifactIds, ['catalog', 'engine', 'release-envelope', 'release-signature']);
 });
 
+test('CLI bundle-create accepts exact native catalog authority and rejects descriptor substitution', async t => {
+  const state = await fixture(t);
+  const cli = new URL('../dist/cli.js', import.meta.url).pathname;
+  const invocationPath = join(state.root, 'native-bundle-invocation.json');
+  const run = async invocation => {
+    await writeFile(invocationPath, `${JSON.stringify(invocation)}\n`, { mode: 0o600 });
+    return execute(process.execPath, [cli, '--input', invocationPath], {
+      env: { PATH: process.env.PATH ?? '' }, timeout: 10_000, maxBuffer: 2_000_000,
+    });
+  };
+  const bodies = {
+    payload: Buffer.from('exact native deb\n'), inRelease: Buffer.from('signed InRelease\n'),
+    packages: Buffer.from('compressed Packages.xz\n'), keyring: Buffer.from('archive keyring\n'),
+  };
+  const paths = {};
+  for (const [name, bytes] of Object.entries(bodies)) {
+    paths[name] = join(state.source, `native-${name}`);
+    await writeFile(paths[name], bytes, { mode: 0o600 });
+  }
+  const descriptor = {
+    schemaVersion: 1, kind: 'native-offline-package', manager: 'dpkg', packageKey: 'tree',
+    platform: { os: 'linux', arch: 'x64' }, package: { name: 'tree', version: '2.1.0-1', architecture: 'amd64' },
+    artifact: { id: 'tree-deb-bookworm-amd64', sha256: sha(bodies.payload), sizeBytes: bodies.payload.length,
+      mediaType: 'application/vnd.debian.binary-package' },
+    distro: { id: 'debian', versionId: '12', codename: 'bookworm' },
+    repository: { repositoryOrigin: 'https://deb.debian.org/debian', suite: 'bookworm', component: 'main' },
+    metadataProof: {
+      inRelease: { artifactId: 'debian-bookworm-inrelease', path: 'dists/bookworm/InRelease', sha256: sha(bodies.inRelease),
+        sizeBytes: bodies.inRelease.length, signedAt: at, validUntil: later, maximumDateAgeSeconds: null,
+        signingKeyFingerprint: 'A'.repeat(40), keyring: { artifactId: 'debian-bookworm-archive-keyring',
+          sha256: sha(bodies.keyring), sizeBytes: bodies.keyring.length, mediaType: 'application/vnd.gnupg.keyring' } },
+      packagesIndex: { artifactId: 'debian-bookworm-main-amd64-packages', path: 'dists/bookworm/main/binary-amd64/Packages.xz',
+        sha256: sha(bodies.packages), sizeBytes: bodies.packages.length, architecture: 'amd64' },
+      packageStanza: { filename: 'pool/main/t/tree/tree_2.1.0-1_amd64.deb', sha256: sha(bodies.payload),
+        sizeBytes: bodies.payload.length, depends: 'libc6 (>= 2.34)', preDepends: null, essential: 'no', multiArch: 'foreign' },
+    },
+    dependencyClosure: { depends: [], preDepends: [] }, affectedServiceUnits: [], conffiles: [],
+    maintainerScriptPolicy: { trust: 'signed-repository-metadata', network: 'deny',
+      serviceStarts: 'suppress-and-restore', conffiles: 'preserve-local' },
+  };
+  await writeFile(state.catalog, `${JSON.stringify([{ name: 'tree', bin: 'tree', platforms: ['linux'], installMode: 'cli',
+    loadPolicy: 'lazy', loadRationale: 'default-lazy', deps: [], artifacts: [], offlinePayloads: [descriptor],
+    providers: ['apt'], pkgs: { apt: 'tree' } }])}\n`, { mode: 0o600 });
+  const envelope = serializeStageZeroReleaseEnvelope({
+    schemaVersion: 4, releaseId: state.base.releaseId, sourceCommit: '1'.repeat(40),
+    createdAt: Date.parse(at) / 1000, expiresAt: Date.parse(later) / 1000, keyId: state.releaseTrust.keyId,
+    artifactUrl: `https://app.install.doctor/releases/${state.base.releaseId}/provision.sh`, artifactSha256: '1'.repeat(64), artifactSize: 1,
+    engineUrl: `https://app.install.doctor/releases/${state.base.releaseId}/install-doctor-engine.mjs`,
+    engineSha256: sha(await readFile(state.engine)), engineSize: (await readFile(state.engine)).length, engineNodeMin: 22,
+    catalogUrl: `https://app.install.doctor/releases/${state.base.releaseId}/catalog.json`,
+    catalogSha256: sha(await readFile(state.catalog)), catalogSize: (await readFile(state.catalog)).length,
+    runtimeNodeVersion: '24.1.0', runtimes: Object.fromEntries(['macos-x64','macos-arm64','linux-x64','linux-arm64'].map(name => [name, {
+      url: `https://app.install.doctor/releases/${state.base.releaseId}/node-${name}.tar.gz`, sha256: '2'.repeat(64), size: 1,
+    }])),
+  });
+  await writeFile(state.envelopePath, envelope, { mode: 0o600 });
+  execFileSync('ssh-keygen', ['-Y', 'sign', '-q', '-f', state.releaseKeyPath, '-n', 'install.doctor.release', state.envelopePath]);
+  await fsRename(`${state.envelopePath}.sig`, state.releaseSignaturePath);
+  const nativeArtifacts = [
+    { id: descriptor.artifact.id, sourcePath: paths.payload, mediaType: descriptor.artifact.mediaType, mode: '0600', license: 'MIT', schema: null,
+      catalogDescriptor: descriptor, containsSecrets: false },
+    { id: descriptor.metadataProof.inRelease.artifactId, sourcePath: paths.inRelease, mediaType: 'text/plain', mode: '0600', license: 'MIT', schema: null, containsSecrets: false },
+    { id: descriptor.metadataProof.inRelease.keyring.artifactId, sourcePath: paths.keyring, mediaType: 'application/vnd.gnupg.keyring', mode: '0600', license: 'MIT', schema: null, containsSecrets: false },
+    { id: descriptor.metadataProof.packagesIndex.artifactId, sourcePath: paths.packages, mediaType: 'application/octet-stream', mode: '0600', license: 'MIT', schema: null, containsSecrets: false },
+  ];
+  const invocation = { schemaVersion: 2, command: 'bundle-create', outputRoot: state.base.outputRoot,
+    releaseId: state.base.releaseId, planDigest: state.base.planDigest, graphDigest: state.base.graphDigest,
+    platform: state.base.platform, selectedTaskIds: state.base.selectedTaskIds, createdAt: state.base.createdAt,
+    expiresAt: state.base.expiresAt, signer: state.base.signer, releaseTrust: state.releaseTrust,
+    artifacts: [...state.base.artifacts, ...nativeArtifacts] };
+  const created = JSON.parse((await run(invocation)).stdout);
+  const verified = await verifyOfflineBundle({ bundleDirectory: created.bundleDirectory, trust: state.trust, releaseTrust: state.releaseTrust });
+  assert.deepEqual(verified.manifest.artifacts.find(item => item.id === descriptor.artifact.id).catalogDescriptor, descriptor);
+
+  const substituted = structuredClone(invocation);
+  substituted.artifacts.find(item => item.id === descriptor.artifact.id).catalogDescriptor.repository.repositoryOrigin = 'https://mirror.invalid/debian';
+  await assert.rejects(run(substituted), error => /not an exact signed catalog member/i.test(error.stderr));
+});
+
 test('CLI bundle apply rejects unknown fields and any network-enabled policy before mutation', async t => {
   const state = await fixture(t);
   const created = await createOfflineBundle(state.base);
