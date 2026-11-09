@@ -138,7 +138,7 @@ async function fixture(t, options = {}) {
   const releaseSignature = join(source, 'release-signature');
   await writeFile(releaseEnvelope, serializeStageZeroReleaseEnvelope({
     schemaVersion: 4, releaseId: 'release-1', sourceCommit: '1'.repeat(40),
-    createdAt: Date.parse(fixtureAt) / 1000, expiresAt: Date.parse(fixtureLater) / 1000, keyId: releaseTrust.keyId,
+    createdAt: Math.floor(Date.parse(fixtureAt) / 1000), expiresAt: Math.floor(Date.parse(fixtureLater) / 1000), keyId: releaseTrust.keyId,
     artifactUrl: 'https://app.install.doctor/releases/release-1/provision.sh', artifactSha256: '1'.repeat(64), artifactSize: 1,
     engineUrl: 'https://app.install.doctor/releases/release-1/install-doctor-engine.mjs', engineSha256: sha(await readFile(engine)), engineSize: (await stat(engine)).size, engineNodeMin: 22,
     catalogUrl: 'https://app.install.doctor/releases/release-1/catalog.json', catalogSha256: sha(await readFile(catalog)), catalogSize: (await stat(catalog)).size,

@@ -52,7 +52,8 @@ jobs:
           digest="$(jq -er '.artifacts.linux_x64.sha256' config/desktop-tools-opencode.lock.json)"
           size="$(jq -er '.artifacts.linux_x64.size' config/desktop-tools-opencode.lock.json)"
           archive="$root/opencode.tar.gz"
-          curl --fail --silent --show-error --proto '=https' --tlsv1.2 --max-time 300 --retry 3 --retry-all-errors \
+          curl --fail --silent --show-error --location --max-redirs 3 --proto '=https' --proto-redir '=https' \
+            --tlsv1.2 --max-time 300 --retry 3 --retry-all-errors \
             --max-filesize 167772160 --output "$archive" "$url"
           test "$(wc -c < "$archive" | tr -d '[:space:]')" = "$size"
           printf '%s  %s\n' "$digest" "$archive" | sha256sum --check --strict
