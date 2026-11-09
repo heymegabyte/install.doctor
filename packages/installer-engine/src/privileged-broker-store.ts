@@ -124,7 +124,8 @@ export async function createPrivilegedBrokerStore(input: {
         || approval.runtimeDigest !== grant.runtimeDigest || approval.workerDigest !== grant.workerDigest
         || approval.descriptorDigest !== grant.descriptorDigest || approval.closureDigest !== grant.closureDigest
         || approval.consentDigest !== grant.consentDigest
-        || Date.parse(approval.approvedAt) > Date.parse(grant.issuedAt)) {
+        || Date.parse(approval.approvedAt) < Date.parse(grant.issuedAt)
+        || Date.parse(approval.approvedAt) >= Date.parse(grant.expiresAt)) {
         throw new Error('privileged broker approval evidence differs from the exact grant');
       }
       if (!await input.verifyApproval(approval)) throw new Error('privileged broker approval evidence was not independently verified');

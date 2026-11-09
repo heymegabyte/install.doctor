@@ -70,6 +70,20 @@ test('root-side store rejects writable and tampered authority', async t => {
   await assert.rejects(store.readGrant('grant-1'), /identity mismatch|grant identity/);
 });
 
+test('root-side store accepts delayed approval only inside the exact grant lifetime', async t => {
+  const temporary = await mkdtemp(join(tmpdir(), 'broker-store-approval-time-'));
+  t.after(() => rm(temporary, { recursive: true, force: true }));
+  const root = join(await realpath(temporary), 'store');
+  const store = await createPrivilegedBrokerStore({ root, ownerUid: process.getuid(), verifyApproval: async () => true });
+  const delayedGrant = grant({ grantId: 'grant-delayed-approval' });
+  const digest = privilegedBrokerDigest(delayedGrant);
+  const delayed = approval({ approvalId: 'approval-delayed', approvedAt: '2026-11-08T12:00:30.000Z' }, delayedGrant);
+  assert.equal((await store.publishGrant(delayedGrant, delayed)).digest, digest);
+  const earlyGrant = grant({ grantId: 'grant-early-approval' });
+  const early = approval({ approvalId: 'approval-early', approvedAt: '2026-11-08T11:59:59.999Z' }, earlyGrant);
+  await assert.rejects(store.publishGrant(earlyGrant, early), /differs from the exact grant/);
+});
+
 test('root-side store rejects a symbolic-link ancestor before creating authority', async t => {
   const temporary = await mkdtemp(join(tmpdir(), 'broker-store-link-'));
   t.after(() => rm(temporary, { recursive: true, force: true }));

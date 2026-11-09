@@ -83,7 +83,14 @@ func Serve(ctx context.Context, config ServerConfig) error {
 		return err
 	}
 	var closeListenerOnce sync.Once
-	closeListener := func() { closeListenerOnce.Do(func() { _ = syscall.Close(listener) }) }
+	closeListener := func() {
+		closeListenerOnce.Do(func() {
+			// close(2) from another thread does not reliably wake a blocked Linux
+			// accept(2). shutdown(2) makes bounded cancellation deterministic.
+			_ = syscall.Shutdown(listener, syscall.SHUT_RDWR)
+			_ = syscall.Close(listener)
+		})
+	}
 	stopped := make(chan struct{})
 	go func() {
 		select {

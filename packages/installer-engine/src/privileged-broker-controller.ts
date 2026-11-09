@@ -5,11 +5,18 @@ import { lstat, open, realpath, rm } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import { spawn } from 'node:child_process';
 import { publishTrustedLocalBrokerGrant, retireTrustedLocalBrokerGrant } from './privileged-broker-local-approval.js';
+import type { TrustedLocalConfirmation } from './privileged-broker-local-approval.js';
 import { PrivilegedBrokerControllerInputSchema } from './privileged-broker-controller-contract.js';
 import type { PrivilegedBrokerControllerInput } from './privileged-broker-controller-contract.js';
 
 export { PrivilegedBrokerControllerInputSchema } from './privileged-broker-controller-contract.js';
 export type { PrivilegedBrokerControllerInput } from './privileged-broker-controller-contract.js';
+
+export interface PrivilegedBrokerControllerTestOptions {
+  /** Test-only dependency injection. The strict CLI input has no such field. */
+  readonly confirmation?: TrustedLocalConfirmation;
+  readonly now?: () => Date;
+}
 
 const MAX_INPUT_BYTES = 2_097_152;
 
@@ -91,7 +98,7 @@ async function removeOwnedSocket(input: PrivilegedBrokerControllerInput): Promis
   await removeOwnedSocketPath(input, `${input.socketPath}.starting`, true);
 }
 
-export async function runPrivilegedBrokerController(inputValue: unknown): Promise<Readonly<{
+export async function runPrivilegedBrokerController(inputValue: unknown, testOptions: PrivilegedBrokerControllerTestOptions = {}): Promise<Readonly<{
   grantDigest: string; authorityDigest: string; approvalEvidenceDigest: string; exitCode: number;
 }>> {
   if (process.platform !== 'linux' || process.geteuid?.() !== 0) throw new Error('privileged broker controller requires Linux root');
@@ -104,7 +111,12 @@ export async function runPrivilegedBrokerController(inputValue: unknown): Promis
       const worker = await openVerifiedRootFile(input.workerPath, input.workerDigest, false, 2_097_152);
       await worker.close();
     } finally { await runtime.close(); }
-    const publication = await publishTrustedLocalBrokerGrant({ grant: input.grant, authority: input.authority });
+    const publication = await publishTrustedLocalBrokerGrant({
+      grant: input.grant,
+      authority: input.authority,
+      ...(testOptions.confirmation ? { confirmation: testOptions.confirmation } : {}),
+      ...(testOptions.now ? { now: testOptions.now } : {}),
+    });
     const child = spawn('/proc/self/fd/3', [
       'serve', '--socket', input.socketPath, '--uid', String(input.grant.enrolledUid), '--gid', String(input.socketGid),
       '--runtime', input.runtimePath, '--runtime-sha256', input.runtimeDigest,
