@@ -7,12 +7,20 @@ import {
   privilegedBrokerDigest,
 } from './privileged-broker-protocol.js';
 import type { PrivilegedBrokerApprovalEvidence, PrivilegedBrokerGrant } from './privileged-broker-protocol.js';
+import {
+  PrivilegedBrokerExecutionAuthoritySchema,
+  privilegedBrokerDescriptorDigest,
+  privilegedBrokerExecutionAuthorityDigest,
+} from './privileged-broker-authority.js';
+import type { PrivilegedBrokerExecutionAuthority } from './privileged-broker-authority.js';
 
 const safeName = /^[a-z0-9][a-z0-9._-]{0,127}$/;
 
 export interface PrivilegedBrokerStore {
   readonly publishGrant: (grant: unknown, approval: unknown) => Promise<{ readonly grant: PrivilegedBrokerGrant; readonly digest: string }>;
   readonly readGrant: (grantId: string) => Promise<{ readonly grant: PrivilegedBrokerGrant; readonly digest: string }>;
+  readonly publishAuthority: (grantId: string, authority: unknown) => Promise<{ readonly authority: PrivilegedBrokerExecutionAuthority; readonly digest: string }>;
+  readonly readAuthority: (grantId: string) => Promise<{ readonly authority: PrivilegedBrokerExecutionAuthority; readonly digest: string }>;
   readonly consumeNonce: (grantId: string, nonce: string, requestDigest: string) => Promise<boolean>;
 }
 
@@ -77,10 +85,13 @@ export async function createPrivilegedBrokerStore(input: {
   await assertProtectedDirectory(root, ownerUid);
   const grants = join(root, 'grants');
   const nonces = join(root, 'nonces');
+  const authorities = join(root, 'authorities');
   await mkdir(grants, { mode: 0o700 });
   await mkdir(nonces, { mode: 0o700 });
+  await mkdir(authorities, { mode: 0o700 });
   await assertProtectedDirectory(grants, ownerUid);
   await assertProtectedDirectory(nonces, ownerUid);
+  await assertProtectedDirectory(authorities, ownerUid);
 
   return Object.freeze({
     async publishGrant(inputGrant: unknown, inputApproval: unknown) {
@@ -108,6 +119,38 @@ export async function createPrivilegedBrokerStore(input: {
       const grant = PrivilegedBrokerGrantSchema.parse(JSON.parse(bytes.toString('utf8')) as unknown);
       if (grant.grantId !== grantId) throw new Error('privileged broker grant identity mismatch');
       return Object.freeze({ grant, digest: privilegedBrokerDigest(grant) });
+    },
+    async publishAuthority(grantId: string, inputAuthority: unknown) {
+      if (!safeName.test(grantId)) throw new Error('invalid privileged broker grant identifier');
+      const { grant } = await this.readGrant(grantId);
+      const authority = PrivilegedBrokerExecutionAuthoritySchema.parse(inputAuthority);
+      const digest = privilegedBrokerExecutionAuthorityDigest(authority);
+      if (authority.hostId !== grant.hostId || authority.releaseId !== grant.releaseId
+        || authority.runId !== grant.runId || authority.planDigest !== grant.planDigest
+        || digest !== grant.closureDigest || privilegedBrokerDescriptorDigest(authority.descriptor) !== grant.descriptorDigest) {
+        throw new Error('privileged broker execution authority differs from the exact grant');
+      }
+      const path = join(authorities, `${grantId}.json`);
+      const created = await writeExclusive(path, Buffer.from(`${JSON.stringify(authority)}\n`, 'utf8'));
+      if (!created) {
+        const existing = await this.readAuthority(grantId);
+        if (existing.digest !== digest) throw new Error('privileged broker authority identifier collision');
+        return existing;
+      }
+      return Object.freeze({ authority, digest });
+    },
+    async readAuthority(grantId: string) {
+      if (!safeName.test(grantId)) throw new Error('invalid privileged broker grant identifier');
+      const bytes = await readProtected(join(authorities, `${grantId}.json`), ownerUid, 2_097_152);
+      const authority = PrivilegedBrokerExecutionAuthoritySchema.parse(JSON.parse(bytes.toString('utf8')) as unknown);
+      const digest = privilegedBrokerExecutionAuthorityDigest(authority);
+      const { grant } = await this.readGrant(grantId);
+      if (authority.hostId !== grant.hostId || authority.releaseId !== grant.releaseId
+        || authority.runId !== grant.runId || authority.planDigest !== grant.planDigest
+        || digest !== grant.closureDigest || privilegedBrokerDescriptorDigest(authority.descriptor) !== grant.descriptorDigest) {
+        throw new Error('privileged broker stored authority differs from the exact grant');
+      }
+      return Object.freeze({ authority, digest });
     },
     async consumeNonce(grantId: string, nonce: string, requestDigest: string) {
       if (!safeName.test(grantId) || !/^[A-Za-z0-9_-]{32,128}$/.test(nonce) || !/^[a-f0-9]{64}$/.test(requestDigest)) {
