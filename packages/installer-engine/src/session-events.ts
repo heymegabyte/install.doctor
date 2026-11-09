@@ -250,6 +250,7 @@ export function reduceProvisioningSessionEvents(eventsInput: readonly unknown[])
     throw new Error('session event stream must be rooted by a supervisor producer');
   }
   const identity = { sessionId: first.sessionId, runId: first.runId, authorizationId: first.authorizationId };
+  const supervisorId = first.producer.id;
   const plans = new Map<string, string>();
   const children = new Map<string, 'running' | 'succeeded' | 'failed' | 'cancelled'>();
   const approvals = new Map<string, 'requested' | 'approved' | 'denied' | 'expired'>();
@@ -274,6 +275,10 @@ export function reduceProvisioningSessionEvents(eventsInput: readonly unknown[])
     }
     if (terminal) throw new Error('session event follows the terminal event');
     if (index > 0 && event.kind === 'session-status') throw new Error('session started more than once');
+    if (['session-status', 'plan', 'diff', 'approval', 'verification', 'cancellation', 'terminal'].includes(event.kind)
+      && (event.producer.kind !== 'supervisor' || event.producer.id !== supervisorId || event.producer.parentId !== null)) {
+      throw new Error(`session control event is not attributable to supervisor ${supervisorId}`);
+    }
     if (event.kind === 'plan') {
       if (plans.has(event.planDigest)) throw new Error(`duplicate session plan: ${event.planDigest}`);
       plans.set(event.planDigest, event.diffDigest);

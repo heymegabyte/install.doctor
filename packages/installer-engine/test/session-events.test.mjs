@@ -116,6 +116,12 @@ test('requires one rooted supervisor and one stable attributable engine producer
   assert.throws(() => reduceProvisioningSessionEvents(root), /rooted by a supervisor/);
   const parent = completeStream(); parent[12] = { ...parent[12], producer: { ...engine, parentId: 'other-session' } };
   assert.throws(() => reduceProvisioningSessionEvents(parent), /not attributable/);
+  const changedSupervisor = completeStream(); changedSupervisor[14] = {
+    ...changedSupervisor[14], producer: { kind: 'supervisor', id: 'other-supervisor', parentId: null },
+  };
+  assert.throws(() => reduceProvisioningSessionEvents(changedSupervisor), /not attributable to supervisor supervisor-one/);
+  const delegatedTerminal = completeStream(); delegatedTerminal.at(-1).producer = child('child-one');
+  assert.throws(() => reduceProvisioningSessionEvents(delegatedTerminal), /not attributable to supervisor supervisor-one/);
 });
 
 test('durable journal serializes parallel attributable output and preserves explicit gaps', async () => {
