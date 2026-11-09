@@ -76,7 +76,9 @@ on the OAuth apps — a one-time human step on the OAuth-app settings; magic-lin
 | `GET /api/devices/:id/support-bundle` | admin | Sanitized one-artifact device diagnostic (U12) — identity · scope · health · drift · recent history; explicit `contents`/`excluded` manifest, never the token/secrets/detail-blob (404 if unknown). |
 | `GET /api/devices/pair/info` | public | A pending pairing's host identity + requested scope (never the poll-secret/token). |
 | `POST /api/devices/pair/start` | public | Start pairing — returns a short code + a poll-secret (only hashes stored). |
-| `POST /api/devices/pair/approve` | admin | Owner approves a pairing by code. |
+| `GET /api/devices/pair/owner-info` | fresh matching Better Auth owner session | Private approval review containing the exact code, machine fingerprint, immutable profile revision, requested scopes, actor, and expiry. Unknown, stale, cross-owner, and unauthenticated lookups use bounded errors. |
+| `POST /api/devices/pair/owner-decision` | fresh matching Better Auth owner session | Atomically approve or deny the exact reviewed pairing. The request must repeat the displayed code, profile revision/digest, scopes, actor binding, and decision; stale or broadened decisions fail closed. |
+| `POST /api/devices/pair/approve` | admin break-glass | Audited compatibility approval by code for ordinary legacy pairings only; privileged profile-bound enrollment must use the owner-session decision route. |
 | `GET /api/devices/pair/poll` | poll-secret | Claim the device token exactly once after approval (410 on re-claim). |
 
 ## Device-scoped (tenant resolved FROM the token; scope-enforced)

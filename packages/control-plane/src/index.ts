@@ -2432,8 +2432,9 @@ app.post('/api/devices/pair/owner-decision', async (c) => {
   if ((updated.meta?.changes ?? 0) !== 1) return c.json({ error: 'pairing_not_pending' }, 409);
   return c.json({ code, status: decision.nextStatus, actor: decision.actor, decidedAt: decision.decidedAt, approvedScopes: decision.approvedScopes });
 });
-// Owner approves a pending pairing (the browser leg). Admin-gated — stands in for the owner session
-// until Better Auth lands. Mints NO token (claim does), so no plaintext token is ever stored.
+// Labelled compatibility break-glass for ordinary legacy pairings. Privileged profile-bound
+// enrollment uses the freshly authenticated owner-decision boundary above. This route mints no
+// token (claim does), so no plaintext token is ever stored.
 app.post('/api/devices/pair/approve', async (c) => {
   const denied = await requireAdmin(c);
   if (denied) return denied;
