@@ -17,7 +17,8 @@ for file in "$PROVISION"; do
     fail "$label can consume piped script bytes while prompting"
   fi
 
-  if grep -Fq 'HANDOFF_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/install-doctor-handoff.XXXXXX")"' "$file" \
+  if grep -Fq 'HANDOFF_ROOT="$(mktemp -d "$HANDOFF_BASE/install-doctor-handoff.XXXXXX")"' "$file" \
+    && grep -Fq 'if [ "$RUN_OWNER" = 0 ] && [ $((RUN_PERMISSIONS & 8#022)) -eq 0 ]; then HANDOFF_BASE=/run; fi' "$file" \
     && grep -Fq 'USER_PROVISIONER="$HANDOFF_ROOT/provision.sh"' "$file" \
     && grep -Fq 'idInstallSealedHandoffFile "$CURRENT_PROVISIONER" "$USER_PROVISIONER"' "$file"; then
     pass "$label stages the current immutable provisioner in an unpredictable sealed directory"
@@ -67,6 +68,14 @@ for file in "$PROVISION"; do
     pass "$label has no predictable privileged handoff path"
   else
     fail "$label retains a predictable privileged handoff path"
+  fi
+
+  if grep -Fq 'HANDOFF_BASE="${TMPDIR:-/tmp}"' "$file" \
+    && grep -Fq 'HANDOFF_BASE=/run' "$file" \
+    && grep -Fq 'case "${HANDOFF_ROOT:-}" in "$HANDOFF_BASE"/install-doctor-handoff.*)' "$file"; then
+    pass "$label uses validated root runtime storage instead of assuming temporary storage is executable"
+  else
+    fail "$label cannot hand off its sealed runtime on hardened noexec temporary storage"
   fi
 
   if ! sed -n '/function ensureInstallUser()/,/^}/p' "$file" | grep -Eq 'curl[^\n]*install\.doctor/start'; then

@@ -306,6 +306,41 @@ grep -aFq 'Workers' /canary-interactive-home/pty.typescript \
   || { printf 'interactive launcher never rendered worker progress\n' >&2; exit 79; }
 printf 'interactive_tui_restored=1\n'
 
+# Exercise the same signed launcher as root and prove that its asynchronous
+# handoff to the pre-enrolled account keeps the controlling terminal. Bash
+# otherwise supplies /dev/null to a backgrounded handoff when job control is
+# unavailable, which silently degrades the enrolled-user run to plain output.
+chmod 0700 /root /home/node
+cp -a /fixture/repository /home/node/source
+mkdir -p /home/node/.local/share/install.doctor/releases/acceptance
+mv /home/node/source /home/node/.local/share/install.doctor/releases/acceptance/source
+chown node:node /home/node
+chown -R node:node /home/node/.local
+set +e
+env -u HEADLESS_INSTALL HOME=/root USER=root LOGNAME=root SUDO_USER=node INSTALL_DOCTOR_USER=node \
+  SOFTWARE_GROUP=Minimal INSTALL_DOCTOR_ROLE=container INSTALL_DOCTOR_CAPABILITY=minimal \
+  INSTALL_DOCTOR_NETWORK=none INSTALL_DOCTOR_CONCURRENCY=2 INSTALL_DOCTOR_SELECTED_SERVICES='' \
+  INSTALL_DOCTOR_CONSENT_PRIVILEGED=true INSTALL_DOCTOR_CONSENT_NETWORK=false \
+  INSTALL_DOCTOR_CONSENT_BEST_EFFORT=true INSTALL_DOCTOR_OFFLINE=false TERM=xterm-256color \
+  script -q -e -c 'bash /fixture/start.sh' /root/root-handoff.typescript \
+  > /root/root-handoff.stdout 2> /root/root-handoff.stderr
+root_handoff_status=$?
+set -e
+[ "$root_handoff_status" -eq 130 ] || {
+  printf 'root handoff PTY status=%s\n' "$root_handoff_status" >&2
+  cat /root/root-handoff.stdout /root/root-handoff.stderr >&2
+  exit 79
+}
+grep -aFq $'\033[?1049h\033[?25l' /root/root-handoff.typescript \
+  || { printf 'root handoff never entered the enrolled-user alternate-screen TUI\n' >&2; exit 79; }
+grep -aFq $'\033[?25h\033[?1049l' /root/root-handoff.typescript \
+  || { printf 'root handoff did not restore terminal state\n' >&2; exit 79; }
+grep -aFq 'DESKTOP TOOLS' /root/root-handoff.typescript \
+  || { printf 'root handoff did not render Desktop Tools identity\n' >&2; exit 79; }
+grep -aFq 'Workers' /root/root-handoff.typescript \
+  || { printf 'root handoff did not render enrolled-user worker progress\n' >&2; exit 79; }
+printf 'root_handoff_tui_restored=1\n'
+
 cat > /canary-home/run-as-node.sh <<'NODE_RUN'
 #!/usr/bin/env bash
 set -euo pipefail
@@ -497,12 +532,16 @@ done
 cat > "$FIXTURE/Dockerfile" <<'DOCKERFILE'
 ARG BASE_IMAGE=node@sha256:8fa96264f302f58bbb13aa7339c541547b56975766ce956c875da149452a3e40
 FROM ${BASE_IMAGE}
+RUN usermod -aG sudo node
 COPY --chown=0:0 --chmod=4755 container-fixture/tools/sudo /usr/bin/sudo
 DOCKERFILE
 CANARY_IMAGE="install-doctor/bootstrap-acceptance-${$}"
 docker build --network=none --build-arg "BASE_IMAGE=$IMAGE" --tag "$CANARY_IMAGE" --file "$FIXTURE/Dockerfile" "$FIXTURE" >/dev/null
 docker run --rm --network=none --read-only --entrypoint /bin/bash \
   --tmpfs /tmp:rw,nosuid,nodev,noexec,mode=1777 \
+  --tmpfs /run:rw,nosuid,nodev,exec,mode=0755 \
+  --tmpfs /root:rw,nosuid,nodev,exec,mode=0700 \
+  --tmpfs /home/node:rw,nosuid,nodev,exec,mode=0700 \
   --tmpfs /canary-home:rw,nosuid,nodev,exec,mode=0700 \
   --tmpfs /canary-interactive-home:rw,nosuid,nodev,exec,mode=0700 \
   --mount "type=bind,src=$FIXTURE/container-fixture,dst=/fixture,readonly" \
@@ -511,7 +550,8 @@ docker run --rm --network=none --read-only --entrypoint /bin/bash \
 
 grep -q '^committed_runs=3$' "$OUTPUT"
 grep -q '^interactive_tui_restored=1$' "$OUTPUT"
+grep -q '^root_handoff_tui_restored=1$' "$OUTPUT"
 grep -q '^interrupted_run_resumed=1$' "$OUTPUT"
 grep -q '^rollback_config_committed=1$' "$OUTPUT"
 grep -q '^unchanged_mutations=0$' "$OUTPUT"
-printf 'bootstrap-install-acceptance: PASS (signed /start and %s committed desired-state inputs, interactive PTY restoration, released cancellation, automatic same-run resume, committed config rollback, unchanged reapply)\n' "$DESIRED_STATE_FILE_COUNT"
+printf 'bootstrap-install-acceptance: PASS (signed /start and %s committed desired-state inputs, direct and root-handoff PTY restoration, released cancellation, automatic same-run resume, committed config rollback, unchanged reapply)\n' "$DESIRED_STATE_FILE_COUNT"

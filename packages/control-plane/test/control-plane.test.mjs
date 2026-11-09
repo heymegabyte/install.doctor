@@ -1623,6 +1623,8 @@ printf 'VERIFIED_CATALOG_MODE=%s\nVERIFIED_CATALOG_BODY=%s\n' "$catalog_mode" "$
     INSTALL_DOCTOR_SELECTED_PACKAGES: 'docker-pushrm,sysz',
     INSTALL_DOCTOR_SELECTED_SUPPORTED_PATHS: 'developer',
     INSTALL_DOCTOR_LAZY_RESOLVER_REQUIREMENTS: 'chezmoi,installx',
+    INSTALL_DOCTOR_USER: 'enrolled-user',
+    SUDO_USER: 'must-not-reach-the-provisioner',
     MOCK_CURL_LOG: curlLog,
   });
   assert.equal(success.status, 0, success.stderr);
@@ -1638,6 +1640,7 @@ printf 'VERIFIED_CATALOG_MODE=%s\nVERIFIED_CATALOG_BODY=%s\n' "$catalog_mode" "$
   assert.match(childEnv, /^INSTALL_DOCTOR_SELECTED_PACKAGES=docker-pushrm,sysz$/m);
   assert.match(childEnv, /^INSTALL_DOCTOR_SELECTED_SUPPORTED_PATHS=developer$/m);
   assert.match(childEnv, /^INSTALL_DOCTOR_LAZY_RESOLVER_REQUIREMENTS=chezmoi,installx$/m);
+  assert.match(childEnv, /^INSTALL_DOCTOR_USER=enrolled-user$/m);
   assert.match(childEnv, /^VERIFIED_CATALOG_MODE=600$/m);
   assert.match(childEnv, /^VERIFIED_CATALOG_BODY=\[{"name":"fixture"}\]$/m);
   assert.match(childEnv, /^INSTALL_DOCTOR_RUNTIME_SOURCE=(?:system|signed-archive)$/m);
@@ -1658,7 +1661,7 @@ printf 'VERIFIED_CATALOG_MODE=%s\nVERIFIED_CATALOG_BODY=%s\n' "$catalog_mode" "$
     assert.match(childEnv, /^INSTALL_DOCTOR_RUNTIME_ARCHIVE=.*node-runtime\.tar\.gz$/m);
     assert.equal(requestedUrls.filter(url => /\/node-(?:macos|linux)-/.test(url)).length, 1, 'only the selected runtime is downloaded');
   }
-  assert.doesNotMatch(childEnv, /^(AID_API_KEY|HTTPS_PROXY|NODE_OPTIONS|DEBUG)=/m);
+  assert.doesNotMatch(childEnv, /^(AID_API_KEY|HTTPS_PROXY|NODE_OPTIONS|DEBUG|SUDO_USER)=/m);
   fixture.assertStageClean();
 
   const tamperedCatalog = fixture.createRelease();

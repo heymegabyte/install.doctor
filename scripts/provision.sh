@@ -2803,13 +2803,13 @@ NODE
   fi
   APPROVAL="${INSTALL_DOCTOR_APPROVED_PLAN_DIGEST:-}"
   if [ -z "${HEADLESS_INSTALL:-}" ] && [ -t 0 ]; then
-    printf '\nNormalized install plan (%s):\n' "$PLAN_DIGEST" > /dev/tty
-    sed -n '1,240p' "$NORMALIZED_PLAN" > /dev/tty
+    printf '\nNormalized install plan (%s):\n' "$PLAN_DIGEST" >&2
+    sed -n '1,240p' "$NORMALIZED_PLAN" >&2
     if command -v gum >/dev/null 2>&1; then
-      gum confirm "Approve exact plan $PLAN_DIGEST?" < /dev/tty > /dev/tty && APPROVAL="$PLAN_DIGEST"
+      gum confirm "Approve exact plan $PLAN_DIGEST?" <&0 >&2 && APPROVAL="$PLAN_DIGEST"
     else
-      printf 'Approve this exact plan? [y/N]: ' > /dev/tty
-      read -r APPROVE_CURRENT_PLAN < /dev/tty || true
+      printf 'Approve this exact plan? [y/N]: ' >&2
+      read -r APPROVE_CURRENT_PLAN <&0 || true
       case "${APPROVE_CURRENT_PLAN:-}" in y|Y|yes|YES) APPROVAL="$PLAN_DIGEST" ;; esac
     fi
   fi
@@ -3536,7 +3536,7 @@ function ensureInstallUser() {
 
     # Seal the complete handoff in a root-owned unpredictable directory. No
     # path is exposed to the target user until every copy and digest verifies.
-    local CURRENT_PROVISIONER VERIFIED_ENGINE VERIFIED_MANIFEST VERIFIED_SIGNATURE VERIFIED_CATALOG HANDOFF_ROOT USER_PROVISIONER USER_ENGINE USER_MANIFEST USER_SIGNATURE USER_CATALOG ENV_EXPORT USER_RUNTIME
+    local CURRENT_PROVISIONER VERIFIED_ENGINE VERIFIED_MANIFEST VERIFIED_SIGNATURE VERIFIED_CATALOG HANDOFF_BASE HANDOFF_ROOT USER_PROVISIONER USER_ENGINE USER_MANIFEST USER_SIGNATURE USER_CATALOG ENV_EXPORT USER_RUNTIME
     local USER_OPENCODE_ARCHIVE USER_SUPERVISOR USER_TOOLS_ARCHIVE USER_OPENCODE_LOCK
     local PROVISIONER_SHA MANIFEST_SHA SIGNATURE_SHA ENGINE_SHA CATALOG_SHA RUNTIME_SHA ENV_SHA HANDOFF_STATUS
     local BROKER_COORD_ROOT BROKER_USER_ROOT BROKER_ROOT_ROOT BROKER_REQUEST BROKER_RESPONSE BROKER_DERIVE_INPUT BROKER_DERIVED BROKER_APPROVAL_INPUT BROKER_APPROVAL_OUTPUT BROKER_CONTROLLER_INPUT BROKER_READY BROKER_ERROR BROKER_PAYLOAD
@@ -3546,7 +3546,17 @@ function ensureInstallUser() {
     VERIFIED_MANIFEST="${INSTALL_DOCTOR_VERIFIED_MANIFEST:-}"
     VERIFIED_SIGNATURE="${INSTALL_DOCTOR_VERIFIED_SIGNATURE:-}"
     VERIFIED_CATALOG="${INSTALL_DOCTOR_CATALOG_PATH:-}"
-    HANDOFF_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/install-doctor-handoff.XXXXXX")" || return 1
+    HANDOFF_BASE="${TMPDIR:-/tmp}"
+    if [ "$(detect_os)" != macos ] && [ -d /run ] && [ ! -L /run ]; then
+      local RUN_OWNER RUN_MODE RUN_PERMISSIONS
+      RUN_OWNER="$(stat -c '%u' /run 2>/dev/null || true)"
+      RUN_MODE="$(stat -c '%a' /run 2>/dev/null || true)"
+      case "$RUN_OWNER:$RUN_MODE" in *[!0-9:]*) ;; *)
+        RUN_PERMISSIONS=$((8#$RUN_MODE))
+        if [ "$RUN_OWNER" = 0 ] && [ $((RUN_PERMISSIONS & 8#022)) -eq 0 ]; then HANDOFF_BASE=/run; fi
+      esac
+    fi
+    HANDOFF_ROOT="$(mktemp -d "$HANDOFF_BASE/install-doctor-handoff.XXXXXX")" || return 1
     chmod 0700 "$HANDOFF_ROOT" || { rm -rf -- "$HANDOFF_ROOT"; return 1; }
     USER_PROVISIONER="$HANDOFF_ROOT/provision.sh"; USER_ENGINE="$HANDOFF_ROOT/install-doctor-engine.mjs"
     USER_MANIFEST="$HANDOFF_ROOT/manifest"; USER_SIGNATURE="$HANDOFF_ROOT/manifest.sig"; USER_CATALOG="$HANDOFF_ROOT/catalog.json"; ENV_EXPORT="$HANDOFF_ROOT/environment.sh"
@@ -3558,7 +3568,7 @@ function ensureInstallUser() {
       [ -z "${BROKER_CONTROLLER_PID:-}" ] || { kill -TERM "$BROKER_CONTROLLER_PID" 2>/dev/null || true; wait "$BROKER_CONTROLLER_PID" 2>/dev/null || true; }
       [ -z "${BROKER_CHILD_PID:-}" ] || { kill -TERM "$BROKER_CHILD_PID" 2>/dev/null || true; wait "$BROKER_CHILD_PID" 2>/dev/null || true; }
       case "${BROKER_SOCKET_DIR:-}" in /run/desktop-tools/broker/*) rmdir "$BROKER_SOCKET_DIR" 2>/dev/null || true ;; esac
-      case "${HANDOFF_ROOT:-}" in "${TMPDIR:-/tmp}"/install-doctor-handoff.*) rm -rf -- "$HANDOFF_ROOT" ;; esac
+      case "${HANDOFF_ROOT:-}" in "$HANDOFF_BASE"/install-doctor-handoff.*) rm -rf -- "$HANDOFF_ROOT" ;; esac
     }
     _idCleanupHandoffAndReport() { local STATUS=$?; _idCleanupHandoff; idCleanupProvisionerRuntime || true; idOnProvisionExit "$STATUS"; }
     trap '_idCleanupHandoffAndReport' EXIT
