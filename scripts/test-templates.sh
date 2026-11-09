@@ -51,6 +51,19 @@ if command -v chezmoi &>/dev/null; then
   echo "=== chezmoi execute-template validation ==="
   CHEZMOI_FAILS=0
   CHEZMOI_SAMPLED=0
+  # Template validation must be read-only. Generated command-not-found shims
+  # intentionally install missing tools on invocation, so exposing that cache
+  # here makes a syntax check mutate the host and depend on stale shim state.
+  CNF_SHIMS="${CNF_SHIMS_DIR:-${XDG_CACHE_HOME:-$HOME/.cache}/cnf/shims}"
+  CHEZMOI_TEMPLATE_PATH=''
+  IFS=':' read -r -a PATH_COMPONENTS <<< "$PATH"
+  for PATH_COMPONENT in "${PATH_COMPONENTS[@]}"; do
+    [ -n "$PATH_COMPONENT" ] || continue
+    [ "$PATH_COMPONENT" != "$CNF_SHIMS" ] || continue
+    case ":$CHEZMOI_TEMPLATE_PATH:" in *":$PATH_COMPONENT:"*) continue ;; esac
+    CHEZMOI_TEMPLATE_PATH="${CHEZMOI_TEMPLATE_PATH:+$CHEZMOI_TEMPLATE_PATH:}$PATH_COMPONENT"
+  done
+  [ -n "$CHEZMOI_TEMPLATE_PATH" ] || { echo "  FAIL: no safe PATH remains for chezmoi validation" >&2; exit 1; }
   while IFS= read -r -d '' f; do
     # NUL-delimited records contain no newlines, so `head -50` on a `find -print0` stream caps NOTHING
     # (it reads one giant line and passes every template). Bound the sample here instead.
@@ -65,7 +78,7 @@ if command -v chezmoi &>/dev/null; then
     case "$rel" in
       scripts/*) continue ;;  # gomplate templates, not chezmoi
     esac
-    if timeout 5 chezmoi -S "$REPO_ROOT/home" execute-template < "$f" > /dev/null 2>&1; then
+    if PATH="$CHEZMOI_TEMPLATE_PATH" timeout 5 chezmoi -S "$REPO_ROOT/home" execute-template < "$f" > /dev/null 2>&1; then
       rc=0
     else
       rc=$?

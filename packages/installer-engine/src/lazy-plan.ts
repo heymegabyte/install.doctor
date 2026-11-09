@@ -46,6 +46,7 @@ export const LoadCatalogEntrySchema = z.object({
   replacement: IdentifierSchema.optional(),
   configured: z.boolean().optional(),
   postInstall: z.string().min(1).max(512).optional(),
+  systemIdentityReconciliation: z.boolean().default(false),
   caskLauncher: z.strictObject({
     appBundle: z.string().min(5).max(256),
     bin: z.string().min(1).max(128),
@@ -81,6 +82,7 @@ export const LoadPlanItemSchema = z.object({
     appBundle: z.string().min(5).max(256),
     bin: z.string().min(1).max(128),
   }).nullable(),
+  systemIdentityReconciliation: z.boolean(),
   flatpakLauncher: z.strictObject({
     appId: z.string().min(5).max(256),
     bin: z.string().min(1).max(128),
@@ -360,6 +362,7 @@ export function buildLoadPlan(rawInput: unknown): LoadPlanReport {
         nativePayload: isSelected ? selectedNativePayload(entry) : null,
         caskLauncher: isSelected ? entry.caskLauncher ?? null : null,
         flatpakLauncher: isSelected ? entry.flatpakLauncher ?? null : null,
+        systemIdentityReconciliation: entry.systemIdentityReconciliation,
         actions,
         selectionReason,
       };

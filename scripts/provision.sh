@@ -2825,20 +2825,25 @@ const bootstrapPolicyTask = {
   consent: 'none', lockDomains: ['installer-configuration'], cleanup: 'none', compensation: 'configuration',
   failurePolicy: 'abort-run',
 };
-const softwareGroupsTask = {
+const systemIdentityPackages = loadPlan.items
+  .filter(item => item.selected === true && item.applicable === true && item.systemIdentityReconciliation === true
+    && legacySelectedPackages.includes(item.name))
+  .map(item => item.name)
+  .sort();
+const softwareGroupsTask = systemIdentityPackages.length > 0 ? {
   schemaVersion: 1, id: 'desired.software-groups',
-  inputDigest: digest({ source: process.env.INSTALL_DOCTOR_SOURCE_COMMIT, packages: selectedPackages, services: selectedServices, policy: 'selected-groups-current-state-v2' }),
+  inputDigest: digest({ source: process.env.INSTALL_DOCTOR_SOURCE_COMMIT, packages: systemIdentityPackages, policy: 'selected-system-identity-current-state-v3' }),
   dependencies: [bootstrapPolicyTask.id], predicate: 'host-supported', requiredCapabilities: [],
   operations: { check: 'software-groups-check', apply: 'software-groups-apply', verify: 'software-groups-verify' },
   timeoutMs: 900_000, retry: { class: 'never', maxAttempts: 1, backoffMs: 0 },
   resources: { cpu: 1, memoryMiB: 256, network: false }, privilege: 'admin', network: 'none',
   consent: 'privileged', lockDomains: ['software-groups', 'filesystem-ownership', 'privilege'], cleanup: 'none', compensation: 'none',
   failurePolicy: 'abort-run',
-};
+} : null;
 const catalogPostValidationTask = {
   schemaVersion: 1, id: 'desired.catalog-post-validation',
   inputDigest: digest({ source: process.env.INSTALL_DOCTOR_SOURCE_COMMIT, policy: 'reject-executable-catalog-post-v2' }),
-  dependencies: [softwareGroupsTask.id], predicate: 'host-supported', requiredCapabilities: [],
+  dependencies: [softwareGroupsTask?.id ?? bootstrapPolicyTask.id], predicate: 'host-supported', requiredCapabilities: [],
   operations: { check: 'catalog-post-validation-check', apply: 'catalog-post-validation-apply', verify: 'catalog-post-validation-verify' },
   timeoutMs: 30_000, retry: { class: 'never', maxAttempts: 1, backoffMs: 0 },
   resources: { cpu: 1, memoryMiB: 128, network: false }, privilege: 'user', network: 'none',
@@ -2909,7 +2914,7 @@ const invocation = {
     offline: rawPlan.offline,
   },
     plan: {
-      tasks: [stageZeroInstallUserTask, stageZeroSudoTask, ...(warpDisconnectTask ? [warpDisconnectTask] : []), ...(nativeComposition ? [nativeComposition.task] : []), nativeDependenciesTask, sourceTask, homebrewTask, homebrewToolsTask, chezmoiInitTask, installxBinDirectoryTask, installxToolTask, desiredPackagesTask, ...caskDirectoryTasks, ...caskLauncherTasks, ...flatpakDirectoryTasks, ...flatpakLauncherTasks, ...directoryTasks, ...artifactTasks, macosFullDiskAccessTask, ...(macosCertificateTask ? [macosCertificateTask] : []), ...(qubesDom0Task ? [qubesDom0Task] : []), ...(agentTasksTask ? [agentTasksTask] : []), task, bootstrapPolicyTask, softwareGroupsTask, catalogPostValidationTask, customPostHooksTask, rebootAssessmentTask, sudoCleanupTask],
+      tasks: [stageZeroInstallUserTask, stageZeroSudoTask, ...(warpDisconnectTask ? [warpDisconnectTask] : []), ...(nativeComposition ? [nativeComposition.task] : []), nativeDependenciesTask, sourceTask, homebrewTask, homebrewToolsTask, chezmoiInitTask, installxBinDirectoryTask, installxToolTask, desiredPackagesTask, ...caskDirectoryTasks, ...caskLauncherTasks, ...flatpakDirectoryTasks, ...flatpakLauncherTasks, ...directoryTasks, ...artifactTasks, macosFullDiskAccessTask, ...(macosCertificateTask ? [macosCertificateTask] : []), ...(qubesDom0Task ? [qubesDom0Task] : []), ...(agentTasksTask ? [agentTasksTask] : []), task, bootstrapPolicyTask, ...(softwareGroupsTask ? [softwareGroupsTask] : []), catalogPostValidationTask, customPostHooksTask, rebootAssessmentTask, sudoCleanupTask],
       selectedTaskIds: [...(nativeComposition ? [nativeComposition.task.id] : []), ...caskLauncherTasks.map(task => task.id), ...flatpakLauncherTasks.map(task => task.id), ...artifactTasks.map(task => task.id), rebootAssessmentTask.id, sudoCleanupTask.id],
       executionPolicy: {
         maxConcurrency: rawPlan.concurrency,
@@ -2985,9 +2990,11 @@ const invocation = {
     'bootstrap-policy-check': { kind: 'managed-file', action: 'check', targetPath: bootstrapPolicyPath, candidateBase64: bootstrapPolicyCandidate, candidateMode: 0o600 },
     'bootstrap-policy-apply': { kind: 'managed-file', action: 'apply', targetPath: bootstrapPolicyPath, candidateBase64: bootstrapPolicyCandidate, candidateMode: 0o600 },
     'bootstrap-policy-verify': { kind: 'managed-file', action: 'verify', targetPath: bootstrapPolicyPath, candidateBase64: bootstrapPolicyCandidate, candidateMode: 0o600 },
-    'software-groups-check': { argv: ['/bin/bash', provisioner, '--engine-operation', 'software-groups-check'], env: operationEnvironment },
-    'software-groups-apply': { argv: ['/bin/bash', provisioner, '--engine-operation', 'software-groups-apply'], env: operationEnvironment },
-    'software-groups-verify': { argv: ['/bin/bash', provisioner, '--engine-operation', 'software-groups-verify'], env: operationEnvironment },
+    ...(softwareGroupsTask ? {
+      'software-groups-check': { argv: ['/bin/bash', provisioner, '--engine-operation', 'software-groups-check'], env: { ...operationEnvironment, INSTALL_DOCTOR_SYSTEM_IDENTITY_PACKAGES: systemIdentityPackages.join(',') } },
+      'software-groups-apply': { argv: ['/bin/bash', provisioner, '--engine-operation', 'software-groups-apply'], env: { ...operationEnvironment, INSTALL_DOCTOR_SYSTEM_IDENTITY_PACKAGES: systemIdentityPackages.join(',') } },
+      'software-groups-verify': { argv: ['/bin/bash', provisioner, '--engine-operation', 'software-groups-verify'], env: { ...operationEnvironment, INSTALL_DOCTOR_SYSTEM_IDENTITY_PACKAGES: systemIdentityPackages.join(',') } },
+    } : {}),
     'catalog-post-validation-check': { argv: ['/bin/bash', provisioner, '--engine-operation', 'catalog-post-validation-check'], env: operationEnvironment },
     'catalog-post-validation-apply': { argv: ['/bin/bash', provisioner, '--engine-operation', 'catalog-post-validation-apply'], env: operationEnvironment },
     'catalog-post-validation-verify': { argv: ['/bin/bash', provisioner, '--engine-operation', 'catalog-post-validation-verify'], env: operationEnvironment },

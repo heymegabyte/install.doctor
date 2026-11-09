@@ -91,6 +91,8 @@ def validate(cat):
             problems.append(f"{nm}: eager preload has invalid reason {e.get('preloadReason')!r}")
         if e.get("preload") is not True and "preloadReason" in e:
             problems.append(f"{nm}: preloadReason is only valid for an eager preload")
+        if "systemIdentityReconciliation" in e and not isinstance(e.get("systemIdentityReconciliation"), bool):
+            problems.append(f"{nm}: systemIdentityReconciliation must be a boolean when present")
         expected_delivery = "eager" if e.get("loadPolicy") != "lazy" else "lazy"
         if e.get("deliveryMode") != expected_delivery:
             problems.append(

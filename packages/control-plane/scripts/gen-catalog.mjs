@@ -131,7 +131,7 @@ try {
       [
         '-o',
         'json',
-        '.softwarePackages | to_entries | map({"key":.key,"short":.value._short,"github":.value._github,"home":.value._home,"docs":.value._docs,"app":(.value._app != null),"appBundle":.value._app,"launcherBin":.value._bin,"cask":(.value.cask != null),"flatpak":.value.flatpak,"service":(.value._service != null),"serviceEnabled":(.value._serviceEnabled == true),"preload":(.value._preload == true),"preloadReason":.value._preloadReason,"deprecated":.value._deprecated,"replacement":.value._replacement,"deps":.value._deps})',
+        '.softwarePackages | to_entries | map({"key":.key,"short":.value._short,"github":.value._github,"home":.value._home,"docs":.value._docs,"app":(.value._app != null),"appBundle":.value._app,"launcherBin":.value._bin,"cask":(.value.cask != null),"flatpak":.value.flatpak,"service":(.value._service != null),"serviceEnabled":(.value._serviceEnabled == true),"preload":(.value._preload == true),"preloadReason":.value._preloadReason,"deprecated":.value._deprecated,"replacement":.value._replacement,"deps":.value._deps,"systemIdentityReconciliation":(((.value._groups // []) | length) > 0 or ((.value._folders // []) | length) > 0)})',
         SOFTWARE,
       ],
       { encoding: 'utf8' },
@@ -180,6 +180,7 @@ try {
       const d = m.deps.filter((x) => typeof x === 'string' && /^[a-z0-9][a-z0-9._-]*$/.test(x));
       if (d.length) it.deps = d;
     }
+    if (m.systemIdentityReconciliation === true) it.systemIdentityReconciliation = true;
     // D06 install mode — _app (GUI app) wins over _service; neither → lazy cli. Grounded in the EXPLICIT
     // declared fields only. NOTE: `cask` presence is deliberately NOT treated as "app" — measured 2026-10:
     // of 40 cask-no-_app entries, most are CLIs shipped as casks (java/gcloud/flutter/fly/mitmproxy/…), so

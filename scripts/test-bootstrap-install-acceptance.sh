@@ -438,6 +438,10 @@ if (run.authority !== 'uncommitted' || run.resumeCandidate !== true) {
   throw new Error(`interrupted run is not resumable: ${JSON.stringify(run)}`);
 }
 const directory = path.join('/canary-home/.local/state/install.doctor/engine/runs', expectedDigest, run.runId);
+const plan = JSON.parse(fs.readFileSync(path.join(directory, 'plan.json'), 'utf8'));
+if (plan.tasks.some(task => task.id === 'desired.software-groups')) {
+  throw new Error('plan retained system-identity mutation without a selected owning package');
+}
 if (fs.existsSync(path.join(directory, 'owner.json'))) throw new Error('interrupted run retained a live owner');
 const commits = fs.existsSync(path.join(directory, 'commits'))
   ? fs.readdirSync(path.join(directory, 'commits')).filter(name => name.endsWith('.commit.json')) : [];

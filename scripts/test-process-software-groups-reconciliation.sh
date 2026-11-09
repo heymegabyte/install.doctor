@@ -121,4 +121,19 @@ set -e
 [ "$(wc -l < "$TMP/ledger" | tr -d ' ')" -eq 2 ]
 
 INSTALL_DOCTOR_SELECTED_PACKAGES='' INSTALL_DOCTOR_SELECTED_SERVICES='' bash "$PROCESSOR" --check
-printf 'process-software-groups-reconciliation: 12 passed, 0 failed\n'
+
+set +e
+INSTALL_DOCTOR_ENGINE_OWNS_SOFTWARE_GROUPS=1 INSTALL_DOCTOR_SYSTEM_IDENTITY_PACKAGES='' \
+  INSTALL_DOCTOR_SELECTED_PACKAGES=beta bash "$PROCESSOR" --check
+missing_engine_selection_status=$?
+set -e
+[ "$missing_engine_selection_status" -eq 20 ]
+
+rm -f "$TMP/state/alpha-group" "$TMP/state/beta-group"
+: > "$TMP/ledger"
+INSTALL_DOCTOR_ENGINE_OWNS_SOFTWARE_GROUPS=1 INSTALL_DOCTOR_SYSTEM_IDENTITY_PACKAGES=alpha \
+  INSTALL_DOCTOR_SELECTED_PACKAGES=beta bash "$PROCESSOR"
+[ "$(cat "$TMP/ledger")" = alpha-group ]
+[ ! -e "$TMP/state/beta-group" ]
+
+printf 'process-software-groups-reconciliation: 15 passed, 0 failed\n'

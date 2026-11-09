@@ -13,8 +13,13 @@ case "${1:-}" in --check|check) MODE=check; shift ;; '') ;; *) printf 'INVALID\t
 invalid() { printf 'INVALID\t%s\n' "$*" >&2; return 20; }
 selectedKeys() {
   local RAW KEY SEEN=','
-  RAW="${INSTALL_DOCTOR_SELECTED_PACKAGES:-}"
-  [ -z "${INSTALL_DOCTOR_SELECTED_SERVICES:-}" ] || RAW="${RAW:+$RAW,}${INSTALL_DOCTOR_SELECTED_SERVICES}"
+  if [ "${INSTALL_DOCTOR_ENGINE_OWNS_SOFTWARE_GROUPS:-}" = 1 ]; then
+    RAW="${INSTALL_DOCTOR_SYSTEM_IDENTITY_PACKAGES:-}"
+    [ -n "$RAW" ] || { invalid missing-engine-system-identity-selection; return; }
+  else
+    RAW="${INSTALL_DOCTOR_SELECTED_PACKAGES:-}"
+    [ -z "${INSTALL_DOCTOR_SELECTED_SERVICES:-}" ] || RAW="${RAW:+$RAW,}${INSTALL_DOCTOR_SELECTED_SERVICES}"
+  fi
   [ "${#RAW}" -le 524288 ] || { invalid selected-input-too-large; return; }
   [ -z "$RAW" ] || [[ "$RAW" =~ ^[a-z0-9][a-z0-9._:-]{0,127}(,[a-z0-9][a-z0-9._:-]{0,127})*$ ]] \
     || { invalid selected-input-format; return; }

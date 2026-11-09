@@ -64,6 +64,17 @@ test('builds a deterministic selected closure and never starts an unselected ser
   assert.equal(first.items.find(item => item.name === 'mac-only').selectionReason, 'unsupported-platform');
 });
 
+test('carries system-identity reconciliation authority without selecting the package', () => {
+  const catalog = input({}).catalog.map(candidate => candidate.name === 'tool'
+    ? { ...candidate, systemIdentityReconciliation: true } : candidate);
+  const unselected = buildLoadPlan(input({ catalog }));
+  assert.equal(unselected.items.find(item => item.name === 'tool').systemIdentityReconciliation, true);
+  assert.equal(unselected.items.find(item => item.name === 'tool').selected, false);
+  const selected = buildLoadPlan(input({ catalog, selectedPackages: ['tool'] }));
+  assert.equal(selected.items.find(item => item.name === 'tool').systemIdentityReconciliation, true);
+  assert.notEqual(selected.digest, buildLoadPlan(input({ selectedPackages: ['tool'] })).digest);
+});
+
 test('selects a desired service and a supported-path exception explicitly', () => {
   const report = buildLoadPlan(input({ selectedServices: ['worker'], selectedSupportedPaths: ['developer'] }));
   assert.deepEqual(report.startOrder, ['worker']);

@@ -52,6 +52,10 @@ assert artifact_only["providers"] == []
 assert artifact_only["pkgs"] == {}
 assert artifact_only["platforms"] == ["windows"]
 assert artifact_only["artifacts"][0]["id"] == "fixture-artifact"
+rclone = next(item for item in items if item["name"] == "rclone")
+assert rclone["systemIdentityReconciliation"] is True
+ripgrep = next(item for item in items if item["name"] == "ripgrep")
+assert "systemIdentityReconciliation" not in ripgrep
 PY
 
 # A dependency is hard install authority. Generation must reject an unresolved
