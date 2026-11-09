@@ -87,14 +87,10 @@ async function exerciseController(t, suffix, authorize) {
   });
   const input = await exactInput(runId, authorityRoot, helperPath, runtimePath, workerPath);
   const { controllerInput, options = {} } = await authorize(input);
-  const controller = runPrivilegedBrokerController(controllerInput, options);
-  for (let attempt = 0; attempt < 250; attempt += 1) {
-    try { if ((await lstat(controllerInput.socketPath)).isSocket()) break; } catch (error) { if (error?.code !== 'ENOENT') throw error; }
-    await new Promise(resolve => setTimeout(resolve, 20));
-  }
-  assert.equal((await lstat(controllerInput.socketPath)).isSocket(), true);
-  process.emit('SIGTERM');
-  const result = await controller;
+  const result = await runPrivilegedBrokerController(controllerInput, {
+    ...options,
+    onReady: () => process.emit('SIGTERM'),
+  });
   assert.equal(result.exitCode, 0);
   await absent(controllerInput.socketPath);
   await absent(`${controllerInput.socketPath}.starting`);

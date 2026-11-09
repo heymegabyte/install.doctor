@@ -18,6 +18,7 @@ export interface PrivilegedBrokerControllerTestOptions {
   /** Test-only dependency injection. The strict CLI input has no such field. */
   readonly confirmation?: TrustedLocalConfirmation;
   readonly now?: () => Date;
+  readonly onReady?: () => void | Promise<void>;
 }
 
 const MAX_INPUT_BYTES = 2_097_152;
@@ -169,6 +170,7 @@ export async function runPrivilegedBrokerController(inputValue: unknown, testOpt
     const expiryTimer = setTimeout(() => terminate('expired'), Math.max(1, Math.min(expiresInMs, 2_147_483_647)));
     try {
       await waitForBrokerSocket(input, child, () => brokerDiagnostics.trim());
+      await testOptions.onReady?.();
       process.stdout.write(`${JSON.stringify({ schemaVersion: 1, status: 'authorized', socketPath: input.socketPath,
         grantDigest: publication.grantDigest, authorityDigest: publication.authorityDigest, brokerPid: child.pid })}\n`);
       const result = await new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((resolveResult, reject) => {
