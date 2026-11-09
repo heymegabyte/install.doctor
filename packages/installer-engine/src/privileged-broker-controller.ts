@@ -65,9 +65,13 @@ async function assertSocketParent(input: PrivilegedBrokerControllerInput): Promi
   }
 }
 
-async function waitForBrokerSocket(input: PrivilegedBrokerControllerInput, child: ReturnType<typeof spawn>): Promise<void> {
+async function waitForBrokerSocket(input: PrivilegedBrokerControllerInput, child: ReturnType<typeof spawn>,
+  diagnostics: () => string): Promise<void> {
   for (let attempt = 0; attempt < 250; attempt += 1) {
-    if (child.exitCode !== null || child.signalCode !== null) throw new Error('privileged broker exited before readiness');
+    if (child.exitCode !== null || child.signalCode !== null) {
+      const detail = diagnostics();
+      throw new Error(`privileged broker exited before readiness${detail ? `: ${detail}` : ''}`);
+    }
     try {
       const socket = await lstat(input.socketPath);
       if (!socket.isSocket() || socket.isSymbolicLink() || socket.uid !== 0 || socket.gid !== input.socketGid
@@ -142,8 +146,13 @@ export async function runPrivilegedBrokerController(inputValue: unknown, testOpt
       '--worker', input.workerPath, '--worker-sha256', input.workerDigest,
       '--requests', String(input.requestLimit), '--timeout', `${input.operationTimeoutMs}ms`,
     ], {
-      shell: false, detached: false, windowsHide: true, stdio: ['ignore', 'ignore', 'ignore', helper.fd],
+      shell: false, detached: false, windowsHide: true, stdio: ['ignore', 'ignore', 'pipe', helper.fd],
       env: { PATH: '/usr/sbin:/usr/bin:/sbin:/bin', LANG: 'C', LC_ALL: 'C' },
+    });
+    let brokerDiagnostics = '';
+    child.stderr?.setEncoding('utf8');
+    child.stderr?.on('data', chunk => {
+      if (brokerDiagnostics.length < 4_096) brokerDiagnostics += String(chunk).slice(0, 4_096 - brokerDiagnostics.length);
     });
     const lifecycle: { termination: 'none' | 'graceful' | 'interrupted' | 'expired' } = { termination: 'none' };
     const terminate = (kind: typeof lifecycle.termination) => {
@@ -159,7 +168,7 @@ export async function runPrivilegedBrokerController(inputValue: unknown, testOpt
     }
     const expiryTimer = setTimeout(() => terminate('expired'), Math.max(1, Math.min(expiresInMs, 2_147_483_647)));
     try {
-      await waitForBrokerSocket(input, child);
+      await waitForBrokerSocket(input, child, () => brokerDiagnostics.trim());
       process.stdout.write(`${JSON.stringify({ schemaVersion: 1, status: 'authorized', socketPath: input.socketPath,
         grantDigest: publication.grantDigest, authorityDigest: publication.authorityDigest, brokerPid: child.pid })}\n`);
       const result = await new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((resolveResult, reject) => {
