@@ -43,6 +43,9 @@ import { openVerifiedArtifactSnapshot } from './verified-artifact-materializer.j
 import { createBrokerApprovalTransport } from './broker-approval-transport.js';
 import { BrokerApprovalBootstrapBindingSchema, BrokerApprovalPollPolicySchema, orchestrateBrokerApproval } from './broker-approval-orchestrator.js';
 import { PrivilegedBrokerGrantSchema } from './privileged-broker-protocol.js';
+import { ProtectedAuthorizationState, TargetDeviceAuthorization } from './target-device-authorization.js';
+import { createTargetAuthorizationHttpTransport } from './target-device-authorization-http.js';
+import { ProtectedDeviceCredentialStore } from './target-device-credential.js';
 
 const identifier = z.string().min(1).max(128).regex(/^[a-z0-9][a-z0-9._-]*$/);
 const argument = z.string().max(4096).refine(value => !value.includes('\0'), 'arguments cannot contain NUL');
@@ -192,6 +195,29 @@ const BrokerApprovalClaimInvocationSchema = z.strictObject({
   bootstrapBinding: BrokerApprovalBootstrapBindingSchema,
   poll: BrokerApprovalPollPolicySchema.optional(),
 });
+const privateStatePath = z.string().min(1).max(4096)
+  .refine(value => isAbsolute(value) && resolve(value) === value, 'device authorization path must be canonical and absolute');
+const targetAuthorizationBase = {
+  schemaVersion: z.literal(1), origin: z.string().url(), statePath: privateStatePath,
+};
+const DeviceAuthorizationStartInvocationSchema = z.strictObject({
+  ...targetAuthorizationBase, command: z.literal('device-authorization-start'),
+  credentialPath: privateStatePath,
+  profileId: identifier, machineLabel: z.string().min(1).max(128),
+  scopes: z.array(z.string().min(1).max(128).regex(/^[a-z][a-z0-9.-]*:[a-z][a-z0-9.-]*$/)).min(1).max(64),
+  expiresAt: z.string().datetime({ offset: true }).max(64),
+});
+const DeviceAuthorizationStatusInvocationSchema = z.strictObject({
+  schemaVersion: z.literal(1), command: z.literal('device-authorization-status'),
+  statePath: privateStatePath, credentialPath: privateStatePath,
+});
+const DeviceAuthorizationWaitInvocationSchema = z.strictObject({
+  ...targetAuthorizationBase, command: z.literal('device-authorization-wait'), credentialPath: privateStatePath,
+});
+const DeviceAuthorizationCancelInvocationSchema = z.strictObject({
+  ...targetAuthorizationBase, command: z.literal('device-authorization-cancel'),
+  reason: z.string().min(1).max(64).regex(/^[a-z][a-z0-9.-]*$/).optional(),
+});
 const bundlePlatform = z.strictObject({
   os: z.enum(['linux', 'darwin', 'win32']), arch: z.enum(['x64', 'arm64']),
   environment: z.enum(['native', 'wsl', 'proxmox', 'qubes', 'container']),
@@ -320,6 +346,8 @@ const InvocationSchema = z.discriminatedUnion('command', [
   LoadPlanInvocationSchema, NativeDebianDeriveInvocationSchema, PrivilegedBrokerAuthorityDeriveInvocationSchema,
   ArtifactDeriveInvocationSchema, ArtifactPrepareInvocationSchema,
   BrokerApprovalClaimInvocationSchema,
+  DeviceAuthorizationStartInvocationSchema, DeviceAuthorizationStatusInvocationSchema,
+  DeviceAuthorizationWaitInvocationSchema, DeviceAuthorizationCancelInvocationSchema,
 ]);
 type Invocation = z.infer<typeof InvocationSchema>;
 type OperationInvocation = Extract<Invocation, { command: 'discover' | 'validate' | 'plan' | 'run' | 'resume' | 'status' }>;
@@ -1086,6 +1114,22 @@ async function requiredServiceAdapters(
   return adapters;
 }
 
+function authorizationSignal(): { readonly signal: AbortSignal; close(): void } {
+  const controller = new AbortController();
+  const cancel = (): void => {
+    if (!controller.signal.aborted) controller.abort(new Error('operator-cancelled'));
+  };
+  process.once('SIGINT', cancel);
+  process.once('SIGTERM', cancel);
+  return {
+    signal: controller.signal,
+    close() {
+      process.removeListener('SIGINT', cancel);
+      process.removeListener('SIGTERM', cancel);
+    },
+  };
+}
+
 async function main(): Promise<void> {
   let command = 'unknown';
   let phase: CliPhase = 'parse';
@@ -1118,6 +1162,81 @@ async function main(): Promise<void> {
         stateRoot: invocation.stateRoot, hostId: 'evidence-reader', bootId: 'read-only', processStart: 'read-only',
       });
       process.stdout.write(`${JSON.stringify({ schemaVersion: 1, runs: await evidenceStore.listRuns() })}\n`);
+      return;
+    }
+    if (invocation.command === 'device-authorization-status') {
+      const credential = await new ProtectedDeviceCredentialStore(invocation.credentialPath).load();
+      if (credential) {
+        process.stdout.write(`${JSON.stringify({ schemaVersion: 1, status: Date.parse(credential.expiresAt) > Date.now() ? 'approved' : 'expired',
+          requestId: credential.request.requestId, credentialId: credential.credentialId,
+          profileId: credential.request.binding.profileId, targetKeyFingerprint: credential.request.binding.targetKeyFingerprint,
+          scopes: credential.request.binding.scopes, expiresAt: credential.expiresAt })}\n`);
+        return;
+      }
+      const pending = await new ProtectedAuthorizationState(invocation.statePath).load();
+      process.stdout.write(`${JSON.stringify(pending ? { schemaVersion: 1, status: 'pending',
+        requestId: pending.request.requestId, verificationCode: pending.request.verificationCode,
+        approvalUri: pending.approvalUri, expiresAt: pending.request.binding.expiresAt,
+      } : { schemaVersion: 1, status: 'absent' })}\n`);
+      return;
+    }
+    if (invocation.command === 'device-authorization-start') {
+      if (await new ProtectedDeviceCredentialStore(invocation.credentialPath).load()) {
+        throw new Error('device already has a protected credential; inspect status or revoke before re-enrolling');
+      }
+      const authorization = new TargetDeviceAuthorization({ statePath: invocation.statePath,
+        transport: createTargetAuthorizationHttpTransport({ origin: invocation.origin }) });
+      phase = 'execute';
+      const cancellation = authorizationSignal();
+      let prompt;
+      try {
+        prompt = await authorization.begin({ profileId: invocation.profileId, machineLabel: invocation.machineLabel,
+          scopes: invocation.scopes, expiresAt: invocation.expiresAt }, cancellation.signal);
+      } finally { cancellation.close(); }
+      process.stdout.write(`${JSON.stringify({ schemaVersion: 1, status: 'pending', ...prompt })}\n`);
+      return;
+    }
+    if (invocation.command === 'device-authorization-wait') {
+      const credentialStore = new ProtectedDeviceCredentialStore(invocation.credentialPath);
+      const pendingStore = new ProtectedAuthorizationState(invocation.statePath);
+      const alreadyStored = await credentialStore.load();
+      if (alreadyStored) {
+        const pending = await pendingStore.load();
+        if (pending && pending.request.requestId !== alreadyStored.request.requestId) {
+          throw new Error('persisted credential does not match pending authorization');
+        }
+        if (pending) await pendingStore.remove();
+        process.stdout.write(`${JSON.stringify({ schemaVersion: 1, status: 'approved',
+          requestId: alreadyStored.request.requestId, credentialId: alreadyStored.credentialId,
+          expiresAt: alreadyStored.expiresAt })}\n`);
+        return;
+      }
+      const authorization = new TargetDeviceAuthorization({ statePath: invocation.statePath,
+        transport: createTargetAuthorizationHttpTransport({ origin: invocation.origin }),
+        persistApproved: credential => credentialStore.save({ schemaVersion: 1, ...credential }),
+      });
+      phase = 'execute';
+      const cancellation = authorizationSignal();
+      let outcome;
+      try { outcome = await authorization.resume(cancellation.signal); }
+      finally { cancellation.close(); }
+      if (outcome.status === 'approved') {
+        const stored = await credentialStore.load();
+        if (!stored) throw new Error('approved credential was not durably persisted');
+        process.stdout.write(`${JSON.stringify({ schemaVersion: 1, status: 'approved',
+          requestId: stored.request.requestId, credentialId: stored.credentialId, expiresAt: stored.expiresAt })}\n`);
+      } else {
+        process.stdout.write(`${JSON.stringify({ schemaVersion: 1, ...outcome })}\n`);
+        if (outcome.status === 'cancelled') process.exitCode = 130;
+      }
+      return;
+    }
+    if (invocation.command === 'device-authorization-cancel') {
+      const authorization = new TargetDeviceAuthorization({ statePath: invocation.statePath,
+        transport: createTargetAuthorizationHttpTransport({ origin: invocation.origin }) });
+      phase = 'execute';
+      process.stdout.write(`${JSON.stringify({ schemaVersion: 1,
+        ...await authorization.cancel(invocation.reason ?? 'operator-cancelled') })}\n`);
       return;
     }
     if (invocation.command === 'broker-approval-claim') {

@@ -80,6 +80,13 @@ export interface TargetAuthorizationOptions {
   readonly emit?: (event: SafeAuthorizationEvent) => void;
   readonly sleep?: (milliseconds: number, signal: AbortSignal) => Promise<void>;
   readonly now?: () => Date;
+  readonly persistApproved?: (input: {
+    readonly request: DeviceAuthorizationRequest;
+    readonly credential: string;
+    readonly credentialId: string;
+    readonly expiresAt: string;
+    readonly storedAt: string;
+  }) => Promise<void>;
 }
 
 function base64Url(bytes: Uint8Array): string {
@@ -161,6 +168,7 @@ export class TargetDeviceAuthorization {
   readonly #emit: ((event: SafeAuthorizationEvent) => void) | undefined;
   readonly #sleep: (milliseconds: number, signal: AbortSignal) => Promise<void>;
   readonly #now: () => Date;
+  readonly #persistApproved: TargetAuthorizationOptions['persistApproved'];
 
   constructor(options: TargetAuthorizationOptions) {
     this.#state = new ProtectedAuthorizationState(options.statePath);
@@ -168,6 +176,7 @@ export class TargetDeviceAuthorization {
     this.#emit = options.emit;
     this.#sleep = options.sleep ?? defaultSleep;
     this.#now = options.now ?? (() => new Date());
+    this.#persistApproved = options.persistApproved;
   }
 
   async begin(input: AuthorizationStartInput, signal: AbortSignal): Promise<AuthorizationPrompt> {
@@ -217,6 +226,8 @@ export class TargetDeviceAuthorization {
         }
         const result = await this.#transport.poll(state.request.requestId, state.pollSecret, signal);
         if (result.status === 'approved') {
+          await this.#persistApproved?.({ request: state.request, credential: result.credential,
+            credentialId: result.credentialId, expiresAt: result.expiresAt, storedAt: this.#now().toISOString() });
           await this.#state.remove();
           safeEvent(this.#emit, 'approved', state.request.requestId, this.#now);
           return result;

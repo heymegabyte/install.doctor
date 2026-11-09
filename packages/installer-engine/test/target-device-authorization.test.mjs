@@ -91,6 +91,18 @@ test('resumes after restart, honors bounded server retry guidance, and removes s
   assert.doesNotMatch(JSON.stringify(state.events), /pollSecret|privateKey|credential/);
 });
 
+test('credential persistence failure preserves resumable polling state', async t => {
+  const state = await fixture();
+  t.after(() => rm(state.root, { recursive: true, force: true }));
+  await state.client.begin(startInput, new AbortController().signal);
+  state.results.push({ status: 'approved', credential: 'device-secret-never-log',
+    credentialId: 'credential-1', expiresAt: '2026-11-08T16:00:00.000Z' });
+  const restarted = new TargetDeviceAuthorization({ statePath: state.statePath, transport: state.transport,
+    now: () => fixedNow, persistApproved: async () => { throw new Error('disk unavailable'); } });
+  await assert.rejects(restarted.resume(new AbortController().signal), /disk unavailable/);
+  assert.equal(JSON.parse(await readFile(state.statePath, 'utf8')).request.requestId, 'request-1');
+});
+
 test('cancellation informs the service, clears restart state, and reveals no private authority', async t => {
   const state = await fixture();
   t.after(() => rm(state.root, { recursive: true, force: true }));
