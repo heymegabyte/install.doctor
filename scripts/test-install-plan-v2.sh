@@ -50,7 +50,7 @@ if INSTALL_DOCTOR_SELECTED_SERVICES='worker' INSTALL_DOCTOR_PLAN='' writeInstall
   printf 'selected service mutation was accepted without native engine authority\n' >&2
   exit 1
 fi
-grep -Fq 'installer-engine-owned, manager-specific privileged operation' "$TMP/service.err"
+grep -Fq 'exact manager-specific installer-engine authority' "$TMP/service.err"
 
 resolver_overflow="$(node -e 'process.stdout.write(Array.from({length:129},(_,i)=>`r${i}`).join(","))')"
 if INSTALL_DOCTOR_LAZY_RESOLVER_REQUIREMENTS="$resolver_overflow" INSTALL_DOCTOR_PLAN='' writeInstallPlan >/dev/null 2>&1; then

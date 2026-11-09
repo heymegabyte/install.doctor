@@ -27,6 +27,7 @@ import { createNativeDpkgTransactionRuntime } from './native-dpkg-transaction.js
 import { collectLinuxOfflineHostFacts } from './linux-host-facts.js';
 import { LoadPlanInputSchema, LoadPlanItemSchema, LoadPlanReportSchema, buildLoadPlan, calculateLoadPlanReportDigest } from './lazy-plan.js';
 import { composeSelectedNativeDebianPackageSlice } from './native-debian-composition.js';
+import { composeSelectedNativeSystemdService } from './native-service-composition.js';
 import { composeArtifactLegacyCutover, derivePlannedArtifactOperations, preparePlannedArtifact } from './planned-artifact.js';
 import { CaskLauncherOperationSchema, composeSelectedCaskLaunchers } from './cask-launcher-composition.js';
 import { FlatpakLauncherOperationSchema, composeSelectedFlatpakLaunchers, flatpakLauncherCandidate } from './flatpak-launcher-composition.js';
@@ -336,6 +337,12 @@ const NativeDebianDeriveInvocationSchema = z.strictObject({
   desiredState: DesiredStateInputSchema,
   legacyPackages: z.array(z.string().min(1).max(128).regex(/^[a-z0-9][a-z0-9.+-]*(?::[a-z0-9][a-z0-9-]*)?$/)).max(4096),
 });
+const NativeServiceDeriveInvocationSchema = z.strictObject({
+  schemaVersion: z.literal(1), command: z.literal('native-service-derive'),
+  loadPlan: LoadPlanReportSchema, approvedLoadPlanDigest: z.string().regex(/^[a-f0-9]{64}$/),
+  serviceKey: z.literal('alloy'),
+  legacyServices: z.array(z.string().min(1).max(128).regex(/^[a-z0-9][a-z0-9._:-]*$/)).max(1024),
+});
 const CaskLauncherDeriveInvocationSchema = z.strictObject({
   schemaVersion: z.literal(1), command: z.literal('cask-launcher-derive'),
   loadPlan: LoadPlanReportSchema, approvedLoadPlanDigest: z.string().regex(/^[a-f0-9]{64}$/),
@@ -384,7 +391,7 @@ const InvocationSchema = z.discriminatedUnion('command', [
   BundleCreateInvocationSchema, BundleVerifyInvocationSchema, BundlePlanInvocationSchema, BundleApplyInvocationSchema,
   OfflineExecuteInvocationSchema, OfflineResumeInvocationSchema,
   RollbackPlanInvocationSchema, RollbackExecuteInvocationSchema, RollbackResumeInvocationSchema, RollbackStatusInvocationSchema,
-  LoadPlanInvocationSchema, NativeDebianDeriveInvocationSchema, CaskLauncherDeriveInvocationSchema,
+  LoadPlanInvocationSchema, NativeDebianDeriveInvocationSchema, NativeServiceDeriveInvocationSchema, CaskLauncherDeriveInvocationSchema,
   FlatpakLauncherDeriveInvocationSchema, PrivilegedBrokerAuthorityDeriveInvocationSchema,
   PrivilegedBrokerServiceAuthorityDeriveInvocationSchema,
   ArtifactDeriveInvocationSchema, ArtifactPrepareInvocationSchema,
@@ -1513,6 +1520,18 @@ async function main(): Promise<void> {
       process.stdout.write(`${JSON.stringify({
         schemaVersion: 1, loadPlanDigest: calculated, descriptorDigest: composition.task.inputDigest, composition,
       })}\n`);
+      return;
+    }
+    if (invocation.command === 'native-service-derive') {
+      const calculated = calculateLoadPlanReportDigest(invocation.loadPlan);
+      if (calculated !== invocation.loadPlan.digest || invocation.approvedLoadPlanDigest !== calculated) {
+        throw new Error('native service derivation requires the exact approved load-plan digest');
+      }
+      const composition = composeSelectedNativeSystemdService({
+        loadPlan: invocation.loadPlan, loadPlanDigest: calculated,
+        serviceKey: invocation.serviceKey, legacyServices: invocation.legacyServices,
+      });
+      process.stdout.write(`${JSON.stringify({ schemaVersion: 1, loadPlanDigest: calculated, composition })}\n`);
       return;
     }
     if (invocation.command === 'cask-launcher-derive') {

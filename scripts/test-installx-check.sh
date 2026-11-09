@@ -182,6 +182,14 @@ grep -Fqx '{"schemaVersion":1,"status":"mutation-needed","selected":["fixture-la
 ! grep -q '^MUTATION ' "$FIXTURE/calls"
 unset INSTALL_DOCTOR_SELECTED_SERVICES
 
+export INSTALL_DOCTOR_SELECTED_SERVICE_PACKAGES=fixture-lazy
+: > "$FIXTURE/calls"
+run_check
+[ "$status" -eq 10 ]
+grep -Fqx '{"schemaVersion":1,"status":"mutation-needed","selected":["fixture-lazy","fixture-missing","fixture-present"],"missing":["fixture-lazy"]}' "$FIXTURE/output"
+! grep -q '^MUTATION ' "$FIXTURE/calls"
+unset INSTALL_DOCTOR_SELECTED_SERVICE_PACKAGES
+
 export INSTALL_DOCTOR_SELECTED_PACKAGES=fixture-lazy
 : > "$FIXTURE/calls"
 run_check
@@ -223,6 +231,14 @@ run_check
 grep -Fqx '{"schemaVersion":1,"status":"error","selected":[],"missing":[],"error":"inspection-failed"}' "$FIXTURE/output"
 ! grep -q '^MUTATION ' "$FIXTURE/calls"
 unset INSTALL_DOCTOR_SELECTED_SERVICES
+
+export INSTALL_DOCTOR_SELECTED_SERVICE_PACKAGES=unknown-service
+: > "$FIXTURE/calls"
+run_check
+[ "$status" -eq 20 ]
+grep -Fqx '{"schemaVersion":1,"status":"error","selected":[],"missing":[],"error":"inspection-failed"}' "$FIXTURE/output"
+! grep -q '^MUTATION ' "$FIXTURE/calls"
+unset INSTALL_DOCTOR_SELECTED_SERVICE_PACKAGES
 
 export INSTALL_DOCTOR_SELECTED_PACKAGES=unknown-package
 : > "$FIXTURE/calls"

@@ -18,8 +18,9 @@ else
 fi
 if grep -q "id: 'bootstrap.installx-tool'" "$PROVISION" && grep -q "id: 'desired.packages'" "$PROVISION" \
   && ! grep -q "id: 'desired.services'" "$PROVISION" \
-  && grep -q 'selected services are unsupported until an installer-engine-owned, manager-specific privileged operation is available' "$PROVISION"; then
-  pass 'package tooling is engine-owned and uncompensated legacy service mutation fails closed'
+  && grep -q "serviceComposition.task.id !== 'service.native.alloy'" "$PROVISION" \
+  && grep -q 'INSTALL_DOCTOR_SELECTED_SERVICES: legacySelectedServices.join' "$PROVISION"; then
+  pass 'package tooling is engine-owned and selected service mutation has exact native authority'
 else
   fail 'package authority or selected-service fail-closed boundary is incomplete'
 fi
@@ -93,7 +94,7 @@ if grep -q 'INSTALL_DOCTOR_ROLE INSTALL_DOCTOR_CAPABILITY INSTALL_DOCTOR_NETWORK
   && grep -q 'INSTALL_DOCTOR_USER INSTALL_DOCTOR_SELECTED_SERVICES' "$PROVISION"; then pass 'root handoff preserves selected desired state'; else fail 'root handoff drops selected desired state'; fi
 if grep -q 'Handing off planning and execution to the enrolled user' "$PROVISION" \
   && grep -q 'DESKTOP_TOOLS_BROKER_COORDINATION_USER_REQUEST' "$PROVISION" \
-  && grep -q "command:'privileged-broker-authority-derive'" "$PROVISION" \
+  && grep -q "'privileged-broker-service-authority-derive':'privileged-broker-authority-derive'" "$PROVISION" \
   && grep -q 'BROKER_CONTROLLER_PID' "$PROVISION" \
   && grep -q "response?.status !== 'authorized'" "$PROVISION"; then
   pass 'root broker coordination preserves one user-approved invocation and bounded controller lifecycle'

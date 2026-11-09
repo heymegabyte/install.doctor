@@ -1690,8 +1690,9 @@ const catalogListPattern = /^[a-z0-9][a-z0-9._:-]*(?:,[a-z0-9][a-z0-9._:-]*)*$/;
 const identifierListPattern = /^[a-z0-9][a-z0-9._-]*(?:,[a-z0-9][a-z0-9._-]*)*$/;
 const selectedPackages = selectedList('INSTALL_DOCTOR_SELECTED_PACKAGES', 4096, catalogListPattern);
 const selectedServices = selectedList('INSTALL_DOCTOR_SELECTED_SERVICES', 1024, catalogListPattern);
-if (selectedServices.length > 0) {
-  throw new Error('selected services are unsupported until an installer-engine-owned, manager-specific privileged operation is available');
+if (selectedServices.some(service => service !== 'alloy')
+  || (selectedServices.length > 0 && process.env.INSTALL_DOCTOR_PLATFORM_CELL !== 'debian-12-x64-native')) {
+  throw new Error('selected services are unsupported without exact manager-specific installer-engine authority');
 }
 const selectedSupportedPaths = selectedList('INSTALL_DOCTOR_SELECTED_SUPPORTED_PATHS', 1024, identifierListPattern);
 const lazyResolverRequirements = selectedList('INSTALL_DOCTOR_LAZY_RESOLVER_REQUIREMENTS', 128, catalogListPattern);
@@ -2132,7 +2133,7 @@ runCanonicalProvisionEngine() {
   local MODE="${1:-apply}" ENGINE="${INSTALL_DOCTOR_ENGINE_PATH:-}" PROVISIONER INVOCATION INVOCATION_DIR NORMALIZED_PLAN APPROVAL_PLAN EVIDENCE_INVOCATION EVIDENCE_RESULT CLEANUP_EVIDENCE_INVOCATION CLEANUP_EVIDENCE_RESULT RUNS_INVOCATION RUNS_RESULT RESUME_RUN_ID STATE_ROOT NODE_MAJOR EXPECTED_NODE RENDERER GENERATE_STATUS ENGINE_STATUS EVIDENCE_STATUS CLEANUP_EVIDENCE_STATUS PLAN_DIGEST APPROVAL ACTUAL_SHA
   local LOAD_PLAN_INVOCATION LOAD_PLAN_RESULT ARTIFACT_DERIVE_INVOCATION ARTIFACT_DERIVE_RESULT ARTIFACT_CACHE_ROOT USER_BIN_ROOT DOCKER_PLUGIN_ROOT
   local CASK_DERIVE_INVOCATION CASK_DERIVE_RESULT FLATPAK_DERIVE_INVOCATION FLATPAK_DERIVE_RESULT FLATPAK_EXECUTABLE FLATPAK_SHA256
-  local NATIVE_DERIVE_INVOCATION NATIVE_DERIVE_RESULT NATIVE_COUNT
+  local NATIVE_DERIVE_INVOCATION NATIVE_DERIVE_RESULT NATIVE_COUNT SERVICE_DERIVE_INVOCATION SERVICE_DERIVE_RESULT SERVICE_COUNT
   case "$MODE" in apply|--plan-only) ;; *) logg error "Unknown canonical engine mode: $MODE"; return 2 ;; esac
   [ -n "$ENGINE" ] && [ -f "$ENGINE" ] && [ ! -L "$ENGINE" ] || { logg error 'Verified installer engine is unavailable'; return 2; }
   command -v node >/dev/null 2>&1 || { logg error 'Node.js is required by the verified installer engine'; return 2; }
@@ -2163,6 +2164,8 @@ runCanonicalProvisionEngine() {
   ARTIFACT_DERIVE_RESULT="$INVOCATION_DIR/artifact-derive.json"
   NATIVE_DERIVE_INVOCATION="$INVOCATION_DIR/native-debian-derive-invocation.json"
   NATIVE_DERIVE_RESULT="$INVOCATION_DIR/native-debian-derive.json"
+  SERVICE_DERIVE_INVOCATION="$INVOCATION_DIR/native-service-derive-invocation.json"
+  SERVICE_DERIVE_RESULT="$INVOCATION_DIR/native-service-derive.json"
   CASK_DERIVE_INVOCATION="$INVOCATION_DIR/cask-launcher-derive-invocation.json"
   CASK_DERIVE_RESULT="$INVOCATION_DIR/cask-launcher-derive.json"
   FLATPAK_DERIVE_INVOCATION="$INVOCATION_DIR/flatpak-launcher-derive-invocation.json"
@@ -2197,7 +2200,28 @@ NODE
   GENERATE_STATUS=$?
   if [ "$GENERATE_STATUS" -eq 0 ]; then node "$ENGINE" --input "$LOAD_PLAN_INVOCATION" > "$LOAD_PLAN_RESULT"; GENERATE_STATUS=$?; fi
   [ "$GENERATE_STATUS" -eq 0 ] || { logg error 'Unable to derive the selected catalog load plan'; return "$GENERATE_STATUS"; }
+  SERVICE_COUNT="$(node -e 'const p=JSON.parse(require("node:fs").readFileSync(process.argv[1],"utf8")); process.stdout.write(String(p.items.filter(i => i.name === "alloy" && i.selected && i.applicable && JSON.stringify(i.actions) === JSON.stringify(["install","start"]) && i.serviceDeclarations?.length === 1 && i.serviceDeclarations[0].name === "alloy.service" && i.serviceDeclarations[0].manager === "systemd" && i.serviceDeclarations[0].privilege === "admin").length))' "$LOAD_PLAN_RESULT")" || return 2
+  if [ "$SERVICE_COUNT" -gt 0 ]; then
+    node - "$SERVICE_DERIVE_INVOCATION" "$LOAD_PLAN_RESULT" <<'NODE'
+const fs = require('node:fs');
+const [destination, loadPlanPath] = process.argv.slice(2);
+const loadPlan = JSON.parse(fs.readFileSync(loadPlanPath, 'utf8'));
+const rawPlan = JSON.parse(fs.readFileSync(process.env.INSTALL_DOCTOR_PLAN, 'utf8'));
+fs.writeFileSync(destination, `${JSON.stringify({ schemaVersion: 1, command: 'native-service-derive', loadPlan,
+  approvedLoadPlanDigest: loadPlan.digest, serviceKey: 'alloy', legacyServices: rawPlan.selectedServices })}\n`,
+{ mode: 0o600, flag: 'wx' });
+NODE
+    GENERATE_STATUS=$?
+    if [ "$GENERATE_STATUS" -eq 0 ]; then node "$ENGINE" --input "$SERVICE_DERIVE_INVOCATION" > "$SERVICE_DERIVE_RESULT"; GENERATE_STATUS=$?; fi
+    [ "$GENERATE_STATUS" -eq 0 ] || { logg error 'Unable to compose the selected native systemd service'; return "$GENERATE_STATUS"; }
+  else
+    printf '%s\n' '{"schemaVersion":1,"composition":null}' > "$SERVICE_DERIVE_RESULT"
+  fi
   NATIVE_COUNT="$(node -e 'const p=JSON.parse(require("node:fs").readFileSync(process.argv[1],"utf8")); process.stdout.write(String(p.items.filter(i => i.name === "tree" && i.selected && i.applicable && i.actions.includes("install") && i.nativePayload).length))' "$LOAD_PLAN_RESULT")" || return 2
+  if [ "$NATIVE_COUNT" -gt 0 ] && [ "$SERVICE_COUNT" -gt 0 ]; then
+    logg error 'A single privileged run cannot combine native package and service authority; select one privileged mutation class'
+    return 2
+  fi
   if [ "$NATIVE_COUNT" -gt 0 ] && [ "${INSTALL_DOCTOR_PLATFORM_CELL:-}" = debian-12-x64-native ]; then
     node - "$NATIVE_DERIVE_INVOCATION" "$LOAD_PLAN_RESULT" <<'NODE'
 const fs = require('node:fs');
@@ -2295,7 +2319,7 @@ NODE
   else
     printf '%s\n' '{"schemaVersion":1,"loadPlanDigest":null,"launcherRoot":null,"directoryRequirements":[],"launchers":[],"migratedLauncherPackages":[],"remainingLegacyLauncherPackages":[]}' > "$FLATPAK_DERIVE_RESULT"
   fi
-  export INSTALL_DOCTOR_LOAD_PLAN_PATH="$LOAD_PLAN_RESULT" INSTALL_DOCTOR_ARTIFACT_DERIVATION_PATH="$ARTIFACT_DERIVE_RESULT" INSTALL_DOCTOR_NATIVE_DERIVATION_PATH="$NATIVE_DERIVE_RESULT" INSTALL_DOCTOR_CASK_DERIVATION_PATH="$CASK_DERIVE_RESULT" INSTALL_DOCTOR_FLATPAK_DERIVATION_PATH="$FLATPAK_DERIVE_RESULT"
+  export INSTALL_DOCTOR_LOAD_PLAN_PATH="$LOAD_PLAN_RESULT" INSTALL_DOCTOR_ARTIFACT_DERIVATION_PATH="$ARTIFACT_DERIVE_RESULT" INSTALL_DOCTOR_NATIVE_DERIVATION_PATH="$NATIVE_DERIVE_RESULT" INSTALL_DOCTOR_SERVICE_DERIVATION_PATH="$SERVICE_DERIVE_RESULT" INSTALL_DOCTOR_CASK_DERIVATION_PATH="$CASK_DERIVE_RESULT" INSTALL_DOCTOR_FLATPAK_DERIVATION_PATH="$FLATPAK_DERIVE_RESULT"
   node - "$INVOCATION" "$PROVISIONER" "$STATE_ROOT" "$RENDERER" <<'NODE'
 const fs = require('node:fs');
 const os = require('node:os');
@@ -2432,6 +2456,16 @@ const nativeLegacyPackages = nativeComposition === null ? selectedPackages : nat
 canonicalList(nativeLegacyPackages, 4096, /^[a-z0-9][a-z0-9._:-]*$/, 'native remainingLegacyPackages');
 if (nativeComposition !== null && (!selectedPackages.includes('tree') || nativeLegacyPackages.includes('tree'))) {
   throw new Error('native Debian derivation did not subtract only the admitted tree package');
+}
+const serviceDerivation = JSON.parse(fs.readFileSync(process.env.INSTALL_DOCTOR_SERVICE_DERIVATION_PATH, 'utf8'));
+const serviceComposition = serviceDerivation.composition ?? null;
+if (serviceComposition !== null && (!serviceComposition.task || !serviceComposition.operations
+  || !Array.isArray(serviceComposition.remainingLegacyServices))) throw new Error('native service derivation is malformed');
+const legacySelectedServices = serviceComposition === null ? selectedServices : canonicalList(
+  serviceComposition.remainingLegacyServices, 1024, /^[a-z0-9][a-z0-9._:-]*$/, 'native remainingLegacyServices');
+if (serviceComposition !== null && (!selectedServices.includes('alloy') || legacySelectedServices.includes('alloy')
+  || serviceComposition.task.id !== 'service.native.alloy')) {
+  throw new Error('native service derivation did not subtract only the admitted Alloy service');
 }
 const artifactDerivation = JSON.parse(fs.readFileSync(process.env.INSTALL_DOCTOR_ARTIFACT_DERIVATION_PATH, 'utf8'));
 if (!Array.isArray(artifactDerivation.artifacts) || !Array.isArray(artifactDerivation.migratedArtifactPackages)
@@ -2661,7 +2695,8 @@ const operationEnvironment = {
   INSTALL_DOCTOR_SELECTED_PACKAGES: legacySelectedPackages.join(','),
   INSTALL_DOCTOR_ENGINE_CASK_LAUNCHERS: migratedLauncherPackages.join(','),
   INSTALL_DOCTOR_ENGINE_FLATPAK_LAUNCHERS: migratedFlatpakLauncherPackages.join(','),
-  INSTALL_DOCTOR_SELECTED_SERVICES: selectedServices.join(','),
+  INSTALL_DOCTOR_SELECTED_SERVICES: legacySelectedServices.join(','),
+  INSTALL_DOCTOR_SELECTED_SERVICE_PACKAGES: selectedServices.join(','),
   INSTALL_DOCTOR_WARP_CLI_PATH: warpCliPath,
   INSTALL_DOCTOR_WARP_CLI_SHA256: warpCliDigest,
   INSTALL_DOCTOR_CLOUDFLARE_CERT_SHA256: certificateDigest,
@@ -3079,8 +3114,8 @@ const invocation = {
     offline: rawPlan.offline,
   },
     plan: {
-      tasks: [stageZeroInstallUserTask, stageZeroSudoTask, ...(warpDisconnectTask ? [warpDisconnectTask] : []), ...(nativeComposition ? [nativeComposition.task] : []), nativeDependenciesTask, sourceTask, homebrewTask, homebrewToolsTask, chezmoiInitTask, installxBinDirectoryTask, installxToolTask, desiredPackagesTask, ...caskDirectoryTasks, ...caskLauncherTasks, ...flatpakDirectoryTasks, ...flatpakLauncherTasks, ...directoryTasks, ...artifactTasks, ...(macosFullDiskAccessTask ? [macosFullDiskAccessTask] : []), ...(macosCertificateTask ? [macosCertificateTask] : []), ...(qubesDom0Task ? [qubesDom0Task] : []), ...(agentTasksTask ? [agentTasksTask] : []), task, bootstrapPolicyTask, ...(softwareGroupsTask ? [softwareGroupsTask] : []), catalogPostValidationTask, ...(customPostHooksTask ? [customPostHooksTask] : []), ...(customUserPostHooksTask ? [customUserPostHooksTask] : []), rebootAssessmentTask, sudoCleanupTask],
-      selectedTaskIds: [...(nativeComposition ? [nativeComposition.task.id] : []), ...caskLauncherTasks.map(task => task.id), ...flatpakLauncherTasks.map(task => task.id), ...artifactTasks.map(task => task.id), rebootAssessmentTask.id, sudoCleanupTask.id],
+      tasks: [stageZeroInstallUserTask, stageZeroSudoTask, ...(warpDisconnectTask ? [warpDisconnectTask] : []), ...(nativeComposition ? [nativeComposition.task] : []), nativeDependenciesTask, sourceTask, homebrewTask, homebrewToolsTask, chezmoiInitTask, installxBinDirectoryTask, installxToolTask, desiredPackagesTask, ...(serviceComposition ? [serviceComposition.task] : []), ...caskDirectoryTasks, ...caskLauncherTasks, ...flatpakDirectoryTasks, ...flatpakLauncherTasks, ...directoryTasks, ...artifactTasks, ...(macosFullDiskAccessTask ? [macosFullDiskAccessTask] : []), ...(macosCertificateTask ? [macosCertificateTask] : []), ...(qubesDom0Task ? [qubesDom0Task] : []), ...(agentTasksTask ? [agentTasksTask] : []), task, bootstrapPolicyTask, ...(softwareGroupsTask ? [softwareGroupsTask] : []), catalogPostValidationTask, ...(customPostHooksTask ? [customPostHooksTask] : []), ...(customUserPostHooksTask ? [customUserPostHooksTask] : []), rebootAssessmentTask, sudoCleanupTask],
+      selectedTaskIds: [...(nativeComposition ? [nativeComposition.task.id] : []), ...(serviceComposition ? [serviceComposition.task.id] : []), ...caskLauncherTasks.map(task => task.id), ...flatpakLauncherTasks.map(task => task.id), ...artifactTasks.map(task => task.id), rebootAssessmentTask.id, sudoCleanupTask.id],
       executionPolicy: {
         maxConcurrency: rawPlan.concurrency,
         resourceLimits: { cpu: 64, memoryMiB: 8192, networkConcurrency: rawPlan.concurrency },
@@ -3088,6 +3123,7 @@ const invocation = {
     },
   operations: {
     ...(nativeComposition ? nativeComposition.operations.operations : {}),
+    ...(serviceComposition ? serviceComposition.operations.operations : {}),
     ...directoryOperations,
     ...artifactOperations,
     ...caskDirectoryOperations,
@@ -3226,13 +3262,14 @@ NODE
     logg error "Plan approval required; review $APPROVAL_PLAN and rerun with INSTALL_DOCTOR_APPROVED_PLAN_DIGEST=$PLAN_DIGEST"
     rm -f "$INVOCATION" "$NORMALIZED_PLAN" "$LOAD_PLAN_INVOCATION" "$LOAD_PLAN_RESULT" \
       "$ARTIFACT_DERIVE_INVOCATION" "$ARTIFACT_DERIVE_RESULT" "$NATIVE_DERIVE_INVOCATION" "$NATIVE_DERIVE_RESULT" \
+      "$SERVICE_DERIVE_INVOCATION" "$SERVICE_DERIVE_RESULT" \
       "$CASK_DERIVE_INVOCATION" "$CASK_DERIVE_RESULT" "$FLATPAK_DERIVE_INVOCATION" "$FLATPAK_DERIVE_RESULT"
     rmdir "$INVOCATION_DIR" 2>/dev/null || true
     return 3
   fi
   INSTALL_DOCTOR_APPROVED_PLAN_DIGEST="$PLAN_DIGEST"
   export INSTALL_DOCTOR_APPROVED_PLAN_DIGEST
-  if [ "$MODE" = apply ] && [ "$NATIVE_COUNT" -gt 0 ] \
+  if [ "$MODE" = apply ] && { [ "$NATIVE_COUNT" -gt 0 ] || [ "$SERVICE_COUNT" -gt 0 ]; } \
     && [ -n "${DESKTOP_TOOLS_BROKER_COORDINATION_USER_REQUEST:-}" ] \
     && [ -n "${DESKTOP_TOOLS_BROKER_COORDINATION_ROOT_RESPONSE:-}" ]; then
     local BROKER_REQUEST="$DESKTOP_TOOLS_BROKER_COORDINATION_USER_REQUEST"
@@ -3244,11 +3281,13 @@ const [invocationPath, planPath, loadPlanPath, requestPath] = process.argv.slice
 const invocation = JSON.parse(fs.readFileSync(invocationPath, 'utf8'));
 const plan = JSON.parse(fs.readFileSync(planPath, 'utf8'));
 const loadPlan = JSON.parse(fs.readFileSync(loadPlanPath, 'utf8'));
-const matches = loadPlan.items.filter(item => item.name === 'tree' && item.selected === true
+const packageMatches = loadPlan.items.filter(item => item.name === 'tree' && item.selected === true
   && item.applicable === true && item.nativePayload);
-if (matches.length !== 1) {
-  throw new Error('native broker preparation lacks one exact selected descriptor');
-}
+const serviceMatches = loadPlan.items.filter(item => item.name === 'alloy' && item.selected === true
+  && item.applicable === true && JSON.stringify(item.actions) === JSON.stringify(['install', 'start'])
+  && item.serviceDeclarations?.length === 1 && item.serviceDeclarations[0].name === 'alloy.service'
+  && item.serviceDeclarations[0].manager === 'systemd' && item.serviceDeclarations[0].privilege === 'admin');
+if (packageMatches.length + serviceMatches.length !== 1) throw new Error('native broker preparation requires one exact mutation class');
 const request = {
   schemaVersion: 1,
   runId: invocation.runId,
@@ -3257,7 +3296,8 @@ const request = {
   operations: invocation.operations,
   desiredState: invocation.desiredState,
   hostFacts: invocation.facts,
-  descriptor: matches[0].nativePayload,
+  authorityKind: serviceMatches.length === 1 ? 'native-service' : 'native-package',
+  ...(packageMatches.length === 1 ? { descriptor: packageMatches[0].nativePayload } : {}),
 };
 const temporary = `${requestPath}.tmp`;
 fs.writeFileSync(temporary, `${JSON.stringify(request)}\n`, { mode: 0o600, flag: 'wx' });
@@ -3275,14 +3315,16 @@ const fs = require('node:fs');
 const [invocationPath, responsePath, planDigest] = process.argv.slice(2);
 const invocation = JSON.parse(fs.readFileSync(invocationPath, 'utf8'));
 const response = JSON.parse(fs.readFileSync(responsePath, 'utf8'));
+const service = response?.privilegedBroker?.kind === 'native-service';
 if (response?.schemaVersion !== 1 || response?.status !== 'authorized'
   || !response.privilegedBroker || response.privilegedBroker.client?.runId !== invocation.runId
   || response.privilegedBroker.client?.planDigest !== planDigest
   || response.privilegedBroker.client?.hostId !== invocation.facts.hostId
   || response.privilegedBroker.client?.releaseId !== invocation.releaseId
-  || response.privilegedBroker.payload?.sha256 !== response.privilegedBroker.descriptor?.artifact?.sha256
-  || response.privilegedBroker.payload?.sizeBytes !== response.privilegedBroker.descriptor?.artifact?.sizeBytes
-  || response.privilegedBroker.payload?.mode !== '0600') {
+  || (service ? (response.privilegedBroker.descriptor?.kind !== 'native-service' || 'payload' in response.privilegedBroker)
+    : (response.privilegedBroker.payload?.sha256 !== response.privilegedBroker.descriptor?.artifact?.sha256
+      || response.privilegedBroker.payload?.sizeBytes !== response.privilegedBroker.descriptor?.artifact?.sizeBytes
+      || response.privilegedBroker.payload?.mode !== '0600'))) {
   throw new Error('root broker response differs from the exact approved invocation');
 }
 const temporary = `${invocationPath}.broker`;
@@ -3296,6 +3338,7 @@ NODE
     logg info "Approved normalized plan $PLAN_DIGEST before host mutation"
     rm -f "$INVOCATION" "$NORMALIZED_PLAN" "$LOAD_PLAN_INVOCATION" "$LOAD_PLAN_RESULT" \
       "$ARTIFACT_DERIVE_INVOCATION" "$ARTIFACT_DERIVE_RESULT" "$NATIVE_DERIVE_INVOCATION" "$NATIVE_DERIVE_RESULT" \
+      "$SERVICE_DERIVE_INVOCATION" "$SERVICE_DERIVE_RESULT" \
       "$CASK_DERIVE_INVOCATION" "$CASK_DERIVE_RESULT" "$FLATPAK_DERIVE_INVOCATION" "$FLATPAK_DERIVE_RESULT"
     rmdir "$INVOCATION_DIR" 2>/dev/null || true
     return 0
@@ -3413,6 +3456,7 @@ NODE
   fi
   rm -f "$INVOCATION" "$NORMALIZED_PLAN" "$LOAD_PLAN_INVOCATION" "$LOAD_PLAN_RESULT" \
     "$ARTIFACT_DERIVE_INVOCATION" "$ARTIFACT_DERIVE_RESULT" "$NATIVE_DERIVE_INVOCATION" "$NATIVE_DERIVE_RESULT" \
+    "$SERVICE_DERIVE_INVOCATION" "$SERVICE_DERIVE_RESULT" \
     "$CASK_DERIVE_INVOCATION" "$CASK_DERIVE_RESULT" "$FLATPAK_DERIVE_INVOCATION" "$FLATPAK_DERIVE_RESULT"
   rm -f "$EVIDENCE_INVOCATION" "$EVIDENCE_RESULT"
   rm -f "$CLEANUP_EVIDENCE_INVOCATION" "$CLEANUP_EVIDENCE_RESULT"
@@ -4140,17 +4184,18 @@ const fs = require('node:fs'); const crypto = require('node:crypto');
 const [requestPath, outputPath, uidText, gidText] = process.argv.slice(2); const uid=Number(uidText), gid=Number(gidText);
 const before=fs.lstatSync(requestPath,{bigint:true}); if(!before.isFile()||before.isSymbolicLink()||before.nlink!==1n||before.uid!==BigInt(uid)||(before.mode&0o777n)!==0o600n||before.size<2n||before.size>2_097_152n)throw new Error('broker preparation file is unsafe');
 const fd=fs.openSync(requestPath,fs.constants.O_RDONLY|(fs.constants.O_NOFOLLOW||0)); let request; try{const opened=fs.fstatSync(fd,{bigint:true});if(opened.dev!==before.dev||opened.ino!==before.ino||opened.size!==before.size)throw new Error('broker preparation changed');request=JSON.parse(fs.readFileSync(fd,'utf8'));}finally{fs.closeSync(fd);}
-const d=request.descriptor, env=process.env; const required=name=>{const value=env[name];if(!value)throw new Error(`missing ${name}`);return value;};
+if(!['native-package','native-service'].includes(request.authorityKind))throw new Error('broker mutation class is invalid');
+const {authorityKind,...authorityRequest}=request;const d=request.descriptor, env=process.env; const required=name=>{const value=env[name];if(!value)throw new Error(`missing ${name}`);return value;};
 const artifact=(artifactId,url,path,sha256,sizeBytes)=>({artifactId,url,sourcePath:path,sha256,sizeBytes:Number(sizeBytes),mode:'0600'});
 const issuedAt=new Date();const expiresAt=new Date(issuedAt.getTime()+20*60*1000);const runId=request.runId;
-const value={...request,schemaVersion:1,approvalMode:request.desiredState?.offline===true?'trusted-local':'signed-device',enrolledUid:uid,socketGid:gid,
+const value={...authorityRequest,schemaVersion:1,approvalMode:request.desiredState?.offline===true?'trusted-local':'signed-device',enrolledUid:uid,socketGid:gid,
   releaseProof:{manifestPath:required('DESKTOP_TOOLS_BROKER_MANIFEST_PATH'),signaturePath:required('DESKTOP_TOOLS_BROKER_SIGNATURE_PATH'),catalogPath:required('DESKTOP_TOOLS_BROKER_CATALOG_PATH'),manifestSha256:required('DESKTOP_TOOLS_BROKER_MANIFEST_SHA256'),trust:{keyId:required('INSTALL_DOCTOR_RELEASE_SIGNER_ID'),publicKey:required('INSTALL_DOCTOR_RELEASE_SIGNER_PUBLIC_KEY')}},
-  artifacts:[
+  ...(authorityKind==='native-package'?{artifacts:[
     artifact(d.metadataProof.inRelease.keyring.artifactId,required('DESKTOP_TOOLS_DEBIAN_KEYRING_URL'),required('DESKTOP_TOOLS_BROKER_KEYRING_PATH'),required('DESKTOP_TOOLS_BROKER_KEYRING_SHA256'),required('DESKTOP_TOOLS_DEBIAN_KEYRING_SIZE')),
     artifact(d.metadataProof.inRelease.artifactId,required('DESKTOP_TOOLS_DEBIAN_INRELEASE_URL'),required('DESKTOP_TOOLS_BROKER_INRELEASE_PATH'),required('DESKTOP_TOOLS_BROKER_INRELEASE_SHA256'),required('DESKTOP_TOOLS_DEBIAN_INRELEASE_SIZE')),
     artifact(d.metadataProof.packagesIndex.artifactId,required('DESKTOP_TOOLS_DEBIAN_PACKAGES_URL'),required('DESKTOP_TOOLS_BROKER_PACKAGES_PATH'),required('DESKTOP_TOOLS_BROKER_PACKAGES_SHA256'),required('DESKTOP_TOOLS_DEBIAN_PACKAGES_SIZE')),
-    artifact(d.artifact.id,required('DESKTOP_TOOLS_DEBIAN_TREE_URL'),required('DESKTOP_TOOLS_BROKER_TREE_PATH'),required('DESKTOP_TOOLS_BROKER_TREE_SHA256'),required('DESKTOP_TOOLS_DEBIAN_TREE_SIZE'))],
-  transactionRoot:`/var/lib/desktop-tools/transactions/${runId}`,helperPath:required('DESKTOP_TOOLS_BROKER_HELPER_PATH'),helperDigest:required('DESKTOP_TOOLS_BROKER_HELPER_SHA256'),runtimePath:required('DESKTOP_TOOLS_BROKER_RUNTIME_PATH'),runtimeDigest:required('DESKTOP_TOOLS_BROKER_RUNTIME_SHA256'),workerPath:required('DESKTOP_TOOLS_BROKER_WORKER_PATH'),workerDigest:required('DESKTOP_TOOLS_BROKER_WORKER_SHA256'),socketPath:`/run/desktop-tools/broker/${runId}/broker.sock`,issuedAt:issuedAt.toISOString(),expiresAt:expiresAt.toISOString(),operationTimeoutMs:120000,command:'privileged-broker-authority-derive'};
+    artifact(d.artifact.id,required('DESKTOP_TOOLS_DEBIAN_TREE_URL'),required('DESKTOP_TOOLS_BROKER_TREE_PATH'),required('DESKTOP_TOOLS_BROKER_TREE_SHA256'),required('DESKTOP_TOOLS_DEBIAN_TREE_SIZE'))]}:{}),
+  transactionRoot:`/var/lib/desktop-tools/transactions/${runId}`,helperPath:required('DESKTOP_TOOLS_BROKER_HELPER_PATH'),helperDigest:required('DESKTOP_TOOLS_BROKER_HELPER_SHA256'),runtimePath:required('DESKTOP_TOOLS_BROKER_RUNTIME_PATH'),runtimeDigest:required('DESKTOP_TOOLS_BROKER_RUNTIME_SHA256'),workerPath:required('DESKTOP_TOOLS_BROKER_WORKER_PATH'),workerDigest:required('DESKTOP_TOOLS_BROKER_WORKER_SHA256'),socketPath:`/run/desktop-tools/broker/${runId}/broker.sock`,issuedAt:issuedAt.toISOString(),expiresAt:expiresAt.toISOString(),operationTimeoutMs:120000,command:authorityKind==='native-service'?'privileged-broker-service-authority-derive':'privileged-broker-authority-derive'};
 fs.writeFileSync(outputPath,`${JSON.stringify(value)}\n`,{mode:0o400,flag:'wx'});
 NODE
         if [ "$?" -ne 0 ] || ! "$DESKTOP_TOOLS_BROKER_RUNTIME_PATH" "$VERIFIED_ENGINE" --input "$BROKER_DERIVE_INPUT" > "$BROKER_DERIVED"; then
@@ -4186,7 +4231,7 @@ const fs=require('node:fs');const path=require('node:path');const crypto=require
 for(const [directory,mode,ownerGid] of [['/run/desktop-tools',0o711,0],['/run/desktop-tools/broker',0o711,0],[socketParent,0o710,gid]]){try{fs.mkdirSync(directory,{mode});}catch(e){if(e.code!=='EEXIST')throw e;}const m=fs.lstatSync(directory);if(!m.isDirectory()||m.isSymbolicLink()||m.uid!==0||m.gid!==ownerGid||(m.mode&0o777)!==mode)throw new Error('broker socket directory is unsafe');}
 let controllerInput=derived.controllerInput;if(controllerInput.approvalMode==='signed-device'){const before=fs.lstatSync(approvalPath,{bigint:true});if(!before.isFile()||before.isSymbolicLink()||before.nlink!==1n||before.uid!==0n||(before.mode&0o777n)!==0o400n||before.size<2n||before.size>65536n)throw new Error('broker approval output is unsafe');const deviceApproval=JSON.parse(fs.readFileSync(approvalPath,'utf8'));if(!delegationEvidencePath.startsWith('/run/desktop-tools/authority/')||!/^[a-f0-9]{64}$/.test(delegationEvidenceDigest))throw new Error('sealed broker delegation evidence reference is invalid');const evidenceBefore=fs.lstatSync(delegationEvidencePath,{bigint:true});if(!evidenceBefore.isFile()||evidenceBefore.isSymbolicLink()||evidenceBefore.nlink!==1n||evidenceBefore.uid!==0n||(evidenceBefore.mode&0o777n)!==0o400n||evidenceBefore.size<2n||evidenceBefore.size>65536n)throw new Error('sealed broker delegation evidence is unsafe');const evidenceFd=fs.openSync(delegationEvidencePath,fs.constants.O_RDONLY|(fs.constants.O_NOFOLLOW||0));let evidence;try{const opened=fs.fstatSync(evidenceFd,{bigint:true});if(opened.dev!==evidenceBefore.dev||opened.ino!==evidenceBefore.ino||opened.size!==evidenceBefore.size)throw new Error('sealed broker delegation evidence changed');const bytes=fs.readFileSync(evidenceFd);if(hash(bytes)!==delegationEvidenceDigest)throw new Error('sealed broker delegation evidence digest mismatch');evidence=JSON.parse(bytes.toString('utf8'));}finally{fs.closeSync(evidenceFd);}const delegationPath=path.join(path.dirname(delegationEvidencePath),'broker-approval-signer-delegation.json');const minimumEpoch=evidence?.minimumRevocationEpoch;if(evidence?.schemaVersion!==1||evidence?.kind!=='desktop-tools-broker-approval-authority'||evidence?.releaseId!==derived.controllerInput.releaseId||!delegationPath.startsWith('/run/desktop-tools/authority/')||!/^[a-f0-9]{64}$/.test(evidence?.delegationSha256)||!Number.isSafeInteger(minimumEpoch)||minimumEpoch<0)throw new Error('sealed broker delegation authority is incomplete');controllerInput={...controllerInput,deviceApproval,brokerApprovalDelegationPath:delegationPath,brokerApprovalDelegationDigest:evidence.delegationSha256,brokerApprovalMinimumRevocationEpoch:minimumEpoch};}
 fs.writeFileSync(controllerPath,`${JSON.stringify(controllerInput)}\n`,{mode:0o400,flag:'wx'});
-const source=derived.authority.artifacts.find(item=>item.artifactId===derived.authority.descriptor.artifact.id);const bytes=fs.readFileSync(source.sourcePath);if(bytes.length!==source.sizeBytes||crypto.createHash('sha256').update(bytes).digest('hex')!==source.sha256)throw new Error('broker payload source differs from authority');const fd=fs.openSync(payloadPath,fs.constants.O_CREAT|fs.constants.O_EXCL|fs.constants.O_WRONLY,0o600);try{fs.writeFileSync(fd,bytes);fs.fsyncSync(fd);fs.fchownSync(fd,uid,gid);}finally{fs.closeSync(fd);}
+if(derived.authority.authorityKind==='native-package'){const source=derived.authority.artifacts.find(item=>item.artifactId===derived.authority.descriptor.artifact.id);const bytes=fs.readFileSync(source.sourcePath);if(bytes.length!==source.sizeBytes||crypto.createHash('sha256').update(bytes).digest('hex')!==source.sha256)throw new Error('broker payload source differs from authority');const fd=fs.openSync(payloadPath,fs.constants.O_CREAT|fs.constants.O_EXCL|fs.constants.O_WRONLY,0o600);try{fs.writeFileSync(fd,bytes);fs.fsyncSync(fd);fs.fchownSync(fd,uid,gid);}finally{fs.closeSync(fd);}}
 NODE
         if [ "$?" -ne 0 ]; then kill -TERM "$BROKER_CHILD_PID" 2>/dev/null || true; wait "$BROKER_CHILD_PID" 2>/dev/null || true; return 2; fi
         : > "$BROKER_READY"; : > "$BROKER_ERROR"; chmod 0400 "$BROKER_READY" "$BROKER_ERROR"
@@ -4195,7 +4240,7 @@ NODE
         while [ ! -s "$BROKER_READY" ] && kill -0 "$BROKER_CONTROLLER_PID" 2>/dev/null && [ "$BROKER_WAIT" -lt 125 ]; do sleep 1; BROKER_WAIT=$((BROKER_WAIT + 1)); done
         if [ ! -s "$BROKER_READY" ]; then kill -TERM "$BROKER_CHILD_PID" "$BROKER_CONTROLLER_PID" 2>/dev/null || true; wait "$BROKER_CHILD_PID" 2>/dev/null || true; wait "$BROKER_CONTROLLER_PID" 2>/dev/null || true; return 2; fi
         node - "$BROKER_DERIVED" "$BROKER_READY" "$BROKER_RESPONSE" "$BROKER_PAYLOAD" "$INSTALL_UID" "$INSTALL_GID" <<'NODE'
-const fs=require('node:fs');const [derivedPath,readyPath,responsePath,payloadPath,uidText,gidText]=process.argv.slice(2);const uid=Number(uidText),gid=Number(gidText);const derived=JSON.parse(fs.readFileSync(derivedPath,'utf8'));const lines=fs.readFileSync(readyPath,'utf8').trim().split('\n');if(lines.length!==1)throw new Error('broker readiness is not singular');const ready=JSON.parse(lines[0]);if(ready.status!=='authorized'||ready.socketPath!==derived.controllerInput.socketPath||ready.grantDigest!==derived.grantDigest||ready.authorityDigest!==derived.authorityDigest)throw new Error('broker readiness differs from derived authority');const response={schemaVersion:1,status:'authorized',privilegedBroker:{client:derived.clientConfig,descriptor:derived.authority.descriptor,payload:{sourcePath:payloadPath,sha256:derived.authority.descriptor.artifact.sha256,sizeBytes:derived.authority.descriptor.artifact.sizeBytes,mode:'0600'}}};const fd=fs.openSync(responsePath,fs.constants.O_CREAT|fs.constants.O_EXCL|fs.constants.O_WRONLY,0o600);try{fs.writeFileSync(fd,`${JSON.stringify(response)}\n`);fs.fsyncSync(fd);fs.fchownSync(fd,uid,gid);}finally{fs.closeSync(fd);}
+const fs=require('node:fs');const [derivedPath,readyPath,responsePath,payloadPath,uidText,gidText]=process.argv.slice(2);const uid=Number(uidText),gid=Number(gidText);const derived=JSON.parse(fs.readFileSync(derivedPath,'utf8'));const lines=fs.readFileSync(readyPath,'utf8').trim().split('\n');if(lines.length!==1)throw new Error('broker readiness is not singular');const ready=JSON.parse(lines[0]);if(ready.status!=='authorized'||ready.socketPath!==derived.controllerInput.socketPath||ready.grantDigest!==derived.grantDigest||ready.authorityDigest!==derived.authorityDigest)throw new Error('broker readiness differs from derived authority');const service=derived.authority.authorityKind==='native-service';const privilegedBroker=service?{kind:'native-service',client:derived.clientConfig,descriptor:derived.authority.descriptor}:{client:derived.clientConfig,descriptor:derived.authority.descriptor,payload:{sourcePath:payloadPath,sha256:derived.authority.descriptor.artifact.sha256,sizeBytes:derived.authority.descriptor.artifact.sizeBytes,mode:'0600'}};const response={schemaVersion:1,status:'authorized',privilegedBroker};const fd=fs.openSync(responsePath,fs.constants.O_CREAT|fs.constants.O_EXCL|fs.constants.O_WRONLY,0o600);try{fs.writeFileSync(fd,`${JSON.stringify(response)}\n`);fs.fsyncSync(fd);fs.fchownSync(fd,uid,gid);}finally{fs.closeSync(fd);}
 NODE
         if [ "$?" -ne 0 ]; then kill -TERM "$BROKER_CHILD_PID" "$BROKER_CONTROLLER_PID" 2>/dev/null || true; wait "$BROKER_CHILD_PID" 2>/dev/null || true; wait "$BROKER_CONTROLLER_PID" 2>/dev/null || true; return 2; fi
         wait "$BROKER_CHILD_PID"; HANDOFF_STATUS=$?; BROKER_CHILD_PID=''

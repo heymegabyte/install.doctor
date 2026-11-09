@@ -696,11 +696,19 @@ async function main() {
   if ([...selectedServiceKeys].some(key => !/^[A-Za-z0-9][A-Za-z0-9._+-]{0,127}$/.test(key) || !pkgs[key])) {
     throw new Error('INSTALL_DOCTOR_SELECTED_SERVICES contains an invalid or unknown package key')
   }
+  const selectedServicePackageKeys = new Set(
+    (process.env.INSTALL_DOCTOR_SELECTED_SERVICE_PACKAGES || '')
+      .split(',')
+      .filter(Boolean)
+  )
+  if ([...selectedServicePackageKeys].some(key => !/^[A-Za-z0-9][A-Za-z0-9._+-]{0,127}$/.test(key) || !pkgs[key])) {
+    throw new Error('INSTALL_DOCTOR_SELECTED_SERVICE_PACKAGES contains an invalid or unknown package key')
+  }
   const requestedSelectedPackages = (process.env.INSTALL_DOCTOR_SELECTED_PACKAGES || '').split(',').filter(Boolean)
   if (requestedSelectedPackages.some(key => !/^[A-Za-z0-9][A-Za-z0-9._+-]{0,127}$/.test(key) || !pkgs[key])) {
     throw new Error('INSTALL_DOCTOR_SELECTED_PACKAGES contains an invalid or unknown package key')
   }
-  const selectedRoots = [...new Set([...requestedSelectedPackages, ...selectedServiceKeys])]
+  const selectedRoots = [...new Set([...requestedSelectedPackages, ...selectedServiceKeys, ...selectedServicePackageKeys])]
   const missingSelectedDependencies = missingDependencies(selectedRoots)
   if (missingSelectedDependencies.length) {
     throw new Error(`selected packages reference unknown dependencies: ${missingSelectedDependencies.join(',')}`)
