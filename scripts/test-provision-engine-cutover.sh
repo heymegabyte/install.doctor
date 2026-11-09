@@ -30,6 +30,12 @@ if grep -q 'INSTALL_DOCTOR_ENGINE_OWNS_PACKAGES' "$ROOT/home/.chezmoiscripts/uni
 else
   fail 'Chezmoi compatibility script retains competing package/service ownership'
 fi
+if grep -Fq 'INSTALL_DOCTOR_SOFTWARE_YAML:' "$PROVISION" \
+  && grep -Fq "resolve(process.env.INSTALL_DOCTOR_CHEZMOI_SOURCE, '..', 'software.yml')" "$PROVISION"; then
+  pass 'catalog validation is bound to the verified release source rather than a conventional clone path'
+else
+  fail 'catalog validation can diverge from the verified release source'
+fi
 if grep -q "'installx-tool-apply': { kind: 'managed-file'" "$PROVISION" \
   && grep -q "'installx-bin-apply': { kind: 'managed-directory'" "$PROVISION" \
   && ! grep -q 'installx-tool-apply).*idChezmoi' "$PROVISION"; then

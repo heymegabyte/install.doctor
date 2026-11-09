@@ -9,7 +9,7 @@
 
 set -uo pipefail
 
-SOFTWARE_YAML="${XDG_DATA_HOME:-$HOME/.local/share}/chezmoi/software.yml"
+SOFTWARE_YAML="${INSTALL_DOCTOR_SOFTWARE_YAML:-${XDG_DATA_HOME:-$HOME/.local/share}/chezmoi/software.yml}"
 
 # @description Main script execution logic
 main() {

@@ -47,6 +47,15 @@ else
   fail "catalog validator still grants shell authority"
 fi
 
+mkdir -p "$TMP/release-source"
+cp "$TMP/home/.local/share/chezmoi/software.yml" "$TMP/release-source/software.yml"
+if HOME="$TMP/home" XDG_DATA_HOME="$TMP/missing" INSTALL_DOCTOR_SOFTWARE_YAML="$TMP/release-source/software.yml" \
+  PATH="$TMP/bin:/usr/bin:/bin" POST_TEST_OUTPUT="$TMP/output" bash "$RUNNER" >"$TMP/bound.stdout" 2>"$TMP/bound.stderr"; then
+  fail "plan-bound release catalog unexpectedly admitted executable _post metadata"
+else
+  pass "plan-bound release catalog is validated independently of the conventional chezmoi path"
+fi
+
 printf 'softwarePackages:\n  valid:\n    _preload: true\n' > "$TMP/home/.local/share/chezmoi/software.yml"
 if HOME="$TMP/home" XDG_DATA_HOME="$TMP/home/.local/share" PATH="$TMP/bin:/usr/bin:/bin" bash "$RUNNER" >/dev/null 2>&1; then
   pass "validator accepts a valid catalog without optional yq or gum"

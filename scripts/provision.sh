@@ -3058,6 +3058,7 @@ const operationEnvironment = {
   INSTALL_DOCTOR_AGENT_TASKS_DIGEST: agentTaskManifestDigest,
   INSTALL_DOCTOR_AGENT_FAILURE_POLICY: process.env.INSTALL_DOCTOR_AGENT_FAILURE_POLICY === 'continue' ? 'continue' : 'fail',
   INSTALL_DOCTOR_EFFECT_RECEIPT_DIR: `${stateRoot}/effects`,
+  INSTALL_DOCTOR_SOFTWARE_YAML: require('node:path').resolve(process.env.INSTALL_DOCTOR_CHEZMOI_SOURCE, '..', 'software.yml'),
   INSTALL_DOCTOR_GIT_PATH: gitPath,
   INSTALL_DOCTOR_GIT_SHA256: gitDigest,
   INSTALL_DOCTOR_CURL_PATH: curlIdentity.path,
