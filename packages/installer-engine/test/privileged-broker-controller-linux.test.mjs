@@ -8,6 +8,9 @@ import test from 'node:test';
 import { deriveBoundNormalizedPlan } from '../dist/engine.js';
 import { composeNativeDebianPackageSlice } from '../dist/native-debian-composition.js';
 import { derivePrivilegedBrokerAuthority } from '../dist/privileged-broker-derivation.js';
+import { buildLoadPlan } from '../dist/lazy-plan.js';
+import { composeSelectedNativeSystemdService } from '../dist/native-service-composition.js';
+import { derivePrivilegedBrokerServiceAuthority } from '../dist/privileged-broker-service-derivation.js';
 import { runPrivilegedBrokerController } from '../dist/privileged-broker-controller.js';
 import { brokerApprovalAuditDigest, brokerApprovalSemanticDigest,
   brokerApprovalSigningBytes } from '../../aid-core/dist/broker-approval-contracts.js';
@@ -62,6 +65,38 @@ async function exactInput(runId, authorityRoot, helperPath, runtimePath, workerP
     artifacts: [artifact('keyring', 'keyring', 'keyring'), artifact('packages', 'packages', 'packages'),
       artifact('release', 'release', 'inrelease'), artifact('tree-deb', 'tree', 'tree.deb')],
     transactionRoot: `/var/lib/desktop-tools/transactions/${runId}`, enrolledUid: 1000, socketGid: 0,
+    helperPath, helperDigest: await fileHash(helperPath), runtimePath, runtimeDigest: await fileHash(runtimePath),
+    workerPath, workerDigest: await fileHash(workerPath), socketPath: `/run/desktop-tools/broker/${runId}/broker.sock`,
+    issuedAt: now.toISOString(), expiresAt: new Date(now.getTime() + 5 * 60_000).toISOString(), operationTimeoutMs: 5_000,
+  }).controllerInput;
+}
+
+async function exactServiceInput(runId, authorityRoot, helperPath, runtimePath, workerPath, enrolledUid, socketGid) {
+  const entry = (name, overrides = {}) => ({ name, bin: name, platforms: ['linux'], installMode: 'cli',
+    loadPolicy: 'lazy', loadRationale: 'default-lazy', deps: [], ...overrides });
+  const loadPlan = buildLoadPlan({ schemaVersion: 1, platform: 'linux', architecture: 'x64', roles: ['server'],
+    selectedPackages: [], selectedServices: ['alloy'], selectedSupportedPaths: [], lazyResolverRequirements: ['resolver'],
+    catalog: [entry('resolver', { loadPolicy: 'eager-bootstrap', loadRationale: 'lazy-resolver:hook' }),
+      entry('alloy', { installMode: 'service', serviceDeclarations: [{ name: 'alloy.service', privilege: 'admin', manager: 'systemd' }] })] });
+  const composed = composeSelectedNativeSystemdService({ loadPlan, loadPlanDigest: loadPlan.digest,
+    serviceKey: 'alloy', legacyServices: ['alloy'] });
+  const now = new Date();
+  const desiredState = { schemaVersion: 1, revision: 'controller-service-test', hostId: 'controller-host',
+    packages: [], services: ['alloy'], consents: ['privileged'], offline: false };
+  const facts = { schemaVersion: 1, hostId: 'controller-host', collectedAt: now.toISOString(), os: 'linux', osVersion: '12',
+    arch: 'x64', environment: 'native', roles: ['server'], packageManagers: ['dpkg'], capabilities: [] };
+  const packageTask = { ...composed.task, id: 'desired.packages', inputDigest: 'b'.repeat(64), dependencies: [],
+    operations: { check: 'packages-check', apply: 'packages-apply', verify: 'packages-verify' }, privilege: 'user',
+    consent: 'none', lockDomains: ['package-manager'], compensation: 'none' };
+  const plan = await deriveBoundNormalizedPlan({ tasks: [packageTask, composed.task], selectedTaskIds: [composed.task.id],
+    executionPolicy: { maxConcurrency: 1, resourceLimits: { cpu: 2, memoryMiB: 512, networkConcurrency: 0 } } },
+  facts, desiredState, 'controller-release', now.toISOString());
+  return derivePrivilegedBrokerServiceAuthority({ schemaVersion: 1, approvalMode: 'trusted-local', runId,
+    approvedPlanDigest: plan.digest, plan, operations: composed.operations.operations, desiredState, hostFacts: facts,
+    releaseProof: { manifestPath: join(authorityRoot, 'manifest'), signaturePath: join(authorityRoot, 'manifest.sig'),
+      catalogPath: join(authorityRoot, 'catalog.json'), manifestSha256: '1'.repeat(64),
+      trust: { keyId: 'controller-test-release', publicKey: `ssh-ed25519 ${'A'.repeat(43)}=` } },
+    transactionRoot: `/var/lib/desktop-tools/transactions/${runId}`, enrolledUid, socketGid,
     helperPath, helperDigest: await fileHash(helperPath), runtimePath, runtimeDigest: await fileHash(runtimePath),
     workerPath, workerDigest: await fileHash(workerPath), socketPath: `/run/desktop-tools/broker/${runId}/broker.sock`,
     issuedAt: now.toISOString(), expiresAt: new Date(now.getTime() + 5 * 60_000).toISOString(), operationTimeoutMs: 5_000,
@@ -178,6 +213,60 @@ writeSync(4,Buffer.from(JSON.stringify(receipt)));
   const result = await runPrivilegedBrokerController(input, { confirmation: { confirm: async () => true }, onReady: async () => {
     await command('/usr/bin/setpriv', [`--reuid=1000`, `--regid=${enrolledGid}`, '--clear-groups', process.execPath,
       '--input-type=module', '--eval', clientScript, clientInputPath, payloadPath], { env: { PATH: '/usr/bin:/bin', LANG: 'C', LC_ALL: 'C' } });
+  } });
+  assert.equal(result.exitCode, 0);
+  await absent(input.socketPath);
+});
+
+test('Linux root controller carries only the exact service descriptor through the real sealed-FD broker transport',
+  { skip: !enabled, timeout: 20_000 }, async t => {
+  const identity = await command('/usr/bin/id', ['-g', '1000']).catch(() => '');
+  if (!identity.trim()) return t.skip('fixture requires enrolled uid 1000');
+  const enrolledGid = Number(identity.trim());
+  await prepareRuntimeParents(enrolledGid);
+  const runId = `controller-service-${process.pid}`;
+  const authorityRoot = `/run/desktop-tools/authority/${runId}`;
+  const socketRoot = `/run/desktop-tools/broker/${runId}`;
+  const helperPath = join(authorityRoot, 'desktop-tools-privileged-broker');
+  const runtimePath = join(authorityRoot, 'runtime');
+  const workerPath = join(authorityRoot, 'worker.mjs');
+  const clientModulePath = join('/tmp', `${runId}-client.mjs`);
+  const clientInputPath = join('/tmp', `${runId}.json`);
+  await mkdir(authorityRoot, { recursive: true, mode: 0o700 });
+  await mkdir(socketRoot, { recursive: true, mode: 0o710 });
+  await chmod(authorityRoot, 0o711);
+  await Promise.all([copyFile(helperSource, helperPath), copyFile(process.execPath, runtimePath),
+    copyFile(clientModuleSource, clientModulePath)]);
+  const worker = `
+import { createHash } from 'node:crypto';
+import { fstatSync, readFileSync, writeSync } from 'node:fs';
+const chunks=[]; for await (const chunk of process.stdin) chunks.push(chunk);
+const envelope=JSON.parse(Buffer.concat(chunks)); const request=envelope.request;
+const canonical=value=>Array.isArray(value)?value.map(canonical):value&&typeof value==='object'?Object.fromEntries(Object.entries(value).sort(([a],[b])=>a.localeCompare(b)).map(([key,child])=>[key,canonical(child)])):value;
+const digest=value=>createHash('sha256').update('desktop-tools:privileged-broker:v1\\0').update(JSON.stringify(canonical(value))).digest('hex');
+const payload=fstatSync(3);const descriptor=JSON.parse(readFileSync(3,'utf8'));if(!payload.isFile()||payload.nlink!==0||JSON.stringify(descriptor)!==JSON.stringify({desiredState:'enabled-and-started',kind:'native-service',manager:'systemd',serviceKey:'alloy',unit:'alloy.service'}))process.exit(2);
+const statuses={check:'needed',apply:'applied',verify:'verified'};
+const receipt={schemaVersion:1,hostId:request.hostId,releaseId:request.releaseId,runId:request.runId,planDigest:request.planDigest,grantId:request.grantId,grantDigest:request.grantDigest,taskId:request.taskId,operationId:request.operationId,phase:request.phase,nonce:request.nonce,payloadSha256:request.payload.sha256,requestDigest:digest(request),status:statuses[request.phase],fenceDigest:'f'.repeat(64),completedAt:new Date().toISOString()};
+writeSync(4,Buffer.from(JSON.stringify(receipt)));
+`;
+  await writeFile(workerPath, worker);
+  await Promise.all([chmod(helperPath, 0o555), chmod(runtimePath, 0o555), chmod(workerPath, 0o400), chmod(clientModulePath, 0o444)]);
+  await Promise.all([chown(helperPath, 0, 0), chown(runtimePath, 0, 0), chown(workerPath, 0, 0),
+    chown(clientModulePath, 0, 0), chown(socketRoot, 0, enrolledGid)]);
+  t.after(async () => {
+    await rm(socketRoot, { recursive: true, force: true }); await rm(authorityRoot, { recursive: true, force: true });
+    await rm(clientInputPath, { force: true }); await rm(clientModulePath, { force: true });
+  });
+  const input = await exactServiceInput(runId, authorityRoot, helperPath, runtimePath, workerPath, 1000, enrolledGid);
+  const clientConfig = { helperPath, socketPath: input.socketPath, hostId: input.grant.hostId, releaseId: input.grant.releaseId,
+    runId: input.grant.runId, planDigest: input.grant.planDigest, taskId: input.grant.operations[0].taskId, grant: input.grant };
+  await writeFile(clientInputPath, JSON.stringify({ config: clientConfig, descriptor: input.authority.descriptor }), { mode: 0o400 });
+  await chown(clientInputPath, 1000, enrolledGid);
+  const clientModule = pathToFileURL(clientModulePath).href;
+  const clientScript = `import{readFile}from'node:fs/promises';import{createPrivilegedBrokerServiceRuntime as create}from'${clientModule}';const input=JSON.parse(await readFile(process.argv[1],'utf8'));const runtime=create(input.config,input.descriptor);const operation=action=>({kind:'native-service',effectClass:'native-service',action,manager:'systemd',unit:'alloy.service',desiredState:'enabled-and-started'});if(await runtime.check(operation('check'))!=='needed')process.exit(3);await runtime.apply(operation('apply'));if(await runtime.verify(operation('verify'))!=='verified')process.exit(4);`;
+  const result = await runPrivilegedBrokerController(input, { confirmation: { confirm: async () => true }, onReady: async () => {
+    await command('/usr/bin/setpriv', ['--reuid=1000', `--regid=${enrolledGid}`, '--clear-groups', process.execPath,
+      '--input-type=module', '--eval', clientScript, clientInputPath], { env: { PATH: '/usr/bin:/bin', LANG: 'C', LC_ALL: 'C' } });
   } });
   assert.equal(result.exitCode, 0);
   await absent(input.socketPath);
