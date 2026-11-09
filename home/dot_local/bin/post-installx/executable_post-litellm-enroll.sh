@@ -22,8 +22,15 @@ mkdir -p "$HOME/.config/megabyte" "$HOME/.local/bin"
 chmod 0700 "$HOME/.config/megabyte"
 
 TOKEN_FILE="$HOME/.config/megabyte/ollama-gateway.token"
-if [[ -n "${OLLAMA_GATEWAY_TOKEN:-}" ]]; then
-  printf '%s\n' "$OLLAMA_GATEWAY_TOKEN" > "$TOKEN_FILE"
+RESOLVED_GATEWAY_TOKEN="${OLLAMA_GATEWAY_TOKEN:-}"
+if [[ -z "$RESOLVED_GATEWAY_TOKEN" ]] && command -v get-secret >/dev/null 2>&1; then
+  RESOLVED_GATEWAY_TOKEN="$(get-secret OLLAMA_GATEWAY_TOKEN 2>/dev/null || true)"
+fi
+if [[ -z "$RESOLVED_GATEWAY_TOKEN" ]] && command -v chezmoi >/dev/null 2>&1 && [[ -f "$HOME/.local/share/chezmoi/home/.chezmoitemplates/secrets/OLLAMA_GATEWAY_TOKEN" ]]; then
+  RESOLVED_GATEWAY_TOKEN="$(chezmoi decrypt "$HOME/.local/share/chezmoi/home/.chezmoitemplates/secrets/OLLAMA_GATEWAY_TOKEN" 2>/dev/null || true)"
+fi
+if [[ -n "$RESOLVED_GATEWAY_TOKEN" ]]; then
+  printf '%s\n' "$RESOLVED_GATEWAY_TOKEN" > "$TOKEN_FILE"
   chmod 0600 "$TOKEN_FILE"
 elif [[ ! -s "$TOKEN_FILE" ]]; then
   python3 -c 'import secrets; print(secrets.token_urlsafe(32))' > "$TOKEN_FILE"
