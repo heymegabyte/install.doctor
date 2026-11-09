@@ -1656,7 +1656,7 @@ async function resolveDevice(
         SELECT c.credential_id AS device_id, c.tenant_id AS tenant,
                a.machine_label AS label, c.scopes AS permissions,
                c.issued_at AS created_at, c.revoked_at, c.expires_at,
-               a.profile_revision, c.target_key_fingerprint AS machine_fingerprint,
+               a.profile_revision_digest AS profile_revision, c.target_key_fingerprint AS machine_fingerprint,
                'desktop-tools' AS credential_kind
           FROM device_authorization_credentials c
           JOIN device_authorizations a ON a.request_id = c.request_id
@@ -1692,8 +1692,12 @@ function requireScope(c: any, dev: { permissions: string[] | null; credentialKin
   if (dev.permissions.includes(permission)) return null; // granted
   // Additive target credentials use protocol-qualified scope names. Keep their recorded authority
   // unchanged and bridge only the exact compatibility action that implements that scope.
-  if (dev.credentialKind === 'desktop-tools' && permission === 'pull-desired-state'
-    && dev.permissions.includes('profile:read')) return null;
+  const desktopScopeAliases: Readonly<Record<string, string>> = {
+    'pull-desired-state': 'profile:read',
+    'report-status': 'status:write',
+    'authorize-privileged-run': 'run:authorize',
+  };
+  if (dev.credentialKind === 'desktop-tools' && dev.permissions.includes(desktopScopeAliases[permission] ?? '')) return null;
   return c.json({ error: 'insufficient_scope', required: permission, granted: dev.permissions }, 403);
 }
 // Shared admin gate (reused by enroll + revoke + the PUT write path + every admin read). Returns a

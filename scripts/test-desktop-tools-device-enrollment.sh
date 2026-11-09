@@ -16,12 +16,12 @@ if(stdin!=='')throw new Error('enrollment engine stdin was not detached');
 fs.appendFileSync(process.env.TEST_LEDGER,`${input.command}\n`);
 const mode=process.env.TEST_MODE;
 if(input.command==='device-authorization-status'){
-  if(mode==='approved')process.stdout.write(JSON.stringify({schemaVersion:1,status:'approved',requestId:'request-1',credentialId:'credential-1',profileId:'profile-1',targetKeyFingerprint:'a'.repeat(64),scopes:['pull-desired-state'],expiresAt:'2099-01-01T00:00:00.000Z'}));
+  if(mode==='approved')process.stdout.write(JSON.stringify({schemaVersion:1,status:'approved',requestId:'request-1',credentialId:'credential-1',profileId:'profile-1',targetKeyFingerprint:'a'.repeat(64),scopes:['profile:read'],expiresAt:'2099-01-01T00:00:00.000Z'}));
   else if(mode==='pending')process.stdout.write(JSON.stringify({schemaVersion:1,status:'pending',requestId:'request-1',verificationCode:'ABCD-EF12',approvalUri:'https://profile.desktop.tools/approve',expiresAt:'2099-01-01T00:00:00.000Z'}));
-  else if(mode==='expired')process.stdout.write(JSON.stringify({schemaVersion:1,status:'expired',requestId:'request-1',credentialId:'credential-1',profileId:'profile-1',targetKeyFingerprint:'a'.repeat(64),scopes:['pull-desired-state'],expiresAt:'2020-01-01T00:00:00.000Z'}));
+  else if(mode==='expired')process.stdout.write(JSON.stringify({schemaVersion:1,status:'expired',requestId:'request-1',credentialId:'credential-1',profileId:'profile-1',targetKeyFingerprint:'a'.repeat(64),scopes:['profile:read'],expiresAt:'2020-01-01T00:00:00.000Z'}));
   else process.stdout.write(JSON.stringify({schemaVersion:1,status:'absent'}));
 }else if(input.command==='device-authorization-start'){
-  if(input.origin!=='https://profile.desktop.tools'||input.profileId!=='profile-1'||input.scopes.join(',')!=='pull-desired-state,report-status,authorize-privileged-run')throw new Error('start authority differs');
+  if(input.origin!=='https://profile.desktop.tools'||input.profileId!=='profile-1'||input.scopes.join(',')!=='profile:read,run:authorize,status:write')throw new Error('start authority differs');
   process.stdout.write(JSON.stringify({schemaVersion:1,status:'pending',requestId:'request-1',verificationCode:'ABCD-EF12',approvalUri:'https://profile.desktop.tools/approve',expiresAt:input.expiresAt}));
 }else if(input.command==='device-authorization-wait'){
   process.stdout.write(JSON.stringify({schemaVersion:1,status:'approved',requestId:'request-1',credentialId:'credential-1',expiresAt:'2099-01-01T00:00:00.000Z'}));

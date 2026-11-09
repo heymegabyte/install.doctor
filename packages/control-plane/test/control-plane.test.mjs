@@ -304,7 +304,7 @@ test('v1 target authorization persists exact public binding and atomically claim
   assert.ok(Number.isFinite(Date.parse(resolvedIdentity.enrolledAt)));
   assert.deepEqual({ ...resolvedIdentity, enrolledAt: '<timestamp>' }, {
     deviceId: credential.credentialId, tenant: profile.tenantId, label: 'Zen',
-    enrolledAt: '<timestamp>', grantedPermissions: binding.scopes, profileRevision: profile.revision,
+    enrolledAt: '<timestamp>', grantedPermissions: binding.scopes, profileRevision: profile.digest,
     machineFingerprint: binding.targetKeyFingerprint,
   });
   const desired = await app.fetch(new Request('https://brian.desktop.tools/api/device/current', {

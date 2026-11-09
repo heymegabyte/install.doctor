@@ -3752,7 +3752,7 @@ const fs=require('node:fs');
 const [path,command,origin,statePath,credentialPath,profileId,machineLabel,expiresAt]=process.argv.slice(2);
 const value={schemaVersion:1,command,statePath,credentialPath};
 if(command==='device-authorization-start')Object.assign(value,{origin,profileId,machineLabel,
-  scopes:['pull-desired-state','report-status','authorize-privileged-run'],expiresAt});
+  scopes:['profile:read','run:authorize','status:write'],expiresAt});
 if(command==='device-authorization-wait')value.origin=origin;
 fs.writeFileSync(path,`${JSON.stringify(value)}\n`,{mode:0o600,flag:'w'});
 NODE

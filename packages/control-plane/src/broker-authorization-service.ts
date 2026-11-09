@@ -87,7 +87,7 @@ function exact(left: unknown, right: unknown): boolean {
 function requirePrivilegedScope(principal: BrokerDevicePrincipal): void {
   // Privileged authorization never inherits the compatibility behavior used by ordinary
   // device routes: SQL NULL means no recorded grant and therefore fails closed.
-  if (!principal.permissions?.includes('authorize-privileged-run')) {
+  if (!principal.permissions?.some(scope => scope === 'authorize-privileged-run' || scope === 'run:authorize')) {
     throw new BrokerAuthorizationServiceError('insufficient_scope', 403);
   }
 }

@@ -31,7 +31,7 @@ export const BrokerApprovalDeviceIdentitySchema = z.strictObject({
   profileRevision: digest,
   machineFingerprint: digest,
 }).superRefine((value, context) => {
-  if (!value.grantedPermissions.includes('authorize-privileged-run')) {
+  if (!value.grantedPermissions.some(scope => scope === 'authorize-privileged-run' || scope === 'run:authorize')) {
     context.addIssue({ code: 'custom', path: ['grantedPermissions'], message: 'device lacks privileged-run authority' });
   }
 });
