@@ -33,6 +33,16 @@ test('owner may narrow requested scopes but cannot broaden them', () => {
   });
 });
 
+test('privileged-run authority is explicit, narrowable, and never implied for legacy requests', () => {
+  const privileged = { ...record, requestedScopes: ['pull-desired-state', 'authorize-privileged-run'] };
+  assert.equal(authorizeOwnerDecision(privileged, { ...request,
+    approvedScopes: ['authorize-privileged-run'] }, owner, now).ok, true);
+  assert.deepEqual(authorizeOwnerDecision(record, { ...request,
+    approvedScopes: ['authorize-privileged-run'] }, owner, now), {
+    ok: false, status: 400, error: 'invalid_approved_scopes',
+  });
+});
+
 test('owner decision rejects a mismatched code and stale profile revision', () => {
   assert.deepEqual(authorizeOwnerDecision(record, { ...request, matchingCode: 'ZZZZ-ZZZZ-ZZZZ' }, owner, now), {
     ok: false, status: 400, error: 'matching_code_mismatch',

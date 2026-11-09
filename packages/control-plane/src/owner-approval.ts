@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 export const OWNER_REAUTH_MAX_AGE_MS = 5 * 60 * 1000;
-export const DESKTOP_DEVICE_SCOPE_ALLOWLIST = ['pull-desired-state', 'report-status'] as const;
+export const DESKTOP_DEVICE_SCOPE_ALLOWLIST = ['pull-desired-state', 'report-status', 'authorize-privileged-run'] as const;
 const deviceScope = z.enum(DESKTOP_DEVICE_SCOPE_ALLOWLIST);
 
 export const OwnerApprovalDecision = z.object({
