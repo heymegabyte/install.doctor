@@ -589,7 +589,7 @@ chmod -R a+rX,go-w "$FIXTURE/container-fixture"
 printf 'bootstrap-install-acceptance: running pinned, network-disabled container\n'
 OUTPUT="$FIXTURE/canary.out"
 DOCKER_MOUNTS=()
-for TOOL in curl rsync brew gum zx chezmoi process-software-groups process-software-post-scripts; do
+for TOOL in curl rsync gum zx chezmoi process-software-groups process-software-post-scripts; do
   DOCKER_MOUNTS+=(--mount "type=bind,src=$FIXTURE/container-fixture/tools/$TOOL,dst=/usr/local/bin/$TOOL,readonly")
 done
 # A bind mount from macOS/Colima preserves the host UID and cannot satisfy the
@@ -600,6 +600,7 @@ ARG BASE_IMAGE=node@sha256:8fa96264f302f58bbb13aa7339c541547b56975766ce956c875da
 FROM ${BASE_IMAGE}
 RUN usermod -aG sudo node
 COPY --chown=0:0 --chmod=4755 container-fixture/tools/sudo /usr/bin/sudo
+COPY --chown=0:0 --chmod=0555 container-fixture/tools/brew /usr/local/bin/brew
 DOCKERFILE
 CANARY_IMAGE="install-doctor/bootstrap-acceptance-${$}"
 docker build --network=none --build-arg "BASE_IMAGE=$IMAGE" --tag "$CANARY_IMAGE" --file "$FIXTURE/Dockerfile" "$FIXTURE" >/dev/null

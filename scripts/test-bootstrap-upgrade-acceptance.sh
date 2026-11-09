@@ -399,7 +399,7 @@ SH
 chmod -R a+rX,go-w "$FIXTURE/container-fixture"
 
 MOUNTS=()
-for TOOL in curl rsync brew gum zx chezmoi process-software-groups process-software-post-scripts; do
+for TOOL in curl rsync gum zx chezmoi process-software-groups process-software-post-scripts; do
   MOUNTS+=(--mount "type=bind,src=$FIXTURE/container-tools/$TOOL,dst=/usr/local/bin/$TOOL,readonly")
 done
 OUTPUT="$FIXTURE/canary.out"
@@ -407,6 +407,7 @@ cat > "$FIXTURE/Dockerfile" <<'DOCKERFILE'
 ARG BASE_IMAGE=node@sha256:8fa96264f302f58bbb13aa7339c541547b56975766ce956c875da149452a3e40
 FROM ${BASE_IMAGE}
 COPY --chown=0:0 --chmod=4755 container-tools/sudo /usr/bin/sudo
+COPY --chown=0:0 --chmod=0555 container-tools/brew /usr/local/bin/brew
 DOCKERFILE
 CANARY_IMAGE="install-doctor/bootstrap-upgrade-acceptance-${$}"
 docker build --network=none --build-arg "BASE_IMAGE=$IMAGE" --tag "$CANARY_IMAGE" --file "$FIXTURE/Dockerfile" "$FIXTURE" >/dev/null
