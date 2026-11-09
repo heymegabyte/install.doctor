@@ -12,9 +12,18 @@ fail() { printf 'FAIL %s\n' "$*" >&2; F=$((F + 1)); }
 
 if bash -n "$PROVISION"; then pass 'provisioner remains valid Bash'; else fail 'provisioner has invalid Bash syntax'; fi
 
-for task in bootstrap.macos-full-disk-access bootstrap.macos-cloudflare-certificate bootstrap.configured-agent-tasks; do
+for task in bootstrap.macos-full-disk-access bootstrap.configured-agent-tasks; do
   if grep -Fq "id: '$task'" "$PROVISION"; then pass "$task is a typed task node"; else fail "$task is missing from the typed graph"; fi
 done
+
+if grep -Fq "const warpSelected = platform === 'darwin' && selectedPackageClosure.includes('warp');" "$PROVISION" \
+  && grep -Fq 'const macosCertificateTask = warpSelected ? {' "$PROVISION" \
+  && grep -Fq '...(macosCertificateTask ? [macosCertificateTask] : [])' "$PROVISION" \
+  && grep -Fq '...(macosCertificateTask ? {' "$PROVISION"; then
+  pass 'macOS Cloudflare trust-root mutation exists only in the exact selected WARP closure'
+else
+  fail 'macOS Cloudflare trust-root mutation is not bound to selected WARP desired state'
+fi
 
 for operation in macos-full-disk-access macos-certificate configured-agent-tasks; do
   section="$(grep -F -A 12 "id: 'bootstrap.${operation/macos-certificate/macos-cloudflare-certificate}'" "$PROVISION")"

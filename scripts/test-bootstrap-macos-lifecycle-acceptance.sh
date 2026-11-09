@@ -357,6 +357,10 @@ if (run.authority !== 'uncommitted' || run.resumeCandidate !== true) {
   throw new Error(`interrupted run is not resumable: ${JSON.stringify(run)}`);
 }
 const directory = path.join(process.env.HOME, '.local/state/install.doctor/engine/runs', expectedDigest, run.runId);
+const plan = JSON.parse(fs.readFileSync(path.join(directory, 'plan.json'), 'utf8'));
+if (plan.tasks.some(task => task.id === 'bootstrap.macos-cloudflare-certificate')) {
+  throw new Error('unselected WARP plan retained macOS Cloudflare trust-root mutation');
+}
 if (fs.existsSync(path.join(directory, 'owner.json'))) throw new Error('interrupted run retained a live owner');
 const commits = fs.existsSync(path.join(directory, 'commits'))
   ? fs.readdirSync(path.join(directory, 'commits')).filter(name => name.endsWith('.commit.json')) : [];
