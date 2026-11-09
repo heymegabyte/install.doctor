@@ -35,6 +35,7 @@ import type { ServiceStateAdapter, ServiceStateSnapshot } from './config-transac
 import { applyConfigurationTransaction, applyManagedDirectoryTransaction } from './config-transaction.js';
 import { TelemetryExportConfigSchema } from './telemetry.js';
 import type { TelemetryTransport } from './telemetry.js';
+import { PrivilegedBrokerDerivationInputSchema, derivePrivilegedBrokerAuthority } from './privileged-broker-derivation.js';
 
 const identifier = z.string().min(1).max(128).regex(/^[a-z0-9][a-z0-9._-]*$/);
 const argument = z.string().max(4096).refine(value => !value.includes('\0'), 'arguments cannot contain NUL');
@@ -265,6 +266,8 @@ const NativeDebianDeriveInvocationSchema = z.strictObject({
   desiredState: DesiredStateInputSchema,
   legacyPackages: z.array(z.string().min(1).max(128).regex(/^[a-z0-9][a-z0-9.+-]*(?::[a-z0-9][a-z0-9-]*)?$/)).max(4096),
 });
+const PrivilegedBrokerAuthorityDeriveInvocationSchema = PrivilegedBrokerDerivationInputSchema
+  .extend({ command: z.literal('privileged-broker-authority-derive') });
 const artifactAuthority = {
   loadPlan: LoadPlanReportSchema,
   items: z.array(LoadPlanItemSchema).min(1).max(4096),
@@ -286,11 +289,13 @@ const InvocationSchema = z.discriminatedUnion('command', [
   BundleCreateInvocationSchema, BundleVerifyInvocationSchema, BundlePlanInvocationSchema, BundleApplyInvocationSchema,
   OfflineExecuteInvocationSchema, OfflineResumeInvocationSchema,
   RollbackPlanInvocationSchema, RollbackExecuteInvocationSchema, RollbackResumeInvocationSchema, RollbackStatusInvocationSchema,
-  LoadPlanInvocationSchema, NativeDebianDeriveInvocationSchema, ArtifactDeriveInvocationSchema, ArtifactPrepareInvocationSchema,
+  LoadPlanInvocationSchema, NativeDebianDeriveInvocationSchema, PrivilegedBrokerAuthorityDeriveInvocationSchema,
+  ArtifactDeriveInvocationSchema, ArtifactPrepareInvocationSchema,
 ]);
 type Invocation = z.infer<typeof InvocationSchema>;
 type OperationInvocation = Extract<Invocation, { command: 'discover' | 'validate' | 'plan' | 'run' | 'resume' | 'status' }>;
-type PlanBindingInvocation = Extract<Invocation, { plan: unknown; operations: unknown }>;
+type PlanBindingInvocation = Exclude<Extract<Invocation, { plan: unknown; operations: unknown }>,
+  { command: 'privileged-broker-authority-derive' }>;
 
 async function presentRun(input: {
   readonly rendererMode: z.infer<typeof RendererModeSchema>;
@@ -1032,6 +1037,11 @@ async function main(): Promise<void> {
       process.stdout.write(`${JSON.stringify({
         schemaVersion: 1, loadPlanDigest: calculated, descriptorDigest: composition.task.inputDigest, composition,
       })}\n`);
+      return;
+    }
+    if (invocation.command === 'privileged-broker-authority-derive') {
+      const { command: _command, ...derivationInput } = invocation;
+      process.stdout.write(`${JSON.stringify(derivePrivilegedBrokerAuthority(derivationInput))}\n`);
       return;
     }
     if (invocation.command === 'artifact-derive') {
