@@ -21,6 +21,7 @@ const scenarios = Object.freeze([
   ['hosted-service-outage', 'packages/control-plane/test/release-publication.test.mjs', 'post-CAS receipt failure reports activated receipt pending without repeating activation'],
   ['recording-failure', 'packages/aid-core/test/core.test.mjs', 'recording propagates storage errors rather than claiming success'],
   ['telemetry-timeout', 'packages/installer-engine/test/telemetry.test.mjs', 'transport failure and timeout are fail-open bounded outcomes'],
+  ['rollback-modified-target', 'packages/installer-engine/test/cli.test.mjs', 'rollback-config CLI derives an identity-only stable plan, resumes explicitly, and rejects replay'],
 ]);
 
 const values = new Map();

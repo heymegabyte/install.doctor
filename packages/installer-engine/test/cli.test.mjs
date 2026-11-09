@@ -487,11 +487,37 @@ test('rollback-config CLI derives an identity-only stable plan, resumes explicit
   await assert.rejects(runCli({ ...executeInvocation, approvedPlanDigest: digest('0') }), error => error.code === 2 && /exact derived plan approval/i.test(error.stderr));
   assert.equal(await readFile(target, 'utf8'), 'new\n', 'schema or approval rejection must precede restoration');
   await writeFile(target, 'user-edit\n', { mode: 0o600 });
+  const editedBeforeRollback = { bytes: await readFile(target), metadata: await lstat(target) };
   await assert.rejects(
     runCli({ ...executeInvocation, rollbackRunId: 'rollback-cli-drift' }),
     error => error.code === 3 && /precondition failed.*target changed after installation/.test(error.stderr),
   );
   assert.equal(await readFile(target, 'utf8'), 'user-edit\n', 'rollback must preserve post-install user edits');
+  let driftInspection;
+  await assert.rejects(runCli({
+    schemaVersion: 1, command: 'rollback-config-status', stateRoot,
+    rollbackRunId: 'rollback-cli-drift', planDigest: rollbackPlan.digest,
+  }), error => {
+    driftInspection = JSON.parse(error.stdout);
+    return error.code === 1;
+  });
+  assert.equal(driftInspection.authority, 'uncommitted');
+  assert.equal(Object.hasOwn(driftInspection, 'receipt'), false);
+  const driftEventRoot = join(stateRoot, 'rollback-runs', rollbackPlan.digest, 'rollback-cli-drift', 'events');
+  const driftEvents = await Promise.all((await readdir(driftEventRoot)).sort()
+    .map(async name => JSON.parse(await readFile(join(driftEventRoot, name), 'utf8'))));
+  assert.deepEqual(driftEvents.map(event => event.kind), ['rollback-run-started', 'rollback-plan-approved']);
+  assert.equal(driftEvents.some(event => event.kind === 'rollback-task-restored' || event.kind === 'rollback-run-finished'), false,
+    'a precondition refusal must not publish restoration or terminal-success evidence');
+  await assert.rejects(
+    runCli({ ...executeInvocation, command: 'rollback-config-resume', rollbackRunId: 'rollback-cli-drift' }),
+    error => error.code === 3 && /precondition failed.*target changed after installation/.test(error.stderr),
+  );
+  const editedAfterRetry = { bytes: await readFile(target), metadata: await lstat(target) };
+  assert.deepEqual(editedAfterRetry.bytes, editedBeforeRollback.bytes);
+  assert.equal(editedAfterRetry.metadata.mode & 0o777, editedBeforeRollback.metadata.mode & 0o777);
+  assert.equal(editedAfterRetry.metadata.ino, editedBeforeRollback.metadata.ino,
+    'rejected rollback and resume must not replace the user-edited file');
   await writeFile(target, 'new\n', { mode: 0o600 });
   const resumed = JSON.parse((await runCli({
     ...executeInvocation, command: 'rollback-config-resume', rollbackRunId: 'rollback-cli-drift',

@@ -437,7 +437,7 @@ phaseProof.configRollback = { ...phaseProof.configRollback, authorityDigest: sha
 
 const failureScenarios = structured.failureScenarios;
 exact(failureScenarios, ['schemaVersion','releaseId','sourceCommit','runtime','runnerDigest','scenarios'], 'failureScenarios');
-const requiredFailureScenarios = ['denial','expiry','hosted-service-outage','profile-race','provider-outage','recording-failure','replay','telemetry-timeout'];
+const requiredFailureScenarios = ['denial','expiry','hosted-service-outage','profile-race','provider-outage','recording-failure','replay','rollback-modified-target','telemetry-timeout'];
 if (failureScenarios.schemaVersion !== 1 || failureScenarios.releaseId !== report.release.releaseId
   || failureScenarios.sourceCommit !== report.release.sourceCommit || !/^v\d+\.\d+\.\d+/u.test(failureScenarios.runtime)
   || !/^[a-f0-9]{64}$/u.test(failureScenarios.runnerDigest) || !Array.isArray(failureScenarios.scenarios)) {
