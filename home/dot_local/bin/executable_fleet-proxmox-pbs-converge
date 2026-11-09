@@ -289,6 +289,12 @@ if command -v proxmox-backup-manager >/dev/null 2>&1; then
         fi
       done
     done
+    # #126: Ensure PBS 'self' remote uses DNS SAN (pbs.lab.megabyte.space) without stale pinned TLS fingerprint so Let's Encrypt renewals never break sync jobs
+    if proxmox-backup-manager remote show self >/dev/null 2>&1; then
+      if grep -q 'pbs.lab.megabyte.space' /etc/hosts 2>/dev/null; then
+        proxmox-backup-manager remote update self --host pbs.lab.megabyte.space --delete fingerprint >/dev/null 2>&1 || true
+      fi
+    fi
     cat > /etc/sysctl.d/99-pbs-s3-tuning.conf <<'EOF'
 net.core.default_qdisc = fq
 net.ipv4.tcp_congestion_control = bbr
