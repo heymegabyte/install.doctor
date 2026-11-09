@@ -40,6 +40,9 @@ import { PrivilegedBrokerDerivationInputSchema, derivePrivilegedBrokerAuthority 
 import { PrivilegedBrokerClientConfigSchema, createPrivilegedBrokerNativeRuntime } from './privileged-broker-client.js';
 import { privilegedBrokerDescriptorDigest } from './privileged-broker-authority.js';
 import { openVerifiedArtifactSnapshot } from './verified-artifact-materializer.js';
+import { BrokerApprovalTargetBindingSchema, createBrokerApprovalTransport } from './broker-approval-transport.js';
+import { BrokerApprovalPollPolicySchema, orchestrateBrokerApproval } from './broker-approval-orchestrator.js';
+import { PrivilegedBrokerGrantSchema } from './privileged-broker-protocol.js';
 
 const identifier = z.string().min(1).max(128).regex(/^[a-z0-9][a-z0-9._-]*$/);
 const argument = z.string().max(4096).refine(value => !value.includes('\0'), 'arguments cannot contain NUL');
@@ -180,6 +183,15 @@ const RunsListInvocationSchema = z.strictObject({
   schemaVersion: z.literal(1), command: z.literal('runs-list'),
   stateRoot: z.string().min(1).max(4096).refine(isAbsolute, 'state root must be absolute'),
 });
+const BrokerApprovalClaimInvocationSchema = z.strictObject({
+  schemaVersion: z.literal(1), command: z.literal('broker-approval-claim'),
+  origin: z.string().url(),
+  tokenPath: z.string().min(1).max(4096).refine(value => isAbsolute(value) && resolve(value) === value,
+    'device token path must be canonical and absolute'),
+  grant: PrivilegedBrokerGrantSchema,
+  binding: BrokerApprovalTargetBindingSchema,
+  poll: BrokerApprovalPollPolicySchema.optional(),
+});
 const bundlePlatform = z.strictObject({
   os: z.enum(['linux', 'darwin', 'win32']), arch: z.enum(['x64', 'arm64']),
   environment: z.enum(['native', 'wsl', 'proxmox', 'qubes', 'container']),
@@ -307,6 +319,7 @@ const InvocationSchema = z.discriminatedUnion('command', [
   RollbackPlanInvocationSchema, RollbackExecuteInvocationSchema, RollbackResumeInvocationSchema, RollbackStatusInvocationSchema,
   LoadPlanInvocationSchema, NativeDebianDeriveInvocationSchema, PrivilegedBrokerAuthorityDeriveInvocationSchema,
   ArtifactDeriveInvocationSchema, ArtifactPrepareInvocationSchema,
+  BrokerApprovalClaimInvocationSchema,
 ]);
 type Invocation = z.infer<typeof InvocationSchema>;
 type OperationInvocation = Extract<Invocation, { command: 'discover' | 'validate' | 'plan' | 'run' | 'resume' | 'status' }>;
@@ -1105,6 +1118,15 @@ async function main(): Promise<void> {
         stateRoot: invocation.stateRoot, hostId: 'evidence-reader', bootId: 'read-only', processStart: 'read-only',
       });
       process.stdout.write(`${JSON.stringify({ schemaVersion: 1, runs: await evidenceStore.listRuns() })}\n`);
+      return;
+    }
+    if (invocation.command === 'broker-approval-claim') {
+      phase = 'execute';
+      const approval = await orchestrateBrokerApproval({
+        transport: createBrokerApprovalTransport({ origin: invocation.origin, tokenPath: invocation.tokenPath }),
+        grant: invocation.grant, binding: invocation.binding, poll: invocation.poll,
+      });
+      process.stdout.write(`${JSON.stringify(approval)}\n`);
       return;
     }
     if (invocation.command === 'load-plan') {
