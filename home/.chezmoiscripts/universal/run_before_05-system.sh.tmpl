@@ -7,6 +7,11 @@
 {{ includeTemplate "universal/profile-before" }}
 {{ includeTemplate "universal/logg-before" }}
 
+if [ "${INSTALL_DOCTOR_ENGINE_OWNS_PRE_APPLY:-0}" = 1 ]; then
+  logg info 'Legacy system mutation bundle is disabled; typed installer tasks own selected effects'
+  exit 0
+fi
+
 export VOLTA_HOME="${XDG_DATA_HOME:-$HOME/.local/share}/volta"
 export PATH="$VOLTA_HOME/bin:$PATH"
 

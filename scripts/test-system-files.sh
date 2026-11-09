@@ -5,6 +5,11 @@
 set -uo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 SYS="$ROOT/home/.chezmoiscripts/universal/run_before_05-system.sh.tmpl"
+AFTER_INSTALL="$ROOT/home/.chezmoiscripts/universal/run_after_10-install.sh.tmpl"
+POST_INSTALL="$ROOT/home/.chezmoiscripts/universal/run_after_20-post-install.sh.tmpl"
+PREPARE="$ROOT/home/.chezmoiscripts/universal/run_before_01-prepare.sh.tmpl"
+HOMEBREW="$ROOT/home/.chezmoiscripts/universal/run_before_02-homebrew.sh.tmpl"
+SECRETS="$ROOT/home/.chezmoiscripts/universal/run_before_03-decrypt-age-key.sh.tmpl"
 SRC="$ROOT/home/dot_config/docker/daemon.json.tmpl"
 
 say() { command -v gum >/dev/null 2>&1 && gum style --foreground 51 -- "$*" || printf '\033[1;36m%s\033[0m\n' "$*"; }
@@ -17,6 +22,26 @@ has() { grep -qF "$2" "$1" 2>/dev/null; }
 say "system-file ownership via chezmoi"
 
 [ -f "$SYS" ] && pass "system run-script present (run_before_05-system.sh.tmpl)" || fail "run_before_05-system.sh.tmpl missing ($SYS)"
+
+if has "$AFTER_INSTALL" 'INSTALL_DOCTOR_ENGINE_OWNS_SYSTEM_FILES' \
+  && has "$AFTER_INSTALL" 'Broad system-file copying is disabled'; then
+  pass "engine-owned provisioning disables the recursive system-root writer"
+else
+  fail "engine-owned provisioning can still copy the entire rendered system tree to root"
+fi
+if has "$POST_INSTALL" 'INSTALL_DOCTOR_ENGINE_OWNS_POST_INSTALL' \
+  && has "$POST_INSTALL" 'typed installer tasks own selected effects'; then
+  pass "engine-owned provisioning disables the untyped post-install mutation bundle"
+else
+  fail "engine-owned provisioning can still execute untyped post-install mutations"
+fi
+for legacy_pre_apply in "$PREPARE" "$HOMEBREW" "$SECRETS" "$SYS"; do
+  if has "$legacy_pre_apply" 'INSTALL_DOCTOR_ENGINE_OWNS_PRE_APPLY'; then
+    pass "engine-owned provisioning disables $(basename "$legacy_pre_apply") legacy mutations"
+  else
+    fail "engine-owned provisioning can still execute $(basename "$legacy_pre_apply") legacy mutations"
+  fi
+done
 
 # 1. Docker is not configured by the preliminary phase.
 if ! has "$SYS" '/etc/docker/daemon.json' && has "$SYS" 'Docker is not selected; preliminary setup will leave it absent'; then
@@ -46,6 +71,12 @@ fi
 #    needs the cp-from-chezmoi-source→/etc line present AND a non-dangling source (a missing source ⇒ cp
 #    writes nothing — the /brew class #204). This extends #205's coverage from docker-only to the full set.
 PRE="$ROOT/home/.chezmoiscripts/universal/run_after_01-pre-install.sh.tmpl"
+if has "$PRE" 'INSTALL_DOCTOR_ENGINE_OWNS_POST_APPLY' \
+  && has "$PRE" 'typed installer tasks own selected effects'; then
+  pass "engine-owned provisioning disables the untyped post-apply mutation bundle"
+else
+  fail "engine-owned provisioning can still execute untyped post-apply system mutations"
+fi
 if has "$PRE" '/etc/zshenv' && [ -f "$ROOT/home/dot_config/shell/exports.sh.tmpl" ]; then
   pass "chezmoi→/etc: shell/exports.sh → /etc/zshenv (applier + source present)"
 else

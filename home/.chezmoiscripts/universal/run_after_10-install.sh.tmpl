@@ -18,7 +18,11 @@ systemFiles() {
   gum log -sl info 'Finished applying system configuration files'
 }
 
-systemFiles
+if [ "${INSTALL_DOCTOR_ENGINE_OWNS_SYSTEM_FILES:-0}" = 1 ]; then
+  gum log -sl info 'Broad system-file copying is disabled; typed installer tasks own selected system effects'
+else
+  systemFiles
+fi
 
 installSelectedPackages() {
   local RAW="${INSTALL_DOCTOR_SELECTED_PACKAGES:-}" PACKAGE

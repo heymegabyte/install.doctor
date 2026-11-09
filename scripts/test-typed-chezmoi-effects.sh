@@ -49,13 +49,17 @@ SH
 chmod 0700 "$TMP/bin/"* "$TMP/home/.local/bin/post-installx/post-eager.sh"
 if command -v sha256sum >/dev/null 2>&1; then
   SOFTWARE_GROUPS_SHA="$(sha256sum "$TMP/bin/process-software-groups" | awk '{print $1}')"
+  CATALOG_POST_SHA="$(sha256sum "$TMP/bin/process-software-post-scripts" | awk '{print $1}')"
   CUSTOM_HOOK_SHA="$(sha256sum "$TMP/home/.local/bin/post-installx/post-eager.sh" | awk '{print $1}')"
 else
   SOFTWARE_GROUPS_SHA="$(shasum -a 256 "$TMP/bin/process-software-groups" | awk '{print $1}')"
+  CATALOG_POST_SHA="$(shasum -a 256 "$TMP/bin/process-software-post-scripts" | awk '{print $1}')"
   CUSTOM_HOOK_SHA="$(shasum -a 256 "$TMP/home/.local/bin/post-installx/post-eager.sh" | awk '{print $1}')"
 fi
 export INSTALL_DOCTOR_SOFTWARE_GROUPS_PATH="$TMP/bin/process-software-groups"
 export INSTALL_DOCTOR_SOFTWARE_GROUPS_SHA256="$SOFTWARE_GROUPS_SHA"
+export INSTALL_DOCTOR_CATALOG_POST_PROCESSOR_PATH="$TMP/bin/process-software-post-scripts"
+export INSTALL_DOCTOR_CATALOG_POST_PROCESSOR_SHA256="$CATALOG_POST_SHA"
 export INSTALL_DOCTOR_CUSTOM_HOOK_MANIFEST="eager=$CUSTOM_HOOK_SHA"
 export INSTALL_DOCTOR_CUSTOM_HOOK_KEYS=eager
 : > "$TMP/ledger"
@@ -124,6 +128,12 @@ catalog_failure_status=$?
 set -e
 [ "$catalog_receipt_status" -eq 2 ]
 [ "$catalog_failure_status" -ne 0 ]
+printf '\n# unauthorized mutation\n' >> "$TMP/bin/process-software-post-scripts"
+set +e
+idRunEngineOperation catalog-post-validation-check
+catalog_digest_status=$?
+set -e
+[ "$catalog_digest_status" -eq 2 ]
 INSTALL_DOCTOR_EFFECT_DIGEST="$(printf 'c%.0s' {1..64})"
 export INSTALL_DOCTOR_EFFECT_DIGEST
 INSTALL_DOCTOR_EFFECT_ID=custom-post-hooks
@@ -186,4 +196,4 @@ check_status=$?
 set -e
 [ "$check_status" -eq 10 ]
 
-printf 'typed-chezmoi-effects: 30 passed, 0 failed\n'
+printf 'typed-chezmoi-effects: 31 passed, 0 failed\n'

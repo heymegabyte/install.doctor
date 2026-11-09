@@ -32,6 +32,11 @@
 {{ includeTemplate "universal/logg-before" }}
 {{ includeTemplate "universal/profile-before" }}
 
+if [ "${INSTALL_DOCTOR_ENGINE_OWNS_PRE_APPLY:-0}" = 1 ]; then
+  logg info 'Legacy local-secret decryption mutation is disabled; explicit secret authority owns selected encrypted inputs'
+  exit 0
+fi
+
 # @description Helper function utilized by [[decryptKey]] when Age decryption is skipped or fails.
 #     Preserves tracked encrypted_* ciphertext in the Chezmoi source tree by default instead of
 #     destructively deleting git-tracked files unless INSTALL_DOCTOR_CONSENT_DELETE_ENCRYPTED=1 is set.

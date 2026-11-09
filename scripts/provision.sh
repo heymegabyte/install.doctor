@@ -2672,6 +2672,10 @@ const loadSignedPlanningInputs = () => {
           if (bytes.length < 1 || bytes.length > 1_048_576) throw new Error('signed planning-input archive contains invalid software-groups authority');
           continue;
         }
+        if (name === 'provisioning/home/dot_config/system/usr/local/bin/executable_process-software-post-scripts') {
+          if (bytes.length < 1 || bytes.length > 1_048_576) throw new Error('signed planning-input archive contains invalid catalog post-validation authority');
+          continue;
+        }
         if (!/^provisioning\/home\/dot_local\/bin\/post-installx\/executable_post-[a-z0-9][a-z0-9._+-]{0,127}\.sh$/.test(name)
           || bytes.length < 1 || bytes.length > 1_048_576) throw new Error('signed planning-input archive contains invalid provisioning authority');
       }
@@ -3064,6 +3068,10 @@ const operationEnvironment = {
   INSTALL_DOCTOR_HOMEBREW_SHA256: homebrewDigest,
   INSTALL_DOCTOR_ENGINE_OWNS_PACKAGES: '1',
   INSTALL_DOCTOR_ENGINE_OWNS_SERVICES: '1',
+  INSTALL_DOCTOR_ENGINE_OWNS_SYSTEM_FILES: '1',
+  INSTALL_DOCTOR_ENGINE_OWNS_POST_APPLY: '1',
+  INSTALL_DOCTOR_ENGINE_OWNS_POST_INSTALL: '1',
+  INSTALL_DOCTOR_ENGINE_OWNS_PRE_APPLY: '1',
   INSTALL_DOCTOR_ENGINE_OWNS_SOFTWARE_GROUPS: '1',
   INSTALL_DOCTOR_ENGINE_OWNS_CATALOG_POST_HOOKS: '1',
   INSTALL_DOCTOR_ENGINE_OWNS_CUSTOM_POST_HOOKS: '1',
@@ -3401,7 +3409,7 @@ if (!softwareGroupsPath && systemIdentityPackages.length > 0) {
     ? signedPlanningInputs.get(softwareGroupsPlanningKey)
     : fs.readFileSync(`${process.env.INSTALL_DOCTOR_CHEZMOI_SOURCE}/dot_config/system/usr/local/bin/executable_process-software-groups`);
   if (!candidate || candidate.length < 1 || candidate.length > 1_048_576) throw new Error('signed software-groups processor authority is unavailable');
-  softwareGroupsPath = '/usr/local/bin/process-software-groups';
+  softwareGroupsPath = `${process.env.INSTALL_DOCTOR_CHEZMOI_SOURCE}/dot_config/system/usr/local/bin/executable_process-software-groups`;
   softwareGroupsDigest = crypto.createHash('sha256').update(candidate).digest('hex');
 }
 const softwareGroupsTask = systemIdentityPackages.length > 0 ? {
@@ -3415,9 +3423,21 @@ const softwareGroupsTask = systemIdentityPackages.length > 0 ? {
   consent: 'privileged', lockDomains: ['software-groups', 'filesystem-ownership', 'privilege'], cleanup: 'none', compensation: 'none',
   failurePolicy: 'abort-run',
 } : null;
+const catalogPostProcessorKey = 'provisioning/home/dot_config/system/usr/local/bin/executable_process-software-post-scripts';
+const catalogPostProcessorCandidate = signedPlanningInputs
+  ? signedPlanningInputs.get(catalogPostProcessorKey)
+  : fs.readFileSync(`${process.env.INSTALL_DOCTOR_CHEZMOI_SOURCE}/dot_config/system/usr/local/bin/executable_process-software-post-scripts`);
+if (!catalogPostProcessorCandidate || catalogPostProcessorCandidate.length < 1 || catalogPostProcessorCandidate.length > 1_048_576) {
+  throw new Error('signed catalog post-validation processor authority is unavailable');
+}
+const catalogPostProcessorPath = `${process.env.INSTALL_DOCTOR_CHEZMOI_SOURCE}/dot_config/system/usr/local/bin/executable_process-software-post-scripts`;
+const catalogPostProcessorDigest = crypto.createHash('sha256').update(catalogPostProcessorCandidate).digest('hex');
+operationEnvironment.INSTALL_DOCTOR_CATALOG_POST_PROCESSOR_PATH = catalogPostProcessorPath;
+operationEnvironment.INSTALL_DOCTOR_CATALOG_POST_PROCESSOR_SHA256 = catalogPostProcessorDigest;
 const catalogPostValidationTask = {
   schemaVersion: 1, id: 'desired.catalog-post-validation',
-  inputDigest: digest({ source: process.env.INSTALL_DOCTOR_SOURCE_COMMIT, policy: 'reject-executable-catalog-post-v2' }),
+  inputDigest: digest({ source: process.env.INSTALL_DOCTOR_SOURCE_COMMIT, processorPath: catalogPostProcessorPath,
+    processorDigest: catalogPostProcessorDigest, policy: 'reject-executable-catalog-post-v3' }),
   dependencies: [softwareGroupsTask?.id ?? bootstrapPolicyTask.id], predicate: 'host-supported', requiredCapabilities: [],
   operations: { check: 'catalog-post-validation-check', apply: 'catalog-post-validation-apply', verify: 'catalog-post-validation-verify' },
   timeoutMs: 30_000, retry: { class: 'never', maxAttempts: 1, backoffMs: 0 },
@@ -3871,10 +3891,26 @@ idEffectReceiptPath() {
   printf '%s/%s.verified\n' "$INSTALL_DOCTOR_EFFECT_RECEIPT_DIR" "$INSTALL_DOCTOR_EFFECT_ID"
 }
 
-idValidateCatalogPostMetadata() {
-  command -v process-software-post-scripts >/dev/null 2>&1 || return 2
-  process-software-post-scripts
-}
+idValidateCatalogPostMetadata() (
+  local SOURCE="${INSTALL_DOCTOR_CATALOG_POST_PROCESSOR_PATH:-}"
+  local EXPECTED="${INSTALL_DOCTOR_CATALOG_POST_PROCESSOR_SHA256:-}" STAGED BEFORE AFTER SNAPSHOT
+  case "$SOURCE" in /*) ;; *) return 2 ;; esac
+  case "$EXPECTED" in ''|*[!a-f0-9]*) return 2 ;; esac
+  [ "${#EXPECTED}" -eq 64 ] || return 2
+  [ -f "$SOURCE" ] && [ ! -L "$SOURCE" ] && [ -r "$SOURCE" ] || return 2
+  umask 077
+  STAGED="$(mktemp "${TMPDIR:-/tmp}/desktop-tools-catalog-post.XXXXXX")" || return 1
+  trap '/bin/rm -f -- "$STAGED"' EXIT
+  trap 'exit 130' HUP INT TERM
+  BEFORE="$(idSha256File "$SOURCE")" || return 2
+  [ "$BEFORE" = "$EXPECTED" ] || return 2
+  /bin/cp -- "$SOURCE" "$STAGED" || return 1
+  /bin/chmod 0700 "$STAGED" || return 1
+  SNAPSHOT="$(idSha256File "$STAGED")" || return 2
+  AFTER="$(idSha256File "$SOURCE")" || return 2
+  [ "$SNAPSHOT" = "$EXPECTED" ] && [ "$AFTER" = "$EXPECTED" ] || return 2
+  /bin/bash "$STAGED" </dev/null
+)
 
 idCheckEffectReceipt() {
   local RECEIPT
@@ -3925,7 +3961,7 @@ idRunVerifiedInstallx() (
   case "$SOURCE" in /*) ;; *) return 2 ;; esac
   case "$EXPECTED" in ''|*[!a-f0-9]*) return 2 ;; esac
   [ "${#EXPECTED}" -eq 64 ] || return 2
-  [ -f "$SOURCE" ] && [ ! -L "$SOURCE" ] && [ -x "$SOURCE" ] || return 2
+  [ -f "$SOURCE" ] && [ ! -L "$SOURCE" ] && [ -r "$SOURCE" ] || return 2
   umask 077
   STAGED="$(mktemp "${TMPDIR:-/tmp}/desktop-tools-installx.XXXXXX")" || return 1
   trap '/bin/rm -f -- "$STAGED"' EXIT

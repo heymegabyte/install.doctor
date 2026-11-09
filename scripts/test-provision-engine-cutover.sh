@@ -130,6 +130,9 @@ mkdir -p "$SOURCE_ROOT/home" "$SOURCE_ROOT/packages/control-plane/src"
 printf '[]\n' > "$SOURCE_ROOT/packages/control-plane/src/catalog.json"
 chmod 0600 "$SOURCE_ROOT/packages/control-plane/src/catalog.json"
 mkdir -p "$SOURCE_ROOT/home/dot_local/bin"
+mkdir -p "$SOURCE_ROOT/home/dot_config/system/usr/local/bin"
+cp "$ROOT/home/dot_config/system/usr/local/bin/executable_process-software-post-scripts" \
+  "$SOURCE_ROOT/home/dot_config/system/usr/local/bin/executable_process-software-post-scripts"
 cat > "$SOURCE_ROOT/home/dot_local/bin/executable_installx" <<'INSTALLX'
 #!/usr/bin/env bash
 set -eu
@@ -221,18 +224,25 @@ printf '{"schemaVersion":2,"host":{"hostname":"fixture","os":"linux"},"role":"wo
 chmod 0600 "$TMP_DIR/plan.json"
 mkdir -p "$TMP_DIR/planning-inputs/provisioning/home/dot_local/bin"
 cp "$SOURCE_ROOT/home/dot_local/bin/executable_installx" "$TMP_DIR/planning-inputs/provisioning/home/dot_local/bin/executable_installx"
-node - "$TMP_DIR/desktop-tools-tools.tar.gz" "$SOURCE_ROOT/home/dot_local/bin/executable_installx" <<'NODE'
+node - "$TMP_DIR/desktop-tools-tools.tar.gz" "$SOURCE_ROOT/home/dot_local/bin/executable_installx" \
+  "$SOURCE_ROOT/home/dot_config/system/usr/local/bin/executable_process-software-post-scripts" <<'NODE'
 const fs = require('node:fs'); const { gzipSync } = require('node:zlib');
-const [destination, source] = process.argv.slice(2); const bytes = fs.readFileSync(source);
-const header = Buffer.alloc(512); const name = 'provisioning/home/dot_local/bin/executable_installx';
+const [destination, installxSource, catalogPostSource] = process.argv.slice(2);
 const octal = (value, length) => `${value.toString(8).padStart(length - 1, '0')}\0`;
-header.write(name, 0, 100, 'utf8'); header.write(octal(0o700, 8), 100, 8, 'ascii');
-header.write(octal(0, 8), 108, 8, 'ascii'); header.write(octal(0, 8), 116, 8, 'ascii');
-header.write(octal(bytes.length, 12), 124, 12, 'ascii'); header.write(octal(0, 12), 136, 12, 'ascii');
-header.fill(0x20, 148, 156); header[156] = 0x30; header.write('ustar\0', 257, 6, 'ascii'); header.write('00', 263, 2, 'ascii');
-const checksum = header.reduce((sum, byte) => sum + byte, 0); header.write(`${checksum.toString(8).padStart(6, '0')}\0 `, 148, 8, 'ascii');
-const padding = Buffer.alloc((512 - (bytes.length % 512)) % 512);
-fs.writeFileSync(destination, gzipSync(Buffer.concat([header, bytes, padding, Buffer.alloc(1024)]), { level: 9, mtime: 0 }), { mode: 0o600 });
+const entry = (name, source) => {
+  const bytes = fs.readFileSync(source); const header = Buffer.alloc(512);
+  header.write(name, 0, 100, 'utf8'); header.write(octal(0o700, 8), 100, 8, 'ascii');
+  header.write(octal(0, 8), 108, 8, 'ascii'); header.write(octal(0, 8), 116, 8, 'ascii');
+  header.write(octal(bytes.length, 12), 124, 12, 'ascii'); header.write(octal(0, 12), 136, 12, 'ascii');
+  header.fill(0x20, 148, 156); header[156] = 0x30; header.write('ustar\0', 257, 6, 'ascii'); header.write('00', 263, 2, 'ascii');
+  const checksum = header.reduce((sum, byte) => sum + byte, 0); header.write(`${checksum.toString(8).padStart(6, '0')}\0 `, 148, 8, 'ascii');
+  return Buffer.concat([header, bytes, Buffer.alloc((512 - (bytes.length % 512)) % 512)]);
+};
+fs.writeFileSync(destination, gzipSync(Buffer.concat([
+  entry('provisioning/home/dot_local/bin/executable_installx', installxSource),
+  entry('provisioning/home/dot_config/system/usr/local/bin/executable_process-software-post-scripts', catalogPostSource),
+  Buffer.alloc(1024),
+]), { level: 9, mtime: 0 }), { mode: 0o600 });
 NODE
 PLANNING_INPUT_SHA="$(shasum -a 256 "$TMP_DIR/desktop-tools-tools.tar.gz" | awk '{print $1}')"
 CATALOG_SHA="$(shasum -a 256 "$SOURCE_ROOT/packages/control-plane/src/catalog.json" | awk '{print $1}')"

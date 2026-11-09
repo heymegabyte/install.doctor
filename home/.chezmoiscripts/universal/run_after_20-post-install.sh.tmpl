@@ -8,6 +8,11 @@
 {{ includeTemplate "universal/profile" }}
 {{ includeTemplate "universal/logg" }}
 
+if [ "${INSTALL_DOCTOR_ENGINE_OWNS_POST_INSTALL:-0}" = 1 ]; then
+  gum log -sl info 'Legacy post-install mutation bundle is disabled; typed installer tasks own selected effects'
+  exit 0
+fi
+
 # @description Move ~/.gnome/apps/* to ~/.local/share/applications
 moveGnomeAppsToShare() {
   if [ -d "$HOME/.gnome/apps" ]; then

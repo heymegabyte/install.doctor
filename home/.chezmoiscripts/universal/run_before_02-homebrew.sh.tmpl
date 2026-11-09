@@ -26,6 +26,11 @@
 #     Removing the dependency would be a nice-to-have but there are currently no plans for supporting
 #     systems without Homebrew installed.
 
+if [ "${INSTALL_DOCTOR_ENGINE_OWNS_PRE_APPLY:-0}" = 1 ]; then
+  printf '%s\n' 'Legacy Homebrew compatibility mutation is disabled; typed installer tasks own bootstrap dependencies'
+  exit 0
+fi
+
 if [ -n "$DEBUG" ] || [ -n "$DEBUG_MODE" ]; then
   set -x
 fi

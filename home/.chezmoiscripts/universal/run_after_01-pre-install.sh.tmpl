@@ -5,6 +5,11 @@
 {{ includeTemplate "universal/profile" }}
 {{ includeTemplate "universal/logg" }}
 
+if [ "${INSTALL_DOCTOR_ENGINE_OWNS_POST_APPLY:-0}" = 1 ]; then
+  gum log -sl info 'Legacy post-apply mutation bundle is disabled; typed installer tasks own selected effects'
+  exit 0
+fi
+
 # @description Copies the `~/.config/shell/exports.sh` file to `/etc/zshenv` so that non-interactive ZSH sessions have all of the same
 #     environment PATH variables as interactive sessions. This was initially required to make Cakebrew work on macOS.
 addZshEnv() {
