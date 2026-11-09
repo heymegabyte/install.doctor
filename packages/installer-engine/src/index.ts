@@ -40,6 +40,7 @@ export * from './deprovision-plan.js';
 export * from './target-device-authorization.js';
 export * from './target-device-authorization-http.js';
 export * from './target-device-credential.js';
+export * from './profile-desired-state.js';
 export * from './broker-approval-transport.js';
 export * from './broker-approval-orchestrator.js';
 export * from './privileged-broker-device-approval.js';

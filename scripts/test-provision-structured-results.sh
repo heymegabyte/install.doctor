@@ -74,6 +74,7 @@ runScenario() {
     ensureBasicDeps() { :; }
     ensureProvisionerNodeRuntime() { :; }
     idEnsureDesktopToolsDeviceAuthorization() { :; }
+    idSyncDesktopToolsDesiredState() { :; }
     idReconcileStaleSudoOwnership() { :; }
     idRetireSudoOwnership() { :; }
     cloneChezmoiSourceRepo() { :; }

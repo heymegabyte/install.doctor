@@ -1596,6 +1596,10 @@ const plan = {
     limitation: required('INSTALL_DOCTOR_PLATFORM_LIMITATION'),
   },
   privilegeContext: { sudoPreexisting: boolean('INSTALL_DOCTOR_SUDO_PREEXISTING') },
+  desiredStateAuthority: process.env.DESKTOP_TOOLS_PROFILE_ID ? {
+    profileId: required('DESKTOP_TOOLS_PROFILE_ID'), profileRevision: required('DESKTOP_TOOLS_PROFILE_REVISION'),
+    profileDigest: required('DESKTOP_TOOLS_PROFILE_DIGEST'), machineId: required('DESKTOP_TOOLS_MACHINE_ID'),
+  } : null,
   createdAt: new Date().toISOString(),
 };
 fs.writeFileSync(path, `${JSON.stringify(plan)}\n`, { mode: 0o600, flag: 'wx' });
@@ -2104,7 +2108,8 @@ const exactKeys = (value, keys, label) => {
     || JSON.stringify(Object.keys(value).sort()) !== JSON.stringify([...keys].sort())) throw new Error(`${label} shape is invalid`);
 };
 exactKeys(rawPlan, ['schemaVersion', 'host', 'role', 'capability', 'network', 'softwareGroup', 'installUser', 'offline', 'concurrency',
-  'selectedPackages', 'selectedServices', 'selectedSupportedPaths', 'lazyResolverRequirements', 'consents', 'platformAdmission', 'privilegeContext', 'createdAt'], 'install plan');
+  'selectedPackages', 'selectedServices', 'selectedSupportedPaths', 'lazyResolverRequirements', 'consents', 'platformAdmission', 'privilegeContext',
+  'desiredStateAuthority', 'createdAt'], 'install plan');
 if (rawPlan.schemaVersion !== 2) throw new Error('install plan schema version is unsupported');
 exactKeys(rawPlan.host, ['hostname', 'os'], 'install plan host');
 exactKeys(rawPlan.consents, ['privileged', 'network', 'bestEffort'], 'install plan consents');
@@ -2121,6 +2126,20 @@ if (JSON.stringify(rawPlan.platformAdmission) !== JSON.stringify(expectedAdmissi
 const boundedString = (value, pattern, maximum, label) => {
   if (typeof value !== 'string' || value.length < 1 || value.length > maximum || !pattern.test(value)) throw new Error(`${label} is invalid`);
 };
+if (rawPlan.desiredStateAuthority !== null) {
+  exactKeys(rawPlan.desiredStateAuthority, ['profileId', 'profileRevision', 'profileDigest', 'machineId'], 'desired-state authority');
+  boundedString(rawPlan.desiredStateAuthority.profileId, /^[a-z0-9][a-z0-9._-]*$/, 128, 'desired-state profile id');
+  boundedString(rawPlan.desiredStateAuthority.profileRevision, /^[a-z0-9][a-z0-9._-]*$/, 128, 'desired-state profile revision');
+  boundedString(rawPlan.desiredStateAuthority.profileDigest, /^[a-f0-9]{64}$/, 64, 'desired-state profile digest');
+  boundedString(rawPlan.desiredStateAuthority.machineId, /^[a-z0-9][a-z0-9._-]*$/, 128, 'desired-state machine id');
+}
+const expectedDesiredStateAuthority = process.env.DESKTOP_TOOLS_PROFILE_ID ? {
+  profileId: process.env.DESKTOP_TOOLS_PROFILE_ID, profileRevision: process.env.DESKTOP_TOOLS_PROFILE_REVISION,
+  profileDigest: process.env.DESKTOP_TOOLS_PROFILE_DIGEST, machineId: process.env.DESKTOP_TOOLS_MACHINE_ID,
+} : null;
+if (JSON.stringify(rawPlan.desiredStateAuthority) !== JSON.stringify(expectedDesiredStateAuthority)) {
+  throw new Error('desired-state authority changed after authenticated profile resolution');
+}
 boundedString(rawPlan.host.hostname, /^[A-Za-z0-9][A-Za-z0-9._-]*$/, 255, 'install plan hostname');
 boundedString(rawPlan.host.os, /^[a-z0-9][a-z0-9._-]*$/, 64, 'install plan os');
 if (!['workstation', 'server', 'proxmox', 'coolify', 'qubes', 'container', 'custom', 'macos', 'ubuntu', 'debian', 'fedora', 'silverblue', 'alpine', 'arch', 'qubes-dom0', 'qubes-appvm', 'wsl'].includes(rawPlan.role)) throw new Error('install plan role is invalid');
@@ -3592,7 +3611,7 @@ function ensureInstallUser() {
       INSTALL_DOCTOR_RELEASE_SIGNER_ID INSTALL_DOCTOR_RELEASE_SIGNER_PUBLIC_KEY \
       INSTALL_DOCTOR_RUNTIME_NODE INSTALL_DOCTOR_RUNTIME_NODE_VERSION INSTALL_DOCTOR_RUNTIME_SOURCE INSTALL_DOCTOR_HANDOFF_RUNTIME_SHA256 \
       INSTALL_DOCTOR_VERIFIED_MANIFEST INSTALL_DOCTOR_VERIFIED_SIGNATURE \
-      DESKTOP_TOOLS_PROFILE_ID DESKTOP_TOOLS_PROFILE_SLUG DESKTOP_TOOLS_PROFILE_REVISION DESKTOP_TOOLS_PROFILE_DIGEST \
+      DESKTOP_TOOLS_PROFILE_ID DESKTOP_TOOLS_PROFILE_SLUG DESKTOP_TOOLS_PROFILE_REVISION DESKTOP_TOOLS_PROFILE_DIGEST DESKTOP_TOOLS_MACHINE_ID \
       DESKTOP_TOOLS_NATIVE_BROKER_REQUESTED \
       DESKTOP_TOOLS_BROKER_COORDINATION_USER_REQUEST DESKTOP_TOOLS_BROKER_COORDINATION_ROOT_RESPONSE \
       DESKTOP_TOOLS_BROKER_HELPER_PATH DESKTOP_TOOLS_BROKER_HELPER_SHA256 \
@@ -3793,6 +3812,52 @@ NODE
   logg success 'Desktop Tools device enrollment is approved and durably stored.'
 }
 
+# @description Fetches the exact authenticated profile desired state and replaces caller/default
+#     package selection with the one machine declared by that profile. The engine owns credential
+#     reads, response bounds, profile/digest checks, and atomic ENVIRONMENT.md materialization.
+idSyncDesktopToolsDesiredState() {
+  local PROFILE_ID="${DESKTOP_TOOLS_PROFILE_ID:-}" PROFILE_SLUG="${DESKTOP_TOOLS_PROFILE_SLUG:-}"
+  local PROFILE_DIGEST="${DESKTOP_TOOLS_PROFILE_DIGEST:-}" ENGINE="${INSTALL_DOCTOR_ENGINE_PATH:-}"
+  local RUNTIME="${INSTALL_DOCTOR_RUNTIME_NODE:-}" CONFIG_ROOT STATE_ROOT CREDENTIAL_PATH ENVIRONMENT_PATH
+  local INVOCATION RESULT MACHINE_ID
+  [ -n "$PROFILE_ID" ] || return 0
+  CONFIG_ROOT="${XDG_CONFIG_HOME:-$HOME/.config}/desktop-tools"
+  STATE_ROOT="${XDG_STATE_HOME:-$HOME/.local/state}/desktop-tools/desired-state"
+  CREDENTIAL_PATH="$CONFIG_ROOT/device-credential.json"
+  ENVIRONMENT_PATH="$CONFIG_ROOT/ENVIRONMENT.md"
+  mkdir -p "$CONFIG_ROOT" "$STATE_ROOT" || return 2
+  chmod 0700 "$CONFIG_ROOT" "$STATE_ROOT" || return 2
+  MACHINE_ID="${DESKTOP_TOOLS_MACHINE_ID:-$(hostname -s 2>/dev/null || hostname 2>/dev/null || true)}"
+  MACHINE_ID="$(printf '%s' "$MACHINE_ID" | tr '[:upper:]' '[:lower:]')"
+  [[ "$MACHINE_ID" =~ ^[a-z0-9][a-z0-9._-]{0,127}$ ]] \
+    || { logg error 'Desktop Tools machine identity must exactly match a declared ENVIRONMENT.md machine id'; return 2; }
+  INVOCATION="$STATE_ROOT/invocation-$$.json"
+  RESULT="$STATE_ROOT/result-$$.json"
+  trap 'rm -f -- "${INVOCATION:-}" "${RESULT:-}"; trap - RETURN' RETURN
+  "$RUNTIME" - "$INVOCATION" "https://${PROFILE_SLUG}.desktop.tools" "$CREDENTIAL_PATH" "$ENVIRONMENT_PATH" \
+    "$PROFILE_ID" "$PROFILE_DIGEST" "$MACHINE_ID" <<'NODE' || return 2
+const fs=require('node:fs');const [path,origin,credentialPath,environmentPath,expectedProfileId,expectedProfileDigest,machineId]=process.argv.slice(2);
+fs.writeFileSync(path,`${JSON.stringify({schemaVersion:1,command:'profile-desired-state-sync',origin,credentialPath,
+  environmentPath,expectedProfileId,expectedProfileDigest,machineId})}\n`,{mode:0o600,flag:'wx'});
+NODE
+  "$RUNTIME" "$ENGINE" --input "$INVOCATION" </dev/null > "$RESULT" || return $?
+  "$RUNTIME" - "$RESULT" <<'NODE' || { logg error 'Authenticated Desktop Tools desired state was malformed'; return 2; }
+const value=JSON.parse(require('node:fs').readFileSync(process.argv[2],'utf8'));
+const id=/^[a-z0-9][a-z0-9._:-]{0,127}$/;
+if(value.schemaVersion!==1||!id.test(value.machineRole)||!Array.isArray(value.selectedPackages)||!Array.isArray(value.selectedServices)
+  ||value.selectedPackages.some(item=>!id.test(item))||value.selectedServices.some(item=>!id.test(item)))process.exit(2);
+NODE
+  INSTALL_DOCTOR_SELECTED_PACKAGES="$($RUNTIME -e 'const v=JSON.parse(require("node:fs").readFileSync(process.argv[1],"utf8"));process.stdout.write(v.selectedPackages.join(","))' "$RESULT")" || return 2
+  INSTALL_DOCTOR_SELECTED_SERVICES="$($RUNTIME -e 'const v=JSON.parse(require("node:fs").readFileSync(process.argv[1],"utf8"));process.stdout.write(v.selectedServices.join(","))' "$RESULT")" || return 2
+  INSTALL_DOCTOR_ROLE="$($RUNTIME -e 'const v=JSON.parse(require("node:fs").readFileSync(process.argv[1],"utf8"));process.stdout.write(v.machineRole)' "$RESULT")" || return 2
+  DESKTOP_TOOLS_PROFILE_REVISION="$($RUNTIME -e 'const v=JSON.parse(require("node:fs").readFileSync(process.argv[1],"utf8"));process.stdout.write(v.revision)' "$RESULT")" || return 2
+  DESKTOP_TOOLS_MACHINE_ID="$MACHINE_ID"
+  INSTALL_DOCTOR_ENVIRONMENT_PATH="$ENVIRONMENT_PATH"
+  export INSTALL_DOCTOR_SELECTED_PACKAGES INSTALL_DOCTOR_SELECTED_SERVICES INSTALL_DOCTOR_ROLE INSTALL_DOCTOR_ENVIRONMENT_PATH \
+    DESKTOP_TOOLS_PROFILE_REVISION DESKTOP_TOOLS_MACHINE_ID
+  logg success 'Authenticated Desktop Tools desired state is bound to this machine.'
+}
+
 # @description Main orchestration function that defines the execution order of all provisioning steps.
 provisionLogic() {
   local CHEZMOI_STATUS=0
@@ -3830,6 +3895,7 @@ provisionLogic() {
     return 0
   fi
   idRunRequiredProvisionStep "Authorizing this Desktop Tools target" idEnsureDesktopToolsDeviceAuthorization || return $?
+  idRunRequiredProvisionStep "Loading this machine's authenticated Desktop Tools desired state" idSyncDesktopToolsDesiredState || return $?
   idRunRequiredProvisionStep "Reconciling stale sudo acquisition ownership" idReconcileStaleSudoOwnership || return $?
   idRunRequiredProvisionStep "Resolving the install plan before mutation" configureInstallPlan || return $?
   idRunRequiredProvisionStep "Authorizing the exact host and recorded consent" idAuthorizePlatform || return $?

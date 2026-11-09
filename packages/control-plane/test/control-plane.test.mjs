@@ -6,6 +6,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { execFileSync, spawnSync } from 'node:child_process';
+import { blueprintDigest, exportMarkdown } from '../../aid-core/dist/core.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const distIndexPath = path.resolve(__dirname, '../dist/index.js');
@@ -56,6 +57,9 @@ async function loadWorkerApp() {
           secret_sha256 text not null unique, tenant_id text not null, profile_id text not null,
           target_key_fingerprint text not null, scopes text not null, issued_at text not null,
           expires_at text not null, revoked_at text
+        );
+        CREATE TABLE IF NOT EXISTS blueprints (
+          tenant text primary key, markdown text not null, updated_at text not null
         );
         CREATE TABLE IF NOT EXISTS tenant_owner_authority (
           authority_id text primary key, tenant_id text not null, owner_actor_id text not null,
@@ -232,10 +236,26 @@ test('pairing start uses a high-entropy human code and rejects oversized request
 test('v1 target authorization persists exact public binding and atomically claims target-owned authority', async () => {
   const app = await loadWorkerApp();
   const db = globalThis.__AID_TEST_DB__;
+  const desiredEnvironment = {
+    schemaVersion: 4, revision: 'revision-1', appUrl: 'https://desktop.tools',
+    routing: { engine: 'projectsites', preferredProvider: 'deepseek', allowPremium: false, maxTaskCostMicros: 0 },
+    skills: { repository: 'heymegabyte/agent-skills', commit: 'a'.repeat(40), include: [] },
+    defaults: { packages: ['git'], shellHistory: 'hishtory', tier: 'workstation' },
+    roles: [{ id: 'workstation', tier: 'workstation', packages: ['ripgrep'], capabilities: ['workstation'] }],
+    machines: [{ id: 'zen', os: 'linux', role: 'workstation', tier: 'workstation', capabilities: ['linux'],
+      packageOverrides: { add: [], remove: [] } }],
+    services: [], privacy: { shellAnalysis: 'local', screenshots: 'off', terminalInput: false, productLearning: false },
+    profile: { id: 'profile-brian', revision: 'revision-1', visibility: 'public-bootstrap' },
+    promptPolicy: { id: 'deterministic', version: 'v1', mode: 'deterministic-only', allowedRoutes: [] },
+    secretReferences: [],
+  };
+  const desiredDigest = await blueprintDigest(desiredEnvironment);
   const profile = {
     id: 'profile-brian', tenantId: 'tenant-brian', slug: 'brian', revision: 'revision-1',
-    digest: 'a'.repeat(64), visibility: 'public-bootstrap', enabled: true,
+    digest: desiredDigest, visibility: 'public-bootstrap', enabled: true,
   };
+  await db.prepare('INSERT INTO blueprints (tenant, markdown, updated_at) VALUES (?, ?, ?)')
+    .bind(profile.tenantId, exportMarkdown(desiredEnvironment), new Date().toISOString()).run();
   const env = { ...TEST_ENV, DB: db, DESKTOP_TOOLS_PUBLIC_PROFILES: [profile] };
   const pollSecret = 'p'.repeat(43);
   const binding = {
@@ -310,8 +330,11 @@ test('v1 target authorization persists exact public binding and atomically claim
   const desired = await app.fetch(new Request('https://brian.desktop.tools/api/device/current', {
     headers: { authorization: `Bearer ${credential.credential}` },
   }), env);
-  assert.equal(desired.status, 503, 'profile credential authenticates and reaches its tenant desired-state store');
-  assert.equal((await desired.json()).error, 'store_error');
+  assert.equal(desired.status, 200, await desired.clone().text());
+  const resolvedDesired = await desired.json();
+  assert.equal(resolvedDesired.deviceId, credential.credentialId);
+  assert.equal(resolvedDesired.digest, desiredDigest);
+  assert.equal(resolvedDesired.markdown, exportMarkdown(desiredEnvironment));
 
   await db.prepare('UPDATE device_authorization_credentials SET scopes=? WHERE credential_id=?')
     .bind('["session:create"]', credential.credentialId).run();

@@ -46,6 +46,7 @@ import { PrivilegedBrokerGrantSchema } from './privileged-broker-protocol.js';
 import { ProtectedAuthorizationState, TargetDeviceAuthorization } from './target-device-authorization.js';
 import { createTargetAuthorizationHttpTransport } from './target-device-authorization-http.js';
 import { ProtectedDeviceCredentialStore } from './target-device-credential.js';
+import { fetchProfileDesiredState } from './profile-desired-state.js';
 
 const identifier = z.string().min(1).max(128).regex(/^[a-z0-9][a-z0-9._-]*$/);
 const argument = z.string().max(4096).refine(value => !value.includes('\0'), 'arguments cannot contain NUL');
@@ -219,6 +220,11 @@ const DeviceAuthorizationCancelInvocationSchema = z.strictObject({
   ...targetAuthorizationBase, command: z.literal('device-authorization-cancel'),
   reason: z.string().min(1).max(64).regex(/^[a-z][a-z0-9.-]*$/).optional(),
 });
+const ProfileDesiredStateSyncInvocationSchema = z.strictObject({
+  schemaVersion: z.literal(1), command: z.literal('profile-desired-state-sync'),
+  origin: z.string().url(), credentialPath: privateStatePath, environmentPath: privateStatePath,
+  expectedProfileId: identifier, expectedProfileDigest: z.string().regex(/^[a-f0-9]{64}$/), machineId: identifier,
+});
 const bundlePlatform = z.strictObject({
   os: z.enum(['linux', 'darwin', 'win32']), arch: z.enum(['x64', 'arm64']),
   environment: z.enum(['native', 'wsl', 'proxmox', 'qubes', 'container']),
@@ -349,6 +355,7 @@ const InvocationSchema = z.discriminatedUnion('command', [
   BrokerApprovalClaimInvocationSchema,
   DeviceAuthorizationStartInvocationSchema, DeviceAuthorizationStatusInvocationSchema,
   DeviceAuthorizationWaitInvocationSchema, DeviceAuthorizationCancelInvocationSchema,
+  ProfileDesiredStateSyncInvocationSchema,
 ]);
 type Invocation = z.infer<typeof InvocationSchema>;
 type OperationInvocation = Extract<Invocation, { command: 'discover' | 'validate' | 'plan' | 'run' | 'resume' | 'status' }>;
@@ -1238,6 +1245,11 @@ async function main(): Promise<void> {
       phase = 'execute';
       process.stdout.write(`${JSON.stringify({ schemaVersion: 1,
         ...await authorization.cancel(invocation.reason ?? 'operator-cancelled') })}\n`);
+      return;
+    }
+    if (invocation.command === 'profile-desired-state-sync') {
+      phase = 'execute';
+      process.stdout.write(`${JSON.stringify({ schemaVersion: 1, ...await fetchProfileDesiredState(invocation) })}\n`);
       return;
     }
     if (invocation.command === 'broker-approval-claim') {
