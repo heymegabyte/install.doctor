@@ -17,7 +17,7 @@ import type { PrivilegedBrokerGrant, PrivilegedBrokerReceipt, PrivilegedBrokerRe
 
 const identifier = z.string().min(1).max(128).regex(/^[a-z0-9][a-z0-9._-]*$/);
 const digest = z.string().regex(/^[a-f0-9]{64}$/);
-const ClientConfigSchema = z.strictObject({
+export const PrivilegedBrokerClientConfigSchema = z.strictObject({
   helperPath: z.string().min(1).max(4096).refine(value => isAbsolute(value) && resolve(value) === value),
   socketPath: z.string().min(1).max(4096).refine(value => isAbsolute(value) && resolve(value) === value && value.startsWith('/run/desktop-tools/')),
   hostId: identifier,
@@ -32,7 +32,7 @@ const ErrorResponseSchema = z.strictObject({
 });
 const BrokerResponseSchema = z.union([PrivilegedBrokerReceiptSchema, ErrorResponseSchema]);
 
-export type PrivilegedBrokerClientConfig = z.infer<typeof ClientConfigSchema>;
+export type PrivilegedBrokerClientConfig = z.infer<typeof PrivilegedBrokerClientConfigSchema>;
 
 export interface PrivilegedBrokerTransport {
   readonly invoke: (input: {
@@ -137,7 +137,7 @@ export function createPrivilegedBrokerNativeRuntime(
   transport: PrivilegedBrokerTransport = defaultPrivilegedBrokerTransport,
   now: () => Date = () => new Date(),
 ): NativePackageRuntime {
-  const config = ClientConfigSchema.parse(configInput);
+  const config = PrivilegedBrokerClientConfigSchema.parse(configInput);
   const grant = config.grant as PrivilegedBrokerGrant;
   if (grant.hostId !== config.hostId || grant.releaseId !== config.releaseId || grant.runId !== config.runId
     || grant.planDigest !== config.planDigest || grant.brokerExecutableDigest.length !== 64) {

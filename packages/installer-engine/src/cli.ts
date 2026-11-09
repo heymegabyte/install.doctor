@@ -19,6 +19,7 @@ import { JournalIntegrityError, LiveOwnerError, createJournalStore } from './jou
 import { resolvePlatformProcessIdentity } from './process-identity.js';
 import { applyOfflineBundle, createOfflineBundle, planOfflineBundle, verifyOfflineBundle } from './offline-bundle.js';
 import { NativePackageOperationSchema, validateOfflineExecutionClosure } from './offline-execution.js';
+import type { NativePackageRuntime } from './offline-execution.js';
 import { executeOfflineBundle } from './offline-orchestrator.js';
 import { createDefaultDebianMetadataVerifier } from './debian-gpgv.js';
 import { createTrustedDebianVersionComparator } from './debian-version.js';
@@ -36,6 +37,9 @@ import { applyConfigurationTransaction, applyManagedDirectoryTransaction } from 
 import { TelemetryExportConfigSchema } from './telemetry.js';
 import type { TelemetryTransport } from './telemetry.js';
 import { PrivilegedBrokerDerivationInputSchema, derivePrivilegedBrokerAuthority } from './privileged-broker-derivation.js';
+import { PrivilegedBrokerClientConfigSchema, createPrivilegedBrokerNativeRuntime } from './privileged-broker-client.js';
+import { privilegedBrokerDescriptorDigest } from './privileged-broker-authority.js';
+import { openVerifiedArtifactSnapshot } from './verified-artifact-materializer.js';
 
 const identifier = z.string().min(1).max(128).regex(/^[a-z0-9][a-z0-9._-]*$/);
 const argument = z.string().max(4096).refine(value => !value.includes('\0'), 'arguments cannot contain NUL');
@@ -134,16 +138,28 @@ const common = {
   plan: PlanDraftSchema,
   operations: z.record(identifier, OperationSchema).refine(value => Object.keys(value).length <= 30_000, 'too many operations'),
 };
+const PrivilegedBrokerRunBindingSchema = z.strictObject({
+  client: PrivilegedBrokerClientConfigSchema,
+  descriptor: NativeOfflinePayloadDescriptorSchema,
+  payload: z.strictObject({
+    sourcePath: z.string().min(1).max(4096).refine(value => isAbsolute(value) && resolve(value) === value, 'broker payload path must be canonical and absolute'),
+    sha256: z.string().regex(/^[a-f0-9]{64}$/),
+    sizeBytes: z.number().int().positive().max(268_435_456),
+    mode: z.literal('0600'),
+  }),
+});
 const ReadOnlyInvocationSchema = z.strictObject({ ...common, command: z.enum(['discover', 'validate', 'plan']) });
 const RunInvocationSchema = z.strictObject({
   ...common, command: z.literal('run'), approvedPlanDigest: z.string().regex(/^[a-f0-9]{64}$/), renderer: RendererModeSchema,
   stateRoot: z.string().min(1).max(4096).refine(isAbsolute, 'state root must be absolute'),
   telemetry: TelemetryExportConfigSchema.optional(),
+  privilegedBroker: PrivilegedBrokerRunBindingSchema.optional(),
 });
 const ResumeInvocationSchema = z.strictObject({
   ...common, command: z.literal('resume'), planDigest: z.string().regex(/^[a-f0-9]{64}$/), renderer: RendererModeSchema,
   stateRoot: z.string().min(1).max(4096).refine(isAbsolute, 'state root must be absolute'),
   telemetry: TelemetryExportConfigSchema.optional(),
+  privilegedBroker: PrivilegedBrokerRunBindingSchema.optional(),
 });
 const StatusInvocationSchema = z.strictObject({
   schemaVersion: z.literal(1), command: z.literal('status'), runId: identifier, renderer: RendererModeSchema,
@@ -600,7 +616,11 @@ const telemetryTransport: TelemetryTransport = async ({ endpoint, batch, signal 
   if (!response.ok) throw new Error(`telemetry collector returned HTTP ${response.status}`);
 };
 
-function baseAdapterFor(invocation: OperationInvocation): InstallerAdapter {
+function baseAdapterFor(invocation: OperationInvocation, nativeBinding?: {
+  readonly runtime: NativePackageRuntime;
+  readonly descriptor: z.infer<typeof NativeOfflinePayloadDescriptorSchema>;
+  readonly payload: z.infer<typeof PrivilegedBrokerRunBindingSchema>['payload'];
+}): InstallerAdapter {
   const digestOpenFile = async (handle: Awaited<ReturnType<typeof open>>, size: number): Promise<string> => {
     if (!Number.isSafeInteger(size) || size < 1 || size > 16 * 1024 * 1024) {
       throw new Error('verified executable size is outside the 1 byte to 16 MiB boundary');
@@ -864,7 +884,41 @@ function baseAdapterFor(invocation: OperationInvocation): InstallerAdapter {
       return 0;
     }
     if (selected.kind === 'native-package') {
-      throw new Error('native package operation requires the approved privileged broker');
+      if (!nativeBinding || selected.action !== expectedAction || selected.packageKey !== nativeBinding.descriptor.packageKey
+        || selected.payloadArtifactId !== nativeBinding.descriptor.artifact.id) {
+        throw new Error('native package operation requires matching approved privileged broker authority');
+      }
+      const authority = Object.freeze({
+        operation: selected,
+        rootDescriptor: nativeBinding.descriptor,
+        packages: Object.freeze([]),
+        installedWitnesses: Object.freeze([...(selected.installedWitnesses ?? [])]),
+        context,
+        withPayload: async <R>(packageKey: string, use: (payload: Awaited<ReturnType<typeof open>>) => Promise<R>): Promise<R> => {
+          if (packageKey !== nativeBinding.descriptor.packageKey) throw new Error('broker payload request differs from its descriptor');
+          const payload = await openVerifiedArtifactSnapshot({
+            artifactId: nativeBinding.descriptor.artifact.id,
+            sourcePath: nativeBinding.payload.sourcePath,
+            authority: { sha256: nativeBinding.payload.sha256, sizeBytes: nativeBinding.payload.sizeBytes, mode: nativeBinding.payload.mode },
+          });
+          try { return await use(payload); } finally { await payload.close(); }
+        },
+      });
+      if (selected.action === 'check') {
+        const status = await nativeBinding.runtime.check(authority);
+        if (status === 'verified') return 0;
+        if (status === 'needed') return 10;
+        if (status === 'inapplicable') return 20;
+      } else if (selected.action === 'apply') {
+        await nativeBinding.runtime.apply(authority);
+        return 0;
+      } else {
+        const status = await nativeBinding.runtime.verify(authority);
+        if (status === 'verified') return 0;
+        if (status === 'inapplicable') return 20;
+        if (status === 'pending') return 30;
+      }
+      throw new Error(`privileged broker returned an unsupported ${selected.action} status`);
     }
     let verifiedHandle: Awaited<ReturnType<typeof open>> | undefined;
     const executionArgv = [...selected.argv];
@@ -934,11 +988,46 @@ function baseAdapterFor(invocation: OperationInvocation): InstallerAdapter {
 }
 
 async function adapterFor(invocation: OperationInvocation): Promise<InstallerAdapter> {
-  const nativeOperationCount = Object.values(invocation.operations).filter(operation => operation.kind === 'native-package').length;
-  if (nativeOperationCount !== 0 && (invocation.command === 'run' || invocation.command === 'resume')) {
-    throw new Error('native package operations require the approved privileged broker');
+  const nativeOperations = Object.entries(invocation.operations)
+    .filter((entry): entry is [string, z.infer<typeof NativePackageOperationSchema>] => entry[1].kind === 'native-package');
+  if (invocation.command !== 'run' && invocation.command !== 'resume') return baseAdapterFor(invocation);
+  const binding = invocation.privilegedBroker;
+  if (nativeOperations.length === 0) {
+    if (binding) throw new Error('privileged broker authority is forbidden without native package operations');
+    return baseAdapterFor(invocation);
   }
-  return baseAdapterFor(invocation);
+  if (!binding) throw new Error('native package operations require the approved privileged broker');
+  const expectedPlanDigest = invocation.command === 'run' ? invocation.approvedPlanDigest : invocation.planDigest;
+  const normalized = await deriveBoundNormalizedPlan(bindOperationsToPlan(invocation), invocation.facts,
+    invocation.desiredState, invocation.releaseId, new Date().toISOString());
+  const grant = binding.client.grant;
+  const task = invocation.plan.tasks.find(candidate => candidate.id === binding.client.taskId);
+  const selected = new Set(invocation.plan.selectedTaskIds);
+  if (normalized.digest !== expectedPlanDigest || grant.planDigest !== expectedPlanDigest
+    || binding.client.planDigest !== expectedPlanDigest || grant.approvedPlanDigest !== expectedPlanDigest
+    || binding.client.hostId !== invocation.facts.hostId || binding.client.releaseId !== invocation.releaseId
+    || binding.client.runId !== invocation.runId || !task || !selected.has(task.id)
+    || privilegedBrokerDescriptorDigest(binding.descriptor) !== grant.descriptorDigest
+    || binding.payload.sha256 !== binding.descriptor.artifact.sha256
+    || binding.payload.sizeBytes !== binding.descriptor.artifact.sizeBytes) {
+    throw new Error('privileged broker binding differs from the exact approved plan, host, release, run, or descriptor');
+  }
+  const phases = ['check', 'apply', 'verify'] as const;
+  if (nativeOperations.length !== 3 || phases.some(phase => {
+    const operationId = task.operations[phase];
+    const operation = invocation.operations[operationId];
+    return operation?.kind !== 'native-package' || operation.action !== phase
+      || operation.packageKey !== binding.descriptor.packageKey
+      || operation.payloadArtifactId !== binding.descriptor.artifact.id
+      || !grant.operations.some(candidate => candidate.taskId === task.id && candidate.operationId === operationId && candidate.phase === phase);
+  })) {
+    throw new Error('privileged broker binding does not own the exact native operation triplet');
+  }
+  return baseAdapterFor(invocation, {
+    runtime: createPrivilegedBrokerNativeRuntime(binding.client),
+    descriptor: binding.descriptor,
+    payload: binding.payload,
+  });
 }
 
 async function loadCommittedRollbackSource(input: {
