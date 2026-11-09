@@ -29,7 +29,10 @@ main() {
       package="${BASH_REMATCH[1]}"
       continue
     fi
-    if [[ "$line" =~ ^[[:space:]]+[\"\']?(_post[^:\"\']*)[\"\']?[[:space:]]*: ]]; then
+    if [[ "$line" =~ ^[[:space:]]+_post[[:space:]]*: ]]; then
+      key='_post'
+      rejected+="${rejected:+,}${package:-unknown}:$key"
+    elif [[ "$line" =~ ^[[:space:]]+[\"\'](_post(:[^\"\']+)*)[\"\'][[:space:]]*: ]]; then
       key="${BASH_REMATCH[1]}"
       rejected+="${rejected:+,}${package:-unknown}:$key"
     fi

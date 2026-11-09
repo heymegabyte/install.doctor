@@ -16,6 +16,8 @@ softwarePackages:
     _bin: fixture-bin
     _preload: true
     _post: 'printf compromised > "$POST_TEST_OUTPUT"'
+  phased:
+    "_post:configure": 'printf compromised > "$POST_TEST_OUTPUT"'
 YAML
 cat >"$TMP/bin/fixture-bin" <<'SH'
 #!/usr/bin/env bash
@@ -41,6 +43,12 @@ else
   fail "failure output does not identify rejected metadata"
 fi
 
+if grep -q 'phased:_post:configure' "$TMP/stderr"; then
+  pass "failure identifies quoted phased executable metadata"
+else
+  fail "failure omitted quoted phased executable metadata"
+fi
+
 if ! grep -q 'bash -c' "$RUNNER"; then
   pass "catalog validator contains no shell-string execution path"
 else
@@ -56,7 +64,7 @@ else
   pass "plan-bound release catalog is validated independently of the conventional chezmoi path"
 fi
 
-printf 'softwarePackages:\n  valid:\n    _preload: true\n' > "$TMP/home/.local/share/chezmoi/software.yml"
+printf 'softwarePackages:\n  valid:\n    _preload: true\n    _postInstallPrivilege: user\n' > "$TMP/home/.local/share/chezmoi/software.yml"
 if HOME="$TMP/home" XDG_DATA_HOME="$TMP/home/.local/share" PATH="$TMP/bin:/usr/bin:/bin" bash "$RUNNER" >/dev/null 2>&1; then
   pass "validator accepts a valid catalog without optional yq or gum"
 else
