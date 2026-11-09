@@ -1,6 +1,7 @@
 # Proposal
 
-**Architect Role:** assigned
+> **Architect:** codex
+> **Architect Role:** assigned
 
 ## Why
 

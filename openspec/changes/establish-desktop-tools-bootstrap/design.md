@@ -1,6 +1,7 @@
 # Design
 
-**Architect Role:** assigned
+> **Architect:** codex
+> **Architect Role:** assigned
 
 ## Context
 
@@ -103,7 +104,7 @@ Repository freshness remains mandatory even though Debian defines `Valid-Until` 
 
 Debian acquisition and composition occur only inside the trusted release builder. A trust-policy file owned by the source commit pins the Debian archive-keyring artifact digest, permitted signing-key fingerprints, repository origin, and exact `bookworm` InRelease, Packages, and payload paths. The composer acquires exactly four bounded inputs—the pinned archive keyring, InRelease, exact Packages index, and `tree` `.deb`—then verifies the keyring-to-InRelease signature, InRelease-to-Packages digest and size, exact package stanza, payload digest and size, control metadata, and freshness before emitting one canonical native payload descriptor. Ambient host keyrings, apt state, live target mirrors, and caller-provided trust roots are not authority.
 
-Published schema-v7 releases retain their original exact key set and remain inspectable for rollback; the four-object expansion uses the next manifest schema rather than silently redefining v7. Its exact manifest and publication allowlist bind URL, digest, and size for all four Debian objects. The composer output is merged into a staged catalog before signing, the SBOM covers every added release object, and provenance binds each upstream URI and digest, the source trust-policy digest, and the composition result. Publication stays create-only with immutable read-back verification. When InRelease contains `Valid-Until`, the complete Desktop Tools release window must end no later than that value. Debian objects are not downloaded by every bootstrap: online preparation lazily reads them from the verified immutable release namespace only when this slice is selected, while offline export carries the identical objects and authority.
+Published schema-v7 releases retain their original exact key set and remain inspectable for rollback. Schema v8 introduced the four-object Debian closure without redefining v7; schema v9 subsequently added the release-root-delegated broker-approval signer authority without redefining either earlier schema. The exact current manifest and publication allowlist bind URL, digest, and size for all four Debian objects and every other admitted release object. The composer output is merged into a staged catalog before signing, the SBOM covers every added release object, and provenance binds each upstream URI and digest, the source trust-policy digest, the composition result, and—when present—the broker-approval delegation and minimum revocation epoch. Publication stays create-only with immutable read-back verification. When InRelease contains `Valid-Until`, the complete Desktop Tools release window must end no later than that value. Debian objects are not downloaded by every bootstrap: online preparation lazily reads them from the verified immutable release namespace only when this slice is selected, while offline export carries the identical objects and authority.
 
 `libc6` is a typed `preexisting-witness` dependency, not part of the mutation closure. The engine must observe a healthy installed dpkg identity, version, and architecture that satisfies the signed relationship before admitting the plan. It must not download, select, reinstall, upgrade, downgrade, or otherwise mutate `libc6`.
 
