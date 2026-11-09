@@ -1542,6 +1542,8 @@ test('Desktop Tools release policy is source-owned while legacy release verifica
   assert.match(script, /readonly EXPECTED_PRODUCT_ID='desktop-tools'/);
   assert.match(script, /readonly DESKTOP_TOOLS_PROFILE_SLUG='example'/);
   assert.match(script, /DESKTOP_TOOLS_PROFILE_REVISION="\$DESKTOP_TOOLS_PROFILE_REVISION"/);
+  assert.match(script, /true\|1\) provisioner_stdin=\/dev\/null/,
+    'documented true and numeric 1 headless values must never reconnect provisioner stdin to the terminal');
   assert.match(script, /release manifest product does not match the bootstrap product/);
   assert.match(script, /desktop-tools\.engine|desktop-tools-engine\.mjs/);
   assert.match(script, /desktop-tools\.XXXXXXXX/);
@@ -1574,6 +1576,7 @@ test('Desktop Tools profile stage-zero executes a verified v9 runtime closure wi
     artifactBody: '#!/usr/bin/env bash\nset -euo pipefail\nprintf "%s|%s|%s|%s\\n" "$DESKTOP_TOOLS_PROFILE_ID" "$DESKTOP_TOOLS_PROFILE_SLUG" "$DESKTOP_TOOLS_PROFILE_REVISION" "$DESKTOP_TOOLS_PROFILE_DIGEST"\nprintf "%s|%s|%s|%s|%s\\n" "$DESKTOP_TOOLS_OPENCODE_VERSION" "$DESKTOP_TOOLS_OPENCODE_SHA256" "$DESKTOP_TOOLS_SUPERVISOR_SHA256" "$DESKTOP_TOOLS_TOOLS_SHA256" "$DESKTOP_TOOLS_SBOM_PATH"\ndelegation_mode="$(stat -c "%a" "$DESKTOP_TOOLS_BROKER_APPROVAL_DELEGATION_PATH" 2>/dev/null || stat -f "%Lp" "$DESKTOP_TOOLS_BROKER_APPROVAL_DELEGATION_PATH")"\nprintf "%s|%s|%s|%s|%s\\n" "$DESKTOP_TOOLS_BROKER_APPROVAL_DELEGATION_PATH" "$DESKTOP_TOOLS_BROKER_APPROVAL_DELEGATION_SHA256" "$DESKTOP_TOOLS_BROKER_APPROVAL_MINIMUM_REVOCATION_EPOCH" "$delegation_mode" "${DESKTOP_TOOLS_BROKER_APPROVAL_DELEGATION_URL:-absent}"\n'
   });
   const result = fixture.run(renderBootstrap({ ...fixture.config, profile }), release, {
+    HEADLESS_INSTALL: 'true',
     DESKTOP_TOOLS_BROKER_APPROVAL_DELEGATION_PATH: '/tmp/caller-controlled.json',
     DESKTOP_TOOLS_BROKER_APPROVAL_DELEGATION_SHA256: '0'.repeat(64),
     DESKTOP_TOOLS_BROKER_APPROVAL_MINIMUM_REVOCATION_EPOCH: '999999',

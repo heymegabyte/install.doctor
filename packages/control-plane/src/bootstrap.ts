@@ -487,6 +487,10 @@ manifest_sha256="$(sha256 "$MANIFEST")"
 
 # Do not forward arbitrary caller state, proxy configuration, shell startup hooks,
 # credentials, or debugging controls into the verified provisioner.
+case "\${HEADLESS_INSTALL:-}" in
+  true|1) provisioner_stdin=/dev/null ;;
+  *) if [ -r /dev/tty ]; then provisioner_stdin=/dev/tty; else provisioner_stdin=/dev/null; fi ;;
+esac
 set +e
 env -i \\
   HOME="\${HOME:-}" USER="\${USER:-}" LOGNAME="\${LOGNAME:-}" PATH="$APPROVED_PATH" \\
@@ -529,7 +533,7 @@ env -i \\
   INSTALL_DOCTOR_RUNTIME_URL="$runtime_effective_url" INSTALL_DOCTOR_RUNTIME_SHA256="$runtime_effective_sha256" \\
   INSTALL_DOCTOR_RUNTIME_SIZE="$runtime_effective_size" INSTALL_DOCTOR_RUNTIME_PLATFORM="$BOOTSTRAP_PLATFORM" \\
   INSTALL_DOCTOR_RUNTIME_NODE_VERSION="$runtime_effective_version" INSTALL_DOCTOR_RUNTIME_ARCHIVE="$runtime_archive" \\
-  bash "$ARTIFACT" "$@" < "$(if [ "\${HEADLESS_INSTALL:-0}" = 1 ] || [ ! -r /dev/tty ]; then printf /dev/null; else printf /dev/tty; fi)"
+  bash "$ARTIFACT" "$@" < "$provisioner_stdin"
 status=$?
 set -e
 exit "$status"
