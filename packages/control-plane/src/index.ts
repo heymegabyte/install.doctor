@@ -14,6 +14,7 @@ import { Env, providerConfigured } from './env';
 import { reserveBudget, DEFAULT_CEILING_MICROS } from './budget';
 // Better Auth — O-series sign-in (GitHub + Google), fire #102. See ./auth.ts.
 import { auth } from './auth';
+import { normalizeAuthReturnPath } from './auth-return-policy';
 import { isAllowedAdminEmail } from './admin-allowlist';
 import { redactSecrets } from '../../aid-core/src/redaction';
 import { classifyDesktopToolsHostname, resolvePublicProfileDescriptor } from '../../aid-core/src/profile-resolution';
@@ -486,8 +487,9 @@ app.get('/', (c) =>
 // live /api/auth/sign-in/social and redirect to the real provider authorize URL (fire #102). Completing the
 // round-trip needs the callback URL registered on the OAuth apps (a one-time human step) — the button itself
 // genuinely initiates OAuth either way. No backticks in the inline script (TS template literal, #91).
-app.get('/login', (c) =>
-  c.html(
+app.get('/login', (c) => {
+  const returnTo = normalizeAuthReturnPath(c.req.query('returnTo'));
+  return c.html(
     htmlPage(
       'Sign in · install.doctor',
       `<h1>Sign in <span class=muted>· install.doctor</span></h1>
@@ -500,10 +502,11 @@ app.get('/login', (c) =>
 </div>
 <p class=muted>Setting up a headless machine? <a href="/pair">Approve a pairing</a> instead.</p>
 <script>
+var RETURN_TO=${JSON.stringify(returnTo)};
 function signIn(p, btn){
   var err=document.getElementById('err'); err.textContent='';
   if(btn){btn.disabled=true;}
-  fetch('/api/auth/sign-in/social',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({provider:p,callbackURL:'/'})})
+  fetch('/api/auth/sign-in/social',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({provider:p,callbackURL:RETURN_TO})})
     .then(function(r){return r.json()})
     .then(function(j){
       if(j&&j.url){location.href=j.url;return}
@@ -518,8 +521,8 @@ document.getElementById('gh').addEventListener('click',function(){signIn('github
 document.getElementById('goog').addEventListener('click',function(){signIn('google',this)});
 </script>`,
     ),
-  ),
-);
+  );
+});
 // History nav section (S15) — the operator's fleet activity across devices. Minimal: paste the admin
 // token, fetch /api/history, render the events. The full cinematic §16 dashboard is ahead; this is the
 // first real, reachable nav section. All rendered values are HTML-escaped client-side (no XSS).
@@ -1117,6 +1120,7 @@ app.get('/pair', (c) => {
   // Preserve the canonical separators. Stripping them made every current XXXX-XXXX-XXXX
   // verify URL impossible to resolve because the API deliberately accepts only canonical codes.
   const code = normalizePairCode(c.req.query('code') || '') ?? '';
+  const signInHref = `/login?returnTo=${encodeURIComponent(code ? `/pair?code=${code}` : '/')}`;
   return c.html(
     htmlPage(
       'Pair device · aid',
@@ -1130,7 +1134,7 @@ ${code ? `<p class=muted>Pairing code:</p><p class=code>${code}</p><div id=info 
 <p><label class=muted>Namespace (optional)</label><br><input id=hostNs value="megabyte.space" placeholder="megabyte.space" style="width:100%"></p>
 </div>
 <div class=card><h3 id=approvalHeading>2. Approve (administrator)</h3>
-<p id=approvalGuidance class=muted>Review the device above, then sign in or use the labelled legacy administrator-token path for an ordinary compatibility pairing.</p>
+<p id=approvalGuidance class=muted>Review the device above, then <a href=${JSON.stringify(signInHref)}>sign in</a> or use the labelled legacy administrator-token path for an ordinary compatibility pairing.</p>
 <p id=legacyToken><input id=tok type=password placeholder="AID_ADMIN_TOKEN (legacy break-glass)" style="width:100%"></p>
 <p><button id=approveBtn>Approve pairing</button> <button id=denyBtn type=button style="background:#2a3147;color:#e6e8ef">Deny</button></p>
 <p id=out class=muted></p></div>

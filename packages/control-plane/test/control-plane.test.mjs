@@ -205,8 +205,27 @@ test('pairing page preserves the canonical human code and exposes owner approve 
   assert.match(html, /Array\.isArray\(j\.scopes\)\?j\.scopes/);
   assert.doesNotMatch(html, /code:OWNER_INFO\.code/);
   assert.match(html, /id=denyBtn/);
+  assert.match(html, /\/login\?returnTo=%2Fpair%3Fcode%3D2345-6789-ABCD/);
   const malformed = await app.fetch(new Request('https://desktop.tools/pair?code=23456789ABCD'), TEST_ENV);
   assert.doesNotMatch(await malformed.text(), /var CODE="23456789ABCD"/);
+});
+
+test('OIDC sign-in returns to an exact pairing review without accepting an open redirect', async () => {
+  const app = await loadWorkerApp();
+  const code = '2345-6789-ABCD';
+  const login = await app.fetch(new Request(
+    `https://desktop.tools/login?returnTo=${encodeURIComponent(`/pair?code=${code}`)}`,
+  ), TEST_ENV);
+  assert.equal(login.status, 200);
+  assert.match(await login.text(), /var RETURN_TO="\/pair\?code=2345-6789-ABCD"/);
+
+  const hostile = await app.fetch(new Request(
+    `https://desktop.tools/login?returnTo=${encodeURIComponent('https://evil.example/steal')}`,
+  ), TEST_ENV);
+  assert.equal(hostile.status, 200);
+  const hostileHtml = await hostile.text();
+  assert.match(hostileHtml, /var RETURN_TO="\/"/);
+  assert.doesNotMatch(hostileHtml, /evil\.example/);
 });
 
 test('public pairing lookup normalizes malformed, unknown, and claimed responses', async () => {
