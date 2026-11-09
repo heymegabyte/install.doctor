@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { createHash } from 'node:crypto';
+import { createHash, generateKeyPairSync, sign } from 'node:crypto';
 import {
-  chmod, mkdir, mkdtemp, open, readFile, readdir, rename, rm, stat, writeFile,
+  chmod, chown, copyFile, lstat, mkdir, mkdtemp, open, readFile, readdir, rename, rm, stat, writeFile,
 } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -12,9 +12,16 @@ import {
   createTrustedDebianVersionComparator,
   createDefaultDebianMetadataVerifier,
   assertNativeDpkgNetworkDenied,
+  collectLinuxOfflineHostFacts,
+  deriveBoundNormalizedPlan,
   inspectNativeDebianPackage,
   verifyDebianRepositoryMetadata,
 } from './dist/index.js';
+import { createPrivilegedBrokerNativeRuntime } from './dist/privileged-broker-client.js';
+import { derivePrivilegedBrokerAuthority } from './dist/privileged-broker-derivation.js';
+import { runPrivilegedBrokerController } from './dist/privileged-broker-controller.js';
+import { brokerApprovalAuditDigest, brokerApprovalSemanticDigest,
+  brokerApprovalSigningBytes } from './node_modules/@install-doctor/aid-core/dist/broker-approval-contracts.js';
 
 const receiptPath = process.argv[2];
 if (!receiptPath?.startsWith('/evidence/')) throw new Error('an evidence path below /evidence is required');
@@ -30,6 +37,7 @@ const PLAN_DIGEST = '7'.repeat(64);
 const POLICY_PATH = '/usr/sbin/policy-rc.d';
 const STATE_ROOT = '/var/lib/install-doctor-native-fixture';
 const TRANSACTION_PATH = join(STATE_ROOT, 'transaction.json');
+const BROKER_HELPER_SOURCE = '/usr/local/libexec/desktop-tools-privileged-broker';
 const actionLog = [];
 
 function sha256(bytes) {
@@ -75,6 +83,10 @@ async function atomicJson(path, value) {
   await rename(temporary, path);
   const directory = await open(dirname(path), 'r');
   try { await directory.sync(); } finally { await directory.close(); }
+}
+
+async function absent(path) {
+  await assert.rejects(lstat(path), error => error?.code === 'ENOENT');
 }
 
 async function buildPackage(work, architecture) {
@@ -218,7 +230,194 @@ async function createAndVerifyRepositoryAuthority(work, packagePath, architectur
     packagesIndexBytes: substitutedIndex, payloadBytes,
     verifier: createDefaultDebianMetadataVerifier({ keyring: { kind: 'path', absolutePath: keyringPath },
       now: () => new Date('2026-06-01T00:00:00.000Z') }) }), /Packages index (?:bytes differ|digest does not match)/);
-  return { descriptor, fingerprint, payloadDigest, tamperRejected: true };
+  return { descriptor, fingerprint, payloadDigest, tamperRejected: true,
+    inReleasePath, keyringPath, packagesPath };
+}
+
+async function createSignedReleaseAuthority(work, descriptor, artifacts) {
+  const releaseId = 'pid1-broker-release';
+  const releaseRoot = join(work, 'desktop-release');
+  const key = join(releaseRoot, 'release-key');
+  await mkdir(releaseRoot, { recursive: true, mode: 0o700 });
+  await command('/usr/bin/ssh-keygen', ['-q', '-t', 'ed25519', '-N', '', '-f', key]);
+  const catalogBytes = Buffer.from(`${JSON.stringify([{
+    name: PACKAGE_KEY, bin: PACKAGE_NAME, platforms: ['linux'], installMode: 'cli',
+    loadPolicy: 'lazy', loadRationale: 'default-lazy', deps: [], artifacts: [],
+    offlinePayloads: [descriptor], providers: ['apt'], pkgs: { apt: PACKAGE_NAME },
+  }])}\n`);
+  const catalogPath = join(releaseRoot, 'catalog.json');
+  await writeFile(catalogPath, catalogBytes, { mode: 0o600 });
+  const approvalSigner = generateKeyPairSync('ed25519');
+  const signerKeyId = 'pid1-approval-signer';
+  const now = Math.floor(Date.now() / 1000);
+  const notBefore = new Date((now - 60) * 1000).toISOString();
+  const notAfter = new Date((now + 1800) * 1000).toISOString();
+  const delegationProjection = { schemaVersion: 1, kind: 'desktop-tools-broker-approval-signer-delegation',
+    keyId: signerKeyId, algorithm: 'Ed25519', signatureDomain: 'desktop-tools-broker-approval-v1',
+    product: 'desktop-tools', releaseId, channel: 'stable',
+    publicKeySpki: approvalSigner.publicKey.export({ type: 'spki', format: 'der' }).toString('base64url'),
+    notBefore, notAfter, maximumApprovalLifetimeSeconds: 600, revocationEpoch: 1 };
+  const canonical = value => value && typeof value === 'object' && !Array.isArray(value)
+    ? Object.fromEntries(Object.entries(value).sort(([left], [right]) => left.localeCompare(right))
+      .map(([name, child]) => [name, canonical(child)]))
+    : Array.isArray(value) ? value.map(canonical) : value;
+  const delegationDigest = sha256(Buffer.from(`desktop-tools:broker-approval-signer-delegation:v1\0${JSON.stringify(canonical(delegationProjection))}`));
+  const delegationBytes = Buffer.from(`${JSON.stringify(canonical({ ...delegationProjection, delegationDigest }))}\n`);
+  const delegationPath = join(releaseRoot, 'broker-approval-signer-delegation.json');
+  await writeFile(delegationPath, delegationBytes, { mode: 0o400 });
+  const nativeObjects = [
+    ['debian_inrelease', descriptor.metadataProof.inRelease.artifactId, 'fixture-InRelease'],
+    ['debian_keyring', descriptor.metadataProof.inRelease.keyring.artifactId, 'fixture-keyring.gpg'],
+    ['debian_packages', descriptor.metadataProof.packagesIndex.artifactId, 'fixture-Packages.xz'],
+    ['debian_tree', descriptor.artifact.id, `${PACKAGE_NAME}_${PACKAGE_VERSION}_${descriptor.package.architecture}.deb`],
+  ];
+  const byId = new Map(artifacts.map(item => [item.artifactId, item]));
+  const prefixes = ['artifact', 'engine', 'catalog', 'launcher', 'supervisor', 'tools', 'opencode_lock', 'sbom', 'provenance', 'licenses',
+    'debian_keyring', 'debian_inrelease', 'debian_packages', 'debian_tree', 'runtime_macos_x64', 'runtime_macos_arm64',
+    'runtime_linux_x64', 'runtime_linux_arm64', 'opencode_macos_x64', 'opencode_macos_arm64', 'opencode_linux_x64', 'opencode_linux_arm64'];
+  const lines = ['schema_version=9', 'product_id=desktop-tools', `release_id=${releaseId}`, `source_commit=${'1'.repeat(40)}`,
+    `created_at=${now - 60}`, `expires_at=${now + 1800}`, 'key_id=pid1-fixture', 'engine_node_min=22',
+    `runtime_node_version=${process.versions.node}`, 'opencode_version=2.2.5', 'broker_approval_minimum_revocation_epoch=1'];
+  for (const prefix of prefixes) {
+    const native = nativeObjects.find(item => item[0] === prefix);
+    const artifact = native ? byId.get(native[1]) : undefined;
+    const bytes = prefix === 'catalog' ? catalogBytes : artifact ? await readFile(artifact.sourcePath) : Buffer.from(prefix);
+    const filename = native?.[2] ?? (prefix === 'catalog' ? 'catalog.json' : `${prefix}.fixture`);
+    lines.push(`${prefix}_url=https://desktop.tools/releases/${releaseId}/${filename}`,
+      `${prefix}_sha256=${sha256(bytes)}`, `${prefix}_size=${bytes.length}`);
+  }
+  lines.push(`broker_approval_delegation_url=https://desktop.tools/releases/${releaseId}/broker-approval-signer-delegation.json`,
+    `broker_approval_delegation_sha256=${sha256(delegationBytes)}`, `broker_approval_delegation_size=${delegationBytes.length}`);
+  assert.equal(lines.length, 80);
+  const manifestPath = join(releaseRoot, 'manifest');
+  await writeFile(manifestPath, `${lines.join('\n')}\n`, { mode: 0o600 });
+  await command('/usr/bin/ssh-keygen', ['-Y', 'sign', '-q', '-f', key, '-n', 'desktop.tools.release', manifestPath]);
+  const publicKey = (await readFile(`${key}.pub`, 'utf8')).trim();
+  const releaseProof = {
+    manifestPath, signaturePath: `${manifestPath}.sig`, catalogPath,
+    manifestSha256: sha256(await readFile(manifestPath)), trust: { keyId: 'pid1-fixture', publicKey },
+  };
+  return { releaseId, releaseProof, approvalSigner, signerKeyId, delegationPath, delegationDigest };
+}
+
+async function runBrokerComposition({ work, packagePath, repositoryAuthority, compareDebianVersions }) {
+  await command('/usr/bin/dpkg', ['--purge', '--', PACKAGE_NAME]);
+  const enrolledUid = 1000;
+  const enrolledGid = Number((await command('/usr/bin/id', ['-g', String(enrolledUid)])).stdout.trim());
+  assert.ok(Number.isInteger(enrolledGid) && enrolledGid > 0);
+  const runId = `pid1-broker-${process.pid}`;
+  const authorityRoot = `/run/desktop-tools/authority/${runId}`;
+  const socketRoot = `/run/desktop-tools/broker/${runId}`;
+  const helperPath = join(authorityRoot, 'desktop-tools-privileged-broker');
+  const runtimePath = join(authorityRoot, 'node');
+  const workerPath = join(authorityRoot, 'worker.mjs');
+  const clientPath = join('/run/user/1000', `${runId}-client.mjs`);
+  const clientInputPath = join('/run/user/1000', `${runId}.json`);
+  const clientPayloadPath = join('/run/user/1000', `${runId}.deb`);
+  await mkdir(authorityRoot, { recursive: true, mode: 0o711 });
+  await mkdir(socketRoot, { recursive: true, mode: 0o710 });
+  await chmod(authorityRoot, 0o711);
+  await chmod(socketRoot, 0o710);
+  await Promise.all([
+    copyFile(BROKER_HELPER_SOURCE, helperPath), copyFile(process.execPath, runtimePath),
+    copyFile(new URL('./dist/desktop-tools-privileged-worker.mjs', import.meta.url), workerPath),
+    copyFile(packagePath, clientPayloadPath),
+  ]);
+  const clientSource = `
+import { open, readFile } from 'node:fs/promises';
+import { createPrivilegedBrokerNativeRuntime } from '${new URL('./dist/privileged-broker-client.js', import.meta.url).href}';
+const input=JSON.parse(await readFile(process.argv[2],'utf8'));
+const runtime=createPrivilegedBrokerNativeRuntime(input.config);
+const authority=phase=>({operation:{kind:'native-package',effectClass:'native-package',action:phase,packageKey:input.packageKey,payloadArtifactId:input.artifact.id},rootDescriptor:{packageKey:input.packageKey,artifact:input.artifact},packages:[],installedWitnesses:[],withPayload:async(_key,use)=>{const handle=await open(process.argv[3],'r');try{return await use(handle)}finally{await handle.close()}},context:undefined});
+const check=await runtime.check(authority('check')); await runtime.apply(authority('apply')); const verify=await runtime.verify(authority('verify'));
+process.stdout.write(JSON.stringify({check,apply:'applied',verify})+'\\n');
+`;
+  await writeFile(clientPath, clientSource, { mode: 0o555 });
+  await Promise.all([
+    chmod(helperPath, 0o555), chmod(runtimePath, 0o555), chmod(workerPath, 0o400), chmod(clientPath, 0o500), chmod(clientPayloadPath, 0o400),
+    chown(helperPath, 0, 0), chown(runtimePath, 0, 0), chown(workerPath, 0, 0),
+    chown(clientPath, enrolledUid, enrolledGid), chown(clientPayloadPath, enrolledUid, enrolledGid), chown(socketRoot, 0, enrolledGid),
+  ]);
+  const descriptor = repositoryAuthority.descriptor;
+  const artifactSources = [
+    { artifactId: descriptor.metadataProof.inRelease.keyring.artifactId, sourcePath: repositoryAuthority.keyringPath },
+    { artifactId: descriptor.metadataProof.packagesIndex.artifactId, sourcePath: repositoryAuthority.packagesPath },
+    { artifactId: descriptor.metadataProof.inRelease.artifactId, sourcePath: repositoryAuthority.inReleasePath },
+    { artifactId: descriptor.artifact.id, sourcePath: packagePath },
+  ];
+  const artifacts = await Promise.all(artifactSources.map(async item => {
+    const bytes = await readFile(item.sourcePath);
+    return { ...item, url: '', sha256: sha256(bytes), sizeBytes: bytes.length, mode: '0600' };
+  }));
+  const release = await createSignedReleaseAuthority(work, descriptor, artifacts);
+  for (const item of artifacts) {
+    const mapping = item.artifactId === descriptor.artifact.id ? `debian_tree` : item.artifactId === descriptor.metadataProof.inRelease.artifactId
+      ? 'debian_inrelease' : item.artifactId === descriptor.metadataProof.inRelease.keyring.artifactId ? 'debian_keyring' : 'debian_packages';
+    const manifest = await readFile(release.releaseProof.manifestPath, 'utf8');
+    item.url = manifest.match(new RegExp(`^${mapping}_url=(.+)$`, 'm'))[1];
+  }
+  const facts = await collectLinuxOfflineHostFacts();
+  const desiredState = { schemaVersion: 1, revision: 'pid1-broker', hostId: facts.hostId,
+    packages: [PACKAGE_KEY], services: [], consents: [], offline: true };
+  const libcVersion = (await command('/usr/bin/dpkg-query', ['--show', '--showformat=${Version}', '--', 'libc6'])).stdout.trim();
+  const composed = composeNativeDebianPackageSlice({ descriptor,
+    target: { distroId: 'debian', versionId: '12', codename: 'bookworm', architecture: descriptor.package.architecture },
+    installedWitnesses: [{ kind: 'preexisting-witness', manager: 'dpkg', packageName: 'libc6', version: libcVersion,
+      architecture: 'amd64', status: 'installed', healthy: true, held: false }],
+    desiredState, legacyPackages: [PACKAGE_KEY], compareDebianVersions });
+  const plan = await deriveBoundNormalizedPlan({ tasks: [composed.task], selectedTaskIds: [composed.task.id],
+    executionPolicy: { maxConcurrency: 1, resourceLimits: { cpu: 1, memoryMiB: 512, networkConcurrency: 0 } } },
+  facts, composed.desiredState, release.releaseId, new Date().toISOString());
+  const derived = derivePrivilegedBrokerAuthority({ schemaVersion: 1, approvalMode: 'signed-device', runId,
+    approvedPlanDigest: plan.digest, plan, operations: composed.operations.operations, desiredState: composed.desiredState,
+    hostFacts: facts, descriptor, releaseProof: release.releaseProof, artifacts,
+    transactionRoot: `/var/lib/desktop-tools/transactions/${runId}`, enrolledUid, socketGid: enrolledGid,
+    helperPath, helperDigest: sha256(await readFile(helperPath)), runtimePath, runtimeDigest: sha256(await readFile(runtimePath)),
+    workerPath, workerDigest: sha256(await readFile(workerPath)), socketPath: join(socketRoot, 'broker.sock'),
+    issuedAt: new Date().toISOString(), expiresAt: new Date(Date.now() + 10 * 60_000).toISOString(), operationTimeoutMs: 120_000 });
+  await writeFile(clientInputPath, JSON.stringify({ config: derived.clientConfig, packageKey: PACKAGE_KEY,
+    artifact: descriptor.artifact }), { mode: 0o400 });
+  await chown(clientInputPath, enrolledUid, enrolledGid);
+  const approvedAt = derived.grant.issuedAt;
+  const approvalExpiresAt = new Date(Math.min(Date.parse(derived.grant.expiresAt) - 1_000,
+    Date.parse(approvedAt) + 5 * 60_000)).toISOString();
+  const unsignedApproval = { schemaVersion: 1, kind: 'desktop-tools-broker-approval', signerKeyId: release.signerKeyId,
+    signatureDomain: 'desktop-tools-broker-approval-v1', approvalId: `approval-${runId}`,
+    authorizationId: 'authorization-pid1', ownerDecisionId: 'decision-pid1', ownerActorId: 'owner-pid1',
+    tenantId: 'tenant-pid1', profileId: 'profile-pid1', profileRevisionDigest: sha256(Buffer.from('profile-pid1')),
+    deviceCredentialId: 'credential-pid1', deviceFingerprint: sha256(Buffer.from('device-pid1')),
+    runIntentId: 'intent-pid1', grant: derived.grant,
+    grantDigest: await brokerApprovalSemanticDigest('desktop-tools:privileged-broker:v1', derived.grant),
+    delegationDigest: release.delegationDigest, revocationEpoch: 1, approvedAt, expiresAt: approvalExpiresAt };
+  const deviceApproval = { ...unsignedApproval,
+    signature: sign(null, brokerApprovalSigningBytes(unsignedApproval), release.approvalSigner.privateKey).toString('base64url'),
+    auditDigest: await brokerApprovalAuditDigest(unsignedApproval) };
+  const controllerInput = { ...derived.controllerInput, approvalMode: 'signed-device', deviceApproval,
+    brokerApprovalDelegationPath: release.delegationPath,
+    brokerApprovalDelegationDigest: sha256(await readFile(release.delegationPath)),
+    brokerApprovalMinimumRevocationEpoch: 1 };
+  let clientReceipt;
+  const result = await runPrivilegedBrokerController(controllerInput, {
+    onReady: async () => {
+      const executed = await command('/usr/bin/setpriv', [`--reuid=${enrolledUid}`, `--regid=${enrolledGid}`, '--clear-groups',
+        process.execPath, clientPath, clientInputPath, clientPayloadPath]);
+      clientReceipt = JSON.parse(executed.stdout);
+    },
+  });
+  assert.equal(result.exitCode, 0);
+  assert.deepEqual(clientReceipt, { check: 'needed', apply: 'applied', verify: 'verified' });
+  await absent(controllerInput.socketPath);
+  await absent(`${controllerInput.socketPath}.starting`);
+  await absent(`/run/desktop-tools/privileged/grants/${derived.grant.grantId}.json`);
+  await absent(`/run/desktop-tools/privileged/authorities/${derived.grant.grantId}.json`);
+  const transactionIds = await readdir(derived.authority.transactionRoot);
+  assert.equal(transactionIds.length, 1);
+  const generationNames = (await readdir(join(derived.authority.transactionRoot, transactionIds[0]))).sort();
+  assert.ok(generationNames.length > 0);
+  const generation = JSON.parse(await readFile(join(derived.authority.transactionRoot, transactionIds[0], generationNames.at(-1)), 'utf8'));
+  assert.equal(generation.record.phase, 'completed');
+  return { receipt: clientReceipt, grantId: derived.grant.grantId, authorityRetired: true, signedDeviceApproval: true,
+    transactionCompleted: true, releaseManifestSha256: release.releaseProof.manifestSha256 };
 }
 
 async function exactPolicyState() {
@@ -368,6 +567,11 @@ async function main() {
   assert.equal(noPendingTriggers, true);
   const installed = await command('/usr/bin/dpkg-query', ['--show', `--showformat=\${db:Status-Status}\t\${Version}\n`, '--', PACKAGE_NAME]);
   assert.equal(installed.stdout, `installed\t${PACKAGE_VERSION}\n`);
+  const brokerComposition = await runBrokerComposition({ work, packagePath, repositoryAuthority, compareDebianVersions });
+  const brokerInstalled = await command('/usr/bin/dpkg-query', ['--show', `--showformat=\${db:Status-Status}\t\${Version}\n`, '--', PACKAGE_NAME]);
+  assert.equal(brokerInstalled.stdout, `installed\t${PACKAGE_VERSION}\n`);
+  assert.equal(JSON.stringify(await exactPolicyState()), JSON.stringify(initialPolicy));
+  assert.equal(JSON.stringify(await serviceState()), JSON.stringify(initialService));
   const [dpkgVersion, systemdVersion, runtimeBytes] = await Promise.all([
     command('/usr/bin/dpkg', ['--version']),
     command('/usr/bin/systemctl', ['--version']),
@@ -388,10 +592,17 @@ async function main() {
       repositoryTamperRejected: repositoryAuthority.tamperRejected,
       boundaryInterruptionRecorded: true, resumeConfigureOnly, unchangedSecondApply,
       policyRestoredExactly, serviceRestoredExactly, noPendingTriggers, reproduciblePackage,
+      brokerProductionWorkerRealDpkg: true,
+      brokerCheckApplyVerify: brokerComposition.receipt,
+      brokerAuthorityRetired: brokerComposition.authorityRetired,
+      brokerTransactionCompleted: brokerComposition.transactionCompleted,
+      brokerSignedDeviceApproval: brokerComposition.signedDeviceApproval,
     },
     repositoryAuthority: { signingKeyFingerprint: repositoryAuthority.fingerprint,
       payloadSha256: repositoryAuthority.payloadDigest },
-    limitation: 'Interruption is injected after a real dpkg unpack returns at the runtime safe boundary; this fixture does not claim SIGKILL or power-loss coverage inside dpkg.',
+    brokerAuthority: { grantId: brokerComposition.grantId,
+      releaseManifestSha256: brokerComposition.releaseManifestSha256 },
+    limitation: 'Interruption is injected only in the direct-runtime lifecycle after a real dpkg unpack returns at the runtime safe boundary. The separate broker-composed lifecycle is a clean check/apply/verify run and does not claim SIGKILL or power-loss coverage inside dpkg.',
     finishedAt: new Date().toISOString(),
   };
   await atomicJson(receiptPath, receipt);

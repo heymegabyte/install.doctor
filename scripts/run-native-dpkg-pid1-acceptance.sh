@@ -15,6 +15,10 @@ command -v docker >/dev/null 2>&1 || { printf 'docker is required\n' >&2; exit 6
   printf 'build packages/installer-engine before running the PID1 acceptance fixture\n' >&2
   exit 65
 }
+(
+  cd "$ROOT/packages/installer-engine"
+  npm run bundle:broker-worker
+)
 mkdir -p "$EVIDENCE_ROOT"
 chmod 0700 "$EVIDENCE_ROOT"
 rm -f "$EVIDENCE_ROOT/receipt.json" "$EVIDENCE_ROOT/run.ndjson"
@@ -58,16 +62,20 @@ docker exec "$CONTAINER" /bin/sh -ceu '
   [ "$(id -u "$enrolled_name")" -eq "$enrolled_uid" ]
   enrolled_gid="$(id -g "$enrolled_name")"
   [ "$enrolled_gid" -gt 0 ]
-  for path in /run/user/1000 /run/install.doctor /run/install.doctor/broker; do
+  for path in /run/user/1000 /run/install.doctor /run/install.doctor/broker /run/desktop-tools /run/desktop-tools/authority /run/desktop-tools/broker; do
     [ ! -L "$path" ]
   done
   install -d -o "$enrolled_uid" -g "$enrolled_gid" -m 0700 /run/user/1000
   install -d -o 0 -g "$enrolled_gid" -m 0750 /run/install.doctor /run/install.doctor/broker
+  install -d -o 0 -g "$enrolled_gid" -m 0750 /run/desktop-tools /run/desktop-tools/broker
+  install -d -o 0 -g 0 -m 0711 /run/desktop-tools/authority
   [ "$(stat -c %u:%g:%a /run/user/1000)" = "$enrolled_uid:$enrolled_gid:700" ]
   [ "$(stat -c %u:%g:%a /run/install.doctor)" = "0:$enrolled_gid:750" ]
   [ "$(stat -c %u:%g:%a /run/install.doctor/broker)" = "0:$enrolled_gid:750" ]
+  [ "$(stat -c %u:%g:%a /run/desktop-tools/broker)" = "0:$enrolled_gid:750" ]
+  [ "$(stat -c %u:%g:%a /run/desktop-tools/authority)" = "0:0:711" ]
   setpriv --reuid="$enrolled_uid" --regid="$enrolled_gid" --init-groups --reset-env \
-    /bin/sh -ceu '\''[ "$(id -u)" -eq 1000 ]; [ -w /run/user/1000 ]; [ -x /run/install.doctor/broker ]; [ ! -w /run/install.doctor/broker ]'\''
+    /bin/sh -ceu '\''[ "$(id -u)" -eq 1000 ]; [ -w /run/user/1000 ]; [ -x /run/install.doctor/broker ]; [ ! -w /run/install.doctor/broker ]; [ -x /run/desktop-tools/authority ]; [ -x /run/desktop-tools/broker ]; [ ! -w /run/desktop-tools/broker ]'\''
 '
 
 docker exec "$CONTAINER" /usr/bin/setpriv --bounding-set=-net_admin --no-new-privs -- \
