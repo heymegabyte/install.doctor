@@ -23,6 +23,27 @@ const catalog = [
 const catalogBytes = Buffer.from(`${JSON.stringify(catalog)}\n`);
 const catalogSha256 = createHash('sha256').update(catalogBytes).digest('hex');
 
+async function signedRelease(root, bytes = catalogBytes, signingRoot = root) {
+  const key = join(signingRoot, 'release-key');
+  if (signingRoot === root) {
+    const generated = spawnSync('/usr/bin/ssh-keygen', ['-q', '-t', 'ed25519', '-N', '', '-f', key], { encoding: 'utf8' });
+    assert.equal(generated.status, 0, generated.stderr);
+  }
+  const releaseId = 'release-1';
+  const digest = createHash('sha256').update(bytes).digest('hex');
+  const lines = ['schema_version=7', 'product_id=desktop-tools', `release_id=${releaseId}`,
+    'source_commit=0000000000000000000000000000000000000000', 'created_at=1794138000', 'expires_at=1794224400',
+    'key_id=desktop-test', 'engine_node_min=22', 'runtime_node_version=24.1.0', 'opencode_version=2.0.0',
+    `catalog_url=https://desktop.tools/releases/${releaseId}/catalog.json`, `catalog_sha256=${digest}`, `catalog_size=${bytes.byteLength}`];
+  while (lines.length < 64) lines.push(`test_field_${lines.length}=bound-value-${lines.length}`);
+  const manifestPath = join(root, 'manifest');
+  await writeFile(manifestPath, `${lines.join('\n')}\n`, { mode: 0o600 });
+  const signed = spawnSync('/usr/bin/ssh-keygen', ['-Y', 'sign', '-q', '-f', key, '-n', 'desktop.tools.release', manifestPath], { encoding: 'utf8' });
+  assert.equal(signed.status, 0, signed.stderr);
+  return { releaseId, manifestPath, signaturePath: `${manifestPath}.sig`, key,
+    publicKey: (await readFile(`${key}.pub`, 'utf8')).trim() };
+}
+
 function environment() {
   const v2 = {
     schemaVersion: 2, revision: 'revision-1', appUrl: 'https://app.install.doctor',
@@ -53,9 +74,12 @@ test('bounded CLI exports a catalog-verified profile without source-private stat
   await writeFile(environmentPath, exportMarkdown(environment()), { mode: 0o600 });
   await writeFile(factsPath, `${JSON.stringify(facts)}\n`, { mode: 0o600 });
   await writeFile(catalogPath, catalogBytes, { mode: 0o600 });
+  const release = await signedRelease(root);
   const result = spawnSync(process.execPath, [resolve('bin/desktop-tools-profile-export.mjs'), 'export',
     '--environment', environmentPath, '--machine', 'private-source-host', '--facts', factsPath,
-    '--catalog', catalogPath, '--catalog-sha256', catalogSha256, '--output', outputPath], { encoding: 'utf8' });
+    '--catalog', catalogPath, '--release-manifest', release.manifestPath, '--release-signature', release.signaturePath,
+    '--release-id', release.releaseId, '--signer-id', 'desktop-test', '--signer-public-key', `${release.key}.pub`,
+    '--output', outputPath], { encoding: 'utf8' });
   assert.equal(result.status, 0, result.stderr);
   const profile = await parsePortableProfileExport(await readFile(outputPath, 'utf8'));
   assert.equal(profile.catalog.sha256, catalogSha256);
@@ -64,13 +88,31 @@ test('bounded CLI exports a catalog-verified profile without source-private stat
   assert.doesNotMatch(await readFile(outputPath, 'utf8'), /private-source-host|infisical:|credential/i);
   const replay = spawnSync(process.execPath, [resolve('bin/desktop-tools-profile-export.mjs'), 'export',
     '--environment', environmentPath, '--machine', 'private-source-host', '--facts', factsPath,
-    '--catalog', catalogPath, '--catalog-sha256', catalogSha256, '--output', outputPath], { encoding: 'utf8' });
+    '--catalog', catalogPath, '--release-manifest', release.manifestPath, '--release-signature', release.signaturePath,
+    '--release-id', release.releaseId, '--signer-id', 'desktop-test', '--signer-public-key', `${release.key}.pub`,
+    '--output', outputPath], { encoding: 'utf8' });
   assert.notEqual(replay.status, 0);
 });
 
+test('forged catalog and matching attacker manifest hash are rejected by trusted signer authority', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'desktop-tools-profile-forgery-'));
+  const trusted = await signedRelease(root);
+  const attackerRoot = await mkdtemp(join(tmpdir(), 'desktop-tools-profile-attacker-'));
+  const forged = Buffer.from('[{"attacker":true}]\n');
+  const attacker = await signedRelease(attackerRoot, forged);
+  await assert.rejects(createCatalogBoundProfileExport({ environment: environment(), machineId: 'private-source-host', facts,
+    catalogBytes: forged, release: { manifestPath: attacker.manifestPath, signaturePath: attacker.signaturePath,
+      expectedReleaseId: attacker.releaseId, trust: { keyId: 'desktop-test', publicKey: trusted.publicKey }, now: 1794140000 } }),
+  /signature verification failed/);
+});
+
 test('fresh standalone target reconstructs its plan draft only from export and trusted catalog bytes', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'desktop-tools-profile-library-'));
+  const release = await signedRelease(root);
   const exported = await createCatalogBoundProfileExport({
-    environment: environment(), machineId: 'private-source-host', facts, catalogBytes, catalogSha256,
+    environment: environment(), machineId: 'private-source-host', facts, catalogBytes,
+    release: { manifestPath: release.manifestPath, signaturePath: release.signaturePath,
+      expectedReleaseId: release.releaseId, trust: { keyId: 'desktop-test', publicKey: release.publicKey }, now: 1794140000 },
   });
   const sourceDesired = await materializePortableDesiredState(exported, facts);
   const sourceDraft = await reconstructPortablePlanDraft({ profileExport: exported, facts, catalogBytes });

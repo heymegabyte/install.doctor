@@ -49,8 +49,10 @@ Configuration rollback is also plan-first. `rollback-config-plan` reads only a c
 Portable Desktop Tools profiles have a separate bounded export command after building the
 package: `node bin/desktop-tools-profile-export.mjs export --environment /absolute/ENVIRONMENT.md
 --machine <id> --facts /absolute/facts.json --catalog /absolute/catalog.json
---catalog-sha256 <digest> --output /absolute/profile.json`. It creates the output exclusively
-as mode `0600`, verifies exact signed-release catalog bytes before resolving recipes, and never
+--release-manifest /absolute/manifest --release-signature /absolute/manifest.sig
+--release-id <id> --signer-id <id> --signer-public-key /absolute/key.pub
+--output /absolute/profile.json`. It creates the output exclusively as mode `0600`, authenticates
+the bounded, current Desktop Tools release and derives exact catalog membership before resolving recipes, and never
 exports source machine identities, service endpoints, or secret references. Standalone planning
 re-verifies the same catalog, resolves the closure again, verifies every exported recipe digest,
 and reconstructs its plan draft rather than accepting one from the export or caller.

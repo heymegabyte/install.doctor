@@ -169,7 +169,7 @@ async function signManifest(manifestPath: string, privateKeyPath: string): Promi
 
 async function verifySignature(
   manifestBytes: Buffer, signaturePath: string, trustInput: unknown,
-  namespace: 'install.doctor.offline-bundle' | 'install.doctor.release',
+  namespace: 'install.doctor.offline-bundle' | 'install.doctor.release' | 'desktop.tools.release',
 ): Promise<void> {
   const trust = TrustSchema.parse(trustInput);
   await assertTrustedSshKeygen();
@@ -201,6 +201,52 @@ async function verifySignature(
   } finally {
     await rm(stage, { recursive: true, force: true });
   }
+}
+
+/** Authenticate the Desktop Tools release authority and return its exact catalog membership. */
+export async function verifyDesktopReleaseCatalog(input: {
+  manifestPath: string;
+  signaturePath: string;
+  trust: OfflineBundleTrust;
+  expectedReleaseId: string;
+  catalogBytes: Buffer;
+  now?: number;
+}): Promise<{ releaseId: string; catalogSha256: string; manifestSha256: string }> {
+  const manifestBytes = await secureRead(input.manifestPath, 16_384);
+  await secureRead(input.signaturePath, 8_192);
+  const trust = TrustSchema.parse(input.trust);
+  await verifySignature(manifestBytes, input.signaturePath, trust, 'desktop.tools.release');
+  const text = new TextDecoder('utf-8', { fatal: true }).decode(manifestBytes);
+  if (!text.endsWith('\n') || text.includes('\r') || text.includes('\0')) throw new OfflineBundleError('signed release manifest encoding is invalid');
+  const lines = text.slice(0, -1).split('\n');
+  if (lines.length !== 64) throw new OfflineBundleError('signed release manifest key count is invalid');
+  const values = new Map<string, string>();
+  for (const line of lines) {
+    const separator = line.indexOf('=');
+    if (separator < 1) throw new OfflineBundleError('signed release manifest entry is invalid');
+    const key = line.slice(0, separator); const value = line.slice(separator + 1);
+    if (!/^[a-z][a-z0-9_]*$/.test(key) || !value || values.has(key)) throw new OfflineBundleError('signed release manifest is ambiguous');
+    values.set(key, value);
+  }
+  const releaseId = id.parse(values.get('release_id'));
+  if (values.get('schema_version') !== '7' || values.get('product_id') !== 'desktop-tools'
+    || values.get('key_id') !== trust.keyId || releaseId !== id.parse(input.expectedReleaseId)) {
+    throw new OfflineBundleError('signed release identity is not trusted');
+  }
+  const createdAt = Number(values.get('created_at')); const expiresAt = Number(values.get('expires_at'));
+  const now = input.now ?? Math.floor(Date.now() / 1_000);
+  if (!Number.isSafeInteger(createdAt) || !Number.isSafeInteger(expiresAt) || !Number.isSafeInteger(now)
+    || createdAt > now + 300 || expiresAt <= now || createdAt >= expiresAt || expiresAt - createdAt > 604_800) {
+    throw new OfflineBundleError('signed release validity window is not current and bounded');
+  }
+  const catalogSha256 = digest.parse(values.get('catalog_sha256'));
+  const catalogSize = Number(values.get('catalog_size'));
+  if (values.get('catalog_url') !== `https://desktop.tools/releases/${releaseId}/catalog.json`
+    || !Number.isSafeInteger(catalogSize) || catalogSize < 2 || catalogSize > 8_388_608
+    || input.catalogBytes.byteLength !== catalogSize || sha256(input.catalogBytes) !== catalogSha256) {
+    throw new OfflineBundleError('catalog is not an exact member of the authenticated release');
+  }
+  return Object.freeze({ releaseId, catalogSha256, manifestSha256: sha256(manifestBytes) });
 }
 
 export type CreateOfflineBundleInput = {

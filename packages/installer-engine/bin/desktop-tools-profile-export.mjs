@@ -1,5 +1,4 @@
 #!/usr/bin/env node
-import { createHash } from 'node:crypto';
 import { lstat, open, readFile } from 'node:fs/promises';
 import { isAbsolute, resolve } from 'node:path';
 import { importMarkdown } from '@install-doctor/aid-core';
@@ -7,12 +6,12 @@ import { serializePortableProfileExport } from '@install-doctor/aid-core/profile
 import { createCatalogBoundProfileExport } from '../dist/portable-profile.js';
 
 function usage(message) {
-  throw new Error(`${message}; usage: desktop-tools-profile-export export --environment /abs/ENVIRONMENT.md --machine id --facts /abs/facts.json --catalog /abs/catalog.json --catalog-sha256 <sha256> --output /abs/profile.json`);
+  throw new Error(`${message}; usage: desktop-tools-profile-export export --environment /abs/ENVIRONMENT.md --machine id --facts /abs/facts.json --catalog /abs/catalog.json --release-manifest /abs/manifest --release-signature /abs/manifest.sig --release-id ID --signer-id ID --signer-public-key /abs/key.pub --output /abs/profile.json`);
 }
 
 function parse(argv) {
   if (argv.shift() !== 'export') usage('expected export command');
-  const allowed = new Set(['environment', 'machine', 'facts', 'catalog', 'catalog-sha256', 'output']);
+  const allowed = new Set(['environment', 'machine', 'facts', 'catalog', 'release-manifest', 'release-signature', 'release-id', 'signer-id', 'signer-public-key', 'output']);
   const values = Object.create(null);
   while (argv.length > 0) {
     const flag = argv.shift(); const value = argv.shift();
@@ -23,7 +22,8 @@ function parse(argv) {
   }
   for (const name of allowed) if (values[name] === undefined) usage(`missing --${name}`);
   if (!/^[a-z0-9][a-z0-9._-]{0,95}$/.test(values.machine)) usage('invalid machine id');
-  if (!/^[a-f0-9]{64}$/.test(values['catalog-sha256'])) usage('invalid catalog digest');
+  if (!/^[a-z0-9][a-z0-9._-]{0,127}$/.test(values['release-id'])) usage('invalid release id');
+  if (!/^desktop-[a-z0-9][a-z0-9._-]{0,119}$/.test(values['signer-id'])) usage('invalid signer id');
   return values;
 }
 
@@ -40,6 +40,11 @@ async function main(argv) {
   const environmentFile = await boundedFile(values.environment, 2_000_000, 'environment');
   const factsFile = await boundedFile(values.facts, 262_144, 'facts');
   const catalogFile = await boundedFile(values.catalog, 8_388_608, 'catalog');
+  const manifestFile = await boundedFile(values['release-manifest'], 16_384, 'release manifest');
+  const signatureFile = await boundedFile(values['release-signature'], 8_192, 'release signature');
+  const publicKeyFile = await boundedFile(values['signer-public-key'], 8_192, 'signer public key');
+  const publicKey = publicKeyFile.bytes.toString('utf8').trim();
+  if (!/^ssh-ed25519 [A-Za-z0-9+/]+={0,3}(?: [^\r\n]{1,128})?$/.test(publicKey)) throw new Error('signer public key is invalid');
   let facts;
   try { facts = JSON.parse(factsFile.bytes.toString('utf8')); } catch { throw new Error('facts must be valid JSON'); }
   const environmentText = environmentFile.bytes.toString('utf8');
@@ -52,7 +57,8 @@ async function main(argv) {
     machineId: values.machine,
     facts,
     catalogBytes: catalogFile.bytes,
-    catalogSha256: values['catalog-sha256'],
+    release: { manifestPath: manifestFile.path, signaturePath: signatureFile.path,
+      trust: { keyId: values['signer-id'], publicKey }, expectedReleaseId: values['release-id'] },
   });
   if (!isAbsolute(values.output) || values.output.includes('\0')) usage('output path must be absolute');
   const output = resolve(values.output);

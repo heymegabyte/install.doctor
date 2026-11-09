@@ -8,6 +8,7 @@ import {
 } from '@install-doctor/aid-core/profile-export';
 import { HostFactsSchema, TaskNodeSchema, type HostFacts, type TaskNode } from './contracts.js';
 import { LoadCatalogEntrySchema, buildLoadPlan } from './lazy-plan.js';
+import { verifyDesktopReleaseCatalog, type OfflineBundleTrust } from './offline-bundle.js';
 
 const digest = z.string().regex(/^[a-f0-9]{64}$/);
 const catalogSchema = z.array(LoadCatalogEntrySchema).max(16_384);
@@ -68,7 +69,7 @@ export async function createCatalogBoundProfileExport(input: {
   machineId: string;
   facts: unknown;
   catalogBytes: Buffer;
-  catalogSha256: string;
+  release: { manifestPath: string; signaturePath: string; trust: OfflineBundleTrust; expectedReleaseId: string; now?: number };
   consents?: readonly string[];
   offline?: boolean;
 }): Promise<PortableProfileExport> {
@@ -78,7 +79,8 @@ export async function createCatalogBoundProfileExport(input: {
   if (!machine) throw new Error('catalog-bound export target is unknown');
   const facts = HostFactsSchema.parse(input.facts);
   if (facts.os !== machine.os || !facts.roles.includes(machine.role)) throw new Error('export facts do not match the selected environment target');
-  const catalog = verifiedCatalog(input.catalogBytes, input.catalogSha256);
+  const authority = await verifyDesktopReleaseCatalog({ ...input.release, catalogBytes: input.catalogBytes });
+  const catalog = verifiedCatalog(input.catalogBytes, authority.catalogSha256);
   const desired = {
     packages: resolveMachinePackages(environment, machine.id),
     services: environment.services.filter(service => service.machineIds.includes(machine.id)).map(service => service.id),
@@ -87,7 +89,7 @@ export async function createCatalogBoundProfileExport(input: {
   return createPortableProfileExport({
     environment,
     machineId: machine.id,
-    catalogSha256: input.catalogSha256,
+    catalogSha256: authority.catalogSha256,
     recipes: recipeReferences(catalog, closure.installOrder),
     ...(input.consents === undefined ? {} : { consents: input.consents }),
     ...(input.offline === undefined ? {} : { offline: input.offline }),
