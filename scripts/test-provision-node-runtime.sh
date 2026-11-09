@@ -27,6 +27,14 @@ while [ "$#" -gt 0 ]; do [ "$1" = --output ] && { out="$2"; shift 2; continue; }
 [ -n "$out" ] || exit 2
 cp "$RUNTIME_FIXTURE" "$out"
 SH
+cat >"$TMP/bin/sha256sum" <<'SH'
+#!/usr/bin/env sh
+printf '%064d  %s\n' 0 "${1:-}"
+SH
+cat >"$TMP/bin/shasum" <<'SH'
+#!/usr/bin/env sh
+printf '%064d  %s\n' 0 "${3:-}"
+SH
 chmod +x "$TMP/bin/"*
 
 run_runtime() {
@@ -41,7 +49,7 @@ run_runtime() {
 }
 
 : >"$TMP/calls"
-if run_runtime v23.0.0; then pass 'odd system Node is rejected and exact signed Node 24 runtime is acquired and cleaned'; else fail 'signed runtime acquisition failed'; fi
+if run_runtime v23.0.0; then pass 'odd system Node is rejected and exact signed Node 24 runtime ignores hostile PATH hash helpers'; else fail 'signed runtime acquisition failed'; fi
 [ ! -s "$TMP/calls" ] && pass 'launcher-staged runtime archive is not downloaded again' || fail 'runtime archive was downloaded again'
 
 : >"$TMP/calls"

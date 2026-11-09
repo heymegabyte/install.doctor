@@ -839,9 +839,8 @@ ensureProvisionerNodeRuntime() {
   if command -v stat >/dev/null 2>&1 && stat -c %s "$DOWNLOAD" >/dev/null 2>&1; then ACTUAL_SIZE="$(stat -c %s "$DOWNLOAD")"
   else ACTUAL_SIZE="$(stat -f %z "$DOWNLOAD")"; fi
   [ "$ACTUAL_SIZE" = "$SIZE" ] || { rm -rf -- "$STAGE"; logg error 'Signed Node runtime size mismatch'; return 20; }
-  if command -v sha256sum >/dev/null 2>&1; then ACTUAL_SHA="$(sha256sum "$DOWNLOAD" | awk '{print $1}')"
-  elif command -v shasum >/dev/null 2>&1; then ACTUAL_SHA="$(shasum -a 256 "$DOWNLOAD" | awk '{print $1}')"
-  else rm -rf -- "$STAGE"; logg error 'SHA-256 verifier is required for the signed runtime'; return 20; fi
+  ACTUAL_SHA="$(idSha256File "$DOWNLOAD")" \
+    || { rm -rf -- "$STAGE"; logg error 'SHA-256 verifier is required for the signed runtime'; return 20; }
   [ "$ACTUAL_SHA" = "$SHA" ] || { rm -rf -- "$STAGE"; logg error 'Signed Node runtime checksum mismatch'; return 20; }
   MEMBER="$(tar -tzf "$DOWNLOAD" | awk '/^[A-Za-z0-9._+-]+\/bin\/node$/ { print }')"
   [ -n "$MEMBER" ] && [ "$(printf '%s\n' "$MEMBER" | wc -l | tr -d ' ')" -eq 1 ] || { rm -rf -- "$STAGE"; logg error 'Runtime archive must contain exactly one bounded bin/node member'; return 20; }
@@ -1025,9 +1024,8 @@ ensurePackageManagerHomebrew() {
       return 75
     fi
     [ "$(wc -c < "$HOMEBREW_INSTALLER")" -le 1048576 ] || { rm -f "$HOMEBREW_INSTALLER"; logg error 'Pinned Homebrew installer exceeded its size bound'; return 2; }
-    if command -v sha256sum >/dev/null 2>&1; then HOMEBREW_INSTALL_ACTUAL_SHA256="$(sha256sum "$HOMEBREW_INSTALLER" | awk '{print $1}')";
-    elif command -v shasum >/dev/null 2>&1; then HOMEBREW_INSTALL_ACTUAL_SHA256="$(shasum -a 256 "$HOMEBREW_INSTALLER" | awk '{print $1}')";
-    else rm -f "$HOMEBREW_INSTALLER"; logg error 'SHA-256 support is required to verify Homebrew'; return 2; fi
+    HOMEBREW_INSTALL_ACTUAL_SHA256="$(idSha256File "$HOMEBREW_INSTALLER")" \
+      || { rm -f "$HOMEBREW_INSTALLER"; logg error 'SHA-256 support is required to verify Homebrew'; return 2; }
     [ "$HOMEBREW_INSTALL_ACTUAL_SHA256" = "$HOMEBREW_INSTALL_SHA256" ] || { rm -f "$HOMEBREW_INSTALLER"; logg error 'Pinned Homebrew installer checksum mismatch'; return 2; }
     ### Select install type based off of whether or not sudo privileges are available
     if command -v sudo > /dev/null && sudo -n true; then
@@ -1150,7 +1148,7 @@ idVerifyCloudflareCertificateSource() {
   certificate_path="$(idCloudflareCertificatePath)"
   [ -n "${INSTALL_DOCTOR_CLOUDFLARE_CERT_SHA256:-}" ] || return 2
   [ -f "$certificate_path" ] && [ ! -L "$certificate_path" ] || return 2
-  actual_digest="$(/usr/bin/shasum -a 256 "$certificate_path" 2>/dev/null | awk '{print $1}')" || return 2
+  actual_digest="$(idSha256File "$certificate_path")" || return 2
   [ "$actual_digest" = "$INSTALL_DOCTOR_CLOUDFLARE_CERT_SHA256" ] || return 2
   /usr/bin/openssl x509 -in "$certificate_path" -noout -fingerprint -sha256 >/dev/null 2>&1 || return 2
 }
@@ -2146,9 +2144,8 @@ runCanonicalProvisionEngine() {
   case "$INSTALL_DOCTOR_RELEASE_ID" in ''|*[!a-zA-Z0-9._-]*) logg error 'Verified release identity is malformed'; return 2 ;; esac
   PROVISIONER="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "${BASH_SOURCE[0]}")"
   [ -n "${INSTALL_DOCTOR_ENGINE_SHA256:-}" ] || { logg error 'Verified installer engine checksum is required'; return 2; }
-  if command -v sha256sum >/dev/null 2>&1; then ACTUAL_SHA="$(sha256sum "$ENGINE" | awk '{print $1}')";
-  elif command -v shasum >/dev/null 2>&1; then ACTUAL_SHA="$(shasum -a 256 "$ENGINE" | awk '{print $1}')";
-  else logg error 'A SHA-256 verifier is required by the canonical engine'; return 2; fi
+  ACTUAL_SHA="$(idSha256File "$ENGINE")" \
+    || { logg error 'A SHA-256 verifier is required by the canonical engine'; return 2; }
   [ "$ACTUAL_SHA" = "$INSTALL_DOCTOR_ENGINE_SHA256" ] || { logg error 'Installer engine checksum changed after release verification'; return 2; }
   STATE_ROOT="${XDG_STATE_HOME:-$HOME/.local/state}/install.doctor/engine"
   INSTALL_DOCTOR_CHEZMOI_SOURCE="${XDG_DATA_HOME:-$HOME/.local/share}/install.doctor/releases/$INSTALL_DOCTOR_RELEASE_ID/source/home"
@@ -3933,10 +3930,13 @@ function ensureInstallUser() {
     # path is exposed to the target user until every copy and digest verifies.
     local CURRENT_PROVISIONER VERIFIED_ENGINE VERIFIED_MANIFEST VERIFIED_SIGNATURE VERIFIED_CATALOG HANDOFF_BASE HANDOFF_ROOT USER_PROVISIONER USER_ENGINE USER_MANIFEST USER_SIGNATURE USER_CATALOG ENV_EXPORT USER_RUNTIME
     local USER_OPENCODE_ARCHIVE USER_SUPERVISOR USER_TOOLS_ARCHIVE USER_OPENCODE_LOCK
-    local PROVISIONER_SHA MANIFEST_SHA SIGNATURE_SHA ENGINE_SHA CATALOG_SHA RUNTIME_SHA ENV_SHA HANDOFF_STATUS
+    local PROVISIONER_SHA MANIFEST_SHA SIGNATURE_SHA ENGINE_SHA CATALOG_SHA RUNTIME_SHA ENV_SHA HANDOFF_STATUS SU_PATH
     local BROKER_COORD_ROOT BROKER_USER_ROOT BROKER_ROOT_ROOT BROKER_REQUEST BROKER_RESPONSE BROKER_DERIVE_INPUT BROKER_DERIVED BROKER_APPROVAL_INPUT BROKER_APPROVAL_OUTPUT BROKER_CONTROLLER_INPUT BROKER_READY BROKER_ERROR BROKER_PAYLOAD
     local BROKER_CHILD_PID='' BROKER_CONTROLLER_PID='' BROKER_SOCKET_DIR='' BROKER_WAIT=0 INSTALL_UID INSTALL_GID
     CURRENT_PROVISIONER="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "${BASH_SOURCE[0]}")"
+    if [ -x /usr/bin/su ]; then SU_PATH=/usr/bin/su
+    elif [ -x /bin/su ]; then SU_PATH=/bin/su
+    else logg error 'A fixed system su executable is required for the root-to-user handoff'; return 2; fi
     VERIFIED_ENGINE="${INSTALL_DOCTOR_ENGINE_PATH:-}"
     VERIFIED_MANIFEST="${INSTALL_DOCTOR_VERIFIED_MANIFEST:-}"
     VERIFIED_SIGNATURE="${INSTALL_DOCTOR_VERIFIED_SIGNATURE:-}"
@@ -4112,7 +4112,7 @@ function ensureInstallUser() {
       || { logg error 'Unable to make the sealed catalog readable only by the target user'; return 1; }
     logg info "Continuing with the locally staged provisioner as $INSTALL_USER"
     _idRunSealedUserHandoff() {
-      su - "$INSTALL_USER" -c "hash_file() { if command -v sha256sum >/dev/null 2>&1; then sha256sum \"\$1\" | awk '{print \$1}'; else shasum -a 256 \"\$1\" | awk '{print \$1}'; fi; }; [ \"\$(hash_file '$ENV_EXPORT')\" = '$ENV_SHA' ] && [ \"\$(hash_file '$USER_PROVISIONER')\" = '$PROVISIONER_SHA' ] && [ \"\$(hash_file '$USER_ENGINE')\" = '$ENGINE_SHA' ] && [ \"\$(hash_file '$USER_MANIFEST')\" = '$MANIFEST_SHA' ] && [ \"\$(hash_file '$USER_SIGNATURE')\" = '$SIGNATURE_SHA' ] && [ \"\$(hash_file '$USER_CATALOG')\" = '$CATALOG_SHA' ] && [ \"\$(hash_file '$USER_RUNTIME')\" = '$RUNTIME_SHA' ] || exit 20; source '$ENV_EXPORT'; if [ -n \"\${DESKTOP_TOOLS_PROFILE_ID:-}\" ]; then [ \"\$(hash_file \"\$DESKTOP_TOOLS_OPENCODE_ARCHIVE\")\" = \"\$DESKTOP_TOOLS_OPENCODE_SHA256\" ] && [ \"\$(hash_file \"\$DESKTOP_TOOLS_SUPERVISOR_PATH\")\" = \"\$DESKTOP_TOOLS_SUPERVISOR_SHA256\" ] && [ \"\$(hash_file \"\$DESKTOP_TOOLS_TOOLS_ARCHIVE\")\" = \"\$DESKTOP_TOOLS_TOOLS_SHA256\" ] && [ \"\$(hash_file \"\$DESKTOP_TOOLS_OPENCODE_LOCK_PATH\")\" = \"\$DESKTOP_TOOLS_OPENCODE_LOCK_SHA256\" ] || exit 20; fi; export HOME='$USER_HOME_DIR' USER='$INSTALL_USER' PATH='$(dirname "$USER_RUNTIME")':\"\$PATH\" && cd '$USER_HOME_DIR' && bash '$USER_PROVISIONER'"
+      "$SU_PATH" - "$INSTALL_USER" -c "hash_file() { local output; if [ -x /usr/bin/sha256sum ]; then output=\"\$(/usr/bin/sha256sum \"\$1\")\" || return 20; elif [ -x /bin/sha256sum ]; then output=\"\$(/bin/sha256sum \"\$1\")\" || return 20; elif [ -x /usr/bin/shasum ]; then output=\"\$(/usr/bin/shasum -a 256 \"\$1\")\" || return 20; else return 20; fi; printf '%s\\n' \"\${output%%[[:space:]]*}\"; }; [ \"\$(hash_file '$ENV_EXPORT')\" = '$ENV_SHA' ] && [ \"\$(hash_file '$USER_PROVISIONER')\" = '$PROVISIONER_SHA' ] && [ \"\$(hash_file '$USER_ENGINE')\" = '$ENGINE_SHA' ] && [ \"\$(hash_file '$USER_MANIFEST')\" = '$MANIFEST_SHA' ] && [ \"\$(hash_file '$USER_SIGNATURE')\" = '$SIGNATURE_SHA' ] && [ \"\$(hash_file '$USER_CATALOG')\" = '$CATALOG_SHA' ] && [ \"\$(hash_file '$USER_RUNTIME')\" = '$RUNTIME_SHA' ] || exit 20; source '$ENV_EXPORT'; if [ -n \"\${DESKTOP_TOOLS_PROFILE_ID:-}\" ]; then [ \"\$(hash_file \"\$DESKTOP_TOOLS_OPENCODE_ARCHIVE\")\" = \"\$DESKTOP_TOOLS_OPENCODE_SHA256\" ] && [ \"\$(hash_file \"\$DESKTOP_TOOLS_SUPERVISOR_PATH\")\" = \"\$DESKTOP_TOOLS_SUPERVISOR_SHA256\" ] && [ \"\$(hash_file \"\$DESKTOP_TOOLS_TOOLS_ARCHIVE\")\" = \"\$DESKTOP_TOOLS_TOOLS_SHA256\" ] && [ \"\$(hash_file \"\$DESKTOP_TOOLS_OPENCODE_LOCK_PATH\")\" = \"\$DESKTOP_TOOLS_OPENCODE_LOCK_SHA256\" ] || exit 20; fi; export HOME='$USER_HOME_DIR' USER='$INSTALL_USER' PATH='${USER_RUNTIME%/*}':\"\$PATH\" && cd '$USER_HOME_DIR' && /bin/bash '$USER_PROVISIONER'"
     }
     # Bash redirects stdin from /dev/null for asynchronous commands when job
     # control is unavailable. Preserve the controlling terminal explicitly so
