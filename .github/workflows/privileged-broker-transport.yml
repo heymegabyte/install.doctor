@@ -81,6 +81,9 @@ jobs:
             exit 1
           fi
           sha256sum "$RUNNER_TEMP/broker-a/broker"
+          npm --prefix "$GITHUB_WORKSPACE/packages/installer-engine" run build
+          test -f "$GITHUB_WORKSPACE/packages/installer-engine/dist/privileged-broker-client.js"
+          test ! -L "$GITHUB_WORKSPACE/packages/installer-engine/dist/privileged-broker-client.js"
           timeout --signal=TERM --kill-after=5s 120s sudo env \
             DESKTOP_TOOLS_PRIVILEGED_BROKER_TEST_BINARY="$RUNNER_TEMP/broker-a/broker" \
             "$(command -v node)" --test \
