@@ -90,6 +90,12 @@ JSON
   chmod 0600 "$FIXTURE/authority.json"
   cat > "$FIXTURE/fake-engine.mjs" <<'NODE'
 import fs from 'node:fs';
+const forbidden = [
+  'ANTHROPIC_API_KEY', 'DEEPSEEK_API_KEY', 'INFISICAL_TOKEN', 'LITELLM_API_KEY',
+  'OPENAI_API_KEY', 'HTTPS_PROXY', 'HTTP_PROXY', 'ALL_PROXY', 'NO_PROXY',
+];
+const leaked = forbidden.filter(name => Object.hasOwn(process.env, name));
+if (leaked.length > 0) throw new Error(`offline engine inherited forbidden ambient authority: ${leaked.join(',')}`);
 const input=JSON.parse(fs.readFileSync(process.argv[process.argv.indexOf('--input')+1],'utf8'));
 fs.appendFileSync(process.env.HOME+'/calls',`${JSON.stringify(input)}\n`);
 if(input.command==='bundle-plan') process.stdout.write(JSON.stringify({manifestDigest:'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',manifest:{planDigest:'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'}}));
@@ -103,6 +109,15 @@ NODE
   export INSTALL_DOCTOR_OFFLINE_BUNDLE_DIR="$FIXTURE/bundle"
   export INSTALL_DOCTOR_OFFLINE_AUTHORITY_PATH="$FIXTURE/authority.json"
   export INSTALL_DOCTOR_OFFLINE_MODE=execute INSTALL_DOCTOR_OFFLINE_RUN_ID=offline-test INSTALL_DOCTOR_RENDERER=headless
+  export ANTHROPIC_API_KEY=must-not-reach-offline-engine
+  export DEEPSEEK_API_KEY=must-not-reach-offline-engine
+  export INFISICAL_TOKEN=must-not-reach-offline-engine
+  export LITELLM_API_KEY=must-not-reach-offline-engine
+  export OPENAI_API_KEY=must-not-reach-offline-engine
+  export HTTPS_PROXY=http://must-not-reach-offline-engine.invalid
+  export HTTP_PROXY=http://must-not-reach-offline-engine.invalid
+  export ALL_PROXY=socks5://must-not-reach-offline-engine.invalid
+  export NO_PROXY=must-not-reach-offline-engine.invalid
   runOfflineBundleProvisioning >/dev/null || return $?
   node - "$FIXTURE/home/calls" <<'NODE'
 const fs=require('node:fs'); const calls=fs.readFileSync(process.argv[2],'utf8').trim().split('\n').map(JSON.parse);
@@ -111,7 +126,7 @@ const execute=calls.at(-1); if(execute.offline!==true||execute.networkPolicy!=='
 if(execute.approvedManifestDigest!=='a'.repeat(64)||execute.approvedPlanDigest!=='b'.repeat(64)) throw new Error('approval digest changed');
 NODE
 )
-if run_dispatch_contract; then pass 'offline dispatcher preserves exact approvals and deny-network execution order'
+if run_dispatch_contract; then pass 'offline dispatcher preserves exact approvals, strips provider authority, and keeps deny-network execution order'
 else fail 'offline dispatcher contract was weakened'; fi
 
 printf 'provision-offline-dispatch: %d passed, %d failed\n' "$PASS" "$FAIL"

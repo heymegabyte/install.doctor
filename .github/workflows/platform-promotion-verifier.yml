@@ -90,9 +90,13 @@ jobs:
           test -f "$canary" && test ! -L "$canary"
           test "$(find canary -mindepth 1 -maxdepth 1 -type f -name receipt.json -print | wc -l)" -eq 1
           node scripts/promote-platform-canary-receipt.mjs promotion-input.json "$canary" promoted-receipt.json
+          mkdir -m 700 promotion-candidate
+          node scripts/stage-platform-promotion.mjs scripts/platform-support-matrix.json promoted-receipt.json promotion-candidate
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: promoted-platform-receipt-${{ github.run_id }}
-          path: promoted-receipt.json
+          path: |
+            promoted-receipt.json
+            promotion-candidate/
           if-no-files-found: error
           retention-days: 90

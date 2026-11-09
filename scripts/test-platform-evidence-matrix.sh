@@ -6,6 +6,7 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 MATRIX="$ROOT/scripts/platform-support-matrix.json"
 VALIDATOR="$ROOT/scripts/validate-platform-support-matrix.mjs"
 FINALIZER="$ROOT/scripts/finalize-platform-canary-receipt.mjs"
+STAGER="$ROOT/scripts/stage-platform-promotion.mjs"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 P=0 F=0
@@ -67,6 +68,26 @@ receipt.promotion.promotionDigest=crypto.createHash('sha256').update(`${JSON.str
 fs.writeFileSync(process.argv[3], JSON.stringify(value)); fs.writeFileSync(process.argv[4], JSON.stringify(receipt));
 NODE
 if node "$VALIDATOR" "$TMP/evidence/matrix.json" "$TMP/evidence" >/dev/null; then pass 'fresh tuple-bound real-host receipt can conditionally support verification'; else fail 'valid conditional real-host receipt was rejected'; fi
+
+if node "$STAGER" "$MATRIX" "$TMP/evidence/receipts/canary.json" "$TMP/promotion-candidate" >/dev/null \
+  && test "$(node -e 'const m=require(process.argv[1]);process.stdout.write(m.cells[0].status)' "$TMP/promotion-candidate/scripts/platform-support-matrix.json")" = verified \
+  && test -f "$TMP/promotion-candidate/.agent/evidence/platform-canaries/macos-14-arm64-native/test-real-host-canary.json"; then
+  pass 'independent receipt stages a validated source-reviewable promotion candidate'
+else
+  fail 'independent receipt did not stage a valid promotion candidate'
+fi
+
+node - "$TMP/evidence/receipts/canary.json" "$TMP/unsupported-receipt.json" <<'NODE'
+const fs = require('node:fs');
+const value = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
+value.cellId = 'alpine-3-19-x64-container';
+fs.writeFileSync(process.argv[3], JSON.stringify(value));
+NODE
+if node "$STAGER" "$MATRIX" "$TMP/unsupported-receipt.json" "$TMP/unsupported-candidate" >/dev/null 2>&1; then
+  fail 'promotion stager silently changed an unsupported support policy'
+else
+  pass 'unsupported cell promotion requires an explicit source-reviewed support change'
+fi
 
 reject_mutation() {
   local name="$1" expression="$2"

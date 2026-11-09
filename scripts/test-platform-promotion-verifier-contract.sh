@@ -4,6 +4,7 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 WORKFLOW="$ROOT/.github/workflows/platform-promotion-verifier.yml"
 VERIFIER="$ROOT/scripts/promote-platform-canary-receipt.mjs"
 VALIDATOR="$ROOT/scripts/validate-platform-support-matrix.mjs"
+STAGER="$ROOT/scripts/stage-platform-promotion.mjs"
 P=0 F=0
 pass(){ printf 'PASS %s\n' "$*"; P=$((P+1)); }
 fail(){ printf 'FAIL %s\n' "$*" >&2; F=$((F+1)); }
@@ -23,6 +24,9 @@ grep -Fq 'canary=canary/receipt.json' "$WORKFLOW" && grep -Fq 'maxdepth 1' "$WOR
   && pass 'promotion selects one exact top-level receipt' || fail 'promotion receipt selection is ambiguous'
 grep -Fq "JSON.stringify(canary.value.tuple) !== JSON.stringify(expectedTuple)" "$VERIFIER" \
   && pass 'promotion binds the complete canonical platform tuple' || fail 'promotion does not bind the complete platform tuple'
+grep -Fq 'stage-platform-promotion.mjs' "$WORKFLOW" && grep -Fq 'promotion-candidate/' "$WORKFLOW" \
+  && grep -Fq "cell.status === 'unsupported'" "$STAGER" && grep -Fq 'validate-platform-support-matrix.mjs' "$STAGER" \
+  && pass 'promotion emits a source-reviewable validated matrix candidate' || fail 'promotion result remains an ephemeral receipt without durable integration candidate'
 if grep -Eq 'offline_bundle_url|offline_bundle_sha256|curl .*(promotion|evidence)' "$WORKFLOW"; then
   fail 'promotion trusts a caller URL or digest pair'
 else pass 'promotion has no caller URL plus SHA authority'; fi
