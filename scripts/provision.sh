@@ -2796,7 +2796,7 @@ const task = {
   dependencies: finalDependencies, predicate: 'host-supported', requiredCapabilities: [],
   operations: { check: 'chezmoi-check', apply: 'chezmoi-apply', verify: 'chezmoi-verify' },
   timeoutMs: 14_400_000, retry: { class: 'never', maxAttempts: 1, backoffMs: 0 },
-  resources: { cpu: 2, memoryMiB: 1024, network: true }, privilege: 'admin', network: 'required',
+  resources: { cpu: 2, memoryMiB: 1024, network: true }, privilege: 'user', network: 'required',
   consent: 'privileged', lockDomains: ['chezmoi', 'package-manager'], cleanup: 'none', compensation: 'none',
   failurePolicy: 'abort-run',
 };

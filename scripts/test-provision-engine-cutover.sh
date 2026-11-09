@@ -37,6 +37,14 @@ else
   fail 'bootstrap installx materialization retains a legacy writer or lacks native ownership'
 fi
 if grep -q -- '--engine-operation' "$PROVISION" && grep -q 'chezmoi-check\|chezmoi-apply\|chezmoi-verify' "$PROVISION"; then pass 'engine operations use the staged provisioner adapter'; else fail 'engine operation adapter is absent'; fi
+chezmoi_task="$(sed -n "/const task = {/,/const configurationRoot =/p" "$PROVISION")"
+if printf '%s\n' "$chezmoi_task" | grep -q "id: 'provision.chezmoi'" \
+  && printf '%s\n' "$chezmoi_task" | grep -q "privilege: 'user'" \
+  && printf '%s\n' "$chezmoi_task" | grep -q "consent: 'privileged'"; then
+  pass 'chezmoi runs as the enrolled user while retaining explicit consent for selected system effects'
+else
+  fail 'chezmoi execution is over-privileged or no longer requires explicit system-effect consent'
+fi
 logic="$(sed -n '/^provisionLogic() {/,/^}/p' "$PROVISION")"
 if printf '%s\n' "$logic" | grep -q 'runCanonicalProvisionEngine apply || CHEZMOI_STATUS=$?' && ! printf '%s\n' "$logic" | grep -q 'runChezmoi || CHEZMOI_STATUS=$?'; then
   pass 'production orchestration executes chezmoi through the canonical engine'
