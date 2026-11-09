@@ -47,8 +47,9 @@ if ! printf '%s\n' "$logic" | grep -q 'ensureWarpDisconnected' \
 else
   fail 'WARP disconnection still bypasses the canonical engine'
 fi
-plan_line="$(printf '%s\n' "$logic" | grep -n 'runCanonicalProvisionEngine --plan-only' | cut -d: -f1)"
-mutation_line="$(printf '%s\n' "$logic" | grep -n 'idPersistVerifiedReleaseProvenance' | cut -d: -f1)"
+canonical_runner="$(sed -n '/^runCanonicalProvisionEngine() {/,/^idEffectReceiptPath()/p' "$PROVISION")"
+plan_line="$(printf '%s\n' "$canonical_runner" | grep -n 'if \[ "$APPROVAL" != "$PLAN_DIGEST" \]' | cut -d: -f1)"
+mutation_line="$(printf '%s\n' "$canonical_runner" | grep -n 'setupPasswordlessSudo || return' | cut -d: -f1)"
 if [ -n "$plan_line" ] && [ -n "$mutation_line" ] && [ "$plan_line" -lt "$mutation_line" ]; then
   pass 'exact normalized plan approval precedes host mutation'
 else
@@ -56,6 +57,15 @@ else
 fi
 if grep -q 'INSTALL_DOCTOR_ROLE INSTALL_DOCTOR_CAPABILITY INSTALL_DOCTOR_NETWORK INSTALL_DOCTOR_CONCURRENCY' "$PROVISION" \
   && grep -q 'INSTALL_DOCTOR_USER INSTALL_DOCTOR_SELECTED_SERVICES' "$PROVISION"; then pass 'root handoff preserves selected desired state'; else fail 'root handoff drops selected desired state'; fi
+if grep -q 'Handing off planning and execution to the enrolled user' "$PROVISION" \
+  && grep -q 'DESKTOP_TOOLS_BROKER_COORDINATION_USER_REQUEST' "$PROVISION" \
+  && grep -q "command:'privileged-broker-authority-derive'" "$PROVISION" \
+  && grep -q 'BROKER_CONTROLLER_PID' "$PROVISION" \
+  && grep -q "response?.status !== 'authorized'" "$PROVISION"; then
+  pass 'root broker coordination preserves one user-approved invocation and bounded controller lifecycle'
+else
+  fail 'root broker coordination is incomplete or bypasses the enrolled-user invocation'
+fi
 if grep -q "command: 'runs-list'" "$PROVISION" && grep -q "command: 'resume'" "$PROVISION"; then pass 'shell discovers and resumes exact protected interrupted runs'; else fail 'shell always abandons interrupted run identity'; fi
 if grep -q "id: 'system.reboot-assessment'" "$PROVISION" \
   && grep -q "policy: 'explicit-operator-reboot-v1'" "$PROVISION" \

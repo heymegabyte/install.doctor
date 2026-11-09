@@ -153,3 +153,9 @@ export async function publishTrustedLocalBrokerGrant(input: {
     approvalEvidenceDigest: issued.approval.evidenceDigest,
   });
 }
+
+/** Retires only volatile authorization material after the bounded helper exits. */
+export async function retireTrustedLocalBrokerGrant(grantId: string): Promise<void> {
+  const store = await createPrivilegedBrokerStore({ root: PRODUCTION_STORE_ROOT, verifyApproval: async () => false });
+  await store.retireGrant(grantId);
+}

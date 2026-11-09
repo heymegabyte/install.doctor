@@ -1,5 +1,5 @@
 import { constants } from 'node:fs';
-import { lstat, mkdir, open } from 'node:fs/promises';
+import { lstat, mkdir, open, readdir, rmdir, unlink } from 'node:fs/promises';
 import { dirname, isAbsolute, join, parse, resolve, sep } from 'node:path';
 import {
   PrivilegedBrokerGrantSchema,
@@ -22,6 +22,7 @@ export interface PrivilegedBrokerStore {
   readonly publishAuthority: (grantId: string, authority: unknown) => Promise<{ readonly authority: PrivilegedBrokerExecutionAuthority; readonly digest: string }>;
   readonly readAuthority: (grantId: string) => Promise<{ readonly authority: PrivilegedBrokerExecutionAuthority; readonly digest: string }>;
   readonly consumeNonce: (grantId: string, nonce: string, requestDigest: string) => Promise<boolean>;
+  readonly retireGrant: (grantId: string) => Promise<void>;
 }
 
 async function assertProtectedDirectory(path: string, ownerUid: number): Promise<void> {
@@ -186,6 +187,23 @@ export async function createPrivilegedBrokerStore(input: {
       catch (error) { if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error; }
       await assertProtectedDirectory(grantNonceRoot, ownerUid);
       return writeExclusive(join(grantNonceRoot, nonce), Buffer.from(`${requestDigest}\n`, 'ascii'));
+    },
+    async retireGrant(grantId: string) {
+      if (!safeName.test(grantId)) throw new Error('invalid privileged broker grant identifier');
+      await this.readAuthority(grantId);
+      const grantNonceRoot = join(nonces, grantId);
+      let nonceNames: string[] = [];
+      try { nonceNames = await readdir(grantNonceRoot); }
+      catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
+      for (const nonce of nonceNames) {
+        if (!/^[A-Za-z0-9_-]{32,128}$/.test(nonce)) throw new Error('privileged broker nonce store contains an unexpected entry');
+        await readProtected(join(grantNonceRoot, nonce), ownerUid, 256);
+      }
+      for (const nonce of nonceNames) await unlink(join(grantNonceRoot, nonce));
+      if (nonceNames.length > 0) await rmdir(grantNonceRoot);
+      else await rmdir(grantNonceRoot).catch(error => { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; });
+      await unlink(join(authorities, `${grantId}.json`));
+      await unlink(join(grants, `${grantId}.json`));
     },
   });
 }

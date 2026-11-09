@@ -4,7 +4,7 @@ import { constants } from 'node:fs';
 import { lstat, open, realpath, rm } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import { spawn } from 'node:child_process';
-import { publishTrustedLocalBrokerGrant } from './privileged-broker-local-approval.js';
+import { publishTrustedLocalBrokerGrant, retireTrustedLocalBrokerGrant } from './privileged-broker-local-approval.js';
 import { PrivilegedBrokerControllerInputSchema } from './privileged-broker-controller-contract.js';
 import type { PrivilegedBrokerControllerInput } from './privileged-broker-controller-contract.js';
 
@@ -137,6 +137,7 @@ export async function runPrivilegedBrokerController(inputValue: unknown): Promis
       clearTimeout(expiryTimer);
       process.removeListener('SIGTERM', graceful); process.removeListener('SIGINT', interrupted); process.removeListener('SIGHUP', interrupted);
       await removeOwnedSocket(input);
+      await retireTrustedLocalBrokerGrant(input.grant.grantId);
     }
   } finally {
     await helper.close();

@@ -85,6 +85,10 @@ test('root execution authority is exact, grant-bound, create-only, and independe
   assert.equal(published.digest, closureDigest);
   assert.equal((await store.readAuthority('grant-1')).digest, closureDigest);
   await assert.rejects(store.publishAuthority('grant-1', { ...authority, runId: 'run-2' }), /differs from the exact grant|semantic closure/);
+  assert.equal(await store.consumeNonce('grant-1', 'nonce_nonce_nonce_nonce_nonce_nonce_1', '4'.repeat(64)), true);
+  await store.retireGrant('grant-1');
+  await assert.rejects(store.readGrant('grant-1'), /ENOENT|no such file/i);
+  await assert.rejects(store.readAuthority('grant-1'), /ENOENT|no such file/i);
 });
 
 test('authority rejects path, operation, artifact, and semantic identity drift', async () => {

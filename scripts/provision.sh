@@ -2716,6 +2716,11 @@ NODE
     rmdir "$INVOCATION_DIR" 2>/dev/null || true
     return 0
   fi
+  if [ "${INSTALL_DOCTOR_SUDO_PREPARED:-false}" != true ]; then
+    setupPasswordlessSudo || return $?
+    INSTALL_DOCTOR_SUDO_PREPARED=true
+    export INSTALL_DOCTOR_SUDO_PREPARED INSTALL_DOCTOR_PROVISION_BOOTSTRAPPED=1
+  fi
   RUNS_INVOCATION="$INVOCATION_DIR/runs-list.json"
   RUNS_RESULT="$INVOCATION_DIR/runs-list-result.json"
   node - "$RUNS_INVOCATION" "$STATE_ROOT" <<'NODE'
@@ -3284,6 +3289,8 @@ function ensureInstallUser() {
     # path is exposed to the target user until every copy and digest verifies.
     local CURRENT_PROVISIONER VERIFIED_ENGINE VERIFIED_MANIFEST VERIFIED_SIGNATURE VERIFIED_CATALOG HANDOFF_ROOT USER_PROVISIONER USER_ENGINE USER_MANIFEST USER_SIGNATURE USER_CATALOG ENV_EXPORT USER_RUNTIME
     local PROVISIONER_SHA MANIFEST_SHA SIGNATURE_SHA ENGINE_SHA CATALOG_SHA RUNTIME_SHA ENV_SHA HANDOFF_STATUS
+    local BROKER_COORD_ROOT BROKER_USER_ROOT BROKER_ROOT_ROOT BROKER_REQUEST BROKER_RESPONSE BROKER_DERIVE_INPUT BROKER_DERIVED BROKER_CONTROLLER_INPUT BROKER_READY BROKER_ERROR BROKER_PAYLOAD
+    local BROKER_CHILD_PID='' BROKER_CONTROLLER_PID='' BROKER_SOCKET_DIR='' BROKER_WAIT=0 INSTALL_UID INSTALL_GID
     CURRENT_PROVISIONER="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "${BASH_SOURCE[0]}")"
     VERIFIED_ENGINE="${INSTALL_DOCTOR_ENGINE_PATH:-}"
     VERIFIED_MANIFEST="${INSTALL_DOCTOR_VERIFIED_MANIFEST:-}"
@@ -3294,7 +3301,12 @@ function ensureInstallUser() {
     USER_PROVISIONER="$HANDOFF_ROOT/provision.sh"; USER_ENGINE="$HANDOFF_ROOT/install-doctor-engine.mjs"
     USER_MANIFEST="$HANDOFF_ROOT/manifest"; USER_SIGNATURE="$HANDOFF_ROOT/manifest.sig"; USER_CATALOG="$HANDOFF_ROOT/catalog.json"; ENV_EXPORT="$HANDOFF_ROOT/environment.sh"
     USER_RUNTIME="$HANDOFF_ROOT/node"
-    _idCleanupHandoff() { case "${HANDOFF_ROOT:-}" in "${TMPDIR:-/tmp}"/install-doctor-handoff.*) rm -rf -- "$HANDOFF_ROOT" ;; esac; }
+    _idCleanupHandoff() {
+      [ -z "${BROKER_CONTROLLER_PID:-}" ] || { kill -TERM "$BROKER_CONTROLLER_PID" 2>/dev/null || true; wait "$BROKER_CONTROLLER_PID" 2>/dev/null || true; }
+      [ -z "${BROKER_CHILD_PID:-}" ] || { kill -TERM "$BROKER_CHILD_PID" 2>/dev/null || true; wait "$BROKER_CHILD_PID" 2>/dev/null || true; }
+      case "${BROKER_SOCKET_DIR:-}" in /run/desktop-tools/broker/*) rmdir "$BROKER_SOCKET_DIR" 2>/dev/null || true ;; esac
+      case "${HANDOFF_ROOT:-}" in "${TMPDIR:-/tmp}"/install-doctor-handoff.*) rm -rf -- "$HANDOFF_ROOT" ;; esac
+    }
     _idCleanupHandoffAndReport() { local STATUS=$?; _idCleanupHandoff; idCleanupProvisionerRuntime || true; idOnProvisionExit "$STATUS"; }
     trap '_idCleanupHandoffAndReport' EXIT
     trap '_idCleanupHandoff; idCleanupProvisionerRuntime || true; exit 130' INT
@@ -3338,6 +3350,21 @@ function ensureInstallUser() {
     INSTALL_DOCTOR_VERIFIED_SIGNATURE="$USER_SIGNATURE"
     INSTALL_DOCTOR_CATALOG_PATH="$USER_CATALOG"
     export INSTALL_DOCTOR_ENGINE_PATH INSTALL_DOCTOR_VERIFIED_MANIFEST INSTALL_DOCTOR_VERIFIED_SIGNATURE INSTALL_DOCTOR_CATALOG_PATH INSTALL_DOCTOR_CATALOG_SHA256
+    if [ "${DESKTOP_TOOLS_NATIVE_BROKER_REQUESTED:-false}" = true ]; then
+      INSTALL_UID="$(id -u "$INSTALL_USER")"; INSTALL_GID="$(id -g "$INSTALL_USER")"
+      BROKER_COORD_ROOT="$HANDOFF_ROOT/broker-coordination"
+      BROKER_USER_ROOT="$BROKER_COORD_ROOT/user"; BROKER_ROOT_ROOT="$BROKER_COORD_ROOT/root"
+      mkdir -m 0711 "$BROKER_COORD_ROOT" "$BROKER_ROOT_ROOT" || return 1
+      mkdir -m 0700 "$BROKER_USER_ROOT" || return 1
+      chown "$INSTALL_UID:$INSTALL_GID" "$BROKER_USER_ROOT" || return 1
+      BROKER_REQUEST="$BROKER_USER_ROOT/request.json"; BROKER_RESPONSE="$BROKER_ROOT_ROOT/response.json"
+      BROKER_DERIVE_INPUT="$BROKER_ROOT_ROOT/derive.json"; BROKER_DERIVED="$BROKER_ROOT_ROOT/derived.json"
+      BROKER_CONTROLLER_INPUT="$BROKER_ROOT_ROOT/controller.json"; BROKER_READY="$BROKER_ROOT_ROOT/ready.ndjson"
+      BROKER_ERROR="$BROKER_ROOT_ROOT/controller.err"; BROKER_PAYLOAD="$BROKER_ROOT_ROOT/tree.deb"
+      DESKTOP_TOOLS_BROKER_COORDINATION_USER_REQUEST="$BROKER_REQUEST"
+      DESKTOP_TOOLS_BROKER_COORDINATION_ROOT_RESPONSE="$BROKER_RESPONSE"
+      export DESKTOP_TOOLS_BROKER_COORDINATION_USER_REQUEST DESKTOP_TOOLS_BROKER_COORDINATION_ROOT_RESPONSE
+    fi
     logg info "Writing the bounded provisioning environment for the target user"
     umask 077
     : > "$ENV_EXPORT"
@@ -3399,8 +3426,71 @@ function ensureInstallUser() {
     chown "$INSTALL_USER" "$USER_CATALOG" && chmod 0600 "$USER_CATALOG" \
       || { logg error 'Unable to make the sealed catalog readable only by the target user'; return 1; }
     logg info "Continuing with the locally staged provisioner as $INSTALL_USER"
-    su - "$INSTALL_USER" -c "hash_file() { if command -v sha256sum >/dev/null 2>&1; then sha256sum \"\$1\" | awk '{print \$1}'; else shasum -a 256 \"\$1\" | awk '{print \$1}'; fi; }; [ \"\$(hash_file '$ENV_EXPORT')\" = '$ENV_SHA' ] && [ \"\$(hash_file '$USER_PROVISIONER')\" = '$PROVISIONER_SHA' ] && [ \"\$(hash_file '$USER_ENGINE')\" = '$ENGINE_SHA' ] && [ \"\$(hash_file '$USER_MANIFEST')\" = '$MANIFEST_SHA' ] && [ \"\$(hash_file '$USER_SIGNATURE')\" = '$SIGNATURE_SHA' ] && [ \"\$(hash_file '$USER_CATALOG')\" = '$CATALOG_SHA' ] && [ \"\$(hash_file '$USER_RUNTIME')\" = '$RUNTIME_SHA' ] || exit 20; source '$ENV_EXPORT' && export HOME='$USER_HOME_DIR' USER='$INSTALL_USER' PATH='$(dirname "$USER_RUNTIME")':\"\$PATH\" && cd '$USER_HOME_DIR' && bash '$USER_PROVISIONER'"
-    HANDOFF_STATUS=$?
+    _idRunSealedUserHandoff() {
+      su - "$INSTALL_USER" -c "hash_file() { if command -v sha256sum >/dev/null 2>&1; then sha256sum \"\$1\" | awk '{print \$1}'; else shasum -a 256 \"\$1\" | awk '{print \$1}'; fi; }; [ \"\$(hash_file '$ENV_EXPORT')\" = '$ENV_SHA' ] && [ \"\$(hash_file '$USER_PROVISIONER')\" = '$PROVISIONER_SHA' ] && [ \"\$(hash_file '$USER_ENGINE')\" = '$ENGINE_SHA' ] && [ \"\$(hash_file '$USER_MANIFEST')\" = '$MANIFEST_SHA' ] && [ \"\$(hash_file '$USER_SIGNATURE')\" = '$SIGNATURE_SHA' ] && [ \"\$(hash_file '$USER_CATALOG')\" = '$CATALOG_SHA' ] && [ \"\$(hash_file '$USER_RUNTIME')\" = '$RUNTIME_SHA' ] || exit 20; source '$ENV_EXPORT' && export HOME='$USER_HOME_DIR' USER='$INSTALL_USER' PATH='$(dirname "$USER_RUNTIME")':\"\$PATH\" && cd '$USER_HOME_DIR' && bash '$USER_PROVISIONER'"
+    }
+    if [ "${DESKTOP_TOOLS_NATIVE_BROKER_REQUESTED:-false}" != true ]; then
+      _idRunSealedUserHandoff
+      HANDOFF_STATUS=$?
+    else
+      _idRunSealedUserHandoff & BROKER_CHILD_PID=$!
+      while [ ! -f "$BROKER_REQUEST" ] && kill -0 "$BROKER_CHILD_PID" 2>/dev/null && [ "$BROKER_WAIT" -lt 180 ]; do
+        sleep 1; BROKER_WAIT=$((BROKER_WAIT + 1))
+      done
+      if [ ! -f "$BROKER_REQUEST" ]; then
+        wait "$BROKER_CHILD_PID" 2>/dev/null; HANDOFF_STATUS=$?; BROKER_CHILD_PID=''
+        [ "$HANDOFF_STATUS" -ne 0 ] || HANDOFF_STATUS=4
+        logg error 'Enrolled-user broker preparation was not published'
+      else
+        idStageNativeBrokerAuthority || { kill -TERM "$BROKER_CHILD_PID" 2>/dev/null || true; wait "$BROKER_CHILD_PID" 2>/dev/null || true; return 2; }
+        node - "$BROKER_REQUEST" "$BROKER_DERIVE_INPUT" "$INSTALL_UID" "$INSTALL_GID" <<'NODE'
+const fs = require('node:fs'); const crypto = require('node:crypto');
+const [requestPath, outputPath, uidText, gidText] = process.argv.slice(2); const uid=Number(uidText), gid=Number(gidText);
+const before=fs.lstatSync(requestPath,{bigint:true}); if(!before.isFile()||before.isSymbolicLink()||before.nlink!==1n||before.uid!==BigInt(uid)||(before.mode&0o777n)!==0o600n||before.size<2n||before.size>2_097_152n)throw new Error('broker preparation file is unsafe');
+const fd=fs.openSync(requestPath,fs.constants.O_RDONLY|(fs.constants.O_NOFOLLOW||0)); let request; try{const opened=fs.fstatSync(fd,{bigint:true});if(opened.dev!==before.dev||opened.ino!==before.ino||opened.size!==before.size)throw new Error('broker preparation changed');request=JSON.parse(fs.readFileSync(fd,'utf8'));}finally{fs.closeSync(fd);}
+const d=request.descriptor, env=process.env; const required=name=>{const value=env[name];if(!value)throw new Error(`missing ${name}`);return value;};
+const artifact=(artifactId,url,path,sha256,sizeBytes)=>({artifactId,url,sourcePath:path,sha256,sizeBytes:Number(sizeBytes),mode:'0600'});
+const issuedAt=new Date();const expiresAt=new Date(issuedAt.getTime()+20*60*1000);const runId=request.runId;
+const value={...request,schemaVersion:1,enrolledUid:uid,socketGid:gid,
+  releaseProof:{manifestPath:required('DESKTOP_TOOLS_BROKER_MANIFEST_PATH'),signaturePath:required('DESKTOP_TOOLS_BROKER_SIGNATURE_PATH'),catalogPath:required('DESKTOP_TOOLS_BROKER_CATALOG_PATH'),manifestSha256:required('DESKTOP_TOOLS_BROKER_MANIFEST_SHA256'),trust:{keyId:required('INSTALL_DOCTOR_RELEASE_SIGNER_ID'),publicKey:required('INSTALL_DOCTOR_RELEASE_SIGNER_PUBLIC_KEY')}},
+  artifacts:[
+    artifact(d.metadataProof.inRelease.keyring.artifactId,required('DESKTOP_TOOLS_DEBIAN_KEYRING_URL'),required('DESKTOP_TOOLS_BROKER_KEYRING_PATH'),required('DESKTOP_TOOLS_BROKER_KEYRING_SHA256'),required('DESKTOP_TOOLS_DEBIAN_KEYRING_SIZE')),
+    artifact(d.metadataProof.inRelease.artifactId,required('DESKTOP_TOOLS_DEBIAN_INRELEASE_URL'),required('DESKTOP_TOOLS_BROKER_INRELEASE_PATH'),required('DESKTOP_TOOLS_BROKER_INRELEASE_SHA256'),required('DESKTOP_TOOLS_DEBIAN_INRELEASE_SIZE')),
+    artifact(d.metadataProof.packagesIndex.artifactId,required('DESKTOP_TOOLS_DEBIAN_PACKAGES_URL'),required('DESKTOP_TOOLS_BROKER_PACKAGES_PATH'),required('DESKTOP_TOOLS_BROKER_PACKAGES_SHA256'),required('DESKTOP_TOOLS_DEBIAN_PACKAGES_SIZE')),
+    artifact(d.artifact.id,required('DESKTOP_TOOLS_DEBIAN_TREE_URL'),required('DESKTOP_TOOLS_BROKER_TREE_PATH'),required('DESKTOP_TOOLS_BROKER_TREE_SHA256'),required('DESKTOP_TOOLS_DEBIAN_TREE_SIZE'))],
+  transactionRoot:`/var/lib/desktop-tools/transactions/${runId}`,helperPath:required('DESKTOP_TOOLS_BROKER_HELPER_PATH'),helperDigest:required('DESKTOP_TOOLS_BROKER_HELPER_SHA256'),runtimePath:required('DESKTOP_TOOLS_BROKER_RUNTIME_PATH'),runtimeDigest:required('DESKTOP_TOOLS_BROKER_RUNTIME_SHA256'),workerPath:required('DESKTOP_TOOLS_BROKER_WORKER_PATH'),workerDigest:required('DESKTOP_TOOLS_BROKER_WORKER_SHA256'),socketPath:`/run/desktop-tools/broker/${runId}/broker.sock`,issuedAt:issuedAt.toISOString(),expiresAt:expiresAt.toISOString(),operationTimeoutMs:120000,command:'privileged-broker-authority-derive'};
+fs.writeFileSync(outputPath,`${JSON.stringify(value)}\n`,{mode:0o400,flag:'wx'});
+NODE
+        if [ "$?" -ne 0 ] || ! "$DESKTOP_TOOLS_BROKER_RUNTIME_PATH" "$VERIFIED_ENGINE" --input "$BROKER_DERIVE_INPUT" > "$BROKER_DERIVED"; then
+          kill -TERM "$BROKER_CHILD_PID" 2>/dev/null || true; wait "$BROKER_CHILD_PID" 2>/dev/null || true; return 2
+        fi
+        chmod 0400 "$BROKER_DERIVED"
+        BROKER_SOCKET_DIR="$(node -e 'const d=JSON.parse(require("node:fs").readFileSync(process.argv[1],"utf8"));const p=require("node:path").dirname(d.controllerInput.socketPath);if(!/^\/run\/desktop-tools\/broker\/[a-z0-9][a-z0-9._-]{0,127}$/.test(p))process.exit(2);process.stdout.write(p)' "$BROKER_DERIVED")" \
+          || { kill -TERM "$BROKER_CHILD_PID" 2>/dev/null || true; wait "$BROKER_CHILD_PID" 2>/dev/null || true; return 2; }
+        node - "$BROKER_DERIVED" "$BROKER_CONTROLLER_INPUT" "$BROKER_PAYLOAD" "$INSTALL_UID" "$INSTALL_GID" <<'NODE'
+const fs=require('node:fs');const path=require('node:path');const crypto=require('node:crypto');const [derivedPath,controllerPath,payloadPath,uidText,gidText]=process.argv.slice(2);const uid=Number(uidText),gid=Number(gidText);const derived=JSON.parse(fs.readFileSync(derivedPath,'utf8'));const socketParent=path.dirname(derived.controllerInput.socketPath);
+for(const [directory,mode,ownerGid] of [['/run/desktop-tools',0o711,0],['/run/desktop-tools/broker',0o711,0],[socketParent,0o710,gid]]){try{fs.mkdirSync(directory,{mode});}catch(e){if(e.code!=='EEXIST')throw e;}const m=fs.lstatSync(directory);if(!m.isDirectory()||m.isSymbolicLink()||m.uid!==0||m.gid!==ownerGid||(m.mode&0o777)!==mode)throw new Error('broker socket directory is unsafe');}
+fs.writeFileSync(controllerPath,`${JSON.stringify(derived.controllerInput)}\n`,{mode:0o400,flag:'wx'});
+const source=derived.authority.artifacts.find(item=>item.artifactId===derived.authority.descriptor.artifact.id);const bytes=fs.readFileSync(source.sourcePath);if(bytes.length!==source.sizeBytes||crypto.createHash('sha256').update(bytes).digest('hex')!==source.sha256)throw new Error('broker payload source differs from authority');const fd=fs.openSync(payloadPath,fs.constants.O_CREAT|fs.constants.O_EXCL|fs.constants.O_WRONLY,0o600);try{fs.writeFileSync(fd,bytes);fs.fsyncSync(fd);fs.fchownSync(fd,uid,gid);}finally{fs.closeSync(fd);}
+NODE
+        if [ "$?" -ne 0 ]; then kill -TERM "$BROKER_CHILD_PID" 2>/dev/null || true; wait "$BROKER_CHILD_PID" 2>/dev/null || true; return 2; fi
+        : > "$BROKER_READY"; : > "$BROKER_ERROR"; chmod 0400 "$BROKER_READY" "$BROKER_ERROR"
+        "$DESKTOP_TOOLS_BROKER_RUNTIME_PATH" "$DESKTOP_TOOLS_BROKER_CONTROLLER_PATH" < "$BROKER_CONTROLLER_INPUT" > "$BROKER_READY" 2> "$BROKER_ERROR" & BROKER_CONTROLLER_PID=$!
+        BROKER_WAIT=0
+        while [ ! -s "$BROKER_READY" ] && kill -0 "$BROKER_CONTROLLER_PID" 2>/dev/null && [ "$BROKER_WAIT" -lt 125 ]; do sleep 1; BROKER_WAIT=$((BROKER_WAIT + 1)); done
+        if [ ! -s "$BROKER_READY" ]; then kill -TERM "$BROKER_CHILD_PID" "$BROKER_CONTROLLER_PID" 2>/dev/null || true; wait "$BROKER_CHILD_PID" 2>/dev/null || true; wait "$BROKER_CONTROLLER_PID" 2>/dev/null || true; return 2; fi
+        node - "$BROKER_DERIVED" "$BROKER_READY" "$BROKER_RESPONSE" "$BROKER_PAYLOAD" "$INSTALL_UID" "$INSTALL_GID" <<'NODE'
+const fs=require('node:fs');const [derivedPath,readyPath,responsePath,payloadPath,uidText,gidText]=process.argv.slice(2);const uid=Number(uidText),gid=Number(gidText);const derived=JSON.parse(fs.readFileSync(derivedPath,'utf8'));const lines=fs.readFileSync(readyPath,'utf8').trim().split('\n');if(lines.length!==1)throw new Error('broker readiness is not singular');const ready=JSON.parse(lines[0]);if(ready.status!=='authorized'||ready.socketPath!==derived.controllerInput.socketPath||ready.grantDigest!==derived.grantDigest||ready.authorityDigest!==derived.authorityDigest)throw new Error('broker readiness differs from derived authority');const response={schemaVersion:1,status:'authorized',privilegedBroker:{client:derived.clientConfig,descriptor:derived.authority.descriptor,payload:{sourcePath:payloadPath,sha256:derived.authority.descriptor.artifact.sha256,sizeBytes:derived.authority.descriptor.artifact.sizeBytes,mode:'0600'}}};const fd=fs.openSync(responsePath,fs.constants.O_CREAT|fs.constants.O_EXCL|fs.constants.O_WRONLY,0o600);try{fs.writeFileSync(fd,`${JSON.stringify(response)}\n`);fs.fsyncSync(fd);fs.fchownSync(fd,uid,gid);}finally{fs.closeSync(fd);}
+NODE
+        if [ "$?" -ne 0 ]; then kill -TERM "$BROKER_CHILD_PID" "$BROKER_CONTROLLER_PID" 2>/dev/null || true; wait "$BROKER_CHILD_PID" 2>/dev/null || true; wait "$BROKER_CONTROLLER_PID" 2>/dev/null || true; return 2; fi
+        wait "$BROKER_CHILD_PID"; HANDOFF_STATUS=$?; BROKER_CHILD_PID=''
+        kill -TERM "$BROKER_CONTROLLER_PID" 2>/dev/null || true
+        wait "$BROKER_CONTROLLER_PID" || { [ "$HANDOFF_STATUS" -ne 0 ] || HANDOFF_STATUS=2; }
+        BROKER_CONTROLLER_PID=''
+        rmdir "$BROKER_SOCKET_DIR" 2>/dev/null || { [ "$HANDOFF_STATUS" -ne 0 ] || HANDOFF_STATUS=2; }
+        BROKER_SOCKET_DIR=''
+      fi
+    fi
     _idCleanupHandoff
     exit "$HANDOFF_STATUS"
   else
@@ -3431,14 +3521,18 @@ provisionLogic() {
   idRunRequiredProvisionStep "Reconciling stale sudo acquisition ownership" idReconcileStaleSudoOwnership || return $?
   idRunRequiredProvisionStep "Resolving the install plan before mutation" configureInstallPlan || return $?
   idRunRequiredProvisionStep "Authorizing the exact host and recorded consent" idAuthorizePlatform || return $?
-  idRunRequiredProvisionStep "Normalizing and approving the exact engine plan before mutation" runCanonicalProvisionEngine --plan-only || return $?
-  idRunRequiredProvisionStep "Staging selected native broker authority" idStageNativeBrokerAuthority || return $?
+  if [ "$(id -u)" -eq 0 ]; then
+    idRunRequiredProvisionStep "Persisting verified release provenance" idPersistVerifiedReleaseProvenance || return $?
+    idRunRequiredProvisionStep "Handing off planning and execution to the enrolled user" ensureInstallUser || return $?
+    return 0
+  fi
+  if [ "${DESKTOP_TOOLS_NATIVE_BROKER_REQUESTED:-false}" = true ]; then
+    [ -n "${DESKTOP_TOOLS_BROKER_COORDINATION_USER_REQUEST:-}" ] \
+      && [ -n "${DESKTOP_TOOLS_BROKER_COORDINATION_ROOT_RESPONSE:-}" ] \
+      || { logg error 'Native package execution requires the enrolled root broker coordinator'; return 2; }
+  fi
   idRunRequiredProvisionStep "Persisting verified release provenance" idPersistVerifiedReleaseProvenance || return $?
-  idRunRequiredProvisionStep "Ensuring script is not run with root" ensureInstallUser || return $?
-  idRunRequiredProvisionStep "Applying temporary sudo credential" setupPasswordlessSudo || return $?
-  INSTALL_DOCTOR_SUDO_PREPARED=true
-  export INSTALL_DOCTOR_PROVISION_BOOTSTRAPPED=1
-  logg info "Running the Chezmoi provisioning"
+  logg info "Approving and executing one canonical provisioning plan"
   runCanonicalProvisionEngine apply || CHEZMOI_STATUS=$?
   if [ "${INSTALL_DOCTOR_SUDO_FINALIZER_VERIFIED:-false}" != true ]; then
     # Fall back only when protected engine evidence does not prove the
