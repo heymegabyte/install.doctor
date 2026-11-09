@@ -1,9 +1,10 @@
 #!/bin/bash
 # @file test-macos.sh
-# @brief Run an Install Doctor provisioning test inside a macOS GitHub Actions runner.
+# @brief Run the repository-provided Desktop Tools fixture on a macOS CI host.
 # @description
-#     This script runs inside a macOS GitHub Actions runner and executes the
-#     Install Doctor start script with CI environment variables set for headless operation.
+#     This script runs inside a macOS CI host and executes an explicitly supplied,
+#     repository-controlled installer fixture in headless mode. It never fetches
+#     a mutable network entrypoint.
 #
 #     It automatically sets CI=true and HEADLESS_INSTALL=true to ensure all prompts
 #     auto-proceed with defaults.
@@ -38,20 +39,21 @@ printSystemInfo() {
 }
 
 # ==============================================================================
-# @description Run the Install Doctor start script in headless CI mode.
+# @description Run an explicit local Desktop Tools fixture in headless CI mode.
 # ==============================================================================
-runInstallDoctor() {
-  echo "### Running Install Doctor in CI mode ###"
+runDesktopToolsFixture() {
+  echo "### Running the Desktop Tools local fixture in CI mode ###"
   export CI=true
   export TEST_INSTALL=true
   export HEADLESS_INSTALL=true
   export NO_RESTART=true
 
-  if [ -n "${INSTALLER_PATH:-}" ]; then
-    bash "$INSTALLER_PATH"
-  else
-    curl -fsSL https://app.install.doctor/start | bash
+  if [ -z "${INSTALLER_PATH:-}" ]; then
+    echo 'INSTALLER_PATH must name an explicit trusted local fixture; this test never downloads a mutable retired endpoint.' >&2
+    return 64
   fi
+  [ -f "$INSTALLER_PATH" ] || { echo "INSTALLER_PATH is not a file: $INSTALLER_PATH" >&2; return 66; }
+  bash "$INSTALLER_PATH"
 }
 
 # ==============================================================================
@@ -59,7 +61,7 @@ runInstallDoctor() {
 # ==============================================================================
 main() {
   printSystemInfo
-  runInstallDoctor
+  runDesktopToolsFixture
 }
 
 main

@@ -54,6 +54,14 @@ idAdmitPlatform
 
 idPlatformMatrixFacts() { printf '%s\n' 'proxmox|8|x64|native|proxmox'; }
 if idAdmitPlatform; then printf 'unsupported tuple was admitted with consent\n' >&2; exit 1; fi
+for unsupported_facts in \
+  'debian|12|arm64|container|debian' \
+  'debian|12|arm64|native|debian' \
+  'linux|unspecified|x64|container|container'; do
+  idPlatformMatrixFacts() { printf '%s\n' "$unsupported_facts"; }
+  INSTALL_DOCTOR_CONSENT_BEST_EFFORT=true
+  if idAdmitPlatform; then printf 'unsupported tuple was admitted: %s\n' "$unsupported_facts" >&2; exit 1; fi
+done
 idPlatformMatrixFacts() { printf '%s\n' 'ubuntu|99|x64|native|ubuntu'; }
 if idAdmitPlatform; then printf 'absent tuple was admitted with consent\n' >&2; exit 1; fi
 

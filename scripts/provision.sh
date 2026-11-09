@@ -95,13 +95,13 @@ idResolvePlatformAdmission() {
     ubuntu:22.04:x64:container:ubuntu) printf '%s\n' 'ubuntu-22-04-x64-container|best-effort|The workflow does not produce a durable full-lifecycle canary receipt.' ;;
     ubuntu:24.04:x64:container:ubuntu) printf '%s\n' 'ubuntu-24-04-x64-container|best-effort|The workflow does not produce a durable full-lifecycle canary receipt.' ;;
     debian:12:x64:container:debian) printf '%s\n' 'debian-12-x64-container|best-effort|The workflow does not produce a durable full-lifecycle canary receipt.' ;;
-    debian:12:arm64:container:debian) printf '%s\n' 'debian-12-arm64-container|best-effort|The hermetic signed-install fixture is not a durable full-lifecycle real-host canary receipt.' ;;
+    debian:12:arm64:container:debian) printf '%s\n' 'debian-12-arm64-container|unsupported|No architecture-matching Debian 12 ARM64 container lifecycle receipt is committed.' ;;
     debian:12:x64:native:debian) printf '%s\n' 'debian-12-x64-native|best-effort|No current native-host full-lifecycle canary receipt exists.' ;;
-    debian:12:arm64:native:debian) printf '%s\n' 'debian-12-arm64-native|best-effort|No current native-host full-lifecycle canary receipt exists.' ;;
+    debian:12:arm64:native:debian) printf '%s\n' 'debian-12-arm64-native|unsupported|No architecture-matching Debian 12 ARM64 native lifecycle receipt is committed.' ;;
     fedora:44:x64:container:fedora) printf '%s\n' 'fedora-44-x64-container|best-effort|The workflow does not produce a durable full-lifecycle canary receipt.' ;;
     arch:rolling:x64:container:arch) printf '%s\n' 'arch-rolling-x64-container|best-effort|Rolling releases can drift after the workflow definition is authored.' ;;
     alpine:3.19:x64:container:alpine) printf '%s\n' 'alpine-3-19-x64-container|unsupported|The signed bootstrap publishes only glibc Linux runtimes and cannot safely execute them on musl when a compatible system Node is absent.' ;;
-    linux:unspecified:x64:container:container) printf '%s\n' 'generic-linux-x64-container|best-effort|Generic containers vary in init, privileges, libc, and package manager.' ;;
+    linux:unspecified:x64:container:container) printf '%s\n' 'generic-linux-x64-container|unsupported|An unspecified Linux container has no bounded package-manager, libc, init, or privilege contract.' ;;
     silverblue:40:x64:native:silverblue) printf '%s\n' 'silverblue-40-x64-native|unsupported|No rpm-ostree fixture or current lifecycle canary is committed.' ;;
     qubes-dom0:4.2:x64:qubes:qubes-dom0) printf '%s\n' 'qubes-4-2-x64-dom0|unsupported|No safe dom0 fixture or current canary demonstrates the restricted Salt path.' ;;
     qubes-appvm:4.2:x64:qubes:qubes-appvm) printf '%s\n' 'qubes-4-2-x64-appvm|unsupported|No TemplateVM/AppVM lifecycle canary is committed.' ;;

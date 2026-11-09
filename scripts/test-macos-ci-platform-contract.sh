@@ -4,12 +4,14 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 WORKFLOW="$ROOT/.github/workflows/test-macos.yml"
 MATRIX="$ROOT/scripts/platform-support-matrix.json"
+HARNESS="$ROOT/scripts/test-macos.sh"
 
-node - "$WORKFLOW" "$MATRIX" <<'NODE'
+node - "$WORKFLOW" "$MATRIX" "$HARNESS" <<'NODE'
 const fs = require('node:fs');
 
 const workflow = fs.readFileSync(process.argv[2], 'utf8');
 const support = JSON.parse(fs.readFileSync(process.argv[3], 'utf8'));
+const harness = fs.readFileSync(process.argv[4], 'utf8');
 const failures = [];
 const requireMatch = (pattern, message) => {
   if (!pattern.test(workflow)) failures.push(message);
@@ -53,6 +55,10 @@ requireMatch(/name: "Best-effort checked-out platform admission — macOS \$\{\{
   'workflow must execute checked-out read-only platform admission and disclaim signed lifecycle proof');
 if (/bash scripts\/provision\.sh\s*$/m.test(workflow)) failures.push('unsigned macOS jobs must not invoke full provisioning without a verified release closure');
 if (/macos-14/.test(workflow)) failures.push('retired macos-14 runner labels must not remain in the active workflow');
+if (/https?:\/\//.test(harness)) failures.push('macOS fixture harness must not fetch a mutable network entrypoint');
+if (!/INSTALLER_PATH must name an explicit trusted local fixture/.test(harness)) {
+  failures.push('macOS fixture harness must fail explicitly when no trusted local fixture is supplied');
+}
 
 const activeIds = new Set(rows.map(row => `macos-${row.osMajor}-${row.architecture}-native`));
 for (const id of activeIds) {

@@ -188,12 +188,12 @@ Key environment variables in the existing installer compatibility layer (canonic
 | `AGE_PASSWORD` | Passphrase to decrypt Age-encrypted secrets | unset |
 | `DEBUG_MODE` / `KEEP_GOING` / `NO_RESTART` | Verbose / continue-on-error / no auto-reboot | unset |
 
-Implemented or best-effort targets include **macOS** (Intel + Apple Silicon), **Ubuntu/Debian**,
-**Fedora/RHEL/CentOS**, **Arch**, **openSUSE**, and **Alpine**. Do not infer verified support from
-that list: the machine-readable [platform evidence matrix](scripts/platform-support-matrix.json)
-is authoritative, and currently contains no verified full-lifecycle cell. Qubes, Silverblue,
-Proxmox, Coolify, WSL, and native Windows remain explicit unsupported cells until their required
-canary evidence exists. Reset a
+The provisioner admits only exact tuples from the machine-readable
+[platform evidence matrix](scripts/platform-support-matrix.json), which currently contains no
+verified full-lifecycle cell. Some exact macOS, Ubuntu, Debian x64, Fedora, and Arch tuples are
+consent-gated `best-effort`; this is not a promise for their wider OS families. Alpine, generic
+Linux containers, Debian ARM64, Qubes, Silverblue, Proxmox, Coolify, WSL, and native Windows are
+explicitly unsupported until each matrix remediation is satisfied. Reset a
 broken chezmoi state with `rm -rf ~/.config/chezmoi ~/.cache/chezmoi` then re-run the bootstrap. See
 the project CLAUDE.md for the full fleet/roles model.
 
