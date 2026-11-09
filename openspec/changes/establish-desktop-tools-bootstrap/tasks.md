@@ -60,7 +60,7 @@
 - [x] 7.1 Export each Desktop Tools profile and immutable recipe references without credentials or private machine data; verify a fresh standalone target produces the same plan digest from the export.
 - [x] 7.2 Build a signed offline bundle for the canary profile and platform, then verify network-denied plan/apply/verify and explicit missing-secret remediation.
 - [x] 7.3 Add safe ownership-aware adoption and deprovision behavior for existing machines; verify user data, modified files, unowned resources, and unsupported effects are preserved.
-- [ ] 7.4 Exercise credential renewal, profile revision, device revocation, rebuild, signer rotation, bad-release rollback, and hosted-service outage; verify historical recovery material remains usable where retained evidence depends on it.
+- [x] 7.4 Exercise credential renewal, profile revision, device revocation, rebuild, signer rotation, bad-release rollback, and hosted-service outage; verify historical recovery material remains usable where retained evidence depends on it.
 
 ## 8. Canary promotion and integration evidence
 
