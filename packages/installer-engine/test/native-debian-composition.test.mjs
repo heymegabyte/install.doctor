@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import test from 'node:test';
-import { composeNativeDebianPackageSlice } from '../dist/native-debian-composition.js';
+import { composeNativeDebianPackageSlice, composeSelectedNativeDebianPackageSlice } from '../dist/native-debian-composition.js';
+import { buildLoadPlan } from '../dist/lazy-plan.js';
 import { assertNativePackageInstalledWitnesses, validateNativePackageWitnessClosure } from '../dist/offline-execution.js';
 
 const hash = value => createHash('sha256').update(value).digest('hex');
@@ -100,4 +101,27 @@ test('fails closed before legacy subtraction for every incompatible authority or
 test('subtracts tree only after complete admission and preserves all other legacy selections', () => {
   assert.deepEqual(compose({ legacyPackages: ['tree', 'ripgrep', 'fd'] }).remainingLegacyPackages, ['ripgrep', 'fd']);
   assert.throws(() => compose({ descriptor: { ...descriptor(), repository: { ...descriptor().repository, component: 'contrib' } }, legacyPackages: ['tree', 'ripgrep'] }));
+});
+
+test('engine-owned load-plan seam produces transport-independent native authority', () => {
+  const payload = descriptor();
+  const loadPlan = buildLoadPlan({ schemaVersion: 1, platform: 'linux', architecture: 'x64', roles: ['server'],
+    selectedPackages: ['tree'], selectedServices: [], selectedSupportedPaths: [], lazyResolverRequirements: [],
+    catalog: [{ name: 'tree', bin: 'tree', platforms: ['linux'], installMode: 'cli', loadPolicy: 'lazy',
+      loadRationale: 'default-lazy', deps: [], artifacts: [], offlinePayloads: [payload], providers: ['apt'], pkgs: { apt: 'tree' } }],
+  });
+  const common = { loadPlan, packageKey: 'tree', target, installedWitnesses: [witness()], desiredState,
+    legacyPackages: ['tree', 'curl'], compareDebianVersions: compare };
+  const online = composeSelectedNativeDebianPackageSlice(common);
+  const offline = composeSelectedNativeDebianPackageSlice({ ...common, loadPlan: structuredClone(loadPlan),
+    target: structuredClone(target), installedWitnesses: [witness()], desiredState: structuredClone(desiredState),
+    legacyPackages: [...common.legacyPackages] });
+  assert.deepEqual(online, offline);
+  assert.deepEqual(online.operations, compose().operations);
+  const tampered = structuredClone(loadPlan); tampered.items.find(item => item.name === 'tree').nativePayload.repository.repositoryOrigin = 'https://mirror.invalid/debian';
+  assert.throws(() => composeSelectedNativeDebianPackageSlice({ ...common, loadPlan: tampered }), /load-plan digest/);
+  const absent = buildLoadPlan({ schemaVersion: 1, platform: 'linux', architecture: 'x64', roles: ['server'], selectedPackages: [],
+    selectedServices: [], selectedSupportedPaths: [], lazyResolverRequirements: [], catalog: [{ name: 'tree', bin: 'tree', platforms: ['linux'],
+      installMode: 'cli', loadPolicy: 'lazy', loadRationale: 'default-lazy', deps: [], artifacts: [], offlinePayloads: [payload] }] });
+  assert.throws(() => composeSelectedNativeDebianPackageSlice({ ...common, loadPlan: absent }), /not admitted/);
 });

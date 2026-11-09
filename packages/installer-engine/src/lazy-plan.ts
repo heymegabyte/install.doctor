@@ -68,6 +68,7 @@ export const LoadPlanItemSchema = z.object({
   selected: z.boolean(),
   dependencies: z.array(CatalogKeySchema),
   artifact: ImmutableArtifactDescriptorSchema.nullable(),
+  nativePayload: NativeOfflinePayloadDescriptorSchema.nullable(),
   actions: z.array(z.enum(['install', 'start'])),
   selectionReason: z.enum([
     'bootstrap',
@@ -238,6 +239,11 @@ export function buildLoadPlan(rawInput: unknown): LoadPlanReport {
     if (entry.artifacts.length === 0) return null;
     return entry.artifacts.find(artifact => artifact.platform.os === artifactOs && artifact.platform.arch === input.architecture) ?? null;
   };
+  const selectedNativePayload = (entry: LoadCatalogEntry) => {
+    const candidates = entry.offlinePayloads.filter(payload => payload.platform.os === artifactOs && payload.platform.arch === input.architecture);
+    if (candidates.length > 1) throw new Error(`${entry.name} has ambiguous native payload authority for ${artifactOs}/${input.architecture}`);
+    return candidates[0] ?? null;
+  };
   const applicable = (name: string): boolean => {
     const entry = entries.get(name);
     return entry?.platforms.includes(input.platform) === true && (entry.artifacts.length === 0 || selectedArtifact(entry) !== null);
@@ -333,6 +339,7 @@ export function buildLoadPlan(rawInput: unknown): LoadPlanReport {
         selected: isSelected,
         dependencies: entry.deps,
         artifact: selectedArtifact(entry),
+        nativePayload: isSelected ? selectedNativePayload(entry) : null,
         actions,
         selectionReason,
       };

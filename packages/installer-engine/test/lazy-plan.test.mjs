@@ -152,6 +152,38 @@ test('validates strict signed native offline payload authority in catalog entrie
   })), /duplicate offline payload authority across catalog entries/i);
 });
 
+test('preserves exact native payload authority only for an explicitly selected lazy package', () => {
+  const payload = nativeOfflinePayload();
+  const catalog = input({}).catalog.map(candidate => candidate.name === 'tool'
+    ? { ...candidate, offlinePayloads: [payload] } : candidate);
+  const unselected = buildLoadPlan(input({ catalog }));
+  const unselectedTool = unselected.items.find(item => item.name === 'tool');
+  assert.equal(unselectedTool.selected, false);
+  assert.equal(unselectedTool.selectionReason, 'unselected-lazy');
+  assert.equal(unselectedTool.nativePayload, null, 'an unselected lazy package must not acquire payload materialization authority');
+  assert.equal(unselected.installOrder.includes('tool'), false);
+
+  const selected = buildLoadPlan(input({ selectedPackages: ['tool'], catalog }));
+  const selectedTool = selected.items.find(item => item.name === 'tool');
+  assert.equal(selectedTool.selected, true);
+  assert.deepEqual(selectedTool.nativePayload, payload);
+  assert.notEqual(selected.digest, unselected.digest);
+
+  const substitutedPayload = nativeOfflinePayload({
+    artifact: { ...payload.artifact, sha256: '9'.repeat(64) },
+    metadataProof: {
+      ...payload.metadataProof,
+      packageStanza: { ...payload.metadataProof.packageStanza, sha256: '9'.repeat(64) },
+    },
+  });
+  const substituted = buildLoadPlan(input({
+    selectedPackages: ['tool'],
+    catalog: input({}).catalog.map(candidate => candidate.name === 'tool'
+      ? { ...candidate, offlinePayloads: [substitutedPayload] } : candidate),
+  }));
+  assert.notEqual(substituted.digest, selected.digest, 'native payload substitution must change the approved plan digest');
+});
+
 test('binds the exact immutable artifact for the selected OS and architecture into the plan digest', () => {
   const artifact = {
     schemaVersion: 1, id: 'artifact-tool', version: '1.2.3', platform: { os: 'linux', arch: 'x64' },

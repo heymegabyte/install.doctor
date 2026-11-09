@@ -6,6 +6,7 @@ import { NativePackageInstalledWitnessSchema, OfflineOperationManifestSchema } f
 import type { OfflineOperationManifest } from './offline-execution.js';
 import { parseDebianRelationships, validateDebianDependencyClosure } from './debian-relationships.js';
 import type { DebianVersionComparator } from './debian-relationships.js';
+import { LoadPlanReportSchema, calculateLoadPlanReportDigest } from './lazy-plan.js';
 
 const WitnessSchema = z.strictObject({
   kind: z.literal('preexisting-witness'), manager: z.literal('dpkg'), packageName: z.literal('libc6'),
@@ -113,4 +114,26 @@ export function composeNativeDebianPackageSlice(input: {
   return Object.freeze({ task, operations, desiredState: boundDesiredState, artifactIds: Object.freeze(artifactIds),
     rootPackageKey: descriptor.packageKey, installedWitnesses: Object.freeze(witnesses),
     remainingLegacyPackages: Object.freeze(remainingLegacyPackages) });
+}
+
+/** Engine-owned transport-neutral seam. Both verified online release material
+ * and offline bundles must enter through the same admitted load-plan item. */
+export function composeSelectedNativeDebianPackageSlice(input: {
+  loadPlan: unknown;
+  packageKey: string;
+  target: { distroId: string; versionId: string; codename: string; architecture: string };
+  installedWitnesses: readonly NativeDebianInstalledWitness[];
+  desiredState: DesiredStateInput;
+  legacyPackages: readonly string[];
+  compareDebianVersions: DebianVersionComparator;
+}): NativeDebianComposition {
+  const loadPlan = LoadPlanReportSchema.parse(input.loadPlan);
+  if (calculateLoadPlanReportDigest(loadPlan) !== loadPlan.digest) throw new Error('native Debian composition requires the exact admitted load-plan digest');
+  const item = loadPlan.items.find(candidate => candidate.name === input.packageKey);
+  if (!item || !item.selected || !item.applicable || !item.actions.includes('install') || !item.nativePayload) {
+    throw new Error(`native Debian package is not admitted by the load plan: ${input.packageKey}`);
+  }
+  return composeNativeDebianPackageSlice({ descriptor: item.nativePayload, target: input.target,
+    installedWitnesses: input.installedWitnesses, desiredState: input.desiredState,
+    legacyPackages: input.legacyPackages, compareDebianVersions: input.compareDebianVersions });
 }

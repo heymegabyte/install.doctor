@@ -20,10 +20,10 @@ import type { NativeDebInspectionInput, ParsedDebianControlArchive } from './nat
 import { parseDebianRelationships, validateDebianDependencyClosure } from './debian-relationships.js';
 import type { DebianVersionComparator } from './debian-relationships.js';
 import { constants } from 'node:fs';
-import { lstat, mkdtemp, open, readFile, realpath, rmdir, unlink } from 'node:fs/promises';
+import { lstat, open, readFile, realpath } from 'node:fs/promises';
 import type { FileHandle } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
 import { dirname, isAbsolute, join, normalize, relative, resolve } from 'node:path';
+import { openVerifiedArtifactSnapshot, VerifiedArtifactMaterializationError } from './verified-artifact-materializer.js';
 
 const identifier = z.string().min(1).max(128).regex(/^[a-z0-9][a-z0-9._-]*$/);
 const packageKey = z.string().min(1).max(128).regex(/^[a-z0-9][a-z0-9.+-]*(?::[a-z0-9][a-z0-9-]*)?$/);
@@ -545,67 +545,18 @@ export async function verifyOfflineNativeDebianMetadata(
   return Object.freeze(results);
 }
 
-async function openVerifiedMaterializedArtifact(
+/** Shared online/offline materialization boundary: returns an unlinked, private,
+ * content-verified snapshot handle rather than the mutable source inode. */
+async function materializeVerifiedArtifactHandle(
   root: string,
   artifactId: string,
   expected: { sha256: string; sizeBytes: number; mode: '0600' | '0700' },
 ): Promise<FileHandle> {
-  const path = join(root, artifactId);
-  let handle: FileHandle | undefined;
-  let snapshot: FileHandle | undefined;
-  let snapshotWriter: FileHandle | undefined;
-  let snapshotDirectory: string | undefined;
-  let snapshotPath: string | undefined;
   try {
-    handle = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW);
-    const metadata = await handle.stat();
-    if (!metadata.isFile() || metadata.nlink !== 1 || metadata.size !== expected.sizeBytes) {
-      throw new OfflineBundleError(`materialized artifact has unsafe inode metadata: ${artifactId}`);
-    }
-    if ((metadata.mode & 0o777) !== Number.parseInt(expected.mode, 8)) {
-      throw new OfflineBundleError(`materialized artifact mode changed: ${artifactId}`);
-    }
-    const bytes = Buffer.alloc(expected.sizeBytes);
-    const { bytesRead } = await handle.read(bytes, 0, bytes.length, 0);
-    if (bytesRead !== bytes.length) throw new OfflineBundleError(`materialized artifact changed while being verified: ${artifactId}`);
-    if (createHash('sha256').update(bytes).digest('hex') !== expected.sha256) {
-      throw new OfflineBundleError(`materialized artifact digest changed: ${artifactId}`);
-    }
-    // Never execute or bind the mutable materialized inode after verification. An
-    // attacker with write access could otherwise change its bytes through the same
-    // inode between hashing and sandbox admission. The unlinked private snapshot is
-    // reachable only through the descriptor handed to the sandbox.
-    snapshotDirectory = await mkdtemp(join(tmpdir(), 'install-doctor-artifact-'));
-    snapshotPath = join(snapshotDirectory, 'verified');
-    snapshotWriter = await open(
-      snapshotPath,
-      constants.O_CREAT | constants.O_EXCL | constants.O_RDWR | constants.O_NOFOLLOW,
-      Number.parseInt(expected.mode, 8),
-    );
-    await snapshotWriter.writeFile(bytes);
-    await snapshotWriter.sync();
-    await snapshotWriter.chmod(Number.parseInt(expected.mode, 8));
-    await snapshotWriter.close();
-    snapshotWriter = undefined;
-    snapshot = await open(snapshotPath, constants.O_RDONLY | constants.O_NOFOLLOW);
-    const snapshotMetadata = await snapshot.stat();
-    if (!snapshotMetadata.isFile() || snapshotMetadata.nlink !== 1 || snapshotMetadata.size !== expected.sizeBytes) {
-      throw new OfflineBundleError(`verified artifact snapshot is unsafe: ${artifactId}`);
-    }
-    await unlink(snapshotPath);
-    snapshotPath = undefined;
-    await rmdir(snapshotDirectory);
-    snapshotDirectory = undefined;
-    await handle.close();
-    handle = undefined;
-    return snapshot;
+    return await openVerifiedArtifactSnapshot({ sourcePath: join(root, artifactId), artifactId, authority: expected });
   } catch (error) {
-    await handle?.close();
-    await snapshotWriter?.close();
-    await snapshot?.close();
-    if (snapshotPath) await unlink(snapshotPath).catch(() => undefined);
-    if (snapshotDirectory) await rmdir(snapshotDirectory).catch(() => undefined);
     if (error instanceof OfflineBundleError) throw error;
+    if (error instanceof VerifiedArtifactMaterializationError) throw new OfflineBundleError(error.message);
     throw new OfflineBundleError(`materialized artifact could not be opened safely: ${artifactId}`);
   }
 }
@@ -735,7 +686,7 @@ export async function createOfflineInstallerAdapter(input: {
           || expected.sizeBytes !== descriptor.artifact.sizeBytes) {
           throw new OfflineBundleError(`offline native package payload is not authorized: ${descriptor.artifact.id}`);
         }
-        const payload = await openVerifiedMaterializedArtifact(materializedRoot, descriptor.artifact.id, expected);
+        const payload = await materializeVerifiedArtifactHandle(materializedRoot, descriptor.artifact.id, expected);
         try {
           const control = await inspectPackage({
             descriptor, payloadHandle: payload,
@@ -755,7 +706,7 @@ export async function createOfflineInstallerAdapter(input: {
         || expected.sizeBytes !== descriptor.artifact.sizeBytes) {
         throw new OfflineBundleError(`offline native package payload is not authorized: ${descriptor.artifact.id}`);
       }
-      const payload = await openVerifiedMaterializedArtifact(materializedRoot, descriptor.artifact.id, expected);
+      const payload = await materializeVerifiedArtifactHandle(materializedRoot, descriptor.artifact.id, expected);
       try { return await use(payload); }
       finally { await payload.close(); }
     };
@@ -790,7 +741,7 @@ export async function createOfflineInstallerAdapter(input: {
     const executableExpected = input.closure.runtimeArtifacts[registered.executableArtifactId];
     if (!executableExpected || executableExpected.mode !== '0700') throw new OfflineBundleError(`offline executable is not authorized: ${registered.executableArtifactId}`);
     const handles: FileHandle[] = [];
-    const executable = await openVerifiedMaterializedArtifact(materializedRoot, registered.executableArtifactId, executableExpected);
+    const executable = await materializeVerifiedArtifactHandle(materializedRoot, registered.executableArtifactId, executableExpected);
     handles.push(executable);
     const argumentsList: string[] = [];
     const artifactFileDescriptors: Array<{ argumentIndex: number; fileDescriptor: number }> = [];
@@ -800,7 +751,7 @@ export async function createOfflineInstallerAdapter(input: {
         else {
           const expected = input.closure.runtimeArtifacts[argument.artifactId];
           if (!expected) throw new OfflineBundleError(`offline argument artifact is not authorized: ${argument.artifactId}`);
-          const handle = await openVerifiedMaterializedArtifact(materializedRoot, argument.artifactId, expected);
+          const handle = await materializeVerifiedArtifactHandle(materializedRoot, argument.artifactId, expected);
           handles.push(handle);
           artifactFileDescriptors.push({ argumentIndex: argumentsList.length, fileDescriptor: handle.fd });
           argumentsList.push(argument.artifactId);
@@ -827,7 +778,7 @@ export async function createOfflineInstallerAdapter(input: {
     await assertManagedTargetAuthority(operation.targetPath);
     const expected = input.closure.runtimeArtifacts[operation.candidateArtifactId];
     if (!expected || expected.mode !== '0600') throw new OfflineBundleError(`offline managed-file candidate is not authorized: ${operation.candidateArtifactId}`);
-    const handle = await openVerifiedMaterializedArtifact(materializedRoot, operation.candidateArtifactId, expected);
+    const handle = await materializeVerifiedArtifactHandle(materializedRoot, operation.candidateArtifactId, expected);
     try {
       const candidateBytes = await handle.readFile();
       if (candidateBytes.length !== expected.sizeBytes
