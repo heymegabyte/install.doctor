@@ -20,11 +20,11 @@ case "$CANARY_OFFLINE_BUNDLE_SHA256" in *[!a-f0-9]*|'') exit 64;; esac
 [ "${#CANARY_OFFLINE_BUNDLE_SHA256}" -eq 64 ] || exit 64
 case "$CANARY_OFFLINE_SIGNER_ID" in ''|[!a-z0-9]*|*[!a-z0-9._-]*) exit 64;; esac
 case "$CANARY_OFFLINE_SIGNER_PUBLIC_KEY" in 'ssh-ed25519 '[A-Za-z0-9+/]*|'ssh-ed25519 '[A-Za-z0-9+/]*' '*) ;; *) exit 64;; esac
-case "$CANARY_OFFLINE_BUNDLE_URL" in "https://app.install.doctor/releases/$RELEASE_V2/"*.tar) ;; *) exit 64;; esac
+case "$CANARY_OFFLINE_BUNDLE_URL" in "https://desktop.tools/releases/$RELEASE_V2/"*.tar) ;; *) exit 64;; esac
 
 mkdir -p "$CANARY_EVIDENCE_ROOT" "$(dirname "$CANARY_REPORT")"
 chmod 0700 "$CANARY_EVIDENCE_ROOT"
-readonly BASE=https://app.install.doctor/releases
+readonly BASE=https://desktop.tools/releases
 curl_args=(--fail --silent --show-error --proto '=https' --tlsv1.2 --max-time 300 --retry 3 --retry-all-errors)
 export HOME="${RUNNER_TEMP:?}/install-doctor-canary-home" USER=canary LOGNAME=canary
 mkdir -m 0700 "$HOME"
@@ -240,6 +240,51 @@ fs.writeFileSync(file,JSON.stringify({transcriptPath,transcriptDigest,exitStatus
 NODE
 }
 
+run_tui_resume_success() {
+  local mode="$1" wrapper="$2" transcript="$3" stdout="$4" status
+  set +e
+  script -q -e -c "$wrapper" "$transcript" </dev/null >"$stdout" 2>&1
+  status=$?
+  set -e
+  [ "$status" -eq 0 ] || { printf '%s resumed TUI status=%s\n' "$mode" "$status" >&2; cat "$stdout" >&2; exit 79; }
+  grep -aFq $'\033[?1049h\033[?25l' "$transcript" || { printf '%s resumed TUI did not enter alternate screen\n' "$mode" >&2; exit 79; }
+  grep -aFq $'\033[?25h\033[?1049l' "$transcript" || { printf '%s resumed TUI did not restore terminal\n' "$mode" >&2; exit 79; }
+  grep -aFq 'DESKTOP TOOLS' "$transcript" || { printf '%s resumed TUI lacks Desktop Tools identity\n' "$mode" >&2; exit 79; }
+}
+
+export_tui_completion() {
+  local label="$1" session_home="$2" transcript="$3" digest="$4"
+  local session_state="$session_home/.local/state/install.doctor/engine"
+  local run_id authority_name="$label.committed-authority" authority_root="$CANARY_EVIDENCE_ROOT/$label.committed-authority"
+  run_id="$(node -e 'const r=JSON.parse(require("node:fs").readFileSync(process.argv[1]));process.stdout.write(r.runId)' "$RUNNER_TEMP/$label-session.json")"
+  local run_root="$session_state/runs/$digest/$run_id" commit
+  commit="$(sudo find "$run_root/commits" -type f -name '*.commit.json' -print -quit)"
+  [ -n "$commit" ] || { printf '%s resumed TUI produced no commit authority\n' "$label" >&2; exit 79; }
+  sudo node - "$commit" "$run_root" "$authority_root" "$run_id" "$digest" <<'NODE'
+const fs=require('node:fs'),path=require('node:path');
+const [source,runRoot,outputRoot,runId,planDigest]=process.argv.slice(2);
+for(const directory of ['compensations','native','journal-objects','journal-heads'])fs.mkdirSync(path.join(outputRoot,directory),{recursive:true,mode:0o700});
+const withinRun=value=>{const resolved=fs.realpathSync(value),root=fs.realpathSync(runRoot);if(!resolved.startsWith(`${root}${path.sep}`))throw new Error('TUI commit artifact escaped run root');return resolved;};
+const copy=(sourcePath,destination)=>{const sourceFile=withinRun(sourcePath),target=path.join(outputRoot,destination);const bytes=fs.readFileSync(sourceFile);fs.writeFileSync(target,bytes,{mode:0o600,flag:'wx'});};
+const commit=JSON.parse(fs.readFileSync(source));if(commit.runId!==runId||commit.planDigest!==planDigest)throw new Error('resumed TUI commit identity mismatch');
+fs.copyFileSync(source,path.join(outputRoot,'commit.json'));copy(path.join(runRoot,'terminal-authority.json'),'terminal-authority.json');
+for(const [field,name] of [['planArtifact','plan.json'],['journalObject','journal-object.json'],['journalHead','journal-head.json'],['events','events.ndjson'],['receipt','receipt.json']])copy(commit[field].path,name);
+for(const name of fs.readdirSync(path.join(runRoot,'objects','sha256')).sort())copy(path.join(runRoot,'objects','sha256',name),`journal-objects/${name}`);
+for(const name of fs.readdirSync(path.join(runRoot,'heads')).sort())copy(path.join(runRoot,'heads',name),`journal-heads/${name}`);
+if(commit.compensationIndex){copy(commit.compensationIndex.path,'compensation-index.json');const index=JSON.parse(fs.readFileSync(commit.compensationIndex.path));for(const artifact of index.artifacts)copy(artifact.path,`compensations/${path.basename(artifact.path)}`);}
+if(commit.nativeTransactionIndex){copy(commit.nativeTransactionIndex.path,'native-transaction-index.json');const index=JSON.parse(fs.readFileSync(commit.nativeTransactionIndex.path));for(const artifact of index.objects)copy(artifact.path,`native/${path.basename(artifact.path)}`);for(const transaction of index.transactions){copy(transaction.current.path,`native/${path.basename(transaction.current.path)}`);copy(transaction.record.path,`native/${path.basename(transaction.record.path)}`);}}
+NODE
+  sudo chown -R "$(id -u):$(id -g)" "$authority_root"
+  local transcript_digest authority_digest
+  transcript_digest="$(sha256sum "$transcript" | awk '{print $1}')"
+  authority_digest="$(sha256sum "$authority_root/commit.json" | awk '{print $1}')"
+  node - "$RUNNER_TEMP/$label-session.json" "$(basename "$transcript")" "$transcript_digest" "$authority_name" "$authority_digest" <<'NODE'
+const fs=require('node:fs');const [file,transcriptPath,transcriptDigest,authorityRoot,authorityDigest]=process.argv.slice(2);const value=JSON.parse(fs.readFileSync(file));
+value.completion={transcriptPath,transcriptDigest,exitStatus:0,authority:{schemaVersion:2,runId:value.runId,planDigest:value.planDigest,authorityRoot,executionMode:'online',beforeFingerprint:'',afterFingerprint:''},authorityDigest};
+fs.writeFileSync(file,JSON.stringify(value)+'\n',{mode:0o600});
+NODE
+}
+
 direct_tui_user="$(id -un)"
 run_tui_plan direct "$direct_tui_home" "$direct_tui_user" "$RUNNER_TEMP/direct-tui-plan.log"
 direct_tui_digest="$(approval_for_home "$direct_tui_home")"
@@ -247,6 +292,8 @@ run_tui_cancel direct "$direct_tui_home" "$direct_tui_user" "$direct_tui_digest"
   "$CANARY_EVIDENCE_ROOT/direct-user-tui.typescript" "$RUNNER_TEMP/direct-tui-wrapper" \
   "$RUNNER_TEMP/direct-tui.stdin" "$RUNNER_TEMP/direct-tui.stdout"
 export_tui_authority direct-user-tui "$direct_tui_home" "$CANARY_EVIDENCE_ROOT/direct-user-tui.typescript" "$direct_tui_digest"
+run_tui_resume_success direct "$RUNNER_TEMP/direct-tui-wrapper" "$CANARY_EVIDENCE_ROOT/direct-user-tui-resumed.typescript" "$RUNNER_TEMP/direct-tui-resumed.stdout"
+export_tui_completion direct-user-tui "$direct_tui_home" "$CANARY_EVIDENCE_ROOT/direct-user-tui-resumed.typescript" "$direct_tui_digest"
 
 run_tui_plan root "$root_tui_home" "$root_tui_user" "$RUNNER_TEMP/root-tui-plan.log"
 root_tui_digest="$(approval_for_home "$root_tui_home")"
@@ -254,6 +301,8 @@ run_tui_cancel root "$root_tui_home" "$root_tui_user" "$root_tui_digest" \
   "$CANARY_EVIDENCE_ROOT/root-handoff-tui.typescript" "$RUNNER_TEMP/root-tui-wrapper" \
   "$RUNNER_TEMP/root-tui.stdin" "$RUNNER_TEMP/root-tui.stdout"
 export_tui_authority root-handoff-tui "$root_tui_home" "$CANARY_EVIDENCE_ROOT/root-handoff-tui.typescript" "$root_tui_digest"
+run_tui_resume_success root "$RUNNER_TEMP/root-tui-wrapper" "$CANARY_EVIDENCE_ROOT/root-handoff-tui-resumed.typescript" "$RUNNER_TEMP/root-tui-resumed.stdout"
+export_tui_completion root-handoff-tui "$root_tui_home" "$CANARY_EVIDENCE_ROOT/root-handoff-tui-resumed.typescript" "$root_tui_digest"
 
 node - "$CANARY_EVIDENCE_ROOT/interactive-tui.json" "$RUNNER_TEMP/direct-user-tui-session.json" "$RUNNER_TEMP/root-handoff-tui-session.json" "$RELEASE_V2" "$source_commit" "$manifest_digest" <<'NODE'
 const fs=require('node:fs');const [output,directPath,rootPath,releaseId,sourceCommit,manifestDigest]=process.argv.slice(2);
@@ -353,7 +402,7 @@ readlink /proc/self/ns/net >"$evidence/namespace"
 if awk 'NR>1 && $2 == "00000000" { found=1 } END { exit !found }' /proc/net/route; then printf true >"$evidence/default-route"; else printf false >"$evidence/default-route"; fi
 find /sys/class/net -mindepth 1 -maxdepth 1 -printf '%f\n' | LC_ALL=C sort >"$evidence/interfaces"
 set +e
-getent hosts app.install.doctor >/dev/null 2>&1; dns_status=$?
+getent hosts desktop.tools >/dev/null 2>&1; dns_status=$?
 node -e 'const n=require("node:net");const s=n.connect({host:"1.1.1.1",port:443,timeout:500},()=>process.exit(0));s.on("error",()=>process.exit(1));s.on("timeout",()=>process.exit(1))'; tcp_status=$?
 set -e
 printf '%s\n' "$dns_status" >"$evidence/dns-status"; printf '%s\n' "$tcp_status" >"$evidence/tcp-status"

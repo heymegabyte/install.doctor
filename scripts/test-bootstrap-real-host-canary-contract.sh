@@ -25,6 +25,8 @@ check 'unused network consent denied' grep -q 'INSTALL_DOCTOR_CONSENT_NETWORK=fa
 check 'workflow inputs are data, not shell source' bash -c '! grep -Eq "RELEASE_V[12]=.[$][{][{] inputs" "$1"' _ "$WORKFLOW"
 check 'receipt finalizer invoked' grep -q 'finalize-platform-canary-receipt.mjs' "$WORKFLOW"
 check 'immutable release launchers used' grep -Fq '"$BASE/$id/start"' "$DRIVER"
+check 'canonical Desktop Tools release origin used' grep -Fq 'readonly BASE=https://desktop.tools/releases' "$DRIVER"
+check 'retired Install Doctor release origin absent' bash -c '! grep -Fq "app.install.doctor/releases" "$1"' _ "$DRIVER"
 for phase in clean-install signed-release upgrade interrupted-resume unchanged-second-run offline-execution config-rollback; do
   check "structured $phase phase" grep -q "$phase.json" "$DRIVER"
 done

@@ -86,9 +86,13 @@ const canaryReceipt = {
       configRollback: { result: 'passed', evidenceDigest: sha, authorityDigest: sha, rollbackRunId: 'rollback-1', planDigest: sha, restoredTaskIds: ['install.git'] },
       interactiveTui: { result: 'passed', evidenceDigest: sha, releaseId: 'release-1', sourceCommit: 'b'.repeat(40), manifestDigest: sha,
         directUser: { transcriptDigest: sha, runsListDigest: sha, planArtifactDigest: sha, journalHeadDigest: sha, journalObjectDigest: sha, planDigest: sha,
-          exitStatus: 130, altScreenEntered: true, terminalRestored: true, desktopToolsIdentity: true, workerAttribution: true, runId: 'direct-run', resumeCandidate: true },
+          exitStatus: 130, altScreenEntered: true, terminalRestored: true, desktopToolsIdentity: true, workerAttribution: true, runId: 'direct-run', resumeCandidate: true,
+          completionTranscriptDigest: sha, completionAuthorityDigest: sha, completionExitStatus: 0, completionAltScreenEntered: true,
+          completionTerminalRestored: true, completionDesktopToolsIdentity: true, completionRunId: 'direct-run', completionPlanDigest: sha, completionStatus: 'success' },
         rootHandoff: { transcriptDigest: sha, runsListDigest: sha, planArtifactDigest: sha, journalHeadDigest: sha, journalObjectDigest: sha, planDigest: sha,
-          exitStatus: 130, altScreenEntered: true, terminalRestored: true, desktopToolsIdentity: true, workerAttribution: true, runId: 'root-run', resumeCandidate: true } } } },
+          exitStatus: 130, altScreenEntered: true, terminalRestored: true, desktopToolsIdentity: true, workerAttribution: true, runId: 'root-run', resumeCandidate: true,
+          completionTranscriptDigest: sha, completionAuthorityDigest: sha, completionExitStatus: 0, completionAltScreenEntered: true,
+          completionTerminalRestored: true, completionDesktopToolsIdentity: true, completionRunId: 'root-run', completionPlanDigest: sha, completionStatus: 'success' } } } },
 };
 
 const cases = [

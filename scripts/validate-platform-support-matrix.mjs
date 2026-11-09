@@ -98,15 +98,19 @@ const validateCanaryReceipt = (receiptPath, cell, location) => {
     if (phase === 'interactiveTui') {
       if (value?.releaseId !== receipt.release?.releaseId || value?.sourceCommit !== receipt.release?.sourceCommit
         || value?.manifestDigest !== receipt.release?.manifestDigest) report(`${location}.proof.phases.${phase}`, 'must bind the exact promoted release');
-      const sessionKeys = new Set(['transcriptDigest','runsListDigest','planArtifactDigest','journalHeadDigest','journalObjectDigest','exitStatus','altScreenEntered','terminalRestored','desktopToolsIdentity','workerAttribution','runId','planDigest','resumeCandidate']);
+      const sessionKeys = new Set(['transcriptDigest','runsListDigest','planArtifactDigest','journalHeadDigest','journalObjectDigest','exitStatus','altScreenEntered','terminalRestored','desktopToolsIdentity','workerAttribution','runId','planDigest','resumeCandidate','completionTranscriptDigest','completionAuthorityDigest','completionExitStatus','completionAltScreenEntered','completionTerminalRestored','completionDesktopToolsIdentity','completionRunId','completionPlanDigest','completionStatus']);
       for (const sessionName of ['directUser','rootHandoff']) {
         const session = value?.[sessionName];
         exactKeys(session, sessionKeys, `${location}.proof.phases.${phase}.${sessionName}`);
-        for (const field of ['transcriptDigest','runsListDigest','planArtifactDigest','journalHeadDigest','journalObjectDigest','planDigest']) if (!/^[a-f0-9]{64}$/.test(session?.[field] ?? '')) report(`${location}.proof.phases.${phase}.${sessionName}.${field}`, 'must be a SHA-256 digest');
+        for (const field of ['transcriptDigest','runsListDigest','planArtifactDigest','journalHeadDigest','journalObjectDigest','planDigest','completionTranscriptDigest','completionAuthorityDigest','completionPlanDigest']) if (!/^[a-f0-9]{64}$/.test(session?.[field] ?? '')) report(`${location}.proof.phases.${phase}.${sessionName}.${field}`, 'must be a SHA-256 digest');
         if (!nonempty(session?.runId) || session?.exitStatus !== 130 || session?.altScreenEntered !== true
           || session?.terminalRestored !== true || session?.desktopToolsIdentity !== true
-          || session?.workerAttribution !== true || session?.resumeCandidate !== true) {
-          report(`${location}.proof.phases.${phase}.${sessionName}`, 'must prove cancelled, restored, attributable, resumable interactive execution');
+          || session?.workerAttribution !== true || session?.resumeCandidate !== true
+          || session?.completionExitStatus !== 0 || session?.completionAltScreenEntered !== true
+          || session?.completionTerminalRestored !== true || session?.completionDesktopToolsIdentity !== true
+          || session?.completionStatus !== 'success' || session?.completionRunId !== session?.runId
+          || session?.completionPlanDigest !== session?.planDigest) {
+          report(`${location}.proof.phases.${phase}.${sessionName}`, 'must prove cancelled, restored, attributable execution resumed to committed success');
         }
       }
       if (value?.directUser?.runId === value?.rootHandoff?.runId) report(`${location}.proof.phases.${phase}`, 'must bind distinct direct-user and root-handoff runs');

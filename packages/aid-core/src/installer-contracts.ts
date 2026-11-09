@@ -485,6 +485,9 @@ const canaryInteractiveSessionProof = strict({
   transcriptDigest: digest, runsListDigest: digest, planArtifactDigest: digest, journalHeadDigest: digest, journalObjectDigest: digest,
   exitStatus: z.literal(130), altScreenEntered: z.literal(true), terminalRestored: z.literal(true),
   desktopToolsIdentity: z.literal(true), workerAttribution: z.literal(true), runId: id, planDigest: digest, resumeCandidate: z.literal(true),
+  completionTranscriptDigest: digest, completionAuthorityDigest: digest, completionExitStatus: z.literal(0),
+  completionAltScreenEntered: z.literal(true), completionTerminalRestored: z.literal(true), completionDesktopToolsIdentity: z.literal(true),
+  completionRunId: id, completionPlanDigest: digest, completionStatus: z.literal('success'),
 });
 const canaryInteractiveTuiProof = strict({
   result: z.literal('passed'), evidenceDigest: digest, releaseId: id,
@@ -531,6 +534,11 @@ export const RealHostCanaryReceiptSchema = strict({
   }
   if (interactive.directUser.runId === interactive.rootHandoff.runId) {
     context.addIssue({ code: 'custom', path: ['proof', 'phases', 'interactiveTui'], message: 'interactive TUI sessions must bind distinct interrupted runs' });
+  }
+  for (const session of [interactive.directUser, interactive.rootHandoff]) {
+    if (session.completionRunId !== session.runId || session.completionPlanDigest !== session.planDigest) {
+      context.addIssue({ code: 'custom', path: ['proof', 'phases', 'interactiveTui'], message: 'interactive TUI completion must commit the interrupted run and plan' });
+    }
   }
   if (value.proof.phases.offlineExecution.executionMode !== 'offline') {
     context.addIssue({ code: 'custom', path: ['proof', 'phases', 'offlineExecution', 'executionMode'], message: 'offline phase must be marked offline' });

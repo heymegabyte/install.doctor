@@ -305,7 +305,8 @@ if (interactiveTui.schemaVersion !== 1
   throw new Error('interactive TUI release identity mismatch');
 }
 const validateInteractiveSession = (session, label) => {
-  exact(session, ['transcriptPath','transcriptDigest','exitStatus','runsListPath','runsListDigest','authorityRoot','runId','planDigest'], label);
+  exact(session, ['transcriptPath','transcriptDigest','exitStatus','runsListPath','runsListDigest','authorityRoot','runId','planDigest','completion'], label);
+  exact(session.completion, ['transcriptPath','transcriptDigest','exitStatus','authority','authorityDigest'], `${label}.completion`);
   if (session.exitStatus !== 130 || !/^[a-f0-9]{64}$/.test(session.transcriptDigest)
     || !/^[a-f0-9]{64}$/.test(session.runsListDigest) || !/^[a-f0-9]{64}$/.test(session.planDigest)
     || !/^[a-z0-9][a-z0-9._-]{0,127}$/.test(session.runId)) throw new Error(`${label} identity is invalid`);
@@ -364,9 +365,27 @@ const validateInteractiveSession = (session, label) => {
   const commitStat = fs.lstatSync(commits);
   if (!commitStat.isDirectory() || commitStat.isSymbolicLink() || fs.readdirSync(commits).length !== 0
     || fs.existsSync(path.join(authorityState, 'owner.json'))) throw new Error(`${label} run is committed or actively owned`);
+  if (session.completion.exitStatus !== 0 || !/^[a-f0-9]{64}$/.test(session.completion.transcriptDigest)
+    || !/^[a-f0-9]{64}$/.test(session.completion.authorityDigest)) throw new Error(`${label} completion identity is invalid`);
+  const completionTranscriptBytes = fs.readFileSync(evidenceFile(session.completion.transcriptPath, `${label} completion transcript`));
+  if (sha256(completionTranscriptBytes) !== session.completion.transcriptDigest) throw new Error(`${label} completion transcript digest mismatch`);
+  const completionTranscript = completionTranscriptBytes.toString('utf8');
+  const visibleCompletion = completionTranscript.replaceAll(/\u001b\[[0-?]*[ -/]*[@-~]/gu, '');
+  const completionAssertions = {
+    completionAltScreenEntered: completionTranscript.includes('\u001b[?1049h') && completionTranscript.includes('\u001b[?25l'),
+    completionTerminalRestored: completionTranscript.includes('\u001b[?25h\u001b[?1049l'),
+    completionDesktopToolsIdentity: visibleCompletion.includes('DESKTOP TOOLS'),
+  };
+  if (Object.values(completionAssertions).some(value => value !== true)) throw new Error(`${label} completion transcript lacks required TUI lifecycle evidence`);
+  const completionProof = validateInstallAuthority(session.completion.authority, `${label}.completion.authority`, 'online');
+  if (completionProof.runId !== session.runId || completionProof.planDigest !== session.planDigest
+    || completionProof.authorityDigest !== session.completion.authorityDigest) throw new Error(`${label} completion does not commit the interrupted run authority`);
   return { transcriptDigest: session.transcriptDigest, runsListDigest: session.runsListDigest,
     planArtifactDigest: sha256(planBytes), journalHeadDigest: sha256(headBytes), journalObjectDigest: sha256(objectBytes),
-    exitStatus: session.exitStatus, ...assertions, runId: session.runId, planDigest: session.planDigest, resumeCandidate: true };
+    exitStatus: session.exitStatus, ...assertions, runId: session.runId, planDigest: session.planDigest, resumeCandidate: true,
+    completionTranscriptDigest: session.completion.transcriptDigest, completionAuthorityDigest: completionProof.authorityDigest,
+    completionExitStatus: session.completion.exitStatus, ...completionAssertions, completionRunId: completionProof.runId,
+    completionPlanDigest: completionProof.planDigest, completionStatus: 'success' };
 };
 const directTui = validateInteractiveSession(interactiveTui.directUser, 'interactiveTui.directUser');
 const rootTui = validateInteractiveSession(interactiveTui.rootHandoff, 'interactiveTui.rootHandoff');
