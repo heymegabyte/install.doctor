@@ -76,7 +76,7 @@ export async function resolveActiveDesktopRelease(channelBinding: unknown, relea
     const delegationSize = integer.parse(values.get('broker_approval_delegation_size'));
     const minimumRevocationEpoch = nonnegative.parse(values.get('broker_approval_minimum_revocation_epoch'));
     if (delegationUrl !== `https://desktop.tools/releases/${pointer.releaseId}/broker-approval-signer-delegation.json`
-      || delegationSize > 1_048_576) {
+      || delegationSize > 65_536) {
       throw new Error('Desktop Tools broker approval delegation authority is invalid');
     }
     brokerApproval = Object.freeze({ delegationUrl, delegationSha256, delegationSize, minimumRevocationEpoch });
