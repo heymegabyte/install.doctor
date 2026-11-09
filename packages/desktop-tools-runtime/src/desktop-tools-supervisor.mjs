@@ -4,9 +4,9 @@ import { spawn } from 'node:child_process';
 import { constants as fsConstants } from 'node:fs';
 import { chmod, copyFile, lstat, mkdir, open, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { homedir, tmpdir } from 'node:os';
-import { dirname, isAbsolute, join, resolve, sep } from 'node:path';
+import { basename, dirname, isAbsolute, join, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { gunzipSync } from 'node:zlib';
+import { gunzipSync, inflateRawSync } from 'node:zlib';
 import { initializeSessionEvidence, loadSessionContext, persistSessionContext } from './session-evidence.mjs';
 
 const VERSION = '1';
@@ -135,15 +135,16 @@ function generateOpenCodeConfig(credentialPath, promptPath, toolRuntime) {
 
 function parse(argv) {
   const [command, ...rest] = argv;
-  if (!['validate', 'prepare', 'run', 'service', 'status'].includes(command)) fail('expected validate, prepare, run, service, or status');
+  if (!['install', 'validate', 'prepare', 'run', 'service', 'status'].includes(command)) fail('expected install, validate, prepare, run, service, or status');
   const values = Object.create(null);
   for (let index = 0; index < rest.length; index += 2) {
     const flag = rest[index];
     const value = rest[index + 1];
     if (!flag?.startsWith('--') || value === undefined || value.startsWith('--')) fail('options must be --name value pairs');
     const name = flag.slice(2);
-    if (!['runtime', 'sha256', 'version', 'state-dir', 'port', 'output-dir', 'provisioning-context', 'session-context',
-      'engine', 'engine-sha256', 'tools-archive', 'tools-sha256', 'tool-context'].includes(name) || values[name] !== undefined) {
+    if (!['runtime', 'runtime-archive', 'sha256', 'version', 'state-dir', 'port', 'output-dir', 'provisioning-context', 'session-context',
+      'engine', 'engine-sha256', 'supervisor', 'supervisor-sha256', 'tools-archive', 'tools-sha256',
+      'lock', 'lock-sha256', 'tool-context'].includes(name) || values[name] !== undefined) {
       fail(`unsupported or repeated option: ${flag}`);
     }
     values[name] = value;
@@ -417,6 +418,108 @@ async function installPinnedFile(source, destination, expectedDigest, mode) {
   return destination;
 }
 
+async function boundedPinnedSource(pathValue, digest, label, maximum) {
+  const path = absoluteSafePath(pathValue, label);
+  if (!digestPattern.test(digest || '')) fail(`${label} digest must be a lowercase SHA-256`, 65);
+  const info = await lstat(path);
+  if (!info.isFile() || info.isSymbolicLink() || info.nlink !== 1 || info.size < 1 || info.size > maximum) {
+    fail(`${label} must be one bounded regular file`, 65);
+  }
+  if (await sha256(path) !== digest) fail(`${label} digest does not match the signed release`, 65);
+  return path;
+}
+
+function zipExecutable(bytes) {
+  const minimum = Math.max(0, bytes.length - 65_557);
+  let end = -1;
+  for (let offset = bytes.length - 22; offset >= minimum; offset -= 1) {
+    if (bytes.readUInt32LE(offset) === 0x06054b50) { end = offset; break; }
+  }
+  if (end < 0 || end + 22 > bytes.length || bytes.readUInt16LE(end + 4) !== 0 || bytes.readUInt16LE(end + 6) !== 0
+    || bytes.readUInt16LE(end + 8) !== 1 || bytes.readUInt16LE(end + 10) !== 1 || bytes.readUInt16LE(end + 20) !== 0) {
+    fail('OpenCode zip must contain exactly one local entry without spanning or comments', 65);
+  }
+  const centralSize = bytes.readUInt32LE(end + 12); const centralOffset = bytes.readUInt32LE(end + 16);
+  if (centralOffset + centralSize !== end || centralSize < 46 || bytes.readUInt32LE(centralOffset) !== 0x02014b50) fail('OpenCode zip central directory is malformed', 65);
+  const flags = bytes.readUInt16LE(centralOffset + 8); const method = bytes.readUInt16LE(centralOffset + 10);
+  const compressedSize = bytes.readUInt32LE(centralOffset + 20); const uncompressedSize = bytes.readUInt32LE(centralOffset + 24);
+  const nameLength = bytes.readUInt16LE(centralOffset + 28); const extraLength = bytes.readUInt16LE(centralOffset + 30);
+  const commentLength = bytes.readUInt16LE(centralOffset + 32); const localOffset = bytes.readUInt32LE(centralOffset + 42);
+  if ((flags & 1) !== 0 || ![0, 8].includes(method) || uncompressedSize < 1 || uncompressedSize > 268_435_456
+    || 46 + nameLength + extraLength + commentLength !== centralSize) fail('OpenCode zip entry policy is unsupported', 65);
+  const name = bytes.subarray(centralOffset + 46, centralOffset + 46 + nameLength).toString('utf8');
+  if (name !== 'opencode' || basename(name) !== name || bytes.readUInt32LE(localOffset) !== 0x04034b50) fail('OpenCode zip entry is not the exact executable', 65);
+  const localFlags = bytes.readUInt16LE(localOffset + 6); const localMethod = bytes.readUInt16LE(localOffset + 8);
+  const localNameLength = bytes.readUInt16LE(localOffset + 26); const localExtraLength = bytes.readUInt16LE(localOffset + 28);
+  const localName = bytes.subarray(localOffset + 30, localOffset + 30 + localNameLength).toString('utf8');
+  const dataOffset = localOffset + 30 + localNameLength + localExtraLength;
+  if (localFlags !== flags || localMethod !== method || localName !== name || dataOffset + compressedSize > centralOffset) fail('OpenCode zip local entry differs from its directory', 65);
+  let executable;
+  try { executable = method === 0 ? bytes.subarray(dataOffset, dataOffset + compressedSize) : inflateRawSync(bytes.subarray(dataOffset, dataOffset + compressedSize), { maxOutputLength: 268_435_456 }); }
+  catch { fail('OpenCode zip executable cannot be safely expanded', 65); }
+  if (executable.length !== uncompressedSize) fail('OpenCode zip expanded size mismatch', 65);
+  return executable;
+}
+
+function archiveExecutable(bytes) {
+  if (bytes.length >= 4 && bytes.readUInt32LE(0) === 0x04034b50) return zipExecutable(bytes);
+  let expanded;
+  try { expanded = gunzipSync(bytes, { maxOutputLength: 268_435_456 }); } catch { fail('OpenCode tar archive cannot be safely expanded', 65); }
+  const entries = tarEntries(expanded);
+  if (entries.size !== 1 || !entries.has('opencode')) fail('OpenCode tar archive must contain exactly one executable', 65);
+  return entries.get('opencode');
+}
+
+async function installRuntimeClosure(values, stateDirectory) {
+  for (const name of ['runtime-archive', 'sha256', 'version', 'supervisor', 'supervisor-sha256', 'tools-archive', 'tools-sha256', 'lock', 'lock-sha256']) {
+    if (!values[name]) fail(`install requires --${name}`, 64);
+  }
+  if (!versionPattern.test(values.version)) fail('version must be a supported pinned OpenCode version', 65);
+  const archive = await boundedPinnedSource(values['runtime-archive'], values.sha256, 'OpenCode archive', 268_435_456);
+  const supervisorSource = await boundedPinnedSource(values.supervisor, values['supervisor-sha256'], 'supervisor', 8_388_608);
+  const toolsSource = await boundedPinnedSource(values['tools-archive'], values['tools-sha256'], 'tools archive', 33_554_432);
+  const lockSource = await boundedPinnedSource(values.lock, values['lock-sha256'], 'OpenCode lock', 8_388_608);
+  let lock;
+  try { lock = JSON.parse(await readFile(lockSource, 'utf8')); } catch { fail('OpenCode lock must be valid JSON', 65); }
+  const platform = `${process.platform === 'darwin' ? 'macos' : process.platform}_${process.arch === 'x64' ? 'x64' : process.arch === 'arm64' ? 'arm64' : process.arch}`;
+  const binding = lock?.artifacts?.[platform];
+  if (lock?.schemaVersion !== 1 || lock?.name !== 'opencode' || lock?.version !== values.version || !binding
+    || binding.sha256 !== values.sha256 || !['macos_x64', 'macos_arm64', 'linux_x64', 'linux_arm64'].includes(platform)) {
+    fail('OpenCode lock does not bind this platform, version, and archive', 65);
+  }
+  const executableBytes = archiveExecutable(await readFile(archive));
+  const runtimeDigest = createHash('sha256').update(executableBytes).digest('hex');
+  const runtime = join(stateDirectory, 'runtime', `opencode-${runtimeDigest}`);
+  const executable = join(stateDirectory, 'bin', 'desktop-tools');
+  const supervisor = join(stateDirectory, 'bin', `desktop-tools-supervisor-${values['supervisor-sha256']}.mjs`);
+  const toolsArchive = join(stateDirectory, 'runtime', `desktop-tools-tools-${values['tools-sha256']}.tar.gz`);
+  const installedLock = join(stateDirectory, 'runtime', `opencode-lock-${values['lock-sha256']}.json`);
+  const targets = [runtime, executable, supervisor, toolsArchive, installedLock];
+  const changed = (await Promise.all(targets.map(path => lstat(path).then(() => false, error => error?.code === 'ENOENT' ? true : Promise.reject(error))))).some(Boolean);
+  if (!(await lstat(runtime).then(() => true, error => error?.code === 'ENOENT' ? false : Promise.reject(error)))) await atomicWrite(runtime, executableBytes, 0o700);
+  else if (await sha256(runtime) !== runtimeDigest) fail('installed OpenCode runtime is not the pinned artifact', 65);
+  await chmod(runtime, 0o700);
+  const executableInfo = await lstat(executable).catch(error => error?.code === 'ENOENT' ? null : Promise.reject(error));
+  if (executableInfo && (!executableInfo.isFile() || executableInfo.isSymbolicLink() || executableInfo.nlink !== 1 || await sha256(executable) !== runtimeDigest)) {
+    if (!executableInfo.isFile() || executableInfo.isSymbolicLink()) fail('Desktop Tools executable path is unsafe', 73);
+    await atomicWrite(executable, executableBytes, 0o700);
+  } else if (!executableInfo) {
+    await atomicWrite(executable, executableBytes, 0o700);
+  }
+  await installPinnedFile(supervisorSource, supervisor, values['supervisor-sha256'], 0o700);
+  await installPinnedFile(toolsSource, toolsArchive, values['tools-sha256'], 0o600);
+  await installPinnedFile(lockSource, installedLock, values['lock-sha256'], 0o600);
+  await validateRuntime({ runtime, sha256: runtimeDigest, version: values.version }, stateDirectory);
+  const closure = canonical({ schemaVersion: 1, version: values.version, archiveSha256: values.sha256, executable, runtime, runtimeSha256: runtimeDigest,
+    supervisor, supervisorSha256: values['supervisor-sha256'], toolsArchive, toolsSha256: values['tools-sha256'], lock: installedLock, lockSha256: values['lock-sha256'] });
+  const closureDigest = createHash('sha256').update(`${JSON.stringify(closure)}\n`).digest('hex');
+  const receipt = join(stateDirectory, 'runtime', `closure-${closureDigest}.json`); const receiptBytes = `${JSON.stringify(closure)}\n`;
+  const existingReceipt = await readFile(receipt, 'utf8').catch(error => error?.code === 'ENOENT' ? null : Promise.reject(error));
+  if (existingReceipt === null) await atomicWrite(receipt, receiptBytes);
+  else if (existingReceipt !== receiptBytes) fail('runtime closure receipt collision', 73);
+  return { ...closure, closureDigest, receipt, changed };
+}
+
 function tarEntries(bytes) {
   const entries = new Map();
   for (let offset = 0; offset + 512 <= bytes.length;) {
@@ -559,6 +662,7 @@ async function main(argv) {
   const { command, values } = parse(argv);
   const stateDirectory = await protectedDirectory(values['state-dir']);
   if (command === 'prepare') return { stateDirectory };
+  if (command === 'install') return installRuntimeClosure(values, stateDirectory);
   if (command === 'status') {
     const pid = Number.parseInt(await readFile(join(stateDirectory, 'run', 'supervisor.pid'), 'utf8').catch(() => ''), 10);
     let running = false;
@@ -611,7 +715,7 @@ async function main(argv) {
   return { stopped: true, evidence };
 }
 
-export { PROVISIONING_PROMPT, PROVISIONING_PROMPT_VERSION, VERSION, approvedSkills, approvedTools, generateOpenCodeConfig, initializeSessionEvidence, loadSessionContext, main, minimalEnvironment, persistSessionContext, prepareProvisioningPrompt, protectedDirectory, validateInferenceCredential, validateRuntime };
+export { PROVISIONING_PROMPT, PROVISIONING_PROMPT_VERSION, VERSION, approvedSkills, approvedTools, generateOpenCodeConfig, initializeSessionEvidence, installRuntimeClosure, loadSessionContext, main, minimalEnvironment, persistSessionContext, prepareProvisioningPrompt, protectedDirectory, validateInferenceCredential, validateRuntime };
 
 if (import.meta.url === `file://${process.argv[1]}`) {
   main(process.argv.slice(2))

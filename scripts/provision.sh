@@ -1974,6 +1974,30 @@ NODE
   return "$STATUS"
 }
 
+# @description Persist the exact signed Desktop Tools runtime closure before
+#     stage-zero removes its private download directory. This installs no
+#     service and requires no inference credential; it only makes the verified
+#     OpenCode, supervisor, tools, and lock artifacts durable for the enrolled
+#     user. Legacy releases do not carry this closure and remain unchanged.
+idInstallDesktopToolsRuntimeClosure() {
+  [ -n "${DESKTOP_TOOLS_PROFILE_ID:-}" ] || return 0
+  local RUNTIME="${INSTALL_DOCTOR_RUNTIME_NODE:-}" SUPERVISOR="${DESKTOP_TOOLS_SUPERVISOR_PATH:-}"
+  [ -x "$RUNTIME" ] && [ -f "$RUNTIME" ] && [ ! -L "$RUNTIME" ] \
+    || { logg error 'Verified Node runtime is unavailable for Desktop Tools runtime installation'; return 2; }
+  [ -f "$SUPERVISOR" ] && [ ! -L "$SUPERVISOR" ] \
+    || { logg error 'Verified Desktop Tools supervisor is unavailable'; return 2; }
+  "$RUNTIME" "$SUPERVISOR" install \
+    --runtime-archive "${DESKTOP_TOOLS_OPENCODE_ARCHIVE:-}" \
+    --sha256 "${DESKTOP_TOOLS_OPENCODE_SHA256:-}" \
+    --version "${DESKTOP_TOOLS_OPENCODE_VERSION:-}" \
+    --supervisor "$SUPERVISOR" \
+    --supervisor-sha256 "${DESKTOP_TOOLS_SUPERVISOR_SHA256:-}" \
+    --tools-archive "${DESKTOP_TOOLS_TOOLS_ARCHIVE:-}" \
+    --tools-sha256 "${DESKTOP_TOOLS_TOOLS_SHA256:-}" \
+    --lock "${DESKTOP_TOOLS_OPENCODE_LOCK_PATH:-}" \
+    --lock-sha256 "${DESKTOP_TOOLS_OPENCODE_LOCK_SHA256:-}"
+}
+
 # @description Execute the desired-state apply through the signed canonical engine.
 runCanonicalProvisionEngine() {
   local MODE="${1:-apply}" ENGINE="${INSTALL_DOCTOR_ENGINE_PATH:-}" PROVISIONER INVOCATION INVOCATION_DIR NORMALIZED_PLAN APPROVAL_PLAN EVIDENCE_INVOCATION EVIDENCE_RESULT CLEANUP_EVIDENCE_INVOCATION CLEANUP_EVIDENCE_RESULT RUNS_INVOCATION RUNS_RESULT RESUME_RUN_ID STATE_ROOT NODE_MAJOR EXPECTED_NODE RENDERER GENERATE_STATUS ENGINE_STATUS EVIDENCE_STATUS CLEANUP_EVIDENCE_STATUS PLAN_DIGEST APPROVAL ACTUAL_SHA
@@ -3498,6 +3522,7 @@ function ensureInstallUser() {
     # Seal the complete handoff in a root-owned unpredictable directory. No
     # path is exposed to the target user until every copy and digest verifies.
     local CURRENT_PROVISIONER VERIFIED_ENGINE VERIFIED_MANIFEST VERIFIED_SIGNATURE VERIFIED_CATALOG HANDOFF_ROOT USER_PROVISIONER USER_ENGINE USER_MANIFEST USER_SIGNATURE USER_CATALOG ENV_EXPORT USER_RUNTIME
+    local USER_OPENCODE_ARCHIVE USER_SUPERVISOR USER_TOOLS_ARCHIVE USER_OPENCODE_LOCK
     local PROVISIONER_SHA MANIFEST_SHA SIGNATURE_SHA ENGINE_SHA CATALOG_SHA RUNTIME_SHA ENV_SHA HANDOFF_STATUS
     local BROKER_COORD_ROOT BROKER_USER_ROOT BROKER_ROOT_ROOT BROKER_REQUEST BROKER_RESPONSE BROKER_DERIVE_INPUT BROKER_DERIVED BROKER_APPROVAL_INPUT BROKER_APPROVAL_OUTPUT BROKER_CONTROLLER_INPUT BROKER_READY BROKER_ERROR BROKER_PAYLOAD
     local BROKER_CHILD_PID='' BROKER_CONTROLLER_PID='' BROKER_SOCKET_DIR='' BROKER_WAIT=0 INSTALL_UID INSTALL_GID
@@ -3511,6 +3536,9 @@ function ensureInstallUser() {
     USER_PROVISIONER="$HANDOFF_ROOT/provision.sh"; USER_ENGINE="$HANDOFF_ROOT/install-doctor-engine.mjs"
     USER_MANIFEST="$HANDOFF_ROOT/manifest"; USER_SIGNATURE="$HANDOFF_ROOT/manifest.sig"; USER_CATALOG="$HANDOFF_ROOT/catalog.json"; ENV_EXPORT="$HANDOFF_ROOT/environment.sh"
     USER_RUNTIME="$HANDOFF_ROOT/node"
+    USER_OPENCODE_ARCHIVE="$HANDOFF_ROOT/opencode-runtime"; USER_SUPERVISOR="$HANDOFF_ROOT/desktop-tools-supervisor.mjs"
+    USER_TOOLS_ARCHIVE="$HANDOFF_ROOT/desktop-tools-tools.tar.gz"; USER_OPENCODE_LOCK="$HANDOFF_ROOT/opencode.lock.json"
+    INSTALL_UID="$(id -u "$INSTALL_USER")"; INSTALL_GID="$(id -g "$INSTALL_USER")"
     _idCleanupHandoff() {
       [ -z "${BROKER_CONTROLLER_PID:-}" ] || { kill -TERM "$BROKER_CONTROLLER_PID" 2>/dev/null || true; wait "$BROKER_CONTROLLER_PID" 2>/dev/null || true; }
       [ -z "${BROKER_CHILD_PID:-}" ] || { kill -TERM "$BROKER_CHILD_PID" 2>/dev/null || true; wait "$BROKER_CHILD_PID" 2>/dev/null || true; }
@@ -3537,6 +3565,20 @@ function ensureInstallUser() {
       && idInstallSealedHandoffFile "$VERIFIED_SIGNATURE" "$USER_SIGNATURE" 0600 "$SIGNATURE_SHA" \
       && idInstallSealedHandoffFile "$VERIFIED_CATALOG" "$USER_CATALOG" 0600 "$CATALOG_SHA" \
       || { logg error 'Copied handoff set failed checksum verification'; return 1; }
+    if [ -n "${DESKTOP_TOOLS_PROFILE_ID:-}" ]; then
+      idInstallSealedHandoffFile "${DESKTOP_TOOLS_OPENCODE_ARCHIVE:-}" "$USER_OPENCODE_ARCHIVE" 0600 "${DESKTOP_TOOLS_OPENCODE_SHA256:-}" \
+        && idInstallSealedHandoffFile "${DESKTOP_TOOLS_SUPERVISOR_PATH:-}" "$USER_SUPERVISOR" 0600 "${DESKTOP_TOOLS_SUPERVISOR_SHA256:-}" \
+        && idInstallSealedHandoffFile "${DESKTOP_TOOLS_TOOLS_ARCHIVE:-}" "$USER_TOOLS_ARCHIVE" 0600 "${DESKTOP_TOOLS_TOOLS_SHA256:-}" \
+        && idInstallSealedHandoffFile "${DESKTOP_TOOLS_OPENCODE_LOCK_PATH:-}" "$USER_OPENCODE_LOCK" 0600 "${DESKTOP_TOOLS_OPENCODE_LOCK_SHA256:-}" \
+        || { logg error 'Desktop Tools runtime handoff failed checksum verification'; return 1; }
+      # Release artifacts are public, nonsecret authority. Keep them root-owned
+      # and immutable to the target while granting read-only traversal through
+      # the unpredictable handoff directory.
+      chmod 0444 "$USER_OPENCODE_ARCHIVE" "$USER_SUPERVISOR" "$USER_TOOLS_ARCHIVE" "$USER_OPENCODE_LOCK" || return 1
+      DESKTOP_TOOLS_OPENCODE_ARCHIVE="$USER_OPENCODE_ARCHIVE"; DESKTOP_TOOLS_SUPERVISOR_PATH="$USER_SUPERVISOR"
+      DESKTOP_TOOLS_TOOLS_ARCHIVE="$USER_TOOLS_ARCHIVE"; DESKTOP_TOOLS_OPENCODE_LOCK_PATH="$USER_OPENCODE_LOCK"
+      export DESKTOP_TOOLS_OPENCODE_ARCHIVE DESKTOP_TOOLS_SUPERVISOR_PATH DESKTOP_TOOLS_TOOLS_ARCHIVE DESKTOP_TOOLS_OPENCODE_LOCK_PATH
+    fi
     if [ -n "${INSTALL_DOCTOR_RUNTIME_STAGE:-}" ]; then
       [ -f "${INSTALL_DOCTOR_RUNTIME_NODE:-}" ] && [ ! -L "${INSTALL_DOCTOR_RUNTIME_NODE:-}" ] || return 1
       RUNTIME_SHA="$(idSha256File "$INSTALL_DOCTOR_RUNTIME_NODE")"
@@ -3568,7 +3610,6 @@ function ensureInstallUser() {
     # The user-owned plan decides whether a privileged broker is needed. Root
     # creates only private coordination paths before handoff and acquires no
     # native artifacts unless the approved user plan publishes a request.
-    INSTALL_UID="$(id -u "$INSTALL_USER")"; INSTALL_GID="$(id -g "$INSTALL_USER")"
     BROKER_COORD_ROOT="$HANDOFF_ROOT/broker-coordination"
     BROKER_USER_ROOT="$BROKER_COORD_ROOT/user"; BROKER_ROOT_ROOT="$BROKER_COORD_ROOT/root"
     mkdir -m 0711 "$BROKER_COORD_ROOT" "$BROKER_ROOT_ROOT" || return 1
@@ -3614,6 +3655,10 @@ function ensureInstallUser() {
       INSTALL_DOCTOR_RUNTIME_NODE INSTALL_DOCTOR_RUNTIME_NODE_VERSION INSTALL_DOCTOR_RUNTIME_SOURCE INSTALL_DOCTOR_HANDOFF_RUNTIME_SHA256 \
       INSTALL_DOCTOR_VERIFIED_MANIFEST INSTALL_DOCTOR_VERIFIED_SIGNATURE \
       DESKTOP_TOOLS_PROFILE_ID DESKTOP_TOOLS_PROFILE_SLUG DESKTOP_TOOLS_PROFILE_REVISION DESKTOP_TOOLS_PROFILE_DIGEST DESKTOP_TOOLS_MACHINE_ID \
+      DESKTOP_TOOLS_OPENCODE_VERSION DESKTOP_TOOLS_OPENCODE_ARCHIVE DESKTOP_TOOLS_OPENCODE_SHA256 \
+      DESKTOP_TOOLS_SUPERVISOR_PATH DESKTOP_TOOLS_SUPERVISOR_SHA256 \
+      DESKTOP_TOOLS_TOOLS_ARCHIVE DESKTOP_TOOLS_TOOLS_SHA256 \
+      DESKTOP_TOOLS_OPENCODE_LOCK_PATH DESKTOP_TOOLS_OPENCODE_LOCK_SHA256 \
       DESKTOP_TOOLS_NATIVE_BROKER_REQUESTED \
       DESKTOP_TOOLS_BROKER_COORDINATION_USER_REQUEST DESKTOP_TOOLS_BROKER_COORDINATION_ROOT_RESPONSE \
       DESKTOP_TOOLS_BROKER_HELPER_PATH DESKTOP_TOOLS_BROKER_HELPER_SHA256 \
@@ -3647,7 +3692,7 @@ function ensureInstallUser() {
       || { logg error 'Unable to make the sealed catalog readable only by the target user'; return 1; }
     logg info "Continuing with the locally staged provisioner as $INSTALL_USER"
     _idRunSealedUserHandoff() {
-      su - "$INSTALL_USER" -c "hash_file() { if command -v sha256sum >/dev/null 2>&1; then sha256sum \"\$1\" | awk '{print \$1}'; else shasum -a 256 \"\$1\" | awk '{print \$1}'; fi; }; [ \"\$(hash_file '$ENV_EXPORT')\" = '$ENV_SHA' ] && [ \"\$(hash_file '$USER_PROVISIONER')\" = '$PROVISIONER_SHA' ] && [ \"\$(hash_file '$USER_ENGINE')\" = '$ENGINE_SHA' ] && [ \"\$(hash_file '$USER_MANIFEST')\" = '$MANIFEST_SHA' ] && [ \"\$(hash_file '$USER_SIGNATURE')\" = '$SIGNATURE_SHA' ] && [ \"\$(hash_file '$USER_CATALOG')\" = '$CATALOG_SHA' ] && [ \"\$(hash_file '$USER_RUNTIME')\" = '$RUNTIME_SHA' ] || exit 20; source '$ENV_EXPORT' && export HOME='$USER_HOME_DIR' USER='$INSTALL_USER' PATH='$(dirname "$USER_RUNTIME")':\"\$PATH\" && cd '$USER_HOME_DIR' && bash '$USER_PROVISIONER'"
+      su - "$INSTALL_USER" -c "hash_file() { if command -v sha256sum >/dev/null 2>&1; then sha256sum \"\$1\" | awk '{print \$1}'; else shasum -a 256 \"\$1\" | awk '{print \$1}'; fi; }; [ \"\$(hash_file '$ENV_EXPORT')\" = '$ENV_SHA' ] && [ \"\$(hash_file '$USER_PROVISIONER')\" = '$PROVISIONER_SHA' ] && [ \"\$(hash_file '$USER_ENGINE')\" = '$ENGINE_SHA' ] && [ \"\$(hash_file '$USER_MANIFEST')\" = '$MANIFEST_SHA' ] && [ \"\$(hash_file '$USER_SIGNATURE')\" = '$SIGNATURE_SHA' ] && [ \"\$(hash_file '$USER_CATALOG')\" = '$CATALOG_SHA' ] && [ \"\$(hash_file '$USER_RUNTIME')\" = '$RUNTIME_SHA' ] || exit 20; source '$ENV_EXPORT'; if [ -n \"\${DESKTOP_TOOLS_PROFILE_ID:-}\" ]; then [ \"\$(hash_file \"\$DESKTOP_TOOLS_OPENCODE_ARCHIVE\")\" = \"\$DESKTOP_TOOLS_OPENCODE_SHA256\" ] && [ \"\$(hash_file \"\$DESKTOP_TOOLS_SUPERVISOR_PATH\")\" = \"\$DESKTOP_TOOLS_SUPERVISOR_SHA256\" ] && [ \"\$(hash_file \"\$DESKTOP_TOOLS_TOOLS_ARCHIVE\")\" = \"\$DESKTOP_TOOLS_TOOLS_SHA256\" ] && [ \"\$(hash_file \"\$DESKTOP_TOOLS_OPENCODE_LOCK_PATH\")\" = \"\$DESKTOP_TOOLS_OPENCODE_LOCK_SHA256\" ] || exit 20; fi; export HOME='$USER_HOME_DIR' USER='$INSTALL_USER' PATH='$(dirname "$USER_RUNTIME")':\"\$PATH\" && cd '$USER_HOME_DIR' && bash '$USER_PROVISIONER'"
     }
     _idRunSealedUserHandoff & BROKER_CHILD_PID=$!
     while [ ! -f "$BROKER_REQUEST" ] && kill -0 "$BROKER_CHILD_PID" 2>/dev/null && [ "$BROKER_WAIT" -lt 180 ]; do
@@ -3896,6 +3941,7 @@ provisionLogic() {
     idRunRequiredProvisionStep "Handing off planning and execution to the enrolled user" ensureInstallUser || return $?
     return 0
   fi
+  idRunRequiredProvisionStep "Installing the verified Desktop Tools runtime closure" idInstallDesktopToolsRuntimeClosure || return $?
   idRunRequiredProvisionStep "Authorizing this Desktop Tools target" idEnsureDesktopToolsDeviceAuthorization || return $?
   idRunRequiredProvisionStep "Loading this machine's authenticated Desktop Tools desired state" idSyncDesktopToolsDesiredState || return $?
   idRunRequiredProvisionStep "Reconciling stale sudo acquisition ownership" idReconcileStaleSudoOwnership || return $?

@@ -34,6 +34,18 @@ for file in "$PROVISION"; do
     fail "$label does not safely transfer the signed engine across the root boundary"
   fi
 
+  if grep -Fq 'idInstallSealedHandoffFile "${DESKTOP_TOOLS_OPENCODE_ARCHIVE:-}" "$USER_OPENCODE_ARCHIVE"' "$file" \
+    && grep -Fq 'idInstallSealedHandoffFile "${DESKTOP_TOOLS_SUPERVISOR_PATH:-}" "$USER_SUPERVISOR"' "$file" \
+    && grep -Fq 'idInstallSealedHandoffFile "${DESKTOP_TOOLS_TOOLS_ARCHIVE:-}" "$USER_TOOLS_ARCHIVE"' "$file" \
+    && grep -Fq 'idInstallSealedHandoffFile "${DESKTOP_TOOLS_OPENCODE_LOCK_PATH:-}" "$USER_OPENCODE_LOCK"' "$file" \
+    && grep -Fq 'chmod 0444 "$USER_OPENCODE_ARCHIVE" "$USER_SUPERVISOR" "$USER_TOOLS_ARCHIVE" "$USER_OPENCODE_LOCK"' "$file" \
+    && ! grep -Eq 'chown.*USER_(OPENCODE|SUPERVISOR|TOOLS)' "$file" \
+    && grep -Fq 'Desktop Tools runtime handoff failed checksum verification' "$file"; then
+    pass "$label seals and re-verifies the complete Desktop Tools runtime closure"
+  else
+    fail "$label loses the verified Desktop Tools runtime closure at root handoff"
+  fi
+
   if grep -Fq "trap '_idCleanupHandoffAndReport' EXIT" "$file" \
     && grep -Fq "trap '_idCleanupHandoff; idCleanupProvisionerRuntime || true; exit 130' INT" "$file" \
     && grep -Fq "trap '_idCleanupHandoff; idCleanupProvisionerRuntime || true; exit 143' TERM" "$file"; then

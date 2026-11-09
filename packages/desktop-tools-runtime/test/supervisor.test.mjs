@@ -21,6 +21,15 @@ function tarEntry(name, bytes, mode) {
   header.write(`${header.reduce((sum, byte) => sum + byte, 0).toString(8).padStart(6, '0')}\0 `, 148, 8, 'ascii');
   return Buffer.concat([header, bytes, Buffer.alloc((512 - bytes.length % 512) % 512)]);
 }
+function storedZip(name, bytes) {
+  const filename = Buffer.from(name); const local = Buffer.alloc(30); local.writeUInt32LE(0x04034b50, 0); local.writeUInt16LE(20, 4);
+  local.writeUInt32LE(bytes.length, 18); local.writeUInt32LE(bytes.length, 22); local.writeUInt16LE(filename.length, 26);
+  const central = Buffer.alloc(46); central.writeUInt32LE(0x02014b50, 0); central.writeUInt16LE(20, 4); central.writeUInt16LE(20, 6);
+  central.writeUInt32LE(bytes.length, 20); central.writeUInt32LE(bytes.length, 24); central.writeUInt16LE(filename.length, 28);
+  const end = Buffer.alloc(22); end.writeUInt32LE(0x06054b50, 0); end.writeUInt16LE(1, 8); end.writeUInt16LE(1, 10);
+  end.writeUInt32LE(central.length + filename.length, 12); end.writeUInt32LE(local.length + filename.length + bytes.length, 16);
+  return Buffer.concat([local, filename, bytes, central, filename, end]);
+}
 
 async function writePromptContext(root, toolContextDigest) {
   const unsigned = {
@@ -97,6 +106,49 @@ test('prepares protected state and validates an exact pinned runtime', async () 
   const result = await main(['validate', '--state-dir', item.state, '--runtime', item.runtime, '--sha256', item.sha256, '--version', '2.2.5']);
   assert.equal(result.runtime, item.runtime);
   await assert.rejects(main(['validate', '--state-dir', item.state, '--runtime', item.runtime, '--sha256', '0'.repeat(64), '--version', '2.2.5']), /digest/);
+});
+
+test('installs the signed runtime closure idempotently without inference credentials', async () => {
+  const item = await fixture();
+  await rm(join(item.state, 'config', 'inference-token'));
+  const archive = join(item.root, 'opencode-runtime.tar.gz');
+  await writeFile(archive, gzipSync(Buffer.concat([tarEntry('opencode', await readFile(item.runtime), 0o700), Buffer.alloc(1024)]), { mtime: 0 }));
+  const supervisor = join(item.root, 'desktop-tools-supervisor.mjs');
+  await writeFile(supervisor, '#!/usr/bin/env node\n', { mode: 0o700 });
+  const tools = join(item.root, 'runtime-tools.tar.gz'); await writeFile(tools, 'signed tools closure');
+  const platform = `${process.platform === 'darwin' ? 'macos' : process.platform}_${process.arch}`;
+  const digest = async path => createHash('sha256').update(await readFile(path)).digest('hex');
+  const archiveSha = await digest(archive); const supervisorSha = await digest(supervisor); const toolsSha = await digest(tools);
+  const lock = join(item.root, 'opencode.lock.json');
+  await writeFile(lock, `${JSON.stringify({ schemaVersion: 1, name: 'opencode', version: '2.2.5', artifacts: {
+    [platform]: { sha256: archiveSha, releaseFilename: `${platform}.tar.gz`, upstreamUrl: 'https://example.invalid/runtime', size: (await stat(archive)).size },
+  } })}\n`);
+  const lockSha = await digest(lock);
+  const args = ['install', '--state-dir', item.state, '--runtime-archive', archive, '--sha256', archiveSha, '--version', '2.2.5',
+    '--supervisor', supervisor, '--supervisor-sha256', supervisorSha, '--tools-archive', tools, '--tools-sha256', toolsSha,
+    '--lock', lock, '--lock-sha256', lockSha];
+  const first = await main(args); const runtimeBefore = await stat(first.runtime); const receiptBefore = await stat(first.receipt);
+  assert.equal(first.changed, true); assert.equal((runtimeBefore.mode & 0o777), 0o700);
+  assert.equal((await readFile(first.runtime, 'utf8')).includes('opencode 2.2.5'), true);
+  assert.equal(await readFile(first.executable, 'utf8'), await readFile(first.runtime, 'utf8'));
+  assert.notEqual((await stat(first.executable)).ino, runtimeBefore.ino);
+  const second = await main(args); const runtimeAfter = await stat(second.runtime); const receiptAfter = await stat(second.receipt);
+  assert.equal(second.changed, false); assert.equal(second.closureDigest, first.closureDigest);
+  assert.equal(runtimeAfter.ino, runtimeBefore.ino); assert.equal(runtimeAfter.mtimeMs, runtimeBefore.mtimeMs);
+  assert.equal(receiptAfter.ino, receiptBefore.ino); assert.equal(receiptAfter.mtimeMs, receiptBefore.mtimeMs);
+
+  const extraArchive = join(item.root, 'opencode-extra.tar.gz');
+  await writeFile(extraArchive, gzipSync(Buffer.concat([tarEntry('opencode', await readFile(item.runtime), 0o700), tarEntry('unexpected', Buffer.from('x'), 0o600), Buffer.alloc(1024)]), { mtime: 0 }));
+  const extraSha = await digest(extraArchive); const changedLock = JSON.parse(await readFile(lock, 'utf8'));
+  changedLock.artifacts[platform].sha256 = extraSha; await writeFile(lock, `${JSON.stringify(changedLock)}\n`); const changedLockSha = await digest(lock);
+  await assert.rejects(main(args.map(value => value === archive ? extraArchive : value === archiveSha ? extraSha : value === lockSha ? changedLockSha : value)), /exactly one executable/);
+
+  const zipState = join(item.root, 'zip-state'); const zipArchive = join(item.root, 'opencode-runtime.zip');
+  await writeFile(zipArchive, storedZip('opencode', await readFile(item.runtime))); const zipSha = await digest(zipArchive);
+  changedLock.artifacts[platform] = { ...changedLock.artifacts[platform], sha256: zipSha, releaseFilename: `${platform}.zip` };
+  await writeFile(lock, `${JSON.stringify(changedLock)}\n`); const zipLockSha = await digest(lock);
+  const zipResult = await main(args.map(value => value === item.state ? zipState : value === archive ? zipArchive : value === archiveSha ? zipSha : value === lockSha ? zipLockSha : value));
+  assert.equal(zipResult.changed, true); assert.equal(await readFile(zipResult.runtime, 'utf8'), await readFile(item.runtime, 'utf8'));
 });
 
 test('run binds only private loopback and strips inherited secret variables', async () => {

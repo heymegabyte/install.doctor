@@ -73,6 +73,7 @@ runScenario() {
     setupPasswordlessSudo() { return "${TEST_PREENGINE_STATUS:-0}"; }
     ensureBasicDeps() { :; }
     ensureProvisionerNodeRuntime() { :; }
+    idInstallDesktopToolsRuntimeClosure() { :; }
     idEnsureDesktopToolsDeviceAuthorization() { :; }
     idSyncDesktopToolsDesiredState() { :; }
     idReconcileStaleSudoOwnership() { :; }
