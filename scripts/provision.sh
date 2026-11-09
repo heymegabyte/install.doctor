@@ -2086,6 +2086,7 @@ const operationEnvironment = {
   INSTALL_DOCTOR_ENGINE_OWNS_SOFTWARE_GROUPS: '1',
   INSTALL_DOCTOR_ENGINE_OWNS_CATALOG_POST_HOOKS: '1',
   INSTALL_DOCTOR_ENGINE_OWNS_CUSTOM_POST_HOOKS: '1',
+  INSTALL_DOCTOR_BOOTSTRAP_INSTALLX: `${stateRoot}/tools/installx`,
   INSTALL_DOCTOR_SELECTED_PACKAGES: selectedPackages.join(','),
   INSTALL_DOCTOR_SELECTED_SERVICES: selectedServices.join(','),
   INSTALL_DOCTOR_WARP_CLI_PATH: warpCliPath,
@@ -2171,14 +2172,34 @@ const chezmoiInitTask = {
   consent: 'privileged', lockDomains: ['chezmoi'], cleanup: 'none', compensation: 'none',
   failurePolicy: 'abort-run',
 };
+const installxSourcePath = `${process.env.INSTALL_DOCTOR_CHEZMOI_SOURCE}/dot_local/bin/executable_installx`;
+const installxTargetPath = `${stateRoot}/tools/installx`;
+const installxBinPath = `${stateRoot}/tools`;
+const installxSourceMetadata = fs.lstatSync(installxSourcePath);
+if (!installxSourceMetadata.isFile() || installxSourceMetadata.isSymbolicLink() || installxSourceMetadata.size < 1 || installxSourceMetadata.size > 65_536) {
+  throw new Error('installx source must be one bounded regular file');
+}
+const installxCandidate = fs.readFileSync(installxSourcePath);
+const installxCandidateBase64 = installxCandidate.toString('base64');
+const installxBinDirectoryTask = {
+  schemaVersion: 1, id: 'bootstrap.installx-bin-directory',
+  inputDigest: digest({ targetPath: installxBinPath, mode: 0o700, policy: 'managed-directory-v1' }),
+  dependencies: [chezmoiInitTask.id], predicate: 'host-supported', requiredCapabilities: [],
+  operations: { check: 'installx-bin-check', apply: 'installx-bin-apply', verify: 'installx-bin-verify' },
+  timeoutMs: 30_000, retry: { class: 'never', maxAttempts: 1, backoffMs: 0 },
+  resources: { cpu: 1, memoryMiB: 32, network: false }, privilege: 'user', network: 'none',
+  consent: 'none', lockDomains: ['installer-configuration', 'installx-tool'], cleanup: 'none', compensation: 'configuration',
+  failurePolicy: 'abort-run',
+};
 const installxToolTask = {
   schemaVersion: 1, id: 'bootstrap.installx-tool',
-  inputDigest: digest({ source: process.env.INSTALL_DOCTOR_SOURCE_COMMIT, target: '.local/bin/installx' }),
-  dependencies: [chezmoiInitTask.id], predicate: 'host-supported', requiredCapabilities: [],
+  inputDigest: digest({ source: process.env.INSTALL_DOCTOR_SOURCE_COMMIT, targetPath: installxTargetPath,
+    candidateDigest: crypto.createHash('sha256').update(installxCandidate).digest('hex'), policy: 'isolated-managed-file-v1' }),
+  dependencies: [installxBinDirectoryTask.id], predicate: 'host-supported', requiredCapabilities: [],
   operations: { check: 'installx-tool-check', apply: 'installx-tool-apply', verify: 'installx-tool-verify' },
   timeoutMs: 120_000, retry: { class: 'never', maxAttempts: 1, backoffMs: 0 },
   resources: { cpu: 1, memoryMiB: 256, network: false }, privilege: 'user', network: 'none',
-  consent: 'none', lockDomains: ['chezmoi', 'installx-tool'], cleanup: 'none', compensation: 'none',
+  consent: 'none', lockDomains: ['installer-configuration', 'installx-tool'], cleanup: 'none', compensation: 'configuration',
   failurePolicy: 'abort-run',
 };
 const desiredPackagesTask = {
@@ -2411,7 +2432,7 @@ const invocation = {
     offline: rawPlan.offline,
   },
     plan: {
-      tasks: [stageZeroInstallUserTask, stageZeroSudoTask, ...(warpDisconnectTask ? [warpDisconnectTask] : []), nativeDependenciesTask, sourceTask, homebrewTask, homebrewToolsTask, chezmoiInitTask, installxToolTask, desiredPackagesTask, ...directoryTasks, ...artifactTasks, macosFullDiskAccessTask, macosCertificateTask, ...(qubesDom0Task ? [qubesDom0Task] : []), ...(agentTasksTask ? [agentTasksTask] : []), task, bootstrapPolicyTask, softwareGroupsTask, catalogPostValidationTask, customPostHooksTask, desiredServicesTask, rebootAssessmentTask, sudoCleanupTask],
+      tasks: [stageZeroInstallUserTask, stageZeroSudoTask, ...(warpDisconnectTask ? [warpDisconnectTask] : []), nativeDependenciesTask, sourceTask, homebrewTask, homebrewToolsTask, chezmoiInitTask, installxBinDirectoryTask, installxToolTask, desiredPackagesTask, ...directoryTasks, ...artifactTasks, macosFullDiskAccessTask, macosCertificateTask, ...(qubesDom0Task ? [qubesDom0Task] : []), ...(agentTasksTask ? [agentTasksTask] : []), task, bootstrapPolicyTask, softwareGroupsTask, catalogPostValidationTask, customPostHooksTask, desiredServicesTask, rebootAssessmentTask, sudoCleanupTask],
       selectedTaskIds: [rebootAssessmentTask.id, sudoCleanupTask.id],
       executionPolicy: {
         maxConcurrency: rawPlan.concurrency,
@@ -2450,9 +2471,12 @@ const invocation = {
     'chezmoi-init-check': { argv: ['/bin/bash', provisioner, '--engine-operation', 'chezmoi-init-check'], env: operationEnvironment },
     'chezmoi-init-apply': { argv: ['/bin/bash', provisioner, '--engine-operation', 'chezmoi-init-apply'], env: operationEnvironment },
     'chezmoi-init-verify': { argv: ['/bin/bash', provisioner, '--engine-operation', 'chezmoi-init-verify'], env: operationEnvironment },
-    'installx-tool-check': { argv: ['/bin/bash', provisioner, '--engine-operation', 'installx-tool-check'], env: operationEnvironment },
-    'installx-tool-apply': { argv: ['/bin/bash', provisioner, '--engine-operation', 'installx-tool-apply'], env: operationEnvironment },
-    'installx-tool-verify': { argv: ['/bin/bash', provisioner, '--engine-operation', 'installx-tool-verify'], env: operationEnvironment },
+    'installx-bin-check': { kind: 'managed-directory', action: 'check', targetPath: installxBinPath, candidateMode: 0o700 },
+    'installx-bin-apply': { kind: 'managed-directory', action: 'apply', targetPath: installxBinPath, candidateMode: 0o700 },
+    'installx-bin-verify': { kind: 'managed-directory', action: 'verify', targetPath: installxBinPath, candidateMode: 0o700 },
+    'installx-tool-check': { kind: 'managed-file', action: 'check', targetPath: installxTargetPath, candidateBase64: installxCandidateBase64, candidateMode: 0o700 },
+    'installx-tool-apply': { kind: 'managed-file', action: 'apply', targetPath: installxTargetPath, candidateBase64: installxCandidateBase64, candidateMode: 0o700 },
+    'installx-tool-verify': { kind: 'managed-file', action: 'verify', targetPath: installxTargetPath, candidateBase64: installxCandidateBase64, candidateMode: 0o700 },
     'desired-packages-check': { argv: ['/bin/bash', provisioner, '--engine-operation', 'desired-packages-check'], env: operationEnvironment },
     'desired-packages-apply': { argv: ['/bin/bash', provisioner, '--engine-operation', 'desired-packages-apply'], env: operationEnvironment },
     'desired-packages-verify': { argv: ['/bin/bash', provisioner, '--engine-operation', 'desired-packages-verify'], env: operationEnvironment },
@@ -2493,7 +2517,7 @@ const invocation = {
 };
 const provisionerDigest = crypto.createHash('sha256').update(fs.readFileSync(provisioner)).digest('hex');
 for (const operation of Object.values(invocation.operations)) {
-  if (operation.kind !== 'managed-file') operation.verifiedExecutable = { argvIndex: 1, sha256: provisionerDigest };
+  if (Array.isArray(operation.argv)) operation.verifiedExecutable = { argvIndex: 1, sha256: provisionerDigest };
 }
 fs.writeFileSync(invocationPath, `${JSON.stringify(invocation)}\n`, { mode: 0o600, flag: 'wx' });
 NODE
@@ -2831,20 +2855,14 @@ idRunEngineOperation() {
       [ -f "${XDG_CONFIG_HOME:-$HOME/.config}/chezmoi/chezmoi.yaml" ] || return 2
       idChezmoi data >/dev/null 2>&1
       ;;
-    installx-tool-check|installx-tool-verify)
-      idChezmoi verify --no-pager --exclude=scripts "$HOME/.local/bin/installx" >/dev/null 2>&1 && return 0
-      [ "${1:-}" = installx-tool-check ] && return 10
-      return 2
-      ;;
-    installx-tool-apply) idChezmoi apply --no-pager --force --exclude=scripts "$HOME/.local/bin/installx" ;;
     desired-packages-check)
-      (cd "$(dirname "$INSTALL_DOCTOR_CHEZMOI_SOURCE")" && "$HOME/.local/bin/installx" --check --all --lazy)
+      (cd "$(dirname "$INSTALL_DOCTOR_CHEZMOI_SOURCE")" && "$INSTALL_DOCTOR_BOOTSTRAP_INSTALLX" --check --all --lazy)
       ;;
     desired-packages-apply)
-      (cd "$(dirname "$INSTALL_DOCTOR_CHEZMOI_SOURCE")" && "$HOME/.local/bin/installx" --all --lazy)
+      (cd "$(dirname "$INSTALL_DOCTOR_CHEZMOI_SOURCE")" && "$INSTALL_DOCTOR_BOOTSTRAP_INSTALLX" --all --lazy)
       ;;
     desired-packages-verify)
-      (cd "$(dirname "$INSTALL_DOCTOR_CHEZMOI_SOURCE")" && "$HOME/.local/bin/installx" --check --all --lazy)
+      (cd "$(dirname "$INSTALL_DOCTOR_CHEZMOI_SOURCE")" && "$INSTALL_DOCTOR_BOOTSTRAP_INSTALLX" --check --all --lazy)
       OPERATION_STATUS=$?
       [ "$OPERATION_STATUS" -eq 0 ] && return 0
       return 2

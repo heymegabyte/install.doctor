@@ -27,10 +27,12 @@ if grep -q 'INSTALL_DOCTOR_ENGINE_OWNS_PACKAGES' "$ROOT/home/.chezmoiscripts/uni
 else
   fail 'Chezmoi compatibility script retains competing package/service ownership'
 fi
-if grep -q 'installx-tool-apply).*--exclude=scripts' "$PROVISION"; then
-  pass 'targeted installx materialization excludes the global Chezmoi script set'
+if grep -q "'installx-tool-apply': { kind: 'managed-file'" "$PROVISION" \
+  && grep -q "'installx-bin-apply': { kind: 'managed-directory'" "$PROVISION" \
+  && ! grep -q 'installx-tool-apply).*idChezmoi' "$PROVISION"; then
+  pass 'bootstrap installx materialization is engine-native and has no legacy Chezmoi writer'
 else
-  fail 'targeted installx materialization can unexpectedly execute Chezmoi scripts'
+  fail 'bootstrap installx materialization retains a legacy writer or lacks native ownership'
 fi
 if grep -q -- '--engine-operation' "$PROVISION" && grep -q 'chezmoi-check\|chezmoi-apply\|chezmoi-verify' "$PROVISION"; then pass 'engine operations use the staged provisioner adapter'; else fail 'engine operation adapter is absent'; fi
 logic="$(sed -n '/^provisionLogic() {/,/^}/p' "$PROVISION")"
@@ -73,6 +75,23 @@ SOURCE_ROOT="$TMP_DIR/data/install.doctor/releases/test-release/source"
 mkdir -p "$SOURCE_ROOT/home" "$SOURCE_ROOT/packages/control-plane/src"
 : > "$SOURCE_ROOT/.chezmoiroot"
 printf '[]\n' > "$SOURCE_ROOT/packages/control-plane/src/catalog.json"
+mkdir -p "$SOURCE_ROOT/home/dot_local/bin"
+cat > "$SOURCE_ROOT/home/dot_local/bin/executable_installx" <<'INSTALLX'
+#!/usr/bin/env bash
+set -eu
+case " $* " in
+  *" --check "*)
+    if [ -f "$HOME/installx-applied" ]; then
+      printf '%s\n' '{"schemaVersion":1,"status":"converged","selected":[],"missing":[]}'
+      exit 0
+    fi
+    printf '%s\n' '{"schemaVersion":1,"status":"needed","selected":["fixture"],"missing":["fixture"]}'
+    exit 10
+    ;;
+esac
+: > "$HOME/installx-applied"
+printf '%s\n' package-apply >> "$HOME/ledger"
+INSTALLX
 git -C "$SOURCE_ROOT" init --quiet
 git -C "$SOURCE_ROOT" config user.email fixture@example.invalid
 git -C "$SOURCE_ROOT" config user.name Fixture
@@ -218,13 +237,23 @@ if npm --prefix "$ROOT/packages/installer-engine" run bundle >/dev/null 2>&1; th
     INSTALL_DOCTOR_PLATFORM_ENVIRONMENT=container INSTALL_DOCTOR_PLATFORM_ROLE=debian INSTALL_DOCTOR_PLATFORM_LIMITATION='Fixture lifecycle evidence is incomplete.' \
     INSTALL_DOCTOR_SUDO_PREEXISTING=true \
     INSTALL_DOCTOR_OFFLINE=false INSTALL_DOCTOR_SOURCE_COMMIT="$SOURCE_COMMIT" START_REPO="$SOURCE_ORIGIN" \
+    INSTALLX_FIXTURE_SOURCE="$SOURCE_ROOT/home/dot_local/bin/executable_installx" INSTALLX_SNAPSHOT="$TMP_DIR/installx-snapshot.json" \
     HEADLESS_INSTALL=true KEEP_GOING='' DEBUG_MODE='' DEBUG='' NO_RESTART=true \
-    bash -c 'source "$1"; runCanonicalProvisionEngine; first=$?; [ "$first" -eq 3 ] || exit 91; [ ! -e "$HOME/ledger" ] || exit 93; set -- "$XDG_STATE_HOME/install.doctor/engine/approvals/"*.json; [ "$#" -eq 1 ] || exit 92; approval="${1##*/}"; export INSTALL_DOCTOR_APPROVED_PLAN_DIGEST="${approval%.json}"; runCanonicalProvisionEngine; runCanonicalProvisionEngine' _ "$PROVISION" >"$TMP_DIR/engine.out" 2>&1; then
+    bash -c 'source "$1"; runCanonicalProvisionEngine; first=$?; [ "$first" -eq 3 ] || exit 91; [ ! -e "$HOME/ledger" ] || exit 93; set -- "$XDG_STATE_HOME/install.doctor/engine/approvals/"*.json; [ "$#" -eq 1 ] || exit 92; approval="${1##*/}"; export INSTALL_DOCTOR_APPROVED_PLAN_DIGEST="${approval%.json}"; runCanonicalProvisionEngine; node - "$XDG_STATE_HOME/install.doctor/engine/tools/installx" "$INSTALLX_FIXTURE_SOURCE" "$HOME/.local/bin/installx" "$INSTALLX_SNAPSHOT" <<'"'"'NODE'"'"'
+const fs = require("node:fs"); const [target, source, legacy, snapshot] = process.argv.slice(2);
+const a = fs.readFileSync(target), b = fs.readFileSync(source), s = fs.statSync(target, { bigint: true });
+if (!a.equals(b) || Number(s.mode & 0o777n) !== 0o700 || fs.existsSync(legacy)) process.exit(94);
+fs.writeFileSync(snapshot, JSON.stringify({ ino: String(s.ino), mtimeNs: String(s.mtimeNs), ctimeNs: String(s.ctimeNs) }));
+NODE
+runCanonicalProvisionEngine; node - "$XDG_STATE_HOME/install.doctor/engine/tools/installx" "$INSTALLX_SNAPSHOT" <<'"'"'NODE'"'"'
+const fs = require("node:fs"); const [target, snapshot] = process.argv.slice(2); const before = JSON.parse(fs.readFileSync(snapshot)); const s = fs.statSync(target, { bigint: true });
+if (String(s.ino) !== before.ino || String(s.mtimeNs) !== before.mtimeNs || String(s.ctimeNs) !== before.ctimeNs) process.exit(95);
+NODE' _ "$PROVISION" >"$TMP_DIR/engine.out" 2>&1; then
     apply_count="$(grep -c '^apply Minimal$' "$TMP_DIR/home/ledger" || true)"
     verify_count="$(grep -c '^verify Minimal$' "$TMP_DIR/home/ledger" || true)"
     package_apply_count="$(grep -c '^package-apply$' "$TMP_DIR/home/ledger" || true)"
-    if [ "$apply_count" -eq 1 ] && [ "$verify_count" -eq 5 ] && [ "$package_apply_count" -eq 1 ]; then
-      pass 'real engine cutover applies once while typed tool/file checks and unchanged reruns verify without duplicate mutation'
+    if [ "$apply_count" -eq 1 ] && [ "$verify_count" -eq 3 ] && [ "$package_apply_count" -eq 1 ]; then
+      pass 'real engine cutover applies once and unchanged reruns preserve the exact installx inode and timestamps'
     else
       fail "real engine cutover ledger was apply=$apply_count verify=$verify_count package-apply=$package_apply_count"
     fi
@@ -239,10 +268,10 @@ if npm --prefix "$ROOT/packages/installer-engine" run bundle >/dev/null 2>&1; th
     else
       pass 'canonical engine removes ephemeral invocations'
     fi
-    compensation_path="$(find "$TMP_DIR/state/install.doctor/engine/runs" -path '*/compensations/*.json' -type f -print -quit)"
+    compensation_path="$(grep -rl '"taskId": "bootstrap.installx-tool"' "$TMP_DIR/state/install.doctor/engine/runs"/*/*/compensations 2>/dev/null | head -1)"
     policy_path="$TMP_DIR/home/.config/install.doctor-policy.json"
     if [ -n "$compensation_path" ] && [ -f "$policy_path" ] \
-      && node -e 'const v=JSON.parse(require("node:fs").readFileSync(process.argv[1],"utf8")); process.exit(v.record.taskId === "installer.bootstrap-policy" ? 0 : 1)' "$compensation_path"; then
+      && node -e 'const v=JSON.parse(require("node:fs").readFileSync(process.argv[1],"utf8")); process.exit(v.record.taskId === "bootstrap.installx-tool" ? 0 : 1)' "$compensation_path"; then
       source_run_dir="$(dirname "$(dirname "$compensation_path")")"
       source_run_id="$(basename "$source_run_dir")"
       source_plan_digest="$(basename "$(dirname "$source_run_dir")")"
@@ -266,8 +295,10 @@ fs.writeFileSync(destination, `${JSON.stringify({
   rollbackRunId: 'fixture-bootstrap-policy-rollback', approvedPlanDigest,
 })}\n`, { mode: 0o600, flag: 'wx' });
 NODE
-        if node "$ENGINE" --input "$rollback_execute" >/dev/null && [ ! -e "$policy_path" ]; then
-          pass 'production managed policy records compensation and rollback-config removes the newly created file'
+        if node "$ENGINE" --input "$rollback_execute" >/dev/null \
+          && [ ! -e "$policy_path" ] && [ ! -e "$TMP_DIR/state/install.doctor/engine/tools/installx" ] \
+          && [ ! -e "$TMP_DIR/home/.local/bin/installx" ]; then
+          pass 'rollback-config restores the absent installx and policy state without touching the legacy home path'
         else
           fail 'production managed policy rollback did not restore the absent prior state'
         fi
@@ -296,7 +327,7 @@ SCRIPT
 chmod 0700 "$TMP_DIR/forged-engine.mjs"
 printf '[]\n' > "$TMP_DIR/forged-catalog.json"
 chmod 0600 "$TMP_DIR/forged-catalog.json"
-if PATH="$TMP_DIR/bin:$PATH" HOME="$TMP_DIR/home" XDG_STATE_HOME="$TMP_DIR/forged-state" \
+if PATH="$TMP_DIR/bin:$PATH" HOME="$TMP_DIR/home" XDG_STATE_HOME="$TMP_DIR/forged-state" XDG_DATA_HOME="$TMP_DIR/data" \
   INSTALL_DOCTOR_ENGINE_PATH="$TMP_DIR/forged-engine.mjs" INSTALL_DOCTOR_ENGINE_SHA256="$(shasum -a 256 "$TMP_DIR/forged-engine.mjs" | awk '{print $1}')" \
   INSTALL_DOCTOR_ENGINE_NODE_MIN=22 INSTALL_DOCTOR_RELEASE_ID=test-release INSTALL_DOCTOR_PLAN="$TMP_DIR/plan.json" \
   INSTALL_DOCTOR_CATALOG_PATH="$TMP_DIR/forged-catalog.json" INSTALL_DOCTOR_CATALOG_SHA256="$(shasum -a 256 "$TMP_DIR/forged-catalog.json" | awk '{print $1}')" \
@@ -306,7 +337,7 @@ if PATH="$TMP_DIR/bin:$PATH" HOME="$TMP_DIR/home" XDG_STATE_HOME="$TMP_DIR/forge
   INSTALL_DOCTOR_PLATFORM_OS=debian INSTALL_DOCTOR_PLATFORM_RELEASE=12 INSTALL_DOCTOR_PLATFORM_ARCH=x64 \
   INSTALL_DOCTOR_PLATFORM_ENVIRONMENT=container INSTALL_DOCTOR_PLATFORM_ROLE=debian INSTALL_DOCTOR_PLATFORM_LIMITATION='Fixture lifecycle evidence is incomplete.' \
   INSTALL_DOCTOR_SUDO_PREEXISTING=true \
-  INSTALL_DOCTOR_OFFLINE=false INSTALL_DOCTOR_CHEZMOI_SOURCE="$TMP_DIR/source" HEADLESS_INSTALL=true INSTALL_DOCTOR_APPROVED_PLAN_DIGEST="$(printf 'd%.0s' {1..64})" \
+  INSTALL_DOCTOR_OFFLINE=false INSTALL_DOCTOR_CHEZMOI_SOURCE="$SOURCE_ROOT/home" HEADLESS_INSTALL=true INSTALL_DOCTOR_APPROVED_PLAN_DIGEST="$(printf 'd%.0s' {1..64})" \
   bash -c 'source "$1"; runCanonicalProvisionEngine' _ "$PROVISION" >"$TMP_DIR/forged.out" 2>&1; then
   fail 'forged engine stdout/exit success passed without committed evidence'
 elif grep -q 'without independently verifiable committed evidence' "$TMP_DIR/forged.out"; then
