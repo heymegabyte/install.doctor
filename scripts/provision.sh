@@ -820,6 +820,17 @@ ensureBasicDeps() {
       logg warn "Void is not yet supported"
     fi
   fi
+  # Package-manager exit status is not authoritative: an unsupported branch,
+  # a partial transaction, or a manager that returned success without
+  # installing every requested tool must never let the engine commit this
+  # bootstrap boundary. Git is additionally bound to the executable identity
+  # captured by the approved plan.
+  if ! command -v curl >/dev/null 2>&1 \
+    || ! idTrustedGitExecutable >/dev/null 2>&1 \
+    || ! command -v rsync >/dev/null 2>&1; then
+    logg error 'Minimal bootstrap dependencies did not satisfy their approved postcondition'
+    return 2
+  fi
 }
 
 # Acquire the signed, release-scoped Node runtime only when the host has no

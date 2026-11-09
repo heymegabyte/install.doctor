@@ -26,6 +26,43 @@ else
   fail 'rsync is missing from the current system-files dependency closure'
 fi
 
+if printf '%s\n' "$basic" | grep -Fq 'idTrustedGitExecutable' \
+  && printf '%s\n' "$basic" | grep -Fq 'Minimal bootstrap dependencies did not satisfy their approved postcondition'; then
+  pass 'native bootstrap dependency apply has an exact fail-closed postcondition'
+else
+  fail 'native bootstrap dependency apply can return without proving its exact postcondition'
+fi
+
+TMP_DIR="$(mktemp -d)"
+trap 'rm -rf -- "$TMP_DIR"' EXIT
+mkdir -p "$TMP_DIR/empty" "$TMP_DIR/tools"
+for tool in curl rsync; do
+  printf '%s\n' '#!/usr/bin/env bash' 'exit 0' >"$TMP_DIR/tools/$tool"
+  chmod 0700 "$TMP_DIR/tools/$tool"
+done
+if PATH="$TMP_DIR/empty" /bin/bash -c '
+  eval "$1"
+  logg() { :; }
+  detect_os() { printf "%s\n" linux; }
+  idTrustedGitExecutable() { return 1; }
+  ensureBasicDeps
+' _ "$basic"; then
+  fail 'native bootstrap dependency apply accepted a host with no usable package manager or tools'
+else
+  pass 'native bootstrap dependency apply rejects an unresolved unsupported host'
+fi
+if PATH="$TMP_DIR/tools" /bin/bash -c '
+  eval "$1"
+  logg() { :; }
+  detect_os() { printf "%s\n" linux; }
+  idTrustedGitExecutable() { return 0; }
+  ensureBasicDeps
+' _ "$basic"; then
+  pass 'native bootstrap dependency apply accepts the exact satisfied closure without mutation'
+else
+  fail 'native bootstrap dependency apply rejected the exact satisfied closure'
+fi
+
 for package in glow gsed coreutils moreutils expect gcc; do
   if printf '%s\n' "$brew" | grep -Fq "installBrewPackage \"$package\"" || printf '%s\n' "$brew" | grep -Fq "brew install --quiet $package"; then
     fail "optional Homebrew package is still in bootstrap closure: $package"
