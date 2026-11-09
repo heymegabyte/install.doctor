@@ -21,6 +21,8 @@ test('build emits byte-for-byte deterministic signed-closure inputs', async () =
   assert.ok(firstSupervisor.length > 0);
   assert.ok(firstTools.length > 0);
   assert.match(gunzipSync(firstTools).toString('utf8'), /runtime\/encrypted-recording\.mjs/);
+  assert.match(gunzipSync(firstTools).toString('utf8'), /provisioning\/home\/dot_local\/bin\/executable_installx/);
+  assert.match(gunzipSync(firstTools).toString('utf8'), /provisioning\/home\/dot_local\/bin\/post-installx\/executable_post-/);
   assert.doesNotMatch(firstSupervisor.toString('utf8'), /from '\.\/session-evidence\.mjs'/);
   const state = await mkdtemp(resolve(tmpdir(), 'desktop-tools-bundled-supervisor-'));
   assert.equal(spawnSync(process.execPath, [resolve(root, 'dist/desktop-tools-supervisor.mjs'), 'prepare', '--state-dir', state]).status, 0);

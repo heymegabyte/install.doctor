@@ -1,11 +1,12 @@
 #!/usr/bin/env node
 import { gzipSync } from 'node:zlib';
 import { spawnSync } from 'node:child_process';
-import { chmod, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+const repositoryRoot = resolve(root, '..', '..');
 const output = join(root, 'dist');
 
 function octal(value, length) { return `${value.toString(8).padStart(length - 1, '0')}\0`; }
@@ -53,6 +54,17 @@ for (const name of ['runtime-policy.json', 'supervisor-api.schema.json', 'typed-
 }
 entries.push(tarEntry('bin/desktop-tools-mcp-server.mjs', await readFile(join(enginePackage, 'dist', 'desktop-tools-mcp-server.mjs')), 0o700));
 entries.push(tarEntry('runtime/encrypted-recording.mjs', await readFile(join(root, 'src', 'encrypted-recording.mjs')), 0o600));
+const provisioningBin = join(repositoryRoot, 'home', 'dot_local', 'bin');
+const installx = await readFile(join(provisioningBin, 'executable_installx'));
+if (installx.length < 1 || installx.length > 65_536) throw new Error('installx planning input is outside its bounded release policy');
+entries.push(tarEntry('provisioning/home/dot_local/bin/executable_installx', installx, 0o700));
+const hookRoot = join(provisioningBin, 'post-installx');
+for (const name of (await readdir(hookRoot)).sort()) {
+  if (!/^executable_post-[a-z0-9][a-z0-9._+-]{0,127}\.sh$/.test(name)) continue;
+  const bytes = await readFile(join(hookRoot, name));
+  if (bytes.length < 1 || bytes.length > 1_048_576) throw new Error(`post-installx planning input is outside its bounded release policy: ${name}`);
+  entries.push(tarEntry(`provisioning/home/dot_local/bin/post-installx/${name}`, bytes, 0o700));
+}
 const brokerPath = process.env.DESKTOP_TOOLS_PRIVILEGED_BROKER;
 const workerPath = process.env.DESKTOP_TOOLS_PRIVILEGED_WORKER;
 const controllerPath = process.env.DESKTOP_TOOLS_PRIVILEGED_CONTROLLER;

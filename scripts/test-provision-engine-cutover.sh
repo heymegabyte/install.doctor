@@ -93,6 +93,7 @@ SOURCE_ROOT="$TMP_DIR/data/install.doctor/releases/test-release/source"
 mkdir -p "$SOURCE_ROOT/home" "$SOURCE_ROOT/packages/control-plane/src"
 : > "$SOURCE_ROOT/.chezmoiroot"
 printf '[]\n' > "$SOURCE_ROOT/packages/control-plane/src/catalog.json"
+chmod 0600 "$SOURCE_ROOT/packages/control-plane/src/catalog.json"
 mkdir -p "$SOURCE_ROOT/home/dot_local/bin"
 cat > "$SOURCE_ROOT/home/dot_local/bin/executable_installx" <<'INSTALLX'
 #!/usr/bin/env bash
@@ -183,6 +184,23 @@ cp "$TMP_DIR/bin/process-software-groups" "$TMP_DIR/bin/process-software-post-sc
 chmod 0700 "$TMP_DIR/bin/chezmoi" "$TMP_DIR/bin/brew" "$TMP_DIR/bin/gum" "$TMP_DIR/bin/zx" "$TMP_DIR/bin/sudo" "$TMP_DIR/bin/xrandr" "$TMP_DIR/bin/system_profiler" "$TMP_DIR/bin/process-software-groups" "$TMP_DIR/bin/process-software-post-scripts"
 printf '{"schemaVersion":2,"host":{"hostname":"fixture","os":"linux"},"role":"workstation","capability":"minimal","network":"none","softwareGroup":"Minimal","installUser":"%s","offline":false,"concurrency":2,"selectedPackages":[],"selectedServices":[],"selectedSupportedPaths":[],"lazyResolverRequirements":[],"consents":{"privileged":true,"network":true,"bestEffort":true},"platformAdmission":{"policyRevision":"platform-support-matrix-v1","cellId":"debian-12-x64-container","status":"best-effort","os":"debian","release":"12","arch":"x64","environment":"container","role":"debian","limitation":"Fixture lifecycle evidence is incomplete."},"privilegeContext":{"sudoPreexisting":true},"desiredStateAuthority":null,"createdAt":"2026-11-06T00:00:00.000Z"}\n' "$(id -un)" > "$TMP_DIR/plan.json"
 chmod 0600 "$TMP_DIR/plan.json"
+mkdir -p "$TMP_DIR/planning-inputs/provisioning/home/dot_local/bin"
+cp "$SOURCE_ROOT/home/dot_local/bin/executable_installx" "$TMP_DIR/planning-inputs/provisioning/home/dot_local/bin/executable_installx"
+node - "$TMP_DIR/desktop-tools-tools.tar.gz" "$SOURCE_ROOT/home/dot_local/bin/executable_installx" <<'NODE'
+const fs = require('node:fs'); const { gzipSync } = require('node:zlib');
+const [destination, source] = process.argv.slice(2); const bytes = fs.readFileSync(source);
+const header = Buffer.alloc(512); const name = 'provisioning/home/dot_local/bin/executable_installx';
+const octal = (value, length) => `${value.toString(8).padStart(length - 1, '0')}\0`;
+header.write(name, 0, 100, 'utf8'); header.write(octal(0o700, 8), 100, 8, 'ascii');
+header.write(octal(0, 8), 108, 8, 'ascii'); header.write(octal(0, 8), 116, 8, 'ascii');
+header.write(octal(bytes.length, 12), 124, 12, 'ascii'); header.write(octal(0, 12), 136, 12, 'ascii');
+header.fill(0x20, 148, 156); header[156] = 0x30; header.write('ustar\0', 257, 6, 'ascii'); header.write('00', 263, 2, 'ascii');
+const checksum = header.reduce((sum, byte) => sum + byte, 0); header.write(`${checksum.toString(8).padStart(6, '0')}\0 `, 148, 8, 'ascii');
+const padding = Buffer.alloc((512 - (bytes.length % 512)) % 512);
+fs.writeFileSync(destination, gzipSync(Buffer.concat([header, bytes, padding, Buffer.alloc(1024)]), { level: 9, mtime: 0 }), { mode: 0o600 });
+NODE
+PLANNING_INPUT_SHA="$(shasum -a 256 "$TMP_DIR/desktop-tools-tools.tar.gz" | awk '{print $1}')"
+CATALOG_SHA="$(shasum -a 256 "$SOURCE_ROOT/packages/control-plane/src/catalog.json" | awk '{print $1}')"
 
 # Exercise the real Homebrew-tools operation adapter with an isolated fake
 # package manager. Merely putting pre-existing gum/zx shims on PATH would let
@@ -255,9 +273,11 @@ if npm --prefix "$ROOT/packages/installer-engine" run bundle >/dev/null 2>&1; th
     INSTALL_DOCTOR_PLATFORM_ENVIRONMENT=container INSTALL_DOCTOR_PLATFORM_ROLE=debian INSTALL_DOCTOR_PLATFORM_LIMITATION='Fixture lifecycle evidence is incomplete.' \
     INSTALL_DOCTOR_SUDO_PREEXISTING=true \
     INSTALL_DOCTOR_OFFLINE=false INSTALL_DOCTOR_SOURCE_COMMIT="$SOURCE_COMMIT" START_REPO="$SOURCE_ORIGIN" \
+    INSTALL_DOCTOR_CATALOG_PATH="$SOURCE_ROOT/packages/control-plane/src/catalog.json" INSTALL_DOCTOR_CATALOG_SHA256="$CATALOG_SHA" \
+    DESKTOP_TOOLS_TOOLS_ARCHIVE="$TMP_DIR/desktop-tools-tools.tar.gz" DESKTOP_TOOLS_TOOLS_SHA256="$PLANNING_INPUT_SHA" \
     INSTALLX_FIXTURE_SOURCE="$SOURCE_ROOT/home/dot_local/bin/executable_installx" INSTALLX_SNAPSHOT="$TMP_DIR/installx-snapshot.json" \
     HEADLESS_INSTALL=true KEEP_GOING='' DEBUG_MODE='' DEBUG='' NO_RESTART=true \
-    bash -c 'source "$1"; runCanonicalProvisionEngine; first=$?; [ "$first" -eq 3 ] || exit 91; [ ! -e "$HOME/ledger" ] || exit 93; set -- "$XDG_STATE_HOME/install.doctor/engine/approvals/"*.json; [ "$#" -eq 1 ] || exit 92; approval="${1##*/}"; export INSTALL_DOCTOR_APPROVED_PLAN_DIGEST="${approval%.json}"; runCanonicalProvisionEngine; node - "$XDG_STATE_HOME/install.doctor/engine/tools/installx" "$INSTALLX_FIXTURE_SOURCE" "$HOME/.local/bin/installx" "$INSTALLX_SNAPSHOT" <<'"'"'NODE'"'"'
+    bash -c 'source "$1"; hidden="${INSTALLX_FIXTURE_SOURCE}.planning-hidden"; mv "$INSTALLX_FIXTURE_SOURCE" "$hidden"; runCanonicalProvisionEngine; first=$?; mv "$hidden" "$INSTALLX_FIXTURE_SOURCE"; [ "$first" -eq 3 ] || exit 91; [ ! -e "$HOME/ledger" ] || exit 93; set -- "$XDG_STATE_HOME/install.doctor/engine/approvals/"*.json; [ "$#" -eq 1 ] || exit 92; approval="${1##*/}"; export INSTALL_DOCTOR_APPROVED_PLAN_DIGEST="${approval%.json}"; runCanonicalProvisionEngine; node - "$XDG_STATE_HOME/install.doctor/engine/tools/installx" "$INSTALLX_FIXTURE_SOURCE" "$HOME/.local/bin/installx" "$INSTALLX_SNAPSHOT" <<'"'"'NODE'"'"'
 const fs = require("node:fs"); const [target, source, legacy, snapshot] = process.argv.slice(2);
 const a = fs.readFileSync(target), b = fs.readFileSync(source), s = fs.statSync(target, { bigint: true });
 if (!a.equals(b) || Number(s.mode & 0o777n) !== 0o700 || fs.existsSync(legacy)) process.exit(94);
@@ -275,7 +295,7 @@ NODE' _ "$PROVISION" >"$TMP_DIR/engine.out" 2>&1; then
     else
       fail "real engine cutover ledger was apply=$apply_count verify=$verify_count package-apply=$package_apply_count"
     fi
-    pass 'headless planning performs no desired-state operation before exact digest approval'
+    pass 'headless planning uses signed planning inputs without a source checkout and performs no desired-state operation before exact digest approval'
     if grep -q ' Full$' "$TMP_DIR/home/ledger"; then
       fail 'ambient software selection overrode the immutable plan'
     else

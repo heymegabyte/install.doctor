@@ -2135,7 +2135,52 @@ NODE
 const fs = require('node:fs');
 const os = require('node:os');
 const crypto = require('node:crypto');
+const zlib = require('node:zlib');
 const [invocationPath, provisioner, stateRoot, renderer] = process.argv.slice(2);
+const loadSignedPlanningInputs = () => {
+  const archivePath = process.env.DESKTOP_TOOLS_TOOLS_ARCHIVE;
+  const expectedDigest = process.env.DESKTOP_TOOLS_TOOLS_SHA256;
+  if (!archivePath && !expectedDigest) return null;
+  if (!archivePath || !expectedDigest || !/^[a-f0-9]{64}$/.test(expectedDigest)) throw new Error('signed planning-input archive authority is incomplete');
+  const metadata = fs.lstatSync(archivePath);
+  if (!metadata.isFile() || metadata.isSymbolicLink() || metadata.nlink !== 1 || metadata.size < 1 || metadata.size > 33_554_432) {
+    throw new Error('signed planning-input archive must be one bounded regular file');
+  }
+  const archive = fs.readFileSync(archivePath);
+  if (crypto.createHash('sha256').update(archive).digest('hex') !== expectedDigest) throw new Error('signed planning-input archive digest mismatch');
+  let expanded;
+  try { expanded = zlib.gunzipSync(archive, { maxOutputLength: 64 * 1024 * 1024 }); }
+  catch { throw new Error('signed planning-input archive cannot be safely expanded'); }
+  const entries = new Map();
+  for (let offset = 0; offset + 512 <= expanded.length;) {
+    const header = expanded.subarray(offset, offset + 512); offset += 512;
+    if (header.every(byte => byte === 0)) {
+      if (offset + 512 > expanded.length || !expanded.subarray(offset, offset + 512).every(byte => byte === 0)
+        || !expanded.subarray(offset + 512).every(byte => byte === 0)) throw new Error('signed planning-input archive has invalid trailing structure');
+      const installx = entries.get('provisioning/home/dot_local/bin/executable_installx');
+      if (!installx || installx.length < 1 || installx.length > 65_536) throw new Error('signed planning-input archive lacks bounded installx authority');
+      for (const [name, bytes] of entries) if (name.startsWith('provisioning/') && name !== 'provisioning/home/dot_local/bin/executable_installx'
+        && (!/^provisioning\/home\/dot_local\/bin\/post-installx\/executable_post-[a-z0-9][a-z0-9._+-]{0,127}\.sh$/.test(name)
+          || bytes.length < 1 || bytes.length > 1_048_576)) throw new Error('signed planning-input archive contains invalid provisioning authority');
+      return entries;
+    }
+    const name = header.subarray(0, 100).toString('utf8').split('\0', 1)[0];
+    const sizeText = header.subarray(124, 136).toString('ascii').replaceAll('\0', '').trim();
+    const checksumText = header.subarray(148, 156).toString('ascii').replaceAll('\0', '').trim();
+    const checksumHeader = Buffer.from(header); checksumHeader.fill(0x20, 148, 156);
+    if (!name || !/^[0-7]+$/.test(sizeText) || !/^[0-7]+$/.test(checksumText)
+      || Number.parseInt(checksumText, 8) !== checksumHeader.reduce((sum, byte) => sum + byte, 0)
+      || (header[156] !== 0 && header[156] !== 0x30) || name.startsWith('/') || name.split('/').includes('..') || entries.has(name)) {
+      throw new Error('signed planning-input archive is malformed');
+    }
+    const size = Number.parseInt(sizeText, 8);
+    if (!Number.isSafeInteger(size) || size < 0 || offset + size > expanded.length) throw new Error('signed planning-input archive entry is malformed');
+    entries.set(name, expanded.subarray(offset, offset + size));
+    offset += Math.ceil(size / 512) * 512;
+  }
+  throw new Error('signed planning-input archive lacks its terminator');
+};
+const signedPlanningInputs = loadSignedPlanningInputs();
 const planPath = process.env.INSTALL_DOCTOR_PLAN;
 if (!planPath) throw new Error('INSTALL_DOCTOR_PLAN is required');
 const planMetadata = fs.lstatSync(planPath);
@@ -2426,11 +2471,15 @@ const chezmoiInitTask = {
 const installxSourcePath = `${process.env.INSTALL_DOCTOR_CHEZMOI_SOURCE}/dot_local/bin/executable_installx`;
 const installxTargetPath = `${stateRoot}/tools/installx`;
 const installxBinPath = `${stateRoot}/tools`;
-const installxSourceMetadata = fs.lstatSync(installxSourcePath);
-if (!installxSourceMetadata.isFile() || installxSourceMetadata.isSymbolicLink() || installxSourceMetadata.size < 1 || installxSourceMetadata.size > 65_536) {
-  throw new Error('installx source must be one bounded regular file');
+let installxCandidate;
+if (signedPlanningInputs) installxCandidate = signedPlanningInputs.get('provisioning/home/dot_local/bin/executable_installx');
+else {
+  const installxSourceMetadata = fs.lstatSync(installxSourcePath);
+  if (!installxSourceMetadata.isFile() || installxSourceMetadata.isSymbolicLink() || installxSourceMetadata.size < 1 || installxSourceMetadata.size > 65_536) {
+    throw new Error('installx source must be one bounded regular file');
+  }
+  installxCandidate = fs.readFileSync(installxSourcePath);
 }
-const installxCandidate = fs.readFileSync(installxSourcePath);
 const installxCandidateBase64 = installxCandidate.toString('base64');
 const installxBinDirectoryTask = {
   schemaVersion: 1, id: 'bootstrap.installx-bin-directory',
@@ -2618,6 +2667,10 @@ const customHookRoot = `${process.env.INSTALL_DOCTOR_CHEZMOI_SOURCE}/dot_local/b
 const selectedHookClosure = loadPlan.items.filter(item => item.selected).map(item => item.name).sort();
 const customHookManifest = selectedHookClosure.flatMap(packageName => {
   const sourcePath = `${customHookRoot}/executable_post-${packageName}.sh`;
+  if (signedPlanningInputs) {
+    const bytes = signedPlanningInputs.get(`provisioning/home/dot_local/bin/post-installx/executable_post-${packageName}.sh`);
+    return bytes ? [{ package: packageName, sha256: crypto.createHash('sha256').update(bytes).digest('hex') }] : [];
+  }
   try {
     const metadata = fs.lstatSync(sourcePath);
     if (!metadata.isFile() || metadata.isSymbolicLink()) throw new Error(`custom hook is not a regular file: ${packageName}`);
