@@ -7,6 +7,8 @@ CREATE TABLE IF NOT EXISTS device_authorizations (
   request_json TEXT NOT NULL,
   tenant_id TEXT NOT NULL,
   profile_id TEXT NOT NULL,
+  profile_revision TEXT NOT NULL,
+  profile_revision_digest TEXT NOT NULL,
   target_key_fingerprint TEXT NOT NULL,
   machine_label TEXT NOT NULL,
   requested_scopes TEXT NOT NULL,

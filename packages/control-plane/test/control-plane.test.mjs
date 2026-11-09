@@ -45,7 +45,8 @@ async function loadWorkerApp() {
         CREATE TABLE IF NOT EXISTS device_authorizations (
           request_id text primary key, verification_code text not null unique,
           poll_sha256 text not null unique, request_json text not null,
-          tenant_id text not null, profile_id text not null, target_key_fingerprint text not null,
+          tenant_id text not null, profile_id text not null, profile_revision text not null,
+          profile_revision_digest text not null, target_key_fingerprint text not null,
           machine_label text not null, requested_scopes text not null, approved_scopes text,
           status text not null, created_at text not null, expires_at text not null,
           approved_at text, denied_at text, cancelled_at text, claimed_at text, last_polled_at text
@@ -274,6 +275,11 @@ test('v1 target authorization persists exact public binding and atomically claim
   assert.equal(tooFast.status, 429);
   assert.equal(tooFast.headers.get('retry-after'), '5');
 
+  const unauthenticatedReview = await app.fetch(new Request(
+    `https://desktop.tools/api/v1/device-authorizations/review?code=${authorization.request.verificationCode}`,
+  ), env);
+  assert.equal(unauthenticatedReview.status, 401);
+  assert.deepEqual(await unauthenticatedReview.json(), { error: 'reauthentication_required' });
   await db.prepare("UPDATE device_authorizations SET status='approved', approved_scopes=?, approved_at=?, last_polled_at=NULL WHERE request_id=?")
     .bind('["profile:read"]', new Date().toISOString(), authorization.request.requestId).run();
   const claimed = await poll();

@@ -2214,6 +2214,17 @@ const DeviceAuthorizationStartBody = z.strictObject({
   binding: DeviceAuthorizationBindingSchema,
   machineLabel: z.string().min(1).max(128),
 });
+const DeviceAuthorizationDecisionBody = z.strictObject({
+  requestId: z.string().min(1).max(128).regex(/^[a-z0-9][a-z0-9._-]*$/),
+  verificationCode: z.string().regex(/^[A-Z0-9]{4}-[A-Z0-9]{4}$/),
+  profileId: z.string().min(1).max(128).regex(/^[a-z0-9][a-z0-9._-]*$/),
+  profileRevision: z.string().min(1).max(128).regex(/^[a-z0-9][a-z0-9._-]*$/),
+  profileRevisionDigest: z.string().regex(/^[a-f0-9]{64}$/),
+  targetKeyFingerprint: z.string().regex(/^[a-f0-9]{64}$/),
+  requestedScopes: z.array(z.string().min(1).max(128)).min(1).max(64),
+  decision: z.enum(['approve', 'deny']),
+  approvedScopes: z.array(z.string().min(1).max(128)).min(1).max(64).optional(),
+});
 
 function newDeviceAuthorizationCode(): string {
   const random = new Uint8Array(8);
@@ -2358,12 +2369,12 @@ app.post('/api/v1/device-authorizations/start', async (c) => {
     try {
       await db.prepare(`
         INSERT INTO device_authorizations
-          (request_id, verification_code, poll_sha256, request_json, tenant_id, profile_id,
+          (request_id, verification_code, poll_sha256, request_json, tenant_id, profile_id, profile_revision, profile_revision_digest,
            target_key_fingerprint, machine_label, requested_scopes, status, created_at, expires_at)
-        VALUES (?,?,?,?,?,?,?,?,?,'pending',?,?)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,'pending',?,?)
       `).bind(
         requestId, verificationCode, pollKeyFingerprint, JSON.stringify(request), request.binding.tenantId,
-        request.binding.profileId, request.binding.targetKeyFingerprint, request.machineLabel,
+        request.binding.profileId, profile.revision, profile.digest, request.binding.targetKeyFingerprint, request.machineLabel,
         JSON.stringify(request.binding.scopes), createdAt, request.binding.expiresAt,
       ).run();
       return c.json({ request, approvalUri: `https://desktop.tools/pair?code=${verificationCode}`,
@@ -2375,6 +2386,99 @@ app.post('/api/v1/device-authorizations/start', async (c) => {
     }
   }
   return c.json({ error: 'authorization_unavailable' }, 503);
+});
+
+app.get('/api/v1/device-authorizations/review', async (c) => {
+  const db = (c.env as Record<string, any>).DB;
+  if (!db) return c.json({ error: 'store_unavailable' }, 503);
+  const session = await auth.api.getSession({ headers: c.req.raw.headers }).catch(() => null);
+  const owner = authenticatedOwnerFromBetterAuthSession(session);
+  if (!owner) return c.json({ error: 'reauthentication_required' }, 401);
+  const code = (c.req.query('code') ?? '').trim().toUpperCase();
+  if (!/^[2-9A-HJ-NP-Z]{4}-[2-9A-HJ-NP-Z]{4}$/.test(code)) return deviceAuthorizationUnavailable(c);
+  const row = await db.prepare(`
+    SELECT request_id, verification_code, tenant_id, profile_id, profile_revision, profile_revision_digest,
+           target_key_fingerprint, machine_label, requested_scopes, status, created_at, expires_at
+      FROM device_authorizations WHERE verification_code=?
+  `).bind(code).first();
+  if (!row || row.status !== 'pending' || Date.parse(row.expires_at as string) <= Date.now()) return deviceAuthorizationUnavailable(c);
+  let expectedOwner: Awaited<ReturnType<ReturnType<typeof createBrokerProductionAuthorities>['owner']['resolveForTenant']>> = null;
+  try {
+    const authorities = createBrokerProductionAuthorities({ database: db,
+      publicProfiles: (c.env as Record<string, unknown>).DESKTOP_TOOLS_PUBLIC_PROFILES ?? [] });
+    expectedOwner = await authorities.owner.resolveForTenant(row.tenant_id as string);
+  } catch { return deviceAuthorizationUnavailable(c); }
+  const access = authorizeOwnerContextRead(expectedOwner?.authenticationActor ?? '', owner);
+  if (!expectedOwner || !access.ok) return c.json({ error: access.ok ? 'wrong_actor' : access.error }, access.ok ? 403 : access.status);
+  let requestedScopes: unknown;
+  try { requestedScopes = JSON.parse(row.requested_scopes as string); } catch { return deviceAuthorizationUnavailable(c); }
+  if (!Array.isArray(requestedScopes)) return deviceAuthorizationUnavailable(c);
+  return c.json({
+    requestId: row.request_id, matchingCode: row.verification_code, machineLabel: row.machine_label,
+    targetKeyFingerprint: row.target_key_fingerprint, profileId: row.profile_id,
+    profileRevision: row.profile_revision, profileRevisionDigest: row.profile_revision_digest,
+    requestedScopes, createdAt: row.created_at, expiresAt: row.expires_at,
+  }, 200, { 'cache-control': 'no-store' });
+});
+
+app.post('/api/v1/device-authorizations/decision', async (c) => {
+  const db = (c.env as Record<string, any>).DB;
+  if (!db) return c.json({ error: 'store_unavailable' }, 503);
+  let input: unknown;
+  try { input = await boundedJsonBody(c, DEVICE_AUTHORIZATION_BODY_MAX_BYTES); } catch (error) {
+    return c.json({ error: error instanceof Error ? error.message : 'invalid_request' }, error instanceof Error && error.message === 'payload_too_large' ? 413 : 400);
+  }
+  const parsed = DeviceAuthorizationDecisionBody.safeParse(input);
+  if (!parsed.success) return c.json({ error: 'invalid_request' }, 400);
+  const session = await auth.api.getSession({ headers: c.req.raw.headers }).catch(() => null);
+  const owner = authenticatedOwnerFromBetterAuthSession(session);
+  if (!owner) return c.json({ error: 'reauthentication_required' }, 401);
+  const row = await db.prepare(`
+    SELECT request_id, verification_code, tenant_id, profile_id, profile_revision, profile_revision_digest,
+           target_key_fingerprint, requested_scopes, status, expires_at
+      FROM device_authorizations WHERE request_id=? AND verification_code=?
+  `).bind(parsed.data.requestId, parsed.data.verificationCode).first();
+  if (!row) return deviceAuthorizationUnavailable(c);
+  let expectedOwner: Awaited<ReturnType<ReturnType<typeof createBrokerProductionAuthorities>['owner']['resolveForTenant']>> = null;
+  try {
+    const authorities = createBrokerProductionAuthorities({ database: db,
+      publicProfiles: (c.env as Record<string, unknown>).DESKTOP_TOOLS_PUBLIC_PROFILES ?? [] });
+    expectedOwner = await authorities.owner.resolveForTenant(row.tenant_id as string);
+  } catch { return deviceAuthorizationUnavailable(c); }
+  const access = authorizeOwnerContextRead(expectedOwner?.authenticationActor ?? '', owner);
+  if (!expectedOwner || !access.ok) return c.json({ error: access.ok ? 'wrong_actor' : access.error }, access.ok ? 403 : access.status);
+  let requestedScopes: string[];
+  try { requestedScopes = JSON.parse(row.requested_scopes as string); } catch { return deviceAuthorizationUnavailable(c); }
+  if (row.status !== 'pending') return c.json({ error: 'authorization_not_pending' }, 409);
+  if (Date.parse(row.expires_at as string) <= Date.now()) return c.json({ error: 'authorization_expired' }, 410);
+  if (parsed.data.profileId !== row.profile_id || parsed.data.profileRevision !== row.profile_revision
+    || parsed.data.profileRevisionDigest !== row.profile_revision_digest
+    || parsed.data.targetKeyFingerprint !== row.target_key_fingerprint
+    || JSON.stringify(parsed.data.requestedScopes) !== row.requested_scopes) {
+    return c.json({ error: 'authorization_binding_mismatch' }, 409);
+  }
+  const approvedScopes = parsed.data.decision === 'approve'
+    ? (parsed.data.approvedScopes ?? requestedScopes) : null;
+  if (approvedScopes && (approvedScopes.some(scope => !requestedScopes.includes(scope))
+    || new Set(approvedScopes).size !== approvedScopes.length
+    || JSON.stringify([...approvedScopes].sort()) !== JSON.stringify(approvedScopes))) {
+    return c.json({ error: 'invalid_approved_scopes' }, 400);
+  }
+  const decidedAt = new Date().toISOString();
+  const status = parsed.data.decision === 'approve' ? 'approved' : 'denied';
+  const updated = await db.prepare(`
+    UPDATE device_authorizations
+       SET status=?, approved_scopes=?, approved_at=?, denied_at=?
+     WHERE request_id=? AND verification_code=? AND status='pending' AND expires_at>?
+       AND profile_id=? AND profile_revision=? AND profile_revision_digest=?
+       AND target_key_fingerprint=? AND requested_scopes=?
+  `).bind(status, approvedScopes ? JSON.stringify(approvedScopes) : null,
+    status === 'approved' ? decidedAt : null, status === 'denied' ? decidedAt : null,
+    row.request_id, row.verification_code, decidedAt, row.profile_id, row.profile_revision,
+    row.profile_revision_digest, row.target_key_fingerprint, row.requested_scopes).run();
+  if ((updated.meta?.changes ?? 0) !== 1) return c.json({ error: 'authorization_not_pending' }, 409);
+  return c.json({ requestId: row.request_id, status, decidedAt,
+    ...(approvedScopes ? { approvedScopes } : {}) }, 200, { 'cache-control': 'no-store' });
 });
 
 app.post('/api/v1/device-authorizations/:requestId/poll', async (c) => {
@@ -3226,6 +3330,28 @@ const OPENAPI_31_SPEC = {
         responses: {
           '204': { description: 'Authorization cancelled' },
           '404': { description: 'Authorization unavailable' },
+        },
+      },
+    },
+    '/api/v1/device-authorizations/review': {
+      get: {
+        summary: 'Review an exact pending authorization as the freshly authenticated tenant owner',
+        tags: ['Desktop Tools device authorization'],
+        responses: {
+          '200': { description: 'Exact machine, profile, scope, code, and expiry context' },
+          '401': { description: 'Fresh owner authentication required' },
+          '404': { description: 'Authorization unavailable' },
+        },
+      },
+    },
+    '/api/v1/device-authorizations/decision': {
+      post: {
+        summary: 'Approve or deny the exact displayed authorization binding',
+        tags: ['Desktop Tools device authorization'],
+        responses: {
+          '200': { description: 'Atomic owner decision persisted' },
+          '401': { description: 'Fresh owner authentication required' },
+          '409': { description: 'Stale, substituted, or already decided request' },
         },
       },
     },
