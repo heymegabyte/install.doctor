@@ -39,6 +39,14 @@ Interactive and headless runs SHALL resolve the profile revision, role, capabili
 - **WHEN** the selected profile changes after the target plan was created
 - **THEN** the stale plan cannot be applied and the target must present a new diff for approval
 
+#### Scenario: Root bootstrap hands off before planning
+- **WHEN** provisioning starts as root for an enrolled non-root target account
+- **THEN** root performs only verified bootstrap and sealed handoff work, and the enrolled user creates, approves, schedules, and journals exactly one canonical plan containing both user and privileged tasks
+
+#### Scenario: Mixed-privilege approved plan
+- **WHEN** one approved plan contains user-owned and privileged operations
+- **THEN** user-owned operations execute only as the enrolled user and each privileged operation executes only through the exact broker projection of that same plan without replanning or changing its digest
+
 ## ADDED Requirements
 
 ### Requirement: Release-bound native Debian package slices
@@ -83,6 +91,26 @@ Native Debian package cutovers SHALL derive mutation authority from exact signed
 #### Scenario: Shared native materialization
 - **WHEN** the native artifacts are resolved from the immutable online release namespace or an offline bundle
 - **THEN** one materializer enforces the same identifiers, bytes, digests, sizes, and boundaries and supplies protected handles to one runtime adapter, producing identical task, operation, and plan digests without apt, ambient keyrings, target mirror access, or apply-time network
+
+#### Scenario: Privileged native-package dispatch
+- **WHEN** the enrolled-user engine dispatches an approved native-package check, apply, or verify operation that requires root
+- **THEN** a release-pinned root-owned broker requires a previously validated root-protected grant for the exact approved plan, independently validates the host, release, consent, grant, plan, task, operation, phase, descriptor, closure, nonce, and enrolled-UID peer identity, accepts package bytes only through an exactly verified sealed anonymous file descriptor, and exposes no general shell, path, argv, environment, or package-selection authority
+
+#### Scenario: Endpoint possession is not approval
+- **WHEN** the enrolled user or another process with access to the bounded broker endpoint submits an ungranted plan or attempts to broaden a granted plan
+- **THEN** the broker rejects it because only explicit local or device approval may create the root-protected exact-plan execution grant
+
+#### Scenario: Privileged execution is network denied
+- **WHEN** the broker performs dpkg, policy, service-quiescence, fence, or recovery work
+- **THEN** it first proves execution is in a distinct network namespace, receives no network-capable descriptor or ambient repository authority, and fails closed without mutation if isolation or request authority cannot be proven
+
+#### Scenario: Privileged operation is interrupted
+- **WHEN** the broker or user coordinator is interrupted after a privileged operation may have changed dpkg state but before the user journal records its receipt
+- **THEN** a root-protected operation fence bound to the one approved plan supports exact state reconciliation and returns an idempotent completed, resumable, or blocked receipt without creating a second plan or allowing blind replay
+
+#### Scenario: Broker bypass is attempted
+- **WHEN** a caller substitutes a plan, task, operation, phase, payload descriptor, payload file, consent, nonce, peer, executable, argument, environment value, or network namespace
+- **THEN** the broker rejects the request before new mutation and the engine records failure without falling back to sudo shell, apt, a target mirror, or the legacy writer
 
 #### Scenario: Native artifacts remain lazy
 - **WHEN** a bootstrap does not select the native `tree` slice

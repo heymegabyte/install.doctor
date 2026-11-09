@@ -13,7 +13,7 @@ The repository currently mixes a provisioning engine with an unfinished Install 
 - Serve only a small signed stage-zero launcher at that endpoint; it verifies and installs a pinned OpenCode runtime plus the deterministic Desktop Tools provisioning tools rather than embedding credentials or the full mutable implementation in the response.
 - Create a new machine identity, initiate a cross-device authorization flow, and allow the headless target to wait while an owner approves the displayed code, machine fingerprint, profile, and requested scopes from another device.
 - After approval, exchange the one-time authorization for scoped, short-lived credentials, load the profile's versioned nonsecret desired state, and launch OpenCode with a bounded provisioning prompt.
-- Keep privileged and state-changing effects behind the deterministic installer engine's plan, consent, journal, verification, and rollback boundaries. OpenCode may plan and orchestrate approved tools but may not improvise ambient privileged shell mutations.
+- Keep privileged and state-changing effects behind one deterministic installer-engine plan, consent, journal, verification, and rollback boundary. The enrolled user owns planning and the canonical run journal; an exact root-owned broker executes only approved privileged operations, while user-owned tasks never run as root. OpenCode may plan and orchestrate approved tools but may not improvise ambient privileged shell mutations.
 - Keep Desktop Tools profiles portable and exportable so the provisioning engine remains usable without the hosted customization service.
 - Remove or migrate the unfinished `app.install.doctor` management-product claims; do not represent pre-production aid contracts as a second product.
 
