@@ -9,6 +9,6 @@ grep -Fq "throw new Error('selected services are unsupported until an installer-
 ! grep -Fq "'desired-services-check'" "$PROVISION"
 ! grep -Fq "'desired-services-apply'" "$PROVISION"
 ! grep -Fq "'desired-services-verify'" "$PROVISION"
-grep -Fq 'dependencies: [customPostHooksTask?.id ?? catalogPostValidationTask.id, ...caskLauncherTasks.map' "$PROVISION"
+grep -Fq 'dependencies: [customUserPostHooksTask?.id ?? customPostHooksTask?.id ?? catalogPostValidationTask.id, ...caskLauncherTasks.map' "$PROVISION"
 
 printf '%s\n' 'selected-services-fail-closed: 6 passed, 0 failed'

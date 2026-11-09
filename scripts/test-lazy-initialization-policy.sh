@@ -50,8 +50,9 @@ grep -Fq "INSTALL_DOCTOR_SELECTED_PACKAGES: legacySelectedPackages.join(',')" "$
   && pass 'approved native packages are digest-bound and added to the eager baseline' \
   || fail 'approved native package selection is not wired end to end'
 
-grep -Fq 'const selectedHookClosure = loadPlan.items.filter(item => item.selected)' "$PROVISION" \
-  && grep -Fq 'INSTALL_DOCTOR_CUSTOM_HOOK_KEYS: customHookKeysEnvironment' "$PROVISION" \
+grep -Fq 'const selectedHookItems = loadPlan.items.filter(item => item.selected)' "$PROVISION" \
+  && grep -Fq "const userCustomHookManifest = customHookManifest.filter(entry => entry.privilege === 'user')" "$PROVISION" \
+  && grep -Fq 'INSTALL_DOCTOR_CUSTOM_HOOK_KEYS: manifest.map(entry => entry.package)' "$PROVISION" \
   && grep -Fq 'INSTALL_DOCTOR_CUSTOM_HOOK_KEYS//,' "$PROVISION" \
   && pass 'custom hooks use the exact approved load-plan closure' \
   || fail 'custom hooks can diverge from the approved load-plan closure'

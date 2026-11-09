@@ -75,6 +75,22 @@ test('carries system-identity reconciliation authority without selecting the pac
   assert.notEqual(selected.digest, buildLoadPlan(input({ selectedPackages: ['tool'] })).digest);
 });
 
+test('binds post-install privilege authority and rejects incomplete declarations', () => {
+  const catalog = input({}).catalog.map(candidate => candidate.name === 'tool'
+    ? { ...candidate, configured: true, postInstall: 'post-tool.sh', postInstallPrivilege: 'user' } : candidate);
+  const report = buildLoadPlan(input({ selectedPackages: ['tool'], catalog }));
+  assert.equal(report.items.find(item => item.name === 'tool').postInstallPrivilege, 'user');
+  assert.notEqual(report.digest, buildLoadPlan(input({ selectedPackages: ['tool'] })).digest);
+  assert.throws(() => buildLoadPlan(input({
+    catalog: input({}).catalog.map(candidate => candidate.name === 'tool'
+      ? { ...candidate, postInstall: 'post-tool.sh' } : candidate),
+  })), /postInstall.*postInstallPrivilege/);
+  assert.throws(() => buildLoadPlan(input({
+    catalog: input({}).catalog.map(candidate => candidate.name === 'tool'
+      ? { ...candidate, postInstallPrivilege: 'user' } : candidate),
+  })), /postInstall.*postInstallPrivilege/);
+});
+
 test('selects a desired service and a supported-path exception explicitly', () => {
   const report = buildLoadPlan(input({ selectedServices: ['worker'], selectedSupportedPaths: ['developer'] }));
   assert.deepEqual(report.startOrder, ['worker']);

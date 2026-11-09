@@ -131,7 +131,7 @@ try {
       [
         '-o',
         'json',
-        '.softwarePackages | to_entries | map({"key":.key,"short":.value._short,"github":.value._github,"home":.value._home,"docs":.value._docs,"app":(.value._app != null),"appBundle":.value._app,"launcherBin":.value._bin,"cask":(.value.cask != null),"flatpak":.value.flatpak,"service":(.value._service != null),"serviceEnabled":(.value._serviceEnabled == true),"preload":(.value._preload == true),"preloadReason":.value._preloadReason,"deprecated":.value._deprecated,"replacement":.value._replacement,"deps":.value._deps,"systemIdentityReconciliation":(((.value._groups // []) | length) > 0 or ((.value._folders // []) | length) > 0)})',
+        '.softwarePackages | to_entries | map({"key":.key,"short":.value._short,"github":.value._github,"home":.value._home,"docs":.value._docs,"app":(.value._app != null),"appBundle":.value._app,"launcherBin":.value._bin,"cask":(.value.cask != null),"flatpak":.value.flatpak,"service":(.value._service != null),"serviceEnabled":(.value._serviceEnabled == true),"preload":(.value._preload == true),"preloadReason":.value._preloadReason,"postInstallPrivilege":.value._postInstallPrivilege,"deprecated":.value._deprecated,"replacement":.value._replacement,"deps":.value._deps,"systemIdentityReconciliation":(((.value._groups // []) | length) > 0 or ((.value._folders // []) | length) > 0)})',
         SOFTWARE,
       ],
       { encoding: 'utf8' },
@@ -181,6 +181,7 @@ try {
       if (d.length) it.deps = d;
     }
     if (m.systemIdentityReconciliation === true) it.systemIdentityReconciliation = true;
+    if (m.postInstallPrivilege != null) it.postInstallPrivilege = m.postInstallPrivilege;
     // D06 install mode — _app (GUI app) wins over _service; neither → lazy cli. Grounded in the EXPLICIT
     // declared fields only. NOTE: `cask` presence is deliberately NOT treated as "app" — measured 2026-10:
     // of 40 cask-no-_app entries, most are CLIs shipped as casks (java/gcloud/flutter/fly/mitmproxy/…), so
@@ -256,12 +257,24 @@ try {
     if (h) {
       it.configured = true;
       it.postInstall = h;
+      it.postInstallPrivilege ??= 'admin';
       configured++;
     }
   }
   console.error(`gen-catalog: ${configured} entries flagged configured-on-install (post-installx hooks of ${hooks.size})`);
 } catch (e) {
   console.error('gen-catalog: WARNING — could not scan post-installx hooks (' + (e && e.message) + ')');
+}
+
+// Post-install privilege is execution authority, not optional display metadata.
+// Never let either fail-soft enrichment block silently discard or broaden it.
+for (const item of items) {
+  if (item.postInstall && !['user', 'admin'].includes(item.postInstallPrivilege)) {
+    throw new Error(`configured catalog entry lacks valid post-install privilege authority: ${item.name}`);
+  }
+  if (!item.postInstall && item.postInstallPrivilege != null) {
+    throw new Error(`catalog entry declares post-install privilege without a matched hook: ${item.name}`);
+  }
 }
 
 items.sort((a, b) => a.name.localeCompare(b.name));

@@ -38,6 +38,9 @@ if (packages === null || typeof packages !== 'object' || Array.isArray(packages)
     const eager = entry._preload === true;
     const hasPolicy = Object.hasOwn(entry, '_loadPolicy');
     const hasRationale = Object.hasOwn(entry, '_loadRationale');
+    if (Object.hasOwn(entry, '_postInstallPrivilege') && !['user', 'admin'].includes(entry._postInstallPrivilege)) {
+      problems.push(`${name}: _postInstallPrivilege must be "user" or "admin"`);
+    }
     if (eager) {
       const expected = classifications.get(entry._preloadReason);
       if (!expected) {

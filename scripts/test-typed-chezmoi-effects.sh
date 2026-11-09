@@ -8,10 +8,10 @@ AFTER_20="$ROOT/home/.chezmoiscripts/universal/run_after_20-post-install.sh.tmpl
 TMP="$(mktemp -d "${TMPDIR:-/tmp}/typed-chezmoi-effects.XXXXXXXX")"
 trap 'rm -rf -- "$TMP"' EXIT HUP INT TERM
 
-for node in desired.software-groups desired.catalog-post-validation desired.custom-post-hooks; do
+for node in desired.software-groups desired.catalog-post-validation desired.custom-post-hooks desired.custom-user-post-hooks; do
   grep -Fq "id: '$node'" "$PROVISION"
 done
-grep -Fq 'dependencies: [customPostHooksTask?.id ?? catalogPostValidationTask.id, ...caskLauncherTasks.map' "$PROVISION"
+grep -Fq 'dependencies: [customUserPostHooksTask?.id ?? customPostHooksTask?.id ?? catalogPostValidationTask.id, ...caskLauncherTasks.map' "$PROVISION"
 grep -Fq 'INSTALL_DOCTOR_ENGINE_OWNS_SOFTWARE_GROUPS' "$AFTER_10"
 grep -Fq 'INSTALL_DOCTOR_ENGINE_OWNS_CATALOG_POST_HOOKS' "$AFTER_10"
 grep -Fq 'INSTALL_DOCTOR_ENGINE_OWNS_CUSTOM_POST_HOOKS' "$AFTER_20"

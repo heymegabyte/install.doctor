@@ -46,6 +46,7 @@ export const LoadCatalogEntrySchema = z.object({
   replacement: IdentifierSchema.optional(),
   configured: z.boolean().optional(),
   postInstall: z.string().min(1).max(512).optional(),
+  postInstallPrivilege: z.enum(['user', 'admin']).optional(),
   systemIdentityReconciliation: z.boolean().default(false),
   caskLauncher: z.strictObject({
     appBundle: z.string().min(5).max(256),
@@ -55,7 +56,15 @@ export const LoadCatalogEntrySchema = z.object({
     appId: z.string().min(5).max(256),
     bin: z.string().min(1).max(128),
   }).optional(),
-}).strict();
+}).strict().superRefine((entry, context) => {
+  if ((entry.postInstall === undefined) !== (entry.postInstallPrivilege === undefined)) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: 'postInstall and postInstallPrivilege must be declared together',
+      path: ['postInstallPrivilege'],
+    });
+  }
+});
 
 export const LoadPlanInputSchema = z.object({
   schemaVersion: z.literal(1),
@@ -83,6 +92,7 @@ export const LoadPlanItemSchema = z.object({
     bin: z.string().min(1).max(128),
   }).nullable(),
   systemIdentityReconciliation: z.boolean(),
+  postInstallPrivilege: z.enum(['user', 'admin']).nullable(),
   flatpakLauncher: z.strictObject({
     appId: z.string().min(5).max(256),
     bin: z.string().min(1).max(128),
@@ -363,6 +373,7 @@ export function buildLoadPlan(rawInput: unknown): LoadPlanReport {
         caskLauncher: isSelected ? entry.caskLauncher ?? null : null,
         flatpakLauncher: isSelected ? entry.flatpakLauncher ?? null : null,
         systemIdentityReconciliation: entry.systemIdentityReconciliation,
+        postInstallPrivilege: entry.postInstallPrivilege ?? null,
         actions,
         selectionReason,
       };

@@ -2853,27 +2853,39 @@ const catalogPostValidationTask = {
   failurePolicy: 'abort-run',
 };
 const customHookRoot = `${process.env.INSTALL_DOCTOR_CHEZMOI_SOURCE}/dot_local/bin/post-installx`;
-const selectedHookClosure = loadPlan.items.filter(item => item.selected).map(item => item.name).sort();
-const customHookManifest = selectedHookClosure.flatMap(packageName => {
+const selectedHookItems = loadPlan.items.filter(item => item.selected).sort((left, right) => left.name.localeCompare(right.name));
+const customHookManifest = selectedHookItems.flatMap(item => {
+  const packageName = item.name;
   const sourcePath = `${customHookRoot}/executable_post-${packageName}.sh`;
   if (signedPlanningInputs) {
     const bytes = signedPlanningInputs.get(`provisioning/home/dot_local/bin/post-installx/executable_post-${packageName}.sh`);
-    return bytes ? [{ package: packageName, sha256: crypto.createHash('sha256').update(bytes).digest('hex') }] : [];
+    if (!bytes) return [];
+    if (item.postInstallPrivilege !== 'user' && item.postInstallPrivilege !== 'admin') {
+      throw new Error(`selected custom hook lacks explicit privilege authority: ${packageName}`);
+    }
+    return [{ package: packageName, sha256: crypto.createHash('sha256').update(bytes).digest('hex'), privilege: item.postInstallPrivilege }];
   }
   try {
     const metadata = fs.lstatSync(sourcePath);
     if (!metadata.isFile() || metadata.isSymbolicLink()) throw new Error(`custom hook is not a regular file: ${packageName}`);
-    return [{ package: packageName, sha256: crypto.createHash('sha256').update(fs.readFileSync(sourcePath)).digest('hex') }];
+    if (item.postInstallPrivilege !== 'user' && item.postInstallPrivilege !== 'admin') {
+      throw new Error(`selected custom hook lacks explicit privilege authority: ${packageName}`);
+    }
+    return [{ package: packageName, sha256: crypto.createHash('sha256').update(fs.readFileSync(sourcePath)).digest('hex'), privilege: item.postInstallPrivilege }];
   } catch (error) {
     if (error && error.code === 'ENOENT') return [];
     throw error;
   }
 });
-const customHookManifestEnvironment = customHookManifest.map(entry => `${entry.package}=${entry.sha256}`).join('\n');
-const customHookKeysEnvironment = customHookManifest.map(entry => entry.package).join(',');
-const customPostHooksTask = customHookManifest.length > 0 ? {
+const adminCustomHookManifest = customHookManifest.filter(entry => entry.privilege === 'admin');
+const userCustomHookManifest = customHookManifest.filter(entry => entry.privilege === 'user');
+const hookEnvironment = manifest => ({
+  INSTALL_DOCTOR_CUSTOM_HOOK_MANIFEST: manifest.map(entry => `${entry.package}=${entry.sha256}`).join('\n'),
+  INSTALL_DOCTOR_CUSTOM_HOOK_KEYS: manifest.map(entry => entry.package).join(','),
+});
+const customPostHooksTask = adminCustomHookManifest.length > 0 ? {
   schemaVersion: 1, id: 'desired.custom-post-hooks',
-  inputDigest: digest({ source: process.env.INSTALL_DOCTOR_SOURCE_COMMIT, softwareGroup: rawPlan.softwareGroup, hooks: customHookManifest, policy: 'typed-custom-post-v2' }),
+  inputDigest: digest({ source: process.env.INSTALL_DOCTOR_SOURCE_COMMIT, softwareGroup: rawPlan.softwareGroup, hooks: adminCustomHookManifest, policy: 'typed-custom-post-admin-v3' }),
   dependencies: [catalogPostValidationTask.id], predicate: 'host-supported', requiredCapabilities: [],
   operations: { check: 'custom-post-hooks-check', apply: 'custom-post-hooks-apply', verify: 'custom-post-hooks-verify' },
   timeoutMs: 7_200_000, retry: { class: 'never', maxAttempts: 1, backoffMs: 0 },
@@ -2881,10 +2893,20 @@ const customPostHooksTask = customHookManifest.length > 0 ? {
   consent: 'privileged', lockDomains: ['custom-post-hooks', 'package-manager', 'service-manager', 'privilege'], cleanup: 'none', compensation: 'none',
   failurePolicy: 'abort-run',
 } : null;
+const customUserPostHooksTask = userCustomHookManifest.length > 0 ? {
+  schemaVersion: 1, id: 'desired.custom-user-post-hooks',
+  inputDigest: digest({ source: process.env.INSTALL_DOCTOR_SOURCE_COMMIT, softwareGroup: rawPlan.softwareGroup, hooks: userCustomHookManifest, policy: 'typed-custom-post-user-v1' }),
+  dependencies: [customPostHooksTask?.id ?? catalogPostValidationTask.id], predicate: 'host-supported', requiredCapabilities: [],
+  operations: { check: 'custom-user-post-hooks-check', apply: 'custom-user-post-hooks-apply', verify: 'custom-user-post-hooks-verify' },
+  timeoutMs: 7_200_000, retry: { class: 'never', maxAttempts: 1, backoffMs: 0 },
+  resources: { cpu: 1, memoryMiB: 1024, network: true }, privilege: 'user', network: 'required',
+  consent: 'network', lockDomains: ['custom-post-hooks'], cleanup: 'none', compensation: 'none',
+  failurePolicy: 'abort-run',
+} : null;
 const rebootAssessmentTask = {
   schemaVersion: 1, id: 'system.reboot-assessment',
   inputDigest: digest({ platform, policy: 'explicit-operator-reboot-v1' }),
-  dependencies: [customPostHooksTask?.id ?? catalogPostValidationTask.id, ...caskLauncherTasks.map(task => task.id), ...flatpakLauncherTasks.map(task => task.id), ...artifactTasks.map(task => task.id)], predicate: 'host-supported', requiredCapabilities: [],
+  dependencies: [customUserPostHooksTask?.id ?? customPostHooksTask?.id ?? catalogPostValidationTask.id, ...caskLauncherTasks.map(task => task.id), ...flatpakLauncherTasks.map(task => task.id), ...artifactTasks.map(task => task.id)], predicate: 'host-supported', requiredCapabilities: [],
   operations: { check: 'reboot-assessment-check', apply: 'reboot-assessment-apply', verify: 'reboot-assessment-verify' },
   timeoutMs: 30_000, retry: { class: 'never', maxAttempts: 1, backoffMs: 0 },
   resources: { cpu: 1, memoryMiB: 64, network: false }, privilege: 'user', network: 'none',
@@ -2916,7 +2938,7 @@ const invocation = {
     offline: rawPlan.offline,
   },
     plan: {
-      tasks: [stageZeroInstallUserTask, stageZeroSudoTask, ...(warpDisconnectTask ? [warpDisconnectTask] : []), ...(nativeComposition ? [nativeComposition.task] : []), nativeDependenciesTask, sourceTask, homebrewTask, homebrewToolsTask, chezmoiInitTask, installxBinDirectoryTask, installxToolTask, desiredPackagesTask, ...caskDirectoryTasks, ...caskLauncherTasks, ...flatpakDirectoryTasks, ...flatpakLauncherTasks, ...directoryTasks, ...artifactTasks, ...(macosFullDiskAccessTask ? [macosFullDiskAccessTask] : []), ...(macosCertificateTask ? [macosCertificateTask] : []), ...(qubesDom0Task ? [qubesDom0Task] : []), ...(agentTasksTask ? [agentTasksTask] : []), task, bootstrapPolicyTask, ...(softwareGroupsTask ? [softwareGroupsTask] : []), catalogPostValidationTask, ...(customPostHooksTask ? [customPostHooksTask] : []), rebootAssessmentTask, sudoCleanupTask],
+      tasks: [stageZeroInstallUserTask, stageZeroSudoTask, ...(warpDisconnectTask ? [warpDisconnectTask] : []), ...(nativeComposition ? [nativeComposition.task] : []), nativeDependenciesTask, sourceTask, homebrewTask, homebrewToolsTask, chezmoiInitTask, installxBinDirectoryTask, installxToolTask, desiredPackagesTask, ...caskDirectoryTasks, ...caskLauncherTasks, ...flatpakDirectoryTasks, ...flatpakLauncherTasks, ...directoryTasks, ...artifactTasks, ...(macosFullDiskAccessTask ? [macosFullDiskAccessTask] : []), ...(macosCertificateTask ? [macosCertificateTask] : []), ...(qubesDom0Task ? [qubesDom0Task] : []), ...(agentTasksTask ? [agentTasksTask] : []), task, bootstrapPolicyTask, ...(softwareGroupsTask ? [softwareGroupsTask] : []), catalogPostValidationTask, ...(customPostHooksTask ? [customPostHooksTask] : []), ...(customUserPostHooksTask ? [customUserPostHooksTask] : []), rebootAssessmentTask, sudoCleanupTask],
       selectedTaskIds: [...(nativeComposition ? [nativeComposition.task.id] : []), ...caskLauncherTasks.map(task => task.id), ...flatpakLauncherTasks.map(task => task.id), ...artifactTasks.map(task => task.id), rebootAssessmentTask.id, sudoCleanupTask.id],
       executionPolicy: {
         maxConcurrency: rawPlan.concurrency,
@@ -3003,9 +3025,14 @@ const invocation = {
     'catalog-post-validation-apply': { argv: ['/bin/bash', provisioner, '--engine-operation', 'catalog-post-validation-apply'], env: operationEnvironment },
     'catalog-post-validation-verify': { argv: ['/bin/bash', provisioner, '--engine-operation', 'catalog-post-validation-verify'], env: operationEnvironment },
     ...(customPostHooksTask ? {
-      'custom-post-hooks-check': { argv: ['/bin/bash', provisioner, '--engine-operation', 'custom-post-hooks-check'], env: { ...operationEnvironment, INSTALL_DOCTOR_CUSTOM_HOOK_MANIFEST: customHookManifestEnvironment, INSTALL_DOCTOR_CUSTOM_HOOK_KEYS: customHookKeysEnvironment } },
-      'custom-post-hooks-apply': { argv: ['/bin/bash', provisioner, '--engine-operation', 'custom-post-hooks-apply'], env: { ...operationEnvironment, INSTALL_DOCTOR_CUSTOM_HOOK_MANIFEST: customHookManifestEnvironment, INSTALL_DOCTOR_CUSTOM_HOOK_KEYS: customHookKeysEnvironment } },
-      'custom-post-hooks-verify': { argv: ['/bin/bash', provisioner, '--engine-operation', 'custom-post-hooks-verify'], env: { ...operationEnvironment, INSTALL_DOCTOR_CUSTOM_HOOK_MANIFEST: customHookManifestEnvironment, INSTALL_DOCTOR_CUSTOM_HOOK_KEYS: customHookKeysEnvironment } },
+      'custom-post-hooks-check': { argv: ['/bin/bash', provisioner, '--engine-operation', 'custom-post-hooks-check'], env: { ...operationEnvironment, ...hookEnvironment(adminCustomHookManifest) } },
+      'custom-post-hooks-apply': { argv: ['/bin/bash', provisioner, '--engine-operation', 'custom-post-hooks-apply'], env: { ...operationEnvironment, ...hookEnvironment(adminCustomHookManifest) } },
+      'custom-post-hooks-verify': { argv: ['/bin/bash', provisioner, '--engine-operation', 'custom-post-hooks-verify'], env: { ...operationEnvironment, ...hookEnvironment(adminCustomHookManifest) } },
+    } : {}),
+    ...(customUserPostHooksTask ? {
+      'custom-user-post-hooks-check': { argv: ['/bin/bash', provisioner, '--engine-operation', 'custom-user-post-hooks-check'], env: { ...operationEnvironment, ...hookEnvironment(userCustomHookManifest) } },
+      'custom-user-post-hooks-apply': { argv: ['/bin/bash', provisioner, '--engine-operation', 'custom-user-post-hooks-apply'], env: { ...operationEnvironment, ...hookEnvironment(userCustomHookManifest) } },
+      'custom-user-post-hooks-verify': { argv: ['/bin/bash', provisioner, '--engine-operation', 'custom-user-post-hooks-verify'], env: { ...operationEnvironment, ...hookEnvironment(userCustomHookManifest) } },
     } : {}),
     'reboot-assessment-check': { argv: ['/bin/bash', provisioner, '--engine-operation', 'reboot-assessment-check'], env: operationEnvironment },
     'reboot-assessment-apply': { argv: ['/bin/bash', provisioner, '--engine-operation', 'reboot-assessment-apply'], env: operationEnvironment },
@@ -3492,7 +3519,7 @@ idRunEngineOperation() {
       OPERATION_STATUS=$?
       case "$OPERATION_STATUS" in 0|10) return "$OPERATION_STATUS" ;; *) return 2 ;; esac
       ;;
-    custom-post-hooks-check) idRunSelectedPostInstallxHooks check ;;
+    custom-post-hooks-check|custom-user-post-hooks-check) idRunSelectedPostInstallxHooks check ;;
     software-groups-apply)
       command -v process-software-groups >/dev/null 2>&1 || return 2
       process-software-groups
@@ -3507,10 +3534,10 @@ idRunEngineOperation() {
       [ "$OPERATION_STATUS" -eq 0 ] && return 0
       return 2
       ;;
-    custom-post-hooks-verify) idRunSelectedPostInstallxHooks verify ;;
+    custom-post-hooks-verify|custom-user-post-hooks-verify) idRunSelectedPostInstallxHooks verify ;;
     catalog-post-validation-check|catalog-post-validation-verify) idValidateCatalogPostMetadata ;;
     catalog-post-validation-apply) return 2 ;;
-    custom-post-hooks-apply) idRunSelectedPostInstallxHooks apply ;;
+    custom-post-hooks-apply|custom-user-post-hooks-apply) idRunSelectedPostInstallxHooks apply ;;
     reboot-assessment-check)
       if isRebootRequired; then
         logg warn 'A reboot is required before convergence can be verified'

@@ -6534,6 +6534,7 @@ softwarePackages:
     _deps:darwin:
     - hyperkit
   mise:
+    _postInstallPrivilege: admin
     _preload: true
     _preloadReason: bootstrap-critical
     _loadPolicy: eager-bootstrap
@@ -9035,6 +9036,7 @@ softwarePackages:
       RAYCAST_APPDATA:
         cask: $HOME/Library/Application Support/com.raycast.macos
   rclone:
+    _postInstallPrivilege: user
     _preload: true
     _preloadReason: security-recovery-prerequisite
     _loadPolicy: eager-security-recovery

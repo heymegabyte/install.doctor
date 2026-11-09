@@ -34,6 +34,10 @@ softwarePackages:
     _loadPolicy: eager-bootstrap
     _loadRationale: bootstrap:scripts/provision.sh
     brew: eager-tool
+  configured-tool:
+    _name: Configured tool
+    _postInstallPrivilege: user
+    brew: configured-tool
 YAML
 if validate "$TMP/valid.yml"; then
   pass 'lazy defaults and an explicitly owned eager exception are accepted'
@@ -58,6 +62,10 @@ awk '/brew: lazy-tool/ { print "    _loadRationale: default-lazy" } { print }' \
   "$TMP/orphan-lazy-rationale.yml" >"$TMP/orphan-lazy-rationale.next"
 mv "$TMP/orphan-lazy-rationale.next" "$TMP/orphan-lazy-rationale.yml"
 expect_reject 'a partial explicit lazy declaration is rejected' "$TMP/orphan-lazy-rationale.yml"
+
+cp "$TMP/valid.yml" "$TMP/invalid-post-install-privilege.yml"
+sed -i.bak 's/_postInstallPrivilege: user/_postInstallPrivilege: root/' "$TMP/invalid-post-install-privilege.yml"
+expect_reject 'unknown post-install privilege is rejected' "$TMP/invalid-post-install-privilege.yml"
 
 printf 'software-load-policy-schema: %d passed, %d failed\n' "$P" "$F"
 [ "$F" -eq 0 ]

@@ -27,6 +27,15 @@ else
   fail 'load plan selected an unrequested service or omitted selection/exclusion detail'
 fi
 
+if printf '%s' "$first" | jq -e '
+  (.items[] | select(.name == "rclone") | .postInstallPrivilege) == "user" and
+  (.items[] | select(.name == "mise") | .postInstallPrivilege) == "admin"
+' >/dev/null; then
+  pass 'post-install privilege authority survives catalog and load planning'
+else
+  fail 'post-install privilege authority was lost or broadened during load planning'
+fi
+
 if node "$ROOT/scripts/generate-load-plan.mjs" --platform linux --architecture x64 --package definitely-not-a-package >/dev/null 2>&1; then
   fail 'unknown desired package was accepted'
 else

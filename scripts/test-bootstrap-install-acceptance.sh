@@ -445,6 +445,9 @@ if (plan.tasks.some(task => task.id === 'desired.software-groups')) {
 if (plan.tasks.some(task => task.id === 'desired.custom-post-hooks')) {
   throw new Error('plan retained custom-hook mutation without a selected owning package');
 }
+if (plan.tasks.some(task => task.id === 'desired.custom-user-post-hooks')) {
+  throw new Error('plan retained user custom-hook mutation without a selected owning package');
+}
 if (fs.existsSync(path.join(directory, 'owner.json'))) throw new Error('interrupted run retained a live owner');
 const commits = fs.existsSync(path.join(directory, 'commits'))
   ? fs.readdirSync(path.join(directory, 'commits')).filter(name => name.endsWith('.commit.json')) : [];
