@@ -330,6 +330,15 @@ test('pairing page preserves the canonical human code and exposes owner approve 
   assert.doesNotMatch(html, /code:OWNER_INFO\.code/);
   assert.match(html, /id=denyBtn/);
   assert.match(html, /\/login\?returnTo=%2Fpair%3Fcode%3D2345-6789-ABCD/);
+  const v1Code = '2345-6789';
+  const v1 = await app.fetch(new Request(`https://desktop.tools/pair?code=${v1Code}`), TEST_ENV);
+  const v1Html = await v1.text();
+  assert.match(v1Html, new RegExp(v1Code));
+  assert.match(v1Html, /var IS_V1=true/);
+  assert.match(v1Html, /\/api\/v1\/device-authorizations\/review/);
+  assert.match(v1Html, /\/api\/v1\/device-authorizations\/decision/);
+  assert.match(v1Html, /requestId:OWNER_INFO\.requestId/);
+  assert.match(v1Html, /targetKeyFingerprint:OWNER_INFO\.machineFingerprint/);
   const malformed = await app.fetch(new Request('https://desktop.tools/pair?code=23456789ABCD'), TEST_ENV);
   assert.doesNotMatch(await malformed.text(), /var CODE="23456789ABCD"/);
 });

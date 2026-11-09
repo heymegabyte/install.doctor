@@ -1146,6 +1146,7 @@ ${code ? `<p class=muted>Pairing code:</p><p class=code>${code}</p><div id=info 
 <p id=out class=muted></p></div>
 <script>
 var CODE=${JSON.stringify(code)};
+var IS_V1=${DEVICE_AUTHORIZATION_CODE_PATTERN.test(code)};
 var OWNER_INFO=null;
 async function loadInfo(){
   if(!CODE)return;var el=document.getElementById('info');if(!el)return;
@@ -1154,7 +1155,21 @@ async function loadInfo(){
   function errP(msg){var p=document.createElement('p');p.className='muted';p.textContent='✗ '+msg;return p;}
   function labeled(label,valueNode,muted){var p=document.createElement('p');if(muted)p.className='muted';var b=document.createElement('b');b.textContent=label;p.append(b,' ',valueNode);return p;}
   try{
-    var r=await fetch('/api/devices/pair/info?code='+encodeURIComponent(CODE),{credentials:'include'});var j=await r.json();
+    var r,j;
+    if(IS_V1){
+      r=await fetch('/api/v1/device-authorizations/review?code='+encodeURIComponent(CODE),{credentials:'include'});j=await r.json();
+      if(!r.ok){var v1suffix=r.status===401?' — sign in again to review this authorization.':' — no pending authorization is available to this account.';el.replaceChildren(errP((j.error||r.status)+v1suffix));return;}
+      OWNER_INFO={protocol:'v1',requestId:j.requestId,matchingCode:j.matchingCode,host:j.machineLabel,
+        machineFingerprint:j.targetKeyFingerprint,profileId:j.profileId,profileRevision:j.profileRevision,
+        profileRevisionDigest:j.profileRevisionDigest,scopes:j.requestedScopes,createdAt:j.createdAt,expiresAt:j.expiresAt};
+      j=OWNER_INFO;
+      document.getElementById('legacyConfig').hidden=true;
+      document.getElementById('legacyToken').hidden=true;
+      document.getElementById('approvalHeading').textContent='Approve as profile owner';
+      document.getElementById('approvalGuidance').textContent='Compare every value with the target. This decision is bound to your recently authenticated account and exact profile revision.';
+    }else{
+      r=await fetch('/api/devices/pair/info?code='+encodeURIComponent(CODE),{credentials:'include'});j=await r.json();
+    }
     if(!r.ok){
       var ownerResponse=await fetch('/api/devices/pair/owner-info?code='+encodeURIComponent(CODE),{credentials:'include'});
       var ownerBody=await ownerResponse.json();
@@ -1203,7 +1218,14 @@ async function decide(decision){
   out.textContent=decision==='approve'?'Approving…':'Denying…';
   try{
     var r;
-    if(OWNER_INFO){
+    if(OWNER_INFO&&OWNER_INFO.protocol==='v1'){
+      var v1body={requestId:OWNER_INFO.requestId,verificationCode:OWNER_INFO.matchingCode,
+        profileId:OWNER_INFO.profileId,profileRevision:OWNER_INFO.profileRevision,
+        profileRevisionDigest:OWNER_INFO.profileRevisionDigest,targetKeyFingerprint:OWNER_INFO.machineFingerprint,
+        requestedScopes:OWNER_INFO.scopes,decision:decision,
+        approvedScopes:decision==='approve'?OWNER_INFO.scopes:undefined};
+      r=await fetch('/api/v1/device-authorizations/decision',{method:'POST',credentials:'include',headers:{'content-type':'application/json'},body:JSON.stringify(v1body)});
+    }else if(OWNER_INFO){
       var body={code:OWNER_INFO.matchingCode,matchingCode:OWNER_INFO.matchingCode,profileRevision:OWNER_INFO.profileRevision,
         decision:decision,approvedScopes:decision==='approve'?OWNER_INFO.scopes:undefined};
       if(OWNER_INFO.profileId){body.profileId=OWNER_INFO.profileId;body.profileRevisionDigest=OWNER_INFO.profileRevisionDigest;}
@@ -2205,6 +2227,7 @@ const PAIR_TTL_MS = 10 * 60 * 1000;
 const PAIR_START_MAX_BYTES = 4096;
 const PAIR_CODE_ALPHABET = '23456789ABCDEFGHJKLMNPQRSTUVWXYZ';
 const PAIR_CODE_PATTERN = /^(?:[2-9A-HJ-NP-Z]{4}-){2}[2-9A-HJ-NP-Z]{4}$/;
+const DEVICE_AUTHORIZATION_CODE_PATTERN = /^[2-9A-HJ-NP-Z]{4}-[2-9A-HJ-NP-Z]{4}$/;
 const LEGACY_PAIR_CODE_PATTERN = /^[A-F0-9]{8}$/;
 const PAIR_ISSUANCE_ATTEMPTS = 5;
 const DEVICE_AUTHORIZATION_TTL_MS = 10 * 60 * 1000;
@@ -2281,7 +2304,8 @@ function newPairCode(): string {
 
 function normalizePairCode(raw: string): string | null {
   const code = raw.trim().toUpperCase();
-  return PAIR_CODE_PATTERN.test(code) || LEGACY_PAIR_CODE_PATTERN.test(code) ? code : null;
+  return PAIR_CODE_PATTERN.test(code) || DEVICE_AUTHORIZATION_CODE_PATTERN.test(code)
+    || LEGACY_PAIR_CODE_PATTERN.test(code) ? code : null;
 }
 
 function pairingUnavailable(c: Context): Response {
