@@ -3133,6 +3133,78 @@ idRequireRootInstallUserEnrollment() {
   export INSTALL_DOCTOR_USER
 }
 
+# Stage only the selected Debian native-package authority into a root-owned
+# volatile release directory. The durable transaction fence lives separately
+# under /var/lib; release bytes are re-established from the signed release.
+idStageNativeBrokerAuthority() {
+  [ "${DESKTOP_TOOLS_NATIVE_BROKER_REQUESTED:-false}" = true ] || return 0
+  [ "$(id -u)" -eq 0 ] || { logg error 'Native broker authority must be staged by the root parent'; return 2; }
+  [ "${INSTALL_DOCTOR_PLATFORM_CELL:-}" = debian-12-x64-native ] \
+    || { logg error 'Native broker authority is supported only on Debian 12 x64 native hosts'; return 2; }
+  [ "${INSTALL_DOCTOR_RUNTIME_SOURCE:-}" = signed-archive ] \
+    || { logg error 'Native broker authority requires the signed release Node runtime'; return 2; }
+  local OUTPUT KEY VALUE NATIVE_STAGE DOWNLOAD_STATUS=0 DOWNLOAD_PID
+  NATIVE_STAGE="$(mktemp -d "${TMPDIR:-/tmp}/desktop-tools-native.XXXXXX")" || return 1
+  chmod 0700 "$NATIVE_STAGE" || { rm -rf -- "$NATIVE_STAGE"; return 1; }
+  local -a NATIVE_DOWNLOADS=(
+    "${DESKTOP_TOOLS_DEBIAN_KEYRING_URL:-}|${DESKTOP_TOOLS_DEBIAN_KEYRING_SHA256:-}|${DESKTOP_TOOLS_DEBIAN_KEYRING_SIZE:-}|$NATIVE_STAGE/keyring"
+    "${DESKTOP_TOOLS_DEBIAN_INRELEASE_URL:-}|${DESKTOP_TOOLS_DEBIAN_INRELEASE_SHA256:-}|${DESKTOP_TOOLS_DEBIAN_INRELEASE_SIZE:-}|$NATIVE_STAGE/inrelease"
+    "${DESKTOP_TOOLS_DEBIAN_PACKAGES_URL:-}|${DESKTOP_TOOLS_DEBIAN_PACKAGES_SHA256:-}|${DESKTOP_TOOLS_DEBIAN_PACKAGES_SIZE:-}|$NATIVE_STAGE/packages"
+    "${DESKTOP_TOOLS_DEBIAN_TREE_URL:-}|${DESKTOP_TOOLS_DEBIAN_TREE_SHA256:-}|${DESKTOP_TOOLS_DEBIAN_TREE_SIZE:-}|$NATIVE_STAGE/tree"
+  )
+  local -a NATIVE_PIDS=()
+  local SPEC URL SHA SIZE DESTINATION ACTUAL_SIZE ACTUAL_SHA
+  for SPEC in "${NATIVE_DOWNLOADS[@]}"; do
+    IFS='|' read -r URL SHA SIZE DESTINATION <<< "$SPEC"
+    case "$URL" in "https://desktop.tools/releases/${INSTALL_DOCTOR_RELEASE_ID}/"*) ;; *) rm -rf -- "$NATIVE_STAGE"; logg error 'Native artifact URL is outside the exact release'; return 2 ;; esac
+    case "$SHA" in ''|*[!a-f0-9]*) rm -rf -- "$NATIVE_STAGE"; logg error 'Native artifact digest is malformed'; return 2 ;; esac
+    case "$SIZE" in ''|*[!0-9]*) rm -rf -- "$NATIVE_STAGE"; logg error 'Native artifact size is malformed'; return 2 ;; esac
+    [ "${#SHA}" -eq 64 ] && [ "$SIZE" -gt 0 ] && [ "$SIZE" -le 268435456 ] \
+      || { rm -rf -- "$NATIVE_STAGE"; logg error 'Native artifact authority is outside policy'; return 2; }
+    curl -q --fail --show-error --silent --proto '=https' --proto-redir '=https' --tlsv1.2 --max-redirs 0 \
+      --retry 2 --retry-all-errors --retry-delay 1 --connect-timeout 10 --max-time 300 --max-filesize "$SIZE" \
+      --output "$DESTINATION" "$URL" & NATIVE_PIDS+=("$!")
+  done
+  for DOWNLOAD_PID in "${NATIVE_PIDS[@]}"; do wait "$DOWNLOAD_PID" || DOWNLOAD_STATUS=1; done
+  [ "$DOWNLOAD_STATUS" -eq 0 ] || { rm -rf -- "$NATIVE_STAGE"; logg error 'Selected native artifact download failed'; return 2; }
+  for SPEC in "${NATIVE_DOWNLOADS[@]}"; do
+    IFS='|' read -r URL SHA SIZE DESTINATION <<< "$SPEC"
+    ACTUAL_SIZE="$(wc -c < "$DESTINATION" | tr -d '[:space:]')"; ACTUAL_SHA="$(idSha256File "$DESTINATION")" || { rm -rf -- "$NATIVE_STAGE"; return 2; }
+    [ "$ACTUAL_SIZE" = "$SIZE" ] && [ "$ACTUAL_SHA" = "$SHA" ] || { rm -rf -- "$NATIVE_STAGE"; logg error 'Selected native artifact verification failed'; return 2; }
+  done
+  OUTPUT="$("${INSTALL_DOCTOR_RUNTIME_NODE}" - \
+    "${DESKTOP_TOOLS_TOOLS_ARCHIVE:-}" "${DESKTOP_TOOLS_TOOLS_SHA256:-}" \
+    "${INSTALL_DOCTOR_RUNTIME_NODE:-}" "${INSTALL_DOCTOR_RELEASE_ID:-}" \
+    "${INSTALL_DOCTOR_VERIFIED_MANIFEST:-}" "${INSTALL_DOCTOR_VERIFIED_SIGNATURE:-}" "${INSTALL_DOCTOR_CATALOG_PATH:-}" \
+    "$NATIVE_STAGE/keyring" "$NATIVE_STAGE/inrelease" "$NATIVE_STAGE/packages" "$NATIVE_STAGE/tree" <<'NODE'
+const fs = require('node:fs'); const path = require('node:path'); const crypto = require('node:crypto'); const zlib = require('node:zlib');
+if (process.geteuid?.() !== 0 || process.platform !== 'linux' || process.arch !== 'x64') throw new Error('root Linux x64 is required');
+const [archive, archiveDigest, runtime, releaseId, manifest, signature, catalog, keyring, inrelease, packages, tree] = process.argv.slice(2);
+if (!/^[a-z0-9][a-z0-9._-]{0,127}$/.test(releaseId) || !/^[a-f0-9]{64}$/.test(archiveDigest)) throw new Error('release authority is malformed');
+const hash = bytes => crypto.createHash('sha256').update(bytes).digest('hex');
+const readExact = (source, maximum, expected = null) => { const before=fs.lstatSync(source,{bigint:true}); if(!before.isFile()||before.isSymbolicLink()||before.nlink!==1n||before.size<1n||before.size>BigInt(maximum)) throw new Error('authority source is unsafe'); const fd=fs.openSync(source,fs.constants.O_RDONLY|(fs.constants.O_NOFOLLOW||0)); try { const opened=fs.fstatSync(fd,{bigint:true}); if(opened.dev!==before.dev||opened.ino!==before.ino||opened.size!==before.size) throw new Error('authority source changed'); const bytes=fs.readFileSync(fd); if(BigInt(bytes.length)!==opened.size||(expected&&hash(bytes)!==expected)) throw new Error('authority source digest mismatch'); return bytes; } finally { fs.closeSync(fd); } };
+const archiveBytes=readExact(archive,33_554_432,archiveDigest); const expanded=zlib.gunzipSync(archiveBytes,{maxOutputLength:64*1024*1024});
+const entries=new Map(); let ended=false; for(let offset=0;offset+512<=expanded.length;){const h=expanded.subarray(offset,offset+512);offset+=512;if(h.every(b=>b===0)){if(offset+512>expanded.length||!expanded.subarray(offset,offset+512).every(b=>b===0)||!expanded.subarray(offset+512).every(b=>b===0))throw new Error('tools archive terminator is invalid');ended=true;break;}const name=h.subarray(0,100).toString('utf8').split('\0',1)[0];const sizeText=h.subarray(124,136).toString('ascii').replaceAll('\0','').trim();const sumText=h.subarray(148,156).toString('ascii').replaceAll('\0','').trim();const check=Buffer.from(h);check.fill(0x20,148,156);if(!name||!/^[0-7]+$/.test(sizeText)||!/^[0-7]+$/.test(sumText)||parseInt(sumText,8)!==check.reduce((a,b)=>a+b,0)||(h[156]!==0&&h[156]!==0x30)||name.startsWith('/')||name.split('/').includes('..')||entries.has(name))throw new Error('tools archive is malformed');const size=parseInt(sizeText,8);if(!Number.isSafeInteger(size)||size<0||offset+size>expanded.length)throw new Error('tools archive entry is malformed');entries.set(name,expanded.subarray(offset,offset+size));offset+=Math.ceil(size/512)*512;} if(!ended)throw new Error('tools archive lacks its terminator');
+const required=['bin/linux-x64/desktop-tools-privileged-broker','lib/desktop-tools-privileged-controller.mjs','lib/desktop-tools-privileged-worker.mjs']; const closure=[...required,'bin/desktop-tools-mcp-server.mjs','contracts/runtime-policy.json','contracts/supervisor-api.schema.json','contracts/typed-tools.json','runtime/encrypted-recording.mjs'].sort(); if(JSON.stringify([...entries.keys()].sort())!==JSON.stringify(closure))throw new Error('tools archive closure is not exact'); for(const name of required)if(!entries.get(name)?.length)throw new Error(`tools archive lacks ${name}`);
+for(const segment of ['/run','/run/desktop-tools','/run/desktop-tools/authority',`/run/desktop-tools/authority/${releaseId}`]){const wanted=segment==='/run'?null:0o711;try{fs.mkdirSync(segment,{mode:wanted??0o755});}catch(e){if(e.code!=='EEXIST')throw e;}const m=fs.lstatSync(segment);if(!m.isDirectory()||m.isSymbolicLink()||m.uid!==0||(wanted===null?(m.mode&0o022)!==0:(m.mode&0o777)!==wanted))throw new Error('authority directory is unsafe');}
+const root=`/run/desktop-tools/authority/${releaseId}`; const install=(name,bytes,mode)=>{const target=`${root}/${name}`;try{const m=fs.lstatSync(target);if(!m.isFile()||m.isSymbolicLink()||m.nlink!==1||m.uid!==0||(m.mode&0o777)!==mode||hash(fs.readFileSync(target))!==hash(bytes))throw new Error('existing authority differs');return target;}catch(e){if(e.code!=='ENOENT')throw e;}const temp=`${target}.tmp-${process.pid}-${crypto.randomBytes(8).toString('hex')}`;const fd=fs.openSync(temp,fs.constants.O_CREAT|fs.constants.O_EXCL|fs.constants.O_WRONLY,mode);try{fs.writeFileSync(fd,bytes);fs.fsyncSync(fd);}finally{fs.closeSync(fd);}fs.renameSync(temp,target);return target;};
+const installed={helper:install('desktop-tools-privileged-broker',entries.get(required[0]),0o555),controller:install('desktop-tools-privileged-controller.mjs',entries.get(required[1]),0o400),worker:install('desktop-tools-privileged-worker.mjs',entries.get(required[2]),0o400),runtime:install('node',readExact(runtime,268_435_456),0o500),manifest:install('manifest',readExact(manifest,1_048_576),0o400),signature:install('manifest.sig',readExact(signature,65_536),0o400),catalog:install('catalog.json',readExact(catalog,16_777_216),0o400),keyring:install('debian-keyring.gpg',readExact(keyring,16_777_216),0o400),inrelease:install('debian-inrelease',readExact(inrelease,16_777_216),0o400),packages:install('debian-Packages.xz',readExact(packages,268_435_456),0o400),tree:install('tree.deb',readExact(tree,268_435_456),0o400)};
+for(const [key,value] of Object.entries(installed)){process.stdout.write(`${key.toUpperCase()}_PATH=${value}\n${key.toUpperCase()}_SHA256=${hash(fs.readFileSync(value))}\n`);}
+NODE
+)" || { rm -rf -- "$NATIVE_STAGE"; logg error 'Unable to stage the signed native broker authority'; return 2; }
+  rm -rf -- "$NATIVE_STAGE"
+  while IFS='=' read -r KEY VALUE; do
+    case "$KEY" in
+      HELPER_PATH|HELPER_SHA256|CONTROLLER_PATH|CONTROLLER_SHA256|WORKER_PATH|WORKER_SHA256|RUNTIME_PATH|RUNTIME_SHA256|MANIFEST_PATH|MANIFEST_SHA256|SIGNATURE_PATH|SIGNATURE_SHA256|CATALOG_PATH|CATALOG_SHA256|KEYRING_PATH|KEYRING_SHA256|INRELEASE_PATH|INRELEASE_SHA256|PACKAGES_PATH|PACKAGES_SHA256|TREE_PATH|TREE_SHA256)
+        printf -v "DESKTOP_TOOLS_BROKER_$KEY" '%s' "$VALUE"; export "DESKTOP_TOOLS_BROKER_$KEY" ;;
+      *) logg error 'Native broker staging returned an unknown field'; return 2 ;;
+    esac
+  done <<< "$OUTPUT"
+  [ -n "${DESKTOP_TOOLS_BROKER_HELPER_PATH:-}" ] && [ -n "${DESKTOP_TOOLS_BROKER_CONTROLLER_PATH:-}" ] \
+    && [ -n "${DESKTOP_TOOLS_BROKER_WORKER_PATH:-}" ] && [ -n "${DESKTOP_TOOLS_BROKER_RUNTIME_PATH:-}" ] \
+    || { logg error 'Native broker staging returned an incomplete closure'; return 2; }
+}
+
 # @description Continue a root launch under an already enrolled compatible
 #     non-root account. Account creation and elevation are intentionally not
 #     performed outside the canonical journal.
@@ -3234,6 +3306,18 @@ function ensureInstallUser() {
       INSTALL_DOCTOR_RELEASE_ID INSTALL_DOCTOR_SOURCE_COMMIT \
       INSTALL_DOCTOR_RUNTIME_NODE INSTALL_DOCTOR_RUNTIME_NODE_VERSION \
       INSTALL_DOCTOR_VERIFIED_MANIFEST INSTALL_DOCTOR_VERIFIED_SIGNATURE \
+      DESKTOP_TOOLS_NATIVE_BROKER_REQUESTED \
+      DESKTOP_TOOLS_BROKER_HELPER_PATH DESKTOP_TOOLS_BROKER_HELPER_SHA256 \
+      DESKTOP_TOOLS_BROKER_CONTROLLER_PATH DESKTOP_TOOLS_BROKER_CONTROLLER_SHA256 \
+      DESKTOP_TOOLS_BROKER_WORKER_PATH DESKTOP_TOOLS_BROKER_WORKER_SHA256 \
+      DESKTOP_TOOLS_BROKER_RUNTIME_PATH DESKTOP_TOOLS_BROKER_RUNTIME_SHA256 \
+      DESKTOP_TOOLS_BROKER_MANIFEST_PATH DESKTOP_TOOLS_BROKER_MANIFEST_SHA256 \
+      DESKTOP_TOOLS_BROKER_SIGNATURE_PATH DESKTOP_TOOLS_BROKER_SIGNATURE_SHA256 \
+      DESKTOP_TOOLS_BROKER_CATALOG_PATH DESKTOP_TOOLS_BROKER_CATALOG_SHA256 \
+      DESKTOP_TOOLS_BROKER_KEYRING_PATH DESKTOP_TOOLS_BROKER_KEYRING_SHA256 \
+      DESKTOP_TOOLS_BROKER_INRELEASE_PATH DESKTOP_TOOLS_BROKER_INRELEASE_SHA256 \
+      DESKTOP_TOOLS_BROKER_PACKAGES_PATH DESKTOP_TOOLS_BROKER_PACKAGES_SHA256 \
+      DESKTOP_TOOLS_BROKER_TREE_PATH DESKTOP_TOOLS_BROKER_TREE_SHA256 \
       KEEP_GOING LANG LC_ALL NO_RESTART PRIMARY_EMAIL PUBLIC_SERVICES_DOMAIN \
       REPO RESTRICTED_ENVIRONMENT SOFTWARE_GROUP START_REPO TERM TEST_INSTALL \
       WORK_ENVIRONMENT; do
@@ -3286,6 +3370,7 @@ provisionLogic() {
   idRunRequiredProvisionStep "Resolving the install plan before mutation" configureInstallPlan || return $?
   idRunRequiredProvisionStep "Authorizing the exact host and recorded consent" idAuthorizePlatform || return $?
   idRunRequiredProvisionStep "Normalizing and approving the exact engine plan before mutation" runCanonicalProvisionEngine --plan-only || return $?
+  idRunRequiredProvisionStep "Staging selected native broker authority" idStageNativeBrokerAuthority || return $?
   idRunRequiredProvisionStep "Persisting verified release provenance" idPersistVerifiedReleaseProvenance || return $?
   idRunRequiredProvisionStep "Ensuring script is not run with root" ensureInstallUser || return $?
   idRunRequiredProvisionStep "Applying temporary sudo credential" setupPasswordlessSudo || return $?

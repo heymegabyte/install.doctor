@@ -389,12 +389,17 @@ runtime_effective_url="$runtime_url"
 runtime_effective_sha256="$runtime_sha256"
 runtime_effective_size="$runtime_size"
 opencode_url=''; opencode_sha256=''; opencode_size=''
+native_broker_requested=false
 if [ -n "$EXPECTED_PRODUCT_ID" ]; then
   opencode_url_name="opencode_\${runtime_key}_url"; opencode_sha_name="opencode_\${runtime_key}_sha256"; opencode_size_name="opencode_\${runtime_key}_size"
   opencode_url="\${!opencode_url_name}"; opencode_sha256="\${!opencode_sha_name}"; opencode_size="\${!opencode_size_name}"
+  case ",\${INSTALL_DOCTOR_SELECTED_PACKAGES:-}," in *,tree,*)
+    [ "$BOOTSTRAP_PLATFORM" = linux-x64 ] && [ "\${INSTALL_DOCTOR_ROLE:-}" = debian ] && native_broker_requested=true
+    ;;
+  esac
 fi
 system_node="$(PATH="$APPROVED_PATH" command -v node 2>/dev/null || true)"
-if [ -n "$system_node" ]; then
+if [ "$native_broker_requested" != true ] && [ -n "$system_node" ]; then
   system_version="$(PATH="$APPROVED_PATH" "$system_node" --version 2>/dev/null || true)"
   system_major="$(printf '%s' "$system_version" | sed -nE 's/^v([0-9]+)\\..*/\\1/p')"
   case "$system_major" in
@@ -488,6 +493,7 @@ env -i \\
   DESKTOP_TOOLS_OPENCODE_VERSION="$opencode_version" DESKTOP_TOOLS_OPENCODE_ARCHIVE="$OPENCODE_ARCHIVE" DESKTOP_TOOLS_OPENCODE_SHA256="$opencode_sha256" \\
   DESKTOP_TOOLS_SUPERVISOR_PATH="$SUPERVISOR" DESKTOP_TOOLS_SUPERVISOR_SHA256="$supervisor_sha256" \\
   DESKTOP_TOOLS_TOOLS_ARCHIVE="$TOOLS" DESKTOP_TOOLS_TOOLS_SHA256="$tools_sha256" \\
+  DESKTOP_TOOLS_NATIVE_BROKER_REQUESTED="$native_broker_requested" \\
   DESKTOP_TOOLS_SBOM_PATH="$SBOM" DESKTOP_TOOLS_PROVENANCE_PATH="$PROVENANCE" DESKTOP_TOOLS_LICENSES_PATH="$LICENSES" \\
   DESKTOP_TOOLS_OPENCODE_LOCK_PATH="$OPENCODE_LOCK" DESKTOP_TOOLS_OPENCODE_LOCK_SHA256="$opencode_lock_sha256" \\
   DESKTOP_TOOLS_DEBIAN_INRELEASE_URL="$debian_inrelease_url" DESKTOP_TOOLS_DEBIAN_INRELEASE_SHA256="$debian_inrelease_sha256" DESKTOP_TOOLS_DEBIAN_INRELEASE_SIZE="$debian_inrelease_size" \\
