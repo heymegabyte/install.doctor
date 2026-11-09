@@ -9,6 +9,9 @@ import { fileURLToPath } from 'node:url';
 const root = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const sha256 = value => createHash('sha256').update(value).digest('hex');
 const escapePattern = value => value.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&');
+const childEnvironment = Object.freeze(Object.fromEntries([
+  'PATH', 'HOME', 'TMPDIR', 'TMP', 'TEMP', 'USER', 'LOGNAME', 'LANG', 'LC_ALL',
+].flatMap(key => process.env[key] === undefined ? [] : [[key, process.env[key]]])));
 const scenarios = Object.freeze([
   ['denial', 'packages/installer-engine/test/engine.test.mjs', 'approval denial and invalid desired state cannot mutate'],
   ['expiry', 'packages/control-plane/test/broker-approval-signer.test.mjs', 'rejects expired grants and expired or not-yet-valid delegations before signing'],
@@ -39,7 +42,7 @@ for (const [id, source, testName] of scenarios) {
   if (relative(root, sourcePath).startsWith('..')) throw new Error(`scenario source escaped repository: ${id}`);
   const sourceBytes = readFileSync(sourcePath);
   const result = spawnSync(process.execPath, ['--test', `--test-name-pattern=^${escapePattern(testName)}$`, sourcePath], {
-    cwd: root, encoding: 'utf8', env: { ...process.env, NO_COLOR: '1', FORCE_COLOR: '0' }, maxBuffer: 16 * 1024 * 1024,
+    cwd: root, encoding: 'utf8', env: { ...childEnvironment, CI: '1', NO_COLOR: '1', FORCE_COLOR: '0' }, maxBuffer: 16 * 1024 * 1024,
   });
   const transcript = `${result.stdout ?? ''}${result.stderr ?? ''}`;
   if (result.error || result.status !== 0 || !transcript.includes(testName)) {
