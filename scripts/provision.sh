@@ -3625,20 +3625,21 @@ EOF
   while IFS= read -r PACKAGE; do
     [ -n "$PACKAGE" ] || continue
     HOOK="$POST_INSTALLX_DIR/post-$PACKAGE.sh"
-    [ -f "$HOOK" ] && [ ! -L "$HOOK" ] || continue
+    [ -f "$HOOK" ] && [ ! -L "$HOOK" ] \
+      || { logg error "selected custom hook is missing or unsafe: post-$PACKAGE.sh"; return 2; }
     MATCHES="$(printf '%s\n' "$INSTALL_DOCTOR_CUSTOM_HOOK_MANIFEST" | awk -F= -v package="$PACKAGE" '$1 == package { count++; value=$2 } END { if (count == 1) print value }')"
     [ "${#MATCHES}" -eq 64 ] || return 2
     EXPECTED="$MATCHES"
     ACTUAL="$(idSha256File "$HOOK")" || return 2
     [ "$ACTUAL" = "$EXPECTED" ] || { logg error "custom hook digest mismatch: $(basename "$HOOK")"; return 2; }
     if [ "$PHASE" = apply ]; then
-      if bash "$HOOK" --check </dev/null; then STATUS=0; else STATUS=$?; fi
+      if /bin/bash "$HOOK" --check </dev/null; then STATUS=0; else STATUS=$?; fi
       case "$STATUS" in
         0) continue ;;
         10)
-          if bash "$HOOK" --apply </dev/null; then STATUS=0; else STATUS=$?; fi
+          if /bin/bash "$HOOK" --apply </dev/null; then STATUS=0; else STATUS=$?; fi
           if [ "$STATUS" -eq 0 ]; then
-            if bash "$HOOK" --verify </dev/null; then STATUS=0; else STATUS=$?; fi
+            if /bin/bash "$HOOK" --verify </dev/null; then STATUS=0; else STATUS=$?; fi
             [ "$STATUS" -eq 0 ] || FAILURES=$((FAILURES + 1))
           elif [ "$STATUS" -eq 20 ]; then PENDING=1
           else FAILURES=$((FAILURES + 1)); fi
@@ -3647,7 +3648,7 @@ EOF
         *) FAILURES=$((FAILURES + 1)) ;;
       esac
     else
-      if bash "$HOOK" "--$PHASE" </dev/null; then STATUS=0; else STATUS=$?; fi
+      if /bin/bash "$HOOK" "--$PHASE" </dev/null; then STATUS=0; else STATUS=$?; fi
       case "$STATUS" in 0) ;; 10) NEEDS_APPLY=1 ;; 20) PENDING=1 ;; *) FAILURES=$((FAILURES + 1)) ;; esac
     fi
     [ "$FAILURES" -eq 0 ] || FAILED_HOOKS="$FAILED_HOOKS $(basename "$HOOK")"
