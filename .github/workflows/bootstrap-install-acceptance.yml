@@ -71,7 +71,8 @@ jobs:
             packages/installer-engine/test/mcp-server.test.mjs \
             packages/installer-engine/test/provisioning-prompt.test.mjs \
             packages/installer-engine/test/session-events.test.mjs \
-            packages/installer-engine/test/deprovision-plan.test.mjs
+            packages/installer-engine/test/deprovision-plan.test.mjs \
+            packages/installer-engine/test/deprovision-lifecycle-canary.test.mjs
       - name: Verify signed start, clean install, and unchanged run
         run: bash scripts/test-bootstrap-install-acceptance.sh
       - name: Verify signed release upgrade and unchanged upgraded run

@@ -26,6 +26,7 @@ for required in \
   'packages/installer-engine/test/provisioning-prompt.test.mjs' \
   'packages/installer-engine/test/session-events.test.mjs' \
   'packages/installer-engine/test/deprovision-plan.test.mjs' \
+  'packages/installer-engine/test/deprovision-lifecycle-canary.test.mjs' \
   'packages/installer-engine/test/offline-sandbox.test.mjs' \
   'packages/installer-engine/test/offline-bundle.test.mjs' \
   'packages/installer-engine/test/offline-execution.test.mjs'; do
