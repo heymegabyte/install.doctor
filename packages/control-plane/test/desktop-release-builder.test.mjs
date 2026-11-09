@@ -16,7 +16,7 @@ const opencodeName = platform => platform.startsWith('macos-') ? `opencode-${pla
 async function inputs(root, { releaseId = 'desktop-test-1', sourceCommit = 'a'.repeat(40), opencodeVersion = '2.2.5' } = {}) {
   const outputBodies = new Map([
     ['provision.sh', Buffer.from('provision\n')], ['desktop-tools-engine.mjs', Buffer.from('engine\n')],
-    ['catalog.json', Buffer.from('[]\n')], ['desktop-tools-supervisor.mjs', Buffer.from('supervisor\n')],
+    ['desktop-tools-supervisor.mjs', Buffer.from('supervisor\n')],
     ['desktop-tools-tools.tar.gz', Buffer.from('tools\n')]
   ]);
   for (const platform of platforms) {
@@ -32,19 +32,37 @@ async function inputs(root, { releaseId = 'desktop-test-1', sourceCommit = 'a'.r
       sha256: digest(bytes), size: bytes.byteLength };
   }
   outputBodies.set('opencode.lock.json', Buffer.from(`${JSON.stringify(lock)}\n`));
+  const debianBodies = {
+    archiveKeyring: Buffer.from('debian keyring\n'), inRelease: Buffer.from('signed InRelease\n'),
+    packagesIndex: Buffer.from('compressed Packages\n'), treePayload: Buffer.from('tree deb\n'),
+  };
+  const receipt = { schemaVersion: 1, descriptor: { packageKey: 'tree', package: { version: '2.1.0-1' },
+    metadataProof: { inRelease: { signedAt: new Date().toISOString(), validUntil: null, maximumDateAgeSeconds: 180 * 86_400 } } }, artifacts: [
+    ['debian-bookworm-inrelease', debianBodies.inRelease], ['debian-bookworm-archive-keyring', debianBodies.archiveKeyring],
+    ['debian-bookworm-main-amd64-packages', debianBodies.packagesIndex], ['tree-deb-bookworm-amd64', debianBodies.treePayload],
+  ].map(([id, bytes]) => ({ id, sha256: digest(bytes), sizeBytes: bytes.length })) };
+  outputBodies.set('catalog.json', Buffer.from(`${JSON.stringify([{ name: 'tree', offlinePayloads: [receipt.descriptor] }])}\n`));
+  const trustPolicy = { archiveKeyringUri: 'https://deb.debian.org/debian/keyring.gpg',
+    inReleaseUri: 'https://deb.debian.org/debian/dists/bookworm/InRelease',
+    packagesIndexUri: 'https://deb.debian.org/debian/dists/bookworm/main/binary-amd64/Packages.xz',
+    treePayloadUri: 'https://deb.debian.org/debian/pool/main/t/tree/tree_2.1.0-1_amd64.deb' };
   const paths = {};
   for (const [name, bytes] of outputBodies) {
     const path = join(root, `input-${name}`); await writeFile(path, bytes, { mode: 0o600 }); paths[name] = path;
   }
   paths.licenses = join(root, 'input-licenses.txt'); await writeFile(paths.licenses, `OpenCode ${opencodeVersion}\nMIT License\n`);
+  const debian = {};
+  for (const [name, bytes] of Object.entries(debianBodies)) { debian[name] = join(root, `input-debian-${name}`); await writeFile(debian[name], bytes, { mode: 0o600 }); }
+  debian.trustPolicy = join(root, 'input-debian-trust-policy.json'); await writeFile(debian.trustPolicy, `${JSON.stringify(trustPolicy)}\n`, { mode: 0o600 });
+  debian.compositionReceipt = join(root, 'input-debian-composition.json'); await writeFile(debian.compositionReceipt, `${JSON.stringify(receipt)}\n`, { mode: 0o600 });
   return { releaseId, sourceCommit, opencodeVersion, provisioner: paths['provision.sh'], engine: paths['desktop-tools-engine.mjs'],
     catalog: paths['catalog.json'], supervisor: paths['desktop-tools-supervisor.mjs'], tools: paths['desktop-tools-tools.tar.gz'],
-    opencodeLock: paths['opencode.lock.json'], licenses: paths.licenses,
+    opencodeLock: paths['opencode.lock.json'], licenses: paths.licenses, debian,
     runtimes: Object.fromEntries(platforms.map(platform => [platform.replace('-', '_'), paths[`node-${platform}.tar.gz`]])),
     opencode: Object.fromEntries(platforms.map(platform => [platform.replace('-', '_'), paths[opencodeName(platform)]])) };
 }
 
-test('builds deterministic unsigned Desktop Tools v7 closure with every platform and validated metadata', async t => {
+test('builds deterministic unsigned Desktop Tools v8 closure with Debian authority and validated metadata', async t => {
   const root = await mkdtemp(join(tmpdir(), 'desktop-builder-test-'));
   t.after(() => rm(root, { recursive: true, force: true }));
   const now = Math.floor(Date.now() / 1_000);
@@ -57,12 +75,14 @@ test('builds deterministic unsigned Desktop Tools v7 closure with every platform
   const expected = ['THIRD_PARTY_LICENSES.txt','catalog.json','desktop-tools-engine.mjs','desktop-tools-supervisor.mjs',
     'desktop-tools-tools.tar.gz','manifest','node-linux-arm64.tar.gz','node-linux-x64.tar.gz','node-macos-arm64.tar.gz',
     'node-macos-x64.tar.gz','opencode-linux-arm64.tar.gz','opencode-linux-x64.tar.gz','opencode-macos-arm64.zip',
-    'opencode-macos-x64.zip','opencode.lock.json','provision.sh','release.provenance.json','release.sbom.json','start'];
+    'opencode-macos-x64.zip','opencode.lock.json','provision.sh','release.provenance.json','release.sbom.json','start',
+    'debian-bookworm-archive-keyring.gpg','debian-bookworm-inrelease','debian-bookworm-main-amd64-Packages.xz','tree_2.1.0-1_amd64.deb'].sort();
   assert.deepEqual((await readdir(first.outputDirectory)).sort(), expected);
   assert.deepEqual(await readFile(join(first.outputDirectory, 'manifest')), await readFile(join(second.outputDirectory, 'manifest')));
   assert.deepEqual(await readFile(join(first.outputDirectory, 'start')), await readFile(join(second.outputDirectory, 'start')));
   const manifest = await readFile(join(first.outputDirectory, 'manifest'), 'utf8');
-  assert.match(manifest, /^schema_version=7$/m);
+  assert.match(manifest, /^schema_version=8$/m);
+  for (const prefix of ['debian_inrelease','debian_keyring','debian_packages','debian_tree']) assert.match(manifest, new RegExp(`^${prefix}_sha256=[a-f0-9]{64}$`, 'm'));
   assert.match(manifest, /^opencode_version=2\.2\.5$/m);
   for (const platform of platforms) assert.match(manifest, new RegExp(`opencode_${platform.replace('-', '_')}_url=https://desktop\\.tools/releases/desktop-test-1/${opencodeName(platform).replaceAll('.', '\\.')}`));
   assert.equal((await readdir(first.outputDirectory)).includes('manifest.sig'), false);
@@ -82,6 +102,12 @@ test('rejects malformed, stale, or substituted lock and license metadata before 
   const fresh = await inputs(root, { releaseId: 'desktop-test-2' });
   await writeFile(fresh.licenses, 'unrelated notices\n');
   await assert.rejects(buildDesktopToolsRelease({ ...common, ...fresh, outputDirectory: join(root, 'bad-license') }, now), /licenses/);
+  const freshness = await inputs(root, { releaseId: 'desktop-test-3' });
+  const receipt = JSON.parse(await readFile(freshness.debian.compositionReceipt, 'utf8'));
+  receipt.descriptor.metadataProof.inRelease.validUntil = new Date((now + 60) * 1000).toISOString();
+  await writeFile(freshness.debian.compositionReceipt, `${JSON.stringify(receipt)}\n`, { mode: 0o600 });
+  await assert.rejects(buildDesktopToolsRelease({ ...common, ...freshness, expiresAt: now + 86_400,
+    outputDirectory: join(root, 'bad-debian-freshness') }, now), /freshness.*release expiry/);
 });
 
 test('signs and verifies the complete closure offline; tamper, surplus, and every platform substitution fail', async t => {

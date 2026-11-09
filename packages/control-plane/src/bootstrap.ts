@@ -67,7 +67,7 @@ readonly SIGNATURE_URL=${literal(config.signatureUrl)}
 readonly SIGNER_ID=${literal(config.signerIdentity)}
 readonly SIGNER_KEY=${literal(config.signerPublicKey)}
 readonly EXPECTED_RELEASE_ID=${literal(expectedReleaseId)}
-readonly EXPECTED_MANIFEST_SCHEMA=${literal(config.product === 'desktop-tools' ? '7' : '5')}
+readonly EXPECTED_MANIFEST_SCHEMA=${literal(config.product === 'desktop-tools' ? '8' : '5')}
 readonly EXPECTED_PRODUCT_ID=${literal(config.product === 'desktop-tools' ? 'desktop-tools' : '')}
 readonly DESKTOP_TOOLS_PROFILE_ID=${literal(config.profile?.id ?? '')}
 readonly DESKTOP_TOOLS_PROFILE_SLUG=${literal(config.profile?.slug ?? '')}
@@ -174,6 +174,8 @@ runtime_macos_x64_url= runtime_macos_x64_sha256= runtime_macos_x64_size= runtime
 runtime_linux_x64_url= runtime_linux_x64_sha256= runtime_linux_x64_size= runtime_linux_arm64_url= runtime_linux_arm64_sha256= runtime_linux_arm64_size=
 opencode_macos_x64_url= opencode_macos_x64_sha256= opencode_macos_x64_size= opencode_macos_arm64_url= opencode_macos_arm64_sha256= opencode_macos_arm64_size=
 opencode_linux_x64_url= opencode_linux_x64_sha256= opencode_linux_x64_size= opencode_linux_arm64_url= opencode_linux_arm64_sha256= opencode_linux_arm64_size=
+debian_inrelease_url= debian_inrelease_sha256= debian_inrelease_size= debian_keyring_url= debian_keyring_sha256= debian_keyring_size=
+debian_packages_url= debian_packages_sha256= debian_packages_size= debian_tree_url= debian_tree_sha256= debian_tree_size=
 while IFS='=' read -r key value; do
   [ -n "$key" ] && [ -n "$value" ] || die 'release manifest contains an empty field'
   case "$key" in
@@ -241,6 +243,18 @@ while IFS='=' read -r key value; do
     opencode_linux_arm64_url) [ -z "$opencode_linux_arm64_url" ] || die 'release manifest repeats opencode_linux_arm64_url'; opencode_linux_arm64_url="$value" ;;
     opencode_linux_arm64_sha256) [ -z "$opencode_linux_arm64_sha256" ] || die 'release manifest repeats opencode_linux_arm64_sha256'; opencode_linux_arm64_sha256="$value" ;;
     opencode_linux_arm64_size) [ -z "$opencode_linux_arm64_size" ] || die 'release manifest repeats opencode_linux_arm64_size'; opencode_linux_arm64_size="$value" ;;
+    debian_inrelease_url) [ -z "$debian_inrelease_url" ] || die 'release manifest repeats debian_inrelease_url'; debian_inrelease_url="$value" ;;
+    debian_inrelease_sha256) [ -z "$debian_inrelease_sha256" ] || die 'release manifest repeats debian_inrelease_sha256'; debian_inrelease_sha256="$value" ;;
+    debian_inrelease_size) [ -z "$debian_inrelease_size" ] || die 'release manifest repeats debian_inrelease_size'; debian_inrelease_size="$value" ;;
+    debian_keyring_url) [ -z "$debian_keyring_url" ] || die 'release manifest repeats debian_keyring_url'; debian_keyring_url="$value" ;;
+    debian_keyring_sha256) [ -z "$debian_keyring_sha256" ] || die 'release manifest repeats debian_keyring_sha256'; debian_keyring_sha256="$value" ;;
+    debian_keyring_size) [ -z "$debian_keyring_size" ] || die 'release manifest repeats debian_keyring_size'; debian_keyring_size="$value" ;;
+    debian_packages_url) [ -z "$debian_packages_url" ] || die 'release manifest repeats debian_packages_url'; debian_packages_url="$value" ;;
+    debian_packages_sha256) [ -z "$debian_packages_sha256" ] || die 'release manifest repeats debian_packages_sha256'; debian_packages_sha256="$value" ;;
+    debian_packages_size) [ -z "$debian_packages_size" ] || die 'release manifest repeats debian_packages_size'; debian_packages_size="$value" ;;
+    debian_tree_url) [ -z "$debian_tree_url" ] || die 'release manifest repeats debian_tree_url'; debian_tree_url="$value" ;;
+    debian_tree_sha256) [ -z "$debian_tree_sha256" ] || die 'release manifest repeats debian_tree_sha256'; debian_tree_sha256="$value" ;;
+    debian_tree_size) [ -z "$debian_tree_size" ] || die 'release manifest repeats debian_tree_size'; debian_tree_size="$value" ;;
     *) die "release manifest contains unknown field: $key" ;;
   esac
 done < "$MANIFEST"
@@ -269,6 +283,10 @@ if [ -n "$EXPECTED_PRODUCT_ID" ]; then
     && [ -n "$opencode_macos_arm64_url" ] && [ -n "$opencode_macos_arm64_sha256" ] && [ -n "$opencode_macos_arm64_size" ] \
     && [ -n "$opencode_linux_x64_url" ] && [ -n "$opencode_linux_x64_sha256" ] && [ -n "$opencode_linux_x64_size" ] \
     && [ -n "$opencode_linux_arm64_url" ] && [ -n "$opencode_linux_arm64_sha256" ] && [ -n "$opencode_linux_arm64_size" ] \
+    && [ -n "$debian_inrelease_url" ] && [ -n "$debian_inrelease_sha256" ] && [ -n "$debian_inrelease_size" ] \
+    && [ -n "$debian_keyring_url" ] && [ -n "$debian_keyring_sha256" ] && [ -n "$debian_keyring_size" ] \
+    && [ -n "$debian_packages_url" ] && [ -n "$debian_packages_sha256" ] && [ -n "$debian_packages_size" ] \
+    && [ -n "$debian_tree_url" ] && [ -n "$debian_tree_sha256" ] && [ -n "$debian_tree_size" ] \
     || die 'Desktop Tools runtime closure is incomplete'
 else
   [ -z "$product_id" ] || die 'legacy release manifest must not claim a Desktop Tools product identity'
@@ -324,7 +342,11 @@ if [ -n "$EXPECTED_PRODUCT_ID" ]; then
     'sbom:release.sbom.json:8388608' \
     'provenance:release.provenance.json:8388608' \
     'licenses:THIRD_PARTY_LICENSES.txt:8388608' \
-    'opencode_lock:opencode.lock.json:8388608'; do
+    'opencode_lock:opencode.lock.json:8388608' \
+    'debian_inrelease:debian-bookworm-inrelease:16777216' \
+    'debian_keyring:debian-bookworm-archive-keyring.gpg:16777216' \
+    'debian_packages:debian-bookworm-main-amd64-Packages.xz:268435456' \
+    'debian_tree:tree_2.1.0-1_amd64.deb:268435456'; do
     IFS=: read -r closure_prefix closure_filename closure_maximum <<< "$closure_spec"
     closure_url_name="\${closure_prefix}_url"; closure_sha_name="\${closure_prefix}_sha256"; closure_size_name="\${closure_prefix}_size"
     closure_url="\${!closure_url_name}"; closure_sha="\${!closure_sha_name}"; closure_size="\${!closure_size_name}"
@@ -468,6 +490,10 @@ env -i \\
   DESKTOP_TOOLS_TOOLS_ARCHIVE="$TOOLS" DESKTOP_TOOLS_TOOLS_SHA256="$tools_sha256" \\
   DESKTOP_TOOLS_SBOM_PATH="$SBOM" DESKTOP_TOOLS_PROVENANCE_PATH="$PROVENANCE" DESKTOP_TOOLS_LICENSES_PATH="$LICENSES" \\
   DESKTOP_TOOLS_OPENCODE_LOCK_PATH="$OPENCODE_LOCK" DESKTOP_TOOLS_OPENCODE_LOCK_SHA256="$opencode_lock_sha256" \\
+  DESKTOP_TOOLS_DEBIAN_INRELEASE_URL="$debian_inrelease_url" DESKTOP_TOOLS_DEBIAN_INRELEASE_SHA256="$debian_inrelease_sha256" DESKTOP_TOOLS_DEBIAN_INRELEASE_SIZE="$debian_inrelease_size" \\
+  DESKTOP_TOOLS_DEBIAN_KEYRING_URL="$debian_keyring_url" DESKTOP_TOOLS_DEBIAN_KEYRING_SHA256="$debian_keyring_sha256" DESKTOP_TOOLS_DEBIAN_KEYRING_SIZE="$debian_keyring_size" \\
+  DESKTOP_TOOLS_DEBIAN_PACKAGES_URL="$debian_packages_url" DESKTOP_TOOLS_DEBIAN_PACKAGES_SHA256="$debian_packages_sha256" DESKTOP_TOOLS_DEBIAN_PACKAGES_SIZE="$debian_packages_size" \\
+  DESKTOP_TOOLS_DEBIAN_TREE_URL="$debian_tree_url" DESKTOP_TOOLS_DEBIAN_TREE_SHA256="$debian_tree_sha256" DESKTOP_TOOLS_DEBIAN_TREE_SIZE="$debian_tree_size" \\
   INSTALL_DOCTOR_BOOTSTRAP_PLATFORM="$BOOTSTRAP_PLATFORM" \\
   INSTALL_DOCTOR_VERIFIED_MANIFEST="$MANIFEST" INSTALL_DOCTOR_VERIFIED_SIGNATURE="$SIGNATURE" \\
   INSTALL_DOCTOR_MANIFEST_SHA256="$manifest_sha256" INSTALL_DOCTOR_ARTIFACT_SHA256="$artifact_sha256" \\

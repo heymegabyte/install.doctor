@@ -18,7 +18,8 @@ env:
   NODE_RELEASE_VERSION: 24.22.2
   NODE_RELEASE_KEYS_COMMIT: 481637f813e912c4aa3622d7964ab426c97b8e8d
   OPENCODE_LOCK: config/desktop-tools-opencode.lock.json
-  SIGNER_SCRIPT_SHA256: d3e8c01b379787ad56b58e69616c61a785b09169ec7558153c4b66f1c18f3a60
+  DEBIAN_TREE_TRUST_POLICY: config/debian-bookworm-tree-trust-policy.json
+  SIGNER_SCRIPT_SHA256: 006dc16cd678124a13b9bb809c1e9a5aecd07eac3a6da89ca09e45f7d6669cf3
 
 jobs:
   build:
@@ -97,6 +98,94 @@ jobs:
             test "$(wc -c < ".release-work/opencode/$filename" | tr -d '[:space:]')" = "$size"
             printf '%s  %s\n' "$digest" ".release-work/opencode/$filename" | sha256sum --check --strict
           done < <(jq -r '.artifacts | to_entries[] | [.key,.value.releaseFilename,.value.upstreamUrl,.value.sha256,(.value.size|tostring)] | @tsv' "$OPENCODE_LOCK")
+      - name: Acquire and compose credential-free Debian tree authority
+        run: |
+          set -euo pipefail
+          umask 077
+          root="$PWD/.release-work/debian"
+          mkdir -p "$root/keyring-package"
+          policy="$PWD/$DEBIAN_TREE_TRUST_POLICY"
+          jq -e '
+            .schemaVersion == 1 and
+            .repository == {origin:"https://deb.debian.org/debian",suite:"oldstable",codename:"bookworm",component:"main",architecture:"amd64",inReleasePath:"dists/bookworm/InRelease",packagesPath:"dists/bookworm/main/binary-amd64/Packages.xz"} and
+            .compositionPolicy.version == "2.1.0-1" and
+            (.archiveKeyring.permittedSigningKeyFingerprints | type == "array" and length > 0)
+          ' "$policy" >/dev/null
+          created="$(date -u +%s)"; expires="$((created + 604800))"
+          jq -n --argjson createdAt "$created" --argjson expiresAt "$expires" \
+            '{createdAt:$createdAt,expiresAt:$expiresAt}' >"$root/release-times.json"
+          curl=(curl --fail --silent --show-error --proto '=https' --tlsv1.2 --max-time 300 --retry 3 --retry-all-errors)
+          origin="$(jq -er .repository.origin "$policy")"
+          inrelease_path="$(jq -er .repository.inReleasePath "$policy")"
+          packages_path="$(jq -er .repository.packagesPath "$policy")"
+          keyring_url="$(jq -er .archiveKeyring.url "$policy")"
+          keyring_deb="$root/debian-archive-keyring.deb"
+          inrelease="$root/debian-bookworm-inrelease"
+          full_keyring="$root/debian-archive-keyring-full.gpg"
+          keyring="$root/debian-bookworm-archive-keyring.gpg"
+          packages="$root/debian-bookworm-main-amd64-Packages.xz"
+          payload="$root/tree_2.1.0-1_amd64.deb"
+          "${curl[@]}" --max-filesize 16777216 --output "$inrelease" "$origin/$inrelease_path"
+          "${curl[@]}" --max-filesize 16777216 --output "$keyring_deb" "$keyring_url"
+          test "$(wc -c <"$keyring_deb" | tr -d '[:space:]')" = "$(jq -er '.archiveKeyring.sizeBytes|tostring' "$policy")"
+          printf '%s  %s\n' "$(jq -er .archiveKeyring.sha256 "$policy")" "$keyring_deb" | sha256sum --check --strict
+          dpkg-deb --extract "$keyring_deb" "$root/keyring-package"
+          member="$root/keyring-package/$(jq -er .archiveKeyring.memberPath "$policy")"
+          test -f "$member" && test ! -L "$member"
+          test "$(wc -c <"$member" | tr -d '[:space:]')" = "$(jq -er '.archiveKeyring.memberSizeBytes|tostring' "$policy")"
+          printf '%s  %s\n' "$(jq -er .archiveKeyring.memberSha256 "$policy")" "$member" | sha256sum --check --strict
+          install -m 0600 "$member" "$full_keyring"
+          gpgv --status-fd 1 --keyring "$full_keyring" --output "$root/Release" "$inrelease" >"$root/gpgv.status"
+          node --input-type=module - "$policy" "$root/gpgv.status" "$root/Release" "$root/release-times.json" "$root/repository-authority.json" <<'NODE'
+          import { readFileSync, writeFileSync } from 'node:fs';
+          const [policyPath,statusPath,releasePath,timesPath,outputPath]=process.argv.slice(2);
+          const policy=JSON.parse(readFileSync(policyPath,'utf8')); const status=readFileSync(statusPath,'utf8');
+          const permitted=new Set(policy.archiveKeyring.permittedSigningKeyFingerprints);
+          const fingerprints=[...status.matchAll(/^\[GNUPG:\] VALIDSIG ([A-F0-9]{40}|[A-F0-9]{64})(?: |$)/gm)].map(match=>match[1]);
+          if(fingerprints.length<1||new Set(fingerprints).size!==fingerprints.length||fingerprints.some(value=>!permitted.has(value))) throw new Error('InRelease signatures are absent, duplicate, or outside source policy');
+          const fields=new Map(); let prior;
+          for(const line of readFileSync(releasePath,'utf8').replaceAll('\r\n','\n').split('\n')){
+            if(line.startsWith(' ')){if(!prior)throw new Error('orphan Release continuation');fields.set(prior,`${fields.get(prior)}\n${line.slice(1)}`);continue;}
+            if(!line)continue; const match=/^([A-Za-z0-9-]+):[ \t]?(.*)$/.exec(line); if(!match||fields.has(match[1].toLowerCase()))throw new Error('malformed or duplicate Release field');
+            prior=match[1].toLowerCase(); fields.set(prior,match[2]);
+          }
+          if(fields.get('suite')!==policy.repository.suite||fields.get('codename')!==policy.repository.codename||!fields.get('architectures')?.split(/\s+/).includes('amd64')||!fields.get('components')?.split(/\s+/).includes('main'))throw new Error('Release identity differs from source policy');
+          const relative=policy.repository.packagesPath.slice(`dists/${policy.repository.codename}/`.length); let authority;
+          for(const line of (fields.get('sha256')??'').split('\n')){const match=/^([a-f0-9]{64})\s+(\d+)\s+(\S+)$/.exec(line);if(match?.[3]===relative){if(authority)throw new Error('duplicate Packages authority');authority={sha256:match[1],sizeBytes:Number(match[2])};}}
+          if(!authority||!Number.isSafeInteger(authority.sizeBytes)||authority.sizeBytes<1||authority.sizeBytes>268435456)throw new Error('Packages authority missing or outside bounds');
+          const {createdAt,expiresAt}=JSON.parse(readFileSync(timesPath,'utf8')); const signedAt=Date.parse(fields.get('date')); const validUntil=fields.has('valid-until')?Date.parse(fields.get('valid-until')):null;
+          if(!Number.isFinite(signedAt)||signedAt>createdAt*1000+10000)throw new Error('Release Date is invalid or future dated');
+          if(validUntil===null ? createdAt*1000-signedAt>15552000000 : !Number.isFinite(validUntil)||expiresAt*1000>validUntil)throw new Error('repository freshness does not cover the Desktop Tools release');
+          writeFileSync(outputPath,`${JSON.stringify({schemaVersion:1,signingKeyFingerprints:fingerprints,packages:authority,signedAt:new Date(signedAt).toISOString(),validUntil:validUntil===null?null:new Date(validUntil).toISOString()})}\n`,{mode:0o600});
+          NODE
+          selected_fingerprint="$(jq -er .compositionPolicy.signingKeyFingerprint "$policy")"
+          gpg --batch --no-default-keyring --keyring "$full_keyring" --export "$selected_fingerprint" >"$keyring"
+          test -s "$keyring"
+          test "$(gpg --batch --show-keys --with-colons "$keyring" | awk -F: '$1 == "pub" { want=1; next } want && $1 == "fpr" { print $10; exit }')" = "$selected_fingerprint"
+          chmod 0600 "$keyring"
+          packages_size="$(jq -er '.packages.sizeBytes|tostring' "$root/repository-authority.json")"
+          "${curl[@]}" --max-filesize "$packages_size" --output "$packages" "$origin/$packages_path"
+          test "$(wc -c <"$packages" | tr -d '[:space:]')" = "$packages_size"
+          printf '%s  %s\n' "$(jq -er .packages.sha256 "$root/repository-authority.json")" "$packages" | sha256sum --check --strict
+          (ulimit -f 262144; xz --decompress --stdout --memlimit-decompress=256MiB "$packages" >"$root/Packages")
+          node --input-type=module - "$root/Packages" "$root/tree-stanza.json" <<'NODE'
+          import { readFileSync,writeFileSync } from 'node:fs';
+          const [input,output]=process.argv.slice(2); const matches=[];
+          for(const paragraph of readFileSync(input,'utf8').split(/\n\n+/)){const fields=new Map();let prior;for(const line of paragraph.split('\n')){if(!line)continue;if(line.startsWith(' ')){if(!prior)throw new Error('orphan Packages continuation');fields.set(prior,`${fields.get(prior)}\n${line.slice(1)}`);continue;}const match=/^([A-Za-z0-9-]+):[ \t]?(.*)$/.exec(line);if(!match||fields.has(match[1].toLowerCase()))throw new Error('malformed Packages stanza');prior=match[1].toLowerCase();fields.set(prior,match[2]);}if(fields.get('package')==='tree'&&fields.get('version')==='2.1.0-1'&&fields.get('architecture')==='amd64')matches.push(fields);}
+          if(matches.length!==1)throw new Error('signed Packages must contain one exact tree stanza');const value=matches[0];const filename=value.get('filename');const sha256=value.get('sha256');const sizeBytes=Number(value.get('size'));
+          if(!/^pool\/main\/t\/tree\/tree_2\.1\.0-1_amd64\.deb$/.test(filename)||!/^[a-f0-9]{64}$/.test(sha256)||!Number.isSafeInteger(sizeBytes)||sizeBytes<1||sizeBytes>268435456)throw new Error('tree payload authority is unsafe');
+          writeFileSync(output,`${JSON.stringify({filename,sha256,sizeBytes})}\n`,{mode:0o600});
+          NODE
+          payload_size="$(jq -er '.sizeBytes|tostring' "$root/tree-stanza.json")"
+          "${curl[@]}" --max-filesize "$payload_size" --output "$payload" "$origin/$(jq -er .filename "$root/tree-stanza.json")"
+          test "$(wc -c <"$payload" | tr -d '[:space:]')" = "$payload_size"
+          printf '%s  %s\n' "$(jq -er .sha256 "$root/tree-stanza.json")" "$payload" | sha256sum --check --strict
+          jq -n --argjson policy "$(jq -c .compositionPolicy "$policy")" \
+            --arg inReleasePath "$inrelease" --arg packagesPath "$packages" --arg keyringPath "$keyring" --arg payloadPath "$payload" \
+            --arg now "$(jq -r '.createdAt|todateiso8601' "$root/release-times.json")" \
+            '{policy:$policy,inReleasePath:$inReleasePath,packagesPath:$packagesPath,keyringPath:$keyringPath,payloadPath:$payloadPath,now:$now}' >"$root/composer-input.json"
+          node scripts/compose-debian-native-release.mjs "$root/composer-input.json" >"$root/debian-tree-composition.json"
+          node scripts/merge-debian-native-catalog.mjs "$PWD/packages/control-plane/src/catalog.json" "$root/debian-tree-composition.json" "$root/catalog.json"
       - name: Build exact unsigned closure
         env:
           RELEASE_ID: ${{ steps.identity.outputs.release_id }}
@@ -105,7 +194,8 @@ jobs:
           set -euo pipefail
           umask 077
           mkdir -p .release-work/output
-          created="$(date -u +%s)"; expires="$((created + 604800))"
+          created="$(jq -er '.createdAt|tostring' .release-work/debian/release-times.json)"
+          expires="$(jq -er '.expiresAt|tostring' .release-work/debian/release-times.json)"
           public_key="$(jq -er --arg id "$SIGNER_ID" '.products["desktop-tools"].signers[$id]' packages/control-plane/src/release-trust.json)"
           jq -n \
             --arg releaseId "$RELEASE_ID" --arg sourceCommit "$GITHUB_SHA" \
@@ -116,7 +206,13 @@ jobs:
             --arg opencodeLock "$PWD/$OPENCODE_LOCK" \
             --arg provisioner "$PWD/scripts/provision.sh" \
             --arg engine "$PWD/packages/installer-engine/dist/install-doctor-engine.mjs" \
-            --arg catalog "$PWD/packages/control-plane/src/catalog.json" \
+            --arg catalog "$PWD/.release-work/debian/catalog.json" \
+            --arg debianInRelease "$PWD/.release-work/debian/debian-bookworm-inrelease" \
+            --arg debianKeyring "$PWD/.release-work/debian/debian-bookworm-archive-keyring.gpg" \
+            --arg debianPackages "$PWD/.release-work/debian/debian-bookworm-main-amd64-Packages.xz" \
+            --arg debianTree "$PWD/.release-work/debian/tree_2.1.0-1_amd64.deb" \
+            --arg debianCompositionReceipt "$PWD/.release-work/debian/debian-tree-composition.json" \
+            --arg debianTrustPolicy "$PWD/$DEBIAN_TREE_TRUST_POLICY" \
             --arg supervisor "$PWD/packages/desktop-tools-runtime/dist/desktop-tools-supervisor.mjs" \
             --arg tools "$PWD/packages/desktop-tools-runtime/dist/desktop-tools-tools.tar.gz" \
             --arg licenses "$PWD/config/desktop-tools-third-party-licenses.txt" \
@@ -129,7 +225,7 @@ jobs:
             --arg opencodeMacosArm64 "$PWD/.release-work/opencode/opencode-macos-arm64.zip" \
             --arg opencodeLinuxX64 "$PWD/.release-work/opencode/opencode-linux-x64.tar.gz" \
             --arg opencodeLinuxArm64 "$PWD/.release-work/opencode/opencode-linux-arm64.tar.gz" \
-            '{releaseId:$releaseId,sourceCommit:$sourceCommit,createdAt:$createdAt,expiresAt:$expiresAt,signerId:$signerId,signerPublicKey:$signerPublicKey,runtimeNodeVersion:$runtimeNodeVersion,opencodeVersion:$opencodeVersion,opencodeLock:$opencodeLock,provisioner:$provisioner,engine:$engine,catalog:$catalog,supervisor:$supervisor,tools:$tools,licenses:$licenses,outputDirectory:$outputDirectory,runtimes:{macos_x64:$nodeMacosX64,macos_arm64:$nodeMacosArm64,linux_x64:$nodeLinuxX64,linux_arm64:$nodeLinuxArm64},opencode:{macos_x64:$opencodeMacosX64,macos_arm64:$opencodeMacosArm64,linux_x64:$opencodeLinuxX64,linux_arm64:$opencodeLinuxArm64}}' \
+            '{releaseId:$releaseId,sourceCommit:$sourceCommit,createdAt:$createdAt,expiresAt:$expiresAt,signerId:$signerId,signerPublicKey:$signerPublicKey,runtimeNodeVersion:$runtimeNodeVersion,opencodeVersion:$opencodeVersion,opencodeLock:$opencodeLock,provisioner:$provisioner,engine:$engine,catalog:$catalog,supervisor:$supervisor,tools:$tools,licenses:$licenses,outputDirectory:$outputDirectory,debian:{inRelease:$debianInRelease,archiveKeyring:$debianKeyring,packagesIndex:$debianPackages,treePayload:$debianTree,compositionReceipt:$debianCompositionReceipt,trustPolicy:$debianTrustPolicy},runtimes:{macos_x64:$nodeMacosX64,macos_arm64:$nodeMacosArm64,linux_x64:$nodeLinuxX64,linux_arm64:$nodeLinuxArm64},opencode:{macos_x64:$opencodeMacosX64,macos_arm64:$opencodeMacosArm64,linux_x64:$opencodeLinuxX64,linux_arm64:$opencodeLinuxArm64}}' \
             >.release-work/config.json
           node scripts/build-desktop-tools-release.mjs .release-work/config.json
           cp scripts/sign-desktop-tools-release.sh .release-work/output/sign-desktop-tools-release.sh

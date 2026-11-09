@@ -1,23 +1,24 @@
 import assert from 'node:assert/strict';
 import { createHash, randomUUID } from 'node:crypto';
-import { mkdtemp, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 import {
-  activateDesktopRelease, DESKTOP_RELEASE_FILES, inspectPublishedDesktopRelease, publishDesktopRelease,
+  activateDesktopRelease, DESKTOP_RELEASE_FILES, DESKTOP_RELEASE_V8_FILES, inspectPublishedDesktopRelease, publishDesktopRelease,
   reconcileDesktopActivationReceipt
 } from '../scripts/desktop-release-publication.mjs';
 
 const digest = bytes => createHash('sha256').update(bytes).digest('hex');
 
-async function fixture(t, mutate = value => value) {
+async function fixture(t, mutate = value => value, schemaVersion = 7) {
   const directory = await mkdtemp(join(tmpdir(), 'desktop-release-test-'));
   t.after(async () => { const { rm } = await import('node:fs/promises'); await rm(directory, { recursive: true, force: true }); });
   const releaseId = `desktop-${randomUUID()}`;
   const bodies = new Map();
   const evidence = ['manifest', 'manifest.sig', 'release.sbom.json', 'release.provenance.json', 'THIRD_PARTY_LICENSES.txt'];
-  for (const name of DESKTOP_RELEASE_FILES.filter(name => !evidence.includes(name))) bodies.set(name, Buffer.from(`${name}\n`));
+  const releaseFiles = schemaVersion === 8 ? DESKTOP_RELEASE_V8_FILES : DESKTOP_RELEASE_FILES;
+  for (const name of releaseFiles.filter(name => !evidence.includes(name))) bodies.set(name, Buffer.from(`${name}\n`));
   bodies.set('catalog.json', Buffer.from('[]\n'));
   const now = Math.floor(Date.now() / 1_000);
   const opencodeVersion = '2.2.5';
@@ -38,10 +39,22 @@ async function fixture(t, mutate = value => value) {
     predicateType: 'https://slsa.dev/provenance/v1', subject: closure.map(([name, bytes]) => ({ name, digest: { sha256: digest(bytes) } })),
     predicate: { buildDefinition: { externalParameters: { releaseId, sourceCommit: 'a'.repeat(40), opencodeVersion },
       resolvedDependencies: Object.values(lock.artifacts).map(artifact => ({ uri: artifact.upstreamUrl, digest: { sha256: artifact.sha256 } })) } } };
+  if (schemaVersion === 8) {
+    const parameters = provenance.predicate.buildDefinition.externalParameters;
+    parameters.debianTrustPolicySha256 = 'd'.repeat(64);
+    parameters.debianCompositionSha256 = 'e'.repeat(64);
+    for (const [name, bytes] of [...bodies.entries()].filter(([name]) => name.startsWith('debian-') || name.endsWith('_amd64.deb'))) {
+      provenance.predicate.buildDefinition.resolvedDependencies.push({ uri: `https://deb.debian.org/${name}`, digest: { sha256: digest(bytes) } });
+    }
+    provenance.predicate.buildDefinition.resolvedDependencies.push(
+      { uri: 'source:fixture:debian-trust-policy', digest: { sha256: parameters.debianTrustPolicySha256 } },
+      { uri: 'composition:tree:2.1.0-1', digest: { sha256: parameters.debianCompositionSha256 } }
+    );
+  }
   bodies.set('release.provenance.json', Buffer.from(`${JSON.stringify(provenance)}\n`));
   bodies.set('THIRD_PARTY_LICENSES.txt', Buffer.from(`OpenCode ${opencodeVersion}\nMIT License\n`));
   const entries = [
-    'schema_version=7', 'product_id=desktop-tools', `release_id=${releaseId}`, `source_commit=${'a'.repeat(40)}`,
+    `schema_version=${schemaVersion}`, 'product_id=desktop-tools', `release_id=${releaseId}`, `source_commit=${'a'.repeat(40)}`,
     `created_at=${now - 1}`, `expires_at=${now + 86_400}`, 'key_id=desktop-production-1',
     'engine_node_min=22', 'runtime_node_version=24.11.0', `opencode_version=${opencodeVersion}`
   ];
@@ -54,6 +67,10 @@ async function fixture(t, mutate = value => value) {
     ['supervisor','desktop-tools-supervisor.mjs'], ['tools','desktop-tools-tools.tar.gz'], ['opencode_lock','opencode.lock.json'],
     ['sbom','release.sbom.json'], ['provenance','release.provenance.json'], ['licenses','THIRD_PARTY_LICENSES.txt']
   ];
+  if (schemaVersion === 8) artifacts.push(
+    ['debian_inrelease','debian-bookworm-inrelease'], ['debian_keyring','debian-bookworm-archive-keyring.gpg'],
+    ['debian_packages','debian-bookworm-main-amd64-Packages.xz'], ['debian_tree','tree_2.1.0-1_amd64.deb']
+  );
   for (const [prefix, name] of artifacts) entries.push(
     `${prefix}_url=https://desktop.tools/releases/${releaseId}/${name}`,
     `${prefix}_sha256=${digest(bodies.get(name))}`,
@@ -93,6 +110,36 @@ test('publishes an exact Desktop Tools v7 release in a product-qualified immutab
   assert.equal(target.creates.some(([key]) => key.startsWith('bootstrap/')), false);
   const retry = await publishDesktopRelease({ ...release, expectedReleaseId: release.releaseId, storage: target, verifySignature: async () => {} });
   assert.equal(retry.outcomes.every(item => item.outcome === 'already-present'), true);
+});
+
+test('publishes and reinspects an exact Desktop Tools v8 release with four Debian payloads and manifest last', async t => {
+  const release = await fixture(t, value => value, 8);
+  const target = storage();
+  const result = await publishDesktopRelease({ ...release, expectedReleaseId: release.releaseId, storage: target,
+    verifySignature: async () => {} });
+  assert.equal(result.product, 'desktop-tools');
+  assert.equal(target.creates.at(-1)[0], `desktop-tools/bootstrap/${release.releaseId}/manifest`);
+  for (const name of ['debian-bookworm-inrelease', 'debian-bookworm-archive-keyring.gpg',
+    'debian-bookworm-main-amd64-Packages.xz', 'tree_2.1.0-1_amd64.deb']) {
+    assert.equal(target.objects.has(`desktop-tools/bootstrap/${release.releaseId}/${name}`), true);
+  }
+  const inspected = await inspectPublishedDesktopRelease({ expectedReleaseId: release.releaseId, storage: target,
+    verifySignature: async () => {} });
+  assert.equal(inspected.schemaVersion, 8);
+
+  const unbound = await fixture(t, value => value, 8);
+  const sbomPath = join(unbound.directory, 'release.sbom.json');
+  const sbom = JSON.parse(await readFile(sbomPath, 'utf8'));
+  sbom.components = sbom.components.filter(component => component.name !== 'tree_2.1.0-1_amd64.deb');
+  const alteredSbom = Buffer.from(`${JSON.stringify(sbom)}\n`);
+  await writeFile(sbomPath, alteredSbom);
+  const manifestPath = join(unbound.directory, 'manifest');
+  const alteredManifest = (await readFile(manifestPath, 'utf8')).split('\n').map(line =>
+    line.startsWith('sbom_sha256=') ? `sbom_sha256=${digest(alteredSbom)}`
+      : line.startsWith('sbom_size=') ? `sbom_size=${alteredSbom.byteLength}` : line).join('\n');
+  await writeFile(manifestPath, alteredManifest);
+  await assert.rejects(publishDesktopRelease({ ...unbound, expectedReleaseId: unbound.releaseId, storage: storage(),
+    verifySignature: async () => {} }), /SBOM does not bind the exact release payload closure/);
 });
 
 test('activates only inspected Desktop Tools releases with product-qualified CAS and exact rollback', async t => {

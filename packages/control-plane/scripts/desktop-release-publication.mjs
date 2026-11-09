@@ -8,7 +8,7 @@ const policy = releasePolicy('desktop-tools');
 const id = z.string().regex(/^[a-z0-9][a-z0-9._-]{0,127}$/);
 const sha256 = z.string().regex(/^[a-f0-9]{64}$/);
 const positive = z.string().regex(/^[1-9][0-9]*$/).transform(Number).refine(Number.isSafeInteger);
-const ARTIFACTS = Object.freeze([
+const V7_ARTIFACTS = Object.freeze([
   ['artifact', 'provision.sh', 8_388_608],
   ['engine', policy.engineFilename, 8_388_608],
   ['catalog', 'catalog.json', 8_388_608],
@@ -28,19 +28,30 @@ const ARTIFACTS = Object.freeze([
   ['provenance', 'release.provenance.json', 8_388_608],
   ['licenses', 'THIRD_PARTY_LICENSES.txt', 8_388_608],
 ]);
-export const DESKTOP_RELEASE_FILES = Object.freeze([
-  ...ARTIFACTS.map(([, filename]) => filename), 'manifest.sig', 'manifest'
+const V8_DEBIAN_ARTIFACTS = Object.freeze([
+  ['debian_inrelease', 'debian-bookworm-inrelease', 16_777_216],
+  ['debian_keyring', 'debian-bookworm-archive-keyring.gpg', 16_777_216],
+  ['debian_packages', 'debian-bookworm-main-amd64-Packages.xz', 268_435_456],
+  ['debian_tree', 'tree_2.1.0-1_amd64.deb', 268_435_456],
+]);
+const artifactsForSchema = schemaVersion => schemaVersion === '7'
+  ? V7_ARTIFACTS
+  : Object.freeze([...V7_ARTIFACTS, ...V8_DEBIAN_ARTIFACTS]);
+const filesForSchema = schemaVersion => Object.freeze([
+  ...artifactsForSchema(schemaVersion).map(([, filename]) => filename), 'manifest.sig', 'manifest'
 ].sort());
-const REQUIRED_KEYS = Object.freeze([
+export const DESKTOP_RELEASE_FILES = filesForSchema('7');
+export const DESKTOP_RELEASE_V8_FILES = filesForSchema('8');
+const requiredKeysForSchema = schemaVersion => Object.freeze([
   'schema_version', 'product_id', 'release_id', 'source_commit', 'created_at', 'expires_at', 'key_id',
-  ...ARTIFACTS.flatMap(([prefix]) => [`${prefix}_url`, `${prefix}_sha256`, `${prefix}_size`]),
+  ...artifactsForSchema(schemaVersion).flatMap(([prefix]) => [`${prefix}_url`, `${prefix}_sha256`, `${prefix}_size`]),
   'engine_node_min', 'runtime_node_version', 'opencode_version'
 ]);
 const digest = bytes => createHash('sha256').update(bytes).digest('hex');
 const same = (left, right) => Buffer.compare(Buffer.from(left), Buffer.from(right)) === 0;
 const canonical = value => Buffer.from(`${JSON.stringify(value)}\n`, 'utf8');
-const CLOSURE_PAYLOAD_NAMES = Object.freeze(ARTIFACTS.map(([, name]) => name)
-  .filter(name => !['release.sbom.json', 'release.provenance.json', 'THIRD_PARTY_LICENSES.txt'].includes(name)));
+const closurePayloadNames = artifacts => artifacts.map(([, name]) => name)
+  .filter(name => !['release.sbom.json', 'release.provenance.json', 'THIRD_PARTY_LICENSES.txt'].includes(name));
 const DesktopPointer = z.strictObject({
   schemaVersion: z.literal(2), product: z.literal('desktop-tools'), channel: id,
   generation: z.number().int().positive().safe(), kind: z.enum(['promote', 'rollback']),
@@ -64,7 +75,11 @@ function parseManifest(bytes) {
     if (separator < 1 || !/^[a-z0-9_]+$/.test(key) || !value || values.has(key)) throw new Error('manifest contains malformed or duplicate data');
     values.set(key, value);
   }
-  if (JSON.stringify([...values.keys()].sort()) !== JSON.stringify([...REQUIRED_KEYS].sort())) throw new Error('manifest key set does not match Desktop Tools schema v7');
+  const schemaVersion = values.get('schema_version');
+  if (schemaVersion !== '7' && schemaVersion !== '8') throw new Error('manifest schema is unsupported');
+  if (JSON.stringify([...values.keys()].sort()) !== JSON.stringify([...requiredKeysForSchema(schemaVersion)].sort())) {
+    throw new Error(`manifest key set does not match Desktop Tools schema v${schemaVersion}`);
+  }
   return values;
 }
 
@@ -75,7 +90,7 @@ function parseJsonObject(bytes, label) {
   return value;
 }
 
-function exactMetadataDigests(items, label, files) {
+function exactMetadataDigests(items, label, files, artifacts) {
   const actual = new Map();
   for (const item of items ?? []) {
     const name = item?.name;
@@ -85,13 +100,13 @@ function exactMetadataDigests(items, label, files) {
     if (typeof name !== 'string' || typeof value !== 'string' || actual.has(name)) throw new Error(`${label} payload bindings are ambiguous`);
     actual.set(name, value);
   }
-  const expected = new Map(CLOSURE_PAYLOAD_NAMES.map(name => [name, digest(files.get(name))]));
+  const expected = new Map(closurePayloadNames(artifacts).map(name => [name, digest(files.get(name))]));
   if (JSON.stringify([...actual.entries()].sort()) !== JSON.stringify([...expected.entries()].sort())) {
     throw new Error(`${label} does not bind the exact release payload closure`);
   }
 }
 
-function validateClosureMetadata(files, releaseId, sourceCommit, opencodeVersion) {
+function validateClosureMetadata(files, releaseId, sourceCommit, opencodeVersion, artifacts) {
   try { JSON.parse(Buffer.from(files.get('catalog.json')).toString('utf8')); } catch { throw new Error('catalog is not valid JSON'); }
   const lock = parseJsonObject(files.get('opencode.lock.json'), 'OpenCode lock');
   const expectedNames = { macos_x64: 'opencode-macos-x64.zip', macos_arm64: 'opencode-macos-arm64.zip',
@@ -122,14 +137,14 @@ function validateClosureMetadata(files, releaseId, sourceCommit, opencodeVersion
     || sbom.metadata?.component?.name !== 'desktop-tools-release' || sbom.metadata.component.version !== releaseId
     || properties.get('desktop.tools:source-commit') !== sourceCommit
     || properties.get('desktop.tools:opencode-version') !== opencodeVersion) throw new Error('SBOM identity or release pins are invalid');
-  exactMetadataDigests(sbom.components, 'SBOM', files);
+  exactMetadataDigests(sbom.components, 'SBOM', files, artifacts);
 
   const provenance = parseJsonObject(files.get('release.provenance.json'), 'release provenance');
   const parameters = provenance.predicate?.buildDefinition?.externalParameters;
   if (provenance._type !== 'https://in-toto.io/Statement/v1' || provenance.predicateType !== 'https://slsa.dev/provenance/v1'
     || parameters?.releaseId !== releaseId || parameters?.sourceCommit !== sourceCommit
     || parameters?.opencodeVersion !== opencodeVersion) throw new Error('provenance identity or release pins are invalid');
-  exactMetadataDigests(provenance.subject, 'provenance', files);
+  exactMetadataDigests(provenance.subject, 'provenance', files, artifacts);
   const resolvedDependencies = new Map();
   for (const dependency of provenance.predicate?.buildDefinition?.resolvedDependencies ?? []) {
     if (typeof dependency?.uri !== 'string' || typeof dependency?.digest?.sha256 !== 'string' || resolvedDependencies.has(dependency.uri)) {
@@ -137,8 +152,19 @@ function validateClosureMetadata(files, releaseId, sourceCommit, opencodeVersion
     }
     resolvedDependencies.set(dependency.uri, dependency.digest.sha256);
   }
-  if (JSON.stringify([...resolvedDependencies.entries()].sort()) !== JSON.stringify([...lockedDependencies.entries()].sort())) {
-    throw new Error('provenance does not bind the exact OpenCode upstream inputs');
+  for (const [uri, dependencyDigest] of lockedDependencies) {
+    if (resolvedDependencies.get(uri) !== dependencyDigest) throw new Error('provenance does not bind the exact OpenCode upstream inputs');
+    resolvedDependencies.delete(uri);
+  }
+  const schemaVersion = files.has('debian-bookworm-inrelease') ? '8' : '7';
+  const expectedAdditionalDigests = schemaVersion === '8' ? [
+    digest(files.get('debian-bookworm-archive-keyring.gpg')), digest(files.get('debian-bookworm-inrelease')),
+    digest(files.get('debian-bookworm-main-amd64-Packages.xz')), digest(files.get('tree_2.1.0-1_amd64.deb')),
+    parameters?.debianTrustPolicySha256, parameters?.debianCompositionSha256
+  ].sort() : [];
+  if (JSON.stringify([...resolvedDependencies.values()].sort()) !== JSON.stringify(expectedAdditionalDigests)
+    || expectedAdditionalDigests.some(value => !sha256.safeParse(value).success)) {
+    throw new Error('provenance does not bind the exact upstream input closure');
   }
 
   const licenses = Buffer.from(files.get('THIRD_PARTY_LICENSES.txt')).toString('utf8');
@@ -151,11 +177,15 @@ function validateClosureMetadata(files, releaseId, sourceCommit, opencodeVersion
 
 function inspectFiles(files, expectedReleaseIdInput, now = Math.floor(Date.now() / 1_000)) {
   const releaseId = id.parse(expectedReleaseIdInput);
-  if (!(files instanceof Map) || files.size !== DESKTOP_RELEASE_FILES.length || DESKTOP_RELEASE_FILES.some(name => !files.has(name))) {
+  if (!(files instanceof Map) || !files.has('manifest')) throw new Error('Desktop Tools release object set does not match the exact allowlist');
+  const manifest = parseManifest(files.get('manifest'));
+  const schemaVersion = manifest.get('schema_version');
+  const artifacts = artifactsForSchema(schemaVersion);
+  const releaseFiles = filesForSchema(schemaVersion);
+  if (files.size !== releaseFiles.length || releaseFiles.some(name => !files.has(name))) {
     throw new Error('Desktop Tools release object set does not match the exact allowlist');
   }
-  const manifest = parseManifest(files.get('manifest'));
-  if (manifest.get('schema_version') !== '7' || manifest.get('product_id') !== 'desktop-tools' || manifest.get('release_id') !== releaseId) {
+  if (manifest.get('product_id') !== 'desktop-tools' || manifest.get('release_id') !== releaseId) {
     throw new Error('Desktop Tools release identity mismatch');
   }
   if (!/^[a-f0-9]{40}$/.test(manifest.get('source_commit') ?? '')) throw new Error('source commit is invalid');
@@ -171,7 +201,7 @@ function inspectFiles(files, expectedReleaseIdInput, now = Math.floor(Date.now()
   if (!/^2\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-[0-9A-Za-z.-]+)?$/.test(opencodeVersion ?? '')) {
     throw new Error('OpenCode version pin is invalid');
   }
-  for (const [prefix, filename, maximum] of ARTIFACTS) {
+  for (const [prefix, filename, maximum] of artifacts) {
     const bytes = files.get(filename);
     const size = positive.parse(manifest.get(`${prefix}_size`));
     if (size !== bytes.byteLength || size > maximum || sha256.parse(manifest.get(`${prefix}_sha256`)) !== digest(bytes)) {
@@ -181,9 +211,10 @@ function inspectFiles(files, expectedReleaseIdInput, now = Math.floor(Date.now()
       throw new Error(`URL binding mismatch: ${filename}`);
     }
   }
-  validateClosureMetadata(files, releaseId, manifest.get('source_commit'), opencodeVersion);
+  validateClosureMetadata(files, releaseId, manifest.get('source_commit'), opencodeVersion, artifacts);
   return Object.freeze({ product: policy.product, releaseId, signerId: id.parse(manifest.get('key_id')), opencodeVersion,
-    sourceCommit: manifest.get('source_commit'), createdAt, expiresAt, manifestSha256: digest(files.get('manifest')), files });
+    schemaVersion: Number(schemaVersion), releaseFiles, sourceCommit: manifest.get('source_commit'), createdAt, expiresAt,
+    manifestSha256: digest(files.get('manifest')), files });
 }
 
 export async function inspectDesktopReleaseDirectory(directoryInput, expectedReleaseId, now) {
@@ -191,9 +222,11 @@ export async function inspectDesktopReleaseDirectory(directoryInput, expectedRel
   const root = await lstat(directory);
   if (!root.isDirectory() || root.isSymbolicLink()) throw new Error('release path is not a real directory');
   const names = (await readdir(directory)).sort();
-  if (JSON.stringify(names) !== JSON.stringify(DESKTOP_RELEASE_FILES)) throw new Error('release directory does not match the exact allowlist');
+  const releaseFiles = JSON.stringify(names) === JSON.stringify(DESKTOP_RELEASE_FILES) ? DESKTOP_RELEASE_FILES
+    : JSON.stringify(names) === JSON.stringify(DESKTOP_RELEASE_V8_FILES) ? DESKTOP_RELEASE_V8_FILES : null;
+  if (!releaseFiles) throw new Error('release directory does not match the exact allowlist');
   const files = new Map();
-  for (const name of DESKTOP_RELEASE_FILES) {
+  for (const name of releaseFiles) {
     const path = join(directory, name);
     const info = await lstat(path);
     if (!info.isFile() || info.isSymbolicLink() || info.nlink !== 1 || info.size < 1) throw new Error(`unsafe release artifact: ${name}`);
@@ -208,7 +241,7 @@ export async function publishDesktopRelease({ directory, expectedReleaseId, stor
   await verifySignature({ manifest: release.files.get('manifest'), signature: release.files.get('manifest.sig'),
     signerId: release.signerId, namespace: policy.signatureNamespace });
   const outcomes = [];
-  for (const name of DESKTOP_RELEASE_FILES.filter(name => name !== 'manifest')) {
+  for (const name of release.releaseFiles.filter(name => name !== 'manifest')) {
     const key = `desktop-tools/bootstrap/${release.releaseId}/${name}`;
     const bytes = release.files.get(name);
     const created = await storage.create(key, bytes, { sha256: digest(bytes) });
@@ -230,7 +263,12 @@ export async function inspectPublishedDesktopRelease({ expectedReleaseId, storag
   if (typeof storage?.read !== 'function' || typeof verifySignature !== 'function') throw new Error('inspection dependencies are invalid');
   const releaseId = id.parse(expectedReleaseId);
   const files = new Map();
-  for (const name of DESKTOP_RELEASE_FILES) {
+  const manifestStored = await storage.read(`desktop-tools/bootstrap/${releaseId}/manifest`);
+  if (!manifestStored?.bytes) throw new Error('published Desktop Tools release object is missing: manifest');
+  const manifest = Buffer.from(manifestStored.bytes);
+  const releaseFiles = filesForSchema(parseManifest(manifest).get('schema_version'));
+  files.set('manifest', manifest);
+  for (const name of releaseFiles.filter(name => name !== 'manifest')) {
     const stored = await storage.read(`desktop-tools/bootstrap/${releaseId}/${name}`);
     if (!stored?.bytes) throw new Error(`published Desktop Tools release object is missing: ${name}`);
     files.set(name, Buffer.from(stored.bytes));

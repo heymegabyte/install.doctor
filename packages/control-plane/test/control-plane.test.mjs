@@ -585,6 +585,10 @@ esac
       provenance: path.join(downloadRoot, `provenance-${crypto.randomUUID()}.json`),
       licenses: path.join(downloadRoot, `licenses-${crypto.randomUUID()}.txt`),
       opencodeLock: path.join(downloadRoot, `opencode-lock-${crypto.randomUUID()}.json`),
+      debianInRelease: path.join(downloadRoot, `debian-inrelease-${crypto.randomUUID()}`),
+      debianKeyring: path.join(downloadRoot, `debian-keyring-${crypto.randomUUID()}.gpg`),
+      debianPackages: path.join(downloadRoot, `debian-packages-${crypto.randomUUID()}.xz`),
+      debianTree: path.join(downloadRoot, `tree-${crypto.randomUUID()}.deb`),
     };
     fs.writeFileSync(closure.supervisor, '#!/usr/bin/env node\nprocess.exit(0)\n');
     fs.writeFileSync(closure.tools, 'fixture typed tools archive\n');
@@ -592,6 +596,10 @@ esac
     fs.writeFileSync(closure.provenance, '{"_type":"https://in-toto.io/Statement/v1"}\n');
     fs.writeFileSync(closure.licenses, 'OpenCode — MIT\nDesktop Tools — MIT\n');
     fs.writeFileSync(closure.opencodeLock, '{"schemaVersion":1,"version":"2.2.5"}\n');
+    fs.writeFileSync(closure.debianInRelease, 'signed Debian bookworm InRelease\n');
+    fs.writeFileSync(closure.debianKeyring, 'pinned Debian archive keyring\n');
+    fs.writeFileSync(closure.debianPackages, 'signed Debian Packages.xz\n');
+    fs.writeFileSync(closure.debianTree, 'tree Debian package\n');
     const body = artifactBody ?? '#!/usr/bin/env bash\nset -euo pipefail\n';
     fs.writeFileSync(artifact, body, { mode: 0o700 });
     fs.writeFileSync(engine, engineBody, { mode: 0o700 });
@@ -602,7 +610,7 @@ esac
     const engineDigest = crypto.createHash('sha256').update(engineBody).digest('hex');
     const catalogDigest = crypto.createHash('sha256').update(catalogBody).digest('hex');
     const manifestBody = [
-      `schema_version=${desktop ? 7 : 5}`,
+      `schema_version=${desktop ? 8 : 5}`,
       ...(desktop ? ['product_id=desktop-tools'] : []),
       `release_id=${releaseId}`,
       `source_commit=${'a'.repeat(40)}`,
@@ -632,6 +640,10 @@ esac
           ['provenance', 'release.provenance.json', closure.provenance],
           ['licenses', 'THIRD_PARTY_LICENSES.txt', closure.licenses],
           ['opencode_lock', 'opencode.lock.json', closure.opencodeLock],
+          ['debian_inrelease', 'debian-bookworm-inrelease', closure.debianInRelease],
+          ['debian_keyring', 'debian-bookworm-archive-keyring.gpg', closure.debianKeyring],
+          ['debian_packages', 'debian-bookworm-main-amd64-Packages.xz', closure.debianPackages],
+          ['debian_tree', 'tree_2.1.0-1_amd64.deb', closure.debianTree],
         ].flatMap(([prefix, filename, file]) => {
           const bytes = fs.readFileSync(file);
           return [`${prefix}_url=${origin}/releases/test/${filename}`, `${prefix}_sha256=${crypto.createHash('sha256').update(bytes).digest('hex')}`, `${prefix}_size=${bytes.byteLength}`];
@@ -1394,7 +1406,8 @@ test('Desktop Tools release policy is source-owned while legacy release verifica
   const script = renderBootstrap(desktopConfig);
   assert.match(script, /readonly RELEASE_ORIGIN='https:\/\/desktop\.tools'/);
   assert.match(script, /readonly SIGNATURE_NAMESPACE='desktop\.tools\.release'/);
-  assert.match(script, /readonly EXPECTED_MANIFEST_SCHEMA='7'/);
+  assert.match(script, /readonly EXPECTED_MANIFEST_SCHEMA='8'/);
+  assert.doesNotMatch(script, /download "\$debian_(?:inrelease|keyring|packages|tree)_url"/);
   assert.match(script, /readonly EXPECTED_PRODUCT_ID='desktop-tools'/);
   assert.match(script, /readonly DESKTOP_TOOLS_PROFILE_SLUG='example'/);
   assert.match(script, /DESKTOP_TOOLS_PROFILE_REVISION="\$DESKTOP_TOOLS_PROFILE_REVISION"/);
@@ -1420,7 +1433,7 @@ test('Desktop Tools release policy is source-owned while legacy release verifica
   assert.throws(() => releaseObjectUrl('desktop-tools', 'release-1', 'install-doctor-engine.mjs'));
 });
 
-test('Desktop Tools profile stage-zero executes a verified v7 runtime closure with immutable profile binding', async (t) => {
+test('Desktop Tools profile stage-zero executes a verified v8 runtime closure with lazy Debian authority binding', async (t) => {
   const fixture = makeBootstrapRuntimeFixture(t, 'desktop-tools');
   const { renderBootstrap } = await import('../src/bootstrap.ts');
   const profile = {

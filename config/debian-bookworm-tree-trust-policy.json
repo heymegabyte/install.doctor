@@ -1,0 +1,39 @@
+{
+  "schemaVersion": 1,
+  "archiveKeyringUri": "https://deb.debian.org/debian/pool/main/d/debian-archive-keyring/debian-archive-keyring_2025.1_all.deb#usr/share/keyrings/debian-archive-keyring.gpg",
+  "inReleaseUri": "https://deb.debian.org/debian/dists/bookworm/InRelease",
+  "packagesIndexUri": "https://deb.debian.org/debian/dists/bookworm/main/binary-amd64/Packages.xz",
+  "treePayloadUri": "https://deb.debian.org/debian/pool/main/t/tree/tree_2.1.0-1_amd64.deb",
+  "repository": {
+    "origin": "https://deb.debian.org/debian",
+    "suite": "oldstable",
+    "codename": "bookworm",
+    "component": "main",
+    "architecture": "amd64",
+    "inReleasePath": "dists/bookworm/InRelease",
+    "packagesPath": "dists/bookworm/main/binary-amd64/Packages.xz"
+  },
+  "archiveKeyring": {
+    "url": "https://deb.debian.org/debian/pool/main/d/debian-archive-keyring/debian-archive-keyring_2025.1_all.deb",
+    "sha256": "9ea7778e443144ca490668737a8ab22dd3e748bb99e805e22ec055abeb3c7fac",
+    "sizeBytes": 179244,
+    "memberPath": "usr/share/keyrings/debian-archive-keyring.gpg",
+    "memberSha256": "506b815cbb32d9b6066b4a2aa524071e071761e7e7f68c3ac74f3061ba852017",
+    "memberSizeBytes": 55918,
+    "permittedSigningKeyFingerprints": [
+      "4CB50190207B4758A3F73A796ED0E7B82643E131",
+      "B8E5F13176D2A7A75220028078DBA3BC47EF2265",
+      "4D64FEC119C2029067D6E791F8D2585B8783D481"
+    ]
+  },
+  "compositionPolicy": {
+    "version": "2.1.0-1",
+    "signingKeyFingerprint": "4CB50190207B4758A3F73A796ED0E7B82643E131",
+    "dependencyClosure": {
+      "depends": [],
+      "preDepends": []
+    },
+    "affectedServiceUnits": [],
+    "conffiles": []
+  }
+}
