@@ -1,9 +1,13 @@
 import assert from 'node:assert/strict';
+import { readFile, stat } from 'node:fs/promises';
+import { join } from 'node:path';
 import test from 'node:test';
 import { blueprintDigest, exportMarkdown } from '../../aid-core/dist/core.js';
+import { main as runSupervisor } from '../../desktop-tools-runtime/src/desktop-tools-supervisor.mjs';
+import { createProtocolRuntimeFixture } from '../../desktop-tools-runtime/test/helpers/runtime-fixture.mjs';
 import { createWorkerFixture } from './helpers/worker-app-fixture.mjs';
 
-test('disposable composition preserves one profile and target authorization identity through actual Worker routes', async t => {
+test('disposable composition carries profile and authorization identity through Worker routes and supervisor launch', async t => {
   const fixture = await createWorkerFixture();
   t.after(() => fixture.cleanup());
   const { app, db } = fixture;
@@ -69,4 +73,40 @@ test('disposable composition preserves one profile and target authorization iden
     method: 'POST', headers: { authorization: `Bearer ${pollSecret}`, 'content-type': 'application/json' }, body: '{}',
   }), env);
   assert.equal(replay.status, 404);
+
+  const runtime = await createProtocolRuntimeFixture({
+    profileId: profile.id, profileRevision: profile.revision, profileDigest: profile.digest,
+    releaseId: 'fixture-release-1', releaseDigest: '6'.repeat(64), deviceFingerprint: binding.targetKeyFingerprint,
+    authorizationId: started.request.requestId, authorizationExpiresAt: credential.expiresAt,
+    scopes: binding.scopes, sessionId: 'session-composition-1', runId: 'run-composition-1',
+  });
+  t.after(() => runtime.cleanup());
+  process.env.OPENAI_API_KEY = 'ambient-openai-must-not-leak';
+  process.env.API_TOKEN = 'ambient-api-token-must-not-leak';
+  let supervisorResult;
+  try { supervisorResult = await runSupervisor(runtime.args); }
+  finally { delete process.env.OPENAI_API_KEY; delete process.env.API_TOKEN; }
+  assert.equal(await readFile(join(runtime.state, 'argv'), 'utf8'), 'serve\n--hostname\n127.0.0.1\n--port\n4123\n');
+  const observedEnvironment = await readFile(join(runtime.state, 'observed-environment'), 'utf8');
+  for (const forbidden of ['OPENAI_API_KEY', 'API_TOKEN', 'ambient-openai-must-not-leak', 'ambient-api-token-must-not-leak', pollSecret, credential.credential]) {
+    assert.equal(observedEnvironment.includes(forbidden), false, `supervisor leaked ${forbidden}`);
+  }
+  const config = JSON.parse(await readFile(join(runtime.state, 'opencode-config'), 'utf8'));
+  assert.equal(config.model, 'projectsites/dynamic/code');
+  assert.equal(config.providers.projectsites.settings.baseURL, 'https://desktop.tools/api/ai/v1');
+  assert.deepEqual(config.policies.slice(0, 2), [
+    { action: 'provider.use', resource: '*', effect: 'deny' },
+    { action: 'provider.use', resource: 'projectsites', effect: 'allow' },
+  ]);
+  assert.equal(JSON.stringify(config).toLowerCase().includes('litellm'), false);
+  assert.equal(supervisorResult.evidence.captureComplete, false);
+  const history = JSON.parse(await readFile(supervisorResult.evidence.historyPath, 'utf8'));
+  const recording = JSON.parse(await readFile(supervisorResult.evidence.recordingPath, 'utf8'));
+  assert.deepEqual(recording, history);
+  assert.equal(history.evidenceState, 'headers-persisted');
+  assert.deepEqual(history.profile, runtime.prompt.profile);
+  assert.equal(history.authorization.id, started.request.requestId);
+  assert.equal(history.machine.fingerprint, binding.targetKeyFingerprint);
+  assert.equal(history.release.id, 'fixture-release-1');
+  assert.equal((await stat(supervisorResult.evidence.historyPath)).mode & 0o777, 0o600);
 });
