@@ -33,8 +33,9 @@ if rg -q 'sudo|systemctl|launchctl|load-service|add-usergroup|/var/(cache|log)/r
 fi
 grep -Fq '.value._serviceEnabled == true' "$PROCESSOR"
 grep -Fq 'unknown-or-inapplicable-service' "$PROCESSOR"
-grep -Fq 'selected services are unsupported until an installer-engine-owned, manager-specific privileged operation is available' "$PROVISION"
+grep -Fq "selectedServices.some(service => service !== 'alloy')" "$PROVISION"
+grep -Fq 'selected services are unsupported without exact manager-specific installer-engine authority' "$PROVISION"
 ! grep -Fq "id: 'desired.services'" "$PROVISION"
 ! grep -Fq "'desired-services-apply'" "$PROVISION"
 
-printf '%s\n' 'rclone-service-boundary: 18 passed, 0 failed'
+printf '%s\n' 'rclone-service-boundary: 19 passed, 0 failed'

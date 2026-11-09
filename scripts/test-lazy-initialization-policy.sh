@@ -33,9 +33,10 @@ grep -Fq 'post-${__key:-$cmd}.sh' "$CNF_HOOK" \
   || fail 'first-use installation no longer configures its selected package'
 
 grep -Fq '.value._default != false and .value._serviceEnabled == true' "$SERVICE_PROCESSOR" \
-  && grep -Fq 'selected services are unsupported until an installer-engine-owned, manager-specific privileged operation is available' "$PROVISION" \
+  && grep -Fq "selectedServices.some(service => service !== 'alloy')" "$PROVISION" \
+  && grep -Fq "INSTALL_DOCTOR_SELECTED_SERVICES: legacySelectedServices.join(',')" "$PROVISION" \
   && ! grep -Fq "id: 'desired.services'" "$PROVISION" \
-  && pass 'legacy service mutation is preserved for compatibility but excluded from provisioning authority' \
+  && pass 'legacy service mutation is preserved for compatibility while admitted Alloy activation is removed from it' \
   || fail 'provisioning can still reach an uncompensated legacy service mutation'
 
 if grep -Fq 'for HOOK in "$POST_INSTALLX_DIR"/post-*.sh' "$POST_DISPATCHER"; then
