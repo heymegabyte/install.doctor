@@ -40,7 +40,7 @@ main() {
   log "starting pairing with $u (tenant ${DESKTOP_TOOLS_TENANT})…"
   local start
   start="$(curl -fsS --connect-timeout 5 --max-time 20 -X POST -H 'content-type: application/json' \
-    -d "{\"tenant\":\"${DESKTOP_TOOLS_TENANT}\",\"label\":\"${hostLabel}\",\"permissions\":[\"pull-desired-state\",\"report-status\"]}" "$u/api/devices/pair/start" 2>/dev/null)"
+    -d "{\"tenant\":\"${DESKTOP_TOOLS_TENANT}\",\"label\":\"${hostLabel}\",\"permissions\":[\"pull-desired-state\",\"report-status\",\"authorize-privileged-run\"]}" "$u/api/devices/pair/start" 2>/dev/null)"
   local code pollSecret verifyUrl
   code="$(jsonStr "$start" code)"
   pollSecret="$(jsonStr "$start" pollSecret)"
