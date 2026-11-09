@@ -20,10 +20,14 @@ git -C "$FIXTURE" add .
 git -C "$FIXTURE" commit --quiet -m fixture
 COMMIT="$(git -C "$FIXTURE" rev-parse HEAD)"
 printf 'preserve\n' > "$TMP/data/chezmoi/user-work"
-awk '/^cloneChezmoiSourceRepo\(\) \{/{copy=1} copy{print} /^verifyChezmoiSourceRepo\(\) \{/{verify=1} copy && verify && /^\}/{exit}' "$ROOT/scripts/provision.sh" > "$TMP/clone-function.sh"
+awk '/^idSha256File\(\) \{/{copy=1} copy{print} /^idTrustedGitExecutable\(\) \{/{git=1} copy && git && /^\}/{exit}' "$ROOT/scripts/provision.sh" > "$TMP/clone-function.sh"
+awk '/^cloneChezmoiSourceRepo\(\) \{/{copy=1} copy{print} /^verifyChezmoiSourceRepo\(\) \{/{verify=1} copy && verify && /^\}/{exit}' "$ROOT/scripts/provision.sh" >> "$TMP/clone-function.sh"
+GIT_PATH="$(command -v git)"
+GIT_SHA256="$(shasum -a 256 "$GIT_PATH" | awk '{print $1}')"
 
 XDG_DATA_HOME="$TMP/data" HOME="$TMP/home" START_REPO="$FIXTURE" \
   INSTALL_DOCTOR_RELEASE_ID=fixture-release INSTALL_DOCTOR_SOURCE_COMMIT="$COMMIT" \
+  INSTALL_DOCTOR_GIT_PATH="$GIT_PATH" INSTALL_DOCTOR_GIT_SHA256="$GIT_SHA256" \
   bash -c 'set -u; logg() { :; }; detect_os() { printf linux; }; source "$1"; cloneChezmoiSourceRepo; test "$INSTALL_DOCTOR_CHEZMOI_SOURCE" = "$XDG_DATA_HOME/install.doctor/releases/fixture-release/source/home"' _ "$TMP/clone-function.sh"
 test "$(git -C "$TMP/data/install.doctor/releases/fixture-release/source" rev-parse HEAD)" = "$COMMIT"
 test "$(cat "$TMP/data/chezmoi/user-work")" = preserve
@@ -31,6 +35,7 @@ test "$(cat "$TMP/data/chezmoi/user-work")" = preserve
 printf 'tamper\n' >> "$TMP/data/install.doctor/releases/fixture-release/source/home/fixture.txt"
 if XDG_DATA_HOME="$TMP/data" HOME="$TMP/home" START_REPO="$FIXTURE" \
   INSTALL_DOCTOR_RELEASE_ID=fixture-release INSTALL_DOCTOR_SOURCE_COMMIT="$COMMIT" \
+  INSTALL_DOCTOR_GIT_PATH="$GIT_PATH" INSTALL_DOCTOR_GIT_SHA256="$GIT_SHA256" \
   bash -c 'set -u; logg() { :; }; detect_os() { printf linux; }; source "$1"; cloneChezmoiSourceRepo' _ "$TMP/clone-function.sh"; then
   printf 'Tampered immutable source was accepted\n' >&2
   exit 1

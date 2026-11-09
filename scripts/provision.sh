@@ -896,6 +896,40 @@ idInstallSealedHandoffFile() {
   idVerifySealedHandoffFile "$TARGET" "$EXPECTED" || { rm -f -- "$TARGET"; return 20; }
 }
 
+idTrustedGitExecutable() {
+  local candidate="${INSTALL_DOCTOR_GIT_PATH:-}" expected="${INSTALL_DOCTOR_GIT_SHA256:-}" actual owner mode parent parent_owner parent_mode
+  case "$candidate" in /*) ;; *) return 1 ;; esac
+  [ -f "$candidate" ] && [ ! -L "$candidate" ] && [ -x "$candidate" ] || return 1
+  parent="$(dirname "$candidate")"
+  [ -d "$parent" ] && [ ! -L "$parent" ] || return 1
+  if stat -f '%u %Lp' "$candidate" >/dev/null 2>&1; then
+    read -r owner mode <<EOF
+$(stat -f '%u %Lp' "$candidate")
+EOF
+    read -r parent_owner parent_mode <<EOF
+$(stat -f '%u %Lp' "$parent")
+EOF
+  else
+    read -r owner mode <<EOF
+$(stat -c '%u %a' "$candidate")
+EOF
+    read -r parent_owner parent_mode <<EOF
+$(stat -c '%u %a' "$parent")
+EOF
+  fi
+  case "$owner:$parent_owner" in
+    "$(id -u):$(id -u)"|"$(id -u):0"|"0:0"|"0:$(id -u)") ;;
+    *) return 1 ;;
+  esac
+  [ $((8#$mode & 2)) -eq 0 ] && [ $((8#$parent_mode & 2)) -eq 0 ] || return 1
+  case "$expected" in
+    absent) [ "$owner" -eq 0 ] || return 1 ;;
+    ''|*[!a-f0-9]*) return 1 ;;
+    *) [ "${#expected}" -eq 64 ] || return 1; actual="$(idSha256File "$candidate")" || return 1; [ "$actual" = "$expected" ] || return 1 ;;
+  esac
+  printf '%s\n' "$candidate"
+}
+
 ### Ensure Homebrew is loaded
 idTrustedHomebrewExecutable() {
   local candidate="${INSTALL_DOCTOR_HOMEBREW_PATH:-}" expected="${INSTALL_DOCTOR_HOMEBREW_SHA256:-}" actual owner mode parent parent_owner parent_mode
@@ -1561,7 +1595,8 @@ ensureHomebrewDeps() {
 # @description Ensure the `${XDG_DATA_HOME:-$HOME/.local/share}/chezmoi` directory is cloned and up-to-date using the previously
 #     set `START_REPO` as the source repository.
 cloneChezmoiSourceRepo() {
-  local SOURCE_COMMIT="${INSTALL_DOCTOR_SOURCE_COMMIT:-}" RELEASE_ID="${INSTALL_DOCTOR_RELEASE_ID:-}" RELEASE_ROOT SOURCE_ROOT TEMP_ROOT ACTUAL_COMMIT
+  local SOURCE_COMMIT="${INSTALL_DOCTOR_SOURCE_COMMIT:-}" RELEASE_ID="${INSTALL_DOCTOR_RELEASE_ID:-}" RELEASE_ROOT SOURCE_ROOT TEMP_ROOT ACTUAL_COMMIT GIT_PATH
+  GIT_PATH="$(idTrustedGitExecutable)" || { logg error 'The plan-bound Git executable is unavailable or changed'; return 2; }
   case "$SOURCE_COMMIT" in ''|*[!0-9a-f]*) logg error 'A full signed source commit is required'; return 2 ;; esac
   [ "${#SOURCE_COMMIT}" -eq 40 ] || { logg error 'The signed source commit must be a full SHA-1'; return 2; }
   case "$RELEASE_ID" in ''|*[!a-zA-Z0-9._-]*) logg error 'A valid signed release identifier is required'; return 2 ;; esac
@@ -1575,15 +1610,15 @@ cloneChezmoiSourceRepo() {
     TEMP_ROOT="$RELEASE_ROOT/.source.$$"
     [ ! -e "$TEMP_ROOT" ] || { logg error 'Temporary immutable source path already exists'; return 2; }
     mkdir -m 0700 "$TEMP_ROOT" || return 1
-    git -C "$TEMP_ROOT" init --quiet || { rm -rf -- "$TEMP_ROOT"; return 1; }
-    git -C "$TEMP_ROOT" remote add origin "$START_REPO" || { rm -rf -- "$TEMP_ROOT"; return 1; }
-    if ! git -C "$TEMP_ROOT" fetch --quiet --depth=1 origin "$SOURCE_COMMIT"; then
+    "$GIT_PATH" -C "$TEMP_ROOT" init --quiet || { rm -rf -- "$TEMP_ROOT"; return 1; }
+    "$GIT_PATH" -C "$TEMP_ROOT" remote add origin "$START_REPO" || { rm -rf -- "$TEMP_ROOT"; return 1; }
+    if ! "$GIT_PATH" -C "$TEMP_ROOT" fetch --quiet --depth=1 origin "$SOURCE_COMMIT"; then
       logg error 'Unable to fetch the signed immutable source commit'
       rm -rf -- "$TEMP_ROOT"
       return 1
     fi
-    git -C "$TEMP_ROOT" checkout --quiet --detach FETCH_HEAD || { rm -rf -- "$TEMP_ROOT"; return 1; }
-    ACTUAL_COMMIT="$(git -C "$TEMP_ROOT" rev-parse HEAD)" || { rm -rf -- "$TEMP_ROOT"; return 1; }
+    "$GIT_PATH" -C "$TEMP_ROOT" checkout --quiet --detach FETCH_HEAD || { rm -rf -- "$TEMP_ROOT"; return 1; }
+    ACTUAL_COMMIT="$("$GIT_PATH" -C "$TEMP_ROOT" rev-parse HEAD)" || { rm -rf -- "$TEMP_ROOT"; return 1; }
     [ "$ACTUAL_COMMIT" = "$SOURCE_COMMIT" ] || { logg error 'Fetched source does not match the signed commit'; rm -rf -- "$TEMP_ROOT"; return 2; }
     mv "$TEMP_ROOT" "$SOURCE_ROOT" || { rm -rf -- "$TEMP_ROOT"; return 1; }
   fi
@@ -1591,17 +1626,18 @@ cloneChezmoiSourceRepo() {
 }
 
 verifyChezmoiSourceRepo() {
-  local SOURCE_COMMIT="${INSTALL_DOCTOR_SOURCE_COMMIT:-}" RELEASE_ID="${INSTALL_DOCTOR_RELEASE_ID:-}" SOURCE_ROOT ACTUAL_COMMIT ACTUAL_ORIGIN
+  local SOURCE_COMMIT="${INSTALL_DOCTOR_SOURCE_COMMIT:-}" RELEASE_ID="${INSTALL_DOCTOR_RELEASE_ID:-}" SOURCE_ROOT ACTUAL_COMMIT ACTUAL_ORIGIN GIT_PATH
+  GIT_PATH="$(idTrustedGitExecutable)" || return 2
   case "$SOURCE_COMMIT" in ''|*[!0-9a-f]*) return 2 ;; esac
   [ "${#SOURCE_COMMIT}" -eq 40 ] || return 2
   case "$RELEASE_ID" in ''|*[!a-zA-Z0-9._-]*) return 2 ;; esac
   SOURCE_ROOT="${XDG_DATA_HOME:-$HOME/.local/share}/install.doctor/releases/$RELEASE_ID/source"
   [ -d "$SOURCE_ROOT/.git" ] && [ ! -L "$SOURCE_ROOT" ] || return 10
-  ACTUAL_COMMIT="$(git -C "$SOURCE_ROOT" rev-parse HEAD)" || return 2
-  ACTUAL_ORIGIN="$(git -C "$SOURCE_ROOT" remote get-url origin)" || return 2
+  ACTUAL_COMMIT="$("$GIT_PATH" -C "$SOURCE_ROOT" rev-parse HEAD)" || return 2
+  ACTUAL_ORIGIN="$("$GIT_PATH" -C "$SOURCE_ROOT" remote get-url origin)" || return 2
   [ "$ACTUAL_COMMIT" = "$SOURCE_COMMIT" ] || { logg error 'Immutable source checkout no longer matches the signed commit'; return 2; }
   [ "$ACTUAL_ORIGIN" = "$START_REPO" ] || { logg error 'Immutable source checkout has an unexpected origin'; return 2; }
-  [ -z "$(git -C "$SOURCE_ROOT" status --porcelain --untracked-files=all)" ] || { logg error 'Immutable source checkout was modified'; return 2; }
+  [ -z "$("$GIT_PATH" -C "$SOURCE_ROOT" status --porcelain --untracked-files=all)" ] || { logg error 'Immutable source checkout was modified'; return 2; }
   [ -f "$SOURCE_ROOT/.chezmoiroot" ] && [ -d "$SOURCE_ROOT/home" ] || { logg error 'Signed source commit is not an Install Doctor source tree'; return 2; }
   INSTALL_DOCTOR_CHEZMOI_SOURCE="$SOURCE_ROOT/home"
   export INSTALL_DOCTOR_CHEZMOI_SOURCE
@@ -2501,6 +2537,26 @@ if (agentTaskDirectory) {
   }
 }
 const agentTaskManifestDigest = digest(agentTaskManifest);
+let gitPath = '';
+let gitDigest = 'absent';
+for (const directory of (process.env.PATH || '').split(':')) {
+  if (!directory.startsWith('/')) continue;
+  const candidate = `${directory.replace(/\/$/, '')}/git`;
+  try {
+    const metadata = fs.lstatSync(candidate);
+    if (!metadata.isFile() || metadata.isSymbolicLink() || (metadata.mode & 0o111) === 0) continue;
+    const parent = fs.lstatSync(require('node:path').dirname(candidate));
+    if ((metadata.uid !== 0 && metadata.uid !== process.geteuid()) || (metadata.mode & 0o002) !== 0
+      || !parent.isDirectory() || parent.isSymbolicLink() || (parent.uid !== 0 && parent.uid !== process.geteuid())
+      || (parent.mode & 0o002) !== 0) throw new Error('ambient Git executable has unsafe ownership or permissions');
+    gitPath = candidate;
+    gitDigest = crypto.createHash('sha256').update(fs.readFileSync(candidate)).digest('hex');
+    break;
+  } catch (error) {
+    if (!error || error.code !== 'ENOENT') throw error;
+  }
+}
+if (!gitPath) gitPath = '/usr/bin/git';
 let homebrewPath = '';
 let homebrewDigest = 'absent';
 for (const directory of (process.env.PATH || '').split(':')) {
@@ -2593,6 +2649,8 @@ const operationEnvironment = {
   INSTALL_DOCTOR_AGENT_TASKS_DIGEST: agentTaskManifestDigest,
   INSTALL_DOCTOR_AGENT_FAILURE_POLICY: process.env.INSTALL_DOCTOR_AGENT_FAILURE_POLICY === 'continue' ? 'continue' : 'fail',
   INSTALL_DOCTOR_EFFECT_RECEIPT_DIR: `${stateRoot}/effects`,
+  INSTALL_DOCTOR_GIT_PATH: gitPath,
+  INSTALL_DOCTOR_GIT_SHA256: gitDigest,
   INSTALL_DOCTOR_HOMEBREW_PATH: homebrewPath,
   INSTALL_DOCTOR_HOMEBREW_SHA256: homebrewDigest,
   INSTALL_DOCTOR_ENGINE_OWNS_PACKAGES: '1',
@@ -2641,7 +2699,7 @@ const warpDisconnectTask = rawPlan.network === 'cloudflare-warp' && rawPlan.cons
 } : null;
 const nativeDependenciesTask = {
   schemaVersion: 1, id: 'bootstrap.native-dependencies',
-  inputDigest: digest({ platform, arch, commands: ['curl', 'git', 'rsync'] }),
+  inputDigest: digest({ platform, arch, commands: ['curl', 'git', 'rsync'], gitPath, gitDigest }),
   dependencies: [warpDisconnectTask?.id ?? stageZeroSudoTask.id], predicate: 'host-supported', requiredCapabilities: [],
   operations: { check: 'native-dependencies-check', apply: 'native-dependencies-apply', verify: 'native-dependencies-verify' },
   timeoutMs: 1_800_000, retry: { class: 'transient', maxAttempts: 2, backoffMs: 1_000 },
@@ -2651,7 +2709,7 @@ const nativeDependenciesTask = {
 };
 const sourceTask = {
   schemaVersion: 1, id: 'bootstrap.source',
-  inputDigest: digest({ release: process.env.INSTALL_DOCTOR_RELEASE_ID, sourceCommit: process.env.INSTALL_DOCTOR_SOURCE_COMMIT, origin: process.env.START_REPO }),
+  inputDigest: digest({ release: process.env.INSTALL_DOCTOR_RELEASE_ID, sourceCommit: process.env.INSTALL_DOCTOR_SOURCE_COMMIT, origin: process.env.START_REPO, gitPath, gitDigest }),
   dependencies: [nativeDependenciesTask.id], predicate: 'host-supported', requiredCapabilities: [],
   operations: { check: 'source-check', apply: 'source-apply', verify: 'source-verify' },
   timeoutMs: 900_000, retry: { class: 'transient', maxAttempts: 3, backoffMs: 1_000 },
@@ -3492,7 +3550,7 @@ idRunEngineOperation() {
     warp-disconnect-apply) idWarpDisconnectedApply ;;
     warp-disconnect-verify) idWarpDisconnectedVerify ;;
     native-dependencies-check|native-dependencies-verify)
-      command -v curl >/dev/null 2>&1 && command -v git >/dev/null 2>&1 && command -v rsync >/dev/null 2>&1 && return 0
+      command -v curl >/dev/null 2>&1 && idTrustedGitExecutable >/dev/null 2>&1 && command -v rsync >/dev/null 2>&1 && return 0
       return 10
       ;;
     native-dependencies-apply)

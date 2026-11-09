@@ -44,6 +44,13 @@ if grep -q 'INSTALL_DOCTOR_HOMEBREW_PATH: homebrewPath' "$PROVISION" \
 else
   fail 'Homebrew execution still depends on unbound ambient PATH authority'
 fi
+if grep -q 'INSTALL_DOCTOR_GIT_PATH: gitPath' "$PROVISION" \
+  && grep -q 'INSTALL_DOCTOR_GIT_SHA256: gitDigest' "$PROVISION" \
+  && grep -q "sourceCommit: .*gitPath, gitDigest" "$PROVISION"; then
+  pass 'Git execution identity is bound into source approval and operation environment'
+else
+  fail 'source acquisition still depends on unbound ambient Git authority'
+fi
 chezmoi_task="$(sed -n "/const task = {/,/const configurationRoot =/p" "$PROVISION")"
 if printf '%s\n' "$chezmoi_task" | grep -q "id: 'provision.chezmoi'" \
   && printf '%s\n' "$chezmoi_task" | grep -q "privilege: 'user'" \
@@ -311,6 +318,31 @@ if HOME="$TMP_DIR/brew-trust/home" INSTALL_DOCTOR_HOMEBREW_PATH="$TMP_DIR/brew-t
   fail 'Homebrew executable beneath a world-writable directory was admitted'
 else
   pass 'Homebrew executable beneath a world-writable directory is rejected'
+fi
+
+mkdir -p "$TMP_DIR/git-trust/bin" "$TMP_DIR/git-trust/home"
+cp "$(command -v git)" "$TMP_DIR/git-trust/bin/git"
+chmod 0700 "$TMP_DIR/git-trust/bin/git"
+git_digest="$(shasum -a 256 "$TMP_DIR/git-trust/bin/git" | awk '{print $1}')"
+if HOME="$TMP_DIR/git-trust/home" INSTALL_DOCTOR_GIT_PATH="$TMP_DIR/git-trust/bin/git" \
+  INSTALL_DOCTOR_GIT_SHA256="$git_digest" bash -c 'source "$1"; idTrustedGitExecutable >/dev/null' _ "$PROVISION"; then
+  pass 'exact plan-bound Git executable is admitted'
+else
+  fail 'exact plan-bound Git executable was rejected'
+fi
+printf '\n' >> "$TMP_DIR/git-trust/bin/git"
+if HOME="$TMP_DIR/git-trust/home" INSTALL_DOCTOR_GIT_PATH="$TMP_DIR/git-trust/bin/git" \
+  INSTALL_DOCTOR_GIT_SHA256="$git_digest" bash -c 'source "$1"; idTrustedGitExecutable >/dev/null' _ "$PROVISION"; then
+  fail 'changed Git executable retained stale source authority'
+else
+  pass 'changed Git executable invalidates stale source authority'
+fi
+chmod 0702 "$TMP_DIR/git-trust/bin"
+if HOME="$TMP_DIR/git-trust/home" INSTALL_DOCTOR_GIT_PATH="$TMP_DIR/git-trust/bin/git" \
+  INSTALL_DOCTOR_GIT_SHA256=absent bash -c 'source "$1"; idTrustedGitExecutable >/dev/null' _ "$PROVISION"; then
+  fail 'Git executable beneath a world-writable directory was admitted'
+else
+  pass 'Git executable beneath a world-writable directory is rejected'
 fi
 
 if npm --prefix "$ROOT/packages/installer-engine" run bundle >/dev/null 2>&1; then
