@@ -58,6 +58,9 @@ const provisioningBin = join(repositoryRoot, 'home', 'dot_local', 'bin');
 const installx = await readFile(join(provisioningBin, 'executable_installx'));
 if (installx.length < 1 || installx.length > 65_536) throw new Error('installx planning input is outside its bounded release policy');
 entries.push(tarEntry('provisioning/home/dot_local/bin/executable_installx', installx, 0o700));
+const systemIdentityProcessor = await readFile(join(repositoryRoot, 'home', 'dot_config', 'system', 'usr', 'local', 'bin', 'executable_process-software-groups'));
+if (systemIdentityProcessor.length < 1 || systemIdentityProcessor.length > 1_048_576) throw new Error('software-groups planning input is outside its bounded release policy');
+entries.push(tarEntry('provisioning/home/dot_config/system/usr/local/bin/executable_process-software-groups', systemIdentityProcessor, 0o700));
 const hookRoot = join(provisioningBin, 'post-installx');
 for (const name of (await readdir(hookRoot)).sort()) {
   if (!/^executable_post-[a-z0-9][a-z0-9._+-]{0,127}\.sh$/.test(name)) continue;

@@ -2511,9 +2511,15 @@ const loadSignedPlanningInputs = () => {
         || !expanded.subarray(offset + 512).every(byte => byte === 0)) throw new Error('signed planning-input archive has invalid trailing structure');
       const installx = entries.get('provisioning/home/dot_local/bin/executable_installx');
       if (!installx || installx.length < 1 || installx.length > 65_536) throw new Error('signed planning-input archive lacks bounded installx authority');
-      for (const [name, bytes] of entries) if (name.startsWith('provisioning/') && name !== 'provisioning/home/dot_local/bin/executable_installx'
-        && (!/^provisioning\/home\/dot_local\/bin\/post-installx\/executable_post-[a-z0-9][a-z0-9._+-]{0,127}\.sh$/.test(name)
-          || bytes.length < 1 || bytes.length > 1_048_576)) throw new Error('signed planning-input archive contains invalid provisioning authority');
+      for (const [name, bytes] of entries) {
+        if (!name.startsWith('provisioning/') || name === 'provisioning/home/dot_local/bin/executable_installx') continue;
+        if (name === 'provisioning/home/dot_config/system/usr/local/bin/executable_process-software-groups') {
+          if (bytes.length < 1 || bytes.length > 1_048_576) throw new Error('signed planning-input archive contains invalid software-groups authority');
+          continue;
+        }
+        if (!/^provisioning\/home\/dot_local\/bin\/post-installx\/executable_post-[a-z0-9][a-z0-9._+-]{0,127}\.sh$/.test(name)
+          || bytes.length < 1 || bytes.length > 1_048_576) throw new Error('signed planning-input archive contains invalid provisioning authority');
+      }
       return entries;
     }
     const name = header.subarray(0, 100).toString('utf8').split('\0', 1)[0];
@@ -3162,9 +3168,37 @@ const systemIdentityPackages = loadPlan.items
     && legacySelectedPackages.includes(item.name))
   .map(item => item.name)
   .sort();
+const softwareGroupsPlanningKey = 'provisioning/home/dot_config/system/usr/local/bin/executable_process-software-groups';
+let softwareGroupsPath = '';
+let softwareGroupsDigest = '';
+for (const directory of (process.env.PATH || '').split(':')) {
+  if (!directory.startsWith('/')) continue;
+  const candidate = `${directory.replace(/\/$/, '')}/process-software-groups`;
+  try {
+    const metadata = fs.lstatSync(candidate);
+    if (!metadata.isFile() || metadata.isSymbolicLink() || (metadata.mode & 0o111) === 0 || (metadata.mode & 0o022) !== 0) continue;
+    const parent = fs.lstatSync(require('node:path').dirname(candidate));
+    if ((metadata.uid !== 0 && metadata.uid !== process.geteuid()) || !parent.isDirectory() || parent.isSymbolicLink()
+      || (parent.uid !== 0 && parent.uid !== process.geteuid()) || (parent.mode & 0o002) !== 0) continue;
+    softwareGroupsPath = candidate;
+    softwareGroupsDigest = crypto.createHash('sha256').update(fs.readFileSync(candidate)).digest('hex');
+    break;
+  } catch (error) {
+    if (!error || error.code !== 'ENOENT') throw error;
+  }
+}
+if (!softwareGroupsPath && systemIdentityPackages.length > 0) {
+  const candidate = signedPlanningInputs
+    ? signedPlanningInputs.get(softwareGroupsPlanningKey)
+    : fs.readFileSync(`${process.env.INSTALL_DOCTOR_CHEZMOI_SOURCE}/dot_config/system/usr/local/bin/executable_process-software-groups`);
+  if (!candidate || candidate.length < 1 || candidate.length > 1_048_576) throw new Error('signed software-groups processor authority is unavailable');
+  softwareGroupsPath = '/usr/local/bin/process-software-groups';
+  softwareGroupsDigest = crypto.createHash('sha256').update(candidate).digest('hex');
+}
 const softwareGroupsTask = systemIdentityPackages.length > 0 ? {
   schemaVersion: 1, id: 'desired.software-groups',
-  inputDigest: digest({ source: process.env.INSTALL_DOCTOR_SOURCE_COMMIT, packages: systemIdentityPackages, policy: 'selected-system-identity-current-state-v3' }),
+  inputDigest: digest({ source: process.env.INSTALL_DOCTOR_SOURCE_COMMIT, packages: systemIdentityPackages,
+    processorPath: softwareGroupsPath, processorDigest: softwareGroupsDigest, policy: 'selected-system-identity-current-state-v4' }),
   dependencies: [bootstrapPolicyTask.id], predicate: 'host-supported', requiredCapabilities: [],
   operations: { check: 'software-groups-check', apply: 'software-groups-apply', verify: 'software-groups-verify' },
   timeoutMs: 900_000, retry: { class: 'never', maxAttempts: 1, backoffMs: 0 },
@@ -3345,9 +3379,9 @@ const invocation = {
     'bootstrap-policy-apply': { kind: 'managed-file', action: 'apply', targetPath: bootstrapPolicyPath, candidateBase64: bootstrapPolicyCandidate, candidateMode: 0o600 },
     'bootstrap-policy-verify': { kind: 'managed-file', action: 'verify', targetPath: bootstrapPolicyPath, candidateBase64: bootstrapPolicyCandidate, candidateMode: 0o600 },
     ...(softwareGroupsTask ? {
-      'software-groups-check': { argv: ['/bin/bash', provisioner, '--engine-operation', 'software-groups-check'], env: { ...operationEnvironment, INSTALL_DOCTOR_SYSTEM_IDENTITY_PACKAGES: systemIdentityPackages.join(',') }, legacyAdminBridge: 'software-groups' },
-      'software-groups-apply': { argv: ['/bin/bash', provisioner, '--engine-operation', 'software-groups-apply'], env: { ...operationEnvironment, INSTALL_DOCTOR_SYSTEM_IDENTITY_PACKAGES: systemIdentityPackages.join(',') }, legacyAdminBridge: 'software-groups' },
-      'software-groups-verify': { argv: ['/bin/bash', provisioner, '--engine-operation', 'software-groups-verify'], env: { ...operationEnvironment, INSTALL_DOCTOR_SYSTEM_IDENTITY_PACKAGES: systemIdentityPackages.join(',') }, legacyAdminBridge: 'software-groups' },
+      'software-groups-check': { argv: ['/bin/bash', provisioner, '--engine-operation', 'software-groups-check'], env: { ...operationEnvironment, INSTALL_DOCTOR_SYSTEM_IDENTITY_PACKAGES: systemIdentityPackages.join(','), INSTALL_DOCTOR_SOFTWARE_GROUPS_PATH: softwareGroupsPath, INSTALL_DOCTOR_SOFTWARE_GROUPS_SHA256: softwareGroupsDigest }, legacyAdminBridge: 'software-groups' },
+      'software-groups-apply': { argv: ['/bin/bash', provisioner, '--engine-operation', 'software-groups-apply'], env: { ...operationEnvironment, INSTALL_DOCTOR_SYSTEM_IDENTITY_PACKAGES: systemIdentityPackages.join(','), INSTALL_DOCTOR_SOFTWARE_GROUPS_PATH: softwareGroupsPath, INSTALL_DOCTOR_SOFTWARE_GROUPS_SHA256: softwareGroupsDigest }, legacyAdminBridge: 'software-groups' },
+      'software-groups-verify': { argv: ['/bin/bash', provisioner, '--engine-operation', 'software-groups-verify'], env: { ...operationEnvironment, INSTALL_DOCTOR_SYSTEM_IDENTITY_PACKAGES: systemIdentityPackages.join(','), INSTALL_DOCTOR_SOFTWARE_GROUPS_PATH: softwareGroupsPath, INSTALL_DOCTOR_SOFTWARE_GROUPS_SHA256: softwareGroupsDigest }, legacyAdminBridge: 'software-groups' },
     } : {}),
     'catalog-post-validation-check': { argv: ['/bin/bash', provisioner, '--engine-operation', 'catalog-post-validation-check'], env: operationEnvironment },
     'catalog-post-validation-apply': { argv: ['/bin/bash', provisioner, '--engine-operation', 'catalog-post-validation-apply'], env: operationEnvironment },
@@ -3715,6 +3749,30 @@ idRunSelectedDesiredPackages() {
   (cd "$(dirname "$INSTALL_DOCTOR_CHEZMOI_SOURCE")" && idRunVerifiedInstallx "${INSTALLX_COMMAND[@]}")
 }
 
+idRunVerifiedSoftwareGroupsProcessor() (
+  local PHASE="${1:-}" SOURCE="${INSTALL_DOCTOR_SOFTWARE_GROUPS_PATH:-}" EXPECTED="${INSTALL_DOCTOR_SOFTWARE_GROUPS_SHA256:-}"
+  local STAGED BEFORE AFTER SNAPSHOT
+  case "$PHASE" in check|apply) ;; *) return 2 ;; esac
+  case "$SOURCE" in /*) ;; *) return 2 ;; esac
+  case "$EXPECTED" in ''|*[!a-f0-9]*) return 2 ;; esac
+  [ "${#EXPECTED}" -eq 64 ] || return 2
+  [ -f "$SOURCE" ] && [ ! -L "$SOURCE" ] && [ -x "$SOURCE" ] || return 2
+  umask 077
+  STAGED="$(mktemp "${TMPDIR:-/tmp}/desktop-tools-software-groups.XXXXXX")" || return 1
+  trap '/bin/rm -f -- "$STAGED"' EXIT
+  trap 'exit 130' HUP INT TERM
+  BEFORE="$(idSha256File "$SOURCE")" || return 2
+  [ "$BEFORE" = "$EXPECTED" ] || return 2
+  /bin/cp -- "$SOURCE" "$STAGED" || return 1
+  /bin/chmod 0700 "$STAGED" || return 1
+  SNAPSHOT="$(idSha256File "$STAGED")" || return 2
+  AFTER="$(idSha256File "$SOURCE")" || return 2
+  [ "$SNAPSHOT" = "$EXPECTED" ] && [ "$AFTER" = "$EXPECTED" ] || return 2
+  if [ "$PHASE" = check ]; then /bin/bash "$STAGED" --check </dev/null
+  else /bin/bash "$STAGED" </dev/null
+  fi
+)
+
 idRunSelectedPostInstallxHooks() {
   local PHASE="${1:-}" POST_INSTALLX_DIR PACKAGE HOOK STATUS EXPECTED ACTUAL MATCHES ENTRY_PACKAGE ENTRY_SHA
   local NEEDS_APPLY=0 PENDING=0 FAILURES=0 FAILED_HOOKS=''
@@ -3887,22 +3945,19 @@ idRunEngineOperation() {
     chezmoi-apply) runChezmoi ;;
     chezmoi-verify) idChezmoi verify --no-pager ;;
     software-groups-check)
-      command -v process-software-groups >/dev/null 2>&1 || return 2
-      process-software-groups --check
+      idRunVerifiedSoftwareGroupsProcessor check
       OPERATION_STATUS=$?
       case "$OPERATION_STATUS" in 0|10) return "$OPERATION_STATUS" ;; *) return 2 ;; esac
       ;;
     custom-post-hooks-check|custom-user-post-hooks-check) idRunSelectedPostInstallxHooks check ;;
     software-groups-apply)
-      command -v process-software-groups >/dev/null 2>&1 || return 2
-      process-software-groups
+      idRunVerifiedSoftwareGroupsProcessor apply
       OPERATION_STATUS=$?
       [ "$OPERATION_STATUS" -eq 0 ] && return 0
       return 2
       ;;
     software-groups-verify)
-      command -v process-software-groups >/dev/null 2>&1 || return 2
-      process-software-groups --check
+      idRunVerifiedSoftwareGroupsProcessor check
       OPERATION_STATUS=$?
       [ "$OPERATION_STATUS" -eq 0 ] && return 0
       return 2
