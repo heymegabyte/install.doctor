@@ -50,7 +50,7 @@ async function exactInput(runId, authorityRoot, helperPath, runtimePath, workerP
     executionPolicy: { maxConcurrency: 1, resourceLimits: { cpu: 2, memoryMiB: 1024, networkConcurrency: 0 } } },
   facts, composed.desiredState, 'controller-release', now.toISOString());
   const artifact = (artifactId, value, file) => ({ artifactId, url: `https://desktop.tools/${artifactId}`,
-    sourcePath: join(authorityRoot, file), sha256: hash(value), sizeBytes: 10, mode: '0600' });
+    sourcePath: join(authorityRoot, file), sha256: hash(value), sizeBytes: Buffer.byteLength(value), mode: '0600' });
   return derivePrivilegedBrokerAuthority({
     schemaVersion: 1, approvalMode: 'trusted-local', runId, approvedPlanDigest: plan.digest, plan, operations: composed.operations.operations,
     desiredState: composed.desiredState, hostFacts: facts, descriptor: payload,
