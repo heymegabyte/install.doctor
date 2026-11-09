@@ -570,6 +570,32 @@ test('load-plan CLI emits a stable nonmutating lazy/eager closure report', async
   assert.equal(report.items.find(item => item.name === 'optional').selectionReason, 'unselected-lazy');
 });
 
+test('normal CLI rejects native package operations without the approved privileged broker', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'desktop-tools-native-cli-authority-'));
+  const invocationPath = join(directory, 'invocation.json');
+  const operation = action => ({ kind: 'native-package', effectClass: 'native-package', action,
+    packageKey: 'tree', payloadArtifactId: 'tree-deb-bookworm-amd64', installedWitnesses: [{
+      kind: 'preexisting-witness', manager: 'dpkg', packageName: 'libc6', minimumVersion: '2.34', architecture: 'amd64',
+    }] });
+  const task = { schemaVersion: 1, id: 'package.native.tree', inputDigest: digest('a'), dependencies: [], predicate: 'host-supported',
+    requiredCapabilities: [], operations: { check: 'native-check', apply: 'native-apply', verify: 'native-verify' }, timeoutMs: 300_000,
+    retry: { class: 'never', maxAttempts: 1, backoffMs: 0 }, resources: { cpu: 1, memoryMiB: 256, network: false },
+    privilege: 'admin', network: 'none', consent: 'package-install', lockDomains: ['package-manager.dpkg'], cleanup: 'none',
+    compensation: 'none', failurePolicy: 'abort-run' };
+  const invocation = { schemaVersion: 1, command: 'plan', runId: 'native-authority-reject', releaseId: 'release-1',
+    facts: { schemaVersion: 1, hostId: 'native-host', collectedAt: '2026-11-08T00:00:00.000Z', os: 'linux', osVersion: '12',
+      arch: 'x64', environment: 'native', roles: ['workstation'], packageManagers: ['dpkg'], capabilities: [] },
+    desiredState: { schemaVersion: 1, revision: 'revision-1', hostId: 'native-host', packages: ['tree'], services: [],
+      consents: ['package-install'], offline: false },
+    plan: { tasks: [task], selectedTaskIds: [task.id] },
+    operations: { 'native-check': operation('check'), 'native-apply': operation('apply'), 'native-verify': operation('verify') } };
+  await writeFile(invocationPath, `${JSON.stringify(invocation)}\n`, { mode: 0o600 });
+  const cli = new URL('../dist/cli.js', import.meta.url).pathname;
+  await assert.rejects(execute(process.execPath, [cli, '--input', invocationPath], {
+    env: { PATH: process.env.PATH ?? '' }, timeout: 5_000,
+  }), error => error.code === 4 && /require the approved privileged broker/i.test(error.stderr));
+});
+
 test('runs-list is read-only when no run evidence exists', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'install-doctor-engine-runs-list-'));
   const stateRoot = join(directory, 'state');

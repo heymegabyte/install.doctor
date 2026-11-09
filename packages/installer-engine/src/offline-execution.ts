@@ -91,7 +91,7 @@ export function validateNativePackageWitnessClosure(input: {
   });
   return validateDebianDependencyClosure({ rootPackageKey: input.rootPackageKey, descriptors, compareVersions: input.compareDebianVersions });
 }
-const nativePackageOperation = z.strictObject({
+export const NativePackageOperationSchema = z.strictObject({
   kind: z.literal('native-package'),
   effectClass: z.literal('native-package'),
   action: z.enum(['check', 'apply', 'verify']),
@@ -107,7 +107,7 @@ const nativeServiceOperation = z.strictObject({
   unit: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9_.@:-]{0,126}\.service$/),
   desiredState: z.enum(['enabled', 'disabled', 'started', 'stopped']),
 });
-const operation = z.discriminatedUnion('kind', [processOperation, managedFileOperation, nativePackageOperation, nativeServiceOperation]);
+const operation = z.discriminatedUnion('kind', [processOperation, managedFileOperation, NativePackageOperationSchema, nativeServiceOperation]);
 const configurationRoot = z.string().min(1).max(4096).refine(
   value => isAbsolute(value) && normalize(value) === value && dirname(value) !== value && !value.includes('\0'),
   'configuration root must be a canonical absolute non-root path',

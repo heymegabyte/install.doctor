@@ -210,6 +210,10 @@ export async function verifyDesktopReleaseCatalog(input: {
   trust: OfflineBundleTrust;
   expectedReleaseId: string;
   catalogBytes: Buffer;
+  nativeAuthority?: {
+    descriptor: z.infer<typeof NativeOfflinePayloadDescriptorSchema>;
+    artifacts: readonly { artifactId: string; url: string; authority: { sha256: string; sizeBytes: number; mode: '0600' } }[];
+  };
   now?: number;
 }): Promise<{ releaseId: string; catalogSha256: string; manifestSha256: string }> {
   const manifestBytes = await secureRead(input.manifestPath, 16_384);
@@ -219,7 +223,6 @@ export async function verifyDesktopReleaseCatalog(input: {
   const text = new TextDecoder('utf-8', { fatal: true }).decode(manifestBytes);
   if (!text.endsWith('\n') || text.includes('\r') || text.includes('\0')) throw new OfflineBundleError('signed release manifest encoding is invalid');
   const lines = text.slice(0, -1).split('\n');
-  if (lines.length !== 64) throw new OfflineBundleError('signed release manifest key count is invalid');
   const values = new Map<string, string>();
   for (const line of lines) {
     const separator = line.indexOf('=');
@@ -228,8 +231,13 @@ export async function verifyDesktopReleaseCatalog(input: {
     if (!/^[a-z][a-z0-9_]*$/.test(key) || !value || values.has(key)) throw new OfflineBundleError('signed release manifest is ambiguous');
     values.set(key, value);
   }
+  const schemaVersion = values.get('schema_version');
+  if ((schemaVersion === '7' && lines.length !== 64) || (schemaVersion === '8' && lines.length !== 76)
+    || (schemaVersion !== '7' && schemaVersion !== '8')) {
+    throw new OfflineBundleError('signed release manifest key count or schema is invalid');
+  }
   const releaseId = id.parse(values.get('release_id'));
-  if (values.get('schema_version') !== '7' || values.get('product_id') !== 'desktop-tools'
+  if (values.get('product_id') !== 'desktop-tools'
     || values.get('key_id') !== trust.keyId || releaseId !== id.parse(input.expectedReleaseId)) {
     throw new OfflineBundleError('signed release identity is not trusted');
   }
@@ -245,6 +253,40 @@ export async function verifyDesktopReleaseCatalog(input: {
     || !Number.isSafeInteger(catalogSize) || catalogSize < 2 || catalogSize > 8_388_608
     || input.catalogBytes.byteLength !== catalogSize || sha256(input.catalogBytes) !== catalogSha256) {
     throw new OfflineBundleError('catalog is not an exact member of the authenticated release');
+  }
+  if (input.nativeAuthority) {
+    if (schemaVersion !== '8' || input.nativeAuthority.artifacts.length !== 4) {
+      throw new OfflineBundleError('native Debian authority requires the signed schema-v8 release closure');
+    }
+    let catalog;
+    try { catalog = z.array(LoadCatalogEntrySchema).max(16_384).parse(JSON.parse(input.catalogBytes.toString('utf8'))); }
+    catch { throw new OfflineBundleError('signed release catalog is not a valid strict catalog'); }
+    const signedDescriptor = catalog.flatMap(entry => entry.offlinePayloads)
+      .find(candidate => candidate.packageKey === input.nativeAuthority?.descriptor.packageKey
+        && candidate.platform.os === input.nativeAuthority?.descriptor.platform.os
+        && candidate.platform.arch === input.nativeAuthority?.descriptor.platform.arch);
+    if (!signedDescriptor || JSON.stringify(canonical(signedDescriptor)) !== JSON.stringify(canonical(input.nativeAuthority.descriptor))) {
+      throw new OfflineBundleError('native Debian descriptor is not an exact signed catalog member');
+    }
+    const descriptor = input.nativeAuthority.descriptor;
+    const prefixes = new Map([
+      [descriptor.metadataProof.inRelease.artifactId, 'debian_inrelease'],
+      [descriptor.metadataProof.inRelease.keyring.artifactId, 'debian_keyring'],
+      [descriptor.metadataProof.packagesIndex.artifactId, 'debian_packages'],
+      [descriptor.artifact.id, 'debian_tree'],
+    ]);
+    if (prefixes.size !== 4 || new Set(input.nativeAuthority.artifacts.map(item => item.artifactId)).size !== 4) {
+      throw new OfflineBundleError('native Debian release object identifiers are not exact');
+    }
+    for (const artifact of input.nativeAuthority.artifacts) {
+      const prefix = prefixes.get(artifact.artifactId);
+      if (!prefix || artifact.authority.mode !== '0600'
+        || values.get(`${prefix}_url`) !== artifact.url
+        || values.get(`${prefix}_sha256`) !== artifact.authority.sha256
+        || Number(values.get(`${prefix}_size`)) !== artifact.authority.sizeBytes) {
+        throw new OfflineBundleError(`native Debian object is not an exact member of the authenticated release: ${artifact.artifactId}`);
+      }
+    }
   }
   return Object.freeze({ releaseId, catalogSha256, manifestSha256: sha256(manifestBytes) });
 }

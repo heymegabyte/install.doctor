@@ -18,7 +18,7 @@ import { executeSudoCredentialCleanup } from './sudo-credential-cleanup.js';
 import { JournalIntegrityError, LiveOwnerError, createJournalStore } from './journal.js';
 import { resolvePlatformProcessIdentity } from './process-identity.js';
 import { applyOfflineBundle, createOfflineBundle, planOfflineBundle, verifyOfflineBundle } from './offline-bundle.js';
-import { validateOfflineExecutionClosure } from './offline-execution.js';
+import { NativePackageOperationSchema, validateOfflineExecutionClosure } from './offline-execution.js';
 import { executeOfflineBundle } from './offline-orchestrator.js';
 import { createDefaultDebianMetadataVerifier } from './debian-gpgv.js';
 import { createTrustedDebianVersionComparator } from './debian-version.js';
@@ -118,7 +118,7 @@ const ManagedArtifactOperationSchema = z.strictObject({
   }
 });
 const OperationSchema = z.union([ManagedFileOperationSchema, ManagedDirectoryOperationSchema, ManagedArtifactOperationSchema,
-  SudoCredentialCleanupOperationSchema, ProcessOperationSchema]);
+  SudoCredentialCleanupOperationSchema, NativePackageOperationSchema, ProcessOperationSchema]);
 const PlanDraftSchema = z.strictObject({
   tasks: z.array(TaskNodeSchema).max(10_000),
   selectedTaskIds: z.array(identifier).max(10_000).refine(values => new Set(values).size === values.length, 'duplicate selected task identifiers'),
@@ -248,6 +248,11 @@ const RollbackStatusInvocationSchema = z.strictObject({
   stateRoot: z.string().min(1).max(4096).refine(isAbsolute, 'state root must be absolute'),
 });
 const LoadPlanInvocationSchema = LoadPlanInputSchema.extend({ command: z.literal('load-plan') }).strict();
+const NativeDebianWitnessSchema = z.strictObject({
+  kind: z.literal('preexisting-witness'), manager: z.literal('dpkg'), packageName: z.literal('libc6'),
+  version: z.string().min(1).max(128), architecture: z.literal('amd64'), status: z.literal('installed'),
+  healthy: z.literal(true), held: z.literal(false),
+});
 const NativeDebianDeriveInvocationSchema = z.strictObject({
   schemaVersion: z.literal(1), command: z.literal('native-debian-derive'),
   loadPlan: LoadPlanReportSchema,
@@ -256,11 +261,7 @@ const NativeDebianDeriveInvocationSchema = z.strictObject({
   target: z.strictObject({
     distroId: z.literal('debian'), versionId: z.literal('12'), codename: z.literal('bookworm'), architecture: z.literal('amd64'),
   }),
-  installedWitnesses: z.array(z.strictObject({
-    kind: z.literal('preexisting-witness'), manager: z.literal('dpkg'), packageName: z.literal('libc6'),
-    version: z.string().min(1).max(128), architecture: z.literal('amd64'), status: z.literal('installed'),
-    healthy: z.literal(true), held: z.literal(false),
-  })).length(1),
+  installedWitnesses: z.array(NativeDebianWitnessSchema).length(1),
   desiredState: DesiredStateInputSchema,
   legacyPackages: z.array(z.string().min(1).max(128).regex(/^[a-z0-9][a-z0-9.+-]*(?::[a-z0-9][a-z0-9-]*)?$/)).max(4096),
 });
@@ -594,7 +595,7 @@ const telemetryTransport: TelemetryTransport = async ({ endpoint, batch, signal 
   if (!response.ok) throw new Error(`telemetry collector returned HTTP ${response.status}`);
 };
 
-function adapterFor(invocation: OperationInvocation): InstallerAdapter {
+function baseAdapterFor(invocation: OperationInvocation): InstallerAdapter {
   const digestOpenFile = async (handle: Awaited<ReturnType<typeof open>>, size: number): Promise<string> => {
     if (!Number.isSafeInteger(size) || size < 1 || size > 16 * 1024 * 1024) {
       throw new Error('verified executable size is outside the 1 byte to 16 MiB boundary');
@@ -857,6 +858,9 @@ function adapterFor(invocation: OperationInvocation): InstallerAdapter {
       });
       return 0;
     }
+    if (selected.kind === 'native-package') {
+      throw new Error('native package operation requires the approved privileged broker');
+    }
     let verifiedHandle: Awaited<ReturnType<typeof open>> | undefined;
     const executionArgv = [...selected.argv];
     if (selected.verifiedExecutable) {
@@ -922,6 +926,14 @@ function adapterFor(invocation: OperationInvocation): InstallerAdapter {
       throw new Error(`verify operation failed with exit ${code}`);
     },
   };
+}
+
+async function adapterFor(invocation: OperationInvocation): Promise<InstallerAdapter> {
+  const nativeOperationCount = Object.values(invocation.operations).filter(operation => operation.kind === 'native-package').length;
+  if (nativeOperationCount !== 0) {
+    throw new Error('native package operations require the approved privileged broker');
+  }
+  return baseAdapterFor(invocation);
 }
 
 async function loadCommittedRollbackSource(input: {
@@ -1237,8 +1249,9 @@ async function main(): Promise<void> {
       bootId: processIdentity.bootId, processStart: processIdentity.processStart,
     }) : undefined;
     const executionPolicy = invocation.plan.executionPolicy;
+    const adapter = await adapterFor(invocation);
     const engine = createInstallerEngine({
-      adapter: adapterFor(invocation), ...(journal ? { journal } : {}),
+      adapter, ...(journal ? { journal } : {}),
       maxConcurrency: executionPolicy.maxConcurrency,
       resourceLimits: executionPolicy.resourceLimits,
       ...('telemetry' in invocation && invocation.telemetry ? {
