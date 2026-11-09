@@ -58,6 +58,7 @@ runScenario() {
     setCIEnvironmentVariables() { :; }
     applyEnvClassDefaults() { :; }
     idResolvePlatform() { :; }
+    idNormalizeOfflineMode() { INSTALL_DOCTOR_OFFLINE=false; export INSTALL_DOCTOR_OFFLINE; }
     idAuthorizePlatform() { :; }
     collectInputsUpfront() { :; }
     ensureWarpDisconnected() { :; }

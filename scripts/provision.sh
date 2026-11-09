@@ -1857,6 +1857,96 @@ NODE
   export INSTALL_DOCTOR_CATALOG_PATH INSTALL_DOCTOR_CATALOG_SHA256
 }
 
+# @description Normalize the offline selector before any input, sudo, network,
+#     agent, or ordinary desired-state work can occur.
+idNormalizeOfflineMode() {
+  case "${INSTALL_DOCTOR_OFFLINE:-false}" in
+    true|false) ;;
+    *) logg error 'INSTALL_DOCTOR_OFFLINE must be exactly true or false'; return 2 ;;
+  esac
+  export INSTALL_DOCTOR_OFFLINE
+}
+
+# @description Execute an independently authorized signed offline bundle. The
+#     authority document is the sole approval source; bundle metadata is never
+#     allowed to approve itself. Failure is terminal and never falls back to the
+#     ordinary provisioning graph.
+runOfflineBundleProvisioning() {
+  local ENGINE="${INSTALL_DOCTOR_ENGINE_PATH:-}" RUNTIME="${INSTALL_DOCTOR_RUNTIME_NODE:-}"
+  local BUNDLE="${INSTALL_DOCTOR_OFFLINE_BUNDLE_DIR:-}" AUTHORITY="${INSTALL_DOCTOR_OFFLINE_AUTHORITY_PATH:-}"
+  local MODE="${INSTALL_DOCTOR_OFFLINE_MODE:-execute}" RUN_ID="${INSTALL_DOCTOR_OFFLINE_RUN_ID:-}"
+  local RENDERER="${INSTALL_DOCTOR_RENDERER:-}" STATE_BASE INVOCATION_DIR VERIFY_INPUT PLAN_INPUT PLAN_OUTPUT
+  local APPLY_INPUT EXECUTE_INPUT MATERIALIZED_ROOT ENGINE_STATE MANIFEST_DIGEST ACTUAL_SHA STATUS
+  [ -n "$ENGINE" ] && [ -f "$ENGINE" ] && [ ! -L "$ENGINE" ] || { logg error 'Verified installer engine is unavailable'; return 2; }
+  [ -n "$RUNTIME" ] && [ -f "$RUNTIME" ] && [ ! -L "$RUNTIME" ] && [ -x "$RUNTIME" ] \
+    || { logg error 'Verified installer Node runtime is unavailable'; return 2; }
+  [ -n "$BUNDLE" ] && [ "${BUNDLE#/}" != "$BUNDLE" ] && [ -d "$BUNDLE" ] && [ ! -L "$BUNDLE" ] \
+    || { logg error 'Offline bundle directory must be an absolute real directory'; return 2; }
+  [ -n "$AUTHORITY" ] && [ "${AUTHORITY#/}" != "$AUTHORITY" ] && [ -f "$AUTHORITY" ] && [ ! -L "$AUTHORITY" ] \
+    || { logg error 'Offline authority must be an absolute regular file'; return 2; }
+  case "$MODE" in execute|resume) ;; *) logg error 'Offline mode must be execute or resume'; return 2 ;; esac
+  case "$RUN_ID" in ''|*[!A-Za-z0-9._-]*) logg error 'Offline run identifier is missing or invalid'; return 2 ;; esac
+  if [ -z "$RENDERER" ]; then
+    if [ -n "${HEADLESS_INSTALL:-}" ] || [ ! -t 1 ]; then RENDERER=headless; else RENDERER=tui; fi
+  fi
+  case "$RENDERER" in plain|json|ndjson|headless|ci|tui) ;; *) logg error 'Offline renderer is invalid'; return 2 ;; esac
+  ACTUAL_SHA="$(idSha256File "$ENGINE")" || return 2
+  [ -n "${INSTALL_DOCTOR_ENGINE_SHA256:-}" ] && [ "$ACTUAL_SHA" = "$INSTALL_DOCTOR_ENGINE_SHA256" ] \
+    || { logg error 'Installer engine checksum changed after release verification'; return 2; }
+
+  STATE_BASE="${XDG_STATE_HOME:-$HOME/.local/state}/install.doctor/offline"
+  [ ! -L "$STATE_BASE" ] && [ ! -L "$STATE_BASE/invocations" ] && [ ! -L "$STATE_BASE/materialized" ] \
+    && [ ! -L "$STATE_BASE/engine" ] || { logg error 'Offline state paths must not be symbolic links'; return 2; }
+  umask 077
+  mkdir -p "$STATE_BASE/invocations" || return 1
+  chmod 0700 "$STATE_BASE" "$STATE_BASE/invocations" || return 1
+  INVOCATION_DIR="$(mktemp -d "$STATE_BASE/invocations/bundle.XXXXXX")" || return 1
+  chmod 0700 "$INVOCATION_DIR" || { rmdir "$INVOCATION_DIR" 2>/dev/null || true; return 1; }
+  VERIFY_INPUT="$INVOCATION_DIR/verify.json"; PLAN_INPUT="$INVOCATION_DIR/plan.json"; PLAN_OUTPUT="$INVOCATION_DIR/plan-output.json"
+  APPLY_INPUT="$INVOCATION_DIR/apply.json"; EXECUTE_INPUT="$INVOCATION_DIR/execute.json"
+
+  "$RUNTIME" - "$AUTHORITY" "$BUNDLE" "$VERIFY_INPUT" "$PLAN_INPUT" <<'NODE' || { rm -rf -- "$INVOCATION_DIR"; return 2; }
+const fs = require('node:fs');
+const [authorityPath,bundleDirectory,verifyPath,planPath]=process.argv.slice(2);
+const stat=fs.lstatSync(authorityPath); const uid=process.getuid?.();
+if(!stat.isFile()||stat.isSymbolicLink()||stat.nlink!==1||(stat.mode&0o022)!==0||(stat.uid!==0&&stat.uid!==uid)) throw new Error('offline authority file is unsafe');
+const a=JSON.parse(fs.readFileSync(authorityPath,'utf8'));
+const keys=Object.keys(a).sort().join(',');
+if(keys!=='approvedManifestDigest,approvedPlanDigest,expected,releaseTrust,trust') throw new Error('offline authority fields are invalid');
+const write=(path,value)=>fs.writeFileSync(path,`${JSON.stringify(value)}\n`,{mode:0o600,flag:'wx'});
+write(verifyPath,{schemaVersion:2,command:'bundle-verify',bundleDirectory,trust:a.trust,releaseTrust:a.releaseTrust});
+write(planPath,{schemaVersion:2,command:'bundle-plan',bundleDirectory,trust:a.trust,releaseTrust:a.releaseTrust,expected:a.expected});
+NODE
+  env -i HOME="$HOME" PATH="/usr/bin:/bin" LANG="${LANG:-C.UTF-8}" "$RUNTIME" "$ENGINE" --input "$VERIFY_INPUT" >/dev/null \
+    || { STATUS=$?; rm -rf -- "$INVOCATION_DIR"; return "$STATUS"; }
+  env -i HOME="$HOME" PATH="/usr/bin:/bin" LANG="${LANG:-C.UTF-8}" "$RUNTIME" "$ENGINE" --input "$PLAN_INPUT" > "$PLAN_OUTPUT" \
+    || { STATUS=$?; rm -rf -- "$INVOCATION_DIR"; return "$STATUS"; }
+  MANIFEST_DIGEST="$("$RUNTIME" - "$AUTHORITY" "$PLAN_OUTPUT" <<'NODE'
+const fs=require('node:fs'); const [aPath,pPath]=process.argv.slice(2); const a=JSON.parse(fs.readFileSync(aPath)); const p=JSON.parse(fs.readFileSync(pPath));
+if(p.manifestDigest!==a.approvedManifestDigest||p.manifest?.planDigest!==a.approvedPlanDigest) throw new Error('offline approval digest mismatch');
+process.stdout.write(p.manifestDigest);
+NODE
+)" || { rm -rf -- "$INVOCATION_DIR"; logg error 'Offline bundle does not match exact approval'; return 2; }
+  MATERIALIZED_ROOT="$STATE_BASE/materialized/$MANIFEST_DIGEST"; ENGINE_STATE="$STATE_BASE/engine"
+  if [ "$MODE" = execute ] && [ ! -e "$MATERIALIZED_ROOT" ]; then
+    mkdir -p "$STATE_BASE/materialized" || { rm -rf -- "$INVOCATION_DIR"; return 1; }
+    "$RUNTIME" - "$AUTHORITY" "$BUNDLE" "$MATERIALIZED_ROOT" "$APPLY_INPUT" <<'NODE' || { rm -rf -- "$INVOCATION_DIR"; return 2; }
+const fs=require('node:fs'); const [aPath,bundleDirectory,destinationDirectory,out]=process.argv.slice(2); const a=JSON.parse(fs.readFileSync(aPath));
+fs.writeFileSync(out,`${JSON.stringify({schemaVersion:2,command:'bundle-apply',bundleDirectory,destinationDirectory,trust:a.trust,releaseTrust:a.releaseTrust,expected:a.expected,approvedManifestDigest:a.approvedManifestDigest,offline:true,networkPolicy:'deny'})}\n`,{mode:0o600,flag:'wx'});
+NODE
+    env -i HOME="$HOME" PATH="/usr/bin:/bin" LANG="${LANG:-C.UTF-8}" "$RUNTIME" "$ENGINE" --input "$APPLY_INPUT" >/dev/null \
+      || { STATUS=$?; rm -rf -- "$INVOCATION_DIR"; return "$STATUS"; }
+  fi
+  "$RUNTIME" - "$AUTHORITY" "$BUNDLE" "$MATERIALIZED_ROOT" "$ENGINE_STATE" "$RUN_ID" "$RENDERER" "$MODE" "$EXECUTE_INPUT" <<'NODE' || { rm -rf -- "$INVOCATION_DIR"; return 2; }
+const fs=require('node:fs'); const [aPath,bundleDirectory,materializedRoot,stateRoot,runId,renderer,mode,out]=process.argv.slice(2); const a=JSON.parse(fs.readFileSync(aPath));
+fs.writeFileSync(out,`${JSON.stringify({schemaVersion:2,command:mode==='resume'?'bundle-resume':'bundle-execute',runId,bundleDirectory,materializedRoot,stateRoot,trust:a.trust,releaseTrust:a.releaseTrust,expected:a.expected,approvedManifestDigest:a.approvedManifestDigest,approvedPlanDigest:a.approvedPlanDigest,renderer,offline:true,networkPolicy:'deny'})}\n`,{mode:0o600,flag:'wx'});
+NODE
+  env -i HOME="$HOME" PATH="/usr/bin:/bin" LANG="${LANG:-C.UTF-8}" "$RUNTIME" "$ENGINE" --input "$EXECUTE_INPUT"
+  STATUS=$?
+  rm -rf -- "$INVOCATION_DIR"
+  return "$STATUS"
+}
+
 # @description Execute the desired-state apply through the signed canonical engine.
 runCanonicalProvisionEngine() {
   local MODE="${1:-apply}" ENGINE="${INSTALL_DOCTOR_ENGINE_PATH:-}" PROVISIONER INVOCATION INVOCATION_DIR NORMALIZED_PLAN APPROVAL_PLAN EVIDENCE_INVOCATION EVIDENCE_RESULT CLEANUP_EVIDENCE_INVOCATION CLEANUP_EVIDENCE_RESULT RUNS_INVOCATION RUNS_RESULT RESUME_RUN_ID STATE_ROOT NODE_MAJOR EXPECTED_NODE RENDERER GENERATE_STATUS ENGINE_STATUS EVIDENCE_STATUS CLEANUP_EVIDENCE_STATUS PLAN_DIGEST APPROVAL ACTUAL_SHA
@@ -3597,6 +3687,13 @@ provisionLogic() {
   idRunRequiredProvisionStep "Handling CI variables" setCIEnvironmentVariables || return $?
   idRunRequiredProvisionStep "Applying env-class defaults" applyEnvClassDefaults || return $?
   idRunRequiredProvisionStep "Resolving the exact host against signed platform policy" idResolvePlatform || return $?
+  idRunRequiredProvisionStep "Validating offline execution selection" idNormalizeOfflineMode || return $?
+  if [ "$INSTALL_DOCTOR_OFFLINE" = true ]; then
+    idRunRequiredProvisionStep "Ensuring the signed installer Node runtime" ensureProvisionerNodeRuntime || return $?
+    idRunRequiredProvisionStep "Executing the independently approved offline bundle" runOfflineBundleProvisioning || return $?
+    idEmitProvisionStatus provision success 0
+    return 0
+  fi
   idRunRequiredProvisionStep "Collecting required inputs up front" collectInputsUpfront || return $?
   idRunRequiredProvisionStep "Ensuring the signed installer Node runtime" ensureProvisionerNodeRuntime || return $?
   idRunRequiredProvisionStep "Reconciling stale sudo acquisition ownership" idReconcileStaleSudoOwnership || return $?
