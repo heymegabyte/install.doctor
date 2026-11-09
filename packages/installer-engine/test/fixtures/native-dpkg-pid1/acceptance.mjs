@@ -411,6 +411,10 @@ process.stdout.write(JSON.stringify({check,apply:'applied',verify})+'\\n');
       const executed = await command('/usr/bin/setpriv', [`--reuid=${enrolledUid}`, `--regid=${enrolledGid}`, '--clear-groups',
         process.execPath, clientPath, clientInputPath, clientPayloadPath]);
       clientReceipt = JSON.parse(executed.stdout);
+      // The production controller owns broker lifetime and already treats SIGTERM as a graceful,
+      // cleanup-verifying retirement request. End this disposable acceptance lifecycle immediately
+      // after its exact check/apply/verify client completes instead of waiting for grant expiry.
+      process.emit('SIGTERM');
     },
   });
   assert.equal(result.exitCode, 0);
