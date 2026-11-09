@@ -97,12 +97,20 @@ export async function createPrivilegedBrokerStore(input: {
     async publishGrant(inputGrant: unknown, inputApproval: unknown) {
       const grant = PrivilegedBrokerGrantSchema.parse(inputGrant);
       const approval = PrivilegedBrokerApprovalEvidenceSchema.parse(inputApproval);
-      if (approval.hostId !== grant.hostId || approval.runId !== grant.runId
-        || approval.planDigest !== grant.planDigest || approval.consentDigest !== grant.consentDigest) {
+      const grantDigest = privilegedBrokerDigest(grant);
+      if (approval.grantId !== grant.grantId || approval.grantDigest !== grantDigest
+        || approval.hostId !== grant.hostId || approval.releaseId !== grant.releaseId
+        || approval.runId !== grant.runId || approval.planDigest !== grant.planDigest
+        || approval.enrolledUid !== grant.enrolledUid
+        || approval.brokerExecutableDigest !== grant.brokerExecutableDigest
+        || approval.runtimeDigest !== grant.runtimeDigest || approval.workerDigest !== grant.workerDigest
+        || approval.descriptorDigest !== grant.descriptorDigest || approval.closureDigest !== grant.closureDigest
+        || approval.consentDigest !== grant.consentDigest
+        || Date.parse(approval.approvedAt) > Date.parse(grant.issuedAt)) {
         throw new Error('privileged broker approval evidence differs from the exact grant');
       }
       if (!await input.verifyApproval(approval)) throw new Error('privileged broker approval evidence was not independently verified');
-      const digest = privilegedBrokerDigest(grant);
+      const digest = grantDigest;
       const path = join(grants, `${grant.grantId}.json`);
       const created = await writeExclusive(path, Buffer.from(`${JSON.stringify(grant)}\n`, 'utf8'));
       if (!created) {

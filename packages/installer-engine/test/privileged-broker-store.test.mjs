@@ -3,6 +3,7 @@ import { chmod, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
+import { privilegedBrokerDigest } from '../dist/privileged-broker-protocol.js';
 import { createPrivilegedBrokerStore } from '../dist/privileged-broker-store.js';
 
 const hex = character => character.repeat(64);
@@ -19,10 +20,15 @@ function grant(overrides = {}) {
   };
 }
 
-function approval(overrides = {}) {
+function approval(overrides = {}, exactGrant = grant()) {
   return {
     schemaVersion: 1, approvalId: 'approval-1', method: 'signed-device',
-    hostId: 'host-1', runId: 'run-1', planDigest: hex('a'), consentDigest: hex('d'),
+    grantId: exactGrant.grantId, grantDigest: privilegedBrokerDigest(exactGrant),
+    hostId: exactGrant.hostId, releaseId: exactGrant.releaseId, runId: exactGrant.runId,
+    planDigest: exactGrant.planDigest, enrolledUid: exactGrant.enrolledUid,
+    brokerExecutableDigest: exactGrant.brokerExecutableDigest, runtimeDigest: exactGrant.runtimeDigest,
+    workerDigest: exactGrant.workerDigest, descriptorDigest: exactGrant.descriptorDigest,
+    closureDigest: exactGrant.closureDigest, consentDigest: exactGrant.consentDigest,
     evidenceDigest: hex('9'), approvedAt: '2026-11-08T12:00:00.000Z', ...overrides,
   };
 }
@@ -32,6 +38,7 @@ test('root-side store publishes idempotent exact grants and durably consumes eac
   t.after(() => rm(temporary, { recursive: true, force: true }));
   const root = join(temporary, 'authority');
   const store = await createPrivilegedBrokerStore({ root, ownerUid: uid, verifyApproval: async evidence => evidence.evidenceDigest === hex('9') });
+  await assert.rejects(store.publishGrant(grant(), approval({ workerDigest: hex('f') })), /differs from the exact grant/);
   const first = await store.publishGrant(grant(), approval());
   const repeated = await store.publishGrant(grant(), approval());
   const reopened = await createPrivilegedBrokerStore({ root, ownerUid: uid, verifyApproval: async () => false });
@@ -42,8 +49,10 @@ test('root-side store publishes idempotent exact grants and durably consumes eac
   assert.equal(await store.consumeNonce('grant-1', nonce, hex('e')), true);
   assert.equal(await store.consumeNonce('grant-1', nonce, hex('e')), false);
   assert.equal(await readFile(join(root, 'nonces', 'grant-1', nonce), 'ascii'), `${hex('e')}\n`);
-  await assert.rejects(store.publishGrant(grant({ consentDigest: hex('f') }), approval({ consentDigest: hex('f') })), /identifier collision/);
-  await assert.rejects(store.publishGrant(grant({ grantId: 'grant-2' }), approval({ evidenceDigest: hex('8') })), /not independently verified/);
+  const colliding = grant({ consentDigest: hex('f') });
+  await assert.rejects(store.publishGrant(colliding, approval({}, colliding)), /identifier collision/);
+  const rejected = grant({ grantId: 'grant-2' });
+  await assert.rejects(store.publishGrant(rejected, approval({ evidenceDigest: hex('8') }, rejected)), /not independently verified/);
 });
 
 test('root-side store rejects writable and tampered authority', async t => {

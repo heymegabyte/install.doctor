@@ -12,6 +12,7 @@ import {
   privilegedBrokerExecutionAuthorityDigest,
 } from '../dist/privileged-broker-authority.js';
 import { createPrivilegedBrokerStore } from '../dist/privileged-broker-store.js';
+import { privilegedBrokerDigest } from '../dist/privileged-broker-protocol.js';
 
 const hash = value => createHash('sha256').update(value).digest('hex');
 const compare = (left, right) => left.localeCompare(right, undefined, { numeric: true });
@@ -55,7 +56,7 @@ async function fixture() {
       { artifactId: 'packages', url: 'https://desktop.tools/releases/release-1/packages', sourcePath: '/run/desktop-tools/release/packages', sha256: hash('packages'), sizeBytes: 10, mode: '0600' },
       { artifactId: 'release', url: 'https://desktop.tools/releases/release-1/inrelease', sourcePath: '/run/desktop-tools/release/inrelease', sha256: hash('release'), sizeBytes: 10, mode: '0600' },
       { artifactId: 'tree-deb', url: 'https://desktop.tools/releases/release-1/tree.deb', sourcePath: '/run/desktop-tools/release/tree.deb', sha256: hash('tree'), sizeBytes: 10, mode: '0600' },
-    ], transactionRoot: '/run/desktop-tools/privileged/transactions/run-1',
+    ], transactionRoot: '/var/lib/desktop-tools/transactions/run-1',
   };
   return { authority: PrivilegedBrokerExecutionAuthoritySchema.parse(authority), plan, payload };
 }
@@ -72,8 +73,12 @@ test('root execution authority is exact, grant-bound, create-only, and independe
     operations: Object.entries(authority.operations.operations).map(([operationId, operation]) => ({ taskId: authority.plan.selectedTaskIds[0], operationId, phase: operation.action })),
     descriptorDigest: privilegedBrokerDescriptorDigest(payload), closureDigest, consentDigest: '2'.repeat(64),
     issuedAt: '2026-11-08T12:00:00.000Z', expiresAt: '2026-11-08T12:05:00.000Z' };
-  const approval = { schemaVersion: 1, approvalId: 'approval-1', method: 'signed-device', hostId: 'host-1', runId: 'run-1',
-    planDigest: plan.digest, consentDigest: grant.consentDigest, evidenceDigest: '3'.repeat(64), approvedAt: '2026-11-08T12:00:00.000Z' };
+  const approval = { schemaVersion: 1, approvalId: 'approval-1', method: 'signed-device',
+    grantId: grant.grantId, grantDigest: privilegedBrokerDigest(grant), hostId: grant.hostId, releaseId: grant.releaseId,
+    runId: grant.runId, planDigest: plan.digest, enrolledUid: grant.enrolledUid,
+    brokerExecutableDigest: grant.brokerExecutableDigest, runtimeDigest: grant.runtimeDigest, workerDigest: grant.workerDigest,
+    descriptorDigest: grant.descriptorDigest, closureDigest: grant.closureDigest,
+    consentDigest: grant.consentDigest, evidenceDigest: '3'.repeat(64), approvedAt: '2026-11-08T12:00:00.000Z' };
   await store.publishGrant(grant, approval);
   const published = await store.publishAuthority('grant-1', authority);
   assert.equal(published.digest, closureDigest);

@@ -58,6 +58,11 @@ type workerEnvelope struct {
 	Request       json.RawMessage `json:"request"`
 }
 
+type requestRejection struct{ cause error }
+
+func (rejection *requestRejection) Error() string { return rejection.cause.Error() }
+func reject(cause error) error                    { return &requestRejection{cause: cause} }
+
 func Serve(ctx context.Context, config ServerConfig) error {
 	if config.RequestCount < 1 || config.RequestCount > 256 || config.Timeout <= 0 || config.Timeout > 30*time.Minute {
 		return errors.New("server request count or timeout is outside the supported boundary")
@@ -80,10 +85,20 @@ func Serve(ctx context.Context, config ServerConfig) error {
 		syscall.Close(listener)
 		_ = os.Remove(config.SocketPath)
 	}()
-	for count := 0; count < config.RequestCount; count++ {
+	served, rejected := 0, 0
+	for served < config.RequestCount {
 		if err := serveOne(ctx, listener, runtime, worker, config); err != nil {
+			var denied *requestRejection
+			if errors.As(err, &denied) {
+				rejected++
+				if rejected > 32 {
+					return errors.New("broker exceeded its rejected-request boundary")
+				}
+				continue
+			}
 			return err
 		}
+		served++
 	}
 	return nil
 }
@@ -171,22 +186,23 @@ func serveOne(parent context.Context, listener int, runtime, worker *os.File, co
 	defer syscall.Close(connection)
 	credential, err := syscall.GetsockoptUcred(connection, syscall.SOL_SOCKET, syscall.SO_PEERCRED)
 	if err != nil || credential.Uid != config.ExpectedUID {
-		return errors.New("broker client uid differs from the enrolled uid")
+		writeError(connection)
+		return reject(errors.New("broker client uid differs from the enrolled uid"))
 	}
 	requestBytes, payloadFD, err := receiveRequest(connection)
 	if err != nil {
 		writeError(connection)
-		return err
+		return reject(err)
 	}
 	defer syscall.Close(payloadFD)
 	request, err := protocol.DecodeRequest(requestBytes)
 	if err != nil {
 		writeError(connection)
-		return err
+		return reject(err)
 	}
 	if err := verifySealedPayload(payloadFD, request.Payload); err != nil {
 		writeError(connection)
-		return err
+		return reject(err)
 	}
 	envelopeBytes, err := json.Marshal(workerEnvelope{SchemaVersion: 1, PeerUID: credential.Uid, Request: requestBytes})
 	if err != nil {

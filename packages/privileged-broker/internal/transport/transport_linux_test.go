@@ -149,6 +149,23 @@ func TestRootServerRunsOnlyVerifiedWorkerAndCleansSocket(t *testing.T) {
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
+	// An enrolled-UID client without the exact request descriptor is denied but
+	// cannot consume the sole authorized operation or terminate the broker.
+	malformed, err := syscall.Socket(syscall.AF_UNIX, syscall.SOCK_SEQPACKET|syscall.SOCK_CLOEXEC, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := syscall.Connect(malformed, &syscall.SockaddrUnix{Name: socketPath}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := syscall.Write(malformed, []byte(`{}`)); err != nil {
+		t.Fatal(err)
+	}
+	denial := make([]byte, 256)
+	if count, err := syscall.Read(malformed, denial); err != nil || !bytes.Contains(denial[:count], []byte(`"status":"failed"`)) {
+		t.Fatalf("malformed request was not explicitly denied: count=%d err=%v", count, err)
+	}
+	syscall.Close(malformed)
 	value := []byte("exact signed payload")
 	source, err := os.CreateTemp(directory, "payload")
 	if err != nil {

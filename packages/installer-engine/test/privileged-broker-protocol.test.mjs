@@ -55,6 +55,7 @@ test('broker rejects peer substitution, authority drift, replay, unknown fields,
     ['phase drift', ({ grant, request }) => ({ request: { ...request, phase: 'verify' }, grant, peerUid: 1000, now: new Date(request.requestedAt) }), /outside the exact grant/],
     ['unknown field', ({ grant, request }) => ({ request: { ...request, argv: ['/bin/sh'] }, grant, peerUid: 1000, now: new Date(request.requestedAt) }), /unrecognized key/i],
     ['expired grant', ({ grant, request }) => ({ request, grant, peerUid: 1000, now: new Date(expiresAt) }), /validity window/],
+    ['overlong grant', ({ grant, request }) => ({ request, grant: { ...grant, expiresAt: '2026-11-08T12:30:00.001Z' }, peerUid: 1000, now: new Date(request.requestedAt) }), /thirty minutes/],
   ];
   for (const [name, make, pattern] of cases) {
     const input = make(fixture());

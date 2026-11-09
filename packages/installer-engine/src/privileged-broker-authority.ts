@@ -11,10 +11,15 @@ import { privilegedBrokerDigest } from './privileged-broker-protocol.js';
 
 const identifier = z.string().min(1).max(128).regex(/^[a-z0-9][a-z0-9._-]*$/);
 const digest = z.string().regex(/^[a-f0-9]{64}$/);
-const absolutePath = z.string().min(1).max(4096).refine(
+const runtimePath = z.string().min(1).max(4096).refine(
   value => isAbsolute(value) && normalize(value) === value && dirname(value) !== value && !value.includes('\0')
     && value.startsWith('/run/desktop-tools/'),
   'path must be canonical, absolute, non-root, and inside the runtime authority root',
+);
+const transactionPath = z.string().min(1).max(4096).refine(
+  value => isAbsolute(value) && normalize(value) === value && dirname(value) !== value && !value.includes('\0')
+    && value.startsWith('/var/lib/desktop-tools/transactions/'),
+  'transaction path must be canonical, absolute, non-root, and inside the durable transaction root',
 );
 
 export const PrivilegedBrokerExecutionAuthoritySchema = z.strictObject({
@@ -29,9 +34,9 @@ export const PrivilegedBrokerExecutionAuthoritySchema = z.strictObject({
   hostFacts: HostFactsSchema,
   descriptor: NativeOfflinePayloadDescriptorSchema,
   releaseProof: z.strictObject({
-    manifestPath: absolutePath,
-    signaturePath: absolutePath,
-    catalogPath: absolutePath,
+    manifestPath: runtimePath,
+    signaturePath: runtimePath,
+    catalogPath: runtimePath,
     manifestSha256: digest,
     trust: z.strictObject({
       keyId: identifier,
@@ -41,12 +46,12 @@ export const PrivilegedBrokerExecutionAuthoritySchema = z.strictObject({
   artifacts: z.array(z.strictObject({
     artifactId: identifier,
     url: z.string().url().startsWith('https://').max(2048),
-    sourcePath: absolutePath,
+    sourcePath: runtimePath,
     sha256: digest,
     sizeBytes: z.number().int().positive().max(268_435_456),
     mode: z.literal('0600'),
   })).length(4),
-  transactionRoot: absolutePath,
+  transactionRoot: transactionPath,
 }).superRefine((value, context) => {
   if (value.hostId !== value.hostFacts.hostId || value.hostId !== value.desiredState.hostId
     || value.releaseId !== value.plan.releaseId || value.planDigest !== value.plan.digest) {

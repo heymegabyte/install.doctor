@@ -37,15 +37,27 @@ export const PrivilegedBrokerGrantSchema = z.strictObject({
   if (Date.parse(value.expiresAt) <= Date.parse(value.issuedAt)) {
     context.addIssue({ code: 'custom', message: 'grant expiry must follow issuance' });
   }
+  if (Date.parse(value.expiresAt) - Date.parse(value.issuedAt) > 30 * 60 * 1_000) {
+    context.addIssue({ code: 'custom', message: 'grant validity cannot exceed thirty minutes' });
+  }
 });
 
 export const PrivilegedBrokerApprovalEvidenceSchema = z.strictObject({
   schemaVersion: z.literal(1),
   approvalId: identifier,
   method: z.enum(['trusted-local', 'signed-device']),
+  grantId: identifier,
+  grantDigest: digest,
   hostId: identifier,
+  releaseId: identifier,
   runId: identifier,
   planDigest: digest,
+  enrolledUid: z.number().int().nonnegative(),
+  brokerExecutableDigest: digest,
+  runtimeDigest: digest,
+  workerDigest: digest,
+  descriptorDigest: digest,
+  closureDigest: digest,
   consentDigest: digest,
   evidenceDigest: digest,
   approvedAt: timestamp,
