@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { createHash, generateKeyPairSync, sign } from 'node:crypto';
 import { chmod, chown, copyFile, lstat, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { spawn } from 'node:child_process';
 import { dirname, join } from 'node:path';
 import test from 'node:test';
 import { deriveBoundNormalizedPlan } from '../dist/engine.js';
@@ -20,7 +21,7 @@ function descriptor() {
   return {
     schemaVersion: 1, kind: 'native-offline-package', manager: 'dpkg', packageKey: 'tree',
     platform: { os: 'linux', arch: 'x64' }, package: { name: 'tree', version: '2.1.0-1', architecture: 'amd64' },
-    artifact: { id: 'tree-deb', sha256: hash('tree'), sizeBytes: 10, mediaType: 'application/vnd.debian.binary-package' },
+    artifact: { id: 'tree-deb', sha256: hash('tree'), sizeBytes: 4, mediaType: 'application/vnd.debian.binary-package' },
     distro: { id: 'debian', versionId: '12', codename: 'bookworm' },
     repository: { repositoryOrigin: 'https://deb.debian.org/debian', suite: 'bookworm', component: 'main' },
     metadataProof: {
@@ -28,7 +29,7 @@ function descriptor() {
         signedAt: '2026-01-01T00:00:00.000Z', validUntil: '2027-01-01T00:00:00.000Z', maximumDateAgeSeconds: null,
         signingKeyFingerprint: 'A'.repeat(40), keyring: { artifactId: 'keyring', sha256: hash('keyring'), sizeBytes: 10, mediaType: 'application/vnd.gnupg.keyring' } },
       packagesIndex: { artifactId: 'packages', path: 'dists/bookworm/main/binary-amd64/Packages.xz', sha256: hash('packages'), sizeBytes: 10, architecture: 'amd64' },
-      packageStanza: { filename: 'pool/main/t/tree/tree_2.1.0-1_amd64.deb', sha256: hash('tree'), sizeBytes: 10,
+      packageStanza: { filename: 'pool/main/t/tree/tree_2.1.0-1_amd64.deb', sha256: hash('tree'), sizeBytes: 4,
         depends: 'libc6 (>= 2.34)', preDepends: null, essential: 'no', multiArch: 'foreign' },
     }, dependencyClosure: { depends: [], preDepends: [] }, affectedServiceUnits: [], conffiles: [],
     maintainerScriptPolicy: { trust: 'signed-repository-metadata', network: 'deny', serviceStarts: 'suppress-and-restore', conffiles: 'preserve-local' },
@@ -78,6 +79,7 @@ async function exerciseController(t, suffix, authorize) {
   const workerPath = join(authorityRoot, 'worker.mjs');
   await mkdir(authorityRoot, { recursive: true, mode: 0o700 });
   await mkdir(socketRoot, { recursive: true, mode: 0o710 });
+  await chmod(authorityRoot, 0o711);
   await Promise.all([copyFile(helperSource, helperPath), copyFile('/bin/sh', runtimePath), writeFile(workerPath, 'process.exit(1);\n')]);
   await Promise.all([chmod(helperPath, 0o555), chmod(runtimePath, 0o555), chmod(workerPath, 0o400)]);
   await Promise.all([chown(helperPath, 0, 0), chown(runtimePath, 0, 0), chown(workerPath, 0, 0), chown(socketRoot, 0, 0)]);
@@ -97,6 +99,71 @@ async function exerciseController(t, suffix, authorize) {
   await absent(`/run/desktop-tools/privileged/grants/${controllerInput.grant.grantId}.json`);
   await absent(`/run/desktop-tools/privileged/authorities/${controllerInput.grant.grantId}.json`);
 }
+
+async function command(file, arguments_, options = {}) {
+  return await new Promise((resolve, reject) => {
+    const child = spawn(file, arguments_, { shell: false, stdio: ['ignore', 'pipe', 'pipe'], ...options });
+    const stdout = []; const stderr = [];
+    child.stdout.on('data', chunk => stdout.push(Buffer.from(chunk)));
+    child.stderr.on('data', chunk => stderr.push(Buffer.from(chunk)));
+    child.once('error', reject);
+    child.once('close', (code, signal) => code === 0 && signal === null
+      ? resolve(Buffer.concat(stdout).toString('utf8'))
+      : reject(new Error(`${file} failed (${signal ?? code}): ${Buffer.concat(stderr).toString('utf8').slice(0, 512)}`)));
+  });
+}
+
+test('Linux root controller admits an enrolled UID through the real sealed-FD broker transport', { skip: !enabled }, async t => {
+  const identity = await command('/usr/bin/id', ['-g', '1000']).catch(() => '');
+  if (!identity.trim()) return t.skip('fixture requires enrolled uid 1000');
+  const enrolledGid = Number(identity.trim());
+  const runId = `controller-transport-${process.pid}`;
+  const authorityRoot = `/run/desktop-tools/authority/${runId}`;
+  const socketRoot = `/run/desktop-tools/broker/${runId}`;
+  const helperPath = join(authorityRoot, 'desktop-tools-privileged-broker');
+  const runtimePath = join(authorityRoot, 'runtime');
+  const workerPath = join(authorityRoot, 'worker.mjs');
+  const payloadPath = join('/tmp', `${runId}.deb`);
+  await mkdir(authorityRoot, { recursive: true, mode: 0o700 });
+  await mkdir(socketRoot, { recursive: true, mode: 0o710 });
+  await chmod(authorityRoot, 0o711);
+  await Promise.all([copyFile(helperSource, helperPath), copyFile(process.execPath, runtimePath)]);
+  const worker = `
+import { createHash } from 'node:crypto';
+import { fstatSync, writeSync } from 'node:fs';
+const chunks=[]; for await (const chunk of process.stdin) chunks.push(chunk);
+const envelope=JSON.parse(Buffer.concat(chunks)); const request=envelope.request;
+const canonical=value=>Array.isArray(value)?value.map(canonical):value&&typeof value==='object'?Object.fromEntries(Object.entries(value).sort(([a],[b])=>a.localeCompare(b)).map(([key,child])=>[key,canonical(child)])):value;
+const digest=value=>createHash('sha256').update('desktop-tools:privileged-broker:v1\\0').update(JSON.stringify(canonical(value))).digest('hex');
+const payload=fstatSync(3); if(!payload.isFile()||payload.nlink!==0) process.exit(2);
+const statuses={check:'needed',apply:'applied',verify:'verified'};
+const receipt={schemaVersion:1,hostId:request.hostId,releaseId:request.releaseId,runId:request.runId,planDigest:request.planDigest,grantId:request.grantId,grantDigest:request.grantDigest,taskId:request.taskId,operationId:request.operationId,phase:request.phase,nonce:request.nonce,payloadSha256:request.payload.sha256,requestDigest:digest(request),status:statuses[request.phase],fenceDigest:'f'.repeat(64),completedAt:new Date().toISOString()};
+writeSync(4,Buffer.from(JSON.stringify(receipt)));
+`;
+  await Promise.all([writeFile(workerPath, worker), writeFile(payloadPath, 'tree')]);
+  await Promise.all([chmod(helperPath, 0o555), chmod(runtimePath, 0o555), chmod(workerPath, 0o400), chmod(payloadPath, 0o400)]);
+  await Promise.all([chown(helperPath, 0, 0), chown(runtimePath, 0, 0), chown(workerPath, 0, 0),
+    chown(socketRoot, 0, enrolledGid), chown(payloadPath, 1000, enrolledGid)]);
+  t.after(async () => {
+    await rm(socketRoot, { recursive: true, force: true }); await rm(authorityRoot, { recursive: true, force: true });
+    await rm(payloadPath, { force: true });
+  });
+  const input = await exactInput(runId, authorityRoot, helperPath, runtimePath, workerPath);
+  input.socketGid = enrolledGid;
+  const clientModule = new URL('../dist/privileged-broker-client.js', import.meta.url).href;
+  const clientScript = `import{open,readFile}from'node:fs/promises';import{createPrivilegedBrokerNativeRuntime as create}from'${clientModule}';const input=JSON.parse(await readFile(process.argv[1],'utf8'));const payload=process.argv[2];const runtime=create(input.config);const authority=phase=>({operation:{kind:'native-package',effectClass:'native-package',action:phase,packageKey:'tree',payloadArtifactId:'tree-deb'},rootDescriptor:{packageKey:'tree',artifact:{sha256:'${hash('tree')}',sizeBytes:4}},packages:[],installedWitnesses:[],withPayload:async(_key,use)=>{const handle=await open(payload,'r');try{return await use(handle)}finally{await handle.close()}},context:undefined});if(await runtime.check(authority('check'))!=='needed')process.exit(3);await runtime.apply(authority('apply'));if(await runtime.verify(authority('verify'))!=='verified')process.exit(4);`;
+  const clientInputPath = join('/tmp', `${runId}.json`);
+  const clientConfig = { helperPath, socketPath: input.socketPath, hostId: input.grant.hostId, releaseId: input.grant.releaseId,
+    runId: input.grant.runId, planDigest: input.grant.planDigest, taskId: input.grant.operations[0].taskId, grant: input.grant };
+  await writeFile(clientInputPath, JSON.stringify({ config: clientConfig }), { mode: 0o400 }); await chown(clientInputPath, 1000, enrolledGid);
+  t.after(() => rm(clientInputPath, { force: true }));
+  const result = await runPrivilegedBrokerController(input, { confirmation: { confirm: async () => true }, onReady: async () => {
+    await command('/usr/bin/setpriv', [`--reuid=1000`, `--regid=${enrolledGid}`, '--clear-groups', process.execPath,
+      '--input-type=module', '--eval', clientScript, clientInputPath, payloadPath], { env: { PATH: '/usr/bin:/bin', LANG: 'C', LC_ALL: 'C' } });
+  } });
+  assert.equal(result.exitCode, 0);
+  await absent(input.socketPath);
+});
 
 test('Linux root controller serializes process-global broker lifecycles', { skip: !enabled }, async t => {
   await t.test('publishes only a listening broker and retires all volatile authority', async localTest => {
