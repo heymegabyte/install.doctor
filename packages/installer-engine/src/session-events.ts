@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { InstallerEventSchema } from './contracts.js';
-import { lstat, mkdir, open, readFile, rm } from 'node:fs/promises';
+import { constants } from 'node:fs';
+import { mkdir, open, rm } from 'node:fs/promises';
 import { dirname } from 'node:path';
 
 const VERSION = z.literal(1);
@@ -102,10 +103,20 @@ export function createProvisioningSessionEventJournal(path: string, identityInpu
   const identity = z.strictObject({ sessionId: identifier, runId: identifier, authorizationId: identifier }).parse(identityInput);
   const lockPath = `${path}.lock`;
   const read = async (): Promise<ProvisioningSessionEvent[]> => {
-    const bytes = await readFile(path, 'utf8').catch(error => {
-      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return '';
-      throw error;
+    const handle = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW).catch(error => {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null;
+      throw new Error('session event journal cannot be opened safely', { cause: error });
     });
+    if (handle === null) return [];
+    let bytes: string;
+    try {
+      const info = await handle.stat();
+      if (!info.isFile() || info.nlink !== 1 || (info.mode & 0o077) !== 0) {
+        throw new Error('session event journal is not a protected regular file');
+      }
+      if (info.size > 64 * 1024 * 1024) throw new Error('session event journal exceeds its bound');
+      bytes = await handle.readFile('utf8');
+    } finally { await handle.close(); }
     if (Buffer.byteLength(bytes) > 64 * 1024 * 1024) throw new Error('session event journal exceeds its bound');
     if (bytes && !bytes.endsWith('\n')) throw new Error('session event journal has a torn final record');
     return bytes.split('\n').filter(Boolean).map(line => ProvisioningSessionEventSchema.parse(JSON.parse(line)));
@@ -128,18 +139,22 @@ export function createProvisioningSessionEventJournal(path: string, identityInpu
       try {
         const events = await read();
         if (events.some(event => event.kind === 'terminal')) throw new Error('session event journal is terminal');
-        const event = ProvisioningSessionEventSchema.parse({ schemaVersion: 1, sequence: events.length, ...identity, ...eventInput });
+        const event = ProvisioningSessionEventSchema.parse({ ...eventInput, schemaVersion: 1, sequence: events.length, ...identity });
         if (events.length === 0 && (event.kind !== 'session-status' || event.status !== 'started')) {
           throw new Error('session event journal must start with supervisor evidence');
         }
         if (events.length > 0 && event.kind === 'session-status') throw new Error('session event journal already started');
         if (event.kind === 'terminal') reduceProvisioningSessionEvents([...events, event]);
-        const handle = await open(path, 'a', 0o600);
-        try { await handle.writeFile(`${JSON.stringify(event)}\n`); await handle.sync(); } finally { await handle.close(); }
-        const info = await lstat(path);
-        if (!info.isFile() || info.isSymbolicLink() || info.nlink !== 1 || (info.mode & 0o077) !== 0) {
-          throw new Error('session event journal is not a protected regular file');
-        }
+        const handle = await open(path, constants.O_APPEND | constants.O_CREAT | constants.O_WRONLY | constants.O_NOFOLLOW, 0o600)
+          .catch(error => { throw new Error('session event journal cannot be opened safely', { cause: error }); });
+        try {
+          const info = await handle.stat();
+          if (!info.isFile() || info.nlink !== 1 || (info.mode & 0o077) !== 0) {
+            throw new Error('session event journal is not a protected regular file');
+          }
+          await handle.writeFile(`${JSON.stringify(event)}\n`);
+          await handle.sync();
+        } finally { await handle.close(); }
         return event;
       } finally { await rm(lockPath, { recursive: true, force: true }); }
     },

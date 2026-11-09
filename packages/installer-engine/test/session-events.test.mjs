@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile } from 'node:fs/promises';
+import { chmod, mkdtemp, readFile, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
@@ -151,4 +151,40 @@ test('durable journal serializes parallel attributable output and preserves expl
   assert.deepEqual(summary.childStatuses, { 'child-one': 'succeeded', 'child-two': 'succeeded' });
   assert.equal(summary.terminalStatus, 'incomplete-evidence');
   assert.deepEqual(durable.map((event, index) => event.sequence === index), Array(durable.length).fill(true));
+});
+
+test('journal owns correlation and sequence metadata even when an append caller attempts to replace it', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'desktop-tools-session-events-'));
+  const journal = createProvisioningSessionEventJournal(join(root, 'events.ndjson'), {
+    sessionId: 'session-one', runId: 'run-one', authorizationId: 'authorization-one',
+  });
+  const event = await journal.append({ schemaVersion: 99, sequence: 99, sessionId: 'other-session', runId: 'other-run',
+    authorizationId: 'other-authorization', at, producer: supervisor, kind: 'session-status', status: 'started' });
+  assert.equal(event.schemaVersion, 1);
+  assert.equal(event.sequence, 0);
+  assert.equal(event.sessionId, 'session-one');
+  assert.equal(event.runId, 'run-one');
+  assert.equal(event.authorizationId, 'authorization-one');
+});
+
+test('journal refuses symlink and permissive-file targets before writing', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'desktop-tools-session-events-'));
+  const target = join(root, 'target');
+  const linked = join(root, 'linked.ndjson');
+  await writeFile(target, 'do-not-modify\n', { mode: 0o600 });
+  await symlink(target, linked);
+  const symlinkJournal = createProvisioningSessionEventJournal(linked, {
+    sessionId: 'session-one', runId: 'run-one', authorizationId: 'authorization-one',
+  });
+  await assert.rejects(symlinkJournal.append({ at, producer: supervisor, kind: 'session-status', status: 'started' }), /opened safely/);
+  assert.equal(await readFile(target, 'utf8'), 'do-not-modify\n');
+
+  const permissive = join(root, 'permissive.ndjson');
+  await writeFile(permissive, '', { mode: 0o600 });
+  await chmod(permissive, 0o644);
+  const permissiveJournal = createProvisioningSessionEventJournal(permissive, {
+    sessionId: 'session-one', runId: 'run-one', authorizationId: 'authorization-one',
+  });
+  await assert.rejects(permissiveJournal.append({ at, producer: supervisor, kind: 'session-status', status: 'started' }), /protected regular file/);
+  assert.equal(await readFile(permissive, 'utf8'), '');
 });
