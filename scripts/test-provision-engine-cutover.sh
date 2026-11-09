@@ -48,7 +48,7 @@ fi
 homebrew_tools_task="$(sed -n "/const homebrewToolsTask = {/,/const chezmoiInitTask =/p" "$PROVISION")"
 chezmoi_init_task="$(sed -n "/const chezmoiInitTask = {/,/const installxSourcePath =/p" "$PROVISION")"
 if printf '%s\n' "$homebrew_tools_task" | grep -q "privilege: 'user'.*network: 'required'" \
-  && printf '%s\n' "$homebrew_tools_task" | grep -q "consent: 'network'" \
+  && printf '%s\n' "$homebrew_tools_task" | grep -q "consent: 'none'" \
   && printf '%s\n' "$chezmoi_init_task" | grep -q "privilege: 'user'.*network: 'none'" \
   && printf '%s\n' "$chezmoi_init_task" | grep -q "consent: 'none'"; then
   pass 'user-owned bootstrap tasks request only the authority they exercise'

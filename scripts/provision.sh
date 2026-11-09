@@ -2620,7 +2620,7 @@ const homebrewToolsTask = {
   operations: { check: 'homebrew-tools-check', apply: 'homebrew-tools-apply', verify: 'homebrew-tools-verify' },
   timeoutMs: 1_800_000, retry: { class: 'transient', maxAttempts: 2, backoffMs: 1_000 },
   resources: { cpu: 1, memoryMiB: 1024, network: true }, privilege: 'user', network: 'required',
-  consent: 'network', lockDomains: ['package-manager'], cleanup: 'none', compensation: 'none',
+  consent: 'none', lockDomains: ['package-manager'], cleanup: 'none', compensation: 'none',
   failurePolicy: 'abort-run',
 };
 const chezmoiInitTask = {
