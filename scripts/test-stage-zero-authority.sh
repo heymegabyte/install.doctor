@@ -19,6 +19,17 @@ for task in stage-zero.install-user-transition stage-zero.sudo-credential; do
   fi
 done
 
+for task in stage-zero.install-user-transition stage-zero.sudo-credential; do
+  section="$(grep -F -A 12 "id: '$task'" "$PROVISION")"
+  if printf '%s\n' "$section" | grep -q "privilege: 'user'" \
+    && printf '%s\n' "$section" | grep -q "consent: 'none'" \
+    && ! printf '%s\n' "$section" | grep -q 'legacyAdminBridge'; then
+    pass "$task is a read-only user precondition, not an admin bridge"
+  else
+    fail "$task retains unnecessary admin process authority"
+  fi
+done
+
 if grep -q "installUser: required('INSTALL_DOCTOR_USER')" "$PROVISION" \
   && grep -q 'INSTALL_DOCTOR_USER: rawPlan.installUser' "$PROVISION"; then
   pass 'install-user identity is bound into the immutable plan environment'
