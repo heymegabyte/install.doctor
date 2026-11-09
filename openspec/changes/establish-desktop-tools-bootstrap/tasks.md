@@ -40,6 +40,7 @@
 - [ ] 5.4 Expose discover, validate, plan, approve, apply, verify, status, resume, rollback-config, and deprovision-preview only through strict typed tool adapters; verify model-generated text or shell cannot bypass engine schemas, consent, locks, or journal ownership.
 - [ ] 5.5 Cut remaining selected bootstrap, Installx, service, privilege, and configuration mutations into installer-engine tasks in bounded vertical slices; verify each migrated effect has preconditions, postconditions, interruption recovery, and an unchanged no-op run before retiring its legacy writer.
   - [x] 5.5.a Migrate bootstrap Installx directory and file materialization to native managed operations with protected source validation, durable compensation, rollback, unchanged inode/timestamp no-op evidence, and preservation of the untouched legacy home path.
+  - [x] 5.5.b Migrate installer-owned sudo credential revocation to a native run finalizer bound to an approved fixed root-owned setuid executable identity, exact argv and environment, preexisting-authority preservation, interruption reconciliation, and durable finalizer evidence without a competing shell writer.
 - [ ] 5.6 Preserve a deterministic non-AI and offline path for complete supported plans; verify provider outage cannot fabricate failure recovery or force a cloud-model dependency into bootstrap.
 
 ## 6. Session evidence, terminal behavior, and privacy
