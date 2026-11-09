@@ -85,11 +85,25 @@ const ProcessOperationSchema = z.strictObject({
   kind: z.literal('process').optional(),
   argv: z.array(argument).min(1).max(128),
   env: z.record(environmentName, environmentValue).optional().refine(value => !value || Object.keys(value).length <= 128, 'too many operation environment values'),
+  legacyAdminBridge: z.enum([
+    'stage-zero-user', 'stage-zero-sudo', 'native-dependencies', 'homebrew',
+    'selected-packages', 'qubes-dom0', 'software-groups', 'custom-post-hooks',
+  ]).optional(),
   verifiedExecutable: z.strictObject({
     argvIndex: z.number().int().min(0).max(127),
     sha256: z.string().regex(/^[a-f0-9]{64}$/),
   }).optional(),
 });
+const legacyAdminBridgeByTask = Object.freeze({
+  'stage-zero.install-user-transition': 'stage-zero-user',
+  'stage-zero.sudo-credential': 'stage-zero-sudo',
+  'bootstrap.native-dependencies': 'native-dependencies',
+  'bootstrap.homebrew': 'homebrew',
+  'desired.packages': 'selected-packages',
+  'bootstrap.qubes-dom0-delegation': 'qubes-dom0',
+  'desired.software-groups': 'software-groups',
+  'desired.custom-post-hooks': 'custom-post-hooks',
+} as const);
 const canonicalBase64 = z.string().min(1).max(87_384).regex(/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/)
   .refine(value => Buffer.from(value, 'base64').length <= 65_536, 'managed file candidate exceeds 64 KiB')
   .refine(value => Buffer.from(value, 'base64').toString('base64') === value, 'managed file candidate must use canonical base64');
@@ -1231,6 +1245,14 @@ function baseAdapterFor(invocation: OperationInvocation, nativeBinding?: {
         if (status === 'pending') return 30;
       }
       throw new Error(`privileged broker returned an unsupported ${selected.action} status`);
+    }
+    const expectedLegacyAdminBridge = legacyAdminBridgeByTask[task.id as keyof typeof legacyAdminBridgeByTask];
+    if (task.privilege === 'admin') {
+      if (!expectedLegacyAdminBridge || selected.legacyAdminBridge !== expectedLegacyAdminBridge) {
+        throw new Error('admin process operation is not an explicitly admitted legacy bridge');
+      }
+    } else if (selected.legacyAdminBridge !== undefined) {
+      throw new Error('legacy admin bridge marker is forbidden on a non-admin task');
     }
     let verifiedHandle: Awaited<ReturnType<typeof open>> | undefined;
     const executionArgv = [...selected.argv];
