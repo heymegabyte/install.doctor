@@ -20,10 +20,12 @@ starting processes, modifying a workstation, or contacting an AI provider.
 - Streaming asciicast v3 formatting for already-sanitized output, resize, marker, and exit events.
 - Per-machine Loki reconciliation plans with stable keys for a future durable deduplication store.
 - Managed Grafana Alloy fragments using credential references, not inline secrets.
-- Digest-bound portable Desktop Tools profile exports derived from schema-v4 `ENVIRONMENT.md`.
-  They contain effective desired state and immutable recipe SHA-256 references, but exclude
-  source machine identities, service endpoints, credential references, and secret references.
-  A standalone target supplies its own validated host facts before materializing engine input.
+- Digest-bound v2 portable Desktop Tools profile exports derived from schema-v4 `ENVIRONMENT.md`.
+  They contain effective desired state, immutable recipe SHA-256 references, and only the secret
+  requirement IDs/lifecycle/offline-recovery policy needed for deterministic preflight. They exclude
+  source machine identities, service endpoints, secret-store locations, credentials, and secret values.
+  A standalone target supplies its own validated host facts before materializing engine input. Legacy
+  v1 exports require explicit migration and re-export before claiming offline-secret readiness.
 
 The current test count is reported by `npm test`; do not copy a stale count into product claims.
 
@@ -55,6 +57,9 @@ the same normalized plan digest from the serialized export without carrying sour
 Recipe references are not accepted as trust merely because they contain a digest: the installer
 export path verifies the exact signed-release catalog bytes, resolves the applicable dependency
 closure through the existing strict load-plan schema, and pins each canonical catalog entry.
+`desktop-tools-profile-export preflight-offline` reports missing escrow requirement IDs and exits 3
+until each is declared available; it never resolves or prints a value or Infisical location. Actual
+execution must still obtain each declared value through its separately authorized protected channel.
 
 A SHA-256 digest detects content changes; it is not a signature or proof of trust.
 Commit pins are syntax-checked, not fetched or verified. The synthetic test fixture uses an

@@ -95,6 +95,35 @@ test('bounded CLI exports a catalog-verified profile without source-private stat
   assert.notEqual(replay.status, 0);
 });
 
+test('offline CLI preflight fails with value-free escrow remediation and succeeds only for declared availability', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'desktop-tools-profile-offline-preflight-'));
+  const release = await signedRelease(root);
+  const source = environment();
+  source.secretReferences = [
+    { id: 'backup-key', reference: 'infisical://desktop-tools/profiles/example/backup-key', requiredAt: 'apply', offlineRecovery: 'escrow-required' },
+    { id: 'online-only', reference: 'infisical://desktop-tools/profiles/example/online-only', requiredAt: 'runtime', offlineRecovery: 'not-required' },
+  ];
+  const profile = await createCatalogBoundProfileExport({
+    environment: source, machineId: 'private-source-host', facts, catalogBytes,
+    release: { manifestPath: release.manifestPath, signaturePath: release.signaturePath,
+      expectedReleaseId: release.releaseId, trust: { keyId: 'desktop-test', publicKey: release.publicKey }, now: 1794140000 },
+    offline: true,
+  });
+  const profilePath = join(root, 'profile.json');
+  const availablePath = join(root, 'available.json');
+  await writeFile(profilePath, `${JSON.stringify(profile)}\n`, { mode: 0o600 });
+  const cliBin = resolve(import.meta.dirname, '../bin/desktop-tools-profile-export.mjs');
+  const missing = spawnSync(process.execPath, [cliBin, 'preflight-offline', '--profile', profilePath], { encoding: 'utf8' });
+  assert.equal(missing.status, 3, missing.stderr);
+  const missingResult = JSON.parse(missing.stdout);
+  assert.deepEqual(missingResult.missingSecretIds, ['backup-key']);
+  assert.doesNotMatch(missing.stdout + missing.stderr, /infisical:|client_secret|password|token/i);
+  await writeFile(availablePath, '["backup-key"]\n', { mode: 0o600 });
+  const ready = spawnSync(process.execPath, [cliBin, 'preflight-offline', '--profile', profilePath, '--available-secret-ids', availablePath], { encoding: 'utf8' });
+  assert.equal(ready.status, 0, ready.stderr);
+  assert.equal(JSON.parse(ready.stdout).ready, true);
+});
+
 test('forged catalog and matching attacker manifest hash are rejected by trusted signer authority', async () => {
   const root = await mkdtemp(join(tmpdir(), 'desktop-tools-profile-forgery-'));
   const trusted = await signedRelease(root);

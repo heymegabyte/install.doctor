@@ -13,8 +13,16 @@ const recipeReferenceSchema = z.strictObject({
   sha256: digest,
 });
 
-const portableProfileExportSchema = z.strictObject({
-  schemaVersion: z.literal(1),
+const secretRequirementSchema = z.strictObject({
+  id: identifier,
+  requiredAt: z.enum(['enrollment', 'plan', 'apply', 'runtime']),
+  offlineRecovery: z.enum(['not-required', 'escrow-required']),
+});
+const secretRequirementsSchema = z.array(secretRequirementSchema).max(256)
+  .refine(values => new Set(values.map(value => value.id)).size === values.length, 'secret requirement ids must be unique')
+  .refine(values => values.every((value, index) => index === 0 || values[index - 1]!.id.localeCompare(value.id) < 0), 'secret requirements must be sorted');
+
+const portableProfileShape = {
   kind: z.literal('desktop-tools-portable-profile'),
   profile: z.strictObject({
     id: identifier,
@@ -51,7 +59,19 @@ const portableProfileExportSchema = z.strictObject({
   recipes: z.array(recipeReferenceSchema).min(1).max(4096),
   sourceEnvironmentDigest: digest,
   exportDigest: digest,
-}).superRefine((value, context) => {
+};
+const portableProfileExportV1Schema = z.strictObject({ schemaVersion: z.literal(1), ...portableProfileShape });
+const portableProfileExportV2Schema = z.strictObject({
+  schemaVersion: z.literal(2),
+  ...portableProfileShape,
+  secretRequirementsState: z.enum(['complete', 'unknown-legacy']),
+  secretRequirements: secretRequirementsSchema,
+});
+const portableProfileExportSchema = z.discriminatedUnion('schemaVersion', [portableProfileExportV1Schema, portableProfileExportV2Schema])
+  .superRefine((value, context) => {
+  if (value.schemaVersion === 2 && value.secretRequirementsState === 'unknown-legacy' && value.secretRequirements.length !== 0) {
+    context.addIssue({ code: 'custom', path: ['secretRequirements'], message: 'legacy-unknown secret requirements must remain empty' });
+  }
   const recipeIds = value.recipes.map(recipe => recipe.id);
   if (new Set(recipeIds).size !== recipeIds.length) context.addIssue({ code: 'custom', path: ['recipes'], message: 'recipe ids must be unique' });
   if (value.recipes.some((recipe, index) => index > 0 && value.recipes[index - 1]!.id.localeCompare(recipe.id) >= 0)) {
@@ -61,6 +81,7 @@ const portableProfileExportSchema = z.strictObject({
 });
 
 export type PortableProfileExport = z.infer<typeof portableProfileExportSchema>;
+export type PortableProfileExportV2 = z.infer<typeof portableProfileExportV2Schema>;
 
 function canonical(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(canonical);
@@ -114,7 +135,7 @@ export async function createPortableProfileExport(input: {
   const recipes = [...input.recipes].sort((left, right) => left.id.localeCompare(right.id));
   const sourceEnvironmentDigest = await sha256(publicSource(environment));
   const unsigned = {
-    schemaVersion: 1 as const,
+    schemaVersion: 2 as const,
     kind: 'desktop-tools-portable-profile' as const,
     profile: environment.profile,
     target: {
@@ -134,6 +155,12 @@ export async function createPortableProfileExport(input: {
     skills: { ...environment.skills, include: sorted(environment.skills.include) },
     catalog: { sha256: input.catalogSha256 },
     recipes,
+    secretRequirementsState: 'complete' as const,
+    secretRequirements: environment.secretReferences.map(reference => ({
+      id: reference.id,
+      requiredAt: reference.requiredAt,
+      offlineRecovery: reference.offlineRecovery,
+    })).sort((left, right) => left.id.localeCompare(right.id)),
     sourceEnvironmentDigest,
   };
   const exportDigest = await sha256(unsigned);
@@ -157,6 +184,50 @@ export async function parsePortableProfileExport(input: string): Promise<Portabl
   let value: unknown;
   try { value = JSON.parse(input); } catch { throw new Error('portable profile export must be valid JSON'); }
   return validatePortableProfileExport(value);
+}
+
+/** Explicitly upgrades a legacy export. V1 carried no offline secret
+ * requirements, so migration can preserve only the known-empty requirement
+ * set; callers needing recovery secrets must re-export from ENVIRONMENT.md. */
+export async function migratePortableProfileExportV1ToV2(input: unknown): Promise<PortableProfileExportV2> {
+  const legacy = portableProfileExportV1Schema.parse(input);
+  const { exportDigest: _legacyDigest, ...unsignedLegacy } = legacy;
+  if (await sha256(unsignedLegacy) !== legacy.exportDigest) throw new Error('portable profile export digest mismatch');
+  const unsigned = { ...unsignedLegacy, schemaVersion: 2 as const, secretRequirementsState: 'unknown-legacy' as const, secretRequirements: [] };
+  return portableProfileExportV2Schema.parse({ ...unsigned, exportDigest: await sha256(unsigned) });
+}
+
+export type OfflineSecretReadiness = {
+  ready: boolean;
+  requiredSecretIds: string[];
+  missingSecretIds: string[];
+  remediation: { secretId: string; action: 'provide-offline-escrow'; guidance: string }[];
+};
+
+/** Determine offline secret readiness without reading, resolving, or exposing
+ * any secret value or hosted secret-store location. */
+export async function assessPortableOfflineSecrets(input: unknown, availableSecretIds: readonly string[]): Promise<OfflineSecretReadiness> {
+  const value = await validatePortableProfileExport(input);
+  if (value.schemaVersion === 1 || value.secretRequirementsState !== 'complete') {
+    throw new Error('legacy portable profile lacks offline secret requirements; re-export from canonical ENVIRONMENT.md');
+  }
+  const parsedAvailable = z.array(identifier).max(4096).parse(availableSecretIds);
+  if (new Set(parsedAvailable).size !== parsedAvailable.length) throw new Error('available secret ids must be unique');
+  const available = new Set(parsedAvailable);
+  const requiredSecretIds = value.secretRequirements
+    .filter(requirement => requirement.offlineRecovery === 'escrow-required' && requirement.requiredAt !== 'enrollment')
+    .map(requirement => requirement.id);
+  const missingSecretIds = requiredSecretIds.filter(id => !available.has(id));
+  return {
+    ready: missingSecretIds.length === 0,
+    requiredSecretIds,
+    missingSecretIds,
+    remediation: missingSecretIds.map(secretId => ({
+      secretId,
+      action: 'provide-offline-escrow' as const,
+      guidance: `Provide protected offline escrow for secret reference '${secretId}' before planning; do not add secret values to the profile or bundle.`,
+    })),
+  };
 }
 
 /** Bind portable desired state to fresh observed host identity without importing private source-machine data. */

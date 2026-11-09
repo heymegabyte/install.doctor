@@ -3,8 +3,10 @@ import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 import { migrateBlueprintV2ToV3, migrateBlueprintV3ToV4 } from '../dist/core.js';
 import {
+  assessPortableOfflineSecrets,
   createPortableProfileExport,
   materializePortableDesiredState,
+  migratePortableProfileExportV1ToV2,
   parsePortableProfileExport,
   serializePortableProfileExport,
   validatePortableProfileExport,
@@ -16,7 +18,10 @@ async function environment() {
   return migrateBlueprintV3ToV4(v3, {
     profileId: 'example', visibility: 'public-bootstrap', promptPolicyId: 'provision-v1', promptPolicyVersion: 'v1',
     promptMode: 'agent-assisted', allowedRoutes: ['economy', 'code'],
-    secretReferences: [{ id: 'loki-writer', reference: 'infisical://desktop-tools/profiles/example/loki-writer', requiredAt: 'apply', offlineRecovery: 'not-required' }],
+    secretReferences: [
+      { id: 'backup-key', reference: 'infisical://desktop-tools/profiles/example/backup-key', requiredAt: 'apply', offlineRecovery: 'escrow-required' },
+      { id: 'loki-writer', reference: 'infisical://desktop-tools/profiles/example/loki-writer', requiredAt: 'apply', offlineRecovery: 'not-required' },
+    ],
   });
 }
 
@@ -34,7 +39,49 @@ test('portable export is deterministic and excludes credentials, endpoints, and 
   assert.deepEqual(await parsePortableProfileExport(serialized), first);
   assert.doesNotMatch(serialized, /runner-a|runner-b|laptop|infisical:|logs\.example|credential/i);
   assert.deepEqual(first.recipes, recipes);
+  assert.equal(first.schemaVersion, 2);
+  assert.equal(first.secretRequirementsState, 'complete');
+  assert.deepEqual(first.secretRequirements, [
+    { id: 'backup-key', requiredAt: 'apply', offlineRecovery: 'escrow-required' },
+    { id: 'loki-writer', requiredAt: 'apply', offlineRecovery: 'not-required' },
+  ]);
   assert.match(first.exportDigest, /^[a-f0-9]{64}$/);
+});
+
+test('offline secret readiness is value-free, deterministic, and gives exact missing-escrow remediation', async () => {
+  const value = await createPortableProfileExport({ environment: await environment(), machineId: 'runner-a', recipes, catalogSha256: 'c'.repeat(64), offline: true });
+  const missing = await assessPortableOfflineSecrets(value, []);
+  assert.deepEqual(missing, {
+    ready: false,
+    requiredSecretIds: ['backup-key'],
+    missingSecretIds: ['backup-key'],
+    remediation: [{
+      secretId: 'backup-key', action: 'provide-offline-escrow',
+      guidance: "Provide protected offline escrow for secret reference 'backup-key' before planning; do not add secret values to the profile or bundle.",
+    }],
+  });
+  assert.equal((await assessPortableOfflineSecrets(value, ['backup-key'])).ready, true);
+  await assert.rejects(assessPortableOfflineSecrets(value, ['backup-key', 'backup-key']), /unique/);
+  await assert.rejects(assessPortableOfflineSecrets(value, ['NOT-AN-ID']), /invalid/i);
+  assert.doesNotMatch(JSON.stringify(missing), /infisical:|client_secret|password|token/i);
+});
+
+test('legacy portable exports require explicit migration and cannot imply secret readiness', async () => {
+  const current = await createPortableProfileExport({ environment: await environment(), machineId: 'runner-a', recipes, catalogSha256: 'c'.repeat(64) });
+  const { secretRequirements: _requirements, secretRequirementsState: _state, exportDigest: _digest, ...legacyUnsigned } = current;
+  legacyUnsigned.schemaVersion = 1;
+  const canonical = value => Array.isArray(value) ? value.map(canonical) : value && typeof value === 'object'
+    ? Object.fromEntries(Object.entries(value).sort(([a], [b]) => a.localeCompare(b)).map(([key, child]) => [key, canonical(child)])) : value;
+  const bytes = new TextEncoder().encode(JSON.stringify(canonical(legacyUnsigned)));
+  const legacyDigest = [...new Uint8Array(await crypto.subtle.digest('SHA-256', bytes))].map(byte => byte.toString(16).padStart(2, '0')).join('');
+  const legacy = { ...legacyUnsigned, exportDigest: legacyDigest };
+  await assert.rejects(assessPortableOfflineSecrets(legacy, []), /re-export from canonical ENVIRONMENT/);
+  const migrated = await migratePortableProfileExportV1ToV2(legacy);
+  assert.equal(migrated.schemaVersion, 2);
+  assert.equal(migrated.secretRequirementsState, 'unknown-legacy');
+  assert.deepEqual(migrated.secretRequirements, []);
+  await assert.rejects(assessPortableOfflineSecrets(migrated, []), /re-export from canonical ENVIRONMENT/);
+  await assert.rejects(migratePortableProfileExportV1ToV2({ ...legacy, exportDigest: '0'.repeat(64) }), /digest mismatch/);
 });
 
 test('strict export rejects unknown fields, mutable recipe refs, and digest tampering', async () => {
