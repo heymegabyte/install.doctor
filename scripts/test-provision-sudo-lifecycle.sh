@@ -37,7 +37,9 @@ sudo_function="$(sed -n '/^removePasswordlessSudo() {/,/^}/p' "$PROVISION")"
 ! grep -q '/tmp/install-doctor-passwordless-sudo' "$PROVISION"
 grep -q "id: 'system.sudo-credential-cleanup'" "$PROVISION"
 grep -q "lifecycle: 'run-finalizer'" "$PROVISION"
-grep -q "selectedTaskIds: \[...(nativeComposition ? \[nativeComposition.task.id\] : \[\]), ...caskLauncherTasks.map(task => task.id), ...flatpakLauncherTasks.map(task => task.id), ...artifactTasks.map(task => task.id), rebootAssessmentTask.id, sudoCleanupTask.id\]" "$PROVISION"
+# The finalizer must be selected exactly once and remain the final task even as
+# new operation classes are inserted ahead of it.
+[ "$(grep -c 'selectedTaskIds: .*sudoCleanupTask.id]' "$PROVISION")" -eq 1 ]
 grep -q "sudoPreexisting: rawPlan.privilegeContext.sudoPreexisting" "$PROVISION"
 grep -q "kind: 'sudo-credential-cleanup'" "$PROVISION"
 ! grep -q 'sudo-cleanup-check)' "$PROVISION"

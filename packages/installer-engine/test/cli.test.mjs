@@ -741,7 +741,10 @@ test('normal CLI plans native package operations but rejects mutation without th
   const invocationPath = join(directory, 'invocation.json');
   const operation = action => ({ kind: 'native-package', effectClass: 'native-package', action,
     packageKey: 'tree', payloadArtifactId: 'tree-deb-bookworm-amd64',
-    expectedPackage: { name: 'tree', version: '2.1.0-1', architecture: 'amd64' }, installedWitnesses: [{
+    // Status must be host-independent: a runner may already have a newer tree
+    // package, which is correctly blocked as an unapproved downgrade. Use an
+    // fixture-only package name so this assertion exercises pending.
+    expectedPackage: { name: 'desktop-tools-native-cli-test-absent', version: '2.1.0-1', architecture: 'amd64' }, installedWitnesses: [{
       kind: 'preexisting-witness', manager: 'dpkg', packageName: 'libc6', minimumVersion: '2.34', architecture: 'amd64',
     }] });
   const task = { schemaVersion: 1, id: 'package.native.tree', inputDigest: digest('a'), dependencies: [], predicate: 'host-supported',
