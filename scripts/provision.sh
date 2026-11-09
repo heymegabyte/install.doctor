@@ -1073,20 +1073,46 @@ ensureFullDiskAccess() {
 #     - Certificate must exist at `$HOME/.local/etc/ssl/cloudflare/cloudflare.crt`
 #
 #     @envvar HEADLESS_INSTALL  If set, skips certificate import (requires user interaction on macOS)
+idCloudflareCertificatePath() {
+  printf '%s\n' "$HOME/.local/etc/ssl/cloudflare/cloudflare.crt"
+}
+
+idVerifyCloudflareCertificateSource() {
+  local certificate_path actual_digest
+  certificate_path="$(idCloudflareCertificatePath)"
+  [ -n "${INSTALL_DOCTOR_CLOUDFLARE_CERT_SHA256:-}" ] || return 2
+  [ -f "$certificate_path" ] && [ ! -L "$certificate_path" ] || return 2
+  actual_digest="$(/usr/bin/shasum -a 256 "$certificate_path" 2>/dev/null | awk '{print $1}')" || return 2
+  [ "$actual_digest" = "$INSTALL_DOCTOR_CLOUDFLARE_CERT_SHA256" ] || return 2
+  /usr/bin/openssl x509 -in "$certificate_path" -noout -fingerprint -sha256 >/dev/null 2>&1 || return 2
+}
+
+idMacosSystemKeychainHasCloudflareCertificate() {
+  local certificate_path fingerprint keychain_hashes
+  idVerifyCloudflareCertificateSource || return 2
+  certificate_path="$(idCloudflareCertificatePath)"
+  fingerprint="$(/usr/bin/openssl x509 -in "$certificate_path" -noout -fingerprint -sha256 2>/dev/null \
+    | sed -n 's/^[Ss][Hh][Aa]256 Fingerprint=//p' | tr -d ':' | tr '[:lower:]' '[:upper:]')" || return 2
+  [ "${#fingerprint}" -eq 64 ] || return 2
+  keychain_hashes="$(/usr/bin/security find-certificate -a -Z /Library/Keychains/System.keychain 2>/dev/null \
+    | sed -n 's/^SHA-256 hash: //p')" || return 2
+  printf '%s\n' "$keychain_hashes" | grep -Fxq "$fingerprint"
+}
+
 importCloudFlareCert() {
-  if [ "$(detect_os)" = "macos" ] && [ -z "$HEADLESS_INSTALL" ]; then
-    ### Acquire certificate
-    if [ -f "$HOME/.local/etc/ssl/cloudflare/cloudflare.crt" ]; then
-      CRT_TMP="$HOME/.local/etc/ssl/cloudflare/cloudflare.crt"
-      ### Validate / import certificate
-      if ! security verify-cert -c "$CRT_TMP" > /dev/null 2>&1; then
-        logg info '**macOS Manual Security Permission** Requesting security authorization for Cloudflare trusted certificate'
-        sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain "$CRT_TMP" && logg info 'Successfully imported cloudflare.crt into System.keychain'
-      fi
-    else
-      logg warn "$HOME/.local/etc/ssl/cloudflare/cloudflare.crt is missing"
-    fi
-  fi
+  local certificate_path
+  [ "$(detect_os)" = macos ] || return 20
+  [ -z "${HEADLESS_INSTALL:-}" ] || return 20
+  idVerifyCloudflareCertificateSource || {
+    logg error 'The selected Cloudflare certificate is missing, changed, or invalid'
+    return 2
+  }
+  idMacosSystemKeychainHasCloudflareCertificate && return 0
+  certificate_path="$(idCloudflareCertificatePath)"
+  logg info '**macOS Manual Security Permission** Requesting security authorization for the selected Cloudflare trusted certificate'
+  sudo /usr/bin/security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain "$certificate_path" || return 2
+  idMacosSystemKeychainHasCloudflareCertificate || return 2
+  logg info 'Successfully imported the selected Cloudflare certificate into System.keychain'
 }
 
 
@@ -2459,6 +2485,19 @@ if (rawPlan.network === 'cloudflare-warp' && rawPlan.consents.network === true) 
     }
   }
 }
+const certificatePath = `${process.env.HOME}/.local/etc/ssl/cloudflare/cloudflare.crt`;
+const warpSelected = platform === 'darwin' && selectedPackageClosure.includes('warp');
+let certificateDigest = 'absent';
+if (warpSelected) {
+  try {
+    const metadata = fs.lstatSync(certificatePath);
+    if (!metadata.isFile() || metadata.isSymbolicLink()) throw new Error('Cloudflare certificate path must be a regular non-symlink file');
+    certificateDigest = crypto.createHash('sha256').update(fs.readFileSync(certificatePath)).digest('hex');
+  } catch (error) {
+    if (error && error.code !== 'ENOENT') throw error;
+  }
+}
+const macosCertificateSelected = warpSelected && certificateDigest !== 'absent';
 let sudoPath = '';
 let sudoDigest = '';
 let sudoDigestKind = '';
@@ -2512,6 +2551,7 @@ const operationEnvironment = {
   INSTALL_DOCTOR_SELECTED_SERVICES: selectedServices.join(','),
   INSTALL_DOCTOR_WARP_CLI_PATH: warpCliPath,
   INSTALL_DOCTOR_WARP_CLI_SHA256: warpCliDigest,
+  INSTALL_DOCTOR_CLOUDFLARE_CERT_SHA256: certificateDigest,
 };
 const stageZeroInstallUserTask = {
   schemaVersion: 1, id: 'stage-zero.install-user-transition',
@@ -2744,25 +2784,13 @@ const macosFullDiskAccessTask = macosFullDiskAccessSelected ? {
   consent: 'none', lockDomains: ['macos-privacy'], cleanup: 'none', compensation: 'none',
   failurePolicy: 'abort-run',
 } : null;
-const certificatePath = `${process.env.HOME}/.local/etc/ssl/cloudflare/cloudflare.crt`;
-const warpSelected = platform === 'darwin' && selectedPackageClosure.includes('warp');
-let certificateDigest = 'absent';
-if (warpSelected) {
-  try {
-    const metadata = fs.lstatSync(certificatePath);
-    if (!metadata.isFile() || metadata.isSymbolicLink()) throw new Error('Cloudflare certificate path must be a regular non-symlink file');
-    certificateDigest = crypto.createHash('sha256').update(fs.readFileSync(certificatePath)).digest('hex');
-  } catch (error) {
-    if (error && error.code !== 'ENOENT') throw error;
-  }
-}
-const macosCertificateTask = warpSelected ? {
+const macosCertificateTask = macosCertificateSelected ? {
   schemaVersion: 1, id: 'bootstrap.macos-cloudflare-certificate',
   inputDigest: digest({ platform, packageKey: 'warp', certificatePath, certificateDigest, headless: Boolean(process.env.HEADLESS_INSTALL), policy: 'selected-warp-only-v1' }),
   dependencies: [nativeDependenciesTask.id], predicate: 'host-supported', requiredCapabilities: [],
   operations: { check: 'macos-certificate-check', apply: 'macos-certificate-apply', verify: 'macos-certificate-verify' },
   timeoutMs: 120_000, retry: { class: 'never', maxAttempts: 1, backoffMs: 0 },
-  resources: { cpu: 1, memoryMiB: 128, network: false }, privilege: 'admin', network: 'none',
+  resources: { cpu: 1, memoryMiB: 128, network: false }, privilege: 'user', network: 'none',
   consent: 'privileged', lockDomains: ['macos-keychain', 'privilege'], cleanup: 'none', compensation: 'none',
   failurePolicy: 'abort-run',
 } : null;
@@ -3481,16 +3509,15 @@ idRunEngineOperation() {
     macos-certificate-check)
       [ "$(detect_os)" = macos ] || return 20
       [ -z "${HEADLESS_INSTALL:-}" ] || return 20
-      [ -f "$HOME/.local/etc/ssl/cloudflare/cloudflare.crt" ] || return 20
-      security verify-cert -c "$HOME/.local/etc/ssl/cloudflare/cloudflare.crt" >/dev/null 2>&1 && return 0
+      idVerifyCloudflareCertificateSource || return 2
+      idMacosSystemKeychainHasCloudflareCertificate && return 0
       return 10
       ;;
     macos-certificate-apply) importCloudFlareCert ;;
     macos-certificate-verify)
       [ "$(detect_os)" = macos ] || return 20
       [ -z "${HEADLESS_INSTALL:-}" ] || return 20
-      [ -f "$HOME/.local/etc/ssl/cloudflare/cloudflare.crt" ] || return 20
-      security verify-cert -c "$HOME/.local/etc/ssl/cloudflare/cloudflare.crt" >/dev/null 2>&1
+      idMacosSystemKeychainHasCloudflareCertificate || return 30
       ;;
     qubes-dom0-check)
       return 78

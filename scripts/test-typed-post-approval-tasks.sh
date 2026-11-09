@@ -17,10 +17,11 @@ for task in bootstrap.macos-full-disk-access bootstrap.configured-agent-tasks; d
 done
 
 if grep -Fq "const warpSelected = platform === 'darwin' && selectedPackageClosure.includes('warp');" "$PROVISION" \
-  && grep -Fq 'const macosCertificateTask = warpSelected ? {' "$PROVISION" \
+  && grep -Fq "const macosCertificateSelected = warpSelected && certificateDigest !== 'absent';" "$PROVISION" \
+  && grep -Fq 'const macosCertificateTask = macosCertificateSelected ? {' "$PROVISION" \
   && grep -Fq '...(macosCertificateTask ? [macosCertificateTask] : [])' "$PROVISION" \
   && grep -Fq '...(macosCertificateTask ? {' "$PROVISION"; then
-  pass 'macOS Cloudflare trust-root mutation exists only in the exact selected WARP closure'
+  pass 'macOS Cloudflare trust-root mutation exists only for selected WARP with an admitted certificate'
 else
   fail 'macOS Cloudflare trust-root mutation is not bound to selected WARP desired state'
 fi
@@ -57,6 +58,17 @@ if printf '%s\n' "$agent_task" | grep -Fq "privilege: 'user'" \
   pass 'configured user-owned agent scripts cannot inherit admin execution authority'
 else
   fail 'configured user-owned agent scripts retain or imply admin execution authority'
+fi
+
+certificate_task="$(grep -F -A 12 "id: 'bootstrap.macos-cloudflare-certificate'" "$PROVISION")"
+if printf '%s\n' "$certificate_task" | grep -Fq "privilege: 'user'" \
+  && printf '%s\n' "$certificate_task" | grep -Fq "consent: 'privileged'" \
+  && grep -Fq 'INSTALL_DOCTOR_CLOUDFLARE_CERT_SHA256: certificateDigest' "$PROVISION" \
+  && grep -Fq 'find-certificate -a -Z /Library/Keychains/System.keychain' "$PROVISION" \
+  && ! sed -n '/^importCloudFlareCert() {/,/^}/p' "$PROVISION" | grep -Fq 'verify-cert'; then
+  pass 'Cloudflare certificate convergence binds source bytes and exact System keychain fingerprint without elevating the adapter'
+else
+  fail 'Cloudflare certificate convergence can mistake a valid source file for an installed trust root or over-privilege the adapter'
 fi
 
 logic="$(sed -n '/^provisionLogic() {/,/^}/p' "$PROVISION")"
@@ -136,6 +148,24 @@ if bash -c 'source "$1"; detect_os() { printf "macos\n"; }; plutil() { return 1;
   pass 'ungranted interactive full-disk access remains pending verification'
 else
   fail 'ungranted interactive full-disk access did not remain pending'
+fi
+
+mkdir -p "$TMP/cert-home/.local/etc/ssl/cloudflare"
+/usr/bin/openssl req -x509 -newkey rsa:2048 -nodes -subj '/CN=desktop-tools-test.invalid' -days 1 \
+  -keyout "$TMP/cert-key.pem" -out "$TMP/cert-home/.local/etc/ssl/cloudflare/cloudflare.crt" >/dev/null 2>&1
+certificate_digest="$(/usr/bin/shasum -a 256 "$TMP/cert-home/.local/etc/ssl/cloudflare/cloudflare.crt" | awk '{print $1}')"
+if HOME="$TMP/cert-home" INSTALL_DOCTOR_CLOUDFLARE_CERT_SHA256="$certificate_digest" \
+  bash -c 'source "$1"; idVerifyCloudflareCertificateSource' _ "$PROVISION"; then
+  pass 'plan-bound Cloudflare certificate source is accepted'
+else
+  fail 'plan-bound Cloudflare certificate source was rejected'
+fi
+printf '\nchanged\n' >> "$TMP/cert-home/.local/etc/ssl/cloudflare/cloudflare.crt"
+if HOME="$TMP/cert-home" INSTALL_DOCTOR_CLOUDFLARE_CERT_SHA256="$certificate_digest" \
+  bash -c 'source "$1"; idVerifyCloudflareCertificateSource' _ "$PROVISION"; then
+  fail 'changed Cloudflare certificate retained stale plan authority'
+else
+  pass 'changed Cloudflare certificate invalidates stale plan authority'
 fi
 
 printf 'typed-post-approval-tasks: %d passed, %d failed\n' "$P" "$F"
