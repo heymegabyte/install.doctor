@@ -506,6 +506,7 @@ case "$url" in
   ${origin}/releases/test/release.provenance.json) source="$MOCK_PROVENANCE" ;;
   ${origin}/releases/test/THIRD_PARTY_LICENSES.txt) source="$MOCK_LICENSES" ;;
   ${origin}/releases/test/opencode.lock.json) source="$MOCK_OPENCODE_LOCK" ;;
+  ${origin}/releases/test/broker-approval-signer-delegation.json) source="$MOCK_BROKER_APPROVAL_DELEGATION" ;;
   ${origin}/releases/test/opencode-macos-x64.zip) source="$MOCK_OPENCODE_MACOS_X64" ;;
   ${origin}/releases/test/opencode-macos-arm64.zip) source="$MOCK_OPENCODE_MACOS_ARM64" ;;
   ${origin}/releases/test/opencode-linux-x64.tar.gz) source="$MOCK_OPENCODE_LINUX_X64" ;;
@@ -562,6 +563,8 @@ esac
     artifactBody,
     engineBody = '#!/usr/bin/env node\nprocess.exit(0)\n',
     catalogBody = '[{"name":"fixture"}]\n',
+    brokerApprovalDelegationUrl = `${origin}/releases/test/broker-approval-signer-delegation.json`,
+    brokerApprovalMinimumRevocationEpoch = 7,
   } = {}) => {
     const artifact = path.join(downloadRoot, `provision-${crypto.randomUUID()}.sh`);
     const manifest = path.join(downloadRoot, `manifest-${crypto.randomUUID()}`);
@@ -585,6 +588,7 @@ esac
       provenance: path.join(downloadRoot, `provenance-${crypto.randomUUID()}.json`),
       licenses: path.join(downloadRoot, `licenses-${crypto.randomUUID()}.txt`),
       opencodeLock: path.join(downloadRoot, `opencode-lock-${crypto.randomUUID()}.json`),
+      brokerApprovalDelegation: path.join(downloadRoot, `broker-approval-delegation-${crypto.randomUUID()}.json`),
       debianInRelease: path.join(downloadRoot, `debian-inrelease-${crypto.randomUUID()}`),
       debianKeyring: path.join(downloadRoot, `debian-keyring-${crypto.randomUUID()}.gpg`),
       debianPackages: path.join(downloadRoot, `debian-packages-${crypto.randomUUID()}.xz`),
@@ -596,6 +600,7 @@ esac
     fs.writeFileSync(closure.provenance, '{"_type":"https://in-toto.io/Statement/v1"}\n');
     fs.writeFileSync(closure.licenses, 'OpenCode — MIT\nDesktop Tools — MIT\n');
     fs.writeFileSync(closure.opencodeLock, '{"schemaVersion":1,"version":"2.2.5"}\n');
+    fs.writeFileSync(closure.brokerApprovalDelegation, '{"schemaVersion":1,"fixture":true}\n');
     fs.writeFileSync(closure.debianInRelease, 'signed Debian bookworm InRelease\n');
     fs.writeFileSync(closure.debianKeyring, 'pinned Debian archive keyring\n');
     fs.writeFileSync(closure.debianPackages, 'signed Debian Packages.xz\n');
@@ -610,7 +615,7 @@ esac
     const engineDigest = crypto.createHash('sha256').update(engineBody).digest('hex');
     const catalogDigest = crypto.createHash('sha256').update(catalogBody).digest('hex');
     const manifestBody = [
-      `schema_version=${desktop ? 8 : 5}`,
+      `schema_version=${desktop ? 9 : 5}`,
       ...(desktop ? ['product_id=desktop-tools'] : []),
       `release_id=${releaseId}`,
       `source_commit=${'a'.repeat(40)}`,
@@ -633,6 +638,10 @@ esac
       'runtime_node_version=24.11.0',
       ...(desktop ? [
         'opencode_version=2.2.5',
+        `broker_approval_minimum_revocation_epoch=${brokerApprovalMinimumRevocationEpoch}`,
+        `broker_approval_delegation_url=${brokerApprovalDelegationUrl}`,
+        `broker_approval_delegation_sha256=${crypto.createHash('sha256').update(fs.readFileSync(closure.brokerApprovalDelegation)).digest('hex')}`,
+        `broker_approval_delegation_size=${fs.statSync(closure.brokerApprovalDelegation).size}`,
         ...[
           ['supervisor', 'desktop-tools-supervisor.mjs', closure.supervisor],
           ['tools', 'desktop-tools-tools.tar.gz', closure.tools],
@@ -691,6 +700,7 @@ esac
         MOCK_PROVENANCE: release.closure?.provenance ?? '',
         MOCK_LICENSES: release.closure?.licenses ?? '',
         MOCK_OPENCODE_LOCK: release.closure?.opencodeLock ?? '',
+        MOCK_BROKER_APPROVAL_DELEGATION: release.closure?.brokerApprovalDelegation ?? '',
         MOCK_OPENCODE_MACOS_X64: release.opencode?.['macos-x64'] ?? '',
         MOCK_OPENCODE_MACOS_ARM64: release.opencode?.['macos-arm64'] ?? '',
         MOCK_OPENCODE_LINUX_X64: release.opencode?.['linux-x64'] ?? '',
@@ -1406,7 +1416,7 @@ test('Desktop Tools release policy is source-owned while legacy release verifica
   const script = renderBootstrap(desktopConfig);
   assert.match(script, /readonly RELEASE_ORIGIN='https:\/\/desktop\.tools'/);
   assert.match(script, /readonly SIGNATURE_NAMESPACE='desktop\.tools\.release'/);
-  assert.match(script, /readonly EXPECTED_MANIFEST_SCHEMA='8'/);
+  assert.match(script, /readonly EXPECTED_MANIFEST_SCHEMA='9'/);
   assert.doesNotMatch(script, /download "\$debian_(?:inrelease|keyring|packages|tree)_url"/);
   assert.match(script, /readonly EXPECTED_PRODUCT_ID='desktop-tools'/);
   assert.match(script, /readonly DESKTOP_TOOLS_PROFILE_SLUG='example'/);
@@ -1433,20 +1443,53 @@ test('Desktop Tools release policy is source-owned while legacy release verifica
   assert.throws(() => releaseObjectUrl('desktop-tools', 'release-1', 'install-doctor-engine.mjs'));
 });
 
-test('Desktop Tools profile stage-zero executes a verified v8 runtime closure with lazy Debian authority binding', async (t) => {
+test('Desktop Tools profile stage-zero executes a verified v9 runtime closure with broker delegation binding', async (t) => {
   const fixture = makeBootstrapRuntimeFixture(t, 'desktop-tools');
   const { renderBootstrap } = await import('../src/bootstrap.ts');
   const profile = {
     id: 'profile-example', slug: 'example', revision: 'revision-7', digest: 'c'.repeat(64)
   };
   const release = fixture.createRelease({
-    artifactBody: '#!/usr/bin/env bash\nset -euo pipefail\nprintf "%s|%s|%s|%s\\n" "$DESKTOP_TOOLS_PROFILE_ID" "$DESKTOP_TOOLS_PROFILE_SLUG" "$DESKTOP_TOOLS_PROFILE_REVISION" "$DESKTOP_TOOLS_PROFILE_DIGEST"\nprintf "%s|%s|%s|%s|%s\\n" "$DESKTOP_TOOLS_OPENCODE_VERSION" "$DESKTOP_TOOLS_OPENCODE_SHA256" "$DESKTOP_TOOLS_SUPERVISOR_SHA256" "$DESKTOP_TOOLS_TOOLS_SHA256" "$DESKTOP_TOOLS_SBOM_PATH"\n'
+    artifactBody: '#!/usr/bin/env bash\nset -euo pipefail\nprintf "%s|%s|%s|%s\\n" "$DESKTOP_TOOLS_PROFILE_ID" "$DESKTOP_TOOLS_PROFILE_SLUG" "$DESKTOP_TOOLS_PROFILE_REVISION" "$DESKTOP_TOOLS_PROFILE_DIGEST"\nprintf "%s|%s|%s|%s|%s\\n" "$DESKTOP_TOOLS_OPENCODE_VERSION" "$DESKTOP_TOOLS_OPENCODE_SHA256" "$DESKTOP_TOOLS_SUPERVISOR_SHA256" "$DESKTOP_TOOLS_TOOLS_SHA256" "$DESKTOP_TOOLS_SBOM_PATH"\ndelegation_mode="$(stat -c "%a" "$DESKTOP_TOOLS_BROKER_APPROVAL_DELEGATION_PATH" 2>/dev/null || stat -f "%Lp" "$DESKTOP_TOOLS_BROKER_APPROVAL_DELEGATION_PATH")"\nprintf "%s|%s|%s|%s|%s\\n" "$DESKTOP_TOOLS_BROKER_APPROVAL_DELEGATION_PATH" "$DESKTOP_TOOLS_BROKER_APPROVAL_DELEGATION_SHA256" "$DESKTOP_TOOLS_BROKER_APPROVAL_MINIMUM_REVOCATION_EPOCH" "$delegation_mode" "${DESKTOP_TOOLS_BROKER_APPROVAL_DELEGATION_URL:-absent}"\n'
   });
-  const result = fixture.run(renderBootstrap({ ...fixture.config, profile }), release);
+  const result = fixture.run(renderBootstrap({ ...fixture.config, profile }), release, {
+    DESKTOP_TOOLS_BROKER_APPROVAL_DELEGATION_PATH: '/tmp/caller-controlled.json',
+    DESKTOP_TOOLS_BROKER_APPROVAL_DELEGATION_SHA256: '0'.repeat(64),
+    DESKTOP_TOOLS_BROKER_APPROVAL_MINIMUM_REVOCATION_EPOCH: '999999',
+    DESKTOP_TOOLS_BROKER_APPROVAL_DELEGATION_URL: 'https://attacker.invalid/delegation.json',
+  });
   assert.equal(result.status, 0, result.stderr);
-  const [profileBinding, runtimeBinding] = result.stdout.trim().split('\n');
+  const [profileBinding, runtimeBinding, delegationBinding] = result.stdout.trim().split('\n');
   assert.equal(profileBinding, `profile-example|example|revision-7|${'c'.repeat(64)}`);
   assert.match(runtimeBinding, /^2\.2\.5\|[a-f0-9]{64}\|[a-f0-9]{64}\|[a-f0-9]{64}\|\/.+\/release\.sbom\.json$/);
+  assert.match(delegationBinding, /^\/.+\/broker-approval-signer-delegation\.json\|[a-f0-9]{64}\|7\|600\|absent$/);
+  fixture.assertStageClean();
+});
+
+test('Desktop Tools stage-zero rejects substituted, misplaced, and invalid broker approval delegation policy', async (t) => {
+  const fixture = makeBootstrapRuntimeFixture(t, 'desktop-tools');
+  const { renderBootstrap } = await import('../src/bootstrap.ts');
+  const script = renderBootstrap(fixture.config);
+
+  const substituted = fixture.createRelease();
+  fs.appendFileSync(substituted.closure.brokerApprovalDelegation, 'substituted');
+  const substitutedResult = fixture.run(script, substituted);
+  assert.notEqual(substitutedResult.status, 0);
+  assert.match(substitutedResult.stderr, /(?:download exceeded its declared size limit|broker approval delegation (?:size|checksum) does not match the signed manifest)/);
+  fixture.assertStageClean();
+
+  const misplaced = fixture.createRelease({
+    brokerApprovalDelegationUrl: 'https://desktop.tools/releases/test/release.sbom.json',
+  });
+  const misplacedResult = fixture.run(script, misplaced);
+  assert.notEqual(misplacedResult.status, 0);
+  assert.match(misplacedResult.stderr, /broker approval delegation URL does not match the signed immutable release/);
+  fixture.assertStageClean();
+
+  const invalidEpoch = fixture.createRelease({ brokerApprovalMinimumRevocationEpoch: 'not-an-integer' });
+  const invalidEpochResult = fixture.run(script, invalidEpoch);
+  assert.notEqual(invalidEpochResult.status, 0);
+  assert.match(invalidEpochResult.stderr, /broker approval delegation policy must contain integers/);
   fixture.assertStageClean();
 });
 

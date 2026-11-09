@@ -67,7 +67,7 @@ readonly SIGNATURE_URL=${literal(config.signatureUrl)}
 readonly SIGNER_ID=${literal(config.signerIdentity)}
 readonly SIGNER_KEY=${literal(config.signerPublicKey)}
 readonly EXPECTED_RELEASE_ID=${literal(expectedReleaseId)}
-readonly EXPECTED_MANIFEST_SCHEMA=${literal(config.product === 'desktop-tools' ? '8' : '5')}
+readonly EXPECTED_MANIFEST_SCHEMA=${literal(config.product === 'desktop-tools' ? '9' : '5')}
 readonly EXPECTED_PRODUCT_ID=${literal(config.product === 'desktop-tools' ? 'desktop-tools' : '')}
 readonly DESKTOP_TOOLS_PROFILE_ID=${literal(config.profile?.id ?? '')}
 readonly DESKTOP_TOOLS_PROFILE_SLUG=${literal(config.profile?.slug ?? '')}
@@ -157,6 +157,7 @@ SBOM="$STAGE/release.sbom.json"
 PROVENANCE="$STAGE/release.provenance.json"
 LICENSES="$STAGE/THIRD_PARTY_LICENSES.txt"
 OPENCODE_LOCK="$STAGE/opencode.lock.json"
+BROKER_APPROVAL_DELEGATION="$STAGE/broker-approval-signer-delegation.json"
 printf '${policy.diagnosticName}: fetching signed release metadata...\n' >&2
 download "$MANIFEST_URL" "$MANIFEST" "$MAX_MANIFEST_BYTES" & DOWNLOAD_PIDS+=("$!")
 download "$SIGNATURE_URL" "$SIGNATURE" "$MAX_SIGNATURE_BYTES" & DOWNLOAD_PIDS+=("$!")
@@ -176,6 +177,7 @@ opencode_macos_x64_url= opencode_macos_x64_sha256= opencode_macos_x64_size= open
 opencode_linux_x64_url= opencode_linux_x64_sha256= opencode_linux_x64_size= opencode_linux_arm64_url= opencode_linux_arm64_sha256= opencode_linux_arm64_size=
 debian_inrelease_url= debian_inrelease_sha256= debian_inrelease_size= debian_keyring_url= debian_keyring_sha256= debian_keyring_size=
 debian_packages_url= debian_packages_sha256= debian_packages_size= debian_tree_url= debian_tree_sha256= debian_tree_size=
+broker_approval_minimum_revocation_epoch= broker_approval_delegation_url= broker_approval_delegation_sha256= broker_approval_delegation_size=
 while IFS='=' read -r key value; do
   [ -n "$key" ] && [ -n "$value" ] || die 'release manifest contains an empty field'
   case "$key" in
@@ -255,6 +257,10 @@ while IFS='=' read -r key value; do
     debian_tree_url) [ -z "$debian_tree_url" ] || die 'release manifest repeats debian_tree_url'; debian_tree_url="$value" ;;
     debian_tree_sha256) [ -z "$debian_tree_sha256" ] || die 'release manifest repeats debian_tree_sha256'; debian_tree_sha256="$value" ;;
     debian_tree_size) [ -z "$debian_tree_size" ] || die 'release manifest repeats debian_tree_size'; debian_tree_size="$value" ;;
+    broker_approval_minimum_revocation_epoch) [ -z "$broker_approval_minimum_revocation_epoch" ] || die 'release manifest repeats broker_approval_minimum_revocation_epoch'; broker_approval_minimum_revocation_epoch="$value" ;;
+    broker_approval_delegation_url) [ -z "$broker_approval_delegation_url" ] || die 'release manifest repeats broker_approval_delegation_url'; broker_approval_delegation_url="$value" ;;
+    broker_approval_delegation_sha256) [ -z "$broker_approval_delegation_sha256" ] || die 'release manifest repeats broker_approval_delegation_sha256'; broker_approval_delegation_sha256="$value" ;;
+    broker_approval_delegation_size) [ -z "$broker_approval_delegation_size" ] || die 'release manifest repeats broker_approval_delegation_size'; broker_approval_delegation_size="$value" ;;
     *) die "release manifest contains unknown field: $key" ;;
   esac
 done < "$MANIFEST"
@@ -287,6 +293,8 @@ if [ -n "$EXPECTED_PRODUCT_ID" ]; then
     && [ -n "$debian_keyring_url" ] && [ -n "$debian_keyring_sha256" ] && [ -n "$debian_keyring_size" ] \
     && [ -n "$debian_packages_url" ] && [ -n "$debian_packages_sha256" ] && [ -n "$debian_packages_size" ] \
     && [ -n "$debian_tree_url" ] && [ -n "$debian_tree_sha256" ] && [ -n "$debian_tree_size" ] \
+    && [ -n "$broker_approval_minimum_revocation_epoch" ] \
+    && [ -n "$broker_approval_delegation_url" ] && [ -n "$broker_approval_delegation_sha256" ] && [ -n "$broker_approval_delegation_size" ] \
     || die 'Desktop Tools runtime closure is incomplete'
 else
   [ -z "$product_id" ] || die 'legacy release manifest must not claim a Desktop Tools product identity'
@@ -367,6 +375,11 @@ if [ -n "$EXPECTED_PRODUCT_ID" ]; then
     case "$opencode_size" in *[!0-9]*|'') die 'OpenCode size must be an integer' ;; esac
     [ "$opencode_size" -gt 0 ] && [ "$opencode_size" -le "$MAX_OPENCODE_BYTES" ] || die 'OpenCode size is outside policy'
   done
+  case "$broker_approval_minimum_revocation_epoch:$broker_approval_delegation_size" in *[!0-9:]*|'') die 'broker approval delegation policy must contain integers' ;; esac
+  [ "$broker_approval_delegation_url" = "$RELEASE_ORIGIN/releases/$release_id/broker-approval-signer-delegation.json" ] || die 'broker approval delegation URL does not match the signed immutable release'
+  case "$broker_approval_delegation_sha256" in *[!0-9a-f]*|'') die 'invalid broker approval delegation digest' ;; esac
+  [ "\${#broker_approval_delegation_sha256}" -eq 64 ] || die 'broker approval delegation digest must be SHA-256'
+  [ "$broker_approval_delegation_size" -gt 0 ] && [ "$broker_approval_delegation_size" -le "$MAX_METADATA_BYTES" ] || die 'broker approval delegation size is outside policy'
 fi
 now="$(date -u +%s 2>/dev/null)" || die 'a reliable UTC clock is required to validate release expiry'
 case "$now" in *[!0-9]*|'') die 'a reliable UTC clock is required to validate release expiry' ;; esac
@@ -431,6 +444,7 @@ if [ -n "$EXPECTED_PRODUCT_ID" ]; then
   download "$provenance_url" "$PROVENANCE" "$provenance_size" & DOWNLOAD_PIDS+=("$!")
   download "$licenses_url" "$LICENSES" "$licenses_size" & DOWNLOAD_PIDS+=("$!")
   download "$opencode_lock_url" "$OPENCODE_LOCK" "$opencode_lock_size" & DOWNLOAD_PIDS+=("$!")
+  download "$broker_approval_delegation_url" "$BROKER_APPROVAL_DELEGATION" "$broker_approval_delegation_size" & DOWNLOAD_PIDS+=("$!")
 fi
 if [ "$runtime_source" = 'signed-archive' ]; then
   download "$runtime_url" "$RUNTIME_ARCHIVE" "$runtime_size" & DOWNLOAD_PIDS+=("$!")
@@ -462,11 +476,13 @@ if [ -n "$EXPECTED_PRODUCT_ID" ]; then
     [ "$(size "$verified_path")" -eq "$verified_size" ] || die "$verified_label size does not match the signed manifest"
     [ "$(sha256 "$verified_path")" = "$verified_sha" ] || die "$verified_label checksum does not match the signed manifest"
   done
+  [ "$(size "$BROKER_APPROVAL_DELEGATION")" -eq "$broker_approval_delegation_size" ] || die 'broker approval delegation size does not match the signed manifest'
+  [ "$(sha256 "$BROKER_APPROVAL_DELEGATION")" = "$broker_approval_delegation_sha256" ] || die 'broker approval delegation checksum does not match the signed manifest'
 fi
 chmod 0700 "$ARTIFACT" "$ENGINE"
 chmod 0600 "$CATALOG"
 [ "$runtime_source" = 'system' ] || chmod 0600 "$RUNTIME_ARCHIVE"
-if [ -n "$EXPECTED_PRODUCT_ID" ]; then chmod 0700 "$SUPERVISOR"; chmod 0600 "$OPENCODE_ARCHIVE" "$TOOLS" "$SBOM" "$PROVENANCE" "$LICENSES" "$OPENCODE_LOCK"; fi
+if [ -n "$EXPECTED_PRODUCT_ID" ]; then chmod 0700 "$SUPERVISOR"; chmod 0600 "$OPENCODE_ARCHIVE" "$TOOLS" "$SBOM" "$PROVENANCE" "$LICENSES" "$OPENCODE_LOCK" "$BROKER_APPROVAL_DELEGATION"; fi
 manifest_sha256="$(sha256 "$MANIFEST")"
 
 # Do not forward arbitrary caller state, proxy configuration, shell startup hooks,
@@ -497,6 +513,8 @@ env -i \\
   DESKTOP_TOOLS_NATIVE_BROKER_REQUESTED="$native_broker_requested" \\
   DESKTOP_TOOLS_SBOM_PATH="$SBOM" DESKTOP_TOOLS_PROVENANCE_PATH="$PROVENANCE" DESKTOP_TOOLS_LICENSES_PATH="$LICENSES" \\
   DESKTOP_TOOLS_OPENCODE_LOCK_PATH="$OPENCODE_LOCK" DESKTOP_TOOLS_OPENCODE_LOCK_SHA256="$opencode_lock_sha256" \\
+  DESKTOP_TOOLS_BROKER_APPROVAL_DELEGATION_PATH="$BROKER_APPROVAL_DELEGATION" DESKTOP_TOOLS_BROKER_APPROVAL_DELEGATION_SHA256="$broker_approval_delegation_sha256" \\
+  DESKTOP_TOOLS_BROKER_APPROVAL_MINIMUM_REVOCATION_EPOCH="$broker_approval_minimum_revocation_epoch" \\
   DESKTOP_TOOLS_DEBIAN_INRELEASE_URL="$debian_inrelease_url" DESKTOP_TOOLS_DEBIAN_INRELEASE_SHA256="$debian_inrelease_sha256" DESKTOP_TOOLS_DEBIAN_INRELEASE_SIZE="$debian_inrelease_size" \\
   DESKTOP_TOOLS_DEBIAN_KEYRING_URL="$debian_keyring_url" DESKTOP_TOOLS_DEBIAN_KEYRING_SHA256="$debian_keyring_sha256" DESKTOP_TOOLS_DEBIAN_KEYRING_SIZE="$debian_keyring_size" \\
   DESKTOP_TOOLS_DEBIAN_PACKAGES_URL="$debian_packages_url" DESKTOP_TOOLS_DEBIAN_PACKAGES_SHA256="$debian_packages_sha256" DESKTOP_TOOLS_DEBIAN_PACKAGES_SIZE="$debian_packages_size" \\
