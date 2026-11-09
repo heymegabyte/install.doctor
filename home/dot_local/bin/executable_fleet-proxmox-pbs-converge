@@ -120,14 +120,20 @@ EOF
     systemctl daemon-reload
   fi
 
-  # #123: Throttle vzdump I/O (120 MB/s, ionice 7) so nightly S3/ZFS backups never overheat Exos HDDs above 55C
+  # #123: Throttle vzdump I/O (120 MB/s, ionice 7) for Exos HDD thermals, preserve vzdump-hc-hook.sh, and disable VFIO idle D3cold
   if [ "$MODE" = "--apply" ]; then
+    cat > /etc/modprobe.d/vfio-d3cold.conf <<'EOF'
+options vfio_pci disable_idle_d3=1
+EOF
     cat > /etc/vzdump.conf <<'EOF'
 bwlimit: 120000
 ionice: 7
 pigz: 1
 zstd: 1
 EOF
+    if [ -x /usr/local/bin/vzdump-hc-hook.sh ]; then
+      printf 'script: /usr/local/bin/vzdump-hc-hook.sh\n' >> /etc/vzdump.conf
+    fi
   fi
 
   # #124: Harden Healthchecks heartbeat script with curl retries so transient tunnel flaps never fire false DOWN emails
