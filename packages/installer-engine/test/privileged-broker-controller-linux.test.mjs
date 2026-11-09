@@ -85,7 +85,7 @@ async function exerciseController(t, suffix, authorize) {
     await rm(authorityRoot, { recursive: true, force: true });
   });
   const input = await exactInput(runId, authorityRoot, helperPath, runtimePath, workerPath);
-  const { controllerInput, options = {} } = authorize(input);
+  const { controllerInput, options = {} } = await authorize(input);
   const controller = runPrivilegedBrokerController(controllerInput, options);
   for (let attempt = 0; attempt < 250; attempt += 1) {
     try { if ((await lstat(controllerInput.socketPath)).isSocket()) break; } catch (error) { if (error?.code !== 'ENOENT') throw error; }
@@ -107,15 +107,28 @@ test('Linux root controller publishes only a listening broker and retires all vo
 });
 
 test('Linux root controller accepts exact signed-device authority without local confirmation', { skip: !enabled }, async t => {
-  await exerciseController(t, 'device', controllerInput => {
+  await exerciseController(t, 'device', async controllerInput => {
     const signer = generateKeyPairSync('ed25519');
     const signerKeyId = 'controller-device-key-1';
     const deviceApproval = createSignedDeviceBrokerApproval({ grant: controllerInput.grant,
       approvalId: `approval-${controllerInput.grant.runId}`, signerKeyId,
       privateKey: signer.privateKey.export({ type: 'pkcs8', format: 'pem' }).toString(),
       approvedAt: new Date(Date.parse(controllerInput.grant.issuedAt) + 1).toISOString() });
-    return { controllerInput: { ...controllerInput, deviceApproval,
-      deviceApprovalTrust: { signerKeyId,
-        publicKey: signer.publicKey.export({ type: 'spki', format: 'pem' }).toString() } } };
+    const projection = { schemaVersion: 1, kind: 'desktop-tools-broker-approval-signer-delegation', keyId: signerKeyId,
+      algorithm: 'Ed25519', signatureDomain: 'desktop-tools-broker-approval-v1', product: 'desktop-tools',
+      releaseId: controllerInput.grant.releaseId, channel: 'stable',
+      publicKeySpki: signer.publicKey.export({ type: 'spki', format: 'der' }).toString('base64url'),
+      notBefore: controllerInput.grant.issuedAt, notAfter: controllerInput.grant.expiresAt,
+      maximumApprovalLifetimeSeconds: 600, revocationEpoch: 1 };
+    const sorted = value => value && typeof value === 'object' && !Array.isArray(value)
+      ? Object.fromEntries(Object.entries(value).sort(([a], [b]) => a.localeCompare(b)).map(([key, entry]) => [key, sorted(entry)]))
+      : Array.isArray(value) ? value.map(sorted) : value;
+    const delegationDigest = hash(`desktop-tools:broker-approval-signer-delegation:v1\0${JSON.stringify(sorted(projection))}`);
+    const bytes = Buffer.from(`${JSON.stringify(sorted({ ...projection, delegationDigest }))}\n`);
+    const brokerApprovalDelegationPath = join(dirname(controllerInput.helperPath), 'broker-approval-signer-delegation.json');
+    await writeFile(brokerApprovalDelegationPath, bytes, { mode: 0o400 });
+    await chown(brokerApprovalDelegationPath, 0, 0);
+    return { controllerInput: { ...controllerInput, deviceApproval, brokerApprovalDelegationPath,
+      brokerApprovalDelegationDigest: hash(bytes), brokerApprovalMinimumRevocationEpoch: 1 } };
   });
 });

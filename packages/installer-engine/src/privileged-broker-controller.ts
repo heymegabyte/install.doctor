@@ -7,6 +7,7 @@ import { spawn } from 'node:child_process';
 import { publishTrustedLocalBrokerGrant, retireTrustedLocalBrokerGrant } from './privileged-broker-local-approval.js';
 import type { TrustedLocalConfirmation } from './privileged-broker-local-approval.js';
 import { publishSignedDeviceBrokerGrant } from './privileged-broker-device-approval.js';
+import { deriveReleaseBrokerApprovalTrust } from './broker-approval-release-delegation.js';
 import { PrivilegedBrokerControllerInputSchema } from './privileged-broker-controller-contract.js';
 import type { PrivilegedBrokerControllerInput } from './privileged-broker-controller-contract.js';
 
@@ -112,9 +113,23 @@ export async function runPrivilegedBrokerController(inputValue: unknown, testOpt
       const worker = await openVerifiedRootFile(input.workerPath, input.workerDigest, false, 2_097_152);
       await worker.close();
     } finally { await runtime.close(); }
-    const publication = input.deviceApproval && input.deviceApprovalTrust
-      ? await publishSignedDeviceBrokerGrant({ grant: input.grant, authority: input.authority,
-          approval: input.deviceApproval, trust: input.deviceApprovalTrust })
+    const delegation = input.deviceApproval && input.brokerApprovalDelegationPath
+      && input.brokerApprovalDelegationDigest !== undefined
+      && input.brokerApprovalMinimumRevocationEpoch !== undefined
+      ? await openVerifiedRootFile(input.brokerApprovalDelegationPath, input.brokerApprovalDelegationDigest, false, 65_536)
+      : undefined;
+    const publication = input.deviceApproval && delegation
+      ? await (async () => {
+          try {
+            const bytes = Buffer.alloc(Number((await delegation.stat()).size));
+            await delegation.read(bytes, 0, bytes.length, 0);
+            const trust = deriveReleaseBrokerApprovalTrust({ bytes,
+              expectedDigest: input.brokerApprovalDelegationDigest!,
+              minimumRevocationEpoch: input.brokerApprovalMinimumRevocationEpoch!, grant: input.grant });
+            return await publishSignedDeviceBrokerGrant({ grant: input.grant, authority: input.authority,
+              approval: input.deviceApproval, trust });
+          } finally { await delegation.close(); }
+        })()
       : await publishTrustedLocalBrokerGrant({ grant: input.grant, authority: input.authority,
           ...(testOptions.confirmation ? { confirmation: testOptions.confirmation } : {}),
           ...(testOptions.now ? { now: testOptions.now } : {}) });

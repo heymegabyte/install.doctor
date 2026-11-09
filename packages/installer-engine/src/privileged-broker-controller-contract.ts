@@ -4,7 +4,6 @@ import { PrivilegedBrokerApprovalEvidenceSchema, PrivilegedBrokerGrantSchema } f
 import { PrivilegedBrokerExecutionAuthoritySchema } from './privileged-broker-authority.js';
 
 const digest = z.string().regex(/^[a-f0-9]{64}$/);
-const identifier = z.string().min(1).max(128).regex(/^[a-z0-9][a-z0-9._-]*$/);
 const runtimePath = z.string().min(1).max(4096).refine(value => isAbsolute(value) && resolve(value) === value
   && value.startsWith('/run/desktop-tools/authority/'), 'broker runtime paths must be canonical and inside the root authority directory');
 const socketPath = z.string().min(1).max(4096).refine(value => isAbsolute(value) && resolve(value) === value
@@ -27,7 +26,9 @@ export const PrivilegedBrokerControllerInputSchema = z.strictObject({
   workerDigest: digest,
   deviceApproval: PrivilegedBrokerApprovalEvidenceSchema.refine(value => value.method === 'signed-device',
     'controller device approval must be signed-device evidence').optional(),
-  deviceApprovalTrust: z.strictObject({ signerKeyId: identifier, publicKey: z.string().min(64).max(4096) }).optional(),
+  brokerApprovalDelegationPath: runtimePath.optional(),
+  brokerApprovalDelegationDigest: digest.optional(),
+  brokerApprovalMinimumRevocationEpoch: z.number().int().nonnegative().safe().optional(),
 }).superRefine((value, context) => {
   if (value.helperDigest !== value.grant.brokerExecutableDigest
     || value.runtimeDigest !== value.grant.runtimeDigest || value.workerDigest !== value.grant.workerDigest) {
@@ -36,8 +37,10 @@ export const PrivilegedBrokerControllerInputSchema = z.strictObject({
   if (dirname(value.socketPath).split('/').at(-1) !== value.grant.runId) {
     context.addIssue({ code: 'custom', message: 'controller socket path differs from the exact run' });
   }
-  if ((value.deviceApproval === undefined) !== (value.deviceApprovalTrust === undefined)) {
-    context.addIssue({ code: 'custom', message: 'signed device approval evidence and trust must be supplied together' });
+  const delegated = [value.brokerApprovalDelegationPath, value.brokerApprovalDelegationDigest,
+    value.brokerApprovalMinimumRevocationEpoch].filter(entry => entry !== undefined).length;
+  if (value.deviceApproval === undefined ? delegated !== 0 : delegated !== 3) {
+    context.addIssue({ code: 'custom', message: 'signed device approval requires exact release delegation evidence' });
   }
 });
 
