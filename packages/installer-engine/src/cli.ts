@@ -619,7 +619,8 @@ function inputPath(argv: readonly string[]): string {
 }
 
 async function readInvocation(path: string): Promise<Invocation> {
-  const handle = await open(path, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
+  const inheritedInvocation = process.platform === 'linux' && path === '/proc/self/fd/4';
+  const handle = await open(path, constants.O_RDONLY | (inheritedInvocation ? 0 : (constants.O_NOFOLLOW ?? 0)));
   try {
     const metadata = await handle.stat();
     if (!metadata.isFile() || metadata.size < 2 || metadata.size > 1_048_576) {
