@@ -1812,7 +1812,7 @@ test('Desktop Tools profile stage-zero executes a verified v9 runtime closure wi
     id: 'profile-example', slug: 'example', revision: 'revision-7', digest: 'c'.repeat(64)
   };
   const release = fixture.createRelease({
-    artifactBody: '#!/usr/bin/env bash\nset -euo pipefail\nprintf "%s|%s|%s|%s\\n" "$DESKTOP_TOOLS_PROFILE_ID" "$DESKTOP_TOOLS_PROFILE_SLUG" "$DESKTOP_TOOLS_PROFILE_REVISION" "$DESKTOP_TOOLS_PROFILE_DIGEST"\nprintf "%s|%s|%s|%s|%s\\n" "$DESKTOP_TOOLS_OPENCODE_VERSION" "$DESKTOP_TOOLS_OPENCODE_SHA256" "$DESKTOP_TOOLS_SUPERVISOR_SHA256" "$DESKTOP_TOOLS_TOOLS_SHA256" "$DESKTOP_TOOLS_SBOM_PATH"\ndelegation_mode="$(stat -c "%a" "$DESKTOP_TOOLS_BROKER_APPROVAL_DELEGATION_PATH" 2>/dev/null || stat -f "%Lp" "$DESKTOP_TOOLS_BROKER_APPROVAL_DELEGATION_PATH")"\nprintf "%s|%s|%s|%s|%s\\n" "$DESKTOP_TOOLS_BROKER_APPROVAL_DELEGATION_PATH" "$DESKTOP_TOOLS_BROKER_APPROVAL_DELEGATION_SHA256" "$DESKTOP_TOOLS_BROKER_APPROVAL_MINIMUM_REVOCATION_EPOCH" "$delegation_mode" "${DESKTOP_TOOLS_BROKER_APPROVAL_DELEGATION_URL:-absent}"\n'
+    artifactBody: '#!/usr/bin/env bash\nset -euo pipefail\nprintf "%s|%s|%s|%s\\n" "$DESKTOP_TOOLS_PROFILE_ID" "$DESKTOP_TOOLS_PROFILE_SLUG" "$DESKTOP_TOOLS_PROFILE_REVISION" "$DESKTOP_TOOLS_PROFILE_DIGEST"\nprintf "%s|%s|%s|%s|%s\\n" "$DESKTOP_TOOLS_OPENCODE_VERSION" "$DESKTOP_TOOLS_OPENCODE_SHA256" "$DESKTOP_TOOLS_SUPERVISOR_SHA256" "$DESKTOP_TOOLS_TOOLS_SHA256" "$DESKTOP_TOOLS_SBOM_PATH"\ndelegation_mode="$(stat -c "%a" "$DESKTOP_TOOLS_BROKER_APPROVAL_DELEGATION_PATH" 2>/dev/null || stat -f "%Lp" "$DESKTOP_TOOLS_BROKER_APPROVAL_DELEGATION_PATH")"\nprintf "%s|%s|%s|%s|%s\\n" "$DESKTOP_TOOLS_BROKER_APPROVAL_DELEGATION_PATH" "$DESKTOP_TOOLS_BROKER_APPROVAL_DELEGATION_SHA256" "$DESKTOP_TOOLS_BROKER_APPROVAL_MINIMUM_REVOCATION_EPOCH" "$delegation_mode" "${DESKTOP_TOOLS_BROKER_APPROVAL_DELEGATION_URL:-absent}"\nprintf "%s|%s|%s|%s|%s\\n" "$INSTALL_DOCTOR_OFFLINE_BUNDLE_DIR" "$INSTALL_DOCTOR_OFFLINE_AUTHORITY_PATH" "$INSTALL_DOCTOR_OFFLINE_MODE" "$INSTALL_DOCTOR_OFFLINE_RUN_ID" "$INSTALL_DOCTOR_RENDERER"\n'
   });
   const result = fixture.run(renderBootstrap({ ...fixture.config, profile }), release, {
     HEADLESS_INSTALL: 'true',
@@ -1820,12 +1820,18 @@ test('Desktop Tools profile stage-zero executes a verified v9 runtime closure wi
     DESKTOP_TOOLS_BROKER_APPROVAL_DELEGATION_SHA256: '0'.repeat(64),
     DESKTOP_TOOLS_BROKER_APPROVAL_MINIMUM_REVOCATION_EPOCH: '999999',
     DESKTOP_TOOLS_BROKER_APPROVAL_DELEGATION_URL: 'https://attacker.invalid/delegation.json',
+    INSTALL_DOCTOR_OFFLINE_BUNDLE_DIR: '/media/desktop-tools/bundle',
+    INSTALL_DOCTOR_OFFLINE_AUTHORITY_PATH: '/media/desktop-tools/authority.json',
+    INSTALL_DOCTOR_OFFLINE_MODE: 'resume',
+    INSTALL_DOCTOR_OFFLINE_RUN_ID: 'offline-run-7',
+    INSTALL_DOCTOR_RENDERER: 'headless',
   });
   assert.equal(result.status, 0, result.stderr);
-  const [profileBinding, runtimeBinding, delegationBinding] = result.stdout.trim().split('\n');
+  const [profileBinding, runtimeBinding, delegationBinding, offlineBinding] = result.stdout.trim().split('\n');
   assert.equal(profileBinding, `profile-example|example|revision-7|${'c'.repeat(64)}`);
   assert.match(runtimeBinding, /^2\.2\.5\|[a-f0-9]{64}\|[a-f0-9]{64}\|[a-f0-9]{64}\|\/.+\/release\.sbom\.json$/);
   assert.match(delegationBinding, /^\/.+\/broker-approval-signer-delegation\.json\|[a-f0-9]{64}\|7\|600\|absent$/);
+  assert.equal(offlineBinding, '/media/desktop-tools/bundle|/media/desktop-tools/authority.json|resume|offline-run-7|headless');
   fixture.assertStageClean();
 });
 

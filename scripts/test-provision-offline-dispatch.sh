@@ -68,6 +68,15 @@ else
   pass 'offline dispatcher has no direct network, secret-service, or agent client dependency'
 fi
 
+for variable in INSTALL_DOCTOR_OFFLINE_BUNDLE_DIR INSTALL_DOCTOR_OFFLINE_AUTHORITY_PATH \
+  INSTALL_DOCTOR_OFFLINE_MODE INSTALL_DOCTOR_OFFLINE_RUN_ID INSTALL_DOCTOR_RENDERER; do
+  if awk '/for HANDOFF_VARIABLE in/,/WORK_ENVIRONMENT; do/' "$ROOT/scripts/provision.sh" | grep -qw "$variable"; then
+    pass "root handoff preserves $variable"
+  else
+    fail "root handoff drops $variable"
+  fi
+done
+
 run_dispatch_contract() (
   set -e
   FIXTURE="$(mktemp -d "${TMPDIR:-/tmp}/desktop-tools-offline-contract.XXXXXX")"
