@@ -1172,9 +1172,10 @@ async function loadInfo(){
     if(j.profileRevision){var pr=document.createElement('span');pr.className='mono';pr.textContent=j.profileRevision;frag.append(labeled('Profile revision:',pr,false));}
     if(j.actor){var ac=document.createElement('span');ac.className='mono';ac.textContent=j.actor;frag.append(labeled('Approving actor:',ac,false));}
     if(j.expiresAt){frag.append(labeled('Expires:',document.createTextNode(new Date(j.expiresAt).toLocaleString()),false));}
-    if(j.permissions&&j.permissions.length){
+    var displayedScopes=Array.isArray(j.scopes)?j.scopes:(Array.isArray(j.permissions)?j.permissions:[]);
+    if(displayedScopes.length){
       var pp=document.createElement('p');var pb=document.createElement('b');pb.textContent='Requesting:';pp.append(pb,' ');
-      j.permissions.forEach(function(p,i){if(i)pp.append(' ');var t=document.createElement('span');t.className='tag';t.textContent=p;pp.append(t);});
+      displayedScopes.forEach(function(p,i){if(i)pp.append(' ');var t=document.createElement('span');t.className='tag';t.textContent=p;pp.append(t);});
       frag.append(pp);
     }else{
       frag.append(labeled('Requesting:',document.createTextNode('standard device access (no elevated scope declared)'),true));
@@ -1193,7 +1194,7 @@ async function decide(decision){
   try{
     var r;
     if(OWNER_INFO){
-      var body={code:OWNER_INFO.code,matchingCode:OWNER_INFO.matchingCode,profileRevision:OWNER_INFO.profileRevision,
+      var body={code:OWNER_INFO.matchingCode,matchingCode:OWNER_INFO.matchingCode,profileRevision:OWNER_INFO.profileRevision,
         decision:decision,approvedScopes:decision==='approve'?OWNER_INFO.scopes:undefined};
       if(OWNER_INFO.profileId){body.profileId=OWNER_INFO.profileId;body.profileRevisionDigest=OWNER_INFO.profileRevisionDigest;}
       r=await fetch('/api/devices/pair/owner-decision',{method:'POST',credentials:'include',headers:{'content-type':'application/json'},body:JSON.stringify(body)});

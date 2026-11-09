@@ -201,6 +201,9 @@ test('pairing page preserves the canonical human code and exposes owner approve 
   assert.match(html, new RegExp(code));
   assert.match(html, /\/api\/devices\/pair\/owner-info/);
   assert.match(html, /\/api\/devices\/pair\/owner-decision/);
+  assert.match(html, /code:OWNER_INFO\.matchingCode,matchingCode:OWNER_INFO\.matchingCode/);
+  assert.match(html, /Array\.isArray\(j\.scopes\)\?j\.scopes/);
+  assert.doesNotMatch(html, /code:OWNER_INFO\.code/);
   assert.match(html, /id=denyBtn/);
   const malformed = await app.fetch(new Request('https://desktop.tools/pair?code=23456789ABCD'), TEST_ENV);
   assert.doesNotMatch(await malformed.text(), /var CODE="23456789ABCD"/);
