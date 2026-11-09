@@ -359,6 +359,7 @@ import fs from 'node:fs';
 const input = JSON.parse(fs.readFileSync(process.argv[process.argv.indexOf('--input') + 1], 'utf8'));
 if (input.command === 'load-plan') process.stdout.write(`${JSON.stringify({ schemaVersion: 1, platform: input.platform, architecture: input.architecture, roles: input.roles, items: [], installOrder: [], resolverOrder: [], digest: 'a'.repeat(64) })}\n`);
 if (input.command === 'artifact-derive') process.stdout.write(`${JSON.stringify({ schemaVersion: 1, loadPlanDigest: input.loadPlan.digest, artifacts: [], migratedArtifactPackages: [], remainingLegacyPackages: input.legacyPackages })}\n`);
+if (input.command === 'cask-launcher-derive') process.stdout.write(`${JSON.stringify({ schemaVersion: 1, loadPlanDigest: input.loadPlan.digest, launcherRoot: `${input.homeDirectory}/.local/bin/cask`, directoryRequirements: [{ targetPath: `${input.homeDirectory}/.local/bin/cask`, targetMode: 448 }], launchers: [], migratedLauncherPackages: [], remainingLegacyLauncherPackages: input.legacyPackages })}\n`);
 if (input.command === 'plan') process.stdout.write(`${JSON.stringify({ schemaVersion: 1, digest: 'd'.repeat(64), createdAt: new Date().toISOString() })}\n`);
 if (input.command === 'runs-list') process.stdout.write(`${JSON.stringify({ schemaVersion: 1, runs: [] })}\n`);
 process.exit(0);

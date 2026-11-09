@@ -131,7 +131,7 @@ try {
       [
         '-o',
         'json',
-        '.softwarePackages | to_entries | map({"key":.key,"short":.value._short,"github":.value._github,"home":.value._home,"docs":.value._docs,"app":(.value._app != null),"service":(.value._service != null),"serviceEnabled":(.value._serviceEnabled == true),"preload":(.value._preload == true),"preloadReason":.value._preloadReason,"deprecated":.value._deprecated,"replacement":.value._replacement,"deps":.value._deps})',
+        '.softwarePackages | to_entries | map({"key":.key,"short":.value._short,"github":.value._github,"home":.value._home,"docs":.value._docs,"app":(.value._app != null),"appBundle":.value._app,"launcherBin":.value._bin,"cask":(.value.cask != null),"service":(.value._service != null),"serviceEnabled":(.value._serviceEnabled == true),"preload":(.value._preload == true),"preloadReason":.value._preloadReason,"deprecated":.value._deprecated,"replacement":.value._replacement,"deps":.value._deps})',
         SOFTWARE,
       ],
       { encoding: 'utf8' },
@@ -175,6 +175,10 @@ try {
     // cask→app would mislabel MORE than it fixes. A few real GUI casks lacking _app (adobe-creative-cloud,
     // lm-studio) fall to cli — an accepted edge, far better than mislabeling the CLI-casks.
     it.installMode = m.app ? 'app' : m.service ? 'service' : 'cli';
+    if (m.app && m.cask && typeof m.appBundle === 'string' && /^[A-Za-z0-9][A-Za-z0-9 ._+()-]*\.app$/.test(m.appBundle)
+      && typeof m.launcherBin === 'string' && /^[a-z0-9][a-z0-9._+-]*$/.test(m.launcherBin)) {
+      it.caskLauncher = { appBundle: m.appBundle, bin: m.launcherBin };
+    }
     // Delivery is derived from the actual installx selection contract, not from
     // package shape. Merely being a GUI app or having service metadata does not
     // authorize eager installation/startup.

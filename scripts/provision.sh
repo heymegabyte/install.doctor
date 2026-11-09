@@ -2034,6 +2034,7 @@ idInstallDesktopToolsRuntimeClosure() {
 runCanonicalProvisionEngine() {
   local MODE="${1:-apply}" ENGINE="${INSTALL_DOCTOR_ENGINE_PATH:-}" PROVISIONER INVOCATION INVOCATION_DIR NORMALIZED_PLAN APPROVAL_PLAN EVIDENCE_INVOCATION EVIDENCE_RESULT CLEANUP_EVIDENCE_INVOCATION CLEANUP_EVIDENCE_RESULT RUNS_INVOCATION RUNS_RESULT RESUME_RUN_ID STATE_ROOT NODE_MAJOR EXPECTED_NODE RENDERER GENERATE_STATUS ENGINE_STATUS EVIDENCE_STATUS CLEANUP_EVIDENCE_STATUS PLAN_DIGEST APPROVAL ACTUAL_SHA
   local LOAD_PLAN_INVOCATION LOAD_PLAN_RESULT ARTIFACT_DERIVE_INVOCATION ARTIFACT_DERIVE_RESULT ARTIFACT_CACHE_ROOT USER_BIN_ROOT DOCKER_PLUGIN_ROOT
+  local CASK_DERIVE_INVOCATION CASK_DERIVE_RESULT
   local NATIVE_DERIVE_INVOCATION NATIVE_DERIVE_RESULT NATIVE_COUNT
   case "$MODE" in apply|--plan-only) ;; *) logg error "Unknown canonical engine mode: $MODE"; return 2 ;; esac
   [ -n "$ENGINE" ] && [ -f "$ENGINE" ] && [ ! -L "$ENGINE" ] || { logg error 'Verified installer engine is unavailable'; return 2; }
@@ -2066,6 +2067,8 @@ runCanonicalProvisionEngine() {
   ARTIFACT_DERIVE_RESULT="$INVOCATION_DIR/artifact-derive.json"
   NATIVE_DERIVE_INVOCATION="$INVOCATION_DIR/native-debian-derive-invocation.json"
   NATIVE_DERIVE_RESULT="$INVOCATION_DIR/native-debian-derive.json"
+  CASK_DERIVE_INVOCATION="$INVOCATION_DIR/cask-launcher-derive-invocation.json"
+  CASK_DERIVE_RESULT="$INVOCATION_DIR/cask-launcher-derive.json"
   ARTIFACT_CACHE_ROOT="$STATE_ROOT/artifacts"
   USER_BIN_ROOT="$HOME/.local/bin"
   DOCKER_PLUGIN_ROOT="$HOME/.docker/cli-plugins"
@@ -2155,7 +2158,24 @@ NODE
   GENERATE_STATUS=$?
   if [ "$GENERATE_STATUS" -eq 0 ]; then node "$ENGINE" --input "$ARTIFACT_DERIVE_INVOCATION" > "$ARTIFACT_DERIVE_RESULT"; GENERATE_STATUS=$?; fi
   [ "$GENERATE_STATUS" -eq 0 ] || { logg error 'Unable to derive immutable artifact operations'; return "$GENERATE_STATUS"; }
-  export INSTALL_DOCTOR_LOAD_PLAN_PATH="$LOAD_PLAN_RESULT" INSTALL_DOCTOR_ARTIFACT_DERIVATION_PATH="$ARTIFACT_DERIVE_RESULT" INSTALL_DOCTOR_NATIVE_DERIVATION_PATH="$NATIVE_DERIVE_RESULT"
+  if [ "$(uname -s)" = Darwin ]; then
+    node - "$CASK_DERIVE_INVOCATION" "$LOAD_PLAN_RESULT" "$ARTIFACT_DERIVE_RESULT" <<'NODE'
+const fs = require('node:fs');
+const [destination, loadPlanPath, artifactDerivationPath] = process.argv.slice(2);
+const loadPlan = JSON.parse(fs.readFileSync(loadPlanPath, 'utf8'));
+const artifactDerivation = JSON.parse(fs.readFileSync(artifactDerivationPath, 'utf8'));
+fs.writeFileSync(destination, `${JSON.stringify({
+  schemaVersion: 1, command: 'cask-launcher-derive', loadPlan, approvedLoadPlanDigest: loadPlan.digest,
+  homeDirectory: process.env.HOME, legacyPackages: artifactDerivation.remainingLegacyPackages,
+})}\n`, { mode: 0o600, flag: 'wx' });
+NODE
+    GENERATE_STATUS=$?
+    if [ "$GENERATE_STATUS" -eq 0 ]; then node "$ENGINE" --input "$CASK_DERIVE_INVOCATION" > "$CASK_DERIVE_RESULT"; GENERATE_STATUS=$?; fi
+    [ "$GENERATE_STATUS" -eq 0 ] || { logg error 'Unable to derive selected cask launcher operations'; return "$GENERATE_STATUS"; }
+  else
+    printf '%s\n' '{"schemaVersion":1,"loadPlanDigest":null,"launcherRoot":null,"directoryRequirements":[],"launchers":[],"migratedLauncherPackages":[],"remainingLegacyLauncherPackages":[]}' > "$CASK_DERIVE_RESULT"
+  fi
+  export INSTALL_DOCTOR_LOAD_PLAN_PATH="$LOAD_PLAN_RESULT" INSTALL_DOCTOR_ARTIFACT_DERIVATION_PATH="$ARTIFACT_DERIVE_RESULT" INSTALL_DOCTOR_NATIVE_DERIVATION_PATH="$NATIVE_DERIVE_RESULT" INSTALL_DOCTOR_CASK_DERIVATION_PATH="$CASK_DERIVE_RESULT"
   node - "$INVOCATION" "$PROVISIONER" "$STATE_ROOT" "$RENDERER" <<'NODE'
 const fs = require('node:fs');
 const os = require('node:os');
@@ -2302,6 +2322,26 @@ if (JSON.stringify([...migratedArtifactPackages, ...legacySelectedPackages].sort
   || migratedArtifactPackages.some(packageName => !artifactDerivation.artifacts.some(artifact => artifact.itemName === packageName))) {
   throw new Error('artifact derivation did not exactly partition the remaining legacy package roots');
 }
+const caskDerivation = JSON.parse(fs.readFileSync(process.env.INSTALL_DOCTOR_CASK_DERIVATION_PATH, 'utf8'));
+if (!Array.isArray(caskDerivation.launchers) || !Array.isArray(caskDerivation.migratedLauncherPackages)
+  || !Array.isArray(caskDerivation.remainingLegacyLauncherPackages)) throw new Error('cask launcher derivation is malformed');
+const migratedLauncherPackages = canonicalList(caskDerivation.migratedLauncherPackages, 4096,
+  /^[a-z0-9][a-z0-9._:-]*$/, 'migratedLauncherPackages');
+const remainingLegacyLauncherPackages = canonicalList(caskDerivation.remainingLegacyLauncherPackages, 4096,
+  /^[a-z0-9][a-z0-9._:-]*$/, 'remainingLegacyLauncherPackages');
+if (process.platform === 'darwin') {
+  const expectedRemainingLauncherPackages = legacySelectedPackages.filter(packageName => !migratedLauncherPackages.includes(packageName));
+  if (caskDerivation.loadPlanDigest !== loadPlan.digest || !Array.isArray(caskDerivation.directoryRequirements)
+    || caskDerivation.launchers.length !== migratedLauncherPackages.length
+    || JSON.stringify([...migratedLauncherPackages, ...remainingLegacyLauncherPackages].sort()) !== JSON.stringify([...legacySelectedPackages].sort())
+    || JSON.stringify(remainingLegacyLauncherPackages) !== JSON.stringify(expectedRemainingLauncherPackages)
+    || migratedLauncherPackages.some(packageName => !legacySelectedPackages.includes(packageName))) {
+    throw new Error('cask launcher derivation lacks exact load-plan and legacy ownership authority');
+  }
+} else if (caskDerivation.launchers.length !== 0 || caskDerivation.directoryRequirements.length !== 0
+  || migratedLauncherPackages.length !== 0 || remainingLegacyLauncherPackages.length !== 0) {
+  throw new Error('cask launcher derivation is not empty on a non-macOS target');
+}
 const directoryRequirements = new Map();
 for (const artifact of artifactDerivation.artifacts) {
   if (!Array.isArray(artifact.directoryRequirements)) throw new Error('artifact directory requirements are malformed');
@@ -2419,6 +2459,7 @@ const operationEnvironment = {
   INSTALL_DOCTOR_ENGINE_OWNS_CUSTOM_POST_HOOKS: '1',
   INSTALL_DOCTOR_BOOTSTRAP_INSTALLX: `${stateRoot}/tools/installx`,
   INSTALL_DOCTOR_SELECTED_PACKAGES: legacySelectedPackages.join(','),
+  INSTALL_DOCTOR_ENGINE_CASK_LAUNCHERS: migratedLauncherPackages.join(','),
   INSTALL_DOCTOR_SELECTED_SERVICES: selectedServices.join(','),
   INSTALL_DOCTOR_WARP_CLI_PATH: warpCliPath,
   INSTALL_DOCTOR_WARP_CLI_SHA256: warpCliDigest,
@@ -2547,6 +2588,33 @@ const desiredPackagesTask = {
   consent: 'privileged', lockDomains: ['package-manager', 'privilege'], cleanup: 'none', compensation: 'none',
   failurePolicy: 'abort-run',
 };
+const caskDirectoryIds = ['installer.cask-launcher-directory'];
+const caskDirectoryTasks = caskDerivation.directoryRequirements.map((requirement, index) => {
+  const id = caskDirectoryIds[index];
+  if (!id || caskDerivation.directoryRequirements.length !== 1) throw new Error('cask launcher directory closure is invalid');
+  return {
+    schemaVersion: 1, id, inputDigest: digest({ requirement, policy: 'cask-launcher-directory-v1' }),
+    dependencies: [desiredPackagesTask.id],
+    predicate: 'darwin-native', requiredCapabilities: [],
+    operations: { check: `${id}-check`, apply: `${id}-apply`, verify: `${id}-verify` },
+    timeoutMs: 30_000, retry: { class: 'never', maxAttempts: 1, backoffMs: 0 },
+    resources: { cpu: 1, memoryMiB: 32, network: false }, privilege: 'user', network: 'none',
+    consent: 'none', lockDomains: ['installer-configuration'], cleanup: 'none', compensation: 'configuration',
+    failurePolicy: 'abort-run',
+  };
+});
+const caskDirectoryOperations = Object.fromEntries(caskDirectoryTasks.flatMap((task, index) => {
+  const requirement = caskDerivation.directoryRequirements[index];
+  return ['check', 'apply', 'verify'].map(action => [`${task.id}-${action}`, {
+    kind: 'managed-directory', action, targetPath: requirement.targetPath, candidateMode: requirement.targetMode,
+  }]);
+}));
+const caskLauncherTasks = caskDerivation.launchers.map(launcher => launcher.task);
+const caskLauncherOperations = Object.fromEntries(caskDerivation.launchers.flatMap(launcher => [
+  [`cask-launcher-${launcher.packageKey}-check`, launcher.operations.check],
+  [`cask-launcher-${launcher.packageKey}-apply`, launcher.operations.apply],
+  [`cask-launcher-${launcher.packageKey}-verify`, launcher.operations.verify],
+]));
 const directoryTasks = directoryEntries.map(([key, requirement]) => {
   const id = directoryTaskIdByKey.get(key);
   if (!id) throw new Error('artifact directory task identity is unavailable');
@@ -2740,7 +2808,7 @@ const desiredServicesTask = {
 const rebootAssessmentTask = {
   schemaVersion: 1, id: 'system.reboot-assessment',
   inputDigest: digest({ platform, policy: 'explicit-operator-reboot-v1' }),
-  dependencies: [desiredServicesTask.id, ...artifactTasks.map(task => task.id)], predicate: 'host-supported', requiredCapabilities: [],
+  dependencies: [desiredServicesTask.id, ...caskLauncherTasks.map(task => task.id), ...artifactTasks.map(task => task.id)], predicate: 'host-supported', requiredCapabilities: [],
   operations: { check: 'reboot-assessment-check', apply: 'reboot-assessment-apply', verify: 'reboot-assessment-verify' },
   timeoutMs: 30_000, retry: { class: 'never', maxAttempts: 1, backoffMs: 0 },
   resources: { cpu: 1, memoryMiB: 64, network: false }, privilege: 'user', network: 'none',
@@ -2772,8 +2840,8 @@ const invocation = {
     offline: rawPlan.offline,
   },
     plan: {
-      tasks: [stageZeroInstallUserTask, stageZeroSudoTask, ...(warpDisconnectTask ? [warpDisconnectTask] : []), ...(nativeComposition ? [nativeComposition.task] : []), nativeDependenciesTask, sourceTask, homebrewTask, homebrewToolsTask, chezmoiInitTask, installxBinDirectoryTask, installxToolTask, desiredPackagesTask, ...directoryTasks, ...artifactTasks, macosFullDiskAccessTask, macosCertificateTask, ...(qubesDom0Task ? [qubesDom0Task] : []), ...(agentTasksTask ? [agentTasksTask] : []), task, bootstrapPolicyTask, softwareGroupsTask, catalogPostValidationTask, customPostHooksTask, desiredServicesTask, rebootAssessmentTask, sudoCleanupTask],
-      selectedTaskIds: [...(nativeComposition ? [nativeComposition.task.id] : []), ...artifactTasks.map(task => task.id), rebootAssessmentTask.id, sudoCleanupTask.id],
+      tasks: [stageZeroInstallUserTask, stageZeroSudoTask, ...(warpDisconnectTask ? [warpDisconnectTask] : []), ...(nativeComposition ? [nativeComposition.task] : []), nativeDependenciesTask, sourceTask, homebrewTask, homebrewToolsTask, chezmoiInitTask, installxBinDirectoryTask, installxToolTask, desiredPackagesTask, ...caskDirectoryTasks, ...caskLauncherTasks, ...directoryTasks, ...artifactTasks, macosFullDiskAccessTask, macosCertificateTask, ...(qubesDom0Task ? [qubesDom0Task] : []), ...(agentTasksTask ? [agentTasksTask] : []), task, bootstrapPolicyTask, softwareGroupsTask, catalogPostValidationTask, customPostHooksTask, desiredServicesTask, rebootAssessmentTask, sudoCleanupTask],
+      selectedTaskIds: [...(nativeComposition ? [nativeComposition.task.id] : []), ...caskLauncherTasks.map(task => task.id), ...artifactTasks.map(task => task.id), rebootAssessmentTask.id, sudoCleanupTask.id],
       executionPolicy: {
         maxConcurrency: rawPlan.concurrency,
         resourceLimits: { cpu: 64, memoryMiB: 8192, networkConcurrency: rawPlan.concurrency },
@@ -2783,6 +2851,8 @@ const invocation = {
     ...(nativeComposition ? nativeComposition.operations.operations : {}),
     ...directoryOperations,
     ...artifactOperations,
+    ...caskDirectoryOperations,
+    ...caskLauncherOperations,
     'stage-zero-install-user-check': { argv: ['/bin/bash', provisioner, '--engine-operation', 'stage-zero-install-user-check'], env: operationEnvironment },
     'stage-zero-install-user-apply': { argv: ['/bin/bash', provisioner, '--engine-operation', 'stage-zero-install-user-apply'], env: operationEnvironment },
     'stage-zero-install-user-verify': { argv: ['/bin/bash', provisioner, '--engine-operation', 'stage-zero-install-user-verify'], env: operationEnvironment },
@@ -2904,7 +2974,8 @@ NODE
   if [ "$APPROVAL" != "$PLAN_DIGEST" ]; then
     logg error "Plan approval required; review $APPROVAL_PLAN and rerun with INSTALL_DOCTOR_APPROVED_PLAN_DIGEST=$PLAN_DIGEST"
     rm -f "$INVOCATION" "$NORMALIZED_PLAN" "$LOAD_PLAN_INVOCATION" "$LOAD_PLAN_RESULT" \
-      "$ARTIFACT_DERIVE_INVOCATION" "$ARTIFACT_DERIVE_RESULT" "$NATIVE_DERIVE_INVOCATION" "$NATIVE_DERIVE_RESULT"
+      "$ARTIFACT_DERIVE_INVOCATION" "$ARTIFACT_DERIVE_RESULT" "$NATIVE_DERIVE_INVOCATION" "$NATIVE_DERIVE_RESULT" \
+      "$CASK_DERIVE_INVOCATION" "$CASK_DERIVE_RESULT"
     rmdir "$INVOCATION_DIR" 2>/dev/null || true
     return 3
   fi
@@ -2973,7 +3044,8 @@ NODE
   if [ "$MODE" = --plan-only ]; then
     logg info "Approved normalized plan $PLAN_DIGEST before host mutation"
     rm -f "$INVOCATION" "$NORMALIZED_PLAN" "$LOAD_PLAN_INVOCATION" "$LOAD_PLAN_RESULT" \
-      "$ARTIFACT_DERIVE_INVOCATION" "$ARTIFACT_DERIVE_RESULT" "$NATIVE_DERIVE_INVOCATION" "$NATIVE_DERIVE_RESULT"
+      "$ARTIFACT_DERIVE_INVOCATION" "$ARTIFACT_DERIVE_RESULT" "$NATIVE_DERIVE_INVOCATION" "$NATIVE_DERIVE_RESULT" \
+      "$CASK_DERIVE_INVOCATION" "$CASK_DERIVE_RESULT"
     rmdir "$INVOCATION_DIR" 2>/dev/null || true
     return 0
   fi
@@ -3089,7 +3161,8 @@ NODE
     logg info 'Verified authoritative engine completion evidence'
   fi
   rm -f "$INVOCATION" "$NORMALIZED_PLAN" "$LOAD_PLAN_INVOCATION" "$LOAD_PLAN_RESULT" \
-    "$ARTIFACT_DERIVE_INVOCATION" "$ARTIFACT_DERIVE_RESULT" "$NATIVE_DERIVE_INVOCATION" "$NATIVE_DERIVE_RESULT"
+    "$ARTIFACT_DERIVE_INVOCATION" "$ARTIFACT_DERIVE_RESULT" "$NATIVE_DERIVE_INVOCATION" "$NATIVE_DERIVE_RESULT" \
+    "$CASK_DERIVE_INVOCATION" "$CASK_DERIVE_RESULT"
   rm -f "$EVIDENCE_INVOCATION" "$EVIDENCE_RESULT"
   rm -f "$CLEANUP_EVIDENCE_INVOCATION" "$CLEANUP_EVIDENCE_RESULT"
   rmdir "$INVOCATION_DIR" 2>/dev/null || true

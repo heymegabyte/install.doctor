@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { chmod, lstat, mkdtemp, readFile, readdir, realpath, writeFile } from 'node:fs/promises';
+import { chmod, lstat, mkdir, mkdtemp, readFile, readdir, realpath, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
@@ -283,6 +283,74 @@ test('native managed-file operation records durable compensation and rolls back 
   })).stdout);
   assert.equal(replacementRollback.receipt.completed, true);
   assert.equal(await readFile(target, 'utf8'), '{"schemaVersion":1,"releaseId":"old"}\n');
+});
+
+test('managed cask launcher is reversible and an unchanged rerun preserves inode and timestamps', async t => {
+  if (process.platform !== 'darwin') { t.skip('macOS cask launcher runtime requires Darwin filesystem semantics'); return; }
+  const directory = await realpath(await mkdtemp(join(tmpdir(), 'desktop-tools-cask-launcher-')));
+  await chmod(directory, 0o700);
+  const applications = join(directory, 'Applications');
+  const appPath = join(applications, 'Fixture App.app');
+  const launcherRoot = join(directory, '.local', 'bin', 'cask');
+  const target = join(launcherRoot, 'fixture-app');
+  await mkdir(appPath, { recursive: true, mode: 0o700 });
+  await mkdir(launcherRoot, { recursive: true, mode: 0o700 });
+  const stateRoot = join(directory, 'state');
+  const invocationPath = join(directory, 'invocation.json');
+  const task = {
+    schemaVersion: 1, id: 'installer.cask-launcher.fixture-app', inputDigest: digest('c'), dependencies: [], predicate: 'darwin-native',
+    operations: { check: 'cask-check', apply: 'cask-apply', verify: 'cask-verify' }, timeoutMs: 5_000,
+    retry: { class: 'never', maxAttempts: 1, backoffMs: 0 }, resources: { cpu: 1, memoryMiB: 32, network: false },
+    privilege: 'user', network: 'none', consent: 'none', lockDomains: ['installer-configuration'], cleanup: 'none',
+    compensation: 'configuration', failurePolicy: 'abort-run',
+  };
+  const operation = action => ({
+    kind: 'managed-cask-launcher', action, packageKey: 'fixture-app', appBundle: 'Fixture App.app',
+    appPaths: [appPath, '/Applications/Fixture App.app'], targetPath: target, candidateMode: 0o700,
+    policy: 'home-applications-before-system-v1',
+  });
+  const common = {
+    schemaVersion: 1, releaseId: 'release-cask',
+    facts: { schemaVersion: 1, hostId: 'cask-host', collectedAt: '2026-11-09T00:00:00.000Z', os: 'darwin', osVersion: '26.1',
+      arch: process.arch, environment: 'native', roles: ['workstation'], packageManagers: ['brew'], capabilities: [] },
+    desiredState: { schemaVersion: 1, revision: 'cask-revision', hostId: 'cask-host', packages: ['fixture-app'], services: [], consents: [], offline: false },
+    plan: { tasks: [task], selectedTaskIds: [task.id] },
+    operations: { 'cask-check': operation('check'), 'cask-apply': operation('apply'), 'cask-verify': operation('verify') },
+  };
+  const cli = new URL('../dist/cli.js', import.meta.url).pathname;
+  const invoke = async input => {
+    await writeFile(invocationPath, `${JSON.stringify(input)}\n`, { mode: 0o600 });
+    return execute(process.execPath, [cli, '--input', invocationPath], { env: { PATH: process.env.PATH ?? '' }, timeout: 10_000 });
+  };
+  const planned = JSON.parse((await invoke({ ...common, command: 'plan', runId: 'cask-plan' })).stdout);
+  const sourceRunId = 'cask-install';
+  const installed = JSON.parse((await invoke({ ...common, command: 'run', runId: sourceRunId,
+    approvedPlanDigest: planned.digest, renderer: 'json', stateRoot })).stdout);
+  assert.equal(installed.receipt.status, 'success');
+  assert.equal(await readFile(target, 'utf8'), `#!/usr/bin/env bash\nopen ${JSON.stringify(appPath)} "$@"\n`);
+  const first = await lstat(target);
+  assert.equal(first.mode & 0o777, 0o700);
+
+  const unchanged = JSON.parse((await invoke({ ...common, command: 'run', runId: 'cask-unchanged',
+    approvedPlanDigest: planned.digest, renderer: 'json', stateRoot })).stdout);
+  assert.equal(unchanged.receipt.status, 'success');
+  const second = await lstat(target);
+  assert.equal(second.ino, first.ino);
+  assert.equal(second.mtimeMs, first.mtimeMs);
+  const unchangedCompensation = join(stateRoot, 'runs', planned.digest, 'cask-unchanged', 'compensations');
+  assert.deepEqual(await readdir(unchangedCompensation), []);
+
+  const source = { schemaVersion: 1, stateRoot, sourceRunId, sourcePlanDigest: planned.digest };
+  const rollbackPlan = JSON.parse((await invoke({ ...source, command: 'rollback-config-plan' })).stdout);
+  const rollback = JSON.parse((await invoke({ ...source, command: 'rollback-config-execute', rollbackRunId: 'cask-rollback',
+    approvedPlanDigest: rollbackPlan.digest })).stdout);
+  assert.equal(rollback.receipt.completed, true);
+  await assert.rejects(lstat(target), error => error.code === 'ENOENT');
+
+  await writeFile(target, '#!/bin/sh\necho user-owned\n', { mode: 0o700 });
+  await assert.rejects(invoke({ ...common, command: 'run', runId: 'cask-conflict',
+    approvedPlanDigest: planned.digest, renderer: 'json', stateRoot }));
+  assert.equal(await readFile(target, 'utf8'), '#!/bin/sh\necho user-owned\n');
 });
 
 test('native managed-directory operation records durable authority and rolls back only its empty directory', async () => {

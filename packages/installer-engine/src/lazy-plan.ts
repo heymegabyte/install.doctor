@@ -46,6 +46,10 @@ export const LoadCatalogEntrySchema = z.object({
   replacement: IdentifierSchema.optional(),
   configured: z.boolean().optional(),
   postInstall: z.string().min(1).max(512).optional(),
+  caskLauncher: z.strictObject({
+    appBundle: z.string().min(5).max(256),
+    bin: z.string().min(1).max(128),
+  }).optional(),
 }).strict();
 
 export const LoadPlanInputSchema = z.object({
@@ -69,6 +73,10 @@ export const LoadPlanItemSchema = z.object({
   dependencies: z.array(CatalogKeySchema),
   artifact: ImmutableArtifactDescriptorSchema.nullable(),
   nativePayload: NativeOfflinePayloadDescriptorSchema.nullable(),
+  caskLauncher: z.strictObject({
+    appBundle: z.string().min(5).max(256),
+    bin: z.string().min(1).max(128),
+  }).nullable(),
   actions: z.array(z.enum(['install', 'start'])),
   selectionReason: z.enum([
     'bootstrap',
@@ -342,6 +350,7 @@ export function buildLoadPlan(rawInput: unknown): LoadPlanReport {
         dependencies: entry.deps,
         artifact: selectedArtifact(entry),
         nativePayload: isSelected ? selectedNativePayload(entry) : null,
+        caskLauncher: isSelected ? entry.caskLauncher ?? null : null,
         actions,
         selectionReason,
       };

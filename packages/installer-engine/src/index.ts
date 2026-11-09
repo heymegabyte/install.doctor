@@ -23,6 +23,7 @@ export * from './service-state-adapters.js';
 export * from './immutable-artifact.js';
 export * from './verified-artifact-materializer.js';
 export * from './planned-artifact.js';
+export * from './cask-launcher-composition.js';
 export * from './debian-metadata.js';
 export * from './debian-relationships.js';
 export * from './debian-version.js';

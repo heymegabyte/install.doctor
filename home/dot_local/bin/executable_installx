@@ -217,8 +217,14 @@ function missingDependencies(keys, seen = new Set(), missing = new Set()) {
 
 async function createCaskLinks(caskMap) {
   if (!caskMap) return
+  const engineOwnedRaw = process.env.INSTALL_DOCTOR_ENGINE_CASK_LAUNCHERS || ''
+  if (engineOwnedRaw && !/^[a-z0-9._:+-]+(?:,[a-z0-9._:+-]+)*$/.test(engineOwnedRaw)) {
+    throw new Error('INSTALL_DOCTOR_ENGINE_CASK_LAUNCHERS is malformed')
+  }
+  const engineOwned = new Set(engineOwnedRaw.split(',').filter(Boolean))
   const caskApps = caskMap
     .filter(x => {
+      if (engineOwned.has(x.listKey)) return false
       // Filter out macOS apps that already have a _app installed
       if (x.installType === 'cask' || (osId === 'darwin' && x._app)) {
         const appField = getPkgData('_app', x, x.installType)

@@ -28,6 +28,7 @@ import { collectLinuxOfflineHostFacts } from './linux-host-facts.js';
 import { LoadPlanInputSchema, LoadPlanItemSchema, LoadPlanReportSchema, buildLoadPlan, calculateLoadPlanReportDigest } from './lazy-plan.js';
 import { composeSelectedNativeDebianPackageSlice } from './native-debian-composition.js';
 import { composeArtifactLegacyCutover, derivePlannedArtifactOperations, preparePlannedArtifact } from './planned-artifact.js';
+import { CaskLauncherOperationSchema, composeSelectedCaskLaunchers } from './cask-launcher-composition.js';
 import { fetchImmutableArtifact } from './immutable-artifact.js';
 import { createRollbackPlan } from './rollback.js';
 import { RollbackEvidenceError, RollbackLiveOwnerError, createRollbackRunStore } from './rollback-journal.js';
@@ -129,7 +130,7 @@ const ManagedArtifactOperationSchema = z.strictObject({
     context.addIssue({ code: 'custom', message: 'managed artifact candidate and target must be distinct paths' });
   }
 });
-const OperationSchema = z.union([ManagedFileOperationSchema, ManagedDirectoryOperationSchema, ManagedArtifactOperationSchema,
+const OperationSchema = z.union([ManagedFileOperationSchema, ManagedDirectoryOperationSchema, ManagedArtifactOperationSchema, CaskLauncherOperationSchema,
   SudoCredentialCleanupOperationSchema, NativePackageOperationSchema, ProcessOperationSchema]);
 const PlanDraftSchema = z.strictObject({
   tasks: z.array(TaskNodeSchema).max(10_000),
@@ -327,6 +328,13 @@ const NativeDebianDeriveInvocationSchema = z.strictObject({
   desiredState: DesiredStateInputSchema,
   legacyPackages: z.array(z.string().min(1).max(128).regex(/^[a-z0-9][a-z0-9.+-]*(?::[a-z0-9][a-z0-9-]*)?$/)).max(4096),
 });
+const CaskLauncherDeriveInvocationSchema = z.strictObject({
+  schemaVersion: z.literal(1), command: z.literal('cask-launcher-derive'),
+  loadPlan: LoadPlanReportSchema, approvedLoadPlanDigest: z.string().regex(/^[a-f0-9]{64}$/),
+  homeDirectory: z.string().min(1).max(4096).refine(value => isAbsolute(value) && resolve(value) === value,
+    'home directory must be canonical and absolute'),
+  legacyPackages: z.array(z.string().min(1).max(128).regex(/^[a-z0-9][a-z0-9._:-]*$/)).max(4096),
+});
 const PrivilegedBrokerAuthorityDeriveInvocationSchema = PrivilegedBrokerDerivationInputSchema
   .extend({ command: z.literal('privileged-broker-authority-derive') });
 const artifactAuthority = {
@@ -354,7 +362,7 @@ const InvocationSchema = z.discriminatedUnion('command', [
   BundleCreateInvocationSchema, BundleVerifyInvocationSchema, BundlePlanInvocationSchema, BundleApplyInvocationSchema,
   OfflineExecuteInvocationSchema, OfflineResumeInvocationSchema,
   RollbackPlanInvocationSchema, RollbackExecuteInvocationSchema, RollbackResumeInvocationSchema, RollbackStatusInvocationSchema,
-  LoadPlanInvocationSchema, NativeDebianDeriveInvocationSchema, PrivilegedBrokerAuthorityDeriveInvocationSchema,
+  LoadPlanInvocationSchema, NativeDebianDeriveInvocationSchema, CaskLauncherDeriveInvocationSchema, PrivilegedBrokerAuthorityDeriveInvocationSchema,
   ArtifactDeriveInvocationSchema, ArtifactPrepareInvocationSchema,
   BrokerApprovalClaimInvocationSchema,
   DeviceAuthorizationStartInvocationSchema, DeviceAuthorizationStatusInvocationSchema,
@@ -479,7 +487,8 @@ function bindOperationsToPlan(invocation: PlanBindingInvocation): z.infer<typeof
       const referencedOperations = Object.fromEntries(Object.entries(task.operations).map(([phase, operationId]) => {
         const operation = invocation.operations[operationId];
         if (!operation) throw new Error(`operation is not registered: ${operationId}`);
-        if (operation.kind === 'managed-file' || operation.kind === 'managed-directory' || operation.kind === 'managed-artifact') {
+        if (operation.kind === 'managed-file' || operation.kind === 'managed-directory' || operation.kind === 'managed-artifact'
+          || operation.kind === 'managed-cask-launcher') {
           const label = operation.kind.replace('-', ' ');
           if (task.compensation !== 'configuration') usageError(`${label} task must declare configuration compensation: ${task.id}`);
           if (operation.action !== phase) usageError(`${label} operation phase mismatch: ${operationId}`);
@@ -500,13 +509,18 @@ function bindOperationsToPlan(invocation: PlanBindingInvocation): z.infer<typeof
         return [phase, { id: operationId, ...approvalOperation }];
       }));
       const managedOperations = Object.values(referencedOperations)
-        .filter(operation => operation.kind === 'managed-file' || operation.kind === 'managed-directory' || operation.kind === 'managed-artifact');
+        .filter(operation => operation.kind === 'managed-file' || operation.kind === 'managed-directory'
+          || operation.kind === 'managed-artifact' || operation.kind === 'managed-cask-launcher');
       if (managedOperations.length > 0) {
         if (managedOperations.length !== 3) usageError(`managed configuration task cannot mix operation kinds: ${task.id}`);
         const [first] = managedOperations;
         if (!first || managedOperations.some(operation => operation.kind !== first.kind
           || operation.targetPath !== first.targetPath || operation.candidateMode !== first.candidateMode
           || (operation.kind === 'managed-file' && first.kind === 'managed-file' && operation.candidateBase64 !== first.candidateBase64)
+          || (operation.kind === 'managed-cask-launcher' && first.kind === 'managed-cask-launcher'
+            && (operation.packageKey !== first.packageKey || operation.appBundle !== first.appBundle
+              || JSON.stringify(canonical(operation.appPaths)) !== JSON.stringify(canonical(first.appPaths))
+              || operation.policy !== first.policy))
           || (operation.kind === 'managed-artifact' && first.kind === 'managed-artifact'
             && (operation.candidateSha256 !== first.candidateSha256 || operation.candidateSizeBytes !== first.candidateSizeBytes
               || JSON.stringify(canonical(operation.descriptor)) !== JSON.stringify(canonical(first.descriptor))
@@ -761,6 +775,24 @@ function baseAdapterFor(invocation: OperationInvocation, nativeBinding?: {
       await handle.close();
     }
   };
+  const resolveCaskLauncherCandidate = async (operation: z.infer<typeof CaskLauncherOperationSchema>): Promise<Buffer> => {
+    if (process.platform !== 'darwin') throw new Error('managed cask launcher execution requires macOS');
+    for (const appPath of operation.appPaths) {
+      let metadata;
+      try { metadata = await lstat(appPath); }
+      catch (error) {
+        if ((error as NodeJS.ErrnoException).code === 'ENOENT') continue;
+        throw new Error('cask application bundle cannot be inspected safely');
+      }
+      const canonicalPath = await realpath(appPath);
+      if (!metadata.isDirectory() || metadata.isSymbolicLink() || resolve(canonicalPath) !== resolve(appPath)
+        || basename(appPath) !== operation.appBundle) {
+        throw new Error('cask application bundle must be a canonical nonsymlink directory');
+      }
+      return Buffer.from(`#!/usr/bin/env bash\nopen ${JSON.stringify(appPath)} "$@"\n`, 'utf8');
+    }
+    throw new Error(`approved cask application bundle is unavailable: ${operation.packageKey}`);
+  };
   const managedDirectoryMatches = async (operation: z.infer<typeof ManagedDirectoryOperationSchema>): Promise<boolean> => {
     if (process.platform === 'win32' || typeof constants.O_NOFOLLOW !== 'number') throw new Error('managed directories require POSIX no-follow filesystem semantics');
     const uid = process.geteuid?.();
@@ -870,6 +902,51 @@ function baseAdapterFor(invocation: OperationInvocation, nativeBinding?: {
             if (!await managedFileMatches(selected, candidatePath)) throw new Error('managed file candidate validation failed');
           },
           verifyPostcondition: async targetPath => managedFileMatches(selected, targetPath),
+        },
+        persistence,
+      });
+      return 0;
+    }
+    if (selected.kind === 'managed-cask-launcher') {
+      if (selected.action !== expectedAction) throw new Error(`managed cask launcher operation phase mismatch: ${id}`);
+      if (task.compensation !== 'configuration') throw new Error(`managed cask launcher task must declare configuration compensation: ${task.id}`);
+      if (context?.signal.aborted) throw new InstallerOperationError('operation cancelled', 'cancelled');
+      const candidateBytes = await resolveCaskLauncherCandidate(selected);
+      const fileOperation = ManagedFileOperationSchema.parse({
+        kind: 'managed-file', action: selected.action, targetPath: selected.targetPath,
+        candidateBase64: candidateBytes.toString('base64'), candidateMode: selected.candidateMode,
+      });
+      const targetMatches = await managedFileMatches(fileOperation);
+      if (!targetMatches && selected.action !== 'verify') {
+        try {
+          await lstat(selected.targetPath);
+          throw new Error('refusing to replace an existing unowned cask launcher');
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+        }
+      }
+      if (selected.action === 'check') return targetMatches ? 0 : 10;
+      if (selected.action === 'verify') return await managedFileMatches(fileOperation) ? 0 : 30;
+      const persistence = context?.configurationCompensation;
+      if (!persistence) throw new Error('managed cask launcher activation requires durable configuration compensation');
+      await applyConfigurationTransaction({
+        spec: {
+          schemaVersion: 1, taskId: task.id, targetPath: selected.targetPath,
+          effect: 'installer-configuration', dependencies: task.dependencies, candidateMode: selected.candidateMode,
+        },
+        candidateBytes,
+        hooks: {
+          validateCandidate: async candidatePath => {
+            if (!await managedFileMatches({ ...fileOperation, targetPath: candidatePath })) {
+              throw new Error('managed cask launcher candidate validation failed');
+            }
+            const currentCandidate = await resolveCaskLauncherCandidate(selected);
+            if (!currentCandidate.equals(candidateBytes)) throw new Error('cask application selection changed before activation');
+          },
+          verifyPostcondition: async targetPath => {
+            const currentCandidate = await resolveCaskLauncherCandidate(selected);
+            return currentCandidate.equals(candidateBytes) && managedFileMatches({ ...fileOperation, targetPath });
+          },
         },
         persistence,
       });
@@ -1285,6 +1362,11 @@ async function main(): Promise<void> {
       process.stdout.write(`${JSON.stringify({
         schemaVersion: 1, loadPlanDigest: calculated, descriptorDigest: composition.task.inputDigest, composition,
       })}\n`);
+      return;
+    }
+    if (invocation.command === 'cask-launcher-derive') {
+      const { command: _command, schemaVersion: _schemaVersion, ...input } = invocation;
+      process.stdout.write(`${JSON.stringify(composeSelectedCaskLaunchers(input))}\n`);
       return;
     }
     if (invocation.command === 'privileged-broker-authority-derive') {
