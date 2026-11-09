@@ -31,10 +31,15 @@ grep -Fq 'contents: read' "$WORKFLOW" && grep -Fq 'id-token: write' "$WORKFLOW" 
 grep -Fq 'ref: ${{ github.workflow_sha }}' "$WORKFLOW" || fail "checkout is not source pinned"
 grep -Fq 'persist-credentials: false' "$WORKFLOW" || fail "checkout credentials persist"
 grep -Fq 'npm --prefix packages/control-plane test' "$WORKFLOW" || fail "tested deploy subject missing"
+grep -Fq 'needs: migrate' "$WORKFLOW" || fail "deployment does not wait for schema migration"
+grep -Fq 'secret-path: /ci/control-plane/migrator' "$WORKFLOW" || fail "exact migration Infisical leaf missing"
 grep -Fq 'secret-path: /ci/control-plane/deployer' "$WORKFLOW" || fail "exact Infisical leaf missing"
 grep -Fq 'include-imports: false' "$WORKFLOW" && grep -Fq 'recursive: false' "$WORKFLOW" || fail "secret expansion is broad"
 ! grep -Fq 'secrets.' "$WORKFLOW" || fail "GitHub Actions secret dependency found"
-! grep -Eq 'wrangler secret put|d1 migrations apply|npx wrangler|--env production' "$WORKFLOW" || fail "workflow has forbidden deploy authority"
+! grep -Eq 'wrangler secret put|npx wrangler|--env production' "$WORKFLOW" || fail "workflow has forbidden deploy authority"
+grep -Fq 'd1 time-travel info aid-control-plane --remote --json' "$WORKFLOW" || fail "pre-migration recovery bookmark missing"
+grep -Fq 'd1 migrations apply aid-control-plane --remote' "$WORKFLOW" || fail "reviewed migration apply missing"
+grep -Fq "grep -Fq 'No migrations to apply'" "$WORKFLOW" || fail "post-migration empty-plan proof missing"
 grep -Fq './node_modules/.bin/wrangler deploy --strict --keep-vars' "$WORKFLOW" || fail "lockfile Wrangler strict deploy missing"
 grep -Fq 'deployments-before.json' "$WORKFLOW" && grep -Fq 'previousVersionId' "$WORKFLOW" || fail "rollback receipt missing"
 grep -Fq '"hosts":["app.install.doctor"]' "$WORKFLOW" && grep -Fq 'jq -r .success' "$WORKFLOW" || fail "scoped purge proof missing"
@@ -43,6 +48,15 @@ grep -Fq 'release_channel_unavailable' "$WORKFLOW" && grep -Fq 'release_trust_no
 grep -Fq 'raw\.githubusercontent\.com' "$WORKFLOW" || fail "mutable launcher denial missing"
 if grep -E 'uses: [^ ]+@(main|master|v[0-9]+([[:space:]#]|$))' "$WORKFLOW"; then fail "moving action reference found"; fi
 
+jq -e '
+  .workloads | map(select(.id == "github-control-plane-migrator")) | length == 1 and
+  .[0].auth.claims.environment == "control-plane-production" and
+  .[0].auth.claims.workflow_ref == "heymegabyte/install.doctor/.github/workflows/control-plane-production.yml@refs/heads/master" and
+  .[0].authorization.path == "/ci/control-plane/migrator" and
+  .[0].authorization.secretNames == ["CLOUDFLARE_ACCOUNT_ID","CLOUDFLARE_API_TOKEN"] and
+  .[0].platformBindings[0].platform == "cloudflare-d1-production-migrations" and
+  .[0].authorization.inheritedGrants == []
+' "$POLICY" >/dev/null || fail "dedicated migration identity boundary invalid"
 jq -e '
   .workloads | map(select(.id == "github-control-plane-deployer")) | length == 1 and
   .[0].auth.claims.environment == "control-plane-production" and

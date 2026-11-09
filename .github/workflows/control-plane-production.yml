@@ -10,7 +10,84 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  migrate:
+    if: github.ref == 'refs/heads/master'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: control-plane-production
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          ref: ${{ github.workflow_sha }}
+
+      - name: Prove immutable reviewed source
+        run: test "$(git rev-parse HEAD)" = "$GITHUB_WORKFLOW_SHA"
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24.22.2
+          cache: npm
+          cache-dependency-path: packages/control-plane/package-lock.json
+
+      - name: Install, test, and validate identity policy without production credentials
+        run: |
+          set -euo pipefail
+          npm --prefix packages/control-plane ci --ignore-scripts --no-audit --no-fund
+          npm --prefix packages/control-plane test
+          node scripts/infisical-identity-policy.mjs validate config/infisical/bootstrap-release-identities.json
+
+      - uses: Infisical/secrets-action@d2e351f16c6ca20d17c85e6c992e04bdeb64e87d # v1.0.18
+        name: Resolve exact Cloudflare D1 migration identity through GitHub OIDC
+        with:
+          method: oidc
+          identity-id: ${{ vars.INFISICAL_CONTROL_PLANE_MIGRATOR_ID }}
+          project-slug: ${{ vars.INFISICAL_PROJECT_SLUG }}
+          env-slug: prod
+          secret-path: /ci/control-plane/migrator
+          include-imports: false
+          recursive: false
+
+      - name: Apply reviewed migrations and retain recovery evidence
+        run: |
+          set -euo pipefail
+          umask 077
+          cd packages/control-plane
+          wrangler='./node_modules/.bin/wrangler'
+          "$wrangler" d1 time-travel info aid-control-plane --remote --json \
+            > "$RUNNER_TEMP/d1-bookmark-before.json"
+          "$wrangler" d1 migrations list aid-control-plane --remote \
+            > "$RUNNER_TEMP/d1-migrations-before.txt"
+          "$wrangler" d1 migrations apply aid-control-plane --remote \
+            > "$RUNNER_TEMP/d1-migrations-apply.txt"
+          "$wrangler" d1 migrations list aid-control-plane --remote \
+            > "$RUNNER_TEMP/d1-migrations-after.txt"
+          grep -Fq 'No migrations to apply' "$RUNNER_TEMP/d1-migrations-after.txt"
+          jq -e '.bookmark | type == "string" and length > 0' \
+            "$RUNNER_TEMP/d1-bookmark-before.json" >/dev/null
+          jq -n --arg source "$GITHUB_WORKFLOW_SHA" --arg run "$GITHUB_RUN_ID" \
+            --arg bookmark "$(jq -r .bookmark "$RUNNER_TEMP/d1-bookmark-before.json")" \
+            --arg beforeSha256 "$(sha256sum "$RUNNER_TEMP/d1-migrations-before.txt" | cut -d' ' -f1)" \
+            --arg applySha256 "$(sha256sum "$RUNNER_TEMP/d1-migrations-apply.txt" | cut -d' ' -f1)" \
+            --arg afterSha256 "$(sha256sum "$RUNNER_TEMP/d1-migrations-after.txt" | cut -d' ' -f1)" \
+            '{schemaVersion:1,sourceCommit:$source,runId:$run,timeTravelBookmarkBefore:$bookmark,migrationsBeforeSha256:$beforeSha256,migrationApplySha256:$applySha256,migrationsAfterSha256:$afterSha256,pendingAfter:0}' \
+            > "$RUNNER_TEMP/control-plane-migration-receipt.json"
+
+      - name: Clear migration credentials
+        run: printf 'CLOUDFLARE_ACCOUNT_ID=\nCLOUDFLARE_API_TOKEN=\n' >> "$GITHUB_ENV"
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: control-plane-migration-${{ github.run_id }}
+          path: ${{ runner.temp }}/control-plane-migration-receipt.json
+          if-no-files-found: error
+          retention-days: 90
+
   deploy:
+    needs: migrate
     if: github.ref == 'refs/heads/master'
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -94,12 +171,16 @@ jobs:
           status="$(curl --silent --show-error --proto '=https' --tlsv1.2 --max-time 20 \
             --output "$RUNNER_TEMP/start.body" --dump-header "$RUNNER_TEMP/start.headers" \
             --write-out '%{http_code}' "$base/start")"
-          ! grep -Eiq '^location:' "$RUNNER_TEMP/start.headers"
+          if grep -Eiq '^location:' "$RUNNER_TEMP/start.headers"; then
+            exit 1
+          fi
           case "$status" in
             200)
               grep -Eiq '^content-type: (text/x-shellscript|text/plain)' "$RUNNER_TEMP/start.headers"
               grep -Eiq '^cache-control: no-store' "$RUNNER_TEMP/start.headers"
-              ! grep -Eq 'raw\.githubusercontent\.com|/refs/heads/' "$RUNNER_TEMP/start.body"
+              if grep -Eq 'raw\.githubusercontent\.com|/refs/heads/' "$RUNNER_TEMP/start.body"; then
+                exit 1
+              fi
               bash -n "$RUNNER_TEMP/start.body"
               ;;
             503)

@@ -3,6 +3,52 @@
   "schemaVersion": 1,
   "workloads": [
     {
+      "id": "github-control-plane-migrator",
+      "runtime": "github-actions",
+      "availableAuthModes": ["github-oidc"],
+      "auth": {
+        "mode": "github-oidc",
+        "issuer": "https://token.actions.githubusercontent.com",
+        "claims": {
+          "repository": "heymegabyte/install.doctor",
+          "repository_id": "588807533",
+          "repository_owner_id": "82490183",
+          "ref": "refs/heads/master",
+          "environment": "control-plane-production",
+          "workflow_ref": "heymegabyte/install.doctor/.github/workflows/control-plane-production.yml@refs/heads/master",
+          "event_name": "workflow_dispatch",
+          "aud": "https://github.com/heymegabyte",
+          "sub": "repo:heymegabyte/install.doctor:environment:control-plane-production"
+        },
+        "accessTokenTtlSeconds": 600,
+        "accessTokenMaxTtlSeconds": 900,
+        "accessTokenMaxUses": 4,
+        "trustedIpRationale": "GitHub-hosted runner addresses are not stable; exact repository, ref, workflow, event, and protected-environment claims are the boundary."
+      },
+      "authorization": {
+        "project": "install-doctor",
+        "environment": "prod",
+        "path": "/ci/control-plane/migrator",
+        "secretNames": ["CLOUDFLARE_ACCOUNT_ID", "CLOUDFLARE_API_TOKEN"],
+        "inheritedGrants": []
+      },
+      "platformBindings": [{
+        "platform": "cloudflare-d1-production-migrations",
+        "binding": "INSTALL_DOCTOR_CONTROL_PLANE_MIGRATION_CREDENTIALS",
+        "sourceRef": "infisical://install-doctor/prod/ci/control-plane/migrator",
+        "authority": "infisical"
+      }],
+      "revocation": {
+        "tokenCacheWindowSeconds": 60,
+        "urgentProcedure": ["disable-identity", "revoke-issuing-credential", "wait-cache-window", "verify-denied"]
+      },
+      "rotation": {
+        "overlapSeconds": 300,
+        "steps": ["issue-new", "reload-consumer", "health-check", "revoke-old", "verify-old-denied"],
+        "healthCheck": "list-production-d1-migrations-and-prove-worker-deploy-and-r2-authority-denied"
+      }
+    },
+    {
       "id": "github-control-plane-deployer",
       "runtime": "github-actions",
       "availableAuthModes": ["github-oidc"],
