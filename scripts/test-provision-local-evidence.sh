@@ -45,17 +45,48 @@ const events = fs.readFileSync(eventsPath, 'utf8').trim().split('\n').map(JSON.p
 const receipt = JSON.parse(fs.readFileSync(receiptPath, 'utf8'));
 if (events.length !== 2 || events[0].status !== 'started' || events[1].status !== 'success') process.exit(1);
 for (const value of [...events, receipt]) {
-  if (value.schemaVersion !== 1 || !Number.isSafeInteger(value.durationMs) || value.durationMs < 0) process.exit(2);
+  const expectedSchema = value.type === 'provision-terminal-receipt' ? 2 : 1;
+  if (value.schemaVersion !== expectedSchema || !Number.isSafeInteger(value.durationMs) || value.durationMs < 0) process.exit(2);
   if (!Number.isSafeInteger(value.rssKiB) || value.rssKiB < 0) process.exit(3);
   if (!value.labels || Object.keys(value.labels).join(',') !== 'host,environment,service') process.exit(4);
   for (const label of Object.values(value.labels)) if (!/^[a-z0-9._-]{1,64}$/.test(label)) process.exit(5);
 }
-if (receipt.status !== 'success' || receipt.exitCode !== 0 || receipt.terminal !== true) process.exit(6);
+if (receipt.status !== 'success' || receipt.exitCode !== 0 || receipt.terminal !== true || receipt.engineEvidence !== null) process.exit(6);
 NODE
 then
   pass 'evidence carries bounded duration/resource metrics, labels, and terminal truth'
 else
   fail 'local evidence schema or metrics are invalid'
+fi
+
+mkdir -p "$TMP/engine-evidence"
+PLAN_DIGEST="$(printf 'a%.0s' {1..64})"
+ENGINE_RECEIPT="$TMP/engine-evidence/verified.receipt.json"
+printf '%s\n' "{\"schemaVersion\":1,\"runId\":\"run-verified\",\"planDigest\":\"$PLAN_DIGEST\",\"status\":\"success\",\"startedAt\":\"2026-11-09T00:00:00.000Z\",\"finishedAt\":\"2026-11-09T00:00:01.000Z\",\"taskCounts\":{\"verified\":1,\"inapplicable\":0,\"skipped\":0,\"blocked\":0,\"pending\":0,\"failed\":0},\"evidencePaths\":[\"$ENGINE_RECEIPT\"],\"nextAction\":null}" > "$ENGINE_RECEIPT"
+ENGINE_RECEIPT_SHA="$(node -e 'const fs=require("node:fs"),c=require("node:crypto");process.stdout.write(c.createHash("sha256").update(fs.readFileSync(process.argv[1])).digest("hex"))' "$ENGINE_RECEIPT")"
+cat > "$TMP/engine-evidence/result.json" <<EOF
+{"schemaVersion":1,"runId":"run-verified","planDigest":"$PLAN_DIGEST","authority":"committed","problems":[],"receipt":$(cat "$ENGINE_RECEIPT"),"commitPath":"$TMP/engine-evidence/commit.json"}
+EOF
+if XDG_STATE_HOME="$TMP/bound-state" INSTALL_DOCTOR_RUNTIME_NODE="$(command -v node)" \
+  INSTALL_DOCTOR_ENGINE_EVIDENCE_REQUIRED=true bash -c '
+    set -e
+    source "$1"
+    idProvisionEvidenceInit
+    idAdmitEngineEvidenceBinding "$2"
+    idEmitProvisionStatus provision success 0
+    node -e "const r=JSON.parse(require(\"node:fs\").readFileSync(process.env.INSTALL_DOCTOR_TERMINAL_RECEIPT,\"utf8\"));if(r.engineEvidence?.runId!==\"run-verified\"||r.engineEvidence?.planDigest!==\"a\".repeat(64)||r.engineEvidence?.receiptSha256!==process.argv[1])process.exit(1)" "$3"
+  ' _ "$PROVISION" "$TMP/engine-evidence/result.json" "$ENGINE_RECEIPT_SHA"; then
+  pass 'terminal success binds the exact verified engine run, plan, and receipt digest'
+else
+  fail 'verified engine evidence was not bound to terminal success'
+fi
+
+if XDG_STATE_HOME="$TMP/unbound-state" INSTALL_DOCTOR_ENGINE_EVIDENCE_REQUIRED=true bash -c '
+  source "$1"; idProvisionEvidenceInit; idEmitProvisionStatus provision success 0
+' _ "$PROVISION" >/dev/null 2>&1; then
+  fail 'engine-owned terminal success accepted missing authoritative evidence'
+else
+  pass 'engine-owned terminal success rejects missing authoritative evidence'
 fi
 
 if ! grep -R -Fq 'do-not-record-this-value' "$TMP/state"; then pass 'unrelated secret environment values are absent from evidence'; else fail 'secret leaked into local evidence'; fi

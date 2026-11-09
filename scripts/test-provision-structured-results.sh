@@ -19,6 +19,7 @@ mkdir -p "$TMP_DIR/home"
 awk '/^_idTaskJson\(\) \{/{copy=1} copy{print} copy && /^\}/{exit}' "$PROVISIONER" > "$TMP_DIR/json-helper.sh"
 awk '/^idProvisionEvidenceInit\(\) \{/{copy=1} copy{print} copy && /^\}/{exit}' "$PROVISIONER" > "$TMP_DIR/evidence-init.sh"
 awk '/^idEmitProvisionStatus\(\) \{/{copy=1} copy{print} copy && /^\}/{exit}' "$PROVISIONER" > "$TMP_DIR/status-helper.sh"
+awk '/^_idProvisionEngineEvidenceJson\(\) \{/{copy=1} copy{print} copy && /^\}/{exit}' "$PROVISIONER" > "$TMP_DIR/engine-evidence-helper.sh"
 awk '/^idOnProvisionExit\(\) \{/{copy=1} copy{print} copy && /^\}/{exit}' "$PROVISIONER" > "$TMP_DIR/exit-guard.sh"
 awk '/^provisionLogic\(\) \{/{copy=1} copy{print} copy && /^\}/{exit}' "$PROVISIONER" > "$TMP_DIR/provision-logic.sh"
 if ! grep -q 'provisionLogic' "$TMP_DIR/provision-logic.sh"; then
@@ -29,7 +30,7 @@ if ! grep -q 'idOnProvisionExit' "$TMP_DIR/exit-guard.sh"; then
   printf 'Failed to extract idOnProvisionExit() from the provisioner\n' >&2
   exit 1
 fi
-cat "$TMP_DIR/json-helper.sh" "$TMP_DIR/evidence-init.sh" "$TMP_DIR/status-helper.sh" "$TMP_DIR/exit-guard.sh" "$TMP_DIR/provision-logic.sh" > "$TMP_DIR/combined.sh"
+cat "$TMP_DIR/json-helper.sh" "$TMP_DIR/evidence-init.sh" "$TMP_DIR/status-helper.sh" "$TMP_DIR/engine-evidence-helper.sh" "$TMP_DIR/exit-guard.sh" "$TMP_DIR/provision-logic.sh" > "$TMP_DIR/combined.sh"
 
 runScenario() {
   local label="$1" chezmoi_status="$2" event_log="$3" cleanup_marker="$4" preengine_status="${5:-0}" finalizer_verified="${6:-true}"

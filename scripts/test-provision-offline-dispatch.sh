@@ -100,6 +100,17 @@ const input=JSON.parse(fs.readFileSync(process.argv[process.argv.indexOf('--inpu
 fs.appendFileSync(process.env.HOME+'/calls',`${JSON.stringify(input)}\n`);
 if(input.command==='bundle-plan') process.stdout.write(JSON.stringify({manifestDigest:'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',manifest:{planDigest:'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'}}));
 if(input.command==='bundle-apply') fs.mkdirSync(input.destinationDirectory,{recursive:false});
+if(input.command==='bundle-execute') {
+  const receiptPath=process.env.HOME+'/engine.receipt.json';
+  const receipt={schemaVersion:1,runId:input.runId,planDigest:input.approvedPlanDigest,status:'success',
+    startedAt:'2026-11-09T00:00:00.000Z',finishedAt:'2026-11-09T00:00:01.000Z',
+    taskCounts:{verified:1,inapplicable:0,skipped:0,blocked:0,pending:0,failed:0},evidencePaths:[receiptPath],nextAction:null};
+  fs.writeFileSync(receiptPath,`${JSON.stringify(receipt)}\n`,{mode:0o600});
+}
+if(input.command==='evidence-verify') {
+  const receipt=JSON.parse(fs.readFileSync(process.env.HOME+'/engine.receipt.json','utf8'));
+  process.stdout.write(JSON.stringify({schemaVersion:1,runId:input.runId,planDigest:input.planDigest,authority:'committed',problems:[],receipt,commitPath:process.env.HOME+'/commit.json'}));
+}
 NODE
   chmod 0700 "$FIXTURE/fake-engine.mjs"
   export HOME="$FIXTURE/home" XDG_STATE_HOME="$FIXTURE/state"
@@ -121,9 +132,10 @@ NODE
   runOfflineBundleProvisioning >/dev/null || return $?
   node - "$FIXTURE/home/calls" <<'NODE'
 const fs=require('node:fs'); const calls=fs.readFileSync(process.argv[2],'utf8').trim().split('\n').map(JSON.parse);
-const names=calls.map(x=>x.command).join(','); if(names!=='bundle-verify,bundle-plan,bundle-apply,bundle-execute') throw new Error(names);
-const execute=calls.at(-1); if(execute.offline!==true||execute.networkPolicy!=='deny') throw new Error('network policy weakened');
+const names=calls.map(x=>x.command).join(','); if(names!=='bundle-verify,bundle-plan,bundle-apply,bundle-execute,evidence-verify') throw new Error(names);
+const execute=calls.at(-2); if(execute.offline!==true||execute.networkPolicy!=='deny') throw new Error('network policy weakened');
 if(execute.approvedManifestDigest!=='a'.repeat(64)||execute.approvedPlanDigest!=='b'.repeat(64)) throw new Error('approval digest changed');
+const evidence=calls.at(-1);if(evidence.runId!=='offline-test'||evidence.planDigest!=='b'.repeat(64))throw new Error('completion evidence identity changed');
 NODE
 )
 if run_dispatch_contract; then pass 'offline dispatcher preserves exact approvals, strips provider authority, and keeps deny-network execution order'

@@ -471,7 +471,7 @@ idProvisionEvidenceInit() {
 }
 
 idEmitProvisionStatus() {
-  local PHASE="$1" STATUS="$2" EXIT_CODE="${3:-0}" LOG START NOW DURATION RSS HOST_LABEL ENV_LABEL TERMINAL TEMP
+  local PHASE="$1" STATUS="$2" EXIT_CODE="${3:-0}" LOG START NOW DURATION RSS HOST_LABEL ENV_LABEL TERMINAL TEMP ENGINE_EVIDENCE
   LOG="${INSTALL_DOCTOR_EVENT_LOG:-${XDG_STATE_HOME:-${HOME:-/tmp}/.local/state}/install-doctor/provision-events.ndjson}"
   START="${INSTALL_DOCTOR_EVIDENCE_STARTED_AT:-$(date +%s)}"
   NOW="$(date +%s)"
@@ -495,14 +495,69 @@ idEmitProvisionStatus() {
     "$(_idTaskJson "$HOST_LABEL")" "$(_idTaskJson "$ENV_LABEL")" >> "$LOG" || return 1
   if [ "$TERMINAL" = true ] && [ -n "${INSTALL_DOCTOR_TERMINAL_RECEIPT:-}" ]; then
     [ ! -L "$INSTALL_DOCTOR_TERMINAL_RECEIPT" ] || return 1
+    ENGINE_EVIDENCE="$(_idProvisionEngineEvidenceJson "$STATUS")" || return 1
     TEMP="$INSTALL_DOCTOR_TERMINAL_RECEIPT.tmp.$$"
-    printf '{"schemaVersion":1,"type":"provision-terminal-receipt","status":"%s","exitCode":%s,"durationMs":%s,"rssKiB":%s,"terminal":true,"labels":{"host":"%s","environment":"%s","service":"install-doctor"}}\n' \
-      "$(_idTaskJson "$STATUS")" "$EXIT_CODE" "$DURATION" "$RSS" "$(_idTaskJson "$HOST_LABEL")" "$(_idTaskJson "$ENV_LABEL")" > "$TEMP" || return 1
+    printf '{"schemaVersion":2,"type":"provision-terminal-receipt","status":"%s","exitCode":%s,"durationMs":%s,"rssKiB":%s,"terminal":true,"engineEvidence":%s,"labels":{"host":"%s","environment":"%s","service":"install-doctor"}}\n' \
+      "$(_idTaskJson "$STATUS")" "$EXIT_CODE" "$DURATION" "$RSS" "$ENGINE_EVIDENCE" \
+      "$(_idTaskJson "$HOST_LABEL")" "$(_idTaskJson "$ENV_LABEL")" > "$TEMP" || return 1
     chmod 0600 "$TEMP" || { rm -f "$TEMP"; return 1; }
     mv "$TEMP" "$INSTALL_DOCTOR_TERMINAL_RECEIPT" || { rm -f "$TEMP"; return 1; }
   fi
   INSTALL_DOCTOR_TERMINAL_STATUS="$STATUS"
   export INSTALL_DOCTOR_TERMINAL_STATUS
+}
+
+# Bind the compatibility stage-zero receipt to independently verified immutable
+# engine evidence. A terminal success from a real engine path may not omit this
+# authority; pre-engine failures and root handoffs remain explicitly null.
+_idProvisionEngineEvidenceJson() {
+  local STATUS="$1" RUN_ID="${INSTALL_DOCTOR_ENGINE_EVIDENCE_RUN_ID:-}"
+  local PLAN_DIGEST="${INSTALL_DOCTOR_ENGINE_EVIDENCE_PLAN_DIGEST:-}"
+  local RECEIPT_SHA="${INSTALL_DOCTOR_ENGINE_EVIDENCE_RECEIPT_SHA256:-}"
+  if [ -z "$RUN_ID$PLAN_DIGEST$RECEIPT_SHA" ]; then
+    if [ "$STATUS" = success ] && [ "${INSTALL_DOCTOR_ENGINE_EVIDENCE_REQUIRED:-false}" = true ]; then
+      logg error 'Terminal success is missing authoritative engine evidence'
+      return 1
+    fi
+    printf 'null'
+    return 0
+  fi
+  case "$RUN_ID" in ''|*[!A-Za-z0-9._:-]*) return 1 ;; esac
+  case "$PLAN_DIGEST:$RECEIPT_SHA" in *[!a-f0-9:]*) return 1 ;; esac
+  [ "${#PLAN_DIGEST}" -eq 64 ] && [ "${#RECEIPT_SHA}" -eq 64 ] || return 1
+  printf '{"runId":"%s","planDigest":"%s","receiptSha256":"%s"}' \
+    "$RUN_ID" "$PLAN_DIGEST" "$RECEIPT_SHA"
+}
+
+idAdmitEngineEvidenceBinding() {
+  local RESULT="$1" RUNTIME="${INSTALL_DOCTOR_RUNTIME_NODE:-node}" BINDING
+  [ -f "$RESULT" ] && [ ! -L "$RESULT" ] || return 1
+  BINDING="$("$RUNTIME" - "$RESULT" <<'NODE'
+const fs=require('node:fs');const crypto=require('node:crypto');const path=require('node:path');
+const readBounded=target=>{const before=fs.lstatSync(target,{bigint:true}),uid=BigInt(process.geteuid());
+  if(!before.isFile()||before.isSymbolicLink()||before.nlink!==1n||before.uid!==uid||(before.mode&0o022n)!==0n||before.size<2n||before.size>1048576n)process.exit(2);
+  const fd=fs.openSync(target,fs.constants.O_RDONLY|(fs.constants.O_NOFOLLOW||0));try{const opened=fs.fstatSync(fd,{bigint:true});
+    if(opened.dev!==before.dev||opened.ino!==before.ino||opened.size!==before.size||opened.uid!==before.uid||opened.mode!==before.mode)process.exit(2);
+    const bytes=fs.readFileSync(fd),after=fs.fstatSync(fd,{bigint:true});if(after.size!==opened.size||after.mtimeNs!==opened.mtimeNs||after.ctimeNs!==opened.ctimeNs)process.exit(2);return bytes;
+  }finally{fs.closeSync(fd);}};
+const value=JSON.parse(readBounded(process.argv[2]).toString('utf8'));
+if(value.schemaVersion!==1||value.authority!=='committed'||value.receipt?.status!=='success'
+  ||value.runId!==value.receipt.runId||value.planDigest!==value.receipt.planDigest
+  ||!/^[A-Za-z0-9._:-]+$/.test(value.runId)||!/^[a-f0-9]{64}$/.test(value.planDigest))process.exit(2);
+const matches=value.receipt.evidencePaths.filter(candidate=>path.basename(candidate).endsWith('.receipt.json'));
+if(matches.length!==1||!path.isAbsolute(matches[0]))process.exit(2);
+const bytes=readBounded(matches[0]);const persisted=JSON.parse(bytes.toString('utf8'));
+if(JSON.stringify(persisted)!==JSON.stringify(value.receipt))process.exit(2);
+const sha=crypto.createHash('sha256').update(bytes).digest('hex');
+process.stdout.write(`${value.runId}\t${value.planDigest}\t${sha}`);
+NODE
+)" || return 1
+  IFS=$'\t' read -r INSTALL_DOCTOR_ENGINE_EVIDENCE_RUN_ID INSTALL_DOCTOR_ENGINE_EVIDENCE_PLAN_DIGEST INSTALL_DOCTOR_ENGINE_EVIDENCE_RECEIPT_SHA256 <<< "$BINDING"
+  [ -n "$INSTALL_DOCTOR_ENGINE_EVIDENCE_RUN_ID" ] \
+    && [ -n "$INSTALL_DOCTOR_ENGINE_EVIDENCE_PLAN_DIGEST" ] \
+    && [ -n "$INSTALL_DOCTOR_ENGINE_EVIDENCE_RECEIPT_SHA256" ] || return 1
+  export INSTALL_DOCTOR_ENGINE_EVIDENCE_RUN_ID INSTALL_DOCTOR_ENGINE_EVIDENCE_PLAN_DIGEST \
+    INSTALL_DOCTOR_ENGINE_EVIDENCE_RECEIPT_SHA256
 }
 
 idOnProvisionExit() {
@@ -2018,7 +2073,7 @@ runOfflineBundleProvisioning() {
   local BUNDLE="${INSTALL_DOCTOR_OFFLINE_BUNDLE_DIR:-}" AUTHORITY="${INSTALL_DOCTOR_OFFLINE_AUTHORITY_PATH:-}"
   local MODE="${INSTALL_DOCTOR_OFFLINE_MODE:-execute}" RUN_ID="${INSTALL_DOCTOR_OFFLINE_RUN_ID:-}"
   local RENDERER="${INSTALL_DOCTOR_RENDERER:-}" STATE_BASE INVOCATION_DIR VERIFY_INPUT PLAN_INPUT PLAN_OUTPUT
-  local APPLY_INPUT EXECUTE_INPUT MATERIALIZED_ROOT ENGINE_STATE MANIFEST_DIGEST ACTUAL_SHA STATUS
+  local APPLY_INPUT EXECUTE_INPUT EVIDENCE_INPUT EVIDENCE_RESULT MATERIALIZED_ROOT ENGINE_STATE MANIFEST_DIGEST PLAN_DIGEST ACTUAL_SHA STATUS
   [ -n "$ENGINE" ] && [ -f "$ENGINE" ] && [ ! -L "$ENGINE" ] || { logg error 'Verified installer engine is unavailable'; return 2; }
   [ -n "$RUNTIME" ] && [ -f "$RUNTIME" ] && [ ! -L "$RUNTIME" ] && [ -x "$RUNTIME" ] \
     || { logg error 'Verified installer Node runtime is unavailable'; return 2; }
@@ -2027,6 +2082,9 @@ runOfflineBundleProvisioning() {
   [ -n "$AUTHORITY" ] && [ "${AUTHORITY#/}" != "$AUTHORITY" ] && [ -f "$AUTHORITY" ] && [ ! -L "$AUTHORITY" ] \
     || { logg error 'Offline authority must be an absolute regular file'; return 2; }
   case "$MODE" in execute|resume) ;; *) logg error 'Offline mode must be execute or resume'; return 2 ;; esac
+  INSTALL_DOCTOR_ENGINE_EVIDENCE_REQUIRED=true
+  unset INSTALL_DOCTOR_ENGINE_EVIDENCE_RUN_ID INSTALL_DOCTOR_ENGINE_EVIDENCE_PLAN_DIGEST INSTALL_DOCTOR_ENGINE_EVIDENCE_RECEIPT_SHA256
+  export INSTALL_DOCTOR_ENGINE_EVIDENCE_REQUIRED
   case "$RUN_ID" in ''|*[!A-Za-z0-9._-]*) logg error 'Offline run identifier is missing or invalid'; return 2 ;; esac
   if [ -z "$RENDERER" ]; then
     if [ -n "${HEADLESS_INSTALL:-}" ] || [ ! -t 1 ]; then RENDERER=headless; else RENDERER=tui; fi
@@ -2069,6 +2127,8 @@ if(p.manifestDigest!==a.approvedManifestDigest||p.manifest?.planDigest!==a.appro
 process.stdout.write(p.manifestDigest);
 NODE
 )" || { rm -rf -- "$INVOCATION_DIR"; logg error 'Offline bundle does not match exact approval'; return 2; }
+  PLAN_DIGEST="$("$RUNTIME" -e 'const v=JSON.parse(require("node:fs").readFileSync(process.argv[1],"utf8"));if(!/^[a-f0-9]{64}$/.test(v.approvedPlanDigest))process.exit(2);process.stdout.write(v.approvedPlanDigest)' "$AUTHORITY")" \
+    || { rm -rf -- "$INVOCATION_DIR"; return 2; }
   MATERIALIZED_ROOT="$STATE_BASE/materialized/$MANIFEST_DIGEST"; ENGINE_STATE="$STATE_BASE/engine"
   if [ "$MODE" = execute ] && [ ! -e "$MATERIALIZED_ROOT" ]; then
     mkdir -p "$STATE_BASE/materialized" || { rm -rf -- "$INVOCATION_DIR"; return 1; }
@@ -2085,6 +2145,18 @@ fs.writeFileSync(out,`${JSON.stringify({schemaVersion:2,command:mode==='resume'?
 NODE
   env -i HOME="$HOME" PATH="/usr/bin:/bin" LANG="${LANG:-C.UTF-8}" "$RUNTIME" "$ENGINE" --input "$EXECUTE_INPUT"
   STATUS=$?
+  if [ "$STATUS" -eq 0 ]; then
+    EVIDENCE_INPUT="$INVOCATION_DIR/evidence.json"; EVIDENCE_RESULT="$INVOCATION_DIR/evidence-result.json"
+    "$RUNTIME" - "$EVIDENCE_INPUT" "$RUN_ID" "$PLAN_DIGEST" "$ENGINE_STATE" <<'NODE' || STATUS=2
+const fs=require('node:fs');const [out,runId,planDigest,stateRoot]=process.argv.slice(2);
+fs.writeFileSync(out,`${JSON.stringify({schemaVersion:1,command:'evidence-verify',runId,planDigest,stateRoot})}\n`,{mode:0o600,flag:'wx'});
+NODE
+    if [ "$STATUS" -eq 0 ]; then
+      env -i HOME="$HOME" PATH="/usr/bin:/bin" LANG="${LANG:-C.UTF-8}" "$RUNTIME" "$ENGINE" --input "$EVIDENCE_INPUT" > "$EVIDENCE_RESULT"
+      STATUS=$?
+    fi
+    if [ "$STATUS" -eq 0 ]; then idAdmitEngineEvidenceBinding "$EVIDENCE_RESULT" || STATUS=2; fi
+  fi
   rm -rf -- "$INVOCATION_DIR"
   return "$STATUS"
 }
@@ -2135,6 +2207,11 @@ runCanonicalProvisionEngine() {
   local CASK_DERIVE_INVOCATION CASK_DERIVE_RESULT FLATPAK_DERIVE_INVOCATION FLATPAK_DERIVE_RESULT FLATPAK_EXECUTABLE FLATPAK_SHA256
   local NATIVE_DERIVE_INVOCATION NATIVE_DERIVE_RESULT NATIVE_COUNT SERVICE_DERIVE_INVOCATION SERVICE_DERIVE_RESULT SERVICE_COUNT SELECTED_SERVICE_COUNT
   case "$MODE" in apply|--plan-only) ;; *) logg error "Unknown canonical engine mode: $MODE"; return 2 ;; esac
+  if [ "$MODE" = apply ]; then
+    INSTALL_DOCTOR_ENGINE_EVIDENCE_REQUIRED=true
+    unset INSTALL_DOCTOR_ENGINE_EVIDENCE_RUN_ID INSTALL_DOCTOR_ENGINE_EVIDENCE_PLAN_DIGEST INSTALL_DOCTOR_ENGINE_EVIDENCE_RECEIPT_SHA256
+    export INSTALL_DOCTOR_ENGINE_EVIDENCE_REQUIRED
+  fi
   [ -n "$ENGINE" ] && [ -f "$ENGINE" ] && [ ! -L "$ENGINE" ] || { logg error 'Verified installer engine is unavailable'; return 2; }
   command -v node >/dev/null 2>&1 || { logg error 'Node.js is required by the verified installer engine'; return 2; }
   NODE_MAJOR="$(node --version 2>/dev/null | sed -E 's/^v([0-9]+).*/\1/')"
@@ -3457,7 +3534,12 @@ NODE
     logg error 'Engine exited successfully without independently verifiable committed evidence'
     ENGINE_STATUS=2
   elif [ "$ENGINE_STATUS" -eq 0 ]; then
-    logg info 'Verified authoritative engine completion evidence'
+    if idAdmitEngineEvidenceBinding "$EVIDENCE_RESULT"; then
+      logg info 'Verified authoritative engine completion evidence'
+    else
+      logg error 'Authoritative engine evidence could not be bound to the terminal receipt'
+      ENGINE_STATUS=2
+    fi
   fi
   rm -f "$INVOCATION" "$NORMALIZED_PLAN" "$LOAD_PLAN_INVOCATION" "$LOAD_PLAN_RESULT" \
     "$ARTIFACT_DERIVE_INVOCATION" "$ARTIFACT_DERIVE_RESULT" "$NATIVE_DERIVE_INVOCATION" "$NATIVE_DERIVE_RESULT" \
@@ -4428,7 +4510,7 @@ provisionLogic() {
       return 0
     fi
     idRunRequiredProvisionStep "Executing the independently approved offline bundle" runOfflineBundleProvisioning || return $?
-    idEmitProvisionStatus provision success 0
+    idEmitProvisionStatus provision success 0 || return $?
     return 0
   fi
   idRunRequiredProvisionStep "Collecting required inputs up front" collectInputsUpfront || return $?
