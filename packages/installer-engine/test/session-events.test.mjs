@@ -1,6 +1,9 @@
 import assert from 'node:assert/strict';
+import { mkdtemp, readFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import test from 'node:test';
-import { ProvisioningSessionEventSchema, reduceProvisioningSessionEvents } from '../dist/session-events.js';
+import { createProvisioningSessionEventJournal, ProvisioningSessionEventSchema, reduceProvisioningSessionEvents } from '../dist/session-events.js';
 
 const d = character => character.repeat(64);
 const at = '2026-11-08T12:00:00.000Z';
@@ -112,4 +115,40 @@ test('requires one rooted supervisor and one stable attributable engine producer
   assert.throws(() => reduceProvisioningSessionEvents(root), /rooted by a supervisor/);
   const parent = completeStream(); parent[12] = { ...parent[12], producer: { ...engine, parentId: 'other-session' } };
   assert.throws(() => reduceProvisioningSessionEvents(parent), /not attributable/);
+});
+
+test('durable journal serializes parallel attributable output and preserves explicit gaps', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'desktop-tools-session-events-'));
+  const path = join(root, 'history', 'session-one.events.ndjson');
+  const journal = createProvisioningSessionEventJournal(path, {
+    sessionId: 'session-one', runId: 'run-one', authorizationId: 'authorization-one',
+  });
+  await journal.append({ at, producer: supervisor, kind: 'session-status', status: 'started' });
+  await journal.append({ at, producer: child('child-one'), kind: 'child-agent', childSessionId: 'child-one',
+    parentSessionId: 'session-one', taskId: 'task-one', status: 'started', resultDigest: null });
+  await journal.append({ at, producer: child('child-two'), kind: 'child-agent', childSessionId: 'child-two',
+    parentSessionId: 'session-one', taskId: 'task-two', status: 'started', resultDigest: null });
+  await Promise.all([
+    journal.append({ at, producer: child('child-one'), kind: 'output', sourceId: 'child-one', sourceSequence: 0,
+      stream: 'stdout', text: 'one' }),
+    journal.append({ at, producer: child('child-two'), kind: 'output', sourceId: 'child-two', sourceSequence: 0,
+      stream: 'stdout', text: 'two' }),
+  ]);
+  await journal.append({ at, producer: child('child-one'), kind: 'output-gap', sourceId: 'child-one',
+    fromSourceSequence: 1, throughSourceSequence: 2, reason: 'recording-failure' });
+  await journal.append({ at, producer: child('child-one'), kind: 'cost', provider: 'projectsites', model: 'deepseek-code',
+    inputTokens: 10, outputTokens: 4, costMicrousd: 3 });
+  await journal.append({ at, producer: child('child-one'), kind: 'child-agent', childSessionId: 'child-one',
+    parentSessionId: 'session-one', taskId: 'task-one', status: 'succeeded', resultDigest: d('1') });
+  await journal.append({ at, producer: child('child-two'), kind: 'child-agent', childSessionId: 'child-two',
+    parentSessionId: 'session-one', taskId: 'task-two', status: 'succeeded', resultDigest: d('2') });
+  await journal.append({ at, producer: supervisor, kind: 'terminal', status: 'incomplete-evidence',
+    planDigest: null, evidenceDigest: null, nextAction: 'inspect recording gap' });
+  const durable = (await readFile(path, 'utf8')).trim().split('\n').map(line => JSON.parse(line));
+  const summary = reduceProvisioningSessionEvents(durable);
+  assert.equal(summary.outputGapCount, 2);
+  assert.equal(summary.totalInputTokens, 10);
+  assert.deepEqual(summary.childStatuses, { 'child-one': 'succeeded', 'child-two': 'succeeded' });
+  assert.equal(summary.terminalStatus, 'incomplete-evidence');
+  assert.deepEqual(durable.map((event, index) => event.sequence === index), Array(durable.length).fill(true));
 });

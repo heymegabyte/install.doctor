@@ -1,20 +1,22 @@
 #!/usr/bin/env node
 import { createHash, randomUUID } from 'node:crypto';
 import { execFile } from 'node:child_process';
-import { chmod, lstat, mkdir, open, readFile, rm, writeFile } from 'node:fs/promises';
+import { chmod, lstat, mkdir, open, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { createInterface } from 'node:readline';
 import { promisify } from 'node:util';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { z } from 'zod';
 import { createDesktopToolsToolAdapters, DESKTOP_TOOLS_TYPED_TOOL_NAMES } from './typed-tool-adapters.js';
 import type { ConsentBroker, DesktopToolsTypedToolName, EngineInvoker } from './typed-tool-adapters.js';
+import { createProvisioningSessionEventJournal } from './session-events.js';
 
 const executeFile = promisify(execFile);
 const identifier = z.string().min(1).max(128).regex(/^[A-Za-z0-9][A-Za-z0-9._:-]*$/);
 const digest = z.string().regex(/^[a-f0-9]{64}$/);
 const absolutePath = z.string().min(1).max(4096).refine(isAbsolute, 'path must be absolute');
 const ToolContextSchema = z.strictObject({
-  schemaVersion: z.literal(1), sessionId: identifier, runId: identifier, releaseId: identifier, releaseDigest: digest,
+  schemaVersion: z.literal(1), sessionId: identifier, runId: identifier, authorizationId: identifier,
+  releaseId: identifier, releaseDigest: digest,
   profileRevision: identifier, profileDigest: digest,
   facts: z.unknown(), desiredState: z.unknown(), plan: z.unknown(), operations: z.unknown(),
 });
@@ -144,10 +146,14 @@ async function createConsentBroker(options: ServerOptions, sessionRunId: string)
       if ((error as NodeJS.ErrnoException)?.code === 'ENOENT') throw new Error('operator consent is pending outside the model session');
       throw error;
     });
-    const receipt = ConsentReceiptSchema.parse(JSON.parse(await readFile(path, 'utf8')));
-    if (receipt.operation !== request.operation || receipt.sessionRunId !== sessionRunId || receipt.planDigest !== request.planDigest
-      || receipt.sourceRunId !== (request.sourceRunId ?? null)) throw new Error('operator consent receipt is not bound to this exact operation');
-    return Object.freeze({ approved: true, actorId: receipt.actorId, approvedAt: receipt.approvedAt });
+    const consumed = join(options.consentDirectory, `.consumed-${randomUUID()}`);
+    try {
+      await rename(path, consumed);
+      const receipt = ConsentReceiptSchema.parse(JSON.parse(await readFile(consumed, 'utf8')));
+      if (receipt.operation !== request.operation || receipt.sessionRunId !== sessionRunId || receipt.planDigest !== request.planDigest
+        || receipt.sourceRunId !== (request.sourceRunId ?? null)) throw new Error('operator consent receipt is not bound to this exact operation');
+      return Object.freeze({ approved: true, actorId: receipt.actorId, approvedAt: receipt.approvedAt });
+    } finally { await rm(consumed, { force: true }); }
   };
 }
 
@@ -156,6 +162,9 @@ export async function createDesktopToolsMcpRuntime(optionsInput: unknown) {
   await safeFile(options.context, 'tool context', 4 * 1024 * 1024);
   await protectedDirectory(options.stateRoot, 'state root');
   const context = ToolContextSchema.parse(JSON.parse(await readFile(options.context, 'utf8')));
+  const events = createProvisioningSessionEventJournal(join(options.stateRoot, 'history', `${context.sessionId}.events.ndjson`), {
+    sessionId: context.sessionId, runId: context.runId, authorizationId: context.authorizationId,
+  });
   const invokeEngine = await createEngineInvoker(options);
   const requestConsent = await createConsentBroker(options, context.runId);
   const adapters = createDesktopToolsToolAdapters({
@@ -166,7 +175,61 @@ export async function createDesktopToolsMcpRuntime(optionsInput: unknown) {
     tools: Object.freeze(DESKTOP_TOOLS_TYPED_TOOL_NAMES.map(name => Object.freeze({ name, ...toolDescriptions[name] }))),
     async call(nameInput: unknown, argumentsInput: unknown): Promise<unknown> {
       const name = z.enum(DESKTOP_TOOLS_TYPED_TOOL_NAMES).parse(nameInput);
-      return adapters[name](argumentsInput);
+      const at = () => new Date().toISOString();
+      const supervisor = { kind: 'supervisor' as const, id: 'desktop-tools-supervisor', parentId: null };
+      if (name === 'desktop_tools_approve') {
+        const planDigest = z.string().regex(/^[a-f0-9]{64}$/).parse((argumentsInput as { planDigest?: unknown })?.planDigest);
+        const approvalId = `approval-request-${randomUUID()}`;
+        await events.append({ at: at(), producer: supervisor, kind: 'approval', approvalId, planDigest,
+          status: 'requested', actorId: null });
+        try {
+          const result = await adapters[name](argumentsInput) as { actorId: string };
+          await events.append({ at: at(), producer: supervisor, kind: 'approval', approvalId, planDigest,
+            status: 'approved', actorId: result.actorId });
+          return result;
+        } catch (error) {
+          await events.append({ at: at(), producer: supervisor, kind: 'approval', approvalId, planDigest,
+            status: 'expired', actorId: null });
+          throw error;
+        }
+      }
+      if (name === 'desktop_tools_verify') {
+        const planDigest = z.string().regex(/^[a-f0-9]{64}$/).parse((argumentsInput as { planDigest?: unknown })?.planDigest);
+        await events.append({ at: at(), producer: supervisor, kind: 'verification', planDigest, status: 'started', evidenceDigest: null });
+        try {
+          const result = await adapters[name](argumentsInput);
+          const evidenceDigest = createHash('sha256').update(JSON.stringify(result)).digest('hex');
+          await events.append({ at: at(), producer: supervisor, kind: 'verification', planDigest, status: 'passed', evidenceDigest });
+          await events.append({ at: at(), producer: supervisor, kind: 'terminal', status: 'verified-success', planDigest,
+            evidenceDigest, nextAction: null });
+          return result;
+        } catch (error) {
+          await events.append({ at: at(), producer: supervisor, kind: 'verification', planDigest, status: 'failed', evidenceDigest: null });
+          throw error;
+        }
+      }
+      const result = await adapters[name](argumentsInput);
+      if (name === 'desktop_tools_plan') {
+        const plan = result as { digest?: unknown; tasks?: unknown };
+        const planDigest = z.string().regex(/^[a-f0-9]{64}$/).parse(plan.digest);
+        const diffDigest = createHash('sha256').update(JSON.stringify(result)).digest('hex');
+        const additions = Array.isArray(plan.tasks) ? plan.tasks.length : 0;
+        const prior = await events.events();
+        if (!prior.some(event => event.kind === 'plan' && event.planDigest === planDigest)) {
+          await events.append({ at: at(), producer: supervisor, kind: 'plan', planDigest,
+            profileRevision: context.profileRevision, diffDigest });
+          await events.append({ at: at(), producer: supervisor, kind: 'diff', planDigest, diffDigest,
+            additions, changes: 0, removals: 0 });
+        }
+      }
+      if (['desktop_tools_apply', 'desktop_tools_resume', 'desktop_tools_rollback_config'].includes(name)) {
+        const candidates = (result as { events?: unknown })?.events;
+        if (Array.isArray(candidates)) for (const event of candidates) {
+          await events.append({ at: at(), producer: { kind: 'engine', id: 'installer-engine', parentId: context.sessionId },
+            kind: 'engine-event', event });
+        }
+      }
+      return result;
     },
   });
 }
@@ -205,8 +268,40 @@ export async function serveDesktopToolsMcp(argv: readonly string[], input = proc
   }
 }
 
+async function finalizeSessionEvents(argv: readonly string[]): Promise<void> {
+  const values: Record<string, string> = {};
+  for (let index = 0; index < argv.length; index += 2) {
+    const key = argv[index]; const value = argv[index + 1];
+    if (!key || !['--context', '--state-root', '--status'].includes(key) || !value || values[key] !== undefined) {
+      throw new Error('invalid session finalization options');
+    }
+    values[key] = value;
+  }
+  const contextPath = absolutePath.parse(values['--context']);
+  const stateRoot = absolutePath.parse(values['--state-root']);
+  const status = z.enum(['failure', 'cancellation']).parse(values['--status']);
+  await safeFile(contextPath, 'tool context', 4 * 1024 * 1024); await protectedDirectory(stateRoot, 'state root');
+  const context = ToolContextSchema.parse(JSON.parse(await readFile(contextPath, 'utf8')));
+  const journal = createProvisioningSessionEventJournal(join(stateRoot, 'history', `${context.sessionId}.events.ndjson`), {
+    sessionId: context.sessionId, runId: context.runId, authorizationId: context.authorizationId,
+  });
+  const prior = await journal.events();
+  if (prior.some(event => event.kind === 'terminal')) return;
+  const producer = { kind: 'supervisor' as const, id: 'desktop-tools-supervisor', parentId: null };
+  const at = new Date().toISOString();
+  if (status === 'cancellation') {
+    for (const phase of ['requested', 'acknowledged', 'completed'] as const) await journal.append({
+      at, producer, kind: 'cancellation', requestedBy: context.authorizationId, status: phase, reason: 'supervisor signal',
+    });
+  }
+  const plan = [...prior].reverse().find(event => event.kind === 'plan');
+  await journal.append({ at, producer, kind: 'terminal', status, planDigest: plan?.kind === 'plan' ? plan.planDigest : null,
+    evidenceDigest: null, nextAction: status === 'cancellation' ? 'restart the authorized session' : 'inspect session evidence' });
+}
+
 if (import.meta.url === `file://${process.argv[1]}`) {
-  serveDesktopToolsMcp(process.argv.slice(2)).catch(error => {
+  const argv = process.argv.slice(2);
+  (argv[0] === '--finalize-events' ? finalizeSessionEvents(argv.slice(1)) : serveDesktopToolsMcp(argv)).catch(error => {
     process.stderr.write(`desktop-tools-mcp: ${error instanceof Error ? error.message : 'startup failed'}\n`); process.exitCode = 1;
   });
 }

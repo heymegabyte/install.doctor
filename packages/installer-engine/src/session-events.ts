@@ -1,5 +1,7 @@
 import { z } from 'zod';
 import { InstallerEventSchema } from './contracts.js';
+import { lstat, mkdir, open, readFile, rm } from 'node:fs/promises';
+import { dirname } from 'node:path';
 
 const VERSION = z.literal(1);
 const identifier = z.string().min(1).max(128).regex(/^[A-Za-z0-9][A-Za-z0-9._:-]*$/);
@@ -83,6 +85,66 @@ export const ProvisioningSessionEventSchema = z.discriminatedUnion('kind', [
   }),
 ]);
 export type ProvisioningSessionEvent = z.infer<typeof ProvisioningSessionEventSchema>;
+
+export interface SessionEventJournalIdentity {
+  readonly sessionId: string;
+  readonly runId: string;
+  readonly authorizationId: string;
+}
+
+/**
+ * A protected, append-only NDJSON boundary shared by the supervisor and its
+ * private MCP child. The mkdir lock serializes distinct processes; every line
+ * is schema checked, correlated, sequenced, flushed, and terminal streams are
+ * reduced before they become durable.
+ */
+export function createProvisioningSessionEventJournal(path: string, identityInput: SessionEventJournalIdentity) {
+  const identity = z.strictObject({ sessionId: identifier, runId: identifier, authorizationId: identifier }).parse(identityInput);
+  const lockPath = `${path}.lock`;
+  const read = async (): Promise<ProvisioningSessionEvent[]> => {
+    const bytes = await readFile(path, 'utf8').catch(error => {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return '';
+      throw error;
+    });
+    if (Buffer.byteLength(bytes) > 64 * 1024 * 1024) throw new Error('session event journal exceeds its bound');
+    if (bytes && !bytes.endsWith('\n')) throw new Error('session event journal has a torn final record');
+    return bytes.split('\n').filter(Boolean).map(line => ProvisioningSessionEventSchema.parse(JSON.parse(line)));
+  };
+  const acquire = async () => {
+    for (let attempt = 0; attempt < 200; attempt += 1) {
+      try { await mkdir(lockPath, { mode: 0o700 }); return; } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
+        await new Promise(resolve => setTimeout(resolve, 5));
+      }
+    }
+    throw new Error('session event journal lock timed out');
+  };
+  return Object.freeze({
+    path,
+    async events() { return Object.freeze(await read()); },
+    async append(eventInput: Readonly<Record<string, unknown>>) {
+      await mkdir(dirname(path), { recursive: true, mode: 0o700 });
+      await acquire();
+      try {
+        const events = await read();
+        if (events.some(event => event.kind === 'terminal')) throw new Error('session event journal is terminal');
+        const event = ProvisioningSessionEventSchema.parse({ schemaVersion: 1, sequence: events.length, ...identity, ...eventInput });
+        if (events.length === 0 && (event.kind !== 'session-status' || event.status !== 'started')) {
+          throw new Error('session event journal must start with supervisor evidence');
+        }
+        if (events.length > 0 && event.kind === 'session-status') throw new Error('session event journal already started');
+        if (event.kind === 'terminal') reduceProvisioningSessionEvents([...events, event]);
+        const handle = await open(path, 'a', 0o600);
+        try { await handle.writeFile(`${JSON.stringify(event)}\n`); await handle.sync(); } finally { await handle.close(); }
+        const info = await lstat(path);
+        if (!info.isFile() || info.isSymbolicLink() || info.nlink !== 1 || (info.mode & 0o077) !== 0) {
+          throw new Error('session event journal is not a protected regular file');
+        }
+        return event;
+      } finally { await rm(lockPath, { recursive: true, force: true }); }
+    },
+  });
+}
 
 export interface ProvisioningSessionSummary {
   readonly sessionId: string;

@@ -4,12 +4,18 @@ import { createHash } from 'node:crypto';
 import { chmod, mkdir, mkdtemp, readFile, readdir, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
+import { createServer } from 'node:net';
 import test from 'node:test';
 import { createDesktopToolsMcpRuntime } from '../dist/mcp-server.js';
 import { DESKTOP_TOOLS_TYPED_TOOL_NAMES } from '../dist/typed-tool-adapters.js';
 
 const digest = character => character.repeat(64);
 const sha256 = async path => createHash('sha256').update(await readFile(path)).digest('hex');
+const availablePort = () => new Promise((resolvePromise, reject) => {
+  const server = createServer(); server.once('error', reject); server.listen(0, '127.0.0.1', () => {
+    const address = server.address(); server.close(error => error ? reject(error) : resolvePromise(address.port));
+  });
+});
 
 async function fixture() {
   const root = await mkdtemp(join(tmpdir(), 'desktop-tools-mcp-'));
@@ -25,7 +31,8 @@ async function fixture() {
   const nodeCheck = `const fs=require('node:fs');process.exit(fs.existsSync(${JSON.stringify(marker)})?0:10)`;
   const nodeApply = `setTimeout(()=>require('node:fs').appendFileSync(${JSON.stringify(marker)},'x'),500)`;
   const context = {
-    schemaVersion: 1, sessionId: 'session-one', runId: 'mcp-run-one', releaseId: 'release-one', releaseDigest: digest('1'),
+    schemaVersion: 1, sessionId: 'session-one', runId: 'mcp-run-one', authorizationId: 'authorization-one',
+    releaseId: 'release-one', releaseDigest: digest('1'),
     profileRevision: 'revision-one', profileDigest: digest('2'),
     facts: { schemaVersion: 1, hostId: 'mcp-host', collectedAt: '2026-11-08T00:00:00.000Z', os: 'darwin', osVersion: '26.0',
       arch: 'arm64', environment: 'native', roles: ['fixture'], packageManagers: [], capabilities: [] },
@@ -38,6 +45,12 @@ async function fixture() {
     },
   };
   const contextPath = join(root, 'tool-context.json'); await writeFile(contextPath, `${JSON.stringify(context)}\n`, { mode: 0o600 });
+  await mkdir(join(stateRoot, 'history'), { mode: 0o700 });
+  await writeFile(join(stateRoot, 'history', `${context.sessionId}.events.ndjson`), `${JSON.stringify({
+    schemaVersion: 1, sequence: 0, at: '2026-11-08T12:00:00.000Z', sessionId: context.sessionId, runId: context.runId,
+    authorizationId: context.authorizationId, producer: { kind: 'supervisor', id: 'desktop-tools-supervisor', parentId: null },
+    kind: 'session-status', status: 'started',
+  })}\n`, { mode: 0o600 });
   const engine = resolve('dist/install-doctor-engine.mjs');
   const server = resolve('dist/desktop-tools-mcp-server.mjs');
   const options = { engine, engineSha256: await sha256(engine), context: contextPath, stateRoot, consentDirectory };
@@ -82,6 +95,8 @@ test('real MCP plan/apply requires out-of-band consent and engine journal owners
   await assert.rejects(first.call('desktop_tools_approve', { schemaVersion: 1, planDigest: firstPlan.digest }), /consent is pending/);
   await writeConsent(item, 'apply', firstPlan.digest);
   const firstApproval = await first.call('desktop_tools_approve', { schemaVersion: 1, planDigest: firstPlan.digest });
+  await assert.rejects(second.call('desktop_tools_approve', { schemaVersion: 1, planDigest: secondPlan.digest }), /consent is pending/);
+  await writeConsent(item, 'apply', secondPlan.digest);
   const secondApproval = await second.call('desktop_tools_approve', { schemaVersion: 1, planDigest: secondPlan.digest });
   const applying = first.call('desktop_tools_apply', { schemaVersion: 1, approvalId: firstApproval.approvalId });
   await new Promise(resolvePromise => setTimeout(resolvePromise, 100));
@@ -103,4 +118,45 @@ test('MCP startup rejects permissive context/consent state and a substituted eng
   await assert.rejects(createDesktopToolsMcpRuntime(item.options), /consent directory is not a protected/);
   await chmod(item.consentDirectory, 0o700);
   await assert.rejects(createDesktopToolsMcpRuntime({ ...item.options, engineSha256: digest('f') }), /digest does not match/);
+});
+
+test('pinned OpenCode discovers the signed local Desktop Tools MCP server', {
+  skip: process.env.OPENCODE_PINNED_BINARY ? false : 'requires OPENCODE_PINNED_BINARY',
+}, async () => {
+  const item = await fixture();
+  const configRoot = join(item.root, 'opencode-config'); await mkdir(configRoot, { mode: 0o700 });
+  const configPath = join(configRoot, 'opencode.json');
+  const config = { mcp: { servers: { 'desktop-tools': { type: 'local', enabled: true, command: [
+    '/usr/bin/env', '-i', 'PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin', 'LANG=C.UTF-8', process.execPath,
+    item.server, '--engine', item.engine, '--engine-sha256', item.options.engineSha256, '--context', item.contextPath,
+    '--state-root', item.stateRoot, '--consent-dir', item.consentDirectory,
+  ] } } } };
+  await writeFile(configPath, `${JSON.stringify(config)}\n`, { mode: 0o600 });
+  const port = await availablePort();
+  const child = spawn(process.env.OPENCODE_PINNED_BINARY, ['serve', '--hostname', '127.0.0.1', '--port', String(port)], {
+    cwd: item.root, detached: true, stdio: ['ignore', 'pipe', 'pipe'],
+    env: { PATH: '/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin', LANG: 'C.UTF-8', OPENCODE_CONFIG_CONTENT: JSON.stringify(config),
+      OPENCODE_CONFIG_DIR: configRoot, OPENCODE_CONFIG: configPath,
+      XDG_CONFIG_HOME: configRoot, XDG_DATA_HOME: join(item.root, 'data'), XDG_CACHE_HOME: join(item.root, 'cache'),
+      OPENCODE_DISABLE_AUTOUPDATE: '1', OPENCODE_SERVER_PASSWORD: 'test-password' },
+  });
+  let diagnostics = ''; child.stdout.on('data', chunk => { diagnostics += chunk; }); child.stderr.on('data', chunk => { diagnostics += chunk; });
+  try {
+    let status;
+    for (let attempt = 0; attempt < 100; attempt += 1) {
+      for (const endpoint of ['/api/mcp', '/mcp']) try {
+        const response = await fetch(`http://127.0.0.1:${port}${endpoint}`, {
+          headers: { authorization: `Basic ${Buffer.from('opencode:test-password').toString('base64')}` },
+        }); if (response.ok) { status = await response.json(); break; }
+      } catch {}
+      const serialized = JSON.stringify(status) || '';
+      if (serialized.includes('desktop-tools') && /connected/i.test(serialized)) break;
+      await new Promise(resolvePromise => setTimeout(resolvePromise, 50));
+    }
+    assert.match(JSON.stringify(status) || diagnostics, /desktop-tools/);
+    assert.match(JSON.stringify(status) || diagnostics, /connected/i);
+  } finally {
+    try { process.kill(-child.pid, 'SIGTERM'); } catch {}
+    await new Promise(resolvePromise => child.once('exit', resolvePromise));
+  }
 });

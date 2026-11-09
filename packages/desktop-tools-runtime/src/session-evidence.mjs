@@ -138,10 +138,17 @@ export async function initializeSessionEvidence(input) {
   });
   const historyPath = join(stateDirectory, 'history', `${session.sessionId}.json`);
   const recordingPath = join(stateDirectory, 'recordings', `${session.sessionId}.header.json`);
+  const eventPath = join(stateDirectory, 'history', `${session.sessionId}.events.ndjson`);
   const bytes = `${JSON.stringify(header)}\n`;
   // History is deliberately written first. If recording initialization fails, the
   // durable History row remains captureComplete=false and launch is denied.
   await durableExclusiveWrite(historyPath, bytes);
   await durableExclusiveWrite(recordingPath, bytes);
-  return Object.freeze({ historyPath, recordingPath, captureComplete: false });
+  await durableExclusiveWrite(eventPath, `${JSON.stringify(canonical({
+    schemaVersion: 1, sequence: 0, at: session.createdAt, sessionId: session.sessionId, runId: session.runId,
+    authorizationId: session.authorization.id,
+    producer: { kind: 'supervisor', id: 'desktop-tools-supervisor', parentId: null },
+    kind: 'session-status', status: 'started',
+  }))}\n`);
+  return Object.freeze({ historyPath, recordingPath, eventPath, captureComplete: false });
 }

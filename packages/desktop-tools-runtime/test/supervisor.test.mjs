@@ -81,6 +81,7 @@ async function fixture() {
   const toolsSha256 = createHash('sha256').update(await readFile(toolsArchive)).digest('hex');
   const toolContext = join(root, 'tool-context.json');
   await writeFile(toolContext, `${JSON.stringify({ schemaVersion: 1, sessionId: session.context.sessionId, runId: session.context.runId,
+    authorizationId: session.context.authorization.id,
     releaseId: 'release-1', releaseDigest: '2'.repeat(64), profileRevision: 'revision-7', profileDigest: '1'.repeat(64),
     facts: {}, desiredState: {}, plan: {}, operations: {} })}\n`, { mode: 0o600 });
   const toolContextDigest = createHash('sha256').update(await readFile(toolContext)).digest('hex');
@@ -118,11 +119,11 @@ test('run binds only private loopback and strips inherited secret variables', as
   assert.equal(config.providers.projectsites.settings.apiKey, `{file:${join(item.state, 'config', 'inference-token')}}`);
   assert.equal(config.providers.projectsites.settings.baseURL, 'https://desktop.tools/api/ai/v1');
   assert.equal(config.instructions.length, 1);
-  assert.equal(config.mcp['desktop-tools'].type, 'local');
-  assert.equal(config.mcp['desktop-tools'].enabled, true);
-  assert.equal(config.mcp['desktop-tools'].command[0], '/usr/bin/env');
-  assert.ok(config.mcp['desktop-tools'].command.includes('-i'));
-  assert.ok(config.mcp['desktop-tools'].command.some(value => /desktop-tools-mcp-server-[a-f0-9]{64}\.mjs$/.test(value)));
+  assert.equal(config.mcp.servers['desktop-tools'].type, 'local');
+  assert.equal(config.mcp.servers['desktop-tools'].enabled, true);
+  assert.equal(config.mcp.servers['desktop-tools'].command[0], '/usr/bin/env');
+  assert.ok(config.mcp.servers['desktop-tools'].command.includes('-i'));
+  assert.ok(config.mcp.servers['desktop-tools'].command.some(value => /desktop-tools-mcp-server-[a-f0-9]{64}\.mjs$/.test(value)));
   assert.equal(JSON.stringify(config.mcp).includes('scoped-test-token'), false);
   assert.match(config.instructions[0], /config\/prompts\/[a-f0-9]{64}\/provisioning\.md$/);
   assert.deepEqual(config.policies.slice(0, 2), [

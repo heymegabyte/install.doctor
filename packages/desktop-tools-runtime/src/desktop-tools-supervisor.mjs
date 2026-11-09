@@ -77,12 +77,12 @@ function generateOpenCodeConfig(credentialPath, promptPath, toolRuntime) {
     update: 'disable',
     snapshots: false,
     ...(promptPath ? { instructions: [promptPath] } : {}),
-    ...(toolRuntime ? { mcp: { 'desktop-tools': {
+    ...(toolRuntime ? { mcp: { servers: { 'desktop-tools': {
       type: 'local', enabled: true,
       command: ['/usr/bin/env', '-i', 'PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin', 'LANG=C.UTF-8', process.execPath,
         toolRuntime.server, '--engine', toolRuntime.engine, '--engine-sha256', toolRuntime.engineSha256,
         '--context', toolRuntime.context, '--state-root', toolRuntime.stateRoot, '--consent-dir', toolRuntime.consentDirectory],
-    } } } : {}),
+    } } } } : {}),
     providers: {
       [PROVIDER_ID]: {
         package: '@opencode/ai/providers/openai-compatible',
@@ -473,9 +473,10 @@ async function prepareToolRuntime(values, stateDirectory, promptBinding, session
   const contextDigest = await sha256(contextSource);
   let toolContext;
   try { toolContext = JSON.parse(await readFile(contextSource, 'utf8')); } catch { fail('tool context must be valid JSON', 65); }
-  objectWithExactKeys(toolContext, ['schemaVersion', 'sessionId', 'runId', 'releaseId', 'releaseDigest', 'profileRevision', 'profileDigest',
+  objectWithExactKeys(toolContext, ['schemaVersion', 'sessionId', 'runId', 'authorizationId', 'releaseId', 'releaseDigest', 'profileRevision', 'profileDigest',
     'facts', 'desiredState', 'plan', 'operations'], 'tool context');
   if (toolContext.schemaVersion !== 1 || toolContext.sessionId !== session.sessionId || toolContext.runId !== session.runId
+    || toolContext.authorizationId !== session.authorization.id
     || toolContext.releaseId !== promptBinding.context.release.id || toolContext.releaseDigest !== promptBinding.context.release.digest
     || toolContext.profileRevision !== promptBinding.context.profile.revision || toolContext.profileDigest !== promptBinding.context.profile.digest
     || promptBinding.context.policy?.toolContextDigest !== contextDigest) fail('tool context is not bound to the verified provisioning session', 77);
@@ -582,7 +583,8 @@ async function main(argv) {
   const child = spawn(runtime, ['serve', '--hostname', '127.0.0.1', '--port', String(port)], {
     shell: false, env: minimalEnvironment(stateDirectory, password, opencodeConfig, promptBinding), stdio: 'inherit'
   });
-  const forward = signal => { if (!child.killed) child.kill(signal); };
+  let receivedSignal = null;
+  const forward = signal => { receivedSignal = signal; if (!child.killed) child.kill(signal); };
   process.once('SIGINT', forward); process.once('SIGTERM', forward);
   const result = await new Promise((resolvePromise, reject) => {
     child.once('error', reject);
@@ -592,6 +594,11 @@ async function main(argv) {
     process.removeListener('SIGTERM', forward);
     await releaseLock();
   });
+  const finalized = await execute(process.execPath, [toolRuntime.server, '--finalize-events', '--context', toolRuntime.context,
+    '--state-root', stateDirectory, '--status', receivedSignal || result.signal ? 'cancellation' : 'failure'], {
+    env: { PATH: '/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin', LANG: 'C.UTF-8' }, stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  if (finalized.code !== 0 || finalized.signal) fail('session event finalization failed', 74);
   if (result.signal) fail(`OpenCode stopped by ${result.signal}`, 1);
   if (result.code !== 0) fail(`OpenCode exited with status ${result.code}`, result.code || 1);
   return { stopped: true, evidence };
