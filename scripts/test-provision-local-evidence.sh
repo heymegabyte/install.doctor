@@ -81,12 +81,21 @@ else
   fail 'verified engine evidence was not bound to terminal success'
 fi
 
+UNBOUND_PATHS="$TMP/unbound-paths"
 if XDG_STATE_HOME="$TMP/unbound-state" INSTALL_DOCTOR_ENGINE_EVIDENCE_REQUIRED=true bash -c '
-  source "$1"; idProvisionEvidenceInit; idEmitProvisionStatus provision success 0
-' _ "$PROVISION" >/dev/null 2>&1; then
+  source "$1"; idProvisionEvidenceInit
+  printf "%s\n%s\n" "$INSTALL_DOCTOR_EVENT_LOG" "$INSTALL_DOCTOR_TERMINAL_RECEIPT" > "$2"
+  idEmitProvisionStatus provision success 0
+' _ "$PROVISION" "$UNBOUND_PATHS" >/dev/null 2>&1; then
   fail 'engine-owned terminal success accepted missing authoritative evidence'
 else
-  pass 'engine-owned terminal success rejects missing authoritative evidence'
+  UNBOUND_EVENT="$(sed -n '1p' "$UNBOUND_PATHS")"
+  UNBOUND_RECEIPT="$(sed -n '2p' "$UNBOUND_PATHS")"
+  if ! grep -Fq '"status":"success"' "$UNBOUND_EVENT" && [ ! -e "$UNBOUND_RECEIPT" ]; then
+    pass 'engine-owned terminal success rejects missing authority before publishing success'
+  else
+    fail 'rejected engine evidence left a false-success event or receipt'
+  fi
 fi
 
 if ! grep -R -Fq 'do-not-record-this-value' "$TMP/state"; then pass 'unrelated secret environment values are absent from evidence'; else fail 'secret leaked into local evidence'; fi

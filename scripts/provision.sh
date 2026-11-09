@@ -484,6 +484,12 @@ idEmitProvisionStatus() {
   ENV_LABEL="${INSTALL_DOCTOR_EVIDENCE_ENVIRONMENT:-native}"
   TERMINAL=false
   case "$STATUS" in success|failed|redirected|cancelled|pending) TERMINAL=true ;; esac
+  if [ "$TERMINAL" = true ] && [ -n "${INSTALL_DOCTOR_TERMINAL_RECEIPT:-}" ]; then
+    [ ! -L "$INSTALL_DOCTOR_TERMINAL_RECEIPT" ] || return 1
+    # Validate terminal authority before publishing even an observational
+    # success event. A rejected binding must leave no false-success artifact.
+    ENGINE_EVIDENCE="$(_idProvisionEngineEvidenceJson "$STATUS")" || return 1
+  fi
   umask 077
   mkdir -p "$(dirname "$LOG")" || return 1
   [ ! -L "$(dirname "$LOG")" ] && [ ! -L "$LOG" ] || return 1
@@ -494,8 +500,6 @@ idEmitProvisionStatus() {
     "$(_idTaskJson "$PHASE")" "$(_idTaskJson "$STATUS")" "$EXIT_CODE" "$DURATION" "$RSS" "$TERMINAL" \
     "$(_idTaskJson "$HOST_LABEL")" "$(_idTaskJson "$ENV_LABEL")" >> "$LOG" || return 1
   if [ "$TERMINAL" = true ] && [ -n "${INSTALL_DOCTOR_TERMINAL_RECEIPT:-}" ]; then
-    [ ! -L "$INSTALL_DOCTOR_TERMINAL_RECEIPT" ] || return 1
-    ENGINE_EVIDENCE="$(_idProvisionEngineEvidenceJson "$STATUS")" || return 1
     TEMP="$INSTALL_DOCTOR_TERMINAL_RECEIPT.tmp.$$"
     printf '{"schemaVersion":2,"type":"provision-terminal-receipt","status":"%s","exitCode":%s,"durationMs":%s,"rssKiB":%s,"terminal":true,"engineEvidence":%s,"labels":{"host":"%s","environment":"%s","service":"install-doctor"}}\n' \
       "$(_idTaskJson "$STATUS")" "$EXIT_CODE" "$DURATION" "$RSS" "$ENGINE_EVIDENCE" \
