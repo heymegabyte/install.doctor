@@ -24,7 +24,7 @@ import { pinnedReleaseSigner } from './release-keyring';
 import { lookupDesktopReleaseObject, lookupReleaseObject } from './release-store';
 import { resolveActiveRelease } from './release-channel';
 import { resolveActiveDesktopRelease } from './desktop-release-channel';
-import { authorizeOwnerContextRead, authorizeOwnerDecision, DESKTOP_DEVICE_SCOPE_ALLOWLIST, OwnerApprovalDecision } from './owner-approval';
+import { authorizeOwnerContextRead, authorizeOwnerDecision, DESKTOP_DEVICE_SCOPE_ALLOWLIST, OwnerApprovalDecision, persistOwnerDecision } from './owner-approval';
 import { DEVICE_CLAIM_MIN_POLL_INTERVAL_MS, DEVICE_CREDENTIAL_MAX_LIFETIME_MS, matchesPresentedClaimBinding } from './atomic-credential-claim';
 import { authenticatedOwnerFromBetterAuthSession, createBrokerProductionAuthorities } from './broker-production-authorities';
 import { resolvePrivilegedPairBinding } from './privileged-pair-binding';
@@ -2425,12 +2425,12 @@ app.post('/api/devices/pair/owner-decision', async (c) => {
     stableOwner ?? (legacySession?.user?.email && authenticatedAt ? { actor: legacySession.user.email, authenticatedAt } : null),
   );
   if (!decision.ok) return c.json({ error: decision.error }, decision.status);
-  const timestampColumn = decision.nextStatus === 'approved' ? 'approved_at' : 'denied_at';
-  const updated = await db
-    .prepare(`UPDATE pairings SET status=?, ${timestampColumn}=?, decided_by=?, approved_scopes=? WHERE code=? AND status='pending'`)
-    .bind(decision.nextStatus, decision.decidedAt, decision.actor, decision.approvedScopes ? JSON.stringify(decision.approvedScopes) : null, code)
-    .run();
-  if ((updated.meta?.changes ?? 0) !== 1) return c.json({ error: 'pairing_not_pending' }, 409);
+  const persisted = await persistOwnerDecision(db, {
+    code, expiresAt: row.expires_at as string, profileRevision: row.profile_revision as string,
+    ownerActor: row.owner_actor as string, permissionsJson: (row.permissions as string) || '[]',
+    profileId: row.profile_id as string | null, profileRevisionDigest: row.profile_revision_digest as string | null,
+  }, decision);
+  if (!persisted) return c.json({ error: 'pairing_not_pending' }, 409);
   return c.json({ code, status: decision.nextStatus, actor: decision.actor, decidedAt: decision.decidedAt, approvedScopes: decision.approvedScopes });
 });
 // Labelled compatibility break-glass for ordinary legacy pairings. Privileged profile-bound

@@ -40,6 +40,22 @@ export type OwnerContextReadResult =
   | { ok: true; actor: string }
   | { ok: false; status: 401 | 403; error: string };
 
+export type OwnerDecisionPersistenceRecord = {
+  code: string;
+  expiresAt: string;
+  profileRevision: string;
+  ownerActor: string;
+  permissionsJson: string;
+  profileId: string | null;
+  profileRevisionDigest: string | null;
+};
+
+type OwnerDecisionDatabase = {
+  prepare(sql: string): {
+    bind(...values: unknown[]): { run(): Promise<{ meta?: { changes?: number } }> };
+  };
+};
+
 function canonicalActor(value: string): string {
   return value.trim().toLowerCase();
 }
@@ -96,4 +112,29 @@ export function authorizeOwnerDecision(
     decidedAt: now.toISOString(),
     approvedScopes: request.decision === 'approve' ? approvedScopes : null,
   };
+}
+
+/** Atomically decides only the exact immutable row the owner reviewed. */
+export async function persistOwnerDecision(
+  database: OwnerDecisionDatabase,
+  record: OwnerDecisionPersistenceRecord,
+  decision: Extract<OwnerApprovalResult, { ok: true }>,
+): Promise<boolean> {
+  const timestampColumn = decision.nextStatus === 'approved' ? 'approved_at' : 'denied_at';
+  const updated = await database.prepare(`
+    UPDATE pairings
+       SET status=?, ${timestampColumn}=?, decided_by=?, approved_scopes=?
+     WHERE code=? AND status='pending'
+       AND expires_at=? AND expires_at>?
+       AND profile_revision=? AND owner_actor=? AND permissions=?
+       AND ((profile_id IS NULL AND ? IS NULL) OR profile_id=?)
+       AND ((profile_revision_digest IS NULL AND ? IS NULL) OR profile_revision_digest=?)
+  `).bind(
+    decision.nextStatus, decision.decidedAt, decision.actor,
+    decision.approvedScopes ? JSON.stringify(decision.approvedScopes) : null,
+    record.code, record.expiresAt, decision.decidedAt, record.profileRevision,
+    record.ownerActor, record.permissionsJson, record.profileId, record.profileId,
+    record.profileRevisionDigest, record.profileRevisionDigest,
+  ).run();
+  return (updated.meta?.changes ?? 0) === 1;
 }

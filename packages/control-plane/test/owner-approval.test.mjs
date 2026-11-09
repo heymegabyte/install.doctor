@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { authorizeOwnerContextRead, authorizeOwnerDecision } from '../src/owner-approval.ts';
+import { DatabaseSync } from 'node:sqlite';
+import { authorizeOwnerContextRead, authorizeOwnerDecision, persistOwnerDecision } from '../src/owner-approval.ts';
 
 const now = new Date('2026-11-08T12:00:00.000Z');
 const record = {
@@ -93,5 +94,39 @@ test('owner-bound context requires the freshly authenticated intended owner', ()
   });
   assert.deepEqual(authorizeOwnerContextRead(record.ownerActor, owner, now), {
     ok: true, actor: 'owner@example.com',
+  });
+});
+
+test('decision persistence is atomic with the exact reviewed row and expiry', async () => {
+  const sqlite = new DatabaseSync(':memory:');
+  sqlite.exec(`CREATE TABLE pairings (
+    code text primary key, status text not null, expires_at text not null, profile_revision text not null,
+    owner_actor text not null, permissions text not null, profile_id text, profile_revision_digest text,
+    approved_at text, denied_at text, decided_by text, approved_scopes text
+  )`);
+  const database = { prepare(sql) { const statement = sqlite.prepare(sql); return {
+    bind(...values) { return { async run() { const result = statement.run(...values); return { meta: { changes: Number(result.changes) } }; } }; },
+  }; } };
+  const reviewed = { code: record.code, expiresAt: record.expiresAt, profileRevision: record.profileRevision,
+    ownerActor: record.ownerActor, permissionsJson: JSON.stringify(record.requestedScopes), profileId: null,
+    profileRevisionDigest: null };
+  const approved = authorizeOwnerDecision(record, request, owner, now);
+  assert.equal(approved.ok, true);
+  if (!approved.ok) return;
+
+  const insert = () => sqlite.prepare(`INSERT INTO pairings
+    (code,status,expires_at,profile_revision,owner_actor,permissions,profile_id,profile_revision_digest)
+    VALUES (?,?,?,?,?,?,?,?)`).run(reviewed.code, 'pending', reviewed.expiresAt, reviewed.profileRevision,
+    reviewed.ownerActor, reviewed.permissionsJson, reviewed.profileId, reviewed.profileRevisionDigest);
+  insert();
+  sqlite.prepare('UPDATE pairings SET profile_revision=? WHERE code=?').run('sha256:changed-after-review', reviewed.code);
+  assert.equal(await persistOwnerDecision(database, reviewed, approved), false);
+  assert.equal(sqlite.prepare('SELECT status FROM pairings WHERE code=?').get(reviewed.code).status, 'pending');
+
+  sqlite.prepare('DELETE FROM pairings').run();
+  insert();
+  assert.equal(await persistOwnerDecision(database, reviewed, approved), true);
+  assert.deepEqual({ ...sqlite.prepare('SELECT status, decided_by, approved_scopes FROM pairings WHERE code=?').get(reviewed.code) }, {
+    status: 'approved', decided_by: 'owner@example.com', approved_scopes: '["pull-desired-state","report-status"]',
   });
 });
