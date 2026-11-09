@@ -42,6 +42,42 @@ cat > "$TMP/bin/add-usergroup" <<'SH'
 : > "$GROUP_STATE/$2"
 printf '%s\n' "$2" >> "$GROUP_LEDGER"
 SH
+cat > "$TMP/bin/yq" <<'SH'
+#!/usr/bin/env bash
+# Hermetic subset of mikefarah/yq used by the production reconciler. The test
+# validates reconciliation rather than whichever yq happens to be installed on
+# the CI host, while still reading the fixture YAML instead of hard-coding its
+# expected package results.
+set -euo pipefail
+[ "$#" -eq 3 ] || exit 64
+mode="$1" query="$2" source="$3"
+package="$(expr "$query" : '.*\["\([^"]*\)"\]')"
+[ -n "$package" ] || exit 64
+case "$mode:$query" in
+  '-e:'*' | type == "!!map"')
+    awk -v target="  $package:" '$0 == target { found=1 } END { exit !found }' "$source"
+    ;;
+  '-r:'*'._groups // [] | .[]') field=_groups ;;
+  '-r:'*'._folders // [] | .[]') field=_folders ;;
+  *) exit 64 ;;
+esac
+[ "${field:-}" ] || exit 0
+awk -v package="$package" -v field="$field" '
+  $0 == "  " package ":" { selected=1; found=1; next }
+  selected && /^  [A-Za-z0-9_.:-]+:/ { exit }
+  selected && index($0, "    " field ":") == 1 {
+    value=$0
+    sub("^    " field ":[[:space:]]*\\[", "", value)
+    sub("\\][[:space:]]*$", "", value)
+    count=split(value, values, ",")
+    for (i=1; i<=count; i++) {
+      gsub(/^[[:space:]]+|[[:space:]]+$/, "", values[i])
+      if (values[i] != "") print values[i]
+    }
+  }
+  END { if (!found) exit 1 }
+' "$source"
+SH
 chmod 0700 "$TMP/bin/"*
 : > "$TMP/ledger"
 

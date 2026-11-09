@@ -129,7 +129,7 @@ main() {
         -H "x-desktop-tools-device-fingerprint: ${fingerprint}")
     fi
     resp="$(curl -sS --connect-timeout 5 --max-time 20 -H "authorization: Bearer ${pollSecret}" \
-      "${claimHeaders[@]}" "$u/api/devices/pair/poll" 2>/dev/null || true)"
+      ${claimHeaders[@]+"${claimHeaders[@]}"} "$u/api/devices/pair/poll" 2>/dev/null || true)"
     status="$(jsonStr "$resp" status)"
     errf="$(jsonStr "$resp" error)"
     case "$status" in
