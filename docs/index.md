@@ -1,37 +1,34 @@
 ---
-title: Install Doctor Documentation
-description: Immerse yourself with everything you need to know about Install Doctor, the easy, customizable multi-OS provisioning framework that can setup workstations and servers with a simple one-liner.
+title: Desktop Tools Documentation
+description: Desktop Tools is a profile-driven, signed provisioning system for securely configuring enrolled workstations and servers.
 slug: /
 sidebar_label: Overview
 ---
 
-Install Doctor is a cross-platform desktop provisioning system that transforms a fresh operating system into a fully-configured development workstation with a single command. Built on [Chezmoi](https://www.chezmoi.io/) and [Homebrew](https://brew.sh/), it manages software installation, dotfile configuration, secret management, and cloud service integration across 8+ operating systems.
+Desktop Tools is the successor to Install Doctor. It resolves a selected profile into a signed, reviewable provisioning plan and preserves existing systems unless an exact approved task owns a reversible change. Chezmoi, `software.yml`, and the legacy Install Doctor entrypoints remain compatibility foundations during the migration.
 
 ## Quick Start
 
-```bash
-# macOS / Linux
-curl -fsSL https://app.install.doctor/start | bash
+The intended profile launch form is `curl -fsSL https://example.desktop.tools | bash`, where
+`example` selects one immutable profile revision. It is **not yet a production installation command**:
+the public Desktop Tools release channel and full-lifecycle platform promotion have not been activated.
+Do not substitute the retired `app.install.doctor` compatibility hostname or an unverified source checkout.
 
-# Headless (no prompts)
-curl -fsSL https://app.install.doctor/start | HEADLESS_INSTALL=true INSTALL_DOCTOR_CONSENT_PRIVILEGED=true SOFTWARE_GROUP=Standard bash
-# Review the persisted normalized plan, then rerun with INSTALL_DOCTOR_APPROVED_PLAN_DIGEST=<printed-sha256>.
-
-# Native Windows and Qubes entrypoints remain unpublished until their signed-release cells are verified.
-```
+Native Windows, WSL, Qubes, and every other unsupported matrix cell remain unpublished.
 
 ## Platform Support
 
-| Operating System | Architecture | Package Manager | Status |
-|---|---|---|---|
-| macOS (Ventura+) | x86_64, ARM64 | Homebrew, mas | Fully supported |
-| Ubuntu (20.04+) | x86_64 | apt, Homebrew, Snap, Flatpak | Fully supported |
-| Debian (11+) | x86_64 | apt, Homebrew, Snap, Flatpak | Fully supported |
-| Fedora (36+) | x86_64 | dnf, Homebrew, Flatpak | Fully supported |
-| Arch Linux | x86_64 | pacman, yay, Homebrew | Fully supported |
-| CentOS Stream (8+) | x86_64 | dnf, Homebrew | Supported |
-| Windows 11 | x86_64 | Chocolatey, Scoop, winget | Beta |
-| Qubes OS | x86_64 | dom0 + template VMs | Beta |
+The authoritative source is [`scripts/platform-support-matrix.json`](https://github.com/heymegabyte/install.doctor/blob/master/scripts/platform-support-matrix.json), summarized in [Platform support and limitations](/docs/aid/platform-support).
+The committed matrix currently contains **no verified full-lifecycle platform cells**.
+
+| Platform group | Current admission | Important limitation |
+|---|---|---|
+| Named macOS 14/15/26 x64 and ARM64 native cells | Best effort, explicit consent required | No current clean-host full-lifecycle promotion receipt |
+| Ubuntu 22.04/24.04 x64 containers | Best effort, explicit consent required | Workflow evidence is not a durable full-lifecycle canary receipt |
+| Debian 12 x64 container/native | Best effort, explicit consent required | PID1/native-package evidence does not prove the complete host lifecycle |
+| Fedora 44 and Arch rolling x64 containers | Best effort, explicit consent required | No current full-lifecycle promotion receipt; rolling Arch may drift |
+| Debian ARM64, Alpine, generic Linux and Silverblue | Unsupported | Missing architecture/libc/package-manager-specific signed runtime or lifecycle evidence |
+| Qubes, Proxmox, Coolify, WSL2 and native Windows | Unsupported | Missing safe role-specific and real-host lifecycle evidence |
 
 ## What Does Install Doctor Do?
 
@@ -95,6 +92,6 @@ Many tools require post-install configuration to be useful. Install Doctor handl
 | Docker Hub | Authenticates Docker with your registry account | `DOCKERHUB_USER`, `DOCKERHUB_TOKEN` |
 | GPG | Imports and trusts your GPG key from keyservers | `KEYID` |
 
-Credentials can be passed as environment variables or encrypted with [Age](https://github.com/FiloSottile/age) and stored directly in your fork. See the [Secrets documentation](/docs/customization/secrets) for details.
+Infisical is preferred for online operational secrets and must issue only the minimum values required by each workload. Local encrypted material is reserved for explicitly documented offline recovery paths; secrets must not be stored directly in a fork. See the [Secrets documentation](/docs/customization/secrets) for details.
 
 Read about all the [features that Install Doctor provides](/features).

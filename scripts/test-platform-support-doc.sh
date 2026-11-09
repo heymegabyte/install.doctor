@@ -8,6 +8,7 @@
 set -uo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 DOC="$ROOT/docs/aid/platform-support.md"
+OVERVIEW="$ROOT/docs/index.md"
 
 say() { command -v gum >/dev/null 2>&1 && gum style --foreground 51 -- "$*" || printf '\033[1;36m%s\033[0m\n' "$*"; }
 pass() { command -v gum >/dev/null 2>&1 && gum style --foreground 46 -- "PASS $*" || printf '\033[1;32mPASS\033[0m %s\n' "$*"; P=$((P + 1)); }
@@ -68,6 +69,16 @@ fi
 
 # NO-FABRICATION: never claim universal/native-everywhere support.
 grep -qiE "fully supported on all|supported on every platform|native windows (support|works)|works everywhere" "$DOC" && fail "fabricated universal-support claim" || pass "no 'fully supported everywhere' / 'native Windows works' fabrication (X14 honest)"
+
+if grep -qiE '\|[[:space:]]*(Fully supported|Supported|Beta)[[:space:]]*\|' "$OVERVIEW"; then
+  fail "public overview contains an unbound platform-support marketing claim"
+else
+  pass "public overview contains no unbound fully-supported/supported/beta platform claim"
+fi
+chkre_overview() { grep -qiE "$1" "$OVERVIEW" && pass "$2" || fail "$2 — pattern '$1' absent from overview"; }
+chkre_overview "scripts/platform-support-matrix\.json" "public overview links the machine-readable platform authority"
+chkre_overview "no verified full-lifecycle platform cells" "public overview mirrors the current zero-verified state"
+chkre_overview "not yet a production installation command" "profile URL is not misrepresented as an active production installer"
 
 say "platform-support: $P passed, $F failed"
 [ "$F" -eq 0 ]
