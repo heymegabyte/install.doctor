@@ -7,6 +7,8 @@ on:
       - packages/privileged-broker/**
       - packages/installer-engine/src/privileged-broker-**
       - packages/installer-engine/test/privileged-broker-**
+      - scripts/provision.sh
+      - scripts/test-provision-engine-cutover.sh
       - .github/workflows/privileged-broker-transport.yml
   push:
     branches: [master]
@@ -14,6 +16,8 @@ on:
       - packages/privileged-broker/**
       - packages/installer-engine/src/privileged-broker-**
       - packages/installer-engine/test/privileged-broker-**
+      - scripts/provision.sh
+      - scripts/test-provision-engine-cutover.sh
       - .github/workflows/privileged-broker-transport.yml
 
 permissions:
@@ -36,6 +40,22 @@ jobs:
         with:
           go-version: 1.27.3
           cache-dependency-path: packages/privileged-broker/go.mod
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 24.11.0
+          cache: npm
+          cache-dependency-path: |
+            packages/aid-core/package-lock.json
+            packages/installer-engine/package-lock.json
+      - name: Verify provisioner-to-broker cutover
+        run: |
+          set -euo pipefail
+          bash -n scripts/provision.sh
+          bash scripts/test-provision-engine-cutover.sh
+          npm --prefix packages/aid-core ci --ignore-scripts --no-audit --no-fund
+          npm --prefix packages/installer-engine ci --ignore-scripts --no-audit --no-fund
+          npm --prefix packages/installer-engine run build
+          node --test packages/installer-engine/test/privileged-broker-*.test.mjs
       - name: Test strict protocol and Linux transport
         working-directory: packages/privileged-broker
         run: |
