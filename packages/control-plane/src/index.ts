@@ -30,6 +30,7 @@ import { authorizeOwnerContextRead, authorizeOwnerDecision, DESKTOP_DEVICE_SCOPE
 import { DEVICE_CLAIM_MIN_POLL_INTERVAL_MS, DEVICE_CREDENTIAL_MAX_LIFETIME_MS, matchesPresentedClaimBinding } from './atomic-credential-claim';
 import { authenticatedOwnerFromBetterAuthSession, createBrokerProductionAuthorities } from './broker-production-authorities';
 import { resolvePrivilegedPairBinding } from './privileged-pair-binding';
+import { authorizeTargetAuthorizationDecision } from './target-authorization-owner';
 // App Store catalog — generated from software.yml by the canonical validated parser
 // (scripts/gen-catalog.mjs → the cnf index builder; D01/D02/D13). Read-only, bundled at deploy;
 // regenerate + redeploy when software.yml changes. No runtime YAML at the edge.
@@ -2473,36 +2474,27 @@ app.post('/api/v1/device-authorizations/decision', async (c) => {
   if (!expectedOwner || !access.ok) return c.json({ error: access.ok ? 'wrong_actor' : access.error }, access.ok ? 403 : access.status);
   let requestedScopes: string[];
   try { requestedScopes = JSON.parse(row.requested_scopes as string); } catch { return deviceAuthorizationUnavailable(c); }
-  if (row.status !== 'pending') return c.json({ error: 'authorization_not_pending' }, 409);
-  if (Date.parse(row.expires_at as string) <= Date.now()) return c.json({ error: 'authorization_expired' }, 410);
-  if (parsed.data.profileId !== row.profile_id || parsed.data.profileRevision !== row.profile_revision
-    || parsed.data.profileRevisionDigest !== row.profile_revision_digest
-    || parsed.data.targetKeyFingerprint !== row.target_key_fingerprint
-    || JSON.stringify(parsed.data.requestedScopes) !== row.requested_scopes) {
-    return c.json({ error: 'authorization_binding_mismatch' }, 409);
-  }
-  const approvedScopes = parsed.data.decision === 'approve'
-    ? (parsed.data.approvedScopes ?? requestedScopes) : null;
-  if (approvedScopes && (approvedScopes.some(scope => !requestedScopes.includes(scope))
-    || new Set(approvedScopes).size !== approvedScopes.length
-    || JSON.stringify([...approvedScopes].sort()) !== JSON.stringify(approvedScopes))) {
-    return c.json({ error: 'invalid_approved_scopes' }, 400);
-  }
-  const decidedAt = new Date().toISOString();
-  const status = parsed.data.decision === 'approve' ? 'approved' : 'denied';
+  const decision = authorizeTargetAuthorizationDecision({
+    requestId: row.request_id as string, verificationCode: row.verification_code as string,
+    profileId: row.profile_id as string, profileRevision: row.profile_revision as string,
+    profileRevisionDigest: row.profile_revision_digest as string,
+    targetKeyFingerprint: row.target_key_fingerprint as string, requestedScopes,
+    status: row.status as string, expiresAt: row.expires_at as string,
+  }, parsed.data);
+  if (!decision.ok) return c.json({ error: decision.error }, decision.status);
   const updated = await db.prepare(`
     UPDATE device_authorizations
        SET status=?, approved_scopes=?, approved_at=?, denied_at=?
      WHERE request_id=? AND verification_code=? AND status='pending' AND expires_at>?
        AND profile_id=? AND profile_revision=? AND profile_revision_digest=?
        AND target_key_fingerprint=? AND requested_scopes=?
-  `).bind(status, approvedScopes ? JSON.stringify(approvedScopes) : null,
-    status === 'approved' ? decidedAt : null, status === 'denied' ? decidedAt : null,
-    row.request_id, row.verification_code, decidedAt, row.profile_id, row.profile_revision,
+  `).bind(decision.status, decision.approvedScopes ? JSON.stringify(decision.approvedScopes) : null,
+    decision.status === 'approved' ? decision.decidedAt : null, decision.status === 'denied' ? decision.decidedAt : null,
+    row.request_id, row.verification_code, decision.decidedAt, row.profile_id, row.profile_revision,
     row.profile_revision_digest, row.target_key_fingerprint, row.requested_scopes).run();
   if ((updated.meta?.changes ?? 0) !== 1) return c.json({ error: 'authorization_not_pending' }, 409);
-  return c.json({ requestId: row.request_id, status, decidedAt,
-    ...(approvedScopes ? { approvedScopes } : {}) }, 200, { 'cache-control': 'no-store' });
+  return c.json({ requestId: row.request_id, status: decision.status, decidedAt: decision.decidedAt,
+    ...(decision.approvedScopes ? { approvedScopes: decision.approvedScopes } : {}) }, 200, { 'cache-control': 'no-store' });
 });
 
 app.post('/api/v1/device-authorizations/:requestId/poll', async (c) => {
