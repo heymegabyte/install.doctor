@@ -10,11 +10,19 @@ fail() { printf 'FAIL %s\n' "$*" >&2; F=$((F + 1)); }
 
 if bash -n "$PROVISION"; then pass 'provisioner remains valid Bash'; else fail 'provisioner has invalid Bash syntax'; fi
 
-section="$(grep -F -A 14 "id: 'bootstrap.qubes-dom0-delegation'" "$PROVISION")"
-if [ -n "$section" ]; then pass 'Qubes dom0 delegation is a typed task'; else fail 'Qubes dom0 delegation is missing from the typed graph'; fi
-for field in inputDigest operations timeoutMs retry resources privilege network consent lockDomains failurePolicy; do
-  if printf '%s\n' "$section" | grep -q "$field"; then pass "Qubes task declares $field"; else fail "Qubes task is missing $field"; fi
-done
+MATRIX="$ROOT/scripts/platform-support-matrix.json"
+if jq -e '[.cells[] | select(.role == "qubes-dom0" or .role == "qubes-appvm")] | length == 2 and all(.[]; .status == "unsupported" and (.limitation | length > 0) and (.remediation | length > 0))' "$MATRIX" >/dev/null; then
+  pass 'Qubes tuples are explicitly unsupported with limitations and remediation'
+else
+  fail 'Qubes platform policy does not fail closed explicitly'
+fi
+
+if ! grep -Fq "id: 'bootstrap.qubes-dom0-delegation'" "$PROVISION" \
+  && ! grep -Eq "qubes-dom0-(check|apply|verify)|legacyAdminBridge: 'qubes-dom0'" "$PROVISION"; then
+  pass 'unsupported Qubes has no executable task, operation, or legacy admin bridge'
+else
+  fail 'unsupported Qubes retains dead executable mutation wiring'
+fi
 
 logic="$(sed -n '/^provisionLogic() {/,/^}/p' "$PROVISION")"
 if printf '%s\n' "$logic" | grep -Fq 'handleQubesDom0'; then fail 'Qubes still mutates before the canonical engine'; else pass 'Qubes no longer mutates before the canonical engine'; fi
@@ -27,22 +35,10 @@ else
   fail 'handoff or credential bootstrap was silently removed'
 fi
 
-if bash -c 'source "$1"; idRunEngineOperation qubes-dom0-check; [ "$?" -eq 78 ]' _ "$PROVISION"; then
-  pass 'Qubes host check reports explicit unsupported status'
+if grep -Fq 'unsupported) logg error "Platform $CELL is unsupported: $LIMITATION"; return 2' "$PROVISION"; then
+  pass 'unsupported tuples are rejected before plan approval'
 else
-  fail 'Qubes host check does not report explicit unsupported status'
-fi
-
-if bash -c 'source "$1"; handleQubesDom0() { return 42; }; idRunEngineOperation qubes-dom0-apply; [ "$?" -eq 78 ]' _ "$PROVISION"; then
-  pass 'direct Qubes apply cannot reach the legacy mutator'
-else
-  fail 'direct Qubes apply still reaches the legacy mutator'
-fi
-
-if bash -c 'source "$1"; idRunEngineOperation qubes-dom0-verify; [ "$?" -eq 78 ]' _ "$PROVISION"; then
-  pass 'Qubes verification cannot claim pending or success while unsupported'
-else
-  fail 'Qubes verification does not report explicit unsupported status'
+  fail 'unsupported tuple admission is not fail closed'
 fi
 
 printf 'typed-qubes-cutover: %d passed, %d failed\n' "$P" "$F"

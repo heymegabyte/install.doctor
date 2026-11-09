@@ -3033,16 +3033,6 @@ const macosCertificateTask = macosCertificateSelected ? {
   consent: 'privileged', lockDomains: ['macos-keychain', 'privilege'], cleanup: 'none', compensation: 'none',
   failurePolicy: 'abort-run',
 } : null;
-const qubesDom0Task = rawPlan.role === 'qubes-dom0' ? {
-  schemaVersion: 1, id: 'bootstrap.qubes-dom0-delegation',
-  inputDigest: digest({ role: rawPlan.role, release: process.env.INSTALL_DOCTOR_RELEASE_ID, policy: 'delegated-provision-v1' }),
-  dependencies: [nativeDependenciesTask.id], predicate: 'host-supported', requiredCapabilities: [],
-  operations: { check: 'qubes-dom0-check', apply: 'qubes-dom0-apply', verify: 'qubes-dom0-verify' },
-  timeoutMs: 7_200_000, retry: { class: 'never', maxAttempts: 1, backoffMs: 0 },
-  resources: { cpu: 2, memoryMiB: 2048, network: true }, privilege: 'admin', network: 'required',
-  consent: 'privileged', lockDomains: ['package-manager', 'privilege', 'qubes-dom0'], cleanup: 'none', compensation: 'none',
-  failurePolicy: 'abort-run',
-} : null;
 const agentTasksTask = agentTaskDirectory ? {
   schemaVersion: 1, id: 'bootstrap.configured-agent-tasks',
   inputDigest: digest({ directory: agentTaskDirectory, manifest: agentTaskManifest, failurePolicy: operationEnvironment.INSTALL_DOCTOR_AGENT_FAILURE_POLICY }),
@@ -3056,7 +3046,6 @@ const agentTasksTask = agentTaskDirectory ? {
 const finalDependencies = [desiredPackagesTask.id];
 if (macosFullDiskAccessTask) finalDependencies.push(macosFullDiskAccessTask.id);
 if (macosCertificateTask) finalDependencies.push(macosCertificateTask.id);
-if (qubesDom0Task) finalDependencies.push(qubesDom0Task.id);
 if (agentTasksTask) finalDependencies.push(agentTasksTask.id);
 const task = {
   schemaVersion: 1, id: 'provision.chezmoi', inputDigest: digest({ semanticPlan, release: process.env.INSTALL_DOCTOR_RELEASE_ID }),
@@ -3205,7 +3194,7 @@ const invocation = {
     offline: rawPlan.offline,
   },
     plan: {
-      tasks: [stageZeroInstallUserTask, stageZeroSudoTask, ...(warpDisconnectTask ? [warpDisconnectTask] : []), ...(nativeComposition ? [nativeComposition.task] : []), nativeDependenciesTask, sourceTask, homebrewTask, homebrewToolsTask, chezmoiInitTask, installxBinDirectoryTask, installxToolTask, desiredPackagesTask, ...(serviceComposition ? [serviceComposition.task] : []), ...caskDirectoryTasks, ...caskLauncherTasks, ...flatpakDirectoryTasks, ...flatpakLauncherTasks, ...directoryTasks, ...artifactTasks, ...(macosFullDiskAccessTask ? [macosFullDiskAccessTask] : []), ...(macosCertificateTask ? [macosCertificateTask] : []), ...(qubesDom0Task ? [qubesDom0Task] : []), ...(agentTasksTask ? [agentTasksTask] : []), task, bootstrapPolicyTask, ...(softwareGroupsTask ? [softwareGroupsTask] : []), catalogPostValidationTask, ...(customPostHooksTask ? [customPostHooksTask] : []), ...(customUserPostHooksTask ? [customUserPostHooksTask] : []), rebootAssessmentTask, sudoCleanupTask],
+      tasks: [stageZeroInstallUserTask, stageZeroSudoTask, ...(warpDisconnectTask ? [warpDisconnectTask] : []), ...(nativeComposition ? [nativeComposition.task] : []), nativeDependenciesTask, sourceTask, homebrewTask, homebrewToolsTask, chezmoiInitTask, installxBinDirectoryTask, installxToolTask, desiredPackagesTask, ...(serviceComposition ? [serviceComposition.task] : []), ...caskDirectoryTasks, ...caskLauncherTasks, ...flatpakDirectoryTasks, ...flatpakLauncherTasks, ...directoryTasks, ...artifactTasks, ...(macosFullDiskAccessTask ? [macosFullDiskAccessTask] : []), ...(macosCertificateTask ? [macosCertificateTask] : []), ...(agentTasksTask ? [agentTasksTask] : []), task, bootstrapPolicyTask, ...(softwareGroupsTask ? [softwareGroupsTask] : []), catalogPostValidationTask, ...(customPostHooksTask ? [customPostHooksTask] : []), ...(customUserPostHooksTask ? [customUserPostHooksTask] : []), rebootAssessmentTask, sudoCleanupTask],
       selectedTaskIds: [...(nativeComposition ? [nativeComposition.task.id] : []), ...(serviceComposition ? [serviceComposition.task.id] : []), ...caskLauncherTasks.map(task => task.id), ...flatpakLauncherTasks.map(task => task.id), ...artifactTasks.map(task => task.id), rebootAssessmentTask.id, sudoCleanupTask.id],
       executionPolicy: {
         maxConcurrency: rawPlan.concurrency,
@@ -3272,9 +3261,6 @@ const invocation = {
       'macos-certificate-apply': { argv: ['/bin/bash', provisioner, '--engine-operation', 'macos-certificate-apply'], env: operationEnvironment },
       'macos-certificate-verify': { argv: ['/bin/bash', provisioner, '--engine-operation', 'macos-certificate-verify'], env: operationEnvironment },
     } : {}),
-    'qubes-dom0-check': { argv: ['/bin/bash', provisioner, '--engine-operation', 'qubes-dom0-check'], env: operationEnvironment, legacyAdminBridge: 'qubes-dom0' },
-    'qubes-dom0-apply': { argv: ['/bin/bash', provisioner, '--engine-operation', 'qubes-dom0-apply'], env: operationEnvironment, legacyAdminBridge: 'qubes-dom0' },
-    'qubes-dom0-verify': { argv: ['/bin/bash', provisioner, '--engine-operation', 'qubes-dom0-verify'], env: operationEnvironment, legacyAdminBridge: 'qubes-dom0' },
     'configured-agent-tasks-check': { argv: ['/bin/bash', provisioner, '--engine-operation', 'configured-agent-tasks-check'], env: operationEnvironment },
     'configured-agent-tasks-apply': { argv: ['/bin/bash', provisioner, '--engine-operation', 'configured-agent-tasks-apply'], env: operationEnvironment },
     'configured-agent-tasks-verify': { argv: ['/bin/bash', provisioner, '--engine-operation', 'configured-agent-tasks-verify'], env: operationEnvironment },
@@ -3770,13 +3756,6 @@ idRunEngineOperation() {
       [ "$(detect_os)" = macos ] || return 20
       [ -z "${HEADLESS_INSTALL:-}" ] || return 20
       idMacosSystemKeychainHasCloudflareCertificate || return 30
-      ;;
-    qubes-dom0-check)
-      return 78
-      ;;
-    qubes-dom0-apply) return 78 ;;
-    qubes-dom0-verify)
-      return 78
       ;;
     configured-agent-tasks-check) idVerifyConfiguredAgentTasksReceipt ;;
     configured-agent-tasks-apply) idApplyConfiguredAgentTasks ;;

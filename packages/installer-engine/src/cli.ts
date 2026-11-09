@@ -86,8 +86,8 @@ const ProcessOperationSchema = z.strictObject({
   argv: z.array(argument).min(1).max(128),
   env: z.record(environmentName, environmentValue).optional().refine(value => !value || Object.keys(value).length <= 128, 'too many operation environment values'),
   legacyAdminBridge: z.enum([
-    'native-dependencies', 'homebrew', 'selected-packages', 'qubes-dom0',
-    'software-groups', 'custom-post-hooks',
+    'native-dependencies', 'homebrew', 'selected-packages', 'software-groups',
+    'custom-post-hooks',
   ]).optional(),
   verifiedExecutable: z.strictObject({
     argvIndex: z.number().int().min(0).max(127),
@@ -98,7 +98,6 @@ const legacyAdminBridgeByTask = Object.freeze({
   'bootstrap.native-dependencies': 'native-dependencies',
   'bootstrap.homebrew': 'homebrew',
   'desired.packages': 'selected-packages',
-  'bootstrap.qubes-dom0-delegation': 'qubes-dom0',
   'desired.software-groups': 'software-groups',
   'desired.custom-post-hooks': 'custom-post-hooks',
 } as const);
