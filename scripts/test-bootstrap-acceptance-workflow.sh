@@ -45,6 +45,8 @@ for (const forbidden of ['environment:', 'id-token:', 'secrets.', 'INFISICAL', '
   if (job.includes(forbidden)) process.exit(2);
 }
 if (!job.includes('Disposable Desktop Tools product composition') || !job.includes('persist-credentials: false')) process.exit(3);
+if (!job.includes('DESKTOP_TOOLS_COMPOSITION_RECEIPT:') || !job.includes('name: disposable-composition-${{ github.run_id }}')
+  || !job.includes('retention-days: 14')) process.exit(4);
 NODE
 
 grep -Fq 'INSTALL_DOCTOR_REQUIRE_REAL_OFFLINE_SANDBOX: "1"' "$WORKFLOW" \

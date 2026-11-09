@@ -29,15 +29,27 @@ jobs:
           cache-dependency-path: |
             packages/aid-core/package-lock.json
             packages/control-plane/package-lock.json
+            packages/installer-engine/package-lock.json
       - name: Install locked composition dependencies
         run: |
           npm --prefix packages/aid-core ci --ignore-scripts --no-audit --no-fund
           npm --prefix packages/control-plane ci --ignore-scripts --no-audit --no-fund
+          npm --prefix packages/installer-engine ci --ignore-scripts --no-audit --no-fund
       - name: Verify disposable profile and target authorization composition
+        env:
+          DESKTOP_TOOLS_COMPOSITION_RECEIPT: ${{ runner.temp }}/disposable-composition-receipt.json
         run: |
           npm --prefix packages/aid-core run build
+          npm --prefix packages/installer-engine run build
           npm --prefix packages/control-plane run check
           node --test packages/control-plane/test/disposable-product-composition.test.mjs
+      - name: Upload non-promotable disposable composition receipt
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: disposable-composition-${{ github.run_id }}
+          path: ${{ runner.temp }}/disposable-composition-receipt.json
+          if-no-files-found: error
+          retention-days: 14
 
   linux-signed-start:
     runs-on: ubuntu-latest
