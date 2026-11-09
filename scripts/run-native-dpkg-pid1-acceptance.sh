@@ -35,7 +35,7 @@ docker run --detach \
   --privileged \
   --cgroupns private \
   --network none \
-  --tmpfs /run:rw,nosuid,nodev,mode=755 \
+  --tmpfs /run:rw,nosuid,nodev,exec,mode=755 \
   --tmpfs /run/lock:rw,nosuid,nodev,noexec,mode=755 \
   --volume "$EVIDENCE_ROOT:/evidence" \
   "$IMAGE" /sbin/init >/dev/null

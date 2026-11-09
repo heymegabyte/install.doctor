@@ -22,6 +22,7 @@ check 'pinned Debian-family base image' grep -Eq '^FROM node:24-bookworm@sha256:
 check 'fixture has OpenPGP and xz authority tooling' grep -Eq 'gnupg.*xz-utils|xz-utils.*gnupg' "$DOCKERFILE"
 check 'container has real PID1 systemd' grep -Fq -- '/sbin/init' "$DRIVER"
 check 'runtime execution has no network' grep -Fq -- '--network none' "$DRIVER"
+check 'runtime authority tmpfs permits the verified broker executable' grep -Fq -- '--tmpfs /run:rw,nosuid,nodev,exec,mode=755' "$DRIVER"
 check 'container is always removed' grep -Fq 'docker rm --force' "$DRIVER"
 check 'fixed enrolled non-root uid is required' grep -Fq 'enrolled_uid=1000' "$DRIVER"
 check 'enrolled identity is resolved from container passwd authority' grep -Fq 'getent passwd "$enrolled_uid"' "$DRIVER"
