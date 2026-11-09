@@ -113,7 +113,8 @@ async function command(file, arguments_, options = {}) {
   });
 }
 
-test('Linux root controller admits an enrolled UID through the real sealed-FD broker transport', { skip: !enabled }, async t => {
+test('Linux root controller admits an enrolled UID through the real sealed-FD broker transport',
+  { skip: !enabled, timeout: 20_000 }, async t => {
   const identity = await command('/usr/bin/id', ['-g', '1000']).catch(() => '');
   if (!identity.trim()) return t.skip('fixture requires enrolled uid 1000');
   const enrolledGid = Number(identity.trim());
@@ -165,7 +166,8 @@ writeSync(4,Buffer.from(JSON.stringify(receipt)));
   await absent(input.socketPath);
 });
 
-test('Linux root controller serializes process-global broker lifecycles', { skip: !enabled }, async t => {
+test('Linux root controller serializes process-global broker lifecycles',
+  { skip: !enabled, timeout: 20_000 }, async t => {
   await t.test('publishes only a listening broker and retires all volatile authority', async localTest => {
     await exerciseController(localTest, 'local', controllerInput => ({ controllerInput,
       options: { confirmation: { confirm: async () => true } } }));

@@ -155,6 +155,13 @@ export async function runPrivilegedBrokerController(inputValue: unknown, testOpt
     child.stderr?.on('data', chunk => {
       if (brokerDiagnostics.length < 4_096) brokerDiagnostics += String(chunk).slice(0, 4_096 - brokerDiagnostics.length);
     });
+    // Register completion before readiness. A bounded broker can consume its
+    // final request inside onReady; subscribing afterwards loses Node's
+    // one-shot close event and leaves the root controller waiting forever.
+    const childCompletion = new Promise<{ code: number | null; signal: NodeJS.Signals | null; error?: Error }>(resolveResult => {
+      child.once('error', error => resolveResult({ code: null, signal: null, error }));
+      child.once('close', (code, signal) => resolveResult({ code, signal }));
+    });
     const lifecycle: { termination: 'none' | 'graceful' | 'interrupted' | 'expired' } = { termination: 'none' };
     const terminate = (kind: typeof lifecycle.termination) => {
       if (lifecycle.termination === 'none') lifecycle.termination = kind;
@@ -173,10 +180,8 @@ export async function runPrivilegedBrokerController(inputValue: unknown, testOpt
       await testOptions.onReady?.();
       process.stdout.write(`${JSON.stringify({ schemaVersion: 1, status: 'authorized', socketPath: input.socketPath,
         grantDigest: publication.grantDigest, authorityDigest: publication.authorityDigest, brokerPid: child.pid })}\n`);
-      const result = await new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((resolveResult, reject) => {
-        child.once('error', reject);
-        child.once('close', (code, signal) => resolveResult({ code, signal }));
-      });
+      const result = await childCompletion;
+      if (result.error) throw result.error;
       if (lifecycle.termination === 'expired') throw new Error('privileged broker exceeded its grant lifetime');
       if (lifecycle.termination === 'interrupted') throw new Error('privileged broker controller was interrupted');
       if (result.signal !== null || result.code !== 0) throw new Error('privileged broker terminated without a clean bounded completion');
@@ -184,6 +189,19 @@ export async function runPrivilegedBrokerController(inputValue: unknown, testOpt
     } finally {
       clearTimeout(expiryTimer);
       process.removeListener('SIGTERM', graceful); process.removeListener('SIGINT', interrupted); process.removeListener('SIGHUP', interrupted);
+      if (child.exitCode === null && child.signalCode === null) child.kill('SIGTERM');
+      const exited = await Promise.race([
+        childCompletion.then(() => true),
+        new Promise<false>(resolveDelay => setTimeout(() => resolveDelay(false), 1_000)),
+      ]);
+      if (!exited && child.exitCode === null && child.signalCode === null) {
+        child.kill('SIGKILL');
+        await Promise.race([
+          childCompletion,
+          new Promise<never>((_resolve, rejectDelay) => setTimeout(() => rejectDelay(
+            new Error('privileged broker did not terminate during controller cleanup')), 1_000)),
+        ]);
+      }
       await removeOwnedSocket(input);
       await retireTrustedLocalBrokerGrant(input.grant.grantId);
     }

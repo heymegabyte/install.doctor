@@ -81,6 +81,7 @@ jobs:
             exit 1
           fi
           sha256sum "$RUNNER_TEMP/broker-a/broker"
-          sudo env DESKTOP_TOOLS_PRIVILEGED_BROKER_TEST_BINARY="$RUNNER_TEMP/broker-a/broker" \
+          timeout --signal=TERM --kill-after=5s 120s sudo env \
+            DESKTOP_TOOLS_PRIVILEGED_BROKER_TEST_BINARY="$RUNNER_TEMP/broker-a/broker" \
             "$(command -v node)" --test \
             "$GITHUB_WORKSPACE/packages/installer-engine/test/privileged-broker-controller-linux.test.mjs"
