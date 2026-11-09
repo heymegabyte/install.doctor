@@ -2,6 +2,7 @@ import type {
   BrokerApprovalRequestValue,
   BrokerApprovalStateStore,
 } from './broker-approval-signer.ts';
+import { BrokerApprovalDurableState } from './broker-approval-signer.ts';
 
 type D1Result = { readonly meta?: { readonly changes?: number } };
 type D1Statement = {
@@ -49,12 +50,43 @@ SELECT ?, authorization_id, owner_decision_id, run_intent_id, ?
  WHERE authorization_id = ? AND owner_decision_id = ? AND run_intent_id = ?
    AND owner_decision = 'approved' AND status = 'approved'`;
 
+const INSERT_APPROVED_STATE = `
+INSERT OR IGNORE INTO broker_approval_states (
+  authorization_id, owner_decision_id, owner_actor_id, owner_decision,
+  owner_reauthenticated_at, tenant_id, profile_id, profile_revision_digest,
+  device_credential_id, device_fingerprint, run_intent_id, grant_id, status,
+  grant_json, delegation_json, created_at
+) VALUES (?, ?, ?, 'approved', ?, ?, ?, ?, ?, ?, ?, ?, 'approved', ?, ?, ?)`;
+
 /** D1 adapter whose reads and one-use mutation are both bound to exact durable authority. */
 export function createBrokerApprovalD1Store(
   db: D1DatabaseLike,
   options: { readonly now?: () => Date } = {},
 ): BrokerApprovalStateStore {
   return Object.freeze({
+    async persistApprovedState(inputState: unknown): Promise<boolean> {
+      const state = BrokerApprovalDurableState.parse(inputState);
+      const createdAt = (options.now ?? (() => new Date()))().toISOString();
+      const result = await db.prepare(INSERT_APPROVED_STATE).bind(
+        state.authorizationId, state.ownerDecisionId, state.ownerActorId,
+        state.ownerReauthenticatedAt, state.tenantId, state.profileId,
+        state.profileRevisionDigest, state.deviceCredentialId, state.deviceFingerprint,
+        state.runIntentId, state.grant.grantId, JSON.stringify(state.grant),
+        JSON.stringify(state.delegation), createdAt,
+      ).run();
+      if (result.meta?.changes === 1) return true;
+      const exact = await this.loadExactState({
+        schemaVersion: 1, authorizationId: state.authorizationId,
+        ownerDecisionId: state.ownerDecisionId, tenantId: state.tenantId,
+        profileId: state.profileId, profileRevisionDigest: state.profileRevisionDigest,
+        deviceCredentialId: state.deviceCredentialId, deviceFingerprint: state.deviceFingerprint,
+        runIntentId: state.runIntentId, grantId: state.grant.grantId,
+      });
+      if (JSON.stringify(exact) !== JSON.stringify(state)) {
+        throw new Error('broker approval state identifier collision');
+      }
+      return false;
+    },
     async loadExactState(request: BrokerApprovalRequestValue): Promise<unknown> {
       const row = await db.prepare(LOAD_EXACT_STATE).bind(
         request.authorizationId,

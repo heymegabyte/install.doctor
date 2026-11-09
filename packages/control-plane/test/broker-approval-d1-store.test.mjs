@@ -10,7 +10,7 @@ const migration = fs.readFileSync(
 );
 const hex = character => character.repeat(64);
 
-function fixture() {
+function fixture(seed = true) {
   const sqlite = new DatabaseSync(':memory:');
   sqlite.exec('PRAGMA foreign_keys = ON');
   sqlite.exec(migration);
@@ -29,7 +29,7 @@ function fixture() {
     notBefore: '2026-11-09T11:00:00.000Z', notAfter: '2026-11-09T13:00:00.000Z',
     maximumApprovalLifetimeSeconds: 600, revocationEpoch: 1, delegationDigest: hex('2'),
   };
-  sqlite.prepare(`INSERT INTO broker_approval_states (
+  if (seed) sqlite.prepare(`INSERT INTO broker_approval_states (
     authorization_id, owner_decision_id, owner_actor_id, owner_decision,
     owner_reauthenticated_at, tenant_id, profile_id, profile_revision_digest,
     device_credential_id, device_fingerprint, run_intent_id, grant_id, status,
@@ -82,6 +82,23 @@ test('loads only the exact authority binding and reconstructs immutable JSON sta
     { profileRevisionDigest: hex('5') }, { deviceCredentialId: 'credential-2' },
     { deviceFingerprint: hex('6') }, { runIntentId: 'intent-2' }, { grantId: 'grant-2' },
   ]) assert.equal(await setup.store.loadExactState({ ...setup.request, ...changed }), null);
+});
+
+test('persists exact approved state idempotently and rejects identifier collisions', async () => {
+  const setup = fixture(false);
+  const state = {
+    schemaVersion: 1, authorizationId: setup.request.authorizationId,
+    ownerDecisionId: setup.request.ownerDecisionId, ownerActorId: 'owner-1',
+    ownerDecision: 'approved', ownerReauthenticatedAt: '2026-11-09T11:58:00.000Z',
+    tenantId: setup.request.tenantId, profileId: setup.request.profileId,
+    profileRevisionDigest: setup.request.profileRevisionDigest,
+    deviceCredentialId: setup.request.deviceCredentialId,
+    deviceFingerprint: setup.request.deviceFingerprint, runIntentId: setup.request.runIntentId,
+    status: 'approved', grant: setup.grant, delegation: setup.delegation,
+  };
+  assert.equal(await setup.store.persistApprovedState(state), true);
+  assert.equal(await setup.store.persistApprovedState(state), false);
+  await assert.rejects(setup.store.persistApprovedState({ ...state, ownerActorId: 'owner-2' }), /collision/);
 });
 
 test('atomically consumes one approval and rejects replay, mismatched state, and id collision', async () => {
