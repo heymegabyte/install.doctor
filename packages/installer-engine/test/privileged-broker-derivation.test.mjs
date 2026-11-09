@@ -62,6 +62,8 @@ test('derivation projects one approved plan into one exact grant and controller 
   assert.equal(derived.grant.planDigest, input.plan.digest);
   assert.deepEqual(derived.authority.plan, input.plan);
   assert.deepEqual(derived.controllerInput.grant, derived.grant);
+  assert.deepEqual(derived.clientConfig.grant, derived.grant);
+  assert.equal(derived.clientConfig.socketPath, input.socketPath);
   assert.equal(derived.controllerInput.requestLimit, 3);
   assert.deepEqual(derived.grant.operations.map(operation => operation.phase).sort(), ['apply', 'check', 'verify']);
 });

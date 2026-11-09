@@ -4,6 +4,7 @@ import { NativePackageOperationSchema, OfflineOperationManifestSchema } from './
 import { PrivilegedBrokerExecutionAuthoritySchema,
   privilegedBrokerDescriptorDigest, privilegedBrokerExecutionAuthorityDigest } from './privileged-broker-authority.js';
 import { PrivilegedBrokerControllerInputSchema } from './privileged-broker-controller.js';
+import { PrivilegedBrokerClientConfigSchema } from './privileged-broker-client.js';
 import { PrivilegedBrokerGrantSchema, privilegedBrokerDigest } from './privileged-broker-protocol.js';
 
 const identifier = z.string().min(1).max(128).regex(/^[a-z0-9][a-z0-9._-]*$/);
@@ -143,6 +144,16 @@ export function derivePrivilegedBrokerAuthority(inputValue: unknown) {
     runtimeDigest: input.runtimeDigest,
     workerDigest: input.workerDigest,
   });
-  return Object.freeze({ schemaVersion: 1 as const, taskId: candidate.task.id, grant, authority, controllerInput,
+  const clientConfig = PrivilegedBrokerClientConfigSchema.parse({
+    helperPath: input.helperPath,
+    socketPath: input.socketPath,
+    hostId: input.hostFacts.hostId,
+    releaseId: input.plan.releaseId,
+    runId: input.runId,
+    planDigest: input.plan.digest,
+    taskId: candidate.task.id,
+    grant,
+  });
+  return Object.freeze({ schemaVersion: 1 as const, taskId: candidate.task.id, grant, authority, controllerInput, clientConfig,
     grantDigest: privilegedBrokerDigest(grant), authorityDigest: closureDigest });
 }
