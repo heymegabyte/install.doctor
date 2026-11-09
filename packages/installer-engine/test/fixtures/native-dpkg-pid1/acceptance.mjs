@@ -300,7 +300,7 @@ async function createSignedReleaseAuthority(work, descriptor, artifacts) {
   return { releaseId, releaseProof, approvalSigner, signerKeyId, delegationPath, delegationDigest };
 }
 
-async function runBrokerComposition({ work, packagePath, repositoryAuthority }) {
+async function runBrokerComposition({ packagePath, repositoryAuthority }) {
   await command('/usr/bin/dpkg', ['--purge', '--', PACKAGE_NAME]);
   const enrolledUid = 1000;
   const enrolledGid = Number((await command('/usr/bin/id', ['-g', String(enrolledUid)])).stdout.trim());
@@ -314,7 +314,9 @@ async function runBrokerComposition({ work, packagePath, repositoryAuthority }) 
   const clientPath = join('/run/user/1000', `${runId}-client.mjs`);
   const clientInputPath = join('/run/user/1000', `${runId}.json`);
   const clientPayloadPath = join('/run/user/1000', `${runId}.deb`);
+  const artifactRoot = join(authorityRoot, 'artifacts');
   await mkdir(authorityRoot, { recursive: true, mode: 0o711 });
+  await mkdir(artifactRoot, { recursive: true, mode: 0o700 });
   await mkdir(socketRoot, { recursive: true, mode: 0o710 });
   await chmod(authorityRoot, 0o711);
   await chmod(socketRoot, 0o710);
@@ -339,17 +341,21 @@ process.stdout.write(JSON.stringify({check,apply:'applied',verify})+'\\n');
     chown(clientPath, enrolledUid, enrolledGid), chown(clientPayloadPath, enrolledUid, enrolledGid), chown(socketRoot, 0, enrolledGid),
   ]);
   const descriptor = repositoryAuthority.descriptor;
-  const artifactSources = [
+  const sourceArtifacts = [
     { artifactId: descriptor.metadataProof.inRelease.keyring.artifactId, sourcePath: repositoryAuthority.keyringPath },
     { artifactId: descriptor.metadataProof.packagesIndex.artifactId, sourcePath: repositoryAuthority.packagesPath },
     { artifactId: descriptor.metadataProof.inRelease.artifactId, sourcePath: repositoryAuthority.inReleasePath },
     { artifactId: descriptor.artifact.id, sourcePath: packagePath },
   ];
-  const artifacts = await Promise.all(artifactSources.map(async item => {
-    const bytes = await readFile(item.sourcePath);
-    return { ...item, url: '', sha256: sha256(bytes), sizeBytes: bytes.length, mode: '0600' };
+  const artifacts = await Promise.all(sourceArtifacts.map(async item => {
+    const sourcePath = join(artifactRoot, item.artifactId);
+    await copyFile(item.sourcePath, sourcePath);
+    await chmod(sourcePath, 0o600);
+    await chown(sourcePath, 0, 0);
+    const bytes = await readFile(sourcePath);
+    return { ...item, sourcePath, url: '', sha256: sha256(bytes), sizeBytes: bytes.length, mode: '0600' };
   }));
-  const release = await createSignedReleaseAuthority(work, descriptor, artifacts);
+  const release = await createSignedReleaseAuthority(authorityRoot, descriptor, artifacts);
   for (const item of artifacts) {
     const mapping = item.artifactId === descriptor.artifact.id ? `debian_tree` : item.artifactId === descriptor.metadataProof.inRelease.artifactId
       ? 'debian_inrelease' : item.artifactId === descriptor.metadataProof.inRelease.keyring.artifactId ? 'debian_keyring' : 'debian_packages';
@@ -570,7 +576,7 @@ async function main() {
   assert.equal(noPendingTriggers, true);
   const installed = await command('/usr/bin/dpkg-query', ['--show', `--showformat=\${db:Status-Status}\t\${Version}\n`, '--', PACKAGE_NAME]);
   assert.equal(installed.stdout, `installed\t${PACKAGE_VERSION}\n`);
-  const brokerComposition = await runBrokerComposition({ work, packagePath, repositoryAuthority });
+  const brokerComposition = await runBrokerComposition({ packagePath, repositoryAuthority });
   const brokerInstalled = await command('/usr/bin/dpkg-query', ['--show', `--showformat=\${db:Status-Status}\t\${Version}\n`, '--', PACKAGE_NAME]);
   assert.equal(brokerInstalled.stdout, `installed\t${PACKAGE_VERSION}\n`);
   assert.equal(JSON.stringify(await exactPolicyState()), JSON.stringify(initialPolicy));
