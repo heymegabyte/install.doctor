@@ -102,13 +102,14 @@ async function exerciseController(t, suffix, authorize) {
   await absent(`/run/desktop-tools/privileged/authorities/${controllerInput.grant.grantId}.json`);
 }
 
-test('Linux root controller publishes only a listening broker and retires all volatile authority', { skip: !enabled }, async t => {
-  await exerciseController(t, 'local', controllerInput => ({ controllerInput,
-    options: { confirmation: { confirm: async () => true } } }));
-});
+test('Linux root controller serializes process-global broker lifecycles', { skip: !enabled }, async t => {
+  await t.test('publishes only a listening broker and retires all volatile authority', async localTest => {
+    await exerciseController(localTest, 'local', controllerInput => ({ controllerInput,
+      options: { confirmation: { confirm: async () => true } } }));
+  });
 
-test('Linux root controller accepts exact signed-device authority without local confirmation', { skip: !enabled }, async t => {
-  await exerciseController(t, 'device', async controllerInput => {
+  await t.test('accepts exact signed-device authority without local confirmation', async deviceTest => {
+    await exerciseController(deviceTest, 'device', async controllerInput => {
     const signer = generateKeyPairSync('ed25519');
     const signerKeyId = 'controller-device-key-1';
     const unsigned = { schemaVersion: 1, kind: 'desktop-tools-broker-approval', signerKeyId,
@@ -139,7 +140,8 @@ test('Linux root controller accepts exact signed-device authority without local 
     const brokerApprovalDelegationPath = join(dirname(controllerInput.helperPath), 'broker-approval-signer-delegation.json');
     await writeFile(brokerApprovalDelegationPath, bytes, { mode: 0o400 });
     await chown(brokerApprovalDelegationPath, 0, 0);
-    return { controllerInput: { ...controllerInput, approvalMode: 'signed-device', deviceApproval, brokerApprovalDelegationPath,
-      brokerApprovalDelegationDigest: hash(bytes), brokerApprovalMinimumRevocationEpoch: 1 } };
+      return { controllerInput: { ...controllerInput, approvalMode: 'signed-device', deviceApproval, brokerApprovalDelegationPath,
+        brokerApprovalDelegationDigest: hash(bytes), brokerApprovalMinimumRevocationEpoch: 1 } };
+    });
   });
 });
