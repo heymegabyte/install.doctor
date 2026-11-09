@@ -323,6 +323,38 @@ else
   pass 'Homebrew executable beneath a world-writable directory is rejected'
 fi
 
+mkdir -p "$TMP_DIR/brew-created/bin" "$TMP_DIR/brew-created/home"
+printf '#!/usr/bin/env bash\nexit 0\n' > "$TMP_DIR/brew-created/bin/brew"
+chmod 0700 "$TMP_DIR/brew-created/bin/brew"
+if HOME="$TMP_DIR/brew-created/home" XDG_STATE_HOME="$TMP_DIR/brew-created/state" INSTALL_DOCTOR_HOMEBREW_PATH="$TMP_DIR/brew-created/bin/brew" \
+  INSTALL_DOCTOR_HOMEBREW_SHA256=absent bash -c 'source "$1"; loadHomebrew' _ "$PROVISION"; then
+  fail 'Homebrew created after approval was admitted without a creation receipt'
+else
+  pass 'Homebrew created after approval requires a protected creation receipt'
+fi
+if HOME="$TMP_DIR/brew-created/home" XDG_STATE_HOME="$TMP_DIR/brew-created/state" INSTALL_DOCTOR_HOMEBREW_PATH="$TMP_DIR/brew-created/bin/brew" \
+  INSTALL_DOCTOR_HOMEBREW_SHA256=absent bash -c 'source "$1"; idRecordHomebrewCreationReceipt && loadHomebrew' _ "$PROVISION"; then
+  pass 'receipt-bound Homebrew creation is admitted'
+else
+  fail 'valid receipt-bound Homebrew creation was rejected'
+fi
+ln "$TMP_DIR/brew-created/state/install.doctor/engine/effects/homebrew-created.receipt" \
+  "$TMP_DIR/brew-created/receipt-hardlink"
+if HOME="$TMP_DIR/brew-created/home" XDG_STATE_HOME="$TMP_DIR/brew-created/state" INSTALL_DOCTOR_HOMEBREW_PATH="$TMP_DIR/brew-created/bin/brew" \
+  INSTALL_DOCTOR_HOMEBREW_SHA256=absent bash -c 'source "$1"; loadHomebrew' _ "$PROVISION"; then
+  fail 'hard-linked Homebrew creation receipt retained authority'
+else
+  pass 'hard-linked Homebrew creation receipt is rejected'
+fi
+rm -f "$TMP_DIR/brew-created/receipt-hardlink"
+printf '# substituted after creation\n' >> "$TMP_DIR/brew-created/bin/brew"
+if HOME="$TMP_DIR/brew-created/home" XDG_STATE_HOME="$TMP_DIR/brew-created/state" INSTALL_DOCTOR_HOMEBREW_PATH="$TMP_DIR/brew-created/bin/brew" \
+  INSTALL_DOCTOR_HOMEBREW_SHA256=absent bash -c 'source "$1"; loadHomebrew' _ "$PROVISION"; then
+  fail 'Homebrew substitution retained stale creation-receipt authority'
+else
+  pass 'Homebrew substitution invalidates creation-receipt authority'
+fi
+
 mkdir -p "$TMP_DIR/git-trust/bin" "$TMP_DIR/git-trust/home"
 cp "$(command -v git)" "$TMP_DIR/git-trust/bin/git"
 chmod 0700 "$TMP_DIR/git-trust/bin/git"

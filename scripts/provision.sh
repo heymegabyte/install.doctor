@@ -1003,6 +1003,64 @@ EOF
 }
 
 ### Ensure Homebrew is loaded
+ID_HOMEBREW_INSTALLER_SHA256='5f333bbe53bc490e51e7ccb1df8779b3dd6ee73a1a7379efda216edb08ccb148'
+
+idHomebrewCreationReceiptPath() {
+  [ "${INSTALL_DOCTOR_HOMEBREW_SHA256:-}" = absent ] || return 1
+  printf '%s/install.doctor/engine/effects/homebrew-created.receipt\n' "${XDG_STATE_HOME:-$HOME/.local/state}"
+}
+
+idVerifyHomebrewCreationReceipt() {
+  local candidate="$1" actual="$2" receipt receipt_dir recorded_path recorded_sha recorded_installer
+  local owner mode links size directory_owner directory_mode lines
+  receipt="$(idHomebrewCreationReceiptPath)" || return 1
+  receipt_dir="${receipt%/*}"
+  [ -d "$receipt_dir" ] && [ ! -L "$receipt_dir" ] && [ -f "$receipt" ] && [ ! -L "$receipt" ] || return 1
+  if stat -f '%u %Lp %l %z' "$receipt" >/dev/null 2>&1; then
+    read -r owner mode links size <<EOF
+$(stat -f '%u %Lp %l %z' "$receipt")
+EOF
+    read -r directory_owner directory_mode <<EOF
+$(stat -f '%u %Lp' "$receipt_dir")
+EOF
+  else
+    read -r owner mode links size <<EOF
+$(stat -c '%u %a %h %s' "$receipt")
+EOF
+    read -r directory_owner directory_mode <<EOF
+$(stat -c '%u %a' "$receipt_dir")
+EOF
+  fi
+  [ "$owner" -eq "$(id -u)" ] && [ "$directory_owner" -eq "$(id -u)" ] \
+    && [ "$mode" = 600 ] && [ "$directory_mode" = 700 ] && [ "$links" -eq 1 ] \
+    && [ "$size" -ge 131 ] && [ "$size" -le 512 ] || return 1
+  lines="$(wc -l < "$receipt" | tr -d '[:space:]')" || return 1
+  [ "$lines" = 1 ] || return 1
+  IFS=$'\t' read -r recorded_path recorded_sha recorded_installer < "$receipt" || return 1
+  [ "$recorded_path" = "$candidate" ] && [ "$recorded_sha" = "$actual" ] \
+    && [ "$recorded_installer" = "$ID_HOMEBREW_INSTALLER_SHA256" ] || return 1
+  case "$recorded_sha" in ''|*[!a-f0-9]*) return 1 ;; esac
+  [ "${#recorded_sha}" -eq 64 ]
+}
+
+idRecordHomebrewCreationReceipt() {
+  local candidate="${INSTALL_DOCTOR_HOMEBREW_PATH:-}" actual receipt receipt_dir temporary
+  case "$candidate" in /*) ;; *) return 1 ;; esac
+  actual="$(idSha256File "$candidate")" || return 1
+  INSTALL_DOCTOR_HOMEBREW_SHA256="$actual" idTrustedHomebrewExecutable >/dev/null || return 1
+  receipt="$(idHomebrewCreationReceiptPath)" || return 1
+  receipt_dir="${receipt%/*}"
+  [ ! -L "$receipt_dir" ] || return 1
+  mkdir -p "$receipt_dir" || return 1
+  chmod 0700 "$receipt_dir" || return 1
+  temporary="$(mktemp "$receipt_dir/.homebrew-created.XXXXXX")" || return 1
+  printf '%s\t%s\t%s\n' "$candidate" "$actual" "$ID_HOMEBREW_INSTALLER_SHA256" > "$temporary" \
+    || { rm -f -- "$temporary"; return 1; }
+  chmod 0600 "$temporary" || { rm -f -- "$temporary"; return 1; }
+  mv -f -- "$temporary" "$receipt" || { rm -f -- "$temporary"; return 1; }
+  idVerifyHomebrewCreationReceipt "$candidate" "$actual"
+}
+
 idTrustedHomebrewExecutable() {
   local candidate="${INSTALL_DOCTOR_HOMEBREW_PATH:-}" expected="${INSTALL_DOCTOR_HOMEBREW_SHA256:-}" actual owner mode parent parent_owner parent_mode
   case "$candidate" in /*) ;; *) return 1 ;; esac
@@ -1030,7 +1088,8 @@ EOF
   esac
   [ $((8#$mode & 2)) -eq 0 ] && [ $((8#$parent_mode & 2)) -eq 0 ] || return 1
   case "$expected" in
-    absent|'') ;;
+    absent) actual="$(idSha256File "$candidate")" || return 1; idVerifyHomebrewCreationReceipt "$candidate" "$actual" || return 1 ;;
+    '') return 1 ;;
     *[!a-f0-9]*) return 1 ;;
     *) [ "${#expected}" -eq 64 ] || return 1; actual="$(idSha256File "$candidate")" || return 1; [ "$actual" = "$expected" ] || return 1 ;;
   esac
@@ -1084,7 +1143,7 @@ ensurePackageManagerHomebrew() {
     fi
     local BREW_EXIT_CODE=""
     local HOMEBREW_INSTALL_COMMIT='959bdd728192d78c47287c177796c3d86d111f09'
-    local HOMEBREW_INSTALL_SHA256='5f333bbe53bc490e51e7ccb1df8779b3dd6ee73a1a7379efda216edb08ccb148'
+    local HOMEBREW_INSTALL_SHA256="$ID_HOMEBREW_INSTALLER_SHA256"
     local HOMEBREW_INSTALLER HOMEBREW_INSTALL_ACTUAL_SHA256
     HOMEBREW_INSTALLER="$(mktemp)"
     if ! curl -fsSL --proto '=https' --tlsv1.2 --connect-timeout 10 --max-time 60 \
@@ -1132,6 +1191,8 @@ ensurePackageManagerHomebrew() {
       fixHomebrewSharePermissions
     fi
     rm -f "$HOMEBREW_INSTALLER"
+    idRecordHomebrewCreationReceipt \
+      || { logg error 'Homebrew installation did not produce a receipt-bound executable'; return 2; }
 
   fi
 }
@@ -2855,7 +2916,7 @@ const sourceTask = {
 };
 const homebrewTask = {
   schemaVersion: 1, id: 'bootstrap.homebrew',
-  inputDigest: digest({ platform, installerCommit: '959bdd728192d78c47287c177796c3d86d111f09', homebrewPath, homebrewDigest }),
+  inputDigest: digest({ platform, installerCommit: '959bdd728192d78c47287c177796c3d86d111f09', installerSha256: '5f333bbe53bc490e51e7ccb1df8779b3dd6ee73a1a7379efda216edb08ccb148', homebrewPath, homebrewDigest, creationReceipt: homebrewDigest === 'absent' ? `${stateRoot}/effects/homebrew-created.receipt` : null }),
   dependencies: [nativeDependenciesTask.id], predicate: 'host-supported', requiredCapabilities: [],
   operations: { check: 'homebrew-check', apply: 'homebrew-apply', verify: 'homebrew-verify' },
   timeoutMs: 1_800_000, retry: { class: 'transient', maxAttempts: 2, backoffMs: 2_000 },
