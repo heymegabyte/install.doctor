@@ -77,6 +77,18 @@ Authorization creates a run intent, but the supervisor must durably persist Hist
 
 Desktop Tools initially ships alongside existing paths. Compatibility shims recognize legacy commands, environment variables, state directories, and profile files; they preserve data and emit deterministic migration plans. Public branding and default URLs switch only after signed bootstrap activation, one verified platform cell, device authorization, and a complete agent-to-engine canary pass. Legacy removal requires a separately documented deadline and telemetry/evidence showing safe migration.
 
+### 9. The first native Debian package slice is release-bound `tree` on Debian 12 amd64
+
+The first package cutover selects only catalog package `tree` when observed facts prove Debian 12/bookworm, amd64, and a supported dpkg runtime. It pins root package `tree=2.1.0-1`, whose admitted Debian relationship is only `libc6 (>= 2.34)`. Release authority must bind the signed Desktop Tools catalog to the Debian archive keyring fingerprint, a current signed InRelease, the exact Packages index stanza, and the exact `.deb` SHA-256, size, and control metadata. The slice does not use a moving apt index or disable InRelease `Valid-Until` enforcement.
+
+`libc6` is a typed `preexisting-witness` dependency, not part of the mutation closure. The engine must observe a healthy installed dpkg identity, version, and architecture that satisfies the signed relationship before admitting the plan. It must not download, select, reinstall, upgrade, downgrade, or otherwise mutate `libc6`.
+
+Online and offline execution use the same descriptor and task. Online preparation may materialize exact release-declared artifacts before approval; an offline bundle embeds those same artifacts. Apply remains network-denied in both modes. Once the native task is fully admitted, selection subtracts only `tree` from the legacy Installx package set; every other package remains on its existing path.
+
+The first slice makes no generic package rollback claim. Failure before unpack is a no-op. Interruption or failure after dpkg mutation must reconcile exact dpkg state, restore policy and service guards, and remain resumable or explicitly blocked with durable evidence. It must never auto-remove or downgrade packages, invoke global `dpkg --configure -a`, or report a configuration rollback for package state.
+
+Alternative: include `libc6` in the mutable payload closure. Rejected because proving a small leaf-package cutover does not justify reinstalling or changing a foundational runtime library. Alternative: let apt resolve a live repository during apply. Rejected because it breaks exact plan authority, online/offline parity, and network-denied execution.
+
 ## Risks / Trade-offs
 
 - **Wildcard profile enumeration or reserved-name capture** -> Normalize slugs, reserve infrastructure names, rate-limit lookups, return privacy-equivalent failures, and never expose private profile metadata publicly.

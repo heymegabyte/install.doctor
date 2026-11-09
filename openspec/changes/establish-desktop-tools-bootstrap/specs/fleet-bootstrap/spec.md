@@ -38,3 +38,32 @@ Interactive and headless runs SHALL resolve the profile revision, role, capabili
 #### Scenario: Profile changes during approval
 - **WHEN** the selected profile changes after the target plan was created
 - **THEN** the stale plan cannot be applied and the target must present a new diff for approval
+
+## ADDED Requirements
+
+### Requirement: Release-bound native Debian package slices
+Native Debian package cutovers SHALL derive mutation authority from exact signed release and Debian repository evidence, SHALL preserve online/offline plan parity, and SHALL retain unsupported packages on the legacy path until separately verified.
+
+#### Scenario: First supported package slice
+- **WHEN** a Debian 12 bookworm amd64 target selects `tree`
+- **THEN** the plan contains one native task for exact package `tree=2.1.0-1`, bound to signed repository metadata and payload authority, plus a non-mutating installed witness proving `libc6 (>= 2.34)`
+
+#### Scenario: Online and offline parity
+- **WHEN** the same profile, host facts, release, catalog, and package artifacts are planned online and from an offline bundle
+- **THEN** both paths produce the same native task and plan digest and execute package mutation without network access
+
+#### Scenario: Package authority is incomplete or incompatible
+- **WHEN** libc6 is missing, unhealthy, held at an incompatible version, or has an incompatible architecture, or the target has the wrong distribution or architecture, or repository metadata is expired or forged, or a payload digest differs
+- **THEN** the native package task is rejected before mutation
+
+#### Scenario: Bounded selection cutover
+- **WHEN** the native tree task is fully admitted
+- **THEN** only `tree` is removed from the legacy Installx package selection and every unsupported package remains on the legacy path
+
+#### Scenario: Interrupted package mutation
+- **WHEN** execution is interrupted after dpkg state changes
+- **THEN** the engine reconciles the exact observed state, restores package policy and service guards, and reports a resumable or blocked outcome without automatic removal, downgrade, global configure, or a false rollback claim
+
+#### Scenario: Unchanged package rerun
+- **WHEN** the exact tree version and dependency witness already satisfy the approved task
+- **THEN** the rerun verifies without package mutation or duplicate recovery work
