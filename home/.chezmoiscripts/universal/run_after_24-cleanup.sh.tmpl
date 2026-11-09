@@ -5,6 +5,12 @@
 {{ includeTemplate "universal/profile" }}
 {{ includeTemplate "universal/logg" }}
 
+if [ "${INSTALL_DOCTOR_ENGINE_OWNS_POST_INSTALL:-0}" = 1 ]; then
+  # Never delete pre-existing runtime state or run package-manager cleanup as
+  # an unplanned side effect of a selected desired-state apply.
+  exit 0
+fi
+
 cleanAptGet() {
   if command -v apt-get > /dev/null; then
     gum log -sl info 'Running sudo apt-get autoclean' && sudo apt-get autoclean

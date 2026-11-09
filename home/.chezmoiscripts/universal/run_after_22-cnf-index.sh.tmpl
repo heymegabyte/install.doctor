@@ -12,6 +12,12 @@
 #     CNF_BUILD_INDEX_BIN overrides the builder path (test/override seam).
 set -euo pipefail
 
+if [ "${INSTALL_DOCTOR_ENGINE_OWNS_POST_INSTALL:-0}" = 1 ]; then
+  # Cache and shim materialization must become an explicit selected engine
+  # effect before it can run during canonical provisioning.
+  exit 0
+fi
+
 CNF_BUILD_INDEX_BIN="${CNF_BUILD_INDEX_BIN:-$HOME/.local/bin/cnf-build-index}"
 if [ ! -x "$CNF_BUILD_INDEX_BIN" ]; then
   if command -v cnf-build-index >/dev/null 2>&1; then

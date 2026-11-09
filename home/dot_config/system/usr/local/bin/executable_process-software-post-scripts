@@ -3,7 +3,7 @@
 # @brief Rejects executable post-install metadata in the eager software closure
 # @description
 #     This script reads the `${XDG_DATA_HOME:-$HOME/.local/share}/chezmoi/software.yml` file,
-#     validates that the eager software closure contains no executable `_post*` metadata.
+#     validates that the catalog contains no executable `_post*` metadata.
 #     Typed `post-installx/post-PACKAGE_KEY.sh` hooks have one execution owner:
 #     run_after_20-post-install.sh.tmpl. Catalog YAML never grants shell authority.
 
@@ -11,31 +11,34 @@ set -uo pipefail
 
 SOFTWARE_YAML="${XDG_DATA_HOME:-$HOME/.local/share}/chezmoi/software.yml"
 
-# Ensure required dependencies are installed
-if ! command -v gum &>/dev/null; then
-  echo "gum is not installed. Please install gum to proceed." >&2
-  exit 1
-fi
-
-if ! command -v yq &>/dev/null; then
-  gum log -sl error "yq is not installed. Please install yq to proceed." >&2
-  exit 1
-fi
-
 # @description Main script execution logic
 main() {
   if [[ ! -f "$SOFTWARE_YAML" ]]; then
-    gum log -sl error "Configuration file not found: $SOFTWARE_YAML"
+    printf 'Configuration file not found: %s\n' "$SOFTWARE_YAML" >&2
     exit 1
   fi
 
-  local rejected
-  rejected=$(yq -r '.softwarePackages | to_entries[] | select(.value._default != false and (.value._preload == true or .value._serviceEnabled == true)) | .key as $package | .value | keys[] | select(test("^_post($|:)")) | $package + ":" + .' "$SOFTWARE_YAML")
+  local line package='' key rejected='' in_software=0
+  while IFS= read -r line || [ -n "$line" ]; do
+    if [ "$line" = 'softwarePackages:' ]; then
+      in_software=1
+      continue
+    fi
+    [ "$in_software" -eq 1 ] || continue
+    if [[ "$line" =~ ^[[:space:]][[:space:]]([a-z0-9][a-z0-9._+-]*):[[:space:]]*$ ]]; then
+      package="${BASH_REMATCH[1]}"
+      continue
+    fi
+    if [[ "$line" =~ ^[[:space:]]+[\"\']?(_post[^:\"\']*)[\"\']?[[:space:]]*: ]]; then
+      key="${BASH_REMATCH[1]}"
+      rejected+="${rejected:+,}${package:-unknown}:$key"
+    fi
+  done < "$SOFTWARE_YAML"
   if [ -n "$rejected" ]; then
-    gum log -sl error "Catalog _post commands are unsupported; migrate to typed post-installx hooks: $(printf '%s' "$rejected" | tr '\n' ',' | sed 's/,$//')"
+    printf 'Catalog _post commands are unsupported; migrate to typed post-installx hooks: %s\n' "$rejected" >&2
     return 2
   fi
-  gum log -sl info "Catalog post-install metadata validation complete."
+  printf 'Catalog post-install metadata validation complete.\n'
 }
 
 main

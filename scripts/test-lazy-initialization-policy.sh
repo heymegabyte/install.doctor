@@ -16,13 +16,14 @@ pass() { printf 'PASS %s\n' "$*"; P=$((P + 1)); }
 fail() { printf 'FAIL %s\n' "$*" >&2; F=$((F + 1)); }
 P=0 F=0
 
-selection='.softwarePackages | with_entries(select(.value._default != false and (.value._preload == true or .value._serviceEnabled == true))) | keys[]'
-
-grep -Fq 'select(.value._default != false and (.value._preload == true or .value._serviceEnabled == true))' "$POST_PROCESSOR" \
-  && grep -Fq 'Catalog _post commands are unsupported' "$POST_PROCESSOR" \
+grep -Fq 'Catalog _post commands are unsupported' "$POST_PROCESSOR" \
+  && grep -Fq '(_post' "$POST_PROCESSOR" \
+  && ! grep -Fq 'command -v yq' "$POST_PROCESSOR" \
   && ! grep -Fq 'bash -c' "$POST_PROCESSOR" \
-  && pass 'catalog post metadata is validated only for the eager closure and never executed' \
-  || fail 'catalog post metadata validation is unsafe or scans optional software'
+  && pass 'all catalog post metadata is rejected without optional parser dependencies or execution' \
+  || fail 'catalog post metadata validation is incomplete, executable, or dependency-coupled'
+
+selection='.softwarePackages | with_entries(select(.value._default != false and (.value._preload == true or .value._serviceEnabled == true))) | keys[]'
 
 grep -Fq "$selection" "$POST_DISPATCHER" \
   && pass 'post-install hook dispatch is limited to the eager desired-state closure' \

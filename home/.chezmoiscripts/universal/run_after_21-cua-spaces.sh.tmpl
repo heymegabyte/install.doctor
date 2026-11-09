@@ -18,6 +18,12 @@
 set -Eeo pipefail
 trap "command -v gum >/dev/null 2>&1 && gum log -sl error 'post run_after_21-cua-spaces encountered an error' || echo '[ERROR] run_after_21-cua-spaces' >&2" ERR
 
+if [ "${INSTALL_DOCTOR_ENGINE_OWNS_POST_INSTALL:-0}" = 1 ]; then
+  # Selection, capability admission, and verification belong to the approved
+  # installer plan. Do not let an ambient Chezmoi environment select Cua.
+  exit 0
+fi
+
 log() { if command -v gum >/dev/null 2>&1; then gum log -sl info "$1"; else echo "[INFO] $1"; fi; }
 warn() { if command -v gum >/dev/null 2>&1; then gum log -sl warn "$1"; else echo "[WARN] $1" >&2; fi; }
 

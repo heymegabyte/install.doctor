@@ -17,15 +17,11 @@ softwarePackages:
     _preload: true
     _post: 'printf compromised > "$POST_TEST_OUTPUT"'
 YAML
-cat >"$TMP/bin/gum" <<'SH'
-#!/usr/bin/env bash
-printf '%s\n' "$*" >&2
-SH
 cat >"$TMP/bin/fixture-bin" <<'SH'
 #!/usr/bin/env bash
 exit 0
 SH
-chmod +x "$TMP/bin/gum" "$TMP/bin/fixture-bin"
+chmod +x "$TMP/bin/fixture-bin"
 
 if HOME="$TMP/home" XDG_DATA_HOME="$TMP/home/.local/share" PATH="$TMP/bin:$PATH" POST_TEST_OUTPUT="$TMP/output" bash "$RUNNER" >"$TMP/stdout" 2>"$TMP/stderr"; then
   fail "validator must reject executable _post metadata"
@@ -49,6 +45,13 @@ if ! grep -q 'bash -c' "$RUNNER"; then
   pass "catalog validator contains no shell-string execution path"
 else
   fail "catalog validator still grants shell authority"
+fi
+
+printf 'softwarePackages:\n  valid:\n    _preload: true\n' > "$TMP/home/.local/share/chezmoi/software.yml"
+if HOME="$TMP/home" XDG_DATA_HOME="$TMP/home/.local/share" PATH="$TMP/bin:/usr/bin:/bin" bash "$RUNNER" >/dev/null 2>&1; then
+  pass "validator accepts a valid catalog without optional yq or gum"
+else
+  fail "validator retained an undeclared optional bootstrap dependency"
 fi
 
 printf 'software-post-scripts: %d passed, %d failed\n' "$P" "$F"

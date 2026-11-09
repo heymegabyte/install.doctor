@@ -10,6 +10,10 @@ POST_INSTALL="$ROOT/home/.chezmoiscripts/universal/run_after_20-post-install.sh.
 PREPARE="$ROOT/home/.chezmoiscripts/universal/run_before_01-prepare.sh.tmpl"
 HOMEBREW="$ROOT/home/.chezmoiscripts/universal/run_before_02-homebrew.sh.tmpl"
 SECRETS="$ROOT/home/.chezmoiscripts/universal/run_before_03-decrypt-age-key.sh.tmpl"
+CUA="$ROOT/home/.chezmoiscripts/universal/run_after_21-cua-spaces.sh.tmpl"
+CNF="$ROOT/home/.chezmoiscripts/universal/run_after_22-cnf-index.sh.tmpl"
+CLEANUP="$ROOT/home/.chezmoiscripts/universal/run_after_24-cleanup.sh.tmpl"
+REPORT="$ROOT/home/.chezmoiscripts/universal/run_after_30-aid-report.sh.tmpl"
 SRC="$ROOT/home/dot_config/docker/daemon.json.tmpl"
 
 say() { command -v gum >/dev/null 2>&1 && gum style --foreground 51 -- "$*" || printf '\033[1;36m%s\033[0m\n' "$*"; }
@@ -40,6 +44,13 @@ for legacy_pre_apply in "$PREPARE" "$HOMEBREW" "$SECRETS" "$SYS"; do
     pass "engine-owned provisioning disables $(basename "$legacy_pre_apply") legacy mutations"
   else
     fail "engine-owned provisioning can still execute $(basename "$legacy_pre_apply") legacy mutations"
+  fi
+done
+for legacy_post_apply in "$CUA" "$CNF" "$CLEANUP" "$REPORT"; do
+  if has "$legacy_post_apply" 'INSTALL_DOCTOR_ENGINE_OWNS_POST_INSTALL'; then
+    pass "engine-owned provisioning disables $(basename "$legacy_post_apply") ambient post-apply effects"
+  else
+    fail "engine-owned provisioning can still execute $(basename "$legacy_post_apply") outside the approved plan"
   fi
 done
 
