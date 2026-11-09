@@ -3886,22 +3886,35 @@ NODE
 }
 
 idStageNativeBrokerAuthority() {
+  local REQUEST_PATH="${1:-}" ENROLLED_UID="${2:-}" BROKER_KIND
   [ "${DESKTOP_TOOLS_NATIVE_BROKER_REQUESTED:-false}" = true ] || return 0
   [ "$(id -u)" -eq 0 ] || { logg error 'Native broker authority must be staged by the root parent'; return 2; }
-  [ "${INSTALL_DOCTOR_PLATFORM_CELL:-}" = debian-12-x64-native ] \
-    || { logg error 'Native broker authority is supported only on Debian 12 x64 native hosts'; return 2; }
   [ "${INSTALL_DOCTOR_RUNTIME_SOURCE:-}" = signed-archive ] \
     || { logg error 'Native broker authority requires the signed release Node runtime'; return 2; }
+  BROKER_KIND="$("${INSTALL_DOCTOR_RUNTIME_NODE}" - "$REQUEST_PATH" "$ENROLLED_UID" <<'NODE'
+const fs=require('node:fs');const [requestPath,uidText]=process.argv.slice(2);const uid=Number(uidText);
+if(!requestPath.startsWith('/')||!Number.isSafeInteger(uid)||uid<1)throw new Error('broker request identity is invalid');
+const before=fs.lstatSync(requestPath,{bigint:true});if(!before.isFile()||before.isSymbolicLink()||before.nlink!==1n||before.uid!==BigInt(uid)||(before.mode&0o777n)!==0o600n||before.size<2n||before.size>2_097_152n)throw new Error('broker request is unsafe');
+const fd=fs.openSync(requestPath,fs.constants.O_RDONLY|(fs.constants.O_NOFOLLOW||0));try{const opened=fs.fstatSync(fd,{bigint:true});if(opened.dev!==before.dev||opened.ino!==before.ino||opened.size!==before.size)throw new Error('broker request changed');const request=JSON.parse(fs.readFileSync(fd,'utf8'));if(!['native-package','native-service'].includes(request.authorityKind))throw new Error('broker mutation class is invalid');process.stdout.write(request.authorityKind);}finally{fs.closeSync(fd);}
+NODE
+)" || { logg error 'Unable to determine the exact broker mutation class'; return 2; }
+  case "$BROKER_KIND:${INSTALL_DOCTOR_PLATFORM_CELL:-}" in
+    native-package:debian-12-x64-native|native-service:debian-12-x64-native) ;;
+    *) logg error 'Native broker authority is unsupported for this mutation class and platform cell'; return 2 ;;
+  esac
   idSealBrokerApprovalDelegation || return $?
   local OUTPUT KEY VALUE NATIVE_STAGE DOWNLOAD_STATUS=0 DOWNLOAD_PID
   NATIVE_STAGE="$(mktemp -d "${TMPDIR:-/tmp}/desktop-tools-native.XXXXXX")" || return 1
   chmod 0700 "$NATIVE_STAGE" || { rm -rf -- "$NATIVE_STAGE"; return 1; }
-  local -a NATIVE_DOWNLOADS=(
-    "${DESKTOP_TOOLS_DEBIAN_KEYRING_URL:-}|${DESKTOP_TOOLS_DEBIAN_KEYRING_SHA256:-}|${DESKTOP_TOOLS_DEBIAN_KEYRING_SIZE:-}|$NATIVE_STAGE/keyring"
-    "${DESKTOP_TOOLS_DEBIAN_INRELEASE_URL:-}|${DESKTOP_TOOLS_DEBIAN_INRELEASE_SHA256:-}|${DESKTOP_TOOLS_DEBIAN_INRELEASE_SIZE:-}|$NATIVE_STAGE/inrelease"
-    "${DESKTOP_TOOLS_DEBIAN_PACKAGES_URL:-}|${DESKTOP_TOOLS_DEBIAN_PACKAGES_SHA256:-}|${DESKTOP_TOOLS_DEBIAN_PACKAGES_SIZE:-}|$NATIVE_STAGE/packages"
-    "${DESKTOP_TOOLS_DEBIAN_TREE_URL:-}|${DESKTOP_TOOLS_DEBIAN_TREE_SHA256:-}|${DESKTOP_TOOLS_DEBIAN_TREE_SIZE:-}|$NATIVE_STAGE/tree"
-  )
+  local -a NATIVE_DOWNLOADS=()
+  if [ "$BROKER_KIND" = native-package ]; then
+    NATIVE_DOWNLOADS=(
+      "${DESKTOP_TOOLS_DEBIAN_KEYRING_URL:-}|${DESKTOP_TOOLS_DEBIAN_KEYRING_SHA256:-}|${DESKTOP_TOOLS_DEBIAN_KEYRING_SIZE:-}|$NATIVE_STAGE/keyring"
+      "${DESKTOP_TOOLS_DEBIAN_INRELEASE_URL:-}|${DESKTOP_TOOLS_DEBIAN_INRELEASE_SHA256:-}|${DESKTOP_TOOLS_DEBIAN_INRELEASE_SIZE:-}|$NATIVE_STAGE/inrelease"
+      "${DESKTOP_TOOLS_DEBIAN_PACKAGES_URL:-}|${DESKTOP_TOOLS_DEBIAN_PACKAGES_SHA256:-}|${DESKTOP_TOOLS_DEBIAN_PACKAGES_SIZE:-}|$NATIVE_STAGE/packages"
+      "${DESKTOP_TOOLS_DEBIAN_TREE_URL:-}|${DESKTOP_TOOLS_DEBIAN_TREE_SHA256:-}|${DESKTOP_TOOLS_DEBIAN_TREE_SIZE:-}|$NATIVE_STAGE/tree"
+    )
+  fi
   local -a NATIVE_PIDS=()
   local SPEC URL SHA SIZE DESTINATION ACTUAL_SIZE ACTUAL_SHA
   for SPEC in "${NATIVE_DOWNLOADS[@]}"; do
@@ -3926,10 +3939,12 @@ idStageNativeBrokerAuthority() {
     "${DESKTOP_TOOLS_TOOLS_ARCHIVE:-}" "${DESKTOP_TOOLS_TOOLS_SHA256:-}" \
     "${INSTALL_DOCTOR_RUNTIME_NODE:-}" "${INSTALL_DOCTOR_RELEASE_ID:-}" \
     "${INSTALL_DOCTOR_VERIFIED_MANIFEST:-}" "${INSTALL_DOCTOR_VERIFIED_SIGNATURE:-}" "${INSTALL_DOCTOR_CATALOG_PATH:-}" \
+    "$BROKER_KIND" \
     "$NATIVE_STAGE/keyring" "$NATIVE_STAGE/inrelease" "$NATIVE_STAGE/packages" "$NATIVE_STAGE/tree" <<'NODE'
 const fs = require('node:fs'); const path = require('node:path'); const crypto = require('node:crypto'); const zlib = require('node:zlib');
 if (process.geteuid?.() !== 0 || process.platform !== 'linux' || process.arch !== 'x64') throw new Error('root Linux x64 is required');
-const [archive, archiveDigest, runtime, releaseId, manifest, signature, catalog, keyring, inrelease, packages, tree] = process.argv.slice(2);
+const [archive, archiveDigest, runtime, releaseId, manifest, signature, catalog, brokerKind, keyring, inrelease, packages, tree] = process.argv.slice(2);
+if(!['native-package','native-service'].includes(brokerKind))throw new Error('broker mutation class is invalid');
 if (!/^[a-z0-9][a-z0-9._-]{0,127}$/.test(releaseId) || !/^[a-f0-9]{64}$/.test(archiveDigest)) throw new Error('release authority is malformed');
 const hash = bytes => crypto.createHash('sha256').update(bytes).digest('hex');
 const readExact = (source, maximum, expected = null) => { const before=fs.lstatSync(source,{bigint:true}); if(!before.isFile()||before.isSymbolicLink()||before.nlink!==1n||before.size<1n||before.size>BigInt(maximum)) throw new Error('authority source is unsafe'); const fd=fs.openSync(source,fs.constants.O_RDONLY|(fs.constants.O_NOFOLLOW||0)); try { const opened=fs.fstatSync(fd,{bigint:true}); if(opened.dev!==before.dev||opened.ino!==before.ino||opened.size!==before.size) throw new Error('authority source changed'); const bytes=fs.readFileSync(fd); if(BigInt(bytes.length)!==opened.size||(expected&&hash(bytes)!==expected)) throw new Error('authority source digest mismatch'); return bytes; } finally { fs.closeSync(fd); } };
@@ -3938,7 +3953,7 @@ const entries=new Map(); let ended=false; for(let offset=0;offset+512<=expanded.
 const required=['bin/linux-x64/desktop-tools-privileged-broker','lib/desktop-tools-privileged-controller.mjs','lib/desktop-tools-privileged-worker.mjs']; const closure=[...required,'bin/desktop-tools-mcp-server.mjs','contracts/runtime-policy.json','contracts/supervisor-api.schema.json','contracts/typed-tools.json','runtime/encrypted-recording.mjs'].sort(); if(JSON.stringify([...entries.keys()].sort())!==JSON.stringify(closure))throw new Error('tools archive closure is not exact'); for(const name of required)if(!entries.get(name)?.length)throw new Error(`tools archive lacks ${name}`);
 for(const segment of ['/run','/run/desktop-tools','/run/desktop-tools/authority',`/run/desktop-tools/authority/${releaseId}`]){const wanted=segment==='/run'?null:0o711;try{fs.mkdirSync(segment,{mode:wanted??0o755});}catch(e){if(e.code!=='EEXIST')throw e;}const m=fs.lstatSync(segment);if(!m.isDirectory()||m.isSymbolicLink()||m.uid!==0||(wanted===null?(m.mode&0o022)!==0:(m.mode&0o777)!==wanted))throw new Error('authority directory is unsafe');}
 const root=`/run/desktop-tools/authority/${releaseId}`; const install=(name,bytes,mode)=>{const target=`${root}/${name}`;try{const m=fs.lstatSync(target);if(!m.isFile()||m.isSymbolicLink()||m.nlink!==1||m.uid!==0||(m.mode&0o777)!==mode||hash(fs.readFileSync(target))!==hash(bytes))throw new Error('existing authority differs');return target;}catch(e){if(e.code!=='ENOENT')throw e;}const temp=`${target}.tmp-${process.pid}-${crypto.randomBytes(8).toString('hex')}`;const fd=fs.openSync(temp,fs.constants.O_CREAT|fs.constants.O_EXCL|fs.constants.O_WRONLY,mode);try{fs.writeFileSync(fd,bytes);fs.fsyncSync(fd);}finally{fs.closeSync(fd);}fs.renameSync(temp,target);return target;};
-const installed={helper:install('desktop-tools-privileged-broker',entries.get(required[0]),0o555),controller:install('desktop-tools-privileged-controller.mjs',entries.get(required[1]),0o400),worker:install('desktop-tools-privileged-worker.mjs',entries.get(required[2]),0o400),runtime:install('node',readExact(runtime,268_435_456),0o500),manifest:install('manifest',readExact(manifest,1_048_576),0o400),signature:install('manifest.sig',readExact(signature,65_536),0o400),catalog:install('catalog.json',readExact(catalog,16_777_216),0o400),keyring:install('debian-keyring.gpg',readExact(keyring,16_777_216),0o400),inrelease:install('debian-inrelease',readExact(inrelease,16_777_216),0o400),packages:install('debian-Packages.xz',readExact(packages,268_435_456),0o400),tree:install('tree.deb',readExact(tree,268_435_456),0o400)};
+const installed={helper:install('desktop-tools-privileged-broker',entries.get(required[0]),0o555),controller:install('desktop-tools-privileged-controller.mjs',entries.get(required[1]),0o400),worker:install('desktop-tools-privileged-worker.mjs',entries.get(required[2]),0o400),runtime:install('node',readExact(runtime,268_435_456),0o500),manifest:install('manifest',readExact(manifest,1_048_576),0o400),signature:install('manifest.sig',readExact(signature,65_536),0o400),catalog:install('catalog.json',readExact(catalog,16_777_216),0o400),...(brokerKind==='native-package'?{keyring:install('debian-keyring.gpg',readExact(keyring,16_777_216),0o400),inrelease:install('debian-inrelease',readExact(inrelease,16_777_216),0o400),packages:install('debian-Packages.xz',readExact(packages,268_435_456),0o400),tree:install('tree.deb',readExact(tree,268_435_456),0o400)}:{})};
 for(const [key,value] of Object.entries(installed)){process.stdout.write(`${key.toUpperCase()}_PATH=${value}\n${key.toUpperCase()}_SHA256=${hash(fs.readFileSync(value))}\n`);}
 NODE
 )" || { rm -rf -- "$NATIVE_STAGE"; logg error 'Unable to stage the signed native broker authority'; return 2; }
@@ -4178,7 +4193,8 @@ function ensureInstallUser() {
     else
         DESKTOP_TOOLS_NATIVE_BROKER_REQUESTED=true
         export DESKTOP_TOOLS_NATIVE_BROKER_REQUESTED
-        idStageNativeBrokerAuthority || { kill -TERM "$BROKER_CHILD_PID" 2>/dev/null || true; wait "$BROKER_CHILD_PID" 2>/dev/null || true; return 2; }
+        idStageNativeBrokerAuthority "$BROKER_REQUEST" "$INSTALL_UID" \
+          || { kill -TERM "$BROKER_CHILD_PID" 2>/dev/null || true; wait "$BROKER_CHILD_PID" 2>/dev/null || true; return 2; }
         node - "$BROKER_REQUEST" "$BROKER_DERIVE_INPUT" "$INSTALL_UID" "$INSTALL_GID" <<'NODE'
 const fs = require('node:fs'); const crypto = require('node:crypto');
 const [requestPath, outputPath, uidText, gidText] = process.argv.slice(2); const uid=Number(uidText), gid=Number(gidText);

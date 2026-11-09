@@ -10,10 +10,12 @@ grep -Fq "command: 'native-service-derive'" "$PROVISION"
 grep -Fq "serviceComposition.task.id !== 'service.native.alloy'" "$PROVISION"
 grep -Fq 'INSTALL_DOCTOR_SELECTED_SERVICE_PACKAGES: selectedServices.join' "$PROVISION"
 grep -Fq 'INSTALL_DOCTOR_SELECTED_SERVICES: legacySelectedServices.join' "$PROVISION"
+grep -Fq 'if [ "$BROKER_KIND" = native-package ]; then' "$PROVISION"
+grep -Fq 'idStageNativeBrokerAuthority "$BROKER_REQUEST" "$INSTALL_UID"' "$PROVISION"
 ! grep -Fq "id: 'desired.services'" "$PROVISION"
 ! grep -Fq "'desired-services-check'" "$PROVISION"
 ! grep -Fq "'desired-services-apply'" "$PROVISION"
 ! grep -Fq "'desired-services-verify'" "$PROVISION"
 grep -Fq 'dependencies: [customUserPostHooksTask?.id ?? customPostHooksTask?.id ?? catalogPostValidationTask.id, ...caskLauncherTasks.map' "$PROVISION"
 
-printf '%s\n' 'selected-services-fail-closed: 11 passed, 0 failed'
+printf '%s\n' 'selected-services-fail-closed: 13 passed, 0 failed'
