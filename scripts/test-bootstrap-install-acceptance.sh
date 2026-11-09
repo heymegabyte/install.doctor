@@ -275,6 +275,37 @@ mkdir -p /canary-home/.local/share/install.doctor/releases/acceptance
 mv /canary-home/source /canary-home/.local/share/install.doctor/releases/acceptance/source
 chown -R node:node /canary-home
 
+# Exercise the rendered launcher through a controlling PTY before the headless
+# lifecycle. This is a separate home so its deliberate cancellation cannot
+# affect the authoritative resume/rollback assertions below. The fixture gum
+# selects the displayed defaults and approves the exact normalized plan.
+chmod 0700 /canary-interactive-home
+cp -a /fixture/repository /canary-interactive-home/source
+mkdir -p /canary-interactive-home/.local/share/install.doctor/releases/acceptance
+mv /canary-interactive-home/source /canary-interactive-home/.local/share/install.doctor/releases/acceptance/source
+chown -R node:node /canary-interactive-home
+command -v script >/dev/null 2>&1 || { printf 'util-linux script is required for PTY acceptance\n' >&2; exit 79; }
+set +e
+su -s /bin/bash node -c \
+  'env -u HEADLESS_INSTALL HOME=/canary-interactive-home USER=node LOGNAME=node SOFTWARE_GROUP=Minimal INSTALL_DOCTOR_ROLE=container INSTALL_DOCTOR_CAPABILITY=minimal INSTALL_DOCTOR_NETWORK=none INSTALL_DOCTOR_CONCURRENCY=2 INSTALL_DOCTOR_SELECTED_SERVICES="" INSTALL_DOCTOR_CONSENT_PRIVILEGED=true INSTALL_DOCTOR_CONSENT_NETWORK=false INSTALL_DOCTOR_CONSENT_BEST_EFFORT=true INSTALL_DOCTOR_OFFLINE=false TERM=xterm-256color script -q -e -c "bash /fixture/start.sh" /canary-interactive-home/pty.typescript' \
+  > /canary-interactive-home/pty.stdout 2> /canary-interactive-home/pty.stderr
+interactive_status=$?
+set -e
+[ "$interactive_status" -eq 130 ] || {
+  printf 'interactive PTY status=%s\n' "$interactive_status" >&2
+  cat /canary-interactive-home/pty.stdout /canary-interactive-home/pty.stderr >&2
+  exit 79
+}
+grep -aFq $'\033[?1049h\033[?25l' /canary-interactive-home/pty.typescript \
+  || { printf 'interactive engine never entered its alternate-screen TUI\n' >&2; exit 79; }
+grep -aFq $'\033[?25h\033[?1049l' /canary-interactive-home/pty.typescript \
+  || { printf 'interactive engine did not restore cursor and alternate-screen state\n' >&2; exit 79; }
+grep -aFq 'Normalized install plan (' /canary-interactive-home/pty.typescript \
+  || { printf 'interactive launcher never displayed its normalized plan\n' >&2; exit 79; }
+grep -aFq 'Workers' /canary-interactive-home/pty.typescript \
+  || { printf 'interactive launcher never rendered worker progress\n' >&2; exit 79; }
+printf 'interactive_tui_restored=1\n'
+
 cat > /canary-home/run-as-node.sh <<'NODE_RUN'
 #!/usr/bin/env bash
 set -euo pipefail
@@ -473,12 +504,14 @@ docker build --network=none --build-arg "BASE_IMAGE=$IMAGE" --tag "$CANARY_IMAGE
 docker run --rm --network=none --read-only --entrypoint /bin/bash \
   --tmpfs /tmp:rw,nosuid,nodev,noexec,mode=1777 \
   --tmpfs /canary-home:rw,nosuid,nodev,exec,mode=0700 \
+  --tmpfs /canary-interactive-home:rw,nosuid,nodev,exec,mode=0700 \
   --mount "type=bind,src=$FIXTURE/container-fixture,dst=/fixture,readonly" \
   "${DOCKER_MOUNTS[@]}" \
   "$CANARY_IMAGE" /fixture/container-run.sh | tee "$OUTPUT"
 
 grep -q '^committed_runs=3$' "$OUTPUT"
+grep -q '^interactive_tui_restored=1$' "$OUTPUT"
 grep -q '^interrupted_run_resumed=1$' "$OUTPUT"
 grep -q '^rollback_config_committed=1$' "$OUTPUT"
 grep -q '^unchanged_mutations=0$' "$OUTPUT"
-printf 'bootstrap-install-acceptance: PASS (signed /start and %s committed desired-state inputs, released cancellation, automatic same-run resume, committed config rollback, unchanged reapply)\n' "$DESIRED_STATE_FILE_COUNT"
+printf 'bootstrap-install-acceptance: PASS (signed /start and %s committed desired-state inputs, interactive PTY restoration, released cancellation, automatic same-run resume, committed config rollback, unchanged reapply)\n' "$DESIRED_STATE_FILE_COUNT"
