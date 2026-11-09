@@ -74,8 +74,11 @@ advances the channel with compare-and-swap, and blocks until the public launcher
 signature identify the selected release. Never rerun publication with an existing release id to activate
 it: manifest timestamps would differ and the create-only publication boundary must reject the collision.
 
-Every manifest expires within seven days. `Bootstrap release continuity` checks the signature-verified
-channel every six hours using a dedicated read-only identity and fails loudly once 96 hours remain.
+Every manifest expires within seven days. `Desktop Tools release continuity` checks the product-qualified,
+signature-verified Desktop Tools channel every six hours using a dedicated read-only identity and fails
+loudly once 96 hours remain. It cannot publish, activate, renew, or read signing material. The older
+Install Doctor renewal workflow remains a compatibility-only path and must not be used to renew a
+Desktop Tools release.
 Begin a new-ID renewal no later than 96 hours remaining,
 escalate at 48 hours and 12 hours, and treat an expired or unavailable channel as an install outage.
 Renewal must preserve the currently approved source and payload unless it is separately approved as a

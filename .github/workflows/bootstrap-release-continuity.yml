@@ -1,4 +1,4 @@
-name: Bootstrap release continuity
+name: Desktop Tools release continuity
 
 on:
   schedule:
@@ -31,10 +31,10 @@ jobs:
           cache-dependency-path: packages/control-plane/package-lock.json
       - id: identity
         env:
-          SIGNER_ID: ${{ vars.INSTALL_DOCTOR_RELEASE_SIGNER_ID }}
+          SIGNER_ID: ${{ vars.DESKTOP_TOOLS_RELEASE_SIGNER_ID }}
         run: |
           set -euo pipefail
-          case "$SIGNER_ID" in ''|[!a-z0-9]*|*[!a-z0-9._-]*) exit 64;; esac
+          case "$SIGNER_ID" in desktop-*) ;; *) exit 64;; esac
           test "${#SIGNER_ID}" -le 128
           printf 'signer_id=%s\n' "$SIGNER_ID" >>"$GITHUB_OUTPUT"
       - name: Assemble source-pinned verifier
@@ -43,13 +43,15 @@ jobs:
         run: |
           set -euo pipefail
           umask 077
-          mkdir -p continuity-tools/scripts
+          mkdir -p continuity-tools/scripts continuity-tools/src
           cp packages/control-plane/package.json packages/control-plane/package-lock.json continuity-tools/
           cp packages/control-plane/scripts/publish-release-to-r2.mjs \
              packages/control-plane/scripts/release-publication.mjs \
+             packages/control-plane/scripts/desktop-release-publication.mjs \
              packages/control-plane/scripts/r2-publication-storage.mjs continuity-tools/scripts/
+          cp packages/control-plane/src/release-policy.ts continuity-tools/src/
           npm --prefix continuity-tools ci --omit=dev --ignore-scripts --no-audit --no-fund
-          jq -er --arg id "$SIGNER_ID" '.signers[$id] | select(type == "string")' \
+          jq -er --arg id "$SIGNER_ID" '.products["desktop-tools"].signers[$id] | select(type == "string")' \
             packages/control-plane/src/release-trust.json >continuity-tools/release-public-key
           chmod 0600 continuity-tools/release-public-key
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -65,7 +67,7 @@ jobs:
     needs: prepare
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    environment: bootstrap-release-monitor
+    environment: desktop-tools-release-monitor
     permissions:
       id-token: write
     steps:
@@ -76,16 +78,16 @@ jobs:
       - uses: Infisical/secrets-action@d2e351f16c6ca20d17c85e6c992e04bdeb64e87d # v1.0.18
         with:
           method: oidc
-          identity-id: ${{ vars.INFISICAL_BOOTSTRAP_RELEASE_MONITOR_ID }}
+          identity-id: ${{ vars.INFISICAL_DESKTOP_TOOLS_RELEASE_MONITOR_ID }}
           project-slug: ${{ vars.INFISICAL_PROJECT_SLUG }}
           env-slug: prod
-          secret-path: /ci/bootstrap-release/monitor
+          secret-path: /ci/desktop-tools/release/monitor
           include-imports: false
           recursive: false
       - name: Fail loudly before the signed channel expires
         env:
-          INSTALL_DOCTOR_RELEASE_SIGNER_ID: ${{ needs.prepare.outputs.signer_id }}
-          INSTALL_DOCTOR_RELEASE_PUBLIC_KEY: ${{ github.workspace }}/continuity-tools/release-public-key
+          DESKTOP_TOOLS_RELEASE_SIGNER_ID: ${{ needs.prepare.outputs.signer_id }}
+          DESKTOP_TOOLS_RELEASE_PUBLIC_KEY: ${{ github.workspace }}/continuity-tools/release-public-key
         run: |
           set -euo pipefail
-          node continuity-tools/scripts/publish-release-to-r2.mjs freshness stable 345600
+          node continuity-tools/scripts/publish-release-to-r2.mjs desktop-freshness stable 345600

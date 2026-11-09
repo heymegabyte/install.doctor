@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import test from 'node:test';
 import {
   activateDesktopRelease, DESKTOP_RELEASE_FILES, DESKTOP_RELEASE_V8_FILES, DESKTOP_RELEASE_V9_FILES,
-  inspectPublishedDesktopRelease, publishDesktopRelease,
+  inspectActiveDesktopReleaseFreshness, inspectPublishedDesktopRelease, publishDesktopRelease,
   reconcileDesktopActivationReceipt
 } from '../scripts/desktop-release-publication.mjs';
 
@@ -258,6 +258,46 @@ test('reconciles a post-CAS receipt failure without repeating activation', async
   assert.equal(reconciled.status, 'reconciled');
   assert.equal((await reconcileDesktopActivationReceipt({ channel: 'stable', activationId, storage: channels })).status, 'already-present');
   assert.equal(JSON.parse(channels.objects.get('desktop-tools/channels/stable.json').bytes).generation, 1);
+});
+
+test('Desktop Tools freshness is signature-verified, read-only, product-qualified, and expiry-aware', async t => {
+  const now = Math.floor(Date.now() / 1_000);
+  const releaseStorage = storage();
+  const channels = storage();
+  const releaseFixture = await fixture(t);
+  let verifications = 0;
+  const verifySignature = async () => { verifications += 1; };
+  await publishDesktopRelease({ ...releaseFixture, expectedReleaseId: releaseFixture.releaseId,
+    storage: releaseStorage, verifySignature, now });
+  const release = await inspectPublishedDesktopRelease({ expectedReleaseId: releaseFixture.releaseId,
+    storage: releaseStorage, verifySignature, now });
+  await activateDesktopRelease({ channel: 'stable', release, storage: channels, expectedEtag: undefined,
+    activationId: 'ffffffff-ffff-4fff-8fff-ffffffffffff', activatedAt: '2026-11-08T14:00:00.000Z', now,
+    minimumPromotionRemainingSeconds: 3_600 });
+  const releaseCreates = releaseStorage.creates.length;
+  const channelCreates = channels.creates.length;
+  const result = await inspectActiveDesktopReleaseFreshness({ channel: 'stable', channelStorage: channels,
+    releaseStorage, verifySignature, now, renewalWindowSeconds: 172_800 });
+  assert.equal(result.product, 'desktop-tools');
+  assert.equal(result.status, 'renewal-required');
+  assert.equal(result.releaseId, releaseFixture.releaseId);
+  assert.equal(result.remainingSeconds, 86_400);
+  assert.equal(releaseStorage.creates.length, releaseCreates);
+  assert.equal(channels.creates.length, channelCreates);
+  assert.equal(verifications >= 3, true);
+
+  const pointerKey = 'desktop-tools/channels/stable.json';
+  const stored = channels.objects.get(pointerKey);
+  const pointer = JSON.parse(stored.bytes);
+  channels.objects.set(pointerKey, { ...stored,
+    bytes: Buffer.from(`${JSON.stringify({ ...pointer, manifestSha256: 'f'.repeat(64) })}\n`) });
+  await assert.rejects(inspectActiveDesktopReleaseFreshness({ channel: 'stable', channelStorage: channels,
+    releaseStorage, verifySignature, now }), /manifest digest mismatch/);
+  channels.objects.set(pointerKey, stored);
+  const expired = await inspectActiveDesktopReleaseFreshness({ channel: 'stable', channelStorage: channels,
+    releaseStorage, verifySignature, now: now + 86_401 });
+  assert.equal(expired.status, 'expired');
+  assert.equal(expired.remainingSeconds, -1);
 });
 
 test('rejects legacy identity, origin substitution, surplus files, and altered payloads', async t => {

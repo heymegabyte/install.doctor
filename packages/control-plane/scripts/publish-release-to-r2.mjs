@@ -8,7 +8,8 @@ import {
   publishRelease, reconcileActivationReceipt,
 } from './release-publication.mjs';
 import {
-  activateDesktopRelease, inspectPublishedDesktopRelease, publishDesktopRelease, reconcileDesktopActivationReceipt
+  activateDesktopRelease, inspectActiveDesktopReleaseFreshness, inspectPublishedDesktopRelease,
+  publishDesktopRelease, reconcileDesktopActivationReceipt
 } from './desktop-release-publication.mjs';
 import { createR2PublicationStorage } from './r2-publication-storage.mjs';
 
@@ -96,6 +97,18 @@ async function main() {
     const receipt = await reconcileDesktopActivationReceipt({ channel, activationId,
       storage: storageFromEnvironment('DESKTOP_TOOLS_CHANNEL_R2') });
     process.stdout.write(`${JSON.stringify(receipt)}\n`);
+    return;
+  }
+  if (action === 'desktop-freshness' && (arguments_.length === 1 || arguments_.length === 2)) {
+    const [channel, renewalWindow = '345600'] = arguments_;
+    if (!/^[1-9][0-9]{3,6}$/.test(renewalWindow)) throw new Error('renewal window must be an integer number of seconds');
+    const result = await inspectActiveDesktopReleaseFreshness({ channel,
+      channelStorage: storageFromEnvironment('DESKTOP_TOOLS_CHANNEL_R2'),
+      releaseStorage: storageFromEnvironment('DESKTOP_TOOLS_RELEASE_R2'), verifySignature,
+      renewalWindowSeconds: Number(renewalWindow) });
+    process.stdout.write(`${JSON.stringify(result)}\n`);
+    if (result.status === 'renewal-required') process.exitCode = 75;
+    if (result.status === 'expired') process.exitCode = 78;
     return;
   }
   if (action === 'publish' && arguments_.length === 2) {
@@ -187,7 +200,7 @@ async function main() {
     process.stdout.write(`${JSON.stringify(receipt)}\n`);
     return;
   }
-  throw new Error('usage: publish-release-to-r2.mjs desktop-publish RELEASE_DIRECTORY RELEASE_ID | desktop-activate RELEASE_ID CHANNEL EXPECTED_ETAG_OR_- ACTIVATION_UUID ACTIVATED_AT [rollback ROLLBACK_OF_UUID] | desktop-reconcile CHANNEL ACTIVATION_UUID | publish RELEASE_DIRECTORY RELEASE_ID | activate RELEASE_ID CHANNEL EXPECTED_ETAG_OR_- ACTIVATION_UUID ACTIVATED_AT [rollback ROLLBACK_OF_UUID] | freshness CHANNEL [RENEWAL_WINDOW_SECONDS] | renew RELEASE_ID CHANNEL CREATED_AT EXPIRES_AT OUTPUT_DIRECTORY | activate-renewal PLAN_JSON PLAN_SIG ACTIVATION_UUID ACTIVATED_AT | reconcile CHANNEL ACTIVATION_UUID');
+  throw new Error('usage: publish-release-to-r2.mjs desktop-publish RELEASE_DIRECTORY RELEASE_ID | desktop-activate RELEASE_ID CHANNEL EXPECTED_ETAG_OR_- ACTIVATION_UUID ACTIVATED_AT [rollback ROLLBACK_OF_UUID] | desktop-reconcile CHANNEL ACTIVATION_UUID | desktop-freshness CHANNEL [RENEWAL_WINDOW_SECONDS] | publish RELEASE_DIRECTORY RELEASE_ID | activate RELEASE_ID CHANNEL EXPECTED_ETAG_OR_- ACTIVATION_UUID ACTIVATED_AT [rollback ROLLBACK_OF_UUID] | freshness CHANNEL [RENEWAL_WINDOW_SECONDS] | renew RELEASE_ID CHANNEL CREATED_AT EXPIRES_AT OUTPUT_DIRECTORY | activate-renewal PLAN_JSON PLAN_SIG ACTIVATION_UUID ACTIVATED_AT | reconcile CHANNEL ACTIVATION_UUID');
 }
 
 main().catch(error => {

@@ -229,7 +229,7 @@ function validateClosureMetadata(files, releaseId, sourceCommit, opencodeVersion
   }
 }
 
-function inspectFiles(files, expectedReleaseIdInput, now = Math.floor(Date.now() / 1_000)) {
+function inspectFiles(files, expectedReleaseIdInput, now = Math.floor(Date.now() / 1_000), requireCurrent = true) {
   const releaseId = id.parse(expectedReleaseIdInput);
   if (!(files instanceof Map) || !files.has('manifest')) throw new Error('Desktop Tools release object set does not match the exact allowlist');
   const manifest = parseManifest(files.get('manifest'));
@@ -245,7 +245,8 @@ function inspectFiles(files, expectedReleaseIdInput, now = Math.floor(Date.now()
   if (!/^[a-f0-9]{40}$/.test(manifest.get('source_commit') ?? '')) throw new Error('source commit is invalid');
   const createdAt = positive.parse(manifest.get('created_at'));
   const expiresAt = positive.parse(manifest.get('expires_at'));
-  if (!Number.isSafeInteger(now) || createdAt > now + 300 || expiresAt <= now || createdAt >= expiresAt || expiresAt - createdAt > 604_800) {
+  if (!Number.isSafeInteger(now) || createdAt > now + 300 || (requireCurrent && expiresAt <= now)
+    || createdAt >= expiresAt || expiresAt - createdAt > 604_800) {
     throw new Error('release validity window is not current and bounded');
   }
   if (manifest.get('engine_node_min') !== '22' || !/^24\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$/.test(manifest.get('runtime_node_version') ?? '')) {
@@ -320,7 +321,7 @@ export async function publishDesktopRelease({ directory, expectedReleaseId, stor
     signerId: release.signerId, manifestSha256: release.manifestSha256, outcomes });
 }
 
-export async function inspectPublishedDesktopRelease({ expectedReleaseId, storage, verifySignature, now }) {
+export async function inspectPublishedDesktopRelease({ expectedReleaseId, storage, verifySignature, now, requireCurrent = true }) {
   if (typeof storage?.read !== 'function' || typeof verifySignature !== 'function') throw new Error('inspection dependencies are invalid');
   const releaseId = id.parse(expectedReleaseId);
   const files = new Map();
@@ -334,10 +335,40 @@ export async function inspectPublishedDesktopRelease({ expectedReleaseId, storag
     if (!stored?.bytes) throw new Error(`published Desktop Tools release object is missing: ${name}`);
     files.set(name, Buffer.from(stored.bytes));
   }
-  const release = inspectFiles(files, releaseId, now);
+  const release = inspectFiles(files, releaseId, now, requireCurrent);
   await verifySignature({ manifest: files.get('manifest'), signature: files.get('manifest.sig'),
     signerId: release.signerId, namespace: policy.signatureNamespace });
   return release;
+}
+
+export async function inspectActiveDesktopReleaseFreshness({
+  channel, channelStorage, releaseStorage, verifySignature,
+  now = Math.floor(Date.now() / 1_000), renewalWindowSeconds = 259_200,
+}) {
+  if (typeof channelStorage?.read !== 'function' || typeof releaseStorage?.read !== 'function'
+    || typeof verifySignature !== 'function') throw new Error('Desktop Tools freshness dependencies are invalid');
+  if (!Number.isSafeInteger(now) || now < 1) throw new Error('Desktop Tools freshness clock is invalid');
+  if (!Number.isSafeInteger(renewalWindowSeconds) || renewalWindowSeconds < 3_600 || renewalWindowSeconds > 604_800) {
+    throw new Error('Desktop Tools renewal window is outside policy');
+  }
+  const channelId = id.parse(channel);
+  const stored = await channelStorage.read(`desktop-tools/channels/${channelId}.json`);
+  if (!stored?.bytes || typeof stored.etag !== 'string') throw new Error('active Desktop Tools channel is missing');
+  const bytes = Buffer.from(stored.bytes);
+  const pointer = DesktopPointer.parse(JSON.parse(bytes.toString('utf8')));
+  if (!same(bytes, canonical(pointer)) || pointer.channel !== channelId) {
+    throw new Error('active Desktop Tools pointer is not canonical for its channel');
+  }
+  const release = await inspectPublishedDesktopRelease({ expectedReleaseId: pointer.releaseId,
+    storage: releaseStorage, verifySignature, now, requireCurrent: false });
+  if (release.manifestSha256 !== pointer.manifestSha256) throw new Error('active Desktop Tools manifest digest mismatch');
+  if (release.signerId !== pointer.signerId) throw new Error('active Desktop Tools signer identity mismatch');
+  const remainingSeconds = release.expiresAt - now;
+  const status = remainingSeconds <= 0 ? 'expired' : remainingSeconds <= renewalWindowSeconds ? 'renewal-required' : 'healthy';
+  return Object.freeze({ schemaVersion: 1, product: 'desktop-tools', status, channel: channelId,
+    generation: pointer.generation, releaseId: release.releaseId, sourceCommit: release.sourceCommit,
+    signerId: release.signerId, manifestSha256: release.manifestSha256,
+    createdAt: release.createdAt, expiresAt: release.expiresAt, remainingSeconds });
 }
 
 async function createCanonical(storage, key, value) {

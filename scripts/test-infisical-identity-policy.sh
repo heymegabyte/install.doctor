@@ -47,10 +47,12 @@ jq -e '
     ]) and
     (.auth.claims.environment == "offline-bundle-authority") and
     (.auth.claims.workflow_ref == "heymegabyte/install.doctor/.github/workflows/offline-bundle-authority.yml@refs/heads/master")) and
-  (.workloads | map(select(.id == "github-bootstrap-release-monitor"))[0] |
-    (.authorization.secretNames | index("INSTALL_DOCTOR_RELEASE_SIGNING_KEY") == null) and
+  (.workloads | map(select(.id == "github-desktop-tools-release-monitor"))[0] |
+    (.authorization.secretNames | all(startswith("DESKTOP_TOOLS_"))) and
+    (.authorization.secretNames | index("DESKTOP_TOOLS_RELEASE_SIGNING_KEY") == null) and
+    (.auth.claims.environment == "desktop-tools-release-monitor") and
     (.platformBindings | length == 1) and
-    (.platformBindings[0].platform == "cloudflare-r2-channel-and-release-read-only")) and
+    (.platformBindings[0].platform == "cloudflare-r2-desktop-tools-channel-and-release-read-only")) and
   (.workloads | map(select(.id == "github-desktop-tools-release-signer"))[0] |
     (.authorization.secretNames == ["DESKTOP_TOOLS_RELEASE_SIGNING_KEY"]) and
     (.auth.claims.environment == "desktop-tools-release-sign")) and

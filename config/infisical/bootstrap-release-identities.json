@@ -592,7 +592,7 @@
       "rotation": { "overlapSeconds": 300, "steps": ["issue-new", "reload-consumer", "health-check", "revoke-old", "verify-old-denied"], "healthCheck": "inspect-signed-release-and-cas-canary-pointer-with-release-create-denied" }
     },
     {
-      "id": "github-bootstrap-release-monitor",
+      "id": "github-desktop-tools-release-monitor",
       "runtime": "github-actions",
       "availableAuthModes": ["github-oidc"],
       "auth": {
@@ -603,10 +603,10 @@
           "repository_id": "588807533",
           "repository_owner_id": "82490183",
           "ref": "refs/heads/master",
-          "environment": "bootstrap-release-monitor",
+          "environment": "desktop-tools-release-monitor",
           "workflow_ref": "heymegabyte/install.doctor/.github/workflows/bootstrap-release-continuity.yml@refs/heads/master",
           "aud": "https://github.com/heymegabyte",
-          "sub": "repo:heymegabyte/install.doctor:environment:bootstrap-release-monitor"
+          "sub": "repo:heymegabyte/install.doctor:environment:desktop-tools-release-monitor"
         },
         "accessTokenTtlSeconds": 300,
         "accessTokenMaxTtlSeconds": 600,
@@ -616,24 +616,24 @@
       "authorization": {
         "project": "install-doctor",
         "environment": "prod",
-        "path": "/ci/bootstrap-release/monitor",
+        "path": "/ci/desktop-tools/release/monitor",
         "secretNames": [
-          "INSTALL_DOCTOR_CHANNEL_R2_ACCESS_KEY_ID",
-          "INSTALL_DOCTOR_CHANNEL_R2_BUCKET",
-          "INSTALL_DOCTOR_CHANNEL_R2_ENDPOINT",
-          "INSTALL_DOCTOR_CHANNEL_R2_SECRET_ACCESS_KEY",
-          "INSTALL_DOCTOR_RELEASE_R2_ACCESS_KEY_ID",
-          "INSTALL_DOCTOR_RELEASE_R2_BUCKET",
-          "INSTALL_DOCTOR_RELEASE_R2_ENDPOINT",
-          "INSTALL_DOCTOR_RELEASE_R2_SECRET_ACCESS_KEY"
+          "DESKTOP_TOOLS_CHANNEL_R2_ACCESS_KEY_ID",
+          "DESKTOP_TOOLS_CHANNEL_R2_BUCKET",
+          "DESKTOP_TOOLS_CHANNEL_R2_ENDPOINT",
+          "DESKTOP_TOOLS_CHANNEL_R2_SECRET_ACCESS_KEY",
+          "DESKTOP_TOOLS_RELEASE_R2_ACCESS_KEY_ID",
+          "DESKTOP_TOOLS_RELEASE_R2_BUCKET",
+          "DESKTOP_TOOLS_RELEASE_R2_ENDPOINT",
+          "DESKTOP_TOOLS_RELEASE_R2_SECRET_ACCESS_KEY"
         ],
         "inheritedGrants": []
       },
       "platformBindings": [
         {
-          "platform": "cloudflare-r2-channel-and-release-read-only",
-          "binding": "INSTALL_DOCTOR_BOOTSTRAP_RELEASE_MONITOR_READ_CREDENTIALS",
-          "sourceRef": "infisical://install-doctor/prod/ci/bootstrap-release/monitor",
+          "platform": "cloudflare-r2-desktop-tools-channel-and-release-read-only",
+          "binding": "DESKTOP_TOOLS_RELEASE_MONITOR_READ_CREDENTIALS",
+          "sourceRef": "infisical://install-doctor/prod/ci/desktop-tools/release/monitor",
           "authority": "infisical"
         }
       ],

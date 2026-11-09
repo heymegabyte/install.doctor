@@ -74,13 +74,20 @@ check 'activation requires an expected ETag' grep -q 'EXPECTED_ETAG' "$tmp/activ
 check 'activation blocks on public launcher and signature proof' grep -q 'ssh-keygen -Y verify' "$tmp/activate"
 check 'activation reconciles a committed pending receipt without repeating CAS' grep -q 'publish-release-to-r2.mjs reconcile stable' "$tmp/activate"
 check 'continuity monitor runs every six hours' grep -q "cron: '17 \*/6 \* \* \*'" "$CONTINUITY_WORKFLOW"
-check 'continuity monitor uses a dedicated protected identity' grep -q 'environment: bootstrap-release-monitor' "$CONTINUITY_WORKFLOW"
+check 'continuity monitor uses a dedicated protected identity' grep -q 'environment: desktop-tools-release-monitor' "$CONTINUITY_WORKFLOW"
 if grep -Eq 'INSTALL_DOCTOR_RELEASE_SIGNING_KEY|publish-release-to-r2\.mjs (publish|activate)' "$CONTINUITY_WORKFLOW"; then
   fail 'continuity monitor has signing, publication, or activation authority'
 else
   pass 'continuity monitor is read-only'
 fi
-check 'continuity monitor fails inside the 96-hour renewal window' grep -q 'freshness stable 345600' "$CONTINUITY_WORKFLOW"
+check 'continuity monitor targets the Desktop Tools trust and object keyspace' bash -c '
+  grep -Fq '\''.products["desktop-tools"].signers[$id]'\'' "$1" &&
+  grep -q '\''desktop-freshness stable 345600'\'' "$1" &&
+  ! grep -q '\''INSTALL_DOCTOR_RELEASE_SIGNER_ID'\'' "$1"
+' _ "$CONTINUITY_WORKFLOW"
+check 'continuity monitor assembles the complete source-pinned verifier' bash -c '
+  grep -q '\''desktop-release-publication.mjs'\'' "$1" && grep -q '\''release-policy.ts'\'' "$1"
+' _ "$CONTINUITY_WORKFLOW"
 
 check 'renewal is manual-only and shares the activation lock' grep -q '^  workflow_dispatch:' "$RENEWAL_WORKFLOW"
 check 'renewal retries bind a caller-selected canonical UTC day' grep -q 'renewal_utc_day' "$RENEWAL_WORKFLOW"
