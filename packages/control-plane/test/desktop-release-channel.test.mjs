@@ -35,6 +35,17 @@ test('resolves only a canonical product-qualified pointer and digest-bound v7 ma
   assert.deepEqual(requested, ['desktop-tools/channels/stable.json', `desktop-tools/bootstrap/${value.releaseId}/manifest`]);
 });
 
+test('resolves the current signed v9 manifest used by the profile bootstrap', async () => {
+  const value = fixture();
+  value.manifest = Buffer.from(value.manifest.toString().replace('schema_version=7', 'schema_version=9'));
+  value.pointer.manifestSha256 = digest(value.manifest);
+  value.pointerBytes = Buffer.from(`${JSON.stringify(value.pointer)}\n`);
+  const channels = { async get() { return body(value.pointerBytes); } };
+  const releases = { async get() { return body(value.manifest); } };
+  const result = await resolveActiveDesktopRelease(channels, releases, 'stable', value.now);
+  assert.equal(result.releaseId, value.releaseId);
+});
+
 test('rejects legacy prefixes, noncanonical pointers, wrong products, and manifest substitution', async () => {
   const value = fixture();
   await assert.rejects(resolveActiveDesktopRelease({ async get() { return null; } }, { async get() { return null; } }, 'stable', value.now), /channel is missing/);

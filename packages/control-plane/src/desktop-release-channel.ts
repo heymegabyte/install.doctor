@@ -58,7 +58,7 @@ export async function resolveActiveDesktopRelease(channelBinding: unknown, relea
   const integer = z.string().regex(/^[1-9][0-9]*$/).transform(Number).refine(Number.isSafeInteger);
   const createdAt = integer.parse(values.get('created_at'));
   const expiresAt = integer.parse(values.get('expires_at'));
-  if (!['7', '8'].includes(values.get('schema_version') ?? '') || values.get('product_id') !== 'desktop-tools'
+  if (!['7', '8', '9'].includes(values.get('schema_version') ?? '') || values.get('product_id') !== 'desktop-tools'
     || values.get('release_id') !== pointer.releaseId || values.get('key_id') !== pointer.signerId
     || !/^desktop-[a-z0-9._-]+$/.test(pointer.signerId)
     || !/^[a-f0-9]{40}$/.test(values.get('source_commit') ?? '')
