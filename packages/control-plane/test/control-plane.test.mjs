@@ -42,6 +42,20 @@ async function loadWorkerApp() {
           pairing_code text unique references pairings(code), profile_revision text,
           machine_fingerprint text, expires_at text, profile_id text, profile_revision_digest text
         );
+        CREATE TABLE IF NOT EXISTS device_authorizations (
+          request_id text primary key, verification_code text not null unique,
+          poll_sha256 text not null unique, request_json text not null,
+          tenant_id text not null, profile_id text not null, target_key_fingerprint text not null,
+          machine_label text not null, requested_scopes text not null, approved_scopes text,
+          status text not null, created_at text not null, expires_at text not null,
+          approved_at text, denied_at text, cancelled_at text, claimed_at text, last_polled_at text
+        );
+        CREATE TABLE IF NOT EXISTS device_authorization_credentials (
+          credential_id text primary key, request_id text not null unique references device_authorizations(request_id),
+          secret_sha256 text not null unique, tenant_id text not null, profile_id text not null,
+          target_key_fingerprint text not null, scopes text not null, issued_at text not null,
+          expires_at text not null, revoked_at text
+        );
         CREATE TABLE IF NOT EXISTS tenant_owner_authority (
           authority_id text primary key, tenant_id text not null, owner_actor_id text not null,
           better_auth_user_id text not null, authentication_actor text not null,
@@ -52,6 +66,12 @@ async function loadWorkerApp() {
           UPDATE pairings SET status='claimed', claimed_at=NEW.created_at, device_id=NEW.device_id
            WHERE code=NEW.pairing_code AND status='approved' AND expires_at > NEW.created_at;
           SELECT CASE WHEN changes() != 1 THEN RAISE(ABORT, 'claim unavailable') END;
+        END;
+        CREATE TRIGGER IF NOT EXISTS claim_device_authorization_after_credential_insert
+        AFTER INSERT ON device_authorization_credentials BEGIN
+          UPDATE device_authorizations SET status='claimed', claimed_at=NEW.issued_at
+           WHERE request_id=NEW.request_id AND status='approved' AND expires_at>NEW.issued_at;
+          SELECT CASE WHEN changes()!=1 THEN RAISE(ABORT, 'authorization claim unavailable') END;
         END;
       \`);
       const mockD1 = {
@@ -206,6 +226,88 @@ test('pairing start uses a high-entropy human code and rejects oversized request
   );
   assert.equal(chunkedOversized.status, 413);
   assert.deepEqual(await chunkedOversized.json(), { error: 'payload_too_large', limitBytes: 4096 });
+});
+
+test('v1 target authorization persists exact public binding and atomically claims target-owned authority', async () => {
+  const app = await loadWorkerApp();
+  const db = globalThis.__AID_TEST_DB__;
+  const profile = {
+    id: 'profile-brian', tenantId: 'tenant-brian', slug: 'brian', revision: 'revision-1',
+    digest: 'a'.repeat(64), visibility: 'public-bootstrap', enabled: true,
+  };
+  const env = { ...TEST_ENV, DB: db, DESKTOP_TOOLS_PUBLIC_PROFILES: [profile] };
+  const pollSecret = 'p'.repeat(43);
+  const binding = {
+    tenantId: profile.tenantId, profileId: profile.id, targetPublicKey: 'A'.repeat(43),
+    targetKeyFingerprint: 'b'.repeat(64), scopes: ['profile:read'], nonce: 'n'.repeat(32),
+    expiresAt: new Date(Date.now() + 5 * 60_000).toISOString(),
+  };
+  const start = (body = { binding, machineLabel: 'Zen' }, secret = pollSecret) => app.fetch(new Request(
+    'https://brian.desktop.tools/api/v1/device-authorizations/start', {
+      method: 'POST', headers: { authorization: `Bearer ${secret}`, 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+    },
+  ), env);
+  const started = await start();
+  assert.equal(started.status, 201, await started.clone().text());
+  const authorization = await started.json();
+  assert.match(authorization.request.requestId, /^auth_[a-f0-9]{32}$/);
+  assert.match(authorization.request.verificationCode, /^[2-9A-HJ-NP-Z]{4}-[2-9A-HJ-NP-Z]{4}$/);
+  assert.deepEqual(authorization.request.binding, binding);
+  assert.equal(authorization.request.pollKeyFingerprint, crypto.createHash('sha256').update(pollSecret).digest('hex'));
+  assert.equal(JSON.stringify(authorization).includes(pollSecret), false);
+
+  const stored = await db.prepare('SELECT request_json, poll_sha256, status FROM device_authorizations WHERE request_id=?')
+    .bind(authorization.request.requestId).first();
+  assert.equal(stored.poll_sha256, crypto.createHash('sha256').update(pollSecret).digest('hex'));
+  assert.equal(stored.request_json, JSON.stringify(authorization.request));
+  assert.equal(stored.status, 'pending');
+
+  const route = `https://brian.desktop.tools/api/v1/device-authorizations/${authorization.request.requestId}`;
+  const poll = (secret = pollSecret) => app.fetch(new Request(`${route}/poll`, {
+    method: 'POST', headers: { authorization: `Bearer ${secret}`, 'content-type': 'application/json' }, body: '{}',
+  }), env);
+  const pending = await poll();
+  assert.equal(pending.status, 200);
+  assert.deepEqual(await pending.json(), { status: 'pending' });
+  const tooFast = await poll();
+  assert.equal(tooFast.status, 429);
+  assert.equal(tooFast.headers.get('retry-after'), '5');
+
+  await db.prepare("UPDATE device_authorizations SET status='approved', approved_scopes=?, approved_at=?, last_polled_at=NULL WHERE request_id=?")
+    .bind('["profile:read"]', new Date().toISOString(), authorization.request.requestId).run();
+  const claimed = await poll();
+  assert.equal(claimed.status, 200, await claimed.clone().text());
+  const credential = await claimed.json();
+  assert.equal(credential.status, 'approved');
+  assert.match(credential.credential, /^dtc_[a-f0-9]{64}$/);
+  assert.match(credential.credentialId, /^cred_[a-f0-9]{32}$/);
+  const persisted = await db.prepare('SELECT secret_sha256, tenant_id, profile_id, target_key_fingerprint, scopes FROM device_authorization_credentials WHERE credential_id=?')
+    .bind(credential.credentialId).first();
+  assert.equal(persisted.secret_sha256, crypto.createHash('sha256').update(credential.credential).digest('hex'));
+  assert.deepEqual({ tenantId: persisted.tenant_id, profileId: persisted.profile_id,
+    fingerprint: persisted.target_key_fingerprint, scopes: JSON.parse(persisted.scopes) }, {
+    tenantId: profile.tenantId, profileId: profile.id, fingerprint: binding.targetKeyFingerprint, scopes: binding.scopes,
+  });
+  assert.equal((await poll()).status, 404, 'claimed polling authority must not replay');
+  assert.equal((await poll('q'.repeat(43))).status, 404, 'substituted polling authority must be indistinguishable');
+
+  for (const changed of [
+    { ...binding, tenantId: 'tenant-other' },
+    { ...binding, profileId: 'profile-other' },
+  ]) assert.equal((await start({ binding: changed, machineLabel: 'Zen' }, 'r'.repeat(43))).status, 404);
+
+  const oversized = await start({ binding, machineLabel: 'x'.repeat(4097) }, 't'.repeat(43));
+  assert.equal(oversized.status, 413, 'undeclared streaming bodies must be rejected at the byte ceiling');
+
+  const cancellable = await start(undefined, 's'.repeat(43));
+  const cancellableBody = await cancellable.json();
+  const cancel = await app.fetch(new Request(
+    `https://brian.desktop.tools/api/v1/device-authorizations/${cancellableBody.request.requestId}/cancel`, {
+      method: 'POST', headers: { authorization: `Bearer ${'s'.repeat(43)}`, 'content-type': 'application/json' }, body: '{}',
+    },
+  ), env);
+  assert.equal(cancel.status, 204);
 });
 
 test('pairing page preserves the canonical human code and exposes owner approve and deny paths', async () => {
