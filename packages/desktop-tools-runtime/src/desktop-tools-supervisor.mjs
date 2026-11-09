@@ -459,8 +459,14 @@ async function prepareToolRuntime(values, stateDirectory, promptBinding, session
   let expanded;
   try { expanded = gunzipSync(await readFile(toolsArchive), { maxOutputLength: 64 * 1024 * 1024 }); } catch { fail('tools archive cannot be safely expanded', 65); }
   const entries = tarEntries(expanded);
-  const expectedEntries = ['bin/desktop-tools-mcp-server.mjs', 'contracts/runtime-policy.json', 'contracts/supervisor-api.schema.json', 'contracts/typed-tools.json'];
-  if (JSON.stringify([...entries.keys()].sort()) !== JSON.stringify(expectedEntries)) fail('tools archive contains an unexpected closure', 65);
+  const legacyEntries = ['bin/desktop-tools-mcp-server.mjs', 'contracts/runtime-policy.json', 'contracts/supervisor-api.schema.json', 'contracts/typed-tools.json'];
+  const baseEntries = ['bin/desktop-tools-mcp-server.mjs', 'contracts/runtime-policy.json', 'contracts/supervisor-api.schema.json',
+    'contracts/typed-tools.json', 'runtime/encrypted-recording.mjs'];
+  const brokerEntries = [...baseEntries, 'bin/linux-x64/desktop-tools-privileged-broker', 'lib/desktop-tools-privileged-worker.mjs'];
+  const actualEntries = [...entries.keys()].sort();
+  if (![legacyEntries, baseEntries, brokerEntries].some(expected => JSON.stringify(actualEntries) === JSON.stringify([...expected].sort()))) {
+    fail('tools archive contains an unexpected closure', 65);
+  }
   const serverBytes = entries.get('bin/desktop-tools-mcp-server.mjs');
   if (!serverBytes || serverBytes.length < 1 || serverBytes.length > 8 * 1024 * 1024) fail('signed tools archive lacks the MCP server', 65);
   const serverDigest = createHash('sha256').update(serverBytes).digest('hex');

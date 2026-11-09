@@ -12,8 +12,9 @@ import { privilegedBrokerDigest } from './privileged-broker-protocol.js';
 const identifier = z.string().min(1).max(128).regex(/^[a-z0-9][a-z0-9._-]*$/);
 const digest = z.string().regex(/^[a-f0-9]{64}$/);
 const absolutePath = z.string().min(1).max(4096).refine(
-  value => isAbsolute(value) && normalize(value) === value && dirname(value) !== value && !value.includes('\0'),
-  'path must be canonical, absolute, and non-root',
+  value => isAbsolute(value) && normalize(value) === value && dirname(value) !== value && !value.includes('\0')
+    && value.startsWith('/run/desktop-tools/'),
+  'path must be canonical, absolute, non-root, and inside the runtime authority root',
 );
 
 export const PrivilegedBrokerExecutionAuthoritySchema = z.strictObject({
@@ -39,6 +40,7 @@ export const PrivilegedBrokerExecutionAuthoritySchema = z.strictObject({
   }),
   artifacts: z.array(z.strictObject({
     artifactId: identifier,
+    url: z.string().url().startsWith('https://').max(2048),
     sourcePath: absolutePath,
     sha256: digest,
     sizeBytes: z.number().int().positive().max(268_435_456),

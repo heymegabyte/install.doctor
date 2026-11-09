@@ -9,8 +9,9 @@
   },
   "scripts": {
     "build": "npm --prefix ../aid-core run build && tsc -p tsconfig.json",
-    "bundle": "npm run build && esbuild src/cli.ts --bundle --platform=node --format=esm --target=node22 --legal-comments=none --charset=utf8 --minify-syntax --minify-whitespace --outfile=dist/install-doctor-engine.mjs && esbuild src/mcp-server.ts --bundle --platform=node --format=esm --target=node22 --legal-comments=none --charset=utf8 --minify-syntax --minify-whitespace --outfile=dist/desktop-tools-mcp-server.mjs",
+    "bundle": "npm run build && esbuild src/cli.ts --bundle --platform=node --format=esm --target=node22 --legal-comments=none --charset=utf8 --minify-syntax --minify-whitespace --outfile=dist/install-doctor-engine.mjs && esbuild src/mcp-server.ts --bundle --platform=node --format=esm --target=node22 --legal-comments=none --charset=utf8 --minify-syntax --minify-whitespace --outfile=dist/desktop-tools-mcp-server.mjs && esbuild src/privileged-broker-worker.ts --bundle --platform=node --format=esm --target=node22 --legal-comments=none --charset=utf8 --minify-syntax --minify-whitespace --outfile=dist/desktop-tools-privileged-worker.mjs",
     "bundle:mcp": "npm run build && esbuild src/mcp-server.ts --bundle --platform=node --format=esm --target=node22 --legal-comments=none --charset=utf8 --minify-syntax --minify-whitespace --outfile=dist/desktop-tools-mcp-server.mjs",
+    "bundle:broker-worker": "npm run build && esbuild src/privileged-broker-worker.ts --bundle --platform=node --format=esm --target=node22 --legal-comments=none --charset=utf8 --minify-syntax --minify-whitespace --outfile=dist/desktop-tools-privileged-worker.mjs",
     "test": "npm run bundle && node --test test/*.test.mjs"
   },
   "engines": {

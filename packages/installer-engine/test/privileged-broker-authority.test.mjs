@@ -51,10 +51,10 @@ async function fixture() {
       catalogPath: '/run/desktop-tools/release/catalog.json', manifestSha256: '1'.repeat(64),
       trust: { keyId: 'desktop-release', publicKey: `ssh-ed25519 ${'A'.repeat(43)}=` } },
     artifacts: [
-      { artifactId: 'keyring', sourcePath: '/run/desktop-tools/release/keyring', sha256: hash('keyring'), sizeBytes: 10, mode: '0600' },
-      { artifactId: 'packages', sourcePath: '/run/desktop-tools/release/packages', sha256: hash('packages'), sizeBytes: 10, mode: '0600' },
-      { artifactId: 'release', sourcePath: '/run/desktop-tools/release/inrelease', sha256: hash('release'), sizeBytes: 10, mode: '0600' },
-      { artifactId: 'tree-deb', sourcePath: '/run/desktop-tools/release/tree.deb', sha256: hash('tree'), sizeBytes: 10, mode: '0600' },
+      { artifactId: 'keyring', url: 'https://desktop.tools/releases/release-1/keyring', sourcePath: '/run/desktop-tools/release/keyring', sha256: hash('keyring'), sizeBytes: 10, mode: '0600' },
+      { artifactId: 'packages', url: 'https://desktop.tools/releases/release-1/packages', sourcePath: '/run/desktop-tools/release/packages', sha256: hash('packages'), sizeBytes: 10, mode: '0600' },
+      { artifactId: 'release', url: 'https://desktop.tools/releases/release-1/inrelease', sourcePath: '/run/desktop-tools/release/inrelease', sha256: hash('release'), sizeBytes: 10, mode: '0600' },
+      { artifactId: 'tree-deb', url: 'https://desktop.tools/releases/release-1/tree.deb', sourcePath: '/run/desktop-tools/release/tree.deb', sha256: hash('tree'), sizeBytes: 10, mode: '0600' },
     ], transactionRoot: '/run/desktop-tools/privileged/transactions/run-1',
   };
   return { authority: PrivilegedBrokerExecutionAuthoritySchema.parse(authority), plan, payload };

@@ -29,6 +29,7 @@ test('root transaction fence appends a durable hash chain and resumes exact stat
   await persistence.save(completed);
   assert.deepEqual(await persistence.load(digest('d')), completed);
   assert.equal((await readdir(join(root, digest('d')))).length, 2);
+  assert.match(await persistence.evidenceDigest(), /^[a-f0-9]{64}$/);
 });
 
 test('root transaction fence rejects authority drift and generation tampering', async t => {

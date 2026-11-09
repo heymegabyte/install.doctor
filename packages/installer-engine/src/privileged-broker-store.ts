@@ -86,9 +86,9 @@ export async function createPrivilegedBrokerStore(input: {
   const grants = join(root, 'grants');
   const nonces = join(root, 'nonces');
   const authorities = join(root, 'authorities');
-  await mkdir(grants, { mode: 0o700 });
-  await mkdir(nonces, { mode: 0o700 });
-  await mkdir(authorities, { mode: 0o700 });
+  await mkdir(grants, { recursive: true, mode: 0o700 });
+  await mkdir(nonces, { recursive: true, mode: 0o700 });
+  await mkdir(authorities, { recursive: true, mode: 0o700 });
   await assertProtectedDirectory(grants, ownerUid);
   await assertProtectedDirectory(nonces, ownerUid);
   await assertProtectedDirectory(authorities, ownerUid);

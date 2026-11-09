@@ -129,6 +129,11 @@ export function validatePrivilegedBrokerRequest(input: {
   if (input.now.getTime() < Date.parse(grant.issuedAt) || input.now.getTime() >= Date.parse(grant.expiresAt)) {
     throw new Error('broker grant is outside its validity window');
   }
+  const requestedAt = Date.parse(request.requestedAt);
+  if (requestedAt < Date.parse(grant.issuedAt) || requestedAt >= Date.parse(grant.expiresAt)
+    || requestedAt > input.now.getTime() + 30_000) {
+    throw new Error('broker request time is outside its grant or clock-skew boundary');
+  }
   const bindings = ['hostId', 'releaseId', 'runId', 'planDigest', 'grantId', 'consentDigest', 'descriptorDigest', 'closureDigest'] as const;
   for (const key of bindings) {
     if (!equalDigestOrText(request[key], grant[key])) throw new Error(`broker request ${key} differs from grant`);

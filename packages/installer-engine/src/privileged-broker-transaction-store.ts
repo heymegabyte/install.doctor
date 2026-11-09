@@ -68,7 +68,7 @@ export async function createPrivilegedBrokerTransactionPersistence(input: {
   readonly runId: string;
   readonly hostId: string;
   readonly planDigest: string;
-}): Promise<NativeDpkgTransactionPersistence> {
+}): Promise<NativeDpkgTransactionPersistence & { readonly evidenceDigest: () => Promise<string> }> {
   const ownerUid = input.ownerUid ?? 0;
   const root = resolve(input.root);
   if (!isAbsolute(input.root) || root === resolve(root, '..') || !/^[a-z0-9][a-z0-9._-]{0,127}$/.test(input.runId)
@@ -126,6 +126,16 @@ export async function createPrivilegedBrokerTransactionPersistence(input: {
       if (previous && bytes(previous.generation.record).equals(bytes(record))) return;
       const content = bytes(generation);
       await writeExclusive(join(directory, `${String(generation.sequence).padStart(5, '0')}-${hash(content)}.json`), content);
+    },
+    async evidenceDigest() {
+      const transactionIds = (await readdir(root)).sort();
+      if (transactionIds.length === 0 || transactionIds.length > 1 || transactionIds.some(value => !/^[a-f0-9]{64}$/.test(value))) {
+        throw new Error('privileged transaction fence requires exactly one transaction identity');
+      }
+      const chain = await readChain(transactionIds[0]!);
+      const latest = chain.at(-1);
+      if (!latest) throw new Error('privileged transaction fence has no durable generation');
+      return latest.digest;
     },
   });
 }

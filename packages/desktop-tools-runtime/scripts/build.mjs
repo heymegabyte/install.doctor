@@ -53,5 +53,15 @@ for (const name of ['runtime-policy.json', 'supervisor-api.schema.json', 'typed-
 }
 entries.push(tarEntry('bin/desktop-tools-mcp-server.mjs', await readFile(join(enginePackage, 'dist', 'desktop-tools-mcp-server.mjs')), 0o700));
 entries.push(tarEntry('runtime/encrypted-recording.mjs', await readFile(join(root, 'src', 'encrypted-recording.mjs')), 0o600));
+const brokerPath = process.env.DESKTOP_TOOLS_PRIVILEGED_BROKER;
+const workerPath = process.env.DESKTOP_TOOLS_PRIVILEGED_WORKER;
+const requireBroker = process.env.DESKTOP_TOOLS_REQUIRE_PRIVILEGED_BROKER === 'true';
+if ((brokerPath === undefined) !== (workerPath === undefined) || requireBroker && (!brokerPath || !workerPath)) {
+  throw new Error('privileged broker and worker must be supplied together for the production tools closure');
+}
+if (brokerPath && workerPath) {
+  entries.push(tarEntry('bin/linux-x64/desktop-tools-privileged-broker', await readFile(resolve(brokerPath)), 0o700));
+  entries.push(tarEntry('lib/desktop-tools-privileged-worker.mjs', await readFile(resolve(workerPath)), 0o600));
+}
 entries.push(Buffer.alloc(1024));
 await writeFile(join(output, 'desktop-tools-tools.tar.gz'), gzipSync(Buffer.concat(entries), { level: 9, mtime: 0 }), { mode: 0o600 });

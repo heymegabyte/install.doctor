@@ -33,6 +33,8 @@ test('root-side store publishes idempotent exact grants and durably consumes eac
   const store = await createPrivilegedBrokerStore({ root, ownerUid: uid, verifyApproval: async evidence => evidence.evidenceDigest === hex('9') });
   const first = await store.publishGrant(grant(), approval());
   const repeated = await store.publishGrant(grant(), approval());
+  const reopened = await createPrivilegedBrokerStore({ root, ownerUid: uid, verifyApproval: async () => false });
+  assert.equal((await reopened.readGrant('grant-1')).digest, first.digest);
   assert.equal(repeated.digest, first.digest);
   assert.equal((await store.readGrant('grant-1')).digest, first.digest);
   const nonce = 'nonce_nonce_nonce_nonce_nonce_nonce_1';

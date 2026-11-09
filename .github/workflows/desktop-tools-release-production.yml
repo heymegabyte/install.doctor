@@ -23,7 +23,7 @@ env:
 
 jobs:
   build:
-    name: Build inert Desktop Tools v7 closure
+    name: Build inert Desktop Tools v8 closure
     if: github.ref == 'refs/heads/master'
     runs-on: ubuntu-latest
     timeout-minutes: 45
@@ -45,6 +45,10 @@ jobs:
             packages/desktop-tools-runtime/package-lock.json
             packages/installer-engine/package-lock.json
             packages/control-plane/package-lock.json
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: 1.27.3
+          cache-dependency-path: packages/privileged-broker/go.mod
       - id: identity
         name: Validate immutable product identities
         env:
@@ -66,14 +70,23 @@ jobs:
           # the task-5 runtime closure has not yet been committed.
           jq -er --arg id "$SIGNER_ID" '.products["desktop-tools"].signers[$id] | select(type == "string")' packages/control-plane/src/release-trust.json \
             | grep -Eq '^ssh-ed25519 [A-Za-z0-9+/]+={0,3}( [^[:cntrl:]]{1,128})?$'
-          npm --prefix packages/desktop-tools-runtime ci --ignore-scripts --no-audit --no-fund
-          npm --prefix packages/desktop-tools-runtime run build
-          test -f packages/desktop-tools-runtime/dist/desktop-tools-supervisor.mjs
-          test -f packages/desktop-tools-runtime/dist/desktop-tools-tools.tar.gz
           npm --prefix packages/aid-core ci --ignore-scripts --no-audit --no-fund
           npm --prefix packages/installer-engine ci --ignore-scripts --no-audit --no-fund
           npm --prefix packages/aid-core run build
           npm --prefix packages/installer-engine run bundle
+          mkdir -p .release-work/broker
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath \
+            -ldflags="-buildid= -X main.version=$GITHUB_SHA" \
+            -o .release-work/broker/desktop-tools-privileged-broker \
+            ./packages/privileged-broker/cmd/desktop-tools-privileged-broker
+          test "$(.release-work/broker/desktop-tools-privileged-broker version)" = "$GITHUB_SHA"
+          npm --prefix packages/desktop-tools-runtime ci --ignore-scripts --no-audit --no-fund
+          DESKTOP_TOOLS_REQUIRE_PRIVILEGED_BROKER=true \
+          DESKTOP_TOOLS_PRIVILEGED_BROKER="$PWD/.release-work/broker/desktop-tools-privileged-broker" \
+          DESKTOP_TOOLS_PRIVILEGED_WORKER="$PWD/packages/installer-engine/dist/desktop-tools-privileged-worker.mjs" \
+            npm --prefix packages/desktop-tools-runtime run build
+          test -f packages/desktop-tools-runtime/dist/desktop-tools-supervisor.mjs
+          test -f packages/desktop-tools-runtime/dist/desktop-tools-tools.tar.gz
       - name: Acquire and verify exact Node and OpenCode runtimes
         run: |
           set -euo pipefail
