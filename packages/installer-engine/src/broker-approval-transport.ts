@@ -4,6 +4,7 @@ import { resolve } from 'node:path';
 import { SignedBrokerApproval, brokerApprovalSemanticDigest } from '@install-doctor/aid-core/broker-approval-contracts';
 import { z } from 'zod';
 import { PrivilegedBrokerGrantSchema } from './privileged-broker-protocol.js';
+import { ProtectedDeviceCredentialStore } from './target-device-credential.js';
 
 const id = z.string().min(1).max(128).regex(/^[a-z0-9][a-z0-9._-]*$/);
 const digest = z.string().regex(/^[a-f0-9]{64}$/);
@@ -84,7 +85,11 @@ async function boundedJson(response: Response): Promise<unknown> {
   return JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes));
 }
 
-/** Reads the opaque enrollment credential only from an owner-only, non-linked regular file. */
+/**
+ * Reads the opaque enrollment credential only from an owner-only, non-linked regular file.
+ * New enrollments use the structured credential store; the raw form remains readable only for
+ * the additive legacy migration window and is never written by Desktop Tools.
+ */
 export async function readPrivateDeviceToken(pathValue: string): Promise<string> {
   const path = resolve(pathValue);
   const before = await lstat(path, { bigint: true });
@@ -103,6 +108,11 @@ export async function readPrivateDeviceToken(pathValue: string): Promise<string>
     const token = (await handle.readFile('utf8')).trim();
     if (token.length < 16 || token.length > MAX_TOKEN_BYTES || /[\r\n\0]/.test(token)) {
       throw new Error('device token has an invalid format');
+    }
+    if (token.startsWith('{')) {
+      const stored = await new ProtectedDeviceCredentialStore(path).load();
+      if (!stored) throw new Error('structured device credential is unavailable');
+      return stored.credential;
     }
     return token;
   } finally { await handle.close(); }

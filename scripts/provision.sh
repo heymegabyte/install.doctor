@@ -3549,7 +3549,7 @@ function ensureInstallUser() {
       INSTALL_DOCTOR_RELEASE_SIGNER_ID INSTALL_DOCTOR_RELEASE_SIGNER_PUBLIC_KEY \
       INSTALL_DOCTOR_RUNTIME_NODE INSTALL_DOCTOR_RUNTIME_NODE_VERSION \
       INSTALL_DOCTOR_VERIFIED_MANIFEST INSTALL_DOCTOR_VERIFIED_SIGNATURE \
-      DESKTOP_TOOLS_PROFILE_ID DESKTOP_TOOLS_PROFILE_REVISION DESKTOP_TOOLS_PROFILE_DIGEST \
+      DESKTOP_TOOLS_PROFILE_ID DESKTOP_TOOLS_PROFILE_SLUG DESKTOP_TOOLS_PROFILE_REVISION DESKTOP_TOOLS_PROFILE_DIGEST \
       DESKTOP_TOOLS_NATIVE_BROKER_REQUESTED \
       DESKTOP_TOOLS_BROKER_COORDINATION_USER_REQUEST DESKTOP_TOOLS_BROKER_COORDINATION_ROOT_RESPONSE \
       DESKTOP_TOOLS_BROKER_HELPER_PATH DESKTOP_TOOLS_BROKER_HELPER_SHA256 \
@@ -3622,7 +3622,7 @@ NODE
         fi
         chmod 0400 "$BROKER_DERIVED"
         if [ "$(node -e 'const value=JSON.parse(require("node:fs").readFileSync(process.argv[1],"utf8"));process.stdout.write(value.controllerInput.approvalMode)' "$BROKER_DERIVED")" = signed-device ]; then
-          node - "$BROKER_DERIVED" "$BROKER_APPROVAL_INPUT" "$USER_HOME_DIR/.config/desktop-tools/device-token" \
+          node - "$BROKER_DERIVED" "$BROKER_APPROVAL_INPUT" "$USER_HOME_DIR/.config/desktop-tools/device-credential.json" \
             "${DESKTOP_TOOLS_PROFILE_ID:-}" "${DESKTOP_TOOLS_PROFILE_DIGEST:-}" <<'NODE'
 const fs=require('node:fs');const crypto=require('node:crypto');
 const [derivedPath,outputPath,tokenPath,profileId,profileRevisionDigest]=process.argv.slice(2);
@@ -3677,6 +3677,83 @@ NODE
   fi
 }
 
+# @description Enrolls a profile-bound target before the selected desired state is planned.
+#     The target owns its key, pending polling state, and structured credential. The shell
+#     receives only nonsecret status output and keeps stdin detached for curl-pipe/headless use.
+idEnsureDesktopToolsDeviceAuthorization() {
+  local PROFILE_ID="${DESKTOP_TOOLS_PROFILE_ID:-}" PROFILE_SLUG="${DESKTOP_TOOLS_PROFILE_SLUG:-}"
+  local PROFILE_DIGEST="${DESKTOP_TOOLS_PROFILE_DIGEST:-}" ENGINE="${INSTALL_DOCTOR_ENGINE_PATH:-}"
+  local RUNTIME="${INSTALL_DOCTOR_RUNTIME_NODE:-}" ORIGIN STATE_ROOT CONFIG_ROOT STATE_PATH CREDENTIAL_PATH
+  local INVOCATION STATUS_OUTPUT STATUS MACHINE_LABEL EXPIRES_AT
+  [ -n "$PROFILE_ID" ] || return 0
+  [ "$(id -u)" -ne 0 ] || { logg error 'Desktop Tools device enrollment must run as the enrolled non-root user'; return 2; }
+  [[ "$PROFILE_ID" =~ ^[a-z0-9][a-z0-9._-]{0,127}$ ]] \
+    && [[ "$PROFILE_SLUG" =~ ^[a-z0-9][a-z0-9-]{0,62}$ ]] \
+    && [[ "$PROFILE_DIGEST" =~ ^[a-f0-9]{64}$ ]] \
+    || { logg error 'Signed Desktop Tools profile identity is incomplete or invalid'; return 2; }
+  [ -f "$ENGINE" ] && [ ! -L "$ENGINE" ] && [ -x "$ENGINE" ] \
+    && [ -f "$RUNTIME" ] && [ -x "$RUNTIME" ] \
+    || { logg error 'Verified enrollment runtime is unavailable'; return 2; }
+  ORIGIN="https://${PROFILE_SLUG}.desktop.tools"
+  STATE_ROOT="${XDG_STATE_HOME:-$HOME/.local/state}/desktop-tools/device-authorization"
+  CONFIG_ROOT="${XDG_CONFIG_HOME:-$HOME/.config}/desktop-tools"
+  mkdir -p "$STATE_ROOT" "$CONFIG_ROOT" || return 2
+  chmod 0700 "$STATE_ROOT" "$CONFIG_ROOT" || return 2
+  STATE_PATH="$STATE_ROOT/pending.json"
+  CREDENTIAL_PATH="$CONFIG_ROOT/device-credential.json"
+  INVOCATION="$STATE_ROOT/invocation-$$.json"
+  STATUS_OUTPUT="$STATE_ROOT/status-$$.json"
+  trap 'rm -f -- "${INVOCATION:-}" "${STATUS_OUTPUT:-}"; unset -f idWriteDeviceAuthorizationInvocation; trap - RETURN' RETURN
+
+  idWriteDeviceAuthorizationInvocation() {
+    local COMMAND="$1"
+    "$RUNTIME" - "$INVOCATION" "$COMMAND" "$ORIGIN" "$STATE_PATH" "$CREDENTIAL_PATH" \
+      "$PROFILE_ID" "$MACHINE_LABEL" "$EXPIRES_AT" <<'NODE'
+const fs=require('node:fs');
+const [path,command,origin,statePath,credentialPath,profileId,machineLabel,expiresAt]=process.argv.slice(2);
+const value={schemaVersion:1,command,statePath,credentialPath};
+if(command==='device-authorization-start')Object.assign(value,{origin,profileId,machineLabel,
+  scopes:['pull-desired-state','report-status','authorize-privileged-run'],expiresAt});
+if(command==='device-authorization-wait')value.origin=origin;
+fs.writeFileSync(path,`${JSON.stringify(value)}\n`,{mode:0o600,flag:'w'});
+NODE
+  }
+  MACHINE_LABEL="$(hostname 2>/dev/null || printf 'desktop-tools-target')"
+  MACHINE_LABEL="${MACHINE_LABEL:0:128}"
+  [ -n "$MACHINE_LABEL" ] || MACHINE_LABEL='desktop-tools-target'
+  EXPIRES_AT="$($RUNTIME -e 'process.stdout.write(new Date(Date.now()+10*60*1000).toISOString())')" || return 2
+
+  idWriteDeviceAuthorizationInvocation device-authorization-status || return 2
+  "$RUNTIME" "$ENGINE" --input "$INVOCATION" </dev/null > "$STATUS_OUTPUT" || return $?
+  STATUS="$($RUNTIME -e 'const v=JSON.parse(require("node:fs").readFileSync(process.argv[1],"utf8"));if(!["absent","pending","approved","expired"].includes(v.status))process.exit(2);process.stdout.write(v.status)' "$STATUS_OUTPUT")" \
+    || { logg error 'Device enrollment status was malformed'; return 2; }
+  if [ "$STATUS" = approved ]; then
+    "$RUNTIME" - "$STATUS_OUTPUT" "$PROFILE_ID" <<'NODE' || { logg error 'Stored device credential belongs to another profile'; return 2; }
+const fs=require('node:fs');const [path,profileId]=process.argv.slice(2);const value=JSON.parse(fs.readFileSync(path,'utf8'));
+if(value.profileId!==profileId||typeof value.credentialId!=='string'||Date.parse(value.expiresAt)<=Date.now())process.exit(2);
+NODE
+    logg info 'Using the existing protected Desktop Tools device enrollment.'
+    return 0
+  fi
+  [ "$STATUS" != expired ] || { logg error 'The protected Desktop Tools device credential expired; revoke it and enroll this target again.'; return 2; }
+  if [ "$STATUS" = absent ]; then
+    idWriteDeviceAuthorizationInvocation device-authorization-start || return 2
+    "$RUNTIME" "$ENGINE" --input "$INVOCATION" </dev/null > "$STATUS_OUTPUT" || return $?
+  fi
+  "$RUNTIME" - "$STATUS_OUTPUT" <<'NODE' || { logg error 'Device enrollment prompt was malformed'; return 2; }
+const value=JSON.parse(require('node:fs').readFileSync(process.argv[2],'utf8'));
+if(value.status!=='pending'||typeof value.verificationCode!=='string'||typeof value.approvalUri!=='string'||typeof value.expiresAt!=='string')process.exit(2);
+process.stdout.write(`\nApprove this Desktop Tools target from another device:\n  ${value.approvalUri}\n  Matching code: ${value.verificationCode}\n  Expires: ${value.expiresAt}\nPress Ctrl-C to cancel safely.\n\n`);
+NODE
+  idWriteDeviceAuthorizationInvocation device-authorization-wait || return 2
+  "$RUNTIME" "$ENGINE" --input "$INVOCATION" </dev/null > "$STATUS_OUTPUT" || return $?
+  "$RUNTIME" - "$STATUS_OUTPUT" <<'NODE' || { logg error 'Desktop Tools device enrollment did not complete'; return 2; }
+const value=JSON.parse(require('node:fs').readFileSync(process.argv[2],'utf8'));
+if(value.status!=='approved'||typeof value.credentialId!=='string'||Date.parse(value.expiresAt)<=Date.now())process.exit(2);
+NODE
+  logg success 'Desktop Tools device enrollment is approved and durably stored.'
+}
+
 # @description Main orchestration function that defines the execution order of all provisioning steps.
 provisionLogic() {
   local CHEZMOI_STATUS=0
@@ -3705,6 +3782,9 @@ provisionLogic() {
   fi
   idRunRequiredProvisionStep "Collecting required inputs up front" collectInputsUpfront || return $?
   idRunRequiredProvisionStep "Ensuring the signed installer Node runtime" ensureProvisionerNodeRuntime || return $?
+  if [ "$(id -u)" -ne 0 ]; then
+    idRunRequiredProvisionStep "Authorizing this Desktop Tools target" idEnsureDesktopToolsDeviceAuthorization || return $?
+  fi
   idRunRequiredProvisionStep "Reconciling stale sudo acquisition ownership" idReconcileStaleSudoOwnership || return $?
   idRunRequiredProvisionStep "Resolving the install plan before mutation" configureInstallPlan || return $?
   idRunRequiredProvisionStep "Authorizing the exact host and recorded consent" idAuthorizePlatform || return $?

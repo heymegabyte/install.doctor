@@ -204,7 +204,8 @@ const DeviceAuthorizationStartInvocationSchema = z.strictObject({
   ...targetAuthorizationBase, command: z.literal('device-authorization-start'),
   credentialPath: privateStatePath,
   profileId: identifier, machineLabel: z.string().min(1).max(128),
-  scopes: z.array(z.string().min(1).max(128).regex(/^[a-z][a-z0-9.-]*:[a-z][a-z0-9.-]*$/)).min(1).max(64),
+  scopes: z.array(z.string().min(1).max(128)
+    .regex(/^[a-z][a-z0-9.-]*(?::[a-z][a-z0-9.-]*)?$/)).min(1).max(64),
   expiresAt: z.string().datetime({ offset: true }).max(64),
 });
 const DeviceAuthorizationStatusInvocationSchema = z.strictObject({

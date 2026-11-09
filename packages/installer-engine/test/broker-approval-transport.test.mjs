@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import test from 'node:test';
 import { brokerApprovalSemanticDigest } from '../../aid-core/dist/broker-approval-contracts.js';
 import { createBrokerApprovalTransport, readPrivateDeviceToken } from '../dist/broker-approval-transport.js';
+import { ProtectedDeviceCredentialStore } from '../dist/target-device-credential.js';
 
 const d = 'a'.repeat(64);
 const now = '2030-01-01T00:00:00.000Z';
@@ -35,6 +36,25 @@ test('reads only an owner-only non-linked enrollment credential', async () => {
   await writeFile(target, 'opaque-device-token-value', { mode: 0o600 });
   await symlink(target, link);
   await assert.rejects(readPrivateDeviceToken(link), /owner-only/);
+});
+
+test('reads the bearer secret from the protected structured enrollment credential', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'broker-structured-'));
+  const dir = join(root, 'config');
+  await mkdir(dir, { mode: 0o700 });
+  const path = join(dir, 'device-credential.json');
+  await new ProtectedDeviceCredentialStore(path).save({
+    schemaVersion: 1,
+    request: {
+      schemaVersion: 1, requestId: 'request-1', machineLabel: 'canary',
+      binding: { tenantId: 'tenant-1', profileId: 'profile-1', targetPublicKey: 'A'.repeat(43),
+        targetKeyFingerprint: d, scopes: ['profile:read'], nonce: 'n'.repeat(32), expiresAt: later },
+      verificationCode: 'ABCD-EF12', pollKeyFingerprint: d, createdAt: now,
+    },
+    credential: 'structured-device-credential-secret', credentialId: 'credential-1',
+    expiresAt: later, storedAt: now,
+  });
+  assert.equal(await readPrivateDeviceToken(path), 'structured-device-credential-secret');
 });
 
 test('submits an exact run intent and never places the credential in URL or body', async () => {
