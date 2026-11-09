@@ -1031,11 +1031,20 @@ test('offline readiness reports every deterministic legacy blocker in task order
     { ...task('native.tree'), lockDomains: ['package-manager.dpkg'], privilege: 'admin', consent: 'package-install' },
   ];
   assert.deepEqual(inspectOfflinePlanReadiness(tasks), [
-    { taskId: 'desired.packages', kind: 'package-manager-authority', authority: 'package-manager' },
-    { taskId: 'desired.packages', kind: 'network', authority: null },
-    { taskId: 'desired.services', kind: 'service-state-authority', authority: 'service-manager' },
-    { taskId: 'provision.chezmoi', kind: 'package-manager-authority', authority: 'package-manager' },
-    { taskId: 'provision.chezmoi', kind: 'network', authority: null },
+    { taskId: 'desired.packages', kind: 'package-manager-authority', authority: 'package-manager', migration: 'signed-native-package-closure' },
+    { taskId: 'desired.packages', kind: 'network', authority: 'policy:required,resource:true', migration: 'signed-offline-artifact-closure' },
+    { taskId: 'desired.services', kind: 'service-state-authority', authority: 'service-manager', migration: 'signed-native-service-closure' },
+    { taskId: 'provision.chezmoi', kind: 'package-manager-authority', authority: 'package-manager', migration: 'signed-native-package-closure' },
+    { taskId: 'provision.chezmoi', kind: 'network', authority: 'policy:required,resource:true', migration: 'signed-offline-artifact-closure' },
+  ]);
+});
+
+test('offline readiness preserves each independent network declaration as migration evidence', () => {
+  const policyOnly = { ...task('policy-only'), network: 'optional' };
+  const resourceOnly = { ...task('resource-only'), resources: { cpu: 1, memoryMiB: 32, network: true } };
+  assert.deepEqual(inspectOfflinePlanReadiness([resourceOnly, policyOnly]), [
+    { taskId: 'policy-only', kind: 'network', authority: 'policy:optional', migration: 'signed-offline-artifact-closure' },
+    { taskId: 'resource-only', kind: 'network', authority: 'resource:true', migration: 'signed-offline-artifact-closure' },
   ]);
 });
 

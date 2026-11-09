@@ -30,6 +30,7 @@ export type OfflinePlanReadinessBlocker = Readonly<{
   taskId: string;
   kind: 'network' | 'package-manager-authority' | 'service-state-authority';
   authority: string | null;
+  migration: 'signed-offline-artifact-closure' | 'signed-native-package-closure' | 'signed-native-service-closure';
 }>;
 
 /**
@@ -44,15 +45,28 @@ export function inspectOfflinePlanReadiness(
   for (const task of [...tasks].sort((left, right) => left.id.localeCompare(right.id))) {
     for (const domain of task.lockDomains) {
       if ((domain === 'package-manager' || domain.startsWith('package-manager.')) && domain !== 'package-manager.dpkg') {
-        blockers.push({ taskId: task.id, kind: 'package-manager-authority', authority: domain });
+        blockers.push({
+          taskId: task.id, kind: 'package-manager-authority', authority: domain,
+          migration: 'signed-native-package-closure',
+        });
       } else if (domain === 'service-manager' || domain.startsWith('service-manager.')) {
         // Native systemd operations have a schema but remain fail-closed until
         // service compensation is honest, so they are still readiness blockers.
-        blockers.push({ taskId: task.id, kind: 'service-state-authority', authority: domain });
+        blockers.push({
+          taskId: task.id, kind: 'service-state-authority', authority: domain,
+          migration: 'signed-native-service-closure',
+        });
       }
     }
     if (task.network !== 'none' || task.resources.network) {
-      blockers.push({ taskId: task.id, kind: 'network', authority: null });
+      const declarations = [
+        task.network !== 'none' ? `policy:${task.network}` : null,
+        task.resources.network ? 'resource:true' : null,
+      ].filter((value): value is string => value !== null);
+      blockers.push({
+        taskId: task.id, kind: 'network', authority: declarations.join(','),
+        migration: 'signed-offline-artifact-closure',
+      });
     }
   }
   return blockers;
@@ -339,8 +353,8 @@ export async function validateOfflineExecutionClosure(
   const readinessBlockers = inspectOfflinePlanReadiness([...selectedTasks.values()]);
   if (readinessBlockers.length > 0) {
     const details = readinessBlockers.map(blocker => blocker.kind === 'network'
-      ? `${blocker.taskId}: network-free execution required`
-      : `${blocker.taskId}: unsupported ${blocker.kind === 'package-manager-authority' ? 'package-manager' : 'service-state'} authority ${blocker.authority}`);
+      ? `${blocker.taskId}: network-free execution required (${blocker.authority}); migrate to ${blocker.migration}`
+      : `${blocker.taskId}: unsupported ${blocker.kind === 'package-manager-authority' ? 'package-manager' : 'service-state'} authority ${blocker.authority}; migrate to ${blocker.migration}`);
     throw new OfflineBundleError(`offline selected task closure is incomplete: ${details.join('; ')}`);
   }
   const reproduced = await reproduceNormalizedPlan(
