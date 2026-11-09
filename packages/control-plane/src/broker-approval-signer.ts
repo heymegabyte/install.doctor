@@ -1,122 +1,29 @@
 import { z } from 'zod';
+import {
+  BrokerApprovalDurableState,
+  BrokerApprovalGrant,
+  BrokerApprovalRequest,
+  BrokerApprovalSignerDelegation,
+  SignedBrokerApproval,
+  type BrokerApprovalDurableStateValue,
+  type BrokerApprovalRequestValue,
+  type SignedBrokerApprovalValue,
+} from '../../aid-core/src/broker-approval-contracts.ts';
+
+export {
+  BrokerApprovalDurableState,
+  BrokerApprovalGrant,
+  BrokerApprovalRequest,
+  BrokerApprovalSignerDelegation,
+  SignedBrokerApproval,
+};
+export type {
+  BrokerApprovalDurableStateValue,
+  BrokerApprovalRequestValue,
+  SignedBrokerApprovalValue,
+};
 
 const id = z.string().min(1).max(128).regex(/^[a-z0-9][a-z0-9._-]*$/);
-const digest = z.string().regex(/^[a-f0-9]{64}$/);
-const timestamp = z.string().datetime({ offset: true });
-
-const operation = z.object({
-  taskId: id,
-  operationId: id,
-  phase: z.enum(['check', 'apply', 'verify']),
-}).strict();
-
-export const BrokerApprovalGrant = z.object({
-  schemaVersion: z.literal(1),
-  grantId: id,
-  hostId: id,
-  releaseId: id,
-  runId: id,
-  planDigest: digest,
-  approvedPlanDigest: digest,
-  enrolledUid: z.number().int().nonnegative(),
-  brokerExecutableDigest: digest,
-  runtimeDigest: digest,
-  workerDigest: digest,
-  operations: z.array(operation).min(1).max(256),
-  descriptorDigest: digest,
-  closureDigest: digest,
-  consentDigest: digest,
-  issuedAt: timestamp,
-  expiresAt: timestamp,
-}).strict().superRefine((value, context) => {
-  if (value.planDigest !== value.approvedPlanDigest) {
-    context.addIssue({ code: 'custom', message: 'grant is not bound to the approved plan' });
-  }
-  if (new Set(value.operations.map(entry => entry.operationId)).size !== value.operations.length) {
-    context.addIssue({ code: 'custom', message: 'grant contains duplicate operation identifiers' });
-  }
-  const lifetime = Date.parse(value.expiresAt) - Date.parse(value.issuedAt);
-  if (lifetime <= 0 || lifetime > 30 * 60 * 1000) {
-    context.addIssue({ code: 'custom', message: 'grant lifetime must be positive and no longer than thirty minutes' });
-  }
-});
-
-export const BrokerApprovalSignerDelegation = z.object({
-  schemaVersion: z.literal(1),
-  kind: z.literal('desktop-tools-broker-approval-signer-delegation'),
-  keyId: id,
-  algorithm: z.literal('Ed25519'),
-  signatureDomain: z.literal('desktop-tools-broker-approval-v1'),
-  product: z.literal('desktop-tools'),
-  releaseId: id,
-  channel: id,
-  publicKeySpki: z.string().min(32).max(512).regex(/^[A-Za-z0-9_-]+$/),
-  notBefore: timestamp,
-  notAfter: timestamp,
-  maximumApprovalLifetimeSeconds: z.number().int().positive().max(1800),
-  revocationEpoch: z.number().int().nonnegative(),
-  delegationDigest: digest,
-}).strict();
-
-export const BrokerApprovalDurableState = z.object({
-  schemaVersion: z.literal(1),
-  authorizationId: id,
-  ownerDecisionId: id,
-  ownerActorId: id,
-  ownerDecision: z.literal('approved'),
-  ownerReauthenticatedAt: timestamp,
-  tenantId: id,
-  profileId: id,
-  profileRevisionDigest: digest,
-  deviceCredentialId: id,
-  deviceFingerprint: digest,
-  runIntentId: id,
-  status: z.literal('approved'),
-  grant: BrokerApprovalGrant,
-  delegation: BrokerApprovalSignerDelegation,
-}).strict();
-
-export const BrokerApprovalRequest = z.object({
-  schemaVersion: z.literal(1),
-  authorizationId: id,
-  ownerDecisionId: id,
-  tenantId: id,
-  profileId: id,
-  profileRevisionDigest: digest,
-  deviceCredentialId: id,
-  deviceFingerprint: digest,
-  runIntentId: id,
-  grantId: id,
-}).strict();
-
-export const SignedBrokerApproval = z.object({
-  schemaVersion: z.literal(1),
-  kind: z.literal('desktop-tools-broker-approval'),
-  signerKeyId: id,
-  signatureDomain: z.literal('desktop-tools-broker-approval-v1'),
-  approvalId: id,
-  authorizationId: id,
-  ownerDecisionId: id,
-  ownerActorId: id,
-  tenantId: id,
-  profileId: id,
-  profileRevisionDigest: digest,
-  deviceCredentialId: id,
-  deviceFingerprint: digest,
-  runIntentId: id,
-  grant: BrokerApprovalGrant,
-  grantDigest: digest,
-  delegationDigest: digest,
-  revocationEpoch: z.number().int().nonnegative(),
-  approvedAt: timestamp,
-  expiresAt: timestamp,
-  signature: z.string().min(64).max(512).regex(/^[A-Za-z0-9_-]+$/),
-  auditDigest: digest,
-}).strict();
-
-export type BrokerApprovalRequestValue = z.infer<typeof BrokerApprovalRequest>;
-export type BrokerApprovalDurableStateValue = z.infer<typeof BrokerApprovalDurableState>;
-export type SignedBrokerApprovalValue = z.infer<typeof SignedBrokerApproval>;
 
 export interface BrokerApprovalStateStore {
   loadExactState(request: BrokerApprovalRequestValue): Promise<unknown>;
