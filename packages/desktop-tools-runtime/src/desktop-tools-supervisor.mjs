@@ -3,7 +3,7 @@ import { createHash, randomBytes } from 'node:crypto';
 import { spawn } from 'node:child_process';
 import { constants as fsConstants } from 'node:fs';
 import { chmod, copyFile, lstat, mkdir, open, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
-import { homedir, tmpdir } from 'node:os';
+import { homedir } from 'node:os';
 import { basename, dirname, isAbsolute, join, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { gunzipSync, inflateRawSync } from 'node:zlib';
@@ -188,7 +188,7 @@ async function protectedBase(input, label) {
 
 async function protectedDirectory(input) {
   const target = await protectedBase(input || defaultStateDirectory(), 'state directory');
-  for (const child of ['bin', 'run', 'runtime', 'config', 'data', 'history', 'recordings']) {
+  for (const child of ['bin', 'run', 'runtime', 'config', 'data', 'history', 'recordings', 'home', 'tmp']) {
     await mkdir(join(target, child), { recursive: false, mode: 0o700 }).catch(error => { if (error?.code !== 'EEXIST') throw error; });
     const childInfo = await lstat(join(target, child));
     if (!childInfo.isDirectory() || childInfo.isSymbolicLink()) fail(`unsafe state child: ${child}`, 73);
@@ -215,10 +215,10 @@ async function sha256(path) {
 
 function minimalEnvironment(stateDirectory, serverPassword, opencodeConfig, promptBinding) {
   const environment = {
-    HOME: homedir(),
+    HOME: join(stateDirectory, 'home'),
     PATH: '/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin',
     LANG: process.env.LANG && safeTextPattern.test(process.env.LANG) ? process.env.LANG : 'C.UTF-8',
-    TMPDIR: tmpdir(),
+    TMPDIR: join(stateDirectory, 'tmp'),
     XDG_CONFIG_HOME: join(stateDirectory, 'config'),
     XDG_DATA_HOME: join(stateDirectory, 'data'),
     XDG_STATE_HOME: stateDirectory,
@@ -699,7 +699,7 @@ async function main(argv) {
   });
   const releaseLock = await acquireLock(stateDirectory);
   const child = spawn(runtime, ['serve', '--hostname', '127.0.0.1', '--port', String(port)], {
-    shell: false, env: minimalEnvironment(stateDirectory, password, opencodeConfig, promptBinding), stdio: 'inherit'
+    shell: false, cwd: stateDirectory, env: minimalEnvironment(stateDirectory, password, opencodeConfig, promptBinding), stdio: 'inherit'
   });
   let receivedSignal = null;
   const forward = signal => { receivedSignal = signal; if (!child.killed) child.kill(signal); };

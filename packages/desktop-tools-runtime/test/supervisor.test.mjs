@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { chmod, mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readFile, realpath, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
@@ -70,7 +70,7 @@ async function writeSessionContext(root, overrides = {}) {
 async function fixture() {
   const root = await mkdtemp(join(tmpdir(), 'desktop-tools-runtime-'));
   const runtime = join(root, 'opencode');
-  await writeFile(runtime, '#!/bin/sh\nif [ "$1" = --version ]; then printf "opencode 2.2.5\\n"; exit 0; fi\nprintf "%s\\n" "$@" >"$DESKTOP_TOOLS_STATE_DIR/argv"\nprintf "%s\\n" "${API_TOKEN-unset}" >"$DESKTOP_TOOLS_STATE_DIR/secret"\nprintf "%s\\n" "$OPENCODE_SERVER_USERNAME" >"$DESKTOP_TOOLS_STATE_DIR/username"\ntest -n "$OPENCODE_SERVER_PASSWORD" && printf present >"$DESKTOP_TOOLS_STATE_DIR/password-present"\ntest -f "$DESKTOP_TOOLS_PROMPT_EVIDENCE" && printf "%s\\n%s\\n%s\\n" "$DESKTOP_TOOLS_PROMPT_VERSION" "$DESKTOP_TOOLS_PROMPT_DIGEST" "$DESKTOP_TOOLS_CONTEXT_DIGEST" >"$DESKTOP_TOOLS_STATE_DIR/prompt-binding"\nprintf "%s\\n" "$OPENCODE_CONFIG_CONTENT" >"$DESKTOP_TOOLS_STATE_DIR/opencode-config"\n', { mode: 0o700 });
+  await writeFile(runtime, '#!/bin/sh\nif [ "$1" = --version ]; then printf "opencode 2.2.5\\n"; exit 0; fi\nprintf "%s\\n" "$@" >"$DESKTOP_TOOLS_STATE_DIR/argv"\nprintf "%s\\n" "${API_TOKEN-unset}" >"$DESKTOP_TOOLS_STATE_DIR/secret"\nprintf "%s\\n" "$OPENCODE_SERVER_USERNAME" >"$DESKTOP_TOOLS_STATE_DIR/username"\nprintf "%s\\n" "$HOME" >"$DESKTOP_TOOLS_STATE_DIR/observed-home"\nprintf "%s\\n" "$TMPDIR" >"$DESKTOP_TOOLS_STATE_DIR/observed-tmpdir"\npwd -P >"$DESKTOP_TOOLS_STATE_DIR/observed-cwd"\ntest -n "$OPENCODE_SERVER_PASSWORD" && printf present >"$DESKTOP_TOOLS_STATE_DIR/password-present"\ntest -f "$DESKTOP_TOOLS_PROMPT_EVIDENCE" && printf "%s\\n%s\\n%s\\n" "$DESKTOP_TOOLS_PROMPT_VERSION" "$DESKTOP_TOOLS_PROMPT_DIGEST" "$DESKTOP_TOOLS_CONTEXT_DIGEST" >"$DESKTOP_TOOLS_STATE_DIR/prompt-binding"\nprintf "%s\\n" "$OPENCODE_CONFIG_CONTENT" >"$DESKTOP_TOOLS_STATE_DIR/opencode-config"\n', { mode: 0o700 });
   await chmod(runtime, 0o700);
   const sha256 = createHash('sha256').update(await readFile(runtime)).digest('hex');
   const state = join(root, 'state');
@@ -159,6 +159,9 @@ test('run binds only private loopback and strips inherited secret variables', as
   assert.equal(await readFile(join(item.state, 'secret'), 'utf8'), 'unset\n');
   assert.equal(await readFile(join(item.state, 'username'), 'utf8'), 'desktop-tools\n');
   assert.equal(await readFile(join(item.state, 'password-present'), 'utf8'), 'present');
+  assert.equal(await readFile(join(item.state, 'observed-home'), 'utf8'), `${join(item.state, 'home')}\n`);
+  assert.equal(await readFile(join(item.state, 'observed-tmpdir'), 'utf8'), `${join(item.state, 'tmp')}\n`);
+  assert.equal(await readFile(join(item.state, 'observed-cwd'), 'utf8'), `${await realpath(item.state)}\n`);
   assert.equal(await readFile(join(item.state, 'prompt-binding'), 'utf8'), `${PROVISIONING_PROMPT_VERSION}\n${item.prompt.context.promptDigest}\n${item.prompt.context.contextDigest}\n`);
   const evidencePath = join(item.state, 'history', 'prompt-bindings', `${item.prompt.context.contextDigest}.json`);
   const evidence = JSON.parse(await readFile(evidencePath, 'utf8'));
@@ -285,6 +288,8 @@ test('minimal environment contains no inherited credential-shaped values', () =>
   assert.equal(environment.DEEPSEEK_API_KEY, undefined);
   assert.equal(environment.OPENAI_API_KEY, undefined);
   assert.equal(environment.DESKTOP_TOOLS_STATE_DIR, '/tmp/desktop-tools-state');
+  assert.equal(environment.HOME, '/tmp/desktop-tools-state/home');
+  assert.equal(environment.TMPDIR, '/tmp/desktop-tools-state/tmp');
   assert.equal(environment.OPENCODE_DISABLE_PROJECT_CONFIG, '1');
   assert.deepEqual(JSON.parse(environment.OPENCODE_CONFIG_CONTENT).permissions, [{ action: '*', resource: '*', effect: 'deny' }]);
   delete process.env.AWS_SECRET_ACCESS_KEY;

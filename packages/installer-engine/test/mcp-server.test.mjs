@@ -144,11 +144,25 @@ test('pinned OpenCode discovers the signed local Desktop Tools MCP server', {
   const item = await fixture();
   const configRoot = join(item.root, 'opencode-config'); await mkdir(configRoot, { mode: 0o700 });
   const configPath = join(configRoot, 'opencode.json');
-  const config = { mcp: { servers: { 'desktop-tools': { type: 'local', enabled: true, command: [
+  const config = {
+    permissions: [
+      { action: '*', resource: '*', effect: 'deny' },
+      ...DESKTOP_TOOLS_TYPED_TOOL_NAMES.map(action => ({ action, resource: '*', effect: 'allow' })),
+      { action: 'shell', resource: '*', effect: 'deny' },
+      { action: 'edit', resource: '*', effect: 'deny' },
+      { action: 'execute', resource: '*', effect: 'deny' },
+      { action: 'external_directory', resource: '*', effect: 'deny' },
+    ],
+    policies: [
+      { action: 'tool.use', resource: '*', effect: 'deny' },
+      ...DESKTOP_TOOLS_TYPED_TOOL_NAMES.map(name => ({ action: 'tool.use', resource: `${name}:*`, effect: 'allow' })),
+    ],
+    mcp: { servers: { 'desktop-tools': { type: 'local', enabled: true, command: [
     '/usr/bin/env', '-i', 'PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin', 'LANG=C.UTF-8', process.execPath,
     item.server, '--engine', item.engine, '--engine-sha256', item.options.engineSha256, '--context', item.contextPath,
     '--state-root', item.stateRoot, '--consent-dir', item.consentDirectory,
-  ] } } } };
+  ] } } },
+  };
   await writeFile(configPath, `${JSON.stringify(config)}\n`, { mode: 0o600 });
   const port = await availablePort();
   const child = spawn(process.env.OPENCODE_PINNED_BINARY, ['serve', '--hostname', '127.0.0.1', '--port', String(port)], {
@@ -173,6 +187,15 @@ test('pinned OpenCode discovers the signed local Desktop Tools MCP server', {
     }
     assert.match(JSON.stringify(status) || diagnostics, /desktop-tools/);
     assert.match(JSON.stringify(status) || diagnostics, /connected/i);
+    const configResponse = await fetch(`http://127.0.0.1:${port}/api/config`, {
+      headers: { authorization: `Basic ${Buffer.from('opencode:test-password').toString('base64')}` },
+    });
+    assert.equal(configResponse.ok, true);
+    const loaded = JSON.stringify(await configResponse.json());
+    for (const action of ['shell', 'edit', 'execute', 'external_directory']) {
+      assert.match(loaded, new RegExp(`(?:permissions|permission).*${action}`));
+    }
+    for (const tool of DESKTOP_TOOLS_TYPED_TOOL_NAMES) assert.match(loaded, new RegExp(tool));
   } finally {
     try { process.kill(-child.pid, 'SIGTERM'); } catch {}
     await new Promise(resolvePromise => child.once('exit', resolvePromise));
