@@ -4,6 +4,7 @@ import test from 'node:test';
 import { deriveBoundNormalizedPlan } from '../dist/engine.js';
 import { composeNativeDebianPackageSlice } from '../dist/native-debian-composition.js';
 import { derivePrivilegedBrokerAuthority } from '../dist/privileged-broker-derivation.js';
+import { PrivilegedBrokerControllerInputSchema } from '../dist/privileged-broker-controller-contract.js';
 
 const hash = value => createHash('sha256').update(value).digest('hex');
 const compare = (left, right) => left.localeCompare(right, undefined, { numeric: true });
@@ -38,7 +39,7 @@ async function fixture() {
   facts, composed.desiredState, 'release-1', '2026-11-08T12:00:01.000Z');
   const root = '/run/desktop-tools/authority/release-1';
   return {
-    schemaVersion: 1, runId: 'run-1', approvedPlanDigest: plan.digest, plan,
+    schemaVersion: 1, approvalMode: 'trusted-local', runId: 'run-1', approvedPlanDigest: plan.digest, plan,
     operations: composed.operations.operations, desiredState: composed.desiredState, hostFacts: facts, descriptor: payload,
     releaseProof: { manifestPath: `${root}/manifest`, signaturePath: `${root}/manifest.sig`, catalogPath: `${root}/catalog.json`,
       manifestSha256: '1'.repeat(64), trust: { keyId: 'desktop-release', publicKey: `ssh-ed25519 ${'A'.repeat(43)}=` } },
@@ -79,4 +80,15 @@ test('derivation rejects plan, operation, descriptor, and socket identity drift'
     const candidate = structuredClone(input); mutate(candidate);
     assert.throws(() => derivePrivilegedBrokerAuthority(candidate));
   }
+});
+
+test('approval mode is explicit and hosted authority never falls back to trusted-local', async () => {
+  const local = derivePrivilegedBrokerAuthority(await fixture()).controllerInput;
+  assert.equal(local.approvalMode, 'trusted-local');
+  assert.throws(() => PrivilegedBrokerControllerInputSchema.parse({ ...local, approvalMode: 'signed-device' }),
+    /requires exact approval/);
+  assert.throws(() => PrivilegedBrokerControllerInputSchema.parse({ ...local,
+    deviceApproval: {}, brokerApprovalDelegationPath: local.helperPath,
+    brokerApprovalDelegationDigest: '0'.repeat(64), brokerApprovalMinimumRevocationEpoch: 0 }),
+  /Invalid input|trusted-local/);
 });

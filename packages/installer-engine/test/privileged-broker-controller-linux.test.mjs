@@ -51,7 +51,7 @@ async function exactInput(runId, authorityRoot, helperPath, runtimePath, workerP
   const artifact = (artifactId, value, file) => ({ artifactId, url: `https://desktop.tools/${artifactId}`,
     sourcePath: join(authorityRoot, file), sha256: hash(value), sizeBytes: 10, mode: '0600' });
   return derivePrivilegedBrokerAuthority({
-    schemaVersion: 1, runId, approvedPlanDigest: plan.digest, plan, operations: composed.operations.operations,
+    schemaVersion: 1, approvalMode: 'trusted-local', runId, approvedPlanDigest: plan.digest, plan, operations: composed.operations.operations,
     desiredState: composed.desiredState, hostFacts: facts, descriptor: payload,
     releaseProof: { manifestPath: join(authorityRoot, 'manifest'), signaturePath: join(authorityRoot, 'manifest.sig'),
       catalogPath: join(authorityRoot, 'catalog.json'), manifestSha256: '1'.repeat(64),
@@ -139,7 +139,7 @@ test('Linux root controller accepts exact signed-device authority without local 
     const brokerApprovalDelegationPath = join(dirname(controllerInput.helperPath), 'broker-approval-signer-delegation.json');
     await writeFile(brokerApprovalDelegationPath, bytes, { mode: 0o400 });
     await chown(brokerApprovalDelegationPath, 0, 0);
-    return { controllerInput: { ...controllerInput, deviceApproval, brokerApprovalDelegationPath,
+    return { controllerInput: { ...controllerInput, approvalMode: 'signed-device', deviceApproval, brokerApprovalDelegationPath,
       brokerApprovalDelegationDigest: hash(bytes), brokerApprovalMinimumRevocationEpoch: 1 } };
   });
 });

@@ -3,7 +3,7 @@ import { DesiredStateInputSchema, HostFactsSchema, NativeOfflinePayloadDescripto
 import { NativePackageOperationSchema, OfflineOperationManifestSchema } from './offline-execution.js';
 import { PrivilegedBrokerExecutionAuthoritySchema,
   privilegedBrokerDescriptorDigest, privilegedBrokerExecutionAuthorityDigest } from './privileged-broker-authority.js';
-import { PrivilegedBrokerControllerInputSchema } from './privileged-broker-controller-contract.js';
+import { PrivilegedBrokerControllerDraftInputSchema } from './privileged-broker-controller-contract.js';
 import { PrivilegedBrokerClientConfigSchema } from './privileged-broker-client.js';
 import { PrivilegedBrokerGrantSchema, privilegedBrokerDigest } from './privileged-broker-protocol.js';
 
@@ -14,6 +14,7 @@ const authorityPath = z.string().regex(/^\/run\/desktop-tools\/authority\/[a-z0-
 
 export const PrivilegedBrokerDerivationInputSchema = z.strictObject({
   schemaVersion: z.literal(1),
+  approvalMode: z.enum(['trusted-local', 'signed-device']),
   runId: identifier,
   approvedPlanDigest: digest,
   plan: NormalizedPlanSchema,
@@ -99,7 +100,7 @@ export function derivePrivilegedBrokerAuthority(inputValue: unknown) {
   const closureDigest = privilegedBrokerExecutionAuthorityDigest(authority);
   const consentDigest = privilegedBrokerDigest({
     schemaVersion: 1,
-    method: 'trusted-local',
+    method: input.approvalMode,
     hostId: input.hostFacts.hostId,
     releaseId: input.plan.releaseId,
     runId: input.runId,
@@ -129,8 +130,9 @@ export function derivePrivilegedBrokerAuthority(inputValue: unknown) {
     issuedAt: input.issuedAt,
     expiresAt: input.expiresAt,
   });
-  const controllerInput = PrivilegedBrokerControllerInputSchema.parse({
+  const controllerInput = PrivilegedBrokerControllerDraftInputSchema.parse({
     schemaVersion: 1,
+    approvalMode: input.approvalMode,
     grant,
     authority,
     helperPath: input.helperPath,

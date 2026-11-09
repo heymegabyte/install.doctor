@@ -118,7 +118,7 @@ export async function runPrivilegedBrokerController(inputValue: unknown, testOpt
       && input.brokerApprovalMinimumRevocationEpoch !== undefined
       ? await openVerifiedRootFile(input.brokerApprovalDelegationPath, input.brokerApprovalDelegationDigest, false, 65_536)
       : undefined;
-    const publication = input.deviceApproval && delegation
+    const publication = input.approvalMode === 'signed-device' && input.deviceApproval && delegation
       ? await (async () => {
           try {
             const bytes = Buffer.alloc(Number((await delegation.stat()).size));
@@ -132,9 +132,10 @@ export async function runPrivilegedBrokerController(inputValue: unknown, testOpt
               maximumApprovalLifetimeSeconds: trust.maximumApprovalLifetimeSeconds });
           } finally { await delegation.close(); }
         })()
-      : await publishTrustedLocalBrokerGrant({ grant: input.grant, authority: input.authority,
+      : input.approvalMode === 'trusted-local' ? await publishTrustedLocalBrokerGrant({ grant: input.grant, authority: input.authority,
           ...(testOptions.confirmation ? { confirmation: testOptions.confirmation } : {}),
-          ...(testOptions.now ? { now: testOptions.now } : {}) });
+          ...(testOptions.now ? { now: testOptions.now } : {}) })
+        : (() => { throw new Error('signed-device approval authority is unavailable'); })();
     const child = spawn('/proc/self/fd/3', [
       'serve', '--socket', input.socketPath, '--uid', String(input.grant.enrolledUid), '--gid', String(input.socketGid),
       '--runtime', input.runtimePath, '--runtime-sha256', input.runtimeDigest,

@@ -11,8 +11,9 @@ const socketPath = z.string().min(1).max(4096).refine(value => isAbsolute(value)
   && /^\/run\/desktop-tools\/broker\/[a-z0-9][a-z0-9._-]{0,127}\/broker\.sock$/.test(value),
 'broker socket must be the exact per-run socket path');
 
-export const PrivilegedBrokerControllerInputSchema = z.strictObject({
+const ControllerInput = z.strictObject({
   schemaVersion: z.literal(1),
+  approvalMode: z.enum(['trusted-local', 'signed-device']),
   grant: PrivilegedBrokerGrantSchema,
   authority: PrivilegedBrokerExecutionAuthoritySchema,
   helperPath: runtimePath,
@@ -29,7 +30,9 @@ export const PrivilegedBrokerControllerInputSchema = z.strictObject({
   brokerApprovalDelegationPath: runtimePath.optional(),
   brokerApprovalDelegationDigest: digest.optional(),
   brokerApprovalMinimumRevocationEpoch: z.number().int().nonnegative().safe().optional(),
-}).superRefine((value, context) => {
+});
+
+function commonRefinement(value: z.infer<typeof ControllerInput>, context: z.RefinementCtx): void {
   if (value.helperDigest !== value.grant.brokerExecutableDigest
     || value.runtimeDigest !== value.grant.runtimeDigest || value.workerDigest !== value.grant.workerDigest) {
     context.addIssue({ code: 'custom', message: 'controller executable authority differs from the exact grant' });
@@ -37,10 +40,19 @@ export const PrivilegedBrokerControllerInputSchema = z.strictObject({
   if (dirname(value.socketPath).split('/').at(-1) !== value.grant.runId) {
     context.addIssue({ code: 'custom', message: 'controller socket path differs from the exact run' });
   }
+}
+
+export const PrivilegedBrokerControllerDraftInputSchema = ControllerInput.superRefine(commonRefinement);
+
+export const PrivilegedBrokerControllerInputSchema = ControllerInput.superRefine((value, context) => {
+  commonRefinement(value, context);
   const delegated = [value.brokerApprovalDelegationPath, value.brokerApprovalDelegationDigest,
     value.brokerApprovalMinimumRevocationEpoch].filter(entry => entry !== undefined).length;
-  if (value.deviceApproval === undefined ? delegated !== 0 : delegated !== 3) {
-    context.addIssue({ code: 'custom', message: 'signed device approval requires exact release delegation evidence' });
+  if (value.approvalMode === 'signed-device' && (value.deviceApproval === undefined || delegated !== 3)) {
+    context.addIssue({ code: 'custom', message: 'signed-device mode requires exact approval and release delegation evidence' });
+  }
+  if (value.approvalMode === 'trusted-local' && (value.deviceApproval !== undefined || delegated !== 0)) {
+    context.addIssue({ code: 'custom', message: 'trusted-local mode cannot contain hosted approval authority' });
   }
 });
 

@@ -3507,7 +3507,7 @@ const fd=fs.openSync(requestPath,fs.constants.O_RDONLY|(fs.constants.O_NOFOLLOW|
 const d=request.descriptor, env=process.env; const required=name=>{const value=env[name];if(!value)throw new Error(`missing ${name}`);return value;};
 const artifact=(artifactId,url,path,sha256,sizeBytes)=>({artifactId,url,sourcePath:path,sha256,sizeBytes:Number(sizeBytes),mode:'0600'});
 const issuedAt=new Date();const expiresAt=new Date(issuedAt.getTime()+20*60*1000);const runId=request.runId;
-const value={...request,schemaVersion:1,enrolledUid:uid,socketGid:gid,
+const value={...request,schemaVersion:1,approvalMode:request.desiredState?.offline===true?'trusted-local':'signed-device',enrolledUid:uid,socketGid:gid,
   releaseProof:{manifestPath:required('DESKTOP_TOOLS_BROKER_MANIFEST_PATH'),signaturePath:required('DESKTOP_TOOLS_BROKER_SIGNATURE_PATH'),catalogPath:required('DESKTOP_TOOLS_BROKER_CATALOG_PATH'),manifestSha256:required('DESKTOP_TOOLS_BROKER_MANIFEST_SHA256'),trust:{keyId:required('INSTALL_DOCTOR_RELEASE_SIGNER_ID'),publicKey:required('INSTALL_DOCTOR_RELEASE_SIGNER_PUBLIC_KEY')}},
   artifacts:[
     artifact(d.metadataProof.inRelease.keyring.artifactId,required('DESKTOP_TOOLS_DEBIAN_KEYRING_URL'),required('DESKTOP_TOOLS_BROKER_KEYRING_PATH'),required('DESKTOP_TOOLS_BROKER_KEYRING_SHA256'),required('DESKTOP_TOOLS_DEBIAN_KEYRING_SIZE')),
