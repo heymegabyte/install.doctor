@@ -2133,7 +2133,7 @@ runCanonicalProvisionEngine() {
   local MODE="${1:-apply}" ENGINE="${INSTALL_DOCTOR_ENGINE_PATH:-}" PROVISIONER INVOCATION INVOCATION_DIR NORMALIZED_PLAN APPROVAL_PLAN EVIDENCE_INVOCATION EVIDENCE_RESULT CLEANUP_EVIDENCE_INVOCATION CLEANUP_EVIDENCE_RESULT RUNS_INVOCATION RUNS_RESULT RESUME_RUN_ID STATE_ROOT NODE_MAJOR EXPECTED_NODE RENDERER GENERATE_STATUS ENGINE_STATUS EVIDENCE_STATUS CLEANUP_EVIDENCE_STATUS PLAN_DIGEST APPROVAL ACTUAL_SHA
   local LOAD_PLAN_INVOCATION LOAD_PLAN_RESULT ARTIFACT_DERIVE_INVOCATION ARTIFACT_DERIVE_RESULT ARTIFACT_CACHE_ROOT USER_BIN_ROOT DOCKER_PLUGIN_ROOT
   local CASK_DERIVE_INVOCATION CASK_DERIVE_RESULT FLATPAK_DERIVE_INVOCATION FLATPAK_DERIVE_RESULT FLATPAK_EXECUTABLE FLATPAK_SHA256
-  local NATIVE_DERIVE_INVOCATION NATIVE_DERIVE_RESULT NATIVE_COUNT SERVICE_DERIVE_INVOCATION SERVICE_DERIVE_RESULT SERVICE_COUNT
+  local NATIVE_DERIVE_INVOCATION NATIVE_DERIVE_RESULT NATIVE_COUNT SERVICE_DERIVE_INVOCATION SERVICE_DERIVE_RESULT SERVICE_COUNT SELECTED_SERVICE_COUNT
   case "$MODE" in apply|--plan-only) ;; *) logg error "Unknown canonical engine mode: $MODE"; return 2 ;; esac
   [ -n "$ENGINE" ] && [ -f "$ENGINE" ] && [ ! -L "$ENGINE" ] || { logg error 'Verified installer engine is unavailable'; return 2; }
   command -v node >/dev/null 2>&1 || { logg error 'Node.js is required by the verified installer engine'; return 2; }
@@ -2201,6 +2201,11 @@ NODE
   if [ "$GENERATE_STATUS" -eq 0 ]; then node "$ENGINE" --input "$LOAD_PLAN_INVOCATION" > "$LOAD_PLAN_RESULT"; GENERATE_STATUS=$?; fi
   [ "$GENERATE_STATUS" -eq 0 ] || { logg error 'Unable to derive the selected catalog load plan'; return "$GENERATE_STATUS"; }
   SERVICE_COUNT="$(node -e 'const p=JSON.parse(require("node:fs").readFileSync(process.argv[1],"utf8")); process.stdout.write(String(p.items.filter(i => i.name === "alloy" && i.selected && i.applicable && JSON.stringify(i.actions) === JSON.stringify(["install","start"]) && i.serviceDeclarations?.length === 1 && i.serviceDeclarations[0].name === "alloy.service" && i.serviceDeclarations[0].manager === "systemd" && i.serviceDeclarations[0].privilege === "admin").length))' "$LOAD_PLAN_RESULT")" || return 2
+  SELECTED_SERVICE_COUNT="$(node -e 'const p=JSON.parse(require("node:fs").readFileSync(process.argv[1],"utf8"));if(!Array.isArray(p.selectedServices))process.exit(2);process.stdout.write(String(p.selectedServices.length))' "${INSTALL_DOCTOR_PLAN:?}")" || return 2
+  if [ "$SERVICE_COUNT" -ne "$SELECTED_SERVICE_COUNT" ]; then
+    logg error 'Selected service authority was not admitted exactly; refusing legacy service fallback'
+    return 2
+  fi
   if [ "$SERVICE_COUNT" -gt 0 ]; then
     node - "$SERVICE_DERIVE_INVOCATION" "$LOAD_PLAN_RESULT" <<'NODE'
 const fs = require('node:fs');
