@@ -396,6 +396,36 @@ async function checkLinuxPosture(findings: DiagnosticFinding[]): Promise<void> {
     detail: failedUnits.length === 0 ? "0 failed" : failedUnits.join("; "),
   });
 
+  const uid = typeof process.getuid === "function" ? process.getuid() : -1;
+  const userRuntimeDir = process.env.XDG_RUNTIME_DIR || (uid > 0 ? `/run/user/${uid}` : "");
+  if (uid > 0 && userRuntimeDir && existsSync(`${userRuntimeDir}/bus`)) {
+    const userFailedRes = spawnSync(
+      "systemctl",
+      ["--user", "--failed", "--no-legend", "--plain"],
+      {
+        encoding: "utf8",
+        timeout: 8_000,
+        env: {
+          ...process.env,
+          XDG_RUNTIME_DIR: userRuntimeDir,
+          DBUS_SESSION_BUS_ADDRESS:
+            process.env.DBUS_SESSION_BUS_ADDRESS || `unix:path=${userRuntimeDir}/bus`,
+        },
+      },
+    );
+    const userFailedOut = (userFailedRes.stdout ?? "").trim();
+    const userFailedUnits = userFailedOut
+      ? userFailedOut.split(/\r?\n/).filter((l) => l.trim().length > 0)
+      : [];
+    findings.push({
+      id: "linux-systemd-user-zero-failed",
+      severity: "critical",
+      passed: userFailedRes.status === 0 && userFailedUnits.length === 0,
+      summary: "Zero failed user-scope systemd units",
+      detail: userFailedUnits.length === 0 ? "0 failed" : userFailedUnits.join("; "),
+    });
+  }
+
   const ssOut = runCommand("ss", ["-H", "-lntu"]).stdout;
   const wildcardBindings: string[] = [];
   for (const row of ssOut.split(/\r?\n/)) {
