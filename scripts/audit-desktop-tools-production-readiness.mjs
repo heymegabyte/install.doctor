@@ -48,13 +48,26 @@ async function httpProbe(url) {
 
 async function collect(root) {
   const trust = JSON.parse(readFileSync(`${root}/packages/control-plane/src/release-trust.json`, 'utf8'));
-  const variables = command('gh', ['variable', 'list', '--repo', 'heymegabyte/install.doctor', '--json', 'name']);
-  const environments = command('gh', ['api', 'repos/heymegabyte/install.doctor/environments', '--jq', '.environments[].name']);
+  const variables = command('gh', ['variable', 'list', '--repo', 'heymegabyte/install.doctor', '--json', 'name,value']);
+  const environments = command('gh', ['api', 'repos/heymegabyte/install.doctor/environments']);
+  const variableRows = variables.ok ? JSON.parse(variables.output || '[]') : [];
+  const environmentRows = environments.ok ? JSON.parse(environments.output || '{}').environments ?? [] : [];
+  const environmentPolicies = Object.fromEntries(environmentRows.map(environment => {
+    const rules = Array.isArray(environment.protection_rules) ? environment.protection_rules : [];
+    const reviewers = rules.find(rule => rule.type === 'required_reviewers');
+    return [environment.name, {
+      branchPolicy: rules.some(rule => rule.type === 'branch_policy'),
+      reviewerCount: Array.isArray(reviewers?.reviewers) ? reviewers.reviewers.length : 0,
+      preventSelfReview: reviewers?.prevent_self_review === true
+    }];
+  }));
   return {
     schemaVersion: 1,
     signerIds: Object.keys(trust.products?.['desktop-tools']?.signers ?? {}).sort(),
-    variableNames: variables.ok ? JSON.parse(variables.output || '[]').map(value => value.name).sort() : [],
-    environmentNames: environments.ok ? environments.output.split(/\s+/).filter(Boolean).sort() : [],
+    configuredSignerId: variableRows.find(value => value.name === 'DESKTOP_TOOLS_RELEASE_SIGNER_ID')?.value ?? '',
+    variableNames: variableRows.map(value => value.name).sort(),
+    environmentNames: environmentRows.map(value => value.name).sort(),
+    environmentPolicies,
     commandErrors: [variables, environments].flatMap(result => result.ok ? [] : [result.error]),
     dns: { apex: publicAddresses('desktop.tools'), profile: publicAddresses('example.desktop.tools') },
     http: {
@@ -73,12 +86,25 @@ export function evaluateProductionReadiness(evidence) {
   check('trusted-signer', signers.length > 0 && signers.every(id => /^desktop-[a-z0-9._-]+$/.test(id)), signers.length ? `${signers.length} canonical signer(s)` : 'no Desktop Tools signer is trusted');
   const missingVariables = REQUIRED_VARIABLES.filter(name => !variables.has(name));
   check('github-variables', missingVariables.length === 0, missingVariables.length ? `missing: ${missingVariables.join(', ')}` : 'all nonsecret variable names configured');
+  const configuredSignerId = typeof evidence.configuredSignerId === 'string' ? evidence.configuredSignerId : '';
+  check('signer-variable-binding', configuredSignerId.length > 0 && signers.includes(configuredSignerId), configuredSignerId ? `configured signer ${configuredSignerId} must exist in versioned trust` : 'DESKTOP_TOOLS_RELEASE_SIGNER_ID has no value');
   const missingEnvironments = REQUIRED_ENVIRONMENTS.filter(name => !environments.has(name));
   check('protected-environments', missingEnvironments.length === 0, missingEnvironments.length ? `missing: ${missingEnvironments.join(', ')}` : 'all release environments configured');
+  const policies = evidence.environmentPolicies && typeof evidence.environmentPolicies === 'object' ? evidence.environmentPolicies : {};
+  const sign = policies['desktop-tools-release-sign'] ?? {};
+  const activate = policies['desktop-tools-release-activate'] ?? {};
+  const publish = policies['desktop-tools-release-publish'] ?? {};
+  const monitor = policies['desktop-tools-release-monitor'] ?? {};
+  const protectedPolicy = sign.branchPolicy === true && sign.reviewerCount > 0 && sign.preventSelfReview === true
+    && activate.branchPolicy === true && activate.reviewerCount > 0 && activate.preventSelfReview === true
+    && publish.branchPolicy === true
+    && monitor.branchPolicy === true && monitor.reviewerCount === 0;
+  check('environment-protections', protectedPolicy, protectedPolicy ? 'sign and activation require independent review; publish is branch-bound; monitor remains nonblocking' : 'release environment protections do not match the required authority split');
   check('dns-apex', evidence.dns?.apex?.length > 0, evidence.dns?.apex?.length ? 'desktop.tools resolves publicly' : 'desktop.tools has no public address');
   check('dns-profile', evidence.dns?.profile?.length > 0, evidence.dns?.profile?.length ? 'example.desktop.tools resolves publicly' : 'example.desktop.tools has no public address');
   const profile = evidence.http?.profile ?? {};
-  check('profile-launcher', profile.reachable === true && profile.status === 200 && profile.shellLauncher === true, `reachable=${profile.reachable === true} status=${profile.status ?? 0} shell=${profile.shellLauncher === true}`);
+  const shellContentType = typeof profile.contentType === 'string' && profile.contentType.toLowerCase().startsWith('text/x-shellscript');
+  check('profile-launcher', profile.reachable === true && profile.status === 200 && profile.shellLauncher === true && shellContentType, `reachable=${profile.reachable === true} status=${profile.status ?? 0} shell=${profile.shellLauncher === true} contentType=${profile.contentType ?? ''}`);
   const unknown = evidence.http?.unknown ?? {};
   check('unknown-profile-fail-closed', unknown.reachable === true && [404, 410].includes(unknown.status) && unknown.shellLauncher === false, `reachable=${unknown.reachable === true} status=${unknown.status ?? 0} shell=${unknown.shellLauncher === true}`);
   check('evidence-collection', Array.isArray(evidence.commandErrors) && evidence.commandErrors.length === 0, evidence.commandErrors?.length ? evidence.commandErrors.join('; ') : 'required read-only commands succeeded');
