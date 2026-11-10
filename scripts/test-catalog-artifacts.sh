@@ -61,6 +61,9 @@ assert rclone["postInstall"] == "post-rclone.sh"
 atuin = next(item for item in items if item["name"] == "atuin")
 assert "configured" not in atuin
 assert "postInstall" not in atuin
+vim = next(item for item in items if item["name"] == "vim")
+assert vim["configured"] is True
+assert vim["postInstall"] == "post-vim.sh"
 ripgrep = next(item for item in items if item["name"] == "ripgrep")
 assert "systemIdentityReconciliation" not in ripgrep
 PY
