@@ -22,6 +22,7 @@ require 'MZHPV512HDGL'
 require 'zpool set autotrim=off'
 require 'systemctl mask apport-autoreport.timer snapd.snap-repair.timer wsdd.service apport.service apport-forward.socket whoopsie.service'
 require 'swapon --show=NAME --noheadings'
+require '!30min_ram_swapped_out *'
 require 'ERROR: PBS_PASSWORD is unavailable'
 require 'exit "$RC"'
 

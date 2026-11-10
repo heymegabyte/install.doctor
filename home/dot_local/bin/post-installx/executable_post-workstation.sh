@@ -3747,13 +3747,55 @@ if command -v zsh >/dev/null 2>&1 && [ -f "$HOME/.zshrc" ]; then
   zsh -c 'zcompile "$HOME/.zshrc" 2>/dev/null || true' || true
 fi
 
-# Netdata (Linux): sync user health.d alarms, disable the fail2ban collector when fail2ban is masked, reload
+# Netdata (Linux): sync user health.d alarms, disable stock zram swap-out false positive & masked fail2ban collector, reload
 if [ "$(uname -s)" = "Linux" ] && [ -d /etc/netdata ]; then
+  _nd_restart_required=0
   if [ -d "$HOME/.config/netdata/health.d" ]; then
     for _nd_health in "$HOME"/.config/netdata/health.d/*.conf; do
       [ -f "$_nd_health" ] || continue
       run_root install -m 0644 "$_nd_health" "/etc/netdata/health.d/$(basename "$_nd_health")" 2>/dev/null || true
     done
+  fi
+  if [ -r /proc/swaps ] && grep -q '/dev/zram' /proc/swaps && command -v node >/dev/null 2>&1; then
+    _nd_conf=/etc/netdata/netdata.conf
+    if ! grep -qF '!30min_ram_swapped_out *' "$_nd_conf" 2>/dev/null; then
+      _nd_tmp="$(mktemp)"
+      node -e '
+        const fs = require("node:fs");
+        const src = fs.existsSync(process.argv[1]) ? fs.readFileSync(process.argv[1], "utf8") : "";
+        const line = "    enabled alarms = !30min_ram_swapped_out *";
+        const rows = src ? src.split(/\r?\n/) : [];
+        let inHealth = false;
+        let updated = false;
+        for (let i = 0; i < rows.length; i += 1) {
+          const trimmed = rows[i].trim();
+          if (trimmed.startsWith("[")) {
+            if (inHealth && !updated) {
+              rows.splice(i, 0, line);
+              updated = true;
+            }
+            inHealth = trimmed === "[health]";
+            continue;
+          }
+          if (inHealth && /^\s*enabled alarms\s*=/.test(rows[i])) {
+            rows[i] = line;
+            updated = true;
+          }
+        }
+        if (inHealth && !updated) {
+          rows.push(line);
+          updated = true;
+        }
+        let out = rows.join("\n").replace(/\n*$/, "\n");
+        if (!updated) {
+          out = `${out}[health]\n${line}\n`;
+        }
+        fs.writeFileSync(process.argv[2], out, "utf8");
+      ' "$_nd_conf" "$_nd_tmp"
+      run_root install -m 0644 "$_nd_tmp" "$_nd_conf" 2>/dev/null || true
+      rm -f "$_nd_tmp"
+      _nd_restart_required=1
+    fi
   fi
   if [ "$(systemctl is-enabled fail2ban.service 2>/dev/null || true)" = "masked" ]; then
     GO_D=/etc/netdata/go.d.conf
@@ -3765,7 +3807,9 @@ if [ "$(uname -s)" = "Linux" ] && [ -d /etc/netdata ]; then
       printf 'modules:\n  fail2ban: no\n' | run_root tee "$GO_D" >/dev/null 2>&1 || true
     fi
   fi
-  if command -v netdatacli >/dev/null 2>&1; then
+  if [ "$_nd_restart_required" -eq 1 ]; then
+    run_root systemctl restart netdata >/dev/null 2>&1 || true
+  elif command -v netdatacli >/dev/null 2>&1; then
     run_root netdatacli reload-health >/dev/null 2>&1 || run_root systemctl reload-or-restart netdata >/dev/null 2>&1 || true
   else
     run_root systemctl reload-or-restart netdata >/dev/null 2>&1 || true
