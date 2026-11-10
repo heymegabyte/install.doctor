@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# shellcheck disable=SC2154
 set -euo pipefail
 
 logical_identity="tools.theme.oneprompt.converge"
@@ -6,6 +7,7 @@ legacy_identity="com.heymegabyte.oneprompt-convergence"
 package_name="@theme.tools/workflows"
 package_version="1.0.0"
 artifact_sha256="bcdbac76045a97091e864915e52fb2fe588a3c0711f067f583ac053f0d24a0fb"
+oneprompt_revision="53e8a023df088b24ddd3b1936af6f0393e397c88"
 state_schema_version="2"
 state_root="${ONEPROMPT_CONVERGENCE_STATE_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/oneprompt-convergence}"
 config_root="$state_root/host-adapter"
@@ -13,7 +15,7 @@ recovery_root="$state_root/recovery"
 log_file="$state_root/controller.log"
 
 die() { printf 'oneprompt-convergence-supervisor: %s\n' "$*" >&2; exit 64; }
-validate_path() { case "$1" in /*) ;; *) die "path must be absolute: $1" ;; esac; case "$1" in *$'\n'*|*$'\r'*) die "path contains a line break" ;; esac; }
+validate_path() { case "$1" in /*) ;; *) die "path must be absolute: $1" ;; esac; case "$1" in *$'\n'*|*$'\r'*|*$'\t'*|*"'"*|*'"'*|*'<'*|*'>'*|*'&'*) die "path contains unsafe characters" ;; esac; }
 sha256() { shasum -a 256 "$1" | awk '{print $1}'; }
 json_string() { printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' | tr -d '\r\n'; }
 manager() { if test -n "${ONEPROMPT_SUPERVISOR_MANAGER:-}"; then printf '%s\n' "$ONEPROMPT_SUPERVISOR_MANAGER"; elif test "$(uname -s)" = Darwin && command -v launchctl >/dev/null; then printf launchd; elif command -v systemctl >/dev/null; then printf systemd; else printf unsupported; fi; }
@@ -23,7 +25,8 @@ repo_revision() { git -C "$1" rev-parse HEAD 2>/dev/null || die "repository must
 
 read_config() {
   test -r "$config_root/config" || die "service is not installed by install.doctor"
-  # shellcheck disable=SC1090
+  # The validated, mode-0600 adapter-owned file defines the configured_* contract.
+  # shellcheck disable=SC1090,SC1091,SC2154
   . "$config_root/config"
 }
 definition_path_for() { if test "$1" = launchd; then printf '%s/Library/LaunchAgents/%s.plist\n' "$HOME" "$logical_identity"; else printf '%s/.config/systemd/user/%s.service\n' "$HOME" "$logical_identity"; fi; }
@@ -92,6 +95,7 @@ install_service() {
   local repo_arg="" machine_arg="" expected_revision="" service_manager repo worker definition observed_revision machine_hash definition_hash legacy
   while test "$#" -gt 0; do case "$1" in --repo) repo_arg="$2"; shift 2;; --machine-interface) machine_arg="$2"; shift 2;; --revision) expected_revision="$2"; shift 2;; *) die "unknown install option: $1";; esac; done
   test -n "$repo_arg" && test -n "$machine_arg" && test -n "$expected_revision" || die "install requires --repo, --machine-interface, and --revision"
+  test "$expected_revision" = "$oneprompt_revision" || die "unsupported OnePrompt revision"
   repo="$(canonical_repo "$repo_arg")"; validate_path "$machine_arg"; machine_arg="$(cd "$(dirname "$machine_arg")" && pwd -P)/$(basename "$machine_arg")"; test -x "$machine_arg" || die "machine interface is not executable"
   observed_revision="$(repo_revision "$repo")"; test "$observed_revision" = "$expected_revision" || die "requested revision does not match checkout"
   worker="$repo/scripts/convergence-worker.mjs"; test -f "$worker" || die "worker is missing: $worker"
@@ -141,8 +145,63 @@ adopt_plan() {
   printf '{"schemaVersion":1,"logicalIdentity":"%s","legacyDefinition":"%s","canonicalDefinition":"%s","legacyPresent":%s,"canonicalPresent":%s,"mutationPerformed":false}\n' "$logical_identity" "$(json_string "$legacy")" "$(json_string "$canonical")" "$(test -e "$legacy" && printf true || printf false)" "$(test -e "$canonical" && printf true || printf false)"
 }
 
+legacy_active() {
+  local m="$1"
+  if test "$m" = launchd; then launchctl print "gui/$(id -u)/$legacy_identity" >/dev/null 2>&1
+  else systemctl --user is-active --quiet oneprompt-convergence.service; fi
+}
+
+adopt_service() {
+  local repo_arg="" machine_arg="" expected_revision="" m legacy old_config bundle desired
+  while test "$#" -gt 0; do case "$1" in --repo) repo_arg="$2"; shift 2;; --machine-interface) machine_arg="$2"; shift 2;; --revision) expected_revision="$2"; shift 2;; *) die "unknown adopt option: $1";; esac; done
+  test -n "$repo_arg" && test -n "$machine_arg" && test -n "$expected_revision" || die "adopt requires --repo, --machine-interface, and --revision"
+  m="$(manager)"; legacy="$(legacy_definition_for "$m")"; old_config="$state_root/config"
+  if test -r "$config_root/config" && test ! -e "$legacy"; then
+    read_config
+    test "$adoption_state" = adopted || die "canonical service exists without completed adoption"
+    verify_artifacts >/dev/null
+    printf 'adoption already complete and verified\n'
+    return
+  fi
+  test -f "$legacy" || die "legacy definition is missing"
+  test -r "$old_config/repository" && test -r "$old_config/manager" || die "legacy definition is not adapter-managed"
+  repo_arg="$(canonical_repo "$repo_arg")"; test "$(sed -n '1p' "$old_config/repository")" = "$repo_arg" || die "legacy repository differs from requested repository"
+  legacy_active "$m" && die "legacy writer is active; stop it before adoption"
+  test ! -e "$(definition_path_for "$m")" || die "canonical definition already exists without completed adoption"
+  bundle="$recovery_root/adoption-$(date -u +%Y%m%dT%H%M%SZ)-$$"; mkdir -p "$bundle"; chmod 700 "$bundle"
+  cp -p "$legacy" "$bundle/legacy-definition"; cp -R "$old_config" "$bundle/legacy-config"
+  test ! -f "$state_root/state.sqlite" || cp -p "$state_root/state.sqlite" "$bundle/state.sqlite.before"
+  printf '{"schemaVersion":1,"legacyIdentity":"%s","canonicalIdentity":"%s","repository":"%s"}\n' "$legacy_identity" "$logical_identity" "$(json_string "$repo_arg")" | write_atomic "$bundle/manifest.json"
+  rm -f "$legacy"
+  install_service --repo "$repo_arg" --machine-interface "$machine_arg" --revision "$expected_revision"
+  read_config
+  desired="$(machine_call status | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>console.log(JSON.parse(s).desiredMode))')"
+  if test -e "$state_root/stop"; then machine_call stop >/dev/null
+  elif test -e "$state_root/pause" || test "$desired" = paused; then machine_call pause >/dev/null
+  fi
+  printf "adoption_state='adopted'\nrecovery_bundle='%s'\n" "$bundle" >>"$config_root/config"
+  rm -f "$old_config/repository" "$old_config/manager" "$old_config/controller"
+  rmdir "$old_config" 2>/dev/null || die "legacy config contains unknown files; recovery retained and adoption requires operator review"
+  printf 'adopted legacy definition into inactive %s; recovery=%s\n' "$logical_identity" "$bundle"
+}
+
+rollback_service() {
+  read_config; test "$adoption_state" = adopted || die "no completed adoption to roll back"
+  test -d "$recovery_bundle" && test -r "$recovery_bundle/manifest.json" || die "recovery bundle is missing"
+  machine_call stop >/dev/null; manager_stop
+  local status; status="$(machine_call status)"
+  node -e 'const s=JSON.parse(process.argv[1]); if(s.ownerId!=null||s.desiredMode!=="stopped")process.exit(1)' "$status" || die "controller still has an owner or is not stopped"
+  test "$(sha256 "$configured_definition")" = "$configured_definition_sha256" || die "canonical definition changed; refusing rollback"
+  rm -f "$configured_definition"; test "$configured_manager" != systemd || rm -f "$(timer_path)"
+  cp -p "$recovery_bundle/legacy-definition" "$(legacy_definition_for "$configured_manager")"
+  mkdir -p "$state_root/config"; cp -R "$recovery_bundle/legacy-config/." "$state_root/config/"
+  test ! -f "$recovery_bundle/state.sqlite.before" || cp -p "$recovery_bundle/state.sqlite.before" "$state_root/state.sqlite"
+  : >"$state_root/stop"; rm -f "$config_root/config"
+  printf 'restored inactive legacy definition; stopped intent retained\n'
+}
+
 uninstall_service() { read_config; machine_call stop >/dev/null; manager_stop; test "$(sha256 "$configured_definition")" = "$configured_definition_sha256" || die "refusing to remove changed definition"; rm -f "$configured_definition"; test "$configured_manager" != systemd || rm -f "$(timer_path)"; rm -f "$config_root/config"; printf 'removed managed definition; stopped state retained\n'; }
 show_logs() { test -f "$log_file" && tail -n "${ONEPROMPT_LOG_LINES:-200}" "$log_file" || printf 'no controller log at %s\n' "$log_file"; }
 
-command="${1:-}"; test -n "$command" || die "usage: install|start|status|logs|pause|resume|stop|verify|run|adopt-plan|uninstall"; shift
-case "$command" in install) install_service "$@";; start) start_service;; status) status_service;; logs) show_logs;; pause) pause_service;; resume) resume_service;; stop) stop_service;; verify) verify_service;; run) run_worker;; adopt-plan) adopt_plan;; uninstall) uninstall_service;; *) die "unknown command: $command";; esac
+command="${1:-}"; test -n "$command" || die "usage: install|start|status|logs|pause|resume|stop|verify|run|adopt-plan|adopt|rollback|uninstall"; shift
+case "$command" in install) install_service "$@";; start) start_service;; status) status_service;; logs) show_logs;; pause) pause_service;; resume) resume_service;; stop) stop_service;; verify) verify_service;; run) run_worker;; adopt-plan) adopt_plan;; adopt) adopt_service "$@";; rollback) rollback_service;; uninstall) uninstall_service;; *) die "unknown command: $command";; esac
