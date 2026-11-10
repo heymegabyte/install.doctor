@@ -3,6 +3,7 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 PACKAGE="$ROOT/package.json"
+TASKFILE="$ROOT/Taskfile.yml"
 P=0 F=0
 pass(){ printf 'PASS %s\n' "$*"; P=$((P + 1)); }
 fail(){ printf 'FAIL %s\n' "$*" >&2; F=$((F + 1)); }
@@ -24,6 +25,20 @@ if jq -e '.scripts.test == "task test" and .scripts.build == "task validate:soft
 else
   fail 'root npm scripts do not delegate to canonical Taskfile gates'
 fi
+
+for required in \
+  'bash scripts/test-all.sh' \
+  'cd packages/aid-core && npm test' \
+  'cd packages/installer-engine && npm test' \
+  'cd packages/desktop-tools-runtime && npm test' \
+  'npm run test:desktop-tools-status' \
+  'cd packages/control-plane && npm test'; do
+  if grep -Fqx "      - $required" "$TASKFILE"; then
+    pass "full repository gate includes $required"
+  else
+    fail "full repository gate omits $required"
+  fi
+done
 
 printf 'root-package-policy: %d passed, %d failed\n' "$P" "$F"
 [ "$F" -eq 0 ]

@@ -12,10 +12,12 @@ tasks:
       - task: test
 
   test:
-    desc: Run all repository test suites, aid-core tests, and control-plane tests
+    desc: Run every production package and repository verification suite
     cmds:
       - bash scripts/test-all.sh
       - cd packages/aid-core && npm test
+      - cd packages/installer-engine && npm test
+      - cd packages/desktop-tools-runtime && npm test
       - npm run test:desktop-tools-status
       - cd packages/control-plane && npm test
 
@@ -33,6 +35,16 @@ tasks:
     desc: Type-check and run unit tests for packages/control-plane
     cmds:
       - cd packages/control-plane && npm test
+
+  test:installer-engine:
+    desc: Build, bundle, and test the Desktop Tools installer mutation authority
+    cmds:
+      - cd packages/installer-engine && npm test
+
+  test:desktop-tools-runtime:
+    desc: Build and test the pinned Desktop Tools runtime supervisor
+    cmds:
+      - cd packages/desktop-tools-runtime && npm test
 
   validate:software:
     desc: Validate software.yml schema and installer keys
