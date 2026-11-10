@@ -54,6 +54,13 @@ assert artifact_only["platforms"] == ["windows"]
 assert artifact_only["artifacts"][0]["id"] == "fixture-artifact"
 rclone = next(item for item in items if item["name"] == "rclone")
 assert rclone["systemIdentityReconciliation"] is True
+assert rclone["configured"] is True
+assert rclone["postInstall"] == "post-rclone.sh"
+# A legacy hook is not execution authority and must not be advertised as an
+# automated configuration step until it adopts the signed typed-hook protocol.
+atuin = next(item for item in items if item["name"] == "atuin")
+assert "configured" not in atuin
+assert "postInstall" not in atuin
 ripgrep = next(item for item in items if item["name"] == "ripgrep")
 assert "systemIdentityReconciliation" not in ripgrep
 PY

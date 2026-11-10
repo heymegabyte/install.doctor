@@ -299,18 +299,24 @@ try {
   console.error('gen-catalog: WARNING — could not merge _short/_github/_home/_docs/installMode (' + (e && e.message) + '); proceeding without enrichment');
 }
 
-// R14/F15/F06 — flag which tools get an AUTOMATED first-run CONFIGURATION step. A post-installx hook
-// (home/dot_local/bin/post-installx/executable_post-<tool>.sh) runs after installx installs <tool>, so the
-// App Store can tell the user "configured on install" (vs a bare install) + name the hook as the concrete
-// action (R14 "config completeness + repair actions" / F15 "report config coverage per app"). Match by
-// catalog name OR bin (a hook is named for either). Fail-soft: if the dir is unreadable, skip (no flag).
+// R14/F15/F06 — flag only tools whose automated first-run configuration hook is admitted by the signed
+// engine's typed-hook protocol. Hook existence alone is not execution authority: legacy post-installx
+// scripts are intentionally rejected before mutation. Keeping the catalog on the same exact marker
+// contract prevents the App Store from promising configuration that the planner will refuse to run.
+// Match by catalog name OR bin (a hook is named for either). Fail-soft if the directory is unreadable.
 try {
   const hookDir = join(ROOT, 'home', 'dot_local', 'bin', 'post-installx');
+  const typedHookMarker = '# INSTALL_DOCTOR_TYPED_HOOK_PROTOCOL=1\n';
   const hooks = new Map(); // tool -> hook filename (chezmoi `executable_` prefix stripped)
+  let legacyHooks = 0;
   for (const f of readdirSync(hookDir)) {
     const base = f.startsWith('executable_') ? f.slice('executable_'.length) : f;
     const mt = base.match(/^post-(.+)\.sh$/);
-    if (mt) hooks.set(mt[1], 'post-' + mt[1] + '.sh');
+    if (!mt) continue;
+    const source = readFileSync(join(hookDir, f), 'utf8');
+    const markerCount = source.split(typedHookMarker).length - 1;
+    if (markerCount === 1) hooks.set(mt[1], 'post-' + mt[1] + '.sh');
+    else legacyHooks++;
   }
   let configured = 0;
   for (const it of items) {
@@ -322,7 +328,7 @@ try {
       configured++;
     }
   }
-  console.error(`gen-catalog: ${configured} entries flagged configured-on-install (post-installx hooks of ${hooks.size})`);
+  console.error(`gen-catalog: ${configured} entries flagged configured-on-install (${hooks.size} typed hooks; ${legacyHooks} legacy hooks excluded)`);
 } catch (e) {
   console.error('gen-catalog: WARNING — could not scan post-installx hooks (' + (e && e.message) + ')');
 }
