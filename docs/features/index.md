@@ -46,7 +46,7 @@ The majority of Install Doctor software and configurations can be applied on any
 * Fully configured settings, with sensible defaults, like the Git config template that automatically injects your name and e-mail address so Git does not hassle you about it again. The Git config also includes a beautifully styled `git diff` tool powered by [delta](https://github.com/dandavison/delta) and [bat](https://github.com/sharkdp/bat).
 * Start projects with boilerplates and synchronize settings across all your repositories by simply running `npm init` which utilizes [GitSync.org](https://gitsync.org). *Coming soon..*
 * Automatically configure your SSH settings including your `~/.ssh/authorized_keys` file which links to your GitHub SSH keys so that you can SSH into your machine with the same SSH keys you use to access GitHub
-* Enroll devices or publish services through explicitly selected Cloudflare WARP/Tunnel and firewall plans
+* Enroll devices or publish services through explicitly selected Cloudflare connector plans; firewall packages may be selected, while automatic host-firewall policy mutation remains explicitly unsupported
 * Synchronize browser profiles to a private git repository so that you do not have to reset up all your extensions settings and logins the next time you distro hop or reformat. *This is a WIP.*
 * Patches VMWare so that it can run macOS and also automatically accepts the license agreement and applies a license key
 

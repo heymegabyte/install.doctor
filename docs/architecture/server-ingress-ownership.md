@@ -12,17 +12,18 @@ Server networking is split into four layers. Each fact has one owner; downstream
 | Layer | Owns | Must not own |
 |---|---|---|
 | Agent skills | Policy: Tunnel-first ingress, enabled default-deny inbound firewall, explicit least-privilege exceptions, verification requirements | Executable machine configuration or host-specific ports |
-| Install Doctor | Portable mechanisms: install `cloudflared` and a supported firewall, enable their services, apply safe default policies, expose idempotent commands and verification | Cloudflare account topology, production DNS names, origin mappings, or permanent host-specific exceptions |
+| Desktop Tools | Portable mechanisms: typed `cloudflared` configuration and selected firewall package delivery; host-firewall policy convergence is currently unsupported and fails closed | Cloudflare account topology, production DNS names, origin mappings, permanent host-specific exceptions, or unjournaled firewall mutation |
 | Host recovery repo | Desired state for one machine: tunnel identity reference, ingress hostnames/services, Access intent, firewall exception manifest, rollback and recovery commands | Universal package-install logic or undocumented dashboard-only state |
 | Cloudflare control plane and live host | Reconciled runtime state and observed evidence | Source-of-truth configuration edited only in a dashboard |
 
 ## Install Doctor contract
 
-Install Doctor provides capabilities, not estate topology:
+Desktop Tools provides capabilities, not estate topology. Current shipped status:
 
-- Install `cloudflared`, `ufw` or `firewalld`, and their service dependencies for applicable roles.
-- Keep `setup-firewall` idempotent: allow outbound, deny unsolicited inbound, preserve established traffic, enable the firewall, and report the resulting policy.
-- Keep the cloudflared post-install hook able to install, enable, start, and health-check the connector service.
+- The selected package plan may install `cloudflared` and an explicitly selected firewall package where the platform catalog supports it.
+- The typed `cloudflared` hook can check, apply, and verify its bounded connector configuration.
+- Automatic UFW, Docker-chain, Fail2ban, and macOS Application Firewall mutation is unavailable. The legacy writer fails with status 20 and does not retrieve sudo credentials or alter host state.
+- A future firewall operation must snapshot exact policy and service state, preserve the active management path, arm a bounded recovery action, verify allowed and denied paths, and prove rollback reachability before this capability can be advertised as supported.
 - Accept host-owned desired state or secret references as inputs. Never generate production hostname, port, Access-policy, or exception decisions from a generic machine role.
 - Do not open ports merely because software was installed. Package presence is not authorization for ingress.
 
@@ -39,9 +40,9 @@ Every server or host repo records:
 
 ## Reconciliation and verification
 
-Provision in this order: install mechanisms → establish Tunnel → verify the private origin → apply host declarations → enable default-deny firewall → verify from allowed and denied paths → remove bootstrap access.
+The intended future reconciliation order is: install mechanisms → establish Tunnel → verify the private origin → apply host declarations → enable default-deny firewall with an armed rollback → verify from allowed and denied paths → cancel rollback → remove bootstrap access. The current release stops before firewall mutation.
 
-Completion requires:
+Promotion of firewall convergence requires evidence that:
 
 - `cloudflared` and the firewall enabled after reboot.
 - No unintended listener on a public interface.

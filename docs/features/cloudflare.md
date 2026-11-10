@@ -40,7 +40,7 @@ By default, we do not open up any incoming ports in the firewall to the public i
 
 ### Ownership boundary
 
-Install Doctor installs and operates the portable connector/firewall mechanisms. It does not own production DNS names, origin mappings, Access policies, or permanent firewall exceptions. Those belong to the machine's host recovery repository and are reconciled into Cloudflare and the host firewall. See [Server ingress ownership](/docs/architecture/server-ingress-ownership).
+Desktop Tools can install the selected portable connector/firewall packages and currently operates only the admitted typed connector configuration. Host-firewall policy convergence is explicitly unsupported and makes no changes until lockout-safe typed rollback and reachability verification are implemented. Desktop Tools does not own production DNS names, origin mappings, Access policies, or permanent firewall exceptions. Those belong to the machine's host recovery repository. See [Server ingress ownership](/docs/architecture/server-ingress-ownership).
 
 The automatic `host-$HOST` flow below is a bootstrap mechanism. A production server must consume host-owned desired state; it must not infer its permanent ingress or firewall exceptions merely from installed software.
 
