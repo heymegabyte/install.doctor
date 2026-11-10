@@ -11,37 +11,29 @@ mkdir -p "$SECRET_DIR"
 chmod 700 "$SECRET_DIR"
 
 if [ -f "$SECRET_DIR/vnc-password" ]; then
-  python3 - "$SECRET_DIR" << 'PY'
-import ctypes, ctypes.util, sys
-from pathlib import Path
-
-sec = Path(sys.argv[1])
-pw = (sec / "vnc-password").read_bytes().strip()[:8].ljust(8, b"\0")
-fixed = (23, 82, 107, 6, 35, 78, 88, 7)
-key = bytes(int(f"{v:08b}"[::-1], 2) for v in fixed)
-crypto = ctypes.CDLL(ctypes.util.find_library("crypto"))
-sched = ctypes.create_string_buffer(128)
-crypto.DES_set_key_unchecked(ctypes.create_string_buffer(key, 8), sched)
-out = ctypes.create_string_buffer(8)
-crypto.DES_ecb_encrypt(ctypes.create_string_buffer(pw, 8), out, sched, 1)
-dest = sec / "vnc-passwd"
-dest.write_bytes(out.raw)
-dest.chmod(0o600)
-PY
+  node -e 'const fs=require("node:fs");const b=fs.readFileSync(process.argv[1]).subarray(0,8);const o=Buffer.alloc(8);b.copy(o);process.stdout.write(o)' \
+    "$SECRET_DIR/vnc-password" | openssl enc -des-ecb -nopad -K e84ad660c4721ae0 > "$SECRET_DIR/vnc-passwd"
+  chmod 0600 "$SECRET_DIR/vnc-passwd"
 fi
 
 pkill -u "$USER" -f "(/usr/bin/Xvnc :20|/usr/bin/Xkasmvnc :20)" 2>/dev/null || true
 sleep 0.5
 rm -f /tmp/.X20-lock /tmp/.X11-unix/X20
 
-# Prefer integrated GPU (00:02.0 -> renderD129) for desktop/KasmVNC DRI3 when a discrete NVIDIA GPU is present
+# Prefer an Intel or AMD integrated GPU before any discrete-GPU fallback.
 DRI_ARGS=()
-if [ -e /dev/dri/by-path/pci-0000:00:02.0-render ]; then
-  DRI_ARGS=(-hw3d -drinode "$(readlink -f /dev/dri/by-path/pci-0000:00:02.0-render)")
-elif [ -e /dev/dri/renderD129 ]; then
-  DRI_ARGS=(-hw3d -drinode /dev/dri/renderD129)
-elif [ -e /dev/dri/renderD128 ]; then
-  DRI_ARGS=(-hw3d -drinode /dev/dri/renderD128)
+for render_node in /sys/class/drm/renderD*/device/vendor; do
+  [ -r "$render_node" ] || continue
+  vendor="$(cat "$render_node")"
+  if [ "$vendor" = "0x8086" ] || [ "$vendor" = "0x1002" ]; then
+    device="/dev/dri/$(basename "$(dirname "$(dirname "$render_node")")")"
+    [ -e "$device" ] && DRI_ARGS=(-hw3d -drinode "$device") && break
+  fi
+done
+if [ "${#DRI_ARGS[@]}" -eq 0 ]; then
+  for device in /dev/dri/renderD128 /dev/dri/renderD129; do
+    [ -e "$device" ] && DRI_ARGS=(-hw3d -drinode "$device") && break
+  done
 fi
 
 CERT_FILE="$SECRET_DIR/kasmvnc.pem"
@@ -62,12 +54,11 @@ if [ -x "$HOME/.local/bin/kasmvnc-fit-browser" ]; then
 else
   mkdir -p "$WEB_ROOT"
   cp -a /usr/share/kasmvnc/www/. "$WEB_ROOT/"
-  python3 - "$WEB_ROOT" <<'PY'
-from pathlib import Path
-import sys
-
-marker = "default-local-scaling"
-script = """<script id="default-local-scaling">
+  node - "$WEB_ROOT" <<'NODE'
+const fs = require("node:fs");
+const path = require("node:path");
+const marker = "default-local-scaling";
+const script = `<script id="default-local-scaling">
 (() => {
   const params = new URLSearchParams(window.location.search);
   if (!params.has('resize')) {
@@ -78,14 +69,13 @@ script = """<script id="default-local-scaling">
   }
 })();
 </script>
-"""
-for page_name in ("index.html", "screen.html"):
-    page_path = Path(sys.argv[1]) / page_name
-    html = page_path.read_text()
-    if marker not in html:
-        html = html.replace("</head>", f"{script}</head>", 1)
-        page_path.write_text(html)
-PY
+`;
+for (const name of ["index.html", "screen.html"]) {
+  const file = path.join(process.argv[2], name);
+  const html = fs.readFileSync(file, "utf8");
+  if (!html.includes(marker)) fs.writeFileSync(file, html.replace("</head>", `${script}</head>`));
+}
+NODE
 fi
 
 GEOMETRY="${KASMVNC_GEOMETRY:-1920x1080}"

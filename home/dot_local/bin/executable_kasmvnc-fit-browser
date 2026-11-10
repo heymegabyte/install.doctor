@@ -13,18 +13,12 @@ fi
 
 geometry="${KASMVNC_SOURCE_GEOMETRY:-}"
 if [ -z "$geometry" ] && [ -f "$HOME/.config/monitors.xml" ]; then
-  geometry="$(python3 - "$HOME/.config/monitors.xml" <<'PY'
-import sys
-import xml.etree.ElementTree as ET
-
-root = ET.parse(sys.argv[1]).getroot()
-mode = root.find('.//logicalmonitor/monitor/mode') or root.find('.//monitor/mode')
-if mode is not None:
-    width = mode.findtext('width')
-    height = mode.findtext('height')
-    if width and height:
-        print(f'{width}x{height}')
-PY
+  geometry="$(node - "$HOME/.config/monitors.xml" <<'NODE'
+const fs = require("node:fs");
+const xml = fs.readFileSync(process.argv[2], "utf8");
+const mode = xml.match(/<mode>[\s\S]*?<width>(\d+)<\/width>[\s\S]*?<height>(\d+)<\/height>[\s\S]*?<\/mode>/);
+if (mode) process.stdout.write(`${mode[1]}x${mode[2]}`);
+NODE
 )"
 fi
 geometry="${geometry:-1920x1080}"
@@ -34,12 +28,11 @@ esac
 
 mkdir -p "$TARGET_WEBROOT" "$STATE_DIR"
 cp -a "$SOURCE_WEBROOT/." "$TARGET_WEBROOT/"
-python3 - "$TARGET_WEBROOT" <<'PY'
-from pathlib import Path
-import sys
-
-marker = 'install-doctor-default-local-scaling'
-script = '''<script id="install-doctor-default-local-scaling">
+node - "$TARGET_WEBROOT" <<'NODE'
+const fs = require("node:fs");
+const path = require("node:path");
+const marker = "install-doctor-default-local-scaling";
+const script = `<script id="install-doctor-default-local-scaling">
 (() => {
   const params = new URLSearchParams(window.location.search);
   if (!params.has('resize')) {
@@ -48,14 +41,13 @@ script = '''<script id="install-doctor-default-local-scaling">
   }
 })();
 </script>
-'''
-for name in ('index.html', 'screen.html'):
-    path = Path(sys.argv[1]) / name
-    html = path.read_text()
-    if marker not in html:
-        html = html.replace('</head>', f'{script}</head>', 1)
-        path.write_text(html)
-PY
+`;
+for (const name of ["index.html", "screen.html"]) {
+  const file = path.join(process.argv[2], name);
+  const html = fs.readFileSync(file, "utf8");
+  if (!html.includes(marker)) fs.writeFileSync(file, html.replace("</head>", `${script}</head>`));
+}
+NODE
 
 umask 077
 printf 'KASMVNC_GEOMETRY=%s\nKASMVNC_WEB_ROOT=%q\n' "$geometry" "$TARGET_WEBROOT" > "$STATE_FILE"

@@ -101,26 +101,19 @@ if [ ! -s "$secret_dir/vnc-password" ] && command -v get-secret >/dev/null 2>&1;
   fi
 fi
 
-python3 - "$secret_dir" <<'PY'
-from pathlib import Path
-import secrets
-import subprocess
-import sys
-
-target = Path(sys.argv[1])
-password = target / "vnc-password"
-if not password.exists():
-    password.write_text(secrets.token_urlsafe(12)[:8] + "\n")
-    password.chmod(0o600)
-pem = target / "kasmvnc.pem"
-if not pem.exists():
-    subprocess.run(["openssl", "req", "-x509", "-nodes", "-days", "3650", "-newkey", "rsa:2048", "-keyout", str(pem), "-out", str(pem), "-subj", "/CN=localhost"], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    pem.chmod(0o600)
-PY
+if [ ! -e "$secret_dir/vnc-password" ]; then
+  node -e 'process.stdout.write(require("node:crypto").randomBytes(12).toString("base64url").slice(0,8)+"\n")' > "$secret_dir/vnc-password"
+  chmod 0600 "$secret_dir/vnc-password"
+fi
+if [ ! -e "$secret_dir/kasmvnc.pem" ]; then
+  openssl req -x509 -nodes -days 3650 -newkey rsa:2048 \
+    -keyout "$secret_dir/kasmvnc.pem" -out "$secret_dir/kasmvnc.pem" -subj /CN=localhost >/dev/null 2>&1
+  chmod 0600 "$secret_dir/kasmvnc.pem"
+fi
 
 kasm_passwd="$(command -v kasmvncpasswd 2>/dev/null || dirname "$xkasm")/kasmvncpasswd"
 if [ ! -s "$secret_dir/kasmpasswd" ] && [ -x "$kasm_passwd" ]; then
-  bootstrap="$(python3 -c 'import secrets; print(secrets.token_urlsafe(18))')"
+  bootstrap="$(node -e 'process.stdout.write(require("node:crypto").randomBytes(18).toString("base64url"))')"
   printf '%s\n%s\n' "$bootstrap" "$bootstrap" | "$kasm_passwd" -u "${USER:-ubuntu}" -w "$secret_dir/kasmpasswd" >/dev/null
   chmod 600 "$secret_dir/kasmpasswd"
 fi

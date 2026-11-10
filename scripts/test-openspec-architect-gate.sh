@@ -23,5 +23,5 @@ for name in onboard explore; do
   }
 done
 
-python3 "$ROOT/scripts/validate-openspec-architect.py"
+node --experimental-strip-types "$ROOT/scripts/validate-openspec-architect.ts"
 echo 'openspec-architect-gate: PASS'

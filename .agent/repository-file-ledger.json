@@ -1,20 +1,20 @@
 {
   "schemaVersion": 2,
-  "trackedFileCount": 3226,
-  "classifiedFileCount": 3226,
+  "trackedFileCount": 3237,
+  "classifiedFileCount": 3237,
   "complete": true,
   "byClass": {
     "binary-media": 537,
-    "configuration": 329,
+    "configuration": 333,
     "documentation": 253,
     "encrypted": 781,
     "generated": 41,
     "gitlink-or-directory": 1,
     "other": 408,
-    "script": 225,
+    "script": 229,
     "sentinel-empty": 18,
     "source": 270,
-    "test": 363
+    "test": 366
   },
   "reviewCount": 0,
   "files": [
@@ -7799,9 +7799,9 @@
     {
       "path": "home/.chezmoiremove",
       "kind": "other",
-      "bytes": 2835,
+      "bytes": 3029,
       "mode": "644",
-      "sha256": "b1af722902a75e88ec5d3e5efafb5871f9dc2afcff08a92c66d976c13f1b6426",
+      "sha256": "a8e1feee0a46ed241022404e521f3c77ae45237ca4f9fd8c7a1151df271e566a",
       "validators": [
         "tracked",
         "readable",
@@ -29667,6 +29667,28 @@
       "issues": []
     },
     {
+      "path": "home/dot_config/netdata/health.d/reboot.conf",
+      "kind": "configuration",
+      "bytes": 258,
+      "mode": "644",
+      "sha256": "7b43456883f6c28e36d244a66f0a80c719753ee7d34efd7f230712dc00568fd8",
+      "validators": [
+        "tracked",
+        "readable",
+        "sha256",
+        "parser-or-schema",
+        "references"
+      ],
+      "disposition": "retain-validated",
+      "reason": "Configuration is retained when its parser/schema and repository reference gates pass.",
+      "evidence": [
+        "parser-or-schema",
+        "references",
+        "repository-suite"
+      ],
+      "issues": []
+    },
+    {
       "path": "home/dot_config/netdata/health.d/smbios_memory.conf",
       "kind": "configuration",
       "bytes": 139,
@@ -35239,9 +35261,9 @@
     {
       "path": "home/dot_local/bin/executable_desktop-autologin",
       "kind": "script",
-      "bytes": 4439,
+      "bytes": 4558,
       "mode": "755",
-      "sha256": "60e8b7327488e91dcd45c7a94b4157249b9627dde4ce196c2fd7532af4d26760",
+      "sha256": "9867803cd3addc0a3e72988c2f2025a1a9e5883b87f0d34ed3fda11bb5258289",
       "validators": [
         "tracked",
         "readable",
@@ -35523,9 +35545,9 @@
     {
       "path": "home/dot_local/bin/executable_kasmvnc-fit-browser",
       "kind": "script",
-      "bytes": 2234,
+      "bytes": 2227,
       "mode": "755",
-      "sha256": "357a248d7281df555c9ecee35bd0ea411051e8a584f8ef10172a2488f2dc6fcf",
+      "sha256": "f6fd72268aee309a80a74fa56dc8c4c2f61aeea07d9c12e30d47943092353b52",
       "validators": [
         "tracked",
         "readable",
@@ -35547,9 +35569,9 @@
     {
       "path": "home/dot_local/bin/executable_kasmvnc-gnome-loopback-run",
       "kind": "script",
-      "bytes": 5006,
+      "bytes": 4880,
       "mode": "755",
-      "sha256": "c4c16e7e39f01b9a6096a45f07824aa583f0eb029ce6d6ea1066389a3d2470f5",
+      "sha256": "758ec1b4d6178aab3511a940688fd5d7d7b71acc6f288378727bbb9be73ec48c",
       "validators": [
         "tracked",
         "readable",
@@ -35779,9 +35801,33 @@
     {
       "path": "home/dot_local/bin/executable_populate-secrets",
       "kind": "script",
-      "bytes": 8831,
-      "mode": "644",
-      "sha256": "c69ea4b0d1fb6047456332f5b8c7e82a2bab72014e34a1f1debfe7b77feef6f0",
+      "bytes": 334,
+      "mode": "755",
+      "sha256": "60a72096f8686b22c73414b962e445c9f56b1d2236332d46c979a32bd2d3b0b1",
+      "validators": [
+        "tracked",
+        "readable",
+        "sha256",
+        "syntax",
+        "shellcheck-or-runtime-test",
+        "callers"
+      ],
+      "disposition": "retain-validated",
+      "reason": "Executable script is retained when syntax, static analysis, caller, and runtime contract gates pass.",
+      "evidence": [
+        "syntax",
+        "shellcheck-or-runtime-test",
+        "callers",
+        "repository-suite"
+      ],
+      "issues": []
+    },
+    {
+      "path": "home/dot_local/bin/executable_populate-secrets.ts",
+      "kind": "script",
+      "bytes": 9020,
+      "mode": "755",
+      "sha256": "2cb18f0cefae9d21a2bd39e2d43f5c5111dbc51f33057dc9f8f139d98e9116f9",
       "validators": [
         "tracked",
         "readable",
@@ -35923,9 +35969,33 @@
     {
       "path": "home/dot_local/bin/executable_syncoid-ssh-wrapper",
       "kind": "script",
-      "bytes": 3468,
+      "bytes": 343,
       "mode": "755",
-      "sha256": "5f66672231d6e95ccf545e3992b383c44d67e78ee5e834839821c238ae186821",
+      "sha256": "20baf96d6f934f1550375cae26a93e303a85e7e418fa5fb5d5d0df5de21ed326",
+      "validators": [
+        "tracked",
+        "readable",
+        "sha256",
+        "syntax",
+        "shellcheck-or-runtime-test",
+        "callers"
+      ],
+      "disposition": "retain-validated",
+      "reason": "Executable script is retained when syntax, static analysis, caller, and runtime contract gates pass.",
+      "evidence": [
+        "syntax",
+        "shellcheck-or-runtime-test",
+        "callers",
+        "repository-suite"
+      ],
+      "issues": []
+    },
+    {
+      "path": "home/dot_local/bin/executable_syncoid-ssh-wrapper.ts",
+      "kind": "script",
+      "bytes": 5982,
+      "mode": "755",
+      "sha256": "681629f7207b1146e37ea0a3d4b1c1dc3bcc14e9e608771ddbb16631b4942c40",
       "validators": [
         "tracked",
         "readable",
@@ -36065,6 +36135,54 @@
       "issues": []
     },
     {
+      "path": "home/dot_local/bin/executable_workstation-doctor",
+      "kind": "script",
+      "bytes": 383,
+      "mode": "755",
+      "sha256": "8ee41949cc8fedb2e109132a11ff9f90edc882c7eec4bddca037bed9b98b52c5",
+      "validators": [
+        "tracked",
+        "readable",
+        "sha256",
+        "syntax",
+        "shellcheck-or-runtime-test",
+        "callers"
+      ],
+      "disposition": "retain-validated",
+      "reason": "Executable script is retained when syntax, static analysis, caller, and runtime contract gates pass.",
+      "evidence": [
+        "syntax",
+        "shellcheck-or-runtime-test",
+        "callers",
+        "repository-suite"
+      ],
+      "issues": []
+    },
+    {
+      "path": "home/dot_local/bin/executable_workstation-doctor.ts",
+      "kind": "script",
+      "bytes": 18090,
+      "mode": "755",
+      "sha256": "f84bbe212a064a9bbacce2589d47a8c29ec5d0e8f6dc0ca29aee443a16776619",
+      "validators": [
+        "tracked",
+        "readable",
+        "sha256",
+        "syntax",
+        "shellcheck-or-runtime-test",
+        "callers"
+      ],
+      "disposition": "retain-validated",
+      "reason": "Executable script is retained when syntax, static analysis, caller, and runtime contract gates pass.",
+      "evidence": [
+        "syntax",
+        "shellcheck-or-runtime-test",
+        "callers",
+        "repository-suite"
+      ],
+      "issues": []
+    },
+    {
       "path": "home/dot_local/bin/firejail/README.md",
       "kind": "documentation",
       "bytes": 834,
@@ -36111,6 +36229,32 @@
         "repository-suite"
       ],
       "issues": []
+    },
+    {
+      "path": "home/dot_local/bin/package.json",
+      "kind": "configuration",
+      "bytes": 42,
+      "mode": "644",
+      "sha256": "609158e6c5fbc237939fa3ddf7faab80ab690bdc0c8d584414a885130103c4e8",
+      "validators": [
+        "tracked",
+        "readable",
+        "sha256",
+        "parser-or-schema",
+        "references"
+      ],
+      "disposition": "retain-validated",
+      "reason": "Configuration is retained when its parser/schema and repository reference gates pass.",
+      "evidence": [
+        "parser-or-schema",
+        "references",
+        "repository-suite"
+      ],
+      "issues": [],
+      "duplicatePaths": [
+        "home/private_dot_claude/hooks/package.json",
+        "scripts/package.json"
+      ]
     },
     {
       "path": "home/dot_local/bin/pipx/README.md",
@@ -36475,9 +36619,9 @@
     {
       "path": "home/dot_local/bin/post-installx/executable_post-kasmvnc.sh",
       "kind": "script",
-      "bytes": 10192,
+      "bytes": 10119,
       "mode": "755",
-      "sha256": "d323750dd2e920768143616aa7ff5d35f7fa915897e7c1245490ea818f7217e8",
+      "sha256": "c81ac639a1c569bb7d9289b106cce5ed6c3f8138cf2c19137ca577651dc5b53f",
       "validators": [
         "tracked",
         "readable",
@@ -36643,9 +36787,9 @@
     {
       "path": "home/dot_local/bin/post-installx/executable_post-nvidia-toolkit.sh",
       "kind": "script",
-      "bytes": 3725,
+      "bytes": 3975,
       "mode": "755",
-      "sha256": "306151c629920fd442de8f9a0d59b2a4c173357285a6bad1631e91ddb56a1877",
+      "sha256": "fcb9f5a7e86bfa38f7bed7aa416508a05fbadfc5b966f58240e31a960f5a6e99",
       "validators": [
         "tracked",
         "readable",
@@ -37075,9 +37219,9 @@
     {
       "path": "home/dot_local/bin/post-installx/executable_post-workstation.sh",
       "kind": "script",
-      "bytes": 169884,
+      "bytes": 171131,
       "mode": "755",
-      "sha256": "e880ca3210235aa61b48cd30968cbc483836324e14fdaf9fb59135cbfa802021",
+      "sha256": "b75d524aa8865e73818669b62a3936a6c7fa0535a0dd42984ee6fd946daec2d9",
       "validators": [
         "tracked",
         "readable",
@@ -42125,11 +42269,11 @@
       "issues": []
     },
     {
-      "path": "home/private_dot_claude/hooks/executable_enforce-cloudflare-deploy.py",
+      "path": "home/private_dot_claude/hooks/executable_enforce-cloudflare-deploy.ts",
       "kind": "script",
-      "bytes": 2873,
-      "mode": "644",
-      "sha256": "f33bb7eab3087d6deb17ef2e9dc1e9de1bf6b9a6594ec6832f8cd90724269957",
+      "bytes": 1961,
+      "mode": "755",
+      "sha256": "31d9cd80aeee58a289cc3f7dcb0b65e6bcdf72cff36a7da58be8d236ee7f4dc5",
       "validators": [
         "tracked",
         "readable",
@@ -42149,11 +42293,11 @@
       "issues": []
     },
     {
-      "path": "home/private_dot_claude/hooks/executable_guard-oversized-output.py",
+      "path": "home/private_dot_claude/hooks/executable_guard-oversized-output.ts",
       "kind": "script",
-      "bytes": 3236,
-      "mode": "644",
-      "sha256": "9b35ece4b943941cf8cded09bb746b04bd117a29590e886e979ecb1ed7206947",
+      "bytes": 2613,
+      "mode": "755",
+      "sha256": "e86462c1d790cc801689e9407332a47751c9165256d7725e301dc51fc1dad03c",
       "validators": [
         "tracked",
         "readable",
@@ -42173,11 +42317,11 @@
       "issues": []
     },
     {
-      "path": "home/private_dot_claude/hooks/executable_guard-oversized-read.py",
+      "path": "home/private_dot_claude/hooks/executable_guard-oversized-read.ts",
       "kind": "script",
-      "bytes": 4150,
-      "mode": "644",
-      "sha256": "a5840b5f9d72ebee8c87caa15e231a6e79804efc3a376d9b8bc5590e2b60eec3",
+      "bytes": 2702,
+      "mode": "755",
+      "sha256": "f36c6dbedd438a0d4d9938fe00598c2c6c62d6dad03b76f6f08480ec8cf7c423",
       "validators": [
         "tracked",
         "readable",
@@ -42195,13 +42339,39 @@
         "repository-suite"
       ],
       "issues": []
+    },
+    {
+      "path": "home/private_dot_claude/hooks/package.json",
+      "kind": "configuration",
+      "bytes": 42,
+      "mode": "644",
+      "sha256": "609158e6c5fbc237939fa3ddf7faab80ab690bdc0c8d584414a885130103c4e8",
+      "validators": [
+        "tracked",
+        "readable",
+        "sha256",
+        "parser-or-schema",
+        "references"
+      ],
+      "disposition": "retain-validated",
+      "reason": "Configuration is retained when its parser/schema and repository reference gates pass.",
+      "evidence": [
+        "parser-or-schema",
+        "references",
+        "repository-suite"
+      ],
+      "issues": [],
+      "duplicatePaths": [
+        "home/dot_local/bin/package.json",
+        "scripts/package.json"
+      ]
     },
     {
       "path": "home/private_dot_claude/private_settings.json.tmpl",
       "kind": "other",
-      "bytes": 8279,
+      "bytes": 8328,
       "mode": "644",
-      "sha256": "5acfedfbaa425a7a2d0d4dac8d4ef52f5b9b7cf108e9f426ce552a5efbee7a12",
+      "sha256": "bced063cdffc4dbabd793047af8c516f96559b5421438f6bf46db82ec360d681",
       "validators": [
         "tracked",
         "readable",
@@ -53255,6 +53425,32 @@
       "issues": []
     },
     {
+      "path": "scripts/package.json",
+      "kind": "configuration",
+      "bytes": 42,
+      "mode": "644",
+      "sha256": "609158e6c5fbc237939fa3ddf7faab80ab690bdc0c8d584414a885130103c4e8",
+      "validators": [
+        "tracked",
+        "readable",
+        "sha256",
+        "parser-or-schema",
+        "references"
+      ],
+      "disposition": "retain-validated",
+      "reason": "Configuration is retained when its parser/schema and repository reference gates pass.",
+      "evidence": [
+        "parser-or-schema",
+        "references",
+        "repository-suite"
+      ],
+      "issues": [],
+      "duplicatePaths": [
+        "home/dot_local/bin/package.json",
+        "home/private_dot_claude/hooks/package.json"
+      ]
+    },
+    {
       "path": "scripts/partials/basic-deps",
       "kind": "other",
       "bytes": 4771,
@@ -55295,6 +55491,32 @@
       "issues": []
     },
     {
+      "path": "scripts/test-darwin-workstation-reachability.sh",
+      "kind": "test",
+      "bytes": 1141,
+      "mode": "755",
+      "sha256": "c20603d05c2948869775db55f32effe98c071ef5698638e19f7b644cc52ae25b",
+      "validators": [
+        "tracked",
+        "readable",
+        "sha256",
+        "parser-or-typecheck",
+        "lint",
+        "tests",
+        "callers"
+      ],
+      "disposition": "retain-validated",
+      "reason": "Source is retained when parser/typecheck, lint, caller, and test gates find no higher-confidence change.",
+      "evidence": [
+        "parser-or-typecheck",
+        "lint",
+        "tests",
+        "callers",
+        "repository-suite"
+      ],
+      "issues": []
+    },
+    {
       "path": "scripts/test-dead-fleet-config.sh",
       "kind": "test",
       "bytes": 4509,
@@ -57065,9 +57287,9 @@
     {
       "path": "scripts/test-openspec-architect-gate.sh",
       "kind": "test",
-      "bytes": 825,
+      "bytes": 849,
       "mode": "755",
-      "sha256": "0f8a5cdbada2f739ba94894fbe53b6be404d0632f729fa4298394fbc4cb7644e",
+      "sha256": "b89713e304ec1b48776ef6da68b1120ee8d23ca15053fa14df36cf979344601d",
       "validators": [
         "tracked",
         "readable",
@@ -59169,6 +59391,58 @@
       "issues": []
     },
     {
+      "path": "scripts/test-workstation-typescript-daemons.sh",
+      "kind": "test",
+      "bytes": 170,
+      "mode": "755",
+      "sha256": "d68b3a8393cf003b49c0acc4eba3ab542f93155045217352840fafbafe9742ae",
+      "validators": [
+        "tracked",
+        "readable",
+        "sha256",
+        "parser-or-typecheck",
+        "lint",
+        "tests",
+        "callers"
+      ],
+      "disposition": "retain-validated",
+      "reason": "Source is retained when parser/typecheck, lint, caller, and test gates find no higher-confidence change.",
+      "evidence": [
+        "parser-or-typecheck",
+        "lint",
+        "tests",
+        "callers",
+        "repository-suite"
+      ],
+      "issues": []
+    },
+    {
+      "path": "scripts/test-workstation-typescript-daemons.ts",
+      "kind": "test",
+      "bytes": 8533,
+      "mode": "644",
+      "sha256": "bcd8539c92d5589050be2978aef5e86e9aea4b1ad5844beca80db46d944db2d2",
+      "validators": [
+        "tracked",
+        "readable",
+        "sha256",
+        "parser-or-typecheck",
+        "lint",
+        "tests",
+        "callers"
+      ],
+      "disposition": "retain-validated",
+      "reason": "Source is retained when parser/typecheck, lint, caller, and test gates find no higher-confidence change.",
+      "evidence": [
+        "parser-or-typecheck",
+        "lint",
+        "tests",
+        "callers",
+        "repository-suite"
+      ],
+      "issues": []
+    },
+    {
       "path": "scripts/test-xdg-config-migration.sh",
       "kind": "test",
       "bytes": 3990,
@@ -59269,11 +59543,11 @@
       "issues": []
     },
     {
-      "path": "scripts/validate-openspec-architect.py",
+      "path": "scripts/validate-openspec-architect.ts",
       "kind": "script",
-      "bytes": 1364,
+      "bytes": 2113,
       "mode": "755",
-      "sha256": "7d8c705b6c8bba2d1fd1b5af87dcf5ed1c90bc72b739bd5694836d11b9f4a320",
+      "sha256": "6146baac273b771c4038d5ceec5208cb4d5bcc47bd01ff063a431ff03e90b9f9",
       "validators": [
         "tracked",
         "readable",

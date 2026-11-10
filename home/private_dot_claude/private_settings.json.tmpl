@@ -118,7 +118,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 $HOME/.claude/hooks/guard-oversized-output.py",
+            "command": "node --experimental-strip-types $HOME/.claude/hooks/guard-oversized-output.ts",
             "timeout": 10
           }
         ]
@@ -160,7 +160,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 $HOME/.claude/hooks/guard-oversized-read.py",
+            "command": "node --experimental-strip-types $HOME/.claude/hooks/guard-oversized-read.ts",
             "timeout": 5
           }
         ]

@@ -68,30 +68,26 @@ $SUDO install -d -m 0755 /etc/cdi
 $SUDO nvidia-ctk cdi generate --output=/etc/cdi/nvidia.yaml >/dev/null
 
 # Merge NVIDIA runtime + CDI support into /etc/docker/daemon.json without clobbering existing keys
-$SUDO python3 - << 'PY'
-import json
-from pathlib import Path
-
-p = Path("/etc/docker/daemon.json")
-data = {}
-if p.exists():
-    try:
-        data = json.loads(p.read_text())
-    except Exception:
-        data = {}
-
-data.setdefault("ip", "127.0.0.1")
-data.setdefault("live-restore", True)
-data.setdefault("log-driver", "local")
-data.setdefault("log-opts", {"max-size": "10m", "max-file": "3"})
-data.setdefault("features", {})["cdi"] = True
-data.setdefault("runtimes", {})["nvidia"] = {
-    "path": "nvidia-container-runtime",
-    "runtimeArgs": [],
-}
-p.parent.mkdir(parents=True, exist_ok=True)
-p.write_text(json.dumps(data, indent=2) + "\n")
-PY
+$SUDO node - <<'NODE'
+const fs = require("node:fs");
+const path = "/etc/docker/daemon.json";
+let data = {};
+try { data = JSON.parse(fs.readFileSync(path, "utf8")); } catch {}
+data.ip ??= "127.0.0.1";
+data["live-restore"] ??= true;
+data["userland-proxy"] = false;
+data["log-driver"] ??= "local";
+data["log-opts"] = { "max-size": "20m", "max-file": "3", ...(data["log-opts"] ?? {}) };
+data.builder ??= { gc: { enabled: true, defaultKeepStorage: "20GB" } };
+data["registry-mirrors"] ??= [];
+if (!data["registry-mirrors"].includes("https://registry.megabyte.space")) data["registry-mirrors"].push("https://registry.megabyte.space");
+data.features ??= {};
+data.features.cdi = true;
+data.runtimes ??= {};
+data.runtimes.nvidia = { path: "nvidia-container-runtime", runtimeArgs: [] };
+fs.mkdirSync("/etc/docker", { recursive: true });
+fs.writeFileSync(path, JSON.stringify(data, null, 2) + "\n");
+NODE
 
 # Install systemd unit to refresh CDI spec on boot / driver change
 $SUDO tee /etc/systemd/system/nvidia-cdi-refresh.service >/dev/null <<'EOF'

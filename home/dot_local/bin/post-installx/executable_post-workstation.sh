@@ -915,6 +915,17 @@ def make_handler(dst_host, dst_port):
         def log_message(self, fmt, *args):
             pass
         def _proxy(self):
+            if self.command == "GET" and self.path == "/healthz":
+                data = b'{"status":"ok"}\n'
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(data)))
+                self.end_headers()
+                try:
+                    self.wfile.write(data)
+                except (BrokenPipeError, ConnectionResetError):
+                    pass
+                return
             length = int(self.headers.get("Content-Length", "0"))
             body = self.rfile.read(length) if length > 0 else None
             fwd = {k: v for k, v in self.headers.items() if k.lower() not in ("host", "connection", "transfer-encoding")}
@@ -933,7 +944,10 @@ def make_handler(dst_host, dst_port):
                 self.send_header("Connection", "close")
                 self.end_headers()
                 if self.command != "HEAD" and data:
-                    self.wfile.write(data)
+                    try:
+                        self.wfile.write(data)
+                    except (BrokenPipeError, ConnectionResetError):
+                        pass
             except Exception as exc:
                 err = f'{{"error":"Upstream observability relay error: {exc}"}}\n'.encode()
                 self.send_response(502)
@@ -942,7 +956,10 @@ def make_handler(dst_host, dst_port):
                 self.send_header("Connection", "close")
                 self.end_headers()
                 if self.command != "HEAD":
-                    self.wfile.write(err)
+                    try:
+                        self.wfile.write(err)
+                    except (BrokenPipeError, ConnectionResetError):
+                        pass
             finally:
                 conn.close()
         do_GET = do_POST = do_PUT = do_HEAD = _proxy
@@ -1023,6 +1040,9 @@ local.file_match "macos_logs" {
   path_targets = [
     { __path__ = "${HOME}/.cache/megabyte/*.log", job = "macos-services", host = "${MAC_HOST_SHORT}" },
     { __path__ = "${HOME}/.cache/megabyte/*.err", job = "macos-services", host = "${MAC_HOST_SHORT}" },
+    { __path__ = "${HOME}/.cache/megabyte/alloy/*.log", job = "macos-alloy", host = "${MAC_HOST_SHORT}" },
+    { __path__ = "${HOME}/.cache/megabyte/local-proxy/logs/*.log", job = "macos-local-proxy", host = "${MAC_HOST_SHORT}" },
+    { __path__ = "${HOME}/.cache/megabyte/logs/*.log", job = "macos-services", host = "${MAC_HOST_SHORT}" },
     { __path__ = "${HOME}/.cache/megabyte/ai/ollama/*.log", job = "macos-ollama", host = "${MAC_HOST_SHORT}" },
   ]
 }
@@ -1103,7 +1123,7 @@ EOF
   <array>
     <string>/bin/sh</string>
     <string>-c</string>
-    <string>set -eu; git -C "${HOME}/.agentskills" diff --quiet; git -C "${HOME}/.agentskills" diff --cached --quiet; git -C "${HOME}/.agentskills" fetch origin master; git -C "${HOME}/.agentskills" merge --ff-only origin/master</string>
+    <string>set -eu; if [ -n "\$(git -C "${HOME}/.agentskills" status --porcelain)" ]; then printf 'agent-skills sync skipped: working tree is dirty\n'; exit 0; fi; git -C "${HOME}/.agentskills" fetch origin master; git -C "${HOME}/.agentskills" merge --ff-only origin/master</string>
   </array>
   <key>StartInterval</key>
   <integer>900</integer>
@@ -1703,7 +1723,7 @@ data["userland-proxy"] = false;
 if (data["max-concurrent-downloads"] === undefined) data["max-concurrent-downloads"] = 10;
 if (data["max-concurrent-uploads"] === undefined) data["max-concurrent-uploads"] = 5;
 if (data["log-driver"] === undefined) data["log-driver"] = "local";
-if (data["log-opts"] === undefined) data["log-opts"] = { "max-size": "10m", "max-file": "3" };
+data["log-opts"] = { "max-size": "20m", "max-file": "3", ...(data["log-opts"] ?? {}) };
 if (data.builder === undefined) data.builder = { gc: { enabled: true, defaultKeepStorage: "20GB" } };
 if (!Array.isArray(data["registry-mirrors"])) data["registry-mirrors"] = [];
 if (!data["registry-mirrors"].includes("https://registry.megabyte.space")) {
@@ -3100,6 +3120,7 @@ EOF
       run_root zfs set recordsize=1M rpool/ai-models 2>/dev/null || true
       run_root zfs set logbias=throughput rpool/ai-models 2>/dev/null || true
       run_root zfs set primarycache=metadata rpool/ai-models 2>/dev/null || true
+      run_root zfs set atime=off rpool/ai-models 2>/dev/null || true
     fi
     # Disable continuous NCQ autotrim on Samsung SM951 (MZHPV512HDGL) AHCI PCIe SSDs to prevent concurrent FPDMA TRIM+WRITE aborts
     if lsblk -d -no MODEL 2>/dev/null | grep -qi 'MZHPV512HDGL'; then
@@ -3555,7 +3576,7 @@ After=network-online.target
 
 [Service]
 Type=oneshot
-ExecStart=/bin/sh -c 'set -eu; git -C "$HOME/.agentskills" diff --quiet; git -C "$HOME/.agentskills" diff --cached --quiet; git -C "$HOME/.agentskills" fetch origin master; git -C "$HOME/.agentskills" merge --ff-only origin/master'
+ExecStart=/bin/sh -c 'set -eu; if [ -n "$(git -C "$HOME/.agentskills" status --porcelain)" ]; then printf "agent-skills sync skipped: working tree is dirty\\n"; exit 0; fi; git -C "$HOME/.agentskills" fetch origin master; git -C "$HOME/.agentskills" merge --ff-only origin/master'
 Environment="PATH=%h/.local/bin:%h/.cache/cnf/shims:/usr/local/bin:/usr/bin:/bin"
 UMask=0077
 EOF

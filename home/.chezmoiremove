@@ -133,3 +133,7 @@ Library/VirtualBox
 .local/share/vscode/package.json
 # Placeholder virtual host must never become an active nginx site.
 .config/system/etc/nginx/sites-enabled/wordpress.conf
+# Strict-TypeScript Claude hooks replace these legacy Python hook paths.
+.claude/hooks/enforce-cloudflare-deploy.py
+.claude/hooks/guard-oversized-output.py
+.claude/hooks/guard-oversized-read.py

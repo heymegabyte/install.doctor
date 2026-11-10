@@ -1,0 +1,8 @@
+#!/usr/bin/env sh
+set -eu
+for candidate in /opt/homebrew/bin/node /usr/local/bin/node "${HOME:-}/.local/share/mise/shims/node" "${HOME:-}/.local/bin/node"; do
+  if [ -x "$candidate" ]; then
+    exec "$candidate" --experimental-strip-types "${HOME}/.local/bin/workstation-doctor.ts" "$@"
+  fi
+done
+exec node --experimental-strip-types "${HOME}/.local/bin/workstation-doctor.ts" "$@"

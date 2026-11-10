@@ -46,19 +46,13 @@ enable_macos_autologin() {
     log_warn "No DESKTOP_AUTOLOGIN_PASSWORD or SUDO_PASSWORD found in Infisical/vault; skipping macOS /etc/kcpassword autologin"
     return 0
   fi
-  if ! command -v python3 > /dev/null 2>&1; then
-    log_warn "python3 is required to encode /etc/kcpassword without third-party binaries"
+  if ! command -v node > /dev/null 2>&1; then
+    log_warn "node is required to encode /etc/kcpassword without third-party binaries"
     return 0
   fi
   log_info "Encoding /etc/kcpassword in memory for user '$target_user' via Infisical secret (0600 root:wheel)"
-  printf '%s' "$pw" | python3 -c '
-import sys
-key = [0x7D, 0x89, 0x52, 0x23, 0xD2, 0xBC, 0xDD, 0xEA, 0xA3, 0xB9, 0x1F]
-pw = list(sys.stdin.buffer.read()) + [0]
-while len(pw) % 12 != 0:
-    pw.append(0)
-out = bytes(b ^ key[i % len(key)] for i, b in enumerate(pw))
-sys.stdout.buffer.write(out)
+  printf '%s' "$pw" | node -e '
+const chunks=[];process.stdin.on("data",c=>chunks.push(c));process.stdin.on("end",()=>{const key=Buffer.from([0x7D,0x89,0x52,0x23,0xD2,0xBC,0xDD,0xEA,0xA3,0xB9,0x1F]);const input=Buffer.concat([...chunks,Buffer.from([0])]);const size=Math.ceil(input.length/12)*12;const out=Buffer.alloc(size);for(let i=0;i<size;i++)out[i]=(input[i]??0)^key[i%key.length];process.stdout.write(out);});
 ' | sudo tee /etc/kcpassword > /dev/null
   sudo chown root:wheel /etc/kcpassword
   sudo chmod 0600 /etc/kcpassword
