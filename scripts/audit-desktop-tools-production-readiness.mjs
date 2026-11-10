@@ -48,6 +48,8 @@ async function httpProbe(url) {
 
 async function collect(root) {
   const trust = JSON.parse(readFileSync(`${root}/packages/control-plane/src/release-trust.json`, 'utf8'));
+  const platformMatrix = JSON.parse(readFileSync(`${root}/scripts/platform-support-matrix.json`, 'utf8'));
+  const platformValidation = command(process.execPath, [`${root}/scripts/validate-platform-support-matrix.mjs`, `${root}/scripts/platform-support-matrix.json`]);
   const variables = command('gh', ['variable', 'list', '--repo', 'heymegabyte/install.doctor', '--json', 'name,value']);
   const environments = command('gh', ['api', 'repos/heymegabyte/install.doctor/environments']);
   const variableRows = variables.ok ? JSON.parse(variables.output || '[]') : [];
@@ -64,11 +66,12 @@ async function collect(root) {
   return {
     schemaVersion: 1,
     signerIds: Object.keys(trust.products?.['desktop-tools']?.signers ?? {}).sort(),
+    verifiedPlatformIds: platformMatrix.cells?.filter(cell => cell.status === 'verified').map(cell => cell.id).sort() ?? [],
     configuredSignerId: variableRows.find(value => value.name === 'DESKTOP_TOOLS_RELEASE_SIGNER_ID')?.value ?? '',
     variableNames: variableRows.map(value => value.name).sort(),
     environmentNames: environmentRows.map(value => value.name).sort(),
     environmentPolicies,
-    commandErrors: [variables, environments].flatMap(result => result.ok ? [] : [result.error]),
+    commandErrors: [platformValidation, variables, environments].flatMap(result => result.ok ? [] : [result.error]),
     dns: { apex: publicAddresses('desktop.tools'), profile: publicAddresses('example.desktop.tools') },
     http: {
       profile: await httpProbe('https://example.desktop.tools/'),
@@ -83,6 +86,8 @@ export function evaluateProductionReadiness(evidence) {
   const signers = Array.isArray(evidence.signerIds) ? evidence.signerIds : [];
   const variables = new Set(Array.isArray(evidence.variableNames) ? evidence.variableNames : []);
   const environments = new Set(Array.isArray(evidence.environmentNames) ? evidence.environmentNames : []);
+  const verifiedPlatforms = Array.isArray(evidence.verifiedPlatformIds) ? evidence.verifiedPlatformIds : [];
+  check('verified-platform', verifiedPlatforms.length > 0, verifiedPlatforms.length ? `verified full-lifecycle tuples: ${verifiedPlatforms.join(', ')}` : 'no platform has a fresh verified full-lifecycle receipt');
   check('trusted-signer', signers.length > 0 && signers.every(id => /^desktop-[a-z0-9._-]+$/.test(id)), signers.length ? `${signers.length} canonical signer(s)` : 'no Desktop Tools signer is trusted');
   const missingVariables = REQUIRED_VARIABLES.filter(name => !variables.has(name));
   check('github-variables', missingVariables.length === 0, missingVariables.length ? `missing: ${missingVariables.join(', ')}` : 'all nonsecret variable names configured');
