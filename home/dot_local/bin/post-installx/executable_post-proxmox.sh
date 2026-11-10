@@ -92,4 +92,49 @@ EOF
 $SUDO chmod 0644 /etc/sysctl.d/99-proxmox-fleet.conf
 $SUDO sysctl --system >/dev/null 2>&1 || true
 
+# 4. Disable weekly ZFS TRIM timers and autotrim on rotational HDD pools (DISC-MAX == 0B)
+if command -v zpool >/dev/null 2>&1; then
+  for _pool in $(zpool list -H -o name 2>/dev/null || true); do
+    _can_trim=0
+    for _dev in $(zpool status -P "$_pool" 2>/dev/null | awk '/\/dev\// {print $1}'); do
+      _disc_max="$(lsblk -dn -o DISC-MAX "$_dev" 2>/dev/null | tr -d ' ' || true)"
+      if [ -n "$_disc_max" ] && [ "$_disc_max" != "0B" ] && [ "$_disc_max" != "0" ]; then
+        _can_trim=1
+        break
+      fi
+    done
+    if [ "$_can_trim" -eq 0 ]; then
+      $SUDO zpool set autotrim=off "$_pool" 2>/dev/null || true
+      $SUDO systemctl disable --now "zfs-trim-weekly@${_pool}.timer" 2>/dev/null || true
+      $SUDO systemctl reset-failed "zfs-trim@${_pool}.service" "zfs-trim-weekly@${_pool}.service" 2>/dev/null || true
+    fi
+  done
+fi
+
+# 5. Suppress info-level notification noise in Proxmox VE & PBS (only email warning, error, unknown)
+for _ncfg in /etc/pve/notifications.cfg /etc/proxmox-backup/notifications.cfg; do
+  if [ -f "$_ncfg" ] && command -v node >/dev/null 2>&1; then
+    $SUDO node -e '
+      const fs = require("node:fs");
+      const p = process.argv[1];
+      const src = fs.readFileSync(p, "utf8");
+      const updated = src.replace(
+        /matcher:\s*default-matcher[\s\S]*?(?=\n\S|\s*$)/,
+        "matcher: default-matcher\n\tcomment Route only warning, error, and unknown notifications to amazon-ses\n\tmatch-severity warning,error,unknown\n\tmode all\n\ttarget amazon-ses\n"
+      );
+      if (updated !== src) fs.writeFileSync(p, updated, "utf8");
+    ' "$_ncfg" 2>/dev/null || true
+  fi
+done
+
+# 6. Ensure Netdata health.d permissions (0755 dirs, 0644 files) & mark stale streaming child nodes ephemeral
+if [ -d /etc/netdata ]; then
+  $SUDO chmod 0755 /etc/netdata /etc/netdata/health.d 2>/dev/null || true
+  $SUDO chmod 0644 /etc/netdata/health.d/*.conf 2>/dev/null || true
+  if command -v netdatacli >/dev/null 2>&1; then
+    $SUDO netdatacli mark-stale-nodes-ephemeral ALL_NODES >/dev/null 2>&1 || true
+    $SUDO netdatacli reload-health >/dev/null 2>&1 || true
+  fi
+fi
+
 log "Proxmox VE hypervisor convergence complete."

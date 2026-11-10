@@ -2740,6 +2740,7 @@ proxmox-backup-client backup \
   --exclude "$USER_HOME/.cache" \
   --exclude "$USER_HOME/.local/share/Docker" \
   --exclude "$USER_HOME/.local/share/containers" \
+  --exclude "/var/tmp/langfuse-spool" \
   --exclude "**/node_modules" \
   --backup-type host \
   --backup-id "$(hostname -s)" \
@@ -3013,13 +3014,11 @@ EOF
   if ! command -v cscli >/dev/null 2>&1 || { ! dpkg -s crowdsec-firewall-bouncer >/dev/null 2>&1 && ! dpkg -s crowdsec-firewall-bouncer-nftables >/dev/null 2>&1; }; then
     run_root env DEBIAN_FRONTEND=noninteractive apt-get install -y -qq crowdsec crowdsec-firewall-bouncer-nftables >/dev/null 2>&1 \
       || run_root env DEBIAN_FRONTEND=noninteractive apt-get install -y -qq crowdsec crowdsec-firewall-bouncer >/dev/null 2>&1 || true
-    # crowdsec-firewall-bouncer-nftables is frequently absent from standard Ubuntu universe; fall back to CrowdSec's official repo.
+    # Repository enrollment is release-authority work, not a post-install hook.
+    # If the selected distribution repositories do not provide the bouncer,
+    # leave an honest pending result instead of executing a mutable installer.
     if ! dpkg -s crowdsec-firewall-bouncer-nftables >/dev/null 2>&1 && ! dpkg -s crowdsec-firewall-bouncer >/dev/null 2>&1; then
-      if [ ! -f /etc/apt/sources.list.d/crowdsec_crowdsec.list ] && command -v curl >/dev/null 2>&1; then
-        curl -fsSL https://install.crowdsec.net 2>/dev/null | run_root bash >/dev/null 2>&1 || true
-        run_root env DEBIAN_FRONTEND=noninteractive apt-get update -qq >/dev/null 2>&1 || true
-      fi
-      run_root env DEBIAN_FRONTEND=noninteractive apt-get install -y -qq crowdsec crowdsec-firewall-bouncer-nftables >/dev/null 2>&1 || true
+      log_warn "CrowdSec firewall bouncer is unavailable from the enrolled repositories; repository admission remains pending"
     fi
   fi
   if [ -f /etc/crowdsec/config.yaml ]; then
@@ -3187,13 +3186,25 @@ WantedBy=timers.target
 EOF
     run_root cp "$TMP_DIR/zfs-trim-weekly@.service" /etc/systemd/system/zfs-trim-weekly@.service
     run_root cp "$TMP_DIR/zfs-trim-weekly@.timer" /etc/systemd/system/zfs-trim-weekly@.timer
-    if [ "$_has_sm951" -eq 0 ]; then
-      for pool in rpool bpool; do
-        if zpool list -H -o name "$pool" >/dev/null 2>&1; then
-          run_root systemctl enable --now "zfs-trim-weekly@${pool}.timer" >/dev/null 2>&1 || true
-        fi
-      done
-    fi
+    for pool in $(zpool list -H -o name 2>/dev/null || true); do
+      _pool_can_trim=0
+      if [ "$_has_sm951" -eq 0 ]; then
+        for _dev in $(zpool status -P "$pool" 2>/dev/null | awk '/\/dev\// {print $1}'); do
+          _disc_max="$(lsblk -dn -o DISC-MAX "$_dev" 2>/dev/null | tr -d ' ' || true)"
+          if [ -n "$_disc_max" ] && [ "$_disc_max" != "0B" ] && [ "$_disc_max" != "0" ]; then
+            _pool_can_trim=1
+            break
+          fi
+        done
+      fi
+      if [ "$_pool_can_trim" -eq 1 ]; then
+        run_root systemctl enable --now "zfs-trim-weekly@${pool}.timer" >/dev/null 2>&1 || true
+      else
+        run_root zpool set autotrim=off "$pool" 2>/dev/null || true
+        run_root systemctl disable --now "zfs-trim-weekly@${pool}.timer" >/dev/null 2>&1 || true
+        run_root systemctl reset-failed "zfs-trim@${pool}.service" "zfs-trim-weekly@${pool}.service" >/dev/null 2>&1 || true
+      fi
+    done
   fi
 
   # Chrony IPv4-only + Cloudflare NTS clock discipline (prevents IPv6 NTP blackholes on dual-stack WAN)
@@ -3473,10 +3484,22 @@ EOF
     HAS_SM951_SSD=0
     if lsblk -d -no MODEL 2>/dev/null | grep -qi 'MZHPV512HDGL'; then HAS_SM951_SSD=1; fi
     for zp in $(zpool list -H -o name 2>/dev/null || true); do
-      if [ "$HAS_SM951_SSD" -eq 1 ]; then
-        run_root zpool set autotrim=off "$zp" 2>/dev/null || true
-      else
+      _zp_can_trim=0
+      if [ "$HAS_SM951_SSD" -eq 0 ]; then
+        for _dev in $(zpool status -P "$zp" 2>/dev/null | awk '/\/dev\// {print $1}'); do
+          _disc_max="$(lsblk -dn -o DISC-MAX "$_dev" 2>/dev/null | tr -d ' ' || true)"
+          if [ -n "$_disc_max" ] && [ "$_disc_max" != "0B" ] && [ "$_disc_max" != "0" ]; then
+            _zp_can_trim=1
+            break
+          fi
+        done
+      fi
+      if [ "$_zp_can_trim" -eq 1 ]; then
         run_root zpool set autotrim=on "$zp" 2>/dev/null || true
+      else
+        run_root zpool set autotrim=off "$zp" 2>/dev/null || true
+        run_root systemctl disable --now "zfs-trim-weekly@${zp}.timer" >/dev/null 2>&1 || true
+        run_root systemctl reset-failed "zfs-trim@${zp}.service" "zfs-trim-weekly@${zp}.service" >/dev/null 2>&1 || true
       fi
       run_root zpool set autoexpand=on "$zp" 2>/dev/null || true
     done
@@ -3792,15 +3815,18 @@ if command -v zsh >/dev/null 2>&1 && [ -f "$HOME/.zshrc" ]; then
   zsh -c 'zcompile "$HOME/.zshrc" 2>/dev/null || true' || true
 fi
 
-# Netdata (Linux): sync user health.d alarms, disable stock zram swap-out false positive & masked fail2ban collector, reload
+# Netdata (Linux & macOS): sync user health.d alarms with world-readable 0755/0644 permissions, disable stock zram swap-out false positive & masked fail2ban collector, reload
 if [ "$(uname -s)" = "Linux" ] && [ -d /etc/netdata ]; then
   _nd_restart_required=0
+  run_root install -d -m 0755 /etc/netdata /etc/netdata/health.d 2>/dev/null || true
+  run_root chmod 0755 /etc/netdata /etc/netdata/health.d 2>/dev/null || true
   if [ -d "$HOME/.config/netdata/health.d" ]; then
     for _nd_health in "$HOME"/.config/netdata/health.d/*.conf; do
       [ -f "$_nd_health" ] || continue
       run_root install -m 0644 "$_nd_health" "/etc/netdata/health.d/$(basename "$_nd_health")" 2>/dev/null || true
     done
   fi
+  run_root chmod 0644 /etc/netdata/health.d/*.conf 2>/dev/null || true
   if [ -r /proc/swaps ] && grep -q '/dev/zram' /proc/swaps && command -v node >/dev/null 2>&1; then
     _nd_conf=/etc/netdata/netdata.conf
     if ! grep -qF '!30min_ram_swapped_out *' "$_nd_conf" 2>/dev/null; then
@@ -3852,6 +3878,9 @@ if [ "$(uname -s)" = "Linux" ] && [ -d /etc/netdata ]; then
       printf 'modules:\n  fail2ban: no\n' | run_root tee "$GO_D" >/dev/null 2>&1 || true
     fi
   fi
+  if command -v netdatacli >/dev/null 2>&1; then
+    run_root netdatacli mark-stale-nodes-ephemeral ALL_NODES >/dev/null 2>&1 || true
+  fi
   if [ "$_nd_restart_required" -eq 1 ]; then
     run_root systemctl restart netdata >/dev/null 2>&1 || true
   elif command -v netdatacli >/dev/null 2>&1; then
@@ -3859,6 +3888,18 @@ if [ "$(uname -s)" = "Linux" ] && [ -d /etc/netdata ]; then
   else
     run_root systemctl reload-or-restart netdata >/dev/null 2>&1 || true
   fi
+elif [ "$(uname -s)" = "Darwin" ] && [ -d "$HOME/.config/netdata/health.d" ]; then
+  for _mac_nd_etc in /opt/homebrew/etc/netdata /usr/local/etc/netdata; do
+    if [ -d "$_mac_nd_etc" ]; then
+      mkdir -p "$_mac_nd_etc/health.d" 2>/dev/null || true
+      chmod 0755 "$_mac_nd_etc" "$_mac_nd_etc/health.d" 2>/dev/null || true
+      for _nd_health in "$HOME"/.config/netdata/health.d/*.conf; do
+        [ -f "$_nd_health" ] || continue
+        install -m 0644 "$_nd_health" "$_mac_nd_etc/health.d/$(basename "$_nd_health")" 2>/dev/null || true
+      done
+    fi
+  done
+  command -v netdatacli >/dev/null 2>&1 && netdatacli reload-health >/dev/null 2>&1 || true
 fi
 
 
