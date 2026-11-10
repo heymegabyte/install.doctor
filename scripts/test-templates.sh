@@ -104,7 +104,8 @@ fi
 # ---------------------------------------------------------------------------
 # Check 4: Loopback proxy & KasmVNC helper syntax validation
 # ---------------------------------------------------------------------------
-if python3 -m py_compile "$REPO_ROOT/home/dot_local/bin/executable_megabyte-local-proxy" && \
+if sh -n "$REPO_ROOT/home/dot_local/bin/executable_megabyte-local-proxy" && \
+   node --experimental-strip-types --check "$REPO_ROOT/home/dot_local/bin/executable_megabyte-local-proxy.ts" && \
    bash -n "$REPO_ROOT/home/dot_local/bin/executable_kasmvnc-gnome-loopback-run" && \
    bash -n "$REPO_ROOT/home/dot_local/bin/executable_cnf-build-shims" && \
    bash -n "$REPO_ROOT/home/dot_local/bin/post-installx/executable_post-nexus-cache.sh" && \

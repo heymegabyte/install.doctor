@@ -33,169 +33,251 @@ if [[ -n "$RESOLVED_GATEWAY_TOKEN" ]]; then
   printf '%s\n' "$RESOLVED_GATEWAY_TOKEN" > "$TOKEN_FILE"
   chmod 0600 "$TOKEN_FILE"
 elif [[ ! -s "$TOKEN_FILE" ]]; then
-  python3 -c 'import secrets; print(secrets.token_urlsafe(32))' > "$TOKEN_FILE"
+  node -e 'process.stdout.write(require("node:crypto").randomBytes(32).toString("base64url") + "\n")' > "$TOKEN_FILE"
   chmod 0600 "$TOKEN_FILE"
 fi
 
-cat <<'EOF' > "$HOME/.local/bin/ollama-auth-proxy.py"
-#!/usr/bin/env python3
-"""Zero-buffering loopback authenticated reverse proxy (127.0.0.1:11435 -> 127.0.0.1:11434) for Cloudflare Tunnel."""
-import hmac
-import http.client
-import http.server
-import os
-import socketserver
+# Install the zero-buffering authenticated reverse proxy as strict TypeScript (Node --experimental-strip-types).
+rm -f "$HOME/.local/bin/ollama-auth-proxy.py" 2>/dev/null || true
+cat <<'TSEOF' > "$HOME/.local/bin/ollama-auth-proxy.ts"
+#!/usr/bin/env -S node --experimental-strip-types
+/**
+ * Zero-Buffering Authenticated Loopback Reverse Proxy (127.0.0.1:11435 -> 127.0.0.1:11434)
+ * for Cloudflare Tunnel -> Ollama Gateway Ingress.
+ *
+ * Enforces constant-time Bearer / X-Ollama-Token validation against
+ * ~/.config/megabyte/ollama-gateway.token and streams request/response bodies
+ * directly over Node HTTP sockets without buffering model payloads in memory.
+ */
 
-LISTEN_HOST = "127.0.0.1"
-LISTEN_PORT = int(os.environ.get("OLLAMA_PROXY_PORT", "11435"))
-UPSTREAM_HOST = "127.0.0.1"
-UPSTREAM_PORT = int(os.environ.get("OLLAMA_UPSTREAM_PORT", "11434"))
-TOKEN_PATH = os.path.expanduser("~/.config/megabyte/ollama-gateway.token")
+import { timingSafeEqual } from "node:crypto";
+import { readFileSync, statSync } from "node:fs";
+import {
+  createServer,
+  request as httpRequest,
+  type IncomingHttpHeaders,
+  type IncomingMessage,
+  type ServerResponse,
+} from "node:http";
+import { homedir } from "node:os";
+import { join } from "node:path";
 
-_TOKEN_CACHE = {"sig": None, "value": ""}
+interface OllamaGatewayProxyConfig {
+  readonly listenHost: string;
+  readonly listenPort: number;
+  readonly upstreamHost: string;
+  readonly upstreamPort: number;
+  readonly tokenFilePath: string;
+  readonly upstreamTimeoutMs: number;
+}
 
+interface CachedTokenState {
+  mtimeMs: number;
+  sizeBytes: number;
+  tokenValue: Buffer;
+}
 
-def load_token() -> str:
-    st = os.stat(TOKEN_PATH)
-    sig = (st.st_mtime_ns, st.st_size)
-    if _TOKEN_CACHE["sig"] != sig:
-        with open(TOKEN_PATH, "r", encoding="utf-8") as f:
-            _TOKEN_CACHE["value"] = f.read().strip()
-        _TOKEN_CACHE["sig"] = sig
-    return _TOKEN_CACHE["value"]
+const CONFIG: OllamaGatewayProxyConfig = {
+  listenHost: "127.0.0.1",
+  listenPort: Number.parseInt(process.env.OLLAMA_PROXY_PORT ?? "11435", 10) || 11435,
+  upstreamHost: "127.0.0.1",
+  upstreamPort: Number.parseInt(process.env.OLLAMA_UPSTREAM_PORT ?? "11434", 10) || 11434,
+  tokenFilePath:
+    process.env.OLLAMA_GATEWAY_TOKEN_FILE ??
+    join(homedir(), ".config", "megabyte", "ollama-gateway.token"),
+  upstreamTimeoutMs: Number.parseInt(process.env.OLLAMA_PROXY_TIMEOUT_MS ?? "300000", 10) || 300_000,
+};
 
+const tokenCache: CachedTokenState = {
+  mtimeMs: -1,
+  sizeBytes: -1,
+  tokenValue: Buffer.alloc(0),
+};
 
-class ThreadedHTTPServer(socketserver.ThreadingMixIn, http.server.HTTPServer):
-    daemon_threads = True
-    allow_reuse_address = True
+function loadExpectedToken(): Buffer | null {
+  try {
+    const st = statSync(CONFIG.tokenFilePath);
+    if (tokenCache.mtimeMs !== st.mtimeMs || tokenCache.sizeBytes !== st.size) {
+      const trimmed = readFileSync(CONFIG.tokenFilePath, "utf8").trim();
+      tokenCache.tokenValue = Buffer.from(trimmed, "utf8");
+      tokenCache.mtimeMs = st.mtimeMs;
+      tokenCache.sizeBytes = st.size;
+    }
+    return tokenCache.tokenValue.byteLength > 0 ? tokenCache.tokenValue : null;
+  } catch {
+    return null;
+  }
+}
 
+function extractPresentedToken(headers: IncomingHttpHeaders): string {
+  const authHeader = headers.authorization;
+  if (typeof authHeader === "string" && authHeader.toLowerCase().startsWith("bearer ")) {
+    return authHeader.slice(7).trim();
+  }
+  const customHeader = headers["x-ollama-token"];
+  if (typeof customHeader === "string") {
+    return customHeader.trim();
+  }
+  return "";
+}
 
-class ProxyHandler(http.server.BaseHTTPRequestHandler):
-    protocol_version = "HTTP/1.1"
-    disable_nagle_algorithm = True
+function isRequestAuthorized(headers: IncomingHttpHeaders): boolean {
+  const expected = loadExpectedToken();
+  if (!expected) {
+    return false;
+  }
+  const presentedRaw = extractPresentedToken(headers);
+  if (!presentedRaw) {
+    return false;
+  }
+  const presented = Buffer.from(presentedRaw, "utf8");
+  if (presented.byteLength !== expected.byteLength) {
+    return false;
+  }
+  return timingSafeEqual(presented, expected);
+}
 
-    def log_message(self, fmt, *args):
-        pass
+function writeJsonResponse(
+  res: ServerResponse,
+  statusCode: number,
+  payload: Record<string, unknown>,
+  headOnly: boolean,
+): void {
+  if (res.destroyed || res.writableEnded) {
+    return;
+  }
+  const encoded = Buffer.from(`${JSON.stringify(payload)}\n`, "utf8");
+  res.writeHead(statusCode, {
+    "Content-Type": "application/json",
+    "Content-Length": String(encoded.byteLength),
+    Connection: "close",
+  });
+  if (headOnly) {
+    res.end();
+    return;
+  }
+  res.end(encoded);
+}
 
-    def _authorized(self) -> bool:
-        try:
-            expected = load_token()
-        except OSError:
-            return False
-        auth = self.headers.get("Authorization", "")
-        token = ""
-        if auth.lower().startswith("bearer "):
-            token = auth[7:].strip()
-        elif self.headers.get("X-Ollama-Token"):
-            token = self.headers.get("X-Ollama-Token", "").strip()
-        return bool(token and expected and hmac.compare_digest(token, expected))
+function buildForwardedHeaders(incoming: IncomingHttpHeaders): Record<string, string | string[]> {
+  const stripped = new Set([
+    "host",
+    "authorization",
+    "x-ollama-token",
+    "connection",
+    "keep-alive",
+  ]);
+  const forwarded: Record<string, string | string[]> = {
+    Host: `${CONFIG.upstreamHost}:${CONFIG.upstreamPort}`,
+  };
+  for (const [key, value] of Object.entries(incoming)) {
+    if (value === undefined || stripped.has(key.toLowerCase())) {
+      continue;
+    }
+    forwarded[key] = value;
+  }
+  return forwarded;
+}
 
-    def _read_request_body(self) -> bytes | None:
-        te = self.headers.get("Transfer-Encoding", "").lower()
-        if "chunked" in te:
-            parts = []
-            while True:
-                line = self.rfile.readline().strip()
-                if not line:
-                    break
-                chunk_len = int(line.split(b";", 1)[0], 16)
-                if chunk_len == 0:
-                    self.rfile.readline()
-                    break
-                parts.append(self.rfile.read(chunk_len))
-                self.rfile.read(2)
-            return b"".join(parts)
-        content_len = int(self.headers.get("Content-Length", "0"))
-        return self.rfile.read(content_len) if content_len > 0 else None
+function handleGatewayRequest(req: IncomingMessage, res: ServerResponse): void {
+  res.on("error", () => {
+    // Suppress client disconnect socket errors.
+  });
 
-    def _handle(self):
-        if not self._authorized():
-            body = b'{"error":"Unauthorized: valid Bearer token required"}\n'
-            self.send_response(401)
-            self.send_header("Content-Type", "application/json")
-            self.send_header("Content-Length", str(len(body)))
-            self.send_header("Connection", "close")
-            self.end_headers()
-            if self.command != "HEAD":
-                self.wfile.write(body)
-            self.close_connection = True
-            return
+  const method = (req.method ?? "GET").toUpperCase();
+  const headOnly = method === "HEAD";
+  const path = req.url ?? "/";
 
-        req_body = self._read_request_body()
-        conn = http.client.HTTPConnection(UPSTREAM_HOST, UPSTREAM_PORT, timeout=300)
-        fwd_headers = {
-            k: v
-            for k, v in self.headers.items()
-            if k.lower()
-            not in ("host", "authorization", "x-ollama-token", "connection", "transfer-encoding", "content-length")
+  if (path === "/healthz") {
+    writeJsonResponse(
+      res,
+      200,
+      {
+        status: "ok",
+        runtime: "node-typescript",
+        listen: `${CONFIG.listenHost}:${CONFIG.listenPort}`,
+        upstream: `${CONFIG.upstreamHost}:${CONFIG.upstreamPort}`,
+        tokenConfigured: loadExpectedToken() !== null,
+      },
+      headOnly,
+    );
+    return;
+  }
+
+  if (!isRequestAuthorized(req.headers)) {
+    req.resume();
+    writeJsonResponse(
+      res,
+      401,
+      { error: "Unauthorized: valid Bearer token required" },
+      headOnly,
+    );
+    return;
+  }
+
+  const upstreamReq = httpRequest(
+    {
+      host: CONFIG.upstreamHost,
+      port: CONFIG.upstreamPort,
+      method,
+      path,
+      headers: buildForwardedHeaders(req.headers),
+      timeout: CONFIG.upstreamTimeoutMs,
+    },
+    (upstreamRes) => {
+      const responseHeaders: Record<string, string | string[]> = {};
+      for (const [key, value] of Object.entries(upstreamRes.headers)) {
+        if (value === undefined || key.toLowerCase() === "keep-alive") {
+          continue;
         }
-        fwd_headers["Host"] = f"{UPSTREAM_HOST}:{UPSTREAM_PORT}"
-        if req_body is not None:
-            fwd_headers["Content-Length"] = str(len(req_body))
+        responseHeaders[key] = value;
+      }
+      if (upstreamRes.headers["transfer-encoding"]?.includes("chunked")) {
+        responseHeaders["X-Accel-Buffering"] = "no";
+      }
+      res.writeHead(upstreamRes.statusCode ?? 502, responseHeaders);
+      if (headOnly) {
+        upstreamRes.resume();
+        res.end();
+        return;
+      }
+      upstreamRes.pipe(res);
+    },
+  );
 
-        try:
-            conn.request(self.command, self.path, body=req_body, headers=fwd_headers)
-            resp = conn.getresponse()
-            self.send_response(resp.status)
-            for hk, hv in resp.getheaders():
-                if hk.lower() not in ("transfer-encoding", "connection", "content-length", "keep-alive"):
-                    self.send_header(hk, hv)
+  upstreamReq.on("timeout", () => {
+    upstreamReq.destroy(new Error("Upstream Ollama request timed out"));
+  });
 
-            if self.command == "HEAD" or resp.status in (204, 304):
-                cl = resp.getheader("Content-Length")
-                if cl is not None:
-                    self.send_header("Content-Length", cl)
-                self.end_headers()
-                self.wfile.flush()
-            elif resp.chunked:
-                self.send_header("Transfer-Encoding", "chunked")
-                self.send_header("X-Accel-Buffering", "no")
-                self.end_headers()
-                self.wfile.flush()
-                while True:
-                    chunk = resp.read1(8192)
-                    if not chunk:
-                        break
-                    self.wfile.write(f"{len(chunk):x}\r\n".encode("ascii") + chunk + b"\r\n")
-                    self.wfile.flush()
-                self.wfile.write(b"0\r\n\r\n")
-                self.wfile.flush()
-            else:
-                data = resp.read()
-                self.send_header("Content-Length", str(len(data)))
-                self.end_headers()
-                self.wfile.write(data)
-                self.wfile.flush()
-        except (BrokenPipeError, ConnectionResetError):
-            self.close_connection = True
-        except Exception as exc:
-            try:
-                err = f'{{"error":"Upstream Ollama error: {exc}"}}\n'.encode()
-                self.send_response(502)
-                self.send_header("Content-Type", "application/json")
-                self.send_header("Content-Length", str(len(err)))
-                self.send_header("Connection", "close")
-                self.end_headers()
-                if self.command != "HEAD":
-                    self.wfile.write(err)
-            except Exception:
-                pass
-            self.close_connection = True
-        finally:
-            conn.close()
+  upstreamReq.on("error", (err) => {
+    if (!res.headersSent) {
+      writeJsonResponse(
+        res,
+        502,
+        { error: `Upstream Ollama error: ${err.message}` },
+        headOnly,
+      );
+    } else if (!res.destroyed) {
+      res.destroy();
+    }
+  });
 
-    do_GET = _handle
-    do_POST = _handle
-    do_PUT = _handle
-    do_DELETE = _handle
-    do_HEAD = _handle
+  req.on("aborted", () => {
+    upstreamReq.destroy();
+  });
 
+  req.pipe(upstreamReq);
+}
 
-if __name__ == "__main__":
-    srv = ThreadedHTTPServer((LISTEN_HOST, LISTEN_PORT), ProxyHandler)
-    srv.serve_forever()
-EOF
-chmod +x "$HOME/.local/bin/ollama-auth-proxy.py"
+const server = createServer(handleGatewayRequest);
+server.listen(CONFIG.listenPort, CONFIG.listenHost);
+
+TSEOF
+chmod 0755 "$HOME/.local/bin/ollama-auth-proxy.ts"
+
+# Resolve a Node binary for the Darwin LaunchAgent (prefer Homebrew, fall back to PATH).
+NODE_BIN="/opt/homebrew/bin/node"
+[ -x "$NODE_BIN" ] || NODE_BIN="$(command -v node 2>/dev/null || echo /usr/local/bin/node)"
 
 if [[ "$(uname -s)" == "Darwin" ]]; then
   PLIST="$HOME/Library/LaunchAgents/com.megabyte.ollama-auth-proxy.plist"
@@ -209,8 +291,9 @@ if [[ "$(uname -s)" == "Darwin" ]]; then
   <string>com.megabyte.ollama-auth-proxy</string>
   <key>ProgramArguments</key>
   <array>
-    <string>/usr/bin/python3</string>
-    <string>${HOME}/.local/bin/ollama-auth-proxy.py</string>
+    <string>${NODE_BIN}</string>
+    <string>--experimental-strip-types</string>
+    <string>${HOME}/.local/bin/ollama-auth-proxy.ts</string>
   </array>
   <key>RunAtLoad</key>
   <true/>
@@ -234,7 +317,8 @@ After=network.target
 
 [Service]
 Type=simple
-ExecStart=/usr/bin/python3 %h/.local/bin/ollama-auth-proxy.py
+Environment="PATH=/usr/local/bin:%h/.local/share/mise/shims:/usr/bin:/bin"
+ExecStart=/usr/local/bin/node --experimental-strip-types %h/.local/bin/ollama-auth-proxy.ts
 Restart=always
 RestartSec=3
 

@@ -68,29 +68,39 @@ resolve_infisical_sudo_password() {
   if [ -z "$pw" ] && command -v infisical >/dev/null 2>&1 && [ -n "${INFISICAL_TOKEN:-}" ]; then
     pw="$(infisical secrets get SUDO_PASSWORD --env=prod --path="/hosts/$(hostname -s 2>/dev/null || hostname)" --plain --silent 2>/dev/null || infisical secrets get SUDO_PASSWORD --plain --silent 2>/dev/null || true)"
   fi
-  if [ -z "$pw" ] && [ -f "$HOME/.config/agent-fleet/infisical.json" ] && command -v python3 >/dev/null 2>&1; then
-    pw="$(python3 - <<'PY' 2>/dev/null || true
-import json
-from pathlib import Path
-from urllib.parse import urlencode
-from urllib.request import Request, urlopen
-
-cfg_path = Path.home() / ".config/agent-fleet/infisical.json"
-cfg = json.loads(cfg_path.read_text())
-cred_path = Path(cfg.get("credentialsFile", str(Path.home() / ".config/agent-fleet/infisical-us-credentials.json"))).expanduser()
-if not cred_path.exists():
-    cred_path = Path.home() / ".config/agent-fleet/infisical-us-credentials.json"
-creds = json.loads(cred_path.read_text())
-base = cfg["url"].rstrip("/")
-headers = {"Content-Type": "application/json", "User-Agent": "infisical-fleet-broker/1.0"}
-req = Request(f"{base}/api/v1/auth/universal-auth/login", data=json.dumps(creds).encode(), headers=headers)
-with urlopen(req, timeout=10) as resp:
-    tok = json.load(resp)["accessToken"]
-q = urlencode({"workspaceId": cfg["projectId"], "environment": cfg.get("environment", "prod"), "secretPath": cfg.get("secretPath", "/"), "type": "shared"})
-req2 = Request(f"{base}/api/v3/secrets/raw/SUDO_PASSWORD?{q}", headers={"Authorization": f"Bearer {tok}", "User-Agent": "infisical-fleet-broker/1.0"})
-with urlopen(req2, timeout=10) as resp2:
-    print(json.load(resp2)["secret"]["secretValue"], end="")
-PY
+  if [ -z "$pw" ] && [ -f "$HOME/.config/agent-fleet/infisical.json" ] && command -v node >/dev/null 2>&1; then
+    pw="$(node - <<'NODE' 2>/dev/null || true
+const fs = require("node:fs");
+const os = require("node:os");
+const path = require("node:path");
+(async () => {
+  const home = os.homedir();
+  const cfg = JSON.parse(fs.readFileSync(path.join(home, ".config/agent-fleet/infisical.json"), "utf8"));
+  let credPath = cfg.credentialsFile || path.join(home, ".config/agent-fleet/infisical-us-credentials.json");
+  if (credPath.startsWith("~")) credPath = path.join(home, credPath.slice(1));
+  if (!fs.existsSync(credPath)) credPath = path.join(home, ".config/agent-fleet/infisical-us-credentials.json");
+  const creds = JSON.parse(fs.readFileSync(credPath, "utf8"));
+  const base = String(cfg.url).replace(/\/+$/, "");
+  const loginResp = await fetch(`${base}/api/v1/auth/universal-auth/login`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "User-Agent": "infisical-fleet-broker/1.0" },
+    body: JSON.stringify(creds),
+    signal: AbortSignal.timeout(10000),
+  });
+  const tok = (await loginResp.json()).accessToken;
+  const q = new URLSearchParams({
+    workspaceId: cfg.projectId,
+    environment: cfg.environment || "prod",
+    secretPath: cfg.secretPath || "/",
+    type: "shared",
+  });
+  const secResp = await fetch(`${base}/api/v3/secrets/raw/SUDO_PASSWORD?${q.toString()}`, {
+    headers: { Authorization: `Bearer ${tok}`, "User-Agent": "infisical-fleet-broker/1.0" },
+    signal: AbortSignal.timeout(10000),
+  });
+  process.stdout.write((await secResp.json()).secret.secretValue);
+})().catch(() => process.exit(1));
+NODE
 )"
   fi
   printf '%s' "$pw"
@@ -271,130 +281,165 @@ EOF
   fi
 
   # 5. Register cua-driver MCP across all 4 harnesses (agy, claude, codex, opencode) + SSH mesh + agy keyring<->file bridge
-  python3 - <<'PY' || true
-import json, os
-from pathlib import Path
+  node - <<'NODE' || true
+const fs = require("node:fs");
+const path = require("node:path");
+const os = require("node:os");
+const { spawnSync } = require("node:child_process");
 
-home = Path.home()
-cua_bin = str(home / ".local/bin/cua-driver")
+const home = os.homedir();
+const cuaBin = path.join(home, ".local/bin/cua-driver");
+const readJson = (p) => {
+  try {
+    return JSON.parse(fs.readFileSync(p, "utf8"));
+  } catch {
+    return {};
+  }
+};
 
-# Claude Code
-cj = home / ".claude.json"
-data = {}
-if cj.exists():
-    try:
-        data = json.loads(cj.read_text())
-    except Exception:
-        data = {}
-data.setdefault("mcpServers", {})["cua-driver"] = {
-    "type": "stdio",
-    "command": cua_bin,
-    "args": ["mcp"],
-    "env": {}
+// Claude Code
+const cj = path.join(home, ".claude.json");
+{
+  const data = readJson(cj);
+  if (!data.mcpServers || typeof data.mcpServers !== "object") data.mcpServers = {};
+  data.mcpServers["cua-driver"] = { type: "stdio", command: cuaBin, args: ["mcp"], env: {} };
+  fs.writeFileSync(cj, JSON.stringify(data, null, 2) + "\n");
 }
-cj.write_text(json.dumps(data, indent=2) + "\n")
 
-# Codex
-ct = home / ".codex/config.toml"
-ct.parent.mkdir(parents=True, exist_ok=True)
-txt = ct.read_text() if ct.exists() else ""
-if "[mcp_servers.cua-driver]" not in txt:
-    ct.write_text(txt.rstrip() + f'\n\n[mcp_servers.cua-driver]\ncommand = "{cua_bin}"\nargs = ["mcp"]\nenabled = true\n')
-
-# Antigravity CLI settings & MCP
-agy_settings = home / ".gemini/antigravity-cli/settings.json"
-agy_settings.parent.mkdir(parents=True, exist_ok=True)
-sdata = {}
-if agy_settings.exists():
-    try:
-        sdata = json.loads(agy_settings.read_text())
-    except Exception:
-        sdata = {}
-sdata.setdefault("allowNonWorkspaceAccess", True)
-agy_settings.write_text(json.dumps(sdata, indent=2) + "\n")
-agy_settings.chmod(0o600)
-
-agy_mcp = home / ".gemini/config/mcp_config.json"
-agy_mcp.parent.mkdir(parents=True, exist_ok=True)
-mdata = {}
-if agy_mcp.exists():
-    try:
-        mdata = json.loads(agy_mcp.read_text())
-    except Exception:
-        mdata = {}
-mdata.setdefault("mcpServers", {})["cua-driver"] = {
-    "command": cua_bin,
-    "args": ["mcp"]
+// Codex
+const ct = path.join(home, ".codex/config.toml");
+fs.mkdirSync(path.dirname(ct), { recursive: true });
+{
+  let txt = "";
+  try {
+    txt = fs.readFileSync(ct, "utf8");
+  } catch {
+    txt = "";
+  }
+  if (!txt.includes("[mcp_servers.cua-driver]")) {
+    fs.writeFileSync(
+      ct,
+      txt.replace(/\s+$/, "") + `\n\n[mcp_servers.cua-driver]\ncommand = "${cuaBin}"\nargs = ["mcp"]\nenabled = true\n`,
+    );
+  }
 }
-agy_mcp.write_text(json.dumps(mdata, indent=2) + "\n")
 
-# Bridge agy token files (~/.gemini/antigravity-cli/antigravity-oauth-token <-> ~/.config/antigravity/credential-user-scope)
-# and Linux gnome-keyring (service=gemini, username=antigravity) so GUI and SSH sessions stay in sync
-t1 = home / ".gemini/antigravity-cli/antigravity-oauth-token"
-t2 = home / ".config/antigravity/credential-user-scope"
-bus_path = f"/run/user/{os.getuid()}/bus"
-if not t1.exists() and not t2.exists() and os.path.exists(bus_path):
-    try:
-        import re, subprocess
-        env = dict(os.environ, DBUS_SESSION_BUS_ADDRESS=f"unix:path={bus_path}")
-        s = subprocess.check_output([
-            "dbus-send", "--session", "--print-reply", "--dest=org.freedesktop.secrets",
-            "/org/freedesktop/secrets", "org.freedesktop.Secret.Service.SearchItems",
-            "dict:string:string:service,gemini,username,antigravity"
-        ], env=env, text=True, stderr=subprocess.DEVNULL)
-        m_item = re.search(r'object path "(/org/freedesktop/secrets/collection/[^"]+)"', s)
-        if m_item:
-            o = subprocess.check_output([
-                "dbus-send", "--session", "--print-reply", "--dest=org.freedesktop.secrets",
-                "/org/freedesktop/secrets", "org.freedesktop.Secret.Service.OpenSession",
-                "string:plain", "variant:string:"
-            ], env=env, text=True, stderr=subprocess.DEVNULL)
-            m_sess = re.search(r'object path "(/org/freedesktop/secrets/session/[^"]+)"', o)
-            if m_sess:
-                sec = subprocess.check_output([
-                    "dbus-send", "--session", "--print-reply", "--dest=org.freedesktop.secrets",
-                    "/org/freedesktop/secrets", "org.freedesktop.Secret.Service.GetSecrets",
-                    f"array:objpath:{m_item.group(1)}", f"objpath:{m_sess.group(1)}"
-                ], env=env, text=True, stderr=subprocess.DEVNULL)
-                bytestr = sec.split("array [")[2].split("]")[0]
-                b = bytes(int(x) for x in re.findall(r'\b(\d+)\b', bytestr))
-                if b:
-                    t1.parent.mkdir(parents=True, exist_ok=True)
-                    t1.write_bytes(b)
-                    t1.chmod(0o600)
-    except Exception:
-        pass
-if t1.exists() and not t2.exists():
-    t2.parent.mkdir(parents=True, exist_ok=True)
-    t2.write_bytes(t1.read_bytes())
-    t2.chmod(0o600)
-elif t2.exists() and not t1.exists():
-    t1.parent.mkdir(parents=True, exist_ok=True)
-    t1.write_bytes(t2.read_bytes())
-    t1.chmod(0o600)
+// Antigravity CLI settings & MCP
+const agySettings = path.join(home, ".gemini/antigravity-cli/settings.json");
+fs.mkdirSync(path.dirname(agySettings), { recursive: true });
+{
+  const sdata = readJson(agySettings);
+  if (sdata.allowNonWorkspaceAccess === undefined) sdata.allowNonWorkspaceAccess = true;
+  fs.writeFileSync(agySettings, JSON.stringify(sdata, null, 2) + "\n");
+  fs.chmodSync(agySettings, 0o600);
+}
+const agyMcp = path.join(home, ".gemini/config/mcp_config.json");
+fs.mkdirSync(path.dirname(agyMcp), { recursive: true });
+{
+  const mdata = readJson(agyMcp);
+  if (!mdata.mcpServers || typeof mdata.mcpServers !== "object") mdata.mcpServers = {};
+  mdata.mcpServers["cua-driver"] = { command: cuaBin, args: ["mcp"] };
+  fs.writeFileSync(agyMcp, JSON.stringify(mdata, null, 2) + "\n");
+}
 
-# Optional LAN SSH mesh from ~/.config/agent-fleet/peers.json in ~/.ssh/config
-ssh_dir = home / ".ssh"
-ssh_dir.mkdir(parents=True, exist_ok=True)
-ssh_dir.chmod(0o700)
-ssh_cfg = ssh_dir / "config"
-cfg_txt = ssh_cfg.read_text() if ssh_cfg.exists() else ""
-peers_path = home / ".config/agent-fleet/peers.json"
-mesh = []
-if peers_path.exists():
-    try:
-        for peer in json.loads(peers_path.read_text()):
-            mesh.append((peer["fqdn"], peer["short"], peer["ip"], peer.get("user", "ubuntu")))
-    except Exception:
-        pass
-added = []
-for fqdn, short, ip, usr in mesh:
-    if f"Host {fqdn}" not in cfg_txt:
-        added.append(f"Host {fqdn} {short}\n  HostName {ip}\n  User {usr}\n  IdentityFile ~/.ssh/id_ed25519\n  StrictHostKeyChecking yes\n  UpdateHostKeys no\n  UserKnownHostsFile ~/.ssh/known_hosts\n")
-if added:
-    ssh_cfg.write_text(cfg_txt.rstrip() + "\n\n# Fleet LAN SSH Mesh\n" + "\n".join(added) + "\n")
-    ssh_cfg.chmod(0o600)
-PY
+// Bridge agy token files (~/.gemini/antigravity-cli/antigravity-oauth-token <-> ~/.config/antigravity/credential-user-scope)
+// and the Linux gnome-keyring (service=gemini, username=antigravity) so GUI and SSH sessions stay in sync
+const t1 = path.join(home, ".gemini/antigravity-cli/antigravity-oauth-token");
+const t2 = path.join(home, ".config/antigravity/credential-user-scope");
+const busPath = `/run/user/${process.getuid()}/bus`;
+if (!fs.existsSync(t1) && !fs.existsSync(t2) && fs.existsSync(busPath)) {
+  try {
+    const env = { ...process.env, DBUS_SESSION_BUS_ADDRESS: `unix:path=${busPath}` };
+    const dbus = (args) => spawnSync("dbus-send", args, { env, encoding: "utf8" }).stdout || "";
+    const s = dbus([
+      "--session",
+      "--print-reply",
+      "--dest=org.freedesktop.secrets",
+      "/org/freedesktop/secrets",
+      "org.freedesktop.Secret.Service.SearchItems",
+      "dict:string:string:service,gemini,username,antigravity",
+    ]);
+    const mItem = s.match(/object path "(\/org\/freedesktop\/secrets\/collection\/[^"]+)"/);
+    if (mItem) {
+      const o = dbus([
+        "--session",
+        "--print-reply",
+        "--dest=org.freedesktop.secrets",
+        "/org/freedesktop/secrets",
+        "org.freedesktop.Secret.Service.OpenSession",
+        "string:plain",
+        "variant:string:",
+      ]);
+      const mSess = o.match(/object path "(\/org\/freedesktop\/secrets\/session\/[^"]+)"/);
+      if (mSess) {
+        const sec = dbus([
+          "--session",
+          "--print-reply",
+          "--dest=org.freedesktop.secrets",
+          "/org/freedesktop/secrets",
+          "org.freedesktop.Secret.Service.GetSecrets",
+          `array:objpath:${mItem[1]}`,
+          `objpath:${mSess[1]}`,
+        ]);
+        const bytestr = (sec.split("array [")[2] || "").split("]")[0] || "";
+        const nums = bytestr.match(/\b\d+\b/g) || [];
+        const b = Buffer.from(nums.map((x) => parseInt(x, 10) & 0xff));
+        if (b.length > 0) {
+          fs.mkdirSync(path.dirname(t1), { recursive: true });
+          fs.writeFileSync(t1, b);
+          fs.chmodSync(t1, 0o600);
+        }
+      }
+    }
+  } catch {
+    // gnome-keyring bridge is best-effort.
+  }
+}
+if (fs.existsSync(t1) && !fs.existsSync(t2)) {
+  fs.mkdirSync(path.dirname(t2), { recursive: true });
+  fs.writeFileSync(t2, fs.readFileSync(t1));
+  fs.chmodSync(t2, 0o600);
+} else if (fs.existsSync(t2) && !fs.existsSync(t1)) {
+  fs.mkdirSync(path.dirname(t1), { recursive: true });
+  fs.writeFileSync(t1, fs.readFileSync(t2));
+  fs.chmodSync(t1, 0o600);
+}
+
+// Optional LAN SSH mesh from ~/.config/agent-fleet/peers.json in ~/.ssh/config
+const sshDir = path.join(home, ".ssh");
+fs.mkdirSync(sshDir, { recursive: true });
+fs.chmodSync(sshDir, 0o700);
+const sshCfg = path.join(sshDir, "config");
+let cfgTxt = "";
+try {
+  cfgTxt = fs.readFileSync(sshCfg, "utf8");
+} catch {
+  cfgTxt = "";
+}
+const peersPath = path.join(home, ".config/agent-fleet/peers.json");
+const mesh = [];
+if (fs.existsSync(peersPath)) {
+  try {
+    for (const peer of JSON.parse(fs.readFileSync(peersPath, "utf8"))) {
+      mesh.push([peer.fqdn, peer.short, peer.ip, peer.user || "ubuntu"]);
+    }
+  } catch {
+    // Ignore malformed peers.json.
+  }
+}
+const added = [];
+for (const [fqdn, short, ip, usr] of mesh) {
+  if (!cfgTxt.includes(`Host ${fqdn}`)) {
+    added.push(
+      `Host ${fqdn} ${short}\n  HostName ${ip}\n  User ${usr}\n  IdentityFile ~/.ssh/id_ed25519\n  StrictHostKeyChecking yes\n  UpdateHostKeys no\n  UserKnownHostsFile ~/.ssh/known_hosts\n`,
+    );
+  }
+}
+if (added.length > 0) {
+  fs.writeFileSync(sshCfg, cfgTxt.replace(/\s+$/, "") + "\n\n# Fleet LAN SSH Mesh\n" + added.join("\n") + "\n");
+  fs.chmodSync(sshCfg, 0o600);
+}
+NODE
 
   # 6. Sync OpenCode LiteLLM + DeepSeek auth if helper is present
   if [ -x "$HOME/.agentskills/bin/opencode-deepseek-auth.sh" ]; then
@@ -500,36 +545,39 @@ EOF
       gsettings set org.gnome.desktop.interface enable-animations false 2>/dev/null || true
       gsettings set org.gnome.desktop.interface enable-hot-corners false 2>/dev/null || true
       gsettings set org.gnome.desktop.privacy report-technical-problems false 2>/dev/null || true
-      python3 - <<'PY' 2>/dev/null || true
-import os, subprocess
-from pathlib import Path
+      node - <<'NODE' 2>/dev/null || true
+const fs = require("node:fs");
+const path = require("node:path");
+const os = require("node:os");
+const { spawnSync } = require("node:child_process");
 
-dirs = [
-    Path.home() / ".local/share/applications",
-    Path("/usr/share/applications"),
-    Path("/var/lib/snapd/desktop/applications"),
-]
-candidates = [
-    "google-chrome.desktop",
-    "chromium_chromium.desktop",
-    "code.desktop",
-    "cua.desktop",
-    "org.gnome.Ptyxis.desktop",
-    "org.gnome.Terminal.desktop",
-    "org.gnome.Nautilus.desktop",
-]
-present = []
-for c in candidates:
-    if any((d / c).exists() for d in dirs):
-        if c == "chromium_chromium.desktop" and "google-chrome.desktop" in present:
-            continue
-        if c == "org.gnome.Terminal.desktop" and "org.gnome.Ptyxis.desktop" in present:
-            continue
-        present.append(c)
-if present:
-    val = "[" + ", ".join(f"'{x}'" for x in present) + "]"
-    subprocess.run(["gsettings", "set", "org.gnome.shell", "favorite-apps", val], check=False)
-PY
+const dirs = [
+  path.join(os.homedir(), ".local/share/applications"),
+  "/usr/share/applications",
+  "/var/lib/snapd/desktop/applications",
+];
+const candidates = [
+  "google-chrome.desktop",
+  "chromium_chromium.desktop",
+  "code.desktop",
+  "cua.desktop",
+  "org.gnome.Ptyxis.desktop",
+  "org.gnome.Terminal.desktop",
+  "org.gnome.Nautilus.desktop",
+];
+const present = [];
+for (const c of candidates) {
+  if (dirs.some((d) => fs.existsSync(path.join(d, c)))) {
+    if (c === "chromium_chromium.desktop" && present.includes("google-chrome.desktop")) continue;
+    if (c === "org.gnome.Terminal.desktop" && present.includes("org.gnome.Ptyxis.desktop")) continue;
+    present.push(c);
+  }
+}
+if (present.length > 0) {
+  const val = "[" + present.map((x) => `'${x}'`).join(", ") + "]";
+  spawnSync("gsettings", ["set", "org.gnome.shell", "favorite-apps", val], { stdio: "ignore" });
+}
+NODE
     fi
   fi
 
@@ -780,8 +828,367 @@ EOF
 }
 
 # Run fleet convergence + CNF shims refresh on macOS (or when --converge-only is passed) and exit cleanly
+# Section 9 (Darwin workstation convergence) is defined here as a function and invoked
+# from the Darwin converge path below so it is actually reached.
+converge_darwin_workstation() {
+  # Netdata (macOS): bind the embedded web server to loopback only
+  NETDATA_CONF=/opt/homebrew/etc/netdata/netdata.conf
+  if [ -f "$NETDATA_CONF" ] && [ -w "$NETDATA_CONF" ]; then
+    if ! grep -qE '^[[:space:]]*bind to[[:space:]]*=[[:space:]]*127\.0\.0\.1' "$NETDATA_CONF"; then
+      printf '\n[web]\n    bind to = 127.0.0.1\n' >> "$NETDATA_CONF"
+      if command -v netdatacli >/dev/null 2>&1; then netdatacli reload-health >/dev/null 2>&1 || true; fi
+    fi
+  fi
+
+  if [ -d /opt/homebrew/etc/netdata/health.d ] && [ -w /opt/homebrew/etc/netdata/health.d ]; then
+    for netdata_health_config in "$HOME"/.config/netdata/health.d/*.conf; do
+      [ -f "$netdata_health_config" ] || continue
+      cp "$netdata_health_config" /opt/homebrew/etc/netdata/health.d/
+    done
+  fi
+
+  for dir in \
+    "$HOME/.cache" \
+    "$HOME/.bun/install/cache" \
+    "$HOME/.npm" \
+    "$HOME/.local/share/pnpm" \
+    "$HOME/.local/share/uv" \
+    "$HOME/.local/share/cargo" \
+    "$HOME/Library/Caches"; do
+    if [ -d "$dir" ] && [ ! -f "$dir/.metadata_never_index" ]; then
+      touch "$dir/.metadata_never_index" 2>/dev/null || true
+    fi
+  done
+
+  mkdir -p "$HOME/.config/environment.d"
+  cat > "$HOME/.config/environment.d/20-workstation-runtime.conf" <<EOF
+NODE_OPTIONS=--use-system-ca --max-old-space-size=8192
+BUN_INSTALL_CACHE_DIR=$HOME/.cache/megabyte/packages/bun
+UV_LINK_MODE=clone
+EOF
+
+  MACOS_DATA_VOLUME="/"
+  if [ -d /System/Volumes/Data ]; then
+    MACOS_DATA_VOLUME="/System/Volumes/Data"
+  fi
+  AVAIL_GB="$(df -g "$MACOS_DATA_VOLUME" | awk 'NR==2 {print $4}')"
+  if [ "${AVAIL_GB:-100}" -lt 50 ]; then
+    log "Free disk space on $MACOS_DATA_VOLUME is ${AVAIL_GB}GiB (<50GiB threshold); pruning stale caches and logs..."
+    find "$HOME/Library/Logs" -type f -mtime +7 -delete 2>/dev/null || true
+    find "$HOME/Library/Caches/Homebrew/downloads" -maxdepth 1 -name '*.incomplete' -delete 2>/dev/null || true
+  fi
+
+  # macOS Grafana Alloy + Apple-signed /usr/bin/python3 loopback relay (avoids macOS Tahoe LaunchAgent Local Network TCC EHOSTUNREACH)
+  ALLOY_BIN=""
+  if [ -x /opt/homebrew/opt/grafana-alloy/bin/alloy ]; then
+    ALLOY_BIN="/opt/homebrew/opt/grafana-alloy/bin/alloy"
+    ALLOY_ETC="/opt/homebrew/etc/grafana-alloy"
+  elif command -v alloy >/dev/null 2>&1; then
+    ALLOY_BIN="$(command -v alloy)"
+    ALLOY_ETC="$HOME/.config/grafana-alloy"
+  fi
+  if [ -n "$ALLOY_BIN" ]; then
+    MAC_HOST_SHORT="$(hostname -s 2>/dev/null || hostname)"
+    mkdir -p "$ALLOY_ETC" "$HOME/.local/bin" "$HOME/.cache/megabyte/alloy/data" "$HOME/Library/LaunchAgents"
+    cat > "$HOME/.local/bin/macos-obs-relay.py" <<'PY'
+#!/usr/bin/env python3
+"""Loopback-to-LAN HTTP observability relay for macOS Tahoe LaunchAgents.
+Apple-signed /usr/bin/python3 avoids ad-hoc Homebrew binary Local Network TCC EHOSTUNREACH.
+Uses ThreadedHTTPServer + fresh HTTPConnection per request so upstream idle timeouts never reset Alloy."""
+import http.client
+import http.server
+import socketserver
+import threading
+
+ROUTES = [
+    ("127.0.0.1", 19090, "10.0.0.155", 9090),
+    ("127.0.0.1", 13100, "10.0.0.155", 3100),
+]
+
+class ThreadedHTTPServer(socketserver.ThreadingMixIn, http.server.HTTPServer):
+    daemon_threads = True
+    allow_reuse_address = True
+
+def make_handler(dst_host, dst_port):
+    class RelayHandler(http.server.BaseHTTPRequestHandler):
+        protocol_version = "HTTP/1.1"
+        def log_message(self, fmt, *args):
+            pass
+        def _proxy(self):
+            length = int(self.headers.get("Content-Length", "0"))
+            body = self.rfile.read(length) if length > 0 else None
+            fwd = {k: v for k, v in self.headers.items() if k.lower() not in ("host", "connection", "transfer-encoding")}
+            fwd["Host"] = f"{dst_host}:{dst_port}"
+            fwd["Connection"] = "close"
+            conn = http.client.HTTPConnection(dst_host, dst_port, timeout=15)
+            try:
+                conn.request(self.command, self.path, body=body, headers=fwd)
+                resp = conn.getresponse()
+                data = resp.read()
+                self.send_response(resp.status)
+                for hk, hv in resp.getheaders():
+                    if hk.lower() not in ("transfer-encoding", "connection", "content-length"):
+                        self.send_header(hk, hv)
+                self.send_header("Content-Length", str(len(data)))
+                self.send_header("Connection", "close")
+                self.end_headers()
+                if self.command != "HEAD" and data:
+                    self.wfile.write(data)
+            except Exception as exc:
+                err = f'{{"error":"Upstream observability relay error: {exc}"}}\n'.encode()
+                self.send_response(502)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(err)))
+                self.send_header("Connection", "close")
+                self.end_headers()
+                if self.command != "HEAD":
+                    self.wfile.write(err)
+            finally:
+                conn.close()
+        do_GET = do_POST = do_PUT = do_HEAD = _proxy
+    return RelayHandler
+
+def serve(bind_host, bind_port, dst_host, dst_port):
+    ThreadedHTTPServer((bind_host, bind_port), make_handler(dst_host, dst_port)).serve_forever()
+
+for bh, bp, dh, dp in ROUTES[:-1]:
+    threading.Thread(target=serve, args=(bh, bp, dh, dp), daemon=True).start()
+serve(*ROUTES[-1])
+PY
+    chmod 0755 "$HOME/.local/bin/macos-obs-relay.py"
+
+    cat > "$ALLOY_ETC/config.alloy" <<EOF
+prometheus.exporter.unix "node" {
+  disable_collectors = ["thermal"]
+}
+
+prometheus.exporter.self "alloy" {}
+
+prometheus.scrape "node" {
+  targets         = prometheus.exporter.unix.node.targets
+  forward_to      = [prometheus.remote_write.obs.receiver]
+  scrape_interval = "15s"
+}
+
+prometheus.scrape "alloy_self" {
+  targets         = prometheus.exporter.self.alloy.targets
+  forward_to      = [prometheus.remote_write.obs.receiver]
+  scrape_interval = "30s"
+}
+
+prometheus.scrape "megabyte_local_proxy" {
+  targets = [{
+    __address__ = "127.0.0.1:4880",
+    instance    = "${MAC_HOST_SHORT}",
+    host        = "${MAC_HOST_SHORT}",
+    job         = "megabyte-local-proxy",
+  }]
+  forward_to      = [prometheus.remote_write.obs.receiver]
+  scrape_interval = "30s"
+}
+
+prometheus.scrape "cloudflared" {
+  targets = [{
+    __address__ = "127.0.0.1:20242",
+    instance    = "${MAC_HOST_SHORT}",
+    host        = "${MAC_HOST_SHORT}",
+    job         = "cloudflared",
+  }]
+  forward_to      = [prometheus.remote_write.obs.receiver]
+  scrape_interval = "30s"
+}
+
+prometheus.scrape "pulse_agent" {
+  targets = [{
+    __address__ = "127.0.0.1:9191",
+    instance    = "${MAC_HOST_SHORT}",
+    host        = "${MAC_HOST_SHORT}",
+    job         = "pulse-agent",
+  }]
+  forward_to      = [prometheus.remote_write.obs.receiver]
+  scrape_interval = "30s"
+}
+
+prometheus.remote_write "obs" {
+  endpoint { url = "http://127.0.0.1:19090/api/v1/write" }
+  external_labels = { host = "${MAC_HOST_SHORT}" }
+}
+
+loki.write "obs" {
+  endpoint { url = "http://127.0.0.1:13100/loki/api/v1/push" }
+  external_labels = { host = "${MAC_HOST_SHORT}" }
+}
+
+local.file_match "macos_logs" {
+  path_targets = [
+    { __path__ = "${HOME}/.cache/megabyte/*.log", job = "macos-services", host = "${MAC_HOST_SHORT}" },
+    { __path__ = "${HOME}/.cache/megabyte/*.err", job = "macos-services", host = "${MAC_HOST_SHORT}" },
+    { __path__ = "${HOME}/.cache/megabyte/ai/ollama/*.log", job = "macos-ollama", host = "${MAC_HOST_SHORT}" },
+  ]
+}
+
+loki.source.file "macos_logs" {
+  targets    = local.file_match.macos_logs.targets
+  forward_to = [loki.write.obs.receiver]
+}
+EOF
+
+    cat > "$HOME/Library/LaunchAgents/space.megabyte.obs-relay.plist" <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>space.megabyte.obs-relay</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/usr/bin/python3</string>
+    <string>${HOME}/.local/bin/macos-obs-relay.py</string>
+  </array>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <key>StandardOutPath</key>
+  <string>${HOME}/.cache/megabyte/alloy/obs-relay.log</string>
+  <key>StandardErrorPath</key>
+  <string>${HOME}/.cache/megabyte/alloy/obs-relay.err.log</string>
+</dict>
+</plist>
+EOF
+
+    cat > "$HOME/Library/LaunchAgents/space.megabyte.alloy.plist" <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>space.megabyte.alloy</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>${ALLOY_BIN}</string>
+    <string>run</string>
+    <string>--disable-reporting</string>
+    <string>--server.http.listen-addr=127.0.0.1:12345</string>
+    <string>--storage.path=${HOME}/.cache/megabyte/alloy/data</string>
+    <string>${ALLOY_ETC}/config.alloy</string>
+  </array>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <key>StandardOutPath</key>
+  <string>${HOME}/.cache/megabyte/alloy/alloy.log</string>
+  <key>StandardErrorPath</key>
+  <string>${HOME}/.cache/megabyte/alloy/alloy.err.log</string>
+</dict>
+</plist>
+EOF
+    launchctl bootout "gui/$(id -u)" "$HOME/Library/LaunchAgents/space.megabyte.obs-relay.plist" >/dev/null 2>&1 || true
+    launchctl bootstrap "gui/$(id -u)" "$HOME/Library/LaunchAgents/space.megabyte.obs-relay.plist" >/dev/null 2>&1 || true
+    launchctl bootout "gui/$(id -u)" "$HOME/Library/LaunchAgents/space.megabyte.alloy.plist" >/dev/null 2>&1 || true
+    launchctl bootstrap "gui/$(id -u)" "$HOME/Library/LaunchAgents/space.megabyte.alloy.plist" >/dev/null 2>&1 || true
+  fi
+
+  # Darwin user LaunchAgents: agent-skills sync (15m), Langfuse spool drain (5m), disk hygiene (RunAtLoad)
+  mkdir -p "$HOME/Library/LaunchAgents" "$HOME/.cache/megabyte"
+  cat > "$HOME/Library/LaunchAgents/space.megabyte.agent-skills-sync.plist" <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>space.megabyte.agent-skills-sync</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/sh</string>
+    <string>-c</string>
+    <string>set -eu; git -C "${HOME}/.agentskills" diff --quiet; git -C "${HOME}/.agentskills" diff --cached --quiet; git -C "${HOME}/.agentskills" fetch origin master; git -C "${HOME}/.agentskills" merge --ff-only origin/master</string>
+  </array>
+  <key>StartInterval</key>
+  <integer>900</integer>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>StandardOutPath</key>
+  <string>${HOME}/.cache/megabyte/agent-skills-sync.log</string>
+  <key>StandardErrorPath</key>
+  <string>${HOME}/.cache/megabyte/agent-skills-sync.err.log</string>
+</dict>
+</plist>
+EOF
+  cat > "$HOME/Library/LaunchAgents/space.megabyte.langfuse-spool-drain.plist" <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>space.megabyte.langfuse-spool-drain</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>${HOME}/.local/bin/langfuse-safe-ping</string>
+  </array>
+  <key>StartInterval</key>
+  <integer>300</integer>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>StandardOutPath</key>
+  <string>${HOME}/.cache/megabyte/langfuse-spool-drain.log</string>
+  <key>StandardErrorPath</key>
+  <string>${HOME}/.cache/megabyte/langfuse-spool-drain.err.log</string>
+</dict>
+</plist>
+EOF
+  cat > "$HOME/Library/LaunchAgents/space.megabyte.disk-hygiene.plist" <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>space.megabyte.disk-hygiene</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/sh</string>
+    <string>-c</string>
+    <string>if test -x "${HOME}/.local/bin/megabyte-cache-prune"; then "${HOME}/.local/bin/megabyte-cache-prune"; fi; find "${HOME}/Library/Logs" -type f -mtime +7 -delete 2>/dev/null; find "${HOME}/Library/Caches/Homebrew/downloads" -maxdepth 1 -name "*.incomplete" -delete 2>/dev/null; true</string>
+  </array>
+  <key>StartInterval</key>
+  <integer>86400</integer>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>StandardOutPath</key>
+  <string>${HOME}/.cache/megabyte/disk-hygiene.log</string>
+  <key>StandardErrorPath</key>
+  <string>${HOME}/.cache/megabyte/disk-hygiene.err.log</string>
+</dict>
+</plist>
+EOF
+  for _la in space.megabyte.agent-skills-sync space.megabyte.langfuse-spool-drain space.megabyte.disk-hygiene; do
+    launchctl bootout "gui/$(id -u)" "$HOME/Library/LaunchAgents/${_la}.plist" >/dev/null 2>&1 || true
+    launchctl bootstrap "gui/$(id -u)" "$HOME/Library/LaunchAgents/${_la}.plist" >/dev/null 2>&1 || true
+  done
+
+  # Reap ONLY orphaned 'cua-driver mcp' processes whose parent is launchd (ppid==1); never touch 'serve' or parented mcp
+  /bin/ps -axo pid=,ppid=,command= 2>/dev/null | while read -r _pid _ppid _cmd; do
+    case "$_cmd" in
+      *cua-driver*mcp*)
+        if [ "$_ppid" = "1" ]; then kill -TERM "$_pid" 2>/dev/null || true; fi
+        ;;
+    esac
+  done
+
+  # Ensure interactive shells source the scoped cache + Langfuse env
+  for rc in "$HOME/.zshrc" "$HOME/.bashrc"; do
+    if [ -f "$rc" ] && ! grep -q 'megabyte-cache.sh' "$rc" 2>/dev/null; then
+      printf '\n# Megabyte Nexus & Scoped Cache Configuration\n[ -f "$HOME/.config/shell/megabyte-cache.sh" ] && . "$HOME/.config/shell/megabyte-cache.sh"\n' >> "$rc"
+    fi
+  done
+}
+
 if [ "$(uname -s)" != "Linux" ] || [ "${1:-}" = "--converge-only" ]; then
   converge_fleet_host
+  if [ "$(uname -s)" = "Darwin" ]; then
+    converge_darwin_workstation
+  fi
   if [ -x "$HOME/.local/bin/post-installx/post-cua-driver.sh" ]; then
     "$HOME/.local/bin/post-installx/post-cua-driver.sh" >/dev/null 2>&1 || true
   fi
@@ -893,112 +1300,120 @@ if [ -n "$MISE_NODE_BIN" ] && [ -d "$MISE_NODE_BIN" ]; then
 fi
 
 # Configure OpenCode with LiteLLM (llm.megabyte.space) primary rail + DeepSeek direct fallback
-python3 - <<'PY' || true
-import json
-from pathlib import Path
+node - <<'NODE' || true
+const fs = require("node:fs");
+const path = require("node:path");
+const os = require("node:os");
 
-home = Path.home()
-oc_dir = home / ".config/opencode"
-oc_dir.mkdir(parents=True, exist_ok=True)
-cua_bin = str(home / ".local/bin/cua-driver")
+const home = os.homedir();
+const ocDir = path.join(home, ".config", "opencode");
+fs.mkdirSync(ocDir, { recursive: true });
+const cuaBin = path.join(home, ".local", "bin", "cua-driver");
+const target = path.join(ocDir, "opencode.jsonc");
 
-oc_jsonc = {
-    "$schema": "https://opencode.ai/config.json",
-    "model": "litellm/deepseek-v4-pro",
-    "small_model": "litellm/deepseek-flash",
-    "disabled_providers": ["openai", "anthropic"],
-    "mcp": {
-        "cua-driver": {
-            "type": "local",
-            "command": [cua_bin, "mcp"],
-            "enabled": True
-        }
-    },
-    "provider": {
-        "litellm": {
-            "npm": "@ai-sdk/openai-compatible",
-            "name": "LiteLLM (llm.megabyte.space - DeepSeek 4-key rotation + fallback + Langfuse)",
-            "options": {
-                "baseURL": "https://llm.megabyte.space/v1"
-            },
-            "models": {
-                "deepseek-v4-pro": {
-                    "name": "DeepSeek V4 Pro (rotated)",
-                    "reasoning": True,
-                    "tool_call": True,
-                    "temperature": True,
-                    "limit": {"context": 1048576, "output": 393216},
-                    "modalities": {"input": ["text"], "output": ["text"]},
-                    "variants": {
-                        "high": {"reasoningEffort": "high"},
-                        "max": {"reasoningEffort": "max"}
-                    }
-                },
-                "deepseek-flash": {
-                    "name": "DeepSeek V4.1 Flash (rotated)",
-                    "reasoning": True,
-                    "tool_call": True,
-                    "temperature": True,
-                    "attachment": True,
-                    "limit": {"context": 1048576, "output": 393216},
-                    "modalities": {"input": ["text", "image"], "output": ["text"]},
-                    "variants": {
-                        "low": {"reasoningEffort": "low"},
-                        "high": {"reasoningEffort": "high"}
-                    }
-                },
-                "deepseek-chat": {"name": "DeepSeek Chat (rotated)", "tool_call": True, "temperature": True},
-                "deepseek-reasoner": {"name": "DeepSeek Reasoner (rotated)", "reasoning": True, "tool_call": True}
-            }
-        },
-        "deepseek": {
-            "npm": "@ai-sdk/openai-compatible",
-            "name": "DeepSeek (direct)",
-            "options": {
-                "baseURL": "https://api.deepseek.com"
-            },
-            "models": {
-                "deepseek-v4-pro": {
-                    "name": "DeepSeek V4 Pro",
-                    "reasoning": True,
-                    "tool_call": True,
-                    "temperature": True,
-                    "attachment": False,
-                    "limit": {"context": 1048576, "output": 393216},
-                    "modalities": {"input": ["text"], "output": ["text"]}
-                },
-                "deepseek-flash": {
-                    "name": "DeepSeek V4.1 Flash",
-                    "reasoning": True,
-                    "tool_call": True,
-                    "temperature": True,
-                    "attachment": True,
-                    "limit": {"context": 1048576, "output": 393216},
-                    "modalities": {"input": ["text", "image"], "output": ["text"]}
-                },
-                "deepseek-chat": {
-                    "name": "DeepSeek Chat (legacy -> V4.1 Flash)",
-                    "tool_call": True,
-                    "temperature": True,
-                    "attachment": True,
-                    "limit": {"context": 1048576, "output": 393216},
-                    "modalities": {"input": ["text", "image"], "output": ["text"]}
-                },
-                "deepseek-reasoner": {
-                    "name": "DeepSeek Reasoner (legacy -> V4.1 Flash)",
-                    "reasoning": True,
-                    "tool_call": True,
-                    "temperature": True,
-                    "attachment": False,
-                    "limit": {"context": 1048576, "output": 393216},
-                    "modalities": {"input": ["text"], "output": ["text"]}
-                }
-            }
-        }
+// Preserve operator-authored keys when an existing config parses cleanly.
+let preserved = {};
+if (fs.existsSync(target)) {
+  try {
+    const raw = fs
+      .readFileSync(target, "utf8")
+      .split(/\r?\n/)
+      .filter((l) => !l.trim().startsWith("//"))
+      .join("\n");
+    const existing = JSON.parse(raw);
+    for (const key of ["instructions", "references", "shell"]) {
+      if (existing[key] !== undefined) preserved[key] = existing[key];
     }
+  } catch {
+    preserved = {};
+  }
 }
-(oc_dir / "opencode.jsonc").write_text(json.dumps(oc_jsonc, indent=2) + "\n")
-PY
+
+const config = {
+  $schema: "https://opencode.ai/config.json",
+  model: "litellm/deepseek-v4-pro",
+  small_model: "litellm/deepseek-flash",
+  disabled_providers: ["openai", "anthropic"],
+  mcp: {
+    "cua-driver": { type: "local", command: [cuaBin, "mcp"], enabled: true },
+  },
+  provider: {
+    litellm: {
+      npm: "@ai-sdk/openai-compatible",
+      name: "LiteLLM (llm.megabyte.space - DeepSeek 4-key rotation + fallback + Langfuse)",
+      options: { baseURL: "https://llm.megabyte.space/v1" },
+      models: {
+        "deepseek-v4-pro": {
+          name: "DeepSeek V4 Pro (rotated)",
+          reasoning: true,
+          tool_call: true,
+          temperature: true,
+          limit: { context: 1048576, output: 393216 },
+          modalities: { input: ["text"], output: ["text"] },
+          variants: { high: { reasoningEffort: "high" }, max: { reasoningEffort: "max" } },
+        },
+        "deepseek-flash": {
+          name: "DeepSeek V4.1 Flash (rotated)",
+          reasoning: true,
+          tool_call: true,
+          temperature: true,
+          attachment: true,
+          limit: { context: 1048576, output: 393216 },
+          modalities: { input: ["text", "image"], output: ["text"] },
+          variants: { low: { reasoningEffort: "low" }, high: { reasoningEffort: "high" } },
+        },
+        "deepseek-chat": { name: "DeepSeek Chat (rotated)", tool_call: true, temperature: true },
+        "deepseek-reasoner": { name: "DeepSeek Reasoner (rotated)", reasoning: true, tool_call: true },
+      },
+    },
+    deepseek: {
+      npm: "@ai-sdk/openai-compatible",
+      name: "DeepSeek (direct)",
+      options: { baseURL: "https://api.deepseek.com" },
+      models: {
+        "deepseek-v4-pro": {
+          name: "DeepSeek V4 Pro",
+          reasoning: true,
+          tool_call: true,
+          temperature: true,
+          attachment: false,
+          limit: { context: 1048576, output: 393216 },
+          modalities: { input: ["text"], output: ["text"] },
+        },
+        "deepseek-flash": {
+          name: "DeepSeek V4.1 Flash",
+          reasoning: true,
+          tool_call: true,
+          temperature: true,
+          attachment: true,
+          limit: { context: 1048576, output: 393216 },
+          modalities: { input: ["text", "image"], output: ["text"] },
+        },
+        "deepseek-chat": {
+          name: "DeepSeek Chat (legacy -> V4.1 Flash)",
+          tool_call: true,
+          temperature: true,
+          attachment: true,
+          limit: { context: 1048576, output: 393216 },
+          modalities: { input: ["text", "image"], output: ["text"] },
+        },
+        "deepseek-reasoner": {
+          name: "DeepSeek Reasoner (legacy -> V4.1 Flash)",
+          reasoning: true,
+          tool_call: true,
+          temperature: true,
+          attachment: false,
+          limit: { context: 1048576, output: 393216 },
+          modalities: { input: ["text"], output: ["text"] },
+        },
+      },
+    },
+  },
+  ...preserved,
+};
+
+fs.writeFileSync(target, JSON.stringify(config, null, 2) + "\n");
+NODE
 if [ -x "$HOME/.agentskills/bin/opencode-deepseek-auth.sh" ]; then
   "$HOME/.agentskills/bin/opencode-deepseek-auth.sh" sync >/dev/null 2>&1 || true
 fi
@@ -1272,38 +1687,36 @@ EOF
   if command -v docker >/dev/null 2>&1; then
     HAS_NV="0"
     command -v nvidia-ctk >/dev/null 2>&1 && HAS_NV="1"
-    python3 - "$TMP_DIR/daemon.json" "$HAS_NV" <<'PY' || true
-import json, sys
-from pathlib import Path
-
-out = Path(sys.argv[1])
-has_nv = sys.argv[2] == "1"
-cur = Path("/etc/docker/daemon.json")
-data = {}
-if cur.exists():
-    try:
-        data = json.loads(cur.read_text())
-    except Exception:
-        data = {}
-data.setdefault("ip", "127.0.0.1")
-data.setdefault("live-restore", True)
-data["userland-proxy"] = False
-data.setdefault("max-concurrent-downloads", 10)
-data.setdefault("max-concurrent-uploads", 5)
-data.setdefault("log-driver", "local")
-data.setdefault("log-opts", {"max-size": "10m", "max-file": "3"})
-data.setdefault("builder", {"gc": {"enabled": True, "defaultKeepStorage": "20GB"}})
-mirrors = data.setdefault("registry-mirrors", [])
-if "https://registry.megabyte.space" not in mirrors:
-    mirrors.append("https://registry.megabyte.space")
-if has_nv:
-    data.setdefault("features", {})["cdi"] = True
-    data.setdefault("runtimes", {})["nvidia"] = {
-        "path": "nvidia-container-runtime",
-        "runtimeArgs": []
-    }
-out.write_text(json.dumps(data, indent=2) + "\n")
-PY
+    node - "$TMP_DIR/daemon.json" "$HAS_NV" <<'NODE' || true
+const fs = require("node:fs");
+const [outPath, hasNvArg] = process.argv.slice(1);
+const hasNv = hasNvArg === "1";
+let data = {};
+try {
+  data = JSON.parse(fs.readFileSync("/etc/docker/daemon.json", "utf8"));
+} catch {
+  data = {};
+}
+if (data.ip === undefined) data.ip = "127.0.0.1";
+if (data["live-restore"] === undefined) data["live-restore"] = true;
+data["userland-proxy"] = false;
+if (data["max-concurrent-downloads"] === undefined) data["max-concurrent-downloads"] = 10;
+if (data["max-concurrent-uploads"] === undefined) data["max-concurrent-uploads"] = 5;
+if (data["log-driver"] === undefined) data["log-driver"] = "local";
+if (data["log-opts"] === undefined) data["log-opts"] = { "max-size": "10m", "max-file": "3" };
+if (data.builder === undefined) data.builder = { gc: { enabled: true, defaultKeepStorage: "20GB" } };
+if (!Array.isArray(data["registry-mirrors"])) data["registry-mirrors"] = [];
+if (!data["registry-mirrors"].includes("https://registry.megabyte.space")) {
+  data["registry-mirrors"].push("https://registry.megabyte.space");
+}
+if (hasNv) {
+  if (data.features === undefined) data.features = {};
+  data.features.cdi = true;
+  if (data.runtimes === undefined) data.runtimes = {};
+  data.runtimes.nvidia = { path: "nvidia-container-runtime", runtimeArgs: [] };
+}
+fs.writeFileSync(outPath, JSON.stringify(data, null, 2) + "\n");
+NODE
     if [ -s "$TMP_DIR/daemon.json" ]; then
       run_root install -d -m 0755 /etc/docker
       run_root cp "$TMP_DIR/daemon.json" /etc/docker/daemon.json
@@ -1331,220 +1744,477 @@ EOF
     run_root systemctl enable --now "${HOST_SHORT}-gpu-tune.service" >/dev/null 2>&1 || true
   fi
 
-  cat > "$TMP_DIR/${HOST_SHORT}-hw-exporter.py" <<'EOF'
-#!/usr/bin/env python3
-"""Loopback Prometheus hardware exporter (127.0.0.1:9835) for NVIDIA GPU, Intel RAPL, and NVMe/SATA SMART."""
-import glob
-import http.server
-import json
-import os
-import socketserver
-import subprocess
+  cat > "$TMP_DIR/workstation-hw-exporter.ts" <<'TSEOF'
+#!/usr/bin/env -S node --experimental-strip-types
+/**
+ * Loopback Prometheus Hardware & Kernel Telemetry Exporter (127.0.0.1:9835).
+ *
+ * Exports NVIDIA GPU, Intel RAPL energy, hwmon thermal sensors, wireless signal,
+ * NVMe/SATA SMART health, OpenZFS ARC & zpool posture, ZRAM swap capacity,
+ * Linux PSI pressure stalls, CPU scaling frequency, systemd failed unit counts,
+ * and CrowdSec firewall bouncer status.
+ */
 
-PORT = int(os.environ.get("HW_EXPORTER_PORT", "9835"))
+import { spawnSync } from "node:child_process";
+import { existsSync, readdirSync, readFileSync, realpathSync } from "node:fs";
+import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
+import { basename, join } from "node:path";
+import { fileURLToPath } from "node:url";
 
+interface ExporterServerConfig {
+  readonly listenHost: string;
+  readonly listenPort: number;
+}
 
-def collect_metrics() -> str:
-    lines = [
-        "# HELP nvidia_gpu_temperature_celsius NVIDIA GPU temperature in Celsius",
-        "# TYPE nvidia_gpu_temperature_celsius gauge",
-        "# HELP nvidia_gpu_power_draw_watts NVIDIA GPU power draw in Watts",
-        "# TYPE nvidia_gpu_power_draw_watts gauge",
-        "# HELP nvidia_gpu_utilization_percent NVIDIA GPU utilization percentage",
-        "# TYPE nvidia_gpu_utilization_percent gauge",
-        "# HELP nvidia_gpu_memory_used_bytes NVIDIA GPU memory used in bytes",
-        "# TYPE nvidia_gpu_memory_used_bytes gauge",
-        "# HELP nvidia_gpu_memory_total_bytes NVIDIA GPU memory total in bytes",
-        "# TYPE nvidia_gpu_memory_total_bytes gauge",
-    ]
-    try:
-        out = subprocess.check_output(
-            [
-                "nvidia-smi",
-                "--query-gpu=index,name,temperature.gpu,power.draw,utilization.gpu,memory.used,memory.total",
-                "--format=csv,noheader,nounits",
-            ],
-            text=True,
-            timeout=5,
-            stderr=subprocess.DEVNULL,
-        )
-        for row in out.strip().splitlines():
-            parts = [p.strip() for p in row.split(",")]
-            if len(parts) >= 7:
-                idx, name, temp, pwr, util, mem_u, mem_t = parts[:7]
-                lbl = f'gpu="{idx}",name="{name}"'
-                for metric, val, scale in [
-                    ("nvidia_gpu_temperature_celsius", temp, 1.0),
-                    ("nvidia_gpu_power_draw_watts", pwr, 1.0),
-                    ("nvidia_gpu_utilization_percent", util, 1.0),
-                    ("nvidia_gpu_memory_used_bytes", mem_u, 1048576.0),
-                    ("nvidia_gpu_memory_total_bytes", mem_t, 1048576.0),
-                ]:
-                    try:
-                        lines.append(f"{metric}{{{lbl}}} {float(val) * scale:.2f}")
-                    except ValueError:
-                        pass
-    except Exception:
-        pass
+interface SmartctlJsonPayload {
+  readonly nvme_smart_health_information_log?: {
+    readonly critical_warning?: number;
+  };
+  readonly smart_status?: {
+    readonly passed?: boolean;
+  };
+}
 
-    lines.append("# HELP rapl_energy_microjoules Intel RAPL energy counter in microjoules")
-    lines.append("# TYPE rapl_energy_microjoules counter")
-    for path in sorted(glob.glob("/sys/class/powercap/intel-rapl:*")):
-        try:
-            name = open(os.path.join(path, "name")).read().strip()
-            energy = open(os.path.join(path, "energy_uj")).read().strip()
-            lines.append(f'rapl_energy_microjoules{{domain="{name}"}} {int(energy)}')
-        except Exception:
-            pass
+const CONFIG: ExporterServerConfig = {
+  listenHost: process.env.HW_EXPORTER_HOST ?? "127.0.0.1",
+  listenPort: Number.parseInt(process.env.HW_EXPORTER_PORT ?? "9835", 10) || 9835,
+};
 
-    lines.append("# HELP hwmon_temperature_celsius Hardware thermal sensor temperature in Celsius")
-    lines.append("# TYPE hwmon_temperature_celsius gauge")
-    for path in sorted(glob.glob("/sys/class/hwmon/hwmon*/temp*_input")):
-        try:
-            sensor = open(os.path.join(os.path.dirname(path), "name")).read().strip()
-            label_file = path.replace("_input", "_label")
-            label = open(label_file).read().strip() if os.path.exists(label_file) else os.path.basename(path)
-            val = float(open(path).read().strip()) / 1000.0
-            lines.append(f'hwmon_temperature_celsius{{sensor="{sensor}",label="{label}"}} {val:.1f}')
-        except Exception:
-            pass
+function runCommandText(command: string, args: readonly string[], timeoutMs: number): string | null {
+  const result = spawnSync(command, args, {
+    encoding: "utf8",
+    timeout: timeoutMs,
+    stdio: ["ignore", "pipe", "ignore"],
+  });
+  if (result.error) {
+    return null;
+  }
+  if (typeof result.stdout !== "string") {
+    return null;
+  }
+  return result.stdout;
+}
 
-    if os.path.exists("/proc/net/wireless"):
-        lines.append("# HELP wifi_signal_dbm Wireless interface signal level in dBm")
-        lines.append("# TYPE wifi_signal_dbm gauge")
-        lines.append("# HELP wifi_link_quality Wireless interface link quality score")
-        lines.append("# TYPE wifi_link_quality gauge")
-        try:
-            for row in open("/proc/net/wireless").read().splitlines()[2:]:
-                parts = row.split()
-                if len(parts) >= 4:
-                    iface = parts[0].rstrip(":")
-                    qual = float(parts[2].rstrip("."))
-                    sig = float(parts[3].rstrip("."))
-                    lines.append(f'wifi_link_quality{{interface="{iface}"}} {qual:.1f}')
-                    lines.append(f'wifi_signal_dbm{{interface="{iface}"}} {sig:.1f}')
-        except Exception:
-            pass
+function sanitizeLabelValue(raw: string): string {
+  return raw.replaceAll("\\", "\\\\").replaceAll('"', '\\"').replaceAll("\n", " ").trim();
+}
 
-    lines.append("# HELP nvme_smart_critical_warning NVMe SMART critical warning bitmap")
-    lines.append("# TYPE nvme_smart_critical_warning gauge")
-    lines.append("# HELP smart_device_health_ok SMART overall health assessment (1=OK, 0=FAIL)")
-    lines.append("# TYPE smart_device_health_ok gauge")
-    for dev in ("/dev/nvme0", "/dev/nvme1", "/dev/sda"):
-        if not os.path.exists(dev):
-            continue
-        try:
-            out = subprocess.check_output(
-                ["smartctl", "-j", "-a", dev], text=True, timeout=5, stderr=subprocess.DEVNULL
-            )
-            data = json.loads(out)
-            cw = data.get("nvme_smart_health_information_log", {}).get("critical_warning", 0)
-            passed = 1 if data.get("smart_status", {}).get("passed", True) else 0
-            lines.append(f'nvme_smart_critical_warning{{device="{dev}"}} {int(cw)}')
-            lines.append(f'smart_device_health_ok{{device="{dev}"}} {passed}')
-        except Exception:
-            pass
+function collectNvidiaGpuMetrics(lines: string[]): void {
+  lines.push(
+    "# HELP nvidia_gpu_temperature_celsius NVIDIA GPU temperature in Celsius",
+    "# TYPE nvidia_gpu_temperature_celsius gauge",
+    "# HELP nvidia_gpu_power_draw_watts NVIDIA GPU power draw in Watts",
+    "# TYPE nvidia_gpu_power_draw_watts gauge",
+    "# HELP nvidia_gpu_utilization_percent NVIDIA GPU utilization percentage",
+    "# TYPE nvidia_gpu_utilization_percent gauge",
+    "# HELP nvidia_gpu_memory_used_bytes NVIDIA GPU memory used in bytes",
+    "# TYPE nvidia_gpu_memory_used_bytes gauge",
+    "# HELP nvidia_gpu_memory_total_bytes NVIDIA GPU memory total in bytes",
+    "# TYPE nvidia_gpu_memory_total_bytes gauge",
+  );
 
-    if os.path.exists("/proc/spl/kstat/zfs/arcstats"):
-        try:
-            arc = {}
-            for line in open("/proc/spl/kstat/zfs/arcstats"):
-                parts = line.split()
-                if len(parts) == 3 and parts[2].isdigit():
-                    arc[parts[0]] = int(parts[2])
-            hits = arc.get("hits", 0)
-            misses = arc.get("misses", 0)
-            total = hits + misses
-            ratio = (hits / total) if total > 0 else 1.0
-            lines.extend([
-                "# HELP zfs_arc_size_bytes ZFS ARC current size in bytes",
-                "# TYPE zfs_arc_size_bytes gauge",
-                f"zfs_arc_size_bytes {arc.get('size', 0)}",
-                "# HELP zfs_arc_max_bytes ZFS ARC target max size in bytes",
-                "# TYPE zfs_arc_max_bytes gauge",
-                f"zfs_arc_max_bytes {arc.get('c_max', 0)}",
-                "# HELP zfs_arc_hits_total ZFS ARC hits counter",
-                "# TYPE zfs_arc_hits_total counter",
-                f"zfs_arc_hits_total {hits}",
-                "# HELP zfs_arc_misses_total ZFS ARC misses counter",
-                "# TYPE zfs_arc_misses_total counter",
-                f"zfs_arc_misses_total {misses}",
-                "# HELP zfs_arc_hit_ratio ZFS ARC hit ratio (0.0-1.0)",
-                "# TYPE zfs_arc_hit_ratio gauge",
-                f"zfs_arc_hit_ratio {ratio:.4f}",
-            ])
-        except Exception:
-            pass
-        try:
-            out = subprocess.check_output(["zpool", "list", "-H", "-o", "name,cap,health"], text=True, timeout=2)
-            lines.append("# HELP zpool_capacity_percent ZFS pool capacity percentage")
-            lines.append("# TYPE zpool_capacity_percent gauge")
-            lines.append("# HELP zpool_health_ok ZFS pool health status (1=ONLINE, 0=DEGRADED/FAULTED)")
-            lines.append("# TYPE zpool_health_ok gauge")
-            for row in out.strip().splitlines():
-                parts = row.split()
-                if len(parts) >= 3:
-                    pname, pcap, phealth = parts[0], parts[1].rstrip("%"), parts[2]
-                    lines.append(f'zpool_capacity_percent{{pool="{pname}"}} {float(pcap):.0f}')
-                    lines.append(f'zpool_health_ok{{pool="{pname}",state="{phealth}"}} {1 if phealth == "ONLINE" else 0}')
-        except Exception:
-            pass
+  const stdout = runCommandText(
+    "nvidia-smi",
+    [
+      "--query-gpu=index,name,temperature.gpu,power.draw,utilization.gpu,memory.used,memory.total",
+      "--format=csv,noheader,nounits",
+    ],
+    5_000,
+  );
+  if (!stdout) {
+    return;
+  }
 
-    for res in ("cpu", "memory", "io"):
-        psi_path = f"/proc/pressure/{res}"
-        if os.path.exists(psi_path):
-            try:
-                first = open(psi_path).readline()
-                for kv in first.split():
-                    if kv.startswith("avg10="):
-                        val = float(kv.split("=", 1)[1])
-                        lines.append(f"# HELP linux_psi_{res}_some_avg10 Linux PSI {res} some avg10 percentage")
-                        lines.append(f"# TYPE linux_psi_{res}_some_avg10 gauge")
-                        lines.append(f"linux_psi_{res}_some_avg10 {val:.2f}")
-            except Exception:
-                pass
+  for (const rawRow of stdout.trim().split(/\r?\n/)) {
+    if (!rawRow.trim()) {
+      continue;
+    }
+    const parts = rawRow.split(",").map((part) => part.trim());
+    if (parts.length < 7) {
+      continue;
+    }
+    const [idx, name, temp, pwr, util, memUsedMib, memTotalMib] = parts;
+    const labels = `gpu="${sanitizeLabelValue(idx ?? "0")}",name="${sanitizeLabelValue(name ?? "gpu")}"`;
+    const descriptors: ReadonlyArray<readonly [string, string | undefined, number]> = [
+      ["nvidia_gpu_temperature_celsius", temp, 1],
+      ["nvidia_gpu_power_draw_watts", pwr, 1],
+      ["nvidia_gpu_utilization_percent", util, 1],
+      ["nvidia_gpu_memory_used_bytes", memUsedMib, 1_048_576],
+      ["nvidia_gpu_memory_total_bytes", memTotalMib, 1_048_576],
+    ];
+    for (const [metricName, rawVal, scale] of descriptors) {
+      const parsed = Number.parseFloat(rawVal ?? "");
+      if (Number.isFinite(parsed)) {
+        lines.push(`${metricName}{${labels}} ${(parsed * scale).toFixed(2)}`);
+      }
+    }
+  }
+}
 
-    try:
-        freqs = [int(open(p).read().strip()) / 1000.0 for p in glob.glob("/sys/devices/system/cpu/cpu[0-9]*/cpufreq/scaling_cur_freq")]
-        if freqs:
-            lines.append("# HELP cpu_scaling_frequency_mhz Average CPU scaling frequency in MHz")
-            lines.append("# TYPE cpu_scaling_frequency_mhz gauge")
-            lines.append(f"cpu_scaling_frequency_mhz {sum(freqs) / len(freqs):.1f}")
-    except Exception:
-        pass
+function collectRaplMetrics(lines: string[]): void {
+  const powercapRoot = "/sys/class/powercap";
+  if (!existsSync(powercapRoot)) {
+    return;
+  }
+  lines.push(
+    "# HELP rapl_energy_microjoules Intel RAPL energy counter in microjoules",
+    "# TYPE rapl_energy_microjoules counter",
+  );
+  try {
+    const entries = readdirSync(powercapRoot)
+      .filter((entry) => entry.startsWith("intel-rapl:"))
+      .sort();
+    for (const entry of entries) {
+      try {
+        const domainPath = join(powercapRoot, entry);
+        const domainName = readFileSync(join(domainPath, "name"), "utf8").trim();
+        const energyRaw = Number.parseInt(readFileSync(join(domainPath, "energy_uj"), "utf8").trim(), 10);
+        if (Number.isFinite(energyRaw)) {
+          lines.push(`rapl_energy_microjoules{domain="${sanitizeLabelValue(domainName)}"} ${energyRaw}`);
+        }
+      } catch {
+        continue;
+      }
+    }
+  } catch {
+    return;
+  }
+}
 
-    try:
-        failed_out = subprocess.check_output(["systemctl", "--failed", "--no-legend", "--plain"], text=True, timeout=3)
-        failed_cnt = len([l for l in failed_out.strip().splitlines() if l.strip()])
-        lines.append("# HELP systemd_failed_units_total Number of currently failed systemd units")
-        lines.append("# TYPE systemd_failed_units_total gauge")
-        lines.append(f"systemd_failed_units_total {failed_cnt}")
-    except Exception:
-        pass
+function collectHwmonMetrics(lines: string[]): void {
+  const hwmonRoot = "/sys/class/hwmon";
+  if (!existsSync(hwmonRoot)) {
+    return;
+  }
+  lines.push(
+    "# HELP hwmon_temperature_celsius Hardware thermal sensor temperature in Celsius",
+    "# TYPE hwmon_temperature_celsius gauge",
+  );
+  try {
+    const hwmonDirs = readdirSync(hwmonRoot)
+      .filter((entry) => entry.startsWith("hwmon"))
+      .sort();
+    for (const hwmonDir of hwmonDirs) {
+      const dirPath = join(hwmonRoot, hwmonDir);
+      let sensorName = hwmonDir;
+      try {
+        sensorName = readFileSync(join(dirPath, "name"), "utf8").trim();
+      } catch {
+        // Use directory fallback.
+      }
+      let files: string[];
+      try {
+        files = readdirSync(dirPath)
+          .filter((fileName) => /^temp\d+_input$/.test(fileName))
+          .sort();
+      } catch {
+        continue;
+      }
+      for (const inputFile of files) {
+        try {
+          const inputPath = join(dirPath, inputFile);
+          const labelPath = join(dirPath, inputFile.replace("_input", "_label"));
+          const label = existsSync(labelPath)
+            ? readFileSync(labelPath, "utf8").trim()
+            : basename(inputPath);
+          const millidegrees = Number.parseFloat(readFileSync(inputPath, "utf8").trim());
+          if (Number.isFinite(millidegrees)) {
+            lines.push(
+              `hwmon_temperature_celsius{sensor="${sanitizeLabelValue(sensorName)}",label="${sanitizeLabelValue(label)}"} ${(millidegrees / 1000).toFixed(1)}`,
+            );
+          }
+        } catch {
+          continue;
+        }
+      }
+    }
+  } catch {
+    return;
+  }
+}
 
-    return "\n".join(lines) + "\n"
+function collectWirelessMetrics(lines: string[]): void {
+  const wirelessPath = "/proc/net/wireless";
+  if (!existsSync(wirelessPath)) {
+    return;
+  }
+  lines.push(
+    "# HELP wifi_signal_dbm Wireless interface signal level in dBm",
+    "# TYPE wifi_signal_dbm gauge",
+    "# HELP wifi_link_quality Wireless interface link quality score",
+    "# TYPE wifi_link_quality gauge",
+  );
+  try {
+    const rows = readFileSync(wirelessPath, "utf8").split(/\r?\n/).slice(2);
+    for (const row of rows) {
+      const parts = row.trim().split(/\s+/);
+      if (parts.length >= 4) {
+        const iface = (parts[0] ?? "").replace(/:$/, "");
+        const quality = Number.parseFloat((parts[2] ?? "").replace(/\.$/, ""));
+        const signal = Number.parseFloat((parts[3] ?? "").replace(/\.$/, ""));
+        if (iface && Number.isFinite(quality) && Number.isFinite(signal)) {
+          lines.push(`wifi_link_quality{interface="${sanitizeLabelValue(iface)}"} ${quality.toFixed(1)}`);
+          lines.push(`wifi_signal_dbm{interface="${sanitizeLabelValue(iface)}"} ${signal.toFixed(1)}`);
+        }
+      }
+    }
+  } catch {
+    return;
+  }
+}
 
+function collectSmartMetrics(lines: string[]): void {
+  lines.push(
+    "# HELP nvme_smart_critical_warning NVMe SMART critical warning bitmap",
+    "# TYPE nvme_smart_critical_warning gauge",
+    "# HELP smart_device_health_ok SMART overall health assessment (1=OK, 0=FAIL)",
+    "# TYPE smart_device_health_ok gauge",
+  );
+  for (const devicePath of ["/dev/nvme0", "/dev/nvme1", "/dev/sda", "/dev/sdb"]) {
+    if (!existsSync(devicePath)) {
+      continue;
+    }
+    const stdout = runCommandText("smartctl", ["-j", "-a", devicePath], 5_000);
+    if (!stdout) {
+      continue;
+    }
+    try {
+      const parsed = JSON.parse(stdout) as SmartctlJsonPayload;
+      const criticalWarning = parsed.nvme_smart_health_information_log?.critical_warning ?? 0;
+      const passed = parsed.smart_status?.passed !== false ? 1 : 0;
+      lines.push(`nvme_smart_critical_warning{device="${devicePath}"} ${Math.trunc(criticalWarning)}`);
+      lines.push(`smart_device_health_ok{device="${devicePath}"} ${passed}`);
+    } catch {
+      continue;
+    }
+  }
+}
 
-class Handler(http.server.BaseHTTPRequestHandler):
-    def log_message(self, fmt, *args):
-        pass
+function collectZfsMetrics(lines: string[]): void {
+  const arcstatsPath = "/proc/spl/kstat/zfs/arcstats";
+  if (!existsSync(arcstatsPath)) {
+    return;
+  }
+  try {
+    const arcCounters: Record<string, number> = {};
+    for (const line of readFileSync(arcstatsPath, "utf8").split(/\r?\n/)) {
+      const parts = line.trim().split(/\s+/);
+      if (parts.length === 3 && /^\d+$/.test(parts[2] ?? "")) {
+        arcCounters[parts[0] ?? ""] = Number.parseInt(parts[2] ?? "0", 10);
+      }
+    }
+    const hits = arcCounters.hits ?? 0;
+    const misses = arcCounters.misses ?? 0;
+    const total = hits + misses;
+    const hitRatio = total > 0 ? hits / total : 1;
+    lines.push(
+      "# HELP zfs_arc_size_bytes ZFS ARC current size in bytes",
+      "# TYPE zfs_arc_size_bytes gauge",
+      `zfs_arc_size_bytes ${arcCounters.size ?? 0}`,
+      "# HELP zfs_arc_max_bytes ZFS ARC target max size in bytes",
+      "# TYPE zfs_arc_max_bytes gauge",
+      `zfs_arc_max_bytes ${arcCounters.c_max ?? 0}`,
+      "# HELP zfs_arc_hits_total ZFS ARC hits counter",
+      "# TYPE zfs_arc_hits_total counter",
+      `zfs_arc_hits_total ${hits}`,
+      "# HELP zfs_arc_misses_total ZFS ARC misses counter",
+      "# TYPE zfs_arc_misses_total counter",
+      `zfs_arc_misses_total ${misses}`,
+      "# HELP zfs_arc_hit_ratio ZFS ARC hit ratio (0.0-1.0)",
+      "# TYPE zfs_arc_hit_ratio gauge",
+      `zfs_arc_hit_ratio ${hitRatio.toFixed(4)}`,
+    );
+  } catch {
+    // Continue to zpool probe.
+  }
 
-    def do_GET(self):
-        body = collect_metrics().encode("utf-8")
-        self.send_response(200)
-        self.send_header("Content-Type", "text/plain; version=0.0.4")
-        self.send_header("Content-Length", str(len(body)))
-        self.end_headers()
-        self.wfile.write(body)
+  const zpoolOut = runCommandText("zpool", ["list", "-H", "-o", "name,cap,health"], 2_500);
+  if (zpoolOut) {
+    lines.push(
+      "# HELP zpool_capacity_percent ZFS pool capacity percentage",
+      "# TYPE zpool_capacity_percent gauge",
+      "# HELP zpool_health_ok ZFS pool health status (1=ONLINE, 0=DEGRADED/FAULTED)",
+      "# TYPE zpool_health_ok gauge",
+    );
+    for (const row of zpoolOut.trim().split(/\r?\n/)) {
+      const parts = row.trim().split(/\s+/);
+      if (parts.length >= 3) {
+        const poolName = sanitizeLabelValue(parts[0] ?? "");
+        const capPct = Number.parseFloat((parts[1] ?? "0").replace(/%$/, ""));
+        const health = sanitizeLabelValue(parts[2] ?? "UNKNOWN");
+        if (poolName && Number.isFinite(capPct)) {
+          lines.push(`zpool_capacity_percent{pool="${poolName}"} ${capPct.toFixed(0)}`);
+          lines.push(`zpool_health_ok{pool="${poolName}",state="${health}"} ${health === "ONLINE" ? 1 : 0}`);
+        }
+      }
+    }
+  }
+}
 
+function collectPsiAndKernelMetrics(lines: string[]): void {
+  for (const resource of ["cpu", "memory", "io"] as const) {
+    const psiPath = `/proc/pressure/${resource}`;
+    if (!existsSync(psiPath)) {
+      continue;
+    }
+    try {
+      const firstLine = readFileSync(psiPath, "utf8").split(/\r?\n/, 1)[0] ?? "";
+      for (const token of firstLine.split(/\s+/)) {
+        if (token.startsWith("avg10=")) {
+          const avg10 = Number.parseFloat(token.slice("avg10=".length));
+          if (Number.isFinite(avg10)) {
+            lines.push(
+              `# HELP linux_psi_${resource}_some_avg10 Linux PSI ${resource} some avg10 percentage`,
+              `# TYPE linux_psi_${resource}_some_avg10 gauge`,
+              `linux_psi_${resource}_some_avg10 ${avg10.toFixed(2)}`,
+            );
+          }
+        }
+      }
+    } catch {
+      continue;
+    }
+  }
 
-if __name__ == "__main__":
-    socketserver.TCPServer.allow_reuse_address = True
-    with socketserver.TCPServer(("127.0.0.1", PORT), Handler) as httpd:
-        httpd.serve_forever()
-EOF
-  run_root install -m 0755 "$TMP_DIR/${HOST_SHORT}-hw-exporter.py" /usr/local/bin/workstation-hw-exporter
-  run_root ln -sf /usr/local/bin/workstation-hw-exporter "/usr/local/bin/${HOST_SHORT}-hw-exporter.py"
+  const cpuRoot = "/sys/devices/system/cpu";
+  if (existsSync(cpuRoot)) {
+    try {
+      const freqsMhz: number[] = [];
+      for (const entry of readdirSync(cpuRoot)) {
+        if (!/^cpu\d+$/.test(entry)) {
+          continue;
+        }
+        const freqPath = join(cpuRoot, entry, "cpufreq", "scaling_cur_freq");
+        if (!existsSync(freqPath)) {
+          continue;
+        }
+        try {
+          const khz = Number.parseInt(readFileSync(freqPath, "utf8").trim(), 10);
+          if (Number.isFinite(khz)) {
+            freqsMhz.push(khz / 1000);
+          }
+        } catch {
+          continue;
+        }
+      }
+      if (freqsMhz.length > 0) {
+        const meanMhz = freqsMhz.reduce((acc, cur) => acc + cur, 0) / freqsMhz.length;
+        lines.push(
+          "# HELP cpu_scaling_frequency_mhz Average CPU scaling frequency in MHz",
+          "# TYPE cpu_scaling_frequency_mhz gauge",
+          `cpu_scaling_frequency_mhz ${meanMhz.toFixed(1)}`,
+        );
+      }
+    } catch {
+      // Ignore cpufreq absence on virtualized CPUs.
+    }
+  }
+
+  if (existsSync("/proc/swaps")) {
+    try {
+      let zramBytes = 0;
+      const swapRows = readFileSync("/proc/swaps", "utf8").split(/\r?\n/).slice(1);
+      for (const row of swapRows) {
+        const parts = row.trim().split(/\s+/);
+        if (parts.length >= 3 && (parts[0] ?? "").includes("zram")) {
+          const sizeKiB = Number.parseInt(parts[2] ?? "0", 10);
+          if (Number.isFinite(sizeKiB)) {
+            zramBytes += sizeKiB * 1024;
+          }
+        }
+      }
+      lines.push(
+        "# HELP zram_swap_total_bytes Configured active ZRAM swap capacity in bytes",
+        "# TYPE zram_swap_total_bytes gauge",
+        `zram_swap_total_bytes ${zramBytes}`,
+      );
+    } catch {
+      // Ignore /proc/swaps read error.
+    }
+  }
+
+  const failedOut = runCommandText("systemctl", ["--failed", "--no-legend", "--plain"], 3_000);
+  if (failedOut !== null) {
+    const failedCount = failedOut
+      .split(/\r?\n/)
+      .filter((line) => line.trim().length > 0).length;
+    lines.push(
+      "# HELP systemd_failed_units_total Number of currently failed systemd units",
+      "# TYPE systemd_failed_units_total gauge",
+      `systemd_failed_units_total ${failedCount}`,
+    );
+  }
+
+  const bouncerOut = runCommandText("systemctl", ["is-active", "crowdsec-firewall-bouncer.service"], 2_000);
+  if (bouncerOut !== null) {
+    const active = bouncerOut.trim() === "active" ? 1 : 0;
+    lines.push(
+      "# HELP crowdsec_firewall_bouncer_active CrowdSec firewall bouncer active state (1=active, 0=inactive)",
+      "# TYPE crowdsec_firewall_bouncer_active gauge",
+      `crowdsec_firewall_bouncer_active ${active}`,
+    );
+  }
+}
+
+export function collectWorkstationHardwareMetrics(): string {
+  const lines: string[] = [];
+  collectNvidiaGpuMetrics(lines);
+  collectRaplMetrics(lines);
+  collectHwmonMetrics(lines);
+  collectWirelessMetrics(lines);
+  collectSmartMetrics(lines);
+  collectZfsMetrics(lines);
+  collectPsiAndKernelMetrics(lines);
+  return `${lines.join("\n")}\n`;
+}
+
+function handleMetricsRequest(req: IncomingMessage, res: ServerResponse): void {
+  res.on("error", () => {
+    // Ignore client disconnect errors.
+  });
+  const url = req.url ?? "/";
+  if (url === "/healthz") {
+    const body = Buffer.from('{"status":"ok","runtime":"node-typescript"}\n', "utf8");
+    res.writeHead(200, {
+      "Content-Type": "application/json",
+      "Content-Length": String(body.byteLength),
+      Connection: "close",
+    });
+    res.end(req.method === "HEAD" ? undefined : body);
+    return;
+  }
+  const body = Buffer.from(collectWorkstationHardwareMetrics(), "utf8");
+  res.writeHead(200, {
+    "Content-Type": "text/plain; version=0.0.4",
+    "Content-Length": String(body.byteLength),
+    Connection: "close",
+  });
+  res.end(req.method === "HEAD" ? undefined : body);
+}
+
+const currentModulePath = realpathSync(fileURLToPath(import.meta.url));
+const invokedPath = process.argv[1] ? realpathSync(process.argv[1]) : "";
+if (currentModulePath === invokedPath) {
+  const server = createServer(handleMetricsRequest);
+  server.listen(CONFIG.listenPort, CONFIG.listenHost);
+}
+
+TSEOF
+  cat > "$TMP_DIR/workstation-hw-exporter" <<'SHEOF'
+#!/usr/bin/env sh
+set -eu
+for candidate in /usr/local/bin/node /opt/homebrew/bin/node /usr/bin/node; do
+  if [ -x "$candidate" ]; then
+    exec "$candidate" --experimental-strip-types /usr/local/bin/workstation-hw-exporter.ts "$@"
+  fi
+done
+exec node --experimental-strip-types /usr/local/bin/workstation-hw-exporter.ts "$@"
+
+SHEOF
+  run_root install -m 0755 "$TMP_DIR/workstation-hw-exporter.ts" /usr/local/bin/workstation-hw-exporter.ts
+  run_root install -m 0755 "$TMP_DIR/workstation-hw-exporter" /usr/local/bin/workstation-hw-exporter
+  # Remove stale Python exporters from prior provisioning passes
+  run_root sh -c 'rm -f /usr/local/bin/*-hw-exporter.py' 2>/dev/null || true
   cat > "$TMP_DIR/${HOST_SHORT}-hw-exporter.service" <<EOF
 [Unit]
 Description=Hardware Telemetry Prometheus Exporter (${HOST_SHORT} - 127.0.0.1:9835)
@@ -1553,7 +2223,7 @@ After=network.target
 [Service]
 Type=simple
 User=root
-ExecStart=/usr/bin/python3 /usr/local/bin/workstation-hw-exporter
+ExecStart=/usr/local/bin/workstation-hw-exporter
 Restart=always
 RestartSec=5
 
@@ -1979,21 +2649,61 @@ EOF
 #!/usr/bin/env bash
 set -euo pipefail
 /usr/local/bin/fleet-export-host-metadata.sh || true
+TARGET_USER="ubuntu"
 USER_HOME="/home/ubuntu"
-[ -d "/home/professormanhattan/.config/agent-fleet" ] && USER_HOME="/home/professormanhattan"
+if [ -d "/home/professormanhattan/.config/agent-fleet" ]; then
+  TARGET_USER="professormanhattan"
+  USER_HOME="/home/professormanhattan"
+fi
 GET_SEC="$USER_HOME/.local/bin/get-secret"
-[ -x "$GET_SEC" ] || exit 0
 export HOME="$USER_HOME"
-export PBS_REPOSITORY="$("$GET_SEC" PBS_REPOSITORY 2>/dev/null || echo "pbs@pbs!pve-backup@10.0.0.114:pbs-local")"
-export PBS_PASSWORD="$("$GET_SEC" PBS_PASSWORD 2>/dev/null || true)"
-export PBS_FINGERPRINT="$("$GET_SEC" PBS_FINGERPRINT 2>/dev/null || true)"
-[ -n "$PBS_PASSWORD" ] || exit 0
+
+# Resolve a secret as the OWNING user (Infisical/keyring live in the user session, not root),
+# falling back to a root-readable /etc/pbs-workstation.env when get-secret cannot run.
+resolve_secret() {
+  local key="$1" val=""
+  if [ -x "$GET_SEC" ]; then
+    val="$(runuser -u "$TARGET_USER" -- env PATH="$USER_HOME/.local/share/mise/shims:$USER_HOME/.local/bin:/usr/local/bin:/usr/bin:/bin" "$GET_SEC" "$key" 2>/dev/null || true)"
+  fi
+  if [ -z "$val" ] && [ -r /etc/pbs-workstation.env ]; then
+    val="$(grep -E "^${key}=" /etc/pbs-workstation.env 2>/dev/null | tail -n1 | cut -d= -f2- || true)"
+  fi
+  printf '%s' "$val"
+}
+
+PBS_REPOSITORY="$(resolve_secret PBS_REPOSITORY)"
+[ -n "$PBS_REPOSITORY" ] || PBS_REPOSITORY="pbs@pbs!pve-backup@10.0.0.114:pbs-local"
+export PBS_REPOSITORY
+export PBS_PASSWORD="$(resolve_secret PBS_PASSWORD)"
+export PBS_FINGERPRINT="$(resolve_secret PBS_FINGERPRINT)"
+
+if [ -z "$PBS_PASSWORD" ]; then
+  printf 'ERROR: PBS_PASSWORD is unavailable (get-secret + /etc/pbs-workstation.env both empty); refusing to report backup success.\n' >&2
+  exit 1
+fi
+
+# Optional Healthchecks dead-man's-switch ping (start -> success/fail)
+HC_URL=""
+if [ -x "$USER_HOME/.local/bin/hc-ping-url.sh" ]; then
+  HC_URL="$(runuser -u "$TARGET_USER" -- "$USER_HOME/.local/bin/hc-ping-url.sh" pbs-workstation-backup 2>/dev/null || true)"
+elif command -v hc-ping-url.sh >/dev/null 2>&1; then
+  HC_URL="$(hc-ping-url.sh pbs-workstation-backup 2>/dev/null || true)"
+fi
+[ -n "$HC_URL" ] && curl -fsS -m 10 "${HC_URL}/start" >/dev/null 2>&1 || true
+
 KEYFILE="/run/pbs-backup.key"
 trap 'rm -f "$KEYFILE"' EXIT
-"$GET_SEC" PBS_ENCRYPTION_KEY > "$KEYFILE" 2>/dev/null || true
+if [ -x "$GET_SEC" ]; then
+  runuser -u "$TARGET_USER" -- env PATH="$USER_HOME/.local/share/mise/shims:$USER_HOME/.local/bin:/usr/local/bin:/usr/bin:/bin" "$GET_SEC" PBS_ENCRYPTION_KEY > "$KEYFILE" 2>/dev/null || true
+fi
+if [ ! -s "$KEYFILE" ] && [ -r /etc/pbs-workstation.env ]; then
+  grep -E '^PBS_ENCRYPTION_KEY=' /etc/pbs-workstation.env 2>/dev/null | tail -n1 | cut -d= -f2- > "$KEYFILE" 2>/dev/null || true
+fi
 chmod 0600 "$KEYFILE" 2>/dev/null || true
 KEY_ARGS=()
 [ -s "$KEYFILE" ] && KEY_ARGS=(--keyfile "$KEYFILE")
+
+set +e
 proxmox-backup-client backup \
   etc.pxar:/etc \
   meta.pxar:/var/lib/pbs-host-metadata \
@@ -2006,6 +2716,16 @@ proxmox-backup-client backup \
   --backup-id "$(hostname -s)" \
   --change-detection-mode=metadata \
   "${KEY_ARGS[@]}"
+RC=$?
+set -e
+if [ -n "$HC_URL" ]; then
+  if [ "$RC" -eq 0 ]; then
+    curl -fsS -m 10 "$HC_URL" >/dev/null 2>&1 || true
+  else
+    curl -fsS -m 10 "${HC_URL}/fail" >/dev/null 2>&1 || true
+  fi
+fi
+exit "$RC"
 EOF
   run_root install -m 0755 "$TMP_DIR/pbs-workstation-backup.sh" /usr/local/bin/pbs-workstation-backup.sh
 
@@ -2039,6 +2759,7 @@ EOF
 [Unit]
 Description=Proxmox Backup Server (PBS) Encrypted Host Backup
 After=network-online.target
+ConditionVirtualization=!vm
 
 [Service]
 Type=oneshot
@@ -2249,9 +2970,17 @@ EOF
   run_root cp "$TMP_DIR/fleet-egress-guard.service" /etc/systemd/system/fleet-egress-guard.service
   run_root systemctl enable --now fleet-egress-guard.service >/dev/null 2>&1 || true
 
-  if ! command -v cscli >/dev/null 2>&1 || ! dpkg -s crowdsec-firewall-bouncer >/dev/null 2>&1; then
-    run_root env DEBIAN_FRONTEND=noninteractive apt-get install -y -qq crowdsec crowdsec-firewall-bouncer >/dev/null 2>&1 \
-      || run_root env DEBIAN_FRONTEND=noninteractive apt-get install -y -qq crowdsec crowdsec-firewall-bouncer-nftables >/dev/null 2>&1 || true
+  if ! command -v cscli >/dev/null 2>&1 || { ! dpkg -s crowdsec-firewall-bouncer >/dev/null 2>&1 && ! dpkg -s crowdsec-firewall-bouncer-nftables >/dev/null 2>&1; }; then
+    run_root env DEBIAN_FRONTEND=noninteractive apt-get install -y -qq crowdsec crowdsec-firewall-bouncer-nftables >/dev/null 2>&1 \
+      || run_root env DEBIAN_FRONTEND=noninteractive apt-get install -y -qq crowdsec crowdsec-firewall-bouncer >/dev/null 2>&1 || true
+    # crowdsec-firewall-bouncer-nftables is frequently absent from standard Ubuntu universe; fall back to CrowdSec's official repo.
+    if ! dpkg -s crowdsec-firewall-bouncer-nftables >/dev/null 2>&1 && ! dpkg -s crowdsec-firewall-bouncer >/dev/null 2>&1; then
+      if [ ! -f /etc/apt/sources.list.d/crowdsec_crowdsec.list ] && command -v curl >/dev/null 2>&1; then
+        curl -fsSL https://install.crowdsec.net 2>/dev/null | run_root bash >/dev/null 2>&1 || true
+        run_root env DEBIAN_FRONTEND=noninteractive apt-get update -qq >/dev/null 2>&1 || true
+      fi
+      run_root env DEBIAN_FRONTEND=noninteractive apt-get install -y -qq crowdsec crowdsec-firewall-bouncer-nftables >/dev/null 2>&1 || true
+    fi
   fi
   if [ -f /etc/crowdsec/config.yaml ]; then
     run_root sed -i 's/127\.0\.0\.1:8080/127.0.0.1:18080/g' /etc/crowdsec/config.yaml /etc/crowdsec/local_api_credentials.yaml 2>/dev/null || true
@@ -2270,6 +2999,11 @@ EOF
     fi
     run_root systemctl enable --now crowdsec-firewall-bouncer.service >/dev/null 2>&1 || true
     run_root systemctl restart crowdsec-firewall-bouncer.service >/dev/null 2>&1 || true
+    if systemctl is-active --quiet crowdsec-firewall-bouncer.service 2>/dev/null; then
+      log "CrowdSec firewall bouncer active (LAPI 127.0.0.1:18080)"
+    else
+      warn "CrowdSec firewall bouncer did not become active against 127.0.0.1:18080"
+    fi
   fi
 
   # Sysctl tuning is consolidated in /etc/sysctl.d/99-fleet.conf above.
@@ -2497,7 +3231,7 @@ export TORCH_HOME="/var/cache/ai-models/torch"
 export UV_CACHE_DIR="/var/cache/ai-models/uv"
 export PLAYWRIGHT_BROWSERS_PATH="/var/cache/ai-models/ms-playwright"
 export BUN_INSTALL_CACHE_DIR="/var/cache/ai-models/bun-cache"
-export LANGFUSE_SPOOL_DIR="/var/tmp/langfuse-spool"
+export LANGFUSE_SPOOL_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/megabyte/ai/langfuse-spool"
 export LANGFUSE_TIMEOUT_MS=2500
 export ZSTD_CLEVEL=3
 export ZSTD_NBTHREADS=0
@@ -2670,11 +3404,22 @@ EOF
   fi
 
   # Ensure ZFS pools have autotrim=on, autoexpand=on, compression=zstd-fast-3, atime=off, xattr=sa, acltype=posixacl, relatime=on
+  # EXCEPTION: the Samsung SM951 MZHPV512HDGL AHCI PCIe SSD corrupts on TRIM, so force autotrim=off + neutralize cron/zed trim there.
   if command -v zpool >/dev/null 2>&1; then
+    HAS_SM951_SSD=0
+    if lsblk -d -no MODEL 2>/dev/null | grep -qi 'MZHPV512HDGL'; then HAS_SM951_SSD=1; fi
     for zp in $(zpool list -H -o name 2>/dev/null || true); do
-      run_root zpool set autotrim=on "$zp" 2>/dev/null || true
+      if [ "$HAS_SM951_SSD" -eq 1 ]; then
+        run_root zpool set autotrim=off "$zp" 2>/dev/null || true
+      else
+        run_root zpool set autotrim=on "$zp" 2>/dev/null || true
+      fi
       run_root zpool set autoexpand=on "$zp" 2>/dev/null || true
     done
+    if [ "$HAS_SM951_SSD" -eq 1 ] && [ -f /etc/cron.d/zfsutils-linux ]; then
+      # /etc/cron.d/ files are not executable; comment out any active periodic trim lines rather than chmod -x
+      run_root sed -i -E 's/^([^#].*(zpool[[:space:]]+trim|fstrim|[[:space:]]trim[[:space:]]).*)$/#\1/' /etc/cron.d/zfsutils-linux 2>/dev/null || true
+    fi
     if command -v zfs >/dev/null 2>&1 && zfs list rpool >/dev/null 2>&1; then
       run_root zfs set compression=zstd-fast-3 atime=off xattr=sa acltype=posixacl relatime=on rpool 2>/dev/null || true
     fi
@@ -2723,9 +3468,11 @@ EOF
   run_root install -m 0644 "$TMP_DIR/65-fleet-ssd-latency.rules" /etc/udev/rules.d/65-fleet-ssd-latency.rules
   run_root rm -f /etc/udev/rules.d/70-snap.canonical-livepatch.rules 2>/dev/null || true
 
-  # Stop and mask noisy timers & stray WS-Discovery multicast helper (gvfsd-wsdd / wsdd :3702)
-  run_root systemctl disable --now apport-autoreport.timer snapd.snap-repair.timer wsdd.service 2>/dev/null || true
-  run_root systemctl mask apport-autoreport.timer snapd.snap-repair.timer wsdd.service 2>/dev/null || true
+  # Stop and mask noisy timers, Apport crash reporting, Whoopsie, & stray WS-Discovery multicast helper (gvfsd-wsdd / wsdd :3702)
+  # Masking apport*/whoopsie prevents Apport from overwriting fs.suid_dumpable=0 / kernel.core_pattern=|/bin/false at boot.
+  run_root systemctl disable --now apport-autoreport.timer snapd.snap-repair.timer wsdd.service apport.service apport-forward.socket whoopsie.service 2>/dev/null || true
+  run_root systemctl mask apport-autoreport.timer snapd.snap-repair.timer wsdd.service apport.service apport-forward.socket whoopsie.service 2>/dev/null || true
+  run_root sysctl --system >/dev/null 2>&1 || true
   if [ -e /usr/libexec/gvfsd-wsdd ]; then
     run_root chmod 0000 /usr/libexec/gvfsd-wsdd 2>/dev/null || true
   fi
@@ -2779,12 +3526,17 @@ EOF
     run_root systemctl enable --now fleet-docker-gc.timer >/dev/null 2>&1 || true
   fi
 
-  # Capability-aware swappiness (100 when /dev/zram0 is active, 10 when only disk swap is present)
-  if [ -b /dev/zram0 ]; then
-    run_root sysctl -w vm.swappiness=100 >/dev/null 2>&1 || true
-  else
-    run_root sysctl -w vm.swappiness=10 >/dev/null 2>&1 || true
+  # Capability-aware swappiness (100 when ZRAM swap is ACTIVE, 10 when only disk swap is present).
+  # A present /dev/zram0 block device is not proof of active swap — restart zramswap.service if it is not swapped on.
+  if [ -b /dev/zram0 ] && ! swapon --show=NAME --noheadings 2>/dev/null | grep -q zram; then
+    run_root systemctl restart zramswap.service >/dev/null 2>&1 || true
   fi
+  if swapon --show=NAME --noheadings 2>/dev/null | grep -q zram; then
+    TARGET_SWAPPINESS=100
+  else
+    TARGET_SWAPPINESS=10
+  fi
+  run_root sysctl -w vm.swappiness="$TARGET_SWAPPINESS" >/dev/null 2>&1 || true
 fi
 
 # Clean retired post-installx scripts, host-specific plays, and stale temp binaries across all hosts
@@ -2803,8 +3555,8 @@ After=network-online.target
 
 [Service]
 Type=oneshot
-ExecStart=/bin/sh -c 'git -C "$HOME/.agentskills" fetch origin master && git -C "$HOME/.agentskills" reset --hard origin/master'
-Environment="PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin"
+ExecStart=/bin/sh -c 'set -eu; git -C "$HOME/.agentskills" diff --quiet; git -C "$HOME/.agentskills" diff --cached --quiet; git -C "$HOME/.agentskills" fetch origin master; git -C "$HOME/.agentskills" merge --ff-only origin/master'
+Environment="PATH=%h/.local/bin:%h/.cache/cnf/shims:/usr/local/bin:/usr/bin:/bin"
 UMask=0077
 EOF
   cat > "$HOME/.config/systemd/user/agent-skills-sync.timer" <<'EOF'
@@ -2815,6 +3567,31 @@ Description=Periodic canonical skill synchronization (not project scheduling)
 OnBootSec=3m
 OnUnitActiveSec=15m
 RandomizedDelaySec=45s
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+EOF
+  # Langfuse fail-open spool drain (5-minute cadence) — flushes locally-spooled traces when the collector recovers
+  cat > "$HOME/.config/systemd/user/langfuse-spool-drain.service" <<'EOF'
+[Unit]
+Description=Drain the local Langfuse fail-open spool to the collector
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=%h/.local/bin/langfuse-safe-ping
+Environment="PATH=%h/.local/bin:%h/.cache/cnf/shims:/usr/local/bin:/usr/bin:/bin"
+UMask=0077
+EOF
+  cat > "$HOME/.config/systemd/user/langfuse-spool-drain.timer" <<'EOF'
+[Unit]
+Description=Periodic Langfuse fail-open spool drain
+
+[Timer]
+OnBootSec=2m
+OnUnitActiveSec=5m
+RandomizedDelaySec=30s
 Persistent=true
 
 [Install]
@@ -2876,6 +3653,7 @@ EOF
   fi
   XDG_RUNTIME_DIR="/run/user/$(id -u)" systemctl --user daemon-reload 2>/dev/null || true
   XDG_RUNTIME_DIR="/run/user/$(id -u)" systemctl --user enable --now agent-skills-sync.timer 2>/dev/null || true
+  XDG_RUNTIME_DIR="/run/user/$(id -u)" systemctl --user enable --now langfuse-spool-drain.timer 2>/dev/null || true
   XDG_RUNTIME_DIR="/run/user/$(id -u)" systemctl --user reset-failed agent-skills-sync.service 2>/dev/null || true
 fi
 
@@ -2948,260 +3726,31 @@ if command -v zsh >/dev/null 2>&1 && [ -f "$HOME/.zshrc" ]; then
   zsh -c 'zcompile "$HOME/.zshrc" 2>/dev/null || true' || true
 fi
 
-# -----------------------------------------------------------------------------
-# 9. macOS Apple Silicon (Darwin) Spotlight Exclusions, Node 24 CA & Cache Reclamation
-# -----------------------------------------------------------------------------
-if [ "$(uname -s)" = "Darwin" ]; then
-  if [ -d /opt/homebrew/etc/netdata/health.d ] && [ -w /opt/homebrew/etc/netdata/health.d ]; then
-    for netdata_health_config in "$HOME"/.config/netdata/health.d/*.conf; do
-      [ -f "$netdata_health_config" ] || continue
-      cp "$netdata_health_config" /opt/homebrew/etc/netdata/health.d/
+# Netdata (Linux): sync user health.d alarms, disable the fail2ban collector when fail2ban is masked, reload
+if [ "$(uname -s)" = "Linux" ] && [ -d /etc/netdata ]; then
+  if [ -d "$HOME/.config/netdata/health.d" ]; then
+    for _nd_health in "$HOME"/.config/netdata/health.d/*.conf; do
+      [ -f "$_nd_health" ] || continue
+      run_root install -m 0644 "$_nd_health" "/etc/netdata/health.d/$(basename "$_nd_health")" 2>/dev/null || true
     done
   fi
-
-  for dir in \
-    "$HOME/.cache" \
-    "$HOME/.bun/install/cache" \
-    "$HOME/.npm" \
-    "$HOME/.local/share/pnpm" \
-    "$HOME/.local/share/uv" \
-    "$HOME/.local/share/cargo" \
-    "$HOME/Library/Caches"; do
-    if [ -d "$dir" ] && [ ! -f "$dir/.metadata_never_index" ]; then
-      touch "$dir/.metadata_never_index" 2>/dev/null || true
+  if [ "$(systemctl is-enabled fail2ban.service 2>/dev/null || true)" = "masked" ]; then
+    GO_D=/etc/netdata/go.d.conf
+    if [ -f "$GO_D" ] && grep -qE '^[[:space:]]*fail2ban[[:space:]]*:' "$GO_D"; then
+      run_root sed -i -E 's/^([[:space:]]*)fail2ban[[:space:]]*:.*/\1fail2ban: no/' "$GO_D" 2>/dev/null || true
+    elif [ -f "$GO_D" ] && grep -qE '^[[:space:]]*modules[[:space:]]*:' "$GO_D"; then
+      run_root sed -i -E '/^[[:space:]]*modules[[:space:]]*:/a\  fail2ban: no' "$GO_D" 2>/dev/null || true
+    else
+      printf 'modules:\n  fail2ban: no\n' | run_root tee "$GO_D" >/dev/null 2>&1 || true
     fi
-  done
-
-  mkdir -p "$HOME/.config/environment.d"
-  cat > "$HOME/.config/environment.d/20-workstation-runtime.conf" <<EOF
-NODE_OPTIONS=--use-system-ca --max-old-space-size=8192
-BUN_INSTALL_CACHE_DIR=$HOME/.bun/install/cache
-UV_LINK_MODE=clone
-EOF
-
-  MACOS_DATA_VOLUME="/"
-  if [ -d /System/Volumes/Data ]; then
-    MACOS_DATA_VOLUME="/System/Volumes/Data"
   fi
-  AVAIL_GB="$(df -g "$MACOS_DATA_VOLUME" | awk 'NR==2 {print $4}')"
-  if [ "${AVAIL_GB:-100}" -lt 50 ]; then
-    log "Free disk space on $MACOS_DATA_VOLUME is ${AVAIL_GB}GiB (<50GiB threshold); pruning stale caches and logs..."
-    find "$HOME/Library/Logs" -type f -mtime +7 -delete 2>/dev/null || true
-    find "$HOME/Library/Caches/Homebrew/downloads" -maxdepth 1 -name '*.incomplete' -delete 2>/dev/null || true
-  fi
-
-  # macOS Grafana Alloy + Apple-signed /usr/bin/python3 loopback relay (avoids macOS Tahoe LaunchAgent Local Network TCC EHOSTUNREACH)
-  ALLOY_BIN=""
-  if [ -x /opt/homebrew/opt/grafana-alloy/bin/alloy ]; then
-    ALLOY_BIN="/opt/homebrew/opt/grafana-alloy/bin/alloy"
-    ALLOY_ETC="/opt/homebrew/etc/grafana-alloy"
-  elif command -v alloy >/dev/null 2>&1; then
-    ALLOY_BIN="$(command -v alloy)"
-    ALLOY_ETC="$HOME/.config/grafana-alloy"
-  fi
-  if [ -n "$ALLOY_BIN" ]; then
-    MAC_HOST_SHORT="$(hostname -s 2>/dev/null || hostname)"
-    mkdir -p "$ALLOY_ETC" "$HOME/.local/bin" "$HOME/.cache/megabyte/alloy/data" "$HOME/Library/LaunchAgents"
-    cat > "$HOME/.local/bin/macos-obs-relay.py" <<'PY'
-#!/usr/bin/env python3
-"""Loopback-to-LAN HTTP observability relay for macOS Tahoe LaunchAgents.
-Apple-signed /usr/bin/python3 avoids ad-hoc Homebrew binary Local Network TCC EHOSTUNREACH.
-Uses ThreadedHTTPServer + fresh HTTPConnection per request so upstream idle timeouts never reset Alloy."""
-import http.client
-import http.server
-import socketserver
-import threading
-
-ROUTES = [
-    ("127.0.0.1", 19090, "10.0.0.155", 9090),
-    ("127.0.0.1", 13100, "10.0.0.155", 3100),
-]
-
-class ThreadedHTTPServer(socketserver.ThreadingMixIn, http.server.HTTPServer):
-    daemon_threads = True
-    allow_reuse_address = True
-
-def make_handler(dst_host, dst_port):
-    class RelayHandler(http.server.BaseHTTPRequestHandler):
-        protocol_version = "HTTP/1.1"
-        def log_message(self, fmt, *args):
-            pass
-        def _proxy(self):
-            length = int(self.headers.get("Content-Length", "0"))
-            body = self.rfile.read(length) if length > 0 else None
-            fwd = {k: v for k, v in self.headers.items() if k.lower() not in ("host", "connection", "transfer-encoding")}
-            fwd["Host"] = f"{dst_host}:{dst_port}"
-            fwd["Connection"] = "close"
-            conn = http.client.HTTPConnection(dst_host, dst_port, timeout=15)
-            try:
-                conn.request(self.command, self.path, body=body, headers=fwd)
-                resp = conn.getresponse()
-                data = resp.read()
-                self.send_response(resp.status)
-                for hk, hv in resp.getheaders():
-                    if hk.lower() not in ("transfer-encoding", "connection", "content-length"):
-                        self.send_header(hk, hv)
-                self.send_header("Content-Length", str(len(data)))
-                self.send_header("Connection", "close")
-                self.end_headers()
-                if self.command != "HEAD" and data:
-                    self.wfile.write(data)
-            except Exception as exc:
-                err = f'{{"error":"Upstream observability relay error: {exc}"}}\n'.encode()
-                self.send_response(502)
-                self.send_header("Content-Type", "application/json")
-                self.send_header("Content-Length", str(len(err)))
-                self.send_header("Connection", "close")
-                self.end_headers()
-                if self.command != "HEAD":
-                    self.wfile.write(err)
-            finally:
-                conn.close()
-        do_GET = do_POST = do_PUT = do_HEAD = _proxy
-    return RelayHandler
-
-def serve(bind_host, bind_port, dst_host, dst_port):
-    ThreadedHTTPServer((bind_host, bind_port), make_handler(dst_host, dst_port)).serve_forever()
-
-for bh, bp, dh, dp in ROUTES[:-1]:
-    threading.Thread(target=serve, args=(bh, bp, dh, dp), daemon=True).start()
-serve(*ROUTES[-1])
-PY
-    chmod 0755 "$HOME/.local/bin/macos-obs-relay.py"
-
-    cat > "$ALLOY_ETC/config.alloy" <<EOF
-prometheus.exporter.unix "node" {
-  disable_collectors = ["thermal"]
-}
-
-prometheus.exporter.self "alloy" {}
-
-prometheus.scrape "node" {
-  targets         = prometheus.exporter.unix.node.targets
-  forward_to      = [prometheus.remote_write.obs.receiver]
-  scrape_interval = "15s"
-}
-
-prometheus.scrape "alloy_self" {
-  targets         = prometheus.exporter.self.alloy.targets
-  forward_to      = [prometheus.remote_write.obs.receiver]
-  scrape_interval = "30s"
-}
-
-prometheus.scrape "megabyte_local_proxy" {
-  targets = [{
-    __address__ = "127.0.0.1:4880",
-    instance    = "${MAC_HOST_SHORT}",
-    host        = "${MAC_HOST_SHORT}",
-    job         = "megabyte-local-proxy",
-  }]
-  forward_to      = [prometheus.remote_write.obs.receiver]
-  scrape_interval = "30s"
-}
-
-prometheus.scrape "cloudflared" {
-  targets = [{
-    __address__ = "127.0.0.1:20242",
-    instance    = "${MAC_HOST_SHORT}",
-    host        = "${MAC_HOST_SHORT}",
-    job         = "cloudflared",
-  }]
-  forward_to      = [prometheus.remote_write.obs.receiver]
-  scrape_interval = "30s"
-}
-
-prometheus.scrape "pulse_agent" {
-  targets = [{
-    __address__ = "127.0.0.1:9191",
-    instance    = "${MAC_HOST_SHORT}",
-    host        = "${MAC_HOST_SHORT}",
-    job         = "pulse-agent",
-  }]
-  forward_to      = [prometheus.remote_write.obs.receiver]
-  scrape_interval = "30s"
-}
-
-prometheus.remote_write "obs" {
-  endpoint { url = "http://127.0.0.1:19090/api/v1/write" }
-  external_labels = { host = "${MAC_HOST_SHORT}" }
-}
-
-loki.write "obs" {
-  endpoint { url = "http://127.0.0.1:13100/loki/api/v1/push" }
-  external_labels = { host = "${MAC_HOST_SHORT}" }
-}
-
-local.file_match "macos_logs" {
-  path_targets = [
-    { __path__ = "${HOME}/.cache/megabyte/*.log", job = "macos-services", host = "${MAC_HOST_SHORT}" },
-    { __path__ = "${HOME}/.cache/megabyte/*.err", job = "macos-services", host = "${MAC_HOST_SHORT}" },
-    { __path__ = "${HOME}/.cache/megabyte/ai/ollama/*.log", job = "macos-ollama", host = "${MAC_HOST_SHORT}" },
-  ]
-}
-
-loki.source.file "macos_logs" {
-  targets    = local.file_match.macos_logs.targets
-  forward_to = [loki.write.obs.receiver]
-}
-EOF
-
-    cat > "$HOME/Library/LaunchAgents/space.megabyte.obs-relay.plist" <<EOF
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-  <key>Label</key>
-  <string>space.megabyte.obs-relay</string>
-  <key>ProgramArguments</key>
-  <array>
-    <string>/usr/bin/python3</string>
-    <string>${HOME}/.local/bin/macos-obs-relay.py</string>
-  </array>
-  <key>RunAtLoad</key>
-  <true/>
-  <key>KeepAlive</key>
-  <true/>
-  <key>StandardOutPath</key>
-  <string>${HOME}/.cache/megabyte/alloy/obs-relay.log</string>
-  <key>StandardErrorPath</key>
-  <string>${HOME}/.cache/megabyte/alloy/obs-relay.err.log</string>
-</dict>
-</plist>
-EOF
-
-    cat > "$HOME/Library/LaunchAgents/space.megabyte.alloy.plist" <<EOF
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-  <key>Label</key>
-  <string>space.megabyte.alloy</string>
-  <key>ProgramArguments</key>
-  <array>
-    <string>${ALLOY_BIN}</string>
-    <string>run</string>
-    <string>--disable-reporting</string>
-    <string>--server.http.listen-addr=127.0.0.1:12345</string>
-    <string>--storage.path=${HOME}/.cache/megabyte/alloy/data</string>
-    <string>${ALLOY_ETC}/config.alloy</string>
-  </array>
-  <key>RunAtLoad</key>
-  <true/>
-  <key>KeepAlive</key>
-  <true/>
-  <key>StandardOutPath</key>
-  <string>${HOME}/.cache/megabyte/alloy/alloy.log</string>
-  <key>StandardErrorPath</key>
-  <string>${HOME}/.cache/megabyte/alloy/alloy.err.log</string>
-</dict>
-</plist>
-EOF
-    launchctl bootout "gui/$(id -u)" "$HOME/Library/LaunchAgents/space.megabyte.obs-relay.plist" >/dev/null 2>&1 || true
-    launchctl bootstrap "gui/$(id -u)" "$HOME/Library/LaunchAgents/space.megabyte.obs-relay.plist" >/dev/null 2>&1 || true
-    launchctl bootout "gui/$(id -u)" "$HOME/Library/LaunchAgents/space.megabyte.alloy.plist" >/dev/null 2>&1 || true
-    launchctl bootstrap "gui/$(id -u)" "$HOME/Library/LaunchAgents/space.megabyte.alloy.plist" >/dev/null 2>&1 || true
+  if command -v netdatacli >/dev/null 2>&1; then
+    run_root netdatacli reload-health >/dev/null 2>&1 || run_root systemctl reload-or-restart netdata >/dev/null 2>&1 || true
+  else
+    run_root systemctl reload-or-restart netdata >/dev/null 2>&1 || true
   fi
 fi
+
 
 # -----------------------------------------------------------------------------
 # 10. Fleet Convergence: machine.json, agent-skills & ~/.claude/bin symlinks,

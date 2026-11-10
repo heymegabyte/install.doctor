@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "trackedFileCount": 3225,
-  "classifiedFileCount": 3225,
+  "trackedFileCount": 3226,
+  "classifiedFileCount": 3226,
   "complete": true,
   "byClass": {
     "binary-media": 537,
@@ -11,7 +11,7 @@
     "generated": 41,
     "gitlink-or-directory": 1,
     "other": 408,
-    "script": 224,
+    "script": 225,
     "sentinel-empty": 18,
     "source": 270,
     "test": 363
@@ -25480,9 +25480,9 @@
     {
       "path": "home/Library/LaunchAgents/space.megabyte.local-proxy.plist.tmpl",
       "kind": "other",
-      "bytes": 1015,
+      "bytes": 977,
       "mode": "644",
-      "sha256": "2c85c65cd5c2745592c1d211e481ff1adeee019d2e778228efa5de751e85a1e8",
+      "sha256": "4a0621b771b83ab916880b4c7971c9ef03384232c5806ca9be92c1ed0fbed6da",
       "validators": [
         "tracked",
         "readable",
@@ -29691,9 +29691,9 @@
     {
       "path": "home/dot_config/netdata/health.d/swap.conf",
       "kind": "configuration",
-      "bytes": 203,
+      "bytes": 924,
       "mode": "644",
-      "sha256": "0bc48014bdc506c18ccd93b66f7e4668ca099a08877f4b042ce967c5b0c1e431",
+      "sha256": "61a248908fcd298d7988b81bd74fa1932c73109f65aee8a842ab58845a84ef21",
       "validators": [
         "tracked",
         "readable",
@@ -34266,9 +34266,9 @@
     {
       "path": "home/dot_config/systemd/user/megabyte-local-proxy.service.tmpl",
       "kind": "other",
-      "bytes": 512,
+      "bytes": 495,
       "mode": "644",
-      "sha256": "e033c565eded238d84746a2052da1c04b8532ee34ccd913fdc27594c1b960367",
+      "sha256": "05bbc198cb003de72019b814693feb6088bd45757e60a57cf32263c8d5a04a60",
       "validators": [
         "tracked",
         "readable",
@@ -35687,9 +35687,33 @@
     {
       "path": "home/dot_local/bin/executable_megabyte-local-proxy",
       "kind": "script",
-      "bytes": 14661,
-      "mode": "644",
-      "sha256": "2af2fdbdfb9c98e857b57230a03befc2fdee892b1e126fe33b77acd00a05058a",
+      "bytes": 386,
+      "mode": "755",
+      "sha256": "591df76c1428b465e53663f86767839fdb8b897680ebaeb5a4effe15fcae061e",
+      "validators": [
+        "tracked",
+        "readable",
+        "sha256",
+        "syntax",
+        "shellcheck-or-runtime-test",
+        "callers"
+      ],
+      "disposition": "retain-validated",
+      "reason": "Executable script is retained when syntax, static analysis, caller, and runtime contract gates pass.",
+      "evidence": [
+        "syntax",
+        "shellcheck-or-runtime-test",
+        "callers",
+        "repository-suite"
+      ],
+      "issues": []
+    },
+    {
+      "path": "home/dot_local/bin/executable_megabyte-local-proxy.ts",
+      "kind": "script",
+      "bytes": 21155,
+      "mode": "755",
+      "sha256": "0c32cd7e988aaf0cbcd4919fe17d53355a9991e9576c34dde1239a9e998c3dd0",
       "validators": [
         "tracked",
         "readable",
@@ -35755,9 +35779,9 @@
     {
       "path": "home/dot_local/bin/executable_populate-secrets",
       "kind": "script",
-      "bytes": 8787,
+      "bytes": 8831,
       "mode": "644",
-      "sha256": "be1003e470a41d7961e0ba26441475ef599409a35eafbc3c0c9a14f544976713",
+      "sha256": "c69ea4b0d1fb6047456332f5b8c7e82a2bab72014e34a1f1debfe7b77feef6f0",
       "validators": [
         "tracked",
         "readable",
@@ -36235,9 +36259,9 @@
     {
       "path": "home/dot_local/bin/post-installx/executable_post-cua-driver.sh",
       "kind": "script",
-      "bytes": 7552,
+      "bytes": 9243,
       "mode": "755",
-      "sha256": "bd66427023f50c35a4cc80c016273b4831e49a48cac7955e507791441db90988",
+      "sha256": "67cc152ba79e363eff76f18afdf7931dc9f2752fa434f555ba79d31fb615c9ef",
       "validators": [
         "tracked",
         "readable",
@@ -36475,9 +36499,9 @@
     {
       "path": "home/dot_local/bin/post-installx/executable_post-litellm-enroll.sh",
       "kind": "script",
-      "bytes": 6806,
+      "bytes": 10373,
       "mode": "755",
-      "sha256": "7ee2bc42e24a98a8ce1019a53cb2f475355cbd574aa62d0357b3638decc6e1f1",
+      "sha256": "4a141a04669003fd4e7bd3b7e3ff01861a8280bffbc433c7edd29b0785cdc3b1",
       "validators": [
         "tracked",
         "readable",
@@ -36547,9 +36571,9 @@
     {
       "path": "home/dot_local/bin/post-installx/executable_post-nexus-cache.sh",
       "kind": "script",
-      "bytes": 30879,
+      "bytes": 39433,
       "mode": "755",
-      "sha256": "2bb3f26af2626cc8e07778785bfb6859f70e195d7f7bab8fa86fbc19c3169896",
+      "sha256": "3bcd789a1fb71b621dd7d9f3dc3da85667c10d799af0acc4a60f89cbc069c5a2",
       "validators": [
         "tracked",
         "readable",
@@ -37051,9 +37075,9 @@
     {
       "path": "home/dot_local/bin/post-installx/executable_post-workstation.sh",
       "kind": "script",
-      "bytes": 151216,
+      "bytes": 169884,
       "mode": "755",
-      "sha256": "575e3605c81791364c55933bcc23874d13cd393854d2c54d730ef3e40dcc205f",
+      "sha256": "e880ca3210235aa61b48cd30968cbc483836324e14fdaf9fb59135cbfa802021",
       "validators": [
         "tracked",
         "readable",
@@ -53667,9 +53691,9 @@
     {
       "path": "scripts/reconcile-litellm-ollama-fleet.sh",
       "kind": "script",
-      "bytes": 6171,
+      "bytes": 6347,
       "mode": "755",
-      "sha256": "195b158496c76f23e62ad8861490b3fe5e42e2479bbde834ae2168e1343be3ae",
+      "sha256": "90bf6a5d58ada56cca4f777395fda8997cbd3511026409bdd27977c960a9d503",
       "validators": [
         "tracked",
         "readable",
@@ -57925,9 +57949,9 @@
     {
       "path": "scripts/test-reconcile-litellm-ollama-fleet.sh",
       "kind": "test",
-      "bytes": 7100,
+      "bytes": 7517,
       "mode": "755",
-      "sha256": "cf4376b3ebd720d82a373f9bb9bdea1428f5e95696c452e0f72452a21fa17b4a",
+      "sha256": "5ec891c837e100b89d5898b5be7a2afff52fb395403d3635ac92049d63e7a1f3",
       "validators": [
         "tracked",
         "readable",
@@ -58913,9 +58937,9 @@
     {
       "path": "scripts/test-templates.sh",
       "kind": "test",
-      "bytes": 5816,
+      "bytes": 5915,
       "mode": "755",
-      "sha256": "328a601c7c3caedc5799d174161ce0386bf6cbd52c8067e1bcf6e79689c1dd6f",
+      "sha256": "7e62b9a84f44da04b4ff2b5bc3434ce41749bef86fd206ff645b4c6ef41a733d",
       "validators": [
         "tracked",
         "readable",
