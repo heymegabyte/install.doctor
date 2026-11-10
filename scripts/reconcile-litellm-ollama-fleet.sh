@@ -133,10 +133,18 @@ for alias, template in templates.items():
     params["api_base"] = api_base
     params["api_key"] = "os.environ/OLLAMA_GATEWAY_TOKEN"
     params["rpm"] = rpm
-    model_info = deployment.get("model_info")
+    params.setdefault("input_cost_per_token", 0.0)
+    params.setdefault("output_cost_per_token", 0.0)
+    model_info = deployment.setdefault("model_info", {})
     if isinstance(model_info, dict):
+        if model_info.get("mode") == "embedding":
+            params.setdefault("timeout", 45)
+        else:
+            params.setdefault("timeout", 180)
+            params.setdefault("stream_timeout", 45)
         if "id" in model_info:
             model_info["id"] = f"{alias}-{origin_slug}"
+        model_info.setdefault("tags", ["local", "ollama", "gpu"])
         model_info.pop("description", None)
     additions.append(deployment)
 

@@ -51,8 +51,12 @@ if models:
     print("LAST_API_KEY", lp.get("api_key"))
     print("LAST_RPM", lp.get("rpm"))
     print("LAST_MODEL", lp.get("model"))
+    print("LAST_IN_COST", lp.get("input_cost_per_token"))
+    print("LAST_TIMEOUT", lp.get("timeout"))
+    print("LAST_STREAM_TIMEOUT", lp.get("stream_timeout"))
     mi = last.get("model_info", {}) or {}
     print("LAST_INFO_ID", mi.get("id", ""))
+    print("LAST_TAGS", ",".join(mi.get("tags") or []))
 PY
 }
 
@@ -75,6 +79,10 @@ FACTS="$(facts_of "$CFG")"
 [ "$(fact LAST_API_BASE)" = "https://ollama.example.test" ] && pass "added entry points at the authenticated origin" || fail "added api_base is '$(fact LAST_API_BASE)'"
 [ "$(fact LAST_API_KEY)" = "os.environ/OLLAMA_GATEWAY_TOKEN" ] && pass "added entry uses the OLLAMA_GATEWAY_TOKEN env ref (no inline secret)" || fail "added api_key is '$(fact LAST_API_KEY)'"
 [ "$(fact LAST_RPM)" = "40" ] && pass "added entry carries the requested rpm (40)" || fail "added rpm is '$(fact LAST_RPM)'"
+[ "$(fact LAST_IN_COST)" = "0.0" ] && pass "added entry pins input_cost_per_token to 0.0" || fail "added input_cost_per_token is '$(fact LAST_IN_COST)'"
+[ "$(fact LAST_TIMEOUT)" = "180" ] && pass "added entry defaults timeout to 180s" || fail "added timeout is '$(fact LAST_TIMEOUT)'"
+[ "$(fact LAST_STREAM_TIMEOUT)" = "45" ] && pass "added entry defaults stream_timeout to 45s" || fail "added stream_timeout is '$(fact LAST_STREAM_TIMEOUT)'"
+[ "$(fact LAST_TAGS)" = "local,ollama,gpu" ] && pass "added entry tags deployment as local,ollama,gpu" || fail "added tags are '$(fact LAST_TAGS)'"
 
 # --- 2. idempotent for an already-enrolled origin ---
 cat > "$CFG" <<'YAML'
