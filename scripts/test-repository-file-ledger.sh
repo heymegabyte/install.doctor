@@ -39,4 +39,26 @@ jq -e --argjson tracked "$tracked" '
   ([.files[] | select(.issues | index("unexpected-empty-file"))] | length) == 0
 ' "$LEDGER" >/dev/null
 
+jq -e '
+  ([
+    "home/dot_config/system/etc/nginx/nginx.conf",
+    "home/dot_config/bashtop/bashtop.cfg",
+    "home/dot_config/postfix/com.apple.postfix.master.plist",
+    "home/dot_config/autostart/org.gnome.DejaDup.desktop"
+  ] - [.files[] | select(.kind == "configuration") | .path]) == []
+' "$LEDGER" >/dev/null
+
+jq -e '
+  (.files[] | select(.path == ".agent/repository-file-ledger.json") | .kind) == "generated" and
+  (.files[] | select(.path == ".agent/evidence/native-dpkg-pid1/receipt.json") | .kind) == "generated"
+' "$LEDGER" >/dev/null
+
+jq -e '
+  ([
+    "home/.chezmoitemplates/files/gdrive3-tokens.json",
+    "home/dot_local/share/ansible/environments/prod/files/vpn/Mullvad WG Belgium (UDP 4888).conf"
+  ] - [.files[] | select(.kind == "encrypted") | .path]) == [] and
+  (.files[] | select(.path == "home/private_dot_gnupg/private_gpg.conf") | .kind) == "configuration"
+' "$LEDGER" >/dev/null
+
 printf 'repository-file-ledger: PASS (%s tracked files accounted for)\n' "$tracked"

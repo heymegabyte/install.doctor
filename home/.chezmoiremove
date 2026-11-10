@@ -128,3 +128,8 @@ Library/VirtualBox
 .gemini/google_accounts.json
 .local/bin/post-installx/post-legion-workstation.sh
 .local/bin/post-installx/post-macos-workstation.sh
+# Obsolete lockfile-free editor fallback manifests; project tools resolve lazily.
+.config/Code/User/package.json
+.local/share/vscode/package.json
+# Placeholder virtual host must never become an active nginx site.
+.config/system/etc/nginx/sites-enabled/wordpress.conf

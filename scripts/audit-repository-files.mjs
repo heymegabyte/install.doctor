@@ -13,10 +13,12 @@ const tracked = execFileSync('git', ['ls-files', '-z'], { encoding: 'buffer' })
 const binaryExtensions = new Set(['.avif', '.gif', '.icns', '.ico', '.jpeg', '.jpg', '.mp3', '.mp4', '.pdf', '.png', '.ttf', '.webm', '.webp', '.woff', '.woff2', '.zip']);
 const docExtensions = new Set(['.md', '.mdx', '.rst', '.txt']);
 const sourceExtensions = new Set(['.c', '.cc', '.cpp', '.css', '.go', '.h', '.html', '.java', '.js', '.jsx', '.mjs', '.py', '.rb', '.rs', '.scss', '.ts', '.tsx']);
-const configExtensions = new Set(['.ini', '.json', '.jsonc', '.properties', '.toml', '.xml', '.yaml', '.yml']);
+const configExtensions = new Set([
+  '.cfg', '.conf', '.desktop', '.env', '.ini', '.json', '.jsonc', '.plist', '.properties',
+  '.rules', '.service', '.socket', '.target', '.timer', '.toml', '.xml', '.yaml', '.yml',
+]);
 const scriptExtensions = new Set(['.bash', '.fish', '.ps1', '.sh', '.zsh']);
-const encryptedPattern = /(^|\/)(private_|.*\.vault(?:\.|$)|.*\.age$)|\.asc$/;
-const generatedPattern = /(^|\/)(dist|build|coverage|generated|vendor|node_modules)\/|catalog\.json$|package-lock\.json$|pnpm-lock\.yaml$|yarn\.lock$/;
+const generatedPattern = /^\.agent\/|(^|\/)(dist|build|coverage|generated|vendor|node_modules)\/|catalog\.json$|package-lock\.json$|pnpm-lock\.yaml$|yarn\.lock$/;
 const intentionalEmptyFiles = new Set([
   'home/dot_config/mise/default-go-pkgs',
   'home/dot_config/mise/default-node-pkgs',
@@ -31,7 +33,11 @@ const intentionalEmptyFiles = new Set([
 
 function classify(path, data) {
   const extension = extname(path).toLowerCase();
-  if (encryptedPattern.test(path) && (data.subarray(0, 32).toString().includes('$ANSIBLE_VAULT') || path.endsWith('.age') || path.includes('private_'))) return 'encrypted';
+  const prefix = data.subarray(0, 96).toString();
+  const encryptedEnvelope = prefix.includes('$ANSIBLE_VAULT')
+    || prefix.includes('-----BEGIN AGE ENCRYPTED FILE-----')
+    || prefix.includes('-----BEGIN PGP MESSAGE-----');
+  if (encryptedEnvelope || path.endsWith('.age')) return 'encrypted';
   if (binaryExtensions.has(extension) || data.includes(0)) return 'binary-media';
   if (generatedPattern.test(path)) return 'generated';
   if (path.includes('/test') || path.includes('/__tests__/') || /(^|\/)(test|tests|specs?)\//.test(path) || /\.(spec|test)\.[^.]+$/.test(path)) return 'test';
@@ -102,7 +108,13 @@ for (const path of tracked) {
   const kind = classify(path, data);
   const issues = [];
   if (data.length === 0 && !/(^|\/)(\.gitkeep|remove_dot_gitkeep)$/.test(path) && !intentionalEmptyFiles.has(path)) issues.push('unexpected-empty-file');
-  if (kind === 'encrypted' && data.length > 0 && !data.subarray(0, 64).toString().includes('$ANSIBLE_VAULT') && !path.endsWith('.age') && !path.includes('private_')) issues.push('unrecognized-encrypted-envelope');
+  if (kind === 'encrypted' && data.length > 0) {
+    const prefix = data.subarray(0, 96).toString();
+    if (!prefix.includes('$ANSIBLE_VAULT')
+      && !prefix.includes('-----BEGIN AGE ENCRYPTED FILE-----')
+      && !prefix.includes('-----BEGIN PGP MESSAGE-----')
+      && !path.endsWith('.age')) issues.push('unrecognized-encrypted-envelope');
+  }
   const decision = decisionFor(kind, path, issues);
   const record = {
     path, kind, bytes: isOutput ? null : data.length, mode: (stats.mode & 0o777).toString(8).padStart(3, '0'), sha256,

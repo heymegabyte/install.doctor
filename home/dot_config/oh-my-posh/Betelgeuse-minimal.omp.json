@@ -48,10 +48,7 @@
             "merge_icon": "\u25f4 ",
             "no_commits_icon": "[no commits]",
             "rebase_icon": "\u2c62 ",
-            "tag_icon": "\u25b6 ",
-            "untracked_modes": {
-              "/Users/user/Projects/oh-my-posh/": "no"
-            }
+            "tag_icon": "\u25b6 "
           },
           "style": "powerline",
           "template": " {{ .HEAD }}{{if .BranchStatus }} {{ .BranchStatus }}{{ end }}{{ if .Working.Changed }} {{ .Working.String }}{{ end }}{{ if and (.Working.Changed) (.Staging.Changed) }} \u2502{{ end }}{{ if .Staging.Changed }} {{ .Staging.String }}{{ end }}{{ if gt .StashCount 0 }} {{ .StashCount }}{{ end }} ",

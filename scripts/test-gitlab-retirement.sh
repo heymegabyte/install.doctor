@@ -54,11 +54,11 @@ else
   fail "generic GitLab CLI catalog support was removed"
 fi
 
-if grep -q 'raw.githubusercontent.com/heymegabyte/install.doctor/master/' \
+if grep -q 'github.com/heymegabyte/install.doctor/blob/master/home/dot_config/Code/User/extensions.json' \
   home/dot_local/bin/post-installx/executable_post-vscode.sh; then
-  pass "VS Code bootstrap documentation uses the canonical GitHub raw source"
+  pass "VS Code bootstrap documentation uses the canonical GitHub source"
 else
-  fail "VS Code bootstrap documentation does not use the canonical GitHub raw source"
+  fail "VS Code bootstrap documentation does not use the canonical GitHub source"
 fi
 
 printf 'gitlab-retirement: %s passed, %s failed\n' "$P" "$F"
