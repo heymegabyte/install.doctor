@@ -250,6 +250,14 @@ else
   fail 'Firewall retains untyped privilege or lockout-prone mutation authority'
 fi
 
+ZFS_PREP_HOOK="$ROOT/home/dot_local/bin/post-installx/executable_post-zfs-prep.sh"
+if grep -q 'ZFS lifecycle convergence is unsupported until typed storage policy' "$ZFS_PREP_HOOK" \
+  && ! grep -qE 'get-secret|SUDO_PASSWORD|sudo|apt-get|zfs[[:space:]]+(create|set|destroy)|zpool[[:space:]]+(scrub|clear|replace|detach)|systemctl|/sys/module|/etc/' "$ZFS_PREP_HOOK"; then
+  pass 'ZFS legacy pool, kernel, policy, and scheduler mutation fail closed'
+else
+  fail 'ZFS prep retains untyped storage mutation authority'
+fi
+
 UNVERIFIED_ROOT_ARTIFACT_PATHS=(
   "$ROOT/home/.chezmoiscripts/universal/run_before_04-requirements.sh.tmpl"
   "$ROOT/home/.chezmoiscripts/universal/run_before_05-system.sh.tmpl"
