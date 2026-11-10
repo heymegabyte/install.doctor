@@ -1,29 +1,22 @@
-name: "Deploy Site to Firebase on merge"
+name: "Deploy legacy Install Doctor site to Firebase (manual)"
 
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - main
-      - master
-    paths:
-      - "site/**"
-      - "docs/**"
-      - "home/**/*.sh.tmpl"
-      - "home/dot_config/task/Taskfile.yml"
-      - "scripts/*.sh"
-      - "software.yml"
-      - "scripts/lib/task-bootstrap.sh"
-      - ".github/workflows/site-deploy.yml"
+
+permissions: {}
 
 jobs:
   build_and_deploy:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     defaults:
       run:
         working-directory: site
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Setup Node
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0

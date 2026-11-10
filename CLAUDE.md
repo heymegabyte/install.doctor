@@ -159,7 +159,7 @@ Ranked by impact ÷ effort. `[S]` <1hr, `[M]` half-day, `[L]` multi-day. Each an
 18. **Cross-machine deploy hook** `[S]` — `task ssh:deploy <host>` runs `chezmoi git push` locally + SSH'd `chezmoi update --apply --force` on the target.
 19. **`MIGRATION.md` + `troubleshooting.md` per-OS** `[S]` — Per-OS columns for every error → fix mapping. Errors map differently per OS.
 20. **Loki-on-Coolify observability** `[M]` — Each `chezmoi apply` emits JSON events to `~/.local/var/log/install.doctor/events.ndjson`; Alloy forwards through explicitly authorized Cloudflare/private ingress to a Coolify Loki+Grafana stack.
-21. **Re-add Firebase deploy secret** `[S]` — The standalone `install.doctor-site` repo was absorbed into `site/` and deleted; its `FIREBASE_SERVICE_ACCOUNT_INSTALL_DOCTOR` secret was write-only and could not be copied. `.github/workflows/site-deploy.yml` fires on `site/**` pushes and will FAIL until the secret is re-added: `gh secret set FIREBASE_SERVICE_ACCOUNT_INSTALL_DOCTOR -R heymegabyte/install.doctor < service-account.json`. Full-history backup at `~/backups/repos/install.doctor-site-*.bundle`.
+21. **Legacy Firebase site is manual-only** `[S]` — Desktop Tools uses Cloudflare and profile subdomains. `.github/workflows/site-deploy.yml` is retained only as an explicit compatibility operation; it must never run on repository pushes. Do not restore its absent service-account credential or publish the retired Install Doctor site without separate production approval.
 
 ---
 
@@ -186,7 +186,7 @@ Ranked by impact ÷ effort. `[S]` <1hr, `[M]` half-day, `[L]` multi-day. Each an
 | Secrets | `home/.chezmoitemplates/secrets/<NAME>` (age-encrypted) |
 | Provisioning entry | `start.sh` → `scripts/provision.sh:provisionLogic()` |
 | Bulk installer | `home/dot_local/bin/executable_installx` (zx-based, p-limit 4) |
-| Website / docs site | `site/` (Ionic Stencil — absorbed from the now-retired `install.doctor-site` repo; builds + deploys via `.github/workflows/site-deploy.yml` → Firebase project `install-doctor`) |
+| Legacy website / docs site | `site/` (Ionic Stencil — absorbed from the retired `install.doctor-site` repo; build-validated automatically, with manual-only compatibility publication via `.github/workflows/site-deploy.yml`) |
 
 ---
 

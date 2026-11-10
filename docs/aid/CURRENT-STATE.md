@@ -168,12 +168,10 @@ mutation slice. The full SaaS visual replacement remains gated on approved Figma
   init-context `writeToStdout` false-REDs execute-template); a **served-entrypoint canonical-ORG
   invariant** (`test-served-entrypoints.sh` 8/8, #305) — the #204 gate verified each `/start`/`/windows`/
   `/brew`/`/ssh` redirect carries the right SCRIPT filename but was BLIND to the GitHub org, so it now also
-  asserts every `raw.githubusercontent.com/&lt;org&gt;/install.doctor/…` destination uses the canonical
-  `heymegabyte` org (CLAUDE.md §13 + the git remote), never the stale pre-rename `megabyte-labs` (which
-  serves a DIFFERENT repo's script that can diverge); non-vacuous (planted `megabyte-labs` + a third-party
-  org both RED); a LIVE probe this fire found prod STILL 301s `/start`+`/windows`→`megabyte-labs` and 404s
-  `/brew`+`/ssh` — the deployed Firebase config is STALE (site-deploy is Firebase-secret-gated, §9 #21), so
-  the repo config is correct + locked and a redeploy (human-gated) is surfaced to BACKLOG;
+  asserts every historical `raw.githubusercontent.com/&lt;org&gt;/install.doctor/…` destination uses the canonical
+  `heymegabyte` org (CLAUDE.md §13 + the git remote), never the stale pre-rename `megabyte-labs`. These
+  checks preserve compatibility history only: the Firebase site is retired from automatic publication,
+  and Desktop Tools production readiness is measured at the profile-subdomain Cloudflare boundary;
   **A12 ADR hygiene gate
   (`test-adr.sh` 7/7) — every `docs/aid/decisions/NNNN` ADR is well-formed (Status·Context·Decision·
   alternatives·Consequences) + the key decisions each HAVE an ADR; 0001-0006 (hiSHtory · device-token ·

@@ -1,15 +1,7 @@
 #!/usr/bin/env bash
-# Deploy-pipeline integrity gate (fire #352). The CORE deliverable — `install.doctor/start` — is served by
-# Firebase Hosting routes /start to the control-plane signed stage-zero endpoint.
-# The deploy pipeline that pushes firebase.json live was
-# UNGATED — `.github/workflows/site-deploy.yml` is the last mile, and nothing asserted it is correctly wired.
-# Prod /start is currently STALE (serves the old megabyte-labs org) blocked ONLY on the human re-adding the
-# FIREBASE_SERVICE_ACCOUNT_INSTALL_DOCTOR secret (CLAUDE.md §9 #21; the cred is confirmed-absent from the secret
-# rail, fire #352). This gate PROVES the secret is the SOLE remaining blocker: the workflow references that EXACT
-# secret name, targets the right Firebase project + live channel, fires on the right paths, AND builds on a
-# SUPPORTED Node — NOT EOL 16 (Node 16 EOL'd 2023-09; a build on a dead runtime is a latent reliability defect on
-# the deploy path, found + fixed fire #352 → Node 20, the newest in Stencil 3.2's tested matrix). Pure file
-# assertions, no network. SITE_DEPLOY_WF overrides the target for non-vacuity (planted-break) testing.
+# Compatibility-site deploy integrity. Desktop Tools uses Cloudflare and profile subdomains; the retired
+# Install Doctor Firebase site may be published only by an explicit manual action. Pushes and pull requests
+# must validate without receiving the legacy deployment credential or mutating production.
 set -uo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 WF="${SITE_DEPLOY_WF:-$ROOT/.github/workflows/site-deploy.yml}"
@@ -21,7 +13,7 @@ P=0
 F=0
 has() { grep -qE "$2" "$1" 2>/dev/null; }
 
-say "site-deploy workflow integrity (the /start deploy last-mile)"
+say "legacy site-deploy workflow integrity"
 
 if [ ! -f "$WF" ]; then
   fail "site-deploy.yml MISSING ($WF) — a firebase.json redirect edit can never go live"
@@ -30,20 +22,17 @@ if [ ! -f "$WF" ]; then
 fi
 pass "site-deploy.yml present"
 
-for source in 'site/**' 'docs/**' 'home/**/*.sh.tmpl' 'home/dot_config/task/Taskfile.yml' 'scripts/*.sh' 'software.yml'; do
-  grep -Fq -- "- \"$source\"" "$WF" || fail "generated documentation source does not trigger deploy: $source"
-done
-pass "all canonical generated-documentation sources trigger deployment"
-
-# 1. Fires on a push to the default branch for site/** changes (so a firebase.json redirect edit auto-deploys).
-if has "$WF" '^[[:space:]]*-[[:space:]]*(master|main)[[:space:]]*$' && has "$WF" 'site/\*\*'; then
-  pass "trigger: push to master/main on paths site/** (a redirect edit auto-deploys)"
+# 1. Legacy Firebase publication is never a push side effect.
+if has "$WF" '^[[:space:]]*workflow_dispatch:' && ! has "$WF" '^[[:space:]]*push:'; then
+  pass "legacy Firebase publication is manual-only"
 else
-  fail "trigger drift — must be 'on: push' to master/main scoped to paths site/**"
+  fail "legacy Firebase publication must not run on push"
 fi
+has "$WF" 'name:.*legacy Install Doctor.*manual' && pass "workflow identity discloses legacy manual scope" || fail "workflow identity obscures legacy manual scope"
+has "$WF" '^permissions:[[:space:]]*\{\}' && pass "workflow defaults to no GitHub permissions" || fail "workflow has ambient GitHub permissions"
+has "$WF" 'persist-credentials:[[:space:]]*false' && pass "checkout does not persist repository credentials" || fail "checkout persists repository credentials"
 
-# 2. References the EXACT secret the human must re-add (CLAUDE.md §9 #21, confirmed-absent fire #352). A rename
-#    here silently orphans the secret → the deploy fails forever with no obvious cause. This IS the sole blocker.
+# 2. The manual compatibility operation retains its exact external credential name.
 if has "$WF" 'secrets\.FIREBASE_SERVICE_ACCOUNT_INSTALL_DOCTOR'; then
   pass "consumes secrets.FIREBASE_SERVICE_ACCOUNT_INSTALL_DOCTOR (the exact name the human re-adds)"
 else
