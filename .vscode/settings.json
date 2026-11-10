@@ -21,7 +21,7 @@
     "editor.defaultFormatter": "esbenp.prettier-vscode"
   },
   "[toml]": {
-    "editor.defaultFormatter": "esbenp.prettier-vscode"
+    "editor.defaultFormatter": "tamasfe.even-better-toml"
   },
   "[typescript]": {
     "editor.defaultFormatter": "esbenp.prettier-vscode"
@@ -33,7 +33,7 @@
     "editor.defaultFormatter": "esbenp.prettier-vscode"
   },
   "[yaml]": {
-    "editor.defaultFormatter": "dbaeumer.vscode-eslint"
+    "editor.defaultFormatter": "redhat.vscode-yaml"
   },
   "codetour.customTourDirectory": ".config/codetour.yml",
   "editor.defaultFormatter": "esbenp.prettier-vscode",
@@ -58,8 +58,8 @@
     "vue",
     "yaml"
   ],
-  "git.autoStash": true,
-  "git.autofetch": true,
+  "git.autoStash": false,
+  "git.autofetch": false,
   "github.codespaces.showPerformanceExplorer": true,
   "gitlab.showPipelineUpdateNotifications": true,
   "gitlens.showWelcomeOnInstall": false,
@@ -82,9 +82,9 @@
   "prettier.printWidth": 120,
   "prettier.singleQuote": true,
   "python.languageServer": "Pylance",
-  "security.workspace.trust.banner": "never",
-  "security.workspace.trust.enabled": false,
-  "telemetry.telemetryLevel": "crash",
+  "security.workspace.trust.banner": "always",
+  "security.workspace.trust.enabled": true,
+  "telemetry.telemetryLevel": "off",
   "typescript.enablePromptUseWorkspaceTsdk": true,
   "typescript.format.semicolons": "remove",
   "typescript.implementationsCodeLens.enabled": true,
@@ -111,10 +111,7 @@
   "[gotmpl]": {
     "editor.defaultFormatter": "trunk.io"
   },
-  "chat.tools.autoApprove": true,
-  "chat.agent.maxRequests": 300,
-  "chat.tools.global.autoApprove": true,
-  "chat.tools.terminal.enableAutoApprove": true,
+  "chat.agent.maxRequests": 50,
   "chat.tools.terminal.autoApprove": {
     "rm": false,
     "rmdir": false,

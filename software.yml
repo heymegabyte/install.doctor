@@ -6103,16 +6103,6 @@ softwarePackages:
     _deps:
     - lxc
     - lxd
-  m-cli:
-    _name: m-cli
-    _short: m-cli is a command-line tool for interacting with macOS system settings and features, providing a convenient way to manage various aspects of a Mac system through the terminal.
-    _desc: Swiss Army Knife for macOS. A wrapper for many types of macOS-specific commands.
-    _github: https://github.com/rgcr/m-cli
-    _bin: m
-    _home: https://github.com/rgcr/m-cli
-    _docs: https://github.com/rgcr/m-cli
-    _deprecated: Superseded by declarative macOS defaults scripts and native system utilities.
-    brew:darwin: m-cli
   maas:
     _name: MAAS
     _short: MAAS (Metal as a Service) is an open-source software that allows for easy management of physical servers for cloud infrastructure.
@@ -6139,18 +6129,6 @@ softwarePackages:
     - port: 5250-5270
       proto: udp
     snap:ubuntu: maas
-  mackup:
-    _name: mackup
-    _short: Mackup is a tool that syncs application settings across multiple macOS devices using cloud storage services like Dropbox or Google Drive.
-    _desc: '[mackup](https://github.com/lra/mackup) lets you keep your application settings in sync.'
-    _github: https://github.com/lra/mackup
-    _bin: mackup
-    _home: https://github.com/lra/mackup
-    _docs: https://github.com/lra/mackup
-    _deprecated: Superseded by Chezmoi + Cloudflare R2 dotfile synchronization (Mackup symlinks broke on macOS Sonoma+).
-    _replacement: chezmoi
-    brew: mackup
-    pipx: mackup
   macprefs:
     _name: MacPrefs
     _short: macprefs is a repository containing scripts and tools for managing macOS preferences and settings efficiently.

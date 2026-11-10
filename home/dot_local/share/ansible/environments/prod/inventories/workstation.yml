@@ -10,7 +10,7 @@ all:
               ansible_winrm_transport: basic
               ansible_port: 5985
               ansible_host: localhost
-              ansible_password: AnsibleTest999
+              ansible_password: "{{ lookup('ansible.builtin.env', 'ANSIBLE_PASSWORD', default=undef()) }}"
               ansible_username: Brian
               ansible_user: Brian
               ansible_python_interpreter: python3

@@ -4,5 +4,3 @@ ignored:
   - DL3002
   # Do not use sudo
   - DL3004
-  # Do not use `latest` images
-  - DL3007

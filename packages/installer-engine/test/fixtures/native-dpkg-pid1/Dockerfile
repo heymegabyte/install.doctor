@@ -10,6 +10,9 @@ FROM node:24-bookworm@sha256:8fa96264f302f58bbb13aa7339c541547b56975766ce956c875
 
 ENV container=docker
 ENV DEBIAN_FRONTEND=noninteractive
+# This acceptance image intentionally exercises Debian's current Bookworm transaction state inside
+# digest-pinned base images; exact native payload provenance is verified separately by the signed catalog.
+# hadolint ignore=DL3008
 RUN apt-get update \
   && apt-get install -y --no-install-recommends dbus dpkg-dev gnupg systemd systemd-sysv xz-utils \
   && apt-get clean \

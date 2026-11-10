@@ -2,7 +2,7 @@
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
-import { dirname, extname } from 'node:path';
+import { dirname, extname, resolve } from 'node:path';
 
 const SCHEMA_VERSION = 2;
 const outputArg = process.argv.find((arg) => arg.startsWith('--output='));
@@ -94,16 +94,24 @@ for (const path of tracked) {
     continue;
   }
   const data = readFileSync(path);
-  const sha256 = createHash('sha256').update(data).digest('hex');
+  // The canonical ledger is itself tracked. Hashing its previous bytes would make
+  // identical-tree regeneration alternate forever, so represent that one
+  // self-reference explicitly instead of pretending a recursive digest exists.
+  const isOutput = resolve(path) === resolve(output);
+  const sha256 = isOutput ? null : createHash('sha256').update(data).digest('hex');
   const kind = classify(path, data);
   const issues = [];
   if (data.length === 0 && !/(^|\/)(\.gitkeep|remove_dot_gitkeep)$/.test(path) && !intentionalEmptyFiles.has(path)) issues.push('unexpected-empty-file');
   if (kind === 'encrypted' && data.length > 0 && !data.subarray(0, 64).toString().includes('$ANSIBLE_VAULT') && !path.endsWith('.age') && !path.includes('private_')) issues.push('unrecognized-encrypted-envelope');
   const decision = decisionFor(kind, path, issues);
   const record = {
-    path, kind, bytes: data.length, mode: (stats.mode & 0o777).toString(8).padStart(3, '0'), sha256,
+    path, kind, bytes: isOutput ? null : data.length, mode: (stats.mode & 0o777).toString(8).padStart(3, '0'), sha256,
     validators: validatorsFor(kind, path), ...decision, issues,
   };
+  if (isOutput) {
+    record.validators = ['tracked', 'readable', 'self-reference', 'regeneration-diff'];
+    record.evidence = ['self-reference', 'regeneration-diff'];
+  }
   records.push(record);
   const group = hashes.get(sha256) || [];
   group.push(path);

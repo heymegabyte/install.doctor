@@ -114,6 +114,7 @@ venv.bak/
 !.vscode/launch.json
 !.vscode/settings.json
 !.vscode/tasks.json
+.wrangler/
 yarn-error.log
 .yubi.json
 .yubi-masterkey

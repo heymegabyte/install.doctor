@@ -54,6 +54,8 @@ Brewfile
 # mackup config (§6, source removed #284) · whalebrew orphan (§7, #286) · antigen fetch (§7, #287).
 .config/mackup
 .config/brew/whalebrew
+.config/coc
+.config/helm
 .local/scripts/antigen.zsh
 # Top-50 provisioning audit removals — clean legacy artifacts from existing hosts on next apply:
 .ssh/endlessh

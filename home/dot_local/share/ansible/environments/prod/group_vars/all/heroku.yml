@@ -106,10 +106,10 @@ heroku_dynos:
       DEPLOYMENT_PLATFORM: heroku
       DISABLE_MULTI_WORKSPACE: false
       DISABLE_SIGNUPS: false
-      LOCKBOX_MASTER_KEY: m@s73rk8s
+      LOCKBOX_MASTER_KEY: "{{ lookup('ansible.builtin.env', 'LOCKBOX_MASTER_KEY', default=undef()) }}"
       NODE_ENV: production
       NODE_OPTIONS: --max-old-space-size=4096
-      SECRET_KEY_BASE: SomeC0m6l00
+      SECRET_KEY_BASE: "{{ lookup('ansible.builtin.env', 'SECRET_KEY_BASE', default=undef()) }}"
       TOOLJET_HOST: https://tooljet.herokuapp.com
       TOOLJET_SERVER_URL: https://tooljet.herokuapp.com
   # @dynamo [appsmith](https://www.appsmith.com/) | [GitHub](https://github.com/appsmithorg/appsmith) | [Heroku Deploy](https://heroku.com/deploy?template=https://github.com/appsmithorg/appsmith/tree/master) | [Documentation](https://docs.appsmith.com/) - A powerful open source framework to build internal tools
@@ -118,10 +118,10 @@ heroku_dynos:
     domain: appsmith.megabyte.space
     variables:
       APPSMITH_DISABLE_TELEMETRY: true
-      APPSMITH_ENCRYPTION_PASSWORD: 'kna%si*sj19lk>0s'
-      APPSMITH_ENCRYPTION_SALT: 'm,a-01s'
+      APPSMITH_ENCRYPTION_PASSWORD: "{{ lookup('ansible.builtin.env', 'APPSMITH_ENCRYPTION_PASSWORD', default=undef()) }}"
+      APPSMITH_ENCRYPTION_SALT: "{{ lookup('ansible.builtin.env', 'APPSMITH_ENCRYPTION_SALT', default=undef()) }}"
       APPSMITH_MONGODB_URI: mongo.example.com
-      APPSMITH_SUPERVISOR_PASSWORD: "sdf'6as9I1a"
+      APPSMITH_SUPERVISOR_PASSWORD: "{{ lookup('ansible.builtin.env', 'APPSMITH_SUPERVISOR_PASSWORD', default=undef()) }}"
   # @dynamo [directus](https://directus.io) | [GitHub](https://github.com/directus-community/heroku-template) | [Heroku Deploy](https://heroku.com/deploy?template=https://github.com/directus-community/heroku-template/tree/master) | [Documentation](https://docs.directus.io/) - Power any project with a modern, open source data platform
   directus:
     deploy_url: https://heroku.com/deploy?template=https://github.com/directus-community/heroku-template
@@ -129,7 +129,7 @@ heroku_dynos:
     variables:
       ACCESS_TOKEN_TTL: 15m
       ADMIN_EMAIL: admin@email.com
-      ADMIN_PASSWORD: RandomPasword$
+      ADMIN_PASSWORD: "{{ lookup('ansible.builtin.env', 'DIRECTUS_ADMIN_PASSWORD', default=undef()) }}"
       CACHE_ENABLED: true
       CACHE_NAMESPACE: cache
       CACHE_STORE: redis
@@ -154,11 +154,11 @@ heroku_dynos:
       STORAGE_CLOUD_BUCKET: your-bucket
       STORAGE_CLOUD_DRIVER: s3
       STORAGE_CLOUD_ENDPOINT: https://nyc3.digitaloceanspaces.com
-      STORAGE_CLOUD_KEY: your-s3-key-id
+      STORAGE_CLOUD_KEY: "{{ lookup('ansible.builtin.env', 'DIRECTUS_STORAGE_CLOUD_KEY', default=undef()) }}"
       STORAGE_CLOUD_PUBLIC_URL: https://your-bucket.nyc3.digitaloceanspaces.com
       STORAGE_CLOUD_REGION: nyc3
       STORAGE_CLOUD_ROOT: /
-      STORAGE_CLOUD_SECRET: your-s3-secret-key
+      STORAGE_CLOUD_SECRET: "{{ lookup('ansible.builtin.env', 'DIRECTUS_STORAGE_CLOUD_SECRET', default=undef()) }}"
       STORAGE_LOCATIONS: cloud
   # @dynamo [manet]https://github.com/vbauer/manet) | [GitHub](https://github.com/vbauer/manet) | [Heroku Deploy](https://heroku.com/deploy?template=https://github.com/vbauer/manet) - Website screenshot service powered by Node.js, SlimerJS and PhantomJS
   manet:

@@ -138,7 +138,7 @@ fi
 #   #3b/#3c/#4d (which assert the SOURCE is clean); this asserts the TARGET gets cleaned too.
 REMOVE="home/.chezmoiremove"
 missing_rm=""
-for p in '.config/mackup' '.config/brew/whalebrew' '.local/scripts/antigen.zsh'; do
+for p in '.config/mackup' '.config/brew/whalebrew' '.config/coc' '.config/helm' '.local/scripts/antigen.zsh'; do
   grep -qF "$p" "$REMOVE" 2> /dev/null || missing_rm="$missing_rm $p"
 done
 if [ -z "$missing_rm" ]; then
@@ -147,11 +147,23 @@ else
   fail ".chezmoiremove MISSING removed-tool cleanup path(s):$missing_rm — a source removal (#284/#286/#287) won't propagate; existing machines keep the stale config"
 fi
 
-# 9. Brewfile + post-vim.sh must not carry m-cli or coc.nvim bootstrap residue
-if ! grep -q 'm-cli' home/.chezmoitemplates/darwin/Brewfile 2>/dev/null && ! grep -q 'coc/extensions' home/dot_local/bin/post-installx/executable_post-vim.sh 2>/dev/null; then
-  pass "darwin Brewfile and post-vim.sh carry no m-cli or vim+coc bootstrap residue"
+# 9. Brewfile, post-vim hook, and deployed config must not carry m-cli or coc.nvim residue.
+if ! grep -q 'm-cli' home/.chezmoitemplates/darwin/Brewfile 2>/dev/null \
+  && ! grep -q 'coc/extensions' home/dot_local/bin/post-installx/executable_post-vim.sh 2>/dev/null \
+  && ! yq -e '.softwarePackages | has("m-cli") or has("mackup")' software.yml >/dev/null 2>&1 \
+  && ! jq -e 'any(.[]; .name == "m-cli" or .name == "mackup")' packages/control-plane/src/catalog.json >/dev/null \
+  && ! find home/dot_config/coc -type f -print -quit 2>/dev/null | grep -q .; then
+  pass "catalog, Brewfile, post-vim hook, and config tree carry no m-cli, Mackup, or vim+coc residue"
 else
-  fail "darwin Brewfile or post-vim.sh still contains m-cli or coc/extensions residue"
+  fail "catalog, Brewfile, post-vim hook, or config tree still contains removed m-cli/Mackup/coc residue"
+fi
+
+# 9b. The unreferenced upstream Helm example bypassed desired-state authority with mutable charts,
+# placeholder credentials, and TLS-bypass examples. It must remain absent and be cleaned from hosts.
+if ! find home/dot_config/helm -type f -print -quit 2>/dev/null | grep -q .; then
+  pass "unowned imperative Helm example config is not provisioned"
+else
+  fail "unowned imperative Helm example config is still provisioned"
 fi
 
 # 10. Tailscale was removed in favor of the existing Cloudflare connectivity stack. Keep it out of every

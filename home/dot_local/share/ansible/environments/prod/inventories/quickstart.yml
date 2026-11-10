@@ -10,14 +10,14 @@ all:
             standard:
               ansible_connection: local
           vars:
-            ansible_become_pass: "{{ lookup('env', 'ANSIBLE_PASSWORD') | default('Betelgeuse888<3') }}"
-            ansible_password: "{{ lookup('env', 'ANSIBLE_PASSWORD') | default('Betelgeuse888<3') }}"
+            ansible_become_pass: "{{ lookup('ansible.builtin.env', 'ANSIBLE_PASSWORD', default=undef()) }}"
+            ansible_password: "{{ lookup('ansible.builtin.env', 'ANSIBLE_PASSWORD', default=undef()) }}"
             ansible_user: "{{ lookup('env', 'ANSIBLE_USER') | default('Betelgeuse') }}"
         qubes:
           vars:
-            ansible_become_pass: "{{ lookup('env', 'ANSIBLE_PASSWORD') | default('Betelgeuse888<3') }}"
+            ansible_become_pass: "{{ lookup('ansible.builtin.env', 'ANSIBLE_PASSWORD', default=undef()) }}"
             ansible_connection: qubes
-            ansible_password: "{{ lookup('env', 'ANSIBLE_PASSWORD') | default('Betelgeuse888<3') }}"
+            ansible_password: "{{ lookup('ansible.builtin.env', 'ANSIBLE_PASSWORD', default=undef()) }}"
             ansible_user: "{{ lookup('env', 'ANSIBLE_USER') | default('user') }}"
             ansible_python_interpreter: /usr/bin/python3
             qubes:
@@ -53,9 +53,9 @@ all:
           hosts:
             windows-standard:
           vars:
-            ansible_become_pass: "{{ lookup('env', 'ANSIBLE_PASSWORD') | default('Betelgeuse888<3') }}"
+            ansible_become_pass: "{{ lookup('ansible.builtin.env', 'ANSIBLE_PASSWORD', default=undef()) }}"
             ansible_connection: winrm
-            ansible_password: "{{ lookup('env', 'ANSIBLE_PASSWORD') | default('Betelgeuse888<3') }}"
+            ansible_password: "{{ lookup('ansible.builtin.env', 'ANSIBLE_PASSWORD', default=undef()) }}"
             ansible_user: "{{ lookup('env', 'ANSIBLE_USER') | default('Betelgeuse') }}"
             ansible_winrm_transport: credssp
             ansible_winrm_server_cert_validation: ignore

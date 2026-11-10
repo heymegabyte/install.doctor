@@ -1,2 +1,1 @@
-# hadolint disable=DL3007
-FROM megabytelabs/devcontainer:latest
+FROM megabytelabs/devcontainer@sha256:80da7f69383cb368d86cfb5afae4af0a1defd

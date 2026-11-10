@@ -97,7 +97,11 @@ helm_charts:
     repository_name: grafana
   # @helm [Minio](https://min.io/) | [GitHub](https://github.com/minio/minio) | [Helm](https://github.com/minio/minio/tree/master/helm/minio) - MinIO offers high-performance, S3 compatible object storage. Native to Kubernetes, MinIO is the only object storage suite available on every public cloud, every Kubernetes distribution, the private cloud and the edge.
   minio:
-    command: helm install --namespace minio --set rootUser=rootuser,rootPassword=rootpass123 --generate-name minio/minio
+    command: >-
+      helm install --namespace minio
+      --set-string rootUser="$MINIO_ROOT_USER"
+      --set-string rootPassword="$MINIO_ROOT_PASSWORD"
+      --generate-name minio/minio
     repository: https://charts.min.io/
     repository_name: minio
   # @helm [n8n](https://n8n.io/) | [GitHub](https://github.com/n8n-io/n8n) | [Helm](https://artifacthub.io/packages/helm/open-8gears/n8n) - n8n is a free and open-source, self-hostable workflow automation tool that some consider to be a worthy replacement for IFTTT.

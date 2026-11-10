@@ -7,6 +7,21 @@ trap 'rm -f "$LEDGER"' EXIT
 cd "$ROOT"
 node scripts/audit-repository-files.mjs --output="$LEDGER" >/dev/null
 
+# Canonical output is tracked and therefore self-referential. Two unchanged
+# regenerations must still be byte-identical.
+CANONICAL="$ROOT/.agent/repository-file-ledger.json"
+BACKUP="$(mktemp "${TMPDIR:-/tmp}/install-doctor-file-ledger-backup.XXXXXXXX").json"
+cp "$CANONICAL" "$BACKUP"
+restore_canonical() { cp "$BACKUP" "$CANONICAL"; rm -f "$BACKUP"; }
+trap 'rm -f "$LEDGER"; restore_canonical' EXIT
+node scripts/audit-repository-files.mjs --output=.agent/repository-file-ledger.json >/dev/null
+first="$(shasum -a 256 "$CANONICAL" | awk '{print $1}')"
+node scripts/audit-repository-files.mjs --output=.agent/repository-file-ledger.json >/dev/null
+second="$(shasum -a 256 "$CANONICAL" | awk '{print $1}')"
+[ "$first" = "$second" ] || { printf 'repository ledger regeneration is not deterministic\n' >&2; exit 1; }
+restore_canonical
+trap 'rm -f "$LEDGER"' EXIT
+
 tracked="$(git ls-files | wc -l | tr -d ' ')"
 jq -e --argjson tracked "$tracked" '
   .schemaVersion == 2 and
