@@ -61,4 +61,10 @@ grep -Fq 'production provisioner dispatches and reruns a real signed bundle thro
   "$ROOT/packages/installer-engine/test/offline-execution.test.mjs" \
   || fail 'offline lifecycle suite must drive the production provisioner dispatcher and unchanged rerun'
 
+UPGRADE_ACCEPTANCE="$ROOT/scripts/test-bootstrap-upgrade-acceptance.sh"
+grep -Fq 'COPY --chown=0:0 --chmod=0555 container-tools/curl /usr/bin/curl' "$UPGRADE_ACCEPTANCE" \
+  && grep -Fq 'COPY --chown=0:0 --chmod=0555 container-tools/rsync /usr/bin/rsync' "$UPGRADE_ACCEPTANCE" \
+  && grep -Fq 'for TOOL in gum zx chezmoi process-software-groups process-software-post-scripts; do' "$UPGRADE_ACCEPTANCE" \
+  || fail 'upgrade lifecycle must use fixed root-owned curl and rsync identities'
+
 printf 'bootstrap-acceptance-workflow: PASS\n'
