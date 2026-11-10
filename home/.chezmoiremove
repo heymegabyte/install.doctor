@@ -135,6 +135,10 @@ Library/VirtualBox
 .config/system/etc/nginx/sites-enabled/wordpress.conf
 # Dead Heroku group data had no role/task consumer and carried unsafe placeholders.
 .local/share/ansible/environments/prod/group_vars/all/heroku.yml
+# Unusable native-messaging manifest retained a literal PATH_PLACEHOLDER and had no installer consumer.
+.local/share/firefox/profile-switcher.json
+# Vector's upstream demo emitted synthetic logs forever; Alloy owns new telemetry configuration.
+.config/system/etc/vector/vector.toml
 # Strict-TypeScript Claude hooks replace these legacy Python hook paths.
 .claude/hooks/enforce-cloudflare-deploy.py
 .claude/hooks/guard-oversized-output.py

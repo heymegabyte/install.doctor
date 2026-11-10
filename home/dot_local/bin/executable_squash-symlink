@@ -1,18 +1,42 @@
 #!/usr/bin/env bash
 
-set -e
-for link; do
-  test -h "$link" || continue
-  dir=$(dirname "$link")
-  reltarget=$(readlink "$link")
-  case $reltarget in
-    /*) abstarget=$reltarget;;
-    *)  abstarget=$dir/$reltarget;;
+set -euo pipefail
+
+if [ "$#" -eq 0 ]; then
+  printf 'usage: %s SYMLINK...\n' "${0##*/}" >&2
+  exit 64
+fi
+
+for link in "$@"; do
+  if [ ! -L "$link" ]; then
+    printf 'squash-symlink: not a symbolic link: %s\n' "$link" >&2
+    exit 66
+  fi
+
+  directory=$(dirname -- "$link")
+  relative_target=$(readlink "$link")
+  case "$relative_target" in
+    /*) absolute_target=$relative_target ;;
+    *) absolute_target=$directory/$relative_target ;;
   esac
-  rm -fv "$link"
-  cp -afv "$abstarget" "$link" || {
-    # Restore link on failure
-    rm -rfv "$link"
-    ln -sfv "$reltarget" "$link"
-  }
+
+  if [ ! -e "$absolute_target" ]; then
+    printf 'squash-symlink: target is missing: %s -> %s\n' "$link" "$relative_target" >&2
+    exit 66
+  fi
+
+  staging=$(mktemp -d "$directory/.squash-symlink.XXXXXX")
+  if ! cp -aL -- "$absolute_target" "$staging/payload"; then
+    rm -rf -- "$staging"
+    exit 74
+  fi
+
+  mv -- "$link" "$staging/original"
+  if ! mv -- "$staging/payload" "$link"; then
+    mv -- "$staging/original" "$link"
+    rm -rf -- "$staging"
+    exit 74
+  fi
+  rm -- "$staging/original"
+  rmdir -- "$staging"
 done

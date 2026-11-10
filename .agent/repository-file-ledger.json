@@ -1,12 +1,11 @@
 {
   "schemaVersion": 2,
-  "trackedFileCount": 3237,
-  "classifiedFileCount": 3237,
+  "trackedFileCount": 3238,
+  "classifiedFileCount": 3238,
   "complete": true,
   "byClass": {
     "binary-media": 537,
-    "configuration": 331,
-    "deleted-worktree": 2,
+    "configuration": 332,
     "documentation": 253,
     "encrypted": 781,
     "generated": 41,
@@ -15,7 +14,7 @@
     "script": 229,
     "sentinel-empty": 18,
     "source": 270,
-    "test": 366
+    "test": 368
   },
   "reviewCount": 0,
   "files": [
@@ -29560,9 +29559,9 @@
     {
       "path": "home/dot_config/netdata/health.d/cpu.conf",
       "kind": "configuration",
-      "bytes": 1005,
+      "bytes": 1568,
       "mode": "644",
-      "sha256": "a846455506cbbf52a54d86673ee2e95e7937a03c835ecdc8aecaabf9eaa155ec",
+      "sha256": "6b2ee75bb3629b11bc5c1bf2a2418aa62234e729a6395627c319c64a4c905699",
       "validators": [
         "tracked",
         "readable",
@@ -29582,9 +29581,9 @@
     {
       "path": "home/dot_config/netdata/health.d/disks.conf",
       "kind": "configuration",
-      "bytes": 836,
+      "bytes": 1391,
       "mode": "644",
-      "sha256": "c3d945db380b40c5aa39e15b99a6e6315a5367bc289e5049ad305ef50a7ab513",
+      "sha256": "22636b2f1530e00f8103866d3a91e4aef8b8841188405c3038a63da999b03dc4",
       "validators": [
         "tracked",
         "readable",
@@ -29626,9 +29625,9 @@
     {
       "path": "home/dot_config/netdata/health.d/gpu.conf",
       "kind": "configuration",
-      "bytes": 587,
+      "bytes": 801,
       "mode": "644",
-      "sha256": "a33ffac36b7a9f6e843484b22a25229ce07f71aa42b7b430d315faf13bcc04f1",
+      "sha256": "3cbdbdee86a16fb9004053a3e9c463ac104b13b3911ebd60603e3f1870d02e7d",
       "validators": [
         "tracked",
         "readable",
@@ -29670,9 +29669,9 @@
     {
       "path": "home/dot_config/netdata/health.d/ram.conf",
       "kind": "configuration",
-      "bytes": 701,
+      "bytes": 1487,
       "mode": "644",
-      "sha256": "a03eac59b66f812d11be3cb6255c46b7f856fb3f821b37efeb1b484884b190c2",
+      "sha256": "77eb97e342c21ef1d6693822d876d3b626d9f4f72fae7d389b05f4355a9e43e3",
       "validators": [
         "tracked",
         "readable",
@@ -29734,11 +29733,33 @@
       "issues": []
     },
     {
+      "path": "home/dot_config/netdata/health.d/streaming.conf",
+      "kind": "configuration",
+      "bytes": 592,
+      "mode": "644",
+      "sha256": "c7c6a3b864b790de6920e8dfe9bd8adfea892a3f3ed2d91961987a7caf29ea8b",
+      "validators": [
+        "tracked",
+        "readable",
+        "sha256",
+        "parser-or-schema",
+        "references"
+      ],
+      "disposition": "retain-validated",
+      "reason": "Configuration is retained when its parser/schema and repository reference gates pass.",
+      "evidence": [
+        "parser-or-schema",
+        "references",
+        "repository-suite"
+      ],
+      "issues": []
+    },
+    {
       "path": "home/dot_config/netdata/health.d/swap.conf",
       "kind": "configuration",
-      "bytes": 693,
+      "bytes": 1174,
       "mode": "644",
-      "sha256": "979b1703abdc258c18ae2a34c208325b999522fc8ba2760ba7bde067cf366264",
+      "sha256": "de2c3fe3247f801111708416a931af37f8ae250f6df66702d5ecba344c745f62",
       "validators": [
         "tracked",
         "readable",
@@ -33101,26 +33122,6 @@
       "issues": []
     },
     {
-      "path": "home/dot_config/system/etc/vector/vector.toml",
-      "kind": "deleted-worktree",
-      "bytes": null,
-      "mode": null,
-      "sha256": null,
-      "validators": [
-        "tracked",
-        "git-diff-review",
-        "reference-removal"
-      ],
-      "disposition": "remove-preserved",
-      "reason": "Tracked deletion is preserved as an intentional worktree decision and must pass reference-removal and repository-suite gates.",
-      "evidence": [
-        "git-diff-review",
-        "reference-removal",
-        "repository-suite"
-      ],
-      "issues": []
-    },
-    {
       "path": "home/dot_config/system/etc/wsl.conf.tmpl",
       "kind": "other",
       "bytes": 183,
@@ -35480,9 +35481,9 @@
     {
       "path": "home/dot_local/bin/executable_infisical-workload-run",
       "kind": "script",
-      "bytes": 5739,
+      "bytes": 5719,
       "mode": "755",
-      "sha256": "00134b465e88b0c7e6eca0f44388bd4b61ec49c068fb1062499607046e08da80",
+      "sha256": "4d01cbc86ec0ce4fcc13d9d6a1a0496109321e03f97e3550748c659cedc9c1f3",
       "validators": [
         "tracked",
         "readable",
@@ -35572,9 +35573,9 @@
     {
       "path": "home/dot_local/bin/executable_kasmvnc-fit-browser",
       "kind": "script",
-      "bytes": 2227,
+      "bytes": 2238,
       "mode": "755",
-      "sha256": "f6fd72268aee309a80a74fa56dc8c4c2f61aeea07d9c12e30d47943092353b52",
+      "sha256": "b16c3d9b476c76c2b58de289a54d708a0b62ee8df6a28e7108d444e7f569fa8c",
       "validators": [
         "tracked",
         "readable",
@@ -36934,9 +36935,9 @@
     {
       "path": "home/dot_local/bin/post-installx/executable_post-proxmox.sh",
       "kind": "script",
-      "bytes": 3000,
+      "bytes": 5114,
       "mode": "755",
-      "sha256": "6b2dd67bd4b6467c0ccc0645880288524edb86c76afabd7fc41e6d136b696e36",
+      "sha256": "276f6ad32292719e40c6cc4168f9ff2164ac22399825de889c2be565b0da7e17",
       "validators": [
         "tracked",
         "readable",
@@ -37246,9 +37247,9 @@
     {
       "path": "home/dot_local/bin/post-installx/executable_post-workstation.sh",
       "kind": "script",
-      "bytes": 175124,
+      "bytes": 177334,
       "mode": "755",
-      "sha256": "c7e4f8616d4b733b3f7c8b941204bf6060f781bff93154e718445f5e03b99da0",
+      "sha256": "c51e4065025231cc1719bac502508f0a904a646542939cbd5d70cf578bd63a0d",
       "validators": [
         "tracked",
         "readable",
@@ -41629,26 +41630,6 @@
       "evidence": [
         "parser-or-schema",
         "references",
-        "repository-suite"
-      ],
-      "issues": []
-    },
-    {
-      "path": "home/dot_local/share/firefox/profile-switcher.json",
-      "kind": "deleted-worktree",
-      "bytes": null,
-      "mode": null,
-      "sha256": null,
-      "validators": [
-        "tracked",
-        "git-diff-review",
-        "reference-removal"
-      ],
-      "disposition": "remove-preserved",
-      "reason": "Tracked deletion is preserved as an intentional worktree decision and must pass reference-removal and repository-suite gates.",
-      "evidence": [
-        "git-diff-review",
-        "reference-removal",
         "repository-suite"
       ],
       "issues": []
@@ -54922,6 +54903,32 @@
       "issues": []
     },
     {
+      "path": "scripts/test-cargo-config.sh",
+      "kind": "test",
+      "bytes": 1082,
+      "mode": "755",
+      "sha256": "deeba16ea6b1c3944b659634dd17a884f12405452249ee0333f2980ac6d2d159",
+      "validators": [
+        "tracked",
+        "readable",
+        "sha256",
+        "parser-or-typecheck",
+        "lint",
+        "tests",
+        "callers"
+      ],
+      "disposition": "retain-validated",
+      "reason": "Source is retained when parser/typecheck, lint, caller, and test gates find no higher-confidence change.",
+      "evidence": [
+        "parser-or-typecheck",
+        "lint",
+        "tests",
+        "callers",
+        "repository-suite"
+      ],
+      "issues": []
+    },
+    {
       "path": "scripts/test-cask-launcher-cutover.sh",
       "kind": "test",
       "bytes": 2006,
@@ -58905,6 +58912,32 @@
       "bytes": 2742,
       "mode": "755",
       "sha256": "c71a4acb40f58bdbca3a44566e4f01e99596dccdb2cf030f8047b711ad9da1d6",
+      "validators": [
+        "tracked",
+        "readable",
+        "sha256",
+        "parser-or-typecheck",
+        "lint",
+        "tests",
+        "callers"
+      ],
+      "disposition": "retain-validated",
+      "reason": "Source is retained when parser/typecheck, lint, caller, and test gates find no higher-confidence change.",
+      "evidence": [
+        "parser-or-typecheck",
+        "lint",
+        "tests",
+        "callers",
+        "repository-suite"
+      ],
+      "issues": []
+    },
+    {
+      "path": "scripts/test-squash-symlink.sh",
+      "kind": "test",
+      "bytes": 785,
+      "mode": "755",
+      "sha256": "6d4f50372f5e6d2682531efe75cc576e350e573eeef84d88ee560c1d9c776fca",
       "validators": [
         "tracked",
         "readable",

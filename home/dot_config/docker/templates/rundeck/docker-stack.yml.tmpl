@@ -4,7 +4,7 @@ version: '3'
 
 services:
     rundeck:
-        image: ${RUNDECK_IMAGE:-rundeck/rundeck:SNAPSHOT}
+        image: rundeck/rundeck:SNAPSHOT@sha256:484a2daa6a58fceedb46c9de4129917804660aaa3b893ed9b780ff572e909562
         links:
           - postgres
         environment:
@@ -18,7 +18,7 @@ services:
         ports:
           - 4440:4440
     postgres:
-        image: postgres
+        image: postgres:latest@sha256:e3d24f6906d0760bf4da0dae872415391ededefad23fd471c47dc53b0ddf3c42
         expose:
           - 5432
         environment:

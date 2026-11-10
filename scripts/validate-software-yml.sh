@@ -155,6 +155,8 @@ fi
 LITERAL_TODOS="$(python3 - "$SW_YML" <<'PY'
 import sys, yaml
 
+annotation_fields = {"_deprecated", "_note", "_notes", "_todo"}
+
 def walk(value, path):
     if isinstance(value, dict):
         for key, child in value.items():
@@ -162,18 +164,20 @@ def walk(value, path):
     elif isinstance(value, list):
         for index, child in enumerate(value):
             yield from walk(child, [*path, str(index)])
-    elif isinstance(value, str) and value.strip().upper() == "TODO":
-        yield ".".join(path)
+    elif isinstance(value, str) and (not path or path[-1] not in annotation_fields):
+        normalized = value.strip().upper()
+        if normalized == "TODO" or "PATH_PLACEHOLDER" in normalized or normalized.startswith("TODO."):
+            yield ".".join(path)
 
 document = yaml.safe_load(open(sys.argv[1], encoding="utf-8")) or {}
 print("\n".join(walk(document, [])))
 PY
 )"
 if [ -z "$LITERAL_TODOS" ]; then
-  echo "PASS: Catalog contains no literal TODO runtime values"
+  echo "PASS: Catalog contains no placeholder runtime values"
   PASS=$((PASS + 1))
 else
-  echo "FAIL: Literal TODO runtime values remain in the catalog:"
+  echo "FAIL: Placeholder runtime values remain in the catalog:"
   printf '  %s\n' "$LITERAL_TODOS"
   FAIL=$((FAIL + 1))
 fi

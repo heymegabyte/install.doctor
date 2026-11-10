@@ -3,7 +3,7 @@ version: '3.7'
 
 services:
   healthchecks:
-    image: lscr.io/linuxserver/healthchecks:latest
+    image: lscr.io/linuxserver/healthchecks:latest@sha256:305c17f74657cb5c1bece7b158b82025806b227a47d4c3493cdb4bf8f13eea88
     container_name: Healthchecks
     depends_on:
       - postgres
@@ -87,7 +87,7 @@ services:
 
   postgres:
     container_name: Postgres
-    image: postgres:10
+    image: postgres:10@sha256:b2baf8998630663d21370da06387c950e587071bdd307ee34e661cdcc7442bcc
     restart: unless-stopped
     volumes:
       - healthchecks_postgres:/var/lib/postgresql/data

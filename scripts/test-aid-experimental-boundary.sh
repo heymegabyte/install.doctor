@@ -4,13 +4,13 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 FAIL=0
 
 for path in start.sh scripts/provision.sh site/src; do
-  if rg -q 'probabilistic-intent|createSpeculativeBranch|evaluateEasterEgg|cloudflareEdgeRoute' "$ROOT/$path"; then
+  if grep -R -E -q 'probabilistic-intent|createSpeculativeBranch|evaluateEasterEgg|cloudflareEdgeRoute' "$ROOT/$path"; then
     printf 'FAIL experimental aid contracts reached product/runtime surface: %s\n' "$path" >&2
     FAIL=$((FAIL + 1))
   fi
 done
 
-if ! rg -q 'experimental HTTP adapters' "$ROOT/packages/aid-core/README.md" "$ROOT/packages/aid-core/docs/PRODUCT-SPEC.md"; then
+if ! grep -qF 'experimental HTTP adapters' "$ROOT/packages/aid-core/README.md" "$ROOT/packages/aid-core/docs/PRODUCT-SPEC.md"; then
   printf 'FAIL aid docs do not disclose the experimental control-plane adapter boundary\n' >&2
   FAIL=$((FAIL + 1))
 fi

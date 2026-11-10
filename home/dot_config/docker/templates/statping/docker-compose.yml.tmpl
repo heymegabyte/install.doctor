@@ -4,7 +4,7 @@ version: '3.7'
 services:
   statup:
     container_name: StatPing
-    image: adamboutcher/statping-ng:latest
+    image: adamboutcher/statping-ng:latest@sha256:e32bd2e50ca023f37b0650e1942d51cb9269a2caab11042bc0cc53fac0474a2b
     restart: unless-stopped
     depends_on:
       - postgres
@@ -40,7 +40,7 @@ services:
 
   postgres:
     container_name: Postgres
-    image: postgres:10
+    image: postgres:10@sha256:b2baf8998630663d21370da06387c950e587071bdd307ee34e661cdcc7442bcc
     restart: unless-stopped
     volumes:
       - statping_postgres:/var/lib/postgresql/data

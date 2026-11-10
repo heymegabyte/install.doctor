@@ -5682,8 +5682,8 @@ softwarePackages:
     _github: https://github.com/languagetool-org/languagetool
     _bin: languagetool-desktop
     _home: https://languagetool.org/
-    _app: TODO.app
-    cask: languagetool
+    _app: LanguageTool for Desktop.app
+    cask: languagetool-desktop
     choco: languagetool
   lapce:
     _name: Lapce

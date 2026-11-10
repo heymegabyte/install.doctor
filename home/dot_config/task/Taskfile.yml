@@ -478,36 +478,3 @@ tasks:
         else
           gum log -sl info 'The {{ .AppFolder }} folder that is used to detect the presence of {{ .AppName }} on the system is not present so the profile will not be restored for this type of {{ .AppName }} install.'
         fi
-
-  squash-symlink:
-    summary: |
-      This command, when used in conjunction with the `find` command, will scan through a directory
-      and convert any symlinks into regular files by copying their source over the initial symlink.
-
-      **Example usage:**
-
-      ```
-      find . -type l -exec 'run squash-symlink --' {} +
-      ```
-
-      ## TODO
-
-      Test and fix this so it can be accessed by `run squash-symlink -- $PATH`
-    cmds:
-      - |
-        set -e
-        for link; do
-          test -h "$link" || continue
-          dir=$(dirname "$link")
-          reltarget=$(readlink "$link")
-          case $reltarget in
-            /*) abstarget=$reltarget;;
-            *)  abstarget=$dir/$reltarget;;
-          esac
-          rm -fv "$link"
-          cp -afv "$abstarget" "$link" || {
-            ### On failure, restore the symlink
-            rm -rfv "$link"
-            ln -sfv "$reltarget" "$link"
-          }
-        done

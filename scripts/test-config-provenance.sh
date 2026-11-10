@@ -7,7 +7,7 @@ cd "$ROOT"
 scan() {
   local candidate
   while IFS= read -r candidate; do
-    grep -Eq '(image:[^#]*:latest|container_image[^#]*:latest|ref=(master|main)([^A-Za-z0-9_-]|$))' "$candidate" \
+    grep -Eq '(image:[^#]*:latest|container_image[^#]*:latest|ref=(master|main)([^A-Za-z0-9_-]|$)|PATH_PLACEHOLDER|TODO\.app)' "$candidate" \
       && printf '%s\n' "$candidate"
   done < <(
     find "$@" -type f \

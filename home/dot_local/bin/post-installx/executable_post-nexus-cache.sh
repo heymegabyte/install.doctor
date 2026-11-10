@@ -908,6 +908,7 @@ EOF
 
 for rc in "$HOME/.bashrc" "$HOME/.zshrc" "$HOME/.profile"; do
   if [[ -f "$rc" ]] && ! grep -q "megabyte-cache.sh" "$rc" 2>/dev/null; then
+    # shellcheck disable=SC2016 # Write the runtime HOME expression literally into the target rc file.
     printf '\n# Megabyte Nexus & Scoped Cache Configuration\n[ -f "$HOME/.config/shell/megabyte-cache.sh" ] && . "$HOME/.config/shell/megabyte-cache.sh"\n' >> "$rc"
   fi
 done
@@ -985,12 +986,6 @@ replace-with = "megabyte-local"
 
 [source.megabyte-local]
 registry = "sparse+${LOCAL_PROXY_BASE}/repository/cargo-proxy/"
-
-[source.nexus]
-registry = "sparse+${NEXUS_BASE}/repository/cargo-proxy/"
-
-[source.crates-io-upstream]
-registry = "sparse+https://index.crates.io/"
 
 [net]
 retry = 3
@@ -1082,6 +1077,7 @@ Acquire::http::Timeout "15";
 Acquire::https::Timeout "15";
 Acquire::Queue-Mode "host";
 EOF
+    # shellcheck disable=SC1091 # Standard runtime OS metadata, unavailable on non-Linux lint hosts.
     CODENAME="$(. /etc/os-release 2>/dev/null && echo "${VERSION_CODENAME:-}")"
     ARCH="$(dpkg --print-architecture 2>/dev/null || echo "")"
     if [[ "$CODENAME" == "resolute" && "$ARCH" == "amd64" ]]; then

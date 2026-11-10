@@ -39,7 +39,7 @@
     "Homepage": {
       "Locked": false,
       "StartPage": "previous-session",
-      "URL": "http://home.megabyte.space"
+      "URL": "https://home.megabyte.space"
     },
     "NetworkPrediction": false,
     "NoDefaultBookmarks": true,

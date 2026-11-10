@@ -1,7 +1,0 @@
-{
-  "allowed_extensions": ["profile-switcher-ff@nd.ax"],
-  "description": "Profile Switcher for Firefox",
-  "name": "ax.nd.profile_switcher_ff",
-  "path": "PATH_PLACEHOLDER/ff-pswitch-connector",
-  "type": "stdio"
-}

@@ -109,16 +109,33 @@ if grep -Eq '^[[:space:]]*version:' "$TMPL_DIR/directus/docker-compose.yml"; the
 else
   pass "Directus uses the current Compose specification"
 fi
-grep -Fq 'init: true' "$TMPL_DIR/directus/docker-compose.yml" \
-  && pass "Directus enables init for signal and zombie handling" \
-  || fail "Directus does not enable init"
-grep -Fq 'postgres:14.2@sha256:' "$TMPL_DIR/rallly/docker-compose.yml" \
-  && pass "Rallly pins Postgres by digest" \
-  || fail "Rallly Postgres image is not digest-pinned"
+if grep -Fq 'init: true' "$TMPL_DIR/directus/docker-compose.yml"; then
+  pass "Directus enables init for signal and zombie handling"
+else
+  fail "Directus does not enable init"
+fi
+if grep -Fq 'postgres:14.2@sha256:' "$TMPL_DIR/rallly/docker-compose.yml"; then
+  pass "Rallly pins Postgres by digest"
+else
+  fail "Rallly Postgres image is not digest-pinned"
+fi
 if grep -Fq '5450:5432' "$TMPL_DIR/rallly/docker-compose.yml"; then
   fail "Rallly exposes its database on the host"
 else
   pass "Rallly keeps its database on the private Compose network"
+fi
+
+# 5. Every deployable image reference is immutable. Tags remain as readable
+# metadata, but the registry manifest digest is the execution authority.
+unpinned_images=$(
+  find "$TMPL_DIR" -type f \( -name '*.yml' -o -name '*.yaml' -o -name '*.tmpl' \) -print0 \
+    | xargs -0 grep -hE '^[[:space:]]*image:[[:space:]]*' \
+    | grep -v '@sha256:' || true
+)
+if [ -n "$unpinned_images" ]; then
+  fail "one or more Docker template images are not digest-pinned"
+else
+  pass "all Docker template images are digest-pinned"
 fi
 
 say "docker-template default credentials: $P passed, $F failed"

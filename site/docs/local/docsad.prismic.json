@@ -108,54 +108,6 @@
       "uid": null,
       "url": null,
       "type": "docs_ad",
-      "href": "https://linkbl.ink",
-      "tags": [],
-      "first_publication_date": "2024-02-11T19:50:16+0000",
-      "last_publication_date": "2024-02-11T19:50:16+0000",
-      "slugs": [],
-      "linked_documents": [],
-      "lang": "en-us",
-      "alternate_languages": [],
-      "data": {
-        "ad_id": "LinkBl.ink",
-        "ad_weight": null,
-        "ad_copy": [
-          {
-            "type": "paragraph",
-            "text": "Introducing LinkBl.ink – your new go-to for free URL shortening service!",
-            "spans": []
-          }
-        ],
-        "ad_url": {
-          "link_type": "Web",
-          "url": "https://linkbl.ink",
-          "target": "_blank"
-        },
-        "ad_image": {
-          "dimensions": {
-            "width": 280,
-            "height": 200
-          },
-          "alt": null,
-          "copyright": null,
-          "url": "/docs/img/ads/linkblink-2x.png",
-          "1x": {
-            "dimensions": {
-              "width": 140,
-              "height": 100
-            },
-            "alt": null,
-            "copyright": null,
-            "url": "/docs/img/ads/linkblink.png"
-          }
-        }
-      }
-    },
-    {
-      "id": "Ysx-PhAAACIA0CfB",
-      "uid": null,
-      "url": null,
-      "type": "docs_ad",
       "href": "https://strictlint.com",
       "tags": [],
       "first_publication_date": "2024-02-10T19:50:16+0000",

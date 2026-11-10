@@ -2,9 +2,10 @@
 # These variables are required for provisioning Raspberry Pis because they use ARM64 processors instead of the
 # regular 64-bit processors.
 docker_apt_arch: arm64
-docker_apt_repository: "deb [arch={{ docker_apt_arch }}] http://HTTPS///download.docker.com\
-  /linux/{{ ansible_distribution | lower }} {{ ansible_distribution_release }} \
-  {{ docker_apt_release_channel }}"
+docker_apt_repository: >-
+  deb [arch={{ docker_apt_arch }}]
+  https://download.docker.com/linux/{{ ansible_distribution | lower }}
+  {{ ansible_distribution_release }} {{ docker_apt_release_channel }}
 
 # Prevent NGINX Amplify from being installed / registered.
 enable_nginx_amplify: false

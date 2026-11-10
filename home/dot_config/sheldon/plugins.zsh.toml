@@ -13,7 +13,3 @@
 shell = "zsh"
 
 [plugins]
-
-# TODO: Make this import the sheldon completions and cache them
-# [plugins.sheldon]
-# inline = 'sheldon() { sheldon completions --shell zsh }'

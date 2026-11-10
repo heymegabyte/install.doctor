@@ -37,7 +37,7 @@ const script = `<script id="install-doctor-default-local-scaling">
   const params = new URLSearchParams(window.location.search);
   if (!params.has('resize')) {
     params.set('resize', 'scale');
-    window.location.replace(`${window.location.pathname}?${params}${window.location.hash}`);
+    window.location.replace(window.location.pathname + '?' + params.toString() + window.location.hash);
   }
 })();
 </script>

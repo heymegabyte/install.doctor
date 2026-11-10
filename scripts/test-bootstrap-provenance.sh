@@ -267,10 +267,11 @@ for f in "$ROOT"/scripts/*.sh; do
   # generated and validated before its first commit, and treating a real
   # untracked caller/documentation reference as absent makes this gate report
   # a false orphan during the release build itself.
-  refs="$(rg -l --fixed-strings "$b" "$ROOT" \
-    --glob '!node_modules/**' --glob '!site/node_modules/**' --glob '!packages/**/node_modules/**' \
-    --glob '!site/.wrangler/**' --glob '!packages/**/.wrangler/**' \
-    --glob "!scripts/$b" 2> /dev/null | wc -l | tr -d ' ')"
+  tracked_refs="$(git -C "$ROOT" grep -IlF "$b" -- . ":(exclude)scripts/$b" 2>/dev/null | wc -l | tr -d ' ')"
+  untracked_refs="$(git -C "$ROOT" ls-files --others --exclude-standard -z \
+    | xargs -0 grep -IlF -- "$b" 2>/dev/null \
+    | wc -l | tr -d ' ')"
+  refs=$((tracked_refs + untracked_refs))
   [ "$refs" = 0 ] && orphan_hits="$orphan_hits $b"
 done
 [ "$orphan_cand" -ge 4 ] \
