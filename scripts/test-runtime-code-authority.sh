@@ -242,6 +242,14 @@ else
   fail 'Netdata retains untyped claiming or host mutation authority'
 fi
 
+FIREWALL_HOOK="$ROOT/home/dot_local/bin/post-installx/executable_post-firewall.sh"
+if grep -q 'native firewall convergence is unsupported until lockout-safe typed policy' "$FIREWALL_HOOK" \
+  && ! grep -qE 'get-secret|infisical|SUDO_PASSWORD|sudo|apt-get|ufw|systemctl|socketfilterfw|/etc/' "$FIREWALL_HOOK"; then
+  pass 'Firewall legacy privilege and lockout-prone mutation fail closed'
+else
+  fail 'Firewall retains untyped privilege or lockout-prone mutation authority'
+fi
+
 UNVERIFIED_ROOT_ARTIFACT_PATHS=(
   "$ROOT/home/.chezmoiscripts/universal/run_before_04-requirements.sh.tmpl"
   "$ROOT/home/.chezmoiscripts/universal/run_before_05-system.sh.tmpl"
