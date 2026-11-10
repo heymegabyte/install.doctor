@@ -26,15 +26,19 @@ jobs:
           cache: "npm"
           cache-dependency-path: site/package-lock.json
 
-      - name: Install shdoc
+      - name: Install documentation generators
         run: |
           tmp="$(mktemp)"
-          trap 'rm -f "$tmp"' EXIT
+          task_tmp_dir="$(mktemp -d)"
+          trap 'rm -f "$tmp"; rm -rf "$task_tmp_dir"' EXIT
           curl --fail --silent --show-error --proto '=https' --tlsv1.2 --location --max-time 30 \
             https://github.com/reconquest/shdoc/releases/download/v1.1/shdoc -o "$tmp"
           test "$(wc -c < "$tmp" | tr -d ' ')" = 11466
           echo '3bda94dbe6efb789c8c5349e0d554c8f7841611ee0ff2c34a757541262d1c033  '"$tmp" | sha256sum --check --status
           sudo install -m 0755 "$tmp" /usr/local/bin/shdoc
+          source ../scripts/lib/task-bootstrap.sh
+          install_pinned_task linux "$(uname -m)" "$task_tmp_dir/task"
+          sudo install -m 0755 "$task_tmp_dir/task" /usr/local/bin/task
 
       - name: Install and build
         run: npm ci --force && npm run build:prod

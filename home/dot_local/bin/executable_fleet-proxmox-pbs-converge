@@ -244,15 +244,24 @@ EOF
     fi
   fi
   if [ -x /usr/libexec/proxmox-mail-forward ] && command -v postconf >/dev/null 2>&1 && [ "$MODE" = "--apply" ]; then
+    postconf -e inet_protocols=ipv4 >/dev/null 2>&1 || true
     if [ -f /etc/apt/apt.conf.d/50unattended-upgrades ]; then
       sed -i 's|^Unattended-Upgrade::Mail .*|Unattended-Upgrade::Mail "root";|; s|^Unattended-Upgrade::MailReport .*|Unattended-Upgrade::MailReport "only-on-error";|' /etc/apt/apt.conf.d/50unattended-upgrades 2>/dev/null || true
     fi
-    if [ ! -f /etc/postfix/virtual ] || ! grep -q 'root@localhost' /etc/postfix/virtual 2>/dev/null; then
-      printf 'brian@megabyte.space root@localhost\n' > /etc/postfix/virtual
+    if [ ! -f /etc/postfix/virtual ] || ! grep -Fqx 'blzalewski@gmail.com root@localhost' /etc/postfix/virtual 2>/dev/null; then
+      printf 'blzalewski@gmail.com root@localhost\n' > /etc/postfix/virtual
       postmap /etc/postfix/virtual >/dev/null 2>&1 || true
       postconf -e 'virtual_alias_maps = hash:/etc/postfix/virtual' >/dev/null 2>&1 || true
       systemctl reload postfix >/dev/null 2>&1 || true
     fi
+  fi
+  if [ "$MODE" = "--apply" ] && [ -f /etc/smartd.conf ] && ! grep -q -- '-I 190 -W 4,55,60' /etc/smartd.conf; then
+    if grep -q '^DEVICESCAN' /etc/smartd.conf; then
+      sed -i '/^DEVICESCAN/ s/$/ -I 190 -W 4,55,60/' /etc/smartd.conf
+    else
+      printf 'DEVICESCAN -a -I 190 -W 4,55,60\n' >> /etc/smartd.conf
+    fi
+    systemctl reload smartmontools >/dev/null 2>&1 || systemctl restart smartmontools >/dev/null 2>&1 || true
   fi
 fi
 
@@ -289,11 +298,9 @@ if command -v proxmox-backup-manager >/dev/null 2>&1; then
         fi
       done
     done
-    # #126: Ensure PBS 'self' remote uses DNS SAN (pbs.lab.megabyte.space) without stale pinned TLS fingerprint so Let's Encrypt renewals never break sync jobs
+    # #126: Ensure PBS 'self' remote uses its DNS SAN without a stale pinned TLS fingerprint so Let's Encrypt renewals never break sync jobs.
     if proxmox-backup-manager remote show self >/dev/null 2>&1; then
-      if grep -q 'pbs.lab.megabyte.space' /etc/hosts 2>/dev/null; then
-        proxmox-backup-manager remote update self --host pbs.lab.megabyte.space --delete fingerprint >/dev/null 2>&1 || true
-      fi
+      proxmox-backup-manager remote update self --host pbs.megabyte.space --delete fingerprint >/dev/null 2>&1 || true
     fi
     cat > /etc/sysctl.d/99-pbs-s3-tuning.conf <<'EOF'
 net.core.default_qdisc = fq

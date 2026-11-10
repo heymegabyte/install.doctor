@@ -603,7 +603,11 @@ EOF
 set -euo pipefail
 export PATH="$HOME/.local/bin:$HOME/.local/share/volta/bin:$HOME/.local/share/mise/shims:/opt/homebrew/bin:/home/linuxbrew/.linuxbrew/bin:/usr/local/bin:/usr/bin:/bin"
 
-used_pct="$(df -P / | awk 'NR==2 {gsub(/%/,"",$5); print $5}')"
+disk_root="/"
+if [ "$(uname -s)" = "Darwin" ] && [ -d /System/Volumes/Data ]; then
+  disk_root="/System/Volumes/Data"
+fi
+used_pct="$(df -P "$disk_root" | awk 'NR==2 {gsub(/%/,"",$5); print $5}')"
 used_pct="${used_pct:-0}"
 
 command -v pnpm >/dev/null 2>&1 && pnpm store prune >/dev/null 2>&1 || true
@@ -2948,6 +2952,13 @@ fi
 # 9. macOS Apple Silicon (Darwin) Spotlight Exclusions, Node 24 CA & Cache Reclamation
 # -----------------------------------------------------------------------------
 if [ "$(uname -s)" = "Darwin" ]; then
+  if [ -d /opt/homebrew/etc/netdata/health.d ] && [ -w /opt/homebrew/etc/netdata/health.d ]; then
+    for netdata_health_config in "$HOME"/.config/netdata/health.d/*.conf; do
+      [ -f "$netdata_health_config" ] || continue
+      cp "$netdata_health_config" /opt/homebrew/etc/netdata/health.d/
+    done
+  fi
+
   for dir in \
     "$HOME/.cache" \
     "$HOME/.bun/install/cache" \
@@ -2968,9 +2979,13 @@ BUN_INSTALL_CACHE_DIR=$HOME/.bun/install/cache
 UV_LINK_MODE=clone
 EOF
 
-  AVAIL_GB="$(df -g / | awk 'NR==2 {print $4}')"
+  MACOS_DATA_VOLUME="/"
+  if [ -d /System/Volumes/Data ]; then
+    MACOS_DATA_VOLUME="/System/Volumes/Data"
+  fi
+  AVAIL_GB="$(df -g "$MACOS_DATA_VOLUME" | awk 'NR==2 {print $4}')"
   if [ "${AVAIL_GB:-100}" -lt 50 ]; then
-    log "Free disk space on / is ${AVAIL_GB}GiB (<50GiB threshold); pruning stale caches and logs..."
+    log "Free disk space on $MACOS_DATA_VOLUME is ${AVAIL_GB}GiB (<50GiB threshold); pruning stale caches and logs..."
     find "$HOME/Library/Logs" -type f -mtime +7 -delete 2>/dev/null || true
     find "$HOME/Library/Caches/Homebrew/downloads" -maxdepth 1 -name '*.incomplete' -delete 2>/dev/null || true
   fi
