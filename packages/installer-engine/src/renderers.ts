@@ -126,6 +126,11 @@ const TUI_OUTPUT_LINES_PER_TASK = 128;
 const TUI_OUTPUT_BYTES_PER_TASK = 64 * 1024;
 const TUI_OUTPUT_LINES_GLOBAL = 2_048;
 const TUI_OUTPUT_BYTES_GLOBAL = 1024 * 1024;
+// Full-screen rendering is proportional to terminal area, not line size. Batch
+// bursts of attributable task output while leaving lifecycle/lock/retry events
+// immediate so parallel agents cannot turn terminal repainting into the
+// installer bottleneck. The next non-output event always flushes the model.
+const TUI_OUTPUT_EVENTS_PER_FRAME = 8;
 
 export function createTuiModel(): TuiModel {
   return Object.freeze({
@@ -443,6 +448,7 @@ export function createRendererSession(
   let lastSequence = -1;
   let tuiModel = createTuiModel();
   let tuiStarted = false;
+  let tuiOutputEventsSinceFrame = 0;
   let terminalRestored = false;
   const streaming = mode !== 'json';
   const spillChunk = (chunk: string): void => {
@@ -471,6 +477,7 @@ export function createRendererSession(
     if (mode !== 'tui' || !delivery.interactiveTui || closed) return;
     const prefix = tuiStarted ? '\u001b[H\u001b[J' : '\u001b[?1049h\u001b[?25l\u001b[2J\u001b[H';
     tuiStarted = true;
+    tuiOutputEventsSinceFrame = 0;
     write(`${prefix}${renderTuiFrame(tuiModel, options)}\n`);
   };
   return {
@@ -514,7 +521,12 @@ export function createRendererSession(
         lastSequence = event.sequence;
         if (mode === 'tui' && delivery.interactiveTui) {
           tuiModel = reduceTuiEvent(tuiModel, event);
-          writeTuiFrame();
+          if (event.kind === 'output') {
+            tuiOutputEventsSinceFrame += 1;
+            if (!tuiStarted || tuiOutputEventsSinceFrame >= TUI_OUTPUT_EVENTS_PER_FRAME) writeTuiFrame();
+          } else {
+            writeTuiFrame();
+          }
           return;
         }
         const line = mode === 'ndjson' || mode === 'headless' || mode === 'ci'

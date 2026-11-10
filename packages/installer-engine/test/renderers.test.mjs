@@ -301,6 +301,24 @@ test('interactive TUI owns full-screen lifecycle while noninteractive TUI remain
   assert.equal(noninteractive.join('').includes('\u001b'), false);
 });
 
+test('interactive TUI coalesces output bursts but immediately flushes lifecycle state', () => {
+  const chunks = [];
+  const session = createRendererSession('tui', chunk => { chunks.push(chunk); return true; },
+    { width: 80, height: 12, color: false }, { interactiveTui: true });
+  session.onEvent({ ...base, sequence: 0, kind: 'run-status', status: 'started' });
+  for (let sequence = 1; sequence <= 100; sequence += 1) {
+    session.onEvent({ ...base, sequence, kind: 'output', taskId: 'agent.parallel', stream: 'stdout', line: `line-${sequence}` });
+  }
+  const chunksBeforeStatus = chunks.length;
+  assert.ok(chunksBeforeStatus <= 15, `expected bounded output repainting, observed ${chunksBeforeStatus} frames`);
+  session.onEvent({ ...base, sequence: 101, kind: 'task-status', taskId: 'agent.parallel', status: 'verified', attempt: 1 });
+  assert.equal(chunks.length, chunksBeforeStatus + 1);
+  assert.match(chunks.at(-1), /verified/);
+  session.handleIntent('inspect');
+  assert.match(chunks.at(-1), /line-100/);
+  session.close();
+});
+
 test('human terminal projections neutralize untrusted control sequences', () => {
   const hostile = 'safe\u001b]52;c;ZXhmaWw=\u0007\u001b[2J\rspoof\nnext\tend\u202eRTL\u2028line\u200b';
   const safe = sanitizeTerminalText(hostile);
