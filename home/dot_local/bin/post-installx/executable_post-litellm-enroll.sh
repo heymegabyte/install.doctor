@@ -39,13 +39,12 @@ fi
 
 cat <<'EOF' > "$HOME/.local/bin/ollama-auth-proxy.py"
 #!/usr/bin/env python3
-"""Loopback authenticated reverse proxy (127.0.0.1:11435 -> 127.0.0.1:11434) for Cloudflare Tunnel."""
+"""Zero-buffering loopback authenticated reverse proxy (127.0.0.1:11435 -> 127.0.0.1:11434) for Cloudflare Tunnel."""
 import hmac
 import http.client
 import http.server
 import os
 import socketserver
-import sys
 
 LISTEN_HOST = "127.0.0.1"
 LISTEN_PORT = int(os.environ.get("OLLAMA_PROXY_PORT", "11435"))
@@ -53,10 +52,17 @@ UPSTREAM_HOST = "127.0.0.1"
 UPSTREAM_PORT = int(os.environ.get("OLLAMA_UPSTREAM_PORT", "11434"))
 TOKEN_PATH = os.path.expanduser("~/.config/megabyte/ollama-gateway.token")
 
+_TOKEN_CACHE = {"sig": None, "value": ""}
+
 
 def load_token() -> str:
-    with open(TOKEN_PATH, "r", encoding="utf-8") as f:
-        return f.read().strip()
+    st = os.stat(TOKEN_PATH)
+    sig = (st.st_mtime_ns, st.st_size)
+    if _TOKEN_CACHE["sig"] != sig:
+        with open(TOKEN_PATH, "r", encoding="utf-8") as f:
+            _TOKEN_CACHE["value"] = f.read().strip()
+        _TOKEN_CACHE["sig"] = sig
+    return _TOKEN_CACHE["value"]
 
 
 class ThreadedHTTPServer(socketserver.ThreadingMixIn, http.server.HTTPServer):
@@ -66,12 +72,16 @@ class ThreadedHTTPServer(socketserver.ThreadingMixIn, http.server.HTTPServer):
 
 class ProxyHandler(http.server.BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
+    disable_nagle_algorithm = True
 
     def log_message(self, fmt, *args):
         pass
 
     def _authorized(self) -> bool:
-        expected = load_token()
+        try:
+            expected = load_token()
+        except OSError:
+            return False
         auth = self.headers.get("Authorization", "")
         token = ""
         if auth.lower().startswith("bearer "):
@@ -80,47 +90,97 @@ class ProxyHandler(http.server.BaseHTTPRequestHandler):
             token = self.headers.get("X-Ollama-Token", "").strip()
         return bool(token and expected and hmac.compare_digest(token, expected))
 
+    def _read_request_body(self) -> bytes | None:
+        te = self.headers.get("Transfer-Encoding", "").lower()
+        if "chunked" in te:
+            parts = []
+            while True:
+                line = self.rfile.readline().strip()
+                if not line:
+                    break
+                chunk_len = int(line.split(b";", 1)[0], 16)
+                if chunk_len == 0:
+                    self.rfile.readline()
+                    break
+                parts.append(self.rfile.read(chunk_len))
+                self.rfile.read(2)
+            return b"".join(parts)
+        content_len = int(self.headers.get("Content-Length", "0"))
+        return self.rfile.read(content_len) if content_len > 0 else None
+
     def _handle(self):
         if not self._authorized():
             body = b'{"error":"Unauthorized: valid Bearer token required"}\n'
             self.send_response(401)
             self.send_header("Content-Type", "application/json")
             self.send_header("Content-Length", str(len(body)))
+            self.send_header("Connection", "close")
             self.end_headers()
             if self.command != "HEAD":
                 self.wfile.write(body)
+            self.close_connection = True
             return
 
-        content_len = int(self.headers.get("Content-Length", "0"))
-        req_body = self.rfile.read(content_len) if content_len > 0 else None
-
+        req_body = self._read_request_body()
         conn = http.client.HTTPConnection(UPSTREAM_HOST, UPSTREAM_PORT, timeout=300)
         fwd_headers = {
             k: v
             for k, v in self.headers.items()
-            if k.lower() not in ("host", "authorization", "x-ollama-token", "connection")
+            if k.lower()
+            not in ("host", "authorization", "x-ollama-token", "connection", "transfer-encoding", "content-length")
         }
         fwd_headers["Host"] = f"{UPSTREAM_HOST}:{UPSTREAM_PORT}"
+        if req_body is not None:
+            fwd_headers["Content-Length"] = str(len(req_body))
+
         try:
             conn.request(self.command, self.path, body=req_body, headers=fwd_headers)
             resp = conn.getresponse()
-            data = resp.read()
             self.send_response(resp.status)
             for hk, hv in resp.getheaders():
-                if hk.lower() not in ("transfer-encoding", "connection", "content-length"):
+                if hk.lower() not in ("transfer-encoding", "connection", "content-length", "keep-alive"):
                     self.send_header(hk, hv)
-            self.send_header("Content-Length", str(len(data)))
-            self.end_headers()
-            if self.command != "HEAD":
+
+            if self.command == "HEAD" or resp.status in (204, 304):
+                cl = resp.getheader("Content-Length")
+                if cl is not None:
+                    self.send_header("Content-Length", cl)
+                self.end_headers()
+                self.wfile.flush()
+            elif resp.chunked:
+                self.send_header("Transfer-Encoding", "chunked")
+                self.send_header("X-Accel-Buffering", "no")
+                self.end_headers()
+                self.wfile.flush()
+                while True:
+                    chunk = resp.read1(8192)
+                    if not chunk:
+                        break
+                    self.wfile.write(f"{len(chunk):x}\r\n".encode("ascii") + chunk + b"\r\n")
+                    self.wfile.flush()
+                self.wfile.write(b"0\r\n\r\n")
+                self.wfile.flush()
+            else:
+                data = resp.read()
+                self.send_header("Content-Length", str(len(data)))
+                self.end_headers()
                 self.wfile.write(data)
+                self.wfile.flush()
+        except (BrokenPipeError, ConnectionResetError):
+            self.close_connection = True
         except Exception as exc:
-            err = f'{{"error":"Upstream Ollama error: {exc}"}}\n'.encode()
-            self.send_response(502)
-            self.send_header("Content-Type", "application/json")
-            self.send_header("Content-Length", str(len(err)))
-            self.end_headers()
-            if self.command != "HEAD":
-                self.wfile.write(err)
+            try:
+                err = f'{{"error":"Upstream Ollama error: {exc}"}}\n'.encode()
+                self.send_response(502)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(err)))
+                self.send_header("Connection", "close")
+                self.end_headers()
+                if self.command != "HEAD":
+                    self.wfile.write(err)
+            except Exception:
+                pass
+            self.close_connection = True
         finally:
             conn.close()
 

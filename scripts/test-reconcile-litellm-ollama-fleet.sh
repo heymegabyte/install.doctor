@@ -54,6 +54,8 @@ if models:
     print("LAST_IN_COST", lp.get("input_cost_per_token"))
     print("LAST_TIMEOUT", lp.get("timeout"))
     print("LAST_STREAM_TIMEOUT", lp.get("stream_timeout"))
+    print("LAST_MAX_PAR", lp.get("max_parallel_requests"))
+    print("LAST_NUM_CTX", lp.get("num_ctx"))
     mi = last.get("model_info", {}) or {}
     print("LAST_INFO_ID", mi.get("id", ""))
     print("LAST_TAGS", ",".join(mi.get("tags") or []))
@@ -83,6 +85,8 @@ FACTS="$(facts_of "$CFG")"
 [ "$(fact LAST_TIMEOUT)" = "180" ] && pass "added entry defaults timeout to 180s" || fail "added timeout is '$(fact LAST_TIMEOUT)'"
 [ "$(fact LAST_STREAM_TIMEOUT)" = "45" ] && pass "added entry defaults stream_timeout to 45s" || fail "added stream_timeout is '$(fact LAST_STREAM_TIMEOUT)'"
 [ "$(fact LAST_TAGS)" = "local,ollama,gpu" ] && pass "added entry tags deployment as local,ollama,gpu" || fail "added tags are '$(fact LAST_TAGS)'"
+[ "$(fact LAST_MAX_PAR)" = "8" ] && pass "added entry caps max_parallel_requests to 8 on Linux GPU" || fail "added max_parallel_requests is '$(fact LAST_MAX_PAR)'"
+[ "$(fact LAST_NUM_CTX)" = "32768" ] && pass "added entry sets num_ctx to 32768 on qwen2.5 models" || fail "added num_ctx is '$(fact LAST_NUM_CTX)'"
 
 # --- 2. idempotent for an already-enrolled origin ---
 cat > "$CFG" <<'YAML'

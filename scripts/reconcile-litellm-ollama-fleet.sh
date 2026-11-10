@@ -135,6 +135,7 @@ for alias, template in templates.items():
     params["rpm"] = rpm
     params.setdefault("input_cost_per_token", 0.0)
     params.setdefault("output_cost_per_token", 0.0)
+    params["max_parallel_requests"] = 4 if "macbook" in api_base.lower() else 8
     model_info = deployment.setdefault("model_info", {})
     if isinstance(model_info, dict):
         if model_info.get("mode") == "embedding":
@@ -142,6 +143,8 @@ for alias, template in templates.items():
         else:
             params.setdefault("timeout", 180)
             params.setdefault("stream_timeout", 45)
+            if "qwen2.5" in template_model:
+                params.setdefault("num_ctx", 32768)
         if "id" in model_info:
             model_info["id"] = f"{alias}-{origin_slug}"
         model_info.setdefault("tags", ["local", "ollama", "gpu"])

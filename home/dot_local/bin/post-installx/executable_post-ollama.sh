@@ -149,6 +149,8 @@ if [ "$OS" = "macos" ]; then
     <string>10m</string>
     <key>OLLAMA_FLASH_ATTENTION</key>
     <string>1</string>
+    <key>OLLAMA_KV_CACHE_TYPE</key>
+    <string>q8_0</string>
   </dict>
   <key>RunAtLoad</key>
   <true/>
@@ -181,8 +183,9 @@ Environment="CUDA_VISIBLE_DEVICES=0"
 Environment="OLLAMA_NUM_PARALLEL=2"
 Environment="OLLAMA_MAX_LOADED_MODELS=1"
 Environment="OLLAMA_MAX_QUEUE=64"
-Environment="OLLAMA_KEEP_ALIVE=10m"
+Environment="OLLAMA_KEEP_ALIVE=30m"
 Environment="OLLAMA_FLASH_ATTENTION=1"
+Environment="OLLAMA_KV_CACHE_TYPE=q8_0"
 Restart=always
 RestartSec=5
 EOF
