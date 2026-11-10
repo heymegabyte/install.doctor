@@ -5,10 +5,18 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
 scan() {
-  rg -l --glob '*.{yml,yaml,json,jsonc,toml,ini,conf,cfg}' \
-    --glob '!software.yml' --glob '!package-lock.json' \
-    --glob '!*.tmpl' --glob '!*.template' \
-    '(image:[^#]*:latest|container_image[^#]*:latest|ref=(master|main)([^A-Za-z0-9_-]|$))' "$@" 2>/dev/null || true
+  local candidate
+  while IFS= read -r candidate; do
+    grep -Eq '(image:[^#]*:latest|container_image[^#]*:latest|ref=(master|main)([^A-Za-z0-9_-]|$))' "$candidate" \
+      && printf '%s\n' "$candidate"
+  done < <(
+    find "$@" -type f \
+      \( -name '*.yml' -o -name '*.yaml' -o -name '*.json' -o -name '*.jsonc' \
+         -o -name '*.toml' -o -name '*.ini' -o -name '*.conf' -o -name '*.cfg' \) \
+      ! -name 'software.yml' ! -name 'package-lock.json' \
+      ! -name '*.tmpl' ! -name '*.template' 2>/dev/null
+  )
+  return 0
 }
 
 findings="$(scan home config .config .github .devcontainer .vscode packages)"

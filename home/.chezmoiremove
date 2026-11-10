@@ -133,6 +133,8 @@ Library/VirtualBox
 .local/share/vscode/package.json
 # Placeholder virtual host must never become an active nginx site.
 .config/system/etc/nginx/sites-enabled/wordpress.conf
+# Dead Heroku group data had no role/task consumer and carried unsafe placeholders.
+.local/share/ansible/environments/prod/group_vars/all/heroku.yml
 # Strict-TypeScript Claude hooks replace these legacy Python hook paths.
 .claude/hooks/enforce-cloudflare-deploy.py
 .claude/hooks/guard-oversized-output.py

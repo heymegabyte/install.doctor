@@ -150,6 +150,34 @@ else
   FAIL=$((FAIL + 1))
 fi
 
+# Literal TODO values are executable catalog data, not annotations. An absent
+# optional field is safer than handing an installer the path or value "TODO".
+LITERAL_TODOS="$(python3 - "$SW_YML" <<'PY'
+import sys, yaml
+
+def walk(value, path):
+    if isinstance(value, dict):
+        for key, child in value.items():
+            yield from walk(child, [*path, str(key)])
+    elif isinstance(value, list):
+        for index, child in enumerate(value):
+            yield from walk(child, [*path, str(index)])
+    elif isinstance(value, str) and value.strip().upper() == "TODO":
+        yield ".".join(path)
+
+document = yaml.safe_load(open(sys.argv[1], encoding="utf-8")) or {}
+print("\n".join(walk(document, [])))
+PY
+)"
+if [ -z "$LITERAL_TODOS" ]; then
+  echo "PASS: Catalog contains no literal TODO runtime values"
+  PASS=$((PASS + 1))
+else
+  echo "FAIL: Literal TODO runtime values remain in the catalog:"
+  printf '  %s\n' "$LITERAL_TODOS"
+  FAIL=$((FAIL + 1))
+fi
+
 echo ""
 echo "=== Results: $PASS passed, $FAIL failed ==="
 

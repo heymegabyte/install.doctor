@@ -1,11 +1,11 @@
 {
   "schemaVersion": 2,
-  "trackedFileCount": 3237,
-  "classifiedFileCount": 3237,
+  "trackedFileCount": 3236,
+  "classifiedFileCount": 3236,
   "complete": true,
   "byClass": {
     "binary-media": 537,
-    "configuration": 333,
+    "configuration": 332,
     "documentation": 253,
     "encrypted": 781,
     "generated": 41,
@@ -3311,9 +3311,9 @@
     {
       "path": ".config/docs/variables.json",
       "kind": "configuration",
-      "bytes": 11774,
+      "bytes": 11842,
       "mode": "644",
-      "sha256": "bef2753f319b591af8d6dd7798058ad3f13930c4faf10f48d52c3a4378122339",
+      "sha256": "6b1d87c1609dbf3f7205b02dd1826db5d517585e8df8241744628fa4bc27cf00",
       "validators": [
         "tracked",
         "readable",
@@ -3423,9 +3423,9 @@
     {
       "path": ".config/variables.json",
       "kind": "configuration",
-      "bytes": 11884,
+      "bytes": 11952,
       "mode": "644",
-      "sha256": "c7ec2744c813c904211c34cfb71bd257b131ee444e52195ed3989fe2103692f3",
+      "sha256": "15cf08419bd6a2aa339c43a79a956ec752ec428025ed6c8284a7dc73a16657ad",
       "validators": [
         "tracked",
         "readable",
@@ -4657,9 +4657,9 @@
     {
       "path": ".github/workflows/site-compress-images.yml",
       "kind": "configuration",
-      "bytes": 1355,
+      "bytes": 1410,
       "mode": "644",
-      "sha256": "6a45f74dcc1cc5c044a7bbce844ee2ef9ccd07f005c54019d2314669cad0eb23",
+      "sha256": "f4f3e711b9846628dd6dc68739e27f86f876c81c6d60701aca8ca5b156012026",
       "validators": [
         "tracked",
         "readable",
@@ -4749,9 +4749,9 @@
     {
       "path": ".github/workflows/test-macos.yml",
       "kind": "test",
-      "bytes": 5184,
+      "bytes": 5215,
       "mode": "644",
-      "sha256": "e6dbb37733852529030e6937224a693e8fd0bba33822ee065a5c0d27795e5c76",
+      "sha256": "7c3503e5a00cc14759c88089ce9127731e23769920e29cf9b065ce5c38f6a8a0",
       "validators": [
         "tracked",
         "readable",
@@ -7461,9 +7461,9 @@
     {
       "path": "ga-gtm/registry.json",
       "kind": "configuration",
-      "bytes": 573,
+      "bytes": 209,
       "mode": "644",
-      "sha256": "7ba848b99ab0db17d49a7c1902024fff50b0e728765fc307cb5c628431e6405b",
+      "sha256": "a53d65b3d9a2fa0971b86af24ac548410050910b248d1cd1f4801c2b43267ab9",
       "validators": [
         "tracked",
         "readable",
@@ -7737,9 +7737,9 @@
     {
       "path": "home/.chezmoidata.yaml",
       "kind": "configuration",
-      "bytes": 4931,
+      "bytes": 5035,
       "mode": "644",
-      "sha256": "b17c2a55139989d5fd9773c32cccd88525935395ef6aa3bfe5cf2ace249c0b62",
+      "sha256": "35b43cf9e0f0e319cf546ff734fbd74c40df8ea1c9c517ce9933c50f71e5b93c",
       "validators": [
         "tracked",
         "readable",
@@ -7799,9 +7799,9 @@
     {
       "path": "home/.chezmoiremove",
       "kind": "other",
-      "bytes": 3029,
+      "bytes": 3178,
       "mode": "644",
-      "sha256": "a8e1feee0a46ed241022404e521f3c77ae45237ca4f9fd8c7a1151df271e566a",
+      "sha256": "a36df13c2d369a83da591c8ea9ca2726036e5b37dacc82f669815cb41be8d3cd",
       "validators": [
         "tracked",
         "readable",
@@ -27329,9 +27329,9 @@
     {
       "path": "home/dot_config/docker/templates/directus/docker-compose.yml",
       "kind": "configuration",
-      "bytes": 677,
+      "bytes": 707,
       "mode": "644",
-      "sha256": "6fe88ec493f363ab426eb17daeaab9df220d20de0981035c273084ca279d2624",
+      "sha256": "6422467f038fdef07f96e8de20853597d8cf977a18e68b79f19eadc61f46a0c0",
       "validators": [
         "tracked",
         "readable",
@@ -27411,9 +27411,9 @@
     {
       "path": "home/dot_config/docker/templates/rallly/docker-compose.yml",
       "kind": "configuration",
-      "bytes": 895,
+      "bytes": 968,
       "mode": "644",
-      "sha256": "664e2114d31daa0794c314fc93e321ff923e494f91ef340659d4f2d1b934de4d",
+      "sha256": "72d685c545f15a3d8de1b7bd6a44ea73e4931e0736e346531b9e9133a6fac7c8",
       "validators": [
         "tracked",
         "readable",
@@ -29669,9 +29669,9 @@
     {
       "path": "home/dot_config/netdata/health.d/reboot.conf",
       "kind": "configuration",
-      "bytes": 258,
+      "bytes": 257,
       "mode": "644",
-      "sha256": "7b43456883f6c28e36d244a66f0a80c719753ee7d34efd7f230712dc00568fd8",
+      "sha256": "b802c240428c4eb1c455c95a66f020767f45ed0b4b527487841cfaa95240caaf",
       "validators": [
         "tracked",
         "readable",
@@ -29713,9 +29713,9 @@
     {
       "path": "home/dot_config/netdata/health.d/swap.conf",
       "kind": "configuration",
-      "bytes": 924,
+      "bytes": 693,
       "mode": "644",
-      "sha256": "61a248908fcd298d7988b81bd74fa1932c73109f65aee8a842ab58845a84ef21",
+      "sha256": "979b1703abdc258c18ae2a34c208325b999522fc8ba2760ba7bde067cf366264",
       "validators": [
         "tracked",
         "readable",
@@ -34308,9 +34308,9 @@
     {
       "path": "home/dot_config/task/Taskfile.yml",
       "kind": "configuration",
-      "bytes": 26970,
+      "bytes": 26462,
       "mode": "644",
-      "sha256": "c6ed95737d4fb4454bcce6c4f429e8acf5b74fa7741f9cd6708254bd24d90029",
+      "sha256": "96e3c1bccd0c89e7e83cbb3dc930cf5557cd6cacdf02407c1c999885fa6d6ee7",
       "validators": [
         "tracked",
         "readable",
@@ -35825,9 +35825,9 @@
     {
       "path": "home/dot_local/bin/executable_populate-secrets.ts",
       "kind": "script",
-      "bytes": 9020,
+      "bytes": 9019,
       "mode": "755",
-      "sha256": "2cb18f0cefae9d21a2bd39e2d43f5c5111dbc51f33057dc9f8f139d98e9116f9",
+      "sha256": "c5ad9a63e47c58c0299f60a3e58d1af59126d9d670b2ee353bfd3a9907a1ffc6",
       "validators": [
         "tracked",
         "readable",
@@ -35993,9 +35993,9 @@
     {
       "path": "home/dot_local/bin/executable_syncoid-ssh-wrapper.ts",
       "kind": "script",
-      "bytes": 5982,
+      "bytes": 5981,
       "mode": "755",
-      "sha256": "681629f7207b1146e37ea0a3d4b1c1dc3bcc14e9e608771ddbb16631b4942c40",
+      "sha256": "a801a5e10fe4a93ed5cb16718052669350149d8f363e914c9e59b6b5bb578e73",
       "validators": [
         "tracked",
         "readable",
@@ -36137,9 +36137,9 @@
     {
       "path": "home/dot_local/bin/executable_workstation-doctor",
       "kind": "script",
-      "bytes": 383,
+      "bytes": 382,
       "mode": "755",
-      "sha256": "8ee41949cc8fedb2e109132a11ff9f90edc882c7eec4bddca037bed9b98b52c5",
+      "sha256": "9f69384da460d7f38ee16fceaf315774ae8e886d5b2dd25947b556716d00aebc",
       "validators": [
         "tracked",
         "readable",
@@ -36161,9 +36161,9 @@
     {
       "path": "home/dot_local/bin/executable_workstation-doctor.ts",
       "kind": "script",
-      "bytes": 18090,
+      "bytes": 19245,
       "mode": "755",
-      "sha256": "f84bbe212a064a9bbacce2589d47a8c29ec5d0e8f6dc0ca29aee443a16776619",
+      "sha256": "0adbd8974696996d336b2fe085993f26a4b904afb4c1d6782b45ef7ba2a697c9",
       "validators": [
         "tracked",
         "readable",
@@ -37219,9 +37219,9 @@
     {
       "path": "home/dot_local/bin/post-installx/executable_post-workstation.sh",
       "kind": "script",
-      "bytes": 171131,
+      "bytes": 172802,
       "mode": "755",
-      "sha256": "b75d524aa8865e73818669b62a3936a6c7fa0535a0dd42984ee6fd946daec2d9",
+      "sha256": "e57e320bd23f0f80c26865e9cb90dff6432387d15b8b0eb123e13e81c53e37b9",
       "validators": [
         "tracked",
         "readable",
@@ -39034,28 +39034,6 @@
       "bytes": 14720,
       "mode": "644",
       "sha256": "7b8e58cc72eff2f105e78c6ffbbc45eb769153bacaec1cb2912475a23d6139ff",
-      "validators": [
-        "tracked",
-        "readable",
-        "sha256",
-        "parser-or-schema",
-        "references"
-      ],
-      "disposition": "retain-validated",
-      "reason": "Configuration is retained when its parser/schema and repository reference gates pass.",
-      "evidence": [
-        "parser-or-schema",
-        "references",
-        "repository-suite"
-      ],
-      "issues": []
-    },
-    {
-      "path": "home/dot_local/share/ansible/environments/prod/group_vars/all/heroku.yml",
-      "kind": "configuration",
-      "bytes": 11658,
-      "mode": "644",
-      "sha256": "923eee4a340427bd9a485aa3afc0d20c5151121aa94a181e3b1f56a60f178ee2",
       "validators": [
         "tracked",
         "readable",
@@ -42271,9 +42249,9 @@
     {
       "path": "home/private_dot_claude/hooks/executable_enforce-cloudflare-deploy.ts",
       "kind": "script",
-      "bytes": 1961,
+      "bytes": 1960,
       "mode": "755",
-      "sha256": "31d9cd80aeee58a289cc3f7dcb0b65e6bcdf72cff36a7da58be8d236ee7f4dc5",
+      "sha256": "88e9d5e77b5ceaf8476f21df92589276b98e7ed52a07a9b2961ccb72a5d20641",
       "validators": [
         "tracked",
         "readable",
@@ -42295,9 +42273,9 @@
     {
       "path": "home/private_dot_claude/hooks/executable_guard-oversized-output.ts",
       "kind": "script",
-      "bytes": 2613,
+      "bytes": 2612,
       "mode": "755",
-      "sha256": "e86462c1d790cc801689e9407332a47751c9165256d7725e301dc51fc1dad03c",
+      "sha256": "1c382f72eea07f71869464ee1453834a3050ff125eb30051455ad2be9c1283e3",
       "validators": [
         "tracked",
         "readable",
@@ -42319,9 +42297,9 @@
     {
       "path": "home/private_dot_claude/hooks/executable_guard-oversized-read.ts",
       "kind": "script",
-      "bytes": 2702,
+      "bytes": 2701,
       "mode": "755",
-      "sha256": "f36c6dbedd438a0d4d9938fe00598c2c6c62d6dad03b76f6f08480ec8cf7c423",
+      "sha256": "981d2cd52cfb876d69bbf11201d1743d0f7fd71ba2f271d7357a318e9a1d5982",
       "validators": [
         "tracked",
         "readable",
@@ -55337,9 +55315,9 @@
     {
       "path": "scripts/test-config-provenance.sh",
       "kind": "test",
-      "bytes": 961,
+      "bytes": 1217,
       "mode": "755",
-      "sha256": "daeed1662d9de74fdbac0e13a1c24217291273e8c75f72b65b5eef3301268066",
+      "sha256": "e6a6d761d61f96bfabc8f3c24fc6b25423d54049107ec9709bf6b72611e6110c",
       "validators": [
         "tracked",
         "readable",
@@ -55493,9 +55471,9 @@
     {
       "path": "scripts/test-darwin-workstation-reachability.sh",
       "kind": "test",
-      "bytes": 1141,
+      "bytes": 1176,
       "mode": "755",
-      "sha256": "c20603d05c2948869775db55f32effe98c071ef5698638e19f7b644cc52ae25b",
+      "sha256": "e69d12b299e75f201249a5b624945e599660b8df7e2b1025c9ebb9670dad1ca7",
       "validators": [
         "tracked",
         "readable",
@@ -55857,9 +55835,9 @@
     {
       "path": "scripts/test-docker-template-default-creds.sh",
       "kind": "test",
-      "bytes": 4183,
+      "bytes": 5085,
       "mode": "755",
-      "sha256": "96dfd5f07e4e6e86b88c8492eaf211c80b9571f9c5e3bce659e79c12c1680f19",
+      "sha256": "b8240b190d4f7a30d40fee9686258c5de8c827a66c4406250093c8f8eb867691",
       "validators": [
         "tracked",
         "readable",
@@ -59641,9 +59619,9 @@
     {
       "path": "scripts/validate-software-yml.sh",
       "kind": "script",
-      "bytes": 7612,
+      "bytes": 8575,
       "mode": "755",
-      "sha256": "52eb9d12d12094addc50ceddd31bc4899dae7d6b177ef84d8de37fdbdde0f526",
+      "sha256": "19ea5be6ab2b2b42da8cf629ad20383a35583ccf53e39cced4d3b0e35bb19091",
       "validators": [
         "tracked",
         "readable",
@@ -78372,9 +78350,9 @@
     {
       "path": "software.yml",
       "kind": "configuration",
-      "bytes": 697301,
+      "bytes": 696838,
       "mode": "644",
-      "sha256": "4a7f335ceb2d14bb516a41ac141d1ae9dfbc8efa392b3ac67626853bbd502671",
+      "sha256": "24e0f39d7a198bfc4a0b5507d9a4b436297c059dd971fb70d8be3851889d0fc5",
       "validators": [
         "tracked",
         "readable",

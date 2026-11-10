@@ -102,5 +102,24 @@ else
   fail "detector missed a planted default credential -- the check is vacuous"
 fi
 
+# 4. Stateful templates must not expose an internal database by default, use
+# obsolete Compose schema declarations, or run without init/restart policy.
+if grep -Eq '^[[:space:]]*version:' "$TMPL_DIR/directus/docker-compose.yml"; then
+  fail "Directus retains an obsolete top-level Compose version"
+else
+  pass "Directus uses the current Compose specification"
+fi
+grep -Fq 'init: true' "$TMPL_DIR/directus/docker-compose.yml" \
+  && pass "Directus enables init for signal and zombie handling" \
+  || fail "Directus does not enable init"
+grep -Fq 'postgres:14.2@sha256:' "$TMPL_DIR/rallly/docker-compose.yml" \
+  && pass "Rallly pins Postgres by digest" \
+  || fail "Rallly Postgres image is not digest-pinned"
+if grep -Fq '5450:5432' "$TMPL_DIR/rallly/docker-compose.yml"; then
+  fail "Rallly exposes its database on the host"
+else
+  pass "Rallly keeps its database on the private Compose network"
+fi
+
 say "docker-template default credentials: $P passed, $F failed"
 [ "$F" -eq 0 ]

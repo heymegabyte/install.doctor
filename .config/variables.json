@@ -325,7 +325,7 @@
   "scriptsTest": "task test",
   "sharp_instructions": [],
   "slackNotificationChannel": "#misc",
-  "slackNotificationIcon": "https://gitlab.com/megabyte-labs/misc/assets/-/raw/master/logo/megabytelabs-color-icon-350x350.png",
+  "slackNotificationIcon": "https://gitlab.com/megabyte-labs/misc/assets/-/raw/7fe0a5f9aa030efd5b6baf97d5679791a6b5798f/logo/megabytelabs-color-icon-350x350.png",
   "slackNotificationUsername": "Megabyte Labs Release Notification Bot",
   "sponsorship": {
     "author": "Brian Zalewski",
@@ -333,7 +333,7 @@
   },
   "subgroup": "misc",
   "teamsNotificationColor": "#1DA1F2",
-  "teamsNotificationIcon": "https://gitlab.com/megabyte-labs/misc/assets/-/raw/master/logo/megabytelabs-color-icon-350x350.png",
+  "teamsNotificationIcon": "https://gitlab.com/megabyte-labs/misc/assets/-/raw/7fe0a5f9aa030efd5b6baf97d5679791a6b5798f/logo/megabytelabs-color-icon-350x350.png",
   "title": "[[ package.json .blueprint.title - See CONTRIBUTING.md ]]",
   "version": "0.0.1"
 }

@@ -18,6 +18,10 @@ on:
       - "site/**.webp"
   workflow_dispatch:
 
+permissions:
+  contents: write
+  pull-requests: write
+
 jobs:
   compress:
     name: Compress site images

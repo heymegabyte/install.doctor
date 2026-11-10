@@ -293,7 +293,6 @@ softwarePackages:
     _env:
       ALTAIR_APPDATA:
         cask: $HOME/Library/Application Support/Altair GraphQL Client
-        choco: TODO
         snap: $HOME/snap/altair/current/.config/Altair GraphQL Client
   amazon-q:
     _default: false
@@ -342,12 +341,6 @@ softwarePackages:
     choco: androidstudio
     snap: android-studio
     yay: android-studio
-    _env:
-      ANDROID_STUDIO_APPDATA:
-        cask: TODO
-        choco: TODO
-        flatpak: TODO
-        snap: TODO
   angular-cli:
     _name: Angular
     _short: Angular is an open-source web application framework maintained by Google for building dynamic single-page applications.
@@ -3005,7 +2998,6 @@ softwarePackages:
     _env:
       FERDIUM_APPDATA:
         cask: $HOME/Library/Application Support/Ferdium
-        choco: TODO
         flatpak: $HOME/.var/app/org.ferdium.Ferdium/config/Ferdium
         snap: $HOME/snap/ferdium/current/.config/Ferdium
   ffmpeg:
@@ -3135,7 +3127,6 @@ softwarePackages:
       FIREFOX_APPDATA:
         apt: $HOME/.mozilla/firefox
         cask: $HOME/Library/Application Support/Firefox
-        choco: TODO
         dnf: $HOME/.mozilla/firefox
         flatpak: $HOME/.var/app/org.mozilla.firefox/.mozilla/firefox
         pacman: $HOME/.mozilla/firefox
@@ -5942,7 +5933,6 @@ softwarePackages:
     _env:
       LOGI_OPTIONS_PLUS_APPDATA:
         cask: $HOME/Library/Application Support/LogiOptionsPlus
-        choco: TODO
   logi-tune:
     _name: Logi Tune
     _github: false
@@ -6191,9 +6181,6 @@ softwarePackages:
     _env:
       MAILSPRING_APPDATA:
         cask: $HOME/Library/Application Support/Mailspring
-        choco: TODO
-        flatpak: TODO
-        snap: TODO
   mailsy:
     _name: Mailsy
     _short: Mailsy is a simple email marketing tool for managing mailing lists and sending newsletters.
@@ -6274,9 +6261,6 @@ softwarePackages:
     _env:
       MARK_TEXT_APPDATA:
         cask: $HOME/Library/Application Support/marktext
-        choco: TODO
-        flatpak: TODO
-        winget: TODO
   markdownlint-cli:
     _name: Markdownlint CLI
     _short: markdownlint-cli is a command-line interface for linting Markdown files to ensure they follow best practices and formatting standards.
@@ -6437,8 +6421,6 @@ softwarePackages:
     _env:
       MICROSOFT_EDGE_APPDATA:
         cask: $HOME/Library/Application Support/Microsoft Edge
-        choco: TODO
-        flatpak: TODO
   microsoft-git:
     _name: Microsoft Git (with Git VFS)
     _short: VFS for Git is a virtual file system extension for Git, designed to improve Git performance on Windows by enabling Git to operate more efficiently with large repositories.
@@ -7334,7 +7316,6 @@ softwarePackages:
     _env:
       NOTION_APPDATA:
         cask: $HOME/Library/Application Support/Notion
-        choco: TODO
     _note: Waiting on Linux install alternative.
     mas: 1559269364
   np:
@@ -8108,7 +8089,6 @@ softwarePackages:
     _env:
       PIECES_OS_APPDATA:
         cask: $HOME/Library/Application Support/com.pieces.os
-        snap: TODO
     _note: Waiting for choco package
   pigz:
     _name: PIGZ
@@ -10486,7 +10466,6 @@ softwarePackages:
     _desc: One package manager to rule them all
     _github: https://github.com/emilengler/sysget
     _bin: sysget
-    _note: TODO
   sysz:
     _name: sysz
     _short: sysz is an fzf terminal interface for inspecting and controlling systemd units.
@@ -10956,8 +10935,6 @@ softwarePackages:
     _env:
       TOR_BROWSER_APPDATA:
         cask: $HOME/Library/Application Support/TorBrowser-Data/Tor
-        choco: TODO
-        flatpak: TODO
     _restricted: true
   tradingview:
     _name: Trading View

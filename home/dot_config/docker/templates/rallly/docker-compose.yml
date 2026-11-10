@@ -1,10 +1,8 @@
 # @source https://github.com/lukevella/rallly/blob/main/docker-compose.yml
 services:
   rallly_db:
-    image: postgres:14.2
-    restart: always
-    ports:
-      - "5450:5432"
+    image: postgres:14.2@sha256:2c954f8c5d03da58f8b82645b783b56c1135df17e650b186b296fa1bb71f9cfd
+    restart: unless-stopped
     volumes:
       - db-data:/var/lib/postgresql/data
     environment:
@@ -22,7 +20,8 @@ services:
         - SELF_HOSTED=true
       context: .
       dockerfile: ./apps/web/Dockerfile
-    restart: always
+    init: true
+    restart: unless-stopped
     depends_on:
       rallly_db:
         condition: service_healthy

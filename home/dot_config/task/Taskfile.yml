@@ -428,17 +428,6 @@ tasks:
           ProfileFolder: '{{if eq OS "linux"}}{{.ProfileFolderLinux}}{{else if eq OS "darwin"}}{{.ProfileFolderDarwin}}{{else}}{{.ProfileFolderWindows}}{{end}}'
           RcloneRepository: librewolf
 
-  macos:plists:
-    cmds:
-      - |
-        find /usr/local/src/install.doctor/home/Library/Preferences -type f -mindepth 1 -maxdepth 1 | while read PLIST; do
-          if [[ "$PLIST" == *".plist" ]]; then
-            PLIST_FILE="$(basename "$PLIST")"
-            cp -f "$HOME/Library/Preferences/$PLIST_FILE" "/usr/local/src/install.doctor/home/Library/Preferences/$PLIST_FILE"
-            plutil -convert xml1 "/usr/local/src/install.doctor/home/Library/Preferences/$PLIST_FILE"
-          fi
-        done
-
   profile:backup:
     cmds:
       - |

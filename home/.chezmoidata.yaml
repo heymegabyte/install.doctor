@@ -28,12 +28,12 @@ docker:
   healthchecks:
     allowedHosts: '*'
     s3Endpoint: s3.cloudflarestorage.com
-    siteLogoUrl: https://raw.githubusercontent.com/heymegabyte/install.doctor/master/home/dot_local/etc/branding/black-icon-128x128.png
+    siteLogoUrl: https://raw.githubusercontent.com/heymegabyte/install.doctor/33a1fb3384cf3e86f3d80dda7758a9ccb221258c/home/dot_local/etc/branding/black-icon-128x128.png
     siteName: Healthchecks
     siteRoot: '/'
   portainer:
-    siteLogoUrl: https://gitlab.com/megabyte-labs/misc/assets/-/raw/master/logo/color3@10x.png
-    templatesUrl: https://raw.githubusercontent.com/Lissy93/portainer-templates/main/templates.json
+    siteLogoUrl: https://gitlab.com/megabyte-labs/misc/assets/-/raw/7fe0a5f9aa030efd5b6baf97d5679791a6b5798f/logo/color3@10x.png
+    templatesUrl: https://raw.githubusercontent.com/Lissy93/portainer-templates/502ae3a52c27a143c2984922b7876a6cfe003065/templates.json
   statping:
     description: Uptime monitoring for Install Doctor managed web services
     name: Uptime Monitoring

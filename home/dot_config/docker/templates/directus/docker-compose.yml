@@ -1,7 +1,8 @@
-version: '3'
 services:
   directus:
     image: directus/directus@sha256:e1561b5e526e8e7a2ac19b7bb6eab63611dd84a862a8c45b864118768a2baff4
+    init: true
+    restart: unless-stopped
     ports:
       - "8055:8055"
     environment:
