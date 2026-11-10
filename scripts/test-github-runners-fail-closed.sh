@@ -3,6 +3,7 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 HOOK="$ROOT/home/dot_local/bin/post-installx/executable_post-github-runners.sh"
+LEGACY_HOOK="$ROOT/home/dot_local/bin/post-installx/executable_post-github-runner.sh"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 mkdir -p "$TMP/bin" "$TMP/runner-temp"
@@ -31,4 +32,5 @@ else
 fi
 
 ! rg -q '^[[:space:]]*(rm[[:space:]]+-[^ ]*r|.*GITHUB_RUNNER_REG_TOKEN|.*config\.sh|.*systemctl|.*useradd|.*sudo)' "$HOOK"
-printf '%s\n' 'github-runners-fail-closed: 6 passed, 0 failed'
+test ! -e "$LEGACY_HOOK"
+printf '%s\n' 'github-runners-fail-closed: 7 passed, 0 failed'
