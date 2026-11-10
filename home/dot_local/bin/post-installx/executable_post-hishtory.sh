@@ -1,24 +1,23 @@
 #!/usr/bin/env bash
 set -euo pipefail
 # @file hiSHtory Initialization
-# @brief Configures hiSHtory shell history backend with Infisical / Chezmoi secret sync or offline mode (ADR 0001)
+# @brief Preserves an existing hiSHtory initialization without exposing its sync secret in process arguments
 
-set -Eeo pipefail
-trap "gum log -sl error 'Script encountered an error!'" ERR
-
-if command -v hishtory > /dev/null 2>&1; then
-  if [ ! -f "$HOME/.hishtory/hishtory.db" ]; then
-    if command -v get-secret > /dev/null 2>&1 && get-secret --exists HISHTORY_SECRET > /dev/null 2>&1; then
-      gum log -sl info 'Initializing hiSHtory with secret from Infisical / host vault'
-      hishtory init "$(get-secret HISHTORY_SECRET)" || hishtory init --offline || true
-    else
-      gum log -sl info 'Initializing hiSHtory in offline local-first mode'
-      hishtory init --offline || true
-    fi
-    hishtory import > /dev/null 2>&1 || true
-  else
-    gum log -sl info 'hiSHtory is already initialized'
+log() {
+  if command -v gum >/dev/null 2>&1; then gum log -sl "$1" "$2"
+  else printf 'hishtory: %s\n' "$2" >&2
   fi
-else
-  gum log -sl info 'hishtory is not available in the PATH'
+}
+
+command -v hishtory >/dev/null 2>&1 || { log info 'hiSHtory is not available in PATH'; exit 20; }
+
+# Upstream currently accepts a sync key as `hishtory init <secret>`. Passing a
+# value retrieved from Infisical that way exposes it to process inspection and
+# audit tooling. Do not automate enrollment until upstream provides a supported
+# stdin, inherited-descriptor, or equivalent non-argv secret interface.
+if [ ! -f "$HOME/.hishtory/hishtory.db" ] && [ ! -f "$HOME/.hishtory/.hishtory.db" ]; then
+  log warn 'hiSHtory is installed but not initialized; secure automated sync enrollment is unavailable because upstream accepts the key only as an argument'
+  exit 20
 fi
+
+log info 'Preserving the existing hiSHtory initialization; no sync key was read or changed'
