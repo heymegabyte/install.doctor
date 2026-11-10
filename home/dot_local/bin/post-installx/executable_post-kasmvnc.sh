@@ -179,7 +179,7 @@ EOF
 
 chromium=""
 if [ "${INSTALL_DOCTOR_DESKTOP_BROWSER:-0}" = "1" ]; then
-  chromium="$(command -v chromium 2>/dev/null || command -v google-chrome 2>/dev/null || true)"
+  chromium="$(command -v chromium 2>/dev/null || command -v chromium-browser 2>/dev/null || [ -x /snap/bin/chromium ] && printf '/snap/bin/chromium' || command -v google-chrome 2>/dev/null || true)"
 fi
 if [ -n "$chromium" ]; then
   cat >"$units/desktop-browser.service" <<EOF

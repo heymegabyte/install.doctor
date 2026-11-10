@@ -292,6 +292,18 @@ function checkDarwinPosture(findings: DiagnosticFinding[]): void {
   });
 }
 
+function readProcSys(relPath: string, sysctlKey: string): string {
+  const procPath = `/proc/sys/${relPath}`;
+  if (existsSync(procPath)) {
+    try {
+      return readFileSync(procPath, "utf8").trim();
+    } catch {
+      // Fall back to sysctl binary.
+    }
+  }
+  return runCommand("/usr/sbin/sysctl", ["-n", sysctlKey]).stdout.trim();
+}
+
 async function checkLinuxPosture(findings: DiagnosticFinding[]): Promise<void> {
   const hwHealth = await fetchJsonEndpoint("http://127.0.0.1:9835/healthz");
   findings.push({
@@ -302,8 +314,8 @@ async function checkLinuxPosture(findings: DiagnosticFinding[]): Promise<void> {
     detail: `status=${hwHealth.status}, runtime=${String(hwHealth.body?.runtime ?? "unknown")}`,
   });
 
-  const suidDumpable = runCommand("sysctl", ["-n", "fs.suid_dumpable"]).stdout.trim();
-  const corePattern = runCommand("sysctl", ["-n", "kernel.core_pattern"]).stdout.trim();
+  const suidDumpable = readProcSys("fs/suid_dumpable", "fs.suid_dumpable");
+  const corePattern = readProcSys("kernel/core_pattern", "kernel.core_pattern");
   const apportLoadState = runCommand("systemctl", ["show", "-P", "LoadState", "apport.service"]).stdout.trim();
   findings.push({
     id: "linux-coredump-hardening",
@@ -342,7 +354,7 @@ async function checkLinuxPosture(findings: DiagnosticFinding[]): Promise<void> {
     });
   }
 
-  const swappiness = Number.parseInt(runCommand("sysctl", ["-n", "vm.swappiness"]).stdout.trim(), 10) || 0;
+  const swappiness = Number.parseInt(readProcSys("vm/swappiness", "vm.swappiness"), 10) || 0;
   const swapsRaw = existsSync("/proc/swaps") ? readFileSync("/proc/swaps", "utf8") : "";
   const zramActive = swapsRaw.includes("/dev/zram");
   findings.push({
@@ -373,6 +385,12 @@ async function checkLinuxPosture(findings: DiagnosticFinding[]): Promise<void> {
           sm951AutotrimViolations.push(`${name}:autotrim=${autotrim}`);
         }
       }
+      if (hasSm951) {
+        const fstrimState = runCommand("systemctl", ["is-enabled", "fstrim.timer"]).stdout.trim();
+        if (fstrimState === "enabled") {
+          sm951AutotrimViolations.push("fstrim.timer:enabled");
+        }
+      }
       findings.push({
         id: "linux-zfs-pool-health",
         severity: "critical",
@@ -384,6 +402,18 @@ async function checkLinuxPosture(findings: DiagnosticFinding[]): Promise<void> {
             : [...degradedPools, ...sm951AutotrimViolations].join(", "),
       });
     }
+  }
+
+  if (commandExists("chronyc")) {
+    const trackingOut = runCommand("chronyc", ["tracking"]).stdout;
+    const leapNormal = /Leap status\s*:\s*Normal/i.test(trackingOut);
+    findings.push({
+      id: "linux-chrony-nts-sync",
+      severity: "warning",
+      passed: leapNormal,
+      summary: "Chrony NTP/NTS clock discipline synchronized (Leap status: Normal)",
+      detail: leapNormal ? "synchronized" : "unsynchronized",
+    });
   }
 
   const failedUnitsOut = runCommand("systemctl", ["--failed", "--no-legend", "--plain"]).stdout.trim();

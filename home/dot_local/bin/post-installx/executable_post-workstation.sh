@@ -649,7 +649,7 @@ EOF
   cat > "$HOME/.local/bin/fleet-disk-hygiene" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
-export PATH="$HOME/.local/bin:$HOME/.local/share/volta/bin:$HOME/.local/share/mise/shims:/opt/homebrew/bin:/home/linuxbrew/.linuxbrew/bin:/usr/local/bin:/usr/bin:/bin"
+export PATH="$HOME/.local/bin:$HOME/.local/share/mise/shims:/opt/homebrew/bin:/home/linuxbrew/.linuxbrew/bin:/usr/local/bin:/usr/bin:/bin"
 
 disk_root="/"
 if [ "$(uname -s)" = "Darwin" ] && [ -d /System/Volumes/Data ]; then
@@ -663,6 +663,12 @@ command -v uv >/dev/null 2>&1 && uv cache prune >/dev/null 2>&1 || true
 
 if [ -d "$HOME/.cache/megabyte/packages/npm" ]; then
   find "$HOME/.cache/megabyte/packages/npm" -type f -mtime +14 -delete 2>/dev/null || true
+fi
+if [ -d "$HOME/.cache/megabyte/local-proxy/meta" ]; then
+  find "$HOME/.cache/megabyte/local-proxy/meta" -type f ! -name '*.json' -delete 2>/dev/null || true
+fi
+if command -v mise >/dev/null 2>&1 && [ -d "$HOME/.local/share/volta" ]; then
+  find "$HOME/.local/share/volta" -delete 2>/dev/null || true
 fi
 
 if command -v node >/dev/null 2>&1; then
@@ -711,6 +717,11 @@ fi
 
 if [ "$used_pct" -ge 75 ]; then
   command -v npm >/dev/null 2>&1 && npm cache clean --force >/dev/null 2>&1 || true
+fi
+if [ "$(uname -s)" = "Darwin" ] && [ "$used_pct" -ge 80 ]; then
+  [ -d "$HOME/.Trash" ] && find "$HOME/.Trash" -mindepth 1 -delete 2>/dev/null || true
+  [ -d "$HOME/Library/Caches/Google/Chrome" ] && find "$HOME/Library/Caches/Google/Chrome" -mindepth 1 -delete 2>/dev/null || true
+  [ -d "$HOME/Library/Caches/com.anthropic.claudefordesktop.ShipIt" ] && find "$HOME/Library/Caches/com.anthropic.claudefordesktop.ShipIt" -mindepth 1 -delete 2>/dev/null || true
 fi
 if [ "$used_pct" -ge 82 ]; then
   command -v go >/dev/null 2>&1 && go clean -cache >/dev/null 2>&1 || true
@@ -1123,7 +1134,7 @@ EOF
   <array>
     <string>/bin/sh</string>
     <string>-c</string>
-    <string>set -eu; if [ -n "\$(git -C "${HOME}/.agentskills" status --porcelain)" ]; then printf 'agent-skills sync skipped: working tree is dirty\n'; exit 0; fi; git -C "${HOME}/.agentskills" fetch origin master; git -C "${HOME}/.agentskills" merge --ff-only origin/master</string>
+    <string>set -eu; if [ -n "\$(git -C "${HOME}/.agentskills" status --porcelain)" ]; then printf 'agent-skills sync skipped: working tree is dirty\n'; exit 0; fi; git -C "${HOME}/.agentskills" fetch origin main master; git -C "${HOME}/.agentskills" merge --ff-only origin/main 2>/dev/null || git -C "${HOME}/.agentskills" merge --ff-only origin/master</string>
   </array>
   <key>StartInterval</key>
   <integer>900</integer>
@@ -1167,9 +1178,7 @@ EOF
   <string>space.megabyte.disk-hygiene</string>
   <key>ProgramArguments</key>
   <array>
-    <string>/bin/sh</string>
-    <string>-c</string>
-    <string>if test -x "${HOME}/.local/bin/megabyte-cache-prune"; then "${HOME}/.local/bin/megabyte-cache-prune"; fi; find "${HOME}/Library/Logs" -type f -mtime +7 -delete 2>/dev/null; find "${HOME}/Library/Caches/Homebrew/downloads" -maxdepth 1 -name "*.incomplete" -delete 2>/dev/null; true</string>
+    <string>${HOME}/.local/bin/fleet-disk-hygiene</string>
   </array>
   <key>StartInterval</key>
   <integer>86400</integer>
@@ -1233,7 +1242,7 @@ if command -v apt-get >/dev/null 2>&1 && { [ "$(id -u)" -eq 0 ] || [ -n "$SUDO" 
     age build-essential clangd pkg-config libssl-dev unzip xz-utils zstd \
     ffmpeg imagemagick libimage-exiftool-perl qpdf poppler-utils tesseract-ocr graphviz pandoc yt-dlp \
     smartmontools net-tools bind9-dnsutils ufw unattended-upgrades apt-listchanges \
-    lm-sensors i2c-tools dkms python3-yaml python3-pip python3-venv >/dev/null 2>&1 || true
+    lm-sensors i2c-tools dkms >/dev/null 2>&1 || true
 fi
 
 # Symlink Ubuntu's fdfind -> fd and batcat -> bat in ~/.local/bin
@@ -2754,16 +2763,27 @@ EOF
 set -euo pipefail
 SNAP="${1:-}"
 TARGET="${2:-/tmp/pbs-restore}"
+TARGET_USER="ubuntu"
 USER_HOME="/home/ubuntu"
-[ -d "/home/professormanhattan/.config/agent-fleet" ] && USER_HOME="/home/professormanhattan"
+if [ -d "/home/professormanhattan/.config/agent-fleet" ]; then
+  TARGET_USER="professormanhattan"
+  USER_HOME="/home/professormanhattan"
+fi
 GET_SEC="$USER_HOME/.local/bin/get-secret"
+run_get_secret() {
+  if [ "$(id -u)" -eq 0 ] && command -v runuser >/dev/null 2>&1; then
+    runuser -u "$TARGET_USER" -- env HOME="$USER_HOME" PATH="$USER_HOME/.local/share/mise/shims:$USER_HOME/.local/bin:/usr/local/bin:/usr/bin:/bin" "$GET_SEC" "$1"
+  else
+    HOME="$USER_HOME" PATH="$USER_HOME/.local/share/mise/shims:$USER_HOME/.local/bin:/usr/local/bin:/usr/bin:/bin" "$GET_SEC" "$1"
+  fi
+}
 export HOME="$USER_HOME"
-export PBS_REPOSITORY="$("$GET_SEC" PBS_REPOSITORY)"
-export PBS_PASSWORD="$("$GET_SEC" PBS_PASSWORD)"
-export PBS_FINGERPRINT="$("$GET_SEC" PBS_FINGERPRINT)"
+export PBS_REPOSITORY="$(run_get_secret PBS_REPOSITORY)"
+export PBS_PASSWORD="$(run_get_secret PBS_PASSWORD)"
+export PBS_FINGERPRINT="$(run_get_secret PBS_FINGERPRINT)"
 KEYFILE="/run/pbs-restore.key"
 trap 'rm -f "$KEYFILE"' EXIT
-"$GET_SEC" PBS_ENCRYPTION_KEY > "$KEYFILE" 2>/dev/null || true
+run_get_secret PBS_ENCRYPTION_KEY > "$KEYFILE" 2>/dev/null || true
 chmod 0600 "$KEYFILE" 2>/dev/null || true
 if [ -z "$SNAP" ]; then
   proxmox-backup-client snapshot list
@@ -3107,7 +3127,18 @@ EOF
   fi
 
   # Weekly TRIM timers (fstrim + ZFS rpool/bpool) & OpenZFS zstd-fast-3 + dnode limit + SM951 AHCI autotrim guard
-  run_root systemctl enable --now fstrim.timer >/dev/null 2>&1 || true
+  _has_sm951=0
+  if lsblk -d -no MODEL 2>/dev/null | grep -qi 'MZHPV512HDGL'; then
+    _has_sm951=1
+  fi
+  if [ "$_has_sm951" -eq 1 ]; then
+    for _trim_unit in fstrim.timer fstrim.service zfs-trim-monthly@rpool.timer zfs-trim-monthly@bpool.timer; do
+      run_root systemctl disable --now "$_trim_unit" >/dev/null 2>&1 || true
+      run_root systemctl mask "$_trim_unit" >/dev/null 2>&1 || true
+    done
+  else
+    run_root systemctl enable --now fstrim.timer >/dev/null 2>&1 || true
+  fi
   if command -v zpool >/dev/null 2>&1; then
     [ -w /sys/module/zfs/parameters/zfs_arc_dnode_limit_percent ] && echo 20 | run_root tee /sys/module/zfs/parameters/zfs_arc_dnode_limit_percent >/dev/null 2>&1 || true
     [ -w /sys/module/zfs/parameters/zfs_dirty_data_max_percent ] && echo 10 | run_root tee /sys/module/zfs/parameters/zfs_dirty_data_max_percent >/dev/null 2>&1 || true
@@ -3123,7 +3154,7 @@ EOF
       run_root zfs set atime=off rpool/ai-models 2>/dev/null || true
     fi
     # Disable continuous NCQ autotrim on Samsung SM951 (MZHPV512HDGL) AHCI PCIe SSDs to prevent concurrent FPDMA TRIM+WRITE aborts
-    if lsblk -d -no MODEL 2>/dev/null | grep -qi 'MZHPV512HDGL'; then
+    if [ "$_has_sm951" -eq 1 ]; then
       for pool in rpool bpool; do
         if zpool list -H -o name "$pool" >/dev/null 2>&1; then
           run_root zpool set autotrim=off "$pool" 2>/dev/null || true
@@ -3156,11 +3187,23 @@ WantedBy=timers.target
 EOF
     run_root cp "$TMP_DIR/zfs-trim-weekly@.service" /etc/systemd/system/zfs-trim-weekly@.service
     run_root cp "$TMP_DIR/zfs-trim-weekly@.timer" /etc/systemd/system/zfs-trim-weekly@.timer
-    for pool in rpool bpool; do
-      if zpool list -H -o name "$pool" >/dev/null 2>&1; then
-        run_root systemctl enable --now "zfs-trim-weekly@${pool}.timer" >/dev/null 2>&1 || true
-      fi
-    done
+    if [ "$_has_sm951" -eq 0 ]; then
+      for pool in rpool bpool; do
+        if zpool list -H -o name "$pool" >/dev/null 2>&1; then
+          run_root systemctl enable --now "zfs-trim-weekly@${pool}.timer" >/dev/null 2>&1 || true
+        fi
+      done
+    fi
+  fi
+
+  # Chrony IPv4-only + Cloudflare NTS clock discipline (prevents IPv6 NTP blackholes on dual-stack WAN)
+  if command -v chronyd >/dev/null 2>&1 && [ -d /etc/chrony ]; then
+    printf '# Managed by install.doctor post-workstation.sh\nDAEMON_OPTS="-4 -F 1"\n' > "$TMP_DIR/default-chrony"
+    run_root install -m 0644 "$TMP_DIR/default-chrony" /etc/default/chrony
+    run_root install -d -m 0755 /etc/chrony/sources.d
+    printf '# Cloudflare NTS + Ubuntu IPv4 fallback\npool time.cloudflare.com iburst maxsources 2 nts prefer\npool ntp.ubuntu.com iburst maxsources 2\n' > "$TMP_DIR/cloudflare-nts.sources"
+    run_root install -m 0644 "$TMP_DIR/cloudflare-nts.sources" /etc/chrony/sources.d/cloudflare-nts.sources
+    run_root systemctl restart chrony.service >/dev/null 2>&1 || true
   fi
 
   # systemd-resolved local DNS cache with Cloudflare DNS fallback
@@ -3576,7 +3619,7 @@ After=network-online.target
 
 [Service]
 Type=oneshot
-ExecStart=/bin/sh -c 'set -eu; if [ -n "$(git -C "$HOME/.agentskills" status --porcelain)" ]; then printf "agent-skills sync skipped: working tree is dirty\\n"; exit 0; fi; git -C "$HOME/.agentskills" fetch origin master; git -C "$HOME/.agentskills" merge --ff-only origin/master'
+ExecStart=/bin/sh -c 'set -eu; if [ -n "$(git -C "$HOME/.agentskills" status --porcelain)" ]; then printf "agent-skills sync skipped: working tree is dirty\\n"; exit 0; fi; git -C "$HOME/.agentskills" fetch origin main master; git -C "$HOME/.agentskills" merge --ff-only origin/main 2>/dev/null || git -C "$HOME/.agentskills" merge --ff-only origin/master'
 Environment="PATH=%h/.local/bin:%h/.cache/cnf/shims:/usr/local/bin:/usr/bin:/bin"
 UMask=0077
 EOF
@@ -3631,6 +3674,8 @@ EOF
     tracker-extract-3.service \
     update-notifier-crash.path \
     update-notifier-crash.service \
+    ubuntu-report.path \
+    ubuntu-report.service \
     speech-dispatcher.service \
     speech-dispatcher.socket \
     ubuntu-insights-upload.timer \

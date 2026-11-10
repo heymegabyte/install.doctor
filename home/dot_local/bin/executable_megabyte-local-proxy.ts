@@ -163,6 +163,7 @@ const START_TIME_SECONDS = Date.now() / 1000;
 
 mkdirSync(CONFIG.blobsDir, { recursive: true });
 mkdirSync(CONFIG.metadataDir, { recursive: true });
+mkdirSync(join(CONFIG.cacheRootDir, "logs"), { recursive: true });
 
 const COUNTERS: ProxyTelemetryCounters = {
   "HIT-LOCAL": 0,
@@ -234,10 +235,32 @@ function resolveCachePaths(baseDirectory: string, cacheKey: string): { readonly 
   const digest = createHash("sha256").update(cacheKey).digest("hex");
   const shardDirectory = join(baseDirectory, digest.slice(0, 2));
   mkdirSync(shardDirectory, { recursive: true });
+  const payloadExtension = baseDirectory === CONFIG.metadataDir ? ".body.json" : ".bin";
   return {
-    blobPath: join(shardDirectory, `${digest}.bin`),
+    blobPath: join(shardDirectory, `${digest}${payloadExtension}`),
     headerPath: join(shardDirectory, `${digest}.hdr.json`),
   };
+}
+
+function pruneLegacyMetadataBinFiles(): void {
+  try {
+    for (const shard of readdirSync(CONFIG.metadataDir)) {
+      const shardPath = join(CONFIG.metadataDir, shard);
+      let shardFiles: string[];
+      try {
+        shardFiles = readdirSync(shardPath);
+      } catch {
+        continue;
+      }
+      for (const fileName of shardFiles) {
+        if (!fileName.endsWith(".json")) {
+          rmSync(join(shardPath, fileName), { force: true });
+        }
+      }
+    }
+  } catch {
+    // Metadata cleanup is best-effort and never blocks proxy traffic.
+  }
 }
 
 function writeAtomically(targetPath: string, payload: Buffer): void {
@@ -662,5 +685,6 @@ const server = createServer((req, res) => {
 });
 
 server.listen(CONFIG.port, CONFIG.host, () => {
+  pruneLegacyMetadataBinFiles();
   pruneBlobCacheIfOverBudget();
 });

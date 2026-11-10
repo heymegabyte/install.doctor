@@ -1,11 +1,12 @@
 {
   "schemaVersion": 2,
-  "trackedFileCount": 3236,
-  "classifiedFileCount": 3236,
+  "trackedFileCount": 3237,
+  "classifiedFileCount": 3237,
   "complete": true,
   "byClass": {
     "binary-media": 537,
-    "configuration": 332,
+    "configuration": 331,
+    "deleted-worktree": 2,
     "documentation": 253,
     "encrypted": 781,
     "generated": 41,
@@ -2231,9 +2232,9 @@
     {
       "path": ".config/cspell.json",
       "kind": "configuration",
-      "bytes": 4938,
+      "bytes": 4972,
       "mode": "644",
-      "sha256": "d49ada61176ce27243cc2db6e81f14b772d7886363ae266509d67b413043e65e",
+      "sha256": "30ae471b734461cc283c225eb32ebcd264fcc6f5e555cd14db931be23bbf9189",
       "validators": [
         "tracked",
         "readable",
@@ -7799,9 +7800,9 @@
     {
       "path": "home/.chezmoiremove",
       "kind": "other",
-      "bytes": 3178,
+      "bytes": 3460,
       "mode": "644",
-      "sha256": "a36df13c2d369a83da591c8ea9ca2726036e5b37dacc82f669815cb41be8d3cd",
+      "sha256": "6e2872a9502cdf0d119a8c8a1e0322b15c70371e6e26d2eb26b70766761b70c7",
       "validators": [
         "tracked",
         "readable",
@@ -27289,9 +27290,9 @@
     {
       "path": "home/dot_config/docker/templates/browserless/docker-stack.yml.tmpl",
       "kind": "other",
-      "bytes": 597,
+      "bytes": 669,
       "mode": "644",
-      "sha256": "1579f44ad75a5df154e12f75210010fb38bfea02fbeafc6e1b93471d6bb4301a",
+      "sha256": "772790f09a5912edf7e7acfc0402a68a5ef5a1229481c70748f08e3abeb07164",
       "validators": [
         "tracked",
         "readable",
@@ -27309,9 +27310,9 @@
     {
       "path": "home/dot_config/docker/templates/convoy/docker-stack.yml.tmpl",
       "kind": "other",
-      "bytes": 2269,
+      "bytes": 2413,
       "mode": "644",
-      "sha256": "ef3387c265647b5b5a924965133cbfdddd123efa020de7903aefc9979e8083fb",
+      "sha256": "a2e6bc06e23ed3d7ba98c2c4e3644f09abd50cde82aa25bf5f28b314e8692b92",
       "validators": [
         "tracked",
         "readable",
@@ -27351,9 +27352,9 @@
     {
       "path": "home/dot_config/docker/templates/healthchecks/docker-stack.yml.tmpl",
       "kind": "other",
-      "bytes": 4645,
+      "bytes": 4789,
       "mode": "644",
-      "sha256": "8b4cd0c1ee814371c91960c7e5fea7448e06fc40bb1021f15509955d81b111f3",
+      "sha256": "3a7c8dfd1869374ec1c1e174ee1ef275a92004470b9a2f4ca1aa9d832f3c2cce",
       "validators": [
         "tracked",
         "readable",
@@ -27371,9 +27372,9 @@
     {
       "path": "home/dot_config/docker/templates/kasm/docker-compose.yml.tmpl",
       "kind": "other",
-      "bytes": 526,
+      "bytes": 599,
       "mode": "644",
-      "sha256": "d9c1f53170d57693de05971e394ea4654feb0ff9ba7dff0c9fa32157f151b3ce",
+      "sha256": "74b60b470a1a0af1301cc7baff19831eef501ad0738f3fae19fa27a471682d6e",
       "validators": [
         "tracked",
         "readable",
@@ -27391,9 +27392,9 @@
     {
       "path": "home/dot_config/docker/templates/nginx-ui/docker-compose.yml.tmpl",
       "kind": "other",
-      "bytes": 433,
+      "bytes": 505,
       "mode": "644",
-      "sha256": "1be9a9bf5747eb4b197989dd673a26efa8259bc917e498552a74124b84c320fc",
+      "sha256": "bcdcdfa9bbd77b2c1cb402c85c9ca034e517557ccc98f6b2d028421d0d7ec673",
       "validators": [
         "tracked",
         "readable",
@@ -27433,9 +27434,9 @@
     {
       "path": "home/dot_config/docker/templates/rundeck/docker-stack.yml.tmpl",
       "kind": "other",
-      "bytes": 1108,
+      "bytes": 1241,
       "mode": "644",
-      "sha256": "1bca9d5e067b746b666adcbc7b76306b06c4e9a891ccf650239c70a93e4ed829",
+      "sha256": "995f290ce192a0baea31928aeb6c2b5479cf11d73651297a71b7e09dc8686475",
       "validators": [
         "tracked",
         "readable",
@@ -27453,9 +27454,9 @@
     {
       "path": "home/dot_config/docker/templates/sonatype-nexus3/docker-compose.yml.tmpl",
       "kind": "other",
-      "bytes": 185,
+      "bytes": 265,
       "mode": "644",
-      "sha256": "f94e1b526b95fc5598540d267b5a72a5e0de45e05cbb27cf119b1cac2c4ed5e5",
+      "sha256": "a13b9919e8596658068681006016703123581baf2be8097098a63a100d11d715",
       "validators": [
         "tracked",
         "readable",
@@ -27473,9 +27474,9 @@
     {
       "path": "home/dot_config/docker/templates/statping/docker-compose.yml.tmpl",
       "kind": "other",
-      "bytes": 1844,
+      "bytes": 1988,
       "mode": "644",
-      "sha256": "ebe00adbf4fbc38bac56e09a5174ba6a3fced70a9ef5e14603ad21232c2e0c04",
+      "sha256": "8bb4faffc141b9222b0482ed8d2148b66b267a90251fda1894fe959c763c9506",
       "validators": [
         "tracked",
         "readable",
@@ -27513,9 +27514,9 @@
     {
       "path": "home/dot_config/docker/templates/wazuh/wazuh.docker-stack.yml.tmpl",
       "kind": "other",
-      "bytes": 4068,
+      "bytes": 4284,
       "mode": "644",
-      "sha256": "e664fa14e8762149018c808f1e4dcd38d73553ee8ac892d49770df6f7ea28ae9",
+      "sha256": "882dc020ce4d1c2c5534c76496e46c1f7f6819205f50437d13eaec714129a447",
       "validators": [
         "tracked",
         "readable",
@@ -27533,9 +27534,9 @@
     {
       "path": "home/dot_config/docker/templates/webtop/docker-stack.yml.tmpl",
       "kind": "other",
-      "bytes": 541,
+      "bytes": 613,
       "mode": "644",
-      "sha256": "ac8409e3e156e99f9accffb3843fdcbd93263852bce46046fa67f02497650f8e",
+      "sha256": "5aab6138c7c457af6bf3eca754a44d25d3feae96792f1d0a3f54ee1e7acb6588",
       "validators": [
         "tracked",
         "readable",
@@ -29515,9 +29516,9 @@
     {
       "path": "home/dot_config/neofetch/config.conf",
       "kind": "configuration",
-      "bytes": 18128,
+      "bytes": 18130,
       "mode": "644",
-      "sha256": "7011bbb81dbe459ab10a2ccc14ba6bc08ecbb7dd6ed7abbed01074420302b9cf",
+      "sha256": "e74e4affaf1313d725abd8222e43b89e0c21a67478fea8988d7e25abefbffcf0",
       "validators": [
         "tracked",
         "readable",
@@ -29606,6 +29607,28 @@
       "bytes": 264,
       "mode": "644",
       "sha256": "208f14ead8ca0cd2fa5ea9255b231ca97b353fb745c248b17f7d865fc9dd1ab2",
+      "validators": [
+        "tracked",
+        "readable",
+        "sha256",
+        "parser-or-schema",
+        "references"
+      ],
+      "disposition": "retain-validated",
+      "reason": "Configuration is retained when its parser/schema and repository reference gates pass.",
+      "evidence": [
+        "parser-or-schema",
+        "references",
+        "repository-suite"
+      ],
+      "issues": []
+    },
+    {
+      "path": "home/dot_config/netdata/health.d/gpu.conf",
+      "kind": "configuration",
+      "bytes": 587,
+      "mode": "644",
+      "sha256": "a33ffac36b7a9f6e843484b22a25229ce07f71aa42b7b430d315faf13bcc04f1",
       "validators": [
         "tracked",
         "readable",
@@ -29863,9 +29886,9 @@
     {
       "path": "home/dot_config/oh-my-posh/Betelgeuse-minimal.omp.json",
       "kind": "configuration",
-      "bytes": 3549,
+      "bytes": 3585,
       "mode": "644",
-      "sha256": "ff1c7a7ac3e33fece119514f077c33fde021c23b247a9e3cf3c3cb3a4648f063",
+      "sha256": "279372949dc795febac7d5a188a6f4d2384edf8ce3ed186677b4615634444469",
       "validators": [
         "tracked",
         "readable",
@@ -29885,9 +29908,9 @@
     {
       "path": "home/dot_config/oh-my-posh/Betelgeuse.omp.json",
       "kind": "configuration",
-      "bytes": 4072,
+      "bytes": 4108,
       "mode": "644",
-      "sha256": "8bf170df00c280fca461329754fb36c89317b678d3762cda19e6c07ad6ec4bb4",
+      "sha256": "fbfd93abf1d535cdab4d8cd1f538b212c938dd40b2c1ef50a7a2cf883b2affc5",
       "validators": [
         "tracked",
         "readable",
@@ -30599,9 +30622,9 @@
     {
       "path": "home/dot_config/sheldon/plugins.fish.toml",
       "kind": "configuration",
-      "bytes": 657,
+      "bytes": 512,
       "mode": "644",
-      "sha256": "5318edf8f1df5ec6dfca3af5cbc05ce83d029e480c1e634635a044cc2631b3b4",
+      "sha256": "0ce49fd39218617656b1629a63ccf2add28f4c45396bd5aee94672f48314ab94",
       "validators": [
         "tracked",
         "readable",
@@ -30621,9 +30644,9 @@
     {
       "path": "home/dot_config/sheldon/plugins.zsh.toml",
       "kind": "configuration",
-      "bytes": 655,
+      "bytes": 511,
       "mode": "644",
-      "sha256": "90610df674e2ff3bdec371d8ad68244b5f1697f5c354ab0c87a946e6a3fb8eeb",
+      "sha256": "3a0c9d93ac2424ad8b0c064a6af62108e7b441f03c293fd0ba8d00b95928278c",
       "validators": [
         "tracked",
         "readable",
@@ -31361,9 +31384,9 @@
     {
       "path": "home/dot_config/system/etc/clamav/freshclam.conf",
       "kind": "configuration",
-      "bytes": 857,
+      "bytes": 865,
       "mode": "644",
-      "sha256": "310207f663ebcf47b4cd6be6b9e521d7629a304a40531886840dcf2fa88a8c92",
+      "sha256": "6ae9663bb63102d11ca8aa314a6386b3ebad640ad532fc6fc8647717e0cf176e",
       "validators": [
         "tracked",
         "readable",
@@ -32537,9 +32560,9 @@
     {
       "path": "home/dot_config/system/etc/ntp.conf",
       "kind": "configuration",
-      "bytes": 335,
+      "bytes": 336,
       "mode": "644",
-      "sha256": "fa91203fdfa41ca2712487cdda9e0c7592969e8f9403f14e79c05a065a719a1d",
+      "sha256": "8798efe6cb89a618fa4a127878147a99f8c6cde40a908878e4f62678cfe73852",
       "validators": [
         "tracked",
         "readable",
@@ -32554,7 +32577,10 @@
         "references",
         "repository-suite"
       ],
-      "issues": []
+      "issues": [],
+      "duplicatePaths": [
+        "home/dot_config/system/private/etc/ntp.conf"
+      ]
     },
     {
       "path": "home/dot_config/system/etc/pam.d/sudo_local.tmpl",
@@ -33076,22 +33102,20 @@
     },
     {
       "path": "home/dot_config/system/etc/vector/vector.toml",
-      "kind": "configuration",
-      "bytes": 1287,
-      "mode": "644",
-      "sha256": "486571fe086a6e0c378b153889e27e817573184e4bb1a6e7ccf1feb372de94f5",
+      "kind": "deleted-worktree",
+      "bytes": null,
+      "mode": null,
+      "sha256": null,
       "validators": [
         "tracked",
-        "readable",
-        "sha256",
-        "parser-or-schema",
-        "references"
+        "git-diff-review",
+        "reference-removal"
       ],
-      "disposition": "retain-validated",
-      "reason": "Configuration is retained when its parser/schema and repository reference gates pass.",
+      "disposition": "remove-preserved",
+      "reason": "Tracked deletion is preserved as an intentional worktree decision and must pass reference-removal and repository-suite gates.",
       "evidence": [
-        "parser-or-schema",
-        "references",
+        "git-diff-review",
+        "reference-removal",
         "repository-suite"
       ],
       "issues": []
@@ -33324,7 +33348,10 @@
         "references",
         "repository-suite"
       ],
-      "issues": []
+      "issues": [],
+      "duplicatePaths": [
+        "home/dot_config/system/etc/ntp.conf"
+      ]
     },
     {
       "path": "home/dot_config/system/usr/lib/systemd/system/blocky.service.tmpl",
@@ -34308,9 +34335,9 @@
     {
       "path": "home/dot_config/task/Taskfile.yml",
       "kind": "configuration",
-      "bytes": 26462,
+      "bytes": 25525,
       "mode": "644",
-      "sha256": "96e3c1bccd0c89e7e83cbb3dc930cf5557cd6cacdf02407c1c999885fa6d6ee7",
+      "sha256": "a3237bdf07869c7a2a629eb8664f4cfa2dbcacd7a36df1795ff42532335bc565",
       "validators": [
         "tracked",
         "readable",
@@ -35733,9 +35760,9 @@
     {
       "path": "home/dot_local/bin/executable_megabyte-local-proxy.ts",
       "kind": "script",
-      "bytes": 21155,
+      "bytes": 21923,
       "mode": "755",
-      "sha256": "0c32cd7e988aaf0cbcd4919fe17d53355a9991e9576c34dde1239a9e998c3dd0",
+      "sha256": "654f356db77c099b6c72914571aeeb127e5ff536a1aef0c7e337efcfa475d614",
       "validators": [
         "tracked",
         "readable",
@@ -35921,9 +35948,9 @@
     {
       "path": "home/dot_local/bin/executable_squash-symlink",
       "kind": "script",
-      "bytes": 368,
+      "bytes": 995,
       "mode": "644",
-      "sha256": "1e9b626e03db3182abc72bbeb08774c9efb5cf33a92115799625c1ade90fb65b",
+      "sha256": "42eb2de550b8e79bb20128fe36d21105d8db93683cc18e59e4c33183d36c9785",
       "validators": [
         "tracked",
         "readable",
@@ -36161,9 +36188,9 @@
     {
       "path": "home/dot_local/bin/executable_workstation-doctor.ts",
       "kind": "script",
-      "bytes": 19245,
+      "bytes": 20236,
       "mode": "755",
-      "sha256": "0adbd8974696996d336b2fe085993f26a4b904afb4c1d6782b45ef7ba2a697c9",
+      "sha256": "2a5011d983514084fbd20ed0395d61e21dda787318148c288db7186c6291c883",
       "validators": [
         "tracked",
         "readable",
@@ -36619,9 +36646,9 @@
     {
       "path": "home/dot_local/bin/post-installx/executable_post-kasmvnc.sh",
       "kind": "script",
-      "bytes": 10119,
+      "bytes": 10222,
       "mode": "755",
-      "sha256": "c81ac639a1c569bb7d9289b106cce5ed6c3f8138cf2c19137ca577651dc5b53f",
+      "sha256": "f9c46b0aecd9aa4411d0ed6a3c11be8029791c64c3488ab8a9f2c31540c3ca7b",
       "validators": [
         "tracked",
         "readable",
@@ -36715,9 +36742,9 @@
     {
       "path": "home/dot_local/bin/post-installx/executable_post-nexus-cache.sh",
       "kind": "script",
-      "bytes": 39433,
+      "bytes": 39489,
       "mode": "755",
-      "sha256": "3bcd789a1fb71b621dd7d9f3dc3da85667c10d799af0acc4a60f89cbc069c5a2",
+      "sha256": "a214c380dc6305928a2cad90868438053bb284a88306d21c6819c040af7feec1",
       "validators": [
         "tracked",
         "readable",
@@ -37219,9 +37246,9 @@
     {
       "path": "home/dot_local/bin/post-installx/executable_post-workstation.sh",
       "kind": "script",
-      "bytes": 172802,
+      "bytes": 175124,
       "mode": "755",
-      "sha256": "e57e320bd23f0f80c26865e9cb90dff6432387d15b8b0eb123e13e81c53e37b9",
+      "sha256": "c7e4f8616d4b733b3f7c8b941204bf6060f781bff93154e718445f5e03b99da0",
       "validators": [
         "tracked",
         "readable",
@@ -39530,9 +39557,9 @@
     {
       "path": "home/dot_local/share/ansible/environments/prod/group_vars/raspberry/vars.yml",
       "kind": "configuration",
-      "bytes": 465,
+      "bytes": 457,
       "mode": "644",
-      "sha256": "1e1d268f8989e25ed69478cd24b548911b2771a05b1c93aef03788149b85a111",
+      "sha256": "1b601b01b5b4d7d20521140cf60e7e7e5ae50ac72c2922357c9195e588e99168",
       "validators": [
         "tracked",
         "readable",
@@ -41519,9 +41546,9 @@
     {
       "path": "home/dot_local/share/cargo/config.toml.tmpl",
       "kind": "other",
-      "bytes": 348,
+      "bytes": 185,
       "mode": "644",
-      "sha256": "cba20f45e6c43e630b50ac8917867b96a3ded2c2c144eee98be46886b9a8b9ad",
+      "sha256": "f43f61e251bb45ecb4e20f6deebee7967eb0c6615993675cf36606903aca2c6c",
       "validators": [
         "tracked",
         "readable",
@@ -41565,9 +41592,9 @@
     {
       "path": "home/dot_local/share/firefox/distribution/policies.json",
       "kind": "configuration",
-      "bytes": 1692,
+      "bytes": 1693,
       "mode": "644",
-      "sha256": "af15068a6e0138d349a71fa6f3f678f59d1e7a88f80192211cb1b119dd36556b",
+      "sha256": "6232ebe1f306e814465d2f3e3441c625e71f5c6dab199e191f4303f6044c64ae",
       "validators": [
         "tracked",
         "readable",
@@ -41608,22 +41635,20 @@
     },
     {
       "path": "home/dot_local/share/firefox/profile-switcher.json",
-      "kind": "configuration",
-      "bytes": 216,
-      "mode": "644",
-      "sha256": "54f1eaa55c8925302bb7a20ece8931a83b0936a08e3910dfb65d89cb34a2a2ef",
+      "kind": "deleted-worktree",
+      "bytes": null,
+      "mode": null,
+      "sha256": null,
       "validators": [
         "tracked",
-        "readable",
-        "sha256",
-        "parser-or-schema",
-        "references"
+        "git-diff-review",
+        "reference-removal"
       ],
-      "disposition": "retain-validated",
-      "reason": "Configuration is retained when its parser/schema and repository reference gates pass.",
+      "disposition": "remove-preserved",
+      "reason": "Tracked deletion is preserved as an intentional worktree decision and must pass reference-removal and repository-suite gates.",
       "evidence": [
-        "parser-or-schema",
-        "references",
+        "git-diff-review",
+        "reference-removal",
         "repository-suite"
       ],
       "issues": []
@@ -46706,9 +46731,9 @@
     {
       "path": "packages/control-plane/src/catalog.json",
       "kind": "generated",
-      "bytes": 506362,
+      "bytes": 506390,
       "mode": "644",
-      "sha256": "82e1e0cf4fe67221054f1c1c8f858f95b8bce4848e9fc5a26812a05bc90b64b6",
+      "sha256": "34193827485497cf15aaebb63f82a2ecfc77a7bfa6fbf24e356955589ead51c9",
       "validators": [
         "tracked",
         "readable",
@@ -54379,9 +54404,9 @@
     {
       "path": "scripts/test-aid-experimental-boundary.sh",
       "kind": "test",
-      "bytes": 860,
+      "bytes": 871,
       "mode": "755",
-      "sha256": "f72c555e5e221649197438069e705d92fea7ca51a513747f208c5c5f40c95fb1",
+      "sha256": "15d8fb1c032ab403a38e221fbe3037195715b792753a42dbf329f11771a7e1db",
       "validators": [
         "tracked",
         "readable",
@@ -54691,9 +54716,9 @@
     {
       "path": "scripts/test-bootstrap-provenance.sh",
       "kind": "test",
-      "bytes": 22731,
+      "bytes": 22756,
       "mode": "755",
-      "sha256": "5eebfa258b3f84c60d74f13e64440cd5d59a01834bc3b21d0d8d3ced717728c2",
+      "sha256": "4bf4c6c453cc8b12929d6cd67f0274c1dfba256dfdea1077bf98dbc4fb6788c2",
       "validators": [
         "tracked",
         "readable",
@@ -55315,9 +55340,9 @@
     {
       "path": "scripts/test-config-provenance.sh",
       "kind": "test",
-      "bytes": 1217,
+      "bytes": 1244,
       "mode": "755",
-      "sha256": "e6a6d761d61f96bfabc8f3c24fc6b25423d54049107ec9709bf6b72611e6110c",
+      "sha256": "2a4ecea4a37264f97d3f2a02a62f4cf3d6f7b7526a22b006f3a34bb5d851a607",
       "validators": [
         "tracked",
         "readable",
@@ -55835,9 +55860,9 @@
     {
       "path": "scripts/test-docker-template-default-creds.sh",
       "kind": "test",
-      "bytes": 5085,
+      "bytes": 5619,
       "mode": "755",
-      "sha256": "b8240b190d4f7a30d40fee9686258c5de8c827a66c4406250093c8f8eb867691",
+      "sha256": "e72035a9ee4be5e6bdd12927e88d545465b38a9e897c17e7d444002fdb262504",
       "validators": [
         "tracked",
         "readable",
@@ -59619,9 +59644,9 @@
     {
       "path": "scripts/validate-software-yml.sh",
       "kind": "script",
-      "bytes": 8575,
+      "bytes": 8804,
       "mode": "755",
-      "sha256": "19ea5be6ab2b2b42da8cf629ad20383a35583ccf53e39cced4d3b0e35bb19091",
+      "sha256": "f59939709e41ec90a76ec8aef3dec3ae3cac0b119f27be4483fbbb1ea79003a6",
       "validators": [
         "tracked",
         "readable",
@@ -63363,9 +63388,9 @@
     {
       "path": "site/docs/local/docsad.prismic.json",
       "kind": "configuration",
-      "bytes": 5494,
+      "bytes": 4226,
       "mode": "644",
-      "sha256": "2bf850ece7905cb9566979862188d5c72f95250ed66027c56616776c2453c8b0",
+      "sha256": "4844d4e87355643d318a6696c4835d40461e68d1e25b126a9a1c77db862f46a9",
       "validators": [
         "tracked",
         "readable",
@@ -78350,9 +78375,9 @@
     {
       "path": "software.yml",
       "kind": "configuration",
-      "bytes": 696838,
+      "bytes": 696866,
       "mode": "644",
-      "sha256": "24e0f39d7a198bfc4a0b5507d9a4b436297c059dd971fb70d8be3851889d0fc5",
+      "sha256": "92cd555bc2be56163b622b996eb783a25be512c630f306caffeaf69b22f0a357",
       "validators": [
         "tracked",
         "readable",
