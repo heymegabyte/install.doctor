@@ -125,10 +125,12 @@ else
 fi
 
 RUNNER_HOOK="$ROOT/home/dot_local/bin/post-installx/executable_post-github-runners.sh"
-if grep -q 'b13b784808359f31bc79b08a191f5f83757852957dd8fe3dbfcc38202ccf5768' "$RUNNER_HOOK" \
-  && grep -q '119302750' "$RUNNER_HOOK" \
-  && ! grep -qE 'curl[^|]*\|[[:space:]]*.*tar' "$RUNNER_HOOK"; then
-  pass 'GitHub Actions runner is verified before extraction'
+if { grep -q 'b13b784808359f31bc79b08a191f5f83757852957dd8fe3dbfcc38202ccf5768' "$RUNNER_HOOK" \
+    && grep -q '119302750' "$RUNNER_HOOK" \
+    && ! grep -qE 'curl[^|]*\|[[:space:]]*.*tar' "$RUNNER_HOOK"; } \
+  || { grep -q 'self-hosted runner provisioning is unsupported until typed enrollment' "$RUNNER_HOOK" \
+    && ! grep -qE 'curl|tar[[:space:]]+-|GITHUB_RUNNER_REG_TOKEN|config\.sh[[:space:]]+--' "$RUNNER_HOOK"; }; then
+  pass 'GitHub Actions runner artifact execution is pinned or explicitly unavailable'
 else
   fail 'GitHub Actions runner artifact authority is incomplete'
 fi

@@ -1,180 +1,24 @@
 #!/usr/bin/env bash
 # @file executable_post-github-runners.sh
-# @description Capability-aware GitHub Actions self-hosted multi-runner provisioning for Install Doctor (§10).
-# Implements isolated per-runner Linux system accounts, systemd slice resource budgets,
-# pre/post-job cleanup hooks, and scoped XDG caches (${XDG_CACHE_HOME}/megabyte).
+# @description Fail-closed boundary for the not-yet-migrated self-hosted runner capability.
 set -euo pipefail
 
-log_info() { printf '\033[0;34mINFO\033[0m %s\n' "$*"; }
-log_warn() { printf '\033[0;33mWARN\033[0m %s\n' "$*"; }
+log() { printf 'github-runners: %s\n' "$*" >&2; }
 
-OS_KERNEL="$(uname -s)"
-if [[ "$OS_KERNEL" != "Linux" ]]; then
-  log_info "GitHub Actions multi-runner systemd fleet is only supported on Linux (detected: $OS_KERNEL). Skipping."
+if [ "$(uname -s 2>/dev/null)" != Linux ]; then
+  log 'self-hosted runner fleet provisioning is inapplicable on this platform'
   exit 0
 fi
 
-HOSTNAME_SHORT="$(hostname -s 2>/dev/null || hostname)"
-RUNNER_COUNT="${GITHUB_RUNNER_COUNT:-0}"
+case "${GITHUB_RUNNER_COUNT:-0}" in
+  ''|*[!0-9]*) log 'GITHUB_RUNNER_COUNT must be a non-negative integer'; exit 2 ;;
+  0) log 'no self-hosted runner fleet was selected'; exit 0 ;;
+esac
 
-if [[ "$RUNNER_COUNT" -le 0 ]]; then
-  log_info "Host profile ($HOSTNAME_SHORT) does not request GitHub Actions runners (GITHUB_RUNNER_COUNT=0). Skipping."
-  exit 0
-fi
-
-DEFAULT_LABELS="self-hosted,Linux,X64,${HOSTNAME_SHORT},trusted"
-if command -v nvidia-smi >/dev/null 2>&1; then
-  DEFAULT_LABELS="${DEFAULT_LABELS},gpu,nvidia"
-fi
-
-RUNNER_ORG_URL="${GITHUB_RUNNER_ORG_URL:-https://github.com/heymegabyte}"
-RUNNER_GROUP="${GITHUB_RUNNER_GROUP:-persistent-agent-fleet}"
-RUNNER_NAME_PREFIX="${GITHUB_RUNNER_NAME_PREFIX:-${HOSTNAME_SHORT} Runner}"
-RUNNER_LABELS="${GITHUB_RUNNER_LABELS:-${DEFAULT_LABELS}}"
-RUNNER_BASE_DIR="${GITHUB_RUNNER_BASE_DIR:-/var/lib/github-runners}"
-RUNNER_TEMPLATE_DIR="${GITHUB_RUNNER_TEMPLATE_DIR:-/var/lib/github-runners/template}"
-RUNNER_REG_TOKEN="${GITHUB_RUNNER_REG_TOKEN:-}"
-
-if [[ $EUID -ne 0 ]]; then
-  SUDO="sudo -n"
-else
-  SUDO=""
-fi
-
-# 1. Create systemd slice for all runners so they cannot starve interactive desktop or Ollama
-$SUDO tee /etc/systemd/system/github-runners.slice >/dev/null <<'EOF'
-[Unit]
-Description=GitHub Actions Self-Hosted Runners Resource Slice
-Before=slices.target
-
-[Slice]
-CPUWeight=60
-IOWeight=60
-CPUQuota=1800%
-MemoryHigh=24G
-MemoryMax=30G
-TasksMax=8192
-EOF
-
-# 2. Create pre/post-job cleanup hook script
-$SUDO install -d -m 0755 /usr/local/libexec
-$SUDO tee /usr/local/libexec/github-runner-hook.sh >/dev/null <<'EOF'
-#!/usr/bin/env bash
-set -euo pipefail
-# Runs before and after each GitHub Actions job to prune stale temp artifacts and dangling containers
-rm -rf "${RUNNER_TEMP:-/tmp/runner-tmp}"/* 2>/dev/null || true
-mkdir -p "${XDG_CACHE_HOME:-$HOME/.cache}/megabyte/packages" \
-         "${XDG_CACHE_HOME:-$HOME/.cache}/megabyte/build" \
-         "${XDG_CACHE_HOME:-$HOME/.cache}/megabyte/ai" \
-         "${XDG_CACHE_HOME:-$HOME/.cache}/megabyte/agents"
-EOF
-$SUDO chmod 0755 /usr/local/libexec/github-runner-hook.sh
-
-# 3. Ensure runner binary template exists
-$SUDO install -d -m 0755 "$RUNNER_BASE_DIR"
-if [[ ! -f "$RUNNER_TEMPLATE_DIR/config.sh" ]]; then
-  RUNNER_TEMPLATE_DIR="$RUNNER_BASE_DIR/template"
-  if [[ ! -f "$RUNNER_TEMPLATE_DIR/config.sh" ]]; then
-    log_info "Downloading GitHub Actions runner binary..."
-    $SUDO install -d -m 0755 "$RUNNER_TEMPLATE_DIR"
-    RUNNER_VER="2.322.0"
-    runner_archive="$(mktemp)"
-    trap 'rm -f "$runner_archive"' EXIT
-    curl --fail --silent --show-error --proto '=https' --tlsv1.2 --location --max-time 300 \
-      "https://github.com/actions/runner/releases/download/v${RUNNER_VER}/actions-runner-linux-x64-${RUNNER_VER}.tar.gz" -o "$runner_archive"
-    [[ "$(wc -c < "$runner_archive")" -eq 119302750 ]]
-    if command -v sha256sum >/dev/null 2>&1; then runner_sha="$(sha256sum "$runner_archive" | awk '{print $1}')";
-    else runner_sha="$(shasum -a 256 "$runner_archive" | awk '{print $1}')"; fi
-    [[ "$runner_sha" == 'b13b784808359f31bc79b08a191f5f83757852957dd8fe3dbfcc38202ccf5768' ]]
-    $SUDO tar -xzf "$runner_archive" -C "$RUNNER_TEMPLATE_DIR"
-    rm -f "$runner_archive"
-  fi
-fi
-
-# 4. Provision each isolated runner account, directory, and service
-for i in $(seq 1 "$RUNNER_COUNT"); do
-  RUNNER_USER="github-runner-${i}"
-  RUNNER_DIR="${RUNNER_BASE_DIR}/runner-${i}"
-  RUNNER_NAME="${RUNNER_NAME_PREFIX} ${i}"
-  CACHE_ROOT="/var/cache/megabyte/runner-${i}"
-
-  if ! id -u "$RUNNER_USER" >/dev/null 2>&1; then
-    $SUDO useradd --system --create-home --home-dir "$RUNNER_DIR" --shell /bin/bash "$RUNNER_USER"
-  fi
-  if getent group docker >/dev/null 2>&1; then
-    $SUDO usermod -aG docker "$RUNNER_USER"
-  fi
-
-  $SUDO install -d -m 0750 -o "$RUNNER_USER" -g "$RUNNER_USER" "$RUNNER_DIR"
-  $SUDO install -d -m 0750 -o "$RUNNER_USER" -g "$RUNNER_USER" "$CACHE_ROOT/megabyte/packages" "$CACHE_ROOT/megabyte/build" "$CACHE_ROOT/megabyte/ai" "$CACHE_ROOT/megabyte/agents"
-
-  if [[ ! -f "$RUNNER_DIR/config.sh" ]]; then
-    log_info "Populating runner binaries for $RUNNER_NAME ($RUNNER_DIR)..."
-    $SUDO cp -a "$RUNNER_TEMPLATE_DIR/bin" "$RUNNER_TEMPLATE_DIR/externals" "$RUNNER_TEMPLATE_DIR/config.sh" "$RUNNER_TEMPLATE_DIR/env.sh" "$RUNNER_TEMPLATE_DIR/run.sh" "$RUNNER_TEMPLATE_DIR/run-helper.sh.template" "$RUNNER_TEMPLATE_DIR/safe_sleep.sh" "$RUNNER_DIR/"
-    $SUDO chown -R "$RUNNER_USER:$RUNNER_USER" "$RUNNER_DIR"
-  fi
-
-  if [[ ! -f "$RUNNER_DIR/.runner" && -n "$RUNNER_REG_TOKEN" ]]; then
-    log_info "Registering '$RUNNER_NAME' in group '$RUNNER_GROUP'..."
-    sudo -n -u "$RUNNER_USER" bash -c "cd '$RUNNER_DIR' && ./config.sh --unattended \
-      --url '$RUNNER_ORG_URL' \
-      --token '$RUNNER_REG_TOKEN' \
-      --name '$RUNNER_NAME' \
-      --runnergroup '$RUNNER_GROUP' \
-      --labels '$RUNNER_LABELS' \
-      --work '_work' \
-      --replace"
-  fi
-
-  $SUDO tee "/etc/systemd/system/github-runner-${i}.service" >/dev/null <<EOF
-[Unit]
-Description=GitHub Actions Runner (${RUNNER_NAME})
-After=network-online.target docker.service
-Wants=network-online.target docker.service
-ConditionPathExists=${RUNNER_DIR}/.runner
-
-[Service]
-Type=simple
-User=${RUNNER_USER}
-Group=${RUNNER_USER}
-SupplementaryGroups=docker
-WorkingDirectory=${RUNNER_DIR}
-ExecStartPre=/usr/local/libexec/github-runner-hook.sh
-ExecStart=${RUNNER_DIR}/run.sh
-ExecStopPost=/usr/local/libexec/github-runner-hook.sh
-Environment=HOME=${RUNNER_DIR}
-Environment=XDG_CACHE_HOME=${CACHE_ROOT}
-Environment=PIP_CACHE_DIR=${CACHE_ROOT}/megabyte/packages/pip
-Environment=UV_CACHE_DIR=${CACHE_ROOT}/megabyte/packages/uv
-Environment=npm_config_cache=${CACHE_ROOT}/megabyte/packages/npm
-Environment=CARGO_HOME=${CACHE_ROOT}/megabyte/packages/cargo
-Environment=GOMODCACHE=${CACHE_ROOT}/megabyte/packages/gomod
-Environment=GOCACHE=${CACHE_ROOT}/megabyte/build/go-build
-Environment=HF_HOME=${CACHE_ROOT}/megabyte/ai/huggingface
-Environment=ACTIONS_RUNNER_HOOK_JOB_STARTED=/usr/local/libexec/github-runner-hook.sh
-Environment=ACTIONS_RUNNER_HOOK_JOB_COMPLETED=/usr/local/libexec/github-runner-hook.sh
-Environment=AI_MACHINE_ID=${HOSTNAME_SHORT}-runner-${i}
-Restart=always
-RestartSec=10
-KillSignal=SIGINT
-TimeoutStopSec=120
-Slice=github-runners.slice
-Nice=5
-UMask=0077
-NoNewPrivileges=true
-ProtectSystem=full
-PrivateTmp=true
-
-[Install]
-WantedBy=multi-user.target
-EOF
-done
-
-$SUDO systemctl daemon-reload
-for i in $(seq 1 "$RUNNER_COUNT"); do
-  if $SUDO test -f "${RUNNER_BASE_DIR}/runner-${i}/.runner"; then
-    $SUDO systemctl enable --now "github-runner-${i}.service"
-  fi
-done
-
-log_info "GitHub Actions runner provisioning complete ($RUNNER_COUNT runners configured)."
+# The retired implementation accepted a registration token in the environment,
+# interpolated it into `bash -c`, and installed a cleanup hook that recursively
+# deleted a caller-selected RUNNER_TEMP. Until enrollment, service creation,
+# resource limits, and cleanup are represented by typed engine operations with
+# a non-argv secret channel and owned-path validation, no mutation is allowed.
+log 'self-hosted runner provisioning is unsupported until typed enrollment and owned cleanup operations are available'
+exit 20
