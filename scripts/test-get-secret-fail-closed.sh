@@ -22,5 +22,5 @@ fi
 ! grep -Fq 'environment variables, or Chezmoi Age-encrypted host store' "$target"
 zfs_hook=home/dot_local/bin/post-installx/executable_post-zfs-prep.sh
 ! grep -Fq 'infisical secrets get' "$zfs_hook"
-grep -Fq 'get-secret SUDO_PASSWORD' "$zfs_hook"
+! grep -Eq 'get-secret[[:space:]]+SUDO_PASSWORD|SUDO_PASSWORD|SUDO_ASKPASS' "$zfs_hook"
 echo 'get-secret-fail-closed: PASS'

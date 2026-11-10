@@ -7,11 +7,19 @@ pass() { printf 'PASS %s\n' "$*"; P=$((P + 1)); }
 fail() { printf 'FAIL %s\n' "$*" >&2; F=$((F + 1)); }
 
 bash -n "$HOOK" && pass 'firewall hook parses' || fail 'firewall hook syntax'
-grep -q "ENABLED=yes" "$HOOK" && grep -q 'ufw --force enable' "$HOOK" && pass 'UFW is explicitly enabled' || fail 'UFW enablement missing'
-grep -q 'DEFAULT_INPUT_POLICY.*DROP' "$HOOK" && grep -q 'DEFAULT_FORWARD_POLICY.*DROP' "$HOOK" && pass 'post-apply enforcement verification' || fail 'enabled/default-policy verification missing'
-grep -q 'INSTALL_DOCTOR_FIREWALL_ADMIN_CIDR' "$HOOK" && pass 'host-specific admin exception is parameterized' || fail 'admin exception parameter missing'
-if grep -qE '10\.0\.0\.155|10\.0\.0\.143|legion-firewall|LEGION-INBOUND' "$HOOK"; then fail 'host-specific Legion firewall logic remains'; else pass 'universal firewall logic is host-neutral'; fi
-grep -q 'Root/sudo unavailable' "$HOOK" && grep -A2 'Root/sudo unavailable' "$HOOK" | grep -q 'return 1' && pass 'missing privilege fails visibly' || fail 'missing privilege is silently accepted'
+if grep -Eq 'ufw[[:space:]].*(enable|default|allow|deny)|systemctl[[:space:]].*(enable|restart|start)|fail2ban-client' "$HOOK"; then
+  fail 'legacy firewall hook retains unjournaled host mutation'
+else
+  pass 'legacy firewall hook has no unjournaled host mutation'
+fi
+grep -Fq 'native firewall convergence is unsupported' "$HOOK" \
+  && pass 'unsupported firewall convergence fails with an explicit migration boundary' \
+  || fail 'firewall migration boundary is not explicit'
+grep -Fq 'exit 20' "$HOOK" \
+  && pass 'selected firewall convergence fails visibly instead of fabricating success' \
+  || fail 'selected firewall convergence does not fail closed'
+if grep -qE '10\.0\.0\.155|10\.0\.0\.143|legion-firewall|LEGION-INBOUND' "$HOOK"; then fail 'host-specific Legion firewall logic remains'; else pass 'firewall boundary is host-neutral'; fi
+if sed '/^[[:space:]]*#/d' "$HOOK" | grep -Eq 'SUDO_PASSWORD|get-secret|askpass|SUDO_ASKPASS'; then fail 'firewall boundary retrieves ambient privilege secrets'; else pass 'firewall boundary retrieves no privilege secret'; fi
 
 printf 'firewall-enforcement: %d passed, %d failed\n' "$P" "$F"
 [ "$F" -eq 0 ]

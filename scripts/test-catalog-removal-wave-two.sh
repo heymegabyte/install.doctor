@@ -36,9 +36,13 @@ if grep -Eq 'netdata-debsecan|netdata-speedtest|speedtest-cli|debsecan-by-type' 
 else
   pass "Netdata dead debsecan and speedtest branches are absent"
 fi
-grep -q 'netdata-claim.sh' "$NETDATA" && grep -q 'health_alarm_notify.conf' "$NETDATA" \
-  && pass "Netdata claim and live health configuration remain" \
-  || fail "Netdata live claim/health behavior was removed"
+if grep -Eq 'netdata-claim\.sh|health_alarm_notify\.conf|NETDATA_CLAIM_(TOKEN|ROOMS|URL)' "$NETDATA"; then
+  fail "Netdata legacy claim or live-health mutation returned outside typed authority"
+elif grep -Fq 'automated claiming and host tuning remain unsupported' "$NETDATA"; then
+  pass "Netdata legacy claim and live-health mutation remain fail-closed"
+else
+  fail "Netdata hook does not disclose its fail-closed migration boundary"
+fi
 if sed -n '/^  netdata:/,/^  [a-z]/p' "$ROOT/software.yml" | grep -qE 'debsecan|speedtest-cli'; then
   fail "netdata catalog still declares removed debsecan/speedtest-cli dependencies"
 else
