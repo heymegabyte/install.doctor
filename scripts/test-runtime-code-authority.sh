@@ -234,6 +234,14 @@ REPOSITORY_AUTHORITY_PATTERN='(curl|wget).*(githubcli-archive-keyring|download\.
 reject_pattern 'runtime paths never acquire package-manager trust directly from the network' \
   "$REPOSITORY_AUTHORITY_PATTERN" "${REPOSITORY_AUTHORITY_PATHS[@]}"
 
+NETDATA_HOOK="$ROOT/home/dot_local/bin/post-installx/executable_post-netdata.sh"
+if grep -q 'automated claiming and host tuning remain unsupported' "$NETDATA_HOOK" \
+  && ! grep -qE 'get-secret|netdata-claim|sudo|systemctl|chown|/sys/kernel' "$NETDATA_HOOK"; then
+  pass 'Netdata legacy claiming and host mutation fail closed'
+else
+  fail 'Netdata retains untyped claiming or host mutation authority'
+fi
+
 UNVERIFIED_ROOT_ARTIFACT_PATHS=(
   "$ROOT/home/.chezmoiscripts/universal/run_before_04-requirements.sh.tmpl"
   "$ROOT/home/.chezmoiscripts/universal/run_before_05-system.sh.tmpl"
