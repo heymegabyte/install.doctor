@@ -10,15 +10,17 @@
     "stateSchemaVersion": 2
   },
   "onePrompt": {
-    "revision": "53e8a023df088b24ddd3b1936af6f0393e397c88",
+    "revision": "745034133fbe4fc2dc0cd79f90412abe0bda2ede",
     "machineInterface": "scripts/convergence-machine.mjs",
+    "machineInterfaceSha256": "a624ff2bcf571b2408a7f5e4715450c6196683bda08acfba229ddb00b0b49b36",
+    "hostAdapterSha256": "fc1756d71cca92f979cb172ff82c0218fe1ac1764cfc4af41edc272104c2111d",
     "machineInterfaceMode": "real-executable-disposable-state"
   },
   "verification": {
     "shellSyntax": "fresh-pass",
     "syntheticLaunchdAndSystemd": "fresh-pass",
     "syntheticAdoptionRollback": "fresh-pass",
-    "onePromptMigrationAndHostContract": "fresh-pass-15-tests",
+    "onePromptMigrationHostDelegationAndBundle": "fresh-pass-25-tests",
     "strictOpenSpec": "fresh-pass",
     "liveStateInspection": "unverified-not-authorized",
     "liveAdoption": "unverified-not-authorized",
