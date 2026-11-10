@@ -1,30 +1,45 @@
 #!/usr/bin/env bash
 set -euo pipefail
+# INSTALL_DOCTOR_TYPED_HOOK_PROTOCOL=1
 # @file NGINX post-install configuration
-# @brief macOS NGINX config-dir symlink fixup
-# @description
-#     Post-install configuration for NGINX. On macOS it ensures the Homebrew nginx config directory is a
-#     symlink to /etc/nginx so configuration lives in one place.
-#
-#     NOTE: the former "NGINX Amplify join" (download + run the amplify-agent install.sh when
-#     NGINX_AMPLIFY_API_KEY was set) was REMOVED in fire #145. nginxinc/nginx-amplify-agent is archived
-#     (GitHub archived:true) and the Amplify service (amplify.nginx.com) was sunset by F5 — the block was dead
-#     code that fetched + executed an installer from an archived repo's MOVING master branch (an unverified
-#     remote-code-execution supply-chain gap, tracked as the #144 installer-supply-chain known-gap). Removing it
-#     eliminates the gap at the root. See docs/aid/ + scripts/test-installer-supply-chain.sh.
+# @brief Non-destructively reconciles the macOS Homebrew NGINX config link
 
-set -Eeo pipefail
-trap "gum log -sl error 'Script encountered an error!'" ERR
+is_macos() { [ "$(uname -s 2>/dev/null)" = Darwin ]; }
 
-if command -v nginx > /dev/null; then
-  if [ -d /Applications ] && [ -d /System ]; then
-    ### macOS — keep NGINX config in one place: symlink the Homebrew nginx dir to /etc/nginx
-    if [ -d "${HOMEBREW_PREFIX:-/opt/homebrew}/etc/nginx" ] && [ ! -L "${HOMEBREW_PREFIX:-/opt/homebrew}/etc/nginx" ]; then
-      gum log -sl info "Removing ${HOMEBREW_PREFIX:-/opt/homebrew}/etc/nginx directory and its contents in favor of symlink to /etc/nginx"
-      rm -rf "${HOMEBREW_PREFIX:-/opt/homebrew}/etc/nginx"
-      ln -s /etc/nginx "${HOMEBREW_PREFIX:-/opt/homebrew}/etc/nginx"
-    else
-      gum log -sl info "Skipping symlinking of /usr/local/etc/nginx to ${HOMEBREW_PREFIX:-/opt/homebrew}/etc/nginx because directory symlink already appears to be there"
-    fi
+nginx_paths() {
+  command -v nginx >/dev/null 2>&1 || return 20
+  is_macos || return 0
+  command -v brew >/dev/null 2>&1 || return 20
+  brew_prefix="$(brew --prefix 2>/dev/null)" || return 20
+  case "$brew_prefix" in /*) ;; *) return 2 ;; esac
+  case "$brew_prefix" in *$'\n'*|*$'\r'*) return 2 ;; esac
+  config_parent="$brew_prefix/etc"
+  config_path="$config_parent/nginx"
+}
+
+nginx_config_status() {
+  nginx_paths || return $?
+  is_macos || return 0
+  if [ -L "$config_path" ]; then
+    [ "$(readlink "$config_path")" = /etc/nginx ] || return 20
+    return 0
   fi
-fi
+  [ ! -e "$config_path" ] || return 20
+  [ -d /etc/nginx ] && [ ! -L /etc/nginx ] || return 20
+  [ -d "$config_parent" ] && [ ! -L "$config_parent" ] || return 20
+  return 10
+}
+
+apply_nginx_config() {
+  local status
+  if nginx_config_status; then return 0; else status=$?; fi
+  [ "$status" -eq 10 ] || return "$status"
+  ln -s /etc/nginx "$config_path"
+}
+
+case "${1:---apply}" in
+  --check) nginx_config_status ;;
+  --apply) apply_nginx_config ;;
+  --verify) if nginx_config_status; then exit 0; else status=$?; [ "$status" -eq 10 ] && exit 2; exit "$status"; fi ;;
+  *) printf 'usage: %s [--check|--apply|--verify]\n' "$0" >&2; exit 2 ;;
+esac

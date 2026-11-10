@@ -64,6 +64,9 @@ assert "postInstall" not in atuin
 vim = next(item for item in items if item["name"] == "vim")
 assert vim["configured"] is True
 assert vim["postInstall"] == "post-vim.sh"
+nginx = next(item for item in items if item["name"] == "nginx")
+assert nginx["configured"] is True
+assert nginx["postInstall"] == "post-nginx.sh"
 ripgrep = next(item for item in items if item["name"] == "ripgrep")
 assert "systemIdentityReconciliation" not in ripgrep
 PY
