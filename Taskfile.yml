@@ -61,6 +61,11 @@ tasks:
     cmds:
       - bash scripts/drift-check.sh
 
+  desktop-tools:production-readiness:
+    desc: Audit signer, release authority, DNS, and canonical profile transport without reading secrets
+    cmds:
+      - node scripts/audit-desktop-tools-production-readiness.mjs
+
   sbom:
     desc: Generate CycloneDX Software Bill of Materials (SBOM)
     cmds:

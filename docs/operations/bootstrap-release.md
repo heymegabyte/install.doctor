@@ -29,6 +29,16 @@ availability safeguard; do not treat the client-side create-only check as provid
 
 ## One-time external provisioning
 
+Run the secret-safe readiness audit before and after provisioning:
+
+```bash
+task desktop-tools:production-readiness
+```
+
+It reports only signer identifiers, configured variable names, environment names, public DNS, and
+bounded HTTP outcomes. It never requests secret values. `BLOCKED` is an expected truthful result until
+all production authorities and public routing exist; do not override it with fixture or acceptance data.
+
 These actions require authorized production access and are intentionally not fabricated by repository
 tests:
 

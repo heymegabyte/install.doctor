@@ -1,0 +1,95 @@
+#!/usr/bin/env node
+import { execFileSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
+import process from 'node:process';
+
+const REQUIRED_VARIABLES = Object.freeze([
+  'DESKTOP_TOOLS_RELEASE_SIGNER_ID',
+  'INFISICAL_DESKTOP_TOOLS_RELEASE_ACTIVATOR_ID',
+  'INFISICAL_DESKTOP_TOOLS_RELEASE_MONITOR_ID',
+  'INFISICAL_DESKTOP_TOOLS_RELEASE_PUBLISHER_ID',
+  'INFISICAL_DESKTOP_TOOLS_RELEASE_SIGNER_ID',
+  'INFISICAL_PROJECT_SLUG'
+]);
+const REQUIRED_ENVIRONMENTS = Object.freeze([
+  'desktop-tools-release-activate',
+  'desktop-tools-release-monitor',
+  'desktop-tools-release-publish',
+  'desktop-tools-release-sign'
+]);
+const ADDRESS = /^(?:\d{1,3}\.){3}\d{1,3}$|^[0-9a-f:]+$/i;
+
+function command(file, args) {
+  try {
+    return { ok: true, output: execFileSync(file, args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: 15_000 }).trim() };
+  } catch (error) {
+    return { ok: false, output: '', error: `${file} exited ${error.status ?? 'unknown'}` };
+  }
+}
+
+function publicAddresses(hostname) {
+  const values = [];
+  for (const type of ['A', 'AAAA']) {
+    const result = command('dig', ['+short', '+time=3', '+tries=1', '@1.1.1.1', hostname, type]);
+    if (result.ok) values.push(...result.output.split(/\s+/).filter(value => ADDRESS.test(value)));
+  }
+  return [...new Set(values)].sort();
+}
+
+async function httpProbe(url) {
+  try {
+    const response = await fetch(url, { redirect: 'manual', signal: AbortSignal.timeout(10_000), headers: { 'user-agent': 'desktop-tools-readiness/1' } });
+    const body = (await response.text()).slice(0, 4096);
+    return { reachable: true, status: response.status, contentType: response.headers.get('content-type') ?? '', shellLauncher: body.startsWith('#!/usr/bin/env bash') || body.startsWith('#!/bin/bash') };
+  } catch {
+    return { reachable: false, status: 0, contentType: '', shellLauncher: false };
+  }
+}
+
+async function collect(root) {
+  const trust = JSON.parse(readFileSync(`${root}/packages/control-plane/src/release-trust.json`, 'utf8'));
+  const variables = command('gh', ['variable', 'list', '--repo', 'heymegabyte/install.doctor', '--json', 'name']);
+  const environments = command('gh', ['api', 'repos/heymegabyte/install.doctor/environments', '--jq', '.environments[].name']);
+  return {
+    schemaVersion: 1,
+    signerIds: Object.keys(trust.products?.['desktop-tools']?.signers ?? {}).sort(),
+    variableNames: variables.ok ? JSON.parse(variables.output || '[]').map(value => value.name).sort() : [],
+    environmentNames: environments.ok ? environments.output.split(/\s+/).filter(Boolean).sort() : [],
+    commandErrors: [variables, environments].flatMap(result => result.ok ? [] : [result.error]),
+    dns: { apex: publicAddresses('desktop.tools'), profile: publicAddresses('example.desktop.tools') },
+    http: {
+      profile: await httpProbe('https://example.desktop.tools/'),
+      unknown: await httpProbe('https://unknown.desktop.tools/')
+    }
+  };
+}
+
+export function evaluateProductionReadiness(evidence) {
+  const checks = [];
+  const check = (id, passed, detail) => checks.push({ id, status: passed ? 'PASS' : 'BLOCKED', detail });
+  const signers = Array.isArray(evidence.signerIds) ? evidence.signerIds : [];
+  const variables = new Set(Array.isArray(evidence.variableNames) ? evidence.variableNames : []);
+  const environments = new Set(Array.isArray(evidence.environmentNames) ? evidence.environmentNames : []);
+  check('trusted-signer', signers.length > 0 && signers.every(id => /^desktop-[a-z0-9._-]+$/.test(id)), signers.length ? `${signers.length} canonical signer(s)` : 'no Desktop Tools signer is trusted');
+  const missingVariables = REQUIRED_VARIABLES.filter(name => !variables.has(name));
+  check('github-variables', missingVariables.length === 0, missingVariables.length ? `missing: ${missingVariables.join(', ')}` : 'all nonsecret variable names configured');
+  const missingEnvironments = REQUIRED_ENVIRONMENTS.filter(name => !environments.has(name));
+  check('protected-environments', missingEnvironments.length === 0, missingEnvironments.length ? `missing: ${missingEnvironments.join(', ')}` : 'all release environments configured');
+  check('dns-apex', evidence.dns?.apex?.length > 0, evidence.dns?.apex?.length ? 'desktop.tools resolves publicly' : 'desktop.tools has no public address');
+  check('dns-profile', evidence.dns?.profile?.length > 0, evidence.dns?.profile?.length ? 'example.desktop.tools resolves publicly' : 'example.desktop.tools has no public address');
+  const profile = evidence.http?.profile ?? {};
+  check('profile-launcher', profile.reachable === true && profile.status === 200 && profile.shellLauncher === true, `reachable=${profile.reachable === true} status=${profile.status ?? 0} shell=${profile.shellLauncher === true}`);
+  const unknown = evidence.http?.unknown ?? {};
+  check('unknown-profile-fail-closed', unknown.reachable === true && [404, 410].includes(unknown.status) && unknown.shellLauncher === false, `reachable=${unknown.reachable === true} status=${unknown.status ?? 0} shell=${unknown.shellLauncher === true}`);
+  check('evidence-collection', Array.isArray(evidence.commandErrors) && evidence.commandErrors.length === 0, evidence.commandErrors?.length ? evidence.commandErrors.join('; ') : 'required read-only commands succeeded');
+  return { schemaVersion: 1, ready: checks.every(item => item.status === 'PASS'), checks };
+}
+
+const args = process.argv.slice(2);
+const evidenceIndex = args.indexOf('--evidence');
+const evidence = evidenceIndex >= 0
+  ? JSON.parse(readFileSync(args[evidenceIndex + 1], 'utf8'))
+  : await collect(new URL('..', import.meta.url).pathname.replace(/\/$/, ''));
+const report = evaluateProductionReadiness(evidence);
+process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
+if (!report.ready) process.exitCode = 2;
