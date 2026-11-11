@@ -137,7 +137,7 @@
 - [ ] 12.3 Implement immutable Linux deployment planning, layering, Flatpak, reboot, status, and rollback semantics; verify on a disposable OSTree fixture.
 - [ ] 12.4 Implement Proxmox lifecycle operations for repositories, host configuration, VM/LXC metadata, guests, backup, network intent, upgrades, and maintenance; verify on a disposable or explicitly authorized canary.
 - [ ] 12.5 Implement Qubes-native qrexec-mediated dom0, template, app, disposable, and Whonix operations; verify compartment isolation and offline execution.
-- [ ] 12.6 Implement hardware-backed device keys and posture evidence where supported with explicit degraded assurance elsewhere; verify unsupported hardware never receives equivalent attestation status.
+- [x] 12.6 Implement hardware-backed device keys and posture evidence where supported with explicit degraded assurance elsewhere; verify unsupported hardware never receives equivalent attestation status.
 - [x] 12.7 Implement UPS-aware dependency shutdown and safe recovery where existing supported hardware is detected; verify only simulation unless a disruptive maintenance window is explicitly authorized.
 - [ ] 12.8 Qualify each remaining platform cell through the complete lifecycle and publish only fresh independent evidence; verify unsupported cells remain blocked.
 

@@ -25,6 +25,7 @@ export * from './mobile-reconciliation-policy.js';
 export * from './fleet-error-budget.js';
 export * from './operational-slo.js';
 export * from './credential-rotation.js';
+export * from './device-posture-attestation.js';
 export * from './fleet-capacity-cost.js';
 export * from './zfs-protection-plan.js';
 export * from './backup-authority-plan.js';
