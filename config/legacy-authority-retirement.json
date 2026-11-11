@@ -1,0 +1,69 @@
+{
+  "schemaVersion": 1,
+  "catalogAuthority": "config/catalog-authority.json",
+  "authorities": [
+    {
+      "category": "writer",
+      "state": "retained-migration-authority",
+      "paths": ["scripts/provision.sh"],
+      "successor": "packages/installer-engine/src",
+      "reason": "The typed engine owns migrated effects, but the legacy provisioner still owns explicitly unmigrated effects.",
+      "blockers": ["Complete effect-by-effect parity, interruption, rollback, canary, unchanged-reapply, and subtraction receipts."],
+      "evidenceTests": ["scripts/test-provision-engine-cutover.sh"]
+    },
+    {
+      "category": "credential",
+      "state": "retained-compatibility-authority",
+      "paths": ["packages/control-plane/src/index.ts"],
+      "successor": "packages/aid-core/src/device-authorization.ts",
+      "reason": "Legacy directly enrolled device credentials remain independently revocable for existing enrolled clients and never receive Desktop Tools scope semantics.",
+      "blockers": ["Prove every enrolled legacy credential is expired, revoked, or rebuilt through the device-bound protocol before deleting compatibility reads."],
+      "evidenceTests": ["packages/control-plane/test/credential-lifecycle-rebuild.test.mjs"]
+    },
+    {
+      "category": "scheduler",
+      "state": "retained-migration-authority",
+      "paths": ["home/dot_config/crontab/config-user", "home/dot_config/crontab/config-system"],
+      "successor": "packages/installer-engine/src/host-reconciliation.ts",
+      "reason": "Host reconciliation is typed, but the existing cron estate has not completed per-operation adoption and restart-survival evidence on enrolled hosts.",
+      "blockers": ["Inventory every live schedule, prove one scheduler per operation, then canary replacement and rollback before removing cron entries."],
+      "evidenceTests": ["scripts/test-installx-scheduler.sh", "scripts/test-update-cron.sh"]
+    },
+    {
+      "category": "collector",
+      "state": "absent",
+      "paths": [],
+      "successor": "packages/installer-engine/src/alloy-pipeline-reconciler.ts",
+      "reason": "No tracked Promtail collector authority exists; Alloy is the only admitted new Loki collector implementation.",
+      "blockers": [],
+      "evidenceTests": ["packages/installer-engine/test/alloy-pipeline-reconciler.test.mjs"]
+    },
+    {
+      "category": "catalog-generator",
+      "state": "retired-with-rollback",
+      "paths": ["scripts/software.mjs", "scripts/software-github.mjs"],
+      "successor": "packages/control-plane/scripts/gen-catalog.mjs",
+      "reason": "The canonical catalog reconciler proves deterministic byte parity and retains exact Git-blob rollback evidence for both removed writers.",
+      "blockers": [],
+      "evidenceTests": ["scripts/reconcile-catalog-authority.mjs"]
+    },
+    {
+      "category": "release-path",
+      "state": "retained-compatibility-authority",
+      "paths": ["packages/control-plane/src/bootstrap.ts"],
+      "successor": "desktop.tools schema-v10 release path",
+      "reason": "The legacy app.install.doctor signed release namespace remains source-pinned and isolated while existing callers migrate.",
+      "blockers": ["Complete production Desktop Tools activation, client migration, rollback-window expiry, and independent legacy-traffic absence evidence."],
+      "evidenceTests": ["packages/control-plane/test/control-plane.test.mjs"]
+    },
+    {
+      "category": "compatibility-shim",
+      "state": "retained-compatibility-authority",
+      "paths": ["home/dot_local/bin/executable_aid", "home/dot_local/bin/executable_aid-pair"],
+      "successor": "home/dot_local/bin/executable_desktop-tools",
+      "reason": "The aliases delegate without copying or moving state and remain observable migration entrypoints for existing users.",
+      "blockers": ["Prove caller migration and preserve a documented rollback target through the compatibility window before deleting aliases."],
+      "evidenceTests": ["scripts/test-desktop-tools-compat.sh"]
+    }
+  ]
+}
