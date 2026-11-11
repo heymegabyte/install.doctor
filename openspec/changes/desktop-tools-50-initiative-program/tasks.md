@@ -67,7 +67,7 @@
 - [ ] 6.4 Add Windows-native fixture contracts for PowerShell stage zero, package providers, ACLs, reparse points, registry, services, reboot, WSL, and secret storage; verify unsupported mutation remains preflight-denied until real evidence exists.
 - [ ] 6.5 Add Proxmox fixture coverage for repositories, ZFS, VM/LXC inventory, guest agents, backup, network intent, upgrade, and maintenance behavior; verify no generic role invents production ingress.
 - [ ] 6.6 Add Qubes fixtures for dom0, TemplateVM, AppVM, DisposableVM, Whonix, and qrexec boundaries; verify one compartment cannot broaden another's authority.
-- [ ] 6.7 Implement fault injection for process loss, reboot, ENOSPC, DNS, corrupt artifacts, expired credentials, lock loss, clock skew, permission drift, and telemetry failure; verify exact uncertain and recoverable outcomes.
+- [x] 6.7 Implement fault injection for process loss, reboot, ENOSPC, DNS, corrupt artifacts, expired credentials, lock loss, clock skew, permission drift, and telemetry failure; verify exact uncertain and recoverable outcomes.
 - [ ] 6.8 Add versioned performance benchmarks and budgets for bootstrap, plan, critical path, queue, cold/warm lazy load, and resources; verify unsafe optimizations cannot pass on speed alone.
 - [ ] 6.9 Promote the first Linux and macOS support cells only from independently attested current lifecycle receipts; verify documentation and APIs downgrade expired evidence automatically.
 
@@ -79,7 +79,7 @@
 - [ ] 7.4 Implement hardware and firmware inventory for CPU, memory, disk identity, SMART/NVMe, GPU, firmware, Secure Boot, TPM, battery, thermal, and UPS signals; verify simulated device faults identify exact host and device.
 - [ ] 7.5 Implement planned reboot coordination with active-user/workload checks, restart-safe continuation, post-boot identity, and recovery timeout; verify a missing return heartbeat never becomes success.
 - [ ] 7.6 Implement staged drift repair with intentional exceptions, cohorts, stop-on-dependent-failure, and configuration rollback; verify new access and destructive repair always remain outside automatic authorization.
-- [ ] 7.7 Add capacity and cost forecasts for disk, snapshots, replication, backups, egress, API operations, telemetry, models, and restores; verify thresholds gate sustained work before exhaustion.
+- [x] 7.7 Add capacity and cost forecasts for disk, snapshots, replication, backups, egress, API operations, telemetry, models, and restores; verify thresholds gate sustained work before exhaustion.
 - [x] 7.8 Define fleet reconciliation SLOs and error budgets; verify exhausted budgets pause dependent rollout and clear only after measured recovery.
 
 ## 8. Unified observability and operations observatory
@@ -87,7 +87,7 @@
 - [x] 8.1 Define OpenTelemetry-compatible semantic conventions for hosts, profiles, releases, runs, agents, tasks, locks, approvals, effects, costs, verification, backup, and recovery; verify bounded-cardinality and schema tests.
 - [ ] 8.2 Instrument control plane, runtime, installer engine, privileged broker, and reconciliation with correlated secret-safe logs, metrics, traces, and events; verify adversarial credentials and PII never leave source boundaries.
 - [ ] 8.3 Deploy Alloy to one disposable canary with a recovery-safe local pipeline and validated remote modules; verify invalid remote configuration retains the last valid effective pipeline.
-- [ ] 8.4 Implement bounded buffering, retry, deduplication, timestamp handling, restart survival, and delivery heartbeats; verify a running collector without queryable test evidence remains unverified.
+- [x] 8.4 Implement bounded buffering, retry, deduplication, timestamp handling, restart survival, and delivery heartbeats; verify a running collector without queryable test evidence remains unverified.
 - [ ] 8.5 Build dashboards for release adoption, fleet drift, run critical path, agent cost, secret access, platform evidence, capacity, pool health, backup freshness, replication lag, verification, and restores; verify every nonterminal state renders distinctly.
 - [ ] 8.6 Add actionable deduplicated alerts with host, workload/device, recovery impact, evidence, runbook, missing-heartbeat detection, and recovery clearing; verify simulated fault-to-alert-to-clear flow.
 - [x] 8.7 Add consented fail-open telemetry export and retention controls; verify outage never blocks safe local operation or grants mutation authority.
@@ -95,7 +95,7 @@
 
 ## 9. Data protection, ZFS, backup, and disaster recovery
 
-- [ ] 9.1 Complete per-host capability inventory and authoritative-data coverage maps for datasets, files, databases, VMs, containers, configurations, and keys; verify new unprotected sources fail coverage health.
+- [x] 9.1 Complete per-host capability inventory and authoritative-data coverage maps for datasets, files, databases, VMs, containers, configurations, and keys; verify new unprotected sources fail coverage health.
 - [ ] 9.2 Implement policy validation and discover/plan/status for Sanoid, scrubs, autosnap ownership, exclusions, schedule collision, retention dependencies, and capacity; verify read-only plans on disposable pools.
 - [ ] 9.3 Implement Syncoid destination admission, restricted identity, raw encrypted history, resume, bookmarks, holds, common anchors, bandwidth, retries, and divergence handling; verify no automatic rollback or destructive target deletion.
 - [ ] 9.4 Integrate existing suitable PBS, restic, rclone transport, and database-native backup paths without replacing functioning protection; verify source identity, mount presence, encryption, and false-success denial.

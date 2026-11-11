@@ -1,0 +1,35 @@
+{
+  "schemaVersion": 1,
+  "inventories": [{
+    "id": "zen",
+    "observedAt": "2026-11-05T00:00:00.000Z",
+    "evidenceState": "redacted-observed",
+    "os": { "family": "linux", "version": "observed version retained in protected host evidence", "architecture": "x64" },
+    "hardware": { "deviceClasses": ["nvme"], "notes": "Identifiers and health evidence remain redacted in the authorized host assessment" },
+    "filesystems": ["zfs"],
+    "pools": [{ "id": "rpool", "technology": "zfs", "health": "degraded", "encryption": "unknown" }],
+    "encryption": [{ "scope": "rpool", "state": "unknown", "reason": "Protected host evidence has not established an estate-safe public claim" }],
+    "virtualization": { "role": "unknown", "technologies": [] },
+    "services": ["sanoid", "zfs-scrub"],
+    "protectionTools": ["sanoid", "zfs"],
+    "capabilities": [
+      { "id": "zfs-snapshot", "state": "supported", "reason": "ZFS pool and Sanoid policy were observed" },
+      { "id": "zfs-replication", "state": "unknown", "reason": "No independently verified destination is recorded" },
+      { "id": "independent-restore", "state": "unknown", "reason": "Independent recovery remains a documented blocker" }
+    ]
+  }],
+  "coverage": [{
+    "hostId": "zen",
+    "inventoryObservedAt": "2026-11-05T00:00:00.000Z",
+    "sources": [{
+      "id": "zen-rpool", "kind": "dataset", "locator": "rpool", "authoritative": true,
+      "layers": [
+        { "layer": "snapshot", "state": "protected", "method": "Sanoid-owned ZFS snapshots", "reason": "Observed local policy provides recovery points" },
+        { "layer": "replication", "state": "unprotected", "reason": "No independently verified replication target is recorded" },
+        { "layer": "independent-backup", "state": "unprotected", "reason": "No usable copy outside the source failure domain is proven" },
+        { "layer": "verification", "state": "unprotected", "reason": "No completed client-side restore verification is recorded" },
+        { "layer": "restore", "state": "unprotected", "reason": "A source-independent restore has not been demonstrated" }
+      ]
+    }]
+  }]
+}
