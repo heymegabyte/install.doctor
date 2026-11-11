@@ -10,6 +10,7 @@ const DesktopReleaseFileSchema = z.enum([
   'node-macos-x64.tar.gz', 'node-macos-arm64.tar.gz', 'node-linux-x64.tar.gz', 'node-linux-arm64.tar.gz',
   'opencode-macos-x64.zip', 'opencode-macos-arm64.zip', 'opencode-linux-x64.tar.gz', 'opencode-linux-arm64.tar.gz',
   'desktop-tools-supervisor.mjs', 'desktop-tools-tools.tar.gz', 'release.sbom.json', 'release.provenance.json',
+  'release.spdx.json', 'release.exploitability.json',
   'THIRD_PARTY_LICENSES.txt', 'opencode.lock.json', 'debian-bookworm-inrelease',
   'debian-bookworm-archive-keyring.gpg', 'debian-bookworm-main-amd64-Packages.xz', 'tree_2.1.0-1_amd64.deb',
   'broker-approval-signer-delegation.json',
@@ -108,6 +109,7 @@ export async function lookupDesktopReleaseObject(binding: unknown, releaseIdValu
     : file.data === 'provision.sh' || file.data === 'start' ? 'text/x-shellscript; charset=utf-8'
     : file.data === 'desktop-tools-engine.mjs' || file.data === 'desktop-tools-supervisor.mjs' ? 'text/javascript; charset=utf-8'
     : file.data === 'catalog.json' || file.data === 'release.sbom.json' || file.data === 'release.provenance.json'
+      || file.data === 'release.spdx.json' || file.data === 'release.exploitability.json'
       || file.data === 'opencode.lock.json' || file.data === 'broker-approval-signer-delegation.json' ? 'application/json; charset=utf-8'
     : file.data === 'THIRD_PARTY_LICENSES.txt' ? 'text/plain; charset=utf-8'
     : file.data === 'debian-bookworm-inrelease' ? 'text/plain; charset=utf-8'

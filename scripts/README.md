@@ -24,7 +24,10 @@
 - **validate-software-yml.sh** — Schema validator for 1171-entry software.yml. 3 checks + install method distribution report.
 - **drift-check.sh** — `chezmoi diff` wrapper. `--json`/`--fix`/`--ci` modes. Source + target drift detection.
 - **audit-deprecated.sh** — 160 deprecated entry audit. Categorization + `--json` mode.
-- **generate-sbom.sh** — CycloneDX 1.4 SBOM from brew/apt/rpm. Wired into CI.
+- **generate-sbom.sh** — compatibility CycloneDX host/release inventory. Wired into CI.
+- **generate-spdx3-release.mjs** — SPDX 3.0.1 Core+Software release inventory with exact file hashes.
+- **generate-release-exploitability.mjs** — versioned exploitability evidence bound to SPDX bytes and the release closure.
+- **validate-release-evidence.mjs** — fail-closed SPDX reference, integrity, and exploitability-link verifier.
 
 ## Platform-Specific
 

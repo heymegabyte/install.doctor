@@ -57,7 +57,7 @@ export async function resolveActiveDesktopRelease(channelBinding: unknown, relea
   }
   const integer = z.string().regex(/^[1-9][0-9]*$/).transform(Number).refine(Number.isSafeInteger);
   const nonnegative = z.string().regex(/^(?:0|[1-9][0-9]*)$/).transform(Number).refine(Number.isSafeInteger);
-  const schemaVersion = z.enum(['7', '8', '9']).parse(values.get('schema_version'));
+  const schemaVersion = z.enum(['7', '8', '9', '10']).parse(values.get('schema_version'));
   const createdAt = integer.parse(values.get('created_at'));
   const expiresAt = integer.parse(values.get('expires_at'));
   if (values.get('product_id') !== 'desktop-tools'
@@ -70,7 +70,7 @@ export async function resolveActiveDesktopRelease(channelBinding: unknown, relea
   }
   let brokerApproval: Readonly<{ delegationUrl: string; delegationSha256: string;
     delegationSize: number; minimumRevocationEpoch: number }> | null = null;
-  if (schemaVersion === '9') {
+  if (schemaVersion === '9' || schemaVersion === '10') {
     const delegationUrl = values.get('broker_approval_delegation_url') ?? '';
     const delegationSha256 = Sha256.parse(values.get('broker_approval_delegation_sha256'));
     const delegationSize = integer.parse(values.get('broker_approval_delegation_size'));

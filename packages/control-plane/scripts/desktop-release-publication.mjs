@@ -38,20 +38,26 @@ const V8_DEBIAN_ARTIFACTS = Object.freeze([
 const V9_BROKER_ARTIFACTS = Object.freeze([
   ['broker_approval_delegation', 'broker-approval-signer-delegation.json', 65_536],
 ]);
+const V10_EVIDENCE_ARTIFACTS = Object.freeze([
+  ['spdx', 'release.spdx.json', 8_388_608],
+  ['exploitability', 'release.exploitability.json', 8_388_608],
+]);
 const artifactsForSchema = schemaVersion => schemaVersion === '7' ? V7_ARTIFACTS
   : schemaVersion === '8' ? Object.freeze([...V7_ARTIFACTS, ...V8_DEBIAN_ARTIFACTS])
-  : Object.freeze([...V7_ARTIFACTS, ...V8_DEBIAN_ARTIFACTS, ...V9_BROKER_ARTIFACTS]);
+  : schemaVersion === '9' ? Object.freeze([...V7_ARTIFACTS, ...V8_DEBIAN_ARTIFACTS, ...V9_BROKER_ARTIFACTS])
+  : Object.freeze([...V7_ARTIFACTS, ...V8_DEBIAN_ARTIFACTS, ...V9_BROKER_ARTIFACTS, ...V10_EVIDENCE_ARTIFACTS]);
 const filesForSchema = schemaVersion => Object.freeze([
   ...artifactsForSchema(schemaVersion).map(([, filename]) => filename), 'manifest.sig', 'manifest'
 ].sort());
 export const DESKTOP_RELEASE_FILES = filesForSchema('7');
 export const DESKTOP_RELEASE_V8_FILES = filesForSchema('8');
 export const DESKTOP_RELEASE_V9_FILES = filesForSchema('9');
+export const DESKTOP_RELEASE_V10_FILES = filesForSchema('10');
 const requiredKeysForSchema = schemaVersion => Object.freeze([
   'schema_version', 'product_id', 'release_id', 'source_commit', 'created_at', 'expires_at', 'key_id',
   ...artifactsForSchema(schemaVersion).flatMap(([prefix]) => [`${prefix}_url`, `${prefix}_sha256`, `${prefix}_size`]),
   'engine_node_min', 'runtime_node_version', 'opencode_version',
-  ...(schemaVersion === '9' ? ['broker_approval_minimum_revocation_epoch'] : [])
+  ...(['9', '10'].includes(schemaVersion) ? ['broker_approval_minimum_revocation_epoch'] : [])
 ]);
 const digest = bytes => createHash('sha256').update(bytes).digest('hex');
 const same = (left, right) => Buffer.compare(Buffer.from(left), Buffer.from(right)) === 0;
@@ -63,7 +69,8 @@ const canonicalValue = value => Array.isArray(value) ? value.map(canonicalValue)
     : value;
 const semanticDigest = (domain, value) => digest(Buffer.from(`${domain}\0${JSON.stringify(canonicalValue(value))}`, 'utf8'));
 const closurePayloadNames = artifacts => artifacts.map(([, name]) => name)
-  .filter(name => !['release.sbom.json', 'release.provenance.json', 'THIRD_PARTY_LICENSES.txt'].includes(name));
+  .filter(name => !['release.sbom.json', 'release.provenance.json', 'release.spdx.json',
+    'release.exploitability.json', 'THIRD_PARTY_LICENSES.txt'].includes(name));
 const DesktopPointer = z.strictObject({
   schemaVersion: z.literal(2), product: z.literal('desktop-tools'), channel: id,
   generation: z.number().int().positive().safe(), kind: z.enum(['promote', 'rollback']),
@@ -88,7 +95,7 @@ function parseManifest(bytes) {
     values.set(key, value);
   }
   const schemaVersion = values.get('schema_version');
-  if (!['7', '8', '9'].includes(schemaVersion)) throw new Error('manifest schema is unsupported');
+  if (!['7', '8', '9', '10'].includes(schemaVersion)) throw new Error('manifest schema is unsupported');
   if (JSON.stringify([...values.keys()].sort()) !== JSON.stringify([...requiredKeysForSchema(schemaVersion)].sort())) {
     throw new Error(`manifest key set does not match Desktop Tools schema v${schemaVersion}`);
   }
@@ -227,6 +234,37 @@ function validateClosureMetadata(files, releaseId, sourceCommit, opencodeVersion
     || !/opencode/i.test(licenses) || !licenses.includes(opencodeVersion)) {
     throw new Error('third-party licenses do not identify the pinned OpenCode version');
   }
+
+  if (schemaVersion === '10') {
+    const spdxBytes = files.get('release.spdx.json');
+    const spdx = parseJsonObject(spdxBytes, 'SPDX inventory');
+    if (spdx['@context'] !== 'https://spdx.org/rdf/3.0.1/spdx-context.jsonld' || !Array.isArray(spdx['@graph'])) {
+      throw new Error('SPDX 3.0.1 envelope is invalid');
+    }
+    const document = spdx['@graph'].find(element => element?.type === 'SpdxDocument');
+    if (document?.profileConformance?.join(',') !== 'core,software') throw new Error('SPDX profile conformance is invalid');
+    const spdxFiles = new Map();
+    for (const element of spdx['@graph'].filter(item => item?.type === 'software_File')) {
+      const hashes = element.verifiedUsing?.filter(item => item?.type === 'Hash' && item?.algorithm === 'sha256');
+      if (typeof element.name !== 'string' || hashes?.length !== 1 || !sha256.safeParse(hashes[0].hashValue).success
+        || spdxFiles.has(element.name)) throw new Error('SPDX file evidence is ambiguous');
+      spdxFiles.set(element.name, hashes[0].hashValue);
+    }
+    const expectedClosure = new Map(closurePayloadNames(artifacts).map(name => [name, digest(files.get(name))]));
+    if (JSON.stringify([...spdxFiles.entries()].sort()) !== JSON.stringify([...expectedClosure.entries()].sort())) {
+      throw new Error('SPDX inventory does not bind the exact release payload closure');
+    }
+    const exploitability = parseJsonObject(files.get('release.exploitability.json'), 'release exploitability statement');
+    const closure = Object.fromEntries([...expectedClosure.entries()].sort());
+    if (exploitability.schemaVersion !== 1 || exploitability.kind !== 'desktop-tools-release-exploitability'
+      || exploitability.releaseId !== releaseId || exploitability.spdx?.specVersion !== '3.0.1'
+      || exploitability.spdx?.sha256 !== digest(spdxBytes)
+      || JSON.stringify(exploitability.releaseClosure?.artifacts) !== JSON.stringify(closure)
+      || exploitability.releaseClosure?.sha256 !== digest(Buffer.from(`${JSON.stringify(closure)}\n`))
+      || !Array.isArray(exploitability.assessments)) {
+      throw new Error('release exploitability statement is invalid or not digest-bound');
+    }
+  }
 }
 
 function inspectFiles(files, expectedReleaseIdInput, now = Math.floor(Date.now() / 1_000), requireCurrent = true) {
@@ -266,9 +304,9 @@ function inspectFiles(files, expectedReleaseIdInput, now = Math.floor(Date.now()
       throw new Error(`URL binding mismatch: ${filename}`);
     }
   }
-  const minimumRevocationEpoch = schemaVersion === '9'
+  const minimumRevocationEpoch = ['9', '10'].includes(schemaVersion)
     ? nonnegative.parse(manifest.get('broker_approval_minimum_revocation_epoch')) : null;
-  const brokerApprovalDelegation = schemaVersion === '9'
+  const brokerApprovalDelegation = ['9', '10'].includes(schemaVersion)
     ? validateBrokerApprovalDelegation(files.get('broker-approval-signer-delegation.json'), {
       releaseId, createdAt, expiresAt, minimumRevocationEpoch
     }) : null;
@@ -285,7 +323,8 @@ export async function inspectDesktopReleaseDirectory(directoryInput, expectedRel
   const names = (await readdir(directory)).sort();
   const releaseFiles = JSON.stringify(names) === JSON.stringify(DESKTOP_RELEASE_FILES) ? DESKTOP_RELEASE_FILES
     : JSON.stringify(names) === JSON.stringify(DESKTOP_RELEASE_V8_FILES) ? DESKTOP_RELEASE_V8_FILES
-    : JSON.stringify(names) === JSON.stringify(DESKTOP_RELEASE_V9_FILES) ? DESKTOP_RELEASE_V9_FILES : null;
+    : JSON.stringify(names) === JSON.stringify(DESKTOP_RELEASE_V9_FILES) ? DESKTOP_RELEASE_V9_FILES
+    : JSON.stringify(names) === JSON.stringify(DESKTOP_RELEASE_V10_FILES) ? DESKTOP_RELEASE_V10_FILES : null;
   if (!releaseFiles) throw new Error('release directory does not match the exact allowlist');
   const files = new Map();
   for (const name of releaseFiles) {

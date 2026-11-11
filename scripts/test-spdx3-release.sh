@@ -25,6 +25,8 @@ if (createHash('sha256').update(bytes).digest('hex') !== '582c64e809d5b3ef9bd0c4
 await writeFile(process.argv[2], bytes, { flag: 'wx' });
 NODE
 npx --yes ajv-cli@5.0.0 validate --spec=draft2020 -s "$TMP/schema.json" -d "$TMP/release.spdx.json"
+uvx --no-config --default-index https://pypi.org/simple --from spdx3-validate \
+  spdx3-validate --quiet --spdx-version 3.0.1 --json "$TMP/release.spdx.json"
 
 cp "$TMP/release.exploitability.json" "$TMP/tampered.json"
 node --input-type=module - "$TMP/tampered.json" <<'NODE'
@@ -34,4 +36,4 @@ NODE
 if node "$ROOT/scripts/validate-release-evidence.mjs" --spdx "$TMP/release.spdx.json" --exploitability "$TMP/tampered.json" >/dev/null 2>&1; then
   echo 'FAIL accepted a mismatched SPDX digest' >&2; exit 1
 fi
-printf 'spdx3-release: 6 passed, 0 failed\n'
+printf 'spdx3-release: 7 passed, 0 failed\n'

@@ -67,7 +67,7 @@ readonly SIGNATURE_URL=${literal(config.signatureUrl)}
 readonly SIGNER_ID=${literal(config.signerIdentity)}
 readonly SIGNER_KEY=${literal(config.signerPublicKey)}
 readonly EXPECTED_RELEASE_ID=${literal(expectedReleaseId)}
-readonly EXPECTED_MANIFEST_SCHEMA=${literal(config.product === 'desktop-tools' ? '9' : '5')}
+readonly EXPECTED_MANIFEST_SCHEMA=${literal(config.product === 'desktop-tools' ? '10' : '5')}
 readonly EXPECTED_PRODUCT_ID=${literal(config.product === 'desktop-tools' ? 'desktop-tools' : '')}
 readonly DESKTOP_TOOLS_PROFILE_ID=${literal(config.profile?.id ?? '')}
 readonly DESKTOP_TOOLS_PROFILE_SLUG=${literal(config.profile?.slug ?? '')}
@@ -155,6 +155,8 @@ SUPERVISOR="$STAGE/desktop-tools-supervisor.mjs"
 TOOLS="$STAGE/desktop-tools-tools.tar.gz"
 SBOM="$STAGE/release.sbom.json"
 PROVENANCE="$STAGE/release.provenance.json"
+SPDX="$STAGE/release.spdx.json"
+EXPLOITABILITY="$STAGE/release.exploitability.json"
 LICENSES="$STAGE/THIRD_PARTY_LICENSES.txt"
 OPENCODE_LOCK="$STAGE/opencode.lock.json"
 BROKER_APPROVAL_DELEGATION="$STAGE/broker-approval-signer-delegation.json"
@@ -170,7 +172,7 @@ ssh-keygen -Y verify -f "$ALLOWED_SIGNERS" -I "$SIGNER_ID" -n "$SIGNATURE_NAMESP
   || die 'release manifest signature verification failed'
 
 schema_version= product_id= release_id= source_commit= created_at= expires_at= key_id= artifact_url= artifact_sha256= artifact_size= engine_url= engine_sha256= engine_size= catalog_url= catalog_sha256= catalog_size= launcher_url= launcher_sha256= launcher_size= engine_node_min= runtime_node_version= opencode_version=
-supervisor_url= supervisor_sha256= supervisor_size= tools_url= tools_sha256= tools_size= sbom_url= sbom_sha256= sbom_size= provenance_url= provenance_sha256= provenance_size= licenses_url= licenses_sha256= licenses_size= opencode_lock_url= opencode_lock_sha256= opencode_lock_size=
+supervisor_url= supervisor_sha256= supervisor_size= tools_url= tools_sha256= tools_size= sbom_url= sbom_sha256= sbom_size= provenance_url= provenance_sha256= provenance_size= spdx_url= spdx_sha256= spdx_size= exploitability_url= exploitability_sha256= exploitability_size= licenses_url= licenses_sha256= licenses_size= opencode_lock_url= opencode_lock_sha256= opencode_lock_size=
 runtime_macos_x64_url= runtime_macos_x64_sha256= runtime_macos_x64_size= runtime_macos_arm64_url= runtime_macos_arm64_sha256= runtime_macos_arm64_size=
 runtime_linux_x64_url= runtime_linux_x64_sha256= runtime_linux_x64_size= runtime_linux_arm64_url= runtime_linux_arm64_sha256= runtime_linux_arm64_size=
 opencode_macos_x64_url= opencode_macos_x64_sha256= opencode_macos_x64_size= opencode_macos_arm64_url= opencode_macos_arm64_sha256= opencode_macos_arm64_size=
@@ -215,6 +217,12 @@ while IFS='=' read -r key value; do
     provenance_url) [ -z "$provenance_url" ] || die 'release manifest repeats provenance_url'; provenance_url="$value" ;;
     provenance_sha256) [ -z "$provenance_sha256" ] || die 'release manifest repeats provenance_sha256'; provenance_sha256="$value" ;;
     provenance_size) [ -z "$provenance_size" ] || die 'release manifest repeats provenance_size'; provenance_size="$value" ;;
+    spdx_url) [ -z "$spdx_url" ] || die 'release manifest repeats spdx_url'; spdx_url="$value" ;;
+    spdx_sha256) [ -z "$spdx_sha256" ] || die 'release manifest repeats spdx_sha256'; spdx_sha256="$value" ;;
+    spdx_size) [ -z "$spdx_size" ] || die 'release manifest repeats spdx_size'; spdx_size="$value" ;;
+    exploitability_url) [ -z "$exploitability_url" ] || die 'release manifest repeats exploitability_url'; exploitability_url="$value" ;;
+    exploitability_sha256) [ -z "$exploitability_sha256" ] || die 'release manifest repeats exploitability_sha256'; exploitability_sha256="$value" ;;
+    exploitability_size) [ -z "$exploitability_size" ] || die 'release manifest repeats exploitability_size'; exploitability_size="$value" ;;
     licenses_url) [ -z "$licenses_url" ] || die 'release manifest repeats licenses_url'; licenses_url="$value" ;;
     licenses_sha256) [ -z "$licenses_sha256" ] || die 'release manifest repeats licenses_sha256'; licenses_sha256="$value" ;;
     licenses_size) [ -z "$licenses_size" ] || die 'release manifest repeats licenses_size'; licenses_size="$value" ;;
@@ -283,6 +291,8 @@ if [ -n "$EXPECTED_PRODUCT_ID" ]; then
     && [ -n "$tools_url" ] && [ -n "$tools_sha256" ] && [ -n "$tools_size" ] \
     && [ -n "$sbom_url" ] && [ -n "$sbom_sha256" ] && [ -n "$sbom_size" ] \
     && [ -n "$provenance_url" ] && [ -n "$provenance_sha256" ] && [ -n "$provenance_size" ] \
+    && [ -n "$spdx_url" ] && [ -n "$spdx_sha256" ] && [ -n "$spdx_size" ] \
+    && [ -n "$exploitability_url" ] && [ -n "$exploitability_sha256" ] && [ -n "$exploitability_size" ] \
     && [ -n "$licenses_url" ] && [ -n "$licenses_sha256" ] && [ -n "$licenses_size" ] \
     && [ -n "$opencode_lock_url" ] && [ -n "$opencode_lock_sha256" ] && [ -n "$opencode_lock_size" ] \
     && [ -n "$opencode_macos_x64_url" ] && [ -n "$opencode_macos_x64_sha256" ] && [ -n "$opencode_macos_x64_size" ] \
@@ -349,6 +359,8 @@ if [ -n "$EXPECTED_PRODUCT_ID" ]; then
     'tools:desktop-tools-tools.tar.gz:33554432' \
     'sbom:release.sbom.json:8388608' \
     'provenance:release.provenance.json:8388608' \
+    'spdx:release.spdx.json:8388608' \
+    'exploitability:release.exploitability.json:8388608' \
     'licenses:THIRD_PARTY_LICENSES.txt:8388608' \
     'opencode_lock:opencode.lock.json:8388608' \
     'debian_inrelease:debian-bookworm-inrelease:16777216' \
@@ -442,6 +454,8 @@ if [ -n "$EXPECTED_PRODUCT_ID" ]; then
   download "$tools_url" "$TOOLS" "$tools_size" & DOWNLOAD_PIDS+=("$!")
   download "$sbom_url" "$SBOM" "$sbom_size" & DOWNLOAD_PIDS+=("$!")
   download "$provenance_url" "$PROVENANCE" "$provenance_size" & DOWNLOAD_PIDS+=("$!")
+  download "$spdx_url" "$SPDX" "$spdx_size" & DOWNLOAD_PIDS+=("$!")
+  download "$exploitability_url" "$EXPLOITABILITY" "$exploitability_size" & DOWNLOAD_PIDS+=("$!")
   download "$licenses_url" "$LICENSES" "$licenses_size" & DOWNLOAD_PIDS+=("$!")
   download "$opencode_lock_url" "$OPENCODE_LOCK" "$opencode_lock_size" & DOWNLOAD_PIDS+=("$!")
   download "$broker_approval_delegation_url" "$BROKER_APPROVAL_DELEGATION" "$broker_approval_delegation_size" & DOWNLOAD_PIDS+=("$!")
@@ -470,6 +484,8 @@ if [ -n "$EXPECTED_PRODUCT_ID" ]; then
     "$TOOLS:$tools_size:$tools_sha256:tools" \
     "$SBOM:$sbom_size:$sbom_sha256:SBOM" \
     "$PROVENANCE:$provenance_size:$provenance_sha256:provenance" \
+    "$SPDX:$spdx_size:$spdx_sha256:SPDX" \
+    "$EXPLOITABILITY:$exploitability_size:$exploitability_sha256:exploitability" \
     "$LICENSES:$licenses_size:$licenses_sha256:licenses" \
     "$OPENCODE_LOCK:$opencode_lock_size:$opencode_lock_sha256:OpenCode-lock"; do
     IFS=: read -r verified_path verified_size verified_sha verified_label <<< "$verified_spec"
@@ -482,15 +498,15 @@ fi
 chmod 0700 "$ARTIFACT" "$ENGINE"
 chmod 0600 "$CATALOG"
 [ "$runtime_source" = 'system' ] || chmod 0600 "$RUNTIME_ARCHIVE"
-if [ -n "$EXPECTED_PRODUCT_ID" ]; then chmod 0700 "$SUPERVISOR"; chmod 0600 "$OPENCODE_ARCHIVE" "$TOOLS" "$SBOM" "$PROVENANCE" "$LICENSES" "$OPENCODE_LOCK" "$BROKER_APPROVAL_DELEGATION"; fi
+if [ -n "$EXPECTED_PRODUCT_ID" ]; then chmod 0700 "$SUPERVISOR"; chmod 0600 "$OPENCODE_ARCHIVE" "$TOOLS" "$SBOM" "$PROVENANCE" "$SPDX" "$EXPLOITABILITY" "$LICENSES" "$OPENCODE_LOCK" "$BROKER_APPROVAL_DELEGATION"; fi
 manifest_sha256="$(sha256 "$MANIFEST")"
 
 # Legacy schema-v5 releases do not carry the Desktop Tools runtime closure.
 # Keep every v9-only path and digest absent so the provisioner cannot mistake
 # empty stage filenames for partial signed authority.
 if [ -z "$EXPECTED_PRODUCT_ID" ]; then
-  OPENCODE_ARCHIVE=''; SUPERVISOR=''; TOOLS=''; SBOM=''; PROVENANCE=''; LICENSES=''; OPENCODE_LOCK=''; BROKER_APPROVAL_DELEGATION=''
-  opencode_version=''; opencode_sha256=''; supervisor_sha256=''; tools_sha256=''; sbom_sha256=''; provenance_sha256=''; licenses_sha256=''; opencode_lock_sha256=''
+  OPENCODE_ARCHIVE=''; SUPERVISOR=''; TOOLS=''; SBOM=''; PROVENANCE=''; SPDX=''; EXPLOITABILITY=''; LICENSES=''; OPENCODE_LOCK=''; BROKER_APPROVAL_DELEGATION=''
+  opencode_version=''; opencode_sha256=''; supervisor_sha256=''; tools_sha256=''; sbom_sha256=''; provenance_sha256=''; spdx_sha256=''; exploitability_sha256=''; licenses_sha256=''; opencode_lock_sha256=''
   broker_approval_delegation_sha256=''; broker_approval_minimum_revocation_epoch=''
 fi
 
@@ -530,7 +546,7 @@ env -i \\
   DESKTOP_TOOLS_SUPERVISOR_PATH="$SUPERVISOR" DESKTOP_TOOLS_SUPERVISOR_SHA256="$supervisor_sha256" \\
   DESKTOP_TOOLS_TOOLS_ARCHIVE="$TOOLS" DESKTOP_TOOLS_TOOLS_SHA256="$tools_sha256" \\
   DESKTOP_TOOLS_NATIVE_BROKER_REQUESTED="$native_broker_requested" \\
-  DESKTOP_TOOLS_SBOM_PATH="$SBOM" DESKTOP_TOOLS_PROVENANCE_PATH="$PROVENANCE" DESKTOP_TOOLS_LICENSES_PATH="$LICENSES" \\
+  DESKTOP_TOOLS_SBOM_PATH="$SBOM" DESKTOP_TOOLS_PROVENANCE_PATH="$PROVENANCE" DESKTOP_TOOLS_SPDX_PATH="$SPDX" DESKTOP_TOOLS_EXPLOITABILITY_PATH="$EXPLOITABILITY" DESKTOP_TOOLS_LICENSES_PATH="$LICENSES" \\
   DESKTOP_TOOLS_OPENCODE_LOCK_PATH="$OPENCODE_LOCK" DESKTOP_TOOLS_OPENCODE_LOCK_SHA256="$opencode_lock_sha256" \\
   DESKTOP_TOOLS_BROKER_APPROVAL_DELEGATION_PATH="$BROKER_APPROVAL_DELEGATION" DESKTOP_TOOLS_BROKER_APPROVAL_DELEGATION_SHA256="$broker_approval_delegation_sha256" \\
   DESKTOP_TOOLS_BROKER_APPROVAL_MINIMUM_REVOCATION_EPOCH="$broker_approval_minimum_revocation_epoch" \\

@@ -36,7 +36,7 @@ test('creates a canonical public broker approval delegation from source-owned re
 
 const inputs = createDesktopReleaseInputs;
 
-test('builds deterministic unsigned Desktop Tools v9 closure with release-delegated broker approval authority', async t => {
+test('builds deterministic unsigned Desktop Tools v10 closure with delegated approval and SPDX evidence', async t => {
   const root = await mkdtemp(join(tmpdir(), 'desktop-builder-test-'));
   t.after(() => rm(root, { recursive: true, force: true }));
   const now = Math.floor(Date.now() / 1_000);
@@ -49,15 +49,16 @@ test('builds deterministic unsigned Desktop Tools v9 closure with release-delega
   const expected = ['THIRD_PARTY_LICENSES.txt','catalog.json','desktop-tools-engine.mjs','desktop-tools-supervisor.mjs',
     'desktop-tools-tools.tar.gz','manifest','node-linux-arm64.tar.gz','node-linux-x64.tar.gz','node-macos-arm64.tar.gz',
     'node-macos-x64.tar.gz','opencode-linux-arm64.tar.gz','opencode-linux-x64.tar.gz','opencode-macos-arm64.zip',
-    'opencode-macos-x64.zip','opencode.lock.json','provision.sh','release.provenance.json','release.sbom.json','start',
+    'opencode-macos-x64.zip','opencode.lock.json','provision.sh','release.exploitability.json','release.provenance.json','release.sbom.json','release.spdx.json','start',
     'broker-approval-signer-delegation.json',
     'debian-bookworm-archive-keyring.gpg','debian-bookworm-inrelease','debian-bookworm-main-amd64-Packages.xz','tree_2.1.0-1_amd64.deb'].sort();
   assert.deepEqual((await readdir(first.outputDirectory)).sort(), expected);
   assert.deepEqual(await readFile(join(first.outputDirectory, 'manifest')), await readFile(join(second.outputDirectory, 'manifest')));
   assert.deepEqual(await readFile(join(first.outputDirectory, 'start')), await readFile(join(second.outputDirectory, 'start')));
+  execFileSync('bash', ['-n', join(first.outputDirectory, 'start')]);
   const manifest = await readFile(join(first.outputDirectory, 'manifest'), 'utf8');
-  assert.match(manifest, /^schema_version=9$/m);
-  assert.equal(manifest.trimEnd().split('\n').length, 80);
+  assert.match(manifest, /^schema_version=10$/m);
+  assert.equal(manifest.trimEnd().split('\n').length, 86);
   assert.match(manifest, /^broker_approval_minimum_revocation_epoch=7$/m);
   assert.match(manifest, /^broker_approval_delegation_sha256=[a-f0-9]{64}$/m);
   for (const prefix of ['debian_inrelease','debian_keyring','debian_packages','debian_tree']) assert.match(manifest, new RegExp(`^${prefix}_sha256=[a-f0-9]{64}$`, 'm'));
@@ -72,6 +73,13 @@ test('builds deterministic unsigned Desktop Tools v9 closure with release-delega
   const provenance = JSON.parse(await readFile(join(first.outputDirectory, 'release.provenance.json'), 'utf8'));
   assert.equal(provenance.predicate.buildDefinition.externalParameters.brokerApprovalDelegationSha256, delegationDigest);
   assert.equal(provenance.predicate.buildDefinition.externalParameters.brokerApprovalMinimumRevocationEpoch, 7);
+  const spdxBytes = await readFile(join(first.outputDirectory, 'release.spdx.json'));
+  const spdx = JSON.parse(spdxBytes);
+  assert.equal(spdx['@context'], 'https://spdx.org/rdf/3.0.1/spdx-context.jsonld');
+  assert.deepEqual(spdx['@graph'].find(element => element.type === 'SpdxDocument').profileConformance, ['core', 'software']);
+  const exploitability = JSON.parse(await readFile(join(first.outputDirectory, 'release.exploitability.json'), 'utf8'));
+  assert.equal(exploitability.spdx.sha256, digest(spdxBytes));
+  assert.equal(exploitability.kind, 'desktop-tools-release-exploitability');
   await assert.rejects(buildDesktopToolsRelease({ ...base, outputDirectory: first.outputDirectory }, now), /overwrite/);
 
 });
@@ -158,6 +166,21 @@ test('signs and verifies the complete closure offline; tamper, surplus, and ever
     await assert.rejects(verifyDesktopToolsReleaseOffline({ directory: tampered, expectedReleaseId: source.releaseId,
       signerId: 'desktop-production-1', publicKeyPath: publicKeyFile, now }), /artifact binding/);
   }
+  const evidenceTamper = join(root, 'tampered-evidence'); await cp(signed, evidenceTamper, { recursive: true });
+  const exploitabilityPath = join(evidenceTamper, 'release.exploitability.json');
+  const exploitability = JSON.parse(await readFile(exploitabilityPath, 'utf8'));
+  exploitability.spdx.sha256 = '0'.repeat(64);
+  const exploitabilityBytes = Buffer.from(`${JSON.stringify(exploitability)}\n`);
+  await writeFile(exploitabilityPath, exploitabilityBytes);
+  const manifestPath = join(evidenceTamper, 'manifest');
+  const reboundManifest = (await readFile(manifestPath, 'utf8'))
+    .replace(/^exploitability_sha256=.*$/m, `exploitability_sha256=${digest(exploitabilityBytes)}`)
+    .replace(/^exploitability_size=.*$/m, `exploitability_size=${exploitabilityBytes.byteLength}`);
+  await writeFile(manifestPath, reboundManifest);
+  await rm(join(evidenceTamper, 'manifest.sig'));
+  execFileSync('ssh-keygen', ['-Y', 'sign', '-q', '-f', privateKey, '-n', 'desktop.tools.release', manifestPath]);
+  await assert.rejects(verifyDesktopToolsReleaseOffline({ directory: evidenceTamper, expectedReleaseId: source.releaseId,
+    signerId: 'desktop-production-1', publicKeyPath: publicKeyFile, now }), /exploitability statement/);
   const surplus = join(root, 'surplus'); await cp(signed, surplus, { recursive: true }); await writeFile(join(surplus, 'unexpected'), 'x');
   await assert.rejects(verifyDesktopToolsReleaseOffline({ directory: surplus, expectedReleaseId: source.releaseId,
     signerId: 'desktop-production-1', publicKeyPath: publicKeyFile, now }), /exact allowlist/);

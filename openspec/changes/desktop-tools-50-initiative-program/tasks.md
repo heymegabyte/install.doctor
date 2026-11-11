@@ -14,7 +14,7 @@
 - [x] 2.1 Define strict delegated root, targets, platform, channel, snapshot, timestamp, build, publish, activate, monitor, and revocation metadata schemas; verify threshold, expiry, rollback, freeze, and substitution fixtures fail closed.
 - [x] 2.2 Implement offline-rooted key rotation and emergency revocation ceremonies with overlap and recovery instructions; verify a disposable old-key/new-key/revoked-key drill without exposing private material.
 - [x] 2.3 Implement immutable third-party artifact admission with signature/checksum, bounded transport, license, mirror, and provenance evidence; verify mutable-reference and changed-byte fixtures become new candidates rather than replacements.
-- [ ] 2.4 Generate SPDX 3 software and applicable AI/data inventories plus separate versioned exploitability statements for every release closure; verify schema validity and exact digest linkage.
+- [x] 2.4 Generate SPDX 3 software and applicable AI/data inventories plus separate versioned exploitability statements for every release closure; verify schema validity and exact digest linkage.
 - [ ] 2.5 Add isolated hosted build provenance and GitHub artifact attestations for release artifacts; verify publication rejects an unapproved workflow, builder, commit, or subject digest.
 - [ ] 2.6 Add reproducibility comparison for the installer engine, privileged broker, runtime, and launchers where supported; verify unexplained output divergence blocks release admission.
 - [ ] 2.7 Replace long-lived CI publication credentials with claim-bound OIDC or record a provider-specific blocker; verify subject, audience, repository, workflow, environment, and ref substitution are denied.

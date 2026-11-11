@@ -73,8 +73,50 @@ function jsonObject(source, label) {
 
 function expectedPayloads(sources) {
   return new Map([...sources.entries()]
-    .filter(([name]) => !['release.sbom.json', 'release.provenance.json', 'THIRD_PARTY_LICENSES.txt'].includes(name))
+    .filter(([name]) => !['release.sbom.json', 'release.provenance.json', 'release.spdx.json',
+      'release.exploitability.json', 'THIRD_PARTY_LICENSES.txt'].includes(name))
     .map(([name, source]) => [name, sha256(source.bytes)]));
+}
+
+function spdxReleaseEvidence(expected, config) {
+  const createdAt = new Date(config.createdAt * 1_000).toISOString().replace('.000Z', 'Z');
+  const namespace = `https://desktop.tools/spdx/releases/${encodeURIComponent(config.releaseId)}`;
+  const creation = '_:creationinfo';
+  const supplier = `${namespace}#organization-desktop-tools`;
+  const bomId = `${namespace}#sbom`;
+  const packageId = `${namespace}#package`;
+  const files = [...expected.entries()].sort().map(([name, digest]) => ({
+    type: 'software_File', spdxId: `${namespace}#file-${digest}-${encodeURIComponent(name)}`,
+    creationInfo: creation, name, software_primaryPurpose: name.endsWith('.json') ? 'source' : 'other',
+    builtTime: createdAt, originatedBy: [supplier],
+    verifiedUsing: [{ type: 'Hash', algorithm: 'sha256', hashValue: digest }],
+  }));
+  const fileIds = files.map(({ spdxId }) => spdxId);
+  const relationshipId = `${namespace}#relationship-contains`;
+  const spdx = { '@context': 'https://spdx.org/rdf/3.0.1/spdx-context.jsonld', '@graph': [
+    { type: 'CreationInfo', '@id': creation, createdBy: [supplier], specVersion: '3.0.1', created: createdAt },
+    { type: 'Organization', spdxId: supplier, creationInfo: creation, name: 'Desktop Tools' },
+    { type: 'SpdxDocument', spdxId: namespace, creationInfo: creation, rootElement: [bomId],
+      element: [bomId, supplier, packageId, relationshipId, ...fileIds], profileConformance: ['core', 'software'],
+      comment: 'AI and Dataset profiles are not applicable: this closure contains no model weights or training datasets.' },
+    { type: 'software_Sbom', spdxId: bomId, creationInfo: creation, rootElement: [packageId],
+      element: [packageId, relationshipId, ...fileIds], software_sbomType: ['build'] },
+    { type: 'software_Package', spdxId: packageId, creationInfo: creation, name: 'desktop-tools-release',
+      software_packageVersion: config.releaseId, software_downloadLocation: `https://desktop.tools/releases/${config.releaseId}/`,
+      software_primaryPurpose: 'application', builtTime: createdAt, releaseTime: createdAt, suppliedBy: supplier,
+      originatedBy: [supplier], software_sourceInfo: `git+https://github.com/heymegabyte/install.doctor@${config.sourceCommit}` },
+    ...files,
+    { type: 'Relationship', spdxId: relationshipId, creationInfo: creation, from: packageId,
+      relationshipType: 'contains', to: fileIds, completeness: 'complete' },
+  ] };
+  const spdxBytes = Buffer.from(`${JSON.stringify(spdx)}\n`);
+  const artifacts = Object.fromEntries([...expected.entries()].sort());
+  const closureSha256 = sha256(Buffer.from(`${JSON.stringify(artifacts)}\n`));
+  const exploitability = { schemaVersion: 1, kind: 'desktop-tools-release-exploitability',
+    releaseId: config.releaseId, createdAt, spdx: { specVersion: '3.0.1', sha256: sha256(spdxBytes) },
+    releaseClosure: { sha256: closureSha256, artifacts }, assessments: [] };
+  return { spdx, spdxBytes, exploitability,
+    exploitabilityBytes: Buffer.from(`${JSON.stringify(exploitability)}\n`) };
 }
 
 function validateSbom(value, expected, config) {
@@ -316,12 +358,16 @@ export async function buildDesktopToolsRelease(configurationInput, now = Math.fl
   };
   sources.set('release.sbom.json', { path: null, bytes: Buffer.from(`${JSON.stringify(sbom)}\n`) });
   sources.set('release.provenance.json', { path: null, bytes: Buffer.from(`${JSON.stringify(provenance)}\n`) });
+  const releaseEvidence = spdxReleaseEvidence(expected, config);
+  sources.set('release.spdx.json', { path: null, bytes: releaseEvidence.spdxBytes });
+  sources.set('release.exploitability.json', { path: null, bytes: releaseEvidence.exploitabilityBytes });
   validateSbom(sbom, expected, config);
   validateProvenance(provenance, expected, config, lock);
   const artifacts = [
     ['artifact', 'provision.sh'], ['engine', 'desktop-tools-engine.mjs'], ['catalog', 'catalog.json'],
     ['launcher', 'start'], ['supervisor', 'desktop-tools-supervisor.mjs'], ['tools', 'desktop-tools-tools.tar.gz'],
-    ['opencode_lock', 'opencode.lock.json'], ['sbom', 'release.sbom.json'], ['provenance', 'release.provenance.json'], ['licenses', 'THIRD_PARTY_LICENSES.txt'],
+    ['opencode_lock', 'opencode.lock.json'], ['sbom', 'release.sbom.json'], ['provenance', 'release.provenance.json'],
+    ['spdx', 'release.spdx.json'], ['exploitability', 'release.exploitability.json'], ['licenses', 'THIRD_PARTY_LICENSES.txt'],
     ['broker_approval_delegation', 'broker-approval-signer-delegation.json'],
     ['debian_keyring', 'debian-bookworm-archive-keyring.gpg'], ['debian_inrelease', 'debian-bookworm-inrelease'],
     ['debian_packages', 'debian-bookworm-main-amd64-Packages.xz'], ['debian_tree', 'tree_2.1.0-1_amd64.deb'],
@@ -329,7 +375,7 @@ export async function buildDesktopToolsRelease(configurationInput, now = Math.fl
     ...platforms.map(platform => [`opencode_${platform}`, opencodeFilename(platform)])
   ];
   const bytesByName = new Map([...sources.entries()].map(([name, source]) => [name, source.bytes]));
-  const lines = ['schema_version=9', 'product_id=desktop-tools', `release_id=${config.releaseId}`,
+  const lines = ['schema_version=10', 'product_id=desktop-tools', `release_id=${config.releaseId}`,
     `source_commit=${config.sourceCommit}`, `created_at=${config.createdAt}`, `expires_at=${config.expiresAt}`,
     `key_id=${config.signerId}`, 'engine_node_min=22', `runtime_node_version=${config.runtimeNodeVersion}`,
     `opencode_version=${config.opencodeVersion}`,
