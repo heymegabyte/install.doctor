@@ -69,6 +69,37 @@ export type VerifiedPasskeySession = {
   credentialRevocationEpoch: number;
 };
 
+/** Parse only the documented Better Auth passkey verification response and WebAuthn credential id.
+ * Cryptographic verification has already happened inside the official handler; this projection cannot
+ * manufacture success from a malformed or unrelated response. */
+export function verifiedPasskeySessionFromBetterAuth(
+  completedInput: unknown,
+  requestInput: unknown,
+  origin: string,
+  credentialRevocationEpoch: number,
+): VerifiedPasskeySession | null {
+  const completed = z.object({
+    user: z.object({ id: z.string().min(1).max(200).regex(/^[A-Za-z0-9._~-]+$/) }).passthrough(),
+    session: z.object({
+      id: identifier,
+      createdAt: z.union([timestamp, z.date()]),
+    }).passthrough(),
+  }).passthrough().safeParse(completedInput);
+  const request = z.object({ response: z.object({ id: identifier }).passthrough() }).passthrough().safeParse(requestInput);
+  if (!completed.success || !request.success || origin !== DESKTOP_TOOLS_CANONICAL_AUTH_ORIGIN
+    || !Number.isSafeInteger(credentialRevocationEpoch) || credentialRevocationEpoch < 0) return null;
+  return {
+    actor: `better-auth-user:${completed.data.user.id}`,
+    origin,
+    sessionId: completed.data.session.id,
+    authenticatedAt: completed.data.session.createdAt instanceof Date
+      ? completed.data.session.createdAt.toISOString() : completed.data.session.createdAt,
+    credentialId: request.data.response.id,
+    credentialActive: true,
+    credentialRevocationEpoch,
+  };
+}
+
 export type StepUpResult =
   | { ok: true; record: PrivilegedStepUpRecordValue }
   | { ok: false; error: 'invalid_binding' | 'challenge_mismatch' | 'expired' | 'wrong_actor' | 'wrong_origin'

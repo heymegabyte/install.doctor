@@ -35,7 +35,7 @@ import { resolvePrivilegedPairBinding } from './privileged-pair-binding';
 import { authorizeTargetAuthorizationDecision } from './target-authorization-owner';
 import {
   consumePrivilegedStepUp, hashStepUpChallenge, PRIVILEGED_STEP_UP_SCOPES,
-  PrivilegedStepUpBinding, PrivilegedStepUpRecord, verifyPrivilegedStepUp,
+  PrivilegedStepUpBinding, PrivilegedStepUpRecord, verifiedPasskeySessionFromBetterAuth, verifyPrivilegedStepUp,
 } from './privileged-step-up';
 // App Store catalog — generated from software.yml by the canonical validated parser
 // (scripts/gen-catalog.mjs → the cnf index builder; D01/D02/D13). Read-only, bundled at deploy;
@@ -3109,16 +3109,16 @@ app.on(['GET', 'POST'], '/api/auth/*', async (c) => {
   if (!db) return c.json({ error: 'store_unavailable' }, 503);
   let completed: any;
   try { completed = await response.clone().json(); } catch { return c.json({ error: 'step_up_verification_unavailable' }, 503); }
-  const session = stepUpSession(completed); const credentialId = verificationBody?.response?.id;
-  if (!session || typeof credentialId !== 'string') return c.json({ error: 'step_up_verification_unavailable' }, 503);
+  const proof = verifiedPasskeySessionFromBetterAuth(completed, verificationBody,
+    DESKTOP_TOOLS_CANONICAL_AUTH_ORIGIN, 0);
+  if (!proof) return c.json({ error: 'step_up_verification_unavailable' }, 503);
   const row = await db.prepare('SELECT * FROM privileged_step_up_challenges WHERE id=?').bind(stepUpId).first();
   const record = row && stepUpRecord(row);
   const credential = await db.prepare('SELECT id FROM passkey WHERE credentialID=? AND userId=?')
-    .bind(credentialId, session.userId).first();
+    .bind(proof.credentialId, proof.actor.slice('better-auth-user:'.length)).first();
   if (!record || !credential) return c.json({ error: 'step_up_unavailable' }, 404);
   const verified = verifyPrivilegedStepUp(record, stepUpChallenge, record.binding, {
-    ...session, origin: DESKTOP_TOOLS_CANONICAL_AUTH_ORIGIN, credentialId,
-    credentialActive: true, credentialRevocationEpoch: record.credentialRevocationEpoch,
+    ...proof, credentialRevocationEpoch: record.credentialRevocationEpoch,
   });
   if (!verified.ok) return c.json({ error: verified.error }, 403);
   const updated = await db.prepare(`UPDATE privileged_step_up_challenges

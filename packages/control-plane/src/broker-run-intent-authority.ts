@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import type { BrokerDevicePrincipal } from './broker-authorization-service.ts';
 import { BrokerRunIntent, type BrokerRunIntentValue } from './broker-run-intent-d1-store.ts';
+import { CurrentPlanAuthoritySchema, type CurrentPlanAuthority } from '../../installer-engine/src/reviewed-plan-binding.ts';
 
 const id = z.string().min(1).max(128).regex(/^[a-z0-9][a-z0-9._-]*$/);
 const digest = z.string().regex(/^[a-f0-9]{64}$/);
@@ -69,6 +70,12 @@ export interface BrokerRunIntentAuthorityResolvers {
   };
   readonly plan: {
     reconstruct(input: Readonly<{
+      request: BrokerRunIntentValue;
+      device: AuthoritativeBrokerDeviceValue;
+      profile: AuthoritativePublicProfileValue;
+      release: AuthoritativeDesktopReleaseValue;
+    }>): Promise<unknown>;
+    reconstructCurrentAuthority(input: Readonly<{
       request: BrokerRunIntentValue;
       device: AuthoritativeBrokerDeviceValue;
       profile: AuthoritativePublicProfileValue;
@@ -158,6 +165,23 @@ export function createAuthoritativeBrokerRunIntentAdapter(input: Readonly<{
 
     loadRunIntent(runIntentId: string) {
       return input.resolvers.runIntent.load(id.parse(runIntentId));
+    },
+
+    async reconstructCurrentPlanAuthority(rawRequest: BrokerRunIntentValue): Promise<CurrentPlanAuthority> {
+      const request = BrokerRunIntent.parse(rawRequest);
+      const device = AuthoritativeBrokerDevice.parse(await input.resolvers.device.resolve(request.deviceCredentialId));
+      if (!device.active || device.deviceFingerprint !== request.deviceFingerprint
+        || device.tenantId !== request.tenantId || device.profileId !== request.profileId
+        || device.profileRevisionDigest !== request.profileRevisionDigest) throw new Error('device authority drift');
+      const profile = AuthoritativePublicProfile.parse(await input.resolvers.profile.resolve(request.profileId));
+      if (profile.tenantId !== request.tenantId || profile.digest !== request.profileRevisionDigest) {
+        throw new Error('profile authority drift');
+      }
+      const release = AuthoritativeDesktopRelease.parse(await input.resolvers.release.resolveActive('stable'));
+      if (release.releaseId !== request.releaseId) throw new Error('release authority drift');
+      return CurrentPlanAuthoritySchema.parse(await input.resolvers.plan.reconstructCurrentAuthority({
+        request, device, profile, release,
+      }));
     },
 
     async ownerForTenant(tenantId: string) {

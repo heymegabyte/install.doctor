@@ -25,7 +25,20 @@ const principal = {
 const owner = { actor: 'OWNER@example.com', authenticatedAt: '2026-11-09T11:58:00.000Z' };
 
 function fixture(overrides = {}) {
-  const calls = { intents: [], decisions: [], lookups: [], statuses: [], states: [], approvals: [] };
+  const calls = { intents: [], decisions: [], lookups: [], statuses: [], states: [], approvals: [], reviewedPlans: [] };
+  let reviewedPlan = null;
+  const currentAuthority = {
+    tenantId: intent.tenantId,
+    profile: { id: intent.profileId, revision: 'revision-1', digest: intent.profileRevisionDigest },
+    host: { id: intent.hostId, factsDigest: hex('5') },
+    release: { id: intent.releaseId, manifestDigest: hex('6') },
+    policyDigest: hex('7'), normalizedPlanDigest: intent.planDigest,
+    operationClosureDigest: intent.closureDigest, approvalSetDigest: intent.consentDigest,
+    rollbackLimits: { automaticEffects: ['configuration'],
+      separatelyApprovedEffects: ['external-provider', 'network', 'operating-system', 'package', 'storage'],
+      destructiveAutomaticRepair: false },
+    now: now.toISOString(),
+  };
   const reconstruction = {
     schemaVersion: 1, authorizationId: intent.authorizationId, ownerDecisionId: 'decision-1',
     ownerActorId: 'owner-1', ownerDecision: 'approved',
@@ -50,11 +63,18 @@ function fixture(overrides = {}) {
       async persistOwnerDecision(value) { calls.decisions.push(value); return true; },
       async loadApprovedReconstruction(value) { calls.lookups.push(value); return reconstruction; },
       async loadAuthorizationStatus(value) { calls.statuses.push(value); return { schemaVersion: 1, status: 'approved', ownerDecisionId: 'decision-1' }; },
+      async persistReviewedPlan(runIntentId, value) {
+        assert.equal(runIntentId, intent.runIntentId);
+        if (reviewedPlan && JSON.stringify(reviewedPlan) !== JSON.stringify(value)) throw new Error('collision');
+        reviewedPlan = value; calls.reviewedPlans.push(value); return reviewedPlan === value;
+      },
+      async loadReviewedPlan() { return reviewedPlan; },
     },
     authority: {
       async reconstructRunIntent() { return intent; },
       async loadRunIntent(id) { return id === intent.runIntentId ? intent : null; },
       async ownerForTenant() { return { authenticationActor: 'owner@example.com', ownerActorId: 'owner-1' }; },
+      async reconstructCurrentPlanAuthority() { return currentAuthority; },
       ...overrides,
     },
     approval: {
@@ -70,7 +90,7 @@ function fixture(overrides = {}) {
       async approve(value) { calls.approvals.push(value); return { approvalId: 'approval-1' }; },
     },
   });
-  return { service, calls, reconstruction };
+  return { service, calls, reconstruction, currentAuthority };
 }
 
 async function rejectsCode(promise, code) {
@@ -124,6 +144,7 @@ test('owner review and decision require current matching authentication and exac
 
 test('claim is exact, device-scoped, persists reconstructed authority, and returns only signed evidence', async () => {
   const { service, calls, reconstruction } = fixture();
+  await service.reviewAuthorization(intent.runIntentId, owner);
   const lookup = {
     schemaVersion: 1, authorizationId: intent.authorizationId, ownerDecisionId: 'decision-1',
     tenantId: intent.tenantId, profileId: intent.profileId,
@@ -136,6 +157,34 @@ test('claim is exact, device-scoped, persists reconstructed authority, and retur
   assert.deepEqual(calls.states[0].grant, reconstruction.grant);
   assert.deepEqual(calls.approvals, [lookup]);
   await assert.rejects(service.claimApprovedAuthorization({ ...lookup, extra: true }, principal));
+});
+
+test('fact, profile, release, policy, approval, closure, plan, and rollback drift deny before any privileged effect', async () => {
+  const axes = [
+    current => ({ ...current, host: { ...current.host, factsDigest: hex('8') } }),
+    current => ({ ...current, profile: { ...current.profile, revision: 'revision-2' } }),
+    current => ({ ...current, release: { ...current.release, manifestDigest: hex('8') } }),
+    current => ({ ...current, policyDigest: hex('8') }),
+    current => ({ ...current, approvalSetDigest: hex('8') }),
+    current => ({ ...current, operationClosureDigest: hex('8') }),
+    current => ({ ...current, normalizedPlanDigest: hex('8') }),
+    current => ({ ...current, rollbackLimits: { ...current.rollbackLimits, automaticEffects: [] } }),
+  ];
+  for (const drift of axes) {
+    let current;
+    const setup = fixture({ async reconstructCurrentPlanAuthority() { return current; } });
+    current = setup.currentAuthority;
+    await setup.service.reviewAuthorization(intent.runIntentId, owner);
+    const lookup = { schemaVersion: 1, authorizationId: intent.authorizationId, ownerDecisionId: 'decision-1',
+      tenantId: intent.tenantId, profileId: intent.profileId, profileRevisionDigest: intent.profileRevisionDigest,
+      deviceCredentialId: intent.deviceCredentialId, deviceFingerprint: intent.deviceFingerprint,
+      runIntentId: intent.runIntentId, grantId: intent.grantId };
+    // Capture a clean review, then introduce independently reconstructed drift.
+    current = drift(setup.currentAuthority);
+    await rejectsCode(setup.service.claimApprovedAuthorization(lookup, principal), 'reviewed_plan_drift');
+    assert.equal(setup.calls.states.length, 0);
+    assert.equal(setup.calls.approvals.length, 0);
+  }
 });
 
 test('authority failures fail closed and cannot persist caller facts', async () => {

@@ -6,6 +6,7 @@ import {
   consumePrivilegedStepUp,
   hashStepUpChallenge,
   PrivilegedStepUpRecord,
+  verifiedPasskeySessionFromBetterAuth,
   verifyPrivilegedStepUp,
 } from '../src/privileged-step-up.ts';
 import fs from 'node:fs';
@@ -40,6 +41,17 @@ test('verified passkey step-up binds actor, challenge, origin, target, plan, sco
   assert.equal(consumed.record.status, 'consumed');
   assert.deepEqual(consumePrivilegedStepUp(consumed.record, challenge, binding, passkey, now),
     { ok: false, error: 'not_verified' });
+});
+
+test('official Better Auth success projection is strict and origin-bound', () => {
+  const proof = verifiedPasskeySessionFromBetterAuth({
+    user: { id: 'owner_1' }, session: { id: 'session-2', createdAt: passkey.authenticatedAt },
+  }, { response: { id: 'credential-1', response: { clientDataJSON: 'opaque' } } }, binding.origin, 4);
+  assert.deepEqual(proof, passkey);
+  assert.equal(verifiedPasskeySessionFromBetterAuth({ user: { id: 'owner_1' } },
+    { response: { id: 'credential-1' } }, binding.origin, 4), null);
+  assert.equal(verifiedPasskeySessionFromBetterAuth({ user: { id: 'owner_1' }, session: { id: 'session-2', createdAt: passkey.authenticatedAt } },
+    { response: { id: 'credential-1' } }, 'https://profile.desktop.tools', 4), null);
 });
 
 test('every binding dimension and stale reauthentication fail closed', () => {

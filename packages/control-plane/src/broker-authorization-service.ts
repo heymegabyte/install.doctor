@@ -17,6 +17,14 @@ import {
   BrokerApprovalSignerDelegation,
   type SignedBrokerApprovalValue,
 } from './broker-approval-signer.ts';
+import {
+  CurrentPlanAuthoritySchema,
+  ReviewedPlanBindingSchema,
+  admitReviewedPlan,
+  createReviewedPlanBinding,
+  type CurrentPlanAuthority,
+  type ReviewedPlanBinding,
+} from '../../installer-engine/src/reviewed-plan-binding.ts';
 
 const DECISION_LIFETIME_MS = 10 * 60 * 1000;
 
@@ -49,12 +57,15 @@ export type BrokerAuthorizationStore = Readonly<{
   persistOwnerDecision(value: unknown): Promise<boolean>;
   loadAuthorizationStatus(value: unknown): Promise<BrokerAuthorizationStatusValue>;
   loadApprovedReconstruction(value: unknown): Promise<BrokerApprovalReconstructionValue | null>;
+  persistReviewedPlan(runIntentId: string, value: ReviewedPlanBinding): Promise<boolean>;
+  loadReviewedPlan(runIntentId: string): Promise<ReviewedPlanBinding | null>;
 }>;
 
 export type BrokerAuthorizationAuthority = Readonly<{
   reconstructRunIntent(request: BrokerRunIntentValue, principal: BrokerDevicePrincipal): Promise<BrokerRunIntentValue | null>;
   loadRunIntent(runIntentId: string): Promise<BrokerRunIntentValue | null>;
   ownerForTenant(tenantId: string): Promise<Readonly<{ authenticationActor: string; ownerActorId: string }> | null>;
+  reconstructCurrentPlanAuthority(intent: BrokerRunIntentValue): Promise<CurrentPlanAuthority>;
 }>;
 
 export type BrokerApprovalIssuer = Readonly<{
@@ -67,7 +78,7 @@ export type BrokerAuthorizationServiceErrorCode =
   | 'insufficient_scope' | 'identity_mismatch' | 'authority_unavailable'
   | 'authoritative_state_mismatch' | 'run_intent_unavailable'
   | 'reauthentication_required' | 'wrong_actor' | 'exact_binding_mismatch'
-  | 'approval_unavailable';
+  | 'approval_unavailable' | 'reviewed_plan_unavailable' | 'reviewed_plan_drift';
 
 export class BrokerAuthorizationServiceError extends Error {
   readonly code: BrokerAuthorizationServiceErrorCode;
@@ -107,6 +118,18 @@ export function createBrokerAuthorizationService(input: Readonly<{
   now?: () => Date;
 }>) {
   const now = input.now ?? (() => new Date());
+  const admitCurrentReviewedPlan = async (intent: BrokerRunIntentValue, binding: ReviewedPlanBinding) => {
+    let current: CurrentPlanAuthority;
+    try {
+      current = CurrentPlanAuthoritySchema.parse(await input.authority.reconstructCurrentPlanAuthority(intent));
+    } catch {
+      throw new BrokerAuthorizationServiceError('authority_unavailable', 503);
+    }
+    const admission = admitReviewedPlan(binding, current);
+    if (admission.decision !== 'allow') {
+      throw new BrokerAuthorizationServiceError('reviewed_plan_drift', 409);
+    }
+  };
   const reviewAuthorization = async (runIntentId: string, owner: AuthenticatedOwner | null) => {
     const intent = await input.authority.loadRunIntent(runIntentId);
     if (!intent) throw new BrokerAuthorizationServiceError('run_intent_unavailable', 404);
@@ -114,7 +137,32 @@ export function createBrokerAuthorizationService(input: Readonly<{
     if (!expectedOwner) throw new BrokerAuthorizationServiceError('authority_unavailable', 503);
     const access = authorizeOwnerContextRead(expectedOwner.authenticationActor, owner, now());
     if (!access.ok) throw new BrokerAuthorizationServiceError(access.error, access.status);
-    return { runIntent: intent, ownerActorId: expectedOwner.ownerActorId };
+    const existing = await input.store.loadReviewedPlan(intent.runIntentId);
+    if (existing) {
+      if (existing.reviewedBy !== expectedOwner.ownerActorId) {
+        throw new BrokerAuthorizationServiceError('exact_binding_mismatch', 409);
+      }
+      await admitCurrentReviewedPlan(intent, existing);
+      return { runIntent: intent, ownerActorId: expectedOwner.ownerActorId, reviewedPlan: existing };
+    }
+    const reviewedAt = now();
+    let current: CurrentPlanAuthority;
+    try {
+      current = CurrentPlanAuthoritySchema.parse(await input.authority.reconstructCurrentPlanAuthority(intent));
+    } catch {
+      throw new BrokerAuthorizationServiceError('authority_unavailable', 503);
+    }
+    const { now: _observedAt, ...reviewedAuthority } = current;
+    const binding = createReviewedPlanBinding({
+      schemaVersion: 1,
+      reviewId: intent.runIntentId,
+      ...reviewedAuthority,
+      reviewedBy: expectedOwner.ownerActorId,
+      reviewedAt: reviewedAt.toISOString(),
+      expiresAt: new Date(Math.min(Date.parse(intent.grantExpiresAt), reviewedAt.getTime() + DECISION_LIFETIME_MS)).toISOString(),
+    });
+    await input.store.persistReviewedPlan(intent.runIntentId, binding);
+    return { runIntent: intent, ownerActorId: expectedOwner.ownerActorId, reviewedPlan: binding };
   };
   return Object.freeze({
     async requestAuthorization(raw: unknown, principal: BrokerDevicePrincipal) {
@@ -144,6 +192,7 @@ export function createBrokerAuthorizationService(input: Readonly<{
         || request.consentDigest !== intent.consentDigest) {
         throw new BrokerAuthorizationServiceError('exact_binding_mismatch', 409);
       }
+      await admitCurrentReviewedPlan(intent, reviewed.reviewedPlan);
       const decidedAt = now();
       const decision: BrokerOwnerDecisionValue = BrokerOwnerDecision.parse({
         schemaVersion: 1,
@@ -176,6 +225,11 @@ export function createBrokerAuthorizationService(input: Readonly<{
       }
       const reconstruction = await input.store.loadApprovedReconstruction(lookup);
       if (!reconstruction) throw new BrokerAuthorizationServiceError('approval_unavailable', 404);
+      const reviewedPlan = await input.store.loadReviewedPlan(reconstruction.runIntentId);
+      if (!reviewedPlan) throw new BrokerAuthorizationServiceError('reviewed_plan_unavailable', 409);
+      const persistedIntent = await input.authority.loadRunIntent(reconstruction.runIntentId);
+      if (!persistedIntent) throw new BrokerAuthorizationServiceError('run_intent_unavailable', 404);
+      await admitCurrentReviewedPlan(persistedIntent, ReviewedPlanBindingSchema.parse(reviewedPlan));
       try {
         const delegation = await input.approval.delegationForRelease(reconstruction.grant.releaseId);
         if (!delegation) throw new Error('delegation unavailable');

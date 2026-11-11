@@ -20,6 +20,7 @@ async function fixture({ delegatedKeyId = 'approval-key-1', configuredKeyId = de
   sqlite.exec('PRAGMA foreign_keys = ON');
   sqlite.exec(fs.readFileSync(new URL('../migrations/0013_broker_approval_state.sql', import.meta.url), 'utf8'));
   sqlite.exec(fs.readFileSync(new URL('../migrations/0014_broker_run_authority.sql', import.meta.url), 'utf8'));
+  sqlite.exec(fs.readFileSync(new URL('../migrations/0021_broker_reviewed_plan_bindings.sql', import.meta.url), 'utf8'));
   const database = { prepare(sql) { let values = []; const statement = {
     bind(...bound) { values = bound; return statement; },
     async first() { const row = sqlite.prepare(sql).get(...values); return row ? { ...row } : null; },
@@ -66,7 +67,20 @@ async function fixture({ delegatedKeyId = 'approval-key-1', configuredKeyId = de
       profileId: intent.profileId, profileRevisionDigest: intent.profileRevisionDigest, active: true }; } },
     publicProfileAuthority: { async resolve() { return { profileId: intent.profileId, tenantId: intent.tenantId,
       revision: 'revision-1', digest: intent.profileRevisionDigest, visibility: 'public-bootstrap', enabled: true }; } },
-    planAuthority: { async reconstruct() { return plan; } },
+    planAuthority: {
+      async reconstruct() { return plan; },
+      async reconstructCurrentAuthority() { return {
+        tenantId: intent.tenantId,
+        profile: { id: intent.profileId, revision: 'revision-1', digest: intent.profileRevisionDigest },
+        host: { id: intent.hostId, factsDigest: hex('5') },
+        release: { id: intent.releaseId, manifestDigest: hex('6') },
+        policyDigest: hex('7'), normalizedPlanDigest: intent.planDigest,
+        operationClosureDigest: intent.closureDigest, approvalSetDigest: intent.consentDigest,
+        rollbackLimits: { automaticEffects: ['configuration'],
+          separatelyApprovedEffects: ['external-provider', 'network', 'operating-system', 'package', 'storage'],
+          destructiveAutomaticRepair: false }, now: now.toISOString(),
+      }; },
+    },
     tenantOwnerAuthority: { async resolveForTenant() { return { authenticationActor: 'owner@example.com', ownerActorId: 'owner-1' }; } },
     resolveDevice: async () => principal,
     resolveFreshOwner: async () => ({ actor: 'owner@example.com', authenticatedAt: '2026-11-09T11:58:00.000Z' }),

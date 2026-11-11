@@ -13,6 +13,7 @@ import {
   type BrokerRunIntentAuthorityResolvers,
 } from './broker-run-intent-authority.ts';
 import { createBrokerRunIntentD1Store } from './broker-run-intent-d1-store.ts';
+import { createBrokerReviewedPlanD1Store } from './broker-reviewed-plan-d1-store.ts';
 import type { AuthenticatedOwner } from './owner-approval.ts';
 
 const id = z.string().min(1).max(128).regex(/^[a-z0-9][a-z0-9._-]*$/);
@@ -59,6 +60,7 @@ export function createBrokerAuthorizationComposition(input: BrokerAuthorizationC
   requiredFunction(input.deviceAuthority?.resolve, 'a device authority');
   requiredFunction(input.publicProfileAuthority?.resolve, 'a public profile authority');
   requiredFunction(input.planAuthority?.reconstruct, 'an exact plan authority');
+  requiredFunction(input.planAuthority?.reconstructCurrentAuthority, 'a current reviewed-plan authority');
   requiredFunction(input.tenantOwnerAuthority?.resolveForTenant, 'a tenant owner authority');
   if (!input.database || typeof input.database.prepare !== 'function') throw new Error('broker authorization composition requires D1');
   if (!input.releaseBucket || typeof (input.releaseBucket as { get?: unknown }).get !== 'function') {
@@ -68,6 +70,7 @@ export function createBrokerAuthorizationComposition(input: BrokerAuthorizationC
   const signerKeyId = id.parse(input.signerKeyId);
   const now = input.now ?? (() => new Date());
   const runStore = createBrokerRunIntentD1Store(input.database, { now });
+  const reviewedPlanStore = createBrokerReviewedPlanD1Store(input.database, { now });
   const approvalStore = createBrokerApprovalD1Store(input.database, { now });
   const signer = createBrokerApprovalManagedSigner({ keyId: signerKeyId, service: input.signerService,
     ...(input.signerTimeoutMs === undefined ? {} : { timeoutMs: input.signerTimeoutMs }) });
@@ -118,7 +121,11 @@ export function createBrokerAuthorizationComposition(input: BrokerAuthorizationC
         ...(input.randomApprovalId ? { randomId: input.randomApprovalId } : {}) }).approve(request);
     },
   });
-  const service = createBrokerAuthorizationService({ store: runStore, authority, approval, now });
+  const service = createBrokerAuthorizationService({ store: {
+    ...runStore,
+    persistReviewedPlan: (runIntentId, binding) => reviewedPlanStore.persist(runIntentId, binding),
+    loadReviewedPlan: runIntentId => reviewedPlanStore.load(runIntentId),
+  }, authority, approval, now });
   const api = createBrokerAuthorizationApi({ service, resolveDevice: input.resolveDevice,
     resolveFreshOwner: input.resolveFreshOwner });
   return Object.freeze({ api, service, authority, approval, runStore, approvalStore });
