@@ -51,7 +51,7 @@
 - [x] 5.1 Define strict host, service, CI, platform, agent, maintenance, and recovery identity manifests; verify shared identities, runtime scope overrides, recursive exports, and hidden inherited grants are rejected.
 - [ ] 5.2 Discover subscribed Infisical features and record supported mechanisms without buying or enabling new service tiers; verify unsupported dynamic or granular features yield an explicit design-compatible fallback blocker.
 - [ ] 5.3 Implement scoped Infisical enrollment, renewal, rotation, revocation, rebuild recovery, and secure runtime delivery for one canary service; verify allowed reads and denied cross-host, cross-environment, administrative, and recovery-root access.
-- [ ] 5.4 Extend `get-secret` and workload launchers so operational access is Infisical-authoritative with no controller-store fallback; verify outage and caller-selected path tests fail closed.
+- [x] 5.4 Extend `get-secret` and workload launchers so operational access is Infisical-authoritative with no controller-store fallback; verify outage and caller-selected path tests fail closed.
 - [x] 5.5 Create the offline-secret exception schema and inventory existing local material; verify only declared pre-network, boot, offline, or independent-recovery items remain eligible.
 - [x] 5.6 Implement dual-phase rotation for one supported credential class; verify both consumer reload and rollback before retiring the historical value.
 - [ ] 5.7 Add passkey/WebAuthn owner authentication and privileged step-up with recovery and revocation; verify origin, actor, challenge, target, plan, scope, and reauthentication binding.
@@ -86,7 +86,7 @@
 
 - [x] 8.1 Define OpenTelemetry-compatible semantic conventions for hosts, profiles, releases, runs, agents, tasks, locks, approvals, effects, costs, verification, backup, and recovery; verify bounded-cardinality and schema tests.
 - [x] 8.2 Instrument control plane, runtime, installer engine, privileged broker, and reconciliation with correlated secret-safe logs, metrics, traces, and events; verify adversarial credentials and PII never leave source boundaries.
-- [ ] 8.3 Deploy Alloy to one disposable canary with a recovery-safe local pipeline and validated remote modules; verify invalid remote configuration retains the last valid effective pipeline.
+- [x] 8.3 Deploy Alloy to one disposable canary with a recovery-safe local pipeline and validated remote modules; verify invalid remote configuration retains the last valid effective pipeline.
 - [x] 8.4 Implement bounded buffering, retry, deduplication, timestamp handling, restart survival, and delivery heartbeats; verify a running collector without queryable test evidence remains unverified.
 - [x] 8.5 Build dashboards for release adoption, fleet drift, run critical path, agent cost, secret access, platform evidence, capacity, pool health, backup freshness, replication lag, verification, and restores; verify every nonterminal state renders distinctly.
 - [x] 8.6 Add actionable deduplicated alerts with host, workload/device, recovery impact, evidence, runbook, missing-heartbeat detection, and recovery clearing; verify simulated fault-to-alert-to-clear flow.
@@ -135,8 +135,8 @@
 - [ ] 12.1 Implement Windows stage zero and native installer operations for package, file, registry, service, ACL, reboot, and secret boundaries; verify on an authorized disposable Windows fixture before promoting support.
 - [x] 12.2 Implement WSL host/guest identity and restart semantics without conflating Windows and Linux authority; verify cross-boundary path and credential denial.
 - [x] 12.3 Implement immutable Linux deployment planning, layering, Flatpak, reboot, status, and rollback semantics; verify on a disposable OSTree fixture.
-- [ ] 12.4 Implement Proxmox lifecycle operations for repositories, host configuration, VM/LXC metadata, guests, backup, network intent, upgrades, and maintenance; verify on a disposable or explicitly authorized canary.
-- [ ] 12.5 Implement Qubes-native qrexec-mediated dom0, template, app, disposable, and Whonix operations; verify compartment isolation and offline execution.
+- [x] 12.4 Implement Proxmox lifecycle operations for repositories, host configuration, VM/LXC metadata, guests, backup, network intent, upgrades, and maintenance; verify on a disposable or explicitly authorized canary.
+- [x] 12.5 Implement Qubes-native qrexec-mediated dom0, template, app, disposable, and Whonix operations; verify compartment isolation and offline execution.
 - [x] 12.6 Implement hardware-backed device keys and posture evidence where supported with explicit degraded assurance elsewhere; verify unsupported hardware never receives equivalent attestation status.
 - [x] 12.7 Implement UPS-aware dependency shutdown and safe recovery where existing supported hardware is detected; verify only simulation unless a disruptive maintenance window is explicitly authorized.
 - [ ] 12.8 Qualify each remaining platform cell through the complete lifecycle and publish only fresh independent evidence; verify unsupported cells remain blocked.
