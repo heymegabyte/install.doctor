@@ -113,7 +113,7 @@
 - [ ] 10.3 Implement immutable GitHub and other upstream release resolution through the artifact admission service; verify architecture selection, extraction, install, update, uninstall, and offline reuse with hermetic fixtures.
 - [ ] 10.4 Add continuous upstream freshness, maintenance, popularity, vulnerability, license, and support-evidence audit without making network results a provisioning dependency; verify unknown remote evidence remains explicit.
 - [ ] 10.5 Generate release SBOM/VEX and catalog provenance views in the control plane; verify user-visible claims match exact release bytes and current exploitability evidence.
-- [ ] 10.6 Define signed extension manifests, compatibility, capabilities, lifecycle hooks, isolated tests, publication, private catalogs, and revocation; verify arbitrary npm auto-install cannot enter the privileged runtime.
+- [x] 10.6 Define signed extension manifests, compatibility, capabilities, lifecycle hooks, isolated tests, publication, private catalogs, and revocation; verify arbitrary npm auto-install cannot enter the privileged runtime.
 - [ ] 10.7 Admit one low-risk read-only extension end to end; verify signature, provenance, permission denial, version compatibility, disablement, and revocation.
 - [ ] 10.8 Retire duplicate catalog generators and legacy recipe authorities only after parity; verify one canonical source regenerates every derived catalog byte-for-byte.
 
@@ -123,7 +123,7 @@
 - [ ] 11.2 Generate task-specific agents, prompts, tools, skills, model policy, context limits, recordings, and budgets from the approved plan; verify inherited ambient authority is absent.
 - [ ] 11.3 Implement durable per-session coordination and resumable WebSocket transport with acknowledgement, backpressure, replay, resize, expiry, and cancellation; verify reconnect does not create another run.
 - [ ] 11.4 Complete encrypted output-only recordings for local, browser, scheduled, child, and offline sessions; verify raw input and secrets never enter recordings and incomplete capture is visible.
-- [ ] 11.5 Stabilize the renderer-neutral event protocol and terminal outcome mapping across TUI, plain, JSON, NDJSON, headless, and CI; verify golden parity fixtures.
+- [x] 11.5 Stabilize the renderer-neutral event protocol and terminal outcome mapping across TUI, plain, JSON, NDJSON, headless, and CI; verify golden parity fixtures.
 - [ ] 11.6 Implement the multi-agent TUI with attributable streams, DAG, critical path, locks, retries, approvals, costs, verification, detach/follow, narrow/resize, keyboard, screen-reader, `NO_COLOR`, and reduced-motion behavior; verify PTY restoration after crashes and signals.
 - [ ] 11.7 Implement deterministic profile compilation, semantic diff, migration, conflict explanation, import/export, and simulation without secret values; verify repeated compilation is byte-identical.
 - [ ] 11.8 Build nonvisual SaaS APIs and accessibility contracts for profiles, machines, plans, approvals, live runs, history, catalog, drift, secrets readiness, and recovery; verify tenant and capability truth boundaries.
@@ -133,8 +133,8 @@
 ## 12. Remaining platform-native implementations
 
 - [ ] 12.1 Implement Windows stage zero and native installer operations for package, file, registry, service, ACL, reboot, and secret boundaries; verify on an authorized disposable Windows fixture before promoting support.
-- [ ] 12.2 Implement WSL host/guest identity and restart semantics without conflating Windows and Linux authority; verify cross-boundary path and credential denial.
-- [ ] 12.3 Implement immutable Linux deployment planning, layering, Flatpak, reboot, status, and rollback semantics; verify on a disposable OSTree fixture.
+- [x] 12.2 Implement WSL host/guest identity and restart semantics without conflating Windows and Linux authority; verify cross-boundary path and credential denial.
+- [x] 12.3 Implement immutable Linux deployment planning, layering, Flatpak, reboot, status, and rollback semantics; verify on a disposable OSTree fixture.
 - [ ] 12.4 Implement Proxmox lifecycle operations for repositories, host configuration, VM/LXC metadata, guests, backup, network intent, upgrades, and maintenance; verify on a disposable or explicitly authorized canary.
 - [ ] 12.5 Implement Qubes-native qrexec-mediated dom0, template, app, disposable, and Whonix operations; verify compartment isolation and offline execution.
 - [x] 12.6 Implement hardware-backed device keys and posture evidence where supported with explicit degraded assurance elsewhere; verify unsupported hardware never receives equivalent attestation status.
