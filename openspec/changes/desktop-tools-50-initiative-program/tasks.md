@@ -55,8 +55,8 @@
 - [x] 5.5 Create the offline-secret exception schema and inventory existing local material; verify only declared pre-network, boot, offline, or independent-recovery items remain eligible.
 - [ ] 5.6 Implement dual-phase rotation for one supported credential class; verify both consumer reload and rollback before retiring the historical value.
 - [ ] 5.7 Add passkey/WebAuthn owner authentication and privileged step-up with recovery and revocation; verify origin, actor, challenge, target, plan, scope, and reauthentication binding.
-- [ ] 5.8 Add effective-authorization simulation across product, Cloudflare, Infisical, OpenCode, and host privilege policies; verify explanations identify every contributing grant and denial.
-- [ ] 5.9 Compile task-specific OpenCode permission and policy sandboxes with bounded steps, costs, tools, paths, network, skills, subagents, and secrets; verify auto mode cannot override a deny.
+- [x] 5.8 Add effective-authorization simulation across product, Cloudflare, Infisical, OpenCode, and host privilege policies; verify explanations identify every contributing grant and denial.
+- [x] 5.9 Compile task-specific OpenCode permission and policy sandboxes with bounded steps, costs, tools, paths, network, skills, subagents, and secrets; verify auto mode cannot override a deny.
 - [ ] 5.10 Exercise host revocation and rebuild without discarding historical recovery keys; verify operational access remains revoked and retained backup recovery still works.
 
 ## 6. Platform laboratory and evidence matrix
@@ -68,7 +68,7 @@
 - [ ] 6.5 Add Proxmox fixture coverage for repositories, ZFS, VM/LXC inventory, guest agents, backup, network intent, upgrade, and maintenance behavior; verify no generic role invents production ingress.
 - [ ] 6.6 Add Qubes fixtures for dom0, TemplateVM, AppVM, DisposableVM, Whonix, and qrexec boundaries; verify one compartment cannot broaden another's authority.
 - [x] 6.7 Implement fault injection for process loss, reboot, ENOSPC, DNS, corrupt artifacts, expired credentials, lock loss, clock skew, permission drift, and telemetry failure; verify exact uncertain and recoverable outcomes.
-- [ ] 6.8 Add versioned performance benchmarks and budgets for bootstrap, plan, critical path, queue, cold/warm lazy load, and resources; verify unsafe optimizations cannot pass on speed alone.
+- [x] 6.8 Add versioned performance benchmarks and budgets for bootstrap, plan, critical path, queue, cold/warm lazy load, and resources; verify unsafe optimizations cannot pass on speed alone.
 - [ ] 6.9 Promote the first Linux and macOS support cells only from independently attested current lifecycle receipts; verify documentation and APIs downgrade expired evidence automatically.
 
 ## 7. Fleet reconciliation, hardware, reboot, and cost control
@@ -97,7 +97,7 @@
 
 - [x] 9.1 Complete per-host capability inventory and authoritative-data coverage maps for datasets, files, databases, VMs, containers, configurations, and keys; verify new unprotected sources fail coverage health.
 - [x] 9.2 Implement policy validation and discover/plan/status for Sanoid, scrubs, autosnap ownership, exclusions, schedule collision, retention dependencies, and capacity; verify read-only plans on disposable pools.
-- [ ] 9.3 Implement Syncoid destination admission, restricted identity, raw encrypted history, resume, bookmarks, holds, common anchors, bandwidth, retries, and divergence handling; verify no automatic rollback or destructive target deletion.
+- [x] 9.3 Implement Syncoid destination admission, restricted identity, raw encrypted history, resume, bookmarks, holds, common anchors, bandwidth, retries, and divergence handling; verify no automatic rollback or destructive target deletion.
 - [ ] 9.4 Integrate existing suitable PBS, restic, rclone transport, and database-native backup paths without replacing functioning protection; verify source identity, mount presence, encryption, and false-success denial.
 - [ ] 9.5 Implement separate writer and maintenance identities with provider-supported limits; verify the writer cannot prune and document where a provider cannot guarantee immutability.
 - [ ] 9.6 Build the encrypted independent recovery package and key catalog with an offline exception record; verify the recovery password unlocks every retained covered key type in a separate trusted environment without Infisical.
