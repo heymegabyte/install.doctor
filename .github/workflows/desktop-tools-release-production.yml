@@ -89,6 +89,31 @@ jobs:
             npm --prefix packages/desktop-tools-runtime run build
           test -f packages/desktop-tools-runtime/dist/desktop-tools-supervisor.mjs
           test -f packages/desktop-tools-runtime/dist/desktop-tools-tools.tar.gz
+      - name: Rebuild source-owned artifacts and reject divergence
+        run: |
+          set -euo pipefail
+          mkdir -p .release-work/reproducibility/source-first .release-work/reproducibility/source-second .release-work/broker-second
+          cp packages/installer-engine/dist/install-doctor-engine.mjs .release-work/reproducibility/source-first/
+          cp .release-work/broker/desktop-tools-privileged-broker .release-work/reproducibility/source-first/
+          cp packages/desktop-tools-runtime/dist/desktop-tools-supervisor.mjs .release-work/reproducibility/source-first/
+          cp packages/desktop-tools-runtime/dist/desktop-tools-tools.tar.gz .release-work/reproducibility/source-first/
+          npm --prefix packages/installer-engine run bundle
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath \
+            -ldflags="-buildid= -X main.version=$GITHUB_SHA" \
+            -o .release-work/broker-second/desktop-tools-privileged-broker \
+            ./packages/privileged-broker/cmd/desktop-tools-privileged-broker
+          DESKTOP_TOOLS_REQUIRE_PRIVILEGED_BROKER=true \
+          DESKTOP_TOOLS_PRIVILEGED_BROKER="$PWD/.release-work/broker-second/desktop-tools-privileged-broker" \
+          DESKTOP_TOOLS_PRIVILEGED_WORKER="$PWD/packages/installer-engine/dist/desktop-tools-privileged-worker.mjs" \
+          DESKTOP_TOOLS_PRIVILEGED_CONTROLLER="$PWD/packages/installer-engine/dist/desktop-tools-privileged-controller.mjs" \
+            npm --prefix packages/desktop-tools-runtime run build
+          cp packages/installer-engine/dist/install-doctor-engine.mjs .release-work/reproducibility/source-second/
+          cp .release-work/broker-second/desktop-tools-privileged-broker .release-work/reproducibility/source-second/
+          cp packages/desktop-tools-runtime/dist/desktop-tools-supervisor.mjs .release-work/reproducibility/source-second/
+          cp packages/desktop-tools-runtime/dist/desktop-tools-tools.tar.gz .release-work/reproducibility/source-second/
+          node scripts/compare-release-reproducibility.mjs \
+            .release-work/reproducibility/source-first .release-work/reproducibility/source-second \
+            .release-work/reproducibility/source-owned.json
       - name: Acquire and verify exact Node and OpenCode runtimes
         run: |
           set -euo pipefail
@@ -256,6 +281,12 @@ jobs:
             '{releaseId:$releaseId,sourceCommit:$sourceCommit,createdAt:$createdAt,expiresAt:$expiresAt,signerId:$signerId,signerPublicKey:$signerPublicKey,releaseChannel:$releaseChannel,brokerApprovalSignerDelegation:$brokerApprovalSignerDelegation,brokerApprovalMinimumRevocationEpoch:$brokerApprovalMinimumRevocationEpoch,runtimeNodeVersion:$runtimeNodeVersion,opencodeVersion:$opencodeVersion,opencodeLock:$opencodeLock,provisioner:$provisioner,engine:$engine,catalog:$catalog,supervisor:$supervisor,tools:$tools,licenses:$licenses,outputDirectory:$outputDirectory,debian:{inRelease:$debianInRelease,archiveKeyring:$debianKeyring,packagesIndex:$debianPackages,treePayload:$debianTree,compositionReceipt:$debianCompositionReceipt,trustPolicy:$debianTrustPolicy},runtimes:{macos_x64:$nodeMacosX64,macos_arm64:$nodeMacosArm64,linux_x64:$nodeLinuxX64,linux_arm64:$nodeLinuxArm64},opencode:{macos_x64:$opencodeMacosX64,macos_arm64:$opencodeMacosArm64,linux_x64:$opencodeLinuxX64,linux_arm64:$opencodeLinuxArm64}}' \
             >.release-work/config.json
           node scripts/build-desktop-tools-release.mjs .release-work/config.json
+          jq --arg outputDirectory "$PWD/.release-work/output/reproduced" '.outputDirectory=$outputDirectory' \
+            .release-work/config.json >.release-work/reproduced-config.json
+          node scripts/build-desktop-tools-release.mjs .release-work/reproduced-config.json
+          node scripts/compare-release-reproducibility.mjs \
+            .release-work/output/unsigned .release-work/output/reproduced .release-work/reproducibility/release-closure.json
+          rm -rf .release-work/output/reproduced
           cp scripts/sign-desktop-tools-release.sh .release-work/output/sign-desktop-tools-release.sh
           printf '%s  %s\n' "$SIGNER_SCRIPT_SHA256" .release-work/output/sign-desktop-tools-release.sh | sha256sum --check --strict
       - name: Assemble credential-free publication tools
@@ -270,6 +301,12 @@ jobs:
           cp packages/control-plane/src/release-policy.ts .release-work/publisher/src/
           npm --prefix .release-work/publisher ci --omit=dev --ignore-scripts --no-audit --no-fund
           jq -er --arg id "$SIGNER_ID" '.products["desktop-tools"].signers[$id]' packages/control-plane/src/release-trust.json >.release-work/publisher/release-public-key
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: desktop-tools-release-reproducibility-${{ github.run_id }}
+          path: .release-work/reproducibility/*.json
+          if-no-files-found: error
+          retention-days: 7
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: desktop-tools-release-unsigned-${{ github.run_id }}
