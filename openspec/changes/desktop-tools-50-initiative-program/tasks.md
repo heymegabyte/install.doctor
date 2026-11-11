@@ -53,7 +53,7 @@
 - [ ] 5.3 Implement scoped Infisical enrollment, renewal, rotation, revocation, rebuild recovery, and secure runtime delivery for one canary service; verify allowed reads and denied cross-host, cross-environment, administrative, and recovery-root access.
 - [ ] 5.4 Extend `get-secret` and workload launchers so operational access is Infisical-authoritative with no controller-store fallback; verify outage and caller-selected path tests fail closed.
 - [x] 5.5 Create the offline-secret exception schema and inventory existing local material; verify only declared pre-network, boot, offline, or independent-recovery items remain eligible.
-- [ ] 5.6 Implement dual-phase rotation for one supported credential class; verify both consumer reload and rollback before retiring the historical value.
+- [x] 5.6 Implement dual-phase rotation for one supported credential class; verify both consumer reload and rollback before retiring the historical value.
 - [ ] 5.7 Add passkey/WebAuthn owner authentication and privileged step-up with recovery and revocation; verify origin, actor, challenge, target, plan, scope, and reauthentication binding.
 - [x] 5.8 Add effective-authorization simulation across product, Cloudflare, Infisical, OpenCode, and host privilege policies; verify explanations identify every contributing grant and denial.
 - [x] 5.9 Compile task-specific OpenCode permission and policy sandboxes with bounded steps, costs, tools, paths, network, skills, subagents, and secrets; verify auto mode cannot override a deny.
