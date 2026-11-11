@@ -3,8 +3,9 @@ import { generateKeyPairSync, sign } from 'node:crypto';
 import test from 'node:test';
 import {
   ExtensionAdmissionReceiptSchema, ExtensionManifestSchema, ExtensionMaterializationPlanSchema,
-  admitExtension, compileExtensionMaterializationPlan, extensionPayloadDigest, extensionSignatureBytes,
+  admitExtension, authorizeExtensionInvocation, compileExtensionMaterializationPlan, extensionPayloadDigest, extensionSignatureBytes,
 } from '../dist/extension-admission.js';
+import { readOperatingSystem } from './fixtures/read-only-host-facts/extension.mjs';
 
 const now = '2026-11-10T12:00:00.000Z';
 const validFrom = '2026-11-09T00:00:00.000Z';
@@ -29,19 +30,24 @@ function envelope(kind, payload, signer) {
 
 async function fixture(options = {}) {
   const publisher = key('extension-publisher', { extensionIds: ['com.desktop-tools.readonly'] });
-  const catalogSigner = key('catalog-publisher'); const testAttestor = key('test-attestor'); const revoker = key('revocation-authority');
+  const catalogSigner = key('catalog-publisher'); const provenanceAttestor = key('provenance-attestor');
+  const testAttestor = key('test-attestor'); const revoker = key('revocation-authority');
   const capability = { action: 'host.facts.read', resource: 'host://facts/os' };
   const evidence = { schemaVersion: 1, evidenceId: 'evidence-1', extensionId: 'com.desktop-tools.readonly', version: '1.2.3',
     artifactDigest: digest('a'), runnerId: 'isolated-runner-1', suiteDigest: digest('b'), testedAt: '2026-11-10T10:00:00.000Z',
     expiresAt: '2026-11-20T10:00:00.000Z', isolation: { network: 'denied', filesystem: 'ephemeral', process: 'unprivileged',
       secrets: 'none', privilegedBroker: 'unavailable' }, checks: checks.map(check => ({ ...check })) };
+  const provenance = { schemaVersion: 1, provenanceId: 'provenance-1', extensionId: 'com.desktop-tools.readonly', version: '1.2.3',
+    artifactDigest: digest('a'), sourceRepository: 'https://github.com/desktop-tools/read-only-host-facts', sourceCommit: digest('d'),
+    builder: { id: 'extension-builder-1', workflowDigest: digest('e'), isolated: true }, builtAt: '2026-11-10T09:00:00.000Z',
+    expiresAt: '2026-11-20T09:00:00.000Z' };
   const manifest = { schemaVersion: 1, extensionId: 'com.desktop-tools.readonly', version: '1.2.3', kind: 'plugin',
     displayName: 'Read-only host facts', description: 'Reads the explicitly approved operating-system fact.',
     apiCompatibility: { minimum: 2, maximum: 4 }, platforms: ['linux-x64'], capabilities: options.capabilities ?? [capability],
     lifecycleHooks: [{ event: 'activate', module: 'dist/lifecycle.mjs', exportName: 'activate', timeoutSeconds: 10 }],
     artifact: { format: 'desktop-tools-extension-tar-v1', mediaType: 'application/vnd.desktop-tools.extension.v1+tar+gzip',
       url: 'https://extensions.desktop.tools/artifacts/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.tar.gz',
-      sha256: digest('a'), size: 4096, provenanceDigest: digest('c'), entrypoint: 'dist/index.mjs' },
+      sha256: digest('a'), size: 4096, provenanceDigest: await extensionPayloadDigest(provenance), entrypoint: 'dist/index.mjs' },
     isolatedTestEvidenceDigest: await extensionPayloadDigest(evidence), publisher: { id: 'desktop-tools', catalogId: 'official' } };
   const manifestDigest = await extensionPayloadDigest(manifest);
   const catalog = { schemaVersion: 1, catalogId: 'official', sequence: 12, visibility: 'public', tenantId: null,
@@ -54,9 +60,10 @@ async function fixture(options = {}) {
   return { request: { schemaVersion: 1, now, apiVersion: options.apiVersion ?? 3, platform: 'linux-x64', tenantId: null,
     approvedCapabilities: options.approvedCapabilities ?? [capability], manifest: envelope('manifest', manifest, publisher),
     catalog: envelope('catalog', catalog, catalogSigner), testEvidence: envelope('evidence', evidence, testAttestor),
+    provenance: envelope('provenance', provenance, provenanceAttestor),
     revocations: envelope('revocations', revocations, revoker), trustStore: { schemaVersion: 1,
-      keys: [publisher.trust, catalogSigner.trust, testAttestor.trust, revoker.trust] } }, manifestDigest,
-    signers: { publisher, catalogSigner, testAttestor, revoker } };
+      keys: [publisher.trust, catalogSigner.trust, provenanceAttestor.trust, testAttestor.trust, revoker.trust] } }, manifestDigest,
+    signers: { publisher, catalogSigner, provenanceAttestor, testAttestor, revoker } };
 }
 
 test('admits exact signed catalog content and compiles only isolated content-addressed materialization', async () => {
@@ -105,4 +112,36 @@ test('arbitrary npm auto-install and privileged execution are structurally unrep
   assert.throws(() => ExtensionManifestSchema.parse({ ...receipt, schemaVersion: 1, kind: 'plugin', displayName: 'bad', description: 'bad',
     apiCompatibility: { minimum: 1, maximum: 1 }, platforms: ['linux-x64'], capabilities: [], lifecycleHooks: [],
     artifact: { format: 'npm', package: 'arbitrary' }, isolatedTestEvidenceDigest: digest('d'), publisher: { id: 'bad', catalogId: 'official' } }), /invalid|unrecognized/i);
+});
+
+test('read-only fixture is admitted, invoked, disabled, and revoked end to end', async () => {
+  const item = await fixture(); const capability = { action: 'host.facts.read', resource: 'host://facts/os' };
+  const runtimeState = { schemaVersion: 1, extensionId: 'com.desktop-tools.readonly', version: '1.2.3', enabled: true,
+    sequence: 1, changedAt: now, reason: null };
+  const authorization = await authorizeExtensionInvocation({ admission: item.request, runtimeState, capability });
+  assert.equal(authorization.executionBoundary, 'isolated-unprivileged-worker');
+  assert.deepEqual(readOperatingSystem(resource => {
+    assert.equal(resource, authorization.capability.resource); return 'linux';
+  }), { operatingSystem: 'linux' });
+
+  const denied = { action: 'profile.read', resource: 'profile://desired-state' };
+  await assert.rejects(authorizeExtensionInvocation({ admission: item.request, runtimeState, capability: denied }), /not granted/);
+  await assert.rejects(authorizeExtensionInvocation({ admission: item.request, capability, runtimeState: {
+    ...runtimeState, enabled: false, sequence: 2, reason: 'disabled by owner' } }), /disabled by owner/);
+
+  item.request.revocations.payload.revokedArtifactDigests = [digest('a')];
+  item.request.revocations.payload.sequence = 10;
+  item.request.revocations = envelope('revocations', item.request.revocations.payload, item.signers.revoker);
+  await assert.rejects(authorizeExtensionInvocation({ admission: item.request, runtimeState, capability }), /revoked/);
+});
+
+test('read-only fixture rejects provenance tampering and incompatible versions before invocation', async () => {
+  const tampered = await fixture(); tampered.request.provenance.payload.builder.id = 'untrusted-builder';
+  await assert.rejects(authorizeExtensionInvocation({ admission: tampered.request,
+    runtimeState: { schemaVersion: 1, extensionId: 'com.desktop-tools.readonly', version: '1.2.3', enabled: true,
+      sequence: 1, changedAt: now, reason: null }, capability: { action: 'host.facts.read', resource: 'host://facts/os' } }), /signature is invalid/);
+  const unbound = await fixture(); unbound.request.provenance.payload.sourceCommit = digest('f');
+  unbound.request.provenance = envelope('provenance', unbound.request.provenance.payload, unbound.signers.provenanceAttestor);
+  await assert.rejects(admitExtension(unbound.request), /provenance is not bound/);
+  await assert.rejects(admitExtension((await fixture({ apiVersion: 1 })).request), /incompatible/);
 });

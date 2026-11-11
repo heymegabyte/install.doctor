@@ -100,6 +100,18 @@ export const ExtensionTestEvidenceSchema = z.strictObject({
 });
 export const SignedExtensionTestEvidenceSchema = signed(ExtensionTestEvidenceSchema);
 
+export const ExtensionProvenanceSchema = z.strictObject({
+  schemaVersion: z.literal(1), provenanceId: identifier, extensionId: identifier, version: semver,
+  artifactDigest: digest, sourceRepository: immutableUrl, sourceCommit: digest,
+  builder: z.strictObject({ id: identifier, workflowDigest: digest, isolated: z.literal(true) }),
+  builtAt: timestamp, expiresAt: timestamp,
+}).superRefine((provenance, context) => {
+  if (Date.parse(provenance.builtAt) >= Date.parse(provenance.expiresAt)) {
+    context.addIssue({ code: 'custom', message: 'Provenance validity must be increasing' });
+  }
+});
+export const SignedExtensionProvenanceSchema = signed(ExtensionProvenanceSchema);
+
 export const ExtensionRevocationStatementSchema = z.strictObject({
   schemaVersion: z.literal(1), statementId: identifier, sequence: z.number().int().nonnegative(),
   catalogId: identifier, coversCatalogSequence: z.number().int().nonnegative(), generatedAt: timestamp, expiresAt: timestamp,
@@ -113,7 +125,7 @@ export const SignedExtensionRevocationStatementSchema = signed(ExtensionRevocati
 
 export const ExtensionTrustKeySchema = z.strictObject({
   keyId: identifier,
-  usage: z.enum(['catalog-publisher', 'extension-publisher', 'revocation-authority', 'test-attestor']),
+  usage: z.enum(['catalog-publisher', 'extension-publisher', 'provenance-attestor', 'revocation-authority', 'test-attestor']),
   publicKey: z.strictObject({ kty: z.literal('OKP'), crv: z.literal('Ed25519'), x: base64url }),
   validFrom: timestamp, validUntil: timestamp,
   catalogIds: unique(identifier, 'Key catalogs', 256),
@@ -136,13 +148,15 @@ export const ExtensionAdmissionRequestSchema = z.strictObject({
   platform: z.enum(['darwin-arm64', 'darwin-x64', 'linux-arm64', 'linux-x64', 'windows-x64']),
   tenantId: identifier.nullable(), approvedCapabilities: unique(ExtensionCapabilitySchema, 'Approved capabilities', 64),
   manifest: SignedExtensionManifestSchema, catalog: SignedExtensionCatalogSchema,
-  testEvidence: SignedExtensionTestEvidenceSchema, revocations: SignedExtensionRevocationStatementSchema,
+  provenance: SignedExtensionProvenanceSchema, testEvidence: SignedExtensionTestEvidenceSchema,
+  revocations: SignedExtensionRevocationStatementSchema,
   trustStore: ExtensionTrustStoreSchema,
 });
 
 export const ExtensionAdmissionReceiptSchema = z.strictObject({
   schemaVersion: z.literal(1), extensionId: identifier, version: semver, manifestDigest: digest,
   artifactDigest: digest, catalogId: identifier, catalogSequence: z.number().int().nonnegative(),
+  provenanceDigest: digest,
   revocationSequence: z.number().int().nonnegative(), admittedAt: timestamp,
   executionBoundary: z.literal('isolated-unprivileged-worker'),
   grantedCapabilities: unique(ExtensionCapabilitySchema, 'Granted capabilities', 64),
@@ -152,16 +166,32 @@ export const ExtensionAdmissionReceiptSchema = z.strictObject({
 
 export const ExtensionMaterializationPlanSchema = z.strictObject({
   schemaVersion: z.literal(1), extensionId: identifier, version: semver,
-  source: z.strictObject({ kind: z.literal('verified-extension-archive'), url: immutableUrl, sha256: digest, size: z.number().int().positive() }),
+  source: z.strictObject({ kind: z.literal('verified-extension-archive'), url: immutableUrl, sha256: digest,
+    provenanceDigest: digest, size: z.number().int().positive() }),
   destination: z.strictObject({ kind: z.literal('content-addressed-extension-store'), digest }),
   activation: z.strictObject({ kind: z.literal('isolated-unprivileged-worker'), entrypoint: relativeModule }),
+});
+
+export const ExtensionRuntimeStateSchema = z.strictObject({
+  schemaVersion: z.literal(1), extensionId: identifier, version: semver,
+  enabled: z.boolean(), sequence: z.number().int().nonnegative(), changedAt: timestamp,
+  reason: z.string().min(1).max(500).nullable(),
+}).superRefine((state, context) => {
+  if (state.enabled === (state.reason !== null)) context.addIssue({ code: 'custom', message: 'Only disabled state requires a reason' });
+});
+
+export const ExtensionInvocationAuthorizationSchema = z.strictObject({
+  schemaVersion: z.literal(1), extensionId: identifier, version: semver, manifestDigest: digest,
+  runtimeStateSequence: z.number().int().nonnegative(), revocationSequence: z.number().int().nonnegative(),
+  capability: ExtensionCapabilitySchema, executionBoundary: z.literal('isolated-unprivileged-worker'), authorizedAt: timestamp,
 });
 
 type TrustKey = z.infer<typeof ExtensionTrustKeySchema>;
 type SignedValue = { payload: unknown; signature: z.infer<typeof signature> };
 const domains = {
   manifest: 'desktop.tools/extension-manifest/v1', catalog: 'desktop.tools/extension-catalog/v1',
-  evidence: 'desktop.tools/extension-test-evidence/v1', revocations: 'desktop.tools/extension-revocations/v1',
+  provenance: 'desktop.tools/extension-provenance/v1', evidence: 'desktop.tools/extension-test-evidence/v1',
+  revocations: 'desktop.tools/extension-revocations/v1',
 } as const;
 
 function canonical(value: unknown): string {
@@ -201,18 +231,19 @@ function capabilityKey(value: z.infer<typeof ExtensionCapabilitySchema>): string
 export async function admitExtension(input: unknown): Promise<z.infer<typeof ExtensionAdmissionReceiptSchema>> {
   const request = ExtensionAdmissionRequestSchema.parse(input); const now = Date.parse(request.now);
   const manifest = request.manifest.payload; const catalog = request.catalog.payload;
-  const evidence = request.testEvidence.payload; const revocations = request.revocations.payload;
+  const provenance = request.provenance.payload; const evidence = request.testEvidence.payload; const revocations = request.revocations.payload;
   const manifestDigest = await sha256(manifest);
-  const [manifestKey, catalogKey, evidenceKey, revocationKey] = await Promise.all([
+  const [manifestKey, catalogKey, provenanceKey, evidenceKey, revocationKey] = await Promise.all([
     verify(request.manifest, domains.manifest, 'extension-publisher', request.trustStore, now),
     verify(request.catalog, domains.catalog, 'catalog-publisher', request.trustStore, now),
+    verify(request.provenance, domains.provenance, 'provenance-attestor', request.trustStore, now),
     verify(request.testEvidence, domains.evidence, 'test-attestor', request.trustStore, now),
     verify(request.revocations, domains.revocations, 'revocation-authority', request.trustStore, now),
   ]);
-  if (Date.parse(catalog.expiresAt) <= now || Date.parse(revocations.expiresAt) <= now || Date.parse(evidence.expiresAt) <= now) throw new Error('Extension admission evidence is expired');
+  if (Date.parse(catalog.expiresAt) <= now || Date.parse(provenance.expiresAt) <= now || Date.parse(revocations.expiresAt) <= now || Date.parse(evidence.expiresAt) <= now) throw new Error('Extension admission evidence is expired');
   if (catalog.catalogId !== manifest.publisher.catalogId || revocations.catalogId !== catalog.catalogId) throw new Error('Extension catalog identities do not match');
   if (catalog.visibility === 'private' ? request.tenantId !== catalog.tenantId : request.tenantId !== null) throw new Error('Extension catalog tenant scope does not match');
-  if (![manifestKey, catalogKey, evidenceKey, revocationKey].every(key => scoped(key, catalog.catalogId, catalog.tenantId,
+  if (![manifestKey, catalogKey, provenanceKey, evidenceKey, revocationKey].every(key => scoped(key, catalog.catalogId, catalog.tenantId,
     key.usage === 'extension-publisher' ? manifest.extensionId : undefined))) throw new Error('Extension signer scope does not match the catalog');
   if (!manifest.platforms.includes(request.platform)) throw new Error('Extension does not support this platform');
   if (request.apiVersion < manifest.apiCompatibility.minimum || request.apiVersion > manifest.apiCompatibility.maximum) throw new Error('Extension API version is incompatible');
@@ -221,12 +252,17 @@ export async function admitExtension(input: unknown): Promise<z.infer<typeof Ext
   if (revocations.coversCatalogSequence < catalog.sequence) throw new Error('Extension revocation state is stale for this catalog');
   if (evidence.extensionId !== manifest.extensionId || evidence.version !== manifest.version || evidence.artifactDigest !== manifest.artifact.sha256
     || manifest.isolatedTestEvidenceDigest !== await sha256(evidence)) throw new Error('Isolated test evidence is not bound to the extension');
+  if (provenance.extensionId !== manifest.extensionId || provenance.version !== manifest.version
+    || provenance.artifactDigest !== manifest.artifact.sha256 || manifest.artifact.provenanceDigest !== await sha256(provenance)) {
+    throw new Error('Signed provenance is not bound to the extension artifact');
+  }
   if (revocations.revokedPublisherKeyIds.includes(manifestKey.keyId) || revocations.revokedManifestDigests.includes(manifestDigest)
     || revocations.revokedArtifactDigests.includes(manifest.artifact.sha256)) throw new Error('Extension authority is revoked');
   const approved = new Set(request.approvedCapabilities.map(capabilityKey));
   if (manifest.capabilities.some(capability => !approved.has(capabilityKey(capability)))) throw new Error('Extension requests capability outside the approved profile and task');
   return ExtensionAdmissionReceiptSchema.parse({ schemaVersion: 1, extensionId: manifest.extensionId, version: manifest.version,
-    manifestDigest, artifactDigest: manifest.artifact.sha256, catalogId: catalog.catalogId, catalogSequence: catalog.sequence,
+    manifestDigest, artifactDigest: manifest.artifact.sha256, provenanceDigest: manifest.artifact.provenanceDigest,
+    catalogId: catalog.catalogId, catalogSequence: catalog.sequence,
     revocationSequence: revocations.sequence, admittedAt: request.now, executionBoundary: 'isolated-unprivileged-worker',
     grantedCapabilities: manifest.capabilities, artifact: { format: manifest.artifact.format, url: manifest.artifact.url,
       sha256: manifest.artifact.sha256, size: manifest.artifact.size, entrypoint: manifest.artifact.entrypoint } });
@@ -236,9 +272,26 @@ export async function admitExtension(input: unknown): Promise<z.infer<typeof Ext
 export function compileExtensionMaterializationPlan(receiptInput: unknown): z.infer<typeof ExtensionMaterializationPlanSchema> {
   const receipt = ExtensionAdmissionReceiptSchema.parse(receiptInput);
   return ExtensionMaterializationPlanSchema.parse({ schemaVersion: 1, extensionId: receipt.extensionId, version: receipt.version,
-    source: { kind: 'verified-extension-archive', url: receipt.artifact.url, sha256: receipt.artifact.sha256, size: receipt.artifact.size },
+    source: { kind: 'verified-extension-archive', url: receipt.artifact.url, sha256: receipt.artifact.sha256,
+      provenanceDigest: receipt.provenanceDigest, size: receipt.artifact.size },
     destination: { kind: 'content-addressed-extension-store', digest: receipt.artifactDigest },
     activation: { kind: receipt.executionBoundary, entrypoint: receipt.artifact.entrypoint } });
+}
+
+/** Re-admit against current trust and revocation state before every capability-bound invocation. */
+export async function authorizeExtensionInvocation(input: unknown): Promise<z.infer<typeof ExtensionInvocationAuthorizationSchema>> {
+  const value = z.strictObject({ admission: ExtensionAdmissionRequestSchema, runtimeState: ExtensionRuntimeStateSchema,
+    capability: ExtensionCapabilitySchema }).parse(input);
+  const receipt = await admitExtension(value.admission); const state = value.runtimeState;
+  if (state.extensionId !== receipt.extensionId || state.version !== receipt.version) throw new Error('Extension runtime state identity does not match admission');
+  if (!state.enabled) throw new Error(`Extension is disabled: ${state.reason}`);
+  if (!receipt.grantedCapabilities.some(capability => capabilityKey(capability) === capabilityKey(value.capability))) {
+    throw new Error('Extension invocation capability is not granted');
+  }
+  return ExtensionInvocationAuthorizationSchema.parse({ schemaVersion: 1, extensionId: receipt.extensionId,
+    version: receipt.version, manifestDigest: receipt.manifestDigest, runtimeStateSequence: state.sequence,
+    revocationSequence: receipt.revocationSequence, capability: value.capability,
+    executionBoundary: receipt.executionBoundary, authorizedAt: value.admission.now });
 }
 
 /** Exported solely so publishers and tests sign the exact protocol bytes. */

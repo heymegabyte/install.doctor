@@ -75,7 +75,8 @@ export function createTerminalController(options: TerminalControllerOptions): Te
   let editingFilter = false;
   let filter = '';
 
-  if (input.isTTY !== true || output.isTTY !== true || environment.TERM === 'dumb') {
+  if (input.isTTY !== true || output.isTTY !== true || environment.TERM === 'dumb'
+    || environment.INSTALL_DOCTOR_SCREEN_READER === '1') {
     return Object.freeze({ active: false, failureCount: 0, close() {} });
   }
 

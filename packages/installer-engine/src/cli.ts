@@ -5,11 +5,11 @@ import { createHash, randomUUID } from 'node:crypto';
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
 import { z } from 'zod';
 import { CompensationRecordSchema, DesiredStateInputSchema, ExecutionPolicySchema, HostFactsSchema, ImmutableArtifactDescriptorSchema, NativeOfflinePayloadDescriptorSchema, NormalizedPlanSchema, TaskNodeSchema } from './contracts.js';
-import type { InstallerEvent, TaskNode } from './contracts.js';
+import type { InstallerEvent, NormalizedPlan, TaskNode } from './contracts.js';
 import { createInstallerEngine, deriveBoundNormalizedPlan } from './engine.js';
 import { InstallerOperationError } from './engine.js';
 import type { Inspection, InstallerAdapter, InstallerRunResult, TaskExecutionContext, Verification } from './engine.js';
-import { RendererModeSchema, createRendererSession } from './renderers.js';
+import { RendererModeSchema, createRendererSession, tuiProjectionFromPlan } from './renderers.js';
 import { createTerminalController } from './terminal-controller.js';
 import { createProtectedRendererSpillLog } from './renderer-spill-log.js';
 import type { ProtectedRendererSpillLog } from './renderer-spill-log.js';
@@ -434,6 +434,7 @@ async function presentRun(input: {
   readonly rendererMode: z.infer<typeof RendererModeSchema>;
   readonly runId: string;
   readonly stateRoot?: string;
+  readonly plan?: NormalizedPlan;
   readonly execute: (signal: AbortSignal, observer: (event: InstallerEvent) => void) => Promise<InstallerRunResult>;
 }): Promise<InstallerRunResult> {
   const controller = new AbortController();
@@ -448,12 +449,13 @@ async function presentRun(input: {
     try { spillLog = createProtectedRendererSpillLog({ stateRoot: input.stateRoot, runId: spillRunId }); }
     catch (error) { spillCreationFailure = error; }
   }
+  const projection = input.plan ? tuiProjectionFromPlan(input.plan) : {};
   const renderer = createRendererSession(input.rendererMode, chunk => {
     if (outputBackpressured) return false;
     const ready = process.stdout.write(chunk);
     if (!ready) outputBackpressured = true;
     return true;
-  }, {}, {
+  }, projection, {
     interactiveTui: input.rendererMode === 'tui'
       && process.stdin.isTTY === true
       && process.stdout.isTTY === true
@@ -1881,7 +1883,7 @@ async function main(): Promise<void> {
       };
       phase = 'execute'; mutation = 'possible';
       const result = await presentRun({
-        rendererMode: invocation.renderer, runId: invocation.runId, stateRoot: invocation.stateRoot,
+        rendererMode: invocation.renderer, runId: invocation.runId, stateRoot: invocation.stateRoot, plan: executionClosure.plan,
         execute: (signal, observer) => executeOfflineBundle({
           plan, trust: invocation.trust, releaseTrust: invocation.releaseTrust, materializedRoot: invocation.materializedRoot,
           runId: invocation.runId, hostAttestor,
@@ -1912,6 +1914,7 @@ async function main(): Promise<void> {
         telemetry: { config: invocation.telemetry, transport: telemetryTransport },
       } : {}),
     });
+    let presentationPlan: NormalizedPlan | undefined;
     if (invocation.command === 'resume') {
       if (!journal) throw new Error('resume requires protected journal ownership');
       const inspection = await journal.inspectCompletion(invocation.runId, invocation.planDigest);
@@ -1922,6 +1925,7 @@ async function main(): Promise<void> {
       if (currentPlan.digest !== invocation.planDigest) {
         throw new Error('resume plan digest does not match the rebuilt current plan and operation manifest');
       }
+      presentationPlan = currentPlan;
     }
     if (invocation.command === 'discover') {
       process.stdout.write(`${JSON.stringify(await engine.discover())}\n`);
@@ -1936,9 +1940,13 @@ async function main(): Promise<void> {
       return;
     }
     if (invocation.command !== 'run' && invocation.command !== 'resume' && invocation.command !== 'status') throw new Error('unsupported command state');
+    presentationPlan ??= invocation.command === 'status'
+      ? NormalizedPlanSchema.parse(invocation.plan)
+      : await engine.plan(invocation.facts, invocation.desiredState, invocation.releaseId);
     phase = 'execute'; mutation = mutatingRun ? 'possible' : 'none';
     const result = await presentRun({
       rendererMode: invocation.renderer, runId: invocation.runId,
+      plan: presentationPlan,
       ...(mutatingRun ? { stateRoot: invocation.stateRoot } : {}),
       execute: (signal, observer) => invocation.command === 'status'
         ? engine.status({ runId: invocation.runId, plan: invocation.plan, approvedPlanDigest: invocation.approvedPlanDigest }, observer)

@@ -1,12 +1,20 @@
 import { z } from 'zod';
-import { InstallerEventSchema, TerminalReceiptSchema } from './contracts.js';
-import type { InstallerEvent, TerminalReceipt } from './contracts.js';
+import { InstallerEventSchema, NormalizedPlanSchema, TerminalReceiptSchema } from './contracts.js';
+import type { InstallerEvent, NormalizedPlan, TerminalReceipt } from './contracts.js';
 import type { InstallerRunResult, TaskTerminalStatus } from './engine.js';
 
 export const RendererModeSchema = z.enum(['plain', 'json', 'ndjson', 'headless', 'ci', 'tui']);
 export type RendererMode = z.infer<typeof RendererModeSchema>;
 
 const rendererTaskId = z.string().min(1).max(128).regex(/^[A-Za-z0-9][A-Za-z0-9._-]*$/);
+const TuiTaskMetadataSchema = z.object({
+  taskId: rendererTaskId,
+  agentId: rendererTaskId,
+  dependencies: z.array(rendererTaskId).max(512),
+  approval: z.enum(['not-required', 'approved', 'pending', 'denied']),
+  estimatedCostMicros: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER).nullable(),
+}).strict();
+export type TuiTaskMetadata = z.infer<typeof TuiTaskMetadataSchema>;
 export const RendererProjectionOptionsSchema = z.object({
   width: z.number().int().min(20).max(500).default(120),
   height: z.number().int().min(4).max(500).default(24),
@@ -15,12 +23,14 @@ export const RendererProjectionOptionsSchema = z.object({
   follow: z.boolean().default(true),
   logFilter: z.string().max(128).default(''),
   criticalTaskIds: z.array(rendererTaskId).max(10_000).default([]),
+  taskMetadata: z.array(TuiTaskMetadataSchema).max(10_000).default([]),
+  screenReader: z.boolean().default(false),
 }).strict();
 export type RendererProjectionOptions = z.infer<typeof RendererProjectionOptionsSchema>;
 
 export const RendererKeyboardIntentSchema = z.enum([
   'cancel', 'toggle-follow', 'begin-filter', 'clear-filter', 'toggle-critical',
-  'move-up', 'move-down', 'inspect', 'none',
+  'toggle-detach', 'move-up', 'move-down', 'inspect', 'none',
 ]);
 export type RendererKeyboardIntent = z.infer<typeof RendererKeyboardIntentSchema>;
 
@@ -31,6 +41,7 @@ export function parseRendererKeyboardIntent(input: unknown): RendererKeyboardInt
   if (key === 'f') return 'toggle-follow';
   if (key === '/') return 'begin-filter';
   if (key === 'c') return 'toggle-critical';
+  if (key === 'd') return 'toggle-detach';
   if (key === 'arrowup' || key === 'k') return 'move-up';
   if (key === 'arrowdown' || key === 'j') return 'move-down';
   if (key === 'enter' || key === '\r') return 'inspect';
@@ -48,8 +59,60 @@ export function resolveRendererProjectionOptions(
     ...parsed,
     color: environment.NO_COLOR === undefined && environment.TERM !== 'dumb' && parsed.color,
     reducedMotion: environment.INSTALL_DOCTOR_REDUCED_MOTION === '1' || parsed.reducedMotion,
+    screenReader: environment.INSTALL_DOCTOR_SCREEN_READER === '1' || parsed.screenReader,
     criticalTaskIds: [...new Set(parsed.criticalTaskIds)].sort(),
+    taskMetadata: [...parsed.taskMetadata].sort((left, right) => left.taskId.localeCompare(right.taskId)),
   });
+}
+
+function agentForTask(taskId: string): string {
+  if (!taskId.startsWith('agent.')) return 'installer';
+  const [, agent = 'installer'] = taskId.split('.');
+  return agent;
+}
+
+/** Builds presentation-only DAG context from the exact normalized plan. */
+export function tuiProjectionFromPlan(
+  planInput: unknown,
+  overrides: Readonly<Record<string, Partial<Pick<TuiTaskMetadata, 'agentId' | 'approval' | 'estimatedCostMicros'>>>> = {},
+): Pick<RendererProjectionOptions, 'criticalTaskIds' | 'taskMetadata'> {
+  const plan: NormalizedPlan = NormalizedPlanSchema.parse(planInput);
+  const selected = new Set(plan.selectedTaskIds);
+  const tasks = new Map(plan.tasks.filter(task => selected.has(task.id)).map(task => [task.id, task]));
+  const depth = new Map<string, number>();
+  const visit = (taskId: string, visiting = new Set<string>()): number => {
+    const cached = depth.get(taskId); if (cached !== undefined) return cached;
+    if (visiting.has(taskId)) throw new Error('TUI DAG contains a cycle');
+    const task = tasks.get(taskId); if (!task) throw new Error(`TUI DAG task is missing: ${taskId}`);
+    const next = new Set(visiting); next.add(taskId);
+    const value = 1 + task.dependencies.filter(dependency => tasks.has(dependency))
+      .reduce((maximum, dependency) => Math.max(maximum, visit(dependency, next)), 0);
+    depth.set(taskId, value); return value;
+  };
+  for (const taskId of tasks.keys()) visit(taskId);
+  const maximumDepth = Math.max(0, ...depth.values());
+  const critical = new Set<string>();
+  const includeCriticalPredecessors = (taskId: string): void => {
+    if (critical.has(taskId)) return;
+    critical.add(taskId);
+    const task = tasks.get(taskId); const taskDepth = depth.get(taskId) ?? 1;
+    for (const dependency of task?.dependencies ?? []) {
+      if (tasks.has(dependency) && depth.get(dependency) === taskDepth - 1) includeCriticalPredecessors(dependency);
+    }
+  };
+  for (const [taskId, value] of depth) if (value === maximumDepth) includeCriticalPredecessors(taskId);
+  const criticalTaskIds = [...critical].sort();
+  const taskMetadata = [...tasks.values()].sort((left, right) => left.id.localeCompare(right.id)).map(task => {
+    const override = overrides[task.id] ?? {};
+    return TuiTaskMetadataSchema.parse({
+      taskId: task.id,
+      agentId: override.agentId ?? agentForTask(task.id),
+      dependencies: task.dependencies.filter(dependency => selected.has(dependency)).sort(),
+      approval: override.approval ?? (task.consent === 'none' ? 'not-required' : 'approved'),
+      estimatedCostMicros: override.estimatedCostMicros ?? null,
+    });
+  });
+  return { criticalTaskIds, taskMetadata };
 }
 
 export interface InstallerSemanticResult {
@@ -109,6 +172,11 @@ export interface TuiTaskView {
   readonly output: readonly string[];
   readonly outputSequences: readonly number[];
   readonly outputDropped: number;
+  readonly agentId: string;
+  readonly dependencies: readonly string[];
+  readonly approval: TuiTaskMetadata['approval'];
+  readonly estimatedCostMicros: number | null;
+  readonly verification: 'pending' | 'passed' | 'failed' | 'inapplicable';
 }
 export interface TuiModel {
   readonly runStatus: string;
@@ -117,6 +185,7 @@ export interface TuiModel {
   readonly selectedTaskId: string | null;
   readonly inspect: boolean;
   readonly criticalOnly: boolean;
+  readonly detachedView: boolean;
   readonly lastSequence: number;
   readonly retainedOutputBytes: number;
   readonly retainedOutputLines: number;
@@ -132,17 +201,25 @@ const TUI_OUTPUT_BYTES_GLOBAL = 1024 * 1024;
 // installer bottleneck. The next non-output event always flushes the model.
 const TUI_OUTPUT_EVENTS_PER_FRAME = 8;
 
-export function createTuiModel(): TuiModel {
+export function createTuiModel(metadata: readonly TuiTaskMetadata[] = []): TuiModel {
+  const tasks = Object.fromEntries(metadata.map(item => [item.taskId, Object.freeze({
+    taskId: item.taskId, status: 'queued' as const, attempt: 0,
+    waitingLocks: Object.freeze([]), heldLocks: Object.freeze([]), output: Object.freeze([]),
+    outputSequences: Object.freeze([]), outputDropped: 0, agentId: item.agentId,
+    dependencies: Object.freeze([...item.dependencies]), approval: item.approval,
+    estimatedCostMicros: item.estimatedCostMicros, verification: 'pending' as const,
+  })]));
   return Object.freeze({
-    runStatus: 'starting', phase: 'discover', tasks: Object.freeze({}), selectedTaskId: null,
-    inspect: false, criticalOnly: false, lastSequence: -1, retainedOutputBytes: 0, retainedOutputLines: 0,
+    runStatus: 'starting', phase: 'discover', tasks: Object.freeze(tasks), selectedTaskId: Object.keys(tasks).sort()[0] ?? null,
+    inspect: false, criticalOnly: false, detachedView: false, lastSequence: -1, retainedOutputBytes: 0, retainedOutputLines: 0,
   });
 }
 
 function updateTask(model: TuiModel, taskId: string, update: (task: TuiTaskView) => TuiTaskView): TuiModel {
   const current = model.tasks[taskId] ?? Object.freeze({
     taskId, status: 'queued' as const, attempt: 0, waitingLocks: Object.freeze([]), heldLocks: Object.freeze([]),
-    output: Object.freeze([]), outputSequences: Object.freeze([]), outputDropped: 0,
+    output: Object.freeze([]), outputSequences: Object.freeze([]), outputDropped: 0, agentId: agentForTask(taskId),
+    dependencies: Object.freeze([]), approval: 'not-required' as const, estimatedCostMicros: null, verification: 'pending' as const,
   });
   const tasks = Object.freeze({ ...model.tasks, [taskId]: Object.freeze(update(current)) });
   const selectedTaskId = model.selectedTaskId ?? Object.keys(tasks).sort()[0] ?? null;
@@ -210,7 +287,12 @@ export function reduceTuiEvent(modelInput: TuiModel, eventInput: unknown): TuiMo
   if (event.kind === 'run-status') return Object.freeze({ ...model, runStatus: event.status });
   if (event.kind === 'phase-status') return Object.freeze({ ...model, phase: `${event.phase}:${event.status}` });
   if (event.kind === 'task-status') {
-    return updateTask(model, event.taskId, task => ({ ...task, status: event.status as TuiTaskStatus, attempt: event.attempt }));
+    return updateTask(model, event.taskId, task => ({
+      ...task, status: event.status as TuiTaskStatus, attempt: event.attempt,
+      verification: event.status === 'verified' ? 'passed'
+        : event.status === 'inapplicable' ? 'inapplicable'
+          : event.status === 'failed' || event.status === 'blocked' ? 'failed' : task.verification,
+    }));
   }
   if (event.kind === 'lock') {
     return updateTask(model, event.taskId, task => {
@@ -231,6 +313,7 @@ export function applyTuiIntent(model: TuiModel, intent: RendererKeyboardIntent, 
   if (intent === 'move-up' && visible.length > 0) return Object.freeze({ ...model, selectedTaskId: visible[Math.max(0, current - 1)] ?? null });
   if (intent === 'move-down' && visible.length > 0) return Object.freeze({ ...model, selectedTaskId: visible[Math.min(visible.length - 1, current + 1)] ?? null });
   if (intent === 'inspect') return Object.freeze({ ...model, inspect: !model.inspect });
+  if (intent === 'toggle-detach') return Object.freeze({ ...model, detachedView: !model.detachedView });
   if (intent === 'toggle-critical') {
     const criticalOnly = !model.criticalOnly;
     const nextVisible = Object.keys(model.tasks).sort().filter(taskId => !criticalOnly || critical.has(taskId));
@@ -355,6 +438,11 @@ function tuiStatusIcon(status: TuiTaskStatus, reducedMotion: boolean): string {
   return '○';
 }
 
+function formatCost(micros: number | null): string {
+  if (micros === null) return 'cost:unreported';
+  return `cost:$${(micros / 1_000_000).toFixed(4)}`;
+}
+
 export function renderTuiFrame(model: TuiModel, optionsInput: unknown = {}): string {
   const options = resolveRendererProjectionOptions(optionsInput);
   const critical = new Set(options.criticalTaskIds);
@@ -375,10 +463,14 @@ export function renderTuiFrame(model: TuiModel, optionsInput: unknown = {}): str
     ? `  view ${taskStart + 1}-${taskStart + visibleTasks.length} of ${tasks.length}`
     : '';
   const lines = [
-    tuiColor(fitTerminalWidth(`DESKTOP TOOLS  ${phase}  ${model.runStatus}`, options.width), '1;36', options.color),
-    fitTerminalWidth(`Workers  ${active} active  ${waiting} waiting  ${done}/${tasks.length} done${viewport}   [j/k] select  [enter] inspect  [c] critical  [f] follow  [/] filter  [q] cancel`, options.width),
+    tuiColor(fitTerminalWidth(`${options.screenReader ? 'Desktop Tools.' : 'DESKTOP TOOLS'}  ${phase}  ${model.runStatus}`, options.width), '1;36', options.color && !options.screenReader),
+    fitTerminalWidth(`Workers  ${active} active  ${waiting} waiting  ${done}/${tasks.length} done${viewport}   [j/k] select  [enter] inspect  [c] critical  [f] follow  [d] detach  [/] filter  [q] cancel`, options.width),
     fitTerminalWidth('─'.repeat(Math.max(1, options.width)), options.width),
   ];
+  if (model.detachedView) {
+    lines.push(fitTerminalWidth('View detached; execution continues. Press [d] to follow current state.', options.width));
+    return lines.slice(0, options.height).join('\n');
+  }
   if (tasks.length === 0) {
     lines.push(fitTerminalWidth('  Discovering selected work…', options.width));
     return lines.slice(0, options.height).join('\n');
@@ -388,16 +480,18 @@ export function renderTuiFrame(model: TuiModel, optionsInput: unknown = {}): str
     const criticalLabel = critical.has(task.taskId) ? '  critical' : '';
     const lock = task.waitingLocks.length > 0 ? `  waiting:${task.waitingLocks.join(',')}` : task.heldLocks.length > 0 ? `  lock:${task.heldLocks.join(',')}` : '';
     const attempt = task.status === 'retrying' ? `  attempt:${task.attempt}` : '';
-    const status = `${tuiStatusIcon(task.status, options.reducedMotion)} ${task.status}`;
+    const status = options.screenReader ? `status:${task.status}` : `${tuiStatusIcon(task.status, options.reducedMotion)} ${task.status}`;
+    const context = `  agent:${task.agentId}  deps:${task.dependencies.length || 'none'}  approval:${task.approval}  ${formatCost(task.estimatedCostMicros)}  verify:${task.verification}`;
     const row = options.width < 40
-      ? `${selected} ${tuiStatusIcon(task.status, options.reducedMotion)} ${task.taskId}  ${status.slice(2)}${attempt}${lock}${criticalLabel}`
-      : `${selected} ${status.padEnd(18)} ${task.taskId}${attempt}${lock}${criticalLabel}`;
+      ? `${selected} ${options.screenReader ? '' : tuiStatusIcon(task.status, options.reducedMotion)} ${task.taskId} ${status}${attempt}${lock}${criticalLabel}`
+      : `${selected} ${status.padEnd(18)} ${task.taskId}${attempt}${lock}${criticalLabel}${context}`;
     lines.push(fitTerminalWidth(row, options.width));
   }
   if (model.inspect && model.selectedTaskId) {
     const selected = model.tasks[model.selectedTaskId];
     if (selected) {
-      lines.push(fitTerminalWidth(`Task ${selected.taskId} · ${selected.status} · attempt ${selected.attempt}`, options.width));
+      lines.push(fitTerminalWidth(`Task ${selected.taskId} · agent ${selected.agentId} · ${selected.status} · attempt ${selected.attempt}`, options.width));
+      lines.push(fitTerminalWidth(`Dependencies ${selected.dependencies.join(',') || 'none'} · approval ${selected.approval} · ${formatCost(selected.estimatedCostMicros)} · verification ${selected.verification}`, options.width));
       const output = selected.output.filter(line => options.logFilter === '' || line.toLocaleLowerCase('en-US').includes(options.logFilter.toLocaleLowerCase('en-US')));
       const outputCapacity = Math.max(0, options.height - lines.length);
       if (!options.follow && outputCapacity > 0) lines.push(fitTerminalWidth('  Output paused', options.width));
@@ -446,7 +540,7 @@ export function createRendererSession(
   let spilledChunks = 0;
   let spillExhausted = false;
   let lastSequence = -1;
-  let tuiModel = createTuiModel();
+  let tuiModel = createTuiModel(options.taskMetadata);
   let tuiStarted = false;
   let tuiOutputEventsSinceFrame = 0;
   let terminalRestored = false;
@@ -475,7 +569,8 @@ export function createRendererSession(
   };
   const writeTuiFrame = (): void => {
     if (mode !== 'tui' || !delivery.interactiveTui || closed) return;
-    const prefix = tuiStarted ? '\u001b[H\u001b[J' : '\u001b[?1049h\u001b[?25l\u001b[2J\u001b[H';
+    const fullScreen = !options.screenReader;
+    const prefix = !fullScreen ? '' : tuiStarted ? '\u001b[H\u001b[J' : '\u001b[?1049h\u001b[?25l\u001b[2J\u001b[H';
     tuiStarted = true;
     tuiOutputEventsSinceFrame = 0;
     write(`${prefix}${renderTuiFrame(tuiModel, options)}\n`);
@@ -555,7 +650,7 @@ export function createRendererSession(
       } catch { failures += 1; detached = true; detachedForBackpressure = false; closed = true; }
     },
     close() {
-      if (tuiStarted && !terminalRestored) {
+      if (tuiStarted && !terminalRestored && !options.screenReader) {
         terminalRestored = true;
         try { sink('\u001b[?25h\u001b[?1049l'); } catch { failures += 1; }
       }

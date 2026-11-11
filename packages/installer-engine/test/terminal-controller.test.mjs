@@ -91,6 +91,7 @@ test('non-TTY and TERM=dumb remain inert and do not mutate input', () => {
     { input: new FakeInput({ tty: false }) },
     { output: new FakeOutput({ tty: false }) },
     { environment: { TERM: 'dumb' } },
+    { environment: { TERM: 'xterm-256color', INSTALL_DOCTOR_SCREEN_READER: '1' } },
   ]) {
     const state = setup(options);
     assert.equal(state.controller.active, false);

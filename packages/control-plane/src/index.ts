@@ -25,6 +25,7 @@ import { errorEnvelope, requestSecurity, requestIdFor } from './http-security';
 import { renderBootstrap } from './bootstrap';
 import { pinnedReleaseSigner } from './release-keyring';
 import { lookupDesktopReleaseObject, lookupReleaseObject } from './release-store';
+import { projectPublicReleaseEvidence, readReleaseEvidenceObject } from './release-evidence-view';
 import { resolveActiveRelease } from './release-channel';
 import { resolveActiveDesktopRelease } from './desktop-release-channel';
 import { authorizeOwnerContextRead, authorizeOwnerDecision, DESKTOP_DEVICE_SCOPE_ALLOWLIST, OwnerApprovalDecision, persistOwnerDecision } from './owner-approval';
@@ -3353,6 +3354,35 @@ app.get('/releases/:releaseId/:file', async (c) => {
   });
   if (release.body.size !== undefined) headers.set('content-length', String(release.body.size));
   return new Response(release.body.body, { status: 200, headers });
+});
+
+// Public, release-scoped evidence view. This is intentionally unavailable on
+// tenant profile and legacy hosts: it contains no tenant selector, session
+// context, raw rationale/evidence, or arbitrary source fields. Every displayed
+// claim is recomputed from exact immutable bytes and their signed-manifest pins.
+app.get('/api/releases/:releaseId/evidence', async (c) => {
+  if (new URL(c.req.url).hostname !== 'desktop.tools') return c.json({ error: 'not_found' }, 404);
+  const env = Env.parse(c.env); const releaseId = c.req.param('releaseId');
+  const names = ['manifest', 'catalog.json', 'release.sbom.json', 'release.provenance.json',
+    'release.spdx.json', 'release.exploitability.json'] as const;
+  const values = new Map<string, Uint8Array>();
+  try {
+    for (const name of names) {
+      const object = await lookupDesktopReleaseObject(env.RELEASES, releaseId, name);
+      if (object.status === 'invalid' || object.status === 'missing') return c.json({ error: 'release_not_found' }, 404);
+      if (object.status === 'unavailable') return c.json({ error: 'release_evidence_unavailable' }, 503);
+      values.set(name, await readReleaseEvidenceObject(object.body.body, object.body.size));
+    }
+    const view = await projectPublicReleaseEvidence({ releaseId,
+      manifest: values.get('manifest')!, catalog: values.get('catalog.json')!, sbom: values.get('release.sbom.json')!,
+      provenance: values.get('release.provenance.json')!, spdx: values.get('release.spdx.json')!,
+      exploitability: values.get('release.exploitability.json')! });
+    return c.json(view, 200, { 'cache-control': 'public, max-age=300, stale-while-revalidate=60, no-transform' });
+  } catch {
+    // Invalid or cross-release evidence is indistinguishable from unavailable
+    // evidence publicly; detailed validation failures stay in internal logs.
+    return c.json({ error: 'release_evidence_invalid' }, 503, { 'cache-control': 'no-store' });
+  }
 });
 
 // Terminal-safe signed stage-zero bootstrap for the explicitly gated macOS and Linux x64/arm64 cells.

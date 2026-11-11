@@ -10,6 +10,7 @@ import {
   renderTuiFrame,
   resolveRendererProjectionOptions,
   sanitizeTerminalText,
+  tuiProjectionFromPlan,
 } from '../dist/index.js';
 
 const base = {
@@ -66,12 +67,97 @@ test('keyboard parsing exposes intent without owning terminal input', () => {
   assert.equal(parseRendererKeyboardIntent('q'), 'cancel');
   assert.equal(parseRendererKeyboardIntent('\u0003'), 'cancel');
   assert.equal(parseRendererKeyboardIntent('f'), 'toggle-follow');
+  assert.equal(parseRendererKeyboardIntent('d'), 'toggle-detach');
   assert.equal(parseRendererKeyboardIntent('/'), 'begin-filter');
   assert.equal(parseRendererKeyboardIntent('ArrowUp'), 'move-up');
   assert.equal(parseRendererKeyboardIntent('j'), 'move-down');
   assert.equal(parseRendererKeyboardIntent('Enter'), 'inspect');
   assert.equal(parseRendererKeyboardIntent('unknown'), 'none');
   assert.equal(parseRendererKeyboardIntent('x'.repeat(17)), 'none');
+});
+
+function plannedTask(id, dependencies = [], consent = 'none') {
+  return {
+    schemaVersion: 1, id, inputDigest: id.charCodeAt(0).toString(16).padStart(2, '0').repeat(32), dependencies,
+    predicate: 'supported', requiredCapabilities: [],
+    operations: { check: `${id}.check`, apply: `${id}.apply`, verify: `${id}.verify` },
+    timeoutMs: 1_000, retry: { class: 'transient', maxAttempts: 3, backoffMs: 10 },
+    resources: { cpu: 1, memoryMiB: 16, network: false, diskIoWeight: 1, networkIoWeight: 0 },
+    privilege: 'user', network: 'none', consent, lockDomains: [], cleanup: 'always', compensation: 'none',
+    lifecycle: 'operation', failurePolicy: 'continue-independent',
+  };
+}
+
+test('plan projection exposes complete DAG critical path and attributable approval and cost context', () => {
+  const tasks = [
+    plannedTask('agent.discover'),
+    plannedTask('agent.install', ['agent.discover'], 'owner'),
+    plannedTask('agent.verify', ['agent.install']),
+    plannedTask('side.audit'),
+  ];
+  const projection = tuiProjectionFromPlan({
+    schemaVersion: 1, planId: 'plan', digest: 'a'.repeat(64), releaseId: 'release', desiredRevision: 'revision',
+    hostFactsDigest: 'b'.repeat(64), createdAt: '2026-11-06T00:00:00.000Z', tasks,
+    selectedTaskIds: tasks.map(task => task.id),
+    executionPolicy: { maxConcurrency: 4, resourceLimits: { cpu: 4, memoryMiB: 1024, networkConcurrency: 1, diskIoWeight: 4, networkIoWeight: 4 } },
+  }, {
+    'agent.install': { agentId: 'worker.one', approval: 'approved', estimatedCostMicros: 125_000 },
+  });
+  assert.deepEqual(projection.criticalTaskIds, ['agent.discover', 'agent.install', 'agent.verify']);
+  const install = projection.taskMetadata.find(task => task.taskId === 'agent.install');
+  assert.deepEqual(install, {
+    taskId: 'agent.install', agentId: 'worker.one', dependencies: ['agent.discover'],
+    approval: 'approved', estimatedCostMicros: 125_000,
+  });
+  assert.throws(() => tuiProjectionFromPlan({ schemaVersion: 1 }), /Invalid input|expected/i);
+});
+
+test('multi-agent frame reports attribution, DAG, locks, retries, approvals, costs, verification, and detach', () => {
+  const metadata = [{
+    taskId: 'agent.install', agentId: 'worker.one', dependencies: ['agent.discover'],
+    approval: 'approved', estimatedCostMicros: 125_000,
+  }];
+  let model = createTuiModel(metadata);
+  model = reduceTuiEvent(model, { ...base, sequence: 0, kind: 'task-status', taskId: 'agent.install', status: 'retrying', attempt: 2 });
+  model = reduceTuiEvent(model, { ...base, sequence: 1, kind: 'lock', taskId: 'agent.install', domain: 'packages', state: 'waiting' });
+  let frame = renderTuiFrame(model, { width: 180, height: 8, color: false, criticalTaskIds: ['agent.install'] });
+  assert.match(frame, /agent:worker\.one/);
+  assert.match(frame, /deps:1/);
+  assert.match(frame, /approval:approved/);
+  assert.match(frame, /cost:\$0\.1250/);
+  assert.match(frame, /verify:pending/);
+  assert.match(frame, /attempt:2/);
+  assert.match(frame, /waiting:packages/);
+  assert.match(frame, /critical/);
+  model = reduceTuiEvent(model, { ...base, sequence: 2, kind: 'task-status', taskId: 'agent.install', status: 'verified', attempt: 2 });
+  frame = renderTuiFrame(model, { width: 180, height: 8, color: false });
+  assert.match(frame, /verify:passed/);
+  const detached = applyTuiIntent(model, 'toggle-detach');
+  assert.match(renderTuiFrame(detached, { width: 80, color: false }), /View detached; execution continues/);
+  assert.equal(applyTuiIntent(detached, 'toggle-detach').detachedView, false);
+});
+
+test('screen-reader, NO_COLOR, and reduced-motion modes use explicit stable text without terminal control', () => {
+  const preferences = resolveRendererProjectionOptions(
+    { color: true, reducedMotion: false, screenReader: false },
+    { NO_COLOR: '1', INSTALL_DOCTOR_REDUCED_MOTION: '1', INSTALL_DOCTOR_SCREEN_READER: '1' },
+  );
+  assert.equal(preferences.color, false);
+  assert.equal(preferences.reducedMotion, true);
+  assert.equal(preferences.screenReader, true);
+  const chunks = [];
+  const session = createRendererSession('tui', chunk => { chunks.push(chunk); return true; }, {
+    width: 120, color: true, screenReader: true,
+    taskMetadata: [{ taskId: 'agent.read', agentId: 'reader', dependencies: [], approval: 'not-required', estimatedCostMicros: null }],
+  }, { interactiveTui: true });
+  session.onEvent({ ...base, sequence: 0, kind: 'task-status', taskId: 'agent.read', status: 'running', attempt: 1 });
+  session.close();
+  const transcript = chunks.join('');
+  assert.equal(transcript.includes('\u001b'), false);
+  assert.match(transcript, /Desktop Tools\./);
+  assert.match(transcript, /status:running/);
+  assert.match(transcript, /agent:reader/);
+  assert.match(transcript, /cost:unreported/);
 });
 
 test('live projection controls change only future presentation', () => {
@@ -299,6 +385,24 @@ test('interactive TUI owns full-screen lifecycle while noninteractive TUI remain
   const noninteractive = [];
   createRendererSession('tui', chunk => { noninteractive.push(chunk); return true; }, { color: false }).onEvent(event);
   assert.equal(noninteractive.join('').includes('\u001b'), false);
+});
+
+test('interactive TUI restores terminal control state after a renderer crash', () => {
+  const chunks = [];
+  let writes = 0;
+  const session = createRendererSession('tui', chunk => {
+    writes += 1;
+    if (writes === 2) throw new Error('simulated frame renderer crash');
+    chunks.push(chunk);
+    return true;
+  }, { color: false }, { interactiveTui: true });
+  session.onEvent({ ...base, sequence: 0, kind: 'run-status', status: 'started' });
+  session.onEvent({ ...base, sequence: 1, kind: 'phase-status', phase: 'apply', status: 'started' });
+  assert.equal(session.detached, true);
+  assert.equal(session.failureCount, 1);
+  session.close();
+  assert.match(chunks[0], /\u001b\[\?1049h\u001b\[\?25l/);
+  assert.equal(chunks.at(-1), '\u001b[?25h\u001b[?1049l');
 });
 
 test('interactive TUI coalesces output bursts but immediately flushes lifecycle state', () => {
