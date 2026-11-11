@@ -52,7 +52,7 @@
 - [ ] 5.2 Discover subscribed Infisical features and record supported mechanisms without buying or enabling new service tiers; verify unsupported dynamic or granular features yield an explicit design-compatible fallback blocker.
 - [ ] 5.3 Implement scoped Infisical enrollment, renewal, rotation, revocation, rebuild recovery, and secure runtime delivery for one canary service; verify allowed reads and denied cross-host, cross-environment, administrative, and recovery-root access.
 - [ ] 5.4 Extend `get-secret` and workload launchers so operational access is Infisical-authoritative with no controller-store fallback; verify outage and caller-selected path tests fail closed.
-- [ ] 5.5 Create the offline-secret exception schema and inventory existing local material; verify only declared pre-network, boot, offline, or independent-recovery items remain eligible.
+- [x] 5.5 Create the offline-secret exception schema and inventory existing local material; verify only declared pre-network, boot, offline, or independent-recovery items remain eligible.
 - [ ] 5.6 Implement dual-phase rotation for one supported credential class; verify both consumer reload and rollback before retiring the historical value.
 - [ ] 5.7 Add passkey/WebAuthn owner authentication and privileged step-up with recovery and revocation; verify origin, actor, challenge, target, plan, scope, and reauthentication binding.
 - [ ] 5.8 Add effective-authorization simulation across product, Cloudflare, Infisical, OpenCode, and host privilege policies; verify explanations identify every contributing grant and denial.
@@ -74,7 +74,7 @@
 ## 7. Fleet reconciliation, hardware, reboot, and cost control
 
 - [x] 7.1 Implement per-host durable reconciliation state and leases with discover, validate, plan, approve, apply, verify, status, pause, resume, and stop; verify concurrent reconcilers cannot own one host.
-- [ ] 7.2 Add mobile-host power, connectivity, and metered-network policies with bounded catch-up; verify missed work is prioritized rather than replayed unboundedly.
+- [x] 7.2 Add mobile-host power, connectivity, and metered-network policies with bounded catch-up; verify missed work is prioritized rather than replayed unboundedly.
 - [ ] 7.3 Add resource pressure and workload usability guards for provisioning, verification, replication, scrubs, and pruning; verify foreground services remain within declared budgets.
 - [ ] 7.4 Implement hardware and firmware inventory for CPU, memory, disk identity, SMART/NVMe, GPU, firmware, Secure Boot, TPM, battery, thermal, and UPS signals; verify simulated device faults identify exact host and device.
 - [ ] 7.5 Implement planned reboot coordination with active-user/workload checks, restart-safe continuation, post-boot identity, and recovery timeout; verify a missing return heartbeat never becomes success.
@@ -84,13 +84,13 @@
 
 ## 8. Unified observability and operations observatory
 
-- [ ] 8.1 Define OpenTelemetry-compatible semantic conventions for hosts, profiles, releases, runs, agents, tasks, locks, approvals, effects, costs, verification, backup, and recovery; verify bounded-cardinality and schema tests.
+- [x] 8.1 Define OpenTelemetry-compatible semantic conventions for hosts, profiles, releases, runs, agents, tasks, locks, approvals, effects, costs, verification, backup, and recovery; verify bounded-cardinality and schema tests.
 - [ ] 8.2 Instrument control plane, runtime, installer engine, privileged broker, and reconciliation with correlated secret-safe logs, metrics, traces, and events; verify adversarial credentials and PII never leave source boundaries.
 - [ ] 8.3 Deploy Alloy to one disposable canary with a recovery-safe local pipeline and validated remote modules; verify invalid remote configuration retains the last valid effective pipeline.
 - [ ] 8.4 Implement bounded buffering, retry, deduplication, timestamp handling, restart survival, and delivery heartbeats; verify a running collector without queryable test evidence remains unverified.
 - [ ] 8.5 Build dashboards for release adoption, fleet drift, run critical path, agent cost, secret access, platform evidence, capacity, pool health, backup freshness, replication lag, verification, and restores; verify every nonterminal state renders distinctly.
 - [ ] 8.6 Add actionable deduplicated alerts with host, workload/device, recovery impact, evidence, runbook, missing-heartbeat detection, and recovery clearing; verify simulated fault-to-alert-to-clear flow.
-- [ ] 8.7 Add consented fail-open telemetry export and retention controls; verify outage never blocks safe local operation or grants mutation authority.
+- [x] 8.7 Add consented fail-open telemetry export and retention controls; verify outage never blocks safe local operation or grants mutation authority.
 - [ ] 8.8 Measure SLOs and error budgets from correlated evidence; verify staged rollout consumes and reacts to the correct budget.
 
 ## 9. Data protection, ZFS, backup, and disaster recovery

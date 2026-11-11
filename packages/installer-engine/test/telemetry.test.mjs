@@ -22,6 +22,9 @@ test('exports only consented bounded metadata and drops command output entirely'
   assert.equal(JSON.stringify(observed).includes('do-not-export'), false);
   assert.deepEqual(observed.batch.events.map(event => event.kind), ['run-status', 'task-status']);
   assert.deepEqual(observed.batch.labels, config.labels);
+  assert.deepEqual(observed.batch.retention, {
+    localSpoolMaxBytes: 16_777_216, localSpoolMaxAgeHours: 24, remoteRetentionDays: 30,
+  });
 });
 
 test('does not call transport without consent', async () => {
@@ -55,5 +58,8 @@ test('rejects insecure endpoints, unbounded labels, and malformed events before 
   await assert.rejects(exportInstallerTelemetry({ ...config, endpoint: 'https://token@logs.example.test/installer' }, events, async () => { called = true; }));
   await assert.rejects(exportInstallerTelemetry({ ...config, labels: { ...config.labels, host: 'private-host' } }, events, async () => { called = true; }));
   await assert.rejects(exportInstallerTelemetry(config, [{ ...events[0], secret: 'x' }], async () => { called = true; }));
+  await assert.rejects(exportInstallerTelemetry({
+    ...config, retention: { localSpoolMaxBytes: 16_777_216, localSpoolMaxAgeHours: 24, remoteRetentionDays: 365 },
+  }, events, async () => { called = true; }));
   assert.equal(called, false);
 });

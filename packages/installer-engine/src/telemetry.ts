@@ -10,6 +10,11 @@ const telemetryEndpoint = z.string().url()
     const endpoint = new URL(value);
     return endpoint.username === '' && endpoint.password === '' && endpoint.search === '' && endpoint.hash === '';
   }, 'telemetry endpoint cannot contain credentials, query parameters, or fragments');
+export const TelemetryRetentionPolicySchema = z.object({
+  localSpoolMaxBytes: z.number().int().min(1_048_576).max(1_073_741_824),
+  localSpoolMaxAgeHours: z.number().int().min(1).max(168),
+  remoteRetentionDays: z.number().int().min(1).max(90),
+}).strict();
 export const TelemetryExportConfigSchema = z.object({
   schemaVersion: z.literal(1),
   consent: z.boolean(),
@@ -20,6 +25,11 @@ export const TelemetryExportConfigSchema = z.object({
     environment: z.enum(['native', 'wsl', 'proxmox', 'qubes', 'container']),
     service: boundedLabel,
   }).strict(),
+  retention: TelemetryRetentionPolicySchema.default({
+    localSpoolMaxBytes: 16_777_216,
+    localSpoolMaxAgeHours: 24,
+    remoteRetentionDays: 30,
+  }),
 }).strict();
 
 const RemoteEventSchema = z.discriminatedUnion('kind', [
@@ -32,6 +42,7 @@ const RemoteEventSchema = z.discriminatedUnion('kind', [
 export const TelemetryBatchSchema = z.object({
   schemaVersion: z.literal(1),
   labels: TelemetryExportConfigSchema.shape.labels,
+  retention: TelemetryRetentionPolicySchema,
   events: z.array(RemoteEventSchema).max(256),
   droppedOutputEvents: z.number().int().nonnegative(),
   droppedCapacityEvents: z.number().int().nonnegative(),
@@ -64,7 +75,10 @@ export async function exportInstallerTelemetry(
   const safeEvents = metadataEvents.slice(0, 256)
     .map(({ schemaVersion: _schemaVersion, ...event }) => event);
   if (!config.consent) return Object.freeze({ status: 'disabled', exportedEvents: 0, droppedOutputEvents, droppedCapacityEvents });
-  const batch = TelemetryBatchSchema.parse({ schemaVersion: 1, labels: config.labels, events: safeEvents, droppedOutputEvents, droppedCapacityEvents });
+  const batch = TelemetryBatchSchema.parse({
+    schemaVersion: 1, labels: config.labels, retention: config.retention,
+    events: safeEvents, droppedOutputEvents, droppedCapacityEvents,
+  });
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(new Error('telemetry timeout')), config.timeoutMs);
   timer.unref?.();

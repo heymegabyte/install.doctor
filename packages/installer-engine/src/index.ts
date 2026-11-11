@@ -18,6 +18,7 @@ export * from './rollback.js';
 export * from './rollback-journal.js';
 export * from './host-mutation-lease.js';
 export * from './host-reconciliation.js';
+export * from './mobile-reconciliation-policy.js';
 export * from './fleet-error-budget.js';
 export * from './rollback-executor.js';
 export * from './lazy-plan.js';
