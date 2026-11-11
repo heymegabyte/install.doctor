@@ -75,10 +75,10 @@
 
 - [x] 7.1 Implement per-host durable reconciliation state and leases with discover, validate, plan, approve, apply, verify, status, pause, resume, and stop; verify concurrent reconcilers cannot own one host.
 - [x] 7.2 Add mobile-host power, connectivity, and metered-network policies with bounded catch-up; verify missed work is prioritized rather than replayed unboundedly.
-- [ ] 7.3 Add resource pressure and workload usability guards for provisioning, verification, replication, scrubs, and pruning; verify foreground services remain within declared budgets.
-- [ ] 7.4 Implement hardware and firmware inventory for CPU, memory, disk identity, SMART/NVMe, GPU, firmware, Secure Boot, TPM, battery, thermal, and UPS signals; verify simulated device faults identify exact host and device.
-- [ ] 7.5 Implement planned reboot coordination with active-user/workload checks, restart-safe continuation, post-boot identity, and recovery timeout; verify a missing return heartbeat never becomes success.
-- [ ] 7.6 Implement staged drift repair with intentional exceptions, cohorts, stop-on-dependent-failure, and configuration rollback; verify new access and destructive repair always remain outside automatic authorization.
+- [x] 7.3 Add resource pressure and workload usability guards for provisioning, verification, replication, scrubs, and pruning; verify foreground services remain within declared budgets.
+- [x] 7.4 Implement hardware and firmware inventory for CPU, memory, disk identity, SMART/NVMe, GPU, firmware, Secure Boot, TPM, battery, thermal, and UPS signals; verify simulated device faults identify exact host and device.
+- [x] 7.5 Implement planned reboot coordination with active-user/workload checks, restart-safe continuation, post-boot identity, and recovery timeout; verify a missing return heartbeat never becomes success.
+- [x] 7.6 Implement staged drift repair with intentional exceptions, cohorts, stop-on-dependent-failure, and configuration rollback; verify new access and destructive repair always remain outside automatic authorization.
 - [x] 7.7 Add capacity and cost forecasts for disk, snapshots, replication, backups, egress, API operations, telemetry, models, and restores; verify thresholds gate sustained work before exhaustion.
 - [x] 7.8 Define fleet reconciliation SLOs and error budgets; verify exhausted budgets pause dependent rollout and clear only after measured recovery.
 

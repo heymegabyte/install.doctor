@@ -17,12 +17,13 @@
     "./identity-authority": "./dist/identity-authority.js",
     "./telemetry-semantics": "./dist/telemetry-semantics.js",
     "./offline-secret-exceptions": "./dist/offline-secret-exceptions.js",
-    "./host-data-coverage": "./dist/host-data-coverage.js"
+    "./host-data-coverage": "./dist/host-data-coverage.js",
+    "./hardware-evidence": "./dist/hardware-evidence.js"
   },
   "types": "./dist/core.d.ts",
   "description": "Tested contracts for Install Doctor aid; not a deployed daemon or gateway",
   "scripts": {
-    "build": "tsc --strict --target ES2022 --module ES2022 --moduleResolution bundler --lib ES2022,DOM --declaration src/core.ts src/probabilistic-intent.ts src/fleet-recovery.ts src/host-data-coverage.ts src/infisical-workload.ts src/identity-authority.ts src/offline-secret-exceptions.ts src/installer-contracts.ts src/broker-approval-contracts.ts src/device-authorization.ts src/product-identity.ts src/profile-resolution.ts src/profile-export.ts src/redaction.ts src/terminal-lifecycle.ts src/platform-support-evidence.ts src/telemetry-semantics.ts --outDir dist",
+    "build": "tsc --strict --target ES2022 --module ES2022 --moduleResolution bundler --lib ES2022,DOM --declaration src/core.ts src/probabilistic-intent.ts src/fleet-recovery.ts src/host-data-coverage.ts src/hardware-evidence.ts src/infisical-workload.ts src/identity-authority.ts src/offline-secret-exceptions.ts src/installer-contracts.ts src/broker-approval-contracts.ts src/device-authorization.ts src/product-identity.ts src/profile-resolution.ts src/profile-export.ts src/redaction.ts src/terminal-lifecycle.ts src/platform-support-evidence.ts src/telemetry-semantics.ts --outDir dist",
     "test": "npm run build && node --test test/*.test.mjs"
   },
   "engines": {
