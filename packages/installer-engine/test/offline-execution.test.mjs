@@ -312,9 +312,11 @@ test('verified bundle recomputes an exact network-free plan and operation closur
   assert.deepEqual(cliPlan.executionClosure.runtimeArtifactIds, ['fixture-operation']);
 });
 
-test('offline closure preserves and reproduces a non-default execution policy', async t => {
+test('offline closure preserves and reproduces every non-default execution-policy budget', async t => {
   const state = await fixture(t);
-  const policy = { maxConcurrency: 2, resourceLimits: { cpu: 8, memoryMiB: 4096, networkConcurrency: 0 } };
+  const policy = { maxConcurrency: 2, resourceLimits: {
+    cpu: 8, memoryMiB: 4096, networkConcurrency: 0, diskIoWeight: 7, networkIoWeight: 0,
+  } };
   const candidatePlan = await createInstallerEngine({
     ...policy,
     adapter: {

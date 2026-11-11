@@ -893,6 +893,8 @@ case "$url" in
   ${origin}/releases/test/desktop-tools-tools.tar.gz) source="$MOCK_TOOLS" ;;
   ${origin}/releases/test/release.sbom.json) source="$MOCK_SBOM" ;;
   ${origin}/releases/test/release.provenance.json) source="$MOCK_PROVENANCE" ;;
+  ${origin}/releases/test/release.spdx.json) source="$MOCK_SPDX" ;;
+  ${origin}/releases/test/release.exploitability.json) source="$MOCK_EXPLOITABILITY" ;;
   ${origin}/releases/test/THIRD_PARTY_LICENSES.txt) source="$MOCK_LICENSES" ;;
   ${origin}/releases/test/opencode.lock.json) source="$MOCK_OPENCODE_LOCK" ;;
   ${origin}/releases/test/broker-approval-signer-delegation.json) source="$MOCK_BROKER_APPROVAL_DELEGATION" ;;
@@ -975,6 +977,8 @@ esac
       tools: path.join(downloadRoot, `tools-${crypto.randomUUID()}.tar.gz`),
       sbom: path.join(downloadRoot, `sbom-${crypto.randomUUID()}.json`),
       provenance: path.join(downloadRoot, `provenance-${crypto.randomUUID()}.json`),
+      spdx: path.join(downloadRoot, `spdx-${crypto.randomUUID()}.json`),
+      exploitability: path.join(downloadRoot, `exploitability-${crypto.randomUUID()}.json`),
       licenses: path.join(downloadRoot, `licenses-${crypto.randomUUID()}.txt`),
       opencodeLock: path.join(downloadRoot, `opencode-lock-${crypto.randomUUID()}.json`),
       brokerApprovalDelegation: path.join(downloadRoot, `broker-approval-delegation-${crypto.randomUUID()}.json`),
@@ -987,6 +991,8 @@ esac
     fs.writeFileSync(closure.tools, 'fixture typed tools archive\n');
     fs.writeFileSync(closure.sbom, '{"bomFormat":"CycloneDX","specVersion":"1.6"}\n');
     fs.writeFileSync(closure.provenance, '{"_type":"https://in-toto.io/Statement/v1"}\n');
+    fs.writeFileSync(closure.spdx, '{"@context":"https://spdx.org/rdf/3.0.1/spdx-context.jsonld","@graph":[]}\n');
+    fs.writeFileSync(closure.exploitability, '{"schemaVersion":1,"kind":"desktop-tools-release-exploitability"}\n');
     fs.writeFileSync(closure.licenses, 'OpenCode — MIT\nDesktop Tools — MIT\n');
     fs.writeFileSync(closure.opencodeLock, '{"schemaVersion":1,"version":"2.2.5"}\n');
     fs.writeFileSync(closure.brokerApprovalDelegation, '{"schemaVersion":1,"fixture":true}\n');
@@ -1004,7 +1010,7 @@ esac
     const engineDigest = crypto.createHash('sha256').update(engineBody).digest('hex');
     const catalogDigest = crypto.createHash('sha256').update(catalogBody).digest('hex');
     const manifestBody = [
-      `schema_version=${desktop ? 9 : 5}`,
+      `schema_version=${desktop ? 10 : 5}`,
       ...(desktop ? ['product_id=desktop-tools'] : []),
       `release_id=${releaseId}`,
       `source_commit=${'a'.repeat(40)}`,
@@ -1036,6 +1042,8 @@ esac
           ['tools', 'desktop-tools-tools.tar.gz', closure.tools],
           ['sbom', 'release.sbom.json', closure.sbom],
           ['provenance', 'release.provenance.json', closure.provenance],
+          ['spdx', 'release.spdx.json', closure.spdx],
+          ['exploitability', 'release.exploitability.json', closure.exploitability],
           ['licenses', 'THIRD_PARTY_LICENSES.txt', closure.licenses],
           ['opencode_lock', 'opencode.lock.json', closure.opencodeLock],
           ['debian_inrelease', 'debian-bookworm-inrelease', closure.debianInRelease],
@@ -1087,6 +1095,8 @@ esac
         MOCK_TOOLS: release.closure?.tools ?? '',
         MOCK_SBOM: release.closure?.sbom ?? '',
         MOCK_PROVENANCE: release.closure?.provenance ?? '',
+        MOCK_SPDX: release.closure?.spdx ?? '',
+        MOCK_EXPLOITABILITY: release.closure?.exploitability ?? '',
         MOCK_LICENSES: release.closure?.licenses ?? '',
         MOCK_OPENCODE_LOCK: release.closure?.opencodeLock ?? '',
         MOCK_BROKER_APPROVAL_DELEGATION: release.closure?.brokerApprovalDelegation ?? '',
@@ -1808,7 +1818,7 @@ test('Desktop Tools release policy is source-owned while legacy release verifica
   const script = renderBootstrap(desktopConfig);
   assert.match(script, /readonly RELEASE_ORIGIN='https:\/\/desktop\.tools'/);
   assert.match(script, /readonly SIGNATURE_NAMESPACE='desktop\.tools\.release'/);
-  assert.match(script, /readonly EXPECTED_MANIFEST_SCHEMA='9'/);
+  assert.match(script, /readonly EXPECTED_MANIFEST_SCHEMA='10'/);
   assert.doesNotMatch(script, /download "\$debian_(?:inrelease|keyring|packages|tree)_url"/);
   assert.match(script, /readonly EXPECTED_PRODUCT_ID='desktop-tools'/);
   assert.match(script, /readonly DESKTOP_TOOLS_PROFILE_SLUG='example'/);
@@ -1837,7 +1847,7 @@ test('Desktop Tools release policy is source-owned while legacy release verifica
   assert.throws(() => releaseObjectUrl('desktop-tools', 'release-1', 'install-doctor-engine.mjs'));
 });
 
-test('Desktop Tools profile stage-zero executes a verified v9 runtime closure with broker delegation binding', async (t) => {
+test('Desktop Tools profile stage-zero executes a verified v10 runtime closure with evidence and broker delegation binding', async (t) => {
   const fixture = makeBootstrapRuntimeFixture(t, 'desktop-tools');
   const { renderBootstrap } = await import('../src/bootstrap.ts');
   const profile = {

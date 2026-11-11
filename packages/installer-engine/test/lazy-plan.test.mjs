@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { migrateLegacySoftwareCatalogEntry } from '../../aid-core/dist/software-catalog.js';
 import { buildLoadPlan } from '../dist/index.js';
 
 const entry = (name, overrides = {}) => ({
@@ -159,6 +160,27 @@ test('strictly rejects unknown fields and inconsistent duplicate catalog metadat
   assert.throws(() => buildLoadPlan(input({
     catalog: [entry('resolver', { loadPolicy: 'eager-bootstrap', loadRationale: 'lazy-resolver:hook' }), entry('resolver', { platforms: ['macos'] })],
   })), /inconsistent duplicate metadata/);
+});
+
+test('accepts canonical strict v1 catalog entries without creating a second catalog authority', () => {
+  const canonical = migrateLegacySoftwareCatalogEntry({
+    name: 'canonical-tool', bin: 'canonical-tool', providers: ['apt'], pkgs: { apt: 'canonical-tool' },
+    platforms: ['linux'], installMode: 'cli', preload: false, deliveryMode: 'lazy',
+    loadPolicy: 'lazy', loadRationale: 'default-lazy', deps: [],
+  });
+  const report = buildLoadPlan(input({
+    lazyResolverRequirements: [], selectedPackages: ['canonical-tool'], catalog: [canonical],
+  }));
+  assert.deepEqual(report.installOrder, ['canonical-tool']);
+  assert.equal(report.items[0].name, canonical.identity.key);
+  assert.equal(report.items[0].classification, canonical.load.policy);
+
+  assert.throws(() => buildLoadPlan(input({
+    lazyResolverRequirements: [], catalog: [{ ...canonical, identity: undefined }],
+  })), /invalid|unrecognized/i);
+  assert.throws(() => buildLoadPlan(input({
+    lazyResolverRequirements: [], catalog: [{ ...canonical, unsupportedCatalogField: true }],
+  })), /unrecognized/i);
 });
 
 test('validates strict signed native offline payload authority in catalog entries', () => {

@@ -20,7 +20,7 @@ env:
   OPENCODE_LOCK: config/desktop-tools-opencode.lock.json
   DEBIAN_TREE_TRUST_POLICY: config/debian-bookworm-tree-trust-policy.json
   BROKER_APPROVAL_POLICY: config/desktop-tools-broker-approval-policy.json
-  SIGNER_SCRIPT_SHA256: 05c2ba3e3a2f368078d505c2ac939bbd5a35b8ba2e6cacc630b62eb70c8ed7f7
+  SIGNER_SCRIPT_SHA256: e94c4ba4aaddf86c3a1d8352d357bffff97b4c6eabf392d2857b4b922840fbf1
 
 jobs:
   build:

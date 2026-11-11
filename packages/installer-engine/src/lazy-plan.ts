@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { z } from 'zod';
+import { SoftwareCatalogEntrySchema } from '@install-doctor/aid-core/software-catalog';
 import { ImmutableArtifactDescriptorSchema, NativeOfflinePayloadDescriptorSchema } from './contracts.js';
 import type { ImmutableArtifactDescriptor } from './contracts.js';
 
@@ -25,7 +26,7 @@ export const ServiceDeclarationSchema = z.strictObject({
   }
 });
 
-export const LoadCatalogEntrySchema = z.object({
+const LegacyLoadCatalogEntrySchema = z.object({
   name: CatalogKeySchema,
   bin: z.string().min(1).max(256),
   platforms: z.array(PlatformSchema).min(1),
@@ -85,6 +86,26 @@ export const LoadCatalogEntrySchema = z.object({
     });
   }
 });
+
+/**
+ * Release catalogs are migrating from the bounded installer projection above to aid-core's
+ * canonical versioned catalog. Keep the old projection readable during that migration, but parse
+ * every v1 entry with the canonical strict schema rather than duplicating or selectively accepting
+ * its fields here. `offlinePayloads` is the sole engine-owned enrichment and remains strict.
+ */
+const CanonicalLoadCatalogEntrySchema = SoftwareCatalogEntrySchema.safeExtend({
+  offlinePayloads: z.array(NativeOfflinePayloadDescriptorSchema).max(256).default([]),
+}).transform(entry => ({
+  ...entry,
+  deps: entry.deps ?? entry.dependencies,
+  artifacts: entry.artifacts ?? [],
+  systemIdentityReconciliation: entry.systemIdentityReconciliation ?? false,
+}));
+
+export const LoadCatalogEntrySchema = z.union([
+  CanonicalLoadCatalogEntrySchema,
+  LegacyLoadCatalogEntrySchema,
+]);
 
 export const LoadPlanInputSchema = z.object({
   schemaVersion: z.literal(1),

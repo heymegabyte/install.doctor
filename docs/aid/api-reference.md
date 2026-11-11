@@ -16,6 +16,7 @@ A "public page" serves an HTML shell anyone can load, but its in-page data fetch
 | `GET /` | public | Landing: the promise, bootstrap one-liner, how-it-works, dashboard links. |
 | `GET /health` | public | Health probe → `{status:"ok", routes:N}`. |
 | `GET /releases/:releaseId/:file` | public | Serve one immutable, allowlisted release object (`manifest`, `manifest.sig`, or `provision.sh`) from the bound release store. |
+| `GET /api/releases/:releaseId/evidence` | public on `desktop.tools` apex only | Recompute a bounded public catalog, SBOM, provenance, SPDX, and exploitability projection from exact immutable schema-v10 release bytes. Tenant-profile, legacy, and other hosts receive `404`. |
 | `GET /login` | public | Sign-in page — GitHub + Google buttons that POST `/api/auth/sign-in/social` and redirect to the provider authorize URL (Better Auth, O-series). |
 | `GET /pair` | public | Browser pairing-approval page — shows the code + host identity + requested scope before Approve. |
 | `GET /machines` | public page (data load admin) | Device inventory: last-active · drift · health (conn·sw·bkp) · scope · status. |
@@ -23,6 +24,66 @@ A "public page" serves an HTML shell anyone can load, but its in-page data fetch
 | `GET /environment` | public | Read-only desired-state view — a tenant's authoritative ENVIRONMENT.md + revision. |
 | `GET /recommendations` | public page (data load admin) | Rule-based recommendations from observed fleet state. |
 | `GET /history` | public page (data load admin) | Fleet activity — reported events across devices. |
+
+## Public release evidence
+
+`GET https://desktop.tools/api/releases/:releaseId/evidence` accepts a release identifier matching
+`[a-z0-9][a-z0-9._-]{0,127}` and is intentionally available only on the `desktop.tools` apex. It
+loads exactly `manifest`, `catalog.json`, `release.sbom.json`, `release.provenance.json`,
+`release.spdx.json`, and `release.exploitability.json` from the immutable release store. The manifest
+is bounded to 64 KiB and every evidence object to 8 MiB; each declared storage size must match the
+bytes read, and every artifact must
+match the URL, SHA-256, and size pinned by the signed schema-v10 Desktop Tools manifest. The
+CycloneDX, SLSA provenance, SPDX 3, and exploitability closures must agree before a response is
+returned. Raw rationale, raw evidence, tenant selectors, session context, and arbitrary source fields
+are never copied into the public projection.
+
+A successful `200 application/json` response has this exact top-level contract:
+
+```json
+{
+  "schemaVersion": 1,
+  "kind": "desktop-tools-public-release-evidence",
+  "releaseId": "<releaseId>",
+  "sourceCommit": "<40-character source commit>",
+  "exactReleaseBytes": true,
+  "catalog": {
+    "entries": 0,
+    "sha256": "<catalog SHA-256>",
+    "url": "https://desktop.tools/releases/<releaseId>/catalog.json",
+    "provenance": {
+      "statementSha256": "<provenance SHA-256>",
+      "builderId": "<attested builder>",
+      "buildType": "<attested build type>",
+      "closureArtifacts": 0
+    }
+  },
+  "sbom": {
+    "format": "CycloneDX",
+    "specVersion": "1.6",
+    "components": 0,
+    "sha256": "<SBOM SHA-256>",
+    "url": "https://desktop.tools/releases/<releaseId>/release.sbom.json",
+    "spdx": {
+      "sha256": "<SPDX SHA-256>",
+      "url": "https://desktop.tools/releases/<releaseId>/release.spdx.json"
+    }
+  },
+  "exploitability": {
+    "currentAsOf": "<RFC 3339 instant>",
+    "statementSha256": "<exploitability SHA-256>",
+    "statementUrl": "https://desktop.tools/releases/<releaseId>/release.exploitability.json",
+    "statuses": { "affected": 0, "not_affected": 0, "fixed": 0, "under_investigation": 0 },
+    "assessments": [{ "component": "<name>", "vulnerabilityId": "<id>", "status": "<status>" }]
+  }
+}
+```
+
+The response cache policy is `public, max-age=300, stale-while-revalidate=60, no-transform`.
+Unknown or missing releases return `404 {"error":"release_not_found"}`. An absent release-store
+binding returns `503 {"error":"release_evidence_unavailable"}`. Invalid, oversized, truncated,
+cross-release, or inconsistent evidence returns `503 {"error":"release_evidence_invalid"}` with
+`Cache-Control: no-store`; validation detail is intentionally not disclosed publicly.
 
 ## Environment / desired state
 

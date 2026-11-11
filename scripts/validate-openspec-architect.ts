@@ -11,8 +11,10 @@ import { fileURLToPath } from "node:url";
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const CHANGES_DIR = join(ROOT, "openspec", "changes");
 const ALLOWED_ARCHITECTS = new Set(["claude", "codex", "antigravity"]);
-const ARCHITECT_PATTERN = /^> \*\*Architect:\*\*\s+([a-z0-9_-]+)\s*$/m;
-const ROLE_PATTERN = /^> \*\*Architect Role:\*\*\s+assigned\s*$/m;
+// Repository guidance specifies the semantic fields, not a blockquote presentation. Accept both the canonical
+// plain form and the older blockquoted form while keeping the identity and role values exact.
+const ARCHITECT_PATTERN = /^(?:> )?\*\*Architect:\*\*\s+([a-z0-9_-]+)\s*$/m;
+const ROLE_PATTERN = /^(?:> )?\*\*Architect Role:\*\*\s+assigned\s*$/m;
 const trackedArtifacts = new Set(
   spawnSync("git", ["ls-files", "openspec/changes/*/proposal.md", "openspec/changes/*/design.md"], {
     cwd: ROOT,
