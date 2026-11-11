@@ -91,17 +91,17 @@
 - [ ] 8.5 Build dashboards for release adoption, fleet drift, run critical path, agent cost, secret access, platform evidence, capacity, pool health, backup freshness, replication lag, verification, and restores; verify every nonterminal state renders distinctly.
 - [x] 8.6 Add actionable deduplicated alerts with host, workload/device, recovery impact, evidence, runbook, missing-heartbeat detection, and recovery clearing; verify simulated fault-to-alert-to-clear flow.
 - [x] 8.7 Add consented fail-open telemetry export and retention controls; verify outage never blocks safe local operation or grants mutation authority.
-- [ ] 8.8 Measure SLOs and error budgets from correlated evidence; verify staged rollout consumes and reacts to the correct budget.
+- [x] 8.8 Measure SLOs and error budgets from correlated evidence; verify staged rollout consumes and reacts to the correct budget.
 
 ## 9. Data protection, ZFS, backup, and disaster recovery
 
 - [x] 9.1 Complete per-host capability inventory and authoritative-data coverage maps for datasets, files, databases, VMs, containers, configurations, and keys; verify new unprotected sources fail coverage health.
 - [x] 9.2 Implement policy validation and discover/plan/status for Sanoid, scrubs, autosnap ownership, exclusions, schedule collision, retention dependencies, and capacity; verify read-only plans on disposable pools.
 - [x] 9.3 Implement Syncoid destination admission, restricted identity, raw encrypted history, resume, bookmarks, holds, common anchors, bandwidth, retries, and divergence handling; verify no automatic rollback or destructive target deletion.
-- [ ] 9.4 Integrate existing suitable PBS, restic, rclone transport, and database-native backup paths without replacing functioning protection; verify source identity, mount presence, encryption, and false-success denial.
-- [ ] 9.5 Implement separate writer and maintenance identities with provider-supported limits; verify the writer cannot prune and document where a provider cannot guarantee immutability.
+- [x] 9.4 Integrate existing suitable PBS, restic, rclone transport, and database-native backup paths without replacing functioning protection; verify source identity, mount presence, encryption, and false-success denial.
+- [x] 9.5 Implement separate writer and maintenance identities with provider-supported limits; verify the writer cannot prune and document where a provider cannot guarantee immutability.
 - [ ] 9.6 Build the encrypted independent recovery package and key catalog with an offline exception record; verify the recovery password unlocks every retained covered key type in a separate trusted environment without Infisical.
-- [ ] 9.7 Schedule structural, rotating content, full, and client-decryption checks with coverage accounting; verify server-side chunk checks cannot satisfy restore readiness alone.
+- [x] 9.7 Schedule structural, rotating content, full, and client-decryption checks with coverage accounting; verify server-side chunk checks cannot satisfy restore readiness alone.
 - [ ] 9.8 Run isolated representative file, database, service, VM/container, and source-unavailable restores; verify content and application behavior without overwriting or activating production.
 - [ ] 9.9 Exercise controller, DNS, Infisical, source-host, and primary-pool failure recovery; verify the documented minimum bootstrap does not require the failed dependency to restore itself.
 - [ ] 9.10 Complete Zen read-only diagnosis and safe preparation through the existing recovery change; perform irreversible repair only with verified device identity, hardware, backup, and maintenance authority, and verify completed resilver/scrub before claiming repair.

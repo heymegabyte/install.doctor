@@ -3,11 +3,16 @@ import { z } from 'zod';
 const VERSION = z.literal(1);
 const id = z.string().regex(/^[a-z0-9][a-z0-9._-]{0,127}$/);
 const timestamp = z.string().datetime({ offset: true }).max(64);
+export const FleetSloIndicatorSchema = z.enum([
+  'bootstrap-success', 'enrollment-success', 'planning-success', 'execution-success',
+  'verification-freshness', 'reconciliation-success', 'secret-delivery-success',
+  'telemetry-delivery-success', 'restore-success', 'return-heartbeat',
+]);
 
 export const FleetSloPolicySchema = z.strictObject({
   schemaVersion: VERSION,
   sloId: id,
-  indicator: z.enum(['reconciliation-success', 'verification-freshness', 'return-heartbeat', 'restore-success']),
+  indicator: FleetSloIndicatorSchema,
   objective: z.number().min(0.5).max(1),
   windowSeconds: z.number().int().min(60).max(31_536_000),
   minimumEvents: z.number().int().min(1).max(1_000_000),
