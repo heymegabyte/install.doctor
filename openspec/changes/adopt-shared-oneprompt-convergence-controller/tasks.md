@@ -4,8 +4,8 @@
 
 - [x] 1.1 Obtain the completed theme.tools `extract-portable-convergence-control-plane` artifact version, digest, runtime compatibility, migration evidence, and OnePrompt consumer receipt; block implementation on a mutable/source-only artifact.
 - [x] 1.2 Re-inspect the current install.doctor worktree and confine edits to the OnePrompt supervisor utility, focused tests, and this change's evidence/docs; preserve every unrelated dirty path and the completed `provision-oneprompt-convergence-supervisor` artifacts.
-- [ ] 1.3 Observe the live legacy and actual service identities, definitions, processes, repository revision, SQLite database, legacy files, and manager state read-only; record discrepancies without starting, stopping, adopting, or overwriting either identity.
-- [ ] 1.4 Add failing disposable tests for artifact drift, duplicate labels/writers, most-restrictive legacy adoption, corrupt/unknown SQLite state, lifecycle ordering, stale settlement, and rollback recovery.
+- [x] 1.3 Observe the live legacy and actual service identities, definitions, processes, repository revision, SQLite database, legacy files, and manager state read-only; record discrepancies without starting, stopping, adopting, or overwriting either identity.
+- [x] 1.4 Add failing disposable tests for artifact drift, duplicate labels/writers, most-restrictive legacy adoption, corrupt/unknown SQLite state, lifecycle ordering, stale settlement, and rollback recovery.
 
 ## 2. Shared-controller delegation
 

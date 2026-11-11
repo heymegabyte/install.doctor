@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "state": "synthetic-verified-live-unverified",
+  "state": "synthetic-verified-live-inventory-observed-adoption-unverified",
   "installDoctorBaseRevision": "c109df6b743a5514a384ab99cbb78f4fcad05668",
   "themeTools": {
     "revision": "e0cedcaee3926438e8d1dd75fb6572090bffc39a",
@@ -10,21 +10,79 @@
     "stateSchemaVersion": 2
   },
   "onePrompt": {
-    "revision": "745034133fbe4fc2dc0cd79f90412abe0bda2ede",
+    "revision": "90b366d9b164823d3672d1ede3e97f0fbb7a6f8f",
     "machineInterface": "scripts/convergence-machine.mjs",
     "machineInterfaceSha256": "a624ff2bcf571b2408a7f5e4715450c6196683bda08acfba229ddb00b0b49b36",
-    "hostAdapterSha256": "fc1756d71cca92f979cb172ff82c0218fe1ac1764cfc4af41edc272104c2111d",
+    "hostAdapterSha256": "2a5beb3d70b55516677949f71fe738273fd0d8acdc7986f3de90567075c0112f",
     "machineInterfaceMode": "real-executable-disposable-state"
+  },
+  "liveInventory": {
+    "observedAt": "2026-11-11T00:55:00Z",
+    "mode": "read-only-no-manager-mutation",
+    "legacyIdentity": {
+      "logicalIdentity": "com.heymegabyte.oneprompt-convergence",
+      "definitionPresent": false,
+      "managerPresent": false
+    },
+    "canonicalIdentity": {
+      "logicalIdentity": "tools.theme.oneprompt.converge",
+      "definitionPresent": true,
+      "definitionSha256": "440bc780612a66ff3884a600556634ca10ff43326e46df87340e23357a0c30cc",
+      "definitionMode": "0600",
+      "managerPresent": true,
+      "managerState": "not-running",
+      "workerProcessPresent": false,
+      "runAtLoad": true
+    },
+    "state": {
+      "databasePresent": true,
+      "databaseMode": "0644",
+      "schemaVersion": 2,
+      "desiredMode": "paused",
+      "ownershipEpoch": 71,
+      "ownerPresent": false,
+      "leasePresent": false,
+      "supervisorInstalled": false,
+      "lastAttemptId": 71,
+      "lastAttemptOutcome": "failed",
+      "recoveryCopiesPresent": true
+    },
+    "repository": {
+      "path": "/Users/Apple/emdash/repositories/oneprompt.site-2",
+      "observedRevision": "90b366d9b164823d3672d1ede3e97f0fbb7a6f8f",
+      "observedInstalledCompatibleRevision": "745034133fbe4fc2dc0cd79f90412abe0bda2ede",
+      "sourceAdapterNextCompatibleRevision": "90b366d9b164823d3672d1ede3e97f0fbb7a6f8f",
+      "workingTreeHasUserOwnedChange": true
+    },
+    "discrepancies": [
+      "The installed launchd definition predates the inert adapter contract: RunAtLoad is true while the current renderer specifies false.",
+      "The live repository revision differs from the adapter's immutable compatible revision.",
+      "The canonical manager definition is loaded but the job and worker are not running; durable SQLite intent is paused.",
+      "The live SQLite file is mode 0644 while the current least-privilege contract requires a narrower user-only mode.",
+      "SQLite records supervisorInstalled=false even though the canonical launchd definition is present."
+    ],
+    "mutationsPerformed": []
   },
   "verification": {
     "shellSyntax": "fresh-pass",
-    "syntheticLaunchdAndSystemd": "fresh-pass",
-    "syntheticAdoptionRollback": "fresh-pass",
-    "onePromptMigrationHostDelegationAndBundle": "fresh-pass-25-tests",
+    "syntheticLaunchdAndSystemd": "fresh-pass-including-duplicate-definition-future-schema-corrupt-db-and-lifecycle-order-controls",
+    "syntheticAdoptionRollback": "fresh-pass-most-restrictive-and-retry-idempotent",
+    "onePromptMigrationHostDelegationAndBundle": "fresh-pass-11-focused-stale-owner-and-late-settlement-tests",
     "strictOpenSpec": "fresh-pass",
-    "liveStateInspection": "unverified-not-authorized",
+    "liveStateInspection": "fresh-pass-read-only",
     "liveAdoption": "unverified-not-authorized",
     "rollbackTarget": "synthetic-recovery-bundle-only"
   },
-  "remainingBlocker": "Live read-only inventory and live adoption/recovery drill require separate authorization."
+  "tddEvidence": {
+    "newBehavior": "resume fails closed when a competing legacy definition appears after canonical installation",
+    "red": "scripts/test-oneprompt-convergence-supervisor.sh failed with duplicate-definition-admission before the admission guard was added",
+    "green": "the complete disposable lifecycle suite passed after verify_artifacts rejected the competing definition before manager calls",
+    "additionalControls": [
+      "future SQLite schema rejected",
+      "corrupt SQLite database rejected",
+      "pause and stop intent observed before launchd bootout",
+      "shared-controller stale owner and late settlement fixtures passed"
+    ]
+  },
+  "remainingBlocker": "Live adoption and the bounded start/stop/crash-recovery drill require separate authorization; the current canonical job remains loaded, paused, and not running."
 }

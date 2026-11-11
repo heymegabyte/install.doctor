@@ -11,9 +11,10 @@ cat >"$BIN_DIR/launchctl" <<'SH'
 #!/usr/bin/env bash
 set -eu; printf '%s\n' "$*" >>"$FAKE_MANAGER_CALLS"
 case "${1:-}" in print) test "$(cat "$FAKE_MANAGER_STATE" 2>/dev/null || true)" = active || exit 1;; bootstrap|kickstart) printf active >"$FAKE_MANAGER_STATE";; bootout) printf inactive >"$FAKE_MANAGER_STATE";; esac
+if test "${1:-}" = bootout; then printf 'bootout-mode=%s\n' "$(sqlite3 "$FAKE_STATE_DB" 'select desired_mode from convergence_state where singleton=1;')" >>"$FAKE_MANAGER_CALLS"; fi
 SH
 chmod +x "$BIN_DIR/launchctl"
-run_tool() { env HOME="$HOME_DIR" PATH="$BIN_DIR:$NODE_DIR:/usr/bin:/bin" XDG_STATE_HOME="$HOME_DIR/.local/state" ONEPROMPT_SUPERVISOR_MANAGER=launchd FAKE_MANAGER_STATE="$MANAGER_STATE" FAKE_MANAGER_CALLS="$CALLS" "$TOOL" "$@"; }
+run_tool() { env HOME="$HOME_DIR" PATH="$BIN_DIR:$NODE_DIR:/usr/bin:/bin" XDG_STATE_HOME="$HOME_DIR/.local/state" ONEPROMPT_SUPERVISOR_MANAGER=launchd FAKE_MANAGER_STATE="$MANAGER_STATE" FAKE_MANAGER_CALLS="$CALLS" FAKE_STATE_DB="$HOME_DIR/.local/state/oneprompt-convergence/state.sqlite" "$TOOL" "$@"; }
 fail() { printf 'not ok - %s\n' "$1" >&2; exit 1; }; pass() { printf 'ok - %s\n' "$1"; }
 
 run_tool install --repo "$REPO" --machine-interface "$MACHINE" --revision "$REVISION"
@@ -21,10 +22,33 @@ PLIST="$HOME_DIR/Library/LaunchAgents/tools.theme.oneprompt.converge.plist"; tes
 first="$(shasum -a 256 "$PLIST"|awk '{print $1}')"; run_tool install --repo "$REPO" --machine-interface "$MACHINE" --revision "$REVISION" >/dev/null; test "$first" = "$(shasum -a 256 "$PLIST"|awk '{print $1}')" || fail idempotent; test ! -s "$CALLS" || fail inert
 pass 'install is canonical, byte-stable, and inert'
 
+LEGACY_PLIST="$HOME_DIR/Library/LaunchAgents/com.heymegabyte.oneprompt-convergence.plist"
+printf '<plist>competing-legacy-definition</plist>\n' >"$LEGACY_PLIST"
+if run_tool resume >/dev/null 2>&1; then fail duplicate-definition-admission; fi
+test ! -s "$CALLS" || fail duplicate-definition-manager-call
+rm -f "$LEGACY_PLIST"
+pass 'a competing legacy definition blocks admission without a manager call'
+
+STATE_DB="$HOME_DIR/.local/state/oneprompt-convergence/state.sqlite"
+sqlite3 "$STATE_DB" 'update convergence_state set schema_version=999 where singleton=1;'
+if run_tool status >/dev/null 2>&1; then fail unknown-schema-status; fi
+test ! -s "$CALLS" || fail unknown-schema-manager-call
+sqlite3 "$STATE_DB" 'update convergence_state set schema_version=2 where singleton=1;'
+pass 'unknown SQLite schema fails closed before manager observation'
+
+STATE_BACKUP="$TMP/state-before-corruption.sqlite"
+sqlite3 "$STATE_DB" ".backup '$STATE_BACKUP'"
+rm -f "$STATE_DB-wal" "$STATE_DB-shm"
+printf 'not-a-sqlite-database\n' >"$STATE_DB"
+if run_tool status >/dev/null 2>&1; then fail corrupt-sqlite-status; fi
+test ! -s "$CALLS" || fail corrupt-sqlite-manager-call
+mv "$STATE_BACKUP" "$STATE_DB"
+pass 'corrupt SQLite state fails closed before manager observation'
+
 if run_tool start >/dev/null 2>&1; then fail stopped-start; fi
 run_tool resume; grep -q 'tools.theme.oneprompt.converge' "$CALLS" || fail canonical-start
-run_tool pause; run_tool status | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{if(JSON.parse(s).controller.desiredMode!=="paused")process.exit(1)})' || fail pause-first; test "$(cat "$MANAGER_STATE")" = inactive || fail manager-stop
-run_tool stop; run_tool status | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{if(JSON.parse(s).controller.desiredMode!=="stopped")process.exit(1)})' || fail stop-first
+run_tool pause; grep -q 'bootout-mode=paused' "$CALLS" || fail pause-order; run_tool status | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{if(JSON.parse(s).controller.desiredMode!=="paused")process.exit(1)})' || fail pause-first; test "$(cat "$MANAGER_STATE")" = inactive || fail manager-stop
+run_tool stop; grep -q 'bootout-mode=stopped' "$CALLS" || fail stop-order; run_tool status | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{if(JSON.parse(s).controller.desiredMode!=="stopped")process.exit(1)})' || fail stop-first
 pass 'SQLite intent precedes manager lifecycle and durable stop blocks start'
 
 status="$(run_tool status)"; node -e 'const s=JSON.parse(process.argv[1]); if(s.logicalIdentity!=="tools.theme.oneprompt.converge"||s.controller.desiredMode!=="stopped"||s.healthy!==false||s.packageVersion!=="1.0.0")process.exit(1)' "$status" || fail status
@@ -58,7 +82,7 @@ printf '%s\n' "$REPO" >"$HOME_ADOPT/.local/state/oneprompt-convergence/config/re
 printf 'launchd\n' >"$HOME_ADOPT/.local/state/oneprompt-convergence/config/manager"
 printf 'legacy-controller\n' >"$HOME_ADOPT/.local/state/oneprompt-convergence/config/controller"
 : >"$HOME_ADOPT/.local/state/oneprompt-convergence/pause"
-run_adopt() { env HOME="$HOME_ADOPT" PATH="$BIN_DIR:$NODE_DIR:/usr/bin:/bin" XDG_STATE_HOME="$HOME_ADOPT/.local/state" ONEPROMPT_SUPERVISOR_MANAGER=launchd FAKE_MANAGER_STATE="$TMP/adopt-manager" FAKE_MANAGER_CALLS="$TMP/adopt-calls" "$TOOL" "$@"; }
+run_adopt() { env HOME="$HOME_ADOPT" PATH="$BIN_DIR:$NODE_DIR:/usr/bin:/bin" XDG_STATE_HOME="$HOME_ADOPT/.local/state" ONEPROMPT_SUPERVISOR_MANAGER=launchd FAKE_MANAGER_STATE="$TMP/adopt-manager" FAKE_MANAGER_CALLS="$TMP/adopt-calls" FAKE_STATE_DB="$HOME_ADOPT/.local/state/oneprompt-convergence/state.sqlite" "$TOOL" "$@"; }
 run_adopt adopt --repo "$REPO" --machine-interface "$MACHINE" --revision "$REVISION" >/dev/null
 ADOPT_PLIST="$HOME_ADOPT/Library/LaunchAgents/tools.theme.oneprompt.converge.plist"; test -f "$ADOPT_PLIST" || fail adopt-definition; test ! -e "$HOME_ADOPT/Library/LaunchAgents/com.heymegabyte.oneprompt-convergence.plist" || fail legacy-retired; ! grep -Eq 'bootstrap|kickstart' "$TMP/adopt-calls" || fail adopt-inert
 run_adopt status | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const x=JSON.parse(s);if(x.controller.desiredMode!=="paused"||x.adoptionState!=="adopted")process.exit(1)})' || fail restrictive
@@ -67,3 +91,6 @@ bundle="$(sed -n "s/^recovery_bundle='\(.*\)'/\1/p" "$HOME_ADOPT/.local/state/on
 pass 'adoption is inactive, most-restrictive, recoverable, and retry-idempotent'
 run_adopt rollback >/dev/null; test -f "$HOME_ADOPT/Library/LaunchAgents/com.heymegabyte.oneprompt-convergence.plist" || fail rollback-legacy; test ! -e "$ADOPT_PLIST" || fail rollback-canonical; test -f "$HOME_ADOPT/.local/state/oneprompt-convergence/stop" || fail rollback-stop; ! grep -Eq 'bootstrap|kickstart' "$TMP/adopt-calls" || fail rollback-started
 pass 'rollback restores managed legacy evidence and remains stopped/inactive'
+
+(cd "$REPO" && npm test -- --maxWorkers=1 --reporter=dot test/convergence/shared-controller-adoption.test.ts)
+pass 'shared-controller fixtures fence stale owners and late settlement'

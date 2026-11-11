@@ -7,7 +7,7 @@ legacy_identity="com.heymegabyte.oneprompt-convergence"
 package_name="@theme.tools/workflows"
 package_version="1.0.0"
 artifact_sha256="bcdbac76045a97091e864915e52fb2fe588a3c0711f067f583ac053f0d24a0fb"
-oneprompt_revision="745034133fbe4fc2dc0cd79f90412abe0bda2ede"
+oneprompt_revision="90b366d9b164823d3672d1ede3e97f0fbb7a6f8f"
 state_schema_version="2"
 state_root="${ONEPROMPT_CONVERGENCE_STATE_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/oneprompt-convergence}"
 config_root="$state_root/host-adapter"
@@ -46,6 +46,7 @@ machine_call() {
 
 verify_artifacts() {
   read_config
+  test ! -e "$(legacy_definition_for "$configured_manager")" || die "competing legacy service definition exists"
   test "$(repo_revision "$configured_repo")" = "$configured_revision" || die "OnePrompt repository revision drift"
   test "$(sha256 "$configured_machine")" = "$configured_machine_sha256" || die "machine-interface digest drift"
   test "$configured_package_name" = "$package_name" || die "shared package name drift"
