@@ -7,6 +7,7 @@ NODE_DIR="$(dirname "$(command -v node)")"
 mkdir -p "$HOME_DIR" "$BIN_DIR"; chmod +x "$TOOL"
 MACHINE="$REPO/scripts/convergence-machine.mjs"
 REVISION="$(git -C "$REPO" rev-parse HEAD)"
+ARTIFACT_SHA256="$(sed -n 's/^artifact_sha256="\([0-9a-f]*\)"/\1/p' "$TOOL")"
 cat >"$BIN_DIR/launchctl" <<'SH'
 #!/usr/bin/env bash
 set -eu; printf '%s\n' "$*" >>"$FAKE_MANAGER_CALLS"
@@ -33,6 +34,14 @@ run_tool install --repo "$REPO" --machine-interface "$MACHINE" --revision "$REVI
 grep -q "configured_revision='$REVISION'" "$CONFIG" || fail revision-upgrade
 rm -f "$CONFIG.bak" "$CONFIG.before-upgrade"
 pass 'install upgrades an intact managed definition to the requested exact revision'
+: >"$CALLS"
+
+cp "$CONFIG" "$CONFIG.before-artifact-upgrade"
+sed -i.bak "s/^configured_artifact_sha256=.*/configured_artifact_sha256='0000000000000000000000000000000000000000000000000000000000000000'/" "$CONFIG"
+run_tool install --repo "$REPO" --machine-interface "$MACHINE" --revision "$REVISION" >/dev/null
+grep -q "configured_artifact_sha256='$ARTIFACT_SHA256'" "$CONFIG" || fail artifact-upgrade
+rm -f "$CONFIG.bak" "$CONFIG.before-artifact-upgrade"
+pass 'install upgrades an intact managed definition to the requested exact artifact'
 : >"$CALLS"
 
 LEGACY_PLIST="$HOME_DIR/Library/LaunchAgents/com.heymegabyte.oneprompt-convergence.plist"
