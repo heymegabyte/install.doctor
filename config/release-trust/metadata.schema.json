@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://desktop.tools/schemas/release-metadata-v1.json",
+  "title": "Desktop Tools delegated release metadata envelope",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "role", "version", "expiresAt", "signed", "signatures"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "role": { "enum": ["root", "targets", "platform", "channel", "snapshot", "timestamp", "build", "publish", "activate", "monitor", "revocation"] },
+    "version": { "type": "integer", "minimum": 1 },
+    "expiresAt": { "type": "string", "format": "date-time" },
+    "signed": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["productId", "role", "subject", "payload"],
+      "properties": {
+        "productId": { "const": "desktop-tools" },
+        "role": { "enum": ["root", "targets", "platform", "channel", "snapshot", "timestamp", "build", "publish", "activate", "monitor", "revocation"] },
+        "subject": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["releaseId", "platform", "channel"],
+          "properties": {
+            "releaseId": { "type": ["string", "null"], "pattern": "^[a-z0-9][a-z0-9._-]{0,127}$" },
+            "platform": { "type": ["string", "null"], "pattern": "^[a-z0-9][a-z0-9._-]{0,63}$" },
+            "channel": { "type": ["string", "null"], "pattern": "^[a-z0-9][a-z0-9._-]{0,63}$" }
+          }
+        },
+        "payload": { "type": "object" }
+      }
+    },
+    "signatures": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["keyId", "algorithm", "signature"],
+        "properties": {
+          "keyId": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+          "algorithm": { "const": "ed25519" },
+          "signature": { "type": "string", "pattern": "^[A-Za-z0-9_-]+$" }
+        }
+      }
+    }
+  }
+}
