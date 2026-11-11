@@ -2,12 +2,12 @@
 
 install.doctor owns only the portable service-manager boundary. OnePrompt owns the controller machine interface and bounded worker; `@theme.tools/workflows` owns fenced SQLite state.
 
-Pinned compatibility: OnePrompt `bdf7113786194648df6bd25fd05cd2835904d314`; machine-interface SHA-256 `a624ff2bcf571b2408a7f5e4715450c6196683bda08acfba229ddb00b0b49b36`; workflows `1.0.0` at SHA-256 `bcdbac76045a97091e864915e52fb2fe588a3c0711f067f583ac053f0d24a0fb`; state schema 2; service identity `tools.theme.oneprompt.converge`.
+Pinned compatibility: OnePrompt `78d17a3efea1df2f990d657fac2c0e3bfc2c3402`; machine-interface SHA-256 `a624ff2bcf571b2408a7f5e4715450c6196683bda08acfba229ddb00b0b49b36`; workflows `1.0.0` at SHA-256 `bcdbac76045a97091e864915e52fb2fe588a3c0711f067f583ac053f0d24a0fb`; state schema 2; service identity `tools.theme.oneprompt.converge`.
 
 ```bash
 oneprompt-convergence-supervisor install --repo /absolute/oneprompt.site-2 \
   --machine-interface /absolute/controller-machine \
-  --revision bdf7113786194648df6bd25fd05cd2835904d314
+  --revision 78d17a3efea1df2f990d657fac2c0e3bfc2c3402
 ```
 
 Install is byte-stable and inert. The controller executable receives `install|status|verify|pause|resume|stop --json --migration-mode safe|forbid`, reads `ONEPROMPT_CONVERGENCE_STATE_DIR`, and returns JSON. Only install may use safe migration. Pause/stop commit SQLite intent before manager termination. Start never clears durable intent; resume explicitly transitions to running after artifact and definition revalidation.

@@ -22,6 +22,7 @@ PLIST="$HOME_DIR/Library/LaunchAgents/tools.theme.oneprompt.converge.plist"; tes
 first="$(shasum -a 256 "$PLIST"|awk '{print $1}')"; run_tool install --repo "$REPO" --machine-interface "$MACHINE" --revision "$REVISION" >/dev/null; test "$first" = "$(shasum -a 256 "$PLIST"|awk '{print $1}')" || fail idempotent; ! grep -Eq 'bootstrap|kickstart|bootout' "$CALLS" 2>/dev/null || fail inert
 plutil -extract StartInterval raw "$PLIST" | grep -qx '900' || fail launchd-interval
 plutil -extract EnvironmentVariables.PATH raw "$PLIST" | grep -q "$(dirname "$(command -v node)")" || fail launchd-node-path
+plutil -extract EnvironmentVariables.PATH raw "$PLIST" | grep -q '/opt/homebrew/bin' || fail launchd-subscription-cli-path
 pass 'install is canonical, byte-stable, and inert'
 : >"$CALLS"
 

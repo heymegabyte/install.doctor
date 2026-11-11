@@ -7,7 +7,7 @@ legacy_identity="com.heymegabyte.oneprompt-convergence"
 package_name="@theme.tools/workflows"
 package_version="1.0.0"
 artifact_sha256="bcdbac76045a97091e864915e52fb2fe588a3c0711f067f583ac053f0d24a0fb"
-oneprompt_revision="bdf7113786194648df6bd25fd05cd2835904d314"
+oneprompt_revision="78d17a3efea1df2f990d657fac2c0e3bfc2c3402"
 state_schema_version="2"
 state_root="${ONEPROMPT_CONVERGENCE_STATE_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/oneprompt-convergence}"
 config_root="$state_root/host-adapter"
@@ -60,7 +60,7 @@ verify_artifacts() {
 
 render_definition() {
   local manager_name="$1" repo="$2" worker="$3" definition="$4" node_path
-  node_path="$(dirname "$(command -v node)"):/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+  node_path="$(dirname "$(command -v node)"):/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
   if test "$manager_name" = launchd; then
     write_atomic "$definition" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
