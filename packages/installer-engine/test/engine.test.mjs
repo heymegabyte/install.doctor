@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { chmod, mkdtemp, readFile, readdir, realpath, stat, writeFile } from 'node:fs/promises';
+import { chmod, lstat, mkdir, mkdtemp, readFile, readdir, realpath, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
@@ -935,6 +935,96 @@ test('journaled cancellation remains resumable and rechecks postconditions befor
   assert.equal(resumed.receipt.status, 'success');
   assert.equal(applies, 1, 'resume must re-check and not replay a mutation whose postcondition already holds');
   assert.equal((await store.inspectCompletion('cancel-resume', approved.digest)).authority, 'committed');
+});
+
+test('cask launcher interruption resumes from its landed configuration without replaying the legacy effect', async () => {
+  const root = await realpath(await mkdtemp(join(tmpdir(), 'desktop-tools-cask-resume-')));
+  await chmod(root, 0o700);
+  const launcherRoot = join(root, '.local', 'bin', 'cask');
+  const target = join(launcherRoot, 'fixture-app');
+  await mkdir(launcherRoot, { recursive: true, mode: 0o700 });
+  const candidate = Buffer.from(`#!/usr/bin/env bash\nopen ${JSON.stringify(join(root, 'Applications', 'Fixture App.app'))} "$@"\n`);
+  const stateRoot = join(root, 'state');
+  const store = createJournalStore({
+    stateRoot, hostId: facts.hostId, bootId: 'boot-cask', processStart: 'process-cask',
+    isProcessAlive: async () => false,
+  });
+  const caskTask = {
+    ...task,
+    id: 'installer.cask-launcher.fixture-app',
+    inputDigest: digest('e'),
+    operations: { check: 'cask-check', apply: 'cask-apply', verify: 'cask-verify' },
+    resources: { cpu: 1, memoryMiB: 64, network: false },
+    network: 'none', consent: 'none', lockDomains: ['installer-configuration'],
+    cleanup: 'none', compensation: 'configuration',
+  };
+  const caskPlan = { tasks: [caskTask], selectedTaskIds: [caskTask.id] };
+  const landed = deferred();
+  const controller = new AbortController();
+  let applies = 0;
+  const matches = async path => {
+    try {
+      const metadata = await lstat(path);
+      return metadata.isFile() && !metadata.isSymbolicLink() && (metadata.mode & 0o777) === 0o700
+        && (await readFile(path)).equals(candidate);
+    } catch (error) {
+      if (error.code === 'ENOENT') return false;
+      throw error;
+    }
+  };
+  const adapter = {
+    discover: async () => facts,
+    plan: async () => caskPlan,
+    check: async () => await matches(target) ? 'verified' : 'needed',
+    apply: async (node, context) => {
+      applies += 1;
+      await applyConfigurationTransaction({
+        spec: {
+          schemaVersion: 1, taskId: node.id, targetPath: target,
+          effect: 'installer-configuration', dependencies: node.dependencies, candidateMode: 0o700,
+        },
+        candidateBytes: candidate,
+        hooks: {
+          validateCandidate: async candidatePath => {
+            if (!await matches(candidatePath)) throw new Error('cask launcher candidate validation failed');
+          },
+          verifyPostcondition: matches,
+        },
+        persistence: context.configurationCompensation,
+      });
+      landed.resolve();
+      await new Promise((_, reject) => context.signal.addEventListener(
+        'abort', () => reject(new InstallerOperationError('cancelled after cask launcher activation', 'cancelled')), { once: true },
+      ));
+    },
+    verify: async () => await matches(target) ? 'verified' : 'pending',
+  };
+  const firstEngine = createInstallerEngine({ adapter, journal: store });
+  const approved = await firstEngine.plan(facts, desired, 'release-cask');
+  const running = firstEngine.run({
+    runId: 'cask-resume', releaseId: 'release-cask', desiredState: desired,
+    approvedPlanDigest: approved.digest,
+  }, { signal: controller.signal });
+  await landed.promise;
+  controller.abort(new Error('fixture interruption'));
+  const interrupted = await running;
+  assert.equal(interrupted.receipt.status, 'cancelled');
+  assert.equal(interrupted.taskStatuses[caskTask.id], 'interrupted');
+  assert.equal(await matches(target), true);
+  assert.equal((await store.inspectCompletion('cask-resume', approved.digest)).authority, 'uncommitted');
+  const beforeResume = await lstat(target);
+
+  const resumed = await createInstallerEngine({ adapter, journal: store }).run({
+    runId: 'cask-resume', releaseId: 'release-cask', desiredState: desired,
+    approvedPlanDigest: approved.digest, resume: true,
+  });
+  const afterResume = await lstat(target);
+  assert.equal(resumed.receipt.status, 'success');
+  assert.equal(resumed.taskStatuses[caskTask.id], 'verified');
+  assert.equal(applies, 1, 'resume must verify the landed launcher instead of replaying its mutation');
+  assert.equal(afterResume.ino, beforeResume.ino);
+  assert.equal(afterResume.mtimeMs, beforeResume.mtimeMs);
+  assert.equal((await store.inspectCompletion('cask-resume', approved.digest)).authority, 'committed');
 });
 
 test('run finalizer executes after ordinary failure and gates terminal completion on verification', async () => {

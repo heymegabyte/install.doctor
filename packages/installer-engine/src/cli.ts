@@ -18,6 +18,7 @@ import { executeSudoCredentialCleanup } from './sudo-credential-cleanup.js';
 import { JournalIntegrityError, LiveOwnerError, createJournalStore } from './journal.js';
 import { resolvePlatformProcessIdentity } from './process-identity.js';
 import { applyOfflineBundle, createOfflineBundle, planOfflineBundle, verifyOfflineBundle } from './offline-bundle.js';
+import { assertOfflineBundleActive, expireOfflineBundle, inspectOfflineBundle, revokeOfflineBundle } from './offline-bundle-lifecycle.js';
 import { NativePackageOperationSchema, NativeServiceOperationSchema, validateOfflineExecutionClosure } from './offline-execution.js';
 import type { NativePackageRuntime } from './offline-execution.js';
 import { executeOfflineBundle } from './offline-orchestrator.js';
@@ -290,6 +291,15 @@ const BundleVerifyInvocationSchema = z.strictObject({
   schemaVersion: z.literal(2), command: z.literal('bundle-verify'),
   bundleDirectory: z.string().min(1).max(4096).refine(isAbsolute, 'bundle directory must be absolute'), trust: bundleTrust, releaseTrust: bundleTrust,
 });
+const bundleLifecycle = {
+  schemaVersion: z.literal(2),
+  bundleDirectory: z.string().min(1).max(4096).refine(isAbsolute, 'bundle directory must be absolute'),
+  stateRoot: z.string().min(1).max(4096).refine(isAbsolute, 'state root must be absolute'),
+  trust: bundleTrust, releaseTrust: bundleTrust,
+};
+const BundleInspectInvocationSchema = z.strictObject({ ...bundleLifecycle, command: z.literal('bundle-inspect'), now: z.string().datetime({ offset: true }).optional() });
+const BundleRevokeInvocationSchema = z.strictObject({ ...bundleLifecycle, command: z.literal('bundle-revoke'), approvedManifestDigest: z.string().regex(/^[a-f0-9]{64}$/), revokedAt: z.string().datetime({ offset: true }).optional(), reason: z.string().min(1).max(256) });
+const BundleExpireInvocationSchema = z.strictObject({ ...bundleLifecycle, command: z.literal('bundle-expire'), approvedManifestDigest: z.string().regex(/^[a-f0-9]{64}$/), now: z.string().datetime({ offset: true }).optional() });
 const BundlePlanInvocationSchema = z.strictObject({
   schemaVersion: z.literal(2), command: z.literal('bundle-plan'),
   bundleDirectory: z.string().min(1).max(4096).refine(isAbsolute, 'bundle directory must be absolute'),
@@ -299,6 +309,7 @@ const BundleApplyInvocationSchema = z.strictObject({
   schemaVersion: z.literal(2), command: z.literal('bundle-apply'),
   bundleDirectory: z.string().min(1).max(4096).refine(isAbsolute, 'bundle directory must be absolute'),
   destinationDirectory: z.string().min(1).max(4096).refine(isAbsolute, 'destination directory must be absolute'),
+  stateRoot: z.string().min(1).max(4096).refine(isAbsolute, 'state root must be absolute'),
   trust: bundleTrust, releaseTrust: bundleTrust, expected: bundleExpected, now: z.string().datetime({ offset: true }).optional(),
   approvedManifestDigest: z.string().regex(/^[a-f0-9]{64}$/),
   offline: z.literal(true), networkPolicy: z.literal('deny'),
@@ -402,7 +413,7 @@ const ArtifactPrepareInvocationSchema = z.strictObject({
 });
 const InvocationSchema = z.discriminatedUnion('command', [
   ReadOnlyInvocationSchema, RunInvocationSchema, ResumeInvocationSchema, StatusInvocationSchema, EvidenceInvocationSchema, TaskEvidenceInvocationSchema, RunsListInvocationSchema,
-  BundleCreateInvocationSchema, BundleVerifyInvocationSchema, BundlePlanInvocationSchema, BundleApplyInvocationSchema,
+  BundleCreateInvocationSchema, BundleVerifyInvocationSchema, BundleInspectInvocationSchema, BundleRevokeInvocationSchema, BundleExpireInvocationSchema, BundlePlanInvocationSchema, BundleApplyInvocationSchema,
   OfflineExecuteInvocationSchema, OfflineResumeInvocationSchema,
   RollbackPlanInvocationSchema, RollbackExecuteInvocationSchema, RollbackResumeInvocationSchema, RollbackStatusInvocationSchema,
   LoadPlanInvocationSchema, NativeDebianDeriveInvocationSchema, NativeServiceDeriveInvocationSchema, CaskLauncherDeriveInvocationSchema,
@@ -1755,6 +1766,29 @@ async function main(): Promise<void> {
       process.stdout.write(`${JSON.stringify(await verifyOfflineBundle(invocation))}\n`);
       return;
     }
+    if (invocation.command === 'bundle-inspect') {
+      process.stdout.write(`${JSON.stringify(await inspectOfflineBundle({
+        bundleDirectory: invocation.bundleDirectory, trust: invocation.trust, releaseTrust: invocation.releaseTrust,
+        stateRoot: invocation.stateRoot, ...(invocation.now ? { now: invocation.now } : {}),
+      }))}\n`);
+      return;
+    }
+    if (invocation.command === 'bundle-revoke') {
+      process.stdout.write(`${JSON.stringify(await revokeOfflineBundle({
+        bundleDirectory: invocation.bundleDirectory, trust: invocation.trust, releaseTrust: invocation.releaseTrust,
+        stateRoot: invocation.stateRoot, approvedManifestDigest: invocation.approvedManifestDigest, reason: invocation.reason,
+        ...(invocation.revokedAt ? { revokedAt: invocation.revokedAt } : {}),
+      }))}\n`);
+      return;
+    }
+    if (invocation.command === 'bundle-expire') {
+      process.stdout.write(`${JSON.stringify(await expireOfflineBundle({
+        bundleDirectory: invocation.bundleDirectory, trust: invocation.trust, releaseTrust: invocation.releaseTrust,
+        stateRoot: invocation.stateRoot, approvedManifestDigest: invocation.approvedManifestDigest,
+        ...(invocation.now ? { now: invocation.now } : {}),
+      }))}\n`);
+      return;
+    }
     if (invocation.command === 'bundle-plan') {
       const plan = await planOfflineBundle({
         bundleDirectory: invocation.bundleDirectory, trust: invocation.trust, releaseTrust: invocation.releaseTrust, expected: invocation.expected,
@@ -1768,6 +1802,10 @@ async function main(): Promise<void> {
       return;
     }
     if (invocation.command === 'bundle-apply') {
+      await assertOfflineBundleActive({
+        bundleDirectory: invocation.bundleDirectory, trust: invocation.trust, releaseTrust: invocation.releaseTrust,
+        stateRoot: invocation.stateRoot, ...(invocation.now ? { now: invocation.now } : {}),
+      });
       const plan = await planOfflineBundle({
         bundleDirectory: invocation.bundleDirectory, trust: invocation.trust, releaseTrust: invocation.releaseTrust, expected: invocation.expected,
         ...(invocation.now ? { now: invocation.now } : {}),
@@ -1787,6 +1825,7 @@ async function main(): Promise<void> {
       return;
     }
     if (invocation.command === 'bundle-execute' || invocation.command === 'bundle-resume') {
+      await assertOfflineBundleActive(invocation);
       const plan = await planOfflineBundle({
         bundleDirectory: invocation.bundleDirectory, trust: invocation.trust, releaseTrust: invocation.releaseTrust, expected: invocation.expected,
       });

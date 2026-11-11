@@ -2368,9 +2368,10 @@ NODE
   MATERIALIZED_ROOT="$STATE_BASE/materialized/$MANIFEST_DIGEST"; ENGINE_STATE="$STATE_BASE/engine"
   if [ "$MODE" = execute ] && [ ! -e "$MATERIALIZED_ROOT" ]; then
     mkdir -p "$STATE_BASE/materialized" || { rm -rf -- "$INVOCATION_DIR"; return 1; }
-    "$RUNTIME" - "$AUTHORITY" "$BUNDLE" "$MATERIALIZED_ROOT" "$APPLY_INPUT" <<'NODE' || { rm -rf -- "$INVOCATION_DIR"; return 2; }
-const fs=require('node:fs'); const [aPath,bundleDirectory,destinationDirectory,out]=process.argv.slice(2); const a=JSON.parse(fs.readFileSync(aPath));
-fs.writeFileSync(out,`${JSON.stringify({schemaVersion:2,command:'bundle-apply',bundleDirectory,destinationDirectory,trust:a.trust,releaseTrust:a.releaseTrust,expected:a.expected,approvedManifestDigest:a.approvedManifestDigest,offline:true,networkPolicy:'deny'})}\n`,{mode:0o600,flag:'wx'});
+    mkdir -p "$ENGINE_STATE" || { rm -rf -- "$INVOCATION_DIR"; return 1; }
+    "$RUNTIME" - "$AUTHORITY" "$BUNDLE" "$MATERIALIZED_ROOT" "$ENGINE_STATE" "$APPLY_INPUT" <<'NODE' || { rm -rf -- "$INVOCATION_DIR"; return 2; }
+const fs=require('node:fs'); const [aPath,bundleDirectory,destinationDirectory,stateRoot,out]=process.argv.slice(2); const a=JSON.parse(fs.readFileSync(aPath));
+fs.writeFileSync(out,`${JSON.stringify({schemaVersion:2,command:'bundle-apply',bundleDirectory,destinationDirectory,stateRoot,trust:a.trust,releaseTrust:a.releaseTrust,expected:a.expected,approvedManifestDigest:a.approvedManifestDigest,offline:true,networkPolicy:'deny'})}\n`,{mode:0o600,flag:'wx'});
 NODE
     env -i HOME="$HOME" PATH="/usr/bin:/bin" LANG="${LANG:-C.UTF-8}" "$RUNTIME" "$ENGINE" --input "$APPLY_INPUT" >/dev/null \
       || { STATUS=$?; rm -rf -- "$INVOCATION_DIR"; return "$STATUS"; }

@@ -30,8 +30,8 @@
 - [x] 3.5 Complete content-addressed journaling, single-owner leases, stale-owner handling, and exact resume admission; verify exhaustive interruption fixtures never allow fresh-run adoption.
 - [x] 3.6 Generalize atomic configuration activation with parent-path defenses, validation, metadata preservation, durable compensation, and concurrent-change detection; verify rollback restores exact supported state or stops ambiguous.
 - [x] 3.7 Implement reverse-dependency configuration rollback plans and separate approval; verify package, OS, network, storage, and external effects remain explicitly non-automatic.
-- [ ] 3.8 Complete signed offline bundle create, inspect, verify, materialize, execute, resume, revoke, and expire operations; verify execution succeeds under network denial and rejects surplus or wrong-host material.
-- [ ] 3.9 Migrate one additional useful low-risk package/configuration effect from legacy provisioning through the complete engine lifecycle; verify fresh, unchanged, interrupted, resumed, rolled-back, and legacy-subtracted cases.
+- [x] 3.8 Complete signed offline bundle create, inspect, verify, materialize, execute, resume, revoke, and expire operations; verify execution succeeds under network denial and rejects surplus or wrong-host material.
+- [x] 3.9 Migrate one additional useful low-risk package/configuration effect from legacy provisioning through the complete engine lifecycle; verify fresh, unchanged, interrupted, resumed, rolled-back, and legacy-subtracted cases.
 - [x] 3.10 Publish the effect-migration template and parity harness; verify a new migration cannot omit preconditions, postconditions, locks, interruption tests, rollback limits, or legacy subtraction.
 
 ## 4. First production-complete Desktop Tools lifecycle

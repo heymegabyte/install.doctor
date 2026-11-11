@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import { execFile, execFileSync } from 'node:child_process';
-import { chmod, mkdir, mkdtemp, readFile, readdir, rename as fsRename, rm, symlink, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readFile, readdir, realpath, rename as fsRename, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
 import test from 'node:test';
@@ -9,9 +9,13 @@ import { promisify } from 'node:util';
 import {
   OfflineBundleError,
   applyOfflineBundle,
+  assertOfflineBundleActive,
   canonicalBundleManifestBytes,
   createOfflineBundle,
+  expireOfflineBundle,
+  inspectOfflineBundle,
   planOfflineBundle,
+  revokeOfflineBundle,
   verifyOfflineBundle,
 } from '../dist/index.js';
 import { parseStageZeroReleaseEnvelope, serializeStageZeroReleaseEnvelope } from '../../aid-core/dist/installer-contracts.js';
@@ -22,7 +26,7 @@ const at = '2026-11-06T04:00:00.000Z';
 const later = '2026-11-06T05:00:00.000Z';
 
 async function fixture(t) {
-  const root = await mkdtemp(join(tmpdir(), 'install-doctor-offline-bundle-'));
+  const root = await realpath(await mkdtemp(join(tmpdir(), 'install-doctor-offline-bundle-')));
   t.after(() => rm(root, { recursive: true, force: true }));
   const privateKeyPath = join(root, 'signer');
   execFileSync('ssh-keygen', ['-q', '-t', 'ed25519', '-N', '', '-C', 'bundle-test', '-f', privateKeyPath]);
@@ -107,6 +111,74 @@ test('signed offline bundle verifies, plans an exact closure, and applies withou
   assert.deepEqual(receipt.artifactIds, ['catalog', 'engine', 'release-envelope', 'release-signature']);
   assert.equal(await readFile(join(destination, 'catalog'), 'utf8'), '[]\n');
   assert.match(await readFile(join(destination, 'engine'), 'utf8'), /process\.exit/);
+});
+
+test('offline lifecycle inspection is read-only and exact revocation blocks later authority', async t => {
+  const state = await fixture(t);
+  const created = await createOfflineBundle(state.base);
+  const lifecycleRoot = join(state.root, 'lifecycle');
+  await mkdir(lifecycleRoot, { mode: 0o700 });
+  assert.deepEqual(await readdir(lifecycleRoot), []);
+  assert.equal((await inspectOfflineBundle({
+    bundleDirectory: created.bundleDirectory, trust: state.trust, releaseTrust: state.releaseTrust,
+    stateRoot: lifecycleRoot, now: at,
+  })).state, 'active');
+  assert.deepEqual(await readdir(lifecycleRoot), [], 'inspection must not create lifecycle state');
+  await assert.rejects(revokeOfflineBundle({
+    bundleDirectory: created.bundleDirectory, trust: state.trust, releaseTrust: state.releaseTrust,
+    stateRoot: lifecycleRoot, approvedManifestDigest: 'f'.repeat(64), revokedAt: at, reason: 'fixture-revocation',
+  }), /exact manifest approval/);
+  const record = await revokeOfflineBundle({
+    bundleDirectory: created.bundleDirectory, trust: state.trust, releaseTrust: state.releaseTrust,
+    stateRoot: lifecycleRoot, approvedManifestDigest: created.manifestDigest, revokedAt: at, reason: 'fixture-revocation',
+  });
+  assert.equal(record.state, 'revoked');
+  assert.equal((await inspectOfflineBundle({
+    bundleDirectory: created.bundleDirectory, trust: state.trust, releaseTrust: state.releaseTrust,
+    stateRoot: lifecycleRoot, now: '2026-11-06T04:30:00.000Z',
+  })).state, 'revoked');
+  await assert.rejects(assertOfflineBundleActive({
+    bundleDirectory: created.bundleDirectory, trust: state.trust, releaseTrust: state.releaseTrust,
+    stateRoot: lifecycleRoot, now: '2026-11-06T04:30:00.000Z',
+  }), /bundle is revoked/);
+});
+
+test('offline expiry is derived from signed time and can be recorded only after expiry', async t => {
+  const state = await fixture(t);
+  const created = await createOfflineBundle(state.base);
+  const lifecycleRoot = join(state.root, 'expiry-lifecycle');
+  await mkdir(lifecycleRoot, { mode: 0o700 });
+  await assert.rejects(expireOfflineBundle({
+    bundleDirectory: created.bundleDirectory, trust: state.trust, releaseTrust: state.releaseTrust,
+    stateRoot: lifecycleRoot, approvedManifestDigest: created.manifestDigest, now: at,
+  }), /not expired/);
+  assert.equal((await inspectOfflineBundle({
+    bundleDirectory: created.bundleDirectory, trust: state.trust, releaseTrust: state.releaseTrust,
+    stateRoot: lifecycleRoot, now: later,
+  })).state, 'expired');
+  const record = await expireOfflineBundle({
+    bundleDirectory: created.bundleDirectory, trust: state.trust, releaseTrust: state.releaseTrust,
+    stateRoot: lifecycleRoot, approvedManifestDigest: created.manifestDigest, now: later,
+  });
+  assert.equal(record.state, 'expired');
+});
+
+test('offline lifecycle rejects symlinked authority roots and lifecycle directories', async t => {
+  const state = await fixture(t);
+  const created = await createOfflineBundle(state.base);
+  const realState = join(state.root, 'real-lifecycle-state');
+  const linkedState = join(state.root, 'linked-lifecycle-state');
+  await mkdir(realState, { mode: 0o700 });
+  await symlink(realState, linkedState);
+  await assert.rejects(inspectOfflineBundle({
+    bundleDirectory: created.bundleDirectory, trust: state.trust, releaseTrust: state.releaseTrust,
+    stateRoot: linkedState, now: at,
+  }), /state root must be a real directory/);
+  await symlink(state.source, join(realState, 'offline-bundle-lifecycle'));
+  await assert.rejects(inspectOfflineBundle({
+    bundleDirectory: created.bundleDirectory, trust: state.trust, releaseTrust: state.releaseTrust,
+    stateRoot: realState, now: at,
+  }), /lifecycle directory must be a real directory/);
 });
 
 test('offline planning rejects expiry, wrong platform, wrong plan, and incomplete selection', async t => {
@@ -354,7 +426,7 @@ test('CLI bundle create, verify, plan, and approved deny-network apply share the
 
   const destinationDirectory = join(state.root, 'cli-offline-apply');
   const applyInvocation = {
-    ...planInvocation, command: 'bundle-apply', destinationDirectory,
+    ...planInvocation, command: 'bundle-apply', destinationDirectory, stateRoot: state.root,
     approvedManifestDigest: 'f'.repeat(64), offline: true, networkPolicy: 'deny',
   };
   await assert.rejects(run(applyInvocation), error => /requires exact manifest approval/.test(error.stderr));
@@ -362,6 +434,29 @@ test('CLI bundle create, verify, plan, and approved deny-network apply share the
   const receipt = JSON.parse((await run({ ...applyInvocation, approvedManifestDigest: plan.manifestDigest })).stdout);
   assert.equal(receipt.networkAllowed, false);
   assert.deepEqual(receipt.artifactIds, ['catalog', 'engine', 'release-envelope', 'release-signature']);
+  const revoked = JSON.parse((await run({
+    schemaVersion: 2, command: 'bundle-revoke', bundleDirectory: created.bundleDirectory,
+    stateRoot: state.root, trust: state.trust, releaseTrust: state.releaseTrust,
+    approvedManifestDigest: plan.manifestDigest, revokedAt: at, reason: 'cli-fixture-revocation',
+  })).stdout);
+  assert.equal(revoked.state, 'revoked');
+  const inspected = JSON.parse((await run({
+    schemaVersion: 2, command: 'bundle-inspect', bundleDirectory: created.bundleDirectory,
+    stateRoot: state.root, trust: state.trust, releaseTrust: state.releaseTrust, now: at,
+  })).stdout);
+  assert.equal(inspected.state, 'revoked');
+  await assert.rejects(run({
+    ...applyInvocation, destinationDirectory: join(state.root, 'revoked-must-not-materialize'),
+    approvedManifestDigest: plan.manifestDigest,
+  }), error => /bundle is revoked/.test(error.stderr));
+  const expiryStateRoot = join(state.root, 'cli-expiry-state');
+  await mkdir(expiryStateRoot, { mode: 0o700 });
+  const expired = JSON.parse((await run({
+    schemaVersion: 2, command: 'bundle-expire', bundleDirectory: created.bundleDirectory,
+    stateRoot: expiryStateRoot, trust: state.trust, releaseTrust: state.releaseTrust,
+    approvedManifestDigest: plan.manifestDigest, now: later,
+  })).stdout);
+  assert.equal(expired.state, 'expired');
 });
 
 test('CLI bundle-create accepts exact native catalog authority and rejects descriptor substitution', async t => {
@@ -451,7 +546,7 @@ test('CLI bundle apply rejects unknown fields and any network-enabled policy bef
   const destinationDirectory = join(state.root, 'must-not-exist');
   const base = {
     schemaVersion: 2, command: 'bundle-apply', bundleDirectory: created.bundleDirectory,
-    destinationDirectory, trust: state.trust, releaseTrust: state.releaseTrust, expected: {
+    destinationDirectory, stateRoot: state.root, trust: state.trust, releaseTrust: state.releaseTrust, expected: {
       releaseId: state.base.releaseId, planDigest: state.base.planDigest, platform: state.base.platform,
       selectedTaskIds: state.base.selectedTaskIds, artifactIds: ['catalog', 'engine', 'release-envelope', 'release-signature'],
     },
