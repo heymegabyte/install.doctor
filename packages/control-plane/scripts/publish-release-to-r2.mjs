@@ -40,7 +40,7 @@ async function createSignatureVerifier(product = 'legacy-install-doctor') {
   const publicKey = (await readFile(publicKeyPath, 'utf8')).trim();
   if (!/^ssh-ed25519 [A-Za-z0-9+/]+={0,3}(?: [^\r\n]{1,128})?$/.test(publicKey)) throw new Error('release public key is not a canonical Ed25519 key');
   const allowedNamespaces = desktop
-    ? ['desktop.tools.release', 'desktop.tools.release-renewal-plan']
+    ? ['desktop.tools.release', 'desktop.tools.release-renewal-plan', 'desktop.tools.promotion-health']
     : ['install.doctor.release', 'install.doctor.release-renewal-plan'];
   return async ({ manifest, signature, signerId: manifestSignerId, namespace = allowedNamespaces[0] }) => {
     if (manifestSignerId !== signerId) throw new Error('manifest signer is not the configured release signer');
@@ -79,14 +79,24 @@ async function main() {
     process.stdout.write(`${JSON.stringify(receipt)}\n`);
     return;
   }
-  if (action === 'desktop-activate' && (arguments_.length === 5 || arguments_.length === 7)) {
-    const [releaseId, channel, expectedEtagValue, activationId, activatedAt, kind = 'promote', rollbackOfActivationId = null] = arguments_;
+  if (action === 'desktop-activate' && (arguments_.length === 6 || arguments_.length === 8)) {
+    const [releaseId, channel, expectedEtagValue, activationId, activatedAt, promotionEvidenceKey,
+      kind = 'promote', rollbackOfActivationId = null] = arguments_;
     const releaseStorage = storageFromEnvironment('DESKTOP_TOOLS_RELEASE_R2');
     const channelStorage = storageFromEnvironment('DESKTOP_TOOLS_CHANNEL_R2');
     const release = await inspectPublishedDesktopRelease({ expectedReleaseId: releaseId, storage: releaseStorage, verifySignature });
+    const expectedEvidencePrefix = `desktop-tools/promotion-evidence/${releaseId}/${channel}/`;
+    if (!promotionEvidenceKey.startsWith(expectedEvidencePrefix)
+      || !/^desktop-tools\/promotion-evidence\/[a-z0-9][a-z0-9._-]{0,127}\/(?:canary|early-access|stable)\/[a-z0-9][a-z0-9._-]{0,127}\.json$/.test(promotionEvidenceKey)) {
+      throw new Error('promotion evidence key is outside the exact release cohort boundary');
+    }
+    const promotionObject = await channelStorage.read(promotionEvidenceKey);
+    if (!promotionObject?.bytes || promotionObject.bytes.byteLength > 65_536) throw new Error('promotion evidence object is missing or oversized');
+    const promotionEvidence = JSON.parse(Buffer.from(promotionObject.bytes).toString('utf8'));
     const receipt = await activateDesktopRelease({ channel, release, storage: channelStorage,
       expectedEtag: expectedEtagValue === '-' ? undefined : expectedEtagValue,
-      activationId, activatedAt, kind, rollbackOfActivationId });
+      activationId, activatedAt, kind, rollbackOfActivationId, promotionEvidence,
+      verifyPromotionSignature: verifySignature });
     const { pointer, ...safeReceipt } = receipt;
     process.stdout.write(`${JSON.stringify({ ...safeReceipt, pointer })}\n`);
     if (receipt.status !== 'activated') process.exitCode = 75;

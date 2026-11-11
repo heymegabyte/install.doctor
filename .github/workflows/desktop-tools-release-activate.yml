@@ -12,9 +12,13 @@ on:
         required: true
         default: canary
         type: choice
-        options: [canary, stable]
+        options: [canary, early-access, stable]
       expected_channel_etag:
         description: Exact current ETag or - for first activation
+        required: true
+        type: string
+      promotion_evidence_key:
+        description: Exact immutable signed cohort-health object key
         required: true
         type: string
 
@@ -92,6 +96,7 @@ jobs:
           RELEASE_ID: ${{ needs.prepare.outputs.release_id }}
           CHANNEL: ${{ inputs.channel }}
           EXPECTED_ETAG: ${{ inputs.expected_channel_etag }}
+          PROMOTION_EVIDENCE_KEY: ${{ inputs.promotion_evidence_key }}
           DESKTOP_TOOLS_RELEASE_SIGNER_ID: ${{ needs.prepare.outputs.signer_id }}
           DESKTOP_TOOLS_RELEASE_PUBLIC_KEY: ${{ github.workspace }}/activation-tools/release-public-key
         run: |
@@ -100,7 +105,7 @@ jobs:
           activation_id="$(node -e 'process.stdout.write(crypto.randomUUID())')"
           activated_at="$(date -u +%Y-%m-%dT%H:%M:%S.000Z)"
           set +e
-          output="$(node activation-tools/scripts/publish-release-to-r2.mjs desktop-activate "$RELEASE_ID" "$CHANNEL" "$EXPECTED_ETAG" "$activation_id" "$activated_at")"; status=$?
+          output="$(node activation-tools/scripts/publish-release-to-r2.mjs desktop-activate "$RELEASE_ID" "$CHANNEL" "$EXPECTED_ETAG" "$activation_id" "$activated_at" "$PROMOTION_EVIDENCE_KEY")"; status=$?
           set -e
           printf '%s\n' "$output"
           if [ "$status" -eq 75 ]; then

@@ -260,6 +260,47 @@ test('reconciles a post-CAS receipt failure without repeating activation', async
   assert.equal(JSON.parse(channels.objects.get('desktop-tools/channels/stable.json').bytes).generation, 1);
 });
 
+test('signed cohort health gates suspend failed canaries before CAS and admit only their exact transition', async t => {
+  const now = Math.floor(Date.now() / 1_000);
+  const releaseStorage = storage();
+  const channels = storage();
+  const releaseFixture = await fixture(t);
+  const verifyRelease = async () => {};
+  await publishDesktopRelease({ ...releaseFixture, expectedReleaseId: releaseFixture.releaseId,
+    storage: releaseStorage, verifySignature: verifyRelease, now });
+  const release = await inspectPublishedDesktopRelease({ expectedReleaseId: releaseFixture.releaseId,
+    storage: releaseStorage, verifySignature: verifyRelease, now });
+  const evidence = result => ({ schemaVersion: 1, product: 'desktop-tools', kind: 'cohort-health',
+    releaseId: release.releaseId, sourceCohort: 'build', targetCohort: 'canary', result,
+    observedAt: new Date(now * 1_000 - 1_000).toISOString(), expiresAt: new Date(now * 1_000 + 60_000).toISOString(),
+    evidenceDigest: 'a'.repeat(64), signerId: 'desktop-health-1', signature: Buffer.alloc(64, 7).toString('base64url') });
+  let verified = 0;
+  const verifyPromotionSignature = async ({ payload, signature, namespace }) => {
+    assert.equal(namespace, 'desktop.tools.promotion-health');
+    assert.equal(Buffer.from(payload).includes(Buffer.from(release.releaseId)), true);
+    assert.equal(signature.byteLength, 64);
+    verified += 1;
+  };
+  await assert.rejects(activateDesktopRelease({ channel: 'canary', release, storage: channels,
+    expectedEtag: undefined, activationId: '11111111-1111-4111-8111-111111111111',
+    activatedAt: '2026-11-08T15:00:00.000Z', now, minimumPromotionRemainingSeconds: 3_600,
+    promotionEvidence: evidence('failed'), verifyPromotionSignature }), /suspended by failed cohort health/);
+  assert.equal(channels.objects.has('desktop-tools/channels/canary.json'), false);
+  assert.equal(channels.objects.has(`desktop-tools/promotion-suspensions/${release.releaseId}/canary.json`), true);
+  await assert.rejects(activateDesktopRelease({ channel: 'stable', release, storage: channels,
+    expectedEtag: undefined, activationId: '22222222-2222-4222-8222-222222222222',
+    activatedAt: '2026-11-08T15:01:00.000Z', now, minimumPromotionRemainingSeconds: 3_600,
+    promotionEvidence: evidence('passed'), verifyPromotionSignature }), /exact release cohort transition/);
+  assert.equal(channels.objects.has('desktop-tools/channels/stable.json'), false);
+  const promoted = await activateDesktopRelease({ channel: 'canary', release, storage: channels,
+    expectedEtag: undefined, activationId: '33333333-3333-4333-8333-333333333333',
+    activatedAt: '2026-11-08T15:02:00.000Z', now, minimumPromotionRemainingSeconds: 3_600,
+    promotionEvidence: evidence('passed'), verifyPromotionSignature });
+  assert.equal(promoted.status, 'activated');
+  assert.match(promoted.pointer.promotionEvidenceSha256, /^[a-f0-9]{64}$/);
+  assert.equal(verified, 2);
+});
+
 test('Desktop Tools freshness is signature-verified, read-only, product-qualified, and expiry-aware', async t => {
   const now = Math.floor(Date.now() / 1_000);
   const releaseStorage = storage();

@@ -80,8 +80,44 @@ const DesktopPointer = z.strictObject({
     generation: z.number().int().positive().safe(), activationId: z.string().uuid(), releaseId: id,
     manifestSha256: sha256, etag: z.string().min(1).max(512)
   })),
-  rollbackOfActivationId: z.string().uuid().nullable()
+  rollbackOfActivationId: z.string().uuid().nullable(), promotionEvidenceSha256: sha256.nullable()
 });
+const PromotionEvidence = z.strictObject({
+  schemaVersion: z.literal(1), product: z.literal('desktop-tools'), kind: z.literal('cohort-health'),
+  releaseId: id, sourceCohort: z.enum(['build', 'canary', 'early-access']),
+  targetCohort: z.enum(['canary', 'early-access', 'stable']), result: z.enum(['passed', 'failed']),
+  observedAt: z.string().datetime({ offset: true }), expiresAt: z.string().datetime({ offset: true }),
+  evidenceDigest: sha256, signerId: id, signature: z.string().min(16).max(16_384)
+});
+const COHORT_PREDECESSOR = Object.freeze({ canary: 'build', 'early-access': 'canary', stable: 'early-access' });
+
+export async function admitDesktopPromotionEvidence({ evidence, release, targetCohort, now = Date.now(), verifySignature }) {
+  if (typeof verifySignature !== 'function') throw new Error('promotion evidence verifier is required');
+  const parsed = PromotionEvidence.parse(evidence);
+  const cohort = z.enum(['canary', 'early-access', 'stable']).parse(targetCohort);
+  if (parsed.releaseId !== release?.releaseId || parsed.targetCohort !== cohort
+    || parsed.sourceCohort !== COHORT_PREDECESSOR[cohort]) {
+    throw new Error('promotion evidence does not match the exact release cohort transition');
+  }
+  const observed = Date.parse(parsed.observedAt);
+  const expires = Date.parse(parsed.expiresAt);
+  if (!Number.isSafeInteger(now) || !Number.isFinite(observed) || !Number.isFinite(expires)
+    || observed > now || expires <= now || expires - observed > 86_400_000) {
+    throw new Error('promotion evidence is stale or has an invalid validity window');
+  }
+  const { signature, ...payload } = parsed;
+  const bytes = canonical(canonicalValue(payload));
+  await verifySignature({ payload: bytes, signature: Buffer.from(signature, 'base64url'), signerId: parsed.signerId,
+    namespace: 'desktop.tools.promotion-health' });
+  if (parsed.result !== 'passed') {
+    const error = new Error('promotion is suspended by failed cohort health evidence');
+    error.promotionSuspended = true;
+    error.evidenceDigest = digest(bytes);
+    error.evidence = parsed;
+    throw error;
+  }
+  return Object.freeze({ ...parsed, signature: '[verified]', signaturePayloadSha256: digest(bytes) });
+}
 
 function parseManifest(bytes) {
   if (!(bytes instanceof Uint8Array) || bytes.byteLength < 1 || bytes.byteLength > 16_384) throw new Error('manifest size is outside policy');
@@ -421,7 +457,8 @@ async function createCanonical(storage, key, value) {
 export async function activateDesktopRelease({
   channel, release, storage, expectedEtag, activationId, activatedAt, kind = 'promote',
   rollbackOfActivationId = null, now = Math.floor(Date.now() / 1_000),
-  minimumPromotionRemainingSeconds = 345_600, minimumRollbackRemainingSeconds = 3_600
+  minimumPromotionRemainingSeconds = 345_600, minimumRollbackRemainingSeconds = 3_600,
+  promotionEvidence = null, verifyPromotionSignature = null
 }) {
   if (typeof storage?.read !== 'function' || typeof storage?.create !== 'function' || typeof storage?.compareAndSwap !== 'function') {
     throw new Error('activation storage adapter is invalid');
@@ -434,6 +471,22 @@ export async function activateDesktopRelease({
     throw new Error('activation freshness policy is invalid');
   }
   if (expiresAt - now < minimum) throw new Error('release has insufficient remaining validity for activation');
+  let admittedPromotionEvidence = null;
+  if (kind === 'promote' && promotionEvidence !== null) {
+    try {
+      admittedPromotionEvidence = await admitDesktopPromotionEvidence({ evidence: promotionEvidence, release, targetCohort: channel,
+        now: now * 1_000, verifySignature: verifyPromotionSignature });
+    } catch (error) {
+      if (error?.promotionSuspended === true) {
+        await createCanonical(storage, `desktop-tools/promotion-suspensions/${release.releaseId}/${channel}.json`, {
+          schemaVersion: 1, product: 'desktop-tools', releaseId: release.releaseId, cohort: channel,
+          evidenceDigest: error.evidenceDigest, observedAt: error.evidence.observedAt,
+          reason: 'failed-signed-health-evidence'
+        });
+      }
+      throw error;
+    }
+  }
   const channelKey = `desktop-tools/channels/${channelId}.json`;
   const current = await storage.read(channelKey);
   if ((current?.etag ?? undefined) !== expectedEtag) throw new Error('activation expected etag is stale');
@@ -458,7 +511,8 @@ export async function activateDesktopRelease({
   const pointer = DesktopPointer.parse({
     schemaVersion: 2, product: 'desktop-tools', channel: channelId, generation, kind,
     releaseId: release.releaseId, signerId: release.signerId, manifestSha256: release.manifestSha256,
-    activatedAt, activationId, previous, rollbackOfActivationId
+    activatedAt, activationId, previous, rollbackOfActivationId,
+    promotionEvidenceSha256: admittedPromotionEvidence?.signaturePayloadSha256 ?? null
   });
   const pointerBytes = canonical(pointer);
   const intentKey = `desktop-tools/activations/${channelId}/${pointer.activationId}.json`;
