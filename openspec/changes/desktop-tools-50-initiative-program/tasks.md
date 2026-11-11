@@ -62,7 +62,7 @@
 ## 6. Platform laboratory and evidence matrix
 
 - [x] 6.1 Define signed support-cell, fixture, canary, benchmark, and qualification receipt schemas; verify code, policy, recipe, release, and freshness changes invalidate only affected cells.
-- [ ] 6.2 Build hermetic Linux fixtures for supported Debian/Ubuntu, Fedora, Alpine, Arch, immutable-OS, container, and WSL semantics; verify clean install and unchanged reapply locally or record platform-specific infrastructure blockers.
+- [x] 6.2 Build hermetic Linux fixtures for supported Debian/Ubuntu, Fedora, Alpine, Arch, immutable-OS, container, and WSL semantics; verify clean install and unchanged reapply locally or record platform-specific infrastructure blockers.
 - [ ] 6.3 Establish an authorized macOS virtualization fixture using already available licensing and infrastructure; verify headless bootstrap, restart, rollback, and GUI-gated behavior without mutating the daily workstation.
 - [x] 6.4 Add Windows-native fixture contracts for PowerShell stage zero, package providers, ACLs, reparse points, registry, services, reboot, WSL, and secret storage; verify unsupported mutation remains preflight-denied until real evidence exists.
 - [x] 6.5 Add Proxmox fixture coverage for repositories, ZFS, VM/LXC inventory, guest agents, backup, network intent, upgrade, and maintenance behavior; verify no generic role invents production ingress.
@@ -115,7 +115,7 @@
 - [x] 10.5 Generate release SBOM/VEX and catalog provenance views in the control plane; verify user-visible claims match exact release bytes and current exploitability evidence.
 - [x] 10.6 Define signed extension manifests, compatibility, capabilities, lifecycle hooks, isolated tests, publication, private catalogs, and revocation; verify arbitrary npm auto-install cannot enter the privileged runtime.
 - [x] 10.7 Admit one low-risk read-only extension end to end; verify signature, provenance, permission denial, version compatibility, disablement, and revocation.
-- [ ] 10.8 Retire duplicate catalog generators and legacy recipe authorities only after parity; verify one canonical source regenerates every derived catalog byte-for-byte.
+- [x] 10.8 Retire duplicate catalog generators and legacy recipe authorities only after parity; verify one canonical source regenerates every derived catalog byte-for-byte.
 
 ## 11. Desktop Tools runtime, sessions, and renderers
 

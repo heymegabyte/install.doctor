@@ -38,10 +38,33 @@ rm -f "$fx1"
 
 # 3. FIXTURE — a DISJOINT-platform same-bin split (like devtoys/devtoys-windows) is legitimate → exit 0.
 fx2="$(mktemp)"
-cat >"$fx2" <<'JSON'
-[{"name":"a","bin":"x","providers":["brew"],"pkgs":{"brew":"a"},"platforms":["macos"],"installMode":"app","deliveryMode":"lazy","preload":false,"loadPolicy":"lazy","loadRationale":"default-lazy"},
- {"name":"a-win","bin":"x","providers":["choco"],"pkgs":{"choco":"a"},"platforms":["windows"],"installMode":"cli","deliveryMode":"lazy","preload":false,"loadPolicy":"lazy","loadRationale":"default-lazy"}]
-JSON
+# Derive the fixture from an admitted strict entry so additions to the catalog
+# contract do not turn this conflict-detector test into an unrelated stale-
+# schema failure. Only identity, disjoint platform, and provider coordinates
+# differ; graph semantics remain closed.
+python3 - "$CAT" "$fx2" <<'PY'
+import copy, json, sys
+
+catalog = json.load(open(sys.argv[1], encoding="utf-8"))
+seed = next(entry for entry in catalog if entry["name"] == "ack" and entry["bin"] == "ack")
+
+def fixture(name, platform, provider):
+    entry = copy.deepcopy(seed)
+    entry.update({
+        "name": name,
+        "bin": "x",
+        "providers": [provider],
+        "pkgs": {provider: name},
+        "platforms": [platform],
+        "identity": {"key": name, "command": "x"},
+        "dependencies": [],
+        "conflicts": [],
+    })
+    return entry
+
+with open(sys.argv[2], "w", encoding="utf-8") as stream:
+    json.dump([fixture("a", "macos", "brew"), fixture("a-win", "windows", "choco")], stream)
+PY
 if python3 "$VAL" "$fx2" >/dev/null 2>&1; then pass "validator ALLOWS a disjoint-platform same-bin split (no false positive)"; else fail "validator false-flagged a legitimate disjoint-platform split"; fi
 rm -f "$fx2"
 

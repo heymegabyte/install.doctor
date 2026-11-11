@@ -3,6 +3,7 @@ import { z } from 'zod';
 export const WINDOWS_FIXTURE_BOUNDARIES = [
   'powershell-stage-zero',
   'package-provider',
+  'file',
   'acl',
   'reparse-point',
   'registry',

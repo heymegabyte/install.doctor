@@ -1,0 +1,53 @@
+{
+  "schemaVersion": 1,
+  "canonicalSource": "software.yml",
+  "canonicalGenerator": "packages/control-plane/scripts/gen-catalog.mjs",
+  "reconciler": "scripts/reconcile-catalog-authority.mjs",
+  "derivedViews": [
+    {
+      "path": "packages/control-plane/src/catalog.json",
+      "kind": "checked-in-release-catalog",
+      "regeneration": "npm run catalog:generate"
+    },
+    {
+      "path": "$XDG_CACHE_HOME/cnf/index.tsv",
+      "kind": "host-runtime-cache",
+      "generator": "home/dot_local/bin/executable_cnf-build-index",
+      "regeneration": "executable_cnf-build-index software.yml $XDG_CACHE_HOME/cnf/index.tsv"
+    }
+  ],
+  "retiredAuthorities": [
+    {
+      "path": "scripts/software.mjs",
+      "reason": "Unreferenced model-generated metadata writer used mutable local state and could overwrite the canonical source without deterministic evidence.",
+      "gitBlob": "5545830fa5726b089754e8fdb06b714301cf18fd",
+      "sha256": "3ae1c8059eedfa68c263527227e6625943c79cf04bef96801759a7bf96afae71",
+      "retiredAt": "2026-11-10T00:00:00Z",
+      "rollbackThrough": "2027-02-08T00:00:00Z",
+      "restore": "git show 5545830fa5726b089754e8fdb06b714301cf18fd > scripts/software.mjs"
+    },
+    {
+      "path": "scripts/software-github.mjs",
+      "reason": "Unreferenced GitHub-star writer made network observations executable catalog state and overwrote the canonical source in place.",
+      "gitBlob": "cd95a1a1c6aceef37cbba7b2bbf9bb6ecf4eae66",
+      "sha256": "74b7a75c554c79c8b580be640a38d81ef39caff10f607623c69a8ebcae9a2d3c",
+      "retiredAt": "2026-11-10T00:00:00Z",
+      "rollbackThrough": "2027-02-08T00:00:00Z",
+      "restore": "git show cd95a1a1c6aceef37cbba7b2bbf9bb6ecf4eae66 > scripts/software-github.mjs"
+    }
+  ],
+  "compatibilityBoundaries": [
+    {
+      "path": "home/dot_local/share/ansible/environments/prod/group_vars/all/software.yml",
+      "consumer": "legacy external Ansible helper/installer role used by Qubes playbooks",
+      "status": "frozen-nonrelease-input",
+      "constraint": "Must not feed Desktop Tools catalog generation, release admission, automatic selection, or command-not-found resolution; retire only after an authorized Qubes parity fixture proves equivalent behavior."
+    },
+    {
+      "path": "home/dot_local/share/ansible/environments/prod/group_vars/qubes/software.yml",
+      "consumer": "Qubes template workload selection",
+      "status": "desired-state-selection-not-recipe-authority",
+      "constraint": "May select workload names but must not define Desktop Tools provider or artifact recipes."
+    }
+  ]
+}

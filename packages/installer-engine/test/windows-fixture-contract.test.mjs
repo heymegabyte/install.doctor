@@ -54,7 +54,7 @@ function request(boundary, overrides = {}) {
 test('strict fixture covers every required Windows-native boundary', () => {
   const parsed = WindowsFixtureSchema.parse(fixture);
   assert.deepEqual(parsed.supportedBoundaries, [
-    'powershell-stage-zero', 'package-provider', 'acl', 'reparse-point', 'registry',
+    'powershell-stage-zero', 'package-provider', 'file', 'acl', 'reparse-point', 'registry',
     'service', 'reboot', 'wsl', 'secret-storage',
   ]);
   assert.throws(() => WindowsFixtureSchema.parse({ ...fixture, unexpected: true }), /unrecognized/i);

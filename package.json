@@ -17,6 +17,8 @@
   "type": "commonjs",
   "scripts": {
     "build": "task validate:software",
+    "catalog:check": "node scripts/reconcile-catalog-authority.mjs --check",
+    "catalog:generate": "node scripts/reconcile-catalog-authority.mjs --write",
     "generate:desktop-tools-status": "cd packages/aid-core && npm run build && cd ../.. && node scripts/generate-desktop-tools-status.mjs",
     "help": "task --list",
     "lint": "task test:scripts",
