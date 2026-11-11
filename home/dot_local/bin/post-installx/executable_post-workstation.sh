@@ -1992,12 +1992,31 @@ function collectWirelessMetrics(lines: string[]): void {
   }
 }
 
+export function computeSmartSurvivalProbability30d(options: {
+  readonly passed: boolean;
+  readonly criticalWarning: number;
+  readonly temperatureCelsius?: number;
+  readonly powerOnHours?: number;
+}): number {
+  if (!options.passed || options.criticalWarning > 0) {
+    return 0.05;
+  }
+  const hours = Math.max(0, options.powerOnHours ?? 15_000);
+  const temp = Math.max(20, options.temperatureCelsius ?? 42);
+  const baseHazard = 0.0008 * Math.pow(hours / 25_000, 1.35);
+  const thermalMultiplier = temp > 65 ? Math.exp((temp - 65) * 0.04) : 1.0;
+  const survival = Math.exp(-baseHazard * thermalMultiplier);
+  return Math.max(0.01, Math.min(0.9999, Math.round(survival * 10000) / 10000));
+}
+
 function collectSmartMetrics(lines: string[]): void {
   lines.push(
     "# HELP nvme_smart_critical_warning NVMe SMART critical warning bitmap",
     "# TYPE nvme_smart_critical_warning gauge",
     "# HELP smart_device_health_ok SMART overall health assessment (1=OK, 0=FAIL)",
     "# TYPE smart_device_health_ok gauge",
+    "# HELP smart_survival_probability_30d Weibull/Cox 30-day SSD survival probability (0.0-1.0)",
+    "# TYPE smart_survival_probability_30d gauge",
   );
   for (const devicePath of ["/dev/nvme0", "/dev/nvme1", "/dev/sda", "/dev/sdb"]) {
     if (!existsSync(devicePath)) {
@@ -2008,11 +2027,21 @@ function collectSmartMetrics(lines: string[]): void {
       continue;
     }
     try {
-      const parsed = JSON.parse(stdout) as SmartctlJsonPayload;
+      const parsed = JSON.parse(stdout) as SmartctlJsonPayload & {
+        readonly temperature?: { readonly current?: number };
+        readonly power_on_time?: { readonly hours?: number };
+      };
       const criticalWarning = parsed.nvme_smart_health_information_log?.critical_warning ?? 0;
       const passed = parsed.smart_status?.passed !== false ? 1 : 0;
+      const survival30d = computeSmartSurvivalProbability30d({
+        passed: passed === 1,
+        criticalWarning,
+        temperatureCelsius: parsed.temperature?.current,
+        powerOnHours: parsed.power_on_time?.hours,
+      });
       lines.push(`nvme_smart_critical_warning{device="${devicePath}"} ${Math.trunc(criticalWarning)}`);
       lines.push(`smart_device_health_ok{device="${devicePath}"} ${passed}`);
+      lines.push(`smart_survival_probability_30d{device="${devicePath}"} ${survival30d.toFixed(4)}`);
     } catch {
       continue;
     }
@@ -2197,6 +2226,20 @@ export function collectWorkstationHardwareMetrics(): string {
   return `${lines.join("\n")}\n`;
 }
 
+let cachedMetricsBuffer: Buffer | null = null;
+let cachedMetricsEpochMs = 0;
+const METRICS_CACHE_TTL_MS = 2_000;
+
+function getCachedWorkstationHardwareMetrics(): Buffer {
+  const now = Date.now();
+  if (cachedMetricsBuffer !== null && now - cachedMetricsEpochMs < METRICS_CACHE_TTL_MS) {
+    return cachedMetricsBuffer;
+  }
+  cachedMetricsBuffer = Buffer.from(collectWorkstationHardwareMetrics(), "utf8");
+  cachedMetricsEpochMs = now;
+  return cachedMetricsBuffer;
+}
+
 function handleMetricsRequest(req: IncomingMessage, res: ServerResponse): void {
   res.on("error", () => {
     // Ignore client disconnect errors.
@@ -2212,7 +2255,7 @@ function handleMetricsRequest(req: IncomingMessage, res: ServerResponse): void {
     res.end(req.method === "HEAD" ? undefined : body);
     return;
   }
-  const body = Buffer.from(collectWorkstationHardwareMetrics(), "utf8");
+  const body = getCachedWorkstationHardwareMetrics();
   res.writeHead(200, {
     "Content-Type": "text/plain; version=0.0.4",
     "Content-Length": String(body.byteLength),

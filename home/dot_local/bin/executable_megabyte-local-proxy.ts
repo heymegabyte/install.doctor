@@ -424,18 +424,79 @@ function sendBufferResponse(
   res.end(body);
 }
 
+async function readBoundedRequestBody(req: IncomingMessage, maxBytes = 268_435_456): Promise<Buffer> {
+  return new Promise<Buffer>((resolveBody, rejectBody) => {
+    const chunks: Buffer[] = [];
+    let total = 0;
+    req.on("data", (chunk: Buffer) => {
+      total += chunk.byteLength;
+      if (total > maxBytes) {
+        rejectBody(new Error("Request payload exceeds maximum CAS blob size"));
+        req.destroy();
+        return;
+      }
+      chunks.push(chunk);
+    });
+    req.on("end", () => resolveBody(Buffer.concat(chunks)));
+    req.on("error", rejectBody);
+  });
+}
+
 async function handleProxyRequest(req: IncomingMessage, res: ServerResponse): Promise<void> {
   res.on("error", () => {
     // Suppress client disconnect BrokenPipe/ECONNRESET noise.
   });
 
   const method = (req.method ?? "GET").toUpperCase();
+  const rawPath = req.url ?? "/";
+  const pathname = rawPath.split("?", 1)[0] ?? "/";
+
+  // Turborepo Remote Cache status probe & CAS /v8/artifacts/:hash + /cas/v1/blobs/:sha256 (EPIC-36)
+  if (pathname === "/v8/artifacts/status" && (method === "GET" || method === "HEAD")) {
+    const statusPayload = Buffer.from(JSON.stringify({ status: "enabled" }), "utf8");
+    sendBufferResponse(res, 200, "application/json", statusPayload, "HIT-LOCAL", method === "HEAD");
+    return;
+  }
+
+  const casMatch = pathname.match(/^\/(?:v8\/artifacts|cas\/v1\/blobs)\/([a-fA-F0-9_-]{8,128})$/);
+  if (casMatch?.[1] && (method === "GET" || method === "HEAD" || method === "PUT")) {
+    const artifactHash = casMatch[1];
+    const { blobPath, headerPath } = resolveCachePaths(CONFIG.blobsDir, `cas/${artifactHash}`);
+    if (method === "PUT") {
+      try {
+        const body = await readBoundedRequestBody(req);
+        writeAtomically(blobPath, body);
+        const meta: CacheEntryMetadata = {
+          content_type: "application/octet-stream",
+          ts: Date.now() / 1000,
+          source: "HIT-LOCAL",
+        };
+        writeAtomically(headerPath, Buffer.from(JSON.stringify(meta), "utf8"));
+        const putResp = Buffer.from(
+          JSON.stringify({ urls: [`${CONFIG.localBaseUrl}/v8/artifacts/${artifactHash}`] }),
+          "utf8",
+        );
+        sendBufferResponse(res, 202, "application/json", putResp, "HIT-LOCAL", false);
+      } catch {
+        sendBufferResponse(res, 413, "text/plain", Buffer.from("Payload Too Large\n"), "MISS-ERROR", false);
+      }
+      return;
+    }
+    if (existsSync(blobPath)) {
+      const payload = readFileSync(blobPath);
+      recordProxyOutcome("HIT-LOCAL", "cas-turbo", payload.byteLength);
+      sendBufferResponse(res, 200, "application/octet-stream", payload, "HIT-LOCAL", method === "HEAD");
+      return;
+    }
+    sendBufferResponse(res, 404, "text/plain", Buffer.from("Artifact Not Found\n"), "MISS", method === "HEAD");
+    return;
+  }
+
   if (method !== "GET" && method !== "HEAD") {
     sendBufferResponse(res, 405, "text/plain", Buffer.from("Method Not Allowed\n"), "MISS", false);
     return;
   }
   const headOnly = method === "HEAD";
-  const rawPath = req.url ?? "/";
 
   if (rawPath === "/healthz") {
     const payload = Buffer.from(
