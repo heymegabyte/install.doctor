@@ -137,4 +137,51 @@ if [ -d /etc/netdata ]; then
   fi
 fi
 
+# 7. Mask rpcbind (111/tcp + 111/udp) when no NFS mounts exist & converge SSH + kernel security posture
+if ! mount | grep -qE ' type nfs'; then
+  $SUDO systemctl disable --now rpcbind.service rpcbind.socket 2>/dev/null || true
+  $SUDO systemctl mask rpcbind.service rpcbind.socket 2>/dev/null || true
+fi
+$SUDO mkdir -p /etc/ssh/sshd_config.d
+$SUDO tee /etc/ssh/sshd_config.d/99-fleet-hardening.conf >/dev/null <<'EOF'
+PermitRootLogin prohibit-password
+PubkeyAuthentication yes
+PasswordAuthentication no
+KbdInteractiveAuthentication no
+X11Forwarding no
+AllowAgentForwarding no
+MaxAuthTries 4
+ClientAliveInterval 180
+ClientAliveCountMax 2
+PermitUserEnvironment no
+EOF
+$SUDO chmod 0644 /etc/ssh/sshd_config.d/99-fleet-hardening.conf
+$SUDO sshd -t 2>/dev/null && $SUDO systemctl reload ssh 2>/dev/null || true
+
+$SUDO tee /etc/sysctl.d/99-fleet-security.conf >/dev/null <<'EOF'
+kernel.kptr_restrict = 2
+kernel.dmesg_restrict = 1
+kernel.yama.ptrace_scope = 1
+kernel.unprivileged_bpf_disabled = 2
+net.core.bpf_jit_harden = 2
+kernel.perf_event_paranoid = 4
+fs.suid_dumpable = 0
+fs.protected_hardlinks = 1
+fs.protected_symlinks = 1
+fs.protected_fifos = 2
+fs.protected_regular = 2
+dev.tty.ldisc_autoload = 0
+vm.unprivileged_userfaultfd = 0
+net.ipv4.conf.all.accept_redirects = 0
+net.ipv4.conf.default.accept_redirects = 0
+net.ipv4.conf.all.send_redirects = 0
+net.ipv4.conf.default.send_redirects = 0
+net.ipv4.conf.all.accept_source_route = 0
+net.ipv4.conf.default.accept_source_route = 0
+net.ipv4.tcp_syncookies = 1
+net.ipv4.icmp_echo_ignore_broadcasts = 1
+EOF
+$SUDO chmod 0644 /etc/sysctl.d/99-fleet-security.conf
+$SUDO sysctl --system >/dev/null 2>&1 || true
+
 log "Proxmox VE hypervisor convergence complete."

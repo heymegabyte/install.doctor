@@ -3888,6 +3888,22 @@ if [ "$(uname -s)" = "Linux" ] && [ -d /etc/netdata ]; then
   else
     run_root systemctl reload-or-restart netdata >/dev/null 2>&1 || true
   fi
+  if [ -d /etc/ssh/sshd_config.d ]; then
+    run_root tee /etc/ssh/sshd_config.d/99-fleet-hardening.conf >/dev/null <<'EOF'
+PermitRootLogin no
+PubkeyAuthentication yes
+PasswordAuthentication no
+KbdInteractiveAuthentication no
+X11Forwarding no
+AllowAgentForwarding no
+MaxAuthTries 4
+ClientAliveInterval 180
+ClientAliveCountMax 2
+PermitUserEnvironment no
+EOF
+    run_root chmod 0644 /etc/ssh/sshd_config.d/99-fleet-hardening.conf 2>/dev/null || true
+    run_root sshd -t 2>/dev/null && run_root systemctl reload ssh 2>/dev/null || true
+  fi
 elif [ "$(uname -s)" = "Darwin" ] && [ -d "$HOME/.config/netdata/health.d" ]; then
   for _mac_nd_etc in /opt/homebrew/etc/netdata /usr/local/etc/netdata; do
     if [ -d "$_mac_nd_etc" ]; then
