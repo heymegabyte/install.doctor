@@ -429,6 +429,31 @@ test('planning rejects missing capabilities, consent, offline network, and impos
   }
 });
 
+test('invalid DAG authority is rejected before journal ownership or mutation', async () => {
+  const invalidDrafts = [
+    { tasks: [{ ...task, dependencies: ['missing.task'] }], selectedTaskIds: [task.id] },
+    { tasks: [
+      { ...task, id: 'cycle.a', dependencies: ['cycle.b'] },
+      { ...task, id: 'cycle.b', dependencies: ['cycle.a'] },
+    ], selectedTaskIds: ['cycle.a'] },
+    { tasks: [{ ...task, requiredCapabilities: ['nonexistent-capability'] }], selectedTaskIds: [task.id] },
+    { tasks: [{ ...task, consent: 'destructive-storage' }], selectedTaskIds: [task.id] },
+  ];
+  for (const [index, draft] of invalidDrafts.entries()) {
+    let claims = 0;
+    const engine = createInstallerEngine({ adapter: {
+      discover: async () => facts, plan: async () => draft,
+      check: async () => assert.fail(`invalid DAG ${index} reached check`),
+      apply: async () => assert.fail(`invalid DAG ${index} reached apply`),
+      verify: async () => assert.fail(`invalid DAG ${index} reached verify`),
+    } });
+    await assert.rejects(engine.run({ runId: `invalid-dag-${index}`, releaseId: 'release-1', desiredState: desired }, {
+      journal: { claim: async () => { claims += 1; throw new Error('journal claim must remain unreachable'); } },
+    }));
+    assert.equal(claims, 0, `invalid DAG ${index} claimed journal authority`);
+  }
+});
+
 test('planning canonicalizes set-like discovery order', async () => {
   const secondTask = { ...task, id: 'package.jq', dependencies: ['package.git'], lockDomains: ['z.lock', 'a.lock'] };
   const left = harness({ plan: async () => ({ tasks: [secondTask, task], selectedTaskIds: [secondTask.id, task.id] }) });
