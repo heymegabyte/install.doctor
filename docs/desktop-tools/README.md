@@ -21,6 +21,9 @@ cross-device authorization before receiving scoped credentials.
 `implemented-unverified` means tested code exists without production proof; `verified-live`
 requires runtime evidence. Hosted status uses the same registry through `/api/v1/product-status`.
 
+The [50-initiative program ledger and operating model](program.md) keeps ownership, admission gates,
+critical path, evidence freshness, and capability truth machine-checkable across the longer program.
+
 The current wildcard profile bootstrap, complete device authorization flow, pinned OpenCode
 supervisor, and production route remain gated until their respective implementation and canary
 tasks are verified. Existing signed Install Doctor bootstrap paths remain compatibility surfaces
