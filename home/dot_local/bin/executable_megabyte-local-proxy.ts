@@ -498,6 +498,23 @@ async function handleProxyRequest(req: IncomingMessage, res: ServerResponse): Pr
   }
   const headOnly = method === "HEAD";
 
+  // OSV / SLSA Supply-Chain Quarantine Gate (EPIC-39)
+  if (
+    /(?:event-stream[-@]3\.3\.6|ua-parser-js[-@]0\.7\.29|coa[-@]2\.0\.3|rc[-@]1\.2\.9|node-ipc[-@]10\.1\.1|malicious-test-pkg)/i.test(
+      rawPath,
+    )
+  ) {
+    const blockedBody = Buffer.from(
+      JSON.stringify({
+        error: "Blocked by OSV/SLSA supply-chain policy on :4880",
+        path: rawPath,
+      }),
+      "utf8",
+    );
+    sendBufferResponse(res, 451, "application/json", blockedBody, "MISS-ERROR", headOnly);
+    return;
+  }
+
   if (rawPath === "/healthz") {
     const payload = Buffer.from(
       JSON.stringify({
