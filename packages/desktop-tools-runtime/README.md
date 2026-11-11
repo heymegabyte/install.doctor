@@ -11,6 +11,16 @@ replacing the substrate requires implementing only the two-method adapter and pa
 same lifecycle, compatibility, and private-binding tests. The signed compatibility manifest
 is shipped in the runtime tools closure.
 
+`src/durable-session.mjs` owns resumable terminal-session coordination without opening a
+listener. A caller supplies an already-authenticated WebSocket and the only capability that
+can start, resize, or cancel the bound run. Session/run identity, expiry, terminal size,
+acknowledgement position, cancellation authority, and a bounded replay window are atomically
+persisted in private state. Reconnection presents the original run identity and an opaque
+resume token, advances an attachment epoch, and replays only unacknowledged frames; it never
+calls the run factory again. Durable acknowledgement drives high/low-water backpressure,
+stale attachments cannot resize or acknowledge, disconnect only detaches, and expiry or an
+explicit authorized cancellation stops the existing run rather than creating a replacement.
+
 The supervisor accepts only `validate`, `prepare`, `run`, `service`, and `status`. Before
 launching OpenCode it verifies the pinned executable's SHA-256 and reported version,
 creates user-owned `0700` state, installs a persistent local server credential as `0600`,

@@ -57,6 +57,23 @@ function validatePolicy(value) {
   return value;
 }
 
+function validateTrigger(value) {
+  exact(value, ['kind', 'parentSessionId', 'outbox'], 'recording trigger');
+  if (!['local', 'browser', 'scheduled', 'child', 'offline'].includes(value.kind)) fail('recording trigger kind is invalid');
+  if (value.kind === 'child') identifier(value.parentSessionId, 'parent session id');
+  else if (value.parentSessionId !== null) fail('only child recordings may name a parent session');
+  if ((value.kind === 'offline') !== (value.outbox === true)) fail('only offline recordings require the durable outbox');
+  return value;
+}
+
+function validateForbiddenValues(values) {
+  if (!Array.isArray(values) || values.length > 256 || values.some(value => typeof value !== 'string' || value.length < 8 || value.length > 16_384)) {
+    fail('recording forbidden values must be bounded nontrivial strings');
+  }
+  if (new Set(values).size !== values.length) fail('recording forbidden values must be unique');
+  return [...values];
+}
+
 async function atomicStatus(path, value) {
   const temporary = `${path}.tmp-${process.pid}-${randomBytes(6).toString('hex')}`;
   await writeFile(temporary, `${JSON.stringify(value)}\n`, { flag: 'wx', mode: 0o600 });
@@ -107,12 +124,14 @@ export class EncryptedCastWriter {
   #terminalState;
 
   static async create(input) {
-    exact(input, ['path', 'sessionId', 'createdAt', 'cols', 'rows', 'consent', 'policy', 'key', 'sanitizeOutput'], 'recording initialization');
+    exact(input, ['path', 'sessionId', 'createdAt', 'cols', 'rows', 'consent', 'policy', 'trigger', 'key', 'forbiddenValues', 'sanitizeOutput'], 'recording initialization');
     const path = recordingPath(input.path);
     identifier(input.sessionId, 'session id');
     timestamp(input.createdAt, 'recording creation timestamp');
     validateConsent(input.consent);
     validatePolicy(input.policy);
+    validateTrigger(input.trigger);
+    const forbiddenValues = validateForbiddenValues(input.forbiddenValues);
     const key = encryptionKey(input.key);
     if (typeof input.sanitizeOutput !== 'function') fail('recording requires an explicit output sanitizer', 78);
     if (!Number.isSafeInteger(input.cols) || input.cols < 1 || input.cols > 1000 || !Number.isSafeInteger(input.rows) || input.rows < 1 || input.rows > 1000) fail('recording geometry is invalid');
@@ -124,8 +143,9 @@ export class EncryptedCastWriter {
       createdAt: input.createdAt,
       consent: input.consent,
       policy: input.policy,
+      trigger: input.trigger,
       captures: ['output', 'resize', 'marker', 'exit'],
-      excludes: ['keyboard-input', 'environment'],
+      excludes: ['keyboard-input', 'environment', 'known-credentials'],
     };
     let handle;
     try {
@@ -133,7 +153,7 @@ export class EncryptedCastWriter {
       const headerLine = `${JSON.stringify(header)}\n`;
       await handle.writeFile(headerLine);
       await handle.sync();
-      const writer = new EncryptedCastWriter(handle, key, header, `${path}.status.json`, input.sanitizeOutput, Buffer.byteLength(headerLine));
+      const writer = new EncryptedCastWriter(handle, key, header, `${path}.status.json`, input.sanitizeOutput, forbiddenValues, Buffer.byteLength(headerLine));
       await writer.#writePlaintext(`${JSON.stringify({ version: 3, term: { cols: input.cols, rows: input.rows }, timestamp: Math.floor(Date.parse(input.createdAt) / 1000) })}\n`);
       await atomicStatus(writer.#statusPath, { schemaVersion: 1, sessionId: input.sessionId, state: 'recording', captureComplete: false, reason: 'exit-event-not-recorded' });
       return writer;
@@ -143,12 +163,13 @@ export class EncryptedCastWriter {
     }
   }
 
-  constructor(handle, key, header, statusPath, sanitize, initialBytes) {
+  constructor(handle, key, header, statusPath, sanitize, forbiddenValues, initialBytes) {
     this.#handle = handle;
     this.#key = key;
     this.#header = header;
     this.#statusPath = statusPath;
     this.#sanitize = sanitize;
+    this.forbiddenValues = forbiddenValues;
     this.#bytes = initialBytes;
   }
 
@@ -201,6 +222,7 @@ export class EncryptedCastWriter {
     return this.#enqueue(async () => {
       const sanitized = await this.#sanitize(value);
       if (typeof sanitized !== 'string') fail('output sanitizer returned an invalid result', 78);
+      if (this.forbiddenValues.some(secret => sanitized.includes(secret))) fail('sanitized output still contains a forbidden secret value', 77);
       await this.#event(seconds, 'o', sanitized);
     });
   }
@@ -258,11 +280,12 @@ async function readEnvelope(pathInput, maxBytes = MAX_RECORDING_BYTES) {
   if (!metadata.isFile() || metadata.isSymbolicLink() || metadata.nlink !== 1 || metadata.size < 1 || metadata.size > maxBytes) fail('encrypted recording file is unsafe');
   const lines = (await readFile(path, 'utf8')).trimEnd().split('\n');
   const header = JSON.parse(lines.shift());
-  exact(header, ['schemaVersion', 'format', 'algorithm', 'sessionId', 'createdAt', 'consent', 'policy', 'captures', 'excludes'], 'encrypted recording header');
+  exact(header, ['schemaVersion', 'format', 'algorithm', 'sessionId', 'createdAt', 'consent', 'policy', 'trigger', 'captures', 'excludes'], 'encrypted recording header');
   if (header.schemaVersion !== 1 || header.format !== 'asciicast-v3+aes-256-gcm' || header.algorithm !== 'aes-256-gcm') fail('unsupported encrypted recording format');
   identifier(header.sessionId, 'session id');
   validateConsent(header.consent);
   validatePolicy(header.policy);
+  validateTrigger(header.trigger);
   return { path, header, events: lines.map(line => JSON.parse(line)) };
 }
 

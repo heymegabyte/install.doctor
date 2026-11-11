@@ -564,7 +564,7 @@ async function prepareToolRuntime(values, stateDirectory, promptBinding, session
   const entries = tarEntries(expanded);
   const legacyEntries = ['bin/desktop-tools-mcp-server.mjs', 'contracts/runtime-policy.json', 'contracts/supervisor-api.schema.json', 'contracts/typed-tools.json'];
   const baseEntries = ['bin/desktop-tools-mcp-server.mjs', 'contracts/opencode-host-compatibility.json', 'contracts/runtime-policy.json',
-    'contracts/supervisor-api.schema.json', 'contracts/typed-tools.json', 'runtime/encrypted-recording.mjs'];
+    'contracts/supervisor-api.schema.json', 'contracts/typed-tools.json', 'runtime/durable-session.mjs', 'runtime/encrypted-recording.mjs'];
   const brokerEntries = [...baseEntries, 'bin/linux-x64/desktop-tools-privileged-broker',
     'lib/desktop-tools-privileged-controller.mjs', 'lib/desktop-tools-privileged-worker.mjs'];
   const actualEntries = [...entries.keys()].sort();

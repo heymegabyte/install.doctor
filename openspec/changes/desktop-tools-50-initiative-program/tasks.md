@@ -120,13 +120,13 @@
 ## 11. Desktop Tools runtime, sessions, and renderers
 
 - [x] 11.1 Integrate the pinned OpenCode SDK behind a replaceable Desktop Tools host interface with owned lifecycle and no public listener; verify deterministic startup, shutdown, upgrade compatibility, and private binding.
-- [ ] 11.2 Generate task-specific agents, prompts, tools, skills, model policy, context limits, recordings, and budgets from the approved plan; verify inherited ambient authority is absent.
-- [ ] 11.3 Implement durable per-session coordination and resumable WebSocket transport with acknowledgement, backpressure, replay, resize, expiry, and cancellation; verify reconnect does not create another run.
-- [ ] 11.4 Complete encrypted output-only recordings for local, browser, scheduled, child, and offline sessions; verify raw input and secrets never enter recordings and incomplete capture is visible.
+- [x] 11.2 Generate task-specific agents, prompts, tools, skills, model policy, context limits, recordings, and budgets from the approved plan; verify inherited ambient authority is absent.
+- [x] 11.3 Implement durable per-session coordination and resumable WebSocket transport with acknowledgement, backpressure, replay, resize, expiry, and cancellation; verify reconnect does not create another run.
+- [x] 11.4 Complete encrypted output-only recordings for local, browser, scheduled, child, and offline sessions; verify raw input and secrets never enter recordings and incomplete capture is visible.
 - [x] 11.5 Stabilize the renderer-neutral event protocol and terminal outcome mapping across TUI, plain, JSON, NDJSON, headless, and CI; verify golden parity fixtures.
 - [ ] 11.6 Implement the multi-agent TUI with attributable streams, DAG, critical path, locks, retries, approvals, costs, verification, detach/follow, narrow/resize, keyboard, screen-reader, `NO_COLOR`, and reduced-motion behavior; verify PTY restoration after crashes and signals.
 - [x] 11.7 Implement deterministic profile compilation, semantic diff, migration, conflict explanation, import/export, and simulation without secret values; verify repeated compilation is byte-identical.
-- [ ] 11.8 Build nonvisual SaaS APIs and accessibility contracts for profiles, machines, plans, approvals, live runs, history, catalog, drift, secrets readiness, and recovery; verify tenant and capability truth boundaries.
+- [x] 11.8 Build nonvisual SaaS APIs and accessibility contracts for profiles, machines, plans, approvals, live runs, history, catalog, drift, secrets readiness, and recovery; verify tenant and capability truth boundaries.
 - [ ] 11.9 Obtain explicit approval of the current Figma artifact before visual SaaS implementation; verify the approval reference is recorded, otherwise keep only visual tasks blocked.
 - [ ] 11.10 After approval, implement and real-browser-test the SaaS experience against the shared protocol; verify WCAG, responsive behavior, security headers, performance budgets, and no direct mutation authority.
 

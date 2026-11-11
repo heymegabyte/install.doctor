@@ -54,6 +54,7 @@ for (const name of ['opencode-host-compatibility.json', 'runtime-policy.json', '
 }
 entries.push(tarEntry('bin/desktop-tools-mcp-server.mjs', await readFile(join(enginePackage, 'dist', 'desktop-tools-mcp-server.mjs')), 0o700));
 entries.push(tarEntry('runtime/encrypted-recording.mjs', await readFile(join(root, 'src', 'encrypted-recording.mjs')), 0o600));
+entries.push(tarEntry('runtime/durable-session.mjs', await readFile(join(root, 'src', 'durable-session.mjs')), 0o600));
 const provisioningBin = join(repositoryRoot, 'home', 'dot_local', 'bin');
 const installx = await readFile(join(provisioningBin, 'executable_installx'));
 if (installx.length < 1 || installx.length > 65_536) throw new Error('installx planning input is outside its bounded release policy');

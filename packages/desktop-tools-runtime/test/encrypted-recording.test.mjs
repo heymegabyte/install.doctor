@@ -23,7 +23,9 @@ async function fixture(overrides = {}) {
     rows: 24,
     consent,
     policy,
+    trigger: { kind: 'local', parentSessionId: null, outbox: false },
     key: encryptionKey,
+    forbiddenValues: ['secret-value'],
     sanitizeOutput: value => value.replaceAll(/token=[^\s]+/g, 'token=[REDACTED]'),
     ...overrides,
   });
@@ -50,10 +52,31 @@ test('stores sanitized asciicast v3 output, resize, marker, and exit as authenti
 
 test('requires output-only consent, a sanitizer, and an in-memory encryption key', async () => {
   const root = await mkdtemp(join(tmpdir(), 'desktop-tools-recording-denied-'));
-  const base = { path: join(root, 'denied.cast.enc'), sessionId: 'session-1', createdAt: '2026-11-08T12:00:00.000Z', cols: 80, rows: 24, policy, key: key(), sanitizeOutput: value => value };
+  const base = { path: join(root, 'denied.cast.enc'), sessionId: 'session-1', createdAt: '2026-11-08T12:00:00.000Z', cols: 80, rows: 24, policy,
+    trigger: { kind: 'local', parentSessionId: null, outbox: false }, key: key(), forbiddenValues: [], sanitizeOutput: value => value };
   await assert.rejects(EncryptedCastWriter.create({ ...base, consent: { ...consent, recordOutput: false } }), /output-only consent/);
   await assert.rejects(EncryptedCastWriter.create({ ...base, consent, path: join(root, 'no-sanitizer.cast.enc'), sanitizeOutput: null }), /sanitizer/);
   await assert.rejects(EncryptedCastWriter.create({ ...base, consent, path: join(root, 'no-key.cast.enc'), key: 'environment-key' }), /KeyObject/);
+});
+
+test('covers local, browser, scheduled, child, and offline recording authorities', async () => {
+  for (const kind of ['local', 'browser', 'scheduled', 'child', 'offline']) {
+    const value = await fixture({ sessionId: `session-${kind}`, trigger: {
+      kind, parentSessionId: kind === 'child' ? 'parent-session' : null, outbox: kind === 'offline',
+    } });
+    await value.writer.finish(1, 0);
+    const stored = JSON.parse((await readFile(value.path, 'utf8')).split('\n')[0]);
+    assert.equal(stored.trigger.kind, kind);
+  }
+});
+
+test('fails closed when sanitization leaves a known secret in output', async () => {
+  const value = await fixture({ sanitizeOutput: text => text });
+  await assert.rejects(value.writer.output(1, 'leaked secret-value'), /forbidden secret/);
+  await assert.rejects(value.writer.finish(2, 0), /forbidden secret/);
+  await value.writer.markIncomplete('secret-redaction-failure');
+  const status = JSON.parse(await readFile(value.writer.statusPath, 'utf8'));
+  assert.equal(status.captureComplete, false);
 });
 
 test('keeps interrupted or failed capture visibly incomplete', async () => {

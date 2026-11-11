@@ -5,7 +5,8 @@
   "type": "module",
   "description": "Least-privilege local Desktop Tools supervisor and typed tool contracts.",
   "exports": {
-    "./opencode-host": "./src/opencode-host.mjs"
+    "./opencode-host": "./src/opencode-host.mjs",
+    "./durable-session": "./src/durable-session.mjs"
   },
   "scripts": {
     "build": "node scripts/build.mjs",
