@@ -1,3 +1,5 @@
+import { passkey } from '@better-auth/passkey';
+
 type BetterAuthSecrets = {
   BETTER_AUTH_SECRET?: string;
   GITHUB_CLIENT_ID?: string;
@@ -26,6 +28,18 @@ export function createBetterAuthOptions(
     secret: secrets.BETTER_AUTH_SECRET,
     session: { freshAge: 5 * 60 },
     trustedOrigins: [...originPolicy.trustedOrigins],
+    plugins: [passkey({
+      rpID: 'desktop.tools',
+      rpName: 'Desktop Tools',
+      // Owner authentication is deliberately apex-only. Profile subdomains identify desired state,
+      // not principals, and the legacy application origin cannot mint Desktop Tools assertions.
+      origin: ['https://desktop.tools'],
+      registration: { requireSession: true },
+      authenticatorSelection: {
+        residentKey: 'preferred' as const,
+        userVerification: 'required' as const,
+      },
+    })],
     socialProviders: {
       github: {
         clientId: secrets.GITHUB_CLIENT_ID,

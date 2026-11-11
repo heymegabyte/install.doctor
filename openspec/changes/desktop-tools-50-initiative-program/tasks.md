@@ -39,7 +39,7 @@
 - [ ] 4.1 Complete protected signer and release-channel prerequisites from `establish-desktop-tools-bootstrap`; verify the production-readiness audit reports signer and release checks passing without changing unrelated blockers.
 - [ ] 4.2 Activate one immutable canary release and verify current, expired, revoked, tampered, wrong-product, and rollback attempts through independent inspection.
 - [ ] 4.3 Serve a real profile descriptor and signed stage zero at an authorized canary subdomain; verify unknown profiles and unavailable channels fail closed before code execution.
-- [ ] 4.4 Complete browser-first owner authentication and target enrollment with exact profile, device, scope, expiry, and one-time claim binding; verify phishing, replay, cross-tenant, and stale-profile denial.
+- [x] 4.4 Complete browser-first owner authentication and target enrollment with exact profile, device, scope, expiry, and one-time claim binding; verify phishing, replay, cross-tenant, and stale-profile denial.
 - [ ] 4.5 Bind profile, facts, release, policy, operation closure, approvals, and rollback limits into one reviewed plan; verify safety-relevant fact drift invalidates it.
 - [ ] 4.6 Execute the migrated engine effect on a disposable authorized Linux canary; verify terminal receipt binds profile, release, plan, journal, postconditions, and independent support evidence.
 - [ ] 4.7 Reapply unchanged desired state and restart the target; verify no duplicate configuration, identity, schedule, service, snapshot, or mutation and confirm restart-surviving status.

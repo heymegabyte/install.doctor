@@ -29,6 +29,7 @@ export function isCanonicalAuthOrigin(value: string): boolean {
 /** OAuth state and callback cookies may be created or consumed only at the canonical apex. */
 export function requiresCanonicalAuthOrigin(method: string, pathname: string): boolean {
   const verb = method.toUpperCase();
+  if ((verb === 'GET' || verb === 'POST') && /^\/api\/auth\/passkey(?:\/|$)/.test(pathname)) return true;
   if (verb === 'POST' && /^\/api\/auth\/sign-in(?:\/|$)/.test(pathname)) return true;
   return verb === 'GET' && /^\/api\/auth\/callback(?:\/|$)/.test(pathname);
 }

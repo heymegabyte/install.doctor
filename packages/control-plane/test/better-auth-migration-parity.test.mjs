@@ -11,6 +11,7 @@ test('reviewed D1 migration exactly matches pinned Better Auth schema', async ()
   const sqlite = new DatabaseSync(':memory:');
   try {
     sqlite.exec(fs.readFileSync(new URL('../migrations/0018_better_auth_schema.sql', import.meta.url), 'utf8'));
+    sqlite.exec(fs.readFileSync(new URL('../migrations/0019_better_auth_passkeys.sql', import.meta.url), 'utf8'));
     // Better Auth's SQLite introspector is the schema compiler used for D1; using
     // node:sqlite here makes an inspection failure fatal instead of returning an
     // empty plan from a partial test double.

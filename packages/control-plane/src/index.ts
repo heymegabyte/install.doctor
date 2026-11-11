@@ -33,6 +33,10 @@ import { DEVICE_CLAIM_MIN_POLL_INTERVAL_MS, DEVICE_CREDENTIAL_MAX_LIFETIME_MS, m
 import { authenticatedOwnerFromBetterAuthSession, createBrokerProductionAuthorities } from './broker-production-authorities';
 import { resolvePrivilegedPairBinding } from './privileged-pair-binding';
 import { authorizeTargetAuthorizationDecision } from './target-authorization-owner';
+import {
+  consumePrivilegedStepUp, hashStepUpChallenge, PRIVILEGED_STEP_UP_SCOPES,
+  PrivilegedStepUpBinding, PrivilegedStepUpRecord, verifyPrivilegedStepUp,
+} from './privileged-step-up';
 // App Store catalog — generated from software.yml by the canonical validated parser
 // (scripts/gen-catalog.mjs → the cnf index builder; D01/D02/D13). Read-only, bundled at deploy;
 // regenerate + redeploy when software.yml changes. No runtime YAML at the edge.
@@ -2977,17 +2981,153 @@ app.all('/api/ai/v1/:route', (c) => {
   return c.json({ error: 'method_not_allowed', detail: 'inference uses POST', route }, 405);
 });
 
-// --- Better Auth (O-series sign-in: GitHub + Google) — fire #102 ----------------------------------------
+// --- Better Auth (OIDC + passkeys) and application-bound privileged step-up ------------------------------
+const PrivilegedStepUpStartBody = z.strictObject({
+  target: z.strictObject({ kind: z.enum(['device', 'host', 'plan', 'recovery']),
+    id: z.string().min(1).max(128).regex(/^[A-Za-z0-9][A-Za-z0-9._~-]*$/) }),
+  planDigest: z.string().regex(/^[a-f0-9]{64}$/),
+  scopes: z.array(z.enum(PRIVILEGED_STEP_UP_SCOPES)).min(1).max(PRIVILEGED_STEP_UP_SCOPES.length),
+});
+const PrivilegedStepUpConsumeBody = PrivilegedStepUpStartBody.extend({
+  id: z.string().min(1).max(128).regex(/^[A-Za-z0-9][A-Za-z0-9._~-]*$/),
+  challenge: z.string().regex(/^[A-Za-z0-9_-]{43}$/),
+});
+
+function stepUpSession(raw: unknown) {
+  const parsed = z.object({
+    user: z.object({ id: z.string().min(1).max(200).regex(/^[A-Za-z0-9._~-]+$/) }).passthrough(),
+    session: z.object({
+      id: z.string().min(1).max(200).regex(/^[A-Za-z0-9._~-]+$/),
+      createdAt: z.union([z.string().datetime({ offset: true }), z.date()]),
+    }).passthrough(),
+  }).passthrough().safeParse(raw);
+  if (!parsed.success) return null;
+  return {
+    actor: `better-auth-user:${parsed.data.user.id}`,
+    userId: parsed.data.user.id,
+    sessionId: parsed.data.session.id,
+    authenticatedAt: parsed.data.session.createdAt instanceof Date
+      ? parsed.data.session.createdAt.toISOString() : parsed.data.session.createdAt,
+  };
+}
+
+function stepUpRecord(row: Record<string, unknown>) {
+  let scopes: unknown;
+  try { scopes = JSON.parse(String(row.scopes_json)); } catch { return null; }
+  const value = {
+    schemaVersion: 1, id: row.id, challengeSha256: row.challenge_sha256,
+    binding: { actor: row.actor, origin: row.origin,
+      target: { kind: row.target_kind, id: row.target_id }, planDigest: row.plan_digest, scopes },
+    status: row.status, issuedAt: row.issued_at, expiresAt: row.expires_at,
+    verifiedAt: row.verified_at, verifiedSessionId: row.verified_session_id,
+    credentialId: row.credential_id, credentialRevocationEpoch: row.credential_revocation_epoch,
+    consumedAt: row.consumed_at, revokedAt: row.revoked_at,
+  };
+  const parsed = PrivilegedStepUpRecord.safeParse(value);
+  return parsed.success ? parsed.data : null;
+}
+
+app.post('/api/v1/privileged-step-up/challenges', async (c) => {
+  if (!isCanonicalAuthOrigin(new URL(c.req.url).origin)) return c.json({ error: 'canonical_auth_origin_required' }, 400);
+  const db = (c.env as Record<string, any>).DB;
+  if (!db) return c.json({ error: 'store_unavailable' }, 503);
+  const session = stepUpSession(await auth.api.getSession({ headers: c.req.raw.headers }).catch(() => null));
+  if (!session) return c.json({ error: 'authentication_required' }, 401);
+  let input: unknown;
+  try { input = await boundedJsonBody(c, 4096); } catch { return c.json({ error: 'invalid_request' }, 400); }
+  const parsed = PrivilegedStepUpStartBody.safeParse(input);
+  if (!parsed.success) return c.json({ error: 'invalid_request' }, 400);
+  const scopes = [...new Set(parsed.data.scopes)].sort();
+  if (scopes.length !== parsed.data.scopes.length) return c.json({ error: 'invalid_request' }, 400);
+  const random = crypto.getRandomValues(new Uint8Array(32));
+  const challenge = Buffer.from(random).toString('base64url');
+  const id = `stepup_${randHex(16)}`;
+  const issuedAt = new Date(); const expiresAt = new Date(issuedAt.getTime() + 5 * 60 * 1000);
+  await db.prepare(`INSERT INTO privileged_step_up_challenges
+    (id,challenge_sha256,actor,origin,target_kind,target_id,plan_digest,scopes_json,status,issued_at,expires_at)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?)`).bind(id, hashStepUpChallenge(challenge), session.actor,
+      DESKTOP_TOOLS_CANONICAL_AUTH_ORIGIN, parsed.data.target.kind, parsed.data.target.id,
+      parsed.data.planDigest, JSON.stringify(scopes), 'pending', issuedAt.toISOString(), expiresAt.toISOString()).run();
+  return c.json({ id, challenge, binding: { actor: session.actor, origin: DESKTOP_TOOLS_CANONICAL_AUTH_ORIGIN,
+    target: parsed.data.target, planDigest: parsed.data.planDigest, scopes }, expiresAt: expiresAt.toISOString(),
+    passkeyOptionsPath: '/api/auth/passkey/generate-authenticate-options',
+    passkeyVerificationPath: '/api/auth/passkey/verify-authentication' }, 201);
+});
+
+app.post('/api/v1/privileged-step-up/consume', async (c) => {
+  if (!isCanonicalAuthOrigin(new URL(c.req.url).origin)) return c.json({ error: 'canonical_auth_origin_required' }, 400);
+  const db = (c.env as Record<string, any>).DB;
+  if (!db) return c.json({ error: 'store_unavailable' }, 503);
+  let input: unknown;
+  try { input = await boundedJsonBody(c, 4096); } catch { return c.json({ error: 'invalid_request' }, 400); }
+  const parsed = PrivilegedStepUpConsumeBody.safeParse(input);
+  if (!parsed.success) return c.json({ error: 'invalid_request' }, 400);
+  const current = stepUpSession(await auth.api.getSession({ headers: c.req.raw.headers }).catch(() => null));
+  if (!current) return c.json({ error: 'authentication_required' }, 401);
+  const row = await db.prepare('SELECT * FROM privileged_step_up_challenges WHERE id=?').bind(parsed.data.id).first();
+  const record = row && stepUpRecord(row);
+  if (!record) return c.json({ error: 'step_up_unavailable' }, 404);
+  const credential = record.credentialId ? await db.prepare(
+    'SELECT id,userId FROM passkey WHERE credentialID=? AND userId=?').bind(record.credentialId, current.userId).first() : null;
+  const binding = PrivilegedStepUpBinding.safeParse({ actor: current.actor, origin: DESKTOP_TOOLS_CANONICAL_AUTH_ORIGIN,
+    target: parsed.data.target, planDigest: parsed.data.planDigest, scopes: parsed.data.scopes });
+  if (!binding.success) return c.json({ error: 'invalid_request' }, 400);
+  const result = consumePrivilegedStepUp(record, parsed.data.challenge, binding.data, {
+    ...current, origin: DESKTOP_TOOLS_CANONICAL_AUTH_ORIGIN, credentialId: record.credentialId ?? '',
+    credentialActive: Boolean(credential), credentialRevocationEpoch: record.credentialRevocationEpoch,
+  });
+  if (!result.ok) return c.json({ error: result.error }, 403);
+  const updated = await db.prepare(`UPDATE privileged_step_up_challenges SET status='consumed', consumed_at=?
+    WHERE id=? AND status='verified' AND verified_session_id=? AND credential_id=?`).bind(
+      result.record.consumedAt, record.id, record.verifiedSessionId, record.credentialId).run();
+  if ((updated.meta?.changes ?? 0) !== 1) return c.json({ error: 'step_up_already_consumed' }, 409);
+  return c.json({ id: record.id, status: 'consumed', binding: result.record.binding,
+    verifiedAt: record.verifiedAt, consumedAt: result.record.consumedAt }, 200);
+});
+
 // Forward every /api/auth/* request to the Better Auth handler (its basePath defaults to /api/auth).
 // This exposes sign-in/social, the OAuth callback, session, sign-out, etc. Authorize-INITIATION is live +
 // verifiable now; sign-in COMPLETION still needs the callback URL registered on the OAuth apps (human step).
-app.on(['GET', 'POST'], '/api/auth/*', (c) => {
+app.on(['GET', 'POST'], '/api/auth/*', async (c) => {
   const requestUrl = new URL(c.req.url);
   if (requiresCanonicalAuthOrigin(c.req.method, requestUrl.pathname)
     && !isCanonicalAuthOrigin(requestUrl.origin)) {
     return c.json({ error: 'canonical_auth_origin_required' }, 400, { 'cache-control': 'no-store' });
   }
-  return auth.handler(c.req.raw);
+  const isStepUpVerification = c.req.method === 'POST'
+    && requestUrl.pathname === '/api/auth/passkey/verify-authentication';
+  const stepUpId = c.req.header('x-desktop-tools-step-up-id');
+  const stepUpChallenge = c.req.header('x-desktop-tools-step-up-challenge');
+  let verificationBody: any = null;
+  if (isStepUpVerification && (stepUpId || stepUpChallenge)) {
+    if (!stepUpId || !stepUpChallenge) return c.json({ error: 'incomplete_step_up_binding' }, 400);
+    try { verificationBody = await c.req.raw.clone().json(); } catch { return c.json({ error: 'invalid_request' }, 400); }
+  }
+  const response = await auth.handler(c.req.raw);
+  if (!isStepUpVerification || !stepUpId || !stepUpChallenge || !response.ok) return response;
+  const db = (c.env as Record<string, any>).DB;
+  if (!db) return c.json({ error: 'store_unavailable' }, 503);
+  let completed: any;
+  try { completed = await response.clone().json(); } catch { return c.json({ error: 'step_up_verification_unavailable' }, 503); }
+  const session = stepUpSession(completed); const credentialId = verificationBody?.response?.id;
+  if (!session || typeof credentialId !== 'string') return c.json({ error: 'step_up_verification_unavailable' }, 503);
+  const row = await db.prepare('SELECT * FROM privileged_step_up_challenges WHERE id=?').bind(stepUpId).first();
+  const record = row && stepUpRecord(row);
+  const credential = await db.prepare('SELECT id FROM passkey WHERE credentialID=? AND userId=?')
+    .bind(credentialId, session.userId).first();
+  if (!record || !credential) return c.json({ error: 'step_up_unavailable' }, 404);
+  const verified = verifyPrivilegedStepUp(record, stepUpChallenge, record.binding, {
+    ...session, origin: DESKTOP_TOOLS_CANONICAL_AUTH_ORIGIN, credentialId,
+    credentialActive: true, credentialRevocationEpoch: record.credentialRevocationEpoch,
+  });
+  if (!verified.ok) return c.json({ error: verified.error }, 403);
+  const updated = await db.prepare(`UPDATE privileged_step_up_challenges
+    SET status='verified',verified_at=?,verified_session_id=?,credential_id=?
+    WHERE id=? AND status='pending' AND challenge_sha256=? AND actor=? AND expires_at>?`).bind(
+      verified.record.verifiedAt, verified.record.verifiedSessionId, verified.record.credentialId,
+      record.id, record.challengeSha256, record.binding.actor, verified.record.verifiedAt).run();
+  if ((updated.meta?.changes ?? 0) !== 1) return c.json({ error: 'step_up_not_pending' }, 409);
+  return response;
 });
 
 // Admin-guarded Better Auth drift inspection. Reviewed D1 files are the sole schema-mutation authority.
