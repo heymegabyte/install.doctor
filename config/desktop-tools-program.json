@@ -11,7 +11,7 @@
   "admissionGates": [
     { "id": "figma-approval", "requiredFor": ["I47"], "evidence": [], "status": "BLOCKED", "reason": "No approved current Desktop Tools Figma artifact is recorded." },
     { "id": "authorized-canary", "requiredFor": ["I01", "I19", "I21", "I22", "I25", "I43", "I44", "I45"], "evidence": [], "status": "BLOCKED", "reason": "No disposable production-like canary is selected in program evidence." },
-    { "id": "infisical-subscription", "requiredFor": ["I31", "I32"], "evidence": [], "status": "UNVERIFIED", "reason": "Subscribed dynamic-secret and granular-role capabilities have not been observed." },
+    { "id": "infisical-subscription", "requiredFor": ["I31", "I32"], "evidence": ["config/infisical/subscription-capabilities.json"], "status": "BLOCKED", "reason": "Read-only billing discovery proves a Free organization with no active product entitlement; paid RBAC, dynamic secrets, temporary access, gateways, SSO/MFA enforcement, and audit streaming cannot be assumed or enabled." },
     { "id": "virtualization-availability", "requiredFor": ["I21", "I23", "I24", "I26"], "evidence": [], "status": "UNVERIFIED", "reason": "Authorized recurring macOS, Windows, Proxmox, Qubes, and immutable-OS fixtures are not fully inventoried." },
     { "id": "paid-service-change", "requiredFor": [], "evidence": [], "status": "BLOCKED", "reason": "No automatic purchase or paid-tier expansion is authorized." },
     { "id": "production-mutation", "requiredFor": ["I01", "I19", "I31", "I40", "I43", "I44"], "evidence": [], "status": "BLOCKED", "reason": "Production mutation requires a separately admitted target, plan, approval, and rollback boundary." },
