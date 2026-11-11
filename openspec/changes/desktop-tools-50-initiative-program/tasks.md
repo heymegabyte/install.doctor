@@ -64,7 +64,7 @@
 - [x] 6.1 Define signed support-cell, fixture, canary, benchmark, and qualification receipt schemas; verify code, policy, recipe, release, and freshness changes invalidate only affected cells.
 - [ ] 6.2 Build hermetic Linux fixtures for supported Debian/Ubuntu, Fedora, Alpine, Arch, immutable-OS, container, and WSL semantics; verify clean install and unchanged reapply locally or record platform-specific infrastructure blockers.
 - [ ] 6.3 Establish an authorized macOS virtualization fixture using already available licensing and infrastructure; verify headless bootstrap, restart, rollback, and GUI-gated behavior without mutating the daily workstation.
-- [ ] 6.4 Add Windows-native fixture contracts for PowerShell stage zero, package providers, ACLs, reparse points, registry, services, reboot, WSL, and secret storage; verify unsupported mutation remains preflight-denied until real evidence exists.
+- [x] 6.4 Add Windows-native fixture contracts for PowerShell stage zero, package providers, ACLs, reparse points, registry, services, reboot, WSL, and secret storage; verify unsupported mutation remains preflight-denied until real evidence exists.
 - [ ] 6.5 Add Proxmox fixture coverage for repositories, ZFS, VM/LXC inventory, guest agents, backup, network intent, upgrade, and maintenance behavior; verify no generic role invents production ingress.
 - [ ] 6.6 Add Qubes fixtures for dom0, TemplateVM, AppVM, DisposableVM, Whonix, and qrexec boundaries; verify one compartment cannot broaden another's authority.
 - [x] 6.7 Implement fault injection for process loss, reboot, ENOSPC, DNS, corrupt artifacts, expired credentials, lock loss, clock skew, permission drift, and telemetry failure; verify exact uncertain and recoverable outcomes.
@@ -89,14 +89,14 @@
 - [ ] 8.3 Deploy Alloy to one disposable canary with a recovery-safe local pipeline and validated remote modules; verify invalid remote configuration retains the last valid effective pipeline.
 - [x] 8.4 Implement bounded buffering, retry, deduplication, timestamp handling, restart survival, and delivery heartbeats; verify a running collector without queryable test evidence remains unverified.
 - [ ] 8.5 Build dashboards for release adoption, fleet drift, run critical path, agent cost, secret access, platform evidence, capacity, pool health, backup freshness, replication lag, verification, and restores; verify every nonterminal state renders distinctly.
-- [ ] 8.6 Add actionable deduplicated alerts with host, workload/device, recovery impact, evidence, runbook, missing-heartbeat detection, and recovery clearing; verify simulated fault-to-alert-to-clear flow.
+- [x] 8.6 Add actionable deduplicated alerts with host, workload/device, recovery impact, evidence, runbook, missing-heartbeat detection, and recovery clearing; verify simulated fault-to-alert-to-clear flow.
 - [x] 8.7 Add consented fail-open telemetry export and retention controls; verify outage never blocks safe local operation or grants mutation authority.
 - [ ] 8.8 Measure SLOs and error budgets from correlated evidence; verify staged rollout consumes and reacts to the correct budget.
 
 ## 9. Data protection, ZFS, backup, and disaster recovery
 
 - [x] 9.1 Complete per-host capability inventory and authoritative-data coverage maps for datasets, files, databases, VMs, containers, configurations, and keys; verify new unprotected sources fail coverage health.
-- [ ] 9.2 Implement policy validation and discover/plan/status for Sanoid, scrubs, autosnap ownership, exclusions, schedule collision, retention dependencies, and capacity; verify read-only plans on disposable pools.
+- [x] 9.2 Implement policy validation and discover/plan/status for Sanoid, scrubs, autosnap ownership, exclusions, schedule collision, retention dependencies, and capacity; verify read-only plans on disposable pools.
 - [ ] 9.3 Implement Syncoid destination admission, restricted identity, raw encrypted history, resume, bookmarks, holds, common anchors, bandwidth, retries, and divergence handling; verify no automatic rollback or destructive target deletion.
 - [ ] 9.4 Integrate existing suitable PBS, restic, rclone transport, and database-native backup paths without replacing functioning protection; verify source identity, mount presence, encryption, and false-success denial.
 - [ ] 9.5 Implement separate writer and maintenance identities with provider-supported limits; verify the writer cannot prune and document where a provider cannot guarantee immutability.
