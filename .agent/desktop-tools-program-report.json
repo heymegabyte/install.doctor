@@ -197,10 +197,10 @@
   "owners": [
     {
       "change": "desktop-tools-50-initiative-program",
-      "complete": 10,
+      "complete": 11,
       "total": 111,
       "state": "in-progress",
-      "tasksDigest": "bc27541bef42dac0c3dfcb3f565c76c719ade37fb867ed2e5fa92f3c2f6d902d"
+      "tasksDigest": "483f2ffe13cbbc23370bc99ac467836445ad29b287e6f16bb1de8154247d42e0"
     },
     {
       "change": "establish-desktop-tools-bootstrap",
@@ -2234,5 +2234,5 @@
     "inProgress": 12,
     "complete": 0
   },
-  "reportDigest": "77e8d1a6c30dd5fe25c276feec54d206027726e1f089a79c37eac3a9b3394fb8"
+  "reportDigest": "ab6f7496f6e09f0e2c135b395054a1b7001d2d7f3f2e9497f568ce9765dd8881"
 }

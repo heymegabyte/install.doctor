@@ -24,7 +24,7 @@ env:
 
 jobs:
   build:
-    name: Build inert Desktop Tools v9 closure
+    name: Build inert Desktop Tools v10 closure
     if: github.ref == 'refs/heads/master'
     runs-on: ubuntu-latest
     timeout-minutes: 45
@@ -331,9 +331,50 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
+  attest:
+    name: Attest the exact signed Desktop Tools closure
+    needs: [build, sign]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+      artifact-metadata: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: desktop-tools-release-signed-${{ github.run_id }}
+          path: signed-release
+      - name: Bind every signed subject by digest
+        run: |
+          set -euo pipefail
+          find signed-release -mindepth 1 -maxdepth 1 -type f -print0 \
+            | LC_ALL=C sort -z | xargs -0 sha256sum >subject-checksums.sha256
+          test "$(wc -l <subject-checksums.sha256 | tr -d '[:space:]')" -eq 27
+          test "$(find signed-release -mindepth 1 -maxdepth 1 -type f | wc -l | tr -d '[:space:]')" -eq 27
+      - id: provenance
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-checksums: subject-checksums.sha256
+      - name: Assemble offline-verifiable provenance
+        env:
+          ATTESTATION_BUNDLE: ${{ steps.provenance.outputs.bundle-path }}
+        run: |
+          set -euo pipefail
+          mkdir attestation-evidence
+          cp subject-checksums.sha256 attestation-evidence/
+          cp "$ATTESTATION_BUNDLE" attestation-evidence/provenance.sigstore.json
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: desktop-tools-release-attestation-${{ github.run_id }}
+          path: attestation-evidence
+          if-no-files-found: error
+          retention-days: 7
+
   publish:
     name: Publish immutable Desktop Tools objects
-    needs: [build, sign]
+    needs: [build, sign, attest]
     runs-on: ubuntu-latest
     timeout-minutes: 20
     environment: desktop-tools-release-publish
@@ -348,6 +389,30 @@ jobs:
         with:
           name: desktop-tools-release-tools-${{ github.run_id }}
           path: release-tools
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: desktop-tools-release-attestation-${{ github.run_id }}
+          path: attestation-evidence
+      - name: Admit only exact hosted-build provenance
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          (cd signed-release && find . -mindepth 1 -maxdepth 1 -type f -print0 | LC_ALL=C sort -z | xargs -0 sha256sum) \
+            | sed 's#  \./#  signed-release/#' >actual-subjects.sha256
+          cmp actual-subjects.sha256 attestation-evidence/subject-checksums.sha256
+          while read -r _ subject; do
+            gh attestation verify "$subject" \
+              --repo heymegabyte/install.doctor \
+              --bundle attestation-evidence/provenance.sigstore.json \
+              --predicate-type https://slsa.dev/provenance/v1 \
+              --signer-workflow heymegabyte/install.doctor/.github/workflows/desktop-tools-release-production.yml \
+              --signer-digest "$GITHUB_SHA" \
+              --source-digest "$GITHUB_SHA" \
+              --source-ref refs/heads/master \
+              --cert-oidc-issuer https://token.actions.githubusercontent.com \
+              --deny-self-hosted-runners >/dev/null
+          done <actual-subjects.sha256
       - uses: Infisical/secrets-action@d2e351f16c6ca20d17c85e6c992e04bdeb64e87d # v1.0.18
         with:
           method: oidc
