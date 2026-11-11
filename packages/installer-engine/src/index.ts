@@ -17,6 +17,7 @@ export * from './linux-host-facts.js';
 export * from './rollback.js';
 export * from './rollback-journal.js';
 export * from './host-mutation-lease.js';
+export * from './host-reconciliation.js';
 export * from './rollback-executor.js';
 export * from './lazy-plan.js';
 export * from './telemetry.js';

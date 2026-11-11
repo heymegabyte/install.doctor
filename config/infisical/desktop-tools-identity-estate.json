@@ -1,0 +1,54 @@
+{
+  "schemaVersion": 1,
+  "identities": [
+    {
+      "id": "host-canary", "kind": "host", "identityId": "infisical-host-canary",
+      "consumer": { "id": "canary", "runtime": "desktop-tools-host" }, "authority": "infisical",
+      "authentication": { "mode": "workload-identity", "issuer": "https://app.infisical.com", "tokenTtlSeconds": 900, "tokenMaxUses": 32 },
+      "authorization": { "tenant": "desktop-tools", "project": "fleet", "environment": "prod", "path": "/workloads/host/canary", "actions": ["read-secret"], "secretNames": ["HOST_ENROLLMENT_TOKEN"], "inheritedGrants": [] },
+      "delivery": { "mode": "runtime-file", "recursive": false, "includeImports": false, "durablePlaintextCache": false }
+    },
+    {
+      "id": "service-control-plane", "kind": "service", "identityId": "infisical-service-control-plane",
+      "consumer": { "id": "control-plane", "runtime": "cloudflare-worker" }, "authority": "infisical",
+      "authentication": { "mode": "workload-identity", "issuer": "https://app.infisical.com", "tokenTtlSeconds": 900, "tokenMaxUses": 64 },
+      "authorization": { "tenant": "desktop-tools", "project": "control-plane", "environment": "prod", "path": "/workloads/service/control-plane", "actions": ["read-secret"], "secretNames": ["BETTER_AUTH_SECRET"], "inheritedGrants": [] },
+      "delivery": { "mode": "service-credential", "recursive": false, "includeImports": false, "durablePlaintextCache": false }
+    },
+    {
+      "id": "ci-release-publisher", "kind": "ci", "identityId": "infisical-ci-release-publisher",
+      "consumer": { "id": "release-publisher", "runtime": "github-actions" }, "authority": "infisical",
+      "authentication": { "mode": "github-oidc", "issuer": "https://token.actions.githubusercontent.com", "tokenTtlSeconds": 600, "tokenMaxUses": 8 },
+      "authorization": { "tenant": "desktop-tools", "project": "release", "environment": "prod", "path": "/workloads/ci/release-publisher", "actions": ["read-secret"], "secretNames": ["RELEASE_BUCKET_TOKEN"], "inheritedGrants": [] },
+      "delivery": { "mode": "environment", "recursive": false, "includeImports": false, "durablePlaintextCache": false }
+    },
+    {
+      "id": "platform-cloudflare", "kind": "platform", "identityId": "infisical-platform-cloudflare",
+      "consumer": { "id": "cloudflare", "runtime": "cloudflare-platform" }, "authority": "infisical",
+      "authentication": { "mode": "platform-oidc", "issuer": "https://app.infisical.com", "tokenTtlSeconds": 600, "tokenMaxUses": 16 },
+      "authorization": { "tenant": "desktop-tools", "project": "platform", "environment": "prod", "path": "/workloads/platform/cloudflare", "actions": ["read-secret"], "secretNames": ["PLATFORM_API_TOKEN"], "inheritedGrants": [] },
+      "delivery": { "mode": "service-credential", "recursive": false, "includeImports": false, "durablePlaintextCache": false }
+    },
+    {
+      "id": "agent-catalog-audit", "kind": "agent", "identityId": "infisical-agent-catalog-audit",
+      "consumer": { "id": "catalog-audit", "runtime": "opencode-agent" }, "authority": "infisical",
+      "authentication": { "mode": "workload-identity", "issuer": "https://app.infisical.com", "tokenTtlSeconds": 300, "tokenMaxUses": 8 },
+      "authorization": { "tenant": "desktop-tools", "project": "agents", "environment": "prod", "path": "/workloads/agent/catalog-audit", "actions": ["read-secret"], "secretNames": ["UPSTREAM_READ_TOKEN"], "inheritedGrants": [] },
+      "delivery": { "mode": "environment", "recursive": false, "includeImports": false, "durablePlaintextCache": false }
+    },
+    {
+      "id": "maintenance-secret-rotation", "kind": "maintenance", "identityId": "infisical-maintenance-secret-rotation",
+      "consumer": { "id": "secret-rotation", "runtime": "maintenance-workflow" }, "authority": "infisical",
+      "authentication": { "mode": "workload-identity", "issuer": "https://app.infisical.com", "tokenTtlSeconds": 600, "tokenMaxUses": 16 },
+      "authorization": { "tenant": "desktop-tools", "project": "operations", "environment": "prod", "path": "/workloads/maintenance/secret-rotation", "actions": ["read-secret", "rotate-secret", "revoke-secret"], "secretNames": ["ROTATION_TARGET_TOKEN"], "inheritedGrants": [] },
+      "delivery": { "mode": "service-credential", "recursive": false, "includeImports": false, "durablePlaintextCache": false }
+    },
+    {
+      "id": "recovery-key-catalog", "kind": "recovery", "identityId": "infisical-recovery-key-catalog",
+      "consumer": { "id": "key-catalog", "runtime": "trusted-recovery-controller" }, "authority": "infisical",
+      "authentication": { "mode": "workload-identity", "issuer": "https://app.infisical.com", "tokenTtlSeconds": 300, "tokenMaxUses": 4 },
+      "authorization": { "tenant": "desktop-tools", "project": "recovery", "environment": "prod", "path": "/workloads/recovery/key-catalog", "actions": ["read-recovery-secret"], "secretNames": ["RECOVERY_CATALOG_KEY"], "inheritedGrants": [] },
+      "delivery": { "mode": "runtime-file", "recursive": false, "includeImports": false, "durablePlaintextCache": false }
+    }
+  ]
+}

@@ -48,7 +48,7 @@
 
 ## 5. Identity, secrets, and authorization
 
-- [ ] 5.1 Define strict host, service, CI, platform, agent, maintenance, and recovery identity manifests; verify shared identities, runtime scope overrides, recursive exports, and hidden inherited grants are rejected.
+- [x] 5.1 Define strict host, service, CI, platform, agent, maintenance, and recovery identity manifests; verify shared identities, runtime scope overrides, recursive exports, and hidden inherited grants are rejected.
 - [ ] 5.2 Discover subscribed Infisical features and record supported mechanisms without buying or enabling new service tiers; verify unsupported dynamic or granular features yield an explicit design-compatible fallback blocker.
 - [ ] 5.3 Implement scoped Infisical enrollment, renewal, rotation, revocation, rebuild recovery, and secure runtime delivery for one canary service; verify allowed reads and denied cross-host, cross-environment, administrative, and recovery-root access.
 - [ ] 5.4 Extend `get-secret` and workload launchers so operational access is Infisical-authoritative with no controller-store fallback; verify outage and caller-selected path tests fail closed.
@@ -61,7 +61,7 @@
 
 ## 6. Platform laboratory and evidence matrix
 
-- [ ] 6.1 Define signed support-cell, fixture, canary, benchmark, and qualification receipt schemas; verify code, policy, recipe, release, and freshness changes invalidate only affected cells.
+- [x] 6.1 Define signed support-cell, fixture, canary, benchmark, and qualification receipt schemas; verify code, policy, recipe, release, and freshness changes invalidate only affected cells.
 - [ ] 6.2 Build hermetic Linux fixtures for supported Debian/Ubuntu, Fedora, Alpine, Arch, immutable-OS, container, and WSL semantics; verify clean install and unchanged reapply locally or record platform-specific infrastructure blockers.
 - [ ] 6.3 Establish an authorized macOS virtualization fixture using already available licensing and infrastructure; verify headless bootstrap, restart, rollback, and GUI-gated behavior without mutating the daily workstation.
 - [ ] 6.4 Add Windows-native fixture contracts for PowerShell stage zero, package providers, ACLs, reparse points, registry, services, reboot, WSL, and secret storage; verify unsupported mutation remains preflight-denied until real evidence exists.
@@ -73,7 +73,7 @@
 
 ## 7. Fleet reconciliation, hardware, reboot, and cost control
 
-- [ ] 7.1 Implement per-host durable reconciliation state and leases with discover, validate, plan, approve, apply, verify, status, pause, resume, and stop; verify concurrent reconcilers cannot own one host.
+- [x] 7.1 Implement per-host durable reconciliation state and leases with discover, validate, plan, approve, apply, verify, status, pause, resume, and stop; verify concurrent reconcilers cannot own one host.
 - [ ] 7.2 Add mobile-host power, connectivity, and metered-network policies with bounded catch-up; verify missed work is prioritized rather than replayed unboundedly.
 - [ ] 7.3 Add resource pressure and workload usability guards for provisioning, verification, replication, scrubs, and pruning; verify foreground services remain within declared budgets.
 - [ ] 7.4 Implement hardware and firmware inventory for CPU, memory, disk identity, SMART/NVMe, GPU, firmware, Secure Boot, TPM, battery, thermal, and UPS signals; verify simulated device faults identify exact host and device.
