@@ -198,6 +198,38 @@ if node "$ROOT/scripts/infisical-identity-policy.mjs" validate "$TMP/wildcard.js
 fi
 grep -Fq 'immutable repository IDs, exact workflow/ref/environment/audience/subject claims' "$TMP/wildcard.out" || fail "OIDC claim diagnostic missing"
 
+# Every claim in the GitHub-to-Infisical trust boundary must be independently
+# immutable. A valid value copied from another repository, workflow,
+# environment, ref, audience, or subject must not authenticate this workload.
+claim_mutations=(
+  '.workloads |= map(if .id == "github-desktop-tools-release-publisher" then .auth.claims.repository = "heymegabyte/theme.tools" else . end)'
+  '.workloads |= map(if .id == "github-desktop-tools-release-publisher" then .auth.claims.repository_id = "1" else . end)'
+  '.workloads |= map(if .id == "github-desktop-tools-release-publisher" then .auth.claims.workflow_ref = "heymegabyte/install.doctor/.github/workflows/desktop-tools-release-activate.yml@refs/heads/master" else . end)'
+  '.workloads |= map(if .id == "github-desktop-tools-release-publisher" then (.auth.claims.environment = "desktop-tools-release-sign" | .auth.claims.sub = "repo:heymegabyte/install.doctor:environment:desktop-tools-release-sign") else . end)'
+  '.workloads |= map(if .id == "github-desktop-tools-release-publisher" then .auth.claims.ref = "refs/heads/release" else . end)'
+  '.workloads |= map(if .id == "github-desktop-tools-release-publisher" then .auth.claims.aud = "https://github.com/another-owner" else . end)'
+  '.workloads |= map(if .id == "github-desktop-tools-release-publisher" then .auth.claims.sub = "repo:heymegabyte/install.doctor:ref:refs/heads/master" else . end)'
+)
+for index in "${!claim_mutations[@]}"; do
+  jq "${claim_mutations[$index]}" "$ROOT/config/infisical/bootstrap-release-identities.json" >"$TMP/claim-substitution-$index.json"
+  if node "$ROOT/scripts/infisical-identity-policy.mjs" validate "$TMP/claim-substitution-$index.json" >"$TMP/claim-substitution-$index.out" 2>&1; then
+    fail "OIDC claim substitution $index was accepted"
+  fi
+  grep -Eq 'immutable repository IDs, exact workflow/ref/environment/audience/subject claims|workload-specific trust boundary' "$TMP/claim-substitution-$index.out" \
+    || fail "OIDC claim substitution $index lacked the expected diagnostic"
+done
+
+release_workflow="$ROOT/.github/workflows/desktop-tools-release-production.yml"
+grep -Fq 'environment: desktop-tools-release-publish' "$release_workflow" || fail "release publisher lacks its protected environment"
+grep -Fq 'identity-id: ${{ vars.INFISICAL_DESKTOP_TOOLS_RELEASE_PUBLISHER_ID }}' "$release_workflow" || fail "release publisher does not use its dedicated workload identity"
+grep -Fq 'method: oidc' "$release_workflow" || fail "release workflow does not authenticate to Infisical with OIDC"
+grep -Fq 'secret-path: /ci/desktop-tools/release/publisher' "$release_workflow" || fail "release publisher secret path is not exact"
+grep -Fq 'include-imports: false' "$release_workflow" || fail "release workflow may inherit imported secrets"
+grep -Fq 'recursive: false' "$release_workflow" || fail "release workflow may recursively export secrets"
+if grep -Eq '\$\{\{[[:space:]]*secrets\.[^}]+\}\}' "$release_workflow"; then
+  fail "release workflow contains a long-lived GitHub Actions secret reference"
+fi
+
 jq '(.workloads[1].auth.clientSecretExpiresAt) = null' "$TMP/valid.json" >"$TMP/no-expiry.json"
 if node "$ROOT/scripts/infisical-identity-policy.mjs" validate "$TMP/no-expiry.json" >"$TMP/no-expiry.out" 2>&1; then
   fail "non-expiring Universal Auth client secret was accepted"

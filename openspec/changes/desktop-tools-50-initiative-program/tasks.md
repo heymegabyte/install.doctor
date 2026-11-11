@@ -17,7 +17,7 @@
 - [x] 2.4 Generate SPDX 3 software and applicable AI/data inventories plus separate versioned exploitability statements for every release closure; verify schema validity and exact digest linkage.
 - [x] 2.5 Add isolated hosted build provenance and GitHub artifact attestations for release artifacts; verify publication rejects an unapproved workflow, builder, commit, or subject digest.
 - [x] 2.6 Add reproducibility comparison for the installer engine, privileged broker, runtime, and launchers where supported; verify unexplained output divergence blocks release admission.
-- [ ] 2.7 Replace long-lived CI publication credentials with claim-bound OIDC or record a provider-specific blocker; verify subject, audience, repository, workflow, environment, and ref substitution are denied.
+- [x] 2.7 Replace long-lived CI publication credentials with claim-bound OIDC or record a provider-specific blocker; verify subject, audience, repository, workflow, environment, and ref substitution are denied.
 - [ ] 2.8 Implement canary/cohort activation, compare-and-swap pointers, health gates, promotion suspension, rollback, and signed receipts; verify failed canary evidence cannot advance another cohort.
 - [ ] 2.9 Provision protected production release environments and scoped identities only after admission checks pass; verify signer material is absent from builders, publishers, logs, artifacts, and targets.
 

@@ -22,6 +22,13 @@ const REQUIRED_ROTATION_STEPS = [
   'revoke-old',
   'verify-old-denied',
 ]
+const CLAIM_BOUNDARIES = new Map([
+  ['github-desktop-tools-release-publisher', {
+    environment: 'desktop-tools-release-publish',
+    workflowRef: 'heymegabyte/install.doctor/.github/workflows/desktop-tools-release-production.yml@refs/heads/master',
+    subject: 'repo:heymegabyte/install.doctor:environment:desktop-tools-release-publish',
+  }],
+])
 
 function isRecord(value) {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
@@ -93,6 +100,12 @@ function validatePolicy(input) {
         || claims.sub !== `repo:heymegabyte/install.doctor:environment:${claims.environment}`
         || (claims.event_name !== undefined && !['workflow_dispatch', 'schedule'].includes(claims.event_name))) {
         errors.push(`${at}.auth requires immutable repository IDs, exact workflow/ref/environment/audience/subject claims, and an allowed event`)
+      }
+      const boundary = CLAIM_BOUNDARIES.get(workload.id)
+      if (boundary && (claims?.environment !== boundary.environment
+        || claims?.workflow_ref !== boundary.workflowRef
+        || claims?.sub !== boundary.subject)) {
+        errors.push(`${at}.auth claims do not match the workload-specific trust boundary`)
       }
     }
     if (auth.mode === 'universal-auth') {
