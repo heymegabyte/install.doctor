@@ -5,6 +5,7 @@ import {
   DisposableProductCompositionReceiptSchema,
   ImmutableArtifactDescriptorSchema,
   NativeOfflinePayloadDescriptorSchema,
+  EvidenceGapSchema, OperationReceiptSchema, TypedOperationSchema,
   JournalSchema, NormalizedPlanSchema, OfflineBundleSchema, PlatformSupportCellSchema,
   RealHostCanaryReceiptSchema,
   parseStageZeroReleaseEnvelope, ReleaseManifestSchema, serializeStageZeroReleaseEnvelope,
@@ -66,6 +67,14 @@ const task = {
   consent: 'package-install', lockDomains: ['package-manager'], cleanup: 'none', compensation: 'none',
   lifecycle: 'operation',
   failurePolicy: 'continue-independent'
+};
+const typedOperation = {
+  schemaVersion: 1, id: 'install-git-apply', kind: 'apply', authority: 'privileged-broker', inputDigest: sha,
+  resources: { cpuUnits: 1, memoryMiB: 128, diskIo: 'light', networkIo: 'heavy' },
+  locks: [{ domain: 'package-manager', mode: 'exclusive' }],
+  retry: { class: 'transient', maxAttempts: 3, initialBackoffMs: 500, maximumBackoffMs: 5_000 },
+  cancellation: { cooperativeSignal: 'SIGTERM', graceMs: 5_000, forceAfterMs: 10_000 },
+  postconditions: [{ id: 'git-installed', kind: 'package-state', expected: 'installed', required: true }],
 };
 
 const canaryPhase = (executionMode = 'online', mutatedTaskIds = ['install.git'], interruptedTaskIds = [], planDigest = sha) => ({
@@ -132,6 +141,12 @@ const cases = [
   [ReleaseManifestSchema, { schemaVersion: 1, releaseId: 'release-1', sourceCommit: 'b'.repeat(40), createdAt: at, expiresAt: '2026-12-05T12:00:00.000Z', supportedSchemaVersions: [1], artifacts: [{ id: 'provisioner', url: 'https://app.install.doctor/releases/release-1/provision.sh', sha256: sha, sizeBytes: 42, mediaType: 'text/x-shellscript', mode: '0700', originClass: 'install-doctor-release', platforms: ['darwin-arm64'] }], signature: { keyId: 'release-key-1', algorithm: 'sshsig-ed25519', namespace: 'install.doctor.release', detached: true } }],
   [HostFactsSchema, { schemaVersion: 1, hostId: 'host-1', collectedAt: at, os: 'darwin', osVersion: '15.1', arch: 'arm64', environment: 'native', roles: ['workstation'], packageManagers: ['brew'], capabilities: ['gui'] }],
   [DesiredStateInputSchema, { schemaVersion: 1, revision: 'desired-1', hostId: 'host-1', packages: ['git'], services: [], consents: ['package-install'], offline: false }],
+  [TypedOperationSchema, typedOperation],
+  [OperationReceiptSchema, { schemaVersion: 1, operationId: typedOperation.id, inputDigest: sha, status: 'pending-verification',
+    startedAt: at, finishedAt: '2026-11-05T12:01:00.000Z', attempts: 1,
+    postconditions: [{ id: 'git-installed', status: 'unverified', evidenceDigest: null }],
+    evidenceGaps: [{ schemaVersion: 1, id: 'git-state-not-observed', status: 'UNVERIFIED', reason: 'Package query unavailable', resolution: 'Retry verification with package-manager access' }] }],
+  [EvidenceGapSchema, { schemaVersion: 1, id: 'broker-unavailable', status: 'BLOCKED', reason: 'Privileged broker unavailable', resolution: 'Restore the broker and resume the exact plan' }],
   [TaskNodeSchema, task],
   [NormalizedPlanSchema, { schemaVersion: 1, planId: 'plan-1', digest: sha, releaseId: 'release-1', desiredRevision: 'desired-1', hostFactsDigest: sha, createdAt: at, tasks: [task], selectedTaskIds: ['install.git'], executionPolicy: { maxConcurrency: 4, resourceLimits: { cpu: 64, memoryMiB: 1_048_576, networkConcurrency: 16 } } }],
   [InstallerEventSchema, { schemaVersion: 1, sequence: 1, at, runId: 'run-1', kind: 'task-status', taskId: 'install.git', status: 'running', attempt: 1 }],
@@ -174,6 +189,17 @@ test('bounded fields and arrays reject oversized input', () => {
   assert.throws(() => HostFactsSchema.parse({ ...cases[3][1], roles: Array.from({ length: 65 }, (_, i) => `role-${i}`) }));
   assert.throws(() => DesiredStateInputSchema.parse({ ...cases[4][1], revision: 'x'.repeat(129) }));
   assert.throws(() => ReleaseManifestSchema.parse({ ...cases[2][1], artifacts: [{ ...cases[2][1].artifacts[0], sizeBytes: 2 ** 40 }] }));
+});
+
+test('typed operation nested boundaries reject unknown fields and unsafe policy combinations', () => {
+  assert.throws(() => TypedOperationSchema.parse({ ...typedOperation, resources: { ...typedOperation.resources, surprise: true } }));
+  assert.throws(() => TypedOperationSchema.parse({ ...typedOperation, locks: [...typedOperation.locks, ...typedOperation.locks] }), /duplicate/i);
+  assert.throws(() => TypedOperationSchema.parse({ ...typedOperation,
+    retry: { ...typedOperation.retry, initialBackoffMs: 6_000, maximumBackoffMs: 5_000 } }), /maximum backoff/i);
+  assert.throws(() => TypedOperationSchema.parse({ ...typedOperation,
+    cancellation: { ...typedOperation.cancellation, graceMs: 10_000, forceAfterMs: 10_000 } }), /forced cancellation/i);
+  assert.throws(() => TypedOperationSchema.parse({ ...typedOperation,
+    postconditions: [...typedOperation.postconditions, ...typedOperation.postconditions] }), /duplicate/i);
 });
 
 test('native offline dpkg payload authority rejects ambiguous or unsafe provenance', () => {

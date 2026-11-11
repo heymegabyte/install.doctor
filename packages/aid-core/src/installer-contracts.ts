@@ -380,6 +380,66 @@ export const DesiredStateInputSchema = strict({
 });
 export type DesiredStateInput = z.infer<typeof DesiredStateInputSchema>;
 
+export const OperationResourceClaimSchema = strict({
+  cpuUnits: z.number().int().min(1).max(64), memoryMiB: z.number().int().min(1).max(1_048_576),
+  diskIo: z.enum(['none', 'light', 'heavy']), networkIo: z.enum(['none', 'light', 'heavy']),
+});
+export type OperationResourceClaim = z.infer<typeof OperationResourceClaimSchema>;
+
+export const OperationLockClaimSchema = strict({
+  domain: id, mode: z.enum(['shared', 'exclusive']),
+});
+export type OperationLockClaim = z.infer<typeof OperationLockClaimSchema>;
+
+export const OperationRetryPolicySchema = strict({
+  class: z.enum(['never', 'transient', 'rate-limit']), maxAttempts: z.number().int().min(1).max(10),
+  initialBackoffMs: z.number().int().min(0).max(300_000), maximumBackoffMs: z.number().int().min(0).max(300_000),
+}).superRefine((value, context) => {
+  if (value.maximumBackoffMs < value.initialBackoffMs) context.addIssue({ code: 'custom', message: 'maximum backoff cannot be below initial backoff' });
+});
+export type OperationRetryPolicy = z.infer<typeof OperationRetryPolicySchema>;
+
+export const OperationCancellationPolicySchema = strict({
+  cooperativeSignal: z.enum(['SIGINT', 'SIGTERM', 'abort-signal']),
+  graceMs: z.number().int().min(0).max(300_000), forceAfterMs: z.number().int().min(1).max(600_000),
+}).superRefine((value, context) => {
+  if (value.forceAfterMs <= value.graceMs) context.addIssue({ code: 'custom', message: 'forced cancellation must follow the cooperative grace period' });
+});
+export type OperationCancellationPolicy = z.infer<typeof OperationCancellationPolicySchema>;
+
+export const OperationPostconditionSchema = strict({
+  id, kind: z.enum(['command-exit', 'content-digest', 'service-state', 'package-state', 'custom']),
+  expected: z.string().min(1).max(1024), required: z.boolean(),
+});
+export type OperationPostcondition = z.infer<typeof OperationPostconditionSchema>;
+
+export const EvidenceGapSchema = strict({
+  schemaVersion: VERSION, id, status: z.enum(['BLOCKED', 'UNVERIFIED']), reason: text,
+  resolution: z.string().min(1).max(1024),
+});
+export type EvidenceGap = z.infer<typeof EvidenceGapSchema>;
+
+export const TypedOperationSchema = strict({
+  schemaVersion: VERSION, id, kind: z.enum(['check', 'apply', 'verify', 'cleanup', 'compensate']),
+  authority: z.enum(['user', 'privileged-broker', 'external-provider']), inputDigest: digest,
+  resources: OperationResourceClaimSchema,
+  locks: z.array(OperationLockClaimSchema).max(64)
+    .refine(values => new Set(values.map(value => value.domain)).size === values.length, 'duplicate operation lock domains'),
+  retry: OperationRetryPolicySchema, cancellation: OperationCancellationPolicySchema,
+  postconditions: z.array(OperationPostconditionSchema).max(128)
+    .refine(values => new Set(values.map(value => value.id)).size === values.length, 'duplicate operation postconditions'),
+});
+export type TypedOperation = z.infer<typeof TypedOperationSchema>;
+
+export const OperationReceiptSchema = strict({
+  schemaVersion: VERSION, operationId: id, inputDigest: digest,
+  status: z.enum(['verified', 'inapplicable', 'failed', 'cancelled', 'pending-verification']),
+  startedAt: timestamp, finishedAt: timestamp, attempts: z.number().int().min(0).max(10),
+  postconditions: z.array(strict({ id, status: z.enum(['passed', 'failed', 'unverified']), evidenceDigest: digest.nullable() })).max(128),
+  evidenceGaps: z.array(EvidenceGapSchema).max(128),
+});
+export type OperationReceipt = z.infer<typeof OperationReceiptSchema>;
+
 export const TaskNodeSchema = strict({
   schemaVersion: VERSION, id, inputDigest: digest, dependencies: boundedIds.max(512), predicate: id,
   requiredCapabilities: boundedIds.max(64).default([]),
@@ -646,6 +706,10 @@ export const InstallerContractSchemas = Object.freeze({
   releaseManifest: ReleaseManifestSchema, stageZeroReleaseEnvelope: StageZeroReleaseEnvelopeSchema,
   immutableArtifact: ImmutableArtifactDescriptorSchema,
   hostFacts: HostFactsSchema, desiredState: DesiredStateInputSchema,
+  operationResourceClaim: OperationResourceClaimSchema, operationLockClaim: OperationLockClaimSchema,
+  operationRetryPolicy: OperationRetryPolicySchema, operationCancellationPolicy: OperationCancellationPolicySchema,
+  operationPostcondition: OperationPostconditionSchema, evidenceGap: EvidenceGapSchema,
+  typedOperation: TypedOperationSchema, operationReceipt: OperationReceiptSchema,
   plan: NormalizedPlanSchema, task: TaskNodeSchema, event: InstallerEventSchema, journal: JournalSchema,
   compensation: CompensationRecordSchema, platformSupport: PlatformSupportCellSchema,
   disposableProductCompositionReceipt: DisposableProductCompositionReceiptSchema, offlineBundle: OfflineBundleSchema,
