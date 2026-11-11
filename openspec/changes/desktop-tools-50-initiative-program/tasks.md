@@ -80,7 +80,7 @@
 - [ ] 7.5 Implement planned reboot coordination with active-user/workload checks, restart-safe continuation, post-boot identity, and recovery timeout; verify a missing return heartbeat never becomes success.
 - [ ] 7.6 Implement staged drift repair with intentional exceptions, cohorts, stop-on-dependent-failure, and configuration rollback; verify new access and destructive repair always remain outside automatic authorization.
 - [ ] 7.7 Add capacity and cost forecasts for disk, snapshots, replication, backups, egress, API operations, telemetry, models, and restores; verify thresholds gate sustained work before exhaustion.
-- [ ] 7.8 Define fleet reconciliation SLOs and error budgets; verify exhausted budgets pause dependent rollout and clear only after measured recovery.
+- [x] 7.8 Define fleet reconciliation SLOs and error budgets; verify exhausted budgets pause dependent rollout and clear only after measured recovery.
 
 ## 8. Unified observability and operations observatory
 
