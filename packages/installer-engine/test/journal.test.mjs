@@ -454,6 +454,51 @@ test('orphan candidate commit after a crash is non-authoritative and explicit re
   assert.equal((await state.store.inspectCompletion('run-one', plan.digest)).authority, 'committed');
 });
 
+test('every durable interruption window rejects fresh-run adoption and admits only exact explicit resume', async () => {
+  const points = ['after-object-sync', 'after-head-sync', 'after-events-sync', 'after-receipt-sync', 'after-commit-sync'];
+  for (const point of points) {
+    let armed = false;
+    let injected = false;
+    const state = await fixture({
+      fault: async candidate => {
+        if (armed && !injected && candidate === point) {
+          injected = true;
+          throw new Error(`injected interruption at ${point}`);
+        }
+      },
+    });
+    const claim = await state.store.claim('run-one', plan);
+    if (point === 'after-object-sync' || point === 'after-head-sync') {
+      armed = true;
+      await assert.rejects(state.store.checkpoint(claim.owner, {
+        taskId: task.id, inputDigest: task.inputDigest, status: 'running', attempts: 1,
+        updatedAt: '2026-11-06T00:00:00.500Z',
+      }), new RegExp(point));
+    } else {
+      await state.store.checkpoint(claim.owner, {
+        taskId: task.id, inputDigest: task.inputDigest, status: 'verified', attempts: 1,
+        updatedAt: '2026-11-06T00:00:00.500Z',
+      });
+      armed = true;
+      await assert.rejects(
+        state.store.finalize(claim.owner, plan, successfulReceipt(), successfulEvents()),
+        new RegExp(point),
+      );
+    }
+    await state.store.release(claim.owner);
+    const ownerPath = join(state.root, 'owner.json');
+    await assert.rejects(lstat(ownerPath), error => error.code === 'ENOENT');
+    await assert.rejects(state.store.claim('run-one', plan, 'run'), /fresh run requires absent journal evidence/,
+      `${point} evidence was adopted by a fresh run`);
+    await assert.rejects(lstat(ownerPath), error => error.code === 'ENOENT');
+    const resumed = await state.store.claim('run-one', plan, 'resume');
+    assert.equal(resumed.resumed, true);
+    assert.equal(resumed.owner.runId, 'run-one');
+    assert.equal(resumed.owner.planDigest, plan.digest);
+    await state.store.release(resumed.owner);
+  }
+});
+
 test('completion inspection distinguishes absent and active runs without writing evidence', async () => {
   const { root, store } = await fixture();
   assert.equal((await store.inspectCompletion('run-one', plan.digest)).authority, 'absent');

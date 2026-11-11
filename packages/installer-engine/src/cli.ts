@@ -151,7 +151,9 @@ const OperationSchema = z.union([ManagedFileOperationSchema, ManagedDirectoryOpe
 const PlanDraftSchema = z.strictObject({
   tasks: z.array(TaskNodeSchema).max(10_000),
   selectedTaskIds: z.array(identifier).max(10_000).refine(values => new Set(values).size === values.length, 'duplicate selected task identifiers'),
-  executionPolicy: ExecutionPolicySchema.default({ maxConcurrency: 4, resourceLimits: { cpu: 64, memoryMiB: 1_048_576, networkConcurrency: 16 } }),
+  executionPolicy: ExecutionPolicySchema.default({ maxConcurrency: 4, resourceLimits: {
+    cpu: 64, memoryMiB: 1_048_576, networkConcurrency: 16, diskIoWeight: 64, networkIoWeight: 64,
+  } }),
 });
 const common = {
   schemaVersion: z.literal(1),

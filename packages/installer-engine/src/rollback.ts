@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { z } from 'zod';
 import { CompensationRecordSchema } from '@install-doctor/aid-core/installer-contracts';
-import { ConfigurationSnapshotSchema, LaunchdServiceStateSchema, ServiceStateSnapshotSchema, SystemdServiceStateSchema, configurationCompensationArtifactDigest } from './config-transaction.js';
+import { ConfigurationSnapshotSchema, EffectRollbackPolicySchema, LaunchdServiceStateSchema, ServiceStateSnapshotSchema, SystemdServiceStateSchema, configurationCompensationArtifactDigest, effectRollbackPolicy } from './config-transaction.js';
 
 const VERSION = z.literal(1);
 const identifier = z.string().min(1).max(128).regex(/^[a-zA-Z0-9][a-zA-Z0-9._:-]*$/);
@@ -40,6 +40,13 @@ export const RollbackPlanSchema = z.strictObject({
   createdAt: timestamp,
   tasks: z.array(RollbackTaskSchema).max(10_000),
   taskOrder: z.array(identifier).max(10_000),
+  nonAutomaticEffects: z.tuple([
+    EffectRollbackPolicySchema,
+    EffectRollbackPolicySchema,
+    EffectRollbackPolicySchema,
+    EffectRollbackPolicySchema,
+    EffectRollbackPolicySchema,
+  ]),
 });
 export type RollbackPlan = z.infer<typeof RollbackPlanSchema>;
 
@@ -112,6 +119,14 @@ function sha256(value: unknown): string {
   return createHash('sha256').update(JSON.stringify(canonical(value))).digest('hex');
 }
 
+const NON_AUTOMATIC_EFFECTS = Object.freeze([
+  effectRollbackPolicy('package'),
+  effectRollbackPolicy('operating-system'),
+  effectRollbackPolicy('network'),
+  effectRollbackPolicy('storage'),
+  effectRollbackPolicy('external'),
+] as const);
+
 function reverseDependencyOrder(tasks: readonly RollbackTask[]): string[] {
   const byId = new Map(tasks.map(task => [task.taskId, task]));
   if (byId.size !== tasks.length) throw new Error('rollback plan contains duplicate task identifiers');
@@ -143,12 +158,14 @@ function assertRollbackPlanIntegrity(plan: RollbackPlan): void {
     sourcePlanDigest: plan.sourcePlanDigest,
     tasks,
     taskOrder,
+    nonAutomaticEffects: NON_AUTOMATIC_EFFECTS,
   };
   const expectedDigest = sha256(semantic);
   if (plan.digest !== expectedDigest
     || plan.planId !== `rollback-${expectedDigest.slice(0, 24)}`
     || JSON.stringify(plan.tasks) !== JSON.stringify(tasks)
-    || JSON.stringify(plan.taskOrder) !== JSON.stringify(taskOrder)) {
+    || JSON.stringify(plan.taskOrder) !== JSON.stringify(taskOrder)
+    || JSON.stringify(plan.nonAutomaticEffects) !== JSON.stringify(NON_AUTOMATIC_EFFECTS)) {
     throw new Error('rollback plan integrity check failed');
   }
 }
@@ -196,6 +213,7 @@ export async function createRollbackPlan(
     sourcePlanDigest: parsed.sourcePlanDigest,
     tasks,
     taskOrder,
+    nonAutomaticEffects: NON_AUTOMATIC_EFFECTS,
   };
   const planDigest = sha256(semantic);
   return RollbackPlanSchema.parse({

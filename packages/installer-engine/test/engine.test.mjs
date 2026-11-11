@@ -847,6 +847,50 @@ test('cancellation stops admission, interrupts running work, cleans up, and retu
   assert.equal(result.events.at(-1).status, 'cancelled');
 });
 
+test('cancellation at check, mutation, and verification boundaries emits exact terminal evidence', async () => {
+  const cases = [
+    { boundary: 'after-check', abortIn: 'check', expectedApply: 0, expectedVerify: 0 },
+    { boundary: 'after-mutation', abortIn: 'apply', expectedApply: 1, expectedVerify: 0 },
+    { boundary: 'after-verification', abortIn: 'verify', expectedApply: 1, expectedVerify: 1 },
+  ];
+  for (const fixture of cases) {
+    const controller = new AbortController();
+    let applies = 0;
+    let verifies = 0;
+    const engine = createInstallerEngine({ adapter: {
+      discover: async () => facts,
+      plan: async () => planDraft,
+      check: async () => {
+        if (fixture.abortIn === 'check') controller.abort(new Error(fixture.boundary));
+        return 'needed';
+      },
+      apply: async () => {
+        applies += 1;
+        if (fixture.abortIn === 'apply') controller.abort(new Error(fixture.boundary));
+      },
+      verify: async () => {
+        verifies += 1;
+        if (fixture.abortIn === 'verify') controller.abort(new Error(fixture.boundary));
+        return 'verified';
+      },
+    } });
+    const approved = await engine.plan(facts, desired, 'release-1');
+    const result = await engine.run({
+      runId: `cancel-${fixture.boundary}`, releaseId: 'release-1', desiredState: desired,
+      approvedPlanDigest: approved.digest,
+    }, { signal: controller.signal });
+    assert.equal(applies, fixture.expectedApply);
+    assert.equal(verifies, fixture.expectedVerify);
+    assert.equal(result.receipt.status, 'cancelled');
+    assert.equal(result.exitCode, 130);
+    assert.equal(result.taskStatuses[task.id], 'interrupted');
+    assert.equal(result.events.some(event => event.kind === 'output'
+      && event.line === `[operation-cancelled] operation cancelled at ${fixture.boundary}`), true);
+    assert.equal(result.events.at(-1).kind, 'run-status');
+    assert.equal(result.events.at(-1).status, 'cancelled');
+  }
+});
+
 test('journaled cancellation remains resumable and rechecks postconditions before mutation', async () => {
   const stateRoot = await mkdtemp(join(tmpdir(), 'install-doctor-cancel-resume-'));
   await chmod(stateRoot, 0o700);

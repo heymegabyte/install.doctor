@@ -648,7 +648,12 @@ export function createInstallerEngine(options: EngineOptions): InstallerEngine {
                 ...(configurationCompensation ? { configurationCompensation } : {}),
                 ...(nativeDpkgTransaction ? { nativeDpkgTransaction } : {}),
               } satisfies TaskExecutionContext;
+              const ensureActive = (boundary: string): void => {
+                if (controller.signal.aborted) throw new InstallerOperationError(`operation cancelled at ${boundary}`, 'cancelled');
+              };
+              ensureActive('before-check');
               const inspection = await options.adapter.check(task, context);
+              ensureActive('after-check');
               if (!['needed', 'verified', 'inapplicable', 'reboot-required'].includes(inspection)) throw new Error('operation returned an invalid inspection state');
               if (inspection === 'reboot-required') {
                 await checkpoint(task, 'pending-reboot', attempt - 1);
@@ -663,15 +668,19 @@ export function createInstallerEngine(options: EngineOptions): InstallerEngine {
                 break;
               }
               emit({ kind: 'task-status', taskId, status: 'running', attempt });
+              ensureActive('before-mutation-checkpoint');
               await checkpoint(task, 'running', attempt);
+              ensureActive('after-mutation-checkpoint');
               if (task.compensation === 'configuration' && !configurationCompensation) {
                 throw new Error('configuration task requires durable journal-backed compensation');
               }
               await options.adapter.apply(task, context);
+              ensureActive('after-mutation');
               if (task.compensation === 'configuration' && !compensationPrepared) {
                 throw new Error('configuration task returned without durable compensation evidence');
               }
               const verification = await options.adapter.verify(task, context);
+              ensureActive('after-verification');
               if (!['verified', 'inapplicable', 'pending', 'pending-reboot'].includes(verification)) throw new Error('operation returned an invalid verification state');
               await checkpoint(task, verification, attempt);
               statuses[taskId] = verification;
@@ -686,7 +695,8 @@ export function createInstallerEngine(options: EngineOptions): InstallerEngine {
                 : new InstallerOperationError(message || 'operation failed', 'permanent');
               const retryable = (task.retry.class === 'transient' && classified.failureClass === 'transient')
                 || (task.retry.class === 'rate-limit' && (classified.failureClass === 'transient' || classified.failureClass === 'rate-limit'));
-              if (classified.failureClass === 'cancelled' || controller.signal.aborted) throw new InstallerOperationError('operation cancelled', 'cancelled');
+              if (classified.failureClass === 'cancelled') throw classified;
+              if (controller.signal.aborted) throw new InstallerOperationError('operation cancelled at failure-observation', 'cancelled');
               if (!retryable || attempt >= task.retry.maxAttempts) throw classified;
               emit({ kind: 'task-status', taskId, status: 'retrying', attempt });
               const exponential = Math.min(300_000, task.retry.backoffMs * (2 ** (attempt - 1)));
@@ -703,8 +713,10 @@ export function createInstallerEngine(options: EngineOptions): InstallerEngine {
           const interrupted = controller.signal.aborted || (error instanceof InstallerOperationError && error.failureClass === 'cancelled');
           statuses[taskId] = interrupted ? 'interrupted' : 'failed';
           await checkpoint(task, interrupted ? 'interrupted' : 'failed', finalAttempt || 1);
-          if (!interrupted) {
-            const message = error instanceof Error ? error.message : 'operation failed';
+          const message = error instanceof Error ? error.message : 'operation failed';
+          if (interrupted) {
+            emit({ kind: 'output', taskId, stream: 'stderr', line: redactSecrets(`[operation-cancelled] ${message}`) });
+          } else {
             emit({ kind: 'output', taskId, stream: 'stderr', line: redactSecrets(`[operation-failed] ${message}`) });
           }
           emit({ kind: 'task-status', taskId, status: interrupted ? 'interrupted' : 'failed', attempt: finalAttempt || 1 });

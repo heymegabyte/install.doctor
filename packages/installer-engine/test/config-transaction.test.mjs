@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { chmod, lstat, mkdtemp, readFile, realpath, stat, symlink, writeFile } from 'node:fs/promises';
+import { chmod, lstat, mkdir, mkdtemp, readFile, readdir, realpath, rename, rm, stat, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
 import test from 'node:test';
@@ -249,6 +249,27 @@ test('activation refuses a target created while an absent snapshot is persisted'
     spec: spec(target), candidateBytes: Buffer.from('new\n'), hooks, persistence,
   }), /target changed after its compensation snapshot/);
   assert.equal(await readFile(target, 'utf8'), 'user-created\n');
+});
+
+test('activation refuses a concurrently substituted parent directory before rename', { skip: process.platform === 'win32' }, async () => {
+  const root = await fixtureRoot('install-doctor-config-parent-race-');
+  const moved = `${root}-moved`;
+  const target = join(root, 'service.conf');
+  const persistence = memoryPersistence();
+  persistence.prepare = async artifact => {
+    persistence.prepared.push(artifact);
+    await rename(root, moved);
+    await mkdir(root, { mode: 0o700 });
+  };
+  await assert.rejects(applyConfigurationTransaction({
+    spec: spec(target), candidateBytes: Buffer.from('new\n'), hooks, persistence,
+  }), /target parent changed during the transaction/);
+  await assert.rejects(lstat(target), error => error.code === 'ENOENT');
+  const candidate = (await readdir(moved)).find(name => name.endsWith('.candidate'));
+  assert.ok(candidate);
+  assert.equal((await readFile(join(moved, candidate), 'utf8')).trim(), 'new');
+  await rm(root, { recursive: true, force: true });
+  await rm(moved, { recursive: true, force: true });
 });
 
 test('automatic compensation preserves a concurrent post-activation edit as ambiguous', async () => {

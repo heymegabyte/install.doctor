@@ -26,10 +26,10 @@
 - [x] 3.1 Extend shared schemas for typed operations, resources, locks, retry classes, cancellation, postconditions, receipts, and evidence gaps; verify unknown versions and fields fail at every runtime boundary.
 - [x] 3.2 Implement capability, consent, dependency, and cycle validation for the operation DAG; verify invalid graphs create no journal or mutation.
 - [x] 3.3 Implement the adaptive bounded ready queue with CPU, memory, disk, network, and I/O budgets; verify unrelated work progresses while exclusive domains serialize.
-- [ ] 3.4 Implement signal-safe cancellation and bounded child cleanup; verify cancellation at each spawn and mutation boundary produces exact terminal evidence.
-- [ ] 3.5 Complete content-addressed journaling, single-owner leases, stale-owner handling, and exact resume admission; verify exhaustive interruption fixtures never allow fresh-run adoption.
-- [ ] 3.6 Generalize atomic configuration activation with parent-path defenses, validation, metadata preservation, durable compensation, and concurrent-change detection; verify rollback restores exact supported state or stops ambiguous.
-- [ ] 3.7 Implement reverse-dependency configuration rollback plans and separate approval; verify package, OS, network, storage, and external effects remain explicitly non-automatic.
+- [x] 3.4 Implement signal-safe cancellation and bounded child cleanup; verify cancellation at each spawn and mutation boundary produces exact terminal evidence.
+- [x] 3.5 Complete content-addressed journaling, single-owner leases, stale-owner handling, and exact resume admission; verify exhaustive interruption fixtures never allow fresh-run adoption.
+- [x] 3.6 Generalize atomic configuration activation with parent-path defenses, validation, metadata preservation, durable compensation, and concurrent-change detection; verify rollback restores exact supported state or stops ambiguous.
+- [x] 3.7 Implement reverse-dependency configuration rollback plans and separate approval; verify package, OS, network, storage, and external effects remain explicitly non-automatic.
 - [ ] 3.8 Complete signed offline bundle create, inspect, verify, materialize, execute, resume, revoke, and expire operations; verify execution succeeds under network denial and rejects surplus or wrong-host material.
 - [ ] 3.9 Migrate one additional useful low-risk package/configuration effect from legacy provisioning through the complete engine lifecycle; verify fresh, unchanged, interrupted, resumed, rolled-back, and legacy-subtracted cases.
 - [ ] 3.10 Publish the effect-migration template and parity harness; verify a new migration cannot omit preconditions, postconditions, locks, interruption tests, rollback limits, or legacy subtraction.

@@ -65,6 +65,7 @@ function taskkill(pid: number, force: boolean, env: NodeJS.ProcessEnv): Promise<
 }
 
 export async function runProcess(options: ProcessRunOptions): Promise<number> {
+  if (options.signal?.aborted) throw new Error('operation cancelled before process spawn');
   const graceMs = Math.min(30_000, Math.max(50, options.terminationGraceMs ?? 5_000));
   return new Promise((resolve, reject) => {
     const child = spawn(options.argv[0] ?? '', [...options.argv.slice(1)], {

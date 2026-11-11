@@ -63,6 +63,9 @@ test('rollback planning is deterministic and orders dependents before dependenci
   assert.equal(first.digest, second.digest);
   assert.equal(first.planId, second.planId);
   assert.deepEqual(first.taskOrder, ['config.proxy', 'config.service', 'config.base']);
+  assert.deepEqual(first.nonAutomaticEffects, [
+    'package', 'operating-system', 'network', 'storage', 'external',
+  ].map(effect => ({ schemaVersion: 1, effect, automatic: false, requiresExplicitConsent: true })));
   assert.deepEqual(first.tasks.map(task => task.taskId), ['config.base', 'config.proxy', 'config.service']);
   const reordered = artifacts.map(item => ({
     ...item,

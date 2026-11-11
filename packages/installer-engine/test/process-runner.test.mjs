@@ -5,6 +5,18 @@ import { join } from 'node:path';
 import test from 'node:test';
 import { runProcess } from '../dist/index.js';
 
+test('a pre-aborted signal cannot cross the process-spawn boundary', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'install-doctor-pre-abort-'));
+  const marker = join(directory, 'spawned');
+  const controller = new AbortController();
+  controller.abort(new Error('fixture cancellation'));
+  await assert.rejects(runProcess({
+    argv: [process.execPath, '-e', `require('node:fs').writeFileSync(${JSON.stringify(marker)}, 'spawned')`],
+    cwd: directory, env: { PATH: process.env.PATH ?? '' }, timeoutMs: 2_000, signal: controller.signal,
+  }), /cancelled before process spawn/);
+  assert.equal(await readFile(marker, 'utf8').catch(() => null), null);
+});
+
 test('timeout terminates an entire POSIX process group with bounded escalation', { skip: process.platform === 'win32' }, async () => {
   const directory = await mkdtemp(join(tmpdir(), 'install-doctor-process-tree-'));
   const heartbeat = join(directory, 'heartbeat');

@@ -318,6 +318,23 @@ async function assertSafeParent(targetPath: string): Promise<string> {
   return canonicalParent;
 }
 
+type ParentIdentity = { readonly device: number; readonly inode: number; readonly uid: number; readonly mode: number };
+
+async function captureParentIdentity(parent: string): Promise<ParentIdentity> {
+  const info = await lstat(parent);
+  if (!info.isDirectory() || info.isSymbolicLink()) throw new ConfigurationTransactionError('configuration target parent must remain a real directory');
+  return { device: info.dev, inode: info.ino, uid: info.uid, mode: info.mode };
+}
+
+async function requireUnchangedParent(parent: string, expected: ParentIdentity): Promise<void> {
+  const current = await captureParentIdentity(parent);
+  if (current.device !== expected.device || current.inode !== expected.inode
+    || current.uid !== expected.uid || current.mode !== expected.mode
+    || resolve(await realpath(parent)) !== resolve(parent)) {
+    throw new ConfigurationTransactionError('configuration target parent changed during the transaction');
+  }
+}
+
 type ObservedConfiguration = {
   readonly snapshot: ConfigurationSnapshot;
   readonly bytes: Uint8Array | null;
@@ -392,16 +409,21 @@ async function applyMetadata(path: string, mode: number, uid: number | null, gid
 
 async function restoreSnapshot(snapshot: ConfigurationSnapshot, bytes: Uint8Array | null, expectedCurrent?: ObservedConfiguration): Promise<void> {
   const parent = await assertSafeParent(snapshot.targetPath);
+  const parentIdentity = await captureParentIdentity(parent);
   if (expectedCurrent) await requireUnchangedTarget(expectedCurrent, 'configuration target changed after installer activation; refusing automatic restoration');
   const current = await readSnapshot(snapshot.targetPath);
   if (!snapshot.existed) {
-    if (current.snapshot.existed) await rm(snapshot.targetPath);
+    if (current.snapshot.existed) {
+      await requireUnchangedParent(parent, parentIdentity);
+      await rm(snapshot.targetPath);
+    }
     return;
   }
   if (bytes === null || snapshot.mode === null) throw new ConfigurationTransactionError('compensation snapshot is incomplete');
   const candidatePath = await writePrivateCandidate(parent, bytes);
   try {
     await applyMetadata(candidatePath, snapshot.mode, snapshot.uid, snapshot.gid);
+    await requireUnchangedParent(parent, parentIdentity);
     await rename(candidatePath, snapshot.targetPath);
   } finally {
     await rm(candidatePath, { force: true });
@@ -427,6 +449,7 @@ export async function applyConfigurationTransaction(
   assertAutomaticConfigurationEffect(spec.effect);
   if (!(request.candidateBytes instanceof Uint8Array)) throw new ConfigurationTransactionError('candidateBytes must be a Uint8Array');
   const parent = await assertSafeParent(spec.targetPath);
+  const parentIdentity = await captureParentIdentity(parent);
   const previous = await readSnapshot(spec.targetPath);
   let serviceSnapshot: ServiceStateSnapshot | null = null;
   if (request.service !== undefined) {
@@ -466,6 +489,7 @@ export async function applyConfigurationTransaction(
       appliedDigest: sha256(request.candidateBytes),
     });
     await requireUnchangedTarget(previous, 'configuration target changed after its compensation snapshot');
+    await requireUnchangedParent(parent, parentIdentity);
     await rename(candidatePath, spec.targetPath);
     activated = true;
     applied = await readSnapshot(spec.targetPath);
