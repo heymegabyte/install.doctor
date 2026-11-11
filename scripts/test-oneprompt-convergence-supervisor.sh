@@ -25,6 +25,15 @@ plutil -extract EnvironmentVariables.PATH raw "$PLIST" | grep -q "$(dirname "$(c
 pass 'install is canonical, byte-stable, and inert'
 : >"$CALLS"
 
+CONFIG="$HOME_DIR/.local/state/oneprompt-convergence/host-adapter/config"
+cp "$CONFIG" "$CONFIG.before-upgrade"
+sed -i.bak "s/^configured_revision=.*/configured_revision='0000000000000000000000000000000000000000'/" "$CONFIG"
+run_tool install --repo "$REPO" --machine-interface "$MACHINE" --revision "$REVISION" >/dev/null
+grep -q "configured_revision='$REVISION'" "$CONFIG" || fail revision-upgrade
+rm -f "$CONFIG.bak" "$CONFIG.before-upgrade"
+pass 'install upgrades an intact managed definition to the requested exact revision'
+: >"$CALLS"
+
 LEGACY_PLIST="$HOME_DIR/Library/LaunchAgents/com.heymegabyte.oneprompt-convergence.plist"
 printf '<plist>competing-legacy-definition</plist>\n' >"$LEGACY_PLIST"
 if run_tool resume >/dev/null 2>&1; then fail duplicate-definition-admission; fi

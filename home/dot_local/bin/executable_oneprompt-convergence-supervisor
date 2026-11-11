@@ -107,8 +107,10 @@ install_service() {
   test ! -e "$legacy" || die "legacy definition exists; use adopt-plan/adopt"
   if test -r "$config_root/config"; then
     read_config
-    verify_artifacts
-    test "$configured_repo" = "$repo" && test "$configured_revision" = "$observed_revision" && test "$configured_machine" = "$machine_arg" || die "installed service identity differs from requested installation"
+    test "$configured_repo" = "$repo" && test "$configured_machine" = "$machine_arg" || die "installed service identity differs from requested installation"
+    test "$configured_identity" = "$logical_identity" && test "$configured_package_name" = "$package_name" && test "$configured_package_version" = "$package_version" && test "$configured_artifact_sha256" = "$artifact_sha256" && test "$configured_state_schema_version" = "$state_schema_version" || die "installed service contract differs from requested installation"
+    test "$(sha256 "$configured_machine")" = "$configured_machine_sha256" || die "machine interface drift"
+    test "$(sha256 "$configured_definition")" = "$configured_definition_sha256" || die "service definition drift"
     prior_adoption="$adoption_state"
     prior_predecessor="${predecessor_kind:-}"
     prior_recovery="${recovery_bundle:-}"
