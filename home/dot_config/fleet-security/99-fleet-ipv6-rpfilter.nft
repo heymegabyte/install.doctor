@@ -1,0 +1,10 @@
+# Canonical Fleet IPv6 Reverse Path Filtering (Item 40)
+table ip6 fleet_rpfilter {
+  chain prerouting {
+    type filter hook prerouting priority raw; policy accept;
+    iifname "lo" accept
+    ip6 saddr fe80::/10 accept
+    ip6 saddr ff00::/8 accept
+    fib saddr . iif oif missing drop
+  }
+}

@@ -137,11 +137,13 @@ if [ -d /etc/netdata ]; then
   fi
 fi
 
-# 7. Mask rpcbind (111/tcp + 111/udp) when no NFS mounts exist & converge SSH + kernel security posture
+# 7. Mask rpcbind (111/tcp + 111/udp) & proxmenux-monitor when unused & converge SSH + kernel + auditd + nftables + ZFS security posture
 if ! mount | grep -qE ' type nfs'; then
   $SUDO systemctl disable --now rpcbind.service rpcbind.socket 2>/dev/null || true
   $SUDO systemctl mask rpcbind.service rpcbind.socket 2>/dev/null || true
 fi
+$SUDO systemctl disable --now proxmenux-monitor.service 2>/dev/null || true
+
 $SUDO mkdir -p /etc/ssh/sshd_config.d
 $SUDO tee /etc/ssh/sshd_config.d/99-fleet-hardening.conf >/dev/null <<'EOF'
 PermitRootLogin prohibit-password
@@ -154,7 +156,14 @@ MaxAuthTries 4
 ClientAliveInterval 180
 ClientAliveCountMax 2
 PermitUserEnvironment no
+KexAlgorithms sntrup761x25519-sha512@openssh.com,curve25519-sha256,curve25519-sha256@libssh.org,diffie-hellman-group16-sha512,diffie-hellman-group18-sha512
+Ciphers chacha20-poly1305@openssh.com,aes256-gcm@openssh.com,aes128-gcm@openssh.com,aes256-ctr
+MACs hmac-sha2-512-etm@openssh.com,hmac-sha2-256-etm@openssh.com,umac-128-etm@openssh.com
+AllowUsers root
 EOF
+if [ -f /etc/ssh/ssh_host_ed25519_key-cert.pub ]; then
+  echo "HostCertificate /etc/ssh/ssh_host_ed25519_key-cert.pub" | $SUDO tee -a /etc/ssh/sshd_config.d/99-fleet-hardening.conf >/dev/null
+fi
 $SUDO chmod 0644 /etc/ssh/sshd_config.d/99-fleet-hardening.conf
 $SUDO sshd -t 2>/dev/null && $SUDO systemctl reload ssh 2>/dev/null || true
 
@@ -183,5 +192,75 @@ net.ipv4.icmp_echo_ignore_broadcasts = 1
 EOF
 $SUDO chmod 0644 /etc/sysctl.d/99-fleet-security.conf
 $SUDO sysctl --system >/dev/null 2>&1 || true
+
+# 8. Auditd rules, /dev/shm noexec, IPv6 RPFilter + PBS relay allowlist, and ZFS encrypted dataset
+$SUDO mkdir -p /etc/audit/rules.d
+$SUDO tee /etc/audit/rules.d/99-fleet.rules >/dev/null <<'EOF'
+-D
+-b 8192
+-f 1
+-w /etc/shadow -p wa -k identity_changes
+-w /etc/gshadow -p wa -k identity_changes
+-w /etc/passwd -p wa -k identity_changes
+-w /etc/group -p wa -k identity_changes
+-w /etc/sudoers -p wa -k sudoers_changes
+-w /etc/sudoers.d/ -p wa -k sudoers_changes
+-w /etc/ssh/sshd_config -p wa -k sshd_config_changes
+-w /etc/ssh/sshd_config.d/ -p wa -k sshd_config_changes
+-a always,exit -F arch=b64 -S execve -C uid!=euid -F euid=0 -k privilege_escalation
+EOF
+$SUDO chmod 0640 /etc/audit/rules.d/99-fleet.rules
+$SUDO augenrules --load >/dev/null 2>&1 || $SUDO auditctl -R /etc/audit/rules.d/99-fleet.rules >/dev/null 2>&1 || true
+$SUDO systemctl enable --now auditd.service 2>/dev/null || true
+
+$SUDO mount -o remount,noexec,nosuid,nodev /dev/shm 2>/dev/null || true
+if ! grep -q "/dev/shm" /etc/fstab 2>/dev/null; then
+  echo "tmpfs /dev/shm tmpfs defaults,noexec,nosuid,nodev 0 0" | $SUDO tee -a /etc/fstab >/dev/null
+fi
+
+$SUDO mkdir -p /etc/nftables.d
+$SUDO tee /etc/nftables.d/99-fleet-security.nft >/dev/null <<'EOF'
+table ip6 fleet_rpfilter {
+  chain prerouting {
+    type filter hook prerouting priority raw; policy accept;
+    iifname "lo" accept
+    ip6 saddr fe80::/10 accept
+    ip6 saddr ff00::/8 accept
+    fib saddr . iif oif missing drop
+  }
+}
+table inet fleet_pbs_relay {
+  set allowed_pbs_clients {
+    type ipv4_addr
+    elements = { 127.0.0.1, 10.0.0.114, 10.0.0.138, 10.0.0.143, 10.0.0.155, 10.0.0.156, 10.0.0.161, 10.0.0.162 }
+  }
+  chain input {
+    type filter hook input priority filter - 5; policy accept;
+    tcp dport 5999 ip saddr != @allowed_pbs_clients drop
+  }
+}
+table inet crowdsec {
+  set crowdsec_blacklists {
+    type ipv4_addr
+    flags timeout
+  }
+  chain input {
+    type filter hook input priority filter - 10; policy accept;
+    ip saddr @crowdsec_blacklists drop
+  }
+}
+EOF
+$SUDO nft -f /etc/nftables.d/99-fleet-security.nft 2>/dev/null || true
+
+if command -v zfs >/dev/null 2>&1 && zpool list rpool >/dev/null 2>&1; then
+  $SUDO mkdir -p /etc/zfs
+  if [ ! -f /etc/zfs/fleet-dataset.key ]; then
+    head -c 32 /dev/urandom | $SUDO tee /etc/zfs/fleet-dataset.key >/dev/null
+    $SUDO chmod 0400 /etc/zfs/fleet-dataset.key
+  fi
+  if ! zfs list rpool/encrypted-secrets >/dev/null 2>&1; then
+    $SUDO zfs create -o encryption=aes-256-gcm -o keyformat=raw -o keylocation=file:///etc/zfs/fleet-dataset.key -o mountpoint=/var/lib/fleet-encrypted rpool/encrypted-secrets 2>/dev/null || true
+  fi
+fi
 
 log "Proxmox VE hypervisor convergence complete."

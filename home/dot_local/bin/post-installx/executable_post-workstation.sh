@@ -3943,10 +3943,44 @@ MaxAuthTries 4
 ClientAliveInterval 180
 ClientAliveCountMax 2
 PermitUserEnvironment no
+KexAlgorithms sntrup761x25519-sha512@openssh.com,curve25519-sha256,curve25519-sha256@libssh.org,diffie-hellman-group16-sha512,diffie-hellman-group18-sha512
+Ciphers chacha20-poly1305@openssh.com,aes256-gcm@openssh.com,aes128-gcm@openssh.com,aes256-ctr
+MACs hmac-sha2-512-etm@openssh.com,hmac-sha2-256-etm@openssh.com,umac-128-etm@openssh.com
+AllowUsers ubuntu professormanhattan coolify root
 EOF
+    if [ -f /etc/ssh/ssh_host_ed25519_key-cert.pub ]; then
+      echo "HostCertificate /etc/ssh/ssh_host_ed25519_key-cert.pub" | run_root tee -a /etc/ssh/sshd_config.d/99-fleet-hardening.conf >/dev/null 2>&1 || true
+    fi
     run_root chmod 0644 /etc/ssh/sshd_config.d/99-fleet-hardening.conf 2>/dev/null || true
     run_root sshd -t 2>/dev/null && run_root systemctl reload ssh 2>/dev/null || true
   fi
+  if [ -f "$HOME/.config/fleet-security/fleet_ssh_ca.pub" ] && ! grep -q "fleet-ssh-ca@megabyte.space" /etc/ssh/ssh_known_hosts 2>/dev/null; then
+    printf '@cert-authority *.megabyte.space,10.0.0.*,127.0.0.1,localhost %s\n' "$(cat "$HOME/.config/fleet-security/fleet_ssh_ca.pub")" | run_root tee -a /etc/ssh/ssh_known_hosts >/dev/null 2>&1 || true
+  fi
+  if [ -f "$HOME/.config/fleet-security/99-fleet-security.sysctl.conf" ]; then
+    run_root install -m 0644 "$HOME/.config/fleet-security/99-fleet-security.sysctl.conf" /etc/sysctl.d/99-fleet-security.conf 2>/dev/null || true
+    run_root sysctl --system >/dev/null 2>&1 || true
+  fi
+  if [ -f "$HOME/.config/fleet-security/99-fleet.audit.rules" ]; then
+    run_root install -d -m 0750 /etc/audit/rules.d 2>/dev/null || true
+    run_root install -m 0640 "$HOME/.config/fleet-security/99-fleet.audit.rules" /etc/audit/rules.d/99-fleet.rules 2>/dev/null || true
+    run_root augenrules --load >/dev/null 2>&1 || run_root auditctl -R /etc/audit/rules.d/99-fleet.rules >/dev/null 2>&1 || true
+    run_root systemctl enable --now auditd.service >/dev/null 2>&1 || true
+  fi
+  if [ -f "$HOME/.config/fleet-security/99-fleet.resolved.conf" ]; then
+    run_root install -d -m 0755 /etc/systemd/resolved.conf.d 2>/dev/null || true
+    run_root install -m 0644 "$HOME/.config/fleet-security/99-fleet.resolved.conf" /etc/systemd/resolved.conf.d/99-fleet.conf 2>/dev/null || true
+    run_root systemctl restart systemd-resolved >/dev/null 2>&1 || true
+  fi
+  if [ -f "$HOME/.config/fleet-security/chrome-fleet-hardening.json" ]; then
+    run_root install -d -m 0755 /etc/opt/chrome/policies/managed /etc/chromium/policies/managed 2>/dev/null || true
+    run_root install -m 0644 "$HOME/.config/fleet-security/chrome-fleet-hardening.json" /etc/opt/chrome/policies/managed/fleet-hardening.json 2>/dev/null || true
+    run_root install -m 0644 "$HOME/.config/fleet-security/chrome-fleet-hardening.json" /etc/chromium/policies/managed/fleet-hardening.json 2>/dev/null || true
+  fi
+  if [ -f "$HOME/.config/fleet-security/docker-audit-guard.sh" ]; then
+    run_root install -m 0755 "$HOME/.config/fleet-security/docker-audit-guard.sh" /usr/local/bin/docker-audit-guard 2>/dev/null || true
+  fi
+  run_root mount -o remount,noexec,nosuid,nodev /dev/shm 2>/dev/null || true
 elif [ "$(uname -s)" = "Darwin" ] && [ -d "$HOME/.config/netdata/health.d" ]; then
   for _mac_nd_etc in /opt/homebrew/etc/netdata /usr/local/etc/netdata; do
     if [ -d "$_mac_nd_etc" ]; then
@@ -3959,6 +3993,14 @@ elif [ "$(uname -s)" = "Darwin" ] && [ -d "$HOME/.config/netdata/health.d" ]; th
     fi
   done
   command -v netdatacli >/dev/null 2>&1 && netdatacli reload-health >/dev/null 2>&1 || true
+  # macOS Application Firewall + Stealth Mode + ARD Disablement + FileVault Deferral (Items 11, 12, 13)
+  if has_root; then
+    run_root /usr/libexec/ApplicationFirewall/socketfilterfw --setglobalstate on --setstealthmode on >/dev/null 2>&1 || true
+    run_root /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart -deactivate -stop >/dev/null 2>&1 || true
+    if fdesetup status 2>/dev/null | grep -q "Off"; then
+      run_root fdesetup enable -defer /var/root/filevault_recovery.plist -forceatlogin 0 -dontaskatlogout >/dev/null 2>&1 || true
+    fi
+  fi
 fi
 
 

@@ -121,6 +121,17 @@ enableDarkTransparentMode() {
   if [ -d /Applications ] && [ -d /System ]; then
     gum log -sl info 'Enabling macOS dark mode'
     defaults write NSGlobalDomain AppleInterfaceStyle -string "Dark" 2>/dev/null || true
+    # Converge macOS Application Firewall + Stealth Mode + ARD disablement + FileVault deferral (Items 11, 12, 13)
+    defaults write com.apple.alf globalstate -int 1 2>/dev/null || true
+    defaults write com.apple.alf stealthenabled -int 1 2>/dev/null || true
+    defaults write com.apple.RemoteManagement ARD_AllLocalUsers -bool false 2>/dev/null || true
+    if sudo -n true 2>/dev/null; then
+      sudo -n /usr/libexec/ApplicationFirewall/socketfilterfw --setglobalstate on --setstealthmode on >/dev/null 2>&1 || true
+      sudo -n /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart -deactivate -stop >/dev/null 2>&1 || true
+      if fdesetup status 2>/dev/null | grep -q "Off"; then
+        sudo -n fdesetup enable -defer /var/root/filevault_recovery.plist -forceatlogin 0 -dontaskatlogout >/dev/null 2>&1 || true
+      fi
+    fi
   fi
 }
 

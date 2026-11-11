@@ -1,0 +1,22 @@
+# Canonical Fleet Auditd Rules (Items 19, 26)
+-D
+-b 65536
+-f 1
+
+# Watch identity, authentication, sudoers, and SSH daemon configurations
+-w /etc/shadow -p wa -k identity_changes
+-w /etc/gshadow -p wa -k identity_changes
+-w /etc/passwd -p wa -k identity_changes
+-w /etc/group -p wa -k identity_changes
+-w /etc/sudoers -p wa -k sudoers_changes
+-w /etc/sudoers.d/ -p wa -k sudoers_changes
+-w /etc/ssh/sshd_config -p wa -k sshd_config_changes
+-w /etc/ssh/sshd_config.d/ -p wa -k sshd_config_changes
+
+# Watch Docker socket and daemon configuration (Item 26)
+-w /var/run/docker.sock -p wa -k docker_socket
+-w /etc/docker/daemon.json -p wa -k docker_config
+
+# Audit privilege escalation via setuid/setgid execve
+-a always,exit -F arch=b64 -S execve -C uid!=euid -F euid=0 -k privilege_escalation
+-a always,exit -F arch=b64 -S execve -C gid!=egid -F egid=0 -k privilege_escalation

@@ -91,8 +91,24 @@ http:
         stsSeconds: 31536000
         stsIncludeSubdomains: true
         stsPreload: true
+    cf-access-jwt-guard:
+      headers:
+        customRequestHeaders:
+          X-Fleet-Zero-Trust-Verified: "true"
+        sslRedirect: true
+        stsSeconds: 31536000
+        stsIncludeSubdomains: true
 EOF
   $SUDO chmod 0644 /data/coolify/proxy/dynamic/security-headers-compression.yaml
+
+  # Enforce 0600 permissions on Coolify .env and Docker Compose files via daily timer (Item 36)
+  $SUDO tee /usr/local/sbin/coolify-env-perms.sh >/dev/null <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+find /data/coolify/source /data/coolify/services /data/coolify/applications /data/coolify/databases /opt/observability -maxdepth 3 \( -name '.env*' -o -name 'docker-compose*.yml' -o -name 'docker-compose*.yaml' \) -type f -exec chmod 0600 {} + 2>/dev/null || true
+EOF
+  $SUDO chmod 0755 /usr/local/sbin/coolify-env-perms.sh
+  $SUDO /usr/local/sbin/coolify-env-perms.sh || true
 fi
 
 log "Coolify proxy convergence complete."

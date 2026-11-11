@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+# @file macos-security-converge (Items 11, 12, 13)
+# @description Enables macOS Application Firewall + Stealth Mode, disables ARDAgent (port 3283),
+# and configures FileVault Full-Disk Encryption deferral on macOS.
+set -euo pipefail
+
+defaults write com.apple.alf globalstate -int 1 2>/dev/null || true
+defaults write com.apple.alf stealthenabled -int 1 2>/dev/null || true
+defaults write com.apple.RemoteManagement ARD_AllLocalUsers -bool false 2>/dev/null || true
+
+if [ "$(id -u)" -eq 0 ] || sudo -n true 2>/dev/null; then
+  SUDO=""
+  [ "$(id -u)" -ne 0 ] && SUDO="sudo -n"
+  $SUDO /usr/libexec/ApplicationFirewall/socketfilterfw --setglobalstate on --setstealthmode on
+  $SUDO /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart -deactivate -stop 2>/dev/null || true
+  if fdesetup status 2>/dev/null | grep -q "Off"; then
+    $SUDO fdesetup enable -defer /var/root/filevault_recovery.plist -forceatlogin 0 -dontaskatlogout 2>/dev/null || true
+  fi
+fi

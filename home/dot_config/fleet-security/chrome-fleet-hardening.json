@@ -1,0 +1,6 @@
+{
+  "EnableMediaRouter": false,
+  "MediaRouterCastAllowAllIPs": false,
+  "DnsOverHttpsMode": "automatic",
+  "RemoteDebuggingAllowed": false
+}
