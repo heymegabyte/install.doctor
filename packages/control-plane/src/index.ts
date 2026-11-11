@@ -3638,6 +3638,32 @@ const OPENAPI_31_SPEC = {
         },
       },
     },
+    '/api/v1/privileged-step-up/challenges': {
+      post: {
+        summary: 'Issue a short-lived passkey step-up bound to the authenticated owner, target, plan, and scopes',
+        tags: ['Privileged authorization'],
+        responses: {
+          '201': { description: 'Digest-only application challenge and exact immutable binding created' },
+          '400': { description: 'Noncanonical origin or malformed binding' },
+          '401': { description: 'Fresh owner authentication required' },
+          '503': { description: 'Immutable challenge store unavailable' },
+        },
+      },
+    },
+    '/api/v1/privileged-step-up/consume': {
+      post: {
+        summary: 'Atomically consume one verified, unexpired, unrevoked passkey step-up binding',
+        tags: ['Privileged authorization'],
+        responses: {
+          '200': { description: 'Exact step-up binding consumed once' },
+          '400': { description: 'Noncanonical origin or malformed binding' },
+          '401': { description: 'Authenticated owner session required' },
+          '403': { description: 'Binding, session, credential, expiry, or revocation check failed' },
+          '409': { description: 'Step-up was already consumed' },
+          '503': { description: 'Immutable challenge store unavailable' },
+        },
+      },
+    },
     '/api/v1/intent/telemetry': {
       post: {
         operationId: 'predictIntentTelemetry',

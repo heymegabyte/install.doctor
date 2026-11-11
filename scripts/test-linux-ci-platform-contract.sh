@@ -4,14 +4,23 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 WORKFLOW="$ROOT/.github/workflows/test-linux.yml"
 MATRIX="$ROOT/scripts/platform-support-matrix.json"
-HARNESS="$ROOT/scripts/test-all.sh"
+ENTRYPOINT="$ROOT/scripts/test-all.sh"
+RUNNER="$ROOT/scripts/run-routine-test-harness.mjs"
+ROUTINE_CONFIG="$ROOT/config/routine-test-harness.json"
 
-node - "$WORKFLOW" "$MATRIX" "$HARNESS" <<'NODE'
+node - "$WORKFLOW" "$MATRIX" "$ENTRYPOINT" "$RUNNER" "$ROUTINE_CONFIG" "$ROOT" <<'NODE'
 const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+const { spawnSync } = require('node:child_process');
 
 const workflow = fs.readFileSync(process.argv[2], 'utf8');
 const support = JSON.parse(fs.readFileSync(process.argv[3], 'utf8'));
-const harness = fs.readFileSync(process.argv[4], 'utf8');
+const entrypoint = fs.readFileSync(process.argv[4], 'utf8');
+const runnerPath = process.argv[5];
+const routineConfigPath = process.argv[6];
+const root = process.argv[7];
+const routineConfig = JSON.parse(fs.readFileSync(routineConfigPath, 'utf8'));
 const failures = [];
 const requireMatch = (pattern, message) => {
   if (!pattern.test(workflow)) failures.push(message);
@@ -72,8 +81,44 @@ requireMatch(/source \/tmp\/install-doctor-provision\.sh[\s\S]*idResolvePlatform
 if (/bash \/tmp\/install-doctor-provision\.sh\s*$/.test(workflow)) failures.push('unsigned matrix jobs must not invoke full provisioning without a verified engine closure');
 if (/curl[^\n]*install\.doctor\/start/.test(workflow)) failures.push('structural PR CI must execute the checked-out revision, not mutable production');
 if (/status:\s*verified|full-lifecycle canary|canary-receipt/.test(workflow)) failures.push('structural workflow must not mint or claim verified lifecycle evidence');
-if (!/test-linux\.sh\|test-macos\.sh\)\s+echo harness/.test(harness) || !/\[ "\$req" = harness \]/.test(harness)) {
-  failures.push('test-all must skip platform orchestration harnesses instead of invoking them as zero-argument suites');
+if (!/run-routine-test-harness\.mjs/.test(entrypoint) || !/exec node/.test(entrypoint)) {
+  failures.push('test-all must delegate discovered suites to the bounded routine harness');
+}
+for (const platformHarness of ['test-linux.sh', 'test-macos.sh']) {
+  const reason = routineConfig.excluded?.[platformHarness];
+  if (typeof reason !== 'string' || !/platform orchestration harness/.test(reason) || !/tuple-bound workflow/.test(reason)) {
+    failures.push(`${platformHarness} must be explicitly excluded by the routine harness authority with a tuple-bound workflow reason`);
+  }
+}
+if (!fs.existsSync(runnerPath)) {
+  failures.push('delegated routine harness runner must exist');
+} else {
+  const logDir = fs.mkdtempSync(path.join(os.tmpdir(), 'platform-exclusion-contract-'));
+  try {
+    const run = spawnSync(process.execPath, [runnerPath, path.join(root, 'scripts/test-linux.sh'), path.join(root, 'scripts/test-macos.sh')], {
+      cwd: root,
+      encoding: 'utf8',
+      env: { ...process.env, TEST_ALL_CONFIG: routineConfigPath, TEST_ALL_LOG_DIR: logDir },
+      timeout: 10_000,
+    });
+    if (run.status !== 0 || run.error) {
+      failures.push(`routine exclusion verification failed without invoking platform harnesses: ${run.error?.message ?? run.stderr.trim()}`);
+    } else {
+      const report = JSON.parse(fs.readFileSync(path.join(logDir, 'summary.json'), 'utf8'));
+      const results = new Map(report.results.map(result => [result.name, result]));
+      for (const platformHarness of ['test-linux.sh', 'test-macos.sh']) {
+        const result = results.get(platformHarness);
+        if (result?.status !== 'SKIP' || !/tuple-bound workflow/.test(result?.reason ?? '')) {
+          failures.push(`${platformHarness} must produce an explicit SKIP receipt from the delegated runner`);
+        }
+      }
+      if (report.counts.SKIP !== 2 || report.counts.FAIL !== 0 || report.budgetExceeded !== false) {
+        failures.push('platform-only routine verification must report exactly two skips and no failure or budget exhaustion');
+      }
+    }
+  } finally {
+    fs.rmSync(logDir, { recursive: true, force: true });
+  }
 }
 
 if (failures.length > 0) {

@@ -32,6 +32,14 @@ async function loadWorkerApp() {
         CREATE INDEX IF NOT EXISTS "session_userId_idx" ON "session" ("userId");
         CREATE INDEX IF NOT EXISTS "account_userId_idx" ON "account" ("userId");
         CREATE INDEX IF NOT EXISTS "verification_identifier_idx" ON "verification" ("identifier");
+        CREATE TABLE IF NOT EXISTS "passkey" (
+          "id" text not null primary key, "name" text, "publicKey" text not null,
+          "userId" text not null references "user" ("id") on delete cascade,
+          "credentialID" text not null, "counter" integer not null, "deviceType" text not null,
+          "backedUp" integer not null, "transports" text, "createdAt" date, "aaguid" text
+        );
+        CREATE INDEX IF NOT EXISTS "passkey_userId_idx" ON "passkey" ("userId");
+        CREATE INDEX IF NOT EXISTS "passkey_credentialID_idx" ON "passkey" ("credentialID");
         CREATE TABLE IF NOT EXISTS pairings (
           code text primary key, poll_sha256 text not null unique, tenant text not null, label text,
           permissions text, status text not null, device_id text, created_at text not null,

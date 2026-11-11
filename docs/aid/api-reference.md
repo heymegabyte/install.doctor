@@ -118,6 +118,15 @@ on the OAuth apps — a one-time human step on the OAuth-app settings; magic-lin
 | `/api/auth/*` | public (Better Auth) | Better Auth handler — `sign-in/social` (GitHub/Google), OAuth `callback/<provider>`, `get-session`, `sign-out`, `ok`. Wildcard mount (`app.on`). Client secrets stay backend-side; the browser only sees the provider authorize URL. |
 | `POST /api/auth-migrate` | admin | Programmatic D1 schema migration for Better Auth (the CLI can't reach D1) — creates `user`/`session`/`account`/`verification`; idempotent ("no migrations needed" after). |
 
+## Privileged passkey step-up
+
+Both endpoints require the canonical `https://desktop.tools` origin and an authenticated Better Auth owner session. A challenge binds the owner actor, target, plan digest, and sorted scopes. Successful official Better Auth WebAuthn verification upgrades it to a short-lived receipt; consumption is atomic and one-time, and deleted or revoked passkey credentials fail closed.
+
+| Route | Auth | Purpose |
+| --- | --- | --- |
+| `POST /api/v1/privileged-step-up/challenges` | Better Auth owner session | Issue a five-minute, digest-stored challenge bound to the exact actor, canonical origin, target, plan digest, and requested privileged scopes. |
+| `POST /api/v1/privileged-step-up/consume` | same freshly passkey-verified Better Auth session | Atomically consume the exact verified challenge once; mismatched sessions, credentials, bindings, expirations, replay, and deleted credentials are denied. |
+
 ## AI routing
 
 | Route | Auth | Purpose |

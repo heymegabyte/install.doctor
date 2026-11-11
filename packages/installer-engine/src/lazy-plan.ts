@@ -191,6 +191,28 @@ function uniqueSorted<T extends string>(values: readonly T[]): T[] {
   return [...new Set(values)].sort((left, right) => left.localeCompare(right));
 }
 
+/**
+ * A package may intentionally expose multiple commands as sibling catalog rows. Canonical v1
+ * repeats the command in `identity.command`, so both compatibility views must be removed before
+ * comparing package-level authority. All other metadata remains exact and conflicting siblings
+ * still fail closed.
+ */
+function duplicatePackageMetadata(entry: LoadCatalogEntry): unknown {
+  const { bin: _bin, ...metadata } = entry;
+  if ('identity' in metadata) {
+    const { command: _command, ...identity } = metadata.identity;
+    return { ...metadata, identity };
+  }
+  return metadata;
+}
+
+function preferredPackageCommand(left: LoadCatalogEntry, right: LoadCatalogEntry): LoadCatalogEntry {
+  const leftCanonical = left.bin === left.name;
+  const rightCanonical = right.bin === right.name;
+  if (leftCanonical !== rightCanonical) return leftCanonical ? left : right;
+  return left.bin.localeCompare(right.bin) <= 0 ? left : right;
+}
+
 function supportedPath(entry: LoadCatalogEntry): string | undefined {
   const prefix = 'supported-path:';
   return entry.loadRationale.startsWith(prefix) ? entry.loadRationale.slice(prefix.length) : undefined;
@@ -211,11 +233,15 @@ export function buildLoadPlan(rawInput: unknown): LoadPlanReport {
     const entry = { ...rawEntry, platforms: uniqueSorted(rawEntry.platforms), deps: uniqueSorted(rawEntry.deps) };
     const previous = entries.get(entry.name);
     if (previous) {
-      const comparable = ({ bin: _bin, ...rest }: LoadCatalogEntry) => rest;
-      if (canonical(comparable(previous)) !== canonical(comparable(entry))) {
+      if (canonical(duplicatePackageMetadata(previous)) !== canonical(duplicatePackageMetadata(entry))) {
         throw new Error(`catalog entry ${entry.name} has inconsistent duplicate metadata`);
       }
-      previous.platforms = uniqueSorted([...previous.platforms, ...entry.platforms]);
+      const preferred = preferredPackageCommand(previous, entry);
+      entries.set(entry.name, {
+        ...preferred,
+        platforms: uniqueSorted([...previous.platforms, ...entry.platforms]),
+        deps: uniqueSorted([...previous.deps, ...entry.deps]),
+      });
       continue;
     }
     entries.set(entry.name, entry);

@@ -183,6 +183,29 @@ test('accepts canonical strict v1 catalog entries without creating a second cata
   })), /unrecognized/i);
 });
 
+test('merges canonical multi-command package siblings without weakening metadata consistency', () => {
+  const canonical = migrateLegacySoftwareCatalogEntry({
+    name: 'archive-tool', bin: 'archive-tool', providers: ['apt'], pkgs: { apt: 'archive-tool' },
+    platforms: ['linux'], installMode: 'cli', preload: false, deliveryMode: 'lazy',
+    loadPolicy: 'lazy', loadRationale: 'default-lazy', deps: [],
+  });
+  const sibling = { ...canonical, bin: 'unarchive-tool',
+    identity: { ...canonical.identity, command: 'unarchive-tool' } };
+  for (const catalog of [[sibling, canonical], [canonical, sibling]]) {
+    const report = buildLoadPlan(input({ lazyResolverRequirements: [], selectedPackages: ['archive-tool'], catalog }));
+    assert.deepEqual(report.installOrder, ['archive-tool']);
+  }
+  assert.throws(() => buildLoadPlan(input({
+    lazyResolverRequirements: [], catalog: [canonical, { ...sibling, policyDigest: 'not-admitted' }],
+  })), /unrecognized/i);
+  assert.throws(() => buildLoadPlan(input({
+    lazyResolverRequirements: [], catalog: [canonical, {
+      ...sibling, loadPolicy: 'eager-bootstrap', loadRationale: 'bootstrap:required',
+      load: { delivery: 'lazy', policy: 'eager-bootstrap', rationale: 'bootstrap:required' },
+    }],
+  })), /inconsistent duplicate metadata/);
+});
+
 test('validates strict signed native offline payload authority in catalog entries', () => {
   const payload = nativeOfflinePayload();
   assert.doesNotThrow(() => buildLoadPlan(input({
