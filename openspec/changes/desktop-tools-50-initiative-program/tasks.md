@@ -85,7 +85,7 @@
 ## 8. Unified observability and operations observatory
 
 - [x] 8.1 Define OpenTelemetry-compatible semantic conventions for hosts, profiles, releases, runs, agents, tasks, locks, approvals, effects, costs, verification, backup, and recovery; verify bounded-cardinality and schema tests.
-- [ ] 8.2 Instrument control plane, runtime, installer engine, privileged broker, and reconciliation with correlated secret-safe logs, metrics, traces, and events; verify adversarial credentials and PII never leave source boundaries.
+- [x] 8.2 Instrument control plane, runtime, installer engine, privileged broker, and reconciliation with correlated secret-safe logs, metrics, traces, and events; verify adversarial credentials and PII never leave source boundaries.
 - [ ] 8.3 Deploy Alloy to one disposable canary with a recovery-safe local pipeline and validated remote modules; verify invalid remote configuration retains the last valid effective pipeline.
 - [x] 8.4 Implement bounded buffering, retry, deduplication, timestamp handling, restart survival, and delivery heartbeats; verify a running collector without queryable test evidence remains unverified.
 - [ ] 8.5 Build dashboards for release adoption, fleet drift, run critical path, agent cost, secret access, platform evidence, capacity, pool health, backup freshness, replication lag, verification, and restores; verify every nonterminal state renders distinctly.
@@ -108,7 +108,7 @@
 
 ## 10. Catalog, supply chain, and extension ecosystem
 
-- [ ] 10.1 Replace permissive catalog parsing with a strict versioned schema covering identity, lifecycle, dependencies, conflicts, load, privilege, exposure, provenance, license, and support evidence; verify all entries migrate deterministically.
+- [x] 10.1 Replace permissive catalog parsing with a strict versioned schema covering identity, lifecycle, dependencies, conflicts, load, privilege, exposure, provenance, license, and support evidence; verify all entries migrate deterministically.
 - [ ] 10.2 Build the catalog dependency and supported-path graph with cycle, conflict, platform, architecture, role, eager/lazy, and bootstrap validation; verify plans explain every inclusion and exclusion.
 - [ ] 10.3 Implement immutable GitHub and other upstream release resolution through the artifact admission service; verify architecture selection, extraction, install, update, uninstall, and offline reuse with hermetic fixtures.
 - [ ] 10.4 Add continuous upstream freshness, maintenance, popularity, vulnerability, license, and support-evidence audit without making network results a provisioning dependency; verify unknown remote evidence remains explicit.
@@ -125,7 +125,7 @@
 - [ ] 11.4 Complete encrypted output-only recordings for local, browser, scheduled, child, and offline sessions; verify raw input and secrets never enter recordings and incomplete capture is visible.
 - [x] 11.5 Stabilize the renderer-neutral event protocol and terminal outcome mapping across TUI, plain, JSON, NDJSON, headless, and CI; verify golden parity fixtures.
 - [ ] 11.6 Implement the multi-agent TUI with attributable streams, DAG, critical path, locks, retries, approvals, costs, verification, detach/follow, narrow/resize, keyboard, screen-reader, `NO_COLOR`, and reduced-motion behavior; verify PTY restoration after crashes and signals.
-- [ ] 11.7 Implement deterministic profile compilation, semantic diff, migration, conflict explanation, import/export, and simulation without secret values; verify repeated compilation is byte-identical.
+- [x] 11.7 Implement deterministic profile compilation, semantic diff, migration, conflict explanation, import/export, and simulation without secret values; verify repeated compilation is byte-identical.
 - [ ] 11.8 Build nonvisual SaaS APIs and accessibility contracts for profiles, machines, plans, approvals, live runs, history, catalog, drift, secrets readiness, and recovery; verify tenant and capability truth boundaries.
 - [ ] 11.9 Obtain explicit approval of the current Figma artifact before visual SaaS implementation; verify the approval reference is recorded, otherwise keep only visual tasks blocked.
 - [ ] 11.10 After approval, implement and real-browser-test the SaaS experience against the shared protocol; verify WCAG, responsive behavior, security headers, performance budgets, and no direct mutation authority.

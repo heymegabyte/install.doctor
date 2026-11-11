@@ -22,12 +22,13 @@
     "./correlated-telemetry": "./dist/correlated-telemetry.js",
     "./effective-authorization": "./dist/effective-authorization.js",
     "./agent-sandbox-policy": "./dist/agent-sandbox-policy.js",
-    "./extension-admission": "./dist/extension-admission.js"
+    "./extension-admission": "./dist/extension-admission.js",
+    "./software-catalog": "./dist/software-catalog.js"
   },
   "types": "./dist/core.d.ts",
   "description": "Tested contracts for Install Doctor aid; not a deployed daemon or gateway",
   "scripts": {
-    "build": "tsc --strict --target ES2022 --module ES2022 --moduleResolution bundler --lib ES2022,DOM --declaration src/core.ts src/probabilistic-intent.ts src/fleet-recovery.ts src/host-data-coverage.ts src/hardware-evidence.ts src/infisical-workload.ts src/identity-authority.ts src/offline-secret-exceptions.ts src/installer-contracts.ts src/broker-approval-contracts.ts src/device-authorization.ts src/product-identity.ts src/profile-resolution.ts src/profile-export.ts src/redaction.ts src/terminal-lifecycle.ts src/platform-support-evidence.ts src/telemetry-semantics.ts src/correlated-telemetry.ts src/effective-authorization.ts src/agent-sandbox-policy.ts src/extension-admission.ts --outDir dist",
+    "build": "tsc --strict --target ES2022 --module ES2022 --moduleResolution bundler --lib ES2022,DOM --declaration src/core.ts src/probabilistic-intent.ts src/fleet-recovery.ts src/host-data-coverage.ts src/hardware-evidence.ts src/infisical-workload.ts src/identity-authority.ts src/offline-secret-exceptions.ts src/installer-contracts.ts src/broker-approval-contracts.ts src/device-authorization.ts src/product-identity.ts src/profile-resolution.ts src/profile-export.ts src/redaction.ts src/terminal-lifecycle.ts src/platform-support-evidence.ts src/telemetry-semantics.ts src/correlated-telemetry.ts src/effective-authorization.ts src/agent-sandbox-policy.ts src/extension-admission.ts src/software-catalog.ts --outDir dist",
     "test": "npm run build && node --test test/*.test.mjs"
   },
   "engines": {

@@ -10,6 +10,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { validateArtifactDeclarations } from '../../../scripts/validate-catalog-artifacts.mjs';
+import { migrateLegacySoftwareCatalogEntry, parseSoftwareCatalog } from '../../aid-core/dist/software-catalog.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(HERE, '..', '..', '..'); // repo root (packages/control-plane/scripts → repo)
@@ -199,6 +200,10 @@ try {
     ),
   );
   const byKey = new Map(meta.filter((m) => m && m.key).map((m) => [m.key, m]));
+  const safeHttpUrl = value => {
+    if (typeof value !== 'string' || value.length > 2048) return false;
+    try { return ['http:', 'https:'].includes(new URL(value).protocol); } catch { return false; }
+  };
   const safeFlatpak = value => typeof value === 'string'
     && /^[A-Za-z][A-Za-z0-9_-]*(?:\.[A-Za-z][A-Za-z0-9_-]*){2,}$/.test(value);
   for (const m of meta) {
@@ -223,9 +228,9 @@ try {
       it.short = m.short.trim();
       enriched++;
     }
-    if (typeof m.github === 'string' && m.github.trim()) it.github = m.github.trim();
-    if (typeof m.home === 'string' && m.home.trim()) it.home = m.home.trim();
-    if (typeof m.docs === 'string' && m.docs.trim()) it.docs = m.docs.trim();
+    if (safeHttpUrl(m.github)) it.github = m.github.trim();
+    if (safeHttpUrl(m.home)) it.home = m.home.trim();
+    if (safeHttpUrl(m.docs)) it.docs = m.docs.trim();
     if (it.home || it.docs) linked++;
     // D14/D15 — surface the maintainer's `_deprecated` reason (often naming a replacement) so the App Store
     // can WARN before a user installs an abandoned/discouraged tool. Honest declared data; absent = not flagged.
@@ -358,6 +363,10 @@ for (const item of items) {
   }
 }
 
-const json = JSON.stringify(items);
+const migratedItems = parseSoftwareCatalog(items.map(item => {
+  try { return migrateLegacySoftwareCatalogEntry(item); }
+  catch (error) { throw new Error(`strict catalog migration failed for ${item.name}/${item.bin}: ${error.message}`, { cause: error }); }
+}));
+const json = JSON.stringify(migratedItems);
 writeFileSync(OUT, json + '\n');
-console.error(`gen-catalog: ${items.length} entries → ${OUT} (${(json.length / 1024).toFixed(1)} KiB)`);
+console.error(`gen-catalog: ${migratedItems.length} strict v1 entries → ${OUT} (${(json.length / 1024).toFixed(1)} KiB)`);

@@ -4746,7 +4746,7 @@ softwarePackages:
     _short: httptoolkit is a tool for debugging, testing, and intercepting HTTP and HTTPS traffic.
     _desc: HTTP Toolkit is an open-source tool for debugging, testing, and intercepting HTTP and HTTPS. It allows you to inspect, debug, and mock HTTP traffic between your applications and the internet. With HTTP Toolkit, you can view and modify requests and responses, simulate network conditions, and test how your application behaves in different scenarios. It provides a user-friendly interface for monitoring and analyzing HTTP traffic, making it a valuable tool for developers and system administrators working with web applications.
     _github: https://github.com/httptoolkit/httptoolkit
-    _bin: https://github.com/httptoolkit/httptoolkit-desktop/releases/download/v1.14.8/HttpToolkit-1.14.8.deb
+    _bin: httptoolkit
     _app: HTTP Toolkit.app
     cask: http-toolkit
     winget: HTTPToolKit.HTTPToolKit

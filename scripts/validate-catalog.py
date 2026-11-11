@@ -159,6 +159,14 @@ def main(argv):
     except Exception as exc:  # noqa: BLE001 - surface any read/parse failure as a hard fail
         print(f"FATAL: cannot read {path}: {exc}")
         return 1
+    strict_validator = pathlib.Path(__file__).with_name("validate-software-catalog.mjs")
+    strict_result = subprocess.run(
+        ["node", str(strict_validator), path], capture_output=True, text=True, check=False
+    )
+    if strict_result.returncode != 0:
+        diagnostic = strict_result.stderr.strip().splitlines()[-1] if strict_result.stderr.strip() else "unknown error"
+        print(f"FATAL: {diagnostic}")
+        return 1
     artifact_validator = pathlib.Path(__file__).with_name("validate-catalog-artifacts.mjs")
     artifact_result = subprocess.run(
         ["node", str(artifact_validator), path], capture_output=True, text=True, check=False
