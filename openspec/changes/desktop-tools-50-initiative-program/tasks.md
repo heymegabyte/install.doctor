@@ -65,8 +65,8 @@
 - [ ] 6.2 Build hermetic Linux fixtures for supported Debian/Ubuntu, Fedora, Alpine, Arch, immutable-OS, container, and WSL semantics; verify clean install and unchanged reapply locally or record platform-specific infrastructure blockers.
 - [ ] 6.3 Establish an authorized macOS virtualization fixture using already available licensing and infrastructure; verify headless bootstrap, restart, rollback, and GUI-gated behavior without mutating the daily workstation.
 - [x] 6.4 Add Windows-native fixture contracts for PowerShell stage zero, package providers, ACLs, reparse points, registry, services, reboot, WSL, and secret storage; verify unsupported mutation remains preflight-denied until real evidence exists.
-- [ ] 6.5 Add Proxmox fixture coverage for repositories, ZFS, VM/LXC inventory, guest agents, backup, network intent, upgrade, and maintenance behavior; verify no generic role invents production ingress.
-- [ ] 6.6 Add Qubes fixtures for dom0, TemplateVM, AppVM, DisposableVM, Whonix, and qrexec boundaries; verify one compartment cannot broaden another's authority.
+- [x] 6.5 Add Proxmox fixture coverage for repositories, ZFS, VM/LXC inventory, guest agents, backup, network intent, upgrade, and maintenance behavior; verify no generic role invents production ingress.
+- [x] 6.6 Add Qubes fixtures for dom0, TemplateVM, AppVM, DisposableVM, Whonix, and qrexec boundaries; verify one compartment cannot broaden another's authority.
 - [x] 6.7 Implement fault injection for process loss, reboot, ENOSPC, DNS, corrupt artifacts, expired credentials, lock loss, clock skew, permission drift, and telemetry failure; verify exact uncertain and recoverable outcomes.
 - [x] 6.8 Add versioned performance benchmarks and budgets for bootstrap, plan, critical path, queue, cold/warm lazy load, and resources; verify unsafe optimizations cannot pass on speed alone.
 - [ ] 6.9 Promote the first Linux and macOS support cells only from independently attested current lifecycle receipts; verify documentation and APIs downgrade expired evidence automatically.
@@ -138,7 +138,7 @@
 - [ ] 12.4 Implement Proxmox lifecycle operations for repositories, host configuration, VM/LXC metadata, guests, backup, network intent, upgrades, and maintenance; verify on a disposable or explicitly authorized canary.
 - [ ] 12.5 Implement Qubes-native qrexec-mediated dom0, template, app, disposable, and Whonix operations; verify compartment isolation and offline execution.
 - [ ] 12.6 Implement hardware-backed device keys and posture evidence where supported with explicit degraded assurance elsewhere; verify unsupported hardware never receives equivalent attestation status.
-- [ ] 12.7 Implement UPS-aware dependency shutdown and safe recovery where existing supported hardware is detected; verify only simulation unless a disruptive maintenance window is explicitly authorized.
+- [x] 12.7 Implement UPS-aware dependency shutdown and safe recovery where existing supported hardware is detected; verify only simulation unless a disruptive maintenance window is explicitly authorized.
 - [ ] 12.8 Qualify each remaining platform cell through the complete lifecycle and publish only fresh independent evidence; verify unsupported cells remain blocked.
 
 ## 13. Cross-program acceptance and migration closure
