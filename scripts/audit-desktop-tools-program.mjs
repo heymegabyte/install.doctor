@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
+import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -58,12 +58,13 @@ const repoPath = (path) => {
 };
 
 const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
-exactKeys(manifest, ['schemaVersion', 'programId', 'horizons', 'admissionGates', 'authorities', 'initiatives'], 'program manifest');
-if (manifest.schemaVersion !== 1) throw new Error('unsupported program manifest schemaVersion');
+exactKeys(manifest, ['schemaVersion', 'programId', 'horizons', 'admissionGates', 'authorities', 'completionEvidence', 'initiatives'], 'program manifest');
+if (manifest.schemaVersion !== 2) throw new Error('unsupported program manifest schemaVersion');
 if (manifest.programId !== 'desktop-tools-50-initiative-program') throw new Error('unexpected programId');
 if (!Array.isArray(manifest.horizons) || manifest.horizons.length !== 5) throw new Error('program must declare exactly five horizons');
 if (!Array.isArray(manifest.admissionGates) || manifest.admissionGates.length === 0) throw new Error('program must declare admission gates');
 if (!Array.isArray(manifest.authorities) || manifest.authorities.length === 0) throw new Error('program must declare authorities');
+if (!Array.isArray(manifest.completionEvidence)) throw new Error('program completionEvidence must be an array');
 if (!Array.isArray(manifest.initiatives) || manifest.initiatives.length !== 50) throw new Error('program must declare exactly I01-I50');
 
 const horizonIds = new Set();
@@ -91,6 +92,56 @@ for (const [index, gate] of manifest.admissionGates.entries()) {
   for (const id of gate.requiredFor) if (!initiativeIds.has(id)) throw new Error(`${gate.id} references unknown initiative ${id}`);
 }
 assertUnique(manifest.admissionGates, 'id', 'admission gate');
+
+const completionDimensions = ['code', 'deployment', 'host', 'verification'];
+const evidenceClasses = new Map([
+  ['code', new Set(['source-attestation'])],
+  ['deployment', new Set(['deployment-receipt'])],
+  ['host', new Set(['host-receipt'])],
+  ['verification', new Set(['test-receipt', 'independent-review'])],
+]);
+const completionEvidence = [];
+for (const [index, evidence] of manifest.completionEvidence.entries()) {
+  exactKeys(evidence, ['id', 'initiativeId', 'dimension', 'evidenceClass', 'path', 'sha256', 'target',
+    'observedAt', 'expiresAt'], `completionEvidence[${index}]`);
+  nonempty(evidence.id, `completionEvidence[${index}].id`);
+  if (!initiativeIds.has(evidence.initiativeId)) throw new Error(`${evidence.id} references unknown initiative ${evidence.initiativeId}`);
+  if (!completionDimensions.includes(evidence.dimension)) throw new Error(`${evidence.id} has invalid evidence dimension`);
+  if (!evidenceClasses.get(evidence.dimension).has(evidence.evidenceClass)) {
+    throw new Error(`${evidence.id} has invalid class for ${evidence.dimension} evidence`);
+  }
+  nonempty(evidence.path, `${evidence.id}.path`);
+  if (!/^[a-f0-9]{64}$/.test(evidence.sha256)) throw new Error(`${evidence.id}.sha256 must be a SHA-256 digest`);
+  nonempty(evidence.target, `${evidence.id}.target`);
+  if (Number.isNaN(Date.parse(evidence.observedAt))) throw new Error(`${evidence.id}.observedAt must be an RFC 3339 instant`);
+  if (evidence.expiresAt !== null && Number.isNaN(Date.parse(evidence.expiresAt))) {
+    throw new Error(`${evidence.id}.expiresAt must be null or an RFC 3339 instant`);
+  }
+  const evidencePath = repoPath(evidence.path);
+  if (!existsSync(evidencePath) || !lstatSync(evidencePath).isFile() || lstatSync(evidencePath).isSymbolicLink()) {
+    throw new Error(`${evidence.id} evidence must be an existing regular non-symlink file`);
+  }
+  if (evidence.expiresAt !== null && Date.parse(evidence.expiresAt) <= Date.parse(evidence.observedAt)) {
+    throw new Error(`${evidence.id}.expiresAt must follow observedAt`);
+  }
+  if (/^(?:openspec\/|docs\/|config\/)/.test(evidence.path)) {
+    throw new Error(`${evidence.id} cannot use planning, documentation, or generated configuration as completion evidence`);
+  }
+  const bytes = readFileSync(evidencePath);
+  if (createHash('sha256').update(bytes).digest('hex') !== evidence.sha256) throw new Error(`${evidence.id} evidence digest mismatch`);
+  let receipt;
+  try { receipt = JSON.parse(bytes.toString('utf8')); } catch { throw new Error(`${evidence.id} evidence must be a JSON receipt`); }
+  exactKeys(receipt, ['schemaVersion', 'evidenceId', 'initiativeId', 'dimension', 'evidenceClass', 'target',
+    'result', 'observedAt', 'expiresAt'], `${evidence.id} receipt`);
+  if (receipt.schemaVersion !== 1 || receipt.evidenceId !== evidence.id || receipt.initiativeId !== evidence.initiativeId
+    || receipt.dimension !== evidence.dimension || receipt.evidenceClass !== evidence.evidenceClass
+    || receipt.target !== evidence.target || receipt.observedAt !== evidence.observedAt
+    || receipt.expiresAt !== evidence.expiresAt || receipt.result !== 'verified') {
+    throw new Error(`${evidence.id} receipt does not exactly match its verified completion claim`);
+  }
+  completionEvidence.push(evidence);
+}
+assertUnique(completionEvidence, 'id', 'completion evidence');
 
 const authorityKinds = new Set(['desired', 'observed', 'transitional']);
 for (const [index, authority] of manifest.authorities.entries()) {
@@ -127,6 +178,18 @@ for (const [index, initiative] of manifest.initiatives.entries()) {
 }
 assertUnique(manifest.initiatives, 'id', 'initiative');
 
+const now = Date.now();
+const evidenceByInitiative = new Map(manifest.initiatives.map(({ id }) => [id, []]));
+for (const evidence of completionEvidence) evidenceByInitiative.get(evidence.initiativeId).push(evidence);
+for (const initiative of manifest.initiatives) {
+  if (initiative.status !== 'complete') continue;
+  const current = evidenceByInitiative.get(initiative.id).filter(({ expiresAt }) => expiresAt === null || Date.parse(expiresAt) > now);
+  const missing = completionDimensions.filter((dimension) => !current.some((evidence) => evidence.dimension === dimension));
+  if (missing.length > 0) {
+    throw new Error(`${initiative.id} cannot be complete without current ${missing.join(', ')} evidence`);
+  }
+}
+
 const changeProgress = (changeName) => {
   const taskPath = join(activeChangesDir, changeName, 'tasks.md');
   if (!existsSync(taskPath)) return { complete: 0, total: 0, state: 'no-task-ledger', tasksDigest: null };
@@ -151,6 +214,15 @@ const initiatives = manifest.initiatives.map((initiative) => {
   const unverifiedBy = gates.filter(({ status }) => status === 'UNVERIFIED').map(({ id }) => id).sort();
   const effectiveStatus = blockedBy.length > 0 ? 'BLOCKED' : unverifiedBy.length > 0 ? 'UNVERIFIED' : initiative.status;
   const pathEvidence = (paths) => paths.map((path) => ({ path, present: existsSync(repoPath(path)) }));
+  const receipts = evidenceByInitiative.get(initiative.id).map((evidence) => ({ ...evidence,
+    current: evidence.expiresAt === null || Date.parse(evidence.expiresAt) > now }));
+  const evidenceDimensions = Object.fromEntries(completionDimensions.map((dimension) => {
+    const matching = receipts.filter((evidence) => evidence.dimension === dimension);
+    return [dimension, {
+      status: matching.some(({ current }) => current) ? 'VERIFIED' : matching.length > 0 ? 'STALE' : 'MISSING',
+      evidenceIds: matching.map(({ id }) => id).sort(),
+    }];
+  }));
   return {
     ...initiative,
     effectiveStatus,
@@ -158,6 +230,8 @@ const initiatives = manifest.initiatives.map((initiative) => {
     unverifiedBy,
     implementationEvidence: pathEvidence(initiative.implementationFiles),
     verificationEvidence: pathEvidence(initiative.verificationFiles),
+    completionEvidence: evidenceDimensions,
+    completionEligible: completionDimensions.every((dimension) => evidenceDimensions[dimension].status === 'VERIFIED'),
   };
 });
 
@@ -179,7 +253,7 @@ const horizonReports = manifest.horizons.map((horizon) => {
 });
 
 const reportCore = {
-  schemaVersion: 1,
+  schemaVersion: 2,
   programId: manifest.programId,
   manifestDigest: digest(manifest),
   authorities: manifest.authorities,

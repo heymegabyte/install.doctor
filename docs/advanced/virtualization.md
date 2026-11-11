@@ -55,11 +55,13 @@ The `libvirtd` service is enabled and started automatically.
 
 ## Qubes OS
 
-Install Doctor includes support for [Qubes OS](https://www.qubes-os.org/), a security-focused operating system that uses Xen virtualization to isolate applications into separate VMs. See the [Qubes documentation](/docs/advanced/qubes) for details on:
+Desktop Tools contains strict, disposable Qubes lifecycle fixtures for the security boundaries of
+[Qubes OS](https://www.qubes-os.org/). The public bootstrap and real-host support cell are not yet
+published. See the [Qubes documentation](/docs/advanced/qubes) for the exact evidence boundary:
 
-- dom0 provisioning from a single command
-- Template VM installation and updates
-- AppVM and HVM configuration
+- qrexec-mediated dom0, TemplateVM, AppVM, DisposableVM, and Whonix contracts
+- authority-isolation and offline-execution fixture tests
+- prerequisites still required before real-host promotion
 
 ## Customization
 

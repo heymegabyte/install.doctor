@@ -1,8 +1,10 @@
 # Getting started — headless (server / VM / runner, no GUI)
 
 Set up a machine with no desktop — a server, Proxmox/Coolify host, cloud VM, container, or CI runner
-— and pair it from a browser on a *different* device. Every command below ships today; the
-["Not yet available"](#not-yet-available) section is the honest list of what is still coming.
+— and pair it from a browser on a *different* device. This page documents the retired `aid` and
+`app.install.doctor` compatibility flow. It is not the production Desktop Tools profile bootstrap,
+and its commands must not be used as evidence that a platform support cell is verified. Start with
+the [Desktop Tools product boundary](../desktop-tools/README.md) for current status.
 
 ## 1. Bootstrap headless
 
@@ -14,7 +16,8 @@ skips gracefully. The bootstrap installs the provisioning foundations (chezmoi, 
 curl -fsSL https://app.install.doctor/start | HEADLESS_INSTALL=1 bash
 ```
 
-Re-running on an already-provisioned host is a no-op (idempotent).
+Repository fixtures cover selected unchanged-reapply behavior. Do not claim a particular host is
+idempotently provisioned until its exact release and platform lifecycle receipt proves that result.
 
 ## 2. Pair from another browser
 
@@ -85,7 +88,7 @@ Honestly **not wired yet** — do not expect these to work on a headless host:
   admin token today, not a user login. Planned.
 - **Native Windows PowerShell bootstrap entrypoint — experimental.** The `install.doctor/start` one-liner
   is for Unix shells; `provision.ps1` exists in source but no native public endpoint is published. Its RUNTIME on a real Windows host is not yet verified (no
-  Windows CI) — WSL is the proven route. (fish and PowerShell command-not-found adapters exist in the repo
+  Windows CI) — WSL is also unsupported pending a Windows-hosted WSL2 lifecycle canary. (fish and PowerShell command-not-found adapters exist in the repo
   but are not yet verified on a live fish/pwsh host.)
 - **Per-host private Git repository + encrypted backups.** Designed, not built.
 - **Server-pushed installs + real job transport.** The device apply endpoint returns `501` on

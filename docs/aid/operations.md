@@ -1,7 +1,10 @@
-# Operations — troubleshooting, rollback, decommission
+# Legacy aid operations — troubleshooting, rollback, decommission
 
-The real recovery paths for Install Doctor v2 as it ships today. Every command + endpoint below is
-live; the ["Not built yet"](#not-built-yet) section is the honest boundary.
+This page preserves the retired `aid`/`app.install.doctor` compatibility procedures. It is not a
+Desktop Tools production runbook, and repository tests do not prove that its external endpoint or a
+particular deployment is live. Verify the authorized compatibility environment before using a
+control-plane command. For current engine, offline, repair, platform, extension, and evidence
+boundaries use the [Desktop Tools implementation runbook](../desktop-tools/implementation-runbook.md).
 
 ## Troubleshooting (host side — `aid`)
 

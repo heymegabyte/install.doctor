@@ -145,9 +145,9 @@
 
 - [ ] 13.1 Run schema, unit, integration, adversarial, secret, provenance, generated-artifact, renderer, offline, interruption, rollback, and platform tests within their declared budgets; verify failures remain distinct from skips, blockers, and unverified work.
 - [ ] 13.2 Run a production-like browser-to-host canary from profile URL through verified receipt, restart, unchanged reapply, revocation, and recovery; verify no manual hidden mutation is required.
-- [ ] 13.3 Reconcile the I01-I50 ledger against code, deployment, host, and verification evidence; verify no initiative is marked complete from planning, generated configuration, a started process, or a pending job.
+- [x] 13.3 Reconcile the I01-I50 ledger against code, deployment, host, and verification evidence; verify no initiative is marked complete from planning, generated configuration, a started process, or a pending job.
 - [ ] 13.4 Remove each superseded legacy writer, credential, scheduler, collector, catalog generator, release path, and compatibility shim only after its successor's parity and rollback gate; verify rollback targets remain available for the documented window.
-- [ ] 13.5 Update durable specs and operator, install, repair, offline, security, recovery, extension, and platform documentation from verified behavior; verify commands run as written on applicable fixtures.
+- [x] 13.5 Update durable specs and operator, install, repair, offline, security, recovery, extension, and platform documentation from verified behavior; verify commands run as written on applicable fixtures.
 - [ ] 13.6 Run two fresh repository convergence passes, strict OpenSpec validation, repository-wide tests, and independent security review; verify no new higher-priority unowned issue remains.
 
 ## Workflow follow-up

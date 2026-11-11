@@ -55,8 +55,10 @@ platform cell)
   portable runtime tuples are glibc-only. The cell is therefore `unsupported`, not best-effort, until a
   provenance-pinned musl runtime or signed Alpine system-runtime bootstrap and full lifecycle proof exist.
 - **arch** — pacman; `◐` live.
-- **qubes-dom0 / qubes-appvm** — intended paths are documented, but both are `unsupported` claims
-  until a safe Qubes fixture and current canary exist.
+- **qubes-dom0 / qubes-appvm** — strict disposable fixture contracts now cover compartment identity,
+  exact qrexec authority, typed dom0/template/app/disposable/Whonix operations, offline denial, and
+  DisposableVM teardown. Both matrix cells remain `unsupported`: pure fixture evidence is not a
+  signed real-Qubes lifecycle receipt, and no public Qubes entrypoint is published.
 - **proxmox / coolify** — intended server roles are `unsupported` until non-production canaries prove
   service preservation, headless operation, unchanged reapply, and configuration rollback.
 - **wsl** — a separately detected, currently unsupported environment; ordinary Linux workflow

@@ -18,6 +18,15 @@ Planning and contracts are not shipped capability. Use these states precisely:
 Generated configuration, a started process, or a queued job is never enough to promote a capability.
 Production truth requires target-bound evidence from the relevant owner and admission gate.
 
+Completion is a four-part claim: exact code, deployment, host, and verification evidence must each
+have a current immutable JSON receipt registered in `completionEvidence`. The audit verifies the
+receipt bytes by SHA-256, validates their exact initiative, dimension, class, target, result, and
+freshness bindings, and rejects planning artifacts, documentation, and generated configuration as
+completion evidence. A source or test path proves only that the corresponding bytes exist, not that
+they ran successfully. A declared `complete` state without all four current dimensions fails the
+audit rather than being downgraded silently; expired receipts remain visible as `STALE` and also
+remove completion eligibility.
+
 ## Horizons and operation
 
 The five ordered horizons are trust foundation, production vertical slice, platform and operations,

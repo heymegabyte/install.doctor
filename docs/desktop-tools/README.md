@@ -23,6 +23,9 @@ requires runtime evidence. Hosted status uses the same registry through `/api/v1
 
 The [50-initiative program ledger and operating model](program.md) keeps ownership, admission gates,
 critical path, evidence freshness, and capability truth machine-checkable across the longer program.
+The [implementation and verification runbook](implementation-runbook.md) separates locally executable
+checks from host and production evidence. Existing installations should also follow the conservative
+[upgrade and compatibility notes](upgrade.md).
 
 The current wildcard profile bootstrap, complete device authorization flow, pinned OpenCode
 supervisor, and production route remain gated until their respective implementation and canary

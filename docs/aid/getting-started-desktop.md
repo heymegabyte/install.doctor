@@ -1,8 +1,10 @@
 # Getting started — desktop (macOS / Linux with a browser)
 
-Set up a desktop machine with Install Doctor and connect it to the control plane at
-**https://app.install.doctor**. Every command below is real and shipping today; the
-["Not yet available"](#not-yet-available) section at the end is the honest list of what is still coming.
+This page documents the retired Install Doctor/`aid` compatibility flow at
+**https://app.install.doctor**. It is not the production Desktop Tools profile bootstrap and does not
+establish a verified platform support cell. Start with the
+[Desktop Tools product boundary](../desktop-tools/README.md) and use the commands below only when
+maintaining an existing compatibility installation.
 
 ## 1. Bootstrap
 
@@ -14,7 +16,8 @@ command-not-found hook — nothing that needs a GUI:
 curl -fsSL https://app.install.doctor/start | bash
 ```
 
-Re-running it on an already-set-up machine is a no-op (idempotent).
+Repository fixtures cover selected unchanged-reapply behavior. A live host is idempotent only after
+the exact release and platform lifecycle receipt proves its unchanged second run.
 
 ## 2. Pair this machine with the control plane
 

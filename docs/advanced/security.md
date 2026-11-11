@@ -5,11 +5,16 @@ sidebar_label: Security
 slug: /advanced/security
 ---
 
-Install Doctor takes a defense-in-depth approach to security by layering multiple protection mechanisms across the provisioned system. This page details the security features that are currently implemented and configured during provisioning.
+This page inventories historical Install Doctor security desired state. Catalog presence or a
+Chezmoi template does not prove that a tool is installed, enabled, healthy, correctly authorized, or
+supported on a particular host. Desktop Tools admits each effect through platform, dependency,
+privilege, exposure, consent, provenance, and evidence policy. Consult the
+[implementation runbook](/docs/desktop-tools/implementation-runbook) and platform matrix before
+making an operational claim.
 
 ## Security Tools Overview
 
-| Tool | Category | Platforms | Installed Via |
+| Tool | Category | Intended platforms | Historical provider |
 |---|---|---|---|
 | ClamAV | Antivirus | All | apt/dnf/pacman/brew |
 | Rkhunter | Rootkit detection | Linux | apt/dnf/pacman |
@@ -23,7 +28,8 @@ Install Doctor takes a defense-in-depth approach to security by layering multipl
 
 ### ClamAV
 
-Install Doctor installs and configures [ClamAV](https://www.clamav.net/), the open-source antivirus engine, across all supported platforms:
+[ClamAV](https://www.clamav.net/) is represented in desired state. On an admitted host, verify the
+actual package, signature database, service state, permissions, and policy before relying on it:
 
 | Component | Purpose | Command |
 |---|---|---|
@@ -89,7 +95,12 @@ Install Doctor configures GPG with security-hardened settings:
 
 ## Secrets Management
 
-All sensitive data (API keys, tokens, passwords) is encrypted at rest using [Age](https://github.com/FiloSottile/age) encryption and decrypted during provisioning via Chezmoi's built-in decryption support. See the [Secrets documentation](/docs/customization/secrets) for details.
+Infisical is the intended authority for online operational machine and application secrets, with a
+distinct least-privilege identity and minimum values for each workload. Local encrypted material is
+allowed only for declared pre-network, boot, offline, or independent-recovery exceptions. Existing
+age/Chezmoi material remains migration input; its presence does not authorize copying a controller
+keyring or silently falling back when Infisical is unavailable. See the
+[Secrets documentation](/docs/customization/secrets) for the compatibility details.
 
 ## Application Firewalls
 
@@ -112,9 +123,11 @@ All sensitive data (API keys, tokens, passwords) is encrypted at rest using [Age
 Install Doctor's security approach prioritizes:
 
 1. **Layered defense** - No single point of failure. Multiple tools cover different threat vectors.
-2. **Sensible defaults** - Security features are enabled by default without requiring user configuration.
-3. **Non-intrusive** - Security tools run in the background and do not interfere with normal workflow.
-4. **Cross-platform consistency** - The same security posture is applied regardless of the operating system.
+2. **Explicit admission** - Enabling a security service requires host capability, consent, and
+   verified configuration; catalog membership is not activation.
+3. **Usability budgets** - Background work is bounded and must preserve foreground workload health.
+4. **Platform truth** - Platform-specific controls are gated explicitly rather than represented as
+   equivalent across operating systems.
 
 ## Planned Features
 

@@ -5,9 +5,25 @@ sidebar_label: Secrets
 slug: /customization/secrets
 ---
 
-Install Doctor implements many optional features that rely on user-specific variables. Most of these user-specific variables are API keys. To augment that capabilities of your device, Install Doctor can leverage API keys to many free and popular cloud services. These API keys, as well as other user-specific variables, can be utilized by defining them as environment variables prior to running the start script. It is also possible to encrypt and bundle some of these secrets into your own fork of the Install Doctor repository.
+## Current secret authority
 
-## Environment Variables
+Infisical is the intended authority for online operational machine and application secrets. Each
+host or workload must receive a distinct identity and only the exact values it needs; callers cannot
+select a broader project, environment, or path at runtime. An Infisical outage fails closed and must
+not fall back to a controller keyring or recursively exported environment.
+
+Local encrypted material is reserved for declared pre-network, boot, offline, or independent-recovery
+exceptions. Age and SOPS remain supported formats where an encrypted file is actually required, but
+they are not a second general-purpose operational secret authority. The current repository has strict
+identity and offline-exception contracts; production Infisical enrollment, renewal, revocation, and
+cross-scope denial evidence are still pending. Do not infer those capabilities from the legacy examples
+below.
+
+The remaining page documents historical Install Doctor compatibility inputs. Environment variables
+and Chezmoi/Age files can still be required by an existing fork, but new Desktop Tools integrations
+should use bounded secret references and protected runtime delivery instead.
+
+## Legacy environment-variable compatibility
 
 The easiest way to get started with automating the Install Doctor provisioning process and leveraging optional features is to define user-specific variables as environment variables.
 
@@ -54,9 +70,13 @@ Running the blocks of code listed above will bypass the Install Doctor TUI promp
 
 There are many other variables you can make use of which are detailed in one of the following sections below.
 
-## Encrypted Secrets
+## Legacy local encrypted-file compatibility
 
-For added security and convenience, Install Doctor supports embedding your secret variables into your own fork of Install Doctor by encrypting them with the [Chezmoi](https://www.chezmoi.io/) default encryption provider called [Age](https://github.com/FiloSottile/age). By using this method, you will no longer have to manage a long set of environment variables and you will be able to store your encrypted secrets in a public git that you can use to provision any of your devices.
+Existing forks may embed encrypted files using [Chezmoi](https://www.chezmoi.io/) and
+[Age](https://github.com/FiloSottile/age). Keep this only for a reviewed offline exception; do not
+copy an operational API-key estate into Git merely because the blobs are encrypted. Never commit the
+private identity or plaintext, and keep recovery material independently accessible from the data it
+unlocks.
 
 **The first thing you should do when leveraging your own Age encryption key in your own fork of Install Doctor is to delete all the keys stored in the `home/.chezmoitemplates/secrets/` folder.** If you do not do this, then Install Doctor will try unencrypting the test secrets using your key.
 

@@ -1,107 +1,83 @@
 ---
-title: Qubes Customization
-description: Learn about the Qubes-specific features that Install Doctor provides and find out how to customize the first-ever, batteries-included Qubes provisioning framework.
+title: Qubes evidence and customization
+description: Understand the Qubes fixture boundary, historical desired state, and prerequisites for real-host support.
 sidebar_label: Qubes
 slug: /advanced/qubes
 ---
 
-Install Doctor includes comprehensive support for [Qubes OS](https://www.qubes-os.org/), the security-focused operating system that uses Xen-based virtualization to isolate applications into separate virtual machines. This makes Install Doctor one of the first provisioning frameworks to support automated Qubes configuration from a single command run in dom0.
+Desktop Tools contains Qubes-specific desired-state history and strict disposable-lab contracts for
+dom0, TemplateVM, AppVM, DisposableVM, Whonix, and qrexec. **Qubes is not currently a published or
+verified platform support cell.** Do not run a retired Install Doctor URL in dom0 expecting the
+Desktop Tools lifecycle.
 
-## Quick Start
+The authoritative support claim is in `scripts/platform-support-matrix.json`. Qubes remains
+unsupported until a fresh independently attested canary proves the complete signed bootstrap,
+reviewed plan, apply, verify, unchanged reapply, interruption/resume, rollback, and headless lifecycle
+for the exact Qubes version and release.
 
-From a fresh Qubes OS installation, run the following in a dom0 terminal:
+## What is implemented
+
+The repository currently verifies two bounded layers:
+
+1. `qubes-fixture-contract.ts` defines strict compartment identity, template relationships,
+   networking, persistent-root behavior, exact qrexec rules, and evidence-bound mutation admission.
+2. `qubes-native-lifecycle.ts` exercises typed dom0 policy, template package, AppVM configuration,
+   DisposableVM run/teardown, and Whonix Gateway/Workstation configuration in a disposable in-memory
+   fixture.
+
+Every fixture operation crosses an exact qrexec service tuple and intersects source authority, rule
+authority, and target acceptance. The lifecycle schema exposes no command or generic-shell field.
+Offline plans require `networkPolicy: "deny"`, embedded package artifact digests, current independently
+verified fixture evidence, and teardown of each DisposableVM created by the plan.
+
+Developers can verify this boundary without contacting a Qubes host:
 
 ```bash
-curl -fsSL https://app.install.doctor/start | bash
+cd packages/installer-engine
+npm run build
+node --test test/qubes-fixture-contract.test.mjs test/qubes-native-lifecycle.test.mjs
 ```
 
-This will provision dom0, install template VMs, configure AppVMs, and apply your customizations.
+Passing these tests means **fixture-verified**, not installed, live, or production-supported.
 
-## What Gets Provisioned
+## Historical desired state
 
-### dom0 Configuration
+The Chezmoi tree retains Qubes-specific templates and scripts because existing installations may
+depend on them. Historical behavior includes desired dom0 packages, official and unofficial template
+lists, Whonix templates, a provision qube, Mirage firewall material, minimal-template sudo policy,
+and optional sys-gui GPU configuration. These files are migration inputs, not evidence that the new
+Desktop Tools engine owns or has safely executed those effects.
 
-The provisioning process configures dom0 with:
+Do not delete, rewrite, or automatically execute that state during migration. Each effect must first
+gain:
 
-- **System packages** - Essential dom0 packages defined in the `.qubes.dom0Packages` data key (e.g., `qubes-repo-contrib`)
-- **System updates** - dom0 is updated via `qubes-dom0-update` before any other provisioning
-- **Security updates** - Applied with the `-y` flag for non-interactive operation
+- an exact typed operation and immutable inputs;
+- preconditions, postconditions, locks, timeout, cancellation, and journal semantics;
+- qrexec policy with no wildcard service, source, target, argument, or authority;
+- interruption, unchanged-reapply, rollback-limit, and legacy-subtraction tests;
+- an authorized disposable or dedicated Qubes canary receipt.
 
-### Template VMs
+## Security rules
 
-Install Doctor installs and updates the following template VMs (configurable in `home/.chezmoidata.yaml`):
+- Keep dom0 network-isolated. Downloading a bootstrap directly in dom0 is not an approved design.
+- Move bytes only through a named, least-privilege qrexec service from an identified compartment.
+- Never translate profile input into `qvm-run`, `qubesctl`, shell text, paths, or qrexec policy.
+- Template mutation must target an exact TemplateVM and immutable package artifact.
+- AppVM authority never implies template, dom0, Whonix Gateway, or another AppVM authority.
+- Whonix Workstation networking must remain bound to the Whonix Gateway path; an ordinary NetVM is
+  not an equivalent configuration.
+- Disposable execution must leave no persistent root or active disposable instance after the plan.
+- Offline evidence must show zero network attempts; a cached artifact is not permission to fetch.
 
-- Debian templates
-- Fedora templates
-- Whonix Gateway and Workstation templates
+## Real-host promotion prerequisites
 
-Templates are installed via `qubes-dom0-update` and updated via `qubesctl` with a 15-minute timeout to handle slow Whonix updates.
+Before publishing a Qubes entrypoint, operators must provide an authorized non-daily-driver fixture or
+dedicated canary, pin the Qubes release and templates, provision the exact qrexec policy, independently
+verify the signed release, and retain target-bound lifecycle receipts. Destructive dom0, template,
+network, storage, and sys-gui changes need separate approval and rollback procedures.
 
-### Unofficial Templates
+If a prerequisite is absent, report the cell as `BLOCKED` or `UNVERIFIED`; do not fall back to the
+legacy URL, generic shell execution, direct dom0 networking, or another platform's receipt.
 
-In addition to official Qubes templates, Install Doctor supports installing unofficial templates defined in the `.qubes.templatesUnofficial` data key. These are:
-
-1. Downloaded in a dedicated provisioning VM (`provision` qube)
-2. Transferred to dom0 via `qvm-run --pass-io`
-3. Installed via `dnf install`
-
-### Mirage Firewall
-
-Install Doctor installs the [Mirage firewall](https://github.com/mirage/qubes-mirage-firewall), a unikernel-based firewall for Qubes:
-
-- Downloads the pre-compiled kernel to the provisioning VM
-- Transfers it to dom0 at `/var/lib/qubes/vm-kernels/mirage-firewall/`
-- Creates the required dummy initramfs file
-
-### Minimal VM Passwordless Sudo
-
-For minimal template VMs (identified by the `-minimal` suffix), Install Doctor configures passwordless root access to enable automated provisioning within those VMs.
-
-## Customization
-
-### Template List
-
-Edit the `.qubes.templates` array in `home/.chezmoidata.yaml` to control which official templates are installed:
-
-```yaml
-qubes:
-  templates:
-    - debian-11
-    - fedora-37
-    - fedora-38
-    - whonix-gw-16
-    - whonix-ws-16
-```
-
-### dom0 Packages
-
-Edit the `.qubes.dom0Packages` array to add or remove dom0 packages:
-
-```yaml
-qubes:
-  dom0Packages:
-    - qubes-repo-contrib
-    - additional-package
-```
-
-### Provisioning VM
-
-The `.qubes.provisionVM` key defines which VM is used for downloading files during provisioning. This VM needs network access and is used as an intermediary since dom0 cannot directly access the network.
-
-## Architecture
-
-The Qubes provisioning scripts execute in this order:
-
-1. **`run_before_50-update-dom0.sh.tmpl`** - Updates dom0 and installs dom0 packages
-2. **`run_before_51-install-templates.sh.tmpl`** - Installs official and unofficial templates, Mirage firewall
-3. **`run_before_52-ensure-minimal-vms-passwordless.sh.tmpl`** - Configures passwordless sudo in minimal VMs
-4. **`run_before_54-setup-sys-gui.sh.tmpl`** - Configures sys-gui-gpu with NVIDIA GPU passthrough (if detected)
-
-All Qubes scripts are conditionally included only when the host distribution is detected as Qubes (`{{ if eq .host.distro.id "qubes" }}`).
-
-## Limitations
-
-- Qubes support requires running the provisioning script from dom0
-- Network access in dom0 is needed for the initial bootstrap (downloading the start script)
-- Template updates may take significant time, especially for Whonix templates (15-minute timeout)
-- GPU passthrough (sys-gui-gpu) currently only supports NVIDIA GPUs
+See the [implementation and verification runbook](/docs/desktop-tools/implementation-runbook) and
+[platform support matrix](/docs/aid/platform-support) for the repository-wide evidence rules.

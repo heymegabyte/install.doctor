@@ -29,6 +29,12 @@ if (!report.admissionGates.some((gate) => gate.status === 'BLOCKED') || !report.
 if (!report.initiatives.some((item) => item.effectiveStatus === 'BLOCKED') || !report.initiatives.some((item) => item.effectiveStatus === 'planned')) throw new Error('independent work state');
 if (!report.owners.every((owner) => owner.tasksDigest && owner.total > 0)) throw new Error('owner evidence freshness');
 if (!report.horizons.some((horizon) => horizon.status === 'waiting-on-dependency') || !report.horizons.some((horizon) => horizon.ready.length > 0)) throw new Error('critical path');
+if (!report.initiatives.every((item) => item.completionEligible === false)) throw new Error('unevidenced completion eligibility');
+for (const item of report.initiatives) {
+  for (const dimension of ['code', 'deployment', 'host', 'verification']) {
+    if (item.completionEvidence[dimension].status !== 'MISSING') throw new Error(`unexpected ${item.id} ${dimension} evidence`);
+  }
+}
 NODE
 
 node --input-type=module - "$MANIFEST" "$TMP" <<'NODE'
@@ -40,12 +46,19 @@ emit('owner-array', (value) => { value.initiatives[0].ownerChange = ['invalid'];
 emit('authority-collision', (value) => { value.authorities[1].domain = value.authorities[0].domain; });
 emit('unevidenced-pass', (value) => { value.admissionGates[0].status = 'PASS'; });
 emit('unknown-owner', (value) => { value.initiatives[0].ownerChange = 'missing-change'; });
+emit('complete-without-evidence', (value) => { value.initiatives[0].status = 'complete'; });
+emit('planning-as-evidence', (value) => {
+  value.completionEvidence.push({ id: 'fake-planning', initiativeId: 'I01', dimension: 'code',
+    evidenceClass: 'source-attestation', path: 'openspec/changes/desktop-tools-50-initiative-program/tasks.md',
+    sha256: '0'.repeat(64), target: 'desktop-tools', observedAt: '2026-11-10T00:00:00.000Z', expiresAt: null });
+});
 NODE
-for fixture in owner-array authority-collision unevidenced-pass unknown-owner; do
+for fixture in owner-array authority-collision unevidenced-pass unknown-owner complete-without-evidence planning-as-evidence; do
   if node "$AUDIT" --manifest "$TMP/$fixture.json" >/dev/null 2>&1; then bad "rejects $fixture"; else ok "rejects $fixture"; fi
 done
 
 grep -q 'Planning and contracts are not shipped capability' "$ROOT/docs/desktop-tools/program.md" && ok "documentation preserves capability truth boundary" || bad "documentation preserves capability truth boundary"
+grep -q 'Completion is a four-part claim' "$ROOT/docs/desktop-tools/program.md" && ok "documentation requires four-dimensional completion evidence" || bad "documentation requires four-dimensional completion evidence"
 
 printf '%s passed, %s failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]

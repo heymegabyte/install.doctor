@@ -20,6 +20,8 @@ Implemented and tested:
 - `rollback-config-plan`, `rollback-config-execute`, `rollback-config-resume`, and `rollback-config-status` commands that derive compensation only from committed install evidence, require exact approval, restore in reverse dependency order, and reject state-confused replay
 - native systemd service-state rollback for strictly representable `enabled|disabled` and `active|inactive` states, using a root-owned non-writable `/usr/bin/systemctl`, fixed argv/environment, bounded output/time, and exact postcondition verification
 - strict Desktop Tools lifecycle adapters whose model-facing inputs cannot select engine invocations, shell text, paths, plan bodies, locks, or journals; apply and configuration rollback require adapter-issued consent grants and deprovision remains preview-only
+- typed Qubes disposable-lab lifecycle operations for dom0, TemplateVM, AppVM, DisposableVM, and Whonix through exact qrexec service and authority intersections; this exposes no generic shell field and is fixture evidence, not a published Qubes installer
+- read-only or disposable platform contracts for Proxmox, WSL, Windows-native boundaries, immutable Linux, device posture, and UPS coordination; none independently promotes a platform support cell
 
 The engine is the canonical lifecycle owner for the production bootstrap. `scripts/provision.sh` builds and approves the exact normalized plan, then delegates selected package, service, file, directory, Chezmoi, installx, hook, and network operations to one engine run. The provisioner rejects an exit-zero engine process unless its committed evidence matches that approved run; installx is materialized by engine-owned operations and may execute only the selected package closure. A successful outer stage-zero receipt binds the verified engine run ID, plan digest, and immutable engine-receipt digest. It remains compatibility evidence, not a substitute for the engine journal and receipt; pre-engine failures and root handoffs carry an explicit null binding.
 
@@ -29,6 +31,18 @@ Run:
 npm install
 npm test
 ```
+
+For narrower platform-contract development, build once and run the named fixture directly. For
+example, the Qubes boundary is verified without contacting or mutating a Qubes host:
+
+```bash
+npm run build
+node --test test/qubes-fixture-contract.test.mjs test/qubes-native-lifecycle.test.mjs
+```
+
+The focused result is `fixture-verified`, never `verified-live`. See
+[`../../docs/desktop-tools/implementation-runbook.md`](../../docs/desktop-tools/implementation-runbook.md)
+for the cross-package evidence and operator boundary.
 
 The CLI accepts a strict invocation file:
 
