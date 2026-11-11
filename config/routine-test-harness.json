@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "budgetMs": 295000,
+  "suiteTimeoutMs": 120000,
+  "maxParallel": 6,
+  "excluded": {
+    "test-linux.sh": "platform orchestration harness; run only in its tuple-bound workflow",
+    "test-macos.sh": "platform orchestration harness; run only in its tuple-bound workflow"
+  },
+  "serial": [
+    "test-bootstrap-security.sh",
+    "test-catalog-artifacts.sh",
+    "test-catalog-authority-retirement.sh",
+    "test-catalog-coverage.sh",
+    "test-command-not-found.sh",
+    "test-control-plane.sh",
+    "test-deprecated-tool-residue.sh",
+    "test-flatpak-launcher-cutover.sh",
+    "test-installer-engine.sh",
+    "test-installx-check.sh",
+    "test-preload-policy.sh"
+  ]
+}
