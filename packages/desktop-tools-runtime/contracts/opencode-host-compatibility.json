@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "hostProtocolVersion": 1,
+  "sdk": {
+    "package": "@opencode-ai/sdk",
+    "version": "1.19.5",
+    "api": "v2"
+  },
+  "runtime": {
+    "minimum": "2.2.5",
+    "maximumExclusive": "3.0.0"
+  },
+  "transport": {
+    "protocol": "http:",
+    "hostnames": ["127.0.0.1", "::1"]
+  }
+}

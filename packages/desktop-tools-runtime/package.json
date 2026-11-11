@@ -4,11 +4,17 @@
   "private": true,
   "type": "module",
   "description": "Least-privilege local Desktop Tools supervisor and typed tool contracts.",
+  "exports": {
+    "./opencode-host": "./src/opencode-host.mjs"
+  },
   "scripts": {
     "build": "node scripts/build.mjs",
     "test": "node --test test/*.test.mjs"
   },
   "engines": {
     "node": ">=22"
+  },
+  "dependencies": {
+    "@opencode-ai/sdk": "1.19.5"
   }
 }

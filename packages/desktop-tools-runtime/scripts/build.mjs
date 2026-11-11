@@ -48,7 +48,7 @@ const enginePackage = resolve(root, '..', 'installer-engine');
 const mcpBuild = spawnSync('npm', ['run', 'bundle:mcp'], { cwd: enginePackage, stdio: 'inherit', shell: false });
 if (mcpBuild.status !== 0) throw new Error('failed to build the Desktop Tools MCP server');
 const entries = [];
-for (const name of ['runtime-policy.json', 'supervisor-api.schema.json', 'typed-tools.json']) {
+for (const name of ['opencode-host-compatibility.json', 'runtime-policy.json', 'supervisor-api.schema.json', 'typed-tools.json']) {
   const bytes = await readFile(join(root, 'contracts', name));
   entries.push(tarEntry(`contracts/${name}`, bytes, 0o600));
 }

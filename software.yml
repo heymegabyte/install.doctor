@@ -7028,7 +7028,6 @@ softwarePackages:
     _bin: nvim
     _deps:
     - clangd
-    - terraform-ls
     - neovim-node-host
     _home: https://neovim.io/
     _docs: https://neovim.io/doc/general/

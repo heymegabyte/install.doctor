@@ -563,8 +563,8 @@ async function prepareToolRuntime(values, stateDirectory, promptBinding, session
   try { expanded = gunzipSync(await readFile(toolsArchive), { maxOutputLength: 64 * 1024 * 1024 }); } catch { fail('tools archive cannot be safely expanded', 65); }
   const entries = tarEntries(expanded);
   const legacyEntries = ['bin/desktop-tools-mcp-server.mjs', 'contracts/runtime-policy.json', 'contracts/supervisor-api.schema.json', 'contracts/typed-tools.json'];
-  const baseEntries = ['bin/desktop-tools-mcp-server.mjs', 'contracts/runtime-policy.json', 'contracts/supervisor-api.schema.json',
-    'contracts/typed-tools.json', 'runtime/encrypted-recording.mjs'];
+  const baseEntries = ['bin/desktop-tools-mcp-server.mjs', 'contracts/opencode-host-compatibility.json', 'contracts/runtime-policy.json',
+    'contracts/supervisor-api.schema.json', 'contracts/typed-tools.json', 'runtime/encrypted-recording.mjs'];
   const brokerEntries = [...baseEntries, 'bin/linux-x64/desktop-tools-privileged-broker',
     'lib/desktop-tools-privileged-controller.mjs', 'lib/desktop-tools-privileged-worker.mjs'];
   const actualEntries = [...entries.keys()].sort();

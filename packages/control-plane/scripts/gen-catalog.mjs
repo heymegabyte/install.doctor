@@ -10,7 +10,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { validateArtifactDeclarations } from '../../../scripts/validate-catalog-artifacts.mjs';
-import { migrateLegacySoftwareCatalogEntry, parseSoftwareCatalog } from '../../aid-core/dist/software-catalog.js';
+import { buildSoftwareCatalogPlan, migrateLegacySoftwareCatalogEntry, parseSoftwareCatalog } from '../../aid-core/dist/software-catalog.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(HERE, '..', '..', '..'); // repo root (packages/control-plane/scripts → repo)
@@ -367,6 +367,22 @@ const migratedItems = parseSoftwareCatalog(items.map(item => {
   try { return migrateLegacySoftwareCatalogEntry(item); }
   catch (error) { throw new Error(`strict catalog migration failed for ${item.name}/${item.bin}: ${error.message}`, { cause: error }); }
 }));
+// Release admission must prove that every default supported path has a closed,
+// acyclic and conflict-free graph. This also catches an eager cross-platform
+// parent whose dependency has no recipe for one of the parent's targets.
+const graphIdentities = new Set(migratedItems.map(item => item.name)).size;
+for (const platform of ['linux', 'macos', 'windows']) {
+  for (const architecture of ['x64', 'arm64']) {
+    for (const phase of ['bootstrap', 'post-bootstrap']) {
+      const plan = buildSoftwareCatalogPlan(migratedItems, {
+        platform, architecture, role: 'workstation', phase, requested: [],
+      });
+      if (plan.inclusions.length + plan.exclusions.length !== graphIdentities) {
+        throw new Error(`catalog plan does not explain every identity for ${platform}/${architecture}/${phase}`);
+      }
+    }
+  }
+}
 const json = JSON.stringify(migratedItems);
 writeFileSync(OUT, json + '\n');
 console.error(`gen-catalog: ${migratedItems.length} strict v1 entries → ${OUT} (${(json.length / 1024).toFixed(1)} KiB)`);

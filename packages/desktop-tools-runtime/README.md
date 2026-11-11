@@ -3,6 +3,14 @@
 This package builds the local supervisor boundary shipped in the signed Desktop Tools
 release closure. It is intentionally not a general process runner.
 
+`src/opencode-host.mjs` is the replaceable embedded-SDK boundary. It pins
+`@opencode-ai/sdk` exactly, admits only reviewed OpenCode runtime versions, owns a one-shot
+start/stop lifecycle, and rejects any SDK endpoint that is not an unprivileged literal
+loopback binding. Callers receive the SDK client rather than process or listener authority;
+replacing the substrate requires implementing only the two-method adapter and passing the
+same lifecycle, compatibility, and private-binding tests. The signed compatibility manifest
+is shipped in the runtime tools closure.
+
 The supervisor accepts only `validate`, `prepare`, `run`, `service`, and `status`. Before
 launching OpenCode it verifies the pinned executable's SHA-256 and reported version,
 creates user-owned `0700` state, installs a persistent local server credential as `0600`,

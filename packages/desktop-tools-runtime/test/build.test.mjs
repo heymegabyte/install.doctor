@@ -21,6 +21,7 @@ test('build emits byte-for-byte deterministic signed-closure inputs', async () =
   assert.ok(firstSupervisor.length > 0);
   assert.ok(firstTools.length > 0);
   assert.match(gunzipSync(firstTools).toString('utf8'), /runtime\/encrypted-recording\.mjs/);
+  assert.match(gunzipSync(firstTools).toString('utf8'), /contracts\/opencode-host-compatibility\.json/);
   assert.match(gunzipSync(firstTools).toString('utf8'), /provisioning\/home\/dot_local\/bin\/executable_installx/);
   assert.match(gunzipSync(firstTools).toString('utf8'), /provisioning\/home\/dot_config\/system\/usr\/local\/bin\/executable_process-software-groups/);
   assert.match(gunzipSync(firstTools).toString('utf8'), /provisioning\/home\/dot_config\/system\/usr\/local\/bin\/executable_process-software-post-scripts/);

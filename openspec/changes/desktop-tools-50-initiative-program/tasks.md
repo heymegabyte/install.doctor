@@ -109,9 +109,9 @@
 ## 10. Catalog, supply chain, and extension ecosystem
 
 - [x] 10.1 Replace permissive catalog parsing with a strict versioned schema covering identity, lifecycle, dependencies, conflicts, load, privilege, exposure, provenance, license, and support evidence; verify all entries migrate deterministically.
-- [ ] 10.2 Build the catalog dependency and supported-path graph with cycle, conflict, platform, architecture, role, eager/lazy, and bootstrap validation; verify plans explain every inclusion and exclusion.
-- [ ] 10.3 Implement immutable GitHub and other upstream release resolution through the artifact admission service; verify architecture selection, extraction, install, update, uninstall, and offline reuse with hermetic fixtures.
-- [ ] 10.4 Add continuous upstream freshness, maintenance, popularity, vulnerability, license, and support-evidence audit without making network results a provisioning dependency; verify unknown remote evidence remains explicit.
+- [x] 10.2 Build the catalog dependency and supported-path graph with cycle, conflict, platform, architecture, role, eager/lazy, and bootstrap validation; verify plans explain every inclusion and exclusion.
+- [x] 10.3 Implement immutable GitHub and other upstream release resolution through the artifact admission service; verify architecture selection, extraction, install, update, uninstall, and offline reuse with hermetic fixtures.
+- [x] 10.4 Add continuous upstream freshness, maintenance, popularity, vulnerability, license, and support-evidence audit without making network results a provisioning dependency; verify unknown remote evidence remains explicit.
 - [ ] 10.5 Generate release SBOM/VEX and catalog provenance views in the control plane; verify user-visible claims match exact release bytes and current exploitability evidence.
 - [x] 10.6 Define signed extension manifests, compatibility, capabilities, lifecycle hooks, isolated tests, publication, private catalogs, and revocation; verify arbitrary npm auto-install cannot enter the privileged runtime.
 - [ ] 10.7 Admit one low-risk read-only extension end to end; verify signature, provenance, permission denial, version compatibility, disablement, and revocation.
@@ -119,7 +119,7 @@
 
 ## 11. Desktop Tools runtime, sessions, and renderers
 
-- [ ] 11.1 Integrate the pinned OpenCode SDK behind a replaceable Desktop Tools host interface with owned lifecycle and no public listener; verify deterministic startup, shutdown, upgrade compatibility, and private binding.
+- [x] 11.1 Integrate the pinned OpenCode SDK behind a replaceable Desktop Tools host interface with owned lifecycle and no public listener; verify deterministic startup, shutdown, upgrade compatibility, and private binding.
 - [ ] 11.2 Generate task-specific agents, prompts, tools, skills, model policy, context limits, recordings, and budgets from the approved plan; verify inherited ambient authority is absent.
 - [ ] 11.3 Implement durable per-session coordination and resumable WebSocket transport with acknowledgement, backpressure, replay, resize, expiry, and cancellation; verify reconnect does not create another run.
 - [ ] 11.4 Complete encrypted output-only recordings for local, browser, scheduled, child, and offline sessions; verify raw input and secrets never enter recordings and incomplete capture is visible.
