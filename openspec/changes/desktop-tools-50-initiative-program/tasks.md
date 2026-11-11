@@ -49,7 +49,7 @@
 ## 5. Identity, secrets, and authorization
 
 - [x] 5.1 Define strict host, service, CI, platform, agent, maintenance, and recovery identity manifests; verify shared identities, runtime scope overrides, recursive exports, and hidden inherited grants are rejected.
-- [ ] 5.2 Discover subscribed Infisical features and record supported mechanisms without buying or enabling new service tiers; verify unsupported dynamic or granular features yield an explicit design-compatible fallback blocker.
+- [x] 5.2 Discover subscribed Infisical features and record supported mechanisms without buying or enabling new service tiers; verify unsupported dynamic or granular features yield an explicit design-compatible fallback blocker.
 - [ ] 5.3 Implement scoped Infisical enrollment, renewal, rotation, revocation, rebuild recovery, and secure runtime delivery for one canary service; verify allowed reads and denied cross-host, cross-environment, administrative, and recovery-root access.
 - [x] 5.4 Extend `get-secret` and workload launchers so operational access is Infisical-authoritative with no controller-store fallback; verify outage and caller-selected path tests fail closed.
 - [x] 5.5 Create the offline-secret exception schema and inventory existing local material; verify only declared pre-network, boot, offline, or independent-recovery items remain eligible.

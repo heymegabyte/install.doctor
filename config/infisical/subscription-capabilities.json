@@ -1,0 +1,84 @@
+{
+  "schemaVersion": 1,
+  "observedAt": "2026-11-11T00:14:43-05:00",
+  "authority": {
+    "cliVersion": "0.43.141",
+    "service": "https://app.infisical.com",
+    "readOnlyEndpoints": [
+      "/api/v1/organizations/{organizationId}/billing/v2/overview",
+      "/api/v1/organizations/{organizationId}/billing/v2/catalog"
+    ],
+    "organizationIdentifierRecorded": false,
+    "credentialMaterialRecorded": false
+  },
+  "subscription": {
+    "planName": "Free",
+    "state": "no-subscription",
+    "deployment": "cloud",
+    "billingMode": "self-serve",
+    "activeProductEntitlements": []
+  },
+  "mechanisms": [
+    {
+      "id": "static-secret-read",
+      "status": "canary-required",
+      "reason": "Billing proves no paid entitlement but does not prove the exact project, environment, path, and action grants available to a workload identity."
+    },
+    {
+      "id": "universal-auth",
+      "status": "canary-required",
+      "reason": "The subscription response does not attest identity authentication methods; enrollment must prove bounded credentials, TTL, renewal, and revocation."
+    },
+    {
+      "id": "github-oidc",
+      "status": "canary-required",
+      "reason": "The subscription response does not attest GitHub OIDC availability for this organization and no identity may be created merely to discover it."
+    },
+    {
+      "id": "project-rbac",
+      "status": "not-subscribed",
+      "reason": "The live catalog lists RBAC only on paid Secrets Management products and this organization has no active product entitlement."
+    },
+    {
+      "id": "dynamic-secrets",
+      "status": "not-subscribed",
+      "reason": "The live catalog lists Dynamic secrets only on Advanced and Enterprise while this organization has no active product entitlement."
+    },
+    {
+      "id": "temporary-access",
+      "status": "not-subscribed",
+      "reason": "The live catalog lists Temporary access only on Advanced and Enterprise while this organization has no active product entitlement."
+    },
+    {
+      "id": "gateways",
+      "status": "not-subscribed",
+      "reason": "The live catalog lists Gateways only on Advanced and Enterprise while this organization has no active product entitlement."
+    },
+    {
+      "id": "sso-mfa-enforcement",
+      "status": "not-subscribed",
+      "reason": "The live catalog lists SSO/MFA enforcement only on Advanced and Enterprise while this organization has no active product entitlement."
+    },
+    {
+      "id": "audit-log-streaming",
+      "status": "not-subscribed",
+      "reason": "The live catalog lists Audit log streaming only on Enterprise while this organization has no active product entitlement."
+    }
+  ],
+  "fallbacks": [
+    {
+      "when": "project-rbac is unavailable",
+      "action": "Isolate each authorized secret set in a separate project and grant no identity until a canary proves exact allowed and denied reads."
+    },
+    {
+      "when": "federated workload identity is unavailable",
+      "action": "Use a distinct short-lived Universal Auth identity only after a canary proves TTL, renewal, revocation, and exact path scope."
+    },
+    {
+      "when": "Infisical is unavailable",
+      "action": "Fail operational secret access closed; only declared offline recovery exceptions may use the independently encrypted recovery path."
+    }
+  ],
+  "mutation": "none",
+  "purchaseOrTierChange": "none"
+}
