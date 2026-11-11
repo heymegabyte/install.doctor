@@ -63,7 +63,7 @@ const task = {
   requiredCapabilities: [],
   operations: { check: 'check-package', apply: 'install-package', verify: 'verify-package' },
   timeoutMs: 60_000, retry: { class: 'transient', maxAttempts: 3, backoffMs: 500 },
-  resources: { cpu: 1, memoryMiB: 128, network: true }, privilege: 'admin', network: 'required',
+  resources: { cpu: 1, memoryMiB: 128, network: true, diskIoWeight: 1, networkIoWeight: 1 }, privilege: 'admin', network: 'required',
   consent: 'package-install', lockDomains: ['package-manager'], cleanup: 'none', compensation: 'none',
   lifecycle: 'operation',
   failurePolicy: 'continue-independent'
@@ -148,7 +148,7 @@ const cases = [
     evidenceGaps: [{ schemaVersion: 1, id: 'git-state-not-observed', status: 'UNVERIFIED', reason: 'Package query unavailable', resolution: 'Retry verification with package-manager access' }] }],
   [EvidenceGapSchema, { schemaVersion: 1, id: 'broker-unavailable', status: 'BLOCKED', reason: 'Privileged broker unavailable', resolution: 'Restore the broker and resume the exact plan' }],
   [TaskNodeSchema, task],
-  [NormalizedPlanSchema, { schemaVersion: 1, planId: 'plan-1', digest: sha, releaseId: 'release-1', desiredRevision: 'desired-1', hostFactsDigest: sha, createdAt: at, tasks: [task], selectedTaskIds: ['install.git'], executionPolicy: { maxConcurrency: 4, resourceLimits: { cpu: 64, memoryMiB: 1_048_576, networkConcurrency: 16 } } }],
+  [NormalizedPlanSchema, { schemaVersion: 1, planId: 'plan-1', digest: sha, releaseId: 'release-1', desiredRevision: 'desired-1', hostFactsDigest: sha, createdAt: at, tasks: [task], selectedTaskIds: ['install.git'], executionPolicy: { maxConcurrency: 4, resourceLimits: { cpu: 64, memoryMiB: 1_048_576, networkConcurrency: 16, diskIoWeight: 64, networkIoWeight: 64 } } }],
   [InstallerEventSchema, { schemaVersion: 1, sequence: 1, at, runId: 'run-1', kind: 'task-status', taskId: 'install.git', status: 'running', attempt: 1 }],
   [JournalSchema, { schemaVersion: 1, runId: 'run-1', planDigest: sha, releaseId: 'release-1', desiredRevision: 'desired-1', hostId: 'host-1', hostFactsDigest: sha, ownerId: 'owner-1', revision: 1, updatedAt: at, entries: [{ taskId: 'install.git', inputDigest: sha, status: 'verified', attempts: 1, updatedAt: at }] }],
   [CompensationRecordSchema, { schemaVersion: 1, taskId: 'install.git', kind: 'configuration', state: 'available', createdAt: at, artifactDigest: sha, restores: ['bytes', 'mode', 'service-state'] }],

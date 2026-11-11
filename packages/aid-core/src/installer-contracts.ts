@@ -445,7 +445,11 @@ export const TaskNodeSchema = strict({
   requiredCapabilities: boundedIds.max(64).default([]),
   operations: strict({ check: id, apply: id, verify: id }), timeoutMs: z.number().int().min(100).max(86_400_000),
   retry: strict({ class: z.enum(['never', 'transient', 'rate-limit']), maxAttempts: z.number().int().min(1).max(10), backoffMs: z.number().int().min(0).max(300_000) }),
-  resources: strict({ cpu: z.number().int().min(1).max(64), memoryMiB: z.number().int().min(1).max(1_048_576), network: z.boolean() }),
+  resources: strict({
+    cpu: z.number().int().min(1).max(64), memoryMiB: z.number().int().min(1).max(1_048_576), network: z.boolean(),
+    diskIoWeight: z.number().int().min(0).max(64).default(1),
+    networkIoWeight: z.number().int().min(0).max(64).default(0),
+  }),
   privilege: z.enum(['user', 'admin']), network: z.enum(['none', 'optional', 'required']), consent: z.union([id, z.literal('none')]),
   lockDomains: boundedIds.max(64), cleanup: z.enum(['none', 'always']), compensation: z.enum(['none', 'configuration']),
   lifecycle: z.enum(['operation', 'run-finalizer']).default('operation'),
@@ -459,6 +463,8 @@ export const ExecutionPolicySchema = strict({
     cpu: z.number().int().min(1).max(4096),
     memoryMiB: z.number().int().min(1).max(1_048_576),
     networkConcurrency: z.number().int().min(0).max(64),
+    diskIoWeight: z.number().int().min(1).max(4096).default(64),
+    networkIoWeight: z.number().int().min(0).max(4096).default(64),
   }),
 });
 export type ExecutionPolicy = z.infer<typeof ExecutionPolicySchema>;
@@ -466,7 +472,9 @@ export type ExecutionPolicy = z.infer<typeof ExecutionPolicySchema>;
 export const NormalizedPlanSchema = strict({
   schemaVersion: VERSION, planId: id, digest, releaseId: id, desiredRevision: id, hostFactsDigest: digest,
   createdAt: timestamp, tasks: z.array(TaskNodeSchema).max(10_000), selectedTaskIds: boundedIds.max(10_000),
-  executionPolicy: ExecutionPolicySchema.default({ maxConcurrency: 4, resourceLimits: { cpu: 64, memoryMiB: 1_048_576, networkConcurrency: 16 } }),
+  executionPolicy: ExecutionPolicySchema.default({ maxConcurrency: 4, resourceLimits: {
+    cpu: 64, memoryMiB: 1_048_576, networkConcurrency: 16, diskIoWeight: 64, networkIoWeight: 64,
+  } }),
 });
 export type NormalizedPlan = z.infer<typeof NormalizedPlanSchema>;
 

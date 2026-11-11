@@ -25,7 +25,7 @@
 
 - [x] 3.1 Extend shared schemas for typed operations, resources, locks, retry classes, cancellation, postconditions, receipts, and evidence gaps; verify unknown versions and fields fail at every runtime boundary.
 - [x] 3.2 Implement capability, consent, dependency, and cycle validation for the operation DAG; verify invalid graphs create no journal or mutation.
-- [ ] 3.3 Implement the adaptive bounded ready queue with CPU, memory, disk, network, and I/O budgets; verify unrelated work progresses while exclusive domains serialize.
+- [x] 3.3 Implement the adaptive bounded ready queue with CPU, memory, disk, network, and I/O budgets; verify unrelated work progresses while exclusive domains serialize.
 - [ ] 3.4 Implement signal-safe cancellation and bounded child cleanup; verify cancellation at each spawn and mutation boundary produces exact terminal evidence.
 - [ ] 3.5 Complete content-addressed journaling, single-owner leases, stale-owner handling, and exact resume admission; verify exhaustive interruption fixtures never allow fresh-run adoption.
 - [ ] 3.6 Generalize atomic configuration activation with parent-path defenses, validation, metadata preservation, durable compensation, and concurrent-change detection; verify rollback restores exact supported state or stops ambiguous.

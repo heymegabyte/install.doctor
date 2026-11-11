@@ -30,7 +30,7 @@ const task = {
   schemaVersion: 1, id: 'package.git', inputDigest: digest('b'), dependencies: [],
   predicate: 'host-supported', operations: { check: 'git-check', apply: 'git-apply', verify: 'git-verify' },
   timeoutMs: 10_000, retry: { class: 'never', maxAttempts: 1, backoffMs: 0 },
-  resources: { cpu: 1, memoryMiB: 64, network: true }, privilege: 'user', network: 'required',
+  resources: { cpu: 1, memoryMiB: 64, network: true, diskIoWeight: 1, networkIoWeight: 1 }, privilege: 'user', network: 'required',
   consent: 'network', lockDomains: ['package-manager.brew'], cleanup: 'always', compensation: 'none',
 };
 const plan = {
@@ -549,6 +549,44 @@ test('scheduler admission respects aggregate CPU and memory budgets', async () =
   assert.equal(started.length, 2);
   gates.get(started[0]).resolve();
   await eventually(() => started.length === 3, 'third task should enter after resources are released');
+  for (const gate of gates.values()) gate.resolve();
+  assert.equal((await run).receipt.status, 'success');
+});
+
+test('ready queue budgets disk and network I/O independently while unrelated local work progresses', async () => {
+  const identifiers = ['disk.a', 'disk.b', 'local', 'net.a', 'net.b'];
+  const gates = new Map(identifiers.map(id => [id, deferred()]));
+  const started = [];
+  const resources = (diskIoWeight, networkIoWeight) => ({
+    cpu: 1, memoryMiB: 16, network: networkIoWeight > 0, diskIoWeight, networkIoWeight,
+  });
+  const tasks = [
+    { ...task, id: 'disk.a', lockDomains: [], resources: resources(2, 0) },
+    { ...task, id: 'disk.b', lockDomains: [], resources: resources(2, 0) },
+    { ...task, id: 'local', lockDomains: [], resources: resources(0, 0) },
+    { ...task, id: 'net.a', lockDomains: [], resources: resources(0, 2) },
+    { ...task, id: 'net.b', lockDomains: [], resources: resources(0, 2) },
+  ];
+  const engine = createInstallerEngine({
+    maxConcurrency: 3,
+    resourceLimits: { cpu: 5, memoryMiB: 128, networkConcurrency: 2, diskIoWeight: 2, networkIoWeight: 2 },
+    adapter: {
+      discover: async () => facts,
+      plan: async () => ({ tasks, selectedTaskIds: tasks.map(node => node.id) }),
+      check: async () => 'needed',
+      apply: async node => { started.push(node.id); await gates.get(node.id).promise; },
+      verify: async () => 'verified',
+    },
+  });
+  const run = runApproved(engine, { runId: 'run-io-budgets', releaseId: 'release-1', desiredState: desired });
+  await eventually(() => started.length === 3, 'one disk, one network, and unrelated local work should start');
+  assert.deepEqual(started, ['disk.a', 'local', 'net.a']);
+  gates.get('local').resolve();
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(started.length, 3, 'free CPU alone must not bypass saturated I/O budgets');
+  gates.get('disk.a').resolve();
+  gates.get('net.a').resolve();
+  await eventually(() => started.includes('disk.b') && started.includes('net.b'), 'I/O successors should enter after their exact budgets release');
   for (const gate of gates.values()) gate.resolve();
   assert.equal((await run).receipt.status, 'success');
 });

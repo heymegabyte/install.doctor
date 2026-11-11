@@ -38,7 +38,9 @@ const StatusRequestSchema = z.strictObject({
 const PlanDraftSchema = z.strictObject({
   tasks: z.array(TaskNodeSchema).max(10_000),
   selectedTaskIds: z.array(identifier).max(10_000).refine(values => new Set(values).size === values.length, 'duplicate selected task identifiers'),
-  executionPolicy: ExecutionPolicySchema.default({ maxConcurrency: 4, resourceLimits: { cpu: 64, memoryMiB: 1_048_576, networkConcurrency: 16 } }),
+  executionPolicy: ExecutionPolicySchema.default({ maxConcurrency: 4, resourceLimits: {
+    cpu: 64, memoryMiB: 1_048_576, networkConcurrency: 16, diskIoWeight: 64, networkIoWeight: 64,
+  } }),
 });
 
 export const INSTALLER_PHASES = ['discover', 'validate', 'plan', 'approve', 'apply', 'verify', 'record'] as const;
@@ -126,6 +128,8 @@ export interface EngineOptions {
     readonly cpu: number;
     readonly memoryMiB: number;
     readonly networkConcurrency: number;
+    readonly diskIoWeight?: number;
+    readonly networkIoWeight?: number;
   };
   readonly resourcePressureSampler?: ResourcePressureSampler;
   readonly resourcePressureSampleTimeoutMs?: number;
@@ -387,7 +391,11 @@ export function createInstallerEngine(options: EngineOptions): InstallerEngine {
   const resourcePressureSampleTimeoutMs = z.number().int().min(10).max(5_000).parse(options.resourcePressureSampleTimeoutMs ?? 250);
   const configuredExecutionPolicy = ExecutionPolicySchema.parse({
     maxConcurrency: options.maxConcurrency ?? 4,
-    resourceLimits: options.resourceLimits ?? { cpu: 64, memoryMiB: 1_048_576, networkConcurrency: 16 },
+    resourceLimits: options.resourceLimits ? {
+      ...options.resourceLimits,
+      diskIoWeight: options.resourceLimits.diskIoWeight ?? 64,
+      networkIoWeight: options.resourceLimits.networkIoWeight ?? 64,
+    } : { cpu: 64, memoryMiB: 1_048_576, networkConcurrency: 16, diskIoWeight: 64, networkIoWeight: 64 },
   });
   const bindExecutionPolicy = (planInput: unknown): unknown => {
     const draft = z.record(z.string(), z.unknown()).parse(planInput);
@@ -405,6 +413,8 @@ export function createInstallerEngine(options: EngineOptions): InstallerEngine {
     let projectedLifecycleEvents = 16;
     for (const task of selectedTasks) {
       if (task.resources.cpu > resourceLimits.cpu || task.resources.memoryMiB > resourceLimits.memoryMiB
+        || task.resources.diskIoWeight > resourceLimits.diskIoWeight
+        || task.resources.networkIoWeight > resourceLimits.networkIoWeight
         || (task.resources.network && resourceLimits.networkConcurrency === 0)) {
         throw new Error(`task ${task.id} exceeds installer resource limits`);
       }
@@ -584,6 +594,8 @@ export function createInstallerEngine(options: EngineOptions): InstallerEngine {
         const admitted = [...runningResources.values()];
         return admitted.reduce((sum, resources) => sum + resources.cpu, 0) + task.resources.cpu <= resourceLimits.cpu
           && admitted.reduce((sum, resources) => sum + resources.memoryMiB, 0) + task.resources.memoryMiB <= resourceLimits.memoryMiB
+          && admitted.reduce((sum, resources) => sum + resources.diskIoWeight, 0) + task.resources.diskIoWeight <= resourceLimits.diskIoWeight
+          && admitted.reduce((sum, resources) => sum + resources.networkIoWeight, 0) + task.resources.networkIoWeight <= resourceLimits.networkIoWeight
           && admitted.filter(resources => resources.network).length + (task.resources.network ? 1 : 0) <= networkConcurrency;
       };
       const execute = async (task: TaskNode): Promise<void> => {
