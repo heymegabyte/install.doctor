@@ -7,7 +7,7 @@ legacy_identity="com.heymegabyte.oneprompt-convergence"
 package_name="@theme.tools/workflows"
 package_version="1.0.0"
 artifact_sha256="bcdbac76045a97091e864915e52fb2fe588a3c0711f067f583ac053f0d24a0fb"
-oneprompt_revision="90b366d9b164823d3672d1ede3e97f0fbb7a6f8f"
+oneprompt_revision="bdf7113786194648df6bd25fd05cd2835904d314"
 state_schema_version="2"
 state_root="${ONEPROMPT_CONVERGENCE_STATE_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/oneprompt-convergence}"
 config_root="$state_root/host-adapter"
@@ -32,7 +32,8 @@ read_config() {
 definition_path_for() { if test "$1" = launchd; then printf '%s/Library/LaunchAgents/%s.plist\n' "$HOME" "$logical_identity"; else printf '%s/.config/systemd/user/%s.service\n' "$HOME" "$logical_identity"; fi; }
 legacy_definition_for() { if test "$1" = launchd; then printf '%s/Library/LaunchAgents/%s.plist\n' "$HOME" "$legacy_identity"; else printf '%s/.config/systemd/user/oneprompt-convergence.service\n' "$HOME"; fi; }
 timer_path() { printf '%s/.config/systemd/user/%s.timer\n' "$HOME" "$logical_identity"; }
-manager_active() { if test "$configured_manager" = launchd; then launchctl print "gui/$(id -u)/$logical_identity" >/dev/null 2>&1; else systemctl --user is-active --quiet "$logical_identity.service"; fi; }
+manager_active() { if test "$configured_manager" = launchd; then launchctl print "gui/$(id -u)/$logical_identity" 2>/dev/null | grep -Eq 'state = running|[[:space:]]pid = [0-9]+'; else systemctl --user is-active --quiet "$logical_identity.service"; fi; }
+manager_loaded() { if test "$configured_manager" = launchd; then launchctl print "gui/$(id -u)/$logical_identity" >/dev/null 2>&1; else systemctl --user is-enabled --quiet "$logical_identity.timer" 2>/dev/null; fi; }
 manager_stop() { if test "$configured_manager" = launchd; then launchctl bootout "gui/$(id -u)/$logical_identity" >/dev/null 2>&1 || true; else systemctl --user disable --now "$logical_identity.timer" >/dev/null 2>&1 || true; systemctl --user stop "$logical_identity.service" >/dev/null 2>&1 || true; fi; }
 manager_start() { if test "$configured_manager" = launchd; then launchctl print "gui/$(id -u)/$logical_identity" >/dev/null 2>&1 || launchctl bootstrap "gui/$(id -u)" "$configured_definition"; launchctl kickstart "gui/$(id -u)/$logical_identity"; else systemctl --user daemon-reload; systemctl --user enable --now "$logical_identity.timer"; fi; }
 
@@ -58,11 +59,12 @@ verify_artifacts() {
 }
 
 render_definition() {
-  local manager_name="$1" repo="$2" worker="$3" definition="$4"
+  local manager_name="$1" repo="$2" worker="$3" definition="$4" node_path
+  node_path="$(dirname "$(command -v node)"):/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
   if test "$manager_name" = launchd; then
     write_atomic "$definition" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
-<plist version="1.0"><dict><key>Label</key><string>$logical_identity</string><key>ProgramArguments</key><array><string>$(command -v node)</string><string>$worker</string></array><key>WorkingDirectory</key><string>$repo</string><key>EnvironmentVariables</key><dict><key>HOME</key><string>$HOME</string><key>ONEPROMPT_CONVERGENCE_STATE_DIR</key><string>$state_root</string></dict><key>RunAtLoad</key><false/><key>KeepAlive</key><false/><key>StandardOutPath</key><string>$log_file</string><key>StandardErrorPath</key><string>$log_file</string></dict></plist>
+<plist version="1.0"><dict><key>Label</key><string>$logical_identity</string><key>ProgramArguments</key><array><string>$(command -v node)</string><string>$worker</string></array><key>WorkingDirectory</key><string>$repo</string><key>EnvironmentVariables</key><dict><key>HOME</key><string>$HOME</string><key>PATH</key><string>$node_path</string><key>ONEPROMPT_CONVERGENCE_STATE_DIR</key><string>$state_root</string></dict><key>RunAtLoad</key><false/><key>KeepAlive</key><false/><key>StartInterval</key><integer>900</integer><key>StandardOutPath</key><string>$log_file</string><key>StandardErrorPath</key><string>$log_file</string></dict></plist>
 EOF
   else
     write_atomic "$definition" <<EOF
@@ -93,7 +95,7 @@ EOF
 }
 
 install_service() {
-  local repo_arg="" machine_arg="" expected_revision="" service_manager repo worker definition observed_revision machine_hash definition_hash legacy
+  local repo_arg="" machine_arg="" expected_revision="" service_manager repo worker definition observed_revision machine_hash definition_hash legacy prior_adoption=native prior_predecessor="" prior_recovery=""
   while test "$#" -gt 0; do case "$1" in --repo) repo_arg="$2"; shift 2;; --machine-interface) machine_arg="$2"; shift 2;; --revision) expected_revision="$2"; shift 2;; *) die "unknown install option: $1";; esac; done
   test -n "$repo_arg" && test -n "$machine_arg" && test -n "$expected_revision" || die "install requires --repo, --machine-interface, and --revision"
   test "$expected_revision" = "$oneprompt_revision" || die "unsupported OnePrompt revision"
@@ -103,8 +105,17 @@ install_service() {
   service_manager="$(manager)"; case "$service_manager" in launchd|systemd) ;; *) die "no supported user service manager";; esac
   definition="$(definition_path_for "$service_manager")"; legacy="$(legacy_definition_for "$service_manager")"
   test ! -e "$legacy" || die "legacy definition exists; use adopt-plan/adopt"
+  if test -r "$config_root/config"; then
+    read_config
+    verify_artifacts
+    test "$configured_repo" = "$repo" && test "$configured_revision" = "$observed_revision" && test "$configured_machine" = "$machine_arg" || die "installed service identity differs from requested installation"
+    prior_adoption="$adoption_state"
+    prior_predecessor="${predecessor_kind:-}"
+    prior_recovery="${recovery_bundle:-}"
+  fi
   if test -e "$definition" && test ! -r "$config_root/config"; then die "unmanaged canonical definition exists"; fi
   configured_machine="$machine_arg"; machine_call install >/dev/null
+  if test -r "$config_root/config" && manager_loaded; then manager_stop; fi
   render_definition "$service_manager" "$repo" "$worker" "$definition"
   machine_hash="$(sha256 "$machine_arg")"; definition_hash="$(sha256 "$definition")"
   write_atomic "$config_root/config" <<EOF
@@ -122,6 +133,9 @@ configured_definition='$definition'
 configured_definition_sha256='$definition_hash'
 adoption_state='native'
 EOF
+  if test "$prior_adoption" = adopted; then
+    printf "adoption_state='adopted'\npredecessor_kind='%s'\nrecovery_bundle='%s'\n" "$prior_predecessor" "$prior_recovery" >>"$config_root/config"
+  fi
   printf 'installed inert %s definition for %s\n' "$service_manager" "$repo"
 }
 
@@ -148,15 +162,47 @@ adopt_plan() {
 
 legacy_active() {
   local m="$1"
-  if test "$m" = launchd; then launchctl print "gui/$(id -u)/$legacy_identity" >/dev/null 2>&1
+  if test "$m" = launchd; then launchctl print "gui/$(id -u)/$legacy_identity" 2>/dev/null | grep -Eq 'state = running|[[:space:]]pid = [0-9]+'
   else systemctl --user is-active --quiet oneprompt-convergence.service; fi
 }
 
+canonical_active() {
+  local m="$1"
+  if test "$m" = launchd; then launchctl print "gui/$(id -u)/$logical_identity" 2>/dev/null | grep -Eq 'state = running|[[:space:]]pid = [0-9]+'
+  else systemctl --user is-active --quiet "$logical_identity.service"; fi
+}
+
+unload_canonical_predecessor() {
+  local m="$1"
+  if test "$m" = launchd; then launchctl bootout "gui/$(id -u)/$logical_identity" >/dev/null 2>&1 || true
+  else systemctl --user disable --now "$logical_identity.timer" >/dev/null 2>&1 || true; systemctl --user stop "$logical_identity.service" >/dev/null 2>&1 || true; fi
+}
+
+verify_known_canonical_predecessor() {
+  local m="$1" definition="$2" repo="$3" worker
+  worker="$repo/scripts/convergence-worker.mjs"
+  test "$m" = launchd || die "canonical predecessor adoption is currently supported only for launchd"
+  command -v plutil >/dev/null || die "plutil is required to validate a canonical launchd predecessor"
+  local serialized
+  serialized="$(plutil -convert json -o - "$definition" 2>/dev/null)" || die "canonical predecessor is not a valid launchd property list"
+  node -e '
+    const value=JSON.parse(process.argv[1]);
+    const expectedWorker=process.argv[2], expectedRepo=process.argv[3], expectedState=process.argv[4];
+    const args=value.ProgramArguments;
+    const env=value.EnvironmentVariables;
+    const allowed=new Set(["Label","ProgramArguments","WorkingDirectory","EnvironmentVariables","RunAtLoad","StartInterval","ThrottleInterval","ProcessType","StandardOutPath","StandardErrorPath"]);
+    const executable=Array.isArray(args) ? args[0] : "";
+    const safeExecutable=typeof executable==="string" && executable.startsWith("/") && executable.split("/").at(-1)==="node";
+    const safeEnvironment=env && typeof env==="object" && !Array.isArray(env) && env.ONEPROMPT_CONVERGENCE_STATE_DIR===expectedState && Object.keys(env).every((key)=>["HOME","PATH","ONEPROMPT_CONVERGENCE_STATE_DIR"].includes(key));
+    if(value.Label!=="tools.theme.oneprompt.converge" || !Array.isArray(args) || args.length!==2 || !safeExecutable || args[1]!==expectedWorker || value.WorkingDirectory!==expectedRepo || !safeEnvironment || value.KeepAlive===true || Object.keys(value).some((key)=>!allowed.has(key))) process.exit(1);
+  ' "$serialized" "$worker" "$repo" "$state_root" || die "canonical definition is not a recognized inactive OnePrompt predecessor"
+}
+
 adopt_service() {
-  local repo_arg="" machine_arg="" expected_revision="" m legacy old_config bundle desired
+  local repo_arg="" machine_arg="" expected_revision="" m legacy canonical old_config bundle desired predecessor_kind
   while test "$#" -gt 0; do case "$1" in --repo) repo_arg="$2"; shift 2;; --machine-interface) machine_arg="$2"; shift 2;; --revision) expected_revision="$2"; shift 2;; *) die "unknown adopt option: $1";; esac; done
   test -n "$repo_arg" && test -n "$machine_arg" && test -n "$expected_revision" || die "adopt requires --repo, --machine-interface, and --revision"
-  m="$(manager)"; legacy="$(legacy_definition_for "$m")"; old_config="$state_root/config"
+  m="$(manager)"; legacy="$(legacy_definition_for "$m")"; canonical="$(definition_path_for "$m")"; old_config="$state_root/config"
   if test -r "$config_root/config" && test ! -e "$legacy"; then
     read_config
     test "$adoption_state" = adopted || die "canonical service exists without completed adoption"
@@ -164,26 +210,41 @@ adopt_service() {
     printf 'adoption already complete and verified\n'
     return
   fi
-  test -f "$legacy" || die "legacy definition is missing"
-  test -r "$old_config/repository" && test -r "$old_config/manager" || die "legacy definition is not adapter-managed"
-  repo_arg="$(canonical_repo "$repo_arg")"; test "$(sed -n '1p' "$old_config/repository")" = "$repo_arg" || die "legacy repository differs from requested repository"
-  legacy_active "$m" && die "legacy writer is active; stop it before adoption"
-  test ! -e "$(definition_path_for "$m")" || die "canonical definition already exists without completed adoption"
+  repo_arg="$(canonical_repo "$repo_arg")"
+  if test -f "$legacy"; then
+    predecessor_kind=legacy
+    test -r "$old_config/repository" && test -r "$old_config/manager" || die "legacy definition is not adapter-managed"
+    test "$(sed -n '1p' "$old_config/repository")" = "$repo_arg" || die "legacy repository differs from requested repository"
+    legacy_active "$m" && die "legacy writer is active; stop it before adoption"
+    test ! -e "$canonical" || die "canonical definition already exists alongside legacy definition"
+  elif test -f "$canonical"; then
+    predecessor_kind=canonical
+    canonical_active "$m" && die "canonical predecessor is active; stop it before adoption"
+    verify_known_canonical_predecessor "$m" "$canonical" "$repo_arg"
+  else
+    die "no legacy or recognized canonical predecessor definition is present"
+  fi
   bundle="$recovery_root/adoption-$(date -u +%Y%m%dT%H%M%SZ)-$$"; mkdir -p "$bundle"; chmod 700 "$bundle"
-  cp -p "$legacy" "$bundle/legacy-definition"; cp -R "$old_config" "$bundle/legacy-config"
+  if test "$predecessor_kind" = legacy; then
+    cp -p "$legacy" "$bundle/predecessor-definition"; cp -R "$old_config" "$bundle/legacy-config"
+  else
+    cp -p "$canonical" "$bundle/predecessor-definition"
+  fi
   test ! -f "$state_root/state.sqlite" || cp -p "$state_root/state.sqlite" "$bundle/state.sqlite.before"
-  printf '{"schemaVersion":1,"legacyIdentity":"%s","canonicalIdentity":"%s","repository":"%s"}\n' "$legacy_identity" "$logical_identity" "$(json_string "$repo_arg")" | write_atomic "$bundle/manifest.json"
-  rm -f "$legacy"
+  printf '{"schemaVersion":1,"predecessorKind":"%s","legacyIdentity":"%s","canonicalIdentity":"%s","repository":"%s"}\n' "$predecessor_kind" "$legacy_identity" "$logical_identity" "$(json_string "$repo_arg")" | write_atomic "$bundle/manifest.json"
+  if test "$predecessor_kind" = legacy; then rm -f "$legacy"; else unload_canonical_predecessor "$m"; rm -f "$canonical"; fi
   install_service --repo "$repo_arg" --machine-interface "$machine_arg" --revision "$expected_revision"
   read_config
   desired="$(machine_call status | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>console.log(JSON.parse(s).desiredMode))')"
   if test -e "$state_root/stop"; then machine_call stop >/dev/null
   elif test -e "$state_root/pause" || test "$desired" = paused; then machine_call pause >/dev/null
   fi
-  printf "adoption_state='adopted'\nrecovery_bundle='%s'\n" "$bundle" >>"$config_root/config"
-  rm -f "$old_config/repository" "$old_config/manager" "$old_config/controller"
-  rmdir "$old_config" 2>/dev/null || die "legacy config contains unknown files; recovery retained and adoption requires operator review"
-  printf 'adopted legacy definition into inactive %s; recovery=%s\n' "$logical_identity" "$bundle"
+  printf "adoption_state='adopted'\npredecessor_kind='%s'\nrecovery_bundle='%s'\n" "$predecessor_kind" "$bundle" >>"$config_root/config"
+  if test "$predecessor_kind" = legacy; then
+    rm -f "$old_config/repository" "$old_config/manager" "$old_config/controller"
+    rmdir "$old_config" 2>/dev/null || die "legacy config contains unknown files; recovery retained and adoption requires operator review"
+  fi
+  printf 'adopted %s predecessor into inactive %s; recovery=%s\n' "$predecessor_kind" "$logical_identity" "$bundle"
 }
 
 rollback_service() {
@@ -194,11 +255,15 @@ rollback_service() {
   node -e 'const s=JSON.parse(process.argv[1]); if(s.ownerId!=null||s.desiredMode!=="stopped")process.exit(1)' "$status" || die "controller still has an owner or is not stopped"
   test "$(sha256 "$configured_definition")" = "$configured_definition_sha256" || die "canonical definition changed; refusing rollback"
   rm -f "$configured_definition"; test "$configured_manager" != systemd || rm -f "$(timer_path)"
-  cp -p "$recovery_bundle/legacy-definition" "$(legacy_definition_for "$configured_manager")"
-  mkdir -p "$state_root/config"; cp -R "$recovery_bundle/legacy-config/." "$state_root/config/"
+  if test "${predecessor_kind:-legacy}" = canonical; then
+    cp -p "$recovery_bundle/predecessor-definition" "$configured_definition"
+  else
+    cp -p "$recovery_bundle/predecessor-definition" "$(legacy_definition_for "$configured_manager")"
+    mkdir -p "$state_root/config"; cp -R "$recovery_bundle/legacy-config/." "$state_root/config/"
+  fi
   test ! -f "$recovery_bundle/state.sqlite.before" || cp -p "$recovery_bundle/state.sqlite.before" "$state_root/state.sqlite"
   : >"$state_root/stop"; rm -f "$config_root/config"
-  printf 'restored inactive legacy definition; stopped intent retained\n'
+  printf 'restored inactive %s predecessor definition; stopped intent retained\n' "${predecessor_kind:-legacy}"
 }
 
 uninstall_service() { read_config; machine_call stop >/dev/null; manager_stop; test "$(sha256 "$configured_definition")" = "$configured_definition_sha256" || die "refusing to remove changed definition"; rm -f "$configured_definition"; test "$configured_manager" != systemd || rm -f "$(timer_path)"; rm -f "$config_root/config"; printf 'removed managed definition; stopped state retained\n'; }

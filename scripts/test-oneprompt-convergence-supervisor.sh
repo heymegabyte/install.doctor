@@ -10,8 +10,8 @@ REVISION="$(git -C "$REPO" rev-parse HEAD)"
 cat >"$BIN_DIR/launchctl" <<'SH'
 #!/usr/bin/env bash
 set -eu; printf '%s\n' "$*" >>"$FAKE_MANAGER_CALLS"
-case "${1:-}" in print) test "$(cat "$FAKE_MANAGER_STATE" 2>/dev/null || true)" = active || exit 1;; bootstrap|kickstart) printf active >"$FAKE_MANAGER_STATE";; bootout) printf inactive >"$FAKE_MANAGER_STATE";; esac
-if test "${1:-}" = bootout; then printf 'bootout-mode=%s\n' "$(sqlite3 "$FAKE_STATE_DB" 'select desired_mode from convergence_state where singleton=1;')" >>"$FAKE_MANAGER_CALLS"; fi
+case "${1:-}" in print) test "$(cat "$FAKE_MANAGER_STATE" 2>/dev/null || true)" = active || exit 1; printf 'state = running\n';; bootstrap|kickstart) printf active >"$FAKE_MANAGER_STATE";; bootout) printf inactive >"$FAKE_MANAGER_STATE";; esac
+if test "${1:-}" = bootout; then if test -f "$FAKE_STATE_DB"; then mode="$(sqlite3 "$FAKE_STATE_DB" 'select desired_mode from convergence_state where singleton=1;' 2>/dev/null || printf absent)"; else mode=absent; fi; printf 'bootout-mode=%s\n' "$mode" >>"$FAKE_MANAGER_CALLS"; fi
 SH
 chmod +x "$BIN_DIR/launchctl"
 run_tool() { env HOME="$HOME_DIR" PATH="$BIN_DIR:$NODE_DIR:/usr/bin:/bin" XDG_STATE_HOME="$HOME_DIR/.local/state" ONEPROMPT_SUPERVISOR_MANAGER=launchd FAKE_MANAGER_STATE="$MANAGER_STATE" FAKE_MANAGER_CALLS="$CALLS" FAKE_STATE_DB="$HOME_DIR/.local/state/oneprompt-convergence/state.sqlite" "$TOOL" "$@"; }
@@ -19,15 +19,19 @@ fail() { printf 'not ok - %s\n' "$1" >&2; exit 1; }; pass() { printf 'ok - %s\n'
 
 run_tool install --repo "$REPO" --machine-interface "$MACHINE" --revision "$REVISION"
 PLIST="$HOME_DIR/Library/LaunchAgents/tools.theme.oneprompt.converge.plist"; test -f "$PLIST" || fail canonical-definition
-first="$(shasum -a 256 "$PLIST"|awk '{print $1}')"; run_tool install --repo "$REPO" --machine-interface "$MACHINE" --revision "$REVISION" >/dev/null; test "$first" = "$(shasum -a 256 "$PLIST"|awk '{print $1}')" || fail idempotent; test ! -s "$CALLS" || fail inert
+first="$(shasum -a 256 "$PLIST"|awk '{print $1}')"; run_tool install --repo "$REPO" --machine-interface "$MACHINE" --revision "$REVISION" >/dev/null; test "$first" = "$(shasum -a 256 "$PLIST"|awk '{print $1}')" || fail idempotent; ! grep -Eq 'bootstrap|kickstart|bootout' "$CALLS" 2>/dev/null || fail inert
+plutil -extract StartInterval raw "$PLIST" | grep -qx '900' || fail launchd-interval
+plutil -extract EnvironmentVariables.PATH raw "$PLIST" | grep -q "$(dirname "$(command -v node)")" || fail launchd-node-path
 pass 'install is canonical, byte-stable, and inert'
+: >"$CALLS"
 
 LEGACY_PLIST="$HOME_DIR/Library/LaunchAgents/com.heymegabyte.oneprompt-convergence.plist"
 printf '<plist>competing-legacy-definition</plist>\n' >"$LEGACY_PLIST"
 if run_tool resume >/dev/null 2>&1; then fail duplicate-definition-admission; fi
-test ! -s "$CALLS" || fail duplicate-definition-manager-call
+! grep -Eq 'bootstrap|kickstart|bootout' "$CALLS" 2>/dev/null || fail duplicate-definition-manager-call
 rm -f "$LEGACY_PLIST"
 pass 'a competing legacy definition blocks admission without a manager call'
+: >"$CALLS"
 
 STATE_DB="$HOME_DIR/.local/state/oneprompt-convergence/state.sqlite"
 sqlite3 "$STATE_DB" 'update convergence_state set schema_version=999 where singleton=1;'
@@ -91,6 +95,32 @@ bundle="$(sed -n "s/^recovery_bundle='\(.*\)'/\1/p" "$HOME_ADOPT/.local/state/on
 pass 'adoption is inactive, most-restrictive, recoverable, and retry-idempotent'
 run_adopt rollback >/dev/null; test -f "$HOME_ADOPT/Library/LaunchAgents/com.heymegabyte.oneprompt-convergence.plist" || fail rollback-legacy; test ! -e "$ADOPT_PLIST" || fail rollback-canonical; test -f "$HOME_ADOPT/.local/state/oneprompt-convergence/stop" || fail rollback-stop; ! grep -Eq 'bootstrap|kickstart' "$TMP/adopt-calls" || fail rollback-started
 pass 'rollback restores managed legacy evidence and remains stopped/inactive'
+
+HOME_CANONICAL="$TMP/home-canonical"; mkdir -p "$HOME_CANONICAL/Library/LaunchAgents"
+CANONICAL_PREDECESSOR="$HOME_CANONICAL/Library/LaunchAgents/tools.theme.oneprompt.converge.plist"
+cat >"$CANONICAL_PREDECESSOR" <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<plist version="1.0"><dict><key>Label</key><string>tools.theme.oneprompt.converge</string><key>ProgramArguments</key><array><string>$(command -v node)</string><string>$REPO/scripts/convergence-worker.mjs</string></array><key>WorkingDirectory</key><string>$REPO</string><key>EnvironmentVariables</key><dict><key>ONEPROMPT_CONVERGENCE_STATE_DIR</key><string>$HOME_CANONICAL/.local/state/oneprompt-convergence</string></dict><key>RunAtLoad</key><true/><key>StartInterval</key><integer>900</integer></dict></plist>
+EOF
+chmod 600 "$CANONICAL_PREDECESSOR"
+canonical_before="$(shasum -a 256 "$CANONICAL_PREDECESSOR" | awk '{print $1}')"
+run_canonical() { env HOME="$HOME_CANONICAL" PATH="$BIN_DIR:$NODE_DIR:/usr/bin:/bin" XDG_STATE_HOME="$HOME_CANONICAL/.local/state" ONEPROMPT_SUPERVISOR_MANAGER=launchd FAKE_MANAGER_STATE="$TMP/canonical-manager" FAKE_MANAGER_CALLS="$TMP/canonical-calls" FAKE_STATE_DB="$HOME_CANONICAL/.local/state/oneprompt-convergence/state.sqlite" "$TOOL" "$@"; }
+run_canonical adopt --repo "$REPO" --machine-interface "$MACHINE" --revision "$REVISION" >/dev/null
+test "$canonical_before" != "$(shasum -a 256 "$CANONICAL_PREDECESSOR" | awk '{print $1}')" || fail canonical-predecessor-not-replaced
+canonical_status="$(run_canonical status)"
+node -e 'const x=JSON.parse(process.argv[1]);if(x.controller.desiredMode==="running"||x.adoptionState!=="adopted")process.exit(1)' "$canonical_status" || { printf '%s\n' "$canonical_status" >&2; fail canonical-predecessor-status; }
+! grep -Eq 'bootstrap|kickstart' "$TMP/canonical-calls" 2>/dev/null || fail canonical-predecessor-started
+run_canonical rollback >/dev/null
+test "$canonical_before" = "$(shasum -a 256 "$CANONICAL_PREDECESSOR" | awk '{print $1}')" || fail canonical-predecessor-rollback
+pass 'known inactive canonical predecessor is adopted recoverably without starting'
+
+HOME_UNKNOWN="$TMP/home-unknown"; mkdir -p "$HOME_UNKNOWN/Library/LaunchAgents"
+printf '<plist><dict><key>Label</key><string>tools.theme.oneprompt.converge</string><key>ProgramArguments</key><array><string>/tmp/unknown-writer</string></array></dict></plist>\n' >"$HOME_UNKNOWN/Library/LaunchAgents/tools.theme.oneprompt.converge.plist"
+unknown_before="$(shasum -a 256 "$HOME_UNKNOWN/Library/LaunchAgents/tools.theme.oneprompt.converge.plist" | awk '{print $1}')"
+if env HOME="$HOME_UNKNOWN" PATH="$BIN_DIR:$NODE_DIR:/usr/bin:/bin" XDG_STATE_HOME="$HOME_UNKNOWN/.local/state" ONEPROMPT_SUPERVISOR_MANAGER=launchd FAKE_MANAGER_STATE="$TMP/unknown-manager" FAKE_MANAGER_CALLS="$TMP/unknown-calls" FAKE_STATE_DB="$HOME_UNKNOWN/.local/state/oneprompt-convergence/state.sqlite" "$TOOL" adopt --repo "$REPO" --machine-interface "$MACHINE" --revision "$REVISION" >/dev/null 2>&1; then fail unknown-canonical-adopted; fi
+test "$unknown_before" = "$(shasum -a 256 "$HOME_UNKNOWN/Library/LaunchAgents/tools.theme.oneprompt.converge.plist" | awk '{print $1}')" || fail unknown-canonical-mutated
+! grep -Eq 'bootstrap|kickstart|bootout' "$TMP/unknown-calls" 2>/dev/null || fail unknown-canonical-manager-mutation
+pass 'unknown canonical definition blocks adoption without mutation'
 
 (cd "$REPO" && npm test -- --maxWorkers=1 --reporter=dot test/convergence/shared-controller-adoption.test.ts)
 pass 'shared-controller fixtures fence stale owners and late settlement'
