@@ -706,13 +706,28 @@ if [ "$(uname -s)" = "Darwin" ]; then
   find "$HOME/Library/Logs" -type f -mtime +7 -delete 2>/dev/null || true
   find "$HOME/Library/Caches/Homebrew/downloads" -maxdepth 1 -name '*.incomplete' -delete 2>/dev/null || true
   rm -rf "$HOME/Library/Caches"/*.ShipIt 2>/dev/null || true
+  find /private/tmp -maxdepth 1 -user "$(id -un)" \( -name 'oneprompt-*' -o -name 'desktop-tools-*' -o -name 'paperclip-*' -o -name 'vitest-*' -o -name 'playwright-*' \) -mtime +1 -exec rm -rf {} + 2>/dev/null || true
+  if [ -f /opt/homebrew/var/log/netdata/collector.log ] && [ "$(stat -f%z /opt/homebrew/var/log/netdata/collector.log 2>/dev/null || echo 0)" -gt 52428800 ]; then
+    : > /opt/homebrew/var/log/netdata/collector.log 2>/dev/null || true
+  fi
   if [ "$used_pct" -ge 70 ] && command -v brew >/dev/null 2>&1; then
     brew cleanup --prune=7 -s >/dev/null 2>&1 || true
   fi
 else
+  find /tmp -maxdepth 1 -user "$(id -un)" \( -name 'oneprompt-*' -o -name 'desktop-tools-*' -o -name 'paperclip-*' -o -name 'vitest-*' -o -name 'playwright-*' \) -mtime +1 -exec rm -rf {} + 2>/dev/null || true
   if [ "$used_pct" -ge 70 ] && sudo -n true 2>/dev/null; then
     sudo -n journalctl --vacuum-size=200M >/dev/null 2>&1 || true
   fi
+fi
+
+if [ -d "$HOME/emdash/repositories" ]; then
+  find "$HOME/emdash/repositories" -maxdepth 3 -type d -path '*/.wrangler/tmp' -exec rm -rf {} + 2>/dev/null || true
+fi
+if [ -d "$HOME/.codex/sessions" ]; then
+  find "$HOME/.codex/sessions" -type f -mtime +7 -delete 2>/dev/null || true
+fi
+if [ -f "$HOME/.local/share/opencode/opencode.db" ] && command -v sqlite3 >/dev/null 2>&1 && ! pgrep -x opencode >/dev/null 2>&1; then
+  sqlite3 "$HOME/.local/share/opencode/opencode.db" "DELETE FROM part WHERE session_id IN (SELECT id FROM session WHERE time_created < (strftime('%s','now') - 604800) * 1000); DELETE FROM message WHERE session_id IN (SELECT id FROM session WHERE time_created < (strftime('%s','now') - 604800) * 1000); DELETE FROM todo WHERE session_id IN (SELECT id FROM session WHERE time_created < (strftime('%s','now') - 604800) * 1000); DELETE FROM session WHERE time_created < (strftime('%s','now') - 604800) * 1000; VACUUM;" >/dev/null 2>&1 || true
 fi
 
 if [ "$used_pct" -ge 75 ]; then
@@ -842,13 +857,16 @@ EOF
 # Section 9 (Darwin workstation convergence) is defined here as a function and invoked
 # from the Darwin converge path below so it is actually reached.
 converge_darwin_workstation() {
-  # Netdata (macOS): bind the embedded web server to loopback only
+  # Netdata (macOS): bind the embedded web server to loopback only and silence unprivileged apps.plugin log flood
   NETDATA_CONF=/opt/homebrew/etc/netdata/netdata.conf
   if [ -f "$NETDATA_CONF" ] && [ -w "$NETDATA_CONF" ]; then
     if ! grep -qE '^[[:space:]]*bind to[[:space:]]*=[[:space:]]*127\.0\.0\.1' "$NETDATA_CONF"; then
       printf '\n[web]\n    bind to = 127.0.0.1\n' >> "$NETDATA_CONF"
-      if command -v netdatacli >/dev/null 2>&1; then netdatacli reload-health >/dev/null 2>&1 || true; fi
     fi
+    if ! grep -qE '^[[:space:]]*apps[[:space:]]*=[[:space:]]*no' "$NETDATA_CONF"; then
+      printf '\n[logs]\n    collector = none\n    access = none\n    level = error\n\n[plugins]\n    apps = no\n' >> "$NETDATA_CONF"
+    fi
+    if command -v netdatacli >/dev/null 2>&1; then netdatacli reload-health >/dev/null 2>&1 || true; fi
   fi
 
   if [ -d /opt/homebrew/etc/netdata/health.d ] && [ -w /opt/homebrew/etc/netdata/health.d ]; then
@@ -1134,7 +1152,7 @@ EOF
   <array>
     <string>/bin/sh</string>
     <string>-c</string>
-    <string>set -eu; if [ -n "\$(git -C "${HOME}/.agentskills" status --porcelain)" ]; then printf 'agent-skills sync skipped: working tree is dirty\n'; exit 0; fi; git -C "${HOME}/.agentskills" fetch origin main master; git -C "${HOME}/.agentskills" merge --ff-only origin/main 2>/dev/null || git -C "${HOME}/.agentskills" merge --ff-only origin/master</string>
+    <string>set -eu; dirty="\$(git -C "${HOME}/.agentskills" status --porcelain --untracked-files=no 2>/dev/null || true)"; if [ -n "\$dirty" ]; then printf 'agent-skills sync skipped: working tree is dirty\n'; exit 0; fi; git -C "${HOME}/.agentskills" fetch --quiet origin main; git -C "${HOME}/.agentskills" merge --ff-only origin/main</string>
   </array>
   <key>StartInterval</key>
   <integer>900</integer>
