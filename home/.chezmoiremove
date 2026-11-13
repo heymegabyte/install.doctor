@@ -143,3 +143,9 @@ Library/VirtualBox
 .claude/hooks/enforce-cloudflare-deploy.py
 .claude/hooks/guard-oversized-output.py
 .claude/hooks/guard-oversized-read.py
+# Legacy Vim Betelgeuse colorscheme paths inside colors/lists/ shadow $VIMRUNTIME/colors/lists/default.vim
+# and trigger E679 syncolor.vim recursion / SEGV in Vim 9+ (#78).
+.config/vim/colors/lists/default.vim
+.config/vim/colors/lists
+.vim/colors/lists/default.vim
+.vim/colors/lists
