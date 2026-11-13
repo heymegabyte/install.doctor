@@ -13,4 +13,4 @@
 ## 3. Verify and install
 
 - [x] 3.1 Run strict OpenSpec validation, shell syntax checks, and the focused supervisor lifecycle suite.
-- [ ] 3.2 Commit and publish the install.doctor slice, install the exact adapter, and verify scheduled and active live receipts without changing the fifteen-minute cadence.
+- [x] 3.2 Commit and publish the install.doctor slice, install the exact adapter, and verify scheduled and active live receipts without changing the fifteen-minute cadence.
