@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "state": "live-adoption-and-recovery-verified",
-  "installDoctorBaseRevision": "f38fd44a6fdb62afd98854245258643380f216fa",
+  "installDoctorBaseRevision": "053a030c7e46e7e75af51d46d81d052f32d9d190",
   "themeTools": {
     "revision": "e0cedcaee3926438e8d1dd75fb6572090bffc39a",
     "package": "@theme.tools/workflows",
@@ -13,7 +13,7 @@
     "revision": "ecc543670acec98b4f763ebc3f142381ad318ddf",
     "machineInterface": "scripts/convergence-machine.mjs",
     "machineInterfaceSha256": "a624ff2bcf571b2408a7f5e4715450c6196683bda08acfba229ddb00b0b49b36",
-    "hostAdapterSha256": "68da03027e2f6e62ad1092f62745fed4624aef5571168db8e0104a330eeecfaa",
+    "hostAdapterSha256": "b07ab264cca632b47dd0bdcfd29579bbba225673bdc37d505a7af737587a08ae",
     "machineInterfaceMode": "real-executable-disposable-state"
   },
   "liveInventory": {

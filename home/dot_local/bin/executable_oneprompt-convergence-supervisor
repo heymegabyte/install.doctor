@@ -148,7 +148,7 @@ status_service() {
   controller="$(machine_call status)" || exit $?
   if manager_active; then manager_state=active; else manager_state=inactive; fi
   verify_artifacts >/dev/null 2>&1 || compatible=false
-  node -e 'const c=JSON.parse(process.argv[1]); console.log(JSON.stringify({schemaVersion:2,logicalIdentity:process.argv[2],packageName:process.argv[3],packageVersion:process.argv[4],artifactSha256:process.argv[5],stateSchemaVersion:2,manager:process.argv[6],managerState:process.argv[7],artifactCompatible:process.argv[8]==="true",adoptionState:process.argv[9],controller:c,healthy:process.argv[8]==="true"&&process.argv[7]==="active"&&c.desiredMode==="running"&&c.workerLiveness==="live"&&c.heartbeatFreshness==="fresh"}))' "$controller" "$logical_identity" "$package_name" "$package_version" "$artifact_sha256" "$configured_manager" "$manager_state" "$compatible" "$adoption_state"
+  node -e 'const c=JSON.parse(process.argv[1]); console.log(JSON.stringify({schemaVersion:2,logicalIdentity:process.argv[2],packageName:process.argv[3],packageVersion:process.argv[4],artifactSha256:process.argv[5],stateSchemaVersion:2,manager:process.argv[6],managerState:process.argv[7],artifactCompatible:process.argv[8]==="true",adoptionState:process.argv[9],controller:c,healthy:process.argv[8]==="true"&&process.argv[7]==="active"&&c.desiredMode==="running"&&c.workerLiveness==="healthy"&&c.heartbeatFreshness==="fresh"&&c.progressLiveness==="current"&&c.processObservation==="alive"}))' "$controller" "$logical_identity" "$package_name" "$package_version" "$artifact_sha256" "$configured_manager" "$manager_state" "$compatible" "$adoption_state"
 }
 
 pause_service() { read_config; machine_call pause >/dev/null; manager_stop; }

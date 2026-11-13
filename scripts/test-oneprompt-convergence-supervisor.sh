@@ -75,6 +75,7 @@ run_tool stop; grep -q 'bootout-mode=stopped' "$CALLS" || fail stop-order; run_t
 pass 'SQLite intent precedes manager lifecycle and durable stop blocks start'
 
 status="$(run_tool status)"; node -e 'const s=JSON.parse(process.argv[1]); if(s.logicalIdentity!=="tools.theme.oneprompt.converge"||s.controller.desiredMode!=="stopped"||s.healthy!==false||s.packageVersion!=="1.0.0")process.exit(1)' "$status" || fail status
+grep -q 'c.workerLiveness==="healthy"' "$TOOL" || fail healthy-liveness-contract
 pass 'status separates controller, manager, and artifact evidence'
 
 CONFIG="$HOME_DIR/.local/state/oneprompt-convergence/host-adapter/config"; cp "$CONFIG" "$CONFIG.save"; sed -i.bak 's/^configured_machine_sha256=.*/configured_machine_sha256='"'"'bad'"'"'/' "$CONFIG"; if run_tool resume >/dev/null 2>&1; then fail drift; fi; mv "$CONFIG.save" "$CONFIG"; rm -f "$CONFIG.bak"
