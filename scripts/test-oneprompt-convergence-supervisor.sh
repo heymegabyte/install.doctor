@@ -11,7 +11,17 @@ ARTIFACT_SHA256="$(sed -n 's/^artifact_sha256="\([0-9a-f]*\)"/\1/p' "$TOOL")"
 cat >"$BIN_DIR/launchctl" <<'SH'
 #!/usr/bin/env bash
 set -eu; printf '%s\n' "$*" >>"$FAKE_MANAGER_CALLS"
-case "${1:-}" in print) test "$(cat "$FAKE_MANAGER_STATE" 2>/dev/null || true)" = active || exit 1; printf 'state = running\n';; bootstrap|kickstart) printf active >"$FAKE_MANAGER_STATE";; bootout) printf inactive >"$FAKE_MANAGER_STATE";; esac
+case "${1:-}" in
+  print)
+    case "$(cat "$FAKE_MANAGER_STATE" 2>/dev/null || true)" in
+      active) printf 'state = running\n';;
+      scheduled) printf 'state = not running\n';;
+      *) exit 1;;
+    esac
+    ;;
+  bootstrap|kickstart) printf active >"$FAKE_MANAGER_STATE";;
+  bootout) printf inactive >"$FAKE_MANAGER_STATE";;
+esac
 if test "${1:-}" = bootout; then if test -f "$FAKE_STATE_DB"; then mode="$(sqlite3 "$FAKE_STATE_DB" 'select desired_mode from convergence_state where singleton=1;' 2>/dev/null || printf absent)"; else mode=absent; fi; printf 'bootout-mode=%s\n' "$mode" >>"$FAKE_MANAGER_CALLS"; fi
 SH
 chmod +x "$BIN_DIR/launchctl"
@@ -70,6 +80,10 @@ pass 'corrupt SQLite state fails closed before manager observation'
 
 if run_tool start >/dev/null 2>&1; then fail stopped-start; fi
 run_tool resume; grep -q 'tools.theme.oneprompt.converge' "$CALLS" || fail canonical-start
+printf scheduled >"$MANAGER_STATE"
+scheduled_status="$(run_tool status)"
+node -e 'const s=JSON.parse(process.argv[1]);if(s.managerState!=="scheduled"||s.healthy!==true||s.controller.desiredMode!=="running"||s.controller.currentOwner!==null||s.controller.workerLiveness!=="waiting")process.exit(1)' "$scheduled_status" || fail scheduled-waiting-health
+pass 'loaded timer between bounded passes is scheduled and healthy without claiming an active worker'
 run_tool pause; grep -q 'bootout-mode=paused' "$CALLS" || fail pause-order; run_tool status | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{if(JSON.parse(s).controller.desiredMode!=="paused")process.exit(1)})' || fail pause-first; test "$(cat "$MANAGER_STATE")" = inactive || fail manager-stop
 run_tool stop; grep -q 'bootout-mode=stopped' "$CALLS" || fail stop-order; run_tool status | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{if(JSON.parse(s).controller.desiredMode!=="stopped")process.exit(1)})' || fail stop-first
 pass 'SQLite intent precedes manager lifecycle and durable stop blocks start'
@@ -96,6 +110,11 @@ chmod +x "$BIN_LINUX/systemctl"
 env HOME="$HOME_LINUX" PATH="$BIN_LINUX:$NODE_DIR:/usr/bin:/bin" XDG_STATE_HOME="$HOME_LINUX/.local/state" ONEPROMPT_SUPERVISOR_MANAGER=systemd FAKE_SYSTEMD_CALLS="$SYS_CALLS" "$TOOL" install --repo "$REPO" --machine-interface "$MACHINE" --revision "$REVISION" >/dev/null
 UNIT="$HOME_LINUX/.config/systemd/user/tools.theme.oneprompt.converge.service"; test -f "$UNIT" || fail systemd; grep -q '^Restart=no$' "$UNIT" || fail restart; test ! -s "$SYS_CALLS" || fail systemd-inert
 pass 'systemd definition is canonical and inert'
+run_linux() { env HOME="$HOME_LINUX" PATH="$BIN_LINUX:$NODE_DIR:/usr/bin:/bin" XDG_STATE_HOME="$HOME_LINUX/.local/state" ONEPROMPT_SUPERVISOR_MANAGER=systemd FAKE_SYSTEMD_CALLS="$SYS_CALLS" "$TOOL" "$@"; }
+run_linux resume >/dev/null
+linux_scheduled_status="$(run_linux status)"
+node -e 'const s=JSON.parse(process.argv[1]);if(s.manager!=="systemd"||s.managerState!=="scheduled"||s.healthy!==true||s.controller.workerLiveness!=="waiting")process.exit(1)' "$linux_scheduled_status" || fail systemd-scheduled-health
+pass 'enabled systemd timer between bounded passes is scheduled and healthy'
 
 if grep -R -E '(TOKEN|SECRET|PASSWORD)=' "$PLIST" "$UNIT" 2>/dev/null; then fail secrets; fi
 pass 'definitions contain no secret environment'
