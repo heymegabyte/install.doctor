@@ -1,4 +1,49 @@
-set runtimepath=~/.config/vim,~/.config/vim/autoload,~/.config/vim/colors,$VIMRUNTIME,$VIM
+" XDG Base Directory paths — prepend user config without clobbering $VIMRUNTIME or built-in packages (#78)
+let s:xdg_config_home = empty($XDG_CONFIG_HOME) ? expand('~/.config') : expand($XDG_CONFIG_HOME)
+let s:xdg_data_home = empty($XDG_DATA_HOME) ? expand('~/.local/share') : expand($XDG_DATA_HOME)
+let s:xdg_state_home = empty($XDG_STATE_HOME) ? expand('~/.local/state') : expand($XDG_STATE_HOME)
+let s:vim_config_dir = s:xdg_config_home . '/vim'
+let s:vim_data_dir = s:xdg_data_home . '/vim'
+let s:vim_state_dir = s:xdg_state_home . '/vim'
+
+if isdirectory(s:vim_config_dir) && index(split(&runtimepath, ','), s:vim_config_dir) < 0
+  execute 'set runtimepath^=' . fnameescape(s:vim_config_dir)
+endif
+if isdirectory(s:vim_config_dir . '/after') && index(split(&runtimepath, ','), s:vim_config_dir . '/after') < 0
+  execute 'set runtimepath+=' . fnameescape(s:vim_config_dir . '/after')
+endif
+
+" Load vim-plug plugins only when autoload/plug.vim is present and before filetype/syntax/colorscheme (#78)
+let s:plug_file = s:vim_config_dir . '/autoload/plug.vim'
+let s:plugged_dir = s:vim_data_dir . '/plugged'
+if filereadable(s:plug_file)
+  call plug#begin(s:plugged_dir)
+  if isdirectory(s:plugged_dir . '/ale')
+    Plug s:plugged_dir . '/ale'
+  endif
+  if isdirectory(s:plugged_dir . '/fzf.vim')
+    Plug s:plugged_dir . '/fzf.vim'
+  endif
+  if isdirectory(s:plugged_dir . '/fzf')
+    Plug s:plugged_dir . '/fzf', { 'do': { -> fzf#install() } }
+  endif
+  if isdirectory(s:plugged_dir . '/nerdtree')
+    Plug s:plugged_dir . '/nerdtree'
+  endif
+  if isdirectory(s:plugged_dir . '/vim-fugitive')
+    Plug s:plugged_dir . '/vim-fugitive'
+  endif
+  if isdirectory(s:plugged_dir . '/vim-gitgutter')
+    Plug s:plugged_dir . '/vim-gitgutter'
+  endif
+  if isdirectory(s:plugged_dir . '/vim-sensible')
+    Plug s:plugged_dir . '/vim-sensible'
+  endif
+  if isdirectory(s:plugged_dir . '/vim-surround')
+    Plug s:plugged_dir . '/vim-surround'
+  endif
+  call plug#end()
+endif
 
 " Sets how many lines of history VIM has to remember
 set history=500
@@ -261,12 +306,17 @@ map <leader>e :e! ~/.vim_runtime/my_configs.vim<cr>
 autocmd! bufwritepost ~/.vim_runtime/my_configs.vim source ~/.vim_runtime/my_configs.vim
 
 
-" Turn persistent undo on means that you can undo even when you close a buffer/VIM
-try
-    set undodir=~/.config/.vim/temp_dirs/undodir
+" Turn persistent undo on in XDG state directory so undo survives buffer/Vim restarts (#78)
+if has('persistent_undo')
+  let s:vim_undo_dir = s:vim_state_dir . '/undo'
+  if !isdirectory(s:vim_undo_dir)
+    silent! call mkdir(s:vim_undo_dir, 'p', 0700)
+  endif
+  if isdirectory(s:vim_undo_dir)
+    let &undodir = s:vim_undo_dir
     set undofile
-catch
-endtry
+  endif
+endif
 
 " Parenthesis/bracket
 vnoremap $1 <esc>`>a)<esc>`<i(<esc>
@@ -341,7 +391,10 @@ autocmd FileType yaml setlocal ts=2 sts=2 sw=2 expandtab
 
 syntax enable
 set background=dark
-colorscheme Betelgeuse
+try
+  colorscheme Betelgeuse
+catch /^Vim\%((\a\+)\)\=:E185/
+endtry
 let g:lightline = {
     \ 'colorscheme': 'Betelgeuse',
     \ 'active': {
@@ -356,20 +409,14 @@ let g:lightline = {
 autocmd FileType json syntax match Comment +\/\/.\+$+
 set encoding=UTF-8
 
-" Set location of viminfo file
-if !has('nvim')
-  set viminfo+=n~/.config/vim/viminfo
-else
-  set viminfo+=n~/.config/vim/nvimshada
+" Store viminfo in XDG state directory so $HOME/.viminfo is never created
+if !isdirectory(s:vim_state_dir)
+  silent! call mkdir(s:vim_state_dir, 'p', 0700)
 endif
-
-silent! call plug#begin('~/.local/share/vim/plugged')
-Plug '~/.local/share/vim/plugged/ale'
-Plug '~/.local/share/vim/plugged/fzf.vim'
-Plug '~/.local/share/vim/plugged/fzf', { 'do': { -> fzf#install() } }
-Plug '~/.local/share/vim/plugged/nerdtree'
-Plug '~/.local/share/vim/plugged/vim-fugitive'
-Plug '~/.local/share/vim/plugged/vim-gitgutter'
-Plug '~/.local/share/vim/plugged/vim-sensible'
-Plug '~/.local/share/vim/plugged/vim-surround'
-call plug#end()
+if !has('nvim')
+  if exists('+viminfofile')
+    let &viminfofile = s:vim_state_dir . '/viminfo'
+  else
+    execute 'set viminfo+=n' . fnameescape(s:vim_state_dir . '/viminfo')
+  endif
+endif
