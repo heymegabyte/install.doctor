@@ -10,10 +10,10 @@
     "stateSchemaVersion": 2
   },
   "onePrompt": {
-    "revision": "737dc3df58786ce0a1281e3866bb3c5698450860",
+    "revision": "376be83a6b0d606a7ca3f51e0c2fe4b5fe9eae1d",
     "machineInterface": "scripts/convergence-machine.mjs",
     "machineInterfaceSha256": "a624ff2bcf571b2408a7f5e4715450c6196683bda08acfba229ddb00b0b49b36",
-    "hostAdapterSha256": "42987c733b3d51cd4eb0aa8d2ce6297fec7ff4e8d3b0fed790007b9a8f094d19",
+    "hostAdapterSha256": "679ecc0aa3020a3cb1355f8277218bcbc82c4ca60e79ba74274aa2a37b595362",
     "machineInterfaceMode": "real-executable-disposable-state"
   },
   "liveInventory": {
@@ -49,9 +49,9 @@
     },
     "repository": {
       "path": "/Users/Apple/emdash/repositories/oneprompt.site-2",
-      "observedRevision": "737dc3df58786ce0a1281e3866bb3c5698450860",
-      "observedInstalledCompatibleRevision": "737dc3df58786ce0a1281e3866bb3c5698450860",
-      "sourceAdapterNextCompatibleRevision": "737dc3df58786ce0a1281e3866bb3c5698450860",
+      "observedRevision": "376be83a6b0d606a7ca3f51e0c2fe4b5fe9eae1d",
+      "observedInstalledCompatibleRevision": "376be83a6b0d606a7ca3f51e0c2fe4b5fe9eae1d",
+      "sourceAdapterNextCompatibleRevision": "376be83a6b0d606a7ca3f51e0c2fe4b5fe9eae1d",
       "workingTreeHasUserOwnedChange": true
     },
     "discrepancies": [],
