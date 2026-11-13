@@ -149,7 +149,7 @@ fi
 # fi
 
 ### VIM
-export GVIMINIT='source $MYGVIMRC'
 export MYGVIMRC="${XDG_CONFIG_HOME:-$HOME/.config}/vim/gvimrc"
-export VIMINIT='source $MYVIMRC'
+export GVIMINIT='if !has("nvim") && filereadable($MYGVIMRC) | source $MYGVIMRC | endif'
 export MYVIMRC="${XDG_CONFIG_HOME:-$HOME/.config}/vim/vimrc"
+export VIMINIT='if !has("nvim") && filereadable($MYVIMRC) | source $MYVIMRC | endif'
