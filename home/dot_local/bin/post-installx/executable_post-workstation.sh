@@ -743,10 +743,27 @@ fi
 if [ -d "$HOME/.codex/sessions" ]; then
   find "$HOME/.codex/sessions" -type f -mtime +7 -delete 2>/dev/null || true
 fi
+if command -v sqlite3 >/dev/null 2>&1 && ! pgrep -x codex >/dev/null 2>&1; then
+  for _cdb in "$HOME/.codex"/thread_history_*.sqlite "$HOME/.codex"/state_*.sqlite "$HOME/.codex"/logs_*.sqlite; do
+    if [ -f "$_cdb" ]; then
+      sqlite3 "$_cdb" "PRAGMA wal_checkpoint(TRUNCATE); VACUUM;" >/dev/null 2>&1 || true
+    fi
+  done
+fi
+if [ -f "$HOME/.openclaw/agents/main/agent/openclaw-agent.sqlite" ] && command -v sqlite3 >/dev/null 2>&1; then
+  sqlite3 "$HOME/.openclaw/agents/main/agent/openclaw-agent.sqlite" "DELETE FROM session_nodes WHERE (session_key LIKE '%smoke%' OR session_key LIKE '%probe%') AND updated_at < (strftime('%s','now') - 1209600) * 1000; PRAGMA wal_checkpoint(TRUNCATE);" >/dev/null 2>&1 || true
+fi
+if command -v docker >/dev/null 2>&1 && docker inspect -f '{{.State.Running}}' agent-paperclip-database-1 2>/dev/null | grep -q true; then
+  docker exec agent-paperclip-database-1 psql -U paperclip -d paperclip -c "DELETE FROM secret_access_events WHERE created_at < NOW() - INTERVAL '14 days'; DELETE FROM agent_wakeup_requests WHERE created_at < NOW() - INTERVAL '14 days'; VACUUM (ANALYZE);" >/dev/null 2>&1 || true
+fi
 if [ -f "$HOME/.local/share/opencode/opencode.db" ] && command -v sqlite3 >/dev/null 2>&1 && ! pgrep -x opencode >/dev/null 2>&1; then
   sqlite3 "$HOME/.local/share/opencode/opencode.db" "DELETE FROM part WHERE session_id IN (SELECT id FROM session WHERE time_created < (strftime('%s','now') - 604800) * 1000); DELETE FROM message WHERE session_id IN (SELECT id FROM session WHERE time_created < (strftime('%s','now') - 604800) * 1000); DELETE FROM todo WHERE session_id IN (SELECT id FROM session WHERE time_created < (strftime('%s','now') - 604800) * 1000); DELETE FROM session WHERE time_created < (strftime('%s','now') - 604800) * 1000; VACUUM;" >/dev/null 2>&1 || true
 fi
 
+if [ "$used_pct" -ge 70 ] && command -v docker >/dev/null 2>&1; then
+  docker volume prune -f >/dev/null 2>&1 || true
+  docker image prune -f >/dev/null 2>&1 || true
+fi
 if [ "$used_pct" -ge 75 ]; then
   command -v npm >/dev/null 2>&1 && npm cache clean --force >/dev/null 2>&1 || true
 fi
@@ -2949,6 +2966,8 @@ EOF
     run_root install -d -m 0755 /etc/systemd/system/warp-svc.service.d
     printf '[Service]\nLogLevelMax=warning\n' > "$TMP_DIR/warp-quiet-debug.conf"
     run_root install -m 0644 "$TMP_DIR/warp-quiet-debug.conf" /etc/systemd/system/warp-svc.service.d/quiet-debug.conf
+    printf '[Service]\nMemoryHigh=384M\nMemoryMax=512M\n' > "$TMP_DIR/warp-memory-cap.conf"
+    run_root install -m 0644 "$TMP_DIR/warp-memory-cap.conf" /etc/systemd/system/warp-svc.service.d/memory-cap.conf
     run_root systemctl daemon-reload >/dev/null 2>&1 || true
   fi
   if command -v ufw >/dev/null 2>&1; then
@@ -3720,10 +3739,23 @@ After=network-online.target
 
 [Service]
 Type=oneshot
-ExecStart=/bin/sh -c 'set -eu; if [ -n "$(git -C "$HOME/.agentskills" status --porcelain)" ]; then printf "agent-skills sync skipped: working tree is dirty\\n"; exit 0; fi; git -C "$HOME/.agentskills" fetch origin main master; git -C "$HOME/.agentskills" merge --ff-only origin/main 2>/dev/null || git -C "$HOME/.agentskills" merge --ff-only origin/master'
+ExecStart=/bin/sh -c 'set -eu; if [ -n "$(git -C "$HOME/.agentskills" status --porcelain --untracked-files=no 2>/dev/null || true)" ]; then printf "agent-skills sync skipped: working tree is dirty\\n"; exit 0; fi; git -C "$HOME/.agentskills" config remote.origin.fetch "+refs/heads/*:refs/remotes/origin/*" 2>/dev/null || true; git -C "$HOME/.agentskills" fetch --quiet origin main; git -C "$HOME/.agentskills" merge --ff-only origin/main'
 Environment="PATH=%h/.local/bin:%h/.cache/cnf/shims:/usr/local/bin:/usr/bin:/bin"
 UMask=0077
 EOF
+  if [ -f "$HOME/.config/systemd/user/openclaw-gateway.service" ]; then
+    mkdir -p "$HOME/.config/systemd/user/openclaw-gateway.service.d"
+    cat > "$HOME/.config/systemd/user/openclaw-gateway.service.d/heap-cap.conf" <<'EOF'
+[Service]
+Environment="NODE_OPTIONS=--max-old-space-size=2048"
+MemoryHigh=1536M
+MemoryMax=2560M
+EOF
+    cat > "$HOME/.config/systemd/user/openclaw-gateway.service.d/swap-cap.conf" <<'EOF'
+[Service]
+MemorySwapMax=1G
+EOF
+  fi
   cat > "$HOME/.config/systemd/user/agent-skills-sync.timer" <<'EOF'
 [Unit]
 Description=Periodic canonical skill synchronization (not project scheduling)
