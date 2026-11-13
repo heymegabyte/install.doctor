@@ -6,7 +6,7 @@
   "scripts": {
     "build": "stencil build --prerender --ci",
     "build:docs": "cd docs && npm ci --force && npm run build",
-    "build:noscript": "rm src/global/style.scss && cd src/global && ln -s style-offline.scss style.scss && cd ../.. && npm run build && cp www/build/site.css src/site-noscript.css && cd src/global && rm style.scss && ln -s style-default.scss style.scss && cd ../..",
+    "build:noscript": "node scripts/build-noscript.mjs",
     "build:prod": "npm run build:docs && npm run build:noscript && npm run build",
     "deploy": "npm run build:prod && firebase deploy",
     "start": "stencil build --dev --watch --serve --ssr"

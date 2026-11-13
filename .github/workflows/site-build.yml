@@ -1,0 +1,86 @@
+name: "Validate Site on Windows"
+
+on:
+  push:
+    branches:
+      - main
+      - master
+    paths:
+      - ".github/workflows/site-build.yml"
+      - "site/**"
+  pull_request:
+    paths:
+      - ".github/workflows/site-build.yml"
+      - "site/**"
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  windows-build:
+    name: Standalone & docs prebuild (Windows)
+    runs-on: windows-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: site
+        shell: pwsh
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          submodules: false
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+          cache: "npm"
+          cache-dependency-path: site/package-lock.json
+
+      - name: Install site dependencies
+        run: npm ci --force
+
+      - name: Build standalone Stencil site without docs/build
+        run: |
+          npm run build -- --max-workers=2
+          if (-not (Test-Path -LiteralPath "www/index.html")) {
+            throw "Expected site/www/index.html to be generated"
+          }
+          if ((Get-Item -LiteralPath "www/index.html").Length -le 0) {
+            throw "Expected site/www/index.html to be non-empty"
+          }
+
+      - name: Build offline noscript stylesheet without symlink mutation
+        run: |
+          npm run build:noscript -- --max-workers=2
+          if (-not (Test-Path -LiteralPath "src/site-noscript.css")) {
+            throw "Expected site/src/site-noscript.css to be generated"
+          }
+          git diff --exit-code -- src/global/style.scss
+
+      - name: Verify prebuilt docs copy when docs/build is present
+        run: |
+          node -e "const fs = require('fs'); fs.mkdirSync('docs/build', { recursive: true }); fs.writeFileSync('docs/build/copy-check.txt', 'ok\n');"
+          npx stencil build --dev --ssr --max-workers=2
+          if (-not (Test-Path -LiteralPath "www/docs/copy-check.txt")) {
+            throw "Expected site/www/docs/copy-check.txt to be copied when site/docs/build exists"
+          }
+
+      - name: Verify cross-platform docs markdown mirror on Windows
+        run: |
+          node docs/scripts/prebuild.mjs
+          if (-not (Test-Path -LiteralPath "docs/docs/index.md")) {
+            throw "Expected site/docs/docs/index.md to be mirrored"
+          }
+          $cliCount = (Get-ChildItem -LiteralPath "docs/docs/cli/commands" -Filter "*.md").Count
+          if ($cliCount -le 0) {
+            throw "Expected site/docs/docs/cli/commands to contain generated CLI command docs"
+          }

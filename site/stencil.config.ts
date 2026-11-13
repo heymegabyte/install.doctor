@@ -1,3 +1,5 @@
+import { existsSync } from 'fs';
+import { join } from 'path';
 import { Config } from '@stencil/core';
 import { sass } from '@stencil/sass';
 
@@ -8,7 +10,10 @@ export const config: Config = {
     openBrowser: false,
     // logRequests: true,
   },
-  globalStyle: './src/global/style.scss',
+  globalStyle:
+    process.env.SITE_NOSCRIPT === '1'
+      ? './src/global/style-offline.scss'
+      : './src/global/style-default.scss',
   namespace: 'site',
   outputTargets: [
     {
@@ -28,10 +33,14 @@ export const config: Config = {
         ],
       },
       copy: [
-        {
-          src: '../docs/build',
-          dest: 'docs',
-        },
+        ...(existsSync(join(__dirname, 'docs', 'build'))
+          ? [
+              {
+                src: '../docs/build',
+                dest: 'docs',
+              },
+            ]
+          : []),
         {
           src: './android-chrome-192x192.png',
           dest: 'android-chrome-192x192.png',

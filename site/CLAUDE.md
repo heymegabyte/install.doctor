@@ -30,3 +30,17 @@ If multiple overlays appear possible, choose the closest one, state the assumpti
 - Conversion paths, CTA flows, and trust/safety explanation content
 - Docs publishing, examples, and visual walkthroughs
 - SEO/performance and deployment documentation
+
+## Cross-Platform Local Build (Windows PowerShell, macOS, Linux)
+
+From `site/` on Node 20 or Node 22 (`core.symlinks` not required; prebuilt `site/docs/build` optional for standalone marketing builds):
+
+```powershell
+npm ci --force
+npm run build        # Prerenders marketing site into site/www/ even without site/docs/build
+npm start            # Starts dev SSR server (--dev --watch --serve --ssr)
+npm run build:noscript
+npm run build:docs   # Uses bash/shdoc/task on POSIX CI; falls back to Node ESM mirror on Windows
+```
+
+Keep local site build instructions in `site/CLAUDE.md` rather than adding a standalone README file inside `site/` (so case-insensitive Windows/macOS filesystems remain clean under `scripts/test-inherited-capacitor-site-docs.sh`).
