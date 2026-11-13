@@ -1,6 +1,10 @@
-# OnePrompt convergence supervisor health
+# oneprompt-convergence-supervisor-health Specification
 
-## ADDED Requirements
+## Purpose
+
+Defines trustworthy portable health reporting for bounded convergence workers that alternate between active execution and timer-scheduled waiting.
+
+## Requirements
 
 ### Requirement: Timer-scheduled waiting is observable independently from active execution
 
