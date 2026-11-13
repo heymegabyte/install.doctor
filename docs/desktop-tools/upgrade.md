@@ -47,6 +47,6 @@ openspec validate desktop-tools-50-initiative-program --strict
 ```
 
 These checks prove repository consistency, not a production upgrade. Follow
-[`../operations/bootstrap-release.md`](../operations/bootstrap-release.md) for authorized release
+[`docs/operations/bootstrap-release.md`](/docs/operations/bootstrap-release) for authorized release
 operations and preserve every failed, blocked, skipped, or pending canary outcome honestly.
 
