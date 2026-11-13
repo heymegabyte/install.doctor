@@ -82,7 +82,7 @@ inference inputs, surplus artifacts, wrong-host material, and unsafe local execu
 - A resumed run must match the original plan, host facts, release, locks, and journal identity.
 - Deprovision is preview-only unless a separate admitted implementation says otherwise; user-owned,
   modified, unsupported, and unowned resources are preserved.
-- For Zen, use [`../operations/zen-rpool-recovery.md`](../operations/zen-rpool-recovery.md). Do not
+- For Zen, use [`docs/operations/zen-rpool-recovery.md`](/docs/operations/zen-rpool-recovery). Do not
   clear errors, force-import, detach, replace, or recreate the pool from generic automation.
 
 ## Platform fixtures
