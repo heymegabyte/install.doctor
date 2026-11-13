@@ -661,11 +661,28 @@ used_pct="${used_pct:-0}"
 command -v pnpm >/dev/null 2>&1 && pnpm store prune >/dev/null 2>&1 || true
 command -v uv >/dev/null 2>&1 && uv cache prune >/dev/null 2>&1 || true
 
-if [ -d "$HOME/.cache/megabyte/packages/npm" ]; then
-  find "$HOME/.cache/megabyte/packages/npm" -type f -mtime +14 -delete 2>/dev/null || true
+if [ -d "$HOME/.cache/megabyte/packages" ]; then
+  find "$HOME/.cache/megabyte/packages" -type f -mtime +14 -delete 2>/dev/null || true
+  find "$HOME/.cache/megabyte/packages" -mindepth 1 -type d -empty -delete 2>/dev/null || true
 fi
-if [ -d "$HOME/.cache/megabyte/local-proxy/meta" ]; then
-  find "$HOME/.cache/megabyte/local-proxy/meta" -type f ! -name '*.json' -delete 2>/dev/null || true
+if [ -d "$HOME/.cache/megabyte/local-proxy" ]; then
+  find "$HOME/.cache/megabyte/local-proxy" -type f -mtime +14 -delete 2>/dev/null || true
+  if [ -d "$HOME/.cache/megabyte/local-proxy/meta" ]; then
+    find "$HOME/.cache/megabyte/local-proxy/meta" -type f ! -name '*.json' -delete 2>/dev/null || true
+  fi
+  find "$HOME/.cache/megabyte/local-proxy" -mindepth 1 -type d -empty -delete 2>/dev/null || true
+fi
+if [ -d "$HOME/.codex/.tmp" ]; then
+  find "$HOME/.codex/.tmp" -mindepth 1 -mtime +1 -exec rm -rf {} + 2>/dev/null || true
+fi
+if [ -d "$HOME/.paperclip/instances" ]; then
+  find "$HOME/.paperclip/instances" -path '*/data/run-logs/*' -type f -mtime +14 -delete 2>/dev/null || true
+  find "$HOME/.paperclip/instances" -maxdepth 3 -path '*/data/*.bak-*' -type f -mtime +3 -delete 2>/dev/null || true
+  for wt_dir in "$HOME"/.paperclip/instances/*/projects/*/*/*/.paperclip/worktrees; do
+    if [ -d "$wt_dir" ]; then
+      find "$wt_dir" -mindepth 1 -maxdepth 1 -mtime +3 -exec rm -rf {} + 2>/dev/null || true
+    fi
+  done
 fi
 if command -v mise >/dev/null 2>&1 && [ -d "$HOME/.local/share/volta" ]; then
   find "$HOME/.local/share/volta" -delete 2>/dev/null || true
