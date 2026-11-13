@@ -56,7 +56,7 @@ Set the following environment variables to run it non-interactively:
 |-------------------------|-----------------------------------------------------------------------------------|
 | `VAGRANT_PROVIDER`      | Skip the provider prompt by naming the provider (e.g. `libvirt` or `virtualbox`)  |
 | `VAGRANT_NODE`          | Only bring up the named node from the `Vagrantfile` (e.g. `ukdah`)                |
-| `INSTALL_DOCTOR_REPO`   | Clone a fork instead of `megabyte-labs/install.doctor` (in `owner/name` form)     |
+| `INSTALL_DOCTOR_REPO`   | Clone a fork instead of `heymegabyte/install.doctor` (in `owner/name` form)     |
 | `INSTALL_DOCTOR_DIR`    | Directory the repository is cloned into (defaults to `$HOME/.install-doctor`)     |
 
 For example:

@@ -27,7 +27,7 @@
 #     |---------------------------|----------------------------------------------------------------------------------------------|
 #     | `VAGRANT_PROVIDER`        | Override the auto-detected provider (e.g. `libvirt`, `virtualbox`, `vmware_desktop`)          |
 #     | `VAGRANT_NODE`            | Only bring up the named node from the `Vagrantfile` (e.g. `ukdah`)                            |
-#     | `INSTALL_DOCTOR_REPO`     | Repository to clone, in `owner/name` form (defaults to `megabyte-labs/install.doctor`)        |
+#     | `INSTALL_DOCTOR_REPO`     | Repository to clone, in `owner/name` form (defaults to `heymegabyte/install.doctor`)        |
 #     | `INSTALL_DOCTOR_DIR`      | Directory the repository is cloned into (defaults to `$HOME/.install-doctor`)                 |
 #     | `INSTALL_DOCTOR_BRANCH`   | Branch to check out during the clone (defaults to `master`)                                   |
 #
@@ -46,7 +46,7 @@
 
 set -eo pipefail
 
-INSTALL_DOCTOR_REPO="${INSTALL_DOCTOR_REPO:-megabyte-labs/install.doctor}"
+INSTALL_DOCTOR_REPO="${INSTALL_DOCTOR_REPO:-heymegabyte/install.doctor}"
 INSTALL_DOCTOR_DIR="${INSTALL_DOCTOR_DIR:-$HOME/.install-doctor}"
 INSTALL_DOCTOR_BRANCH="${INSTALL_DOCTOR_BRANCH:-master}"
 REPO_URL="https://github.com/$INSTALL_DOCTOR_REPO.git"
@@ -264,6 +264,8 @@ VAGRANT_PROVIDER="${VAGRANT_PROVIDER:-}"
 selectProvider
 ensureVagrant
 ensureRepository
+
+cd "$VAGRANT_DIR"
 
 logg info "Starting the virtual machine with the $VAGRANT_PROVIDER provider"
 if [ -n "$VAGRANT_NODE" ]; then
