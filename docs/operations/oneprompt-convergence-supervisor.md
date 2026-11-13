@@ -2,15 +2,21 @@
 
 install.doctor owns only the portable service-manager boundary. OnePrompt owns the controller machine interface and bounded worker; `@theme.tools/workflows` owns fenced SQLite state.
 
-Pinned compatibility: OnePrompt `71cd170b518452af3702fe4229de393506f58021`; machine-interface SHA-256 `a624ff2bcf571b2408a7f5e4715450c6196683bda08acfba229ddb00b0b49b36`; workflows `1.0.0` at SHA-256 `ecdd6446a0c3aae7574514a1959f24bd83a6ff02e8f81ae9e012dd6af6dd216c`; state schema 2; service identity `tools.theme.oneprompt.converge`.
+Pinned compatibility: OnePrompt `c210b088be847e8fdd6a941dd4500bb22aa46471`; machine-interface SHA-256 `a624ff2bcf571b2408a7f5e4715450c6196683bda08acfba229ddb00b0b49b36`; workflows `1.0.0` at SHA-256 `ecdd6446a0c3aae7574514a1959f24bd83a6ff02e8f81ae9e012dd6af6dd216c`; state schema 2; service identity `tools.theme.oneprompt.converge`.
 
 ```bash
 oneprompt-convergence-supervisor install --repo /absolute/oneprompt.site-2 \
   --machine-interface /absolute/controller-machine \
-  --revision 71cd170b518452af3702fe4229de393506f58021
+  --revision c210b088be847e8fdd6a941dd4500bb22aa46471
 ```
 
 Install is byte-stable and inert. The controller executable receives `install|status|verify|pause|resume|stop --json --migration-mode safe|forbid`, reads `ONEPROMPT_CONVERGENCE_STATE_DIR`, and returns JSON. Only install may use safe migration. Pause/stop commit SQLite intent before manager termination. Start never clears durable intent; resume explicitly transitions to running after artifact and definition revalidation.
+
+The generated launchd and systemd definitions pin the operator's conventional
+`XDG_CACHE_HOME`, `XDG_CONFIG_HOME`, and `XDG_DATA_HOME` locations. This keeps
+offline package verification attached to the same bounded pnpm metadata/cache
+store after an interactive shell detaches; no credential value is copied into
+the service definition.
 
 Status keeps manager, worker, heartbeat, progress, checkpoint, blockers, budgets, and artifact evidence separate. `managerState: active` means a bounded worker is executing; `managerState: scheduled` means the canonical launchd job or systemd timer is loaded between invocations; `managerState: inactive` means no admitted schedule was observed. A scheduled service is healthy only with compatible artifacts, durable `running` intent, no current owner, and `workerLiveness: waiting`. Logs are diagnostic only. Uninstall removes only an unchanged adapter-managed definition and retains stopped state.
 

@@ -7,7 +7,7 @@ legacy_identity="com.heymegabyte.oneprompt-convergence"
 package_name="@theme.tools/workflows"
 package_version="1.0.0"
 artifact_sha256="ecdd6446a0c3aae7574514a1959f24bd83a6ff02e8f81ae9e012dd6af6dd216c"
-oneprompt_revision="71cd170b518452af3702fe4229de393506f58021"
+oneprompt_revision="c210b088be847e8fdd6a941dd4500bb22aa46471"
 state_schema_version="2"
 state_root="${ONEPROMPT_CONVERGENCE_STATE_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/oneprompt-convergence}"
 config_root="$state_root/host-adapter"
@@ -64,7 +64,7 @@ render_definition() {
   if test "$manager_name" = launchd; then
     write_atomic "$definition" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
-<plist version="1.0"><dict><key>Label</key><string>$logical_identity</string><key>ProgramArguments</key><array><string>$(command -v node)</string><string>$worker</string></array><key>WorkingDirectory</key><string>$repo</string><key>EnvironmentVariables</key><dict><key>HOME</key><string>$HOME</string><key>PATH</key><string>$node_path</string><key>ONEPROMPT_CONVERGENCE_STATE_DIR</key><string>$state_root</string></dict><key>RunAtLoad</key><false/><key>KeepAlive</key><false/><key>StartInterval</key><integer>900</integer><key>StandardOutPath</key><string>$log_file</string><key>StandardErrorPath</key><string>$log_file</string></dict></plist>
+<plist version="1.0"><dict><key>Label</key><string>$logical_identity</string><key>ProgramArguments</key><array><string>$(command -v node)</string><string>$worker</string></array><key>WorkingDirectory</key><string>$repo</string><key>EnvironmentVariables</key><dict><key>HOME</key><string>$HOME</string><key>PATH</key><string>$node_path</string><key>XDG_CACHE_HOME</key><string>$HOME/.cache</string><key>XDG_CONFIG_HOME</key><string>$HOME/.config</string><key>XDG_DATA_HOME</key><string>$HOME/.local/share</string><key>ONEPROMPT_CONVERGENCE_STATE_DIR</key><string>$state_root</string></dict><key>RunAtLoad</key><false/><key>KeepAlive</key><false/><key>StartInterval</key><integer>900</integer><key>StandardOutPath</key><string>$log_file</string><key>StandardErrorPath</key><string>$log_file</string></dict></plist>
 EOF
   else
     write_atomic "$definition" <<EOF
@@ -75,6 +75,9 @@ Type=exec
 WorkingDirectory=$repo
 ExecStart=$(command -v node) $worker
 Environment=ONEPROMPT_CONVERGENCE_STATE_DIR=$state_root
+Environment=XDG_CACHE_HOME=$HOME/.cache
+Environment=XDG_CONFIG_HOME=$HOME/.config
+Environment=XDG_DATA_HOME=$HOME/.local/share
 Restart=no
 TimeoutStopSec=3
 [Install]

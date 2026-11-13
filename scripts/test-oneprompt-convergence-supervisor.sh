@@ -34,6 +34,9 @@ first="$(shasum -a 256 "$PLIST"|awk '{print $1}')"; run_tool install --repo "$RE
 plutil -extract StartInterval raw "$PLIST" | grep -qx '900' || fail launchd-interval
 plutil -extract EnvironmentVariables.PATH raw "$PLIST" | grep -q "$(dirname "$(command -v node)")" || fail launchd-node-path
 plutil -extract EnvironmentVariables.PATH raw "$PLIST" | grep -q '/opt/homebrew/bin' || fail launchd-subscription-cli-path
+test "$(plutil -extract EnvironmentVariables.XDG_CACHE_HOME raw "$PLIST")" = "$HOME_DIR/.cache" || fail launchd-cache-home
+test "$(plutil -extract EnvironmentVariables.XDG_CONFIG_HOME raw "$PLIST")" = "$HOME_DIR/.config" || fail launchd-config-home
+test "$(plutil -extract EnvironmentVariables.XDG_DATA_HOME raw "$PLIST")" = "$HOME_DIR/.local/share" || fail launchd-data-home
 pass 'install is canonical, byte-stable, and inert'
 : >"$CALLS"
 
@@ -126,6 +129,9 @@ SH
 chmod +x "$BIN_LINUX/systemctl"
 env HOME="$HOME_LINUX" PATH="$BIN_LINUX:$NODE_DIR:/usr/bin:/bin" XDG_STATE_HOME="$HOME_LINUX/.local/state" ONEPROMPT_SUPERVISOR_MANAGER=systemd FAKE_SYSTEMD_CALLS="$SYS_CALLS" "$TOOL" install --repo "$REPO" --machine-interface "$MACHINE" --revision "$REVISION" >/dev/null
 UNIT="$HOME_LINUX/.config/systemd/user/tools.theme.oneprompt.converge.service"; test -f "$UNIT" || fail systemd; grep -q '^Restart=no$' "$UNIT" || fail restart; test ! -s "$SYS_CALLS" || fail systemd-inert
+grep -Fqx "Environment=XDG_CACHE_HOME=$HOME_LINUX/.cache" "$UNIT" || fail systemd-cache-home
+grep -Fqx "Environment=XDG_CONFIG_HOME=$HOME_LINUX/.config" "$UNIT" || fail systemd-config-home
+grep -Fqx "Environment=XDG_DATA_HOME=$HOME_LINUX/.local/share" "$UNIT" || fail systemd-data-home
 pass 'systemd definition is canonical and inert'
 run_linux() { env HOME="$HOME_LINUX" PATH="$BIN_LINUX:$NODE_DIR:/usr/bin:/bin" XDG_STATE_HOME="$HOME_LINUX/.local/state" ONEPROMPT_SUPERVISOR_MANAGER=systemd FAKE_SYSTEMD_CALLS="$SYS_CALLS" "$TOOL" "$@"; }
 run_linux resume >/dev/null
