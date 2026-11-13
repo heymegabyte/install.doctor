@@ -7,7 +7,7 @@ legacy_identity="com.heymegabyte.oneprompt-convergence"
 package_name="@theme.tools/workflows"
 package_version="1.0.0"
 artifact_sha256="ecdd6446a0c3aae7574514a1959f24bd83a6ff02e8f81ae9e012dd6af6dd216c"
-oneprompt_revision="14d599bd2f8ab6e3ee22a13db7b84f5f0fa40b6a"
+oneprompt_revision="29433fb4814dd9422dfd972dbb46e558beaa2960"
 state_schema_version="2"
 state_root="${ONEPROMPT_CONVERGENCE_STATE_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/oneprompt-convergence}"
 config_root="$state_root/host-adapter"
@@ -95,8 +95,8 @@ EOF
 }
 
 install_service() {
-  local repo_arg="" machine_arg="" expected_revision="" service_manager repo worker definition observed_revision machine_hash definition_hash legacy prior_adoption=native prior_predecessor="" prior_recovery=""
-  while test "$#" -gt 0; do case "$1" in --repo) repo_arg="$2"; shift 2;; --machine-interface) machine_arg="$2"; shift 2;; --revision) expected_revision="$2"; shift 2;; *) die "unknown install option: $1";; esac; done
+  local repo_arg="" machine_arg="" expected_revision="" service_manager repo worker definition observed_revision machine_hash definition_hash legacy prior_adoption=native prior_predecessor="" prior_recovery="" replace_repo=false replacement_bundle=""
+  while test "$#" -gt 0; do case "$1" in --repo) repo_arg="$2"; shift 2;; --machine-interface) machine_arg="$2"; shift 2;; --revision) expected_revision="$2"; shift 2;; --replace-repo) replace_repo=true; shift;; *) die "unknown install option: $1";; esac; done
   test -n "$repo_arg" && test -n "$machine_arg" && test -n "$expected_revision" || die "install requires --repo, --machine-interface, and --revision"
   test "$expected_revision" = "$oneprompt_revision" || die "unsupported OnePrompt revision"
   repo="$(canonical_repo "$repo_arg")"; validate_path "$machine_arg"; machine_arg="$(cd "$(dirname "$machine_arg")" && pwd -P)/$(basename "$machine_arg")"; test -x "$machine_arg" || die "machine interface is not executable"
@@ -107,7 +107,26 @@ install_service() {
   test ! -e "$legacy" || die "legacy definition exists; use adopt-plan/adopt"
   if test -r "$config_root/config"; then
     read_config
-    test "$configured_repo" = "$repo" && test "$configured_machine" = "$machine_arg" || die "installed service identity differs from requested installation"
+    if test "$configured_repo" != "$repo" || test "$configured_machine" != "$machine_arg"; then
+      test "$replace_repo" = true || die "installed service identity differs from requested installation"
+      verify_artifacts
+      manager_active && die "cannot replace repository while the supervisor is active"
+      local controller_status
+      controller_status="$(machine_call status)"
+      node -e '
+        const s=JSON.parse(process.argv[1]);
+        if(!["idle","paused","stopped"].includes(s.desiredMode) || s.processObservation==="alive") process.exit(1);
+      ' "$controller_status" || die "repository replacement requires idle/paused/stopped durable intent and no live worker"
+      replacement_bundle="$recovery_root/repository-repin-$(date -u +%Y%m%dT%H%M%SZ)-$$"
+      mkdir -p "$replacement_bundle"; chmod 700 "$replacement_bundle"
+      cp "$config_root/config" "$replacement_bundle/config"; cp "$configured_definition" "$replacement_bundle/definition"
+      chmod 600 "$replacement_bundle/config" "$replacement_bundle/definition"
+      node -e '
+        const fs=require("node:fs");
+        const out=process.argv[1], previousRepo=process.argv[2], previousRevision=process.argv[3], nextRepo=process.argv[4], nextRevision=process.argv[5];
+        fs.writeFileSync(out, JSON.stringify({schemaVersion:1,kind:"repository-repin",previousRepo,previousRevision,nextRepo,nextRevision,createdAt:new Date().toISOString()},null,2)+"\n", {mode:0o600});
+      ' "$replacement_bundle/manifest.json" "$configured_repo" "$configured_revision" "$repo" "$observed_revision"
+    fi
     test "$configured_identity" = "$logical_identity" && test "$configured_package_name" = "$package_name" && test "$configured_package_version" = "$package_version" && test "$configured_state_schema_version" = "$state_schema_version" || die "installed service contract differs from requested installation"
     [[ "$configured_artifact_sha256" =~ ^[0-9a-f]{64}$ ]] || die "installed artifact identity is malformed"
     test "$(sha256 "$configured_machine")" = "$configured_machine_sha256" || die "machine interface drift"
@@ -140,6 +159,7 @@ EOF
   if test "$prior_adoption" = adopted; then
     printf "adoption_state='adopted'\npredecessor_kind='%s'\nrecovery_bundle='%s'\n" "$prior_predecessor" "$prior_recovery" >>"$config_root/config"
   fi
+  if test -n "$replacement_bundle"; then printf "repository_repin_bundle='%s'\n" "$replacement_bundle" >>"$config_root/config"; fi
   printf 'installed inert %s definition for %s\n' "$service_manager" "$repo"
 }
 

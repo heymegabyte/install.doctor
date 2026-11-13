@@ -54,6 +54,23 @@ rm -f "$CONFIG.bak" "$CONFIG.before-artifact-upgrade"
 pass 'install upgrades an intact managed definition to the requested exact artifact'
 : >"$CALLS"
 
+REPIN_REPO="$TMP/oneprompt-repin"
+git clone --quiet --shared "$REPO" "$REPIN_REPO"
+git -C "$REPIN_REPO" checkout --quiet --detach "$REVISION"
+ln -s "$REPO/node_modules" "$REPIN_REPO/node_modules"
+REPIN_REPO="$(cd "$REPIN_REPO" && pwd -P)"
+REPIN_MACHINE="$REPIN_REPO/scripts/convergence-machine.mjs"
+if run_tool install --repo "$REPIN_REPO" --machine-interface "$REPIN_MACHINE" --revision "$REVISION" >/dev/null 2>&1; then fail repin-without-explicit-flag; fi
+run_tool install --replace-repo --repo "$REPIN_REPO" --machine-interface "$REPIN_MACHINE" --revision "$REVISION" >/dev/null
+grep -q "configured_repo='$REPIN_REPO'" "$CONFIG" || fail repin-config
+grep -q "WorkingDirectory</key><string>$REPIN_REPO" "$PLIST" || fail repin-definition
+repin_bundle="$(sed -n "s/^repository_repin_bundle='\(.*\)'/\1/p" "$CONFIG")"
+test -r "$repin_bundle/manifest.json" || fail repin-recovery-bundle
+node -e 'const x=require(process.argv[1]);if(x.kind!=="repository-repin"||x.previousRepo!==process.argv[2]||x.nextRepo!==process.argv[3])process.exit(1)' "$repin_bundle/manifest.json" "$REPO" "$REPIN_REPO" || fail repin-manifest
+REPO="$REPIN_REPO"; MACHINE="$REPIN_MACHINE"
+pass 'explicit inactive repository repin is recoverable and rewrites the canonical definition'
+: >"$CALLS"
+
 LEGACY_PLIST="$HOME_DIR/Library/LaunchAgents/com.heymegabyte.oneprompt-convergence.plist"
 printf '<plist>competing-legacy-definition</plist>\n' >"$LEGACY_PLIST"
 if run_tool resume >/dev/null 2>&1; then fail duplicate-definition-admission; fi
