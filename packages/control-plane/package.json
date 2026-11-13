@@ -15,14 +15,14 @@
     "deploy": "wrangler deploy"
   },
   "dependencies": {
-    "@aws-sdk/client-s3": "3.1163.0",
+    "@aws-sdk/client-s3": "3.1166.0",
     "@better-auth/passkey": "1.7.20",
     "better-auth": "1.7.20",
-    "hono": "^4.13.14",
+    "hono": "^4.13.17",
     "zod": "^4.6.7"
   },
   "devDependencies": {
-    "wrangler": "4.157.0"
+    "wrangler": "4.160.0"
   },
   "engines": {
     "node": ">=18"
