@@ -122,7 +122,10 @@
 ### VIM / NVIM #######################
 ######################################
 
-### VIM (vim-plug only; coc.nvim removed in favor of native LSP servers)
+### VIM + NVIM plugins (#123) — pinned, checksummed archives unpacked by `chezmoi apply`,
+### never fetched or `:PlugInstall`-ed at editor startup. coc.nvim is gone (native LSP servers);
+### Neovim gets the same plugin set as native `pack/*/start` packages so it auto-loads with
+### zero install panes and zero network on first open.
 [".config/vim/autoload/plug.vim"]
     type = "file"
     url = "https://raw.githubusercontent.com/junegunn/vim-plug/7e5aae5e1187842cb0b1d8def986e48d481c4410/plug.vim"
@@ -137,4 +140,13 @@
     stripComponents = 1
     checksum.sha256 = "{{ $vimPlugin.sha256 }}"
     checksum.size = {{ $vimPlugin.size }}
+{{- if ne $.host.distro.family "windows" }}
+[".local/share/nvim/site/pack/install-doctor/start/{{ $vimPlugin.name }}"]
+    type = "archive"
+    url = "https://codeload.github.com/{{ $vimPlugin.repo }}/tar.gz/{{ $vimPlugin.commit }}"
+    exact = true
+    stripComponents = 1
+    checksum.sha256 = "{{ $vimPlugin.sha256 }}"
+    checksum.size = {{ $vimPlugin.size }}
+{{- end }}
 {{- end }}

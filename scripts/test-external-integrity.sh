@@ -77,6 +77,12 @@ else
   else
     fail "Vim plugin authority incomplete (commit=$plugin_commits sha256=$plugin_digests size=$plugin_sizes expected=8)"
   fi
+  nvim_targets="$(grep -cF 'site/pack/install-doctor/start/{{ $vimPlugin.name }}' "$EXT")"
+  if [ "$nvim_targets" -eq 1 ] && [ "$plugin_commits" -eq 8 ] && [ "$plugin_digests" -eq 8 ]; then
+    pass 'Neovim pre-installs the same 8 immutable checksummed plugin archives as Vim (#123)'
+  else
+    fail "Neovim plugin parity incomplete (pack targets=$nvim_targets expected=1, plugins=$plugin_commits)"
+  fi
   if ! grep -q 'type = "git-repo"' "$EXT" \
     && grep -q 'sha=854b544c4161a128dfa0da022016ea556b1c56b0' "$EXT" \
     && grep -q 'a0b1b5cb2c7b69d72cc9401a9becda3b7fb8e208b0f97460107a577c3ef99436' "$EXT"; then
