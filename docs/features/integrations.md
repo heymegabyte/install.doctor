@@ -31,6 +31,7 @@ When selecting third-party services for official support, Install Doctor priorit
 | Integration | Description | Configuration |
 | ----------- | ----------- | ------------- |
 | [Netdata](/docs/integrations/netdata) | Real-time system monitoring dashboard | `NETDATA_TOKEN` and `NETDATA_ROOM` |
+| [Elastic Agent](/docs/integrations/elastic-agent) | Policy-managed host logs and metrics shipped to an Elastic Fleet Server (ELK) | `ELASTIC_TOKEN` (optionally `LOGSTASH_SYSLOG_SERVER`) |
 | Healthchecks | Cron job and backup monitoring | `HEALTHCHECKS_API_KEY` environment variable |
 
 ## Security

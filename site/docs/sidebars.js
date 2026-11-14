@@ -21,6 +21,7 @@ module.exports = {
         'features/integrations',
         'features/cloudflare',
         'features/netdata',
+        'features/elastic-agent',
       ],
     },
     {
