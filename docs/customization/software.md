@@ -54,15 +54,19 @@ You can also edit the other files in the `home/dot_config/Code/User/` folder to 
 
 ### VIM
 
-VIM plugins can be defined in the `home/.chezmoidata.yaml` file. The following is an example defining two plugins that will be automatically installed and integrated into VIM:
+VIM and Neovim plugins are declared in `home/.chezmoidata.yaml` under `vimPlugins`. Each entry pins an upstream repository, an immutable commit, and the SHA-256 and byte size of its archive:
 
+```yaml
+vimPlugins:
+  - { name: vim-surround, repo: tpope/vim-surround, commit: 3d188ed2113431cf8dac77be61b842acb64433d9, sha256: 95f18606..., size: 10236 }
 ```
-softwarePlugins:
-  vim:
-    plugins:
-      - https://github.com/dense-analysis/ale.git
-      - https://github.com/pearofducks/ansible-vim.git
-```
+
+`chezmoi apply` unpacks every pinned archive twice, once per editor:
+
+- Vim — `~/.local/share/vim/plugged/<name>`, loaded by the guarded `vim-plug` block in `home/dot_config/vim/vimrc`
+- Neovim — `~/.local/share/nvim/site/pack/install-doctor/start/<name>`, auto-loaded by Neovim's native `pack/*/start` mechanism
+
+Both editors therefore start with their plugins already present. Nothing is fetched, cloned, or `:PlugInstall`-ed when you open the editor, so no second pane appears and a first launch on a slow network still works offline. Adding a plugin means adding one `vimPlugins` entry; both editors receive it, and `scripts/test-nvim-plugins.sh` plus `scripts/test-external-integrity.sh` enforce parity and archive integrity in CI. Windows hosts use the Neovim data directory that Neovim reports itself, so the `pack/` copy is not applied there.
 
 ## Defining Packages
 
