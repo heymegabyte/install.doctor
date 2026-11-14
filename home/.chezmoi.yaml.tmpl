@@ -4,6 +4,7 @@
 {{- $desktopSession := true -}}
 {{- $dockerHubUser := (default "installdoctor" (env "DOCKERHUB_USER")) -}}
 {{- $domain := (default "megabyte.space" (env "PUBLIC_SERVICES_DOMAIN")) -}}
+{{- $elasticFleetServer := (default "https://es-fleet.megabyte.space:8220" (env "ELASTIC_FLEET_SERVER")) -}}
 {{- $email := (default "admin@install.doctor" (env "PRIMARY_EMAIL")) -}}
 {{- $gcloudCoreProject := (default "install-doctor" (env "CLOUDSDK_CORE_PROJECT"))}}
 {{- $gcloudEmail := (default "automation@install.doctor" (env "GCE_SERVICE_ACCOUNT_EMAIL"))}}
@@ -132,6 +133,7 @@ data:
     docker:
       doRegion: nyc1
     domain: "{{ $domain }}"
+    elastic_fleet_server: "{{ $elasticFleetServer }}"
     headless: {{ $headless }}
     home: "{{ .chezmoi.homeDir }}"
     homeParentFolder: "{{ if eq .chezmoi.os "linux" }}/home{{ else if eq .chezmoi.os "darwin" }}/Users{{ else }}C:\Users{{ end }}"
