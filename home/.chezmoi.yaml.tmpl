@@ -132,6 +132,8 @@ data:
     docker:
       doRegion: nyc1
     domain: "{{ $domain }}"
+    etcd:
+      initial_cluster_urls: "node1=http://10.18.0.2:2380,etcd3=http://10.18.0.4:2380"
     headless: {{ $headless }}
     home: "{{ .chezmoi.homeDir }}"
     homeParentFolder: "{{ if eq .chezmoi.os "linux" }}/home{{ else if eq .chezmoi.os "darwin" }}/Users{{ else }}C:\Users{{ end }}"
