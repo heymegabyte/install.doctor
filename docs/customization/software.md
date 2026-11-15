@@ -131,6 +131,36 @@ Browsing through the `software.yml` file, you might notice `appimage` definition
 
 Do not define shell scripts in YAML. Add a reviewed `post-installx/post-<package>.sh` hook only when package-manager installation is insufficient; its execution must remain selected and bounded by the provisioning graph.
 
+Hooks resolve by file name (`post-<software.yml key>.sh`) and self-gate: each one no-ops unless its tool is present, its platform applies, and its explicit opt-in is set. Optional integrations such as `gitlab-runner` stay inert until you enable them.
+
+**GitLab Runner enrollment (`post-gitlab-runner.sh`)**
+
+Mirrors the GitHub runner behaviour: no pre-minted registration token is stored anywhere. The hook asks the GitLab API for a fresh runner authentication token and registers it non-interactively.
+
+```shell
+export INSTALL_DOCTOR_GITLAB_RUNNER_ENROLL=1
+export GITLAB_ACCESS_TOKEN="$(get-secret GITLAB_ACCESS_TOKEN)"  # create_runner scope (+ api for group/project)
+export GITLAB_RUNNER_SCOPE=group
+export GITLAB_RUNNER_GROUP_ID=12345
+```
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `INSTALL_DOCTOR_GITLAB_RUNNER_ENROLL` | `0` | Opt-in gate. Enrollment never runs unprompted. |
+| `GITLAB_ACCESS_TOKEN` | — | Access token with `create_runner`; resolves from env, `get-secret`, or the age-encrypted chezmoi secret. |
+| `GITLAB_URL` | `https://gitlab.com/` | Target GitLab instance. |
+| `GITLAB_RUNNER_SCOPE` | `group` | `instance`, `group`, or `project`. |
+| `GITLAB_RUNNER_GROUP_ID` | — | Required for `group` scope. |
+| `GITLAB_RUNNER_PROJECT_ID` | — | Required for `project` scope. |
+| `GITLAB_RUNNER_NAME` | `<hostname>-gitlab-runner` | Runner description; a name already registered in the config is left untouched (idempotent). |
+| `GITLAB_RUNNER_EXECUTOR` | `docker` | `docker`, `shell`, `virtualbox`, or `kubernetes`. |
+| `GITLAB_RUNNER_IMAGE` | `alpine:latest` | Docker executor image. |
+| `GITLAB_RUNNER_BASE_VM` | — | Required for the `virtualbox` executor. |
+| `GITLAB_RUNNER_TAGS` | — | Comma-separated runner tags. |
+| `GITLAB_RUNNER_CONFIG` | `~/.config/gitlab-runner/config.toml` | Runner config path (written `0600`). |
+
+The access token reaches `curl` through a `0600` header file, so it never appears in `argv` or the process list, and the minted runner token is never written to stdout or provisioning logs. `scripts/test-gitlab-runner-post-hook.sh` locks the contract offline (11 assertions, stubbed `curl` and `gitlab-runner`, no network).
+
 #### Package Manager Preference
 
 The preference of which package manager to use during the installation process is defined by the `installerPreference` `software.yml` variable. There are more details on this on the [Customization](/docs/customization) page.
