@@ -7,6 +7,19 @@
     <meta http-equiv="x-rim-auto-match" content="none" />
     <meta http-equiv="Content-Security-Policy" content="upgrade-insecure-requests" />
     <title>Install Doctor: Provision fully-configured desktops automatically</title>
+    <script>
+      window.sentryOnLoad = function () {
+        if (window.Sentry && typeof window.Sentry.init === 'function') {
+          window.Sentry.init({
+            ignoreErrors: [
+              /Object Not Found Matching Id:\d+/i,
+              /^Script error\.?$/i,
+              /ResizeObserver loop (?:completed with undelivered notifications|limit exceeded)/i
+            ]
+          });
+        }
+      };
+    </script>
     <script src="https://js.sentry-cdn.com/bf75b717b97ad8ab631d99cefe1cb5dd.min.js" crossorigin="anonymous"></script>
     <script>
       (function (w, d, s, l, i) {
