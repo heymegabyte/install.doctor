@@ -4,12 +4,14 @@
   "version": "0.0.1",
   "description": "Install Doctor Site",
   "scripts": {
+    "prebuild": "npm run sync:theme-tools",
     "build": "stencil build --prerender --ci",
     "build:docs": "cd docs && npm ci --force && npm run build",
     "build:noscript": "node scripts/build-noscript.mjs",
     "build:prod": "npm run build:docs && npm run build:noscript && npm run build",
     "deploy": "npm run build:prod && firebase deploy",
-    "start": "stencil build --dev --watch --serve --ssr"
+    "start": "stencil build --dev --watch --serve --ssr",
+    "sync:theme-tools": "node scripts/sync-theme-tools.mjs"
   },
   "husky": {
     "hooks": {
@@ -65,6 +67,8 @@
   "homepage": "https://github.com/ionic-team/capacitor",
   "prettier": "@ionic/prettier-config",
   "dependencies": {
+    "@theme-tools/shared-utils": "file:vendor/theme-tools/theme-tools-shared-utils-1.0.2.tgz",
+    "@theme-tools/themes": "file:vendor/theme-tools/theme-tools-themes-1.0.1.tgz",
     "parallax-js": "^3.1.0",
     "workbox-precaching": "^7.0.0"
   },

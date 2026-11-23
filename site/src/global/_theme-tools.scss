@@ -1,0 +1,29 @@
+/* Generated from @theme-tools/themes. Do not edit directly. */
+:root {
+  --background: oklch(0.14 0.02 265);
+  --foreground: oklch(0.97 0.01 240);
+  --card: oklch(0.17 0.025 265);
+  --card-foreground: oklch(0.97 0.01 240);
+  --popover: oklch(0.16 0.025 265);
+  --popover-foreground: oklch(0.97 0.01 240);
+  --primary: oklch(0.82 0.14 200);
+  --primary-foreground: oklch(0.15 0.03 240);
+  --secondary: oklch(0.24 0.03 265);
+  --secondary-foreground: oklch(0.96 0.01 240);
+  --muted: oklch(0.22 0.025 265);
+  --muted-foreground: oklch(0.7 0.02 250);
+  --accent: oklch(0.48 0.19 290);
+  --accent-foreground: oklch(0.98 0.01 240);
+  --destructive: oklch(0.62 0.21 25);
+  --destructive-foreground: oklch(0.98 0.01 20);
+  --border: oklch(0.27 0.03 265);
+  --input: oklch(0.27 0.03 265);
+  --ring: oklch(0.82 0.14 200);
+  --radius: 0.75rem;
+  --font-sans: "Geist Variable", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-mono: "Geist Mono Variable", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  --font-display: "Mona Sans Variable", "Geist Variable", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+  --tt-font-sans: "Geist Variable", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+  --tt-font-mono: "Geist Mono Variable", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  --tt-font-display: "Mona Sans Variable", "Geist Variable", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+}
