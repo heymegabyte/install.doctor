@@ -39,7 +39,7 @@
     "node": ">=22"
   },
   "devDependencies": {
-    "typescript": "5.8.3"
+    "typescript": "7.0.2"
   },
   "dependencies": {
     "zod": "4.6.7"
