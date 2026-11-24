@@ -69,6 +69,7 @@
   "dependencies": {
     "@theme-tools/shared-utils": "file:vendor/theme-tools/theme-tools-shared-utils-1.0.18.tgz",
     "@theme-tools/themes": "file:vendor/theme-tools/theme-tools-themes-1.0.8.tgz",
+    "@theme-tools/ui": "file:vendor/theme-tools/theme-tools-ui-1.0.74.tgz",
     "parallax-js": "^3.1.0",
     "workbox-precaching": "^7.0.0"
   },
