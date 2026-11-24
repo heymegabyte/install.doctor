@@ -1,0 +1,16 @@
+# install.doctor (install.doctor)
+
+> Sovereign Cloudflare-native web property & application powered by the 28 canonical `@theme.tools/*` libraries, Paperclip (`swarml.ink`), OpenClaw (`openclaw.swarml.ink`), and VoiceKit (`$17,000` startup credits voice/audio platform).
+
+## Architecture & Capabilities
+
+- **Edge Runtime**: Cloudflare Workers + Hono + D1/Neon + R2 + Queues + AI Gateway.
+- **Voice & Media**: VoiceKit Neural TTS & Conversational Voice AI (`$17,000` credits tier) + Cloudflare Workers AI MeloTTS (`@cf/myshell-ai/melotts`) + HyperFrames 4K video pipeline.
+- **Observability**: Sovereign 8-Pillar Telemetry (`@theme.tools/telemetry`, W3C `traceparent`, GTM Consent Mode v2, Langfuse v4 `2500ms` fail-open, PostHog, Sentry Envelope v7).
+- **Security**: RFC 9116 `/.well-known/security.txt`, 13-dimension Cloudflare Free-Tier Edge Hardening (5 WAF rules, Rate Limiting, 4 Security Headers, Cache Rules, Zstd Compression, HSTS Preload, Post-Quantum ML-KEM, Page Shield, DNSSEC, URL Normalization `scope=both`).
+
+## Key Endpoints & Resources
+
+- [Homepage](https://install.doctor/)
+- [Security Policy](https://install.doctor/.well-known/security.txt)
+- [Robots Policy](https://install.doctor/robots.txt)

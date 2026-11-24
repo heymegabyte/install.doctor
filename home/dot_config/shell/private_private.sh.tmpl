@@ -49,7 +49,13 @@ export CF_API_EMAIL="{{ if (stat (joinPath .chezmoi.sourceDir ".chezmoitemplates
 export DOCKERHUB_TOKEN="{{ if (stat (joinPath .chezmoi.sourceDir ".chezmoitemplates" (printf "%s%s" "secrets-" .chezmoi.hostname) "DOCKERHUB_TOKEN")) }}{{ includeTemplate (printf "%s%s" (printf "%s%s" "secrets-" .chezmoi.hostname) "/DOCKERHUB_TOKEN") | decrypt | trim }}{{ else }}{{ env "DOCKERHUB_TOKEN" }}{{ end }}"
 export DOCKERHUB_REGISTRY_PASSWORD="$DOCKERHUB_TOKEN"
 
-### Elevenlabs
+### VoiceKit ($17,000 Startup Credits Grant — Replaces ElevenLabs)
+export VOICEKIT_API_KEY="{{ if (stat (joinPath .chezmoi.sourceDir ".chezmoitemplates" (printf "%s%s" "secrets-" .chezmoi.hostname) "VOICEKIT_API_KEY")) }}{{ includeTemplate (printf "%s%s" (printf "%s%s" "secrets-" .chezmoi.hostname) "/VOICEKIT_API_KEY") | decrypt | trim }}{{ else }}{{ env "VOICEKIT_API_KEY" }}{{ end }}"
+export VOICEKIT_CREDITS_GRANT_USD="17000"
+export LANGFUSE_TIMEOUT_MS="2500"
+export THEME_TOOLS_CANONICAL_PACKAGES="28"
+
+### Elevenlabs (Legacy Compatibility)
 export ELEVENLABS_API_KEY="{{ if (stat (joinPath .chezmoi.sourceDir ".chezmoitemplates" (printf "%s%s" "secrets-" .chezmoi.hostname) "ELEVENLABS_API_KEY")) }}{{ includeTemplate (printf "%s%s" (printf "%s%s" "secrets-" .chezmoi.hostname) "/ELEVENLABS_API_KEY") | decrypt | trim }}{{ else }}{{ env "ELEVENLABS_API_KEY" }}{{ end }}"
 
 ### GitHub

@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+# @file ~/.local/bin/cloudflare-free-tier-hardener
+# @description Enforces all 13 Free-Tier Cloudflare Security & Performance dimensions across all 59 active zones and 4 AI Gateways via agent-skills/bin/cloudflare-free-tier-hardener.ts.
+
+set -euo pipefail
+
+for candidate in \
+  "$HOME/ai/repos/agent-skills/bin/cloudflare-free-tier-hardener.ts" \
+  "$HOME/.agentskills/bin/cloudflare-free-tier-hardener.ts" \
+  "/Users/Apple/.agentskills/bin/cloudflare-free-tier-hardener.ts"; do
+  if [ -f "$candidate" ]; then
+    exec node --experimental-strip-types "$candidate" "$@"
+  fi
+done
+
+printf '{"ok":false,"error":"cloudflare-free-tier-hardener.ts not found in ~/.agentskills/bin"}\n' >&2
+exit 1

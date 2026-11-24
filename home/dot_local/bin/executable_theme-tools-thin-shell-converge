@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+# @file ~/.local/bin/theme-tools-thin-shell-converge
+# @description Converges all fleet repositories across all 11 multi-axis governance, OpenSpec, security.txt, llms.txt, robots.txt, Speculation Rules, VoiceKit $17k, and @theme.tools v2 thin-shell dimensions.
+
+set -euo pipefail
+
+for candidate in \
+  "$HOME/ai/repos/agent-skills/bin/fleet-55-repo-multi-axis-converger.ts" \
+  "$HOME/.agentskills/bin/fleet-55-repo-multi-axis-converger.ts" \
+  "/Users/Apple/.agentskills/bin/fleet-55-repo-multi-axis-converger.ts"; do
+  if [ -f "$candidate" ]; then
+    exec node --experimental-strip-types "$candidate" "$@"
+  fi
+done
+
+printf '{"ok":false,"error":"fleet-55-repo-multi-axis-converger.ts not found in ~/.agentskills/bin"}\n' >&2
+exit 1

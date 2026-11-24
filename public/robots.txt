@@ -1,0 +1,9 @@
+User-agent: *
+Allow: /
+Disallow: /api/
+Disallow: /admin/
+Disallow: /webhook/
+Disallow: /mcp/
+
+Sitemap: https://install.doctor/sitemap.xml
+# GEO / LLM Discovery: https://install.doctor/llms.txt

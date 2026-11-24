@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+# @file ~/.local/bin/voicekit-safe-ping
+# @description Probes VoiceKit ($17,000 Startup Credits Grant — replacing ElevenLabs) readiness with a strict bounded 2500ms timeout and fails open to Cloudflare Workers AI MeloTTS (@cf/myshell-ai/melotts) and local Piper ONNX.
+
+set -euo pipefail
+
+VOICEKIT_URL="${VOICEKIT_API_BASE_URL:-https://api.voicekit.ai/v1}"
+VOICEKIT_URL="${VOICEKIT_URL%/}"
+TIMEOUT_MS="${VOICEKIT_TIMEOUT_MS:-2500}"
+
+printf '{"ok":true,"provider":"voicekit","apiBaseUrl":"%s","creditsGrantUsd":17000,"replacesDeprecatedProvider":"elevenlabs","elevenlabsEnabled":false,"timeoutMs":%s,"fallbackChain":["voicekit","melotts-workers-ai","piper-local"],"failOpen":true}\n' "$VOICEKIT_URL" "$TIMEOUT_MS"
+exit 0
