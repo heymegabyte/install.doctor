@@ -6,6 +6,18 @@ import { sass } from '@stencil/sass';
 import dotenvPlugin from 'rollup-plugin-dotenv';
 
 export const config: Config = {
+  rollupPlugins: {
+    before: [
+      {
+        name: 'theme-tools-newsletter-subpath',
+        resolveId(source) {
+          return source === '@theme-tools/ui/newsletter'
+            ? join(__dirname, 'node_modules', '@theme-tools', 'ui', 'dist', 'newsletter.js')
+            : null;
+        },
+      },
+    ],
+  },
   devServer: {
     openBrowser: false,
     // logRequests: true,

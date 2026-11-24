@@ -1,4 +1,5 @@
 import { Component, Host, State, h, Prop } from '@stencil/core';
+import { NewsletterSubscriptionError, submitNewsletterSubscription } from '@theme-tools/ui/newsletter';
 import { Heading, Paragraph } from 'ionic-ds-no-fonts';
 import { defaults } from '../../store';
 
@@ -16,47 +17,35 @@ export class NewsletterSignup {
 
   componentWillLoad() {}
 
-  handleNewsletterSubmit(e: Event) {
+  async handleNewsletterSubmit(e: Event) {
     e.preventDefault();
 
     this.isLoading = true;
-
-    const xhr = new XMLHttpRequest();
-    const url = this.defaults.emailForm.url;
-    xhr.open('POST', url);
-    xhr.setRequestHeader('Content-Type', 'application/json;charset=UTF-8');
-    xhr.onreadystatechange = () => {
-      if (xhr.readyState === 4 && xhr.status === 200) {
-        const json = JSON.parse(xhr.responseText);
-        this.inlineMessage = json.inlineMessage;
-        this.isLoading = false;
-        this.hasSubmitted = true;
-        this.isValid = true;
-      } else if (xhr.readyState == 4 && xhr.status == 400) {
-        this.inlineMessage = 'Please enter a valid e-mail address.';
-        this.isLoading = false;
-        this.isValid = false;
-      } else if (xhr.readyState == 4) {
-        this.inlineMessage = 'Unknown error occurred';
-        this.isLoading = false;
-        this.isValid = false;
-      } else {
-        this.inlineMessage = 'Adding your e-mail..';
-        this.isLoading = true;
-        this.isValid = true;
-      }
-    };
-
-    xhr.send(
-      JSON.stringify({
-        list_ids: this.defaults.sendGridListId,
-        contacts: [
-          {
-            email: this.email,
-          },
-        ],
-      })
-    );
+    this.inlineMessage = 'Adding your e-mail..';
+    this.isValid = true;
+    try {
+      const response = await submitNewsletterSubscription({
+        email: this.email,
+        endpoint: this.defaults.emailForm.url,
+        createBody: (email) => ({
+          list_ids: this.defaults.sendGridListId,
+          contacts: [{ email }],
+        }),
+      });
+      const body = response as { inlineMessage?: string } | undefined;
+      this.inlineMessage = body?.inlineMessage ?? 'Subscription confirmed.';
+      this.hasSubmitted = true;
+    } catch (error) {
+      this.inlineMessage =
+        error instanceof NewsletterSubscriptionError && error.status === 400
+          ? 'Please enter a valid e-mail address.'
+          : error instanceof Error
+            ? error.message
+            : 'Unknown error occurred';
+      this.isValid = false;
+    } finally {
+      this.isLoading = false;
+    }
   }
 
   handleEmailChange(ev: any) {

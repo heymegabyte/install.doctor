@@ -18,6 +18,7 @@
     "baseUrl": ".",
     "paths": {
       "@stencil/core": ["node_modules/@stencil/core"],
+      "@theme-tools/ui/newsletter": ["node_modules/@theme-tools/ui/dist/newsletter"],
       "@utils/*": ["./src/utils/*"]
     }
   },
