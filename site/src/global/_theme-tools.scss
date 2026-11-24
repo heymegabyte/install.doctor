@@ -27,3 +27,75 @@
   --tt-font-mono: "Geist Mono Variable", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   --tt-font-display: "Mona Sans Variable", "Geist Variable", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
 }
+/* Framework-neutral adapters for canonical theme.tools interaction tokens. */
+@layer theme-tools-tactile {
+  .tt-spring-press:active,
+  [data-pressed='true'] {
+    transition-duration: 80ms;
+    transform: scale(0.975);
+  }
+}
+
+/* Framework-neutral site shell contract for Vue, Svelte, Angular, and static HTML. */
+@layer theme-tools-shell {
+  .tt-site-navbar,
+  [data-theme-tools-site-navbar] {
+    position: relative;
+    display: flex;
+    width: 100%;
+    align-items: center;
+    gap: 1.25rem;
+  }
+
+  .tt-site-navbar-brand,
+  .tt-site-navbar-navigation,
+  .tt-site-navbar-context,
+  .tt-site-navbar-utilities {
+    display: flex;
+    align-items: center;
+  }
+
+  .tt-site-navbar-brand { flex: 0 0 auto; }
+  .tt-site-navbar-navigation { margin-left: auto; gap: 1.25rem; }
+  .tt-site-navbar-context,
+  .tt-site-navbar-utilities { gap: 0.75rem; }
+
+  .tt-site-navbar-menu-trigger { display: none; }
+  .tt-site-navbar-mobile-utilities { display: none; }
+
+  @media (max-width: 767px) {
+    .tt-site-navbar-menu-trigger {
+      display: inline-flex;
+      min-width: 2.75rem;
+      min-height: 2.75rem;
+      margin-left: auto;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .tt-site-navbar-navigation {
+      position: absolute;
+      z-index: 20;
+      inset: calc(100% + 0.5rem) 0 auto;
+      display: none;
+      flex-direction: column;
+      align-items: stretch;
+      gap: 0.25rem;
+      padding: 0.75rem;
+      border: 1px solid var(--border, currentColor);
+      border-radius: var(--radius, 0.75rem);
+      background: var(--background, Canvas);
+      color: var(--foreground, CanvasText);
+      box-shadow: 0 1rem 2.5rem rgb(0 0 0 / 0.18);
+    }
+
+    .tt-site-navbar-navigation[data-mobile-open='true'],
+    .tt-site-navbar-navigation[data-mobile-open=''] {
+      display: flex;
+    }
+
+    .tt-site-navbar-navigation > *,
+    .tt-site-navbar-navigation > * > * { width: 100%; }
+    .tt-site-navbar-mobile-utilities { display: flex; flex-direction: column; gap: 0.5rem; }
+  }
+}

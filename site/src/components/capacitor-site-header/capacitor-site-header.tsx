@@ -95,11 +95,11 @@ export class SiteHeader implements ComponentInterface {
       >
         <site-backdrop visible={expanded} onClick={() => this.toggleExpanded()} mobileOnly />
 
-        <header>
+        <header class="tt-site-navbar" data-theme-tools-site-navbar>
           {includeBurger ? <app-menu-toggle /> : null}
 
           {includeLogo ? (
-            <a {...href('/')} aria-label="homepage link">
+            <a {...href('/')} aria-label="homepage link" class="tt-site-navbar-brand">
               {headerLogo()}
             </a>
           ) : null}
@@ -125,6 +125,7 @@ export class SiteHeader implements ComponentInterface {
           <nav
             class={{
               routes: true,
+              'tt-site-navbar-navigation': true,
               expanded: this.expanded,
             }}
           >
@@ -165,7 +166,7 @@ export class SiteHeader implements ComponentInterface {
 
           <more-button onClick={() => this.toggleExpanded()} />
 
-          <div class="ctas">
+          <div class="ctas tt-site-navbar-utilities">
             <a
               href={this.defaults.social.github}
               target="_blank"
@@ -213,7 +214,7 @@ export class SiteHeader implements ComponentInterface {
             </a>
             <div class="fork-container hint--bottom hint--rounded" aria-label="Fork on GitHub">
               <Button
-                class="primary ui-paragraph-4"
+                class="primary ui-paragraph-4 tt-spring-press"
                 anchor
                 href={this.defaults.header.actionButton.href}
                 target="_blank"
