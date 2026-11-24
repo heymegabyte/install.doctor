@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "packageContract": "@theme.tools/blog",
+  "editorContract": "@theme.tools/blog/editor",
+  "repository": "install.doctor",
+  "domain": "install.doctor",
+  "updatedAt": "2026-11-19T01:58:55.560Z",
+  "files": [
+    "content/posts/idempotent-workstation-provisioning.json"
+  ]
+}

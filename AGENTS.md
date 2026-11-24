@@ -1,7 +1,7 @@
 # Repository agent guidance
 
 Read CLAUDE.md for the existing fleet provisioning implementation and platform constraints.
-For the desktop.tools product direction (which replaces retired aidl.ink, aid, and app.install.doctor),
+For the desktop.tools product direction (which replaces retired desktop.tools, aid, and app.install.doctor),
 also read packages/aid-core/README.md and packages/aid-core/docs/PRODUCT-SPEC.md.
 
 As of 2026-10-26, packages/aid-core is an isolated pre-production TypeScript foundation.
@@ -14,7 +14,7 @@ and Easter-Egg contracts. They are unit-tested but are not wired into the bootst
 control plane, daemon, routing, or UI. Treat them as experimental contracts, never as shipped
 product capability, until an explicit integration decision exists.
 
-New product decisions: desktop.tools (replacing aidl.ink, aid, and app.install.doctor) is browser-first;
+New product decisions: desktop.tools (replacing desktop.tools, aid, and app.install.doctor) is browser-first;
 desktop-tools is the intended OpenCode derivative; reuse shared ProjectSites routing with DeepSeek
 preferred and no LiteLLM; hiSHtory is preferred over Atuin; Alloy replaces Promtail for new Loki
 integration work. Existing history and running services must be preserved until tested migrations exist.
@@ -33,7 +33,7 @@ but load only the relevant skills into context. Respect least privilege and cons
 
 Do not reintroduce Nix, require GUI interaction on headless machines, remove platform
 paths, or background-replace running applications. Keep secrets out of Markdown exports.
-Require approved Figma designs before implementing the full SaaS UI.
+Implement the complete theme.tools-based responsive SaaS scaffold first with typed fixtures and browser verification, then drive feature behavior through test-driven vertical slices.
 
 Validate the isolated package with: cd packages/aid-core && npm install && npm test.
 Preserve the existing master-branch workflow and do not deploy as a side effect of tests.
@@ -45,6 +45,8 @@ default to Python for convenience.
 
 ## Parallel Triad Convergence, Frontier OpenSpec & Langfuse Fail-Open Mandate
 
-1. **Parallel End-of-Turn Triad (`agent-skills` + `install.doctor` + `theme.tools`)**: Whenever a prompt pass reveals reusable system configs, dotfiles, shell exports, CLI shims, or service units, apply them to `install.doctor` in parallel next to `agent-skills` and `theme.tools`, save future/multi-step work via OpenSpec (`openspec/changes/<change-id>/`), and register the linked issue in the `install.doctor` Paperclip project (`d97b0204-ca63-4117-b469-2fe0f2470d18`) via `~/.agentskills/bin/openspec-paperclip-sync.ts`. All reusable cross-site application utilities, UI components, and CF-native engines belong in `@theme.tools` (`heymegabyte/theme.tools`) across its 28 default libraries (`@theme.tools/{themes,ui,blog,catalog,testing,workflows,integrations,social,scheduling,signing,forms,links,keys,notifications,crm,inbox,billing,status,kb,dataplane,telemetry,auth,flags,agent-ui,seo-geo,media-video,crawl-research,i18n-a11y}`).
+1. **Parallel End-of-Turn Triad (`agent-skills` + `install.doctor` + `theme.tools`) & Opportunistic `theme.tools` Upstream Extraction Mandate (Thin-Shell Consumer Repositories)**: Whenever a prompt pass reveals reusable system configs, dotfiles, shell exports, CLI shims, or service units, apply them to `install.doctor` in parallel next to `agent-skills` and `theme.tools`, save future/multi-step work via OpenSpec (`openspec/changes/<change-id>/`), and register the linked issue in the `install.doctor` Paperclip project (`d97b0204-ca63-4117-b469-2fe0f2470d18`) via `~/.agentskills/bin/openspec-paperclip-sync.ts`. Always opportunistically upgrade `theme.tools` (`@theme.tools/*`) while working whenever any component, calculator, advisor, workflow, validator, hook, or library code can potentially be reused across sites or applications so consumer repositories contain primarily overall structure, routing, data bindings, and thin configuration adapters rather than standalone source implementations for reusable components and libraries across its 28 default libraries (`@theme.tools/{themes,ui,blog,catalog,testing,workflows,integrations,social,scheduling,signing,forms,links,keys,notifications,crm,inbox,billing,status,kb,dataplane,telemetry,auth,flags,agent-ui,seo-geo,media-video,crawl-research,i18n-a11y}`).
 2. **Frontier Architect Only for OpenSpec (`claude` / `codex` / `antigravity` — NEVER `opencode`)**: OpenSpec `proposal.md`, `design.md`, `tasks.md`, and `specs/` MUST be authored by `claude` (with a fully-loaded, hydrated context), `codex`, or `antigravity`. Never author OpenSpec architectural details with `opencode`.
 3. **Langfuse Always-On + Graceful Timeout Fallback (`2500ms`)**: Keep `LANGFUSE_TIMEOUT_MS=2500`, `LANGFUSE_FAIL_OPEN=true`, and `LANGFUSE_SPOOL_DIR` active in `home/dot_config/shell/megabyte-cache.sh.tmpl` so Langfuse outages never block workstation or agent execution.
+4. **Safe Prompt Closeout**: Before declaring a prompt complete, implement every safe, authorized, dependency-closed recommendation. In parallel where independent, evaluate and apply relevant contributions to `theme.tools`, `install.doctor`, `agent-skills`, and touched projects; update affected documentation and comments that explain non-obvious behavior. Record blocked, unsafe, unauthorized, or inapplicable work truthfully—this mandate does not expand authority.
+5. **Observability by Design**: Applicable product designs must integrate consent-aware PostHog, GA4, and GTM plus correlated Langfuse and Sentry telemetry. Require redaction, tenant/environment isolation, bounded fail-open behavior, and executed delivery/consent/outage verification; configuration text alone is not proof.

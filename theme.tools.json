@@ -1,0 +1,37 @@
+{
+  "schemaVersion": 1,
+  "project": "install.doctor",
+  "consumerMode": "thin-shell",
+  "canonicalUpstream": "https://github.com/heymegabyte/theme.tools",
+  "themeTokens": {
+    "background": "#060610",
+    "accent": "#00E5FF",
+    "colorSpace": "oklch",
+    "transitionDuration": "0.333s",
+    "interactionStates": 16
+  },
+  "boundPackages": [
+    "@theme.tools/themes",
+    "@theme.tools/ui",
+    "@theme.tools/blog",
+    "@theme.tools/telemetry",
+    "@theme.tools/seo-geo",
+    "@theme.tools/i18n-a11y",
+    "@theme.tools/testing",
+    "@theme.tools/kb",
+    "@theme.tools/catalog",
+    "@theme.tools/status"
+  ],
+  "blogSystem": {
+    "package": "@theme.tools/blog",
+    "editor": "platejs/react",
+    "postIndex": "content/posts/index.json",
+    "routes": [
+      "/blog",
+      "/blog/:slug",
+      "/blog/:slug/edit",
+      "/blog/api/:slug"
+    ]
+  },
+  "contributedSharedModules": []
+}

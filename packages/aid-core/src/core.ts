@@ -7,6 +7,7 @@ export * from './product-identity.js';
 export * from './profile-resolution.js';
 export * from './software-catalog.js';
 export * from './task-agent-compiler.js';
+export * from './theme-tools-research-provisioning.js';
 export const APP_URL = 'https://app.install.doctor' as const;
 export const DESKTOP_TOOLS_URL = 'https://desktop.tools' as const;
 export const ROUTES = ['general', 'economy', 'code', 'architect', 'research', 'critical', 'batch', 'restricted'] as const;

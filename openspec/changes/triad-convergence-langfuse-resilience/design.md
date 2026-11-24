@@ -12,3 +12,9 @@
    - Invokes `~/.agentskills/bin/lib/langfuse-safe.ts` under Node 24 native strip-types when available (with a `curl --max-time` fallback) and outputs structured JSON without ever failing a caller script.
 3. **Paperclip Project Linkage**:
    - Linked to Paperclip project `install.doctor` (`d97b0204-ca63-4117-b469-2fe0f2470d18`) via `openspec-paperclip-sync.ts`.
+4. **Prompt Closeout Contract**:
+   - Before declaring a prompt complete, implement every safe, authorized, dependency-closed recommendation, then evaluate reusable contributions to `theme.tools`, `install.doctor`, `agent-skills`, and relevant touched projects concurrently where work is independent.
+   - Apply only relevant, validated contributions; record blocked or inapplicable recommendations rather than fabricating completion or broadening authority. Update affected documentation and comments that explain non-obvious behavior or invariants.
+5. **Observability by Design**:
+   - Applicable product designs include consent-aware PostHog, GA4, and GTM instrumentation plus correlated Langfuse AI traces and Sentry errors/performance.
+   - Instrumentation is redacted, tenant-safe, bounded/fail-open, environment-separated, and verified for delivery, consent/revocation, and outage behavior before being called complete.

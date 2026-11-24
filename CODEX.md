@@ -1,11 +1,11 @@
-# Codex project entry
+# CODEX.md — Repo Guide for OpenAI Codex (`install.doctor`)
 
-Read `AGENTS.md`, `CLAUDE.md`, and the canonical
-`~/.agentskills/rules/agent-provider-policy.md` before substantial work. Classify every work
-unit before spending premium-model capacity: when OpenCode can complete it effectively, delegate
-through LiteLLM to configured local Ollama or rotating DeepSeek routes and assess safe swarm
-fan-out with `~/.agentskills/bin/opencode-swarm.mjs`. Codex retains independent research,
-architecture challenge, sensitive/shared-state judgment, integration review, and verification.
+Read [`AGENTS.md`](./AGENTS.md), [`CLAUDE.md`](./CLAUDE.md), [`GEMINI.md`](./GEMINI.md), and `~/.codex/AGENTS.md` first — `CLAUDE.md` and `AGENTS.md` are the canonical repository guides for `install.doctor` (`desktop.tools` / `aid-core`).
 
-Do not conflate internal agent routing with product inference. The `aid` product runtime uses
-the ProjectSites/no-LiteLLM route specified in `AGENTS.md`.
+Follow `~/.agentskills/rules/agent-provider-policy.md`: route effectively executable throughput work through OpenCode → LiteLLM → configured local Ollama or rotating DeepSeek and assess safe swarm fan-out. Codex retains architecture, sensitive/shared-state judgment, integration, and final verification. This internal routing does not change the product runtime: Desktop Tools uses the ProjectSites/no-LiteLLM route defined in `AGENTS.md`.
+
+## Opportunistic `theme.tools` Upstream Extraction Mandate (Thin-Shell Consumer Repositories)
+
+- **Opportunistic `theme.tools` Upstream Extraction Mandate (Thin-Shell Consumer Repositories)**: Always opportunistically upgrade `theme.tools` (`@theme.tools/*`, `/Users/Apple/emdash/repositories/theme.tools`) while working whenever any component, calculator, advisor, workflow, validator, hook, or library code can potentially be reused across sites or applications. Consumer repositories must contain primarily overall structure, routing, data bindings, and thin configuration adapters rather than standalone source implementations for reusable components and libraries.
+- **Parallel End-of-Turn Triad Sync (`agent-skills` + `install.doctor` + `theme.tools` + touched projects)**: At the end of every prompt pass, infer and apply updates in parallel across `heymegabyte/agent-skills`, `heymegabyte/install.doctor`, and `heymegabyte/theme.tools` (`@theme.tools` / `ui.theme.tools`).
+- **Safe Prompt Closeout + Observability**: Implement every safe, authorized, dependency-closed recommendation before completion; evaluate relevant contributions across the triad and touched projects in parallel; and update affected documentation and explanatory comments. Applicable designs integrate consent-aware PostHog, GA4, GTM, Langfuse, and Sentry with correlation, redaction, isolation, bounded failure behavior, and executed verification. State blockers or inapplicability without broadening authority.

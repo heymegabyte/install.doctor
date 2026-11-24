@@ -9,6 +9,10 @@ Ollama or rotating DeepSeek routes and assess safe swarm fan-out. Claude owns ar
 sensitive/shared-state decisions, integration, and final verification. This does not change the
 separate product-runtime decision in `AGENTS.md`: `aid` uses ProjectSites routing without LiteLLM.
 
+**Opportunistic `theme.tools` Upstream Extraction Mandate (Thin-Shell Consumer Repositories)**: Always opportunistically upgrade `theme.tools` (`@theme.tools/*`) while working whenever any component, calculator, advisor, workflow, validator, hook, or library code can potentially be reused across sites or applications. Consumer repositories must contain primarily overall structure, routing, data bindings, and thin configuration adapters rather than standalone source implementations for reusable components and libraries.
+
+**Prompt closeout and observability contract:** Before completion, implement all safe, authorized, dependency-closed recommendations; evaluate independent contributions to `theme.tools`, `install.doctor`, `agent-skills`, and touched projects in parallel; and update affected documentation and explanatory comments. Applicable designs include consent-aware PostHog, GA4, GTM, Langfuse, and Sentry with correlation, redaction, isolation, bounded failure behavior, and executed verification. Report blockers or inapplicability; do not infer new authority.
+
 ---
 
 ## 1. Mission

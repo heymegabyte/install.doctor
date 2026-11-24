@@ -1,0 +1,255 @@
+{
+  "schemaVersion": 1,
+  "revision": "research-platform-1",
+  "environment": "staging",
+  "accountReference": "cloudflare-account://theme-tools",
+  "worker": {
+    "serviceName": "theme-tools-research-staging",
+    "compatibilityDate": "2026-11-22",
+    "migrationsOwner": "@theme.tools/crawl-research"
+  },
+  "broker": {
+    "endpoint": "https://research.theme.tools",
+    "serviceTokenEnvironmentVariable": "THEME_RESEARCH_SERVICE_TOKEN"
+  },
+  "workloadIdentity": {
+    "id": "theme-tools-research",
+    "provider": "infisical",
+    "authMode": "workload-identity",
+    "secretPath": "/workloads/theme-tools-research"
+  },
+  "secretReferences": [
+    {
+      "secretName": "THEME_RESEARCH_SERVICE_TOKEN",
+      "environmentVariable": "THEME_RESEARCH_SERVICE_TOKEN",
+      "reference": "infisical://workloads/theme-tools-research/THEME_RESEARCH_SERVICE_TOKEN",
+      "required": true
+    },
+    {
+      "secretName": "RESEARCH_TOKEN_ENCRYPTION_KEY",
+      "environmentVariable": "RESEARCH_TOKEN_ENCRYPTION_KEY",
+      "reference": "infisical://workloads/theme-tools-research/RESEARCH_TOKEN_ENCRYPTION_KEY",
+      "required": true
+    },
+    {
+      "secretName": "RESEARCH_BROWSER_DESCRIPTOR_KEY",
+      "environmentVariable": "RESEARCH_BROWSER_DESCRIPTOR_KEY",
+      "reference": "infisical://workloads/theme-tools-research/RESEARCH_BROWSER_DESCRIPTOR_KEY",
+      "required": true
+    },
+    {
+      "secretName": "LANGFUSE_SECRET_KEY",
+      "environmentVariable": "LANGFUSE_SECRET_KEY",
+      "reference": "infisical://workloads/theme-tools-research/LANGFUSE_SECRET_KEY",
+      "required": false
+    }
+  ],
+  "resources": [
+    {
+      "id": "metadata",
+      "role": "d1_metadata",
+      "binding": "RESEARCH_DB",
+      "resourceName": "theme-research-staging",
+      "migrationsDirectory": "packages/crawl-research/migrations"
+    },
+    {
+      "id": "evidence",
+      "role": "r2_evidence",
+      "binding": "RESEARCH_EVIDENCE",
+      "resourceName": "theme-research-evidence-staging",
+      "jurisdiction": "default"
+    },
+    {
+      "id": "catalog",
+      "role": "kv_catalog",
+      "binding": "RESEARCH_CONFIG",
+      "resourceName": "theme-research-config-staging"
+    },
+    {
+      "id": "jobs",
+      "role": "queue_jobs",
+      "binding": "RESEARCH_JOBS",
+      "resourceName": "theme-research-jobs-staging",
+      "deadLetterResourceId": "jobs-dlq",
+      "maximumRetries": 5
+    },
+    {
+      "id": "jobs-dlq",
+      "role": "queue_dlq",
+      "binding": "RESEARCH_JOBS_DLQ",
+      "resourceName": "theme-research-jobs-dlq-staging"
+    },
+    {
+      "id": "runs",
+      "role": "durable_object_runs",
+      "binding": "RESEARCH_RUNS",
+      "resourceName": "theme-research-runs-staging",
+      "className": "ResearchRunCoordinator"
+    },
+    {
+      "id": "workflow",
+      "role": "workflow_research",
+      "binding": "RESEARCH_WORKFLOW",
+      "resourceName": "theme-research-workflow-staging",
+      "className": "DeepResearchWorkflow"
+    },
+    {
+      "id": "browser",
+      "role": "browser_rendering",
+      "binding": "BROWSER",
+      "resourceName": "theme-research-browser-staging"
+    },
+    {
+      "id": "ai",
+      "role": "workers_ai",
+      "binding": "AI",
+      "resourceName": "theme-research-ai-staging"
+    },
+    {
+      "id": "events",
+      "role": "service_binding",
+      "binding": "INTEGRATION_EVENTS",
+      "resourceName": "theme-integration-events-staging",
+      "serviceName": "theme-integration-events",
+      "entrypoint": "IntegrationEventService"
+    }
+  ],
+  "runtimeServices": [
+    {
+      "id": "research-workflow",
+      "serviceName": "theme-tools-research-staging",
+      "environment": "staging",
+      "accountReference": "cloudflare-account://theme-tools",
+      "role": "workflow"
+    },
+    {
+      "id": "research-branch",
+      "serviceName": "theme-tools-research-branch-staging",
+      "environment": "staging",
+      "accountReference": "cloudflare-account://theme-tools",
+      "role": "branch"
+    },
+    {
+      "id": "research-egress",
+      "serviceName": "theme-tools-research-egress-staging",
+      "environment": "staging",
+      "accountReference": "cloudflare-account://theme-tools",
+      "role": "policy_egress"
+    },
+    {
+      "id": "research-browser-egress",
+      "serviceName": "theme-tools-research-browser-egress-staging",
+      "environment": "staging",
+      "accountReference": "cloudflare-account://theme-tools",
+      "role": "browser_egress"
+    }
+  ],
+  "runtimeSecretBindings": [
+    {
+      "serviceId": "research-branch",
+      "environmentVariable": "RESEARCH_BROWSER_DESCRIPTOR_KEY",
+      "secretName": "RESEARCH_BROWSER_DESCRIPTOR_KEY"
+    },
+    {
+      "serviceId": "research-browser-egress",
+      "environmentVariable": "RESEARCH_BROWSER_DESCRIPTOR_KEY",
+      "secretName": "RESEARCH_BROWSER_DESCRIPTOR_KEY"
+    }
+  ],
+  "internalBindings": [
+    {
+      "id": "workflow-branch-executor",
+      "role": "branch_executor",
+      "sourceServiceId": "research-workflow",
+      "targetServiceId": "research-branch",
+      "binding": "RESEARCH_BRANCH_EXECUTOR",
+      "targetEntrypoint": "ResearchBranchService",
+      "props": {
+        "schemaVersion": "1.0.0",
+        "searchProviderId": "searxng-staging",
+        "searchEndpoint": "https://search.research.theme.tools",
+        "searchReadiness": "declared",
+        "egressPolicyReference": "theme-egress://research/staging",
+        "retentionMs": 7776000000,
+        "maximumParallelFetches": 4,
+        "browserEgressPolicy": "policy_routed_v1",
+        "browserVirtualHostname": "research-browser.invalid"
+      }
+    },
+    {
+      "id": "branch-policy-egress",
+      "role": "policy_egress",
+      "sourceServiceId": "research-branch",
+      "targetServiceId": "research-egress",
+      "binding": "RESEARCH_EGRESS",
+      "policyReference": "theme-egress://research/staging",
+      "directFetchFallback": false
+    },
+    {
+      "id": "branch-browser-egress",
+      "role": "browser_egress",
+      "sourceServiceId": "research-branch",
+      "targetServiceId": "research-browser-egress",
+      "binding": "RESEARCH_BROWSER_EGRESS",
+      "targetEntrypoint": "ResearchBrowserEgressService",
+      "props": {
+        "schemaVersion": "1.0.0",
+        "virtualHostname": "research-browser.invalid",
+        "maximumResponseBytes": 2000000
+      },
+      "directFetchFallback": false
+    },
+    {
+      "id": "browser-policy-egress",
+      "role": "policy_egress",
+      "sourceServiceId": "research-browser-egress",
+      "targetServiceId": "research-egress",
+      "binding": "RESEARCH_EGRESS",
+      "policyReference": "theme-egress://research/staging",
+      "directFetchFallback": false
+    }
+  ],
+  "consumerBindings": [
+    {
+      "id": "oneprompt-research",
+      "consumerServiceName": "oneprompt",
+      "consumerEnvironment": "staging",
+      "binding": "RESEARCH",
+      "targetServiceName": "theme-tools-research-staging",
+      "targetEnvironment": "staging",
+      "targetEntrypoint": "ResearchService",
+      "authorityGrantReference": "theme-authority://research/consumers/oneprompt-staging",
+      "bindingProps": {
+        "schemaVersion": 1,
+        "consumerId": "oneprompt",
+        "environmentId": "staging",
+        "authorityGrantReference": "theme-authority://research/consumers/oneprompt-staging",
+        "tenantScopeHeader": "x-oneprompt-site-id",
+        "actorScopeHeader": "x-oneprompt-job-id"
+      }
+    },
+    {
+      "id": "projectsites-research",
+      "consumerServiceName": "project-sites",
+      "consumerEnvironment": "staging",
+      "binding": "RESEARCH",
+      "targetServiceName": "theme-tools-research-staging",
+      "targetEnvironment": "staging",
+      "targetEntrypoint": "ResearchService",
+      "authorityGrantReference": "theme-authority://research/consumers/projectsites-staging",
+      "bindingProps": {
+        "schemaVersion": 1,
+        "consumerId": "project-sites",
+        "environmentId": "staging",
+        "authorityGrantReference": "theme-authority://research/consumers/projectsites-staging",
+        "tenantScopeHeader": "x-projectsites-org-id",
+        "actorScopeHeader": "x-projectsites-actor-id"
+      }
+    }
+  ],
+  "retention": {
+    "evidenceDays": 90,
+    "eventDays": 30,
+    "usageDays": 365
+  }
+}
