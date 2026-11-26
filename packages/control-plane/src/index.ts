@@ -3,7 +3,7 @@ import { z } from 'zod';
 // Reuse aid-core's route contract (don't re-implement — MASTER-PROMPT §8). Relative import so
 // esbuild bundles the zero-dep contracts at deploy time; no workspace link needed.
 import {
-  ROUTES, chooseRoute, validateBlueprint, exportMarkdown, importMarkdown, blueprintDigest, aidProviderConfig, APP_URL, type Blueprint,
+  ROUTES, chooseRoute, validateBlueprint, exportMarkdown, importMarkdown, blueprintDigest, aidProviderConfig, APP_URL, resolveBlueprintPackages, type Blueprint, type EnvironmentBlueprint,
   predictIntentDistribution, createSpeculativeBranch, collapseSpeculativeBranch, evaporateSpeculativeBranch,
   evaluateEasterEgg, generateEdgeHeaders, calculateCadenceEntropy,
   analyzeFleetDrift, mintExecutionReceipt, verifyExecutionReceipt, rankSemanticCatalogMatches,
@@ -41,7 +41,7 @@ import {
 // (scripts/gen-catalog.mjs → the cnf index builder; D01/D02/D13). Read-only, bundled at deploy;
 // regenerate + redeploy when software.yml changes. No runtime YAML at the edge.
 import catalogData from './catalog.json';
-type CatalogEntry = { name: string; bin: string; providers: string[]; pkgs: Record<string, string>; platforms: string[]; short?: string; github?: string; home?: string; docs?: string; installMode?: 'app' | 'service' | 'cli'; deliveryMode: 'eager' | 'lazy'; loadPolicy: 'lazy' | 'eager-bootstrap' | 'eager-supported-path' | 'eager-security-recovery' | 'eager-service'; loadRationale: string; preload?: boolean; preloadReason?: 'bootstrap-critical' | 'lazy-installer-substrate' | 'security-recovery-prerequisite' | 'desired-state-service'; deprecated?: string; replacement?: string; deps?: string[]; configured?: boolean; postInstall?: string; serviceDeclarations?: { name: string; privilege: 'user' | 'admin'; packageProvider?: string; manager?: 'systemd' }[]; caskLauncher?: { appBundle: string; bin: string }; flatpakLauncher?: { appId: string; bin: string } };
+type CatalogEntry = { name: string; bin: string; providers: string[]; pkgs: Partial<Record<string, string>>; platforms: string[]; short?: string; github?: string; home?: string; docs?: string; installMode?: 'app' | 'service' | 'cli'; deliveryMode: 'eager' | 'lazy'; loadPolicy: 'lazy' | 'eager-bootstrap' | 'eager-supported-path' | 'eager-security-recovery' | 'eager-service'; loadRationale: string; preload?: boolean; preloadReason?: 'bootstrap-critical' | 'lazy-installer-substrate' | 'security-recovery-prerequisite' | 'desired-state-service'; deprecated?: string; replacement?: string; deps?: string[]; configured?: boolean; postInstall?: string; serviceDeclarations?: { name: string; privilege: 'user' | 'admin'; packageProvider?: string; manager?: 'systemd' }[]; caskLauncher?: { appBundle: string; bin: string }; flatpakLauncher?: { appId: string; bin: string } };
 const CATALOG = catalogData as CatalogEntry[];
 // Name → entry. One package can legitimately provide SEVERAL bins (xz → lzma/xz/unlzma/unxz), one entry per
 // bin, all sharing the package `name`. Prefer the CANONICAL entry whose bin IS the name (so /api/catalog/xz
@@ -55,10 +55,7 @@ for (const e of CATALOG) {
 // D06/C12 — tally a plan's packages (defaults + every machine's own) by install mode, so the plan-review
 // summary shows the eager-vs-lazy breakdown: how many GUI desktop apps install at setup vs CLIs installed
 // lazily on first command use (the core product promise). Packages the catalog doesn't know → "unknown".
-function tallyInstallModes(bp: { defaults?: { packages?: string[] }; machines?: { packages?: string[] }[] }): { app: number; service: number; cli: number; cliPreload: number; unknown: number } {
-  const names = new Set<string>();
-  for (const p of bp.defaults?.packages ?? []) names.add(p);
-  for (const m of bp.machines ?? []) for (const p of m.packages ?? []) names.add(p);
+function tallyInstallModes(names: ReadonlySet<string>): { app: number; service: number; cli: number; cliPreload: number; unknown: number } {
   const t = { app: 0, service: 0, cli: 0, cliPreload: 0, unknown: 0 };
   for (const name of names) {
     const e = CATALOG_BY_NAME.get(name);
@@ -77,10 +74,7 @@ function tallyInstallModes(bp: { defaults?: { packages?: string[] }; machines?: 
 }
 // D14/D15 safety — flag the plan's packages the maintainer marked `_deprecated` (#112), so plan review WARNS
 // before a host applies a plan that includes an abandoned/discouraged tool, with the reason (often the replacement).
-function collectDeprecated(bp: { defaults?: { packages?: string[] }; machines?: { packages?: string[] }[] }): { name: string; reason: string }[] {
-  const names = new Set<string>();
-  for (const p of bp.defaults?.packages ?? []) names.add(p);
-  for (const m of bp.machines ?? []) for (const p of m.packages ?? []) names.add(p);
+function collectDeprecated(names: ReadonlySet<string>): { name: string; reason: string }[] {
   const out: { name: string; reason: string }[] = [];
   for (const name of names) {
     const e = CATALOG_BY_NAME.get(name);
@@ -94,11 +88,8 @@ function collectDeprecated(bp: { defaults?: { packages?: string[] }; machines?: 
 // instead of the package being silently applicable. Unknown (non-catalog) packages are skipped — platforms
 // unknown, never guessed. Shape mirrors collectDeprecated/tallyInstallModes (one scan of defaults+machines).
 const AID_PLATFORMS = ['macos', 'linux', 'windows'] as const;
-function collectPlatformGaps(bp: { defaults?: { packages?: string[] }; machines?: { packages?: string[] }[] }): Record<string, string[]> {
-  const names = new Set<string>();
-  for (const p of bp.defaults?.packages ?? []) names.add(p);
-  for (const m of bp.machines ?? []) for (const p of m.packages ?? []) names.add(p);
-  const gaps: Record<string, string[]> = { macos: [], linux: [], windows: [] };
+function collectPlatformGaps(names: ReadonlySet<string>): Record<string, string[]> {
+  const gaps: Record<(typeof AID_PLATFORMS)[number], string[]> = { macos: [], linux: [], windows: [] };
   for (const name of names) {
     const e = CATALOG_BY_NAME.get(name);
     if (!e) continue;
@@ -112,10 +103,7 @@ function collectPlatformGaps(bp: { defaults?: { packages?: string[] }; machines?
 // installModes.unknown) so plan review surfaces WHICH package is uncovered — mirrors collectDeprecated /
 // collectPlatformGaps. e.g. _default's runner carries `alloy` (Grafana Alloy, intended but not yet in
 // software.yml) -> the review shows "alloy not in the catalog" instead of a mystery "1 other".
-function collectUnknownPackages(bp: { defaults?: { packages?: string[] }; machines?: { packages?: string[] }[] }): string[] {
-  const names = new Set<string>();
-  for (const p of bp.defaults?.packages ?? []) names.add(p);
-  for (const m of bp.machines ?? []) for (const p of m.packages ?? []) names.add(p);
+function collectUnknownPackages(names: ReadonlySet<string>): string[] {
   const out: string[] = [];
   for (const name of names) if (!CATALOG_BY_NAME.get(name)) out.push(name);
   return out.sort((a, b) => a.localeCompare(b));
@@ -124,10 +112,7 @@ function collectUnknownPackages(bp: { defaults?: { packages?: string[] }; machin
 // of the plan's CATALOG-KNOWN packages, how many AUTO-CONFIGURE on install via a post-installx first-run hook
 // (catalog `configured` #136). Surfaces BEFORE applying what setup Install Doctor runs automatically vs what stays
 // manual. `of` = catalog-known packages (uncatalogued ones are surfaced separately as unknownPackages).
-function collectConfigured(bp: { defaults?: { packages?: string[] }; machines?: { packages?: string[] }[] }): { count: number; of: number; packages: string[] } {
-  const names = new Set<string>();
-  for (const p of bp.defaults?.packages ?? []) names.add(p);
-  for (const m of bp.machines ?? []) for (const p of m.packages ?? []) names.add(p);
+function collectConfigured(names: ReadonlySet<string>): { count: number; of: number; packages: string[] } {
   const packages: string[] = [];
   let of = 0;
   for (const name of names) {
@@ -215,10 +200,7 @@ const SUDO_PROVIDERS = new Set(Object.entries(CATALOG_INSTALL_CMD).filter(([, fn
 // REQUIRE ELEVATION (sudo) to install — a service (installs + enables a system unit) OR a package whose only
 // INSTALLABLE providers all need sudo (a system-PM-only tool). The service set overlaps installModes.service, but
 // the system-PM-only CLIs/apps (chromium, docker, distrobox) are NOT captured there — genuinely new "needs root" info.
-function collectPrivileges(bp: { defaults?: { packages?: string[] }; machines?: { packages?: string[] }[] }): { count: number; packages: string[] } {
-  const names = new Set<string>();
-  for (const p of bp.defaults?.packages ?? []) names.add(p);
-  for (const m of bp.machines ?? []) for (const p of m.packages ?? []) names.add(p);
+function collectPrivileges(names: ReadonlySet<string>): { count: number; packages: string[] } {
   const packages: string[] = [];
   for (const name of names) {
     const e = CATALOG_BY_NAME.get(name);
@@ -1327,18 +1309,16 @@ app.get('/api/catalog/:name', (c) => {
   const e = CATALOG_BY_NAME.get(name);
   if (!e) return c.json({ error: 'not_found' }, 404);
   const pkgs = e.pkgs || {};
-  const commands = (e.providers || [])
-    .filter((p) => CATALOG_INSTALL_CMD[p] && pkgs[p])
-    .map((p) => ({ provider: p, pkg: pkgs[p], command: CATALOG_INSTALL_CMD[p](pkgs[p]) }));
-  // D11 (#147) — the matching per-provider UPDATE command (keep-current; promise #8), built the same way.
-  const updateCommands = (e.providers || [])
-    .filter((p) => CATALOG_UPDATE_CMD[p] && pkgs[p])
-    .map((p) => ({ provider: p, pkg: pkgs[p], command: CATALOG_UPDATE_CMD[p](pkgs[p]) }));
-  // R02/B14 (#152) — the matching per-provider UNINSTALL command (cleanly remove the tool), built the same way.
-  // `go` has no uninstall verb so it's absent from UNINSTALL_CMD → go-only tools get an empty set (honest).
-  const uninstallCommands = (e.providers || [])
-    .filter((p) => CATALOG_UNINSTALL_CMD[p] && pkgs[p])
-    .map((p) => ({ provider: p, pkg: pkgs[p], command: CATALOG_UNINSTALL_CMD[p](pkgs[p]) }));
+  const buildCommands = (templates: Readonly<Partial<Record<string, (pkg: string) => string>>>) =>
+    (e.providers || []).flatMap(provider => {
+      if (!Object.hasOwn(templates, provider)) return [];
+      const command = templates[provider];
+      const pkg = pkgs[provider];
+      return command && pkg ? [{ provider, pkg, command: command(pkg) }] : [];
+    });
+  const commands = buildCommands(CATALOG_INSTALL_CMD);
+  const updateCommands = buildCommands(CATALOG_UPDATE_CMD);
+  const uninstallCommands = buildCommands(CATALOG_UNINSTALL_CMD);
   // A10 (#137) — state platform availability EXPLICITLY: the OSes this tool is NOT installable on (the
   // complement of its declared `platforms`), so the detail says what it's missing (empty = every platform).
   const unavailablePlatforms = AID_PLATFORMS.filter((p) => !(e.platforms || []).includes(p));
@@ -1434,7 +1414,7 @@ function diffMembers(
   for (const id of fa.keys()) if (!ta.has(id)) out.push({ section: label, detail: '-' + id });
   for (const id of ta.keys()) if (fa.has(id) && fa.get(id) !== ta.get(id)) out.push({ section: label, detail: '~' + id });
 }
-function diffBlueprints(from: Blueprint, to: Blueprint): Array<{ section: string; detail: string }> {
+function diffBlueprints(from: EnvironmentBlueprint, to: EnvironmentBlueprint): Array<{ section: string; detail: string }> {
   const out: Array<{ section: string; detail: string }> = [];
   if (from.revision !== to.revision) out.push({ section: 'revision', detail: `${from.revision} → ${to.revision}` });
   const fp = new Set(from.defaults.packages);
@@ -1477,15 +1457,16 @@ app.get('/api/environment/current', async (c) => {
   const query = EnvironmentReadQuery.safeParse({ tenant: c.req.query('tenant') || undefined });
   if (!query.success) return c.json({ error: 'invalid_request', issues: query.error.issues }, 400);
   const tenant = query.data.tenant;
-  const db = (c.env as Record<string, any>).DB;
+  const db = (c.env as Record<string, unknown>).DB as D1Database | undefined;
   if (!db) return c.json({ error: 'store_unavailable' }, 503);
   try {
-    const row = await db.prepare('SELECT markdown, updated_at FROM blueprints WHERE tenant = ?').bind(tenant).first();
+    const row = await db.prepare('SELECT markdown, updated_at FROM blueprints WHERE tenant = ?').bind(tenant).first<{ markdown: string; updated_at: string }>();
     if (!row) {
-      const cnt = await db.prepare('SELECT count(*) AS n FROM blueprints').first();
+      const cnt = await db.prepare('SELECT count(*) AS n FROM blueprints').first<{ n: number }>();
       return c.json({ error: 'not_found', tenant, stored: cnt?.n ?? 0 }, 404);
     }
     const bp = importMarkdown(row.markdown);
+    const packageNames = resolveBlueprintPackages(bp);
     // C12 "review the plan" (step 5): a compact structured summary so the dashboard can render an at-a-glance
     // breakdown synchronously with the markdown (no 2nd round-trip). Shape mirrors the blueprint subset the UI reads.
     const summary = {
@@ -1495,19 +1476,19 @@ app.get('/api/environment/current', async (c) => {
       routing: { engine: bp.routing?.engine, preferredProvider: bp.routing?.preferredProvider, allowPremium: bp.routing?.allowPremium },
       privacy: bp.privacy,
       // C12/D06 — the plan's eager-vs-lazy install breakdown (desktop apps at setup · services · lazy CLIs).
-      installModes: tallyInstallModes(bp),
+      installModes: tallyInstallModes(packageNames),
       // C12/D14 safety — any packages in the plan the maintainer flagged deprecated (warn before applying).
-      deprecatedPackages: collectDeprecated(bp),
+      deprecatedPackages: collectDeprecated(packageNames),
       // A10 — per-OS list of plan packages NOT installable on that platform (partial-success made explicit).
-      platformGaps: collectPlatformGaps(bp),
+      platformGaps: collectPlatformGaps(packageNames),
       // A10 (#155) — plan packages NOT in the catalog (no recipe), NAMED so the review shows which are uncovered.
-      unknownPackages: collectUnknownPackages(bp),
+      unknownPackages: collectUnknownPackages(packageNames),
       // F15/C12 (#161) — CONFIGURATION coverage: how many catalog-known plan packages auto-configure on install
       // (post-installx first-run hook), so the review shows what setup is automatic vs what stays manual (step-5).
-      configured: collectConfigured(bp),
+      configured: collectConfigured(packageNames),
       // C12 (#162) — PRIVILEGES coverage: plan packages that require elevation (sudo) to install (a service or a
       // system-PM-only tool), so the review shows "will applying this need root?" before apply (step-5 privileges).
-      privileges: collectPrivileges(bp),
+      privileges: collectPrivileges(packageNames),
     };
     return c.json({ tenant, revision: bp.revision, digest: await blueprintDigest(bp), updatedAt: row.updated_at, markdown: row.markdown, summary });
   } catch (e) {
@@ -1530,7 +1511,7 @@ app.put('/api/environment/current', async (c) => {
   const denied = await requireAdmin(c);
   if (denied) return denied;
   const env = c.env as Record<string, unknown>;
-  const db = env.DB;
+  const db = env.DB as D1Database | undefined;
   if (!db) return c.json({ error: 'store_unavailable' }, 503);
   try {
     const parsed = EnvironmentWriteRequest.safeParse(await c.req.json());
@@ -1538,7 +1519,7 @@ app.put('/api/environment/current', async (c) => {
     const body = parsed.data;
     const tenant = body.tenant;
     const bp = validateBlueprint(body.blueprint);
-    const existing = await db.prepare('SELECT markdown FROM blueprints WHERE tenant = ?').bind(tenant).first();
+    const existing = await db.prepare('SELECT markdown FROM blueprints WHERE tenant = ?').bind(tenant).first<{ markdown: string }>();
     if (existing) {
       const current = importMarkdown(existing.markdown);
       if (body.expectedRevision !== undefined && body.expectedRevision !== current.revision)
@@ -1949,7 +1930,7 @@ app.get('/api/recommendations', async (c) => {
     try {
       const bpRow = await db.prepare('SELECT markdown FROM blueprints WHERE tenant = ?').bind(tenant).first();
       if (bpRow?.markdown) {
-        const dep = collectDeprecated(importMarkdown(bpRow.markdown));
+        const dep = collectDeprecated(resolveBlueprintPackages(importMarkdown(bpRow.markdown)));
         if (dep.length)
           recs.push({ id: 'plan_deprecated', severity: 'warning', title: `${dep.length} deprecated package(s) in the desired plan`, detail: `Replace in the plan — ${dep.map((x) => `${x.name} (${x.reason})`).join('; ')}`, action: 'edit-plan', command: '', devices: [] });
       }

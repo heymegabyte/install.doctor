@@ -78,6 +78,5 @@ activation are provider-separable authorities.
 Zod env + bindings; a real ProjectSites routing adapter → one CF AI Gateway (DeepSeek-first);
 tenant/device identity; D1 metadata.
 
-The compiler gate inherits the shared base profile. The exclusions in `tsconfig.json`
-track existing diagnostics in the Worker entrypoint. Wrangler still bundles it,
-and the runtime suite continues to exercise its routes.
+The compiler gate inherits the shared base profile and covers every source module,
+including the Worker entrypoint. The runtime suite exercises the Wrangler bundle.

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {
   APP_URL, DESKTOP_TOOLS_URL, ROUTES, validateBlueprint, validateEnvironment,
   migrateBlueprintV1ToV2, migrateBlueprintV2ToV3, migrateBlueprintV3ToV4,
-  resolveMachinePackages, exportMarkdown, importMarkdown, blueprintDigest,
+  resolveMachinePackages, resolveBlueprintPackages, exportMarkdown, importMarkdown, blueprintDigest,
   aidProviderConfig, chooseRoute, newSession, transitionSession, CastWriter,
   planLokiIntegration, renderAlloy
 } from '../dist/core.js';
@@ -122,6 +122,15 @@ test('v2 machine exceptions may remove inherited packages without mutating the r
   firstV2Machine(environment).packageOverrides.remove.push('chezmoi');
   assert.deepEqual(resolveMachinePackages(environment, 'runner-a'), ['git', 'alloy', 'restic']);
   assert.deepEqual(resolveMachinePackages(environment, 'runner-b'), ['git', 'chezmoi', 'alloy', 'jq']);
+});
+
+test('blueprint package summaries apply removals across every machine', () => {
+  const environment = environmentV2();
+  firstV2Machine(environment).packageOverrides.remove.push('chezmoi');
+  assert.ok(resolveBlueprintPackages(environment).has('chezmoi'));
+  for (const machine of environment.machines.slice(1)) machine.packageOverrides.remove.push('chezmoi');
+  assert.deepEqual([...resolveBlueprintPackages(environment)], ['git', 'alloy', 'restic', 'jq', 'mise']);
+  assert.deepEqual([...resolveBlueprintPackages(fixture())], ['git', 'chezmoi', 'mise', 'alloy']);
 });
 
 test('v2 rejects unknown roles and contradictory machine package exceptions', () => {

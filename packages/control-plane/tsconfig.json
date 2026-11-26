@@ -9,8 +9,5 @@
   "include": [
     "src/**/*.ts",
     ".wrangler/control-plane-runtime.d.ts"
-  ],
-  "exclude": [
-    "src/index.ts"
   ]
 }

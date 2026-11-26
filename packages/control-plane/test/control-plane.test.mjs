@@ -2168,6 +2168,39 @@ test('Control Plane Phase 2: Fleet Drift Radar, Cryptographic Execution Receipts
   assert.equal(semJson.matches[0].name, 'ripgrep');
 });
 
+test('desired-state summary includes effective role and machine packages', async () => {
+  const app = await loadWorkerApp();
+  const fixture = new URL('../../aid-core/test/fixtures/environment-v2.json', import.meta.url);
+  const blueprint = JSON.parse(fs.readFileSync(fixture, 'utf8'));
+  blueprint.defaults.packages.push('test-removed-package');
+  blueprint.roles[0].packages.push('test-role-package');
+  blueprint.machines[0].packageOverrides.add.push('test-machine-package');
+  for (const machine of blueprint.machines) {
+    machine.packageOverrides.remove.push('test-removed-package');
+  }
+  const row = { markdown: exportMarkdown(blueprint), updated_at: '2026-11-26T00:00:00Z' };
+  const db = {
+    prepare() {
+      return {
+        bind(tenant) {
+          assert.equal(tenant, 'tenant-overlay');
+          return { first: async () => row };
+        },
+      };
+    },
+  };
+  const response = await app.fetch(new Request(
+    'https://app.install.doctor/api/environment/current?tenant=tenant-overlay',
+    { headers: { authorization: `Bearer ${TEST_ENV.AID_ADMIN_TOKEN}` } }
+  ), { ...TEST_ENV, DB: db });
+  assert.equal(response.status, 200);
+  const { summary } = await response.json();
+  assert.deepEqual(summary.unknownPackages.filter(name => name.startsWith('test-')), [
+    'test-machine-package',
+    'test-role-package',
+  ]);
+});
+
 test('Control Plane security: desired-state metadata is authenticated and requests are bounded/correlated', async () => {
   const app = await loadWorkerApp();
 

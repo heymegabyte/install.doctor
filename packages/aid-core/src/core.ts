@@ -480,8 +480,37 @@ export function resolveMachinePackages(input: unknown, machineId: string): strin
   invariant(machine, 'Unknown machine');
   const role = blueprint.roles.find(candidate => candidate.id === machine.role);
   invariant(role, 'Machine refers to an unknown role');
-  const removed = new Set(machine.packageOverrides.remove);
-  return [...new Set([...blueprint.defaults.packages, ...role.packages])].filter(packageId => !removed.has(packageId)).concat(machine.packageOverrides.add);
+  return resolvePackageOverrides(blueprint.defaults.packages, role.packages, machine.packageOverrides);
+}
+
+function resolvePackageOverrides(
+  defaults: readonly string[],
+  rolePackages: readonly string[],
+  overrides: { add: readonly string[]; remove: readonly string[] }
+): string[] {
+  const packages = new Set([...defaults, ...rolePackages]);
+  for (const removed of overrides.remove) packages.delete(removed);
+  for (const added of overrides.add) packages.add(added);
+  return [...packages];
+}
+
+/** Resolve the effective fleet packages, using defaults when no machines are declared. */
+export function resolveBlueprintPackages(input: unknown): Set<string> {
+  const blueprint = validateEnvironment(input);
+  if (blueprint.schemaVersion === 1) {
+    return new Set([...blueprint.defaults.packages, ...blueprint.machines.flatMap(machine => machine.packages)]);
+  }
+  if (blueprint.machines.length === 0) return new Set(blueprint.defaults.packages);
+  const roles = new Map(blueprint.roles.map(role => [role.id, role.packages]));
+  const packages = new Set<string>();
+  for (const machine of blueprint.machines) {
+    const rolePackages = roles.get(machine.role);
+    invariant(rolePackages, 'Machine refers to an unknown role');
+    for (const packageId of resolvePackageOverrides(blueprint.defaults.packages, rolePackages, machine.packageOverrides)) {
+      packages.add(packageId);
+    }
+  }
+  return packages;
 }
 
 function canonical(value: unknown): unknown {
