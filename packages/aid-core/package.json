@@ -30,18 +30,27 @@
     "./saas-api-contracts": "./dist/saas-api-contracts.js"
   },
   "types": "./dist/core.d.ts",
-  "files": ["dist", "docs", "src", "test", "tsconfig.json", "vendor"],
+  "files": [
+    "dist",
+    "docs",
+    "src",
+    "test",
+    "tsconfig.json",
+    "vendor"
+  ],
   "description": "Tested contracts for Install Doctor aid; not a deployed daemon or gateway",
   "scripts": {
     "build": "tsc --project tsconfig.json",
     "typecheck": "tsc --project tsconfig.json --noEmit",
+    "typecheck:test": "tsc --project tsconfig.test.json",
     "prepack": "npm run build",
-    "test": "npm run build && node --test test/*.test.mjs"
+    "test": "npm run build && npm run typecheck:test && node --test test/*.test.mjs"
   },
   "engines": {
     "node": ">=22"
   },
   "devDependencies": {
+    "@types/node": "22.20.7",
     "typescript": "5.8.3"
   },
   "dependencies": {

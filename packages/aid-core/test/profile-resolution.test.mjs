@@ -58,7 +58,7 @@ test('resolves an enabled profile only inside its authenticated tenant', () => {
   const result = resolveTenantProfile(profiles, { tenantId: 'tenant-one', slug: 'example' });
   assert.equal(result.id, 'profile-example');
   result.slug = 'changed';
-  assert.equal(profiles[0].slug, 'example');
+  assert.equal(profiles[0]?.slug, 'example');
 });
 
 test('public descriptor exposes only bounded identification and no tenant or authority', () => {
@@ -83,7 +83,7 @@ test('unknown, disabled, cross-tenant, and malformed lookups fail identically', 
     { tenantId: 'tenant-one', slug: 'ｅｘａｍｐｌｅ' }
   ];
   for (const request of attempts) {
-    assert.throws(() => resolveTenantProfile(profiles, request), error => error.message === 'Profile unavailable');
+    assert.throws(() => resolveTenantProfile(profiles, request), error => error instanceof Error && error.message === 'Profile unavailable');
   }
 });
 

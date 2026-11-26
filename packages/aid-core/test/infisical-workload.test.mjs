@@ -35,7 +35,9 @@ test('rejects unknown fields, wildcard and parent paths, and production override
 
 test('rejects duplicate workload identities and ambiguous mappings', () => {
   const input = manifest();
-  input.workloads.push({ ...structuredClone(input.workloads[0]), id: 'second', secretPath: '/workloads/second' });
+  const [first] = input.workloads;
+  assert.ok(first);
+  input.workloads.push({ ...structuredClone(first), id: 'second', secretPath: '/workloads/second' });
   assert.throws(() => validateInfisicalWorkloadManifest(input), /identity/i);
   assert.throws(() => validateInfisicalWorkloadManifest(manifest({
     secrets: [

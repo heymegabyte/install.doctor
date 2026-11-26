@@ -42,7 +42,9 @@ The build uses the base compiler profile from the qualified `@theme-tools/testin
 `vendor/theme-tools/tsconfig.base.json` is the exact `package/dist/tsconfig/base.json`
 member. Its SHA-256 is `6f72381362b2ee9b97227b5a775ff3234dcf9df7e11d0c1c240be77ef650b713`.
 The package keeps its own emit and library settings. Zod is the runtime dependency,
-and TypeScript is the development dependency.
+and TypeScript and Node declarations are development dependencies.
+The test command builds the package and checks the JavaScript suites listed in
+`tsconfig.test.json` before executing the full runtime suite.
 The downloadable bundle also includes compiled `dist/` files so its tests can be run
 with `node --test test/core.test.mjs` without building. No root privileges are needed.
 
