@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
+import { createHash } from "node:crypto";
 import { once } from "node:events";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -91,12 +92,31 @@ test("an npm cache survives a Nexus outage and still serves cold public artifact
 
   nexusAvailable = false;
   await setTimeout(1_100);
+  // Model on-disk entries left by older versions of the proxy.
+  const legacyEntries = [
+    { path: "/repository/npm-group/@theme-tools%2flegacy-fresh", age: 0, directory: "meta", extension: ".body.json" },
+    { path: "/repository/npm-group/@theme-tools%2flegacy-stale", age: 60, directory: "meta", extension: ".body.json" },
+    { path: "/repository/npm-group/@theme.tools/legacy/-/legacy-1.0.0.tgz", age: 0, directory: "blobs", extension: ".bin" },
+  ];
+  for (const { path, age, directory, extension } of legacyEntries) {
+    const key = path.slice("/repository/".length) + "|accept=*/*";
+    const digest = createHash("sha256").update(key).digest("hex");
+    const shard = join(cache, "local-proxy", directory, digest.slice(0, 2));
+    mkdirSync(shard, { recursive: true });
+    writeFileSync(join(shard, digest + extension), Buffer.from("legacy cache fixture"));
+    writeFileSync(join(shard, digest + ".hdr.json"), JSON.stringify({
+      content_type: "application/octet-stream",
+      source: "MISS-VIA-UPSTREAM",
+      ts: Date.now() / 1000 - age,
+    }));
+  }
   assert.deepEqual(await read(tarballPath, "HIT-LOCAL"), archive);
   assert.deepEqual(await read(packagePath, "HIT-LOCAL-STALE"), metadata);
   for (const path of [
     "/repository/npm-group/@theme-tools%2fcold",
     "/repository/npm-proxy/%40theme.tools%2Fcold",
     "/repository/npm-group/@theme.tools/cold/-/cold-1.0.0.tgz",
+    ...legacyEntries.map(({ path }) => path),
   ]) {
     const rejected = await fetch(proxy + path, { signal: AbortSignal.timeout(5_000) });
     assert.equal(rejected.status, 503);
