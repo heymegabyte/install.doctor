@@ -59,7 +59,7 @@ jobs:
           set -euo pipefail
           npm --prefix packages/aid-core ci --ignore-scripts --no-audit --no-fund
           npm --prefix packages/installer-engine ci --ignore-scripts --no-audit --no-fund
-          npm --prefix packages/aid-core run build
+          npm --prefix packages/aid-core test
           npm --prefix packages/installer-engine run bundle
       - name: Acquire exact upstream Node runtime closure
         run: |

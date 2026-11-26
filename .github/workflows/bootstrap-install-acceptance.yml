@@ -39,7 +39,7 @@ jobs:
         env:
           DESKTOP_TOOLS_COMPOSITION_RECEIPT: ${{ runner.temp }}/disposable-composition-receipt.json
         run: |
-          npm --prefix packages/aid-core run build
+          npm --prefix packages/aid-core test
           npm --prefix packages/installer-engine run build
           npm --prefix packages/control-plane run check
           node --test packages/control-plane/test/disposable-product-composition.test.mjs

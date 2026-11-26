@@ -192,8 +192,9 @@ for package_dir in packages/aid-core packages/installer-engine; do
     printf 'locked dependency installation failed for %s\n' "$package_dir" >&2; exit 69;
   }
 done
-(cd "$build_root/source/packages/aid-core" && npm run build >/dev/null) || {
-  printf 'aid-core reproduction failed at source_commit\n' >&2; exit 69;
+(cd "$build_root/source/packages/aid-core" && npm test >"$build_root/aid-core-test.log" 2>&1) || {
+  tail -60 "$build_root/aid-core-test.log" >&2
+  printf 'aid-core verification failed at source_commit\n' >&2; exit 69;
 }
 (cd "$build_root/source/packages/installer-engine" && npm run bundle >/dev/null) || {
   printf 'engine reproduction failed at source_commit\n' >&2; exit 69;

@@ -73,7 +73,7 @@ jobs:
             | grep -Eq '^ssh-ed25519 [A-Za-z0-9+/]+={0,3}( [^[:cntrl:]]{1,128})?$'
           npm --prefix packages/aid-core ci --ignore-scripts --no-audit --no-fund
           npm --prefix packages/installer-engine ci --ignore-scripts --no-audit --no-fund
-          npm --prefix packages/aid-core run build
+          npm --prefix packages/aid-core test
           npm --prefix packages/installer-engine run bundle
           mkdir -p .release-work/broker
           CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath \

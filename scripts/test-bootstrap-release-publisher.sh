@@ -71,7 +71,7 @@ chmod 0700 "$engine"
 mkdir -p "$FIXTURE/packages/aid-core" "$FIXTURE/packages/installer-engine" "$FIXTURE/packages/control-plane/src"
 printf '[]\n' > "$FIXTURE/packages/control-plane/src/catalog.json"
 cat > "$FIXTURE/packages/aid-core/package.json" <<'JSON'
-{"name":"fixture-aid-core","version":"1.0.0","private":true,"scripts":{"build":"mkdir -p dist"}}
+{"name":"fixture-aid-core","version":"1.0.0","private":true,"scripts":{"build":"mkdir -p dist","test":"npm run build && test ! -f fail-tests"}}
 JSON
 cat > "$FIXTURE/packages/installer-engine/package.json" <<'JSON'
 {"name":"fixture-installer-engine","version":"1.0.0","private":true,"scripts":{"build":"npm --prefix ../aid-core run build","bundle":"npm run build && mkdir -p dist && cp ../../install-doctor-engine.mjs dist/install-doctor-engine.mjs"}}
@@ -172,6 +172,16 @@ cmp "$out/provision.sh" "$second/provision.sh"
 cmp "$out/install-doctor-engine.mjs" "$second/install-doctor-engine.mjs"
 for platform in macos-x64 macos-arm64 linux-x64 linux-arm64; do cmp "$out/node-$platform.tar.gz" "$second/node-$platform.tar.gz"; done
 pass
+
+touch "$FIXTURE/packages/aid-core/fail-tests"
+git -C "$FIXTURE" add packages/aid-core/fail-tests
+git -C "$FIXTURE" commit -qm 'simulate failing aid-core verification'
+failing_test_commit="$(git -C "$FIXTURE" rev-parse HEAD)"
+rejected_release="$out_parent/failing-test"
+rejects 'a source commit with failing aid-core verification' bash "$publisher" failing-test "$failing_test_commit" "$created" "$expires" test-signer "$key" "$provisioner" "$rejected_release"
+grep -q 'aid-core verification failed at source_commit' "$FIXTURE/rejected.stderr"
+test ! -e "$rejected_release"
+test ! -e "$rejected_release.unsigned"
 
 git -C "$FIXTURE" rm -q packages/aid-core/package-lock.json
 git -C "$FIXTURE" commit -qm 'remove an engine build lockfile'
