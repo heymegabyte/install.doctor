@@ -3,6 +3,8 @@ import test from 'node:test';
 import { buildOperationsDashboards, OperationsDashboardObservationSchema } from '../dist/operations-dashboards.js';
 
 const now = '2026-11-10T12:00:00.000Z';
+/** @typedef {import("zod").input<typeof OperationsDashboardObservationSchema>} Observation */
+/** @param {Observation["domain"]} domain @param {Partial<Observation>} changes */
 const observation = (domain, changes = {}) => ({ schemaVersion: 1, tenantId: 'tenant-1', hostId: 'host-1', domain,
   observedAt: '2026-11-10T11:00:00.000Z', expiresAt: '2026-11-10T13:00:00.000Z', state: 'verified',
   evidenceDigest: 'a'.repeat(64), value: 1, unit: '1', reason: 'fixture-verified', ...changes });
@@ -14,7 +16,7 @@ test('three dashboards cover every required operational domain exactly once', ()
   assert.equal(panels.length, 12);
   assert.equal(new Set(panels.map(item => item.domain)).size, 12);
   assert.ok(panels.every(item => JSON.stringify(item.states) === JSON.stringify(['unknown', 'stale', 'running', 'failed', 'verified'])));
-  assert.ok(panels.every(item => item.records[0].state === 'unknown'));
+  assert.ok(panels.every(item => item.records[0]?.state === 'unknown'));
 });
 
 test('unknown stale running failed and verified are rendered as distinct states', () => {
@@ -23,7 +25,8 @@ test('unknown stale running failed and verified are rendered as distinct states'
     observation('release-adoption', { hostId: 'running', state: 'running', evidenceDigest: null }),
     observation('release-adoption', { hostId: 'failed', state: 'failed', evidenceDigest: null }),
     observation('release-adoption', { hostId: 'verified' })];
-  const panel = buildOperationsDashboards({ schemaVersion: 1, tenantId: 'tenant-1', now, observations }).dashboards[0].panels[0];
+  const panel = buildOperationsDashboards({ schemaVersion: 1, tenantId: 'tenant-1', now, observations }).dashboards[0]?.panels[0];
+  assert.ok(panel);
   assert.deepEqual([...new Set(panel.records.map(item => item.state))].sort(), ['failed', 'running', 'stale', 'unknown', 'verified']);
 });
 
@@ -31,8 +34,10 @@ test('latest evidence wins per host and expiry downgrades verified to stale', ()
   const panel = buildOperationsDashboards({ schemaVersion: 1, tenantId: 'tenant-1', now,
     observations: [observation('pool-health', { observedAt: '2026-11-10T10:00:00.000Z', state: 'failed', evidenceDigest: null }),
       observation('pool-health', { observedAt: '2026-11-10T11:00:00.000Z', expiresAt: '2026-11-10T11:30:00.000Z' })] })
-    .dashboards[1].panels.find(item => item.domain === 'pool-health');
-  assert.equal(panel.records.length, 1); assert.equal(panel.records[0].state, 'stale');
+    .dashboards[1]?.panels.find(item => item.domain === 'pool-health');
+  assert.ok(panel);
+  assert.equal(panel.records.length, 1);
+  assert.equal(panel.records[0]?.state, 'stale');
 });
 
 test('tenant boundaries, verification evidence, and value units fail closed', () => {

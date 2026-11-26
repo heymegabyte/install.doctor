@@ -68,8 +68,10 @@ test('offline secret readiness is value-free, deterministic, and gives exact mis
 
 test('legacy portable exports require explicit migration and cannot imply secret readiness', async () => {
   const current = await createPortableProfileExport({ environment: await environment(), machineId: 'runner-a', recipes, catalogSha256: 'c'.repeat(64) });
-  const { secretRequirements: _requirements, secretRequirementsState: _state, exportDigest: _digest, ...legacyUnsigned } = current;
-  legacyUnsigned.schemaVersion = 1;
+  assert.ok(current.schemaVersion === 2);
+  const { schemaVersion: _version, secretRequirements: _requirements, secretRequirementsState: _state, exportDigest: _digest, ...portableFields } = current;
+  const legacyUnsigned = { ...portableFields, schemaVersion: 1 };
+  /** @param {unknown} value @returns {unknown} */
   const canonical = value => Array.isArray(value) ? value.map(canonical) : value && typeof value === 'object'
     ? Object.fromEntries(Object.entries(value).sort(([a], [b]) => a.localeCompare(b)).map(([key, child]) => [key, canonical(child)])) : value;
   const bytes = new TextEncoder().encode(JSON.stringify(canonical(legacyUnsigned)));

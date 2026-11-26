@@ -17,10 +17,13 @@
     "test/device-authorization.test.mjs",
     "test/infisical-workload-launcher.test.mjs",
     "test/infisical-workload.test.mjs",
+    "test/operations-dashboards.test.mjs",
     "test/probabilistic-intent.test.mjs",
+    "test/profile-export.test.mjs",
     "test/profile-resolution.test.mjs",
     "test/public-package.test.mjs",
     "test/redaction.test.mjs",
+    "test/telemetry-semantics.test.mjs",
     "test/terminal-lifecycle.test.mjs"
   ]
 }
