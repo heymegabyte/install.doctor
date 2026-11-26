@@ -58,8 +58,9 @@ activation are provider-separable authorities.
 
 ## Dev / deploy
 
-- `npm install` (installs `hono`).
-- `npm run check` → `wrangler deploy --dry-run` (build gate; esbuild bundles the TS + aid-core).
+- Install the locked dependencies in `aid-core`, `installer-engine`, and this package with `npm ci`.
+- `npm run check` builds aid-core, generates Workers runtime declarations, checks TypeScript, and runs a Wrangler dry-run build.
+- `npm test` also builds installer-engine for the integration tests.
 - `npm run deploy` → needs `CLOUDFLARE_API_TOKEN` + `CLOUDFLARE_ACCOUNT_ID` in env (via `get-secret`).
 - `npm run release:publish -- RELEASE_DIR RELEASE_ID` → create-only immutable-object publication
   using release-bucket-only `INSTALL_DOCTOR_RELEASE_R2_*` credentials and
@@ -75,4 +76,9 @@ activation are provider-separable authorities.
 ## Next (see docs/aid/NEXT-STEPS.md)
 
 Zod env + bindings; a real ProjectSites routing adapter → one CF AI Gateway (DeepSeek-first);
-tenant/device identity; D1 metadata; a strict-TS typecheck step (tsconfig via `/update-config`).
+tenant/device identity; D1 metadata.
+
+The compiler gate inherits the shared base profile. The exclusions in `tsconfig.json`
+track existing diagnostics in the Worker entrypoint, authentication, bootstrap,
+broker HTTP composition, and release evidence modules. Wrangler still bundles
+those modules, and the runtime suite continues to exercise them.

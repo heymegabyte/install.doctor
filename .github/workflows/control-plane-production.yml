@@ -31,11 +31,16 @@ jobs:
         with:
           node-version: 24.22.2
           cache: npm
-          cache-dependency-path: packages/control-plane/package-lock.json
+          cache-dependency-path: |
+            packages/aid-core/package-lock.json
+            packages/installer-engine/package-lock.json
+            packages/control-plane/package-lock.json
 
       - name: Install, test, and validate identity policy without production credentials
         run: |
           set -euo pipefail
+          npm --prefix packages/aid-core ci --ignore-scripts --no-audit --no-fund
+          npm --prefix packages/installer-engine ci --ignore-scripts --no-audit --no-fund
           npm --prefix packages/control-plane ci --ignore-scripts --no-audit --no-fund
           npm --prefix packages/control-plane test
           node scripts/infisical-identity-policy.mjs validate config/infisical/bootstrap-release-identities.json
@@ -108,11 +113,16 @@ jobs:
         with:
           node-version: 24.22.2
           cache: npm
-          cache-dependency-path: packages/control-plane/package-lock.json
+          cache-dependency-path: |
+            packages/aid-core/package-lock.json
+            packages/installer-engine/package-lock.json
+            packages/control-plane/package-lock.json
 
       - name: Install, test, and dry-run without production credentials
         run: |
           set -euo pipefail
+          npm --prefix packages/aid-core ci --ignore-scripts --no-audit --no-fund
+          npm --prefix packages/installer-engine ci --ignore-scripts --no-audit --no-fund
           npm --prefix packages/control-plane ci --ignore-scripts --no-audit --no-fund
           npm --prefix packages/control-plane test
           node scripts/infisical-identity-policy.mjs validate config/infisical/bootstrap-release-identities.json

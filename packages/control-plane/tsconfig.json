@@ -1,0 +1,22 @@
+{
+  "extends": "../aid-core/vendor/theme-tools/tsconfig.base.json",
+  "compilerOptions": {
+    "allowImportingTsExtensions": true,
+    "types": [
+      "node"
+    ]
+  },
+  "include": [
+    "src/**/*.ts",
+    ".wrangler/control-plane-runtime.d.ts"
+  ],
+  "exclude": [
+    "src/auth.ts",
+    "src/index.ts",
+    "src/bootstrap.ts",
+    "src/broker-authorization-api.ts",
+    "src/broker-authorization-composition.ts",
+    "src/broker-release-delegation-loader.ts",
+    "src/release-evidence-view.ts"
+  ]
+}

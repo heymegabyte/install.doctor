@@ -7,7 +7,9 @@
   "scripts": {
     "precheck": "npm --prefix ../aid-core run build",
     "pretest": "npm --prefix ../installer-engine run build",
-    "check": "wrangler deploy --dry-run --outdir dist",
+    "types:runtime": "node -e \"require('node:fs').mkdirSync('.wrangler', { recursive: true })\" && wrangler types .wrangler/control-plane-runtime.d.ts --include-env=false",
+    "typecheck": "npm run types:runtime && tsc --project tsconfig.json",
+    "check": "npm run typecheck && wrangler deploy --dry-run --outdir dist",
     "test": "npm run check && node scripts/run-tests.mjs",
     "release:publish": "node scripts/publish-release-to-r2.mjs publish",
     "release:activate": "node scripts/publish-release-to-r2.mjs activate",
@@ -22,6 +24,8 @@
     "zod": "^4.6.7"
   },
   "devDependencies": {
+    "@types/node": "24.10.0",
+    "typescript": "5.8.3",
     "wrangler": "4.157.0"
   },
   "engines": {
