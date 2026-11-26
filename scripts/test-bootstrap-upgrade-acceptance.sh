@@ -38,7 +38,11 @@ mkdir -m 0700 "$REPOSITORY" "$RUNTIME_DIR" "$RELEASES" "$TOOLS"
 # Carry the repository's complete committed desired state through both signed
 # releases. All mutating tools remain hermetic fixtures; these bytes are used
 # only to prove that upgrade provenance covers the source users actually apply.
+# Include the tracked inventories consumed by the aid-core source verification gate.
 git -C "$ROOT" archive --format=tar HEAD -- .chezmoiroot home software.yml \
+  config/fleet/host-data-coverage.json \
+  config/infisical/desktop-tools-identity-estate.json \
+  config/infisical/offline-secret-exceptions.json \
   | tar -xf - -C "$REPOSITORY"
 mkdir -p "$REPOSITORY/packages/control-plane/src"
 cp "$ROOT/scripts/provision.sh" "$REPOSITORY/provision.sh"

@@ -47,7 +47,11 @@ mkdir -m 0700 "$REPOSITORY" "$RELEASE_PARENT" "$RUNTIME_DIR" "$TOOLS"
 # committed desired-state inputs. The canary still replaces every mutating
 # executable with a hermetic fixture, so this proves provenance and source-tree
 # structure without installing any real package or rendering local secrets.
+# Include the tracked inventories consumed by the aid-core source verification gate.
 git -C "$ROOT" archive --format=tar HEAD -- .chezmoiroot home software.yml \
+  config/fleet/host-data-coverage.json \
+  config/infisical/desktop-tools-identity-estate.json \
+  config/infisical/offline-secret-exceptions.json \
   | tar -xf - -C "$REPOSITORY"
 mkdir -p "$REPOSITORY/packages/control-plane/src"
 cp "$ROOT/scripts/provision.sh" "$REPOSITORY/provision.sh"
