@@ -64,7 +64,16 @@ install_service() {
   render_config
   render_plist
   launchctl bootout "gui/$(id -u)/$label" >/dev/null 2>&1 || true
-  launchctl bootstrap "gui/$(id -u)" "$plist"
+  for _ in 1 2 3 4 5; do
+    launchctl print "gui/$(id -u)/$label" >/dev/null 2>&1 || break
+    sleep 1
+  done
+  bootstrap_ok=0
+  for _ in 1 2 3 4 5; do
+    if launchctl bootstrap "gui/$(id -u)" "$plist" >/dev/null 2>&1; then bootstrap_ok=1; break; fi
+    sleep 1
+  done
+  test "$bootstrap_ok" = 1 || die "launchd bootstrap failed after bounded retry"
   launchctl kickstart -k "gui/$(id -u)/$label"
   sleep 1
   status_service
