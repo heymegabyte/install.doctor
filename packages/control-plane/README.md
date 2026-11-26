@@ -79,5 +79,5 @@ Zod env + bindings; a real ProjectSites routing adapter → one CF AI Gateway (D
 tenant/device identity; D1 metadata.
 
 The compiler gate inherits the shared base profile. The exclusions in `tsconfig.json`
-track existing diagnostics in the Worker entrypoint and authentication module. Wrangler still bundles
-those modules, and the runtime suite continues to exercise them.
+track existing diagnostics in the Worker entrypoint. Wrangler still bundles it,
+and the runtime suite continues to exercise its routes.

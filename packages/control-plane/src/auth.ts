@@ -16,7 +16,10 @@ import { DESKTOP_TOOLS_CANONICAL_AUTH_ORIGIN, DESKTOP_TOOLS_TRUSTED_AUTH_ORIGINS
 
 const e = Env.parse(env);
 
-export const auth = betterAuth(createBetterAuthOptions(e.DB, e, {
+// Wrangler declares DB as a D1 binding. Local environments can omit it.
+const database = e.DB as D1Database | undefined;
+
+export const auth = betterAuth(createBetterAuthOptions(database, e, {
   baseURL: DESKTOP_TOOLS_CANONICAL_AUTH_ORIGIN,
   trustedOrigins: DESKTOP_TOOLS_TRUSTED_AUTH_ORIGINS,
 }));

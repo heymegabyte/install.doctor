@@ -37,3 +37,20 @@ test('reviewed D1 migration exactly matches pinned Better Auth schema', async ()
     sqlite.close();
   }
 });
+
+test('only registers OAuth providers with a complete credential pair', () => {
+  const origin = {
+    baseURL: DESKTOP_TOOLS_CANONICAL_AUTH_ORIGIN,
+    trustedOrigins: DESKTOP_TOOLS_TRUSTED_AUTH_ORIGINS,
+  };
+  const empty = createBetterAuthOptions(undefined, {}, origin);
+  assert.deepEqual(empty.socialProviders, {});
+  const mixed = createBetterAuthOptions(undefined, {
+    GITHUB_CLIENT_ID: 'github-test',
+    GOOGLE_CLIENT_ID: 'google-test',
+    GOOGLE_CLIENT_SECRET: 'google-secret-test',
+  }, origin);
+  assert.deepEqual(mixed.socialProviders, {
+    google: { clientId: 'google-test', clientSecret: 'google-secret-test', prompt: 'login' },
+  });
+});
