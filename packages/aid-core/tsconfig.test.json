@@ -13,6 +13,7 @@
     "test/agent-sandbox-policy.test.mjs",
     "test/broker-approval-contracts.test.mjs",
     "test/catalog-audit.test.mjs",
+    "test/core.test.mjs",
     "test/correlated-telemetry.test.mjs",
     "test/device-authorization.test.mjs",
     "test/effective-authorization.test.mjs",
