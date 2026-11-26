@@ -18,6 +18,7 @@
     "test/device-authorization.test.mjs",
     "test/effective-authorization.test.mjs",
     "test/extension-admission.test.mjs",
+    "test/hardware-evidence.test.mjs",
     "test/host-data-coverage.test.mjs",
     "test/identity-authority.test.mjs",
     "test/infisical-workload-launcher.test.mjs",
