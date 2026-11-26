@@ -19,6 +19,9 @@ The estate needs a value-blind, least-privilege migration that makes Infisical a
 - Harden host enrollment, expiry, revocation, drift detection, and profile downgrade behavior.
 - Use separate Infisical projects for macOS and Ubuntu hosts so free-plan project roles enforce host-class isolation without organization-wide read access.
 - Use short-lived Universal Auth access tokens and bounded client-secret credentials stored in platform-appropriate protected storage.
+- Require every managed host declaration to specify both its exact Infisical `projectId` and `secretPath`; never infer project authority from the current directory, home directory, or ambient Infisical configuration.
+- Correct the discovered source-precedence defect: `secrets-workstation` is a macOS-host override, not a fleet-wide preferred inventory.
+- Keep AI provider upstream credentials only on the Ubuntu/LiteLLM runtime; macOS receives scoped LiteLLM client credentials rather than raw upstream keys.
 
 ## Out of scope
 
@@ -35,5 +38,6 @@ The estate needs a value-blind, least-privilege migration that makes Infisical a
 - Every host grant is the exact intersection of its bound profile, evidenced capability groups, environment, and explicit exceptions.
 - Online operational consumers resolve from Infisical and fail closed outside their grants.
 - macOS and Ubuntu identities can read only their own project root and receive `403` across the host-project boundary.
+- Dedicated macOS and Ubuntu hosts resolve from their dedicated project root, while explicitly declared legacy managed workstations temporarily retain their Global-project host paths until migrated.
 - Offline recovery remains independently testable without making the legacy inventory an ambient online fallback.
 - Only an explicitly reviewed canary source may retire after positive and negative acceptance evidence; broader source retirement remains separately gated.

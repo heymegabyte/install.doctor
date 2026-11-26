@@ -3,10 +3,10 @@
 set -Eeo pipefail
 trap "rm -f ~/.gist" ERR
 
-### Load GITHUB_GIST_TOKEN using envchain
+### Load the validated canonical GitHub token using envchain
 if command -v envchain > /dev/null; then
-    export $(envchain default env | grep 'GITHUB_GIST_TOKEN')
-    echo "$GITHUB_GIST_TOKEN" > ~/.gist
+    export $(envchain default env | grep 'GITHUB_TOKEN')
+    echo "$GITHUB_TOKEN" > ~/.gist
 fi
 
 ### Pass command to gist
