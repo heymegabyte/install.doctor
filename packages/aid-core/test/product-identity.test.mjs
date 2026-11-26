@@ -22,33 +22,31 @@ test('defines every Desktop Tools identity boundary in one valid registry', () =
 
 test('rejects duplicate and Unicode-ambiguous names', () => {
   const duplicate = registry();
-  duplicate.legacy.push({ ...duplicate.legacy[0] });
+  const [firstLegacy] = duplicate.legacy;
+  assert.ok(firstLegacy);
+  duplicate.legacy.push({ ...firstLegacy });
   assert.throws(() => validateProductIdentityRegistry(duplicate), /duplicate or ambiguous/i);
 
-  const ambiguous = registry();
-  ambiguous.legacy.push({
+  const input = registry();
+  const ambiguous = { ...input, legacy: [...input.legacy, {
     kind: 'product',
     value: 'Ｄｅｓｋｔｏｐ Ｔｏｏｌｓ',
     owner: 'desktop-tools',
     mapsTo: 'desktop-tools-product',
-    disposition: 'retired',
+    disposition: 'migration-only',
     removeAfter: null
-  });
+  }] };
   assert.throws(() => validateProductIdentityRegistry(ambiguous), /duplicate or ambiguous/i);
 });
 
 test('rejects unowned names and ambiguous legacy mappings', () => {
-  const unowned = registry();
-  delete unowned.legacy[0].owner;
-  assert.throws(() => validateProductIdentityRegistry(unowned), /owner/i);
-
-  const missingTarget = registry();
-  missingTarget.legacy[0].mapsTo = 'missing-product';
-  assert.throws(() => validateProductIdentityRegistry(missingTarget), /unknown target/i);
-
-  const wrongKind = registry();
-  wrongKind.legacy[0].mapsTo = 'desktop-tools-executable';
-  assert.throws(() => validateProductIdentityRegistry(wrongKind), /kind does not match/i);
+  const input = registry();
+  const [first, ...rest] = input.legacy;
+  assert.ok(first);
+  const { owner: _owner, ...unowned } = first;
+  assert.throws(() => validateProductIdentityRegistry({ ...input, legacy: [unowned, ...rest] }), /owner/i);
+  assert.throws(() => validateProductIdentityRegistry({ ...input, legacy: [{ ...first, mapsTo: 'missing-product' }, ...rest] }), /unknown target/i);
+  assert.throws(() => validateProductIdentityRegistry({ ...input, legacy: [{ ...first, mapsTo: 'desktop-tools-executable' }, ...rest] }), /kind does not match/i);
 });
 
 test('rejects unknown fields and incomplete canonical registries', () => {
@@ -57,8 +55,8 @@ test('rejects unknown fields and incomplete canonical registries', () => {
     /unrecognized/i
   );
 
-  const incomplete = registry();
-  incomplete.canonical = incomplete.canonical.filter(entry => entry.kind !== 'domain-template');
+  const input = registry();
+  const incomplete = { ...input, canonical: input.canonical.filter(entry => entry.kind !== 'domain-template') };
   assert.throws(() => validateProductIdentityRegistry(incomplete), /missing canonical identity kinds/i);
 });
 
@@ -76,12 +74,13 @@ test('prevents capability claims from exceeding their evidence', () => {
 });
 
 test('requires evidence appropriate to every capability status', () => {
-  const invalid = registry();
-  invalid.capabilities[0].status = 'verified-live';
+  const input = registry();
+  const [first, ...rest] = input.capabilities;
+  assert.ok(first);
+  const invalid = { ...input, capabilities: [{ ...first, status: 'verified-live' }, ...rest] };
   assert.throws(() => validateProductIdentityRegistry(invalid), /runtime evidence/i);
 
-  const duplicate = registry();
-  duplicate.capabilities.push({ ...duplicate.capabilities[0] });
+  const duplicate = { ...input, capabilities: [...input.capabilities, { ...first }] };
   assert.throws(() => validateProductIdentityRegistry(duplicate), /capability ids must be unique/i);
 });
 
@@ -98,7 +97,7 @@ test('generates capability and migration status from the registry', () => {
 test('serves a public status payload without a second capability ledger', () => {
   const payload = productStatusPayload();
   assert.equal(payload.product, 'Desktop Tools');
-  assert.equal(payload.capabilities.find(item => item.id === 'device-authorization').status, 'implemented-unverified');
+  assert.equal(payload.capabilities.find(item => item.id === 'device-authorization')?.status, 'implemented-unverified');
   assert.deepEqual(
     payload.migrations.find(item => item.legacy === 'aid'),
     {
