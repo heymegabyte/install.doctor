@@ -79,6 +79,15 @@ Every `software.yml` entry carries `tier: essential | workstation | server | coo
 ### Fail-safe sudo
 `scripts/provision.sh:setupPasswordlessSudo` validates the password before writing `/etc/sudoers`. `home/.chezmoitemplates/universal/profile-inline` wraps `sudo` so chezmoi scripts skip-with-warning instead of blocking on a `Password:` prompt mid-run.
 
+### Local MCP singleton backends
+On interactive macOS workstations, `mcp-singleton-manager` owns the per-user
+`space.megabyte.mcp-singletons` LaunchAgent. It consolidates eligible,
+session-independent Node MCP wrappers behind mode-0600 Unix sockets while
+preserving isolated stdio client connections. CUA Driver and BrowserMCP keep
+their supported session-specific frontends and shared product daemons;
+DataForSEO follows its native Streamable HTTP path. Definitions contain no
+secrets and rollout remains reversible until real client canaries pass.
+
 ---
 
 ## 5. Don't drop these (lessons learned)

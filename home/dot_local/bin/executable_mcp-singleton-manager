@@ -1,0 +1,91 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+label="space.megabyte.mcp-singletons"
+state_root="${XDG_STATE_HOME:-$HOME/.local/state}/mcp-singletons"
+config_root="${XDG_CONFIG_HOME:-$HOME/.config}/mcp-singletons"
+socket_root="$state_root/sockets"
+config_path="$config_root/config.json"
+plist="$HOME/Library/LaunchAgents/$label.plist"
+broker="${MCP_SINGLETON_BROKER:-$HOME/.local/bin/mcp-singleton-broker.mjs}"
+runner="${MCP_SINGLETON_RUNNER:-$HOME/.agentskills/mcp-servers/paperclip-mcp-stdio-runner.mjs}"
+node_bin="${MCP_SINGLETON_NODE:-$(command -v node || true)}"
+services=(cloudflare-mcp langfuse-mcp paperclip-control-plane-mcp theme-tools-mcp voicekit-mcp)
+
+die() { printf 'mcp-singleton-manager: %s\n' "$*" >&2; exit 1; }
+require_paths() { test -x "$node_bin" || die "node unavailable"; test -f "$broker" || die "broker unavailable: $broker"; test -f "$runner" || die "runner unavailable: $runner"; }
+
+render_config() {
+  require_paths
+  mkdir -p "$config_root" "$socket_root" "$state_root/logs"
+  chmod 700 "$config_root" "$state_root" "$socket_root" "$state_root/logs"
+  "$node_bin" - "$config_path" "$socket_root" "$node_bin" "$runner" "${services[@]}" <<'NODE'
+const fs = require('node:fs');
+const [output, socketRoot, node, runner, ...services] = process.argv.slice(2);
+const config = { version: 1, runtimeDir: socketRoot, services: {} };
+for (const id of services) config.services[id] = { socket: `${socketRoot}/${id}.sock`, command: [node, runner, id] };
+const temp = `${output}.${process.pid}.tmp`;
+fs.writeFileSync(temp, `${JSON.stringify(config, null, 2)}\n`, { mode: 0o600 });
+fs.renameSync(temp, output);
+fs.chmodSync(output, 0o600);
+NODE
+}
+
+render_plist() {
+  mkdir -p "$(dirname "$plist")"
+  local temp="$plist.$$.tmp"
+  cat >"$temp" <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>Label</key><string>$label</string>
+  <key>ProgramArguments</key><array><string>$node_bin</string><string>$broker</string><string>--config</string><string>$config_path</string></array>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>ThrottleInterval</key><integer>10</integer>
+  <key>ProcessType</key><string>Background</string>
+  <key>Umask</key><integer>63</integer>
+  <key>StandardOutPath</key><string>$state_root/logs/stdout.log</string>
+  <key>StandardErrorPath</key><string>$state_root/logs/stderr.log</string>
+</dict></plist>
+EOF
+  plutil -lint "$temp" >/dev/null
+  mv "$temp" "$plist"
+  chmod 600 "$plist"
+}
+
+install_service() {
+  test "$(uname -s)" = Darwin || die "launchd singleton installation is macOS-only"
+  render_config
+  render_plist
+  launchctl bootout "gui/$(id -u)/$label" >/dev/null 2>&1 || true
+  launchctl bootstrap "gui/$(id -u)" "$plist"
+  launchctl kickstart -k "gui/$(id -u)/$label"
+  sleep 1
+  status_service
+}
+
+status_service() {
+  launchctl print "gui/$(id -u)/$label" >/dev/null 2>&1 || die "service not loaded"
+  for service in "${services[@]}"; do
+    test -S "$socket_root/$service.sock" || die "missing socket for $service"
+  done
+  printf 'mcp singleton broker ready: %s\n' "$label"
+}
+
+uninstall_service() {
+  launchctl bootout "gui/$(id -u)/$label" >/dev/null 2>&1 || true
+  rm -f "$plist"
+  for service in "${services[@]}"; do rm -f "$socket_root/$service.sock"; done
+  printf 'mcp singleton broker unloaded; configuration retained at %s\n' "$config_path"
+}
+
+case "${1:-status}" in
+  install|start) install_service ;;
+  status) status_service ;;
+  restart) install_service ;;
+  uninstall|rollback) uninstall_service ;;
+  render) render_config; render_plist; printf '%s\n' "$plist" ;;
+  *) die "usage: mcp-singleton-manager {install|status|restart|rollback|render}" ;;
+esac
+
