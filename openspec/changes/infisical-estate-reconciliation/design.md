@@ -29,9 +29,21 @@ macOS developer workstations may receive broader development capabilities than s
 
 Profiles have an owner, schema version, review/expiry timestamp, maximum grant size, permitted environments, and revocation/downgrade behavior. Expansion produces a reviewable diff and never occurs implicitly from a repository scan. Host identities are independently revocable and cannot impersonate GitHub OIDC workloads.
 
+### Free-plan project isolation
+
+Host-class isolation is enforced with separate Infisical projects: one for the macOS host profile and one for the Ubuntu host profile. Each machine identity has **No Access** at the organization level and **Viewer** only in its assigned host project. Secrets are stored at that project's root secret path; separation does not depend on paid path-scoped roles.
+
+The macOS identity cannot enumerate or read the Ubuntu project, and the Ubuntu identity cannot enumerate or read the macOS project. Cross-project reads must return `403`; a missing secret or empty result is not sufficient denial evidence. Project IDs and identity IDs may appear in value-free receipts, but credentials and secret values may not.
+
+### Universal Auth lifecycle and local credential storage
+
+Host identities authenticate through Infisical Universal Auth. Access tokens have a 900-second lifetime and a maximum of two uses. Universal Auth client secrets have a 90-day lifetime and require an owner, expiry observation, renewal procedure, overlap-safe replacement, and revocation path.
+
+The macOS client secret is stored in the logged-in user's macOS Keychain with access limited to the intended resolver. The Ubuntu client secret is stored in a root- or service-owned mode-`0600` file outside the repository and rendered configuration. Neither credential may be placed in chezmoi source, shell profiles, argv, logs, telemetry, Markdown, or Infisical project secrets.
+
 ## Migration state machine
 
-Each secret progresses independently through `inventoried`, `planned`, `written`, `verified`, `consumer-cutover`, `fallback-bounded`, and `retirement-eligible`. Each transition binds to the reviewed plan and records value-free evidence. No transition deletes, rotates, or revokes credentials. Encrypted-source deletion and age-key retirement require a separate destructive change with exact targets and recovery evidence.
+Each secret progresses independently through `inventoried`, `planned`, `written`, `verified`, `consumer-cutover`, `fallback-bounded`, and `retirement-eligible`. Each transition binds to the reviewed plan and records value-free evidence. A single reviewed canary may advance from `retirement-eligible` to `source-retired` only after allowed-read, cross-project `403`, consumer, and rollback acceptance evidence. All non-canary deletion, credential rotation/revocation, encrypted-source retirement, and age-key retirement remain separately authorized destructive work.
 
 ## Safe apply
 
@@ -51,7 +63,7 @@ CI uses repository-and-environment-bound GitHub OIDC with exact claims and secre
 
 ## Rollout and rollback
 
-Roll out one capability group and one host class at a time: read-only inventory, reviewed plan, writer canary, authorized/unauthorized retrieval, consumer canary, outage/rollback drill, then bounded expansion. macOS developer-workstation and Ubuntu server/runner profiles require independent evidence.
+Roll out one capability group and one host class at a time: read-only inventory, reviewed plan, writer canary, authorized retrieval from the assigned root path, cross-project `403`, consumer canary, outage/rollback drill, then bounded expansion. macOS developer-workstation and Ubuntu server/runner profiles require independent evidence. Canary source retirement is evidence that the retirement mechanism works, not authority for bulk retirement.
 
 Rollback restores consumer resolution to the preserved encrypted source for only the affected allowlisted names, revokes or disables the new host binding when safe and authorized, and leaves unrelated Infisical paths and identities untouched. Because this change does not delete encrypted sources or rotate credentials, rollback remains available throughout the migration window.
 
@@ -63,5 +75,7 @@ Rollback restores consumer resolution to the preserved encrypted source for only
 - **Infisical outage locks out recovery:** preserve tested offline exceptions and execute outage/replacement-host drills before retirement eligibility.
 - **Overwrite of a newer destination value:** fail closed on value-free conflict unless an exact plan-authorized overwrite is approved.
 - **Cloned or renamed host inherits access:** bind grants to enrolled immutable identity, not hostname; deny stale or conflicting identity facts.
+- **Free-plan role limits weaken path isolation:** isolate host classes into separate projects, assign organization No Access and project Viewer, and verify cross-project `403`.
+- **Long-lived local bootstrap credential leaks:** cap client secrets at 90 days, store them in Keychain or a mode-`0600` Ubuntu file, and use 900-second/max-two-use access tokens.
 - **Profile expansion by repository noise:** require explicit capability admission and reviewable diff; discovery alone never grants access.
-- **Premature cleanup:** deletion, rotation, revocation, and age-key retirement remain separately authorized destructive work.
+- **Canary retirement is mistaken for bulk authority:** bind retirement to the exact reviewed canary; deletion, rotation, revocation, and age-key retirement otherwise remain separately authorized destructive work.

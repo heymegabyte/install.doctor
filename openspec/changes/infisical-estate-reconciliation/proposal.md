@@ -17,6 +17,8 @@ The estate needs a value-blind, least-privilege migration that makes Infisical a
 - Require retrieval, consumer, outage, replacement-host, and rollback evidence before declaring Infisical authoritative for a secret.
 - Separate migration from deletion: this change does not decrypt for inspection, rotate/revoke credentials, delete encrypted templates, remove age identities, or widen permissions.
 - Harden host enrollment, expiry, revocation, drift detection, and profile downgrade behavior.
+- Use separate Infisical projects for macOS and Ubuntu hosts so free-plan project roles enforce host-class isolation without organization-wide read access.
+- Use short-lived Universal Auth access tokens and bounded client-secret credentials stored in platform-appropriate protected storage.
 
 ## Out of scope
 
@@ -32,5 +34,6 @@ The estate needs a value-blind, least-privilege migration that makes Infisical a
 - Every tracked encrypted secret name has a value-free disposition and owner.
 - Every host grant is the exact intersection of its bound profile, evidenced capability groups, environment, and explicit exceptions.
 - Online operational consumers resolve from Infisical and fail closed outside their grants.
+- macOS and Ubuntu identities can read only their own project root and receive `403` across the host-project boundary.
 - Offline recovery remains independently testable without making the legacy inventory an ambient online fallback.
-- No source deletion occurs without a later, separately approved retirement plan backed by completed cutover evidence.
+- Only an explicitly reviewed canary source may retire after positive and negative acceptance evidence; broader source retirement remains separately gated.
