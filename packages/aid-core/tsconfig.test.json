@@ -20,6 +20,7 @@
     "test/identity-authority.test.mjs",
     "test/infisical-workload-launcher.test.mjs",
     "test/infisical-workload.test.mjs",
+    "test/installer-contracts.test.mjs",
     "test/offline-secret-exceptions.test.mjs",
     "test/operations-dashboards.test.mjs",
     "test/probabilistic-intent.test.mjs",
