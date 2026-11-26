@@ -3,6 +3,9 @@ import test from 'node:test';
 import { approvedTaskAgentPlanDigest, compileTaskAgents } from '../dist/task-agent-compiler.js';
 import { evaluateAgentSandbox } from '../dist/agent-sandbox-policy.js';
 
+/** @typedef {Omit<import('zod').input<typeof import('../dist/task-agent-compiler.js').ApprovedTaskAgentPlanSchema>, 'planDigest'>} UnsignedPlan */
+/** @typedef {UnsignedPlan['tasks'][number]} Task */
+/** @type {Task} */
 const task = {
   taskId: 'inventory-docs', agent: { id: 'inventory-docs-agent', role: 'researcher' },
   prompt: { system: 'Use only admitted sources and tools.', objective: 'Summarize the approved inventory.', contextRefs: ['inventory-v3'] },
@@ -19,14 +22,16 @@ const task = {
   },
 };
 
-async function plan(overrides = {}) {
-  const unsigned = { schemaVersion: 1, planId: 'plan-7', tasks: [structuredClone(task)], ...overrides };
+async function plan() {
+  /** @type {UnsignedPlan} */
+  const unsigned = { schemaVersion: 1, planId: 'plan-7', tasks: [structuredClone(task)] };
   return { ...unsigned, planDigest: await approvedTaskAgentPlanDigest(unsigned) };
 }
 
 test('approved plan deterministically generates every task-specific runtime dimension', async () => {
   const approved = await plan(); const first = await compileTaskAgents(approved); const second = await compileTaskAgents(structuredClone(approved));
   assert.deepEqual(first, second); assert.equal(first.length, 1); const compiled = first[0];
+  assert.ok(compiled);
   assert.deepEqual(compiled.agent, task.agent); assert.deepEqual(compiled.prompt.contextRefs, ['inventory-v3']);
   assert.deepEqual(compiled.tools.map(value => value.id), ['read-file']); assert.deepEqual(compiled.skills.map(value => value.id), ['terminal-development']);
   assert.deepEqual(compiled.modelPolicy, task.modelPolicy); assert.deepEqual(compiled.context, task.context);
@@ -37,7 +42,10 @@ test('approved plan deterministically generates every task-specific runtime dime
 test('compiled runtime has no inherited ambient authority', async () => {
   const approved = await plan(); process.env.DESKTOP_TOOLS_AMBIENT_SECRET = 'must-not-be-read'; const before = await compileTaskAgents(approved);
   process.env.DESKTOP_TOOLS_AMBIENT_SECRET = 'changed'; const after = await compileTaskAgents(approved); delete process.env.DESKTOP_TOOLS_AMBIENT_SECRET;
-  assert.deepEqual(after, before); const policy = before[0].sandboxPolicy;
+  assert.deepEqual(after, before);
+  const [compiled] = before;
+  assert.ok(compiled);
+  const policy = compiled.sandboxPolicy;
   for (const request of [
     { kind: 'filesystem-read', value: '/home/operator/.ssh/id_ed25519' }, { kind: 'filesystem-write', value: '/workspace/source.ts' },
     { kind: 'command', value: 'bash' }, { kind: 'network', value: 'metadata.google.internal' }, { kind: 'tool', value: 'shell' },
@@ -48,18 +56,26 @@ test('compiled runtime has no inherited ambient authority', async () => {
 });
 
 test('compiler rejects plan tampering and ambient-authority-shaped input', async () => {
-  const approved = await plan(); approved.tasks[0].budgets.maxSteps += 1;
+  const approved = await plan();
+  const [first] = approved.tasks;
+  assert.ok(first);
+  first.budgets.maxSteps += 1;
   await assert.rejects(() => compileTaskAgents(approved), /digest does not match/);
-  const withAmbient = await plan(); withAmbient.ambientAuthority = { inheritEnvironment: true };
+  const withAmbient = { ...await plan(), ambientAuthority: { inheritEnvironment: true } };
   await assert.rejects(() => compileTaskAgents(withAmbient), /unrecognized/i);
 });
 
 test('compiler rejects authority not exactly derived from task declarations', async () => {
-  for (const mutate of [
+  /** @type {Array<(value: Task) => void>} */
+  const mutations = [
     value => { value.authority.toolIds = []; }, value => { value.authority.skillIds = []; }, value => { value.context.refs = ['other-context']; },
     value => { value.modelPolicy.allowedRoutes = ['code']; }, value => { value.authority.secretRefs = []; },
-  ]) {
-    const changed = structuredClone(task); mutate(changed); const unsigned = { schemaVersion: 1, planId: 'plan-bad', tasks: [changed] };
+  ];
+  for (const mutate of mutations) {
+    const changed = structuredClone(task);
+    mutate(changed);
+    /** @type {UnsignedPlan} */
+    const unsigned = { schemaVersion: 1, planId: 'plan-bad', tasks: [changed] };
     const planDigest = await approvedTaskAgentPlanDigest(unsigned);
     await assert.rejects(() => compileTaskAgents({ ...unsigned, planDigest }));
   }
@@ -67,6 +83,7 @@ test('compiler rejects authority not exactly derived from task declarations', as
 
 test('generated sandbox enforces task budgets', async () => {
   const [compiled] = await compileTaskAgents(await plan());
+  assert.ok(compiled);
   assert.equal(evaluateAgentSandbox(compiled.sandboxPolicy, { kind: 'step', value: 40 }).decision, 'allow');
   assert.equal(evaluateAgentSandbox(compiled.sandboxPolicy, { kind: 'step', value: 41 }).decision, 'deny');
   assert.equal(evaluateAgentSandbox(compiled.sandboxPolicy, { kind: 'cost', value: 50_001 }).decision, 'deny');
