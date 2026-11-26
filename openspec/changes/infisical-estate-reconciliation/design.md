@@ -21,6 +21,34 @@ Every discovered name receives one disposition:
 
 Aliases and duplicate names must resolve to a canonical name before migration. Conflicting sources, environments, or owners fail planning.
 
+### Source precedence and explicit directory overrides
+
+The audit found a source-precedence defect: discovery could prefer the `secrets-workstation` inventory whenever it existed, regardless of the selected host. That behavior can leak macOS-specific selection into Ubuntu and other host plans.
+
+Default source selection is host-bound:
+
+- `macos.megabyte.space` uses `secrets-workstation` as its host-specific override inventory, with the general inventory supplying only names not overridden under the reviewed merge contract;
+- Ubuntu and every other host use the general encrypted secret inventory by default and must not consult `secrets-workstation`; and
+- `--secret-directory <exact-directory>` may replace default source selection only for the one explicitly selected host and one invocation.
+
+The directory override is non-persistent, plan-visible, path-normalized, restricted to an approved encrypted-inventory root, and incompatible with multi-host selection. It grants no additional secret names: profile, project, path, identity, disposition, and destination checks still apply. Missing, ambiguous, overlapping, symlink-escaped, or undeclared directories fail closed.
+
+### AI provider credential placement
+
+Raw AI upstream/provider keys belong only to the Ubuntu-hosted LiteLLM runtime project and identity. They are server-side provider credentials and must not be granted to the macOS developer workstation, placed in its project, or returned through its host profile.
+
+macOS receives only scoped LiteLLM client keys needed to call the gateway. Client keys have bounded model/team/budget authority and cannot administer LiteLLM, enumerate provider credentials, or bypass the gateway to call upstream providers directly. Classification distinguishes `ai-upstream-provider` from `litellm-client`; aliases or names that blur that boundary fail planning.
+
+### Acceptance scenarios
+
+1. **macOS default inventory:** selecting only `macos.megabyte.space` uses its declared `secrets-workstation` overrides plus the allowed general fallback and records both sources without values.
+2. **Ubuntu default inventory:** selecting Ubuntu ignores `secrets-workstation`, even when that directory exists and contains a colliding name, and plans from the general inventory only.
+3. **Other-host default inventory:** an undeclared or non-macOS host cannot inherit workstation overrides.
+4. **Explicit directory override:** `--secret-directory` affects exactly one selected host and one plan, is visible in the plan digest, and does not persist or widen the allowlist.
+5. **Unsafe override:** multi-host, missing, unapproved, ambiguous, or symlink-escaping directory overrides fail before decryption or external mutation.
+6. **AI upstream isolation:** Ubuntu/LiteLLM can resolve its allowlisted raw provider key; macOS receives `403` or no grant for that key.
+7. **LiteLLM client access:** macOS can resolve only its scoped LiteLLM client key and use the gateway without receiving an upstream provider key.
+
 ## Hardened host profiles
 
 A profile is a versioned allowlist contract, not a convenience bundle. Selection is bound to a stable enrolled host identity and asserted role; hostname alone is insufficient. The effective grant is the intersection of profile capability groups, platform and environment constraints, observed consumer demand, identity-specific approved additions, and explicit denials.
@@ -34,6 +62,16 @@ Profiles have an owner, schema version, review/expiry timestamp, maximum grant s
 Host-class isolation is enforced with separate Infisical projects: one for the macOS host profile and one for the Ubuntu host profile. Each machine identity has **No Access** at the organization level and **Viewer** only in its assigned host project. Secrets are stored at that project's root secret path; separation does not depend on paid path-scoped roles.
 
 The macOS identity cannot enumerate or read the Ubuntu project, and the Ubuntu identity cannot enumerate or read the macOS project. Cross-project reads must return `403`; a missing secret or empty result is not sufficient denial evidence. Project IDs and identity IDs may appear in value-free receipts, but credentials and secret values may not.
+
+### Host-declared project and path routing
+
+Every host entry in desired state declares an exact `projectId` and `secretPath`. The pair is atomic routing authority: authentication, reads, verification, migration planning, and rollback must use both values from the selected host declaration. A valid identity with an absent, mismatched, or undeclared pair fails closed before secret resolution.
+
+Dedicated macOS and Ubuntu hosts use their respective isolated host project with `secretPath: /`. Legacy managed workstations that have not completed project isolation may temporarily declare the existing Global project plus their exact host-scoped path. This compatibility route is explicit, host-by-host, observable, and retirement-tracked; it does not permit another host, an unknown hostname, or a new enrollment to inherit Global access.
+
+The CLI `--project-id` option is a single-host operational override only. It may replace the declared project for the one explicitly selected host during a reviewed migration or recovery action, but it does not change other hosts, does not persist desired state, does not select a secret path, and cannot make an undeclared host eligible. The host declaration's `secretPath` remains mandatory unless an equally explicit single-host path override is separately supported and plan-bound.
+
+Ambient project selection is prohibited. The reconciler and runtime resolver must not read project authority from the current working directory, `.infisical.json`, home-directory configuration, a repository-local default, or an Infisical CLI remembered project. They pass the declared project ID and path explicitly on every operation and verify the returned project context before accepting a result.
 
 ### Universal Auth lifecycle and local credential storage
 
@@ -76,6 +114,10 @@ Rollback restores consumer resolution to the preserved encrypted source for only
 - **Overwrite of a newer destination value:** fail closed on value-free conflict unless an exact plan-authorized overwrite is approved.
 - **Cloned or renamed host inherits access:** bind grants to enrolled immutable identity, not hostname; deny stale or conflicting identity facts.
 - **Free-plan role limits weaken path isolation:** isolate host classes into separate projects, assign organization No Access and project Viewer, and verify cross-project `403`.
+- **Ambient CLI state routes a host to the wrong project:** require the host-declared `projectId`/`secretPath` pair on every operation and reject cwd/home/remembered-project inference.
+- **Migration override broadens the fleet:** constrain `--project-id` to one explicitly selected host, keep it non-persistent, and retain the declared path and identity checks.
+- **Workstation inventory overrides Ubuntu:** bind `secrets-workstation` to `macos.megabyte.space`; make every alternate directory an explicit single-host `--secret-directory` override.
+- **Raw provider key reaches a developer laptop:** classify upstream and client keys separately, keep upstream keys in Ubuntu/LiteLLM only, and verify macOS denial.
 - **Long-lived local bootstrap credential leaks:** cap client secrets at 90 days, store them in Keychain or a mode-`0600` Ubuntu file, and use 900-second/max-two-use access tokens.
 - **Profile expansion by repository noise:** require explicit capability admission and reviewable diff; discovery alone never grants access.
 - **Canary retirement is mistaken for bulk authority:** bind retirement to the exact reviewed canary; deletion, rotation, revocation, and age-key retirement otherwise remain separately authorized destructive work.

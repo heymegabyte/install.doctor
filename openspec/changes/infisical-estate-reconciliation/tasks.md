@@ -6,12 +6,17 @@
 - [ ] 1.2 Produce a complete name-only inventory of encrypted chezmoi sources and map every name to `operational-migrate`, `offline-exception`, `blocked-unknown`, or `retirement-candidate` with owner and consumer evidence.
 - [ ] 1.3 Canonicalize aliases and duplicates; fail planning on conflicting owner, environment, source, or destination metadata.
 - [ ] 1.4 Verify discovery never decrypts values, reads rendered secret targets, dumps secret-bearing environments, or writes durable value fingerprints.
+- [ ] 1.5 Fix source precedence so only `macos.megabyte.space` applies `secrets-workstation` overrides; Ubuntu and other hosts use the general inventory by default.
+- [ ] 1.6 Implement `--secret-directory` as a normalized, approved-root, non-persistent override for exactly one explicitly selected host; reject multi-host, missing, ambiguous, overlapping, and symlink-escaping inputs.
 
 ## 2. Host-profile hardening
 
 - [x] 2.1 Replace broad role bundles with deny-by-default host-class isolation bound to independently enrolled identities. Evidence: separate macOS and Ubuntu projects; each identity has organization No Access and Viewer only in its assigned project.
+- [ ] 2.1a Require every managed host declaration to contain a non-empty exact `projectId` and absolute `secretPath`; reject missing, mismatched, duplicate, or undeclared routing pairs.
+- [ ] 2.1b Declare dedicated macOS/Ubuntu hosts against their isolated project root and enumerate legacy managed workstations that temporarily retain exact Global-project host paths with owner and retirement status.
 - [ ] 2.2 Harden the macOS developer-workstation profile to exclude recovery roots, personal credentials, unrelated production administration, signing roots, and destructive infrastructure credentials unless individually evidenced and approved.
 - [ ] 2.3 Harden Ubuntu server/runner profiles to service-specific non-interactive grants with no inherited developer-personal bundle.
+- [ ] 2.3a Classify raw AI upstream/provider keys as Ubuntu/LiteLLM-runtime-only and scoped LiteLLM client keys as the only AI access granted to macOS.
 - [ ] 2.4 Add negative tests for unknown, cloned, renamed, stale, role-conflicting, expired, oversized, and implicitly expanded host profiles.
 - [ ] 2.5 Add deterministic profile-diff, downgrade, revocation, and re-enrollment tests without resolving secret values.
 
@@ -26,6 +31,9 @@
 ## 4. Identity and destination reconciliation
 
 - [x] 4.1 Reconcile Infisical projects, environments, root secret paths, and independently revocable host identities from the reviewed plan. Evidence: separate macOS/Ubuntu projects with assigned project Viewer roles and organization No Access.
+- [ ] 4.1a Pass the selected host declaration's `projectId` and `secretPath` explicitly to every inventory, read, write, verify, and rollback operation; verify returned project context before accepting results.
+- [ ] 4.1b Make `--project-id` a non-persistent, single-explicit-host override that cannot select multiple hosts, supply implicit paths, enroll unknown hosts, or mutate desired state.
+- [ ] 4.1c Reject project selection inherited from cwd, repository or home `.infisical.json`, home configuration, environment defaults, or remembered Infisical CLI state.
 - [ ] 4.2 Reconcile repository-and-environment-bound GitHub OIDC identities without copying host credentials into CI.
 - [ ] 4.3 Separate host, CI, release, backup/recovery, and human identities and verify cross-identity denial. PARTIAL: macOS-to-Ubuntu and Ubuntu-to-macOS reads return `403`; non-host identity classes remain pending.
 - [x] 4.4 Record the implemented host authentication lifecycle without credential material: Universal Auth access tokens use 900-second TTL and maximum two uses; client secrets use 90-day expiry and platform-specific protected storage.
@@ -49,5 +57,7 @@
 
 - [x] 7.1 Preserve existing deterministic planner and secret-safety test coverage as the migration foundation.
 - [ ] 7.2 Add adversarial tests for value leakage, broad grants, alias collision, stale identity, destination conflict, partial failure, retry, outage, and rollback.
+- [ ] 7.2a Add routing tests for missing/wrong project IDs, missing/wrong paths, dedicated-root isolation, declared legacy Global paths, multi-host override rejection, cwd/home ambient-state poisoning, and cross-project `403`.
+- [ ] 7.2b Add acceptance tests for macOS workstation override precedence, Ubuntu/general precedence despite collisions, other-host exclusion, safe single-host directory override, unsafe override rejection, Ubuntu upstream-key access, macOS upstream-key denial, and macOS LiteLLM-client-only access.
 - [ ] 7.3 Update operator documentation to distinguish online authority, transition fallback, offline recovery, and retirement eligibility without listing values.
 - [ ] 7.4 Run strict OpenSpec validation and focused repository secret-safety/profile tests; report PASS, FAIL, BLOCKED, and UNVERIFIED distinctly.
