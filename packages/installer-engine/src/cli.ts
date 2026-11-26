@@ -713,13 +713,17 @@ function inputPath(argv: readonly string[]): string {
   return resolve(argv[1]);
 }
 
+const MAX_INVOCATION_BYTES = 1024 * 1024;
+const MAX_LOAD_PLAN_INVOCATION_BYTES = 4 * MAX_INVOCATION_BYTES;
+
 async function readInvocation(path: string): Promise<Invocation> {
   const inheritedInvocation = process.platform === 'linux' && path === '/proc/self/fd/4';
   const handle = await open(path, constants.O_RDONLY | (inheritedInvocation ? 0 : (constants.O_NOFOLLOW ?? 0)));
   try {
     const metadata = await handle.stat();
-    if (!metadata.isFile() || metadata.size < 2 || metadata.size > 1_048_576) {
-      usageError('input must be a regular non-symlink JSON file between 2 bytes and 1 MiB');
+    const maxBytes = inheritedInvocation ? MAX_INVOCATION_BYTES : MAX_LOAD_PLAN_INVOCATION_BYTES;
+    if (!metadata.isFile() || metadata.size < 2 || metadata.size > maxBytes) {
+      usageError(`input must be a regular non-symlink JSON file between 2 bytes and ${maxBytes / MAX_INVOCATION_BYTES} MiB`);
     }
     if (process.platform !== 'win32') {
       const effectiveUserId = process.geteuid?.();
@@ -727,9 +731,20 @@ async function readInvocation(path: string): Promise<Invocation> {
         usageError('input must be owned by the current user and not writable by group or other');
       }
     }
+    const bytes = Buffer.allocUnsafe(metadata.size + 1);
+    let length = 0;
+    while (length < bytes.length) {
+      const { bytesRead } = await handle.read(bytes, length, bytes.length - length, length);
+      if (bytesRead === 0) break;
+      length += bytesRead;
+    }
+    if (length !== metadata.size) usageError('input size changed while being read');
     let input: unknown;
-    try { input = JSON.parse(await handle.readFile('utf8')); }
+    try { input = JSON.parse(bytes.toString('utf8', 0, length)); }
     catch { usageError('input is not valid JSON'); }
+    if (length > MAX_INVOCATION_BYTES && (
+      typeof input !== 'object' || input === null || !('command' in input) || input.command !== 'load-plan'
+    )) usageError('only load-plan input may exceed 1 MiB');
     const parsed = InvocationSchema.safeParse(input);
     if (!parsed.success) usageError(z.prettifyError(parsed.error));
     return parsed.data;

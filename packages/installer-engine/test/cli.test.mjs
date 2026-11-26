@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { chmod, lstat, mkdir, mkdtemp, readFile, readdir, realpath, writeFile } from 'node:fs/promises';
+import { chmod, lstat, mkdir, mkdtemp, readFile, readdir, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
@@ -734,6 +734,28 @@ test('load-plan CLI emits a stable nonmutating lazy/eager closure report', async
   const report = JSON.parse(first.stdout);
   assert.deepEqual(report.installOrder, ['resolver']);
   assert.equal(report.items.find(item => item.name === 'optional').selectionReason, 'unselected-lazy');
+});
+
+test('load-plan accepts the full release catalog within its command-specific byte bound', async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'install-doctor-release-catalog-'));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const invocationPath = join(directory, 'load-plan.json');
+  const catalog = JSON.parse(await readFile(new URL('../../control-plane/src/catalog.json', import.meta.url), 'utf8'));
+  const invocation = {
+    schemaVersion: 1, command: 'load-plan', platform: 'linux', architecture: 'x64', roles: ['workstation'],
+    selectedPackages: [], selectedServices: [], selectedSupportedPaths: [], lazyResolverRequirements: [], catalog,
+  };
+  const input = JSON.stringify(invocation);
+  assert.ok(Buffer.byteLength(input) > 1024 * 1024);
+  await writeFile(invocationPath, input, { mode: 0o600 });
+  const cli = new URL('../dist/cli.js', import.meta.url).pathname;
+  const args = [cli, '--input', invocationPath];
+  const { stdout } = await execute(process.execPath, args, { maxBuffer: 4 * 1024 * 1024, timeout: 5_000 });
+  assert.ok(JSON.parse(stdout).items.length > 1000);
+  await writeFile(invocationPath, JSON.stringify({ ...invocation, command: 'plan' }));
+  await assert.rejects(execute(process.execPath, args), /only load-plan input may exceed 1 MiB/);
+  await writeFile(invocationPath, input.padEnd(4 * 1024 * 1024 + 1));
+  await assert.rejects(execute(process.execPath, args), /between 2 bytes and 4 MiB/);
 });
 
 test('normal CLI plans native package operations but rejects mutation without the approved privileged broker', async () => {
