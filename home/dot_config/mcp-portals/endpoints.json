@@ -1,0 +1,38 @@
+{
+  "schemaVersion": 1,
+  "profiles": {
+    "primary": {
+      "url": "https://mcp.megabyte.space/mcp",
+      "authentication": "oauth-posture",
+      "codeMode": "opt-in"
+    },
+    "automation": {
+      "url": "https://automation.mcp.megabyte.space/mcp",
+      "authentication": "service-token-per-workload",
+      "codeMode": "opt-in",
+      "secretRefs": {
+        "clientId": "MCP_AUTOMATION_CF_ACCESS_CLIENT_ID",
+        "clientSecret": "MCP_AUTOMATION_CF_ACCESS_CLIENT_SECRET"
+      }
+    },
+    "sandbox": {
+      "url": "https://sandbox.mcp.megabyte.space/mcp",
+      "authentication": "oauth-posture",
+      "codeMode": "opt-in"
+    },
+    "ops": {
+      "url": "https://ops.mcp.megabyte.space/mcp",
+      "authentication": "oauth-posture-upstream-step-up",
+      "codeMode": "off"
+    },
+    "canary": {
+      "url": "https://canary.mcp.megabyte.space/mcp",
+      "authentication": "oauth-posture",
+      "codeMode": "opt-in"
+    }
+  },
+  "localOnlyServers": [
+    "cua-driver",
+    "browsermcp"
+  ]
+}
