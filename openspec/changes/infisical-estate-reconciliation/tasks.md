@@ -27,6 +27,10 @@
 - [ ] 3.3 Add concurrency locking and fail-closed destination-conflict handling; require separately admitted overwrite without exposing either value.
 - [ ] 3.4 Prove selected values travel memory-only to the exact Infisical project/environment/path and never enter disk staging, argv, logs, receipts, history, telemetry, or Markdown.
 - [ ] 3.5 Keep deletion, rotation, revocation, permission widening, encrypted-source removal, and age-key retirement outside apply authority.
+- [ ] 3.6 Implement a durable metadata-only validation ledger with canonical name/source/destination bindings, `valid`/`unverified`/`invalid-retired` status, validator provenance, scope, freshness, and evidence references but no values or fingerprints.
+- [ ] 3.7 Add an all-selected-credentials preflight and locked pre-write gate: only fresh matching `valid` records proceed; any missing, unverified, invalid-retired, stale, mismatched, or untrusted record aborts before decryption and before the first write.
+- [ ] 3.8 Bind the exact ledger-record evidence digest into the reviewed plan and invalidate apply on ledger, selection, destination, or freshness drift.
+- [ ] 3.9 Emit value-free migrated-destination evidence with exact project/environment/path, safe destination version metadata, writer identity, plan digest, and authorized-read/unauthorized-denial results.
 
 ## 4. Identity and destination reconciliation
 
@@ -52,6 +56,8 @@
 - [ ] 6.2 Demonstrate independent recovery using only the declared exception set; do not delete or modify source material during the drill.
 - [ ] 6.3 Produce a value-free retirement-eligibility report after the observation window, with exact remaining blockers per secret. PARTIAL: one exact canary completed source retirement after allowed-read and cross-project `403` evidence; bulk eligibility remains pending.
 - [ ] 6.4 Preserve all non-canary encrypted templates, age identities, and credentials; propose any additional deletion, rotation, or revocation as a later separately approved destructive change.
+- [ ] 6.5 Record source-retirement assertions that bind exact source, canonical name, `valid` or `invalid-retired` provenance as applicable, migrated-destination evidence, consumer cutover, observation window, recovery state, approval, and timestamp.
+- [ ] 6.6 Reject retirement assertions with missing/mismatched destination evidence and prove a canary assertion cannot authorize another source.
 
 ## 7. Verification and documentation
 
@@ -59,5 +65,6 @@
 - [ ] 7.2 Add adversarial tests for value leakage, broad grants, alias collision, stale identity, destination conflict, partial failure, retry, outage, and rollback.
 - [ ] 7.2a Add routing tests for missing/wrong project IDs, missing/wrong paths, dedicated-root isolation, declared legacy Global paths, multi-host override rejection, cwd/home ambient-state poisoning, and cross-project `403`.
 - [ ] 7.2b Add acceptance tests for macOS workstation override precedence, Ubuntu/general precedence despite collisions, other-host exclusion, safe single-host directory override, unsafe override rejection, Ubuntu upstream-key access, macOS upstream-key denial, and macOS LiteLLM-client-only access.
+- [ ] 7.2c Add acceptance tests for complete valid admission, missing/unverified/invalid-retired/stale/wrong-scope rejection before write, atomic batch abort, ledger race invalidation, metadata-only destination receipts, and exact-source retirement assertions.
 - [ ] 7.3 Update operator documentation to distinguish online authority, transition fallback, offline recovery, and retirement eligibility without listing values.
 - [ ] 7.4 Run strict OpenSpec validation and focused repository secret-safety/profile tests; report PASS, FAIL, BLOCKED, and UNVERIFIED distinctly.

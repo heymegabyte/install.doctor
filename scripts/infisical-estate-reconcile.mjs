@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url';
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const defaultManifestPath = join(repositoryRoot, 'config/infisical/estate-secret-profiles.json');
+const defaultValidationLedgerPath = join(repositoryRoot, 'config/infisical/secret-validation-ledger.json');
 const defaultSecretDirectories = [
   join(homedir(), '.local/share/chezmoi/home/.chezmoitemplates/secrets'),
   join(homedir(), '.local/share/chezmoi/home/.chezmoitemplates/secrets-workstation'),
@@ -19,13 +20,15 @@ function fail(message) {
 
 function parseArguments(values) {
   const options = {
-    command: 'plan', manifestPath: defaultManifestPath, secretDirectories: defaultSecretDirectories,
+    command: 'plan', manifestPath: defaultManifestPath, validationLedgerPath: defaultValidationLedgerPath,
+    secretDirectories: defaultSecretDirectories,
     secretDirectoriesOverridden: false, secretNames: [],
   };
   for (let index = 0; index < values.length; index += 1) {
     const value = values[index];
     if (value === 'plan' || value === 'apply') options.command = value;
     else if (value === '--manifest') options.manifestPath = resolve(values[++index] ?? fail('missing manifest path'));
+    else if (value === '--validation-ledger') options.validationLedgerPath = resolve(values[++index] ?? fail('missing validation ledger path'));
     else if (value === '--host') options.host = values[++index] ?? fail('missing host');
     else if (value === '--project-id') options.projectId = values[++index] ?? fail('missing project id');
     else if (value === '--secret-directory') {
@@ -77,6 +80,13 @@ export function selectHostSecrets(manifest, host, secretNames) {
   const include = capabilities.flatMap((capability) => manifest.capabilityPatterns[capability] ?? []).map((pattern) => new RegExp(pattern));
   const exclude = (manifest.alwaysExcludePatterns ?? []).map((pattern) => new RegExp(pattern));
   return [...secretNames].filter((name) => include.some((pattern) => pattern.test(name)) && !exclude.some((pattern) => pattern.test(name))).sort();
+}
+
+export function assertSecretsValidated(ledger, secretNames) {
+  if (ledger?.schemaVersion !== 1 || typeof ledger.records !== 'object') fail('invalid validation ledger');
+  for (const name of secretNames) {
+    if (ledger.records[name]?.status !== 'valid') fail(`secret ${name} has no current valid credential evidence`);
+  }
 }
 
 function writeEncryptedSecret({ encryptedPath, environment, name, projectId, secretPath }) {
@@ -139,6 +149,8 @@ function main() {
     process.stdout.write(`${JSON.stringify({ schemaVersion: 1, inventoryCount: inventoryNames.size, hosts: plans }, null, 2)}\n`);
     return;
   }
+  const validationLedger = JSON.parse(readFileSync(options.validationLedgerPath, 'utf8'));
+  assertSecretsValidated(validationLedger, plans.flatMap((plan) => plan.secretNames));
   if (options.projectId && hosts.length !== 1) fail('--project-id override requires exactly one --host');
   execFileSync('infisical', ['login', 'status', '--silent'], { stdio: 'ignore' });
   for (const plan of plans) {
