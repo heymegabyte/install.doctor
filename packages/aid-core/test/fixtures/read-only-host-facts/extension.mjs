@@ -1,4 +1,6 @@
-/** Fixture extension: it can only format the exact fact supplied by its capability gateway. */
+/** Fixture extension: it can only format the exact fact supplied by its capability gateway.
+ * @param {(resource: string) => unknown} readFact
+ */
 export function readOperatingSystem(readFact) {
   const value = readFact('host://facts/os');
   return Object.freeze({ operatingSystem: String(value) });

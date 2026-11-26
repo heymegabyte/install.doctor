@@ -10,28 +10,36 @@ import { readOperatingSystem } from './fixtures/read-only-host-facts/extension.m
 const now = '2026-11-10T12:00:00.000Z';
 const validFrom = '2026-11-09T00:00:00.000Z';
 const validUntil = '2026-12-10T00:00:00.000Z';
+/** @param {string} character */
 const digest = character => character.repeat(64);
 const checks = ['artifact-load', 'capability-denial', 'lifecycle-hooks', 'path-containment', 'resource-cleanup']
   .map((id, index) => ({ id, outcome: 'passed', evidenceDigest: digest(String(index + 1)) }));
 
+/** @typedef {import('zod').input<typeof import('../dist/extension-admission.js').ExtensionTrustKeySchema>} TrustKey */
+/** @typedef {import('zod').input<typeof import('../dist/extension-admission.js').ExtensionCapabilitySchema>} Capability */
+/** @param {TrustKey['usage']} usage @param {Pick<Partial<TrustKey>, 'tenantIds' | 'extensionIds'>} options */
 function key(usage, options = {}) {
   const pair = generateKeyPairSync('ed25519');
   const publicKey = pair.publicKey.export({ format: 'jwk' });
+  assert.ok(publicKey.x);
   return {
     privateKey: pair.privateKey,
     trust: { keyId: `${usage}-1`, usage, publicKey: { kty: 'OKP', crv: 'Ed25519', x: publicKey.x }, validFrom, validUntil,
       catalogIds: ['official'], tenantIds: options.tenantIds ?? [], extensionIds: options.extensionIds ?? [] },
   };
 }
+/** @template Payload @param {Parameters<typeof extensionSignatureBytes>[0]} kind @param {Payload} payload @param {ReturnType<typeof key>} signer */
 function envelope(kind, payload, signer) {
   return { payload, signature: { algorithm: 'Ed25519', keyId: signer.trust.keyId,
     value: sign(null, extensionSignatureBytes(kind, payload), signer.privateKey).toString('base64url') } };
 }
 
+/** @param {{ capabilities?: Capability[], approvedCapabilities?: Capability[], revokeManifest?: boolean, apiVersion?: number }} options */
 async function fixture(options = {}) {
   const publisher = key('extension-publisher', { extensionIds: ['com.desktop-tools.readonly'] });
   const catalogSigner = key('catalog-publisher'); const provenanceAttestor = key('provenance-attestor');
   const testAttestor = key('test-attestor'); const revoker = key('revocation-authority');
+  /** @type {Capability} */
   const capability = { action: 'host.facts.read', resource: 'host://facts/os' };
   const evidence = { schemaVersion: 1, evidenceId: 'evidence-1', extensionId: 'com.desktop-tools.readonly', version: '1.2.3',
     artifactDigest: digest('a'), runnerId: 'isolated-runner-1', suiteDigest: digest('b'), testedAt: '2026-11-10T10:00:00.000Z',
@@ -54,6 +62,7 @@ async function fixture(options = {}) {
     generatedAt: '2026-11-10T11:00:00.000Z', expiresAt: '2026-11-20T11:00:00.000Z', entries: [{ extensionId: manifest.extensionId,
       version: manifest.version, manifestDigest, artifactDigest: manifest.artifact.sha256,
       manifestUrl: `https://extensions.desktop.tools/manifests/${manifestDigest}.json` }] };
+  /** @type {import('zod').input<typeof import('../dist/extension-admission.js').ExtensionRevocationStatementSchema>} */
   const revocations = { schemaVersion: 1, statementId: 'revocations-12', sequence: 9, catalogId: 'official', coversCatalogSequence: 12,
     generatedAt: '2026-11-10T11:30:00.000Z', expiresAt: '2026-11-11T11:30:00.000Z',
     revokedManifestDigests: options.revokeManifest ? [manifestDigest] : [], revokedArtifactDigests: [], revokedPublisherKeyIds: [] };
@@ -79,6 +88,7 @@ test('fails closed on signature tampering, incompatible APIs, excess capability,
   const tampered = await fixture(); tampered.request.manifest.payload.description = 'changed after signature';
   await assert.rejects(admitExtension(tampered.request), /signature is invalid/);
   await assert.rejects(admitExtension((await fixture({ apiVersion: 5 })).request), /incompatible/);
+  /** @type {Capability} */
   const excess = { action: 'telemetry.emit', resource: 'telemetry://extension/metrics' };
   await assert.rejects(admitExtension((await fixture({ capabilities: [excess], approvedCapabilities: [] })).request), /outside the approved/);
   await assert.rejects(admitExtension((await fixture({ revokeManifest: true })).request), /revoked/);
@@ -95,13 +105,12 @@ test('requires complete fresh isolated evidence and a current revocation view', 
 });
 
 test('private catalogs and signer scopes cannot cross tenant boundaries', async () => {
-  const item = await fixture(); item.request.catalog.payload.visibility = 'private'; item.request.catalog.payload.tenantId = 'tenant-a';
-  item.request.catalog = envelope('catalog', item.request.catalog.payload, item.signers.catalogSigner);
+  const item = await fixture();
+  const payload = { ...item.request.catalog.payload, visibility: 'private', tenantId: 'tenant-a' };
+  const catalog = envelope('catalog', payload, item.signers.catalogSigner);
   // A valid private catalog still cannot be opened by another tenant or public-only signer scope.
-  item.request.tenantId = 'tenant-b';
-  await assert.rejects(admitExtension(item.request), /tenant scope/);
-  item.request.tenantId = 'tenant-a';
-  await assert.rejects(admitExtension(item.request), /signer scope/);
+  await assert.rejects(admitExtension({ ...item.request, catalog, tenantId: 'tenant-b' }), /tenant scope/);
+  await assert.rejects(admitExtension({ ...item.request, catalog, tenantId: 'tenant-a' }), /signer scope/);
 });
 
 test('arbitrary npm auto-install and privileged execution are structurally unrepresentable', async () => {
