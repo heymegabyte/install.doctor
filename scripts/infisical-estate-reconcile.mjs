@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { execFileSync, spawnSync } from 'node:child_process';
+import { timingSafeEqual } from 'node:crypto';
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
@@ -17,7 +18,7 @@ function fail(message) {
 }
 
 function parseArguments(values) {
-  const options = { command: 'plan', manifestPath: defaultManifestPath, secretDirectories: defaultSecretDirectories };
+  const options = { command: 'plan', manifestPath: defaultManifestPath, secretDirectories: defaultSecretDirectories, secretNames: [] };
   for (let index = 0; index < values.length; index += 1) {
     const value = values[index];
     if (value === 'plan' || value === 'apply') options.command = value;
@@ -25,6 +26,7 @@ function parseArguments(values) {
     else if (value === '--host') options.host = values[++index] ?? fail('missing host');
     else if (value === '--project-id') options.projectId = values[++index] ?? fail('missing project id');
     else if (value === '--secret-directory') options.secretDirectories = [resolve(values[++index] ?? fail('missing secret directory'))];
+    else if (value === '--name') options.secretNames.push(values[++index] ?? fail('missing secret name'));
     else fail(`unknown argument ${value}`);
   }
   return options;
@@ -77,7 +79,7 @@ function configuredProjectId() {
 
 function writeEncryptedSecret({ encryptedPath, environment, name, projectId, secretPath }) {
   const source = readFileSync(encryptedPath);
-  const isAgeEnvelope = source.subarray(0, 64).toString('utf8').includes('age-encryption.org/');
+  const isAgeEnvelope = source.subarray(0, 64).toString('utf8').startsWith('-----BEGIN AGE ENCRYPTED FILE-----');
   const decrypt = isAgeEnvelope
     ? spawnSync('chezmoi', ['decrypt'], { input: source, maxBuffer: 16 * 1024 * 1024 })
     : { status: 0, stdout: Buffer.from(source) };
@@ -87,8 +89,18 @@ function writeEncryptedSecret({ encryptedPath, environment, name, projectId, sec
     'secrets', 'set', `${name}=@/dev/stdin`, '--projectId', projectId, '--env', environment,
     '--path', secretPath, '--silent', '--telemetry=false',
   ], { input: decrypt.stdout, stdio: ['pipe', 'ignore', 'pipe'], maxBuffer: 16 * 1024 * 1024 });
-  decrypt.stdout.fill(0);
   if (write.status !== 0) fail(`Infisical rejected ${name}`);
+  const readBack = spawnSync('infisical', [
+    'secrets', 'get', name, '--projectId', projectId, '--env', environment,
+    '--path', secretPath, '--plain', '--silent', '--telemetry=false',
+  ], { stdio: ['ignore', 'pipe', 'pipe'], maxBuffer: 16 * 1024 * 1024 });
+  const expected = decrypt.stdout;
+  const cliOutput = readBack.stdout;
+  const actual = cliOutput.at(-1) === 0x0a ? cliOutput.subarray(0, -1) : cliOutput;
+  const verified = readBack.status === 0 && expected.length === actual.length && timingSafeEqual(expected, actual);
+  expected.fill(0);
+  cliOutput.fill(0);
+  if (!verified) fail(`Infisical round-trip verification failed for ${name}`);
 }
 
 function ensureSecretPath({ environment, projectId, secretPath }) {
@@ -113,8 +125,9 @@ function main() {
     host,
     profile: manifest.hosts[host]?.profile,
     secretPath: manifest.hosts[host]?.secretPath,
-    secretNames: selectHostSecrets(manifest, host, inventory.keys()),
+    secretNames: selectHostSecrets(manifest, host, inventory.keys()).filter((name) => options.secretNames.length === 0 || options.secretNames.includes(name)),
   }));
+  for (const name of options.secretNames) if (!inventory.has(name)) fail(`selected secret ${name} is not present in the inventory`);
   if (options.command === 'plan') {
     process.stdout.write(`${JSON.stringify({ schemaVersion: 1, inventoryCount: inventory.size, hosts: plans }, null, 2)}\n`);
     return;
