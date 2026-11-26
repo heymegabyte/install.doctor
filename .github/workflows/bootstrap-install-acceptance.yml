@@ -115,7 +115,8 @@ jobs:
         run: bash scripts/test-bootstrap-upgrade-acceptance.sh
 
   linux-offline-sandbox:
-    runs-on: ubuntu-latest
+    # This native canary depends on the OS layout of trusted executables.
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -136,6 +137,7 @@ jobs:
           npm --prefix packages/installer-engine ci --ignore-scripts --no-audit --no-fund
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends bubblewrap
+          stat --format='%F %u %a %N' /usr/bin/bwrap /usr/bin/readlink
           if sysctl kernel.apparmor_restrict_unprivileged_userns >/dev/null 2>&1; then
             sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
           fi
