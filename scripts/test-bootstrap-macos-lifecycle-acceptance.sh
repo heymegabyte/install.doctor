@@ -60,23 +60,8 @@ git -C "$ROOT" archive --format=tar HEAD -- .chezmoiroot home software.yml \
 mkdir -p "$REPOSITORY/packages/control-plane/src"
 cp "$ROOT/scripts/provision.sh" "$REPOSITORY/provision.sh"
 cp "$ROOT/packages/installer-engine/dist/install-doctor-engine.mjs" "$REPOSITORY/install-doctor-engine.mjs"
-cp "$ROOT/packages/control-plane/src/catalog.json" "$REPOSITORY/packages/control-plane/src/catalog.json"
-# Keep the real hook files inside the signed source while preventing this
-# hermetic canary from selecting their host-mutating eager paths.
-node - "$REPOSITORY/packages/control-plane/src/catalog.json" <<'NODE'
-const fs = require('node:fs');
-const file = process.argv[2];
-const catalog = JSON.parse(fs.readFileSync(file, 'utf8'));
-for (const entry of catalog) {
-  if (!['mise', 'rclone'].includes(entry.name)) continue;
-  entry.preload = false;
-  entry.loadPolicy = 'lazy';
-  entry.loadRationale = 'default-lazy';
-  entry.deliveryMode = 'lazy';
-  delete entry.preloadReason;
-}
-fs.writeFileSync(file, `${JSON.stringify(catalog, null, 2)}\n`);
-NODE
+# Keep the real hooks in signed source while deferring their eager execution in the fixture.
+node "$ROOT/scripts/write-bootstrap-acceptance-catalog.mjs" "$REPOSITORY/packages/control-plane/src/catalog.json"
 (cd "$ROOT" && tar --exclude='node_modules' --exclude='dist' -cf - packages/aid-core packages/installer-engine) \
   | (cd "$REPOSITORY" && tar -xf -)
 chmod 0700 "$REPOSITORY/provision.sh" "$REPOSITORY/install-doctor-engine.mjs"
