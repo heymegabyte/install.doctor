@@ -30,10 +30,12 @@
     "./saas-api-contracts": "./dist/saas-api-contracts.js"
   },
   "types": "./dist/core.d.ts",
+  "files": ["dist", "docs", "src", "test", "tsconfig.json", "vendor"],
   "description": "Tested contracts for Install Doctor aid; not a deployed daemon or gateway",
   "scripts": {
     "build": "tsc --project tsconfig.json",
     "typecheck": "tsc --project tsconfig.json --noEmit",
+    "prepack": "npm run build",
     "test": "npm run build && node --test test/*.test.mjs"
   },
   "engines": {
