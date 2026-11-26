@@ -24,7 +24,7 @@
         - `https://<domain>/favicon.svg`
         - `https://<domain>/apple-touch-icon.png`
 
-3. **Canonical Brand Logo Registry (`questionl.ink`)**:
+3. **Canonical Brand Logo Registry (`questionl.ink`) & Post-Crowning Logo Studio Gallery Removal**:
    - Codifies the canonical brand asset specification in `AGENTS.md`:
      - `voice.build`: `/logos/10-sovereign-voice-crown-signature-ideogram.png`
      - `qubes.cloud`: `/logos/10-sovereign-voice-crown-signature-ideogram.png` (aliased with `10-sovereign-qubes-crown-signature-ideogram.png`)
@@ -33,3 +33,4 @@
      - `template.company`: `/logos/05-titanium-company-foundry-ideogram.png`
      - `status.charity`: `/logos/06-verifiable-altruism-spectrogram-ideogram.png`
      - `questionl.ink`: `/logos/10-sovereign-questionlink-crown-ideogram.png` (`10-sovereign-questionlink-crown-transparent.png`, dark-navy `#181B2E` squircle with electric-cyan `#19B5FE` question-mark equalizer waveform bars `/favicon.svg` & `/apple-touch-icon.png`, `1200x630` `/og.png` with `"Train repositories by answering questions"`, and `home.megabyte.space` `/icons/question-link.png`).
+   - **Post-Crowning Logo Studio Gallery Removal Rule**: Once a project's official logo has been crowned from the 10-edition Codex+Ideogram exploration suite (e.g., `10-sovereign-questionlink-crown-ideogram.png` for `questionl.ink`), the 10-edition Coming Soon Logo Studio gallery MUST be removed from below the live application dashboard (`/`) so the dashboard renders only its core functional UI.

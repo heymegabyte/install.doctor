@@ -21,5 +21,6 @@ As part of the Parallel Triad Value-Absorption mandate (`theme.tools` + `install
      - `git commit` -> `git push origin main`
      - `wrangler deploy` / live publish + Cloudflare CDN cache purge
      - Live edge HTTP verification of `https://<domain>/`, `/api/health`, `/og.png`, `/favicon.svg`, and `/apple-touch-icon.png`.
-3. **Canonical Brand Logo Registry Synchronization (`questionl.ink`)**:
+3. **Canonical Brand Logo Registry Synchronization (`questionl.ink`) & Post-Crowning Gallery Retirement**:
    - Synchronize the Canonical Brand Logo, Favicon & Apple Touch Icon Registry in `AGENTS.md` to include `questionl.ink` -> `/logos/10-sovereign-questionlink-crown-ideogram.png` (`10-sovereign-questionlink-crown-transparent.png`, dark-navy `#181B2E` squircle with electric-cyan `#19B5FE` question-mark equalizer waveform bars `/favicon.svg` & `/apple-touch-icon.png`, `1200x630` `/og.png` with `"Train repositories by answering questions"`, and `home.megabyte.space` `/icons/question-link.png`).
+   - Once a project's official logo has been crowned from the 10-edition Codex+Ideogram exploration suite, remove the 10-edition Coming Soon Logo Studio gallery from below the live application dashboard (`/`) so the dashboard renders only its core functional UI.
