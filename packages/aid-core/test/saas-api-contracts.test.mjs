@@ -10,11 +10,15 @@ const NOW = '2026-11-10T12:00:00.000Z';
 const EXPIRY = '2026-11-11T12:00:00.000Z';
 const DIGEST = 'a'.repeat(64);
 
+/** @typedef {import('../dist/saas-api-contracts.js').SaasResourceRecord} Resource */
+/** @param {string} capabilityId @returns {Resource['capability']} */
 const truth = capabilityId => ({ capabilityId, status: 'implemented-unverified',
   evidenceRef: `evidence://${capabilityId}`, observedAt: NOW, expiresAt: null });
-const base = (kind, id, capabilityId = `read-${kind}`) => ({ schemaVersion: 1, id, tenantId: 'tenant-one', kind,
+/** @template {Resource['kind']} Kind @param {Kind} kind @param {string} id */
+const base = (kind, id, capabilityId = `read-${kind}`) => ({ schemaVersion: /** @type {const} */ (1), id, tenantId: 'tenant-one', kind,
   capability: truth(capabilityId), updatedAt: NOW });
 
+/** @returns {Resource[]} */
 function records() {
   return [
     { ...base('profiles', 'profile-one'), slug: 'brian', revision: 'rev-one', desiredStateDigest: DIGEST, state: 'ready' },
@@ -41,13 +45,15 @@ test('projects all ten nonvisual SaaS resources with exact tenant and evidence t
   assert.equal(result.items.length, 10);
   assert.equal(result.tenantId, 'tenant-one');
   assert.equal(result.accessibilityVersion, 1);
-  assert.equal(result.items.find(item => item.kind === 'live-runs').eventCursor, 42);
-  assert.equal(result.items.find(item => item.kind === 'catalog').tenantId, null);
+  assert.equal(result.items.find(item => item.kind === 'live-runs')?.eventCursor, 42);
+  assert.equal(result.items.find(item => item.kind === 'catalog')?.tenantId, null);
 });
 
 test('rejects cross-tenant records instead of silently filtering them', () => {
   const input = records();
-  input[1].tenantId = 'tenant-two';
+  const machine = input.find(item => item.kind === 'machines');
+  assert.ok(machine);
+  machine.tenantId = 'tenant-two';
   assert.throws(() => projectSaasRead(principal(), request(), input, NOW), /cross-tenant/i);
 });
 
@@ -63,26 +69,26 @@ test('rejects missing capability and unrequested authority results', () => {
 
 test('requires expired evidence to surface as stale and live truth to expire', () => {
   const expired = records();
-  expired[0].capability.observedAt = '2026-11-09T11:00:00.000Z';
-  expired[0].capability.expiresAt = '2026-11-10T11:00:00.000Z';
+  const [expiredRecord] = expired;
+  assert.ok(expiredRecord);
+  expiredRecord.capability.observedAt = '2026-11-09T11:00:00.000Z';
+  expiredRecord.capability.expiresAt = '2026-11-10T11:00:00.000Z';
   assert.throws(() => projectSaasRead(principal(), request(), expired, NOW), /must be reported stale/i);
-  expired[0].capability.status = 'stale';
+  expiredRecord.capability.status = 'stale';
   assert.doesNotThrow(() => projectSaasRead(principal(), request(), expired, NOW));
 
   const liveWithoutExpiry = records();
-  liveWithoutExpiry[0].capability.status = 'verified-live';
+  const [liveRecord] = liveWithoutExpiry;
+  assert.ok(liveRecord);
+  liveRecord.capability.status = 'verified-live';
   assert.throws(() => projectSaasRead(principal(), request(), liveWithoutExpiry, NOW), /verified-live capability truth must expire/i);
 });
 
 test('strict contracts reject secret values, unknown fields, and tenant-private catalog data', () => {
-  const secretLeak = records();
-  secretLeak.find(item => item.kind === 'secrets-readiness').secretValue = 'do-not-accept';
+  const secretLeak = records().map(item => item.kind === 'secrets-readiness' ? { ...item, secretValue: 'do-not-accept' } : item);
   assert.throws(() => projectSaasRead(principal(), request(), secretLeak, NOW), /unrecognized/i);
 
-  const privateCatalog = records();
-  const catalog = privateCatalog.find(item => item.kind === 'catalog');
-  catalog.tenantId = 'tenant-one';
-  catalog.public = false;
+  const privateCatalog = records().map(item => item.kind === 'catalog' ? { ...item, tenantId: 'tenant-one', public: false } : item);
   assert.throws(() => projectSaasRead(principal(), request(), privateCatalog, NOW));
 });
 
@@ -94,10 +100,13 @@ test('accessibility semantics cover every resource exactly once with keyboard an
     assert.equal(resource.liveRegion, 'polite');
     assert.ok(resource.keyboardActions.some(action => action.key === 'Enter' && action.requiresSelection));
     assert.ok(resource.emptyMessage.length > 0);
-    assert.ok(resource.errorMessage === undefined);
+    assert.equal(Object.hasOwn(resource, 'errorMessage'), false);
   }
 
   const duplicate = structuredClone(contract);
-  duplicate.resources[9].kind = duplicate.resources[0].kind;
+  const first = duplicate.resources[0];
+  const last = duplicate.resources[9];
+  assert.ok(first && last);
+  last.kind = first.kind;
   assert.throws(() => validateSaasAccessibilityContract(duplicate), /every SaaS resource exactly once/i);
 });

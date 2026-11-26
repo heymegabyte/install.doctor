@@ -14,7 +14,7 @@ test('migrates legacy catalog entries byte-identically and preserves explicit un
   assert.deepEqual(first.identity, { key: 'ripgrep', command: 'rg' });
   assert.deepEqual(first.license, { status: 'unknown', spdx: null, evidence: null });
   assert.deepEqual(first.supportEvidence, { status: 'unverified', receiptDigests: [] });
-  assert.equal(parseSoftwareCatalog([first])[0].schemaVersion, 1);
+  assert.equal(parseSoftwareCatalog([first])[0]?.schemaVersion, 1);
 });
 
 test('strict schemas reject unknown fields, versions, inconsistent dependencies, and provider identities', () => {
@@ -38,12 +38,16 @@ test('configuration, privilege, exposure, and immutable provenance are derived w
   assert.equal(service.exposure.network, 'service-declared');
 });
 
+/** @typedef {import('../dist/software-catalog.js').SoftwareCatalogEntry} CatalogEntry */
+/** @typedef {import('zod').input<typeof LegacySoftwareCatalogEntrySchema>} LegacyEntry */
+/** @param {string} name @param {Partial<CatalogEntry> & {legacy?: Partial<LegacyEntry>}} overrides */
 const entry = (name, overrides = {}) => {
   const { legacy: legacyOverrides = {}, ...currentOverrides } = overrides;
   const migrated = migrateLegacySoftwareCatalogEntry({ ...legacy, name, bin: name, providers: ['apt'], pkgs: { apt: name }, ...legacyOverrides });
   return { ...migrated, ...currentOverrides };
 };
 
+/** @param {CatalogEntry} catalogEntry @param {CatalogEntry['loadPolicy']} policy */
 const load = (catalogEntry, policy) => ({
   ...catalogEntry,
   preload: policy !== 'lazy',
@@ -72,12 +76,12 @@ test('catalog graph produces deterministic dependency order and explains every d
   });
   assert.deepEqual(first, second);
   assert.deepEqual(first.order, ['runtime', 'bootstrap', 'recovery']);
-  assert.equal(first.inclusions.find(item => item.identity === 'runtime').reasons[0].code, 'dependency');
-  assert.equal(first.exclusions.find(item => item.identity === 'post').reasons[0].code, 'deferred-until-post-bootstrap');
-  assert.equal(first.exclusions.find(item => item.identity === 'windows-only').reasons[0].code, 'unsupported-platform');
-  assert.equal(first.exclusions.find(item => item.identity === 'arm-only').reasons[0].code, 'unsupported-architecture');
-  assert.equal(first.exclusions.find(item => item.identity === 'server-only').reasons[0].code, 'unsupported-role');
-  assert.equal(first.exclusions.find(item => item.identity === 'alternative').reasons[0].code, 'conflicts-with-selected');
+  assert.equal(first.inclusions.find(item => item.identity === 'runtime')?.reasons[0]?.code, 'dependency');
+  assert.equal(first.exclusions.find(item => item.identity === 'post')?.reasons[0]?.code, 'deferred-until-post-bootstrap');
+  assert.equal(first.exclusions.find(item => item.identity === 'windows-only')?.reasons[0]?.code, 'unsupported-platform');
+  assert.equal(first.exclusions.find(item => item.identity === 'arm-only')?.reasons[0]?.code, 'unsupported-architecture');
+  assert.equal(first.exclusions.find(item => item.identity === 'server-only')?.reasons[0]?.code, 'unsupported-role');
+  assert.equal(first.exclusions.find(item => item.identity === 'alternative')?.reasons[0]?.code, 'conflicts-with-selected');
   assert.equal(first.inclusions.length + first.exclusions.length, catalog.length);
   assert.deepEqual(new Set([...first.inclusions, ...first.exclusions].map(item => item.identity)).size, catalog.length);
 
@@ -93,8 +97,8 @@ test('post-bootstrap graph admits matching eager entries and explicit lazy reque
     platform: 'linux', architecture: 'x64', role: 'developer', phase: 'post-bootstrap', requested: ['requested'],
   });
   assert.deepEqual(plan.order, ['eager', 'requested']);
-  assert.equal(plan.inclusions.find(item => item.identity === 'requested').reasons[0].code, 'requested');
-  assert.equal(plan.inclusions.find(item => item.identity === 'eager').reasons[0].code, 'eager-supported-path');
+  assert.equal(plan.inclusions.find(item => item.identity === 'requested')?.reasons[0]?.code, 'requested');
+  assert.equal(plan.inclusions.find(item => item.identity === 'eager')?.reasons[0]?.code, 'eager-supported-path');
 });
 
 test('catalog graph rejects unknown edges, cycles, conflicts, invalid load policy, and unsupported dependency paths', () => {

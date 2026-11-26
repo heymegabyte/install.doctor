@@ -30,6 +30,8 @@
     "test/profile-resolution.test.mjs",
     "test/public-package.test.mjs",
     "test/redaction.test.mjs",
+    "test/saas-api-contracts.test.mjs",
+    "test/software-catalog.test.mjs",
     "test/task-agent-compiler.test.mjs",
     "test/telemetry-semantics.test.mjs",
     "test/terminal-lifecycle.test.mjs"
