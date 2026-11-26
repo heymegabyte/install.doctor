@@ -3,6 +3,7 @@ import test from 'node:test';
 import { readFile } from 'node:fs/promises';
 import { identityKinds, validateIdentityAuthorityEstate, validateIdentityAuthorityManifest } from '../dist/identity-authority.js';
 
+/** @param {(typeof identityKinds)[number]} kind @param {Record<string, unknown>} overrides */
 function identity(kind, overrides = {}) {
   const consumerId = `${kind}-primary`;
   return {
@@ -24,6 +25,14 @@ function identity(kind, overrides = {}) {
 
 const estate = () => ({ schemaVersion: 1, identities: identityKinds.map(kind => identity(kind)) });
 
+/** @param {(entry: ReturnType<typeof identity>) => unknown} update */
+function withFirstIdentity(update) {
+  const input = estate();
+  const [first, ...rest] = input.identities;
+  assert.ok(first);
+  return { ...input, identities: [update(first), ...rest] };
+}
+
 test('accepts a complete value-free estate with every required identity class', () => {
   assert.deepEqual(validateIdentityAuthorityEstate(estate()), estate());
 });
@@ -34,36 +43,42 @@ test('validates the canonical repository identity estate', async () => {
 });
 
 test('rejects shared identities and duplicate intended consumers', () => {
-  const shared = estate(); shared.identities[1].identityId = shared.identities[0].identityId;
+  const shared = estate();
+  const [first, second] = shared.identities;
+  assert.ok(first && second);
+  second.identityId = first.identityId;
   assert.throws(() => validateIdentityAuthorityEstate(shared), /shared identities/i);
   const consumer = { schemaVersion: 1, identities: [identity('service'), identity('service', { id: 'service-secondary', identityId: 'infisical-service-secondary' })] };
   assert.throws(() => validateIdentityAuthorityManifest(consumer), /intended consumer/i);
 });
 
 test('rejects caller-selected runtime scope overrides and non-leaf scope changes', () => {
-  const runtimeOverride = estate(); runtimeOverride.identities[0].runtimeScopeOverride = { environment: 'dev' };
+  const runtimeOverride = withFirstIdentity(entry => ({ ...entry, runtimeScopeOverride: { environment: 'dev' } }));
   assert.throws(() => validateIdentityAuthorityEstate(runtimeOverride), /unrecognized/i);
-  const changedPath = estate(); changedPath.identities[0].authorization.path = '/workloads/host/another-host';
+  const changedPath = withFirstIdentity(entry => ({ ...entry, authorization: { ...entry.authorization, path: '/workloads/host/another-host' } }));
   assert.throws(() => validateIdentityAuthorityEstate(changedPath), /fixed consumer leaf/i);
 });
 
 test('rejects recursive exports, imports, and durable plaintext caches', () => {
-  for (const [field, value] of [['recursive', true], ['includeImports', true], ['durablePlaintextCache', true]]) {
-    const input = estate(); input.identities[0].delivery[field] = value;
+  for (const field of ['recursive', 'includeImports', 'durablePlaintextCache']) {
+    const input = withFirstIdentity(entry => ({ ...entry, delivery: { ...entry.delivery, [field]: true } }));
     assert.throws(() => validateIdentityAuthorityEstate(input), new RegExp(field, 'i'));
   }
 });
 
 test('rejects missing or hidden inherited grants', () => {
-  const missing = estate(); delete missing.identities[0].authorization.inheritedGrants;
+  const missing = withFirstIdentity(entry => {
+    const { inheritedGrants: _grants, ...authorization } = entry.authorization;
+    return { ...entry, authorization };
+  });
   assert.throws(() => validateIdentityAuthorityEstate(missing), /inheritedGrants/);
-  const inherited = estate(); inherited.identities[0].authorization.inheritedGrants = ['project-viewer'];
+  const inherited = withFirstIdentity(entry => ({ ...entry, authorization: { ...entry.authorization, inheritedGrants: ['project-viewer'] } }));
   assert.throws(() => validateIdentityAuthorityEstate(inherited), /inheritedGrants/);
 });
 
 test('requires every identity class and confines recovery access', () => {
   const incomplete = estate(); incomplete.identities.pop();
   assert.throws(() => validateIdentityAuthorityEstate(incomplete), /missing the recovery class/i);
-  const excess = estate(); excess.identities[0].authorization.actions = ['read-secret', 'read-recovery-secret'];
+  const excess = withFirstIdentity(entry => ({ ...entry, authorization: { ...entry.authorization, actions: ['read-secret', 'read-recovery-secret'] } }));
   assert.throws(() => validateIdentityAuthorityEstate(excess), /recovery secret access/i);
 });
