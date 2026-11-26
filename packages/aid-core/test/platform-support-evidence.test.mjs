@@ -5,17 +5,22 @@ import {
   PlatformQualificationReceiptSchema, SignedSupportCellSchema, evaluateSupportCellValidity,
 } from '../dist/platform-support-evidence.js';
 
+/** @param {string} character */
 const d = character => character.repeat(64);
 const at = '2026-11-10T12:00:00.000Z';
 const expires = '2026-12-10T12:00:00.000Z';
+/** @param {string} capability */
 const tuple = capability => ({ os: 'linux', version: '24.04', arch: 'x64', environment: 'native', role: 'workstation', capability });
+/** @param {string} suffix */
 const bindings = suffix => ({
   code: { componentId: `engine-${suffix}`, digest: d('1') },
   policy: { policyId: `policy-${suffix}`, digest: d('2') },
   recipe: { recipeId: `recipe-${suffix}`, digest: d('3') },
   release: { channel: `channel-${suffix}`, releaseId: `release-${suffix}`, manifestDigest: d('4') },
 });
+/** @param {string} namespace */
 const signature = namespace => ({ keyId: 'platform-signer', algorithm: 'sshsig-ed25519', namespace, detached: true, signedDigest: d('9') });
+/** @param {string} suffix */
 const base = suffix => ({ schemaVersion: 1, receiptId: `receipt-${suffix}`, cellId: `cell-${suffix}`,
   supportCellDigest: d('5'), bindings: bindings(suffix), recordedAt: at, expiresAt: expires, evidenceDigest: d('6'), statementDigest: d('9') });
 
@@ -33,8 +38,8 @@ const qualification = { ...base('a'), evidenceClass: 'platform-qualification', r
   signature: signature('desktop.tools.platform-qualification') };
 
 test('signed platform evidence schemas accept exact receipts and reject ambiguity', () => {
-  for (const [schema, value] of [[PlatformFixtureReceiptSchema, fixture], [PlatformCanaryReceiptSchema, canary],
-    [PlatformBenchmarkReceiptSchema, benchmark], [PlatformQualificationReceiptSchema, qualification]]) {
+  for (const [schema, value] of /** @type {const} */ ([[PlatformFixtureReceiptSchema, fixture], [PlatformCanaryReceiptSchema, canary],
+    [PlatformBenchmarkReceiptSchema, benchmark], [PlatformQualificationReceiptSchema, qualification]])) {
     assert.deepEqual(schema.parse(value), value);
     assert.throws(() => schema.parse({ ...value, unexpected: true }));
     assert.throws(() => schema.parse({ ...value, schemaVersion: 2 }));
@@ -44,6 +49,7 @@ test('signed platform evidence schemas accept exact receipts and reject ambiguit
   }
 });
 
+/** @param {string} suffix */
 const cell = suffix => ({ schemaVersion: 1, cellId: `cell-${suffix}`, tuple: tuple(`capability-${suffix}`), bindings: bindings(suffix),
   qualificationReceiptDigest: d('8'), qualifiedAt: at, evidenceExpiresAt: expires, statementDigest: d('9'), signature: signature('desktop.tools.support-cell') });
 const authority = {
@@ -54,20 +60,22 @@ const authority = {
 };
 
 test('code, policy, recipe, release, and freshness invalidate only affected support cells', () => {
-  const cells = [cell('a'), cell('b')];
+  const siteA = cell('a');
+  const siteB = cell('b');
+  const cells = [siteA, siteB];
   assert.deepEqual(evaluateSupportCellValidity(cells, authority).map(result => result.valid), [true, true]);
-  for (const [field, mutation, reason] of [
+  for (const [field, mutation, reason] of /** @type {const} */ ([
     ['codeDigests', { 'engine-a': d('0') }, 'code-changed'],
     ['policyDigests', { 'policy-a': d('0') }, 'policy-changed'],
     ['recipeDigests', { 'recipe-a': d('0') }, 'recipe-changed'],
     ['releases', { 'channel-a': { releaseId: 'release-new', manifestDigest: d('4') } }, 'release-changed'],
-  ]) {
+  ])) {
     const changed = { ...authority, [field]: { ...authority[field], ...mutation } };
     assert.deepEqual(evaluateSupportCellValidity(cells, changed), [
       { cellId: 'cell-a', valid: false, reasons: [reason] }, { cellId: 'cell-b', valid: true, reasons: [] },
     ]);
   }
-  const freshnessCells = [{ ...cells[0], evidenceExpiresAt: '2026-11-11T12:00:00.000Z' }, cells[1]];
+  const freshnessCells = [{ ...siteA, evidenceExpiresAt: '2026-11-11T12:00:00.000Z' }, siteB];
   assert.deepEqual(evaluateSupportCellValidity(freshnessCells, { ...authority, now: '2026-11-12T12:00:00.000Z' }), [
     { cellId: 'cell-a', valid: false, reasons: ['evidence-expired'] }, { cellId: 'cell-b', valid: true, reasons: [] },
   ]);

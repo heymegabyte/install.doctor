@@ -10,32 +10,6 @@
     ]
   },
   "include": [
-    "test/agent-sandbox-policy.test.mjs",
-    "test/broker-approval-contracts.test.mjs",
-    "test/catalog-audit.test.mjs",
-    "test/core.test.mjs",
-    "test/correlated-telemetry.test.mjs",
-    "test/device-authorization.test.mjs",
-    "test/effective-authorization.test.mjs",
-    "test/extension-admission.test.mjs",
-    "test/hardware-evidence.test.mjs",
-    "test/host-data-coverage.test.mjs",
-    "test/identity-authority.test.mjs",
-    "test/infisical-workload-launcher.test.mjs",
-    "test/infisical-workload.test.mjs",
-    "test/installer-contracts.test.mjs",
-    "test/offline-secret-exceptions.test.mjs",
-    "test/operations-dashboards.test.mjs",
-    "test/probabilistic-intent.test.mjs",
-    "test/product-identity.test.mjs",
-    "test/profile-export.test.mjs",
-    "test/profile-resolution.test.mjs",
-    "test/public-package.test.mjs",
-    "test/redaction.test.mjs",
-    "test/saas-api-contracts.test.mjs",
-    "test/software-catalog.test.mjs",
-    "test/task-agent-compiler.test.mjs",
-    "test/telemetry-semantics.test.mjs",
-    "test/terminal-lifecycle.test.mjs"
+    "test/**/*.test.mjs"
   ]
 }
