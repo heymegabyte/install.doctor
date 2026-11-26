@@ -1939,33 +1939,6 @@
       "issues": []
     },
     {
-      "path": ".config/assets/box/linkbl.ink-box.png",
-      "kind": "binary-media",
-      "bytes": 6461,
-      "mode": "644",
-      "sha256": "4a2bfd855591fa1ffde7b5a9836f90a7b06304f6b0fc5819422cba56657a693c",
-      "validators": [
-        "tracked",
-        "readable",
-        "sha256",
-        "magic",
-        "decodable",
-        "duplicate-hash",
-        "reference",
-        "size"
-      ],
-      "disposition": "retain-validated",
-      "reason": "Binary or media asset is reviewed through format, reference, duplicate, and size validators; byte churn is not an improvement.",
-      "evidence": [
-        "magic",
-        "decodable",
-        "duplicate-hash",
-        "reference",
-        "size"
-      ],
-      "issues": []
-    },
-    {
       "path": ".config/assets/box/lovewebsites.org-box.png",
       "kind": "binary-media",
       "bytes": 21554,
@@ -14647,29 +14620,6 @@
       "bytes": 385,
       "mode": "644",
       "sha256": "91027e35fb7146c0d2e6d7760e5d65c5d368dcfb66ab3a421afe2bb4598b6413",
-      "validators": [
-        "tracked",
-        "readable",
-        "sha256",
-        "envelope",
-        "mode",
-        "reference"
-      ],
-      "disposition": "retain-validated",
-      "reason": "Encrypted payload is authoritative opaque data; validate its envelope and references without rewriting ciphertext.",
-      "evidence": [
-        "envelope",
-        "mode",
-        "reference"
-      ],
-      "issues": []
-    },
-    {
-      "path": "home/.chezmoitemplates/secrets/CLOUDFLARE_ZONE_ID_LINKBL_INK",
-      "kind": "encrypted",
-      "bytes": 385,
-      "mode": "644",
-      "sha256": "ab93d8a3dbfbb87a1b4b49bf78d5a32e40da1b8c7a48f012fcb2e0ac05bffb18",
       "validators": [
         "tracked",
         "readable",
@@ -64646,114 +64596,6 @@
       "bytes": 1830,
       "mode": "644",
       "sha256": "dfc1fa20b7308b67d87ce214b8c7850ece202649b77e31c47b20a1bda834cb28",
-      "validators": [
-        "tracked",
-        "readable",
-        "sha256",
-        "magic",
-        "decodable",
-        "duplicate-hash",
-        "reference",
-        "size"
-      ],
-      "disposition": "retain-validated",
-      "reason": "Binary or media asset is reviewed through format, reference, duplicate, and size validators; byte churn is not an improvement.",
-      "evidence": [
-        "magic",
-        "decodable",
-        "duplicate-hash",
-        "reference",
-        "size"
-      ],
-      "issues": []
-    },
-    {
-      "path": "site/docs/static/img/ads/linkblink-2x.png",
-      "kind": "binary-media",
-      "bytes": 1746,
-      "mode": "644",
-      "sha256": "c43133395ef8c195696fa4fd8a482c403cb6a940e7872ccf1ca9a1643ad7d83c",
-      "validators": [
-        "tracked",
-        "readable",
-        "sha256",
-        "magic",
-        "decodable",
-        "duplicate-hash",
-        "reference",
-        "size"
-      ],
-      "disposition": "retain-validated",
-      "reason": "Binary or media asset is reviewed through format, reference, duplicate, and size validators; byte churn is not an improvement.",
-      "evidence": [
-        "magic",
-        "decodable",
-        "duplicate-hash",
-        "reference",
-        "size"
-      ],
-      "issues": []
-    },
-    {
-      "path": "site/docs/static/img/ads/linkblink-2x.webp",
-      "kind": "binary-media",
-      "bytes": 2076,
-      "mode": "644",
-      "sha256": "6c400f9933747e46757088e0e4129cef3874afb5a762e060a76519b6bd9a3f56",
-      "validators": [
-        "tracked",
-        "readable",
-        "sha256",
-        "magic",
-        "decodable",
-        "duplicate-hash",
-        "reference",
-        "size"
-      ],
-      "disposition": "retain-validated",
-      "reason": "Binary or media asset is reviewed through format, reference, duplicate, and size validators; byte churn is not an improvement.",
-      "evidence": [
-        "magic",
-        "decodable",
-        "duplicate-hash",
-        "reference",
-        "size"
-      ],
-      "issues": []
-    },
-    {
-      "path": "site/docs/static/img/ads/linkblink.png",
-      "kind": "binary-media",
-      "bytes": 1629,
-      "mode": "644",
-      "sha256": "924d94471bde09efa980a1de9b16ceac60d0dc21c8759de70c1250418d760ce5",
-      "validators": [
-        "tracked",
-        "readable",
-        "sha256",
-        "magic",
-        "decodable",
-        "duplicate-hash",
-        "reference",
-        "size"
-      ],
-      "disposition": "retain-validated",
-      "reason": "Binary or media asset is reviewed through format, reference, duplicate, and size validators; byte churn is not an improvement.",
-      "evidence": [
-        "magic",
-        "decodable",
-        "duplicate-hash",
-        "reference",
-        "size"
-      ],
-      "issues": []
-    },
-    {
-      "path": "site/docs/static/img/ads/linkblink.webp",
-      "kind": "binary-media",
-      "bytes": 1250,
-      "mode": "644",
-      "sha256": "e57b4327408d00a1f077dad45161e3b0910e63ce0a91143b4110de56ac2d2241",
       "validators": [
         "tracked",
         "readable",
