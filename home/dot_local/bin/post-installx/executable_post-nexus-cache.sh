@@ -728,6 +728,8 @@ async function handleProxyRequest(req: IncomingMessage, res: ServerResponse): Pr
   const acceptHeader = typeof req.headers.accept === "string" ? req.headers.accept : "";
   const acceptDiscriminator =
     repositoryName.includes("npm") || repositoryName.includes("pypi") ? acceptHeader : "";
+  const nexusOnlyNpmScope = (repositoryName === "npm-group" || repositoryName === "npm-proxy") &&
+    /^(?:@|%40)theme(?:-tools|\.tools)(?:\/|%2f)/i.test(relativePath);
   const cacheKey = `${repositoryName}/${relativePath}|accept=${acceptDiscriminator}`;
   const immutable = isImmutableArtifact(repositoryName, relativePath);
   const { blobPath, headerPath } = resolveCachePaths(
@@ -739,7 +741,8 @@ async function handleProxyRequest(req: IncomingMessage, res: ServerResponse): Pr
     try {
       const metadata = JSON.parse(readFileSync(headerPath, "utf8")) as CacheEntryMetadata;
       const nowSeconds = Date.now() / 1000;
-      if (immutable || nowSeconds - metadata.ts < CONFIG.metadataFreshTtlSeconds) {
+      if ((!nexusOnlyNpmScope || metadata.source === "MISS-VIA-NEXUS") &&
+        (immutable || nowSeconds - metadata.ts < CONFIG.metadataFreshTtlSeconds)) {
         const cachedPayload = readFileSync(blobPath);
         if (immutable) {
           const nowDate = new Date();
@@ -774,7 +777,7 @@ async function handleProxyRequest(req: IncomingMessage, res: ServerResponse): Pr
     });
   }
   const upstreamOrigin = UPSTREAM_REGISTRY_ORIGINS[repositoryName];
-  if (upstreamOrigin) {
+  if (upstreamOrigin && !nexusOnlyNpmScope) {
     candidates.push({
       tag: "MISS-VIA-UPSTREAM",
       targetUrl: `${upstreamOrigin.replace(/\/+$/, "")}/${relativePath}`,
@@ -824,6 +827,9 @@ async function handleProxyRequest(req: IncomingMessage, res: ServerResponse): Pr
   if (existsSync(blobPath) && existsSync(headerPath)) {
     try {
       const metadata = JSON.parse(readFileSync(headerPath, "utf8")) as CacheEntryMetadata;
+      if (nexusOnlyNpmScope && metadata.source !== "MISS-VIA-NEXUS") {
+        throw new Error("First-party npm cache entry has no Nexus provenance");
+      }
       const stalePayload = readFileSync(blobPath);
       recordProxyOutcome("HIT-LOCAL-STALE", repositoryName, stalePayload.byteLength);
       sendBufferResponse(

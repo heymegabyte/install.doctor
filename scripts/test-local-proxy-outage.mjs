@@ -26,7 +26,9 @@ test("an npm cache survives a Nexus outage and still serves cold public artifact
   const packagePath = "/repository/npm-group/@theme-tools%2ftesting";
   const tarballPath = "/repository/npm-group/@theme-tools/testing/-/testing-1.0.0.tgz";
   let nexusAvailable = true;
+  const upstreamRequests = [];
   const fixture = createServer((request, response) => {
+    if (request.url.startsWith("/public/")) upstreamRequests.push(request.url);
     if (request.url === "/public/is-number/-/is-number-7.0.0.tgz") {
       response.end(publicArchive);
     } else if (!nexusAvailable) {
@@ -91,5 +93,16 @@ test("an npm cache survives a Nexus outage and still serves cold public artifact
   await setTimeout(1_100);
   assert.deepEqual(await read(tarballPath, "HIT-LOCAL"), archive);
   assert.deepEqual(await read(packagePath, "HIT-LOCAL-STALE"), metadata);
+  for (const path of [
+    "/repository/npm-group/@theme-tools%2fcold",
+    "/repository/npm-proxy/%40theme.tools%2Fcold",
+    "/repository/npm-group/@theme.tools/cold/-/cold-1.0.0.tgz",
+  ]) {
+    const rejected = await fetch(proxy + path, { signal: AbortSignal.timeout(5_000) });
+    assert.equal(rejected.status, 503);
+    assert.equal(rejected.headers.get("x-megabyte-cache"), "MISS-ERROR");
+    await rejected.arrayBuffer();
+  }
   assert.deepEqual(await read("/repository/npm-group/is-number/-/is-number-7.0.0.tgz", "MISS-VIA-UPSTREAM"), publicArchive);
+  assert.deepEqual(upstreamRequests, ["/public/is-number/-/is-number-7.0.0.tgz"]);
 });
