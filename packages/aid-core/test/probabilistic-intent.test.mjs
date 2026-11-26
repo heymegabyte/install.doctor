@@ -57,6 +57,7 @@ test('speculative branch lifecycle: fork -> collapse with 0ms perceived latency'
   assert.equal(branch.intent, 'SYNC_CHEZMOI');
   assert.ok(branch.stagedDiff.includes('.zshrc'));
 
+  /** @type {Parameters<typeof collapseSpeculativeBranch>[1]} */
   const voucher = {
     branchId: branch.branchId,
     intent: 'SYNC_CHEZMOI',
@@ -73,6 +74,7 @@ test('speculative branch lifecycle: fork -> collapse with 0ms perceived latency'
 test('speculative branch rejects expired voucher', () => {
   const created = '2026-11-01T21:40:00.000Z';
   const branch = createSpeculativeBranch('tenant-alpha', 'macbook-pro', 'SYNC_CHEZMOI', 1.0, created);
+  /** @type {Parameters<typeof collapseSpeculativeBranch>[1]} */
   const voucher = {
     branchId: branch.branchId,
     intent: 'SYNC_CHEZMOI',
@@ -248,8 +250,8 @@ test('rankSemanticCatalogMatches ranks exact and synonym-expanded matches with p
   ];
   const diskMatches = rankSemanticCatalogMatches('fast disk storage usage', catalog, { os: 'macos', limit: 5 });
   assert.ok(diskMatches.length >= 1);
-  assert.equal(diskMatches[0].name, 'dust');
+  assert.equal(diskMatches[0]?.name, 'dust');
 
   const histMatches = rankSemanticCatalogMatches('shell history audit', catalog);
-  assert.equal(histMatches[0].name, 'hishtory');
+  assert.equal(histMatches[0]?.name, 'hishtory');
 });

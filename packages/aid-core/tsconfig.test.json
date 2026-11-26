@@ -5,15 +5,22 @@
     "checkJs": true,
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
-    "types": ["node"]
+    "types": [
+      "node"
+    ]
   },
   "include": [
+    "test/agent-sandbox-policy.test.mjs",
     "test/broker-approval-contracts.test.mjs",
     "test/catalog-audit.test.mjs",
+    "test/correlated-telemetry.test.mjs",
     "test/device-authorization.test.mjs",
     "test/infisical-workload-launcher.test.mjs",
     "test/infisical-workload.test.mjs",
+    "test/probabilistic-intent.test.mjs",
     "test/profile-resolution.test.mjs",
-    "test/public-package.test.mjs"
+    "test/public-package.test.mjs",
+    "test/redaction.test.mjs",
+    "test/terminal-lifecycle.test.mjs"
   ]
 }

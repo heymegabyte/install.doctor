@@ -2,6 +2,9 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { correlatedTelemetryDigest, createCorrelatedTelemetryInstrument, validateCorrelatedTelemetryRecord } from '../dist/correlated-telemetry.js';
 
+/** @type {readonly Parameters<typeof createCorrelatedTelemetryInstrument>[0][]} */
+const sources = ['control-plane', 'runtime', 'installer-engine', 'privileged-broker', 'reconciliation'];
+
 const base = {
   schemaVersion: 1, source: 'control-plane', signal: 'event', name: 'desktop_tools.run.state',
   observedAt: '2026-11-10T15:00:00.000Z', severity: 'info', traceId: 'a'.repeat(32),
@@ -11,7 +14,7 @@ const base = {
 };
 
 test('all five operational sources share exact cross-signal correlation', () => {
-  for (const source of ['control-plane', 'runtime', 'installer-engine', 'privileged-broker', 'reconciliation']) {
+  for (const source of sources) {
     const record = validateCorrelatedTelemetryRecord({ ...base, source });
     assert.equal(record.traceId, base.traceId);
     assert.equal(record.runId, base.runId);
@@ -23,9 +26,9 @@ test('all five operational sources share exact cross-signal correlation', () => 
 test('each operational source emits correlated logs metrics traces and events through one boundary', () => {
   const { source: _source, signal: _signal, name: _name, observedAt: _observedAt, severity: _severity,
     status: _status, evidenceDigest: _evidenceDigest, metric: _metric, schemaVersion: _schemaVersion, ...context } = base;
-  for (const source of ['control-plane', 'runtime', 'installer-engine', 'privileged-broker', 'reconciliation']) {
+  for (const source of sources) {
     const instrument = createCorrelatedTelemetryInstrument(source, context);
-    const common = { observedAt: base.observedAt, severity: 'info', status: 'running', evidenceDigest: null };
+    const common = /** @type {const} */ ({ observedAt: base.observedAt, severity: 'info', status: 'running', evidenceDigest: null });
     const records = [
       instrument.emit({ ...common, signal: 'log', name: 'desktop_tools.run.log', metric: null }),
       instrument.emit({ ...common, signal: 'metric', name: 'desktop_tools.run.duration', metric: { unit: 'ms', value: 4 } }),

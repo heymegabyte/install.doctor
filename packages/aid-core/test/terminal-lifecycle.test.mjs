@@ -1,13 +1,13 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { createTerminalLifecycle, reduceTerminalLifecycle } from '../dist/terminal-lifecycle.js';
+import { createTerminalLifecycle, reduceTerminalLifecycle as apply } from '../dist/terminal-lifecycle.js';
 
 const limits = { maxBufferedBytes: 100, highWaterBytes: 80, lowWaterBytes: 20, maxBufferedFrames: 4 };
-const apply = (state, event) => reduceTerminalLifecycle(state, event);
 
 test('closing a connection detaches without stopping the terminal', () => {
   let state = createTerminalLifecycle(limits);
   state = apply(state, { type: 'attach', connectionId: 'browser-a', acknowledgedSequence: 0 });
+  assert.ok(state.attachment);
   state = apply(state, { type: 'detach', connectionId: 'browser-a', epoch: state.attachment.epoch });
   assert.equal(state.attachment, null);
   assert.equal(state.phase, 'running');
@@ -27,6 +27,7 @@ test('reconnect resumes the session and replays only unacknowledged frames', () 
 test('high water pauses reads and acknowledgement below low water resumes them', () => {
   let state = createTerminalLifecycle(limits);
   state = apply(state, { type: 'attach', connectionId: 'browser-c', acknowledgedSequence: 0 });
+  assert.ok(state.attachment);
   const epoch = state.attachment.epoch;
   state = apply(state, { type: 'output', bytes: 40 });
   state = apply(state, { type: 'output', bytes: 40 });
@@ -53,11 +54,13 @@ test('stale connection epochs cannot detach or acknowledge a newer attachment', 
   let state = createTerminalLifecycle(limits);
   state = apply(state, { type: 'output', bytes: 10 });
   state = apply(state, { type: 'attach', connectionId: 'first', acknowledgedSequence: 0 });
+  assert.ok(state.attachment);
   const firstEpoch = state.attachment.epoch;
   state = apply(state, { type: 'detach', connectionId: 'first', epoch: firstEpoch });
   state = apply(state, { type: 'attach', connectionId: 'second', acknowledgedSequence: 0 });
+  assert.ok(state.attachment);
   assert.ok(state.attachment.epoch > firstEpoch);
-  assert.equal(apply(state, { type: 'detach', connectionId: 'first', epoch: firstEpoch }).attachment.connectionId, 'second');
+  assert.equal(apply(state, { type: 'detach', connectionId: 'first', epoch: firstEpoch }).attachment?.connectionId, 'second');
   assert.throws(() => apply(state, { type: 'acknowledge', connectionId: 'first', epoch: firstEpoch, sequence: 1 }), /stale connection/);
 });
 
