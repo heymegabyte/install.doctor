@@ -499,8 +499,9 @@ export function exportMarkdown(input: unknown): string {
 export function importMarkdown(markdown: string): EnvironmentBlueprint {
   invariant(typeof markdown === 'string' && markdown.length <= 2000000, 'Blueprint is too large');
   const matches = [...markdown.matchAll(/^```install-doctor\+json\r?\n([\s\S]*?)\r?\n```[ \t]*$/gm)];
-  invariant(matches.length === 1, 'Expected exactly one authoritative blueprint block');
-  return validateEnvironment(JSON.parse(matches[0][1]));
+  const block = matches[0]?.[1];
+  invariant(matches.length === 1 && block !== undefined, 'Expected exactly one authoritative blueprint block');
+  return validateEnvironment(JSON.parse(block));
 }
 export async function blueprintDigest(input: unknown): Promise<string> {
   const bytes = new TextEncoder().encode(JSON.stringify(canonical(validateEnvironment(input))));

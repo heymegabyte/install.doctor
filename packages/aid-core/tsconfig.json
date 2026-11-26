@@ -1,0 +1,12 @@
+{
+  "extends": "./vendor/theme-tools/tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2022", "DOM"],
+    "noEmit": false,
+    "noEmitOnError": true,
+    "declaration": true,
+    "rootDir": "src",
+    "outDir": "dist"
+  },
+  "include": ["src/**/*.ts"]
+}
