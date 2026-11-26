@@ -4,7 +4,7 @@ import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
-  inventorySecretNames, secretDirectoriesForHost, selectHostSecrets, validateManifest,
+  assertSecretsValidated, inventorySecretNames, secretDirectoriesForHost, selectHostSecrets, validateManifest,
 } from './infisical-estate-reconcile.mjs';
 
 const root = mkdtempSync(join(tmpdir(), 'infisical-estate-reconcile-'));
@@ -37,6 +37,12 @@ assert.deepEqual(secretDirectoriesForHost({
 assert.deepEqual(secretDirectoriesForHost({
   secretDirectories: ['/explicit'], secretDirectoriesOverridden: true,
 }, 'ubuntu.megabyte.space'), ['/explicit']);
+assert.doesNotThrow(() => assertSecretsValidated({
+  schemaVersion: 1, records: { CLOUDFLARE_API_TOKEN: { status: 'valid' } },
+}, ['CLOUDFLARE_API_TOKEN']));
+assert.throws(() => assertSecretsValidated({
+  schemaVersion: 1, records: { CLOUDFLARE_API_TOKEN: { status: 'invalid-retired' } },
+}, ['CLOUDFLARE_API_TOKEN']), /no current valid credential evidence/);
 assert.throws(() => validateManifest({
   ...manifest,
   hosts: { 'macos.megabyte.space': { profile: 'developer', secretPath: '/' } },

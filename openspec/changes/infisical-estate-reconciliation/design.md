@@ -89,6 +89,37 @@ Apply requires a complete deterministic plan, exact source/destination binding, 
 
 Existing destination values are not overwritten blindly. The reconciler reports a value-free conflict and requires an explicit overwrite decision bound to the plan digest. Failure leaves the encrypted source and current runtime path unchanged.
 
+### Durable metadata-only validation ledger
+
+Credential validity is recorded in a durable value-free ledger separate from secret material. Each record binds a canonical credential name, source inventory reference, intended owner/consumer, classification, validator identity and version, validation method, validation scope/environment, status, observed time, expiry or freshness deadline, and evidence reference. It must not contain the credential value, reversible encoding, response body, authorization header, value hash/fingerprint, or enough low-entropy metadata to reconstruct or test the secret offline.
+
+Allowed admission status is exactly `valid`. `invalid-retired` records document credentials proven invalid and intentionally excluded from migration; they are evidence for retirement classification, never apply authority. Missing, `unverified`, `invalid-retired`, expired, stale, scope-mismatched, validator-unknown, or provenance-incomplete records fail admission.
+
+Validator provenance is allowlisted and purpose-specific. A syntax check cannot validate live authorization; a provider validation cannot be reused for another environment or credential class. The plan binds the exact ledger record and evidence digest so status cannot change between review and apply without invalidating the plan.
+
+### Hard pre-write apply gate
+
+Before decrypting any selected source or issuing any external write, apply validates the complete selected set. Every credential must have a current `valid` ledger record whose canonical name, source reference, destination, owner/consumer, environment, validator method, and plan binding match. Admission is all-or-nothing: one rejected record aborts the entire apply before the first write. Apply does not partially migrate the remaining valid subset unless a new reduced plan is explicitly generated and reviewed.
+
+The gate runs again immediately before mutation under the apply lock. Ledger changes, freshness expiry, destination drift, or selection changes invalidate the plan and require re-planning. Validation does not authorize overwrite, permission widening, deletion, rotation, or source retirement.
+
+### Migration and source-retirement evidence
+
+A successful write records value-free migrated-destination evidence: canonical credential name, destination project/environment/path, destination metadata/version identifier where safely available, writer identity, plan digest, timestamp, and post-write authorized-read/unauthorized-denial result. It records no value or value fingerprint.
+
+A source-retirement assertion binds the exact encrypted source path/name, canonical credential, completed migration evidence, consumer cutover evidence, validation record, observation window, rollback/recovery state, approving change, and retirement timestamp. The assertion must distinguish `retirement-eligible`, `source-retired`, and `invalid-retired`. It is rejected if the destination evidence is absent, mismatched, stale, or does not prove the intended consumer boundary. A canary assertion grants no authority over another source.
+
+### Validation-ledger acceptance scenarios
+
+1. **Complete valid selection:** every selected credential has fresh matching `valid` provenance; preflight may proceed to the separately authorized write phase.
+2. **One missing record:** a batch containing one credential without a ledger record aborts before decryption and writes nothing.
+3. **Unverified record:** `unverified` is rejected even when the source and destination exist.
+4. **Invalid retired record:** `invalid-retired` is excluded and cannot be revived by apply or a directory/project override.
+5. **Stale or wrong-scope provenance:** expired evidence or validation against another environment/provider/consumer aborts the whole plan.
+6. **Ledger race:** a record changed after plan review invalidates the plan at the locked pre-write gate.
+7. **Destination evidence:** a completed migration produces metadata-only destination and positive/negative access evidence without value fingerprints.
+8. **Retirement assertion:** only the exact source with matching migration, cutover, validation, observation, and recovery evidence may be asserted retired.
+
 ## Consumer cutover and fallback
 
 `get-secret` and workload launchers prefer the exact Infisical project/environment/path authorized for their identity. During a bounded transition, fallback to age is permitted only when the manifest names that secret and consumer as a migration fallback or offline exception. Ambient fallback to the full chezmoi inventory is prohibited.
@@ -121,3 +152,7 @@ Rollback restores consumer resolution to the preserved encrypted source for only
 - **Long-lived local bootstrap credential leaks:** cap client secrets at 90 days, store them in Keychain or a mode-`0600` Ubuntu file, and use 900-second/max-two-use access tokens.
 - **Profile expansion by repository noise:** require explicit capability admission and reviewable diff; discovery alone never grants access.
 - **Canary retirement is mistaken for bulk authority:** bind retirement to the exact reviewed canary; deletion, rotation, revocation, and age-key retirement otherwise remain separately authorized destructive work.
+- **Stale or fabricated validity admits a bad credential:** require allowlisted validator provenance, freshness, exact scope, evidence binding, and a locked recheck before any write.
+- **Batch partially writes before discovering an invalid record:** validate the entire selected set atomically before decryption and mutation; require a new plan for any reduced retry.
+- **Validation evidence leaks the credential:** prohibit values, fingerprints, response bodies, and replayable request material from the ledger and migration receipts.
+- **Retirement assertion outruns migration evidence:** require exact destination, consumer cutover, denial, observation-window, and recovery bindings per source.

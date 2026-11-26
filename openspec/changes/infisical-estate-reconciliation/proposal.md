@@ -22,6 +22,8 @@ The estate needs a value-blind, least-privilege migration that makes Infisical a
 - Require every managed host declaration to specify both its exact Infisical `projectId` and `secretPath`; never infer project authority from the current directory, home directory, or ambient Infisical configuration.
 - Correct the discovered source-precedence defect: `secrets-workstation` is a macOS-host override, not a fleet-wide preferred inventory.
 - Keep AI provider upstream credentials only on the Ubuntu/LiteLLM runtime; macOS receives scoped LiteLLM client credentials rather than raw upstream keys.
+- Add a durable metadata-only credential validation ledger and require every apply-selected credential to have current `status: valid` evidence from an approved validator before any write begins.
+- Record value-free migrated-destination evidence and exact source-retirement assertions so cutover and retirement are auditable without retaining or fingerprinting secret values.
 
 ## Out of scope
 
@@ -41,3 +43,4 @@ The estate needs a value-blind, least-privilege migration that makes Infisical a
 - Dedicated macOS and Ubuntu hosts resolve from their dedicated project root, while explicitly declared legacy managed workstations temporarily retain their Global-project host paths until migrated.
 - Offline recovery remains independently testable without making the legacy inventory an ambient online fallback.
 - Only an explicitly reviewed canary source may retire after positive and negative acceptance evidence; broader source retirement remains separately gated.
+- `invalid-retired`, missing, stale, or otherwise unverified validation records are rejected during preflight, leaving every destination unchanged.
