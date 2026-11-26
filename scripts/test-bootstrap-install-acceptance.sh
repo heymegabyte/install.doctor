@@ -176,6 +176,8 @@ case "$url" in
   https://desktop.tools/releases/acceptance/desktop-tools-supervisor.mjs) source=/fixture/release/desktop-tools-supervisor.mjs ;;
   https://desktop.tools/releases/acceptance/desktop-tools-tools.tar.gz) source=/fixture/release/desktop-tools-tools.tar.gz ;;
   https://desktop.tools/releases/acceptance/release.sbom.json) source=/fixture/release/release.sbom.json ;;
+  https://desktop.tools/releases/acceptance/release.spdx.json) source=/fixture/release/release.spdx.json ;;
+  https://desktop.tools/releases/acceptance/release.exploitability.json) source=/fixture/release/release.exploitability.json ;;
   https://desktop.tools/releases/acceptance/release.provenance.json) source=/fixture/release/release.provenance.json ;;
   https://desktop.tools/releases/acceptance/THIRD_PARTY_LICENSES.txt) source=/fixture/release/THIRD_PARTY_LICENSES.txt ;;
   https://desktop.tools/releases/acceptance/opencode.lock.json) source=/fixture/release/opencode.lock.json ;;
@@ -556,7 +558,7 @@ case "$(uname -m)" in
   *) printf 'unsupported acceptance architecture\n' >&2; exit 88 ;;
 esac
 for artifact in manifest manifest.sig provision.sh desktop-tools-engine.mjs catalog.json "opencode-$runtime_platform.tar.gz" \
-  desktop-tools-supervisor.mjs desktop-tools-tools.tar.gz release.sbom.json release.provenance.json \
+  desktop-tools-supervisor.mjs desktop-tools-tools.tar.gz release.sbom.json release.spdx.json release.exploitability.json release.provenance.json \
   THIRD_PARTY_LICENSES.txt opencode.lock.json broker-approval-signer-delegation.json; do
   grep -Fxq "https://desktop.tools/releases/acceptance/$artifact" "$HOME/release-requests.log" \
     || { printf 'signed stage zero never fetched %s\n' "$artifact" >&2; exit 88; }
