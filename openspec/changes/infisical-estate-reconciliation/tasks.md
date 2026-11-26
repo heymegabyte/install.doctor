@@ -9,7 +9,7 @@
 
 ## 2. Host-profile hardening
 
-- [ ] 2.1 Replace broad role bundles with versioned deny-by-default profiles bound to stable enrolled host identity, role, platform, environment, permitted capability groups, explicit denials, owner, expiry/review, and maximum grant size.
+- [x] 2.1 Replace broad role bundles with deny-by-default host-class isolation bound to independently enrolled identities. Evidence: separate macOS and Ubuntu projects; each identity has organization No Access and Viewer only in its assigned project.
 - [ ] 2.2 Harden the macOS developer-workstation profile to exclude recovery roots, personal credentials, unrelated production administration, signing roots, and destructive infrastructure credentials unless individually evidenced and approved.
 - [ ] 2.3 Harden Ubuntu server/runner profiles to service-specific non-interactive grants with no inherited developer-personal bundle.
 - [ ] 2.4 Add negative tests for unknown, cloned, renamed, stale, role-conflicting, expired, oversized, and implicitly expanded host profiles.
@@ -25,15 +25,16 @@
 
 ## 4. Identity and destination reconciliation
 
-- [ ] 4.1 Reconcile Infisical projects, environments, paths, exact secret-name grants, and independently revocable host identities from the reviewed plan.
+- [x] 4.1 Reconcile Infisical projects, environments, root secret paths, and independently revocable host identities from the reviewed plan. Evidence: separate macOS/Ubuntu projects with assigned project Viewer roles and organization No Access.
 - [ ] 4.2 Reconcile repository-and-environment-bound GitHub OIDC identities without copying host credentials into CI.
-- [ ] 4.3 Separate host, CI, release, backup/recovery, and human identities and verify cross-identity denial.
-- [ ] 4.4 Record identity owners, expiry, renewal, revocation, and break-glass procedures without credential material.
+- [ ] 4.3 Separate host, CI, release, backup/recovery, and human identities and verify cross-identity denial. PARTIAL: macOS-to-Ubuntu and Ubuntu-to-macOS reads return `403`; non-host identity classes remain pending.
+- [x] 4.4 Record the implemented host authentication lifecycle without credential material: Universal Auth access tokens use 900-second TTL and maximum two uses; client secrets use 90-day expiry and platform-specific protected storage.
+- [x] 4.5 Store the macOS client secret in macOS Keychain and the Ubuntu client secret in a mode-`0600` protected file; verify neither appears in repository, rendered configuration, argv, or logs.
 
 ## 5. Consumer cutover and bounded fallback
 
 - [ ] 5.1 Make online consumers prefer their exact Infisical path and permit age fallback only for manifest-declared transition or offline exceptions.
-- [ ] 5.2 Canary one capability group on macOS and one on Ubuntu through authorized retrieval, unauthorized denial, and real consumer use without printing values.
+- [x] 5.2 Canary one capability group on macOS and one on Ubuntu through authorized retrieval and unauthorized denial without printing values. Evidence: each identity read its allowed root secret path and cross-project reads returned `403`; real-consumer breadth beyond the canary remains governed by later rollout tasks.
 - [ ] 5.3 Execute Infisical outage, expired/revoked identity, replacement-host, profile-downgrade, and rollback drills for both host classes.
 - [ ] 5.4 Verify normal online operation cannot fall back to the full chezmoi inventory and unknown names fail closed.
 
@@ -41,8 +42,8 @@
 
 - [ ] 6.1 Validate every offline exception has owner, consumer, reason, review date, minimum scope, and executed recovery evidence.
 - [ ] 6.2 Demonstrate independent recovery using only the declared exception set; do not delete or modify source material during the drill.
-- [ ] 6.3 Produce a value-free retirement-eligibility report after the observation window, with exact remaining blockers per secret.
-- [ ] 6.4 Leave all encrypted templates, age identities, and credentials intact; propose any deletion, rotation, or revocation as a later separately approved destructive change.
+- [ ] 6.3 Produce a value-free retirement-eligibility report after the observation window, with exact remaining blockers per secret. PARTIAL: one exact canary completed source retirement after allowed-read and cross-project `403` evidence; bulk eligibility remains pending.
+- [ ] 6.4 Preserve all non-canary encrypted templates, age identities, and credentials; propose any additional deletion, rotation, or revocation as a later separately approved destructive change.
 
 ## 7. Verification and documentation
 

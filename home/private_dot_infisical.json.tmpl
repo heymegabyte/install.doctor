@@ -1,0 +1,21 @@
+{{- $hostname := .host.hostname -}}
+{{- $hostID := printf "%s.megabyte.space" $hostname -}}
+{{- if eq $hostname "macbook-pro" -}}
+{{- $hostID = "macos.megabyte.space" -}}
+{{- end -}}
+{{- $projectID := "" -}}
+{{- $clientID := "" -}}
+{{- if eq $hostID "macos.megabyte.space" -}}
+{{- $projectID = "b9f92958-bd90-4e0a-a464-c51db5fa6d52" -}}
+{{- $clientID = "3bd7050d-3b2a-4c83-ae34-1a224b88118e" -}}
+{{- else if eq $hostID "ubuntu.megabyte.space" -}}
+{{- $projectID = "fa93b35d-7cf1-4e33-bd3f-9712f503a382" -}}
+{{- $clientID = "09118a66-7924-429d-af6d-082d69549a38" -}}
+{{- end -}}
+{
+  "workspaceId": "{{ $projectID }}",
+  "defaultEnvironment": "prod",
+  "hostId": "{{ $hostID }}",
+  "clientId": "{{ $clientID }}",
+  "secretPath": "/"
+}
