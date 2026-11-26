@@ -116,7 +116,7 @@ export async function loadImmutableBrokerReleaseDelegation(input: Readonly<{
     throw new Error('broker delegation digest differs from release authority');
   }
   let decoded: unknown;
-  try { decoded = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes)); }
+  try { decoded = JSON.parse(new TextDecoder('utf-8', { fatal: true } as TextDecoderConstructorOptions).decode(bytes)); }
   catch { throw new Error('broker delegation is not canonical UTF-8 JSON'); }
   const delegation = BrokerApprovalSignerDelegation.parse(decoded);
   if (!same(bytes, canonicalBytes(delegation))) throw new Error('broker delegation is not canonical JSON');

@@ -55,7 +55,8 @@ export function parseBootstrapReleaseConfig(input: unknown): BootstrapReleaseCon
 export function renderBootstrap(configInput: unknown): string {
   const config = parseBootstrapReleaseConfig(configInput);
   const policy = releasePolicy(config.product);
-  const expectedReleaseId = new URL(config.manifestUrl).pathname.split('/')[2];
+  // The config parser requires /releases/<id>/manifest.
+  const expectedReleaseId = new URL(config.manifestUrl).pathname.split('/')[2]!;
   const literal = (value: string): string => `'${value.replaceAll("'", "'\\''")}'`;
   return `#!/usr/bin/env bash
 # ${policy.origin}/start — signed release bootstrap

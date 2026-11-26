@@ -12,11 +12,6 @@
   ],
   "exclude": [
     "src/auth.ts",
-    "src/index.ts",
-    "src/bootstrap.ts",
-    "src/broker-authorization-api.ts",
-    "src/broker-authorization-composition.ts",
-    "src/broker-release-delegation-loader.ts",
-    "src/release-evidence-view.ts"
+    "src/index.ts"
   ]
 }
