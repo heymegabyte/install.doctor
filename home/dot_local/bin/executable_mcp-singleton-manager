@@ -45,6 +45,11 @@ render_plist() {
   <key>ThrottleInterval</key><integer>10</integer>
   <key>ProcessType</key><string>Background</string>
   <key>Umask</key><integer>63</integer>
+  <key>EnvironmentVariables</key><dict>
+    <key>PATH</key><string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+    <key>XDG_CONFIG_HOME</key><string>$HOME/.config</string>
+    <key>XDG_STATE_HOME</key><string>$HOME/.local/state</string>
+  </dict>
   <key>StandardOutPath</key><string>$state_root/logs/stdout.log</string>
   <key>StandardErrorPath</key><string>$state_root/logs/stderr.log</string>
 </dict></plist>
