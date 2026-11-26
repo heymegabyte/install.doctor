@@ -50,6 +50,22 @@ duplicating, and where is the boundary?
   mise-provided command runs via mise (status preserved) and brew is never invoked; a non-mise command
   falls through to the normal install path. RED→GREEN, 23/23.
 
+## Diagnosing a pinned package release
+
+Run qualification with the consumer repository's pinned runtime. Use `mise where`
+to locate that runtime and check the actual Node, package manager, and compiler
+versions in the release process. A working shell default does not establish
+that the release uses the intended version.
+
+Keep package manager bootstrap and registry publication distinct. An npm
+hosted repository may accept scoped package uploads while lacking the package
+manager's own package. For an approved dry run, invoke the installed pinned
+package manager from a disposable directory and pass the verified archive and
+the explicit hosted destination. Leave the host's registry configuration in
+place. A successful dry run establishes routing and local archive acceptance.
+Registry publication and clean consumer installation require their own
+evidence.
+
 ## Alternatives considered
 
 - **Replace the cnf hook with mise entirely** — rejected: mise has no install-on-command-not-found, so
