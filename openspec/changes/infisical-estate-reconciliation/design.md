@@ -73,6 +73,20 @@ The CLI `--project-id` option is a single-host operational override only. It may
 
 Ambient project selection is prohibited. The reconciler and runtime resolver must not read project authority from the current working directory, `.infisical.json`, home-directory configuration, a repository-local default, or an Infisical CLI remembered project. They pass the declared project ID and path explicitly on every operation and verify the returned project context before accepting a result.
 
+### Workload target model
+
+Workloads are a separate target class from hosts. The manifest entry `workloads.mcp.megabyte.space` declares Infisical project ID `4ae065b0-c081-454e-a513-220a28e5d2f0` and `secretPath: /`. Its identity, capability groups, source policy, validator policy, destinations, consumers, and retirement state are workload-scoped and cannot be inherited from a host profile.
+
+CLI selection is exclusive: exactly one of `--host <id>` or `--workload <id>` may be supplied for a targeted plan/apply. Supplying both, neither where an explicit target is required, multiple targets, an unknown target, or using a host override with a workload fails before inventory resolution. `--project-id` and any secret-directory override remain single-target overrides and cannot change the target class.
+
+Workload discovery uses only the general encrypted inventory. It must never merge or consult `secrets-workstation`, even when run on macOS or from a workstation checkout. Repository location, executing machine, cwd, home configuration, and host identity do not alter workload source precedence.
+
+### MCP workload credential placement
+
+Cloudflare-native provider credentials required by the MCP portal/control-plane runtime are classified for `workloads.mcp.megabyte.space` and routed only to project `4ae065b0-c081-454e-a513-220a28e5d2f0` at `/`. They are not host credentials and must not appear in macOS, Ubuntu/LiteLLM, legacy Global workstation, CI, or human profiles unless a separate consumer contract explicitly defines a different credential.
+
+The MCP workload may receive only credentials evidenced by its Cloudflare-native consumers. This placement does not grant a host access merely because that host administers, deploys, or tests the workload. Cross-target reads must fail with `403` where authorization is evaluated.
+
 ### Universal Auth lifecycle and local credential storage
 
 Host identities authenticate through Infisical Universal Auth. Access tokens have a 900-second lifetime and a maximum of two uses. Universal Auth client secrets have a 90-day lifetime and require an owner, expiry observation, renewal procedure, overlap-safe replacement, and revocation path.
@@ -103,9 +117,13 @@ Before decrypting any selected source or issuing any external write, apply valid
 
 The gate runs again immediately before mutation under the apply lock. Ledger changes, freshness expiry, destination drift, or selection changes invalidate the plan and require re-planning. Validation does not authorize overwrite, permission widening, deletion, rotation, or source retirement.
 
+Workload targets pass through the identical ledger gate. Every workload-selected credential requires a fresh matching `valid` record whose provenance binds the workload ID, general-inventory source, project ID, root path, consumer, environment, validator, and plan. A host validation record cannot admit a workload credential, and a workload validation record cannot admit a host credential.
+
 ### Migration and source-retirement evidence
 
 A successful write records value-free migrated-destination evidence: canonical credential name, destination project/environment/path, destination metadata/version identifier where safely available, writer identity, plan digest, timestamp, and post-write authorized-read/unauthorized-denial result. It records no value or value fingerprint.
+
+Workload migration additionally requires a round-trip gate: after write, the workload identity resolves the exact destination through the production-equivalent access path, the intended Cloudflare-native consumer can use it in a bounded non-destructive check, and representative host/cross-project identities are denied. Failure rolls back or leaves the source authoritative and prevents cutover/retirement evidence.
 
 A source-retirement assertion binds the exact encrypted source path/name, canonical credential, completed migration evidence, consumer cutover evidence, validation record, observation window, rollback/recovery state, approving change, and retirement timestamp. The assertion must distinguish `retirement-eligible`, `source-retired`, and `invalid-retired`. It is rejected if the destination evidence is absent, mismatched, stale, or does not prove the intended consumer boundary. A canary assertion grants no authority over another source.
 
@@ -119,6 +137,17 @@ A source-retirement assertion binds the exact encrypted source path/name, canoni
 6. **Ledger race:** a record changed after plan review invalidates the plan at the locked pre-write gate.
 7. **Destination evidence:** a completed migration produces metadata-only destination and positive/negative access evidence without value fingerprints.
 8. **Retirement assertion:** only the exact source with matching migration, cutover, validation, observation, and recovery evidence may be asserted retired.
+
+### Workload-target acceptance scenarios
+
+1. **MCP workload routing:** `--workload mcp.megabyte.space` selects project `4ae065b0-c081-454e-a513-220a28e5d2f0`, root path `/`, and the general inventory only.
+2. **Host/workload exclusivity:** supplying `--host` and `--workload` together fails before inventory access, decryption, authentication, or mutation.
+3. **Unknown or multiple workload:** an undeclared workload or multi-workload selection fails closed and cannot inherit the executing host's profile.
+4. **Workstation inventory exclusion:** MCP workload planning ignores `secrets-workstation` even when a colliding name exists there or execution occurs on macOS.
+5. **Ledger target binding:** a credential with a valid host ledger record but no matching MCP workload record is rejected before write.
+6. **Cloudflare provider placement:** an approved Cloudflare-native provider credential is planned for the MCP workload and excluded from all host plans.
+7. **Round trip:** after migration, the MCP workload identity retrieves and exercises the exact credential through the production-equivalent Cloudflare-native path without exposing its value.
+8. **Cross-target denial:** macOS, Ubuntu/LiteLLM, and legacy workstation identities receive `403` for the MCP workload credential and destination.
 
 ## Consumer cutover and fallback
 
@@ -156,3 +185,6 @@ Rollback restores consumer resolution to the preserved encrypted source for only
 - **Batch partially writes before discovering an invalid record:** validate the entire selected set atomically before decryption and mutation; require a new plan for any reduced retry.
 - **Validation evidence leaks the credential:** prohibit values, fingerprints, response bodies, and replayable request material from the ledger and migration receipts.
 - **Retirement assertion outruns migration evidence:** require exact destination, consumer cutover, denial, observation-window, and recovery bindings per source.
+- **Workload inherits operator host access:** separate target classes, make `--workload` mutually exclusive with `--host`, and deny host-profile reuse.
+- **Workload execution on macOS selects workstation overrides:** force workloads to the general inventory independent of executing machine or cwd.
+- **Cloudflare provider credentials spread to hosts:** classify them as MCP-workload-only and test their absence from every host plan plus cross-project `403`.

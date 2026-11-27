@@ -20,6 +20,13 @@
 - [ ] 2.4 Add negative tests for unknown, cloned, renamed, stale, role-conflicting, expired, oversized, and implicitly expanded host profiles.
 - [ ] 2.5 Add deterministic profile-diff, downgrade, revocation, and re-enrollment tests without resolving secret values.
 
+## 2A. Workload targets
+
+- [ ] 2A.1 Add manifest target `workloads.mcp.megabyte.space` with project ID `4ae065b0-c081-454e-a513-220a28e5d2f0`, `secretPath: /`, workload identity/policy references, and no credential values.
+- [ ] 2A.2 Implement `--workload` as an explicit single-target selector mutually exclusive with `--host`; reject both/neither where required, multiple targets, unknown targets, and cross-target override reuse before inventory access.
+- [ ] 2A.3 Make every workload use the general encrypted inventory only and prove `secrets-workstation`, cwd, home state, executing host, and ambient Infisical configuration cannot alter source selection.
+- [ ] 2A.4 Classify Cloudflare-native MCP provider credentials as `mcp.megabyte.space` workload-only and reject them from macOS, Ubuntu/LiteLLM, legacy workstation, CI, and human profiles absent a separate explicit consumer contract.
+
 ## 3. Safe migration engine
 
 - [x] 3.1 Implement masked, in-memory Infisical apply operations for explicitly selected names.
@@ -31,6 +38,8 @@
 - [ ] 3.7 Add an all-selected-credentials preflight and locked pre-write gate: only fresh matching `valid` records proceed; any missing, unverified, invalid-retired, stale, mismatched, or untrusted record aborts before decryption and before the first write.
 - [ ] 3.8 Bind the exact ledger-record evidence digest into the reviewed plan and invalidate apply on ledger, selection, destination, or freshness drift.
 - [ ] 3.9 Emit value-free migrated-destination evidence with exact project/environment/path, safe destination version metadata, writer identity, plan digest, and authorized-read/unauthorized-denial results.
+- [ ] 3.10 Apply the same validation-ledger and locked pre-write gate to workloads, binding evidence to workload ID, general-inventory source, exact project/root path, consumer, environment, and plan; reject host/workload ledger substitution.
+- [ ] 3.11 Add the workload round-trip gate: production-equivalent workload retrieval, bounded non-destructive consumer use, and representative host/cross-project denial before cutover or retirement evidence.
 
 ## 4. Identity and destination reconciliation
 
@@ -66,5 +75,6 @@
 - [ ] 7.2a Add routing tests for missing/wrong project IDs, missing/wrong paths, dedicated-root isolation, declared legacy Global paths, multi-host override rejection, cwd/home ambient-state poisoning, and cross-project `403`.
 - [ ] 7.2b Add acceptance tests for macOS workstation override precedence, Ubuntu/general precedence despite collisions, other-host exclusion, safe single-host directory override, unsafe override rejection, Ubuntu upstream-key access, macOS upstream-key denial, and macOS LiteLLM-client-only access.
 - [ ] 7.2c Add acceptance tests for complete valid admission, missing/unverified/invalid-retired/stale/wrong-scope rejection before write, atomic batch abort, ledger race invalidation, metadata-only destination receipts, and exact-source retirement assertions.
+- [ ] 7.2d Add workload acceptance tests for MCP manifest routing, host/workload exclusivity, unknown/multiple target rejection, general-inventory-only selection, workstation collision exclusion, ledger target binding, workload-only Cloudflare provider placement, production-equivalent round trip, and host/cross-project `403`.
 - [ ] 7.3 Update operator documentation to distinguish online authority, transition fallback, offline recovery, and retirement eligibility without listing values.
 - [ ] 7.4 Run strict OpenSpec validation and focused repository secret-safety/profile tests; report PASS, FAIL, BLOCKED, and UNVERIFIED distinctly.

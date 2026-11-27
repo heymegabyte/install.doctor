@@ -30,6 +30,7 @@ function parseArguments(values) {
     else if (value === '--manifest') options.manifestPath = resolve(values[++index] ?? fail('missing manifest path'));
     else if (value === '--validation-ledger') options.validationLedgerPath = resolve(values[++index] ?? fail('missing validation ledger path'));
     else if (value === '--host') options.host = values[++index] ?? fail('missing host');
+    else if (value === '--workload') options.workload = values[++index] ?? fail('missing workload');
     else if (value === '--project-id') options.projectId = values[++index] ?? fail('missing project id');
     else if (value === '--secret-directory') {
       options.secretDirectories = [resolve(values[++index] ?? fail('missing secret directory'))];
@@ -42,13 +43,13 @@ function parseArguments(values) {
 }
 
 export function validateManifest(manifest) {
-  if (manifest?.schemaVersion !== 1 || typeof manifest.hosts !== 'object' || typeof manifest.profiles !== 'object') fail('invalid manifest');
-  for (const [host, configuration] of Object.entries(manifest.hosts)) {
-    const expectedSecretPath = `/hosts/${host.replaceAll('.', '-')}`;
+  if (manifest?.schemaVersion !== 1 || typeof manifest.hosts !== 'object' || typeof manifest.workloads !== 'object' || typeof manifest.profiles !== 'object') fail('invalid manifest');
+  for (const [target, configuration] of [...Object.entries(manifest.hosts), ...Object.entries(manifest.workloads)]) {
+    const expectedSecretPath = `/hosts/${target.replaceAll('.', '-')}`;
     const validProjectId = /^[0-9a-f-]{36}$/.test(configuration.projectId ?? '');
     const validSecretPath = configuration.secretPath === '/' || configuration.secretPath === expectedSecretPath;
-    if (!/^[a-z0-9.-]+$/.test(host) || !manifest.profiles[configuration.profile] || !validProjectId || !validSecretPath) {
-      fail(`invalid host configuration for ${host}`);
+    if (!/^[a-z0-9.-]+$/.test(target) || !manifest.profiles[configuration.profile] || !validProjectId || !validSecretPath) {
+      fail(`invalid target configuration for ${target}`);
     }
   }
   return manifest;
@@ -76,7 +77,11 @@ export function secretDirectoriesForHost({ secretDirectories, secretDirectoriesO
 export function selectHostSecrets(manifest, host, secretNames) {
   const hostConfiguration = manifest.hosts[host];
   if (!hostConfiguration) fail(`host ${host} is not declared`);
-  const capabilities = manifest.profiles[hostConfiguration.profile];
+  return selectConfigurationSecrets(manifest, hostConfiguration, secretNames);
+}
+
+export function selectConfigurationSecrets(manifest, configuration, secretNames) {
+  const capabilities = manifest.profiles[configuration.profile];
   const include = capabilities.flatMap((capability) => manifest.capabilityPatterns[capability] ?? []).map((pattern) => new RegExp(pattern));
   const exclude = (manifest.alwaysExcludePatterns ?? []).map((pattern) => new RegExp(pattern));
   return [...secretNames].filter((name) => include.some((pattern) => pattern.test(name)) && !exclude.some((pattern) => pattern.test(name))).sort();
@@ -131,36 +136,41 @@ function ensureSecretPath({ environment, projectId, secretPath }) {
 function main() {
   const options = parseArguments(process.argv.slice(2));
   const manifest = validateManifest(JSON.parse(readFileSync(options.manifestPath, 'utf8')));
-  const hosts = options.host ? [options.host] : Object.keys(manifest.hosts).sort();
-  const inventories = new Map(hosts.map((host) => {
-    const directories = secretDirectoriesForHost(options, host);
-    return [host, inventorySecretNames(directories)];
+  if (options.host && options.workload) fail('--host and --workload are mutually exclusive');
+  const targetKind = options.workload ? 'workload' : 'host';
+  const configurations = targetKind === 'workload' ? manifest.workloads : manifest.hosts;
+  const targets = options.workload ? [options.workload] : options.host ? [options.host] : Object.keys(configurations).sort();
+  const inventories = new Map(targets.map((target) => {
+    const directories = targetKind === 'host' ? secretDirectoriesForHost(options, target) : [options.secretDirectories[0]];
+    return [target, inventorySecretNames(directories)];
   }));
   const inventoryNames = new Set([...inventories.values()].flatMap((inventory) => [...inventory.keys()]));
-  const plans = hosts.map((host) => ({
-    host,
-    profile: manifest.hosts[host]?.profile,
-    projectId: manifest.hosts[host]?.projectId,
-    secretPath: manifest.hosts[host]?.secretPath,
-    secretNames: selectHostSecrets(manifest, host, inventories.get(host).keys()).filter((name) => options.secretNames.length === 0 || options.secretNames.includes(name)),
+  const plans = targets.map((target) => ({
+    target,
+    targetKind,
+    profile: configurations[target]?.profile,
+    projectId: configurations[target]?.projectId,
+    secretPath: configurations[target]?.secretPath,
+    secretNames: selectConfigurationSecrets(manifest, configurations[target] ?? fail(`${targetKind} ${target} is not declared`), inventories.get(target).keys()).filter((name) => options.secretNames.length === 0 || options.secretNames.includes(name)),
   }));
   for (const name of options.secretNames) if (!inventoryNames.has(name)) fail(`selected secret ${name} is not present in the inventory`);
   if (options.command === 'plan') {
-    process.stdout.write(`${JSON.stringify({ schemaVersion: 1, inventoryCount: inventoryNames.size, hosts: plans }, null, 2)}\n`);
+    const planKey = targetKind === 'workload' ? 'workloads' : 'hosts';
+    process.stdout.write(`${JSON.stringify({ schemaVersion: 1, inventoryCount: inventoryNames.size, [planKey]: plans }, null, 2)}\n`);
     return;
   }
   const validationLedger = JSON.parse(readFileSync(options.validationLedgerPath, 'utf8'));
   assertSecretsValidated(validationLedger, plans.flatMap((plan) => plan.secretNames));
-  if (options.projectId && hosts.length !== 1) fail('--project-id override requires exactly one --host');
+  if (options.projectId && targets.length !== 1) fail('--project-id override requires exactly one target');
   execFileSync('infisical', ['login', 'status', '--silent'], { stdio: 'ignore' });
   for (const plan of plans) {
     const projectId = options.projectId ?? plan.projectId;
-    if (!projectId) fail(`host ${plan.host} has no project binding`);
+    if (!projectId) fail(`${plan.targetKind} ${plan.target} has no project binding`);
     ensureSecretPath({ environment: manifest.environment, projectId, secretPath: plan.secretPath });
     for (const name of plan.secretNames) {
-      writeEncryptedSecret({ encryptedPath: inventories.get(plan.host).get(name), environment: manifest.environment, name, projectId, secretPath: plan.secretPath });
+      writeEncryptedSecret({ encryptedPath: inventories.get(plan.target).get(name), environment: manifest.environment, name, projectId, secretPath: plan.secretPath });
     }
-    process.stdout.write(`${JSON.stringify({ host: plan.host, status: 'reconciled', secretCount: plan.secretNames.length })}\n`);
+    process.stdout.write(`${JSON.stringify({ target: plan.target, targetKind: plan.targetKind, status: 'reconciled', secretCount: plan.secretNames.length })}\n`);
   }
 }
 
