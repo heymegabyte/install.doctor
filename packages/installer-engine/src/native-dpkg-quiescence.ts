@@ -134,7 +134,7 @@ export async function proveNativeDpkgQuiescence(input: {
     };
   }
   if (query.code !== 0) return {
-    state: 'database-unhealthy', reason: `dpkg-query failed with exit ${query.code}`, affectedPackages: [],
+    state: 'database-unhealthy', reason: `dpkg-query failed with exit ${String(query.code)}`, affectedPackages: [],
     observations: Object.freeze([...observations]),
   };
   let inventory: readonly DpkgInventoryRecord[];
@@ -217,14 +217,19 @@ async function probeProcLocks(signal?: AbortSignal): Promise<QuiescenceProbe> {
   if (/\0|\r/.test(text)) return { state: 'ambiguous', evidence: '/proc/locks contains unsafe control bytes' };
   for (const [index, line] of text.split('\n').entries()) {
     if (line.length === 0) continue;
-    const match = /^\d+:\s+(?:->\s+)?(\S+)\s+\S+\s+\S+\s+(-?\d+)\s+([0-9a-fA-F]+):([0-9a-fA-F]+):(\d+)\s+/.exec(line);
-    if (match === null) return { state: 'ambiguous', evidence: `/proc/locks line ${index + 1} is malformed or unsupported` };
-    const major = BigInt(`0x${match[3]}`); const minor = BigInt(`0x${match[4]}`); const inode = BigInt(match[5]!);
-    const target = locks.find(candidate => candidate.major === major && candidate.minor === minor && candidate.inode === inode);
-    if (target !== undefined && !['POSIX', 'FLOCK', 'OFDLCK'].includes(match[1]!)) {
-      return { state: 'ambiguous', evidence: `${target.path} has unsupported ${match[1]} lock evidence` };
+    const [, kind, pid, majorHex, minorHex, inodeDecimal] =
+      /^\d+:\s+(?:->\s+)?(\S+)\s+\S+\s+\S+\s+(-?\d+)\s+([0-9a-fA-F]+):([0-9a-fA-F]+):(\d+)\s+/.exec(line) ?? [];
+    if (kind === undefined || pid === undefined || majorHex === undefined || minorHex === undefined || inodeDecimal === undefined) {
+      return { state: 'ambiguous', evidence: `/proc/locks line ${String(index + 1)} is malformed or unsupported` };
     }
-    if (target !== undefined) return { state: 'busy', evidence: `${target.path} has an advisory lock held by pid ${match[2]}` };
+    const major = BigInt(`0x${majorHex}`);
+    const minor = BigInt(`0x${minorHex}`);
+    const inode = BigInt(inodeDecimal);
+    const target = locks.find(candidate => candidate.major === major && candidate.minor === minor && candidate.inode === inode);
+    if (target !== undefined && !['POSIX', 'FLOCK', 'OFDLCK'].includes(kind)) {
+      return { state: 'ambiguous', evidence: `${target.path} has unsupported ${kind} lock evidence` };
+    }
+    if (target !== undefined) return { state: 'busy', evidence: `${target.path} has an advisory lock held by pid ${pid}` };
   }
   return { state: 'clear', evidence: 'no POSIX/OFD/flock record targets either canonical dpkg lock inode' };
 }
@@ -246,15 +251,15 @@ async function probeProcProcesses(signal?: AbortSignal): Promise<QuiescenceProbe
     throwIfAborted(signal);
     if (pid === process.pid) continue;
     try {
-      const [exe, commBytes] = await Promise.all([readlink(`/proc/${pid}/exe`), readBounded(`/proc/${pid}/comm`, 256)]);
+      const [exe, commBytes] = await Promise.all([readlink(`/proc/${String(pid)}/exe`), readBounded(`/proc/${String(pid)}/comm`, 256)]);
       const comm = commBytes.toString('utf8').trimEnd();
       const normalizedExe = exe.replace(/ \(deleted\)$/, '');
       if (mutationExecutables.has(normalizedExe) || mutationCommands.has(comm)) {
-        return { state: 'busy', evidence: `package mutation actor pid ${pid} (${normalizedExe}; ${comm}) is running` };
+        return { state: 'busy', evidence: `package mutation actor pid ${String(pid)} (${normalizedExe}; ${comm}) is running` };
       }
     } catch (error) {
       if (isErrno(error, 'ENOENT') || isErrno(error, 'ESRCH')) continue;
-      return { state: 'ambiguous', evidence: `cannot inspect process ${pid}: ${error instanceof Error ? error.message : String(error)}` };
+      return { state: 'ambiguous', evidence: `cannot inspect process ${String(pid)}: ${error instanceof Error ? error.message : String(error)}` };
     }
   }
   return { state: 'clear', evidence: 'no recognized apt/dpkg mutation actor is running' };
@@ -273,12 +278,15 @@ async function runDpkgInventory(signal?: AbortSignal): Promise<{ readonly code: 
       return next.slice(0, MAX_QUERY_BYTES + 1);
     };
     const timer = setTimeout(() => { terminal = true; child.kill('SIGKILL'); }, QUERY_TIMEOUT_MS); timer.unref();
-    child.stdout!.on('data', (chunk: Buffer) => { stdout = append(stdout, chunk); });
-    child.stderr!.on('data', (chunk: Buffer) => { stderr = append(stderr, chunk); });
+    child.stdout.on('data', (chunk: Buffer) => { stdout = append(stdout, chunk); });
+    child.stderr.on('data', (chunk: Buffer) => { stderr = append(stderr, chunk); });
     child.once('error', error => { clearTimeout(timer); reject(error); });
     child.once('close', code => {
       clearTimeout(timer);
-      if (terminal) return reject(new NativeDpkgQuiescenceError('dpkg-query timed out or exceeded its output bound'));
+      if (terminal) {
+        reject(new NativeDpkgQuiescenceError('dpkg-query timed out or exceeded its output bound'));
+        return;
+      }
       resolve(Object.freeze({ code: code ?? 255, stdout, stderr }));
     });
   });

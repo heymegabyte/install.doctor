@@ -10,7 +10,7 @@ export const NATIVE_DPKG_FENCE_PATH = '/run/lock/install-doctor/dpkg-transaction
 const MAX_OWNER_BYTES = 16 * 1024;
 const identifier = z.string().min(1).max(128).regex(/^[a-z0-9][a-z0-9._-]*$/);
 const digest = z.string().regex(/^[a-f0-9]{64}$/);
-const timestamp = z.string().datetime({ offset: true }).max(64);
+const timestamp = z.iso.datetime({ offset: true }).max(64);
 
 export const NativeDpkgFenceOwnerSchema = z.strictObject({
   schemaVersion: z.literal(1),
@@ -18,10 +18,10 @@ export const NativeDpkgFenceOwnerSchema = z.strictObject({
   runId: identifier,
   hostId: identifier,
   planDigest: digest,
-  pid: z.number().int().positive().safe(),
+  pid: z.number().int().positive(),
   bootId: z.string().min(1).max(256),
   processStart: z.string().min(1).max(256),
-  token: z.string().uuid(),
+  token: z.uuid(),
   claimedAt: timestamp,
   heartbeatAt: timestamp,
   leaseUntil: timestamp,
@@ -37,10 +37,10 @@ export type NativeDpkgFenceOwner = z.infer<typeof NativeDpkgFenceOwnerSchema>;
 const GuardSchema = z.strictObject({
   schemaVersion: z.literal(1),
   kind: z.literal('install-doctor-native-dpkg-fence-guard'),
-  pid: z.number().int().positive().safe(),
+  pid: z.number().int().positive(),
   bootId: z.string().min(1).max(256),
   processStart: z.string().min(1).max(256),
-  token: z.string().uuid(),
+  token: z.uuid(),
   createdAt: timestamp,
 });
 type Guard = z.infer<typeof GuardSchema>;
@@ -54,7 +54,7 @@ export class NativeDpkgFenceBusyError extends Error {
   constructor(readonly owner: NativeDpkgFenceOwner | undefined) {
     super(owner === undefined
       ? 'native dpkg transaction fence remained contended within the bounded acquisition window'
-      : `native dpkg transaction is owned by run ${owner.runId} (pid ${owner.pid})`);
+      : `native dpkg transaction is owned by run ${owner.runId} (pid ${String(owner.pid)})`);
   }
 }
 
@@ -145,7 +145,7 @@ async function validateParent(path: string, expectedUid: number): Promise<void> 
   if (await realpath(parent) !== parent) throw new NativeDpkgFenceIntegrityError('dpkg fence parent must be canonical and symlink-free');
 }
 
-async function readProtectedJson(path: string, expectedUid: number): Promise<unknown | undefined> {
+async function readProtectedJson(path: string, expectedUid: number): Promise<unknown> {
   let before: Awaited<ReturnType<typeof lstat>>;
   try { before = await lstat(path); }
   catch (error) {
@@ -201,7 +201,7 @@ export function createNativeDpkgFence(options: NativeDpkgFenceOptions = {}) {
     if (fixture === undefined) {
       if (process.platform !== 'linux') throw new NativeDpkgFenceIntegrityError('native dpkg fencing is supported only on Linux');
       if (process.getuid?.() !== 0) throw new NativeDpkgFenceIntegrityError('native dpkg fencing requires root');
-      await mkdir(dirname(ownerPath), { mode: 0o700 }).catch(error => { if (!isErrno(error, 'EEXIST')) throw error; });
+      await mkdir(dirname(ownerPath), { mode: 0o700 }).catch((error: unknown) => { if (!isErrno(error, 'EEXIST')) throw error; });
     }
     await validateParent(ownerPath, expectedUid);
   }
@@ -243,7 +243,7 @@ export function createNativeDpkgFence(options: NativeDpkgFenceOptions = {}) {
         const parsed = GuardSchema.safeParse(raw);
         if (!parsed.success) throw new NativeDpkgFenceIntegrityError('dpkg fence guard is corrupt');
         if (parsed.data.bootId !== currentIdentity.bootId || !await isAlive(parsed.data.pid, parsed.data.processStart)) {
-          await quarantine(guardPath, parsed.data.token, createdAt).catch(quarantineError => {
+          await quarantine(guardPath, parsed.data.token, createdAt).catch((quarantineError: unknown) => {
             if (!isErrno(quarantineError, 'ENOENT')) throw quarantineError;
           });
           continue;

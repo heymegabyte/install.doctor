@@ -12,8 +12,6 @@ const pendingSourceFiles = [
   'src/credential-rotation.ts',
   'src/debian-gpgv.ts',
   'src/engine.ts',
-  'src/native-dpkg-fence.ts',
-  'src/native-dpkg-quiescence.ts',
   'src/native-dpkg-transaction.ts',
   'src/native-policy-rcd.ts',
   'src/offline-bundle.ts',
