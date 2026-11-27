@@ -7,6 +7,7 @@ import {
   createReviewedPlanBinding,
 } from '../dist/reviewed-plan-binding.js';
 
+/** @param {string} character */
 const d = character => character.repeat(64);
 const rollbackLimits = {
   automaticEffects: ['configuration'],
@@ -54,6 +55,7 @@ test('one immutable review binds profile, facts, release, policy, closure, appro
 });
 
 test('every safety-relevant drift invalidates the review with an exact reason', () => {
+  /** @type {[string, Partial<typeof current>][]} */
   const cases = [
     ['review-expired', { now: binding.expiresAt }],
     ['tenant-changed', { tenantId: 'tenant-2' }],

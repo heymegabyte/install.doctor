@@ -52,17 +52,18 @@ test('default verifier bounded decompressor accepts gzip and rejects trailing by
     keyring: { kind: 'path', absolutePath: '/already-verified/keyring.gpg' },
     maximumDecompressedBytes: 64,
   });
+  assert.ok(verifier.decompressPackages);
   const compressed = gzipSync(Buffer.from('Package: example\n'));
-  assert.equal((await verifier.decompressPackages?.('Packages.gz', compressed)).toString(), 'Package: example\n');
+  assert.equal((await verifier.decompressPackages('Packages.gz', compressed)).toString(), 'Package: example\n');
   await assert.rejects(
-    verifier.decompressPackages?.('Packages.gz', Buffer.concat([compressed, Buffer.from('junk')])),
+    verifier.decompressPackages('Packages.gz', Buffer.concat([compressed, Buffer.from('junk')])),
     /decompression failed/,
   );
   await assert.rejects(
-    verifier.decompressPackages?.('Packages.gz', gzipSync(Buffer.alloc(65, 0x61))),
+    verifier.decompressPackages('Packages.gz', gzipSync(Buffer.alloc(65, 0x61))),
     /output exceeded/,
   );
-  await assert.rejects(verifier.decompressPackages?.('Packages.bz2', compressed), /unsupported Packages compression/);
+  await assert.rejects(verifier.decompressPackages('Packages.bz2', compressed), /unsupported Packages compression/);
 });
 
 test('path keyring authority must be explicit and absolute', () => {

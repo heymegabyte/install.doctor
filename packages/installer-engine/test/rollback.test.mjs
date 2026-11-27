@@ -26,11 +26,14 @@ test('rollback task evidence accepts the full versioned launchd observation', ()
   assert.equal(event.kind, 'rollback-task-started');
 });
 
+/** @param {string} character */
 const digest = character => character.repeat(64);
 const at = '2026-11-06T05:00:00.000Z';
 
+/** @param {string} taskId @param {string[]} [dependencies] */
 function artifact(taskId, dependencies = [], targetPath = `/etc/install-doctor/${taskId}.conf`) {
   const bytes = Buffer.from('prior\n');
+  /** @type {Parameters<typeof configurationCompensationArtifactDigest>[0]} */
   const snapshot = {
     schemaVersion: 1, targetPath, existed: true, mode: 0o640, uid: 501, gid: 20,
     digest: createHash('sha256').update(bytes).digest('hex'),
