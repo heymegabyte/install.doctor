@@ -235,6 +235,21 @@ for (const configuration of Object.values(manifest.workloads)) {
 for (const host of Object.keys(manifest.hosts)) {
   assert.deepEqual(selectHostSecrets(manifest, host, ['TWENTY_API_KEY']), []);
 }
+const stripeMeterMetadata = [
+  'STRIPE_METER_ID_AI_CALL', 'STRIPE_METER_ID_BYTES_EGRESS',
+  'STRIPE_METER_ID_IMAGE_GENERATION', 'STRIPE_METER_IDS',
+];
+assert.deepEqual(
+  selectConfigurationSecrets(manifest, manifest.workloads['stripe-meter-metadata-archive'], stripeMeterMetadata),
+  [...stripeMeterMetadata].sort(),
+);
+for (const [workload, configuration] of Object.entries(manifest.workloads)) {
+  if (workload === 'stripe-meter-metadata-archive') continue;
+  assert.deepEqual(selectConfigurationSecrets(manifest, configuration, stripeMeterMetadata), []);
+}
+for (const host of Object.keys(manifest.hosts)) {
+  assert.deepEqual(selectHostSecrets(manifest, host, stripeMeterMetadata), []);
+}
 assert.deepEqual(selectConfigurationSecrets(
   manifest, manifest.workloads['crawl.cheap'], ['EXA_API_KEY', 'SENTRY_DSN', 'ANTHROPIC_API_KEY'],
 ), ['EXA_API_KEY', 'SENTRY_DSN']);
