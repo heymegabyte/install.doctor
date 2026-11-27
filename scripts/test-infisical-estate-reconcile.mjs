@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
   assertSecretSourcesValidated, assertSecretsValidated, inventorySecretNames, inventorySecretSources,
-  markRetiredSourceInLedgerText, metadataOnlyListing, resolveSourceValidationRecord, retireSecretSource, secretDirectoriesForHost, selectConfigurationSecrets,
+  markRetiredSourceInLedgerText, metadataOnlyListing, resolveSourceValidationRecord, retireSecretSource, secretDirectoriesForHost, secretStoresForTarget, selectConfigurationSecrets,
   selectConfigurationSources, selectHostSecrets, selectRequestedSources, validateClosedSetSync, validateManifest,
   validateRetirementEvidence, validateValidationLedger,
 } from './infisical-estate-reconcile.mjs';
@@ -132,6 +132,34 @@ assert.throws(() => validateManifest({
   ...manifest,
   hosts: { 'macos.megabyte.space': { profile: 'developer', secretPath: '/' } },
 }), /invalid target configuration/);
+const wordpressManifest = validateManifest({
+  ...manifest,
+  workloads: {
+    ...manifest.workloads,
+    'wordpress-platform.megabyte.space': {
+      profile: 'wordpress-platform',
+      projectId: 'adc6c5cb-3b23-4340-b7e7-2c752554a181',
+      secretPath: '/',
+      sourceStore: 'wordpress',
+    },
+  },
+  profiles: { ...manifest.profiles, 'wordpress-platform': ['wordpress-mail'] },
+  capabilityPatterns: { ...manifest.capabilityPatterns, 'wordpress-mail': ['^SENDGRID_API_KEY$'] },
+});
+assert.equal(secretStoresForTarget(
+  { secretDirectoriesOverridden: false }, 'workload', 'wordpress-platform.megabyte.space', wordpressManifest,
+)[0].id, 'wordpress');
+assert.equal(secretStoresForTarget(
+  { secretDirectoriesOverridden: false }, 'workload', 'mcp.megabyte.space', wordpressManifest,
+)[0].id, 'general');
+assert.throws(() => validateManifest({
+  ...manifest,
+  hosts: { 'macos.megabyte.space': { ...manifest.hosts['macos.megabyte.space'], sourceStore: 'wordpress' } },
+}), /cannot declare a workload source store/);
+assert.throws(() => validateManifest({
+  ...manifest,
+  workloads: { 'bad.megabyte.space': { ...manifest.workloads['mcp.megabyte.space'], sourceStore: 'workstation' } },
+}), /invalid source store/);
 assert.doesNotThrow(() => validateClosedSetSync({
   listing: metadataOnlyListing(storeDeclarations.map((store) => ({
     ...store,

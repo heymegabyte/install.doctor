@@ -65,6 +65,13 @@ export function validateManifest(manifest) {
       fail(`invalid target configuration for ${target}`);
     }
   }
+  for (const [host, configuration] of Object.entries(manifest.hosts)) {
+    if (configuration.sourceStore !== undefined) fail(`host ${host} cannot declare a workload source store`);
+  }
+  for (const [workload, configuration] of Object.entries(manifest.workloads)) {
+    const sourceStore = configuration.sourceStore ?? 'general';
+    if (!['general', 'wordpress'].includes(sourceStore)) fail(`workload ${workload} has an invalid source store`);
+  }
   return manifest;
 }
 
@@ -192,11 +199,19 @@ export function secretDirectoriesForHost({ secretDirectories, secretDirectoriesO
   return [secretDirectories[0]];
 }
 
-export function secretStoresForTarget(options, targetKind, target) {
+export function secretStoresForTarget(options, targetKind, target, manifest) {
   if (options.secretDirectoriesOverridden) {
     return [{ id: 'general', directory: options.secretDirectories[0], precedence: 10, hostDefault: true, workloadKinds: [targetKind] }];
   }
-  if (targetKind === 'workload' || target !== 'macos.megabyte.space') return [defaultSecretStores[0]];
+  if (targetKind === 'workload') {
+    const sourceStore = manifest?.workloads?.[target]?.sourceStore ?? 'general';
+    const store = defaultSecretStores.find(({ id }) => id === sourceStore);
+    if (!store || !store.workloadKinds.includes(sourceStore === 'wordpress' ? 'wordpress-site' : 'workload')) {
+      fail(`workload ${target} has no approved source store`);
+    }
+    return [store];
+  }
+  if (target !== 'macos.megabyte.space') return [defaultSecretStores[0]];
   return defaultSecretStores.filter(({ id }) => id === 'general' || id === 'workstation');
 }
 
@@ -487,7 +502,7 @@ function main() {
   const targetKind = options.workload ? 'workload' : 'host';
   const configurations = targetKind === 'workload' ? manifest.workloads : manifest.hosts;
   const targets = options.workload ? [options.workload] : options.host ? [options.host] : Object.keys(configurations).sort();
-  const inventories = new Map(targets.map((target) => [target, inventorySecretSources(secretStoresForTarget(options, targetKind, target))]));
+  const inventories = new Map(targets.map((target) => [target, inventorySecretSources(secretStoresForTarget(options, targetKind, target, manifest))]));
   const inventorySources = [...new Map([...inventories.values()].flat().map((source) => [source.sourceId, source])).values()];
   const inventoryNames = new Set(inventorySources.map(({ canonicalName }) => canonicalName));
   const inventorySourceIds = new Set(inventorySources.map(({ sourceId }) => sourceId));
