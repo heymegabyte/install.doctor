@@ -22,7 +22,7 @@ function signalPosixGroup(pid: number, signal: NodeJS.Signals): void {
 
 async function waitForPosixGroupExit(pid: number, timeoutMs: number): Promise<void> {
   const deadline = Date.now() + timeoutMs;
-  while (true) {
+  for (;;) {
     try { process.kill(-pid, 0); }
     catch (error) {
       if (error instanceof Error && 'code' in error && error.code === 'ESRCH') return;
@@ -64,6 +64,10 @@ function taskkill(pid: number, force: boolean, env: NodeJS.ProcessEnv): Promise<
   });
 }
 
+function processError(reason: unknown): Error {
+  return reason instanceof Error ? reason : new Error('Process execution failed', { cause: reason });
+}
+
 export async function runProcess(options: ProcessRunOptions): Promise<number> {
   if (options.signal?.aborted) throw new Error('operation cancelled before process spawn');
   const graceMs = Math.min(30_000, Math.max(50, options.terminationGraceMs ?? 5_000));
@@ -95,8 +99,8 @@ export async function runProcess(options: ProcessRunOptions): Promise<number> {
     const emitChunk = (stream: 'stdout' | 'stderr', chunk: Buffer): void => {
       emitSafeText(stream, redactors[stream].write(decoders[stream].write(chunk)));
     };
-    child.stdout?.on('data', (chunk: Buffer) => emitChunk('stdout', chunk));
-    child.stderr?.on('data', (chunk: Buffer) => emitChunk('stderr', chunk));
+    child.stdout?.on('data', (chunk: Buffer) => { emitChunk('stdout', chunk); });
+    child.stderr?.on('data', (chunk: Buffer) => { emitChunk('stderr', chunk); });
     const queueWindowsCleanup = (pid: number, force: boolean): void => {
       const attempt = taskkill(pid, force, options.env);
       // Attach immediately: a missing helper can reject before the child emits
@@ -117,7 +121,7 @@ export async function runProcess(options: ProcessRunOptions): Promise<number> {
       void Promise.allSettled(windowsCleanupAttempts).then(results => {
         if (results.every(result => result.status === 'rejected')) {
           const failure = results.at(-1);
-          reject(failure?.status === 'rejected' ? failure.reason : new Error('Windows process-tree cleanup failed'));
+          reject(failure?.status === 'rejected' ? processError(failure.reason) : new Error('Windows process-tree cleanup failed'));
           return;
         }
         action();
@@ -128,7 +132,7 @@ export async function runProcess(options: ProcessRunOptions): Promise<number> {
       try {
         if (process.platform === 'win32') queueWindowsCleanup(child.pid, true);
         else signalPosixGroup(child.pid, 'SIGKILL');
-      } catch (error) { finish(() => reject(error)); }
+      } catch (error) { finish(() => { reject(processError(error)); }); }
     };
     const terminate = (reason: 'timeout' | 'cancelled'): void => {
       if (terminationReason || settled) return;
@@ -138,20 +142,21 @@ export async function runProcess(options: ProcessRunOptions): Promise<number> {
         if (process.platform === 'win32') queueWindowsCleanup(child.pid, false);
         else signalPosixGroup(child.pid, 'SIGTERM');
         graceTimer = setTimeout(force, graceMs);
-      } catch (error) { finish(() => reject(error)); }
+      } catch (error) { finish(() => { reject(processError(error)); }); }
     };
-    const cancel = (): void => terminate('cancelled');
-    const timeoutTimer = setTimeout(() => terminate('timeout'), options.timeoutMs);
+    const cancel = (): void => { terminate('cancelled'); };
+    const timeoutTimer = setTimeout(() => { terminate('timeout'); }, options.timeoutMs);
     options.signal?.addEventListener('abort', cancel, { once: true });
     if (options.signal?.aborted) cancel();
-    child.once('error', error => finish(() => reject(error)));
+    child.once('error', error => { finish(() => { reject(error); }); });
     child.once('close', (code, signal) => {
       for (const stream of ['stdout', 'stderr'] as const) {
         emitSafeText(stream, redactors[stream].write(decoders[stream].end()));
         emitSafeText(stream, redactors[stream].end());
         if (buffers[stream]) options.onOutput?.(stream, buffers[stream].slice(0, 16_384));
       }
-      if (terminationReason && process.platform !== 'win32' && child.pid) {
+      const reason = terminationReason;
+      if (reason && process.platform !== 'win32' && child.pid) {
         // The process-group leader may exit promptly on SIGTERM while a
         // descendant ignores it. Do not let the leader's `close` event clear
         // the escalation timer and settle the operation with that descendant
@@ -163,13 +168,13 @@ export async function runProcess(options: ProcessRunOptions): Promise<number> {
           // The existence probe below has the platform-specific EPERM rule;
           // other failures remain fatal.
           if (!(process.platform === 'darwin' && error instanceof Error && 'code' in error && error.code === 'EPERM')) {
-            finish(() => reject(error));
+            finish(() => { reject(processError(error)); });
             return;
           }
         }
         void waitForPosixGroupExit(child.pid, graceMs).then(
-          () => finish(() => reject(new Error(`operation ${terminationReason} after process-tree cleanup`))),
-          error => finish(() => reject(error)),
+          () => { finish(() => { reject(new Error(`operation ${reason} after process-tree cleanup`)); }); },
+          (error: unknown) => { finish(() => { reject(processError(error)); }); },
         );
         return;
       }

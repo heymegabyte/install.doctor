@@ -108,7 +108,7 @@ export function createDesktopToolsToolAdapters(options: DesktopToolsToolAdapterO
       const consent = await options.requestConsent({ operation: 'apply', planDigest: request.planDigest, runId: options.runId });
       if (!consent.approved) throw new Error('operator denied the plan');
       identifier.parse(consent.actorId);
-      z.string().datetime({ offset: true }).parse(consent.approvedAt);
+      z.iso.datetime({ offset: true }).parse(consent.approvedAt);
       const approvalId = identifier.parse(`approval-${createId()}`);
       grants.set(approvalId, Object.freeze({ operation: 'apply', planDigest: request.planDigest, runId: options.runId, used: false }));
       return Object.freeze({ schemaVersion: 1, approvalId, planDigest: request.planDigest, actorId: consent.actorId, approvedAt: consent.approvedAt });
@@ -164,7 +164,7 @@ export function createDesktopToolsToolAdapters(options: DesktopToolsToolAdapterO
           runId: rollbackRunId, sourceRunId: request.sourceRunId,
           sourcePlanDigest: request.sourcePlanDigest, used: false }));
         return Object.freeze({ schemaVersion: 1, approvalId, rollbackRunId, planDigest: request.rollbackPlanDigest,
-          actorId: identifier.parse(consent.actorId), approvedAt: z.string().datetime({ offset: true }).parse(consent.approvedAt) });
+          actorId: identifier.parse(consent.actorId), approvedAt: z.iso.datetime({ offset: true }).parse(consent.approvedAt) });
       }
       if (request.action === 'status') {
         return options.invokeEngine(Object.freeze({ schemaVersion: 1, command: 'rollback-config-status',
@@ -181,9 +181,11 @@ export function createDesktopToolsToolAdapters(options: DesktopToolsToolAdapterO
         stateRoot: options.stateRoot, sourceRunId: grant.sourceRunId,
         sourcePlanDigest: grant.sourcePlanDigest, rollbackRunId: grant.runId, approvedPlanDigest: grant.planDigest }));
     },
-    async desktop_tools_deprovision_preview(input) {
-      const request = deprovisionPreview.parse(input);
-      return buildDeprovisionPlan(request, now);
+    desktop_tools_deprovision_preview(input) {
+      return new Promise(resolve => {
+        const request = deprovisionPreview.parse(input);
+        resolve(buildDeprovisionPlan(request, now));
+      });
     },
   };
   return Object.freeze(tools);
