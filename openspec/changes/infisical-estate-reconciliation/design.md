@@ -102,6 +102,14 @@ The resolver must bind metadata `{token: megabyte-os-e2e, application: Megabyte 
 
 The token's active metadata and policy membership prove identity/configuration, but `os.megabyte.space` currently returns origin `522`; therefore a real allowed call has not proven end-to-end usability. Its validation ledger remains `unverified` or `blocked-upstream` rather than `valid`, and the hard pre-write/apply and cutover gates remain closed. After origin recovery, acceptance requires an authenticated allowed E2E call, an anonymous denial, and explicit denial/non-authorization at representative Mission/Listmonk and unrelated Access applications without exposing response secrets.
 
+### Legacy Cloudflare Global API Key transition
+
+The provider-valid `CLOUDFLARE_API_KEY`/`CLOUDFLARE_EMAIL` pair is account-global authority, not an ordinary `cloudflare` profile credential. Repository evidence still identifies executable consumers on both `macos.megabyte.space` and `ubuntu.megabyte.space`: interactive deployment fallbacks, Cloudflare/WARP/private-access provisioning, account-level verification, and legacy recovery paths. Immediate removal would break those evidenced workflows, while granting the pair through the generic Cloudflare capability would expose it to managed hosts and unrelated workloads.
+
+Both names are therefore reserved from regex admission and re-admitted only through the exact transitional capability `cloudflare-global-admin-legacy`, granted solely to macOS and Ubuntu. Zen, Legion, Omen, MCP/Portal workloads, Workers, WordPress, application identities, and generic managed-host profiles receive neither name. `CLOUDFLARE_ACCOUNT_ID` remains non-secret routing metadata and is not bundled into this privileged capability.
+
+This is a bounded transition, not the desired steady state. Every executable consumer must be inventoried and replaced with a purpose-scoped API token or an audited human control-plane operation. Removal requires successful replacement verification for both hosts, direct retrieval denial after project deletion, and a rollback path that does not restore the global pair to a generic profile. New code must not add Global API Key dependencies.
+
 ### Acceptance scenarios
 
 1. **macOS default inventory:** selecting only `macos.megabyte.space` uses its declared `secrets-workstation` overrides plus the allowed general fallback and records both sources without values.

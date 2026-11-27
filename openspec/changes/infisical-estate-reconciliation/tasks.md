@@ -34,6 +34,8 @@
 - [ ] 2.15 Reserve general `CF_ACCESS_CLIENT_ID`/`CF_ACCESS_CLIENT_SECRET` from generic Cloudflare matching and add an exact `megabyte-os-e2e-access` capability only to macOS, bound to token/application/domain/runner provenance.
 - [ ] 2.16 Prove the OS pair cannot enter Ubuntu, Zen, Legion, Omen, Mission/Listmonk, GitLab, project-sites, MCP automation, Portal, Worker, or generic Cloudflare plans and cannot substitute for `MCP_AUTOMATION_CF_ACCESS_CLIENT_*` or Secrets Store bindings.
 - [ ] 2.17 Keep the OS pair validation `unverified`/`blocked-upstream` while `os.megabyte.space` returns `522`; after origin recovery require authenticated allowed E2E, anonymous denial, and representative unrelated-application denial before `valid`, apply, or cutover.
+- [x] 2.18 Reserve `CLOUDFLARE_API_KEY`/`CLOUDFLARE_EMAIL` from generic Cloudflare matching and re-admit them only through `cloudflare-global-admin-legacy` on macOS and Ubuntu; prove managed hosts and workloads exclude the pair.
+- [ ] 2.19 Inventory every executable Global API Key consumer, replace each with a purpose-scoped token or audited human control-plane operation, verify macOS/Ubuntu behavior and direct-retrieval denial, then remove the pair from both runtime projects and retire the transitional capability.
 
 ## 2A. Workload targets
 

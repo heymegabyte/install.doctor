@@ -148,31 +148,36 @@ const cloudflareReservedManifest = validateManifest({
   ...accessSshManifest,
   profiles: {
     ...accessSshManifest.profiles,
-    developer: [...accessSshManifest.profiles.developer, 'cloudflare-warp-enrollment', 'megabyte-os-e2e-access'],
-    server: [...accessSshManifest.profiles.server, 'cloudflare-warp-enrollment'],
+    developer: [...accessSshManifest.profiles.developer, 'cloudflare-warp-enrollment', 'cloudflare-global-admin-legacy', 'megabyte-os-e2e-access'],
+    server: [...accessSshManifest.profiles.server, 'cloudflare-warp-enrollment', 'cloudflare-global-admin-legacy'],
   },
   reservedNames: [
     ...accessSshManifest.reservedNames,
     'CLOUDFLARE_TEAMS_CLIENT_ID', 'CLOUDFLARE_TEAMS_CLIENT_SECRET', 'CLOUDFLARE_ORIGIN_CA_KEY',
+    'CLOUDFLARE_API_KEY', 'CLOUDFLARE_EMAIL',
     'CF_ACCESS_CLIENT_ID', 'CF_ACCESS_CLIENT_SECRET',
   ],
   blockedReservedNames: ['CLOUDFLARE_ORIGIN_CA_KEY'],
   exactCapabilityNames: {
     ...accessSshManifest.exactCapabilityNames,
     'cloudflare-warp-enrollment': ['CLOUDFLARE_TEAMS_CLIENT_ID', 'CLOUDFLARE_TEAMS_CLIENT_SECRET'],
+    'cloudflare-global-admin-legacy': ['CLOUDFLARE_API_KEY', 'CLOUDFLARE_EMAIL'],
     'megabyte-os-e2e-access': ['CF_ACCESS_CLIENT_ID', 'CF_ACCESS_CLIENT_SECRET'],
   },
 });
 const reservedInventory = [
   'CF_API_TOKEN', 'CLOUDFLARE_TEAMS_CLIENT_ID', 'CLOUDFLARE_TEAMS_CLIENT_SECRET',
-  'CLOUDFLARE_ORIGIN_CA_KEY', 'CF_ACCESS_CLIENT_ID', 'CF_ACCESS_CLIENT_SECRET',
+  'CLOUDFLARE_ORIGIN_CA_KEY', 'CLOUDFLARE_API_KEY', 'CLOUDFLARE_EMAIL',
+  'CF_ACCESS_CLIENT_ID', 'CF_ACCESS_CLIENT_SECRET',
 ];
 assert.deepEqual(selectHostSecrets(cloudflareReservedManifest, 'macos.megabyte.space', reservedInventory), [
   'CF_ACCESS_CLIENT_ID', 'CF_ACCESS_CLIENT_SECRET', 'CF_API_TOKEN',
+  'CLOUDFLARE_API_KEY', 'CLOUDFLARE_EMAIL',
   'CLOUDFLARE_TEAMS_CLIENT_ID', 'CLOUDFLARE_TEAMS_CLIENT_SECRET',
 ]);
 assert.deepEqual(selectHostSecrets(cloudflareReservedManifest, 'ubuntu.megabyte.space', reservedInventory), [
-  'CF_API_TOKEN', 'CLOUDFLARE_TEAMS_CLIENT_ID', 'CLOUDFLARE_TEAMS_CLIENT_SECRET',
+  'CF_API_TOKEN', 'CLOUDFLARE_API_KEY', 'CLOUDFLARE_EMAIL',
+  'CLOUDFLARE_TEAMS_CLIENT_ID', 'CLOUDFLARE_TEAMS_CLIENT_SECRET',
 ]);
 for (const target of ['zen.megabyte.space', 'legion.megabyte.space']) {
   assert.deepEqual(selectHostSecrets(cloudflareReservedManifest, target, reservedInventory), ['CF_API_TOKEN']);
