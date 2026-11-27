@@ -80,6 +80,21 @@ assert.deepEqual(selectHostSecrets(manifest, 'macos.megabyte.space', ['PYPI_TOKE
 for (const host of ['ubuntu.megabyte.space', 'zen.megabyte.space', 'legion.megabyte.space']) {
   assert.deepEqual(selectHostSecrets(manifest, host, ['PYPI_TOKEN']), []);
 }
+for (const workload of ['projectsites-brandfetch', 'swarmlink-brandfetch']) {
+  assert.deepEqual(
+    selectConfigurationSecrets(manifest, manifest.workloads[workload], ['BRANDFETCH_API_KEY']),
+    ['BRANDFETCH_API_KEY'],
+  );
+}
+for (const workload of ['projectsites.dev', 'swarml.ink', 'mcp.megabyte.space']) {
+  assert.deepEqual(
+    selectConfigurationSecrets(manifest, manifest.workloads[workload], ['BRANDFETCH_API_KEY']),
+    [],
+  );
+}
+for (const host of Object.keys(manifest.hosts)) {
+  assert.deepEqual(selectHostSecrets(manifest, host, ['BRANDFETCH_API_KEY']), []);
+}
 assert.deepEqual(selectConfigurationSecrets(
   manifest, manifest.workloads['crawl.cheap'], ['EXA_API_KEY', 'SENTRY_DSN', 'ANTHROPIC_API_KEY'],
 ), ['EXA_API_KEY', 'SENTRY_DSN']);
