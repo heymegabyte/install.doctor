@@ -8,8 +8,10 @@
     "test/auth-origin-policy.test.mjs",
     "test/auth-return-policy.test.mjs",
     "test/better-auth-migration-parity.test.mjs",
+    "test/broker-approval-managed-signer.test.mjs",
     "test/offline-bundle-publication.test.mjs",
     "test/offline-bundle-request.test.mjs",
+    "test/privileged-pair-binding.test.mjs",
     "test/r2-publication-storage.test.mjs",
     "test/release-evidence-view.test.mjs",
     ".wrangler/control-plane-runtime.d.ts"

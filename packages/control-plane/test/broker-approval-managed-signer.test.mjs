@@ -5,11 +5,15 @@ import { createBrokerApprovalManagedSigner } from '../src/broker-approval-manage
 
 test('managed signer adapter admits only exact bounded Ed25519 service responses', async () => {
   const pair = generateKeyPairSync('ed25519');
+  /** @type {{ url: RequestInfo | URL, init: RequestInit | undefined }[]} */
   const calls = [];
   const signer = createBrokerApprovalManagedSigner({ keyId: 'approval-key-1', service: {
     async fetch(url, init) {
       calls.push({ url, init });
+      assert.ok(typeof init?.body === 'string');
       const body = JSON.parse(init.body);
+      assert.ok(typeof body.message === 'string');
+      assert.equal(body.keyId, 'approval-key-1');
       const signature = sign(null, Buffer.from(body.message, 'base64url'), pair.privateKey).toString('base64url');
       return Response.json({ schemaVersion: 1, keyId: body.keyId, algorithm: 'Ed25519', signature });
     },
@@ -17,6 +21,8 @@ test('managed signer adapter admits only exact bounded Ed25519 service responses
   const message = new TextEncoder().encode('x'.repeat(32));
   const signature = await signer.sign(message);
   assert.equal(verify(null, message, pair.publicKey, signature), true);
+  assert.equal(calls.length, 1);
+  assert.ok(calls[0]);
   assert.equal(calls[0].url, 'https://broker-approval-signer.internal/v1/sign');
   assert.equal(JSON.stringify(calls[0]).includes('PRIVATE'), false);
 });

@@ -2,11 +2,13 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { resolvePrivilegedPairBinding } from '../src/privileged-pair-binding.ts';
 
+/** @param {string} value */
 const hex = value => value.repeat(64);
 const profiles = [{ id: 'profile-1', tenantId: 'tenant-authoritative', slug: 'brian', revision: 'revision-1',
   digest: hex('a'), visibility: 'public-bootstrap', enabled: true }];
 
 test('derives privileged tenant, profile, digest, and owner only from server authorities', async () => {
+  /** @type {string[]} */
   const tenants = [];
   const result = await resolvePrivilegedPairBinding({
     requestedPermissions: ['pull-desired-state', 'authorize-privileged-run'],
