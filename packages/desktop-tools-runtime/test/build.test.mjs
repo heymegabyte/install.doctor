@@ -9,6 +9,7 @@ import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+/** @param {Uint8Array} bytes */
 const hash = bytes => createHash('sha256').update(bytes).digest('hex');
 
 test('build emits byte-for-byte deterministic signed-closure inputs', async () => {

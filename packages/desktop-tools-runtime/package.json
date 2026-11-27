@@ -9,6 +9,7 @@
     "./durable-session": "./src/durable-session.mjs"
   },
   "scripts": {
+    "prebuild": "npm run typecheck",
     "build": "node scripts/build.mjs",
     "test": "npm run typecheck && node --test test/*.test.mjs",
     "typecheck": "tsc --project tsconfig.json"

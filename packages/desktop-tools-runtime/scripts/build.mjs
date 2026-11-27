@@ -9,7 +9,9 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const repositoryRoot = resolve(root, '..', '..');
 const output = join(root, 'dist');
 
+/** @param {number} value @param {number} length */
 function octal(value, length) { return `${value.toString(8).padStart(length - 1, '0')}\0`; }
+/** @param {string} name @param {Buffer} bytes @param {number} mode */
 function tarEntry(name, bytes, mode) {
   const header = Buffer.alloc(512);
   header.write(name, 0, 100, 'utf8');
@@ -86,4 +88,4 @@ if (brokerPath && workerPath && controllerPath) {
   entries.push(tarEntry('lib/desktop-tools-privileged-controller.mjs', await readFile(resolve(controllerPath)), 0o600));
 }
 entries.push(Buffer.alloc(1024));
-await writeFile(join(output, 'desktop-tools-tools.tar.gz'), gzipSync(Buffer.concat(entries), { level: 9, mtime: 0 }), { mode: 0o600 });
+await writeFile(join(output, 'desktop-tools-tools.tar.gz'), gzipSync(Buffer.concat(entries), { level: 9 }), { mode: 0o600 });

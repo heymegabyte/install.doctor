@@ -12,6 +12,8 @@
   "include": [
     "src/desktop-tools-supervisor.mjs",
     "src/session-evidence.mjs",
-    "test/helpers/runtime-fixture.mjs"
+    "test/helpers/runtime-fixture.mjs",
+    "scripts/build.mjs",
+    "test/build.test.mjs"
   ]
 }
