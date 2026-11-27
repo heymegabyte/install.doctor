@@ -1,6 +1,6 @@
 import { GetObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
 
-/** @typedef {{ contentType: string, sha256: string, visibility?: 'private' }} ObjectMetadata */
+/** @typedef {{ contentType?: string, sha256: string, visibility?: 'private' }} ObjectMetadata */
 
 /** @param {unknown} error @param {number} status */
 function hasHttpStatus(error, status) {

@@ -2,6 +2,8 @@
 import { spawn } from 'node:child_process';
 import { chmod, lstat, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
+import { realpathSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { join } from 'node:path';
 import {
   activateRelease, activateSamePayloadRenewal, inspectActiveReleaseFreshness, inspectPublishedRelease, prepareSamePayloadRenewal,
@@ -13,28 +15,31 @@ import {
 } from './desktop-release-publication.mjs';
 import { createR2PublicationStorage } from './r2-publication-storage.mjs';
 
-function requiredEnvironment(name, minimum = 1) {
-  const value = process.env[name];
+/** @param {string} name @param {number} [minimum] @param {NodeJS.ProcessEnv} [environment] */
+function requiredEnvironment(name, minimum = 1, environment = process.env) {
+  const value = environment[name];
   if (typeof value !== 'string' || value.length < minimum) throw new Error(`${name} is required`);
   return value;
 }
 
+/** @param {string} file @param {string[]} arguments_ @param {Uint8Array} input */
 async function command(file, arguments_, input) {
   await new Promise((resolve, reject) => {
     const child = spawn(file, arguments_, { stdio: ['pipe', 'ignore', 'pipe'], env: { PATH: process.env.PATH ?? '' } });
     let error = '';
     child.stderr.on('data', chunk => { error += chunk; });
     child.on('error', reject);
-    child.on('close', code => code === 0 ? resolve() : reject(new Error(`signature verification failed (${code}): ${error.slice(0, 200)}`)));
+    child.on('close', code => code === 0 ? resolve(undefined) : reject(new Error(`signature verification failed (${code}): ${error.slice(0, 200)}`)));
     child.stdin.end(input);
   });
 }
 
-async function createSignatureVerifier(product = 'legacy-install-doctor') {
+/** @param {'desktop-tools' | 'legacy-install-doctor'} product @param {NodeJS.ProcessEnv} [environment] */
+export async function createSignatureVerifier(product = 'legacy-install-doctor', environment = process.env) {
   const desktop = product === 'desktop-tools';
   const environmentPrefix = desktop ? 'DESKTOP_TOOLS' : 'INSTALL_DOCTOR';
-  const signerId = requiredEnvironment(`${environmentPrefix}_RELEASE_SIGNER_ID`);
-  const publicKeyPath = requiredEnvironment(`${environmentPrefix}_RELEASE_PUBLIC_KEY`);
+  const signerId = requiredEnvironment(`${environmentPrefix}_RELEASE_SIGNER_ID`, 1, environment);
+  const publicKeyPath = requiredEnvironment(`${environmentPrefix}_RELEASE_PUBLIC_KEY`, 1, environment);
   const info = await lstat(publicKeyPath);
   if (!info.isFile() || info.isSymbolicLink() || info.size < 32 || info.size > 8_192) throw new Error('release public key path is unsafe');
   const publicKey = (await readFile(publicKeyPath, 'utf8')).trim();
@@ -42,7 +47,11 @@ async function createSignatureVerifier(product = 'legacy-install-doctor') {
   const allowedNamespaces = desktop
     ? ['desktop.tools.release', 'desktop.tools.release-renewal-plan', 'desktop.tools.promotion-health']
     : ['install.doctor.release', 'install.doctor.release-renewal-plan'];
-  return async ({ manifest, signature, signerId: manifestSignerId, namespace = allowedNamespaces[0] }) => {
+  const defaultNamespace = desktop ? 'desktop.tools.release' : 'install.doctor.release';
+  /** @param {{ signature: Uint8Array, signerId: string, namespace?: string } & ({ manifest: Uint8Array } | { payload: Uint8Array })} input */
+  return async (input) => {
+    const { signature, signerId: manifestSignerId, namespace = defaultNamespace } = input;
+    const bytes = 'payload' in input ? input.payload : input.manifest;
     if (manifestSignerId !== signerId) throw new Error('manifest signer is not the configured release signer');
     if (!allowedNamespaces.includes(namespace)) throw new Error('signature namespace is not allowed');
     const stage = await mkdtemp(join(tmpdir(), `${desktop ? 'desktop-tools' : 'install-doctor'}-release-verify-`));
@@ -52,13 +61,14 @@ async function createSignatureVerifier(product = 'legacy-install-doctor') {
       const signaturePath = join(stage, 'manifest.sig');
       await writeFile(allowedSigners, `${signerId} ${publicKey}\n`, { mode: 0o600 });
       await writeFile(signaturePath, signature, { mode: 0o600 });
-      await command('ssh-keygen', ['-Y', 'verify', '-f', allowedSigners, '-I', signerId, '-n', namespace, '-s', signaturePath], manifest);
+      await command('ssh-keygen', ['-Y', 'verify', '-f', allowedSigners, '-I', signerId, '-n', namespace, '-s', signaturePath], bytes);
     } finally {
       await rm(stage, { recursive: true, force: true });
     }
   };
 }
 
+/** @param {string} prefix */
 function storageFromEnvironment(prefix) {
   return createR2PublicationStorage({
     endpoint: requiredEnvironment(`${prefix}_ENDPOINT`),
@@ -74,6 +84,7 @@ async function main() {
   const verifySignature = await createSignatureVerifier(product);
   if (action === 'desktop-publish' && arguments_.length === 2) {
     const [directory, releaseId] = arguments_;
+    if (!directory || !releaseId) throw new Error('release directory and id are required');
     const releaseStorage = storageFromEnvironment('DESKTOP_TOOLS_RELEASE_R2');
     const receipt = await publishDesktopRelease({ directory, expectedReleaseId: releaseId, storage: releaseStorage, verifySignature });
     process.stdout.write(`${JSON.stringify(receipt)}\n`);
@@ -82,6 +93,8 @@ async function main() {
   if (action === 'desktop-activate' && (arguments_.length === 6 || arguments_.length === 8)) {
     const [releaseId, channel, expectedEtagValue, activationId, activatedAt, promotionEvidenceKey,
       kind = 'promote', rollbackOfActivationId = null] = arguments_;
+    if (!releaseId || !channel || !expectedEtagValue || !activationId || !activatedAt || !promotionEvidenceKey) throw new Error('Desktop Tools activation arguments are required');
+    if (kind !== 'promote' && kind !== 'rollback') throw new Error('activation kind must be promote or rollback');
     const releaseStorage = storageFromEnvironment('DESKTOP_TOOLS_RELEASE_R2');
     const channelStorage = storageFromEnvironment('DESKTOP_TOOLS_CHANNEL_R2');
     const release = await inspectPublishedDesktopRelease({ expectedReleaseId: releaseId, storage: releaseStorage, verifySignature });
@@ -104,6 +117,7 @@ async function main() {
   }
   if (action === 'desktop-reconcile' && arguments_.length === 2) {
     const [channel, activationId] = arguments_;
+    if (!channel || !activationId) throw new Error('channel and activation id are required');
     const receipt = await reconcileDesktopActivationReceipt({ channel, activationId,
       storage: storageFromEnvironment('DESKTOP_TOOLS_CHANNEL_R2') });
     process.stdout.write(`${JSON.stringify(receipt)}\n`);
@@ -111,6 +125,7 @@ async function main() {
   }
   if (action === 'desktop-freshness' && (arguments_.length === 1 || arguments_.length === 2)) {
     const [channel, renewalWindow = '345600'] = arguments_;
+    if (!channel) throw new Error('release channel is required');
     if (!/^[1-9][0-9]{3,6}$/.test(renewalWindow)) throw new Error('renewal window must be an integer number of seconds');
     const result = await inspectActiveDesktopReleaseFreshness({ channel,
       channelStorage: storageFromEnvironment('DESKTOP_TOOLS_CHANNEL_R2'),
@@ -123,6 +138,7 @@ async function main() {
   }
   if (action === 'publish' && arguments_.length === 2) {
     const [directory, releaseId] = arguments_;
+    if (!directory || !releaseId) throw new Error('release directory and id are required');
     const releaseStorage = storageFromEnvironment('INSTALL_DOCTOR_RELEASE_R2');
     const receipt = await publishRelease({ directory, expectedReleaseId: releaseId, storage: releaseStorage, verifySignature });
     process.stdout.write(`${JSON.stringify(receipt)}\n`);
@@ -130,6 +146,8 @@ async function main() {
   }
   if (action === 'activate' && (arguments_.length === 5 || arguments_.length === 7)) {
     const [releaseId, channel, expectedEtagValue, activationId, activatedAt, kind = 'promote', rollbackOfActivationId = null] = arguments_;
+    if (!releaseId || !channel || !expectedEtagValue || !activationId || !activatedAt) throw new Error('activation arguments are required');
+    if (kind !== 'promote' && kind !== 'rollback') throw new Error('activation kind must be promote or rollback');
     const releaseStorage = storageFromEnvironment('INSTALL_DOCTOR_RELEASE_R2');
     const channelStorage = storageFromEnvironment('INSTALL_DOCTOR_CHANNEL_R2');
     const release = await inspectPublishedRelease({ expectedReleaseId: releaseId, storage: releaseStorage, verifySignature });
@@ -143,6 +161,7 @@ async function main() {
   }
   if (action === 'freshness' && (arguments_.length === 1 || arguments_.length === 2)) {
     const [channel, renewalWindow = '345600'] = arguments_;
+    if (!channel) throw new Error('release channel is required');
     if (!/^[1-9][0-9]{3,6}$/.test(renewalWindow)) throw new Error('renewal window must be an integer number of seconds');
     const result = await inspectActiveReleaseFreshness({
       channel,
@@ -158,6 +177,7 @@ async function main() {
   }
   if (action === 'renew' && arguments_.length === 5) {
     const [releaseId, channel, createdValue, expiresValue, outputDirectory] = arguments_;
+    if (!releaseId || !channel || !createdValue || !expiresValue || !outputDirectory) throw new Error('renewal arguments are required');
     if (!/^[1-9][0-9]*$/.test(createdValue) || !/^[1-9][0-9]*$/.test(expiresValue)) throw new Error('renewal timestamps must be canonical positive integers');
     const renewal = await prepareSamePayloadRenewal({
       channel,
@@ -170,6 +190,7 @@ async function main() {
     const unsignedDirectory = join(outputDirectory, 'unsigned');
     await mkdir(sourceDirectory, { mode: 0o700 });
     await mkdir(unsignedDirectory, { mode: 0o700 });
+    /** @param {string} directory @param {ReadonlyMap<string, Uint8Array>} files */
     const writeInventory = async (directory, files) => {
       for (const [name, bytes] of files) {
         const mode = ['provision.sh', 'install-doctor-engine.mjs', 'start'].includes(name) ? 0o700 : 0o600;
@@ -185,6 +206,7 @@ async function main() {
   }
   if (action === 'activate-renewal' && arguments_.length === 4) {
     const [planPath, planSignaturePath, activationId, activatedAt] = arguments_;
+    if (!planPath || !planSignaturePath || !activationId || !activatedAt) throw new Error('renewal activation arguments are required');
     const planInfo = await lstat(planPath);
     if (!planInfo.isFile() || planInfo.isSymbolicLink() || planInfo.size < 2 || planInfo.size > 16_384) throw new Error('renewal plan path is unsafe');
     const signatureInfo = await lstat(planSignaturePath);
@@ -206,14 +228,17 @@ async function main() {
   }
   if (action === 'reconcile' && arguments_.length === 2) {
     const [channel, activationId] = arguments_;
+    if (!channel || !activationId) throw new Error('channel and activation id are required');
     const receipt = await reconcileActivationReceipt({ channel, activationId, storage: storageFromEnvironment('INSTALL_DOCTOR_CHANNEL_R2') });
     process.stdout.write(`${JSON.stringify(receipt)}\n`);
     return;
   }
-  throw new Error('usage: publish-release-to-r2.mjs desktop-publish RELEASE_DIRECTORY RELEASE_ID | desktop-activate RELEASE_ID CHANNEL EXPECTED_ETAG_OR_- ACTIVATION_UUID ACTIVATED_AT [rollback ROLLBACK_OF_UUID] | desktop-reconcile CHANNEL ACTIVATION_UUID | desktop-freshness CHANNEL [RENEWAL_WINDOW_SECONDS] | publish RELEASE_DIRECTORY RELEASE_ID | activate RELEASE_ID CHANNEL EXPECTED_ETAG_OR_- ACTIVATION_UUID ACTIVATED_AT [rollback ROLLBACK_OF_UUID] | freshness CHANNEL [RENEWAL_WINDOW_SECONDS] | renew RELEASE_ID CHANNEL CREATED_AT EXPIRES_AT OUTPUT_DIRECTORY | activate-renewal PLAN_JSON PLAN_SIG ACTIVATION_UUID ACTIVATED_AT | reconcile CHANNEL ACTIVATION_UUID');
+  throw new Error('usage: publish-release-to-r2.mjs desktop-publish RELEASE_DIRECTORY RELEASE_ID | desktop-activate RELEASE_ID CHANNEL EXPECTED_ETAG_OR_- ACTIVATION_UUID ACTIVATED_AT PROMOTION_EVIDENCE_KEY [rollback ROLLBACK_OF_UUID] | desktop-reconcile CHANNEL ACTIVATION_UUID | desktop-freshness CHANNEL [RENEWAL_WINDOW_SECONDS] | publish RELEASE_DIRECTORY RELEASE_ID | activate RELEASE_ID CHANNEL EXPECTED_ETAG_OR_- ACTIVATION_UUID ACTIVATED_AT [rollback ROLLBACK_OF_UUID] | freshness CHANNEL [RENEWAL_WINDOW_SECONDS] | renew RELEASE_ID CHANNEL CREATED_AT EXPIRES_AT OUTPUT_DIRECTORY | activate-renewal PLAN_JSON PLAN_SIG ACTIVATION_UUID ACTIVATED_AT | reconcile CHANNEL ACTIVATION_UUID');
 }
 
-main().catch(error => {
-  process.stderr.write(`publish-release-to-r2: ${error instanceof Error ? error.message : 'unknown failure'}\n`);
-  process.exitCode = 1;
-});
+if (process.argv[1] && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  main().catch(error => {
+    process.stderr.write(`publish-release-to-r2: ${error instanceof Error ? error.message : 'unknown failure'}\n`);
+    process.exitCode = 1;
+  });
+}

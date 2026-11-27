@@ -9,6 +9,14 @@ const id = z.string().regex(/^[a-z0-9][a-z0-9._-]{0,127}$/);
 const sha256 = z.string().regex(/^[a-f0-9]{64}$/);
 const positive = z.string().regex(/^[1-9][0-9]*$/).transform(Number).refine(Number.isSafeInteger);
 const nonnegative = z.string().regex(/^(0|[1-9][0-9]*)$/).transform(Number).refine(Number.isSafeInteger);
+/** @typedef {readonly [prefix: string, filename: string, maximum: number]} Artifact */
+/** @typedef {ReturnType<typeof import('./r2-publication-storage.mjs').createR2PublicationStorage>} ReleaseStorage */
+/** @typedef {Pick<ReleaseStorage, 'read'>} ReadStorage */
+/** @typedef {Pick<ReleaseStorage, 'read' | 'create'>} DesktopStorage */
+/** @typedef {(input: { manifest: Uint8Array, signature: Uint8Array, signerId: string, namespace: string }) => void | Promise<void>} VerifyManifest */
+/** @typedef {(input: { payload: Uint8Array, signature: Uint8Array, signerId: string, namespace: string }) => void | Promise<void>} VerifyPromotion */
+
+/** @type {readonly Artifact[]} */
 const V7_ARTIFACTS = Object.freeze([
   ['artifact', 'provision.sh', 8_388_608],
   ['engine', policy.engineFilename, 8_388_608],
@@ -29,23 +37,28 @@ const V7_ARTIFACTS = Object.freeze([
   ['provenance', 'release.provenance.json', 8_388_608],
   ['licenses', 'THIRD_PARTY_LICENSES.txt', 8_388_608],
 ]);
+/** @type {readonly Artifact[]} */
 const V8_DEBIAN_ARTIFACTS = Object.freeze([
   ['debian_inrelease', 'debian-bookworm-inrelease', 16_777_216],
   ['debian_keyring', 'debian-bookworm-archive-keyring.gpg', 16_777_216],
   ['debian_packages', 'debian-bookworm-main-amd64-Packages.xz', 268_435_456],
   ['debian_tree', 'tree_2.1.0-1_amd64.deb', 268_435_456],
 ]);
+/** @type {readonly Artifact[]} */
 const V9_BROKER_ARTIFACTS = Object.freeze([
   ['broker_approval_delegation', 'broker-approval-signer-delegation.json', 65_536],
 ]);
+/** @type {readonly Artifact[]} */
 const V10_EVIDENCE_ARTIFACTS = Object.freeze([
   ['spdx', 'release.spdx.json', 8_388_608],
   ['exploitability', 'release.exploitability.json', 8_388_608],
 ]);
+/** @param {string} schemaVersion */
 const artifactsForSchema = schemaVersion => schemaVersion === '7' ? V7_ARTIFACTS
   : schemaVersion === '8' ? Object.freeze([...V7_ARTIFACTS, ...V8_DEBIAN_ARTIFACTS])
   : schemaVersion === '9' ? Object.freeze([...V7_ARTIFACTS, ...V8_DEBIAN_ARTIFACTS, ...V9_BROKER_ARTIFACTS])
   : Object.freeze([...V7_ARTIFACTS, ...V8_DEBIAN_ARTIFACTS, ...V9_BROKER_ARTIFACTS, ...V10_EVIDENCE_ARTIFACTS]);
+/** @param {string} schemaVersion */
 const filesForSchema = schemaVersion => Object.freeze([
   ...artifactsForSchema(schemaVersion).map(([, filename]) => filename), 'manifest.sig', 'manifest'
 ].sort());
@@ -53,21 +66,28 @@ export const DESKTOP_RELEASE_FILES = filesForSchema('7');
 export const DESKTOP_RELEASE_V8_FILES = filesForSchema('8');
 export const DESKTOP_RELEASE_V9_FILES = filesForSchema('9');
 export const DESKTOP_RELEASE_V10_FILES = filesForSchema('10');
+/** @param {string} schemaVersion */
 const requiredKeysForSchema = schemaVersion => Object.freeze([
   'schema_version', 'product_id', 'release_id', 'source_commit', 'created_at', 'expires_at', 'key_id',
   ...artifactsForSchema(schemaVersion).flatMap(([prefix]) => [`${prefix}_url`, `${prefix}_sha256`, `${prefix}_size`]),
   'engine_node_min', 'runtime_node_version', 'opencode_version',
   ...(['9', '10'].includes(schemaVersion) ? ['broker_approval_minimum_revocation_epoch'] : [])
 ]);
+/** @param {Uint8Array} bytes */
 const digest = bytes => createHash('sha256').update(bytes).digest('hex');
+/** @param {Uint8Array} left @param {Uint8Array} right */
 const same = (left, right) => Buffer.compare(Buffer.from(left), Buffer.from(right)) === 0;
+/** @param {unknown} value */
 const canonical = value => Buffer.from(`${JSON.stringify(value)}\n`, 'utf8');
+/** @param {unknown} value @returns {unknown} */
 const canonicalValue = value => Array.isArray(value) ? value.map(canonicalValue)
   : value && typeof value === 'object'
     ? Object.fromEntries(Object.entries(value).sort(([left], [right]) => left.localeCompare(right))
       .map(([key, entry]) => [key, canonicalValue(entry)]))
     : value;
+/** @param {string} domain @param {unknown} value */
 const semanticDigest = (domain, value) => digest(Buffer.from(`${domain}\0${JSON.stringify(canonicalValue(value))}`, 'utf8'));
+/** @param {readonly Artifact[]} artifacts */
 const closurePayloadNames = artifacts => artifacts.map(([, name]) => name)
   .filter(name => !['release.sbom.json', 'release.provenance.json', 'release.spdx.json',
     'release.exploitability.json', 'THIRD_PARTY_LICENSES.txt'].includes(name));
@@ -91,6 +111,7 @@ const PromotionEvidence = z.strictObject({
 });
 const COHORT_PREDECESSOR = Object.freeze({ canary: 'build', 'early-access': 'canary', stable: 'early-access' });
 
+/** @param {{ evidence: unknown, release: { releaseId: string }, targetCohort: string, now?: number, verifySignature: VerifyPromotion | null }} input */
 export async function admitDesktopPromotionEvidence({ evidence, release, targetCohort, now = Date.now(), verifySignature }) {
   if (typeof verifySignature !== 'function') throw new Error('promotion evidence verifier is required');
   const parsed = PromotionEvidence.parse(evidence);
@@ -110,17 +131,17 @@ export async function admitDesktopPromotionEvidence({ evidence, release, targetC
   await verifySignature({ payload: bytes, signature: Buffer.from(signature, 'base64url'), signerId: parsed.signerId,
     namespace: 'desktop.tools.promotion-health' });
   if (parsed.result !== 'passed') {
-    const error = new Error('promotion is suspended by failed cohort health evidence');
-    error.promotionSuspended = true;
-    error.evidenceDigest = digest(bytes);
-    error.evidence = parsed;
-    throw error;
+    throw Object.assign(new Error('promotion is suspended by failed cohort health evidence'), {
+      promotionSuspended: true, evidenceDigest: digest(bytes), evidence: parsed,
+    });
   }
   return Object.freeze({ ...parsed, signature: '[verified]', signaturePayloadSha256: digest(bytes) });
 }
 
+/** @param {Uint8Array} bytes */
 function parseManifest(bytes) {
   if (!(bytes instanceof Uint8Array) || bytes.byteLength < 1 || bytes.byteLength > 16_384) throw new Error('manifest size is outside policy');
+  /** @type {Map<string, string>} */
   const values = new Map();
   for (const line of Buffer.from(bytes).toString('utf8').split('\n')) {
     if (!line) continue;
@@ -131,13 +152,14 @@ function parseManifest(bytes) {
     values.set(key, value);
   }
   const schemaVersion = values.get('schema_version');
-  if (!['7', '8', '9', '10'].includes(schemaVersion)) throw new Error('manifest schema is unsupported');
+  if (schemaVersion === undefined || !['7', '8', '9', '10'].includes(schemaVersion)) throw new Error('manifest schema is unsupported');
   if (JSON.stringify([...values.keys()].sort()) !== JSON.stringify([...requiredKeysForSchema(schemaVersion)].sort())) {
     throw new Error(`manifest key set does not match Desktop Tools schema v${schemaVersion}`);
   }
-  return values;
+  return { values, schemaVersion };
 }
 
+/** @param {Uint8Array} bytes @param {{ releaseId: string, createdAt: number, expiresAt: number, minimumRevocationEpoch: number }} expected */
 function validateBrokerApprovalDelegation(bytes, { releaseId, createdAt, expiresAt, minimumRevocationEpoch }) {
   const delegation = parseJsonObject(bytes, 'broker approval signer delegation');
   const keys = ['algorithm', 'channel', 'delegationDigest', 'keyId', 'kind', 'maximumApprovalLifetimeSeconds',
@@ -152,13 +174,13 @@ function validateBrokerApprovalDelegation(bytes, { releaseId, createdAt, expires
     || delegation.algorithm !== 'Ed25519' || delegation.signatureDomain !== 'desktop-tools-broker-approval-v1'
     || delegation.product !== 'desktop-tools' || delegation.releaseId !== releaseId || delegation.channel !== 'stable'
     || !id.safeParse(delegation.keyId).success || !sha256.safeParse(delegation.delegationDigest).success
-    || !Number.isSafeInteger(delegation.maximumApprovalLifetimeSeconds)
+    || typeof delegation.maximumApprovalLifetimeSeconds !== 'number' || !Number.isSafeInteger(delegation.maximumApprovalLifetimeSeconds)
     || delegation.maximumApprovalLifetimeSeconds < 1 || delegation.maximumApprovalLifetimeSeconds > 1_800
-    || !Number.isSafeInteger(delegation.revocationEpoch) || delegation.revocationEpoch < minimumRevocationEpoch) {
+    || typeof delegation.revocationEpoch !== 'number' || !Number.isSafeInteger(delegation.revocationEpoch) || delegation.revocationEpoch < minimumRevocationEpoch) {
     throw new Error('broker approval signer delegation identity or policy is invalid');
   }
-  const notBefore = Date.parse(delegation.notBefore);
-  const notAfter = Date.parse(delegation.notAfter);
+  const notBefore = typeof delegation.notBefore === 'string' ? Date.parse(delegation.notBefore) : NaN;
+  const notAfter = typeof delegation.notAfter === 'string' ? Date.parse(delegation.notAfter) : NaN;
   if (!Number.isFinite(notBefore) || !Number.isFinite(notAfter)
     || new Date(notBefore).toISOString() !== delegation.notBefore || new Date(notAfter).toISOString() !== delegation.notAfter
     || notBefore > createdAt * 1_000 || notAfter < expiresAt * 1_000 || notBefore >= notAfter) {
@@ -181,82 +203,118 @@ function validateBrokerApprovalDelegation(bytes, { releaseId, createdAt, expires
   return delegation;
 }
 
-function parseJsonObject(bytes, label) {
-  let value;
-  try { value = JSON.parse(Buffer.from(bytes).toString('utf8')); } catch { throw new Error(`${label} is not valid JSON`); }
-  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error(`${label} must be a JSON object`);
+/** @param {unknown} value @returns {value is Record<string, unknown>} */
+function isRecord(value) {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+/** @param {unknown} value */
+const record = value => isRecord(value) ? value : undefined;
+/** @param {unknown} value @returns {unknown[]} */
+function list(value) {
+  if (value === undefined || value === null) return [];
+  if (!Array.isArray(value)) throw new Error('release metadata collection must be an array');
   return value;
 }
 
+/** @param {Uint8Array} bytes @param {string} label */
+function parseJsonObject(bytes, label) {
+  /** @type {unknown} */
+  let value;
+  try { value = JSON.parse(Buffer.from(bytes).toString('utf8')); } catch { throw new Error(`${label} is not valid JSON`); }
+  if (!isRecord(value)) throw new Error(`${label} must be a JSON object`);
+  return value;
+}
+
+/** @param {ReadonlyMap<string, Uint8Array>} files @param {string} name */
+function releaseFile(files, name) {
+  const bytes = files.get(name);
+  if (!bytes) throw new Error(`Desktop Tools release object is missing: ${name}`);
+  return bytes;
+}
+
+/** @param {unknown} items @param {string} label @param {ReadonlyMap<string, Uint8Array>} files @param {readonly Artifact[]} artifacts */
 function exactMetadataDigests(items, label, files, artifacts) {
   const actual = new Map();
-  for (const item of items ?? []) {
+  for (const entry of list(items)) {
+    const item = record(entry);
     const name = item?.name;
     const value = label === 'SBOM'
-      ? item?.hashes?.find(hash => hash?.alg === 'SHA-256')?.content
-      : item?.digest?.sha256;
+      ? record(list(item?.hashes).find(hash => record(hash)?.alg === 'SHA-256'))?.content
+      : record(item?.digest)?.sha256;
     if (typeof name !== 'string' || typeof value !== 'string' || actual.has(name)) throw new Error(`${label} payload bindings are ambiguous`);
     actual.set(name, value);
   }
-  const expected = new Map(closurePayloadNames(artifacts).map(name => [name, digest(files.get(name))]));
+  const expected = new Map(closurePayloadNames(artifacts).map(name => [name, digest(releaseFile(files, name))]));
   if (JSON.stringify([...actual.entries()].sort()) !== JSON.stringify([...expected.entries()].sort())) {
     throw new Error(`${label} does not bind the exact release payload closure`);
   }
 }
 
+/** @param {ReadonlyMap<string, Uint8Array>} files @param {string} releaseId @param {string} sourceCommit @param {string} opencodeVersion @param {readonly Artifact[]} artifacts @param {string} schemaVersion */
 function validateClosureMetadata(files, releaseId, sourceCommit, opencodeVersion, artifacts, schemaVersion) {
-  try { JSON.parse(Buffer.from(files.get('catalog.json')).toString('utf8')); } catch { throw new Error('catalog is not valid JSON'); }
-  const lock = parseJsonObject(files.get('opencode.lock.json'), 'OpenCode lock');
+  try { JSON.parse(Buffer.from(releaseFile(files, 'catalog.json')).toString('utf8')); } catch { throw new Error('catalog is not valid JSON'); }
+  const lock = parseJsonObject(releaseFile(files, 'opencode.lock.json'), 'OpenCode lock');
+  const sourceVerification = record(lock.sourceVerification);
+  const artifactRecords = record(lock.artifacts);
   const expectedNames = { macos_x64: 'opencode-macos-x64.zip', macos_arm64: 'opencode-macos-arm64.zip',
     linux_x64: 'opencode-linux-x64.tar.gz', linux_arm64: 'opencode-linux-arm64.tar.gz' };
   if (lock.schemaVersion !== 1 || lock.name !== 'opencode' || lock.version !== opencodeVersion
-    || !/^[a-f0-9]{40}$/.test(lock.sourceCommit ?? '') || lock.license !== 'MIT'
-    || lock.sourceVerification?.tagCommit !== lock.sourceCommit
-    || typeof lock.sourceVerification?.gitHubVerified !== 'boolean'
-    || lock.sourceVerification?.assetDigestSource !== 'github-release-api'
-    || !lock.artifacts || Object.keys(lock.artifacts).sort().join(',') !== Object.keys(expectedNames).sort().join(',')) {
+    || typeof lock.sourceCommit !== 'string' || !/^[a-f0-9]{40}$/.test(lock.sourceCommit) || lock.license !== 'MIT'
+    || sourceVerification?.tagCommit !== lock.sourceCommit
+    || typeof sourceVerification?.gitHubVerified !== 'boolean'
+    || sourceVerification?.assetDigestSource !== 'github-release-api'
+    || !artifactRecords || Object.keys(artifactRecords).sort().join(',') !== Object.keys(expectedNames).sort().join(',')) {
     throw new Error('OpenCode lock identity is invalid');
   }
   const lockedDependencies = new Map();
   for (const [platform, filename] of Object.entries(expectedNames)) {
-    const artifact = lock.artifacts[platform];
+    const artifact = record(artifactRecords[platform]);
+    const upstreamUrl = artifact?.upstreamUrl;
     let url;
-    try { url = new URL(artifact?.upstreamUrl); } catch { throw new Error(`OpenCode lock URL is invalid: ${platform}`); }
-    if (artifact?.releaseFilename !== filename || url.protocol !== 'https:' || url.username || url.password || url.search || url.hash
-      || !url.pathname.includes(`/v${opencodeVersion}/`) || artifact?.sha256 !== digest(files.get(filename))
-      || artifact?.size !== files.get(filename).byteLength || artifact.size > 167_772_160) {
+    try { url = new URL(typeof upstreamUrl === 'string' ? upstreamUrl : ''); } catch { throw new Error(`OpenCode lock URL is invalid: ${platform}`); }
+    if (typeof upstreamUrl !== 'string' || artifact?.releaseFilename !== filename || url.protocol !== 'https:' || url.username || url.password || url.search || url.hash
+      || !url.pathname.includes(`/v${opencodeVersion}/`) || artifact?.sha256 !== digest(releaseFile(files, filename))
+      || artifact?.size !== releaseFile(files, filename).byteLength || artifact.size > 167_772_160) {
       throw new Error(`OpenCode lock binding mismatch: ${platform}`);
     }
-    lockedDependencies.set(artifact.upstreamUrl, artifact.sha256);
+    lockedDependencies.set(upstreamUrl, artifact.sha256);
   }
-  const sbom = parseJsonObject(files.get('release.sbom.json'), 'release SBOM');
-  const properties = new Map((sbom.metadata?.component?.properties ?? []).map(item => [item?.name, item?.value]));
+  const sbom = parseJsonObject(releaseFile(files, 'release.sbom.json'), 'release SBOM');
+  const component = record(record(sbom.metadata)?.component);
+  const properties = new Map(list(component?.properties).map(item => {
+    const property = record(item);
+    return [property?.name, property?.value];
+  }));
   if (sbom.bomFormat !== 'CycloneDX' || sbom.specVersion !== '1.6' || sbom.version !== 1
-    || sbom.metadata?.component?.name !== 'desktop-tools-release' || sbom.metadata.component.version !== releaseId
+    || component?.name !== 'desktop-tools-release' || component.version !== releaseId
     || properties.get('desktop.tools:source-commit') !== sourceCommit
     || properties.get('desktop.tools:opencode-version') !== opencodeVersion) throw new Error('SBOM identity or release pins are invalid');
   exactMetadataDigests(sbom.components, 'SBOM', files, artifacts);
 
-  const provenance = parseJsonObject(files.get('release.provenance.json'), 'release provenance');
-  const parameters = provenance.predicate?.buildDefinition?.externalParameters;
+  const provenance = parseJsonObject(releaseFile(files, 'release.provenance.json'), 'release provenance');
+  const definition = record(record(provenance.predicate)?.buildDefinition);
+  const parameters = record(definition?.externalParameters);
   if (provenance._type !== 'https://in-toto.io/Statement/v1' || provenance.predicateType !== 'https://slsa.dev/provenance/v1'
     || parameters?.releaseId !== releaseId || parameters?.sourceCommit !== sourceCommit
     || parameters?.opencodeVersion !== opencodeVersion) throw new Error('provenance identity or release pins are invalid');
   exactMetadataDigests(provenance.subject, 'provenance', files, artifacts);
   const resolvedDependencies = new Map();
-  for (const dependency of provenance.predicate?.buildDefinition?.resolvedDependencies ?? []) {
-    if (typeof dependency?.uri !== 'string' || typeof dependency?.digest?.sha256 !== 'string' || resolvedDependencies.has(dependency.uri)) {
+  for (const item of list(definition?.resolvedDependencies)) {
+    const dependency = record(item);
+    const dependencyDigest = record(dependency?.digest)?.sha256;
+    if (typeof dependency?.uri !== 'string' || typeof dependencyDigest !== 'string' || resolvedDependencies.has(dependency.uri)) {
       throw new Error('provenance resolved dependencies are ambiguous');
     }
-    resolvedDependencies.set(dependency.uri, dependency.digest.sha256);
+    resolvedDependencies.set(dependency.uri, dependencyDigest);
   }
   for (const [uri, dependencyDigest] of lockedDependencies) {
     if (resolvedDependencies.get(uri) !== dependencyDigest) throw new Error('provenance does not bind the exact OpenCode upstream inputs');
     resolvedDependencies.delete(uri);
   }
   const expectedAdditionalDigests = schemaVersion !== '7' ? [
-    digest(files.get('debian-bookworm-archive-keyring.gpg')), digest(files.get('debian-bookworm-inrelease')),
-    digest(files.get('debian-bookworm-main-amd64-Packages.xz')), digest(files.get('tree_2.1.0-1_amd64.deb')),
+    digest(releaseFile(files, 'debian-bookworm-archive-keyring.gpg')), digest(releaseFile(files, 'debian-bookworm-inrelease')),
+    digest(releaseFile(files, 'debian-bookworm-main-amd64-Packages.xz')), digest(releaseFile(files, 'tree_2.1.0-1_amd64.deb')),
     parameters?.debianTrustPolicySha256, parameters?.debianCompositionSha256
   ].sort() : [];
   if (JSON.stringify([...resolvedDependencies.values()].sort()) !== JSON.stringify(expectedAdditionalDigests)
@@ -264,50 +322,52 @@ function validateClosureMetadata(files, releaseId, sourceCommit, opencodeVersion
     throw new Error('provenance does not bind the exact upstream input closure');
   }
 
-  const licenses = Buffer.from(files.get('THIRD_PARTY_LICENSES.txt')).toString('utf8');
-  if (!Buffer.from(licenses, 'utf8').equals(Buffer.from(files.get('THIRD_PARTY_LICENSES.txt')))
+  const licenses = Buffer.from(releaseFile(files, 'THIRD_PARTY_LICENSES.txt')).toString('utf8');
+  if (!Buffer.from(licenses, 'utf8').equals(Buffer.from(releaseFile(files, 'THIRD_PARTY_LICENSES.txt')))
     || /[\0\u0001-\u0008\u000b\u000c\u000e-\u001f\u007f]/.test(licenses)
     || !/opencode/i.test(licenses) || !licenses.includes(opencodeVersion)) {
     throw new Error('third-party licenses do not identify the pinned OpenCode version');
   }
 
   if (schemaVersion === '10') {
-    const spdxBytes = files.get('release.spdx.json');
+    const spdxBytes = releaseFile(files, 'release.spdx.json');
     const spdx = parseJsonObject(spdxBytes, 'SPDX inventory');
     if (spdx['@context'] !== 'https://spdx.org/rdf/3.0.1/spdx-context.jsonld' || !Array.isArray(spdx['@graph'])) {
       throw new Error('SPDX 3.0.1 envelope is invalid');
     }
-    const document = spdx['@graph'].find(element => element?.type === 'SpdxDocument');
-    if (document?.profileConformance?.join(',') !== 'core,software') throw new Error('SPDX profile conformance is invalid');
+    const graph = list(spdx['@graph']).flatMap(element => isRecord(element) ? [element] : []);
+    const document = graph.find(element => element.type === 'SpdxDocument');
+    if (list(document?.profileConformance).join(',') !== 'core,software') throw new Error('SPDX profile conformance is invalid');
     const spdxFiles = new Map();
-    for (const element of spdx['@graph'].filter(item => item?.type === 'software_File')) {
-      const hashes = element.verifiedUsing?.filter(item => item?.type === 'Hash' && item?.algorithm === 'sha256');
-      if (typeof element.name !== 'string' || hashes?.length !== 1 || !sha256.safeParse(hashes[0].hashValue).success
+    for (const element of graph.filter(item => item.type === 'software_File')) {
+      const hashes = list(element.verifiedUsing).map(record).filter(item => item?.type === 'Hash' && item.algorithm === 'sha256');
+      const hash = sha256.safeParse(hashes[0]?.hashValue);
+      if (typeof element.name !== 'string' || hashes.length !== 1 || !hash.success
         || spdxFiles.has(element.name)) throw new Error('SPDX file evidence is ambiguous');
-      spdxFiles.set(element.name, hashes[0].hashValue);
+      spdxFiles.set(element.name, hash.data);
     }
-    const expectedClosure = new Map(closurePayloadNames(artifacts).map(name => [name, digest(files.get(name))]));
+    const expectedClosure = new Map(closurePayloadNames(artifacts).map(name => [name, digest(releaseFile(files, name))]));
     if (JSON.stringify([...spdxFiles.entries()].sort()) !== JSON.stringify([...expectedClosure.entries()].sort())) {
       throw new Error('SPDX inventory does not bind the exact release payload closure');
     }
-    const exploitability = parseJsonObject(files.get('release.exploitability.json'), 'release exploitability statement');
+    const exploitability = parseJsonObject(releaseFile(files, 'release.exploitability.json'), 'release exploitability statement');
     const closure = Object.fromEntries([...expectedClosure.entries()].sort());
     if (exploitability.schemaVersion !== 1 || exploitability.kind !== 'desktop-tools-release-exploitability'
-      || exploitability.releaseId !== releaseId || exploitability.spdx?.specVersion !== '3.0.1'
-      || exploitability.spdx?.sha256 !== digest(spdxBytes)
-      || JSON.stringify(exploitability.releaseClosure?.artifacts) !== JSON.stringify(closure)
-      || exploitability.releaseClosure?.sha256 !== digest(Buffer.from(`${JSON.stringify(closure)}\n`))
+      || exploitability.releaseId !== releaseId || record(exploitability.spdx)?.specVersion !== '3.0.1'
+      || record(exploitability.spdx)?.sha256 !== digest(spdxBytes)
+      || JSON.stringify(record(exploitability.releaseClosure)?.artifacts) !== JSON.stringify(closure)
+      || record(exploitability.releaseClosure)?.sha256 !== digest(Buffer.from(`${JSON.stringify(closure)}\n`))
       || !Array.isArray(exploitability.assessments)) {
       throw new Error('release exploitability statement is invalid or not digest-bound');
     }
   }
 }
 
+/** @param {ReadonlyMap<string, Uint8Array>} files @param {unknown} expectedReleaseIdInput */
 function inspectFiles(files, expectedReleaseIdInput, now = Math.floor(Date.now() / 1_000), requireCurrent = true) {
   const releaseId = id.parse(expectedReleaseIdInput);
   if (!(files instanceof Map) || !files.has('manifest')) throw new Error('Desktop Tools release object set does not match the exact allowlist');
-  const manifest = parseManifest(files.get('manifest'));
-  const schemaVersion = manifest.get('schema_version');
+  const { values: manifest, schemaVersion } = parseManifest(releaseFile(files, 'manifest'));
   const artifacts = artifactsForSchema(schemaVersion);
   const releaseFiles = filesForSchema(schemaVersion);
   if (files.size !== releaseFiles.length || releaseFiles.some(name => !files.has(name))) {
@@ -316,7 +376,8 @@ function inspectFiles(files, expectedReleaseIdInput, now = Math.floor(Date.now()
   if (manifest.get('product_id') !== 'desktop-tools' || manifest.get('release_id') !== releaseId) {
     throw new Error('Desktop Tools release identity mismatch');
   }
-  if (!/^[a-f0-9]{40}$/.test(manifest.get('source_commit') ?? '')) throw new Error('source commit is invalid');
+  const sourceCommit = manifest.get('source_commit');
+  if (sourceCommit === undefined || !/^[a-f0-9]{40}$/.test(sourceCommit)) throw new Error('source commit is invalid');
   const createdAt = positive.parse(manifest.get('created_at'));
   const expiresAt = positive.parse(manifest.get('expires_at'));
   if (!Number.isSafeInteger(now) || createdAt > now + 300 || (requireCurrent && expiresAt <= now)
@@ -327,11 +388,11 @@ function inspectFiles(files, expectedReleaseIdInput, now = Math.floor(Date.now()
     throw new Error('runtime policy is invalid');
   }
   const opencodeVersion = manifest.get('opencode_version');
-  if (!/^2\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-[0-9A-Za-z.-]+)?$/.test(opencodeVersion ?? '')) {
+  if (!/^2\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-[0-9A-Za-z.-]+)?$/.test(opencodeVersion ?? '') || opencodeVersion === undefined) {
     throw new Error('OpenCode version pin is invalid');
   }
   for (const [prefix, filename, maximum] of artifacts) {
-    const bytes = files.get(filename);
+    const bytes = releaseFile(files, filename);
     const size = positive.parse(manifest.get(`${prefix}_size`));
     if (size !== bytes.byteLength || size > maximum || sha256.parse(manifest.get(`${prefix}_sha256`)) !== digest(bytes)) {
       throw new Error(`artifact binding mismatch: ${filename}`);
@@ -342,16 +403,17 @@ function inspectFiles(files, expectedReleaseIdInput, now = Math.floor(Date.now()
   }
   const minimumRevocationEpoch = ['9', '10'].includes(schemaVersion)
     ? nonnegative.parse(manifest.get('broker_approval_minimum_revocation_epoch')) : null;
-  const brokerApprovalDelegation = ['9', '10'].includes(schemaVersion)
-    ? validateBrokerApprovalDelegation(files.get('broker-approval-signer-delegation.json'), {
+  const brokerApprovalDelegation = minimumRevocationEpoch !== null
+    ? validateBrokerApprovalDelegation(releaseFile(files, 'broker-approval-signer-delegation.json'), {
       releaseId, createdAt, expiresAt, minimumRevocationEpoch
     }) : null;
-  validateClosureMetadata(files, releaseId, manifest.get('source_commit'), opencodeVersion, artifacts, schemaVersion);
+  validateClosureMetadata(files, releaseId, sourceCommit, opencodeVersion, artifacts, schemaVersion);
   return Object.freeze({ product: policy.product, releaseId, signerId: id.parse(manifest.get('key_id')), opencodeVersion,
-    schemaVersion: Number(schemaVersion), releaseFiles, sourceCommit: manifest.get('source_commit'), createdAt, expiresAt,
-    manifestSha256: digest(files.get('manifest')), minimumRevocationEpoch, brokerApprovalDelegation, files });
+    schemaVersion: Number(schemaVersion), releaseFiles, sourceCommit, createdAt, expiresAt,
+    manifestSha256: digest(releaseFile(files, 'manifest')), minimumRevocationEpoch, brokerApprovalDelegation, files });
 }
 
+/** @param {string} directoryInput @param {unknown} expectedReleaseId @param {number} [now] */
 export async function inspectDesktopReleaseDirectory(directoryInput, expectedReleaseId, now) {
   const directory = resolve(directoryInput);
   const root = await lstat(directory);
@@ -372,22 +434,23 @@ export async function inspectDesktopReleaseDirectory(directoryInput, expectedRel
   return inspectFiles(files, expectedReleaseId, now);
 }
 
+/** @param {{ directory: string, expectedReleaseId: string, storage: DesktopStorage, verifySignature: VerifyManifest, now?: number }} input */
 export async function publishDesktopRelease({ directory, expectedReleaseId, storage, verifySignature, now }) {
   if (typeof storage?.create !== 'function' || typeof storage?.read !== 'function' || typeof verifySignature !== 'function') throw new Error('publication dependencies are invalid');
   const release = await inspectDesktopReleaseDirectory(directory, expectedReleaseId, now);
-  await verifySignature({ manifest: release.files.get('manifest'), signature: release.files.get('manifest.sig'),
+  await verifySignature({ manifest: releaseFile(release.files, 'manifest'), signature: releaseFile(release.files, 'manifest.sig'),
     signerId: release.signerId, namespace: policy.signatureNamespace });
   const outcomes = [];
   for (const name of release.releaseFiles.filter(name => name !== 'manifest')) {
     const key = `desktop-tools/bootstrap/${release.releaseId}/${name}`;
-    const bytes = release.files.get(name);
+    const bytes = releaseFile(release.files, name);
     const created = await storage.create(key, bytes, { sha256: digest(bytes) });
     const stored = await storage.read(key);
     if (!stored?.bytes || !same(stored.bytes, bytes)) throw new Error(`immutable read-back mismatch: ${name}`);
     outcomes.push({ name, outcome: created ? 'created' : 'already-present' });
   }
   const manifestKey = `desktop-tools/bootstrap/${release.releaseId}/manifest`;
-  const manifest = release.files.get('manifest');
+  const manifest = releaseFile(release.files, 'manifest');
   const created = await storage.create(manifestKey, manifest, { sha256: release.manifestSha256 });
   const stored = await storage.read(manifestKey);
   if (!stored?.bytes || !same(stored.bytes, manifest)) throw new Error('immutable read-back mismatch: manifest');
@@ -396,6 +459,7 @@ export async function publishDesktopRelease({ directory, expectedReleaseId, stor
     signerId: release.signerId, manifestSha256: release.manifestSha256, outcomes });
 }
 
+/** @param {{ expectedReleaseId: string, storage: ReadStorage, verifySignature: VerifyManifest, now?: number, requireCurrent?: boolean }} input */
 export async function inspectPublishedDesktopRelease({ expectedReleaseId, storage, verifySignature, now, requireCurrent = true }) {
   if (typeof storage?.read !== 'function' || typeof verifySignature !== 'function') throw new Error('inspection dependencies are invalid');
   const releaseId = id.parse(expectedReleaseId);
@@ -403,7 +467,7 @@ export async function inspectPublishedDesktopRelease({ expectedReleaseId, storag
   const manifestStored = await storage.read(`desktop-tools/bootstrap/${releaseId}/manifest`);
   if (!manifestStored?.bytes) throw new Error('published Desktop Tools release object is missing: manifest');
   const manifest = Buffer.from(manifestStored.bytes);
-  const releaseFiles = filesForSchema(parseManifest(manifest).get('schema_version'));
+  const releaseFiles = filesForSchema(parseManifest(manifest).schemaVersion);
   files.set('manifest', manifest);
   for (const name of releaseFiles.filter(name => name !== 'manifest')) {
     const stored = await storage.read(`desktop-tools/bootstrap/${releaseId}/${name}`);
@@ -411,11 +475,12 @@ export async function inspectPublishedDesktopRelease({ expectedReleaseId, storag
     files.set(name, Buffer.from(stored.bytes));
   }
   const release = inspectFiles(files, releaseId, now, requireCurrent);
-  await verifySignature({ manifest: files.get('manifest'), signature: files.get('manifest.sig'),
+  await verifySignature({ manifest: releaseFile(files, 'manifest'), signature: releaseFile(files, 'manifest.sig'),
     signerId: release.signerId, namespace: policy.signatureNamespace });
   return release;
 }
 
+/** @param {{ channel: string, channelStorage: ReadStorage, releaseStorage: ReadStorage, verifySignature: VerifyManifest, now?: number, renewalWindowSeconds?: number }} input */
 export async function inspectActiveDesktopReleaseFreshness({
   channel, channelStorage, releaseStorage, verifySignature,
   now = Math.floor(Date.now() / 1_000), renewalWindowSeconds = 259_200,
@@ -446,6 +511,7 @@ export async function inspectActiveDesktopReleaseFreshness({
     createdAt: release.createdAt, expiresAt: release.expiresAt, remainingSeconds });
 }
 
+/** @param {DesktopStorage} storage @param {string} key @param {unknown} value */
 async function createCanonical(storage, key, value) {
   const bytes = canonical(value);
   const created = await storage.create(key, bytes, { sha256: digest(bytes) });
@@ -454,6 +520,15 @@ async function createCanonical(storage, key, value) {
   return created;
 }
 
+/**
+ * @param {{
+ *   channel: string, release: Pick<Awaited<ReturnType<typeof inspectPublishedDesktopRelease>>, 'product' | 'releaseId' | 'signerId' | 'manifestSha256' | 'expiresAt'>,
+ *   storage: DesktopStorage & Pick<ReleaseStorage, 'compareAndSwap'>, expectedEtag?: string,
+ *   activationId: string, activatedAt: string, kind?: 'promote' | 'rollback', rollbackOfActivationId?: string | null,
+ *   now?: number, minimumPromotionRemainingSeconds?: number, minimumRollbackRemainingSeconds?: number,
+ *   promotionEvidence?: unknown, verifyPromotionSignature?: VerifyPromotion | null,
+ * }} input
+ */
 export async function activateDesktopRelease({
   channel, release, storage, expectedEtag, activationId, activatedAt, kind = 'promote',
   rollbackOfActivationId = null, now = Math.floor(Date.now() / 1_000),
@@ -477,7 +552,7 @@ export async function activateDesktopRelease({
       admittedPromotionEvidence = await admitDesktopPromotionEvidence({ evidence: promotionEvidence, release, targetCohort: channel,
         now: now * 1_000, verifySignature: verifyPromotionSignature });
     } catch (error) {
-      if (error?.promotionSuspended === true) {
+      if (isRecord(error) && error.promotionSuspended === true && isRecord(error.evidence)) {
         await createCanonical(storage, `desktop-tools/promotion-suspensions/${release.releaseId}/${channel}.json`, {
           schemaVersion: 1, product: 'desktop-tools', releaseId: release.releaseId, cohort: channel,
           evidenceDigest: error.evidenceDigest, observedAt: error.evidence.observedAt,
@@ -530,6 +605,7 @@ export async function activateDesktopRelease({
   }
 }
 
+/** @param {{ channel: string, activationId: string, storage: DesktopStorage }} input */
 export async function reconcileDesktopActivationReceipt({ channel, activationId, storage }) {
   if (typeof storage?.read !== 'function' || typeof storage?.create !== 'function') throw new Error('reconciliation storage adapter is invalid');
   const channelId = id.parse(channel);

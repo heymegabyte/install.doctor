@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
 import { createHash, generateKeyPairSync, randomUUID } from 'node:crypto';
-import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
@@ -9,6 +10,27 @@ import {
   inspectActiveDesktopReleaseFreshness, inspectPublishedDesktopRelease, publishDesktopRelease,
   reconcileDesktopActivationReceipt
 } from '../scripts/desktop-release-publication.mjs';
+
+import { createSignatureVerifier } from '../scripts/publish-release-to-r2.mjs';
+
+test('CLI verifier uses the signed promotion payload and rejects different bytes', async (t) => {
+  const directory = await mkdtemp(join(tmpdir(), 'desktop-promotion-signature-'));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const key = join(directory, 'signer');
+  const evidence = join(directory, 'evidence.json');
+  const namespace = 'desktop.tools.promotion-health';
+  const payload = Buffer.from('{"result":"passed"}\n');
+  await writeFile(evidence, payload);
+  execFileSync('ssh-keygen', ['-q', '-t', 'ed25519', '-N', '', '-f', key]);
+  execFileSync('ssh-keygen', ['-Y', 'sign', '-q', '-f', key, '-n', namespace, evidence]);
+  const verify = await createSignatureVerifier('desktop-tools', {
+    DESKTOP_TOOLS_RELEASE_SIGNER_ID: 'test-signer',
+    DESKTOP_TOOLS_RELEASE_PUBLIC_KEY: key + '.pub',
+  });
+  const claim = { namespace, signerId: 'test-signer', signature: await readFile(evidence + '.sig') };
+  await verify({ ...claim, payload });
+  await assert.rejects(verify({ ...claim, payload: Buffer.from('different bytes') }), /signature verification failed/);
+});
 
 const digest = bytes => createHash('sha256').update(bytes).digest('hex');
 const canonicalValue = value => Array.isArray(value) ? value.map(canonicalValue)
@@ -19,7 +41,7 @@ const semanticDigest = (domain, value) => digest(Buffer.from(`${domain}\0${JSON.
 
 async function fixture(t, mutate = value => value, schemaVersion = 7) {
   const directory = await mkdtemp(join(tmpdir(), 'desktop-release-test-'));
-  t.after(async () => { const { rm } = await import('node:fs/promises'); await rm(directory, { recursive: true, force: true }); });
+  t.after(() => rm(directory, { recursive: true, force: true }));
   const releaseId = `desktop-${randomUUID()}`;
   const bodies = new Map();
   const evidence = ['manifest', 'manifest.sig', 'release.sbom.json', 'release.provenance.json', 'THIRD_PARTY_LICENSES.txt'];

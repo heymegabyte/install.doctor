@@ -63,9 +63,7 @@ activation are provider-separable authorities.
 - In this package, run `npm run typecheck` to generate Worker runtime types using Wrangler
   and check the full source tree against the shared strict compiler profile.
 - After building aid-core, run `npm run typecheck:tooling` to check the catalog generator,
-  offline-bundle tooling, release publication and activation module, R2 storage adapter, and
-  test runner with Node runtime types. The remaining tooling scripts are outside this compiler
-  project until their inputs and callbacks are typed.
+  publication and activation tooling, R2 storage adapter, and test runner with Node runtime types.
 - Run `npm run check` to build aid-core, run both compiler projects, and bundle the Worker
   in a Wrangler dry run.
 - `npm run deploy` → needs `CLOUDFLARE_API_TOKEN` + `CLOUDFLARE_ACCOUNT_ID` in env (via `get-secret`).

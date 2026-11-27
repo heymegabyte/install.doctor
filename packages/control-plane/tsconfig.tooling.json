@@ -2,18 +2,11 @@
   "extends": "../aid-core/vendor/theme-tools/tsconfig.base.json",
   "compilerOptions": {
     "allowJs": true,
+    "allowImportingTsExtensions": true,
     "checkJs": true,
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
     "types": ["node"]
   },
-  "include": [
-    "scripts/gen-catalog.mjs",
-    "scripts/offline-bundle-publication.mjs",
-    "scripts/offline-bundle-request.mjs",
-    "scripts/publish-offline-bundle.mjs",
-    "scripts/r2-publication-storage.mjs",
-    "scripts/release-publication.mjs",
-    "scripts/run-tests.mjs"
-  ]
+  "include": ["scripts/**/*.mjs"]
 }
