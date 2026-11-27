@@ -199,10 +199,18 @@ const TEST_ENV = {
 /** @param {string} value */
 const shellLiteral = (value) => `'${value.replaceAll("'", "'\\''")}'`;
 
-/** @returns {D1Database} */
+/** @param {unknown} value @returns {value is Pick<D1Database, 'prepare' | 'batch' | 'exec'>} */
+function isFixtureD1(value) {
+  return value !== null && typeof value === 'object' &&
+    'prepare' in value && typeof value.prepare === 'function' &&
+    'batch' in value && typeof value.batch === 'function' &&
+    'exec' in value && typeof value.exec === 'function';
+}
+
 function testDatabase() {
+  /** @type {unknown} */
   const database = Reflect.get(globalThis, '__AID_TEST_DB__');
-  assert.ok(database, 'Worker fixture did not install its D1 adapter');
+  assert.ok(isFixtureD1(database), 'Worker fixture did not install its D1 adapter');
   return database;
 }
 
@@ -240,9 +248,10 @@ void test('pairing start uses a high-entropy human code and rejects oversized re
   assert.deepEqual(await pending.json(), { status: 'pending' });
 
   const alphabet = '23456789ABCDEFGHJKLMNPQRSTUVWXYZ';
-  const codeBytes = [...body.code.replaceAll('-', '')].map((character) => alphabet.indexOf(character));
+  const codeBytes = Array.from(body.code.replaceAll('-', ''), character => alphabet.indexOf(character));
   const webCrypto = crypto.webcrypto;
-  const originalGetRandomValues = webCrypto.getRandomValues;
+  const originalDescriptor = Object.getOwnPropertyDescriptor(webCrypto, 'getRandomValues');
+  const originalGetRandomValues = webCrypto.getRandomValues.bind(webCrypto);
   let replayedCode = false;
   webCrypto.getRandomValues = (array) => {
     if (!replayedCode && array.byteLength === 12) {
@@ -251,7 +260,7 @@ void test('pairing start uses a high-entropy human code and rejects oversized re
       array.set(codeBytes);
       return array;
     }
-    originalGetRandomValues.call(webCrypto, array);
+    originalGetRandomValues(array);
     return array;
   };
   try {
@@ -265,7 +274,8 @@ void test('pairing start uses a high-entropy human code and rejects oversized re
     assert.notEqual(z.looseObject({ code: z.string() }).parse(await collisionSafe.json()).code, body.code);
     assert.equal(replayedCode, true, 'test must force an issuance collision');
   } finally {
-    webCrypto.getRandomValues = originalGetRandomValues;
+    if (originalDescriptor) Object.defineProperty(webCrypto, 'getRandomValues', originalDescriptor);
+    else Reflect.deleteProperty(webCrypto, 'getRandomValues');
   }
 
   const oversized = await app.fetch(
@@ -372,7 +382,7 @@ void test('v1 target authorization persists exact public binding and atomically 
   assert.ok(typeof persisted.scopes === 'string');
   assert.equal(persisted.secret_sha256, crypto.createHash('sha256').update(credential.credential).digest('hex'));
   assert.deepEqual({ tenantId: persisted.tenant_id, profileId: persisted.profile_id,
-    fingerprint: persisted.target_key_fingerprint, scopes: JSON.parse(persisted.scopes) }, {
+    fingerprint: persisted.target_key_fingerprint, scopes: z.array(z.string()).parse(JSON.parse(persisted.scopes)) }, {
     tenantId: profile.tenantId, profileId: profile.id, fingerprint: binding.targetKeyFingerprint, scopes: binding.scopes,
   });
 
@@ -627,8 +637,9 @@ void test('pair claim is atomic, digest-only, binding-safe, and normalizes termi
       'x-desktop-tools-device-fingerprint': fingerprint,
       ...headers,
     };
-    for (const [name, value] of Object.entries(presented)) if (value === undefined) delete presented[name];
-    return app.fetch(new Request('https://app.install.doctor/api/devices/pair/poll', { headers: /** @type {Record<string, string>} */ (presented) }), env);
+    const filtered = new Headers();
+    for (const [name, value] of Object.entries(presented)) if (value !== undefined) filtered.set(name, value);
+    return app.fetch(new Request('https://app.install.doctor/api/devices/pair/poll', { headers: filtered }), env);
   };
   for (const headers of [
     { 'x-desktop-tools-tenant': undefined },
@@ -1561,15 +1572,15 @@ void test('Control Plane /start resolves only a digest-bound CAS channel before 
   }));
   /** @type {string[]} */
   const requested = [];
-  const RELEASE_CHANNELS = { async get(/** @type {string} */ key) {
+  const RELEASE_CHANNELS = { get(/** @type {string} */ key) {
     requested.push(key);
     const bytes = key === 'bootstrap/channels/stable.json' ? pointer : null;
-    return bytes ? { body: new Blob([bytes]).stream(), size: bytes.byteLength } : null;
+    return Promise.resolve(bytes ? { body: new Blob([bytes]).stream(), size: bytes.byteLength } : null);
   } };
-  const RELEASES = { async get(/** @type {string} */ key) {
+  const RELEASES = { get(/** @type {string} */ key) {
     requested.push(key);
     const bytes = key === 'bootstrap/release-1/manifest' ? manifest : null;
-    return bytes ? { body: new Blob([bytes]).stream(), size: bytes.byteLength } : null;
+    return Promise.resolve(bytes ? { body: new Blob([bytes]).stream(), size: bytes.byteLength } : null);
   } };
   const response = await app.fetch(new Request('https://app.install.doctor/start'), { ...TEST_ENV, RELEASES, RELEASE_CHANNELS });
   assert.equal(response.status, 503);
@@ -1579,9 +1590,9 @@ void test('Control Plane /start resolves only a digest-bound CAS channel before 
   const tampered = await app.fetch(new Request('https://app.install.doctor/start'), {
     ...TEST_ENV,
     RELEASE_CHANNELS,
-    RELEASES: { async get(/** @type {string} */ key) {
+    RELEASES: { get(/** @type {string} */ key) {
       const bytes = key === 'bootstrap/release-1/manifest' ? new TextEncoder().encode('tampered') : null;
-      return bytes ? { body: new Blob([bytes]).stream(), size: bytes.byteLength } : null;
+      return Promise.resolve(bytes ? { body: new Blob([bytes]).stream(), size: bytes.byteLength } : null);
     } },
   });
   assert.equal(tampered.status, 503);
@@ -1597,8 +1608,8 @@ void test('Control Plane /start resolves only a digest-bound CAS channel before 
   }));
   const expired = await app.fetch(new Request('https://app.install.doctor/start'), {
     ...TEST_ENV,
-    RELEASE_CHANNELS: { async get() { return { body: new Blob([expiredPointer]).stream(), size: expiredPointer.byteLength }; } },
-    RELEASES: { async get() { return { body: new Blob([expiredManifest]).stream(), size: expiredManifest.byteLength }; } },
+    RELEASE_CHANNELS: { get() { return Promise.resolve({ body: new Blob([expiredPointer]).stream(), size: expiredPointer.byteLength }); } },
+    RELEASES: { get() { return Promise.resolve({ body: new Blob([expiredManifest]).stream(), size: expiredManifest.byteLength }); } },
   });
   assert.equal(expired.status, 503);
   assert.equal(errorResponse.parse(await expired.json()).error, 'release_channel_unavailable');
@@ -1630,10 +1641,10 @@ void test('Control Plane serves immutable release bytes from the exact release o
     ])),
   ]);
   const RELEASES = {
-    async get(/** @type {string} */ key) {
+    get(/** @type {string} */ key) {
       requestedKeys.push(key);
       const body = bodies.get(key);
-      return body ? { body: new Blob([body]).stream(), size: body.byteLength } : null;
+      return Promise.resolve(body ? { body: new Blob([body]).stream(), size: body.byteLength } : null);
     },
   };
 
@@ -1684,7 +1695,7 @@ void test('Control Plane release serving fails closed for unavailable storage, m
 
   /** @type {string[]} */
   const requestedKeys = [];
-  const RELEASES = { async get(/** @type {string} */ key) { requestedKeys.push(key); return null; } };
+  const RELEASES = { get(/** @type {string} */ key) { requestedKeys.push(key); return Promise.resolve(null); } };
   const missing = await app.fetch(
     new Request('https://app.install.doctor/releases/release-1/manifest'),
     { ...TEST_ENV, RELEASES },
