@@ -6,14 +6,26 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { createServer } from 'node:net';
 import test from 'node:test';
+import { z } from 'zod';
+import { InstallerEventSchema, NormalizedPlanSchema } from '../dist/contracts.js';
 import { createDesktopToolsMcpRuntime } from '../dist/mcp-server.js';
 import { DESKTOP_TOOLS_TYPED_TOOL_NAMES } from '../dist/typed-tool-adapters.js';
 
+const approvalResult = z.object({ approvalId: z.string() });
+
+/** @param {string} character */
 const digest = character => character.repeat(64);
+/** @param {string} path */
 const sha256 = async path => createHash('sha256').update(await readFile(path)).digest('hex');
+/** @returns {Promise<number>} */
 const availablePort = () => new Promise((resolvePromise, reject) => {
   const server = createServer(); server.once('error', reject); server.listen(0, '127.0.0.1', () => {
-    const address = server.address(); server.close(error => error ? reject(error) : resolvePromise(address.port));
+    const address = server.address();
+    server.close(error => {
+      if (error) reject(error);
+      else if (!address || typeof address === 'string') reject(new Error('expected a TCP listener address'));
+      else resolvePromise(address.port);
+    });
   });
 });
 
@@ -60,6 +72,12 @@ async function fixture() {
   return { root, stateRoot, consentDirectory, marker, context, contextPath, engine, server, options };
 }
 
+/**
+ * @param {Awaited<ReturnType<typeof fixture>>} item
+ * @param {Parameters<import('../dist/typed-tool-adapters.js').ConsentBroker>[0]['operation']} operation
+ * @param {string} planDigest
+ * @param {string | null} sourceRunId
+ */
 async function writeConsent(item, operation, planDigest, sourceRunId = null) {
   const path = join(item.consentDirectory, `${operation}.${planDigest}.json`);
   await writeFile(path, `${JSON.stringify({ schemaVersion: 1, operation, sessionRunId: item.context.runId, planDigest,
@@ -82,7 +100,8 @@ test('stdio MCP lists only the ten tools and strict calls reject model-supplied 
   const exit = await new Promise((resolvePromise, reject) => { child.once('error', reject); child.once('exit', code => resolvePromise(code)); });
   assert.equal(exit, 0); assert.equal(stderr, '');
   const responses = stdout.trim().split('\n').map(line => JSON.parse(line));
-  assert.deepEqual(responses.find(value => value.id === 2).result.tools.map(tool => tool.name), [...DESKTOP_TOOLS_TYPED_TOOL_NAMES]);
+  const toolsResponse = z.object({ tools: z.array(z.object({ name: z.string() })) }).parse(responses.find(value => value.id === 2).result);
+  assert.deepEqual(toolsResponse.tools.map(tool => tool.name), [...DESKTOP_TOOLS_TYPED_TOOL_NAMES]);
   const rejected = responses.find(value => value.id === 3).result;
   assert.equal(rejected.isError, true); assert.match(rejected.content[0].text, /unrecognized_keys/i);
   assert.equal(stdout.includes('/tmp/pwned'), false);
@@ -92,15 +111,15 @@ test('real MCP plan/apply requires out-of-band consent and engine journal owners
   const item = await fixture();
   const first = await createDesktopToolsMcpRuntime(item.options);
   const second = await createDesktopToolsMcpRuntime(item.options);
-  const firstPlan = await first.call('desktop_tools_plan', { schemaVersion: 1 });
-  const secondPlan = await second.call('desktop_tools_plan', { schemaVersion: 1 });
+  const firstPlan = NormalizedPlanSchema.parse(await first.call('desktop_tools_plan', { schemaVersion: 1 }));
+  const secondPlan = NormalizedPlanSchema.parse(await second.call('desktop_tools_plan', { schemaVersion: 1 }));
   assert.equal(firstPlan.digest, secondPlan.digest);
   await assert.rejects(first.call('desktop_tools_approve', { schemaVersion: 1, planDigest: firstPlan.digest }), /consent is pending/);
   await writeConsent(item, 'apply', firstPlan.digest);
-  const firstApproval = await first.call('desktop_tools_approve', { schemaVersion: 1, planDigest: firstPlan.digest });
+  const firstApproval = approvalResult.parse(await first.call('desktop_tools_approve', { schemaVersion: 1, planDigest: firstPlan.digest }));
   await assert.rejects(second.call('desktop_tools_approve', { schemaVersion: 1, planDigest: secondPlan.digest }), /consent is pending/);
   await writeConsent(item, 'apply', secondPlan.digest);
-  const secondApproval = await second.call('desktop_tools_approve', { schemaVersion: 1, planDigest: secondPlan.digest });
+  const secondApproval = approvalResult.parse(await second.call('desktop_tools_approve', { schemaVersion: 1, planDigest: secondPlan.digest }));
   const applying = first.call('desktop_tools_apply', { schemaVersion: 1, approvalId: firstApproval.approvalId });
   const deadline = Date.now() + 3_000;
   while (Date.now() < deadline) {
@@ -109,12 +128,12 @@ test('real MCP plan/apply requires out-of-band consent and engine journal owners
     await new Promise(resolvePromise => setTimeout(resolvePromise, 25));
   }
   await assert.rejects(second.call('desktop_tools_apply', { schemaVersion: 1, approvalId: secondApproval.approvalId }), /engine rejected.*class [34]/);
-  const result = await applying;
+  const result = z.object({ events: z.array(InstallerEventSchema) }).parse(await applying);
   assert.ok(result.events.some(event => event.kind === 'run-status' && event.status === 'success'));
   assert.equal(await readFile(item.marker, 'utf8'), 'x');
   const runs = await readdir(join(item.stateRoot, 'runs'));
   assert.equal(runs.length, 1);
-  const verified = await first.call('desktop_tools_verify', { schemaVersion: 1, runId: item.context.runId, planDigest: firstPlan.digest });
+  const verified = z.object({ authority: z.string() }).parse(await first.call('desktop_tools_verify', { schemaVersion: 1, runId: item.context.runId, planDigest: firstPlan.digest }));
   assert.equal(verified.authority, 'committed');
 });
 
@@ -166,7 +185,9 @@ test('pinned OpenCode discovers the signed local Desktop Tools MCP server', {
   };
   await writeFile(configPath, `${JSON.stringify(config)}\n`, { mode: 0o600 });
   const port = await availablePort();
-  const child = spawn(process.env.OPENCODE_PINNED_BINARY, ['serve', '--hostname', '127.0.0.1', '--port', String(port)], {
+  const binary = process.env.OPENCODE_PINNED_BINARY;
+  assert.ok(binary);
+  const child = spawn(binary, ['serve', '--hostname', '127.0.0.1', '--port', String(port)], {
     cwd: item.root, detached: true, stdio: ['ignore', 'pipe', 'pipe'],
     env: { PATH: '/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin', LANG: 'C.UTF-8', OPENCODE_CONFIG_CONTENT: JSON.stringify(config),
       OPENCODE_CONFIG_DIR: configRoot, OPENCODE_CONFIG: configPath,
@@ -194,11 +215,15 @@ test('pinned OpenCode discovers the signed local Desktop Tools MCP server', {
     assert.equal(configResponse.ok, true);
     const loadedConfig = await configResponse.json();
     const loaded = JSON.stringify(loadedConfig);
+    /** @type {Array<{ action: string, effect: string, resource: unknown }>} */
     const rules = [];
+    /** @param {unknown} value */
     const collectRules = value => {
       if (Array.isArray(value)) { for (const item of value) collectRules(item); return; }
       if (!value || typeof value !== 'object') return;
-      if (typeof value.action === 'string' && typeof value.effect === 'string') rules.push(value);
+      if ('action' in value && typeof value.action === 'string' && 'effect' in value && typeof value.effect === 'string') {
+        rules.push({ action: value.action, effect: value.effect, resource: 'resource' in value ? value.resource : undefined });
+      }
       for (const nested of Object.values(value)) collectRules(nested);
     };
     collectRules(loadedConfig);
@@ -208,7 +233,9 @@ test('pinned OpenCode discovers the signed local Desktop Tools MCP server', {
     }
     for (const tool of DESKTOP_TOOLS_TYPED_TOOL_NAMES) assert.match(loaded, new RegExp(tool));
   } finally {
-    try { process.kill(-child.pid, 'SIGTERM'); } catch {}
+    if (child.pid !== undefined) {
+      try { process.kill(-child.pid, 'SIGTERM'); } catch {}
+    }
     await new Promise(resolvePromise => child.once('exit', resolvePromise));
   }
 });

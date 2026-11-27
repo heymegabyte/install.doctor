@@ -17,6 +17,15 @@ const grant = { schemaVersion: 1, grantId: 'grant-1', hostId: 'host-1', releaseI
 const binding = { tenantId: 'tenant-1', profileId: 'profile-1', profileRevisionDigest: d,
   deviceCredentialId: 'device-1', deviceFingerprint: d, runIntentId: 'intent-1', authorizationId: 'authorization-1' };
 
+/**
+ * @param {RequestInit | undefined} init
+ * @returns {string}
+ */
+function requestBody(init) {
+  assert.ok(typeof init?.body === 'string');
+  return init.body;
+}
+
 async function tokenFixture() {
   const root = await mkdtemp(join(tmpdir(), 'broker-transport-'));
   const dir = join(root, 'config');
@@ -59,18 +68,22 @@ test('reads the bearer secret from the protected structured enrollment credentia
 
 test('submits an exact run intent and never places the credential in URL or body', async () => {
   const fixture = await tokenFixture();
-  let seen;
+  /** @type {{ url: string, headers: Headers, body: string }[]} */
+  const requests = [];
   const transport = createBrokerApprovalTransport({ origin: 'https://desktop.tools', tokenPath: fixture.path,
     fetch: async (url, init) => {
-      seen = { url: String(url), init };
-      const runIntent = JSON.parse(init.body);
+      const body = requestBody(init);
+      requests.push({ url: String(url), headers: new Headers(init?.headers), body });
+      const runIntent = JSON.parse(body);
       return Response.json({ created: true, runIntent });
     } });
   const intent = await transport.request(grant, binding);
   assert.equal(intent.grantId, grant.grantId);
+  const [seen] = requests;
+  assert.ok(seen);
   assert.equal(seen.url, 'https://desktop.tools/api/devices/broker-authorizations');
-  assert.equal(seen.init.headers.authorization, 'Bearer opaque-device-token-value');
-  assert.doesNotMatch(seen.url + seen.init.body, /opaque-device-token-value/);
+  assert.equal(seen.headers.get('authorization'), 'Bearer opaque-device-token-value');
+  assert.doesNotMatch(seen.url + seen.body, /opaque-device-token-value/);
   assert.equal(intent.deviceFingerprint, binding.deviceFingerprint);
 });
 
@@ -82,6 +95,7 @@ test('loads only a server-bound device identity with explicit privileged-run sco
   const transport = createBrokerApprovalTransport({ origin: 'https://desktop.tools', tokenPath: fixture.path,
     fetch: async (url, init) => {
       assert.equal(String(url), 'https://desktop.tools/api/devices/me');
+      assert.ok(init);
       assert.equal(init.method, 'GET');
       assert.equal(init.body, undefined);
       return Response.json(response);
@@ -89,8 +103,9 @@ test('loads only a server-bound device identity with explicit privileged-run sco
   assert.deepEqual(await transport.identity(), response);
   response = { ...response, grantedPermissions: ['pull-desired-state'] };
   await assert.rejects(transport.identity(), /privileged-run authority/);
-  response = { ...response, grantedPermissions: ['authorize-privileged-run'], machineFingerprint: null };
-  await assert.rejects(transport.identity());
+  const malformed = createBrokerApprovalTransport({ origin: 'https://desktop.tools', tokenPath: fixture.path,
+    fetch: async () => Response.json({ ...response, grantedPermissions: ['authorize-privileged-run'], machineFingerprint: null }) });
+  await assert.rejects(malformed.identity());
 });
 
 test('requires a server-issued claim locator and rejects substituted approval bindings', async () => {
@@ -106,7 +121,7 @@ test('requires a server-issued claim locator and rejects substituted approval bi
   let response = { approval };
   const transport = createBrokerApprovalTransport({ origin: 'https://desktop.tools', tokenPath: fixture.path,
     fetch: async (_url, init) => {
-      const lookup = JSON.parse(init.body);
+      const lookup = JSON.parse(requestBody(init));
       assert.equal(lookup.ownerDecisionId, 'decision-1');
       return Response.json(response);
     } });
@@ -118,11 +133,12 @@ test('requires a server-issued claim locator and rejects substituted approval bi
 
 test('polls only the exact authorization, run intent, and grant for a server-issued locator', async () => {
   const fixture = await tokenFixture();
+  /** @type {{ schemaVersion: number, status: string, ownerDecisionId?: string, tenantId?: string }} */
   let response = { schemaVersion: 1, status: 'pending' };
   const transport = createBrokerApprovalTransport({ origin: 'https://desktop.tools', tokenPath: fixture.path,
     fetch: async (url, init) => {
       assert.equal(String(url), 'https://desktop.tools/api/devices/broker-authorizations/status');
-      assert.deepEqual(JSON.parse(init.body), { schemaVersion: 1, authorizationId: binding.authorizationId,
+      assert.deepEqual(JSON.parse(requestBody(init)), { schemaVersion: 1, authorizationId: binding.authorizationId,
         runIntentId: binding.runIntentId, grantId: grant.grantId });
       return Response.json(response);
     } });
