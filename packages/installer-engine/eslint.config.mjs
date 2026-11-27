@@ -5,7 +5,6 @@ const tsconfigRootDir = fileURLToPath(new URL('../../', import.meta.url));
 
 // Each path has existing strict source diagnostics. Remove it once the module passes.
 const pendingSourceFiles = [
-  'src/actionable-alerts.ts',
   'src/alloy-pipeline-reconciler.ts',
   'src/broker-approval-orchestrator.ts',
   'src/broker-approval-release-delegation.ts',
@@ -13,7 +12,6 @@ const pendingSourceFiles = [
   'src/cli.ts',
   'src/config-transaction.ts',
   'src/credential-rotation.ts',
-  'src/data-verification-schedule.ts',
   'src/debian-gpgv.ts',
   'src/debian-metadata.ts',
   'src/debian-relationships.ts',
@@ -93,7 +91,6 @@ const pendingSourceFiles = [
   'src/windows-fixture-contract.ts',
   'src/windows-native-operations.ts',
   'src/workload-backup-admission.ts',
-  'src/workload-usability-guard.ts',
   'src/wsl-boundary.ts',
   'src/zfs-protection-plan.ts',
 ].map(file => `packages/installer-engine/${file}`);

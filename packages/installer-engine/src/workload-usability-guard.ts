@@ -50,7 +50,7 @@ export const WorkloadUsabilityPolicySchema = z.strictObject({
 
 export const WorkloadUsabilityObservationSchema = z.strictObject({
   schemaVersion: VERSION,
-  observedAt: z.string().datetime({ offset: true }).max(64),
+  observedAt: z.iso.datetime({ offset: true }).max(64),
   hostUtilization: ResourceEnvelopeSchema,
   foregroundServices: z.array(z.strictObject({
     serviceId: id,
@@ -90,12 +90,13 @@ function canonical(value: unknown): string {
 /** Pure, fail-closed admission/runtime guard. Call again while expensive work is active. */
 export function evaluateWorkloadUsability(input: unknown): WorkloadUsabilityDecision {
   const request = WorkloadUsabilityRequestSchema.parse(input);
-  const budget = request.policy.operationBudgets.find(item => item.operation === request.operation)!;
+  const budget = request.policy.operationBudgets.find(item => item.operation === request.operation);
+  if (!budget) throw new Error('validated policy is missing an operation budget');
   const reasons: string[] = [];
   const concurrencyExceeded = request.phase === 'admission'
     ? request.activeOperationCount >= budget.maxConcurrency
     : request.activeOperationCount > budget.maxConcurrency;
-  if (concurrencyExceeded) reasons.push(`operation-concurrency:${request.activeOperationCount}/${budget.maxConcurrency}`);
+  if (concurrencyExceeded) reasons.push(`operation-concurrency:${String(request.activeOperationCount)}/${String(budget.maxConcurrency)}`);
 
   for (const resource of Object.keys(request.policy.hostCeilings) as (keyof typeof request.policy.hostCeilings)[]) {
     const observed = request.observation.hostUtilization[resource];

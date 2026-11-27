@@ -98,7 +98,7 @@ export const HeartbeatObservationSchema = z.strictObject({
   correlationId: id.optional(),
 });
 
-const stable = (value: unknown): string => JSON.stringify(value, (_key, item) => {
+const stable = (value: unknown): string => JSON.stringify(value, (_key, item: unknown) => {
   if (!item || typeof item !== 'object' || Array.isArray(item)) return item;
   return Object.fromEntries(Object.entries(item as Record<string, unknown>).sort(([a], [b]) => a.localeCompare(b)));
 });
@@ -111,7 +111,7 @@ export function actionableAlertFingerprint(input: Pick<ActionableAlertSignal, 'h
 }
 
 /** Opens or deduplicates a firing alert. A resolved alert starts a new incident. */
-export function applyActionableAlertSignal(previousInput: unknown | undefined, signalInput: unknown): ActionableAlert {
+export function applyActionableAlertSignal(previousInput: unknown, signalInput: unknown): ActionableAlert {
   const signal = ActionableAlertSignalSchema.parse(signalInput);
   const previous = previousInput === undefined ? undefined : ActionableAlertSchema.parse(previousInput);
   const fingerprint = actionableAlertFingerprint(signal);
@@ -182,7 +182,7 @@ export function detectMissingHeartbeat(policyInput: unknown, observationInput: u
     condition: `missing-heartbeat.${policy.source}`,
     severity: policy.severity,
     recoveryImpact: policy.recoveryImpact,
-    impactSummary: `${policy.source} heartbeat is ${Math.floor(elapsedMs / 1_000)}s old; freshness limit is ${thresholdSeconds}s`,
+    impactSummary: `${policy.source} heartbeat is ${String(Math.floor(elapsedMs / 1_000))}s old; freshness limit is ${String(thresholdSeconds)}s`,
     runbook: policy.runbook,
     evidence: {
       observedAt: observation.evaluatedAt,

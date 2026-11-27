@@ -2,7 +2,7 @@ import { z } from 'zod';
 
 const VERSION = z.literal(1);
 const identifier = z.string().regex(/^[a-z0-9][a-z0-9._-]{0,127}$/);
-const timestamp = z.string().datetime({ offset: true }).max(64);
+const timestamp = z.iso.datetime({ offset: true }).max(64);
 const digest = z.string().regex(/^[a-f0-9]{64}$/);
 const checkKind = z.enum(['structural', 'rotating-content', 'full', 'client-decryption']);
 const REQUIRED_CHECKS = checkKind.options;
@@ -53,6 +53,12 @@ export const DataVerificationPolicySchema = z.strictObject({
   }
 });
 export type DataVerificationPolicy = z.infer<typeof DataVerificationPolicySchema>;
+
+function requiredSchedule(policy: DataVerificationPolicy, kind: typeof REQUIRED_CHECKS[number]) {
+  const schedule = policy.checks.find(check => check.kind === kind);
+  if (!schedule) throw new Error('validated policy is missing a verification schedule');
+  return schedule;
+}
 
 const BaseResultSchema = z.strictObject({
   schemaVersion: VERSION,
@@ -155,7 +161,7 @@ function parseInputs(policyInput: unknown, resultInputs: readonly unknown[]): {
     if (result.policyId !== policy.policyId || result.workloadId !== policy.workloadId) {
       throw new Error('verification result is outside the selected policy and workload');
     }
-    const schedule = policy.checks.find(check => check.kind === result.kind)!;
+    const schedule = requiredSchedule(policy, result.kind);
     if (Date.parse(result.scheduledAt) < Date.parse(schedule.initialDueAt)) {
       throw new Error('verification result predates its policy schedule');
     }
@@ -219,7 +225,7 @@ export function assessDataVerificationCoverage(input: {
   }
 
   const checks = REQUIRED_CHECKS.map(kind => {
-    const schedule = policy.checks.find(check => check.kind === kind)!;
+    const schedule = requiredSchedule(policy, kind);
     const latest = results.filter(result => result.kind === kind)
       .sort((left, right) => Date.parse(right.completedAt) - Date.parse(left.completedAt))[0];
     const state = latest === undefined ? 'missing'
@@ -243,7 +249,8 @@ export function assessDataVerificationCoverage(input: {
     .map(check => `${check.kind}:${check.state}`);
   if (boundedDistinctContent < policy.rotatingCoverage.minimumDistinctContent) reasons.push('rotating-content:insufficient-coverage');
 
-  const clientCheck = checks.find(check => check.kind === 'client-decryption')!;
+  const clientCheck = checks.find(check => check.kind === 'client-decryption');
+  if (!clientCheck) throw new Error('verification assessment is missing the client decryption check');
   const latestClientResult = results.filter(result => result.kind === 'client-decryption')
     .sort((left, right) => Date.parse(right.completedAt) - Date.parse(left.completedAt))[0];
   const clientProvesRecovery = clientCheck.state === 'covered'
