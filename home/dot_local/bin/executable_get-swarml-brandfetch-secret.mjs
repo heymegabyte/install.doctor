@@ -9,7 +9,7 @@ export const SWARML_BRANDFETCH_BINDING = Object.freeze({
   environment: "prod",
   secretPath: "/providers/brandfetch",
   secretName: "BRANDFETCH_API_KEY",
-  tokenRelativePath: ".config/agent-fleet/swarml-infisical-service-token",
+  tokenRelativePath: ".config/agent-fleet/swarml-brandfetch-infisical-service-token",
   requestTimeoutMs: 10_000,
   userAgent: "swarml-brandfetch-broker/1.0",
 });

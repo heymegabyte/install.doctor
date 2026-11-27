@@ -13,7 +13,7 @@ function fixture() {
   const homeDir = mkdtempSync(join(tmpdir(), "swarml-brandfetch-broker-"));
   const root = join(homeDir, ".config", "agent-fleet");
   mkdirSync(root, { recursive: true, mode: 0o700 });
-  const tokenPath = join(root, "swarml-infisical-service-token");
+  const tokenPath = join(root, "swarml-brandfetch-infisical-service-token");
   writeFileSync(tokenPath, "fixture-service-token-with-sufficient-length", { mode: 0o600 });
   return { homeDir, tokenPath };
 }
