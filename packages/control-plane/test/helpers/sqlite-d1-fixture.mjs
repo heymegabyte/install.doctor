@@ -9,13 +9,18 @@ export function sqliteD1Fixture(sqlite) {
         /** @param {import('node:sqlite').SQLInputValue[]} bound */
         bind(...bound) { values = bound; return statement; },
         /** @template T @returns {Promise<T | null>} */
-        async first() {
-          const row = sqlite.prepare(sql).get(...values);
-          return row ? /** @type {T} */ (/** @type {unknown} */ ({ ...row })) : null;
+        first() {
+          return new Promise(resolve => {
+            const row = sqlite.prepare(sql).get(...values);
+            resolve(row ? /** @type {T} */ (/** @type {unknown} */ ({ ...row })) : null);
+          });
         },
-        async run() {
-          const result = sqlite.prepare(sql).run(...values);
-          return { meta: { changes: Number(result.changes) } };
+        /** @returns {Promise<{meta: {changes: number}}>} */
+        run() {
+          return new Promise(resolve => {
+            const result = sqlite.prepare(sql).run(...values);
+            resolve({ meta: { changes: Number(result.changes) } });
+          });
         },
       };
       return statement;

@@ -114,10 +114,9 @@ void test('device authorization migration is idempotent and claims atomically', 
   );
 
   assert.throws(
-    () => claim(sqlite, {
-      credentialId: 'credential-replay',
-      secretSha256: 'e'.repeat(64),
-    }),
+    () => {
+      claim(sqlite, { credentialId: 'credential-replay', secretSha256: 'e'.repeat(64) });
+    },
     /authorization claim unavailable|UNIQUE constraint failed/,
   );
   assert.equal(
@@ -137,7 +136,7 @@ for (const [label, authorization] of invalidAuthorizations) {
     const sqlite = openStore();
     insertAuthorization(sqlite, authorization);
 
-    assert.throws(() => claim(sqlite), /authorization claim unavailable/);
+    assert.throws(() => { claim(sqlite); }, /authorization claim unavailable/);
     assert.equal(
       sqlite.prepare('SELECT COUNT(*) AS count FROM device_authorization_credentials').get()?.count,
       0,

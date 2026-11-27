@@ -140,7 +140,7 @@ void test('database foreign keys reject plan, consent, device, and run decision 
     { approvedPlanDigest: hex('9') }, { consentDigest: hex('8') },
     { deviceFingerprint: hex('7') }, { runIntentId: 'intent-2' },
   ]) await assert.rejects(setup.store.persistOwnerDecision({
-    ...setup.decision, ownerDecisionId: `decision-substitution-${index++}`, ...changed,
+    ...setup.decision, ownerDecisionId: `decision-substitution-${String(index++)}`, ...changed,
   }), /FOREIGN KEY constraint failed/);
 });
 
