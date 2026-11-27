@@ -14,6 +14,7 @@
     "test/broker-approval-signer.test.mjs",
     "test/broker-authorization-api.test.mjs",
     "test/broker-authorization-composition.test.mjs",
+    "test/broker-authorization-service.test.mjs",
     "test/broker-exact-plan-d1-authority.test.mjs",
     "test/broker-production-authorities.test.mjs",
     "test/broker-release-delegation-loader.test.mjs",

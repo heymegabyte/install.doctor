@@ -5,8 +5,10 @@ import {
   createBrokerAuthorizationService,
 } from '../src/broker-authorization-service.ts';
 
+/** @param {string} value */
 const hex = value => value.repeat(64);
 const now = new Date('2026-11-09T12:00:00.000Z');
+/** @type {import('../src/broker-run-intent-d1-store.ts').BrokerRunIntentValue} */
 const intent = {
   schemaVersion: 1,
   runIntentId: 'intent-1', authorizationId: 'authorization-1', tenantId: 'tenant-1',
@@ -24,9 +26,15 @@ const principal = {
 };
 const owner = { actor: 'OWNER@example.com', authenticatedAt: '2026-11-09T11:58:00.000Z' };
 
+/** @typedef {Parameters<typeof createBrokerAuthorizationService>[0]} ServiceOptions */
+/** @typedef {Awaited<ReturnType<ServiceOptions['authority']['reconstructCurrentPlanAuthority']>>} CurrentAuthority */
+/** @param {Partial<ServiceOptions['authority']>} [overrides] */
 function fixture(overrides = {}) {
+  /** @type {Record<'intents' | 'decisions' | 'lookups' | 'statuses' | 'states' | 'approvals' | 'reviewedPlans', unknown[]>} */
   const calls = { intents: [], decisions: [], lookups: [], statuses: [], states: [], approvals: [], reviewedPlans: [] };
+  /** @type {Awaited<ReturnType<ServiceOptions['store']['loadReviewedPlan']>>} */
   let reviewedPlan = null;
+  /** @type {CurrentAuthority} */
   const currentAuthority = {
     tenantId: intent.tenantId,
     profile: { id: intent.profileId, revision: 'revision-1', digest: intent.profileRevisionDigest },
@@ -39,6 +47,7 @@ function fixture(overrides = {}) {
       destructiveAutomaticRepair: false },
     now: now.toISOString(),
   };
+  /** @type {NonNullable<Awaited<ReturnType<ServiceOptions['store']['loadApprovedReconstruction']>>>} */
   const reconstruction = {
     schemaVersion: 1, authorizationId: intent.authorizationId, ownerDecisionId: 'decision-1',
     ownerActorId: 'owner-1', ownerDecision: 'approved',
@@ -55,6 +64,18 @@ function fixture(overrides = {}) {
       closureDigest: intent.closureDigest, consentDigest: intent.consentDigest,
       issuedAt: intent.requestedAt, expiresAt: intent.grantExpiresAt,
     },
+  };
+  /** @type {Awaited<ReturnType<ServiceOptions['approval']['approve']>>} */
+  const signedApproval = {
+    schemaVersion: 1, kind: 'desktop-tools-broker-approval', approvalId: 'approval-1',
+    signerKeyId: 'approval-key-1', signatureDomain: 'desktop-tools-broker-approval-v1',
+    authorizationId: reconstruction.authorizationId, ownerDecisionId: reconstruction.ownerDecisionId,
+    ownerActorId: reconstruction.ownerActorId, tenantId: reconstruction.tenantId,
+    profileId: reconstruction.profileId, profileRevisionDigest: reconstruction.profileRevisionDigest,
+    deviceCredentialId: reconstruction.deviceCredentialId, deviceFingerprint: reconstruction.deviceFingerprint,
+    runIntentId: reconstruction.runIntentId, grant: reconstruction.grant, grantDigest: hex('5'),
+    delegationDigest: hex('4'), revocationEpoch: 1, approvedAt: now.toISOString(),
+    expiresAt: reconstruction.ownerDecisionExpiresAt, signature: 'A'.repeat(86), auditDigest: hex('6'),
   };
   const service = createBrokerAuthorizationService({
     now: () => now,
@@ -87,12 +108,13 @@ function fixture(overrides = {}) {
           maximumApprovalLifetimeSeconds: 600, revocationEpoch: 1, delegationDigest: hex('4') };
       },
       async persistApprovedState(value) { calls.states.push(value); return true; },
-      async approve(value) { calls.approvals.push(value); return { approvalId: 'approval-1' }; },
+      async approve(value) { calls.approvals.push(value); return signedApproval; },
     },
   });
-  return { service, calls, reconstruction, currentAuthority };
+  return { service, calls, reconstruction, currentAuthority, signedApproval };
 }
 
+/** @param {Promise<unknown>} promise @param {string} code */
 async function rejectsCode(promise, code) {
   await assert.rejects(promise, error => error instanceof BrokerAuthorizationServiceError && error.code === code);
 }
@@ -143,7 +165,7 @@ test('owner review and decision require current matching authentication and exac
 });
 
 test('claim is exact, device-scoped, persists reconstructed authority, and returns only signed evidence', async () => {
-  const { service, calls, reconstruction } = fixture();
+  const { service, calls, reconstruction, signedApproval } = fixture();
   await service.reviewAuthorization(intent.runIntentId, owner);
   const lookup = {
     schemaVersion: 1, authorizationId: intent.authorizationId, ownerDecisionId: 'decision-1',
@@ -151,15 +173,18 @@ test('claim is exact, device-scoped, persists reconstructed authority, and retur
     profileRevisionDigest: intent.profileRevisionDigest, deviceCredentialId: intent.deviceCredentialId,
     deviceFingerprint: intent.deviceFingerprint, runIntentId: intent.runIntentId, grantId: intent.grantId,
   };
-  assert.deepEqual(await service.claimApprovedAuthorization(lookup, principal), { approval: { approvalId: 'approval-1' } });
+  assert.deepEqual(await service.claimApprovedAuthorization(lookup, principal), { approval: signedApproval });
   assert.deepEqual(calls.lookups, [lookup]);
   assert.equal(calls.states.length, 1);
-  assert.deepEqual(calls.states[0].grant, reconstruction.grant);
+  const [state] = calls.states;
+  assert.ok(state && typeof state === 'object' && 'grant' in state);
+  assert.deepEqual(state.grant, reconstruction.grant);
   assert.deepEqual(calls.approvals, [lookup]);
   await assert.rejects(service.claimApprovedAuthorization({ ...lookup, extra: true }, principal));
 });
 
 test('fact, profile, release, policy, approval, closure, plan, and rollback drift deny before any privileged effect', async () => {
+  /** @type {((value: CurrentAuthority) => CurrentAuthority)[]} */
   const axes = [
     current => ({ ...current, host: { ...current.host, factsDigest: hex('8') } }),
     current => ({ ...current, profile: { ...current.profile, revision: 'revision-2' } }),
@@ -171,6 +196,7 @@ test('fact, profile, release, policy, approval, closure, plan, and rollback drif
     current => ({ ...current, rollbackLimits: { ...current.rollbackLimits, automaticEffects: [] } }),
   ];
   for (const drift of axes) {
+    /** @type {CurrentAuthority} */
     let current;
     const setup = fixture({ async reconstructCurrentPlanAuthority() { return current; } });
     current = setup.currentAuthority;
