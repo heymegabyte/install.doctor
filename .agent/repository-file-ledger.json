@@ -1804,33 +1804,6 @@
       "issues": []
     },
     {
-      "path": ".config/assets/box/enviedsolutions.com-box.png",
-      "kind": "binary-media",
-      "bytes": 5971,
-      "mode": "644",
-      "sha256": "95f7b26bf7e65e361e88ebd1998c6a39d445c2a106057b8fc0e14e2857fb73f1",
-      "validators": [
-        "tracked",
-        "readable",
-        "sha256",
-        "magic",
-        "decodable",
-        "duplicate-hash",
-        "reference",
-        "size"
-      ],
-      "disposition": "retain-validated",
-      "reason": "Binary or media asset is reviewed through format, reference, duplicate, and size validators; byte churn is not an improvement.",
-      "evidence": [
-        "magic",
-        "decodable",
-        "duplicate-hash",
-        "reference",
-        "size"
-      ],
-      "issues": []
-    },
-    {
       "path": ".config/assets/box/gitl.ink-box.png",
       "kind": "binary-media",
       "bytes": 2383,
@@ -14505,29 +14478,6 @@
       "bytes": 385,
       "mode": "644",
       "sha256": "c98b00b353df56baa8d3034db34175f1115bd4bd0fb3f678656786729146d8fe",
-      "validators": [
-        "tracked",
-        "readable",
-        "sha256",
-        "envelope",
-        "mode",
-        "reference"
-      ],
-      "disposition": "retain-validated",
-      "reason": "Encrypted payload is authoritative opaque data; validate its envelope and references without rewriting ciphertext.",
-      "evidence": [
-        "envelope",
-        "mode",
-        "reference"
-      ],
-      "issues": []
-    },
-    {
-      "path": "home/.chezmoitemplates/secrets/CLOUDFLARE_ZONE_ID_ENVIEDSOLUTIONS_COM",
-      "kind": "encrypted",
-      "bytes": 385,
-      "mode": "644",
-      "sha256": "26ef0e7144f0927092aba1fa84bd37e9070b653bef62a30d9d4e660c81fa31bd",
       "validators": [
         "tracked",
         "readable",
