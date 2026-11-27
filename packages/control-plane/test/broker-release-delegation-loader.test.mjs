@@ -7,15 +7,22 @@ import {
   loadImmutableBrokerReleaseDelegation,
 } from '../src/broker-release-delegation-loader.ts';
 
+/** @param {unknown} value @returns {unknown} */
 const canonicalValue = value => Array.isArray(value) ? value.map(canonicalValue)
   : value && typeof value === 'object' ? Object.fromEntries(Object.entries(value).sort(([a], [b]) => a.localeCompare(b))
     .map(([key, entry]) => [key, canonicalValue(entry)])) : value;
+/** @param {unknown} value */
 const bytes = value => new TextEncoder().encode(`${JSON.stringify(canonicalValue(value))}\n`);
+/** @param {Uint8Array} value */
 const digest = async value => [...new Uint8Array(await crypto.subtle.digest('SHA-256', value))]
   .map(byte => byte.toString(16).padStart(2, '0')).join('');
 
+/** @typedef {ReturnType<typeof import('../src/broker-approval-signer.ts').BrokerApprovalSignerDelegation.parse>} Delegation */
+/** @typedef {(value: Delegation) => Omit<Delegation, 'channel'> & { channel: string }} Transform */
+/** @param {Transform} [transform] */
 async function fixture(transform = value => value, recompute = false) {
   const { publicKey } = generateKeyPairSync('ed25519');
+  /** @type {Omit<Delegation, 'delegationDigest'>} */
   const projection = {
     schemaVersion: 1, kind: 'desktop-tools-broker-approval-signer-delegation', keyId: 'approval-key-1',
     algorithm: 'Ed25519', signatureDomain: 'desktop-tools-broker-approval-v1', product: 'desktop-tools',
@@ -34,6 +41,7 @@ async function fixture(transform = value => value, recompute = false) {
     ) };
   }
   const body = bytes(delegation);
+  /** @type {import('../src/broker-release-delegation-loader.ts').ActiveV9ReleaseAuthorityValue} */
   const release = {
     schemaVersion: 9, product: 'desktop-tools', channel: 'stable', releaseId: 'release-1',
     createdAt: Date.parse('2026-11-09T11:00:00.000Z') / 1000,
@@ -43,8 +51,9 @@ async function fixture(transform = value => value, recompute = false) {
       delegationSha256: await digest(body), delegationSize: body.byteLength, minimumRevocationEpoch: 7,
     },
   };
+  /** @type {string[]} */
   const keys = [];
-  const bucket = { async get(key) { keys.push(key); return { size: body.byteLength,
+  const bucket = { async get(/** @type {string} */ key) { keys.push(key); return { size: body.byteLength,
     body: new ReadableStream({ start(controller) { controller.enqueue(body); controller.close(); } }) }; } };
   return { delegation, body, release, bucket, keys };
 }
@@ -58,11 +67,14 @@ test('loads only the exact immutable release key and composes an active-release 
   assert.deepEqual(setup.keys, ['desktop-tools/bootstrap/release-1/broker-approval-signer-delegation.json']);
   const resolver = createImmutableBrokerDelegationResolver({ bucket: setup.bucket,
     resolveActiveRelease: async () => setup.release, now: () => new Date('2026-11-09T12:00:00.000Z') });
-  assert.equal((await resolver.delegationForRelease('release-1')).keyId, 'approval-key-1');
+  const active = await resolver.delegationForRelease('release-1');
+  assert.ok(active);
+  assert.equal(active.keyId, 'approval-key-1');
   assert.equal(await resolver.delegationForRelease('release-2'), null);
 });
 
 test('rejects substituted release, channel, epoch, semantic digest, and public key', async () => {
+  /** @type {Transform[]} */
   const cases = [
     value => ({ ...value, releaseId: 'release-2' }),
     value => ({ ...value, channel: 'beta' }),
@@ -84,11 +96,12 @@ test('rejects size substitution, truncation, excess bytes, digest substitution, 
   await assert.rejects(loadImmutableBrokerReleaseDelegation({ bucket: setup.bucket,
     release: { ...setup.release, brokerApproval: { ...setup.release.brokerApproval,
       delegationSize: setup.body.byteLength + 1 } }, now: new Date('2026-11-09T12:00:00.000Z') }), /stored size/);
+  /** @param {Uint8Array} body */
   const stored = (body, size = body.byteLength) => ({ get: async () => ({ size,
     body: new ReadableStream({ start(controller) { controller.enqueue(body); controller.close(); } }) }) });
   await assert.rejects(loadImmutableBrokerReleaseDelegation({ bucket: stored(setup.body.slice(0, -1), setup.body.byteLength),
     release: setup.release, now: new Date('2026-11-09T12:00:00.000Z') }), /truncated/);
-  const excess = new Uint8Array(setup.body.byteLength + 1); excess.set(setup.body); excess.at(-1) === 1;
+  const excess = new Uint8Array(setup.body.byteLength + 1); excess.set(setup.body);
   await assert.rejects(loadImmutableBrokerReleaseDelegation({ bucket: stored(excess, setup.body.byteLength),
     release: setup.release, now: new Date('2026-11-09T12:00:00.000Z') }), /exceeds/);
   await assert.rejects(loadImmutableBrokerReleaseDelegation({ bucket: setup.bucket,

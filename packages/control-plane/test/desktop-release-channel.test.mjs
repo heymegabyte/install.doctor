@@ -4,7 +4,9 @@ import test from 'node:test';
 import { resolveActiveDesktopRelease } from '../src/desktop-release-channel.ts';
 import { lookupDesktopReleaseObject } from '../src/release-store.ts';
 
+/** @param {Uint8Array} bytes */
 const body = bytes => ({ body: new Blob([bytes]).stream(), size: bytes.byteLength });
+/** @param {Uint8Array} bytes */
 const digest = bytes => createHash('sha256').update(bytes).digest('hex');
 
 function fixture(overrides = {}) {
@@ -27,9 +29,10 @@ function fixture(overrides = {}) {
 
 test('resolves only a canonical product-qualified pointer and digest-bound v7 manifest', async () => {
   const value = fixture();
+  /** @type {string[]} */
   const requested = [];
-  const channels = { async get(key) { requested.push(key); return key === 'desktop-tools/channels/stable.json' ? body(value.pointerBytes) : null; } };
-  const releases = { async get(key) { requested.push(key); return key === `desktop-tools/bootstrap/${value.releaseId}/manifest` ? body(value.manifest) : null; } };
+  const channels = { async get(/** @type {string} */ key) { requested.push(key); return key === 'desktop-tools/channels/stable.json' ? body(value.pointerBytes) : null; } };
+  const releases = { async get(/** @type {string} */ key) { requested.push(key); return key === `desktop-tools/bootstrap/${value.releaseId}/manifest` ? body(value.manifest) : null; } };
   const result = await resolveActiveDesktopRelease(channels, releases, 'stable', value.now);
   assert.equal(result.product, 'desktop-tools');
   assert.deepEqual(requested, ['desktop-tools/channels/stable.json', `desktop-tools/bootstrap/${value.releaseId}/manifest`]);
@@ -46,6 +49,7 @@ test('resolves the current signed v9 manifest used by the profile bootstrap', as
   const result = await resolveActiveDesktopRelease(channels, releases, 'stable', value.now);
   assert.equal(result.releaseId, value.releaseId);
   assert.equal(result.schemaVersion, 9);
+  assert.ok(result.brokerApproval);
   assert.equal(result.brokerApproval.minimumRevocationEpoch, 7);
 });
 
@@ -60,8 +64,9 @@ test('rejects legacy prefixes, noncanonical pointers, wrong products, and manife
 });
 
 test('serves only Desktop Tools release filenames from its isolated prefix', async () => {
+  /** @type {string[]} */
   const requested = [];
-  const bucket = { async get(key) { requested.push(key); return body(Buffer.from('engine\n')); } };
+  const bucket = { async get(/** @type {string} */ key) { requested.push(key); return body(Buffer.from('engine\n')); } };
   const found = await lookupDesktopReleaseObject(bucket, 'desktop-release-1', 'desktop-tools-engine.mjs');
   assert.equal(found.status, 'found');
   assert.equal(found.contentType, 'text/javascript; charset=utf-8');
