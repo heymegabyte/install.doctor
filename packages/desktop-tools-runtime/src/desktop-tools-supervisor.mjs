@@ -145,7 +145,9 @@ function generateOpenCodeConfig(credentialPath, promptPath, toolRuntime) {
 function parse(argv) {
   const [command, ...rest] = argv;
   if (!command || !['install', 'validate', 'prepare', 'run', 'service', 'status'].includes(command)) fail('expected install, validate, prepare, run, service, or status');
-  const values = /** @type {CliOptions} */ (Object.create(null));
+  /** @type {CliOptions} */
+  const values = {};
+  Object.setPrototypeOf(values, null);
   for (let index = 0; index < rest.length; index += 2) {
     const flag = rest[index];
     const value = rest[index + 1];
@@ -351,7 +353,7 @@ function boundedIdentifier(value, label) {
 /** @param {unknown} value */
 function assertNonsecretJson(value, depth = 0) {
   if (depth > 32) fail('provisioning context is too deeply nested', 65);
-  if (Array.isArray(value)) { if (value.length > 2048) fail('provisioning context array is too large', 65); value.forEach(child => assertNonsecretJson(child, depth + 1)); return; }
+  if (Array.isArray(value)) { if (value.length > 2048) fail('provisioning context array is too large', 65); value.forEach(child => { assertNonsecretJson(child, depth + 1); }); return; }
   if (value !== null && typeof value === 'object') {
     for (const [key, child] of Object.entries(value)) {
       if (!key || key.length > 256 || /(?:secret|token|password|credential|private.?key)/i.test(key)) fail('provisioning context contains secret-shaped data', 65);
@@ -517,8 +519,9 @@ function archiveExecutable(bytes) {
   let expanded;
   try { expanded = gunzipSync(bytes, { maxOutputLength: 268_435_456 }); } catch { fail('OpenCode tar archive cannot be safely expanded', 65); }
   const entries = tarEntries(expanded);
-  if (entries.size !== 1 || !entries.has('opencode')) fail('OpenCode tar archive must contain exactly one executable', 65);
-  return entries.get('opencode');
+  const executable = entries.get('opencode');
+  if (entries.size !== 1 || executable === undefined) fail('OpenCode tar archive must contain exactly one executable', 65);
+  return executable;
 }
 
 /**
@@ -534,6 +537,17 @@ function requireOptions(values, names, command) {
   }
 }
 
+/** @param {unknown} error */
+function missingRuntimeTarget(error) {
+  if (errorProperty(error, 'code') === 'ENOENT') return null;
+  throw error;
+}
+
+/** @param {string} path */
+function statRuntimeTarget(path) {
+  return lstat(path).catch(missingRuntimeTarget);
+}
+
 /** @param {CliOptions} values @param {string} stateDirectory */
 async function installRuntimeClosure(values, stateDirectory) {
   requireOptions(values, ['runtime-archive', 'sha256', 'version', 'supervisor', 'supervisor-sha256', 'tools-archive', 'tools-sha256', 'lock', 'lock-sha256'], 'install');
@@ -542,11 +556,12 @@ async function installRuntimeClosure(values, stateDirectory) {
   const supervisorSource = await boundedPinnedSource(values.supervisor, values['supervisor-sha256'], 'supervisor', 8_388_608);
   const toolsSource = await boundedPinnedSource(values['tools-archive'], values['tools-sha256'], 'tools archive', 33_554_432);
   const lockSource = await boundedPinnedSource(values.lock, values['lock-sha256'], 'OpenCode lock', 8_388_608);
+  /** @type {unknown} */
   let lock;
   try { lock = JSON.parse(await readFile(lockSource, 'utf8')); } catch { fail('OpenCode lock must be valid JSON', 65); }
   const platform = `${process.platform === 'darwin' ? 'macos' : process.platform}_${process.arch === 'x64' ? 'x64' : process.arch === 'arm64' ? 'arm64' : process.arch}`;
-  const binding = lock?.artifacts?.[platform];
-  if (lock?.schemaVersion !== 1 || lock?.name !== 'opencode' || lock?.version !== values.version || !binding
+  const binding = isRecord(lock) && isRecord(lock.artifacts) ? lock.artifacts[platform] : undefined;
+  if (!isRecord(lock) || lock.schemaVersion !== 1 || lock.name !== 'opencode' || lock.version !== values.version || !isRecord(binding)
     || binding.sha256 !== values.sha256 || !['macos_x64', 'macos_arm64', 'linux_x64', 'linux_arm64'].includes(platform)) {
     fail('OpenCode lock does not bind this platform, version, and archive', 65);
   }
@@ -558,11 +573,11 @@ async function installRuntimeClosure(values, stateDirectory) {
   const toolsArchive = join(stateDirectory, 'runtime', `desktop-tools-tools-${values['tools-sha256']}.tar.gz`);
   const installedLock = join(stateDirectory, 'runtime', `opencode-lock-${values['lock-sha256']}.json`);
   const targets = [runtime, executable, supervisor, toolsArchive, installedLock];
-  const changed = (await Promise.all(targets.map(path => lstat(path).then(() => false, error => errorProperty(error, 'code') === 'ENOENT' ? true : Promise.reject(error))))).some(Boolean);
-  if (!(await lstat(runtime).then(() => true, error => errorProperty(error, 'code') === 'ENOENT' ? false : Promise.reject(error)))) await atomicWrite(runtime, executableBytes, 0o700);
+  const changed = (await Promise.all(targets.map(statRuntimeTarget))).some(info => info === null);
+  if (!(await statRuntimeTarget(runtime))) await atomicWrite(runtime, executableBytes, 0o700);
   else if (await sha256(runtime) !== runtimeDigest) fail('installed OpenCode runtime is not the pinned artifact', 65);
   await chmod(runtime, 0o700);
-  const executableInfo = await lstat(executable).catch((/** @type {unknown} */ error) => errorProperty(error, 'code') === 'ENOENT' ? null : Promise.reject(error));
+  const executableInfo = await statRuntimeTarget(executable);
   if (executableInfo && (!executableInfo.isFile() || executableInfo.isSymbolicLink() || executableInfo.nlink !== 1 || await sha256(executable) !== runtimeDigest)) {
     if (!executableInfo.isFile() || executableInfo.isSymbolicLink()) fail('Desktop Tools executable path is unsafe', 73);
     await atomicWrite(executable, executableBytes, 0o700);
@@ -578,7 +593,7 @@ async function installRuntimeClosure(values, stateDirectory) {
   const closure = /** @type {typeof closureFields} */ (canonical(closureFields));
   const closureDigest = createHash('sha256').update(`${JSON.stringify(closure)}\n`).digest('hex');
   const receipt = join(stateDirectory, 'runtime', `closure-${closureDigest}.json`); const receiptBytes = `${JSON.stringify(closure)}\n`;
-  const existingReceipt = await readFile(receipt, 'utf8').catch((/** @type {unknown} */ error) => errorProperty(error, 'code') === 'ENOENT' ? null : Promise.reject(error));
+  const existingReceipt = await readFile(receipt, 'utf8').catch(missingRuntimeTarget);
   if (existingReceipt === null) await atomicWrite(receipt, receiptBytes);
   else if (existingReceipt !== receiptBytes) fail('runtime closure receipt collision', 73);
   return { ...closure, closureDigest, receipt, changed };
@@ -586,6 +601,7 @@ async function installRuntimeClosure(values, stateDirectory) {
 
 /** @param {Buffer} bytes */
 function tarEntries(bytes) {
+  /** @type {Map<string, Buffer>} */
   const entries = new Map();
   for (let offset = 0; offset + 512 <= bytes.length;) {
     const header = bytes.subarray(offset, offset + 512); offset += 512;
@@ -652,6 +668,7 @@ async function prepareToolRuntime(values, stateDirectory, promptBinding, session
     await chmod(server, 0o700);
   } catch (error) { if (errorProperty(error, 'code') === 'ENOENT') await atomicWrite(server, serverBytes, 0o700); else throw error; }
   const contextDigest = await sha256(contextSource);
+  /** @type {unknown} */
   let toolContext;
   try { toolContext = JSON.parse(await readFile(contextSource, 'utf8')); } catch { fail('tool context must be valid JSON', 65); }
   objectWithExactKeys(toolContext, ['schemaVersion', 'sessionId', 'runId', 'authorizationId', 'releaseId', 'releaseDigest', 'profileRevision', 'profileDigest',
@@ -773,21 +790,23 @@ async function main(argv) {
   const child = spawn(runtime, ['serve', '--hostname', '127.0.0.1', '--port', String(port)], {
     shell: false, cwd: stateDirectory, env: minimalEnvironment(stateDirectory, password, opencodeConfig, promptBinding), stdio: 'inherit'
   });
-  let receivedSignal = null;
+  /** @type {{ signal: NodeJS.Signals | null }} */
+  const forwarded = { signal: null };
   /** @param {NodeJS.Signals} signal */
-  const forward = signal => { receivedSignal = signal; if (!child.killed) child.kill(signal); };
+  const forward = signal => { forwarded.signal = signal; if (!child.killed) child.kill(signal); };
   process.once('SIGINT', forward); process.once('SIGTERM', forward);
-  /** @type {{ code: number | null, signal: NodeJS.Signals | null }} */
-  const result = await new Promise((resolvePromise, reject) => {
+  /** @type {Promise<{ code: number | null, signal: NodeJS.Signals | null }>} */
+  const completion = new Promise((resolvePromise, reject) => {
     child.once('error', reject);
-    child.once('exit', (code, signal) => resolvePromise({ code, signal }));
-  }).finally(async () => {
+    child.once('exit', (code, signal) => { resolvePromise({ code, signal }); });
+  });
+  const result = await completion.finally(async () => {
     process.removeListener('SIGINT', forward);
     process.removeListener('SIGTERM', forward);
     await releaseLock();
   });
   const finalized = await execute(process.execPath, [toolRuntime.server, '--finalize-events', '--context', toolRuntime.context,
-    '--state-root', stateDirectory, '--status', receivedSignal || result.signal ? 'cancellation' : 'failure'], {
+    '--state-root', stateDirectory, '--status', forwarded.signal || result.signal ? 'cancellation' : 'failure'], {
     env: { PATH: '/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin', LANG: 'C.UTF-8' }, stdio: ['ignore', 'pipe', 'pipe'],
   });
   if (finalized.code !== 0 || finalized.signal) fail('session event finalization failed', 74);

@@ -81,7 +81,11 @@ Build outputs are deterministic inputs to the release builder:
 - `dist/desktop-tools-supervisor.mjs`
 - `dist/desktop-tools-tools.tar.gz`
 
-Run `npm ci`, then `npm test` and `npm run build`. Both commands first run strict
-TypeScript checks on all runtime source, packaging scripts, tests, and fixtures.
+Install the locked dependencies for this package and its sibling `aid-core` and
+`installer-engine` packages. Use Node 24.22.2 to match Linux CI.
+Both `npm test` and `npm run build` first run strict TypeScript checks on runtime
+source, packaging scripts, tests, and fixtures. The test command also runs the
+shared strict typed ESLint profile from Aid Core. Run `npm run lint` to check lint
+independently.
 The production release workflow builds the
 generated `dist/` directory from reviewed source.

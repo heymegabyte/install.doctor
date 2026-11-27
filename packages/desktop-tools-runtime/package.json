@@ -11,7 +11,8 @@
   "scripts": {
     "prebuild": "npm run typecheck",
     "build": "node scripts/build.mjs",
-    "test": "npm run typecheck && node --test test/*.test.mjs",
+    "lint": "node ../aid-core/node_modules/eslint/bin/eslint.js --max-warnings=0 \"{src,scripts,test}/**/*.mjs\"",
+    "test": "npm run typecheck && npm run lint && node --test test/*.test.mjs",
     "typecheck": "tsc --project tsconfig.json"
   },
   "engines": {
