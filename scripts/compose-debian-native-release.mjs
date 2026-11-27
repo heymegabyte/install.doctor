@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 // Credential-free, offline composition of one Debian 12/bookworm amd64 tree authority.
+import { TextDecoder } from 'node:util';
 import { createHash } from 'node:crypto';
 import { constants } from 'node:fs';
 import { lstat, open, realpath } from 'node:fs/promises';
@@ -12,17 +13,20 @@ import {
   verifyDebianRepositoryMetadata,
 } from '../packages/installer-engine/dist/index.js';
 
+/** @param {Uint8Array} bytes */
 const sha256 = bytes => createHash('sha256').update(bytes).digest('hex');
 const id = /^[a-z0-9][a-z0-9._-]{0,127}$/;
 const fingerprint = /^(?:[A-Fa-f0-9]{40}|[A-Fa-f0-9]{64})$/;
 const MAXIMUM_DATE_AGE_SECONDS = 15_552_000;
 
+/** @param {unknown} value @param {string[]} keys @param {string} label @returns {Record<string, unknown>} */
 function exactObject(value, keys, label) {
   if (!value || typeof value !== 'object' || Array.isArray(value)
     || JSON.stringify(Object.keys(value).sort()) !== JSON.stringify([...keys].sort())) throw new Error(`${label} has an invalid shape`);
-  return value;
+  return /** @type {Record<string, unknown>} */ (value);
 }
 
+/** @param {string} pathInput @param {number} maximum @param {string} label */
 async function safeInput(pathInput, maximum, label) {
   if (!isAbsolute(pathInput) || normalize(pathInput) !== pathInput || pathInput.includes('\0')) throw new Error(`${label} path must be canonical and absolute`);
   const path = resolve(pathInput); const [info, parentInfo] = await Promise.all([lstat(path), lstat(dirname(path))]);
@@ -41,44 +45,58 @@ async function safeInput(pathInput, maximum, label) {
   } finally { await handle.close(); }
 }
 
+/** @param {Uint8Array} bytes @param {string} label */
 function paragraphs(bytes, label) {
   const text = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
   if (text.includes('\0') || /\r(?!\n)/.test(text)) throw new Error(`${label} is not canonical text`);
   return text.replaceAll('\r\n', '\n').split(/\n\n+/).filter(Boolean).map(raw => {
-    const result = new Map(); let prior;
+    /** @type {Map<string, string>} */
+    const result = new Map();
+    let prior;
     const lines = raw.split('\n');
     if (lines.at(-1) === '') lines.pop();
     for (const line of lines) {
       if (/^[ \t]/.test(line)) { if (!prior) throw new Error(`${label} has orphan continuation`); result.set(prior, `${result.get(prior)}\n${line.slice(1)}`); continue; }
       const match = /^([A-Za-z0-9][A-Za-z0-9-]*):[ \t]?(.*)$/.exec(line);
-      if (!match || result.has(match[1].toLowerCase())) throw new Error(`${label} has malformed or duplicate fields`);
+      if (!match?.[1] || match[2] === undefined || result.has(match[1].toLowerCase())) throw new Error(`${label} has malformed or duplicate fields`);
       prior = match[1].toLowerCase(); result.set(prior, match[2]);
     }
     return result;
   });
 }
 
+/** @param {Map<string, string>} record @param {string} key @param {string} label */
 function required(record, key, label) { const value = record.get(key); if (!value) throw new Error(`${label} lacks ${key}`); return value; }
 
+/**
+ * @param {{ policy: unknown, inReleasePath: string, packagesPath: string, keyringPath: string, payloadPath: string, now?: string }} input
+ * @param {{
+ *   verifier?: Parameters<typeof verifyDebianRepositoryMetadata>[0]['verifier'],
+ *   inspectControl?: (path: string, bytes: Uint8Array) => Promise<ReturnType<typeof parseDebianControlArchive>>,
+ * }} [dependencies]
+ */
 export async function composeDebianTreeRelease(input, dependencies = {}) {
   const policy = exactObject(input.policy, ['version','signingKeyFingerprint','dependencyClosure','affectedServiceUnits','conffiles'], 'policy');
-  if (policy.version !== '2.1.0-1' || !fingerprint.test(policy.signingKeyFingerprint)) throw new Error('policy must bind tree version 2.1.0-1 and one fingerprint');
+  if (policy.version !== '2.1.0-1' || typeof policy.signingKeyFingerprint !== 'string' || !fingerprint.test(policy.signingKeyFingerprint)) throw new Error('policy must bind tree version 2.1.0-1 and one fingerprint');
   for (const [name, values] of [['affectedServiceUnits', policy.affectedServiceUnits], ['conffiles', policy.conffiles]]) {
     if (!Array.isArray(values) || new Set(values).size !== values.length) throw new Error(`${name} must be a unique array`);
   }
   const closure = exactObject(policy.dependencyClosure, ['depends','preDepends'], 'dependency closure');
-  for (const values of [closure.depends, closure.preDepends]) if (!Array.isArray(values) || values.some(value => !id.test(value?.packageKey ?? '') || !id.test(value?.artifactId ?? ''))) throw new Error('dependency closure is invalid');
+  const { depends, preDepends } = closure;
+  if (!Array.isArray(depends) || !Array.isArray(preDepends) || [depends, preDepends].some(values =>
+    values.some(value => !id.test(value?.packageKey ?? '') || !id.test(value?.artifactId ?? '')))) throw new Error('dependency closure is invalid');
 
   const [inRelease, packagesIndex, keyring, payload] = await Promise.all([
     safeInput(input.inReleasePath, 16_777_216, 'InRelease'), safeInput(input.packagesPath, 268_435_456, 'Packages index'),
     safeInput(input.keyringPath, 16_777_216, 'archive keyring'), safeInput(input.payloadPath, 268_435_456, 'tree payload'),
   ]);
-  const verifier = dependencies.verifier ?? createDefaultDebianMetadataVerifier({ keyring: { kind: 'path', absolutePath: keyring.path }, ...(input.now ? { now: () => new Date(input.now) } : {}) });
+  const { now } = input;
+  const verifier = dependencies.verifier ?? createDefaultDebianMetadataVerifier({ keyring: { kind: 'path', absolutePath: keyring.path }, ...(now ? { now: () => new Date(now) } : {}) });
   const signature = await verifier.verifyInRelease(inRelease.bytes, keyring.bytes);
   if (signature.signingKeyFingerprint.toUpperCase() !== policy.signingKeyFingerprint.toUpperCase()) throw new Error('InRelease signer is outside declared policy');
   const releaseRecords = paragraphs(signature.cleartext, 'InRelease');
-  if (releaseRecords.length !== 1) throw new Error('InRelease must contain one Release record');
-  const release = releaseRecords[0];
+  const [release] = releaseRecords;
+  if (releaseRecords.length !== 1 || !release) throw new Error('InRelease must contain one Release record');
   if (required(release, 'suite', 'InRelease') !== 'oldstable' || required(release, 'codename', 'InRelease') !== 'bookworm'
     || !required(release, 'architectures', 'InRelease').split(/\s+/).includes('amd64')
     || !required(release, 'components', 'InRelease').split(/\s+/).includes('main')) throw new Error('InRelease is outside Debian 12/bookworm amd64 main policy');
@@ -99,10 +117,10 @@ export async function composeDebianTreeRelease(input, dependencies = {}) {
   const packagesBytes = await verifier.decompressPackages?.(packagesPath, packagesIndex.bytes);
   if (!packagesBytes) throw new Error('compressed Packages input requires trusted bounded decompression');
   const matches = paragraphs(packagesBytes, 'Packages').filter(value => value.get('package') === 'tree' && value.get('version') === policy.version && value.get('architecture') === 'amd64');
-  if (matches.length !== 1) throw new Error('Packages must contain exactly one declared tree version');
-  const stanza = matches[0];
+  const [stanza] = matches;
+  if (matches.length !== 1 || !stanza) throw new Error('Packages must contain exactly one declared tree version');
   if (stanza.get('depends') !== 'libc6 (>= 2.34)' || stanza.has('pre-depends')
-    || closure.depends.length !== 0 || closure.preDepends.length !== 0) {
+    || depends.length !== 0 || preDepends.length !== 0) {
     throw new Error('tree policy requires only the separately witnessed libc6 (>= 2.34) dependency');
   }
   const control = dependencies.inspectControl
@@ -112,6 +130,7 @@ export async function composeDebianTreeRelease(input, dependencies = {}) {
       try { return parseDebianControlArchive(await createNativeDpkgDebControlArchiveRunner().extractControlArchive({ payloadDescriptor: handle.fd, timeoutMilliseconds: 30_000, maximumOutputBytes: 16_777_216 })); }
       finally { await handle.close(); }
     })();
+  /** @param {string} key */
   const nullable = key => stanza.get(key) ?? null;
   if (control.control.packageName !== 'tree' || control.control.version !== policy.version || control.control.architecture !== 'amd64'
     || control.control.depends !== nullable('depends') || control.control.preDepends !== nullable('pre-depends')

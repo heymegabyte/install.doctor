@@ -6,9 +6,11 @@ import { join } from 'node:path';
 import test from 'node:test';
 import { composeDebianTreeRelease } from '../../../scripts/compose-debian-native-release.mjs';
 
+/** @param {Uint8Array} bytes */
 const sha = bytes => createHash('sha256').update(bytes).digest('hex');
 const fingerprint = 'A'.repeat(40);
 
+/** @param {import('node:test').TestContext} t @param {{ date?: string, validUntil?: string | null, now?: string }} [options] */
 async function fixture(t, { date = 'Sun, 08 Nov 2026 10:00:00 +0000', validUntil = null,
   now = '2026-11-08T12:00:00.000Z' } = {}) {
   const root = await mkdtemp(join(tmpdir(), 'debian-tree-compose-'));
@@ -21,12 +23,18 @@ async function fixture(t, { date = 'Sun, 08 Nov 2026 10:00:00 +0000', validUntil
     `Date: ${date}`,...(validUntil === null ? [] : [`Valid-Until: ${validUntil}`]),'SHA256:',
     ` ${sha(packages)} ${packages.length} main/binary-amd64/Packages.xz`, ''].join('\n'));
   const files = { inRelease: Buffer.from('opaque signed InRelease\n'), packages, keyring: Buffer.from('public archive keyring\n'), payload };
-  const paths = {};
-  for (const [name, bytes] of Object.entries(files)) { paths[name] = join(root, name === 'packages' ? 'Packages.xz' : name); await writeFile(paths[name], bytes, { mode: 0o600 }); }
+  const paths = {
+    inRelease: join(root, 'inRelease'), packages: join(root, 'Packages.xz'),
+    keyring: join(root, 'keyring'), payload: join(root, 'payload'),
+  };
+  for (const name of /** @type {const} */ (['inRelease', 'packages', 'keyring', 'payload'])) {
+    await writeFile(paths[name], files[name], { mode: 0o600 });
+  }
   const policy = { version: '2.1.0-1', signingKeyFingerprint: fingerprint,
     dependencyClosure: { depends: [], preDepends: [] }, affectedServiceUnits: [], conffiles: [] };
   const input = { policy, inReleasePath: paths.inRelease, packagesPath: paths.packages,
     keyringPath: paths.keyring, payloadPath: paths.payload, now };
+  /** @satisfies {NonNullable<Parameters<typeof composeDebianTreeRelease>[1]>} */
   const dependencies = {
     verifier: { verifyInRelease: async () => ({ cleartext: release, signingKeyFingerprint: fingerprint }),
       decompressPackages: async () => packages, now: () => new Date(input.now) },
@@ -65,6 +73,7 @@ test('preserves present Valid-Until and rejects future, stale, and earlier-expir
 });
 
 test('fails closed on signer, package identity, payload, expiry, control, and unsafe input authority', async t => {
+  /** @type {((state: Awaited<ReturnType<typeof fixture>>) => Promise<void>)[]} */
   const cases = [
     async s => { s.dependencies.verifier.verifyInRelease = async () => ({ cleartext: Buffer.from(''), signingKeyFingerprint: 'B'.repeat(40) }); },
     async s => { s.dependencies.verifier.verifyInRelease = async () => ({ cleartext: Buffer.from(s.release.toString().replace('Codename: bookworm', 'Codename: trixie')), signingKeyFingerprint: fingerprint }); },
@@ -90,6 +99,7 @@ test('rejects undeclared dependency and noncanonical policy shapes', async t => 
   await writeFile(state.paths.packages, packages, { mode: 0o600 });
   state.dependencies.verifier.decompressPackages = async () => Buffer.from(packages);
   await assert.rejects(composeDebianTreeRelease(state.input, state.dependencies), /libc6/);
-  const fresh = await fixture(t); fresh.input.policy.extra = true;
-  await assert.rejects(composeDebianTreeRelease(fresh.input, fresh.dependencies), /invalid shape/);
+  const fresh = await fixture(t);
+  const input = { ...fresh.input, policy: { ...fresh.input.policy, extra: true } };
+  await assert.rejects(composeDebianTreeRelease(input, fresh.dependencies), /invalid shape/);
 });

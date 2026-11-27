@@ -22,6 +22,7 @@
     "test/broker-run-intent-d1-store.test.mjs",
     "test/credential-lifecycle-rebuild.test.mjs",
     "test/debian-native-catalog-merge.test.mjs",
+    "test/debian-native-composition.test.mjs",
     "test/desktop-release-builder.test.mjs",
     "test/desktop-release-channel.test.mjs",
     "test/desktop-release-publication.test.mjs",
