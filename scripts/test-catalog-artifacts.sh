@@ -130,7 +130,9 @@ fi
 ISOLATED="$FIXTURE_ROOT/isolated"
 mkdir -p "$ISOLATED/scripts" "$ISOLATED/packages/aid-core"
 cp "$ROOT/scripts/validate-catalog-artifacts.mjs" "$ISOLATED/scripts/"
-cp "$ROOT/packages/aid-core/package.json" "$ROOT/packages/aid-core/package-lock.json" "$ISOLATED/packages/aid-core/"
+cp "$ROOT/packages/aid-core/package.json" "$ROOT/packages/aid-core/package-lock.json" \
+  "$ROOT/packages/aid-core/tsconfig.json" "$ISOLATED/packages/aid-core/"
+cp -R "$ROOT/packages/aid-core/vendor" "$ISOLATED/packages/aid-core/"
 cp -R "$ROOT/packages/aid-core/src" "$ISOLATED/packages/aid-core/"
 ln -s "$ROOT/packages/aid-core/node_modules" "$ISOLATED/packages/aid-core/node_modules"
 printf '[]\n' > "$ISOLATED/catalog.json"

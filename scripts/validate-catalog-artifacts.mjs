@@ -8,6 +8,9 @@ const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const AID_CORE = resolve(ROOT, 'packages', 'aid-core');
 const CONTRACT = resolve(AID_CORE, 'dist', 'installer-contracts.js');
 const CONTRACT_SOURCE = resolve(AID_CORE, 'src', 'installer-contracts.ts');
+/** @typedef {import('../packages/aid-core/dist/installer-contracts.js').ImmutableArtifactDescriptor} ArtifactDescriptor */
+/** @typedef {typeof import('../packages/aid-core/dist/installer-contracts.js').ImmutableArtifactDescriptorSchema} ArtifactSchema */
+/** @type {Promise<ArtifactSchema> | undefined} */
 let schemaPromise;
 
 async function loadSchema() {
@@ -31,15 +34,17 @@ async function loadSchema() {
   return schemaPromise;
 }
 
+/** @param {readonly { key: unknown, artifacts: unknown }[]} declarations */
 export async function validateArtifactDeclarations(declarations) {
   const schema = await loadSchema();
+  /** @type {Map<string, ArtifactDescriptor[]>} */
   const byPackage = new Map();
   for (const declaration of declarations) {
     if (!declaration || typeof declaration.key !== 'string' || !Array.isArray(declaration.artifacts)
       || declaration.artifacts.length < 1 || declaration.artifacts.length > 16) {
       throw new Error('catalog _artifacts must be a non-empty array of at most 16 descriptors');
     }
-    const artifacts = declaration.artifacts.map((value, index) => {
+    const artifacts = declaration.artifacts.map((/** @type {unknown} */ value, index) => {
       const parsed = schema.safeParse(value);
       if (!parsed.success) {
         throw new Error(`invalid _artifacts descriptor for ${declaration.key}[${index}]: ${parsed.error.issues[0]?.message ?? 'invalid descriptor'}`);
@@ -49,6 +54,7 @@ export async function validateArtifactDeclarations(declarations) {
       }
       return parsed.data;
     });
+    /** @param {ArtifactDescriptor} descriptor */
     const tuple = ({ platform }) => `${platform.os}/${platform.arch}`;
     const tuples = artifacts.map(tuple);
     if (new Set(tuples).size !== tuples.length) {

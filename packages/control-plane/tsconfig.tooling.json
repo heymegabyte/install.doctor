@@ -8,6 +8,7 @@
     "types": ["node"]
   },
   "include": [
+    "scripts/gen-catalog.mjs",
     "scripts/offline-bundle-publication.mjs",
     "scripts/offline-bundle-request.mjs",
     "scripts/publish-offline-bundle.mjs",

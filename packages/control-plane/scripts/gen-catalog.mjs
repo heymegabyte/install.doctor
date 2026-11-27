@@ -9,6 +9,7 @@ import { readFileSync, writeFileSync, mkdtempSync, readdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { z } from 'zod';
 import { validateArtifactDeclarations } from '../../../scripts/validate-catalog-artifacts.mjs';
 import { buildSoftwareCatalogPlan, migrateLegacySoftwareCatalogEntry, parseSoftwareCatalog } from '../../aid-core/dist/software-catalog.js';
 
@@ -16,10 +17,20 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(HERE, '..', '..', '..'); // repo root (packages/control-plane/scripts → repo)
 const SOFTWARE = process.argv[2] || join(ROOT, 'software.yml');
 const OUT = process.argv[3] || join(HERE, '..', 'src', 'catalog.json');
+const catalogRows = z.array(z.looseObject({ key: z.string() }));
+/** @typedef {import('../../aid-core/dist/software-catalog.js').SoftwareCatalogEntry} CatalogEntry */
+/** @typedef {import('../../aid-core/dist/installer-contracts.js').ImmutableArtifactDescriptor} ArtifactDescriptor */
+/**
+ * @typedef {Pick<CatalogEntry, 'name' | 'bin' | 'pkgs' | 'installMode' | 'preload' | 'loadPolicy' | 'loadRationale'> &
+ * Partial<Pick<CatalogEntry, 'artifacts' | 'serviceDeclarations' | 'short' | 'github' | 'home' | 'docs' |
+ * 'deprecated' | 'replacement' | 'deps' | 'caskLauncher' | 'flatpakLauncher' | 'deliveryMode' |
+ * 'configured' | 'postInstall' | 'systemIdentityReconciliation'>> &
+ * { providers: string[], platforms: string[], preloadReason?: string, postInstallPrivilege?: unknown }} CatalogDraft
+ */
 const BUILDER = join(ROOT, 'home', 'dot_local', 'bin', 'executable_cnf-build-index');
 
 async function loadArtifactsByPackage() {
-  const declared = JSON.parse(execFileSync(
+  const declared = catalogRows.parse(JSON.parse(execFileSync(
     'yq',
     [
       '-o',
@@ -28,12 +39,12 @@ async function loadArtifactsByPackage() {
       SOFTWARE,
     ],
     { encoding: 'utf8' },
-  ));
-  return { declared, validated: await validateArtifactDeclarations(declared) };
+  )));
+  return { declared, validated: await validateArtifactDeclarations(declared.map(({ key, artifacts }) => ({ key, artifacts }))) };
 }
 
 function loadServiceDeclarationsByPackage() {
-  const declared = JSON.parse(execFileSync(
+  const declared = catalogRows.parse(JSON.parse(execFileSync(
     'yq',
     [
       '-o',
@@ -42,7 +53,8 @@ function loadServiceDeclarationsByPackage() {
       SOFTWARE,
     ],
     { encoding: 'utf8' },
-  ));
+  )));
+  /** @type {Map<string, NonNullable<CatalogEntry['serviceDeclarations']>>} */
   const byPackage = new Map();
   for (const entry of declared) {
     if (!entry || typeof entry.key !== 'string' || !/^[a-z0-9][a-z0-9._-]*$/.test(entry.key)) {
@@ -51,11 +63,13 @@ function loadServiceDeclarationsByPackage() {
     if (!Array.isArray(entry.services) || entry.services.length === 0 || entry.services.length > 32) {
       throw new Error(`service declaration for ${entry.key} must be a non-empty bounded array`);
     }
-    const normalized = entry.services.map((raw, index) => {
-      const value = typeof raw === 'string' ? { name: raw } : raw;
-      if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    /** @type {NonNullable<CatalogEntry['serviceDeclarations']>} */
+    const normalized = entry.services.map((/** @type {unknown} */ raw, index) => {
+      const candidate = typeof raw === 'string' ? { name: raw } : raw;
+      if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) {
         throw new Error(`service declaration ${entry.key}[${index}] must be a string or object`);
       }
+      const value = z.looseObject({}).parse(candidate);
       const allowed = new Set(['name', 'sudo', 'pkg', 'manager']);
       for (const key of Object.keys(value)) {
         if (!allowed.has(key)) throw new Error(`service declaration ${entry.key}[${index}] has unknown field ${key}`);
@@ -98,7 +112,7 @@ const serviceDeclarationsByPackage = loadServiceDeclarationsByPackage();
 
 // index columns (per not-found-hook.sh): 1 bin 2 key 3 brew 4 apt 5 dnf 6 pacman 7 cask 8 choco
 // 9 scoop 10 go 11 cargo 12 npm 13 pipx 14 pip 15 gem 16 apk
-const COLS = ['brew', 'apt', 'dnf', 'pacman', 'cask', 'choco', 'scoop', 'go', 'cargo', 'npm', 'pipx', 'pip', 'gem', 'apk'];
+const COLS = /** @type {const} */ (['brew', 'apt', 'dnf', 'pacman', 'cask', 'choco', 'scoop', 'go', 'cargo', 'npm', 'pipx', 'pip', 'gem', 'apk']);
 const PLAT = {
   brew: ['macos', 'linux'], cask: ['macos'],
   apt: ['linux'], dnf: ['linux'], pacman: ['linux'], apk: ['linux'],
@@ -111,22 +125,34 @@ const tmp = join(mkdtempSync(join(tmpdir(), 'aid-catalog-')), 'index.tsv');
 execFileSync('bash', [BUILDER, SOFTWARE, tmp], { stdio: ['ignore', 'ignore', 'inherit'] });
 
 const rows = readFileSync(tmp, 'utf8').split('\n').filter(Boolean);
+/** @type {CatalogDraft[]} */
 const items = [];
+/** @type {Partial<Record<ArtifactDescriptor['platform']['os'], string>>} */
+const artifactPlatform = { linux: 'linux', darwin: 'macos', win32: 'windows' };
+/** @param {ArtifactDescriptor} artifact */
+function platformFor(artifact) {
+  const platform = artifactPlatform[artifact.platform.os];
+  if (!platform) throw new Error(`unsupported artifact platform: ${artifact.platform.os}`);
+  return platform;
+}
 for (const line of rows) {
   const f = line.split('\t');
   if (f.length < 15) continue;
   const bin = f[0];
   const name = f[1];
-  if (!name) continue;
+  if (!name || bin === undefined) continue;
+  /** @type {string[]} */
   const providers = [];
+  /** @type {Record<string, string>} */
   const pkgs = {}; // provider -> the real package id (may differ from name, e.g. angular-cli → npm @angular/cli)
+  /** @type {Set<string>} */
   const platforms = new Set();
-  for (let i = 0; i < COLS.length; i++) {
+  for (const [i, provider] of COLS.entries()) {
     const val = f[2 + i];
     if (val && val.trim()) {
-      providers.push(COLS[i]);
-      pkgs[COLS[i]] = val.trim();
-      for (const p of PLAT[COLS[i]]) platforms.add(p);
+      providers.push(provider);
+      pkgs[provider] = val.trim();
+      for (const p of PLAT[provider]) platforms.add(p);
     }
   }
   if (!providers.length) continue; // an entry with no installable provider is not browseable
@@ -135,7 +161,7 @@ for (const line of rows) {
   const artifacts = artifactsByPackage.get(name);
   if (artifacts) {
     for (const artifact of artifacts) {
-      platforms.add({ linux: 'linux', darwin: 'macos', win32: 'windows' }[artifact.platform.os]);
+      platforms.add(platformFor(artifact));
     }
   }
   items.push({
@@ -163,7 +189,8 @@ for (const declaration of artifactDeclarations) {
     throw new Error(`artifact-only catalog entry ${declaration.key} requires a valid _bin string or array`);
   }
   const artifacts = artifactsByPackage.get(declaration.key);
-  const platforms = [...new Set(artifacts.map((artifact) => ({ linux: 'linux', darwin: 'macos', win32: 'windows' })[artifact.platform.os]))].sort();
+  if (!artifacts) throw new Error(`missing validated artifact declarations for ${declaration.key}`);
+  const platforms = [...new Set(artifacts.map(platformFor))].sort();
   for (const bin of bins) {
     items.push({
       name: declaration.key,
@@ -187,7 +214,7 @@ for (const declaration of artifactDeclarations) {
 // a lazy CLI installed on first command use — D06). yq extracts a {key -> {…}} map; match by catalog name.
 // Fail-soft: if yq is missing/errors, proceed without the enrichment (the catalog still works; mode stays cli).
 try {
-  const meta = JSON.parse(
+  const meta = catalogRows.parse(JSON.parse(
     execFileSync(
       'yq',
       [
@@ -198,12 +225,14 @@ try {
       ],
       { encoding: 'utf8' },
     ),
-  );
+  ));
   const byKey = new Map(meta.filter((m) => m && m.key).map((m) => [m.key, m]));
+  /** @param {unknown} value @returns {value is string} */
   const safeHttpUrl = value => {
     if (typeof value !== 'string' || value.length > 2048) return false;
     try { return ['http:', 'https:'].includes(new URL(value).protocol); } catch { return false; }
   };
+  /** @param {unknown} value @returns {value is string} */
   const safeFlatpak = value => typeof value === 'string'
     && /^[A-Za-z][A-Za-z0-9_-]*(?:\.[A-Za-z][A-Za-z0-9_-]*){2,}$/.test(value);
   for (const m of meta) {
@@ -217,7 +246,7 @@ try {
   }
   let enriched = 0;
   let linked = 0;
-  const modes = { app: 0, service: 0, cli: 0 };
+  const modes = { app: 0, service: 0, cli: 0, preloadCli: 0 };
   for (const it of items) {
     const m = byKey.get(it.name);
     if (!m) {
@@ -284,7 +313,8 @@ try {
       it.loadPolicy = 'eager-service';
       it.loadRationale = 'desired-state:_serviceEnabled';
     } else if (it.preload) {
-      const loadClass = {
+      /** @type {Partial<Record<string, [CatalogEntry['loadPolicy'], string]>>} */
+      const loadClasses = {
         'bootstrap-critical': ['eager-bootstrap', 'bootstrap:scripts/provision.sh'],
         'lazy-installer-substrate': ['eager-bootstrap', 'lazy-resolver:home/dot_config/shell/not-found-hook.sh'],
         'security-recovery-prerequisite': ['eager-security-recovery', 'security-recovery:pre-lazy-offline'],
@@ -293,7 +323,8 @@ try {
         'web-dev-core': ['eager-supported-path', 'supported-path:web-dev-core'],
         'media-management-core': ['eager-supported-path', 'supported-path:media-management-core'],
         'lsp-core': ['eager-supported-path', 'supported-path:lsp-core'],
-      }[m.preloadReason];
+      };
+      const loadClass = typeof m.preloadReason === 'string' ? loadClasses[m.preloadReason] : undefined;
       if (!loadClass) throw new Error(`unknown eager reason for ${it.name}: ${m.preloadReason}`);
       [it.loadPolicy, it.loadRationale] = loadClass;
     }
@@ -301,7 +332,7 @@ try {
   }
   console.error(`gen-catalog: enriched ${enriched} with _short; ${linked} with _home/_docs links; modes app=${modes.app} service=${modes.service} cli=${modes.cli} (preloadCli=${modes.preloadCli || 0} eager, not on-first-use)`);
 } catch (e) {
-  console.error('gen-catalog: WARNING — could not merge _short/_github/_home/_docs/installMode (' + (e && e.message) + '); proceeding without enrichment');
+  console.error('gen-catalog: WARNING — could not merge _short/_github/_home/_docs/installMode (' + (e instanceof Error ? e.message : String(e)) + '); proceeding without enrichment');
 }
 
 // R14/F15/F06 — flag only tools whose automated first-run configuration hook is admitted by the signed
@@ -320,7 +351,7 @@ try {
     if (!mt) continue;
     const source = readFileSync(join(hookDir, f), 'utf8');
     const markerCount = source.split(typedHookMarker).length - 1;
-    if (markerCount === 1) hooks.set(mt[1], 'post-' + mt[1] + '.sh');
+    if (markerCount === 1 && mt[1] !== undefined) hooks.set(mt[1], 'post-' + mt[1] + '.sh');
     else legacyHooks++;
   }
   let configured = 0;
@@ -335,13 +366,13 @@ try {
   }
   console.error(`gen-catalog: ${configured} entries flagged configured-on-install (${hooks.size} typed hooks; ${legacyHooks} legacy hooks excluded)`);
 } catch (e) {
-  console.error('gen-catalog: WARNING — could not scan post-installx hooks (' + (e && e.message) + ')');
+  console.error('gen-catalog: WARNING — could not scan post-installx hooks (' + (e instanceof Error ? e.message : String(e)) + ')');
 }
 
 // Post-install privilege is execution authority, not optional display metadata.
 // Never let either fail-soft enrichment block silently discard or broaden it.
 for (const item of items) {
-  if (item.postInstall && !['user', 'admin'].includes(item.postInstallPrivilege)) {
+  if (item.postInstall && item.postInstallPrivilege !== 'user' && item.postInstallPrivilege !== 'admin') {
     throw new Error(`configured catalog entry lacks valid post-install privilege authority: ${item.name}`);
   }
   if (!item.postInstall && item.postInstallPrivilege != null) {
@@ -365,15 +396,15 @@ for (const item of items) {
 
 const migratedItems = parseSoftwareCatalog(items.map(item => {
   try { return migrateLegacySoftwareCatalogEntry(item); }
-  catch (error) { throw new Error(`strict catalog migration failed for ${item.name}/${item.bin}: ${error.message}`, { cause: error }); }
+  catch (error) { throw new Error(`strict catalog migration failed for ${item.name}/${item.bin}: ${error instanceof Error ? error.message : String(error)}`, { cause: error }); }
 }));
 // Release admission must prove that every default supported path has a closed,
 // acyclic and conflict-free graph. This also catches an eager cross-platform
 // parent whose dependency has no recipe for one of the parent's targets.
 const graphIdentities = new Set(migratedItems.map(item => item.name)).size;
-for (const platform of ['linux', 'macos', 'windows']) {
-  for (const architecture of ['x64', 'arm64']) {
-    for (const phase of ['bootstrap', 'post-bootstrap']) {
+for (const platform of /** @type {const} */ (['linux', 'macos', 'windows'])) {
+  for (const architecture of /** @type {const} */ (['x64', 'arm64'])) {
+    for (const phase of /** @type {const} */ (['bootstrap', 'post-bootstrap'])) {
       const plan = buildSoftwareCatalogPlan(migratedItems, {
         platform, architecture, role: 'workstation', phase, requested: [],
       });
