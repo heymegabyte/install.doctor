@@ -206,7 +206,8 @@ jobs:
 
       - name: Install smoke-test prerequisites (pacman)
         if: matrix.osId == 'arch'
-        run: pacman -Sy --noconfirm bash curl jq sudo shadow
+        # Keep the pinned image and the rolling repository packages on a compatible snapshot.
+        run: pacman -Syu --needed --noconfirm bash curl jq sudo shadow
 
       - name: Assert support-matrix admission
         env:
