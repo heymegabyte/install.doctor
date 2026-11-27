@@ -137,6 +137,8 @@ if [ "$OS" = "macos" ]; then
   <dict>
     <key>OLLAMA_HOST</key>
     <string>127.0.0.1:11434</string>
+    <key>OLLAMA_NO_CLOUD</key>
+    <string>1</string>
     <key>OLLAMA_MODELS</key>
     <string>$MODEL_DIR</string>
     <key>OLLAMA_NUM_PARALLEL</key>
