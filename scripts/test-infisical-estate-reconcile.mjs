@@ -220,6 +220,20 @@ assert.deepEqual(selectConfigurationSecrets(
 for (const host of Object.keys(pexelsManifest.hosts)) {
   assert.deepEqual(selectHostSecrets(pexelsManifest, host, ['PIXABAY_API_KEY']), []);
 }
+const pageSpeedManifest = validateManifest({
+  ...manifest,
+  profiles: { ...manifest.profiles, 'cloudflare-mcp': [...manifest.profiles['cloudflare-mcp'], 'cloudflare-mcp-site-quality'] },
+  reservedNames: [...manifest.reservedNames, 'PAGESPEED_API_KEY'],
+  exactCapabilityNames: {
+    ...manifest.exactCapabilityNames, 'cloudflare-mcp-site-quality': ['PAGESPEED_API_KEY'],
+  },
+});
+assert.deepEqual(selectConfigurationSecrets(
+  pageSpeedManifest, pageSpeedManifest.workloads['mcp.megabyte.space'], ['PAGESPEED_API_KEY'],
+), ['PAGESPEED_API_KEY']);
+for (const host of Object.keys(pageSpeedManifest.hosts)) {
+  assert.deepEqual(selectHostSecrets(pageSpeedManifest, host, ['PAGESPEED_API_KEY']), []);
+}
 const accessSshNames = [
   'CF_ACCESS_SSH_COOLIFY_CLIENT_ID', 'CF_ACCESS_SSH_COOLIFY_CLIENT_SECRET',
   'CF_ACCESS_SSH_UBUNTU_CLIENT_ID', 'CF_ACCESS_SSH_UBUNTU_CLIENT_SECRET',
