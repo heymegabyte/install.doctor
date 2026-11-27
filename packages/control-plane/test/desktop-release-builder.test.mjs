@@ -11,10 +11,13 @@ import { publishDesktopRelease } from '../scripts/desktop-release-publication.mj
 import { createDesktopReleaseInputs, desktopReleasePlatforms as platforms,
   opencodeArtifactName as opencodeName } from './helpers/desktop-release-fixture.mjs';
 
+/** @param {string | Uint8Array} bytes */
 const digest = bytes => createHash('sha256').update(bytes).digest('hex');
+/** @param {unknown} value @returns {unknown} */
 const canonical = value => Array.isArray(value) ? value.map(canonical)
   : value && typeof value === 'object' ? Object.fromEntries(Object.entries(value)
     .sort(([left], [right]) => left.localeCompare(right)).map(([key, entry]) => [key, canonical(entry)])) : value;
+/** @param {string} domain @param {unknown} value */
 const semanticDigest = (domain, value) => digest(`${domain}\0${JSON.stringify(canonical(value))}`);
 
 test('creates a canonical public broker approval delegation from source-owned release policy', async t => {
@@ -26,7 +29,7 @@ test('creates a canonical public broker approval delegation from source-owned re
     '../../../config/desktop-tools-broker-approval-policy.json', 'release-1', '2000000000', '2000003600',
     'approval-key-1', publicKeySpki, output], { cwd: new URL('.', import.meta.url).pathname });
   const bytes = await readFile(output);
-  const delegation = JSON.parse(bytes);
+  const delegation = JSON.parse(bytes.toString('utf8'));
   assert.deepEqual(bytes, Buffer.from(`${JSON.stringify(canonical(delegation))}\n`));
   const { delegationDigest, ...projection } = delegation;
   assert.equal(delegationDigest, semanticDigest('desktop-tools:broker-approval-signer-delegation:v1', projection));
@@ -67,16 +70,16 @@ test('builds deterministic unsigned Desktop Tools v10 closure with delegated app
   assert.equal((await readdir(first.outputDirectory)).includes('manifest.sig'), false);
   const delegationDigest = digest(await readFile(source.brokerApprovalSignerDelegation));
   const sbom = JSON.parse(await readFile(join(first.outputDirectory, 'release.sbom.json'), 'utf8'));
-  const properties = new Map(sbom.metadata.component.properties.map(item => [item.name, item.value]));
+  const properties = new Map(sbom.metadata.component.properties.map((/** @type {{name: string, value: string}} */ item) => [item.name, item.value]));
   assert.equal(properties.get('desktop.tools:broker-approval-delegation-sha256'), delegationDigest);
   assert.equal(properties.get('desktop.tools:broker-approval-minimum-revocation-epoch'), '7');
   const provenance = JSON.parse(await readFile(join(first.outputDirectory, 'release.provenance.json'), 'utf8'));
   assert.equal(provenance.predicate.buildDefinition.externalParameters.brokerApprovalDelegationSha256, delegationDigest);
   assert.equal(provenance.predicate.buildDefinition.externalParameters.brokerApprovalMinimumRevocationEpoch, 7);
   const spdxBytes = await readFile(join(first.outputDirectory, 'release.spdx.json'));
-  const spdx = JSON.parse(spdxBytes);
+  const spdx = JSON.parse(spdxBytes.toString('utf8'));
   assert.equal(spdx['@context'], 'https://spdx.org/rdf/3.0.1/spdx-context.jsonld');
-  assert.deepEqual(spdx['@graph'].find(element => element.type === 'SpdxDocument').profileConformance, ['core', 'software']);
+  assert.deepEqual(spdx['@graph'].find((/** @type {{type: string}} */ element) => element.type === 'SpdxDocument')?.profileConformance, ['core', 'software']);
   const exploitability = JSON.parse(await readFile(join(first.outputDirectory, 'release.exploitability.json'), 'utf8'));
   assert.equal(exploitability.spdx.sha256, digest(spdxBytes));
   assert.equal(exploitability.kind, 'desktop-tools-release-exploitability');
@@ -103,6 +106,11 @@ test('rejects malformed, stale, or substituted lock and license metadata before 
   await assert.rejects(buildDesktopToolsRelease({ ...common, ...freshness, expiresAt: now + 86_400,
     outputDirectory: join(root, 'bad-debian-freshness') }, now), /freshness.*release expiry/);
 
+  /**
+   * @param {Awaited<ReturnType<typeof inputs>>} sourceInput
+   * @param {(value: Record<string, unknown>) => void} mutate
+   * @param {{ recompute?: boolean, canonicalJson?: boolean }} [options]
+   */
   async function mutateDelegation(sourceInput, mutate, { recompute = true, canonicalJson = true } = {}) {
     const delegation = JSON.parse(await readFile(sourceInput.brokerApprovalSignerDelegation, 'utf8'));
     mutate(delegation);
