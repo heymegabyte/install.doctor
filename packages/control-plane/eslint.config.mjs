@@ -5,14 +5,10 @@ const tsconfigRootDir = fileURLToPath(new URL('../../', import.meta.url));
 
 // Remove each exact path as its existing strict lint findings are resolved.
 const pendingFixtures = [
-  'test/broker-authorization-api.test.mjs',
-  'test/broker-authorization-composition.test.mjs',
-  'test/broker-authorization-service.test.mjs',
   'test/debian-native-composition.test.mjs',
   'test/disposable-product-composition.test.mjs',
   'test/oidc-owner-enrollment.test.mjs',
   'test/privileged-step-up-http.test.mjs',
-  'test/release-evidence-view.test.mjs',
 ].map(file => `packages/control-plane/${file}`);
 
 export default [
