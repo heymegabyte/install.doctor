@@ -133,7 +133,9 @@ export async function publishSignedDeviceBrokerGrant(input: { readonly grant: un
     proof: { signerKeyId: approval.signerKeyId, signature: approval.signature } });
   const bridgeDigest = privilegedBrokerDigest(bridge);
   const store = await createPrivilegedBrokerStore({ root: '/run/desktop-tools/privileged',
-    verifyApproval: async candidate => privilegedBrokerDigest(candidate) === bridgeDigest });
+    verifyApproval: candidate => new Promise(resolve => {
+      resolve(privilegedBrokerDigest(candidate) === bridgeDigest);
+    }) });
   const publishedGrant = await store.publishGrant(grant, bridge);
   const publishedAuthority = await store.publishAuthority(grant.grantId, authority);
   return Object.freeze({ grantDigest: publishedGrant.digest, authorityDigest: publishedAuthority.digest,
