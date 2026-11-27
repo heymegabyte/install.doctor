@@ -8,6 +8,7 @@ import { inspectDesktopReleaseDirectory } from '../packages/control-plane/script
 
 const signerPattern = /^desktop-[a-z0-9][a-z0-9._-]{0,119}$/;
 
+/** @param {string} pathInput */
 async function safePublicKey(pathInput) {
   const path = resolve(pathInput);
   const info = await lstat(path);
@@ -19,6 +20,9 @@ async function safePublicKey(pathInput) {
   return text;
 }
 
+/** @param {{ allowedSigners: string, signerId: string, signature: string, manifest: Uint8Array }} input
+ * @returns {Promise<void>}
+ */
 function verifySshSignature({ allowedSigners, signerId, signature, manifest }) {
   return new Promise((resolvePromise, reject) => {
     const child = spawn('ssh-keygen', ['-Y', 'verify', '-f', allowedSigners, '-I', signerId,
@@ -32,6 +36,7 @@ function verifySshSignature({ allowedSigners, signerId, signature, manifest }) {
   });
 }
 
+/** @param {{ directory: string, expectedReleaseId: string, signerId: string, publicKeyPath: string, now?: number }} input */
 export async function verifyDesktopToolsReleaseOffline({ directory, expectedReleaseId, signerId, publicKeyPath, now }) {
   if (!signerPattern.test(signerId ?? '')) throw new Error('invalid Desktop Tools signer identity');
   const publicKey = await safePublicKey(publicKeyPath);
@@ -42,8 +47,10 @@ export async function verifyDesktopToolsReleaseOffline({ directory, expectedRele
     await writeFile(allowedSigners, `${signerId} ${publicKey}\n`, { mode: 0o600, flag: 'wx' });
     const release = await inspectDesktopReleaseDirectory(directory, expectedReleaseId, now);
     if (release.signerId !== signerId) throw new Error('release signer identity mismatch');
+    const manifest = release.files.get('manifest');
+    if (!manifest) throw new Error('verified release directory is missing its manifest');
     await verifySshSignature({ allowedSigners, signerId, signature: join(resolve(directory), 'manifest.sig'),
-      manifest: release.files.get('manifest') });
+      manifest });
     return Object.freeze({ schemaVersion: 1, verified: true, product: release.product,
       releaseId: release.releaseId, signerId: release.signerId, opencodeVersion: release.opencodeVersion,
       manifestSha256: release.manifestSha256 });

@@ -8,5 +8,5 @@
     "moduleResolution": "NodeNext",
     "types": ["node"]
   },
-  "include": ["scripts/**/*.mjs"]
+  "include": ["scripts/**/*.mjs", "../../scripts/verify-desktop-tools-release.mjs"]
 }
