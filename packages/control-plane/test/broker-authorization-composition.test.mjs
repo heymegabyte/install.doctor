@@ -3,29 +3,32 @@ import { generateKeyPairSync, sign } from 'node:crypto';
 import fs from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
 import test from 'node:test';
+import { URL } from 'node:url';
+import { sqliteD1Fixture } from './helpers/sqlite-d1-fixture.mjs';
 import { brokerApprovalSemanticDigest } from '../../aid-core/dist/broker-approval-contracts.js';
 import { createBrokerAuthorizationComposition } from '../src/broker-authorization-composition.ts';
 
+/** @param {string} value */
 const hex = value => value.repeat(64);
 const now = new Date('2026-11-09T12:00:00.000Z');
+/** @param {unknown} value @returns {unknown} */
 const canonical = value => Array.isArray(value) ? value.map(canonical)
   : value && typeof value === 'object' ? Object.fromEntries(Object.entries(value).sort(([a], [b]) => a.localeCompare(b))
     .map(([key, entry]) => [key, canonical(entry)])) : value;
+/** @param {unknown} value */
 const jsonBytes = value => new TextEncoder().encode(`${JSON.stringify(canonical(value))}\n`);
+/** @param {Uint8Array} value */
 const sha256 = async value => [...new Uint8Array(await crypto.subtle.digest('SHA-256', value))]
   .map(byte => byte.toString(16).padStart(2, '0')).join('');
 
+/** @param {{ delegatedKeyId?: string, configuredKeyId?: string }} [options] */
 async function fixture({ delegatedKeyId = 'approval-key-1', configuredKeyId = delegatedKeyId } = {}) {
   const sqlite = new DatabaseSync(':memory:');
   sqlite.exec('PRAGMA foreign_keys = ON');
   sqlite.exec(fs.readFileSync(new URL('../migrations/0013_broker_approval_state.sql', import.meta.url), 'utf8'));
   sqlite.exec(fs.readFileSync(new URL('../migrations/0014_broker_run_authority.sql', import.meta.url), 'utf8'));
   sqlite.exec(fs.readFileSync(new URL('../migrations/0021_broker_reviewed_plan_bindings.sql', import.meta.url), 'utf8'));
-  const database = { prepare(sql) { let values = []; const statement = {
-    bind(...bound) { values = bound; return statement; },
-    async first() { const row = sqlite.prepare(sql).get(...values); return row ? { ...row } : null; },
-    async run() { const result = sqlite.prepare(sql).run(...values); return { meta: { changes: Number(result.changes) } }; },
-  }; return statement; } };
+  const database = sqliteD1Fixture(sqlite);
   const { privateKey, publicKey } = generateKeyPairSync('ed25519');
   const projection = { schemaVersion: 1, kind: 'desktop-tools-broker-approval-signer-delegation',
     keyId: delegatedKeyId, algorithm: 'Ed25519', signatureDomain: 'desktop-tools-broker-approval-v1',
@@ -56,8 +59,9 @@ async function fixture({ delegatedKeyId = 'approval-key-1', configuredKeyId = de
     enrolledUid: intent.enrolledUid, brokerExecutableDigest: intent.brokerExecutableDigest,
     runtimeDigest: intent.runtimeDigest, workerDigest: intent.workerDigest, operations: intent.operations,
     descriptorDigest: intent.descriptorDigest, closureDigest: intent.closureDigest, consentDigest: intent.consentDigest };
+  /** @satisfies {Parameters<typeof createBrokerAuthorizationComposition>[0]} */
   const dependencies = { database,
-    releaseBucket: { async get(key) { assert.equal(key,
+    releaseBucket: { async get(/** @type {string} */ key) { assert.equal(key,
       'desktop-tools/bootstrap/release-1/broker-approval-signer-delegation.json');
       return { size: delegationBytes.byteLength, body: new ReadableStream({ start(controller) {
         controller.enqueue(delegationBytes); controller.close(); } }) }; } },
@@ -84,7 +88,9 @@ async function fixture({ delegatedKeyId = 'approval-key-1', configuredKeyId = de
     tenantOwnerAuthority: { async resolveForTenant() { return { authenticationActor: 'owner@example.com', ownerActorId: 'owner-1' }; } },
     resolveDevice: async () => principal,
     resolveFreshOwner: async () => ({ actor: 'owner@example.com', authenticatedAt: '2026-11-09T11:58:00.000Z' }),
-    signerService: { async fetch(_url, init) { const request = JSON.parse(init.body);
+    signerService: { async fetch(_url, init) { assert.ok(typeof init?.body === 'string');
+      const request = JSON.parse(init.body);
+      assert.ok(typeof request.message === 'string');
       const signature = sign(null, Buffer.from(request.message, 'base64url'), privateKey).toString('base64url');
       return Response.json({ schemaVersion: 1, keyId: configuredKeyId, algorithm: 'Ed25519', signature }); } },
     signerKeyId: configuredKeyId, now: () => now, randomApprovalId: () => 'approval-1' };
@@ -121,11 +127,12 @@ test('composes request, owner decision, locator status, one-use signed claim, an
 
 test('requires every production authority explicitly and rejects signer/delegation substitution', async () => {
   const setup = await fixture();
-  for (const key of ['database', 'releaseBucket', 'resolveActiveRelease', 'deviceAuthority', 'publicProfileAuthority',
-    'planAuthority', 'tenantOwnerAuthority', 'resolveDevice', 'resolveFreshOwner', 'signerService', 'signerKeyId']) {
-    const dependencies = { ...setup.dependencies };
-    delete dependencies[key];
-    assert.throws(() => createBrokerAuthorizationComposition(dependencies), /requires|invalid/i, key);
+  const requiredKeys = /** @type {const} */ (['database', 'releaseBucket', 'resolveActiveRelease', 'deviceAuthority', 'publicProfileAuthority',
+    'planAuthority', 'tenantOwnerAuthority', 'resolveDevice', 'resolveFreshOwner', 'signerService', 'signerKeyId']);
+  for (const key of requiredKeys) {
+    const { [key]: omitted, ...dependencies } = setup.dependencies;
+    assert.ok(omitted);
+    assert.throws(() => Reflect.apply(createBrokerAuthorizationComposition, undefined, [dependencies]), /requires|invalid/i, key);
   }
   const substituted = await fixture({ delegatedKeyId: 'delegated-key', configuredKeyId: 'configured-key' });
   const composition = createBrokerAuthorizationComposition(substituted.dependencies);
