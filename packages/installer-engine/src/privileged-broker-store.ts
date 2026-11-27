@@ -14,6 +14,7 @@ import {
 } from './privileged-broker-authority.js';
 import type { PrivilegedBrokerExecutionAuthority } from './privileged-broker-authority.js';
 
+const platformOpenFlags: { readonly O_NOFOLLOW?: number; readonly O_DIRECTORY?: number } = constants;
 const safeName = /^[a-z0-9][a-z0-9._-]{0,127}$/;
 
 export interface PrivilegedBrokerStore {
@@ -51,7 +52,7 @@ async function assertNoSymlinkAncestors(path: string): Promise<void> {
 async function writeExclusive(path: string, bytes: Buffer): Promise<boolean> {
   let handle;
   try {
-    handle = await open(path, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | (constants.O_NOFOLLOW ?? 0), 0o600);
+    handle = await open(path, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | (platformOpenFlags.O_NOFOLLOW ?? 0), 0o600);
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'EEXIST') return false;
     throw error;
@@ -62,7 +63,7 @@ async function writeExclusive(path: string, bytes: Buffer): Promise<boolean> {
   } finally {
     await handle.close();
   }
-  const directory = await open(dirname(path), constants.O_RDONLY | (constants.O_DIRECTORY ?? 0));
+  const directory = await open(dirname(path), constants.O_RDONLY | (platformOpenFlags.O_DIRECTORY ?? 0));
   try { await directory.sync(); } finally { await directory.close(); }
   return true;
 }
@@ -73,7 +74,7 @@ async function readProtected(path: string, ownerUid: number, maximumBytes: numbe
     || (before.mode & 0o177) !== 0 || before.size < 1 || before.size > maximumBytes) {
     throw new Error('privileged broker authority file is not a protected bounded regular file');
   }
-  const handle = await open(path, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
+  const handle = await open(path, constants.O_RDONLY | (platformOpenFlags.O_NOFOLLOW ?? 0));
   try {
     const opened = await handle.stat();
     if (opened.dev !== before.dev || opened.ino !== before.ino || opened.size !== before.size) {
@@ -202,7 +203,7 @@ export async function createPrivilegedBrokerStore(input: {
       }
       for (const nonce of nonceNames) await unlink(join(grantNonceRoot, nonce));
       if (nonceNames.length > 0) await rmdir(grantNonceRoot);
-      else await rmdir(grantNonceRoot).catch(error => { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; });
+      else await rmdir(grantNonceRoot).catch((error: unknown) => { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; });
       await unlink(join(authorities, `${grantId}.json`));
       await unlink(join(grants, `${grantId}.json`));
     },
