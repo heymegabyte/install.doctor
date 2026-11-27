@@ -67,6 +67,41 @@ Zen and Omen provisioning scripts use only client IDs to locate Cloudflare servi
 
 Zen and Legion retain their explicit legacy Global project paths only for credentials independently admitted by their managed-host allowlists. Omen must be added as an explicit host declaration with its reviewed project/path and independently enrolled identity before it can receive any host secret; until then it fails closed. None of these declarations may add the SSH client capability. Client IDs are handled with the same routing and non-disclosure controls as their paired secrets even though an ID alone is not sufficient authentication.
 
+### Cloudflare WARP enrollment credential placement
+
+The general and workstation copies of `CLOUDFLARE_TEAMS_CLIENT_ID` and `CLOUDFLARE_TEAMS_CLIENT_SECRET` are byte-identical but remain two exact source identities. Provider metadata identifies the client ID as the active `Desktopbrew` service token, expiring 2123-06-13, included in one Service Auth policy on the WARP Login App. macOS and Ubuntu WARP clients are currently connected and healthy in the `manhattan` organization; neither host exposes a readable installed MDM token file. The templates select the workstation override on macOS and the general fallback elsewhere.
+
+These facts establish a WARP enrollment/bootstrap consumer, not continuous runtime use and not MCP authorization. WARP may provide network reachability or posture signals, but remote MCP endpoints still require their own browser OAuth or service identity, and local MCP boundaries remain unchanged.
+
+The profile/schema should reserve `^CLOUDFLARE_TEAMS_CLIENT_(ID|SECRET)$` from generic `cloudflare` patterns and add an exact `cloudflare-warp-enrollment` capability. During migration only:
+
+| Exact source | Destination | Admission |
+| --- | --- | --- |
+| workstation Teams pair | dedicated macOS project root | `macos.megabyte.space` enrollment/recovery only |
+| general Teams pair | dedicated Ubuntu project root | `ubuntu.megabyte.space` enrollment/recovery only |
+
+Zen, Legion, Omen, managed-workstation, MCP, WordPress, CI, and human profiles receive neither source. The identical ciphertext/equivalence relation is recorded as metadata so planning does not report a conflicting value, but each source retains independent destination, validation, cutover, and retirement evidence. No ambient fallback may route the general pair to another host.
+
+The active token's 2123 expiry and reuse across two host classes are transition debt. Desired state uses one independently revocable WARP enrollment token per host identity (or at minimum per host class), each admitted only to the matching project and WARP Login policy. After each host proves enrollment/re-enrollment and connected health with its replacement, the shared `Desktopbrew` token is removed from policy and revoked through separately authorized credential rotation. Migration is not complete merely because the shared token is valid today.
+
+Retrieval is bounded to enrollment/recovery. The resolver passes the pair request-locally to the platform-supported WARP enrollment operation and must not render it into a persistent readable MDM file, shell environment, logs, argv, generated client, or MCP descriptor. Existing healthy registration should not fetch the pair on every boot. Recovery tests must prove a missing/revoked token fails closed without disconnecting a healthy registered client.
+
+### Cloudflare Origin CA key disposition
+
+Repo-wide evidence finds no executable consumer of `CLOUDFLARE_ORIGIN_CA_KEY`; documentation explicitly calls it currently unused, while shared API pool documentation only lists its name. Both general and workstation copies are therefore `retirement-candidate`, not macOS credentials and not an offline recovery exception. Their required-destination sets are empty.
+
+Before deletion, a provider-appropriate non-value inspection must establish whether the exact key is active/revoked where possible, consumer and certificate-issuance inventories must remain empty, and an exact retirement assertion must pass. If a real issuance consumer is discovered, planning changes the disposition to blocked pending a dedicated certificate-issuance workload/project with narrow operator access and audit; it must not re-admit the legacy key through generic `cloudflare` or any host profile. A future need should prefer a newly scoped credential rather than perpetuating this legacy key.
+
+### Megabyte OS E2E Access credential placement
+
+Provider metadata identifies the general-store `CF_ACCESS_CLIENT_ID` pair as the active service token `megabyte-os-e2e`, expiring 2027-09-29, authorized by exactly one policy on the `Megabyte OS` Access application for `os.megabyte.space`. Local `megabyte.space` verification scripts consume the generic environment names for authenticated E2E calls. Mission/Listmonk, GitLab gatekeeper, project-sites, and other repositories use the same generic variable names for different application-specific tokens; name compatibility is not authorization compatibility.
+
+The source pair is admitted only through an exact `megabyte-os-e2e-access` capability on `macos.megabyte.space`, because the evidenced runner is the local macOS verification controller. It routes to the dedicated macOS project root and is excluded from Ubuntu, Zen, Legion, Omen, MCP/portal credentials, every Worker binding, Mission/Listmonk, GitLab, project-sites, and generic `cloudflare` capability matching. `MCP_AUTOMATION_CF_ACCESS_CLIENT_*` and Secrets Store bindings remain distinct credentials and namespaces.
+
+The resolver must bind metadata `{token: megabyte-os-e2e, application: Megabyte OS, domain: os.megabyte.space, runner: macos.megabyte.space}` and inject the pair request-locally only into the exact verification command. A consumer declaring only `CF_ACCESS_CLIENT_ID/SECRET` without matching application provenance cannot select it. No temporary file fallback, repository `.dev.vars`, Worker secret, log, argv, browser artifact, or generated MCP configuration may receive the values.
+
+The token's active metadata and policy membership prove identity/configuration, but `os.megabyte.space` currently returns origin `522`; therefore a real allowed call has not proven end-to-end usability. Its validation ledger remains `unverified` or `blocked-upstream` rather than `valid`, and the hard pre-write/apply and cutover gates remain closed. After origin recovery, acceptance requires an authenticated allowed E2E call, an anonymous denial, and explicit denial/non-authorization at representative Mission/Listmonk and unrelated Access applications without exposing response secrets.
+
 ### Acceptance scenarios
 
 1. **macOS default inventory:** selecting only `macos.megabyte.space` uses its declared `secrets-workstation` overrides plus the allowed general fallback and records both sources without values.
@@ -80,6 +115,15 @@ Zen and Legion retain their explicit legacy Global project paths only for creden
 9. **Destination-host denial:** Ubuntu, Zen, Legion, and a declared Omen profile exclude all `CF_ACCESS_SSH_*_(CLIENT_ID|CLIENT_SECRET)` names despite their generic Cloudflare capability.
 10. **Undeclared Omen:** selecting Omen before an explicit project/path/identity declaration fails before source validation or retrieval.
 11. **New SSH caller:** a new runner cannot reuse the macOS pair through a broad profile and instead requires its own workload identity and token contract.
+12. **WARP enrollment transition:** macOS maps the workstation Teams source to its dedicated project and Ubuntu maps the general source to its dedicated project; both retrieve only for bounded enrollment/recovery.
+13. **Other-host WARP denial:** Zen, Legion, Omen, MCP, WordPress, and generic managed-workstation plans exclude both Teams sources despite broad Cloudflare matching.
+14. **Healthy registered client:** a connected macOS or Ubuntu client does not require token retrieval on every boot, and absence of a readable MDM token file is not treated as enrollment failure.
+15. **Shared-token replacement:** independent replacement tokens are proven per host before `Desktopbrew` policy removal/revocation; one host's success cannot authorize the other's cutover.
+16. **Origin CA key unused:** both exact Origin CA sources have empty destinations and remain retirement-candidate until no-consumer and provider-status evidence permits exact-source retirement.
+17. **Origin CA consumer discovered:** migration blocks and requires a dedicated certificate-issuance workload design; no host or generic Cloudflare profile receives the legacy key.
+18. **Megabyte OS E2E routing:** only the macOS plan admits the exact OS E2E pair and injects it into the provenance-bound verification process.
+19. **Generic-name collision:** Mission/Listmonk, Workers, MCP automation, GitLab, and project-sites cannot select the OS token merely because they declare `CF_ACCESS_CLIENT_ID/SECRET`.
+20. **Origin unavailable:** active token metadata plus an `os.megabyte.space` `522` remains blocked/unverified and cannot satisfy provider validation, apply, or cutover.
 
 ## Hardened host profiles
 
@@ -272,6 +316,12 @@ Before exact-source deletion, rollback may restore consumer resolution to the st
 - **Raw provider key reaches a developer laptop:** classify upstream and client keys separately, keep upstream keys in Ubuntu/LiteLLM only, and verify macOS denial.
 - **SSH destination receives its caller bearer token:** reserve all Cloudflare Access SSH client names from broad Cloudflare matching and admit only exact names to the evidenced controller capability.
 - **Provisioning repository is mistaken for host consumption:** distinguish code that reconciles Access policy IDs from the runtime identity that initiates SSH; repository reference alone never grants a destination host the credential pair.
+- **Shared WARP bootstrap becomes a fleet credential:** restrict transition delivery to macOS/Ubuntu enrollment, then replace it with independently revocable host tokens and remove the shared policy member.
+- **Rendered MDM configuration persists a bearer secret:** retrieve only for bounded enrollment/recovery and verify no readable installed token file, log, environment, or generated artifact remains.
+- **Connected WARP is mistaken for MCP authentication:** treat WARP only as reachability/posture; retain endpoint-specific MCP OAuth/service authentication and local-only boundaries.
+- **Unused Origin CA key is broadly migrated by name:** assign empty destinations and retirement-candidate state; if a consumer emerges, require a dedicated issuance workload rather than a host grant.
+- **Generic Access variables conflate unrelated service tokens:** require application/domain/runner provenance in addition to the variable name and use exact capabilities per Access application.
+- **Control-plane metadata masks a dead origin:** keep OS E2E validation blocked until a real authenticated call passes; never convert `522` into credential success.
 - **Long-lived local bootstrap credential leaks:** cap client secrets at 90 days, store them in Keychain or a mode-`0600` Ubuntu file, and use 900-second/max-two-use access tokens.
 - **Profile expansion by repository noise:** require explicit capability admission and reviewable diff; discovery alone never grants access.
 - **Canary retirement is mistaken for bulk authority:** bind every deletion to its own exact-source assertion and current drift digest; the canary cannot authorize another source, while rotation, revocation, and age-key retirement remain separate work.

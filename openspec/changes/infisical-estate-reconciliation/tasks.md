@@ -26,6 +26,14 @@
 - [ ] 2.7 Grant `cloudflare-access-ssh-client` only to `macos.megabyte.space`; prove Ubuntu, Zen, Legion, Omen, every workload, and every other host profile exclude all four names.
 - [ ] 2.8 Add Omen to the manifest only after its exact project ID, absolute secret path, identity, profile, owner, and migration state are reviewed; until then reject Omen as an undeclared target, and never grant its eventual managed-host profile the SSH client capability.
 - [ ] 2.9 Add schema/compiler support for reserved-name deny-before-allow semantics, reject ambiguous regex overlap, and require exact reviewed re-admission plus a value-free profile diff.
+- [ ] 2.10 Reserve the exact Teams pair from generic Cloudflare matching and add `cloudflare-warp-enrollment` only to macOS and Ubuntu, mapping workstation source to the macOS project root and general source to the Ubuntu project root.
+- [ ] 2.11 Record the two byte-identical Teams source identities as an explicit equivalence/override relation without collapsing their independent destinations, validation, cutover, or retirement evidence; reject general-source fallback to any other host.
+- [ ] 2.12 Replace shared `Desktopbrew` with independently revocable macOS and Ubuntu WARP enrollment tokens, bind each only to its host/project and WARP Login policy, prove re-enrollment/health, then separately authorize policy removal and revocation of the century-lived shared token.
+- [ ] 2.13 Make Teams-pair retrieval enrollment/recovery-only and prove healthy registered clients do not fetch it continuously or leave it in readable MDM files, argv, environment, logs, generated output, or MCP descriptors.
+- [ ] 2.14 Classify both `CLOUDFLARE_ORIGIN_CA_KEY` sources as retirement-candidate with empty destinations; require exact provider-status/no-consumer evidence and retirement assertion, or block and redesign into a dedicated certificate-issuance workload if a consumer is found.
+- [ ] 2.15 Reserve general `CF_ACCESS_CLIENT_ID`/`CF_ACCESS_CLIENT_SECRET` from generic Cloudflare matching and add an exact `megabyte-os-e2e-access` capability only to macOS, bound to token/application/domain/runner provenance.
+- [ ] 2.16 Prove the OS pair cannot enter Ubuntu, Zen, Legion, Omen, Mission/Listmonk, GitLab, project-sites, MCP automation, Portal, Worker, or generic Cloudflare plans and cannot substitute for `MCP_AUTOMATION_CF_ACCESS_CLIENT_*` or Secrets Store bindings.
+- [ ] 2.17 Keep the OS pair validation `unverified`/`blocked-upstream` while `os.megabyte.space` returns `522`; after origin recovery require authenticated allowed E2E, anonymous denial, and representative unrelated-application denial before `valid`, apply, or cutover.
 
 ## 2A. Workload targets
 
@@ -97,5 +105,7 @@
 - [ ] 7.2f Add a deterministic metadata-only listing and closed-set sync validator across inventory, profiles, host/workload targets, validation ledger, destination evidence, offline exceptions, and retirement assertions.
 - [ ] 7.2g Add WordPress workload tests for exact 14-source inventory, exclusive source-store selection, host/general/workstation/MCP exclusion, dedicated-project routing, per-group allowlists, site-project split, privileged-bootstrap denial, intended workload retrieval, and explicit cross-target denial.
 - [ ] 7.2h Add SSH Access credential tests for macOS exact-name admission, Coolify/Ubuntu pair completeness, Ubuntu/Zen/Legion/Omen denial, generic `^CF_` exclusion, undeclared-Omen failure, overlap rejection, and new-caller token non-reuse.
+- [ ] 7.2i Add WARP/Origin-CA tests for macOS-workstation and Ubuntu-general source routing, identical-source equivalence without lifecycle collapse, other-host/workload denial, generic-pattern exclusion, bounded non-persistent enrollment, connected-client no-fetch, per-host token replacement, empty Origin-CA destinations, and discovered-consumer blocking.
+- [ ] 7.2j Add OS E2E Access tests for exact macOS admission, provenance binding, all-host/workload exclusion, generic-name collision rejection, MCP/Worker namespace separation, request-local injection, `522` blocked status, and post-recovery positive/negative live validation.
 - [ ] 7.3 Update operator documentation to distinguish online authority, transition fallback, offline recovery, and retirement eligibility without listing values.
 - [ ] 7.4 Run strict OpenSpec validation and focused repository secret-safety/profile tests; report PASS, FAIL, BLOCKED, and UNVERIFIED distinctly.

@@ -138,6 +138,82 @@ The system SHALL reserve every `CF_ACCESS_SSH_*_(CLIENT_ID|CLIENT_SECRET)` name 
 - **WHEN** a non-macOS runner needs non-interactive SSH
 - **THEN** it requires a separate workload identity and per-caller Access token contract rather than inheriting or copying the macOS pair
 
+### Requirement: Host-bounded WARP enrollment credentials
+
+The system SHALL reserve `CLOUDFLARE_TEAMS_CLIENT_ID` and `CLOUDFLARE_TEAMS_CLIENT_SECRET` from generic Cloudflare matching and SHALL admit them only through a bounded WARP enrollment capability for macOS and Ubuntu. The workstation source SHALL route only to the dedicated macOS project and the general source SHALL route only to the dedicated Ubuntu project during transition.
+
+#### Scenario: Identical source copies are planned
+
+- **WHEN** the byte-identical general and workstation Teams sources are inventoried
+- **THEN** their equivalence/override relation is recorded without collapsing source identity
+- **AND** each retains its own host destination, validation, cutover, and retirement evidence
+
+#### Scenario: Managed host requests Teams credentials
+
+- **WHEN** Zen, Legion, Omen, MCP, WordPress, CI, or another non-enrollment profile is planned
+- **THEN** both Teams sources are excluded before validation, decryption, or destination access
+
+#### Scenario: Healthy WARP client starts
+
+- **WHEN** macOS or Ubuntu is already registered and connected to the declared organization
+- **THEN** normal startup does not retrieve the enrollment pair or require a readable installed MDM token file
+
+#### Scenario: Enrollment or recovery is required
+
+- **WHEN** the admitted host must enroll or recover WARP registration
+- **THEN** the matching host identity retrieves the pair request-locally for the supported enrollment operation
+- **AND** no token remains in a readable MDM file, argv, environment, log, generated client, or MCP descriptor
+
+#### Scenario: Shared bootstrap token is replaced
+
+- **WHEN** independently revocable macOS and Ubuntu enrollment tokens have each passed host-specific re-enrollment and health verification
+- **THEN** the shared token becomes eligible for separately authorized policy removal and revocation
+- **AND** one host's evidence cannot authorize the other host's cutover
+
+### Requirement: Unused Origin CA key retirement
+
+The system SHALL classify each general/workstation `CLOUDFLARE_ORIGIN_CA_KEY` source as `retirement-candidate` with an empty destination set while no executable certificate-issuance consumer is evidenced. The key SHALL NOT enter generic Cloudflare, macOS, host, or workload profiles.
+
+#### Scenario: No Origin CA consumer exists
+
+- **WHEN** provider-status inspection and synchronized consumer listings confirm no active required consumer
+- **THEN** each exact source proceeds through the no-destination retirement assertion and deletion gates without migration
+
+#### Scenario: Certificate-issuance consumer is discovered
+
+- **WHEN** evidence identifies a current consumer before retirement
+- **THEN** deletion and host migration are blocked
+- **AND** architecture requires a dedicated certificate-issuance workload/project and newly scoped credential review
+
+### Requirement: Application-bound Megabyte OS E2E credential
+
+The system SHALL admit the general `CF_ACCESS_CLIENT_ID`/`CF_ACCESS_CLIENT_SECRET` pair only as the `megabyte-os-e2e` credential for macOS-run verification of the `Megabyte OS` Access application at `os.megabyte.space`. Generic environment-name reuse SHALL NOT authorize another application, host, workload, Worker, or MCP surface.
+
+#### Scenario: MacOS E2E verification is planned
+
+- **WHEN** the consumer metadata exactly matches the reviewed token, application, domain, and macOS runner
+- **THEN** the pair is selected from the dedicated macOS project and injected request-locally into only the E2E process
+
+#### Scenario: Another application uses generic variable names
+
+- **WHEN** Mission/Listmonk, GitLab, project-sites, a Worker, or another consumer requests `CF_ACCESS_CLIENT_ID/SECRET`
+- **THEN** the OS pair is rejected unless that consumer has its own separately mapped application-specific credential
+
+#### Scenario: MCP automation requests Access credentials
+
+- **WHEN** an MCP portal or automation client resolves its Access identity
+- **THEN** it uses its distinct `MCP_AUTOMATION_CF_ACCESS_CLIENT_*` or approved runtime bindings and cannot fall back to the OS pair
+
+#### Scenario: OS origin returns 522
+
+- **WHEN** token metadata and policy membership are active but the protected origin returns `522`
+- **THEN** validation remains blocked or unverified and cannot authorize migration apply, consumer cutover, or source retirement
+
+#### Scenario: OS origin recovers
+
+- **WHEN** a real authenticated E2E call succeeds after origin recovery
+- **THEN** validation also requires anonymous denial and representative unrelated-application denial before status may become `valid`
+
 ### Requirement: Safe reconciliation
 
 The system SHALL be idempotent, complete inventory before mutation, mask output, and perform no deletion, revocation, rotation, or permission widening outside the declared plan.
