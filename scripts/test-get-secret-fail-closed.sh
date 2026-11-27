@@ -2,16 +2,20 @@
 set -euo pipefail
 
 target=home/dot_local/bin/executable_get-secret
-grep -Fq 'const secretPath = `/hosts/${hostname}`' "$target"
-! grep -Fq "'/']" "$target"
+grep -Fq "if (config.secretPath !== '/') return null" "$target"
+grep -Fq "endpoint.searchParams.set('secretPath', binding.secretPath)" "$target"
+grep -Fq "endpoint.searchParams.set('environment', 'prod')" "$target"
+grep -Fq "find-generic-password', '-a', binding.hostId" "$target"
 grep -Fq 'return null' "$target"
 grep -Fq 'must never silently inherit' "$target"
-grep -Fq -- '--env=prod' "$target"
 ! grep -Fq 'process.env.INFISICAL_ENVIRONMENT' "$target"
 grep -Fq "INSTALL_DOCTOR_SECRET_BACKEND || 'auto'" "$target"
 grep -Fq "backend === 'infisical'" "$target"
 grep -Fq "['auto', 'local', 'infisical'].includes(backend)" "$target"
 grep -Fq "const offlineSecretNames" "$target"
+grep -Fq "const quarantinedSecretNames" "$target"
+grep -Fq "quarantinedSecretNames.has(secretName)" "$target"
+grep -Fq "'CLOUDFLARE_API_KEY'" "$target"
 grep -Fq "offlineSecretNames.has(secretName)" "$target"
 grep -Fq "backend === 'auto'" "$target"
 grep -Fq 'return getInfisicalSecret(secretName)' "$target"
