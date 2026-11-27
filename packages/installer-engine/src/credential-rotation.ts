@@ -2,7 +2,7 @@ import { z } from 'zod';
 
 const id = z.string().regex(/^[a-z0-9][a-z0-9._:-]{0,127}$/);
 const digest = z.string().regex(/^[a-f0-9]{64}$/);
-const timestamp = z.string().datetime({ offset: true }).max(64);
+const timestamp = z.iso.datetime({ offset: true }).max(64);
 
 export const CredentialRotationPlanSchema = z.strictObject({
   schemaVersion: z.literal(1),
