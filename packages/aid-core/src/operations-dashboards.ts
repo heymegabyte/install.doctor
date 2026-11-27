@@ -59,7 +59,7 @@ export function buildOperationsDashboards(input: unknown) {
       }).sort((a, b) => (a.hostId ?? '').localeCompare(b.hostId ?? ''));
       if (records.length === 0) records.push({ hostId: null, state: 'unknown' as const, observedAt: null,
         evidenceDigest: null, value: null, unit: null, reason: 'no-current-evidence' });
-      return { id: domain, title: domain.split('-').map(word => `${word[0].toUpperCase()}${word.slice(1)}`).join(' '), domain,
+      return { id: domain, title: domain.split('-').map(word => `${word.charAt(0).toUpperCase()}${word.slice(1)}`).join(' '), domain,
         source: ['secret-access', 'restore-outcomes'].includes(domain) ? 'loki' as const : 'prometheus' as const,
         query: `{tenant_id="${request.tenantId}",desktop_tools_domain="${domain}"}`,
         states: ['unknown', 'stale', 'running', 'failed', 'verified'] as const,

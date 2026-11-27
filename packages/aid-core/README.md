@@ -32,11 +32,17 @@ The current test count is reported by `npm test`; do not copy a stale count into
 ## Run
 
 ```bash
-npm install
+npm ci
+npm run typecheck
 npm test
 ```
 
-There are no runtime dependencies. TypeScript is the sole development dependency.
+The build uses the base compiler profile from the qualified `@theme-tools/testing`
+1.0.2 archive at theme.tools revision `08b6d16a1bb7c4da9eb11ec741720c5ec078a551`.
+`vendor/theme-tools/tsconfig.base.json` is the exact `package/dist/tsconfig/base.json`
+member. Its SHA-256 is `6f72381362b2ee9b97227b5a775ff3234dcf9df7e11d0c1c240be77ef650b713`.
+The package keeps its own emit and library settings. Zod is the runtime dependency,
+and TypeScript is the development dependency.
 The downloadable bundle also includes compiled `dist/` files so its tests can be run
 with `node --test test/core.test.mjs` without building. No root privileges are needed.
 

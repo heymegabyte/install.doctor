@@ -465,8 +465,12 @@ export function evaluateEasterEgg(trigger: EasterEggTrigger): EasterEggResult {
 
   // 2. Harmonic Fibonacci Cadence
   if (trigger.kind === 'HARMONIC_FIBONACCI' && trigger.intervalsMs) {
-    const f = [10, 10, 20, 30, 50, 80, 130];
-    const isFib = trigger.intervalsMs.length >= 5 && trigger.intervalsMs.slice(0, 5).every((ms, i) => Math.abs(ms - f[i]) < 40);
+    const intervals = trigger.intervalsMs;
+    const cadence = [10, 10, 20, 30, 50];
+    const isFib = cadence.every((expected, index) => {
+      const observed = intervals[index];
+      return observed !== undefined && Math.abs(observed - expected) < 40;
+    });
     if (isFib) {
       return {
         unlocked: true,
