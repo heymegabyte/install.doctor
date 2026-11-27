@@ -35,6 +35,7 @@
     "test/host-reconciliation.test.mjs",
     "test/immutable-artifact.test.mjs",
     "test/immutable-linux-deployment.test.mjs",
+    "test/inherited-secret-fd.test.mjs",
     "test/launchd-service-state-adapter.test.mjs",
     "test/legacy-admin-bridge.test.mjs",
     "test/linux-platform-fixtures.test.mjs",

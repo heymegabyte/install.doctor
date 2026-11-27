@@ -4,6 +4,7 @@ import { open, unlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
+import { Writable } from 'node:stream';
 import { createInheritedSecretFdBroker } from '../dist/index.js';
 
 test('rejects regular files, stdio descriptors, oversized bounds, and unknown purposes', async () => {
@@ -17,7 +18,8 @@ test('rejects regular files, stdio descriptors, oversized bounds, and unknown pu
     );
     assert.throws(() => createInheritedSecretFdBroker({ fd: 0, purpose: 'sudo-password', maxBytes: 1_024 }));
     assert.throws(() => createInheritedSecretFdBroker({ fd: handle.fd, purpose: 'sudo-password', maxBytes: 4_097 }));
-    assert.throws(() => createInheritedSecretFdBroker({ fd: handle.fd, purpose: 'other', maxBytes: 1_024 }));
+    // Exercise validation for a JavaScript caller passing an unsupported purpose.
+    assert.throws(() => Reflect.apply(createInheritedSecretFdBroker, undefined, [{ fd: handle.fd, purpose: 'other', maxBytes: 1_024 }]), /sudo-password/);
   } finally {
     await handle.close();
     await unlink(path);
@@ -38,18 +40,24 @@ test('admits an inherited anonymous pipe as a one-shot capability without readin
     env: { PATH: process.env.PATH ?? '' },
     stdio: ['ignore', 'pipe', 'pipe', 'pipe'],
   });
+  /** @type {Buffer[]} */
   const stdout = [];
+  /** @type {Buffer[]} */
   const stderr = [];
+  assert.ok(child.stdout && child.stderr);
+  const secretPipe = child.stdio[3];
+  assert.ok(secretPipe instanceof Writable);
   let pipeError;
   child.stdout.on('data', chunk => stdout.push(chunk));
   child.stderr.on('data', chunk => stderr.push(chunk));
   // The child intentionally proves that admission does not read the secret
   // bytes. Linux may therefore reset the parent side while it is being closed;
   // that expected transport result must not become an unhandled test error.
-  child.stdio[3].on('error', error => {
-    if (error.code !== 'ECONNRESET' && error.code !== 'EPIPE') pipeError = error;
+  secretPipe.on('error', error => {
+    const code = 'code' in error ? error.code : undefined;
+    if (code !== 'ECONNRESET' && code !== 'EPIPE') pipeError = error;
   });
-  child.stdio[3].end('value-that-must-not-be-read');
+  secretPipe.end('value-that-must-not-be-read');
   const code = await new Promise((resolve, reject) => {
     child.once('error', reject);
     child.once('close', resolve);
