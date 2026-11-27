@@ -148,9 +148,27 @@ async function loadWorkerApp() {
   const patchedCode = rawCode.replace(/["']cloudflare:[^"']+["']/g, JSON.stringify(mockModuleDataUrl));
   const tmpBundle = path.resolve(__dirname, '../dist/.test-worker-bundle.mjs');
   fs.writeFileSync(tmpBundle, patchedCode, 'utf8');
-  const mod = await import(`${tmpBundle}?t=${Date.now()}`);
-  fs.rmSync(tmpBundle, { force: true });
-  return mod.default;
+  /** @type {unknown} */
+  let module;
+  try {
+    module = await import(`${tmpBundle}?t=${String(Date.now())}`);
+  } finally {
+    fs.rmSync(tmpBundle, { force: true });
+  }
+  assert.ok(module && typeof module === 'object' && 'default' in module);
+  const handler = module.default;
+  assert.ok(handler && typeof handler === 'object' && 'fetch' in handler && typeof handler.fetch === 'function',
+    'worker fixture bundle did not export a fetch handler');
+  const fetchHandler = handler.fetch;
+  return {
+    /** @param {Request} request @param {unknown} [env] */
+    async fetch(request, env) {
+      /** @type {unknown} */
+      const response = await Reflect.apply(fetchHandler, handler, [request, env]);
+      assert.ok(response instanceof Response, 'worker fixture fetch must return a Response');
+      return response;
+    },
+  };
 }
 
 const TEST_ENV = {
@@ -609,9 +627,10 @@ void test('pair claim is atomic, digest-only, binding-safe, and normalizes termi
 
   const attempts = await Promise.all([poll(), poll()]);
   assert.equal(attempts.filter(response => response.status === 200).length, 1);
-  assert.ok([404, 429].includes(attempts.find(response => response.status !== 200).status));
   const winner = attempts.find(response => response.status === 200);
   const loser = attempts.find(response => response.status !== 200);
+  assert.ok(winner && loser);
+  assert.ok([404, 429].includes(loser.status));
   const credential = await winner.json();
   assert.match(credential.token, /^aid_[a-f0-9]{64}$/);
   assert.ok(Date.parse(credential.expiresAt) > Date.now());
