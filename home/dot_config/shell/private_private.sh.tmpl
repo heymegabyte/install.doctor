@@ -119,11 +119,6 @@ export PYPI_TOKEN="{{ if (stat (joinPath .chezmoi.sourceDir ".chezmoitemplates" 
 ### Replicate
 export REPLICATE_API_KEY="{{ if (stat (joinPath .chezmoi.sourceDir ".chezmoitemplates" (printf "%s%s" "secrets-" .chezmoi.hostname) "REPLICATE_API_KEY")) }}{{ includeTemplate (printf "%s%s" (printf "%s%s" "secrets-" .chezmoi.hostname) "/REPLICATE_API_KEY") | decrypt | trim }}{{ else }}{{ env "REPLICATE_API_KEY" }}{{ end }}"
 
-### Search GPT
-# Also relies on `OPENAI_API_KEY`
-export GOOGLE_SEARCH_API_KEY="{{ if (stat (joinPath .chezmoi.sourceDir ".chezmoitemplates" (printf "%s%s" "secrets-" .chezmoi.hostname) "GOOGLE_SEARCH_API_KEY")) }}{{ includeTemplate (printf "%s%s" (printf "%s%s" "secrets-" .chezmoi.hostname) "/GOOGLE_SEARCH_API_KEY") | decrypt | trim }}{{ else }}{{ env "GOOGLE_SEARCH_API_KEY" }}{{ end }}"
-export GOOGLE_SEARCH_ID="{{ if (stat (joinPath .chezmoi.sourceDir ".chezmoitemplates" (printf "%s%s" "secrets-" .chezmoi.hostname) "GOOGLE_SEARCH_ID")) }}{{ includeTemplate (printf "%s%s" (printf "%s%s" "secrets-" .chezmoi.hostname) "/GOOGLE_SEARCH_ID") | decrypt | trim }}{{ else }}{{ env "GOOGLE_SEARCH_ID" }}{{ end }}"
-
 ### SendGrid API Key
 export SENDGRID_API_KEY="{{ if (stat (joinPath .chezmoi.sourceDir ".chezmoitemplates" (printf "%s%s" "secrets-" .chezmoi.hostname) "SENDGRID_API_KEY")) }}{{ includeTemplate (printf "%s%s" (printf "%s%s" "secrets-" .chezmoi.hostname) "/SENDGRID_API_KEY") | decrypt | trim }}{{ else }}{{ env "SENDGRID_API_KEY" }}{{ end }}"
 
