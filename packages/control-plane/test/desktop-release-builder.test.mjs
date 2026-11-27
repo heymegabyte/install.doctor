@@ -5,6 +5,7 @@ import { execFileSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
+import { z } from 'zod';
 import { buildDesktopToolsRelease } from '../../../scripts/build-desktop-tools-release.mjs';
 import { verifyDesktopToolsReleaseOffline } from '../../../scripts/verify-desktop-tools-release.mjs';
 import { publishDesktopRelease } from '../scripts/desktop-release-publication.mjs';
@@ -20,6 +21,28 @@ const canonical = value => Array.isArray(value) ? value.map(canonical)
 /** @param {string} domain @param {unknown} value */
 const semanticDigest = (domain, value) => digest(`${domain}\0${JSON.stringify(canonical(value))}`);
 
+const jsonObject = z.record(z.string(), z.unknown());
+const sbomSchema = z.object({ metadata: z.object({ component: z.object({
+  properties: z.array(z.object({ name: z.string(), value: z.string() })),
+}) }) });
+const provenanceSchema = z.object({ predicate: z.object({ buildDefinition: z.object({
+  externalParameters: z.object({
+    brokerApprovalDelegationSha256: z.string(),
+    brokerApprovalMinimumRevocationEpoch: z.number(),
+  }),
+}) }) });
+const spdxSchema = z.object({
+  '@context': z.string(),
+  '@graph': z.array(z.object({ type: z.string(), profileConformance: z.array(z.string()).optional() })),
+});
+const exploitabilitySchema = z.looseObject({
+  spdx: z.looseObject({ sha256: z.string() }),
+  kind: z.string(),
+});
+const compositionSchema = z.looseObject({ descriptor: z.looseObject({ metadataProof: z.looseObject({
+  inRelease: z.looseObject({ validUntil: z.string().nullable() }),
+}) }) });
+
 void test('creates a canonical public broker approval delegation from source-owned release policy', async t => {
   const root = await mkdtemp(join(tmpdir(), 'desktop-delegation-test-'));
   t.after(() => rm(root, { recursive: true, force: true }));
@@ -29,7 +52,7 @@ void test('creates a canonical public broker approval delegation from source-own
     '../../../config/desktop-tools-broker-approval-policy.json', 'release-1', '2000000000', '2000003600',
     'approval-key-1', publicKeySpki, output], { cwd: new URL('.', import.meta.url).pathname });
   const bytes = await readFile(output);
-  const delegation = JSON.parse(bytes.toString('utf8'));
+  const delegation = jsonObject.parse(JSON.parse(bytes.toString('utf8')));
   assert.deepEqual(bytes, Buffer.from(`${JSON.stringify(canonical(delegation))}\n`));
   const { delegationDigest, ...projection } = delegation;
   assert.equal(delegationDigest, semanticDigest('desktop-tools:broker-approval-signer-delegation:v1', projection));
@@ -69,18 +92,18 @@ void test('builds deterministic unsigned Desktop Tools v10 closure with delegate
   for (const platform of platforms) assert.match(manifest, new RegExp(`opencode_${platform.replace('-', '_')}_url=https://desktop\\.tools/releases/desktop-test-1/${opencodeName(platform).replaceAll('.', '\\.')}`));
   assert.equal((await readdir(first.outputDirectory)).includes('manifest.sig'), false);
   const delegationDigest = digest(await readFile(source.brokerApprovalSignerDelegation));
-  const sbom = JSON.parse(await readFile(join(first.outputDirectory, 'release.sbom.json'), 'utf8'));
-  const properties = new Map(sbom.metadata.component.properties.map((/** @type {{name: string, value: string}} */ item) => [item.name, item.value]));
+  const sbom = sbomSchema.parse(JSON.parse(await readFile(join(first.outputDirectory, 'release.sbom.json'), 'utf8')));
+  const properties = new Map(sbom.metadata.component.properties.map(item => [item.name, item.value]));
   assert.equal(properties.get('desktop.tools:broker-approval-delegation-sha256'), delegationDigest);
   assert.equal(properties.get('desktop.tools:broker-approval-minimum-revocation-epoch'), '7');
-  const provenance = JSON.parse(await readFile(join(first.outputDirectory, 'release.provenance.json'), 'utf8'));
+  const provenance = provenanceSchema.parse(JSON.parse(await readFile(join(first.outputDirectory, 'release.provenance.json'), 'utf8')));
   assert.equal(provenance.predicate.buildDefinition.externalParameters.brokerApprovalDelegationSha256, delegationDigest);
   assert.equal(provenance.predicate.buildDefinition.externalParameters.brokerApprovalMinimumRevocationEpoch, 7);
   const spdxBytes = await readFile(join(first.outputDirectory, 'release.spdx.json'));
-  const spdx = JSON.parse(spdxBytes.toString('utf8'));
+  const spdx = spdxSchema.parse(JSON.parse(spdxBytes.toString('utf8')));
   assert.equal(spdx['@context'], 'https://spdx.org/rdf/3.0.1/spdx-context.jsonld');
-  assert.deepEqual(spdx['@graph'].find((/** @type {{type: string}} */ element) => element.type === 'SpdxDocument')?.profileConformance, ['core', 'software']);
-  const exploitability = JSON.parse(await readFile(join(first.outputDirectory, 'release.exploitability.json'), 'utf8'));
+  assert.deepEqual(spdx['@graph'].find(element => element.type === 'SpdxDocument')?.profileConformance, ['core', 'software']);
+  const exploitability = exploitabilitySchema.parse(JSON.parse(await readFile(join(first.outputDirectory, 'release.exploitability.json'), 'utf8')));
   assert.equal(exploitability.spdx.sha256, digest(spdxBytes));
   assert.equal(exploitability.kind, 'desktop-tools-release-exploitability');
   await assert.rejects(buildDesktopToolsRelease({ ...base, outputDirectory: first.outputDirectory }, now), /overwrite/);
@@ -100,7 +123,7 @@ void test('rejects malformed, stale, or substituted lock and license metadata be
   await writeFile(fresh.licenses, 'unrelated notices\n');
   await assert.rejects(buildDesktopToolsRelease({ ...common, ...fresh, outputDirectory: join(root, 'bad-license') }, now), /licenses/);
   const freshness = await inputs(root, { releaseId: 'desktop-test-3' });
-  const receipt = JSON.parse(await readFile(freshness.debian.compositionReceipt, 'utf8'));
+  const receipt = compositionSchema.parse(JSON.parse(await readFile(freshness.debian.compositionReceipt, 'utf8')));
   receipt.descriptor.metadataProof.inRelease.validUntil = new Date((now + 60) * 1000).toISOString();
   await writeFile(freshness.debian.compositionReceipt, `${JSON.stringify(receipt)}\n`, { mode: 0o600 });
   await assert.rejects(buildDesktopToolsRelease({ ...common, ...freshness, expiresAt: now + 86_400,
@@ -112,10 +135,10 @@ void test('rejects malformed, stale, or substituted lock and license metadata be
    * @param {{ recompute?: boolean, canonicalJson?: boolean }} [options]
    */
   async function mutateDelegation(sourceInput, mutate, { recompute = true, canonicalJson = true } = {}) {
-    const delegation = JSON.parse(await readFile(sourceInput.brokerApprovalSignerDelegation, 'utf8'));
+    const delegation = jsonObject.parse(JSON.parse(await readFile(sourceInput.brokerApprovalSignerDelegation, 'utf8')));
     mutate(delegation);
     if (recompute) {
-      const { delegationDigest: ignored, ...projection } = delegation;
+      const projection = Object.fromEntries(Object.entries(delegation).filter(([key]) => key !== 'delegationDigest'));
       delegation.delegationDigest = semanticDigest('desktop-tools:broker-approval-signer-delegation:v1', projection);
     }
     await writeFile(sourceInput.brokerApprovalSignerDelegation,
@@ -159,14 +182,22 @@ void test('signs and verifies the complete closure offline; tamper, surplus, and
   const verified = await verifyDesktopToolsReleaseOffline({ directory: signed, expectedReleaseId: source.releaseId,
     signerId: 'desktop-production-1', publicKeyPath: publicKeyFile, now });
   assert.equal(verified.verified, true); assert.equal(verified.opencodeVersion, '2.0.1');
+  /** @type {Map<string, {bytes: Buffer, etag: string}>} */
   const objects = new Map();
   const allowed = join(root, 'allowed'); await writeFile(allowed, `desktop-production-1 ${publicKey}\n`, { mode: 0o600 });
   await publishDesktopRelease({ directory: signed, expectedReleaseId: source.releaseId,
-    storage: { async create(key, bytes) { if (objects.has(key)) return false; objects.set(key, { bytes: Buffer.from(bytes) }); return true; }, async read(key) { return objects.get(key) ?? null; } },
-    verifySignature: async ({ manifest, signerId, namespace }) => {
+    storage: {
+      create(key, bytes) {
+        if (objects.has(key)) return Promise.resolve(false);
+        objects.set(key, { bytes: Buffer.from(bytes), etag: digest(bytes) });
+        return Promise.resolve(true);
+      },
+      read(key) { return Promise.resolve(objects.get(key) ?? null); },
+    },
+    verifySignature: ({ manifest, signerId, namespace }) => {
       assert.equal(namespace, 'desktop.tools.release');
       execFileSync('ssh-keygen', ['-Y','verify','-f',allowed,'-I',signerId,'-n',namespace,'-s',join(signed,'manifest.sig')], { input: manifest });
-    }, now }).catch(async error => { throw error; });
+    }, now });
 
   for (const platform of platforms) {
     const tampered = join(root, `tampered-${platform}`); await cp(signed, tampered, { recursive: true });
@@ -176,14 +207,14 @@ void test('signs and verifies the complete closure offline; tamper, surplus, and
   }
   const evidenceTamper = join(root, 'tampered-evidence'); await cp(signed, evidenceTamper, { recursive: true });
   const exploitabilityPath = join(evidenceTamper, 'release.exploitability.json');
-  const exploitability = JSON.parse(await readFile(exploitabilityPath, 'utf8'));
+  const exploitability = exploitabilitySchema.parse(JSON.parse(await readFile(exploitabilityPath, 'utf8')));
   exploitability.spdx.sha256 = '0'.repeat(64);
   const exploitabilityBytes = Buffer.from(`${JSON.stringify(exploitability)}\n`);
   await writeFile(exploitabilityPath, exploitabilityBytes);
   const manifestPath = join(evidenceTamper, 'manifest');
   const reboundManifest = (await readFile(manifestPath, 'utf8'))
     .replace(/^exploitability_sha256=.*$/m, `exploitability_sha256=${digest(exploitabilityBytes)}`)
-    .replace(/^exploitability_size=.*$/m, `exploitability_size=${exploitabilityBytes.byteLength}`);
+    .replace(/^exploitability_size=.*$/m, `exploitability_size=${String(exploitabilityBytes.byteLength)}`);
   await writeFile(manifestPath, reboundManifest);
   await rm(join(evidenceTamper, 'manifest.sig'));
   execFileSync('ssh-keygen', ['-Y', 'sign', '-q', '-f', privateKey, '-n', 'desktop.tools.release', manifestPath]);

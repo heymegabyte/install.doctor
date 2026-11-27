@@ -15,7 +15,7 @@ function fixture(overrides = {}) {
   const signerId = 'desktop-production-1';
   const manifest = Buffer.from([
     'schema_version=7', 'product_id=desktop-tools', `release_id=${releaseId}`,
-    `source_commit=${'a'.repeat(40)}`, `created_at=${now - 1}`, `expires_at=${now + 86_400}`,
+    `source_commit=${'a'.repeat(40)}`, `created_at=${String(now - 1)}`, `expires_at=${String(now + 86_400)}`,
     `key_id=${signerId}`
   ].join('\n') + '\n');
   const pointer = {
@@ -31,8 +31,14 @@ void test('resolves only a canonical product-qualified pointer and digest-bound 
   const value = fixture();
   /** @type {string[]} */
   const requested = [];
-  const channels = { async get(/** @type {string} */ key) { requested.push(key); return key === 'desktop-tools/channels/stable.json' ? body(value.pointerBytes) : null; } };
-  const releases = { async get(/** @type {string} */ key) { requested.push(key); return key === `desktop-tools/bootstrap/${value.releaseId}/manifest` ? body(value.manifest) : null; } };
+  const channels = { get(/** @type {string} */ key) {
+    requested.push(key);
+    return Promise.resolve(key === 'desktop-tools/channels/stable.json' ? body(value.pointerBytes) : null);
+  } };
+  const releases = { get(/** @type {string} */ key) {
+    requested.push(key);
+    return Promise.resolve(key === `desktop-tools/bootstrap/${value.releaseId}/manifest` ? body(value.manifest) : null);
+  } };
   const result = await resolveActiveDesktopRelease(channels, releases, 'stable', value.now);
   assert.equal(result.product, 'desktop-tools');
   assert.deepEqual(requested, ['desktop-tools/channels/stable.json', `desktop-tools/bootstrap/${value.releaseId}/manifest`]);
@@ -44,8 +50,8 @@ void test('resolves the current signed v9 manifest used by the profile bootstrap
     + `\nbroker_approval_minimum_revocation_epoch=7\nbroker_approval_delegation_url=https://desktop.tools/releases/${value.releaseId}/broker-approval-signer-delegation.json\nbroker_approval_delegation_sha256=${'b'.repeat(64)}\nbroker_approval_delegation_size=512\n`);
   value.pointer.manifestSha256 = digest(value.manifest);
   value.pointerBytes = Buffer.from(`${JSON.stringify(value.pointer)}\n`);
-  const channels = { async get() { return body(value.pointerBytes); } };
-  const releases = { async get() { return body(value.manifest); } };
+  const channels = { get: () => Promise.resolve(body(value.pointerBytes)) };
+  const releases = { get: () => Promise.resolve(body(value.manifest)) };
   const result = await resolveActiveDesktopRelease(channels, releases, 'stable', value.now);
   assert.equal(result.releaseId, value.releaseId);
   assert.equal(result.schemaVersion, 9);
@@ -55,18 +61,21 @@ void test('resolves the current signed v9 manifest used by the profile bootstrap
 
 void test('rejects legacy prefixes, noncanonical pointers, wrong products, and manifest substitution', async () => {
   const value = fixture();
-  await assert.rejects(resolveActiveDesktopRelease({ async get() { return null; } }, { async get() { return null; } }, 'stable', value.now), /channel is missing/);
+  await assert.rejects(resolveActiveDesktopRelease({ get: () => Promise.resolve(null) }, { get: () => Promise.resolve(null) }, 'stable', value.now), /channel is missing/);
   const noncanonical = Buffer.from(JSON.stringify(value.pointer));
-  await assert.rejects(resolveActiveDesktopRelease({ async get() { return body(noncanonical); } }, { async get() { return body(value.manifest); } }, 'stable', value.now), /pointer identity/);
+  await assert.rejects(resolveActiveDesktopRelease({ get: () => Promise.resolve(body(noncanonical)) }, { get: () => Promise.resolve(body(value.manifest)) }, 'stable', value.now), /pointer identity/);
   const wrongProduct = Buffer.from(`${JSON.stringify({ ...value.pointer, product: 'install-doctor' })}\n`);
-  await assert.rejects(resolveActiveDesktopRelease({ async get() { return body(wrongProduct); } }, { async get() { return body(value.manifest); } }, 'stable', value.now), /invalid|literal|product/i);
-  await assert.rejects(resolveActiveDesktopRelease({ async get() { return body(value.pointerBytes); } }, { async get() { return body(Buffer.from('tampered\n')); } }, 'stable', value.now), /digest mismatch/);
+  await assert.rejects(resolveActiveDesktopRelease({ get: () => Promise.resolve(body(wrongProduct)) }, { get: () => Promise.resolve(body(value.manifest)) }, 'stable', value.now), /invalid|literal|product/i);
+  await assert.rejects(resolveActiveDesktopRelease({ get: () => Promise.resolve(body(value.pointerBytes)) }, { get: () => Promise.resolve(body(Buffer.from('tampered\n'))) }, 'stable', value.now), /digest mismatch/);
 });
 
 void test('serves only Desktop Tools release filenames from its isolated prefix', async () => {
   /** @type {string[]} */
   const requested = [];
-  const bucket = { async get(/** @type {string} */ key) { requested.push(key); return body(Buffer.from('engine\n')); } };
+  const bucket = { get(/** @type {string} */ key) {
+    requested.push(key);
+    return Promise.resolve(body(Buffer.from('engine\n')));
+  } };
   const found = await lookupDesktopReleaseObject(bucket, 'desktop-release-1', 'desktop-tools-engine.mjs');
   assert.equal(found.status, 'found');
   assert.equal(found.contentType, 'text/javascript; charset=utf-8');

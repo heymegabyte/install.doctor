@@ -5,6 +5,7 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
+import { z } from 'zod';
 import {
   activateDesktopRelease, DESKTOP_RELEASE_FILES, DESKTOP_RELEASE_V8_FILES, DESKTOP_RELEASE_V9_FILES,
   inspectActiveDesktopReleaseFreshness, inspectPublishedDesktopRelease, publishDesktopRelease,
@@ -12,6 +13,9 @@ import {
 } from '../scripts/desktop-release-publication.mjs';
 
 import { createSignatureVerifier } from '../scripts/publish-release-to-r2.mjs';
+
+const jsonObject = z.record(z.string(), z.unknown());
+const sbomSchema = z.looseObject({ components: z.array(z.looseObject({ name: z.string() })) });
 
 void test('CLI verifier uses the signed promotion payload and rejects different bytes', async (t) => {
   const directory = await mkdtemp(join(tmpdir(), 'desktop-promotion-signature-'));
@@ -108,8 +112,8 @@ async function fixture(t, mutate = value => value, schemaVersion = 7) {
   bodies.set('release.provenance.json', Buffer.from(`${JSON.stringify(provenance)}\n`));
   bodies.set('THIRD_PARTY_LICENSES.txt', Buffer.from(`OpenCode ${opencodeVersion}\nMIT License\n`));
   const entries = [
-    `schema_version=${schemaVersion}`, 'product_id=desktop-tools', `release_id=${releaseId}`, `source_commit=${'a'.repeat(40)}`,
-    `created_at=${now - 1}`, `expires_at=${now + 86_400}`, 'key_id=desktop-production-1',
+    `schema_version=${String(schemaVersion)}`, 'product_id=desktop-tools', `release_id=${releaseId}`, `source_commit=${'a'.repeat(40)}`,
+    `created_at=${String(now - 1)}`, `expires_at=${String(now + 86_400)}`, 'key_id=desktop-production-1',
     'engine_node_min=22', 'runtime_node_version=24.11.0', `opencode_version=${opencodeVersion}`
   ];
   if (schemaVersion === 9) entries.push('broker_approval_minimum_revocation_epoch=7');
@@ -133,7 +137,7 @@ async function fixture(t, mutate = value => value, schemaVersion = 7) {
   for (const [prefix, name] of artifacts) entries.push(
     `${prefix}_url=https://desktop.tools/releases/${releaseId}/${name}`,
     `${prefix}_sha256=${digest(artifactBytes(name))}`,
-    `${prefix}_size=${artifactBytes(name).byteLength}`
+    `${prefix}_size=${String(artifactBytes(name).byteLength)}`
   );
   bodies.set('manifest', Buffer.from(`${mutate(entries).join('\n')}\n`));
   bodies.set('manifest.sig', Buffer.from('signature\n'));
@@ -151,14 +155,19 @@ function storage() {
   /** @type {CreateCall[]} */
   const creates = [];
   return { objects, creates,
-    async create(key, bytes, metadata) { creates.push([key, metadata]); if (objects.has(key)) return false; objects.set(key, { bytes: Buffer.from(bytes), etag: `created-${objects.size + 1}` }); return true; },
-    async read(key) { return objects.get(key) ?? null; },
-    async compareAndSwap(key, bytes, expectedEtag) {
+    create: (key, bytes, metadata) => {
+      creates.push([key, metadata]);
+      if (objects.has(key)) return Promise.resolve(false);
+      objects.set(key, { bytes: Buffer.from(bytes), etag: `created-${String(objects.size + 1)}` });
+      return Promise.resolve(true);
+    },
+    read: key => Promise.resolve(objects.get(key) ?? null),
+    compareAndSwap: (key, bytes, expectedEtag) => {
       const current = objects.get(key);
-      if ((current?.etag ?? undefined) !== expectedEtag) return { ok: false };
-      const etag = `etag-${objects.size + 1}`;
+      if (current?.etag !== expectedEtag) return Promise.resolve({ ok: false });
+      const etag = `etag-${String(objects.size + 1)}`;
       objects.set(key, { bytes: Buffer.from(bytes), etag });
-      return { ok: true, etag };
+      return Promise.resolve({ ok: true, etag });
     }
   };
 }
@@ -169,7 +178,7 @@ void test('publishes an exact Desktop Tools v7 release in a product-qualified im
   /** @type {Parameters<Parameters<typeof publishDesktopRelease>[0]['verifySignature']>[0] | undefined} */
   let verified;
   const result = await publishDesktopRelease({ ...release, expectedReleaseId: release.releaseId, storage: target,
-    verifySignature: async input => { verified = input; } });
+    verifySignature: input => { verified = input; } });
   assert.equal(result.product, 'desktop-tools');
   assert.equal(verified?.namespace, 'desktop.tools.release');
   assert.equal(target.creates.at(-1)?.[0], `desktop-tools/bootstrap/${release.releaseId}/manifest`);
@@ -195,14 +204,14 @@ void test('publishes and reinspects an exact Desktop Tools v8 release with four 
 
   const unbound = await fixture(t, value => value, 8);
   const sbomPath = join(unbound.directory, 'release.sbom.json');
-  const sbom = JSON.parse(await readFile(sbomPath, 'utf8'));
-  sbom.components = sbom.components.filter((/** @type {{name: string}} */ component) => component.name !== 'tree_2.1.0-1_amd64.deb');
+  const sbom = sbomSchema.parse(JSON.parse(await readFile(sbomPath, 'utf8')));
+  sbom.components = sbom.components.filter(component => component.name !== 'tree_2.1.0-1_amd64.deb');
   const alteredSbom = Buffer.from(`${JSON.stringify(sbom)}\n`);
   await writeFile(sbomPath, alteredSbom);
   const manifestPath = join(unbound.directory, 'manifest');
   const alteredManifest = (await readFile(manifestPath, 'utf8')).split('\n').map(line =>
     line.startsWith('sbom_sha256=') ? `sbom_sha256=${digest(alteredSbom)}`
-      : line.startsWith('sbom_size=') ? `sbom_size=${alteredSbom.byteLength}` : line).join('\n');
+      : line.startsWith('sbom_size=') ? `sbom_size=${String(alteredSbom.byteLength)}` : line).join('\n');
   await writeFile(manifestPath, alteredManifest);
   await assert.rejects(publishDesktopRelease({ ...unbound, expectedReleaseId: unbound.releaseId, storage: storage(),
     verifySignature: async () => {} }), /SBOM does not bind the exact release payload closure/);
@@ -228,7 +237,7 @@ void test('rejects noncanonical, substituted, stale, revoked, wrong-channel, and
   async function alterDelegation(transform, expected) {
     const release = await fixture(t, value => value, 9);
     const path = join(release.directory, 'broker-approval-signer-delegation.json');
-    const original = JSON.parse(await readFile(path, 'utf8'));
+    const original = jsonObject.parse(JSON.parse(await readFile(path, 'utf8')));
     const altered = transform(original);
     const bytes = Buffer.from(`${JSON.stringify(altered)}\n`);
     await writeFile(path, bytes);
@@ -237,7 +246,7 @@ void test('rejects noncanonical, substituted, stale, revoked, wrong-channel, and
       line.startsWith('broker_approval_delegation_sha256=')
         ? `broker_approval_delegation_sha256=${digest(bytes)}`
         : line.startsWith('broker_approval_delegation_size=')
-          ? `broker_approval_delegation_size=${bytes.byteLength}` : line).join('\n');
+          ? `broker_approval_delegation_size=${String(bytes.byteLength)}` : line).join('\n');
     await writeFile(manifestPath, manifest);
     await assert.rejects(publishDesktopRelease({ ...release, expectedReleaseId: release.releaseId, storage: storage(),
       verifySignature: async () => {} }), expected);
@@ -272,7 +281,7 @@ void test('activates only inspected Desktop Tools releases with product-qualifie
     expectedEtag: promoted2.etag, kind: 'rollback', rollbackOfActivationId: promoted2.pointer.activationId,
     activationId: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc', activatedAt: '2026-11-08T12:02:00.000Z', now });
   assert.equal(rollback.pointer.generation, 3);
-  assert.equal(JSON.parse(channels.objects.get('desktop-tools/channels/stable.json')?.bytes.toString('utf8') ?? '').product, 'desktop-tools');
+  assert.equal(jsonObject.parse(JSON.parse(channels.objects.get('desktop-tools/channels/stable.json')?.bytes.toString('utf8') ?? '')).product, 'desktop-tools');
   assert.equal([...channels.objects.keys()].some(key => key.startsWith('bootstrap/')), false);
   await assert.rejects(activateDesktopRelease({ channel: 'stable', release: { ...second, product: 'legacy-install-doctor' }, storage: channels,
     expectedEtag: rollback.etag, activationId: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd', activatedAt: '2026-11-08T12:03:00.000Z', now }), /product mismatch/);
@@ -286,7 +295,7 @@ void test('reconciles a post-CAS receipt failure without repeating activation', 
   const verifySignature = async () => {};
   await publishDesktopRelease({ ...releaseFixture, expectedReleaseId: releaseFixture.releaseId, storage: releaseStorage, verifySignature, now });
   const release = await inspectPublishedDesktopRelease({ expectedReleaseId: releaseFixture.releaseId, storage: releaseStorage, verifySignature, now });
-  const originalCreate = channels.create;
+  const originalCreate = channels.create.bind(channels);
   let failReceipt = true;
   channels.create = async (key, bytes, metadata) => {
     if (failReceipt && key.startsWith('desktop-tools/activation-receipts/')) throw new Error('injected receipt outage');
@@ -301,7 +310,7 @@ void test('reconciles a post-CAS receipt failure without repeating activation', 
   const reconciled = await reconcileDesktopActivationReceipt({ channel: 'stable', activationId, storage: channels });
   assert.equal(reconciled.status, 'reconciled');
   assert.equal((await reconcileDesktopActivationReceipt({ channel: 'stable', activationId, storage: channels })).status, 'already-present');
-  assert.equal(JSON.parse(channels.objects.get('desktop-tools/channels/stable.json')?.bytes.toString('utf8') ?? '').generation, 1);
+  assert.equal(jsonObject.parse(JSON.parse(channels.objects.get('desktop-tools/channels/stable.json')?.bytes.toString('utf8') ?? '')).generation, 1);
 });
 
 void test('signed cohort health gates suspend failed canaries before CAS and admit only their exact transition', async t => {
@@ -354,7 +363,7 @@ void test('Desktop Tools freshness is signature-verified, read-only, product-qua
   const channels = storage();
   const releaseFixture = await fixture(t);
   let verifications = 0;
-  const verifySignature = async () => { verifications += 1; };
+  const verifySignature = () => { verifications += 1; };
   await publishDesktopRelease({ ...releaseFixture, expectedReleaseId: releaseFixture.releaseId,
     storage: releaseStorage, verifySignature, now });
   const release = await inspectPublishedDesktopRelease({ expectedReleaseId: releaseFixture.releaseId,
@@ -377,7 +386,7 @@ void test('Desktop Tools freshness is signature-verified, read-only, product-qua
   const pointerKey = 'desktop-tools/channels/stable.json';
   const stored = channels.objects.get(pointerKey);
   assert.ok(stored);
-  const pointer = JSON.parse(stored.bytes.toString('utf8'));
+  const pointer = jsonObject.parse(JSON.parse(stored.bytes.toString('utf8')));
   channels.objects.set(pointerKey, { ...stored,
     bytes: Buffer.from(`${JSON.stringify({ ...pointer, manifestSha256: 'f'.repeat(64) })}\n`) });
   await assert.rejects(inspectActiveDesktopReleaseFreshness({ channel: 'stable', channelStorage: channels,
