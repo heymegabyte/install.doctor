@@ -181,6 +181,24 @@ for (const configuration of Object.values(manifest.workloads)) {
 for (const host of Object.keys(manifest.hosts)) {
   assert.deepEqual(selectHostSecrets(manifest, host, newlyContainedSecrets), []);
 }
+const postizFacebookSecrets = [
+  'FACEBOOK_APP_ID', 'FACEBOOK_APP_SECRET', 'FACEBOOK_OAUTH_ID', 'FACEBOOK_OAUTH_SECRET',
+];
+assert.deepEqual(
+  selectConfigurationSecrets(
+    manifest,
+    manifest.workloads['postiz.megabyte.space'],
+    postizFacebookSecrets,
+  ),
+  ['FACEBOOK_APP_ID', 'FACEBOOK_APP_SECRET'],
+);
+for (const [workload, configuration] of Object.entries(manifest.workloads)) {
+  if (workload === 'postiz.megabyte.space') continue;
+  assert.deepEqual(selectConfigurationSecrets(manifest, configuration, postizFacebookSecrets), []);
+}
+for (const host of Object.keys(manifest.hosts)) {
+  assert.deepEqual(selectHostSecrets(manifest, host, postizFacebookSecrets), []);
+}
 assert.deepEqual(selectConfigurationSecrets(
   manifest, manifest.workloads['crawl.cheap'], ['EXA_API_KEY', 'SENTRY_DSN', 'ANTHROPIC_API_KEY'],
 ), ['EXA_API_KEY', 'SENTRY_DSN']);

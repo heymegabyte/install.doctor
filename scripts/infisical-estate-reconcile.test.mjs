@@ -5,7 +5,8 @@ import { selectHostSecrets, validateManifest } from './infisical-estate-reconcil
 const manifest = validateManifest({
   schemaVersion: 1,
   environment: 'prod',
-  hosts: { 'macos.megabyte.space': { profile: 'developer', secretPath: '/hosts/macos-megabyte-space' } },
+  hosts: { 'macos.megabyte.space': { profile: 'developer', projectId: '11111111-1111-4111-8111-111111111111', secretPath: '/hosts/macos-megabyte-space' } },
+  workloads: {},
   profiles: { developer: ['github', 'cloudflare'] },
   capabilityPatterns: { github: ['^GITHUB_'], cloudflare: ['^CLOUDFLARE_'] },
   alwaysExcludePatterns: ['PASSWORD$'],
