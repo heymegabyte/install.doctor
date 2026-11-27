@@ -3,8 +3,10 @@ import { chmod, link, lstat, mkdtemp, readFile, readdir, rm, writeFile } from 'n
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
+import { NormalizedPlanSchema } from '@install-doctor/aid-core/installer-contracts';
 import { LiveOwnerError, configurationCompensationArtifactDigest, createJournalStore } from '../dist/index.js';
 
+/** @param {string} character */
 const digest = character => character.repeat(64);
 const task = {
   schemaVersion: 1, id: 'task.one', inputDigest: digest('b'), dependencies: [], predicate: 'host-supported',
@@ -13,11 +15,12 @@ const task = {
   privilege: 'user', network: 'none', consent: 'none', lockDomains: [], cleanup: 'none', compensation: 'none',
   failurePolicy: 'continue-independent',
 };
-const plan = {
+const plan = NormalizedPlanSchema.parse({
   schemaVersion: 1, planId: 'plan-one', digest: digest('a'), releaseId: 'release-one', desiredRevision: 'desired-one',
   hostFactsDigest: digest('c'), createdAt: '2026-11-06T00:00:00.000Z', tasks: [task], selectedTaskIds: [task.id],
-};
+});
 
+/** @param {Partial<Parameters<typeof createJournalStore>[0]>} overrides */
 async function fixture(overrides = {}) {
   const root = await mkdtemp(join(tmpdir(), 'install-doctor-journal-'));
   await chmod(root, 0o700);
@@ -29,12 +32,16 @@ async function fixture(overrides = {}) {
   return { root, store, clock };
 }
 
+/** @param {string} root */
 async function onlyJournalObject(root) {
   const directory = join(root, 'runs', plan.digest, 'run-one', 'objects', 'sha256');
   const names = await readdir(directory);
-  return join(directory, names.sort().at(-1));
+  const filename = names.sort().at(-1);
+  assert.ok(filename);
+  return join(directory, filename);
 }
 
+/** @returns {Parameters<ReturnType<typeof createJournalStore>['finalize']>[2]} */
 const successfulReceipt = (finishedAt = '2026-11-06T00:00:01.000Z') => ({
   schemaVersion: 1, runId: 'run-one', planDigest: plan.digest, status: 'success',
   startedAt: '2026-11-06T00:00:00.000Z', finishedAt,
@@ -42,6 +49,7 @@ const successfulReceipt = (finishedAt = '2026-11-06T00:00:01.000Z') => ({
   evidencePaths: ['placeholder'], nextAction: null,
 });
 
+/** @returns {Parameters<ReturnType<typeof createJournalStore>['finalize']>[3]} */
 const successfulEvents = (finishedAt = '2026-11-06T00:00:01.000Z') => [
   { schemaVersion: 1, sequence: 0, at: '2026-11-06T00:00:00.000Z', runId: 'run-one', kind: 'run-status', status: 'started' },
   { schemaVersion: 1, sequence: 1, at: '2026-11-06T00:00:00.100Z', runId: 'run-one', kind: 'task-status', taskId: task.id, status: 'verified', attempt: 1 },
@@ -67,18 +75,18 @@ test('run discovery is read-only and distinguishes active from resumable evidenc
     stateRoot: absentRoot, hostId: 'host-one', bootId: 'boot-one', processStart: 'reader',
   });
   assert.deepEqual(await absentStore.listRuns(), []);
-  await assert.rejects(lstat(absentRoot), error => error.code === 'ENOENT');
+  await assert.rejects(lstat(absentRoot), error => error instanceof Error && 'code' in error && error.code === 'ENOENT');
 
   const claim = await store.claim('run-one', plan);
   const active = await store.listRuns();
   assert.equal(active.length, 1);
-  assert.equal(active[0].authority, 'active');
-  assert.equal(active[0].resumeCandidate, false);
+  assert.equal(active[0]?.authority, 'active');
+  assert.equal(active[0]?.resumeCandidate, false);
   await store.release(claim.owner);
   const resumable = await store.listRuns();
-  assert.equal(resumable[0].authority, 'uncommitted');
-  assert.equal(resumable[0].resumeCandidate, true);
-  await assert.rejects(lstat(join(root, 'owner.json')), error => error.code === 'ENOENT');
+  assert.equal(resumable[0]?.authority, 'uncommitted');
+  assert.equal(resumable[0]?.resumeCandidate, true);
+  await assert.rejects(lstat(join(root, 'owner.json')), error => error instanceof Error && 'code' in error && error.code === 'ENOENT');
 });
 
 test('run discovery fails closed on a tampered durable chain', async () => {
@@ -95,12 +103,14 @@ test('journal checkpoints are fenced by the current owner token and sorted deter
   const updated = await store.checkpoint(claim.owner, {
     taskId: task.id, inputDigest: task.inputDigest, status: 'verified', attempts: 1, updatedAt: '2026-11-06T00:00:01.000Z',
   });
-  assert.equal(updated.entries[0].status, 'verified');
+  assert.equal(updated.entries[0]?.status, 'verified');
   await store.release(claim.owner);
-  await assert.rejects(store.checkpoint(claim.owner, updated.entries[0]), LiveOwnerError);
+  const [entry] = updated.entries;
+  assert.ok(entry);
+  await assert.rejects(store.checkpoint(claim.owner, entry), LiveOwnerError);
   const resumed = await store.claim('run-one', plan, 'resume');
   assert.equal(resumed.resumed, true);
-  assert.equal(resumed.journal.entries[0].status, 'verified');
+  assert.equal(resumed.journal.entries[0]?.status, 'verified');
 });
 
 test('fresh run refuses released uncommitted evidence and only explicit resume may adopt it', async () => {
@@ -110,7 +120,7 @@ test('fresh run refuses released uncommitted evidence and only explicit resume m
   const run = join(root, 'runs', plan.digest, 'run-one');
   const headsBefore = await readdir(join(run, 'heads'));
   await assert.rejects(store.claim('run-one', plan), /fresh run requires absent journal evidence/);
-  await assert.rejects(lstat(join(root, 'owner.json')), error => error.code === 'ENOENT');
+  await assert.rejects(lstat(join(root, 'owner.json')), error => error instanceof Error && 'code' in error && error.code === 'ENOENT');
   assert.deepEqual(await readdir(join(run, 'heads')), headsBefore);
   const resumed = await store.claim('run-one', plan, 'resume');
   assert.equal(resumed.resumed, true);
@@ -140,6 +150,7 @@ test('configuration compensation is persisted before activation, integrity check
   const { store } = await fixture();
   const claim = await store.claim('run-one', plan);
   const bytes = Buffer.from('prior configuration\n');
+  /** @type {import('../dist/index.js').ConfigurationSnapshot} */
   const snapshot = {
     schemaVersion: 1, targetPath: '/etc/install-doctor/fixture.conf', existed: true,
     mode: 0o640, uid: process.platform === 'win32' ? null : 501, gid: process.platform === 'win32' ? null : 20,
@@ -148,6 +159,7 @@ test('configuration compensation is persisted before activation, integrity check
   const { createHash } = await import('node:crypto');
   snapshot.digest = createHash('sha256').update(bytes).digest('hex');
   const artifactDigest = configurationCompensationArtifactDigest(snapshot, bytes);
+  /** @type {Parameters<typeof store.updateCompensation>[1]} */
   const available = {
     schemaVersion: 1, taskId: task.id, kind: 'configuration', state: 'available',
     createdAt: '2026-11-06T00:00:01.000Z', artifactDigest, restores: ['bytes', 'mode', 'ownership'],
@@ -155,10 +167,12 @@ test('configuration compensation is persisted before activation, integrity check
   await store.persistCompensation(claim.owner, { record: available, snapshot, bytes, dependencies: [] });
   const persisted = await store.readCompensations('run-one', plan.digest);
   assert.equal(persisted.length, 1);
-  assert.equal(persisted[0].record.state, 'available');
-  assert.equal(Buffer.from(persisted[0].bytesBase64, 'base64').toString('utf8'), bytes.toString('utf8'));
+  const [compensation] = persisted;
+  assert.ok(compensation?.bytesBase64);
+  assert.equal(compensation.record.state, 'available');
+  assert.equal(Buffer.from(compensation.bytesBase64, 'base64').toString('utf8'), bytes.toString('utf8'));
   await store.updateCompensation(claim.owner, { ...available, state: 'applied' });
-  assert.equal((await store.readCompensations('run-one', plan.digest))[0].record.state, 'applied');
+  assert.equal((await store.readCompensations('run-one', plan.digest))[0]?.record.state, 'applied');
   await store.release(claim.owner);
   await assert.rejects(store.updateCompensation(claim.owner, { ...available, state: 'failed' }), LiveOwnerError);
 });
@@ -166,12 +180,14 @@ test('configuration compensation is persisted before activation, integrity check
 test('concurrent task checkpoints serialize without losing an entry', async () => {
   const { store } = await fixture();
   const claim = await store.claim('run-one', plan);
+  /** @type {Parameters<typeof store.checkpoint>[1][]} */
   const entries = ['task.a', 'task.b', 'task.c'].map((taskId, index) => ({
     taskId, inputDigest: digest(String(index + 1)), status: 'verified', attempts: 1,
     updatedAt: `2026-11-06T00:00:0${index + 1}.000Z`,
   }));
   await Promise.all(entries.map(entry => store.checkpoint(claim.owner, entry)));
   const persisted = await store.read('run-one', plan.digest);
+  assert.ok(persisted);
   assert.deepEqual(persisted.entries.map(entry => entry.taskId), ['task.a', 'task.b', 'task.c']);
   assert.equal(persisted.revision, 4);
 });
@@ -227,17 +243,19 @@ test('immutable generations are content addressed, contiguous, and hash chained'
   const run = join(root, 'runs', plan.digest, 'run-one');
   const heads = (await readdir(join(run, 'heads'))).sort();
   assert.equal(heads.length, 2);
-  assert.ok(heads[0].startsWith('0000000000000001-'));
-  assert.ok(heads[1].startsWith('0000000000000002-'));
-  const first = JSON.parse(await readFile(join(run, 'heads', heads[0]), 'utf8'));
-  const second = JSON.parse(await readFile(join(run, 'heads', heads[1]), 'utf8'));
+  const [firstHead, secondHead] = heads;
+  assert.ok(firstHead && secondHead);
+  assert.ok(firstHead.startsWith('0000000000000001-'));
+  assert.ok(secondHead.startsWith('0000000000000002-'));
+  const first = JSON.parse(await readFile(join(run, 'heads', firstHead), 'utf8'));
+  const second = JSON.parse(await readFile(join(run, 'heads', secondHead), 'utf8'));
   assert.equal(first.previousDigest, null);
   assert.equal(second.previousDigest, first.journalDigest);
   const objectBytes = await readFile(join(run, 'objects', 'sha256', `${second.journalDigest}.json`));
   const { createHash } = await import('node:crypto');
   assert.equal(createHash('sha256').update(objectBytes).digest('hex'), second.journalDigest);
 
-  await rm(join(run, 'heads', heads[0]));
+  await rm(join(run, 'heads', firstHead));
   await assert.rejects(store.read('run-one', plan.digest), /not contiguous/);
 });
 
@@ -263,11 +281,11 @@ test('immutable publication leaves only single-linked final names and ignores cr
   assert.ok(finalHeadName);
   assert.equal((await lstat(join(run, 'heads', finalHeadName))).nlink, 1);
 
-  assert.equal((await store.read('run-one', plan.digest)).revision, 1);
+  assert.equal((await store.read('run-one', plan.digest))?.revision, 1);
   assert.deepEqual(await store.readCompensations('run-one', plan.digest), []);
   await store.release(claim.owner);
   assert.equal((await store.inspectCompletion('run-one', plan.digest)).authority, 'uncommitted');
-  assert.equal((await store.listRuns())[0].authority, 'uncommitted');
+  assert.equal((await store.listRuns())[0]?.authority, 'uncommitted');
 });
 
 test('failed initial publication releases only its own lease and leaves no authoritative generation', async () => {
@@ -278,7 +296,7 @@ test('failed initial publication releases only its own lease and leaves no autho
     },
   });
   await assert.rejects(state.store.claim('run-one', plan), /injected publication crash/);
-  await assert.rejects(lstat(join(state.root, 'owner.json')), error => error.code === 'ENOENT');
+  await assert.rejects(lstat(join(state.root, 'owner.json')), error => error instanceof Error && 'code' in error && error.code === 'ENOENT');
   assert.equal(await state.store.read('run-one', plan.digest), undefined, 'orphan object cannot become an authoritative journal');
   const recovered = await state.store.claim('run-one', plan);
   assert.equal(recovered.journal.revision, 1);
@@ -293,14 +311,16 @@ test('checkpoint crash before head publication preserves the prior authoritative
   });
   const claim = await state.store.claim('run-one', plan);
   armed = true;
+  /** @type {Parameters<typeof state.store.checkpoint>[1]} */
   const entry = { taskId: task.id, inputDigest: task.inputDigest, status: 'verified', attempts: 1, updatedAt: '2026-11-06T00:00:01.000Z' };
   await assert.rejects(state.store.checkpoint(claim.owner, entry), /injected checkpoint crash/);
   const beforeRetry = await state.store.read('run-one', plan.digest);
+  assert.ok(beforeRetry);
   assert.equal(beforeRetry.revision, 1);
   assert.deepEqual(beforeRetry.entries, []);
   const recovered = await state.store.checkpoint(claim.owner, entry);
   assert.equal(recovered.revision, 2);
-  assert.equal(recovered.entries[0].status, 'verified');
+  assert.equal(recovered.entries[0]?.status, 'verified');
 });
 
 test('corrupt and insecure journal artifacts fail closed instead of becoming fresh state', async () => {
@@ -373,7 +393,7 @@ test('finalization writes independently verifiable committed evidence', async ()
   await store.release(claim.owner);
   const inspection = await store.inspectCompletion('run-one', plan.digest);
   assert.equal(inspection.authority, 'committed');
-  assert.equal(inspection.receipt.status, 'success');
+  assert.equal(inspection.receipt?.status, 'success');
   assert.equal(inspection.commitPath, commitPath);
   await assert.rejects(store.claim('run-one', plan), /already has terminal commit evidence/);
   await assert.rejects(store.claim('run-one', plan, 'resume'), /terminal commit evidence|committed run evidence/);
@@ -381,7 +401,7 @@ test('finalization writes independently verifiable committed evidence', async ()
   await writeFile(receiptPath, `${JSON.stringify({ ...receipt, status: 'failed' })}\n`, { mode: 0o600 });
   const tampered = await store.inspectCompletion('run-one', plan.digest);
   assert.equal(tampered.authority, 'corrupt');
-  assert.match(tampered.problems[0], /receipt digest/);
+  assert.match(tampered.problems.join(' '), /receipt digest/);
 });
 
 test('receipt without a final commit marker remains orphan precommit evidence', async () => {
@@ -487,10 +507,10 @@ test('every durable interruption window rejects fresh-run adoption and admits on
     }
     await state.store.release(claim.owner);
     const ownerPath = join(state.root, 'owner.json');
-    await assert.rejects(lstat(ownerPath), error => error.code === 'ENOENT');
+    await assert.rejects(lstat(ownerPath), error => error instanceof Error && 'code' in error && error.code === 'ENOENT');
     await assert.rejects(state.store.claim('run-one', plan, 'run'), /fresh run requires absent journal evidence/,
       `${point} evidence was adopted by a fresh run`);
-    await assert.rejects(lstat(ownerPath), error => error.code === 'ENOENT');
+    await assert.rejects(lstat(ownerPath), error => error instanceof Error && 'code' in error && error.code === 'ENOENT');
     const resumed = await state.store.claim('run-one', plan, 'resume');
     assert.equal(resumed.resumed, true);
     assert.equal(resumed.owner.runId, 'run-one');
@@ -518,17 +538,19 @@ test('completion inspection ignores an expired dead owner for released durable e
   const inspection = await state.store.inspectCompletion('run-one', plan.digest);
   assert.equal(inspection.authority, 'uncommitted');
   const listed = await state.store.listRuns();
-  assert.equal(listed[0].authority, 'uncommitted');
-  assert.equal(listed[0].resumeCandidate, true);
+  assert.equal(listed[0]?.authority, 'uncommitted');
+  assert.equal(listed[0]?.resumeCandidate, true);
 });
 
 test('finalization rejects terminal evidence that disagrees with the receipt, plan, or durable journal', async () => {
+  /** @type {ReturnType<typeof successfulReceipt>} */
   const receipt = {
     schemaVersion: 1, runId: 'run-one', planDigest: plan.digest, status: 'success',
     startedAt: '2026-11-06T00:00:00.000Z', finishedAt: '2026-11-06T00:00:01.000Z',
     taskCounts: { verified: 1, inapplicable: 0, skipped: 0, blocked: 0, pending: 0, failed: 0 },
     evidencePaths: ['placeholder'], nextAction: null,
   };
+  /** @returns {ReturnType<typeof successfulEvents>} */
   const validEvents = () => [
     { schemaVersion: 1, sequence: 0, at: '2026-11-06T00:00:00.000Z', runId: 'run-one', kind: 'run-status', status: 'started' },
     { schemaVersion: 1, sequence: 1, at: '2026-11-06T00:00:00.100Z', runId: 'run-one', kind: 'task-status', taskId: task.id, status: 'verified', attempt: 1 },
@@ -536,15 +558,16 @@ test('finalization rejects terminal evidence that disagrees with the receipt, pl
     { schemaVersion: 1, sequence: 3, at: '2026-11-06T00:00:00.300Z', runId: 'run-one', kind: 'phase-status', phase: 'record', status: 'succeeded' },
     { schemaVersion: 1, sequence: 4, at: '2026-11-06T00:00:01.000Z', runId: 'run-one', kind: 'run-status', status: 'success' },
   ];
+  /** @type {[string, (events: ReturnType<typeof validEvents>) => ReturnType<typeof validEvents>, ReturnType<typeof successfulReceipt>, RegExp][]} */
   const cases = [
     ['missing terminal status', events => events.slice(0, -1), receipt, /exactly one terminal run status/],
-    ['receipt mismatch', events => events.map((event, index) => index === 4 ? { ...event, status: 'failed' } : event), receipt, /does not agree with the receipt/],
+    ['receipt mismatch', events => events.map((event, index) => index === 4 && event.kind === 'run-status' ? { ...event, status: 'failed' } : event), receipt, /does not agree with the receipt/],
     ['record phase missing', events => events.filter(event => !(event.kind === 'phase-status' && event.phase === 'record')).map((event, sequence) => ({ ...event, sequence })), receipt, /record phase/],
     ['task outcome missing', events => events.filter(event => event.kind !== 'task-status').map((event, sequence) => ({ ...event, sequence })), receipt, /no terminal outcome/],
     ['unselected task', events => events.map(event => event.kind === 'task-status' ? { ...event, taskId: 'task.other' } : event), receipt, /unselected task/],
     [
       'task counts mismatch',
-      events => events.map((event, index) => index === 4 ? { ...event, status: 'failed' } : event),
+      events => events.map((event, index) => index === 4 && event.kind === 'run-status' ? { ...event, status: 'failed' } : event),
       { ...receipt, taskCounts: { ...receipt.taskCounts, verified: 0, failed: 1 }, status: 'failed', nextAction: 'Inspect the failed task.' },
       /task counts/,
     ],

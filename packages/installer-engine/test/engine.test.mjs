@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { chmod, lstat, mkdir, mkdtemp, readFile, readdir, realpath, stat, writeFile } from 'node:fs/promises';
+import { chmod, lstat, mkdir, mkdtemp, readFile, readdir, realpath, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
@@ -16,6 +16,7 @@ import {
   semanticInstallerResult,
 } from '../dist/index.js';
 
+/** @param {string} character */
 const digest = character => character.repeat(64);
 const facts = {
   schemaVersion: 1, hostId: 'fixture-host', collectedAt: '2026-11-06T00:00:00.000Z',
@@ -40,9 +41,12 @@ const plan = {
 };
 const planDraft = { tasks: [task], selectedTaskIds: [task.id] };
 
+/** @param {Partial<import('../dist/index.js').InstallerAdapter>} overrides */
 function harness(overrides = {}) {
+  /** @type {string[]} */
   const calls = [];
   let tick = 0;
+  /** @type {import('../dist/index.js').InstallerAdapter} */
   const adapter = {
     discover: async () => { calls.push('discover'); return facts; },
     plan: async () => { calls.push('plan'); return planDraft; },
@@ -59,11 +63,22 @@ function harness(overrides = {}) {
 }
 
 function deferred() {
-  let resolve;
-  const promise = new Promise(accept => { resolve = accept; });
+  /** @type {() => void} */
+  let resolve = () => assert.fail('deferred signal was not initialized');
+  /** @type {Promise<void>} */
+  const promise = new Promise(accept => { resolve = () => accept(undefined); });
   return { promise, resolve };
 }
 
+/** @param {Map<string, ReturnType<typeof deferred>>} gates @param {string | undefined} taskId */
+function requiredGate(gates, taskId) {
+  assert.ok(taskId);
+  const gate = gates.get(taskId);
+  assert.ok(gate, `missing test gate for ${taskId}`);
+  return gate;
+}
+
+/** @param {() => unknown} predicate @param {string} message */
 async function eventually(predicate, message) {
   for (let attempt = 0; attempt < 200; attempt += 1) {
     if (predicate()) return;
@@ -75,6 +90,19 @@ async function eventually(predicate, message) {
   assert.fail(message);
 }
 
+/** @param {import('../dist/index.js').InstallerRunResult['events']} events */
+function lastRunStatus(events) {
+  const terminal = events.at(-1);
+  assert.ok(terminal);
+  assert.equal(terminal.kind, 'run-status');
+  return terminal.status;
+}
+
+/**
+ * @param {import('../dist/index.js').InstallerEngine} engine
+ * @param {{desiredState: unknown, releaseId: string, runId: string, [key: string]: unknown}} request
+ * @param {Parameters<import('../dist/index.js').InstallerEngine['run']>[1]} [options]
+ */
 async function runApproved(engine, request, options) {
   const approvedPlan = await engine.plan(facts, request.desiredState, request.releaseId);
   return engine.run({ ...request, approvedPlanDigest: approvedPlan.digest }, options);
@@ -95,14 +123,16 @@ test('runs one deterministic renderer-neutral lifecycle', async () => {
 });
 
 test('exports bounded secret-free lifecycle telemetry only with desired-state consent', async () => {
+  /** @type {import('../dist/telemetry.js').TelemetryBatch[]} */
   const batches = [];
+  /** @type {import('../dist/telemetry.js').TelemetryExportResult[]} */
   const exportResults = [];
   const engine = createInstallerEngine({
     adapter: {
       discover: async () => facts,
       plan: async () => planDraft,
       check: async () => 'needed',
-      apply: async (_node, context) => context.output('stderr', 'token=never-export-this-secret'),
+      apply: async (_node, context) => { assert.ok(context); context.output('stderr', 'token=never-export-this-secret'); },
       verify: async () => 'verified',
     },
     now: (() => { let tick = 0; return () => new Date(Date.UTC(2026, 10, 6, 2, 0, tick++)).toISOString(); })(),
@@ -121,17 +151,20 @@ test('exports bounded secret-free lifecycle telemetry only with desired-state co
   });
   assert.equal(result.receipt.status, 'success');
   assert.equal(batches.length, 1);
-  assert.equal(batches[0].events.some(event => event.kind === 'output'), false);
-  assert.equal(JSON.stringify(batches[0]).includes('never-export-this-secret'), false);
-  assert.ok(batches[0].events.some(event => event.kind === 'run-status' && event.status === 'success'));
+  const [batch] = batches;
+  assert.ok(batch);
+  assert.equal(batch.events.some(event => String(event.kind) === 'output'), false);
+  assert.equal(JSON.stringify(batch).includes('never-export-this-secret'), false);
+  assert.ok(batch.events.some(event => event.kind === 'run-status' && event.status === 'success'));
   assert.deepEqual(exportResults, [{
-    status: 'succeeded', exportedEvents: batches[0].events.length,
+    status: 'succeeded', exportedEvents: batch.events.length,
     droppedOutputEvents: 1, droppedCapacityEvents: 0,
   }]);
 });
 
 test('telemetry transport failure is fail-open and missing desired-state consent disables transport', async () => {
   let transportCalls = 0;
+  /** @type {import('../dist/telemetry.js').TelemetryExportResult[]} */
   const exportResults = [];
   const engine = createInstallerEngine({
     adapter: {
@@ -155,7 +188,7 @@ test('telemetry transport failure is fail-open and missing desired-state consent
   });
   assert.equal(withoutConsent.receipt.status, 'success');
   assert.equal(transportCalls, 0);
-  assert.equal(exportResults[0].status, 'disabled');
+  assert.equal(exportResults[0]?.status, 'disabled');
 
   const offlineTask = {
     ...task, id: 'offline.task', operations: { check: 'offline-check', apply: 'offline-apply', verify: 'offline-verify' },
@@ -182,7 +215,7 @@ test('telemetry transport failure is fail-open and missing desired-state consent
   });
   assert.equal(offline.receipt.status, 'success');
   assert.equal(transportCalls, 0);
-  assert.equal(exportResults[1].status, 'disabled');
+  assert.equal(exportResults[1]?.status, 'disabled');
 
   const withConsent = await runApproved(engine, {
     runId: 'run-telemetry-failed', releaseId: 'release-1',
@@ -191,7 +224,7 @@ test('telemetry transport failure is fail-open and missing desired-state consent
   assert.equal(withConsent.receipt.status, 'success');
   assert.equal(withConsent.exitCode, 0);
   assert.equal(transportCalls, 1);
-  assert.equal(exportResults[2].status, 'failed');
+  assert.equal(exportResults[2]?.status, 'failed');
 });
 
 test('provider outage, telemetry timeout, and telemetry observer failure preserve the authoritative terminal receipt', async t => {
@@ -203,6 +236,7 @@ test('provider outage, telemetry timeout, and telemetry observer failure preserv
   };
   t.after(() => { globalThis.fetch = originalFetch; });
 
+  /** @type {import('../dist/telemetry.js').TelemetryExportResult[]} */
   const exportResults = [];
   let observerAttempts = 0;
   const engine = createInstallerEngine({
@@ -254,6 +288,7 @@ test('provider outage, telemetry timeout, and telemetry observer failure preserv
 test('online output evidence is bounded while terminal capacity is preserved', async () => {
   const { engine } = harness({
     apply: async (_node, context) => {
+      assert.ok(context);
       for (let index = 0; index < 6_000; index += 1) context.output('stdout', `bounded-line-${index}`);
     },
   });
@@ -262,8 +297,8 @@ test('online output evidence is bounded while terminal capacity is preserved', a
   assert.equal(output.length, 5_001);
   assert.equal(output.filter(event => event.line.includes('output truncated')).length, 1);
   assert.deepEqual(result.events.map(event => event.sequence), result.events.map((_, index) => index));
-  assert.equal(result.events.at(-1).kind, 'run-status');
-  assert.equal(result.events.at(-1).status, 'success');
+  assert.equal(result.events.at(-1)?.kind, 'run-status');
+  assert.equal(lastRunStatus(result.events), 'success');
   assert.equal(result.receipt.status, 'success');
 });
 
@@ -314,7 +349,7 @@ test('approval denial and invalid desired state cannot mutate', async () => {
   assert.equal(stale.calls.includes('apply'), false);
   assert.equal(staleResult.receipt.status, 'rejected');
   assert.equal(staleResult.exitCode, 3);
-  assert.match(staleResult.receipt.nextAction, /exact normalized plan digest/);
+  assert.match(staleResult.receipt.nextAction ?? '', /exact normalized plan digest/);
   const invalid = harness();
   await assert.rejects(invalid.engine.run({ runId: 'run-4', releaseId: 'release-1', desiredState: { ...desired, unknown: true }, approvedPlanDigest: digest('a') }));
   assert.deepEqual(invalid.calls, []);
@@ -355,7 +390,7 @@ test('status never creates or refreshes journal ownership or evidence', async ()
   const normalized = await base.plan(facts, desired, 'release-1');
   const result = await engine.status({ runId: 'status-readonly', plan: normalized, approvedPlanDigest: normalized.digest });
   assert.equal(result.receipt.status, 'pending-verification');
-  await assert.rejects(stat(stateRoot), error => error.code === 'ENOENT');
+  await assert.rejects(stat(stateRoot), error => error instanceof Error && 'code' in error && error.code === 'ENOENT');
 });
 
 test('plan identity is stable across observation timestamps and renderer choices', async () => {
@@ -429,7 +464,10 @@ test('planning rejects missing capabilities, consent, offline network, and impos
   }
 });
 
-test('invalid DAG authority is rejected before journal ownership or mutation', async () => {
+test('invalid DAG authority is rejected before journal ownership or mutation', async t => {
+  const stateRoot = await mkdtemp(join(tmpdir(), 'install-doctor-invalid-dag-'));
+  t.after(() => rm(stateRoot, { recursive: true, force: true }));
+  const journal = createJournalStore({ stateRoot, hostId: facts.hostId, bootId: 'boot-one', processStart: 'start-one' });
   const invalidDrafts = [
     { tasks: [{ ...task, dependencies: ['missing.task'] }], selectedTaskIds: [task.id] },
     { tasks: [
@@ -441,15 +479,17 @@ test('invalid DAG authority is rejected before journal ownership or mutation', a
   ];
   for (const [index, draft] of invalidDrafts.entries()) {
     let claims = 0;
-    const engine = createInstallerEngine({ adapter: {
-      discover: async () => facts, plan: async () => draft,
+    let plans = 0;
+    const engine = createInstallerEngine({ journal: {
+      ...journal, claim: async () => { claims += 1; return assert.fail('journal claim must remain unreachable'); },
+    }, adapter: {
+      discover: async () => facts, plan: async () => { plans += 1; return draft; },
       check: async () => assert.fail(`invalid DAG ${index} reached check`),
       apply: async () => assert.fail(`invalid DAG ${index} reached apply`),
       verify: async () => assert.fail(`invalid DAG ${index} reached verify`),
     } });
-    await assert.rejects(engine.run({ runId: `invalid-dag-${index}`, releaseId: 'release-1', desiredState: desired }, {
-      journal: { claim: async () => { claims += 1; throw new Error('journal claim must remain unreachable'); } },
-    }));
+    await assert.rejects(engine.run({ runId: `invalid-dag-${index}`, releaseId: 'release-1', desiredState: desired, approvedPlanDigest: null }));
+    assert.equal(plans, 1, `invalid DAG ${index} did not reach planning`);
     assert.equal(claims, 0, `invalid DAG ${index} claimed journal authority`);
   }
 });
@@ -486,6 +526,7 @@ test('engine rejects configured scheduler authority that conflicts with a declar
 
 test('scheduler bounds concurrency and serializes overlapping lock domains', async () => {
   const gates = new Map([['task.a', deferred()], ['task.b', deferred()], ['task.c', deferred()]]);
+  /** @type {string[]} */
   const started = [];
   let active = 0;
   let maxActive = 0;
@@ -504,7 +545,7 @@ test('scheduler bounds concurrency and serializes overlapping lock domains', asy
         started.push(node.id);
         active += 1;
         maxActive = Math.max(maxActive, active);
-        await gates.get(node.id).promise;
+        await requiredGate(gates, node.id).promise;
         active -= 1;
       },
       verify: async () => 'verified',
@@ -514,22 +555,23 @@ test('scheduler bounds concurrency and serializes overlapping lock domains', asy
   await eventually(() => started.length === 2, 'two disjoint tasks should start');
   assert.deepEqual(started, ['task.a', 'task.c']);
   assert.equal(maxActive, 2);
-  gates.get('task.c').resolve();
+  requiredGate(gates, 'task.c').resolve();
   await new Promise(resolve => setImmediate(resolve));
   assert.equal(started.includes('task.b'), false, 'shared lock remains held by task.a');
-  gates.get('task.a').resolve();
+  requiredGate(gates, 'task.a').resolve();
   await eventually(() => started.includes('task.b'), 'task.b should start after lock release');
-  gates.get('task.b').resolve();
+  requiredGate(gates, 'task.b').resolve();
   const result = await run;
   assert.equal(result.receipt.status, 'success');
   assert.equal(maxActive, 2);
-  const lockEvents = result.events.filter(event => event.kind === 'lock' && event.state !== 'waiting');
+  const lockEvents = result.events.filter(event => event.kind === 'lock').filter(event => event.state !== 'waiting');
   assert.equal(lockEvents.filter(event => event.state === 'acquired').length, 3);
   assert.equal(lockEvents.filter(event => event.state === 'released').length, 3);
 });
 
 test('scheduler admission respects aggregate CPU and memory budgets', async () => {
   const gates = new Map([['task.a', deferred()], ['task.b', deferred()], ['task.c', deferred()]]);
+  /** @type {string[]} */
   const started = [];
   const tasks = ['task.a', 'task.b', 'task.c'].map(id => ({ ...task, id, lockDomains: [], resources: { cpu: 1, memoryMiB: 32, network: false } }));
   const engine = createInstallerEngine({
@@ -539,7 +581,7 @@ test('scheduler admission respects aggregate CPU and memory budgets', async () =
       discover: async () => facts,
       plan: async () => ({ tasks, selectedTaskIds: tasks.map(node => node.id) }),
       check: async () => 'needed',
-      apply: async node => { started.push(node.id); await gates.get(node.id).promise; },
+      apply: async node => { started.push(node.id); await requiredGate(gates, node.id).promise; },
       verify: async () => 'verified',
     },
   });
@@ -547,7 +589,7 @@ test('scheduler admission respects aggregate CPU and memory budgets', async () =
   await eventually(() => started.length === 2, 'resource limits should admit exactly two tasks');
   await new Promise(resolve => setImmediate(resolve));
   assert.equal(started.length, 2);
-  gates.get(started[0]).resolve();
+  requiredGate(gates, started[0]).resolve();
   await eventually(() => started.length === 3, 'third task should enter after resources are released');
   for (const gate of gates.values()) gate.resolve();
   assert.equal((await run).receipt.status, 'success');
@@ -556,7 +598,9 @@ test('scheduler admission respects aggregate CPU and memory budgets', async () =
 test('ready queue budgets disk and network I/O independently while unrelated local work progresses', async () => {
   const identifiers = ['disk.a', 'disk.b', 'local', 'net.a', 'net.b'];
   const gates = new Map(identifiers.map(id => [id, deferred()]));
+  /** @type {string[]} */
   const started = [];
+  /** @param {number} diskIoWeight @param {number} networkIoWeight */
   const resources = (diskIoWeight, networkIoWeight) => ({
     cpu: 1, memoryMiB: 16, network: networkIoWeight > 0, diskIoWeight, networkIoWeight,
   });
@@ -574,18 +618,18 @@ test('ready queue budgets disk and network I/O independently while unrelated loc
       discover: async () => facts,
       plan: async () => ({ tasks, selectedTaskIds: tasks.map(node => node.id) }),
       check: async () => 'needed',
-      apply: async node => { started.push(node.id); await gates.get(node.id).promise; },
+      apply: async node => { started.push(node.id); await requiredGate(gates, node.id).promise; },
       verify: async () => 'verified',
     },
   });
   const run = runApproved(engine, { runId: 'run-io-budgets', releaseId: 'release-1', desiredState: desired });
   await eventually(() => started.length === 3, 'one disk, one network, and unrelated local work should start');
   assert.deepEqual(started, ['disk.a', 'local', 'net.a']);
-  gates.get('local').resolve();
+  requiredGate(gates, 'local').resolve();
   await new Promise(resolve => setImmediate(resolve));
   assert.equal(started.length, 3, 'free CPU alone must not bypass saturated I/O budgets');
-  gates.get('disk.a').resolve();
-  gates.get('net.a').resolve();
+  requiredGate(gates, 'disk.a').resolve();
+  requiredGate(gates, 'net.a').resolve();
   await eventually(() => started.includes('disk.b') && started.includes('net.b'), 'I/O successors should enter after their exact budgets release');
   for (const gate of gates.values()) gate.resolve();
   assert.equal((await run).receipt.status, 'success');
@@ -593,6 +637,7 @@ test('ready queue budgets disk and network I/O independently while unrelated loc
 
 test('adaptive admission reduces concurrency under bounded host pressure and emits evidence', async () => {
   const gates = new Map([['task.a', deferred()], ['task.b', deferred()], ['task.c', deferred()]]);
+  /** @type {string[]} */
   const started = [];
   const tasks = ['task.a', 'task.b', 'task.c'].map((id, index) => ({
     ...task, id, lockDomains: [], resources: { cpu: 1, memoryMiB: 16, network: index > 0 },
@@ -609,7 +654,7 @@ test('adaptive admission reduces concurrency under bounded host pressure and emi
       discover: async () => facts,
       plan: async () => ({ tasks, selectedTaskIds: tasks.map(node => node.id) }),
       check: async () => 'needed',
-      apply: async node => { started.push(node.id); await gates.get(node.id).promise; },
+      apply: async node => { started.push(node.id); await requiredGate(gates, node.id).promise; },
       verify: async () => 'verified',
     },
   });
@@ -617,26 +662,26 @@ test('adaptive admission reduces concurrency under bounded host pressure and emi
   await eventually(() => started.length === 1, 'pressure policy should admit one task');
   await new Promise(resolve => setImmediate(resolve));
   assert.deepEqual(started, ['task.a']);
-  gates.get('task.a').resolve();
+  requiredGate(gates, 'task.a').resolve();
   await eventually(() => started.length === 2, 'second task should enter after the first completes');
-  gates.get('task.b').resolve();
+  requiredGate(gates, 'task.b').resolve();
   await eventually(() => started.length === 3, 'third task should enter after the second completes');
-  gates.get('task.c').resolve();
+  requiredGate(gates, 'task.c').resolve();
   const result = await run;
   assert.equal(result.receipt.status, 'success');
-  const adjustments = result.events.filter(event => event.kind === 'output' && event.line.startsWith('[admission-adjustment]'));
+  const adjustments = result.events.filter(event => event.kind === 'output').filter(event => event.line.startsWith('[admission-adjustment]'));
   assert.ok(adjustments.length >= 1);
-  assert.match(adjustments[0].line, /cpu-critical/);
-  assert.match(adjustments[0].line, /memory-high/);
-  assert.match(adjustments[0].line, /thermal-serious/);
-  assert.match(adjustments[0].line, /io-high/);
-  assert.match(adjustments[0].line, /battery-low/);
-  assert.match(adjustments[0].line, /metered-network/);
+  assert.match(adjustments[0]?.line ?? '', /cpu-critical/);
+  assert.match(adjustments[0]?.line ?? '', /memory-high/);
+  assert.match(adjustments[0]?.line ?? '', /thermal-serious/);
+  assert.match(adjustments[0]?.line ?? '', /io-high/);
+  assert.match(adjustments[0]?.line ?? '', /battery-low/);
+  assert.match(adjustments[0]?.line ?? '', /metered-network/);
 });
 
 test('resource pressure samples are strict and rejected before task admission', async () => {
   let applied = false;
-  const engine = createInstallerEngine({
+  const engine = Reflect.apply(createInstallerEngine, undefined, [{
     resourcePressureSampler: { sample: async () => ({ cpuUtilization: 2, unknown: true }) },
     adapter: {
       discover: async () => facts,
@@ -645,7 +690,7 @@ test('resource pressure samples are strict and rejected before task admission', 
       apply: async () => { applied = true; },
       verify: async () => 'verified',
     },
-  });
+  }]);
   await assert.rejects(runApproved(engine, { runId: 'run-invalid-pressure', releaseId: 'release-1', desiredState: desired }));
   assert.equal(applied, false);
 });
@@ -669,6 +714,7 @@ test('resource pressure sampling is time bounded before admission', async () => 
 
 test('metered pressure admits local work while serializing network work', async () => {
   const gates = new Map([['task.local', deferred()], ['task.net-a', deferred()], ['task.net-b', deferred()]]);
+  /** @type {string[]} */
   const started = [];
   const tasks = [
     { ...task, id:'task.local', lockDomains:[], resources:{cpu:1,memoryMiB:16,network:false} },
@@ -682,17 +728,17 @@ test('metered pressure admits local work while serializing network work', async 
       discover:async () => facts,
       plan:async () => ({tasks,selectedTaskIds:tasks.map(node => node.id)}),
       check:async () => 'needed',
-      apply:async node => { started.push(node.id); await gates.get(node.id).promise; },
+      apply:async node => { started.push(node.id); await requiredGate(gates, node.id).promise; },
       verify:async () => 'verified',
     },
   });
   const run = runApproved(engine, {runId:'run-metered',releaseId:'release-1',desiredState:desired});
   await eventually(() => started.length === 2, 'local and one network task should start');
   assert.deepEqual(started, ['task.local','task.net-a']);
-  gates.get('task.net-a').resolve();
+  requiredGate(gates, 'task.net-a').resolve();
   await eventually(() => started.includes('task.net-b'), 'second network task starts after network capacity is released');
-  gates.get('task.local').resolve();
-  gates.get('task.net-b').resolve();
+  requiredGate(gates, 'task.local').resolve();
+  requiredGate(gates, 'task.net-b').resolve();
   const result = await run;
   assert.equal(result.receipt.status, 'success');
   assert.equal(result.events.filter(event => event.kind === 'output' && event.line.includes('metered-network')).length, 1);
@@ -704,6 +750,7 @@ test('failed dependency blocks descendants while an unrelated branch completes',
     { ...task, id: 'task.blocked', dependencies: ['task.fail'] },
     { ...task, id: 'task.safe' },
   ];
+  /** @type {string[]} */
   const applied = [];
   const engine = createInstallerEngine({
     maxConcurrency: 2,
@@ -728,6 +775,7 @@ test('failed dependency blocks descendants while an unrelated branch completes',
 
 test('abort-run failure policy interrupts siblings and stops unrelated admission', async () => {
   const slowEntered = deferred();
+  /** @type {string[]} */
   const applied = [];
   const tasks = [
     { ...task, id: 'task.abort', lockDomains: [], failurePolicy: 'abort-run' },
@@ -741,6 +789,7 @@ test('abort-run failure policy interrupts siblings and stops unrelated admission
       plan: async () => ({ tasks, selectedTaskIds: tasks.map(node => node.id) }),
       check: async () => 'needed',
       apply: async (node, context) => {
+        assert.ok(context);
         applied.push(node.id);
         if (node.id === 'task.abort') {
           await slowEntered.promise;
@@ -770,6 +819,7 @@ test('abort-run failure policy interrupts siblings and stops unrelated admission
 test('retry policy is typed, bounded, and cleanup runs exactly once', async () => {
   let attempts = 0;
   let cleanups = 0;
+  /** @type {number[]} */
   const delays = [];
   const retryTask = {
     ...task,
@@ -796,7 +846,7 @@ test('retry policy is typed, bounded, and cleanup runs exactly once', async () =
   assert.equal(cleanups, 1);
   assert.equal(result.taskStatuses[retryTask.id], 'verified');
   assert.deepEqual(
-    result.events.filter(event => event.kind === 'task-status' && event.status === 'retrying').map(event => event.attempt),
+    result.events.filter(event => event.kind === 'task-status').filter(event => event.status === 'retrying').map(event => event.attempt),
     [1, 2],
   );
 });
@@ -804,6 +854,7 @@ test('retry policy is typed, bounded, and cleanup runs exactly once', async () =
 test('cancellation stops admission, interrupts running work, cleans up, and returns exit 130', async () => {
   const entered = deferred();
   const controller = new AbortController();
+  /** @type {string[]} */
   const applied = [];
   let cleanups = 0;
   const tasks = [
@@ -818,6 +869,7 @@ test('cancellation stops admission, interrupts running work, cleans up, and retu
       plan: async () => ({ tasks, selectedTaskIds: tasks.map(node => node.id) }),
       check: async () => 'needed',
       apply: async (node, context) => {
+        assert.ok(context);
         applied.push(node.id);
         entered.resolve();
         await new Promise((_, reject) => context.signal.addEventListener(
@@ -844,7 +896,7 @@ test('cancellation stops admission, interrupts running work, cleans up, and retu
   assert.equal(result.taskStatuses['task.c'], 'interrupted');
   assert.equal(result.receipt.status, 'cancelled');
   assert.equal(result.exitCode, 130);
-  assert.equal(result.events.at(-1).status, 'cancelled');
+  assert.equal(lastRunStatus(result.events), 'cancelled');
 });
 
 test('cancellation at check, mutation, and verification boundaries emits exact terminal evidence', async () => {
@@ -886,8 +938,8 @@ test('cancellation at check, mutation, and verification boundaries emits exact t
     assert.equal(result.taskStatuses[task.id], 'interrupted');
     assert.equal(result.events.some(event => event.kind === 'output'
       && event.line === `[operation-cancelled] operation cancelled at ${fixture.boundary}`), true);
-    assert.equal(result.events.at(-1).kind, 'run-status');
-    assert.equal(result.events.at(-1).status, 'cancelled');
+    assert.equal(result.events.at(-1)?.kind, 'run-status');
+    assert.equal(lastRunStatus(result.events), 'cancelled');
   }
 });
 
@@ -902,11 +954,13 @@ test('journaled cancellation remains resumable and rechecks postconditions befor
   const controller = new AbortController();
   let installed = false;
   let applies = 0;
+  /** @type {import('../dist/index.js').InstallerAdapter} */
   const adapter = {
     discover: async () => facts,
     plan: async () => planDraft,
     check: async () => installed ? 'verified' : 'needed',
     apply: async (_node, context) => {
+      assert.ok(context);
       applies += 1;
       installed = true;
       entered.resolve();
@@ -962,21 +1016,24 @@ test('cask launcher interruption resumes from its landed configuration without r
   const landed = deferred();
   const controller = new AbortController();
   let applies = 0;
+  /** @param {string} path */
   const matches = async path => {
     try {
       const metadata = await lstat(path);
       return metadata.isFile() && !metadata.isSymbolicLink() && (metadata.mode & 0o777) === 0o700
         && (await readFile(path)).equals(candidate);
     } catch (error) {
-      if (error.code === 'ENOENT') return false;
+      if (error instanceof Error && 'code' in error && error.code === 'ENOENT') return false;
       throw error;
     }
   };
+  /** @type {import('../dist/index.js').InstallerAdapter} */
   const adapter = {
     discover: async () => facts,
     plan: async () => caskPlan,
     check: async () => await matches(target) ? 'verified' : 'needed',
     apply: async (node, context) => {
+      assert.ok(context);
       applies += 1;
       await applyConfigurationTransaction({
         spec: {
@@ -1033,6 +1090,7 @@ test('run finalizer executes after ordinary failure and gates terminal completio
     ...task, id: 'task.finalizer', dependencies: [ordinary.id], cleanup: 'none', lifecycle: 'run-finalizer',
     network: 'none', consent: 'none', resources: { ...task.resources, network: false },
   };
+  /** @type {string[]} */
   const calls = [];
   const engine = createInstallerEngine({
     adapter: {
@@ -1094,6 +1152,7 @@ test('run finalizer survives user cancellation and persists verified cleanup evi
       plan: async () => ({ tasks: [ordinary, finalizer], selectedTaskIds: [ordinary.id, finalizer.id] }),
       check: async node => node.id === finalizer.id ? (finalized ? 'verified' : 'needed') : 'needed',
       apply: async (node, context) => {
+        assert.ok(context);
         if (node.id === finalizer.id) { assert.equal(context.signal.aborted, false); finalized = true; return; }
         entered.resolve();
         await new Promise((_, reject) => context.signal.addEventListener('abort', () => reject(
@@ -1114,8 +1173,8 @@ test('run finalizer survives user cancellation and persists verified cleanup evi
   assert.equal(finalized, true);
   assert.equal((await store.inspectCompletion(request.runId, result.plan.digest)).authority, 'uncommitted');
   const listed = await store.listRuns();
-  assert.equal(listed[0].taskCounts.interrupted, 1);
-  assert.equal(listed[0].taskCounts.verified, 1);
+  assert.equal(listed[0]?.taskCounts.interrupted, 1);
+  assert.equal(listed[0]?.taskCounts.verified, 1);
 });
 
 test('failed run finalizer remains exact uncommitted evidence and resume rechecks it before commit', async () => {
@@ -1155,9 +1214,9 @@ test('failed run finalizer remains exact uncommitted evidence and resume recheck
   assert.equal(first.taskStatuses[finalizer.id], 'failed');
   assert.equal((await store.inspectCompletion(request.runId, first.plan.digest)).authority, 'uncommitted');
   const listed = await store.listRuns();
-  assert.equal(listed[0].resumeCandidate, true);
-  assert.equal(listed[0].taskCounts.verified, 1);
-  assert.equal(listed[0].taskCounts.failed, 1);
+  assert.equal(listed[0]?.resumeCandidate, true);
+  assert.equal(listed[0]?.taskCounts.verified, 1);
+  assert.equal(listed[0]?.taskCounts.failed, 1);
 
   failFinalizer = false;
   const resumed = await engine.run({
@@ -1226,6 +1285,7 @@ test('a new run revalidates an unchanged verified task without duplicate mutatio
   });
   let needed = true;
   let applies = 0;
+  /** @type {import('../dist/index.js').InstallerAdapter} */
   const adapter = {
     discover: async () => facts,
     plan: async () => planDraft,
@@ -1269,6 +1329,7 @@ test('configuration tasks durably register compensation before activation', asyn
       plan: async () => ({ tasks: [configurationTask], selectedTaskIds: [configurationTask.id] }),
       check: async () => 'needed',
       apply: async (node, context) => {
+        assert.ok(context);
         await applyConfigurationTransaction({
           spec: { schemaVersion: 1, taskId: node.id, targetPath: target, effect: 'installer-configuration', dependencies: node.dependencies },
           candidateBytes: Buffer.from('new\n'),
@@ -1286,12 +1347,15 @@ test('configuration tasks durably register compensation before activation', asyn
   assert.equal(result.receipt.status, 'success');
   const artifacts = await store.readCompensations('run-config', result.plan.digest);
   assert.equal(artifacts.length, 1);
-  assert.equal(artifacts[0].record.taskId, configurationTask.id);
-  assert.equal(artifacts[0].record.state, 'available');
-  assert.equal(Buffer.from(artifacts[0].bytesBase64, 'base64').toString('utf8'), 'old\n');
+  const [artifact] = artifacts;
+  assert.ok(artifact?.bytesBase64);
+  assert.equal(artifact.record.taskId, configurationTask.id);
+  assert.equal(artifact.record.state, 'available');
+  assert.equal(Buffer.from(artifact.bytesBase64, 'base64').toString('utf8'), 'old\n');
   assert.equal((await store.inspectCompletion('run-config', result.plan.digest)).authority, 'committed');
   const compensationRoot = join(stateRoot, 'runs', result.plan.digest, 'run-config', 'compensations');
   const [artifactName] = await readdir(compensationRoot);
+  assert.ok(artifactName);
   await writeFile(join(compensationRoot, artifactName), '{}\n', { mode: 0o600 });
   assert.equal((await store.inspectCompletion('run-config', result.plan.digest)).authority, 'corrupt');
 });
@@ -1320,6 +1384,7 @@ test('evidence persistence failure cannot publish terminal success', async () =>
     stateRoot, hostId: facts.hostId, bootId: 'boot-one', processStart: 'process-one',
     fault: async point => { if (point === 'after-events-sync') throw new Error('injected evidence failure'); },
   });
+  /** @type {import('../dist/index.js').InstallerRunResult['events'][number][]} */
   const observed = [];
   const engine = createInstallerEngine({
     journal: store,
@@ -1339,7 +1404,7 @@ test('evidence persistence failure cannot publish terminal success', async () =>
     /injected evidence failure/,
   );
   assert.equal(observed.some(event => event.kind === 'run-status' && event.status === 'success'), false);
-  await assert.rejects(stat(join(stateRoot, 'owner.json')), error => error.code === 'ENOENT');
+  await assert.rejects(stat(join(stateRoot, 'owner.json')), error => error instanceof Error && 'code' in error && error.code === 'ENOENT');
 });
 
 test('postcommit lease cleanup failure cannot contradict durable and observer-visible success', async () => {
@@ -1349,6 +1414,7 @@ test('postcommit lease cleanup failure cannot contradict durable and observer-vi
     stateRoot, hostId: facts.hostId, bootId: 'boot-one', processStart: 'process-one',
   });
   let releaseAttempts = 0;
+  /** @type {import('../dist/index.js').InstallerRunResult['events'][number][]} */
   const observed = [];
   const engine = createInstallerEngine({
     journal: {
@@ -1369,8 +1435,8 @@ test('postcommit lease cleanup failure cannot contradict durable and observer-vi
     event => observed.push(event),
   );
   assert.equal(result.receipt.status, 'success');
-  assert.equal(result.events.at(-1).status, 'success');
-  assert.equal(observed.at(-1).status, 'success');
+  assert.equal(lastRunStatus(result.events), 'success');
+  assert.equal(lastRunStatus(observed), 'success');
   assert.equal(releaseAttempts, 3);
   const commitPath = result.receipt.evidencePaths.find(path => path.endsWith('.commit.json'));
   assert.ok(commitPath);
@@ -1423,6 +1489,7 @@ test('long engine runs renew their journal lease and stop heartbeating after cle
     leaseMs: 1_000, heartbeatIntervalMs: 20, isProcessAlive: async () => true,
   });
   let renewals = 0;
+  /** @type {ReturnType<typeof createJournalStore>} */
   const journal = {
     ...durable,
     renew: async owner => { renewals += 1; return durable.renew(owner); },
@@ -1465,9 +1532,11 @@ test('all renderers project identical plan and terminal semantics', async () => 
 test('streaming renderer emits attributable progress before execution completes without replay', async () => {
   const gate = deferred();
   const { engine } = harness({ apply: async (_task, context) => {
+    assert.ok(context);
     context.output('stdout', 'live-output');
     await gate.promise;
   } });
+  /** @type {string[]} */
   const chunks = [];
   const session = createRendererSession('ndjson', chunk => { chunks.push(chunk); return true; });
   const running = runApproved(engine,
@@ -1516,8 +1585,11 @@ test('event reduction rejects gaps, post-terminal output, and falsified engine s
   const result = await runApproved(engine, { runId: 'run-8', releaseId: 'release-1', desiredState: desired });
   const gap = { ...result, events: result.events.map((event, index) => index === 1 ? { ...event, sequence: 99 } : event) };
   assert.throws(() => reduceInstallerEvents(gap), /sequence gap/);
-  const afterTerminal = { ...result, events: [...result.events, { ...result.events[0], sequence: result.events.length }] };
+  const [firstEvent] = result.events;
+  assert.ok(firstEvent);
+  const afterTerminal = { ...result, events: [...result.events, { ...firstEvent, sequence: result.events.length }] };
   assert.throws(() => reduceInstallerEvents(afterTerminal), /follows the terminal/);
+  /** @satisfies {Parameters<typeof semanticInstallerResult>[0]} */
   const falsified = { ...result, taskStatuses: { [task.id]: 'failed' } };
   assert.throws(() => semanticInstallerResult(falsified), /disagree/);
 });

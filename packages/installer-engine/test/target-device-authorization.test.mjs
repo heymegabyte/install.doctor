@@ -6,14 +6,21 @@ import { join } from 'node:path';
 import test from 'node:test';
 import { TargetDeviceAuthorization } from '../dist/target-device-authorization.js';
 
+/** @typedef {import('../dist/target-device-authorization.js').TargetAuthorizationTransport} Transport */
+/** @typedef {import('../dist/target-device-authorization.js').StoredTargetAuthorization} StoredAuthorization */
+/** @typedef {{ operation: 'start', input: Parameters<Transport['start']>[0] } | { operation: 'poll' | 'cancel', requestId: string, pollSecret: string }} TransportCall */
+
 const fixedNow = new Date('2026-11-08T15:00:00.000Z');
 
 async function fixture() {
   const root = await mkdtemp(join(tmpdir(), 'desktop-tools-device-auth-'));
   await chmod(root, 0o700);
   const statePath = join(root, 'pending.json');
+  /** @type {TransportCall[]} */
   const calls = [];
+  /** @type {Array<Awaited<ReturnType<Transport['poll']>>>} */
   const results = [];
+  /** @satisfies {Transport} */
   const transport = {
     async start(input) {
       calls.push({ operation: 'start', input });
@@ -37,7 +44,9 @@ async function fixture() {
     },
     async cancel(requestId, pollSecret) { calls.push({ operation: 'cancel', requestId, pollSecret }); },
   };
+  /** @type {import('../dist/target-device-authorization.js').SafeAuthorizationEvent[]} */
   const events = [];
+  /** @type {number[]} */
   const delays = [];
   const client = new TargetDeviceAuthorization({
     statePath, transport, emit: event => events.push(event), now: () => fixedNow,
@@ -59,6 +68,7 @@ test('generates target authority, persists it owner-only, and exposes only the h
     verificationCode: 'ABCD-EF12', approvalUri: 'https://brian.desktop.tools/activate',
     expiresAt: startInput.expiresAt, cancellation: 'Press Ctrl-C to cancel safely.',
   });
+  /** @type {StoredAuthorization} */
   const stored = JSON.parse(await readFile(state.statePath, 'utf8'));
   assert.match(stored.privateKeyPem, /BEGIN PRIVATE KEY/);
   assert.equal((await lstat(state.statePath)).mode & 0o777, 0o600);
@@ -86,7 +96,7 @@ test('resumes after restart, honors bounded server retry guidance, and removes s
   const outcome = await restarted.resume(new AbortController().signal);
   assert.equal(outcome.status, 'approved');
   assert.deepEqual(state.delays, [2_000, 30_000]);
-  await assert.rejects(readFile(state.statePath), error => error.code === 'ENOENT');
+  await assert.rejects(readFile(state.statePath), { code: 'ENOENT' });
   assert.doesNotMatch(JSON.stringify(state.events), /device-secret-never-log/);
   assert.doesNotMatch(JSON.stringify(state.events), /pollSecret|privateKey|credential/);
 });
@@ -107,11 +117,12 @@ test('cancellation informs the service, clears restart state, and reveals no pri
   const state = await fixture();
   t.after(() => rm(state.root, { recursive: true, force: true }));
   await state.client.begin(startInput, new AbortController().signal);
+  /** @type {StoredAuthorization} */
   const stored = JSON.parse(await readFile(state.statePath, 'utf8'));
   const outcome = await state.client.cancel('operator-cancelled');
   assert.deepEqual(outcome, { status: 'cancelled', reason: 'operator-cancelled' });
-  assert.equal(state.calls.at(-1).operation, 'cancel');
-  await assert.rejects(readFile(state.statePath), error => error.code === 'ENOENT');
+  assert.equal(state.calls.at(-1)?.operation, 'cancel');
+  await assert.rejects(readFile(state.statePath), { code: 'ENOENT' });
   assert.doesNotMatch(JSON.stringify(state.events), new RegExp(stored.pollSecret));
   assert.doesNotMatch(JSON.stringify(state.events), /PRIVATE KEY/);
 });
@@ -127,8 +138,8 @@ test('an abort while waiting performs protocol cancellation and clears resumable
   });
   const outcome = await restarted.resume(controller.signal);
   assert.deepEqual(outcome, { status: 'cancelled', reason: 'cancelled' });
-  assert.equal(state.calls.at(-1).operation, 'cancel');
-  await assert.rejects(readFile(state.statePath), error => error.code === 'ENOENT');
+  assert.equal(state.calls.at(-1)?.operation, 'cancel');
+  await assert.rejects(readFile(state.statePath), { code: 'ENOENT' });
 });
 
 test('rejects insecure persisted state and response substitution', async t => {
@@ -174,6 +185,7 @@ test('private material is absent from process arguments, Markdown prompt, and te
   const state = await fixture();
   t.after(() => rm(state.root, { recursive: true, force: true }));
   const prompt = await state.client.begin(startInput, new AbortController().signal);
+  /** @type {StoredAuthorization} */
   const stored = JSON.parse(await readFile(state.statePath, 'utf8'));
   const publicSurfaces = [process.argv.join(' '), JSON.stringify(prompt), JSON.stringify(state.events)].join('\n');
   for (const secret of [stored.pollSecret, stored.privateKeyPem]) assert.equal(publicSurfaces.includes(secret), false);

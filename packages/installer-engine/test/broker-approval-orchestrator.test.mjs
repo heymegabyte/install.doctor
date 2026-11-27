@@ -33,6 +33,7 @@ async function approval() {
 
 test('binds identity, submits one exact intent, backs off, and returns only claimed signed approval', async () => {
   const expected = await approval();
+  /** @type {(['identity'] | ['request' | 'status', unknown, unknown] | ['claim', unknown, unknown, unknown] | ['sleep', number])[]} */
   const calls = [];
   const statuses = [
     { schemaVersion: 1, status: 'pending' },
@@ -40,6 +41,7 @@ test('binds identity, submits one exact intent, backs off, and returns only clai
     { schemaVersion: 1, status: 'approved', ownerDecisionId: 'decision-1' },
   ];
   let clock = 1_000;
+  /** @type {Parameters<typeof orchestrateBrokerApproval>[0]['transport']} */
   const transport = {
     async identity() { calls.push(['identity']); return identity; },
     async request(actualGrant, actualBinding) { calls.push(['request', actualGrant, actualBinding]); return {}; },
@@ -52,9 +54,9 @@ test('binds identity, submits one exact intent, backs off, and returns only clai
   assert.deepEqual(actual, expected);
   assert.deepEqual(calls.map(call => call[0]), ['identity', 'request', 'status', 'sleep', 'status', 'sleep', 'status', 'claim']);
   assert.deepEqual(calls.filter(call => call[0] === 'sleep').map(call => call[1]), [200, 400]);
-  assert.deepEqual(calls.at(-1)[3], { ownerDecisionId: 'decision-1' });
-  assert.deepEqual(calls[1][1], grant);
-  assert.deepEqual(calls[1][2], binding);
+  assert.deepEqual(calls.at(-1)?.[3], { ownerDecisionId: 'decision-1' });
+  assert.deepEqual(calls[1]?.[1], grant);
+  assert.deepEqual(calls[1]?.[2], binding);
 });
 
 test('rejects an authenticated identity with a different signed profile revision before submitting a run intent', async () => {
@@ -94,6 +96,7 @@ for (const terminal of ['denied', 'expired', 'not-found']) {
 
 test('bounds pending polling by timeout and caps the final sleep to remaining time', async () => {
   let clock = 1_000;
+  /** @type {number[]} */
   const sleeps = [];
   const transport = { async identity() { return identity; }, async request() {},
     async status() { return { schemaVersion: 1, status: 'pending' }; }, async claim() {} };
