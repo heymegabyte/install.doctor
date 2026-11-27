@@ -1,14 +1,14 @@
 {
   "schemaVersion": 1,
   "repository": "heymegabyte/mcp.megabyte.space",
-  "revision": "3c7ce56b668fd4e016deb16160382d41aceea35d",
-  "baseUrl": "https://raw.githubusercontent.com/heymegabyte/mcp.megabyte.space/3c7ce56b668fd4e016deb16160382d41aceea35d/generated/profiles",
-  "sourceDigest": "sha256:12e1289b0038edddaabb7625a5ec4bed4cfd5a09e7a2602e7b6553cea770af95",
+  "revision": "0aec9a5122bcae994cae1a5bf9cc494c56f9b1d5",
+  "baseUrl": "https://raw.githubusercontent.com/heymegabyte/mcp.megabyte.space/0aec9a5122bcae994cae1a5bf9cc494c56f9b1d5/generated/profiles",
+  "sourceDigest": "sha256:20d22d4c887b97061fd21da6dbbf9446f2e4cfbb1d5a29cbf193e0a586f46e88",
   "artifacts": {
-    "index.json": "sha256:cce83a120e9d9c35477cbc14098ba7508d01c7930fdf2b625e1b40c1a484706b",
-    "macos-human.json": "sha256:81783c7d590fee579e37b020c93a7ce2c3302556e18987a0d79bebdc6fc3e5de",
-    "macos-automation.json": "sha256:ba300b7a34f09bb24488e97f41f5a0855a2ff54bef534f5c5f762b383ab517dc",
-    "ubuntu-human.json": "sha256:e078fd862cd3dd1bc4a6afc1a8d06668ef9e95e1ba0383bcd55ee82d74398e1e",
-    "ubuntu-automation.json": "sha256:6c659aeaa5a3d2cafaf20dc59edfef8c7b7179b0df6d4dcf2c2edac3462fca71"
+    "index.json": "sha256:73515457a83c69b390a1612967223b2c93ae42e11ec0c68eb690d241e3e64965",
+    "macos-human.json": "sha256:5e41355399b2a54f949a0f68d68643924e456c7766849c3f1bb6a2db0ae92fb5",
+    "macos-automation.json": "sha256:abd434369a8a8f00e6e2ebd94eda8925eca67a7207ccbf8fd96ef20cb81401c1",
+    "ubuntu-human.json": "sha256:5247b03f94b41a794b9cedf618dd2ba78b7536bf49bf24968674e52f42515d47",
+    "ubuntu-automation.json": "sha256:41f510403eb5bf902dfcd3f7ff495514f5c7130fc2486979caf6bef00bc609dc"
   }
 }

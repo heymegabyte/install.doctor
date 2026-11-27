@@ -8,6 +8,25 @@ import {
 } from './mcp-host-manifest-consumer.mjs';
 
 const hash = (value) => `sha256:${createHash('sha256').update(value).digest('hex')}`;
+const repositoryRoot = dirname(new URL(import.meta.url).pathname);
+const canonicalRoot = join(repositoryRoot, '..', 'config', 'mcp-portals');
+const canonicalPin = join(canonicalRoot, 'canonical-pin.json');
+const canonicalProfiles = join(canonicalRoot, 'canonical-profiles');
+
+for (const hostClass of ['macos-workstation', 'ubuntu-runner']) {
+  const pinned = await loadPinnedProfiles({ pinPath: canonicalPin, sourceDirectory: canonicalProfiles, hostClass });
+  assert.equal(pinned.profiles.length, 2);
+  for (const pinnedProfile of pinned.profiles) {
+    assert.deepEqual(pinnedProfile.remote.serverGrants, [{
+      serverId: 'megabyte-os-public',
+      url: 'https://os.mcp.megabyte.space/',
+      auth: 'public-read',
+      risk: 'read',
+    }]);
+    assert.equal(pinnedProfile.remote.serverGrants.some(({ serverId }) => ['cua-driver', 'browsermcp', 'logo-dev', 'brandfetch'].includes(serverId)), false);
+  }
+}
+
 const temp = mkdtempSync(join(tmpdir(), 'mcp-host-manifest-consumer-'));
 const source = join(temp, 'source');
 mkdirSync(source);
