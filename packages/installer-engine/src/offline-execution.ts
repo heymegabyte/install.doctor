@@ -177,8 +177,7 @@ export const OfflineOperationManifestSchema = z.strictObject({
   if (!exactSorted(value.configurationRoots)) {
     context.addIssue({ code: 'custom', path: ['configurationRoots'], message: 'configuration roots must be unique and sorted' });
   }
-  for (let index = 0; index < value.configurationRoots.length; index += 1) {
-    const root = value.configurationRoots[index]!;
+  for (const [index, root] of value.configurationRoots.entries()) {
     if (value.configurationRoots.some((candidate, candidateIndex) => candidateIndex !== index && isStrictDescendant(candidate, root))) {
       context.addIssue({ code: 'custom', path: ['configurationRoots', index], message: 'configuration roots must not overlap' });
     }
@@ -275,7 +274,12 @@ export function offlineExecutionGraphDigest(
 }
 
 function exactSorted(values: readonly string[]): boolean {
-  return values.every((value, index) => index === 0 || values[index - 1]!.localeCompare(value) < 0);
+  let previous: string | undefined;
+  for (const value of values) {
+    if (previous !== undefined && previous.localeCompare(value) >= 0) return false;
+    previous = value;
+  }
+  return true;
 }
 
 function dependencyClosure(plan: NormalizedPlan): string[] {
@@ -359,8 +363,8 @@ export async function validateOfflineExecutionClosure(
   const readinessBlockers = inspectOfflinePlanReadiness([...selectedTasks.values()]);
   if (readinessBlockers.length > 0) {
     const details = readinessBlockers.map(blocker => blocker.kind === 'network'
-      ? `${blocker.taskId}: network-free execution required (${blocker.authority}); migrate to ${blocker.migration}`
-      : `${blocker.taskId}: unsupported ${blocker.kind === 'package-manager-authority' ? 'package-manager' : 'service-state'} authority ${blocker.authority}; migrate to ${blocker.migration}`);
+      ? `${blocker.taskId}: network-free execution required (${String(blocker.authority)}); migrate to ${blocker.migration}`
+      : `${blocker.taskId}: unsupported ${blocker.kind === 'package-manager-authority' ? 'package-manager' : 'service-state'} authority ${String(blocker.authority)}; migrate to ${blocker.migration}`);
     throw new OfflineBundleError(`offline selected task closure is incomplete: ${details.join('; ')}`);
   }
   const reproduced = await reproduceNormalizedPlan(
@@ -388,7 +392,11 @@ export async function validateOfflineExecutionClosure(
   const nativeArtifactOwners = new Map<string, string>();
   for (const task of selectedTasks.values()) {
     const taskOperations = Object.entries(task.operations) as Array<['check' | 'apply' | 'verify', string]>;
-    const registered = taskOperations.map(([action, operationId]) => ({ action, operationId, operation: operations.operations[operationId]! }));
+    const registered = taskOperations.map(([action, operationId]) => {
+      const operation = operations.operations[operationId];
+      if (!operation) throw new OfflineBundleError(`offline operation is missing: ${operationId}`);
+      return { action, operationId, operation };
+    });
     const managed = registered.filter(item => item.operation.kind === 'managed-file');
     const nativePackages = registered.filter(item => item.operation.kind === 'native-package');
     const nativeServices = registered.filter(item => item.operation.kind === 'native-service');
@@ -408,8 +416,8 @@ export async function validateOfflineExecutionClosure(
         || !desiredState.consents.includes('package-install') || task.compensation !== 'none') {
         throw new OfflineBundleError(`offline native package task lacks exact dpkg privilege, consent, lock, or compensation authority: ${task.id}`);
       }
-      const authority = nativePackages[0]!.operation;
-      if (authority.kind !== 'native-package') throw new OfflineBundleError(`offline native package authority is invalid: ${task.id}`);
+      const authority = nativePackages[0]?.operation;
+      if (authority?.kind !== 'native-package') throw new OfflineBundleError(`offline native package authority is invalid: ${task.id}`);
       if (!desiredState.packages.includes(authority.packageKey)) throw new OfflineBundleError(`offline native package is not selected in desired state: ${authority.packageKey}`);
       for (const item of nativePackages) {
         const candidate = item.operation;
@@ -430,8 +438,8 @@ export async function validateOfflineExecutionClosure(
       if (task.compensation !== 'configuration') {
         throw new OfflineBundleError(`offline managed-file task requires configuration compensation: ${task.id}`);
       }
-      const authority = managed[0]!.operation;
-      if (authority.kind !== 'managed-file') throw new OfflineBundleError(`offline managed-file authority is invalid: ${task.id}`);
+      const authority = managed[0]?.operation;
+      if (authority?.kind !== 'managed-file') throw new OfflineBundleError(`offline managed-file authority is invalid: ${task.id}`);
       for (const item of managed) {
         const candidate = item.operation;
         if (candidate.kind !== 'managed-file' || candidate.action !== item.action) {
@@ -460,8 +468,9 @@ export async function validateOfflineExecutionClosure(
     if (registered.kind === 'native-package') {
       const pending = [{ packageKey: registered.packageKey, artifactId: registered.payloadArtifactId }];
       const admitted = new Set<string>();
-      while (pending.length > 0) {
-        const expected = pending.shift()!;
+      for (;;) {
+        const expected = pending.shift();
+        if (expected === undefined) break;
         const identity = `${expected.packageKey}/${expected.artifactId}`;
         if (admitted.has(identity)) continue;
         admitted.add(identity);
@@ -489,7 +498,8 @@ export async function validateOfflineExecutionClosure(
         }
         nativePackageDescriptors.set(expected.packageKey, descriptor);
         nativeArtifactOwners.set(descriptor.artifact.id, expected.packageKey);
-        if (descriptor.platform.os !== 'linux' || descriptor.platform.arch !== hostFacts.arch
+        const descriptorOs: unknown = descriptor.platform.os;
+        if (descriptorOs !== 'linux' || descriptor.platform.arch !== hostFacts.arch
           || descriptor.distro.versionId !== hostFacts.osVersion) {
           throw new OfflineBundleError(`offline native package platform or distro authority does not match the host: ${expected.packageKey}`);
         }
@@ -528,7 +538,8 @@ export async function validateOfflineExecutionClosure(
     plan, operations, desiredState, hostFacts, graphDigest,
     selectedTaskIds: [...plan.selectedTaskIds], runtimeArtifactIds: [...runtimeArtifactIds].sort((left, right) => left.localeCompare(right)),
     runtimeArtifacts: Object.fromEntries([...runtimeArtifactIds].sort((left, right) => left.localeCompare(right)).map(artifactId => {
-      const item = artifactById.get(artifactId)!;
+      const item = artifactById.get(artifactId);
+      if (!item) throw new OfflineBundleError(`offline runtime artifact is missing: ${artifactId}`);
       return [artifactId, { sha256: item.sha256, sizeBytes: item.sizeBytes, mode: item.mode }];
     })),
     nativePackageDescriptors: Object.fromEntries([...nativePackageDescriptors].sort(([left], [right]) => left.localeCompare(right))),
@@ -558,13 +569,13 @@ export async function verifyOfflineNativeDebianMetadata(
     }
   }
   const bundleArtifacts = new Map(verified.manifest.artifacts.map(item => [item.id, item]));
-  const resolver: VerifiedArtifactResolver = async artifactId => {
+  const resolver: VerifiedArtifactResolver = artifactId => new Promise(resolve => {
     const item = bundleArtifacts.get(artifactId);
     if (!item) throw new OfflineBundleError(`verified bundle artifact is missing: ${artifactId}`);
-    return { sourcePath: join(verified.bundleDirectory, item.path), authority: {
+    resolve({ sourcePath: join(verified.bundleDirectory, item.path), authority: {
       sha256: item.sha256, sizeBytes: item.sizeBytes, mode: item.mode,
-    } };
-  };
+    } });
+  });
   return verifyNativeDebianMetadataWithResolver({ closure, resolver, verifier });
 }
 
@@ -585,8 +596,9 @@ export async function verifyNativeDebianMetadataWithResolver(input: {
     if (operation.kind !== 'native-package') continue;
     pending.push({ packageKey: operation.packageKey, artifactId: operation.payloadArtifactId });
   }
-  while (pending.length > 0) {
-    const expected = pending.shift()!;
+  for (;;) {
+    const expected = pending.shift();
+    if (expected === undefined) break;
     const previous = payloads.get(expected.packageKey);
     if (previous !== undefined) {
       if (previous !== expected.artifactId) {
@@ -698,9 +710,9 @@ export async function createOfflineInstallerAdapter(input: {
     configurationRoots.set(root, { device: metadata.dev, inode: metadata.ino });
   }
   const assertManagedTargetAuthority = async (targetPath: string): Promise<void> => {
-    const root = [...configurationRoots.keys()].find(candidate => isStrictDescendant(candidate, targetPath));
-    if (!root) throw new OfflineBundleError('offline managed-file target escapes its signed configuration roots');
-    const expectedRoot = configurationRoots.get(root)!;
+    const matchedRoot = [...configurationRoots.entries()].find(([candidate]) => isStrictDescendant(candidate, targetPath));
+    if (!matchedRoot) throw new OfflineBundleError('offline managed-file target escapes its signed configuration roots');
+    const [root, expectedRoot] = matchedRoot;
     let currentRoot: Awaited<ReturnType<typeof lstat>>;
     let canonicalRoot: string;
     const parent = dirname(targetPath);
@@ -757,7 +769,9 @@ export async function createOfflineInstallerAdapter(input: {
     })();
     const rootDescriptor = input.closure.nativePackageDescriptors[operation.packageKey];
     const rootMetadata = input.verifiedNativeMetadata?.[operation.packageKey];
-    if (!runtime || !rootDescriptor || !rootMetadata
+    const runtimeAuthority: unknown = runtime;
+    const compareDebianVersions = input.compareDebianVersions;
+    if (!runtimeAuthority || !compareDebianVersions || !rootDescriptor || !rootMetadata
       || rootDescriptor.artifact.id !== operation.payloadArtifactId
       || rootDescriptor.package.name !== operation.expectedPackage.name
       || rootDescriptor.package.version !== operation.expectedPackage.version
@@ -768,7 +782,7 @@ export async function createOfflineInstallerAdapter(input: {
     }
     const validatedClosure = validateNativePackageWitnessClosure({ rootPackageKey: operation.packageKey,
       descriptors: Object.values(input.closure.nativePackageDescriptors), installedWitnesses: operation.installedWitnesses ?? [],
-      compareDebianVersions: input.compareDebianVersions! });
+      compareDebianVersions });
     const inspectPackage = input.inspectNativePackage ?? inspectNativeDebianPackage;
     const packages = [] as Array<{
       descriptor: NativeOfflinePayloadDescriptor;
@@ -803,7 +817,8 @@ export async function createOfflineInstallerAdapter(input: {
       if (!allowedPackageKeys.has(packageKeyInput)) {
         throw new OfflineBundleError(`offline native payload is outside the verified package closure: ${packageKeyInput}`);
       }
-      const descriptor = input.closure.nativePackageDescriptors[packageKeyInput]!;
+      const descriptor = input.closure.nativePackageDescriptors[packageKeyInput];
+      if (!descriptor) throw new OfflineBundleError(`offline native payload is missing its verified package descriptor: ${packageKeyInput}`);
       const expected = input.closure.runtimeArtifacts[descriptor.artifact.id];
       if (!expected || expected.mode !== '0600' || expected.sha256 !== descriptor.artifact.sha256
         || expected.sizeBytes !== descriptor.artifact.sizeBytes) {
@@ -821,11 +836,11 @@ export async function createOfflineInstallerAdapter(input: {
       const { createNativeDpkgQueryRunner, parseDpkgQueryState } = await import('./native-dpkg-state.js');
       const result = await createNativeDpkgQueryRunner().query(packageName, signal);
       if (result.code === 1 && result.stdout.length === 0) return null;
-      if (result.code !== 0) throw new OfflineBundleError(`installed witness query failed with exit ${result.code}`);
+      if (result.code !== 0) throw new OfflineBundleError(`installed witness query failed with exit ${String(result.code)}`);
       return parseDpkgQueryState(result.stdout);
     });
     await assertNativePackageInstalledWitnesses({ witnesses: installedWitnesses, observe: observeWitness,
-      compareDebianVersions: input.compareDebianVersions!, ...(context ? { signal: context.signal } : {}) });
+      compareDebianVersions, ...(context ? { signal: context.signal } : {}) });
     return invoke(runtime, Object.freeze({
       operation, rootDescriptor, packages: Object.freeze(packages), withPayload, context,
       installedWitnesses: Object.freeze([...installedWitnesses]),
@@ -920,9 +935,11 @@ export async function createOfflineInstallerAdapter(input: {
     }
   };
   return {
-    discover: async () => structuredClone(input.attestedHostFacts ?? input.closure.hostFacts),
-    plan: async () => ({
-      tasks: structuredClone(input.closure.plan.tasks), selectedTaskIds: [...input.closure.plan.selectedTaskIds],
+    discover: () => new Promise(resolve => {
+      resolve(structuredClone(input.attestedHostFacts ?? input.closure.hostFacts));
+    }),
+    plan: () => new Promise(resolve => {
+      resolve({ tasks: structuredClone(input.closure.plan.tasks), selectedTaskIds: [...input.closure.plan.selectedTaskIds] });
     }),
     check: async (task, context) => {
       const registered = registeredOperation(task.operations.check);
@@ -935,7 +952,7 @@ export async function createOfflineInstallerAdapter(input: {
       if (code === 10) return 'needed' satisfies Inspection;
       if (code === 11) return 'reboot-required' satisfies Inspection;
       if (code === 20) return 'inapplicable' satisfies Inspection;
-      throw new Error(`offline check operation failed with exit ${code}`);
+      throw new Error(`offline check operation failed with exit ${String(code)}`);
     },
     apply: async (task, context) => {
       const registered = registeredOperation(task.operations.apply);
@@ -976,7 +993,7 @@ export async function createOfflineInstallerAdapter(input: {
       const code = await invokeProcess(task.operations.apply, context);
       if (code === 75) throw new InstallerOperationError('offline apply reported a transient failure', 'transient');
       if (code === 76) throw new InstallerOperationError('offline apply reported a rate limit', 'rate-limit');
-      if (code !== 0) throw new Error(`offline apply operation failed with exit ${code}`);
+      if (code !== 0) throw new Error(`offline apply operation failed with exit ${String(code)}`);
     },
     verify: async (task, context) => {
       const registered = registeredOperation(task.operations.verify);
@@ -994,7 +1011,7 @@ export async function createOfflineInstallerAdapter(input: {
       if (code === 20) return 'inapplicable' satisfies Verification;
       if (code === 30) return 'pending' satisfies Verification;
       if (code === 31) return 'pending-reboot' satisfies Verification;
-      throw new Error(`offline verify operation failed with exit ${code}`);
+      throw new Error(`offline verify operation failed with exit ${String(code)}`);
     },
   };
 }

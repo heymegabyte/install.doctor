@@ -6,7 +6,6 @@ const tsconfigRootDir = fileURLToPath(new URL('../../', import.meta.url));
 // Each path has existing strict source diagnostics. Remove it once the module passes.
 const pendingSourceFiles = [
   'src/engine.ts',
-  'src/offline-execution.ts',
   'src/privileged-broker-controller.ts',
 ].map(file => `packages/installer-engine/${file}`);
 
