@@ -495,15 +495,14 @@ const cliRetirementSource = inventorySecretSources([{
   id: 'general', directory: join(cliStoresRoot, 'secrets'), precedence: 10, hostDefault: true, workloadKinds: ['host'],
 }]).find(({ sourceId }) => sourceId === 'general:CLI_RETIRE_TOKEN');
 const cliRetirementLedgerPath = join(cliHome, 'retirement-ledger.json');
+const cliRetirementRecord = {
+  status: 'valid', sourceId: cliRetirementSource.sourceId, canonicalName: cliRetirementSource.canonicalName,
+  ciphertextSha256: cliRetirementSource.ciphertextSha256, validator: 'provider-probe', migrated: true,
+  destination: 'macos.megabyte.space', targetRetrievalVerified: true,
+};
 writeFileSync(cliRetirementLedgerPath, JSON.stringify({
   schemaVersion: 1,
-  records: {
-    [cliRetirementSource.sourceId]: {
-      status: 'valid', sourceId: cliRetirementSource.sourceId, canonicalName: cliRetirementSource.canonicalName,
-      ciphertextSha256: cliRetirementSource.ciphertextSha256, validator: 'provider-probe', migrated: true,
-      destination: 'macos.megabyte.space', targetRetrievalVerified: true,
-    },
-  },
+  records: { [cliRetirementSource.sourceId]: cliRetirementRecord },
 }));
 const cliOfflinePath = join(cliHome, 'offline.json');
 writeFileSync(cliOfflinePath, JSON.stringify({ schemaVersion: 1, exceptions: [] }));
@@ -516,6 +515,20 @@ const cliDryRun = spawnSync(process.execPath, cliRetireArgs, { encoding: 'utf8',
 assert.equal(cliDryRun.status, 0, cliDryRun.stderr);
 assert.equal(JSON.parse(cliDryRun.stdout).mode, 'dry-run');
 assert.equal(existsSync(join(cliStoresRoot, 'secrets/CLI_RETIRE_TOKEN')), true);
+writeFileSync(cliRetirementLedgerPath, JSON.stringify({
+  schemaVersion: 1,
+  records: { [cliRetirementSource.sourceId]: { ...cliRetirementRecord, sourceRetired: false } },
+}));
+const cliConflictingRetirement = spawnSync(
+  process.execPath, [...cliRetireArgs, '--apply'], { encoding: 'utf8', env: { ...process.env, HOME: cliHome } },
+);
+assert.notEqual(cliConflictingRetirement.status, 0);
+assert.match(cliConflictingRetirement.stderr, /conflicting sourceRetired state/);
+assert.equal(existsSync(join(cliStoresRoot, 'secrets/CLI_RETIRE_TOKEN')), true);
+writeFileSync(cliRetirementLedgerPath, JSON.stringify({
+  schemaVersion: 1,
+  records: { [cliRetirementSource.sourceId]: cliRetirementRecord },
+}));
 const cliApplied = spawnSync(process.execPath, [...cliRetireArgs, '--apply'], { encoding: 'utf8', env: { ...process.env, HOME: cliHome } });
 assert.equal(cliApplied.status, 0, cliApplied.stderr);
 assert.equal(JSON.parse(cliApplied.stdout).status, 'retired');

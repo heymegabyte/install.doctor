@@ -515,6 +515,11 @@ function main() {
       fail('retire accepts only --source, --validation-ledger, --offline-exceptions, and optional --apply');
     }
     const ledgerText = readFileSync(options.validationLedgerPath, 'utf8');
+    // Validate the ledger mutation before any destructive unlink. A conflicting
+    // sourceRetired marker must fail while the encrypted source still exists.
+    const retiredLedgerText = options.applyRetirement
+      ? markRetiredSourceInLedgerText(ledgerText, options.sourceId)
+      : ledgerText;
     const receipt = retireSecretSource({
       sourceId: options.sourceId,
       secretStores: defaultSecretStores,
@@ -523,7 +528,7 @@ function main() {
       apply: options.applyRetirement,
     });
     if (options.applyRetirement) {
-      writeFileSync(options.validationLedgerPath, markRetiredSourceInLedgerText(ledgerText, options.sourceId), { mode: 0o600 });
+      writeFileSync(options.validationLedgerPath, retiredLedgerText, { mode: 0o600 });
     }
     process.stdout.write(`${JSON.stringify(receipt, null, 2)}\n`);
     return;
