@@ -44,6 +44,7 @@ jobs:
             packages/control-plane/package-lock.json
 
       - name: Install locked runtime test dependencies
+        id: runtime-test-dependencies
         run: |
           npm --prefix packages/aid-core ci --ignore-scripts --no-audit --no-fund
           npm --prefix packages/installer-engine ci --ignore-scripts --no-audit --no-fund
@@ -58,6 +59,7 @@ jobs:
         run: npm --prefix packages/desktop-tools-runtime test
 
       - name: Verify Control Plane tooling types and lint
+        if: ${{ !cancelled() && steps.runtime-test-dependencies.outcome == 'success' }}
         run: |
           npm --prefix packages/control-plane ci --ignore-scripts --no-audit --no-fund
           npm --prefix packages/control-plane run typecheck:tooling
