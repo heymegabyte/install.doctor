@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Directly execs one command with only its exact manifest-declared secret mappings.
-import { execFileSync } from 'node:child_process';
+import { spawnSync } from 'node:child_process';
 import { readFileSync, realpathSync, statSync } from 'node:fs';
 import { delimiter, join } from 'node:path';
 import process from 'node:process';
@@ -16,7 +16,7 @@ const identifier = value => typeof value === 'string' && /^[a-z0-9][a-z0-9._-]{0
 const allowedPrincipals = new Set([
   'public-human:oidc:cloudflare-access', 'ci:oidc:github', 'ci:oidc:native',
   'service:workload-identity:infisical', 'service:universal-auth:infisical', 'local-offline-human:oidc:authentik',
-  'product-customer:native:product-native'
+  'product-customer:native:product-native', 'public-human:session:infisical'
 ]);
 
 function validate(input) {
@@ -25,10 +25,11 @@ function validate(input) {
   const ids = new Set(); const identities = new Set();
   for (const entry of root.workloads) {
     const workload = exact(entry, ['id', 'identityId', 'projectId', 'environment', 'secretPath', 'principal', 'delivery', 'secrets'], 'workload');
-    if (![workload.id, workload.identityId, workload.projectId].every(identifier)) fail('invalid workload identifier');
+    if (![workload.id, workload.identityId].every(identifier) || !/^[0-9a-f]{8}-[0-9a-f-]{27}$/.test(workload.projectId)) fail('invalid workload identifier');
     if (ids.has(workload.id) || identities.has(workload.identityId)) fail('workload ids and identities must be unique');
     ids.add(workload.id); identities.add(workload.identityId);
-    if (workload.environment !== 'prod' || workload.secretPath !== `/workloads/${workload.id}`) fail('scope must be prod and a fixed workload leaf path');
+    if (workload.environment !== 'prod' || !/^\/(?:[a-z0-9._-]+(?:\/[a-z0-9._-]+)*)?$/.test(workload.secretPath) ||
+        workload.secretPath.split('/').some(segment => segment === '.' || segment === '..')) fail('scope must be prod and an absolute normalized path');
     const principal = exact(workload.principal, ['kind', 'authMode', 'provider'], 'principal');
     if (!allowedPrincipals.has(`${principal.kind}:${principal.authMode}:${principal.provider}`)) fail('principal violates the identity plane');
     if (workload.delivery !== 'environment' || !Array.isArray(workload.secrets) || workload.secrets.length < 1 || workload.secrets.length > 256) fail('invalid secret delivery');
@@ -72,13 +73,27 @@ try { parsed = JSON.parse(readFileSync(options.manifestPath, 'utf8')); } catch {
 const manifest = validate(parsed);
 const workload = manifest.workloads.find(item => item.id === options.workloadId);
 if (!workload) fail('workload is not declared');
+const infisicalPath = resolveExecutable('infisical', process.env);
+const retrievalEnvironment = { ...process.env };
+if (workload.principal.kind === 'public-human' && workload.principal.authMode === 'session') {
+  for (const name of Object.keys(retrievalEnvironment)) {
+    if (/^INFISICAL_(?:TOKEN|UNIVERSAL_AUTH_|CLIENT_SECRET)/.test(name)) delete retrievalEnvironment[name];
+  }
+}
 const values = new Map();
 for (const mapping of workload.secrets) {
-  try {
-    const value = execFileSync('get-secret', [mapping.secretName], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], timeout: 15_000, maxBuffer: 1024 * 1024 }).replace(/\r?\n$/, '');
-    if (!value) fail('a declared secret is unavailable');
-    values.set(mapping.environmentVariable, value);
-  } catch { fail('a declared secret is unavailable'); }
+  const result = spawnSync(infisicalPath, [
+    'secrets', 'get', mapping.secretName,
+    '--projectId', workload.projectId,
+    '--env', workload.environment,
+    '--path', workload.secretPath,
+    '--plain', '--secret-overriding=false', '--silent', '--telemetry=false',
+  ], {
+    encoding: 'utf8', env: retrievalEnvironment, stdio: ['ignore', 'pipe', 'ignore'], timeout: 15_000, maxBuffer: 1024 * 1024,
+  });
+  const value = result.status === 0 ? result.stdout.replace(/\r?\n$/, '') : '';
+  if (!value || value.length > 1024 * 1024 || value.includes('\0') || value.includes('\n') || value.includes('\r')) fail('a declared secret is unavailable');
+  values.set(mapping.environmentVariable, value);
 }
 const secretShaped = /(?:^|_)(?:API_?KEY|ACCESS_?KEY|SECRET|TOKEN|PASSWORD|PASSWD|PRIVATE_?KEY|CREDENTIALS?)(?:$|_)/i;
 const childEnvironment = Object.fromEntries(Object.entries(process.env).filter(([name]) => !secretShaped.test(name)));

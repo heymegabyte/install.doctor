@@ -8,14 +8,16 @@ trap 'rm -rf "$fixture"' EXIT
 mkdir -p "$fixture/bin"
 
 cat >"$fixture/manifest.json" <<'JSON'
-{"schemaVersion":1,"workloads":[{"id":"test-service","identityId":"identity-test-service","projectId":"project-test","environment":"prod","secretPath":"/workloads/test-service","principal":{"kind":"service","authMode":"workload-identity","provider":"infisical"},"delivery":"environment","secrets":[{"secretName":"TEST_PASSWORD","environmentVariable":"APP_PASSWORD"}]}]}
+{"schemaVersion":1,"workloads":[{"id":"test-service","identityId":"identity-test-service","projectId":"00000000-0000-4000-8000-000000000001","environment":"prod","secretPath":"/workloads/test-service","principal":{"kind":"service","authMode":"workload-identity","provider":"infisical"},"delivery":"environment","secrets":[{"secretName":"TEST_PASSWORD","environmentVariable":"APP_PASSWORD"}]}]}
 JSON
-cat >"$fixture/bin/get-secret" <<'SH'
+cat >"$fixture/bin/infisical" <<'SH'
 #!/bin/sh
-[ "$1" = TEST_PASSWORD ] || exit 1
+[ "$1" = secrets ] && [ "$2" = get ] && [ "$3" = TEST_PASSWORD ] || exit 1
+[ "$4" = --projectId ] && [ "$5" = 00000000-0000-4000-8000-000000000001 ] && [ "$6" = --env ] && [ "$7" = prod ] || exit 2
+[ "$8" = --path ] && [ "$9" = /workloads/test-service ] && [ "${10}" = --plain ] || exit 3
 printf '%s' 'test-value'
 SH
-chmod 700 "$fixture/bin/get-secret"
+chmod 700 "$fixture/bin/infisical"
 
 PATH="$fixture/bin:$PATH" UNRELATED_TOKEN='parent-leak' INFISICAL_TOKEN='bootstrap-leak' PLAIN_SETTING='preserved' \
   node "$launcher" --manifest "$fixture/manifest.json" --workload test-service -- \
@@ -23,7 +25,7 @@ PATH="$fixture/bin:$PATH" UNRELATED_TOKEN='parent-leak' INFISICAL_TOKEN='bootstr
   "$fixture/result"
 test "$(cat "$fixture/result")" = ok
 
-cat >"$fixture/bin/get-secret" <<'SH'
+cat >"$fixture/bin/infisical" <<'SH'
 #!/bin/sh
 exit 1
 SH

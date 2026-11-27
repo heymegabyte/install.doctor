@@ -1,0 +1,41 @@
+{
+  "schemaVersion": 1,
+  "workloads": [
+    {
+      "id": "brickcitylabor-build",
+      "identityId": "human-session-brickcitylabor-build",
+      "projectId": "1cc7bd6b-9a88-4b10-91ed-f3542997634d",
+      "environment": "prod",
+      "secretPath": "/",
+      "principal": { "kind": "public-human", "authMode": "session", "provider": "infisical" },
+      "delivery": "environment",
+      "secrets": [
+        { "secretName": "UNSPLASH_ACCESS_KEY", "environmentVariable": "UNSPLASH_ACCESS_KEY" }
+      ]
+    },
+    {
+      "id": "bricklabor-build",
+      "identityId": "human-session-bricklabor-build",
+      "projectId": "5affcfd7-6ddb-43d6-9cbe-e326dee48eb0",
+      "environment": "prod",
+      "secretPath": "/",
+      "principal": { "kind": "public-human", "authMode": "session", "provider": "infisical" },
+      "delivery": "environment",
+      "secrets": [
+        { "secretName": "UNSPLASH_ACCESS_KEY", "environmentVariable": "UNSPLASH_ACCESS_KEY" }
+      ]
+    },
+    {
+      "id": "template-projectsites-build",
+      "identityId": "human-session-template-projectsites-build",
+      "projectId": "b558b4f7-c550-48c6-9d31-3fd596040dcd",
+      "environment": "prod",
+      "secretPath": "/",
+      "principal": { "kind": "public-human", "authMode": "session", "provider": "infisical" },
+      "delivery": "environment",
+      "secrets": [
+        { "secretName": "UNSPLASH_ACCESS_KEY", "environmentVariable": "UNSPLASH_ACCESS_KEY" }
+      ]
+    }
+  ]
+}

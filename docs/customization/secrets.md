@@ -455,6 +455,27 @@ AllowedIPs = 0.0.0.0/0
 Endpoint = 185.159.156.83:51820
 ```
 
+### Project-scoped build commands
+
+Do not use the host-scoped `get-secret` command for a repository build. Run the
+command through `infisical-workload-run` with a reviewed manifest instead. The
+launcher passes the manifest's exact project, environment, path, and secret
+name to the authenticated Infisical CLI, resolves every value before launch,
+and removes secret-shaped parent variables from the child environment.
+
+For the shared image-generation builds:
+
+```shell
+infisical-workload-run \
+  --manifest ~/Documents/install.doctor/config/infisical/build-workload-launchers.json \
+  --workload brickcitylabor-build -- \
+  node scripts/fetch-blog-images.mjs
+```
+
+Use `bricklabor-build` or `template-projectsites-build` for the corresponding
+repository. Retrieval fails closed: it never falls back to the workstation's
+Infisical project, the age store, or `get-secret`.
+
 ### Encrypted Files
 
 There are a few cases where entire files need to be encrypted. Whenever possible, in cases like Tabby's configuration stored at `home/dot_config/tabby/config.yaml.tmpl` the optimized configuration stripped of secrets is provided as a fallback within the template. In cases like this, where no environment variable configuration parameter is made available, the encrypted file parts are stored in `home/.chezmoitemplates/files/`. The table below describes the capabilities that are offered by these files:

@@ -4,8 +4,9 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import test from 'node:test';
+import { fileURLToPath } from 'node:url';
 
-const launcher = path.resolve('../../home/dot_local/bin/executable_infisical-workload-run');
+const launcher = fileURLToPath(new URL('../../../home/dot_local/bin/executable_infisical-workload-run', import.meta.url));
 
 async function fixture() {
   const directory = await mkdtemp(path.join(tmpdir(), 'infisical-workload-'));
@@ -15,15 +16,20 @@ async function fixture() {
   await writeFile(manifest, JSON.stringify({
     schemaVersion: 1,
     workloads: [{
-      id: 'demo', identityId: 'identity-demo', projectId: 'project-demo', environment: 'prod',
+      id: 'demo', identityId: 'identity-demo', projectId: '00000000-0000-4000-8000-000000000002', environment: 'prod',
       secretPath: '/workloads/demo',
       principal: { kind: 'service', authMode: 'workload-identity', provider: 'infisical' },
       delivery: 'environment',
       secrets: [{ secretName: 'DEMO_PASSWORD', environmentVariable: 'APP_PASSWORD' }]
     }]
   }));
-  await writeFile(path.join(bin, 'get-secret'), '#!/bin/sh\n[ "$1" = DEMO_PASSWORD ] || exit 7\nprintf resolved-secret\n');
-  await chmod(path.join(bin, 'get-secret'), 0o755);
+  await writeFile(path.join(bin, 'infisical'), `#!/bin/sh
+[ "$1" = secrets ] && [ "$2" = get ] && [ "$3" = DEMO_PASSWORD ] || exit 7
+[ "$4" = --projectId ] && [ "$5" = 00000000-0000-4000-8000-000000000002 ] && [ "$6" = --env ] && [ "$7" = prod ] || exit 8
+[ "$8" = --path ] && [ "$9" = /workloads/demo ] && [ "\${10}" = --plain ] || exit 9
+printf resolved-secret
+`);
+  await chmod(path.join(bin, 'infisical'), 0o755);
   return { directory, bin, manifest };
 }
 
@@ -44,7 +50,7 @@ void test('injects only declared values and scrubs unrelated secret-shaped paren
 void test('fails closed before starting the command when a declared secret is unavailable', async (t) => {
   const f = await fixture();
   t.after(() => rm(f.directory, { recursive: true, force: true }));
-  await writeFile(path.join(f.bin, 'get-secret'), '#!/bin/sh\nexit 1\n');
+  await writeFile(path.join(f.bin, 'infisical'), '#!/bin/sh\nexit 1\n');
   const marker = path.join(f.directory, 'started');
   const result = spawnSync(process.execPath, [launcher, '--manifest', f.manifest, '--workload', 'demo', '--', process.execPath, '-e', `require('node:fs').writeFileSync(${JSON.stringify(marker)}, 'yes')`], {
     env: { ...process.env, PATH: [f.bin, process.env.PATH ?? '/usr/bin:/bin'].join(path.delimiter) }, encoding: 'utf8'
