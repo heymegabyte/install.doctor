@@ -23,6 +23,12 @@ test -f "$unit"
 test -f "$config"
 test "$(stat -f '%Lp' "$unit" 2>/dev/null || stat -c '%a' "$unit")" = 600
 grep -q '^ProtectSystem=strict$' "$unit"
-node -e 'const c=require(process.argv[1]); const ids=Object.keys(c.services); if (ids.join(",") !== "cloudflare-mcp,theme-tools-mcp") process.exit(1)' "$config"
+node -e 'const c=require(process.argv[1]); const ids=Object.keys(c.services); if (ids.join(",") !== "cloudflare-mcp,theme-tools-mcp" || c.hostContract.platform !== "linux" || c.hostContract.lingerPolicy !== "forbid") process.exit(1)' "$config"
+
+if HOME="$fixture/home" MCP_SINGLETON_PLATFORM=linux MCP_SINGLETON_LINGER_POLICY=invalid \
+  bash "$root/home/dot_local/bin/executable_mcp-singleton-manager" render >/dev/null 2>&1; then
+  printf 'invalid linger policy unexpectedly accepted\n' >&2
+  exit 1
+fi
 
 printf 'mcp singleton manager linux render: ok\n'

@@ -15,9 +15,13 @@ runner="${MCP_SINGLETON_RUNNER:-$HOME/.agentskills/mcp-servers/paperclip-mcp-std
 node_bin="${MCP_SINGLETON_NODE:-$(command -v node || true)}"
 default_services="cloudflare-mcp langfuse-mcp paperclip-control-plane-mcp theme-tools-mcp voicekit-mcp"
 read -r -a services <<<"${MCP_SINGLETON_SERVICES:-$default_services}"
+host_id="${MCP_SINGLETON_HOST_ID:-$(hostname -f 2>/dev/null || hostname)}"
+linger_policy="${MCP_SINGLETON_LINGER_POLICY:-forbid}"
 
 die() { printf 'mcp-singleton-manager: %s\n' "$*" >&2; exit 1; }
 require_paths() { test -x "$node_bin" || die "node unavailable"; test -f "$broker" || die "broker unavailable: $broker"; test -f "$runner" || die "runner unavailable: $runner"; }
+case "$host_id" in ''|*[!A-Za-z0-9._-]*) die "invalid MCP_SINGLETON_HOST_ID" ;; esac
+case "$linger_policy" in forbid|authorized-headless) ;; *) die "invalid MCP_SINGLETON_LINGER_POLICY" ;; esac
 
 platform() {
   if test -n "${MCP_SINGLETON_PLATFORM:-}"; then
@@ -34,16 +38,35 @@ render_config() {
   require_paths
   mkdir -p "$config_root" "$socket_root" "$state_root/logs"
   chmod 700 "$config_root" "$state_root" "$socket_root" "$state_root/logs"
-  "$node_bin" - "$config_path" "$socket_root" "$node_bin" "$runner" "${services[@]}" <<'NODE'
+  "$node_bin" - "$config_path" "$socket_root" "$node_bin" "$runner" "$host_id" "$(platform)" "$linger_policy" -- "${services[@]}" <<'NODE'
 const fs = require('node:fs');
-const [output, socketRoot, node, runner, ...services] = process.argv.slice(2);
-const config = { version: 1, runtimeDir: socketRoot, services: {} };
+const [output, socketRoot, node, runner, hostId, platform, lingerPolicy, separator, ...services] = process.argv.slice(2);
+if (separator !== '--') throw new Error('invalid singleton render arguments');
+const config = { version: 1, hostContract: { hostId, platform, lingerPolicy }, runtimeDir: socketRoot, services: {} };
 for (const id of services) config.services[id] = { socket: `${socketRoot}/${id}.sock`, command: [node, runner, id] };
 const temp = `${output}.${process.pid}.tmp`;
 fs.writeFileSync(temp, `${JSON.stringify(config, null, 2)}\n`, { mode: 0o600 });
 fs.renameSync(temp, output);
 fs.chmodSync(output, 0o600);
 NODE
+}
+
+configured_linger_policy() {
+  "$node_bin" -e 'const c=require(process.argv[1]); process.stdout.write(c.hostContract?.lingerPolicy ?? "forbid")' "$config_path"
+}
+
+validate_linux_linger() {
+  test "$(platform)" = linux || return 0
+  command -v loginctl >/dev/null || die "loginctl unavailable for linger policy validation"
+  local actual policy
+  actual="$(loginctl show-user "$(id -u)" -p Linger --value 2>/dev/null || true)"
+  policy="$(configured_linger_policy)"
+  case "$actual:$policy" in
+    yes:authorized-headless|no:forbid) ;;
+    yes:forbid) die "Linger=yes requires MCP_SINGLETON_LINGER_POLICY=authorized-headless" ;;
+    no:authorized-headless) die "authorized-headless profile requires Linger=yes" ;;
+    *) die "unable to validate user linger state" ;;
+  esac
 }
 
 render_plist() {
@@ -124,6 +147,7 @@ install_service() {
   else
     command -v systemctl >/dev/null || die "systemctl unavailable"
     render_systemd_unit
+    validate_linux_linger
     systemctl --user daemon-reload
     systemctl --user enable --now "$systemd_unit_name"
   fi
@@ -135,6 +159,7 @@ status_service() {
   if test "$(platform)" = darwin; then
     launchctl print "gui/$(id -u)/$label" >/dev/null 2>&1 || die "service not loaded"
   else
+    validate_linux_linger
     systemctl --user is-active --quiet "$systemd_unit_name" || die "service not active"
     systemctl --user is-enabled --quiet "$systemd_unit_name" || die "service not enabled"
   fi

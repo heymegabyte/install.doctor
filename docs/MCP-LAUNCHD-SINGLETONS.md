@@ -12,6 +12,8 @@ mcp-singleton-manager rollback
 
 The systemd unit uses private temporary storage, strict read-only system paths, and explicit per-user writable paths. Capability-changing directives, including `ProtectKernelModules`, are intentionally omitted because restricted containers and some Proxmox guests reject them even for unprivileged user services; the broker already runs without root and exposes no network listener.
 
+Linux lingering is deny-by-default. A host that already has `Linger=yes` must render its broker with both a stable host identity and `MCP_SINGLETON_LINGER_POLICY=authorized-headless`; install and status fail closed when the live `loginctl` state disagrees with the rendered `hostContract`. The manager never enables or disables lingering itself, so rollback cannot silently change a host-wide login policy. `ubuntu.megabyte.space` is the explicitly authorized headless Proxmox server profile.
+
 Eligible services are Cloudflare, Langfuse, Paperclip, theme.tools, and the current descriptor-only VoiceKit wrapper. CUA Driver and BrowserMCP remain session-scoped frontends to their supported shared daemons. DataForSEO follows its native Streamable HTTP path.
 
 Clients connect to the corresponding socket with `/usr/bin/nc -U ~/.local/state/mcp-singletons/sockets/<service>.sock`. Preserve the previous client configuration until initialize, tools/list, one allowed call, concurrent isolation, restart, and rollback checks pass.
