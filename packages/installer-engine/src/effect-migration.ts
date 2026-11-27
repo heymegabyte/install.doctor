@@ -38,7 +38,7 @@ export const EffectMigrationManifestSchema = z.strictObject({
   if (value.rollback.automatic && value.effectClass !== 'installer-configuration' && value.effectClass !== 'service-state') {
     context.addIssue({ code: 'custom', path: ['rollback', 'automatic'], message: 'only configuration and service state may declare automatic rollback' });
   }
-  if (value.rollback.supportedEffects.includes(value.effectClass) === false) {
+  if (!value.rollback.supportedEffects.includes(value.effectClass)) {
     context.addIssue({ code: 'custom', path: ['rollback', 'supportedEffects'], message: 'the migrated effect class must be explicitly classified' });
   }
   if (value.rollback.excludedEffects.some(effect => value.rollback.supportedEffects.includes(effect))) {

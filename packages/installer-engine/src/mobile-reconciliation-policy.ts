@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { z } from 'zod';
 
 const identifier = z.string().min(1).max(128).regex(/^[a-z0-9][a-z0-9._-]*$/);
-const timestamp = z.string().datetime({ offset: true }).max(64);
+const timestamp = z.iso.datetime({ offset: true }).max(64);
 const priority = z.enum(['critical', 'high', 'normal', 'low']);
 
 export const MobileHostConditionSchema = z.strictObject({
@@ -122,14 +122,19 @@ export function planMobileHostCatchUp(rawInput: unknown): z.infer<typeof MobileC
     } else deferred.push({ work, reason: 'coalesced' });
   }
 
+  let batteryBelowMinimum = false;
+  if (input.condition.powerSource === 'battery') {
+    const { batteryLevel } = input.condition;
+    if (batteryLevel === null) throw new Error('battery power requires a measured battery level');
+    batteryBelowMinimum = batteryLevel < input.policy.minimumBatteryLevel;
+  }
   const eligible: z.infer<typeof MissedReconciliationWorkSchema>[] = [];
   for (const work of [...retained.values()].sort(compareWork)) {
     let reason: z.infer<typeof deferReason> | null = null;
     if (work.expiresAt !== null && new Date(work.expiresAt).getTime() <= new Date(input.evaluatedAt).getTime()) reason = 'expired';
     else if (work.connectivity === 'online' && input.condition.connectivity === 'offline') reason = 'offline';
     else if (work.powerPolicy === 'ac-required' && input.condition.powerSource !== 'ac') reason = 'ac-required';
-    else if (input.condition.powerSource === 'battery'
-      && input.condition.batteryLevel! < input.policy.minimumBatteryLevel
+    else if (batteryBelowMinimum
       && !(work.priority === 'critical' && input.policy.allowCriticalOnLowBattery && work.powerPolicy === 'any')) reason = 'battery-low';
     else if (work.powerPolicy === 'ac-preferred' && input.condition.powerSource === 'battery'
       && work.priority !== 'critical') reason = 'battery-low';

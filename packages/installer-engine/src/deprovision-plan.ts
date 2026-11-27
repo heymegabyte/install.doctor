@@ -4,7 +4,7 @@ import { z } from 'zod';
 const VERSION = z.literal(1);
 const identifier = z.string().min(1).max(128).regex(/^[a-zA-Z0-9][a-zA-Z0-9._:-]*$/);
 const digest = z.string().regex(/^[a-f0-9]{64}$/);
-const timestamp = z.string().datetime({ offset: true }).max(64);
+const timestamp = z.iso.datetime({ offset: true }).max(64);
 
 export const DeprovisionEffectSchema = z.enum([
   'configuration',
