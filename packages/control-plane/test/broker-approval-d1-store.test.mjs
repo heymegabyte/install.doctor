@@ -2,12 +2,16 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
 import test from 'node:test';
+import { URL } from 'node:url';
 import { createBrokerApprovalD1Store } from '../src/broker-approval-d1-store.ts';
+import { BrokerApprovalDurableState } from '../src/broker-approval-signer.ts';
+import { sqliteD1Fixture } from './helpers/sqlite-d1-fixture.mjs';
 
 const migration = fs.readFileSync(
   new URL('../migrations/0013_broker_approval_state.sql', import.meta.url),
   'utf8',
 );
+/** @param {string} character */
 const hex = character => character.repeat(64);
 
 function fixture(seed = true) {
@@ -39,26 +43,11 @@ function fixture(seed = true) {
       'tenant-1', 'profile-1', hex('3'), 'credential-1', hex('4'), 'intent-1', 'grant-1',
       JSON.stringify(grant), JSON.stringify(delegation), '2026-11-09T11:58:30.000Z');
 
-  const db = {
-    prepare(sql) {
-      let values = [];
-      const statement = {
-        bind(...bound) { values = bound; return statement; },
-        async first() {
-          const row = sqlite.prepare(sql).get(...values);
-          return row ? { ...row } : null;
-        },
-        async run() {
-          const result = sqlite.prepare(sql).run(...values);
-          return { meta: { changes: Number(result.changes) } };
-        },
-      };
-      return statement;
-    },
-  };
+  const db = sqliteD1Fixture(sqlite);
   const store = createBrokerApprovalD1Store(db, {
     now: () => new Date('2026-11-09T12:00:00.000Z'),
   });
+  /** @type {Parameters<typeof store.loadExactState>[0]} */
   const request = {
     schemaVersion: 1, authorizationId: 'authorization-1', ownerDecisionId: 'decision-1',
     tenantId: 'tenant-1', profileId: 'profile-1', profileRevisionDigest: hex('3'),
@@ -70,7 +59,7 @@ function fixture(seed = true) {
 
 test('loads only the exact authority binding and reconstructs immutable JSON state', async () => {
   const setup = fixture();
-  const state = await setup.store.loadExactState(setup.request);
+  const state = BrokerApprovalDurableState.parse(await setup.store.loadExactState(setup.request));
   assert.deepEqual(state.grant, setup.grant);
   assert.deepEqual(state.delegation, setup.delegation);
   assert.equal(state.ownerActorId, 'owner-1');
@@ -117,7 +106,7 @@ test('atomically consumes one approval and rejects replay, mismatched state, and
   assert.equal(await second.store.consumeApproval({ ...exact, ownerDecisionId: 'decision-2' }), false);
   assert.equal(await second.store.consumeApproval({ ...exact, runIntentId: 'intent-2' }), false);
   assert.equal(await second.store.consumeApproval({ ...exact, authorizationId: 'authorization-2' }), false);
-  assert.equal(second.sqlite.prepare('SELECT count(*) AS n FROM broker_approval_consumptions').get().n, 0);
+  assert.equal(second.sqlite.prepare('SELECT count(*) AS n FROM broker_approval_consumptions').get()?.n, 0);
 });
 
 test('migration makes authority state and consumption receipts append-only', async () => {

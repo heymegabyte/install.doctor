@@ -62,7 +62,7 @@ INSERT OR IGNORE INTO broker_approval_states (
 export function createBrokerApprovalD1Store(
   db: D1DatabaseLike,
   options: { readonly now?: () => Date } = {},
-): BrokerApprovalStateStore {
+): BrokerApprovalStateStore & { persistApprovedState(inputState: unknown): Promise<boolean> } {
   return Object.freeze({
     async persistApprovedState(inputState: unknown): Promise<boolean> {
       const state = BrokerApprovalDurableState.parse(inputState);
