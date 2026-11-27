@@ -17,11 +17,11 @@ async function fixture(t, { date = 'Sun, 08 Nov 2026 10:00:00 +0000', validUntil
   t.after(() => rm(root, { recursive: true, force: true }));
   const payload = Buffer.from('deterministic tree deb fixture\n');
   const packages = Buffer.from(['Package: tree','Version: 2.1.0-1','Architecture: amd64',
-    'Filename: pool/main/t/tree/tree_2.1.0-1_amd64.deb',`Size: ${payload.length}`,`SHA256: ${sha(payload)}`,
+    'Filename: pool/main/t/tree/tree_2.1.0-1_amd64.deb',`Size: ${String(payload.length)}`,`SHA256: ${sha(payload)}`,
     'Depends: libc6 (>= 2.34)','Essential: no',''].join('\n'));
   const release = Buffer.from(['Suite: oldstable','Codename: bookworm','Components: main','Architectures: amd64',
     `Date: ${date}`,...(validUntil === null ? [] : [`Valid-Until: ${validUntil}`]),'SHA256:',
-    ` ${sha(packages)} ${packages.length} main/binary-amd64/Packages.xz`, ''].join('\n'));
+    ` ${sha(packages)} ${String(packages.length)} main/binary-amd64/Packages.xz`, ''].join('\n'));
   const files = { inRelease: Buffer.from('opaque signed InRelease\n'), packages, keyring: Buffer.from('public archive keyring\n'), payload };
   const paths = {
     inRelease: join(root, 'inRelease'), packages: join(root, 'Packages.xz'),
@@ -36,9 +36,9 @@ async function fixture(t, { date = 'Sun, 08 Nov 2026 10:00:00 +0000', validUntil
     keyringPath: paths.keyring, payloadPath: paths.payload, now };
   /** @satisfies {NonNullable<Parameters<typeof composeDebianTreeRelease>[1]>} */
   const dependencies = {
-    verifier: { verifyInRelease: async () => ({ cleartext: release, signingKeyFingerprint: fingerprint }),
-      decompressPackages: async () => packages, now: () => new Date(input.now) },
-    inspectControl: async () => ({ control: { packageName: 'tree', version: policy.version, architecture: 'amd64',
+    verifier: { verifyInRelease: () => Promise.resolve({ cleartext: release, signingKeyFingerprint: fingerprint }),
+      decompressPackages: () => Promise.resolve(packages), now: () => new Date(input.now) },
+    inspectControl: () => Promise.resolve({ control: { packageName: 'tree', version: policy.version, architecture: 'amd64',
       depends: 'libc6 (>= 2.34)', preDepends: null, essential: 'no', multiArch: 'absent' }, conffiles: [], members: [] }),
   };
   return { input, dependencies, paths, payload, release, root };
@@ -73,15 +73,15 @@ void test('preserves present Valid-Until and rejects future, stale, and earlier-
 });
 
 void test('fails closed on signer, package identity, payload, expiry, control, and unsafe input authority', async t => {
-  /** @type {((state: Awaited<ReturnType<typeof fixture>>) => Promise<void>)[]} */
+  /** @type {((state: Awaited<ReturnType<typeof fixture>>) => void | Promise<void>)[]} */
   const cases = [
-    async s => { s.dependencies.verifier.verifyInRelease = async () => ({ cleartext: Buffer.from(''), signingKeyFingerprint: 'B'.repeat(40) }); },
-    async s => { s.dependencies.verifier.verifyInRelease = async () => ({ cleartext: Buffer.from(s.release.toString().replace('Codename: bookworm', 'Codename: trixie')), signingKeyFingerprint: fingerprint }); },
-    async s => { s.dependencies.verifier.verifyInRelease = async () => ({ cleartext: Buffer.from(s.release.toString().replace('Architectures: amd64', 'Architectures: arm64')), signingKeyFingerprint: fingerprint }); },
-    async s => { s.input.policy.version = '9.9.9-1'; },
+    s => { s.dependencies.verifier.verifyInRelease = () => Promise.resolve({ cleartext: Buffer.from(''), signingKeyFingerprint: 'B'.repeat(40) }); },
+    s => { s.dependencies.verifier.verifyInRelease = () => Promise.resolve({ cleartext: Buffer.from(s.release.toString().replace('Codename: bookworm', 'Codename: trixie')), signingKeyFingerprint: fingerprint }); },
+    s => { s.dependencies.verifier.verifyInRelease = () => Promise.resolve({ cleartext: Buffer.from(s.release.toString().replace('Architectures: amd64', 'Architectures: arm64')), signingKeyFingerprint: fingerprint }); },
+    s => { s.input.policy.version = '9.9.9-1'; },
     async s => { await writeFile(s.paths.payload, 'substituted\n', { mode: 0o600 }); },
-    async s => { s.dependencies.verifier.now = () => new Date('2027-06-01T00:00:00Z'); },
-    async s => { s.dependencies.inspectControl = async () => ({ control: { packageName: 'other', version: '2.1.0-1', architecture: 'amd64', depends: 'libc6 (>= 2.34)', preDepends: null, essential: 'no', multiArch: 'absent' }, conffiles: [], members: [] }); },
+    s => { s.dependencies.verifier.now = () => new Date('2027-06-01T00:00:00Z'); },
+    s => { s.dependencies.inspectControl = () => Promise.resolve({ control: { packageName: 'other', version: '2.1.0-1', architecture: 'amd64', depends: 'libc6 (>= 2.34)', preDepends: null, essential: 'no', multiArch: 'absent' }, conffiles: [], members: [] }); },
     async s => { await chmod(s.paths.keyring, 0o666); },
     async s => { const path = join(s.root, 'keyring-link'); await symlink(s.paths.keyring, path); s.input.keyringPath = path; },
     async s => { const path = join(s.root, 'keyring-directory'); await mkdir(path); s.input.keyringPath = path; },
@@ -97,7 +97,7 @@ void test('rejects undeclared dependency and noncanonical policy shapes', async 
   const state = await fixture(t);
   const packages = (await readFile(state.paths.packages, 'utf8')).replace('libc6 (>= 2.34)', 'libc6 (>= 2.36)');
   await writeFile(state.paths.packages, packages, { mode: 0o600 });
-  state.dependencies.verifier.decompressPackages = async () => Buffer.from(packages);
+  state.dependencies.verifier.decompressPackages = () => Promise.resolve(Buffer.from(packages));
   await assert.rejects(composeDebianTreeRelease(state.input, state.dependencies), /libc6/);
   const fresh = await fixture(t);
   const input = { ...fresh.input, policy: { ...fresh.input.policy, extra: true } };

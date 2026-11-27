@@ -10,6 +10,7 @@ import { DisposableProductCompositionReceiptSchema, RealHostCanaryReceiptSchema 
 import { main as runSupervisor, PROVISIONING_PROMPT, PROVISIONING_PROMPT_VERSION } from '../../desktop-tools-runtime/src/desktop-tools-supervisor.mjs';
 import { createProtocolRuntimeFixture } from '../../desktop-tools-runtime/test/helpers/runtime-fixture.mjs';
 import { createCompositionEngineFixture } from '../../installer-engine/test/helpers/composition-engine-fixture.mjs';
+import { createWorkerFixture } from './helpers/worker-app-fixture.mjs';
 
 /** @param {unknown} value @returns {unknown} */
 const canonical = value => Array.isArray(value) ? value.map(canonical)
@@ -19,7 +20,25 @@ const canonical = value => Array.isArray(value) ? value.map(canonical)
 /** @param {unknown} value */
 const digest = value => createHash('sha256').update(typeof value === 'string' || Buffer.isBuffer(value)
   ? value : `${JSON.stringify(canonical(value))}\n`).digest('hex');
-import { createWorkerFixture } from './helpers/worker-app-fixture.mjs';
+
+const startedResult = z.looseObject({ request: z.looseObject({
+  requestId: z.string(), verificationCode: z.string(),
+}) });
+const credentialResult = z.looseObject({
+  status: z.string(), credential: z.string(), credentialId: z.string(), expiresAt: z.string(),
+});
+const runtimeConfigResult = z.looseObject({
+  model: z.string(),
+  providers: z.looseObject({ projectsites: z.looseObject({ settings: z.looseObject({ baseURL: z.string() }) }) }),
+  policies: z.array(z.unknown()),
+});
+const sessionEvidenceResult = z.looseObject({
+  evidenceState: z.string(),
+  profile: z.record(z.string(), z.unknown()),
+  authorization: z.looseObject({ id: z.string() }),
+  machine: z.looseObject({ fingerprint: z.string() }),
+  release: z.looseObject({ id: z.string() }),
+});
 
 const planResult = z.object({ digest: z.string().regex(/^[a-f0-9]{64}$/) });
 const approvalResult = z.object({ approvalId: z.string().min(1) });
@@ -76,7 +95,9 @@ void test('disposable composition carries one identity through Worker, superviso
     body: JSON.stringify({ binding, machineLabel: 'Fixture Host' }),
   }), env);
   assert.equal(startedResponse.status, 201, await startedResponse.clone().text());
-  const started = await startedResponse.json();
+  /** @type {unknown} */
+  const startedEvidence = await startedResponse.json();
+  const started = startedResult.parse(startedEvidence);
   const reviewUrl = `https://desktop.tools/api/v1/device-authorizations/review?code=${started.request.verificationCode}`;
   assert.equal((await app.fetch(new Request(reviewUrl), env)).status, 401);
   // OIDC callback/session completion is deliberately not forged here. Until
@@ -88,10 +109,12 @@ void test('disposable composition carries one identity through Worker, superviso
     method: 'POST', headers: { authorization: `Bearer ${pollSecret}`, 'content-type': 'application/json' }, body: '{}',
   }), env);
   assert.equal(pollResponse.status, 200, await pollResponse.clone().text());
-  const credential = await pollResponse.json();
+  /** @type {unknown} */
+  const credentialEvidence = await pollResponse.json();
+  const credential = credentialResult.parse(credentialEvidence);
   assert.equal(credential.status, 'approved');
   assert.match(credential.credential, /^dtc_[a-f0-9]{64}$/);
-  assert.equal(JSON.stringify({ started, credential }).includes(pollSecret), false);
+  assert.equal(JSON.stringify({ started: startedEvidence, credential: credentialEvidence }).includes(pollSecret), false);
   const replay = await app.fetch(new Request(`https://example.desktop.tools/api/v1/device-authorizations/${started.request.requestId}/poll`, {
     method: 'POST', headers: { authorization: `Bearer ${pollSecret}`, 'content-type': 'application/json' }, body: '{}',
   }), env);
@@ -114,19 +137,24 @@ void test('disposable composition carries one identity through Worker, superviso
   for (const forbidden of ['OPENAI_API_KEY', 'API_TOKEN', 'ambient-openai-must-not-leak', 'ambient-api-token-must-not-leak', pollSecret, credential.credential]) {
     assert.equal(observedEnvironment.includes(forbidden), false, `supervisor leaked ${forbidden}`);
   }
-  const config = JSON.parse(await readFile(join(runtime.state, 'opencode-config'), 'utf8'));
+  /** @type {unknown} */
+  const configEvidence = JSON.parse(await readFile(join(runtime.state, 'opencode-config'), 'utf8'));
+  const config = runtimeConfigResult.parse(configEvidence);
   assert.equal(config.model, 'projectsites/dynamic/code');
   assert.equal(config.providers.projectsites.settings.baseURL, 'https://desktop.tools/api/ai/v1');
   assert.deepEqual(config.policies.slice(0, 2), [
     { action: 'provider.use', resource: '*', effect: 'deny' },
     { action: 'provider.use', resource: 'projectsites', effect: 'allow' },
   ]);
-  assert.equal(JSON.stringify(config).toLowerCase().includes('litellm'), false);
+  assert.equal(JSON.stringify(configEvidence).toLowerCase().includes('litellm'), false);
   assert.ok('evidence' in supervisorResult && supervisorResult.evidence);
   assert.equal(supervisorResult.evidence.captureComplete, false);
-  const history = JSON.parse(await readFile(supervisorResult.evidence.historyPath, 'utf8'));
+  /** @type {unknown} */
+  const historyEvidence = JSON.parse(await readFile(supervisorResult.evidence.historyPath, 'utf8'));
+  const history = sessionEvidenceResult.parse(historyEvidence);
+  /** @type {unknown} */
   const recording = JSON.parse(await readFile(supervisorResult.evidence.recordingPath, 'utf8'));
-  assert.deepEqual(recording, history);
+  assert.deepEqual(recording, historyEvidence);
   assert.equal(history.evidenceState, 'headers-persisted');
   assert.deepEqual(history.profile, runtime.prompt.profile);
   assert.equal(history.authorization.id, started.request.requestId);
