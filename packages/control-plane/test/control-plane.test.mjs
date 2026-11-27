@@ -6,10 +6,24 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { fileURLToPath, URL } from 'node:url';
 import { execFileSync, spawnSync } from 'node:child_process';
+import { z } from 'zod';
+import { DeviceAuthorizationRequestSchema } from '../../aid-core/dist/device-authorization.js';
 import { blueprintDigest, exportMarkdown } from '../../aid-core/dist/core.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const distIndexPath = path.resolve(__dirname, '../dist/index.js');
+
+const pairingResponse = z.looseObject({
+  code: z.string(), pollSecret: z.string(), verifyUrl: z.string(), tenant: z.string(),
+});
+const authorizationResponse = z.looseObject({ request: DeviceAuthorizationRequestSchema });
+const targetCredentialResponse = z.looseObject({
+  status: z.literal('approved'), credential: z.string(), credentialId: z.string(),
+});
+const pairedCredentialResponse = z.looseObject({
+  deviceId: z.string(), token: z.string(), expiresAt: z.string(),
+});
+
 
 /**
  * Load the bundled Cloudflare Worker (`dist/index.js` emitted by `wrangler deploy --dry-run --outdir dist`)
@@ -312,7 +326,7 @@ void test('v1 target authorization persists exact public binding and atomically 
   ), env);
   const started = await start();
   assert.equal(started.status, 201, await started.clone().text());
-  const authorization = await started.json();
+  const authorization = authorizationResponse.parse(await started.json());
   assert.match(authorization.request.requestId, /^auth_[a-f0-9]{32}$/);
   assert.match(authorization.request.verificationCode, /^[2-9A-HJ-NP-Z]{4}-[2-9A-HJ-NP-Z]{4}$/);
   assert.deepEqual(authorization.request.binding, { tenantId: profile.tenantId, ...binding });
@@ -346,7 +360,7 @@ void test('v1 target authorization persists exact public binding and atomically 
     .bind('["profile:read"]', new Date().toISOString(), authorization.request.requestId).run();
   const claimed = await poll();
   assert.equal(claimed.status, 200, await claimed.clone().text());
-  const credential = await claimed.json();
+  const credential = targetCredentialResponse.parse(await claimed.json());
   assert.equal(credential.status, 'approved');
   assert.match(credential.credential, /^dtc_[a-f0-9]{64}$/);
   assert.match(credential.credentialId, /^cred_[a-f0-9]{32}$/);
@@ -419,7 +433,7 @@ void test('v1 target authorization persists exact public binding and atomically 
   assert.equal(oversized.status, 413, 'undeclared streaming bodies must be rejected at the byte ceiling');
 
   const cancellable = await start(undefined, 's'.repeat(43));
-  const cancellableBody = await cancellable.json();
+  const cancellableBody = authorizationResponse.parse(await cancellable.json());
   const cancel = await app.fetch(new Request(
     `https://brian.desktop.tools/api/v1/device-authorizations/${cancellableBody.request.requestId}/cancel`, {
       method: 'POST', headers: { authorization: `Bearer ${'s'.repeat(43)}`, 'content-type': 'application/json' }, body: '{}',
@@ -524,7 +538,7 @@ void test('public pairing lookup normalizes malformed, unknown, and claimed resp
     }),
     env,
   );
-  const pairing = await started.json();
+  const pairing = pairingResponse.parse(await started.json());
   const pending = await app.fetch(new Request(`https://app.install.doctor/api/devices/pair/info?code=${pairing.code}`), env);
   assert.equal(pending.status, 200);
   assert.equal((await pending.json()).host, 'private-host');
@@ -563,7 +577,7 @@ void test('compatibility pairing approval is fail-closed break-glass token acces
     method: 'POST', headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ tenant: 'break-glass-auth', label: 'break-glass-host' }),
   }), { ...TEST_ENV, DB: db });
-  const pairing = await started.json();
+  const pairing = pairingResponse.parse(await started.json());
   /** @param {Record<string, unknown>} env @param {string} [authorization] */
   const request = (env, authorization) => app.fetch(new Request('https://desktop.tools/api/devices/pair/approve', {
     method: 'POST',
@@ -598,7 +612,7 @@ void test('pair claim is atomic, digest-only, binding-safe, and normalizes termi
     }),
   }), env);
   assert.equal(started.status, 201);
-  const pairing = await started.json();
+  const pairing = pairingResponse.parse(await started.json());
   await db.prepare("UPDATE pairings SET status='approved', approved_at=? WHERE code=? AND status='pending'")
     .bind(new Date().toISOString(), pairing.code).run();
 
@@ -631,7 +645,7 @@ void test('pair claim is atomic, digest-only, binding-safe, and normalizes termi
   const loser = attempts.find(response => response.status !== 200);
   assert.ok(winner && loser);
   assert.ok([404, 429].includes(loser.status));
-  const credential = await winner.json();
+  const credential = pairedCredentialResponse.parse(await winner.json());
   assert.match(credential.token, /^aid_[a-f0-9]{64}$/);
   assert.ok(Date.parse(credential.expiresAt) > Date.now());
   assert.deepEqual(await loser.json(), loser.status === 429 ? { error: 'retry_later' } : { error: 'claim_unavailable' });
@@ -721,7 +735,7 @@ void test('pending pairing polling has a durable bounded cadence and normalized 
   const started = await app.fetch(new Request('https://app.install.doctor/api/devices/pair/start', {
     method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ tenant: 'tenant-cadence' }),
   }), env);
-  const pairing = await started.json();
+  const pairing = pairingResponse.parse(await started.json());
   const poll = () => app.fetch(new Request('https://app.install.doctor/api/devices/pair/poll', {
     headers: { authorization: `Bearer ${pairing.pollSecret}` },
   }), env);
@@ -758,7 +772,7 @@ void test('claim persists only explicitly approved scopes and rejects broadening
     method: 'POST', headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ tenant: 'tenant-scopes', permissions: ['pull-desired-state', 'report-status'] }),
   }), env);
-  const pairing = await started.json();
+  const pairing = pairingResponse.parse(await started.json());
   /** @param {string[]} approvedScopes */
   const approve = (approvedScopes) => app.fetch(new Request('https://app.install.doctor/api/devices/pair/approve', {
     method: 'POST', headers: { authorization: `Bearer ${TEST_ENV.AID_ADMIN_TOKEN}`, 'content-type': 'application/json' },
@@ -773,7 +787,7 @@ void test('claim persists only explicitly approved scopes and rejects broadening
     headers: { authorization: `Bearer ${pairing.pollSecret}` },
   }), env);
   assert.equal(claimed.status, 200);
-  const credential = await claimed.json();
+  const credential = pairedCredentialResponse.parse(await claimed.json());
   const stored = await db.prepare('SELECT permissions FROM devices WHERE device_id=?').bind(credential.deviceId).first();
   assert.ok(stored);
   assert.equal(stored.permissions, '["report-status"]');
@@ -806,7 +820,7 @@ void test('owner-bound pairing context is private and cannot use legacy token ap
     }),
   }), env);
   assert.equal(started.status, 201);
-  const pairing = await started.json();
+  const pairing = pairingResponse.parse(await started.json());
   const info = await app.fetch(new Request(`https://app.install.doctor/api/devices/pair/info?code=${pairing.code}`), env);
   assert.equal(info.status, 404);
   assert.deepEqual(await info.json(), { error: 'pairing_unavailable' });
@@ -846,7 +860,7 @@ void test('privileged pairing derives tenant, profile, digest, and owner from se
     }),
   }), env);
   assert.equal(started.status, 201, await started.clone().text());
-  const pairing = await started.json();
+  const pairing = pairingResponse.parse(await started.json());
   assert.equal(pairing.verifyUrl, `https://desktop.tools/pair?code=${pairing.code}`);
   assert.equal(pairing.tenant, 'tenant-authoritative');
   const stored = await db.prepare(`SELECT tenant, owner_actor, profile_id, profile_revision,
@@ -869,7 +883,7 @@ void test('privileged pairing derives tenant, profile, digest, and owner from se
     'x-desktop-tools-device-fingerprint': fingerprint,
   } }), env);
   assert.equal(claimed.status, 200, await claimed.clone().text());
-  const credential = await claimed.json();
+  const credential = pairedCredentialResponse.parse(await claimed.json());
   const device = await db.prepare(`SELECT tenant, profile_id, profile_revision_digest, machine_fingerprint,
     permissions FROM devices WHERE device_id=?`).bind(credential.deviceId).first();
   assert.deepEqual(device, { tenant: 'tenant-authoritative', profile_id: 'profile-authoritative',
