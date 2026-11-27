@@ -9,7 +9,7 @@ import { isPlatformProcessIdentityAlive, resolvePlatformProcessIdentity } from '
 const VERSION = z.literal(1);
 const identifier = z.string().min(1).max(128).regex(/^[A-Za-z0-9][A-Za-z0-9._:-]*$/);
 const digest = z.string().regex(/^[a-f0-9]{64}$/);
-const timestamp = z.string().datetime({ offset: true }).max(64);
+const timestamp = z.iso.datetime({ offset: true }).max(64);
 const sequence = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
 const boundedText = z.string().max(16_384).refine(value => !value.includes('\0'), 'text cannot contain NUL');
 const lockIdentity = z.string().min(1).max(512).refine(value => !/[\0\r\n]/.test(value), 'lock identity contains unsafe text');
@@ -18,7 +18,7 @@ const lockOwner = z.strictObject({
   pid: z.number().int().positive().max(2 ** 31 - 1),
   bootId: lockIdentity,
   processStart: lockIdentity,
-  token: z.string().uuid(),
+  token: z.uuid(),
 });
 const producer = z.strictObject({
   kind: z.enum(['supervisor', 'engine', 'agent']),
@@ -113,14 +113,14 @@ export function createProvisioningSessionEventJournal(path: string, identityInpu
   const identity = z.strictObject({ sessionId: identifier, runId: identifier, authorizationId: identifier }).parse(identityInput);
   const lockPath = `${path}.lock`;
   const lockOwnerPath = `${lockPath}/owner.json`;
-  const localProcessIdentity = resolvePlatformProcessIdentity().catch(error => {
+  const localProcessIdentity = resolvePlatformProcessIdentity().catch((error: unknown) => {
     if (process.platform === 'linux' || process.platform === 'darwin') throw error;
     // Unsupported platforms retain fail-closed live-lock behavior. They may
     // create a lock, but cannot prove an existing process dead and steal it.
-    return { bootId: `unsupported-platform:${process.platform}`, processStart: `unverified-pid:${process.pid}` };
+    return { bootId: `unsupported-platform:${process.platform}`, processStart: `unverified-pid:${String(process.pid)}` };
   });
   const readLockOwner = async () => {
-    const handle = await open(lockOwnerPath, constants.O_RDONLY | constants.O_NOFOLLOW).catch(error => {
+    const handle = await open(lockOwnerPath, constants.O_RDONLY | constants.O_NOFOLLOW).catch((error: unknown) => {
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null;
       throw error;
     });
@@ -132,7 +132,7 @@ export function createProvisioningSessionEventJournal(path: string, identityInpu
     } catch { return null; } finally { await handle.close(); }
   };
   const read = async (): Promise<ProvisioningSessionEvent[]> => {
-    const handle = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW).catch(error => {
+    const handle = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW).catch((error: unknown) => {
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null;
       throw new Error('session event journal cannot be opened safely', { cause: error });
     });
@@ -172,7 +172,7 @@ export function createProvisioningSessionEventJournal(path: string, identityInpu
         const deadOwner = owner !== null && (owner.bootId !== processIdentity.bootId
           || !await isPlatformProcessIdentityAlive(owner.pid, owner.processStart));
         if (abandonedWithoutOwner || deadOwner) {
-          const abandonedPath = `${lockPath}.abandoned-${process.pid}-${randomUUID()}`;
+          const abandonedPath = `${lockPath}.abandoned-${String(process.pid)}-${randomUUID()}`;
           try { await rename(lockPath, abandonedPath); await rm(abandonedPath, { recursive: true, force: true }); continue; }
           catch (reclaimError) { if ((reclaimError as NodeJS.ErrnoException).code !== 'ENOENT') throw reclaimError; }
         }
@@ -198,13 +198,13 @@ export function createProvisioningSessionEventJournal(path: string, identityInpu
         const events = await read();
         if (events.some(event => event.kind === 'terminal')) throw new Error('session event journal is terminal');
         const event = ProvisioningSessionEventSchema.parse({ ...eventInput, schemaVersion: 1, sequence: events.length, ...identity });
-        if (events.length === 0 && (event.kind !== 'session-status' || event.status !== 'started')) {
+        if (events.length === 0 && event.kind !== 'session-status') {
           throw new Error('session event journal must start with supervisor evidence');
         }
         if (events.length > 0 && event.kind === 'session-status') throw new Error('session event journal already started');
         if (event.kind === 'terminal') reduceProvisioningSessionEvents([...events, event]);
         const handle = await open(path, constants.O_APPEND | constants.O_CREAT | constants.O_WRONLY | constants.O_NOFOLLOW, 0o600)
-          .catch(error => { throw new Error('session event journal cannot be opened safely', { cause: error }); });
+          .catch((error: unknown) => { throw new Error('session event journal cannot be opened safely', { cause: error }); });
         try {
           const info = await handle.stat();
           if (!info.isFile() || info.nlink !== 1 || (info.mode & 0o077) !== 0) {
@@ -245,7 +245,7 @@ export function reduceProvisioningSessionEvents(eventsInput: readonly unknown[])
   if (eventsInput.length < 2 || eventsInput.length > 1_000_000) throw new Error('session event stream must contain 2..1000000 events');
   const events = eventsInput.map(event => ProvisioningSessionEventSchema.parse(event));
   const first = events[0];
-  if (!first || first.kind !== 'session-status' || first.status !== 'started') throw new Error('session event stream must start with session-status started');
+  if (!first || first.kind !== 'session-status') throw new Error('session event stream must start with session-status started');
   if (first.producer.kind !== 'supervisor' || first.producer.parentId !== null) {
     throw new Error('session event stream must be rooted by a supervisor producer');
   }
@@ -268,10 +268,11 @@ export function reduceProvisioningSessionEvents(eventsInput: readonly unknown[])
   let cancellationSeen = false;
   let denialSeen = false;
 
-  events.forEach((event, index) => {
-    if (event.sequence !== index) throw new Error(`session event sequence gap at ${index}`);
+  for (const [index, event] of events.entries()) {
+    if (!(index in events)) continue;
+    if (event.sequence !== index) throw new Error(`session event sequence gap at ${String(index)}`);
     if (event.sessionId !== identity.sessionId || event.runId !== identity.runId || event.authorizationId !== identity.authorizationId) {
-      throw new Error(`session correlation identity changed at sequence ${index}`);
+      throw new Error(`session correlation identity changed at sequence ${String(index)}`);
     }
     if (terminal) throw new Error('session event follows the terminal event');
     if (index > 0 && event.kind === 'session-status') throw new Error('session started more than once');
@@ -317,7 +318,7 @@ export function reduceProvisioningSessionEvents(eventsInput: readonly unknown[])
       }
       engineProducerId ??= event.producer.id;
       if (event.producer.id !== engineProducerId) throw new Error('embedded engine producer identity changed');
-      if (event.event.sequence !== engineSequence) throw new Error(`embedded engine event sequence gap at ${engineSequence}`);
+      if (event.event.sequence !== engineSequence) throw new Error(`embedded engine event sequence gap at ${String(engineSequence)}`);
       engineSequence += 1;
     } else if (event.kind === 'output') {
       if (event.producer.id !== event.sourceId) throw new Error('parallel output producer does not match its source');
@@ -325,12 +326,12 @@ export function reduceProvisioningSessionEvents(eventsInput: readonly unknown[])
         throw new Error('agent output is not attributable to a running child');
       }
       const expected = outputSequences.get(event.sourceId) ?? 0;
-      if (event.sourceSequence !== expected) throw new Error(`output sequence gap for ${event.sourceId} at ${expected}`);
+      if (event.sourceSequence !== expected) throw new Error(`output sequence gap for ${event.sourceId} at ${String(expected)}`);
       outputSequences.set(event.sourceId, expected + 1);
     } else if (event.kind === 'output-gap') {
       if (event.producer.id !== event.sourceId) throw new Error('output gap producer does not match its source');
       const expected = outputSequences.get(event.sourceId) ?? 0;
-      if (event.fromSourceSequence !== expected) throw new Error(`output gap is not contiguous for ${event.sourceId} at ${expected}`);
+      if (event.fromSourceSequence !== expected) throw new Error(`output gap is not contiguous for ${event.sourceId} at ${String(expected)}`);
       outputGapCount = safeSum(outputGapCount, event.throughSourceSequence - event.fromSourceSequence + 1, 'output gap count');
       outputSequences.set(event.sourceId, event.throughSourceSequence + 1);
     } else if (event.kind === 'cost') {
@@ -354,35 +355,31 @@ export function reduceProvisioningSessionEvents(eventsInput: readonly unknown[])
     } else if (event.kind === 'terminal') {
       terminal = event;
     }
-  });
+  }
 
   if (!terminal) throw new Error('session event stream requires exactly one terminal event');
-  // Array iteration callbacks are synchronous here, but TypeScript does not
-  // carry their assignments into control-flow narrowing.
-  const terminalEvent = terminal as Extract<ProvisioningSessionEvent, { kind: 'terminal' }>;
-  const finalVerificationStatus = verificationStatus as ProvisioningSessionSummary['verificationStatus'];
   if ([...children.values()].some(status => status === 'running')) throw new Error('session terminated with a running child agent');
   if ([...approvals.values()].some(status => status === 'requested')) throw new Error('session terminated with an undecided approval');
-  if (terminalEvent.planDigest !== null && !plans.has(terminalEvent.planDigest)) throw new Error('terminal status is not bound to a session plan');
-  if (terminalEvent.status === 'verified-success') {
-    if (finalVerificationStatus !== 'passed' || terminalEvent.planDigest !== verificationPlanDigest
-      || terminalEvent.evidenceDigest === null || terminalEvent.evidenceDigest !== verificationEvidenceDigest || outputGapCount !== 0) {
+  if (terminal.planDigest !== null && !plans.has(terminal.planDigest)) throw new Error('terminal status is not bound to a session plan');
+  if (terminal.status === 'verified-success') {
+    if (verificationStatus !== 'passed' || terminal.planDigest !== verificationPlanDigest
+      || terminal.evidenceDigest === null || terminal.evidenceDigest !== verificationEvidenceDigest || outputGapCount !== 0) {
       throw new Error('verified success requires matching passed verification and complete evidence');
     }
   }
-  if (terminalEvent.status === 'cancellation' && !cancellationSeen) throw new Error('cancellation terminal status requires cancellation evidence');
-  if (terminalEvent.status === 'denial' && !denialSeen) throw new Error('denial terminal status requires denied approval evidence');
-  if (outputGapCount > 0 && terminalEvent.status === 'verified-success') throw new Error('output gaps require an incomplete evidence outcome');
+  if (terminal.status === 'cancellation' && !cancellationSeen) throw new Error('cancellation terminal status requires cancellation evidence');
+  if (terminal.status === 'denial' && !denialSeen) throw new Error('denial terminal status requires denied approval evidence');
+  if (outputGapCount > 0 && terminal.status === 'verified-success') throw new Error('output gaps require an incomplete evidence outcome');
   return Object.freeze({
     ...identity,
-    terminalStatus: terminalEvent.status,
-    planDigest: terminalEvent.planDigest,
+    terminalStatus: terminal.status,
+    planDigest: terminal.planDigest,
     childStatuses: Object.freeze(Object.fromEntries([...children.entries()].sort())),
     approvalStatuses: Object.freeze(Object.fromEntries([...approvals.entries()].sort())),
     outputGapCount,
     totalInputTokens,
     totalOutputTokens,
     totalCostMicrousd,
-    verificationStatus: finalVerificationStatus,
+    verificationStatus,
   });
 }

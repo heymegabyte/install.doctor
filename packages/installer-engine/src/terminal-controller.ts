@@ -86,33 +86,33 @@ export function createTerminalController(options: TerminalControllerOptions): Te
     try { callback(); } catch { failures += 1; }
   };
   const emitViewport = (): void => {
-    safely(() => options.onWidth(terminalWidth(output.columns)));
-    safely(() => options.onHeight(terminalHeight(output.rows)));
+    safely(() => { options.onWidth(terminalWidth(output.columns)); });
+    safely(() => { options.onHeight(terminalHeight(output.rows)); });
   };
   const onData = (chunk: Buffer | string): void => {
     if (closed) return;
     const key = decodeKey(chunk);
     if (editingFilter) {
       if (key === '\u0003') {
-        safely(() => options.onIntent('cancel'));
+        safely(() => { options.onIntent('cancel'); });
         safely(options.onCancel);
         return;
       }
       if (key === 'escape' || key === '\r' || key === '\n') { editingFilter = false; return; }
       if (key === 'backspace') {
-        filter = [...filter].slice(0, -1).join('');
+        filter = Array.from(filter).slice(0, -1).join('');
         safely(() => options.onFilter?.(filter));
         return;
       }
       if (!key.includes('\u001b') && !/[\u0000-\u001f\u007f]/u.test(key)) {
-        filter = [...`${filter}${key}`].slice(0, 128).join('');
+        filter = Array.from(`${filter}${key}`).slice(0, 128).join('');
         safely(() => options.onFilter?.(filter));
       }
       return;
     }
     const intent = parseRendererKeyboardIntent(key);
     if (intent === 'none') return;
-    safely(() => options.onIntent(intent));
+    safely(() => { options.onIntent(intent); });
     if (intent === 'begin-filter') editingFilter = true;
     if (intent === 'clear-filter') {
       filter = '';
