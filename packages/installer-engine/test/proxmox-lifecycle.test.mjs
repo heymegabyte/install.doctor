@@ -28,6 +28,7 @@ const fixture = {
   supportedBoundaries: [...PROXMOX_FIXTURE_BOUNDARIES],
 };
 
+/** @param {string} boundary */
 function evidence(boundary) {
   return { schemaVersion: 1, evidenceId: `pve-${boundary}`, source: 'real-proxmox-host', fixtureId: fixture.fixtureId,
     boundary, releaseDigest, recipeDigest, observedAt: '2026-11-10T10:00:00.000Z',

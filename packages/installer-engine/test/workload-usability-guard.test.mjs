@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { evaluateWorkloadUsability, WorkloadUsabilityPolicySchema } from '../dist/workload-usability-guard.js';
 
+/** @param {number} cpuUtilization @param {number} memoryUtilization @param {number} ioUtilization @param {number} networkUtilization */
 const resources = (cpuUtilization, memoryUtilization, ioUtilization, networkUtilization) =>
   ({ cpuUtilization, memoryUtilization, ioUtilization, networkUtilization });
 const kinds = ['provisioning', 'verification', 'replication', 'scrub', 'pruning'];

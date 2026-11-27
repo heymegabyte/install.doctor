@@ -10,6 +10,8 @@
     ]
   },
   "include": [
+    "test/bundle.test.mjs",
+    "test/credential-rotation.test.mjs",
     "test/debian-version.test.mjs",
     "test/device-posture-attestation.test.mjs",
     "test/effect-migration.test.mjs",
@@ -22,8 +24,13 @@
     "test/process-runner.windows.test.mjs",
     "test/profile-export-parity.test.mjs",
     "test/provisioning-prompt.test.mjs",
+    "test/proxmox-fixture-contract.test.mjs",
+    "test/proxmox-lifecycle.test.mjs",
     "test/reboot-coordination.test.mjs",
     "test/renderer-spill-log.test.mjs",
-    "test/service-status.test.mjs"
+    "test/service-status.test.mjs",
+    "test/ups-power-coordination.test.mjs",
+    "test/windows-fixture-contract.test.mjs",
+    "test/workload-usability-guard.test.mjs"
   ]
 }

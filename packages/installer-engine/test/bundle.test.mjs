@@ -9,6 +9,7 @@ import { createHash } from 'node:crypto';
 const root = resolve(import.meta.dirname, '..');
 const esbuild = resolve(root, 'node_modules', '.bin', process.platform === 'win32' ? 'esbuild.cmd' : 'esbuild');
 
+/** @param {string} output */
 function build(output) {
   execFileSync(esbuild, [
     'src/cli.ts', '--bundle', '--platform=node', '--format=esm', '--target=node22',
@@ -17,6 +18,7 @@ function build(output) {
   return readFileSync(output);
 }
 
+/** @param {string} output */
 function buildWorker(output) {
   execFileSync(esbuild, [
     'src/privileged-broker-worker.ts', '--bundle', '--platform=node', '--format=esm', '--target=node22',
@@ -25,6 +27,7 @@ function buildWorker(output) {
   return readFileSync(output);
 }
 
+/** @param {string} output */
 function buildController(output) {
   execFileSync(esbuild, [
     'src/privileged-broker-controller.ts', '--bundle', '--platform=node', '--format=esm', '--target=node22',
@@ -33,6 +36,7 @@ function buildController(output) {
   return readFileSync(output);
 }
 
+/** @param {Uint8Array} bytes */
 function digest(bytes) {
   return createHash('sha256').update(bytes).digest('hex');
 }

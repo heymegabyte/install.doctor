@@ -3,6 +3,7 @@ import { advanceCredentialRotation, beginCredentialRotation } from '../dist/inde
 const plan = { schemaVersion: 1, rotationId: 'rotation-1', credentialClass: 'service-api-token', consumerId: 'service-1',
   historicalVersionRef: 'infisical://prod/service/token#v1', candidateVersionRef: 'infisical://prod/service/token#v2',
   historicalDigest: 'a'.repeat(64), candidateDigest: 'b'.repeat(64), expiresAt: '2026-11-11T00:00:00.000Z' };
+/** @param {ReturnType<typeof beginCredentialRotation>} state @param {Parameters<typeof advanceCredentialRotation>[1]['action']} action @param {string} minute @param {string} char */
 const next = (state, action, minute, char) => advanceCredentialRotation(state, { action, at: `2026-11-10T12:${minute}:00.000Z`, evidenceDigest: char.repeat(64) });
 test('dual-phase reload and verification precede historical retirement', () => {
   let state = beginCredentialRotation(plan, '2026-11-10T12:00:00.000Z');

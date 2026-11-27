@@ -43,9 +43,11 @@ test('rejects missing, unsupported, mismatched, stale-state, and unsafe hardware
   assert.throws(() => planUpsDependencyShutdown(request({ hardware: { ...request().hardware, state: 'offline' } }), now), /not usable/);
   assert.throws(() => planUpsDependencyShutdown(request({ hardware: { ...request().hardware, detectedAt: '2026-11-10T14:00:00.000Z' } }), now), /evidence is stale/);
   const unsafe = request();
+  assert.ok(unsafe.dependencies[0]);
   unsafe.dependencies[0].recoverySupported = false;
   assert.throws(() => planUpsDependencyShutdown(unsafe, now), /lacks safe shutdown or recovery/);
   const cycle = request();
+  assert.ok(cycle.dependencies[4]);
   cycle.dependencies[4].dependsOn = ['app'];
   assert.throws(() => planUpsDependencyShutdown(cycle, now), /root UPS controller|contains a cycle/);
   const unprotected = request();

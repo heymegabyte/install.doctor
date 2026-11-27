@@ -32,6 +32,7 @@ const fixture = {
   supportedBoundaries: [...PROXMOX_FIXTURE_BOUNDARIES],
 };
 
+/** @param {string} boundary */
 function receipt(boundary, overrides = {}) {
   return {
     schemaVersion: 1,
@@ -50,10 +51,11 @@ function receipt(boundary, overrides = {}) {
   };
 }
 
+/** @param {string} boundary */
 function request(boundary, overrides = {}) {
-  const evidence = [receipt(boundary)];
+  const evidence = receipt(boundary);
   return { fixture, boundary, role: 'virtualization-host', ingressIntent: [], releaseDigest, recipeDigest,
-    evidence, verifiedEvidenceIds: [evidence[0].evidenceId], now, ...overrides };
+    evidence: [evidence], verifiedEvidenceIds: [evidence.evidenceId], now, ...overrides };
 }
 
 test('strict disposable fixture covers every required Proxmox observation boundary', () => {

@@ -27,6 +27,7 @@ const fixture = {
   supportedBoundaries: [...WINDOWS_FIXTURE_BOUNDARIES],
 };
 
+/** @param {string} boundary */
 function receipt(boundary, overrides = {}) {
   return {
     schemaVersion: 1,
@@ -45,10 +46,11 @@ function receipt(boundary, overrides = {}) {
   };
 }
 
+/** @param {string} boundary */
 function request(boundary, overrides = {}) {
-  const evidence = [receipt(boundary)];
-  return { fixture, boundary, releaseDigest, recipeDigest, evidence,
-    verifiedEvidenceIds: [evidence[0].evidenceId], now, ...overrides };
+  const evidence = receipt(boundary);
+  return { fixture, boundary, releaseDigest, recipeDigest, evidence: [evidence],
+    verifiedEvidenceIds: [evidence.evidenceId], now, ...overrides };
 }
 
 test('strict fixture covers every required Windows-native boundary', () => {
