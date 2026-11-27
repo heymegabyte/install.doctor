@@ -170,6 +170,17 @@ for (const [workload, configuration] of Object.entries(manifest.workloads)) {
 for (const host of Object.keys(manifest.hosts)) {
   assert.deepEqual(selectHostSecrets(manifest, host, wasabiAccountSecrets), []);
 }
+const newlyContainedSecrets = [
+  'DITTOFEED_ADMIN_API_KEY', 'DITTOFEED_PUBLIC_WRITE_KEY', 'FLY_REDIS_SHARED_PASSWORD',
+  'GRAPESJS_API_KEY', 'GRAPESJS_PUBLIC_KEY', 'LANGFLOW_API_KEY', 'LANGFLOW_DATABASE_URL',
+  'LANGFLOW_SECRET_KEY', 'LANGFLOW_SUPERUSER_PASSWORD',
+];
+for (const configuration of Object.values(manifest.workloads)) {
+  assert.deepEqual(selectConfigurationSecrets(manifest, configuration, newlyContainedSecrets), []);
+}
+for (const host of Object.keys(manifest.hosts)) {
+  assert.deepEqual(selectHostSecrets(manifest, host, newlyContainedSecrets), []);
+}
 assert.deepEqual(selectConfigurationSecrets(
   manifest, manifest.workloads['crawl.cheap'], ['EXA_API_KEY', 'SENTRY_DSN', 'ANTHROPIC_API_KEY'],
 ), ['EXA_API_KEY', 'SENTRY_DSN']);
