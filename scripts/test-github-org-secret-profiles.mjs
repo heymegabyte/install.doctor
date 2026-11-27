@@ -51,6 +51,23 @@ for (const host of ['zen.megabyte.space', 'legion.megabyte.space']) {
 assert.deepEqual(selectConfigurationSecrets(
   manifest, manifest.workloads['mcp.megabyte.space'], posthogAdminSecrets,
 ), posthogAdminSecrets);
+const langfuseSdkSecrets = ['LANGFUSE_HOST', 'LANGFUSE_PUBLIC_KEY', 'LANGFUSE_SECRET_KEY'];
+const langfuseRuntimeSecrets = ['LANGFUSE_REDIS_URL', 'LANGFUSE_SMTP_CONNECTION_URL'];
+const blockedLangfuseSecrets = [
+  'LANGFUSE_BASE_URL', 'LANGFUSE_DATABASE_URL', 'LANGFUSE_CLICKHOUSE_HOST',
+  'LANGFUSE_CLICKHOUSE_PASSWORD', 'LANGFUSE_ENCRYPTION_KEY', 'LANGFUSE_NEXTAUTH_SECRET', 'LANGFUSE_SALT',
+];
+assert.deepEqual(selectHostSecrets(manifest, 'macos.megabyte.space', [
+  ...langfuseSdkSecrets, ...langfuseRuntimeSecrets, ...blockedLangfuseSecrets,
+]), langfuseSdkSecrets);
+assert.deepEqual(selectHostSecrets(manifest, 'ubuntu.megabyte.space', [
+  ...langfuseSdkSecrets, ...langfuseRuntimeSecrets, ...blockedLangfuseSecrets,
+]), [...langfuseSdkSecrets, ...langfuseRuntimeSecrets].sort());
+for (const host of ['zen.megabyte.space', 'legion.megabyte.space']) {
+  assert.deepEqual(selectHostSecrets(manifest, host, [
+    ...langfuseSdkSecrets, ...langfuseRuntimeSecrets, ...blockedLangfuseSecrets,
+  ]), []);
+}
 assert.deepEqual(selectConfigurationSecrets(
   manifest, manifest.workloads['crawl.cheap'], ['EXA_API_KEY', 'SENTRY_DSN', 'ANTHROPIC_API_KEY'],
 ), ['EXA_API_KEY', 'SENTRY_DSN']);
