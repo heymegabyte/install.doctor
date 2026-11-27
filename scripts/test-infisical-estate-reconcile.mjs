@@ -203,9 +203,9 @@ assert.deepEqual(selectConfigurationSecrets(
 const pexelsManifest = validateManifest({
   ...manifest,
   profiles: { ...manifest.profiles, 'cloudflare-mcp': [...manifest.profiles['cloudflare-mcp'], 'cloudflare-mcp-media-search'] },
-  reservedNames: [...manifest.reservedNames, 'PEXELS_API_KEY'],
+  reservedNames: [...manifest.reservedNames, 'PEXELS_API_KEY', 'PIXABAY_API_KEY'],
   exactCapabilityNames: {
-    ...manifest.exactCapabilityNames, 'cloudflare-mcp-media-search': ['PEXELS_API_KEY'],
+    ...manifest.exactCapabilityNames, 'cloudflare-mcp-media-search': ['PEXELS_API_KEY', 'PIXABAY_API_KEY'],
   },
 });
 assert.deepEqual(selectConfigurationSecrets(
@@ -213,6 +213,12 @@ assert.deepEqual(selectConfigurationSecrets(
 ), ['PEXELS_API_KEY']);
 for (const host of Object.keys(pexelsManifest.hosts)) {
   assert.deepEqual(selectHostSecrets(pexelsManifest, host, ['PEXELS_API_KEY']), []);
+}
+assert.deepEqual(selectConfigurationSecrets(
+  pexelsManifest, pexelsManifest.workloads['mcp.megabyte.space'], ['PIXABAY_API_KEY'],
+), ['PIXABAY_API_KEY']);
+for (const host of Object.keys(pexelsManifest.hosts)) {
+  assert.deepEqual(selectHostSecrets(pexelsManifest, host, ['PIXABAY_API_KEY']), []);
 }
 const accessSshNames = [
   'CF_ACCESS_SSH_COOLIFY_CLIENT_ID', 'CF_ACCESS_SSH_COOLIFY_CLIENT_SECRET',
