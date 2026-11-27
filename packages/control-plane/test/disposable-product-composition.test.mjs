@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import test from 'node:test';
 import { blueprintDigest, exportMarkdown } from '../../aid-core/dist/core.js';
 import { DisposableProductCompositionReceiptSchema, RealHostCanaryReceiptSchema } from '../../aid-core/dist/installer-contracts.js';
-import { main as runSupervisor } from '../../desktop-tools-runtime/src/desktop-tools-supervisor.mjs';
+import { main as runSupervisor, PROVISIONING_PROMPT, PROVISIONING_PROMPT_VERSION } from '../../desktop-tools-runtime/src/desktop-tools-supervisor.mjs';
 import { createProtocolRuntimeFixture } from '../../desktop-tools-runtime/test/helpers/runtime-fixture.mjs';
 import { createCompositionEngineFixture } from '../../installer-engine/test/helpers/composition-engine-fixture.mjs';
 
@@ -89,7 +89,7 @@ test('disposable composition carries one identity through Worker, supervisor, en
     releaseId: 'fixture-release-1', releaseDigest: '6'.repeat(64), deviceFingerprint: binding.targetKeyFingerprint,
     authorizationId: started.request.requestId, authorizationExpiresAt: credential.expiresAt,
     scopes: binding.scopes, sessionId: 'session-composition-1', runId: 'run-composition-1',
-  });
+  }, { text: PROVISIONING_PROMPT, version: PROVISIONING_PROMPT_VERSION });
   t.after(() => runtime.cleanup());
   process.env.OPENAI_API_KEY = 'ambient-openai-must-not-leak';
   process.env.API_TOKEN = 'ambient-api-token-must-not-leak';

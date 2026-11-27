@@ -3,14 +3,17 @@ import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { gzipSync } from 'node:zlib';
-import { PROVISIONING_PROMPT, PROVISIONING_PROMPT_VERSION } from '../../src/desktop-tools-supervisor.mjs';
 
+/** @param {unknown} value @returns {unknown} */
 const canonical = value => Array.isArray(value) ? value.map(canonical)
   : value !== null && typeof value === 'object'
     ? Object.fromEntries(Object.entries(value).sort(([left], [right]) => left.localeCompare(right)).map(([key, child]) => [key, canonical(child)]))
     : value;
+/** @param {string | Uint8Array} bytes */
 const digest = bytes => createHash('sha256').update(bytes).digest('hex');
+/** @param {number} value @param {number} length */
 const octal = (value, length) => `${value.toString(8).padStart(length - 1, '0')}\0`;
+/** @param {string} name @param {Buffer} bytes @param {number} mode */
 const tarEntry = (name, bytes, mode) => {
   const header = Buffer.alloc(512); header.write(name, 0, 100); header.write(octal(mode, 8), 100, 8, 'ascii');
   header.write(octal(0, 8), 108, 8, 'ascii'); header.write(octal(0, 8), 116, 8, 'ascii'); header.write(octal(bytes.length, 12), 124, 12, 'ascii');
@@ -20,7 +23,15 @@ const tarEntry = (name, bytes, mode) => {
   return Buffer.concat([header, bytes, Buffer.alloc((512 - bytes.length % 512) % 512)]);
 };
 
-export async function createProtocolRuntimeFixture(identity) {
+/**
+ * @param {{
+ *   sessionId: string, runId: string, authorizationId: string, authorizationExpiresAt: string,
+ *   releaseId: string, releaseDigest: string, profileId: string, profileRevision: string,
+ *   profileDigest: string, deviceFingerprint: string, scopes: readonly string[],
+ * }} identity
+ * @param {{ text: string, version: string }} provisioningPrompt
+ */
+export async function createProtocolRuntimeFixture(identity, provisioningPrompt) {
   const root = await mkdtemp(join(tmpdir(), 'desktop-tools-composition-runtime-'));
   const state = join(root, 'state');
   await mkdir(join(state, 'config'), { recursive: true, mode: 0o700 });
@@ -45,7 +56,7 @@ test -f "$DESKTOP_TOOLS_PROMPT_EVIDENCE"
     tarEntry('contracts/typed-tools.json', Buffer.from('{}\n'), 0o600),
     tarEntry('bin/desktop-tools-mcp-server.mjs', Buffer.from('#!/usr/bin/env node\n'), 0o700),
     Buffer.alloc(1024),
-  ]), { mtime: 0 }));
+  ])));
   const toolsSha256 = digest(await readFile(toolsArchive));
   const toolContext = join(root, 'tool-context.json');
   await writeFile(toolContext, `${JSON.stringify({ schemaVersion: 1, sessionId: identity.sessionId, runId: identity.runId,
@@ -53,7 +64,7 @@ test -f "$DESKTOP_TOOLS_PROMPT_EVIDENCE"
     profileRevision: identity.profileRevision, profileDigest: identity.profileDigest, facts: {}, desiredState: {}, plan: {}, operations: {} })}\n`, { mode: 0o600 });
   const toolContextDigest = digest(await readFile(toolContext));
   const unsignedPrompt = {
-    schemaVersion: 1, promptVersion: PROVISIONING_PROMPT_VERSION, promptDigest: digest(PROVISIONING_PROMPT),
+    schemaVersion: 1, promptVersion: provisioningPrompt.version, promptDigest: digest(provisioningPrompt.text),
     profile: { id: identity.profileId, revision: identity.profileRevision, digest: identity.profileDigest },
     release: { id: identity.releaseId, version: '2.2.5', digest: identity.releaseDigest },
     discoveredFacts: { arch: process.arch, platform: process.platform },
