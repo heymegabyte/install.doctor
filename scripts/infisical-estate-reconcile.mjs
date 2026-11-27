@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { execFileSync, spawnSync } from 'node:child_process';
-import { timingSafeEqual } from 'node:crypto';
-import { existsSync, readFileSync, readdirSync } from 'node:fs';
+import { createHash, timingSafeEqual } from 'node:crypto';
+import { existsSync, lstatSync, readFileSync, readdirSync, realpathSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -12,6 +12,11 @@ const defaultValidationLedgerPath = join(repositoryRoot, 'config/infisical/secre
 const defaultSecretDirectories = [
   join(homedir(), '.local/share/chezmoi/home/.chezmoitemplates/secrets'),
   join(homedir(), '.local/share/chezmoi/home/.chezmoitemplates/secrets-workstation'),
+];
+export const defaultSecretStores = [
+  { id: 'general', directory: defaultSecretDirectories[0], precedence: 10, hostDefault: true, workloadKinds: ['host', 'workload'] },
+  { id: 'workstation', directory: defaultSecretDirectories[1], precedence: 20, hostDefault: true, workloadKinds: ['host'] },
+  { id: 'wordpress', directory: join(homedir(), '.local/share/chezmoi/home/.chezmoitemplates/secrets-wordpress'), precedence: 0, hostDefault: false, workloadKinds: ['wordpress-site'] },
 ];
 
 function fail(message) {
@@ -26,7 +31,7 @@ function parseArguments(values) {
   };
   for (let index = 0; index < values.length; index += 1) {
     const value = values[index];
-    if (value === 'plan' || value === 'apply') options.command = value;
+    if (value === 'plan' || value === 'apply' || value === 'list') options.command = value;
     else if (value === '--manifest') options.manifestPath = resolve(values[++index] ?? fail('missing manifest path'));
     else if (value === '--validation-ledger') options.validationLedgerPath = resolve(values[++index] ?? fail('missing validation ledger path'));
     else if (value === '--host') options.host = values[++index] ?? fail('missing host');
@@ -67,6 +72,112 @@ export function inventorySecretNames(secretDirectories) {
     }
   }
   return locations;
+}
+
+function normalizeStore(store) {
+  if (!store || !/^[a-z][a-z0-9-]{0,63}$/.test(store.id ?? '') || typeof store.directory !== 'string') {
+    fail('invalid or undeclared secret store');
+  }
+  const directory = resolve(store.directory);
+  if (directory !== store.directory) fail(`secret store ${store.id} must use an absolute normalized path`);
+  return { ...store, directory };
+}
+
+export function inventorySecretSources(secretStores) {
+  const stores = secretStores.map(normalizeStore);
+  if (new Set(stores.map(({ id }) => id)).size !== stores.length) fail('duplicate secret store id');
+  const sources = [];
+  const sourceIds = new Set();
+  for (const store of [...stores].sort((left, right) => left.id.localeCompare(right.id))) {
+    if (!existsSync(store.directory)) continue;
+    const storeStat = lstatSync(store.directory);
+    if (storeStat.isSymbolicLink() || !storeStat.isDirectory()) fail(`secret store ${store.id} is not a regular directory`);
+    const storeRoot = realpathSync(store.directory);
+    for (const filename of readdirSync(storeRoot).sort()) {
+      const candidate = join(storeRoot, filename);
+      const stat = lstatSync(candidate);
+      if (stat.isSymbolicLink()) fail(`secret source ${store.id}:${filename} is a symlink`);
+      if (!stat.isFile()) continue;
+      if (!/^[A-Z][A-Z0-9_]{0,127}$/.test(filename)) fail(`secret source ${store.id}:${filename} has an invalid canonical name`);
+      const normalizedPath = realpathSync(candidate);
+      if (normalizedPath !== candidate || dirname(normalizedPath) !== storeRoot) fail(`secret source ${store.id}:${filename} escapes its store`);
+      const sourceId = `${store.id}:${filename}`;
+      if (sourceIds.has(sourceId)) fail(`duplicate secret source id ${sourceId}`);
+      sourceIds.add(sourceId);
+      const ciphertext = readFileSync(normalizedPath);
+      const ciphertextSha256 = createHash('sha256').update(ciphertext).digest('hex');
+      ciphertext.fill(0);
+      sources.push({
+        sourceId,
+        store: store.id,
+        canonicalName: filename,
+        normalizedPath,
+        ciphertextSha256,
+        precedence: Number.isSafeInteger(store.precedence) ? store.precedence : 0,
+        aliasOf: null,
+        hostDefault: store.hostDefault === true,
+        workloadKinds: [...(store.workloadKinds ?? [])].sort(),
+      });
+    }
+  }
+  return sources.sort((left, right) => left.sourceId.localeCompare(right.sourceId));
+}
+
+export function metadataOnlyListing(secretStores) {
+  const sources = inventorySecretSources(secretStores);
+  return {
+    schemaVersion: 1,
+    sourceCount: sources.length,
+    stores: [...new Set(sources.map(({ store }) => store))].sort(),
+    sources,
+  };
+}
+
+export function validateClosedSetSync({
+  listing, manifest, ledger, offlineExceptions, destinationEvidence = [], retirementAssertions = [],
+}) {
+  if (listing?.schemaVersion !== 1 || !Array.isArray(listing.sources)) fail('invalid metadata listing');
+  validateManifest(manifest);
+  const sourceIds = new Set();
+  const canonicalNames = new Set();
+  for (const source of listing.sources) {
+    if (sourceIds.has(source.sourceId)) fail(`duplicate secret source id ${source.sourceId}`);
+    if (source.sourceId !== `${source.store}:${source.canonicalName}`) fail(`ambiguous secret source id ${source.sourceId}`);
+    if (source.store === 'wordpress' && source.hostDefault) fail(`WordPress source ${source.sourceId} cannot enter host defaults`);
+    sourceIds.add(source.sourceId);
+    canonicalNames.add(source.canonicalName);
+  }
+  for (const [target, configuration] of [...Object.entries(manifest.hosts), ...Object.entries(manifest.workloads)]) {
+    if (!manifest.profiles[configuration.profile]) fail(`target ${target} references an unknown profile`);
+  }
+  const targets = new Set([...Object.keys(manifest.hosts), ...Object.keys(manifest.workloads)]);
+  if (ledger?.schemaVersion !== 1 || typeof ledger.records !== 'object') fail('invalid validation ledger');
+  for (const name of Object.keys(ledger.records)) if (!canonicalNames.has(name)) fail(`validation ledger references unknown secret ${name}`);
+  if (offlineExceptions?.schemaVersion !== 1 || !Array.isArray(offlineExceptions.exceptions)) fail('invalid offline exception inventory');
+  for (const exception of offlineExceptions.exceptions) {
+    for (const sourceId of exception.sourceIds ?? []) if (!sourceIds.has(sourceId)) fail(`offline exception ${exception.id} references unknown source ${sourceId}`);
+    for (const observedPath of exception.observedLocations ?? []) {
+      const matches = listing.sources.filter(({ normalizedPath }) => normalizedPath.endsWith(`/${observedPath.split('/').slice(-2).join('/')}`));
+      if (matches.length !== 1) fail(`offline exception ${exception.id} has an ambiguous or unknown source path`);
+    }
+  }
+  for (const [artifactType, artifacts] of [['destination evidence', destinationEvidence], ['retirement assertion', retirementAssertions]]) {
+    if (!Array.isArray(artifacts)) fail(`invalid ${artifactType} collection`);
+    const artifactIds = new Set();
+    for (const artifact of artifacts) {
+      if (typeof artifact.id !== 'string' || artifactIds.has(artifact.id)) fail(`duplicate or missing ${artifactType} id`);
+      artifactIds.add(artifact.id);
+      const source = listing.sources.find(({ sourceId }) => sourceId === artifact.sourceId);
+      if (!source || (artifact.canonicalName && artifact.canonicalName !== source.canonicalName)) {
+        fail(`${artifactType} ${artifact.id} references an unknown or mismatched source`);
+      }
+      if (artifact.target && !targets.has(artifact.target)) fail(`${artifactType} ${artifact.id} references unknown target ${artifact.target}`);
+      if (source.store === 'wordpress' && artifact.targetKind === 'host') {
+        fail(`${artifactType} ${artifact.id} routes a WordPress source to a host default`);
+      }
+    }
+  }
+  return true;
 }
 
 export function secretDirectoriesForHost({ secretDirectories, secretDirectoriesOverridden }, host) {
@@ -136,6 +247,13 @@ function ensureSecretPath({ environment, projectId, secretPath }) {
 function main() {
   const options = parseArguments(process.argv.slice(2));
   const manifest = validateManifest(JSON.parse(readFileSync(options.manifestPath, 'utf8')));
+  if (options.command === 'list') {
+    if (options.host || options.workload || options.projectId || options.secretDirectoriesOverridden || options.secretNames.length > 0) {
+      fail('list does not accept target, project, directory, or name selectors');
+    }
+    process.stdout.write(`${JSON.stringify(metadataOnlyListing(defaultSecretStores), null, 2)}\n`);
+    return;
+  }
   if (options.host && options.workload) fail('--host and --workload are mutually exclusive');
   const targetKind = options.workload ? 'workload' : 'host';
   const configurations = targetKind === 'workload' ? manifest.workloads : manifest.hosts;
