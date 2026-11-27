@@ -33,8 +33,8 @@ npm test
 ```
 
 The engine build uses the vendored shared strict compiler profile. The test command
-also checks the Debian comparator test and the composition fixture against the
-emitted engine declarations.
+also checks the test files and composition fixture listed in `tsconfig.test.json`
+against the emitted engine declarations.
 
 For narrower platform-contract development, build once and run the named fixture directly. For
 example, the Qubes boundary is verified without contacting or mutating a Qubes host:

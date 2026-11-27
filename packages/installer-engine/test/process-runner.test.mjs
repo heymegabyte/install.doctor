@@ -92,6 +92,7 @@ test('process output is stream-redacted before callbacks observe split or multil
     ];
     for (const fragment of fragments) process.stdout.write(fragment);
   `, { mode: 0o600 });
+  /** @type {string[]} */
   const lines = [];
   const code = await runProcess({
     argv: [process.execPath, child], cwd: directory, env: { PATH: process.env.PATH ?? '' },

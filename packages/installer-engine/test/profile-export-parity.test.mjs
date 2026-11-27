@@ -23,6 +23,7 @@ const catalog = [
 const catalogBytes = Buffer.from(`${JSON.stringify(catalog)}\n`);
 const catalogSha256 = createHash('sha256').update(catalogBytes).digest('hex');
 
+/** @param {string} root */
 async function signedRelease(root, bytes = catalogBytes, signingRoot = root, now = 1794140000) {
   const key = join(signingRoot, 'release-key');
   if (signingRoot === root) {

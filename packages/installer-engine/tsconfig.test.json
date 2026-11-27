@@ -11,6 +11,19 @@
   },
   "include": [
     "test/debian-version.test.mjs",
-    "test/helpers/composition-engine-fixture.mjs"
+    "test/device-posture-attestation.test.mjs",
+    "test/effect-migration.test.mjs",
+    "test/fleet-error-budget.test.mjs",
+    "test/helpers/composition-engine-fixture.mjs",
+    "test/immutable-linux-deployment.test.mjs",
+    "test/operational-slo.test.mjs",
+    "test/process-identity.test.mjs",
+    "test/process-runner.test.mjs",
+    "test/process-runner.windows.test.mjs",
+    "test/profile-export-parity.test.mjs",
+    "test/provisioning-prompt.test.mjs",
+    "test/reboot-coordination.test.mjs",
+    "test/renderer-spill-log.test.mjs",
+    "test/service-status.test.mjs"
   ]
 }

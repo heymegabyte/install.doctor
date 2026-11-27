@@ -43,7 +43,9 @@ test('durable continuation binds host, run, plan, pre-boot identity, and timeout
 });
 
 test('only an exact, timely heartbeat from a new boot permits restart-safe continuation', () => {
-  const { continuation } = coordinatePlannedReboot(base);
+  const result = coordinatePlannedReboot(base);
+  assert.ok('continuation' in result && result.continuation);
+  const { continuation } = result;
   const heartbeat = { schemaVersion: 1, hostId: base.hostId, runId: base.runId, planDigest,
     continuationId: continuation.continuationId, postBootId: 'boot-after', heartbeatAt: '2026-11-10T12:01:00.000Z' };
   assert.deepEqual(inspectRebootReturn(continuation, heartbeat, '2026-11-10T12:01:01.000Z'), {
@@ -57,7 +59,9 @@ test('only an exact, timely heartbeat from a new boot permits restart-safe conti
 });
 
 test('missing or late return heartbeat never becomes success', () => {
-  const { continuation } = coordinatePlannedReboot(base);
+  const result = coordinatePlannedReboot(base);
+  assert.ok('continuation' in result && result.continuation);
+  const { continuation } = result;
   assert.deepEqual(inspectRebootReturn(continuation, null, '2026-11-10T12:04:59.000Z'),
     { status: 'awaiting-return', canResume: false, reason: 'return-heartbeat-missing' });
   assert.deepEqual(inspectRebootReturn(continuation, null, '2026-11-10T12:05:01.000Z'),

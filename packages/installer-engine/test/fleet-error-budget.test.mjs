@@ -6,6 +6,7 @@ const policy = {
   schemaVersion: 1, sloId: 'fleet.reconciliation', indicator: 'reconciliation-success', objective: 0.99,
   windowSeconds: 3600, minimumEvents: 100, recoveryWindows: 2, dependentCohorts: ['canary', 'stable'],
 };
+/** @param {number} hour @param {number} goodEvents */
 const window = (hour, goodEvents, totalEvents = 100) => ({
   schemaVersion: 1, sloId: policy.sloId,
   windowStartedAt: `2026-11-10T${String(hour).padStart(2, '0')}:00:00.000Z`,

@@ -113,8 +113,8 @@ test('planner deterministically separates OSTree, package layering, Flatpak, reb
     `update-flatpak:system::app/org.mozilla.firefox/x86_64/stable`,
   ]);
   assert.ok(first.operations.every(item => item.mutating === false));
-  assert.equal(first.operations.find(item => item.kind === 'update-flatpak').requiresReboot, false);
-  assert.equal(first.operations.find(item => item.kind === 'replace-layer').requiresReboot, true);
+  assert.equal(first.operations.find(item => item.kind === 'update-flatpak')?.requiresReboot, false);
+  assert.equal(first.operations.find(item => item.kind === 'replace-layer')?.requiresReboot, true);
   assert.deepEqual(statusImmutableLinuxDeployment(first), {
     policyId: policy.policyId, observationId: observation.observationId,
     fixtureId: observation.fixture.fixtureId, planDigest: first.planDigest, mode: 'read-only', status: 'ready',

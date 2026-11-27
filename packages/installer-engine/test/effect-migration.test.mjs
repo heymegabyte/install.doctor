@@ -29,9 +29,9 @@ test('a complete effect migration is admitted', () => {
 });
 
 test('schema rejects every omitted migration evidence category', () => {
-  for (const field of ['preconditions', 'postconditions', 'lockDomains', 'interruptionTests', 'rollback', 'parity', 'legacySubtraction']) {
-    const candidate = structuredClone(manifest);
-    delete candidate[field];
+  for (const field of /** @type {const} */ (['preconditions', 'postconditions', 'lockDomains', 'interruptionTests', 'rollback', 'parity', 'legacySubtraction'])) {
+    const { [field]: omitted, ...candidate } = manifest;
+    assert.ok(omitted);
     assert.equal(EffectMigrationManifestSchema.safeParse(candidate).success, false, field);
   }
 });

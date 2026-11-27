@@ -8,6 +8,7 @@ import {
   createProtectedRendererSpillLog,
 } from '../dist/renderer-spill-log.js';
 
+/** @param {string} label */
 function privateStateRoot(label) {
   const root = mkdtempSync(join(tmpdir(), label));
   chmodSync(root, 0o700);

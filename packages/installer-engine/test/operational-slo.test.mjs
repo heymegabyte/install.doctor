@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict'; import test from 'node:test';
 import { buildCorrelatedSloWindow, evaluateFleetErrorBudget, fleetRolloutAdmission } from '../dist/index.js';
 const indicators = ['bootstrap-success','enrollment-success','planning-success','execution-success','verification-freshness','reconciliation-success','secret-delivery-success','telemetry-delivery-success','restore-success','return-heartbeat'];
+/** @param {string} indicator */
 const policy = indicator => ({ schemaVersion: 1, sloId: `slo.${indicator}`, indicator, objective: 0.99, windowSeconds: 3600, minimumEvents: 2, recoveryWindows: 2, dependentCohorts: ['canary'] });
+/** @param {string} indicator @param {number} n */
 const evidence = (indicator, n, outcome = 'good') => ({ schemaVersion: 1, evidenceId: `e-${indicator}-${n}`, indicator, observedAt: `2026-11-10T12:${String(n).padStart(2,'0')}:00.000Z`, traceId: String(n % 10).repeat(32), runId: `run-${n}`, hostId: 'host-1', outcome, sourceEvidenceDigest: String((n + 1) % 10).repeat(64) });
 test('every operational SLI compiles from correlated evidence', () => {
   for (const indicator of indicators) {
