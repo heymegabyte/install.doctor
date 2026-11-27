@@ -207,6 +207,11 @@ export function validateClosedSetSync({
   }
   const targets = new Set([...Object.keys(manifest.hosts), ...Object.keys(manifest.workloads)]);
   validateValidationLedger(ledger, listing.sources);
+  for (const source of listing.sources) {
+    if (!ledger.records[source.sourceId] && !ledger.records[source.canonicalName]) {
+      fail(`source ${source.sourceId} is missing a validation record`);
+    }
+  }
   if (offlineExceptions?.schemaVersion !== 1 || !Array.isArray(offlineExceptions.exceptions)) fail('invalid offline exception inventory');
   for (const exception of offlineExceptions.exceptions) {
     for (const sourceId of exception.sourceIds ?? []) if (!sourceIds.has(sourceId)) fail(`offline exception ${exception.id} references unknown source ${sourceId}`);

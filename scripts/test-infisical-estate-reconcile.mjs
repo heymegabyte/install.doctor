@@ -439,6 +439,15 @@ assert.doesNotThrow(() => validateClosedSetSync({
   retirementAssertions: [{ id: 'retirement-1', sourceId: 'workstation:SHARED_TOKEN', canonicalName: 'SHARED_TOKEN' }],
 }));
 assert.throws(() => validateClosedSetSync({
+  listing: metadataOnlyListing(storeDeclarations.map((store) => ({
+    ...store,
+    directory: store.directory === general ? join(storesRoot, 'general-clean') : store.directory,
+  })).filter(({ directory }) => directory !== general)),
+  manifest,
+  ledger: { schemaVersion: 1, records: {} },
+  offlineExceptions: { schemaVersion: 1, exceptions: [] },
+}), /missing a validation record/);
+assert.throws(() => validateClosedSetSync({
   listing: { schemaVersion: 1, sources: [{
     sourceId: 'wordpress:SHARED_TOKEN', store: 'wordpress', canonicalName: 'SHARED_TOKEN', hostDefault: true,
   }] },
