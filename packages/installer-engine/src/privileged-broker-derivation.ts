@@ -9,7 +9,7 @@ import { PrivilegedBrokerGrantSchema, privilegedBrokerDigest } from './privilege
 
 const identifier = z.string().min(1).max(128).regex(/^[a-z0-9][a-z0-9._-]*$/);
 const digest = z.string().regex(/^[a-f0-9]{64}$/);
-const timestamp = z.string().datetime({ offset: true });
+const timestamp = z.iso.datetime({ offset: true });
 const authorityPath = z.string().regex(/^\/run\/desktop-tools\/authority\/[a-z0-9][a-z0-9._-]{0,127}\/[A-Za-z0-9._-]+$/);
 
 export const PrivilegedBrokerDerivationInputSchema = z.strictObject({
@@ -58,8 +58,8 @@ export function derivePrivilegedBrokerAuthority(inputValue: unknown) {
     });
     return parsed.every(Boolean) ? [{ task, operations: parsed as Array<NonNullable<(typeof parsed)[number]>> }] : [];
   });
-  if (candidates.length !== 1) throw new Error('broker derivation requires one selected native-package task');
-  const candidate = candidates[0]!;
+  const [candidate] = candidates;
+  if (candidates.length !== 1 || !candidate) throw new Error('broker derivation requires one selected native-package task');
   if (candidate.task.compensation !== 'none' || candidate.task.privilege !== 'admin'
     || !candidate.task.lockDomains.includes('package-manager.dpkg')) {
     throw new Error('broker native task lacks exact privilege, lock, or compensation authority');

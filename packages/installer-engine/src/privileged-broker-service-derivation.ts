@@ -11,7 +11,7 @@ import { PrivilegedBrokerGrantSchema, privilegedBrokerDigest } from './privilege
 
 const identifier = z.string().min(1).max(128).regex(/^[a-z0-9][a-z0-9._-]*$/);
 const digest = z.string().regex(/^[a-f0-9]{64}$/);
-const timestamp = z.string().datetime({ offset: true });
+const timestamp = z.iso.datetime({ offset: true });
 const authorityPath = z.string().regex(/^\/run\/desktop-tools\/authority\/[a-z0-9][a-z0-9._-]{0,127}\/[A-Za-z0-9._-]+$/);
 
 export const PrivilegedBrokerServiceDerivationInputSchema = z.strictObject({
@@ -44,8 +44,8 @@ export function derivePrivilegedBrokerServiceAuthority(inputValue: unknown) {
     });
     return parsed.every(Boolean) ? [{ task, operations: parsed as Array<NonNullable<(typeof parsed)[number]>> }] : [];
   });
-  if (candidates.length !== 1) throw new Error('service broker derivation requires one selected native-service task');
-  const candidate = candidates[0]!;
+  const [candidate] = candidates;
+  if (candidates.length !== 1 || !candidate) throw new Error('service broker derivation requires one selected native-service task');
   if (candidate.task.id !== 'service.native.alloy' || candidate.task.compensation !== 'configuration'
     || candidate.task.privilege !== 'admin' || candidate.task.consent !== 'privileged'
     || !candidate.task.lockDomains.includes('service-manager.systemd') || !input.desiredState.consents.includes('privileged')) {
@@ -56,7 +56,7 @@ export function derivePrivilegedBrokerServiceAuthority(inputValue: unknown) {
     if (NativeServiceOperationSchema.safeParse(operation).success && !operationIds.has(operationId)) throw new Error('service broker derivation found a surplus native-service operation');
   }
   for (const item of candidate.operations) {
-    if (item.operation.action !== item.phase || item.operation.manager !== 'systemd'
+    if (item.operation.action !== item.phase
       || item.operation.unit !== 'alloy.service' || item.operation.desiredState !== 'enabled-and-started') {
       throw new Error('broker service operation differs from the admitted unit or task phase');
     }
