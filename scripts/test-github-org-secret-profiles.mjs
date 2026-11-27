@@ -138,6 +138,22 @@ for (const [workload, configuration] of Object.entries(manifest.workloads)) {
 for (const host of Object.keys(manifest.hosts)) {
   assert.deepEqual(selectHostSecrets(manifest, host, ['GOOGLE_MAPS_API_KEY']), []);
 }
+const netdataSecrets = ['NETDATA_ROOM', 'NETDATA_TOKEN'];
+assert.deepEqual(
+  selectConfigurationSecrets(
+    manifest,
+    manifest.workloads['netdata-cloud.megabyte.space'],
+    netdataSecrets,
+  ),
+  netdataSecrets,
+);
+for (const [workload, configuration] of Object.entries(manifest.workloads)) {
+  if (workload === 'netdata-cloud.megabyte.space') continue;
+  assert.deepEqual(selectConfigurationSecrets(manifest, configuration, netdataSecrets), []);
+}
+for (const host of Object.keys(manifest.hosts)) {
+  assert.deepEqual(selectHostSecrets(manifest, host, netdataSecrets), []);
+}
 assert.deepEqual(selectConfigurationSecrets(
   manifest, manifest.workloads['crawl.cheap'], ['EXA_API_KEY', 'SENTRY_DSN', 'ANTHROPIC_API_KEY'],
 ), ['EXA_API_KEY', 'SENTRY_DSN']);
