@@ -9,7 +9,7 @@ export async function executeSudoCredentialCleanup(input: {
   const environment = Object.freeze({ PATH: '/usr/bin:/bin', LANG: 'C' });
   const active = async () => {
     const status = await input.runExact(['-n', 'true'], environment);
-    if (status !== 0 && status !== 1) throw new Error(`sudo credential inspection failed with status ${status}`);
+    if (status !== 0 && status !== 1) throw new Error(`sudo credential inspection failed with status ${String(status)}`);
     return status === 0;
   };
   if (input.action === 'check') return await active() ? 10 : 0;

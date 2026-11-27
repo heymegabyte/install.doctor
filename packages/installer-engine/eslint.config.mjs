@@ -20,7 +20,6 @@ const pendingSourceFiles = [
   'src/privileged-broker-worker.ts',
   'src/privileged-systemd-transaction-store.ts',
   'src/rollback-executor.ts',
-  'src/sudo-credential-cleanup.ts',
 ].map(file => `packages/installer-engine/${file}`);
 
 export default [
