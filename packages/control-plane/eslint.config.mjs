@@ -10,7 +10,6 @@ const pendingFixtures = [
   'test/broker-authorization-service.test.mjs',
   'test/debian-native-composition.test.mjs',
   'test/disposable-product-composition.test.mjs',
-  'test/helpers/worker-app-fixture.mjs',
   'test/oidc-owner-enrollment.test.mjs',
   'test/privileged-step-up-http.test.mjs',
   'test/release-evidence-view.test.mjs',

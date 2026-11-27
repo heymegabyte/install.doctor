@@ -44,6 +44,14 @@ const schema = `
   CREATE TRIGGER IF NOT EXISTS claim_device_authorization_after_credential_insert AFTER INSERT ON device_authorization_credentials BEGIN UPDATE device_authorizations SET status='claimed', claimed_at=NEW.issued_at WHERE request_id=NEW.request_id AND status='approved' AND expires_at>NEW.issued_at; SELECT CASE WHEN changes()!=1 THEN RAISE(ABORT, 'authorization claim unavailable') END; END;
 `;
 
+/** @param {unknown} value @returns {value is Pick<D1Database, 'prepare' | 'batch' | 'exec'>} */
+function isFixtureDatabase(value) {
+  return value !== null && typeof value === 'object' &&
+    'prepare' in value && typeof value.prepare === 'function' &&
+    'batch' in value && typeof value.batch === 'function' &&
+    'exec' in value && typeof value.exec === 'function';
+}
+
 export async function createWorkerFixture() {
   assert.ok(fs.existsSync(distIndexPath), 'dist/index.js must exist (run `npm run check` first)');
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'desktop-tools-worker-fixture-'));
@@ -58,18 +66,30 @@ export async function createWorkerFixture() {
   const mockUrl = `data:text/javascript,${encodeURIComponent(mockModule)}`;
   const bundle = path.join(root, 'worker.mjs');
   fs.writeFileSync(bundle, fs.readFileSync(distIndexPath, 'utf8').replace(/["']cloudflare:[^"']+["']/g, JSON.stringify(mockUrl)), { mode: 0o600, flag: 'wx' });
-  const module = await import(`${pathToFileURL(bundle).href}?fixture=${Date.now()}`);
-  /** @type {D1Database} */
+  /** @type {unknown} */
+  const module = await import(`${pathToFileURL(bundle).href}?fixture=${String(Date.now())}`);
+  assert.ok(module && typeof module === 'object' && 'default' in module);
+  const handler = module.default;
+  assert.ok(handler && typeof handler === 'object' && 'fetch' in handler && typeof handler.fetch === 'function',
+    'worker bundle did not export a fetch handler');
+  const fetchHandler = handler.fetch;
+  /** @type {unknown} */
   const db = Reflect.get(globalThis, key);
-  assert.ok(db, 'worker fixture did not publish its isolated D1 adapter');
-  /** @type {Pick<typeof import('../../src/index.ts').default, 'fetch'>} */
-  const app = module.default;
-  assert.equal(typeof app?.fetch, 'function', 'worker bundle did not export a fetch handler');
+  assert.ok(isFixtureDatabase(db), 'worker fixture did not publish its isolated D1 adapter');
+  const app = {
+    /** @param {Request} request @param {unknown} env */
+    async fetch(request, env) {
+      /** @type {unknown} */
+      const response = await Reflect.apply(fetchHandler, handler, [request, env]);
+      assert.ok(response instanceof Response, 'worker fixture fetch must return a Response');
+      return response;
+    },
+  };
   return Object.freeze({
     app,
     db,
     env: Object.freeze({ ...TEST_ENV, DB: db }),
-    async cleanup() {
+    cleanup() {
       Reflect.deleteProperty(globalThis, key);
       fs.rmSync(root, { recursive: true, force: true });
     },
@@ -79,8 +99,4 @@ export async function createWorkerFixture() {
 /** @param {string} value */
 export const cookiePair = value => value.split(';', 1)[0] ?? '';
 /** @param {Headers} headers */
-export const setCookies = headers => {
-  if (typeof headers.getSetCookie === 'function') return headers.getSetCookie();
-  const cookie = headers.get('set-cookie');
-  return cookie ? [cookie] : [];
-};
+export const setCookies = headers => headers.getSetCookie();
