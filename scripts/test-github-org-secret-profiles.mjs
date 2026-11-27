@@ -71,6 +71,8 @@ for (const host of ['zen.megabyte.space', 'legion.megabyte.space']) {
 const blockedInfrastructureSecrets = [
   'MINIO_ROOT_USER', 'MINIO_ROOT_PASSWORD', 'TAILSCALE_AUTH_KEY', 'WASABI_CLIENT_ID', 'WASABI_CLIENT_SECRET',
   'PYPI_TOKEN',
+  'NETDATA_ROOM', 'NETDATA_TOKEN', 'POSTHOG_API_KEY', 'POSTHOG_PUBLIC_KEY', 'SENTRY_DSN_CLIENT',
+  'SENTRY_OAUTH_CLIENT_ID', 'SENTRY_OAUTH_CLIENT_SECRET',
 ];
 for (const host of Object.keys(manifest.hosts)) {
   assert.deepEqual(selectHostSecrets(manifest, host, blockedInfrastructureSecrets), []);
