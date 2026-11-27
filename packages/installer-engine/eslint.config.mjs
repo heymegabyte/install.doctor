@@ -7,7 +7,6 @@ const tsconfigRootDir = fileURLToPath(new URL('../../', import.meta.url));
 const pendingSourceFiles = [
   'src/alloy-pipeline-reconciler.ts',
   'src/broker-approval-orchestrator.ts',
-  'src/broker-approval-release-delegation.ts',
   'src/broker-approval-transport.ts',
   'src/credential-rotation.ts',
   'src/debian-gpgv.ts',
@@ -18,7 +17,6 @@ const pendingSourceFiles = [
   'src/offline-execution.ts',
   'src/offline-orchestrator.ts',
   'src/offline-sandbox.ts',
-  'src/privileged-broker-authority.ts',
   'src/privileged-broker-client.ts',
   'src/privileged-broker-controller.ts',
   'src/privileged-broker-device-approval.ts',

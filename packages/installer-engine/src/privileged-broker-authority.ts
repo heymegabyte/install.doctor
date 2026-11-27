@@ -49,7 +49,7 @@ export const PrivilegedBrokerPackageExecutionAuthoritySchema = z.strictObject({
   releaseProof,
   artifacts: z.array(z.strictObject({
     artifactId: identifier,
-    url: z.string().url().startsWith('https://').max(2048),
+    url: z.url().startsWith('https://').max(2048),
     sourcePath: runtimePath,
     sha256: digest,
     sizeBytes: z.number().int().positive().max(268_435_456),
@@ -111,8 +111,7 @@ export const PrivilegedBrokerServiceExecutionAuthoritySchema = z.strictObject({
   const expectedActions = ['apply', 'check', 'verify'];
   if (operations.length !== 3
     || JSON.stringify(operations.map(([, operation]) => operation.action).sort()) !== JSON.stringify(expectedActions)
-    || operations.some(([, operation]) => operation.manager !== value.descriptor.manager
-      || operation.unit !== value.descriptor.unit || operation.desiredState !== value.descriptor.desiredState)) {
+    || operations.some(([, operation]) => operation.unit !== value.descriptor.unit || operation.desiredState !== value.descriptor.desiredState)) {
     context.addIssue({ code: 'custom', message: 'broker service authority requires one exact native check/apply/verify operation triplet' });
   }
   if (Object.values(value.operations.operations).some(operation => operation.kind !== 'native-service')) {

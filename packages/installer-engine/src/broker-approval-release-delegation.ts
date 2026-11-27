@@ -25,8 +25,7 @@ export function deriveReleaseBrokerApprovalTrust(input: {
   if (digest(`${DOMAIN}\0${JSON.stringify(canonical(projection))}`) !== delegationDigest) {
     throw new Error('broker approval delegation semantic digest is invalid');
   }
-  if (value.product !== 'desktop-tools' || value.channel !== 'stable' || value.releaseId !== input.grant.releaseId
-    || value.signatureDomain !== 'desktop-tools-broker-approval-v1') {
+  if (value.channel !== 'stable' || value.releaseId !== input.grant.releaseId) {
     throw new Error('broker approval delegation scope differs from the exact grant');
   }
   if (value.revocationEpoch < input.minimumRevocationEpoch) throw new Error('broker approval delegation is revoked');
