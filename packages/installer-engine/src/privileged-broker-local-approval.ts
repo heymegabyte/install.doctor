@@ -18,6 +18,7 @@ import type { PrivilegedBrokerExecutionAuthority } from './privileged-broker-aut
 const MAX_CONFIRMATION_BYTES = 256;
 const CONFIRMATION_TIMEOUT_MS = 120_000;
 const PRODUCTION_STORE_ROOT = '/run/desktop-tools/privileged';
+const platformOpenFlags: { readonly O_NOFOLLOW?: number } = constants;
 
 export interface TrustedLocalConfirmation {
   readonly confirm: (summary: string, exactPhrase: string) => Promise<boolean>;
@@ -42,7 +43,7 @@ function exactBinding(grant: PrivilegedBrokerGrant) {
 }
 
 async function confirmOnControllingTerminal(summary: string, exactPhrase: string): Promise<boolean> {
-  const terminal = await open('/dev/tty', constants.O_RDWR | (constants.O_NOFOLLOW ?? 0));
+  const terminal = await open('/dev/tty', constants.O_RDWR | (platformOpenFlags.O_NOFOLLOW ?? 0));
   try {
     const metadata = await terminal.stat();
     if (!metadata.isCharacterDevice()) throw new Error('trusted local approval requires a controlling terminal');
@@ -55,7 +56,7 @@ async function confirmOnControllingTerminal(summary: string, exactPhrase: string
       if (remaining <= 0) throw new Error('trusted local approval timed out');
       const read = terminal.read(bytes, length, 1, null);
       const timeout = new Promise<never>((_, reject) => {
-        const timer = setTimeout(() => reject(new Error('trusted local approval timed out')), remaining);
+        const timer = setTimeout(() => { reject(new Error('trusted local approval timed out')); }, remaining);
         timer.unref();
       });
       const { bytesRead } = await Promise.race([read, timeout]);
@@ -119,8 +120,10 @@ export async function requestTrustedLocalBrokerApproval(input: {
   const expectedDigest = privilegedBrokerDigest(approval);
   return Object.freeze({
     approval,
-    verify: async (candidate: PrivilegedBrokerApprovalEvidence) => candidate.method === 'trusted-local'
-      && privilegedBrokerDigest(PrivilegedBrokerApprovalEvidenceSchema.parse(candidate)) === expectedDigest,
+    verify: (candidate: PrivilegedBrokerApprovalEvidence) => new Promise<boolean>(resolve => {
+      resolve(candidate.method === 'trusted-local'
+        && privilegedBrokerDigest(PrivilegedBrokerApprovalEvidenceSchema.parse(candidate)) === expectedDigest);
+    }),
   });
 }
 
@@ -156,6 +159,6 @@ export async function publishTrustedLocalBrokerGrant(input: {
 
 /** Retires only volatile authorization material after the bounded helper exits. */
 export async function retireTrustedLocalBrokerGrant(grantId: string): Promise<void> {
-  const store = await createPrivilegedBrokerStore({ root: PRODUCTION_STORE_ROOT, verifyApproval: async () => false });
+  const store = await createPrivilegedBrokerStore({ root: PRODUCTION_STORE_ROOT, verifyApproval: () => Promise.resolve(false) });
   await store.retireGrant(grantId);
 }

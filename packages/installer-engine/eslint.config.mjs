@@ -13,7 +13,6 @@ const pendingSourceFiles = [
   'src/privileged-broker-client.ts',
   'src/privileged-broker-controller.ts',
   'src/privileged-broker-device-approval.ts',
-  'src/privileged-broker-local-approval.ts',
   'src/privileged-broker-store.ts',
   'src/privileged-broker-transaction-store.ts',
   'src/privileged-broker-worker.ts',
