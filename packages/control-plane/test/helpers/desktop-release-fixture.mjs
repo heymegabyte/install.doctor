@@ -1,17 +1,32 @@
+import assert from 'node:assert/strict';
 import { createHash, generateKeyPairSync } from 'node:crypto';
 import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
 export const desktopReleasePlatforms = Object.freeze(['macos-x64', 'macos-arm64', 'linux-x64', 'linux-arm64']);
+/** @param {string} platform */
 export const opencodeArtifactName = platform => platform.startsWith('macos-')
   ? `opencode-${platform}.zip` : `opencode-${platform}.tar.gz`;
 
+/** @param {string | Uint8Array} bytes */
 const digest = bytes => createHash('sha256').update(bytes).digest('hex');
+/** @param {unknown} value @returns {unknown} */
 const canonical = value => Array.isArray(value) ? value.map(canonical)
   : value && typeof value === 'object' ? Object.fromEntries(Object.entries(value)
     .sort(([left], [right]) => left.localeCompare(right)).map(([key, entry]) => [key, canonical(entry)])) : value;
+/** @param {string} domain @param {unknown} value */
 const semanticDigest = (domain, value) => digest(`${domain}\0${JSON.stringify(canonical(value))}`);
 
+/**
+ * @param {string} root
+ * @param {{
+ *   releaseId?: string, sourceCommit?: string, opencodeVersion?: string,
+ *   bodies?: {
+ *     provisioner?: Buffer, engine?: Buffer, supervisor?: Buffer, tools?: Buffer, catalog?: Buffer,
+ *     runtimes?: Record<string, Buffer>, opencode?: Record<string, Buffer>,
+ *   },
+ * }} [options]
+ */
 export async function createDesktopReleaseInputs(root, {
   releaseId = 'desktop-test-1', sourceCommit = 'a'.repeat(40), opencodeVersion = '2.2.5',
   bodies = {},
@@ -26,11 +41,14 @@ export async function createDesktopReleaseInputs(root, {
     outputBodies.set(`node-${platform}.tar.gz`, bodies.runtimes?.[platform] ?? Buffer.from(`node-${platform}\n`));
     outputBodies.set(opencodeArtifactName(platform), bodies.opencode?.[platform] ?? Buffer.from(`opencode-${platform}\n`));
   }
+  /** @type {Record<string, { releaseFilename: string, upstreamUrl: string, sha256: string, size: number }>} */
+  const artifacts = {};
   const lock = { schemaVersion: 1, name: 'opencode', version: opencodeVersion, sourceCommit: 'c'.repeat(40), license: 'MIT',
-    sourceVerification: { tagCommit: 'c'.repeat(40), gitHubVerified: false, assetDigestSource: 'github-release-api' }, artifacts: {} };
+    sourceVerification: { tagCommit: 'c'.repeat(40), gitHubVerified: false, assetDigestSource: 'github-release-api' }, artifacts };
   for (const platform of desktopReleasePlatforms) {
     const key = platform.replace('-', '_'); const name = opencodeArtifactName(platform); const bytes = outputBodies.get(name);
-    lock.artifacts[key] = { releaseFilename: name,
+    assert.ok(bytes, `missing fixture artifact: ${name}`);
+    artifacts[key] = { releaseFilename: name,
       upstreamUrl: `https://github.com/anomalyco/opencode/releases/download/v${opencodeVersion}/fixture-${platform}${name.endsWith('.zip') ? '.zip' : '.tar.gz'}`,
       sha256: digest(bytes), size: bytes.byteLength };
   }
@@ -58,10 +76,10 @@ export async function createDesktopReleaseInputs(root, {
     dependencyClosure: { depends: [], preDepends: [] },
     affectedServiceUnits: [], conffiles: [], maintainerScriptPolicy: { trust: 'signed-repository-metadata', network: 'deny',
       serviceStarts: 'suppress-and-restore', conffiles: 'preserve-local' } };
-  const receipt = { schemaVersion: 1, descriptor, artifacts: [
+  const receipt = { schemaVersion: 1, descriptor, artifacts: (/** @type {[string, Buffer][]} */ ([
     ['debian-bookworm-inrelease', debianBodies.inRelease], ['debian-bookworm-archive-keyring', debianBodies.archiveKeyring],
     ['debian-bookworm-main-amd64-packages', debianBodies.packagesIndex], ['tree-deb-bookworm-amd64', debianBodies.treePayload],
-  ].map(([id, bytes]) => ({ id, sha256: digest(bytes), sizeBytes: bytes.length })) };
+  ])).map(([id, bytes]) => ({ id, sha256: digest(bytes), sizeBytes: bytes.length })) };
   if (bodies.catalog) {
     const catalog = JSON.parse(Buffer.from(bodies.catalog).toString('utf8'));
     if (!Array.isArray(catalog) || catalog.filter(entry => entry?.name === 'tree').length !== 1) {
@@ -77,17 +95,31 @@ export async function createDesktopReleaseInputs(root, {
     inReleaseUri: 'https://deb.debian.org/debian/dists/bookworm/InRelease',
     packagesIndexUri: 'https://deb.debian.org/debian/dists/bookworm/main/binary-amd64/Packages.xz',
     treePayloadUri: 'https://deb.debian.org/debian/pool/main/t/tree/tree_2.1.0-1_amd64.deb' };
+  /** @type {Record<string, string>} */
   const paths = {};
+  /** @param {string} name */
+  const assetPath = name => {
+    const path = paths[name];
+    assert.ok(path, `missing fixture path: ${name}`);
+    return path;
+  };
   for (const [name, bytes] of outputBodies) {
     const path = join(root, `input-${name}`); await writeFile(path, bytes, { mode: 0o600 }); paths[name] = path;
   }
-  paths.licenses = join(root, 'input-licenses.txt'); await writeFile(paths.licenses, `OpenCode ${opencodeVersion}\nMIT License\n`);
-  const debian = {};
-  for (const [name, bytes] of Object.entries(debianBodies)) {
-    debian[name] = join(root, `input-debian-${name}`); await writeFile(debian[name], bytes, { mode: 0o600 });
+  const licenses = join(root, 'input-licenses.txt'); await writeFile(licenses, `OpenCode ${opencodeVersion}\nMIT License\n`);
+  const debian = {
+    archiveKeyring: join(root, 'input-debian-archiveKeyring'),
+    inRelease: join(root, 'input-debian-inRelease'),
+    packagesIndex: join(root, 'input-debian-packagesIndex'),
+    treePayload: join(root, 'input-debian-treePayload'),
+    trustPolicy: join(root, 'input-debian-trust-policy.json'),
+    compositionReceipt: join(root, 'input-debian-composition.json'),
+  };
+  for (const name of /** @type {const} */ (['archiveKeyring', 'inRelease', 'packagesIndex', 'treePayload'])) {
+    await writeFile(debian[name], debianBodies[name], { mode: 0o600 });
   }
-  debian.trustPolicy = join(root, 'input-debian-trust-policy.json'); await writeFile(debian.trustPolicy, `${JSON.stringify(trustPolicy)}\n`, { mode: 0o600 });
-  debian.compositionReceipt = join(root, 'input-debian-composition.json'); await writeFile(debian.compositionReceipt, `${JSON.stringify(receipt)}\n`, { mode: 0o600 });
+  await writeFile(debian.trustPolicy, `${JSON.stringify(trustPolicy)}\n`, { mode: 0o600 });
+  await writeFile(debian.compositionReceipt, `${JSON.stringify(receipt)}\n`, { mode: 0o600 });
   const approvalKey = generateKeyPairSync('ed25519').publicKey;
   const delegationProjection = { schemaVersion: 1, kind: 'desktop-tools-broker-approval-signer-delegation',
     keyId: 'approval-key-1', algorithm: 'Ed25519', signatureDomain: 'desktop-tools-broker-approval-v1',
@@ -99,10 +131,10 @@ export async function createDesktopReleaseInputs(root, {
   const brokerApprovalSignerDelegation = join(root, `input-${releaseId}-broker-approval-delegation.json`);
   await writeFile(brokerApprovalSignerDelegation, `${JSON.stringify(canonical({ ...delegationProjection,
     delegationDigest: semanticDigest('desktop-tools:broker-approval-signer-delegation:v1', delegationProjection) }))}\n`, { mode: 0o600 });
-  return { releaseId, sourceCommit, opencodeVersion, provisioner: paths['provision.sh'], engine: paths['desktop-tools-engine.mjs'],
-    catalog: paths['catalog.json'], supervisor: paths['desktop-tools-supervisor.mjs'], tools: paths['desktop-tools-tools.tar.gz'],
-    opencodeLock: paths['opencode.lock.json'], licenses: paths.licenses, debian,
+  return { releaseId, sourceCommit, opencodeVersion, provisioner: assetPath('provision.sh'), engine: assetPath('desktop-tools-engine.mjs'),
+    catalog: assetPath('catalog.json'), supervisor: assetPath('desktop-tools-supervisor.mjs'), tools: assetPath('desktop-tools-tools.tar.gz'),
+    opencodeLock: assetPath('opencode.lock.json'), licenses, debian,
     releaseChannel: 'stable', brokerApprovalSignerDelegation, brokerApprovalMinimumRevocationEpoch: 7,
-    runtimes: Object.fromEntries(desktopReleasePlatforms.map(platform => [platform.replace('-', '_'), paths[`node-${platform}.tar.gz`]])),
-    opencode: Object.fromEntries(desktopReleasePlatforms.map(platform => [platform.replace('-', '_'), paths[opencodeArtifactName(platform)]])) };
+    runtimes: Object.fromEntries(desktopReleasePlatforms.map(platform => [platform.replace('-', '_'), assetPath(`node-${platform}.tar.gz`)])),
+    opencode: Object.fromEntries(desktopReleasePlatforms.map(platform => [platform.replace('-', '_'), assetPath(opencodeArtifactName(platform))])) };
 }
