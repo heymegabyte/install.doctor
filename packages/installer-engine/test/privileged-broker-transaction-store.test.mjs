@@ -5,7 +5,17 @@ import { join } from 'node:path';
 import test from 'node:test';
 import { createPrivilegedBrokerTransactionPersistence } from '../dist/privileged-broker-transaction-store.js';
 
+/** @typedef {Parameters<Awaited<ReturnType<typeof createPrivilegedBrokerTransactionPersistence>>['save']>[0]} TransactionRecord */
+
+const uid = process.getuid?.();
+assert.ok(typeof uid === 'number', 'broker transaction tests require a POSIX user ID');
+
+/** @param {string} character */
 const digest = character => character.repeat(64);
+/**
+ * @param {Partial<TransactionRecord>} overrides
+ * @returns {TransactionRecord}
+ */
 const record = (overrides = {}) => ({
   schemaVersion: 1, kind: 'install-doctor-native-dpkg-transaction-record', transactionId: digest('d'),
   runId: 'run-one', hostId: 'host-one', planDigest: digest('a'), rootPackageKey: 'tree', authorityDigest: digest('e'),
@@ -18,13 +28,15 @@ test('root transaction fence appends a durable hash chain and resumes exact stat
   const root = await mkdtemp(join(tmpdir(), 'broker-transaction-'));
   t.after(() => rm(root, { recursive: true, force: true }));
   await chmod(root, 0o700);
-  const persistence = await createPrivilegedBrokerTransactionPersistence({ root, ownerUid: process.getuid(),
+  const persistence = await createPrivilegedBrokerTransactionPersistence({ root, ownerUid: uid,
     runId: 'run-one', hostId: 'host-one', planDigest: digest('a') });
   assert.equal(await persistence.load(digest('d')), undefined);
   await persistence.save(record());
   await persistence.save(record());
   assert.equal((await readdir(join(root, digest('d')))).length, 1, 'unchanged save must be a no-op');
-  const completed = record({ phase: 'completed', packages: [{ ...record().packages[0], phase: 'configured' }],
+  const [pkg] = record().packages;
+  assert.ok(pkg);
+  const completed = record({ phase: 'completed', packages: [{ ...pkg, phase: 'configured' }],
     updatedAt: '2026-11-08T12:00:01.000Z' });
   await persistence.save(completed);
   assert.deepEqual(await persistence.load(digest('d')), completed);
@@ -35,12 +47,13 @@ test('root transaction fence appends a durable hash chain and resumes exact stat
 test('root transaction fence rejects authority drift and generation tampering', async t => {
   const root = await mkdtemp(join(tmpdir(), 'broker-transaction-'));
   t.after(() => rm(root, { recursive: true, force: true }));
-  const persistence = await createPrivilegedBrokerTransactionPersistence({ root, ownerUid: process.getuid(),
+  const persistence = await createPrivilegedBrokerTransactionPersistence({ root, ownerUid: uid,
     runId: 'run-one', hostId: 'host-one', planDigest: digest('a') });
   await assert.rejects(persistence.save(record({ runId: 'other' })), /differs from root authority/);
   await persistence.save(record());
   const directory = join(root, digest('d'));
   const [name] = await readdir(directory);
+  assert.ok(name);
   await writeFile(join(directory, name), '{}\n');
   await assert.rejects(persistence.load(digest('d')), /unsafe|schema|chain/);
 });

@@ -5,10 +5,16 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 import test from 'node:test';
+import { JournalRunSummarySchema } from '../dist/journal.js';
 
 const execute = promisify(execFile);
+/** @param {string} character */
 const digest = character => character.repeat(64);
 
+/**
+ * @param {string} id
+ * @param {string} suffix
+ */
 function task(id, suffix) {
   return {
     schemaVersion: 1,
@@ -40,7 +46,10 @@ test('shipped TUI renders concurrent work and restores its PTY after SIGINT', {
   const invocationPath = join(directory, 'invocation.json');
   const bundle = new URL('../dist/install-doctor-engine.mjs', import.meta.url).pathname;
   const helper = new URL('./fixtures/pty_acceptance.py', import.meta.url).pathname;
-  const tasks = [task('fixture.concurrent-one', 'a'), task('fixture.concurrent-two', 'b')];
+  const firstTask = task('fixture.concurrent-one', 'a');
+  const secondTask = task('fixture.concurrent-two', 'b');
+  const tasks = [firstTask, secondTask];
+  /** @type {Record<string, { argv: string[] }>} */
   const operations = {};
   const readyFiles = [];
   const installedFiles = [];
@@ -99,11 +108,13 @@ test('shipped TUI renders concurrent work and restores its PTY after SIGINT', {
   await writeFile(invocationPath, `${JSON.stringify(runInvocation)}\n`, { mode: 0o600 });
 
   await execute('python3', ['--version'], { timeout: 5_000 });
+  const [firstReadyFile, secondReadyFile] = readyFiles;
+  assert.ok(firstReadyFile && secondReadyFile);
   const helperResult = await execute('python3', [
     helper,
     '--pattern', 'Workers  2 active',
-    '--ready-file', readyFiles[0],
-    '--ready-file', readyFiles[1],
+    '--ready-file', firstReadyFile,
+    '--ready-file', secondReadyFile,
     '--timeout', '20',
     '--max-bytes', '1048576',
     '--columns', '100',
@@ -132,7 +143,8 @@ test('shipped TUI renders concurrent work and restores its PTY after SIGINT', {
   const listed = JSON.parse((await execute(process.execPath, [bundle, '--input', listPath], {
     env: { PATH: process.env.PATH ?? '' }, timeout: 10_000, maxBuffer: 1_000_000,
   })).stdout);
-  const interrupted = listed.runs.find(candidate => candidate.runId === common.runId && candidate.planDigest === plan.digest);
+  const runs = JournalRunSummarySchema.array().parse(listed.runs);
+  const interrupted = runs.find(candidate => candidate.runId === common.runId && candidate.planDigest === plan.digest);
   assert.equal(interrupted?.authority, 'uncommitted');
   assert.equal(interrupted?.resumeCandidate, true);
   await assert.rejects(
@@ -156,7 +168,9 @@ test('shipped TUI renders concurrent work and restores its PTY after SIGINT', {
   const resumedEvents = resumed.stdout.trim().split('\n').map(line => JSON.parse(line));
   assert.equal(resumedEvents.at(-1)?.kind, 'run-status');
   assert.equal(resumedEvents.at(-1)?.status, 'success');
-  assert.ok(resumedEvents.some(event => event.kind === 'task-status' && event.taskId === tasks[0].id && event.status === 'verified'));
-  assert.ok(resumedEvents.some(event => event.kind === 'task-status' && event.taskId === tasks[1].id && event.status === 'verified'));
-  assert.equal((await readFile(installedFiles[0], 'utf8')), 'installed');
+  assert.ok(resumedEvents.some(event => event.kind === 'task-status' && event.taskId === firstTask.id && event.status === 'verified'));
+  assert.ok(resumedEvents.some(event => event.kind === 'task-status' && event.taskId === secondTask.id && event.status === 'verified'));
+  const [firstInstalledFile] = installedFiles;
+  assert.ok(firstInstalledFile);
+  assert.equal(await readFile(firstInstalledFile, 'utf8'), 'installed');
 });

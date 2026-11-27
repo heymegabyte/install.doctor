@@ -6,8 +6,12 @@ import { composeNativeDebianPackageSlice } from '../dist/native-debian-compositi
 import { derivePrivilegedBrokerAuthority } from '../dist/privileged-broker-derivation.js';
 import { PrivilegedBrokerControllerInputSchema } from '../dist/privileged-broker-controller-contract.js';
 
+/** @param {string} value */
 const hash = value => createHash('sha256').update(value).digest('hex');
+/** @typedef {Parameters<typeof composeNativeDebianPackageSlice>[0]} CompositionOptions */
+/** @type {CompositionOptions['compareDebianVersions']} */
 const compare = (left, right) => left.localeCompare(right, undefined, { numeric: true });
+/** @returns {CompositionOptions['descriptor']} */
 const descriptor = () => ({
   schemaVersion: 1, kind: 'native-offline-package', manager: 'dpkg', packageKey: 'tree',
   platform: { os: 'linux', arch: 'x64' }, package: { name: 'tree', version: '2.1.0-1', architecture: 'amd64' },
@@ -27,6 +31,7 @@ const descriptor = () => ({
 
 async function fixture() {
   const payload = descriptor();
+  /** @type {CompositionOptions['desiredState']} */
   const desired = { schemaVersion: 1, revision: 'revision-1', hostId: 'host-1', packages: ['tree'], services: [], consents: [], offline: false };
   const composed = composeNativeDebianPackageSlice({ descriptor: payload,
     target: { distroId: 'debian', versionId: '12', codename: 'bookworm', architecture: 'amd64' },
@@ -71,12 +76,18 @@ test('derivation projects one approved plan into one exact grant and controller 
 
 test('derivation rejects plan, operation, descriptor, and socket identity drift', async () => {
   const input = await fixture();
-  for (const mutate of [
+  /** @type {Array<(value: Awaited<ReturnType<typeof fixture>>) => void>} */
+  const mutations = [
     value => { value.approvedPlanDigest = '0'.repeat(64); },
-    value => { value.operations['native-debian-tree-apply'].packageKey = 'other'; },
+    value => {
+      const operation = value.operations['native-debian-tree-apply'];
+      assert.ok(operation && 'packageKey' in operation);
+      operation.packageKey = 'other';
+    },
     value => { value.descriptor.artifact.sha256 = 'f'.repeat(64); },
     value => { value.socketPath = '/run/desktop-tools/broker/other/broker.sock'; },
-  ]) {
+  ];
+  for (const mutate of mutations) {
     const candidate = structuredClone(input); mutate(candidate);
     assert.throws(() => derivePrivilegedBrokerAuthority(candidate));
   }

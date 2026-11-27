@@ -11,6 +11,7 @@ import { ProtectedAuthorizationState } from '../dist/target-device-authorization
 const execute = promisify(execFile);
 const cli = new URL('../dist/cli.js', import.meta.url).pathname;
 const secret = 'secret-device-credential-never-print';
+/** @satisfies {Parameters<ProtectedDeviceCredentialStore["save"]>[0]["request"]} */
 const request = {
   schemaVersion: 1, requestId: 'request-1',
   binding: { tenantId: 'tenant-server', profileId: 'profile-1', targetPublicKey: 'A'.repeat(43),
@@ -20,9 +21,10 @@ const request = {
   createdAt: '2026-11-09T13:00:00.000Z',
 };
 
+/** @param {string} path */
 async function invoke(path) {
   return execute(process.execPath, [cli, '--input', path], {
-    env: { PATH: process.env.PATH ?? '' }, input: '', timeout: 10_000, maxBuffer: 1_000_000,
+    env: { PATH: process.env.PATH ?? '' }, timeout: 10_000, maxBuffer: 1_000_000,
   });
 }
 
@@ -56,9 +58,15 @@ test('device authorization start rejects caller-supplied tenant authority before
     origin: 'https://unreachable.invalid', statePath: join(root, 'pending.json'),
     credentialPath: join(root, 'credential.json'), profileId: 'profile-1', machineLabel: 'Canary',
     scopes: ['profile:read'], expiresAt: '2099-11-09T13:10:00.000Z', tenantId: 'caller-tenant' })}\n`, { mode: 0o600 });
-  await assert.rejects(invoke(invocationPath), error => error.code === 2
-    && error.stderr.includes('invalid invocation')
-    && !`${error.stdout}${error.stderr}`.includes('caller-tenant'));
+  await assert.rejects(invoke(invocationPath), error => {
+    assert.ok(error instanceof Error);
+    assert.ok('code' in error && error.code === 2);
+    assert.ok('stderr' in error && typeof error.stderr === 'string');
+    assert.ok('stdout' in error && typeof error.stdout === 'string');
+    assert.match(error.stderr, /invalid invocation/);
+    assert.ok(!`${error.stdout}${error.stderr}`.includes('caller-tenant'));
+    return true;
+  });
 });
 
 test('device authorization wait reconciles a credential persisted before pending cleanup', async t => {
@@ -81,5 +89,5 @@ test('device authorization wait reconciles a credential persisted before pending
   assert.deepEqual(JSON.parse(result.stdout), { schemaVersion: 1, status: 'approved',
     requestId: 'request-1', credentialId: 'credential-1', expiresAt: '2099-11-09T14:00:00.000Z' });
   assert.equal(result.stdout.includes(secret), false);
-  await assert.rejects(readFile(statePath), error => error.code === 'ENOENT');
+  await assert.rejects(readFile(statePath), { code: 'ENOENT' });
 });
