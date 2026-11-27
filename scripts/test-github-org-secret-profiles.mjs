@@ -154,6 +154,22 @@ for (const [workload, configuration] of Object.entries(manifest.workloads)) {
 for (const host of Object.keys(manifest.hosts)) {
   assert.deepEqual(selectHostSecrets(manifest, host, netdataSecrets), []);
 }
+const wasabiAccountSecrets = ['WASABI_CLIENT_ID', 'WASABI_CLIENT_SECRET'];
+assert.deepEqual(
+  selectConfigurationSecrets(
+    manifest,
+    manifest.workloads['wasabi-account-credential-archive'],
+    wasabiAccountSecrets,
+  ),
+  wasabiAccountSecrets,
+);
+for (const [workload, configuration] of Object.entries(manifest.workloads)) {
+  if (workload === 'wasabi-account-credential-archive') continue;
+  assert.deepEqual(selectConfigurationSecrets(manifest, configuration, wasabiAccountSecrets), []);
+}
+for (const host of Object.keys(manifest.hosts)) {
+  assert.deepEqual(selectHostSecrets(manifest, host, wasabiAccountSecrets), []);
+}
 assert.deepEqual(selectConfigurationSecrets(
   manifest, manifest.workloads['crawl.cheap'], ['EXA_API_KEY', 'SENTRY_DSN', 'ANTHROPIC_API_KEY'],
 ), ['EXA_API_KEY', 'SENTRY_DSN']);
