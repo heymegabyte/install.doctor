@@ -8,6 +8,7 @@ const binding = {
   targetKeyFingerprint: 'a'.repeat(64), scopes: ['profile:read', 'session:create'],
   nonce: 'n'.repeat(32), expiresAt: '2026-11-08T12:05:00.000Z',
 };
+/** @type {import('../src/atomic-credential-claim.ts').ClaimRecord['request']} */
 const request = {
   schemaVersion: 1, requestId: 'request-1', binding, machineLabel: 'Zen',
   verificationCode: 'ABCD-EF12', pollKeyFingerprint: 'b'.repeat(64), createdAt: '2026-11-08T11:55:00.000Z',
@@ -15,9 +16,13 @@ const request = {
 const claim = { requestId: request.requestId, tenantId: binding.tenantId, profileId: binding.profileId, deviceKeyFingerprint: binding.targetKeyFingerprint, pollProof: 'c'.repeat(64) };
 const unavailable = { ok: false, status: 404, error: 'claim_unavailable' };
 
+/** @param {Partial<import('../src/atomic-credential-claim.ts').ClaimRecord>} [overrides] */
 function fixture(overrides = {}) {
+  /** @type {import('../src/atomic-credential-claim.ts').ClaimRecord} */
   let state = { request, status: 'approved', approvedScopes: ['profile:read'], lastPolledAt: null, revision: 'revision-1', ...overrides };
+  /** @type {(import('../src/atomic-credential-claim.ts').IssuedDeviceCredential & { revokedAt?: string }) | null} */
   let storedCredential = null;
+  /** @type {Parameters<typeof claimDeviceCredential>[1]['store']} */
   const store = {
     async readForClaim() { return state; },
     async atomicClaim(input) {
@@ -36,12 +41,13 @@ function fixture(overrides = {}) {
     },
   };
   let id = 'credential-1';
+  /** @type {Parameters<typeof claimDeviceCredential>[1]} */
   const dependencies = {
     store, now,
     verifyPollProof: async proof => proof === claim.pollProof,
     mintCredential: async authority => ({ id, secret: `secret-for-${authority.deviceKeyFingerprint}` }),
   };
-  return { dependencies, store, setCredentialId(value) { id = value; }, get credential() { return storedCredential; } };
+  return { dependencies, store, setCredentialId(/** @type {string} */ value) { id = value; }, get credential() { return storedCredential; } };
 }
 
 test('atomically claims once with only approved minimum scopes and a finite lifetime', async () => {
@@ -88,6 +94,7 @@ test('credentials revoke independently with normalized unavailable errors', asyn
   const setup = fixture();
   const claimed = await claimDeviceCredential(claim, setup.dependencies);
   assert.equal(claimed.ok, true);
+  /** @type {Parameters<typeof revokeDeviceCredential>[0]} */
   const revocation = { credentialId: claimed.credential.id, tenantId: binding.tenantId, deviceKeyFingerprint: binding.targetKeyFingerprint, revokedAt: now.toISOString(), reason: 'owner-revoked' };
   assert.deepEqual(await revokeDeviceCredential(revocation, setup.store), { ok: true });
   assert.deepEqual(await revokeDeviceCredential(revocation, setup.store), { ok: false, status: 404, error: 'credential_unavailable' });

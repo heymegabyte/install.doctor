@@ -5,6 +5,7 @@
     "checkJs": true
   },
   "include": [
+    "test/atomic-credential-claim.test.mjs",
     "test/auth-origin-policy.test.mjs",
     "test/auth-return-policy.test.mjs",
     "test/better-auth-migration-parity.test.mjs",
@@ -21,6 +22,7 @@
     "test/r2-publication-storage.test.mjs",
     "test/release-evidence-view.test.mjs",
     "test/target-authorization-owner.test.mjs",
+    "test/target-device-authorization-d1-store.test.mjs",
     ".wrangler/control-plane-runtime.d.ts"
   ]
 }

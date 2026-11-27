@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
 import test from 'node:test';
+import { URL } from 'node:url';
 
 const migration = fs.readFileSync(
   new URL('../migrations/0017_target_device_authorizations.sql', import.meta.url),
@@ -15,6 +16,7 @@ function openStore() {
   return sqlite;
 }
 
+/** @param {DatabaseSync} sqlite @param {{ status?: string, expiresAt?: string }} [overrides] */
 function insertAuthorization(sqlite, overrides = {}) {
   const authorization = {
     requestId: 'request-1',
@@ -60,6 +62,7 @@ function insertAuthorization(sqlite, overrides = {}) {
   );
 }
 
+/** @param {DatabaseSync} sqlite @param {{ credentialId?: string, secretSha256?: string }} [overrides] */
 function claim(sqlite, overrides = {}) {
   const credential = {
     credentialId: 'credential-1',
@@ -102,10 +105,11 @@ test('device authorization migration is idempotent and claims atomically', () =>
     SELECT status, claimed_at AS claimedAt
     FROM device_authorizations WHERE request_id = ?
   `).get('request-1');
+  assert.ok(claimed);
   assert.equal(claimed.status, 'claimed');
   assert.equal(claimed.claimedAt, '2026-11-09T12:01:00.000Z');
   assert.equal(
-    sqlite.prepare('SELECT COUNT(*) AS count FROM device_authorization_credentials').get().count,
+    sqlite.prepare('SELECT COUNT(*) AS count FROM device_authorization_credentials').get()?.count,
     1,
   );
 
@@ -117,27 +121,29 @@ test('device authorization migration is idempotent and claims atomically', () =>
     /authorization claim unavailable|UNIQUE constraint failed/,
   );
   assert.equal(
-    sqlite.prepare('SELECT COUNT(*) AS count FROM device_authorization_credentials').get().count,
+    sqlite.prepare('SELECT COUNT(*) AS count FROM device_authorization_credentials').get()?.count,
     1,
   );
   sqlite.close();
 });
 
-for (const [label, authorization] of [
+/** @type {[string, NonNullable<Parameters<typeof insertAuthorization>[1]>][]} */
+const invalidAuthorizations = [
   ['pending', { status: 'pending' }],
   ['expired', { expiresAt: '2026-11-09T12:00:30.000Z' }],
-]) {
+];
+for (const [label, authorization] of invalidAuthorizations) {
   test(`credential insert rolls back when authorization is ${label}`, () => {
     const sqlite = openStore();
     insertAuthorization(sqlite, authorization);
 
     assert.throws(() => claim(sqlite), /authorization claim unavailable/);
     assert.equal(
-      sqlite.prepare('SELECT COUNT(*) AS count FROM device_authorization_credentials').get().count,
+      sqlite.prepare('SELECT COUNT(*) AS count FROM device_authorization_credentials').get()?.count,
       0,
     );
     assert.equal(
-      sqlite.prepare('SELECT status FROM device_authorizations WHERE request_id = ?').get('request-1').status,
+      sqlite.prepare('SELECT status FROM device_authorizations WHERE request_id = ?').get('request-1')?.status,
       authorization.status ?? 'approved',
     );
     sqlite.close();
