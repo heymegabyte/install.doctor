@@ -3,18 +3,25 @@ import { createHash, generateKeyPairSync, sign } from 'node:crypto';
 import test from 'node:test';
 import { publishOfflineBundle } from '../scripts/offline-bundle-publication.mjs';
 
+/** @param {Uint8Array} bytes */
 const sha256 = bytes => createHash('sha256').update(bytes).digest('hex');
+/** @param {unknown} value */
 const canonical = value => Buffer.from(`${JSON.stringify(value)}\n`);
 
+/** @typedef {Parameters<typeof publishOfflineBundle>[0]} PublicationInput */
+/** @typedef {Parameters<PublicationInput['storage']['create']>[2]} ObjectMetadata */
 function storage() {
+  /** @type {Map<string, {bytes: Buffer, etag: string, metadata?: ObjectMetadata}>} */
   const objects = new Map();
   return {
     objects,
+    /** @param {string} key @param {Uint8Array} bytes @param {ObjectMetadata} metadata */
     async create(key, bytes, metadata) {
       if (objects.has(key)) return false;
       objects.set(key, { bytes: Buffer.from(bytes), etag: `"${sha256(bytes)}"`, metadata });
       return true;
     },
+    /** @param {string} key */
     async read(key) { return objects.get(key) ?? null; },
   };
 }
@@ -68,6 +75,7 @@ test('publishes one private content-addressed object and a signed receipt create
   const input = fixture();
   const target = storage();
   const { privateKey, publicKey } = generateKeyPairSync('ed25519');
+  /** @type {PublicationInput['sign']} */
   const signer = async (_namespace, bytes) => sign(null, bytes, privateKey).toString('base64');
   const verifyDelegation = async () => true;
   const verifyRequestAuthority = async () => true;
@@ -80,8 +88,8 @@ test('publishes one private content-addressed object and a signed receipt create
   assert.equal(first.receipt.requesterClaimDigest, input.request.requesterClaimDigest);
   assert.equal(first.receipt.authorityVersion, input.claims.workflowSha);
   assert.equal(target.objects.size, 3);
-  assert.equal(target.objects.get(first.objectKey).metadata.visibility, 'private');
-  assert.equal(target.objects.get(first.receiptKey).metadata.visibility, 'private');
+  assert.equal(target.objects.get(first.objectKey)?.metadata?.visibility, 'private');
+  assert.equal(target.objects.get(first.receiptKey)?.metadata?.visibility, 'private');
   assert.equal(Buffer.from(first.receiptSignature, 'base64').length > 0, true);
   assert.equal(publicKey.asymmetricKeyType, 'ed25519');
   await assert.rejects(publishOfflineBundle({ ...input, storage: target, sign: signer, verifyDelegation, verifyRequestAuthorityDelegation, verifyRequestAuthority, now: 2_000_000_010, authorityVersion: input.claims.workflowSha }), /nonce was already consumed/);

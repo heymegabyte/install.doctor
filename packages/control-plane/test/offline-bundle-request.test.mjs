@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { reconstructOfflineBundleRequest, requestDigest } from '../scripts/offline-bundle-request.mjs';
 
+/** @param {string} value */
 const h = value => value.repeat(64);
 const fixture = () => {
   const closure = { schemaVersion: 1, releaseId: 'release-1', releaseManifestDigest: h('a'), desiredStateRevision: h('b'), hostIdentityDigest: h('c'), hostFactsDigest: h('d'), platformCell: 'debian-12-x64-native', planDigest: h('e'), operationManifestDigest: h('f'), selectedTaskIds: ['task.one'], targets: ['/etc/install-doctor/file'], artifactDigests: [h('1')], artifactClasses: ['release-envelope'] };
@@ -26,5 +27,7 @@ test('rejects substitution, mutable workflow identity, scope widening, stale del
   await assert.rejects(reconstructOfflineBundleRequest(traversal), /canonical/);
   const stale = fixture(); stale.requestAuthorityDelegation = { ...stale.requestAuthorityDelegation, validUntil: 1_999_999_999 };
   await assert.rejects(reconstructOfflineBundleRequest(stale), /delegation/);
-  await assert.rejects(reconstructOfflineBundleRequest({ ...fixture(), signRequestAuthority: undefined }), /signer is required/);
+  const { signRequestAuthority: _sign, ...unsigned } = fixture();
+  // This simulates an untyped caller omitting the required signer.
+  await assert.rejects(() => Reflect.apply(reconstructOfflineBundleRequest, undefined, [unsigned]), /signer is required/);
 });

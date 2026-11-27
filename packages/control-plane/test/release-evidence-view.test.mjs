@@ -3,7 +3,9 @@ import { createHash } from 'node:crypto';
 import test from 'node:test';
 import { projectPublicReleaseEvidence, readReleaseEvidenceObject } from '../src/release-evidence-view.ts';
 
+/** @param {unknown} value */
 const bytes = value => new TextEncoder().encode(typeof value === 'string' ? value : `${JSON.stringify(value)}\n`);
+/** @param {Uint8Array} value */
 const digest = value => createHash('sha256').update(value).digest('hex');
 
 function fixture() {
@@ -29,14 +31,17 @@ function fixture() {
         rationale: 'private analyst detail', evidence: ['private://source'] },
     ] });
   const objects = { catalog, sbom, provenance, spdx, exploitability };
-  const prefixes = { catalog: ['catalog', 'catalog.json'], sbom: ['sbom', 'release.sbom.json'],
+  const prefixes = /** @type {const} */ ({ catalog: ['catalog', 'catalog.json'], sbom: ['sbom', 'release.sbom.json'],
     provenance: ['provenance', 'release.provenance.json'], spdx: ['spdx', 'release.spdx.json'],
-    exploitability: ['exploitability', 'release.exploitability.json'] };
+    exploitability: ['exploitability', 'release.exploitability.json'] });
   const lines = ['schema_version=10', 'product_id=desktop-tools', `release_id=${releaseId}`,
     `source_commit=${'b'.repeat(40)}`];
-  for (const [key, [prefix, filename]] of Object.entries(prefixes)) lines.push(
-    `${prefix}_url=https://desktop.tools/releases/${releaseId}/${filename}`,
-    `${prefix}_sha256=${digest(objects[key])}`, `${prefix}_size=${objects[key].byteLength}`);
+  for (const key of /** @type {const} */ (['catalog', 'sbom', 'provenance', 'spdx', 'exploitability'])) {
+    const [prefix, filename] = prefixes[key];
+    lines.push(
+      `${prefix}_url=https://desktop.tools/releases/${releaseId}/${filename}`,
+      `${prefix}_sha256=${digest(objects[key])}`, `${prefix}_size=${objects[key].byteLength}`);
+  }
   return { releaseId, manifest: bytes(`${lines.join('\n')}\n`), ...objects };
 }
 

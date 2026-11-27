@@ -1,6 +1,8 @@
 import { GetObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
 
 /** @typedef {{ contentType?: string, sha256: string, visibility?: 'private' }} ObjectMetadata */
+/** @typedef {Pick<NonNullable<import('@aws-sdk/client-s3').GetObjectCommandOutput['Body']>, 'transformToByteArray'>} ObjectBody */
+/** @typedef {{ send: (command: GetObjectCommand | PutObjectCommand) => Promise<{ Body?: ObjectBody, ETag?: string }> }} PublicationClient */
 
 /** @param {unknown} error @param {number} status */
 function hasHttpStatus(error, status) {
@@ -10,7 +12,7 @@ function hasHttpStatus(error, status) {
     && 'httpStatusCode' in metadata && metadata.httpStatusCode === status;
 }
 
-/** @param {import('@aws-sdk/client-s3').GetObjectCommandOutput['Body']} body */
+/** @param {ObjectBody | undefined} body */
 async function bodyBytes(body) {
   if (!body || typeof body.transformToByteArray !== 'function') throw new Error('R2 returned an unreadable object body');
   return Buffer.from(await body.transformToByteArray());
@@ -18,7 +20,7 @@ async function bodyBytes(body) {
 
 /**
  * @param {{ endpoint: string, bucket: string, accessKeyId: string, secretAccessKey: string }} options
- * @param {Pick<S3Client, 'send'>} [injectedClient]
+ * @param {PublicationClient} [injectedClient]
  */
 export function createR2PublicationStorage({ endpoint, bucket, accessKeyId, secretAccessKey }, injectedClient) {
   const url = new URL(endpoint);
@@ -29,6 +31,7 @@ export function createR2PublicationStorage({ endpoint, bucket, accessKeyId, secr
   if (typeof accessKeyId !== 'string' || accessKeyId.length < 16 || typeof secretAccessKey !== 'string' || secretAccessKey.length < 32) {
     throw new Error('scoped R2 S3 credentials are required');
   }
+  /** @type {PublicationClient} */
   const client = injectedClient ?? new S3Client({ region: 'auto', endpoint: url.origin, credentials: { accessKeyId, secretAccessKey } });
   return {
     /** @param {string} key @param {Uint8Array} bytes @param {ObjectMetadata} metadata */
