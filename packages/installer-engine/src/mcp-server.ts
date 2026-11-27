@@ -2,9 +2,9 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { spawn } from 'node:child_process';
 import { constants as fsConstants } from 'node:fs';
-import { chmod, lstat, mkdir, open, readFile, rename, rm, writeFile } from 'node:fs/promises';
+import { chmod, lstat, mkdir, open, readFile, rename, rm } from 'node:fs/promises';
 import { createInterface } from 'node:readline';
-import { dirname, isAbsolute, join, resolve } from 'node:path';
+import { isAbsolute, join } from 'node:path';
 import { z } from 'zod';
 import { createDesktopToolsToolAdapters, DESKTOP_TOOLS_TYPED_TOOL_NAMES } from './typed-tool-adapters.js';
 import type { ConsentBroker, DesktopToolsTypedToolName, EngineInvoker } from './typed-tool-adapters.js';
@@ -22,7 +22,7 @@ const ToolContextSchema = z.strictObject({
 const ConsentReceiptSchema = z.strictObject({
   schemaVersion: z.literal(1), operation: z.enum(['apply', 'rollback-config']),
   sessionRunId: identifier, planDigest: digest, sourceRunId: identifier.nullable(),
-  approved: z.literal(true), actorId: identifier, approvedAt: z.string().datetime({ offset: true }),
+  approved: z.literal(true), actorId: identifier, approvedAt: z.iso.datetime({ offset: true }),
 });
 const ServerOptionsSchema = z.strictObject({
   engine: absolutePath, engineSha256: digest, context: absolutePath, stateRoot: absolutePath, consentDirectory: absolutePath,
@@ -66,8 +66,8 @@ const toolDescriptions: Readonly<Record<DesktopToolsTypedToolName, { readonly de
 });
 
 function parseOptions(argv: readonly string[]): ServerOptions {
-  const values: Record<string, string> = {};
-  const names: Readonly<Record<string, keyof ServerOptions>> = {
+  const values: Partial<Record<string, string>> = {};
+  const names: Readonly<Partial<Record<string, keyof ServerOptions>>> = {
     '--engine': 'engine', '--engine-sha256': 'engineSha256', '--context': 'context',
     '--state-root': 'stateRoot', '--consent-dir': 'consentDirectory',
   };
@@ -79,13 +79,26 @@ function parseOptions(argv: readonly string[]): ServerOptions {
   return ServerOptionsSchema.parse(values);
 }
 
-async function sha256(path: string): Promise<string> {
-  const hash = createHash('sha256'); const handle = await open(path, 'r');
-  try {
-    const buffer = Buffer.allocUnsafe(1024 * 1024); let position = 0;
-    while (true) { const { bytesRead } = await handle.read(buffer, 0, buffer.length, position); if (!bytesRead) break; hash.update(buffer.subarray(0, bytesRead)); position += bytesRead; }
-  } finally { await handle.close(); }
+async function hashOpenedFile(handle: Awaited<ReturnType<typeof open>>): Promise<string> {
+  const hash = createHash('sha256');
+  const buffer = Buffer.allocUnsafe(1024 * 1024);
+  let position = 0;
+  for (;;) {
+    const { bytesRead } = await handle.read(buffer, 0, buffer.length, position);
+    if (bytesRead === 0) break;
+    hash.update(buffer.subarray(0, bytesRead));
+    position += bytesRead;
+  }
   return hash.digest('hex');
+}
+
+async function sha256(path: string): Promise<string> {
+  const handle = await open(path, 'r');
+  try {
+    return await hashOpenedFile(handle);
+  } finally {
+    await handle.close();
+  }
 }
 
 async function validateOpenEngine(path: string, expectedDigest: string) {
@@ -93,18 +106,12 @@ async function validateOpenEngine(path: string, expectedDigest: string) {
   try {
     const info = await handle.stat();
     if (!info.isFile() || info.nlink !== 1 || info.size < 1 || info.size > 64 * 1024 * 1024
-      || (info.mode & 0o022) !== 0 || (typeof info.uid === 'number' && info.uid !== process.getuid?.())) {
+      || (info.mode & 0o022) !== 0 || info.uid !== process.getuid?.()) {
       throw new Error('installer engine is not a protected bounded regular file');
     }
-    const hash = createHash('sha256');
-    const buffer = Buffer.allocUnsafe(1024 * 1024);
-    let position = 0;
-    while (true) {
-      const { bytesRead } = await handle.read(buffer, 0, buffer.length, position);
-      if (!bytesRead) break;
-      hash.update(buffer.subarray(0, bytesRead)); position += bytesRead;
+    if (await hashOpenedFile(handle) !== expectedDigest) {
+      throw new Error('installer engine digest does not match the signed runtime');
     }
-    if (hash.digest('hex') !== expectedDigest) throw new Error('installer engine digest does not match the signed runtime');
     return handle;
   } catch (error) {
     await handle.close();
@@ -132,13 +139,26 @@ async function executeOpenedEngine(engine: Awaited<ReturnType<typeof open>>, inv
       if (bytes > limit) { overflow = true; child.kill('SIGKILL'); return; }
       chunks.push(chunk);
     };
-    child.stdout!.on('data', collect(stdout, 'stdout')); child.stderr!.on('data', collect(stderr, 'stderr'));
+    if (!child.stdout || !child.stderr) {
+      clearTimeout(timer);
+      child.kill('SIGKILL');
+      reject(new Error('installer engine output streams are unavailable'));
+      return;
+    }
+    child.stdout.on('data', collect(stdout, 'stdout'));
+    child.stderr.on('data', collect(stderr, 'stderr'));
     child.once('error', error => { clearTimeout(timer); reject(error); });
     child.once('exit', (code, signal) => {
       clearTimeout(timer);
-      if (overflow) return reject(Object.assign(new Error('installer engine output exceeded the bounded buffer'), { code: 7 }));
-      if (signal || code !== 0) return reject(Object.assign(new Error(Buffer.concat(stderr).toString('utf8').slice(0, 1024)
-        || `installer engine exited with ${signal ?? code}`), { code: Number.isSafeInteger(code) ? code : 7 }));
+      if (overflow) {
+        reject(Object.assign(new Error('installer engine output exceeded the bounded buffer'), { code: 7 }));
+        return;
+      }
+      if (signal || code !== 0) {
+        reject(Object.assign(new Error(Buffer.concat(stderr).toString('utf8').slice(0, 1024)
+          || `installer engine exited with ${String(signal ?? code)}`), { code: Number.isSafeInteger(code) ? code : 7 }));
+        return;
+      }
       resolvePromise({ stdout: Buffer.concat(stdout).toString('utf8') });
     });
   });
@@ -147,7 +167,7 @@ async function executeOpenedEngine(engine: Awaited<ReturnType<typeof open>>, inv
 async function safeFile(path: string, label: string, maximumBytes: number): Promise<void> {
   const info = await lstat(path);
   if (!info.isFile() || info.isSymbolicLink() || info.nlink !== 1 || info.size < 1 || info.size > maximumBytes
-    || (info.mode & 0o022) !== 0 || (typeof info.uid === 'number' && info.uid !== process.getuid?.())) {
+    || (info.mode & 0o022) !== 0 || info.uid !== process.getuid?.()) {
     throw new Error(`${label} is not a protected bounded regular file`);
   }
 }
@@ -155,7 +175,7 @@ async function safeFile(path: string, label: string, maximumBytes: number): Prom
 async function protectedDirectory(path: string, label: string): Promise<void> {
   const info = await lstat(path);
   if (!info.isDirectory() || info.isSymbolicLink() || (info.mode & 0o077) !== 0
-    || (typeof info.uid === 'number' && info.uid !== process.getuid?.())) throw new Error(`${label} is not a protected owned directory`);
+    || info.uid !== process.getuid?.()) throw new Error(`${label} is not a protected owned directory`);
 }
 
 function parseEngineOutput(stdout: string): unknown {
@@ -194,10 +214,10 @@ async function createEngineInvoker(options: ServerOptions): Promise<EngineInvoke
           ? Number(candidate.code) : 7;
         const parseDiagnostic = exitClass === 2 && typeof candidate.message === 'string'
           ? `: ${candidate.message.replace(/[\r\n\t]+/g, ' ').replace(/\s{2,}/g, ' ').slice(0, 1_024)}` : '';
-        throw new Error(`installer engine rejected the typed operation (class ${exitClass})${parseDiagnostic}`);
+        throw new Error(`installer engine rejected the typed operation (class ${String(exitClass)})${parseDiagnostic}`);
       }
     } finally {
-      await Promise.allSettled([engine?.close(), input?.close()]);
+      await Promise.allSettled([engine.close(), input?.close()]);
       await rm(path, { force: true });
     }
   };
@@ -211,8 +231,8 @@ async function createConsentBroker(options: ServerOptions, sessionRunId: string)
   await protectedDirectory(options.consentDirectory, 'consent directory');
   return async request => {
     const path = join(options.consentDirectory, consentFilename(request.operation, request.planDigest));
-    await safeFile(path, 'consent receipt', 16 * 1024).catch(error => {
-      if ((error as NodeJS.ErrnoException)?.code === 'ENOENT') throw new Error('operator consent is pending outside the model session');
+    await safeFile(path, 'consent receipt', 16 * 1024).catch((error: unknown) => {
+      if ((error as NodeJS.ErrnoException | null | undefined)?.code === 'ENOENT') throw new Error('operator consent is pending outside the model session');
       throw error;
     });
     const consumed = join(options.consentDirectory, `.consumed-${randomUUID()}`);
@@ -247,7 +267,7 @@ export async function createDesktopToolsMcpRuntime(optionsInput: unknown) {
       const at = () => new Date().toISOString();
       const supervisor = { kind: 'supervisor' as const, id: 'desktop-tools-supervisor', parentId: null };
       if (name === 'desktop_tools_approve') {
-        const planDigest = z.string().regex(/^[a-f0-9]{64}$/).parse((argumentsInput as { planDigest?: unknown })?.planDigest);
+        const planDigest = z.string().regex(/^[a-f0-9]{64}$/).parse((argumentsInput as { planDigest?: unknown } | null | undefined)?.planDigest);
         const approvalId = `approval-request-${randomUUID()}`;
         await events.append({ at: at(), producer: supervisor, kind: 'approval', approvalId, planDigest,
           status: 'requested', actorId: null });
@@ -263,7 +283,7 @@ export async function createDesktopToolsMcpRuntime(optionsInput: unknown) {
         }
       }
       if (name === 'desktop_tools_verify') {
-        const planDigest = z.string().regex(/^[a-f0-9]{64}$/).parse((argumentsInput as { planDigest?: unknown })?.planDigest);
+        const planDigest = z.string().regex(/^[a-f0-9]{64}$/).parse((argumentsInput as { planDigest?: unknown } | null | undefined)?.planDigest);
         await events.append({ at: at(), producer: supervisor, kind: 'verification', planDigest, status: 'started', evidenceDigest: null });
         try {
           const result = await adapters[name](argumentsInput);
@@ -292,7 +312,7 @@ export async function createDesktopToolsMcpRuntime(optionsInput: unknown) {
         }
       }
       if (['desktop_tools_apply', 'desktop_tools_resume', 'desktop_tools_rollback_config'].includes(name)) {
-        const candidates = (result as { events?: unknown })?.events;
+        const candidates = (result as { events?: unknown } | null | undefined)?.events;
         if (Array.isArray(candidates)) for (const event of candidates) {
           await events.append({ at: at(), producer: { kind: 'engine', id: 'installer-engine', parentId: context.sessionId },
             kind: 'engine-event', event });
@@ -314,11 +334,18 @@ export async function serveDesktopToolsMcp(argv: readonly string[], input = proc
   const lines = createInterface({ input, crlfDelay: Infinity });
   for await (const line of lines) {
     if (Buffer.byteLength(line, 'utf8') > 1024 * 1024) { errorResponse(null, -32600, 'request exceeds one MiB'); continue; }
-    let request: any;
-    try { request = JSON.parse(line); } catch { errorResponse(null, -32700, 'invalid JSON'); continue; }
-    if (request?.jsonrpc !== '2.0' || typeof request?.method !== 'string') { errorResponse(request?.id ?? null, -32600, 'invalid JSON-RPC request'); continue; }
-    if (request.id === undefined) continue;
-    const id = (typeof request.id === 'string' || typeof request.id === 'number' || request.id === null) ? request.id : null;
+    let parsed: unknown;
+    try { parsed = JSON.parse(line); } catch { errorResponse(null, -32700, 'invalid JSON'); continue; }
+    const request = typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)
+      ? parsed as Record<string, unknown>
+      : {};
+    const requestId = request.id;
+    const id = typeof requestId === 'string' || typeof requestId === 'number' ? requestId : null;
+    if (request.jsonrpc !== '2.0' || typeof request.method !== 'string') {
+      errorResponse(id, -32600, 'invalid JSON-RPC request');
+      continue;
+    }
+    if (requestId === undefined) continue;
     try {
       if (request.method === 'initialize') {
         response(id, { protocolVersion: '2024-11-05', capabilities: { tools: { listChanged: false } }, serverInfo: { name: 'desktop-tools', version: '1.0.0' } });
@@ -338,7 +365,7 @@ export async function serveDesktopToolsMcp(argv: readonly string[], input = proc
 }
 
 async function finalizeSessionEvents(argv: readonly string[]): Promise<void> {
-  const values: Record<string, string> = {};
+  const values: Partial<Record<string, string>> = {};
   for (let index = 0; index < argv.length; index += 2) {
     const key = argv[index]; const value = argv[index + 1];
     if (!key || !['--context', '--state-root', '--status'].includes(key) || !value || values[key] !== undefined) {
@@ -368,9 +395,10 @@ async function finalizeSessionEvents(argv: readonly string[]): Promise<void> {
     evidenceDigest: null, nextAction: status === 'cancellation' ? 'restart the authorized session' : 'inspect session evidence' });
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+const entryPath = process.argv.at(1);
+if (entryPath !== undefined && import.meta.url === `file://${entryPath}`) {
   const argv = process.argv.slice(2);
-  (argv[0] === '--finalize-events' ? finalizeSessionEvents(argv.slice(1)) : serveDesktopToolsMcp(argv)).catch(error => {
+  (argv[0] === '--finalize-events' ? finalizeSessionEvents(argv.slice(1)) : serveDesktopToolsMcp(argv)).catch((error: unknown) => {
     process.stderr.write(`desktop-tools-mcp: ${error instanceof Error ? error.message : 'startup failed'}\n`); process.exitCode = 1;
   });
 }

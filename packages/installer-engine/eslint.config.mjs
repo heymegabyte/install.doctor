@@ -19,7 +19,6 @@ const pendingSourceFiles = [
   'src/fault-injection.ts',
   'src/fleet-capacity-cost.ts',
   'src/host-mutation-lease.ts',
-  'src/mcp-server.ts',
   'src/native-deb-inspection.ts',
   'src/native-debian-composition.ts',
   'src/native-dpkg-fence.ts',

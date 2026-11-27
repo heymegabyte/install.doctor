@@ -91,15 +91,23 @@ test('stdio MCP lists only the ten tools and strict calls reject model-supplied 
   const child = spawn(process.execPath, [item.server, ...args], { shell: false, env: { PATH: '/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin', LANG: 'C.UTF-8' }, stdio: ['pipe', 'pipe', 'pipe'] });
   let stdout = ''; let stderr = ''; child.stdout.setEncoding('utf8'); child.stderr.setEncoding('utf8');
   child.stdout.on('data', chunk => { stdout += chunk; }); child.stderr.on('data', chunk => { stderr += chunk; });
-  child.stdin.end([
+  const requests = [
     { jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 'test', version: '1' } } },
     { jsonrpc: '2.0', method: 'notifications/initialized' },
     { jsonrpc: '2.0', id: 2, method: 'tools/list', params: {} },
     { jsonrpc: '2.0', id: 3, method: 'tools/call', params: { name: 'desktop_tools_discover', arguments: { schemaVersion: 1, shell: 'touch /tmp/pwned' } } },
-  ].map(value => JSON.stringify(value)).join('\n') + '\n');
+    { jsonrpc: '1.0', id: 'old-client', method: 'ping' },
+    { jsonrpc: '2.0', id: { invalid: true } },
+    null,
+  ].map(value => JSON.stringify(value));
+  child.stdin.end([...requests, '{malformed'].join('\n') + '\n');
   const exit = await new Promise((resolvePromise, reject) => { child.once('error', reject); child.once('exit', code => resolvePromise(code)); });
   assert.equal(exit, 0); assert.equal(stderr, '');
   const responses = stdout.trim().split('\n').map(line => JSON.parse(line));
+  assert.deepEqual(responses.map(({ id, error }) => [id, error?.code]), [
+    [1, undefined], [2, undefined], [3, undefined],
+    ['old-client', -32600], [null, -32600], [null, -32600], [null, -32700],
+  ]);
   const toolsResponse = z.object({ tools: z.array(z.object({ name: z.string() })) }).parse(responses.find(value => value.id === 2).result);
   assert.deepEqual(toolsResponse.tools.map(tool => tool.name), [...DESKTOP_TOOLS_TYPED_TOOL_NAMES]);
   const rejected = responses.find(value => value.id === 3).result;
