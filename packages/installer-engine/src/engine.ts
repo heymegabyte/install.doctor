@@ -797,7 +797,6 @@ export function createInstallerEngine(options: EngineOptions): InstallerEngine {
               options.resourcePressureSampler.sample(),
               new Promise<never>((_, reject) => {
                 pressureTimer = setTimeout(() => reject(new Error('resource pressure sampling timed out')), resourcePressureSampleTimeoutMs);
-                pressureTimer.unref?.();
               }),
             ]);
             pressure = ResourcePressureSampleSchema.parse(sampled);

@@ -1,17 +1,23 @@
 {
+  "extends": "../aid-core/vendor/theme-tools/tsconfig.base.json",
   "compilerOptions": {
-    "target": "ES2022",
     "module": "ES2022",
-    "moduleResolution": "bundler",
-    "lib": ["ES2022", "DOM"],
-    "strict": true,
+    "lib": [
+      "ES2022",
+      "DOM"
+    ],
     "declaration": true,
     "rootDir": "src",
     "outDir": "dist",
-    "noUncheckedIndexedAccess": true,
     "exactOptionalPropertyTypes": true,
-    "noImplicitOverride": true,
-    "noFallthroughCasesInSwitch": true
+    "types": [
+      "node"
+    ],
+    "noEmit": false,
+    "noEmitOnError": true,
+    "skipLibCheck": false
   },
-  "include": ["src/**/*.ts"]
+  "include": [
+    "src/**/*.ts"
+  ]
 }

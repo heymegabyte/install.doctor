@@ -6,9 +6,12 @@ import {
   createTrustedDebianVersionComparator,
 } from '../dist/debian-version.js';
 
+/** @typedef {NonNullable<Parameters<typeof createTrustedDebianVersionComparator>[0]>} ComparatorOptions */
+/** @param {string} executable */
 const trusted = async executable => assert.equal(executable, '/usr/bin/dpkg');
 
 test('trusted comparator uses only fixed dpkg compare invocations and returns ordering', async () => {
+  /** @type {{ executable: string, args: Parameters<NonNullable<ComparatorOptions['run']>>[1], options: Parameters<NonNullable<ComparatorOptions['run']>>[2] }[]} */
   const calls = [];
   const outcomes = new Map([
     ['1.0\u001flt\u001f2:1.0-1', 0],
@@ -21,7 +24,9 @@ test('trusted comparator uses only fixed dpkg compare invocations and returns or
     assertTrustedExecutable: trusted,
     run: (executable, args, options) => {
       calls.push({ executable, args, options });
-      return { status: outcomes.get(`${args[1]}\u001f${args[2]}\u001f${args[3]}`) };
+      const status = outcomes.get(`${args[1]}\u001f${args[2]}\u001f${args[3]}`);
+      assert.ok(status !== undefined, 'unexpected comparator invocation');
+      return { status };
     },
   });
 
@@ -44,6 +49,7 @@ test('trusted comparator uses only fixed dpkg compare invocations and returns or
 });
 
 test('factory verifies the one fixed executable before exposing a comparator', async () => {
+  /** @type {string[]} */
   const seen = [];
   await assert.rejects(createTrustedDebianVersionComparator({
     assertTrustedExecutable: async executable => {
@@ -68,6 +74,7 @@ test('comparator rejects malformed and oversized versions before invoking dpkg',
 });
 
 test('dpkg exit 2, signals, spawn errors, timeout, and impossible statuses fail closed', async () => {
+  /** @type {ReturnType<NonNullable<ComparatorOptions['run']>>[]} */
   const outcomes = [
     { status: 2, stderr: Buffer.from('bad relation') },
     { status: null, signal: 'SIGTERM' },

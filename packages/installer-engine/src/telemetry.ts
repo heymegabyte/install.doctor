@@ -81,7 +81,6 @@ export async function exportInstallerTelemetry(
   });
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(new Error('telemetry timeout')), config.timeoutMs);
-  timer.unref?.();
   try {
     await Promise.race([
       transport({ endpoint: config.endpoint, batch, signal: controller.signal }),
