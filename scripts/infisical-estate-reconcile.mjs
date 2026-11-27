@@ -151,8 +151,7 @@ export function validateClosedSetSync({
     if (!manifest.profiles[configuration.profile]) fail(`target ${target} references an unknown profile`);
   }
   const targets = new Set([...Object.keys(manifest.hosts), ...Object.keys(manifest.workloads)]);
-  if (ledger?.schemaVersion !== 1 || typeof ledger.records !== 'object') fail('invalid validation ledger');
-  for (const name of Object.keys(ledger.records)) if (!canonicalNames.has(name)) fail(`validation ledger references unknown secret ${name}`);
+  validateValidationLedger(ledger, listing.sources);
   if (offlineExceptions?.schemaVersion !== 1 || !Array.isArray(offlineExceptions.exceptions)) fail('invalid offline exception inventory');
   for (const exception of offlineExceptions.exceptions) {
     for (const sourceId of exception.sourceIds ?? []) if (!sourceIds.has(sourceId)) fail(`offline exception ${exception.id} references unknown source ${sourceId}`);
@@ -185,6 +184,14 @@ export function secretDirectoriesForHost({ secretDirectories, secretDirectoriesO
   return [secretDirectories[0]];
 }
 
+export function secretStoresForTarget(options, targetKind, target) {
+  if (options.secretDirectoriesOverridden) {
+    return [{ id: 'general', directory: options.secretDirectories[0], precedence: 10, hostDefault: true, workloadKinds: [targetKind] }];
+  }
+  if (targetKind === 'workload' || target !== 'macos.megabyte.space') return [defaultSecretStores[0]];
+  return defaultSecretStores.filter(({ id }) => id === 'general' || id === 'workstation');
+}
+
 export function selectHostSecrets(manifest, host, secretNames) {
   const hostConfiguration = manifest.hosts[host];
   if (!hostConfiguration) fail(`host ${host} is not declared`);
@@ -198,10 +205,79 @@ export function selectConfigurationSecrets(manifest, configuration, secretNames)
   return [...secretNames].filter((name) => include.some((pattern) => pattern.test(name)) && !exclude.some((pattern) => pattern.test(name))).sort();
 }
 
-export function assertSecretsValidated(ledger, secretNames) {
+export function selectConfigurationSources(manifest, configuration, sources) {
+  const allowedNames = new Set(selectConfigurationSecrets(manifest, configuration, sources.map(({ canonicalName }) => canonicalName)));
+  const candidates = sources.filter(({ canonicalName }) => allowedNames.has(canonicalName));
+  const selected = new Map();
+  for (const source of candidates) {
+    const current = selected.get(source.canonicalName);
+    if (!current || source.precedence > current.precedence) selected.set(source.canonicalName, source);
+    else if (source.precedence === current.precedence) fail(`ambiguous source precedence for ${source.canonicalName}`);
+  }
+  return [...selected.values()].sort((left, right) => left.sourceId.localeCompare(right.sourceId));
+}
+
+export function selectRequestedSources(manifest, configuration, sources, selectors = []) {
+  if (selectors.length === 0) return selectConfigurationSources(manifest, configuration, sources);
+  const allowedNames = new Set(selectConfigurationSecrets(manifest, configuration, sources.map(({ canonicalName }) => canonicalName)));
+  const allowedSources = sources.filter(({ canonicalName }) => allowedNames.has(canonicalName));
+  const selected = new Map();
+  for (const selector of selectors) {
+    if (selector.includes(':')) {
+      const source = allowedSources.find(({ sourceId }) => sourceId === selector);
+      if (!source) fail(`selected secret source ${selector} is not permitted for the target`);
+      selected.set(source.sourceId, source);
+      continue;
+    }
+    const source = selectConfigurationSources(manifest, configuration, allowedSources.filter(({ canonicalName }) => canonicalName === selector))[0];
+    if (!source) fail(`selected secret ${selector} is not permitted for the target`);
+    selected.set(source.sourceId, source);
+  }
+  return [...selected.values()].sort((left, right) => left.sourceId.localeCompare(right.sourceId));
+}
+
+export function validateValidationLedger(ledger, inventorySources = []) {
   if (ledger?.schemaVersion !== 1 || typeof ledger.records !== 'object') fail('invalid validation ledger');
-  for (const name of secretNames) {
-    if (ledger.records[name]?.status !== 'valid') fail(`secret ${name} has no current valid credential evidence`);
+  const sourcesById = new Map(inventorySources.map((source) => [source.sourceId, source]));
+  const canonicalNames = new Set(inventorySources.map(({ canonicalName }) => canonicalName));
+  for (const [key, record] of Object.entries(ledger.records)) {
+    if (!record || !['valid', 'unverified', 'invalid-retired'].includes(record.status)) fail(`validation record ${key} has invalid status`);
+    if (key.includes(':')) {
+      const source = sourcesById.get(key);
+      if (!source) fail(`validation ledger references unknown source ${key}`);
+      if (record.sourceId && record.sourceId !== key) fail(`validation record ${key} has mismatched source id`);
+      if (record.canonicalName && record.canonicalName !== source.canonicalName) fail(`validation record ${key} has mismatched canonical name`);
+      if (record.ciphertextSha256 && record.ciphertextSha256 !== source.ciphertextSha256) fail(`validation record ${key} has stale ciphertext evidence`);
+    } else if (inventorySources.length > 0 && !canonicalNames.has(key)) {
+      fail(`validation ledger references unknown secret ${key}`);
+    }
+  }
+  return ledger;
+}
+
+export function resolveSourceValidationRecord(ledger, source, inventorySources) {
+  validateValidationLedger(ledger, inventorySources);
+  const qualified = ledger.records[source.sourceId];
+  if (qualified) return qualified;
+  const siblings = inventorySources.filter(({ canonicalName }) => canonicalName === source.canonicalName);
+  if (siblings.length !== 1 && ledger.records[source.canonicalName]) {
+    fail(`legacy validation evidence for ${source.canonicalName} is ambiguous across ${siblings.map(({ sourceId }) => sourceId).sort().join(', ')}`);
+  }
+  return ledger.records[source.canonicalName];
+}
+
+export function assertSecretSourcesValidated(ledger, selectedSources, inventorySources = selectedSources) {
+  for (const source of selectedSources) {
+    if (resolveSourceValidationRecord(ledger, source, inventorySources)?.status !== 'valid') {
+      fail(`secret source ${source.sourceId} has no current valid credential evidence`);
+    }
+  }
+}
+
+export function assertSecretsValidated(ledger, secretNames) {
+  validateValidationLedger(ledger);
+  for (const name of secretNames) if (ledger.records[name]?.status !== 'valid') {
+    fail(`secret ${name} has no current valid credential evidence`);
   }
 }
 
@@ -258,35 +334,45 @@ function main() {
   const targetKind = options.workload ? 'workload' : 'host';
   const configurations = targetKind === 'workload' ? manifest.workloads : manifest.hosts;
   const targets = options.workload ? [options.workload] : options.host ? [options.host] : Object.keys(configurations).sort();
-  const inventories = new Map(targets.map((target) => {
-    const directories = targetKind === 'host' ? secretDirectoriesForHost(options, target) : [options.secretDirectories[0]];
-    return [target, inventorySecretNames(directories)];
-  }));
-  const inventoryNames = new Set([...inventories.values()].flatMap((inventory) => [...inventory.keys()]));
-  const plans = targets.map((target) => ({
-    target,
-    targetKind,
-    profile: configurations[target]?.profile,
-    projectId: configurations[target]?.projectId,
-    secretPath: configurations[target]?.secretPath,
-    secretNames: selectConfigurationSecrets(manifest, configurations[target] ?? fail(`${targetKind} ${target} is not declared`), inventories.get(target).keys()).filter((name) => options.secretNames.length === 0 || options.secretNames.includes(name)),
-  }));
-  for (const name of options.secretNames) if (!inventoryNames.has(name)) fail(`selected secret ${name} is not present in the inventory`);
+  const inventories = new Map(targets.map((target) => [target, inventorySecretSources(secretStoresForTarget(options, targetKind, target))]));
+  const inventorySources = [...new Map([...inventories.values()].flat().map((source) => [source.sourceId, source])).values()];
+  const inventoryNames = new Set(inventorySources.map(({ canonicalName }) => canonicalName));
+  const inventorySourceIds = new Set(inventorySources.map(({ sourceId }) => sourceId));
+  for (const selector of options.secretNames) {
+    if (selector.includes(':') ? !inventorySourceIds.has(selector) : !inventoryNames.has(selector)) {
+      fail(`selected secret ${selector} is not present in the inventory`);
+    }
+  }
+  const plans = targets.map((target) => {
+    const configuration = configurations[target] ?? fail(`${targetKind} ${target} is not declared`);
+    const selectedSources = selectRequestedSources(manifest, configuration, inventories.get(target), options.secretNames);
+    return {
+      target,
+      targetKind,
+      profile: configuration.profile,
+      projectId: configuration.projectId,
+      secretPath: configuration.secretPath,
+      secretNames: selectedSources.map(({ canonicalName }) => canonicalName).sort(),
+      secretSources: selectedSources.map(({ sourceId, store, canonicalName, normalizedPath, ciphertextSha256 }) => ({
+        sourceId, store, canonicalName, normalizedPath, ciphertextSha256,
+      })),
+    };
+  });
   if (options.command === 'plan') {
     const planKey = targetKind === 'workload' ? 'workloads' : 'hosts';
     process.stdout.write(`${JSON.stringify({ schemaVersion: 1, inventoryCount: inventoryNames.size, [planKey]: plans }, null, 2)}\n`);
     return;
   }
   const validationLedger = JSON.parse(readFileSync(options.validationLedgerPath, 'utf8'));
-  assertSecretsValidated(validationLedger, plans.flatMap((plan) => plan.secretNames));
+  assertSecretSourcesValidated(validationLedger, plans.flatMap((plan) => plan.secretSources), inventorySources);
   if (options.projectId && targets.length !== 1) fail('--project-id override requires exactly one target');
   execFileSync('infisical', ['login', 'status', '--silent'], { stdio: 'ignore' });
   for (const plan of plans) {
     const projectId = options.projectId ?? plan.projectId;
     if (!projectId) fail(`${plan.targetKind} ${plan.target} has no project binding`);
     ensureSecretPath({ environment: manifest.environment, projectId, secretPath: plan.secretPath });
-    for (const name of plan.secretNames) {
-      writeEncryptedSecret({ encryptedPath: inventories.get(plan.target).get(name), environment: manifest.environment, name, projectId, secretPath: plan.secretPath });
+    for (const source of plan.secretSources) {
+      writeEncryptedSecret({ encryptedPath: source.normalizedPath, environment: manifest.environment, name: source.canonicalName, projectId, secretPath: plan.secretPath });
     }
     process.stdout.write(`${JSON.stringify({ target: plan.target, targetKind: plan.targetKind, status: 'reconciled', secretCount: plan.secretNames.length })}\n`);
   }
