@@ -56,8 +56,10 @@ void test('privileged owner decision binds the exact server-resolved profile id 
   const exact = { ...request, profileRevision: digest, profileId: 'profile-1',
     profileRevisionDigest: digest, approvedScopes: ['authorize-privileged-run'] };
   assert.equal(authorizeOwnerDecision(privileged, exact, owner, now).ok, true);
-  const { profileId, ...withoutProfileId } = exact;
-  const { profileRevisionDigest, ...withoutDigest } = exact;
+  const withoutProfileId = { ...exact };
+  delete withoutProfileId.profileId;
+  const withoutDigest = { ...exact };
+  delete withoutDigest.profileRevisionDigest;
   for (const changed of [withoutProfileId, { ...exact, profileId: 'profile-2' },
     withoutDigest, { ...exact, profileRevisionDigest: 'b'.repeat(64) }]) {
     assert.deepEqual(authorizeOwnerDecision(privileged, changed, owner, now), {

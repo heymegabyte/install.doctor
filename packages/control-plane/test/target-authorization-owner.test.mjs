@@ -3,14 +3,13 @@ import test from 'node:test';
 import { authorizeTargetAuthorizationDecision } from '../src/target-authorization-owner.ts';
 
 const now = new Date('2026-11-09T14:00:00.000Z');
-/** @type {Parameters<typeof authorizeTargetAuthorizationDecision>[0]} */
-const record = {
+const binding = {
   requestId: 'auth-1', verificationCode: '2345-6789', profileId: 'profile-1',
   profileRevision: 'revision-1', profileRevisionDigest: 'a'.repeat(64),
   targetKeyFingerprint: 'b'.repeat(64), requestedScopes: ['profile:read', 'session:create'],
-  status: 'pending', expiresAt: '2026-11-09T14:05:00.000Z',
 };
-const { status, expiresAt, ...binding } = record;
+/** @type {Parameters<typeof authorizeTargetAuthorizationDecision>[0]} */
+const record = { ...binding, status: 'pending', expiresAt: '2026-11-09T14:05:00.000Z' };
 /** @type {Parameters<typeof authorizeTargetAuthorizationDecision>[1]} */
 const request = { ...binding, decision: 'approve', approvedScopes: ['profile:read', 'session:create'] };
 
