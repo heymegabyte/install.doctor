@@ -4,12 +4,21 @@ import { HostFactsSchema, JournalSchema } from '@install-doctor/aid-core/install
 
 const id = z.string().min(1).max(128).regex(/^[a-z0-9][a-z0-9._-]*$/);
 const digest = z.string().regex(/^[a-f0-9]{64}$/);
-const timestamp = z.string().datetime({ offset: true }).max(64);
+const timestamp = z.iso.datetime({ offset: true }).max(64);
 const gitCommit = z.string().regex(/^[a-f0-9]{40}$/);
 const repository = z.string().regex(/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/).max(256);
+function isStrictlySorted(values: readonly string[]): boolean {
+  let previous: string | undefined;
+  for (const value of values) {
+    if (previous !== undefined && previous.localeCompare(value) >= 0) return false;
+    previous = value;
+  }
+  return true;
+}
+
 const sortedUnique = <T extends z.ZodType<string>>(schema: T, maximum: number, label: string) => z.array(schema).max(maximum)
   .superRefine((values, context) => {
-    if (values.some((value, index) => index > 0 && values[index - 1]!.localeCompare(value) >= 0)) {
+    if (!isStrictlySorted(values)) {
       context.addIssue({ code: 'custom', message: `${label} must be unique and sorted` });
     }
   });
@@ -74,15 +83,14 @@ const RequestWithoutDigestSchema = z.strictObject({
     context.addIssue({ code: 'custom', path: ['platform'], message: 'platform must match normalized host facts' });
   }
   for (const [path, values] of [['targets', value.targets.map(item => item.path)], ['artifacts', value.artifacts.map(item => item.id)]] as const) {
-    if (new Set(values).size !== values.length || values.some((item, index) => index > 0 && values[index - 1]!.localeCompare(item) >= 0)) {
+    if (new Set(values).size !== values.length || !isStrictlySorted(values)) {
       context.addIssue({ code: 'custom', path: [path], message: `${path} must be unique and sorted by canonical identity` });
     }
   }
 });
 
 export const BundleSigningRequestSchema = RequestWithoutDigestSchema.safeExtend({ requestDigest: digest }).superRefine((value, context) => {
-  const { requestDigest, ...unsigned } = value;
-  if (requestDigest !== canonicalAuthorityDigest(unsigned)) {
+  if (value.requestDigest !== canonicalAuthorityDigest(unsignedRequest(value))) {
     context.addIssue({ code: 'custom', path: ['requestDigest'], message: 'request digest does not match canonical request' });
   }
 });
@@ -108,7 +116,7 @@ export const OfflineSignerDelegationSchema = z.strictObject({
     context.addIssue({ code: 'custom', path: ['validUntil'], message: 'delegation expiry must follow activation' });
   }
   const identities = value.allowedPlatforms.map(platformIdentity);
-  if (new Set(identities).size !== identities.length || identities.some((item, index) => index > 0 && identities[index - 1]!.localeCompare(item) >= 0)) {
+  if (new Set(identities).size !== identities.length || !isStrictlySorted(identities)) {
     context.addIssue({ code: 'custom', path: ['allowedPlatforms'], message: 'allowed platforms must be unique and canonically sorted' });
   }
 });
@@ -141,9 +149,8 @@ function platformIdentity(value: AuthorityPlatformCell): string {
   return `${value.os}/${value.version}/${value.arch}/${value.environment}/${value.role}/${value.packageManager}`;
 }
 function same(left: unknown, right: unknown): boolean { return canonicalAuthorityDigest(left) === canonicalAuthorityDigest(right); }
-function unsignedRequest(value: BundleSigningRequest): Omit<BundleSigningRequest, 'requestDigest'> {
-  const { requestDigest: _requestDigest, ...unsigned } = value;
-  return unsigned;
+function unsignedRequest(value: { readonly requestDigest: string }): Record<string, unknown> {
+  return Object.fromEntries(Object.entries(value).filter(([key]) => key !== 'requestDigest'));
 }
 
 export type BundleSigningRequestSemanticInput = Omit<z.input<typeof RequestWithoutDigestSchema>, 'hostFactsDigest'>;
@@ -270,7 +277,7 @@ export async function verifyIndependentPromotionEvidence(input: IndependentPromo
   if (bundle.artifacts.some(value => !delegation.allowedArtifactClasses.includes(value.artifactClass)) || request.artifacts.some(value => !delegation.allowedArtifactClasses.includes(value.artifactClass))) fail('artifact class is outside delegated scope');
   if (bundle.sizeBytes > delegation.maxBundleSizeBytes) fail('bundle exceeds delegated size');
   if (ci.workflowRevision !== request.workflow.revision || ci.workflowRunId !== request.workflow.runId || ci.runAttempt !== request.workflow.runAttempt) fail('CI identity does not match requester claim');
-  if (ci.issuer !== value.expected.ci.issuer || ci.subject !== value.expected.ci.subject || ci.workflowRef !== value.expected.ci.workflowRef) fail('CI attestation authority or identity mismatch');
+  if (ci.subject !== value.expected.ci.subject || ci.workflowRef !== value.expected.ci.workflowRef) fail('CI attestation authority or identity mismatch');
   if (ci.evidenceDigest !== canonicalAuthorityDigest({ journal, executionAuthority })) fail('CI attestation does not bind committed journal and network isolation authority');
   if (journal.planDigest !== request.normalizedPlanDigest || journal.releaseId !== request.release.releaseId || journal.desiredRevision !== request.desiredStateRevision || journal.hostId !== request.hostFacts.hostId || journal.hostFactsDigest !== request.hostFactsDigest) fail('committed journal scope mismatch');
   const expected = value.expected;

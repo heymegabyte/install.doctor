@@ -16,7 +16,6 @@ const pendingSourceFiles = [
   'src/native-dpkg-quiescence.ts',
   'src/native-dpkg-transaction.ts',
   'src/native-policy-rcd.ts',
-  'src/offline-authority.ts',
   'src/offline-bundle.ts',
   'src/offline-execution.ts',
   'src/offline-orchestrator.ts',
