@@ -18,6 +18,8 @@ writeFileSync(join(root, 'FOURSQUARE_API_KEY'), 'foursquare ciphertext fixture')
 writeFileSync(join(root, 'DAYTONA_API_KEY'), 'daytona ciphertext fixture');
 writeFileSync(join(root, 'IONIC_TOKEN'), 'ionic ciphertext fixture');
 writeFileSync(join(root, 'EXA_API_KEY'), 'exa ciphertext fixture');
+writeFileSync(join(root, 'HATCHET_API_TOKEN'), 'hatchet runtime ciphertext fixture');
+writeFileSync(join(root, 'HATCHET_MANAGEMENT_TOKEN'), 'hatchet management ciphertext fixture');
 writeFileSync(join(root, 'SUDO_PASSWORD'), 'excluded fixture');
 
 const manifest = validateManifest({
@@ -35,13 +37,33 @@ const manifest = validateManifest({
       projectId: '4ae065b0-c081-454e-a513-220a28e5d2f0',
       secretPath: '/',
     },
+    'projectsites.dev': {
+      profile: 'projectsites-runtime',
+      projectId: 'c09bef97-e7de-46c1-983c-06af40972c24',
+      secretPath: '/',
+    },
+    'projectsites-hatchet-admin': {
+      profile: 'projectsites-hatchet-admin',
+      projectId: 'c09bef97-e7de-46c1-983c-06af40972c24',
+      secretPath: '/admin/hatchet',
+    },
   },
-  profiles: { developer: ['cloudflare'], 'cloudflare-mcp': ['cloudflare', 'composio', 'daytona', 'exa', 'foursquare', 'ionic'] },
+  profiles: {
+    developer: ['cloudflare'],
+    'cloudflare-mcp': ['cloudflare', 'composio', 'daytona', 'exa', 'foursquare', 'ionic'],
+    'projectsites-runtime': ['projectsites-hatchet-runtime'],
+    'projectsites-hatchet-admin': ['projectsites-hatchet-admin'],
+  },
   capabilityPatterns: { cloudflare: ['^CLOUDFLARE_'], composio: ['^COMPOSIO_API_KEY$'], daytona: ['^DAYTONA_API_KEY$'], exa: ['^EXA_API_KEY$'], foursquare: ['^FOURSQUARE_API_KEY$'], ionic: ['^IONIC_TOKEN$'] },
+  exactCapabilityNames: {
+    'projectsites-hatchet-runtime': ['HATCHET_API_TOKEN'],
+    'projectsites-hatchet-admin': ['HATCHET_MANAGEMENT_TOKEN'],
+  },
+  reservedNames: ['HATCHET_API_TOKEN', 'HATCHET_MANAGEMENT_TOKEN'],
   alwaysExcludePatterns: ['PASSWORD$'],
 });
 const inventory = inventorySecretNames([root]);
-assert.deepEqual([...inventory.keys()], ['CLOUDFLARE_API_TOKEN', 'COMPOSIO_API_KEY', 'DAYTONA_API_KEY', 'EXA_API_KEY', 'FOURSQUARE_API_KEY', 'IONIC_TOKEN', 'SUDO_PASSWORD']);
+assert.deepEqual([...inventory.keys()], ['CLOUDFLARE_API_TOKEN', 'COMPOSIO_API_KEY', 'DAYTONA_API_KEY', 'EXA_API_KEY', 'FOURSQUARE_API_KEY', 'HATCHET_API_TOKEN', 'HATCHET_MANAGEMENT_TOKEN', 'IONIC_TOKEN', 'SUDO_PASSWORD']);
 
 const storesRoot = mkdtempSync(join(tmpdir(), 'infisical-source-stores-'));
 const general = join(storesRoot, 'general');
@@ -106,6 +128,21 @@ assert.deepEqual(selectHostSecrets(manifest, 'macos.megabyte.space', inventory.k
 assert.deepEqual(selectConfigurationSecrets(
   manifest, manifest.workloads['mcp.megabyte.space'], inventory.keys(),
 ), ['CLOUDFLARE_API_TOKEN', 'COMPOSIO_API_KEY', 'DAYTONA_API_KEY', 'EXA_API_KEY', 'FOURSQUARE_API_KEY', 'IONIC_TOKEN']);
+assert.deepEqual(selectConfigurationSecrets(
+  manifest, manifest.workloads['projectsites.dev'], inventory.keys(),
+), ['HATCHET_API_TOKEN']);
+assert.deepEqual(selectConfigurationSecrets(
+  manifest, manifest.workloads['projectsites-hatchet-admin'], inventory.keys(),
+), ['HATCHET_MANAGEMENT_TOKEN']);
+assert.throws(() => validateManifest({
+  ...manifest,
+  workloads: {
+    ...manifest.workloads,
+    'projectsites-hatchet-admin': {
+      ...manifest.workloads['projectsites-hatchet-admin'], secretPath: '/admin/../hatchet',
+    },
+  },
+}), /invalid target configuration/);
 const accessSshNames = [
   'CF_ACCESS_SSH_COOLIFY_CLIENT_ID', 'CF_ACCESS_SSH_COOLIFY_CLIENT_SECRET',
   'CF_ACCESS_SSH_UBUNTU_CLIENT_ID', 'CF_ACCESS_SSH_UBUNTU_CLIENT_SECRET',
@@ -129,8 +166,11 @@ const accessSshManifest = validateManifest({
     developer: ['cloudflare', 'cloudflare-access-ssh-client'], server: ['cloudflare'], managed: ['cloudflare'],
   },
   capabilityPatterns: { ...manifest.capabilityPatterns, cloudflare: ['^CLOUDFLARE_', '^CF_'] },
-  reservedNames: accessSshNames,
-  exactCapabilityNames: { 'cloudflare-access-ssh-client': accessSshNames },
+  reservedNames: [...manifest.reservedNames, ...accessSshNames],
+  exactCapabilityNames: {
+    ...manifest.exactCapabilityNames,
+    'cloudflare-access-ssh-client': accessSshNames,
+  },
 });
 const cloudflareInventory = ['CF_API_TOKEN', ...accessSshNames];
 assert.deepEqual(selectHostSecrets(accessSshManifest, 'macos.megabyte.space', cloudflareInventory), cloudflareInventory.sort());

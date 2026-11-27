@@ -60,7 +60,12 @@ export function validateManifest(manifest) {
   for (const [target, configuration] of [...Object.entries(manifest.hosts), ...Object.entries(manifest.workloads)]) {
     const expectedSecretPath = `/hosts/${target.replaceAll('.', '-')}`;
     const validProjectId = /^[0-9a-f-]{36}$/.test(configuration.projectId ?? '');
-    const validSecretPath = configuration.secretPath === '/' || configuration.secretPath === expectedSecretPath;
+    const workload = Object.hasOwn(manifest.workloads, target);
+    const normalizedWorkloadPath = /^\/(?:[a-z0-9._-]+\/)*[a-z0-9._-]+$/.test(configuration.secretPath ?? '')
+      && !configuration.secretPath.split('/').some((segment) => segment === '.' || segment === '..');
+    const validSecretPath = configuration.secretPath === '/'
+      || configuration.secretPath === expectedSecretPath
+      || workload && normalizedWorkloadPath;
     if (!/^[a-z0-9.-]+$/.test(target) || !manifest.profiles[configuration.profile] || !validProjectId || !validSecretPath) {
       fail(`invalid target configuration for ${target}`);
     }
