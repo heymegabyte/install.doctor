@@ -90,6 +90,16 @@ secrets, the enabled service set is narrowed by the host profile, systemd
 lingering is never enabled implicitly, and rollout remains reversible until
 real client canaries pass.
 
+### Canonical remote MCP host manifests
+
+Install Doctor consumes macOS and Ubuntu human/automation profiles generated
+by `heymegabyte/mcp.megabyte.space` through
+`scripts/mcp-host-manifest-consumer.mjs`. The exact upstream revision and file
+digests are pinned in `config/mcp-portals/canonical-pin.json`. Installation is
+explicit and transactional, preserves unrelated client entries, retains
+runtime-only credential references, and produces a drift-bound rollback
+receipt. The canonical control-plane repository remains the routing authority.
+
 ---
 
 ## 5. Don't drop these (lessons learned)

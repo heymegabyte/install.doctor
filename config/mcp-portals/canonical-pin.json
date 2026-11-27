@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "repository": "heymegabyte/mcp.megabyte.space",
+  "revision": "3c7ce56b668fd4e016deb16160382d41aceea35d",
+  "baseUrl": "https://raw.githubusercontent.com/heymegabyte/mcp.megabyte.space/3c7ce56b668fd4e016deb16160382d41aceea35d/generated/profiles",
+  "sourceDigest": "sha256:12e1289b0038edddaabb7625a5ec4bed4cfd5a09e7a2602e7b6553cea770af95",
+  "artifacts": {
+    "index.json": "sha256:cce83a120e9d9c35477cbc14098ba7508d01c7930fdf2b625e1b40c1a484706b",
+    "macos-human.json": "sha256:81783c7d590fee579e37b020c93a7ce2c3302556e18987a0d79bebdc6fc3e5de",
+    "macos-automation.json": "sha256:ba300b7a34f09bb24488e97f41f5a0855a2ff54bef534f5c5f762b383ab517dc",
+    "ubuntu-human.json": "sha256:e078fd862cd3dd1bc4a6afc1a8d06668ef9e95e1ba0383bcd55ee82d74398e1e",
+    "ubuntu-automation.json": "sha256:6c659aeaa5a3d2cafaf20dc59edfef8c7b7179b0df6d4dcf2c2edac3462fca71"
+  }
+}

@@ -1,0 +1,71 @@
+{
+  "schemaVersion": 1,
+  "id": "ubuntu-automation",
+  "sourceDigest": "sha256:12e1289b0038edddaabb7625a5ec4bed4cfd5a09e7a2602e7b6553cea770af95",
+  "selector": {
+    "hostClass": "ubuntu-runner",
+    "clientKinds": [
+      "litellm",
+      "openclaw"
+    ]
+  },
+  "remote": {
+    "managedName": "megabyte-automation",
+    "portalId": "automation",
+    "endpoint": "https://automation.mcp.megabyte.space/mcp",
+    "authMode": "service-token",
+    "codeMode": "off",
+    "profileIds": [
+      "automation"
+    ],
+    "workloadId": "ubuntu.megabyte.space",
+    "runtimeSecretRefs": {
+      "clientId": {
+        "provider": "infisical",
+        "project": "ubuntu.megabyte.space",
+        "environment": "prod",
+        "path": "/",
+        "name": "CF_ACCESS_MCP_AUTOMATION_CLIENT_ID"
+      },
+      "clientSecret": {
+        "provider": "infisical",
+        "project": "ubuntu.megabyte.space",
+        "environment": "prod",
+        "path": "/",
+        "name": "CF_ACCESS_MCP_AUTOMATION_CLIENT_SECRET"
+      }
+    },
+    "serverGrants": [],
+    "headers": {
+      "CF-Access-Client-Id": {
+        "secretRef": "clientId"
+      },
+      "CF-Access-Client-Secret": {
+        "secretRef": "clientSecret"
+      }
+    }
+  },
+  "merge": {
+    "ownershipPrefix": "megabyte-",
+    "preserveLocalServers": [
+      "cua-driver",
+      "skills-gateway-mcp",
+      "playwright",
+      "semgrep",
+      "shadcn-vue",
+      "filesystem",
+      "shell"
+    ],
+    "preserveUnknownEntries": true,
+    "atomic": true,
+    "predecessorSnapshotRequired": true
+  },
+  "installPolicy": "canary-opt-in",
+  "verification": [
+    "initialize",
+    "tools/list",
+    "allowed-read-only-call",
+    "wrong-endpoint-denial",
+    "rollback"
+  ]
+}

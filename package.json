@@ -30,6 +30,7 @@
     "start": "bash start.sh",
     "test": "task test",
     "test:desktop-tools-status": "cd packages/aid-core && npm run build && cd ../.. && node scripts/generate-desktop-tools-status.mjs --check",
+    "test:mcp-host-manifests": "node scripts/test-mcp-host-manifest-consumer.mjs",
     "validate:software": "task validate:software"
   },
   "keywords": [

@@ -1,0 +1,55 @@
+{
+  "schemaVersion": 1,
+  "id": "ubuntu-human",
+  "sourceDigest": "sha256:12e1289b0038edddaabb7625a5ec4bed4cfd5a09e7a2602e7b6553cea770af95",
+  "selector": {
+    "hostClass": "ubuntu-runner",
+    "clientKinds": [
+      "codex",
+      "opencode",
+      "claude"
+    ]
+  },
+  "remote": {
+    "managedName": "megabyte-primary",
+    "portalId": "primary",
+    "endpoint": "https://mcp.megabyte.space/mcp",
+    "authMode": "browser-oauth-posture",
+    "codeMode": "off",
+    "profileIds": [
+      "developer",
+      "research",
+      "observability"
+    ],
+    "workloadId": null,
+    "runtimeSecretRefs": null,
+    "serverGrants": [],
+    "headers": null
+  },
+  "merge": {
+    "ownershipPrefix": "megabyte-",
+    "preserveLocalServers": [
+      "cua-driver",
+      "skills-gateway-mcp",
+      "playwright",
+      "semgrep",
+      "shadcn-vue",
+      "voicekit-mcp",
+      "paperclip-control-plane-mcp",
+      "langfuse-mcp",
+      "theme-tools-mcp",
+      "cloudflare-mcp"
+    ],
+    "preserveUnknownEntries": true,
+    "atomic": true,
+    "predecessorSnapshotRequired": true
+  },
+  "installPolicy": "canary-opt-in",
+  "verification": [
+    "initialize",
+    "tools/list",
+    "allowed-read-only-call",
+    "wrong-endpoint-denial",
+    "rollback"
+  ]
+}

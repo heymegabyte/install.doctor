@@ -1,0 +1,96 @@
+{
+  "schemaVersion": 1,
+  "sourceDigest": "sha256:12e1289b0038edddaabb7625a5ec4bed4cfd5a09e7a2602e7b6553cea770af95",
+  "assignments": [
+    {
+      "id": "macos-human",
+      "selector": {
+        "hostClass": "macos-workstation",
+        "clientKinds": [
+          "codex",
+          "opencode",
+          "claude",
+          "cursor"
+        ]
+      },
+      "installPolicy": "canary-opt-in",
+      "path": "./macos-human.json"
+    },
+    {
+      "id": "ubuntu-human",
+      "selector": {
+        "hostClass": "ubuntu-runner",
+        "clientKinds": [
+          "codex",
+          "opencode",
+          "claude"
+        ]
+      },
+      "installPolicy": "canary-opt-in",
+      "path": "./ubuntu-human.json"
+    },
+    {
+      "id": "macos-automation",
+      "selector": {
+        "hostClass": "macos-workstation",
+        "clientKinds": [
+          "litellm",
+          "openclaw"
+        ]
+      },
+      "installPolicy": "canary-opt-in",
+      "path": "./macos-automation.json"
+    },
+    {
+      "id": "ubuntu-automation",
+      "selector": {
+        "hostClass": "ubuntu-runner",
+        "clientKinds": [
+          "litellm",
+          "openclaw"
+        ]
+      },
+      "installPolicy": "canary-opt-in",
+      "path": "./ubuntu-automation.json"
+    },
+    {
+      "id": "canary-human",
+      "selector": {
+        "hostClass": "human-test",
+        "clientKinds": [
+          "codex",
+          "opencode",
+          "claude"
+        ]
+      },
+      "installPolicy": "explicit-only",
+      "path": "./canary-human.json"
+    },
+    {
+      "id": "sandbox-human",
+      "selector": {
+        "hostClass": "human-test",
+        "clientKinds": [
+          "codex",
+          "opencode",
+          "claude"
+        ]
+      },
+      "installPolicy": "explicit-only",
+      "path": "./sandbox-human.json"
+    },
+    {
+      "id": "ops-human",
+      "selector": {
+        "hostClass": "operator",
+        "clientKinds": [
+          "codex",
+          "opencode",
+          "claude"
+        ]
+      },
+      "installPolicy": "explicit-only",
+      "path": "./ops-human.json"
+    }
+  ]
+}
