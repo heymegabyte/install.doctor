@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
@@ -348,3 +348,16 @@ assert.equal(appliedReceipt.status, 'retired');
 assert.equal(existsSync(join(retirementGeneral, 'RETIRE_TOKEN')), false);
 assert.equal(existsSync(join(retirementWorkstation, 'RETIRE_TOKEN')), true);
 console.log('infisical-estate-reconcile unit tests: PASS');
+
+const estate = validateManifest(JSON.parse(
+  readFileSync(new URL('../config/infisical/estate-secret-profiles.json', import.meta.url), 'utf8'),
+));
+const nexusPair = ['NEXUS_ACCESS_CLIENT_ID', 'NEXUS_ACCESS_CLIENT_SECRET'];
+const nexusInventory = [...nexusPair, 'NEXUS_ADMIN_PASSWORD', 'NEXUS_ACCESS_CLIENT_SECRET_OTHER'];
+for (const host of Object.keys(estate.hosts)) {
+  assert.deepEqual(selectHostSecrets(estate, host, nexusInventory),
+    host === 'legion.megabyte.space' ? nexusPair : []);
+}
+for (const workload of Object.values(estate.workloads)) {
+  assert.deepEqual(selectConfigurationSecrets(estate, workload, nexusInventory), []);
+}
