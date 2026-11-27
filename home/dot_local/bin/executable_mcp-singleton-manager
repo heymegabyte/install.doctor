@@ -4,7 +4,12 @@ set -euo pipefail
 label="space.megabyte.mcp-singletons"
 state_root="${XDG_STATE_HOME:-$HOME/.local/state}/mcp-singletons"
 config_root="${XDG_CONFIG_HOME:-$HOME/.config}/mcp-singletons"
-socket_root="$state_root/sockets"
+detected_platform="${MCP_SINGLETON_PLATFORM:-$(case "$(uname -s)" in Darwin) printf darwin ;; Linux) printf linux ;; *) printf unknown ;; esac)}"
+if test "$detected_platform" = linux; then
+  socket_root="${MCP_SINGLETON_RUNTIME_DIR:-${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/mcp-singletons}"
+else
+  socket_root="$state_root/sockets"
+fi
 config_path="$config_root/config.json"
 plist="$HOME/Library/LaunchAgents/$label.plist"
 systemd_unit_name="mcp-singletons.service"
@@ -112,6 +117,8 @@ render_systemd_unit() {
     'Restart=on-failure' \
     'RestartSec=2' \
     'UMask=0077' \
+    'RuntimeDirectory=mcp-singletons' \
+    'RuntimeDirectoryMode=0700' \
     "Environment=HOME=$HOME" \
     "Environment=XDG_CONFIG_HOME=${XDG_CONFIG_HOME:-$HOME/.config}" \
     "Environment=XDG_STATE_HOME=${XDG_STATE_HOME:-$HOME/.local/state}" \
@@ -120,7 +127,7 @@ render_systemd_unit() {
     'ProtectControlGroups=true' \
     'ProtectKernelTunables=true' \
     'ProtectSystem=strict' \
-    'ReadWritePaths=%h/.config %h/.local/state' \
+    'ReadWritePaths=%h/.config %h/.local/state %t/mcp-singletons' \
     '' \
     '[Install]' \
     'WantedBy=default.target' >"$temp"

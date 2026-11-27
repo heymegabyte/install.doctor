@@ -16,7 +16,7 @@ Linux lingering is deny-by-default. A host that already has `Linger=yes` must re
 
 Eligible services are Cloudflare, Langfuse, Paperclip, theme.tools, and the current descriptor-only VoiceKit wrapper. CUA Driver and BrowserMCP remain session-scoped frontends to their supported shared daemons. DataForSEO follows its native Streamable HTTP path.
 
-Clients connect to the corresponding socket with `/usr/bin/nc -U ~/.local/state/mcp-singletons/sockets/<service>.sock`. Preserve the previous client configuration until initialize, tools/list, one allowed call, concurrent isolation, restart, and rollback checks pass.
+On macOS, clients connect with `/usr/bin/nc -U ~/.local/state/mcp-singletons/sockets/<service>.sock`. On Linux, the systemd user unit owns mode-`0700` `%t/mcp-singletons` and clients use `/usr/bin/nc -U "${XDG_RUNTIME_DIR}/mcp-singletons/<service>.sock"`. Preserve the previous client configuration until initialize, tools/list, one allowed call, concurrent isolation, restart, and rollback checks pass.
 
 `status` waits through launchd throttling and then performs real `initialize` and `tools/list` protocol probes for every configured backend. Socket files alone are not considered healthy.
 

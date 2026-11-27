@@ -13,6 +13,7 @@ HOME="$fixture/home" \
 XDG_CONFIG_HOME="$fixture/home/.config" \
 XDG_STATE_HOME="$fixture/home/.local/state" \
 MCP_SINGLETON_PLATFORM=linux \
+MCP_SINGLETON_RUNTIME_DIR="$fixture/runtime/mcp-singletons" \
 MCP_SINGLETON_NODE="$(command -v node)" \
 MCP_SINGLETON_SERVICES="cloudflare-mcp theme-tools-mcp" \
 bash "$root/home/dot_local/bin/executable_mcp-singleton-manager" render >/dev/null
@@ -23,7 +24,9 @@ test -f "$unit"
 test -f "$config"
 test "$(stat -f '%Lp' "$unit" 2>/dev/null || stat -c '%a' "$unit")" = 600
 grep -q '^ProtectSystem=strict$' "$unit"
-node -e 'const c=require(process.argv[1]); const ids=Object.keys(c.services); if (ids.join(",") !== "cloudflare-mcp,theme-tools-mcp" || c.hostContract.platform !== "linux" || c.hostContract.lingerPolicy !== "forbid") process.exit(1)' "$config"
+grep -q '^RuntimeDirectory=mcp-singletons$' "$unit"
+grep -q '^RuntimeDirectoryMode=0700$' "$unit"
+node -e 'const c=require(process.argv[1]); const ids=Object.keys(c.services); if (ids.join(",") !== "cloudflare-mcp,theme-tools-mcp" || c.hostContract.platform !== "linux" || c.hostContract.lingerPolicy !== "forbid" || !c.runtimeDir.endsWith("/runtime/mcp-singletons")) process.exit(1)' "$config"
 
 if HOME="$fixture/home" MCP_SINGLETON_PLATFORM=linux MCP_SINGLETON_LINGER_POLICY=invalid \
   bash "$root/home/dot_local/bin/executable_mcp-singleton-manager" render >/dev/null 2>&1; then
