@@ -59,3 +59,11 @@ directory. Install Doctor detects it before package, helper, service,
 or timer mutation, preserving the host's existing backup policy on
 reapply. The host owner controls the lifecycle of both writers during
 handoff. Hosts without the marker retain the existing recipe behavior.
+
+### Recovery catalog envelope
+
+The [offline recovery runbook](../../../docs/FLEET-OFFLINE-RECOVERY.md)
+records the versioned catalog format, native age procedures, and the
+synthetic network-denied and wrong-credential results. The production
+catalog task remains open until the approved controller password and
+independently held key material are available and exercised.
