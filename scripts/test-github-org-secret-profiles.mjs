@@ -199,6 +199,12 @@ for (const [workload, configuration] of Object.entries(manifest.workloads)) {
 for (const host of Object.keys(manifest.hosts)) {
   assert.deepEqual(selectHostSecrets(manifest, host, postizFacebookSecrets), []);
 }
+for (const configuration of Object.values(manifest.workloads)) {
+  assert.deepEqual(selectConfigurationSecrets(manifest, configuration, ['TINYBIRD_WORKSPACE_ID']), []);
+}
+for (const host of Object.keys(manifest.hosts)) {
+  assert.deepEqual(selectHostSecrets(manifest, host, ['TINYBIRD_WORKSPACE_ID']), []);
+}
 assert.deepEqual(selectConfigurationSecrets(
   manifest, manifest.workloads['crawl.cheap'], ['EXA_API_KEY', 'SENTRY_DSN', 'ANTHROPIC_API_KEY'],
 ), ['EXA_API_KEY', 'SENTRY_DSN']);
