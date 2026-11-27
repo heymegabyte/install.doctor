@@ -494,7 +494,10 @@ function main() {
     return;
   }
   const validationLedger = JSON.parse(readFileSync(options.validationLedgerPath, 'utf8'));
-  assertSecretSourcesValidated(validationLedger, plans.flatMap((plan) => plan.secretSources), inventorySources);
+  const validationInventorySources = options.secretDirectoriesOverridden
+    ? inventorySources
+    : inventorySecretSources(defaultSecretStores);
+  assertSecretSourcesValidated(validationLedger, plans.flatMap((plan) => plan.secretSources), validationInventorySources);
   if (options.projectId && targets.length !== 1) fail('--project-id override requires exactly one target');
   execFileSync('infisical', ['login', 'status', '--silent'], { stdio: 'ignore' });
   for (const plan of plans) {
