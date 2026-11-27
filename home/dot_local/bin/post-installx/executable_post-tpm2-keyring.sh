@@ -14,6 +14,11 @@ if [[ "$OS_KERNEL" != "Linux" ]]; then
   exit 0
 fi
 
+if [[ "$(systemctl show legion-tpm2-keyring-unlock.service -p LoadState --value 2>/dev/null)" == loaded ]]; then
+  log_info "Legion already has a host-managed TPM keyring unit; leaving it in place."
+  exit 0
+fi
+
 # Predicate 1 & 2: GNOME desktop + gnome-keyring-daemon
 if ! command -v gnome-keyring-daemon >/dev/null 2>&1; then
   log_info "gnome-keyring-daemon not installed; skipping TPM2 keyring integration."
@@ -65,27 +70,26 @@ if [[ "$UNSEALED" != "tpm2-keyring-selftest-ok" ]]; then
 fi
 log_info "TPM2 seal/unseal roundtrip verified via /dev/tpmrm0 (PCR 7)."
 
-# Install the keyring unlock helper (uses /etc/credstore.encrypted/gnome-keyring.cred when provisioned,
-# falling back cleanly to PAM/interactive password unlock if absent or if PCR policy changes).
+# Install the helper for the credential that systemd delivers at activation.
 $SUDO tee /usr/local/libexec/tpm2-keyring-unlock >/dev/null <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
-CRED_FILE="/etc/credstore.encrypted/gnome-keyring.cred"
-if [[ ! -f "$CRED_FILE" ]]; then
-  # If no user login secret has been sealed yet, exit 0 so standard PAM/password unlock handles the session
-  exit 0
-fi
- TARGET_UID="${1:-1000}"
+TARGET_UID="${1:?Expected the GNOME user ID}"
+[[ "$TARGET_UID" =~ ^[1-9][0-9]*$ ]]
 TARGET_USER="$(id -nu "$TARGET_UID")"
-RUNTIME_DIR="/run/user/${TARGET_UID}"
-if [[ ! -d "$RUNTIME_DIR" ]]; then
-  exit 0
+RUNTIME_DIR="/run/user/$TARGET_UID"
+CREDENTIAL="${CREDENTIALS_DIRECTORY:?Expected systemd credentials}/gnome-keyring"
+if [[ ! -s "$CREDENTIAL" || ! -S "$RUNTIME_DIR/bus" ]]; then
+  printf 'GNOME keyring unlock requires a credential and an active user bus.\n' >&2
+  exit 1
 fi
-systemd-creds decrypt --name=gnome-keyring "$CRED_FILE" - \
-  | sudo -n -u "$TARGET_USER" env \
-      XDG_RUNTIME_DIR="$RUNTIME_DIR" \
-      DBUS_SESSION_BUS_ADDRESS="unix:path=${RUNTIME_DIR}/bus" \
-      /usr/bin/gnome-keyring-daemon --unlock >/dev/null 2>&1 || true
+if ! sudo -n -u "$TARGET_USER" env \
+  XDG_RUNTIME_DIR="$RUNTIME_DIR" \
+  DBUS_SESSION_BUS_ADDRESS="unix:path=$RUNTIME_DIR/bus" \
+  /usr/bin/gnome-keyring-daemon --unlock <"$CREDENTIAL" >/dev/null 2>&1; then
+  printf 'GNOME keyring unlock command failed.\n' >&2
+  exit 1
+fi
 EOF
 $SUDO chmod 0755 /usr/local/libexec/tpm2-keyring-unlock
 
@@ -96,9 +100,12 @@ Description=TPM2-Backed GNOME Keyring Unlock Helper (with PAM Password Fallback)
 After=user@1000.service
 Wants=user@1000.service
 ConditionPathExists=/dev/tpmrm0
+ConditionPathExists=/etc/credstore.encrypted/gnome-keyring.cred
 
 [Service]
 Type=oneshot
+TimeoutStartSec=20s
+LoadCredentialEncrypted=gnome-keyring:/etc/credstore.encrypted/gnome-keyring.cred
 ExecStart=/usr/local/libexec/tpm2-keyring-unlock 1000
 RemainAfterExit=yes
 
@@ -119,4 +126,4 @@ fi
 $SUDO systemctl daemon-reload
 $SUDO systemctl enable --now tpm2-keyring-unlock.service
 
-log_info "TPM2-backed GNOME Keyring unlock service enabled and verified."
+log_info "TPM2-backed GNOME Keyring unlock service configured. Verify a fresh graphical session before relying on it."
