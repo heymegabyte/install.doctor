@@ -218,7 +218,7 @@ void test('pairing start uses a high-entropy human code and rejects oversized re
     env,
   );
   assert.equal(response.status, 201, await response.clone().text());
-  const body = await response.json();
+  const body = pairingResponse.parse(await response.json());
   assert.match(body.code, /^[2-9A-HJ-NP-Z]{4}(?:-[2-9A-HJ-NP-Z]{4}){2}$/);
   assert.equal(body.code.length, 14);
   assert.equal(body.verifyUrl, `https://app.install.doctor/pair?code=${body.code}`);
@@ -231,7 +231,7 @@ void test('pairing start uses a high-entropy human code and rejects oversized re
     }), env,
   );
   assert.equal(targetOwned.status, 201, await targetOwned.clone().text());
-  const targetOwnedBody = await targetOwned.json();
+  const targetOwnedBody = z.looseObject({ code: z.string() }).parse(await targetOwned.json());
   assert.equal('pollSecret' in targetOwnedBody, false, 'target-generated polling authority must not be echoed');
   const pending = await app.fetch(new Request('https://app.install.doctor/api/devices/pair/poll', {
     headers: { authorization: `Bearer ${targetPollSecret}` },
@@ -262,7 +262,7 @@ void test('pairing start uses a high-entropy human code and rejects oversized re
       env,
     );
     assert.equal(collisionSafe.status, 201, await collisionSafe.clone().text());
-    assert.notEqual((await collisionSafe.json()).code, body.code);
+    assert.notEqual(z.looseObject({ code: z.string() }).parse(await collisionSafe.json()).code, body.code);
     assert.equal(replayedCode, true, 'test must force an issuance collision');
   } finally {
     webCrypto.getRandomValues = originalGetRandomValues;
@@ -380,7 +380,7 @@ void test('v1 target authorization persists exact public binding and atomically 
     headers: { authorization: `Bearer ${credential.credential}` },
   }), env);
   assert.equal(identity.status, 200, await identity.clone().text());
-  const resolvedIdentity = await identity.json();
+  const resolvedIdentity = z.looseObject({ enrolledAt: z.string() }).parse(await identity.json());
   assert.ok(Number.isFinite(Date.parse(resolvedIdentity.enrolledAt)));
   assert.deepEqual({ ...resolvedIdentity, enrolledAt: '<timestamp>' }, {
     deviceId: credential.credentialId, tenant: profile.tenantId, label: 'Zen',
@@ -391,7 +391,7 @@ void test('v1 target authorization persists exact public binding and atomically 
     headers: { authorization: `Bearer ${credential.credential}` },
   }), env);
   assert.equal(desired.status, 200, await desired.clone().text());
-  const resolvedDesired = await desired.json();
+  const resolvedDesired = z.looseObject({ deviceId: z.string(), digest: z.string(), markdown: z.string() }).parse(await desired.json());
   assert.equal(resolvedDesired.deviceId, credential.credentialId);
   assert.equal(resolvedDesired.digest, desiredDigest);
   assert.equal(resolvedDesired.markdown, exportMarkdown(desiredEnvironment));
@@ -543,7 +543,7 @@ void test('public pairing lookup normalizes malformed, unknown, and claimed resp
   const pairing = pairingResponse.parse(await started.json());
   const pending = await app.fetch(new Request(`https://app.install.doctor/api/devices/pair/info?code=${pairing.code}`), env);
   assert.equal(pending.status, 200);
-  assert.equal((await pending.json()).host, 'private-host');
+  assert.equal(z.looseObject({ host: z.string() }).parse(await pending.json()).host, 'private-host');
 
   const approved = await app.fetch(
     new Request('https://app.install.doctor/api/devices/pair/approve', {
@@ -699,7 +699,7 @@ void test('pair claim is atomic, digest-only, binding-safe, and normalizes termi
   }
   const revoked = await revoke({ tenant: 'tenant-atomic', deviceFingerprint: fingerprint });
   assert.equal(revoked.status, 200);
-  assert.equal((await revoked.json()).deviceId, credential.deviceId);
+  assert.equal(z.looseObject({ deviceId: z.string() }).parse(await revoked.json()).deviceId, credential.deviceId);
   const revokeReplay = await revoke({ tenant: 'tenant-atomic', deviceFingerprint: fingerprint });
   assert.equal(revokeReplay.status, 404);
   assert.deepEqual(await revokeReplay.json(), { error: 'credential_unavailable' });
@@ -710,7 +710,7 @@ void test('pair claim is atomic, digest-only, binding-safe, and normalizes termi
     body: JSON.stringify({ tenant: 'tenant-legacy', label: 'legacy-host' }),
   }), env);
   assert.equal(legacyEnrollment.status, 201);
-  const legacy = await legacyEnrollment.json();
+  const legacy = z.looseObject({ deviceId: z.string() }).parse(await legacyEnrollment.json());
   const legacyRevocation = await app.fetch(new Request(`https://app.install.doctor/api/devices/${legacy.deviceId}/revoke`, {
     method: 'POST', headers: { authorization: `Bearer ${TEST_ENV.AID_ADMIN_TOKEN}`, 'content-type': 'application/json' }, body: '{}',
   }), env);
@@ -720,7 +720,7 @@ void test('pair claim is atomic, digest-only, binding-safe, and normalizes termi
     const another = await app.fetch(new Request('https://app.install.doctor/api/devices/pair/start', {
       method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ tenant: `tenant-${status}` }),
     }), env);
-    const terminal = await another.json();
+    const terminal = pairingResponse.parse(await another.json());
     await db.prepare('UPDATE pairings SET status=? WHERE code=?').bind(status, terminal.code).run();
     const response = await app.fetch(new Request('https://app.install.doctor/api/devices/pair/poll', {
       headers: { authorization: `Bearer ${terminal.pollSecret}` },
@@ -1195,14 +1195,18 @@ void test('public product status is generated from evidence-backed Desktop Tools
     TEST_ENV
   );
   assert.equal(response.status, 200);
-  const body = await response.json();
+  const body = z.looseObject({
+    product: z.string(),
+    capabilities: z.array(z.looseObject({ id: z.string(), status: z.string() })),
+    migrations: z.array(z.looseObject({ legacy: z.string(), canonical: z.string() })),
+  }).parse(await response.json());
   assert.equal(body.product, 'Desktop Tools');
   assert.equal(
-    body.capabilities.find((/** @type {{ id: string }} */ item) => item.id === 'device-authorization').status,
+    body.capabilities.find(item => item.id === 'device-authorization')?.status,
     'implemented-unverified'
   );
   assert.equal(
-    body.migrations.find((/** @type {{ legacy: string }} */ item) => item.legacy === 'app.install.doctor').canonical,
+    body.migrations.find(item => item.legacy === 'app.install.doctor')?.canonical,
     'desktop.tools'
   );
   assert.equal(JSON.stringify(body).includes('verified-live'), false);
@@ -2086,7 +2090,7 @@ void test('Control Plane Phase 1: Better Auth D1 drift inspection and session ha
     TEST_ENV
   );
   assert.equal(authMig.status, 200);
-  const migBody = await authMig.json();
+  const migBody = z.looseObject({ message: z.string(), created: z.array(z.unknown()), added: z.array(z.unknown()), indexes: z.array(z.unknown()) }).parse(await authMig.json());
   assert.equal(migBody.message, 'no migrations needed');
   assert.deepEqual(migBody.created, []);
   assert.deepEqual(migBody.added, []);
@@ -2101,6 +2105,7 @@ void test('Control Plane Phase 1: Better Auth D1 drift inspection and session ha
   );
   assert.equal(sessRes.status, 200);
   assert.ok(sessRes.headers.get('cache-control')?.includes('no-store'));
+  /** @type {unknown} */
   const sessBody = await sessRes.json();
   assert.equal(sessBody, null);
 });
@@ -2109,7 +2114,9 @@ void test('Catalog detail exposes the validated lazy-load decision', async () =>
   const app = await loadWorkerApp();
   const response = await app.fetch(new Request('https://app.install.doctor/api/catalog/xz'), TEST_ENV);
   assert.equal(response.status, 200);
-  const body = await response.json();
+  const body = z.looseObject({
+    deliveryMode: z.string(), loadPolicy: z.string(), loadRationale: z.string(),
+  }).parse(await response.json());
   assert.equal(body.deliveryMode, 'lazy');
   assert.equal(body.loadPolicy, 'lazy');
   assert.equal(body.loadRationale, 'default-lazy');
