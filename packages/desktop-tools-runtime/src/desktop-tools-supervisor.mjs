@@ -4,7 +4,7 @@ import { spawn } from 'node:child_process';
 import { constants as fsConstants } from 'node:fs';
 import { chmod, copyFile, lstat, mkdir, open, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
-import { basename, dirname, isAbsolute, join, resolve, sep } from 'node:path';
+import { basename, isAbsolute, join, resolve, sep } from 'node:path';
 import { fileURLToPath, URL } from 'node:url';
 import { gunzipSync, inflateRawSync } from 'node:zlib';
 import { initializeSessionEvidence, loadSessionContext, persistSessionContext } from './session-evidence.mjs';
@@ -29,7 +29,7 @@ const approvedTools = Object.freeze([
   'desktop_tools_rollback_config', 'desktop_tools_deprovision_preview'
 ]);
 
-/** @param {unknown} error @param {'code' | 'exitCode'} property */
+/** @param {unknown} error @param {'code' | 'exitCode'} property @returns {unknown} */
 function errorProperty(error, property) {
   return error && typeof error === 'object' ? Reflect.get(error, property) : undefined;
 }
@@ -42,7 +42,7 @@ function fail(message, code = 64) {
 /** @param {string} stateDirectory */
 async function validateInferenceCredential(stateDirectory) {
   const path = join(stateDirectory, 'config', 'inference-token');
-  const info = await lstat(path).catch(error => {
+  const info = await lstat(path).catch((/** @type {unknown} */ error) => {
     if (errorProperty(error, 'code') === 'ENOENT') fail('scoped inference credential is unavailable', 78);
     throw error;
   });
@@ -145,8 +145,7 @@ function generateOpenCodeConfig(credentialPath, promptPath, toolRuntime) {
 function parse(argv) {
   const [command, ...rest] = argv;
   if (!command || !['install', 'validate', 'prepare', 'run', 'service', 'status'].includes(command)) fail('expected install, validate, prepare, run, service, or status');
-  /** @type {CliOptions} */
-  const values = Object.create(null);
+  const values = /** @type {CliOptions} */ (Object.create(null));
   for (let index = 0; index < rest.length; index += 2) {
     const flag = rest[index];
     const value = rest[index + 1];
@@ -202,7 +201,7 @@ async function protectedBase(input, label) {
 async function protectedDirectory(input) {
   const target = await protectedBase(input || defaultStateDirectory(), 'state directory');
   for (const child of ['bin', 'run', 'runtime', 'config', 'data', 'history', 'recordings', 'home', 'tmp']) {
-    await mkdir(join(target, child), { recursive: false, mode: 0o700 }).catch(error => { if (errorProperty(error, 'code') !== 'EEXIST') throw error; });
+    await mkdir(join(target, child), { recursive: false, mode: 0o700 }).catch((/** @type {unknown} */ error) => { if (errorProperty(error, 'code') !== 'EEXIST') throw error; });
     const childInfo = await lstat(join(target, child));
     if (!childInfo.isDirectory() || childInfo.isSymbolicLink()) fail(`unsafe state child: ${child}`, 73);
     await chmod(join(target, child), 0o700);
@@ -217,7 +216,7 @@ async function sha256(path) {
   try {
     const buffer = Buffer.allocUnsafe(1024 * 1024);
     let position = 0;
-    while (true) {
+    for (;;) {
       const { bytesRead } = await handle.read(buffer, 0, buffer.length, position);
       if (!bytesRead) break;
       hash.update(buffer.subarray(0, bytesRead));
@@ -290,10 +289,10 @@ function execute(file, args, options = {}) {
     const child = spawn(file, args, { shell: false, ...options });
     let stdout = '';
     let stderr = '';
-    child.stdout?.on('data', chunk => { stdout += chunk; if (stdout.length > 65_536) child.kill('SIGKILL'); });
-    child.stderr?.on('data', chunk => { stderr += chunk; if (stderr.length > 65_536) child.kill('SIGKILL'); });
+    child.stdout?.on('data', (/** @type {Buffer} */ chunk) => { stdout += chunk.toString('utf8'); if (stdout.length > 65_536) child.kill('SIGKILL'); });
+    child.stderr?.on('data', (/** @type {Buffer} */ chunk) => { stderr += chunk.toString('utf8'); if (stderr.length > 65_536) child.kill('SIGKILL'); });
     child.once('error', reject);
-    child.once('exit', (code, signal) => resolvePromise({ code, signal, stdout, stderr }));
+    child.once('exit', (code, signal) => { resolvePromise({ code, signal, stdout, stderr }); });
   });
 }
 
@@ -316,7 +315,7 @@ async function validateRuntime(values, stateDirectory) {
 
 /** @param {string} path @param {string | Uint8Array} contents */
 async function atomicWrite(path, contents, mode = 0o600) {
-  const temporary = `${path}.tmp-${process.pid}`;
+  const temporary = `${path}.tmp-${String(process.pid)}`;
   await writeFile(temporary, contents, { mode, flag: 'wx' });
   await chmod(temporary, mode);
   await rename(temporary, path);
@@ -432,7 +431,7 @@ async function installPinnedFile(source, destination, expectedDigest, mode) {
   } catch (error) {
     if (errorProperty(error, 'code') !== 'ENOENT') throw error;
   }
-  const temporary = `${destination}.tmp-${process.pid}`;
+  const temporary = `${destination}.tmp-${String(process.pid)}`;
   try {
     await copyFile(source, temporary, fsConstants.COPYFILE_EXCL);
     if (await sha256(temporary) !== expectedDigest) fail('artifact changed while installing protected runtime state', 65);
@@ -541,7 +540,7 @@ async function installRuntimeClosure(values, stateDirectory) {
   if (!(await lstat(runtime).then(() => true, error => errorProperty(error, 'code') === 'ENOENT' ? false : Promise.reject(error)))) await atomicWrite(runtime, executableBytes, 0o700);
   else if (await sha256(runtime) !== runtimeDigest) fail('installed OpenCode runtime is not the pinned artifact', 65);
   await chmod(runtime, 0o700);
-  const executableInfo = await lstat(executable).catch(error => errorProperty(error, 'code') === 'ENOENT' ? null : Promise.reject(error));
+  const executableInfo = await lstat(executable).catch((/** @type {unknown} */ error) => errorProperty(error, 'code') === 'ENOENT' ? null : Promise.reject(error));
   if (executableInfo && (!executableInfo.isFile() || executableInfo.isSymbolicLink() || executableInfo.nlink !== 1 || await sha256(executable) !== runtimeDigest)) {
     if (!executableInfo.isFile() || executableInfo.isSymbolicLink()) fail('Desktop Tools executable path is unsafe', 73);
     await atomicWrite(executable, executableBytes, 0o700);
@@ -557,7 +556,7 @@ async function installRuntimeClosure(values, stateDirectory) {
   const closure = /** @type {typeof closureFields} */ (canonical(closureFields));
   const closureDigest = createHash('sha256').update(`${JSON.stringify(closure)}\n`).digest('hex');
   const receipt = join(stateDirectory, 'runtime', `closure-${closureDigest}.json`); const receiptBytes = `${JSON.stringify(closure)}\n`;
-  const existingReceipt = await readFile(receipt, 'utf8').catch(error => errorProperty(error, 'code') === 'ENOENT' ? null : Promise.reject(error));
+  const existingReceipt = await readFile(receipt, 'utf8').catch((/** @type {unknown} */ error) => errorProperty(error, 'code') === 'ENOENT' ? null : Promise.reject(error));
   if (existingReceipt === null) await atomicWrite(receipt, receiptBytes);
   else if (existingReceipt !== receiptBytes) fail('runtime closure receipt collision', 73);
   return { ...closure, closureDigest, receipt, changed };
@@ -651,14 +650,14 @@ async function acquireLock(stateDirectory) {
   const path = join(stateDirectory, 'run', 'supervisor.pid');
   try {
     const handle = await open(path, 'wx', 0o600);
-    await handle.writeFile(`${process.pid}\n`);
+    await handle.writeFile(`${String(process.pid)}\n`);
     await handle.close();
     return async () => rm(path, { force: true });
   } catch (error) {
     if (errorProperty(error, 'code') !== 'EEXIST') throw error;
     const pid = Number.parseInt(await readFile(path, 'utf8').catch(() => ''), 10);
     if (Number.isSafeInteger(pid) && pid > 1) {
-      try { process.kill(pid, 0); fail(`supervisor is already running as pid ${pid}`, 75); }
+      try { process.kill(pid, 0); fail(`supervisor is already running as pid ${String(pid)}`, 75); }
       catch (checkError) { if (errorProperty(checkError, 'exitCode')) throw checkError; if (errorProperty(checkError, 'code') === 'EPERM') fail('another supervisor owns the lock', 77); }
     }
     await rm(path, { force: true });
@@ -771,14 +770,14 @@ async function main(argv) {
   });
   if (finalized.code !== 0 || finalized.signal) fail('session event finalization failed', 74);
   if (result.signal) fail(`OpenCode stopped by ${result.signal}`, 1);
-  if (result.code !== 0) fail(`OpenCode exited with status ${result.code}`, result.code || 1);
+  if (result.code !== 0) fail(`OpenCode exited with status ${String(result.code)}`, result.code || 1);
   return { stopped: true, evidence };
 }
 
 export { PROVISIONING_PROMPT, PROVISIONING_PROMPT_VERSION, VERSION, approvedSkills, approvedTools, generateOpenCodeConfig, initializeSessionEvidence, installRuntimeClosure, loadSessionContext, main, minimalEnvironment, persistSessionContext, prepareProvisioningPrompt, protectedDirectory, validateInferenceCredential, validateRuntime };
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (process.argv[1] !== undefined && import.meta.url === `file://${process.argv[1]}`) {
   main(process.argv.slice(2))
     .then(result => process.stdout.write(`${JSON.stringify({ schemaVersion: 1, ...result })}\n`))
-    .catch(error => { process.stderr.write(`desktop-tools-supervisor: ${error instanceof Error ? error.message : 'unknown failure'}\n`); process.exitCode = error?.exitCode || 1; });
+    .catch((/** @type {unknown} */ error) => { process.stderr.write(`desktop-tools-supervisor: ${error instanceof Error ? error.message : 'unknown failure'}\n`); const exitCode = errorProperty(error, 'exitCode'); process.exitCode = typeof exitCode === 'number' && exitCode ? exitCode : 1; });
 }
