@@ -28,7 +28,7 @@ const identifier = z.string().min(1).max(128).regex(/^[a-z0-9][a-z0-9._-]*$/);
  * discover the current machine, never replay signed bundle observations.
  */
 export type OfflineHostAttestor = {
-  readonly platform: NodeJS.Platform | string;
+  readonly platform: string;
   discover(): Promise<{ readonly immutableHostId: string; readonly facts: unknown }>;
 };
 
@@ -91,6 +91,12 @@ function sameSemanticFacts(left: HostFacts, right: HostFacts): boolean {
  * Executes a signed offline plan only after signature/content re-verification,
  * current-host attestation, sandbox proof, and with a mandatory durable journal.
  */
+function assertOfflineJournal(journal: Partial<JournalStore> | null | undefined): void {
+  if (!journal || typeof journal.claim !== 'function' || typeof journal.finalize !== 'function') {
+    throw new OfflineBundleError('offline execution journal factory returned an invalid journal store');
+  }
+}
+
 export async function executeOfflineBundle(input: {
   readonly plan: OfflineBundlePlan;
   readonly trust: unknown;
@@ -126,19 +132,20 @@ export async function executeOfflineBundle(input: {
     throw new OfflineBundleError('offline bundle changed after its approved plan was created');
   }
   const now = input.now ?? (() => new Date().toISOString());
-  const executionTime = z.string().datetime({ offset: true }).parse(now());
+  const executionTime = z.iso.datetime({ offset: true }).parse(now());
   if (new Date(verified.manifest.expiresAt).getTime() <= new Date(executionTime).getTime()) {
     throw new OfflineBundleError('offline bundle expired before execution');
   }
   const closure = await validateOfflineExecutionClosure(verified);
   const hasNativePackages = Object.values(closure.operations.operations)
     .some(operation => operation.kind === 'native-package');
-  if (hasNativePackages && (!input.nativePackageRuntimeFactory || !input.debianMetadataVerifier || !input.compareDebianVersions)) {
-    throw new OfflineBundleError('offline native package execution requires an owner-bound privileged runtime factory, Debian metadata verifier, and Debian version comparator');
+  let verifiedNativeMetadata: Awaited<ReturnType<typeof verifyOfflineNativeDebianMetadata>> | undefined;
+  if (hasNativePackages) {
+    if (!input.nativePackageRuntimeFactory || !input.debianMetadataVerifier || !input.compareDebianVersions) {
+      throw new OfflineBundleError('offline native package execution requires an owner-bound privileged runtime factory, Debian metadata verifier, and Debian version comparator');
+    }
+    verifiedNativeMetadata = await verifyOfflineNativeDebianMetadata(verified, closure, input.debianMetadataVerifier);
   }
-  const verifiedNativeMetadata = hasNativePackages
-    ? await verifyOfflineNativeDebianMetadata(verified, closure, input.debianMetadataVerifier!)
-    : undefined;
   if (verified.manifest.platform.os !== 'linux' || closure.hostFacts.os !== 'linux') {
     throw new OfflineBundleError('offline execution authority requires signed Linux target facts');
   }
@@ -177,9 +184,7 @@ export async function executeOfflineBundle(input: {
     throw new OfflineBundleError('current host cannot reproduce the approved offline plan authority');
   }
   const journal = input.journalFactory(liveFacts.hostId);
-  if (!journal || typeof journal.claim !== 'function' || typeof journal.finalize !== 'function') {
-    throw new OfflineBundleError('offline execution journal factory returned an invalid journal store');
-  }
+  assertOfflineJournal(journal);
   const engine = createInstallerEngine({
     adapter, journal, now, maxConcurrency: closure.plan.executionPolicy.maxConcurrency,
     resourceLimits: closure.plan.executionPolicy.resourceLimits,

@@ -8,8 +8,6 @@ const pendingSourceFiles = [
   'src/engine.ts',
   'src/native-dpkg-transaction.ts',
   'src/offline-execution.ts',
-  'src/offline-orchestrator.ts',
-  'src/offline-sandbox.ts',
   'src/privileged-broker-client.ts',
   'src/privileged-broker-controller.ts',
   'src/privileged-broker-device-approval.ts',

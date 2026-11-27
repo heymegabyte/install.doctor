@@ -26,7 +26,7 @@ type SandboxRunRequest = {
 export type SandboxRunResult = { exitCode: number; stdout: string; stderr: string };
 
 export type OfflineSandboxDependencies = {
-  platform: NodeJS.Platform | string;
+  platform: string;
   effectiveUserId: number;
   effectiveGroupId: number;
   inspectExecutable(path: string): Promise<ExecutableInspection>;
@@ -77,7 +77,7 @@ const defaultDependencies: OfflineSandboxDependencies = {
       cwd: '/', env: { PATH: '/usr/bin:/bin', LANG: 'C', LC_ALL: 'C' },
       ...(request.signal ? { signal: request.signal } : {}),
       ...(request.fileDescriptors ? { inheritedFileDescriptors: request.fileDescriptors } : {}),
-      onOutput: (stream, line) => append(stream, line),
+      onOutput: (stream, line) => { append(stream, line); },
     });
     return { exitCode, stdout, stderr };
   },
@@ -178,10 +178,10 @@ export function createOfflineSandboxRuntime(dependencies: OfflineSandboxDependen
       if (!capability.supported) throw new OfflineSandboxUnavailableError(capability.reason);
       const fileDescriptors = [operation.executableFileDescriptor, ...artifactDescriptors.map(item => item.fileDescriptor)];
       const sandboxArguments = [...argumentsList];
-      artifactDescriptors.forEach((item, index) => { sandboxArguments[item.argumentIndex] = `/run/install-doctor/artifact-${index}`; });
+      artifactDescriptors.forEach((item, index) => { sandboxArguments[item.argumentIndex] = `/run/install-doctor/artifact-${String(index)}`; });
       const descriptorBinds = fileDescriptors.flatMap((_, index) => [
         '--perms', index === 0 ? '0500' : '0400', '--ro-bind-data', String(index + 3),
-        index === 0 ? '/run/install-doctor/operation' : `/run/install-doctor/artifact-${index - 1}`,
+        index === 0 ? '/run/install-doctor/operation' : `/run/install-doctor/artifact-${String(index - 1)}`,
       ]);
       return dependencies.run({
         purpose: 'operation', timeoutMs,
