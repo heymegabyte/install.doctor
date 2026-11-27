@@ -5,3 +5,5 @@ Remove the supplemental uv indexes from the native template, post-install genera
 The same default applies to pip. Its native install report must identify the local adapter as the wheel source and match the recorded digest.
 
 Go uses the same adapter default in interactive shells and Go’s native configuration. Verified the native module checksum on Legion and the interactive proxy selection.
+
+When Linux provisioning selects the system adapter, stop and disable any previous user unit before binding the same loopback port. Unprivileged reruns keep an already active system adapter.

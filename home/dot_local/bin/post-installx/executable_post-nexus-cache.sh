@@ -830,9 +830,13 @@ RestartSec=2
 [Install]
 WantedBy=multi-user.target
 EOF
+    # Retire the previous user unit before the system service binds the same port.
+    systemctl --user disable --now megabyte-local-proxy.service 2>/dev/null || true
     $SUDO systemctl daemon-reload
     $SUDO systemctl enable --now megabyte-local-proxy.service
     $SUDO systemctl restart megabyte-local-proxy.service
+  elif systemctl is-active --quiet megabyte-local-proxy.service; then
+    systemctl --user disable --now megabyte-local-proxy.service 2>/dev/null || true
   else
     mkdir -p "$HOME/.config/systemd/user"
     cat <<EOF > "$HOME/.config/systemd/user/megabyte-local-proxy.service"
