@@ -5,7 +5,7 @@ import { constants as fsConstants } from 'node:fs';
 import { chmod, copyFile, lstat, mkdir, open, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { basename, dirname, isAbsolute, join, resolve, sep } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, URL } from 'node:url';
 import { gunzipSync, inflateRawSync } from 'node:zlib';
 import { initializeSessionEvidence, loadSessionContext, persistSessionContext } from './session-evidence.mjs';
 
@@ -29,16 +29,21 @@ const approvedTools = Object.freeze([
   'desktop_tools_rollback_config', 'desktop_tools_deprovision_preview'
 ]);
 
-function fail(message, code = 64) {
-  const error = new Error(message);
-  error.exitCode = code;
-  throw error;
+/** @param {unknown} error @param {'code' | 'exitCode'} property */
+function errorProperty(error, property) {
+  return error && typeof error === 'object' ? Reflect.get(error, property) : undefined;
 }
 
+/** @param {string} message @returns {never} */
+function fail(message, code = 64) {
+  throw Object.assign(new Error(message), { exitCode: code });
+}
+
+/** @param {string} stateDirectory */
 async function validateInferenceCredential(stateDirectory) {
   const path = join(stateDirectory, 'config', 'inference-token');
   const info = await lstat(path).catch(error => {
-    if (error?.code === 'ENOENT') fail('scoped inference credential is unavailable', 78);
+    if (errorProperty(error, 'code') === 'ENOENT') fail('scoped inference credential is unavailable', 78);
     throw error;
   });
   if (!info.isFile() || info.isSymbolicLink() || info.nlink !== 1 || info.size < 32 || info.size > 4096
@@ -51,6 +56,7 @@ async function validateInferenceCredential(stateDirectory) {
   return path;
 }
 
+/** @param {string} stateDirectory */
 async function installPinnedSkills(stateDirectory) {
   for (const skill of approvedSkills) {
     const directory = join(stateDirectory, 'config', 'skills', skill.id);
@@ -63,13 +69,14 @@ async function installPinnedSkills(stateDirectory) {
         fail(`installed OpenCode skill is not the pinned artifact: ${skill.id}`, 65);
       }
     } catch (error) {
-      if (error?.code !== 'ENOENT') throw error;
+      if (errorProperty(error, 'code') !== 'ENOENT') throw error;
       await atomicWrite(path, PROVISIONING_SKILL, 0o600);
       if (await sha256(path) !== skill.sha256) fail(`OpenCode skill digest mismatch: ${skill.id}`, 65);
     }
   }
 }
 
+/** @param {string} credentialPath @param {string} promptPath @param {Awaited<ReturnType<typeof prepareToolRuntime>>} [toolRuntime] */
 function generateOpenCodeConfig(credentialPath, promptPath, toolRuntime) {
   return {
     $schema: 'https://opencode.ai/config.json',
@@ -133,9 +140,12 @@ function generateOpenCodeConfig(credentialPath, promptPath, toolRuntime) {
   };
 }
 
+/** @typedef {Record<string, string | undefined>} CliOptions */
+/** @param {string[]} argv */
 function parse(argv) {
   const [command, ...rest] = argv;
-  if (!['install', 'validate', 'prepare', 'run', 'service', 'status'].includes(command)) fail('expected install, validate, prepare, run, service, or status');
+  if (!command || !['install', 'validate', 'prepare', 'run', 'service', 'status'].includes(command)) fail('expected install, validate, prepare, run, service, or status');
+  /** @type {CliOptions} */
   const values = Object.create(null);
   for (let index = 0; index < rest.length; index += 2) {
     const flag = rest[index];
@@ -157,11 +167,13 @@ function defaultStateDirectory() {
   return join(process.env.XDG_STATE_HOME || join(homedir(), '.local', 'state'), 'desktop-tools');
 }
 
+/** @param {unknown} input @param {string} label */
 function absoluteSafePath(input, label) {
   if (typeof input !== 'string' || !isAbsolute(input) || !safeTextPattern.test(input)) fail(`${label} must be a bounded absolute path`);
   return resolve(input);
 }
 
+/** @param {unknown} input @param {string} label */
 async function protectedBase(input, label) {
   const target = absoluteSafePath(input, label);
   const root = resolve(sep);
@@ -176,7 +188,7 @@ async function protectedBase(input, label) {
       // non-symlink directories.
       if (info.isSymbolicLink() ? current === target : !info.isDirectory()) fail(`unsafe state path component: ${current}`, 73);
     } catch (error) {
-      if (error?.code !== 'ENOENT') throw error;
+      if (errorProperty(error, 'code') !== 'ENOENT') throw error;
       await mkdir(current, { mode: 0o700 });
     }
   }
@@ -186,10 +198,11 @@ async function protectedBase(input, label) {
   return target;
 }
 
+/** @param {unknown} input */
 async function protectedDirectory(input) {
   const target = await protectedBase(input || defaultStateDirectory(), 'state directory');
   for (const child of ['bin', 'run', 'runtime', 'config', 'data', 'history', 'recordings', 'home', 'tmp']) {
-    await mkdir(join(target, child), { recursive: false, mode: 0o700 }).catch(error => { if (error?.code !== 'EEXIST') throw error; });
+    await mkdir(join(target, child), { recursive: false, mode: 0o700 }).catch(error => { if (errorProperty(error, 'code') !== 'EEXIST') throw error; });
     const childInfo = await lstat(join(target, child));
     if (!childInfo.isDirectory() || childInfo.isSymbolicLink()) fail(`unsafe state child: ${child}`, 73);
     await chmod(join(target, child), 0o700);
@@ -197,6 +210,7 @@ async function protectedDirectory(input) {
   return target;
 }
 
+/** @param {string} path */
 async function sha256(path) {
   const hash = createHash('sha256');
   const handle = await open(path, 'r');
@@ -213,7 +227,9 @@ async function sha256(path) {
   return hash.digest('hex');
 }
 
+/** @param {string} stateDirectory @param {string} [serverPassword] @param {ReturnType<typeof generateOpenCodeConfig>} [opencodeConfig] @param {Awaited<ReturnType<typeof prepareProvisioningPrompt>>} [promptBinding] */
 function minimalEnvironment(stateDirectory, serverPassword, opencodeConfig, promptBinding) {
+  /** @type {Record<string, string>} */
   const environment = {
     HOME: join(stateDirectory, 'home'),
     PATH: '/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin',
@@ -248,6 +264,7 @@ function minimalEnvironment(stateDirectory, serverPassword, opencodeConfig, prom
   return Object.freeze(environment);
 }
 
+/** @param {string} stateDirectory */
 async function serverPassword(stateDirectory) {
   const path = join(stateDirectory, 'config', 'server-password');
   let handle;
@@ -257,7 +274,7 @@ async function serverPassword(stateDirectory) {
     await handle.close();
   } catch (error) {
     if (handle) await handle.close().catch(() => {});
-    if (error?.code !== 'EEXIST') throw error;
+    if (errorProperty(error, 'code') !== 'EEXIST') throw error;
   }
   const info = await lstat(path);
   if (!info.isFile() || info.isSymbolicLink() || info.nlink !== 1 || info.size < 32 || info.size > 128
@@ -267,6 +284,7 @@ async function serverPassword(stateDirectory) {
   return (await readFile(path, 'utf8')).trim();
 }
 
+/** @param {string} file @param {string[]} args @param {import('node:child_process').SpawnOptions} [options] @returns {Promise<{code: number | null, signal: NodeJS.Signals | null, stdout: string, stderr: string}>} */
 function execute(file, args, options = {}) {
   return new Promise((resolvePromise, reject) => {
     const child = spawn(file, args, { shell: false, ...options });
@@ -279,10 +297,11 @@ function execute(file, args, options = {}) {
   });
 }
 
+/** @param {CliOptions} values @param {string} stateDirectory */
 async function validateRuntime(values, stateDirectory) {
   const runtime = absoluteSafePath(values.runtime, 'runtime');
   if (!digestPattern.test(values.sha256 || '')) fail('sha256 must be a lowercase SHA-256 digest');
-  if (!versionPattern.test(values.version || '')) fail('version must be a supported pinned OpenCode version');
+  if (!values.version || !versionPattern.test(values.version)) fail('version must be a supported pinned OpenCode version');
   const info = await lstat(runtime);
   if (!info.isFile() || info.isSymbolicLink() || info.nlink !== 1 || info.size < 1 || info.size > 268_435_456) fail('runtime must be one bounded regular file', 65);
   if ((info.mode & 0o111) === 0) fail('runtime is not executable', 65);
@@ -295,6 +314,7 @@ async function validateRuntime(values, stateDirectory) {
   return runtime;
 }
 
+/** @param {string} path @param {string | Uint8Array} contents */
 async function atomicWrite(path, contents, mode = 0o600) {
   const temporary = `${path}.tmp-${process.pid}`;
   await writeFile(temporary, contents, { mode, flag: 'wx' });
@@ -302,7 +322,9 @@ async function atomicWrite(path, contents, mode = 0o600) {
   await rename(temporary, path);
 }
 
+/** @param {string} left @param {string} right */
 function compareKeys(left, right) { return left < right ? -1 : left > right ? 1 : 0; }
+/** @param {unknown} value @returns {unknown} */
 function canonical(value) {
   if (Array.isArray(value)) return value.map(canonical);
   if (value !== null && typeof value === 'object') {
@@ -311,15 +333,18 @@ function canonical(value) {
   }
   return value;
 }
+/** @param {unknown} value @param {string[]} keys @param {string} label */
 function objectWithExactKeys(value, keys, label) {
   if (value === null || typeof value !== 'object' || Array.isArray(value)
     || JSON.stringify(Object.keys(value).sort(compareKeys)) !== JSON.stringify([...keys].sort(compareKeys))) {
     fail(`${label} has an invalid shape`, 65);
   }
 }
+/** @param {unknown} value @param {string} label */
 function boundedIdentifier(value, label) {
   if (typeof value !== 'string' || !/^[a-zA-Z0-9][a-zA-Z0-9._:/-]{0,127}$/.test(value)) fail(`${label} is invalid`, 65);
 }
+/** @param {unknown} value */
 function assertNonsecretJson(value, depth = 0) {
   if (depth > 32) fail('provisioning context is too deeply nested', 65);
   if (Array.isArray(value)) { if (value.length > 2048) fail('provisioning context array is too large', 65); value.forEach(child => assertNonsecretJson(child, depth + 1)); return; }
@@ -335,6 +360,7 @@ function assertNonsecretJson(value, depth = 0) {
   if (typeof value === 'number' && !Number.isFinite(value)) fail('provisioning context number is invalid', 65);
 }
 
+/** @param {string} contextPath @param {string} stateDirectory */
 async function prepareProvisioningPrompt(contextPath, stateDirectory) {
   const path = absoluteSafePath(contextPath, 'provisioning context');
   const metadata = await lstat(path);
@@ -355,7 +381,7 @@ async function prepareProvisioningPrompt(contextPath, stateDirectory) {
       return index > 0 && values[index - 1] >= value;
     })) fail(`${label} must be a sorted unique bounded list`, 65);
   }
-  if (context.permittedTools.some(tool => !approvedTools.includes(tool))) fail('provisioning context permits an unapproved tool', 77);
+  if (context.permittedTools.some((/** @type {string} */ tool) => !approvedTools.includes(tool))) fail('provisioning context permits an unapproved tool', 77);
   assertNonsecretJson(context.discoveredFacts);
   assertNonsecretJson(context.policy);
   const promptDigest = createHash('sha256').update(PROVISIONING_PROMPT, 'utf8').digest('hex');
@@ -388,12 +414,13 @@ async function prepareProvisioningPrompt(contextPath, stateDirectory) {
     await evidenceHandle.writeFile(evidence);
     await evidenceHandle.sync();
   } catch (error) {
-    if (error?.code !== 'EEXIST') throw error;
+    if (errorProperty(error, 'code') !== 'EEXIST') throw error;
     if (await readFile(evidencePath, 'utf8') !== evidence) fail('provisioning prompt evidence collision', 73);
   } finally { await evidenceHandle?.close(); }
   return { context, promptPath, contextOutputPath, evidencePath };
 }
 
+/** @param {string} source @param {string} destination @param {string} expectedDigest @param {number} mode */
 async function installPinnedFile(source, destination, expectedDigest, mode) {
   try {
     const info = await lstat(destination);
@@ -403,7 +430,7 @@ async function installPinnedFile(source, destination, expectedDigest, mode) {
     await chmod(destination, mode);
     return destination;
   } catch (error) {
-    if (error?.code !== 'ENOENT') throw error;
+    if (errorProperty(error, 'code') !== 'ENOENT') throw error;
   }
   const temporary = `${destination}.tmp-${process.pid}`;
   try {
@@ -418,6 +445,7 @@ async function installPinnedFile(source, destination, expectedDigest, mode) {
   return destination;
 }
 
+/** @param {unknown} pathValue @param {string | undefined} digest @param {string} label @param {number} maximum */
 async function boundedPinnedSource(pathValue, digest, label, maximum) {
   const path = absoluteSafePath(pathValue, label);
   if (!digestPattern.test(digest || '')) fail(`${label} digest must be a lowercase SHA-256`, 65);
@@ -429,6 +457,7 @@ async function boundedPinnedSource(pathValue, digest, label, maximum) {
   return path;
 }
 
+/** @param {Buffer} bytes */
 function zipExecutable(bytes) {
   const minimum = Math.max(0, bytes.length - 65_557);
   let end = -1;
@@ -461,6 +490,7 @@ function zipExecutable(bytes) {
   return executable;
 }
 
+/** @param {Buffer} bytes */
 function archiveExecutable(bytes) {
   if (bytes.length >= 4 && bytes.readUInt32LE(0) === 0x04034b50) return zipExecutable(bytes);
   let expanded;
@@ -470,10 +500,22 @@ function archiveExecutable(bytes) {
   return entries.get('opencode');
 }
 
-async function installRuntimeClosure(values, stateDirectory) {
-  for (const name of ['runtime-archive', 'sha256', 'version', 'supervisor', 'supervisor-sha256', 'tools-archive', 'tools-sha256', 'lock', 'lock-sha256']) {
-    if (!values[name]) fail(`install requires --${name}`, 64);
+/**
+ * @template {string} K
+ * @param {CliOptions} values
+ * @param {readonly K[]} names
+ * @param {string} command
+ * @returns {asserts values is CliOptions & Record<K, string>}
+ */
+function requireOptions(values, names, command) {
+  for (const name of names) {
+    if (!values[name]) fail(`${command} requires --${name}`, 64);
   }
+}
+
+/** @param {CliOptions} values @param {string} stateDirectory */
+async function installRuntimeClosure(values, stateDirectory) {
+  requireOptions(values, ['runtime-archive', 'sha256', 'version', 'supervisor', 'supervisor-sha256', 'tools-archive', 'tools-sha256', 'lock', 'lock-sha256'], 'install');
   if (!versionPattern.test(values.version)) fail('version must be a supported pinned OpenCode version', 65);
   const archive = await boundedPinnedSource(values['runtime-archive'], values.sha256, 'OpenCode archive', 268_435_456);
   const supervisorSource = await boundedPinnedSource(values.supervisor, values['supervisor-sha256'], 'supervisor', 8_388_608);
@@ -495,11 +537,11 @@ async function installRuntimeClosure(values, stateDirectory) {
   const toolsArchive = join(stateDirectory, 'runtime', `desktop-tools-tools-${values['tools-sha256']}.tar.gz`);
   const installedLock = join(stateDirectory, 'runtime', `opencode-lock-${values['lock-sha256']}.json`);
   const targets = [runtime, executable, supervisor, toolsArchive, installedLock];
-  const changed = (await Promise.all(targets.map(path => lstat(path).then(() => false, error => error?.code === 'ENOENT' ? true : Promise.reject(error))))).some(Boolean);
-  if (!(await lstat(runtime).then(() => true, error => error?.code === 'ENOENT' ? false : Promise.reject(error)))) await atomicWrite(runtime, executableBytes, 0o700);
+  const changed = (await Promise.all(targets.map(path => lstat(path).then(() => false, error => errorProperty(error, 'code') === 'ENOENT' ? true : Promise.reject(error))))).some(Boolean);
+  if (!(await lstat(runtime).then(() => true, error => errorProperty(error, 'code') === 'ENOENT' ? false : Promise.reject(error)))) await atomicWrite(runtime, executableBytes, 0o700);
   else if (await sha256(runtime) !== runtimeDigest) fail('installed OpenCode runtime is not the pinned artifact', 65);
   await chmod(runtime, 0o700);
-  const executableInfo = await lstat(executable).catch(error => error?.code === 'ENOENT' ? null : Promise.reject(error));
+  const executableInfo = await lstat(executable).catch(error => errorProperty(error, 'code') === 'ENOENT' ? null : Promise.reject(error));
   if (executableInfo && (!executableInfo.isFile() || executableInfo.isSymbolicLink() || executableInfo.nlink !== 1 || await sha256(executable) !== runtimeDigest)) {
     if (!executableInfo.isFile() || executableInfo.isSymbolicLink()) fail('Desktop Tools executable path is unsafe', 73);
     await atomicWrite(executable, executableBytes, 0o700);
@@ -510,16 +552,18 @@ async function installRuntimeClosure(values, stateDirectory) {
   await installPinnedFile(toolsSource, toolsArchive, values['tools-sha256'], 0o600);
   await installPinnedFile(lockSource, installedLock, values['lock-sha256'], 0o600);
   await validateRuntime({ runtime, sha256: runtimeDigest, version: values.version }, stateDirectory);
-  const closure = canonical({ schemaVersion: 1, version: values.version, archiveSha256: values.sha256, executable, runtime, runtimeSha256: runtimeDigest,
-    supervisor, supervisorSha256: values['supervisor-sha256'], toolsArchive, toolsSha256: values['tools-sha256'], lock: installedLock, lockSha256: values['lock-sha256'] });
+  const closureFields = { schemaVersion: 1, version: values.version, archiveSha256: values.sha256, executable, runtime, runtimeSha256: runtimeDigest,
+    supervisor, supervisorSha256: values['supervisor-sha256'], toolsArchive, toolsSha256: values['tools-sha256'], lock: installedLock, lockSha256: values['lock-sha256'] };
+  const closure = /** @type {typeof closureFields} */ (canonical(closureFields));
   const closureDigest = createHash('sha256').update(`${JSON.stringify(closure)}\n`).digest('hex');
   const receipt = join(stateDirectory, 'runtime', `closure-${closureDigest}.json`); const receiptBytes = `${JSON.stringify(closure)}\n`;
-  const existingReceipt = await readFile(receipt, 'utf8').catch(error => error?.code === 'ENOENT' ? null : Promise.reject(error));
+  const existingReceipt = await readFile(receipt, 'utf8').catch(error => errorProperty(error, 'code') === 'ENOENT' ? null : Promise.reject(error));
   if (existingReceipt === null) await atomicWrite(receipt, receiptBytes);
   else if (existingReceipt !== receiptBytes) fail('runtime closure receipt collision', 73);
   return { ...closure, closureDigest, receipt, changed };
 }
 
+/** @param {Buffer} bytes */
 function tarEntries(bytes) {
   const entries = new Map();
   for (let offset = 0; offset + 512 <= bytes.length;) {
@@ -544,15 +588,14 @@ function tarEntries(bytes) {
   fail('tools archive lacks its two-block terminator', 65);
 }
 
+/** @param {CliOptions} values @param {string} stateDirectory @param {Awaited<ReturnType<typeof prepareProvisioningPrompt>>} promptBinding @param {Awaited<ReturnType<typeof loadSessionContext>>} session */
 async function prepareToolRuntime(values, stateDirectory, promptBinding, session) {
-  for (const name of ['engine', 'engine-sha256', 'tools-archive', 'tools-sha256', 'tool-context']) {
-    if (!values[name]) fail(`run and service require --${name}`, 64);
-  }
+  requireOptions(values, ['engine', 'engine-sha256', 'tools-archive', 'tools-sha256', 'tool-context'], 'run and service');
   if (!digestPattern.test(values['engine-sha256']) || !digestPattern.test(values['tools-sha256'])) fail('tool runtime digests must be lowercase SHA-256', 65);
   const engineSource = absoluteSafePath(values.engine, 'installer engine');
   const toolsSource = absoluteSafePath(values['tools-archive'], 'tools archive');
   const contextSource = absoluteSafePath(values['tool-context'], 'tool context');
-  for (const [path, label, maximum] of [[engineSource, 'installer engine', 67_108_864], [toolsSource, 'tools archive', 33_554_432], [contextSource, 'tool context', 4_194_304]]) {
+  for (const [path, label, maximum] of /** @type {const} */ ([[engineSource, 'installer engine', 67_108_864], [toolsSource, 'tools archive', 33_554_432], [contextSource, 'tool context', 4_194_304]])) {
     const info = await lstat(path);
     if (!info.isFile() || info.isSymbolicLink() || info.nlink !== 1 || info.size < 1 || info.size > maximum) fail(`${label} must be one bounded regular file`, 65);
   }
@@ -586,7 +629,7 @@ async function prepareToolRuntime(values, stateDirectory, promptBinding, session
     const info = await lstat(server);
     if (!info.isFile() || info.isSymbolicLink() || info.nlink !== 1 || await sha256(server) !== serverDigest) fail('installed MCP server is not the signed artifact', 65);
     await chmod(server, 0o700);
-  } catch (error) { if (error?.code === 'ENOENT') await atomicWrite(server, serverBytes, 0o700); else throw error; }
+  } catch (error) { if (errorProperty(error, 'code') === 'ENOENT') await atomicWrite(server, serverBytes, 0o700); else throw error; }
   const contextDigest = await sha256(contextSource);
   let toolContext;
   try { toolContext = JSON.parse(await readFile(contextSource, 'utf8')); } catch { fail('tool context must be valid JSON', 65); }
@@ -603,6 +646,7 @@ async function prepareToolRuntime(values, stateDirectory, promptBinding, session
   return Object.freeze({ server, engine, engineSha256: values['engine-sha256'], toolsArchive, context, stateRoot: stateDirectory, consentDirectory });
 }
 
+/** @param {string} stateDirectory @returns {Promise<() => Promise<void>>} */
 async function acquireLock(stateDirectory) {
   const path = join(stateDirectory, 'run', 'supervisor.pid');
   try {
@@ -611,20 +655,23 @@ async function acquireLock(stateDirectory) {
     await handle.close();
     return async () => rm(path, { force: true });
   } catch (error) {
-    if (error?.code !== 'EEXIST') throw error;
+    if (errorProperty(error, 'code') !== 'EEXIST') throw error;
     const pid = Number.parseInt(await readFile(path, 'utf8').catch(() => ''), 10);
     if (Number.isSafeInteger(pid) && pid > 1) {
       try { process.kill(pid, 0); fail(`supervisor is already running as pid ${pid}`, 75); }
-      catch (checkError) { if (checkError?.exitCode) throw checkError; if (checkError?.code === 'EPERM') fail('another supervisor owns the lock', 77); }
+      catch (checkError) { if (errorProperty(checkError, 'exitCode')) throw checkError; if (errorProperty(checkError, 'code') === 'EPERM') fail('another supervisor owns the lock', 77); }
     }
     await rm(path, { force: true });
     return acquireLock(stateDirectory);
   }
 }
 
+/** @param {string} value */
 function systemdEscape(value) { return `"${value.replaceAll('\\', '\\\\').replaceAll('"', '\\"')}"`; }
+/** @param {string} value */
 function xml(value) { return value.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;'); }
 
+/** @param {CliOptions} values @param {string} stateDirectory @param {string} runtime */
 async function writeService(values, stateDirectory, runtime) {
   const output = await protectedBase(values['output-dir'], 'output directory');
   const port = portValue(values.port);
@@ -638,8 +685,9 @@ async function writeService(values, stateDirectory, runtime) {
   } catch (error) {
     // Release builds inline this module into the signed supervisor. Source-tree
     // execution retains the adjacent module and installs it for restart parity.
-    if (error?.code !== 'ENOENT') throw error;
+    if (errorProperty(error, 'code') !== 'ENOENT') throw error;
   }
+  requireOptions(values, ['sha256', 'version'], 'service');
   const installedRuntime = await installPinnedFile(runtime, join(stateDirectory, 'runtime', `opencode-${values.sha256}`), values.sha256, 0o700);
   if (!values['provisioning-context']) fail('service requires --provisioning-context', 64);
   if (!values['session-context']) fail('service requires --session-context', 64);
@@ -647,6 +695,7 @@ async function writeService(values, stateDirectory, runtime) {
   const session = await loadSessionContext(values['session-context']);
   const sessionContextPath = await persistSessionContext(stateDirectory, session);
   const toolRuntime = await prepareToolRuntime(values, stateDirectory, promptBinding, session);
+  requireOptions(values, ['tools-sha256'], 'service');
   const fixed = [supervisor, 'run', '--runtime', installedRuntime, '--sha256', values.sha256, '--version', values.version,
     '--state-dir', stateDirectory, '--port', String(port), '--provisioning-context', promptBinding.contextOutputPath,
     '--session-context', sessionContextPath, '--engine', toolRuntime.engine, '--engine-sha256', toolRuntime.engineSha256,
@@ -659,12 +708,14 @@ async function writeService(values, stateDirectory, runtime) {
   return output;
 }
 
+/** @param {unknown} input */
 function portValue(input) {
   const port = Number(input ?? 4096);
   if (!Number.isSafeInteger(port) || port < 1024 || port > 65535) fail('port must be an unprivileged TCP port');
   return port;
 }
 
+/** @param {string[]} argv */
 async function main(argv) {
   const { command, values } = parse(argv);
   const stateDirectory = await protectedDirectory(values['state-dir']);
@@ -702,8 +753,10 @@ async function main(argv) {
     shell: false, cwd: stateDirectory, env: minimalEnvironment(stateDirectory, password, opencodeConfig, promptBinding), stdio: 'inherit'
   });
   let receivedSignal = null;
+  /** @param {NodeJS.Signals} signal */
   const forward = signal => { receivedSignal = signal; if (!child.killed) child.kill(signal); };
   process.once('SIGINT', forward); process.once('SIGTERM', forward);
+  /** @type {{ code: number | null, signal: NodeJS.Signals | null }} */
   const result = await new Promise((resolvePromise, reject) => {
     child.once('error', reject);
     child.once('exit', (code, signal) => resolvePromise({ code, signal }));

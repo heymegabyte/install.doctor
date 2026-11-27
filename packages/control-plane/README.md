@@ -66,11 +66,8 @@ activation are provider-separable authorities.
   publication and activation tooling, R2 storage adapter, and test runner with Node runtime types.
 - Run `npm run check` to build aid-core, run both compiler projects, and bundle the Worker
   in a Wrangler dry run.
-- Run `npm test` to strictly check all control-plane test entry points and execute
-  the full suite. The disposable composition test opts into checking in
-  `tsconfig.composition-test.json` while its JavaScript supervisor dependency
-  still has compiler diagnostics. Other test entry points and their imports
-  use `tsconfig.test.json`.
+- Run `npm test` to strictly check all control-plane tests and their imports
+  in `tsconfig.test.json`, including the Desktop Tools supervisor, and execute the full suite.
 - `npm run deploy` → needs `CLOUDFLARE_API_TOKEN` + `CLOUDFLARE_ACCOUNT_ID` in env (via `get-secret`).
 - `npm run release:publish -- RELEASE_DIR RELEASE_ID` → create-only immutable-object publication
   using release-bucket-only `INSTALL_DOCTOR_RELEASE_R2_*` credentials and

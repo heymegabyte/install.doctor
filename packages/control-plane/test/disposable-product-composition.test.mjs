@@ -1,4 +1,3 @@
-// @ts-check
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { readFile, stat, writeFile } from 'node:fs/promises';
@@ -123,6 +122,7 @@ test('disposable composition carries one identity through Worker, supervisor, en
     { action: 'provider.use', resource: 'projectsites', effect: 'allow' },
   ]);
   assert.equal(JSON.stringify(config).toLowerCase().includes('litellm'), false);
+  assert.ok('evidence' in supervisorResult && supervisorResult.evidence);
   assert.equal(supervisorResult.evidence.captureComplete, false);
   const history = JSON.parse(await readFile(supervisorResult.evidence.historyPath, 'utf8'));
   const recording = JSON.parse(await readFile(supervisorResult.evidence.recordingPath, 'utf8'));

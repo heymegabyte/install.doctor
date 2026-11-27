@@ -10,8 +10,5 @@
     "../desktop-tools-runtime/test/helpers/runtime-fixture.mjs",
     "../installer-engine/test/helpers/composition-engine-fixture.mjs",
     ".wrangler/control-plane-runtime.d.ts"
-  ],
-  "exclude": [
-    "test/disposable-product-composition.test.mjs"
   ]
 }
