@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { execFileSync, spawnSync } from 'node:child_process';
 import { createHash, timingSafeEqual } from 'node:crypto';
-import { existsSync, lstatSync, readFileSync, readdirSync, realpathSync } from 'node:fs';
+import { existsSync, lstatSync, readFileSync, readdirSync, realpathSync, unlinkSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -9,6 +9,7 @@ import { fileURLToPath } from 'node:url';
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const defaultManifestPath = join(repositoryRoot, 'config/infisical/estate-secret-profiles.json');
 const defaultValidationLedgerPath = join(repositoryRoot, 'config/infisical/secret-validation-ledger.json');
+const defaultOfflineExceptionsPath = join(repositoryRoot, 'config/infisical/offline-secret-exceptions.json');
 const defaultSecretDirectories = [
   join(homedir(), '.local/share/chezmoi/home/.chezmoitemplates/secrets'),
   join(homedir(), '.local/share/chezmoi/home/.chezmoitemplates/secrets-workstation'),
@@ -26,14 +27,16 @@ function fail(message) {
 function parseArguments(values) {
   const options = {
     command: 'plan', manifestPath: defaultManifestPath, validationLedgerPath: defaultValidationLedgerPath,
+    offlineExceptionsPath: defaultOfflineExceptionsPath,
     secretDirectories: defaultSecretDirectories,
-    secretDirectoriesOverridden: false, secretNames: [],
+    secretDirectoriesOverridden: false, secretNames: [], applyRetirement: false,
   };
   for (let index = 0; index < values.length; index += 1) {
     const value = values[index];
-    if (value === 'plan' || value === 'apply' || value === 'list') options.command = value;
+    if (value === 'plan' || value === 'apply' || value === 'list' || value === 'retire') options.command = value;
     else if (value === '--manifest') options.manifestPath = resolve(values[++index] ?? fail('missing manifest path'));
     else if (value === '--validation-ledger') options.validationLedgerPath = resolve(values[++index] ?? fail('missing validation ledger path'));
+    else if (value === '--offline-exceptions') options.offlineExceptionsPath = resolve(values[++index] ?? fail('missing offline exceptions path'));
     else if (value === '--host') options.host = values[++index] ?? fail('missing host');
     else if (value === '--workload') options.workload = values[++index] ?? fail('missing workload');
     else if (value === '--project-id') options.projectId = values[++index] ?? fail('missing project id');
@@ -42,6 +45,11 @@ function parseArguments(values) {
       options.secretDirectoriesOverridden = true;
     }
     else if (value === '--name') options.secretNames.push(values[++index] ?? fail('missing secret name'));
+    else if (value === '--source') {
+      if (options.sourceId) fail('--source may be specified only once');
+      options.sourceId = values[++index] ?? fail('missing source id');
+    }
+    else if (value === '--apply') options.applyRetirement = true;
     else fail(`unknown argument ${value}`);
   }
   return options;
@@ -246,12 +254,17 @@ export function validateValidationLedger(ledger, inventorySources = []) {
       const source = sourcesById.get(key);
       if (!source) {
         const [store, canonicalName, ...extra] = key.split(':');
+        const retiredLifecycleEvidence = record.status === 'invalid-retired'
+          || record.status === 'valid'
+            && record.migrated === true
+            && record.targetRetrievalVerified === true
+            && (Array.isArray(record.destination) ? record.destination.length > 0 : typeof record.destination === 'string' && record.destination.length > 0);
         const retiredExactSource = extra.length === 0
           && defaultSecretStores.some(({ id }) => id === store)
           && /^[A-Z][A-Z0-9_]{0,127}$/.test(canonicalName ?? '')
           && record.sourceId === key
           && record.canonicalName === canonicalName
-          && record.status === 'invalid-retired'
+          && retiredLifecycleEvidence
           && record.sourceRetired === true
           && /^[a-f0-9]{64}$/.test(record.ciphertextSha256 ?? '');
         if (!retiredExactSource) fail(`validation ledger references unknown source ${key}`);
@@ -260,8 +273,13 @@ export function validateValidationLedger(ledger, inventorySources = []) {
       if (record.sourceId && record.sourceId !== key) fail(`validation record ${key} has mismatched source id`);
       if (record.canonicalName && record.canonicalName !== source.canonicalName) fail(`validation record ${key} has mismatched canonical name`);
       if (record.ciphertextSha256 && record.ciphertextSha256 !== source.ciphertextSha256) fail(`validation record ${key} has stale ciphertext evidence`);
-    } else if (inventorySources.length > 0 && !canonicalNames.has(key)) {
-      fail(`validation ledger references unknown secret ${key}`);
+    } else if (inventorySources.length > 0 && !canonicalNames.has(key) && record.status !== 'invalid-retired' && record.sourceRetired !== true) {
+      const replacedByExactRetirement = Object.values(ledger.records).some((candidate) => (
+        candidate?.sourceId?.includes(':')
+        && candidate.canonicalName === key
+        && candidate.sourceRetired === true
+      ));
+      if (!replacedByExactRetirement) fail(`validation ledger references unknown secret ${key}`);
     }
   }
   return ledger;
@@ -291,6 +309,90 @@ export function assertSecretsValidated(ledger, secretNames) {
   for (const name of secretNames) if (ledger.records[name]?.status !== 'valid') {
     fail(`secret ${name} has no current valid credential evidence`);
   }
+}
+
+function activeOfflineExceptionForSource(offlineExceptions, source) {
+  if (offlineExceptions?.schemaVersion !== 1 || !Array.isArray(offlineExceptions.exceptions)) fail('invalid offline exception inventory');
+  return offlineExceptions.exceptions.find((exception) => {
+    if (exception.active === false || exception.status === 'retired' || exception.retiredAt) return false;
+    if ((exception.sourceIds ?? []).includes(source.sourceId)) return true;
+    if (exception.id === source.canonicalName) return true;
+    return (exception.observedLocations ?? []).some((location) => (
+      location.endsWith(`/secrets/${source.canonicalName}`) && source.store === 'general'
+      || location.endsWith(`/secrets-workstation/${source.canonicalName}`) && source.store === 'workstation'
+      || location.endsWith(`/secrets-wordpress/${source.canonicalName}`) && source.store === 'wordpress'
+    ));
+  });
+}
+
+function assertSourceInsideApprovedRoot(source, approvedStores) {
+  const store = approvedStores.map(normalizeStore).find(({ id }) => id === source.store);
+  if (!store || !existsSync(store.directory)) fail(`source ${source.sourceId} is outside approved roots`);
+  const root = realpathSync(store.directory);
+  const stat = lstatSync(source.normalizedPath);
+  if (stat.isSymbolicLink() || !stat.isFile() || realpathSync(source.normalizedPath) !== source.normalizedPath || dirname(source.normalizedPath) !== root) {
+    fail(`source ${source.sourceId} is outside approved roots`);
+  }
+}
+
+export function validateRetirementEvidence({ source, ledger, inventorySources, offlineExceptions }) {
+  if (!source || source.sourceId !== `${source.store}:${source.canonicalName}`) fail('retirement requires one exact store-qualified source');
+  const record = ledger?.records?.[source.sourceId];
+  if (!record || record.sourceId !== source.sourceId || record.canonicalName !== source.canonicalName) {
+    fail(`source ${source.sourceId} has no exact retirement evidence`);
+  }
+  validateValidationLedger(ledger, inventorySources);
+  if (record.ciphertextSha256 !== source.ciphertextSha256) fail(`source ${source.sourceId} has stale ciphertext evidence`);
+  const exception = activeOfflineExceptionForSource(offlineExceptions, source);
+  if (exception) fail(`source ${source.sourceId} has active offline exception ${exception.id}`);
+  if (record.status === 'invalid-retired') {
+    const validInvalidRetirement = record.invalidRetirement === true
+      && record.providerConfirmedInvalid === true
+      && Array.isArray(record.requiredDestinations) && record.requiredDestinations.length === 0
+      && Array.isArray(record.requiredConsumers) && record.requiredConsumers.length === 0;
+    if (!validInvalidRetirement) fail(`source ${source.sourceId} has invalid status without complete invalid-retirement evidence`);
+    return { record, evidenceKind: 'invalid-retirement', destinations: [] };
+  }
+  if (record.status !== 'valid') fail(`source ${source.sourceId} is not valid for retirement`);
+  const destinations = Array.isArray(record.destination) ? record.destination : record.destination ? [record.destination] : [];
+  if (record.migrated !== true) fail(`source ${source.sourceId} is missing migrated evidence`);
+  if (destinations.length === 0 || destinations.some((destination) => typeof destination !== 'string' || destination.length === 0)) {
+    fail(`source ${source.sourceId} is missing destination evidence`);
+  }
+  if (record.targetRetrievalVerified !== true) fail(`source ${source.sourceId} is missing target retrieval evidence`);
+  return { record, evidenceKind: 'migrated', destinations: [...destinations].sort() };
+}
+
+export function retireSecretSource({
+  sourceId, secretStores, ledger, offlineExceptions, apply = false,
+}) {
+  if (!/^(general|workstation|wordpress):[A-Z][A-Z0-9_]{0,127}$/.test(sourceId ?? '')) {
+    fail('retire requires --source general:NAME, workstation:NAME, or wordpress:NAME');
+  }
+  const inventorySources = inventorySecretSources(secretStores);
+  const matches = inventorySources.filter((source) => source.sourceId === sourceId);
+  if (matches.length !== 1) fail(`retirement source ${sourceId} is missing or ambiguous`);
+  const source = matches[0];
+  assertSourceInsideApprovedRoot(source, secretStores);
+  const { evidenceKind, destinations } = validateRetirementEvidence({ source, ledger, inventorySources, offlineExceptions });
+  const currentCiphertext = readFileSync(source.normalizedPath);
+  const currentDigest = createHash('sha256').update(currentCiphertext).digest('hex');
+  currentCiphertext.fill(0);
+  if (currentDigest !== source.ciphertextSha256) fail(`source ${source.sourceId} changed during retirement validation`);
+  if (apply) unlinkSync(source.normalizedPath);
+  return {
+    schemaVersion: 1,
+    operation: 'retire-source',
+    mode: apply ? 'apply' : 'dry-run',
+    status: apply ? 'retired' : 'eligible',
+    sourceId: source.sourceId,
+    store: source.store,
+    canonicalName: source.canonicalName,
+    ciphertextSha256: source.ciphertextSha256,
+    evidenceKind,
+    destinations,
+    targetRetrievalVerified: evidenceKind === 'migrated',
+  };
 }
 
 function writeEncryptedSecret({ encryptedPath, environment, name, projectId, secretPath }) {
@@ -334,6 +436,22 @@ function ensureSecretPath({ environment, projectId, secretPath }) {
 
 function main() {
   const options = parseArguments(process.argv.slice(2));
+  if (options.command === 'retire') {
+    if (!options.sourceId) fail('retire requires exactly one --source store:NAME');
+    if (options.host || options.workload || options.projectId || options.secretDirectoriesOverridden || options.secretNames.length > 0) {
+      fail('retire accepts only --source, --validation-ledger, --offline-exceptions, and optional --apply');
+    }
+    const receipt = retireSecretSource({
+      sourceId: options.sourceId,
+      secretStores: defaultSecretStores,
+      ledger: JSON.parse(readFileSync(options.validationLedgerPath, 'utf8')),
+      offlineExceptions: JSON.parse(readFileSync(options.offlineExceptionsPath, 'utf8')),
+      apply: options.applyRetirement,
+    });
+    process.stdout.write(`${JSON.stringify(receipt, null, 2)}\n`);
+    return;
+  }
+  if (options.sourceId || options.applyRetirement) fail('--source and retirement --apply require the retire command');
   const manifest = validateManifest(JSON.parse(readFileSync(options.manifestPath, 'utf8')));
   if (options.command === 'list') {
     if (options.host || options.workload || options.projectId || options.secretDirectoriesOverridden || options.secretNames.length > 0) {
