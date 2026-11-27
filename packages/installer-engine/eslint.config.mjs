@@ -21,7 +21,6 @@ const pendingSourceFiles = [
   'src/privileged-systemd-transaction-store.ts',
   'src/rollback-executor.ts',
   'src/sudo-credential-cleanup.ts',
-  'src/verified-artifact-materializer.ts',
 ].map(file => `packages/installer-engine/${file}`);
 
 export default [

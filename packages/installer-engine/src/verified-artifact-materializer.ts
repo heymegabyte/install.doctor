@@ -6,6 +6,9 @@ import { tmpdir } from 'node:os';
 import { isAbsolute, join, normalize } from 'node:path';
 import { z } from 'zod';
 
+const platformOpenFlags: { readonly O_NOFOLLOW?: number } = constants;
+const noFollow = platformOpenFlags.O_NOFOLLOW ?? 0;
+
 const authoritySchema = z.strictObject({
   sha256: z.string().regex(/^[0-9a-f]{64}$/),
   sizeBytes: z.number().int().nonnegative(),
@@ -15,7 +18,7 @@ const artifactIdSchema = z.string().min(1).max(128).regex(/^[a-z0-9][a-z0-9._-]*
 const releaseIdSchema = z.string().min(1).max(128).regex(/^[a-z0-9][a-z0-9._-]*$/);
 const releaseArtifactSchema = z.strictObject({
   artifactId: artifactIdSchema,
-  url: z.string().url().max(2048),
+  url: z.url().max(2048),
   authority: authoritySchema,
 });
 
@@ -51,7 +54,7 @@ export async function openVerifiedArtifactSnapshot(input: {
   let directory: string | undefined;
   let snapshotPath: string | undefined;
   try {
-    source = await open(input.sourcePath, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
+    source = await open(input.sourcePath, constants.O_RDONLY | noFollow);
     const metadata = await source.stat();
     if (!metadata.isFile() || (process.platform !== 'win32' && metadata.nlink !== 1) || metadata.size !== authority.sizeBytes) {
       throw new VerifiedArtifactMaterializationError(`materialized artifact has unsafe inode metadata: ${input.artifactId}`);
@@ -66,12 +69,12 @@ export async function openVerifiedArtifactSnapshot(input: {
     }
     directory = await mkdtemp(join(tmpdir(), 'installer-engine-artifact-'));
     snapshotPath = join(directory, 'verified');
-    writer = await open(snapshotPath, constants.O_CREAT | constants.O_EXCL | constants.O_RDWR | (constants.O_NOFOLLOW ?? 0), Number.parseInt(authority.mode, 8));
+    writer = await open(snapshotPath, constants.O_CREAT | constants.O_EXCL | constants.O_RDWR | noFollow, Number.parseInt(authority.mode, 8));
     await writer.writeFile(bytes);
     await writer.sync();
     await writer.chmod(Number.parseInt(authority.mode, 8));
     await writer.close(); writer = undefined;
-    snapshot = await open(snapshotPath, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
+    snapshot = await open(snapshotPath, constants.O_RDONLY | noFollow);
     const sealed = await snapshot.stat();
     if (!sealed.isFile() || (process.platform !== 'win32' && sealed.nlink !== 1) || sealed.size !== authority.sizeBytes) {
       throw new VerifiedArtifactMaterializationError(`verified artifact snapshot is unsafe: ${input.artifactId}`);
@@ -114,13 +117,13 @@ async function privateCanonicalDirectory(path: string, label: string): Promise<s
 }
 
 async function boundedResponse(response: Response, expectedSize: number): Promise<Buffer> {
-  if (response.status !== 200 || !response.body) throw new VerifiedArtifactMaterializationError(`release artifact transport returned HTTP ${response.status}`);
+  if (response.status !== 200 || !response.body) throw new VerifiedArtifactMaterializationError(`release artifact transport returned HTTP ${String(response.status)}`);
   const declared = response.headers.get('content-length');
   if (declared !== null && (!/^[0-9]+$/.test(declared) || Number(declared) !== expectedSize)) {
     throw new VerifiedArtifactMaterializationError('release artifact response size does not match signed authority');
   }
   const reader = response.body.getReader(); const chunks: Buffer[] = []; let total = 0;
-  while (true) {
+  for (;;) {
     const part = await reader.read();
     if (part.done) break;
     total += part.value.byteLength;
@@ -141,7 +144,7 @@ async function syncDirectory(path: string): Promise<void> {
 
 async function recoverInterruptedPublication(cacheRoot: string, candidatePath: string, authority: VerifiedArtifactAuthority): Promise<void> {
   const pattern = new RegExp(`^\\.${authority.sha256}\\.[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\\.tmp$`);
-  const candidate = await lstat(candidatePath).catch(error => {
+  const candidate = await lstat(candidatePath).catch((error: unknown) => {
     if (error instanceof Error && 'code' in error && error.code === 'ENOENT') return undefined;
     throw error;
   });
@@ -176,7 +179,7 @@ async function inspectCandidate(path: string, artifactId: string, authority: Ver
   } catch (error) {
     if (error instanceof VerifiedArtifactMaterializationError
       && /could not be opened safely/.test(error.message)) {
-      const exists = await lstat(path).then(() => true, candidate => {
+      const exists = await lstat(path).then(() => true, (candidate: unknown) => {
         if (candidate instanceof Error && 'code' in candidate && candidate.code === 'ENOENT') return false;
         throw candidate;
       });
@@ -223,7 +226,7 @@ export async function createOnlineReleaseArtifactResolver(input: {
       return { sourcePath: candidatePath, authority: artifact.authority };
     }
     if (input.offline) throw new VerifiedArtifactMaterializationError(`offline cache is missing release artifact: ${artifactId}`);
-    const controller = new AbortController(); const timer = setTimeout(() => controller.abort(), timeoutMs);
+    const controller = new AbortController(); const timer = setTimeout(() => { controller.abort(); }, timeoutMs);
     let response: Response;
     let bytes: Buffer;
     try {
@@ -243,7 +246,7 @@ export async function createOnlineReleaseArtifactResolver(input: {
     const stage = join(cacheRoot, `.${artifact.authority.sha256}.${randomUUID()}.tmp`);
     let handle: FileHandle | undefined;
     try {
-      handle = await open(stage, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY | (constants.O_NOFOLLOW ?? 0), 0o600);
+      handle = await open(stage, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY | noFollow, 0o600);
       await handle.writeFile(bytes); await handle.sync(); await handle.close(); handle = undefined;
       await chmod(stage, Number.parseInt(artifact.authority.mode, 8));
       try { await link(stage, candidatePath); }
@@ -268,10 +271,10 @@ export async function createMaterializedArtifactResolver(input: {
   const entries = Object.entries(input.artifacts).map(([artifactId, authority]) => [artifactIdSchema.parse(artifactId), authoritySchema.parse(authority)] as const);
   if (entries.length > 4096) throw new VerifiedArtifactMaterializationError('materialized artifact authority exceeds its bound');
   const authorities = new Map(entries);
-  return async artifactIdInput => {
+  return artifactIdInput => new Promise(resolve => {
     const artifactId = artifactIdSchema.parse(artifactIdInput);
     const authority = authorities.get(artifactId);
     if (!authority) throw new VerifiedArtifactMaterializationError(`materialized artifact is not authorized: ${artifactId}`);
-    return { sourcePath: join(materializedRoot, artifactId), authority };
-  };
+    resolve({ sourcePath: join(materializedRoot, artifactId), authority });
+  });
 }
