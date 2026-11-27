@@ -282,13 +282,13 @@ function appendTuiOutput(model: TuiModel, taskId: string, sequence: number, line
 
 export function reduceTuiEvent(modelInput: TuiModel, eventInput: unknown): TuiModel {
   const event = InstallerEventSchema.parse(eventInput);
-  if (event.sequence !== modelInput.lastSequence + 1) throw new Error(`TUI event sequence gap at ${event.sequence}`);
-  let model: TuiModel = Object.freeze({ ...modelInput, lastSequence: event.sequence });
+  if (event.sequence !== modelInput.lastSequence + 1) throw new Error(`TUI event sequence gap at ${String(event.sequence)}`);
+  const model: TuiModel = Object.freeze({ ...modelInput, lastSequence: event.sequence });
   if (event.kind === 'run-status') return Object.freeze({ ...model, runStatus: event.status });
   if (event.kind === 'phase-status') return Object.freeze({ ...model, phase: `${event.phase}:${event.status}` });
   if (event.kind === 'task-status') {
     return updateTask(model, event.taskId, task => ({
-      ...task, status: event.status as TuiTaskStatus, attempt: event.attempt,
+      ...task, status: event.status, attempt: event.attempt,
       verification: event.status === 'verified' ? 'passed'
         : event.status === 'inapplicable' ? 'inapplicable'
           : event.status === 'failed' || event.status === 'blocked' ? 'failed' : task.verification,
@@ -328,7 +328,7 @@ export function reduceInstallerEvents(result: InstallerRunResult): InstallerSema
   let terminated = false;
   result.events.forEach((eventInput, index) => {
     const event = InstallerEventSchema.parse(eventInput);
-    if (event.sequence !== index) throw new Error(`installer event sequence gap at ${index}`);
+    if (event.sequence !== index) throw new Error(`installer event sequence gap at ${String(index)}`);
     if (terminated) throw new Error('installer event follows the terminal run event');
     if (event.kind === 'task-status' && terminalTaskStatuses.has(event.status as TaskTerminalStatus)) {
       taskStatuses[event.taskId] = event.status as TaskTerminalStatus;
@@ -366,7 +366,7 @@ function eventLine(event: InstallerEvent, criticalTaskIds: ReadonlySet<string>):
   if (event.kind === 'phase-status') return `${event.phase}: ${event.status}`;
   if (event.kind === 'task-status') {
     const critical = criticalTaskIds.has(event.taskId) ? ' [critical path]' : '';
-    const attempt = event.status === 'retrying' ? ` (attempt ${event.attempt})` : '';
+    const attempt = event.status === 'retrying' ? ` (attempt ${String(event.attempt)})` : '';
     return `${event.taskId}: ${event.status}${attempt}${critical}`;
   }
   if (event.kind === 'run-status') return `run: ${event.status}`;
@@ -410,12 +410,12 @@ function terminalCellWidth(character: string): number {
 }
 
 function fitTerminalWidth(line: string, width: number): string {
-  const characters = [...line];
-  const totalWidth = characters.reduce((total, character) => total + terminalCellWidth(character), 0);
+  let totalWidth = 0;
+  for (const character of line) totalWidth += terminalCellWidth(character);
   if (totalWidth <= width) return line;
   const visible: string[] = [];
   let used = 0;
-  for (const character of characters) {
+  for (const character of line) {
     const cells = terminalCellWidth(character);
     if (used + cells > width - 1) break;
     visible.push(character);
@@ -460,11 +460,11 @@ export function renderTuiFrame(model: TuiModel, optionsInput: unknown = {}): str
   ));
   const visibleTasks = tasks.slice(taskStart, taskStart + taskCapacity);
   const viewport = tasks.length > taskCapacity
-    ? `  view ${taskStart + 1}-${taskStart + visibleTasks.length} of ${tasks.length}`
+    ? `  view ${String(taskStart + 1)}-${String(taskStart + visibleTasks.length)} of ${String(tasks.length)}`
     : '';
   const lines = [
     tuiColor(fitTerminalWidth(`${options.screenReader ? 'Desktop Tools.' : 'DESKTOP TOOLS'}  ${phase}  ${model.runStatus}`, options.width), '1;36', options.color && !options.screenReader),
-    fitTerminalWidth(`Workers  ${active} active  ${waiting} waiting  ${done}/${tasks.length} done${viewport}   [j/k] select  [enter] inspect  [c] critical  [f] follow  [d] detach  [/] filter  [q] cancel`, options.width),
+    fitTerminalWidth(`Workers  ${String(active)} active  ${String(waiting)} waiting  ${String(done)}/${String(tasks.length)} done${viewport}   [j/k] select  [enter] inspect  [c] critical  [f] follow  [d] detach  [/] filter  [q] cancel`, options.width),
     fitTerminalWidth('─'.repeat(Math.max(1, options.width)), options.width),
   ];
   if (model.detachedView) {
@@ -479,9 +479,9 @@ export function renderTuiFrame(model: TuiModel, optionsInput: unknown = {}): str
     const selected = task.taskId === model.selectedTaskId ? '›' : ' ';
     const criticalLabel = critical.has(task.taskId) ? '  critical' : '';
     const lock = task.waitingLocks.length > 0 ? `  waiting:${task.waitingLocks.join(',')}` : task.heldLocks.length > 0 ? `  lock:${task.heldLocks.join(',')}` : '';
-    const attempt = task.status === 'retrying' ? `  attempt:${task.attempt}` : '';
+    const attempt = task.status === 'retrying' ? `  attempt:${String(task.attempt)}` : '';
     const status = options.screenReader ? `status:${task.status}` : `${tuiStatusIcon(task.status, options.reducedMotion)} ${task.status}`;
-    const context = `  agent:${task.agentId}  deps:${task.dependencies.length || 'none'}  approval:${task.approval}  ${formatCost(task.estimatedCostMicros)}  verify:${task.verification}`;
+    const context = `  agent:${task.agentId}  deps:${String(task.dependencies.length || 'none')}  approval:${task.approval}  ${formatCost(task.estimatedCostMicros)}  verify:${task.verification}`;
     const row = options.width < 40
       ? `${selected} ${options.screenReader ? '' : tuiStatusIcon(task.status, options.reducedMotion)} ${task.taskId} ${status}${attempt}${lock}${criticalLabel}`
       : `${selected} ${status.padEnd(18)} ${task.taskId}${attempt}${lock}${criticalLabel}${context}`;
@@ -490,7 +490,7 @@ export function renderTuiFrame(model: TuiModel, optionsInput: unknown = {}): str
   if (model.inspect && model.selectedTaskId) {
     const selected = model.tasks[model.selectedTaskId];
     if (selected) {
-      lines.push(fitTerminalWidth(`Task ${selected.taskId} · agent ${selected.agentId} · ${selected.status} · attempt ${selected.attempt}`, options.width));
+      lines.push(fitTerminalWidth(`Task ${selected.taskId} · agent ${selected.agentId} · ${selected.status} · attempt ${String(selected.attempt)}`, options.width));
       lines.push(fitTerminalWidth(`Dependencies ${selected.dependencies.join(',') || 'none'} · approval ${selected.approval} · ${formatCost(selected.estimatedCostMicros)} · verification ${selected.verification}`, options.width));
       const output = selected.output.filter(line => options.logFilter === '' || line.toLocaleLowerCase('en-US').includes(options.logFilter.toLocaleLowerCase('en-US')));
       const outputCapacity = Math.max(0, options.height - lines.length);
@@ -500,10 +500,9 @@ export function renderTuiFrame(model: TuiModel, optionsInput: unknown = {}): str
         const needsSummary = selected.outputDropped > 0 || output.length > outputCapacity;
         const visibleCapacity = needsSummary && outputCapacity > 1 ? outputCapacity - 1 : outputCapacity;
         const visibleOutput = visibleCapacity === 0 ? [] : output.slice(-visibleCapacity);
-        const retainedEarlier = output.length - visibleOutput.length;
         if (needsSummary && outputCapacity > 1) {
-          const dropped = selected.outputDropped > 0 ? `${selected.outputDropped} earlier output lines omitted from the live view; ` : '';
-          lines.push(fitTerminalWidth(`  ${dropped}showing ${visibleOutput.length} of ${output.length} retained`, options.width));
+          const dropped = selected.outputDropped > 0 ? `${String(selected.outputDropped)} earlier output lines omitted from the live view; ` : '';
+          lines.push(fitTerminalWidth(`  ${dropped}showing ${String(visibleOutput.length)} of ${String(output.length)} retained`, options.width));
         }
         for (const line of visibleOutput) lines.push(fitTerminalWidth(`  ${line}`, options.width));
       }
