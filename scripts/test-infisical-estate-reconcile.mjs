@@ -6,10 +6,16 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
   assertSecretSourcesValidated, assertSecretsValidated, inventorySecretNames, inventorySecretSources,
-  markRetiredSourceInLedgerText, metadataOnlyListing, resolveSourceValidationRecord, retireSecretSource, secretDirectoriesForHost, secretStoresForTarget, selectConfigurationSecrets,
+  markRetiredSourceInLedgerText, metadataOnlyListing, parseValidationLedgerText, resolveSourceValidationRecord, retireSecretSource, secretDirectoriesForHost, secretStoresForTarget, selectConfigurationSecrets,
   selectConfigurationSources, selectHostSecrets, selectRequestedSources, validateClosedSetSync, validateManifest,
   validateRetirementEvidence, validateValidationLedger,
 } from './infisical-estate-reconcile.mjs';
+
+assert.throws(
+  () => parseValidationLedgerText('{\n  "schemaVersion": 1,\n  "records": {\n    "general:TOKEN": {},\n    "general:TOKEN": {}\n  }\n}\n'),
+  /duplicate record keys/,
+);
+assert.deepEqual(parseValidationLedgerText('{"schemaVersion":1,"records":{}}'), { schemaVersion: 1, records: {} });
 
 const root = mkdtempSync(join(tmpdir(), 'infisical-estate-reconcile-'));
 writeFileSync(join(root, 'CLOUDFLARE_API_TOKEN'), 'ciphertext fixture');

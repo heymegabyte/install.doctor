@@ -24,6 +24,12 @@ function fail(message) {
   throw new Error(`infisical-estate-reconcile: ${message}`);
 }
 
+export function parseValidationLedgerText(ledgerText) {
+  const recordKeys = [...ledgerText.matchAll(/^    "([^"]+)":/gm)].map((match) => match[1]);
+  if (new Set(recordKeys).size !== recordKeys.length) fail('validation ledger contains duplicate record keys');
+  return JSON.parse(ledgerText);
+}
+
 function parseArguments(values) {
   const options = {
     command: 'plan', manifestPath: defaultManifestPath, validationLedgerPath: defaultValidationLedgerPath,
@@ -454,7 +460,7 @@ export function markRetiredSourceInLedgerText(ledgerText, sourceId) {
   const pattern = new RegExp(`(^\\s*"${escaped}"\\s*:\\s*\\{[^\\n]*)(\\}\\s*,?\\s*$)`, 'm');
   const match = ledgerText.match(pattern);
   if (!match) {
-    const ledger = JSON.parse(ledgerText);
+    const ledger = parseValidationLedgerText(ledgerText);
     const record = ledger?.records?.[sourceId];
     if (!record) fail(`validation ledger record ${sourceId} is missing`);
     if (record.sourceRetired !== undefined && record.sourceRetired !== true) {
@@ -523,7 +529,7 @@ function main() {
     const receipt = retireSecretSource({
       sourceId: options.sourceId,
       secretStores: defaultSecretStores,
-      ledger: JSON.parse(ledgerText),
+      ledger: parseValidationLedgerText(ledgerText),
       offlineExceptions: JSON.parse(readFileSync(options.offlineExceptionsPath, 'utf8')),
       apply: options.applyRetirement,
     });
@@ -575,7 +581,7 @@ function main() {
     process.stdout.write(`${JSON.stringify({ schemaVersion: 1, inventoryCount: inventoryNames.size, [planKey]: plans }, null, 2)}\n`);
     return;
   }
-  const validationLedger = JSON.parse(readFileSync(options.validationLedgerPath, 'utf8'));
+  const validationLedger = parseValidationLedgerText(readFileSync(options.validationLedgerPath, 'utf8'));
   const validationInventorySources = options.secretDirectoriesOverridden
     ? [...new Map([
       ...inventorySecretSources(defaultSecretStores),
