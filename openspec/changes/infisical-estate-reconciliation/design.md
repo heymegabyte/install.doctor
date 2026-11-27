@@ -110,6 +110,8 @@ Both names are therefore reserved from regex admission and re-admitted only thro
 
 This is a bounded transition, not the desired steady state. Every executable consumer must be inventoried and replaced with a purpose-scoped API token or an audited human control-plane operation. Removal requires successful replacement verification for both hosts, direct retrieval denial after project deletion, and a rollback path that does not restore the global pair to a generic profile. New code must not add Global API Key dependencies.
 
+During the migration, a browser automation snapshot rendered the Global API Key while transferring it between reviewed Infisical projects. The pending destination draft was discarded and the clipboard was cleared, but the credential is compromised and must be rotated through Cloudflare's security-check-protected dashboard flow before any further use. The ledger records `compromised-pending-rotation` and `deny-new-use`; rotation must invalidate the old value, validate the replacement with a minimum read-only API call, update both legacy host destinations atomically, and prove the old value fails before normal runtime admission resumes. No transcript value is copied into specifications, logs, commits, or migration evidence.
+
 ### Acceptance scenarios
 
 1. **macOS default inventory:** selecting only `macos.megabyte.space` uses its declared `secrets-workstation` overrides plus the allowed general fallback and records both sources without values.
