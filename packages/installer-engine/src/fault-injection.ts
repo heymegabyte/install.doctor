@@ -45,7 +45,7 @@ export interface FaultOutcome {
   readonly nextAction: FaultNextAction;
 }
 
-const stable = (value: unknown): string => JSON.stringify(value, (_key, item) => {
+const stable = (value: unknown): string => JSON.stringify(value, (_key: string, item: unknown) => {
   if (!item || typeof item !== 'object' || Array.isArray(item)) return item;
   return Object.fromEntries(Object.entries(item as Record<string, unknown>).sort(([left], [right]) => left.localeCompare(right)));
 });
