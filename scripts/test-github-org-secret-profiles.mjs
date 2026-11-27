@@ -229,6 +229,12 @@ for (const [workload, configuration] of Object.entries(manifest.workloads)) {
 for (const host of Object.keys(manifest.hosts)) {
   assert.deepEqual(selectHostSecrets(manifest, host, ['POSTIZ_API_KEY', 'POSTIZ_MCP_URL']), []);
 }
+for (const configuration of Object.values(manifest.workloads)) {
+  assert.deepEqual(selectConfigurationSecrets(manifest, configuration, ['TWENTY_API_KEY']), []);
+}
+for (const host of Object.keys(manifest.hosts)) {
+  assert.deepEqual(selectHostSecrets(manifest, host, ['TWENTY_API_KEY']), []);
+}
 assert.deepEqual(selectConfigurationSecrets(
   manifest, manifest.workloads['crawl.cheap'], ['EXA_API_KEY', 'SENTRY_DSN', 'ANTHROPIC_API_KEY'],
 ), ['EXA_API_KEY', 'SENTRY_DSN']);
