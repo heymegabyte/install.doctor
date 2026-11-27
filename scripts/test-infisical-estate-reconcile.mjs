@@ -101,6 +101,49 @@ assert.deepEqual(selectHostSecrets(manifest, 'macos.megabyte.space', inventory.k
 assert.deepEqual(selectConfigurationSecrets(
   manifest, manifest.workloads['mcp.megabyte.space'], inventory.keys(),
 ), ['CLOUDFLARE_API_TOKEN']);
+const accessSshNames = [
+  'CF_ACCESS_SSH_COOLIFY_CLIENT_ID', 'CF_ACCESS_SSH_COOLIFY_CLIENT_SECRET',
+  'CF_ACCESS_SSH_UBUNTU_CLIENT_ID', 'CF_ACCESS_SSH_UBUNTU_CLIENT_SECRET',
+];
+const accessSshManifest = validateManifest({
+  ...manifest,
+  hosts: {
+    ...manifest.hosts,
+    'ubuntu.megabyte.space': {
+      profile: 'server', projectId: 'fa93b35d-7cf1-4e33-bd3f-9712f503a382', secretPath: '/',
+    },
+    'zen.megabyte.space': {
+      profile: 'managed', projectId: '5b554b31-a5bb-4fe7-a83a-bf954d9cc8d9', secretPath: '/hosts/zen-megabyte-space',
+    },
+    'legion.megabyte.space': {
+      profile: 'managed', projectId: '5b554b31-a5bb-4fe7-a83a-bf954d9cc8d9', secretPath: '/hosts/legion-megabyte-space',
+    },
+  },
+  profiles: {
+    ...manifest.profiles,
+    developer: ['cloudflare', 'cloudflare-access-ssh-client'], server: ['cloudflare'], managed: ['cloudflare'],
+  },
+  capabilityPatterns: { ...manifest.capabilityPatterns, cloudflare: ['^CLOUDFLARE_', '^CF_'] },
+  reservedNames: accessSshNames,
+  exactCapabilityNames: { 'cloudflare-access-ssh-client': accessSshNames },
+});
+const cloudflareInventory = ['CF_API_TOKEN', ...accessSshNames];
+assert.deepEqual(selectHostSecrets(accessSshManifest, 'macos.megabyte.space', cloudflareInventory), cloudflareInventory.sort());
+for (const target of ['ubuntu.megabyte.space', 'zen.megabyte.space', 'legion.megabyte.space']) {
+  assert.deepEqual(selectHostSecrets(accessSshManifest, target, cloudflareInventory), ['CF_API_TOKEN']);
+}
+assert.deepEqual(selectConfigurationSecrets(
+  accessSshManifest, accessSshManifest.workloads['mcp.megabyte.space'], cloudflareInventory,
+), ['CF_API_TOKEN']);
+assert.throws(() => selectHostSecrets(accessSshManifest, 'omen.megabyte.space', cloudflareInventory), /not declared/);
+assert.throws(() => validateManifest({
+  ...accessSshManifest,
+  exactCapabilityNames: { first: accessSshNames, second: [accessSshNames[0]] },
+}), /ambiguous exact capability ownership/);
+assert.throws(() => validateManifest({
+  ...accessSshManifest,
+  capabilityPatterns: { ...accessSshManifest.capabilityPatterns, 'cloudflare-access-ssh-client': ['^CF_ACCESS_SSH_'] },
+}), /exact capability.*ambiguous/);
 const sharedManifest = { ...manifest, capabilityPatterns: { cloudflare: ['^SHARED_'] } };
 assert.deepEqual(
   selectConfigurationSources(sharedManifest, sharedManifest.hosts['macos.megabyte.space'], sourceInventory)

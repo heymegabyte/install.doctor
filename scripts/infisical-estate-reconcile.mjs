@@ -72,6 +72,28 @@ export function validateManifest(manifest) {
     const sourceStore = configuration.sourceStore ?? 'general';
     if (!['general', 'wordpress'].includes(sourceStore)) fail(`workload ${workload} has an invalid source store`);
   }
+  const reservedNames = manifest.reservedNames ?? [];
+  const exactCapabilityNames = manifest.exactCapabilityNames ?? {};
+  if (!Array.isArray(reservedNames) || typeof exactCapabilityNames !== 'object' || Array.isArray(exactCapabilityNames)) fail('invalid reserved-name policy');
+  if (new Set(reservedNames).size !== reservedNames.length || reservedNames.some((name) => !/^[A-Z][A-Z0-9_]{0,127}$/.test(name))) {
+    fail('invalid or duplicate reserved secret name');
+  }
+  const exactOwners = new Map();
+  for (const [capability, names] of Object.entries(exactCapabilityNames)) {
+    if (!Array.isArray(names) || names.length === 0 || manifest.capabilityPatterns?.[capability]) {
+      fail(`exact capability ${capability} is ambiguous`);
+    }
+    for (const name of names) {
+      if (!reservedNames.includes(name) || exactOwners.has(name)) fail(`reserved secret ${name} has ambiguous exact capability ownership`);
+      exactOwners.set(name, capability);
+    }
+  }
+  for (const name of reservedNames) if (!exactOwners.has(name)) fail(`reserved secret ${name} has no exact capability owner`);
+  for (const capabilities of Object.values(manifest.profiles)) {
+    for (const capability of capabilities) {
+      if (!manifest.capabilityPatterns?.[capability] && !exactCapabilityNames[capability]) fail(`profile references unknown capability ${capability}`);
+    }
+  }
   return manifest;
 }
 
@@ -225,7 +247,12 @@ export function selectConfigurationSecrets(manifest, configuration, secretNames)
   const capabilities = manifest.profiles[configuration.profile];
   const include = capabilities.flatMap((capability) => manifest.capabilityPatterns[capability] ?? []).map((pattern) => new RegExp(pattern));
   const exclude = (manifest.alwaysExcludePatterns ?? []).map((pattern) => new RegExp(pattern));
-  return [...secretNames].filter((name) => include.some((pattern) => pattern.test(name)) && !exclude.some((pattern) => pattern.test(name))).sort();
+  const reserved = new Set(manifest.reservedNames ?? []);
+  const exact = new Set(capabilities.flatMap((capability) => manifest.exactCapabilityNames?.[capability] ?? []));
+  return [...secretNames].filter((name) => (
+    !exclude.some((pattern) => pattern.test(name))
+    && (exact.has(name) || !reserved.has(name) && include.some((pattern) => pattern.test(name)))
+  )).sort();
 }
 
 export function selectConfigurationSources(manifest, configuration, sources) {
