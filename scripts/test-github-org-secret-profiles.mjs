@@ -31,6 +31,16 @@ for (const host of Object.keys(manifest.hosts)) {
   );
 }
 assert.deepEqual(selectConfigurationSecrets(manifest, manifest.workloads['mcp.megabyte.space'], [...bzSecrets, ...deskSecrets]), []);
+const sentryAdminSecrets = ['SENTRY_API_KEY', 'SENTRY_AUTH_TOKEN'];
+for (const host of ['macos.megabyte.space', 'ubuntu.megabyte.space']) {
+  assert.deepEqual(selectHostSecrets(manifest, host, sentryAdminSecrets), sentryAdminSecrets);
+}
+for (const host of ['zen.megabyte.space', 'legion.megabyte.space']) {
+  assert.deepEqual(selectHostSecrets(manifest, host, sentryAdminSecrets), []);
+}
+assert.deepEqual(selectConfigurationSecrets(
+  manifest, manifest.workloads['mcp.megabyte.space'], sentryAdminSecrets,
+), sentryAdminSecrets);
 assert.deepEqual(selectConfigurationSecrets(
   manifest, manifest.workloads['crawl.cheap'], ['EXA_API_KEY', 'SENTRY_DSN', 'ANTHROPIC_API_KEY'],
 ), ['EXA_API_KEY', 'SENTRY_DSN']);
