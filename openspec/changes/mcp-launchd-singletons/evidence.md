@@ -17,7 +17,8 @@
 - PASS: no root/system unit exists; the broker runs as `professormanhattan`, the state and socket directories are mode `0700`, and every socket is mode `0600`.
 - PASS: the live unit has `UMask=0077`, `PrivateTmp=true`, `ProtectControlGroups=true`, `ProtectKernelTunables=true`, `ProtectSystem=strict`, and narrowly declared writable home paths.
 - PASS: live manager status, the hermetic Linux renderer, broker isolation, portal-profile tests, and strict OpenSpec validation succeeded on 2026-11-27.
-- REVIEW REQUIRED: `loginctl` reports `Linger=yes`. The manager did not implicitly create a system unit, but the headless-lingering owner, necessity, and rollback authorization are not yet recorded as required by task 4.3.
+- PASS: the rendered Ubuntu `hostContract` binds `hostId=ubuntu.megabyte.space`, `platform=linux`, and `lingerPolicy=authorized-headless`; the manager fails closed when live `loginctl` state disagrees and never changes linger state during install or rollback.
+- PASS: the rendered macOS `hostContract` binds `hostId=macos.megabyte.space`, `platform=darwin`, and `lingerPolicy=forbid`.
 - REVIEW REQUIRED: the deployed socket path is `~/.local/state/mcp-singletons/sockets`, while task 4.2 proposes `%t/mcp-singletons`; reconcile the specification or migrate and re-run logout/login and rollback tests.
 - PENDING: complete the full Ubuntu allowed/forbidden-call, cancellation, disconnect, crash-loop, upstream-outage, offline-startup, logout/login, and rollback drill in task 4.5.
 
