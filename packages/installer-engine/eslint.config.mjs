@@ -47,8 +47,6 @@ const pendingSourceFiles = [
   'src/privileged-systemd-transaction-store.ts',
   'src/process-identity.ts',
   'src/provisioning-prompt.ts',
-  'src/proxmox-lifecycle.ts',
-  'src/qubes-native-lifecycle.ts',
   'src/reviewed-plan-binding.ts',
   'src/rollback-executor.ts',
   'src/sudo-credential-cleanup.ts',
@@ -57,7 +55,6 @@ const pendingSourceFiles = [
   'src/target-device-credential.ts',
   'src/verified-artifact-materializer.ts',
   'src/windows-native-operations.ts',
-  'src/wsl-boundary.ts',
 ].map(file => `packages/installer-engine/${file}`);
 
 export default [
