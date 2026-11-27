@@ -69,7 +69,7 @@ jobs:
           npm --prefix packages/control-plane run typecheck:tooling
           npm --prefix packages/control-plane run lint:tooling
           npm --prefix packages/control-plane run types:runtime
-          npm --prefix packages/control-plane run lint:test:http
+          npm --prefix packages/control-plane run lint:test
 
       - name: Lint core scripts
         run: shellcheck --severity=error -x scripts/provision.sh start.sh
