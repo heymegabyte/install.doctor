@@ -4,6 +4,7 @@ import { chmod, lstat, mkdir, open, readFile, rename, rm } from 'node:fs/promise
 import { dirname, join } from 'node:path';
 import {
   DeviceAuthorizationRequestSchema,
+  TargetDeviceAuthorizationBindingSchema,
   type TargetDeviceAuthorizationBinding,
   type DeviceAuthorizationRequest,
 } from '@install-doctor/aid-core/device-authorization';
@@ -13,10 +14,12 @@ const MIN_POLL_INTERVAL_MS = 1_000;
 const MAX_POLL_INTERVAL_MS = 30_000;
 const STATE_VERSION = 1 as const;
 
+const ReturnedTargetBindingSchema = TargetDeviceAuthorizationBindingSchema.strip();
+
 const StoredStateSchema = z.strictObject({
   schemaVersion: z.literal(STATE_VERSION),
   request: DeviceAuthorizationRequestSchema,
-  approvalUri: z.string().url().refine(value => new URL(value).protocol === 'https:', 'approval URI must use HTTPS'),
+  approvalUri: z.url().refine(value => new URL(value).protocol === 'https:', 'approval URI must use HTTPS'),
   pollIntervalMs: z.number().int().min(MIN_POLL_INTERVAL_MS).max(MAX_POLL_INTERVAL_MS),
   pollSecret: z.string().min(43).max(128).regex(/^[A-Za-z0-9_-]+$/),
   privateKeyPem: z.string().startsWith('-----BEGIN PRIVATE KEY-----').endsWith('-----END PRIVATE KEY-----\n'),
@@ -106,8 +109,9 @@ function publicCancellationReason(reason: string): string {
 
 async function defaultSleep(milliseconds: number, signal: AbortSignal): Promise<void> {
   await new Promise<void>((resolve, reject) => {
-    if (signal.aborted) { reject(signal.reason ?? new Error('authorization cancelled')); return; }
-    const onAbort = () => { clearTimeout(timer); reject(signal.reason ?? new Error('authorization cancelled')); };
+    const rejection = () => signal.reason instanceof Error ? signal.reason : new Error('authorization cancelled');
+    if (signal.aborted) { reject(rejection()); return; }
+    const onAbort = () => { clearTimeout(timer); reject(rejection()); };
     const timer = setTimeout(() => { signal.removeEventListener('abort', onAbort); resolve(); }, milliseconds);
     signal.addEventListener('abort', onAbort, { once: true });
   });
@@ -197,7 +201,7 @@ export class TargetDeviceAuthorization {
     const expectedBinding = structuredClone(binding);
     const response = await this.#transport.start({ binding: structuredClone(binding), machineLabel: input.machineLabel, pollSecret }, signal);
     const request = DeviceAuthorizationRequestSchema.parse(response.request);
-    const { tenantId: _serverTenantId, ...returnedTargetBinding } = request.binding;
+    const returnedTargetBinding = ReturnedTargetBindingSchema.parse(request.binding);
     if (JSON.stringify(returnedTargetBinding) !== JSON.stringify(expectedBinding)
       || request.pollKeyFingerprint !== createHash('sha256').update(pollSecret).digest('hex')) {
       throw new Error('authorization response is not bound to target-generated authority');
@@ -217,7 +221,7 @@ export class TargetDeviceAuthorization {
     if (!state) throw new Error('no pending authorization to resume');
     safeEvent(this.#emit, 'resumed', state.request.requestId, this.#now);
     try {
-      while (true) {
+      for (;;) {
         signal.throwIfAborted();
         if (this.#now().getTime() >= Date.parse(state.request.binding.expiresAt)) {
           await this.#state.remove();

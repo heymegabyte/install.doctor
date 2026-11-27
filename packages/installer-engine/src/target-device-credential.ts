@@ -10,8 +10,8 @@ const StoredDeviceCredentialSchema = z.strictObject({
   request: DeviceAuthorizationRequestSchema,
   credential: z.string().min(32).max(4096),
   credentialId: z.string().min(1).max(128).regex(/^[a-z0-9][a-z0-9._-]*$/),
-  expiresAt: z.string().datetime({ offset: true }).max(64),
-  storedAt: z.string().datetime({ offset: true }).max(64),
+  expiresAt: z.iso.datetime({ offset: true }).max(64),
+  storedAt: z.iso.datetime({ offset: true }).max(64),
 }).superRefine((value, context) => {
   if (Date.parse(value.expiresAt) <= Date.parse(value.storedAt)) {
     context.addIssue({ code: 'custom', path: ['expiresAt'], message: 'credential expiry must follow storage' });

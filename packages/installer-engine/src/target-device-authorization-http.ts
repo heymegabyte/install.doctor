@@ -5,9 +5,9 @@ import type {
 
 const MAX_RESPONSE_BYTES = 65_536;
 const identifier = z.string().min(1).max(128).regex(/^[a-z0-9][a-z0-9._-]*$/);
-const timestamp = z.string().datetime({ offset: true }).max(64);
+const timestamp = z.iso.datetime({ offset: true }).max(64);
 const startResponse = z.strictObject({
-  request: z.unknown(), approvalUri: z.string().url().refine(value => new URL(value).protocol === 'https:'),
+  request: z.unknown(), approvalUri: z.url().refine(value => new URL(value).protocol === 'https:'),
   pollIntervalMs: z.number().int().min(1_000).max(30_000),
 });
 const pollResponse = z.discriminatedUnion('status', [
@@ -40,7 +40,7 @@ async function boundedJson(response: Response): Promise<unknown> {
   const chunks: Uint8Array[] = [];
   let length = 0;
   try {
-    while (true) {
+    for (;;) {
       const result = await reader.read();
       if (result.done) break;
       length += result.value.byteLength;
@@ -64,9 +64,9 @@ async function boundedJson(response: Response): Promise<unknown> {
 
 function linkedSignal(caller: AbortSignal, timeoutMs: number): { signal: AbortSignal; close(): void } {
   const controller = new AbortController();
-  const abort = () => controller.abort(caller.reason ?? new Error('authorization cancelled'));
+  const abort = () => { controller.abort(caller.reason ?? new Error('authorization cancelled')); };
   caller.addEventListener('abort', abort, { once: true });
-  const timer = setTimeout(() => controller.abort(new Error('authorization transport timeout')), timeoutMs);
+  const timer = setTimeout(() => { controller.abort(new Error('authorization transport timeout')); }, timeoutMs);
   if (caller.aborted) abort();
   return { signal: controller.signal, close() { clearTimeout(timer); caller.removeEventListener('abort', abort); } };
 }
@@ -92,7 +92,7 @@ export function createTargetAuthorizationHttpTransport(options: TargetAuthorizat
     async start(input: AuthorizationStartRequest, signal: AbortSignal): Promise<AuthorizationStartResponse> {
       const response = await request('/api/v1/device-authorizations/start', input.pollSecret,
         { binding: input.binding, machineLabel: input.machineLabel }, signal);
-      if (response.status !== 201) throw new Error(`authorization start unavailable (${response.status})`);
+      if (response.status !== 201) throw new Error(`authorization start unavailable (${String(response.status)})`);
       return startResponse.parse(await boundedJson(response));
     },
     async poll(requestId: string, pollSecret: string, signal: AbortSignal): Promise<AuthorizationPollResponse> {
@@ -104,7 +104,7 @@ export function createTargetAuthorizationHttpTransport(options: TargetAuthorizat
       }
       if (response.status === 404) return { status: 'denied', reason: 'policy-denied' };
       if (response.status === 410) return { status: 'denied', reason: 'expired' };
-      if (response.status !== 200) throw new Error(`authorization poll unavailable (${response.status})`);
+      if (response.status !== 200) throw new Error(`authorization poll unavailable (${String(response.status)})`);
       const result = pollResponse.parse(await boundedJson(response));
       if (result.status === 'pending') {
         return result.retryAfterMs === undefined ? { status: 'pending' } : { status: 'pending', retryAfterMs: result.retryAfterMs };
@@ -114,7 +114,7 @@ export function createTargetAuthorizationHttpTransport(options: TargetAuthorizat
     async cancel(requestId: string, pollSecret: string, signal: AbortSignal): Promise<void> {
       const id = identifier.parse(requestId);
       const response = await request(`/api/v1/device-authorizations/${encodeURIComponent(id)}/cancel`, pollSecret, {}, signal);
-      if (![200, 204, 404, 410].includes(response.status)) throw new Error(`authorization cancellation unavailable (${response.status})`);
+      if (![200, 204, 404, 410].includes(response.status)) throw new Error(`authorization cancellation unavailable (${String(response.status)})`);
     },
   });
 }
