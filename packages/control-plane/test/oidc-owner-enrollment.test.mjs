@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { z } from 'zod';
+import { DeviceAuthorizationRequestSchema } from '../../aid-core/dist/device-authorization.js';
 import { blueprintDigest, exportMarkdown } from '../../aid-core/dist/core.js';
 import { cookiePair, createWorkerFixture, setCookies } from './helpers/worker-app-fixture.mjs';
 
@@ -17,7 +19,7 @@ void test('actual Better Auth callback session completes exact owner enrollment 
     body: JSON.stringify({ provider: 'github', callbackURL: `/pair?code=${returnCode}` }),
   }), fixture.env);
   assert.equal(startedSignIn.status, 200, await startedSignIn.clone().text());
-  const signIn = await startedSignIn.json();
+  const signIn = z.looseObject({ url: z.string() }).parse(await startedSignIn.json());
   const providerUrl = new URL(signIn.url);
   assert.equal(providerUrl.origin, 'https://github.com');
   assert.equal(providerUrl.searchParams.get('redirect_uri'), 'https://desktop.tools/api/auth/callback/github');
@@ -30,21 +32,21 @@ void test('actual Better Auth callback session completes exact owner enrollment 
 
   /** @type {{ url: string, method: string }[]} */
   const providerRequests = [];
-  globalThis.fetch = async (input, init) => {
+  globalThis.fetch = (input, init) => {
     const url = input instanceof Request ? input.url : String(input);
     const method = init?.method ?? (input instanceof Request ? input.method : 'GET');
     providerRequests.push({ url, method });
     if (url === 'https://github.com/login/oauth/access_token' && method === 'POST') {
-      return Response.json({ access_token: 'fixture-access-token', token_type: 'bearer', scope: 'read:user,user:email' });
+      return Promise.resolve(Response.json({ access_token: 'fixture-access-token', token_type: 'bearer', scope: 'read:user,user:email' }));
     }
     if (url === 'https://api.github.com/user' && method === 'GET') {
-      return Response.json({ id: 314159, login: 'fixture-owner', name: 'Fixture Owner',
-        email: 'owner@example.test', avatar_url: 'https://avatars.example.test/owner' });
+      return Promise.resolve(Response.json({ id: 314159, login: 'fixture-owner', name: 'Fixture Owner',
+        email: 'owner@example.test', avatar_url: 'https://avatars.example.test/owner' }));
     }
     if (url === 'https://api.github.com/user/emails' && method === 'GET') {
-      return Response.json([{ email: 'owner@example.test', primary: true, verified: true, visibility: 'private' }]);
+      return Promise.resolve(Response.json([{ email: 'owner@example.test', primary: true, verified: true, visibility: 'private' }]));
     }
-    throw new Error(`unexpected provider request: ${method} ${url}`);
+    return Promise.reject(new Error(`unexpected provider request: ${method} ${url}`));
   };
 
   const callback = await app.fetch(new Request(
@@ -67,7 +69,9 @@ void test('actual Better Auth callback session completes exact owner enrollment 
     headers: { cookie: sessionCookie, 'cf-connecting-ip': '192.0.2.10' },
   }), fixture.env);
   assert.equal(sessionResponse.status, 200, await sessionResponse.clone().text());
-  const session = await sessionResponse.json();
+  const session = z.looseObject({
+    user: z.looseObject({ email: z.string(), emailVerified: z.boolean(), id: z.string() }),
+  }).parse(await sessionResponse.json());
   assert.equal(session.user.email, 'owner@example.test');
   assert.equal(session.user.emailVerified, true);
   assert.match(session.user.id, /^[A-Za-z0-9_-]+$/);
@@ -105,7 +109,9 @@ void test('actual Better Auth callback session completes exact owner enrollment 
     body: JSON.stringify({ binding, machineLabel: 'OIDC Fixture Host' }),
   }), env);
   assert.equal(authorizationResponse.status, 201, await authorizationResponse.clone().text());
-  const authorization = await authorizationResponse.json();
+  const authorization = z.looseObject({
+    request: DeviceAuthorizationRequestSchema,
+  }).parse(await authorizationResponse.json());
 
   const ownerHeaders = { cookie: sessionCookie, 'cf-connecting-ip': '192.0.2.10' };
   const reviewResponse = await app.fetch(new Request(
@@ -113,7 +119,10 @@ void test('actual Better Auth callback session completes exact owner enrollment 
     { headers: ownerHeaders },
   ), env);
   assert.equal(reviewResponse.status, 200, await reviewResponse.clone().text());
-  const review = await reviewResponse.json();
+  const review = z.looseObject({
+    requestId: z.string(), matchingCode: z.string(), profileId: z.string(), profileRevision: z.string(),
+    profileRevisionDigest: z.string(), targetKeyFingerprint: z.string(), requestedScopes: z.array(z.string()),
+  }).parse(await reviewResponse.json());
   assert.equal(review.actor, undefined, 'review must not echo owner authority into the browser payload');
   assert.equal(review.targetKeyFingerprint, binding.targetKeyFingerprint);
   assert.deepEqual(review.requestedScopes, binding.scopes);
@@ -132,7 +141,7 @@ void test('actual Better Auth callback session completes exact owner enrollment 
   const claimResponse = await app.fetch(new Request(pollUrl, { method: 'POST',
     headers: { authorization: `Bearer ${pollSecret}`, 'content-type': 'application/json' }, body: '{}' }), env);
   assert.equal(claimResponse.status, 200, await claimResponse.clone().text());
-  const claim = await claimResponse.json();
+  const claim = z.looseObject({ status: z.string(), credential: z.string() }).parse(await claimResponse.json());
   assert.equal(claim.status, 'approved');
   assert.match(claim.credential, /^dtc_[a-f0-9]{64}$/);
   const replay = await app.fetch(new Request(pollUrl, { method: 'POST',
