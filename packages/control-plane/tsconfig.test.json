@@ -11,6 +11,7 @@
     "test/better-auth-migration-parity.test.mjs",
     "test/broker-approval-d1-store.test.mjs",
     "test/broker-approval-managed-signer.test.mjs",
+    "test/broker-approval-signer.test.mjs",
     "test/broker-authorization-api.test.mjs",
     "test/broker-exact-plan-d1-authority.test.mjs",
     "test/broker-production-authorities.test.mjs",

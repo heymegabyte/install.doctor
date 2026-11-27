@@ -11,8 +11,10 @@ import {
 } from '../src/broker-approval-signer.ts';
 
 const now = new Date('2026-11-09T12:00:00.000Z');
+/** @param {string} character */
 const hex = character => character.repeat(64);
 
+/** @param {unknown} value @returns {unknown} */
 function canonical(value) {
   if (Array.isArray(value)) return value.map(canonical);
   if (value && typeof value === 'object') {
@@ -22,10 +24,13 @@ function canonical(value) {
   return value;
 }
 
+/** @param {string} domain @param {unknown} value */
 function semanticDigest(domain, value) {
   return createHash('sha256').update(`${domain}\0${JSON.stringify(canonical(value))}`).digest('hex');
 }
 
+/** @typedef {ReturnType<typeof BrokerApprovalGrant.parse>} Grant */
+/** @param {Partial<Grant> & Record<string, unknown>} [overrides] @returns {Grant} */
 function grant(overrides = {}) {
   return {
     schemaVersion: 1,
@@ -49,7 +54,11 @@ function grant(overrides = {}) {
   };
 }
 
+/** @typedef {ReturnType<typeof BrokerApprovalSignerDelegation.parse>} Delegation */
+/** @param {string} keyId @param {import('node:crypto').KeyObject} publicKey @param {Partial<Omit<Delegation, 'delegationDigest'>>} [overrides] @returns {Delegation} */
 function delegation(keyId, publicKey, overrides = {}) {
+  /** @type {Omit<Delegation, 'delegationDigest'>} */
+
   const value = {
     schemaVersion: 1,
     kind: 'desktop-tools-broker-approval-signer-delegation',
@@ -71,6 +80,8 @@ function delegation(keyId, publicKey, overrides = {}) {
   ) };
 }
 
+/** @typedef {Omit<ReturnType<typeof BrokerApprovalDurableState.parse>, 'status' | 'ownerDecision'> & { status: string, ownerDecision: string }} FixtureState */
+/** @param {Delegation} signerDelegation @param {Partial<FixtureState>} [overrides] @returns {FixtureState} */
 function state(signerDelegation, overrides = {}) {
   return {
     schemaVersion: 1,
@@ -92,6 +103,8 @@ function state(signerDelegation, overrides = {}) {
   };
 }
 
+/** @typedef {ReturnType<typeof BrokerApprovalRequest.parse>} ApprovalRequest */
+/** @param {FixtureState} durableState @param {Partial<ApprovalRequest>} [overrides] @returns {ApprovalRequest} */
 function request(durableState, overrides = {}) {
   return {
     schemaVersion: 1,
@@ -108,20 +121,26 @@ function request(durableState, overrides = {}) {
   };
 }
 
+/** @typedef {Parameters<typeof createBrokerApprovalSigningBoundary>[0]} BoundaryOptions */
+/** @param {{ keyPair?: import('node:crypto').KeyPairKeyObjectResult, keyId?: string, state?: FixtureState, consume?: boolean, now?: Date, approvalId?: string, minimumRevocationEpoch?: number }} [options] */
 function fixture(options = {}) {
   const keyPair = options.keyPair ?? generateKeyPairSync('ed25519');
   const keyId = options.keyId ?? 'approval-key-1';
   const exactState = options.state ?? state(delegation(keyId, keyPair.publicKey));
   let consumed = false;
+  /** @type {Buffer[]} */
   const signedMessages = [];
+  /** @type {Parameters<BoundaryOptions['store']['consumeApproval']>[0][]} */
   const consumedInputs = [];
+  /** @type {BoundaryOptions['signer']} */
   const signer = Object.freeze({
     keyId,
-    async sign(message) {
+    async sign(/** @type {Uint8Array} */ message) {
       signedMessages.push(Buffer.from(message));
       return new Uint8Array(sign(null, message, keyPair.privateKey));
     },
   });
+  /** @type {BoundaryOptions['store']} */
   const store = {
     async loadExactState() { return exactState; },
     async consumeApproval(input) {
