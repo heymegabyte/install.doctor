@@ -5,10 +5,13 @@ import {
   createAuthoritativeBrokerRunIntentAdapter,
 } from '../src/broker-run-intent-authority.ts';
 
+/** @param {string} value */
 const hex = value => value.repeat(64);
 const current = new Date('2026-11-09T12:00:00.000Z');
 const principal = { deviceCredentialId: 'device-1', deviceFingerprint: hex('b'), tenantId: 'tenant-1',
   permissions: ['authorize-privileged-run'] };
+/** @typedef {import('../src/broker-run-intent-d1-store.ts').BrokerRunIntentValue} RunIntent */
+/** @type {RunIntent} */
 const intent = {
   schemaVersion: 1, runIntentId: 'intent-1', authorizationId: 'authorization-1', tenantId: 'tenant-1',
   profileId: 'profile-1', profileRevisionDigest: hex('a'), deviceCredentialId: 'device-1',
@@ -20,6 +23,7 @@ const intent = {
   requestedAt: '2026-11-09T11:59:00.000Z', grantExpiresAt: '2026-11-09T12:20:00.000Z',
 };
 
+/** @param {RunIntent} request */
 const facts = request => ({
   hostId: request.hostId, runId: request.runId, planDigest: request.planDigest,
   enrolledUid: request.enrolledUid, brokerExecutableDigest: request.brokerExecutableDigest,
@@ -28,8 +32,8 @@ const facts = request => ({
   closureDigest: request.closureDigest, consentDigest: request.consentDigest,
 });
 
-function fixture(overrides = {}) {
-  const values = {
+function defaultAuthorities() {
+  return {
     device: { deviceCredentialId: principal.deviceCredentialId, deviceFingerprint: principal.deviceFingerprint,
       tenantId: principal.tenantId, profileId: intent.profileId,
       profileRevisionDigest: intent.profileRevisionDigest, active: true },
@@ -39,14 +43,25 @@ function fixture(overrides = {}) {
       notBefore: '2026-11-09T11:00:00.000Z', expiresAt: '2026-11-10T12:00:00.000Z' },
     owner: { authenticationActor: 'owner@example.com', ownerActorId: 'owner-1' },
     plan: facts(intent),
-    ...overrides,
   };
+}
+
+/** @param {Partial<Omit<ReturnType<typeof defaultAuthorities>, 'owner' | 'plan'>> & {
+ * owner?: ReturnType<typeof defaultAuthorities>['owner'] | null,
+ * plan?: ReturnType<typeof facts> | undefined,
+ * }} [overrides] */
+function fixture(overrides = {}) {
+  const values = { ...defaultAuthorities(), ...overrides };
+  /** @type {[string, unknown][]} */
   const calls = [];
   const adapter = createAuthoritativeBrokerRunIntentAdapter({ now: () => current, resolvers: {
     device: { async resolve(id) { calls.push(['device', id]); return values.device; } },
     profile: { async resolve(id) { calls.push(['profile', id]); return values.profile; } },
     release: { async resolveActive(channel) { calls.push(['release', channel]); return values.release; } },
-    plan: { async reconstruct(context) { calls.push(['plan', context]); return values.plan; } },
+    plan: {
+      async reconstruct(context) { calls.push(['plan', context]); return values.plan; },
+      async reconstructCurrentAuthority() { throw new Error('unexpected current authority lookup'); },
+    },
     owner: { async resolveForTenant(tenant) { calls.push(['owner', tenant]); return values.owner; } },
     runIntent: { async load(id) { calls.push(['load', id]); return id === intent.runIntentId ? intent : null; } },
   } });
@@ -119,7 +134,7 @@ test('rejects missing owner mapping and every independently reconstructed plan s
   for (const changed of [
     { hostId: 'host-2' }, { runId: 'run-2' }, { planDigest: hex('9') }, { enrolledUid: 0 },
     { brokerExecutableDigest: hex('9') }, { runtimeDigest: hex('9') }, { workerDigest: hex('9') },
-    { operations: [{ taskId: 'task-2', operationId: 'operation-2', phase: 'apply' }] },
+    { operations: [{ taskId: 'task-2', operationId: 'operation-2', phase: /** @type {const} */ ('apply') }] },
     { descriptorDigest: hex('9') }, { closureDigest: hex('9') }, { consentDigest: hex('9') },
   ]) assert.equal(await fixture({ plan: { ...facts(intent), ...changed } }).adapter
     .reconstructRunIntent(intent, principal), null);
@@ -127,7 +142,6 @@ test('rejects missing owner mapping and every independently reconstructed plan s
 });
 
 test('does not disguise resolver failure as authoritative mismatch', async () => {
-  const setup = fixture();
-  setup.values.plan = undefined;
+  const setup = fixture({ plan: undefined });
   await assert.rejects(setup.adapter.reconstructRunIntent(intent, principal));
 });

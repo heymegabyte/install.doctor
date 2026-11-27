@@ -14,6 +14,7 @@
     "test/broker-exact-plan-d1-authority.test.mjs",
     "test/broker-production-authorities.test.mjs",
     "test/broker-release-delegation-loader.test.mjs",
+    "test/broker-run-intent-authority.test.mjs",
     "test/broker-run-intent-d1-store.test.mjs",
     "test/debian-native-catalog-merge.test.mjs",
     "test/desktop-release-channel.test.mjs",
