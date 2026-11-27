@@ -6,8 +6,10 @@ import test from 'node:test';
 import { privilegedBrokerDigest } from '../dist/privileged-broker-protocol.js';
 import { createPrivilegedBrokerStore } from '../dist/privileged-broker-store.js';
 
+/** @param {string} character */
 const hex = character => character.repeat(64);
-const uid = process.getuid();
+const uid = process.getuid?.();
+assert.ok(typeof uid === 'number', 'broker store tests require a POSIX user ID');
 
 function grant(overrides = {}) {
   return {
@@ -74,7 +76,7 @@ test('root-side store accepts delayed approval only inside the exact grant lifet
   const temporary = await mkdtemp(join(tmpdir(), 'broker-store-approval-time-'));
   t.after(() => rm(temporary, { recursive: true, force: true }));
   const root = join(await realpath(temporary), 'store');
-  const store = await createPrivilegedBrokerStore({ root, ownerUid: process.getuid(), verifyApproval: async () => true });
+  const store = await createPrivilegedBrokerStore({ root, ownerUid: uid, verifyApproval: async () => true });
   const delayedGrant = grant({ grantId: 'grant-delayed-approval' });
   const digest = privilegedBrokerDigest(delayedGrant);
   const delayed = approval({ approvalId: 'approval-delayed', approvedAt: '2026-11-08T12:00:30.000Z' }, delayedGrant);

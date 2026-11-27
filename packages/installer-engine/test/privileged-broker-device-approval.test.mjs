@@ -5,6 +5,7 @@ import { brokerApprovalAuditDigest, brokerApprovalSemanticDigest, brokerApproval
 import { createSignedDeviceBrokerApproval, verifyControlPlaneBrokerApproval,
   verifySignedDeviceBrokerApproval } from '../dist/privileged-broker-device-approval.js';
 
+/** @param {string} character */
 const hex = character => character.repeat(64);
 const grant = (overrides = {}) => ({ schemaVersion: 1, grantId: 'grant-device-1', hostId: 'host-1', releaseId: 'release-1', runId: 'run-1',
   planDigest: hex('a'), approvedPlanDigest: hex('a'), enrolledUid: 1000,

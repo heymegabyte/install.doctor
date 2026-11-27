@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { requestTrustedLocalBrokerApproval } from '../dist/privileged-broker-local-approval.js';
 
+/** @param {string} character */
 const hex = character => character.repeat(64);
 const grant = () => ({
   schemaVersion: 1, grantId: 'grant-1', hostId: 'host-1', releaseId: 'release-1', runId: 'run-1',

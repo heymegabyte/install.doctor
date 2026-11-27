@@ -29,7 +29,7 @@ async function fixture(overrides = {}) {
     sleep: async () => {},
     ...overrides,
   });
-  return { root, ownerPath, fence, alive, advance: value => { milliseconds += value; } };
+  return { root, ownerPath, fence, alive, advance: /** @param {number} value */ value => { milliseconds += value; } };
 }
 
 const claim = { runId: 'run-one', hostId: 'host-one', planDigest };
