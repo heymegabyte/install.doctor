@@ -5,7 +5,6 @@ const tsconfigRootDir = fileURLToPath(new URL('../../', import.meta.url));
 
 // Each path has existing strict source diagnostics. Remove it once the module passes.
 const pendingSourceFiles = [
-  'src/debian-gpgv.ts',
   'src/engine.ts',
   'src/native-dpkg-transaction.ts',
   'src/offline-bundle.ts',

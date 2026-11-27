@@ -61,8 +61,10 @@ export function extractInReleaseCleartext(bytes: Buffer): Buffer {
 
   let cursor = 1;
   let hashHeaders = 0;
-  while (cursor < lines.length && lines[cursor] !== '') {
-    if (!/^Hash: [A-Za-z0-9][A-Za-z0-9, -]*$/.test(lines[cursor]!)) {
+  for (;;) {
+    const line = lines[cursor];
+    if (line === undefined || line === '') break;
+    if (!/^Hash: [A-Za-z0-9][A-Za-z0-9, -]*$/.test(line)) {
       throw new DebianGpgvError('InRelease clear-sign armor contains an unsupported header');
     }
     hashHeaders += 1;
@@ -72,8 +74,9 @@ export function extractInReleaseCleartext(bytes: Buffer): Buffer {
   cursor += 1;
 
   const cleartext: string[] = [];
-  while (cursor < lines.length && lines[cursor] !== '-----BEGIN PGP SIGNATURE-----') {
-    const line = lines[cursor]!;
+  for (;;) {
+    const line = lines[cursor];
+    if (line === undefined || line === '-----BEGIN PGP SIGNATURE-----') break;
     if (line.startsWith('- ')) cleartext.push(line.slice(2));
     else if (line.startsWith('-')) throw new DebianGpgvError('InRelease cleartext contains malformed dash escaping');
     else cleartext.push(line);
@@ -83,10 +86,13 @@ export function extractInReleaseCleartext(bytes: Buffer): Buffer {
 
   const remaining = lines.slice(cursor);
   const endIndexes = remaining.flatMap((line, index) => line === '-----END PGP SIGNATURE-----' ? [index] : []);
-  if (endIndexes.length !== 1 || endIndexes[0] === 0) throw new DebianGpgvError('InRelease contains a malformed signature armor block');
-  const afterEnd = remaining.slice(endIndexes[0]! + 1);
+  const [endIndex] = endIndexes;
+  if (endIndexes.length !== 1 || endIndex === undefined || endIndex === 0) {
+    throw new DebianGpgvError('InRelease contains a malformed signature armor block');
+  }
+  const afterEnd = remaining.slice(endIndex + 1);
   if (afterEnd.some(line => line !== '')) throw new DebianGpgvError('InRelease contains trailing data after its signature');
-  if (remaining.slice(1, endIndexes[0]).some(line => line === '-----BEGIN PGP SIGNATURE-----')) {
+  if (remaining.slice(1, endIndex).some(line => line === '-----BEGIN PGP SIGNATURE-----')) {
     throw new DebianGpgvError('InRelease contains multiple signature armor blocks');
   }
   return Buffer.from(`${cleartext.join('\n')}\n`, 'utf8');
@@ -101,13 +107,14 @@ export function parseGpgvValidSignature(status: Buffer): string {
   let validSignatureRecords = 0;
   for (const line of text.split('\n')) {
     if (line.startsWith('[GNUPG:] VALIDSIG ')) validSignatureRecords += 1;
-    const match = /^\[GNUPG:\] VALIDSIG ([A-Fa-f0-9]{40}|[A-Fa-f0-9]{64})(?: |$)/.exec(line);
-    if (match) fingerprints.push(match[1]!.toUpperCase());
+    const fingerprint = /^\[GNUPG:\] VALIDSIG ([A-Fa-f0-9]{40}|[A-Fa-f0-9]{64})(?: |$)/.exec(line)?.[1];
+    if (fingerprint !== undefined) fingerprints.push(fingerprint.toUpperCase());
   }
-  if (validSignatureRecords !== 1 || fingerprints.length !== 1) {
+  const [fingerprint] = fingerprints;
+  if (validSignatureRecords !== 1 || fingerprints.length !== 1 || fingerprint === undefined) {
     throw new DebianGpgvError('gpgv status must contain exactly one VALIDSIG full fingerprint');
   }
-  return fingerprints[0]!;
+  return fingerprint;
 }
 
 interface FixedProcessResult { readonly stdout: Buffer; readonly stderr: Buffer }
@@ -166,6 +173,13 @@ async function runFixedProcess(input: {
       stdio,
       windowsHide: true,
     });
+    const { stdin, stdout: childStdout, stderr: childStderr } = child;
+    if (!stdin || !childStdout || !childStderr) {
+      child.once('error', () => {});
+      child.kill('SIGKILL');
+      reject(new DebianGpgvError(`${input.executable} could not open required process pipes`));
+      return;
+    }
     const stdout: Buffer[] = [];
     const stderr: Buffer[] = [];
     let stdoutBytes = 0;
@@ -176,14 +190,14 @@ async function runFixedProcess(input: {
       terminalError ??= error;
       child.kill('SIGKILL');
     };
-    const timer = setTimeout(() => fail(new DebianGpgvError(`${input.executable} timed out`)), input.timeoutMilliseconds);
+    const timer = setTimeout(() => { fail(new DebianGpgvError(`${input.executable} timed out`)); }, input.timeoutMilliseconds);
     timer.unref();
-    child.stdout!.on('data', (chunk: Buffer) => {
+    childStdout.on('data', (chunk: Buffer) => {
       stdoutBytes += chunk.length;
       if (stdoutBytes > input.maximumStdoutBytes) fail(new DebianGpgvError(`${input.executable} output exceeded its byte bound`));
       else stdout.push(Buffer.from(chunk));
     });
-    child.stderr!.on('data', (chunk: Buffer) => {
+    childStderr.on('data', (chunk: Buffer) => {
       stderrBytes += chunk.length;
       if (stderrBytes > input.maximumStderrBytes) fail(new DebianGpgvError(`${input.executable} diagnostic output exceeded its byte bound`));
       else stderr.push(Buffer.from(chunk));
@@ -198,15 +212,16 @@ async function runFixedProcess(input: {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
-      if (terminalError) return reject(terminalError);
+      if (terminalError) { reject(terminalError); return; }
       if (code !== 0) {
         const diagnostic = Buffer.concat(stderr).toString('utf8').replaceAll(/[\r\n]+/g, ' ').trim().slice(0, 512);
-        return reject(new DebianGpgvError(`${input.executable} failed (${signal ?? `exit ${String(code)}`})${diagnostic ? `: ${diagnostic}` : ''}`));
+        reject(new DebianGpgvError(`${input.executable} failed (${signal ?? `exit ${String(code)}`})${diagnostic ? `: ${diagnostic}` : ''}`));
+        return;
       }
       resolve(Object.freeze({ stdout: Buffer.concat(stdout), stderr: Buffer.concat(stderr) }));
     });
-    child.stdin!.on('error', error => fail(new DebianGpgvError(`${input.executable} input failed: ${error.message}`)));
-    child.stdin!.end(input.stdin);
+    stdin.on('error', error => { fail(new DebianGpgvError(`${input.executable} input failed: ${error.message}`)); });
+    stdin.end(input.stdin);
   });
 }
 
@@ -221,7 +236,8 @@ export function createDefaultDebianMetadataVerifier(options: DefaultDebianMetada
 
   const verifyInRelease = async (bytes: Buffer, keyringBytes: Buffer): Promise<VerifiedInRelease> => {
     const ownedHandle = keyring.kind === 'path' ? await open(keyring.absolutePath, 'r') : undefined;
-    const authorityHandle = keyring.kind === 'file-handle' ? keyring.handle : ownedHandle!;
+    const authorityHandle = keyring.kind === 'file-handle' ? keyring.handle : ownedHandle;
+    if (!authorityHandle) throw new DebianGpgvError('verified Debian keyring authority handle is unavailable');
     try {
       const pinnedBytes = await readPinnedFile(authorityHandle, maximumProcessOutputBytes);
       if (pinnedBytes.length !== keyringBytes.length || !timingSafeEqual(pinnedBytes, keyringBytes)) {
