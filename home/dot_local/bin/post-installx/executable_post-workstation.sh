@@ -1386,8 +1386,18 @@ fi
 MISE_NODE_BIN="$(find "$HOME/.local/share/mise/installs/node" -maxdepth 2 -type d -name bin 2>/dev/null | sort -V | tail -n 1 || true)"
 if [ -n "$MISE_NODE_BIN" ] && [ -d "$MISE_NODE_BIN" ]; then
   for bin_name in node npm npx claude codex opencode openspec pnpm tsc typescript-language-server pyright bash-language-server yaml-language-server; do
-    if [ -x "$MISE_NODE_BIN/$bin_name" ]; then
-      ln -sf "$MISE_NODE_BIN/$bin_name" "$HOME/.local/bin/$bin_name"
+    cli_path="$MISE_NODE_BIN/$bin_name"
+    case "$bin_name" in
+      npm|npx)
+        # mise's npm wrapper uses its invocation directory to locate npm-cli.js.
+        mise_shim="$HOME/.local/share/mise/shims/$bin_name"
+        if [ -x "$mise_shim" ]; then
+          cli_path="$mise_shim"
+        fi
+        ;;
+    esac
+    if [ -x "$cli_path" ]; then
+      ln -sf "$cli_path" "$HOME/.local/bin/$bin_name"
     fi
   done
 fi
