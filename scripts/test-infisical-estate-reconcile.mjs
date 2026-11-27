@@ -143,6 +143,24 @@ assert.throws(() => validateManifest({
     },
   },
 }), /invalid target configuration/);
+const livekitNames = [
+  'LIVEKIT_API_KEY', 'LIVEKIT_API_SECRET', 'LIVEKIT_PROJECT_ID', 'LIVEKIT_SIP_URI', 'LIVEKIT_URL',
+];
+const livekitManifest = validateManifest({
+  ...manifest,
+  profiles: {
+    ...manifest.profiles,
+    'projectsites-runtime': [...manifest.profiles['projectsites-runtime'], 'projectsites-livekit'],
+  },
+  reservedNames: [...manifest.reservedNames, ...livekitNames],
+  exactCapabilityNames: { ...manifest.exactCapabilityNames, 'projectsites-livekit': livekitNames },
+});
+assert.deepEqual(selectConfigurationSecrets(
+  livekitManifest, livekitManifest.workloads['projectsites.dev'], livekitNames,
+), livekitNames);
+assert.deepEqual(selectConfigurationSecrets(
+  livekitManifest, livekitManifest.workloads['mcp.megabyte.space'], livekitNames,
+), []);
 const accessSshNames = [
   'CF_ACCESS_SSH_COOLIFY_CLIENT_ID', 'CF_ACCESS_SSH_COOLIFY_CLIENT_SECRET',
   'CF_ACCESS_SSH_UBUNTU_CLIENT_ID', 'CF_ACCESS_SSH_UBUNTU_CLIENT_SECRET',
