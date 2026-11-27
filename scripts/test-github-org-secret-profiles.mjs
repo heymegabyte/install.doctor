@@ -219,15 +219,15 @@ for (const host of Object.keys(manifest.hosts)) {
   assert.deepEqual(selectHostSecrets(manifest, host, ['STRIPE_ACCOUNT_ID']), []);
 }
 assert.deepEqual(
-  selectConfigurationSecrets(manifest, manifest.workloads['mcp.megabyte.space'], ['POSTIZ_API_KEY']),
-  ['POSTIZ_API_KEY'],
+  selectConfigurationSecrets(manifest, manifest.workloads['mcp.megabyte.space'], ['POSTIZ_API_KEY', 'POSTIZ_MCP_URL']),
+  ['POSTIZ_API_KEY', 'POSTIZ_MCP_URL'],
 );
 for (const [workload, configuration] of Object.entries(manifest.workloads)) {
   if (workload === 'mcp.megabyte.space') continue;
-  assert.deepEqual(selectConfigurationSecrets(manifest, configuration, ['POSTIZ_API_KEY']), []);
+  assert.deepEqual(selectConfigurationSecrets(manifest, configuration, ['POSTIZ_API_KEY', 'POSTIZ_MCP_URL']), []);
 }
 for (const host of Object.keys(manifest.hosts)) {
-  assert.deepEqual(selectHostSecrets(manifest, host, ['POSTIZ_API_KEY']), []);
+  assert.deepEqual(selectHostSecrets(manifest, host, ['POSTIZ_API_KEY', 'POSTIZ_MCP_URL']), []);
 }
 assert.deepEqual(selectConfigurationSecrets(
   manifest, manifest.workloads['crawl.cheap'], ['EXA_API_KEY', 'SENTRY_DSN', 'ANTHROPIC_API_KEY'],
