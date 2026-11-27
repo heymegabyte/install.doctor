@@ -16,3 +16,4 @@
 - [x] Accept and exactly preserve the observed bounded `--max-old-space-size=8192` Node prefix.
 - [x] Reject eval, require, loader, import, path-substitution, unbounded heap, and unrecognized Node prefix flags.
 - [x] Validate, rebase current main, commit, and push the closed Node-runtime-prefix change.
+- [x] Apply the authorized Ubuntu cutover, verify the live Gateway and bounded MCP behavior, and preserve value-free rollback evidence.

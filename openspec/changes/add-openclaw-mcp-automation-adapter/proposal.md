@@ -19,4 +19,4 @@ Install a host-scoped `megabyte-automation` Streamable HTTP registration whose t
 - Plan-bound unit reconciliation, syntax validation, reload, restart health, and compensated rollback.
 - Metadata-only plan, protected receipt, atomic apply, drift-safe rollback, tests, and runbook.
 
-Live host application, secret rotation, Cloudflare mutation, and MCP portal promotion are excluded. Live Ubuntu remains gated on coordinator review of a metadata-only plan and a separately authorized service cutover.
+Secret rotation, Cloudflare mutation, and MCP portal promotion are excluded. Live Ubuntu application was originally gated on coordinator review of a metadata-only plan and a separately authorized service cutover; that cutover was subsequently authorized, performed, and recorded without secret values in `evidence.md`.
