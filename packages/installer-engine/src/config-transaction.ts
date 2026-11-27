@@ -239,7 +239,7 @@ export function configurationCompensationArtifactDigest(snapshot: ConfigurationS
       targetPath: snapshot.targetPath,
     })).digest('hex');
   }
-  if ('kind' in snapshot && snapshot.kind === 'service') {
+  if ('kind' in snapshot) {
     if (bytes !== null || serviceSnapshot === null || serviceSnapshot.manager !== 'systemd'
       || snapshot.targetPath !== `systemd:${serviceSnapshot.serviceId}`) {
       throw new ConfigurationTransactionError('service-only compensation requires its exact systemd snapshot');
@@ -357,7 +357,7 @@ async function readSnapshot(targetPath: string): Promise<ObservedConfiguration> 
   }
   if (before.isSymbolicLink() || !before.isFile()) throw new ConfigurationTransactionError('existing configuration target must be a regular file and not a symbolic link');
   let handle: Awaited<ReturnType<typeof open>>;
-  try { handle = await open(targetPath, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0)); }
+  try { handle = await open(targetPath, constants.O_RDONLY | ((constants as Partial<typeof constants>).O_NOFOLLOW ?? 0)); }
   catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') throw new ConfigurationTransactionError('existing configuration target changed while its snapshot was opened');
     throw error;
@@ -391,7 +391,7 @@ async function requireUnchangedTarget(expected: ObservedConfiguration, message: 
 }
 
 async function writePrivateCandidate(parent: string, bytes: Uint8Array): Promise<string> {
-  const path = join(parent, `.install-doctor-${process.pid}-${randomBytes(12).toString('hex')}.candidate`);
+  const path = join(parent, `.install-doctor-${String(process.pid)}-${randomBytes(12).toString('hex')}.candidate`);
   const handle = await open(path, 'wx', 0o600);
   try {
     await handle.writeFile(bytes);
@@ -463,6 +463,11 @@ export async function applyConfigurationTransaction(
       ...captured,
     });
   }
+  async function restorePreviousService(snapshot: ServiceStateSnapshot): Promise<void> {
+    const service = request.service;
+    if (!service) throw new ConfigurationTransactionError('configuration service adapter is unavailable');
+    await service.adapter.restore(snapshot.serviceId, serviceStateFromSnapshot(snapshot));
+  }
   const candidatePath = await writePrivateCandidate(parent, request.candidateBytes);
   const now = request.now ?? (() => new Date().toISOString());
   const artifactDigest = configurationCompensationArtifactDigest(previous.snapshot, previous.bytes, serviceSnapshot);
@@ -501,7 +506,7 @@ export async function applyConfigurationTransaction(
       try {
         if (!applied) throw new ConfigurationTransactionError('installer-applied configuration state is unavailable');
         await restoreSnapshot(previous.snapshot, previous.bytes, applied);
-        if (serviceSnapshot !== null) await request.service!.adapter.restore(serviceSnapshot.serviceId, serviceStateFromSnapshot(serviceSnapshot));
+        if (serviceSnapshot !== null) await restorePreviousService(serviceSnapshot);
         compensation = recordFor(spec.taskId, 'applied', artifactDigest, now(), serviceSnapshot !== null);
         await request.persistence?.update(compensation);
         throw new ConfigurationTransactionError('configuration transaction failed and the previous state was restored', {
@@ -530,9 +535,8 @@ export async function applyConfigurationTransaction(
     async rollback() {
       if (compensation.state !== 'available') return compensation;
       try {
-        if (!applied) throw new ConfigurationTransactionError('installer-applied configuration state is unavailable');
         await restoreSnapshot(previous.snapshot, previous.bytes, applied);
-        if (serviceSnapshot !== null) await request.service!.adapter.restore(serviceSnapshot.serviceId, serviceStateFromSnapshot(serviceSnapshot));
+        if (serviceSnapshot !== null) await restorePreviousService(serviceSnapshot);
         compensation = recordFor(spec.taskId, 'applied', artifactDigest, now(), serviceSnapshot !== null);
         await request.persistence?.update(compensation);
       } catch (error) {
@@ -588,7 +592,8 @@ async function inspectManagedDirectory(path: string, mode: number): Promise<'abs
 
 async function removeAuthorizedManagedDirectory(snapshot: z.infer<typeof DirectoryConfigurationSnapshotSchema>): Promise<void> {
   const parent = await assertManagedDirectoryParent(snapshot.targetPath);
-  const uid = process.geteuid!();
+  const uid = process.geteuid?.();
+  if (uid === undefined) throw new ConfigurationTransactionError('managed directory ownership cannot be proven');
   const info = await lstat(snapshot.targetPath);
   if (!info.isDirectory() || info.isSymbolicLink() || info.uid !== uid || (info.mode & 0o7777) !== 0o700) {
     throw new ConfigurationTransactionError('managed directory rollback target is no longer the installer-owned directory');
@@ -607,7 +612,7 @@ async function removeAuthorizedManagedDirectory(snapshot: z.infer<typeof Directo
       throw new ConfigurationTransactionError('managed directory authority marker does not match durable compensation');
     }
   } finally { await markerHandle.close(); }
-  const tombstone = join(parent, `.install-doctor-directory-rollback-${process.pid}-${randomBytes(12).toString('hex')}`);
+  const tombstone = join(parent, `.install-doctor-directory-rollback-${String(process.pid)}-${randomBytes(12).toString('hex')}`);
   await rename(snapshot.targetPath, tombstone);
   await syncDirectory(parent);
   await rm(join(tombstone, MANAGED_DIRECTORY_AUTHORITY_MARKER));
@@ -622,7 +627,7 @@ export async function applyManagedDirectoryTransaction(
   assertAutomaticConfigurationEffect(spec.effect);
   const parent = await assertManagedDirectoryParent(spec.targetPath);
   if (await inspectManagedDirectory(spec.targetPath, spec.candidateMode) === 'compatible') {
-    return { spec, created: false, snapshot: null, compensation: null, rollback: async () => null };
+    return { spec, created: false, snapshot: null, compensation: null, rollback: () => Promise.resolve(null) };
   }
   const marker = randomBytes(32);
   const snapshot = DirectoryConfigurationSnapshotSchema.parse({
@@ -633,7 +638,7 @@ export async function applyManagedDirectoryTransaction(
   const now = request.now ?? (() => new Date().toISOString());
   const artifactDigest = configurationCompensationArtifactDigest(snapshot, null);
   let compensation = recordFor(spec.taskId, 'available', artifactDigest, now());
-  const staging = join(parent, `.install-doctor-directory-${process.pid}-${randomBytes(12).toString('hex')}.candidate`);
+  const staging = join(parent, `.install-doctor-directory-${String(process.pid)}-${randomBytes(12).toString('hex')}.candidate`);
   let activated = false;
   try {
     await mkdir(staging, { mode: spec.candidateMode });

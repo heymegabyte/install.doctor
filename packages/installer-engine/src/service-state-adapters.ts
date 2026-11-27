@@ -42,7 +42,7 @@ export function systemdStateMatches(
 }
 
 function launchdDomainTarget(domain: z.infer<typeof LaunchdDomain>): string {
-  return domain.kind === 'system' ? 'system' : `${domain.kind}/${domain.uid}`;
+  return domain.kind === 'system' ? 'system' : `${domain.kind}/${String(domain.uid)}`;
 }
 
 function launchdServiceTarget(domain: z.infer<typeof LaunchdDomain>, label: string): string {
@@ -122,14 +122,14 @@ function parseEnabled(result: z.infer<typeof NativeResult>): boolean {
   const state = oneLine(result.stdout);
   if (result.code === 0 && state === 'enabled') return true;
   if (result.code !== 0 && state === 'disabled') return false;
-  throw new Error(`cannot represent systemd enabled state: ${state || `exit-${result.code}`}`);
+  throw new Error(`cannot represent systemd enabled state: ${state || `exit-${String(result.code)}`}`);
 }
 
 function parseRunning(result: z.infer<typeof NativeResult>): boolean {
   const state = oneLine(result.stdout);
   if (result.code === 0 && state === 'active') return true;
   if (result.code !== 0 && state === 'inactive') return false;
-  throw new Error(`cannot represent systemd active state: ${state || `exit-${result.code}`}`);
+  throw new Error(`cannot represent systemd active state: ${state || `exit-${String(result.code)}`}`);
 }
 
 export function createSystemdServiceStateAdapter(input: {
@@ -154,7 +154,7 @@ export function createSystemdServiceStateAdapter(input: {
       const activityVerb = state.running ? 'start' : 'stop';
       for (const verb of [enableVerb, activityVerb]) {
         const result = NativeResult.parse(await execute(systemctlPath, [verb, '--', serviceId]));
-        if (result.code !== 0) throw new Error(`systemctl ${verb} failed: ${oneLine(result.stderr ?? '') || `exit-${result.code}`}`);
+        if (result.code !== 0) throw new Error(`systemctl ${verb} failed: ${oneLine(result.stderr ?? '') || `exit-${String(result.code)}`}`);
       }
       const observed = await capture(serviceId);
       if (observed.enabled !== state.enabled || observed.running !== state.running) {
@@ -208,21 +208,21 @@ export function createLaunchdServiceStateAdapter(input: {
     }
     const domainTarget = launchdDomainTarget(enrollment.domain);
     const disabled = NativeResult.parse(await execute(launchctlPath, ['print-disabled', domainTarget]));
-    if (disabled.code !== 0) throw new Error(`launchctl print-disabled failed: ${oneLine(disabled.stderr ?? '') || `exit-${disabled.code}`}`);
+    if (disabled.code !== 0) throw new Error(`launchctl print-disabled failed: ${oneLine(disabled.stderr ?? '') || `exit-${String(disabled.code)}`}`);
     const enablementOverride = parseLaunchdEnablement(disabled.stdout, enrollment.serviceId);
     const printed = NativeResult.parse(await execute(launchctlPath, ['print', launchdServiceTarget(enrollment.domain, enrollment.serviceId)]));
     if (printed.code === 0) {
       return LaunchdServiceStateSchema.parse({ domain: enrollment.domain, definition, enablementOverride, loaded: true, activity: parseLaunchdActivity(printed.stdout) });
     }
     if (!/could not find service|service not found/i.test(oneLine(printed.stderr ?? ''))) {
-      throw new Error(`launchctl print failed ambiguously: ${oneLine(printed.stderr ?? '') || `exit-${printed.code}`}`);
+      throw new Error(`launchctl print failed ambiguously: ${oneLine(printed.stderr ?? '') || `exit-${String(printed.code)}`}`);
     }
     return LaunchdServiceStateSchema.parse({ domain: enrollment.domain, definition, enablementOverride, loaded: false, activity: 'not-running' });
   };
 
   const mutate = async (arguments_: readonly string[]): Promise<void> => {
     const result = NativeResult.parse(await execute(launchctlPath, arguments_));
-    if (result.code !== 0) throw new Error(`launchctl ${arguments_[0] ?? 'mutation'} failed: ${oneLine(result.stderr ?? '') || `exit-${result.code}`}`);
+    if (result.code !== 0) throw new Error(`launchctl ${arguments_[0] ?? 'mutation'} failed: ${oneLine(result.stderr ?? '') || `exit-${String(result.code)}`}`);
   };
 
   return Object.freeze({
