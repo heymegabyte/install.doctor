@@ -79,3 +79,22 @@ Its installed `get-secret` did not resolve either case of the intended
 logical password reference during verification. Production package
 creation, independent custody, rotation of the historical passphrase,
 and native restore tests for each covered historical key remain open.
+
+### Live host-identity boundary check
+
+On November 27, the enrolled macOS workstation and Ubuntu runner
+used their existing machine identities to authenticate independently.
+Only HTTP status codes were recorded. Each identity read its own
+production Sentry DSN (HTTP 200). Reading the same key in the peer
+host's project returned 403. Requests for the key in development,
+and for the administrative and `encryption-password` names in the
+caller's own production scope, returned 401 for both identities.
+These were read probes. They do not attest identity-management
+permissions or prove the protected password is present anywhere.
+
+The Ubuntu probe used Node's system CA trust after its bundled CA
+set rejected the presented chain. TLS verification remained active.
+Legion's operator context still lacked both the host binding and
+the provisioned Universal Auth credential. These results cover the
+two enrolled identities and leave Legion enrollment, production
+catalog custody, and native historical-key recovery open.
