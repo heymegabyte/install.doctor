@@ -1,16 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { blueprintDigest, exportMarkdown } from '../../aid-core/dist/core.js';
-import { createWorkerFixture } from './helpers/worker-app-fixture.mjs';
-
-/** @param {string} value */
-const cookiePair = value => value.split(';', 1)[0] ?? '';
-/** @param {Headers} headers */
-const setCookies = headers => {
-  if (typeof headers.getSetCookie === 'function') return headers.getSetCookie();
-  const cookie = headers.get('set-cookie');
-  return cookie ? [cookie] : [];
-};
+import { cookiePair, createWorkerFixture, setCookies } from './helpers/worker-app-fixture.mjs';
 
 test('actual Better Auth callback session completes exact owner enrollment without an admin token', async t => {
   const fixture = await createWorkerFixture();

@@ -75,3 +75,12 @@ export async function createWorkerFixture() {
     },
   });
 }
+
+/** @param {string} value */
+export const cookiePair = value => value.split(';', 1)[0] ?? '';
+/** @param {Headers} headers */
+export const setCookies = headers => {
+  if (typeof headers.getSetCookie === 'function') return headers.getSetCookie();
+  const cookie = headers.get('set-cookie');
+  return cookie ? [cookie] : [];
+};

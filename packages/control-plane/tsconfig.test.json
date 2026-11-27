@@ -13,6 +13,8 @@
     "test/offline-bundle-request.test.mjs",
     "test/oidc-owner-enrollment.test.mjs",
     "test/privileged-pair-binding.test.mjs",
+    "test/privileged-step-up-http.test.mjs",
+    "test/privileged-step-up.test.mjs",
     "test/r2-publication-storage.test.mjs",
     "test/release-evidence-view.test.mjs",
     ".wrangler/control-plane-runtime.d.ts"

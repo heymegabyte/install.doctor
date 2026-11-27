@@ -5,12 +5,14 @@ import {
   verifiedPasskeySessionFromBetterAuth,
   verifyPrivilegedStepUp,
 } from '../src/privileged-step-up.ts';
-import { createWorkerFixture } from './helpers/worker-app-fixture.mjs';
+import { cookiePair, createWorkerFixture, setCookies } from './helpers/worker-app-fixture.mjs';
 
-const cookiePair = value => value.split(';', 1)[0];
-const setCookies = headers => typeof headers.getSetCookie === 'function'
-  ? headers.getSetCookie() : (headers.get('set-cookie') ? [headers.get('set-cookie')] : []);
-
+/** @typedef {Awaited<ReturnType<typeof createWorkerFixture>>} WorkerFixture */
+/**
+ * @param {WorkerFixture['app']} app
+ * @param {WorkerFixture['env']} env
+ * @param {number} serial
+ */
 async function githubSession(app, env, serial) {
   const started = await app.fetch(new Request('https://desktop.tools/api/auth/sign-in/social', {
     method: 'POST', headers: { 'content-type': 'application/json', 'cf-connecting-ip': '192.0.2.20' },
@@ -21,6 +23,7 @@ async function githubSession(app, env, serial) {
   const stateCookie = setCookies(started.headers).find(value => value.startsWith('__Secure-better-auth.state='));
   assert.ok(stateCookie);
   const state = providerUrl.searchParams.get('state');
+  assert.ok(state);
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async (input, init) => {
     const url = input instanceof Request ? input.url : String(input);
@@ -57,7 +60,9 @@ async function githubSession(app, env, serial) {
   }
 }
 
+/** @param {Record<string, unknown>} row */
 function rowToRecord(row) {
+  assert.ok(typeof row.scopes_json === 'string');
   return PrivilegedStepUpRecord.parse({
     schemaVersion: 1, id: row.id, challengeSha256: row.challenge_sha256,
     binding: { actor: row.actor, origin: row.origin,
@@ -70,8 +75,15 @@ function rowToRecord(row) {
   });
 }
 
+/**
+ * @param {WorkerFixture['db']} db
+ * @param {{ id: string, challenge: string, binding: import('../src/privileged-step-up.ts').PrivilegedStepUpBindingValue }} issued
+ * @param {Awaited<ReturnType<typeof githubSession>>} session
+ * @param {string} credentialId
+ */
 async function mockOfficialVerification(db, issued, session, credentialId) {
   const row = await db.prepare('SELECT * FROM privileged_step_up_challenges WHERE id=?').bind(issued.id).first();
+  assert.ok(row);
   const record = rowToRecord(row);
   const authenticatedAt = new Date(Math.max(Date.now(), Date.parse(record.issuedAt) + 1)).toISOString();
   const proof = verifiedPasskeySessionFromBetterAuth({

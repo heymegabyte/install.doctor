@@ -10,6 +10,7 @@ import {
   verifyPrivilegedStepUp,
 } from '../src/privileged-step-up.ts';
 import fs from 'node:fs';
+import { URL } from 'node:url';
 
 const challenge = 'A'.repeat(43);
 const now = new Date('2026-11-11T12:00:00.000Z');
@@ -55,20 +56,22 @@ test('official Better Auth success projection is strict and origin-bound', () =>
 });
 
 test('every binding dimension and stale reauthentication fail closed', () => {
-  assert.equal(verifyPrivilegedStepUp(pending, 'B'.repeat(43), binding, passkey, now).error, 'challenge_mismatch');
-  assert.equal(verifyPrivilegedStepUp(pending, challenge, { ...binding, planDigest: 'b'.repeat(64) }, passkey, now).error, 'invalid_binding');
-  assert.equal(verifyPrivilegedStepUp(pending, challenge, { ...binding, target: { ...binding.target, id: 'host-2' } }, passkey, now).error, 'invalid_binding');
-  assert.equal(verifyPrivilegedStepUp(pending, challenge, { ...binding, scopes: ['plan:apply'] }, passkey, now).error, 'invalid_binding');
-  assert.equal(verifyPrivilegedStepUp(pending, challenge, binding, { ...passkey, actor: 'better-auth-user:other' }, now).error, 'wrong_actor');
-  assert.equal(verifyPrivilegedStepUp(pending, challenge, binding, { ...passkey, origin: 'https://brian.desktop.tools' }, now).error, 'wrong_origin');
-  assert.equal(verifyPrivilegedStepUp(pending, challenge, binding, { ...passkey, authenticatedAt: '2026-11-11T11:58:59.000Z' }, now).error, 'reauthentication_required');
+  assert.deepEqual(verifyPrivilegedStepUp(pending, 'B'.repeat(43), binding, passkey, now), { ok: false, error: 'challenge_mismatch' });
+  assert.deepEqual(verifyPrivilegedStepUp(pending, challenge, { ...binding, planDigest: 'b'.repeat(64) }, passkey, now), { ok: false, error: 'invalid_binding' });
+  assert.deepEqual(verifyPrivilegedStepUp(pending, challenge, { ...binding, target: { ...binding.target, id: 'host-2' } }, passkey, now), { ok: false, error: 'invalid_binding' });
+  assert.deepEqual(verifyPrivilegedStepUp(pending, challenge, { ...binding, scopes: ['plan:apply'] }, passkey, now), { ok: false, error: 'invalid_binding' });
+  assert.deepEqual(verifyPrivilegedStepUp(pending, challenge, binding, { ...passkey, actor: 'better-auth-user:other' }, now), { ok: false, error: 'wrong_actor' });
+  assert.deepEqual(verifyPrivilegedStepUp(pending, challenge, binding, { ...passkey, origin: 'https://brian.desktop.tools' }, now), { ok: false, error: 'wrong_origin' });
+  assert.deepEqual(verifyPrivilegedStepUp(pending, challenge, binding, { ...passkey, authenticatedAt: '2026-11-11T11:58:59.000Z' }, now), { ok: false, error: 'reauthentication_required' });
 });
 
 test('credential deletion or epoch rotation invalidates verification and consumption', () => {
-  assert.equal(verifyPrivilegedStepUp(pending, challenge, binding, { ...passkey, credentialActive: false }, now).error, 'credential_revoked');
-  assert.equal(verifyPrivilegedStepUp(pending, challenge, binding, { ...passkey, credentialRevocationEpoch: 5 }, now).error, 'revocation_epoch_changed');
-  const verified = verifyPrivilegedStepUp(pending, challenge, binding, passkey, now).record;
-  assert.equal(consumePrivilegedStepUp(verified, challenge, binding, { ...passkey, credentialActive: false }, now).error, 'credential_revoked');
+  assert.deepEqual(verifyPrivilegedStepUp(pending, challenge, binding, { ...passkey, credentialActive: false }, now), { ok: false, error: 'credential_revoked' });
+  assert.deepEqual(verifyPrivilegedStepUp(pending, challenge, binding, { ...passkey, credentialRevocationEpoch: 5 }, now), { ok: false, error: 'revocation_epoch_changed' });
+  const verification = verifyPrivilegedStepUp(pending, challenge, binding, passkey, now);
+  assert.equal(verification.ok, true);
+  const verified = verification.record;
+  assert.deepEqual(consumePrivilegedStepUp(verified, challenge, binding, { ...passkey, credentialActive: false }, now), { ok: false, error: 'credential_revoked' });
 });
 
 test('fresh OAuth recovery may register but never grants privilege', () => {
@@ -77,8 +80,8 @@ test('fresh OAuth recovery may register but never grants privilege', () => {
   assert.deepEqual(authorizePasskeyRecoveryRegistration(binding.actor,
     { actor: 'better-auth-user:other', authenticatedAt: '2026-11-11T11:59:00.000Z' }, now),
     { ok: false, error: 'wrong_actor' });
-  assert.equal(authorizePasskeyRecoveryRegistration(binding.actor,
-    { actor: binding.actor, authenticatedAt: '2026-11-11T11:00:00.000Z' }, now).error, 'reauthentication_required');
+  assert.deepEqual(authorizePasskeyRecoveryRegistration(binding.actor,
+    { actor: binding.actor, authenticatedAt: '2026-11-11T11:00:00.000Z' }, now), { ok: false, error: 'reauthentication_required' });
 });
 
 test('migration enforces challenge lifecycle and canonical origin', () => {
@@ -92,7 +95,7 @@ test('migration enforces challenge lifecycle and canonical origin', () => {
       JSON.stringify(binding.scopes), 'pending', pending.issuedAt, pending.expiresAt);
     assert.throws(() => statement.run('step-2', 'b'.repeat(64), binding.actor, 'https://evil.example', 'host',
       'host-1', binding.planDigest, JSON.stringify(binding.scopes), 'pending', pending.issuedAt, pending.expiresAt));
-    assert.equal(db.prepare('SELECT count(*) AS count FROM privileged_step_up_challenges').get().count, 1);
+    assert.equal(db.prepare('SELECT count(*) AS count FROM privileged_step_up_challenges').get()?.count, 1);
   } finally { db.close(); }
 });
 
