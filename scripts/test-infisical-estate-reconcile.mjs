@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
   assertSecretSourcesValidated, assertSecretsValidated, inventorySecretNames, inventorySecretSources,
-  metadataOnlyListing, resolveSourceValidationRecord, retireSecretSource, secretDirectoriesForHost, selectConfigurationSecrets,
+  markRetiredSourceInLedgerText, metadataOnlyListing, resolveSourceValidationRecord, retireSecretSource, secretDirectoriesForHost, selectConfigurationSecrets,
   selectConfigurationSources, selectHostSecrets, selectRequestedSources, validateClosedSetSync, validateManifest,
   validateRetirementEvidence, validateValidationLedger,
 } from './infisical-estate-reconcile.mjs';
@@ -347,4 +347,9 @@ const appliedReceipt = retireSecretSource({
 assert.equal(appliedReceipt.status, 'retired');
 assert.equal(existsSync(join(retirementGeneral, 'RETIRE_TOKEN')), false);
 assert.equal(existsSync(join(retirementWorkstation, 'RETIRE_TOKEN')), true);
+const ledgerLine = `  "general:RETIRE_TOKEN": {"status":"valid","sourceId":"general:RETIRE_TOKEN"},\n`;
+const markedLedgerLine = markRetiredSourceInLedgerText(ledgerLine, 'general:RETIRE_TOKEN');
+assert.match(markedLedgerLine, /"sourceRetired":true/);
+assert.equal(markRetiredSourceInLedgerText(markedLedgerLine, 'general:RETIRE_TOKEN'), markedLedgerLine);
+assert.throws(() => markRetiredSourceInLedgerText(ledgerLine, 'general:MISSING_TOKEN'), /Unexpected non-whitespace|missing/);
 console.log('infisical-estate-reconcile unit tests: PASS');

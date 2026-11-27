@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { execFileSync, spawnSync } from 'node:child_process';
 import { createHash, timingSafeEqual } from 'node:crypto';
-import { existsSync, lstatSync, readFileSync, readdirSync, realpathSync, unlinkSync } from 'node:fs';
+import { existsSync, lstatSync, readFileSync, readdirSync, realpathSync, unlinkSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -395,6 +395,25 @@ export function retireSecretSource({
   };
 }
 
+export function markRetiredSourceInLedgerText(ledgerText, sourceId) {
+  const escaped = sourceId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const pattern = new RegExp(`(^\\s*"${escaped}"\\s*:\\s*\\{[^\\n]*)(\\}\\s*,?\\s*$)`, 'm');
+  const match = ledgerText.match(pattern);
+  if (!match) {
+    const ledger = JSON.parse(ledgerText);
+    const record = ledger?.records?.[sourceId];
+    if (!record) fail(`validation ledger record ${sourceId} is missing`);
+    if (record.sourceRetired !== undefined && record.sourceRetired !== true) {
+      fail(`validation ledger record ${sourceId} has conflicting sourceRetired state`);
+    }
+    record.sourceRetired = true;
+    return `${JSON.stringify(ledger, null, 2)}\n`;
+  }
+  if (/"sourceRetired"\s*:\s*true/.test(match[1])) return ledgerText;
+  if (/"sourceRetired"\s*:/.test(match[1])) fail(`validation ledger record ${sourceId} has conflicting sourceRetired state`);
+  return ledgerText.replace(pattern, `$1,"sourceRetired":true$2`);
+}
+
 function writeEncryptedSecret({ encryptedPath, environment, name, projectId, secretPath }) {
   const source = readFileSync(encryptedPath);
   const isAgeEnvelope = source.subarray(0, 64).toString('utf8').startsWith('-----BEGIN AGE ENCRYPTED FILE-----');
@@ -441,13 +460,17 @@ function main() {
     if (options.host || options.workload || options.projectId || options.secretDirectoriesOverridden || options.secretNames.length > 0) {
       fail('retire accepts only --source, --validation-ledger, --offline-exceptions, and optional --apply');
     }
+    const ledgerText = readFileSync(options.validationLedgerPath, 'utf8');
     const receipt = retireSecretSource({
       sourceId: options.sourceId,
       secretStores: defaultSecretStores,
-      ledger: JSON.parse(readFileSync(options.validationLedgerPath, 'utf8')),
+      ledger: JSON.parse(ledgerText),
       offlineExceptions: JSON.parse(readFileSync(options.offlineExceptionsPath, 'utf8')),
       apply: options.applyRetirement,
     });
+    if (options.applyRetirement) {
+      writeFileSync(options.validationLedgerPath, markRetiredSourceInLedgerText(ledgerText, options.sourceId), { mode: 0o600 });
+    }
     process.stdout.write(`${JSON.stringify(receipt, null, 2)}\n`);
     return;
   }
