@@ -191,8 +191,8 @@ export async function parsePortableProfileExport(input: string): Promise<Portabl
  * set; callers needing recovery secrets must re-export from ENVIRONMENT.md. */
 export async function migratePortableProfileExportV1ToV2(input: unknown): Promise<PortableProfileExportV2> {
   const legacy = portableProfileExportV1Schema.parse(input);
-  const { exportDigest: _legacyDigest, ...unsignedLegacy } = legacy;
-  if (await sha256(unsignedLegacy) !== legacy.exportDigest) throw new Error('portable profile export digest mismatch');
+  const { exportDigest: legacyDigest, ...unsignedLegacy } = legacy;
+  if (await sha256(unsignedLegacy) !== legacyDigest) throw new Error('portable profile export digest mismatch');
   const unsigned = { ...unsignedLegacy, schemaVersion: 2 as const, secretRequirementsState: 'unknown-legacy' as const, secretRequirements: [] };
   return portableProfileExportV2Schema.parse({ ...unsigned, exportDigest: await sha256(unsigned) });
 }

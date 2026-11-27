@@ -125,17 +125,6 @@ const MAX_SAMPLES = 1_000_000;
 const CADENCE_BOUNDS = [50, 120, 250, 600, 1500] as const;
 /** Allowed intent kinds as a set for O(1) membership checks. */
 const INTENT_KIND_SET: ReadonlySet<string> = new Set(INTENT_KINDS);
-/** Allowed Easter Egg trigger kinds as a set for O(1) membership checks. */
-const EGG_TRIGGER_KINDS: ReadonlySet<string> = new Set<EasterEggTriggerKind>([
-  'HARMONIC_FIBONACCI',
-  'SECRET_CODE',
-  'HIGH_ENTROPY_EXPLORATION',
-  'ASTRAL_404'
-]);
-/** Pet events accepted by {@link stepVirtualPet}. */
-const PET_EVENTS = ['idempotent-run', 'failed-build', 'easter-egg-unlocked'] as const;
-type PetEvent = typeof PET_EVENTS[number];
-
 function invariant(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);
 }
@@ -150,10 +139,6 @@ function iso(nowIso: unknown, label = 'timestamp'): asserts nowIso is string {
 
 function intentKind(value: unknown): asserts value is IntentKind {
   invariant(typeof value === 'string' && INTENT_KIND_SET.has(value), 'Invalid intent');
-}
-
-function metric(value: unknown, label: string): asserts value is number {
-  invariant(typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= 100, `Invalid ${label}`);
 }
 
 /**

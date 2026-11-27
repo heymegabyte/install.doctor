@@ -45,7 +45,7 @@ function canonical(value: unknown): string {
 }
 
 /** Evaluate cached evidence only. Provisioning never performs a network request through this API. */
-export async function evaluateCatalogAudit(input: { entry: unknown; policy: unknown; observation: unknown | null; now: string }) {
+export async function evaluateCatalogAudit(input: { entry: unknown; policy: unknown; observation: unknown; now: string }) {
   const entry = SoftwareCatalogEntrySchema.parse(input.entry);
   const policy = CatalogAuditPolicySchema.parse(input.policy);
   const now = instant.parse(input.now);

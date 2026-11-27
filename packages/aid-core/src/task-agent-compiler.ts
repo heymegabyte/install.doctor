@@ -73,8 +73,8 @@ export async function approvedTaskAgentPlanDigest(input: Omit<z.input<typeof App
 
 /** Compile exclusively from approved bytes. Ambient session authority is neither read nor merged. */
 export async function compileTaskAgents(input: unknown): Promise<readonly z.infer<typeof CompiledTaskAgentSchema>[]> {
-  const plan = ApprovedTaskAgentPlanSchema.parse(input); const { planDigest: _claimed, ...unsigned } = plan;
-  if (await approvedTaskAgentPlanDigest(unsigned) !== plan.planDigest) throw new Error('task-agent plan digest does not match the approved plan');
+  const plan = ApprovedTaskAgentPlanSchema.parse(input); const { planDigest: claimedDigest, ...unsigned } = plan;
+  if (await approvedTaskAgentPlanDigest(unsigned) !== claimedDigest) throw new Error('task-agent plan digest does not match the approved plan');
   return Object.freeze([...plan.tasks].sort((left, right) => left.taskId.localeCompare(right.taskId)).map(task => {
     const allow = (values: readonly string[], reason: string) => values.length ? [rule('allow', values, reason)] : [];
     const deny = (values: readonly string[], reason: string) => values.length ? [rule('deny', values, reason)] : [];

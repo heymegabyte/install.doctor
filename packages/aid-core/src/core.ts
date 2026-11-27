@@ -370,9 +370,9 @@ export function validateEnvironment(input: unknown): EnvironmentBlueprint {
   invariant(input !== null && typeof input === 'object' && !Array.isArray(input), 'blueprint: expected object');
   const version = (input as Record<string, unknown>).schemaVersion;
   if (version === 1) return validateBlueprint(input);
-  if (version === 2) return blueprintV2Schema.parse(input) as BlueprintV2;
-  if (version === 3) return blueprintV3Schema.parse(input) as BlueprintV3;
-  if (version === 4) return blueprintV4Schema.parse(input) as BlueprintV4;
+  if (version === 2) return blueprintV2Schema.parse(input);
+  if (version === 3) return blueprintV3Schema.parse(input);
+  if (version === 4) return blueprintV4Schema.parse(input);
   throw new Error('Unsupported ENVIRONMENT schema version');
 }
 

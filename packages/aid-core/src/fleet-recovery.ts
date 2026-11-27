@@ -102,7 +102,7 @@ function nonempty(value: unknown, label: string, maximum = 1024): asserts value 
 
 function absolutePath(value: unknown, label: string): asserts value is string {
   nonempty(value, label, 4096);
-  invariant(/^(\/|[A-Za-z]:[\\/])/.test(value as string) && !/[\r\n\u0000*?\[\]]/.test(value as string), `${label}: expected absolute literal path`);
+  invariant(/^(\/|[A-Za-z]:[\\/])/.test(value) && !/[\r\n\u0000*?\[\]]/.test(value), `${label}: expected absolute literal path`);
 }
 
 /** Strict v1 validator. It rejects ambiguity instead of filling policy defaults. */
@@ -235,8 +235,8 @@ export function assessBackupSources(policiesInput: unknown, evidenceInput: unkno
     absolutePath(value.mountPath, 'mount path');
     invariant(typeof value.exists === 'boolean' && typeof value.readable === 'boolean' && typeof value.isSymlink === 'boolean' && typeof value.crossesFilesystem === 'boolean', 'source evidence booleans must be explicit');
     invariant(Number.isSafeInteger(value.entryCount) && Number(value.entryCount) >= 0, 'entryCount: expected non-negative integer');
-    invariant(!evidence.has(value.id as string), 'source evidence ids: duplicates');
-    evidence.set(value.id as string, structuredClone(value) as unknown as BackupSourceEvidence);
+    invariant(!evidence.has(value.id), 'source evidence ids: duplicates');
+    evidence.set(value.id, structuredClone(value) as unknown as BackupSourceEvidence);
   }
   invariant([...evidence.keys()].every(id => policies.some(policy => policy.id === id)), 'Evidence supplied for undeclared source');
 
