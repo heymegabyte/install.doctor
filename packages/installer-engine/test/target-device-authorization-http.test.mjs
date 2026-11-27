@@ -70,3 +70,41 @@ test('rejects insecure origins, redirects, oversized bodies, malformed JSON, and
     await assert.rejects(transport.start({ binding, machineLabel: 'Zen', pollSecret: 'poll-secret' }, signal));
   }
 });
+
+/** @param {AbortSignal | null | undefined} signal @param {number} status @param {() => void} onPull */
+function stalledJson(signal, status, onPull) {
+  assert.ok(signal);
+  return new Response(new ReadableStream({
+    start(controller) {
+      signal.addEventListener('abort', () => controller.error(signal.reason), { once: true });
+      controller.enqueue(new TextEncoder().encode('{'));
+    },
+    pull() { onPull(); },
+  }), { status, headers: { 'content-type': 'application/json' } });
+}
+
+test('keeps the authorization timeout active after poll response headers', { timeout: 5_000 }, async () => {
+  const transport = createTargetAuthorizationHttpTransport({
+    origin: 'https://desktop.tools',
+    timeoutMs: 1_000,
+    fetch: async (_url, init) => stalledJson(init?.signal, 200, () => {}),
+  });
+
+  await assert.rejects(transport.poll('request-1', 'poll-secret', new AbortController().signal), /transport timeout/);
+});
+
+test('relays caller cancellation while reading a start response body', { timeout: 5_000 }, async () => {
+  const caller = new AbortController();
+  let onPull = () => {};
+  const bodyReading = new Promise(resolve => { onPull = () => resolve(undefined); });
+  const transport = createTargetAuthorizationHttpTransport({
+    origin: 'https://desktop.tools',
+    fetch: async (_url, init) => stalledJson(init?.signal, 201, onPull),
+  });
+  const request = transport.start({ binding, machineLabel: 'Zen', pollSecret: 'poll-secret' }, caller.signal);
+  const rejected = assert.rejects(request, /caller cancelled/);
+
+  await bodyReading;
+  caller.abort(new Error('caller cancelled'));
+  await rejected;
+});

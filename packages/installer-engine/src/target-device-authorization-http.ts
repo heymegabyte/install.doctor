@@ -77,44 +77,52 @@ export function createTargetAuthorizationHttpTransport(options: TargetAuthorizat
   const timeoutMs = options.timeoutMs ?? 20_000;
   if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1_000 || timeoutMs > 60_000) throw new Error('authorization timeout is out of bounds');
 
-  const request = async (path: string, pollSecret: string, body: unknown, signal: AbortSignal): Promise<Response> => {
+  const request = async <Result>(
+    path: string, pollSecret: string, body: unknown, signal: AbortSignal,
+    handleResponse: (response: Response) => Result | Promise<Result>,
+  ): Promise<Result> => {
     const linked = linkedSignal(signal, timeoutMs);
     try {
-      return await fetcher(`${origin}${path}`, {
+      const response = await fetcher(`${origin}${path}`, {
         method: 'POST', redirect: 'error', credentials: 'omit', cache: 'no-store', signal: linked.signal,
         headers: { accept: 'application/json', 'content-type': 'application/json', authorization: `Bearer ${pollSecret}` },
         body: JSON.stringify(body),
       });
+      return await handleResponse(response);
     } finally { linked.close(); }
   };
 
   return Object.freeze({
     async start(input: AuthorizationStartRequest, signal: AbortSignal): Promise<AuthorizationStartResponse> {
-      const response = await request('/api/v1/device-authorizations/start', input.pollSecret,
-        { binding: input.binding, machineLabel: input.machineLabel }, signal);
-      if (response.status !== 201) throw new Error(`authorization start unavailable (${String(response.status)})`);
-      return startResponse.parse(await boundedJson(response));
+      return request('/api/v1/device-authorizations/start', input.pollSecret,
+        { binding: input.binding, machineLabel: input.machineLabel }, signal, async response => {
+          if (response.status !== 201) throw new Error(`authorization start unavailable (${String(response.status)})`);
+          return startResponse.parse(await boundedJson(response));
+        });
     },
     async poll(requestId: string, pollSecret: string, signal: AbortSignal): Promise<AuthorizationPollResponse> {
       const id = identifier.parse(requestId);
-      const response = await request(`/api/v1/device-authorizations/${encodeURIComponent(id)}/poll`, pollSecret, {}, signal);
-      if (response.status === 429) {
-        const seconds = Number(response.headers.get('retry-after') ?? '1');
-        return { status: 'pending', retryAfterMs: Math.max(1_000, Math.min(30_000, Number.isFinite(seconds) ? Math.ceil(seconds * 1_000) : 1_000)) };
-      }
-      if (response.status === 404) return { status: 'denied', reason: 'policy-denied' };
-      if (response.status === 410) return { status: 'denied', reason: 'expired' };
-      if (response.status !== 200) throw new Error(`authorization poll unavailable (${String(response.status)})`);
-      const result = pollResponse.parse(await boundedJson(response));
-      if (result.status === 'pending') {
-        return result.retryAfterMs === undefined ? { status: 'pending' } : { status: 'pending', retryAfterMs: result.retryAfterMs };
-      }
-      return result;
+      return request(`/api/v1/device-authorizations/${encodeURIComponent(id)}/poll`, pollSecret, {}, signal,
+        async (response): Promise<AuthorizationPollResponse> => {
+          if (response.status === 429) {
+            const seconds = Number(response.headers.get('retry-after') ?? '1');
+            return { status: 'pending', retryAfterMs: Math.max(1_000, Math.min(30_000, Number.isFinite(seconds) ? Math.ceil(seconds * 1_000) : 1_000)) };
+          }
+          if (response.status === 404) return { status: 'denied', reason: 'policy-denied' };
+          if (response.status === 410) return { status: 'denied', reason: 'expired' };
+          if (response.status !== 200) throw new Error(`authorization poll unavailable (${String(response.status)})`);
+          const result = pollResponse.parse(await boundedJson(response));
+          if (result.status === 'pending') {
+            return result.retryAfterMs === undefined ? { status: 'pending' } : { status: 'pending', retryAfterMs: result.retryAfterMs };
+          }
+          return result;
+        });
     },
     async cancel(requestId: string, pollSecret: string, signal: AbortSignal): Promise<void> {
       const id = identifier.parse(requestId);
-      const response = await request(`/api/v1/device-authorizations/${encodeURIComponent(id)}/cancel`, pollSecret, {}, signal);
-      if (![200, 204, 404, 410].includes(response.status)) throw new Error(`authorization cancellation unavailable (${String(response.status)})`);
+      await request(`/api/v1/device-authorizations/${encodeURIComponent(id)}/cancel`, pollSecret, {}, signal, response => {
+        if (![200, 204, 404, 410].includes(response.status)) throw new Error(`authorization cancellation unavailable (${String(response.status)})`);
+      });
     },
   });
 }
