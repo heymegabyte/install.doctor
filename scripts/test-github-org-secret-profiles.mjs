@@ -70,6 +70,7 @@ for (const host of ['zen.megabyte.space', 'legion.megabyte.space']) {
 }
 const blockedInfrastructureSecrets = [
   'MINIO_ROOT_USER', 'MINIO_ROOT_PASSWORD', 'TAILSCALE_AUTH_KEY', 'WASABI_CLIENT_ID', 'WASABI_CLIENT_SECRET',
+  'PYPI_TOKEN',
 ];
 for (const host of Object.keys(manifest.hosts)) {
   assert.deepEqual(selectHostSecrets(manifest, host, blockedInfrastructureSecrets), []);
