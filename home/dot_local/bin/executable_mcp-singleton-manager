@@ -58,7 +58,6 @@ render_plist() {
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key><true/>
   <key>ThrottleInterval</key><integer>10</integer>
-  <key>ProcessType</key><string>Background</string>
   <key>Umask</key><integer>63</integer>
   <key>EnvironmentVariables</key><dict>
     <key>PATH</key><string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
@@ -139,9 +138,60 @@ status_service() {
     systemctl --user is-active --quiet "$systemd_unit_name" || die "service not active"
     systemctl --user is-enabled --quiet "$systemd_unit_name" || die "service not enabled"
   fi
-  for service in "${services[@]}"; do
-    test -S "$socket_root/$service.sock" || die "missing socket for $service"
+  ready=0
+  attempt=0
+  while test "$attempt" -lt 40; do
+    attempt=$((attempt + 1))
+    ready=1
+    for service in "${services[@]}"; do test -S "$socket_root/$service.sock" || ready=0; done
+    test "$ready" = 1 && break
+    sleep 0.5
   done
+  test "$ready" = 1 || die "singleton sockets did not become ready"
+  "$node_bin" --input-type=module - "$config_path" <<'NODE'
+import { readFileSync } from 'node:fs';
+import { connect } from 'node:net';
+const config = JSON.parse(readFileSync(process.argv[2], 'utf8'));
+await Promise.all(Object.entries(config.services).map(async ([id, service]) => {
+  let replies;
+  let lastError;
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    try {
+      replies = await new Promise((resolve, reject) => {
+        const socket = connect(service.socket);
+        const messages = new Map();
+        let buffer = '';
+        const timeout = setTimeout(() => { socket.destroy(); reject(new Error(`${id} probe timed out`)); }, 1000);
+        socket.setEncoding('utf8');
+        socket.on('connect', () => {
+          socket.write(`${JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 'mcp-singleton-manager', version: '1' } } })}\n`);
+          socket.write(`${JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'tools/list', params: {} })}\n`);
+        });
+        socket.on('data', (chunk) => {
+          buffer += chunk;
+          for (;;) {
+            const newline = buffer.indexOf('\n');
+            if (newline < 0) break;
+            const line = buffer.slice(0, newline);
+            buffer = buffer.slice(newline + 1);
+            if (!line) continue;
+            const message = JSON.parse(line);
+            messages.set(message.id, message);
+            if (messages.has(1) && messages.has(2)) { clearTimeout(timeout); socket.end(); resolve(messages); }
+          }
+        });
+        socket.on('error', reject);
+      });
+      break;
+    } catch (error) {
+      lastError = error;
+      await new Promise((resolve) => setTimeout(resolve, 500));
+    }
+  }
+  if (!replies) throw lastError ?? new Error(`${id} protocol probe failed`);
+  if (replies.get(1)?.error || replies.get(2)?.error || !Array.isArray(replies.get(2)?.result?.tools)) throw new Error(`${id} protocol probe failed`);
+}));
+NODE
   printf 'mcp singleton broker ready: %s\n' "$label"
 }
 

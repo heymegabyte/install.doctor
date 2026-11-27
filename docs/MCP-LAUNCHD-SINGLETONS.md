@@ -16,5 +16,9 @@ Eligible services are Cloudflare, Langfuse, Paperclip, theme.tools, and the curr
 
 Clients connect to the corresponding socket with `/usr/bin/nc -U ~/.local/state/mcp-singletons/sockets/<service>.sock`. Preserve the previous client configuration until initialize, tools/list, one allowed call, concurrent isolation, restart, and rollback checks pass.
 
+`status` waits through launchd throttling and then performs real `initialize` and `tools/list` protocol probes for every configured backend. Socket files alone are not considered healthy.
+
+The LaunchAgent intentionally uses launchd's standard process class. `ProcessType=Background` is not appropriate for latency-sensitive JSON-RPC pipes and can starve backend startup on a busy workstation.
+
 Cloud-hosted services should still be reached through their authenticated Cloudflare MCP surfaces. The local singleton is for host-local/offline-safe adapters and for a bounded compatibility bridge; loss of the network must degrade cloud tools without expanding local authority.
 
