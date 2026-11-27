@@ -882,8 +882,6 @@ export YARN_CACHE_FOLDER="\${MEGABYTE_CACHE_ROOT}/packages/yarn"
 export BUN_INSTALL_CACHE_DIR="\${MEGABYTE_CACHE_ROOT}/packages/bun"
 export PIP_CACHE_DIR="\${MEGABYTE_CACHE_ROOT}/packages/pip"
 export PIP_INDEX_URL="\${MEGABYTE_NEXUS_PYPI_URL:-\${MEGABYTE_LOCAL_PROXY_URL}/repository/pypi-group/simple/}"
-export PIP_EXTRA_INDEX_URL="\${MEGABYTE_NEXUS_URL}/repository/pypi-group/simple/ https://pypi.org/simple/"
-export PIP_TRUSTED_HOST="127.0.0.1 nexus.megabyte.space"
 export UV_CACHE_DIR="\${MEGABYTE_CACHE_ROOT}/packages/uv"
 export UV_INDEX_URL="\${MEGABYTE_NEXUS_PYPI_URL:-\${MEGABYTE_LOCAL_PROXY_URL}/repository/pypi-group/simple}"
 export UV_INSECURE_HOST="127.0.0.1:${LOCAL_PROXY_PORT}"
@@ -956,12 +954,6 @@ backup_if_exists "$HOME/.config/pip/pip.conf"
 cat <<EOF > "$HOME/.config/pip/pip.conf"
 [global]
 index-url = ${LOCAL_PROXY_BASE}/repository/pypi-group/simple/
-extra-index-url =
-    ${NEXUS_BASE}/repository/pypi-group/simple/
-    https://pypi.org/simple/
-trusted-host =
-    127.0.0.1
-    nexus.megabyte.space
 cache-dir = ${CACHE_ROOT}/packages/pip
 timeout = 20
 EOF
