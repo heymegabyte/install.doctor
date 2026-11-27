@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { DatabaseSync } from 'node:sqlite';
+import { sqliteD1Fixture } from './helpers/sqlite-d1-fixture.mjs';
 import { authorizeOwnerContextRead, authorizeOwnerDecision, persistOwnerDecision } from '../src/owner-approval.ts';
 
 const now = new Date('2026-11-08T12:00:00.000Z');
@@ -13,6 +14,7 @@ const record = {
   requestedScopes: ['pull-desired-state', 'report-status'],
 };
 const owner = { actor: 'OWNER@example.com', authenticatedAt: '2026-11-08T11:58:00.000Z' };
+/** @type {Parameters<typeof authorizeOwnerDecision>[1]} */
 const request = { code: record.code, matchingCode: record.code, profileRevision: record.profileRevision, decision: 'approve' };
 
 test('owner can approve or deny the exact displayed request', () => {
@@ -20,8 +22,9 @@ test('owner can approve or deny the exact displayed request', () => {
     ok: true, nextStatus: 'approved', actor: 'owner@example.com', decidedAt: now.toISOString(),
     approvedScopes: ['pull-desired-state', 'report-status'],
   });
-  assert.equal(authorizeOwnerDecision(record, { ...request, decision: 'deny' }, owner, now).ok, true);
-  assert.equal(authorizeOwnerDecision(record, { ...request, decision: 'deny' }, owner, now).nextStatus, 'denied');
+  const denied = authorizeOwnerDecision(record, { ...request, decision: 'deny' }, owner, now);
+  assert.equal(denied.ok, true);
+  assert.equal(denied.nextStatus, 'denied');
 });
 
 test('owner may narrow requested scopes but cannot broaden them', () => {
@@ -29,7 +32,8 @@ test('owner may narrow requested scopes but cannot broaden them', () => {
     ok: true, nextStatus: 'approved', actor: 'owner@example.com', decidedAt: now.toISOString(),
     approvedScopes: ['report-status'],
   });
-  assert.deepEqual(authorizeOwnerDecision(record, { ...request, approvedScopes: ['pull-desired-state', 'tenant:admin'] }, owner, now), {
+  const unsupportedScope = { ...request, approvedScopes: ['pull-desired-state', 'tenant:admin'] };
+  assert.deepEqual(Reflect.apply(authorizeOwnerDecision, undefined, [record, unsupportedScope, owner, now]), {
     ok: false, status: 400, error: 'invalid_approved_scopes',
   });
 });
@@ -48,12 +52,15 @@ test('privileged owner decision binds the exact server-resolved profile id and d
   const digest = 'a'.repeat(64);
   const privileged = { ...record, profileRevision: digest, profileId: 'profile-1',
     profileRevisionDigest: digest, requestedScopes: ['authorize-privileged-run'] };
+  /** @type {Parameters<typeof authorizeOwnerDecision>[1]} */
   const exact = { ...request, profileRevision: digest, profileId: 'profile-1',
     profileRevisionDigest: digest, approvedScopes: ['authorize-privileged-run'] };
   assert.equal(authorizeOwnerDecision(privileged, exact, owner, now).ok, true);
-  for (const changed of [{ profileId: undefined }, { profileId: 'profile-2' },
-    { profileRevisionDigest: undefined }, { profileRevisionDigest: 'b'.repeat(64) }]) {
-    assert.deepEqual(authorizeOwnerDecision(privileged, { ...exact, ...changed }, owner, now), {
+  const { profileId, ...withoutProfileId } = exact;
+  const { profileRevisionDigest, ...withoutDigest } = exact;
+  for (const changed of [withoutProfileId, { ...exact, profileId: 'profile-2' },
+    withoutDigest, { ...exact, profileRevisionDigest: 'b'.repeat(64) }]) {
+    assert.deepEqual(authorizeOwnerDecision(privileged, changed, owner, now), {
       ok: false, status: 409, error: 'stale_profile_revision',
     });
   }
@@ -81,8 +88,8 @@ test('owner decision rejects wrong actor, absent reauthentication, and an old se
 });
 
 test('expired and already-decided pairings cannot be replayed', () => {
-  assert.equal(authorizeOwnerDecision({ ...record, expiresAt: now.toISOString() }, request, owner, now).error, 'expired');
-  assert.equal(authorizeOwnerDecision({ ...record, status: 'approved' }, request, owner, now).error, 'pairing_not_pending');
+  assert.deepEqual(authorizeOwnerDecision({ ...record, expiresAt: now.toISOString() }, request, owner, now), { ok: false, status: 410, error: 'expired' });
+  assert.deepEqual(authorizeOwnerDecision({ ...record, status: 'approved' }, request, owner, now), { ok: false, status: 409, error: 'pairing_not_pending' });
 });
 
 test('owner-bound context requires the freshly authenticated intended owner', () => {
@@ -104,15 +111,12 @@ test('decision persistence is atomic with the exact reviewed row and expiry', as
     owner_actor text not null, permissions text not null, profile_id text, profile_revision_digest text,
     approved_at text, denied_at text, decided_by text, approved_scopes text
   )`);
-  const database = { prepare(sql) { const statement = sqlite.prepare(sql); return {
-    bind(...values) { return { async run() { const result = statement.run(...values); return { meta: { changes: Number(result.changes) } }; } }; },
-  }; } };
+  const database = sqliteD1Fixture(sqlite);
   const reviewed = { code: record.code, expiresAt: record.expiresAt, profileRevision: record.profileRevision,
     ownerActor: record.ownerActor, permissionsJson: JSON.stringify(record.requestedScopes), profileId: null,
     profileRevisionDigest: null };
   const approved = authorizeOwnerDecision(record, request, owner, now);
   assert.equal(approved.ok, true);
-  if (!approved.ok) return;
 
   const insert = () => sqlite.prepare(`INSERT INTO pairings
     (code,status,expires_at,profile_revision,owner_actor,permissions,profile_id,profile_revision_digest)
@@ -121,7 +125,7 @@ test('decision persistence is atomic with the exact reviewed row and expiry', as
   insert();
   sqlite.prepare('UPDATE pairings SET profile_revision=? WHERE code=?').run('sha256:changed-after-review', reviewed.code);
   assert.equal(await persistOwnerDecision(database, reviewed, approved), false);
-  assert.equal(sqlite.prepare('SELECT status FROM pairings WHERE code=?').get(reviewed.code).status, 'pending');
+  assert.equal(sqlite.prepare('SELECT status FROM pairings WHERE code=?').get(reviewed.code)?.status, 'pending');
 
   sqlite.prepare('DELETE FROM pairings').run();
   insert();
