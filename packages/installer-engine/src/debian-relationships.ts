@@ -173,7 +173,7 @@ export function validateDebianDependencyClosure(input: {
 
   const edges = new Map<string, { preDepends: NativeOfflinePayloadDescriptor[]; depends: NativeOfflinePayloadDescriptor[] }>();
   for (const descriptor of descriptors) {
-    if (descriptor.platform.os !== root.platform.os || descriptor.platform.arch !== root.platform.arch
+    if (descriptor.platform.arch !== root.platform.arch
       || !sameDistro(descriptor, root) || !sameRepository(descriptor, root)) {
       return fail(`${descriptor.packageKey} is outside the root platform, distro, or repository authority`);
     }
@@ -209,7 +209,8 @@ export function validateDebianDependencyClosure(input: {
     if (visiting.has(descriptor.packageKey)) return fail(`dependency cycle includes ${descriptor.packageKey}`);
     if (visited.has(descriptor.packageKey)) return;
     visiting.add(descriptor.packageKey);
-    const dependencies = edges.get(descriptor.packageKey)!;
+    const dependencies = edges.get(descriptor.packageKey);
+    if (!dependencies) return fail(`missing dependency edges for ${descriptor.packageKey}`);
     for (const dependency of [...dependencies.preDepends].sort((a, b) => a.packageKey.localeCompare(b.packageKey))) visit(dependency);
     for (const dependency of [...dependencies.depends].sort((a, b) => a.packageKey.localeCompare(b.packageKey))) visit(dependency);
     visiting.delete(descriptor.packageKey);

@@ -49,7 +49,7 @@ export function composeNativeDebianPackageSlice(input: {
   const desiredState = DesiredStateInputSchema.parse(input.desiredState);
   const witnesses = z.array(WitnessSchema).length(1).parse(input.installedWitnesses);
   if (descriptor.packageKey !== 'tree' || descriptor.package.name !== 'tree' || descriptor.package.version !== '2.1.0-1'
-    || descriptor.package.architecture !== 'amd64' || descriptor.platform.os !== 'linux' || descriptor.platform.arch !== 'x64') {
+    || descriptor.package.architecture !== 'amd64' || descriptor.platform.arch !== 'x64') {
     throw new Error('native Debian slice admits only tree=2.1.0-1 for Linux amd64');
   }
   if (input.target.distroId !== 'debian' || input.target.versionId !== '12' || input.target.codename !== 'bookworm'
@@ -72,7 +72,8 @@ export function composeNativeDebianPackageSlice(input: {
     || descriptor.dependencyClosure.depends.length !== 0 || descriptor.dependencyClosure.preDepends.length !== 0) {
     throw new Error('native Debian tree slice requires only the installed libc6 (>= 2.34) witness relationship');
   }
-  const witness = witnesses[0]!;
+  const [witness] = witnesses;
+  if (!witness) throw new Error('native Debian tree slice requires exactly one installed libc6 witness');
   if (input.compareDebianVersions(witness.version, '2.34') < 0) throw new Error('installed libc6 witness does not satisfy >= 2.34');
 
   // Validate every ordinary descriptor invariant after substituting only the

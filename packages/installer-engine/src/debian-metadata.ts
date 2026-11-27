@@ -60,15 +60,15 @@ function parseParagraphs(bytes: Buffer, label: string, maximumBytes: number, max
   for (const line of lines) {
     if (line === '') { finish(); continue; }
     if (line.startsWith(' ') || line.startsWith('\t')) {
-      if (priorKey === undefined) throw new DebianMetadataError(`${label} contains an orphan continuation line`);
-      paragraph.set(priorKey, `${paragraph.get(priorKey)!}\n${line.slice(1)}`);
+      const priorValue = priorKey === undefined ? undefined : paragraph.get(priorKey);
+      if (priorKey === undefined || priorValue === undefined) throw new DebianMetadataError(`${label} contains an orphan continuation line`);
+      paragraph.set(priorKey, `${priorValue}\n${line.slice(1)}`);
       continue;
     }
-    const match = FIELD.exec(line);
-    if (!match) throw new DebianMetadataError(`${label} contains a malformed control field`);
+    const value = FIELD.exec(line)?.[1];
+    if (value === undefined) throw new DebianMetadataError(`${label} contains a malformed control field`);
     const key = line.slice(0, line.indexOf(':')).toLowerCase();
     if (paragraph.has(key)) throw new DebianMetadataError(`${label} contains duplicate field ${key}`);
-    const value = match[1]!;
     if (value.length > 65_536) throw new DebianMetadataError(`${label} field ${key} exceeds its bound`);
     paragraph.set(key, value); priorKey = key;
   }
@@ -99,11 +99,13 @@ function releaseSha256Entry(release: Paragraph, path: string): { sha256: string;
   for (const line of raw.split('\n').filter(candidate => candidate.length > 0)) {
     const match = /^([a-f0-9]{64})[ \t]+(0|[1-9][0-9]*)[ \t]+([^\s]+)$/.exec(line);
     if (!match) throw new DebianMetadataError('InRelease SHA256 list is malformed');
-    if (match[3] !== path) continue;
+    const [, sha256, size, entryPath] = match;
+    if (sha256 === undefined || size === undefined || entryPath === undefined) throw new DebianMetadataError('InRelease SHA256 list is malformed');
+    if (entryPath !== path) continue;
     if (found) throw new DebianMetadataError('InRelease contains duplicate Packages checksum authority');
-    const sizeBytes = Number(match[2]);
+    const sizeBytes = Number(size);
     if (!Number.isSafeInteger(sizeBytes)) throw new DebianMetadataError('InRelease Packages size is unsafe');
-    found = { sha256: match[1]!, sizeBytes };
+    found = { sha256, sizeBytes };
   }
   if (!found) throw new DebianMetadataError('InRelease does not authorize the selected Packages index');
   return found;
@@ -134,8 +136,8 @@ export async function verifyDebianRepositoryMetadata(input: {
     throw new DebianMetadataError('InRelease signature fingerprint does not match signed catalog authority');
   }
   const releaseParagraphs = parseParagraphs(signature.cleartext, 'InRelease', 16_777_216, 1);
-  if (releaseParagraphs.length !== 1) throw new DebianMetadataError('InRelease must contain exactly one Release paragraph');
-  const release = releaseParagraphs[0]!;
+  const [release] = releaseParagraphs;
+  if (releaseParagraphs.length !== 1 || !release) throw new DebianMetadataError('InRelease must contain exactly one Release paragraph');
   const date = required(release, 'Date', 'InRelease');
   const dateMs = exactTimestamp(date, 'InRelease Date');
   const validUntil = release.get('valid-until') ?? null;
@@ -143,13 +145,14 @@ export async function verifyDebianRepositoryMetadata(input: {
   const maximumDateAgeSeconds = descriptor.metadataProof.inRelease.maximumDateAgeSeconds;
   if (dateMs !== Date.parse(descriptor.metadataProof.inRelease.signedAt)
     || (validUntil === null) !== (expectedValidUntil === null)
-    || (validUntil !== null && exactTimestamp(validUntil, 'InRelease Valid-Until') !== Date.parse(expectedValidUntil!))) {
+    || (validUntil !== null && expectedValidUntil !== null
+      && exactTimestamp(validUntil, 'InRelease Valid-Until') !== Date.parse(expectedValidUntil))) {
     throw new DebianMetadataError('InRelease timestamps or Valid-Until presence differ from signed catalog authority');
   }
   const nowMs = (input.verifier.now ?? (() => new Date()))().getTime();
   if (!Number.isFinite(nowMs) || nowMs < dateMs - 10_000) throw new DebianMetadataError('InRelease Date is unacceptably far in the future');
   const expiryMs = validUntil === null
-    ? dateMs + maximumDateAgeSeconds! * 1000
+    ? dateMs + Number(maximumDateAgeSeconds) * 1000
     : exactTimestamp(validUntil, 'InRelease Valid-Until');
   if (nowMs >= expiryMs) throw new DebianMetadataError('InRelease is not currently valid');
   const suite = release.get('suite'); const codename = release.get('codename');
@@ -178,8 +181,8 @@ export async function verifyDebianRepositoryMetadata(input: {
   const candidates = stanzas.filter(stanza => stanza.get('package') === descriptor.package.name
     && stanza.get('version') === descriptor.package.version
     && stanza.get('architecture') === descriptor.package.architecture);
-  if (candidates.length !== 1) throw new DebianMetadataError('Packages index must contain exactly one matching package stanza');
-  const stanza = candidates[0]!;
+  const [stanza] = candidates;
+  if (candidates.length !== 1 || !stanza) throw new DebianMetadataError('Packages index must contain exactly one matching package stanza');
   const proof = descriptor.metadataProof.packageStanza;
   if (required(stanza, 'Filename', 'Packages stanza') !== proof.filename
     || required(stanza, 'SHA256', 'Packages stanza') !== proof.sha256
