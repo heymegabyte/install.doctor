@@ -76,7 +76,7 @@ async function installPinnedSkills(stateDirectory) {
   }
 }
 
-/** @param {string} credentialPath @param {string} promptPath @param {Awaited<ReturnType<typeof prepareToolRuntime>>} [toolRuntime] */
+/** @param {string} credentialPath @param {string} [promptPath] @param {Awaited<ReturnType<typeof prepareToolRuntime>>} [toolRuntime] */
 function generateOpenCodeConfig(credentialPath, promptPath, toolRuntime) {
   return {
     $schema: 'https://opencode.ai/config.json',

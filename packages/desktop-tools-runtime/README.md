@@ -82,6 +82,6 @@ Build outputs are deterministic inputs to the release builder:
 - `dist/desktop-tools-tools.tar.gz`
 
 Run `npm ci`, then `npm test` and `npm run build`. Both commands first run strict
-TypeScript checks on the supervisor, session evidence, protocol runtime fixture,
+TypeScript checks on the supervisor and its tests, session evidence, protocol runtime fixture,
 and release build script and test. The production release workflow builds the
 generated `dist/` directory from reviewed source.
