@@ -6,13 +6,20 @@ import { join } from 'node:path';
 import test from 'node:test';
 import { configurationCompensationArtifactDigest, createRollbackPlan, executeApprovedUserFileRollback } from '../dist/index.js';
 
+/** @param {Buffer} value */
 const d = value => createHash('sha256').update(value).digest('hex');
 
+/**
+ * @param {string} taskId
+ * @param {string} targetPath
+ * @param {string[]} dependencies
+ */
 async function fixture(taskId, targetPath, dependencies = []) {
   const bytes = Buffer.from(`${taskId}-old\n`);
   const info = await stat(targetPath);
+  /** @satisfies {import('../dist/index.js').ConfigurationSnapshot} */
   const snapshot = { schemaVersion: 1, targetPath, existed: true, mode: info.mode & 0o7777, uid: info.uid, gid: info.gid, digest: d(bytes) };
-  return { schemaVersion: 1, record: { schemaVersion: 1, taskId, kind: 'configuration', state: 'available', createdAt: '2026-11-06T05:00:00.000Z', artifactDigest: configurationCompensationArtifactDigest(snapshot, bytes), restores: ['bytes', 'mode', 'ownership'] }, snapshot, bytesBase64: bytes.toString('base64'), dependencies };
+  return /** @satisfies {import('../dist/index.js').PersistedConfigurationCompensation} */ ({ schemaVersion: 1, record: { schemaVersion: 1, taskId, kind: 'configuration', state: 'available', createdAt: '2026-11-06T05:00:00.000Z', artifactDigest: configurationCompensationArtifactDigest(snapshot, bytes), restores: ['bytes', 'mode', 'ownership'] }, snapshot, bytesBase64: bytes.toString('base64'), dependencies, serviceSnapshot: null, appliedDigest: null });
 }
 
 test('restores user-owned files in reverse dependency order and verifies postconditions', async () => {
@@ -32,10 +39,11 @@ test('restores user-owned files in reverse dependency order and verifies postcon
 test('rejects stale approval/evidence and unsafe non-user target before mutation', async () => {
   const root = await realpath(await mkdtemp(join(tmpdir(), 'rollback-executor-deny-'))); await chmod(root, 0o700);
   const target = join(root, 'config'); await writeFile(target, 'new\n');
-  const artifacts = [await fixture('config.base', target)];
+  const [artifact] = [await fixture('config.base', target)];
+  const artifacts = [artifact];
   const plan = await createRollbackPlan({ sourceRunId: 'source-run', sourcePlanDigest: 'f'.repeat(64), compensations: artifacts });
   await assert.rejects(executeApprovedUserFileRollback({ plan, approvedPlanDigest: '0'.repeat(64) }, artifacts), /exact rollback plan digest/);
-  await assert.rejects(executeApprovedUserFileRollback({ plan, approvedPlanDigest: plan.digest }, [{ ...artifacts[0], record: { ...artifacts[0].record, artifactDigest: '1'.repeat(64) } }]), /integrity mismatch/);
+  await assert.rejects(executeApprovedUserFileRollback({ plan, approvedPlanDigest: plan.digest }, [{ ...artifact, record: { ...artifact.record, artifactDigest: '1'.repeat(64) } }]), /integrity mismatch/);
   assert.equal(await readFile(target, 'utf8'), 'new\n');
 });
 
@@ -53,17 +61,20 @@ test('restores captured service state through injected adapters in reverse depen
   const root = await realpath(await mkdtemp(join(tmpdir(), 'rollback-executor-service-'))); await chmod(root, 0o700);
   const basePath = join(root, 'base.conf'); const childPath = join(root, 'child.conf');
   await writeFile(basePath, 'new\n', { mode: 0o600 }); await writeFile(childPath, 'new\n', { mode: 0o600 });
+  /** @param {string} taskId @param {string} path @param {string[]} dependencies */
   const withService = async (taskId, path, dependencies) => {
-    const item = await fixture(taskId, path, dependencies); const serviceSnapshot = { schemaVersion: 1, serviceId: `${taskId}.service`, manager: 'systemd', enabled: true, running: false };
+    const item = await fixture(taskId, path, dependencies); const serviceSnapshot = /** @satisfies {import('../dist/index.js').ServiceStateSnapshot} */ ({ schemaVersion: 1, serviceId: `${taskId}.service`, manager: 'systemd', enabled: true, running: false });
     const bytes = Buffer.from(item.bytesBase64, 'base64');
-    return { ...item, serviceSnapshot, record: { ...item.record, artifactDigest: configurationCompensationArtifactDigest(item.snapshot, bytes, serviceSnapshot), restores: [...item.record.restores, 'service-state'] } };
+    return /** @satisfies {import('../dist/index.js').PersistedConfigurationCompensation} */ ({ ...item, serviceSnapshot, record: { ...item.record, artifactDigest: configurationCompensationArtifactDigest(item.snapshot, bytes, serviceSnapshot), restores: [...item.record.restores, 'service-state'] } });
   };
   const artifacts = [await withService('config.base', basePath, []), await withService('config.child', childPath, ['config.base'])];
-  const plan = await createRollbackPlan({ sourceRunId: 'source-run', sourcePlanDigest: 'f'.repeat(64), compensations: artifacts }); const restored = [];
+  const plan = await createRollbackPlan({ sourceRunId: 'source-run', sourcePlanDigest: 'f'.repeat(64), compensations: artifacts });
+  /** @type {[string, boolean, boolean][]} */
+  const restored = [];
   const result = await executeApprovedUserFileRollback({ plan, approvedPlanDigest: plan.digest }, artifacts, {
     beforeTask: async () => 'execute', afterTask: async () => {}, beforeMutation: async () => {},
     captureService: async () => ({ enabled: false, running: true }),
-    restoreService: async snapshot => { restored.push([snapshot.serviceId, snapshot.enabled, snapshot.running]); },
+    restoreService: async snapshot => { assert.equal(snapshot.manager, 'systemd'); restored.push([snapshot.serviceId, snapshot.enabled, snapshot.running]); },
   });
   assert.equal(result.status, 'succeeded');
   assert.deepEqual(restored, [['config.child.service', true, false], ['config.base.service', true, false]]);
@@ -71,14 +82,17 @@ test('restores captured service state through injected adapters in reverse depen
 });
 
 test('service-only compensation restores systemd state without touching a synthetic file target', async () => {
-  const serviceSnapshot = { schemaVersion: 1, serviceId: 'alloy.service', manager: 'systemd', enabled: false, running: false };
+  const serviceSnapshot = /** @satisfies {import('../dist/index.js').ServiceStateSnapshot} */ ({ schemaVersion: 1, serviceId: 'alloy.service', manager: 'systemd', enabled: false, running: false });
+  /** @satisfies {import('../dist/index.js').ConfigurationSnapshot} */
   const snapshot = { schemaVersion: 1, kind: 'service', targetPath: 'systemd:alloy.service',
     existed: false, mode: null, uid: null, gid: null, digest: null };
+  /** @type {import('../dist/index.js').PersistedConfigurationCompensation} */
   const artifact = { schemaVersion: 1, snapshot, bytesBase64: null, dependencies: [], serviceSnapshot, appliedDigest: null,
     record: { schemaVersion: 1, taskId: 'service.native.alloy', kind: 'configuration', state: 'available',
       createdAt: '2026-11-06T05:00:00.000Z', artifactDigest: configurationCompensationArtifactDigest(snapshot, null, serviceSnapshot),
       restores: ['service-state'] } };
   const plan = await createRollbackPlan({ sourceRunId: 'source-run', sourcePlanDigest: 'f'.repeat(64), compensations: [artifact] });
+  /** @type {import('../dist/index.js').ServiceStateSnapshot[]} */
   const restored = [];
   const result = await executeApprovedUserFileRollback({ plan, approvedPlanDigest: plan.digest }, [artifact], {
     beforeTask: async () => 'execute', beforeMutation: async () => {}, afterTask: async () => {},
@@ -96,6 +110,7 @@ test('a new retry recognizes an exactly restored configuration without mutating 
   const restoredBytes = Buffer.from(artifact.bytesBase64, 'base64');
   await writeFile(target, restoredBytes, { mode: artifact.snapshot.mode });
   const plan = await createRollbackPlan({ sourceRunId: 'source-run', sourcePlanDigest: 'f'.repeat(64), compensations: [artifact] });
+  /** @type {Awaited<ReturnType<typeof executeApprovedUserFileRollback>>['outcomes'][number][]} */
   const recorded = []; let authorizationCalls = 0; let mutationCalls = 0;
   const result = await executeApprovedUserFileRollback({ plan, approvedPlanDigest: plan.digest }, [artifact], {
     beforeTask: async () => { authorizationCalls += 1; return 'execute'; },
@@ -115,7 +130,8 @@ test('already-restored reconciliation includes captured service state', async ()
   const target = join(root, 'config'); await writeFile(target, 'new\n', { mode: 0o600 });
   const base = await fixture('config.service', target); const bytes = Buffer.from(base.bytesBase64, 'base64');
   await writeFile(target, bytes, { mode: base.snapshot.mode });
-  const serviceSnapshot = { schemaVersion: 1, serviceId: 'fixture.service', manager: 'systemd', enabled: true, running: false };
+  const serviceSnapshot = /** @satisfies {import('../dist/index.js').ServiceStateSnapshot} */ ({ schemaVersion: 1, serviceId: 'fixture.service', manager: 'systemd', enabled: true, running: false });
+  /** @type {import('../dist/index.js').PersistedConfigurationCompensation} */
   const artifact = { ...base, serviceSnapshot, record: { ...base.record,
     artifactDigest: configurationCompensationArtifactDigest(base.snapshot, bytes, serviceSnapshot),
     restores: [...base.record.restores, 'service-state'] } };
@@ -126,6 +142,6 @@ test('already-restored reconciliation includes captured service state', async ()
     captureService: async () => ({ enabled: true, running: false }),
     restoreService: async () => { restores += 1; },
   });
-  assert.equal(result.outcomes[0].detail, 'already-restored');
+  assert.equal(result.outcomes[0]?.detail, 'already-restored');
   assert.equal(starts, 0); assert.equal(restores, 0);
 });

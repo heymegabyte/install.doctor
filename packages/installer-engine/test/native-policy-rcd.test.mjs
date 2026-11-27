@@ -11,12 +11,21 @@ import {
 
 const HELPER = '#!/bin/sh\nexit 101\n';
 
+const uid = process.geteuid?.();
+const gid = process.getegid?.();
+assert.ok(typeof uid === 'number' && typeof gid === 'number', 'policy-rc.d tests require POSIX ownership');
+
+/** @param {unknown} error */
+const isMissing = error => error instanceof Error && 'code' in error && error.code === 'ENOENT';
+
 async function fixture() {
   const root = await realpath(await mkdtemp(join(tmpdir(), 'policy-rcd-')));
   await chmod(root, 0o700);
   await mkdir(join(root, 'usr'), { mode: 0o755 });
   await mkdir(join(root, 'usr', 'sbin'), { mode: 0o755 });
+  /** @type {import('../dist/native-policy-rcd.js').PolicyRcdTransactionRecord[]} */
   const records = [];
+  /** @type {import('../dist/native-policy-rcd.js').PolicyRcdPersistence} */
   const persistence = {
     prepare: async record => { records.push(structuredClone(record)); },
     update: async record => { records.push(structuredClone(record)); },
@@ -24,8 +33,8 @@ async function fixture() {
   const transaction = await createNativePolicyRcdTransaction({
     persistence,
     testRoot: root,
-    testOwner: process.geteuid(),
-    testGroup: process.getegid(),
+    testOwner: uid,
+    testGroup: gid,
   });
   return { root, target: join(root, 'usr', 'sbin', 'policy-rc.d'), records, persistence, transaction };
 }
@@ -50,14 +59,14 @@ test('absence is checkpointed before installing an exact private 0755 helper', a
   const transaction = await createNativePolicyRcdTransaction({
     persistence: {
       prepare: async record => {
-        preparedObservedAbsent = await lstat(state.target).then(() => false, error => error.code === 'ENOENT');
+        preparedObservedAbsent = await lstat(state.target).then(() => false, isMissing);
         state.records.push(structuredClone(record));
       },
       update: state.persistence.update,
     },
     testRoot: state.root,
-    testOwner: process.geteuid(),
-    testGroup: process.getegid(),
+    testOwner: uid,
+    testGroup: gid,
   });
   const prepared = await transaction.prepare();
   assert.equal(prepared.phase, 'prepared');
@@ -69,8 +78,8 @@ test('absence is checkpointed before installing an exact private 0755 helper', a
   const info = await lstat(state.target);
   assert.equal(info.isFile(), true);
   assert.equal(info.nlink, 1);
-  assert.equal(info.uid, process.geteuid());
-  assert.equal(info.gid, process.getegid());
+  assert.equal(info.uid, uid);
+  assert.equal(info.gid, gid);
   assert.equal(info.mode & 0o7777, 0o755);
   assert.deepEqual(state.records.map(record => record.phase), ['prepared', 'active']);
 });
@@ -100,13 +109,13 @@ test('reconcile repairs crashes both before and after the active checkpoint', as
   await writeFile(state.target, HELPER, { mode: 0o755 });
   const recovered = await state.transaction.reconcile(prepared);
   assert.equal(recovered.phase, 'restored');
-  await assert.rejects(lstat(state.target), error => error.code === 'ENOENT');
+  await assert.rejects(lstat(state.target), isMissing);
 
   const next = await state.transaction.prepare();
   const active = await state.transaction.activate(next);
   const afterActiveCrash = await state.transaction.reconcile(active);
   assert.equal(afterActiveCrash.phase, 'restored');
-  await assert.rejects(lstat(state.target), error => error.code === 'ENOENT');
+  await assert.rejects(lstat(state.target), isMissing);
   assert.deepEqual(await state.transaction.reconcile(afterActiveCrash), afterActiveCrash);
 });
 
@@ -138,7 +147,9 @@ test('refuses drift and never restores an inode it cannot attribute', async t =>
   await assert.rejects(state.transaction.activate(prepared), /changed after the prepared checkpoint/);
 
   await rm(state.target);
-  await writeFile(state.target, Buffer.from(prepared.snapshot.bytesBase64, 'base64'), { mode: prepared.snapshot.mode });
+  const { bytesBase64, mode } = prepared.snapshot;
+  assert.ok(typeof bytesBase64 === 'string' && typeof mode === 'number');
+  await writeFile(state.target, Buffer.from(bytesBase64, 'base64'), { mode });
   const active = await state.transaction.activate(await state.transaction.prepare());
   await writeFile(state.target, 'third party replacement');
   await assert.rejects(state.transaction.restore(active), /conflict/);
@@ -148,12 +159,13 @@ test('refuses drift and never restores an inode it cannot attribute', async t =>
 test('requires a canonical private test root and durable persistence', async t => {
   const state = await fixture();
   t.after(() => rm(state.root, { recursive: true, force: true }));
-  await assert.rejects(createNativePolicyRcdTransaction({ testRoot: state.root, testOwner: process.geteuid(), testGroup: process.getegid() }), /persistence/);
+  const missingPersistence = { testRoot: state.root, testOwner: uid, testGroup: gid };
+  await assert.rejects(Reflect.apply(createNativePolicyRcdTransaction, undefined, [missingPersistence]), /persistence/);
   await assert.rejects(createNativePolicyRcdTransaction({
     persistence: state.persistence,
     testRoot: `${state.root}/.`,
-    testOwner: process.geteuid(),
-    testGroup: process.getegid(),
+    testOwner: uid,
+    testGroup: gid,
   }), /canonical/);
 });
 
@@ -166,9 +178,9 @@ test('a failed prepared checkpoint cannot mutate policy-rc.d', async t => {
       update: async () => { throw new Error('unexpected update'); },
     },
     testRoot: state.root,
-    testOwner: process.geteuid(),
-    testGroup: process.getegid(),
+    testOwner: uid,
+    testGroup: gid,
   });
   await assert.rejects(transaction.prepare(), /durability unavailable/);
-  await assert.rejects(lstat(state.target), error => error.code === 'ENOENT');
+  await assert.rejects(lstat(state.target), isMissing);
 });

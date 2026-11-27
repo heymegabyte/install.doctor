@@ -10,6 +10,10 @@ import {
 const at = '2026-11-06T12:00:00.000Z';
 const machineId = '0123456789abcdef0123456789abcdef';
 
+/** @typedef {import('../dist/linux-host-facts.js').LinuxOfflineHostFactDependencies} Dependencies */
+/** @typedef {import('../dist/linux-host-facts.js').LinuxHostReadOptions} ReadOptions */
+
+/** @param {Dependencies} overrides */
 function fixture(overrides = {}) {
   const files = new Map([
     ['/etc/machine-id', machineId],
@@ -23,13 +27,14 @@ function fixture(overrides = {}) {
     platform: 'linux',
     arch: 'x64',
     now: () => at,
-    readFile: async (path, options) => {
-      assert.ok(options.maxBytes > 0);
-      if (!files.has(path)) throw Object.assign(new Error('missing'), { code: 'ENOENT' });
-      return files.get(path);
-    },
-    pathExists: async path => paths.has(path),
     ...overrides,
+    readFile: overrides.readFile ?? (async (path, options) => {
+      assert.ok(options.maxBytes > 0);
+      const value = files.get(path);
+      if (value === undefined) throw Object.assign(new Error('missing'), { code: 'ENOENT' });
+      return value;
+    }),
+    pathExists: overrides.pathExists ?? (async path => paths.has(path)),
   };
 }
 
@@ -70,6 +75,7 @@ test('collects strict deterministic native facts from observable evidence only',
 
 test('uses the canonical protected os-release fallback and sorts all arrays', async () => {
   const base = fixture({ arch: 'arm64' });
+  /** @type {Array<[string, ReadOptions]>} */
   const reads = [];
   const facts = await collectLinuxOfflineHostFacts({
     ...base,
@@ -90,12 +96,13 @@ test('uses the canonical protected os-release fallback and sorts all arrays', as
   assert.deepEqual(reads.slice(0, 3).map(([path]) => path), [
     '/etc/machine-id', '/etc/os-release', '/usr/lib/os-release',
   ]);
-  assert.ok(reads[0][1].requireProtected);
-  assert.ok(reads[1][1].requireProtected);
-  assert.ok(reads[2][1].requireProtected);
+  assert.ok(reads[0]?.[1].requireProtected);
+  assert.ok(reads[1]?.[1].requireProtected);
+  assert.ok(reads[2]?.[1].requireProtected);
 });
 
 test('classifies each supported environment only from injected fixed-path probes', async () => {
+  /** @type {Array<[string, Map<string, string>, Set<string>?]>} */
   const cases = [
     ['wsl', new Map([['/proc/sys/kernel/osrelease', '6.1.0-microsoft-standard-WSL2\n']])],
     ['proxmox', new Map(), new Set(['/etc/pve'])],
@@ -106,10 +113,8 @@ test('classifies each supported environment only from injected fixed-path probes
     const base = fixture();
     const facts = await collectLinuxOfflineHostFacts({
       ...base,
-      readFile: async (path, options) => replacements.has(path)
-        ? replacements.get(path)
-        : base.readFile(path, options),
-      pathExists: async path => addedPaths.has(path) || base.pathExists(path),
+      readFile: async (path, options) => replacements.get(path) ?? base.readFile(path, options),
+      pathExists: async (path, expectation) => addedPaths.has(path) || base.pathExists(path, expectation),
     });
     assert.equal(facts.environment, environment);
     assert.ok(facts.roles.includes(environment));
@@ -134,7 +139,7 @@ test('fails closed for unsupported platform, architecture, distro, missing versi
   }), /VERSION_ID/i);
   await assert.rejects(collectLinuxOfflineHostFacts({
     ...base,
-    pathExists: async path => path === '/etc/pve' || path === '/etc/qubes-release' || base.pathExists(path),
+    pathExists: async (path, expectation) => path === '/etc/pve' || path === '/etc/qubes-release' || base.pathExists(path, expectation),
   }), /ambiguous Linux environment/i);
 });
 

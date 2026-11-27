@@ -10,6 +10,7 @@ import {
   createVerifiedArtifactMaterializer,
 } from '../dist/verified-artifact-materializer.js';
 
+/** @param {Buffer} bytes */
 const sha = bytes => createHash('sha256').update(bytes).digest('hex');
 const releaseId = 'desktop-parity-1';
 const releaseObjects = new Map([
@@ -27,7 +28,7 @@ const releaseFilename = new Map([
 const releaseArtifacts = [...releaseObjects].map(([artifactId, bytes]) => ({
   artifactId,
   url: `https://desktop.tools/releases/${releaseId}/${releaseFilename.get(artifactId)}`,
-  authority: { sha256: sha(bytes), sizeBytes: bytes.length, mode: '0600' },
+  authority: { sha256: sha(bytes), sizeBytes: bytes.length, mode: /** @type {const} */ ('0600') },
 }));
 
 test('transport-specific candidate resolvers share one sealed verified artifact materializer', async t => {
@@ -39,7 +40,7 @@ test('transport-specific candidate resolvers share one sealed verified artifact 
   const bytes = Buffer.from('exact signed Debian artifact\n'); const artifactId = 'tree-deb-bookworm-amd64';
   const onlinePath = join(onlineRoot, artifactId); const offlinePath = join(offlineRoot, artifactId);
   await Promise.all([writeFile(onlinePath, bytes, { mode: 0o600 }), writeFile(offlinePath, bytes, { mode: 0o600 })]);
-  const expected = { sha256: sha(bytes), sizeBytes: bytes.length, mode: '0600' };
+  const expected = { sha256: sha(bytes), sizeBytes: bytes.length, mode: /** @type {const} */ ('0600') };
   const onlineMaterializer = createVerifiedArtifactMaterializer(async id => ({ sourcePath: join(onlineRoot, id), authority: expected }));
   const offlineMaterializer = createVerifiedArtifactMaterializer(async id => ({ sourcePath: join(offlineRoot, id), authority: expected }));
   const online = await onlineMaterializer(artifactId); const offline = await offlineMaterializer(artifactId);
@@ -57,6 +58,7 @@ test('four signed Debian release objects fetch once and materialize identically 
   const cacheRoot = join(root, 'cache'); const materializedRoot = join(root, 'materialized');
   await Promise.all([mkdir(cacheRoot, { mode: 0o700 }), mkdir(materializedRoot, { mode: 0o700 })]);
   for (const [artifactId, bytes] of releaseObjects) await writeFile(join(materializedRoot, artifactId), bytes, { mode: 0o600 });
+  /** @type {[string, RequestInit['redirect']][]} */
   const fetchCalls = [];
   const onlineResolver = await createOnlineReleaseArtifactResolver({
     releaseId, artifacts: releaseArtifacts, cacheRoot,
@@ -64,7 +66,9 @@ test('four signed Debian release objects fetch once and materialize identically 
       fetchCalls.push([url, init.redirect]);
       const filename = new URL(url).pathname.split('/').at(-1);
       const artifactId = [...releaseFilename].find(([, value]) => value === filename)?.[0];
+      assert.ok(artifactId);
       const bytes = releaseObjects.get(artifactId);
+      assert.ok(bytes);
       return new Response(bytes, { status: 200, headers: { 'content-length': String(bytes.length) } });
     },
   });
@@ -86,7 +90,7 @@ test('four signed Debian release objects fetch once and materialize identically 
     fetcher: async () => { throw new Error('cache hit must not fetch'); } });
   for (const artifactId of releaseObjects.keys()) {
     const candidate = await cachedResolver(artifactId);
-    assert.equal(candidate.authority.sha256, authority[artifactId].sha256);
+    assert.equal(candidate.authority.sha256, authority[artifactId]?.sha256);
   }
   assert.equal((await readdir(cacheRoot)).filter(name => !name.startsWith('.')).length, 4);
 });
@@ -95,7 +99,10 @@ test('online release resolver rejects namespace drift and never publishes redire
   const root = await realpath(await mkdtemp(join(tmpdir(), 'release-materializer-reject-')));
   t.after(() => rm(root, { recursive: true, force: true }));
   await chmod(root, 0o700);
-  const one = releaseArtifacts[0]; const expected = releaseObjects.get(one.artifactId);
+  const [one] = releaseArtifacts;
+  assert.ok(one);
+  const expected = releaseObjects.get(one.artifactId);
+  assert.ok(expected);
   for (const [index, url] of [
     one.url.replace('desktop.tools', 'example.invalid'),
     one.url.replace(`/releases/${releaseId}/`, '/releases/other-release/'),
@@ -122,7 +129,10 @@ test('online release resolver recovers only its linked interrupted publication',
   const root = await realpath(await mkdtemp(join(tmpdir(), 'release-materializer-recovery-')));
   t.after(() => rm(root, { recursive: true, force: true }));
   await chmod(root, 0o700);
-  const one = releaseArtifacts[0]; const bytes = releaseObjects.get(one.artifactId);
+  const [one] = releaseArtifacts;
+  assert.ok(one);
+  const bytes = releaseObjects.get(one.artifactId);
+  assert.ok(bytes);
   const candidate = join(root, one.authority.sha256);
   const interrupted = join(root, `.${one.authority.sha256}.123e4567-e89b-42d3-a456-426614174000.tmp`);
   const unrelated = join(root, `.${one.authority.sha256}.123e4567-e89b-42d3-a456-426614174001.tmp`);

@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import test from 'node:test';
+import { NormalizedPlanSchema } from '@install-doctor/aid-core/installer-contracts';
 import {
   RollbackLiveOwnerError,
   LiveOwnerError,
@@ -13,13 +14,16 @@ import {
   configurationCompensationArtifactDigest,
 } from '../dist/index.js';
 
+/** @param {string} character */
 const digest = character => character.repeat(64);
 const at = '2026-11-06T05:00:00.000Z';
 const fixtureBytes = Buffer.from('prior\n');
+/** @type {import('../dist/index.js').ConfigurationSnapshot} */
 const fixtureSnapshot = {
   schemaVersion: 1, targetPath: '/etc/install-doctor/base.conf', existed: true,
   mode: 0o640, uid: 501, gid: 20, digest: createHash('sha256').update(fixtureBytes).digest('hex'),
 };
+/** @type {import('../dist/index.js').PersistedConfigurationCompensation} */
 const artifact = {
   schemaVersion: 1,
   record: {
@@ -28,9 +32,10 @@ const artifact = {
   },
   snapshot: fixtureSnapshot,
   bytesBase64: fixtureBytes.toString('base64'),
-  dependencies: [],
+  dependencies: [], serviceSnapshot: null, appliedDigest: null,
 };
 
+/** @param {string} planDigest */
 function installPlan(planDigest) {
   const task = {
     schemaVersion: 1, id: 'config.install', inputDigest: digest('c'), dependencies: [], predicate: 'host-supported',
@@ -39,12 +44,13 @@ function installPlan(planDigest) {
     privilege: 'user', network: 'none', consent: 'none', lockDomains: [], cleanup: 'none', compensation: 'none',
     failurePolicy: 'continue-independent',
   };
-  return {
+  return NormalizedPlanSchema.parse({
     schemaVersion: 1, planId: 'plan-install', digest: planDigest, releaseId: 'release-one', desiredRevision: 'desired-one',
     hostFactsDigest: digest('e'), createdAt: at, tasks: [task], selectedTaskIds: [task.id],
-  };
+  });
 }
 
+/** @param {Partial<Parameters<typeof createRollbackRunStore>[0]>} overrides */
 async function fixture(overrides = {}) {
   const stateRoot = await mkdtemp(join(tmpdir(), 'install-doctor-rollback-store-'));
   await chmod(stateRoot, 0o700);
@@ -63,7 +69,9 @@ async function fixture(overrides = {}) {
   return { stateRoot, store, plan };
 }
 
+/** @param {unknown} value */
 function canonicalBytes(value) {
+  /** @param {unknown} input @returns {unknown} */
   const canonical = input => Array.isArray(input) ? input.map(canonical)
     : input !== null && typeof input === 'object'
       ? Object.fromEntries(Object.entries(input).sort(([left], [right]) => left.localeCompare(right)).map(([key, child]) => [key, canonical(child)]))
@@ -79,6 +87,8 @@ test('persists exact approved rollback plan and immutable append-only noncomplet
   assert.deepEqual(result.events.map(event => event.sequence), [0, 1, 2]);
   const inspection = await store.inspect('rollback-one', plan.digest);
   assert.equal(inspection.authority, 'committed');
+  assert.ok(inspection.receipt);
+  assert.ok(inspection.events);
   assert.equal(inspection.receipt.completed, false);
   assert.deepEqual(inspection.events.map(event => event.kind), result.events.map(event => event.kind));
   const runRoot = join(stateRoot, 'rollback-runs', plan.digest, 'rollback-one');
@@ -90,14 +100,16 @@ test('persists exact approved rollback plan and immutable append-only noncomplet
 test('wrong approval fails before creating rollback evidence', async () => {
   const { stateRoot, store, plan } = await fixture();
   await assert.rejects(store.recordBlockedRun('rollback-one', plan, digest('0')), /exact rollback plan digest/);
-  await assert.rejects(lstat(join(stateRoot, 'rollback-runs')), error => error.code === 'ENOENT');
+  await assert.rejects(lstat(join(stateRoot, 'rollback-runs')), error => error instanceof Error && 'code' in error && error.code === 'ENOENT');
 });
 
 test('exclusive ownership rejects a concurrent rollback recorder', async () => {
-  let unblock;
-  const gate = new Promise(resolve => { unblock = resolve; });
-  let entered;
-  const reached = new Promise(resolve => { entered = resolve; });
+  /** @type {() => void} */
+  let unblock = () => assert.fail('gate was not initialized');
+  const gate = new Promise(resolve => { unblock = () => resolve(undefined); });
+  /** @type {() => void} */
+  let entered = () => assert.fail('entry signal was not initialized');
+  const reached = new Promise(resolve => { entered = () => resolve(undefined); });
   const { stateRoot, store, plan } = await fixture({
     fault: async point => {
       if (point === 'after-plan-sync') { entered(); await gate; }
@@ -132,15 +144,16 @@ test('read-only verification detects tampering and absent inspection creates not
   const absentRoot = join(stateRoot, 'absent');
   const reader = createRollbackRunStore({ stateRoot: absentRoot, bootId: 'boot-one', processStart: 'reader' });
   assert.equal((await reader.inspect('rollback-one', plan.digest)).authority, 'absent');
-  await assert.rejects(lstat(absentRoot), error => error.code === 'ENOENT');
+  await assert.rejects(lstat(absentRoot), error => error instanceof Error && 'code' in error && error.code === 'ENOENT');
 
   await store.recordBlockedRun('rollback-one', plan, plan.digest);
   const eventRoot = join(stateRoot, 'rollback-runs', plan.digest, 'rollback-one', 'events');
   const [eventName] = await readdir(eventRoot);
+  assert.ok(eventName);
   await writeFile(join(eventRoot, eventName), '{}\n', { mode: 0o600 });
   const inspection = await store.inspect('rollback-one', plan.digest);
   assert.equal(inspection.authority, 'corrupt');
-  assert.match(inspection.problems[0], /digest|event/i);
+  assert.match(inspection.problems.join(' '), /digest|event/i);
 });
 
 test('failure before final commit remains released and explicitly uncommitted', async () => {
@@ -151,7 +164,7 @@ test('failure before final commit remains released and explicitly uncommitted', 
   });
   await assert.rejects(store.recordBlockedRun('rollback-one', plan, plan.digest), /injected precommit failure/);
   assert.equal((await store.inspect('rollback-one', plan.digest)).authority, 'uncommitted');
-  await assert.rejects(lstat(join(stateRoot, 'owner.json')), error => error.code === 'ENOENT');
+  await assert.rejects(lstat(join(stateRoot, 'owner.json')), error => error instanceof Error && 'code' in error && error.code === 'ENOENT');
 });
 
 test('atomic publication leaves only complete final artifacts after interruption', async () => {
@@ -185,6 +198,7 @@ test('inspection rejects a digest-consistent commit with an invalid event lifecy
   const runRoot = join(stateRoot, 'rollback-runs', plan.digest, 'rollback-lifecycle');
   const commitRoot = join(runRoot, 'commits');
   const [commitName] = await readdir(commitRoot);
+  assert.ok(commitName);
   const commitPath = join(commitRoot, commitName);
   const commit = JSON.parse(await readFile(commitPath, 'utf8'));
   const event = JSON.parse(await readFile(commit.events[1].path, 'utf8'));
@@ -203,7 +217,7 @@ test('inspection rejects a digest-consistent commit with an invalid event lifecy
 
   const inspection = await store.inspect('rollback-lifecycle', plan.digest);
   assert.equal(inspection.authority, 'corrupt');
-  assert.match(inspection.problems[0], /approval|lifecycle/i);
+  assert.match(inspection.problems.join(' '), /approval|lifecycle/i);
 });
 
 test('ownership loss after receipt publication prevents final commit authority', async () => {
@@ -253,7 +267,7 @@ test('inspection prefers verified commit authority, ignores reserved crash temps
   await writeFile(join(receiptRoot, 'abandoned.tmp'), 'partial', { mode: 0o600 });
   const corrupted = await store.inspect('rollback-committed-owner', plan.digest);
   assert.equal(corrupted.authority, 'corrupt');
-  assert.match(corrupted.problems[0], /temporary|unknown artifacts/i);
+  assert.match(corrupted.problems.join(' '), /temporary|unknown artifacts/i);
 });
 
 test('already-restored reconciliation records a fenced task start before its outcome', async () => {
@@ -261,11 +275,13 @@ test('already-restored reconciliation records a fenced task start before its out
   const root = await realpath(await mkdtemp(join(tmpdir(), 'rollback-already-restored-'))); await chmod(root, 0o700);
   const target = join(root, 'config'); const bytes = Buffer.from('old\n'); await writeFile(target, bytes, { mode: 0o600 });
   const info = await lstat(target);
+  /** @type {import('../dist/index.js').ConfigurationSnapshot} */
   const snapshot = { schemaVersion: 1, targetPath: target, existed: true, mode: info.mode & 0o7777, uid: info.uid, gid: info.gid,
     digest: createHash('sha256').update(bytes).digest('hex') };
+  /** @type {import('../dist/index.js').PersistedConfigurationCompensation} */
   const compensation = { schemaVersion: 1, record: { schemaVersion: 1, taskId: 'config.base', kind: 'configuration', state: 'available', createdAt: at,
     artifactDigest: configurationCompensationArtifactDigest(snapshot, bytes), restores: ['bytes', 'mode', 'ownership'] }, snapshot,
-    bytesBase64: bytes.toString('base64'), dependencies: [] };
+    bytesBase64: bytes.toString('base64'), dependencies: [], serviceSnapshot: null, appliedDigest: null };
   const plan = await createRollbackPlan({ sourceRunId: 'source-run', sourcePlanDigest: digest('f'), compensations: [compensation] }, () => at);
   const store = createRollbackRunStore({ stateRoot, bootId: 'boot-one', processStart: 'process-one' });
   const result = await store.executeUserFileRollback('rollback-already-restored', plan, plan.digest, async () => [compensation]);
@@ -283,7 +299,7 @@ test('recent malformed owner fails closed while expired malformed evidence is qu
   await utimes(ownerPath, new Date('2020-01-01T00:00:00.000Z'), new Date('2020-01-01T00:00:00.000Z'));
   await store.recordBlockedRun('rollback-malformed', plan, plan.digest);
   assert.equal((await readdir(stateRoot)).some(name => name.startsWith('owner.json.malformed.')), true);
-  await assert.rejects(lstat(ownerPath), error => error.code === 'ENOENT');
+  await assert.rejects(lstat(ownerPath), error => error instanceof Error && 'code' in error && error.code === 'ENOENT');
 });
 
 test('executes user-file rollback only after shared ownership and resumes across mutation and precommit boundaries', async () => {
@@ -296,11 +312,13 @@ test('executes user-file rollback only after shared ownership and resumes across
   const root = await realpath(await mkdtemp(join(tmpdir(), 'rollback-run-execute-'))); await chmod(root, 0o700);
   const target = join(root, 'config'); await writeFile(target, 'new\n', { mode: 0o600 });
   const info = await lstat(target); const bytes = Buffer.from('old\n');
+  /** @type {import('../dist/index.js').ConfigurationSnapshot} */
   const snapshot = { schemaVersion: 1, targetPath: target, existed: true, mode: info.mode & 0o7777, uid: info.uid, gid: info.gid,
     digest: createHash('sha256').update(bytes).digest('hex') };
+  /** @type {import('../dist/index.js').PersistedConfigurationCompensation} */
   const compensation = { schemaVersion: 1, record: { schemaVersion: 1, taskId: 'config.base', kind: 'configuration', state: 'available', createdAt: at,
     artifactDigest: configurationCompensationArtifactDigest(snapshot, bytes), restores: ['bytes', 'mode', 'ownership'] }, snapshot,
-    bytesBase64: bytes.toString('base64'), dependencies: [] };
+    bytesBase64: bytes.toString('base64'), dependencies: [], serviceSnapshot: null, appliedDigest: null };
   const plan = await createRollbackPlan({ sourceRunId: 'source-run', sourcePlanDigest: digest('f'), compensations: [compensation] }, () => at);
   const load = async () => {
     await lstat(join(stateRoot, 'owner.json'));
@@ -315,8 +333,11 @@ test('executes user-file rollback only after shared ownership and resumes across
   assert.equal(result.receipt.status, 'succeeded'); assert.equal(result.receipt.completed, true);
   assert.equal(await readFile(target, 'utf8'), 'old\n');
   const inspection = await store.inspect('rollback-execute', plan.digest);
-  assert.equal(inspection.authority, 'committed'); assert.equal(inspection.receipt.status, 'succeeded');
-  assert.equal(inspection.events.at(-1).kind, 'rollback-run-finished');
+  assert.equal(inspection.authority, 'committed');
+  assert.ok(inspection.receipt);
+  assert.ok(inspection.events);
+  assert.equal(inspection.receipt.status, 'succeeded');
+  assert.equal(inspection.events.at(-1)?.kind, 'rollback-run-finished');
   assert.equal(inspection.events.filter(event => event.kind === 'rollback-task-started').length, 1);
   assert.equal(inspection.events.filter(event => event.kind === 'rollback-task-restored').length, 1);
   assert.equal(inspection.events.filter(event => event.kind === 'rollback-run-finished').length, 1);
@@ -328,9 +349,11 @@ test('task-start checkpoint is durable before mutation and interruption remains 
     fault: async point => { if (point === 'after-event-sync' && ++eventSyncs === 3) throw new Error('crash after task start'); } });
   const root = await realpath(await mkdtemp(join(tmpdir(), 'rollback-precheckpoint-'))); await chmod(root, 0o700);
   const target = join(root, 'config'); await writeFile(target, 'new\n', { mode: 0o600 }); const info = await lstat(target); const bytes = Buffer.from('old\n');
+  /** @type {import('../dist/index.js').ConfigurationSnapshot} */
   const snapshot = { schemaVersion: 1, targetPath: target, existed: true, mode: info.mode & 0o7777, uid: info.uid, gid: info.gid, digest: createHash('sha256').update(bytes).digest('hex') };
+  /** @type {import('../dist/index.js').PersistedConfigurationCompensation} */
   const compensation = { schemaVersion: 1, record: { schemaVersion: 1, taskId: 'config.base', kind: 'configuration', state: 'available', createdAt: at,
-    artifactDigest: configurationCompensationArtifactDigest(snapshot, bytes), restores: ['bytes', 'mode', 'ownership'] }, snapshot, bytesBase64: bytes.toString('base64'), dependencies: [] };
+    artifactDigest: configurationCompensationArtifactDigest(snapshot, bytes), restores: ['bytes', 'mode', 'ownership'] }, snapshot, bytesBase64: bytes.toString('base64'), dependencies: [], serviceSnapshot: null, appliedDigest: null };
   const plan = await createRollbackPlan({ sourceRunId: 'source-run', sourcePlanDigest: digest('f'), compensations: [compensation] }, () => at);
   await assert.rejects(store.executeUserFileRollback('rollback-crash', plan, plan.digest, async () => [compensation]), /crash after task start/);
   assert.equal(await readFile(target, 'utf8'), 'new\n');
@@ -343,9 +366,11 @@ test('lease fencing is revalidated immediately before rollback mutation', async 
   const root = await realpath(await mkdtemp(join(tmpdir(), 'rollback-fence-'))); await chmod(root, 0o700);
   const target = join(root, 'config'); await writeFile(target, 'new\n', { mode: 0o600 });
   const info = await lstat(target); const bytes = Buffer.from('old\n');
+  /** @type {import('../dist/index.js').ConfigurationSnapshot} */
   const snapshot = { schemaVersion: 1, targetPath: target, existed: true, mode: info.mode & 0o7777, uid: info.uid, gid: info.gid, digest: createHash('sha256').update(bytes).digest('hex') };
+  /** @type {import('../dist/index.js').PersistedConfigurationCompensation} */
   const compensation = { schemaVersion: 1, record: { schemaVersion: 1, taskId: 'config.base', kind: 'configuration', state: 'available', createdAt: at,
-    artifactDigest: configurationCompensationArtifactDigest(snapshot, bytes), restores: ['bytes', 'mode', 'ownership'] }, snapshot, bytesBase64: bytes.toString('base64'), dependencies: [] };
+    artifactDigest: configurationCompensationArtifactDigest(snapshot, bytes), restores: ['bytes', 'mode', 'ownership'] }, snapshot, bytesBase64: bytes.toString('base64'), dependencies: [], serviceSnapshot: null, appliedDigest: null };
   const plan = await createRollbackPlan({ sourceRunId: 'source-run', sourcePlanDigest: digest('f'), compensations: [compensation] }, () => at);
   await assert.rejects(store.executeUserFileRollback('rollback-fenced', plan, plan.digest, async () => {
     await writeFile(join(stateRoot, 'owner.json'), '{}\n', { mode: 0o600 });
@@ -366,27 +391,33 @@ test('long rollback renews the shared lease and cleans the renewal timer', async
     throw new Error('stop after renewal proof');
   });
   await assert.rejects(pending, /stop after renewal proof/);
-  await assert.rejects(lstat(join(stateRoot, 'owner.json')), error => error.code === 'ENOENT');
+  await assert.rejects(lstat(join(stateRoot, 'owner.json')), error => error instanceof Error && 'code' in error && error.code === 'ENOENT');
 });
 
 test('service-state evidence is durably bound and retry does not repeat a completed adapter restore', async () => {
   const { stateRoot } = await fixture(); let interrupted = false; let serviceState = { enabled: false, running: true }; let restores = 0;
-  const adapter = { manager: 'systemd', capture: async () => ({ ...serviceState }), restore: async (_id, state) => { restores += 1; serviceState = { ...state }; } };
+  /** @type {import('../dist/index.js').ServiceStateAdapter} */
+  const adapter = { manager: 'systemd', capture: async () => ({ ...serviceState }), restore: async (_id, state) => { restores += 1; assert.ok('enabled' in state); serviceState = { ...state }; } };
   const store = createRollbackRunStore({ stateRoot, bootId: 'boot-one', processStart: 'process-one', serviceAdapters: { systemd: adapter },
     fault: async point => { if (point === 'before-outcome-sync' && !interrupted) { interrupted = true; throw new Error('service outcome interruption'); } } });
   const root = await realpath(await mkdtemp(join(tmpdir(), 'rollback-service-retry-'))); await chmod(root, 0o700);
   const target = join(root, 'config'); await writeFile(target, 'new\n', { mode: 0o600 }); const info = await lstat(target); const bytes = Buffer.from('old\n');
+  /** @type {import('../dist/index.js').ConfigurationSnapshot} */
   const snapshot = { schemaVersion: 1, targetPath: target, existed: true, mode: info.mode & 0o7777, uid: info.uid, gid: info.gid, digest: createHash('sha256').update(bytes).digest('hex') };
+  /** @type {import('../dist/index.js').ServiceStateSnapshot} */
   const serviceSnapshot = { schemaVersion: 1, serviceId: 'fixture.service', manager: 'systemd', enabled: true, running: false };
+  /** @type {import('../dist/index.js').PersistedConfigurationCompensation} */
   const compensation = { schemaVersion: 1, record: { schemaVersion: 1, taskId: 'config.service', kind: 'configuration', state: 'available', createdAt: at,
     artifactDigest: configurationCompensationArtifactDigest(snapshot, bytes, serviceSnapshot), restores: ['bytes', 'mode', 'ownership', 'service-state'] },
-    snapshot, bytesBase64: bytes.toString('base64'), dependencies: [], serviceSnapshot };
+    snapshot, bytesBase64: bytes.toString('base64'), dependencies: [], serviceSnapshot, appliedDigest: null };
   const plan = await createRollbackPlan({ sourceRunId: 'source-run', sourcePlanDigest: digest('f'), compensations: [compensation] }, () => at);
   await assert.rejects(store.executeUserFileRollback('rollback-service', plan, plan.digest, async () => [compensation]), /service outcome interruption/);
   assert.deepEqual(serviceState, { enabled: true, running: false }); assert.equal(restores, 1);
   await store.executeUserFileRollback('rollback-service', plan, plan.digest, async () => [compensation]);
   assert.equal(restores, 1);
   const inspection = await store.inspect('rollback-service', plan.digest);
+  assert.ok(inspection.events);
+  assert.ok(inspection.plan);
   assert.equal(inspection.events.filter(event => event.kind === 'rollback-task-restored').length, 1);
-  assert.deepEqual(inspection.plan.tasks[0].service, { serviceId: 'fixture.service', manager: 'systemd' });
+  assert.deepEqual(inspection.plan.tasks[0]?.service, { serviceId: 'fixture.service', manager: 'systemd' });
 });

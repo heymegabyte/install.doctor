@@ -8,8 +8,13 @@ import {
   parseDebianControlArchive,
 } from '../dist/native-deb-inspection.js';
 
+/** @typedef {Parameters<typeof inspectNativeDebianPackage>[0]} InspectionInput */
+/** @typedef {InspectionInput['payloadHandle']} PayloadHandle */
+
+/** @param {Buffer} bytes */
 const sha256 = bytes => createHash('sha256').update(bytes).digest('hex');
 
+/** @param {string} name @param {Buffer} body */
 function tarEntry(name, body, { type = '0', linkName = '' } = {}) {
   const data = Buffer.from(body);
   const header = Buffer.alloc(512);
@@ -30,6 +35,7 @@ function tarEntry(name, body, { type = '0', linkName = '' } = {}) {
   return Buffer.concat([header, data, padding]);
 }
 
+/** @param {Buffer[]} entries */
 function tar(entries) {
   return Buffer.concat([...entries, Buffer.alloc(1024)]);
 }
@@ -54,6 +60,7 @@ const archive = tar([
   tarEntry('./md5sums', Buffer.from('d41d8cd98f00b204e9800998ecf8427e  usr/bin/example\n')),
 ]);
 
+/** @type {InspectionInput['descriptor']} */
 const descriptor = {
   schemaVersion: 1,
   kind: 'native-offline-package',
@@ -88,14 +95,18 @@ const descriptor = {
   },
 };
 
-function borrowedHandle() {
-  return {
-    fd: 41,
-    async stat() { return { isFile: () => true, size: 1024, dev: 1, ino: 2, mtimeMs: 3 }; },
-  };
+/**
+ * The inspector borrows only the file descriptor and the numeric stat fields below.
+ * @param {number} fd
+ * @param {() => Pick<import('node:fs').Stats, 'isFile' | 'size' | 'dev' | 'ino' | 'mtimeMs'>} stat
+ * @returns {PayloadHandle}
+ */
+function borrowedHandle(fd = 41, stat = () => ({ isFile: () => true, size: 1024, dev: 1, ino: 2, mtimeMs: 3 })) {
+  return /** @type {PayloadHandle} */ (/** @type {unknown} */ ({ fd, stat: async () => stat() }));
 }
 
 test('admits an exact scripts-free control archive and reports every member digest', async () => {
+  /** @type {Parameters<NonNullable<InspectionInput['runner']>['extractControlArchive']>[0][]} */
   const calls = [];
   const result = await inspectNativeDebianPackage({
     descriptor,
@@ -160,15 +171,15 @@ test('rejects exact metadata and conffile mismatches', async () => {
 test('rejects changed, non-regular, oversized, or invalid borrowed payload handles', async () => {
   const runner = { async extractControlArchive() { return archive; } };
   await assert.rejects(inspectNativeDebianPackage({
-    descriptor, payloadHandle: { fd: -1, async stat() { return { isFile: () => true, size: 1024, dev: 1, ino: 2, mtimeMs: 3 }; } }, runner,
+    descriptor, payloadHandle: borrowedHandle(-1), runner,
   }), /descriptor/i);
   await assert.rejects(inspectNativeDebianPackage({
-    descriptor, payloadHandle: { fd: 41, async stat() { return { isFile: () => false, size: 1024, dev: 1, ino: 2, mtimeMs: 3 }; } }, runner,
+    descriptor, payloadHandle: borrowedHandle(41, () => ({ isFile: () => false, size: 1024, dev: 1, ino: 2, mtimeMs: 3 })), runner,
   }), /regular/i);
   let call = 0;
   await assert.rejects(inspectNativeDebianPackage({
     descriptor,
-    payloadHandle: { fd: 41, async stat() { call += 1; return { isFile: () => true, size: 1024, dev: 1, ino: call, mtimeMs: 3 }; } },
+    payloadHandle: borrowedHandle(41, () => { call += 1; return { isFile: () => true, size: 1024, dev: 1, ino: call, mtimeMs: 3 }; }),
     runner,
   }), /changed/i);
 });

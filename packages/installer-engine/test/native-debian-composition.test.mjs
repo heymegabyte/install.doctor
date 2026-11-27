@@ -5,8 +5,14 @@ import { composeNativeDebianPackageSlice, composeSelectedNativeDebianPackageSlic
 import { buildLoadPlan } from '../dist/lazy-plan.js';
 import { assertNativePackageInstalledWitnesses, validateNativePackageWitnessClosure } from '../dist/offline-execution.js';
 
+/** @typedef {Parameters<typeof composeNativeDebianPackageSlice>[0]} CompositionOptions */
+/** @typedef {Parameters<typeof assertNativePackageInstalledWitnesses>[0]} ObservationOptions */
+
+/** @param {string} value */
 const hash = value => createHash('sha256').update(value).digest('hex');
+/** @type {CompositionOptions['compareDebianVersions']} */
 const compare = (left, right) => left.localeCompare(right, undefined, { numeric: true });
+/** @returns {CompositionOptions['descriptor']} */
 const descriptor = () => ({
   schemaVersion: 1, kind: 'native-offline-package', manager: 'dpkg', packageKey: 'tree',
   platform: { os: 'linux', arch: 'x64' }, package: { name: 'tree', version: '2.1.0-1', architecture: 'amd64' },
@@ -23,11 +29,24 @@ const descriptor = () => ({
   }, dependencyClosure: { depends: [], preDepends: [] }, affectedServiceUnits: [], conffiles: [],
   maintainerScriptPolicy: { trust: 'signed-repository-metadata', network: 'deny', serviceStarts: 'suppress-and-restore', conffiles: 'preserve-local' },
 });
+/** @returns {CompositionOptions['installedWitnesses'][number]} */
 const witness = () => ({ kind: 'preexisting-witness', manager: 'dpkg', packageName: 'libc6', version: '2.36-9', architecture: 'amd64', status: 'installed', healthy: true, held: false });
+/** @type {CompositionOptions['desiredState']} */
 const desiredState = { schemaVersion: 1, revision: 'fixture', hostId: 'fixture', packages: ['curl'], services: [], consents: [], offline: false };
 const target = { distroId: 'debian', versionId: '12', codename: 'bookworm', architecture: 'amd64' };
+/** @param {Partial<CompositionOptions>} changes */
 const compose = (changes = {}) => composeNativeDebianPackageSlice({ descriptor: descriptor(), target, installedWitnesses: [witness()], desiredState,
   legacyPackages: ['curl', 'tree', 'jq'], compareDebianVersions: compare, ...changes });
+
+/**
+ * @param {ReturnType<typeof compose>['operations']} manifest
+ * @param {string} name
+ */
+function nativeOperation(manifest, name) {
+  const operation = manifest.operations[name];
+  assert.ok(operation?.kind === 'native-package');
+  return operation;
+}
 
 test('composes one canonical native task with witness kept outside mutation authority', () => {
   const first = compose(); const second = compose();
@@ -39,24 +58,28 @@ test('composes one canonical native task with witness kept outside mutation auth
   assert.deepEqual(first.desiredState.consents, ['package-install']);
   assert.equal(first.desiredState.offline, true);
   assert.deepEqual(first.remainingLegacyPackages, ['curl', 'jq']);
-  assert.equal(first.installedWitnesses[0].packageName, 'libc6');
+  assert.equal(first.installedWitnesses[0]?.packageName, 'libc6');
   assert.ok(!first.artifactIds.some(value => value.includes('libc')));
   assert.ok(!first.desiredState.packages.includes('libc6'));
-  assert.deepEqual(first.operations.operations['native-debian-tree-check'].installedWitnesses, [
+  assert.deepEqual(nativeOperation(first.operations, 'native-debian-tree-check').installedWitnesses, [
     { kind: 'preexisting-witness', manager: 'dpkg', packageName: 'libc6', minimumVersion: '2.34', architecture: 'amd64' },
   ]);
-  assert.deepEqual(first.operations.operations['native-debian-tree-check'].expectedPackage,
+  assert.deepEqual(nativeOperation(first.operations, 'native-debian-tree-check').expectedPackage,
     { name: 'tree', version: '2.1.0-1', architecture: 'amd64' });
-  assert.equal(JSON.stringify(first.operations).match(/libc6/g).length, 3);
+  assert.equal(JSON.stringify(first.operations).match(/libc6/g)?.length, 3);
   assert.ok(!JSON.stringify(first).includes('installx'));
   assert.equal(first.task.network, 'none');
 });
 
 test('runtime witness observation rejects missing, held, unhealthy, old, and mismatched authority', async () => {
+  /** @type {ObservationOptions['witnesses'][number]} */
   const authority = { kind: 'preexisting-witness', manager: 'dpkg', packageName: 'libc6', minimumVersion: '2.34', architecture: 'amd64' };
+  /** @type {NonNullable<Awaited<ReturnType<ObservationOptions['observe']>>>} */
   const healthy = { packageName: 'libc6', version: '2.36-9', architecture: 'amd64', want: 'install', errorFlag: 'ok', status: 'installed' };
-  for (const observed of [null, { ...healthy, want: 'hold' }, { ...healthy, errorFlag: 'reinstreq' },
-    { ...healthy, status: 'half-configured' }, { ...healthy, version: '2.33' }, { ...healthy, architecture: 'arm64' }]) {
+  /** @type {Awaited<ReturnType<ObservationOptions['observe']>>[]} */
+  const observations = [null, { ...healthy, want: 'hold' }, { ...healthy, errorFlag: 'reinstreq' },
+    { ...healthy, status: 'half-configured' }, { ...healthy, version: '2.33' }, { ...healthy, architecture: 'arm64' }];
+  for (const observed of observations) {
     await assert.rejects(assertNativePackageInstalledWitnesses({ witnesses: [authority], observe: async () => observed, compareDebianVersions: compare }), /witness is not satisfied/);
   }
   await assert.doesNotReject(assertNativePackageInstalledWitnesses({ witnesses: [authority], observe: async () => healthy, compareDebianVersions: compare }));
@@ -67,24 +90,33 @@ test('runtime witness observation rejects missing, held, unhealthy, old, and mis
 test('signed operation witness mismatch is rejected across the native triplet', async () => {
   const result = compose();
   const mismatched = structuredClone(result.operations);
-  mismatched.operations['native-debian-tree-apply'].installedWitnesses[0].minimumVersion = '2.35';
+  const { installedWitnesses: applyWitnesses } = nativeOperation(mismatched, 'native-debian-tree-apply');
+  assert.ok(applyWitnesses);
+  const [applyWitness] = applyWitnesses;
+  assert.ok(applyWitness);
+  applyWitness.minimumVersion = '2.35';
   // Closure equality is enforced by validateOfflineExecutionClosure. Assert the
   // signed authority differs canonically so the closure cannot treat it as equal.
-  assert.notDeepEqual(mismatched.operations['native-debian-tree-apply'].installedWitnesses,
-    mismatched.operations['native-debian-tree-check'].installedWitnesses);
+  assert.notDeepEqual(applyWitnesses,
+    nativeOperation(mismatched, 'native-debian-tree-check').installedWitnesses);
+  const { installedWitnesses: checkWitnesses } = nativeOperation(result.operations, 'native-debian-tree-check');
+  assert.ok(checkWitnesses);
   assert.deepEqual(validateNativePackageWitnessClosure({ rootPackageKey: 'tree', descriptors: [descriptor()],
-    installedWitnesses: result.operations.operations['native-debian-tree-check'].installedWitnesses, compareDebianVersions: compare }).installationOrder.map(value => value.packageKey), ['tree']);
-  for (const installedWitnesses of [
+    installedWitnesses: checkWitnesses, compareDebianVersions: compare }).installationOrder.map(value => value.packageKey), ['tree']);
+  /** @type {Array<ObservationOptions['witnesses']>} */
+  const witnessSets = [
     [{ kind: 'preexisting-witness', manager: 'dpkg', packageName: 'zlib1g', minimumVersion: '2.34', architecture: 'amd64' }],
     [{ kind: 'preexisting-witness', manager: 'dpkg', packageName: 'libc6', minimumVersion: '2.35', architecture: 'amd64' }],
     [],
-  ]) assert.throws(() => validateNativePackageWitnessClosure({ rootPackageKey: 'tree', descriptors: [descriptor()], installedWitnesses, compareDebianVersions: compare }));
+  ];
+  for (const installedWitnesses of witnessSets) assert.throws(() => validateNativePackageWitnessClosure({ rootPackageKey: 'tree', descriptors: [descriptor()], installedWitnesses, compareDebianVersions: compare }));
   const extra = descriptor(); extra.metadataProof.packageStanza.depends = 'libc6 (>= 2.34), zlib1g';
   assert.throws(() => validateNativePackageWitnessClosure({ rootPackageKey: 'tree', descriptors: [extra],
-    installedWitnesses: result.operations.operations['native-debian-tree-check'].installedWitnesses, compareDebianVersions: compare }));
+    installedWitnesses: checkWitnesses, compareDebianVersions: compare }));
 });
 
 test('fails closed before legacy subtraction for every incompatible authority or witness', () => {
+  /** @type {Array<(value: ReturnType<typeof descriptor>) => void>} */
   const cases = [
     value => { value.package.version = '2.1.1-1'; }, value => { value.platform.arch = 'arm64'; },
     value => { value.distro.versionId = '13'; }, value => { value.repository.repositoryOrigin = 'https://mirror.invalid/debian'; },
@@ -95,7 +127,7 @@ test('fails closed before legacy subtraction for every incompatible authority or
   ];
   for (const mutate of cases) { const value = descriptor(); mutate(value); assert.throws(() => compose({ descriptor: value })); }
   for (const badWitness of [[], [{ ...witness(), version: '2.33' }], [{ ...witness(), held: true }], [{ ...witness(), healthy: false }], [{ ...witness(), architecture: 'arm64' }]]) {
-    assert.throws(() => compose({ installedWitnesses: badWitness }));
+    assert.throws(() => Reflect.apply(compose, undefined, [{ installedWitnesses: badWitness }]));
   }
   assert.throws(() => compose({ target: { ...target, distroId: 'ubuntu' } }));
 });
@@ -120,7 +152,10 @@ test('engine-owned load-plan seam produces transport-independent native authorit
     legacyPackages: [...common.legacyPackages] });
   assert.deepEqual(online, offline);
   assert.deepEqual(online.operations, compose().operations);
-  const tampered = structuredClone(loadPlan); tampered.items.find(item => item.name === 'tree').nativePayload.repository.repositoryOrigin = 'https://mirror.invalid/debian';
+  const tampered = structuredClone(loadPlan);
+  const selected = tampered.items.find(item => item.name === 'tree');
+  assert.ok(selected?.nativePayload);
+  selected.nativePayload.repository.repositoryOrigin = 'https://mirror.invalid/debian';
   assert.throws(() => composeSelectedNativeDebianPackageSlice({ ...common, loadPlan: tampered }), /load-plan digest/);
   const absent = buildLoadPlan({ schemaVersion: 1, platform: 'linux', architecture: 'x64', roles: ['server'], selectedPackages: [],
     selectedServices: [], selectedSupportedPaths: [], lazyResolverRequirements: [], catalog: [{ name: 'tree', bin: 'tree', platforms: ['linux'],

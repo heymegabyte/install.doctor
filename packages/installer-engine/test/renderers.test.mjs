@@ -13,6 +13,10 @@ import {
   tuiProjectionFromPlan,
 } from '../dist/index.js';
 
+/** @typedef {ReturnType<typeof createRendererSession>} RendererSession */
+/** @typedef {Parameters<RendererSession['onEvent']>[0]} RendererEvent */
+
+/** @type {Pick<RendererEvent, 'schemaVersion' | 'sequence' | 'at' | 'runId'>} */
 const base = {
   schemaVersion: 1,
   sequence: 0,
@@ -28,6 +32,7 @@ test('human projection makes retry, critical-path, and lock state explicit', () 
 });
 
 test('log follow and filter semantics are bounded and do not buffer hidden output', () => {
+  /** @type {RendererEvent} */
   const output = { ...base, kind: 'output', taskId: 'package.git', stream: 'stdout', line: 'Downloading package metadata' };
   assert.equal(projectInstallerEvent(output, { follow: false }), null);
   assert.equal(projectInstallerEvent(output, { logFilter: 'ERROR' }), null);
@@ -41,6 +46,7 @@ test('log follow and filter semantics are bounded and do not buffer hidden outpu
 });
 
 test('narrow projections are code-point safe and environment preferences are deterministic', () => {
+  /** @type {RendererEvent} */
   const output = { ...base, kind: 'output', taskId: 'p', stream: 'stdout', line: '📦'.repeat(100) };
   const projected = projectInstallerEvent(output, { width: 20 });
   assert.equal(projected, 'p stdout: 📦📦📦📦…', 'double-width emoji must not overflow terminal cells');
@@ -49,6 +55,7 @@ test('narrow projections are code-point safe and environment preferences are det
   const cjk = projectInstallerEvent({ ...output, line: '界'.repeat(100) }, { width: 20 });
   assert.equal(cjk, 'p stdout: 界界界界…');
   const combining = projectInstallerEvent({ ...output, line: 'e\u0301'.repeat(100) }, { width: 20 });
+  assert.ok(combining);
   assert.ok(combining.endsWith('…'));
   assert.equal(combining.normalize('NFC').includes('\u0301'), false, 'combining marks remain attached before normalization');
 
@@ -76,6 +83,7 @@ test('keyboard parsing exposes intent without owning terminal input', () => {
   assert.equal(parseRendererKeyboardIntent('x'.repeat(17)), 'none');
 });
 
+/** @param {string} id @param {string[]} dependencies */
 function plannedTask(id, dependencies = [], consent = 'none') {
   return {
     schemaVersion: 1, id, inputDigest: id.charCodeAt(0).toString(16).padStart(2, '0').repeat(32), dependencies,
@@ -113,6 +121,7 @@ test('plan projection exposes complete DAG critical path and attributable approv
 });
 
 test('multi-agent frame reports attribution, DAG, locks, retries, approvals, costs, verification, and detach', () => {
+/** @type {Parameters<typeof createTuiModel>[0]} */
   const metadata = [{
     taskId: 'agent.install', agentId: 'worker.one', dependencies: ['agent.discover'],
     approval: 'approved', estimatedCostMicros: 125_000,
@@ -145,6 +154,7 @@ test('screen-reader, NO_COLOR, and reduced-motion modes use explicit stable text
   assert.equal(preferences.color, false);
   assert.equal(preferences.reducedMotion, true);
   assert.equal(preferences.screenReader, true);
+  /** @type {string[]} */
   const chunks = [];
   const session = createRendererSession('tui', chunk => { chunks.push(chunk); return true; }, {
     width: 120, color: true, screenReader: true,
@@ -161,8 +171,10 @@ test('screen-reader, NO_COLOR, and reduced-motion modes use explicit stable text
 });
 
 test('live projection controls change only future presentation', () => {
+  /** @type {string[]} */
   const chunks = [];
   const session = createRendererSession('tui', chunk => { chunks.push(chunk); return true; }, { width: 40 });
+  /** @type {RendererEvent} */
   const output = { ...base, kind: 'output', taskId: 'package.git', stream: 'stdout', line: 'visible package output' };
   session.onEvent(output);
   session.updateProjectionOptions({ follow: false, width: 20 });
@@ -182,7 +194,9 @@ test('live projection controls change only future presentation', () => {
 });
 
 test('sink and projection failures detach only their renderer session', () => {
+  /** @type {RendererEvent} */
   const event = { ...base, kind: 'output', taskId: 'package.git', stream: 'stdout', line: 'safe output' };
+  /** @type {string[]} */
   const healthy = []; const failed = createRendererSession('ndjson', () => { throw new Error('sink failed'); });
   const sibling = createRendererSession('ndjson', chunk => { healthy.push(chunk); return true; });
   assert.doesNotThrow(() => failed.onEvent(event)); sibling.onEvent(event);
@@ -190,13 +204,18 @@ test('sink and projection failures detach only their renderer session', () => {
   assert.equal(healthy.length, 1, 'a failed renderer must not disrupt a sibling renderer');
   assert.doesNotThrow(() => failed.onEvent({ ...event, sequence: 1 }));
   const invalid = createRendererSession('plain', () => true);
-  assert.doesNotThrow(() => invalid.onEvent({ ...event, sequence: 0, line: 42 }));
+  // Deliberately cross the typed boundary to exercise runtime validation.
+  const malformedEvent = /** @type {unknown} */ ({ ...event, sequence: 0, line: 42 });
+  assert.doesNotThrow(() => invalid.onEvent(/** @type {RendererEvent} */ (malformedEvent)));
   assert.equal(invalid.detached, true); assert.equal(invalid.failureCount, 1);
-  assert.doesNotThrow(() => invalid.finish({}), 'finish-time projection errors must remain presentation-local');
+  const malformedResult = /** @type {unknown} */ ({});
+  assert.doesNotThrow(() => invalid.finish(/** @type {Parameters<RendererSession['finish']>[0]} */ (malformedResult)), 'finish-time projection errors must remain presentation-local');
 });
 
 test('backpressure spills synchronously within hard byte and chunk bounds', () => {
+  /** @type {RendererEvent} */
   const event = { ...base, kind: 'output', taskId: 'package.git', stream: 'stdout', line: 'bounded output' };
+  /** @type {string[]} */
   const spilled = [];
   const session = createRendererSession('ndjson', () => false, {}, { maxSpillBytes: 10_000, maxSpillChunks: 2 }, chunk => {
     spilled.push(chunk); return true;
@@ -212,8 +231,13 @@ test('backpressure spills synchronously within hard byte and chunk bounds', () =
 });
 
 test('stdout drain resumes future delivery after bounded backpressure spill', () => {
+  /** @type {RendererEvent} */
   const event = { ...base, kind: 'output', taskId: 'package.git', stream: 'stdout', line: 'bounded output' };
-  const delivered = []; const spilled = []; let ready = false;
+  /** @type {string[]} */
+  const delivered = [];
+  /** @type {string[]} */
+  const spilled = [];
+  let ready = false;
   const session = createRendererSession('ndjson', chunk => {
     if (!ready) return false;
     delivered.push(chunk); return true;
@@ -226,10 +250,11 @@ test('stdout drain resumes future delivery after bounded backpressure spill', ()
   session.onEvent({ ...event, sequence: 1, line: 'after drain' });
   assert.equal(session.detached, false);
   assert.equal(delivered.length, 1);
-  assert.match(delivered[0], /after drain/);
+  assert.match(delivered[0] ?? '', /after drain/);
 });
 
 test('spill rejection and invalid delivery bounds fail closed without throwing', () => {
+  /** @type {RendererEvent} */
   const event = { ...base, kind: 'output', taskId: 'package.git', stream: 'stdout', line: 'output' };
   const session = createRendererSession('plain', () => false, {}, { maxSpillBytes: 1, maxSpillChunks: 1 }, () => true);
   assert.doesNotThrow(() => session.onEvent(event));
@@ -263,6 +288,8 @@ test('TUI model deterministically attributes interleaved task, lock, retry, and 
   const model = bodies.reduce((state, body, sequence) => reduceTuiEvent(state, { ...base, ...body, sequence }), createTuiModel());
   assert.equal(model.runStatus, 'success');
   assert.equal(model.phase, 'apply:succeeded');
+  assert.ok(model.tasks.a);
+  assert.ok(model.tasks.b);
   assert.equal(model.tasks.a.status, 'verified');
   assert.equal(model.tasks.a.attempt, 2);
   assert.deepEqual(model.tasks.a.heldLocks, ['filesystem']);
@@ -270,7 +297,7 @@ test('TUI model deterministically attributes interleaved task, lock, retry, and 
   assert.equal(model.tasks.b.status, 'verified');
   assert.deepEqual(model.tasks.b.waitingLocks, []);
   assert.deepEqual(model.tasks.b.heldLocks, []);
-  assert.match(model.tasks.b.output[0], /界 beta/);
+  assert.match(model.tasks.b.output[0] ?? '', /界 beta/);
 
   const moved = applyTuiIntent(model, 'move-down', ['b']);
   assert.equal(moved.selectedTaskId, 'b');
@@ -295,6 +322,8 @@ test('TUI retains bounded attributable histories for concurrent tasks and report
     createTuiModel(),
   );
 
+  assert.ok(model.tasks['agent.alpha']);
+  assert.ok(model.tasks['agent.beta']);
   assert.equal(model.tasks['agent.alpha'].output.length, 128);
   assert.equal(model.tasks['agent.beta'].output.length, 128);
   assert.equal(model.tasks['agent.alpha'].outputDropped, 32);
@@ -343,6 +372,7 @@ test('TUI bounds task and inspected-output viewports to terminal height while ke
 });
 
 test('renderer resize updates height without changing semantic model or noninteractive behavior', () => {
+  /** @type {string[]} */
   const chunks = [];
   const session = createRendererSession('tui', chunk => { chunks.push(chunk); return true; },
     { width: 80, height: 12, color: false }, { interactiveTui: true });
@@ -351,7 +381,9 @@ test('renderer resize updates height without changing semantic model or noninter
   }
   session.updateProjectionOptions({ height: 5 });
   assert.equal(session.projectionOptions.height, 5);
-  const lastFrame = chunks.at(-1).replace(/^\u001b\[H\u001b\[J/u, '').trimEnd();
+  const rendered = chunks.at(-1);
+  assert.ok(rendered);
+  const lastFrame = rendered.replace(/^\u001b\[H\u001b\[J/u, '').trimEnd();
   assert.equal(lastFrame.split('\n').length, 5);
   session.close();
 });
@@ -372,7 +404,9 @@ test('TUI global output budget evicts the oldest lines across tasks without exce
 });
 
 test('interactive TUI owns full-screen lifecycle while noninteractive TUI remains ANSI-free', () => {
+  /** @type {RendererEvent} */
   const event = { ...base, kind: 'run-status', status: 'started' };
+  /** @type {string[]} */
   const interactive = [];
   const session = createRendererSession('tui', chunk => { interactive.push(chunk); return true; }, { color: false }, { interactiveTui: true });
   session.onEvent(event);
@@ -382,12 +416,14 @@ test('interactive TUI owns full-screen lifecycle while noninteractive TUI remain
   assert.match(transcript, /DESKTOP TOOLS/);
   assert.ok(transcript.endsWith('\u001b[?25h\u001b[?1049l'));
 
+  /** @type {string[]} */
   const noninteractive = [];
   createRendererSession('tui', chunk => { noninteractive.push(chunk); return true; }, { color: false }).onEvent(event);
   assert.equal(noninteractive.join('').includes('\u001b'), false);
 });
 
 test('interactive TUI restores terminal control state after a renderer crash', () => {
+  /** @type {string[]} */
   const chunks = [];
   let writes = 0;
   const session = createRendererSession('tui', chunk => {
@@ -401,11 +437,12 @@ test('interactive TUI restores terminal control state after a renderer crash', (
   assert.equal(session.detached, true);
   assert.equal(session.failureCount, 1);
   session.close();
-  assert.match(chunks[0], /\u001b\[\?1049h\u001b\[\?25l/);
+  assert.match(chunks[0] ?? '', /\u001b\[\?1049h\u001b\[\?25l/);
   assert.equal(chunks.at(-1), '\u001b[?25h\u001b[?1049l');
 });
 
 test('interactive TUI coalesces output bursts but immediately flushes lifecycle state', () => {
+  /** @type {string[]} */
   const chunks = [];
   const session = createRendererSession('tui', chunk => { chunks.push(chunk); return true; },
     { width: 80, height: 12, color: false }, { interactiveTui: true });
@@ -417,9 +454,9 @@ test('interactive TUI coalesces output bursts but immediately flushes lifecycle 
   assert.ok(chunksBeforeStatus <= 15, `expected bounded output repainting, observed ${chunksBeforeStatus} frames`);
   session.onEvent({ ...base, sequence: 101, kind: 'task-status', taskId: 'agent.parallel', status: 'verified', attempt: 1 });
   assert.equal(chunks.length, chunksBeforeStatus + 1);
-  assert.match(chunks.at(-1), /verified/);
+  assert.match(chunks.at(-1) ?? '', /verified/);
   session.handleIntent('inspect');
-  assert.match(chunks.at(-1), /line-100/);
+  assert.match(chunks.at(-1) ?? '', /line-100/);
   session.close();
 });
 
@@ -429,6 +466,7 @@ test('human terminal projections neutralize untrusted control sequences', () => 
   assert.equal(/[\u0000-\u001f\u007f-\u009f]/u.test(safe), false);
   assert.match(safe, /\^\[]52;c;ZXhmaWw=\\x07\^\[\[2J\\rspoof\\nnext\\tend/);
   const projected = projectInstallerEvent({ ...base, kind: 'output', taskId: 'p', stream: 'stdout', line: hostile }, { width: 120 });
+  assert.ok(projected);
   assert.equal(projected.includes('\u001b'), false);
   assert.equal(projected.includes('\r'), false);
   assert.equal(projected.includes('\n'), false);
