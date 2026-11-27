@@ -5,22 +5,40 @@ import { join } from 'node:path';
 import test from 'node:test';
 import { DurableSessionCoordinator } from '../src/durable-session.mjs';
 
+/** @typedef {ConstructorParameters<typeof DurableSessionCoordinator>[0]} Options */
+/** @typedef {Parameters<DurableSessionCoordinator['attach']>[0]['socket']} Socket */
+/** @typedef {NonNullable<Socket['addEventListener']>} AddListener */
+
 class FakeSocket {
+  /** @type {Record<string, unknown>[]} */
   sent = [];
+  /** @type {{code: number, reason: string}[]} */
   closed = [];
   bufferedAmount = 0;
+  /** @type {Map<Parameters<AddListener>[0], Parameters<AddListener>[1]>} */
   listeners = new Map();
+  /** @param {string} value */
   send(value) { this.sent.push(JSON.parse(value)); }
+  /** @param {number} code @param {string} reason */
   close(code, reason) { this.closed.push({ code, reason }); }
+  /** @param {Parameters<AddListener>[0]} type @param {Parameters<AddListener>[1]} listener */
   addEventListener(type, listener) { this.listeners.set(type, listener); }
+  /** @param {Parameters<AddListener>[0]} type @param {string} data */
   dispatch(type, data) { this.listeners.get(type)?.({ data }); }
 }
 
+/** @param {import('node:test').TestContext} t */
 async function fixture(t) {
   const stateRoot = await mkdtemp(join(tmpdir(), 'desktop-tools-session-'));
   t.after(() => rm(stateRoot, { recursive: true, force: true }));
   let now = Date.parse('2030-01-01T00:00:00.000Z');
+  /** @type {{
+   * start: Parameters<Options['startRun']>[0][], cancel: Parameters<Options['cancelRun']>[0][],
+   * resize: Parameters<Options['resizeRun']>[0][], flow: Parameters<Options['setFlow']>[0][],
+   * authorize: Parameters<Options['authorizeCancellation']>[0][], allowCancellation: boolean,
+   * }} */
   const calls = { start: [], cancel: [], resize: [], flow: [], authorize: [], allowCancellation: true };
+  /** @type {Options} */
   const options = { stateRoot, clock: () => now,
     startRun: async value => calls.start.push(value), cancelRun: async value => calls.cancel.push(value), resizeRun: async value => calls.resize.push(value),
     setFlow: async value => calls.flow.push(value), authorizeCancellation: async value => { calls.authorize.push(value); return calls.allowCancellation; } };
@@ -28,9 +46,12 @@ async function fixture(t) {
   const created = await coordinator.create({ sessionId: 'session-1', runId: 'run-1', createdAt: new Date(now).toISOString(),
     expiresAt: new Date(now + 60_000).toISOString(), cols: 80, rows: 24,
     limits: { maxRetainedBytes: 100, highWaterBytes: 10, lowWaterBytes: 3, maxFrames: 10 } });
-  return { coordinator, created, calls, options, advance: milliseconds => { now += milliseconds; }, stateRoot };
+  return { coordinator, created, calls, options, advance: (/** @type {number} */ milliseconds) => { now += milliseconds; }, stateRoot };
 }
 
+/** @param {Awaited<ReturnType<DurableSessionCoordinator['create']>>} created
+ * @param {string} connectionId @param {number} acknowledgedSequence @param {Socket} socket
+ */
 function attachment(created, connectionId, acknowledgedSequence, socket) {
   return { sessionId: created.sessionId, runId: created.runId, resumeToken: created.resumeToken, connectionId, acknowledgedSequence, socket };
 }
@@ -62,12 +83,13 @@ test('acknowledgement applies durable backpressure and resumes below the low-wat
   const pressure = await f.coordinator.emit('session-1', 'abcdef');
   assert.equal(pressure.paused, true);
   assert.deepEqual(f.calls.flow.at(-1), { sessionId: 'session-1', runId: 'run-1', state: 'paused' });
-  assert.equal(socket.sent.at(-1).type, 'flow');
-  assert.equal(socket.sent.at(-1).state, 'paused');
+  assert.equal(socket.sent.at(-1)?.type, 'flow');
+  assert.equal(socket.sent.at(-1)?.state, 'paused');
   const acknowledged = await f.coordinator.receive('session-1', 'connection-1', attached.epoch, JSON.stringify({ schemaVersion: 1, type: 'ack', sequence: 2 }));
+  assert.ok('paused' in acknowledged);
   assert.equal(acknowledged.paused, false);
   assert.deepEqual(f.calls.flow.at(-1), { sessionId: 'session-1', runId: 'run-1', state: 'open' });
-  assert.equal(socket.sent.at(-1).state, 'open');
+  assert.equal(socket.sent.at(-1)?.state, 'open');
   assert.equal((await f.coordinator.status('session-1')).retainedBytes, 0);
 });
 

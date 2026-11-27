@@ -6,10 +6,38 @@ const VERSION = 1;
 const ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
 const MAX_MESSAGE_BYTES = 16 * 1024;
 
+/** @typedef {{cols: number, rows: number}} TerminalSize */
+/** @typedef {{sessionId: string, runId: string}} RunIdentity */
+/** @typedef {{sequence: number, payload: string, bytes: number}} Frame */
+/** @typedef {{maxRetainedBytes: number, highWaterBytes: number, lowWaterBytes: number, maxFrames: number}} Limits */
+/** @typedef {'open' | 'paused'} Flow */
+/** @typedef {'starting' | 'running' | 'cancelling' | 'cancelled' | 'completed' | 'expired' | 'failed'} Phase */
+/** @typedef {RunIdentity & {
+ * schemaVersion: 1, resumeTokenSha256: string, createdAt: string, expiresAt: string,
+ * phase: Phase, flow: Flow, lastSequence: number, acknowledgedSequence: number, connectionEpoch: number,
+ * attachment: {connectionId: string, epoch: number, attachedAt: string} | null, terminal: TerminalSize,
+ * frames: Frame[], limits: Limits, cancellation: {authorizationId: string, requestedAt: string} | null,
+ * }} SessionState */
+/** @typedef {string | Uint8Array | ArrayBuffer} EncodedMessage */
+/** @typedef {{send(value: string): void, close(code: number, reason: string): void, bufferedAmount?: number,
+ * addEventListener?(type: 'message' | 'close', listener: (event: {data?: EncodedMessage} | EncodedMessage) => void): void,
+ * }} SessionSocket */
+/** @typedef {{socket: SessionSocket, connectionId: string, epoch: number, paused: boolean}} Connection */
+/** @typedef {{
+ * stateRoot: string, clock: () => number,
+ * startRun(value: Readonly<RunIdentity & TerminalSize>): unknown,
+ * cancelRun(value: Readonly<RunIdentity & {reason: string, authorizationId?: string}>): unknown,
+ * resizeRun(value: Readonly<RunIdentity & TerminalSize>): unknown,
+ * setFlow(value: Readonly<RunIdentity & {state: Flow}>): unknown,
+ * authorizeCancellation(value: Readonly<RunIdentity & {connectionId: string, authorizationId: string}>): boolean | Promise<boolean>,
+ * }} CoordinatorOptions */
+
+/** @param {string} message @returns {never} */
 function fail(message, code = 65) {
   throw Object.assign(new Error(message), { exitCode: code });
 }
 
+/** @param {unknown} value @param {string[]} keys @param {string} label */
 function exact(value, keys, label) {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) fail(`${label} must be an object`);
   const actual = Object.keys(value).sort();
@@ -19,26 +47,31 @@ function exact(value, keys, label) {
   }
 }
 
+/** @param {unknown} value @param {string} label */
 function id(value, label) {
   if (typeof value !== 'string' || !ID.test(value)) fail(`${label} is invalid`);
   return value;
 }
 
+/** @param {unknown} value @param {string} label */
 function integer(value, label, minimum = 0) {
-  if (!Number.isSafeInteger(value) || value < minimum) fail(`${label} is invalid`);
+  if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < minimum) fail(`${label} is invalid`);
   return value;
 }
 
+/** @param {unknown} value @param {string} label */
 function instant(value, label) {
   if (typeof value !== 'string' || !Number.isFinite(Date.parse(value))) fail(`${label} is invalid`);
   return value;
 }
 
+/** @param {unknown} token */
 function tokenDigest(token) {
   if (typeof token !== 'string' || token.length < 32 || token.length > 512) fail('resume token is invalid', 77);
   return createHash('sha256').update(token, 'utf8').digest('hex');
 }
 
+/** @param {Limits} input */
 function normalizeLimits(input) {
   exact(input, ['maxRetainedBytes', 'highWaterBytes', 'lowWaterBytes', 'maxFrames'], 'session limits');
   const limits = {
@@ -53,11 +86,13 @@ function normalizeLimits(input) {
   return limits;
 }
 
+/** @param {unknown} root */
 function safeRoot(root) {
   if (typeof root !== 'string' || !root.startsWith('/')) fail('stateRoot must be an absolute path');
   return resolve(root);
 }
 
+/** @param {string} root @param {string} sessionId */
 function statePath(root, sessionId) {
   id(sessionId, 'sessionId');
   const path = resolve(root, 'sessions', `${sessionId}.json`);
@@ -66,10 +101,12 @@ function statePath(root, sessionId) {
   return path;
 }
 
+/** @param {Frame[]} frames */
 function retainedBytes(frames) {
   return frames.reduce((total, frame) => total + frame.bytes, 0);
 }
 
+/** @param {SessionState} value */
 function validateState(value) {
   exact(value, ['schemaVersion', 'sessionId', 'runId', 'resumeTokenSha256', 'createdAt', 'expiresAt', 'phase', 'flow', 'lastSequence', 'acknowledgedSequence', 'connectionEpoch', 'attachment', 'terminal', 'frames', 'limits', 'cancellation'], 'durable session');
   if (value.schemaVersion !== VERSION) fail('unsupported durable session schema');
@@ -103,7 +140,7 @@ function validateState(value) {
     const bytes = Buffer.byteLength(frame.payload, 'utf8');
     if (integer(frame.bytes, 'frame bytes', 1) !== bytes) fail('frame byte count is invalid');
   }
-  if (value.frames.length > 0 && value.frames.at(-1).sequence !== value.lastSequence) fail('last sequence does not match replay tail');
+  if (value.frames.length > 0 && value.frames.at(-1)?.sequence !== value.lastSequence) fail('last sequence does not match replay tail');
   if (value.frames.length === 0 && value.lastSequence !== value.acknowledgedSequence) fail('empty replay window has unacknowledged output');
   if (retainedBytes(value.frames) > limits.maxRetainedBytes) fail('session replay bytes exceed their bound');
   if (value.cancellation !== null) {
@@ -114,6 +151,7 @@ function validateState(value) {
   return value;
 }
 
+/** @param {string} path @param {SessionState} value */
 async function atomicWrite(path, value) {
   const temporary = `${path}.tmp-${process.pid}-${randomBytes(6).toString('hex')}`;
   const handle = await open(temporary, 'wx', 0o600);
@@ -129,21 +167,24 @@ async function atomicWrite(path, value) {
   try { await directory.sync(); } finally { await directory.close(); }
 }
 
+/** @param {string} path */
 async function load(path) {
   const metadata = await stat(path);
   if (!metadata.isFile() || metadata.isSymbolicLink() || (metadata.mode & 0o077) !== 0) fail('session state must be a private regular file', 77);
   const bytes = await readFile(path, 'utf8');
   if (Buffer.byteLength(bytes) > 8 * 1024 * 1024) fail('session state exceeds its byte bound');
   try { return validateState(JSON.parse(bytes)); } catch (error) {
-    if (error?.exitCode) throw error;
+    if (error && typeof error === 'object' && 'exitCode' in error && error.exitCode) throw error;
     fail('session state is not valid JSON');
   }
 }
 
+/** @param {string} type @param {Record<string, unknown>} body */
 function wire(type, body) {
   return JSON.stringify({ schemaVersion: VERSION, type, ...body });
 }
 
+/** @param {SessionSocket} socket */
 function assertSocket(socket) {
   if (socket === null || typeof socket !== 'object' || typeof socket.send !== 'function' || typeof socket.close !== 'function') {
     fail('transport must implement the WebSocket send/close interface');
@@ -160,9 +201,12 @@ export class DurableSessionCoordinator {
   #resizeRun;
   #setFlow;
   #authorizeCancellation;
+  /** @type {Map<string, Connection>} */
   #connections = new Map();
+  /** @type {Map<string, Promise<unknown>>} */
   #queues = new Map();
 
+  /** @param {CoordinatorOptions} input */
   constructor(input) {
     exact(input, ['stateRoot', 'startRun', 'cancelRun', 'resizeRun', 'setFlow', 'authorizeCancellation', 'clock'], 'coordinator options');
     this.#root = safeRoot(input.stateRoot);
@@ -183,6 +227,7 @@ export class DurableSessionCoordinator {
     await chmod(root, 0o700);
   }
 
+  /** @template T @param {string} sessionId @param {() => T | Promise<T>} operation */
   #serialize(sessionId, operation) {
     const previous = this.#queues.get(sessionId) ?? Promise.resolve();
     const current = previous.catch(() => {}).then(operation);
@@ -190,6 +235,7 @@ export class DurableSessionCoordinator {
     return current.finally(() => { if (this.#queues.get(sessionId) === current) this.#queues.delete(sessionId); });
   }
 
+  /** @param {RunIdentity & TerminalSize & {createdAt: string, expiresAt: string, limits: Limits}} input */
   async create(input) {
     exact(input, ['sessionId', 'runId', 'createdAt', 'expiresAt', 'cols', 'rows', 'limits'], 'session creation');
     const sessionId = id(input.sessionId, 'sessionId');
@@ -222,6 +268,7 @@ export class DurableSessionCoordinator {
     return Object.freeze({ sessionId, runId, resumeToken: token, expiresAt });
   }
 
+  /** @param {string} sessionId @param {string} runId @param {string} token */
   async #admit(sessionId, runId, token) {
     const state = await load(statePath(this.#root, id(sessionId, 'sessionId')));
     if (state.runId !== id(runId, 'runId') || state.resumeTokenSha256 !== tokenDigest(token)) fail('session resume authority is invalid', 77);
@@ -237,6 +284,7 @@ export class DurableSessionCoordinator {
     return state;
   }
 
+  /** @param {RunIdentity & {resumeToken: string, connectionId: string, acknowledgedSequence: number, socket: SessionSocket}} input */
   async attach(input) {
     exact(input, ['sessionId', 'runId', 'resumeToken', 'connectionId', 'acknowledgedSequence', 'socket'], 'session attachment');
     const socket = assertSocket(input.socket);
@@ -262,7 +310,12 @@ export class DurableSessionCoordinator {
         await this.#setFlow(Object.freeze({ sessionId: state.sessionId, runId: state.runId, state: 'paused' }));
         socket.send(wire('flow', { state: 'paused', retainedBytes: retainedBytes(state.frames) }));
       }
-      const message = event => { void this.receive(state.sessionId, connectionId, epoch, event?.data ?? event).catch(() => socket.close(4002, 'invalid session message')); };
+      /** @param {{data?: EncodedMessage} | EncodedMessage} event */
+      const message = event => {
+        const encoded = typeof event === 'string' || event instanceof Uint8Array || event instanceof ArrayBuffer ? event : event?.data;
+        if (encoded === undefined) { socket.close(4002, 'invalid session message'); return; }
+        void this.receive(state.sessionId, connectionId, epoch, encoded).catch(() => socket.close(4002, 'invalid session message'));
+      };
       const close = () => { void this.detach(state.sessionId, connectionId, epoch); };
       socket.addEventListener?.('message', message);
       socket.addEventListener?.('close', close);
@@ -270,6 +323,7 @@ export class DurableSessionCoordinator {
     });
   }
 
+  /** @param {string} sessionId @param {string} connectionId @param {number} epoch */
   async detach(sessionId, connectionId, epoch) {
     return this.#serialize(sessionId, async () => {
       const state = await load(statePath(this.#root, sessionId));
@@ -282,6 +336,7 @@ export class DurableSessionCoordinator {
     });
   }
 
+  /** @param {string} sessionId @param {string} payload */
   async emit(sessionId, payload) {
     if (typeof payload !== 'string' || payload.length === 0) fail('output payload is invalid');
     const bytes = Buffer.byteLength(payload, 'utf8');
@@ -312,11 +367,12 @@ export class DurableSessionCoordinator {
     });
   }
 
+  /** @param {string} sessionId @param {string} connectionId @param {number} epoch @param {EncodedMessage} encoded */
   async receive(sessionId, connectionId, epoch, encoded) {
     const bytes = typeof encoded === 'string' ? Buffer.byteLength(encoded) : encoded?.byteLength;
     if (!Number.isSafeInteger(bytes) || bytes < 1 || bytes > MAX_MESSAGE_BYTES) fail('session message exceeds its byte bound');
     let message;
-    try { message = JSON.parse(typeof encoded === 'string' ? encoded : Buffer.from(encoded).toString('utf8')); } catch { fail('session message is not valid JSON'); }
+    try { message = JSON.parse(typeof encoded === 'string' ? encoded : Buffer.from(encoded instanceof ArrayBuffer ? new Uint8Array(encoded) : encoded).toString('utf8')); } catch { fail('session message is not valid JSON'); }
     if (message?.schemaVersion !== VERSION || typeof message.type !== 'string') fail('session message schema is invalid');
     if (message.type === 'ack') {
       exact(message, ['schemaVersion', 'type', 'sequence'], 'ack message');
@@ -333,6 +389,7 @@ export class DurableSessionCoordinator {
     fail('unknown session message type');
   }
 
+  /** @template T @param {string} sessionId @param {string} connectionId @param {number} epoch @param {(state: SessionState) => T | Promise<T>} operation */
   async #withConnection(sessionId, connectionId, epoch, operation) {
     return this.#serialize(sessionId, async () => {
       const state = await load(statePath(this.#root, sessionId));
@@ -341,6 +398,7 @@ export class DurableSessionCoordinator {
     });
   }
 
+  /** @param {string} sessionId @param {string} connectionId @param {number} epoch @param {number} sequence */
   #acknowledge(sessionId, connectionId, epoch, sequence) {
     return this.#withConnection(sessionId, connectionId, epoch, async state => {
       integer(sequence, 'acknowledgement sequence');
@@ -361,6 +419,7 @@ export class DurableSessionCoordinator {
     });
   }
 
+  /** @param {string} sessionId @param {string} connectionId @param {number} epoch @param {number} cols @param {number} rows */
   #resize(sessionId, connectionId, epoch, cols, rows) {
     return this.#withConnection(sessionId, connectionId, epoch, async state => {
       integer(cols, 'terminal cols', 1);
@@ -373,6 +432,7 @@ export class DurableSessionCoordinator {
     });
   }
 
+  /** @param {string} sessionId @param {string} connectionId @param {number} epoch @param {string} authorizationId */
   #cancel(sessionId, connectionId, epoch, authorizationId) {
     return this.#withConnection(sessionId, connectionId, epoch, async state => {
       id(authorizationId, 'cancellation authorizationId');
@@ -397,6 +457,7 @@ export class DurableSessionCoordinator {
     });
   }
 
+  /** @param {string} sessionId */
   async status(sessionId) {
     const state = await load(statePath(this.#root, sessionId));
     return Object.freeze({ sessionId: state.sessionId, runId: state.runId, phase: state.phase, expiresAt: state.expiresAt,
