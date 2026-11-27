@@ -23,7 +23,7 @@
 
 ## 4. Ubuntu systemd user deployment
 
-- [ ] 4.1 Implement idempotent systemd user service rendering, validation, `daemon-reload`, enable/start, health, restart, stop/disable, removal, and rollback.
+- [x] 4.1 Implement idempotent systemd user service rendering, validation, `daemon-reload`, enable/start, health, restart, stop/disable, removal, and rollback; verify the deployed Ubuntu user unit is enabled, active, and protocol-ready through the manager.
 - [ ] 4.2 Use `%t/mcp-singletons` private runtime paths, `UMask=0077`, bounded restart/start limits, resource ceilings, redacted journal output, and compatible user-service sandboxing.
 - [ ] 4.3 Prohibit root/system units and implicit lingering; add an explicit, separately authorized headless-lingering profile and rollback only if required.
 - [ ] 4.4 Run hermetic fake-systemd lifecycle, duplicate-unit, permission, crash-loop, stale-socket, offline, and rollback tests.

@@ -10,4 +10,18 @@
 
 ## Remaining work
 
-- PENDING: implement and verify the systemd user service and socket transport on Linux.
+## Ubuntu Proxmox guest
+
+- PASS: the per-user systemd service is installed, enabled, active, and reports `mcp singleton broker ready` when the SSH session supplies the existing user-bus environment.
+- PASS: five sockets are live for Cloudflare, Langfuse, Paperclip control plane, theme.tools, and VoiceKit; the service set matches macOS and excludes CUA Driver and BrowserMCP.
+- PASS: no root/system unit exists; the broker runs as `professormanhattan`, the state and socket directories are mode `0700`, and every socket is mode `0600`.
+- PASS: the live unit has `UMask=0077`, `PrivateTmp=true`, `ProtectControlGroups=true`, `ProtectKernelTunables=true`, `ProtectSystem=strict`, and narrowly declared writable home paths.
+- PASS: live manager status, the hermetic Linux renderer, broker isolation, portal-profile tests, and strict OpenSpec validation succeeded on 2026-11-27.
+- REVIEW REQUIRED: `loginctl` reports `Linger=yes`. The manager did not implicitly create a system unit, but the headless-lingering owner, necessity, and rollback authorization are not yet recorded as required by task 4.3.
+- REVIEW REQUIRED: the deployed socket path is `~/.local/state/mcp-singletons/sockets`, while task 4.2 proposes `%t/mcp-singletons`; reconcile the specification or migrate and re-run logout/login and rollback tests.
+- PENDING: complete the full Ubuntu allowed/forbidden-call, cancellation, disconnect, crash-loop, upstream-outage, offline-startup, logout/login, and rollback drill in task 4.5.
+
+## Cloudflare-native remote surfaces
+
+- PASS: `mcp.megabyte.space/mcp`, `automation.mcp.megabyte.space/mcp`, `ops.mcp.megabyte.space/mcp`, and `llm.megabyte.space/mcp` all reached Cloudflare anycast and returned authenticated-boundary `401` responses on 2026-11-27 rather than origin/tunnel failures.
+- LIMIT: anonymous edge reachability proves DNS, TLS, routing, and fail-closed authentication at the Cloudflare surface; it does not substitute for an authorized MCP initialize/tool call or a controlled Proxmox/Coolify outage drill.
