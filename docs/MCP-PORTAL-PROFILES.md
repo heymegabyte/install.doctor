@@ -77,3 +77,51 @@ canonical repository is a collision and aborts before any write. Apply creates
 mode-`0600` predecessor snapshots, uses same-directory atomic replacement, and
 emits a metadata-only receipt. Rollback refuses to overwrite operator changes
 made after installation.
+
+## OpenClaw automation registration
+
+OpenClaw uses its native `mcp.servers` registry. The Install Doctor adapter
+adds only `megabyte-automation`, preserves unrelated OpenClaw settings and
+servers, and writes the two Cloudflare headers as environment placeholders.
+Resolved values never enter `openclaw.json`, command arguments, output, the
+receipt, or its predecessor snapshot.
+
+```sh
+# Read-only: inspect identity, output digest, and preservation counts.
+node scripts/openclaw-mcp-automation-adapter.mjs plan \
+  --host-class ubuntu-runner \
+  --config "$HOME/.openclaw/openclaw.json"
+
+# Explicit install after reviewing the plan. This does not resolve secrets.
+node scripts/openclaw-mcp-automation-adapter.mjs apply \
+  --host-class ubuntu-runner \
+  --config "$HOME/.openclaw/openclaw.json" \
+  --receipt "$HOME/.local/state/install.doctor/openclaw-mcp-automation.json"
+
+# The existing Gateway command must be preserved after `--`; only its launch
+# gains the runtime-only environment required by the two header placeholders.
+node scripts/openclaw-mcp-automation-adapter.mjs exec \
+  --host-class ubuntu-runner -- openclaw gateway
+
+node scripts/openclaw-mcp-automation-adapter.mjs rollback \
+  --receipt "$HOME/.local/state/install.doctor/openclaw-mcp-automation.json"
+```
+
+Use `macos-workstation` on macOS. `exec` accepts only an executable whose
+basename is `openclaw`, invokes no shell, resolves exactly
+`CF_ACCESS_MCP_AUTOMATION_CLIENT_ID` and
+`CF_ACCESS_MCP_AUTOMATION_CLIENT_SECRET` through `get-secret`, and refuses to
+start OpenClaw when either value is unavailable.
+
+Do not replace a live service command from a generic example. First capture the
+active unit and OpenClaw config path, run the metadata-only plan, and verify its
+preservation counts. A later operator-controlled cutover must wrap the exact
+existing command and retain all arguments, then validate OpenClaw config,
+Gateway health, MCP initialization and tool listing, wrong-endpoint denial,
+mode `0600`, and rollback. This repository change intentionally performs no
+live Ubuntu apply or restart.
+
+The registration shape follows OpenClaw's upstream
+[native MCP registry](https://github.com/openclaw/openclaw/blob/main/docs/tools/mcp.md)
+and its documented
+[HTTP header environment substitution](https://github.com/openclaw/openclaw/blob/main/docs/cli/mcp/transports.md).

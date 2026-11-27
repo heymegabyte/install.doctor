@@ -100,6 +100,14 @@ explicit and transactional, preserves unrelated client entries, retains
 runtime-only credential references, and produces a drift-bound rollback
 receipt. The canonical control-plane repository remains the routing authority.
 
+OpenClaw automation consumes the host's canonical automation profile through
+`scripts/openclaw-mcp-automation-adapter.mjs`. Its native MCP registration keeps
+only environment placeholders in the two Cloudflare Access headers; the exact
+host-bound references resolve through `get-secret` only in the OpenClaw child
+environment. Installation is explicit, mode-0600, atomic, preservation-safe,
+and rollback-bound. Never replace a live Gateway command without first proving
+the existing command and config are preserved in a metadata-only plan.
+
 ---
 
 ## 5. Don't drop these (lessons learned)

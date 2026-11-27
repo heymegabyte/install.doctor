@@ -197,7 +197,12 @@ export function rollbackTransaction(receiptPath) {
       atomicWrite(record.path, readFileSync(record.backupPath));
     } else rmSync(record.path, { force: true });
   }
-  return { schemaVersion: 1, operation: 'rollback-pinned-mcp-host-manifests', status: 'restored', recordCount: receipt.records.length };
+  return {
+    schemaVersion: 1,
+    operation: `rollback-${receipt.operation ?? 'transaction'}`,
+    status: 'restored',
+    recordCount: receipt.records.length,
+  };
 }
 
 function parseArguments(args) {
