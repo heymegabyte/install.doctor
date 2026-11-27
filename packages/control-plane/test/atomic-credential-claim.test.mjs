@@ -24,28 +24,28 @@ function fixture(overrides = {}) {
   let storedCredential = null;
   /** @type {Parameters<typeof claimDeviceCredential>[1]['store']} */
   const store = {
-    async readForClaim() { return state; },
-    async atomicClaim(input) {
-      if (state.status !== input.expectedStatus || state.revision !== input.expectedRevision) return 'conflict';
-      if (storedCredential?.id === input.credential.id) return 'credential-id-collision';
+    readForClaim() { return Promise.resolve(state); },
+    atomicClaim(input) {
+      if (state.status !== input.expectedStatus || state.revision !== input.expectedRevision) return Promise.resolve('conflict');
+      if (storedCredential?.id === input.credential.id) return Promise.resolve('credential-id-collision');
       state = { ...state, status: 'claimed', revision: 'revision-2' };
       storedCredential = input.credential;
-      return 'claimed';
+      return Promise.resolve('claimed');
     },
-    async atomicRevoke(input) {
-      if (!storedCredential || storedCredential.id !== input.credentialId) return 'not-found';
-      if (storedCredential.tenantId !== input.tenantId || storedCredential.deviceKeyFingerprint !== input.deviceKeyFingerprint) return 'binding-mismatch';
-      if (storedCredential.revokedAt) return 'already-revoked';
+    atomicRevoke(input) {
+      if (!storedCredential || storedCredential.id !== input.credentialId) return Promise.resolve('not-found');
+      if (storedCredential.tenantId !== input.tenantId || storedCredential.deviceKeyFingerprint !== input.deviceKeyFingerprint) return Promise.resolve('binding-mismatch');
+      if (storedCredential.revokedAt) return Promise.resolve('already-revoked');
       storedCredential = { ...storedCredential, revokedAt: input.revokedAt };
-      return 'revoked';
+      return Promise.resolve('revoked');
     },
   };
   let id = 'credential-1';
   /** @type {Parameters<typeof claimDeviceCredential>[1]} */
   const dependencies = {
     store, now,
-    verifyPollProof: async proof => proof === claim.pollProof,
-    mintCredential: async authority => ({ id, secret: `secret-for-${authority.deviceKeyFingerprint}` }),
+    verifyPollProof: proof => Promise.resolve(proof === claim.pollProof),
+    mintCredential: authority => Promise.resolve({ id, secret: `secret-for-${authority.deviceKeyFingerprint}` }),
   };
   return { dependencies, store, setCredentialId(/** @type {string} */ value) { id = value; }, get credential() { return storedCredential; } };
 }
@@ -68,7 +68,7 @@ void test('normalizes atomic replay and credential-id collision without leaking 
   assert.deepEqual([left, right].find(result => !result.ok), unavailable);
 
   const collision = fixture();
-  collision.dependencies.store.atomicClaim = async () => 'credential-id-collision';
+  collision.dependencies.store.atomicClaim = () => Promise.resolve('credential-id-collision');
   assert.deepEqual(await claimDeviceCredential(claim, collision.dependencies), unavailable);
 });
 
