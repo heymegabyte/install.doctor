@@ -8,6 +8,11 @@ import { inspectDesktopReleaseDirectory } from '../packages/control-plane/script
 
 const signerPattern = /^desktop-[a-z0-9][a-z0-9._-]{0,119}$/;
 
+/** @param {unknown} value */
+function validDesktopSigner(value) {
+  return typeof value === 'string' && signerPattern.test(value);
+}
+
 /** @param {string} pathInput */
 async function safePublicKey(pathInput) {
   const path = resolve(pathInput);
@@ -29,16 +34,19 @@ function verifySshSignature({ allowedSigners, signerId, signature, manifest }) {
       '-n', 'desktop.tools.release', '-s', signature], { stdio: ['pipe', 'ignore', 'pipe'] });
     let error = '';
     child.stderr.setEncoding('utf8');
-    child.stderr.on('data', chunk => { if (error.length < 8_192) error += chunk; });
+    child.stderr.on('data', (/** @type {string} */ chunk) => { if (error.length < 8_192) error += chunk; });
     child.on('error', reject);
-    child.on('close', code => code === 0 ? resolvePromise() : reject(new Error(`SSHSIG verification failed (${code}): ${error.trim()}`)));
+    child.on('close', code => {
+      if (code === 0) resolvePromise();
+      else reject(new Error(`SSHSIG verification failed (${String(code)}): ${error.trim()}`));
+    });
     child.stdin.end(manifest);
   });
 }
 
 /** @param {{ directory: string, expectedReleaseId: string, signerId: string, publicKeyPath: string, now?: number }} input */
 export async function verifyDesktopToolsReleaseOffline({ directory, expectedReleaseId, signerId, publicKeyPath, now }) {
-  if (!signerPattern.test(signerId ?? '')) throw new Error('invalid Desktop Tools signer identity');
+  if (!validDesktopSigner(signerId)) throw new Error('invalid Desktop Tools signer identity');
   const publicKey = await safePublicKey(publicKeyPath);
   const scratch = await mkdtemp(join(tmpdir(), 'desktop-tools-offline-verify-'));
   await chmod(scratch, 0o700);
@@ -47,8 +55,9 @@ export async function verifyDesktopToolsReleaseOffline({ directory, expectedRele
     await writeFile(allowedSigners, `${signerId} ${publicKey}\n`, { mode: 0o600, flag: 'wx' });
     const release = await inspectDesktopReleaseDirectory(directory, expectedReleaseId, now);
     if (release.signerId !== signerId) throw new Error('release signer identity mismatch');
+    /** @type {unknown} */
     const manifest = release.files.get('manifest');
-    if (!manifest) throw new Error('verified release directory is missing its manifest');
+    if (!(manifest instanceof Uint8Array)) throw new Error('verified release directory is missing its manifest');
     await verifySshSignature({ allowedSigners, signerId, signature: join(resolve(directory), 'manifest.sig'),
       manifest });
     return Object.freeze({ schemaVersion: 1, verified: true, product: release.product,
@@ -59,7 +68,7 @@ export async function verifyDesktopToolsReleaseOffline({ directory, expectedRele
   }
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (process.argv[1] !== undefined && import.meta.url === `file://${process.argv[1]}`) {
   const [directory, releaseId, signerId, publicKeyPath] = process.argv.slice(2);
   if (!directory || !releaseId || !signerId || !publicKeyPath || process.argv.length !== 6) {
     process.stderr.write('usage: verify-desktop-tools-release.mjs DIRECTORY RELEASE_ID SIGNER_ID PUBLIC_KEY_FILE\n');
@@ -67,6 +76,6 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   } else {
     verifyDesktopToolsReleaseOffline({ directory, expectedReleaseId: releaseId, signerId, publicKeyPath })
       .then(result => process.stdout.write(`${JSON.stringify(result)}\n`))
-      .catch(error => { process.stderr.write(`verify-desktop-tools-release: ${error instanceof Error ? error.message : 'unknown failure'}\n`); process.exitCode = 1; });
+      .catch((/** @type {unknown} */ error) => { process.stderr.write(`verify-desktop-tools-release: ${error instanceof Error ? error.message : 'unknown failure'}\n`); process.exitCode = 1; });
   }
 }

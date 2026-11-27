@@ -9,7 +9,7 @@
     "pretest": "npm --prefix ../installer-engine run build",
     "types:runtime": "node -e \"require('node:fs').mkdirSync('.wrangler', { recursive: true })\" && wrangler types .wrangler/control-plane-runtime.d.ts --include-env=false",
     "typecheck": "npm run types:runtime && tsc --project tsconfig.json",
-    "lint:tooling": "node ../aid-core/node_modules/eslint/bin/eslint.js --max-warnings=0 \"scripts/**/*.mjs\"",
+    "lint:tooling": "cd ../.. && node packages/aid-core/node_modules/eslint/bin/eslint.js --config packages/control-plane/eslint.config.mjs --max-warnings=0 \"packages/control-plane/scripts/**/*.mjs\" scripts/verify-desktop-tools-release.mjs",
     "typecheck:tooling": "tsc --project tsconfig.tooling.json",
     "check": "npm run typecheck && npm run typecheck:tooling && wrangler deploy --dry-run --outdir dist",
     "typecheck:test": "tsc --project tsconfig.test.json",
