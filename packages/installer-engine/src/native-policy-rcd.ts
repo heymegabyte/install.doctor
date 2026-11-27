@@ -1,9 +1,9 @@
 import { createHash, randomBytes } from 'node:crypto';
 import { constants } from 'node:fs';
 import {
-  chmod, chown, lstat, open, readFile, realpath, rename, rm,
+  chmod, chown, lstat, open, realpath, rename, rm,
 } from 'node:fs/promises';
-import { dirname, join, resolve } from 'node:path';
+import { join, resolve } from 'node:path';
 import { z } from 'zod';
 
 const PRODUCTION_ROOT = '/';
@@ -129,7 +129,7 @@ async function validateRootAndParent(rootInput: string, owner: number): Promise<
   let current = rootInput;
   for (const component of ['usr', 'sbin']) {
     current = join(current, component);
-    const info = await lstat(current).catch(error => {
+    const info = await lstat(current).catch((error: unknown) => {
       throw new NativePolicyRcdError(`policy transaction parent component is unavailable: ${component}`, { cause: error });
     });
     const canonical = await realpath(current);
@@ -216,7 +216,7 @@ async function writeAtomic(input: {
   uid: number;
   gid: number;
 }): Promise<void> {
-  const candidate = join(input.parent.path, `.install-doctor-policy-rcd-${process.pid}-${randomBytes(12).toString('hex')}`);
+  const candidate = join(input.parent.path, `.install-doctor-policy-rcd-${String(process.pid)}-${randomBytes(12).toString('hex')}`);
   const handle = await open(candidate, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o600);
   try {
     await handle.writeFile(input.bytes);
@@ -247,7 +247,7 @@ async function removeOwnedHelper(input: {
   owner: number;
   group: number;
 }): Promise<void> {
-  const tombstone = join(input.parent.path, `.install-doctor-policy-rcd-remove-${process.pid}-${randomBytes(12).toString('hex')}`);
+  const tombstone = join(input.parent.path, `.install-doctor-policy-rcd-remove-${String(process.pid)}-${randomBytes(12).toString('hex')}`);
   await rename(input.target, tombstone);
   let moved: Observed;
   try { moved = await observe(tombstone); }
@@ -271,12 +271,16 @@ function nextPhase(record: PolicyRcdTransactionRecord, phase: PolicyRcdTransacti
   return PolicyRcdTransactionRecordSchema.parse({ ...record, phase });
 }
 
-export async function createNativePolicyRcdTransaction(
-  request: NativePolicyRcdTransactionRequest,
-): Promise<NativePolicyRcdTransaction> {
+function assertDurablePersistence(request: Partial<NativePolicyRcdTransactionRequest> | null | undefined): void {
   if (!request?.persistence || typeof request.persistence.prepare !== 'function' || typeof request.persistence.update !== 'function') {
     throw new NativePolicyRcdError('policy-rc.d activation requires durable persistence');
   }
+}
+
+export async function createNativePolicyRcdTransaction(
+  request: NativePolicyRcdTransactionRequest,
+): Promise<NativePolicyRcdTransaction> {
+  assertDurablePersistence(request);
   const isTest = request.testRoot !== undefined;
   if (!isTest && (request.testOwner !== undefined || request.testGroup !== undefined)) {
     throw new NativePolicyRcdError('test ownership overrides require a test root');

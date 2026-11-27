@@ -8,7 +8,6 @@ const pendingSourceFiles = [
   'src/debian-gpgv.ts',
   'src/engine.ts',
   'src/native-dpkg-transaction.ts',
-  'src/native-policy-rcd.ts',
   'src/offline-bundle.ts',
   'src/offline-execution.ts',
   'src/offline-orchestrator.ts',
