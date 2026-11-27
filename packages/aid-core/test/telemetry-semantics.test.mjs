@@ -23,13 +23,13 @@ const eventEntries = /** @type {const} */ ([
 ]);
 const events = eventEntries.map(([name, attributes]) => ({ ...base, name, attributes }));
 
-test('semantic conventions cover every required signal family', () => {
+void test('semantic conventions cover every required signal family', () => {
   assert.equal(events.map(event => DesktopToolsSemanticEventSchema.parse(event)).length, 13);
   assert.deepEqual(DesktopToolsTelemetryBatchSchema.parse({ schemaVersion: 1, resource,
     scope: { name: 'desktop.tools', version: '1.0.0' }, events, droppedEvents: 0 }).events, events);
 });
 
-test('resource labels are fixed and exclude high-cardinality identifiers', () => {
+void test('resource labels are fixed and exclude high-cardinality identifiers', () => {
   assert.deepEqual(DesktopToolsTelemetryResourceSchema.parse(resource), resource);
   for (const extra of [{ 'desktop_tools.profile.id': 'profile-1' }, { 'desktop_tools.release.id': 'release-1' }, { 'desktop_tools.run.id': 'run-1' }, { 'desktop_tools.task.id': 'task-1' }, { 'user.id': 'owner-1' }, { token: 'secret' }, { arbitrary: 'x' }]) {
     assert.throws(() => DesktopToolsTelemetryResourceSchema.parse({ ...resource, ...extra }));
@@ -37,7 +37,7 @@ test('resource labels are fixed and exclude high-cardinality identifiers', () =>
   assert.throws(() => DesktopToolsTelemetryResourceSchema.parse({ ...resource, 'host.id': 'h'.repeat(129) }));
 });
 
-test('event attributes and batches enforce cardinality bounds', () => {
+void test('event attributes and batches enforce cardinality bounds', () => {
   const run = events[3];
   const task = events[5];
   const verification = events[10];
@@ -45,7 +45,7 @@ test('event attributes and batches enforce cardinality bounds', () => {
   assert.throws(() => DesktopToolsSemanticEventSchema.parse({ ...run, attributes: { ...run.attributes, custom: 'x' } }));
   assert.throws(() => DesktopToolsSemanticEventSchema.parse({ ...task, attributes: { ...task.attributes, 'desktop_tools.task.id': 'x'.repeat(129) } }));
   assert.throws(() => DesktopToolsSemanticEventSchema.parse({ ...verification, attributes: { ...verification.attributes,
-    'desktop_tools.verification.gaps': Array.from({ length: 65 }, (_, index) => `gap-${index}`) } }));
+    'desktop_tools.verification.gaps': Array.from({ length: 65 }, (_, index) => `gap-${String(index)}`) } }));
   assert.throws(() => DesktopToolsSemanticEventSchema.parse({ ...verification, attributes: { ...verification.attributes,
     'desktop_tools.verification.gaps': ['same-gap', 'same-gap'] } }));
   assert.throws(() => DesktopToolsTelemetryBatchSchema.parse({ schemaVersion: 1, resource,

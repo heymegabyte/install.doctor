@@ -23,13 +23,14 @@ const request = {
 };
 const common = { schemaVersion: 1, requestId: request.requestId, binding };
 
-test('target start authority excludes the server-owned tenant binding', () => {
-  const { tenantId: _tenantId, ...targetBinding } = binding;
+void test('target start authority excludes the server-owned tenant binding', () => {
+  const { tenantId, ...targetBinding } = binding;
+  assert.ok(tenantId, 'the original binding includes server-owned tenant authority');
   assert.deepEqual(TargetDeviceAuthorizationBindingSchema.parse(targetBinding), targetBinding);
   assert.throws(() => TargetDeviceAuthorizationBindingSchema.parse(binding));
 });
 
-test('strictly parses every authorization protocol and audit payload', () => {
+void test('strictly parses every authorization protocol and audit payload', () => {
   DeviceAuthorizationRequestSchema.parse(request);
   DeviceAuthorizationApprovalSchema.parse({ ...common, actorId: 'owner-1', approvedAt: '2026-11-08T15:01:00.000Z' });
   DeviceAuthorizationPollSchema.parse({ ...common, pollProof: 'c'.repeat(64), polledAt: '2026-11-08T15:02:00.000Z' });
@@ -39,13 +40,13 @@ test('strictly parses every authorization protocol and audit payload', () => {
   DeviceAuthorizationAuditSchema.parse({ ...common, eventId: 'event-1', event: 'claimed', outcome: 'accepted', actorId: null, credentialId: 'credential-1', occurredAt: '2026-11-08T15:03:00.000Z', reasonCode: null });
 });
 
-test('rejects unknown fields at the top level and in nested bindings', () => {
+void test('rejects unknown fields at the top level and in nested bindings', () => {
   assert.throws(() => DeviceAuthorizationRequestSchema.parse({ ...request, secret: 'must-not-pass' }));
   assert.throws(() => DeviceAuthorizationRequestSchema.parse({ ...request, binding: { ...binding, region: 'hidden-authority' } }));
   assert.throws(() => DeviceAuthorizationApprovalSchema.parse({ ...common, actorId: 'owner-1', approvedAt: '2026-11-08T15:01:00.000Z', credential: 'secret' }));
 });
 
-test('binds transitions to tenant, profile, target key, fingerprint, nonce, expiry, and scopes', () => {
+void test('binds transitions to tenant, profile, target key, fingerprint, nonce, expiry, and scopes', () => {
   assert.deepEqual(assertDeviceAuthorizationTransition(request, common), binding);
   for (const changed of [
     { tenantId: 'tenant-2' }, { profileId: 'server' }, { targetPublicKey: 'B'.repeat(43) },
@@ -56,7 +57,7 @@ test('binds transitions to tenant, profile, target key, fingerprint, nonce, expi
   }
 });
 
-test('permits narrowing but rejects scope broadening', () => {
+void test('permits narrowing but rejects scope broadening', () => {
   assert.deepEqual(
     assertDeviceAuthorizationTransition(request, { ...common, binding: { ...binding, scopes: ['profile:read'] } }).scopes,
     ['profile:read'],
@@ -67,7 +68,7 @@ test('permits narrowing but rejects scope broadening', () => {
   );
 });
 
-test('rejects approval, polling, and claiming outside bounded lifetimes', () => {
+void test('rejects approval, polling, and claiming outside bounded lifetimes', () => {
   assert.throws(() => DeviceAuthorizationApprovalSchema.parse({ ...common, actorId: 'owner-1', approvedAt: '2026-11-08T15:11:00.000Z' }));
   assert.throws(() => DeviceAuthorizationPollSchema.parse({ ...common, pollProof: 'c'.repeat(64), polledAt: '2026-11-08T15:11:00.000Z' }));
   assert.throws(() => DeviceAuthorizationClaimSchema.parse({ ...common, credentialId: 'credential-1', claimedAt: '2026-11-08T15:03:00.000Z', credentialExpiresAt: '2026-11-08T15:02:00.000Z' }));

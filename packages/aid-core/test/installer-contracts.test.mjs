@@ -166,7 +166,7 @@ const cases = /** @type {const} */ ([
   ,[DisposableProductCompositionReceiptSchema, disposableCompositionReceipt]
 ]);
 
-test('disposable composition evidence cannot be confused with real-host or production evidence', () => {
+void test('disposable composition evidence cannot be confused with real-host or production evidence', () => {
   assert.throws(() => RealHostCanaryReceiptSchema.parse(disposableCompositionReceipt));
   for (const field of ['production', 'publicDns', 'productionSigner', 'realOpenCode']) {
     assert.throws(() => DisposableProductCompositionReceiptSchema.parse({ ...disposableCompositionReceipt, [field]: true }));
@@ -181,24 +181,24 @@ test('disposable composition evidence cannot be confused with real-host or produ
   }));
 });
 
-test('all installer runtime contracts accept their bounded current-version fixtures', () => {
+void test('all installer runtime contracts accept their bounded current-version fixtures', () => {
   for (const [schema, fixture] of cases) assert.deepEqual(schema.parse(fixture), fixture);
 });
 
-test('every installer runtime contract rejects unknown fields and versions', () => {
+void test('every installer runtime contract rejects unknown fields and versions', () => {
   for (const [schema, fixture] of cases) {
     assert.throws(() => schema.parse({ ...fixture, surprise: true }));
     assert.throws(() => schema.parse({ ...fixture, schemaVersion: fixture.schemaVersion === 2 ? 1 : 2 }));
   }
 });
 
-test('bounded fields and arrays reject oversized input', () => {
-  assert.throws(() => HostFactsSchema.parse({ ...hostFacts, roles: Array.from({ length: 65 }, (_, i) => `role-${i}`) }));
+void test('bounded fields and arrays reject oversized input', () => {
+  assert.throws(() => HostFactsSchema.parse({ ...hostFacts, roles: Array.from({ length: 65 }, (_, i) => `role-${String(i)}`) }));
   assert.throws(() => DesiredStateInputSchema.parse({ ...desiredState, revision: 'x'.repeat(129) }));
   assert.throws(() => ReleaseManifestSchema.parse({ ...releaseManifest, artifacts: [{ ...releaseManifest.artifacts[0], sizeBytes: 2 ** 40 }] }));
 });
 
-test('typed operation nested boundaries reject unknown fields and unsafe policy combinations', () => {
+void test('typed operation nested boundaries reject unknown fields and unsafe policy combinations', () => {
   assert.throws(() => TypedOperationSchema.parse({ ...typedOperation, resources: { ...typedOperation.resources, surprise: true } }));
   assert.throws(() => TypedOperationSchema.parse({ ...typedOperation, locks: [...typedOperation.locks, ...typedOperation.locks] }), /duplicate/i);
   assert.throws(() => TypedOperationSchema.parse({ ...typedOperation,
@@ -209,7 +209,7 @@ test('typed operation nested boundaries reject unknown fields and unsafe policy 
     postconditions: [...typedOperation.postconditions, ...typedOperation.postconditions] }), /duplicate/i);
 });
 
-test('native offline dpkg payload authority rejects ambiguous or unsafe provenance', () => {
+void test('native offline dpkg payload authority rejects ambiguous or unsafe provenance', () => {
   assert.throws(() => NativeOfflinePayloadDescriptorSchema.parse({ ...nativeOfflinePayload, surprise: true }));
   assert.throws(() => NativeOfflinePayloadDescriptorSchema.parse({
     ...nativeOfflinePayload,
@@ -257,8 +257,9 @@ test('native offline dpkg payload authority rejects ambiguous or unsafe provenan
   }));
 });
 
-test('native offline payload binds a complete ordered Debian repository proof chain', () => {
-  const { inRelease: _inRelease, ...missingInRelease } = nativeOfflinePayload.metadataProof;
+void test('native offline payload binds a complete ordered Debian repository proof chain', () => {
+  const missingInRelease = { ...nativeOfflinePayload.metadataProof };
+  Reflect.deleteProperty(missingInRelease, 'inRelease');
   assert.throws(() => NativeOfflinePayloadDescriptorSchema.parse({
     ...nativeOfflinePayload,
     metadataProof: missingInRelease,
@@ -298,18 +299,19 @@ test('native offline payload binds a complete ordered Debian repository proof ch
     ...nativeOfflinePayload,
     dependencyClosure: { depends: [alpha], preDepends: [alpha] },
   }), /both Depends and Pre-Depends/i);
-  const { dependencyClosure: _dependencyClosure, ...missingClosure } = nativeOfflinePayload;
+  const missingClosure = { ...nativeOfflinePayload };
+  Reflect.deleteProperty(missingClosure, 'dependencyClosure');
   assert.throws(() => NativeOfflinePayloadDescriptorSchema.parse(missingClosure));
 });
 
-test('discriminated events reject fields from a different event state', () => {
-  const { kind: _kind, attempt: _attempt, status, ...base } = installerEvent;
-  const output = { ...base, kind: 'output', stream: 'stdout', line: 'hello' };
+void test('discriminated events reject fields from a different event state', () => {
+  const { schemaVersion, sequence, at, runId, taskId, status } = installerEvent;
+  const output = { schemaVersion, sequence, at, runId, taskId, kind: 'output', stream: 'stdout', line: 'hello' };
   assert.deepEqual(InstallerEventSchema.parse(output), output);
   assert.throws(() => InstallerEventSchema.parse({ ...output, status }), /unrecognized key.*status/i);
 });
 
-test('success receipts cannot conceal unfinished or failed tasks', () => {
+void test('success receipts cannot conceal unfinished or failed tasks', () => {
   const receipt = terminalReceipt;
   for (const key of ['pending', 'failed']) {
     assert.throws(() => TerminalReceiptSchema.parse({ ...receipt, taskCounts: { ...receipt.taskCounts, [key]: 1 } }), /success requires no unfinished tasks/);
@@ -317,7 +319,7 @@ test('success receipts cannot conceal unfinished or failed tasks', () => {
   assert.throws(() => TerminalReceiptSchema.parse({ ...receipt, nextAction: 'retry failed task' }), /success requires no unfinished tasks/);
 });
 
-test('stage-zero envelope has one deterministic portable wire format', () => {
+void test('stage-zero envelope has one deterministic portable wire format', () => {
   const envelope = {
     schemaVersion: 4,
     releaseId: 'release-1',
@@ -346,7 +348,8 @@ test('stage-zero envelope has one deterministic portable wire format', () => {
   assert.deepEqual(StageZeroReleaseEnvelopeSchema.parse(envelope), envelope);
   assert.throws(() => StageZeroReleaseEnvelopeSchema.parse({ ...envelope, schemaVersion: 3 }));
   assert.throws(() => StageZeroReleaseEnvelopeSchema.parse({ ...envelope, catalogUrl: 'https://example.com/catalog.json' }));
-  const { catalogSha256: _catalogSha256, ...missingCatalogBinding } = envelope;
+  const missingCatalogBinding = { ...envelope };
+  Reflect.deleteProperty(missingCatalogBinding, 'catalogSha256');
   assert.throws(() => StageZeroReleaseEnvelopeSchema.parse(missingCatalogBinding));
   assert.throws(() => parseStageZeroReleaseEnvelope(`${serializeStageZeroReleaseEnvelope(envelope)}unknown=value\n`));
   assert.throws(() => parseStageZeroReleaseEnvelope(serializeStageZeroReleaseEnvelope({ ...envelope, artifactUrl: 'https://example.com/provision.sh' })));

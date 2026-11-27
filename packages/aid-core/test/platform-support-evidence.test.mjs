@@ -37,7 +37,7 @@ const qualification = { ...base('a'), evidenceClass: 'platform-qualification', r
   canaryReceiptDigest: d('8'), benchmarkReceiptDigest: d('9'), independentVerifier: 'verifier-1',
   signature: signature('desktop.tools.platform-qualification') };
 
-test('signed platform evidence schemas accept exact receipts and reject ambiguity', () => {
+void test('signed platform evidence schemas accept exact receipts and reject ambiguity', () => {
   for (const [schema, value] of /** @type {const} */ ([[PlatformFixtureReceiptSchema, fixture], [PlatformCanaryReceiptSchema, canary],
     [PlatformBenchmarkReceiptSchema, benchmark], [PlatformQualificationReceiptSchema, qualification]])) {
     assert.deepEqual(schema.parse(value), value);
@@ -59,7 +59,7 @@ const authority = {
   now: at,
 };
 
-test('code, policy, recipe, release, and freshness invalidate only affected support cells', () => {
+void test('code, policy, recipe, release, and freshness invalidate only affected support cells', () => {
   const siteA = cell('a');
   const siteB = cell('b');
   const cells = [siteA, siteB];
@@ -81,7 +81,7 @@ test('code, policy, recipe, release, and freshness invalidate only affected supp
   ]);
 });
 
-test('support cells reject invalid validity windows and unknown fields', () => {
+void test('support cells reject invalid validity windows and unknown fields', () => {
   assert.deepEqual(SignedSupportCellSchema.parse(cell('a')), cell('a'));
   assert.throws(() => SignedSupportCellSchema.parse({ ...cell('a'), evidenceExpiresAt: at }));
   assert.throws(() => SignedSupportCellSchema.parse({ ...cell('a'), extra: true }));

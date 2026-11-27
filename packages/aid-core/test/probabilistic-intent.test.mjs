@@ -17,18 +17,18 @@ import {
   rankSemanticCatalogMatches
 } from '../dist/core.js';
 
-test('calculateCadenceEntropy returns 0 on empty or single-bin intervals', () => {
+void test('calculateCadenceEntropy returns 0 on empty or single-bin intervals', () => {
   assert.equal(calculateCadenceEntropy([]), 0);
   assert.equal(calculateCadenceEntropy([80, 90, 100]), 0); // all bin 1
 });
 
-test('calculateCadenceEntropy calculates positive entropy across varied cadences', () => {
+void test('calculateCadenceEntropy calculates positive entropy across varied cadences', () => {
   const varied = [30, 80, 150, 400, 800, 2000];
   const entropy = calculateCadenceEntropy(varied);
-  assert.ok(entropy > 2.0, `Expected entropy > 2.0, got ${entropy}`);
+  assert.ok(entropy > 2.0, `Expected entropy > 2.0, got ${String(entropy)}`);
 });
 
-test('predictIntentDistribution identifies SYNC_CHEZMOI with high confidence', () => {
+void test('predictIntentDistribution identifies SYNC_CHEZMOI with high confidence', () => {
   const dist = predictIntentDistribution({
     terminalBuffer: 'chezmoi diff and apply',
     interArrivalsMs: [120, 140, 130],
@@ -40,7 +40,7 @@ test('predictIntentDistribution identifies SYNC_CHEZMOI with high confidence', (
   assert.equal(dist.speculativeEligible, true);
 });
 
-test('predictIntentDistribution identifies easter egg trigger keywords', () => {
+void test('predictIntentDistribution identifies easter egg trigger keywords', () => {
   const dist = predictIntentDistribution({
     terminalBuffer: 'hack the planet',
     interArrivalsMs: [50, 60],
@@ -51,7 +51,7 @@ test('predictIntentDistribution identifies easter egg trigger keywords', () => {
   assert.equal(dist.speculativeEligible, true);
 });
 
-test('speculative branch lifecycle: fork -> collapse with 0ms perceived latency', () => {
+void test('speculative branch lifecycle: fork -> collapse with 0ms perceived latency', () => {
   const now = '2026-11-01T21:40:00.000Z';
   const branch = createSpeculativeBranch('tenant-alpha', 'macbook-pro', 'SYNC_CHEZMOI', 1.45, now);
   assert.equal(branch.intent, 'SYNC_CHEZMOI');
@@ -71,7 +71,7 @@ test('speculative branch lifecycle: fork -> collapse with 0ms perceived latency'
   assert.ok(collapsed.auditSignature.includes(branch.branchId));
 });
 
-test('speculative branch rejects expired voucher', () => {
+void test('speculative branch rejects expired voucher', () => {
   const created = '2026-11-01T21:40:00.000Z';
   const branch = createSpeculativeBranch('tenant-alpha', 'macbook-pro', 'SYNC_CHEZMOI', 1.0, created);
   /** @type {Parameters<typeof collapseSpeculativeBranch>[1]} */
@@ -84,7 +84,7 @@ test('speculative branch rejects expired voucher', () => {
   assert.throws(() => collapseSpeculativeBranch(branch, voucher, '2026-11-01T21:40:20.000Z'), /expired/);
 });
 
-test('evaporateSpeculativeBranch records clean zero-side-effect drop', () => {
+void test('evaporateSpeculativeBranch records clean zero-side-effect drop', () => {
   const now = '2026-11-01T21:40:00.000Z';
   const branch = createSpeculativeBranch('tenant-beta', 'proxmox-1', 'DIAGNOSE_LOKI', 2.1, now);
   const evaporated = evaporateSpeculativeBranch(branch, 'user_divergence', '2026-11-01T21:40:02.000Z');
@@ -92,7 +92,7 @@ test('evaporateSpeculativeBranch records clean zero-side-effect drop', () => {
   assert.equal(evaporated.reason, 'user_divergence');
 });
 
-test('cloudflareEdgeRoute maps intents to proper edge DO and AI Gateway models', () => {
+void test('cloudflareEdgeRoute maps intents to proper edge DO and AI Gateway models', () => {
   const provRoute = cloudflareEdgeRoute('PROVISION_NODE', false);
   assert.equal(provRoute.workerTier, 'smart-placement');
   assert.equal(provRoute.durableObjectBinding, 'FLEET_COORDINATOR_DO');
@@ -105,7 +105,7 @@ test('cloudflareEdgeRoute maps intents to proper edge DO and AI Gateway models',
   assert.equal(lokiRoute.aiGatewayModel, '@cf/meta/llama-3.3-70b-instruct');
 });
 
-test('generateEdgeHeaders produces required edge tracking and easter egg seeds', () => {
+void test('generateEdgeHeaders produces required edge tracking and easter egg seeds', () => {
   const headers = generateEdgeHeaders(1.85, 'SYNC_CHEZMOI', '0xDEADBEEF');
   assert.equal(headers['X-Intent-Entropy'], '1.85');
   assert.equal(headers['X-Predicted-Intent'], 'SYNC_CHEZMOI');
@@ -113,7 +113,7 @@ test('generateEdgeHeaders produces required edge tracking and easter egg seeds',
   assert.equal(headers['X-Speculative-Collapse'], 'ready');
 });
 
-test('evaluateEasterEgg triggers classic secret codes and ANSI games', () => {
+void test('evaluateEasterEgg triggers classic secret codes and ANSI games', () => {
   const xyzzy = evaluateEasterEgg({ kind: 'SECRET_CODE', payload: 'xyzzy' });
   assert.equal(xyzzy.unlocked, true);
   assert.equal(xyzzy.codeName, 'COLOSSAL_CAVE_PORTAL');
@@ -130,7 +130,7 @@ test('evaluateEasterEgg triggers classic secret codes and ANSI games', () => {
   assert.ok(c64.content.includes('COMMODORE 64 BASIC'));
 });
 
-test('evaluateEasterEgg detects Fibonacci harmonic cadence and awards VIP tokens', () => {
+void test('evaluateEasterEgg detects Fibonacci harmonic cadence and awards VIP tokens', () => {
   const fib = evaluateEasterEgg({
     kind: 'HARMONIC_FIBONACCI',
     payload: '',
@@ -141,14 +141,14 @@ test('evaluateEasterEgg detects Fibonacci harmonic cadence and awards VIP tokens
   assert.equal(fib.headers['X-VIP-Tokens'], '50000');
 });
 
-test('evaluateEasterEgg unlocks Astral 404 text dungeon', () => {
+void test('evaluateEasterEgg unlocks Astral 404 text dungeon', () => {
   const dungeon = evaluateEasterEgg({ kind: 'ASTRAL_404', payload: '/missing-route' });
   assert.equal(dungeon.unlocked, true);
   assert.equal(dungeon.codeName, 'ASTRAL_PLANE_DUNGEON');
   assert.ok(dungeon.content.includes('Astral Plane of 404'));
 });
 
-test('Virtual Pet lifecycle steps and evolves across stages', () => {
+void test('Virtual Pet lifecycle steps and evolves across stages', () => {
   let pet = createVirtualPet('session-42');
   assert.equal(pet.stage, 'egg');
 
@@ -166,7 +166,7 @@ test('Virtual Pet lifecycle steps and evolves across stages', () => {
   assert.equal(pet.ansiAvatar, ' ᕦ(ò_óˇ)ᕤ ');
 });
 
-test('analyzeFleetDrift reports converged when packages, services, and Zero-Trust posture match', () => {
+void test('analyzeFleetDrift reports converged when packages, services, and Zero-Trust posture match', () => {
   const report = analyzeFleetDrift(
     { machineId: 'ubuntu-megabyte-space', packages: ['git', 'ripgrep', 'tmux'], services: ['alloy'] },
     {
@@ -185,7 +185,7 @@ test('analyzeFleetDrift reports converged when packages, services, and Zero-Trus
   assert.deepEqual(report.healingPlan, []);
 });
 
-test('analyzeFleetDrift detects missing packages, non-22 SSH port, and missing Cloudflare firewall', () => {
+void test('analyzeFleetDrift detects missing packages, non-22 SSH port, and missing Cloudflare firewall', () => {
   const report = analyzeFleetDrift(
     { machineId: 'proxmox-node-1', packages: ['git', 'ripgrep', 'clangd'], services: ['alloy'] },
     {
@@ -206,7 +206,7 @@ test('analyzeFleetDrift detects missing packages, non-22 SSH port, and missing C
   assert.ok(report.healingPlan.includes('desktop-autologin'));
 });
 
-test('mintExecutionReceipt and verifyExecutionReceipt enforce SHA-256 hash-chain integrity', async () => {
+void test('mintExecutionReceipt and verifyExecutionReceipt enforce SHA-256 hash-chain integrity', async () => {
   const digest = 'a'.repeat(64);
   const r1 = await mintExecutionReceipt({
     receiptId: 'rcpt-001',
@@ -242,7 +242,7 @@ test('mintExecutionReceipt and verifyExecutionReceipt enforce SHA-256 hash-chain
   assert.equal(await verifyExecutionReceipt(tampered), false);
 });
 
-test('rankSemanticCatalogMatches ranks exact and synonym-expanded matches with platform filtering', () => {
+void test('rankSemanticCatalogMatches ranks exact and synonym-expanded matches with platform filtering', () => {
   const catalog = [
     { name: 'ripgrep', bin: 'rg', short: 'Fast line-oriented regex search tool in Rust', providers: ['brew', 'apt'], platforms: ['linux', 'macos'], configured: false },
     { name: 'hishtory', bin: 'hishtory', short: 'Contextual shell history sync and search', providers: ['brew'], platforms: ['linux', 'macos'], configured: true },

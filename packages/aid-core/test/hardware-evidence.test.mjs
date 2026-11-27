@@ -47,7 +47,7 @@ const fault = (overrides = {}) => ({
   signal: 'media-errors', severity: 'critical', observedValue: 10, threshold: 0, occurredAt: '2026-11-10T12:01:00.000Z', ...overrides,
 });
 
-test('requires explicit CPU, memory, disk, GPU, firmware, Secure Boot, TPM, battery, thermal, and UPS inventory', () => {
+void test('requires explicit CPU, memory, disk, GPU, firmware, Secure Boot, TPM, battery, thermal, and UPS inventory', () => {
   assert.deepEqual(validateHardwareInventory(fixture()), fixture());
   const missing = fixture(); missing.categories.pop();
   assert.throws(() => validateHardwareInventory(missing));
@@ -57,7 +57,7 @@ test('requires explicit CPU, memory, disk, GPU, firmware, Secure Boot, TPM, batt
   assert.doesNotThrow(() => validateHardwareInventory(absent));
 });
 
-test('disk identity is privacy preserving, stable, and bound to the disk signal', () => {
+void test('disk identity is privacy preserving, stable, and bound to the disk signal', () => {
   const mismatch = fixture();
   const identitySignal = firstDevice(mismatch, 'disk').signals.find(signal => signal.id === 'identity-sha256');
   assert.ok(identitySignal);
@@ -67,7 +67,7 @@ test('disk identity is privacy preserving, stable, and bound to the disk signal'
   assert.throws(() => validateHardwareInventory(raw));
 });
 
-test('deterministic simulated SMART fault identifies the exact host and device', async () => {
+void test('deterministic simulated SMART fault identifies the exact host and device', async () => {
   const first = await classifySimulatedHardwareFault(fixture(), fault());
   const second = await classifySimulatedHardwareFault(structuredClone(fixture()), structuredClone(fault()));
   assert.deepEqual(second, first);
@@ -77,14 +77,14 @@ test('deterministic simulated SMART fault identifies the exact host and device',
   assert.match(first.evidenceSha256, /^[a-f0-9]{64}$/);
 });
 
-test('host, device, category-signal, and simulation substitutions fail closed', async () => {
+void test('host, device, category-signal, and simulation substitutions fail closed', async () => {
   await assert.rejects(classifySimulatedHardwareFault(fixture(), fault({ hostId: 'other-host' })), /host does not match/);
   await assert.rejects(classifySimulatedHardwareFault(fixture(), fault({ deviceId: 'disk-other' })), /not present/);
   await assert.rejects(classifySimulatedHardwareFault(fixture(), fault({ deviceId: 'battery-0', signal: 'media-errors' })), /not valid for battery/);
   await assert.rejects(classifySimulatedHardwareFault(fixture(), fault({ simulated: false })));
 });
 
-test('unknown fields, duplicate devices, missing signals, and mutable collector claims are rejected', () => {
+void test('unknown fields, duplicate devices, missing signals, and mutable collector claims are rejected', () => {
   const input = fixture();
   const unknown = { ...input, categories: input.categories.map(section => section.category === 'cpu'
     ? { ...section, devices: section.devices.map(item => ({ ...item, serial: 'raw' })) } : section) };

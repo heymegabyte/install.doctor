@@ -22,18 +22,18 @@ function manifest(overrides = {}) {
   };
 }
 
-test('accepts one fixed production leaf scope and exact secret-to-env mappings', () => {
+void test('accepts one fixed production leaf scope and exact secret-to-env mappings', () => {
   assert.deepEqual(validateInfisicalWorkloadManifest(manifest()), manifest());
 });
 
-test('rejects unknown fields, wildcard and parent paths, and production overrides', () => {
+void test('rejects unknown fields, wildcard and parent paths, and production overrides', () => {
   assert.throws(() => validateInfisicalWorkloadManifest({ ...manifest(), unexpected: true }), /unrecognized/i);
   assert.throws(() => validateInfisicalWorkloadManifest(manifest({ secretPath: '/workloads/*' })), /leaf path/i);
   assert.throws(() => validateInfisicalWorkloadManifest(manifest({ secretPath: '/workloads' })), /leaf path/i);
   assert.throws(() => validateInfisicalWorkloadManifest(manifest({ environment: 'dev' })), /prod/i);
 });
 
-test('rejects duplicate workload identities and ambiguous mappings', () => {
+void test('rejects duplicate workload identities and ambiguous mappings', () => {
   const input = manifest();
   const [first] = input.workloads;
   assert.ok(first);
@@ -47,7 +47,7 @@ test('rejects duplicate workload identities and ambiguous mappings', () => {
   })), /mapping/i);
 });
 
-test('enforces the identity plane for every principal kind', () => {
+void test('enforces the identity plane for every principal kind', () => {
   const valid = [
     ['public-human', 'oidc', 'cloudflare-access'],
     ['ci', 'oidc', 'github'],

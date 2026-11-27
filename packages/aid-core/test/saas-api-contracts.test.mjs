@@ -40,7 +40,7 @@ const principal = () => ({ schemaVersion: 1, principalId: 'owner-one', tenantId:
   readCapabilities: records().map(record => record.capability.capabilityId) });
 const request = () => ({ schemaVersion: 1, kinds: records().map(record => record.kind) });
 
-test('projects all ten nonvisual SaaS resources with exact tenant and evidence truth', () => {
+void test('projects all ten nonvisual SaaS resources with exact tenant and evidence truth', () => {
   const result = projectSaasRead(principal(), request(), records(), NOW);
   assert.equal(result.items.length, 10);
   assert.equal(result.tenantId, 'tenant-one');
@@ -49,7 +49,7 @@ test('projects all ten nonvisual SaaS resources with exact tenant and evidence t
   assert.equal(result.items.find(item => item.kind === 'catalog')?.tenantId, null);
 });
 
-test('rejects cross-tenant records instead of silently filtering them', () => {
+void test('rejects cross-tenant records instead of silently filtering them', () => {
   const input = records();
   const machine = input.find(item => item.kind === 'machines');
   assert.ok(machine);
@@ -57,7 +57,7 @@ test('rejects cross-tenant records instead of silently filtering them', () => {
   assert.throws(() => projectSaasRead(principal(), request(), input, NOW), /cross-tenant/i);
 });
 
-test('rejects missing capability and unrequested authority results', () => {
+void test('rejects missing capability and unrequested authority results', () => {
   const underprivileged = principal();
   underprivileged.readCapabilities = underprivileged.readCapabilities.filter(value => value !== 'read-recovery');
   assert.throws(() => projectSaasRead(underprivileged, request(), records(), NOW), /missing read capability: read-recovery/i);
@@ -67,7 +67,7 @@ test('rejects missing capability and unrequested authority results', () => {
   assert.throws(() => projectSaasRead(principal(), narrow, records(), NOW), /unrequested.*history/i);
 });
 
-test('requires expired evidence to surface as stale and live truth to expire', () => {
+void test('requires expired evidence to surface as stale and live truth to expire', () => {
   const expired = records();
   const [expiredRecord] = expired;
   assert.ok(expiredRecord);
@@ -84,7 +84,7 @@ test('requires expired evidence to surface as stale and live truth to expire', (
   assert.throws(() => projectSaasRead(principal(), request(), liveWithoutExpiry, NOW), /verified-live capability truth must expire/i);
 });
 
-test('strict contracts reject secret values, unknown fields, and tenant-private catalog data', () => {
+void test('strict contracts reject secret values, unknown fields, and tenant-private catalog data', () => {
   const secretLeak = records().map(item => item.kind === 'secrets-readiness' ? { ...item, secretValue: 'do-not-accept' } : item);
   assert.throws(() => projectSaasRead(principal(), request(), secretLeak, NOW), /unrecognized/i);
 
@@ -92,7 +92,7 @@ test('strict contracts reject secret values, unknown fields, and tenant-private 
   assert.throws(() => projectSaasRead(principal(), request(), privateCatalog, NOW));
 });
 
-test('accessibility semantics cover every resource exactly once with keyboard and live-region contracts', () => {
+void test('accessibility semantics cover every resource exactly once with keyboard and live-region contracts', () => {
   const contract = validateSaasAccessibilityContract(SAAS_ACCESSIBILITY_CONTRACT);
   assert.equal(contract.resources.length, 10);
   assert.equal(new Set(contract.resources.map(resource => resource.kind)).size, 10);

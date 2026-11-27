@@ -37,15 +37,15 @@ const rule = (authority, effect = 'grant', overrides = {}) => ({
 
 const completePolicy = () => ({ schemaVersion: 1, rules: authorizationAuthorities.map(authority => rule(authority)) });
 
-test('grants only when every authority contributes a matching grant', () => {
+void test('grants only when every authority contributes a matching grant', () => {
   const result = simulateEffectiveAuthorization(request(), completePolicy());
   assert.equal(result.decision, 'grant');
   assert.deepEqual(Object.values(result.authorityDecisions), Array(5).fill('grant'));
-  assert.deepEqual(result.contributions.map(value => `${value.authority}:${value.effect}:${value.ruleId}`),
-    authorizationAuthorities.map(authority => `${authority}:grant:${authority}-grant`));
+  assert.deepEqual(result.contributions.map(value => [value.authority, value.effect, value.ruleId]),
+    authorizationAuthorities.map(authority => [authority, 'grant', `${authority}-grant`]));
 });
 
-test('an explicit deny overrides grants and every matched grant and denial remains explained', () => {
+void test('an explicit deny overrides grants and every matched grant and denial remains explained', () => {
   const policy = completePolicy();
   policy.rules.push(rule('opencode', 'deny', {
     id: 'opencode-deny-network',
@@ -64,7 +64,7 @@ test('an explicit deny overrides grants and every matched grant and denial remai
   assert.ok(result.contributions.some(value => value.policyId === 'opencode-guardrails' && value.effect === 'deny'));
 });
 
-test('missing, expired, and condition-mismatched grants fail closed with an explicit denial per authority', () => {
+void test('missing, expired, and condition-mismatched grants fail closed with an explicit denial per authority', () => {
   const policy = completePolicy();
   policy.rules = policy.rules.filter(value => value.authority !== 'infisical');
   const cloudflare = policy.rules.find(value => value.authority === 'cloudflare');
@@ -80,7 +80,7 @@ test('missing, expired, and condition-mismatched grants fail closed with an expl
   }
 });
 
-test('wildcards are explicit and constraints still bind the request context', () => {
+void test('wildcards are explicit and constraints still bind the request context', () => {
   const policy = completePolicy();
   policy.rules[0] = rule('product', 'grant', {
     principals: ['*'], tenants: ['*'], resources: ['*'], actions: ['*'],
@@ -90,7 +90,7 @@ test('wildcards are explicit and constraints still bind the request context', ()
   assert.equal(simulateEffectiveAuthorization(request({ claims: { environment: 'production', posture: 'unknown' } }), policy).decision, 'deny');
 });
 
-test('rejects ambiguous or malformed policy rather than choosing precedence accidentally', () => {
+void test('rejects ambiguous or malformed policy rather than choosing precedence accidentally', () => {
   const duplicate = completePolicy();
   const [first, second] = duplicate.rules;
   assert.ok(first && second);
@@ -109,7 +109,7 @@ test('rejects ambiguous or malformed policy rather than choosing precedence acci
   assert.throws(() => EffectiveAuthorizationPolicySchema.parse(backwards), /validity interval/i);
 });
 
-test('rejects unknown fields and credential-shaped targets', () => {
+void test('rejects unknown fields and credential-shaped targets', () => {
   assert.throws(() => simulateEffectiveAuthorization({ ...request(), allow: true }, completePolicy()), /unrecognized/i);
   const unsafe = request();
   assert.ok(unsafe.targets.infisical);

@@ -7,7 +7,7 @@ const legacy = { name: 'ripgrep', bin: 'rg', providers: ['brew', 'apt'], pkgs: {
   platforms: ['macos', 'linux'], installMode: 'cli', preload: false, deliveryMode: 'lazy', loadPolicy: 'lazy',
   loadRationale: 'default-lazy', short: 'Fast recursive search.', github: 'https://github.com/BurntSushi/ripgrep' };
 
-test('migrates legacy catalog entries byte-identically and preserves explicit unknown evidence', () => {
+void test('migrates legacy catalog entries byte-identically and preserves explicit unknown evidence', () => {
   const first = migrateLegacySoftwareCatalogEntry(legacy);
   const second = migrateLegacySoftwareCatalogEntry(structuredClone(legacy));
   assert.equal(JSON.stringify(first), JSON.stringify(second));
@@ -17,7 +17,7 @@ test('migrates legacy catalog entries byte-identically and preserves explicit un
   assert.equal(parseSoftwareCatalog([first])[0]?.schemaVersion, 1);
 });
 
-test('strict schemas reject unknown fields, versions, inconsistent dependencies, and provider identities', () => {
+void test('strict schemas reject unknown fields, versions, inconsistent dependencies, and provider identities', () => {
   assert.throws(() => LegacySoftwareCatalogEntrySchema.parse({ ...legacy, surprise: true }), /unrecognized/i);
   assert.throws(() => migrateLegacySoftwareCatalogEntry({ ...legacy, pkgs: { brew: 'ripgrep' } }), /same set/i);
   const current = migrateLegacySoftwareCatalogEntry({ ...legacy, deps: ['pcre2'] });
@@ -26,7 +26,7 @@ test('strict schemas reject unknown fields, versions, inconsistent dependencies,
   assert.throws(() => SoftwareCatalogEntrySchema.parse({ ...current, hiddenInstaller: 'curl | sh' }), /unrecognized/i);
 });
 
-test('configuration, privilege, exposure, and immutable provenance are derived without broadening authority', () => {
+void test('configuration, privilege, exposure, and immutable provenance are derived without broadening authority', () => {
   const service = migrateLegacySoftwareCatalogEntry({ ...legacy, name: 'daemon', bin: 'daemon', providers: [], pkgs: {},
     platforms: ['linux'], installMode: 'service', artifacts: [{ schemaVersion: 1, id: 'daemon', version: '1.0.0',
       platform: { os: 'linux', arch: 'x64' }, source: { url: 'https://github.com/acme/daemon/releases/download/v1.0.0/daemon',
@@ -57,7 +57,7 @@ const load = (catalogEntry, policy) => ({
   load: { delivery: policy === 'lazy' ? 'lazy' : 'eager', policy, rationale: `fixture:${policy}` },
 });
 
-test('catalog graph produces deterministic dependency order and explains every decision', () => {
+void test('catalog graph produces deterministic dependency order and explains every decision', () => {
   const runtime = entry('runtime');
   const bootstrap = load(entry('bootstrap', { legacy: { deps: ['runtime'] } }), 'eager-bootstrap');
   const post = load(entry('post'), 'eager-supported-path');
@@ -90,7 +90,7 @@ test('catalog graph produces deterministic dependency order and explains every d
   }), /entries conflict/);
 });
 
-test('post-bootstrap graph admits matching eager entries and explicit lazy requests', () => {
+void test('post-bootstrap graph admits matching eager entries and explicit lazy requests', () => {
   const requested = entry('requested');
   const eager = load(entry('eager'), 'eager-supported-path');
   const plan = buildSoftwareCatalogPlan([requested, eager], {
@@ -101,7 +101,7 @@ test('post-bootstrap graph admits matching eager entries and explicit lazy reque
   assert.equal(plan.inclusions.find(item => item.identity === 'eager')?.reasons[0]?.code, 'eager-supported-path');
 });
 
-test('catalog graph rejects unknown edges, cycles, conflicts, invalid load policy, and unsupported dependency paths', () => {
+void test('catalog graph rejects unknown edges, cycles, conflicts, invalid load policy, and unsupported dependency paths', () => {
   const baseRequest = { platform: 'linux', architecture: 'x64', role: 'workstation', phase: 'post-bootstrap', requested: [] };
   const unknown = entry('unknown', { legacy: { deps: ['missing'] } });
   assert.throws(() => buildSoftwareCatalogPlan([unknown], baseRequest), /unknown dependency missing/);
@@ -122,14 +122,14 @@ test('catalog graph rejects unknown edges, cycles, conflicts, invalid load polic
   assert.throws(() => buildSoftwareCatalogPlan([parent, dependency], { ...baseRequest, requested: ['parent'] }), /not supported.*architecture x64/);
 });
 
-test('catalog graph rejects unsupported explicit selections across platform, architecture, and role', () => {
+void test('catalog graph rejects unsupported explicit selections across platform, architecture, and role', () => {
   const candidate = entry('candidate', { platforms: ['macos'], architectures: ['arm64'], roles: ['server'] });
   assert.throws(() => buildSoftwareCatalogPlan([candidate], {
     platform: 'linux', architecture: 'x64', role: 'workstation', phase: 'post-bootstrap', requested: ['candidate'],
   }), /platform linux, architecture x64, role workstation/);
 });
 
-test('multiple command aliases share one package graph identity and cannot disagree on graph semantics', () => {
+void test('multiple command aliases share one package graph identity and cannot disagree on graph semantics', () => {
   const primary = entry('archive');
   const alias = { ...primary, bin: 'unarchive', identity: { ...primary.identity, command: 'unarchive' } };
   const plan = buildSoftwareCatalogPlan([primary, alias], {

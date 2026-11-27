@@ -34,7 +34,7 @@ function grant(overrides = {}) {
   };
 }
 
-test('broker approval contracts are published from aid-core', () => {
+void test('broker approval contracts are published from aid-core', () => {
   assert.equal(BrokerApprovalGrant.parse(grant()).grantId, 'grant-1');
   assert.equal(typeof BrokerApprovalSignerDelegation.parse, 'function');
   assert.equal(typeof BrokerApprovalDurableState.parse, 'function');
@@ -42,7 +42,7 @@ test('broker approval contracts are published from aid-core', () => {
   assert.equal(typeof SignedBrokerApproval.parse, 'function');
 });
 
-test('broker grant preserves approval binding, operation uniqueness, and strictness', () => {
+void test('broker grant preserves approval binding, operation uniqueness, and strictness', () => {
   assert.throws(() => BrokerApprovalGrant.parse(grant({ approvedPlanDigest: 'b'.repeat(64) })),
     /grant is not bound to the approved plan/u);
   assert.throws(() => BrokerApprovalGrant.parse(grant({ operations: [

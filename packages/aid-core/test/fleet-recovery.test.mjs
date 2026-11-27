@@ -40,53 +40,54 @@ function firstDestination(input) {
   return destination;
 }
 
-test('validates a strict manifest and returns an independent copy', () => {
+void test('validates a strict manifest and returns an independent copy', () => {
   const input = fixture();
   const result = validateFleetRecoveryManifest(input);
   result.host.roles.push('changed');
   assert.deepEqual(input.host.roles, ['zfs-source']);
 });
 
-test('rejects unknown fields and plaintext secret values', () => {
+void test('rejects unknown fields and plaintext secret values', () => {
   assert.throws(() => validateFleetRecoveryManifest({ ...fixture(), surprise: true }), /unknown fields/);
   const input = fixture(); input.encryption.artifactKeyRef = 'hunter2';
   assert.throws(() => validateFleetRecoveryManifest(input), /secret reference/);
 });
 
-test('requires explicit capability applicability and a reason', () => {
+void test('requires explicit capability applicability and a reason', () => {
   const input = fixture();
   const [first, ...rest] = input.host.capabilities;
   assert.ok(first);
-  const { applicable: _applicable, ...withoutApplicability } = first;
+  const { applicable, ...withoutApplicability } = first;
+  assert.equal(typeof applicable, 'boolean');
   assert.throws(() => validateFleetRecoveryManifest({ ...input, host: { ...input.host, capabilities: [withoutApplicability, ...rest] } }));
   first.reason = '';
   assert.throws(() => validateFleetRecoveryManifest(input));
 });
 
-test('rejects duplicate schedulers for one operation', () => {
+void test('rejects duplicate schedulers for one operation', () => {
   const input = fixture(); input.schedules.push({ operation: 'snapshot', owner: 'cron', expression: '0 * * * *' });
   assert.throws(() => validateFleetRecoveryManifest(input), /one scheduler/);
 });
 
-test('rejects unsafe or ambiguous destination boundaries', () => {
+void test('rejects unsafe or ambiguous destination boundaries', () => {
   const input = fixture(); firstDestination(input).dataset = 'tank/production';
   assert.throws(() => validateFleetRecoveryManifest(input), /boundary/);
   const production = fixture(); firstDestination(production).production = true;
   assert.throws(() => validateFleetRecoveryManifest(production), /production/);
 });
 
-test('requires encryption for every destination', () => {
+void test('requires encryption for every destination', () => {
   const input = fixture(); firstDestination(input).encrypted = false;
   assert.throws(() => validateFleetRecoveryManifest(input), /encrypted/);
 });
 
-test('keeps exclusion capabilities separate', () => {
+void test('keeps exclusion capabilities separate', () => {
   const input = fixture();
   const file = [...input.exclusions.file, { pattern: 'rpool/secret', reason: 'wrong namespace', capability: 'dataset' }];
   assert.throws(() => validateFleetRecoveryManifest({ ...input, exclusions: { ...input.exclusions, file } }), /unknown fields/);
 });
 
-test('plans only applicable capabilities with stable idempotency keys', () => {
+void test('plans only applicable capabilities with stable idempotency keys', () => {
   const first = planFleetRecovery(fixture());
   const second = planFleetRecovery(fixture());
   assert.deepEqual(first, second);
@@ -94,7 +95,7 @@ test('plans only applicable capabilities with stable idempotency keys', () => {
   assert.equal(new Set(first.map(action => action.idempotencyKey)).size, first.length);
 });
 
-test('a revision changes idempotency keys', () => {
+void test('a revision changes idempotency keys', () => {
   const input = fixture();
   const [before] = planFleetRecovery(input);
   input.revision = 'recovery-2';
@@ -103,7 +104,7 @@ test('a revision changes idempotency keys', () => {
   assert.notEqual(after.idempotencyKey, before.idempotencyKey);
 });
 
-test('status distinguishes unknown, stale, running, failed, and verified', () => {
+void test('status distinguishes unknown, stale, running, failed, and verified', () => {
   const now = '2026-11-04T12:00:00.000Z';
   assert.equal(classifyFleetRecoveryStatus(undefined, 60, now), 'unknown');
   assert.equal(classifyFleetRecoveryStatus({ state: 'running', startedAt: '2026-11-04T11:55:00.000Z' }, 60, now), 'running');
@@ -124,13 +125,13 @@ const sourceEvidence = () => [{
   exists: true, readable: true, entryCount: 12, isSymlink: false, crossesFilesystem: false
 }];
 
-test('source validation accepts exact readable non-empty mount evidence', () => {
+void test('source validation accepts exact readable non-empty mount evidence', () => {
   assert.deepEqual(assessBackupSources(sourcePolicy(), sourceEvidence()), [{
     id: 'user-data', state: 'ready', path: '/srv/data', traversal: 'same-filesystem'
   }]);
 });
 
-test('source validation fails closed for missing evidence, mounts, readability, and empty data', () => {
+void test('source validation fails closed for missing evidence, mounts, readability, and empty data', () => {
   const [missing] = assessBackupSources(sourcePolicy(), []);
   assert.ok(missing?.state === 'blocked');
   assert.match(missing.reasons.join(','), /evidence missing/);
@@ -144,7 +145,7 @@ test('source validation fails closed for missing evidence, mounts, readability, 
   assert.match(result.reasons.join(','), /empty/);
 });
 
-test('source validation distinguishes symlink and filesystem-boundary policy', () => {
+void test('source validation distinguishes symlink and filesystem-boundary policy', () => {
   const evidence = sourceEvidence()[0]; evidence.isSymlink = true; evidence.crossesFilesystem = true;
   const blocked = assessBackupSources(sourcePolicy(), [evidence])[0];
   assert.ok(blocked?.state === 'blocked');
@@ -157,7 +158,7 @@ test('source validation distinguishes symlink and filesystem-boundary policy', (
   assert.equal(ready.traversal, 'stay-on-filesystem');
 });
 
-test('source validation rejects mismatched and undeclared discovery evidence', () => {
+void test('source validation rejects mismatched and undeclared discovery evidence', () => {
   const mismatch = sourceEvidence()[0]; mismatch.requestedPath = '/srv/other';
   const [blocked] = assessBackupSources(sourcePolicy(), [mismatch]);
   assert.ok(blocked?.state === 'blocked');
@@ -166,7 +167,7 @@ test('source validation rejects mismatched and undeclared discovery evidence', (
   assert.throws(() => assessBackupSources(sourcePolicy(), [extra]), /undeclared/);
 });
 
-test('dry-run reconciliation is stable and will not plan around blocked sources', () => {
+void test('dry-run reconciliation is stable and will not plan around blocked sources', () => {
   const first = reconcileFleetRecovery(fixture(), 'plan', sourcePolicy(), sourceEvidence());
   const second = reconcileFleetRecovery(fixture(), 'plan', sourcePolicy(), sourceEvidence());
   assert.deepEqual(first, second);
@@ -177,7 +178,7 @@ test('dry-run reconciliation is stable and will not plan around blocked sources'
   assert.deepEqual(reconcileFleetRecovery(fixture(), 'discover', sourcePolicy(), sourceEvidence()).actions, []);
 });
 
-test('atomic configuration plan preserves a validated rollback path', () => {
+void test('atomic configuration plan preserves a validated rollback path', () => {
   assert.deepEqual(planAtomicConfiguration('/etc/install-doctor/recovery.json', 'run-42'), {
     target: '/etc/install-doctor/recovery.json',
     candidate: '/etc/install-doctor/recovery.json.install-doctor-run-42.candidate',

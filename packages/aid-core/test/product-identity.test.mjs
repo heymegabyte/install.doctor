@@ -13,14 +13,14 @@ function registry() {
   return structuredClone(PRODUCT_IDENTITY);
 }
 
-test('defines every Desktop Tools identity boundary in one valid registry', () => {
+void test('defines every Desktop Tools identity boundary in one valid registry', () => {
   assert.deepEqual(validateProductIdentityRegistry(PRODUCT_IDENTITY), PRODUCT_IDENTITY);
   assert.equal(canonicalIdentity('desktop-tools-product').value, 'Desktop Tools');
   assert.equal(canonicalIdentity('desktop-tools-executable').value, 'desktop-tools');
   assert.equal(canonicalIdentity('desktop-tools-profile-domain').value, '{profile}.desktop.tools');
 });
 
-test('rejects duplicate and Unicode-ambiguous names', () => {
+void test('rejects duplicate and Unicode-ambiguous names', () => {
   const duplicate = registry();
   const [firstLegacy] = duplicate.legacy;
   assert.ok(firstLegacy);
@@ -39,17 +39,17 @@ test('rejects duplicate and Unicode-ambiguous names', () => {
   assert.throws(() => validateProductIdentityRegistry(ambiguous), /duplicate or ambiguous/i);
 });
 
-test('rejects unowned names and ambiguous legacy mappings', () => {
+void test('rejects unowned names and ambiguous legacy mappings', () => {
   const input = registry();
   const [first, ...rest] = input.legacy;
   assert.ok(first);
-  const { owner: _owner, ...unowned } = first;
+  const unowned = Object.fromEntries(Object.entries(first).filter(([key]) => key !== 'owner'));
   assert.throws(() => validateProductIdentityRegistry({ ...input, legacy: [unowned, ...rest] }), /owner/i);
   assert.throws(() => validateProductIdentityRegistry({ ...input, legacy: [{ ...first, mapsTo: 'missing-product' }, ...rest] }), /unknown target/i);
   assert.throws(() => validateProductIdentityRegistry({ ...input, legacy: [{ ...first, mapsTo: 'desktop-tools-executable' }, ...rest] }), /kind does not match/i);
 });
 
-test('rejects unknown fields and incomplete canonical registries', () => {
+void test('rejects unknown fields and incomplete canonical registries', () => {
   assert.throws(
     () => validateProductIdentityRegistry({ ...registry(), undocumentedAlias: 'aid2' }),
     /unrecognized/i
@@ -60,20 +60,20 @@ test('rejects unknown fields and incomplete canonical registries', () => {
   assert.throws(() => validateProductIdentityRegistry(incomplete), /missing canonical identity kinds/i);
 });
 
-test('prevents capability claims from exceeding their evidence', () => {
-  assert.doesNotThrow(() => assertCapabilityClaim('device-authorization', 'implemented-unverified'));
+void test('prevents capability claims from exceeding their evidence', () => {
+  assert.doesNotThrow(() => { assertCapabilityClaim('device-authorization', 'implemented-unverified'); });
   assert.throws(
-    () => assertCapabilityClaim('device-authorization', 'verified-live'),
+    () => { assertCapabilityClaim('device-authorization', 'verified-live'); },
     /exceeds evidence/i
   );
   assert.throws(
-    () => assertCapabilityClaim('agent-provisioning-session', 'verified-live'),
+    () => { assertCapabilityClaim('agent-provisioning-session', 'verified-live'); },
     /exceeds evidence/i
   );
-  assert.doesNotThrow(() => assertCapabilityClaim('product-identity', 'implemented-unverified'));
+  assert.doesNotThrow(() => { assertCapabilityClaim('product-identity', 'implemented-unverified'); });
 });
 
-test('requires evidence appropriate to every capability status', () => {
+void test('requires evidence appropriate to every capability status', () => {
   const input = registry();
   const [first, ...rest] = input.capabilities;
   assert.ok(first);
@@ -84,7 +84,7 @@ test('requires evidence appropriate to every capability status', () => {
   assert.throws(() => validateProductIdentityRegistry(duplicate), /capability ids must be unique/i);
 });
 
-test('generates capability and migration status from the registry', () => {
+void test('generates capability and migration status from the registry', () => {
   const markdown = renderProductStatusMarkdown();
   assert.match(markdown, /Desktop Tools capability and migration status/);
   assert.match(markdown, /Cross-device authorization \| `implemented-unverified`/);
@@ -94,7 +94,7 @@ test('generates capability and migration status from the registry', () => {
   assert.doesNotMatch(markdown, /Cross-device authorization \| `verified-live`/);
 });
 
-test('serves a public status payload without a second capability ledger', () => {
+void test('serves a public status payload without a second capability ledger', () => {
   const payload = productStatusPayload();
   assert.equal(payload.product, 'Desktop Tools');
   assert.equal(payload.capabilities.find(item => item.id === 'device-authorization')?.status, 'implemented-unverified');

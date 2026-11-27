@@ -33,16 +33,17 @@ function withFirstIdentity(update) {
   return { ...input, identities: [update(first), ...rest] };
 }
 
-test('accepts a complete value-free estate with every required identity class', () => {
+void test('accepts a complete value-free estate with every required identity class', () => {
   assert.deepEqual(validateIdentityAuthorityEstate(estate()), estate());
 });
 
-test('validates the canonical repository identity estate', async () => {
+void test('validates the canonical repository identity estate', async () => {
+  /** @type {unknown} */
   const input = JSON.parse(await readFile(new URL('../../../config/infisical/desktop-tools-identity-estate.json', import.meta.url), 'utf8'));
   assert.deepEqual(validateIdentityAuthorityEstate(input), input);
 });
 
-test('rejects shared identities and duplicate intended consumers', () => {
+void test('rejects shared identities and duplicate intended consumers', () => {
   const shared = estate();
   const [first, second] = shared.identities;
   assert.ok(first && second);
@@ -52,23 +53,24 @@ test('rejects shared identities and duplicate intended consumers', () => {
   assert.throws(() => validateIdentityAuthorityManifest(consumer), /intended consumer/i);
 });
 
-test('rejects caller-selected runtime scope overrides and non-leaf scope changes', () => {
+void test('rejects caller-selected runtime scope overrides and non-leaf scope changes', () => {
   const runtimeOverride = withFirstIdentity(entry => ({ ...entry, runtimeScopeOverride: { environment: 'dev' } }));
   assert.throws(() => validateIdentityAuthorityEstate(runtimeOverride), /unrecognized/i);
   const changedPath = withFirstIdentity(entry => ({ ...entry, authorization: { ...entry.authorization, path: '/workloads/host/another-host' } }));
   assert.throws(() => validateIdentityAuthorityEstate(changedPath), /fixed consumer leaf/i);
 });
 
-test('rejects recursive exports, imports, and durable plaintext caches', () => {
+void test('rejects recursive exports, imports, and durable plaintext caches', () => {
   for (const field of ['recursive', 'includeImports', 'durablePlaintextCache']) {
     const input = withFirstIdentity(entry => ({ ...entry, delivery: { ...entry.delivery, [field]: true } }));
     assert.throws(() => validateIdentityAuthorityEstate(input), new RegExp(field, 'i'));
   }
 });
 
-test('rejects missing or hidden inherited grants', () => {
+void test('rejects missing or hidden inherited grants', () => {
   const missing = withFirstIdentity(entry => {
-    const { inheritedGrants: _grants, ...authorization } = entry.authorization;
+    const authorization = { ...entry.authorization };
+    Reflect.deleteProperty(authorization, 'inheritedGrants');
     return { ...entry, authorization };
   });
   assert.throws(() => validateIdentityAuthorityEstate(missing), /inheritedGrants/);
@@ -76,7 +78,7 @@ test('rejects missing or hidden inherited grants', () => {
   assert.throws(() => validateIdentityAuthorityEstate(inherited), /inheritedGrants/);
 });
 
-test('requires every identity class and confines recovery access', () => {
+void test('requires every identity class and confines recovery access', () => {
   const incomplete = estate(); incomplete.identities.pop();
   assert.throws(() => validateIdentityAuthorityEstate(incomplete), /missing the recovery class/i);
   const excess = withFirstIdentity(entry => ({ ...entry, authorization: { ...entry.authorization, actions: ['read-secret', 'read-recovery-secret'] } }));

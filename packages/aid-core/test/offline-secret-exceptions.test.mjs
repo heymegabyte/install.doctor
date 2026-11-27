@@ -7,9 +7,13 @@ import { eligibleOfflineSecretIds, validateOfflineSecretExceptionInventory } fro
 const inventoryUrl = new URL('../../../config/infisical/offline-secret-exceptions.json', import.meta.url);
 const repositoryRoot = new URL('../../../', import.meta.url);
 /** @returns {Promise<unknown>} */
-const load = async () => JSON.parse(await readFile(inventoryUrl, 'utf8'));
+const load = async () => {
+  /** @type {unknown} */
+  const input = JSON.parse(await readFile(inventoryUrl, 'utf8'));
+  return input;
+};
 
-test('validates a value-free inventory whose store observations match repository material', async () => {
+void test('validates a value-free inventory whose store observations match repository material', async () => {
   const input = await load();
   const validated = validateOfflineSecretExceptionInventory(input);
   assert.deepEqual(validated, input);
@@ -21,7 +25,7 @@ test('validates a value-free inventory whose store observations match repository
   }
 });
 
-test('local eligibility is exactly the reviewed get-secret allowlist', async () => {
+void test('local eligibility is exactly the reviewed get-secret allowlist', async () => {
   const input = await load();
   const source = await readFile(new URL('../../../home/dot_local/bin/executable_get-secret', import.meta.url), 'utf8');
   const allowlist = source.match(/const offlineSecretNames = new Set\(\[([\s\S]*?)\]\)/)?.[1]
@@ -32,7 +36,7 @@ test('local eligibility is exactly the reviewed get-secret allowlist', async () 
   assert.ok(!allowlist.includes('CLOUDFLARE_API_TOKEN'));
 });
 
-test('rejects undeclared purposes, online-only exceptions, secret values, and unknown fields', async () => {
+void test('rejects undeclared purposes, online-only exceptions, secret values, and unknown fields', async () => {
   const input = validateOfflineSecretExceptionInventory(await load());
   const [first, ...rest] = input.exceptions;
   assert.ok(first);
@@ -47,7 +51,7 @@ test('rejects undeclared purposes, online-only exceptions, secret values, and un
   }
 });
 
-test('rejects hidden stores, mismatched secret names, duplicate exceptions, and permissive defaults', async () => {
+void test('rejects hidden stores, mismatched secret names, duplicate exceptions, and permissive defaults', async () => {
   const input = validateOfflineSecretExceptionInventory(await load());
   const [first] = input.exceptions;
   const [store, ...remainingStores] = input.stores;

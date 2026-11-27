@@ -75,7 +75,7 @@ async function fixture(options = {}) {
     signers: { publisher, catalogSigner, provenanceAttestor, testAttestor, revoker } };
 }
 
-test('admits exact signed catalog content and compiles only isolated content-addressed materialization', async () => {
+void test('admits exact signed catalog content and compiles only isolated content-addressed materialization', async () => {
   const { request, manifestDigest } = await fixture(); const receipt = await admitExtension(request);
   assert.equal(receipt.manifestDigest, manifestDigest); assert.equal(receipt.executionBoundary, 'isolated-unprivileged-worker');
   const plan = compileExtensionMaterializationPlan(receipt);
@@ -84,7 +84,7 @@ test('admits exact signed catalog content and compiles only isolated content-add
   assert.doesNotMatch(JSON.stringify(plan), /npm|package-manager|command|install-script|privileged-runtime/i);
 });
 
-test('fails closed on signature tampering, incompatible APIs, excess capability, and revocation', async () => {
+void test('fails closed on signature tampering, incompatible APIs, excess capability, and revocation', async () => {
   const tampered = await fixture(); tampered.request.manifest.payload.description = 'changed after signature';
   await assert.rejects(admitExtension(tampered.request), /signature is invalid/);
   await assert.rejects(admitExtension((await fixture({ apiVersion: 5 })).request), /incompatible/);
@@ -94,7 +94,7 @@ test('fails closed on signature tampering, incompatible APIs, excess capability,
   await assert.rejects(admitExtension((await fixture({ revokeManifest: true })).request), /revoked/);
 });
 
-test('requires complete fresh isolated evidence and a current revocation view', async () => {
+void test('requires complete fresh isolated evidence and a current revocation view', async () => {
   const incomplete = await fixture(); incomplete.request.testEvidence.payload.checks.pop();
   assert.throws(() => ExtensionManifestSchema.parse({ ...incomplete.request.manifest.payload, npm: 'hostile-package' }), /unrecognized/i);
   incomplete.request.testEvidence = envelope('evidence', incomplete.request.testEvidence.payload, incomplete.signers.testAttestor);
@@ -104,7 +104,7 @@ test('requires complete fresh isolated evidence and a current revocation view', 
   await assert.rejects(admitExtension(stale.request), /revocation state is stale/);
 });
 
-test('private catalogs and signer scopes cannot cross tenant boundaries', async () => {
+void test('private catalogs and signer scopes cannot cross tenant boundaries', async () => {
   const item = await fixture();
   const payload = { ...item.request.catalog.payload, visibility: 'private', tenantId: 'tenant-a' };
   const catalog = envelope('catalog', payload, item.signers.catalogSigner);
@@ -113,7 +113,7 @@ test('private catalogs and signer scopes cannot cross tenant boundaries', async 
   await assert.rejects(admitExtension({ ...item.request, catalog, tenantId: 'tenant-a' }), /signer scope/);
 });
 
-test('arbitrary npm auto-install and privileged execution are structurally unrepresentable', async () => {
+void test('arbitrary npm auto-install and privileged execution are structurally unrepresentable', async () => {
   const receipt = await admitExtension((await fixture()).request);
   assert.throws(() => ExtensionAdmissionReceiptSchema.parse({ ...receipt, executionBoundary: 'privileged-runtime' }), /invalid/i);
   assert.throws(() => ExtensionMaterializationPlanSchema.parse({ ...compileExtensionMaterializationPlan(receipt),
@@ -123,7 +123,7 @@ test('arbitrary npm auto-install and privileged execution are structurally unrep
     artifact: { format: 'npm', package: 'arbitrary' }, isolatedTestEvidenceDigest: digest('d'), publisher: { id: 'bad', catalogId: 'official' } }), /invalid|unrecognized/i);
 });
 
-test('read-only fixture is admitted, invoked, disabled, and revoked end to end', async () => {
+void test('read-only fixture is admitted, invoked, disabled, and revoked end to end', async () => {
   const item = await fixture(); const capability = { action: 'host.facts.read', resource: 'host://facts/os' };
   const runtimeState = { schemaVersion: 1, extensionId: 'com.desktop-tools.readonly', version: '1.2.3', enabled: true,
     sequence: 1, changedAt: now, reason: null };
@@ -144,7 +144,7 @@ test('read-only fixture is admitted, invoked, disabled, and revoked end to end',
   await assert.rejects(authorizeExtensionInvocation({ admission: item.request, runtimeState, capability }), /revoked/);
 });
 
-test('read-only fixture rejects provenance tampering and incompatible versions before invocation', async () => {
+void test('read-only fixture rejects provenance tampering and incompatible versions before invocation', async () => {
   const tampered = await fixture(); tampered.request.provenance.payload.builder.id = 'untrusted-builder';
   await assert.rejects(authorizeExtensionInvocation({ admission: tampered.request,
     runtimeState: { schemaVersion: 1, extensionId: 'com.desktop-tools.readonly', version: '1.2.3', enabled: true,

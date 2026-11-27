@@ -28,7 +28,7 @@ async function plan() {
   return { ...unsigned, planDigest: await approvedTaskAgentPlanDigest(unsigned) };
 }
 
-test('approved plan deterministically generates every task-specific runtime dimension', async () => {
+void test('approved plan deterministically generates every task-specific runtime dimension', async () => {
   const approved = await plan(); const first = await compileTaskAgents(approved); const second = await compileTaskAgents(structuredClone(approved));
   assert.deepEqual(first, second); assert.equal(first.length, 1); const compiled = first[0];
   assert.ok(compiled);
@@ -39,7 +39,7 @@ test('approved plan deterministically generates every task-specific runtime dime
   assert.deepEqual(compiled.inheritance, { environment: 'none', credentials: 'none', tools: 'none', skills: 'none', context: 'none' });
 });
 
-test('compiled runtime has no inherited ambient authority', async () => {
+void test('compiled runtime has no inherited ambient authority', async () => {
   const approved = await plan(); process.env.DESKTOP_TOOLS_AMBIENT_SECRET = 'must-not-be-read'; const before = await compileTaskAgents(approved);
   process.env.DESKTOP_TOOLS_AMBIENT_SECRET = 'changed'; const after = await compileTaskAgents(approved); delete process.env.DESKTOP_TOOLS_AMBIENT_SECRET;
   assert.deepEqual(after, before);
@@ -55,7 +55,7 @@ test('compiled runtime has no inherited ambient authority', async () => {
   assert.equal(evaluateAgentSandbox(policy, { kind: 'tool', value: 'read-file' }).decision, 'allow');
 });
 
-test('compiler rejects plan tampering and ambient-authority-shaped input', async () => {
+void test('compiler rejects plan tampering and ambient-authority-shaped input', async () => {
   const approved = await plan();
   const [first] = approved.tasks;
   assert.ok(first);
@@ -65,7 +65,7 @@ test('compiler rejects plan tampering and ambient-authority-shaped input', async
   await assert.rejects(() => compileTaskAgents(withAmbient), /unrecognized/i);
 });
 
-test('compiler rejects authority not exactly derived from task declarations', async () => {
+void test('compiler rejects authority not exactly derived from task declarations', async () => {
   /** @type {Array<(value: Task) => void>} */
   const mutations = [
     value => { value.authority.toolIds = []; }, value => { value.authority.skillIds = []; }, value => { value.context.refs = ['other-context']; },
@@ -81,7 +81,7 @@ test('compiler rejects authority not exactly derived from task declarations', as
   }
 });
 
-test('generated sandbox enforces task budgets', async () => {
+void test('generated sandbox enforces task budgets', async () => {
   const [compiled] = await compileTaskAgents(await plan());
   assert.ok(compiled);
   assert.equal(evaluateAgentSandbox(compiled.sandboxPolicy, { kind: 'step', value: 40 }).decision, 'allow');

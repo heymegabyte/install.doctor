@@ -27,23 +27,23 @@ const fixture = () => ({
 
 const discovery = () => [{ id: 'database-primary', kind: 'database', locator: 'postgres:app', authoritative: true }];
 
-test('accepts complete per-host capabilities and every authoritative data kind', () => {
+void test('accepts complete per-host capabilities and every authoritative data kind', () => {
   const input = fixture();
   const kinds = ['dataset', 'file', 'vm', 'container', 'configuration', 'key'];
   const [coverage] = input.coverage;
   const source = coverage?.sources[0];
   assert.ok(coverage && source);
   for (const [index, kind] of kinds.entries()) {
-    coverage.sources.push({ ...structuredClone(source), id: `${kind}-${index}`, kind, locator: `${kind}:fixture` });
+    coverage.sources.push({ ...structuredClone(source), id: `${kind}-${String(index)}`, kind, locator: `${kind}:fixture` });
   }
   assert.deepEqual(validateHostDataCoverageEstate(input), input);
 });
 
-test('healthy coverage requires exact discovery and a protected restore method', () => {
+void test('healthy coverage requires exact discovery and a protected restore method', () => {
   assert.deepEqual(assessHostCoverage(fixture(), 'fixture-host', discovery()), { hostId: 'fixture-host', healthy: true, gaps: [] });
 });
 
-test('newly discovered unprotected authoritative data fails coverage health', () => {
+void test('newly discovered unprotected authoritative data fails coverage health', () => {
   const found = discovery(); found.push({ id: 'new-container-volume', kind: 'container', locator: 'volume:uploads', authoritative: true });
   const result = assessHostCoverage(fixture(), 'fixture-host', found);
   assert.equal(result.healthy, false);
@@ -54,7 +54,7 @@ test('newly discovered unprotected authoritative data fails coverage health', ()
   assert.equal(assessHostCoverage(fixture(), 'fixture-host', found).healthy, true);
 });
 
-test('unprotected layers, missing restore, stale discovery, and substituted identity fail health', () => {
+void test('unprotected layers, missing restore, stale discovery, and substituted identity fail health', () => {
   const unprotected = fixture();
   const source = unprotected.coverage[0]?.sources[0];
   assert.ok(source);
@@ -66,7 +66,8 @@ test('unprotected layers, missing restore, stale discovery, and substituted iden
   assert.match(assessHostCoverage(fixture(), 'fixture-host', substituted).gaps.join('\n'), /does not match reviewed identity/);
 });
 
-test('canonical repository inventory is valid and truthfully reports Zen recovery gaps', async () => {
+void test('canonical repository inventory is valid and truthfully reports Zen recovery gaps', async () => {
+  /** @type {unknown} */
   const input = JSON.parse(await readFile(new URL('../../../config/fleet/host-data-coverage.json', import.meta.url), 'utf8'));
   validateHostDataCoverageEstate(input);
   const result = assessHostCoverage(input, 'zen', [{ id: 'zen-rpool', kind: 'dataset', locator: 'rpool', authoritative: true }]);
@@ -75,7 +76,7 @@ test('canonical repository inventory is valid and truthfully reports Zen recover
   assert.match(result.gaps.join('\n'), /no usable restore method/);
 });
 
-test('strict schemas reject unknown fields, duplicate capabilities, and coverage not bound to observation', () => {
+void test('strict schemas reject unknown fields, duplicate capabilities, and coverage not bound to observation', () => {
   const input = fixture();
   const [inventory] = input.inventories;
   const capability = inventory?.capabilities[0];

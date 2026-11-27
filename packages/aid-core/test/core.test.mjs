@@ -50,51 +50,51 @@ function cast() {
   return { lines, writer };
 }
 
-test('blueprint validates and returns an independent copy', () => { const b = fixture(); const v = validateBlueprint(b); v.defaults.packages.push('jq'); assert.equal(b.defaults.packages.length, 3); });
-test('markdown round trip preserves all declared v1 settings', () => assert.deepEqual(importMarkdown(exportMarkdown(fixture())), fixture()));
-test('CRLF markdown is accepted', () => assert.deepEqual(importMarkdown(exportMarkdown(fixture()).replaceAll('\n', '\r\n')), fixture()));
-test('unknown fields cannot be silently exported or treated as settings', () => assert.throws(() => exportMarkdown({ ...fixture(), apiKey: 'secret' }), /unknown/));
-test('wrong app origin is rejected', () => { assert.throws(() => validateBlueprint({ ...fixture(), appUrl: 'https://evil.example' })); });
-test('unsupported schema rejected', () => { const b = fixture(); b.schemaVersion = 2; assert.throws(() => validateBlueprint(b)); });
-test('Atuin cannot be reintroduced by an old blueprint', () => { const b = fixture(); b.defaults.shellHistory = 'atuin'; assert.throws(() => validateBlueprint(b), /hiSHtory/); });
-test('skills must pin a full immutable commit', () => { const b = fixture(); b.skills.commit = 'main'; assert.throws(() => validateBlueprint(b), /commit/); });
-test('duplicate machine identities rejected', () => { const b = fixture(); const [first] = b.machines; assert.ok(first); b.machines.push(first); assert.throws(() => validateBlueprint(b), /duplicates/); });
-test('unknown service target rejected', () => { const { blueprint: b, service } = fixtureWithService(); service.machineIds.push('unknown'); assert.throws(() => validateBlueprint(b), /unknown machine/); });
-test('duplicate packages rejected', () => { const b = fixture(); b.defaults.packages.push('git'); assert.throws(() => validateBlueprint(b), /duplicates/); });
-test('embedded endpoint credentials rejected', () => { const { blueprint: b, service } = fixtureWithService(); service.pushUrl = 'https://user:password@logs.example'; assert.throws(() => validateBlueprint(b), /credentials/); });
-test('query-string secrets rejected', () => { const { blueprint: b, service } = fixtureWithService(); service.pushUrl += '?token=secret'; assert.throws(() => validateBlueprint(b)); });
-test('plain HTTP is rejected', () => { const { blueprint: b, service } = fixtureWithService(); service.pushUrl = 'http://logs.example'; assert.throws(() => validateBlueprint(b)); });
-test('inline secret value cannot replace a credential reference', () => { const { blueprint: b, service } = fixtureWithService(); service.credentialRef = 'password123'; assert.throws(() => validateBlueprint(b), /reference/); });
-test('raw input recording is prohibited by v1 policy', () => { const b = fixture(); b.privacy.terminalInput = true; assert.throws(() => validateBlueprint(b)); });
-test('negative AI budgets rejected', () => { const b = fixture(); b.routing.maxTaskCostMicros = -1; assert.throws(() => validateBlueprint(b)); });
-test('multiple canonical blocks rejected', () => assert.throws(() => importMarkdown(exportMarkdown(fixture()).repeat(2)), /exactly one/));
-test('missing canonical block rejected', () => assert.throws(() => importMarkdown('# Hello'), /exactly one/));
-test('malformed JSON rejected', () => assert.throws(() => importMarkdown('```install-doctor+json\n{bad}\n```')));
-test('oversized document rejected', () => assert.throws(() => importMarkdown('x'.repeat(2000001)), /too large/));
-test('digest ignores object key order', async () => { const b = fixture(); const reordered = Object.fromEntries(Object.entries(b).reverse()); assert.equal(await blueprintDigest(b), await blueprintDigest(reordered)); });
-test('digest changes with desired state', async () => { const b = fixture(); const original = await blueprintDigest(b); b.revision = 'r2'; assert.notEqual(original, await blueprintDigest(b)); });
-test('provider uses only Install Doctor and an environment token reference', () => { const c = aidProviderConfig(); assert.equal(c.provider['install-doctor'].options.apiKey, '{env:AID_INFERENCE_TOKEN}'); assert.equal(c.provider['install-doctor'].options.baseURL, APP_URL + '/api/ai/v1'); assert.deepEqual(c.enabled_providers, ['install-doctor']); assert.equal(Object.keys(c.provider['install-doctor'].models).length, ROUTES.length); });
-test('routine requests choose economy', () => assert.equal(chooseRoute({ sensitivity: 'normal', kind: 'routine', verificationFailed: false }, false), 'economy'));
-test('restricted wins over premium escalation', () => assert.equal(chooseRoute({ sensitivity: 'restricted', kind: 'code', verificationFailed: true }, true), 'restricted'));
-test('premium is never selected without policy permission', () => assert.equal(chooseRoute({ sensitivity: 'normal', kind: 'architecture', verificationFailed: true }, false), 'code'));
-test('verified failure may escalate with policy permission', () => assert.equal(chooseRoute({ sensitivity: 'normal', kind: 'code', verificationFailed: true }, true), 'critical'));
-test('session starts with a tenant-scoped recording key', () => { const s = session(); assert.equal(s.status, 'created'); assert.equal(s.recordingKey, 'recordings/tenant-1/runner/session-1.cast'); });
-test('metadata rejects path traversal', () => assert.throws(() => newSession('../evil', 't', 'm', 'a', 'r1', now)));
-test('session lifecycle supports verified success', () => { const s = transitionSession(session(), 'running', now); const done = transitionSession(s, 'succeeded', now, 0); assert.equal(done.status, 'succeeded'); assert.equal(done.finishedAt, now); });
-test('success before spawn is rejected', () => assert.throws(() => transitionSession(session(), 'succeeded', now, 0)));
-test('success without exit code zero rejected', () => assert.throws(() => transitionSession(transitionSession(session(), 'running', now), 'succeeded', now)));
-test('final session cannot resume through a new lifecycle transition', () => { const s = transitionSession(session(), 'cancelled', now); assert.throws(() => transitionSession(s, 'running', now)); });
-test('process creation failure still has a history record', () => assert.equal(transitionSession(session(), 'failed', now).recordingKey, session().recordingKey));
-test('pre-creation timestamps rejected', () => assert.throws(() => transitionSession(session(), 'running', '2025-01-01T00:00:00Z')));
-test('asciicast v3 has relative intervals and output/resize/exit', () => { const { lines, writer } = cast(); writer.output(1, 'hello'); writer.resize(3, 100, 30); writer.finish(4, 0); const [header] = lines; assert.ok(header && typeof header === 'object' && 'version' in header); assert.equal(header.version, 3); assert.deepEqual(lines[1], [1, 'o', 'hello']); assert.deepEqual(lines[2], [2, 'r', '100x30']); assert.deepEqual(lines[3], [1, 'x', '0']); });
-test('recording API does not offer raw keyboard input capture', () => { const { writer } = cast(); assert.equal(Reflect.has(writer, 'input'), false); });
-test('recording rejects backward timestamps', () => { const { writer } = cast(); writer.output(2, 'hello'); assert.throws(() => writer.output(1, 'old')); });
-test('recording rejects appends after exit', () => { const { writer } = cast(); writer.finish(1, 0); assert.throws(() => writer.output(2, 'late')); });
-test('recording rejects invalid geometry', () => assert.throws(() => new CastWriter(() => {}, 0, 24, 1)));
-test('recording propagates storage errors rather than claiming success', () => { const bad = new CastWriter(line => { if (line.startsWith('[')) throw new Error('disk full'); }, 80, 24, 1); assert.throws(() => bad.output(1, 'hello'), /disk full/); });
-test('Loki fan-out includes each explicitly selected machine once', () => { const plans = planLokiIntegration(fixture(), 'logs', 'event-1'); assert.deepEqual(plans.map(p => p.machineId), ['runner', 'laptop']); assert.equal(new Set(plans.map(p => p.idempotencyKey)).size, 2); });
-test('duplicate event gets stable deduplication keys', () => assert.deepEqual(planLokiIntegration(fixture(), 'logs', 'event-1'), planLokiIntegration(fixture(), 'logs', 'event-1')));
-test('revision changes reconciliation key', () => {
+void test('blueprint validates and returns an independent copy', () => { const b = fixture(); const v = validateBlueprint(b); v.defaults.packages.push('jq'); assert.equal(b.defaults.packages.length, 3); });
+void test('markdown round trip preserves all declared v1 settings', () => { assert.deepEqual(importMarkdown(exportMarkdown(fixture())), fixture()); });
+void test('CRLF markdown is accepted', () => { assert.deepEqual(importMarkdown(exportMarkdown(fixture()).replaceAll('\n', '\r\n')), fixture()); });
+void test('unknown fields cannot be silently exported or treated as settings', () => { assert.throws(() => exportMarkdown({ ...fixture(), apiKey: 'secret' }), /unknown/); });
+void test('wrong app origin is rejected', () => { assert.throws(() => validateBlueprint({ ...fixture(), appUrl: 'https://evil.example' })); });
+void test('unsupported schema rejected', () => { const b = fixture(); b.schemaVersion = 2; assert.throws(() => validateBlueprint(b)); });
+void test('Atuin cannot be reintroduced by an old blueprint', () => { const b = fixture(); b.defaults.shellHistory = 'atuin'; assert.throws(() => validateBlueprint(b), /hiSHtory/); });
+void test('skills must pin a full immutable commit', () => { const b = fixture(); b.skills.commit = 'main'; assert.throws(() => validateBlueprint(b), /commit/); });
+void test('duplicate machine identities rejected', () => { const b = fixture(); const [first] = b.machines; assert.ok(first); b.machines.push(first); assert.throws(() => validateBlueprint(b), /duplicates/); });
+void test('unknown service target rejected', () => { const { blueprint: b, service } = fixtureWithService(); service.machineIds.push('unknown'); assert.throws(() => validateBlueprint(b), /unknown machine/); });
+void test('duplicate packages rejected', () => { const b = fixture(); b.defaults.packages.push('git'); assert.throws(() => validateBlueprint(b), /duplicates/); });
+void test('embedded endpoint credentials rejected', () => { const { blueprint: b, service } = fixtureWithService(); service.pushUrl = 'https://user:password@logs.example'; assert.throws(() => validateBlueprint(b), /credentials/); });
+void test('query-string secrets rejected', () => { const { blueprint: b, service } = fixtureWithService(); service.pushUrl += '?token=secret'; assert.throws(() => validateBlueprint(b)); });
+void test('plain HTTP is rejected', () => { const { blueprint: b, service } = fixtureWithService(); service.pushUrl = 'http://logs.example'; assert.throws(() => validateBlueprint(b)); });
+void test('inline secret value cannot replace a credential reference', () => { const { blueprint: b, service } = fixtureWithService(); service.credentialRef = 'password123'; assert.throws(() => validateBlueprint(b), /reference/); });
+void test('raw input recording is prohibited by v1 policy', () => { const b = fixture(); b.privacy.terminalInput = true; assert.throws(() => validateBlueprint(b)); });
+void test('negative AI budgets rejected', () => { const b = fixture(); b.routing.maxTaskCostMicros = -1; assert.throws(() => validateBlueprint(b)); });
+void test('multiple canonical blocks rejected', () => { assert.throws(() => importMarkdown(exportMarkdown(fixture()).repeat(2)), /exactly one/); });
+void test('missing canonical block rejected', () => { assert.throws(() => importMarkdown('# Hello'), /exactly one/); });
+void test('malformed JSON rejected', () => { assert.throws(() => importMarkdown('```install-doctor+json\n{bad}\n```')); });
+void test('oversized document rejected', () => { assert.throws(() => importMarkdown('x'.repeat(2000001)), /too large/); });
+void test('digest ignores object key order', async () => { const b = fixture(); const reordered = Object.fromEntries(Object.entries(b).reverse()); assert.equal(await blueprintDigest(b), await blueprintDigest(reordered)); });
+void test('digest changes with desired state', async () => { const b = fixture(); const original = await blueprintDigest(b); b.revision = 'r2'; assert.notEqual(original, await blueprintDigest(b)); });
+void test('provider uses only Install Doctor and an environment token reference', () => { const c = aidProviderConfig(); assert.equal(c.provider['install-doctor'].options.apiKey, '{env:AID_INFERENCE_TOKEN}'); assert.equal(c.provider['install-doctor'].options.baseURL, APP_URL + '/api/ai/v1'); assert.deepEqual(c.enabled_providers, ['install-doctor']); assert.equal(Object.keys(c.provider['install-doctor'].models).length, ROUTES.length); });
+void test('routine requests choose economy', () => { assert.equal(chooseRoute({ sensitivity: 'normal', kind: 'routine', verificationFailed: false }, false), 'economy'); });
+void test('restricted wins over premium escalation', () => { assert.equal(chooseRoute({ sensitivity: 'restricted', kind: 'code', verificationFailed: true }, true), 'restricted'); });
+void test('premium is never selected without policy permission', () => { assert.equal(chooseRoute({ sensitivity: 'normal', kind: 'architecture', verificationFailed: true }, false), 'code'); });
+void test('verified failure may escalate with policy permission', () => { assert.equal(chooseRoute({ sensitivity: 'normal', kind: 'code', verificationFailed: true }, true), 'critical'); });
+void test('session starts with a tenant-scoped recording key', () => { const s = session(); assert.equal(s.status, 'created'); assert.equal(s.recordingKey, 'recordings/tenant-1/runner/session-1.cast'); });
+void test('metadata rejects path traversal', () => { assert.throws(() => newSession('../evil', 't', 'm', 'a', 'r1', now)); });
+void test('session lifecycle supports verified success', () => { const s = transitionSession(session(), 'running', now); const done = transitionSession(s, 'succeeded', now, 0); assert.equal(done.status, 'succeeded'); assert.equal(done.finishedAt, now); });
+void test('success before spawn is rejected', () => { assert.throws(() => transitionSession(session(), 'succeeded', now, 0)); });
+void test('success without exit code zero rejected', () => { assert.throws(() => transitionSession(transitionSession(session(), 'running', now), 'succeeded', now)); });
+void test('final session cannot resume through a new lifecycle transition', () => { const s = transitionSession(session(), 'cancelled', now); assert.throws(() => transitionSession(s, 'running', now)); });
+void test('process creation failure still has a history record', () => { assert.equal(transitionSession(session(), 'failed', now).recordingKey, session().recordingKey); });
+void test('pre-creation timestamps rejected', () => { assert.throws(() => transitionSession(session(), 'running', '2025-01-01T00:00:00Z')); });
+void test('asciicast v3 has relative intervals and output/resize/exit', () => { const { lines, writer } = cast(); writer.output(1, 'hello'); writer.resize(3, 100, 30); writer.finish(4, 0); const [header] = lines; assert.ok(header && typeof header === 'object' && 'version' in header); assert.equal(header.version, 3); assert.deepEqual(lines[1], [1, 'o', 'hello']); assert.deepEqual(lines[2], [2, 'r', '100x30']); assert.deepEqual(lines[3], [1, 'x', '0']); });
+void test('recording API does not offer raw keyboard input capture', () => { const { writer } = cast(); assert.equal(Reflect.has(writer, 'input'), false); });
+void test('recording rejects backward timestamps', () => { const { writer } = cast(); writer.output(2, 'hello'); assert.throws(() => { writer.output(1, 'old'); }); });
+void test('recording rejects appends after exit', () => { const { writer } = cast(); writer.finish(1, 0); assert.throws(() => { writer.output(2, 'late'); }); });
+void test('recording rejects invalid geometry', () => { assert.throws(() => new CastWriter(() => {}, 0, 24, 1)); });
+void test('recording propagates storage errors rather than claiming success', () => { const bad = new CastWriter(line => { if (line.startsWith('[')) throw new Error('disk full'); }, 80, 24, 1); assert.throws(() => { bad.output(1, 'hello'); }, /disk full/); });
+void test('Loki fan-out includes each explicitly selected machine once', () => { const plans = planLokiIntegration(fixture(), 'logs', 'event-1'); assert.deepEqual(plans.map(p => p.machineId), ['runner', 'laptop']); assert.equal(new Set(plans.map(p => p.idempotencyKey)).size, 2); });
+void test('duplicate event gets stable deduplication keys', () => { assert.deepEqual(planLokiIntegration(fixture(), 'logs', 'event-1'), planLokiIntegration(fixture(), 'logs', 'event-1')); });
+void test('revision changes reconciliation key', () => {
   const blueprint = fixture();
   const [before] = planLokiIntegration(blueprint, 'logs', 'event-1');
   blueprint.revision = 'r2';
@@ -102,29 +102,29 @@ test('revision changes reconciliation key', () => {
   assert.ok(before && after);
   assert.notEqual(before.idempotencyKey, after.idempotencyKey);
 });
-test('unknown integration rejected', () => assert.throws(() => planLokiIntegration(fixture(), 'missing', 'event-1')));
-test('Alloy fragment uses scoped secret references and exact event path', () => { const text = renderAlloy(fixture(), 'logs', 'runner', '/var/log/aid/events.ndjson'); assert.match(text, /loki\.write/); assert.match(text, /AID_LOKI_PASSWORD/); assert.match(text, /machine_id/); assert.doesNotMatch(text, /promtail/i); });
-test('unselected machine cannot receive service config', () => assert.throws(() => renderAlloy(fixture(), 'logs', 'unknown', '/var/log/aid/events.ndjson')));
-test('wildcard paths cannot capture unrelated logs', () => assert.throws(() => renderAlloy(fixture(), 'logs', 'runner', '/var/log/*')));
-test('multiline path injection rejected', () => assert.throws(() => renderAlloy(fixture(), 'logs', 'runner', '/var/log/x\nmalicious')));
+void test('unknown integration rejected', () => { assert.throws(() => planLokiIntegration(fixture(), 'missing', 'event-1')); });
+void test('Alloy fragment uses scoped secret references and exact event path', () => { const text = renderAlloy(fixture(), 'logs', 'runner', '/var/log/aid/events.ndjson'); assert.match(text, /loki\.write/); assert.match(text, /AID_LOKI_PASSWORD/); assert.match(text, /machine_id/); assert.doesNotMatch(text, /promtail/i); });
+void test('unselected machine cannot receive service config', () => { assert.throws(() => renderAlloy(fixture(), 'logs', 'unknown', '/var/log/aid/events.ndjson')); });
+void test('wildcard paths cannot capture unrelated logs', () => { assert.throws(() => renderAlloy(fixture(), 'logs', 'runner', '/var/log/*')); });
+void test('multiline path injection rejected', () => { assert.throws(() => renderAlloy(fixture(), 'logs', 'runner', '/var/log/x\nmalicious')); });
 
-test('coercible non-string OS cannot bypass validation', () => { const b = fixture(); const [first, ...rest] = b.machines; assert.ok(first); assert.throws(() => validateBlueprint({ ...b, machines: [{ ...first, os: ['linux'] }, ...rest] })); });
-test('coercible non-string capture policy cannot bypass validation', () => { const b = fixture(); assert.throws(() => validateBlueprint({ ...b, privacy: { ...b.privacy, screenshots: ['off'] } })); });
+void test('coercible non-string OS cannot bypass validation', () => { const b = fixture(); const [first, ...rest] = b.machines; assert.ok(first); assert.throws(() => validateBlueprint({ ...b, machines: [{ ...first, os: ['linux'] }, ...rest] })); });
+void test('coercible non-string capture policy cannot bypass validation', () => { const b = fixture(); assert.throws(() => validateBlueprint({ ...b, privacy: { ...b.privacy, screenshots: ['off'] } })); });
 
-test('v2 role overlays resolve defaults, role packages, and machine additions deterministically', () => {
+void test('v2 role overlays resolve defaults, role packages, and machine additions deterministically', () => {
   const environment = environmentV2();
   assert.deepEqual(resolveMachinePackages(environment, 'runner-a'), ['git', 'chezmoi', 'alloy', 'restic']);
   assert.deepEqual(resolveMachinePackages(environment, 'runner-b'), ['git', 'chezmoi', 'alloy', 'jq']);
 });
 
-test('v2 machine exceptions may remove inherited packages without mutating the role', () => {
+void test('v2 machine exceptions may remove inherited packages without mutating the role', () => {
   const environment = environmentV2();
   firstV2Machine(environment).packageOverrides.remove.push('chezmoi');
   assert.deepEqual(resolveMachinePackages(environment, 'runner-a'), ['git', 'alloy', 'restic']);
   assert.deepEqual(resolveMachinePackages(environment, 'runner-b'), ['git', 'chezmoi', 'alloy', 'jq']);
 });
 
-test('v2 rejects unknown roles and contradictory machine package exceptions', () => {
+void test('v2 rejects unknown roles and contradictory machine package exceptions', () => {
   const unknownRole = environmentV2();
   firstV2Machine(unknownRole).role = 'missing';
   assert.throws(() => validateEnvironment(unknownRole), /role/i);
@@ -133,13 +133,13 @@ test('v2 rejects unknown roles and contradictory machine package exceptions', ()
   assert.throws(() => validateEnvironment(contradictory), /both|overlap/i);
 });
 
-test('v2 rejects removal of a package not inherited from defaults or the selected role', () => {
+void test('v2 rejects removal of a package not inherited from defaults or the selected role', () => {
   const environment = environmentV2();
   firstV2Machine(environment).packageOverrides.remove.push('unknown-package');
   assert.throws(() => validateEnvironment(environment), /inherited/i);
 });
 
-test('explicit v1 to v2 migration matches the reviewed fixture and preserves effective packages', () => {
+void test('explicit v1 to v2 migration matches the reviewed fixture and preserves effective packages', () => {
   const source = validateBlueprint(migrationFixture('environment-v1'));
   const migrated = migrateBlueprintV1ToV2(source);
   assert.deepEqual(migrated, migrationFixture('environment-v2'));
@@ -148,27 +148,27 @@ test('explicit v1 to v2 migration matches the reviewed fixture and preserves eff
   }
 });
 
-test('v1 remains valid and is never migrated implicitly during markdown import', () => {
+void test('v1 remains valid and is never migrated implicitly during markdown import', () => {
   const source = migrationFixture('environment-v1');
   const imported = importMarkdown(exportMarkdown(source));
   assert.equal(imported.schemaVersion, 1);
   assert.deepEqual(imported, source);
 });
 
-test('v2 canonical markdown round trip and digest preserve the versioned desired state', async () => {
+void test('v2 canonical markdown round trip and digest preserve the versioned desired state', async () => {
   const source = migrationFixture('environment-v2');
   const markdown = exportMarkdown(source);
   assert.deepEqual(importMarkdown(markdown), source);
   assert.equal(await blueprintDigest(source), await blueprintDigest(importMarkdown(markdown)));
 });
 
-test('v2 remains consumable by existing integration planners', () => {
+void test('v2 remains consumable by existing integration planners', () => {
   const environment = environmentV2();
   assert.deepEqual(planLokiIntegration(environment, 'logs', 'event-v2').map(plan => plan.machineId), ['runner-a', 'runner-b', 'laptop']);
   assert.match(renderAlloy(environment, 'logs', 'runner-a', '/var/log/aid/events.ndjson'), /machine_id/);
 });
 
-test('v2 strict schema rejects unknown role and override fields', () => {
+void test('v2 strict schema rejects unknown role and override fields', () => {
   const environment = environmentV2();
   const [role, ...roles] = environment.roles;
   const [machine, ...machines] = environment.machines;
@@ -179,7 +179,7 @@ test('v2 strict schema rejects unknown role and override fields', () => {
   assert.throws(() => validateEnvironment(overrideField), /unrecognized|unknown/i);
 });
 
-test('explicit v2 to v3 migration upgrades appUrl to desktop.tools and preserves machine package resolution', () => {
+void test('explicit v2 to v3 migration upgrades appUrl to desktop.tools and preserves machine package resolution', () => {
   const v2 = migrationFixture('environment-v2');
   const v3 = migrateBlueprintV2ToV3(v2);
   assert.equal(v3.schemaVersion, 3);
@@ -189,7 +189,7 @@ test('explicit v2 to v3 migration upgrades appUrl to desktop.tools and preserves
   assert.deepEqual(importMarkdown(exportMarkdown(v3)), v3);
 });
 
-test('explicit v3 to v4 migration binds profile, prompt policy, and secret references losslessly', async () => {
+void test('explicit v3 to v4 migration binds profile, prompt policy, and secret references losslessly', async () => {
   const v3 = migrateBlueprintV2ToV3(migrationFixture('environment-v2'));
   const v4 = migrateBlueprintV3ToV4(v3, {
     profileId: 'example',
@@ -215,7 +215,7 @@ test('explicit v3 to v4 migration binds profile, prompt policy, and secret refer
   assert.equal(await blueprintDigest(importMarkdown(markdown)), await blueprintDigest(v4));
 });
 
-test('v4 rejects implicit migration, stale profile revisions, unsafe prompt policy, and secret values', () => {
+void test('v4 rejects implicit migration, stale profile revisions, unsafe prompt policy, and secret values', () => {
   const v3 = migrateBlueprintV2ToV3(migrationFixture('environment-v2'));
   assert.throws(() => Reflect.apply(migrateBlueprintV3ToV4, undefined, [v3, undefined]), /required/i);
   const v4 = migrateBlueprintV3ToV4(v3, {

@@ -8,7 +8,7 @@ import {
   validateProfileSlug
 } from '../dist/profile-resolution.js';
 
-test('classifies only one nonreserved label as a Desktop Tools profile', () => {
+void test('classifies only one nonreserved label as a Desktop Tools profile', () => {
   assert.deepEqual(classifyDesktopToolsHostname('example.desktop.tools'), {
     kind: 'profile', hostname: 'example.desktop.tools', slug: 'example'
   });
@@ -40,12 +40,12 @@ const profiles = [{
   enabled: false
 }];
 
-test('accepts one canonical nonreserved DNS label', () => {
+void test('accepts one canonical nonreserved DNS label', () => {
   assert.equal(validateProfileSlug('brian-workstation'), 'brian-workstation');
   assert.deepEqual(validateProfileDirectory(profiles), profiles);
 });
 
-test('rejects reserved, malformed, oversized, mixed-case, and Unicode-confusable slugs', () => {
+void test('rejects reserved, malformed, oversized, mixed-case, and Unicode-confusable slugs', () => {
   for (const slug of [
     'api', 'start', 'pair', '-example', 'example-', 'example--box', 'UPPER',
     'ｅｘａｍｐｌｅ', 'exаmple', 'a'.repeat(64), 'a/b', 'ab'
@@ -54,14 +54,14 @@ test('rejects reserved, malformed, oversized, mixed-case, and Unicode-confusable
   }
 });
 
-test('resolves an enabled profile only inside its authenticated tenant', () => {
+void test('resolves an enabled profile only inside its authenticated tenant', () => {
   const result = resolveTenantProfile(profiles, { tenantId: 'tenant-one', slug: 'example' });
   assert.equal(result.id, 'profile-example');
   result.slug = 'changed';
   assert.equal(profiles[0]?.slug, 'example');
 });
 
-test('public descriptor exposes only bounded identification and no tenant or authority', () => {
+void test('public descriptor exposes only bounded identification and no tenant or authority', () => {
   const descriptor = resolvePublicProfileDescriptor(profiles, 'example');
   assert.deepEqual(descriptor, {
     schemaVersion: 1,
@@ -75,7 +75,7 @@ test('public descriptor exposes only bounded identification and no tenant or aut
   assert.throws(() => resolvePublicProfileDescriptor(profiles, 'missing'), /unavailable/);
 });
 
-test('unknown, disabled, cross-tenant, and malformed lookups fail identically', () => {
+void test('unknown, disabled, cross-tenant, and malformed lookups fail identically', () => {
   const attempts = [
     { tenantId: 'tenant-one', slug: 'missing' },
     { tenantId: 'tenant-two', slug: 'private-box' },
@@ -87,7 +87,7 @@ test('unknown, disabled, cross-tenant, and malformed lookups fail identically', 
   }
 });
 
-test('directory rejects duplicate slugs, ids, unknown fields, and invalid digests', () => {
+void test('directory rejects duplicate slugs, ids, unknown fields, and invalid digests', () => {
   assert.throws(() => validateProfileDirectory([...profiles, { ...profiles[0], id: 'second' }]), /globally unique/i);
   assert.throws(() => validateProfileDirectory([...profiles, { ...profiles[0], slug: 'second' }]), /ids must be unique/i);
   assert.throws(() => validateProfileDirectory([{ ...profiles[0], ownerEmail: 'private@example.com' }]), /unrecognized/i);

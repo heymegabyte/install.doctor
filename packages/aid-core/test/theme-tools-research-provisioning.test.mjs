@@ -138,27 +138,31 @@ const fixture = () => ({
   retention: { evidenceDays: 90, eventDays: 30, usageDays: 365 },
 });
 
-test('accepts the complete Cloudflare and Infisical desired-state topology', () => {
+void test('accepts the complete Cloudflare and Infisical desired-state topology', () => {
   const validated = validateThemeToolsResearchProvisioningManifest(fixture());
   assert.equal(validated.resources.length, 10);
   assert.equal(validated.workloadIdentity.secretPath, '/workloads/theme-tools-research');
 });
 
-test('validates the canonical value-free staging manifest', () => {
+void test('validates the canonical value-free staging manifest', () => {
+  /** @type {unknown} */
   const manifest = JSON.parse(readFileSync('../../config/theme-tools/deep-research.staging.json', 'utf8'));
   const validated = validateThemeToolsResearchProvisioningManifest(manifest);
   assert.equal(validated.environment, 'staging');
   assert.deepEqual(buildInstallDoctorProvisioningSpec(manifest).actions, buildInstallDoctorProvisioningSpec(fixture()).actions);
 });
 
-test('builds a stable non-mutating idempotent dry-run plan with rollback metadata', () => {
+void test('builds a stable non-mutating idempotent dry-run plan with rollback metadata', () => {
   const first = buildInstallDoctorProvisioningSpec(fixture());
   const second = buildInstallDoctorProvisioningSpec(fixture());
   assert.deepEqual(first, second);
   assert.equal(first.mutationAllowed, false);
   assert.equal(first.mode, 'dry-run');
   assert.equal(new Set(first.actions.map(action => action.idempotencyKey)).size, first.actions.length);
-  assert.ok(first.actions.every(action => action.mutationAllowed === false && action.rollback.length > 0));
+  for (const action of first.actions) {
+    assert.equal(action.mutationAllowed, false);
+    assert.ok(action.rollback.length > 0);
+  }
   assert.match(first.externalRequirements.join('\n'), /Cloudflare account authority/);
   assert.ok(first.actions.some(action => action.operation === 'ensure-consumer-service-binding' && action.target.includes('oneprompt:RESEARCH')));
   assert.ok(first.actions.some(action => action.operation === 'validate-consumer-authority' && action.target.includes('theme-authority:\/\/research\/consumers\/oneprompt-staging')));
@@ -172,7 +176,7 @@ test('builds a stable non-mutating idempotent dry-run plan with rollback metadat
   assert.deepEqual(bindingAction.rollback, ['preserve-existing-binding', 'remove-only-new-binding']);
 });
 
-test('rejects plaintext secrets, mismatched fixed leaves, and unknown fields', () => {
+void test('rejects plaintext secrets, mismatched fixed leaves, and unknown fields', () => {
   const plaintext = fixture();
   requiredFixture(plaintext.secretReferences[0]).reference = 'hunter2';
   assert.throws(() => validateThemeToolsResearchProvisioningManifest(plaintext));
@@ -182,7 +186,7 @@ test('rejects plaintext secrets, mismatched fixed leaves, and unknown fields', (
   assert.throws(() => validateThemeToolsResearchProvisioningManifest({ ...fixture(), token: 'secret' }));
 });
 
-test('requires a credential-free HTTPS broker endpoint and fixed service-token reference', () => {
+void test('requires a credential-free HTTPS broker endpoint and fixed service-token reference', () => {
   const unsafeEndpoint = fixture();
   unsafeEndpoint.broker.endpoint = 'https://token@example.com/research';
   assert.throws(() => validateThemeToolsResearchProvisioningManifest(unsafeEndpoint), /credential-free HTTPS/);
@@ -193,7 +197,7 @@ test('requires a credential-free HTTPS broker endpoint and fixed service-token r
   assert.ok(plan.actions.some(action => action.operation === 'ensure-config-reference' && action.target === 'THEME_RESEARCH_ENDPOINT:https://research.theme.tools'));
 });
 
-test('rejects duplicate bindings and queue references without a declared DLQ', () => {
+void test('rejects duplicate bindings and queue references without a declared DLQ', () => {
   const duplicate = fixture();
   requiredFixture(duplicate.resources[1]).binding = requiredFixture(duplicate.resources[0]).binding;
   assert.throws(() => validateThemeToolsResearchProvisioningManifest(duplicate), /Binding names must be unique/);
@@ -203,13 +207,13 @@ test('rejects duplicate bindings and queue references without a declared DLQ', (
   assert.throws(() => validateThemeToolsResearchProvisioningManifest(missingDlq), /declared DLQ/);
 });
 
-test('rejects incomplete topologies instead of silently provisioning a partial runtime', () => {
+void test('rejects incomplete topologies instead of silently provisioning a partial runtime', () => {
   const incomplete = fixture();
   incomplete.resources = incomplete.resources.filter(resource => resource.role !== 'browser_rendering');
   assert.throws(() => validateThemeToolsResearchProvisioningManifest(incomplete), /browser_rendering/);
 });
 
-test('rejects duplicate consumer bindings and target or environment drift', () => {
+void test('rejects duplicate consumer bindings and target or environment drift', () => {
   const duplicate = fixture();
   duplicate.consumerBindings.push({ ...requiredFixture(duplicate.consumerBindings[0]), id: 'oneprompt-research-copy' });
   assert.throws(() => validateThemeToolsResearchProvisioningManifest(duplicate), /Consumer service binding names must be unique/);
@@ -223,7 +227,7 @@ test('rejects duplicate consumer bindings and target or environment drift', () =
   assert.throws(() => validateThemeToolsResearchProvisioningManifest(wrongEnvironment), /manifest environment/);
 });
 
-test('consumer binding declarations reject credentials and unknown authority shapes', () => {
+void test('consumer binding declarations reject credentials and unknown authority shapes', () => {
   const token = fixture();
   Object.assign(requiredFixture(token.consumerBindings[0]), { token: 'secret' });
   assert.throws(() => validateThemeToolsResearchProvisioningManifest(token));
@@ -237,7 +241,7 @@ test('consumer binding declarations reject credentials and unknown authority sha
   assert.throws(() => validateThemeToolsResearchProvisioningManifest(forgedProps), /exactly attest/);
 });
 
-test('rejects duplicate, undeclared, and environment-drifted internal runtime topology', () => {
+void test('rejects duplicate, undeclared, and environment-drifted internal runtime topology', () => {
   const duplicate = fixture();
   duplicate.internalBindings.push({ ...requiredFixture(duplicate.internalBindings[1]), id: 'duplicate-egress' });
   assert.throws(() => validateThemeToolsResearchProvisioningManifest(duplicate));
@@ -255,7 +259,7 @@ test('rejects duplicate, undeclared, and environment-drifted internal runtime to
   assert.throws(() => validateThemeToolsResearchProvisioningManifest(wrongWorkflowOwner), /canonical research Worker/);
 });
 
-test('rejects unsafe branch properties and egress policy mismatch', () => {
+void test('rejects unsafe branch properties and egress policy mismatch', () => {
   for (const endpoint of ['https://user:secret@search.example.test', 'https://search.example.test/?token=secret', 'http://search.example.test']) {
     const unsafeEndpoint = fixture();
     requiredFixture(requiredFixture(unsafeEndpoint.internalBindings[0]).props).searchEndpoint = endpoint;
@@ -279,7 +283,7 @@ test('rejects unsafe branch properties and egress policy mismatch', () => {
   assert.throws(() => validateThemeToolsResearchProvisioningManifest(fallback));
 });
 
-test('internal binding declarations reject credentials and preserve narrow rollback', () => {
+void test('internal binding declarations reject credentials and preserve narrow rollback', () => {
   const credential = fixture();
   Object.assign(requiredFixture(credential.internalBindings[1]), { token: 'secret' });
   assert.throws(() => validateThemeToolsResearchProvisioningManifest(credential));
@@ -289,7 +293,7 @@ test('internal binding declarations reject credentials and preserve narrow rollb
   assert.ok(actions.every(action => JSON.stringify(action.rollback) === JSON.stringify(['preserve-existing-binding', 'remove-only-new-binding'])));
 });
 
-test('requires the exact policy-routed Browser Run chain and fixed descriptor-key reference', () => {
+void test('requires the exact policy-routed Browser Run chain and fixed descriptor-key reference', () => {
   const missingKey = fixture();
   missingKey.secretReferences = missingKey.secretReferences.filter(secret => secret.secretName !== 'RESEARCH_BROWSER_DESCRIPTOR_KEY');
   assert.throws(() => validateThemeToolsResearchProvisioningManifest(missingKey), /fixed RESEARCH_BROWSER_DESCRIPTOR_KEY/);
@@ -319,7 +323,7 @@ test('requires the exact policy-routed Browser Run chain and fixed descriptor-ke
   assert.throws(() => validateThemeToolsResearchProvisioningManifest(missingVerifierBinding), /branch and Browser egress services/);
 });
 
-test('requires Browser and ordinary retrieval to terminate at one environment-aligned policy service', () => {
+void test('requires Browser and ordinary retrieval to terminate at one environment-aligned policy service', () => {
   const policyTargetDrift = fixture();
   requiredFixture(policyTargetDrift.internalBindings.find(binding => binding.id === 'browser-policy-egress')).targetServiceId = 'research-branch';
   assert.throws(() => validateThemeToolsResearchProvisioningManifest(policyTargetDrift), /policy-egress service/);

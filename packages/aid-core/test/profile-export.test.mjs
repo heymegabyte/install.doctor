@@ -13,6 +13,7 @@ import {
 } from '../dist/profile-export.js';
 
 async function environment() {
+  /** @type {unknown} */
   const v2 = JSON.parse(await readFile(new URL('./fixtures/environment-v2.json', import.meta.url), 'utf8'));
   const v3 = migrateBlueprintV2ToV3(v2);
   return migrateBlueprintV3ToV4(v3, {
@@ -30,7 +31,7 @@ const recipes = [
   { id: 'shell', version: '4.0.0', sha256: 'b'.repeat(64) },
 ];
 
-test('portable export is deterministic and excludes credentials, endpoints, and source machine identities', async () => {
+void test('portable export is deterministic and excludes credentials, endpoints, and source machine identities', async () => {
   const source = await environment();
   const first = await createPortableProfileExport({ environment: source, machineId: 'runner-a', recipes, catalogSha256: 'c'.repeat(64), consents: ['network'] });
   const second = await createPortableProfileExport({ environment: structuredClone(source), machineId: 'runner-a', recipes: [...recipes].reverse(), catalogSha256: 'c'.repeat(64), consents: ['network'] });
@@ -48,7 +49,7 @@ test('portable export is deterministic and excludes credentials, endpoints, and 
   assert.match(first.exportDigest, /^[a-f0-9]{64}$/);
 });
 
-test('offline secret readiness is value-free, deterministic, and gives exact missing-escrow remediation', async () => {
+void test('offline secret readiness is value-free, deterministic, and gives exact missing-escrow remediation', async () => {
   const value = await createPortableProfileExport({ environment: await environment(), machineId: 'runner-a', recipes, catalogSha256: 'c'.repeat(64), offline: true });
   const missing = await assessPortableOfflineSecrets(value, []);
   assert.deepEqual(missing, {
@@ -66,11 +67,13 @@ test('offline secret readiness is value-free, deterministic, and gives exact mis
   assert.doesNotMatch(JSON.stringify(missing), /infisical:|client_secret|password|token/i);
 });
 
-test('legacy portable exports require explicit migration and cannot imply secret readiness', async () => {
+void test('legacy portable exports require explicit migration and cannot imply secret readiness', async () => {
   const current = await createPortableProfileExport({ environment: await environment(), machineId: 'runner-a', recipes, catalogSha256: 'c'.repeat(64) });
   assert.ok(current.schemaVersion === 2);
-  const { schemaVersion: _version, secretRequirements: _requirements, secretRequirementsState: _state, exportDigest: _digest, ...portableFields } = current;
-  const legacyUnsigned = { ...portableFields, schemaVersion: 1 };
+  const legacyUnsigned = { ...current, schemaVersion: 1 };
+  for (const field of ['secretRequirements', 'secretRequirementsState', 'exportDigest']) {
+    Reflect.deleteProperty(legacyUnsigned, field);
+  }
   /** @param {unknown} value @returns {unknown} */
   const canonical = value => Array.isArray(value) ? value.map(canonical) : value && typeof value === 'object'
     ? Object.fromEntries(Object.entries(value).sort(([a], [b]) => a.localeCompare(b)).map(([key, child]) => [key, canonical(child)])) : value;
@@ -86,14 +89,14 @@ test('legacy portable exports require explicit migration and cannot imply secret
   await assert.rejects(migratePortableProfileExportV1ToV2({ ...legacy, exportDigest: '0'.repeat(64) }), /digest mismatch/);
 });
 
-test('strict export rejects unknown fields, mutable recipe refs, and digest tampering', async () => {
+void test('strict export rejects unknown fields, mutable recipe refs, and digest tampering', async () => {
   const value = await createPortableProfileExport({ environment: await environment(), machineId: 'runner-a', recipes, catalogSha256: 'c'.repeat(64) });
   await assert.rejects(validatePortableProfileExport({ ...value, token: 'secret' }), /unrecognized|unknown/i);
   await assert.rejects(validatePortableProfileExport({ ...value, recipes: [{ id: 'packages', version: 'main', sha256: 'not-a-digest' }] }), /invalid/i);
   await assert.rejects(validatePortableProfileExport({ ...value, desired: { ...value.desired, offline: !value.desired.offline } }), /digest mismatch/);
 });
 
-test('fresh targets supply their own identity and must satisfy exported platform constraints', async () => {
+void test('fresh targets supply their own identity and must satisfy exported platform constraints', async () => {
   const value = await createPortableProfileExport({ environment: await environment(), machineId: 'runner-a', recipes, catalogSha256: 'c'.repeat(64), consents: ['network'] });
   const facts = {
     schemaVersion: 1, hostId: 'fresh-host', collectedAt: '2026-11-08T13:00:00.000Z', os: 'linux', osVersion: '24.04', arch: 'x64',
