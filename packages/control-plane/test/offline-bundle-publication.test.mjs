@@ -16,13 +16,13 @@ function storage() {
   return {
     objects,
     /** @param {string} key @param {Uint8Array} bytes @param {ObjectMetadata} metadata */
-    async create(key, bytes, metadata) {
-      if (objects.has(key)) return false;
+    create(key, bytes, metadata) {
+      if (objects.has(key)) return Promise.resolve(false);
       objects.set(key, { bytes: Buffer.from(bytes), etag: `"${sha256(bytes)}"`, metadata });
-      return true;
+      return Promise.resolve(true);
     },
     /** @param {string} key */
-    async read(key) { return objects.get(key) ?? null; },
+    read(key) { return Promise.resolve(objects.get(key) ?? null); },
   };
 }
 
@@ -76,10 +76,10 @@ void test('publishes one private content-addressed object and a signed receipt c
   const target = storage();
   const { privateKey, publicKey } = generateKeyPairSync('ed25519');
   /** @type {PublicationInput['sign']} */
-  const signer = async (_namespace, bytes) => sign(null, bytes, privateKey).toString('base64');
-  const verifyDelegation = async () => true;
-  const verifyRequestAuthority = async () => true;
-  const verifyRequestAuthorityDelegation = async () => true;
+  const signer = (_namespace, bytes) => Promise.resolve(sign(null, bytes, privateKey).toString('base64'));
+  const verifyDelegation = () => Promise.resolve(true);
+  const verifyRequestAuthority = () => Promise.resolve(true);
+  const verifyRequestAuthorityDelegation = () => Promise.resolve(true);
   const first = await publishOfflineBundle({ ...input, storage: target, sign: signer, verifyDelegation, verifyRequestAuthorityDelegation, verifyRequestAuthority, now: 2_000_000_010, authorityVersion: input.claims.workflowSha });
   assert.equal(first.status, 'published');
   assert.match(first.objectKey, /^offline-bundles\/sha256\/[a-f0-9]{64}$/);
@@ -97,15 +97,15 @@ void test('publishes one private content-addressed object and a signed receipt c
 
 void test('fails closed on mutable workflow identity, replay, collision, scope widening, and missing delegation proof', async () => {
   const base = fixture();
-  const signer = async () => 'c2ln';
-  const verifyDelegation = async () => true;
-  const verifyRequestAuthority = async () => true;
-  const verifyRequestAuthorityDelegation = async () => true;
+  const signer = () => Promise.resolve('c2ln');
+  const verifyDelegation = () => Promise.resolve(true);
+  const verifyRequestAuthority = () => Promise.resolve(true);
+  const verifyRequestAuthorityDelegation = () => Promise.resolve(true);
   await assert.rejects(publishOfflineBundle({ ...base, claims: { ...base.claims, workflowSha: 'master' }, storage: storage(), sign: signer, verifyDelegation, verifyRequestAuthorityDelegation, verifyRequestAuthority, now: 2_000_000_010, authorityVersion: '2'.repeat(40) }), /immutable workflow SHA/);
   await assert.rejects(publishOfflineBundle({ ...base, request: { ...base.request, platformCell: 'ubuntu-24-x64-native' }, storage: storage(), sign: signer, verifyDelegation, verifyRequestAuthorityDelegation, verifyRequestAuthority, now: 2_000_000_010, authorityVersion: base.claims.workflowSha }), /request digest|platform scope|request authority/);
-  await assert.rejects(publishOfflineBundle({ ...base, storage: storage(), sign: signer, verifyDelegation: async () => false, verifyRequestAuthorityDelegation, verifyRequestAuthority, now: 2_000_000_010, authorityVersion: base.claims.workflowSha }), /release-root delegation signature/);
-  await assert.rejects(publishOfflineBundle({ ...base, storage: storage(), sign: signer, verifyDelegation, verifyRequestAuthorityDelegation: async () => false, verifyRequestAuthority, now: 2_000_000_010, authorityVersion: base.claims.workflowSha }), /request-authority delegation signature/);
-  await assert.rejects(publishOfflineBundle({ ...base, storage: storage(), sign: signer, verifyDelegation, verifyRequestAuthorityDelegation, verifyRequestAuthority: async () => false, now: 2_000_000_010, authorityVersion: base.claims.workflowSha }), /request-authority signature/);
+  await assert.rejects(publishOfflineBundle({ ...base, storage: storage(), sign: signer, verifyDelegation: () => Promise.resolve(false), verifyRequestAuthorityDelegation, verifyRequestAuthority, now: 2_000_000_010, authorityVersion: base.claims.workflowSha }), /release-root delegation signature/);
+  await assert.rejects(publishOfflineBundle({ ...base, storage: storage(), sign: signer, verifyDelegation, verifyRequestAuthorityDelegation: () => Promise.resolve(false), verifyRequestAuthority, now: 2_000_000_010, authorityVersion: base.claims.workflowSha }), /request-authority delegation signature/);
+  await assert.rejects(publishOfflineBundle({ ...base, storage: storage(), sign: signer, verifyDelegation, verifyRequestAuthorityDelegation, verifyRequestAuthority: () => Promise.resolve(false), now: 2_000_000_010, authorityVersion: base.claims.workflowSha }), /request-authority signature/);
   const replay = storage();
   replay.objects.set(`offline-bundle-nonces/${sha256(Buffer.from(base.request.nonce))}`, { bytes: Buffer.from('foreign'), etag: 'foreign' });
   await assert.rejects(publishOfflineBundle({ ...base, storage: replay, sign: signer, verifyDelegation, verifyRequestAuthorityDelegation, verifyRequestAuthority, now: 2_000_000_010, authorityVersion: base.claims.workflowSha }), /nonce was already consumed/);

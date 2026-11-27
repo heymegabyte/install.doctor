@@ -23,6 +23,21 @@ function requireObject(objects, name) {
   return value;
 }
 
+/** @param {Buffer} bytes */
+function parsePointer(bytes) {
+  /** @type {unknown} */
+  const pointer = JSON.parse(bytes.toString('utf8'));
+  assert.ok(pointer !== null && typeof pointer === 'object' && 'generation' in pointer && 'releaseId' in pointer);
+  return pointer;
+}
+
+/** @param {Map<unknown, unknown>} files @param {string} name */
+function requireFile(files, name) {
+  const bytes = files.get(name);
+  assert.ok(Buffer.isBuffer(bytes), 'missing fixture bytes: ' + name);
+  return bytes;
+}
+
 /** @param {import('node:test').TestContext} t @param {string} [releaseId] @param {{ now?: number, expiresAt?: number }} [timing] */
 async function fixture(t, releaseId = 'release-1', timing = {}) {
   const directory = await mkdtemp(join(tmpdir(), 'install-doctor-publication-'));
@@ -33,22 +48,22 @@ async function fixture(t, releaseId = 'release-1', timing = {}) {
   bodies.set('start', Buffer.from(`readonly MANIFEST_URL='https://app.install.doctor/releases/${releaseId}/manifest'\nreadonly SIGNATURE_URL='https://app.install.doctor/releases/${releaseId}/manifest.sig'\nreadonly EXPECTED_RELEASE_ID='${releaseId}'\n`));
   const lines = [
     'schema_version=5', `release_id=${releaseId}`, `source_commit=${'a'.repeat(40)}`,
-    `created_at=${now - 60}`, `expires_at=${expiresAt}`, 'key_id=test-signer',
+    `created_at=${String(now - 60)}`, `expires_at=${String(expiresAt)}`, 'key_id=test-signer',
     `artifact_url=https://app.install.doctor/releases/${releaseId}/provision.sh`,
-    `artifact_sha256=${digest(requireObject(bodies, 'provision.sh'))}`, `artifact_size=${requireObject(bodies, 'provision.sh').byteLength}`,
+    `artifact_sha256=${digest(requireObject(bodies, 'provision.sh'))}`, `artifact_size=${String(requireObject(bodies, 'provision.sh').byteLength)}`,
     `engine_url=https://app.install.doctor/releases/${releaseId}/install-doctor-engine.mjs`,
-    `engine_sha256=${digest(requireObject(bodies, 'install-doctor-engine.mjs'))}`, `engine_size=${requireObject(bodies, 'install-doctor-engine.mjs').byteLength}`,
+    `engine_sha256=${digest(requireObject(bodies, 'install-doctor-engine.mjs'))}`, `engine_size=${String(requireObject(bodies, 'install-doctor-engine.mjs').byteLength)}`,
     'engine_node_min=22', 'runtime_node_version=24.11.0',
     `catalog_url=https://app.install.doctor/releases/${releaseId}/catalog.json`,
-    `catalog_sha256=${digest(requireObject(bodies, 'catalog.json'))}`, `catalog_size=${requireObject(bodies, 'catalog.json').byteLength}`,
+    `catalog_sha256=${digest(requireObject(bodies, 'catalog.json'))}`, `catalog_size=${String(requireObject(bodies, 'catalog.json').byteLength)}`,
     `launcher_url=https://app.install.doctor/releases/${releaseId}/start`,
-    `launcher_sha256=${digest(requireObject(bodies, 'start'))}`, `launcher_size=${requireObject(bodies, 'start').byteLength}`,
+    `launcher_sha256=${digest(requireObject(bodies, 'start'))}`, `launcher_size=${String(requireObject(bodies, 'start').byteLength)}`,
   ];
   for (const platform of ['macos_x64', 'macos_arm64', 'linux_x64', 'linux_arm64']) {
     const filename = `node-${platform.replaceAll('_', '-')}.tar.gz`;
     lines.push(`runtime_${platform}_url=https://app.install.doctor/releases/${releaseId}/${filename}`);
     lines.push(`runtime_${platform}_sha256=${digest(requireObject(bodies, filename))}`);
-    lines.push(`runtime_${platform}_size=${requireObject(bodies, filename).byteLength}`);
+    lines.push(`runtime_${platform}_size=${String(requireObject(bodies, filename).byteLength)}`);
   }
   bodies.set('manifest', Buffer.from(`${lines.join('\n')}\n`));
   bodies.set('manifest.sig', Buffer.from('test detached signature\n'));
@@ -68,20 +83,20 @@ function memoryStorage() {
   const calls = [];
   return {
     calls, objects,
-    async create(key, bytes, metadata) {
+    create(key, bytes, metadata) {
       calls.push(['create', key, metadata]);
-      if (objects.has(key)) return false;
-      objects.set(key, { bytes: Buffer.from(bytes), etag: `etag-${objects.size + 1}` });
-      return true;
+      if (objects.has(key)) return Promise.resolve(false);
+      objects.set(key, { bytes: Buffer.from(bytes), etag: `etag-${String(objects.size + 1)}` });
+      return Promise.resolve(true);
     },
-    async read(key) { calls.push(['read', key]); return objects.get(key) ?? null; },
-    async compareAndSwap(key, bytes, expectedEtag) {
+    read(key) { calls.push(['read', key]); return Promise.resolve(objects.get(key) ?? null); },
+    compareAndSwap(key, bytes, expectedEtag) {
       calls.push(['cas', key, expectedEtag]);
       const current = objects.get(key);
-      if ((current?.etag ?? undefined) !== expectedEtag) return { ok: false };
-      const etag = `etag-${objects.size + 1}-${randomUUID()}`;
+      if ((current?.etag ?? undefined) !== expectedEtag) return Promise.resolve({ ok: false });
+      const etag = `etag-${String(objects.size + 1)}-${randomUUID()}`;
       objects.set(key, { bytes: Buffer.from(bytes), etag });
-      return { ok: true, etag };
+      return Promise.resolve({ ok: true, etag });
     },
   };
 }
@@ -91,7 +106,7 @@ void test('publishes an exact verified release create-only with manifest last an
   const storage = memoryStorage();
   let verified = 0;
   /** @type {Parameters<typeof publishRelease>[0]['verifySignature']} */
-  const verifySignature = async input => { verified += 1; assert.equal(input.signerId, 'test-signer'); };
+  const verifySignature = input => { verified += 1; assert.equal(input.signerId, 'test-signer'); return Promise.resolve(); };
   const first = await publishRelease({ ...release, expectedReleaseId: release.releaseId, storage, verifySignature });
   assert.equal(first.outcomes.every(item => item.outcome === 'created'), true);
   assert.equal(storage.calls.filter(([operation]) => operation === 'create').at(-1)?.[1], `bootstrap/${release.releaseId}/manifest`);
@@ -140,7 +155,7 @@ void test('activation is intent-first, compare-and-swap guarded, and read-back v
     channel: 'stable', release: { ...release, releaseId: 'release-2' }, storage, expectedEtag: 'stale',
     activationId: '98f40f6d-b6ce-4514-9872-06e6a74140cf', activatedAt: '2026-11-06T09:01:00.000Z', now,
   }), /expected etag is stale|compare-and-swap failed/);
-  const pointer = JSON.parse(requireObject(storage.objects, 'bootstrap/channels/stable.json').bytes.toString('utf8'));
+  const pointer = parsePointer(requireObject(storage.objects, 'bootstrap/channels/stable.json').bytes);
   assert.equal(pointer.releaseId, 'release-1');
   assert.equal(pointer.generation, 1);
 
@@ -161,7 +176,7 @@ void test('activation is intent-first, compare-and-swap guarded, and read-back v
 
 void test('post-CAS receipt failure reports activated receipt pending without repeating activation', async () => {
   const storage = memoryStorage();
-  const originalCreate = storage.create;
+  const originalCreate = storage.create.bind(storage);
   storage.create = async (key, bytes, metadata) => {
     if (key.startsWith('bootstrap/activation-receipts/')) throw new Error('injected receipt outage');
     return originalCreate(key, bytes, metadata);
@@ -171,7 +186,7 @@ void test('post-CAS receipt failure reports activated receipt pending without re
     storage, expectedEtag: undefined, activationId: 'd382c28c-a73e-4ff7-b252-3b52bf600ab0', activatedAt: '2026-11-06T09:03:00.000Z',
   });
   assert.equal(result.status, 'activated_receipt_pending');
-  assert.equal(JSON.parse(requireObject(storage.objects, 'bootstrap/channels/stable.json').bytes.toString('utf8')).releaseId, 'release-1');
+  assert.equal(parsePointer(requireObject(storage.objects, 'bootstrap/channels/stable.json').bytes).releaseId, 'release-1');
 });
 
 void test('active release freshness is signature-verified, bounded, and nonmutating', async t => {
@@ -213,7 +228,7 @@ void test('active release freshness rejects pointer tampering and reports expiry
   });
   const pointerKey = 'bootstrap/channels/stable.json';
   const stored = requireObject(channelStorage.objects, pointerKey);
-  const pointer = JSON.parse(stored.bytes.toString('utf8'));
+  const pointer = parsePointer(stored.bytes);
   channelStorage.objects.set(pointerKey, { ...stored, bytes: Buffer.from(`${JSON.stringify({ ...pointer, manifestSha256: 'f'.repeat(64) })}\n`) });
   await assert.rejects(inspectActiveReleaseFreshness({
     channel: 'stable', channelStorage, releaseStorage, verifySignature, now,
@@ -266,21 +281,25 @@ void test('same-payload renewal changes only envelope identity, URLs, and validi
   });
   assert.equal(renewal.sourceReleaseId, source.releaseId);
   assert.equal(renewal.sourceCommit, 'a'.repeat(40));
-  assert.equal(renewal.files.has('manifest.sig'), false);
+  /** @type {Map<unknown, unknown>} */
+  const renewedFiles = renewal.files;
+  assert.equal(renewedFiles.has('manifest.sig'), false);
   for (const name of RELEASE_FILES.filter(name => !['manifest', 'manifest.sig', 'start'].includes(name))) {
-    assert.deepEqual(requireObject(renewal.files, name), requireObject(source.bodies, name), `${name} payload must be byte-identical`);
+    assert.deepEqual(requireFile(renewedFiles, name), requireObject(source.bodies, name), `${name} payload must be byte-identical`);
   }
-  const renewedManifest = requireObject(renewal.files, 'manifest').toString('utf8');
+  const renewedManifest = requireFile(renewedFiles, 'manifest').toString('utf8');
   assert.match(renewedManifest, new RegExp(`^release_id=${renewalId}$`, 'm'));
   assert.match(renewedManifest, new RegExp(`^source_commit=${'a'.repeat(40)}$`, 'm'));
   assert.equal(renewedManifest.includes('/releases/release-source/'), false);
   assert.ok(renewedManifest.includes(`/releases/${renewalId}/provision.sh`));
-  assert.ok(requireObject(renewal.files, 'start').toString('utf8').includes(`/releases/${renewalId}/manifest`));
+  assert.ok(requireFile(renewedFiles, 'start').toString('utf8').includes(`/releases/${renewalId}/manifest`));
   const retry = await prepareSamePayloadRenewal({
     channel: 'stable', channelStorage, releaseStorage, verifySignature,
     newReleaseId: renewalId, createdAt: renewalEpoch, expiresAt: renewalEpoch + 604_800, now,
   });
-  assert.deepEqual(retry.files.get('manifest'), requireObject(renewal.files, 'manifest'));
+  /** @type {Map<unknown, unknown>} */
+  const retryFiles = retry.files;
+  assert.deepEqual(requireFile(retryFiles, 'manifest'), requireFile(renewedFiles, 'manifest'));
   await assert.rejects(prepareSamePayloadRenewal({
     channel: 'stable', channelStorage, releaseStorage, verifySignature,
     newReleaseId: 'renew-v1-wrong', createdAt: renewalEpoch, expiresAt: renewalEpoch + 604_800, now,
@@ -299,11 +318,13 @@ void test('same-payload renewal changes only envelope identity, URLs, and validi
   requireObject(releaseStorage.objects, 'bootstrap/release-source/provision.sh').bytes = originalProvisioner;
 
   for (const name of RELEASE_FILES) {
-    const bytes = name === 'manifest.sig' ? requireObject(source.bodies, name) : requireObject(renewal.files, name);
+    const bytes = name === 'manifest.sig' ? requireObject(source.bodies, name) : requireFile(renewedFiles, name);
     await releaseStorage.create(`bootstrap/${renewalId}/${name}`, bytes, { sha256: digest(bytes) });
   }
-  const { sourceFiles: _sourceFiles, files: _files, ...renewalPlan } = renewal;
-  const createChannelObject = channelStorage.create;
+  const renewalPlan = { ...renewal };
+  Reflect.deleteProperty(renewalPlan, 'sourceFiles');
+  Reflect.deleteProperty(renewalPlan, 'files');
+  const createChannelObject = channelStorage.create.bind(channelStorage);
   let failRenewalReceipt = true;
   channelStorage.create = async (key, bytes, metadata) => {
     if (failRenewalReceipt && key.startsWith('bootstrap/activation-receipts/')) throw new Error('injected renewal receipt outage');
@@ -322,7 +343,7 @@ void test('same-payload renewal changes only envelope identity, URLs, and validi
     activationId: '4d013119-bb76-4c77-9c1f-58d7a9f750d0', activatedAt: '2026-11-06T13:05:00.000Z', now,
   });
   assert.equal(recoveredRenewal.status, 'already-activated');
-  assert.equal(JSON.parse(requireObject(channelStorage.objects, 'bootstrap/channels/stable.json').bytes.toString('utf8')).generation, 2);
+  assert.equal(parsePointer(requireObject(channelStorage.objects, 'bootstrap/channels/stable.json').bytes).generation, 2);
   await assert.rejects(activateSamePayloadRenewal({
     renewalPlan, channelStorage, releaseStorage, verifySignature,
     activationId: 'd6054c46-bfe1-4fbd-98c0-33a372754e8f', activatedAt: '2026-11-06T13:06:00.000Z', now,
@@ -333,7 +354,7 @@ void test('same-payload renewal changes only envelope identity, URLs, and validi
 void test('receipt reconciliation is idempotent and requires exact current authoritative intent', async () => {
   const now = Math.floor(Date.now() / 1000);
   const storage = memoryStorage();
-  const originalCreate = storage.create;
+  const originalCreate = storage.create.bind(storage);
   let injectReceiptFailure = true;
   storage.create = async (key, bytes, metadata) => {
     if (injectReceiptFailure && key.startsWith('bootstrap/activation-receipts/')) throw new Error('injected receipt outage');
