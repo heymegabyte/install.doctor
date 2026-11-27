@@ -36,13 +36,15 @@ async function hashOpenFile(handle: Awaited<ReturnType<typeof open>>, size: numb
   return hash.digest('hex');
 }
 
+const platformOpenFlags: { readonly O_NOFOLLOW?: number } = constants;
+
 async function openVerifiedRootFile(path: string, expectedDigest: string, executable: boolean, maximumBytes: number) {
   const before = await lstat(path);
   if (!before.isFile() || before.isSymbolicLink() || before.nlink !== 1 || before.uid !== 0
     || (before.mode & 0o022) !== 0 || executable && (before.mode & 0o111) === 0 || await realpath(path) !== path) {
     throw new Error('broker runtime file is not exact and root-protected');
   }
-  const handle = await open(path, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
+  const handle = await open(path, constants.O_RDONLY | (platformOpenFlags.O_NOFOLLOW ?? 0));
   const opened = await handle.stat();
   if (opened.dev !== before.dev || opened.ino !== before.ino || opened.size !== before.size
     || await hashOpenFile(handle, opened.size, maximumBytes) !== expectedDigest) {
@@ -118,34 +120,35 @@ export async function runPrivilegedBrokerController(inputValue: unknown, testOpt
       const worker = await openVerifiedRootFile(input.workerPath, input.workerDigest, false, 2_097_152);
       await worker.close();
     } finally { await runtime.close(); }
-    const delegation = input.deviceApproval && input.brokerApprovalDelegationPath
-      && input.brokerApprovalDelegationDigest !== undefined
-      && input.brokerApprovalMinimumRevocationEpoch !== undefined
-      ? await openVerifiedRootFile(input.brokerApprovalDelegationPath, input.brokerApprovalDelegationDigest, false, 65_536)
-      : undefined;
-    const publication = input.approvalMode === 'signed-device' && input.deviceApproval && delegation
-      ? await (async () => {
-          try {
-            const bytes = Buffer.alloc(Number((await delegation.stat()).size));
-            await delegation.read(bytes, 0, bytes.length, 0);
-            const trust = deriveReleaseBrokerApprovalTrust({ bytes,
-              expectedDigest: input.brokerApprovalDelegationDigest!,
-              minimumRevocationEpoch: input.brokerApprovalMinimumRevocationEpoch!, grant: input.grant });
-            return await publishSignedDeviceBrokerGrant({ grant: input.grant, authority: input.authority,
-              approval: input.deviceApproval, trust, delegationDigest: trust.delegationDigest,
-              minimumRevocationEpoch: input.brokerApprovalMinimumRevocationEpoch!,
-              maximumApprovalLifetimeSeconds: trust.maximumApprovalLifetimeSeconds });
-          } finally { await delegation.close(); }
-        })()
-      : input.approvalMode === 'trusted-local' ? await publishTrustedLocalBrokerGrant({ grant: input.grant, authority: input.authority,
-          ...(testOptions.confirmation ? { confirmation: testOptions.confirmation } : {}),
-          ...(testOptions.now ? { now: testOptions.now } : {}) })
-        : (() => { throw new Error('signed-device approval authority is unavailable'); })();
+    let publication;
+    if (input.approvalMode === 'signed-device') {
+      const { deviceApproval, brokerApprovalDelegationPath, brokerApprovalDelegationDigest,
+        brokerApprovalMinimumRevocationEpoch } = input;
+      if (!deviceApproval || !brokerApprovalDelegationPath || brokerApprovalDelegationDigest === undefined
+        || brokerApprovalMinimumRevocationEpoch === undefined) {
+        throw new Error('signed-device approval authority is unavailable');
+      }
+      const delegation = await openVerifiedRootFile(brokerApprovalDelegationPath, brokerApprovalDelegationDigest, false, 65_536);
+      try {
+        const bytes = Buffer.alloc((await delegation.stat()).size);
+        await delegation.read(bytes, 0, bytes.length, 0);
+        const trust = deriveReleaseBrokerApprovalTrust({ bytes, expectedDigest: brokerApprovalDelegationDigest,
+          minimumRevocationEpoch: brokerApprovalMinimumRevocationEpoch, grant: input.grant });
+        publication = await publishSignedDeviceBrokerGrant({ grant: input.grant, authority: input.authority,
+          approval: deviceApproval, trust, delegationDigest: trust.delegationDigest,
+          minimumRevocationEpoch: brokerApprovalMinimumRevocationEpoch,
+          maximumApprovalLifetimeSeconds: trust.maximumApprovalLifetimeSeconds });
+      } finally { await delegation.close(); }
+    } else {
+      publication = await publishTrustedLocalBrokerGrant({ grant: input.grant, authority: input.authority,
+        ...(testOptions.confirmation ? { confirmation: testOptions.confirmation } : {}),
+        ...(testOptions.now ? { now: testOptions.now } : {}) });
+    }
     const child = spawn('/proc/self/fd/3', [
       'serve', '--socket', input.socketPath, '--uid', String(input.grant.enrolledUid), '--gid', String(input.socketGid),
       '--runtime', input.runtimePath, '--runtime-sha256', input.runtimeDigest,
       '--worker', input.workerPath, '--worker-sha256', input.workerDigest,
-      '--requests', String(input.requestLimit), '--timeout', `${input.operationTimeoutMs}ms`,
+      '--requests', String(input.requestLimit), '--timeout', `${String(input.operationTimeoutMs)}ms`,
     ], {
       shell: false, detached: false, windowsHide: true, stdio: ['ignore', 'ignore', 'pipe', helper.fd],
       env: { PATH: '/usr/sbin:/usr/bin:/sbin:/bin', LANG: 'C', LC_ALL: 'C' },
@@ -159,22 +162,22 @@ export async function runPrivilegedBrokerController(inputValue: unknown, testOpt
     // final request inside onReady; subscribing afterwards loses Node's
     // one-shot close event and leaves the root controller waiting forever.
     const childCompletion = new Promise<{ code: number | null; signal: NodeJS.Signals | null; error?: Error }>(resolveResult => {
-      child.once('error', error => resolveResult({ code: null, signal: null, error }));
-      child.once('close', (code, signal) => resolveResult({ code, signal }));
+      child.once('error', error => { resolveResult({ code: null, signal: null, error }); });
+      child.once('close', (code, signal) => { resolveResult({ code, signal }); });
     });
     const lifecycle: { termination: 'none' | 'graceful' | 'interrupted' | 'expired' } = { termination: 'none' };
     const terminate = (kind: typeof lifecycle.termination) => {
       if (lifecycle.termination === 'none') lifecycle.termination = kind;
       if (child.exitCode === null && child.signalCode === null) child.kill('SIGTERM');
     };
-    const graceful = () => terminate('graceful');
-    const interrupted = () => terminate('interrupted');
+    const graceful = () => { terminate('graceful'); };
+    const interrupted = () => { terminate('interrupted'); };
     process.once('SIGTERM', graceful); process.once('SIGINT', interrupted); process.once('SIGHUP', interrupted);
     const expiresInMs = Date.parse(input.grant.expiresAt) - Date.now();
     if (!Number.isFinite(expiresInMs) || expiresInMs <= 0) {
       terminate('expired');
     }
-    const expiryTimer = setTimeout(() => terminate('expired'), Math.max(1, Math.min(expiresInMs, 2_147_483_647)));
+    const expiryTimer = setTimeout(() => { terminate('expired'); }, Math.max(1, Math.min(expiresInMs, 2_147_483_647)));
     try {
       await waitForBrokerSocket(input, child, () => brokerDiagnostics.trim());
       await testOptions.onReady?.();
@@ -192,14 +195,15 @@ export async function runPrivilegedBrokerController(inputValue: unknown, testOpt
       if (child.exitCode === null && child.signalCode === null) child.kill('SIGTERM');
       const exited = await Promise.race([
         childCompletion.then(() => true),
-        new Promise<false>(resolveDelay => setTimeout(() => resolveDelay(false), 1_000)),
+        new Promise<false>(resolveDelay => setTimeout(() => { resolveDelay(false); }, 1_000)),
       ]);
       if (!exited && child.exitCode === null && child.signalCode === null) {
         child.kill('SIGKILL');
         await Promise.race([
           childCompletion,
-          new Promise<never>((_resolve, rejectDelay) => setTimeout(() => rejectDelay(
-            new Error('privileged broker did not terminate during controller cleanup')), 1_000)),
+          new Promise<never>((_resolve, rejectDelay) => setTimeout(() => {
+            rejectDelay(new Error('privileged broker did not terminate during controller cleanup'));
+          }, 1_000)),
         ]);
       }
       await removeOwnedSocket(input);
@@ -213,7 +217,8 @@ export async function runPrivilegedBrokerController(inputValue: unknown, testOpt
 async function readInput(): Promise<unknown> {
   const chunks: Buffer[] = [];
   let total = 0;
-  for await (const chunk of process.stdin) {
+  const stdin: AsyncIterable<Uint8Array> = process.stdin;
+  for await (const chunk of stdin) {
     const bytes = Buffer.from(chunk); total += bytes.length;
     if (total > MAX_INPUT_BYTES) throw new Error('privileged broker controller input exceeds its boundary');
     chunks.push(bytes);
@@ -222,7 +227,7 @@ async function readInput(): Promise<unknown> {
   return JSON.parse(Buffer.concat(chunks, total).toString('utf8')) as unknown;
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (import.meta.url === `file://${String(process.argv[1])}`) {
   runPrivilegedBrokerController(await readInput()).catch(() => {
     process.stderr.write('desktop-tools privileged broker controller failed\n');
     process.exitCode = 1;
