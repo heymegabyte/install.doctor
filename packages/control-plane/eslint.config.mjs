@@ -5,12 +5,9 @@ const tsconfigRootDir = fileURLToPath(new URL('../../', import.meta.url));
 
 // Remove each exact path as its existing strict lint findings are resolved.
 const pendingFixtures = [
-  'test/broker-approval-managed-signer.test.mjs',
-  'test/broker-approval-signer.test.mjs',
   'test/broker-authorization-api.test.mjs',
   'test/broker-authorization-composition.test.mjs',
   'test/broker-authorization-service.test.mjs',
-  'test/broker-release-delegation-loader.test.mjs',
   'test/broker-run-intent-authority.test.mjs',
   'test/credential-lifecycle-rebuild.test.mjs',
   'test/debian-native-composition.test.mjs',
