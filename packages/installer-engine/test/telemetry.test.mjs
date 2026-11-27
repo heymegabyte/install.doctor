@@ -2,11 +2,14 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { exportInstallerTelemetry } from '../dist/index.js';
 
-const base = { schemaVersion: 1, at: '2026-11-06T00:00:00.000Z', runId: 'run-1' };
+/** @typedef {Parameters<typeof exportInstallerTelemetry>[1]} Events */
+/** @typedef {Parameters<NonNullable<Parameters<typeof exportInstallerTelemetry>[2]>>[0]} TransportInput */
+const base = { schemaVersion: /** @type {const} */ (1), at: '2026-11-06T00:00:00.000Z', runId: 'run-1' };
 const config = {
   schemaVersion: 1, consent: true, endpoint: 'https://logs.example.test/installer', timeoutMs: 100,
   labels: { platform: 'linux', environment: 'container', service: 'install-doctor' },
 };
+/** @type {Events} */
 const events = [
   { ...base, sequence: 0, kind: 'run-status', status: 'started' },
   { ...base, sequence: 1, kind: 'output', taskId: 'task-1', stream: 'stderr', line: 'password=do-not-export-this-value' },
@@ -14,11 +17,14 @@ const events = [
 ];
 
 test('exports only consented bounded metadata and drops command output entirely', async () => {
-  let observed;
-  const result = await exportInstallerTelemetry(config, events, async input => { observed = input; });
+  /** @type {TransportInput[]} */
+  const observations = [];
+  const result = await exportInstallerTelemetry(config, events, async input => { observations.push(input); });
   assert.equal(result.status, 'succeeded');
   assert.equal(result.exportedEvents, 2);
   assert.equal(result.droppedOutputEvents, 1);
+  const [observed] = observations;
+  assert.ok(observed);
   assert.equal(JSON.stringify(observed).includes('do-not-export'), false);
   assert.deepEqual(observed.batch.events.map(event => event.kind), ['run-status', 'task-status']);
   assert.deepEqual(observed.batch.labels, config.labels);
@@ -44,11 +50,15 @@ test('transport failure and timeout are fail-open bounded outcomes', async () =>
 });
 
 test('batch capacity truncation is explicit rather than silent', async () => {
+  /** @type {Events} */
   const many = Array.from({ length: 300 }, (_, sequence) => ({ ...base, sequence, kind: 'run-status', status: 'started' }));
-  let observed;
-  const result = await exportInstallerTelemetry(config, many, async input => { observed = input; });
+  /** @type {TransportInput[]} */
+  const observations = [];
+  const result = await exportInstallerTelemetry(config, many, async input => { observations.push(input); });
   assert.equal(result.exportedEvents, 256);
   assert.equal(result.droppedCapacityEvents, 44);
+  const [observed] = observations;
+  assert.ok(observed);
   assert.equal(observed.batch.droppedCapacityEvents, 44);
 });
 
@@ -57,7 +67,10 @@ test('rejects insecure endpoints, unbounded labels, and malformed events before 
   await assert.rejects(exportInstallerTelemetry({ ...config, endpoint: 'http://logs.example.test' }, events, async () => { called = true; }));
   await assert.rejects(exportInstallerTelemetry({ ...config, endpoint: 'https://token@logs.example.test/installer' }, events, async () => { called = true; }));
   await assert.rejects(exportInstallerTelemetry({ ...config, labels: { ...config.labels, host: 'private-host' } }, events, async () => { called = true; }));
-  await assert.rejects(exportInstallerTelemetry(config, [{ ...events[0], secret: 'x' }], async () => { called = true; }));
+  const [first] = events;
+  assert.ok(first);
+  const malformed = { ...first, secret: 'x' };
+  await assert.rejects(exportInstallerTelemetry(config, [malformed], async () => { called = true; }));
   await assert.rejects(exportInstallerTelemetry({
     ...config, retention: { localSpoolMaxBytes: 16_777_216, localSpoolMaxAgeHours: 24, remoteRetentionDays: 365 },
   }, events, async () => { called = true; }));
