@@ -31,6 +31,7 @@ function report() {
   });
 }
 
+/** @param {import('node:test').TestContext} t */
 async function fixture(t) {
   const root = await realpath(await mkdtemp(join(tmpdir(), 'install-doctor-planned-artifact-')));
   t.after(() => rm(root, { recursive: true, force: true }));
@@ -51,8 +52,9 @@ test('derives approved managed operations without transport or cache publication
     destinationRoots: { 'user-bin': state.destinationRoot },
   };
   const derived = await derivePlannedArtifactOperations(authority);
-  await assert.rejects(lstat(derived.candidatePath), error => error.code === 'ENOENT');
+  await assert.rejects(lstat(derived.candidatePath), error => error instanceof Error && 'code' in error && error.code === 'ENOENT');
   assert.equal(derived.targetPath, join(state.destinationRoot, 'fixture-tool'));
+  /** @type {[unknown, unknown][]} */
   const calls = [];
   const approvedEnginePlanDigest = 'a'.repeat(64);
   const prepared = await preparePlannedArtifact({
@@ -101,33 +103,34 @@ test('rejects plan, item, platform, destination, and candidate authority drift b
   };
   const { approvedEnginePlanDigest: _engineDigest, fetcher: _fetcher, ...derivationBase } = base;
   const derived = await derivePlannedArtifactOperations(derivationBase);
-  base.expectedOperations = derived.operations;
+  const approved = { ...base, expectedOperations: derived.operations };
+  /** @satisfies {[Parameters<typeof preparePlannedArtifact>[0], RegExp][]} */
   const cases = [
-    [{ ...base, approvedLoadPlanDigest: '0'.repeat(64) }, /exact approved load-plan digest/i],
-    [{ ...base, loadPlan: { ...loadPlan, roles: ['tampered'] } }, /load-plan digest/i],
-    [{ ...base, item: { ...item, rationale: 'tampered' } }, /exact load-plan item/i],
-    [{ ...base, item: { ...item, selected: false, actions: [] } }, /exact load-plan item|selected/i],
-    [{ ...base, host: { os: hostOs === 'darwin' ? 'linux' : 'darwin', arch: hostArch } }, /host platform/i],
-    [{ ...base, host: { os: hostOs, arch: hostArch === 'x64' ? 'arm64' : 'x64' } }, /host platform/i],
-    [{ ...base, destinationRoots: {} }, /trusted destination root/i],
-    [{ ...base, destinationRoots: { 'user-bin': state.cacheRoot, unexpected: state.destinationRoot } }, /unrecognized|destination/i],
-    [{ ...base, approvedEnginePlanDigest: 'invalid' }, /normalized engine-plan digest/i],
-    [{ ...base, expectedOperations: { ...derived.operations, apply: { ...derived.operations.apply, targetPath: join(state.root, 'other') } } }, /expected managed operations/i],
+    [{ ...approved, approvedLoadPlanDigest: '0'.repeat(64) }, /exact approved load-plan digest/i],
+    [{ ...approved, loadPlan: { ...loadPlan, roles: ['tampered'] } }, /load-plan digest/i],
+    [{ ...approved, item: { ...item, rationale: 'tampered' } }, /exact load-plan item/i],
+    [{ ...approved, item: { ...item, selected: false, actions: [] } }, /exact load-plan item|selected/i],
+    [{ ...approved, host: { os: hostOs === 'darwin' ? 'linux' : 'darwin', arch: hostArch } }, /host platform/i],
+    [{ ...approved, host: { os: hostOs, arch: hostArch === 'x64' ? 'arm64' : 'x64' } }, /host platform/i],
+    [{ ...approved, destinationRoots: {} }, /trusted destination root/i],
+    [{ ...approved, destinationRoots: { 'user-bin': state.cacheRoot, unexpected: state.destinationRoot } }, /unrecognized|destination/i],
+    [{ ...approved, approvedEnginePlanDigest: 'invalid' }, /normalized engine-plan digest/i],
+    [{ ...approved, expectedOperations: { ...derived.operations, apply: { ...derived.operations.apply, targetPath: join(state.root, 'other') } } }, /expected managed operations/i],
   ];
   for (const [input, pattern] of cases) await assert.rejects(preparePlannedArtifact(input), pattern);
   assert.equal(fetches, 0, 'authority rejection must happen before artifact transport');
 
   const linkedRoot = join(state.root, 'linked-bin');
   await symlink(state.destinationRoot, linkedRoot);
-  await assert.rejects(preparePlannedArtifact({ ...base, destinationRoots: { 'user-bin': linkedRoot } }), /destination root.*real directory/i);
+  await assert.rejects(preparePlannedArtifact({ ...approved, destinationRoots: { 'user-bin': linkedRoot } }), /destination root.*real directory/i);
   const realParent = join(state.root, 'real-parent');
   const linkedParent = join(state.root, 'linked-parent');
   await mkdir(join(realParent, 'bin'), { recursive: true, mode: 0o700 });
   await symlink(realParent, linkedParent);
-  await assert.rejects(preparePlannedArtifact({ ...base, destinationRoots: { 'user-bin': join(linkedParent, 'bin') } }), /symlinked ancestors/i);
-  await assert.rejects(preparePlannedArtifact({ ...base, destinationRoots: { 'user-bin': state.cacheRoot } }), /separate trust domains/i);
+  await assert.rejects(preparePlannedArtifact({ ...approved, destinationRoots: { 'user-bin': join(linkedParent, 'bin') } }), /symlinked ancestors/i);
+  await assert.rejects(preparePlannedArtifact({ ...approved, destinationRoots: { 'user-bin': state.cacheRoot } }), /separate trust domains/i);
   await chmod(state.destinationRoot, 0o777);
-  await assert.rejects(preparePlannedArtifact(base), /destination root.*writable|private/i);
+  await assert.rejects(preparePlannedArtifact(approved), /destination root.*writable|private/i);
   assert.equal(fetches, 0);
 });
 

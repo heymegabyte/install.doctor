@@ -3,8 +3,13 @@ import { createHash } from 'node:crypto';
 import test from 'node:test';
 import { compileArtifactLifecyclePlan, executeArtifactLifecyclePlan, resolveAdmittedUpstreamArtifact } from '../dist/index.js';
 
+/** @param {Buffer} bytes */
 const hash = bytes => createHash('sha256').update(bytes).digest('hex');
 const binV1 = Buffer.from('tool-v1'); const binV2 = Buffer.from('tool-v2'); const docs = Buffer.from('docs');
+/** @typedef {import('../dist/index.js').AdmittedUpstreamArtifact} Admission */
+/** @param {{arch: Admission['platform']['arch'], version: string, bytes: Buffer, provider?: Admission['provider']['kind'], extra?: Admission['extraction']['files']}} input
+ * @returns {Admission}
+ */
 const admission = ({ arch, version, bytes, provider = 'github-release', extra = [] }) => ({
   schemaVersion: 1, admissionId: hash(Buffer.from(`${arch}:${version}`)), package: 'tool', version,
   provider: provider === 'github-release'
@@ -30,8 +35,12 @@ test('resolves exact architecture across GitHub and other admitted upstream prov
 });
 
 test('hermetic extraction, install, update, no-op, and uninstall use one immutable admitted lifecycle', async () => {
-  const state = new Map(); let extractionCalls = 0;
+  /** @type {Map<string, Buffer>} */
+  const state = new Map();
+  let extractionCalls = 0;
+  /** @type {import('../dist/index.js').ArtifactExtractionAdapter} */
   const extract = async ({ expectedFiles }) => { extractionCalls += 1; return expectedFiles.map(file => ({ archivePath: file.archivePath, bytes: file.archivePath.endsWith('docs') ? docs : file.sha256 === hash(binV1) ? binV1 : binV2, mode: file.mode })); };
+  /** @type {import('../dist/index.js').ArtifactInstallAdapter} */
   const install = {
     activate: async ({ files, removePaths }) => { for (const path of removePaths) state.delete(path); for (const file of files) state.set(file.path, Buffer.from(file.bytes)); },
     remove: async ({ paths }) => { for (const path of paths) state.delete(path); },
@@ -39,7 +48,7 @@ test('hermetic extraction, install, update, no-op, and uninstall use one immutab
   const installPlan = compileArtifactLifecyclePlan({ package: 'tool', root: '/opt/tool', target: x64v1 });
   assert.equal(installPlan.action, 'install');
   const receiptV1 = await executeArtifactLifecyclePlan({ plan: installPlan, extract, install });
-  assert.equal(state.get('bin/tool').toString(), 'tool-v1');
+  assert.equal(state.get('bin/tool')?.toString(), 'tool-v1');
 
   const noop = compileArtifactLifecyclePlan({ package: 'tool', root: '/opt/tool', target: x64v1, installed: receiptV1 });
   assert.equal(noop.action, 'noop'); await executeArtifactLifecyclePlan({ plan: noop, extract, install });
@@ -48,7 +57,7 @@ test('hermetic extraction, install, update, no-op, and uninstall use one immutab
   const update = compileArtifactLifecyclePlan({ package: 'tool', root: '/opt/tool', target: x64v2, installed: receiptV1 });
   assert.equal(update.action, 'update');
   const receiptV2 = await executeArtifactLifecyclePlan({ plan: update, extract, install });
-  assert.equal(state.get('bin/tool').toString(), 'tool-v2'); assert.equal(state.get('share/tool/docs').toString(), 'docs');
+  assert.equal(state.get('bin/tool')?.toString(), 'tool-v2'); assert.equal(state.get('share/tool/docs')?.toString(), 'docs');
 
   const uninstall = compileArtifactLifecyclePlan({ package: 'tool', root: '/opt/tool', installed: receiptV2, uninstall: true });
   assert.equal(uninstall.action, 'uninstall'); await executeArtifactLifecyclePlan({ plan: uninstall, extract, install });

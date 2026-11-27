@@ -10,9 +10,18 @@ import {
 } from '../dist/index.js';
 
 function persistence() {
+  /** @type {import('../dist/index.js').ConfigurationCompensationArtifact[]} */
   const prepared = [];
+  /** @type {Parameters<import('../dist/index.js').ConfigurationCompensationPersistence['update']>[0][]} */
   const updated = [];
-  return { prepared, updated, prepare: async value => prepared.push(value), update: async value => updated.push(value) };
+  /** @satisfies {import('../dist/index.js').ConfigurationCompensationPersistence & { prepared: typeof prepared, updated: typeof updated }} */
+  const durable = {
+    prepared,
+    updated,
+    async prepare(value) { prepared.push(value); },
+    async update(value) { updated.push(value); },
+  };
+  return durable;
 }
 
 test('managed directory creation is private, marker-authorized, journal-first, idempotent, and reversible', async () => {
@@ -25,19 +34,21 @@ test('managed directory creation is private, marker-authorized, journal-first, i
     persistence: durable,
   });
   assert.equal(durable.prepared.length, 1);
-  assert.equal(durable.prepared[0].snapshot.kind, 'directory');
-  assert.equal(durable.prepared[0].snapshot.existed, false);
-  assert.equal(durable.prepared[0].record.artifactDigest,
-    configurationCompensationArtifactDigest(durable.prepared[0].snapshot, null));
+  const [artifact] = durable.prepared;
+  assert.ok(artifact);
+  assert.ok('kind' in artifact.snapshot && artifact.snapshot.kind === 'directory');
+  assert.equal(artifact.snapshot.existed, false);
+  assert.equal(artifact.record.artifactDigest,
+    configurationCompensationArtifactDigest(artifact.snapshot, null));
   assert.equal((await lstat(target)).mode & 0o777, 0o700);
   assert.equal((await lstat(join(target, MANAGED_DIRECTORY_AUTHORITY_MARKER))).mode & 0o777, 0o600);
   assert.equal((await readFile(join(target, MANAGED_DIRECTORY_AUTHORITY_MARKER))).toString('hex'),
-    durable.prepared[0].snapshot.authority.markerHex);
+    artifact.snapshot.authority.markerHex);
   assert.deepEqual(await readdir(target), [MANAGED_DIRECTORY_AUTHORITY_MARKER]);
 
   await transaction.rollback();
-  await assert.rejects(lstat(target), error => error.code === 'ENOENT');
-  assert.equal(durable.updated.at(-1).state, 'applied');
+  await assert.rejects(lstat(target), error => error instanceof Error && 'code' in error && error.code === 'ENOENT');
+  assert.equal(durable.updated.at(-1)?.state, 'applied');
 });
 
 test('managed directory accepts an existing exact directory without mutation or compensation', async () => {

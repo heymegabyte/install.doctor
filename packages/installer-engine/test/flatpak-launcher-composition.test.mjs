@@ -28,7 +28,8 @@ test('Flatpak launcher composition binds selected package, exact command, task, 
   assert.equal(result.launcherRoot, '/home/fixture/.local/bin/flatpak');
   assert.deepEqual(result.directoryRequirements.map(item => item.targetPath), ['/home/fixture/.local/bin/flatpak']);
   assert.equal(result.launchers.length, 1);
-  const launcher = result.launchers[0];
+  const [launcher] = result.launchers;
+  assert.ok(launcher);
   assert.equal(launcher.task.id, 'installer.flatpak-launcher.fixture-app');
   assert.deepEqual(launcher.task.dependencies, ['desired.packages', 'installer.flatpak-launcher-directory']);
   assert.equal(launcher.task.compensation, 'configuration');
@@ -50,9 +51,13 @@ test('Flatpak launcher composition rejects digest, platform, unsafe identifiers,
   assert.throws(() => composeSelectedFlatpakLaunchers({ ...valid, legacyPackages: [] }), /legacy package authority/);
   const macos = loadPlan({ platform: 'macos', selectedPackages: [] });
   assert.throws(() => composeSelectedFlatpakLaunchers({ ...valid, loadPlan: macos, approvedLoadPlanDigest: macos.digest }), /Linux/);
-  for (const [appId, bin] of [['org.example', 'fixture-app'], ['../org.example.App', 'fixture-app'], ['org.example.App', 'bad name']]) {
+  /** @type {Array<[string, string]>} */
+  const invalidLaunchers = [['org.example', 'fixture-app'], ['../org.example.App', 'fixture-app'], ['org.example.App', 'bad name']];
+  for (const [appId, bin] of invalidLaunchers) {
     const badCatalog = structuredClone(catalog);
-    badCatalog[0].flatpakLauncher = { appId, bin };
+    const [pkg] = badCatalog;
+    assert.ok(pkg);
+    pkg.flatpakLauncher = { appId, bin };
     const badPlan = loadPlan({ catalog: badCatalog });
     assert.throws(() => composeSelectedFlatpakLaunchers({ ...valid, loadPlan: badPlan, approvedLoadPlanDigest: badPlan.digest }), /invalid/i);
   }

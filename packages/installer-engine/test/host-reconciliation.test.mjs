@@ -5,8 +5,10 @@ import { join } from 'node:path';
 import test from 'node:test';
 import { HostReconciliationLeaseError, createHostReconciler } from '../dist/index.js';
 
+/** @param {string} character */
 const evidence = character => ({ evidenceDigest: character.repeat(64) });
 
+/** @param {import('node:test').TestContext} t */
 async function fixture(t) {
   const stateRoot = await mkdtemp(join(tmpdir(), 'desktop-tools-reconciliation-'));
   await chmod(stateRoot, 0o700);
@@ -14,7 +16,7 @@ async function fixture(t) {
   let clock = Date.parse('2026-11-10T12:00:00.000Z');
   const now = () => new Date(clock++).toISOString();
   const common = { stateRoot, hostId: 'host-one', leaseMs: 10_000, now };
-  return { stateRoot, common, advance: milliseconds => { clock += milliseconds; } };
+  return { stateRoot, common, advance: /** @param {number} milliseconds */ milliseconds => { clock += milliseconds; } };
 }
 
 test('persists the complete reconciliation lifecycle separately from desired state', async t => {
@@ -30,10 +32,10 @@ test('persists the complete reconciliation lifecycle separately from desired sta
   assert.deepEqual(completed.completedActions, ['discover', 'validate', 'plan', 'approve', 'apply', 'verify']);
   const status = await reconciler.status();
   assert.equal(status.lease, null, 'verified reconciliation releases host ownership');
-  assert.equal(status.state.lastEvidenceDigest, 'f'.repeat(64));
+  assert.equal(status.state?.lastEvidenceDigest, 'f'.repeat(64));
   const durable = JSON.parse(await readFile(join(state.stateRoot, 'hosts', 'host-one', 'state.json'), 'utf8'));
   assert.deepEqual(durable, status.state);
-  await assert.rejects(readFile(join(state.stateRoot, 'desired-state.json')), error => error.code === 'ENOENT');
+  await assert.rejects(readFile(join(state.stateRoot, 'desired-state.json')), { code: 'ENOENT' });
 });
 
 test('pause, resume, interruption, and stop preserve exact durable progress', async t => {
@@ -49,8 +51,8 @@ test('pause, resume, interruption, and stop preserve exact durable progress', as
   await second.validate(async () => evidence('b'));
   await assert.rejects(second.plan(async () => { throw new Error('planner interrupted'); }), /planner interrupted/);
   const interrupted = await second.status();
-  assert.equal(interrupted.state.status, 'paused');
-  assert.equal(interrupted.state.activeAction, 'plan');
+  assert.equal(interrupted.state?.status, 'paused');
+  assert.equal(interrupted.state?.activeAction, 'plan');
   assert.equal(interrupted.lease, null);
   await second.resume();
   await second.plan(async () => evidence('c'));
@@ -72,7 +74,7 @@ test('concurrent reconcilers cannot own one host and stale takeover requires exp
   assert.equal(claims.filter(result => result.status === 'rejected'
     && result.reason instanceof HostReconciliationLeaseError).length, 1);
   const owner = claims[0].status === 'fulfilled' ? first : second;
-  assert.equal((await owner.status()).lease.ownerId, claims[0].status === 'fulfilled' ? 'controller-one' : 'controller-two');
+  assert.equal((await owner.status()).lease?.ownerId, claims[0].status === 'fulfilled' ? 'controller-one' : 'controller-two');
 
   state.advance(20_000);
   const liveAfterExpiry = await createHostReconciler({ ...state.common, ownerId: 'controller-three', isOwnerAlive: async () => true });
@@ -91,8 +93,8 @@ test('rejects skipped phases and non-owner controls without changing durable sta
   await assert.rejects(other.pause(), HostReconciliationLeaseError);
   await assert.rejects(other.stop(), HostReconciliationLeaseError);
   const status = await owner.status();
-  assert.deepEqual(status.state.completedActions, ['discover']);
-  assert.equal(status.lease.ownerId, 'controller-one');
+  assert.deepEqual(status.state?.completedActions, ['discover']);
+  assert.equal(status.lease?.ownerId, 'controller-one');
 });
 
 test('rejects a symlinked state root before changing its target permissions', async t => {

@@ -5,17 +5,24 @@ import { join } from 'node:path';
 import test from 'node:test';
 import { createLaunchdServiceStateAdapter } from '../dist/index.js';
 
+const uid = process.geteuid?.();
+assert.ok(typeof uid === 'number', 'launchd fixtures require a POSIX effective user ID');
+
+/** @param {{ override: 'missing' | 'enabled' | 'disabled', loaded: boolean, activity: 'running' | 'not-running' | 'waiting', keepAlive?: boolean }} initial */
 async function fixture(initial) {
-  const uid = process.geteuid();
   const root = await realpath(await mkdtemp(join(tmpdir(), 'install-doctor-launchd-')));
   const definitions = join(root, 'Library', 'LaunchAgents');
   await mkdir(definitions, { recursive: true });
   const definitionPath = join(definitions, 'com.install-doctor.fixture.plist');
   await writeFile(definitionPath, '<plist><dict><key>Label</key><string>com.install-doctor.fixture</string></dict></plist>', { mode: 0o600 });
   const state = { ...initial };
+  /** @type {Array<[string, string, ...string[]]>} */
   const calls = [];
+  /** @type {NonNullable<Parameters<typeof createLaunchdServiceStateAdapter>[0]['execute']>} */
   const execute = async (file, args) => {
-    calls.push([file, ...args]);
+    const [command, ...parameters] = args;
+    assert.ok(command);
+    calls.push([file, command, ...parameters]);
     if (file === '/usr/bin/plutil') return args[1] === 'KeepAlive'
       ? { code: 0, stdout: `${state.keepAlive === true}\n` }
       : { code: 0, stdout: 'com.install-doctor.fixture\n' };
@@ -51,13 +58,17 @@ test('launchd adapter captures explicit and default enablement without synthesiz
   const value = await fixture({ override: 'disabled', loaded: true, activity: 'not-running' });
   const captured = await value.adapter.capture('com.install-doctor.fixture');
   assert.deepEqual({ ...captured, definition: undefined }, {
-    domain: { kind: 'gui', uid: process.geteuid() }, definition: undefined,
+    domain: { kind: 'gui', uid }, definition: undefined,
     enablementOverride: 'disabled', loaded: true, activity: 'not-running',
   });
   const missing = await fixture({ override: 'missing', loaded: false, activity: 'not-running' });
-  assert.equal((await missing.adapter.capture('com.install-doctor.fixture')).enablementOverride, 'default');
+  const missingState = await missing.adapter.capture('com.install-doctor.fixture');
+  assert.ok('enablementOverride' in missingState);
+  assert.equal(missingState.enablementOverride, 'default');
   const waiting = await fixture({ override: 'enabled', loaded: true, activity: 'waiting' });
-  assert.equal((await waiting.adapter.capture('com.install-doctor.fixture')).activity, 'not-running');
+  const waitingState = await waiting.adapter.capture('com.install-doctor.fixture');
+  assert.ok('activity' in waitingState);
+  assert.equal(waitingState.activity, 'not-running');
 });
 
 test('launchd default enablement restores only while no explicit override has appeared', async () => {
@@ -89,6 +100,7 @@ test('launchd adapter rejects unenrolled labels and definition identity drift', 
   await assert.rejects(value.adapter.capture('../escape'), /invalid launchd service identifier/);
   await assert.rejects(value.adapter.capture('com.install-doctor.other'), /not enrolled/);
   const captured = await value.adapter.capture('com.install-doctor.fixture');
+  assert.ok('definition' in captured);
   await writeFile(captured.definition.canonicalPath, 'changed', { mode: 0o600 });
   await assert.rejects(value.adapter.restore('com.install-doctor.fixture', captured), /definition identity changed/);
 });

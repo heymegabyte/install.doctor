@@ -28,7 +28,8 @@ test('cask launcher composition binds selected package, deterministic paths, tas
   assert.equal(result.launcherRoot, '/Users/fixture/.local/bin/cask');
   assert.deepEqual(result.directoryRequirements.map(item => item.targetPath), ['/Users/fixture/.local/bin/cask']);
   assert.equal(result.launchers.length, 1);
-  const launcher = result.launchers[0];
+  const [launcher] = result.launchers;
+  assert.ok(launcher);
   assert.equal(launcher.task.id, 'installer.cask-launcher.fixture-app');
   assert.deepEqual(launcher.task.dependencies, ['desired.packages', 'installer.cask-launcher-directory']);
   assert.equal(launcher.task.compensation, 'configuration');
@@ -50,9 +51,13 @@ test('cask launcher composition rejects digest, platform, unsafe names, duplicat
   const linux = loadPlan({ platform: 'linux', selectedPackages: [] });
   assert.throws(() => composeSelectedCaskLaunchers({ ...valid, loadPlan: linux, approvedLoadPlanDigest: linux.digest }), /macOS/);
 
-  for (const [appBundle, bin] of [['../Escape.app', 'fixture-app'], ['Bad/Path.app', 'fixture-app'], ['Good.app', 'bad name']]) {
+  /** @type {Array<[string, string]>} */
+  const invalidLaunchers = [['../Escape.app', 'fixture-app'], ['Bad/Path.app', 'fixture-app'], ['Good.app', 'bad name']];
+  for (const [appBundle, bin] of invalidLaunchers) {
     const badCatalog = structuredClone(catalog);
-    badCatalog[0].caskLauncher = { appBundle, bin };
+    const [pkg] = badCatalog;
+    assert.ok(pkg);
+    pkg.caskLauncher = { appBundle, bin };
     const badPlan = loadPlan({ catalog: badCatalog });
     assert.throws(() => composeSelectedCaskLaunchers({ ...valid, loadPlan: badPlan, approvedLoadPlanDigest: badPlan.digest }), /invalid|basename/i);
   }
