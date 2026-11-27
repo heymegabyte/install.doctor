@@ -23,6 +23,8 @@
     "help": "task --list",
     "lint": "task test:scripts",
     "repair": "curl -fsSL https://app.install.doctor/start | bash -s -- --repair",
+    "secrets:test-destination-verifier": "node scripts/test-verify-infisical-ledger-destinations.mjs",
+    "secrets:verify-destinations": "node scripts/verify-infisical-ledger-destinations.mjs --json",
     "sort:software": "yq -i 'sort_keys(..)' software.yml",
     "start": "bash start.sh",
     "test": "task test",
