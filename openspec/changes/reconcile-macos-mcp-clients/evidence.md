@@ -28,6 +28,9 @@
 - Codex's native MCP parser reports `megabyte-primary` as enabled Streamable HTTP at the canonical primary endpoint.
 - Claude Code, Claude Desktop, OpenCode, and Cursor native documents parse and expose the same canonical primary remote entry.
 - All five files contain no `megabyte-automation` entry.
+- Codex completed the primary portal OAuth flow through the existing Cloudflare Access session.
+- A fresh Codex process discovered exactly the three read-only Megabyte OS tools plus the three portal-selection tools; an explicitly approved call to `megabyte_os_public_about_megabyte_os` completed successfully.
+- The first non-interactive probe correctly refused execution under an approval policy of `never`, demonstrating that client approval remains an independent enforcement layer rather than an authentication failure.
 - Claude and OpenCode health-list commands did not return within the bounded verification window; configuration parsing and idempotent digest verification passed, but live upstream authentication is not claimed.
 
 No credential values or file contents are recorded here.
