@@ -25,12 +25,25 @@ const deskSecrets = [
 assert.deepEqual(selectConfigurationSecrets(manifest, manifest.workloads['bz.rocks'], [...bzSecrets, ...deskSecrets]), bzSecrets);
 assert.deepEqual(selectConfigurationSecrets(manifest, manifest.workloads['deskl.ink'], [...bzSecrets, ...deskSecrets]), deskSecrets.sort());
 for (const host of Object.keys(manifest.hosts)) {
-  assert.deepEqual(selectHostSecrets(manifest, host, [...bzSecrets, ...deskSecrets]), []);
+  assert.deepEqual(
+    selectHostSecrets(manifest, host, [...bzSecrets, ...deskSecrets]),
+    host === 'ubuntu.megabyte.space' ? ['ANTHROPIC_API_KEY'] : [],
+  );
 }
 assert.deepEqual(selectConfigurationSecrets(manifest, manifest.workloads['mcp.megabyte.space'], [...bzSecrets, ...deskSecrets]), []);
 assert.deepEqual(selectConfigurationSecrets(
   manifest, manifest.workloads['crawl.cheap'], ['EXA_API_KEY', 'SENTRY_DSN', 'ANTHROPIC_API_KEY'],
 ), ['EXA_API_KEY', 'SENTRY_DSN']);
+const ghostSecrets = [
+  'ANTHROPIC_API_KEY', 'HASS_ACCESS_CLIENT_ID', 'HASS_ACCESS_CLIENT_SECRET', 'HASS_SERVER', 'HASS_TOKEN',
+  'SENTRY_DSN', 'TWILIO_ACCOUNT_SID', 'TWILIO_AUTH_TOKEN',
+];
+assert.deepEqual(selectConfigurationSecrets(
+  manifest, manifest.workloads['ghost.claims'], [...ghostSecrets, 'LISTMONK_API_TOKEN'],
+), ghostSecrets.sort());
+assert.deepEqual(selectConfigurationSecrets(
+  manifest, manifest.workloads['mcp.megabyte.space'], ghostSecrets,
+), []);
 
 const fetched = await fetchPublicRepositories('heymegabyte', async () => new Response(JSON.stringify([
   { id: 1, name: 'one', default_branch: 'main', archived: false, disabled: false },
