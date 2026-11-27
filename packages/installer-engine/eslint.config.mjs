@@ -51,9 +51,7 @@ const pendingSourceFiles = [
   'src/privileged-systemd-transaction-store.ts',
   'src/process-identity.ts',
   'src/provisioning-prompt.ts',
-  'src/proxmox-fixture-contract.ts',
   'src/proxmox-lifecycle.ts',
-  'src/qubes-fixture-contract.ts',
   'src/qubes-native-lifecycle.ts',
   'src/reviewed-plan-binding.ts',
   'src/rollback-executor.ts',
@@ -63,7 +61,6 @@ const pendingSourceFiles = [
   'src/target-device-authorization.ts',
   'src/target-device-credential.ts',
   'src/verified-artifact-materializer.ts',
-  'src/windows-fixture-contract.ts',
   'src/windows-native-operations.ts',
   'src/wsl-boundary.ts',
 ].map(file => `packages/installer-engine/${file}`);
