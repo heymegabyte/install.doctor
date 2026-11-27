@@ -58,6 +58,12 @@ jobs:
         if: ${{ !cancelled() && steps.aid-core.outcome != 'skipped' }}
         run: npm --prefix packages/aid-core run inventory:check
 
+      - name: Verify Installer Engine source lint
+        if: ${{ !cancelled() && steps.runtime-test-dependencies.outcome == 'success' }}
+        run: |
+          npm --prefix packages/aid-core run build
+          npm --prefix packages/installer-engine run lint:source
+
       - name: Verify Desktop Tools Runtime types, lint, and behavior
         if: ${{ !cancelled() && steps.aid-core.outcome != 'skipped' }}
         run: npm --prefix packages/desktop-tools-runtime test

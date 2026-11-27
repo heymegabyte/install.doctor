@@ -28,13 +28,16 @@ The engine is the canonical lifecycle owner for the production bootstrap. `scrip
 Run:
 
 ```bash
-npm install
+npm --prefix ../aid-core ci
+npm ci
 npm test
 ```
 
-The engine build uses the vendored shared strict compiler profile. The test command
-also checks the test files and composition fixture listed in `tsconfig.test.json`
-against the emitted engine declarations.
+The engine build uses the vendored shared strict compiler profile. The test command also runs
+`npm run lint:source` with the same shared strict ESLint profile as Aid Core. It covers new
+TypeScript source files and the existing files outside the exact debt exclusions in
+`eslint.config.mjs`. The test compiler checks the files and composition fixture listed in
+`tsconfig.test.json` against the emitted engine declarations.
 
 For narrower platform-contract development, build once and run the named fixture directly. For
 example, the Qubes boundary is verified without contacting or mutating a Qubes host:
