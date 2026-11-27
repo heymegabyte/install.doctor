@@ -4,6 +4,9 @@ on:
   pull_request:
     paths:
       - "config/infisical/**"
+      - "home/.chezmoitemplates/**"
+      - "packages/aid-core/**"
+      - "scripts/check-offline-secret-inventory.mjs"
       - "scripts/infisical-identity-policy.mjs"
       - "scripts/test-infisical-identity-policy.sh"
       - ".github/workflows/infisical-policy.yml"
@@ -11,6 +14,9 @@ on:
     branches: [main, master]
     paths:
       - "config/infisical/**"
+      - "home/.chezmoitemplates/**"
+      - "packages/aid-core/**"
+      - "scripts/check-offline-secret-inventory.mjs"
       - "scripts/infisical-identity-policy.mjs"
       - "scripts/test-infisical-identity-policy.sh"
       - ".github/workflows/infisical-policy.yml"
@@ -30,5 +36,17 @@ jobs:
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24.22.2
+          cache: npm
+          cache-dependency-path: packages/aid-core/package-lock.json
+      - name: Verify tracked offline template inventory
+        run: |
+          npm --prefix packages/aid-core ci --ignore-scripts --no-audit --no-fund
+          npm --prefix packages/aid-core run build
+          npm --prefix packages/aid-core run inventory:check
       - name: Test deterministic validator and planner
         run: bash scripts/test-infisical-identity-policy.sh
