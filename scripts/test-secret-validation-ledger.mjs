@@ -20,6 +20,11 @@ const sourceDirectoriesByStore = new Map([
   ['workstation', sourceDirectories[1]],
   ['wordpress', sourceDirectories[2]],
 ]);
+const repositoryDirectoriesByStore = new Map([
+  ['general', new URL('../home/.chezmoitemplates/secrets/', import.meta.url)],
+  ['workstation', new URL('../home/.chezmoitemplates/secrets-workstation/', import.meta.url)],
+  ['wordpress', new URL('../home/.chezmoitemplates/secrets-wordpress/', import.meta.url)],
+]);
 
 for (const [name, record] of Object.entries(ledger.records)) {
   assert.ok(allowedStatuses.has(record.status), `${name} has an unsupported validation status`);
@@ -28,10 +33,13 @@ for (const [name, record] of Object.entries(ledger.records)) {
     if (name.includes(':')) {
       const [store, canonicalName] = name.split(':', 2);
       const directory = sourceDirectoriesByStore.get(store);
+      const repositoryDirectory = repositoryDirectoriesByStore.get(store);
       assert.ok(directory, `${name} references an unknown source store`);
+      assert.ok(repositoryDirectory, `${name} references an unknown repository source store`);
       assert.equal(record.sourceId, name, `${name} does not bind its exact source id`);
       assert.equal(record.canonicalName, canonicalName, `${name} does not bind its canonical name`);
       assert.equal(existsSync(join(directory, canonicalName)), false, `${name} still exists in its exact source store`);
+      assert.equal(existsSync(new URL(canonicalName, repositoryDirectory)), false, `${name} is retired locally but still tracked in the repository checkout`);
     } else {
       for (const directory of sourceDirectories) {
         assert.equal(existsSync(join(directory, name)), false, `${name} still exists in ${directory}`);
