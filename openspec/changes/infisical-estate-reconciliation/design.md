@@ -88,9 +88,9 @@ Retrieval is bounded to enrollment/recovery. The resolver passes the pair reques
 
 ### Cloudflare Origin CA key disposition
 
-Repo-wide evidence finds no executable consumer of `CLOUDFLARE_ORIGIN_CA_KEY`; documentation explicitly calls it currently unused, while shared API pool documentation only lists its name. Both general and workstation copies are therefore `retirement-candidate`, not macOS credentials and not an offline recovery exception. Their required-destination sets are empty.
+Repo-wide evidence finds no executable consumer of `CLOUDFLARE_ORIGIN_CA_KEY`; documentation explicitly calls it currently unused, while a live read-only Origin CA certificate-list call proves the exact legacy User Service Key remains valid. Deleting a valid account-level certificate-issuance credential without first preserving it would violate the estate migration objective. Both general and workstation copies therefore route to the dedicated `cloudflare-control-plane.megabyte.space` Infisical project, which has human-admin access only and no runtime machine identity.
 
-Before deletion, a provider-appropriate non-value inspection must establish whether the exact key is active/revoked where possible, consumer and certificate-issuance inventories must remain empty, and an exact retirement assertion must pass. If a real issuance consumer is discovered, planning changes the disposition to blocked pending a dedicated certificate-issuance workload/project with narrow operator access and audit; it must not re-admit the legacy key through generic `cloudflare` or any host profile. A future need should prefer a newly scoped credential rather than perpetuating this legacy key.
+The project exposes an exact `cloudflare-origin-ca-admin` capability and never grants the key through generic `cloudflare`, macOS, Ubuntu, managed-host, MCP, WordPress, CI, or application profiles. The two byte-identical sources retain separate validation and retirement records but converge on one destination value. After destination round trip and human-admin retrieval verification, both encrypted sources may retire. Any future certificate-issuance automation requires a newly scoped API token and dedicated audited workload identity rather than access to this legacy key.
 
 ### Megabyte OS E2E Access credential placement
 

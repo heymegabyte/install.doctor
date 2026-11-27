@@ -170,20 +170,21 @@ The system SHALL reserve `CLOUDFLARE_TEAMS_CLIENT_ID` and `CLOUDFLARE_TEAMS_CLIE
 - **THEN** the shared token becomes eligible for separately authorized policy removal and revocation
 - **AND** one host's evidence cannot authorize the other host's cutover
 
-### Requirement: Unused Origin CA key retirement
+### Requirement: Isolated Origin CA administrative vault
 
-The system SHALL classify each general/workstation `CLOUDFLARE_ORIGIN_CA_KEY` source as `retirement-candidate` with an empty destination set while no executable certificate-issuance consumer is evidenced. The key SHALL NOT enter generic Cloudflare, macOS, host, or workload profiles.
+The system SHALL preserve each valid general/workstation `CLOUDFLARE_ORIGIN_CA_KEY` source in the dedicated human-admin-only `cloudflare-control-plane.megabyte.space` Infisical project before source retirement. The key SHALL NOT enter generic Cloudflare, macOS, Ubuntu, managed-host, MCP, WordPress, CI, or application profiles, and the destination SHALL have no runtime machine identity.
 
 #### Scenario: No Origin CA consumer exists
 
-- **WHEN** provider-status inspection and synchronized consumer listings confirm no active required consumer
-- **THEN** each exact source proceeds through the no-destination retirement assertion and deletion gates without migration
+- **WHEN** provider-status inspection proves the key valid and synchronized consumer listings confirm no runtime consumer
+- **THEN** both exact sources migrate to the isolated administrative vault and independently pass round-trip and retirement gates
+- **AND** no host or workload identity can retrieve the destination
 
 #### Scenario: Certificate-issuance consumer is discovered
 
 - **WHEN** evidence identifies a current consumer before retirement
-- **THEN** deletion and host migration are blocked
-- **AND** architecture requires a dedicated certificate-issuance workload/project and newly scoped credential review
+- **THEN** the legacy administrative key remains isolated and runtime distribution is blocked
+- **AND** architecture requires a dedicated certificate-issuance workload and newly scoped credential review
 
 ### Requirement: Application-bound Megabyte OS E2E credential
 
