@@ -30,8 +30,14 @@ export function validateRepositoryProfiles(inventory, manifest, liveRepositories
       fail(`invalid secret disposition for ${repository.name}`);
     }
     if (repository.disposition === 'runtime') {
-      if (!repository.infisicalWorkload) gaps.push(repository.name);
-      else if (!manifest?.workloads?.[repository.infisicalWorkload]) fail(`${repository.name} references unknown workload ${repository.infisicalWorkload}`);
+      if (!repository.infisicalWorkload || repository.runtimeReady !== true) gaps.push(repository.name);
+      if (repository.infisicalWorkload) {
+        const workload = manifest?.workloads?.[repository.infisicalWorkload];
+        if (!workload) fail(`${repository.name} references unknown workload ${repository.infisicalWorkload}`);
+        if (!Array.isArray(manifest.profiles?.[workload.profile]) || manifest.profiles[workload.profile].length === 0) {
+          fail(`${repository.name} references an empty workload profile`);
+        }
+      }
     } else if (repository.infisicalWorkload !== null) {
       fail(`${repository.name} cannot bind a workload with ${repository.disposition} disposition`);
     }
