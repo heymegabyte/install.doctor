@@ -20,7 +20,7 @@ const canonical = value => Array.isArray(value) ? value.map(canonical)
 /** @param {string} domain @param {unknown} value */
 const semanticDigest = (domain, value) => digest(`${domain}\0${JSON.stringify(canonical(value))}`);
 
-test('creates a canonical public broker approval delegation from source-owned release policy', async t => {
+void test('creates a canonical public broker approval delegation from source-owned release policy', async t => {
   const root = await mkdtemp(join(tmpdir(), 'desktop-delegation-test-'));
   t.after(() => rm(root, { recursive: true, force: true }));
   const publicKeySpki = generateKeyPairSync('ed25519').publicKey.export({ type: 'spki', format: 'der' }).toString('base64url');
@@ -39,7 +39,7 @@ test('creates a canonical public broker approval delegation from source-owned re
 
 const inputs = createDesktopReleaseInputs;
 
-test('builds deterministic unsigned Desktop Tools v10 closure with delegated approval and SPDX evidence', async t => {
+void test('builds deterministic unsigned Desktop Tools v10 closure with delegated approval and SPDX evidence', async t => {
   const root = await mkdtemp(join(tmpdir(), 'desktop-builder-test-'));
   t.after(() => rm(root, { recursive: true, force: true }));
   const now = Math.floor(Date.now() / 1_000);
@@ -87,7 +87,7 @@ test('builds deterministic unsigned Desktop Tools v10 closure with delegated app
 
 });
 
-test('rejects malformed, stale, or substituted lock and license metadata before signing', async t => {
+void test('rejects malformed, stale, or substituted lock and license metadata before signing', async t => {
   const root = await mkdtemp(join(tmpdir(), 'desktop-metadata-test-'));
   t.after(() => rm(root, { recursive: true, force: true }));
   const now = Math.floor(Date.now() / 1_000);
@@ -141,7 +141,7 @@ test('rejects malformed, stale, or substituted lock and license metadata before 
   await assert.rejects(buildDesktopToolsRelease({ ...common, ...noncanonical, outputDirectory: join(root, 'noncanonical-delegation') }, now), /canonical JSON/);
 });
 
-test('signs and verifies the complete closure offline; tamper, surplus, and every platform substitution fail', async t => {
+void test('signs and verifies the complete closure offline; tamper, surplus, and every platform substitution fail', async t => {
   const root = await mkdtemp(join(tmpdir(), 'desktop-signer-test-'));
   t.after(() => rm(root, { recursive: true, force: true }));
   const privateKey = join(root, 'signer');

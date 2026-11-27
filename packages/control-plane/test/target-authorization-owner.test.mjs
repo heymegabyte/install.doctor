@@ -14,7 +14,7 @@ const { status, expiresAt, ...binding } = record;
 /** @type {Parameters<typeof authorizeTargetAuthorizationDecision>[1]} */
 const request = { ...binding, decision: 'approve', approvedScopes: ['profile:read', 'session:create'] };
 
-test('approves or denies only the exact displayed target authorization', () => {
+void test('approves or denies only the exact displayed target authorization', () => {
   assert.deepEqual(authorizeTargetAuthorizationDecision(record, request, now), {
     ok: true, status: 'approved', decidedAt: now.toISOString(), approvedScopes: record.requestedScopes,
   });
@@ -23,7 +23,7 @@ test('approves or denies only the exact displayed target authorization', () => {
   });
 });
 
-test('rejects every binding substitution and stale lifecycle state', () => {
+void test('rejects every binding substitution and stale lifecycle state', () => {
   for (const changed of [
     { requestId: 'auth-2' }, { verificationCode: 'AAAA-BBBB' }, { profileId: 'profile-2' },
     { profileRevision: 'revision-2' }, { profileRevisionDigest: 'c'.repeat(64) },
@@ -33,7 +33,7 @@ test('rejects every binding substitution and stale lifecycle state', () => {
   assert.deepEqual(authorizeTargetAuthorizationDecision({ ...record, expiresAt: now.toISOString() }, request, now), { ok: false, status: 410, error: 'authorization_expired' });
 });
 
-test('allows canonical scope narrowing but rejects broadening, duplicates, and reordering', () => {
+void test('allows canonical scope narrowing but rejects broadening, duplicates, and reordering', () => {
   const narrowed = authorizeTargetAuthorizationDecision(record, { ...request, approvedScopes: ['profile:read'] }, now);
   assert.equal(narrowed.ok, true);
   assert.deepEqual(narrowed.approvedScopes, ['profile:read']);

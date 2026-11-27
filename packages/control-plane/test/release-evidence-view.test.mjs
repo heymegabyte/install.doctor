@@ -45,7 +45,7 @@ function fixture() {
   return { releaseId, manifest: bytes(`${lines.join('\n')}\n`), ...objects };
 }
 
-test('projects exact byte-bound SBOM, VEX, and catalog provenance without tenant or source-field leakage', async () => {
+void test('projects exact byte-bound SBOM, VEX, and catalog provenance without tenant or source-field leakage', async () => {
   const input = fixture(); const view = await projectPublicReleaseEvidence(input);
   assert.equal(view.exactReleaseBytes, true);
   assert.equal(view.catalog.sha256, digest(input.catalog));
@@ -57,7 +57,7 @@ test('projects exact byte-bound SBOM, VEX, and catalog provenance without tenant
   assert.doesNotMatch(serialized, /must-not-leak|private analyst|private:\/\/|tenant|secret/i);
 });
 
-test('rejects substituted release bytes and exploitability evidence bound to another closure', async () => {
+void test('rejects substituted release bytes and exploitability evidence bound to another closure', async () => {
   const catalogTamper = fixture(); catalogTamper.catalog = bytes([{ name: 'substituted' }]);
   await assert.rejects(projectPublicReleaseEvidence(catalogTamper), /signed manifest/);
   const vexTamper = fixture();
@@ -71,7 +71,7 @@ test('rejects substituted release bytes and exploitability evidence bound to ano
   await assert.rejects(projectPublicReleaseEvidence(vexTamper), /exact release closure/);
 });
 
-test('bounded object reader rejects declared and streamed oversize or mismatched objects', async () => {
+void test('bounded object reader rejects declared and streamed oversize or mismatched objects', async () => {
   const small = bytes('ok');
   assert.deepEqual(await readReleaseEvidenceObject(new Blob([small]).stream(), small.byteLength), small);
   await assert.rejects(readReleaseEvidenceObject(new Blob([small]).stream(), small.byteLength + 1), /mismatch/);

@@ -68,7 +68,7 @@ function fixture(overrides = {}) {
   return { adapter, calls, values };
 }
 
-test('accepts only when independent device, public profile, active release, owner and plan facts agree', async () => {
+void test('accepts only when independent device, public profile, active release, owner and plan facts agree', async () => {
   const { adapter, calls } = fixture();
   assert.deepEqual(await adapter.reconstructRunIntent(intent, principal), intent);
   assert.deepEqual(calls.map(([name]) => name), ['device', 'profile', 'release', 'owner', 'plan']);
@@ -78,7 +78,7 @@ test('accepts only when independent device, public profile, active release, owne
   });
 });
 
-test('rejects every authenticated device and immutable public-profile substitution', async () => {
+void test('rejects every authenticated device and immutable public-profile substitution', async () => {
   for (const changed of [
     { request: { tenantId: 'tenant-2' } },
     { request: { deviceCredentialId: 'device-2' } },
@@ -109,7 +109,7 @@ test('rejects every authenticated device and immutable public-profile substituti
   }
 });
 
-test('rejects inactive, substituted, and expired releases and invalid grant time windows', async () => {
+void test('rejects inactive, substituted, and expired releases and invalid grant time windows', async () => {
   for (const release of [
     { ...fixture().values.release, releaseId: 'release-2' },
     { ...fixture().values.release, product: 'other-product' },
@@ -129,7 +129,7 @@ test('rejects inactive, substituted, and expired releases and invalid grant time
     requestedAt: '2026-11-09T11:30:00.000Z', grantExpiresAt: current.toISOString() }, principal), null);
 });
 
-test('rejects missing owner mapping and every independently reconstructed plan substitution', async () => {
+void test('rejects missing owner mapping and every independently reconstructed plan substitution', async () => {
   assert.equal(await fixture({ owner: null }).adapter.reconstructRunIntent(intent, principal), null);
   for (const changed of [
     { hostId: 'host-2' }, { runId: 'run-2' }, { planDigest: hex('9') }, { enrolledUid: 0 },
@@ -141,7 +141,7 @@ test('rejects missing owner mapping and every independently reconstructed plan s
   assert.throws(() => AuthoritativeBrokerPlanFacts.parse({ ...facts(intent), unknownAuthority: true }));
 });
 
-test('does not disguise resolver failure as authoritative mismatch', async () => {
+void test('does not disguise resolver failure as authoritative mismatch', async () => {
   const setup = fixture({ plan: undefined });
   await assert.rejects(setup.adapter.reconstructRunIntent(intent, principal));
 });

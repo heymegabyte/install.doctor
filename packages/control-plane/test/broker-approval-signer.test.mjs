@@ -160,7 +160,7 @@ function fixture(options = {}) {
   return { boundary, exactState, keyPair, signer, signedMessages, consumedInputs };
 }
 
-test('strict schemas reject unknown fields, grant broadening, and missing minimum operation scope', () => {
+void test('strict schemas reject unknown fields, grant broadening, and missing minimum operation scope', () => {
   const setup = fixture();
   const exactRequest = request(setup.exactState);
   assert.throws(() => BrokerApprovalRequest.parse({ ...exactRequest, grant: grant() }));
@@ -173,7 +173,7 @@ test('strict schemas reject unknown fields, grant broadening, and missing minimu
   assert.throws(() => BrokerApprovalDurableState.parse({ ...setup.exactState, unknown: true }));
 });
 
-test('reconstructs the exact grant from durable state and signs its complete audit correlation', async () => {
+void test('reconstructs the exact grant from durable state and signs its complete audit correlation', async () => {
   const setup = fixture();
   const approval = await setup.boundary.approve(request(setup.exactState));
   assert.deepEqual(approval.grant, setup.exactState.grant);
@@ -202,7 +202,7 @@ test('reconstructs the exact grant from durable state and signs its complete aud
   assert.doesNotThrow(() => SignedBrokerApproval.parse(approval));
 });
 
-test('rejects denied, pending, or otherwise non-approved durable state before signing', async () => {
+void test('rejects denied, pending, or otherwise non-approved durable state before signing', async () => {
   for (const changed of [
     { ownerDecision: 'denied' },
     { status: 'pending' },
@@ -215,7 +215,7 @@ test('rejects denied, pending, or otherwise non-approved durable state before si
   }
 });
 
-test('requires a current authenticated owner decision in durable state', async () => {
+void test('requires a current authenticated owner decision in durable state', async () => {
   const baseline = fixture();
   for (const ownerReauthenticatedAt of [
     '2026-11-09T11:54:59.999Z',
@@ -229,7 +229,7 @@ test('requires a current authenticated owner decision in durable state', async (
   }
 });
 
-test('rejects expired grants and expired or not-yet-valid delegations before signing', async () => {
+void test('rejects expired grants and expired or not-yet-valid delegations before signing', async () => {
   const baseline = fixture();
   for (const changedState of [
     { grant: grant({ expiresAt: now.toISOString() }) },
@@ -243,14 +243,14 @@ test('rejects expired grants and expired or not-yet-valid delegations before sig
   }
 });
 
-test('atomically denies replay even when the reconstructed state remains approved', async () => {
+void test('atomically denies replay even when the reconstructed state remains approved', async () => {
   const setup = fixture();
   await setup.boundary.approve(request(setup.exactState));
   await assert.rejects(setup.boundary.approve(request(setup.exactState)), /already consumed/);
   assert.equal(setup.consumedInputs.length, 2);
 });
 
-test('rejects tenant, profile, revision, device, run, authorization, decision, and grant substitution', async () => {
+void test('rejects tenant, profile, revision, device, run, authorization, decision, and grant substitution', async () => {
   const baseline = fixture();
   const substitutions = [
     { tenantId: 'tenant-2' },
@@ -271,7 +271,7 @@ test('rejects tenant, profile, revision, device, run, authorization, decision, a
   }
 });
 
-test('accepts both explicitly delegated signers during rotation overlap', async () => {
+void test('accepts both explicitly delegated signers during rotation overlap', async () => {
   const oldPair = generateKeyPairSync('ed25519');
   const newPair = generateKeyPairSync('ed25519');
   const oldState = state(delegation('approval-key-1', oldPair.publicKey, { revocationEpoch: 7 }));
@@ -285,7 +285,7 @@ test('accepts both explicitly delegated signers during rotation overlap', async 
   assert.equal((await newSigner.boundary.approve(request(newState))).signerKeyId, 'approval-key-2');
 });
 
-test('emergency revocation epoch rejects stale signer and permits the replacement', async () => {
+void test('emergency revocation epoch rejects stale signer and permits the replacement', async () => {
   const oldPair = generateKeyPairSync('ed25519');
   const newPair = generateKeyPairSync('ed25519');
   const oldState = state(delegation('approval-key-1', oldPair.publicKey, { revocationEpoch: 7 }));
@@ -301,7 +301,7 @@ test('emergency revocation epoch rejects stale signer and permits the replacemen
   assert.equal((await replacement.boundary.approve(request(replacementState))).revocationEpoch, 8);
 });
 
-test('managed signer is isolated and no private key or export capability crosses the boundary', async () => {
+void test('managed signer is isolated and no private key or export capability crosses the boundary', async () => {
   const setup = fixture();
   assert.deepEqual(Object.keys(setup.signer).sort(), ['keyId', 'sign']);
   assert.equal('privateKey' in setup.signer, false);
@@ -310,7 +310,7 @@ test('managed signer is isolated and no private key or export capability crosses
   assert.doesNotMatch(serialized, /private|BEGIN PRIVATE KEY|export/i);
 });
 
-test('audit digest changes when a correlated durable authorization identity changes', async () => {
+void test('audit digest changes when a correlated durable authorization identity changes', async () => {
   const first = fixture({ approvalId: 'approval-shared' });
   const firstApproval = await first.boundary.approve(request(first.exactState));
   const secondState = { ...first.exactState, authorizationId: 'authorization-2' };

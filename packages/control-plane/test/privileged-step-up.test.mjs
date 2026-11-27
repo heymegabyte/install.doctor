@@ -31,7 +31,7 @@ const passkey = {
   credentialActive: true, credentialRevocationEpoch: 4,
 };
 
-test('verified passkey step-up binds actor, challenge, origin, target, plan, scope and fresh session', () => {
+void test('verified passkey step-up binds actor, challenge, origin, target, plan, scope and fresh session', () => {
   const verified = verifyPrivilegedStepUp(pending, challenge, binding, passkey, now);
   assert.equal(verified.ok, true);
   assert.equal(verified.record.status, 'verified');
@@ -44,7 +44,7 @@ test('verified passkey step-up binds actor, challenge, origin, target, plan, sco
     { ok: false, error: 'not_verified' });
 });
 
-test('official Better Auth success projection is strict and origin-bound', () => {
+void test('official Better Auth success projection is strict and origin-bound', () => {
   const proof = verifiedPasskeySessionFromBetterAuth({
     user: { id: 'owner_1' }, session: { id: 'session-2', createdAt: passkey.authenticatedAt },
   }, { response: { id: 'credential-1', response: { clientDataJSON: 'opaque' } } }, binding.origin, 4);
@@ -55,7 +55,7 @@ test('official Better Auth success projection is strict and origin-bound', () =>
     { response: { id: 'credential-1' } }, 'https://profile.desktop.tools', 4), null);
 });
 
-test('every binding dimension and stale reauthentication fail closed', () => {
+void test('every binding dimension and stale reauthentication fail closed', () => {
   assert.deepEqual(verifyPrivilegedStepUp(pending, 'B'.repeat(43), binding, passkey, now), { ok: false, error: 'challenge_mismatch' });
   assert.deepEqual(verifyPrivilegedStepUp(pending, challenge, { ...binding, planDigest: 'b'.repeat(64) }, passkey, now), { ok: false, error: 'invalid_binding' });
   assert.deepEqual(verifyPrivilegedStepUp(pending, challenge, { ...binding, target: { ...binding.target, id: 'host-2' } }, passkey, now), { ok: false, error: 'invalid_binding' });
@@ -65,7 +65,7 @@ test('every binding dimension and stale reauthentication fail closed', () => {
   assert.deepEqual(verifyPrivilegedStepUp(pending, challenge, binding, { ...passkey, authenticatedAt: '2026-11-11T11:58:59.000Z' }, now), { ok: false, error: 'reauthentication_required' });
 });
 
-test('credential deletion or epoch rotation invalidates verification and consumption', () => {
+void test('credential deletion or epoch rotation invalidates verification and consumption', () => {
   assert.deepEqual(verifyPrivilegedStepUp(pending, challenge, binding, { ...passkey, credentialActive: false }, now), { ok: false, error: 'credential_revoked' });
   assert.deepEqual(verifyPrivilegedStepUp(pending, challenge, binding, { ...passkey, credentialRevocationEpoch: 5 }, now), { ok: false, error: 'revocation_epoch_changed' });
   const verification = verifyPrivilegedStepUp(pending, challenge, binding, passkey, now);
@@ -74,7 +74,7 @@ test('credential deletion or epoch rotation invalidates verification and consump
   assert.deepEqual(consumePrivilegedStepUp(verified, challenge, binding, { ...passkey, credentialActive: false }, now), { ok: false, error: 'credential_revoked' });
 });
 
-test('fresh OAuth recovery may register but never grants privilege', () => {
+void test('fresh OAuth recovery may register but never grants privilege', () => {
   assert.deepEqual(authorizePasskeyRecoveryRegistration(binding.actor,
     { actor: binding.actor, authenticatedAt: '2026-11-11T11:59:00.000Z' }, now), { ok: true });
   assert.deepEqual(authorizePasskeyRecoveryRegistration(binding.actor,
@@ -84,7 +84,7 @@ test('fresh OAuth recovery may register but never grants privilege', () => {
     { actor: binding.actor, authenticatedAt: '2026-11-11T11:00:00.000Z' }, now), { ok: false, error: 'reauthentication_required' });
 });
 
-test('migration enforces challenge lifecycle and canonical origin', () => {
+void test('migration enforces challenge lifecycle and canonical origin', () => {
   const db = new DatabaseSync(':memory:');
   try {
     db.exec(fs.readFileSync(new URL('../migrations/0020_privileged_step_up.sql', import.meta.url), 'utf8'));
@@ -99,7 +99,7 @@ test('migration enforces challenge lifecycle and canonical origin', () => {
   } finally { db.close(); }
 });
 
-test('strict record schema rejects ambiguous evidence and unsorted scope', () => {
+void test('strict record schema rejects ambiguous evidence and unsorted scope', () => {
   assert.equal(PrivilegedStepUpRecord.safeParse({ ...pending, binding: { ...binding, scopes: ['secret:read', 'plan:apply'] } }).success, false);
   assert.equal(PrivilegedStepUpRecord.safeParse({ ...pending, verifiedSessionId: 'session-2' }).success, false);
 });

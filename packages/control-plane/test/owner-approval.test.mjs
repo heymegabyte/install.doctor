@@ -17,7 +17,7 @@ const owner = { actor: 'OWNER@example.com', authenticatedAt: '2026-11-08T11:58:0
 /** @type {Parameters<typeof authorizeOwnerDecision>[1]} */
 const request = { code: record.code, matchingCode: record.code, profileRevision: record.profileRevision, decision: 'approve' };
 
-test('owner can approve or deny the exact displayed request', () => {
+void test('owner can approve or deny the exact displayed request', () => {
   assert.deepEqual(authorizeOwnerDecision(record, request, owner, now), {
     ok: true, nextStatus: 'approved', actor: 'owner@example.com', decidedAt: now.toISOString(),
     approvedScopes: ['pull-desired-state', 'report-status'],
@@ -27,7 +27,7 @@ test('owner can approve or deny the exact displayed request', () => {
   assert.equal(denied.nextStatus, 'denied');
 });
 
-test('owner may narrow requested scopes but cannot broaden them', () => {
+void test('owner may narrow requested scopes but cannot broaden them', () => {
   assert.deepEqual(authorizeOwnerDecision(record, { ...request, approvedScopes: ['report-status'] }, owner, now), {
     ok: true, nextStatus: 'approved', actor: 'owner@example.com', decidedAt: now.toISOString(),
     approvedScopes: ['report-status'],
@@ -38,7 +38,7 @@ test('owner may narrow requested scopes but cannot broaden them', () => {
   });
 });
 
-test('privileged-run authority is explicit, narrowable, and never implied for legacy requests', () => {
+void test('privileged-run authority is explicit, narrowable, and never implied for legacy requests', () => {
   const privileged = { ...record, requestedScopes: ['pull-desired-state', 'authorize-privileged-run'] };
   assert.equal(authorizeOwnerDecision(privileged, { ...request,
     approvedScopes: ['authorize-privileged-run'] }, owner, now).ok, true);
@@ -48,7 +48,7 @@ test('privileged-run authority is explicit, narrowable, and never implied for le
   });
 });
 
-test('privileged owner decision binds the exact server-resolved profile id and digest', () => {
+void test('privileged owner decision binds the exact server-resolved profile id and digest', () => {
   const digest = 'a'.repeat(64);
   const privileged = { ...record, profileRevision: digest, profileId: 'profile-1',
     profileRevisionDigest: digest, requestedScopes: ['authorize-privileged-run'] };
@@ -66,7 +66,7 @@ test('privileged owner decision binds the exact server-resolved profile id and d
   }
 });
 
-test('owner decision rejects a mismatched code and stale profile revision', () => {
+void test('owner decision rejects a mismatched code and stale profile revision', () => {
   assert.deepEqual(authorizeOwnerDecision(record, { ...request, matchingCode: 'ZZZZ-ZZZZ-ZZZZ' }, owner, now), {
     ok: false, status: 400, error: 'matching_code_mismatch',
   });
@@ -75,7 +75,7 @@ test('owner decision rejects a mismatched code and stale profile revision', () =
   });
 });
 
-test('owner decision rejects wrong actor, absent reauthentication, and an old session', () => {
+void test('owner decision rejects wrong actor, absent reauthentication, and an old session', () => {
   assert.deepEqual(authorizeOwnerDecision(record, request, { ...owner, actor: 'attacker@example.com' }, now), {
     ok: false, status: 403, error: 'wrong_actor',
   });
@@ -87,12 +87,12 @@ test('owner decision rejects wrong actor, absent reauthentication, and an old se
   });
 });
 
-test('expired and already-decided pairings cannot be replayed', () => {
+void test('expired and already-decided pairings cannot be replayed', () => {
   assert.deepEqual(authorizeOwnerDecision({ ...record, expiresAt: now.toISOString() }, request, owner, now), { ok: false, status: 410, error: 'expired' });
   assert.deepEqual(authorizeOwnerDecision({ ...record, status: 'approved' }, request, owner, now), { ok: false, status: 409, error: 'pairing_not_pending' });
 });
 
-test('owner-bound context requires the freshly authenticated intended owner', () => {
+void test('owner-bound context requires the freshly authenticated intended owner', () => {
   assert.deepEqual(authorizeOwnerContextRead(record.ownerActor, null, now), {
     ok: false, status: 401, error: 'reauthentication_required',
   });
@@ -104,7 +104,7 @@ test('owner-bound context requires the freshly authenticated intended owner', ()
   });
 });
 
-test('decision persistence is atomic with the exact reviewed row and expiry', async () => {
+void test('decision persistence is atomic with the exact reviewed row and expiry', async () => {
   const sqlite = new DatabaseSync(':memory:');
   sqlite.exec(`CREATE TABLE pairings (
     code text primary key, status text not null, expires_at text not null, profile_revision text not null,

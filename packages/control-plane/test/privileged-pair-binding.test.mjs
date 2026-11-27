@@ -7,7 +7,7 @@ const hex = value => value.repeat(64);
 const profiles = [{ id: 'profile-1', tenantId: 'tenant-authoritative', slug: 'brian', revision: 'revision-1',
   digest: hex('a'), visibility: 'public-bootstrap', enabled: true }];
 
-test('derives privileged tenant, profile, digest, and owner only from server authorities', async () => {
+void test('derives privileged tenant, profile, digest, and owner only from server authorities', async () => {
   /** @type {string[]} */
   const tenants = [];
   const result = await resolvePrivilegedPairBinding({
@@ -22,12 +22,12 @@ test('derives privileged tenant, profile, digest, and owner only from server aut
     ownerActor: 'better-auth-user:user_1', ownerActorId: 'owner-1' });
 });
 
-test('ordinary pairing requires no privileged authority', async () => {
+void test('ordinary pairing requires no privileged authority', async () => {
   assert.equal(await resolvePrivilegedPairBinding({ requestedPermissions: ['report-status'],
     publicProfiles: 'not consulted', async resolveOwnerForTenant() { throw new Error('not consulted'); } }), null);
 });
 
-test('rejects missing/substituted binding, private/disabled profiles, and absent owner', async () => {
+void test('rejects missing/substituted binding, private/disabled profiles, and absent owner', async () => {
   const base = { requestedPermissions: ['authorize-privileged-run'], machineFingerprint: hex('b'),
     profileId: 'profile-1', profileRevisionDigest: hex('a'), publicProfiles: profiles,
     async resolveOwnerForTenant() { return { authenticationActor: 'better-auth-user:user_1', ownerActorId: 'owner-1' }; } };

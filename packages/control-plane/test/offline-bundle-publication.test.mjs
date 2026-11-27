@@ -71,7 +71,7 @@ function fixture() {
   return { request, delegation, manifest, bundle, claims, requestAuthority, requestAuthorityDelegation };
 }
 
-test('publishes one private content-addressed object and a signed receipt create-only', async () => {
+void test('publishes one private content-addressed object and a signed receipt create-only', async () => {
   const input = fixture();
   const target = storage();
   const { privateKey, publicKey } = generateKeyPairSync('ed25519');
@@ -95,7 +95,7 @@ test('publishes one private content-addressed object and a signed receipt create
   await assert.rejects(publishOfflineBundle({ ...input, storage: target, sign: signer, verifyDelegation, verifyRequestAuthorityDelegation, verifyRequestAuthority, now: 2_000_000_010, authorityVersion: input.claims.workflowSha }), /nonce was already consumed/);
 });
 
-test('fails closed on mutable workflow identity, replay, collision, scope widening, and missing delegation proof', async () => {
+void test('fails closed on mutable workflow identity, replay, collision, scope widening, and missing delegation proof', async () => {
   const base = fixture();
   const signer = async () => 'c2ln';
   const verifyDelegation = async () => true;

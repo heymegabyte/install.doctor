@@ -94,7 +94,7 @@ function claim(sqlite, overrides = {}) {
   );
 }
 
-test('device authorization migration is idempotent and claims atomically', () => {
+void test('device authorization migration is idempotent and claims atomically', () => {
   const sqlite = openStore();
   sqlite.exec(migration);
   insertAuthorization(sqlite);
@@ -133,7 +133,7 @@ const invalidAuthorizations = [
   ['expired', { expiresAt: '2026-11-09T12:00:30.000Z' }],
 ];
 for (const [label, authorization] of invalidAuthorizations) {
-  test(`credential insert rolls back when authorization is ${label}`, () => {
+  void test(`credential insert rolls back when authorization is ${label}`, () => {
     const sqlite = openStore();
     insertAuthorization(sqlite, authorization);
 

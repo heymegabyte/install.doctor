@@ -101,7 +101,7 @@ async function mockOfficialVerification(db, issued, session, credentialId) {
   assert.equal(updated.meta.changes, 1, 'verification must transition pending to verified exactly once');
 }
 
-test('HTTP/D1 step-up is exactly bound, one-time, and denied after official passkey deletion', async t => {
+void test('HTTP/D1 step-up is exactly bound, one-time, and denied after official passkey deletion', async t => {
   const fixture = await createWorkerFixture();
   t.after(() => fixture.cleanup());
   const first = await githubSession(fixture.app, fixture.env, 1);

@@ -44,7 +44,7 @@ async function fixture(t, { date = 'Sun, 08 Nov 2026 10:00:00 +0000', validUntil
   return { input, dependencies, paths, payload, release, root };
 }
 
-test('deterministically composes exact Debian 12 tree descriptor and proof inventory without network or secrets', async t => {
+void test('deterministically composes exact Debian 12 tree descriptor and proof inventory without network or secrets', async t => {
   const state = await fixture(t);
   const first = await composeDebianTreeRelease(state.input, state.dependencies);
   const second = await composeDebianTreeRelease(state.input, state.dependencies);
@@ -58,7 +58,7 @@ test('deterministically composes exact Debian 12 tree descriptor and proof inven
   assert.doesNotMatch(JSON.stringify(first), /private|secret|token|credential/i);
 });
 
-test('preserves present Valid-Until and rejects future, stale, and earlier-expired metadata', async t => {
+void test('preserves present Valid-Until and rejects future, stale, and earlier-expired metadata', async t => {
   const bounded = await fixture(t, { validUntil: 'Mon, 09 Nov 2026 10:00:00 +0000' });
   const composed = await composeDebianTreeRelease(bounded.input, bounded.dependencies);
   assert.equal(composed.descriptor.metadataProof.inRelease.validUntil, '2026-11-09T10:00:00.000Z');
@@ -72,7 +72,7 @@ test('preserves present Valid-Until and rejects future, stale, and earlier-expir
   await assert.rejects(composeDebianTreeRelease(expired.input, expired.dependencies), /expired/);
 });
 
-test('fails closed on signer, package identity, payload, expiry, control, and unsafe input authority', async t => {
+void test('fails closed on signer, package identity, payload, expiry, control, and unsafe input authority', async t => {
   /** @type {((state: Awaited<ReturnType<typeof fixture>>) => Promise<void>)[]} */
   const cases = [
     async s => { s.dependencies.verifier.verifyInRelease = async () => ({ cleartext: Buffer.from(''), signingKeyFingerprint: 'B'.repeat(40) }); },
@@ -93,7 +93,7 @@ test('fails closed on signer, package identity, payload, expiry, control, and un
   }
 });
 
-test('rejects undeclared dependency and noncanonical policy shapes', async t => {
+void test('rejects undeclared dependency and noncanonical policy shapes', async t => {
   const state = await fixture(t);
   const packages = (await readFile(state.paths.packages, 'utf8')).replace('libc6 (>= 2.34)', 'libc6 (>= 2.36)');
   await writeFile(state.paths.packages, packages, { mode: 0o600 });

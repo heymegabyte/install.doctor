@@ -27,7 +27,7 @@ function fixture(overrides = {}) {
   return { now, releaseId, manifest, pointer, pointerBytes };
 }
 
-test('resolves only a canonical product-qualified pointer and digest-bound v7 manifest', async () => {
+void test('resolves only a canonical product-qualified pointer and digest-bound v7 manifest', async () => {
   const value = fixture();
   /** @type {string[]} */
   const requested = [];
@@ -38,7 +38,7 @@ test('resolves only a canonical product-qualified pointer and digest-bound v7 ma
   assert.deepEqual(requested, ['desktop-tools/channels/stable.json', `desktop-tools/bootstrap/${value.releaseId}/manifest`]);
 });
 
-test('resolves the current signed v9 manifest used by the profile bootstrap', async () => {
+void test('resolves the current signed v9 manifest used by the profile bootstrap', async () => {
   const value = fixture();
   value.manifest = Buffer.from(value.manifest.toString().replace('schema_version=7', 'schema_version=9').trimEnd()
     + `\nbroker_approval_minimum_revocation_epoch=7\nbroker_approval_delegation_url=https://desktop.tools/releases/${value.releaseId}/broker-approval-signer-delegation.json\nbroker_approval_delegation_sha256=${'b'.repeat(64)}\nbroker_approval_delegation_size=512\n`);
@@ -53,7 +53,7 @@ test('resolves the current signed v9 manifest used by the profile bootstrap', as
   assert.equal(result.brokerApproval.minimumRevocationEpoch, 7);
 });
 
-test('rejects legacy prefixes, noncanonical pointers, wrong products, and manifest substitution', async () => {
+void test('rejects legacy prefixes, noncanonical pointers, wrong products, and manifest substitution', async () => {
   const value = fixture();
   await assert.rejects(resolveActiveDesktopRelease({ async get() { return null; } }, { async get() { return null; } }, 'stable', value.now), /channel is missing/);
   const noncanonical = Buffer.from(JSON.stringify(value.pointer));
@@ -63,7 +63,7 @@ test('rejects legacy prefixes, noncanonical pointers, wrong products, and manife
   await assert.rejects(resolveActiveDesktopRelease({ async get() { return body(value.pointerBytes); } }, { async get() { return body(Buffer.from('tampered\n')); } }, 'stable', value.now), /digest mismatch/);
 });
 
-test('serves only Desktop Tools release filenames from its isolated prefix', async () => {
+void test('serves only Desktop Tools release filenames from its isolated prefix', async () => {
   /** @type {string[]} */
   const requested = [];
   const bucket = { async get(/** @type {string} */ key) { requested.push(key); return body(Buffer.from('engine\n')); } };

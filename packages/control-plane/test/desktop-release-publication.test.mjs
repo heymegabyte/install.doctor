@@ -13,7 +13,7 @@ import {
 
 import { createSignatureVerifier } from '../scripts/publish-release-to-r2.mjs';
 
-test('CLI verifier uses the signed promotion payload and rejects different bytes', async (t) => {
+void test('CLI verifier uses the signed promotion payload and rejects different bytes', async (t) => {
   const directory = await mkdtemp(join(tmpdir(), 'desktop-promotion-signature-'));
   t.after(() => rm(directory, { recursive: true, force: true }));
   const key = join(directory, 'signer');
@@ -163,7 +163,7 @@ function storage() {
   };
 }
 
-test('publishes an exact Desktop Tools v7 release in a product-qualified immutable keyspace', async t => {
+void test('publishes an exact Desktop Tools v7 release in a product-qualified immutable keyspace', async t => {
   const release = await fixture(t);
   const target = storage();
   /** @type {Parameters<Parameters<typeof publishDesktopRelease>[0]['verifySignature']>[0] | undefined} */
@@ -178,7 +178,7 @@ test('publishes an exact Desktop Tools v7 release in a product-qualified immutab
   assert.equal(retry.outcomes.every(item => item.outcome === 'already-present'), true);
 });
 
-test('publishes and reinspects an exact Desktop Tools v8 release with four Debian payloads and manifest last', async t => {
+void test('publishes and reinspects an exact Desktop Tools v8 release with four Debian payloads and manifest last', async t => {
   const release = await fixture(t, value => value, 8);
   const target = storage();
   const result = await publishDesktopRelease({ ...release, expectedReleaseId: release.releaseId, storage: target,
@@ -208,7 +208,7 @@ test('publishes and reinspects an exact Desktop Tools v8 release with four Debia
     verifySignature: async () => {} }), /SBOM does not bind the exact release payload closure/);
 });
 
-test('publishes and reinspects an exact v9 release with a release-root-bound approval signer delegation', async t => {
+void test('publishes and reinspects an exact v9 release with a release-root-bound approval signer delegation', async t => {
   const release = await fixture(t, value => value, 9);
   const target = storage();
   const result = await publishDesktopRelease({ ...release, expectedReleaseId: release.releaseId, storage: target,
@@ -223,7 +223,7 @@ test('publishes and reinspects an exact v9 release with a release-root-bound app
   assert.equal(result.releaseId, release.releaseId);
 });
 
-test('rejects noncanonical, substituted, stale, revoked, wrong-channel, and non-Ed25519 v9 delegations', async t => {
+void test('rejects noncanonical, substituted, stale, revoked, wrong-channel, and non-Ed25519 v9 delegations', async t => {
   /** @param {(value: Record<string, unknown>) => Record<string, unknown>} transform @param {RegExp} expected */
   async function alterDelegation(transform, expected) {
     const release = await fixture(t, value => value, 9);
@@ -251,7 +251,7 @@ test('rejects noncanonical, substituted, stale, revoked, wrong-channel, and non-
   await alterDelegation(value => ({ .../** @type {Record<string, unknown>} */ (canonicalValue(value)), delegationDigest: 'f'.repeat(64) }), /digest is invalid/);
 });
 
-test('activates only inspected Desktop Tools releases with product-qualified CAS and exact rollback', async t => {
+void test('activates only inspected Desktop Tools releases with product-qualified CAS and exact rollback', async t => {
   const now = Math.floor(Date.now() / 1_000);
   const target = storage();
   const channels = storage();
@@ -278,7 +278,7 @@ test('activates only inspected Desktop Tools releases with product-qualified CAS
     expectedEtag: rollback.etag, activationId: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd', activatedAt: '2026-11-08T12:03:00.000Z', now }), /product mismatch/);
 });
 
-test('reconciles a post-CAS receipt failure without repeating activation', async t => {
+void test('reconciles a post-CAS receipt failure without repeating activation', async t => {
   const now = Math.floor(Date.now() / 1_000);
   const releaseStorage = storage();
   const channels = storage();
@@ -304,7 +304,7 @@ test('reconciles a post-CAS receipt failure without repeating activation', async
   assert.equal(JSON.parse(channels.objects.get('desktop-tools/channels/stable.json')?.bytes.toString('utf8') ?? '').generation, 1);
 });
 
-test('signed cohort health gates suspend failed canaries before CAS and admit only their exact transition', async t => {
+void test('signed cohort health gates suspend failed canaries before CAS and admit only their exact transition', async t => {
   const now = Math.floor(Date.now() / 1_000);
   const releaseStorage = storage();
   const channels = storage();
@@ -348,7 +348,7 @@ test('signed cohort health gates suspend failed canaries before CAS and admit on
   assert.equal(verified, 2);
 });
 
-test('Desktop Tools freshness is signature-verified, read-only, product-qualified, and expiry-aware', async t => {
+void test('Desktop Tools freshness is signature-verified, read-only, product-qualified, and expiry-aware', async t => {
   const now = Math.floor(Date.now() / 1_000);
   const releaseStorage = storage();
   const channels = storage();
@@ -389,7 +389,7 @@ test('Desktop Tools freshness is signature-verified, read-only, product-qualifie
   assert.equal(expired.remainingSeconds, -1);
 });
 
-test('rejects legacy identity, origin substitution, surplus files, and altered payloads', async t => {
+void test('rejects legacy identity, origin substitution, surplus files, and altered payloads', async t => {
   const target = storage();
   const verifySignature = async () => {};
   const legacy = await fixture(t, entries => entries.map(line => line === 'product_id=desktop-tools' ? 'product_id=install-doctor' : line));

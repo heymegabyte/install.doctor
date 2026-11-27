@@ -30,7 +30,7 @@ const previewResult = z.object({
 });
 const rollbackResult = z.object({ status: z.string() });
 
-test('disposable composition carries one identity through Worker, supervisor, engine, recovery, and deprovision preview', async t => {
+void test('disposable composition carries one identity through Worker, supervisor, engine, recovery, and deprovision preview', async t => {
   const fixture = await createWorkerFixture();
   t.after(() => fixture.cleanup());
   const { app, db } = fixture;

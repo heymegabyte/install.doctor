@@ -58,7 +58,7 @@ async function fixture(transform = value => value, recompute = false) {
   return { delegation, body, release, bucket, keys };
 }
 
-test('loads only the exact immutable release key and composes an active-release resolver', async () => {
+void test('loads only the exact immutable release key and composes an active-release resolver', async () => {
   const setup = await fixture();
   const result = await loadImmutableBrokerReleaseDelegation({ bucket: setup.bucket, release: setup.release,
     now: new Date('2026-11-09T12:00:00.000Z') });
@@ -73,7 +73,7 @@ test('loads only the exact immutable release key and composes an active-release 
   assert.equal(await resolver.delegationForRelease('release-2'), null);
 });
 
-test('rejects substituted release, channel, epoch, semantic digest, and public key', async () => {
+void test('rejects substituted release, channel, epoch, semantic digest, and public key', async () => {
   /** @type {Transform[]} */
   const cases = [
     value => ({ ...value, releaseId: 'release-2' }),
@@ -91,7 +91,7 @@ test('rejects substituted release, channel, epoch, semantic digest, and public k
     now: new Date('2026-11-09T12:00:00.000Z') }), /semantic digest/);
 });
 
-test('rejects size substitution, truncation, excess bytes, digest substitution, and noncanonical JSON', async () => {
+void test('rejects size substitution, truncation, excess bytes, digest substitution, and noncanonical JSON', async () => {
   const setup = await fixture();
   await assert.rejects(loadImmutableBrokerReleaseDelegation({ bucket: setup.bucket,
     release: { ...setup.release, brokerApproval: { ...setup.release.brokerApproval,
@@ -114,7 +114,7 @@ test('rejects size substitution, truncation, excess bytes, digest substitution, 
     now: new Date('2026-11-09T12:00:00.000Z') }), /canonical JSON/);
 });
 
-test('rejects expired release and delegations that do not cover the full release lifetime', async () => {
+void test('rejects expired release and delegations that do not cover the full release lifetime', async () => {
   const setup = await fixture();
   for (const now of ['2026-11-09T10:59:59.000Z', '2026-11-09T14:00:00.000Z', '2026-11-09T15:00:00.000Z']) {
     await assert.rejects(loadImmutableBrokerReleaseDelegation({ bucket: setup.bucket, release: setup.release,

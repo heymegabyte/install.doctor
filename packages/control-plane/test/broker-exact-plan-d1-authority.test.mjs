@@ -47,7 +47,7 @@ function fixture() {
   return { sqlite, authority, record, context };
 }
 
-test('admits trusted exact-plan facts idempotently and reconstructs them from bound durable state', async () => {
+void test('admits trusted exact-plan facts idempotently and reconstructs them from bound durable state', async () => {
   const setup = fixture();
   assert.equal(await setup.authority.admit(setup.record), true);
   assert.equal(await setup.authority.admit(setup.record), false);
@@ -57,7 +57,7 @@ test('admits trusted exact-plan facts idempotently and reconstructs them from bo
   ).run(), /immutable/);
 });
 
-test('never resolves across device, profile, tenant, release, digest, or run bindings', async () => {
+void test('never resolves across device, profile, tenant, release, digest, or run bindings', async () => {
   const setup = fixture();
   await setup.authority.admit(setup.record);
   /** @type {((context: typeof setup.context) => void)[]} */
@@ -77,7 +77,7 @@ test('never resolves across device, profile, tenant, release, digest, or run bin
   }
 });
 
-test('rejects collision, stale/future authority, overlong lifetime, and unknown fields', async () => {
+void test('rejects collision, stale/future authority, overlong lifetime, and unknown fields', async () => {
   const setup = fixture();
   await setup.authority.admit(setup.record);
   await assert.rejects(setup.authority.admit({ ...setup.record,

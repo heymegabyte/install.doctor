@@ -97,7 +97,7 @@ async function fixture({ delegatedKeyId = 'approval-key-1', configuredKeyId = de
   return { dependencies, intent, principal };
 }
 
-test('composes request, owner decision, locator status, one-use signed claim, and replay denial', async () => {
+void test('composes request, owner decision, locator status, one-use signed claim, and replay denial', async () => {
   const setup = await fixture();
   const { api } = createBrokerAuthorizationComposition(setup.dependencies);
   let response = await api.request('/api/devices/broker-authorizations', { method: 'POST',
@@ -125,7 +125,7 @@ test('composes request, owner decision, locator status, one-use signed claim, an
   assert.equal(response.status, 503);
 });
 
-test('requires every production authority explicitly and rejects signer/delegation substitution', async () => {
+void test('requires every production authority explicitly and rejects signer/delegation substitution', async () => {
   const setup = await fixture();
   const requiredKeys = /** @type {const} */ (['database', 'releaseBucket', 'resolveActiveRelease', 'deviceAuthority', 'publicProfileAuthority',
     'planAuthority', 'tenantOwnerAuthority', 'resolveDevice', 'resolveFreshOwner', 'signerService', 'signerKeyId']);

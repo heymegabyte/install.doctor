@@ -114,7 +114,7 @@ function disposableLifecycleStore() {
   return store;
 }
 
-test('revocation survives a disposable host rebuild and produces exact secret-free receipts', async () => {
+void test('revocation survives a disposable host rebuild and produces exact secret-free receipts', async () => {
   const store = disposableLifecycleStore();
   const oldFingerprint = 'a'.repeat(64);
   const rebuiltFingerprint = 'b'.repeat(64);

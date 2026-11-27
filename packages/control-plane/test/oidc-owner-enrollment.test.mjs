@@ -3,7 +3,7 @@ import test from 'node:test';
 import { blueprintDigest, exportMarkdown } from '../../aid-core/dist/core.js';
 import { cookiePair, createWorkerFixture, setCookies } from './helpers/worker-app-fixture.mjs';
 
-test('actual Better Auth callback session completes exact owner enrollment without an admin token', async t => {
+void test('actual Better Auth callback session completes exact owner enrollment without an admin token', async t => {
   const fixture = await createWorkerFixture();
   t.after(() => fixture.cleanup());
   const { app, db } = fixture;

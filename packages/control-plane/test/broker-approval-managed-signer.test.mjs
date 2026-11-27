@@ -3,7 +3,7 @@ import { generateKeyPairSync, sign, verify } from 'node:crypto';
 import test from 'node:test';
 import { createBrokerApprovalManagedSigner } from '../src/broker-approval-managed-signer.ts';
 
-test('managed signer adapter admits only exact bounded Ed25519 service responses', async () => {
+void test('managed signer adapter admits only exact bounded Ed25519 service responses', async () => {
   const pair = generateKeyPairSync('ed25519');
   /** @type {{ url: RequestInfo | URL, init: RequestInit | undefined }[]} */
   const calls = [];
@@ -27,7 +27,7 @@ test('managed signer adapter admits only exact bounded Ed25519 service responses
   assert.equal(JSON.stringify(calls[0]).includes('PRIVATE'), false);
 });
 
-test('managed signer adapter fails closed on identity, shape, size, and service failure', async () => {
+void test('managed signer adapter fails closed on identity, shape, size, and service failure', async () => {
   const signature = 'A'.repeat(86);
   for (const response of [
     Response.json({ schemaVersion: 1, keyId: 'wrong-key', algorithm: 'Ed25519', signature }),

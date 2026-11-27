@@ -8,7 +8,7 @@ const config = {
   bucket: 'install-doctor-releases', accessKeyId: 'a'.repeat(20), secretAccessKey: 'b'.repeat(40),
 };
 
-test('R2 adapter uses atomic create-only and compare-and-swap conditions', async () => {
+void test('R2 adapter uses atomic create-only and compare-and-swap conditions', async () => {
   /** @type {(GetObjectCommand | PutObjectCommand)[]} */
   const commands = [];
   /** @type {NonNullable<Parameters<typeof createR2PublicationStorage>[1]>} */
@@ -34,7 +34,7 @@ test('R2 adapter uses atomic create-only and compare-and-swap conditions', async
   assert.equal(commands[3].input.IfNoneMatch, '*');
 });
 
-test('R2 adapter converts only 412 responses into conditional conflicts', async () => {
+void test('R2 adapter converts only 412 responses into conditional conflicts', async () => {
   const client = { async send() {
     throw Object.assign(new Error('precondition failed'), { $metadata: { httpStatusCode: 412 } });
   } };
@@ -44,7 +44,7 @@ test('R2 adapter converts only 412 responses into conditional conflicts', async 
   await assert.rejects(storage.read('bootstrap/r/file'), /precondition failed/);
 });
 
-test('R2 adapter rejects non-account endpoints and weak credentials before creating a client', () => {
+void test('R2 adapter rejects non-account endpoints and weak credentials before creating a client', () => {
   assert.throws(() => createR2PublicationStorage({ ...config, endpoint: 'https://example.com' }), /account-scoped/);
   assert.throws(() => createR2PublicationStorage({ ...config, accessKeyId: 'short' }), /credentials/);
 });

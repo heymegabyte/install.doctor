@@ -18,7 +18,7 @@ const receipt = Object.freeze({ schemaVersion: 1, descriptor, artifacts: Object.
   { id: 'tree-deb-bookworm-amd64' },
 ]) });
 
-test('merges one descriptor into exactly one tree entry deterministically without reordering', () => {
+void test('merges one descriptor into exactly one tree entry deterministically without reordering', () => {
   const base = [{ name: 'alpha', value: 1 }, { name: 'tree', providers: ['apt'] }, { name: 'zeta', value: 2 }];
   const first = mergeDebianNativeCatalog(base, receipt);
   const second = mergeDebianNativeCatalog(base, receipt);
@@ -29,7 +29,7 @@ test('merges one descriptor into exactly one tree entry deterministically withou
   assert.equal(Object.hasOwn(base[1], 'offlinePayloads'), false);
 });
 
-test('writes canonical staged output and refuses input replacement', async t => {
+void test('writes canonical staged output and refuses input replacement', async t => {
   const root = await mkdtemp(join(tmpdir(), 'catalog-merge-'));
   t.after(() => rm(root, { recursive: true, force: true }));
   const basePath = join(root, 'catalog.json');
@@ -43,14 +43,14 @@ test('writes canonical staged output and refuses input replacement', async t => 
   await assert.rejects(mergeDebianNativeCatalogFiles({ baseCatalogPath: basePath, receiptPath, outputPath: basePath }), /must not replace/);
 });
 
-test('fails closed on duplicate authority, wrong artifacts, wrong package, and ambiguous catalog identities', () => {
+void test('fails closed on duplicate authority, wrong artifacts, wrong package, and ambiguous catalog identities', () => {
   assert.throws(() => mergeDebianNativeCatalog([{ name: 'tree', offlinePayloads: [] }], receipt), /already contains/);
   assert.throws(() => mergeDebianNativeCatalog([{ name: 'tree' }], { ...receipt, artifacts: receipt.artifacts.slice(1) }), /identity is invalid/);
   assert.throws(() => mergeDebianNativeCatalog([{ name: 'tree' }], { ...receipt, descriptor: { ...descriptor, packageKey: 'other' } }), /outside/);
   assert.throws(() => mergeDebianNativeCatalog([{ name: 'tree' }, { name: 'tree' }], receipt), /ambiguous/);
 });
 
-test('stages the checked-in release catalog with only the tree entry changed', async () => {
+void test('stages the checked-in release catalog with only the tree entry changed', async () => {
   const catalogUrl = new URL('../src/catalog.json', import.meta.url);
   const base = JSON.parse(await readFile(catalogUrl, 'utf8'));
   const merged = mergeDebianNativeCatalog(base, receipt);

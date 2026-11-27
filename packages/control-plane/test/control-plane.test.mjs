@@ -172,7 +172,7 @@ function testDatabase() {
   return database;
 }
 
-test('pairing start uses a high-entropy human code and rejects oversized requests before parsing', async () => {
+void test('pairing start uses a high-entropy human code and rejects oversized requests before parsing', async () => {
   const app = await loadWorkerApp();
   const env = { ...TEST_ENV, DB: testDatabase() };
   const response = await app.fetch(
@@ -255,7 +255,7 @@ test('pairing start uses a high-entropy human code and rejects oversized request
   assert.deepEqual(await chunkedOversized.json(), { error: 'payload_too_large', limitBytes: 4096 });
 });
 
-test('v1 target authorization persists exact public binding and atomically claims target-owned authority', async () => {
+void test('v1 target authorization persists exact public binding and atomically claims target-owned authority', async () => {
   const app = await loadWorkerApp();
   const db = testDatabase();
   const desiredEnvironment = {
@@ -410,7 +410,7 @@ test('v1 target authorization persists exact public binding and atomically claim
   assert.equal(cancel.status, 204);
 });
 
-test('pairing page preserves the canonical human code and exposes owner approve and deny paths', async () => {
+void test('pairing page preserves the canonical human code and exposes owner approve and deny paths', async () => {
   const app = await loadWorkerApp();
   const code = '2345-6789-ABCD';
   const response = await app.fetch(new Request(`https://desktop.tools/pair?code=${code}`), TEST_ENV);
@@ -442,7 +442,7 @@ test('pairing page preserves the canonical human code and exposes owner approve 
   assert.doesNotMatch(await malformed.text(), /var CODE="23456789ABCD"/);
 });
 
-test('OIDC sign-in returns to an exact pairing review without accepting an open redirect', async () => {
+void test('OIDC sign-in returns to an exact pairing review without accepting an open redirect', async () => {
   const app = await loadWorkerApp();
   const code = '2345-6789-ABCD';
   const login = await app.fetch(new Request(
@@ -487,7 +487,7 @@ test('OIDC sign-in returns to an exact pairing review without accepting an open 
   assert.deepEqual(await legacyCallback.json(), { error: 'canonical_auth_origin_required' });
 });
 
-test('public pairing lookup normalizes malformed, unknown, and claimed responses', async () => {
+void test('public pairing lookup normalizes malformed, unknown, and claimed responses', async () => {
   const app = await loadWorkerApp();
   const env = { ...TEST_ENV, DB: testDatabase() };
   const unavailable = { error: 'pairing_unavailable' };
@@ -538,7 +538,7 @@ test('public pairing lookup normalizes malformed, unknown, and claimed responses
   assert.deepEqual(await afterClaim.json(), unavailable);
 });
 
-test('compatibility pairing approval is fail-closed break-glass token access', async () => {
+void test('compatibility pairing approval is fail-closed break-glass token access', async () => {
   const app = await loadWorkerApp();
   const db = testDatabase();
   const started = await app.fetch(new Request('https://desktop.tools/api/devices/pair/start', {
@@ -566,7 +566,7 @@ test('compatibility pairing approval is fail-closed break-glass token access', a
   assert.deepEqual(stillPending, { status: 'pending', decided_by: null });
 });
 
-test('pair claim is atomic, digest-only, binding-safe, and normalizes terminal failures', async () => {
+void test('pair claim is atomic, digest-only, binding-safe, and normalizes terminal failures', async () => {
   const app = await loadWorkerApp();
   const db = testDatabase();
   const env = { ...TEST_ENV, DB: db };
@@ -695,7 +695,7 @@ test('pair claim is atomic, digest-only, binding-safe, and normalizes terminal f
   }
 });
 
-test('pending pairing polling has a durable bounded cadence and normalized 429 response', async () => {
+void test('pending pairing polling has a durable bounded cadence and normalized 429 response', async () => {
   const app = await loadWorkerApp();
   const db = testDatabase();
   const env = { ...TEST_ENV, DB: db };
@@ -719,7 +719,7 @@ test('pending pairing polling has a durable bounded cadence and normalized 429 r
   assert.deepEqual(await resumed.json(), { status: 'pending' });
 });
 
-test('claim persists only explicitly approved scopes and rejects broadening or unapproved bound scopes', async () => {
+void test('claim persists only explicitly approved scopes and rejects broadening or unapproved bound scopes', async () => {
   const app = await loadWorkerApp();
   const db = testDatabase();
   const env = { ...TEST_ENV, DB: db };
@@ -760,7 +760,7 @@ test('claim persists only explicitly approved scopes and rejects broadening or u
   assert.equal(stored.permissions, '["report-status"]');
 });
 
-test('unexpected claim database failures expose no internal detail', async () => {
+void test('unexpected claim database failures expose no internal detail', async () => {
   const app = await loadWorkerApp();
   const response = await app.fetch(new Request('https://app.install.doctor/api/devices/pair/poll', {
     headers: { authorization: 'Bearer aidp_private' },
@@ -774,7 +774,7 @@ test('unexpected claim database failures expose no internal detail', async () =>
   assert.doesNotMatch(raw, /SECRET|sqlite|query/i);
 });
 
-test('owner-bound pairing context is private and cannot use legacy token approval', async () => {
+void test('owner-bound pairing context is private and cannot use legacy token approval', async () => {
   const app = await loadWorkerApp();
   const env = { ...TEST_ENV, DB: testDatabase() };
   const started = await app.fetch(new Request('https://app.install.doctor/api/devices/pair/start', {
@@ -806,7 +806,7 @@ test('owner-bound pairing context is private and cannot use legacy token approva
   assert.equal((await bypass.json()).error, 'owner_approval_required');
 });
 
-test('privileged pairing derives tenant, profile, digest, and owner from server authority', async () => {
+void test('privileged pairing derives tenant, profile, digest, and owner from server authority', async () => {
   const app = await loadWorkerApp();
   const db = testDatabase();
   const digest = '7'.repeat(64);
@@ -1153,7 +1153,7 @@ esac
   return { config, createRelease, run, assertStageClean, mockBin };
 }
 
-test('public product status is generated from evidence-backed Desktop Tools truth', async () => {
+void test('public product status is generated from evidence-backed Desktop Tools truth', async () => {
   const app = await loadWorkerApp();
   const response = await app.fetch(
     new Request('https://app.install.doctor/api/v1/product-status'),
@@ -1173,7 +1173,7 @@ test('public product status is generated from evidence-backed Desktop Tools trut
   assert.equal(JSON.stringify(body).includes('verified-live'), false);
 });
 
-test('Desktop Tools wildcard profile routing is isolated and unknown profiles fail closed', async () => {
+void test('Desktop Tools wildcard profile routing is isolated and unknown profiles fail closed', async () => {
   const app = await loadWorkerApp();
   const response = await app.fetch(new Request('https://example.desktop.tools/'), TEST_ENV);
   assert.equal(response.status, 404);
@@ -1191,7 +1191,7 @@ test('Desktop Tools wildcard profile routing is isolated and unknown profiles fa
   assert.deepEqual(await unrelatedPath.json(), { error: 'profile_route_not_found' });
 });
 
-test('public profile descriptor is bounded, cache-controlled, and contains no authority', async () => {
+void test('public profile descriptor is bounded, cache-controlled, and contains no authority', async () => {
   const app = await loadWorkerApp();
   const profile = {
     id: 'profile-example', tenantId: 'tenant-private', slug: 'example', revision: 'revision-7',
@@ -1227,7 +1227,7 @@ test('public profile descriptor is bounded, cache-controlled, and contains no au
   }
 });
 
-test('public profile root resolves its immutable profile before the signed release and has no fallback', async () => {
+void test('public profile root resolves its immutable profile before the signed release and has no fallback', async () => {
   const app = await loadWorkerApp();
   const profile = {
     id: 'profile-example', tenantId: 'tenant-private', slug: 'example', revision: 'revision-7',
@@ -1247,7 +1247,7 @@ test('public profile root resolves its immutable profile before the signed relea
   });
 });
 
-test('Control Plane Phase 1: PIA endpoints (/api/v1/intent/* and /api/v1/easter-eggs/oracle)', async () => {
+void test('Control Plane Phase 1: PIA endpoints (/api/v1/intent/* and /api/v1/easter-eggs/oracle)', async () => {
   const app = await loadWorkerApp();
 
   // 1. POST /api/v1/intent/telemetry
@@ -1363,7 +1363,7 @@ test('Control Plane Phase 1: PIA endpoints (/api/v1/intent/* and /api/v1/easter-
   assert.equal(astralJson.codeName, 'ASTRAL_PLANE_DUNGEON');
 });
 
-test('Control Plane Phase 1: OpenAPI 3.1 schema (/api/v1/openapi.json) covers 100% of /api/v1/* routes and interactive docs (/api/v1/docs)', async () => {
+void test('Control Plane Phase 1: OpenAPI 3.1 schema (/api/v1/openapi.json) covers 100% of /api/v1/* routes and interactive docs (/api/v1/docs)', async () => {
   const app = await loadWorkerApp();
 
   const oaRes = await app.fetch(new Request('https://app.install.doctor/api/v1/openapi.json'), TEST_ENV);
@@ -1396,7 +1396,7 @@ test('Control Plane Phase 1: OpenAPI 3.1 schema (/api/v1/openapi.json) covers 10
   assert.ok(docRes.headers.get('content-security-policy')?.includes("require-trusted-types-for 'script'"));
 });
 
-test('Control Plane Phase 1: GitHub discovery, truthful unsupported mutations & Universal /start', async () => {
+void test('Control Plane Phase 1: GitHub discovery, truthful unsupported mutations & Universal /start', async () => {
   const app = await loadWorkerApp();
 
   // Scan repos
@@ -1478,7 +1478,7 @@ test('Control Plane Phase 1: GitHub discovery, truthful unsupported mutations & 
   assert.equal((await startRes.json()).error, 'release_channel_unavailable');
 });
 
-test('Control Plane /start fails closed when the activated release channel is not configured', async () => {
+void test('Control Plane /start fails closed when the activated release channel is not configured', async () => {
   const app = await loadWorkerApp();
   const response = await app.fetch(new Request('https://app.install.doctor/start'), {
     ...TEST_ENV,
@@ -1494,7 +1494,7 @@ test('Control Plane /start fails closed when the activated release channel is no
   assert.equal((await injectedKey.json()).error, 'release_channel_unavailable');
 });
 
-test('Control Plane /start resolves only a digest-bound CAS channel before consulting pinned trust', async () => {
+void test('Control Plane /start resolves only a digest-bound CAS channel before consulting pinned trust', async () => {
   const app = await loadWorkerApp();
   const now = Math.floor(Date.now() / 1000);
   const manifest = new TextEncoder().encode([
@@ -1560,7 +1560,7 @@ test('Control Plane /start resolves only a digest-bound CAS channel before consu
   assert.equal((await expired.json()).error, 'release_channel_unavailable');
 });
 
-test('Control Plane landing page advertises only the canonical signed bootstrap command', async () => {
+void test('Control Plane landing page advertises only the canonical signed bootstrap command', async () => {
   const app = await loadWorkerApp();
   const response = await app.fetch(new Request('https://app.install.doctor/'), TEST_ENV);
   assert.equal(response.status, 200);
@@ -1570,7 +1570,7 @@ test('Control Plane landing page advertises only the canonical signed bootstrap 
   assert.equal(html.includes('https://install.doctor/start'), false);
 });
 
-test('Control Plane serves immutable release bytes from the exact release object key', async () => {
+void test('Control Plane serves immutable release bytes from the exact release object key', async () => {
   const app = await loadWorkerApp();
   /** @type {string[]} */
   const requestedKeys = [];
@@ -1629,7 +1629,7 @@ test('Control Plane serves immutable release bytes from the exact release object
   ]);
 });
 
-test('Control Plane release serving fails closed for unavailable storage, missing objects, and invalid paths', async () => {
+void test('Control Plane release serving fails closed for unavailable storage, missing objects, and invalid paths', async () => {
   const app = await loadWorkerApp();
   const withoutBinding = await app.fetch(
     new Request('https://app.install.doctor/releases/release-1/manifest'),
@@ -1663,7 +1663,7 @@ test('Control Plane release serving fails closed for unavailable storage, missin
   assert.deepEqual(requestedKeys, ['bootstrap/release-1/manifest'], 'invalid paths never reach object storage');
 });
 
-test('Rendered /start executes only an authentic, current release and scrubs its child environment', async (t) => {
+void test('Rendered /start executes only an authentic, current release and scrubs its child environment', async (t) => {
   const fixture = makeBootstrapRuntimeFixture(t);
   const { renderBootstrap } = await import('../src/bootstrap.ts');
   const startScript = renderBootstrap(fixture.config);
@@ -1844,7 +1844,7 @@ printf 'VERIFIED_CATALOG_MODE=%s\nVERIFIED_CATALOG_BODY=%s\n' "$catalog_mode" "$
   fixture.assertStageClean();
 });
 
-test('Desktop Tools release policy is source-owned while legacy release verification remains available', async () => {
+void test('Desktop Tools release policy is source-owned while legacy release verification remains available', async () => {
   const { renderBootstrap, parseBootstrapReleaseConfig } = await import('../src/bootstrap.ts');
   const { releaseObjectUrl, releasePolicy } = await import('../src/release-policy.ts');
   const key = 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
@@ -1890,7 +1890,7 @@ test('Desktop Tools release policy is source-owned while legacy release verifica
   assert.throws(() => releaseObjectUrl('desktop-tools', 'release-1', 'install-doctor-engine.mjs'));
 });
 
-test('Desktop Tools profile stage-zero executes a verified v10 runtime closure with evidence and broker delegation binding', async (t) => {
+void test('Desktop Tools profile stage-zero executes a verified v10 runtime closure with evidence and broker delegation binding', async (t) => {
   const fixture = makeBootstrapRuntimeFixture(t, 'desktop-tools');
   const { renderBootstrap } = await import('../src/bootstrap.ts');
   const profile = {
@@ -1921,7 +1921,7 @@ test('Desktop Tools profile stage-zero executes a verified v10 runtime closure w
   fixture.assertStageClean();
 });
 
-test('Desktop Tools stage-zero rejects substituted, misplaced, and invalid broker approval delegation policy', async (t) => {
+void test('Desktop Tools stage-zero rejects substituted, misplaced, and invalid broker approval delegation policy', async (t) => {
   const fixture = makeBootstrapRuntimeFixture(t, 'desktop-tools');
   const { renderBootstrap } = await import('../src/bootstrap.ts');
   const script = renderBootstrap(fixture.config);
@@ -1948,7 +1948,7 @@ test('Desktop Tools stage-zero rejects substituted, misplaced, and invalid broke
   fixture.assertStageClean();
 });
 
-test('Desktop Tools stage-zero redirect, transfer ceiling, and truncation failures execute nothing', async (t) => {
+void test('Desktop Tools stage-zero redirect, transfer ceiling, and truncation failures execute nothing', async (t) => {
   const fixture = makeBootstrapRuntimeFixture(t, 'desktop-tools');
   const { renderBootstrap } = await import('../src/bootstrap.ts');
   const marker = path.join(os.tmpdir(), `desktop-tools-executed-${crypto.randomUUID()}`);
@@ -1986,7 +1986,7 @@ test('Desktop Tools stage-zero redirect, transfer ceiling, and truncation failur
   fixture.assertStageClean();
 });
 
-test('Rendered /start gates the kernel and architecture before any release download', async (t) => {
+void test('Rendered /start gates the kernel and architecture before any release download', async (t) => {
   const fixture = makeBootstrapRuntimeFixture(t);
   const { renderBootstrap } = await import('../src/bootstrap.ts');
   const startScript = renderBootstrap(fixture.config);
@@ -2027,7 +2027,7 @@ test('Rendered /start gates the kernel and architecture before any release downl
   }
 });
 
-test('Control Plane Phase 1: Better Auth D1 drift inspection and session handling under cloudflare:workers mock', async () => {
+void test('Control Plane Phase 1: Better Auth D1 drift inspection and session handling under cloudflare:workers mock', async () => {
   const app = await loadWorkerApp();
 
   // 1. Unauthenticated POST /api/auth-migrate must fail closed (401)
@@ -2065,7 +2065,7 @@ test('Control Plane Phase 1: Better Auth D1 drift inspection and session handlin
   assert.equal(sessBody, null);
 });
 
-test('Catalog detail exposes the validated lazy-load decision', async () => {
+void test('Catalog detail exposes the validated lazy-load decision', async () => {
   const app = await loadWorkerApp();
   const response = await app.fetch(new Request('https://app.install.doctor/api/catalog/xz'), TEST_ENV);
   assert.equal(response.status, 200);
@@ -2075,7 +2075,7 @@ test('Catalog detail exposes the validated lazy-load decision', async () => {
   assert.equal(body.loadRationale, 'default-lazy');
 });
 
-test('Control Plane Phase 2: Fleet Drift Radar, Cryptographic Execution Receipts & Semantic Catalog Search', async () => {
+void test('Control Plane Phase 2: Fleet Drift Radar, Cryptographic Execution Receipts & Semantic Catalog Search', async () => {
   const app = await loadWorkerApp();
 
   // 1. POST /api/v1/fleet/drift
@@ -2204,7 +2204,7 @@ test('Control Plane Phase 2: Fleet Drift Radar, Cryptographic Execution Receipts
   assert.equal(semJson.matches[0].name, 'ripgrep');
 });
 
-test('Control Plane security: desired-state metadata is authenticated and requests are bounded/correlated', async () => {
+void test('Control Plane security: desired-state metadata is authenticated and requests are bounded/correlated', async () => {
   const app = await loadWorkerApp();
 
   const desiredRead = await app.fetch(

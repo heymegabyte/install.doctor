@@ -34,7 +34,7 @@ function setup() {
   return { sqlite, authorities: createBrokerProductionAuthorities({ database, publicProfiles: profiles, now: () => now }) };
 }
 
-test('resolves only exact active device, immutable public profile, and server-managed tenant owner', async () => {
+void test('resolves only exact active device, immutable public profile, and server-managed tenant owner', async () => {
   const { authorities } = setup();
   assert.deepEqual(await authorities.device.resolve('device-1'), {
     deviceCredentialId: 'device-1', deviceFingerprint: hex('b'), tenantId: 'tenant-1',
@@ -49,7 +49,7 @@ test('resolves only exact active device, immutable public profile, and server-ma
   });
 });
 
-test('legacy, expired, revoked, mismatched, and malformed authority fail closed', async () => {
+void test('legacy, expired, revoked, mismatched, and malformed authority fail closed', async () => {
   for (const mutation of [
     "UPDATE devices SET profile_id=NULL WHERE device_id='device-1'",
     "UPDATE devices SET profile_revision_digest=NULL WHERE device_id='device-1'",
@@ -71,7 +71,7 @@ test('legacy, expired, revoked, mismatched, and malformed authority fail closed'
   }
 });
 
-test('projects stable Better Auth user identity and rejects email-only or malformed sessions', () => {
+void test('projects stable Better Auth user identity and rejects email-only or malformed sessions', () => {
   assert.deepEqual(authenticatedOwnerFromBetterAuthSession({
     user: { id: 'user_1', email: 'owner@example.com' },
     session: { createdAt: '2026-11-09T11:59:00.000Z' },

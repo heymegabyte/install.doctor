@@ -119,7 +119,7 @@ async function rejectsCode(promise, code) {
   await assert.rejects(promise, error => error instanceof BrokerAuthorizationServiceError && error.code === code);
 }
 
-test('persists only an exact authority-reconstructed run intent', async () => {
+void test('persists only an exact authority-reconstructed run intent', async () => {
   const { service, calls } = fixture();
   const result = await service.requestAuthorization(intent, principal);
   assert.equal(result.created, true);
@@ -130,7 +130,7 @@ test('persists only an exact authority-reconstructed run intent', async () => {
   assert.equal(calls.intents.length, 1);
 });
 
-test('privileged endpoints reject legacy NULL scopes and identity substitutions', async () => {
+void test('privileged endpoints reject legacy NULL scopes and identity substitutions', async () => {
   const { service } = fixture();
   await rejectsCode(service.requestAuthorization(intent, { ...principal, permissions: null }), 'insufficient_scope');
   await rejectsCode(service.requestAuthorization(intent, { ...principal, permissions: [] }), 'insufficient_scope');
@@ -143,7 +143,7 @@ test('privileged endpoints reject legacy NULL scopes and identity substitutions'
   }, { ...principal, deviceFingerprint: hex('8') }), 'identity_mismatch');
 });
 
-test('owner review and decision require current matching authentication and exact displayed bindings', async () => {
+void test('owner review and decision require current matching authentication and exact displayed bindings', async () => {
   const { service, calls } = fixture();
   await rejectsCode(service.reviewAuthorization(intent.runIntentId, null), 'reauthentication_required');
   await rejectsCode(service.reviewAuthorization(intent.runIntentId,
@@ -164,7 +164,7 @@ test('owner review and decision require current matching authentication and exac
   assert.deepEqual(calls.decisions, [result.decision]);
 });
 
-test('claim is exact, device-scoped, persists reconstructed authority, and returns only signed evidence', async () => {
+void test('claim is exact, device-scoped, persists reconstructed authority, and returns only signed evidence', async () => {
   const { service, calls, reconstruction, signedApproval } = fixture();
   await service.reviewAuthorization(intent.runIntentId, owner);
   const lookup = {
@@ -183,7 +183,7 @@ test('claim is exact, device-scoped, persists reconstructed authority, and retur
   await assert.rejects(service.claimApprovedAuthorization({ ...lookup, extra: true }, principal));
 });
 
-test('fact, profile, release, policy, approval, closure, plan, and rollback drift deny before any privileged effect', async () => {
+void test('fact, profile, release, policy, approval, closure, plan, and rollback drift deny before any privileged effect', async () => {
   /** @type {((value: CurrentAuthority) => CurrentAuthority)[]} */
   const axes = [
     current => ({ ...current, host: { ...current.host, factsDigest: hex('8') } }),
@@ -213,7 +213,7 @@ test('fact, profile, release, policy, approval, closure, plan, and rollback drif
   }
 });
 
-test('authority failures fail closed and cannot persist caller facts', async () => {
+void test('authority failures fail closed and cannot persist caller facts', async () => {
   const unavailable = fixture({ async reconstructRunIntent() { throw new Error('down'); } });
   await rejectsCode(unavailable.service.requestAuthorization(intent, principal), 'authority_unavailable');
   assert.equal(unavailable.calls.intents.length, 0);
@@ -223,7 +223,7 @@ test('authority failures fail closed and cannot persist caller facts', async () 
   assert.equal(absent.calls.intents.length, 0);
 });
 
-test('target status derives hidden identity only from the authenticated principal', async () => {
+void test('target status derives hidden identity only from the authenticated principal', async () => {
   const { service, calls } = fixture();
   const request = { schemaVersion: 1, authorizationId: intent.authorizationId,
     runIntentId: intent.runIntentId, grantId: intent.grantId };

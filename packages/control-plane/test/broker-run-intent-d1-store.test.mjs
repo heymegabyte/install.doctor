@@ -53,7 +53,7 @@ function fixture(now = '2026-11-09T12:04:00.000Z') {
   return { sqlite, store, intent, decision, lookup };
 }
 
-test('strict schemas reject unknown input, invalid lifetimes, and duplicate operations', () => {
+void test('strict schemas reject unknown input, invalid lifetimes, and duplicate operations', () => {
   const { intent, decision } = fixture();
   assert.throws(() => BrokerRunIntent.parse({ ...intent, grant: {} }), /unrecognized/i);
   assert.throws(() => BrokerRunIntent.parse({ ...intent, grantExpiresAt: intent.requestedAt }), /lifetime/);
@@ -66,7 +66,7 @@ test('strict schemas reject unknown input, invalid lifetimes, and duplicate oper
   }), /reauthentication/);
 });
 
-test('persists immutable facts idempotently and rejects identifier collisions', async () => {
+void test('persists immutable facts idempotently and rejects identifier collisions', async () => {
   const setup = fixture();
   assert.equal(await setup.store.persistRunIntent(setup.intent), true);
   assert.equal(await setup.store.persistRunIntent(setup.intent), false);
@@ -85,7 +85,7 @@ test('persists immutable facts idempotently and rejects identifier collisions', 
   ).run(), /immutable/);
 });
 
-test('reconstructs the exact grant from joined columns rather than stored grant JSON', async () => {
+void test('reconstructs the exact grant from joined columns rather than stored grant JSON', async () => {
   const setup = fixture();
   await setup.store.persistRunIntent(setup.intent);
   await setup.store.persistOwnerDecision(setup.decision);
@@ -108,7 +108,7 @@ test('reconstructs the exact grant from joined columns rather than stored grant 
   assert.equal(columns.includes('grant_json'), false);
 });
 
-test('denial, stale decisions, and every cross-binding substitution fail closed', async () => {
+void test('denial, stale decisions, and every cross-binding substitution fail closed', async () => {
   const approved = fixture();
   await approved.store.persistRunIntent(approved.intent);
   await approved.store.persistOwnerDecision(approved.decision);
@@ -132,7 +132,7 @@ test('denial, stale decisions, and every cross-binding substitution fail closed'
   assert.equal(await stale.store.loadApprovedReconstruction(stale.lookup), null);
 });
 
-test('database foreign keys reject plan, consent, device, and run decision substitution', async () => {
+void test('database foreign keys reject plan, consent, device, and run decision substitution', async () => {
   const setup = fixture();
   await setup.store.persistRunIntent(setup.intent);
   let index = 0;
@@ -144,7 +144,7 @@ test('database foreign keys reject plan, consent, device, and run decision subst
   }), /FOREIGN KEY constraint failed/);
 });
 
-test('status reveals a decision locator only for an exact live approved binding', async () => {
+void test('status reveals a decision locator only for an exact live approved binding', async () => {
   const setup = fixture();
   const statusLookup = {
     schemaVersion: 1, authorizationId: setup.intent.authorizationId,
@@ -167,7 +167,7 @@ test('status reveals a decision locator only for an exact live approved binding'
   });
 });
 
-test('status normalizes denied and expired authority without exposing its locator', async () => {
+void test('status normalizes denied and expired authority without exposing its locator', async () => {
   const denied = fixture();
   await denied.store.persistRunIntent(denied.intent);
   await denied.store.persistOwnerDecision({ ...denied.decision, decision: 'denied' });

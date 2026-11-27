@@ -50,7 +50,7 @@ function fixture(overrides = {}) {
   return { dependencies, store, setCredentialId(/** @type {string} */ value) { id = value; }, get credential() { return storedCredential; } };
 }
 
-test('atomically claims once with only approved minimum scopes and a finite lifetime', async () => {
+void test('atomically claims once with only approved minimum scopes and a finite lifetime', async () => {
   const setup = fixture();
   const result = await claimDeviceCredential(claim, setup.dependencies);
   assert.equal(result.ok, true);
@@ -59,7 +59,7 @@ test('atomically claims once with only approved minimum scopes and a finite life
   assert.deepEqual(await claimDeviceCredential(claim, setup.dependencies), unavailable);
 });
 
-test('normalizes atomic replay and credential-id collision without leaking state', async () => {
+void test('normalizes atomic replay and credential-id collision without leaking state', async () => {
   const replay = fixture();
   const [left, right] = await Promise.all([
     claimDeviceCredential(claim, replay.dependencies), claimDeviceCredential(claim, replay.dependencies),
@@ -72,25 +72,25 @@ test('normalizes atomic replay and credential-id collision without leaking state
   assert.deepEqual(await claimDeviceCredential(claim, collision.dependencies), unavailable);
 });
 
-test('cross-device, cross-profile, and cross-tenant claims are indistinguishable', async () => {
+void test('cross-device, cross-profile, and cross-tenant claims are indistinguishable', async () => {
   for (const changed of [
     { tenantId: 'tenant-2' }, { profileId: 'profile-2' }, { deviceKeyFingerprint: 'd'.repeat(64) },
   ]) assert.deepEqual(await claimDeviceCredential({ ...claim, ...changed }, fixture().dependencies), unavailable);
 });
 
-test('expired, denied, bad-proof, and over-broad scope claims fail closed', async () => {
+void test('expired, denied, bad-proof, and over-broad scope claims fail closed', async () => {
   assert.deepEqual(await claimDeviceCredential(claim, fixture({ status: 'denied' }).dependencies), unavailable);
   assert.deepEqual(await claimDeviceCredential(claim, fixture({ request: { ...request, binding: { ...binding, expiresAt: now.toISOString() } } }).dependencies), unavailable);
   assert.deepEqual(await claimDeviceCredential({ ...claim, pollProof: 'd'.repeat(64) }, fixture().dependencies), unavailable);
   assert.deepEqual(await claimDeviceCredential(claim, fixture({ approvedScopes: [...binding.scopes, 'tenant:admin'] }).dependencies), unavailable);
 });
 
-test('over-polling returns bounded retry guidance without a credential', async () => {
+void test('over-polling returns bounded retry guidance without a credential', async () => {
   const result = await claimDeviceCredential(claim, fixture({ lastPolledAt: '2026-11-08T11:59:58.000Z' }).dependencies);
   assert.deepEqual(result, { ok: false, status: 429, error: 'retry_later', retryAfterSeconds: 3 });
 });
 
-test('credentials revoke independently with normalized unavailable errors', async () => {
+void test('credentials revoke independently with normalized unavailable errors', async () => {
   const setup = fixture();
   const claimed = await claimDeviceCredential(claim, setup.dependencies);
   assert.equal(claimed.ok, true);

@@ -26,7 +26,7 @@ function fixture({ device = principal, owner = null } = {}) {
   return { app: createBrokerAuthorizationApi({ service, resolveDevice: async () => device, resolveFreshOwner: async () => owner }), service, calls };
 }
 
-test('device routes require explicit authentication before invoking the service', async () => {
+void test('device routes require explicit authentication before invoking the service', async () => {
   const { app, calls } = fixture({ device: null });
   for (const path of ['/api/devices/broker-authorizations', '/api/devices/broker-approvals/claim',
     '/api/devices/broker-authorizations/status']) {
@@ -36,7 +36,7 @@ test('device routes require explicit authentication before invoking the service'
   assert.deepEqual(calls, []);
 });
 
-test('routes pass authenticated principals and owner sessions to the bounded service', async () => {
+void test('routes pass authenticated principals and owner sessions to the bounded service', async () => {
   const owner = { actor: 'owner@example.com', authenticatedAt: '2026-11-09T12:00:00.000Z' };
   const { app, calls } = fixture({ owner });
   assert.equal((await app.request('/api/devices/broker-authorizations', { method: 'POST', body: '{"a":1}' })).status, 201);
@@ -49,7 +49,7 @@ test('routes pass authenticated principals and owner sessions to the bounded ser
   assert.equal(calls[1]?.[2], owner);
 });
 
-test('adapter bounds bodies and maps validation, policy, and unknown failures without details', async () => {
+void test('adapter bounds bodies and maps validation, policy, and unknown failures without details', async () => {
   const invalid = fixture();
   invalid.service.requestAuthorization = async () => { throw new SyntaxError('secret parse detail'); };
   let response = await invalid.app.request('/api/devices/broker-authorizations', { method: 'POST', body: '{}' });

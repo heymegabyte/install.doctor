@@ -57,7 +57,7 @@ function fixture(seed = true) {
   return { sqlite, store, request, grant, delegation };
 }
 
-test('loads only the exact authority binding and reconstructs immutable JSON state', async () => {
+void test('loads only the exact authority binding and reconstructs immutable JSON state', async () => {
   const setup = fixture();
   const state = BrokerApprovalDurableState.parse(await setup.store.loadExactState(setup.request));
   assert.deepEqual(state.grant, setup.grant);
@@ -73,7 +73,7 @@ test('loads only the exact authority binding and reconstructs immutable JSON sta
   ]) assert.equal(await setup.store.loadExactState({ ...setup.request, ...changed }), null);
 });
 
-test('persists exact approved state idempotently and rejects identifier collisions', async () => {
+void test('persists exact approved state idempotently and rejects identifier collisions', async () => {
   const setup = fixture(false);
   const state = {
     schemaVersion: 1, authorizationId: setup.request.authorizationId,
@@ -90,7 +90,7 @@ test('persists exact approved state idempotently and rejects identifier collisio
   await assert.rejects(setup.store.persistApprovedState({ ...state, ownerActorId: 'owner-2' }), /collision/);
 });
 
-test('atomically consumes one approval and rejects replay, mismatched state, and id collision', async () => {
+void test('atomically consumes one approval and rejects replay, mismatched state, and id collision', async () => {
   const setup = fixture();
   const exact = {
     approvalId: 'approval-1', authorizationId: 'authorization-1',
@@ -109,7 +109,7 @@ test('atomically consumes one approval and rejects replay, mismatched state, and
   assert.equal(second.sqlite.prepare('SELECT count(*) AS n FROM broker_approval_consumptions').get()?.n, 0);
 });
 
-test('migration makes authority state and consumption receipts append-only', async () => {
+void test('migration makes authority state and consumption receipts append-only', async () => {
   const setup = fixture();
   assert.throws(() => setup.sqlite.prepare(
     "UPDATE broker_approval_states SET tenant_id='tenant-2' WHERE authorization_id='authorization-1'",

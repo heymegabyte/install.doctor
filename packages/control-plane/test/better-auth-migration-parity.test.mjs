@@ -8,7 +8,7 @@ import { getMigrations } from 'better-auth/db/migration';
 import { createBetterAuthOptions } from '../src/better-auth-options.ts';
 import { DESKTOP_TOOLS_CANONICAL_AUTH_ORIGIN, DESKTOP_TOOLS_TRUSTED_AUTH_ORIGINS } from '../src/auth-origin-policy.ts';
 
-test('reviewed D1 migration exactly matches pinned Better Auth schema', async () => {
+void test('reviewed D1 migration exactly matches pinned Better Auth schema', async () => {
   const sqlite = new DatabaseSync(':memory:');
   try {
     sqlite.exec(fs.readFileSync(new URL('../migrations/0018_better_auth_schema.sql', import.meta.url), 'utf8'));

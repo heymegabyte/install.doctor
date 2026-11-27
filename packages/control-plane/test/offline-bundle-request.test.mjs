@@ -11,7 +11,7 @@ const fixture = () => {
   return { discovered: closure, reconstructed: structuredClone(closure), producer, requestAuthorityDelegation, createdAt: 2_000_000_000, expiresAt: 2_000_000_300, requesterClaimDigest: h('3'), nonce: 'n'.repeat(32), bundle: Buffer.from('bundle'), signRequestAuthority: async () => Buffer.from('signature').toString('base64') };
 };
 
-test('emits a canonical request, matching manifest, and delegated per-request attestation', async () => {
+void test('emits a canonical request, matching manifest, and delegated per-request attestation', async () => {
   const result = await reconstructOfflineBundleRequest(fixture());
   assert.equal(result.manifest.requestDigest, requestDigest(result.request));
   assert.equal(result.requestAuthority.requestDigest, result.manifest.requestDigest);
@@ -19,7 +19,7 @@ test('emits a canonical request, matching manifest, and delegated per-request at
   assert.equal(result.requestAuthority.reconstructedPlan, true);
 });
 
-test('rejects substitution, mutable workflow identity, scope widening, stale delegation, and absent signer', async () => {
+void test('rejects substitution, mutable workflow identity, scope widening, stale delegation, and absent signer', async () => {
   const changed = fixture(); changed.reconstructed = { ...changed.reconstructed, targets: ['/etc/shadow'] };
   await assert.rejects(reconstructOfflineBundleRequest(changed), /reconstruction/);
   await assert.rejects(reconstructOfflineBundleRequest({ ...fixture(), producer: { ...fixture().producer, workflowSha: 'master' } }), /Invalid string/);

@@ -86,7 +86,7 @@ function memoryStorage() {
   };
 }
 
-test('publishes an exact verified release create-only with manifest last and supports idempotent retry', async t => {
+void test('publishes an exact verified release create-only with manifest last and supports idempotent retry', async t => {
   const release = await fixture(t);
   const storage = memoryStorage();
   let verified = 0;
@@ -105,7 +105,7 @@ test('publishes an exact verified release create-only with manifest last and sup
   assert.equal(verified, 3);
 });
 
-test('fails closed on surplus files, altered artifact bindings, and immutable collisions', async t => {
+void test('fails closed on surplus files, altered artifact bindings, and immutable collisions', async t => {
   const release = await fixture(t);
   const storage = memoryStorage();
   const verifySignature = async () => {};
@@ -123,7 +123,7 @@ test('fails closed on surplus files, altered artifact bindings, and immutable co
   await assert.rejects(publishRelease({ ...clean, expectedReleaseId: clean.releaseId, storage, verifySignature }), /read-back mismatch|collision/);
 });
 
-test('activation is intent-first, compare-and-swap guarded, and read-back verified', async () => {
+void test('activation is intent-first, compare-and-swap guarded, and read-back verified', async () => {
   const storage = memoryStorage();
   const now = Math.floor(Date.now() / 1000);
   const release = { releaseId: 'release-1', signerId: 'test-signer', manifestSha256: 'b'.repeat(64), expiresAt: now + 500_000 };
@@ -159,7 +159,7 @@ test('activation is intent-first, compare-and-swap guarded, and read-back verifi
   assert.equal(rollback.pointer.kind, 'rollback');
 });
 
-test('post-CAS receipt failure reports activated receipt pending without repeating activation', async () => {
+void test('post-CAS receipt failure reports activated receipt pending without repeating activation', async () => {
   const storage = memoryStorage();
   const originalCreate = storage.create;
   storage.create = async (key, bytes, metadata) => {
@@ -174,7 +174,7 @@ test('post-CAS receipt failure reports activated receipt pending without repeati
   assert.equal(JSON.parse(requireObject(storage.objects, 'bootstrap/channels/stable.json').bytes.toString('utf8')).releaseId, 'release-1');
 });
 
-test('active release freshness is signature-verified, bounded, and nonmutating', async t => {
+void test('active release freshness is signature-verified, bounded, and nonmutating', async t => {
   const now = Math.floor(Date.now() / 1000);
   const release = await fixture(t, 'release-freshness', { now, expiresAt: now + 86_400 });
   const releaseStorage = memoryStorage();
@@ -198,7 +198,7 @@ test('active release freshness is signature-verified, bounded, and nonmutating',
   assert.equal(channelStorage.calls.slice(callsBefore).every(([operation]) => operation === 'read'), true);
 });
 
-test('active release freshness rejects pointer tampering and reports expiry', async t => {
+void test('active release freshness rejects pointer tampering and reports expiry', async t => {
   const now = Math.floor(Date.now() / 1000);
   const release = await fixture(t, 'release-expiry', { now, expiresAt: now + 3_600 });
   const releaseStorage = memoryStorage();
@@ -226,7 +226,7 @@ test('active release freshness rejects pointer tampering and reports expiry', as
   assert.equal(expired.remainingSeconds, -1);
 });
 
-test('activation rejects stale promotion and underconstrained rollback', async () => {
+void test('activation rejects stale promotion and underconstrained rollback', async () => {
   const now = Math.floor(Date.now() / 1000);
   const storage = memoryStorage();
   const release = { releaseId: 'release-1', signerId: 'test-signer', manifestSha256: 'a'.repeat(64), expiresAt: now + 345_599 };
@@ -245,7 +245,7 @@ test('activation rejects stale promotion and underconstrained rollback', async (
   }), /exact prior activated release/);
 });
 
-test('same-payload renewal changes only envelope identity, URLs, and validity', async t => {
+void test('same-payload renewal changes only envelope identity, URLs, and validity', async t => {
   const now = Math.floor(Date.now() / 1000);
   const renewalEpoch = Math.floor(now / 86_400) * 86_400;
   const source = await fixture(t, 'release-source', { now, expiresAt: now + 86_400 });
@@ -330,7 +330,7 @@ test('same-payload renewal changes only envelope identity, URLs, and validity', 
 
 });
 
-test('receipt reconciliation is idempotent and requires exact current authoritative intent', async () => {
+void test('receipt reconciliation is idempotent and requires exact current authoritative intent', async () => {
   const now = Math.floor(Date.now() / 1000);
   const storage = memoryStorage();
   const originalCreate = storage.create;
