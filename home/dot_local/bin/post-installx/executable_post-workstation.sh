@@ -30,6 +30,17 @@ warn() {
   fi
 }
 
+append_alloy_credential_filter() {
+  printf '\nloki.process "credential_filter" {\n  forward_to = [%s]\n' "$1"
+  cat <<'ALLOY_FILTER'
+  stage.drop {
+    expression          = "(?i)\\b(authorization|proxy-authorization|password|passwd|api_key|api-key|access_token|refresh_token|client_secret|secret_key)[\\\"']?[ \\t]*[:=]"
+    drop_counter_reason = "credential_field"
+  }
+}
+ALLOY_FILTER
+}
+
 # This workstation capability must be selected explicitly. Keeping the hook
 # installed is not consent to provision a workstation or mutate host services.
 if [ "${INSTALL_DOCTOR_ENABLE_WORKSTATION:-0}" != "1" ]; then
@@ -1112,9 +1123,10 @@ local.file_match "macos_logs" {
 
 loki.source.file "macos_logs" {
   targets    = local.file_match.macos_logs.targets
-  forward_to = [loki.write.obs.receiver]
+  forward_to = [loki.process.credential_filter.receiver]
 }
 EOF
+    append_alloy_credential_filter loki.write.obs.receiver >> "$ALLOY_ETC/config.alloy"
 
     cat > "$HOME/Library/LaunchAgents/space.megabyte.obs-relay.plist" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
@@ -2457,7 +2469,7 @@ loki.relabel "docker" {
 }
 
 loki.process "drop_stale" {
-  forward_to = [loki.write.central.receiver]
+  forward_to = [loki.process.credential_filter.receiver]
   stage.drop {
     older_than = "24h"
   }
@@ -2501,6 +2513,7 @@ loki.write "central" {
   }
 }
 EOF
+    append_alloy_credential_filter loki.write.central.receiver >> "$TMP_DIR/config.alloy"
     run_root cp "$TMP_DIR/config.alloy" /etc/alloy/config.alloy
     if ! run_root docker ps --format '{{.Names}}' 2>/dev/null | grep -qx 'alloy'; then
       warn 'Alloy is absent; select a digest-pinned Alloy service through desired state'
