@@ -1,21 +1,35 @@
+// @ts-check
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { readFile, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import test from 'node:test';
+import { URL } from 'node:url';
+import { z } from 'zod';
 import { blueprintDigest, exportMarkdown } from '../../aid-core/dist/core.js';
 import { DisposableProductCompositionReceiptSchema, RealHostCanaryReceiptSchema } from '../../aid-core/dist/installer-contracts.js';
 import { main as runSupervisor, PROVISIONING_PROMPT, PROVISIONING_PROMPT_VERSION } from '../../desktop-tools-runtime/src/desktop-tools-supervisor.mjs';
 import { createProtocolRuntimeFixture } from '../../desktop-tools-runtime/test/helpers/runtime-fixture.mjs';
 import { createCompositionEngineFixture } from '../../installer-engine/test/helpers/composition-engine-fixture.mjs';
 
+/** @param {unknown} value @returns {unknown} */
 const canonical = value => Array.isArray(value) ? value.map(canonical)
   : value !== null && typeof value === 'object'
     ? Object.fromEntries(Object.entries(value).sort(([left], [right]) => left.localeCompare(right)).map(([key, child]) => [key, canonical(child)]))
     : value;
+/** @param {unknown} value */
 const digest = value => createHash('sha256').update(typeof value === 'string' || Buffer.isBuffer(value)
   ? value : `${JSON.stringify(canonical(value))}\n`).digest('hex');
 import { createWorkerFixture } from './helpers/worker-app-fixture.mjs';
+
+const planResult = z.object({ digest: z.string().regex(/^[a-f0-9]{64}$/) });
+const approvalResult = z.object({ approvalId: z.string().min(1) });
+const runResult = z.object({ receipt: z.object({ status: z.string() }) });
+const verificationResult = z.object({ authority: z.string() });
+const previewResult = z.object({
+  executable: z.boolean(), eligibleResourceIds: z.array(z.string()), refusedResourceIds: z.array(z.string()),
+});
+const rollbackResult = z.object({ status: z.string() });
 
 test('disposable composition carries one identity through Worker, supervisor, engine, recovery, and deprovision preview', async t => {
   const fixture = await createWorkerFixture();
@@ -124,23 +138,23 @@ test('disposable composition carries one identity through Worker, supervisor, en
     releaseId: 'fixture-release-1', actorId: 'fixture-owner' });
   t.after(() => engine.cleanup());
   const first = engine.makeAdapters('run-composition-1');
-  assert.equal((await first.adapters.desktop_tools_discover({ schemaVersion: 1 })).hostId, engine.facts.hostId);
-  assert.equal((await first.adapters.desktop_tools_validate({ schemaVersion: 1 })).valid, true);
-  const firstPlan = await first.adapters.desktop_tools_plan({ schemaVersion: 1 });
-  const firstApproval = await first.adapters.desktop_tools_approve({ schemaVersion: 1, planDigest: firstPlan.digest });
-  const firstApply = await first.adapters.desktop_tools_apply({ schemaVersion: 1, approvalId: firstApproval.approvalId });
+  assert.equal(z.object({ hostId: z.string() }).parse(await first.adapters.desktop_tools_discover({ schemaVersion: 1 })).hostId, engine.facts.hostId);
+  assert.equal(z.object({ valid: z.boolean() }).parse(await first.adapters.desktop_tools_validate({ schemaVersion: 1 })).valid, true);
+  const firstPlan = planResult.parse(await first.adapters.desktop_tools_plan({ schemaVersion: 1 }));
+  const firstApproval = approvalResult.parse(await first.adapters.desktop_tools_approve({ schemaVersion: 1, planDigest: firstPlan.digest }));
+  const firstApply = runResult.parse(await first.adapters.desktop_tools_apply({ schemaVersion: 1, approvalId: firstApproval.approvalId }));
   assert.equal(firstApply.receipt.status, 'success');
   assert.equal(engine.mutationCount(), 1);
-  const firstVerify = await first.adapters.desktop_tools_verify({ schemaVersion: 1, runId: 'run-composition-1', planDigest: firstPlan.digest });
+  const firstVerify = verificationResult.parse(await first.adapters.desktop_tools_verify({ schemaVersion: 1, runId: 'run-composition-1', planDigest: firstPlan.digest }));
   assert.equal(firstVerify.authority, 'committed');
-  const firstStatus = await first.adapters.desktop_tools_status({ schemaVersion: 1, runId: 'run-composition-1', planDigest: firstPlan.digest });
+  const firstStatus = runResult.parse(await first.adapters.desktop_tools_status({ schemaVersion: 1, runId: 'run-composition-1', planDigest: firstPlan.digest }));
   assert.equal(firstStatus.receipt.status, 'success');
   const beforeSecondRun = await engine.snapshot();
 
   const second = engine.makeAdapters('run-composition-2');
-  const secondPlan = await second.adapters.desktop_tools_plan({ schemaVersion: 1 });
-  const secondApproval = await second.adapters.desktop_tools_approve({ schemaVersion: 1, planDigest: secondPlan.digest });
-  const secondApply = await second.adapters.desktop_tools_apply({ schemaVersion: 1, approvalId: secondApproval.approvalId });
+  const secondPlan = planResult.parse(await second.adapters.desktop_tools_plan({ schemaVersion: 1 }));
+  const secondApproval = approvalResult.parse(await second.adapters.desktop_tools_approve({ schemaVersion: 1, planDigest: secondPlan.digest }));
+  const secondApply = runResult.parse(await second.adapters.desktop_tools_apply({ schemaVersion: 1, approvalId: secondApproval.approvalId }));
   assert.equal(secondApply.receipt.status, 'success');
   assert.equal(engine.mutationCount(), 1, 'unchanged second run must not apply configuration again');
   assert.deepEqual(await engine.snapshot(), beforeSecondRun, 'unchanged second run must preserve inode, bytes, mode, and timestamp');
@@ -149,23 +163,24 @@ test('disposable composition carries one identity through Worker, supervisor, en
   const controller = new AbortController();
   const entered = engine.prepareInterruption();
   const interrupted = engine.makeAdapters('run-composition-interrupted', { signal: controller.signal });
-  const interruptedPlan = await interrupted.adapters.desktop_tools_plan({ schemaVersion: 1 });
-  const interruptedApproval = await interrupted.adapters.desktop_tools_approve({ schemaVersion: 1, planDigest: interruptedPlan.digest });
+  const interruptedPlan = planResult.parse(await interrupted.adapters.desktop_tools_plan({ schemaVersion: 1 }));
+  const interruptedApproval = approvalResult.parse(await interrupted.adapters.desktop_tools_approve({ schemaVersion: 1, planDigest: interruptedPlan.digest }));
   const interruptedApply = interrupted.adapters.desktop_tools_apply({ schemaVersion: 1, approvalId: interruptedApproval.approvalId });
   await entered; controller.abort(new Error('disposable composition interruption'));
-  const cancelled = await interruptedApply;
+  const cancelled = runResult.parse(await interruptedApply);
   assert.equal(cancelled.receipt.status, 'cancelled');
   assert.equal((await engine.journal.inspectCompletion('run-composition-interrupted', interruptedPlan.digest)).authority, 'uncommitted');
-  const resumed = await interrupted.adapters.desktop_tools_resume({ schemaVersion: 1, approvalId: interruptedApproval.approvalId });
+  const resumed = runResult.parse(await interrupted.adapters.desktop_tools_resume({ schemaVersion: 1, approvalId: interruptedApproval.approvalId }));
   assert.equal(resumed.receipt.status, 'success');
   assert.equal(engine.mutationCount(), 2, 'resume must recheck and not replay the landed interrupted mutation');
   assert.equal((await engine.journal.inspectCompletion('run-composition-interrupted', interruptedPlan.digest)).authority, 'committed');
 
   const compensation = (await engine.journal.readCompensations('run-composition-interrupted', interruptedPlan.digest))[0];
+  assert.ok(compensation, 'interrupted mutation must leave a compensation record');
   const beforePreview = await engine.snapshot();
   const ownershipEvidence = { schemaVersion: 1, owner: 'install.doctor', sourceRunId: 'run-composition-interrupted',
     artifactDigest: compensation.record.artifactDigest, appliedDigest: compensation.appliedDigest };
-  const preview = await interrupted.adapters.desktop_tools_deprovision_preview({
+  const preview = previewResult.parse(await interrupted.adapters.desktop_tools_deprovision_preview({
     schemaVersion: 1, sourceRunId: 'run-composition-interrupted', sourcePlanDigest: interruptedPlan.digest,
     resources: [
       { schemaVersion: 1, resourceId: 'config.composition', effect: 'configuration', target: engine.target,
@@ -179,18 +194,18 @@ test('disposable composition carries one identity through Worker, supervisor, en
       { schemaVersion: 1, resourceId: 'storage.unsupported', effect: 'storage', target: `${engine.target}.storage`,
         ownership: 'installer-owned', ownershipEvidence, observedDigest: compensation.appliedDigest, userData: 'absent' },
     ],
-  });
+  }));
   assert.equal(preview.executable, false);
   assert.deepEqual(preview.eligibleResourceIds, ['config.composition']);
   assert.deepEqual(preview.refusedResourceIds, ['config.modified', 'config.unowned', 'data.user', 'storage.unsupported']);
   assert.deepEqual(await engine.snapshot(), beforePreview, 'deprovision preview must not mutate managed state');
 
-  const rollbackPlan = await interrupted.adapters.desktop_tools_rollback_config({ schemaVersion: 1, action: 'plan',
-    sourceRunId: 'run-composition-interrupted', sourcePlanDigest: interruptedPlan.digest });
-  const rollbackApproval = await interrupted.adapters.desktop_tools_rollback_config({ schemaVersion: 1, action: 'approve',
-    sourceRunId: 'run-composition-interrupted', sourcePlanDigest: interruptedPlan.digest, rollbackPlanDigest: rollbackPlan.digest });
-  const rollback = await interrupted.adapters.desktop_tools_rollback_config({ schemaVersion: 1, action: 'execute',
-    approvalId: rollbackApproval.approvalId });
+  const rollbackPlan = planResult.parse(await interrupted.adapters.desktop_tools_rollback_config({ schemaVersion: 1, action: 'plan',
+    sourceRunId: 'run-composition-interrupted', sourcePlanDigest: interruptedPlan.digest }));
+  const rollbackApproval = approvalResult.parse(await interrupted.adapters.desktop_tools_rollback_config({ schemaVersion: 1, action: 'approve',
+    sourceRunId: 'run-composition-interrupted', sourcePlanDigest: interruptedPlan.digest, rollbackPlanDigest: rollbackPlan.digest }));
+  const rollback = rollbackResult.parse(await interrupted.adapters.desktop_tools_rollback_config({ schemaVersion: 1, action: 'execute',
+    approvalId: rollbackApproval.approvalId }));
   assert.equal(rollback.status, 'succeeded');
   assert.deepEqual(await readFile(engine.target), engine.previousBytes);
 

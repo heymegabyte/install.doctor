@@ -1,0 +1,11 @@
+{
+  "extends": "./tsconfig.test.json",
+  "compilerOptions": {
+    "checkJs": false
+  },
+  "include": [
+    "test/disposable-product-composition.test.mjs",
+    ".wrangler/control-plane-runtime.d.ts"
+  ],
+  "exclude": []
+}
