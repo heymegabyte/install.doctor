@@ -36,7 +36,7 @@
 - [ ] 2.17 Keep the OS pair validation `unverified`/`blocked-upstream` while `os.megabyte.space` returns `522`; after origin recovery require authenticated allowed E2E, anonymous denial, and representative unrelated-application denial before `valid`, apply, or cutover.
 - [x] 2.18 Reserve `CLOUDFLARE_API_KEY`/`CLOUDFLARE_EMAIL` from generic Cloudflare matching and re-admit them only through `cloudflare-global-admin-legacy` on macOS and Ubuntu; prove managed hosts and workloads exclude the pair.
 - [ ] 2.19 Rotate the browser-exposed Global API Key through Cloudflare's security-check-protected dashboard, invalidate and prove rejection of the old value, validate the replacement, update both legacy host destinations atomically, and keep new runtime use denied until those gates pass.
-- [x] 2.19a Quarantine `CLOUDFLARE_API_KEY` in the standard host resolver so agents and new processes cannot retrieve the exposed value while provider rotation is pending; preserve operator-only rotation access outside the normal resolver.
+- [x] 2.19a Quarantine `CLOUDFLARE_API_KEY` in the standard host resolver and deploy the fail-closed resolver to both `macos.megabyte.space` and `ubuntu.megabyte.space`; prove the key is denied while a non-quarantined Infisical value still resolves on each host, and preserve operator-only rotation access outside the normal resolver.
 - [ ] 2.20 Inventory every executable Global API Key consumer, replace each with a purpose-scoped token or audited human control-plane operation, verify macOS/Ubuntu behavior and direct-retrieval denial, then remove the pair from both runtime projects and retire the transitional capability.
 
 ## 2A. Workload targets
