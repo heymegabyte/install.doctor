@@ -30,9 +30,11 @@ const discovery = () => [{ id: 'database-primary', kind: 'database', locator: 'p
 test('accepts complete per-host capabilities and every authoritative data kind', () => {
   const input = fixture();
   const kinds = ['dataset', 'file', 'vm', 'container', 'configuration', 'key'];
+  const [coverage] = input.coverage;
+  const source = coverage?.sources[0];
+  assert.ok(coverage && source);
   for (const [index, kind] of kinds.entries()) {
-    const source = structuredClone(input.coverage[0].sources[0]); source.id = `${kind}-${index}`; source.kind = kind; source.locator = `${kind}:fixture`;
-    input.coverage[0].sources.push(source);
+    coverage.sources.push({ ...structuredClone(source), id: `${kind}-${index}`, kind, locator: `${kind}:fixture` });
   }
   assert.deepEqual(validateHostDataCoverageEstate(input), input);
 });
@@ -46,16 +48,21 @@ test('newly discovered unprotected authoritative data fails coverage health', ()
   const result = assessHostCoverage(fixture(), 'fixture-host', found);
   assert.equal(result.healthy, false);
   assert.match(result.gaps.join('\n'), /newly discovered authoritative source has no coverage map/);
-  found[1].authoritative = false;
+  const [, newSource] = found;
+  assert.ok(newSource);
+  newSource.authoritative = false;
   assert.equal(assessHostCoverage(fixture(), 'fixture-host', found).healthy, true);
 });
 
 test('unprotected layers, missing restore, stale discovery, and substituted identity fail health', () => {
-  const unprotected = fixture(); unprotected.coverage[0].sources[0].layers[2] = { layer: 'independent-backup', state: 'unprotected', reason: 'No destination' };
+  const unprotected = fixture();
+  const source = unprotected.coverage[0]?.sources[0];
+  assert.ok(source);
+  source.layers[2] = { layer: 'independent-backup', state: 'unprotected', reason: 'No destination' };
   assert.match(assessHostCoverage(unprotected, 'fixture-host', discovery()).gaps.join('\n'), /independent-backup: unprotected/);
   const missing = assessHostCoverage(fixture(), 'fixture-host', []);
   assert.match(missing.gaps.join('\n'), /was not discovered/);
-  const substituted = discovery(); substituted[0].locator = 'postgres:other';
+  const substituted = discovery().map(entry => ({ ...entry, locator: 'postgres:other' }));
   assert.match(assessHostCoverage(fixture(), 'fixture-host', substituted).gaps.join('\n'), /does not match reviewed identity/);
 });
 
@@ -69,10 +76,14 @@ test('canonical repository inventory is valid and truthfully reports Zen recover
 });
 
 test('strict schemas reject unknown fields, duplicate capabilities, and coverage not bound to observation', () => {
-  const unknown = fixture(); unknown.inventories[0].secret = 'not-allowed';
+  const input = fixture();
+  const [inventory] = input.inventories;
+  const capability = inventory?.capabilities[0];
+  assert.ok(inventory && capability);
+  const unknown = { ...input, inventories: [{ ...inventory, secret: 'not-allowed' }] };
   assert.throws(() => validateHostDataCoverageEstate(unknown), /unrecognized/i);
-  const duplicate = fixture(); duplicate.inventories[0].capabilities.push(structuredClone(duplicate.inventories[0].capabilities[0]));
+  const duplicate = { ...input, inventories: [{ ...inventory, capabilities: [...inventory.capabilities, capability] }] };
   assert.throws(() => validateHostDataCoverageEstate(duplicate), /unique/i);
-  const stale = fixture(); stale.coverage[0].inventoryObservedAt = '2026-11-09T12:00:00.000Z';
+  const stale = { ...input, coverage: input.coverage.map(entry => ({ ...entry, inventoryObservedAt: '2026-11-09T12:00:00.000Z' })) };
   assert.throws(() => validateHostDataCoverageEstate(stale), /not bound/i);
 });

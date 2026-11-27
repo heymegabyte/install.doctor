@@ -6,7 +6,7 @@ const digest = 'a'.repeat(64);
 const base = { schemaVersion: 1, observedAt: '2026-11-10T15:00:00.000Z', severity: 'info' };
 const resource = { 'service.name': 'desktop-tools-installer', 'service.version': '1.2.3', 'deployment.environment.name': 'production',
   'host.id': 'host-1', 'host.arch': 'arm64', 'os.type': 'darwin' };
-const events = [
+const eventEntries = /** @type {const} */ ([
   ['desktop_tools.host.observed', { 'host.facts.digest': digest, 'host.capability.count': 4, 'desktop_tools.status': 'succeeded' }],
   ['desktop_tools.profile.resolved', { 'desktop_tools.profile.id': 'profile-1', 'desktop_tools.profile.revision': 'revision-1', 'desktop_tools.profile.digest': digest, 'desktop_tools.status': 'succeeded' }],
   ['desktop_tools.release.evaluated', { 'desktop_tools.release.id': 'release-1', 'desktop_tools.release.manifest.digest': digest, 'desktop_tools.release.channel': 'stable', 'desktop_tools.release.decision': 'admitted' }],
@@ -20,7 +20,8 @@ const events = [
   ['desktop_tools.verification.state', { 'desktop_tools.run.id': 'run-1', 'desktop_tools.verification.id': 'verify-1', 'desktop_tools.verification.evidence.digest': digest, 'desktop_tools.status': 'succeeded', 'desktop_tools.verification.gaps': [] }],
   ['desktop_tools.backup.state', { 'desktop_tools.backup.id': 'backup-1', 'desktop_tools.backup.workload.id': 'workload-1', 'desktop_tools.backup.kind': 'file-backup', 'desktop_tools.status': 'succeeded', 'desktop_tools.backup.recovery_point.digest': digest }],
   ['desktop_tools.recovery.state', { 'desktop_tools.recovery.id': 'recovery-1', 'desktop_tools.recovery.workload.id': 'workload-1', 'desktop_tools.recovery.kind': 'file', 'desktop_tools.status': 'succeeded', 'desktop_tools.recovery.evidence.digest': digest }],
-].map(([name, attributes]) => ({ ...base, name, attributes }));
+]);
+const events = eventEntries.map(([name, attributes]) => ({ ...base, name, attributes }));
 
 test('semantic conventions cover every required signal family', () => {
   assert.equal(events.map(event => DesktopToolsSemanticEventSchema.parse(event)).length, 13);
@@ -37,11 +38,15 @@ test('resource labels are fixed and exclude high-cardinality identifiers', () =>
 });
 
 test('event attributes and batches enforce cardinality bounds', () => {
-  assert.throws(() => DesktopToolsSemanticEventSchema.parse({ ...events[3], attributes: { ...events[3].attributes, custom: 'x' } }));
-  assert.throws(() => DesktopToolsSemanticEventSchema.parse({ ...events[5], attributes: { ...events[5].attributes, 'desktop_tools.task.id': 'x'.repeat(129) } }));
-  assert.throws(() => DesktopToolsSemanticEventSchema.parse({ ...events[10], attributes: { ...events[10].attributes,
+  const run = events[3];
+  const task = events[5];
+  const verification = events[10];
+  assert.ok(run && task && verification);
+  assert.throws(() => DesktopToolsSemanticEventSchema.parse({ ...run, attributes: { ...run.attributes, custom: 'x' } }));
+  assert.throws(() => DesktopToolsSemanticEventSchema.parse({ ...task, attributes: { ...task.attributes, 'desktop_tools.task.id': 'x'.repeat(129) } }));
+  assert.throws(() => DesktopToolsSemanticEventSchema.parse({ ...verification, attributes: { ...verification.attributes,
     'desktop_tools.verification.gaps': Array.from({ length: 65 }, (_, index) => `gap-${index}`) } }));
-  assert.throws(() => DesktopToolsSemanticEventSchema.parse({ ...events[10], attributes: { ...events[10].attributes,
+  assert.throws(() => DesktopToolsSemanticEventSchema.parse({ ...verification, attributes: { ...verification.attributes,
     'desktop_tools.verification.gaps': ['same-gap', 'same-gap'] } }));
   assert.throws(() => DesktopToolsTelemetryBatchSchema.parse({ schemaVersion: 1, resource,
     scope: { name: 'desktop.tools', version: '1.0.0' }, events: Array.from({ length: 513 }, () => events[0]), droppedEvents: 0 }));

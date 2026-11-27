@@ -1,0 +1,16 @@
+{
+  "extends": "./vendor/theme-tools/tsconfig.base.json",
+  "compilerOptions": {
+    "allowJs": true,
+    "checkJs": true,
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "types": [
+      "node"
+    ]
+  },
+  "include": [
+    "test/**/*.test.mjs",
+    "test/fixtures/**/*.mjs"
+  ]
+}

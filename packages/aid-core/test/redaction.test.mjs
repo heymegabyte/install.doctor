@@ -18,6 +18,7 @@ test('shared output redaction is deterministic, idempotent, and preserves ordina
   assert.equal(redactSecrets(42), 42);
 });
 
+/** @param {string[]} chunks @param {Parameters<typeof createStreamingSecretRedactor>[0]} [options] */
 function stream(chunks, options) {
   const redactor = createStreamingSecretRedactor(options);
   return chunks.map(chunk => redactor.write(chunk)).join('') + redactor.end();
@@ -76,5 +77,6 @@ test('streaming redaction keeps bounded state and fails closed on oversized reco
 
 test('streaming options reject unknown and unsafe buffer settings', () => {
   assert.throws(() => createStreamingSecretRedactor({ maxBufferedChars: 127 }));
-  assert.throws(() => createStreamingSecretRedactor({ maxBufferedChars: 256, unknown: true }));
+  const optionsWithUnknownKey = { maxBufferedChars: 256, unknown: true };
+  assert.throws(() => createStreamingSecretRedactor(optionsWithUnknownKey));
 });

@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'; import test from 'node:test';
 import { compileAgentSandboxPolicy, evaluateAgentSandbox } from '../dist/agent-sandbox-policy.js';
+/** @param {'allow' | 'deny'} effect @param {string[]} values @param {string} reason */
 const rule = (effect, values, reason) => ({ effect, values, reason });
 const policy = { schemaVersion: 1, policyId: 'policy-1', taskId: 'task-1', autoMode: true, maxSteps: 20, maxCostMicros: 1000, maxSubagents: 2,
   filesystem: { read: [rule('allow', ['/workspace/**'], 'task workspace'), rule('deny', ['/workspace/.env'], 'secret file')], write: [rule('allow', ['/workspace/output/**'], 'output only')] },

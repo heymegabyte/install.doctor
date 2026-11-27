@@ -7,6 +7,12 @@ import {
   validateThemeToolsResearchProvisioningManifest,
 } from '../dist/theme-tools-research-provisioning.js';
 
+/** @template T @param {T | undefined} value */
+function requiredFixture(value) {
+  assert.ok(value !== undefined, 'expected the fixture entry to exist');
+  return value;
+}
+
 const fixture = () => ({
   schemaVersion: 1,
   revision: 'research-platform-1',
@@ -162,12 +168,13 @@ test('builds a stable non-mutating idempotent dry-run plan with rollback metadat
   assert.ok(first.actions.some(action => action.operation === 'validate-browser-egress-entrypoint' && action.target.includes('ResearchBrowserEgressService:research-browser.invalid')));
   assert.ok(first.actions.some(action => action.operation === 'validate-browser-descriptor-key-reference' && action.target.includes('infisical:\/\/workloads\/theme-tools-research\/RESEARCH_BROWSER_DESCRIPTOR_KEY')));
   const bindingAction = first.actions.find(action => action.operation === 'ensure-consumer-service-binding');
+  assert.ok(bindingAction);
   assert.deepEqual(bindingAction.rollback, ['preserve-existing-binding', 'remove-only-new-binding']);
 });
 
 test('rejects plaintext secrets, mismatched fixed leaves, and unknown fields', () => {
   const plaintext = fixture();
-  plaintext.secretReferences[0].reference = 'hunter2';
+  requiredFixture(plaintext.secretReferences[0]).reference = 'hunter2';
   assert.throws(() => validateThemeToolsResearchProvisioningManifest(plaintext));
   const mismatched = fixture();
   mismatched.workloadIdentity.secretPath = '/workloads/shared-identity';
@@ -188,10 +195,11 @@ test('requires a credential-free HTTPS broker endpoint and fixed service-token r
 
 test('rejects duplicate bindings and queue references without a declared DLQ', () => {
   const duplicate = fixture();
-  duplicate.resources[1].binding = duplicate.resources[0].binding;
+  requiredFixture(duplicate.resources[1]).binding = requiredFixture(duplicate.resources[0]).binding;
   assert.throws(() => validateThemeToolsResearchProvisioningManifest(duplicate), /Binding names must be unique/);
   const missingDlq = fixture();
-  missingDlq.resources.find(resource => resource.role === 'queue_jobs').deadLetterResourceId = 'missing';
+  const queueJob = requiredFixture(missingDlq.resources.find(resource => resource.role === 'queue_jobs'));
+  queueJob.deadLetterResourceId = 'missing';
   assert.throws(() => validateThemeToolsResearchProvisioningManifest(missingDlq), /declared DLQ/);
 });
 
@@ -203,77 +211,77 @@ test('rejects incomplete topologies instead of silently provisioning a partial r
 
 test('rejects duplicate consumer bindings and target or environment drift', () => {
   const duplicate = fixture();
-  duplicate.consumerBindings.push({ ...duplicate.consumerBindings[0], id: 'oneprompt-research-copy' });
+  duplicate.consumerBindings.push({ ...requiredFixture(duplicate.consumerBindings[0]), id: 'oneprompt-research-copy' });
   assert.throws(() => validateThemeToolsResearchProvisioningManifest(duplicate), /Consumer service binding names must be unique/);
 
   const wrongTarget = fixture();
-  wrongTarget.consumerBindings[0].targetServiceName = 'attacker-worker';
+  requiredFixture(wrongTarget.consumerBindings[0]).targetServiceName = 'attacker-worker';
   assert.throws(() => validateThemeToolsResearchProvisioningManifest(wrongTarget), /canonical research Worker/);
 
   const wrongEnvironment = fixture();
-  wrongEnvironment.consumerBindings[0].consumerEnvironment = 'production';
+  requiredFixture(wrongEnvironment.consumerBindings[0]).consumerEnvironment = 'production';
   assert.throws(() => validateThemeToolsResearchProvisioningManifest(wrongEnvironment), /manifest environment/);
 });
 
 test('consumer binding declarations reject credentials and unknown authority shapes', () => {
   const token = fixture();
-  token.consumerBindings[0].token = 'secret';
+  Object.assign(requiredFixture(token.consumerBindings[0]), { token: 'secret' });
   assert.throws(() => validateThemeToolsResearchProvisioningManifest(token));
 
   const unsafeAuthority = fixture();
-  unsafeAuthority.consumerBindings[0].authorityGrantReference = 'https://user:secret@example.com/grant';
+  requiredFixture(unsafeAuthority.consumerBindings[0]).authorityGrantReference = 'https://user:secret@example.com/grant';
   assert.throws(() => validateThemeToolsResearchProvisioningManifest(unsafeAuthority));
 
   const forgedProps = fixture();
-  forgedProps.consumerBindings[0].bindingProps.consumerId = 'another-product';
+  requiredFixture(forgedProps.consumerBindings[0]).bindingProps.consumerId = 'another-product';
   assert.throws(() => validateThemeToolsResearchProvisioningManifest(forgedProps), /exactly attest/);
 });
 
 test('rejects duplicate, undeclared, and environment-drifted internal runtime topology', () => {
   const duplicate = fixture();
-  duplicate.internalBindings.push({ ...duplicate.internalBindings[1], id: 'duplicate-egress' });
+  duplicate.internalBindings.push({ ...requiredFixture(duplicate.internalBindings[1]), id: 'duplicate-egress' });
   assert.throws(() => validateThemeToolsResearchProvisioningManifest(duplicate));
 
   const undeclared = fixture();
-  undeclared.internalBindings[0].targetServiceId = 'missing-branch';
+  requiredFixture(undeclared.internalBindings[0]).targetServiceId = 'missing-branch';
   assert.throws(() => validateThemeToolsResearchProvisioningManifest(undeclared), /declared runtime services/);
 
   const drift = fixture();
-  drift.runtimeServices[1].environment = 'production';
+  requiredFixture(drift.runtimeServices[1]).environment = 'production';
   assert.throws(() => validateThemeToolsResearchProvisioningManifest(drift), /manifest environment/);
 
   const wrongWorkflowOwner = fixture();
-  wrongWorkflowOwner.runtimeServices[0].serviceName = 'another-research-worker';
+  requiredFixture(wrongWorkflowOwner.runtimeServices[0]).serviceName = 'another-research-worker';
   assert.throws(() => validateThemeToolsResearchProvisioningManifest(wrongWorkflowOwner), /canonical research Worker/);
 });
 
 test('rejects unsafe branch properties and egress policy mismatch', () => {
   for (const endpoint of ['https://user:secret@search.example.test', 'https://search.example.test/?token=secret', 'http://search.example.test']) {
     const unsafeEndpoint = fixture();
-    unsafeEndpoint.internalBindings[0].props.searchEndpoint = endpoint;
+    requiredFixture(requiredFixture(unsafeEndpoint.internalBindings[0]).props).searchEndpoint = endpoint;
     assert.throws(() => validateThemeToolsResearchProvisioningManifest(unsafeEndpoint));
   }
 
   const concurrency = fixture();
-  concurrency.internalBindings[0].props.maximumParallelFetches = 17;
+  requiredFixture(requiredFixture(concurrency.internalBindings[0]).props).maximumParallelFetches = 17;
   assert.throws(() => validateThemeToolsResearchProvisioningManifest(concurrency));
 
   const policyMismatch = fixture();
-  policyMismatch.internalBindings[1].policyReference = 'theme-egress://research/other';
+  requiredFixture(policyMismatch.internalBindings[1]).policyReference = 'theme-egress://research/other';
   assert.throws(() => validateThemeToolsResearchProvisioningManifest(policyMismatch), /one authoritative egress policy/);
 
   const browserHostname = fixture();
-  browserHostname.internalBindings[0].props.browserVirtualHostname = 'another-browser.invalid';
+  requiredFixture(requiredFixture(browserHostname.internalBindings[0]).props).browserVirtualHostname = 'another-browser.invalid';
   assert.throws(() => validateThemeToolsResearchProvisioningManifest(browserHostname));
 
   const fallback = fixture();
-  fallback.internalBindings[1].directFetchFallback = true;
+  requiredFixture(fallback.internalBindings[1]).directFetchFallback = true;
   assert.throws(() => validateThemeToolsResearchProvisioningManifest(fallback));
 });
 
 test('internal binding declarations reject credentials and preserve narrow rollback', () => {
   const credential = fixture();
-  credential.internalBindings[1].token = 'secret';
+  Object.assign(requiredFixture(credential.internalBindings[1]), { token: 'secret' });
   assert.throws(() => validateThemeToolsResearchProvisioningManifest(credential));
 
   const actions = buildInstallDoctorProvisioningSpec(fixture()).actions.filter(action => action.operation === 'ensure-internal-service-binding');
@@ -287,15 +295,15 @@ test('requires the exact policy-routed Browser Run chain and fixed descriptor-ke
   assert.throws(() => validateThemeToolsResearchProvisioningManifest(missingKey), /fixed RESEARCH_BROWSER_DESCRIPTOR_KEY/);
 
   const wrongKeyLeaf = fixture();
-  wrongKeyLeaf.secretReferences.find(secret => secret.secretName === 'RESEARCH_BROWSER_DESCRIPTOR_KEY').reference = 'infisical://workloads/other/RESEARCH_BROWSER_DESCRIPTOR_KEY';
+  requiredFixture(wrongKeyLeaf.secretReferences.find(secret => secret.secretName === 'RESEARCH_BROWSER_DESCRIPTOR_KEY')).reference = 'infisical://workloads/other/RESEARCH_BROWSER_DESCRIPTOR_KEY';
   assert.throws(() => validateThemeToolsResearchProvisioningManifest(wrongKeyLeaf));
 
   const wrongEntrypoint = fixture();
-  wrongEntrypoint.internalBindings.find(binding => binding.role === 'browser_egress').targetEntrypoint = 'OtherBrowserService';
+  requiredFixture(wrongEntrypoint.internalBindings.find(binding => binding.role === 'browser_egress')).targetEntrypoint = 'OtherBrowserService';
   assert.throws(() => validateThemeToolsResearchProvisioningManifest(wrongEntrypoint));
 
   const wrongVirtualHost = fixture();
-  wrongVirtualHost.internalBindings.find(binding => binding.role === 'browser_egress').props.virtualHostname = 'other-browser.invalid';
+  requiredFixture(requiredFixture(wrongVirtualHost.internalBindings.find(binding => binding.role === 'browser_egress')).props).virtualHostname = 'other-browser.invalid';
   assert.throws(() => validateThemeToolsResearchProvisioningManifest(wrongVirtualHost));
 
   const missingBrowser = fixture();
@@ -303,24 +311,24 @@ test('requires the exact policy-routed Browser Run chain and fixed descriptor-ke
   assert.throws(() => validateThemeToolsResearchProvisioningManifest(missingBrowser), /browser_rendering|BROWSER/);
 
   const browserDirectFallback = fixture();
-  browserDirectFallback.internalBindings.find(binding => binding.role === 'browser_egress').directFetchFallback = true;
+  requiredFixture(browserDirectFallback.internalBindings.find(binding => binding.role === 'browser_egress')).directFetchFallback = true;
   assert.throws(() => validateThemeToolsResearchProvisioningManifest(browserDirectFallback));
 
   const missingVerifierBinding = fixture();
-  missingVerifierBinding.runtimeSecretBindings[1].serviceId = 'research-workflow';
+  requiredFixture(missingVerifierBinding.runtimeSecretBindings[1]).serviceId = 'research-workflow';
   assert.throws(() => validateThemeToolsResearchProvisioningManifest(missingVerifierBinding), /branch and Browser egress services/);
 });
 
 test('requires Browser and ordinary retrieval to terminate at one environment-aligned policy service', () => {
   const policyTargetDrift = fixture();
-  policyTargetDrift.internalBindings.find(binding => binding.id === 'browser-policy-egress').targetServiceId = 'research-branch';
+  requiredFixture(policyTargetDrift.internalBindings.find(binding => binding.id === 'browser-policy-egress')).targetServiceId = 'research-branch';
   assert.throws(() => validateThemeToolsResearchProvisioningManifest(policyTargetDrift), /policy-egress service/);
 
   const accountDrift = fixture();
-  accountDrift.runtimeServices.find(service => service.role === 'browser_egress').accountReference = 'cloudflare-account://other';
+  requiredFixture(accountDrift.runtimeServices.find(service => service.role === 'browser_egress')).accountReference = 'cloudflare-account://other';
   assert.throws(() => validateThemeToolsResearchProvisioningManifest(accountDrift), /Cloudflare account/);
 
   const oversized = fixture();
-  oversized.internalBindings.find(binding => binding.role === 'browser_egress').props.maximumResponseBytes = 10_000_001;
+  requiredFixture(requiredFixture(oversized.internalBindings.find(binding => binding.role === 'browser_egress')).props).maximumResponseBytes = 10_000_001;
   assert.throws(() => validateThemeToolsResearchProvisioningManifest(oversized));
 });

@@ -99,3 +99,6 @@ checks, configure Grafana data sources, or coordinate live machines.
 
 See `docs/PRODUCT-SPEC.md` for the architecture, 30 prioritized improvements, acceptance
 criteria, research sources, and a bounded improvement loop. No production deployment is implied.
+
+The test command builds the package, typechecks the Node tests and their fixtures
+with `tsconfig.test.json`, then runs the runtime suite.

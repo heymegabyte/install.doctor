@@ -77,6 +77,7 @@ const typedOperation = {
   postconditions: [{ id: 'git-installed', kind: 'package-state', expected: 'installed', required: true }],
 };
 
+/** @param {string} executionMode @param {string[]} mutatedTaskIds @param {string[]} interruptedTaskIds @param {string} planDigest */
 const canaryPhase = (executionMode = 'online', mutatedTaskIds = ['install.git'], interruptedTaskIds = [], planDigest = sha) => ({
   result: 'passed', evidenceDigest: sha, authorityDigest: sha, runId: 'run-1', planDigest, executionMode,
   selectedTaskIds: ['install.git'], attemptedTaskIds: mutatedTaskIds, mutatedTaskIds, interruptedTaskIds, postconditions: { 'install.git': 'verified' },
@@ -135,12 +136,18 @@ const disposableCompositionReceipt = {
   limitations: ['fixture-signer', 'fixture-owner-decision', 'in-memory-control-plane', 'protocol-opencode'],
 };
 
-const cases = [
+const releaseManifest = { schemaVersion: 1, releaseId: 'release-1', sourceCommit: 'b'.repeat(40), createdAt: at, expiresAt: '2026-12-05T12:00:00.000Z', supportedSchemaVersions: [1], artifacts: [{ id: 'provisioner', url: 'https://app.install.doctor/releases/release-1/provision.sh', sha256: sha, sizeBytes: 42, mediaType: 'text/x-shellscript', mode: '0700', originClass: 'install-doctor-release', platforms: ['darwin-arm64'] }], signature: { keyId: 'release-key-1', algorithm: 'sshsig-ed25519', namespace: 'install.doctor.release', detached: true } };
+const hostFacts = { schemaVersion: 1, hostId: 'host-1', collectedAt: at, os: 'darwin', osVersion: '15.1', arch: 'arm64', environment: 'native', roles: ['workstation'], packageManagers: ['brew'], capabilities: ['gui'] };
+const desiredState = { schemaVersion: 1, revision: 'desired-1', hostId: 'host-1', packages: ['git'], services: [], consents: ['package-install'], offline: false };
+const installerEvent = { schemaVersion: 1, sequence: 1, at, runId: 'run-1', kind: 'task-status', taskId: 'install.git', status: 'running', attempt: 1 };
+const terminalReceipt = { schemaVersion: 1, runId: 'run-1', planDigest: sha, status: 'success', startedAt: at, finishedAt: '2026-11-05T12:01:00.000Z', taskCounts: { verified: 1, inapplicable: 0, skipped: 0, blocked: 0, pending: 0, failed: 0 }, evidencePaths: ['/var/lib/install-doctor/runs/run-1'], nextAction: null };
+
+const cases = /** @type {const} */ ([
   [ImmutableArtifactDescriptorSchema, { schemaVersion: 1, id: 'sysz', version: '1.4.3', platform: { os: 'linux', arch: 'x64' }, source: { url: 'https://github.com/joehillen/sysz/releases/download/1.4.3/sysz', sha256: sha, sizeBytes: 12734 }, destination: { root: 'user-bin', filename: 'sysz', mode: '0700' } }],
   [NativeOfflinePayloadDescriptorSchema, nativeOfflinePayload],
-  [ReleaseManifestSchema, { schemaVersion: 1, releaseId: 'release-1', sourceCommit: 'b'.repeat(40), createdAt: at, expiresAt: '2026-12-05T12:00:00.000Z', supportedSchemaVersions: [1], artifacts: [{ id: 'provisioner', url: 'https://app.install.doctor/releases/release-1/provision.sh', sha256: sha, sizeBytes: 42, mediaType: 'text/x-shellscript', mode: '0700', originClass: 'install-doctor-release', platforms: ['darwin-arm64'] }], signature: { keyId: 'release-key-1', algorithm: 'sshsig-ed25519', namespace: 'install.doctor.release', detached: true } }],
-  [HostFactsSchema, { schemaVersion: 1, hostId: 'host-1', collectedAt: at, os: 'darwin', osVersion: '15.1', arch: 'arm64', environment: 'native', roles: ['workstation'], packageManagers: ['brew'], capabilities: ['gui'] }],
-  [DesiredStateInputSchema, { schemaVersion: 1, revision: 'desired-1', hostId: 'host-1', packages: ['git'], services: [], consents: ['package-install'], offline: false }],
+  [ReleaseManifestSchema, releaseManifest],
+  [HostFactsSchema, hostFacts],
+  [DesiredStateInputSchema, desiredState],
   [TypedOperationSchema, typedOperation],
   [OperationReceiptSchema, { schemaVersion: 1, operationId: typedOperation.id, inputDigest: sha, status: 'pending-verification',
     startedAt: at, finishedAt: '2026-11-05T12:01:00.000Z', attempts: 1,
@@ -149,15 +156,15 @@ const cases = [
   [EvidenceGapSchema, { schemaVersion: 1, id: 'broker-unavailable', status: 'BLOCKED', reason: 'Privileged broker unavailable', resolution: 'Restore the broker and resume the exact plan' }],
   [TaskNodeSchema, task],
   [NormalizedPlanSchema, { schemaVersion: 1, planId: 'plan-1', digest: sha, releaseId: 'release-1', desiredRevision: 'desired-1', hostFactsDigest: sha, createdAt: at, tasks: [task], selectedTaskIds: ['install.git'], executionPolicy: { maxConcurrency: 4, resourceLimits: { cpu: 64, memoryMiB: 1_048_576, networkConcurrency: 16, diskIoWeight: 64, networkIoWeight: 64 } } }],
-  [InstallerEventSchema, { schemaVersion: 1, sequence: 1, at, runId: 'run-1', kind: 'task-status', taskId: 'install.git', status: 'running', attempt: 1 }],
+  [InstallerEventSchema, installerEvent],
   [JournalSchema, { schemaVersion: 1, runId: 'run-1', planDigest: sha, releaseId: 'release-1', desiredRevision: 'desired-1', hostId: 'host-1', hostFactsDigest: sha, ownerId: 'owner-1', revision: 1, updatedAt: at, entries: [{ taskId: 'install.git', inputDigest: sha, status: 'verified', attempts: 1, updatedAt: at }] }],
   [CompensationRecordSchema, { schemaVersion: 1, taskId: 'install.git', kind: 'configuration', state: 'available', createdAt: at, artifactDigest: sha, restores: ['bytes', 'mode', 'service-state'] }],
   [PlatformSupportCellSchema, { schemaVersion: 1, os: 'darwin', versionRange: '>=14 <16', arch: 'arm64', environment: 'native', role: 'workstation', packageManager: 'brew', support: 'verified', evidenceIds: ['canary-2026-11'], evidenceExpiresAt: '2027-01-01T00:00:00.000Z' }],
   [OfflineBundleSchema, { schemaVersion: 1, bundleId: 'bundle-1', releaseId: 'release-1', platformCellDigest: sha, planDigest: sha, createdAt: at, expiresAt: '2026-12-05T12:00:00.000Z', artifactDigests: [sha], graphDigest: sha, containsSecrets: false, signature: { keyId: 'release-key-1', algorithm: 'sshsig-ed25519', namespace: 'install.doctor.release', detached: true } }],
-  [TerminalReceiptSchema, { schemaVersion: 1, runId: 'run-1', planDigest: sha, status: 'success', startedAt: at, finishedAt: '2026-11-05T12:01:00.000Z', taskCounts: { verified: 1, inapplicable: 0, skipped: 0, blocked: 0, pending: 0, failed: 0 }, evidencePaths: ['/var/lib/install-doctor/runs/run-1'], nextAction: null }]
+  [TerminalReceiptSchema, terminalReceipt]
   ,[RealHostCanaryReceiptSchema, canaryReceipt]
   ,[DisposableProductCompositionReceiptSchema, disposableCompositionReceipt]
-];
+]);
 
 test('disposable composition evidence cannot be confused with real-host or production evidence', () => {
   assert.throws(() => RealHostCanaryReceiptSchema.parse(disposableCompositionReceipt));
@@ -186,9 +193,9 @@ test('every installer runtime contract rejects unknown fields and versions', () 
 });
 
 test('bounded fields and arrays reject oversized input', () => {
-  assert.throws(() => HostFactsSchema.parse({ ...cases[3][1], roles: Array.from({ length: 65 }, (_, i) => `role-${i}`) }));
-  assert.throws(() => DesiredStateInputSchema.parse({ ...cases[4][1], revision: 'x'.repeat(129) }));
-  assert.throws(() => ReleaseManifestSchema.parse({ ...cases[2][1], artifacts: [{ ...cases[2][1].artifacts[0], sizeBytes: 2 ** 40 }] }));
+  assert.throws(() => HostFactsSchema.parse({ ...hostFacts, roles: Array.from({ length: 65 }, (_, i) => `role-${i}`) }));
+  assert.throws(() => DesiredStateInputSchema.parse({ ...desiredState, revision: 'x'.repeat(129) }));
+  assert.throws(() => ReleaseManifestSchema.parse({ ...releaseManifest, artifacts: [{ ...releaseManifest.artifacts[0], sizeBytes: 2 ** 40 }] }));
 });
 
 test('typed operation nested boundaries reject unknown fields and unsafe policy combinations', () => {
@@ -296,13 +303,18 @@ test('native offline payload binds a complete ordered Debian repository proof ch
 });
 
 test('discriminated events reject fields from a different event state', () => {
-  assert.throws(() => InstallerEventSchema.parse({ ...cases[7][1], kind: 'output', line: 'hello', status: 'running' }));
+  const { kind: _kind, attempt: _attempt, status, ...base } = installerEvent;
+  const output = { ...base, kind: 'output', stream: 'stdout', line: 'hello' };
+  assert.deepEqual(InstallerEventSchema.parse(output), output);
+  assert.throws(() => InstallerEventSchema.parse({ ...output, status }), /unrecognized key.*status/i);
 });
 
 test('success receipts cannot conceal unfinished or failed tasks', () => {
-  const receipt = cases[12][1];
-  assert.throws(() => TerminalReceiptSchema.parse({ ...receipt, taskCounts: { ...receipt.taskCounts, failed: 1 } }));
-  assert.throws(() => TerminalReceiptSchema.parse({ ...receipt, nextAction: 'retry failed task' }));
+  const receipt = terminalReceipt;
+  for (const key of ['pending', 'failed']) {
+    assert.throws(() => TerminalReceiptSchema.parse({ ...receipt, taskCounts: { ...receipt.taskCounts, [key]: 1 } }), /success requires no unfinished tasks/);
+  }
+  assert.throws(() => TerminalReceiptSchema.parse({ ...receipt, nextAction: 'retry failed task' }), /success requires no unfinished tasks/);
 });
 
 test('stage-zero envelope has one deterministic portable wire format', () => {

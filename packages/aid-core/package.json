@@ -35,12 +35,14 @@
   "scripts": {
     "build": "tsc --project tsconfig.json",
     "typecheck": "tsc --project tsconfig.json --noEmit",
-    "test": "npm run build && node --test test/*.test.mjs"
+    "typecheck:test": "tsc --project tsconfig.test.json",
+    "test": "npm run build && npm run typecheck:test && node --test test/*.test.mjs"
   },
   "engines": {
     "node": ">=22"
   },
   "devDependencies": {
+    "@types/node": "22.20.7",
     "typescript": "5.8.3"
   },
   "dependencies": {

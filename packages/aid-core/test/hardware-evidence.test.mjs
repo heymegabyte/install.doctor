@@ -2,10 +2,18 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { classifySimulatedHardwareFault, hardwareCategories, validateHardwareInventory } from '../dist/hardware-evidence.js';
 
+/** @typedef {import('../dist/hardware-evidence.js').HardwareInventory} Inventory */
+/** @typedef {Inventory['categories'][number]} Section */
+/** @typedef {Section['devices'][number]} Device */
+/** @typedef {Device['signals'][number]} Signal */
+/** @param {string} character */
 const digest = character => character.repeat(64);
+/** @param {string} id @param {Signal['value']} value @param {Signal['state']} state @param {Signal['unit']} unit @returns {Signal} */
 const signal = (id, value, state = 'ok', unit = null) => ({ id, value, unit, state });
+/** @param {string} id @param {string} identity @param {Signal[]} signals @returns {Device} */
 const device = (id, identity, signals) => ({ id, identity: { type: id.startsWith('disk') ? 'wwn-sha256' : 'host-stable', sha256: identity }, signals });
 
+/** @returns {Inventory} */
 function fixture() {
   const sections = {
     cpu: [device('cpu-0', digest('a'), [signal('model', 'fixture-cpu'), signal('logical-cpus', 8, 'ok', 'count'), signal('health', 'passed')])],
@@ -26,7 +34,15 @@ function fixture() {
   };
 }
 
-const fault = overrides => ({
+/** @param {Inventory} inventory @param {Section['category']} category */
+function firstDevice(inventory, category) {
+  const item = inventory.categories.find(section => section.category === category)?.devices[0];
+  assert.ok(item);
+  return item;
+}
+
+/** @param {{hostId?: string, deviceId?: string, signal?: string, simulated?: boolean}} overrides */
+const fault = (overrides = {}) => ({
   schemaVersion: 1, simulationId: 'smart-media-errors', simulated: true, hostId: 'fixture-host', deviceId: 'disk-system',
   signal: 'media-errors', severity: 'critical', observedValue: 10, threshold: 0, occurredAt: '2026-11-10T12:01:00.000Z', ...overrides,
 });
@@ -35,14 +51,19 @@ test('requires explicit CPU, memory, disk, GPU, firmware, Secure Boot, TPM, batt
   assert.deepEqual(validateHardwareInventory(fixture()), fixture());
   const missing = fixture(); missing.categories.pop();
   assert.throws(() => validateHardwareInventory(missing));
-  const absent = fixture(); absent.categories[3] = { category: 'gpu', applicability: 'absent', reason: 'No GPU installed', devices: [] };
+  const absent = fixture();
+  absent.categories = absent.categories.map(section => section.category === 'gpu'
+    ? { category: 'gpu', applicability: 'absent', reason: 'No GPU installed', devices: [] } : section);
   assert.doesNotThrow(() => validateHardwareInventory(absent));
 });
 
 test('disk identity is privacy preserving, stable, and bound to the disk signal', () => {
-  const mismatch = fixture(); mismatch.categories[2].devices[0].signals[0].value = digest('d');
+  const mismatch = fixture();
+  const identitySignal = firstDevice(mismatch, 'disk').signals.find(signal => signal.id === 'identity-sha256');
+  assert.ok(identitySignal);
+  identitySignal.value = digest('d');
   assert.throws(() => validateHardwareInventory(mismatch), /identity signal/);
-  const raw = fixture(); raw.categories[2].devices[0].identity.sha256 = 'SERIAL-123';
+  const raw = fixture(); firstDevice(raw, 'disk').identity.sha256 = 'SERIAL-123';
   assert.throws(() => validateHardwareInventory(raw));
 });
 
@@ -64,12 +85,14 @@ test('host, device, category-signal, and simulation substitutions fail closed', 
 });
 
 test('unknown fields, duplicate devices, missing signals, and mutable collector claims are rejected', () => {
-  const unknown = fixture(); unknown.categories[0].devices[0].serial = 'raw';
+  const input = fixture();
+  const unknown = { ...input, categories: input.categories.map(section => section.category === 'cpu'
+    ? { ...section, devices: section.devices.map(item => ({ ...item, serial: 'raw' })) } : section) };
   assert.throws(() => validateHardwareInventory(unknown), /unrecognized/i);
-  const duplicate = fixture(); duplicate.categories[1].devices[0].id = 'cpu-0';
+  const duplicate = fixture(); firstDevice(duplicate, 'memory').id = 'cpu-0';
   assert.throws(() => validateHardwareInventory(duplicate), /unique/i);
-  const missing = fixture(); missing.categories[8].devices[0].signals.pop();
+  const missing = fixture(); firstDevice(missing, 'thermal').signals.pop();
   assert.throws(() => validateHardwareInventory(missing), /missing required thermal signal/);
-  const mutable = fixture(); mutable.collector.readOnly = false;
+  const mutable = { ...input, collector: { ...input.collector, readOnly: false } };
   assert.throws(() => validateHardwareInventory(mutable));
 });
