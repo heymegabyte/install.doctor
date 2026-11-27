@@ -7,7 +7,6 @@ const tsconfigRootDir = fileURLToPath(new URL('../../', import.meta.url));
 const pendingSourceFiles = [
   'src/engine.ts',
   'src/native-dpkg-transaction.ts',
-  'src/offline-bundle.ts',
   'src/offline-execution.ts',
   'src/offline-orchestrator.ts',
   'src/offline-sandbox.ts',

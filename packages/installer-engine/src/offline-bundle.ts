@@ -2,7 +2,7 @@ import { constants } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { execFile, spawn } from 'node:child_process';
 import {
-  chmod, lstat, mkdir, mkdtemp, open, readdir, readFile, realpath, rename, rm, stat, writeFile,
+  chmod, lstat, mkdir, mkdtemp, open, readdir, realpath, rename, rm, stat, writeFile,
 } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
@@ -17,7 +17,7 @@ const execute = promisify(execFile);
 const SSH_KEYGEN = '/usr/bin/ssh-keygen';
 const id = z.string().min(1).max(128).regex(/^[a-z0-9][a-z0-9._-]*$/);
 const digest = z.string().regex(/^[a-f0-9]{64}$/);
-const timestamp = z.string().datetime({ offset: true }).max(64);
+const timestamp = z.iso.datetime({ offset: true }).max(64);
 const signature = z.strictObject({
   keyId: id,
   algorithm: z.literal('sshsig-ed25519'),
@@ -116,13 +116,16 @@ function safeArtifactPath(value: string, idValue: string): string {
   return value;
 }
 
+const privateArtifactMode = z.literal('0600');
+const platformOpenFlags: { readonly O_NOFOLLOW?: number } = constants;
+
 async function secureRead(path: string, maximumBytes: number): Promise<Buffer> {
   let handle;
   try {
-    handle = await open(path, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
+    handle = await open(path, constants.O_RDONLY | (platformOpenFlags.O_NOFOLLOW ?? 0));
     const metadata = await handle.stat();
     if (!metadata.isFile() || metadata.size < 1 || metadata.size > maximumBytes) {
-      throw new OfflineBundleError(`artifact must be a regular file between 1 and ${maximumBytes} bytes`);
+      throw new OfflineBundleError(`artifact must be a regular file between 1 and ${String(maximumBytes)} bytes`);
     }
     if (process.platform !== 'win32' && metadata.nlink !== 1) throw new OfflineBundleError('artifact must not be hard-linked');
     const bytes = await handle.readFile();
@@ -268,33 +271,33 @@ export async function verifyDesktopReleaseCatalog(input: {
     || input.catalogBytes.byteLength !== catalogSize || sha256(input.catalogBytes) !== catalogSha256) {
     throw new OfflineBundleError('catalog is not an exact member of the authenticated release');
   }
-  if (input.nativeAuthority) {
-    if ((schemaVersion !== '8' && schemaVersion !== '9') || input.nativeAuthority.artifacts.length !== 4) {
+  const nativeAuthority = input.nativeAuthority;
+  if (nativeAuthority) {
+    if ((schemaVersion !== '8' && schemaVersion !== '9') || nativeAuthority.artifacts.length !== 4) {
       throw new OfflineBundleError('native Debian authority requires a signed schema-v8 or schema-v9 release closure');
     }
     let catalog;
     try { catalog = z.array(LoadCatalogEntrySchema).max(16_384).parse(JSON.parse(input.catalogBytes.toString('utf8'))); }
     catch { throw new OfflineBundleError('signed release catalog is not a valid strict catalog'); }
     const signedDescriptor = catalog.flatMap(entry => entry.offlinePayloads)
-      .find(candidate => candidate.packageKey === input.nativeAuthority?.descriptor.packageKey
-        && candidate.platform.os === input.nativeAuthority?.descriptor.platform.os
-        && candidate.platform.arch === input.nativeAuthority?.descriptor.platform.arch);
-    if (!signedDescriptor || JSON.stringify(canonical(signedDescriptor)) !== JSON.stringify(canonical(input.nativeAuthority.descriptor))) {
+      .find(candidate => candidate.packageKey === nativeAuthority.descriptor.packageKey
+        && candidate.platform.arch === nativeAuthority.descriptor.platform.arch);
+    if (!signedDescriptor || JSON.stringify(canonical(signedDescriptor)) !== JSON.stringify(canonical(nativeAuthority.descriptor))) {
       throw new OfflineBundleError('native Debian descriptor is not an exact signed catalog member');
     }
-    const descriptor = input.nativeAuthority.descriptor;
+    const descriptor = nativeAuthority.descriptor;
     const prefixes = new Map([
       [descriptor.metadataProof.inRelease.artifactId, 'debian_inrelease'],
       [descriptor.metadataProof.inRelease.keyring.artifactId, 'debian_keyring'],
       [descriptor.metadataProof.packagesIndex.artifactId, 'debian_packages'],
       [descriptor.artifact.id, 'debian_tree'],
     ]);
-    if (prefixes.size !== 4 || new Set(input.nativeAuthority.artifacts.map(item => item.artifactId)).size !== 4) {
+    if (prefixes.size !== 4 || new Set(nativeAuthority.artifacts.map(item => item.artifactId)).size !== 4) {
       throw new OfflineBundleError('native Debian release object identifiers are not exact');
     }
-    for (const artifact of input.nativeAuthority.artifacts) {
+    for (const artifact of nativeAuthority.artifacts) {
       const prefix = prefixes.get(artifact.artifactId);
-      if (!prefix || artifact.authority.mode !== '0600'
+      if (!prefix || !privateArtifactMode.safeParse(artifact.authority.mode).success
         || values.get(`${prefix}_url`) !== artifact.url
         || values.get(`${prefix}_sha256`) !== artifact.authority.sha256
         || Number(values.get(`${prefix}_size`)) !== artifact.authority.sizeBytes) {
@@ -521,7 +524,12 @@ export async function createOfflineBundle(input: CreateOfflineBundleInput): Prom
     signature: { keyId: input.signer.keyId, algorithm: 'sshsig-ed25519', namespace: 'install.doctor.offline-bundle', detached: true },
     artifacts,
   });
-  await verifyReleaseMembership(manifest.artifacts, async item => contents.get(item.id)!, input.releaseTrust, manifest);
+  const artifactBytes = (id: string): Buffer => {
+    const bytes = contents.get(id);
+    if (bytes === undefined) throw new OfflineBundleError(`missing verified artifact bytes: ${id}`);
+    return bytes;
+  };
+  await verifyReleaseMembership(manifest.artifacts, item => Promise.resolve(artifactBytes(item.id)), input.releaseTrust, manifest);
   const manifestBytes = canonicalBundleManifestBytes(manifest);
   const manifestDigest = sha256(manifestBytes);
   const target = join(outputRoot, manifestDigest);
@@ -530,7 +538,7 @@ export async function createOfflineBundle(input: CreateOfflineBundleInput): Prom
     await chmod(stage, 0o700);
     await mkdir(join(stage, 'artifacts'), { mode: 0o700 });
     for (const item of manifest.artifacts) {
-      await writeDurableExclusive(join(stage, item.path), contents.get(item.id)!, Number.parseInt(item.mode, 8));
+      await writeDurableExclusive(join(stage, item.path), artifactBytes(item.id), Number.parseInt(item.mode, 8));
     }
     await syncDirectory(join(stage, 'artifacts'));
     const declaredExecutionMetadata = EXECUTION_METADATA_IDS.filter(metadataId => contents.has(metadataId));
@@ -608,8 +616,7 @@ export async function verifyOfflineBundle(input: { bundleDirectory: string; trus
   const manifestPath = join(bundleDirectory, 'manifest.json');
   const signaturePath = join(bundleDirectory, 'manifest.sig');
   const manifestBytes = await secureRead(manifestPath, 1_048_576);
-  const signatureBytes = await secureRead(signaturePath, 65_536);
-  void signatureBytes;
+  await secureRead(signaturePath, 65_536);
   const manifestDigest = sha256(manifestBytes);
   if (basename(bundleDirectory) !== manifestDigest) throw new OfflineBundleError('bundle directory is not the manifest content address');
   let decoded: unknown;
