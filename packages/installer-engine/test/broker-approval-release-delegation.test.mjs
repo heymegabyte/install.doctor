@@ -3,11 +3,24 @@ import { createHash, generateKeyPairSync } from 'node:crypto';
 import test from 'node:test';
 import { deriveReleaseBrokerApprovalTrust } from '../dist/broker-approval-release-delegation.js';
 
+/** @param {import("node:crypto").BinaryLike} value */
 const hash = value => createHash('sha256').update(value).digest('hex');
+/**
+ * @param {unknown} value
+ * @returns {unknown}
+ */
 const canonical = value => Array.isArray(value) ? value.map(canonical)
   : value && typeof value === 'object' ? Object.fromEntries(Object.entries(value)
     .sort(([left], [right]) => left.localeCompare(right)).map(([key, entry]) => [key, canonical(entry)])) : value;
-const grant = { releaseId: 'release-1', issuedAt: '2026-11-08T12:00:00.000Z', expiresAt: '2026-11-08T12:05:00.000Z' };
+/** @satisfies {Parameters<typeof deriveReleaseBrokerApprovalTrust>[0]['grant']} */
+const grant = {
+  schemaVersion: 1, grantId: 'grant-1', hostId: 'host-1', releaseId: 'release-1', runId: 'run-1',
+  planDigest: 'a'.repeat(64), approvedPlanDigest: 'a'.repeat(64), enrolledUid: 501,
+  brokerExecutableDigest: '6'.repeat(64), runtimeDigest: '7'.repeat(64), workerDigest: '8'.repeat(64),
+  operations: [{ taskId: 'package.tree', operationId: 'tree.apply', phase: 'apply' }],
+  descriptorDigest: 'b'.repeat(64), closureDigest: 'c'.repeat(64), consentDigest: 'd'.repeat(64),
+  issuedAt: '2026-11-08T12:00:00.000Z', expiresAt: '2026-11-08T12:05:00.000Z',
+};
 
 function fixture(overrides = {}) {
   const pair = generateKeyPairSync('ed25519');
@@ -40,7 +53,7 @@ test('rejects wrong release, validity, and noncanonical delegated authority', ()
       minimumRevocationEpoch: 3, grant }), /scope|lifetime/);
   }
   const exact = fixture();
-  const pretty = Buffer.from(`${JSON.stringify(JSON.parse(exact.bytes), null, 2)}\n`);
+  const pretty = Buffer.from(`${JSON.stringify(JSON.parse(exact.bytes.toString("utf8")), null, 2)}\n`);
   assert.throws(() => deriveReleaseBrokerApprovalTrust({ bytes: pretty, expectedDigest: hash(pretty),
     minimumRevocationEpoch: 3, grant }), /canonical/);
 });

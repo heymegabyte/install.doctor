@@ -14,6 +14,7 @@
     "test/adoption-plan.test.mjs",
     "test/alloy-pipeline-reconciler.test.mjs",
     "test/backup-authority-plan.test.mjs",
+    "test/broker-approval-release-delegation.test.mjs",
     "test/bundle.test.mjs",
     "test/cask-launcher-composition.test.mjs",
     "test/credential-rotation.test.mjs",
