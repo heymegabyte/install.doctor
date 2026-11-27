@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto';
 import test from 'node:test';
 import { verifyDebianRepositoryMetadata } from '../dist/index.js';
 
+/** @param {Uint8Array} bytes */
 const sha = bytes => createHash('sha256').update(bytes).digest('hex');
 const at = '2026-11-06T12:00:00.000Z';
 const expires = '2026-11-07T12:00:00.000Z';
@@ -36,6 +37,9 @@ const inRelease = Buffer.from('opaque verified clearsigned bytes');
 const keyring = Buffer.from('exact release-bound keyring bytes');
 const fingerprint = 'A'.repeat(40);
 
+/** @typedef {Parameters<typeof verifyDebianRepositoryMetadata>[0]} VerificationInput */
+/** @template T @typedef {{ -readonly [K in keyof T]: T[K] }} Mutable */
+/** @returns {Mutable<Omit<VerificationInput, 'verifier'>> & { verifier: Mutable<VerificationInput['verifier']> }} */
 function fixture() {
   return {
     descriptor: {
@@ -69,6 +73,7 @@ test('proves the exact InRelease to Packages stanza to Debian payload chain', as
 });
 
 test('rejects every independently tampered trust-chain layer', async () => {
+  /** @type {{mutate: (value: ReturnType<typeof fixture>) => void, pattern: RegExp}[]} */
   const cases = [
     { mutate: value => { value.inReleaseBytes = Buffer.from('changed'); }, pattern: /InRelease (?:size|digest)/ },
     { mutate: value => { value.verifier.verifyInRelease = async () => ({ cleartext: release, signingKeyFingerprint: 'B'.repeat(40) }); }, pattern: /fingerprint/ },

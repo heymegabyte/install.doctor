@@ -13,6 +13,8 @@
     "test/bundle.test.mjs",
     "test/credential-rotation.test.mjs",
     "test/debian-gpgv.test.mjs",
+    "test/debian-metadata.test.mjs",
+    "test/debian-relationships.test.mjs",
     "test/debian-version.test.mjs",
     "test/device-posture-attestation.test.mjs",
     "test/effect-migration.test.mjs",

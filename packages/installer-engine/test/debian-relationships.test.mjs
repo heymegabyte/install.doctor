@@ -7,8 +7,19 @@ import {
   validateDebianDependencyClosure,
 } from '../dist/debian-relationships.js';
 
+/** @param {string} value */
 const hash = value => createHash('sha256').update(value).digest('hex');
+/** @param {string} left @param {string} right */
 const compareVersions = (left, right) => left.localeCompare(right, undefined, { numeric: true });
+/** @typedef {Parameters<typeof validateDebianDependencyClosure>[0]['descriptors'][number]} Descriptor */
+/**
+ * @param {string} key @param {string} name
+ * @param {{depends?: string | null, preDepends?: string | null,
+ *   closureDepends?: [string, string?][], closurePre?: [string, string?][],
+ *   version?: string, multiArch?: Descriptor['metadataProof']['packageStanza']['multiArch'],
+ * }} [options]
+ * @returns {Descriptor}
+ */
 function descriptor(key, name, { depends = null, preDepends = null, closureDepends = [], closurePre = [], version = '1.0', multiArch = 'absent' } = {}) {
   const artifactId = `${key}-deb`;
   return {
