@@ -5,8 +5,17 @@ import { BrokerAuthorizationServiceError } from '../src/broker-authorization-ser
 
 const principal = { deviceCredentialId: 'device-1', deviceFingerprint: 'a'.repeat(64), tenantId: 'tenant-1', permissions: ['authorize-privileged-run'] };
 
+/** @typedef {Parameters<typeof createBrokerAuthorizationApi>[0]} ApiOptions */
+/**
+ * @param {{
+ *   device?: Awaited<ReturnType<ApiOptions['resolveDevice']>>,
+ *   owner?: Awaited<ReturnType<ApiOptions['resolveFreshOwner']>>,
+ * }} [options]
+ */
 function fixture({ device = principal, owner = null } = {}) {
+  /** @type {[string, unknown, unknown][]} */
   const calls = [];
+  /** @satisfies {ApiOptions['service']} */
   const service = {
     async requestAuthorization(value, identity) { calls.push(['request', value, identity]); return { created: true }; },
     async reviewAuthorization(id, identity) { calls.push(['review', id, identity]); return { id }; },
@@ -36,8 +45,8 @@ test('routes pass authenticated principals and owner sessions to the bounded ser
   assert.equal((await app.request('/api/devices/broker-approvals/claim', { method: 'POST', body: '{"a":1}' })).status, 200);
   assert.equal((await app.request('/api/devices/broker-authorizations/status', { method: 'POST', body: '{"a":1}' })).status, 200);
   assert.deepEqual(calls.map(value => value[0]), ['request', 'review', 'decide', 'claim', 'status']);
-  assert.equal(calls[0][2], principal);
-  assert.equal(calls[1][2], owner);
+  assert.equal(calls[0]?.[2], principal);
+  assert.equal(calls[1]?.[2], owner);
 });
 
 test('adapter bounds bodies and maps validation, policy, and unknown failures without details', async () => {
