@@ -1,14 +1,14 @@
 #!/usr/bin/env node
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
   assertSecretSourcesValidated, assertSecretsValidated, inventorySecretNames, inventorySecretSources,
-  metadataOnlyListing, resolveSourceValidationRecord, secretDirectoriesForHost, selectConfigurationSecrets,
+  metadataOnlyListing, resolveSourceValidationRecord, retireSecretSource, secretDirectoriesForHost, selectConfigurationSecrets,
   selectConfigurationSources, selectHostSecrets, selectRequestedSources, validateClosedSetSync, validateManifest,
-  validateValidationLedger,
+  validateRetirementEvidence, validateValidationLedger,
 } from './infisical-estate-reconcile.mjs';
 
 const root = mkdtempSync(join(tmpdir(), 'infisical-estate-reconcile-'));
@@ -203,4 +203,148 @@ const ambiguousApply = spawnSync(process.execPath, [
 ], { encoding: 'utf8', env: { ...process.env, HOME: cliHome, PATH: '' } });
 assert.notEqual(ambiguousApply.status, 0);
 assert.match(ambiguousApply.stderr, /legacy validation evidence.*ambiguous/);
+writeFileSync(join(cliStoresRoot, 'secrets/CLI_RETIRE_TOKEN'), 'cli general retirement ciphertext');
+writeFileSync(join(cliStoresRoot, 'secrets-workstation/CLI_RETIRE_TOKEN'), 'cli workstation sibling ciphertext');
+const cliRetirementSource = inventorySecretSources([{
+  id: 'general', directory: join(cliStoresRoot, 'secrets'), precedence: 10, hostDefault: true, workloadKinds: ['host'],
+}]).find(({ sourceId }) => sourceId === 'general:CLI_RETIRE_TOKEN');
+const cliRetirementLedgerPath = join(cliHome, 'retirement-ledger.json');
+writeFileSync(cliRetirementLedgerPath, JSON.stringify({
+  schemaVersion: 1,
+  records: {
+    [cliRetirementSource.sourceId]: {
+      status: 'valid', sourceId: cliRetirementSource.sourceId, canonicalName: cliRetirementSource.canonicalName,
+      ciphertextSha256: cliRetirementSource.ciphertextSha256, validator: 'provider-probe', migrated: true,
+      destination: 'macos.megabyte.space', targetRetrievalVerified: true,
+    },
+  },
+}));
+const cliOfflinePath = join(cliHome, 'offline.json');
+writeFileSync(cliOfflinePath, JSON.stringify({ schemaVersion: 1, exceptions: [] }));
+const cliRetireArgs = [
+  join(process.cwd(), 'scripts/infisical-estate-reconcile.mjs'), 'retire',
+  '--validation-ledger', cliRetirementLedgerPath, '--offline-exceptions', cliOfflinePath,
+  '--source', cliRetirementSource.sourceId,
+];
+const cliDryRun = spawnSync(process.execPath, cliRetireArgs, { encoding: 'utf8', env: { ...process.env, HOME: cliHome } });
+assert.equal(cliDryRun.status, 0, cliDryRun.stderr);
+assert.equal(JSON.parse(cliDryRun.stdout).mode, 'dry-run');
+assert.equal(existsSync(join(cliStoresRoot, 'secrets/CLI_RETIRE_TOKEN')), true);
+const cliApplied = spawnSync(process.execPath, [...cliRetireArgs, '--apply'], { encoding: 'utf8', env: { ...process.env, HOME: cliHome } });
+assert.equal(cliApplied.status, 0, cliApplied.stderr);
+assert.equal(JSON.parse(cliApplied.stdout).status, 'retired');
+assert.equal(existsSync(join(cliStoresRoot, 'secrets/CLI_RETIRE_TOKEN')), false);
+assert.equal(existsSync(join(cliStoresRoot, 'secrets-workstation/CLI_RETIRE_TOKEN')), true);
+
+const retirementRoot = mkdtempSync(join(tmpdir(), 'infisical-source-retirement-'));
+const retirementGeneral = join(retirementRoot, 'general');
+const retirementWorkstation = join(retirementRoot, 'workstation');
+mkdirSync(retirementGeneral);
+mkdirSync(retirementWorkstation);
+writeFileSync(join(retirementGeneral, 'RETIRE_TOKEN'), 'general retirement ciphertext');
+writeFileSync(join(retirementGeneral, 'INVALID_TOKEN'), 'invalid retirement ciphertext');
+writeFileSync(join(retirementWorkstation, 'RETIRE_TOKEN'), 'workstation sibling ciphertext');
+const retirementStores = [
+  { id: 'general', directory: retirementGeneral, precedence: 10, hostDefault: true, workloadKinds: ['host'] },
+  { id: 'workstation', directory: retirementWorkstation, precedence: 20, hostDefault: true, workloadKinds: ['host'] },
+];
+const retirementInventory = inventorySecretSources(retirementStores);
+const retirementSource = retirementInventory.find(({ sourceId }) => sourceId === 'general:RETIRE_TOKEN');
+const invalidRetirementSource = retirementInventory.find(({ sourceId }) => sourceId === 'general:INVALID_TOKEN');
+const completeRetirementRecord = {
+  status: 'valid',
+  sourceId: retirementSource.sourceId,
+  canonicalName: retirementSource.canonicalName,
+  ciphertextSha256: retirementSource.ciphertextSha256,
+  validator: 'provider-identity-probe',
+  migrated: true,
+  destination: 'macos.megabyte.space',
+  targetRetrievalVerified: true,
+};
+const noOfflineExceptions = { schemaVersion: 1, exceptions: [] };
+const dryRunReceipt = retireSecretSource({
+  sourceId: retirementSource.sourceId,
+  secretStores: retirementStores,
+  ledger: { schemaVersion: 1, records: { [retirementSource.sourceId]: completeRetirementRecord } },
+  offlineExceptions: noOfflineExceptions,
+});
+assert.equal(dryRunReceipt.mode, 'dry-run');
+assert.equal(dryRunReceipt.status, 'eligible');
+assert.equal(existsSync(join(retirementGeneral, 'RETIRE_TOKEN')), true);
+assert.equal(existsSync(join(retirementWorkstation, 'RETIRE_TOKEN')), true);
+assert.equal(JSON.stringify(dryRunReceipt).includes('general retirement ciphertext'), false);
+
+for (const [recordPatch, error] of [
+  [{ migrated: false }, /missing migrated evidence/],
+  [{ destination: undefined }, /missing destination evidence/],
+  [{ targetRetrievalVerified: false }, /missing target retrieval evidence/],
+  [{ status: 'unverified' }, /not valid for retirement/],
+]) {
+  assert.throws(() => retireSecretSource({
+    sourceId: retirementSource.sourceId,
+    secretStores: retirementStores,
+    ledger: { schemaVersion: 1, records: { [retirementSource.sourceId]: { ...completeRetirementRecord, ...recordPatch } } },
+    offlineExceptions: noOfflineExceptions,
+    apply: true,
+  }), error);
+  assert.equal(existsSync(join(retirementGeneral, 'RETIRE_TOKEN')), true);
+  assert.equal(existsSync(join(retirementWorkstation, 'RETIRE_TOKEN')), true);
+}
+assert.throws(() => retireSecretSource({
+  sourceId: retirementSource.sourceId,
+  secretStores: retirementStores,
+  ledger: { schemaVersion: 1, records: { [retirementSource.sourceId]: completeRetirementRecord } },
+  offlineExceptions: { schemaVersion: 1, exceptions: [{ id: 'recovery', sourceIds: [retirementSource.sourceId], active: true }] },
+  apply: true,
+}), /active offline exception/);
+assert.equal(existsSync(join(retirementGeneral, 'RETIRE_TOKEN')), true);
+assert.throws(() => validateRetirementEvidence({
+  source: retirementSource,
+  inventorySources: retirementInventory,
+  ledger: { schemaVersion: 1, records: { [retirementSource.sourceId]: { ...completeRetirementRecord, ciphertextSha256: '0'.repeat(64) } } },
+  offlineExceptions: noOfflineExceptions,
+}), /stale ciphertext evidence/);
+assert.throws(() => retireSecretSource({
+  sourceId: retirementSource.sourceId,
+  secretStores: retirementStores,
+  ledger: { schemaVersion: 1, records: { [retirementSource.sourceId]: {
+    ...completeRetirementRecord, status: 'invalid-retired', migrated: false, destination: undefined,
+  } } },
+  offlineExceptions: noOfflineExceptions,
+  apply: true,
+}), /invalid status without complete invalid-retirement evidence/);
+assert.equal(existsSync(join(retirementGeneral, 'RETIRE_TOKEN')), true);
+const invalidRetirementReceipt = retireSecretSource({
+  sourceId: invalidRetirementSource.sourceId,
+  secretStores: retirementStores,
+  ledger: { schemaVersion: 1, records: { [invalidRetirementSource.sourceId]: {
+    status: 'invalid-retired', sourceId: invalidRetirementSource.sourceId,
+    canonicalName: invalidRetirementSource.canonicalName,
+    ciphertextSha256: invalidRetirementSource.ciphertextSha256,
+    validator: 'provider-invalid-probe', invalidRetirement: true, providerConfirmedInvalid: true,
+    requiredDestinations: [], requiredConsumers: [],
+  } } },
+  offlineExceptions: noOfflineExceptions,
+});
+assert.equal(invalidRetirementReceipt.evidenceKind, 'invalid-retirement');
+assert.equal(existsSync(join(retirementGeneral, 'INVALID_TOKEN')), true);
+assert.throws(() => retireSecretSource({
+  sourceId: 'RETIRE_TOKEN', secretStores: retirementStores,
+  ledger: { schemaVersion: 1, records: {} }, offlineExceptions: noOfflineExceptions,
+}), /requires --source/);
+assert.throws(() => retireSecretSource({
+  sourceId: 'general:MISSING_TOKEN', secretStores: retirementStores,
+  ledger: { schemaVersion: 1, records: {} }, offlineExceptions: noOfflineExceptions,
+}), /missing or ambiguous/);
+
+const appliedReceipt = retireSecretSource({
+  sourceId: retirementSource.sourceId,
+  secretStores: retirementStores,
+  ledger: { schemaVersion: 1, records: { [retirementSource.sourceId]: completeRetirementRecord } },
+  offlineExceptions: noOfflineExceptions,
+  apply: true,
+});
+assert.equal(appliedReceipt.status, 'retired');
+assert.equal(existsSync(join(retirementGeneral, 'RETIRE_TOKEN')), false);
+assert.equal(existsSync(join(retirementWorkstation, 'RETIRE_TOKEN')), true);
 console.log('infisical-estate-reconcile unit tests: PASS');
