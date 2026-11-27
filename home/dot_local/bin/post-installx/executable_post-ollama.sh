@@ -176,6 +176,26 @@ else
   fi
 
   $SUDO install -d -m 0755 /etc/systemd/system/ollama.service.d
+  if [ "${INSTALL_DOCTOR_OLLAMA_LOCAL_ONLY:-0}" = "1" ]; then
+    # Match the Legion drop-in so reprovisioning preserves its existing policy.
+    $SUDO bash -c '
+      set -euo pipefail
+      target=/etc/systemd/system/ollama.service.d/60-local-only.conf
+      temporary=$(mktemp "${target}.XXXXXX")
+      trap "rm -f -- \"$temporary\"" EXIT
+      cat >"$temporary"
+      chmod 0644 "$temporary"
+      if ! ln -- "$temporary" "$target" 2>/dev/null; then
+        cmp -s -- "$temporary" "$target" || {
+          printf "ERROR: existing Ollama cloud policy differs from the requested local-only policy.\n" >&2
+          exit 1
+        }
+      fi
+    ' <<'LOCAL_ONLY'
+[Service]
+Environment=OLLAMA_NO_CLOUD=1
+LOCAL_ONLY
+  fi
   $SUDO tee /etc/systemd/system/ollama.service.d/override.conf >/dev/null <<'EOF'
 [Service]
 Environment="OLLAMA_HOST=127.0.0.1:11434"
