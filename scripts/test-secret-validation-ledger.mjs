@@ -4,7 +4,10 @@ import { existsSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 
-const ledger = JSON.parse(readFileSync(new URL('../config/infisical/secret-validation-ledger.json', import.meta.url), 'utf8'));
+const ledgerText = readFileSync(new URL('../config/infisical/secret-validation-ledger.json', import.meta.url), 'utf8');
+const recordKeys = [...ledgerText.matchAll(/^    "([^"]+)":/gm)].map((match) => match[1]);
+assert.equal(new Set(recordKeys).size, recordKeys.length, 'validation ledger contains duplicate record keys');
+const ledger = JSON.parse(ledgerText);
 assert.equal(ledger.schemaVersion, 1);
 const allowedStatuses = new Set(['valid', 'invalid-retired']);
 const sourceDirectories = [
