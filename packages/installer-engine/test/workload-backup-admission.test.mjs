@@ -8,6 +8,7 @@ import {
   workloadBackupSourceIdentityDigest,
 } from '../dist/workload-backup-admission.js';
 
+/** @param {string} character */
 const hex = character => character.repeat(64);
 const source = { hostId: 'host-db-1', sourceId: 'billing-db', canonicalPath: '/srv/postgresql', filesystemId: 'fs-991', mountId: 'mount-44' };
 const policy = {
@@ -24,6 +25,8 @@ const policy = {
   ],
 };
 
+/** @typedef {ReturnType<typeof import('../dist/workload-backup-admission.js').discoverWorkloadBackupState>} BackupObservation */
+/** @param {{source?: Partial<BackupObservation['source']>, paths?: Record<string, Partial<BackupObservation['paths'][number]>>}} overrides */
 function observation(overrides = {}) {
   const sourceDigest = workloadBackupSourceIdentityDigest(source);
   return {
@@ -75,6 +78,7 @@ test('blocks wrong source identity, missing mount, unreadable source, and unexpe
 });
 
 test('blocks missing, unhealthy, source-mismatched, or insufficiently encrypted paths instead of replacing them', () => {
+  /** @type {[string, Partial<BackupObservation['paths'][number]>, string][]} */
   const candidates = [
     ['restic-primary', { detected: false, functioning: false }, 'path-missing'],
     ['restic-primary', { functioning: false }, 'path-not-functioning'],
@@ -92,6 +96,7 @@ test('blocks missing, unhealthy, source-mismatched, or insufficiently encrypted 
 
 test('denies false success despite exit zero when source, encryption, commit, or output proof is absent', () => {
   const plan = planWorkloadBackupAdmission(policy, observation());
+  /** @param {string} pathId */
   const successfulPath = pathId => ({ pathId, exitCode: 0, sourceReadVerified: true, encryptionVerified: true, destinationCommitted: true, producedBytes: 1_000 });
   const evidence = { schemaVersion: 1, planDigest: plan.planDigest, sourceIdentityDigest: workloadBackupSourceIdentityDigest(source), paths: policy.paths.map(path => successfulPath(path.pathId)) };
   assert.deepEqual(verifyWorkloadBackupRun(plan, policy, evidence), { status: 'verified', reasons: [] });

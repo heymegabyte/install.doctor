@@ -25,6 +25,7 @@ const descriptor = {
   destination: { root: 'user-bin', filename: 'sysz', mode: '0700' },
 };
 
+/** @param {import('node:test').TestContext} t */
 async function fixture(t) {
   const root = await mkdtemp(join(tmpdir(), 'install-doctor-artifact-'));
   t.after(() => rm(root, { recursive: true, force: true }));
@@ -49,7 +50,9 @@ test('descriptor is strict, versioned, immutable, and path-contained', () => {
 
 test('verified download follows only an allowed redirect and publishes a private content-addressed candidate', async t => {
   const state = await fixture(t);
+  /** @type {[string, RequestInit["redirect"]][]} */
   const calls = [];
+  /** @type {NonNullable<Parameters<typeof fetchImmutableArtifact>[0]["fetcher"]>} */
   const fetcher = async (url, init) => {
     calls.push([url, init.redirect]);
     if (calls.length === 1) return new Response(null, { status: 302, headers: { location: 'https://release-assets.githubusercontent.com/object' } });

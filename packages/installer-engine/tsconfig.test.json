@@ -28,9 +28,12 @@
     "test/fleet-capacity-cost.test.mjs",
     "test/fleet-error-budget.test.mjs",
     "test/helpers/composition-engine-fixture.mjs",
+    "test/immutable-artifact.test.mjs",
     "test/immutable-linux-deployment.test.mjs",
     "test/native-dpkg-fence.test.mjs",
+    "test/native-dpkg-quiescence.test.mjs",
     "test/native-service-composition.test.mjs",
+    "test/native-systemd-transaction.test.mjs",
     "test/operational-slo.test.mjs",
     "test/privileged-broker-device-approval.test.mjs",
     "test/privileged-broker-local-approval.test.mjs",
@@ -46,11 +49,16 @@
     "test/renderer-spill-log.test.mjs",
     "test/reviewed-plan-binding.test.mjs",
     "test/rollback.test.mjs",
+    "test/service-state-adapter.test.mjs",
     "test/service-status.test.mjs",
+    "test/syncoid-admission.test.mjs",
+    "test/target-device-credential.test.mjs",
     "test/telemetry.test.mjs",
     "test/ups-power-coordination.test.mjs",
     "test/windows-fixture-contract.test.mjs",
     "test/windows-native-operations.test.mjs",
-    "test/workload-usability-guard.test.mjs"
+    "test/workload-backup-admission.test.mjs",
+    "test/workload-usability-guard.test.mjs",
+    "test/zfs-protection-plan.test.mjs"
   ]
 }

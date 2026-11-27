@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import test from 'node:test';
 import { ProtectedDeviceCredentialStore } from '../dist/target-device-credential.js';
 
+/** @satisfies {Parameters<ProtectedDeviceCredentialStore["save"]>[0]["request"]} */
 const request = {
   schemaVersion: 1, requestId: 'request-1',
   binding: { tenantId: 'tenant-server', profileId: 'profile-1', targetPublicKey: 'A'.repeat(43),
@@ -13,6 +14,7 @@ const request = {
   machineLabel: 'Canary', verificationCode: 'ABCD-EF12', pollKeyFingerprint: 'b'.repeat(64),
   createdAt: '2026-11-09T13:00:00.000Z',
 };
+/** @satisfies {Parameters<ProtectedDeviceCredentialStore["save"]>[0]} */
 const credential = { schemaVersion: 1, request, credential: 'secret-device-credential-never-print',
   credentialId: 'credential-1', expiresAt: '2026-11-09T14:00:00.000Z', storedAt: '2026-11-09T13:01:00.000Z' };
 

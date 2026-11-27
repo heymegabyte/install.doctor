@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { discoverZfsProtection, planZfsProtection, statusZfsProtection } from '../dist/index.js';
+import { discoverZfsProtection, planZfsProtection, statusZfsProtection, ZfsProtectionPolicySchema } from '../dist/index.js';
 
+/** @type {ReturnType<typeof ZfsProtectionPolicySchema.parse>} */
 const policy = {
   schemaVersion: 1, policyId: 'lab-policy', pool: 'labpool',
   datasets: [
@@ -15,6 +16,7 @@ const policy = {
   exclusions: [{ kind: 'dataset', pattern: 'labpool/cache', reason: 'reproducible cache' }, { kind: 'file-backup', pattern: '**/.cache/**', reason: 'file backup only' }],
   capacity: { warningRatio: 0.75, admissionRatio: 0.9, reserveBytes: 100, projectedSnapshotBytes: 100 },
 };
+/** @type {ReturnType<typeof discoverZfsProtection>} */
 const observation = {
   schemaVersion: 1, observationId: 'lab-observation', observedAt: '2026-11-10T19:00:00.000Z', evidenceDigest: 'a'.repeat(64), readOnly: true, disposable: true,
   pool: { name: 'labpool', guid: '123456789', sizeBytes: 1_000, allocatedBytes: 300, health: 'ONLINE' },
@@ -69,12 +71,23 @@ test('capacity gates before exhaustion and unhealthy or missing sources cannot r
 
 test('strict policy validation rejects globbed ZFS exclusions, unmanaged ownership, collisions, and pool mismatch', () => {
   assert.throws(() => planZfsProtection({ ...policy, exclusions: [{ kind: 'dataset', pattern: 'labpool/*', reason: 'invalid boundary' }] }, observation), /exact dataset boundaries/);
-  const manual = structuredClone(policy); manual.datasets[0].snapshotOwner = 'manual';
+  const manual = structuredClone(policy);
+  const [dataset] = manual.datasets;
+  assert.ok(dataset);
+  dataset.snapshotOwner = 'manual';
   assert.throws(() => planZfsProtection(manual, observation), /automated owner/);
-  const duplicate = structuredClone(policy); duplicate.datasets.push(duplicate.datasets[0]);
+  const duplicate = structuredClone(policy);
+  const [duplicateDataset] = duplicate.datasets;
+  assert.ok(duplicateDataset);
+  duplicate.datasets.push(duplicateDataset);
   assert.throws(() => planZfsProtection(duplicate, observation), /unique/);
   assert.throws(() => planZfsProtection({ ...policy, pool: 'production' }, observation), /does not match/);
   assert.throws(() => discoverZfsProtection({ ...observation, readOnly: false }), /readOnly/);
-  const badDependency = structuredClone(observation); badDependency.snapshots[0].dependencies[0].snapshot = 'labpool/data@other';
+  const badDependency = structuredClone(observation);
+  const [snapshot] = badDependency.snapshots;
+  assert.ok(snapshot);
+  const [dependency] = snapshot.dependencies;
+  assert.ok(dependency);
+  dependency.snapshot = 'labpool/data@other';
   assert.throws(() => discoverZfsProtection(badDependency), /containing snapshot/);
 });

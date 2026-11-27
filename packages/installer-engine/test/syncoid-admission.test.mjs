@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { discoverSyncoidState, planSyncoidAdmission } from '../dist/index.js';
 
+/** @param {'source' | 'destination'} side */
 const endpoint = (side) => ({
   hostId: side === 'source' ? 'zen' : 'vault',
   hostKeyFingerprint: side === 'source' ? `SHA256:${'A'.repeat(43)}` : `SHA256:${'B'.repeat(43)}`,
@@ -10,6 +11,7 @@ const endpoint = (side) => ({
   dataset: side === 'source' ? 'rpool/data' : 'backup/zen/data',
   datasetGuid: side === 'source' ? 'dataset-zen-data-1' : 'dataset-vault-zen-data-1',
 });
+/** @type {ReturnType<typeof discoverSyncoidState>['effectiveIdentity']} */
 const identity = {
   identityId: 'syncoid-zen-data', principal: 'syncoid-zen-data',
   sourceDataset: 'rpool/data', destinationDataset: 'backup/zen/data',
@@ -23,6 +25,7 @@ const policy = {
   retry: { maxAttempts: 4, initialDelaySeconds: 10, maxDelaySeconds: 300 },
   capacity: { reserveBytes: 100, admissionRatio: 0.9, estimatedTransferBytes: 200 },
 };
+/** @type {ReturnType<typeof discoverSyncoidState>} */
 const observation = {
   schemaVersion: 1, observationId: 'syncoid-observation-1', evidenceDigest: 'a'.repeat(64), readOnly: true,
   source: { ...endpoint('source'), mounted: true, encryption: 'native', keyLoaded: true, historyMode: 'raw' },
@@ -122,6 +125,9 @@ test('strict validation rejects unsafe policy, mutable discovery, and ambiguous 
   assert.throws(() => discoverSyncoidState({ ...observation, readOnly: false }), /readOnly/);
   const duplicate = structuredClone(observation); duplicate.sourceSnapshots.push({ name: 'rpool/data@s3', guid: 'snap-2', createdTxg: 30 });
   assert.throws(() => discoverSyncoidState(duplicate), /GUIDs must be unique/);
-  const unknownHold = structuredClone(observation); unknownHold.holds[0].snapshotGuid = 'missing';
+  const unknownHold = structuredClone(observation);
+  const [hold] = unknownHold.holds;
+  assert.ok(hold);
+  hold.snapshotGuid = 'missing';
   assert.throws(() => discoverSyncoidState(unknownHold), /observed snapshot GUID/);
 });

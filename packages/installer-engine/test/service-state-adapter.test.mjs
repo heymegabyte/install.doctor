@@ -2,9 +2,12 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createSystemdServiceStateAdapter } from '../dist/index.js';
 
+/** @param {{ enabled: string, active: string }} initial */
 function fixture(initial) {
   const state = { ...initial };
+  /** @type {string[][]} */
   const calls = [];
+  /** @type {NonNullable<Parameters<typeof createSystemdServiceStateAdapter>[0]["execute"]>} */
   const execute = async (_file, args) => {
     calls.push([...args]);
     const [verb, _separator, serviceId] = args;

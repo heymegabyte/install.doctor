@@ -8,6 +8,12 @@ import {
 const record = ({ name = 'base-files', version = '13.8', architecture = 'amd64', want = 'install', error = 'ok', status = 'installed' } = {}) =>
   `${name}\x1f${version}\x1f${architecture}\x1f${want}\x1f${error}\x1f${status}\n`;
 
+/** @typedef {import('../dist/native-dpkg-quiescence.js').NativeDpkgQuiescenceAdapter} QuiescenceAdapter */
+
+/**
+ * @param {Partial<QuiescenceAdapter>} overrides
+ * @returns {QuiescenceAdapter}
+ */
 function adapter(overrides = {}) {
   let lockCalls = 0;
   let processCalls = 0;
