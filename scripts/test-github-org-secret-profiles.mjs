@@ -250,6 +250,23 @@ for (const [workload, configuration] of Object.entries(manifest.workloads)) {
 for (const host of Object.keys(manifest.hosts)) {
   assert.deepEqual(selectHostSecrets(manifest, host, stripeMeterMetadata), []);
 }
+const stripeCreditPrices = [
+  'STRIPE_PRICE_CREDITS_100', 'STRIPE_PRICE_CREDITS_500', 'STRIPE_PRICE_CREDITS_2000',
+];
+const stripeCreditAliases = [
+  'STRIPE_PRICE_ID_CREDITS_100', 'STRIPE_PRICE_ID_CREDITS_500', 'STRIPE_PRICE_ID_CREDITS_2000',
+];
+assert.deepEqual(
+  selectConfigurationSecrets(manifest, manifest.workloads['projectsites.dev'], [...stripeCreditPrices, ...stripeCreditAliases]),
+  [...stripeCreditPrices].sort(),
+);
+for (const [workload, configuration] of Object.entries(manifest.workloads)) {
+  if (workload === 'projectsites.dev') continue;
+  assert.deepEqual(selectConfigurationSecrets(manifest, configuration, [...stripeCreditPrices, ...stripeCreditAliases]), []);
+}
+for (const host of Object.keys(manifest.hosts)) {
+  assert.deepEqual(selectHostSecrets(manifest, host, [...stripeCreditPrices, ...stripeCreditAliases]), []);
+}
 assert.deepEqual(selectConfigurationSecrets(
   manifest, manifest.workloads['crawl.cheap'], ['EXA_API_KEY', 'SENTRY_DSN', 'ANTHROPIC_API_KEY'],
 ), ['EXA_API_KEY', 'SENTRY_DSN']);
