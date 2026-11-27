@@ -11,7 +11,7 @@
 
 import { spawnSync } from "node:child_process";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
-import { homedir, hostname, platform } from "node:os";
+import { cpus, homedir, hostname, platform } from "node:os";
 import { join } from "node:path";
 
 interface DiagnosticFinding {
@@ -193,6 +193,17 @@ async function checkSharedRuntimeServices(findings: DiagnosticFinding[]): Promis
     summary: "Langfuse fail-open ping & spool replay CLI (~/.local/bin/langfuse-safe-ping) present",
     detail: langfusePingPath,
   });
+
+  const gmailMcpRunnerPath = join(homedir(), ".agentskills", "mcp-servers", "paperclip-mcp-stdio-runner.mjs");
+  const gmailMcpRunnerRaw = existsSync(gmailMcpRunnerPath) ? readFileSync(gmailMcpRunnerPath, "utf8") : "";
+  const hasGmailGetMessage = gmailMcpRunnerRaw.includes('"get_message"') && gmailMcpRunnerRaw.includes("Claude Code-credentials");
+  findings.push({
+    id: "gmail-mcp-keychain-and-raw-mime-ready",
+    severity: "warning",
+    passed: hasGmailGetMessage,
+    summary: "Gmail MCP stdio runner supports macOS Keychain OAuth fallback and get_message (RAW MIME)",
+    detail: hasGmailGetMessage ? gmailMcpRunnerPath : "missing get_message or Keychain fallback",
+  });
 }
 
 function checkDarwinPosture(findings: DiagnosticFinding[]): void {
@@ -289,6 +300,96 @@ function checkDarwinPosture(findings: DiagnosticFinding[]): void {
     passed: usedPct < 90,
     summary: "macOS APFS /System/Volumes/Data utilization below 90%",
     detail: `used=${usedPct}%`,
+  });
+
+  const loadAverageRaw = runCommand("sysctl", ["-n", "vm.loadavg"], 3_000).stdout;
+  const loadAverageMatch = loadAverageRaw.match(/([0-9]+(?:\.[0-9]+)?)/);
+  const oneMinuteLoad = Number.parseFloat(loadAverageMatch?.[1] ?? "0");
+  const logicalCpuCount = Math.max(1, cpus().length);
+  const loadPerCpu = oneMinuteLoad / logicalCpuCount;
+  findings.push({
+    id: "darwin-interactive-cpu-headroom",
+    severity: "warning",
+    passed: loadPerCpu < 1.5,
+    summary: "macOS one-minute load leaves interactive CPU headroom",
+    detail: `load1=${oneMinuteLoad.toFixed(2)}, logicalCpus=${logicalCpuCount}, loadPerCpu=${loadPerCpu.toFixed(2)}`,
+  });
+
+  const swapRaw = runCommand("sysctl", ["vm.swapusage"], 3_000).stdout;
+  const swapUsedMatch = swapRaw.match(/used\s*=\s*([0-9]+(?:\.[0-9]+)?)M/i);
+  const swapUsedMiB = Number.parseFloat(swapUsedMatch?.[1] ?? "0");
+  findings.push({
+    id: "darwin-swap-pressure",
+    severity: "warning",
+    passed: swapUsedMiB < 2_048,
+    summary: "macOS swap usage remains below the interactive-workstation warning budget",
+    detail: `swapUsedMiB=${swapUsedMiB.toFixed(2)}, warningBudgetMiB=2048`,
+  });
+
+  const processCommands = runCommand("ps", ["-axo", "command="], 5_000).stdout.split(/\r?\n/);
+  const mcpBridgeCounts = new Map<string, number>();
+  let headlessChromiumCount = 0;
+  for (const command of processCommands) {
+    if (command.includes("chrome-headless-shell")) {
+      headlessChromiumCount += 1;
+    }
+    const bridgeMatch = command.match(/paperclip-mcp-stdio-runner\.mjs\s+([^\s]+)/);
+    if (bridgeMatch?.[1]) {
+      mcpBridgeCounts.set(bridgeMatch[1], (mcpBridgeCounts.get(bridgeMatch[1]) ?? 0) + 1);
+    }
+  }
+  const duplicatedMcpBridges = [...mcpBridgeCounts.entries()]
+    .filter(([, count]) => count > 4)
+    .map(([name, count]) => `${name}=${count}`)
+    .sort();
+  findings.push({
+    id: "darwin-mcp-bridge-multiplicity",
+    severity: "warning",
+    passed: duplicatedMcpBridges.length === 0,
+    summary: "MCP bridge multiplicity remains within the local interactive-session budget",
+    detail: duplicatedMcpBridges.length === 0 ? "no service has more than 4 bridges" : duplicatedMcpBridges.join(", "),
+  });
+
+  findings.push({
+    id: "darwin-headless-browser-concurrency",
+    severity: "warning",
+    passed: headlessChromiumCount <= logicalCpuCount,
+    summary: "Headless Chromium process count does not exceed logical CPU count",
+    detail: `headlessChromium=${headlessChromiumCount}, logicalCpus=${logicalCpuCount}`,
+  });
+
+  const fileVaultStatus = runCommand("fdesetup", ["status"], 4_000).stdout.trim();
+  findings.push({
+    id: "darwin-filevault-enabled",
+    severity: "critical",
+    passed: /^FileVault is On\./i.test(fileVaultStatus),
+    summary: "FileVault full-disk encryption enabled",
+    detail: fileVaultStatus || "unknown",
+  });
+
+  const firewallBinary = "/usr/libexec/ApplicationFirewall/socketfilterfw";
+  const firewallStatus = existsSync(firewallBinary)
+    ? runCommand(firewallBinary, ["--getglobalstate"], 4_000).stdout.trim()
+    : "unavailable";
+  const firewallEnabled = /enabled/i.test(firewallStatus) && !/disabled/i.test(firewallStatus);
+  const externallyListeningRemoteServices: string[] = [];
+  for (const line of lsofOut.split(/\r?\n/).slice(1)) {
+    if (!line.trim()) continue;
+    const cols = line.trim().split(/\s+/);
+    const procName = cols[0] ?? "unknown";
+    const addrField = cols[8] ?? "";
+    if (/\*:(88|3283|5900|8169)$/.test(addrField) || /^\[::\]:(88|3283|5900|8169)$/.test(addrField)) {
+      externallyListeningRemoteServices.push(`${procName}@${addrField}`);
+    }
+  }
+  findings.push({
+    id: "darwin-application-firewall",
+    severity: externallyListeningRemoteServices.length > 0 ? "critical" : "warning",
+    passed: firewallEnabled,
+    summary: "macOS application firewall enabled",
+    detail: externallyListeningRemoteServices.length > 0
+      ? `${firewallStatus}; wildcardRemoteListeners=${externallyListeningRemoteServices.join(",")}`
+      : firewallStatus,
   });
 }
 
