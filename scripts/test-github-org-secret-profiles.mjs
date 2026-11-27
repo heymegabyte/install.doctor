@@ -205,6 +205,13 @@ for (const configuration of Object.values(manifest.workloads)) {
 for (const host of Object.keys(manifest.hosts)) {
   assert.deepEqual(selectHostSecrets(manifest, host, ['TINYBIRD_WORKSPACE_ID']), []);
 }
+const retiredTinybirdMetadata = ['TINYBIRD_HOST', 'TINYBIRD_PORT', 'TINYBIRD_MCP_SERVER'];
+for (const configuration of Object.values(manifest.workloads)) {
+  assert.deepEqual(selectConfigurationSecrets(manifest, configuration, retiredTinybirdMetadata), []);
+}
+for (const host of Object.keys(manifest.hosts)) {
+  assert.deepEqual(selectHostSecrets(manifest, host, retiredTinybirdMetadata), []);
+}
 assert.deepEqual(selectConfigurationSecrets(
   manifest, manifest.workloads['crawl.cheap'], ['EXA_API_KEY', 'SENTRY_DSN', 'ANTHROPIC_API_KEY'],
 ), ['EXA_API_KEY', 'SENTRY_DSN']);
