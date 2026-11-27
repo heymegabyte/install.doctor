@@ -19,6 +19,12 @@ fi
 
 if [[ $EUID -eq 0 ]]; then SUDO=""; else SUDO="sudo -n"; fi
 
+# A host-specific backup owner controls configuration and scheduling together.
+if [[ "$OS_KERNEL" == "Linux" ]] && $SUDO test -f /etc/backrest/externally-managed; then
+  log_info "Backrest and Restic provisioning are managed by the host backup owner."
+  exit 0
+fi
+
 TMP_BR=""
 cleanup() {
   if [[ -n "$TMP_BR" ]]; then

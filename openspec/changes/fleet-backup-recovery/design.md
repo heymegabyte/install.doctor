@@ -49,3 +49,13 @@ Infisical Agent is not treated as an undocumented offline cache. Each local exce
 ## Rollback
 
 Managed configuration is validated, atomically installed, and retains the prior working version. Rollback restores configuration only, never live data. Existing schedules and recovery material remain until replacement restores are proven.
+
+### Host-specific backup ownership
+
+On Linux, the privileged host owner can register external Backrest and
+Restic ownership by creating the regular file
+`/etc/backrest/externally-managed` beneath the root-owned configuration
+directory. Install Doctor detects it before package, helper, service,
+or timer mutation, preserving the host's existing backup policy on
+reapply. The host owner controls the lifecycle of both writers during
+handoff. Hosts without the marker retain the existing recipe behavior.
