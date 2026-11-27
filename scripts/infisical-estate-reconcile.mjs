@@ -518,7 +518,10 @@ function main() {
   }
   const validationLedger = JSON.parse(readFileSync(options.validationLedgerPath, 'utf8'));
   const validationInventorySources = options.secretDirectoriesOverridden
-    ? inventorySources
+    ? [...new Map([
+      ...inventorySecretSources(defaultSecretStores),
+      ...inventorySources,
+    ].map((source) => [source.sourceId, source])).values()]
     : inventorySecretSources(defaultSecretStores);
   assertSecretSourcesValidated(validationLedger, plans.flatMap((plan) => plan.secretSources), validationInventorySources);
   if (options.projectId && targets.length !== 1) fail('--project-id override requires exactly one target');
