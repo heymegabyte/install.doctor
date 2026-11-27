@@ -3,7 +3,7 @@ import { z } from 'zod';
 
 const identifier = z.string().min(1).max(128).regex(/^[a-z0-9][a-z0-9._-]*$/);
 const digest = z.string().regex(/^[a-f0-9]{64}$/);
-const timestamp = z.string().datetime({ offset: true });
+const timestamp = z.iso.datetime({ offset: true });
 const opaqueReference = z.string().min(1).max(512).regex(/^[A-Za-z0-9][A-Za-z0-9._:/@-]*$/);
 
 export const WslIdentitySchema = z.strictObject({
@@ -84,18 +84,19 @@ export function preflightWslOperation(identityInput: unknown, operationInput: un
   if (operation.principalId !== expectedPrincipal) {
     return Object.freeze({ decision: 'deny', reason: 'authority-identity-mismatch' });
   }
-  if (operation.credential) {
-    const schemes = operation.credential.authority === 'windows-host'
+  const { credential, path } = operation;
+  if (credential) {
+    const schemes = credential.authority === 'windows-host'
       ? ['credential-manager://', 'dpapi://', 'infisical://']
       : ['infisical://', 'secret-service://', 'systemd-credential://'];
-    if (!schemes.some(scheme => operation.credential!.reference.startsWith(scheme))) {
+    if (!schemes.some(scheme => credential.reference.startsWith(scheme))) {
       return Object.freeze({ decision: 'deny', reason: 'cross-boundary-credential' });
     }
-    return operation.credential.authority === operation.authority
+    return credential.authority === operation.authority
       ? Object.freeze({ decision: 'allow', reason: 'same-authority-credential' })
       : Object.freeze({ decision: 'deny', reason: 'cross-boundary-credential' });
   }
-  const path = operation.path!;
+  if (!path) throw new Error('filesystem operation requires a path');
   const actual = classifyPath(path.value);
   const resolved = classifyPath(path.resolvedValue);
   if (actual === 'invalid' || resolved === 'invalid') return Object.freeze({ decision: 'deny', reason: 'invalid-absolute-path' });
@@ -126,8 +127,7 @@ const WslRestartBodySchema = z.strictObject({
 
 export const WslRestartContinuationSchema = WslRestartBodySchema.extend({ continuationId: digest })
   .superRefine((continuation, context) => {
-    const { continuationId: _continuationId, ...body } = continuation;
-    if (restartDigest(body) !== continuation.continuationId) {
+    if (restartDigest(continuation) !== continuation.continuationId) {
       context.addIssue({ code: 'custom', path: ['continuationId'], message: 'WSL restart continuation differs from its bound identities' });
     }
   });
@@ -158,7 +158,19 @@ export const WslRestartHeartbeatSchema = z.strictObject({
 type WslRestartBody = z.infer<typeof WslRestartBodySchema>;
 
 function restartDigest(body: WslRestartBody): string {
-  return createHash('sha256').update(JSON.stringify(body)).digest('hex');
+  return createHash('sha256').update(JSON.stringify({
+    schemaVersion: body.schemaVersion,
+    pairId: body.pairId,
+    runId: body.runId,
+    planDigest: body.planDigest,
+    target: body.target,
+    authority: body.authority,
+    principalId: body.principalId,
+    preWindowsBootId: body.preWindowsBootId,
+    preLinuxInstanceId: body.preLinuxInstanceId,
+    requestedAt: body.requestedAt,
+    returnDeadline: body.returnDeadline,
+  })).digest('hex');
 }
 
 export function coordinateWslRestart(input: unknown) {
@@ -185,7 +197,7 @@ export function coordinateWslRestart(input: unknown) {
     continuation: WslRestartContinuationSchema.parse({ ...body, continuationId: restartDigest(body) }) });
 }
 
-export function inspectWslRestartReturn(continuationInput: unknown, heartbeatInput: unknown | null, nowInput: string) {
+export function inspectWslRestartReturn(continuationInput: unknown, heartbeatInput: unknown, nowInput: string) {
   const continuation = WslRestartContinuationSchema.parse(continuationInput);
   const now = timestamp.parse(nowInput);
   const expired = Date.parse(now) >= Date.parse(continuation.returnDeadline);

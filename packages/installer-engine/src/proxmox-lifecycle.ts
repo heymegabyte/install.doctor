@@ -21,7 +21,7 @@ export const PROXMOX_LIFECYCLE_OPERATION_KINDS = [
 
 const identifier = z.string().min(1).max(128).regex(/^[a-z0-9][a-z0-9._-]*$/);
 const sha256 = z.string().regex(/^[a-f0-9]{64}$/);
-const instant = z.string().datetime({ offset: true });
+const instant = z.iso.datetime({ offset: true });
 const boundedText = z.string().min(1).max(1_024).refine(value => !/[\r\n\0]/u.test(value));
 const cidr = z.string().min(3).max(64).regex(/^[0-9a-f:.]+\/\d{1,3}$/i);
 
@@ -316,7 +316,8 @@ export function executeDisposableProxmoxLifecycle(
       changed = state.maintenance !== desired;
       state.maintenance = desired;
     }
-    const admission = admissions.get(operation.operationId)!;
+    const admission = admissions.get(operation.operationId);
+    if (!admission) throw new Error(`missing fixture evidence for ${operation.operationId}`);
     receipts.push(Object.freeze({ operationId: operation.operationId, kind: operation.kind,
       boundary: admission.boundary, outcome: changed ? 'applied' : 'unchanged', evidenceId: admission.evidenceId,
       evidenceDigest: digest({ operation, outcome: changed ? 'applied' : 'unchanged' }) }));

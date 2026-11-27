@@ -11,7 +11,7 @@ import {
 const VERSION = z.literal(1);
 const identifier = z.string().min(1).max(128).regex(/^[a-z0-9][a-z0-9._-]*$/);
 const digest = z.string().regex(/^[a-f0-9]{64}$/);
-const instant = z.string().datetime({ offset: true });
+const instant = z.iso.datetime({ offset: true });
 
 export const QUBES_NATIVE_OPERATION_KINDS = [
   'dom0-policy',
@@ -151,6 +151,10 @@ function sha256(value: unknown): string {
   return createHash('sha256').update(canonical(value)).digest('hex');
 }
 
+function assertNoNetworkAttempts(state: QubesDisposableState, message: string): void {
+  if (state.networkAttempts !== 0) throw new Error(message);
+}
+
 /**
  * Executes only the strict in-memory disposable Qubes fixture. A real adapter must translate the
  * admitted service tuple to qrexec; this contract intentionally exposes no shell or command field.
@@ -159,7 +163,7 @@ export function executeDisposableQubesLifecycle(input: unknown, state: QubesDisp
   const plan = QubesNativePlanSchema.parse(input);
   const observedAt = instant.parse(now);
   if (Date.parse(plan.expiresAt) <= Date.parse(observedAt)) throw new Error('Qubes lifecycle plan is expired');
-  if (state.networkAttempts !== 0) throw new Error('offline Qubes lifecycle observed a network attempt before execution');
+  assertNoNetworkAttempts(state, 'offline Qubes lifecycle observed a network attempt before execution');
 
   const pending = new Map(plan.operations.map(item => [item.operationId, item]));
   const completed = new Set<string>();
@@ -206,7 +210,7 @@ export function executeDisposableQubesLifecycle(input: unknown, state: QubesDisp
       pending.delete(operation.operationId); completed.add(operation.operationId);
     }
   }
-  if (state.networkAttempts !== 0) throw new Error('offline Qubes lifecycle attempted network access');
+  assertNoNetworkAttempts(state, 'offline Qubes lifecycle attempted network access');
   if (state.activeDisposables.size !== 0) throw new Error('Qubes lifecycle leaked an active DisposableVM');
   const compartmentsVerified = [...new Set(receipts.map(item => item.targetId))].sort();
   return Object.freeze({ schemaVersion: 1, planId: plan.planId, fixtureId: plan.fixture.fixtureId,
