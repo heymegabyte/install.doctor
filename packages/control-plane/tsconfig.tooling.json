@@ -10,6 +10,7 @@
   "include": [
     "scripts/offline-bundle-publication.mjs",
     "scripts/offline-bundle-request.mjs",
+    "scripts/publish-offline-bundle.mjs",
     "scripts/r2-publication-storage.mjs",
     "scripts/run-tests.mjs"
   ]

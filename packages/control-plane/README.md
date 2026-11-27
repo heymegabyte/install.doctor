@@ -63,7 +63,7 @@ activation are provider-separable authorities.
 - In this package, run `npm run typecheck` to generate Worker runtime types using Wrangler
   and check the full source tree against the shared strict compiler profile.
 - Run `npm run typecheck:tooling` to check the offline-bundle request and publication modules,
-  R2 storage adapter, and test runner with Node runtime types. The remaining tooling scripts
+  publication CLI, R2 storage adapter, and test runner with Node runtime types. The remaining tooling scripts
   are outside this compiler project until their inputs and callbacks are typed.
 - Run `npm run check` to build aid-core, run both compiler projects, and bundle the Worker
   in a Wrangler dry run.
