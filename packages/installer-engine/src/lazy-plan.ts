@@ -22,7 +22,7 @@ export const ServiceDeclarationSchema = z.strictObject({
   manager: z.literal('systemd').optional(),
 }).superRefine((declaration, context) => {
   if (declaration.manager === 'systemd' && !/^[A-Za-z0-9][A-Za-z0-9_.@:-]{0,126}\.service$/.test(declaration.name)) {
-    context.addIssue({ code: z.ZodIssueCode.custom, message: 'systemd service requires an exact .service unit', path: ['name'] });
+    context.addIssue({ code: 'custom', message: 'systemd service requires an exact .service unit', path: ['name'] });
   }
 });
 
@@ -72,7 +72,7 @@ const LegacyLoadCatalogEntrySchema = z.object({
 }).strict().superRefine((entry, context) => {
   if ((entry.postInstall === undefined) !== (entry.postInstallPrivilege === undefined)) {
     context.addIssue({
-      code: z.ZodIssueCode.custom,
+      code: 'custom',
       message: 'postInstall and postInstallPrivilege must be declared together',
       path: ['postInstallPrivilege'],
     });
@@ -80,7 +80,7 @@ const LegacyLoadCatalogEntrySchema = z.object({
   if ((entry.installMode === 'service' && entry.serviceDeclarations === undefined)
     || (entry.installMode === 'cli' && entry.serviceDeclarations !== undefined)) {
     context.addIssue({
-      code: z.ZodIssueCode.custom,
+      code: 'custom',
       message: 'service installMode requires serviceDeclarations and CLI entries cannot declare services',
       path: ['serviceDeclarations'],
     });
@@ -183,7 +183,8 @@ function canonical(value: unknown): string {
 }
 
 export function calculateLoadPlanReportDigest(rawReport: unknown): string {
-  const { digest: _digest, ...unsigned } = LoadPlanReportSchema.parse(rawReport);
+  const unsigned = { ...LoadPlanReportSchema.parse(rawReport) };
+  Reflect.deleteProperty(unsigned, 'digest');
   return createHash('sha256').update(canonical(unsigned)).digest('hex');
 }
 
@@ -198,9 +199,11 @@ function uniqueSorted<T extends string>(values: readonly T[]): T[] {
  * still fail closed.
  */
 function duplicatePackageMetadata(entry: LoadCatalogEntry): unknown {
-  const { bin: _bin, ...metadata } = entry;
+  const metadata = { ...entry };
+  Reflect.deleteProperty(metadata, 'bin');
   if ('identity' in metadata) {
-    const { command: _command, ...identity } = metadata.identity;
+    const identity = { ...metadata.identity };
+    Reflect.deleteProperty(identity, 'command');
     return { ...metadata, identity };
   }
   return metadata;

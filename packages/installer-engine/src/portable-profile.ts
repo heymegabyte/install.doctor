@@ -107,7 +107,10 @@ function reconstructedTasks(catalog: readonly CatalogEntry[], installOrder: read
       schemaVersion: 1,
       id,
       inputDigest: sha256(canonical(entry)),
-      dependencies: entry.deps.filter(dependency => taskIds.has(dependency)).map(dependency => taskIds.get(dependency)!).sort(),
+      dependencies: entry.deps.flatMap(dependency => {
+        const taskId = taskIds.get(dependency);
+        return taskId === undefined ? [] : [taskId];
+      }).sort(),
       predicate: 'catalog-applicable',
       requiredCapabilities: [],
       operations: { check: `${id}.check`, apply: `${id}.apply`, verify: `${id}.verify` },

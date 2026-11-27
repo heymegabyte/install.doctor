@@ -1,7 +1,6 @@
 import { createHash } from 'node:crypto';
 import {
   exportMarkdown,
-  importMarkdown,
   migrateBlueprintV1ToV2,
   migrateBlueprintV2ToV3,
   migrateBlueprintV3ToV4,
@@ -160,7 +159,8 @@ function resolveClosure(environment: BlueprintV4, rawCatalog: unknown): string[]
   };
   for (const id of selected) visit(id, []);
   for (const id of [...visited].sort()) {
-    const entry = entries.get(id)!;
+    const entry = entries.get(id);
+    if (!entry) throw new Error('visited package is missing from the catalog');
     for (const incompatible of entry.conflicts) {
       if (visited.has(incompatible) && id.localeCompare(incompatible) < 0) {
         conflicts.push({ code: 'catalog-conflict', path: ['packages', id, incompatible],
@@ -199,7 +199,8 @@ export function compileProfile(input: Readonly<{ environment: unknown; catalog: 
     environment,
     markdown,
     hostOverlays: environment.machines.map(machine => {
-      const role = environment.roles.find(candidate => candidate.id === machine.role)!;
+      const role = environment.roles.find(candidate => candidate.id === machine.role);
+      if (!role) throw new Error('validated machine is missing its role');
       return {
         machineId: machine.id, os: machine.os, role: machine.role,
         packages: sorted(resolveMachinePackages(environment, machine.id)),
@@ -229,7 +230,8 @@ export function importCompiledProfile(serialized: string): CompiledProfile {
   const record = parsed as Record<string, unknown>;
   const actual = record.digest;
   if (typeof actual !== 'string') throw new Error('compiled profile digest is missing');
-  const { digest: _digest, ...unsigned } = record;
+  const unsigned = { ...record };
+  Reflect.deleteProperty(unsigned, 'digest');
   if (digest(unsigned) !== actual) throw new Error('compiled profile digest mismatch');
   const environment = normalizeV4(validateEnvironment(record.environment) as BlueprintV4);
   if (exportMarkdown(environment) !== record.markdown) throw new Error('compiled profile markdown differs from desired state');
@@ -245,7 +247,8 @@ export function importCompiledProfile(serialized: string): CompiledProfile {
   }
   const syntheticCatalog = closure.map(id => ({ id, dependencies: id === selected[0] ? extras : [], conflicts: [] }));
   const expected = compileProfile({ environment, catalog: syntheticCatalog });
-  const { digest: _expectedDigest, ...expectedUnsigned } = expected;
+  const expectedUnsigned = { ...expected };
+  Reflect.deleteProperty(expectedUnsigned, 'digest');
   if (JSON.stringify(canonicalValue(expectedUnsigned)) !== JSON.stringify(canonicalValue(unsigned))) {
     throw new Error('compiled profile derived state differs from desired state');
   }
@@ -258,7 +261,7 @@ function diffValue(before: unknown, after: unknown, path: string, output: Profil
   if (after === undefined) { output.push({ operation: 'remove', path, before }); return; }
   if (before !== null && after !== null && typeof before === 'object' && typeof after === 'object'
     && !Array.isArray(before) && !Array.isArray(after)) {
-    for (const key of sorted([...Object.keys(before as object), ...Object.keys(after as object)])) {
+    for (const key of sorted([...Object.keys(before), ...Object.keys(after)])) {
       diffValue((before as Record<string, unknown>)[key], (after as Record<string, unknown>)[key], `${path}/${key}`, output);
     }
     return;

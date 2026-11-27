@@ -14,7 +14,7 @@ const responseSchema = z.strictObject({
   deviceId: identifier,
   revision: identifier,
   digest,
-  updatedAt: z.string().datetime({ offset: true }).max(64),
+  updatedAt: z.iso.datetime({ offset: true }).max(64),
   markdown: z.string().min(1).max(2_000_000),
 });
 
@@ -37,7 +37,7 @@ async function boundedJson(response: Response): Promise<unknown> {
   const reader = response.body.getReader();
   const chunks: Uint8Array[] = [];
   let length = 0;
-  while (true) {
+  for (;;) {
     const { done, value } = await reader.read();
     if (done) break;
     length += value.byteLength;
@@ -107,14 +107,14 @@ export async function fetchProfileDesiredState(input: Readonly<{
     throw new Error('device credential is not authorized for the selected profile');
   }
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(new Error('desired-state request timed out')), input.timeoutMs ?? 20_000);
+  const timeout = setTimeout(() => { controller.abort(new Error('desired-state request timed out')); }, input.timeoutMs ?? 20_000);
   let rawBody: unknown;
   try {
     const response = await (input.fetch ?? globalThis.fetch)(new URL('/api/device/current', origin), {
       method: 'GET', redirect: 'error', credentials: 'omit', cache: 'no-store', signal: controller.signal,
       headers: { authorization: `Bearer ${stored.credential}`, accept: 'application/json' },
     });
-    if (!response.ok) throw new Error(`desired-state request failed with status ${response.status}`);
+    if (!response.ok) throw new Error(`desired-state request failed with status ${String(response.status)}`);
     rawBody = await boundedJson(response);
   } finally { clearTimeout(timeout); }
   const body = responseSchema.parse(rawBody);
