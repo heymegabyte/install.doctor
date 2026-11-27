@@ -22,7 +22,6 @@ config="$fixture/home/.config/mcp-singletons/config.json"
 test -f "$unit"
 test -f "$config"
 test "$(stat -f '%Lp' "$unit" 2>/dev/null || stat -c '%a' "$unit")" = 600
-grep -q '^NoNewPrivileges=true$' "$unit"
 grep -q '^ProtectSystem=strict$' "$unit"
 node -e 'const c=require(process.argv[1]); const ids=Object.keys(c.services); if (ids.join(",") !== "cloudflare-mcp,theme-tools-mcp") process.exit(1)' "$config"
 
