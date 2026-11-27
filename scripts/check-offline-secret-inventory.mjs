@@ -72,5 +72,5 @@ if (!changed.length) {
       if (!(error instanceof Error) || !('code' in error) || error.code !== 'ENOENT') throw error;
     });
   }
-  console.log(`Refreshed filename counts and digests for ${changed.length} stores.`);
+  console.log(`Refreshed filename counts and digests for ${String(changed.length)} stores.`);
 }
