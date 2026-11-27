@@ -135,19 +135,21 @@ function fixture(options = {}) {
   /** @type {BoundaryOptions['signer']} */
   const signer = Object.freeze({
     keyId,
-    async sign(/** @type {Uint8Array} */ message) {
-      signedMessages.push(Buffer.from(message));
-      return new Uint8Array(sign(null, message, keyPair.privateKey));
+    sign(/** @type {Uint8Array} */ message) {
+      return new Promise(resolve => {
+        signedMessages.push(Buffer.from(message));
+        resolve(new Uint8Array(sign(null, message, keyPair.privateKey)));
+      });
     },
   });
   /** @type {BoundaryOptions['store']} */
   const store = {
-    async loadExactState() { return exactState; },
-    async consumeApproval(input) {
+    loadExactState() { return Promise.resolve(exactState); },
+    consumeApproval(input) {
       consumedInputs.push(input);
-      if (options.consume === false || consumed) return false;
+      if (options.consume === false || consumed) return Promise.resolve(false);
       consumed = true;
-      return true;
+      return Promise.resolve(true);
     },
   };
   const boundary = createBrokerApprovalSigningBoundary({
@@ -193,7 +195,9 @@ void test('reconstructs the exact grant from durable state and signs its complet
     runIntentId: approval.runIntentId,
   }]);
 
-  const { signature, auditDigest: _auditDigest, ...unsigned } = approval;
+  const { signature } = approval;
+  const unsigned = Object.fromEntries(Object.entries(approval)
+    .filter(([key]) => key !== 'signature' && key !== 'auditDigest'));
   const message = Buffer.from(`${approval.signatureDomain}\0${JSON.stringify(canonical(unsigned))}`);
   assert.deepEqual(setup.signedMessages, [message]);
   assert.equal(verify(null, message, setup.keyPair.publicKey, Buffer.from(signature, 'base64url')), true);

@@ -1,21 +1,25 @@
 import assert from 'node:assert/strict';
 import { generateKeyPairSync, sign, verify } from 'node:crypto';
 import test from 'node:test';
+import { z } from 'zod';
 import { createBrokerApprovalManagedSigner } from '../src/broker-approval-managed-signer.ts';
+
+const signRequest = z.looseObject({ message: z.string(), keyId: z.string() });
 
 void test('managed signer adapter admits only exact bounded Ed25519 service responses', async () => {
   const pair = generateKeyPairSync('ed25519');
   /** @type {{ url: RequestInfo | URL, init: RequestInit | undefined }[]} */
   const calls = [];
   const signer = createBrokerApprovalManagedSigner({ keyId: 'approval-key-1', service: {
-    async fetch(url, init) {
-      calls.push({ url, init });
-      assert.ok(typeof init?.body === 'string');
-      const body = JSON.parse(init.body);
-      assert.ok(typeof body.message === 'string');
-      assert.equal(body.keyId, 'approval-key-1');
-      const signature = sign(null, Buffer.from(body.message, 'base64url'), pair.privateKey).toString('base64url');
-      return Response.json({ schemaVersion: 1, keyId: body.keyId, algorithm: 'Ed25519', signature });
+    fetch(url, init) {
+      return new Promise(resolve => {
+        calls.push({ url, init });
+        assert.ok(typeof init?.body === 'string');
+        const body = signRequest.parse(JSON.parse(init.body));
+        assert.equal(body.keyId, 'approval-key-1');
+        const signature = sign(null, Buffer.from(body.message, 'base64url'), pair.privateKey).toString('base64url');
+        resolve(Response.json({ schemaVersion: 1, keyId: body.keyId, algorithm: 'Ed25519', signature }));
+      });
     },
   } });
   const message = new TextEncoder().encode('x'.repeat(32));
@@ -35,8 +39,8 @@ void test('managed signer adapter fails closed on identity, shape, size, and ser
     new Response('x'.repeat(2_049), { status: 200 }),
     new Response('', { status: 503 }),
   ]) {
-    const signer = createBrokerApprovalManagedSigner({ keyId: 'approval-key-1', service: { fetch: async () => response } });
+    const signer = createBrokerApprovalManagedSigner({ keyId: 'approval-key-1', service: { fetch: () => Promise.resolve(response) } });
     await assert.rejects(signer.sign(new Uint8Array(32)));
   }
-  assert.throws(() => createBrokerApprovalManagedSigner({ keyId: 'approval-key-1', service: { fetch: async () => new Response() }, timeoutMs: 20 }));
+  assert.throws(() => createBrokerApprovalManagedSigner({ keyId: 'approval-key-1', service: { fetch: () => Promise.resolve(new Response()) }, timeoutMs: 20 }));
 });
