@@ -57,8 +57,6 @@ const pendingSourceFiles = [
   'src/qubes-native-lifecycle.ts',
   'src/reviewed-plan-binding.ts',
   'src/rollback-executor.ts',
-  'src/rollback-journal.ts',
-  'src/rollback.ts',
   'src/service-state-adapters.ts',
   'src/sudo-credential-cleanup.ts',
   'src/target-device-authorization-http.ts',

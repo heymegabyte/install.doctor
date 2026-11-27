@@ -6,7 +6,7 @@ import { ConfigurationSnapshotSchema, EffectRollbackPolicySchema, LaunchdService
 const VERSION = z.literal(1);
 const identifier = z.string().min(1).max(128).regex(/^[a-zA-Z0-9][a-zA-Z0-9._:-]*$/);
 const digest = z.string().regex(/^[a-f0-9]{64}$/);
-const timestamp = z.string().datetime({ offset: true }).max(64);
+const timestamp = z.iso.datetime({ offset: true }).max(64);
 
 const PersistedCompensationInputSchema = z.strictObject({
   schemaVersion: VERSION,
@@ -170,94 +170,98 @@ function assertRollbackPlanIntegrity(plan: RollbackPlan): void {
   }
 }
 
-export async function createRollbackPlan(
+export function createRollbackPlan(
   input: unknown,
   now: () => string = () => new Date().toISOString(),
 ): Promise<RollbackPlan> {
-  const parsed = RollbackPlanInputSchema.parse(input);
-  const known = new Set(parsed.compensations.map(artifact => artifact.record.taskId));
-  if (known.size !== parsed.compensations.length) throw new Error('rollback plan contains duplicate compensation records');
-  const tasks = parsed.compensations.map(artifact => {
-    if (artifact.record.state !== 'available') throw new Error(`rollback compensation is not available: ${artifact.record.taskId}`);
-    const bytes = artifact.bytesBase64 === null ? null : Buffer.from(artifact.bytesBase64, 'base64');
-    const snapshotIntegrity = 'kind' in artifact.snapshot && artifact.snapshot.kind === 'directory'
-      ? bytes === null && artifact.serviceSnapshot === null
-      : 'kind' in artifact.snapshot && artifact.snapshot.kind === 'service'
-        ? bytes === null && artifact.serviceSnapshot?.manager === 'systemd'
-          && artifact.snapshot.targetPath === `systemd:${artifact.serviceSnapshot.serviceId}`
-      : artifact.snapshot.existed === (bytes !== null)
-        && artifact.snapshot.digest === (bytes === null ? null : createHash('sha256').update(bytes).digest('hex'));
-    if (!snapshotIntegrity
-      || artifact.record.restores.includes('service-state') !== (artifact.serviceSnapshot !== null)
-      || artifact.record.artifactDigest !== configurationCompensationArtifactDigest(artifact.snapshot, bytes, artifact.serviceSnapshot)) {
-      throw new Error(`rollback compensation integrity mismatch: ${artifact.record.taskId}`);
-    }
-    return RollbackTaskSchema.parse({
-      schemaVersion: 1,
-      taskId: artifact.record.taskId,
-      artifactDigest: artifact.record.artifactDigest,
-      targetPath: artifact.snapshot.targetPath,
-      dependencies: [...new Set(artifact.dependencies.filter(dependency => known.has(dependency)))]
-        .sort((left, right) => left < right ? -1 : left > right ? 1 : 0),
-      restores: [...new Set(artifact.record.restores)]
-        .sort((left, right) => left < right ? -1 : left > right ? 1 : 0),
-      effect: 'installer-configuration',
-      service: artifact.serviceSnapshot === null ? null : { serviceId: artifact.serviceSnapshot.serviceId, manager: artifact.serviceSnapshot.manager },
-      expectedCurrentDigest: artifact.appliedDigest,
-    });
-  }).sort((left, right) => left.taskId < right.taskId ? -1 : left.taskId > right.taskId ? 1 : 0);
-  const taskOrder = reverseDependencyOrder(tasks);
-  const semantic = {
-    schemaVersion: 1 as const,
-    sourceRunId: parsed.sourceRunId,
-    sourcePlanDigest: parsed.sourcePlanDigest,
-    tasks,
-    taskOrder,
-    nonAutomaticEffects: NON_AUTOMATIC_EFFECTS,
-  };
-  const planDigest = sha256(semantic);
-  return RollbackPlanSchema.parse({
-    ...semantic,
-    planId: `rollback-${planDigest.slice(0, 24)}`,
-    digest: planDigest,
-    createdAt: now(),
+  return new Promise(resolve => {
+    const parsed = RollbackPlanInputSchema.parse(input);
+    const known = new Set(parsed.compensations.map(artifact => artifact.record.taskId));
+    if (known.size !== parsed.compensations.length) throw new Error('rollback plan contains duplicate compensation records');
+    const tasks = parsed.compensations.map(artifact => {
+      if (artifact.record.state !== 'available') throw new Error(`rollback compensation is not available: ${artifact.record.taskId}`);
+      const bytes = artifact.bytesBase64 === null ? null : Buffer.from(artifact.bytesBase64, 'base64');
+      const snapshotIntegrity = 'kind' in artifact.snapshot && artifact.snapshot.kind === 'directory'
+        ? bytes === null && artifact.serviceSnapshot === null
+        : 'kind' in artifact.snapshot
+          ? bytes === null && artifact.serviceSnapshot?.manager === 'systemd'
+            && artifact.snapshot.targetPath === `systemd:${artifact.serviceSnapshot.serviceId}`
+        : artifact.snapshot.existed === (bytes !== null)
+          && artifact.snapshot.digest === (bytes === null ? null : createHash('sha256').update(bytes).digest('hex'));
+      if (!snapshotIntegrity
+        || artifact.record.restores.includes('service-state') !== (artifact.serviceSnapshot !== null)
+        || artifact.record.artifactDigest !== configurationCompensationArtifactDigest(artifact.snapshot, bytes, artifact.serviceSnapshot)) {
+        throw new Error(`rollback compensation integrity mismatch: ${artifact.record.taskId}`);
+      }
+      return RollbackTaskSchema.parse({
+        schemaVersion: 1,
+        taskId: artifact.record.taskId,
+        artifactDigest: artifact.record.artifactDigest,
+        targetPath: artifact.snapshot.targetPath,
+        dependencies: [...new Set(artifact.dependencies.filter(dependency => known.has(dependency)))]
+          .sort((left, right) => left < right ? -1 : left > right ? 1 : 0),
+        restores: [...new Set(artifact.record.restores)]
+          .sort((left, right) => left < right ? -1 : left > right ? 1 : 0),
+        effect: 'installer-configuration',
+        service: artifact.serviceSnapshot === null ? null : { serviceId: artifact.serviceSnapshot.serviceId, manager: artifact.serviceSnapshot.manager },
+        expectedCurrentDigest: artifact.appliedDigest,
+      });
+    }).sort((left, right) => left.taskId < right.taskId ? -1 : left.taskId > right.taskId ? 1 : 0);
+    const taskOrder = reverseDependencyOrder(tasks);
+    const semantic = {
+      schemaVersion: 1 as const,
+      sourceRunId: parsed.sourceRunId,
+      sourcePlanDigest: parsed.sourcePlanDigest,
+      tasks,
+      taskOrder,
+      nonAutomaticEffects: NON_AUTOMATIC_EFFECTS,
+    };
+    const planDigest = sha256(semantic);
+    resolve(RollbackPlanSchema.parse({
+      ...semantic,
+      planId: `rollback-${planDigest.slice(0, 24)}`,
+      digest: planDigest,
+      createdAt: now(),
+    }));
   });
 }
 
-export async function prepareRollbackRun(
+export function prepareRollbackRun(
   input: unknown,
   now: () => string = () => new Date().toISOString(),
 ): Promise<{ readonly plan: RollbackPlan; readonly events: readonly RollbackEvent[]; readonly receipt: RollbackRunReceipt }> {
-  const request = RollbackRunRequestSchema.parse(input);
-  assertRollbackPlanIntegrity(request.plan);
-  if (request.approvedPlanDigest !== request.plan.digest) {
-    throw new Error('rollback requires approval of the exact rollback plan digest');
-  }
-  const events: RollbackEvent[] = [];
-  const emit = (body: RollbackEventBody): void => {
-    events.push(RollbackEventSchema.parse({
+  return new Promise(resolve => {
+    const request = RollbackRunRequestSchema.parse(input);
+    assertRollbackPlanIntegrity(request.plan);
+    if (request.approvedPlanDigest !== request.plan.digest) {
+      throw new Error('rollback requires approval of the exact rollback plan digest');
+    }
+    const events: RollbackEvent[] = [];
+    const emit = (body: RollbackEventBody): void => {
+      events.push(RollbackEventSchema.parse({
+        schemaVersion: 1,
+        sequence: events.length,
+        at: now(),
+        rollbackRunId: request.rollbackRunId,
+        planDigest: request.plan.digest,
+        ...body,
+      }));
+    };
+    const startedAt = now();
+    emit({ kind: 'rollback-run-started' });
+    emit({ kind: 'rollback-plan-approved' });
+    emit({ kind: 'rollback-run-blocked', reason: 'safe-executor-not-configured' });
+    const receipt = RollbackRunReceiptSchema.parse({
       schemaVersion: 1,
-      sequence: events.length,
-      at: now(),
       rollbackRunId: request.rollbackRunId,
       planDigest: request.plan.digest,
-      ...body,
-    }));
-  };
-  const startedAt = now();
-  emit({ kind: 'rollback-run-started' });
-  emit({ kind: 'rollback-plan-approved' });
-  emit({ kind: 'rollback-run-blocked', reason: 'safe-executor-not-configured' });
-  const receipt = RollbackRunReceiptSchema.parse({
-    schemaVersion: 1,
-    rollbackRunId: request.rollbackRunId,
-    planDigest: request.plan.digest,
-    sourceRunId: request.plan.sourceRunId,
-    status: 'approved-not-executed',
-    completed: false,
-    startedAt,
-    finishedAt: now(),
-    nextAction: 'Configure the fenced rollback executor and re-approve this exact plan before any restoration.',
+      sourceRunId: request.plan.sourceRunId,
+      status: 'approved-not-executed',
+      completed: false,
+      startedAt,
+      finishedAt: now(),
+      nextAction: 'Configure the fenced rollback executor and re-approve this exact plan before any restoration.',
+    });
+    resolve(Object.freeze({ plan: request.plan, events: Object.freeze(events), receipt }));
   });
-  return Object.freeze({ plan: request.plan, events: Object.freeze(events), receipt });
 }

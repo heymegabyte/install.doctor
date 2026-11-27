@@ -101,7 +101,7 @@ async function syncDirectory(path: string): Promise<void> {
 }
 
 async function writeImmutable(path: string, bytes: Uint8Array): Promise<void> {
-  const temporary = `${path}.tmp.${process.pid}.${randomUUID()}`;
+  const temporary = `${path}.tmp.${String(process.pid)}.${randomUUID()}`;
   try {
     const handle = await open(temporary, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY, 0o600);
     try { await handle.writeFile(bytes); await handle.sync(); } finally { await handle.close(); }
@@ -130,7 +130,7 @@ async function readProtected(path: string): Promise<Buffer> {
 }
 
 async function writeOwner(path: string, owner: Owner): Promise<void> {
-  const temporary = `${path}.tmp.${process.pid}.${randomUUID()}`;
+  const temporary = `${path}.tmp.${String(process.pid)}.${randomUUID()}`;
   try {
     const handle = await open(temporary, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY, 0o600);
     try { await handle.writeFile(`${JSON.stringify(owner, null, 2)}\n`, 'utf8'); await handle.sync(); }
@@ -269,7 +269,7 @@ export function createRollbackRunStore(options: RollbackRunStoreOptions): Rollba
       if (!(error instanceof Error && 'code' in error && error.code === 'EEXIST')) throw error;
       let existing: Owner;
       try { existing = HostMutationOwnerSchema.parse(JSON.parse((await readProtected(ownerPath)).toString('utf8')) as unknown); }
-      catch (ownerError) {
+      catch {
         // A recent malformed record may be a publication still in progress from
         // an older writer. Only quarantine stable, lease-expired evidence in an
         // owner-controlled directory; otherwise fail closed.
@@ -386,7 +386,7 @@ export function createRollbackRunStore(options: RollbackRunStoreOptions): Rollba
       const assertOwned = async (): Promise<void> => {
         const pendingRenewal = renewal;
         await pendingRenewal;
-        if (renewalFailure !== undefined) throw renewalFailure;
+        if (renewalFailure !== undefined) throw renewalFailure instanceof Error ? renewalFailure : new Error('rollback lease renewal failed', { cause: renewalFailure });
         await requireOwner(owner);
       };
       let terminalPublished = false;
@@ -413,7 +413,7 @@ export function createRollbackRunStore(options: RollbackRunStoreOptions): Rollba
         }
         if (finished.length === 1) {
           const terminal = finished[0];
-          if (!terminal || terminal.kind !== 'rollback-run-finished') throw new RollbackEvidenceError('rollback terminal event is invalid');
+          if (!terminal) throw new RollbackEvidenceError('rollback terminal event is invalid');
           const succeeded = terminal.status === 'succeeded';
           const receipt = RollbackRunReceiptSchema.parse({
             schemaVersion: 1, rollbackRunId, planDigest: plan.digest, sourceRunId: plan.sourceRunId,
@@ -434,7 +434,7 @@ export function createRollbackRunStore(options: RollbackRunStoreOptions): Rollba
             const artifact = byId.get(taskId); if (!artifact) throw new RollbackEvidenceError(`rollback artifact disappeared: ${taskId}`);
             if (recorded) return 'already-recorded';
             if (!prior || prior.kind !== 'rollback-task-started') {
-              if (artifact?.appliedDigest !== null && artifact?.appliedDigest !== undefined
+              if (artifact.appliedDigest !== null
                 && (!current.existed || current.digest !== artifact.appliedDigest)) {
                 throw new RollbackEvidenceError(`rollback target changed after installation: ${taskId}`);
               }
@@ -483,7 +483,7 @@ export function createRollbackRunStore(options: RollbackRunStoreOptions): Rollba
         await assertOwned();
         await emit({ kind: 'rollback-run-finished', status: result.status });
         const terminal = events.at(-1);
-        if (!terminal || terminal.kind !== 'rollback-run-finished') throw new RollbackEvidenceError('rollback terminal event was not persisted');
+        if (!terminal) throw new RollbackEvidenceError('rollback terminal event was not persisted');
         const receipt = RollbackRunReceiptSchema.parse({ schemaVersion: 1, rollbackRunId, planDigest: plan.digest, sourceRunId: plan.sourceRunId,
           status: result.status, completed: result.completed, startedAt: started.at, finishedAt: terminal.at,
           nextAction: result.completed ? 'Verify dependent services before resuming installation.' : 'Inspect failed rollback evidence; do not treat restoration as complete.' });
@@ -495,8 +495,8 @@ export function createRollbackRunStore(options: RollbackRunStoreOptions): Rollba
         await renewal;
         let releaseFailure: unknown;
         try { await options.fault?.('before-release'); await release(owner); } catch (error) { releaseFailure = error; }
-        if (!terminalPublished && renewalFailure !== undefined) throw renewalFailure;
-        if (!terminalPublished && releaseFailure !== undefined) throw releaseFailure;
+        if (!terminalPublished && renewalFailure !== undefined) throw renewalFailure instanceof Error ? renewalFailure : new Error('rollback lease renewal failed', { cause: renewalFailure });
+        if (!terminalPublished && releaseFailure !== undefined) throw releaseFailure instanceof Error ? releaseFailure : new Error('rollback lease release failed', { cause: releaseFailure });
       }
     },
     async recordBlockedRun(rollbackRunIdInput, planInput, approvedPlanDigestInput) {
@@ -605,7 +605,7 @@ export function createRollbackRunStore(options: RollbackRunStoreOptions): Rollba
         const receiptBytes = await readProtected(commit.receipt.path);
         if (hash(receiptBytes) !== commit.receipt.sha256) throw new RollbackEvidenceError('rollback receipt digest mismatch');
         const receipt = RollbackRunReceiptSchema.parse(JSON.parse(receiptBytes.toString('utf8')) as unknown);
-        const completionValid = receipt.status === 'succeeded' ? receipt.completed === true : receipt.completed === false;
+        const completionValid = receipt.completed === (receipt.status === 'succeeded');
         if (receipt.rollbackRunId !== rollbackRunId || receipt.planDigest !== planDigest || !completionValid) {
           throw new RollbackEvidenceError('rollback receipt identity or completion invariant mismatch');
         }
