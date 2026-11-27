@@ -38,13 +38,13 @@ const REQUIRED_MANIFEST_KEYS = Object.freeze([
 const ActivationPointer = z.strictObject({
   schemaVersion: z.literal(1), channel: id, generation: z.number().int().positive(),
   kind: z.enum(['promote', 'rollback']), releaseId: id, signerId: id,
-  manifestSha256: sha256, activatedAt: z.string().datetime({ offset: true }),
-  activationId: z.string().uuid(),
+  manifestSha256: sha256, activatedAt: z.iso.datetime({ offset: true }),
+  activationId: z.uuid(),
   previous: z.nullable(z.strictObject({
-    generation: z.number().int().positive(), activationId: z.string().uuid(), releaseId: id,
+    generation: z.number().int().positive(), activationId: z.uuid(), releaseId: id,
     manifestSha256: sha256, etag: z.string().min(1).max(512),
   })),
-  rollbackOfActivationId: z.string().uuid().nullable(),
+  rollbackOfActivationId: z.uuid().nullable(),
 });
 
 /** @typedef {ReturnType<typeof import('./r2-publication-storage.mjs').createR2PublicationStorage>} ReleaseStorage */
@@ -280,7 +280,8 @@ export async function prepareSamePayloadRenewal({
     if (!line) return line;
     const separator = line.indexOf('=');
     const key = line.slice(0, separator);
-    return replacements.has(key) ? `${key}=${replacements.get(key)}` : line;
+    const replacement = replacements.get(key);
+    return replacement === undefined ? line : `${key}=${replacement}`;
   });
   const files = new Map();
   for (const name of RELEASE_FILES.filter(name => name !== 'manifest.sig')) {
@@ -317,11 +318,11 @@ export async function activateSamePayloadRenewal({
   now = Math.floor(Date.now() / 1_000), minimumRemainingSeconds = 345_600,
 }) {
   const plan = z.strictObject({
-    schemaVersion: z.literal(1), channel: id, sourceReleaseId: id, sourceActivationId: z.string().uuid(),
-    sourceGeneration: z.number().int().positive().safe(), sourceEtag: z.string().min(1).max(512),
+    schemaVersion: z.literal(1), channel: id, sourceReleaseId: id, sourceActivationId: z.uuid(),
+    sourceGeneration: z.number().int().positive(), sourceEtag: z.string().min(1).max(512),
     sourceManifestSha256: sha256, sourceCommit: z.string().regex(/^[a-f0-9]{40}$/), releaseId: id,
-    createdAt: z.number().int().positive().safe(), expiresAt: z.number().int().positive().safe(),
-    payloads: z.array(z.strictObject({ filename: z.enum(RENEWAL_PAYLOADS.map(([, filename]) => filename)), sha256, size: z.number().int().positive().safe() })).length(RENEWAL_PAYLOADS.length),
+    createdAt: z.number().int().positive(), expiresAt: z.number().int().positive(),
+    payloads: z.array(z.strictObject({ filename: z.enum(RENEWAL_PAYLOADS.map(([, filename]) => filename)), sha256, size: z.number().int().positive() })).length(RENEWAL_PAYLOADS.length),
   }).parse(renewalPlan);
   if (plan.channel !== 'stable' || new Set(plan.payloads.map(item => item.filename)).size !== RENEWAL_PAYLOADS.length) {
     throw new Error('renewal activation plan is not the canonical stable payload inventory');
@@ -389,7 +390,7 @@ export async function activateSamePayloadRenewal({
 export async function reconcileActivationReceipt({ channel, activationId, storage }) {
   if (typeof storage?.read !== 'function' || typeof storage?.create !== 'function') throw new Error('activation reconciliation storage adapter is invalid');
   const channelId = id.parse(channel);
-  const activationUuid = z.string().uuid().parse(activationId);
+  const activationUuid = z.uuid().parse(activationId);
   const intentKey = `bootstrap/activations/${channelId}/${activationUuid}.json`;
   const intentObject = await storage.read(intentKey);
   if (!intentObject?.bytes) throw new Error('activation intent is missing');
@@ -433,7 +434,7 @@ export async function activateRelease({
   if (!Number.isSafeInteger(minimumRemaining) || minimumRemaining < 3_600 || minimumRemaining > 604_800) {
     throw new Error('release activation freshness policy is invalid');
   }
-  const releaseExpiresAt = z.number().int().positive().safe().parse(release?.expiresAt);
+  const releaseExpiresAt = z.number().int().positive().parse(release?.expiresAt);
   if (releaseExpiresAt - now < minimumRemaining) throw new Error('release has insufficient remaining validity for activation');
   const channelKey = `bootstrap/channels/${channelId}.json`;
   const current = await storage.read(channelKey);

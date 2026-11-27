@@ -27,9 +27,12 @@ async function command(file, arguments_, input) {
   await new Promise((resolve, reject) => {
     const child = spawn(file, arguments_, { stdio: ['pipe', 'ignore', 'pipe'], env: { PATH: process.env.PATH ?? '' } });
     let error = '';
-    child.stderr.on('data', chunk => { error += chunk; });
+    child.stderr.on('data', (/** @type {Buffer} */ chunk) => { error += chunk.toString('utf8'); });
     child.on('error', reject);
-    child.on('close', code => code === 0 ? resolve(undefined) : reject(new Error(`signature verification failed (${code}): ${error.slice(0, 200)}`)));
+    child.on('close', code => {
+      if (code === 0) resolve(undefined);
+      else reject(new Error(`signature verification failed (${String(code)}): ${error.slice(0, 200)}`));
+    });
     child.stdin.end(input);
   });
 }
@@ -105,6 +108,7 @@ async function main() {
     }
     const promotionObject = await channelStorage.read(promotionEvidenceKey);
     if (!promotionObject?.bytes || promotionObject.bytes.byteLength > 65_536) throw new Error('promotion evidence object is missing or oversized');
+    /** @type {unknown} */
     const promotionEvidence = JSON.parse(Buffer.from(promotionObject.bytes).toString('utf8'));
     const receipt = await activateDesktopRelease({ channel, release, storage: channelStorage,
       expectedEtag: expectedEtagValue === '-' ? undefined : expectedEtagValue,
@@ -197,9 +201,9 @@ async function main() {
         await writeFile(join(directory, name), bytes, { mode, flag: 'wx' });
       }
     };
-    await writeInventory(sourceDirectory, renewal.sourceFiles);
-    await writeInventory(unsignedDirectory, renewal.files);
-    const { sourceFiles: _sourceFiles, files: _files, ...plan } = renewal;
+    const { sourceFiles, files, ...plan } = renewal;
+    await writeInventory(sourceDirectory, sourceFiles);
+    await writeInventory(unsignedDirectory, files);
     await writeFile(join(outputDirectory, 'renewal-plan.json'), `${JSON.stringify(plan)}\n`, { mode: 0o600, flag: 'wx' });
     process.stdout.write(`${JSON.stringify({ ...plan, outputDirectory })}\n`);
     return;
@@ -216,6 +220,7 @@ async function main() {
       manifest: planBytes, signature: await readFile(planSignaturePath),
       signerId: requiredEnvironment('INSTALL_DOCTOR_RELEASE_SIGNER_ID'), namespace: 'install.doctor.release-renewal-plan',
     });
+    /** @type {unknown} */
     const renewalPlan = JSON.parse(planBytes.toString('utf8'));
     const receipt = await activateSamePayloadRenewal({
       renewalPlan, activationId, activatedAt, verifySignature,
@@ -237,7 +242,7 @@ async function main() {
 }
 
 if (process.argv[1] && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  main().catch(error => {
+  main().catch((/** @type {unknown} */ error) => {
     process.stderr.write(`publish-release-to-r2: ${error instanceof Error ? error.message : 'unknown failure'}\n`);
     process.exitCode = 1;
   });

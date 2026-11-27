@@ -4,7 +4,7 @@ import { z } from 'zod';
 
 const hex = z.string().regex(/^[a-f0-9]{64}$/);
 const id = z.string().regex(/^[a-z0-9][a-z0-9._-]{0,127}$/);
-const epoch = z.number().int().positive().safe();
+const epoch = z.number().int().positive();
 const absoluteTarget = z.string().min(2).max(4096).regex(/^\/(?:[^\0\r\n]+)$/)
   .refine(value => value !== '/' && posix.normalize(value) === value, 'target must be canonical and non-root');
 
@@ -43,7 +43,7 @@ const RequestAuthorityDelegation = z.strictObject({
   publicKey: z.string().regex(/^ssh-ed25519 [A-Za-z0-9+/]+={0,3}(?: [^\r\n]{1,128})?$/),
   producerWorkflowRefs: z.array(ProducerIdentity.shape.workflowRef).length(1),
   producerWorkflowShas: z.array(z.string().regex(/^[a-f0-9]{40}$/)).min(1).max(8),
-  validFrom: epoch, validUntil: epoch, revocationEpoch: z.number().int().nonnegative().safe(),
+  validFrom: epoch, validUntil: epoch, revocationEpoch: z.number().int().nonnegative(),
   releaseRootSignature: z.string().min(1).max(16_384),
 });
 

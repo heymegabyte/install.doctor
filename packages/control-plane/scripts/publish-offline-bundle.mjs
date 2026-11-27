@@ -28,10 +28,17 @@ async function run(file, arguments_, stdin) {
     const stdout = [];
     /** @type {Buffer[]} */
     const stderr = [];
-    child.stdout.on('data', chunk => stdout.push(chunk));
-    child.stderr.on('data', chunk => stderr.push(chunk));
+    child.stdout.on('data', (/** @type {Buffer} */ chunk) => stdout.push(chunk));
+    child.stderr.on('data', (/** @type {Buffer} */ chunk) => stderr.push(chunk));
     child.on('error', reject);
-    child.on('close', code => code === 0 ? resolve(Buffer.concat(stdout)) : reject(new Error(`authority signature operation failed (${code}): ${Buffer.concat(stderr).toString('utf8').slice(0, 200)}`)));
+    child.on('close', code => {
+      if (code === 0) {
+        resolve(Buffer.concat(stdout));
+      } else {
+        const diagnostic = Buffer.concat(stderr).toString('utf8').slice(0, 200);
+        reject(new Error(`authority signature operation failed (${String(code)}): ${diagnostic}`));
+      }
+    });
     child.stdin.end(stdin);
   });
 }
@@ -124,7 +131,7 @@ async function main() {
   }
 }
 
-main().catch(error => {
+void main().catch((/** @type {unknown} */ error) => {
   process.stderr.write(`publish-offline-bundle: ${error instanceof Error ? error.message : 'unknown failure'}\n`);
   process.exitCode = 1;
 });

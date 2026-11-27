@@ -57,7 +57,7 @@ function loadServiceDeclarationsByPackage() {
   /** @type {Map<string, NonNullable<CatalogEntry['serviceDeclarations']>>} */
   const byPackage = new Map();
   for (const entry of declared) {
-    if (!entry || typeof entry.key !== 'string' || !/^[a-z0-9][a-z0-9._-]*$/.test(entry.key)) {
+    if (!/^[a-z0-9][a-z0-9._-]*$/.test(entry.key)) {
       throw new Error('service declaration has an invalid catalog key');
     }
     if (!Array.isArray(entry.services) || entry.services.length === 0 || entry.services.length > 32) {
@@ -67,27 +67,27 @@ function loadServiceDeclarationsByPackage() {
     const normalized = entry.services.map((/** @type {unknown} */ raw, index) => {
       const candidate = typeof raw === 'string' ? { name: raw } : raw;
       if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) {
-        throw new Error(`service declaration ${entry.key}[${index}] must be a string or object`);
+        throw new Error(`service declaration ${entry.key}[${String(index)}] must be a string or object`);
       }
       const value = z.looseObject({}).parse(candidate);
       const allowed = new Set(['name', 'sudo', 'pkg', 'manager']);
       for (const key of Object.keys(value)) {
-        if (!allowed.has(key)) throw new Error(`service declaration ${entry.key}[${index}] has unknown field ${key}`);
+        if (!allowed.has(key)) throw new Error(`service declaration ${entry.key}[${String(index)}] has unknown field ${key}`);
       }
       if (typeof value.name !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9@._:+\/-]{0,127}$/.test(value.name)) {
-        throw new Error(`service declaration ${entry.key}[${index}] has an invalid name`);
+        throw new Error(`service declaration ${entry.key}[${String(index)}] has an invalid name`);
       }
       if (value.sudo !== undefined && typeof value.sudo !== 'boolean') {
-        throw new Error(`service declaration ${entry.key}[${index}] sudo must be boolean`);
+        throw new Error(`service declaration ${entry.key}[${String(index)}] sudo must be boolean`);
       }
       if (value.pkg !== undefined && (typeof value.pkg !== 'string' || !/^[a-z0-9][a-z0-9._+-]{0,127}$/.test(value.pkg))) {
-        throw new Error(`service declaration ${entry.key}[${index}] has an invalid package provider selector`);
+        throw new Error(`service declaration ${entry.key}[${String(index)}] has an invalid package provider selector`);
       }
       if (value.manager !== undefined && value.manager !== 'systemd') {
-        throw new Error(`service declaration ${entry.key}[${index}] has an unsupported manager`);
+        throw new Error(`service declaration ${entry.key}[${String(index)}] has an unsupported manager`);
       }
       if (value.manager === 'systemd' && !/^[A-Za-z0-9][A-Za-z0-9_.@:-]{0,126}\.service$/.test(value.name)) {
-        throw new Error(`service declaration ${entry.key}[${index}] has an invalid systemd unit`);
+        throw new Error(`service declaration ${entry.key}[${String(index)}] has an invalid systemd unit`);
       }
       return {
         name: value.name,
@@ -184,8 +184,10 @@ for (const line of rows) {
 // a legacy script provider does not make the package disappear.
 for (const declaration of artifactDeclarations) {
   if (items.some((item) => item.name === declaration.key)) continue;
-  const bins = typeof declaration.bin === 'string' ? [declaration.bin] : declaration.bin;
-  if (!Array.isArray(bins) || bins.length < 1 || bins.some((bin) => typeof bin !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._+-]{0,127}$/.test(bin))) {
+  const binsInput = typeof declaration.bin === 'string' ? [declaration.bin] : declaration.bin;
+  /** @type {unknown[]} */
+  const bins = Array.isArray(binsInput) ? binsInput : [];
+  if (bins.length < 1 || !bins.every(bin => typeof bin === 'string') || bins.some(bin => !/^[A-Za-z0-9][A-Za-z0-9._+-]{0,127}$/.test(bin))) {
     throw new Error(`artifact-only catalog entry ${declaration.key} requires a valid _bin string or array`);
   }
   const artifacts = artifactsByPackage.get(declaration.key);
@@ -226,7 +228,7 @@ try {
       { encoding: 'utf8' },
     ),
   ));
-  const byKey = new Map(meta.filter((m) => m && m.key).map((m) => [m.key, m]));
+  const byKey = new Map(meta.filter(m => m.key).map((m) => [m.key, m]));
   /** @param {unknown} value @returns {value is string} */
   const safeHttpUrl = value => {
     if (typeof value !== 'string' || value.length > 2048) return false;
@@ -236,10 +238,13 @@ try {
   const safeFlatpak = value => typeof value === 'string'
     && /^[A-Za-z][A-Za-z0-9_-]*(?:\.[A-Za-z][A-Za-z0-9_-]*){2,}$/.test(value);
   for (const m of meta) {
-    if (!safeFlatpak(m?.flatpak) || items.some(item => item.name === m.key)) continue;
-    const bins = typeof m.launcherBin === 'string' ? [m.launcherBin] : m.launcherBin;
-    if (!Array.isArray(bins) || bins.length < 1) continue;
-    for (const bin of bins.filter(value => typeof value === 'string' && /^[a-z0-9][a-z0-9._+-]*$/.test(value))) {
+    if (!safeFlatpak(m.flatpak) || items.some(item => item.name === m.key)) continue;
+    const binsInput = typeof m.launcherBin === 'string' ? [m.launcherBin] : m.launcherBin;
+    if (!Array.isArray(binsInput) || binsInput.length < 1) continue;
+    /** @type {unknown[]} */
+    const bins = binsInput;
+    for (const bin of bins) {
+      if (typeof bin !== 'string' || !/^[a-z0-9][a-z0-9._+-]*$/.test(bin)) continue;
       items.push({ name: m.key, bin, providers: ['flatpak'], pkgs: { flatpak: m.flatpak }, platforms: ['linux'],
         installMode: 'cli', preload: false, loadPolicy: 'lazy', loadRationale: 'default-lazy' });
     }
@@ -324,13 +329,17 @@ try {
         'media-management-core': ['eager-supported-path', 'supported-path:media-management-core'],
         'lsp-core': ['eager-supported-path', 'supported-path:lsp-core'],
       };
-      const loadClass = typeof m.preloadReason === 'string' ? loadClasses[m.preloadReason] : undefined;
-      if (!loadClass) throw new Error(`unknown eager reason for ${it.name}: ${m.preloadReason}`);
+      const preloadReason = m.preloadReason;
+      const loadClass = typeof preloadReason === 'string' ? loadClasses[preloadReason] : undefined;
+      if (!loadClass) {
+        const reason = typeof preloadReason === 'string' ? preloadReason : JSON.stringify(preloadReason);
+        throw new Error(`unknown eager reason for ${it.name}: ${reason}`);
+      }
       [it.loadPolicy, it.loadRationale] = loadClass;
     }
     if (it.installMode === 'cli' && it.preload) modes.preloadCli = (modes.preloadCli || 0) + 1;
   }
-  console.error(`gen-catalog: enriched ${enriched} with _short; ${linked} with _home/_docs links; modes app=${modes.app} service=${modes.service} cli=${modes.cli} (preloadCli=${modes.preloadCli || 0} eager, not on-first-use)`);
+  console.error(`gen-catalog: enriched ${String(enriched)} with _short; ${String(linked)} with _home/_docs links; modes app=${String(modes.app)} service=${String(modes.service)} cli=${String(modes.cli)} (preloadCli=${String(modes.preloadCli || 0)} eager, not on-first-use)`);
 } catch (e) {
   console.error('gen-catalog: WARNING — could not merge _short/_github/_home/_docs/installMode (' + (e instanceof Error ? e.message : String(e)) + '); proceeding without enrichment');
 }
@@ -343,6 +352,7 @@ try {
 try {
   const hookDir = join(ROOT, 'home', 'dot_local', 'bin', 'post-installx');
   const typedHookMarker = '# INSTALL_DOCTOR_TYPED_HOOK_PROTOCOL=1\n';
+  /** @type {Map<string, string>} */
   const hooks = new Map(); // tool -> hook filename (chezmoi `executable_` prefix stripped)
   let legacyHooks = 0;
   for (const f of readdirSync(hookDir)) {
@@ -364,7 +374,7 @@ try {
       configured++;
     }
   }
-  console.error(`gen-catalog: ${configured} entries flagged configured-on-install (${hooks.size} typed hooks; ${legacyHooks} legacy hooks excluded)`);
+  console.error(`gen-catalog: ${String(configured)} entries flagged configured-on-install (${String(hooks.size)} typed hooks; ${String(legacyHooks)} legacy hooks excluded)`);
 } catch (e) {
   console.error('gen-catalog: WARNING — could not scan post-installx hooks (' + (e instanceof Error ? e.message : String(e)) + ')');
 }
@@ -416,4 +426,4 @@ for (const platform of /** @type {const} */ (['linux', 'macos', 'windows'])) {
 }
 const json = JSON.stringify(migratedItems);
 writeFileSync(OUT, json + '\n');
-console.error(`gen-catalog: ${migratedItems.length} strict v1 entries → ${OUT} (${(json.length / 1024).toFixed(1)} KiB)`);
+console.error(`gen-catalog: ${String(migratedItems.length)} strict v1 entries → ${OUT} (${(json.length / 1024).toFixed(1)} KiB)`);

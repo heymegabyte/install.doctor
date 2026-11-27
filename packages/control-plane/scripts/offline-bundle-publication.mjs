@@ -8,7 +8,7 @@ const digest = bytes => createHash('sha256').update(bytes).digest('hex');
 const canonical = value => Buffer.from(`${JSON.stringify(value)}\n`, 'utf8');
 const hex = z.string().regex(/^[a-f0-9]{64}$/);
 const id = z.string().regex(/^[a-z0-9][a-z0-9._-]{0,127}$/);
-const epoch = z.number().int().positive().safe();
+const epoch = z.number().int().positive();
 
 const Request = z.strictObject({
   schemaVersion: z.literal(1), nonce: z.string().regex(/^[A-Za-z0-9._-]{32,128}$/), createdAt: epoch, expiresAt: epoch,
@@ -25,7 +25,7 @@ const Delegation = z.strictObject({
   releaseIds: z.array(id).min(1).max(128), platformCells: z.array(id).min(1).max(128),
   artifactClasses: z.array(id).min(1).max(32), maximumLifetimeSeconds: z.number().int().positive().max(86_400),
   maximumBytes: z.number().int().positive().max(1_073_741_824), validFrom: epoch, validUntil: epoch,
-  revocationEpoch: z.number().int().nonnegative().safe(), releaseRootSignature: z.string().min(1).max(16_384),
+  revocationEpoch: z.number().int().nonnegative(), releaseRootSignature: z.string().min(1).max(16_384),
 });
 
 const Manifest = z.strictObject({
@@ -57,7 +57,7 @@ const RequestAuthorityDelegation = z.strictObject({
   publicKey: z.string().regex(/^ssh-ed25519 [A-Za-z0-9+/]+={0,3}(?: [^\r\n]{1,128})?$/),
   producerWorkflowRefs: z.array(z.literal('heymegabyte/install.doctor/.github/workflows/offline-bundle-request.yml@refs/heads/master')).length(1),
   producerWorkflowShas: z.array(z.string().regex(/^[a-f0-9]{40}$/)).min(1).max(8),
-  validFrom: epoch, validUntil: epoch, revocationEpoch: z.number().int().nonnegative().safe(),
+  validFrom: epoch, validUntil: epoch, revocationEpoch: z.number().int().nonnegative(),
   releaseRootSignature: z.string().min(1).max(16_384),
 });
 
@@ -109,7 +109,13 @@ export async function publishOfflineBundle(input) {
   const requestAuthority = RequestAuthority.parse(input.requestAuthority);
   const requestAuthorityDelegation = RequestAuthorityDelegation.parse(input.requestAuthorityDelegation);
   if (authorityVersion !== claims.workflowSha) throw new Error('authority version must equal the immutable workflow SHA');
-  if (typeof input.storage?.create !== 'function' || typeof input.storage?.read !== 'function') throw new Error('create-only private storage is required');
+  /** @type {unknown} */
+  const storage = input.storage;
+  if (!storage || (typeof storage !== 'object' && typeof storage !== 'function')
+    || !('create' in storage) || typeof storage.create !== 'function'
+    || !('read' in storage) || typeof storage.read !== 'function') {
+    throw new Error('create-only private storage is required');
+  }
   if (typeof input.sign !== 'function' || typeof input.verifyDelegation !== 'function'
     || typeof input.verifyRequestAuthorityDelegation !== 'function' || typeof input.verifyRequestAuthority !== 'function') {
     throw new Error('protected signer, delegation verifiers, and independent request-authority verifier are required');
@@ -161,7 +167,7 @@ export async function publishOfflineBundle(input) {
   if (!await input.storage.create(nonceKey, nonceBytes,
     { contentType: 'text/plain; charset=utf-8', sha256: digest(nonceBytes), visibility: 'private' })) throw new Error('request nonce was already consumed');
   const objectKey = `offline-bundles/sha256/${manifest.bundleSha256}`;
-  const objectOutcome = await createOrMatch(input.storage, objectKey, bundle,
+  await createOrMatch(input.storage, objectKey, bundle,
     { contentType: 'application/octet-stream', sha256: manifest.bundleSha256, visibility: 'private' }, 'immutable bundle object collision');
   const stored = await input.storage.read(objectKey);
   if (!stored?.etag || !Buffer.from(stored.bytes).equals(bundle)) throw new Error('private bundle read-back verification failed');
@@ -178,7 +184,7 @@ export async function publishOfflineBundle(input) {
   if (typeof receiptSignature !== 'string' || !/^[A-Za-z0-9+/]+={0,2}$/.test(receiptSignature)) throw new Error('protected signer returned an invalid receipt signature');
   const publication = canonical({ schemaVersion: 1, manifest, receipt, receiptSignature });
   const receiptKey = `offline-bundle-receipts/sha256/${digest(receiptBytes)}.json`;
-  const receiptOutcome = await createOrMatch(input.storage, receiptKey, publication,
+  await createOrMatch(input.storage, receiptKey, publication,
     { contentType: 'application/json; charset=utf-8', sha256: digest(publication), visibility: 'private' }, 'immutable publication receipt collision');
   return Object.freeze({
     schemaVersion: 1, status: 'published',

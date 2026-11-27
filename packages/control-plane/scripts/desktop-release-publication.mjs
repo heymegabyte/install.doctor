@@ -93,20 +93,20 @@ const closurePayloadNames = artifacts => artifacts.map(([, name]) => name)
     'release.exploitability.json', 'THIRD_PARTY_LICENSES.txt'].includes(name));
 const DesktopPointer = z.strictObject({
   schemaVersion: z.literal(2), product: z.literal('desktop-tools'), channel: id,
-  generation: z.number().int().positive().safe(), kind: z.enum(['promote', 'rollback']),
-  releaseId: id, signerId: id, manifestSha256: sha256, activatedAt: z.string().datetime({ offset: true }),
-  activationId: z.string().uuid(),
+  generation: z.number().int().positive(), kind: z.enum(['promote', 'rollback']),
+  releaseId: id, signerId: id, manifestSha256: sha256, activatedAt: z.iso.datetime({ offset: true }),
+  activationId: z.uuid(),
   previous: z.nullable(z.strictObject({
-    generation: z.number().int().positive().safe(), activationId: z.string().uuid(), releaseId: id,
+    generation: z.number().int().positive(), activationId: z.uuid(), releaseId: id,
     manifestSha256: sha256, etag: z.string().min(1).max(512)
   })),
-  rollbackOfActivationId: z.string().uuid().nullable(), promotionEvidenceSha256: sha256.nullable()
+  rollbackOfActivationId: z.uuid().nullable(), promotionEvidenceSha256: sha256.nullable()
 });
 const PromotionEvidence = z.strictObject({
   schemaVersion: z.literal(1), product: z.literal('desktop-tools'), kind: z.literal('cohort-health'),
   releaseId: id, sourceCohort: z.enum(['build', 'canary', 'early-access']),
   targetCohort: z.enum(['canary', 'early-access', 'stable']), result: z.enum(['passed', 'failed']),
-  observedAt: z.string().datetime({ offset: true }), expiresAt: z.string().datetime({ offset: true }),
+  observedAt: z.iso.datetime({ offset: true }), expiresAt: z.iso.datetime({ offset: true }),
   evidenceDigest: sha256, signerId: id, signature: z.string().min(16).max(16_384)
 });
 const COHORT_PREDECESSOR = Object.freeze({ canary: 'build', 'early-access': 'canary', stable: 'early-access' });
@@ -262,8 +262,8 @@ function validateClosureMetadata(files, releaseId, sourceCommit, opencodeVersion
   if (lock.schemaVersion !== 1 || lock.name !== 'opencode' || lock.version !== opencodeVersion
     || typeof lock.sourceCommit !== 'string' || !/^[a-f0-9]{40}$/.test(lock.sourceCommit) || lock.license !== 'MIT'
     || sourceVerification?.tagCommit !== lock.sourceCommit
-    || typeof sourceVerification?.gitHubVerified !== 'boolean'
-    || sourceVerification?.assetDigestSource !== 'github-release-api'
+    || typeof sourceVerification.gitHubVerified !== 'boolean'
+    || sourceVerification.assetDigestSource !== 'github-release-api'
     || !artifactRecords || Object.keys(artifactRecords).sort().join(',') !== Object.keys(expectedNames).sort().join(',')) {
     throw new Error('OpenCode lock identity is invalid');
   }
@@ -274,8 +274,8 @@ function validateClosureMetadata(files, releaseId, sourceCommit, opencodeVersion
     let url;
     try { url = new URL(typeof upstreamUrl === 'string' ? upstreamUrl : ''); } catch { throw new Error(`OpenCode lock URL is invalid: ${platform}`); }
     if (typeof upstreamUrl !== 'string' || artifact?.releaseFilename !== filename || url.protocol !== 'https:' || url.username || url.password || url.search || url.hash
-      || !url.pathname.includes(`/v${opencodeVersion}/`) || artifact?.sha256 !== digest(releaseFile(files, filename))
-      || artifact?.size !== releaseFile(files, filename).byteLength || artifact.size > 167_772_160) {
+      || !url.pathname.includes(`/v${opencodeVersion}/`) || artifact.sha256 !== digest(releaseFile(files, filename))
+      || artifact.size !== releaseFile(files, filename).byteLength || artifact.size > 167_772_160) {
       throw new Error(`OpenCode lock binding mismatch: ${platform}`);
     }
     lockedDependencies.set(upstreamUrl, artifact.sha256);
@@ -296,8 +296,8 @@ function validateClosureMetadata(files, releaseId, sourceCommit, opencodeVersion
   const definition = record(record(provenance.predicate)?.buildDefinition);
   const parameters = record(definition?.externalParameters);
   if (provenance._type !== 'https://in-toto.io/Statement/v1' || provenance.predicateType !== 'https://slsa.dev/provenance/v1'
-    || parameters?.releaseId !== releaseId || parameters?.sourceCommit !== sourceCommit
-    || parameters?.opencodeVersion !== opencodeVersion) throw new Error('provenance identity or release pins are invalid');
+    || parameters?.releaseId !== releaseId || parameters.sourceCommit !== sourceCommit
+    || parameters.opencodeVersion !== opencodeVersion) throw new Error('provenance identity or release pins are invalid');
   exactMetadataDigests(provenance.subject, 'provenance', files, artifacts);
   const resolvedDependencies = new Map();
   for (const item of list(definition?.resolvedDependencies)) {
@@ -315,7 +315,7 @@ function validateClosureMetadata(files, releaseId, sourceCommit, opencodeVersion
   const expectedAdditionalDigests = schemaVersion !== '7' ? [
     digest(releaseFile(files, 'debian-bookworm-archive-keyring.gpg')), digest(releaseFile(files, 'debian-bookworm-inrelease')),
     digest(releaseFile(files, 'debian-bookworm-main-amd64-Packages.xz')), digest(releaseFile(files, 'tree_2.1.0-1_amd64.deb')),
-    parameters?.debianTrustPolicySha256, parameters?.debianCompositionSha256
+    parameters.debianTrustPolicySha256, parameters.debianCompositionSha256
   ].sort() : [];
   if (JSON.stringify([...resolvedDependencies.values()].sort()) !== JSON.stringify(expectedAdditionalDigests)
     || expectedAdditionalDigests.some(value => !sha256.safeParse(value).success)) {
@@ -540,7 +540,7 @@ export async function activateDesktopRelease({
   }
   const channelId = id.parse(channel);
   if (release?.product !== 'desktop-tools') throw new Error('activation release product mismatch');
-  const expiresAt = z.number().int().positive().safe().parse(release.expiresAt);
+  const expiresAt = z.number().int().positive().parse(release.expiresAt);
   const minimum = kind === 'rollback' ? minimumRollbackRemainingSeconds : minimumPromotionRemainingSeconds;
   if (![now, minimum].every(value => Number.isSafeInteger(value) && value > 0) || minimum < 3_600 || minimum > 604_800) {
     throw new Error('activation freshness policy is invalid');
@@ -609,7 +609,7 @@ export async function activateDesktopRelease({
 export async function reconcileDesktopActivationReceipt({ channel, activationId, storage }) {
   if (typeof storage?.read !== 'function' || typeof storage?.create !== 'function') throw new Error('reconciliation storage adapter is invalid');
   const channelId = id.parse(channel);
-  const activationUuid = z.string().uuid().parse(activationId);
+  const activationUuid = z.uuid().parse(activationId);
   const intentKey = `desktop-tools/activations/${channelId}/${activationUuid}.json`;
   const intentObject = await storage.read(intentKey);
   if (!intentObject?.bytes) throw new Error('Desktop Tools activation intent is missing');
