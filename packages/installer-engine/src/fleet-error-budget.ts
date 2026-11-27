@@ -2,7 +2,7 @@ import { z } from 'zod';
 
 const VERSION = z.literal(1);
 const id = z.string().regex(/^[a-z0-9][a-z0-9._-]{0,127}$/);
-const timestamp = z.string().datetime({ offset: true }).max(64);
+const timestamp = z.iso.datetime({ offset: true }).max(64);
 export const FleetSloIndicatorSchema = z.enum([
   'bootstrap-success', 'enrollment-success', 'planning-success', 'execution-success',
   'verification-freshness', 'reconciliation-success', 'secret-delivery-success',
@@ -51,7 +51,7 @@ export type FleetErrorBudgetState = z.infer<typeof FleetErrorBudgetStateSchema>;
 
 export function evaluateFleetErrorBudget(input: {
   policy: unknown;
-  previous: unknown | null;
+  previous: unknown;
   window: unknown;
 }): FleetErrorBudgetState {
   const policy = FleetSloPolicySchema.parse(input.policy);
@@ -70,14 +70,14 @@ export function evaluateFleetErrorBudget(input: {
   let reason: FleetErrorBudgetState['reason'];
   let consecutiveHealthyWindows = 0;
   if (!observed) {
-    status = wasPaused ? (previous?.status === 'exhausted' ? 'exhausted' : 'recovering') : 'healthy';
+    status = wasPaused ? (previous.status === 'exhausted' ? 'exhausted' : 'recovering') : 'healthy';
     rollout = wasPaused ? 'pause' : 'proceed';
     reason = 'insufficient-evidence';
     consecutiveHealthyWindows = 0;
   } else if (!achieved) {
     status = 'exhausted'; rollout = 'pause'; reason = 'objective-missed';
   } else if (wasPaused) {
-    consecutiveHealthyWindows = (previous?.consecutiveHealthyWindows ?? 0) + 1;
+    consecutiveHealthyWindows = previous.consecutiveHealthyWindows + 1;
     if (consecutiveHealthyWindows >= policy.recoveryWindows) {
       status = 'healthy'; rollout = 'proceed'; reason = 'measured-recovery';
     } else {

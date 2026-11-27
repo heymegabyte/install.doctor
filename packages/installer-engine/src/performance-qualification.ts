@@ -33,8 +33,8 @@ export const PERFORMANCE_SAFETY_INVARIANTS = [
 
 const identifier = z.string().min(1).max(128).regex(/^[a-z0-9][a-z0-9._-]*$/);
 const digest = z.string().regex(/^[a-f0-9]{64}$/);
-const timestamp = z.string().datetime({ offset: true }).max(64);
-const finiteNonnegative = z.number().finite().nonnegative();
+const timestamp = z.iso.datetime({ offset: true }).max(64);
+const finiteNonnegative = z.number().nonnegative();
 const metric = z.enum(PERFORMANCE_METRICS);
 
 const requiredMetrics: Readonly<Record<typeof PERFORMANCE_CASES[number], readonly typeof PERFORMANCE_METRICS[number][]>> = {
@@ -51,17 +51,17 @@ const MetricBudgetSchema = z.strictObject({ metric, maximum: finiteNonnegative }
 const MetricObservationSchema = z.strictObject({ metric, value: finiteNonnegative });
 
 function validateMetricValue(
-  item: { metric: typeof PERFORMANCE_METRICS[number]; value?: number; maximum?: number },
+  metricName: typeof PERFORMANCE_METRICS[number],
+  value: number,
   context: z.RefinementCtx,
   path: PropertyKey[],
 ): void {
-  const value = item.value ?? item.maximum!;
-  if (item.metric === 'cpu-percent' && value > 100) {
+  if (metricName === 'cpu-percent' && value > 100) {
     context.addIssue({ code: 'custom', path, message: 'cpu-percent cannot exceed 100' });
   }
-  if (['queue-depth', 'memory-bytes', 'disk-read-bytes', 'disk-write-bytes', 'network-bytes'].includes(item.metric)
+  if (['queue-depth', 'memory-bytes', 'disk-read-bytes', 'disk-write-bytes', 'network-bytes'].includes(metricName)
     && !Number.isSafeInteger(value)) {
-    context.addIssue({ code: 'custom', path, message: `${item.metric} must be a safe integer` });
+    context.addIssue({ code: 'custom', path, message: `${metricName} must be a safe integer` });
   }
 }
 
@@ -99,7 +99,9 @@ export const PerformanceBudgetPolicySchema = z.strictObject({
   }
   policy.cases.forEach((item, index) => {
     exactCoverage(item.budgets, requiredMetrics[item.case], context, ['cases', index, 'budgets']);
-    item.budgets.forEach((budget, budgetIndex) => validateMetricValue(budget, context, ['cases', index, 'budgets', budgetIndex, 'maximum']));
+    item.budgets.forEach((budget, budgetIndex) => {
+      validateMetricValue(budget.metric, budget.maximum, context, ['cases', index, 'budgets', budgetIndex, 'maximum']);
+    });
   });
 });
 
@@ -126,11 +128,15 @@ export const PerformanceObservationSchema = z.strictObject({
   if (new Set(names).size !== PERFORMANCE_CASES.length || PERFORMANCE_CASES.some(item => !names.includes(item))) {
     context.addIssue({ code: 'custom', path: ['cases'], message: 'observation must cover every performance case exactly once' });
   }
-  observation.cases.forEach((item, caseIndex) => item.samples.forEach((sample, sampleIndex) => {
-    exactCoverage(sample, requiredMetrics[item.case], context, ['cases', caseIndex, 'samples', sampleIndex]);
-    sample.forEach((measurement, metricIndex) => validateMetricValue(measurement, context,
-      ['cases', caseIndex, 'samples', sampleIndex, metricIndex, 'value']));
-  }));
+  observation.cases.forEach((item, caseIndex) => {
+    item.samples.forEach((sample, sampleIndex) => {
+      exactCoverage(sample, requiredMetrics[item.case], context, ['cases', caseIndex, 'samples', sampleIndex]);
+      sample.forEach((measurement, metricIndex) => {
+        validateMetricValue(measurement.metric, measurement.value, context,
+          ['cases', caseIndex, 'samples', sampleIndex, metricIndex, 'value']);
+      });
+    });
+  });
   const invariants = observation.safety.map(item => item.invariant);
   if (new Set(invariants).size !== PERFORMANCE_SAFETY_INVARIANTS.length
     || PERFORMANCE_SAFETY_INVARIANTS.some(item => !invariants.includes(item))) {
@@ -142,7 +148,7 @@ export type PerformanceBudgetPolicy = z.infer<typeof PerformanceBudgetPolicySche
 export type PerformanceObservation = z.infer<typeof PerformanceObservationSchema>;
 
 function stable(value: unknown): string {
-  return JSON.stringify(value, (_key, item) => {
+  return JSON.stringify(value, (_key, item: unknown) => {
     if (!item || typeof item !== 'object' || Array.isArray(item)) return item;
     return Object.fromEntries(Object.entries(item as Record<string, unknown>).sort(([left], [right]) => left.localeCompare(right)));
   });
@@ -177,15 +183,20 @@ export function evaluatePerformanceQualification(policyInput: unknown, observati
   for (const item of observation.safety.filter(item => !item.passed)) failures.push(`safety:${item.invariant}`);
   const aggregates: Array<Omit<PerformanceQualificationResult['aggregates'][number], never>> = [];
   for (const budgetCase of policy.cases) {
-    const observedCase = observation.cases.find(item => item.case === budgetCase.case)!;
+    const observedCase = observation.cases.find(item => item.case === budgetCase.case);
+    if (!observedCase) throw new Error('validated observation is missing a case');
     if (observedCase.samples.length !== budgetCase.sampleCount) {
-      failures.push(`sample-count:${budgetCase.case}:${observedCase.samples.length}/${budgetCase.sampleCount}`);
+      failures.push(`sample-count:${budgetCase.case}:${String(observedCase.samples.length)}/${String(budgetCase.sampleCount)}`);
     }
     for (const budget of budgetCase.budgets) {
-      const maximum = Math.max(...observedCase.samples.map(sample => sample.find(item => item.metric === budget.metric)!.value));
+      const maximum = Math.max(...observedCase.samples.map(sample => {
+        const observed = sample.find(item => item.metric === budget.metric);
+        if (!observed) throw new Error('validated observation is missing a metric');
+        return observed.value;
+      }));
       const passed = maximum <= budget.maximum;
       aggregates.push({ case: budgetCase.case, metric: budget.metric, maximum, budget: budget.maximum, passed });
-      if (!passed) failures.push(`budget:${budgetCase.case}:${budget.metric}:${maximum}/${budget.maximum}`);
+      if (!passed) failures.push(`budget:${budgetCase.case}:${budget.metric}:${String(maximum)}/${String(budget.maximum)}`);
     }
   }
   aggregates.sort((left, right) => `${left.case}:${left.metric}`.localeCompare(`${right.case}:${right.metric}`));
