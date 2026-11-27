@@ -4,23 +4,29 @@ import { createTargetAuthorizationHttpTransport } from '../dist/target-device-au
 
 const binding = { profileId: 'profile-1', targetPublicKey: 'A'.repeat(43),
   targetKeyFingerprint: 'a'.repeat(64), scopes: ['profile:read'], nonce: 'n'.repeat(32), expiresAt: '2026-11-08T15:10:00.000Z' };
+/** @param {unknown} value */
 const json = (value, status = 200, headers = {}) => new Response(JSON.stringify(value),
   { status, headers: { 'content-type': 'application/json', ...headers } });
 
 test('uses only fixed HTTPS routes and keeps poll authority out of URLs and bodies', async () => {
+  /** @type {{ url: Parameters<typeof fetch>[0], init: RequestInit | undefined }[]} */
   const calls = [];
   const transport = createTargetAuthorizationHttpTransport({ origin: 'https://brian.desktop.tools', fetch: async (url, init) => {
     calls.push({ url, init });
     return json({ request: { exact: true }, approvalUri: 'https://desktop.tools/pair?code=ABCD', pollIntervalMs: 2_000 }, 201);
   } });
   await transport.start({ binding, machineLabel: 'Zen', pollSecret: 'secret-never-serialize' }, new AbortController().signal);
-  assert.equal(calls[0].url, 'https://brian.desktop.tools/api/v1/device-authorizations/start');
-  assert.equal(calls[0].init.redirect, 'error');
-  assert.equal(calls[0].init.credentials, 'omit');
-  assert.equal(calls[0].init.headers.authorization, 'Bearer secret-never-serialize');
-  assert.equal(calls[0].url.includes('secret-never-serialize'), false);
-  assert.equal(calls[0].init.body.includes('secret-never-serialize'), false);
-  assert.deepEqual(JSON.parse(calls[0].init.body), { binding, machineLabel: 'Zen' });
+  const [call] = calls;
+  assert.ok(call?.init);
+  const { url, init } = call;
+  assert.equal(url, 'https://brian.desktop.tools/api/v1/device-authorizations/start');
+  assert.equal(init.redirect, 'error');
+  assert.equal(init.credentials, 'omit');
+  assert.equal(new Headers(init.headers).get('authorization'), 'Bearer secret-never-serialize');
+  assert.ok(typeof url === 'string' && typeof init.body === 'string');
+  assert.equal(url.includes('secret-never-serialize'), false);
+  assert.equal(init.body.includes('secret-never-serialize'), false);
+  assert.deepEqual(JSON.parse(init.body), { binding, machineLabel: 'Zen' });
 });
 
 test('normalizes bounded polling status and never follows caller-controlled routes', async () => {
@@ -29,9 +35,13 @@ test('normalizes bounded polling status and never follows caller-controlled rout
     json({ status: 'approved', credential: 'c'.repeat(32), credentialId: 'credential-1', expiresAt: '2026-11-08T16:00:00.000Z' }),
     new Response('', { status: 404 }), new Response('', { status: 410 }), new Response(null, { status: 204 }),
   ];
-  const calls = [];
-  const transport = createTargetAuthorizationHttpTransport({ origin: 'https://desktop.tools', fetch: async (url, init) => {
-    calls.push({ url, init }); return responses.shift();
+  /** @type {Parameters<typeof fetch>[0][]} */
+  const urls = [];
+  const transport = createTargetAuthorizationHttpTransport({ origin: 'https://desktop.tools', fetch: async url => {
+    urls.push(url);
+    const response = responses.shift();
+    assert.ok(response, 'unexpected extra transport request');
+    return response;
   } });
   const signal = new AbortController().signal;
   assert.deepEqual(await transport.poll('request-1', 'poll-secret', signal), { status: 'pending', retryAfterMs: 30_000 });
@@ -39,7 +49,7 @@ test('normalizes bounded polling status and never follows caller-controlled rout
   assert.deepEqual(await transport.poll('request-1', 'poll-secret', signal), { status: 'denied', reason: 'policy-denied' });
   assert.deepEqual(await transport.poll('request-1', 'poll-secret', signal), { status: 'denied', reason: 'expired' });
   await transport.cancel('request-1', 'poll-secret', signal);
-  assert.equal(calls.every(call => call.url.startsWith('https://desktop.tools/api/v1/device-authorizations/request-1/')), true);
+  assert.equal(urls.every(url => typeof url === 'string' && url.startsWith('https://desktop.tools/api/v1/device-authorizations/request-1/')), true);
 });
 
 test('rejects insecure origins, redirects, oversized bodies, malformed JSON, and unknown fields', async () => {
@@ -54,7 +64,7 @@ test('rejects insecure origins, redirects, oversized bodies, malformed JSON, and
     json({ request: {}, approvalUri: 'https://desktop.tools/pair', pollIntervalMs: 2_000, extra: true }, 201),
   ]) {
     const transport = createTargetAuthorizationHttpTransport({ origin: 'https://desktop.tools', fetch: async (_url, init) => {
-      if (response.status === 302 && init.redirect === 'error') throw new TypeError('redirect blocked');
+      if (response.status === 302 && init?.redirect === 'error') throw new TypeError('redirect blocked');
       return response;
     } });
     await assert.rejects(transport.start({ binding, machineLabel: 'Zen', pollSecret: 'poll-secret' }, signal));
