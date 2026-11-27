@@ -94,14 +94,12 @@ render_systemd_unit() {
     "Environment=XDG_CONFIG_HOME=${XDG_CONFIG_HOME:-$HOME/.config}" \
     "Environment=XDG_STATE_HOME=${XDG_STATE_HOME:-$HOME/.local/state}" \
     'Environment=PATH=/usr/local/bin:/usr/bin:/bin' \
-    'NoNewPrivileges=true' \
     'PrivateTmp=true' \
     'ProtectControlGroups=true' \
     'ProtectKernelModules=true' \
     'ProtectKernelTunables=true' \
     'ProtectSystem=strict' \
     'ReadWritePaths=%h/.config %h/.local/state' \
-    'RestrictSUIDSGID=true' \
     '' \
     '[Install]' \
     'WantedBy=default.target' >"$temp"
