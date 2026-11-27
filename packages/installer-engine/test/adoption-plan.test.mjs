@@ -2,11 +2,14 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { AdoptionPlanSchema, buildAdoptionPlan } from '../dist/index.js';
 
+/** @param {string} character */
 const digest = character => character.repeat(64);
+/** @param {string} resourceId @param {Record<string, unknown>} [values] */
 const resource = (resourceId, values = {}) => ({
   schemaVersion: 1, resourceId, effect: 'configuration', target: `/etc/${resourceId}.conf`,
   ownership: 'unowned', desiredDigest: digest('a'), observedState: 'present', observedDigest: digest('a'), userData: 'absent', ...values,
 });
+/** @param {ReturnType<typeof resource>[]} resources */
 const input = resources => ({ schemaVersion: 1, hostId: 'fixture-host', profileRevision: 'revision-one', resources });
 
 test('classifies preexisting state without mutation or implicit ownership transfer', () => {
@@ -26,7 +29,7 @@ test('classifies preexisting state without mutation or implicit ownership transf
   assert.deepEqual(plan.reviewResourceIds, ['drifted']);
   assert.deepEqual(plan.alreadyManagedResourceIds, ['managed']);
   assert.deepEqual(plan.preservedResourceIds, ['storage', 'user-data', 'user-owned']);
-  assert.equal(plan.items.find(item => item.resourceId === 'existing-match').reason, 'matching-preexisting-state');
+  assert.equal(plan.items.find(item => item.resourceId === 'existing-match')?.reason, 'matching-preexisting-state');
   AdoptionPlanSchema.parse(plan);
 });
 
@@ -48,8 +51,8 @@ test('preserves incomplete, ambiguous, and modified state for explicit review', 
   ]));
   assert.deepEqual(plan.preservedResourceIds, ['unknown-owner']);
   assert.deepEqual(plan.reviewResourceIds, ['missing-authority', 'modified-managed', 'unreadable']);
-  assert.equal(plan.items.find(item => item.resourceId === 'missing-authority').reason, 'evidence-incomplete');
-  assert.equal(plan.items.find(item => item.resourceId === 'modified-managed').reason, 'state-differs');
+  assert.equal(plan.items.find(item => item.resourceId === 'missing-authority')?.reason, 'evidence-incomplete');
+  assert.equal(plan.items.find(item => item.resourceId === 'modified-managed')?.reason, 'state-differs');
 });
 
 test('rejects duplicates, unknown fields, unsafe targets, and malformed evidence', () => {

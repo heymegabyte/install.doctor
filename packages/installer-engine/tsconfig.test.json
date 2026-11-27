@@ -11,6 +11,7 @@
   },
   "include": [
     "test/actionable-alerts.test.mjs",
+    "test/adoption-plan.test.mjs",
     "test/backup-authority-plan.test.mjs",
     "test/bundle.test.mjs",
     "test/credential-rotation.test.mjs",
@@ -25,6 +26,7 @@
     "test/fleet-error-budget.test.mjs",
     "test/helpers/composition-engine-fixture.mjs",
     "test/immutable-linux-deployment.test.mjs",
+    "test/native-service-composition.test.mjs",
     "test/operational-slo.test.mjs",
     "test/process-identity.test.mjs",
     "test/process-runner.test.mjs",
