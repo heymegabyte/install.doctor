@@ -32,6 +32,6 @@ export const NativeSystemdTransactionRecordSchema = z.strictObject({
 
 export type NativeSystemdTransactionRecord = z.infer<typeof NativeSystemdTransactionRecordSchema>;
 export interface NativeSystemdTransactionPersistence {
-  readonly load: (transactionId: string) => Promise<unknown | undefined>;
+  readonly load: (transactionId: string) => Promise<unknown>;
   readonly save: (record: NativeSystemdTransactionRecord) => Promise<void>;
 }

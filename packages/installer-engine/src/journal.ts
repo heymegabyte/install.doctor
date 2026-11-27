@@ -16,7 +16,7 @@ import type { NativeDpkgTransactionPersistence, NativeDpkgTransactionRecord } fr
 const identifier = z.string().min(1).max(128).regex(/^[a-z0-9][a-z0-9._-]*$/);
 const taskIdentifier = z.string().min(1).max(128).regex(/^[a-zA-Z0-9][a-zA-Z0-9._:-]*$/);
 const digest = z.string().regex(/^[a-f0-9]{64}$/);
-const timestamp = z.string().datetime({ offset: true }).max(64);
+const timestamp = z.iso.datetime({ offset: true }).max(64);
 const JournalObjectSchema = z.strictObject({
   schemaVersion: z.literal(1),
   generation: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
@@ -174,7 +174,11 @@ async function writeAtomic(path: string, value: unknown): Promise<void> {
 }
 
 function publicationTempName(): string {
-  return `.publish.${process.pid}.${randomUUID()}.tmp`;
+  return `.publish.${String(process.pid)}.${randomUUID()}.tmp`;
+}
+
+function semanticPlanJson(plan: NormalizedPlan): string {
+  return JSON.stringify(Object.fromEntries(Object.entries(plan).filter(([key]) => key !== 'createdAt')));
 }
 
 function withoutPublicationTemps(names: readonly string[]): string[] {
@@ -611,9 +615,7 @@ export function createJournalStore(options: JournalStoreOptions): JournalStore {
         resumed = true;
         if (journal.planDigest !== plan.digest || journal.runId !== runId) throw new JournalIntegrityError('journal identity does not match the requested run');
         const persistedPlan = NormalizedPlanSchema.parse(await readJson(target.plan));
-        const { createdAt: _persistedCreatedAt, ...persistedSemanticPlan } = persistedPlan;
-        const { createdAt: _currentCreatedAt, ...currentSemanticPlan } = plan;
-        if (JSON.stringify(persistedSemanticPlan) !== JSON.stringify(currentSemanticPlan)) throw new JournalIntegrityError('persisted plan does not match the normalized resume plan');
+        if (semanticPlanJson(persistedPlan) !== semanticPlanJson(plan)) throw new JournalIntegrityError('persisted plan does not match the normalized resume plan');
       } catch (error) {
         if (!(error instanceof Error && 'code' in error && error.code === 'ENOENT')) throw error;
         journal = JournalSchema.parse({
@@ -675,9 +677,7 @@ export function createJournalStore(options: JournalStoreOptions): JournalStore {
           journal = currentDurable.journal;
           previousDigest = currentDurable.digest;
           const persistedPlan = NormalizedPlanSchema.parse(await readJson(target.plan));
-          const { createdAt: _persistedCreatedAt, ...persistedSemanticPlan } = persistedPlan;
-          const { createdAt: _currentCreatedAt, ...currentSemanticPlan } = plan;
-          if (JSON.stringify(persistedSemanticPlan) !== JSON.stringify(currentSemanticPlan)) {
+          if (semanticPlanJson(persistedPlan) !== semanticPlanJson(plan)) {
             throw new JournalIntegrityError('persisted plan changed before resume ownership was acquired');
           }
         }
@@ -733,7 +733,7 @@ export function createJournalStore(options: JournalStoreOptions): JournalStore {
         if (record.state !== 'available') throw new JournalIntegrityError('new compensation evidence must be available');
         if ('kind' in snapshot && snapshot.kind === 'directory') {
           if (bytes !== null || serviceSnapshotFromInput(artifactInput) !== null) throw new JournalIntegrityError('directory compensation cannot contain file or service bytes');
-        } else if ('kind' in snapshot && snapshot.kind === 'service') {
+        } else if ('kind' in snapshot) {
           const service = serviceSnapshotFromInput(artifactInput);
           if (bytes !== null || service == null || service.manager !== 'systemd' || snapshot.targetPath !== `systemd:${service.serviceId}`) {
             throw new JournalIntegrityError('service-only compensation does not match its exact systemd state');
@@ -805,7 +805,7 @@ export function createJournalStore(options: JournalStoreOptions): JournalStore {
         const bytes = persisted.bytesBase64 === null ? null : Buffer.from(persisted.bytesBase64, 'base64');
         if ((('kind' in persisted.snapshot && persisted.snapshot.kind === 'directory')
           ? bytes !== null || persisted.serviceSnapshot !== null
-          : ('kind' in persisted.snapshot && persisted.snapshot.kind === 'service')
+          : ('kind' in persisted.snapshot)
             ? bytes !== null || persisted.serviceSnapshot === null || persisted.serviceSnapshot.manager !== 'systemd'
               || persisted.snapshot.targetPath !== `systemd:${persisted.serviceSnapshot.serviceId}`
           : persisted.snapshot.existed !== (bytes !== null) || persisted.snapshot.digest !== (bytes === null ? null : hash(bytes)))
@@ -822,7 +822,7 @@ export function createJournalStore(options: JournalStoreOptions): JournalStore {
       const boundOwner = HostMutationOwnerSchema.parse(ownerInput);
       const target = paths(boundOwner.runId, boundOwner.planDigest);
       return Object.freeze({
-        load: async (transactionIdInput: string): Promise<unknown | undefined> => serialize(async () => {
+        load: async (transactionIdInput: string): Promise<unknown> => serialize(async () => {
           await requireOwner(boundOwner);
           const transactionId = digest.parse(transactionIdInput);
           const transactions = await loadNativeTransactions(target, boundOwner.runId, boundOwner.planDigest);
@@ -909,8 +909,8 @@ export function createJournalStore(options: JournalStoreOptions): JournalStore {
       try {
         const commitDirectoryNames = withoutPublicationTemps(await readdir(target.commits));
         const commitNames = commitDirectoryNames.filter(name => name.endsWith('.commit.json'));
-        const unexpectedCommitNames = commitDirectoryNames.filter(name => !/^[a-f0-9]{64}\.commit\.json$/.test(name));
-        if (unexpectedCommitNames.length > 0) throw new JournalIntegrityError(`unexpected final commit artifact: ${unexpectedCommitNames[0]}`);
+        const unexpectedCommitName = commitDirectoryNames.find(name => !/^[a-f0-9]{64}\.commit\.json$/.test(name));
+        if (unexpectedCommitName !== undefined) throw new JournalIntegrityError(`unexpected final commit artifact: ${unexpectedCommitName}`);
         let authority: z.infer<typeof TerminalAuthoritySchema> | undefined;
         try {
           authority = TerminalAuthoritySchema.parse(await readJson(target.terminalAuthority));

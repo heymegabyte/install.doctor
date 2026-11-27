@@ -86,6 +86,6 @@ export type NativeDpkgTransactionRecord = z.infer<typeof NativeDpkgTransactionRe
 
 /** Owner-bound persistence. Implementations must fence load/save with the current journal claim. */
 export interface NativeDpkgTransactionPersistence {
-  readonly load: (transactionId: string) => Promise<unknown | undefined>;
+  readonly load: (transactionId: string) => Promise<unknown>;
   readonly save: (record: NativeDpkgTransactionRecord) => Promise<void>;
 }
