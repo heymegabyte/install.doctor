@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "organization": "heymegabyte",
+  "visibility": "public",
+  "observedAt": "2026-11-27T07:23:06Z",
+  "repositories": [
+    { "id": 1216267923, "name": "agent-skills", "defaultBranch": "main", "archived": false, "disabled": false, "secretAuthority": "infisical", "disposition": "non-runtime", "reason": "policy and reference repository", "infisicalWorkload": null },
+    { "id": 1228419670, "name": "bz.rocks", "defaultBranch": "main", "archived": false, "disabled": false, "secretAuthority": "infisical", "disposition": "runtime", "reason": "deployed application", "infisicalWorkload": null },
+    { "id": 1409580045, "name": "crawl.cheap", "defaultBranch": "main", "archived": false, "disabled": false, "secretAuthority": "infisical", "disposition": "runtime", "reason": "deployed application", "infisicalWorkload": null },
+    { "id": 1164223093, "name": "deskl.ink", "defaultBranch": "main", "archived": false, "disabled": false, "secretAuthority": "infisical", "disposition": "runtime", "reason": "deployed application", "infisicalWorkload": null },
+    { "id": 1219407476, "name": "ghost.claims", "defaultBranch": "main", "archived": false, "disabled": false, "secretAuthority": "infisical", "disposition": "runtime", "reason": "deployed application", "infisicalWorkload": null },
+    { "id": 738155044, "name": "homebrew-tap", "defaultBranch": "main", "archived": false, "disabled": false, "secretAuthority": "infisical", "disposition": "non-runtime", "reason": "package distribution metadata", "infisicalWorkload": null },
+    { "id": 1254648257, "name": "indie-music-toolkit", "defaultBranch": "master", "archived": false, "disabled": false, "secretAuthority": "infisical", "disposition": "non-runtime", "reason": "source toolkit without deployed runtime", "infisicalWorkload": null },
+    { "id": 588807533, "name": "install.doctor", "defaultBranch": "master", "archived": false, "disabled": false, "secretAuthority": "infisical", "disposition": "control-plane", "reason": "owns value-free profile policy; host and workload identities consume secrets", "infisicalWorkload": null },
+    { "id": 1164388170, "name": "megabyte.space", "defaultBranch": "main", "archived": false, "disabled": false, "secretAuthority": "infisical", "disposition": "runtime", "reason": "deployed application", "infisicalWorkload": null },
+    { "id": 1202308960, "name": "template.projectsites.dev", "defaultBranch": "main", "archived": false, "disabled": false, "secretAuthority": "infisical", "disposition": "non-runtime", "reason": "build template; consuming runtime owns credentials", "infisicalWorkload": null }
+  ]
+}
