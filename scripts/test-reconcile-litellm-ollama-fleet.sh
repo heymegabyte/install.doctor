@@ -131,5 +131,62 @@ FACTS="$(facts_of "$CFG")"
 [ "$(fact LAST_MODEL)" = "ollama_chat/qwen2.5-coder:14b" ] && pass "added deployment preserves requested template model" || fail "added model is '$(fact LAST_MODEL)'"
 [ "$(fact LAST_INFO_ID)" = "ollama-coder-ollama-omen-example-test" ] && pass "derives unique model_info.id per enrolled origin" || fail "unexpected LAST_INFO_ID '$(fact LAST_INFO_ID)'"
 
+if command -v node >/dev/null 2>&1; then
+  if node --input-type=module - "$RECONCILE" "$CFG" <<'JS'
+import assert from "node:assert/strict";
+import { spawn } from "node:child_process";
+import { once } from "node:events";
+import { readFileSync, writeFileSync } from "node:fs";
+import { createServer } from "node:http";
+
+const [script, config] = process.argv.slice(2);
+const catalog = "model_list:\n  - model_name: local\n    litellm_params:\n      model: ollama_chat/qwen2.5:7b-instruct\n";
+let status = 403;
+let requests = 0;
+let receivedRoute;
+let receivedAuth;
+const server = createServer((request, response) => {
+  requests++;
+  receivedRoute = request.url;
+  receivedAuth = request.headers.authorization;
+  response.writeHead(status, { "Content-Type": "application/json" });
+  response.end(JSON.stringify({ available: status === 200, draining: status === 503 }));
+});
+server.listen(0, "127.0.0.1");
+await once(server, "listening");
+const origin = "http://127.0.0.1:" + server.address().port;
+async function reconcile(approved) {
+  const child = spawn("bash", [script, config, "--api-base", origin, "--rpm", "20", "--require-ready"], {
+    env: { ...process.env, OLLAMA_GATEWAY_TOKEN: "fixture-token", OLLAMA_GATEWAY_ADMISSION_ORIGINS: approved },
+    stdio: "ignore",
+  });
+  return (await once(child, "close"))[0];
+}
+try {
+  writeFileSync(config, catalog);
+  assert.equal(await reconcile(""), 2);
+  assert.equal(requests, 0);
+  for (status of [403, 503]) {
+    assert.equal(await reconcile(origin), 2);
+    assert.equal(readFileSync(config, "utf8"), catalog);
+  }
+  status = 200;
+  assert.equal(await reconcile(origin), 0);
+  assert.ok(readFileSync(config, "utf8").includes(origin));
+  assert.equal(receivedRoute, "/admissionz");
+  assert.equal(receivedAuth, "Bearer fixture-token");
+} finally {
+  server.close();
+}
+JS
+  then
+    pass "ready gate authenticates only to approved origins and leaves challenged or drained catalogs untouched"
+  else
+    fail "ready gate fixture failed"
+  fi
+else
+  skip "ready gate fixture needs Node.js"
+fi
+
 say "reconcile-litellm-ollama-fleet: $P passed, $F failed"
 [ "$F" -eq 0 ]

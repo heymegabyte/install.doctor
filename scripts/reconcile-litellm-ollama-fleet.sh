@@ -7,10 +7,14 @@ set -euo pipefail
 
 usage() {
   cat >&2 <<'EOF'
-Usage: reconcile-litellm-ollama-fleet.sh CONFIG --api-base URL --rpm NUMBER [--template-model MODEL]
+Usage: reconcile-litellm-ollama-fleet.sh CONFIG --api-base URL --rpm NUMBER [--template-model MODEL] [--require-ready]
 
 Adds one deployment per model alias that already has an exact template
 (default: ollama_chat/qwen2.5:7b-instruct). Prints the number added.
+
+--require-ready checks /admissionz with OLLAMA_GATEWAY_TOKEN. Set
+OLLAMA_GATEWAY_ADMISSION_ORIGINS to a comma-separated list of trusted
+origins before running from the gateway network.
 EOF
 }
 
@@ -25,6 +29,7 @@ shift
 api_base=
 rpm=
 template_model=
+require_ready=0
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
@@ -45,6 +50,10 @@ while [ "$#" -gt 0 ]; do
       [ "$#" -ge 2 ] || die '--template-model requires a value'
       template_model=$2
       shift 2
+      ;;
+    --require-ready)
+      require_ready=1
+      shift
       ;;
     -h|--help)
       usage
@@ -77,6 +86,45 @@ esac
 case "$api_base" in
   *[[:space:]]*|*'#'*|*'?'*) die '--api-base contains unsupported URL characters' ;;
 esac
+
+if [ "$require_ready" -eq 1 ]; then
+  command -v node >/dev/null 2>&1 || die 'node is required for the admission probe'
+  node --input-type=module - "$api_base" <<'JS_PROBE'
+const reject = (message) => {
+  console.error("reconcile-litellm-ollama-fleet: " + message);
+  process.exit(2);
+};
+let requested;
+try {
+  requested = new URL(process.argv[2]);
+} catch {
+  reject("invalid admission origin");
+}
+const loopback = ["localhost", "127.0.0.1", "[::1]"].includes(requested.hostname);
+const approved = (process.env.OLLAMA_GATEWAY_ADMISSION_ORIGINS ?? "").split(",").map(value => value.trim());
+if (process.argv[2] !== requested.origin ||
+    !approved.includes(requested.origin) ||
+    !(requested.protocol === "https:" || (requested.protocol === "http:" && loopback))) {
+  reject("admission probe requires an explicitly approved origin");
+}
+const token = process.env.OLLAMA_GATEWAY_TOKEN;
+if (!token) reject("OLLAMA_GATEWAY_TOKEN is required for the admission probe");
+try {
+  const response = await fetch(new URL("/admissionz", requested), {
+    headers: { Authorization: "Bearer " + token },
+    redirect: "error",
+    signal: AbortSignal.timeout(5000),
+  });
+  if (response.status !== 200) reject("origin admission returned HTTP " + response.status);
+  const status = await response.json();
+  if (status?.available !== true || status?.draining !== false) {
+    reject("origin admission did not report ready");
+  }
+} catch {
+  reject("authenticated origin admission probe failed");
+}
+JS_PROBE
+fi
 
 python3 - "$config" "$api_base" "$rpm" "$template_model" <<'PY'
 import copy

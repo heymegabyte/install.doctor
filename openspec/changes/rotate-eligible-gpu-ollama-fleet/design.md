@@ -43,3 +43,13 @@ per-deployment hints in LiteLLM. The origin still owns its aggregate
 slot enforcement across aliases. Existing rows are left untouched by
 the enrollment helper. The helper edits a catalog and does not probe
 readiness, so a successful edit is not evidence of live admission.
+
+For a catalog write from the gateway network, use `--require-ready`
+with the existing gateway token and a trusted
+`OLLAMA_GATEWAY_ADMISSION_ORIGINS` list. The probe sends credentials
+only to an exact approved origin, rejects redirects, and requires an
+authenticated ready response within five seconds. Challenge and drain
+fixtures verified byte-identical catalog preservation. The legacy
+offline editing command remains available. A successful one-time probe
+does not remove previously enrolled nodes or continuously enforce
+availability during inference.
