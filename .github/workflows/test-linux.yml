@@ -57,8 +57,11 @@ jobs:
         if: ${{ !cancelled() && steps.aid-core.outcome != 'skipped' }}
         run: npm --prefix packages/desktop-tools-runtime test
 
-      - name: Install control-plane test dependencies
-        run: npm --prefix packages/control-plane ci --ignore-scripts --no-audit --no-fund
+      - name: Verify Control Plane tooling types and lint
+        run: |
+          npm --prefix packages/control-plane ci --ignore-scripts --no-audit --no-fund
+          npm --prefix packages/control-plane run typecheck:tooling
+          npm --prefix packages/control-plane run lint:tooling
 
       - name: Lint core scripts
         run: shellcheck --severity=error -x scripts/provision.sh start.sh

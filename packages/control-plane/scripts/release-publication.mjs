@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { lstat, readFile, readdir } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { z } from 'zod';
+import { isPublicationCommit, publicationField } from './r2-publication-storage.mjs';
 
 const id = z.string().regex(/^[a-z0-9][a-z0-9._-]{0,127}$/);
 const sha256 = z.string().regex(/^[a-f0-9]{64}$/);
@@ -154,7 +155,7 @@ async function createAndVerify(storage, key, bytes, contentType) {
 
 /** @param {{ directory: string, expectedReleaseId: string, storage: ImmutableStorage, verifySignature: VerifySignature }} input */
 export async function publishRelease({ directory, expectedReleaseId, storage, verifySignature }) {
-  if (typeof storage?.create !== 'function' || typeof storage?.read !== 'function') throw new Error('publication storage adapter is invalid');
+  if (typeof publicationField(storage, 'create') !== 'function' || typeof publicationField(storage, 'read') !== 'function') throw new Error('publication storage adapter is invalid');
   if (typeof verifySignature !== 'function') throw new Error('signature verifier is required');
   const release = await inspectReleaseDirectory(directory, expectedReleaseId);
   await verifySignature({ manifest: releaseFile(release.files, 'manifest'), signature: releaseFile(release.files, 'manifest.sig'), signerId: release.signerId });
@@ -178,7 +179,7 @@ export async function publishRelease({ directory, expectedReleaseId, storage, ve
 
 /** @param {{ expectedReleaseId: string, storage: Pick<ReleaseStorage, "read">, verifySignature: VerifySignature, now?: number }} input */
 export async function inspectPublishedRelease({ expectedReleaseId, storage, verifySignature, now = Math.floor(Date.now() / 1_000) }) {
-  if (typeof storage?.read !== 'function' || typeof verifySignature !== 'function') throw new Error('published release inspection dependencies are invalid');
+  if (typeof publicationField(storage, 'read') !== 'function' || typeof verifySignature !== 'function') throw new Error('published release inspection dependencies are invalid');
   const files = new Map();
   for (const name of RELEASE_FILES) {
     const stored = await storage.read(`bootstrap/${id.parse(expectedReleaseId)}/${name}`);
@@ -222,7 +223,7 @@ export async function inspectActiveReleaseFreshness({
   channel, channelStorage, releaseStorage, verifySignature,
   now = Math.floor(Date.now() / 1_000), renewalWindowSeconds = 259_200,
 }) {
-  if (typeof channelStorage?.read !== 'function' || typeof releaseStorage?.read !== 'function' || typeof verifySignature !== 'function') {
+  if (typeof publicationField(channelStorage, 'read') !== 'function' || typeof publicationField(releaseStorage, 'read') !== 'function' || typeof verifySignature !== 'function') {
     throw new Error('active release inspection dependencies are invalid');
   }
   if (!Number.isSafeInteger(now) || now < 1) throw new Error('release inspection clock is invalid');
@@ -249,7 +250,7 @@ function utcDay(value) {
 export async function prepareSamePayloadRenewal({
   channel, channelStorage, releaseStorage, verifySignature, newReleaseId, createdAt, expiresAt, now = Math.floor(Date.now() / 1_000),
 }) {
-  if (typeof channelStorage?.read !== 'function' || typeof releaseStorage?.read !== 'function' || typeof verifySignature !== 'function') {
+  if (typeof publicationField(channelStorage, 'read') !== 'function' || typeof publicationField(releaseStorage, 'read') !== 'function' || typeof verifySignature !== 'function') {
     throw new Error('release renewal dependencies are invalid');
   }
   if (![now, createdAt, expiresAt].every(value => Number.isSafeInteger(value) && value > 0)) throw new Error('release renewal timestamps are invalid');
@@ -388,7 +389,7 @@ export async function activateSamePayloadRenewal({
 
 /** @param {{ channel: string, activationId: string, storage: ImmutableStorage }} input */
 export async function reconcileActivationReceipt({ channel, activationId, storage }) {
-  if (typeof storage?.read !== 'function' || typeof storage?.create !== 'function') throw new Error('activation reconciliation storage adapter is invalid');
+  if (typeof publicationField(storage, 'read') !== 'function' || typeof publicationField(storage, 'create') !== 'function') throw new Error('activation reconciliation storage adapter is invalid');
   const channelId = id.parse(channel);
   const activationUuid = z.uuid().parse(activationId);
   const intentKey = `bootstrap/activations/${channelId}/${activationUuid}.json`;
@@ -425,7 +426,7 @@ export async function activateRelease({
   now = Math.floor(Date.now() / 1_000), minimumPromotionRemainingSeconds = 345_600,
   minimumRollbackRemainingSeconds = 3_600,
 }) {
-  if (typeof storage?.read !== 'function' || typeof storage?.create !== 'function' || typeof storage?.compareAndSwap !== 'function') {
+  if (typeof publicationField(storage, 'read') !== 'function' || typeof publicationField(storage, 'create') !== 'function' || typeof publicationField(storage, 'compareAndSwap') !== 'function') {
     throw new Error('activation storage adapter is invalid');
   }
   const channelId = id.parse(channel);
@@ -434,7 +435,7 @@ export async function activateRelease({
   if (!Number.isSafeInteger(minimumRemaining) || minimumRemaining < 3_600 || minimumRemaining > 604_800) {
     throw new Error('release activation freshness policy is invalid');
   }
-  const releaseExpiresAt = z.number().int().positive().parse(release?.expiresAt);
+  const releaseExpiresAt = z.number().int().positive().parse(publicationField(release, 'expiresAt'));
   if (releaseExpiresAt - now < minimumRemaining) throw new Error('release has insufficient remaining validity for activation');
   const channelKey = `bootstrap/channels/${channelId}.json`;
   const current = await storage.read(channelKey);
@@ -466,7 +467,7 @@ export async function activateRelease({
   const intentKey = `bootstrap/activations/${pointer.channel}/${pointer.activationId}.json`;
   await createAndVerify(storage, intentKey, canonical(pointer), 'application/json');
   const result = await storage.compareAndSwap(channelKey, canonical(pointer), expectedEtag);
-  if (!result?.ok || typeof result.etag !== 'string') throw new Error('release activation compare-and-swap failed');
+  if (!isPublicationCommit(result)) throw new Error('release activation compare-and-swap failed');
   const stored = await storage.read(channelKey);
   if (!stored || stored.etag !== result.etag || !equal(stored.bytes, canonical(pointer))) throw new Error('release activation read-back mismatch');
   const receiptKey = `bootstrap/activation-receipts/${pointer.channel}/${String(pointer.generation).padStart(12, '0')}-${pointer.activationId}.json`;

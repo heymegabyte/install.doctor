@@ -74,3 +74,18 @@ export function createR2PublicationStorage({ endpoint, bucket, accessKeyId, secr
     },
   };
 }
+
+/** Read adapter input defensively for callers that bypass TypeScript.
+ * @param {unknown} value
+ * @param {string} name
+ * @returns {unknown}
+ */
+export function publicationField(value, name) {
+  if (value === null || value === undefined) return undefined;
+  return Reflect.get(Object(value), name);
+}
+
+/** @param {unknown} value @returns {value is { ok: true, etag: string }} */
+export function isPublicationCommit(value) {
+  return publicationField(value, 'ok') === true && typeof publicationField(value, 'etag') === 'string';
+}

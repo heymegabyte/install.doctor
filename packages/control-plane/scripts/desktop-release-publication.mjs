@@ -2,6 +2,7 @@ import { createHash, createPublicKey } from 'node:crypto';
 import { lstat, readFile, readdir } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { z } from 'zod';
+import { isPublicationCommit, publicationField } from './r2-publication-storage.mjs';
 import { releaseObjectUrl, releasePolicy } from '../src/release-policy.ts';
 
 const policy = releasePolicy('desktop-tools');
@@ -116,7 +117,7 @@ export async function admitDesktopPromotionEvidence({ evidence, release, targetC
   if (typeof verifySignature !== 'function') throw new Error('promotion evidence verifier is required');
   const parsed = PromotionEvidence.parse(evidence);
   const cohort = z.enum(['canary', 'early-access', 'stable']).parse(targetCohort);
-  if (parsed.releaseId !== release?.releaseId || parsed.targetCohort !== cohort
+  if (parsed.releaseId !== publicationField(release, 'releaseId') || parsed.targetCohort !== cohort
     || parsed.sourceCohort !== COHORT_PREDECESSOR[cohort]) {
     throw new Error('promotion evidence does not match the exact release cohort transition');
   }
@@ -436,7 +437,7 @@ export async function inspectDesktopReleaseDirectory(directoryInput, expectedRel
 
 /** @param {{ directory: string, expectedReleaseId: string, storage: DesktopStorage, verifySignature: VerifyManifest, now?: number }} input */
 export async function publishDesktopRelease({ directory, expectedReleaseId, storage, verifySignature, now }) {
-  if (typeof storage?.create !== 'function' || typeof storage?.read !== 'function' || typeof verifySignature !== 'function') throw new Error('publication dependencies are invalid');
+  if (typeof publicationField(storage, 'create') !== 'function' || typeof publicationField(storage, 'read') !== 'function' || typeof verifySignature !== 'function') throw new Error('publication dependencies are invalid');
   const release = await inspectDesktopReleaseDirectory(directory, expectedReleaseId, now);
   await verifySignature({ manifest: releaseFile(release.files, 'manifest'), signature: releaseFile(release.files, 'manifest.sig'),
     signerId: release.signerId, namespace: policy.signatureNamespace });
@@ -461,7 +462,7 @@ export async function publishDesktopRelease({ directory, expectedReleaseId, stor
 
 /** @param {{ expectedReleaseId: string, storage: ReadStorage, verifySignature: VerifyManifest, now?: number, requireCurrent?: boolean }} input */
 export async function inspectPublishedDesktopRelease({ expectedReleaseId, storage, verifySignature, now, requireCurrent = true }) {
-  if (typeof storage?.read !== 'function' || typeof verifySignature !== 'function') throw new Error('inspection dependencies are invalid');
+  if (typeof publicationField(storage, 'read') !== 'function' || typeof verifySignature !== 'function') throw new Error('inspection dependencies are invalid');
   const releaseId = id.parse(expectedReleaseId);
   const files = new Map();
   const manifestStored = await storage.read(`desktop-tools/bootstrap/${releaseId}/manifest`);
@@ -485,7 +486,7 @@ export async function inspectActiveDesktopReleaseFreshness({
   channel, channelStorage, releaseStorage, verifySignature,
   now = Math.floor(Date.now() / 1_000), renewalWindowSeconds = 259_200,
 }) {
-  if (typeof channelStorage?.read !== 'function' || typeof releaseStorage?.read !== 'function'
+  if (typeof publicationField(channelStorage, 'read') !== 'function' || typeof publicationField(releaseStorage, 'read') !== 'function'
     || typeof verifySignature !== 'function') throw new Error('Desktop Tools freshness dependencies are invalid');
   if (!Number.isSafeInteger(now) || now < 1) throw new Error('Desktop Tools freshness clock is invalid');
   if (!Number.isSafeInteger(renewalWindowSeconds) || renewalWindowSeconds < 3_600 || renewalWindowSeconds > 604_800) {
@@ -535,11 +536,11 @@ export async function activateDesktopRelease({
   minimumPromotionRemainingSeconds = 345_600, minimumRollbackRemainingSeconds = 3_600,
   promotionEvidence = null, verifyPromotionSignature = null
 }) {
-  if (typeof storage?.read !== 'function' || typeof storage?.create !== 'function' || typeof storage?.compareAndSwap !== 'function') {
+  if (typeof publicationField(storage, 'read') !== 'function' || typeof publicationField(storage, 'create') !== 'function' || typeof publicationField(storage, 'compareAndSwap') !== 'function') {
     throw new Error('activation storage adapter is invalid');
   }
   const channelId = id.parse(channel);
-  if (release?.product !== 'desktop-tools') throw new Error('activation release product mismatch');
+  if (publicationField(release, 'product') !== 'desktop-tools') throw new Error('activation release product mismatch');
   const expiresAt = z.number().int().positive().parse(release.expiresAt);
   const minimum = kind === 'rollback' ? minimumRollbackRemainingSeconds : minimumPromotionRemainingSeconds;
   if (![now, minimum].every(value => Number.isSafeInteger(value) && value > 0) || minimum < 3_600 || minimum > 604_800) {
@@ -594,7 +595,7 @@ export async function activateDesktopRelease({
   const receiptKey = `desktop-tools/activation-receipts/${channelId}/${String(generation).padStart(12, '0')}-${pointer.activationId}.json`;
   await createCanonical(storage, intentKey, pointer);
   const result = await storage.compareAndSwap(channelKey, pointerBytes, expectedEtag);
-  if (!result?.ok || typeof result.etag !== 'string') throw new Error('activation compare-and-swap failed');
+  if (!isPublicationCommit(result)) throw new Error('activation compare-and-swap failed');
   const committed = await storage.read(channelKey);
   if (!committed?.bytes || committed.etag !== result.etag || !same(committed.bytes, pointerBytes)) throw new Error('activation read-back mismatch');
   try {
@@ -607,7 +608,7 @@ export async function activateDesktopRelease({
 
 /** @param {{ channel: string, activationId: string, storage: DesktopStorage }} input */
 export async function reconcileDesktopActivationReceipt({ channel, activationId, storage }) {
-  if (typeof storage?.read !== 'function' || typeof storage?.create !== 'function') throw new Error('reconciliation storage adapter is invalid');
+  if (typeof publicationField(storage, 'read') !== 'function' || typeof publicationField(storage, 'create') !== 'function') throw new Error('reconciliation storage adapter is invalid');
   const channelId = id.parse(channel);
   const activationUuid = z.uuid().parse(activationId);
   const intentKey = `desktop-tools/activations/${channelId}/${activationUuid}.json`;
