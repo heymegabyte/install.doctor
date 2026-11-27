@@ -8,6 +8,9 @@
 - [ ] 1.4 Verify discovery never decrypts values, reads rendered secret targets, dumps secret-bearing environments, or writes durable value fingerprints.
 - [ ] 1.5 Fix source precedence so only `macos.megabyte.space` applies `secrets-workstation` overrides; Ubuntu and other hosts use the general inventory by default.
 - [ ] 1.6 Implement `--secret-directory` as a normalized, approved-root, non-persistent override for exactly one explicitly selected host; reject multi-host, missing, ambiguous, overlapping, and symlink-escaping inputs.
+- [ ] 1.7 Inventory every regular encrypted entry in general, workstation, and WordPress stores with a stable store-qualified source ID, normalized path, canonical name, ciphertext drift digest, precedence/alias metadata, and no plaintext-derived fingerprint.
+- [ ] 1.8 Preserve same-named sources independently; reject ambiguous collisions, duplicate source IDs, symlinks, path escapes, undeclared stores, and silent shadowing.
+- [ ] 1.9 Map WordPress sources only to explicit WordPress/site workload targets and prove they cannot enter host defaults.
 
 ## 2. Host-profile hardening
 
@@ -33,13 +36,16 @@
 - [ ] 3.2 Enforce the per-secret migration state machine and bind every transition to an exact reviewed plan digest.
 - [ ] 3.3 Add concurrency locking and fail-closed destination-conflict handling; require separately admitted overwrite without exposing either value.
 - [ ] 3.4 Prove selected values travel memory-only to the exact Infisical project/environment/path and never enter disk staging, argv, logs, receipts, history, telemetry, or Markdown.
-- [ ] 3.5 Keep deletion, rotation, revocation, permission widening, encrypted-source removal, and age-key retirement outside apply authority.
+- [ ] 3.5 Keep deletion and encrypted-source removal outside destination-write apply authority but inside the exact-source retirement phase after all gates pass; keep rotation, revocation, permission widening, and age-key/identity retirement outside this change.
 - [ ] 3.6 Implement a durable metadata-only validation ledger with canonical name/source/destination bindings, `valid`/`unverified`/`invalid-retired` status, validator provenance, scope, freshness, and evidence references but no values or fingerprints.
 - [ ] 3.7 Add an all-selected-credentials preflight and locked pre-write gate: only fresh matching `valid` records proceed; any missing, unverified, invalid-retired, stale, mismatched, or untrusted record aborts before decryption and before the first write.
 - [ ] 3.8 Bind the exact ledger-record evidence digest into the reviewed plan and invalidate apply on ledger, selection, destination, or freshness drift.
 - [ ] 3.9 Emit value-free migrated-destination evidence with exact project/environment/path, safe destination version metadata, writer identity, plan digest, and authorized-read/unauthorized-denial results.
 - [ ] 3.10 Apply the same validation-ledger and locked pre-write gate to workloads, binding evidence to workload ID, general-inventory source, exact project/root path, consumer, environment, and plan; reject host/workload ledger substitution.
 - [ ] 3.11 Add the workload round-trip gate: production-equivalent workload retrieval, bounded non-destructive consumer use, and representative host/cross-project denial before cutover or retirement evidence.
+- [ ] 3.12 Require current provider-specific validation for every selected source identity before use; keep inconclusive/unreachable/stale results `unverified` and fail before write.
+- [ ] 3.13 Track an explicit required-destination set per source and mark each destination complete only after write, Infisical round trip, intended target-host/workload retrieval, cross-target denial, consumer cutover, and rollback evidence.
+- [ ] 3.14 Prove writer-side verification cannot substitute for intended target retrieval and one completed destination cannot hide another incomplete destination.
 
 ## 4. Identity and destination reconciliation
 
@@ -63,10 +69,13 @@
 
 - [ ] 6.1 Validate every offline exception has owner, consumer, reason, review date, minimum scope, and executed recovery evidence.
 - [ ] 6.2 Demonstrate independent recovery using only the declared exception set; do not delete or modify source material during the drill.
-- [ ] 6.3 Produce a value-free retirement-eligibility report after the observation window, with exact remaining blockers per secret. PARTIAL: one exact canary completed source retirement after allowed-read and cross-project `403` evidence; bulk eligibility remains pending.
-- [ ] 6.4 Preserve all non-canary encrypted templates, age identities, and credentials; propose any additional deletion, rotation, or revocation as a later separately approved destructive change.
+- [ ] 6.3 Produce a value-free retirement-eligibility report after the observation window, with exact remaining blockers per source. PARTIAL: one exact canary completed source retirement after allowed-read and cross-project `403` evidence; every remaining source must independently pass all gates.
+- [ ] 6.4 Delete each non-canary encrypted source once its exact-source validation, all required destination round trips and target retrieval, consumer cutover, observation/recovery, offline-exception, and retirement-assertion gates pass; preserve only sources with an incomplete gate or a current technically required offline exception.
 - [ ] 6.5 Record source-retirement assertions that bind exact source, canonical name, `valid` or `invalid-retired` provenance as applicable, migrated-destination evidence, consumer cutover, observation window, recovery state, approval, and timestamp.
 - [ ] 6.6 Reject retirement assertions with missing/mismatched destination evidence and prove a canary assertion cannot authorize another source.
+- [ ] 6.7 Delete an encrypted source only through an exact drift-bound retirement assertion after every required destination and consumer is complete, the observation/fallback window closes, rollback exists, and no offline exception remains active.
+- [ ] 6.8 Implement invalid retirement only for provider-confirmed invalid exact sources with empty required-destination/consumer sets; prove it cannot authorize migration, fallback, or deletion of same-named sources.
+- [ ] 6.9 Bind offline exceptions to exact source IDs, prove current technical necessity and minimum scope, test their recovery path, and report them separately; retire stale, convenience-only, or superseded exceptions so only a still-required exception blocks deletion.
 
 ## 7. Verification and documentation
 
@@ -76,5 +85,7 @@
 - [ ] 7.2b Add acceptance tests for macOS workstation override precedence, Ubuntu/general precedence despite collisions, other-host exclusion, safe single-host directory override, unsafe override rejection, Ubuntu upstream-key access, macOS upstream-key denial, and macOS LiteLLM-client-only access.
 - [ ] 7.2c Add acceptance tests for complete valid admission, missing/unverified/invalid-retired/stale/wrong-scope rejection before write, atomic batch abort, ledger race invalidation, metadata-only destination receipts, and exact-source retirement assertions.
 - [ ] 7.2d Add workload acceptance tests for MCP manifest routing, host/workload exclusivity, unknown/multiple target rejection, general-inventory-only selection, workstation collision exclusion, ledger target binding, workload-only Cloudflare provider placement, production-equivalent round trip, and host/cross-project `403`.
+- [ ] 7.2e Add acceptance tests for three-store source identity, same-name independence, provider validation, invalid retirement, multi-destination completeness, target-host retrieval, active offline exceptions, exact-source deletion, and profile/listing drift.
+- [ ] 7.2f Add a deterministic metadata-only listing and closed-set sync validator across inventory, profiles, host/workload targets, validation ledger, destination evidence, offline exceptions, and retirement assertions.
 - [ ] 7.3 Update operator documentation to distinguish online authority, transition fallback, offline recovery, and retirement eligibility without listing values.
 - [ ] 7.4 Run strict OpenSpec validation and focused repository secret-safety/profile tests; report PASS, FAIL, BLOCKED, and UNVERIFIED distinctly.

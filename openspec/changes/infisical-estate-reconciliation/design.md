@@ -17,9 +17,19 @@ Every discovered name receives one disposition:
 1. `operational-migrate` — required by an evidenced online workload and eligible for Infisical;
 2. `offline-exception` — required without network access and documented with owner, consumer, reason, review date, and recovery test;
 3. `blocked-unknown` — ambiguous owner, consumer, sensitivity, or environment; no apply authority;
-4. `retirement-candidate` — no remaining consumer, but retained until separately approved deletion.
+4. `retirement-candidate` — eligible to enter this change's exact-source deletion gates because no required consumer remains.
 
 Aliases and duplicate names must resolve to a canonical name before migration. Conflicting sources, environments, or owners fail planning.
+
+### Source identity across all encrypted stores
+
+Discovery enumerates every regular encrypted entry in the approved general, `secrets-workstation`, and `secrets-wordpress` stores. It assigns a stable source identity from the declared store ID plus normalized repository-relative path and canonical secret name. A ciphertext digest may be recorded for drift detection; plaintext-derived hashes, rendered values, and low-entropy value fingerprints are prohibited.
+
+Source identity, not canonical name alone, is the unit of validation, planning, migration evidence, and retirement. Same-named entries in multiple stores remain distinct sources until an explicit alias/override relationship is declared. Discovery must not silently collapse, shadow, or discard a general, workstation, or WordPress source because another store contains the same filename.
+
+Each source record contains only metadata: source ID, store class, normalized path, canonical name, ciphertext drift digest, declared precedence/alias relation, owner, consumers, classification, validation-record reference, required destinations, offline-exception reference, and lifecycle state. Symlinks, escaped paths, non-regular files, duplicate source IDs, undeclared stores, and ambiguous collisions fail inventory before decryption.
+
+WordPress sources are not host defaults. They map only to explicitly declared WordPress/site workloads and destinations. Workstation sources retain the macOS-only override rules, and general sources remain the default for Ubuntu, other hosts, and workloads unless a reviewed mapping says otherwise.
 
 ### Source precedence and explicit directory overrides
 
@@ -95,7 +105,7 @@ The macOS client secret is stored in the logged-in user's macOS Keychain with ac
 
 ## Migration state machine
 
-Each secret progresses independently through `inventoried`, `planned`, `written`, `verified`, `consumer-cutover`, `fallback-bounded`, and `retirement-eligible`. Each transition binds to the reviewed plan and records value-free evidence. A single reviewed canary may advance from `retirement-eligible` to `source-retired` only after allowed-read, cross-project `403`, consumer, and rollback acceptance evidence. All non-canary deletion, credential rotation/revocation, encrypted-source retirement, and age-key retirement remain separately authorized destructive work.
+Each secret progresses independently through `inventoried`, `planned`, `written`, `verified`, `consumer-cutover`, `fallback-bounded`, `retirement-eligible`, and `source-retired`. Each transition binds to the reviewed plan and records value-free evidence. Every in-scope source advances to `source-retired` and is deleted when its exact validation, complete required-destination round trips and target retrieval, consumer cutover, observation, recovery, offline-exception, and retirement-assertion gates pass. A canary proves the mechanism but grants no authority over another source. Credential rotation/revocation and age-key or age-identity retirement remain separate actions.
 
 ## Safe apply
 
@@ -110,6 +120,10 @@ Credential validity is recorded in a durable value-free ledger separate from sec
 Allowed admission status is exactly `valid`. `invalid-retired` records document credentials proven invalid and intentionally excluded from migration; they are evidence for retirement classification, never apply authority. Missing, `unverified`, `invalid-retired`, expired, stale, scope-mismatched, validator-unknown, or provenance-incomplete records fail admission.
 
 Validator provenance is allowlisted and purpose-specific. A syntax check cannot validate live authorization; a provider validation cannot be reused for another environment or credential class. The plan binds the exact ledger record and evidence digest so status cannot change between review and apply without invalidating the plan.
+
+Validation is source-specific. Every selected source identity must have current provider-specific evidence that tests the minimum safe capability required by its intended consumer without exposing the value or performing a destructive action. Shared canonical names do not share validation automatically. Provider-unreachable, missing, stale, scope-mismatched, rate-limited-without-conclusion, or syntactically plausible credentials remain `unverified` and cannot be used.
+
+Provider-confirmed invalid credentials may become `invalid-retired` only when provenance proves the exact source identity is invalid, target/consumer listings show no required valid destination or runtime dependency, the source is not an offline exception, and a reviewed retirement assertion exists. `invalid-retired` never authorizes migration, runtime use, or fallback.
 
 ### Hard pre-write apply gate
 
@@ -127,6 +141,24 @@ Workload migration additionally requires a round-trip gate: after write, the wor
 
 A source-retirement assertion binds the exact encrypted source path/name, canonical credential, completed migration evidence, consumer cutover evidence, validation record, observation window, rollback/recovery state, approving change, and retirement timestamp. The assertion must distinguish `retirement-eligible`, `source-retired`, and `invalid-retired`. It is rejected if the destination evidence is absent, mismatched, stale, or does not prove the intended consumer boundary. A canary assertion grants no authority over another source.
 
+Every source has an explicit required-destination set derived from least-privilege host/workload mappings. Each destination is independently complete only after exact-project/path write, Infisical read-after-write round trip, authorized retrieval by the intended target host/workload identity, representative cross-target denial, real consumer cutover, and rollback evidence. A successful writer-side round trip alone is insufficient.
+
+Encrypted-source deletion is a final, exact-source mutation. It is admitted only when all required destinations are complete, profile/listing synchronization is current, the source is not needed by an offline exception or fallback window, the observation period has elapsed, rollback/recovery evidence exists, and the reviewed retirement assertion binds the current ciphertext drift digest. If any destination or consumer is incomplete, the source remains encrypted in place.
+
+For `invalid-retired`, the required-destination set must be explicitly empty and provider-invalid evidence plus consumer/profile/listing absence replaces migration round-trip evidence. Deletion still requires an exact reviewed assertion and must not delete a same-named source from another store.
+
+### Offline exception handling
+
+Offline exceptions are first-class source mappings, not a generic exemption from inventory. Each exception binds exact source identity, owner, offline consumer, technically required reason, minimum recovery capability, permitted hosts, review expiry, and executed recovery evidence. An exception source is excluded from deletion only while the exception remains current, technically necessary, minimum-scope, and not replaceable by the validated recovery destination. Convenience, stale, or superseded exceptions do not justify preservation.
+
+Online consumers must not use offline exceptions as ambient fallback. Migration plans report exceptions separately, test independent recovery without logging values, and require a reviewed replacement or exception retirement before encrypted-source deletion.
+
+### Profile and listing synchronization
+
+The value-free inventory listing, profile capability groups, host/workload declarations, source mappings, validation ledger, destination matrix, and retirement ledger form one closed set. Planning fails when a listed source lacks disposition/mapping, a profile references an unlisted source, a validation record references a missing source ID, a destination is absent from its target declaration, or a retired/deleted source remains selectable.
+
+Listing/profile synchronization is deterministic and drift-detecting. Additions default to `blocked-unknown`; removals require a retirement/deletion assertion; precedence and alias changes invalidate prior plans. The operator-facing list command reports source IDs, stores, names, dispositions, targets, validation status, destination completion, offline-exception state, and blockers without resolving values.
+
 ### Validation-ledger acceptance scenarios
 
 1. **Complete valid selection:** every selected credential has fresh matching `valid` provenance; preflight may proceed to the separately authorized write phase.
@@ -137,6 +169,12 @@ A source-retirement assertion binds the exact encrypted source path/name, canoni
 6. **Ledger race:** a record changed after plan review invalidates the plan at the locked pre-write gate.
 7. **Destination evidence:** a completed migration produces metadata-only destination and positive/negative access evidence without value fingerprints.
 8. **Retirement assertion:** only the exact source with matching migration, cutover, validation, observation, and recovery evidence may be asserted retired.
+9. **Same name in three stores:** general, workstation, and WordPress entries receive distinct source IDs and independent validation/destination/retirement state.
+10. **Incomplete destination set:** one target passes round trip while another lacks target-host retrieval; the encrypted source remains present.
+11. **Provider-invalid source:** exact provider evidence plus empty consumer/destination listings permits `invalid-retired`, but never migration or fallback.
+12. **Offline exception technically required:** completed online migration does not permit source deletion while the bound exception is current, minimum-scope, recovery-tested, and still technically necessary; stale, convenience-only, or superseded exceptions must retire.
+13. **Listing drift:** an unlisted file, dangling profile reference, stale validation source ID, or selectable retired source blocks planning and apply.
+14. **Target retrieval:** writer round trip passes but intended host/workload retrieval fails; destination and cutover remain incomplete.
 
 ### Workload-target acceptance scenarios
 
@@ -161,9 +199,9 @@ CI uses repository-and-environment-bound GitHub OIDC with exact claims and secre
 
 ## Rollout and rollback
 
-Roll out one capability group and one host class at a time: read-only inventory, reviewed plan, writer canary, authorized retrieval from the assigned root path, cross-project `403`, consumer canary, outage/rollback drill, then bounded expansion. macOS developer-workstation and Ubuntu server/runner profiles require independent evidence. Canary source retirement is evidence that the retirement mechanism works, not authority for bulk retirement.
+Roll out one capability group and one host class at a time: read-only inventory, reviewed plan, writer canary, authorized retrieval from the assigned root path, cross-project `403`, consumer canary, outage/rollback drill, then bounded expansion. macOS developer-workstation and Ubuntu server/runner profiles require independent evidence. The canary proves the retirement mechanism; each subsequent source independently passes the same gates and is then deleted through its own assertion.
 
-Rollback restores consumer resolution to the preserved encrypted source for only the affected allowlisted names, revokes or disables the new host binding when safe and authorized, and leaves unrelated Infisical paths and identities untouched. Because this change does not delete encrypted sources or rotate credentials, rollback remains available throughout the migration window.
+Before exact-source deletion, rollback may restore consumer resolution to the still-present encrypted source for the affected allowlisted name. After deletion, rollback and recovery use the validated Infisical destination or the source's still-current technically required offline exception; the design must not claim a deleted source remains available. Revocation or disabling of a new host binding remains separately authorized and leaves unrelated paths and identities untouched.
 
 ## Key risks and mitigations
 
@@ -180,7 +218,7 @@ Rollback restores consumer resolution to the preserved encrypted source for only
 - **Raw provider key reaches a developer laptop:** classify upstream and client keys separately, keep upstream keys in Ubuntu/LiteLLM only, and verify macOS denial.
 - **Long-lived local bootstrap credential leaks:** cap client secrets at 90 days, store them in Keychain or a mode-`0600` Ubuntu file, and use 900-second/max-two-use access tokens.
 - **Profile expansion by repository noise:** require explicit capability admission and reviewable diff; discovery alone never grants access.
-- **Canary retirement is mistaken for bulk authority:** bind retirement to the exact reviewed canary; deletion, rotation, revocation, and age-key retirement otherwise remain separately authorized destructive work.
+- **Canary retirement is mistaken for bulk authority:** bind every deletion to its own exact-source assertion and current drift digest; the canary cannot authorize another source, while rotation, revocation, and age-key retirement remain separate work.
 - **Stale or fabricated validity admits a bad credential:** require allowlisted validator provenance, freshness, exact scope, evidence binding, and a locked recheck before any write.
 - **Batch partially writes before discovering an invalid record:** validate the entire selected set atomically before decryption and mutation; require a new plan for any reduced retry.
 - **Validation evidence leaks the credential:** prohibit values, fingerprints, response bodies, and replayable request material from the ledger and migration receipts.
@@ -188,3 +226,8 @@ Rollback restores consumer resolution to the preserved encrypted source for only
 - **Workload inherits operator host access:** separate target classes, make `--workload` mutually exclusive with `--host`, and deny host-profile reuse.
 - **Workload execution on macOS selects workstation overrides:** force workloads to the general inventory independent of executing machine or cwd.
 - **Cloudflare provider credentials spread to hosts:** classify them as MCP-workload-only and test their absence from every host plan plus cross-project `403`.
+- **Same-named sources are collapsed:** make store-qualified source identity the unit of validation, migration, and retirement.
+- **Writer verification masks target failure:** require both Infisical round trip and intended target-host/workload retrieval before destination completion.
+- **Partial multi-destination migration triggers deletion:** require all declared destinations and consumers complete before exact-source retirement.
+- **Offline recovery is deleted after online cutover:** bind offline exceptions to exact source IDs and exclude active exceptions from deletion.
+- **Profiles and inventory drift apart:** enforce closed-set listing/profile/ledger/destination synchronization before decryption or mutation.
