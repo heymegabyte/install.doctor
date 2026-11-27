@@ -1,0 +1,13 @@
+{
+  "extends": "../aid-core/vendor/theme-tools/tsconfig.base.json",
+  "compilerOptions": {
+    "allowImportingTsExtensions": true,
+    "types": [
+      "node"
+    ]
+  },
+  "include": [
+    "src/**/*.ts",
+    ".wrangler/control-plane-runtime.d.ts"
+  ]
+}

@@ -58,8 +58,11 @@ activation are provider-separable authorities.
 
 ## Dev / deploy
 
-- `npm install` (installs `hono`).
-- `npm run check` → `wrangler deploy --dry-run` (build gate; esbuild bundles the TS + aid-core).
+- From the repository root, run `npm --prefix packages/aid-core ci`,
+  `npm --prefix packages/installer-engine ci`, and `npm --prefix packages/control-plane ci`.
+- In this package, run `npm run typecheck` to generate Worker runtime types using Wrangler
+  and check the full source tree against the shared strict compiler profile.
+- Run `npm run check` to build aid-core, typecheck the Worker, and bundle it in a Wrangler dry run.
 - `npm run deploy` → needs `CLOUDFLARE_API_TOKEN` + `CLOUDFLARE_ACCOUNT_ID` in env (via `get-secret`).
 - `npm run release:publish -- RELEASE_DIR RELEASE_ID` → create-only immutable-object publication
   using release-bucket-only `INSTALL_DOCTOR_RELEASE_R2_*` credentials and

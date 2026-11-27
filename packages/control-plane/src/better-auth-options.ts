@@ -1,4 +1,5 @@
 import { passkey } from '@better-auth/passkey';
+import type { BetterAuthOptions } from 'better-auth';
 
 type BetterAuthSecrets = {
   BETTER_AUTH_SECRET?: string;
@@ -18,7 +19,7 @@ type BetterAuthOriginPolicy = {
  * Production and migration-parity tests must construct auth from this factory.
  */
 export function createBetterAuthOptions(
-  database: unknown,
+  database: BetterAuthOptions["database"],
   secrets: BetterAuthSecrets,
   originPolicy: BetterAuthOriginPolicy,
 ) {
@@ -41,16 +42,16 @@ export function createBetterAuthOptions(
       },
     })],
     socialProviders: {
-      github: {
+      ...(secrets.GITHUB_CLIENT_ID && secrets.GITHUB_CLIENT_SECRET ? { github: {
         clientId: secrets.GITHUB_CLIENT_ID,
         clientSecret: secrets.GITHUB_CLIENT_SECRET,
         prompt: 'login',
-      },
-      google: {
+      } } : {}),
+      ...(secrets.GOOGLE_CLIENT_ID && secrets.GOOGLE_CLIENT_SECRET ? { google: {
         clientId: secrets.GOOGLE_CLIENT_ID,
         clientSecret: secrets.GOOGLE_CLIENT_SECRET,
         prompt: 'login',
-      },
+      } } : {}),
     },
     // Force the limiter on at the edge and persist counters in D1 so isolates cannot
     // independently reset the boundary. Migration 0018 owns this table and its uniqueness.
@@ -71,5 +72,5 @@ export function createBetterAuthOptions(
         ipAddressHeaders: ['cf-connecting-ip', 'x-forwarded-for'],
       },
     },
-  };
+  } satisfies BetterAuthOptions;
 }

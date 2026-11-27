@@ -38,7 +38,7 @@ export type OwnerApprovalResult =
 
 export type OwnerContextReadResult =
   | { ok: true; actor: string }
-  | { ok: false; status: 401 | 403; error: string };
+  | { ok: false; status: 401 | 403; error: 'reauthentication_required' | 'wrong_actor' };
 
 export type OwnerDecisionPersistenceRecord = {
   code: string;

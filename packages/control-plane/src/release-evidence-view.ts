@@ -24,7 +24,7 @@ const Assessment = z.object({
 
 function parseJson(bytes: Uint8Array, label: string): unknown {
   if (bytes.byteLength === 0 || bytes.byteLength > MAX_EVIDENCE_BYTES) throw new Error(`${label} size is invalid`);
-  try { return JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes)); }
+  try { return JSON.parse(new TextDecoder('utf-8', { fatal: true } as TextDecoderConstructorOptions).decode(bytes)); }
   catch { throw new Error(`${label} is not valid UTF-8 JSON`); }
 }
 
@@ -35,7 +35,7 @@ async function sha256(bytes: Uint8Array): Promise<string> {
 
 function manifestMap(bytes: Uint8Array): Map<string, string> {
   if (bytes.byteLength === 0 || bytes.byteLength > 65_536) throw new Error('manifest size is invalid');
-  const text = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+  const text = new TextDecoder('utf-8', { fatal: true } as TextDecoderConstructorOptions).decode(bytes);
   const fields = new Map<string, string>();
   for (const line of text.trimEnd().split('\n')) {
     const separator = line.indexOf('=');
@@ -96,7 +96,7 @@ export async function projectPublicReleaseEvidence(input: EvidenceInput) {
   for (const component of sbom.components) {
     const hashes = component.hashes.filter(hash => hash.alg === 'SHA-256');
     if (hashes.length !== 1 || sbomClosure.has(component.name)) throw new Error('SBOM closure is ambiguous');
-    sbomClosure.set(component.name, hashes[0].content);
+    sbomClosure.set(component.name, hashes[0]!.content);
   }
 
   const provenance = z.object({ _type: z.literal('https://in-toto.io/Statement/v1'),
@@ -124,7 +124,7 @@ export async function projectPublicReleaseEvidence(input: EvidenceInput) {
     if (file.type !== 'software_File') continue;
     const hashes = (file.verifiedUsing ?? []).filter(hash => hash.type === 'Hash' && hash.algorithm === 'sha256');
     if (!file.name || hashes.length !== 1 || spdxFiles.has(file.name)) throw new Error('SPDX closure is ambiguous');
-    spdxFiles.set(file.name, hashes[0].hashValue);
+    spdxFiles.set(file.name, hashes[0]!.hashValue);
   }
   if (!mapsEqual(spdxFiles, provenanceClosure)) throw new Error('SPDX does not bind the exact release closure');
 
