@@ -28,7 +28,6 @@ const pendingSourceFiles = [
   'src/rollback-executor.ts',
   'src/sudo-credential-cleanup.ts',
   'src/verified-artifact-materializer.ts',
-  'src/windows-native-operations.ts',
 ].map(file => `packages/installer-engine/${file}`);
 
 export default [

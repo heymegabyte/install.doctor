@@ -5,7 +5,7 @@ import { WindowsFixtureSchema, type WindowsFixtureBoundary } from './windows-fix
 
 const identifier = z.string().min(1).max(128).regex(/^[a-z0-9][a-z0-9._-]*$/);
 const digest = z.string().regex(/^[a-f0-9]{64}$/);
-const instant = z.string().datetime({ offset: true });
+const instant = z.iso.datetime({ offset: true });
 const opaqueReference = z.string().min(1).max(512).refine(value => !/[\r\n\0]/u.test(value));
 const windowsPath = z.string().min(3).max(1024)
   .regex(/^[A-Za-z]:\\(?:[^<>:"|?*\r\n\0]+\\?)*$/u)
@@ -29,7 +29,7 @@ const stageZeroOperation = z.strictObject({
   kind: z.literal('stage-zero'),
   releaseDigest: digest,
   envelopeDigest: digest,
-  profileOrigin: z.string().url().refine(value => new URL(value).protocol === 'https:'),
+  profileOrigin: z.url().refine(value => new URL(value).protocol === 'https:'),
   expectedProduct: z.literal('desktop-tools'),
   signerEvidenceId: identifier,
   maxBytes: z.number().int().min(1).max(128 * 1024 * 1024),
@@ -292,12 +292,20 @@ export function executeDisposableWindowsPlan(
     } else if (operation.kind === 'file') {
       const current = state.files.get(operation.path);
       if (operation.action === 'remove') { outcome = current === undefined ? 'unchanged' : 'applied'; state.files.delete(operation.path); }
-      else { outcome = current === operation.contentDigest ? 'unchanged' : 'applied'; state.files.set(operation.path, operation.contentDigest!); }
+      else {
+        if (operation.contentDigest === undefined) throw new Error('write requires an immutable content digest');
+        outcome = current === operation.contentDigest ? 'unchanged' : 'applied';
+        state.files.set(operation.path, operation.contentDigest);
+      }
     } else if (operation.kind === 'registry') {
       const registryKey = `${operation.hive}\\${operation.key}::${operation.valueName}`;
       const current = state.registry.get(registryKey);
       if (operation.action === 'remove') { outcome = current === undefined ? 'unchanged' : 'applied'; state.registry.delete(registryKey); }
-      else { outcome = current === operation.valueDigest ? 'unchanged' : 'applied'; state.registry.set(registryKey, operation.valueDigest!); }
+      else {
+        if (operation.valueDigest === undefined) throw new Error('set requires a value digest');
+        outcome = current === operation.valueDigest ? 'unchanged' : 'applied';
+        state.registry.set(registryKey, operation.valueDigest);
+      }
     } else if (operation.kind === 'service') {
       const desired = `${operation.action}:${operation.startType ?? 'preserve'}`;
       outcome = state.services.get(operation.serviceName) === desired ? 'unchanged' : 'applied';
@@ -309,7 +317,11 @@ export function executeDisposableWindowsPlan(
       const secretKey = `${operation.store}:${operation.targetName}:${operation.consumerSid}`;
       const current = state.secrets.get(secretKey);
       if (operation.action === 'remove') { outcome = current === undefined ? 'unchanged' : 'applied'; state.secrets.delete(secretKey); }
-      else { outcome = current === operation.valueDigest ? 'unchanged' : 'applied'; state.secrets.set(secretKey, operation.valueDigest!); }
+      else {
+        if (operation.valueDigest === undefined) throw new Error('materialization requires an in-memory value digest');
+        outcome = current === operation.valueDigest ? 'unchanged' : 'applied';
+        state.secrets.set(secretKey, operation.valueDigest);
+      }
     } else {
       if (Date.parse(operation.deadline) <= Date.parse(timestamp)) throw new Error('reboot continuation deadline elapsed');
       outcome = 'pending-reboot';
