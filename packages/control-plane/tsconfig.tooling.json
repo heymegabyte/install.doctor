@@ -12,6 +12,7 @@
     "scripts/offline-bundle-request.mjs",
     "scripts/publish-offline-bundle.mjs",
     "scripts/r2-publication-storage.mjs",
+    "scripts/release-publication.mjs",
     "scripts/run-tests.mjs"
   ]
 }

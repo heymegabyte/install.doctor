@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { lstat, readFile, readdir } from 'node:fs/promises';
-import { basename, join, resolve } from 'node:path';
+import { join, resolve } from 'node:path';
 import { z } from 'zod';
 
 const id = z.string().regex(/^[a-z0-9][a-z0-9._-]{0,127}$/);
@@ -13,6 +13,7 @@ const RELEASE_FILES = Object.freeze([
   'node-macos-arm64.tar.gz', 'node-macos-x64.tar.gz',
   'provision.sh', 'start', 'manifest',
 ]);
+/** @type {readonly (readonly [prefix: string, filename: string, maximum: number])[]} */
 const ARTIFACTS = Object.freeze([
   ['artifact', 'provision.sh', 8_388_608],
   ['engine', 'install-doctor-engine.mjs', 8_388_608],
@@ -46,12 +47,22 @@ const ActivationPointer = z.strictObject({
   rollbackOfActivationId: z.string().uuid().nullable(),
 });
 
+/** @typedef {ReturnType<typeof import('./r2-publication-storage.mjs').createR2PublicationStorage>} ReleaseStorage */
+/** @typedef {Pick<ReleaseStorage, 'read' | 'create'>} ImmutableStorage */
+/** @typedef {(input: { manifest: Uint8Array, signature: Uint8Array, signerId: string }) => void | Promise<void>} VerifySignature */
+/** @typedef {{ channel: string, channelStorage: Pick<ReleaseStorage, 'read'>, releaseStorage: Pick<ReleaseStorage, 'read'>, verifySignature: VerifySignature, now?: number }} ActiveReleaseInput */
+
+/** @param {Uint8Array} bytes */
 const digest = bytes => createHash('sha256').update(bytes).digest('hex');
+/** @param {Uint8Array} left @param {Uint8Array} right */
 const equal = (left, right) => Buffer.compare(Buffer.from(left), Buffer.from(right)) === 0;
+/** @param {unknown} value */
 const canonical = value => Buffer.from(`${JSON.stringify(value)}\n`, 'utf8');
 
+/** @param {Uint8Array} bytes */
 function parseManifest(bytes) {
   if (bytes.byteLength < 1 || bytes.byteLength > 16_384) throw new Error('manifest size is outside policy');
+  /** @type {Map<string, string>} */
   const values = new Map();
   for (const line of Buffer.from(bytes).toString('utf8').split('\n')) {
     if (!line) continue;
@@ -69,16 +80,25 @@ function parseManifest(bytes) {
   return values;
 }
 
+/** @param {ReadonlyMap<string, Uint8Array>} files @param {string} name */
+function releaseFile(files, name) {
+  const bytes = files.get(name);
+  if (!bytes) throw new Error(`release object is missing: ${name}`);
+  return bytes;
+}
+
+/** @param {ReadonlyMap<string, Uint8Array>} files @param {unknown} expectedReleaseIdInput @param {{ now?: number, requireCurrent?: boolean }} options */
 function inspectReleaseFiles(files, expectedReleaseIdInput, options = {}) {
   const expectedReleaseId = id.parse(expectedReleaseIdInput);
   if (!(files instanceof Map) || files.size !== RELEASE_FILES.length || RELEASE_FILES.some(name => !files.has(name))) {
     throw new Error('release object set does not match the exact file allowlist');
   }
-  if (files.get('manifest.sig').byteLength > 8_192) throw new Error('manifest signature size is outside policy');
-  const manifest = parseManifest(files.get('manifest'));
+  if (releaseFile(files, 'manifest.sig').byteLength > 8_192) throw new Error('manifest signature size is outside policy');
+  const manifest = parseManifest(releaseFile(files, 'manifest'));
   if (manifest.get('schema_version') !== '5' || id.parse(manifest.get('release_id')) !== expectedReleaseId) throw new Error('manifest release identity mismatch');
-  if (!/^[a-f0-9]{40}$/.test(manifest.get('source_commit') ?? '')) throw new Error('manifest source commit is invalid');
-  id.parse(manifest.get('key_id'));
+  const sourceCommit = manifest.get('source_commit');
+  if (sourceCommit === undefined || !/^[a-f0-9]{40}$/.test(sourceCommit)) throw new Error('manifest source commit is invalid');
+  const signerId = id.parse(manifest.get('key_id'));
   const createdAt = positiveInteger.parse(manifest.get('created_at'));
   const expiresAt = positiveInteger.parse(manifest.get('expires_at'));
   const now = options.now ?? Math.floor(Date.now() / 1_000);
@@ -90,22 +110,23 @@ function inspectReleaseFiles(files, expectedReleaseIdInput, options = {}) {
     throw new Error('manifest runtime contract is invalid');
   }
   for (const [prefix, filename, maximum] of ARTIFACTS) {
-    const bytes = files.get(filename);
+    const bytes = releaseFile(files, filename);
     const size = positiveInteger.parse(manifest.get(`${prefix}_size`));
     if (size !== bytes.byteLength || size > maximum || sha256.parse(manifest.get(`${prefix}_sha256`)) !== digest(bytes)) {
       throw new Error(`manifest artifact binding mismatch: ${filename}`);
     }
-    const url = new URL(manifest.get(`${prefix}_url`));
+    const url = new URL(manifest.get(`${prefix}_url`) ?? '');
     if (url.origin !== 'https://app.install.doctor' || url.pathname !== `/releases/${expectedReleaseId}/${filename}` || url.search || url.hash) {
       throw new Error(`manifest URL binding mismatch: ${filename}`);
     }
   }
   return {
-    expectedReleaseId, signerId: manifest.get('key_id'), manifestSha256: digest(files.get('manifest')),
-    sourceCommit: manifest.get('source_commit'), createdAt, expiresAt, files,
+    expectedReleaseId, signerId, manifestSha256: digest(releaseFile(files, 'manifest')),
+    sourceCommit, createdAt, expiresAt, files,
   };
 }
 
+/** @param {string} directoryInput @param {unknown} expectedReleaseIdInput */
 export async function inspectReleaseDirectory(directoryInput, expectedReleaseIdInput) {
   const directory = resolve(directoryInput);
   const directoryInfo = await lstat(directory);
@@ -122,6 +143,7 @@ export async function inspectReleaseDirectory(directoryInput, expectedReleaseIdI
   return { directory, ...inspectReleaseFiles(files, expectedReleaseIdInput) };
 }
 
+/** @param {ImmutableStorage} storage @param {string} key @param {Uint8Array} bytes @param {string} contentType */
 async function createAndVerify(storage, key, bytes, contentType) {
   const created = await storage.create(key, bytes, { contentType, sha256: digest(bytes) });
   const stored = await storage.read(key);
@@ -130,12 +152,14 @@ async function createAndVerify(storage, key, bytes, contentType) {
   return created ? 'created' : 'already-present';
 }
 
+/** @param {{ directory: string, expectedReleaseId: string, storage: ImmutableStorage, verifySignature: VerifySignature }} input */
 export async function publishRelease({ directory, expectedReleaseId, storage, verifySignature }) {
   if (typeof storage?.create !== 'function' || typeof storage?.read !== 'function') throw new Error('publication storage adapter is invalid');
   if (typeof verifySignature !== 'function') throw new Error('signature verifier is required');
   const release = await inspectReleaseDirectory(directory, expectedReleaseId);
-  await verifySignature({ manifest: release.files.get('manifest'), signature: release.files.get('manifest.sig'), signerId: release.signerId });
+  await verifySignature({ manifest: releaseFile(release.files, 'manifest'), signature: releaseFile(release.files, 'manifest.sig'), signerId: release.signerId });
   const outcomes = [];
+  /** @type {Partial<Record<string, string>>} */
   const contentTypes = {
     'manifest.sig': 'application/octet-stream', 'provision.sh': 'text/x-shellscript; charset=utf-8',
     'start': 'text/x-shellscript; charset=utf-8',
@@ -143,15 +167,16 @@ export async function publishRelease({ directory, expectedReleaseId, storage, ve
     'catalog.json': 'application/json; charset=utf-8',
   };
   for (const name of RELEASE_FILES.filter(name => name !== 'manifest')) {
-    const outcome = await createAndVerify(storage, `bootstrap/${release.expectedReleaseId}/${name}`, release.files.get(name), contentTypes[name] ?? 'application/gzip');
+    const outcome = await createAndVerify(storage, `bootstrap/${release.expectedReleaseId}/${name}`, releaseFile(release.files, name), contentTypes[name] ?? 'application/gzip');
     outcomes.push({ name, outcome });
   }
   outcomes.push({ name: 'manifest', outcome: await createAndVerify(
-    storage, `bootstrap/${release.expectedReleaseId}/manifest`, release.files.get('manifest'), 'application/vnd.install-doctor.release-manifest',
+    storage, `bootstrap/${release.expectedReleaseId}/manifest`, releaseFile(release.files, 'manifest'), 'application/vnd.install-doctor.release-manifest',
   ) });
   return Object.freeze({ schemaVersion: 1, releaseId: release.expectedReleaseId, signerId: release.signerId, manifestSha256: release.manifestSha256, outcomes });
 }
 
+/** @param {{ expectedReleaseId: string, storage: Pick<ReleaseStorage, "read">, verifySignature: VerifySignature, now?: number }} input */
 export async function inspectPublishedRelease({ expectedReleaseId, storage, verifySignature, now = Math.floor(Date.now() / 1_000) }) {
   if (typeof storage?.read !== 'function' || typeof verifySignature !== 'function') throw new Error('published release inspection dependencies are invalid');
   const files = new Map();
@@ -161,7 +186,7 @@ export async function inspectPublishedRelease({ expectedReleaseId, storage, veri
     files.set(name, Buffer.from(stored.bytes));
   }
   const release = inspectReleaseFiles(files, expectedReleaseId, { now });
-  await verifySignature({ manifest: files.get('manifest'), signature: files.get('manifest.sig'), signerId: release.signerId });
+  await verifySignature({ manifest: releaseFile(files, 'manifest'), signature: releaseFile(files, 'manifest.sig'), signerId: release.signerId });
   return Object.freeze({
     schemaVersion: 1, releaseId: release.expectedReleaseId, signerId: release.signerId,
     manifestSha256: release.manifestSha256, sourceCommit: release.sourceCommit,
@@ -169,6 +194,7 @@ export async function inspectPublishedRelease({ expectedReleaseId, storage, veri
   });
 }
 
+/** @param {ActiveReleaseInput & { now: number }} input */
 async function readActiveRelease({ channel, channelStorage, releaseStorage, verifySignature, now }) {
   const channelId = id.parse(channel);
   const pointerObject = await channelStorage.read(`bootstrap/channels/${channelId}.json`);
@@ -187,10 +213,11 @@ async function readActiveRelease({ channel, channelStorage, releaseStorage, veri
   const release = inspectReleaseFiles(files, pointer.releaseId, { now, requireCurrent: false });
   if (release.manifestSha256 !== pointer.manifestSha256) throw new Error('active release manifest digest mismatch');
   if (release.signerId !== pointer.signerId) throw new Error('active release signer identity mismatch');
-  await verifySignature({ manifest: files.get('manifest'), signature: files.get('manifest.sig'), signerId: release.signerId });
+  await verifySignature({ manifest: releaseFile(files, 'manifest'), signature: releaseFile(files, 'manifest.sig'), signerId: release.signerId });
   return Object.freeze({ channelId, pointer, pointerEtag: pointerObject.etag, release, files });
 }
 
+/** @param {ActiveReleaseInput & { renewalWindowSeconds?: number }} input */
 export async function inspectActiveReleaseFreshness({
   channel, channelStorage, releaseStorage, verifySignature,
   now = Math.floor(Date.now() / 1_000), renewalWindowSeconds = 259_200,
@@ -213,10 +240,12 @@ export async function inspectActiveReleaseFreshness({
   });
 }
 
+/** @param {number} value */
 function utcDay(value) {
   return new Date(value * 1_000).toISOString().slice(0, 10).replaceAll('-', '');
 }
 
+/** @param {ActiveReleaseInput & { newReleaseId: string, createdAt: number, expiresAt: number }} input */
 export async function prepareSamePayloadRenewal({
   channel, channelStorage, releaseStorage, verifySignature, newReleaseId, createdAt, expiresAt, now = Math.floor(Date.now() / 1_000),
 }) {
@@ -236,7 +265,7 @@ export async function prepareSamePayloadRenewal({
     ['release_id', newReleaseId], ['created_at', String(createdAt)], ['expires_at', String(expiresAt)],
   ]);
   for (const [prefix, filename] of ARTIFACTS) replacements.set(`${prefix}_url`, `https://app.install.doctor/releases/${newReleaseId}/${filename}`);
-  const sourceLauncher = active.files.get('start').toString('utf8');
+  const sourceLauncher = Buffer.from(releaseFile(active.files, 'start')).toString('utf8');
   const renewedLauncher = sourceLauncher
     .replaceAll(`/releases/${active.release.expectedReleaseId}/manifest`, `/releases/${newReleaseId}/manifest`)
     .replace(`readonly EXPECTED_RELEASE_ID='${active.release.expectedReleaseId}'`, `readonly EXPECTED_RELEASE_ID='${newReleaseId}'`);
@@ -246,7 +275,7 @@ export async function prepareSamePayloadRenewal({
   const renewedLauncherBytes = Buffer.from(renewedLauncher, 'utf8');
   replacements.set('launcher_sha256', digest(renewedLauncherBytes));
   replacements.set('launcher_size', String(renewedLauncherBytes.byteLength));
-  const sourceLines = active.files.get('manifest').toString('utf8').split('\n');
+  const sourceLines = Buffer.from(releaseFile(active.files, 'manifest')).toString('utf8').split('\n');
   const targetLines = sourceLines.map(line => {
     if (!line) return line;
     const separator = line.indexOf('=');
@@ -256,10 +285,10 @@ export async function prepareSamePayloadRenewal({
   const files = new Map();
   for (const name of RELEASE_FILES.filter(name => name !== 'manifest.sig')) {
     files.set(name, name === 'manifest' ? Buffer.from(targetLines.join('\n'), 'utf8')
-      : name === 'start' ? renewedLauncherBytes : Buffer.from(active.files.get(name)));
+      : name === 'start' ? renewedLauncherBytes : Buffer.from(releaseFile(active.files, name)));
   }
   const validationFiles = new Map(files);
-  validationFiles.set('manifest.sig', active.files.get('manifest.sig'));
+  validationFiles.set('manifest.sig', releaseFile(active.files, 'manifest.sig'));
   const renewed = inspectReleaseFiles(validationFiles, newReleaseId, { now, requireCurrent: true });
   if (renewed.sourceCommit !== active.release.sourceCommit || renewed.signerId !== active.release.signerId) {
     throw new Error('release renewal changed invariant source authority');
@@ -270,12 +299,19 @@ export async function prepareSamePayloadRenewal({
     sourceEtag: active.pointerEtag, sourceManifestSha256: active.release.manifestSha256,
     sourceCommit: active.release.sourceCommit, releaseId: newReleaseId, createdAt, expiresAt,
     payloads: Object.freeze(RENEWAL_PAYLOADS.map(([, filename]) => Object.freeze({
-      filename, sha256: digest(active.files.get(filename)), size: active.files.get(filename).byteLength,
+      filename, sha256: digest(releaseFile(active.files, filename)), size: releaseFile(active.files, filename).byteLength,
     }))),
     sourceFiles: new Map([...active.files].map(([name, bytes]) => [name, Buffer.from(bytes)])), files,
   });
 }
 
+/**
+ * @param {{
+ *   renewalPlan: unknown, channelStorage: ReleaseStorage, releaseStorage: Pick<ReleaseStorage, 'read'>,
+ *   verifySignature: VerifySignature, activationId: string, activatedAt: string,
+ *   now?: number, minimumRemainingSeconds?: number,
+ * }} input
+ */
 export async function activateSamePayloadRenewal({
   renewalPlan, channelStorage, releaseStorage, verifySignature, activationId, activatedAt,
   now = Math.floor(Date.now() / 1_000), minimumRemainingSeconds = 345_600,
@@ -331,14 +367,14 @@ export async function activateSamePayloadRenewal({
     throw new Error('renewal target authority does not match the active source');
   }
   for (const [, filename] of RENEWAL_PAYLOADS) {
-    if (!equal(active.files.get(filename), target.files.get(filename))) throw new Error(`renewal target changed payload bytes: ${filename}`);
+    if (!equal(releaseFile(active.files, filename), releaseFile(target.files, filename))) throw new Error(`renewal target changed payload bytes: ${filename}`);
     const binding = plan.payloads.find(item => item.filename === filename);
-    if (!binding || binding.sha256 !== digest(target.files.get(filename)) || binding.size !== target.files.get(filename).byteLength) {
+    if (!binding || binding.sha256 !== digest(releaseFile(target.files, filename)) || binding.size !== releaseFile(target.files, filename).byteLength) {
       throw new Error(`renewal activation plan payload binding mismatch: ${filename}`);
     }
   }
-  const sourceManifest = parseManifest(active.files.get('manifest'));
-  const targetManifest = parseManifest(target.files.get('manifest'));
+  const sourceManifest = parseManifest(releaseFile(active.files, 'manifest'));
+  const targetManifest = parseManifest(releaseFile(target.files, 'manifest'));
   const allowedChanges = new Set(['release_id', 'created_at', 'expires_at', 'launcher_sha256', 'launcher_size', ...ARTIFACTS.map(([prefix]) => `${prefix}_url`)]);
   for (const key of REQUIRED_MANIFEST_KEYS) {
     if (!allowedChanges.has(key) && sourceManifest.get(key) !== targetManifest.get(key)) throw new Error(`renewal target changed invariant manifest field: ${key}`);
@@ -349,6 +385,7 @@ export async function activateSamePayloadRenewal({
   });
 }
 
+/** @param {{ channel: string, activationId: string, storage: ImmutableStorage }} input */
 export async function reconcileActivationReceipt({ channel, activationId, storage }) {
   if (typeof storage?.read !== 'function' || typeof storage?.create !== 'function') throw new Error('activation reconciliation storage adapter is invalid');
   const channelId = id.parse(channel);
@@ -374,6 +411,14 @@ export async function reconcileActivationReceipt({ channel, activationId, storag
   return Object.freeze({ schemaVersion: 1, status: outcome === 'created' ? 'reconciled' : 'already-present', intentKey, receiptKey });
 }
 
+/**
+ * @param {{
+ *   channel: string, release: Pick<Awaited<ReturnType<typeof inspectPublishedRelease>>, 'releaseId' | 'signerId' | 'manifestSha256' | 'expiresAt'>,
+ *   storage: ReleaseStorage, expectedEtag?: string, activationId: string, activatedAt: string,
+ *   kind?: 'promote' | 'rollback', rollbackOfActivationId?: string | null,
+ *   now?: number, minimumPromotionRemainingSeconds?: number, minimumRollbackRemainingSeconds?: number,
+ * }} input
+ */
 export async function activateRelease({
   channel, release, storage, expectedEtag, activationId, activatedAt, kind = 'promote', rollbackOfActivationId = null,
   now = Math.floor(Date.now() / 1_000), minimumPromotionRemainingSeconds = 345_600,
@@ -406,7 +451,7 @@ export async function activateRelease({
   }
   if ((kind === 'rollback') !== (rollbackOfActivationId !== null)) throw new Error('rollback activation must identify the activation it rolls back');
   if (kind === 'rollback') {
-    if (!previous || rollbackOfActivationId !== previous.activationId) throw new Error('rollback must identify the current activation');
+    if (!current || !previous || rollbackOfActivationId !== previous.activationId) throw new Error('rollback must identify the current activation');
     const currentPointer = ActivationPointer.parse(JSON.parse(Buffer.from(current.bytes).toString('utf8')));
     if (!currentPointer.previous || release.releaseId !== currentPointer.previous.releaseId || release.manifestSha256 !== currentPointer.previous.manifestSha256) {
       throw new Error('rollback target must be the exact prior activated release');
