@@ -29,7 +29,8 @@ const ControllerInput = z.strictObject({
   deviceApproval: SignedBrokerApproval.optional(),
   brokerApprovalDelegationPath: runtimePath.optional(),
   brokerApprovalDelegationDigest: digest.optional(),
-  brokerApprovalMinimumRevocationEpoch: z.number().int().nonnegative().safe().optional(),
+  // Keep the original validation issues for out-of-range epochs.
+  brokerApprovalMinimumRevocationEpoch: z.number().int().nonnegative().int().optional(),
 });
 
 function commonRefinement(value: z.infer<typeof ControllerInput>, context: z.RefinementCtx): void {
