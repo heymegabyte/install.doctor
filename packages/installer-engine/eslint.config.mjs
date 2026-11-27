@@ -71,7 +71,6 @@ const pendingSourceFiles = [
   'src/qubes-fixture-contract.ts',
   'src/qubes-native-lifecycle.ts',
   'src/reboot-coordination.ts',
-  'src/renderers.ts',
   'src/reviewed-plan-binding.ts',
   'src/rollback-executor.ts',
   'src/rollback-journal.ts',
