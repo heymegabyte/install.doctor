@@ -7,6 +7,7 @@ import {
   WindowsNativePlanSchema,
 } from '../dist/windows-native-operations.js';
 
+/** @param {string} letter */
 const d = letter => letter.repeat(64);
 const fixture = {
   schemaVersion: 1, fixtureId: 'authorized-win11-fixture', isolation: 'disposable-vm', platform: 'win32', architecture: 'x64',

@@ -46,6 +46,7 @@
     "test/telemetry.test.mjs",
     "test/ups-power-coordination.test.mjs",
     "test/windows-fixture-contract.test.mjs",
+    "test/windows-native-operations.test.mjs",
     "test/workload-usability-guard.test.mjs"
   ]
 }
