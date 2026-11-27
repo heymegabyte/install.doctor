@@ -95,6 +95,23 @@ for (const workload of ['projectsites.dev', 'swarml.ink', 'mcp.megabyte.space'])
 for (const host of Object.keys(manifest.hosts)) {
   assert.deepEqual(selectHostSecrets(manifest, host, ['BRANDFETCH_API_KEY']), []);
 }
+assert.deepEqual(
+  selectConfigurationSecrets(
+    manifest,
+    manifest.workloads['njsk-slack-notifications'],
+    ['SLACK_WEBHOOK_URL'],
+  ),
+  ['SLACK_WEBHOOK_URL'],
+);
+for (const workload of ['projectsites.dev', 'swarml.ink', 'mcp.megabyte.space', 'cloudflare-control-plane.megabyte.space']) {
+  assert.deepEqual(
+    selectConfigurationSecrets(manifest, manifest.workloads[workload], ['SLACK_WEBHOOK_URL']),
+    [],
+  );
+}
+for (const host of Object.keys(manifest.hosts)) {
+  assert.deepEqual(selectHostSecrets(manifest, host, ['SLACK_WEBHOOK_URL']), []);
+}
 assert.deepEqual(selectConfigurationSecrets(
   manifest, manifest.workloads['crawl.cheap'], ['EXA_API_KEY', 'SENTRY_DSN', 'ANTHROPIC_API_KEY'],
 ), ['EXA_API_KEY', 'SENTRY_DSN']);
