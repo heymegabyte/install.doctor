@@ -22,7 +22,7 @@ export UV_INDEX_URL="${MEGABYTE_NEXUS_PYPI_URL:-${MEGABYTE_LOCAL_PROXY_URL}/repo
 export UV_INSECURE_HOST="127.0.0.1:4880"
 export POETRY_CACHE_DIR="${MEGABYTE_CACHE_ROOT}/packages/poetry"
 export GOMODCACHE="${MEGABYTE_CACHE_ROOT}/packages/gomod"
-export GOPROXY="${MEGABYTE_NEXUS_GOPROXY:-${MEGABYTE_LOCAL_PROXY_URL}/repository/go-proxy/,${MEGABYTE_NEXUS_URL}/repository/go-proxy/,https://proxy.golang.org,direct}"
+export GOPROXY="${MEGABYTE_NEXUS_GOPROXY:-${MEGABYTE_LOCAL_PROXY_URL}/repository/go-proxy/}"
 export GRADLE_USER_HOME="${MEGABYTE_CACHE_ROOT}/packages/gradle"
 
 # Build & compiler caches under ~/.cache/megabyte/build

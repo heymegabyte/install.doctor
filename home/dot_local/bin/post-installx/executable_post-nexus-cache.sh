@@ -887,7 +887,7 @@ export UV_INDEX_URL="\${MEGABYTE_NEXUS_PYPI_URL:-\${MEGABYTE_LOCAL_PROXY_URL}/re
 export UV_INSECURE_HOST="127.0.0.1:${LOCAL_PROXY_PORT}"
 export POETRY_CACHE_DIR="\${MEGABYTE_CACHE_ROOT}/packages/poetry"
 export GOMODCACHE="\${MEGABYTE_CACHE_ROOT}/packages/gomod"
-export GOPROXY="\${MEGABYTE_NEXUS_GOPROXY:-\${MEGABYTE_LOCAL_PROXY_URL}/repository/go-proxy/,\${MEGABYTE_NEXUS_URL}/repository/go-proxy/,https://proxy.golang.org,direct}"
+export GOPROXY="\${MEGABYTE_NEXUS_GOPROXY:-\${MEGABYTE_LOCAL_PROXY_URL}/repository/go-proxy/}"
 export GRADLE_USER_HOME="\${MEGABYTE_CACHE_ROOT}/packages/gradle"
 export GOCACHE="\${MEGABYTE_CACHE_ROOT}/build/go-build"
 export CCACHE_DIR="\${MEGABYTE_CACHE_ROOT}/build/ccache"
@@ -983,9 +983,9 @@ git-fetch-with-cli = true
 EOF
 done
 
-# 7. Go (3-tier GOPROXY chain: local-proxy -> nexus.megabyte.space -> proxy.golang.org -> direct)
+# 7. Go uses the local adapter for default module routing.
 if command -v go >/dev/null 2>&1; then
-  go env -w GOPROXY="${LOCAL_PROXY_BASE}/repository/go-proxy/,${NEXUS_BASE}/repository/go-proxy/,https://proxy.golang.org,direct" || true
+  go env -w GOPROXY="${LOCAL_PROXY_BASE}/repository/go-proxy/" || true
   go env -w GOMODCACHE="${CACHE_ROOT}/packages/gomod" || true
   go env -w GOCACHE="${CACHE_ROOT}/build/go-build" || true
 fi
