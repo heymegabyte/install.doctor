@@ -332,14 +332,19 @@ function canonical(value) {
   }
   return value;
 }
-/** @param {unknown} value @param {string[]} keys @param {string} label */
+/** @param {unknown} value @returns {value is Record<string, unknown>} */
+function isRecord(value) {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+/** @param {unknown} value @param {string[]} keys @param {string} label @returns {asserts value is Record<string, unknown>} */
 function objectWithExactKeys(value, keys, label) {
-  if (value === null || typeof value !== 'object' || Array.isArray(value)
+  if (!isRecord(value)
     || JSON.stringify(Object.keys(value).sort(compareKeys)) !== JSON.stringify([...keys].sort(compareKeys))) {
     fail(`${label} has an invalid shape`, 65);
   }
 }
-/** @param {unknown} value @param {string} label */
+/** @param {unknown} value @param {string} label @returns {asserts value is string} */
 function boundedIdentifier(value, label) {
   if (typeof value !== 'string' || !/^[a-zA-Z0-9][a-zA-Z0-9._:/-]{0,127}$/.test(value)) fail(`${label} is invalid`, 65);
 }
@@ -359,6 +364,21 @@ function assertNonsecretJson(value, depth = 0) {
   if (typeof value === 'number' && !Number.isFinite(value)) fail('provisioning context number is invalid', 65);
 }
 
+/** @param {unknown} value @param {string} label */
+function sortedProvisioningIdentifiers(value, label) {
+  const message = `${label} must be a sorted unique bounded list`;
+  if (!Array.isArray(value) || value.length > 128) fail(message, 65);
+  /** @type {string[]} */
+  const result = [];
+  for (const item of /** @type {unknown[]} */ (value)) {
+    try { boundedIdentifier(item, label); } catch { fail(message, 65); }
+    const previous = result.at(-1);
+    if (previous !== undefined && previous >= item) fail(message, 65);
+    result.push(item);
+  }
+  return result;
+}
+
 /** @param {string} contextPath @param {string} stateDirectory */
 async function prepareProvisioningPrompt(contextPath, stateDirectory) {
   const path = absoluteSafePath(contextPath, 'provisioning context');
@@ -366,30 +386,33 @@ async function prepareProvisioningPrompt(contextPath, stateDirectory) {
   if (!metadata.isFile() || metadata.isSymbolicLink() || metadata.nlink !== 1 || metadata.size < 1 || metadata.size > 262_144) {
     fail('provisioning context must be one bounded regular file', 65);
   }
+  /** @type {unknown} */
   let context;
   try { context = JSON.parse(await readFile(path, 'utf8')); } catch { fail('provisioning context must be valid JSON', 65); }
   objectWithExactKeys(context, ['schemaVersion', 'promptVersion', 'promptDigest', 'profile', 'release', 'discoveredFacts', 'policy', 'capabilities', 'permittedTools', 'contextDigest'], 'provisioning context');
-  objectWithExactKeys(context.profile, ['id', 'revision', 'digest'], 'profile binding');
-  objectWithExactKeys(context.release, ['id', 'version', 'digest'], 'release binding');
-  if (context.schemaVersion !== 1 || context.promptVersion !== PROVISIONING_PROMPT_VERSION) fail('unsupported provisioning prompt context version', 65);
-  for (const [label, value] of [['profile id', context.profile.id], ['profile revision', context.profile.revision], ['release id', context.release.id], ['release version', context.release.version]]) boundedIdentifier(value, label);
-  for (const value of [context.promptDigest, context.contextDigest, context.profile.digest, context.release.digest]) if (!digestPattern.test(value || '')) fail('provisioning context digest is invalid', 65);
-  for (const [label, values] of [['capabilities', context.capabilities], ['permitted tools', context.permittedTools]]) {
-    if (!Array.isArray(values) || values.length > 128 || values.some((value, index) => {
-      try { boundedIdentifier(value, label); } catch { return true; }
-      return index > 0 && values[index - 1] >= value;
-    })) fail(`${label} must be a sorted unique bounded list`, 65);
+  const { profile, release, policy, promptVersion } = context;
+  objectWithExactKeys(profile, ['id', 'revision', 'digest'], 'profile binding');
+  objectWithExactKeys(release, ['id', 'version', 'digest'], 'release binding');
+  if (context.schemaVersion !== 1 || promptVersion !== PROVISIONING_PROMPT_VERSION) fail('unsupported provisioning prompt context version', 65);
+  boundedIdentifier(profile.id, 'profile id');
+  boundedIdentifier(profile.revision, 'profile revision');
+  boundedIdentifier(release.id, 'release id');
+  boundedIdentifier(release.version, 'release version');
+  for (const value of [context.promptDigest, context.contextDigest, profile.digest, release.digest]) {
+    if (typeof value !== 'string' || !digestPattern.test(value)) fail('provisioning context digest is invalid', 65);
   }
-  if (context.permittedTools.some((/** @type {string} */ tool) => !approvedTools.includes(tool))) fail('provisioning context permits an unapproved tool', 77);
+  const capabilities = sortedProvisioningIdentifiers(context.capabilities, 'capabilities');
+  const permittedTools = sortedProvisioningIdentifiers(context.permittedTools, 'permitted tools');
+  if (permittedTools.some(tool => !approvedTools.includes(tool))) fail('provisioning context permits an unapproved tool', 77);
   assertNonsecretJson(context.discoveredFacts);
-  assertNonsecretJson(context.policy);
+  assertNonsecretJson(policy);
   const promptDigest = createHash('sha256').update(PROVISIONING_PROMPT, 'utf8').digest('hex');
   if (context.promptDigest !== promptDigest) fail('provisioning prompt digest mismatch', 65);
-  const unsigned = { ...context }; delete unsigned.contextDigest;
+  const { contextDigest: expectedContextDigest, ...unsigned } = context;
   const canonicalContext = `${JSON.stringify(canonical(unsigned))}\n`;
   const canonicalFullContext = `${JSON.stringify(canonical(context))}\n`;
   const contextDigest = createHash('sha256').update(canonicalContext, 'utf8').digest('hex');
-  if (context.contextDigest !== contextDigest) fail('provisioning context digest mismatch', 65);
+  if (expectedContextDigest !== contextDigest) fail('provisioning context digest mismatch', 65);
   const promptDirectory = join(stateDirectory, 'config', 'prompts', contextDigest);
   await mkdir(promptDirectory, { recursive: true, mode: 0o700 });
   await chmod(promptDirectory, 0o700);
@@ -403,9 +426,7 @@ async function prepareProvisioningPrompt(contextPath, stateDirectory) {
   await chmod(evidenceDirectory, 0o700);
   const evidencePath = join(evidenceDirectory, `${contextDigest}.json`);
   const evidence = `${JSON.stringify(canonical({
-    schemaVersion: 1, state: 'recorded-before-execution', promptVersion: context.promptVersion,
-    promptDigest, contextDigest, profile: context.profile, release: context.release,
-    capabilities: context.capabilities, permittedTools: context.permittedTools,
+    schemaVersion: 1, state: 'recorded-before-execution', promptVersion, promptDigest, contextDigest, profile, release, capabilities, permittedTools,
   }))}\n`;
   let evidenceHandle;
   try {
@@ -416,7 +437,8 @@ async function prepareProvisioningPrompt(contextPath, stateDirectory) {
     if (errorProperty(error, 'code') !== 'EEXIST') throw error;
     if (await readFile(evidencePath, 'utf8') !== evidence) fail('provisioning prompt evidence collision', 73);
   } finally { await evidenceHandle?.close(); }
-  return { context, promptPath, contextOutputPath, evidencePath };
+  return { context: { ...context, promptVersion, promptDigest, contextDigest, profile, release, policy, capabilities, permittedTools },
+    promptPath, contextOutputPath, evidencePath };
 }
 
 /** @param {string} source @param {string} destination @param {string} expectedDigest @param {number} mode */
@@ -638,7 +660,7 @@ async function prepareToolRuntime(values, stateDirectory, promptBinding, session
     || toolContext.authorizationId !== session.authorization.id
     || toolContext.releaseId !== promptBinding.context.release.id || toolContext.releaseDigest !== promptBinding.context.release.digest
     || toolContext.profileRevision !== promptBinding.context.profile.revision || toolContext.profileDigest !== promptBinding.context.profile.digest
-    || promptBinding.context.policy?.toolContextDigest !== contextDigest) fail('tool context is not bound to the verified provisioning session', 77);
+    || (!isRecord(promptBinding.context.policy) || promptBinding.context.policy.toolContextDigest !== contextDigest)) fail('tool context is not bound to the verified provisioning session', 77);
   const context = await installPinnedFile(contextSource, join(stateDirectory, 'config', `tool-context-${contextDigest}.json`), contextDigest, 0o600);
   const consentDirectory = join(stateDirectory, 'run', 'consents');
   await mkdir(consentDirectory, { recursive: true, mode: 0o700 }); await chmod(consentDirectory, 0o700);
