@@ -3,11 +3,19 @@ import { EventEmitter } from 'node:events';
 import test from 'node:test';
 import { createTerminalController } from '../dist/terminal-controller.js';
 
+/** @typedef {Parameters<typeof createTerminalController>[0]} ControllerOptions */
+/** @typedef {Partial<Omit<ControllerOptions, 'input' | 'output' | 'signals'>> & { input?: FakeInput, output?: FakeOutput, signals?: EventEmitter }} FixtureOverrides */
+
 class FakeInput extends EventEmitter {
+  /** @type {boolean[]} */
+  rawCalls = [];
+
+  /** @param {{ tty?: boolean, raw?: boolean, paused?: boolean, flowing?: boolean | null }} options */
   constructor({ tty = true, raw = false, paused = true, flowing = false } = {}) {
-    super(); this.isTTY = tty; this.isRaw = raw; this.paused = paused; this.readableFlowing = flowing; this.rawCalls = [];
+    super(); this.isTTY = tty; this.isRaw = raw; this.paused = paused; this.readableFlowing = flowing;
   }
   isPaused() { return this.paused; }
+  /** @param {boolean} value */
   setRawMode(value) { this.isRaw = value; this.rawCalls.push(value); }
   resume() { this.paused = false; this.readableFlowing = true; return this; }
   pause() { this.paused = true; this.readableFlowing = false; return this; }
@@ -15,11 +23,20 @@ class FakeInput extends EventEmitter {
 
 class FakeOutput { constructor({ tty = true, columns = 80, rows = 24 } = {}) { this.isTTY = tty; this.columns = columns; this.rows = rows; } }
 
+/** @param {FixtureOverrides} overrides */
 function setup(overrides = {}) {
   const input = overrides.input ?? new FakeInput();
   const output = overrides.output ?? new FakeOutput();
   const signals = overrides.signals ?? new EventEmitter();
-  const intents = []; const widths = []; const heights = []; const filters = []; let cancels = 0;
+  /** @type {Array<Parameters<ControllerOptions['onIntent']>[0]>} */
+  const intents = [];
+  /** @type {number[]} */
+  const widths = [];
+  /** @type {number[]} */
+  const heights = [];
+  /** @type {string[]} */
+  const filters = [];
+  let cancels = 0;
   const controller = createTerminalController({
     input, output, signals, environment: overrides.environment ?? { TERM: 'xterm-256color' },
     onIntent: overrides.onIntent ?? (intent => intents.push(intent)),

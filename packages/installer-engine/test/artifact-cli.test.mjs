@@ -12,8 +12,10 @@ const artifactSha256 = createHash('sha256').update(bytes).digest('hex');
 const hostOs = process.platform;
 const hostArch = process.arch;
 const planPlatform = hostOs === 'darwin' ? 'macos' : hostOs === 'win32' ? 'windows' : 'linux';
+/** @param {string} value */
 const digest = value => createHash('sha256').update(value).digest('hex');
 
+/** @param {import('node:test').TestContext} t */
 async function fixture(t, existingRoots = true) {
   const root = await realpath(await mkdtemp(join(tmpdir(), 'install-doctor-artifact-cli-')));
   t.after(() => rm(root, { recursive: true, force: true }));
@@ -43,6 +45,7 @@ async function fixture(t, existingRoots = true) {
 }
 
 const cli = new URL('../dist/cli.js', import.meta.url).pathname;
+/** @param {string} root @param {string} name @param {unknown} invocation */
 async function invoke(root, name, invocation, extraEnv = {}) {
   const input = join(root, `${name}.json`);
   await writeFile(input, `${JSON.stringify(invocation)}\n`, { mode: 0o600 });
@@ -64,9 +67,11 @@ test('batch derive, approve, prepare, and run preserve one normalized plan ident
   assert.equal(derivedResult.json.artifacts.length, 1);
   assert.deepEqual(derivedResult.json.migratedArtifactPackages, ['fixture-tool']);
   assert.deepEqual(derivedResult.json.remainingLegacyPackages, []);
+  /** @type {Awaited<ReturnType<typeof import('../dist/index.js').derivePlannedArtifactOperations>>} */
   const derived = derivedResult.json.artifacts[0];
-  await assert.rejects(readFile(derived.candidatePath), error => error.code === 'ENOENT');
+  await assert.rejects(readFile(derived.candidatePath), error => error instanceof Error && 'code' in error && error.code === 'ENOENT');
 
+  /** @type {Record<string, unknown>} */
   const operations = Object.fromEntries(Object.entries(derived.operations).map(([phase, operation]) => [`artifact-${phase}`, operation]));
   const directoryTasks = derived.directoryRequirements.map((requirement, index) => {
     const id = `directory.${index}`;
@@ -108,7 +113,7 @@ test('batch derive, approve, prepare, and run preserve one normalized plan ident
   });
   assert.notEqual(wrongApproval.status, 0);
   assert.match(wrongApproval.stderr, /exact normalized plan approval/i);
-  await assert.rejects(readFile(derived.candidatePath), error => error.code === 'ENOENT');
+  await assert.rejects(readFile(derived.candidatePath), error => error instanceof Error && 'code' in error && error.code === 'ENOENT');
 
   await writeFile(derived.candidatePath, bytes, { mode: 0o600 });
   await chmod(derived.candidatePath, 0o600);
@@ -137,9 +142,11 @@ test('one approved fresh-host graph creates roots before descriptor-bound apply 
   };
   const derivedResult = await invoke(state.root, 'fresh-derive', { schemaVersion: 1, command: 'artifact-derive', ...authority, legacyPackages: ['fixture-tool'] });
   assert.equal(derivedResult.status, 0, derivedResult.stderr);
+  /** @type {Awaited<ReturnType<typeof import('../dist/index.js').derivePlannedArtifactOperations>>} */
   const derived = derivedResult.json.artifacts[0];
   assert.deepEqual(derived.directoryRequirements.map(item => [item.kind, item.exists]), [['cache', false], ['destination', false]]);
 
+  /** @type {Record<string, unknown>} */
   const operations = Object.fromEntries(Object.entries(derived.operations).map(([phase, operation]) => [`artifact-${phase}`, operation]));
   const directoryTasks = derived.directoryRequirements.map((requirement, index) => {
     const id = `fresh-directory.${index}`;
@@ -177,8 +184,8 @@ test('one approved fresh-host graph creates roots before descriptor-bound apply 
   };
   const plan = await invoke(state.root, 'fresh-plan', { ...common, command: 'plan' });
   assert.equal(plan.status, 0, plan.stderr);
-  await assert.rejects(readFile(state.cacheRoot), error => error.code === 'ENOENT');
-  await assert.rejects(readFile(state.destinationRoot), error => error.code === 'ENOENT');
+  await assert.rejects(readFile(state.cacheRoot), error => error instanceof Error && 'code' in error && error.code === 'ENOENT');
+  await assert.rejects(readFile(state.destinationRoot), error => error instanceof Error && 'code' in error && error.code === 'ENOENT');
 
   const preload = join(state.root, 'fetch-mock.mjs');
   await writeFile(preload, `globalThis.fetch = async () => new Response(Buffer.from('${bytes.toString('base64')}', 'base64'), { status: 200, headers: { 'content-length': '${bytes.length}' } });\n`, { mode: 0o600 });
@@ -213,6 +220,7 @@ test('artifact preparation rejects surplus and unselected managed operations bef
   const derived = (await invoke(state.root, 'derive-closure', {
     schemaVersion: 1, command: 'artifact-derive', ...authority, legacyPackages: ['fixture-tool'],
   })).json.artifacts[0];
+  /** @type {Record<string, unknown>} */
   const operations = Object.fromEntries(Object.entries(derived.operations).map(([phase, operation]) => [`artifact-${phase}`, operation]));
   operations.surplus = { ...derived.operations.check, action: 'check' };
   const task = {
@@ -234,7 +242,7 @@ test('artifact preparation rejects surplus and unselected managed operations bef
   });
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, /unreferenced managed artifact operation|surplus managed artifact operation/i);
-  await assert.rejects(readFile(derived.candidatePath), error => error.code === 'ENOENT');
+  await assert.rejects(readFile(derived.candidatePath), error => error instanceof Error && 'code' in error && error.code === 'ENOENT');
 });
 
 test('artifact derive emits an authoritative unchanged legacy partition when no selected artifact exists', { skip: hostOs === 'win32' }, async t => {

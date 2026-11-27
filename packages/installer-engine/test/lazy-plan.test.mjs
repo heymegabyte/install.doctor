@@ -3,10 +3,16 @@ import test from 'node:test';
 import { migrateLegacySoftwareCatalogEntry } from '../../aid-core/dist/software-catalog.js';
 import { buildLoadPlan } from '../dist/index.js';
 
+/** @typedef {import('../dist/lazy-plan.js').LoadPlanInput} LoadPlanInput */
+/** @typedef {import('../../aid-core/dist/installer-contracts.js').NativeOfflinePayloadDescriptor} NativePayload */
+/** @typedef {Partial<Omit<LoadPlanInput, 'catalog'>> & {catalog?: Record<string, unknown>[]}} FixtureOverrides */
+
+/** @param {string} name @param {Record<string, unknown>} overrides */
 const entry = (name, overrides = {}) => ({
   name, bin: name, platforms: ['linux'], installMode: 'cli', loadPolicy: 'lazy',
   loadRationale: 'default-lazy', deps: [], ...overrides,
 });
+/** @param {FixtureOverrides} overrides */
 const input = overrides => ({
   schemaVersion: 1, platform: 'linux', architecture: 'x64', roles: ['workstation'], selectedPackages: [], selectedServices: [],
   selectedSupportedPaths: [], lazyResolverRequirements: ['resolver'],
@@ -22,6 +28,7 @@ const input = overrides => ({
   ],
   ...overrides,
 });
+/** @param {Partial<NativePayload>} overrides @returns {NativePayload} */
 const nativeOfflinePayload = (overrides = {}) => ({
   schemaVersion: 1,
   kind: 'native-offline-package',
@@ -60,20 +67,20 @@ test('builds a deterministic selected closure and never starts an unselected ser
   assert.equal(first.digest, second.digest);
   assert.deepEqual(first.installOrder, ['resolver', 'security', 'dependency', 'tool']);
   assert.deepEqual(first.startOrder, []);
-  assert.equal(first.items.find(item => item.name === 'dependency').selectionReason, 'transactional-prerequisite');
-  assert.equal(first.items.find(item => item.name === 'worker').selectionReason, 'unselected-service');
-  assert.deepEqual(first.items.find(item => item.name === 'worker').actions, []);
-  assert.equal(first.items.find(item => item.name === 'mac-only').selectionReason, 'unsupported-platform');
+  assert.equal(first.items.find(item => item.name === 'dependency')?.selectionReason, 'transactional-prerequisite');
+  assert.equal(first.items.find(item => item.name === 'worker')?.selectionReason, 'unselected-service');
+  assert.deepEqual(first.items.find(item => item.name === 'worker')?.actions, []);
+  assert.equal(first.items.find(item => item.name === 'mac-only')?.selectionReason, 'unsupported-platform');
 });
 
 test('carries system-identity reconciliation authority without selecting the package', () => {
   const catalog = input({}).catalog.map(candidate => candidate.name === 'tool'
     ? { ...candidate, systemIdentityReconciliation: true } : candidate);
   const unselected = buildLoadPlan(input({ catalog }));
-  assert.equal(unselected.items.find(item => item.name === 'tool').systemIdentityReconciliation, true);
-  assert.equal(unselected.items.find(item => item.name === 'tool').selected, false);
+  assert.equal(unselected.items.find(item => item.name === 'tool')?.systemIdentityReconciliation, true);
+  assert.equal(unselected.items.find(item => item.name === 'tool')?.selected, false);
   const selected = buildLoadPlan(input({ catalog, selectedPackages: ['tool'] }));
-  assert.equal(selected.items.find(item => item.name === 'tool').systemIdentityReconciliation, true);
+  assert.equal(selected.items.find(item => item.name === 'tool')?.systemIdentityReconciliation, true);
   assert.notEqual(selected.digest, buildLoadPlan(input({ selectedPackages: ['tool'] })).digest);
 });
 
@@ -81,7 +88,7 @@ test('binds post-install privilege authority and rejects incomplete declarations
   const catalog = input({}).catalog.map(candidate => candidate.name === 'tool'
     ? { ...candidate, configured: true, postInstall: 'post-tool.sh', postInstallPrivilege: 'user' } : candidate);
   const report = buildLoadPlan(input({ selectedPackages: ['tool'], catalog }));
-  assert.equal(report.items.find(item => item.name === 'tool').postInstallPrivilege, 'user');
+  assert.equal(report.items.find(item => item.name === 'tool')?.postInstallPrivilege, 'user');
   assert.notEqual(report.digest, buildLoadPlan(input({ selectedPackages: ['tool'] })).digest);
   assert.throws(() => buildLoadPlan(input({
     catalog: input({}).catalog.map(candidate => candidate.name === 'tool'
@@ -96,10 +103,10 @@ test('binds post-install privilege authority and rejects incomplete declarations
 test('selects a desired service and a supported-path exception explicitly', () => {
   const report = buildLoadPlan(input({ selectedServices: ['worker'], selectedSupportedPaths: ['developer'] }));
   assert.deepEqual(report.startOrder, ['worker']);
-  assert.deepEqual(report.items.find(item => item.name === 'worker').actions, ['install', 'start']);
-  assert.deepEqual(report.items.find(item => item.name === 'worker').serviceDeclarations,
+  assert.deepEqual(report.items.find(item => item.name === 'worker')?.actions, ['install', 'start']);
+  assert.deepEqual(report.items.find(item => item.name === 'worker')?.serviceDeclarations,
     [{ name: 'worker.service', privilege: 'admin', packageProvider: 'apt', manager: 'systemd' }]);
-  assert.equal(report.items.find(item => item.name === 'path-tool').selectionReason, 'supported-path');
+  assert.equal(report.items.find(item => item.name === 'path-tool')?.selectionReason, 'supported-path');
 });
 
 test('requires strict service declarations without treating them as manager execution authority', () => {
@@ -172,8 +179,8 @@ test('accepts canonical strict v1 catalog entries without creating a second cata
     lazyResolverRequirements: [], selectedPackages: ['canonical-tool'], catalog: [canonical],
   }));
   assert.deepEqual(report.installOrder, ['canonical-tool']);
-  assert.equal(report.items[0].name, canonical.identity.key);
-  assert.equal(report.items[0].classification, canonical.load.policy);
+  assert.equal(report.items[0]?.name, canonical.identity.key);
+  assert.equal(report.items[0]?.classification, canonical.load.policy);
 
   assert.throws(() => buildLoadPlan(input({
     lazyResolverRequirements: [], catalog: [{ ...canonical, identity: undefined }],
@@ -261,6 +268,7 @@ test('preserves exact native payload authority only for an explicitly selected l
     ? { ...candidate, offlinePayloads: [payload] } : candidate);
   const unselected = buildLoadPlan(input({ catalog }));
   const unselectedTool = unselected.items.find(item => item.name === 'tool');
+  assert.ok(unselectedTool);
   assert.equal(unselectedTool.selected, false);
   assert.equal(unselectedTool.selectionReason, 'unselected-lazy');
   assert.equal(unselectedTool.nativePayload, null, 'an unselected lazy package must not acquire payload materialization authority');
@@ -268,6 +276,7 @@ test('preserves exact native payload authority only for an explicitly selected l
 
   const selected = buildLoadPlan(input({ selectedPackages: ['tool'], catalog }));
   const selectedTool = selected.items.find(item => item.name === 'tool');
+  assert.ok(selectedTool);
   assert.equal(selectedTool.selected, true);
   assert.deepEqual(selectedTool.nativePayload, payload);
   assert.notEqual(selected.digest, unselected.digest);
@@ -293,6 +302,7 @@ test('preserves exact native payload authority only for an explicitly selected l
   );
   const wrongArchitecture = buildLoadPlan(input({ architecture: 'arm64', catalog }));
   const wrongArchitectureTool = wrongArchitecture.items.find(item => item.name === 'tool');
+  assert.ok(wrongArchitectureTool);
   assert.equal(wrongArchitectureTool.applicable, false);
   assert.equal(wrongArchitectureTool.nativePayload, null);
   assert.equal(wrongArchitecture.installOrder.includes('tool'), false);
@@ -309,7 +319,7 @@ test('binds the exact immutable artifact for the selected OS and architecture in
   };
   const catalog = [...input({}).catalog, entry('artifact-tool', { artifacts: [artifact] })];
   const report = buildLoadPlan(input({ selectedPackages: ['artifact-tool'], catalog }));
-  assert.deepEqual(report.items.find(item => item.name === 'artifact-tool').artifact, artifact);
+  assert.deepEqual(report.items.find(item => item.name === 'artifact-tool')?.artifact, artifact);
   const changed = buildLoadPlan(input({
     selectedPackages: ['artifact-tool'],
     catalog: [...input({}).catalog, entry('artifact-tool', { artifacts: [{ ...artifact, source: { ...artifact.source, sha256: 'b'.repeat(64) } }] })],
@@ -341,6 +351,7 @@ test('rejects missing, duplicate, mismatched, and ambiguous artifact platform au
 });
 
 test('rejects selected immutable artifacts that collide at one destination', () => {
+  /** @param {string} id @param {string} digest */
   const artifact = (id, digest) => ({
     schemaVersion: 1, id, version: '1.2.3', platform: { os: 'linux', arch: 'x64' },
     source: {

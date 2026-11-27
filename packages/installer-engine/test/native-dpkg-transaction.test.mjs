@@ -8,9 +8,21 @@ import {
   assertNativeDpkgNetworkDenied,
   createNativeDpkgTransactionRuntime,
 } from '../dist/native-dpkg-transaction.js';
+import { PolicyRcdTransactionRecordSchema } from '../dist/native-policy-rcd.js';
 
+/** @typedef {Parameters<typeof createNativeDpkgTransactionRuntime>[0]} RuntimeOptions */
+/** @typedef {Parameters<ReturnType<typeof createNativeDpkgTransactionRuntime>['apply']>[0]} RuntimeAuthority */
+/** @typedef {Parameters<RuntimeOptions['persistence']['save']>[0] | undefined} TransactionRecord */
+/** @typedef {Awaited<ReturnType<NonNullable<RuntimeOptions['queryPackage']>>>} PackageState */
+/** @typedef {Awaited<ReturnType<NonNullable<RuntimeOptions['createPolicyTransaction']>>>} PolicyTransaction */
+
+/** @param {string} character */
 const digest = character => character.repeat(64);
 
+/**
+ * @param {{ files?: Record<string, string>, interfaces?: string[] }} overrides
+ * @returns {NonNullable<Parameters<typeof assertNativeDpkgNetworkDenied>[0]>}
+ */
 function isolatedNetworkEvidence(overrides = {}) {
   const status = ['CapInh', 'CapPrm', 'CapEff', 'CapBnd', 'CapAmb']
     .map(name => `${name}:\t0000000000000000`).join('\n');
@@ -27,8 +39,9 @@ function isolatedNetworkEvidence(overrides = {}) {
   return {
     listInterfaces: async () => overrides.interfaces ?? ['gre0', 'lo', 'sit0'],
     readText: async path => {
-      if (!files.has(path)) throw new Error(`unexpected fixture read: ${path}`);
-      return files.get(path);
+      const content = files.get(path);
+      if (content === undefined) throw new Error(`unexpected fixture read: ${path}`);
+      return content;
     },
   };
 }
@@ -47,6 +60,11 @@ test('network isolation admits inert kernel tunnel devices only when NET_ADMIN a
   })), /non-loopback IPv4 route/);
 });
 
+/**
+ * @param {string} key
+ * @param {{ pre?: string[], depends?: string[], services?: string[] }} options
+ * @returns {RuntimeAuthority['rootDescriptor']}
+ */
 function descriptor(key, { pre = [], depends = [], services = [] } = {}) {
   const name = `pkg-${key}`;
   return {
@@ -79,14 +97,30 @@ function descriptor(key, { pre = [], depends = [], services = [] } = {}) {
   };
 }
 
+/**
+ * @param {RuntimeAuthority['operation']['action']} action
+ * @param {AbortSignal} signal
+ * @param {string[]} services
+ * @returns {RuntimeAuthority}
+ */
 function authority(action = 'apply', signal = new AbortController().signal, services = []) {
   const dep = descriptor('dep', { services });
   const root = descriptor('root', { pre: ['dep'], services });
+  /**
+   * @param {RuntimeAuthority['rootDescriptor']} value
+   * @returns {RuntimeAuthority['packages'][number]}
+   */
   const packageItem = value => ({
     descriptor: value,
     metadata: {
       packageName: value.package.name, packageVersion: value.package.version,
       packageArchitecture: value.package.architecture, payloadSha256: value.artifact.sha256,
+      packageFilename: value.metadataProof.packageStanza.filename,
+      inReleaseFingerprint: value.metadataProof.inRelease.signingKeyFingerprint,
+      inReleaseDate: value.metadataProof.inRelease.signedAt,
+      inReleaseValidUntil: value.metadataProof.inRelease.validUntil,
+      inReleaseMaximumDateAgeSeconds: value.metadataProof.inRelease.maximumDateAgeSeconds,
+      packagesIndexSha256: value.metadataProof.packagesIndex.sha256,
     },
     control: {
       control: {
@@ -101,28 +135,37 @@ function authority(action = 'apply', signal = new AbortController().signal, serv
     operation: { kind: 'native-package', effectClass: 'native-package', action, packageKey: 'root', payloadArtifactId: 'deb-root', expectedPackage: { name: root.package.name, version: root.package.version, architecture: root.package.architecture } },
     rootDescriptor: root,
     packages: [packageItem(dep), packageItem(root)],
-    withPayload: async (key, use) => await use({ fd: key === 'dep' ? 41 : 42 }),
+    installedWitnesses: [],
+    // The runtime borrows only the descriptor number for the injected dpkg runner.
+    withPayload: async (key, use) => await use(/** @type {import('node:fs/promises').FileHandle} */ ({ fd: key === 'dep' ? 41 : 42 })),
     context: { signal, attempt: 1, output() {} },
   };
 }
 
+/** @param {Partial<RuntimeOptions>} overrides */
 function harness(overrides = {}) {
+  /** @type {TransactionRecord} */
   let record;
+  /** @type {string[]} */
   const events = [];
+  /** @type {Map<string, PackageState>} */
   const states = new Map([
     ['pkg-dep', null], ['pkg-root', null],
   ]);
+  /** @type {PolicyTransaction} */
   const policy = {
     target: '/usr/sbin/policy-rc.d',
     async prepare() {
+      /** @type {Awaited<ReturnType<PolicyTransaction['prepare']>>} */
       const value = { schemaVersion: 1, phase: 'prepared', target: this.target, snapshot: { schemaVersion: 1, existed: false, bytesBase64: null, uid: null, gid: null, mode: null, device: null, inode: null }, helperDigest: 'c2bcd9decf63ff2c0d9f473f38bc3607900530aad80f99139855d56678456230', preparedAt: '2026-01-01T00:00:00.000Z' };
       events.push('policy:prepare'); return value;
     },
-    async activate(value) { events.push('policy:activate'); return { ...value, phase: 'active' }; },
+    async activate(value) { events.push('policy:activate'); return { ...PolicyRcdTransactionRecordSchema.parse(value), phase: 'active' }; },
     async inspect() { return { disposition: 'original' }; },
-    async restore(value) { events.push('policy:restore'); return { ...value, phase: 'restored' }; },
-    async reconcile(value) { events.push('policy:reconcile'); return { ...value, phase: 'restored' }; },
+    async restore(value) { events.push('policy:restore'); return { ...PolicyRcdTransactionRecordSchema.parse(value), phase: 'restored' }; },
+    async reconcile(value) { events.push('policy:reconcile'); return { ...PolicyRcdTransactionRecordSchema.parse(value), phase: 'restored' }; },
   };
+  /** @type {Awaited<ReturnType<NonNullable<RuntimeOptions['fence']>['acquire']>>} */
   const fenceOwner = { schemaVersion: 1, kind: 'install-doctor-native-dpkg-transaction', runId: 'run-1', hostId: 'host-1', planDigest: digest('0'), pid: 1, bootId: 'boot', processStart: '1', token: '00000000-0000-4000-8000-000000000001', claimedAt: '2026-01-01T00:00:00.000Z', heartbeatAt: '2026-01-01T00:00:00.000Z', leaseUntil: '2026-01-01T00:01:00.000Z' };
   const runtime = createNativeDpkgTransactionRuntime({
     identity: { runId: 'run-1', hostId: 'host-1', planDigest: digest('0') },
@@ -135,8 +178,8 @@ function harness(overrides = {}) {
       async renew(value) { events.push('fence:renew'); return value; },
       async release() { events.push('fence:release'); },
     },
-    assertProductionGate: async () => events.push('gate'),
-    assertNetworkDenied: async () => events.push('network-denied'),
+    assertProductionGate: async () => { events.push('gate'); },
+    assertNetworkDenied: async () => { events.push('network-denied'); },
     proveQuiescence: async () => ({ state: 'quiescent', packageCount: 10, observations: [], limitation: 'fixture' }),
     queryPackage: async name => states.get(name) ?? null,
     createPolicyTransaction: async persistence => ({
@@ -172,6 +215,7 @@ test('applies the verified closure in deterministic unpack/configure order with 
     'dpkg:unpack:pkg-dep:41', 'dpkg:configure:pkg-dep:-',
     'dpkg:unpack:pkg-root:42', 'dpkg:configure:pkg-root:-',
   ]);
+  assert.ok(state.record);
   assert.equal(state.record.phase, 'completed');
   assert.deepEqual(state.record.packages.map(value => [value.packageKey, value.phase]), [['dep', 'configured'], ['root', 'configured']]);
   assert.ok(state.events.indexOf('save:unpacking') < state.events.indexOf('dpkg:unpack:pkg-dep:41'));
@@ -189,9 +233,13 @@ test('check and verify inspect exact package state without acquiring mutation au
 
 test('defers cancellation until a running dpkg step exits, then restores policy and services', async () => {
   const controller = new AbortController();
-  let entered;
+  /** @type {() => void} */
+  let entered = () => {};
+  /** @type {Promise<void>} */
   const running = new Promise(resolve => { entered = resolve; });
-  let finish;
+  /** @type {() => void} */
+  let finish = () => {};
+  /** @type {Promise<void>} */
   const release = new Promise(resolve => { finish = resolve; });
   const state = harness({
     executeDpkg: async input => {
@@ -207,7 +255,7 @@ test('defers cancellation until a running dpkg step exits, then restores policy 
   assert.equal(state.events.filter(value => value.startsWith('dpkg:')).length, 1);
   assert.ok(state.events.includes('service:restore:demo.service'));
   assert.ok(state.events.includes('policy:restore'));
-  assert.equal(state.record.phase, 'blocked');
+  assert.equal(state.record?.phase, 'blocked');
 });
 
 test('resumes only targeted forward repair from exact unpacked state and rejects a downgrade', async () => {
@@ -232,8 +280,7 @@ test('record schema rejects unknown fields and noncanonical package progress', (
 });
 
 test('a failed dpkg step reconciles its exact landed state before recording blocked cleanup', async () => {
-  let state;
-  state = harness({
+  const state = harness({
     executeDpkg: async input => {
       state.states.set(input.packageName, {
         packageName: input.packageName, version: '1.0-1', architecture: 'amd64',
@@ -243,8 +290,8 @@ test('a failed dpkg step reconciles its exact landed state before recording bloc
     },
   });
   await assert.rejects(state.runtime.apply(authority()), /dpkg unpack failed/);
-  assert.equal(state.record.phase, 'blocked');
-  assert.equal(state.record.packages[0].phase, 'unpacked');
+  assert.equal(state.record?.phase, 'blocked');
+  assert.equal(state.record?.packages[0]?.phase, 'unpacked');
   assert.ok(state.events.includes('policy:restore'));
 });
 

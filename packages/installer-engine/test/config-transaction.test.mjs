@@ -55,6 +55,9 @@ test('service snapshots retain v1 systemd compatibility and require lossless v2 
   assert.throws(() => configurationCompensationArtifactDigest(serviceOnly, Buffer.from('forbidden'), systemd), /exact systemd snapshot/);
 });
 
+/** @typedef {import('../dist/config-transaction.js').ConfigurationCompensationPersistence} CompensationPersistence */
+
+/** @param {string} targetPath @returns {Awaited<ReturnType<typeof applyConfigurationTransaction>>['spec']} */
 const spec = targetPath => ({
   schemaVersion: 1,
   taskId: 'config.fixture',
@@ -63,13 +66,17 @@ const spec = targetPath => ({
   dependencies: [],
 });
 
+/** @type {Parameters<typeof applyConfigurationTransaction>[0]['hooks']} */
 const hooks = {
   validateCandidate: async path => assert.equal(await readFile(path, 'utf8'), 'new\n'),
   verifyPostcondition: async path => await readFile(path, 'utf8') === 'new\n',
 };
 
+/** @returns {CompensationPersistence & { prepared: Parameters<CompensationPersistence['prepare']>[0][], updated: Parameters<CompensationPersistence['update']>[0][] }} */
 function memoryPersistence() {
+  /** @type {Parameters<CompensationPersistence['prepare']>[0][]} */
   const prepared = [];
+  /** @type {Parameters<CompensationPersistence['update']>[0][]} */
   const updated = [];
   return {
     prepared,
@@ -79,6 +86,7 @@ function memoryPersistence() {
   };
 }
 
+/** @param {string} name */
 async function fixtureRoot(name) {
   return realpath(await mkdtemp(join(tmpdir(), name)));
 }
@@ -163,12 +171,19 @@ test('validates then atomically activates and explicitly restores bytes, mode, a
 
 test('captures and restores bounded service state only through the injected matching adapter', async () => {
   const root = await fixtureRoot('install-doctor-config-service-'); const target = join(root, 'service.conf');
-  await writeFile(target, 'old\n', { mode: 0o600 }); const persistence = memoryPersistence(); const calls = [];
+  await writeFile(target, 'old\n', { mode: 0o600 });
+  const persistence = memoryPersistence();
+  /** @type {Array<['capture', string] | ['restore', string, boolean, boolean]>} */
+  const calls = [];
+  /** @type {NonNullable<Parameters<typeof applyConfigurationTransaction>[0]['service']>['adapter']} */
   const adapter = { manager: 'systemd', capture: async id => { calls.push(['capture', id]); return { enabled: true, running: false }; },
-    restore: async (id, state) => { calls.push(['restore', id, state.enabled, state.running]); } };
+    restore: async (id, state) => {
+      assert.ok('enabled' in state, 'expected systemd service state');
+      calls.push(['restore', id, state.enabled, state.running]);
+    } };
   const transaction = await applyConfigurationTransaction({ spec: spec(target), candidateBytes: Buffer.from('new\n'), hooks, persistence,
     service: { serviceId: 'fixture.service', manager: 'systemd', adapter }, now: () => '2026-11-06T04:00:00.000Z' });
-  assert.deepEqual(persistence.prepared[0].serviceSnapshot, { schemaVersion: 1, serviceId: 'fixture.service', manager: 'systemd', enabled: true, running: false });
+  assert.deepEqual(persistence.prepared[0]?.serviceSnapshot, { schemaVersion: 1, serviceId: 'fixture.service', manager: 'systemd', enabled: true, running: false });
   assert.equal(transaction.compensation.restores.includes('service-state'), true);
   await transaction.rollback();
   assert.deepEqual(calls, [['capture', 'fixture.service'], ['restore', 'fixture.service', true, false]]);
@@ -264,7 +279,7 @@ test('activation refuses a concurrently substituted parent directory before rena
   await assert.rejects(applyConfigurationTransaction({
     spec: spec(target), candidateBytes: Buffer.from('new\n'), hooks, persistence,
   }), /target parent changed during the transaction/);
-  await assert.rejects(lstat(target), error => error.code === 'ENOENT');
+  await assert.rejects(lstat(target), error => error instanceof Error && 'code' in error && error.code === 'ENOENT');
   const candidate = (await readdir(moved)).find(name => name.endsWith('.candidate'));
   assert.ok(candidate);
   assert.equal((await readFile(join(moved, candidate), 'utf8')).trim(), 'new');
@@ -322,11 +337,17 @@ test('rollback removes a configuration that did not exist before activation', as
     spec: spec(target), candidateBytes: Buffer.from('new\n'), hooks, persistence: memoryPersistence(),
   });
   await transaction.rollback();
-  await assert.rejects(lstat(target), error => error.code === 'ENOENT');
+  await assert.rejects(lstat(target), error => error instanceof Error && 'code' in error && error.code === 'ENOENT');
 });
 
 test('explicit rollback traverses dependents before their dependencies', async () => {
+  /** @type {string[]} */
   const order = [];
+  /**
+   * @param {string} taskId
+   * @param {string[]} dependencies
+   * @returns {Parameters<typeof rollbackConfigurationTransactions>[0][number]}
+   */
   const makeTransaction = (taskId, dependencies) => ({
     spec: { ...spec(`/tmp/${taskId}`), taskId, dependencies },
     snapshot: { schemaVersion: 1, targetPath: `/tmp/${taskId}`, existed: false, mode: null, uid: null, gid: null, digest: null },

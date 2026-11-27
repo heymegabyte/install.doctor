@@ -20,11 +20,13 @@ import {
 } from '../dist/index.js';
 import { parseStageZeroReleaseEnvelope, serializeStageZeroReleaseEnvelope } from '../../aid-core/dist/installer-contracts.js';
 
+/** @param {Buffer | string} value */
 const sha = value => crypto.createHash('sha256').update(value).digest('hex');
 const execute = promisify(execFile);
 const at = '2026-11-06T04:00:00.000Z';
 const later = '2026-11-06T05:00:00.000Z';
 
+/** @param {import('node:test').TestContext} t */
 async function fixture(t) {
   const root = await realpath(await mkdtemp(join(tmpdir(), 'install-doctor-offline-bundle-')));
   t.after(() => rm(root, { recursive: true, force: true }));
@@ -61,6 +63,7 @@ async function fixture(t) {
   execFileSync('ssh-keygen', ['-Y', 'sign', '-q', '-f', releaseKeyPath, '-n', 'install.doctor.release', envelopePath]);
   await fsRename(`${envelopePath}.sig`, releaseSignaturePath);
   const trust = { keyId: 'offline-test', publicKey };
+  /** @satisfies {Parameters<typeof createOfflineBundle>[0]} */
   const base = {
     outputRoot: bundles,
     releaseId: 'release-1',
@@ -262,6 +265,7 @@ test('signed malicious manifests cannot traverse paths or duplicate artifact ide
   const maliciousRoot = join(state.root, 'malicious');
   await mkdir(maliciousRoot);
 
+  /** @param {unknown[]} artifacts */
   async function signedBundle(artifacts) {
     const manifest = {
       schemaVersion: 2,
@@ -304,12 +308,14 @@ test('bundle boundaries reject oversized artifacts and insecure signer keys', as
 
 test('artifact inventory requires license, schema, and an explicit nonsecret declaration', async t => {
   const state = await fixture(t);
-  const incomplete = state.base.artifacts.map(item => ({ ...item }));
-  delete incomplete[0].license;
-  await assert.rejects(createOfflineBundle({ ...state.base, artifacts: incomplete }), /license|required|invalid/i);
-  await assert.rejects(createOfflineBundle({
+  const [first, ...rest] = state.base.artifacts;
+  assert.ok(first);
+  const { license: _license, ...entryWithoutLicense } = first;
+  const incomplete = [entryWithoutLicense, ...rest];
+  await assert.rejects(Reflect.apply(createOfflineBundle, undefined, [{ ...state.base, artifacts: incomplete }]), /license|required|invalid/i);
+  await assert.rejects(Reflect.apply(createOfflineBundle, undefined, [{
     ...state.base, artifacts: state.base.artifacts.map(item => ({ ...item, containsSecrets: true })),
-  }), /containsSecrets|invalid literal/i);
+  }]), /containsSecrets|invalid literal/i);
   const created = await createOfflineBundle(state.base);
   assert.deepEqual(created.manifest.artifacts.map(item => ({
     id: item.id, license: item.license, schema: item.schema, containsSecrets: item.containsSecrets,
@@ -326,6 +332,7 @@ test('creation deterministically rejects credible secret content without echoing
   const secret = `client_secret=${'S'.repeat(32)}`;
   await writeFile(state.catalog, `${secret}\n`, { mode: 0o600 });
   await assert.rejects(createOfflineBundle(state.base), error => {
+    assert.ok(error instanceof Error);
     assert.match(error.message, /credible operational secret material/);
     assert.equal(error.message.includes(secret), false);
     assert.equal(error.message.includes('S'.repeat(16)), false);
@@ -339,6 +346,7 @@ test('verification rejects secret content even when a trusted signer declares it
   const secretBytes = Buffer.from(`api_key=${'K'.repeat(32)}\n`);
   const manifest = structuredClone(clean.manifest);
   const catalog = manifest.artifacts.find(item => item.id === 'catalog');
+  assert.ok(catalog);
   catalog.sha256 = sha(secretBytes);
   catalog.sizeBytes = secretBytes.length;
   const manifestBytes = canonicalBundleManifestBytes(manifest);
@@ -346,13 +354,14 @@ test('verification rejects secret content even when a trusted signer declares it
   await mkdir(join(directory, 'artifacts'), { recursive: true });
   await writeFile(join(directory, 'artifacts', 'catalog'), secretBytes, { mode: 0o600 });
   await writeFile(join(directory, 'artifacts', 'engine'), await readFile(state.engine), { mode: 0o700 });
-  await writeFile(join(directory, 'artifacts', 'release-envelope'), await readFile(state.base.artifacts.find(item => item.id === 'release-envelope').sourcePath), { mode: 0o600 });
-  await writeFile(join(directory, 'artifacts', 'release-signature'), await readFile(state.base.artifacts.find(item => item.id === 'release-signature').sourcePath), { mode: 0o600 });
+  await writeFile(join(directory, 'artifacts', 'release-envelope'), await readFile(state.envelopePath), { mode: 0o600 });
+  await writeFile(join(directory, 'artifacts', 'release-signature'), await readFile(state.releaseSignaturePath), { mode: 0o600 });
   const manifestPath = join(directory, 'manifest.json');
   await writeFile(manifestPath, manifestBytes, { mode: 0o600 });
   execFileSync('ssh-keygen', ['-Y', 'sign', '-q', '-f', state.privateKeyPath, '-n', 'install.doctor.offline-bundle', manifestPath]);
   await fsRename(`${manifestPath}.sig`, join(directory, 'manifest.sig'));
   await assert.rejects(verifyOfflineBundle({ bundleDirectory: directory, trust: state.trust, releaseTrust: state.releaseTrust}), error => {
+    assert.ok(error instanceof Error);
     assert.match(error.message, /credible operational secret material/);
     assert.equal(error.message.includes('K'.repeat(16)), false);
     return true;
@@ -392,6 +401,7 @@ test('CLI bundle create, verify, plan, and approved deny-network apply share the
   const state = await fixture(t);
   const cli = new URL('../dist/cli.js', import.meta.url).pathname;
   const invocationPath = join(state.root, 'bundle-invocation.json');
+  /** @param {unknown} invocation */
   const run = async invocation => {
     await writeFile(invocationPath, `${JSON.stringify(invocation)}\n`, { mode: 0o600 });
     return execute(process.execPath, [cli, '--input', invocationPath], {
@@ -429,7 +439,7 @@ test('CLI bundle create, verify, plan, and approved deny-network apply share the
     ...planInvocation, command: 'bundle-apply', destinationDirectory, stateRoot: state.root,
     approvedManifestDigest: 'f'.repeat(64), offline: true, networkPolicy: 'deny',
   };
-  await assert.rejects(run(applyInvocation), error => /requires exact manifest approval/.test(error.stderr));
+  await assert.rejects(run(applyInvocation), error => error instanceof Error && 'stderr' in error && typeof error.stderr === 'string' && /requires exact manifest approval/.test(error.stderr));
   await assert.rejects(readFile(join(destinationDirectory, 'engine')), { code: 'ENOENT' });
   const receipt = JSON.parse((await run({ ...applyInvocation, approvedManifestDigest: plan.manifestDigest })).stdout);
   assert.equal(receipt.networkAllowed, false);
@@ -448,7 +458,7 @@ test('CLI bundle create, verify, plan, and approved deny-network apply share the
   await assert.rejects(run({
     ...applyInvocation, destinationDirectory: join(state.root, 'revoked-must-not-materialize'),
     approvedManifestDigest: plan.manifestDigest,
-  }), error => /bundle is revoked/.test(error.stderr));
+  }), error => error instanceof Error && 'stderr' in error && typeof error.stderr === 'string' && /bundle is revoked/.test(error.stderr));
   const expiryStateRoot = join(state.root, 'cli-expiry-state');
   await mkdir(expiryStateRoot, { mode: 0o700 });
   const expired = JSON.parse((await run({
@@ -463,6 +473,7 @@ test('CLI bundle-create accepts exact native catalog authority and rejects descr
   const state = await fixture(t);
   const cli = new URL('../dist/cli.js', import.meta.url).pathname;
   const invocationPath = join(state.root, 'native-bundle-invocation.json');
+  /** @param {unknown} invocation */
   const run = async invocation => {
     await writeFile(invocationPath, `${JSON.stringify(invocation)}\n`, { mode: 0o600 });
     return execute(process.execPath, [cli, '--input', invocationPath], {
@@ -473,10 +484,12 @@ test('CLI bundle-create accepts exact native catalog authority and rejects descr
     payload: Buffer.from('exact native deb\n'), inRelease: Buffer.from('signed InRelease\n'),
     packages: Buffer.from('compressed Packages.xz\n'), keyring: Buffer.from('archive keyring\n'),
   };
-  const paths = {};
-  for (const [name, bytes] of Object.entries(bodies)) {
-    paths[name] = join(state.source, `native-${name}`);
-    await writeFile(paths[name], bytes, { mode: 0o600 });
+  const paths = {
+    payload: join(state.source, 'native-payload'), inRelease: join(state.source, 'native-inRelease'),
+    packages: join(state.source, 'native-packages'), keyring: join(state.source, 'native-keyring'),
+  };
+  for (const name of /** @type {const} */ (['payload', 'inRelease', 'packages', 'keyring'])) {
+    await writeFile(paths[name], bodies[name], { mode: 0o600 });
   }
   const descriptor = {
     schemaVersion: 1, kind: 'native-offline-package', manager: 'dpkg', packageKey: 'tree',
@@ -531,11 +544,13 @@ test('CLI bundle-create accepts exact native catalog authority and rejects descr
     artifacts: [...state.base.artifacts, ...nativeArtifacts] };
   const created = JSON.parse((await run(invocation)).stdout);
   const verified = await verifyOfflineBundle({ bundleDirectory: created.bundleDirectory, trust: state.trust, releaseTrust: state.releaseTrust });
-  assert.deepEqual(verified.manifest.artifacts.find(item => item.id === descriptor.artifact.id).catalogDescriptor, descriptor);
+  assert.deepEqual(verified.manifest.artifacts.find(item => item.id === descriptor.artifact.id)?.catalogDescriptor, descriptor);
 
   const substituted = structuredClone(invocation);
-  substituted.artifacts.find(item => item.id === descriptor.artifact.id).catalogDescriptor.repository.repositoryOrigin = 'https://mirror.invalid/debian';
-  await assert.rejects(run(substituted), error => /not an exact signed catalog member/i.test(error.stderr));
+  const substitutedArtifact = substituted.artifacts.find(item => item.id === descriptor.artifact.id);
+  assert.ok(substitutedArtifact && 'catalogDescriptor' in substitutedArtifact && substitutedArtifact.catalogDescriptor);
+  substitutedArtifact.catalogDescriptor.repository.repositoryOrigin = 'https://mirror.invalid/debian';
+  await assert.rejects(run(substituted), error => error instanceof Error && 'stderr' in error && typeof error.stderr === 'string' && /not an exact signed catalog member/i.test(error.stderr));
 });
 
 test('CLI bundle apply rejects unknown fields and any network-enabled policy before mutation', async t => {
@@ -556,7 +571,8 @@ test('CLI bundle apply rejects unknown fields and any network-enabled policy bef
   await writeFile(invocationPath, `${JSON.stringify(base)}\n`, { mode: 0o600 });
   await assert.rejects(
     execute(process.execPath, [cli, '--input', invocationPath], { env: { PATH: process.env.PATH ?? '' }, timeout: 10_000 }),
-    error => error.code === 2 && /unrecognized key|networkPolicy|invalid value/i.test(error.stderr),
+    error => error instanceof Error && 'code' in error && error.code === 2
+        && 'stderr' in error && typeof error.stderr === 'string' && /unrecognized key|networkPolicy|invalid value/i.test(error.stderr),
   );
   await assert.rejects(readFile(join(destinationDirectory, 'engine')), { code: 'ENOENT' });
 });
@@ -574,7 +590,8 @@ test('CLI rejects insecure bundle schema v1 instead of falling back', async t =>
   })}\n`, { mode: 0o600 });
   await assert.rejects(
     execute(process.execPath, [cli, '--input', invocationPath], { env: { PATH: process.env.PATH ?? '' }, timeout: 10_000 }),
-    error => error.code === 2 && /expected 2|invalid/i.test(error.stderr),
+    error => error instanceof Error && 'code' in error && error.code === 2
+        && 'stderr' in error && typeof error.stderr === 'string' && /expected 2|invalid/i.test(error.stderr),
   );
   assert.deepEqual(await readdir(state.bundles), []);
 });
@@ -603,7 +620,8 @@ test('CLI offline execution contract rejects clocks, network, and cloud recovery
     await writeFile(invocationPath, `${JSON.stringify(invalid)}\n`, { mode: 0o600 });
     await assert.rejects(
       execute(process.execPath, [cli, '--input', invocationPath], { env: { PATH: process.env.PATH ?? '' }, timeout: 10_000 }),
-      error => error.code === 2 && /unrecognized key|networkPolicy|invalid value/i.test(error.stderr),
+      error => error instanceof Error && 'code' in error && error.code === 2
+        && 'stderr' in error && typeof error.stderr === 'string' && /unrecognized key|networkPolicy|invalid value/i.test(error.stderr),
     );
   }
   await assert.rejects(readFile(base.materializedRoot), { code: 'ENOENT' });
