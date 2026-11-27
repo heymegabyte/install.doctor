@@ -20,6 +20,8 @@ The installer SHALL reconcile pinned MCP host profiles into each supported clien
 
 The installer SHALL apply an approved multi-client plan atomically and SHALL retain mode-safe predecessors and a metadata-only receipt sufficient for drift-safe rollback.
 
+Every created or rewritten native client configuration and the rollback receipt SHALL be mode `0600`.
+
 #### Scenario: Verification fails after a write
 
 - **WHEN** any client-native verification fails during apply

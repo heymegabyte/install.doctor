@@ -153,7 +153,7 @@ function snapshot(path, rollbackDirectory, ordinal) {
   return { path, existed, previousDigest: previous ? digest(previous) : null, backupPath };
 }
 
-export function applyTransaction({ outputs, receiptPath }) {
+export function applyTransaction({ outputs, receiptPath, operation = 'install-pinned-mcp-host-manifests' }) {
   if (!receiptPath) fail('apply requires a receipt path');
   const rollbackDirectory = `${receiptPath}.d`;
   if (existsSync(receiptPath) || existsSync(rollbackDirectory)) fail('rollback receipt already exists');
@@ -170,7 +170,7 @@ export function applyTransaction({ outputs, receiptPath }) {
     }
     const receipt = {
       schemaVersion: 1,
-      operation: 'install-pinned-mcp-host-manifests',
+      operation,
       records: records.map(({ content: _content, ...record }) => record),
     };
     atomicWrite(receiptPath, json(receipt));

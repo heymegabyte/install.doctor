@@ -28,6 +28,6 @@ Render each native schema independently: TOML tables for Codex, `mcpServers` for
 5. Run native client listing/parse verification and confirm `megabyte-primary` resolves to `https://mcp.megabyte.space/mcp` while preserved entries remain present.
 6. On any failure, restore every predecessor. Later rollback must verify installed digests before restoration.
 
-## Current apply decision
+## Apply decision
 
-No live apply is safe with the current consumer: it lacks Codex/OpenCode adapters, cannot select a single caller class, and would add the automation endpoint to human JSON clients. The workstation remains unchanged until the adapters and tests above are implemented.
+The client-native adapters and caller-class gate now satisfy the recorded safety conditions. The reviewed macOS plan selected `macos-human` only, preserved all enumerated entries, and added `megabyte-primary` to the five supported client files. Created and rewritten files are mode `0600`; a metadata-only rollback receipt protects all five predecessors, and the post-apply plan is idempotent.
