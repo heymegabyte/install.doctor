@@ -30,6 +30,7 @@ The estate needs a value-blind, least-privilege migration that makes Infisical a
 - Require provider-specific validation before any credential is admitted for migration or runtime use, and retire provider-confirmed invalid sources through an auditable invalid-retirement path.
 - Delete an encrypted source only after every required least-privilege destination has passed Infisical round-trip, target-host/workload retrieval, consumer cutover, rollback, and source-retirement gates.
 - Keep source listings, profiles, target mappings, validation records, and retirement state synchronized so stale or unlisted sources cannot be selected implicitly.
+- Add an explicit `wordpress-platform.megabyte.space` workload boundary for the 14 `secrets-wordpress` sources, backed by a dedicated Infisical project rather than any host, Global, MCP, macOS, or Ubuntu project; split consumers into additional site workload projects whenever one runtime identity does not require the complete reviewed allowlist.
 
 ## Out of scope
 
@@ -48,7 +49,8 @@ The estate needs a value-blind, least-privilege migration that makes Infisical a
 - Online operational consumers resolve from Infisical and fail closed outside their grants.
 - macOS and Ubuntu identities can read only their own project root and receive `403` across the host-project boundary.
 - Dedicated macOS and Ubuntu hosts resolve from their dedicated project root, while explicitly declared legacy managed workstations temporarily retain their Global-project host paths until migrated.
-- `--workload` and `--host` are mutually exclusive, and workload plans use only the general encrypted inventory plus their declared workload policy.
+- `--workload` and `--host` are mutually exclusive, and workload plans use only their one explicitly declared source store: general for ordinary/MCP workloads or `secrets-wordpress` for declared WordPress/site workloads.
+- WordPress-store sources are selectable only through an explicit WordPress/site workload whose dedicated project, identity, source-store policy, and per-source capability allowlist are declared; no host profile or unrelated workload can discover or retrieve them.
 - Offline recovery remains independently testable without making the legacy inventory an ambient online fallback.
 - Every in-scope encrypted source is deleted after its own exact-source validation, required-destination round trips and target retrieval, consumer cutover, recovery/observation, offline-exception, and retirement-assertion gates pass; canary evidence never authorizes another source.
 - `invalid-retired`, missing, stale, or otherwise unverified validation records are rejected during preflight, leaving every destination unchanged.

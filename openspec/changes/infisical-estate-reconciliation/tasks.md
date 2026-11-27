@@ -27,8 +27,12 @@
 
 - [ ] 2A.1 Add manifest target `workloads.mcp.megabyte.space` with project ID `4ae065b0-c081-454e-a513-220a28e5d2f0`, `secretPath: /`, workload identity/policy references, and no credential values.
 - [ ] 2A.2 Implement `--workload` as an explicit single-target selector mutually exclusive with `--host`; reject both/neither where required, multiple targets, unknown targets, and cross-target override reuse before inventory access.
-- [ ] 2A.3 Make every workload use the general encrypted inventory only and prove `secrets-workstation`, cwd, home state, executing host, and ambient Infisical configuration cannot alter source selection.
+- [ ] 2A.3 Make every workload use exactly one declared source store—general for ordinary/MCP workloads or `secrets-wordpress` for declared WordPress/site workloads—and prove `secrets-workstation`, cwd, home state, executing host, and ambient Infisical configuration cannot alter or merge source selection.
 - [ ] 2A.4 Classify Cloudflare-native MCP provider credentials as `mcp.megabyte.space` workload-only and reject them from macOS, Ubuntu/LiteLLM, legacy workstation, CI, and human profiles absent a separate explicit consumer contract.
+- [ ] 2A.5 Add manifest target `workloads.wordpress-platform.megabyte.space` with profile `wordpress-platform`, a reviewed dedicated Infisical project ID, root path `/`, dedicated identity/policy references, and exclusive `sourceStore: secrets-wordpress`; do not reuse Global, host, MCP, macOS, or Ubuntu projects.
+- [ ] 2A.6 Define exact allowlists for all 14 WordPress source IDs by evidenced backup/storage, ingress/networking, observability, mail, SFTP bootstrap, and privileged-bootstrap consumers; keep unknown or unsupported mappings blocked.
+- [ ] 2A.7 Split any source consumed by a distinct site, identity, or failure boundary into its own explicit site workload and dedicated project; prove a path in the shared project is not treated as an authorization boundary.
+- [ ] 2A.8 Keep `SUDO_PASSWORD` out of the steady-state WordPress platform profile and require a separately justified bootstrap/recovery workload before admission; bound SFTPGo default-admin credentials to bootstrap where the consumer supports it.
 
 ## 3. Safe migration engine
 
@@ -41,7 +45,7 @@
 - [ ] 3.7 Add an all-selected-credentials preflight and locked pre-write gate: only fresh matching `valid` records proceed; any missing, unverified, invalid-retired, stale, mismatched, or untrusted record aborts before decryption and before the first write.
 - [ ] 3.8 Bind the exact ledger-record evidence digest into the reviewed plan and invalidate apply on ledger, selection, destination, or freshness drift.
 - [ ] 3.9 Emit value-free migrated-destination evidence with exact project/environment/path, safe destination version metadata, writer identity, plan digest, and authorized-read/unauthorized-denial results.
-- [ ] 3.10 Apply the same validation-ledger and locked pre-write gate to workloads, binding evidence to workload ID, general-inventory source, exact project/root path, consumer, environment, and plan; reject host/workload ledger substitution.
+- [ ] 3.10 Apply the same validation-ledger and locked pre-write gate to workloads, binding evidence to workload ID, declared source-store identity, exact project/root path, consumer, environment, and plan; reject host/workload or cross-store ledger substitution.
 - [ ] 3.11 Add the workload round-trip gate: production-equivalent workload retrieval, bounded non-destructive consumer use, and representative host/cross-project denial before cutover or retirement evidence.
 - [ ] 3.12 Require current provider-specific validation for every selected source identity before use; keep inconclusive/unreachable/stale results `unverified` and fail before write.
 - [ ] 3.13 Track an explicit required-destination set per source and mark each destination complete only after write, Infisical round trip, intended target-host/workload retrieval, cross-target denial, consumer cutover, and rollback evidence.
@@ -87,5 +91,6 @@
 - [ ] 7.2d Add workload acceptance tests for MCP manifest routing, host/workload exclusivity, unknown/multiple target rejection, general-inventory-only selection, workstation collision exclusion, ledger target binding, workload-only Cloudflare provider placement, production-equivalent round trip, and host/cross-project `403`.
 - [ ] 7.2e Add acceptance tests for three-store source identity, same-name independence, provider validation, invalid retirement, multi-destination completeness, target-host retrieval, active offline exceptions, exact-source deletion, and profile/listing drift.
 - [ ] 7.2f Add a deterministic metadata-only listing and closed-set sync validator across inventory, profiles, host/workload targets, validation ledger, destination evidence, offline exceptions, and retirement assertions.
+- [ ] 7.2g Add WordPress workload tests for exact 14-source inventory, exclusive source-store selection, host/general/workstation/MCP exclusion, dedicated-project routing, per-group allowlists, site-project split, privileged-bootstrap denial, intended workload retrieval, and explicit cross-target denial.
 - [ ] 7.3 Update operator documentation to distinguish online authority, transition fallback, offline recovery, and retirement eligibility without listing values.
 - [ ] 7.4 Run strict OpenSpec validation and focused repository secret-safety/profile tests; report PASS, FAIL, BLOCKED, and UNVERIFIED distinctly.

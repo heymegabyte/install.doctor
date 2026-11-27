@@ -89,7 +89,35 @@ Workloads are a separate target class from hosts. The manifest entry `workloads.
 
 CLI selection is exclusive: exactly one of `--host <id>` or `--workload <id>` may be supplied for a targeted plan/apply. Supplying both, neither where an explicit target is required, multiple targets, an unknown target, or using a host override with a workload fails before inventory resolution. `--project-id` and any secret-directory override remain single-target overrides and cannot change the target class.
 
-Workload discovery uses only the general encrypted inventory. It must never merge or consult `secrets-workstation`, even when run on macOS or from a workstation checkout. Repository location, executing machine, cwd, home configuration, and host identity do not alter workload source precedence.
+Workload discovery uses exactly one manifest-declared source store. Ordinary and MCP workloads use the general encrypted inventory; declared WordPress/site workloads use `secrets-wordpress`. No workload may merge source stores or consult `secrets-workstation`, even when run on macOS or from a workstation checkout. Repository location, executing machine, cwd, home configuration, and host identity do not alter workload source selection.
+
+### WordPress/site workload destination
+
+The 14 current `secrets-wordpress` sources form a separate legacy source store, not a host overlay and not part of the general workload inventory. The manifest should add `workloads.wordpress-platform.megabyte.space` with:
+
+- `profile: wordpress-platform`;
+- a newly provisioned, dedicated Infisical project ID recorded explicitly as `projectId` (never the Global, macOS, Ubuntu/LiteLLM, MCP, or a host project);
+- `secretPath: /` because free-plan isolation is enforced at the project boundary rather than relying on path-scoped roles;
+- `sourceStore: secrets-wordpress` as an exclusive source policy, with no merge from general or `secrets-workstation`;
+- a dedicated non-human identity with organization **No Access** and **Viewer** only in that project; and
+- an exact per-source allowlist derived from evidenced consumers, validators, destinations, and retirement state.
+
+The project ID must be obtained from reviewed project creation/import and then committed as non-secret metadata; architecture must not invent a placeholder UUID or reuse an existing project for convenience. `--workload wordpress-platform.megabyte.space` is the only selector that may initially inspect these source identities, and it remains mutually exclusive with `--host` and every other workload.
+
+The observed source names divide into review groups, not automatic grants:
+
+| Review group | Sources | Admission condition |
+| --- | --- | --- |
+| object storage and backup | `CLOUDFLARE_R2_ID`, `CLOUDFLARE_R2_SECRET`, `CLOUDFLARE_R2_TOKEN`, `RESTIC_PASSWORD`, `RESTIC_SYSTEM_PASSWORD` | exact backup/runtime consumer and provider validation; retain a restic source only when a technically required offline-recovery exception remains |
+| ingress and private networking | `CLOUDFLARED_DOCKER_SWARM_TOKEN`, `TAILSCALE_AUTH_KEY` | exact platform bootstrap/runtime consumer; no application-site or host-default grant |
+| observability | `NETDATA_ROOM`, `NETDATA_TOKEN`, `NGINX_AMPLIFY_API_KEY` | exact monitoring agent consumer and bounded provider validation |
+| outbound mail | `SENDGRID_API_KEY` | exact WordPress/site mail consumer and provider-scoped validation |
+| SFTPGo bootstrap administration | `SFTPGO_DEFAULT_ADMIN_USERNAME`, `SFTPGO_DEFAULT_ADMIN_PASSWORD` | bootstrap-only consumer, bounded delivery, and removal from steady-state runtime after initialization where supported |
+| privileged bootstrap | `SUDO_PASSWORD` | blocked by default; admit only to a separately justified bootstrap/recovery workload, never the WordPress application runtime |
+
+The table is classification evidence only. It does not establish that one identity needs every source. If backup, observability, mail, SFTP/bootstrap, or an individual site runs under a different identity or failure boundary, its sources must move to a separate explicit workload target and dedicated project. Secret paths within one project are organizational and do not substitute for identity isolation. Site-specific credentials belong in `workloads.wordpress-site.<site-id>` (or an equivalently stable site workload ID) with its own project and identity; they must not accumulate in the shared platform project.
+
+Planning fails when a WordPress source lacks an evidenced consumer, when more than one target is plausible but undeclared, or when a requested target would receive a source outside its exact allowlist. Cross-target acceptance requires the intended workload identity to retrieve its destination and the macOS, Ubuntu/LiteLLM, MCP, Global/legacy-host, and unrelated site identities to receive explicit denial. A host that happens to run WordPress receives no access through its host profile; the workload identity obtains secrets independently at runtime.
 
 ### MCP workload credential placement
 
@@ -186,6 +214,10 @@ Listing/profile synchronization is deterministic and drift-detecting. Additions 
 6. **Cloudflare provider placement:** an approved Cloudflare-native provider credential is planned for the MCP workload and excluded from all host plans.
 7. **Round trip:** after migration, the MCP workload identity retrieves and exercises the exact credential through the production-equivalent Cloudflare-native path without exposing its value.
 8. **Cross-target denial:** macOS, Ubuntu/LiteLLM, and legacy workstation identities receive `403` for the MCP workload credential and destination.
+9. **WordPress source isolation:** `--host` and non-WordPress workloads cannot select any `secrets-wordpress` source; the declared WordPress workload sees only its exact reviewed source IDs.
+10. **Dedicated WordPress project:** the WordPress workload resolves its explicit project/root pair while host, MCP, Global, and unrelated site identities receive explicit denial.
+11. **Privilege split:** `SUDO_PASSWORD` remains blocked unless a separate bootstrap/recovery workload and consumer contract are approved; it never enters the steady-state WordPress platform allowlist by filename.
+12. **Site split:** when a source is required by only one site or consumer identity, planning rejects placement in the shared platform project and requires a dedicated site workload/project.
 
 ## Consumer cutover and fallback
 
@@ -224,10 +256,13 @@ Before exact-source deletion, rollback may restore consumer resolution to the st
 - **Validation evidence leaks the credential:** prohibit values, fingerprints, response bodies, and replayable request material from the ledger and migration receipts.
 - **Retirement assertion outruns migration evidence:** require exact destination, consumer cutover, denial, observation-window, and recovery bindings per source.
 - **Workload inherits operator host access:** separate target classes, make `--workload` mutually exclusive with `--host`, and deny host-profile reuse.
-- **Workload execution on macOS selects workstation overrides:** force workloads to the general inventory independent of executing machine or cwd.
+- **Workload execution on macOS selects workstation overrides:** force each workload to its single manifest-declared source store, independent of executing machine or cwd, and prohibit `secrets-workstation` for all workloads.
 - **Cloudflare provider credentials spread to hosts:** classify them as MCP-workload-only and test their absence from every host plan plus cross-project `403`.
 - **Same-named sources are collapsed:** make store-qualified source identity the unit of validation, migration, and retirement.
 - **Writer verification masks target failure:** require both Infisical round trip and intended target-host/workload retrieval before destination completion.
 - **Partial multi-destination migration triggers deletion:** require all declared destinations and consumers complete before exact-source retirement.
 - **Offline recovery is deleted after online cutover:** bind offline exceptions to exact source IDs and exclude active exceptions from deletion.
 - **Profiles and inventory drift apart:** enforce closed-set listing/profile/ledger/destination synchronization before decryption or mutation.
+- **WordPress store becomes a hidden host bundle:** make `secrets-wordpress` selectable only by explicit WordPress/site workloads and prove every host/default workload excludes it.
+- **Shared WordPress project over-grants independent consumers:** use a dedicated project per identity/failure boundary; treat project paths as organization, not an authorization boundary.
+- **Bootstrap administration becomes steady-state application access:** block privileged and SFTP bootstrap sources by default or deliver them through separately justified bounded bootstrap workloads.

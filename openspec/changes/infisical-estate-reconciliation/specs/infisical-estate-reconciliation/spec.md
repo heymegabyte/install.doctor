@@ -64,6 +64,40 @@ Each source identity SHALL declare its exact required host/workload destinations
 - **WHEN** a profile, target, validation record, offline exception, or destination references an unknown or retired source identity
 - **THEN** planning fails closed
 
+### Requirement: Explicit WordPress workload isolation
+
+The system SHALL select `secrets-wordpress` sources only for an explicitly declared WordPress/site workload with a dedicated Infisical project, dedicated non-human identity, exact project/root routing, exclusive source-store policy, and per-source allowlist. WordPress sources SHALL NOT enter host defaults, the general workload inventory, workstation overrides, Global compatibility paths, or unrelated workload projects.
+
+#### Scenario: WordPress platform workload is selected
+
+- **WHEN** `--workload wordpress-platform.megabyte.space` is selected
+- **THEN** planning reads only the declared `secrets-wordpress` source identities and routes admitted sources to the workload's explicit dedicated project and root path
+- **AND** it does not merge general or workstation sources
+
+#### Scenario: Host or unrelated workload is selected
+
+- **WHEN** any host, MCP workload, or non-WordPress workload is planned
+- **THEN** all `secrets-wordpress` sources are excluded before validation, decryption, or destination access
+
+### Requirement: WordPress consumer-bound project separation
+
+The system SHALL treat an Infisical project and its dedicated identity as the authorization boundary for WordPress/site workloads. Sources consumed by different site identities or failure boundaries SHALL use separate explicit workload targets and dedicated projects rather than relying on paths within one shared project.
+
+#### Scenario: Credential belongs to one site
+
+- **WHEN** consumer evidence shows a WordPress source is required by only one site identity
+- **THEN** planning requires that site's explicit workload/project and rejects placement in a shared platform grant
+
+#### Scenario: Privileged bootstrap source is encountered
+
+- **WHEN** `SUDO_PASSWORD` or another privileged bootstrap credential lacks a separately approved bootstrap/recovery workload contract
+- **THEN** it remains blocked and is not granted to the steady-state WordPress application or platform identity
+
+#### Scenario: Cross-target access is attempted
+
+- **WHEN** a host, MCP, Global/legacy, or unrelated site identity requests a WordPress workload destination
+- **THEN** authorization returns an explicit denial and no source metadata or value is disclosed
+
 ### Requirement: Scoped identities
 
 The system SHALL use repository-and-environment-bound GitHub OIDC identities for CI and independently revocable host identities for host access.
