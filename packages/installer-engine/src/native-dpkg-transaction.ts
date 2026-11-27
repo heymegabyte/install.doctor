@@ -60,7 +60,6 @@ export interface NativeDpkgTransactionRuntimeOptions {
 
 export class NativeDpkgTransactionError extends Error {
   override readonly name = 'NativeDpkgTransactionError';
-  constructor(message: string, options?: ErrorOptions) { super(message, options); }
 }
 
 interface AdmittedPackage {
@@ -151,8 +150,9 @@ export async function assertNativeDpkgNetworkDenied(
   const status = await readText('/proc/self/status', 1024 * 1024);
   for (const capabilitySet of ['CapInh', 'CapPrm', 'CapEff', 'CapBnd', 'CapAmb'] as const) {
     const matches = [...status.matchAll(new RegExp(`^${capabilitySet}:\\s*([0-9A-Fa-f]{1,16})$`, 'gm'))];
-    if (matches.length !== 1) throw new NativeDpkgTransactionError(`native dpkg namespace has malformed ${capabilitySet} evidence`);
-    if ((BigInt(`0x${matches[0]![1]!}`) & (1n << 12n)) !== 0n) {
+    const capabilityBits = matches[0]?.[1];
+    if (matches.length !== 1 || capabilityBits === undefined) throw new NativeDpkgTransactionError(`native dpkg namespace has malformed ${capabilitySet} evidence`);
+    if ((BigInt(`0x${capabilityBits}`) & (1n << 12n)) !== 0n) {
       throw new NativeDpkgTransactionError('native dpkg namespace retains CAP_NET_ADMIN authority');
     }
   }
@@ -161,12 +161,12 @@ export async function assertNativeDpkgNetworkDenied(
       readText(`/sys/class/net/${interfaceName}/flags`, 128),
       readText(`/sys/class/net/${interfaceName}/operstate`, 128),
     ]);
-    const flagsMatch = /^0x([0-9A-Fa-f]{1,8})\n?$/.exec(flagsText);
+    const flags = /^0x([0-9A-Fa-f]{1,8})\n?$/.exec(flagsText)?.[1];
     const operstate = operstateText.trim();
-    if (!flagsMatch || !['down', 'unknown', 'dormant', 'notpresent', 'lowerlayerdown'].includes(operstate)) {
+    if (flags === undefined || !['down', 'unknown', 'dormant', 'notpresent', 'lowerlayerdown'].includes(operstate)) {
       throw new NativeDpkgTransactionError(`native dpkg namespace interface is not provably inert: ${interfaceName}`);
     }
-    if ((Number.parseInt(flagsMatch[1]!, 16) & 0x1) !== 0) {
+    if ((Number.parseInt(flags, 16) & 0x1) !== 0) {
       throw new NativeDpkgTransactionError(`native dpkg namespace interface is administratively up: ${interfaceName}`);
     }
   }
@@ -187,7 +187,7 @@ async function assertDefaultNetworkDenied(): Promise<void> {
 async function defaultQueryPackage(packageName: string): Promise<DpkgPackageState | null> {
   const result = await createNativeDpkgQueryRunner().query(packageName);
   if (result.code === 1 && result.stdout.length === 0) return null;
-  if (result.code !== 0) throw new NativeDpkgTransactionError(`dpkg-query failed with exit ${result.code}`);
+  if (result.code !== 0) throw new NativeDpkgTransactionError(`dpkg-query failed with exit ${String(result.code)}`);
   return parseDpkgQueryState(result.stdout);
 }
 
@@ -196,13 +196,15 @@ async function defaultExecuteDpkg(request: NativeDpkgExecutionRequest): Promise<
   const arguments_ = request.action === 'unpack'
     ? ['--force-confold', '--no-triggers', '--unpack', '--', '/proc/self/fd/3']
     : ['--force-confold', '--no-triggers', '--configure', '--', request.packageName];
-  if (request.action === 'unpack' && (!Number.isSafeInteger(request.payloadDescriptor) || request.payloadDescriptor! < 0)) {
-    throw new NativeDpkgTransactionError('dpkg unpack requires one exact borrowed payload descriptor');
+  const stdio: Array<'ignore' | 'pipe' | number> = ['ignore', 'ignore', 'pipe'];
+  if (request.action === 'unpack') {
+    const { payloadDescriptor } = request;
+    if (payloadDescriptor === undefined || !Number.isSafeInteger(payloadDescriptor) || payloadDescriptor < 0) {
+      throw new NativeDpkgTransactionError('dpkg unpack requires one exact borrowed payload descriptor');
+    }
+    stdio.push(payloadDescriptor);
   }
   return await new Promise((resolve, reject) => {
-    const stdio: Array<'ignore' | 'pipe' | number> = request.action === 'unpack'
-      ? ['ignore', 'ignore', 'pipe', request.payloadDescriptor!]
-      : ['ignore', 'ignore', 'pipe'];
     const child = spawn(DPKG, arguments_, {
       shell: false,
       stdio,
@@ -222,11 +224,11 @@ async function defaultExecuteDpkg(request: NativeDpkgExecutionRequest): Promise<
       if (diagnosticBytes <= 65_536) diagnostics.push(Buffer.from(chunk));
       else overflow = true;
     });
-    child.once('error', error => reject(new NativeDpkgTransactionError('fixed dpkg executable could not start', { cause: error })));
+    child.once('error', error => { reject(new NativeDpkgTransactionError('fixed dpkg executable could not start', { cause: error })); });
     child.once('close', (code, signal) => {
       const stderr = Buffer.concat(diagnostics).toString('utf8').replace(/[\0\r\n]+/g, ' ').trim().slice(0, 1024);
-      if (signal !== null) return reject(new NativeDpkgTransactionError(`dpkg was terminated by ${signal}`));
-      if (overflow) return reject(new NativeDpkgTransactionError('dpkg diagnostics exceeded their output bound'));
+      if (signal !== null) { reject(new NativeDpkgTransactionError(`dpkg was terminated by ${signal}`)); return; }
+      if (overflow) { reject(new NativeDpkgTransactionError('dpkg diagnostics exceeded their output bound')); return; }
       resolve(Object.freeze({ code: code ?? 255, stderr }));
     });
     // Deliberately no AbortSignal, timeout, or kill path: dpkg is never
@@ -310,7 +312,8 @@ function snapshotFor(serviceId: string, state: Awaited<ReturnType<ServiceStateAd
 
 export function createNativeDpkgTransactionRuntime(options: NativeDpkgTransactionRuntimeOptions): NativePackageRuntime {
   const identity = z.strictObject({ runId: identifier, hostId: identifier, planDigest: digest }).parse(options.identity);
-  if (!options.persistence || typeof options.persistence.load !== 'function' || typeof options.persistence.save !== 'function') {
+  const persistence: unknown = options.persistence;
+  if (!persistence || typeof options.persistence.load !== 'function' || typeof options.persistence.save !== 'function') {
     throw new NativeDpkgTransactionError('native dpkg runtime requires owner-bound durable persistence');
   }
   if (typeof options.compareDebianVersions !== 'function') throw new NativeDpkgTransactionError('native dpkg runtime requires a Debian version comparator');
@@ -353,7 +356,7 @@ export function createNativeDpkgTransactionRuntime(options: NativeDpkgTransactio
       let heartbeatFailure: unknown;
       const timer = setInterval(() => {
         if (heartbeat !== undefined) return;
-        heartbeat = renew().catch(error => { heartbeatFailure ??= error; }).finally(() => { heartbeat = undefined; });
+        heartbeat = renew().catch((error: unknown) => { heartbeatFailure ??= error; }).finally(() => { heartbeat = undefined; });
       }, 4_000);
       timer.unref();
       let result: T;
@@ -385,7 +388,7 @@ export function createNativeDpkgTransactionRuntime(options: NativeDpkgTransactio
       if (!record || record.serviceSnapshots.length === 0) return;
       await persist({ phase: 'restoring-services' });
       for (const snapshot of [...record.serviceSnapshots].reverse()) {
-        if (snapshot.manager !== 'systemd' || serviceAdapter.manager !== 'systemd') throw new NativeDpkgTransactionError('native dpkg runtime supports only systemd service restoration');
+        if (serviceAdapter.manager !== 'systemd') throw new NativeDpkgTransactionError('native dpkg runtime supports only systemd service restoration');
         await serviceAdapter.restore(snapshot.serviceId, serviceStateFromSnapshot(snapshot));
       }
       await persist({ phase: 'services-restored' });
@@ -405,7 +408,7 @@ export function createNativeDpkgTransactionRuntime(options: NativeDpkgTransactio
           || record.planDigest !== identity.planDigest || record.rootPackageKey !== authority.rootDescriptor.packageKey
           || record.authorityDigest !== admitted.authorityDigest
           || record.packages.length !== admitted.packages.length
-          || record.packages.some((value, index) => value.packageKey !== admitted.packages[index]!.packageKey)) {
+          || record.packages.some((value, index) => value.packageKey !== admitted.packages[index]?.packageKey)) {
           throw new NativeDpkgTransactionError('persisted native dpkg transaction belongs to different authority');
         }
         if (record.phase === 'completed') {
@@ -444,8 +447,7 @@ export function createNativeDpkgTransactionRuntime(options: NativeDpkgTransactio
       const active = await policy.activate(record.policyRecord ?? prepared);
       await persist({ phase: 'policy-active', policyRecord: active, failure: null });
 
-      for (let index = 0; index < admitted.packages.length; index += 1) {
-        const package_ = admitted.packages[index]!;
+      for (const [index, package_] of admitted.packages.entries()) {
         let disposition = exactStateDisposition(await queryPackage(package_.packageName), package_, options.compareDebianVersions);
         if (disposition === 'configured') {
           const packages = record.packages.map((value, candidate) => candidate === index ? { ...value, phase: 'configured' as const } : value);
@@ -465,7 +467,7 @@ export function createNativeDpkgTransactionRuntime(options: NativeDpkgTransactio
               : disposition === 'needs-configure' ? 'unpacked' as const : 'pending' as const;
             const packages = record.packages.map((value, candidate) => candidate === index ? { ...value, phase: observedPhase } : value);
             await persist({ packages, phase: observedPhase === 'configured' ? 'configured' : observedPhase === 'unpacked' ? 'unpacked' : 'unpacking', activePackageKey: null });
-            throw new NativeDpkgTransactionError(`dpkg unpack failed for ${package_.packageKey}: ${result.stderr || `exit ${result.code}`}`);
+            throw new NativeDpkgTransactionError(`dpkg unpack failed for ${package_.packageKey}: ${result.stderr || `exit ${String(result.code)}`}`);
           }
           const packages = record.packages.map((value, candidate) => candidate === index ? { ...value, phase: 'unpacked' as const } : value);
           await persist({ packages, phase: 'unpacked', activePackageKey: null });
@@ -482,7 +484,7 @@ export function createNativeDpkgTransactionRuntime(options: NativeDpkgTransactio
               : configuredDisposition === 'needs-configure' ? 'unpacked' as const : 'pending' as const;
             const packages = record.packages.map((value, candidate) => candidate === index ? { ...value, phase: observedPhase } : value);
             await persist({ packages, phase: observedPhase === 'configured' ? 'configured' : observedPhase === 'unpacked' ? 'unpacked' : 'configuring', activePackageKey: null });
-            throw new NativeDpkgTransactionError(`dpkg configure failed for ${package_.packageKey}: ${result.stderr || `exit ${result.code}`}`);
+            throw new NativeDpkgTransactionError(`dpkg configure failed for ${package_.packageKey}: ${result.stderr || `exit ${String(result.code)}`}`);
           }
           if (configuredDisposition !== 'configured') {
             throw new NativeDpkgTransactionError(`dpkg configure postcondition failed for ${package_.packageKey}`);
@@ -531,7 +533,9 @@ export function createNativeDpkgTransactionRuntime(options: NativeDpkgTransactio
         else thrown = new NativeDpkgTransactionError(`${boundedMessage(thrown)}; fence release: ${boundedMessage(releaseError)}`, { cause: thrown });
       }
     }
-    if (thrown !== undefined) throw thrown;
+    if (thrown !== undefined) {
+      throw thrown instanceof Error ? thrown : new NativeDpkgTransactionError(boundedMessage(thrown), { cause: thrown });
+    }
   };
 
   return Object.freeze({
