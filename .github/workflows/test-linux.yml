@@ -43,16 +43,19 @@ jobs:
             packages/desktop-tools-runtime/package-lock.json
             packages/control-plane/package-lock.json
 
-      - name: Verify Aid Core types, lint, and behavior
+      - name: Install locked runtime test dependencies
         run: |
           npm --prefix packages/aid-core ci --ignore-scripts --no-audit --no-fund
-          npm --prefix packages/aid-core test
-
-      - name: Verify Desktop Tools Runtime types, lint, and behavior
-        run: |
           npm --prefix packages/installer-engine ci --ignore-scripts --no-audit --no-fund
           npm --prefix packages/desktop-tools-runtime ci --ignore-scripts --no-audit --no-fund
-          npm --prefix packages/desktop-tools-runtime test
+
+      - name: Verify Aid Core types, lint, and behavior
+        id: aid-core
+        run: npm --prefix packages/aid-core test
+
+      - name: Verify Desktop Tools Runtime types, lint, and behavior
+        if: ${{ !cancelled() && steps.aid-core.outcome != 'skipped' }}
+        run: npm --prefix packages/desktop-tools-runtime test
 
       - name: Install control-plane test dependencies
         run: npm --prefix packages/control-plane ci --ignore-scripts --no-audit --no-fund
