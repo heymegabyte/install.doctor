@@ -202,14 +202,21 @@ assert.deepEqual(selectConfigurationSecrets(
 ), []);
 const pexelsManifest = validateManifest({
   ...manifest,
-  profiles: { ...manifest.profiles, 'cloudflare-mcp': [...manifest.profiles['cloudflare-mcp'], 'cloudflare-mcp-media-search'] },
+  profiles: {
+    ...manifest.profiles,
+    'cloudflare-mcp': [...manifest.profiles['cloudflare-mcp'], 'media-search-provider'],
+    'projectsites-runtime': [...manifest.profiles['projectsites-runtime'], 'media-search-provider'],
+  },
   reservedNames: [...manifest.reservedNames, 'PEXELS_API_KEY', 'PIXABAY_API_KEY'],
   exactCapabilityNames: {
-    ...manifest.exactCapabilityNames, 'cloudflare-mcp-media-search': ['PEXELS_API_KEY', 'PIXABAY_API_KEY'],
+    ...manifest.exactCapabilityNames, 'media-search-provider': ['PEXELS_API_KEY', 'PIXABAY_API_KEY'],
   },
 });
 assert.deepEqual(selectConfigurationSecrets(
   pexelsManifest, pexelsManifest.workloads['mcp.megabyte.space'], ['PEXELS_API_KEY'],
+), ['PEXELS_API_KEY']);
+assert.deepEqual(selectConfigurationSecrets(
+  pexelsManifest, pexelsManifest.workloads['projectsites.dev'], ['PEXELS_API_KEY'],
 ), ['PEXELS_API_KEY']);
 for (const host of Object.keys(pexelsManifest.hosts)) {
   assert.deepEqual(selectHostSecrets(pexelsManifest, host, ['PEXELS_API_KEY']), []);
@@ -217,19 +224,29 @@ for (const host of Object.keys(pexelsManifest.hosts)) {
 assert.deepEqual(selectConfigurationSecrets(
   pexelsManifest, pexelsManifest.workloads['mcp.megabyte.space'], ['PIXABAY_API_KEY'],
 ), ['PIXABAY_API_KEY']);
+assert.deepEqual(selectConfigurationSecrets(
+  pexelsManifest, pexelsManifest.workloads['projectsites.dev'], ['PIXABAY_API_KEY'],
+), ['PIXABAY_API_KEY']);
 for (const host of Object.keys(pexelsManifest.hosts)) {
   assert.deepEqual(selectHostSecrets(pexelsManifest, host, ['PIXABAY_API_KEY']), []);
 }
 const pageSpeedManifest = validateManifest({
   ...manifest,
-  profiles: { ...manifest.profiles, 'cloudflare-mcp': [...manifest.profiles['cloudflare-mcp'], 'cloudflare-mcp-site-quality'] },
+  profiles: {
+    ...manifest.profiles,
+    'cloudflare-mcp': [...manifest.profiles['cloudflare-mcp'], 'site-quality-provider'],
+    'projectsites-runtime': [...manifest.profiles['projectsites-runtime'], 'site-quality-provider'],
+  },
   reservedNames: [...manifest.reservedNames, 'PAGESPEED_API_KEY'],
   exactCapabilityNames: {
-    ...manifest.exactCapabilityNames, 'cloudflare-mcp-site-quality': ['PAGESPEED_API_KEY'],
+    ...manifest.exactCapabilityNames, 'site-quality-provider': ['PAGESPEED_API_KEY'],
   },
 });
 assert.deepEqual(selectConfigurationSecrets(
   pageSpeedManifest, pageSpeedManifest.workloads['mcp.megabyte.space'], ['PAGESPEED_API_KEY'],
+), ['PAGESPEED_API_KEY']);
+assert.deepEqual(selectConfigurationSecrets(
+  pageSpeedManifest, pageSpeedManifest.workloads['projectsites.dev'], ['PAGESPEED_API_KEY'],
 ), ['PAGESPEED_API_KEY']);
 for (const host of Object.keys(pageSpeedManifest.hosts)) {
   assert.deepEqual(selectHostSecrets(pageSpeedManifest, host, ['PAGESPEED_API_KEY']), []);
