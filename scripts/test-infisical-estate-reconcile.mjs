@@ -17,6 +17,7 @@ writeFileSync(join(root, 'COMPOSIO_API_KEY'), 'composio ciphertext fixture');
 writeFileSync(join(root, 'FOURSQUARE_API_KEY'), 'foursquare ciphertext fixture');
 writeFileSync(join(root, 'DAYTONA_API_KEY'), 'daytona ciphertext fixture');
 writeFileSync(join(root, 'IONIC_TOKEN'), 'ionic ciphertext fixture');
+writeFileSync(join(root, 'EXA_API_KEY'), 'exa ciphertext fixture');
 writeFileSync(join(root, 'SUDO_PASSWORD'), 'excluded fixture');
 
 const manifest = validateManifest({
@@ -35,12 +36,12 @@ const manifest = validateManifest({
       secretPath: '/',
     },
   },
-  profiles: { developer: ['cloudflare'], 'cloudflare-mcp': ['cloudflare', 'composio', 'daytona', 'foursquare', 'ionic'] },
-  capabilityPatterns: { cloudflare: ['^CLOUDFLARE_'], composio: ['^COMPOSIO_API_KEY$'], daytona: ['^DAYTONA_API_KEY$'], foursquare: ['^FOURSQUARE_API_KEY$'], ionic: ['^IONIC_TOKEN$'] },
+  profiles: { developer: ['cloudflare'], 'cloudflare-mcp': ['cloudflare', 'composio', 'daytona', 'exa', 'foursquare', 'ionic'] },
+  capabilityPatterns: { cloudflare: ['^CLOUDFLARE_'], composio: ['^COMPOSIO_API_KEY$'], daytona: ['^DAYTONA_API_KEY$'], exa: ['^EXA_API_KEY$'], foursquare: ['^FOURSQUARE_API_KEY$'], ionic: ['^IONIC_TOKEN$'] },
   alwaysExcludePatterns: ['PASSWORD$'],
 });
 const inventory = inventorySecretNames([root]);
-assert.deepEqual([...inventory.keys()], ['CLOUDFLARE_API_TOKEN', 'COMPOSIO_API_KEY', 'DAYTONA_API_KEY', 'FOURSQUARE_API_KEY', 'IONIC_TOKEN', 'SUDO_PASSWORD']);
+assert.deepEqual([...inventory.keys()], ['CLOUDFLARE_API_TOKEN', 'COMPOSIO_API_KEY', 'DAYTONA_API_KEY', 'EXA_API_KEY', 'FOURSQUARE_API_KEY', 'IONIC_TOKEN', 'SUDO_PASSWORD']);
 
 const storesRoot = mkdtempSync(join(tmpdir(), 'infisical-source-stores-'));
 const general = join(storesRoot, 'general');
@@ -104,7 +105,7 @@ assert.throws(() => validateValidationLedger({
 assert.deepEqual(selectHostSecrets(manifest, 'macos.megabyte.space', inventory.keys()), ['CLOUDFLARE_API_TOKEN']);
 assert.deepEqual(selectConfigurationSecrets(
   manifest, manifest.workloads['mcp.megabyte.space'], inventory.keys(),
-), ['CLOUDFLARE_API_TOKEN', 'COMPOSIO_API_KEY', 'DAYTONA_API_KEY', 'FOURSQUARE_API_KEY', 'IONIC_TOKEN']);
+), ['CLOUDFLARE_API_TOKEN', 'COMPOSIO_API_KEY', 'DAYTONA_API_KEY', 'EXA_API_KEY', 'FOURSQUARE_API_KEY', 'IONIC_TOKEN']);
 const accessSshNames = [
   'CF_ACCESS_SSH_COOLIFY_CLIENT_ID', 'CF_ACCESS_SSH_COOLIFY_CLIENT_SECRET',
   'CF_ACCESS_SSH_UBUNTU_CLIENT_ID', 'CF_ACCESS_SSH_UBUNTU_CLIENT_SECRET',
@@ -193,7 +194,7 @@ assert.throws(() => validateManifest({
   ...cloudflareReservedManifest,
   blockedReservedNames: ['CLOUDFLARE_ORIGIN_CA_KEY', 'CF_ACCESS_CLIENT_ID'],
 }), /also has an exact capability owner/);
-const sharedManifest = { ...manifest, capabilityPatterns: { cloudflare: ['^SHARED_'], composio: ['^COMPOSIO_API_KEY$'], daytona: ['^DAYTONA_API_KEY$'], foursquare: ['^FOURSQUARE_API_KEY$'], ionic: ['^IONIC_TOKEN$'] } };
+const sharedManifest = { ...manifest, capabilityPatterns: { cloudflare: ['^SHARED_'], composio: ['^COMPOSIO_API_KEY$'], daytona: ['^DAYTONA_API_KEY$'], exa: ['^EXA_API_KEY$'], foursquare: ['^FOURSQUARE_API_KEY$'], ionic: ['^IONIC_TOKEN$'] } };
 assert.deepEqual(
   selectConfigurationSources(sharedManifest, sharedManifest.hosts['macos.megabyte.space'], sourceInventory)
     .map(({ sourceId }) => sourceId),
