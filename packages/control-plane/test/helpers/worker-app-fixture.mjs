@@ -89,9 +89,9 @@ export async function createWorkerFixture() {
     app,
     db,
     env: Object.freeze({ ...TEST_ENV, DB: db }),
-    cleanup() {
+    async cleanup() {
       Reflect.deleteProperty(globalThis, key);
-      fs.rmSync(root, { recursive: true, force: true });
+      await fs.promises.rm(root, { recursive: true, force: true });
     },
   });
 }

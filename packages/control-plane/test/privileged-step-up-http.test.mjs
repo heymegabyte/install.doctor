@@ -121,7 +121,7 @@ async function mockOfficialVerification(db, issued, session, credentialId) {
 
 void test('HTTP/D1 step-up is exactly bound, one-time, and denied after official passkey deletion', async t => {
   const fixture = await createWorkerFixture();
-  t.after(() => { fixture.cleanup(); });
+  t.after(() => fixture.cleanup());
   const first = await githubSession(fixture.app, fixture.env, 1);
   const headers = { cookie: first.cookie, 'content-type': 'application/json', 'cf-connecting-ip': '192.0.2.20' };
   const input = { target: { kind: 'host', id: 'host-1' }, planDigest: 'a'.repeat(64), scopes: ['plan:apply'] };
