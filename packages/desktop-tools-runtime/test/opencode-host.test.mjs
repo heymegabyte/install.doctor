@@ -3,8 +3,12 @@ import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 import { OPENCODE_HOST_COMPATIBILITY, assertOpenCodeCompatibility, createDesktopToolsOpenCodeHost } from '../src/opencode-host.mjs';
 
+/** @typedef {NonNullable<Parameters<typeof createDesktopToolsOpenCodeHost>[0]['sdk']>} HostSdk */
+/** @param {{url?: string}} [overrides] */
 function fixture(overrides = {}) {
+  /** @type {{ starts: Parameters<HostSdk['createServer']>[0][], clients: Parameters<HostSdk['createClient']>[0][], closes: number }} */
   const calls = { starts: [], clients: [], closes: 0 };
+  /** @type {HostSdk} */
   const sdk = {
     async createServer(options) {
       calls.starts.push(options);
@@ -46,6 +50,7 @@ test('owns deterministic idempotent startup and shutdown', async () => {
   const [first, second] = await Promise.all([host.start(), host.start()]);
   assert.equal(first, second);
   assert.equal(calls.starts.length, 1);
+  assert.ok(calls.starts[0]);
   assert.equal(calls.starts[0].hostname, '127.0.0.1');
   assert.equal(calls.starts[0].port, 4321);
   assert.equal(calls.starts[0].signal instanceof AbortSignal, true);
@@ -72,8 +77,10 @@ test('rejects every public, ambiguous, privileged, or substituted listener bindi
 });
 
 test('shutdown during startup aborts ownership and closes a late server exactly once', async () => {
+  /** @type {(() => void) | undefined} */
   let release;
   let closes = 0;
+  /** @type {HostSdk} */
   const sdk = {
     createServer: () => new Promise(resolve => { release = () => resolve({ url: 'http://127.0.0.1:4567/', close() { closes += 1; } }); }),
     createClient: () => ({}),
@@ -81,6 +88,7 @@ test('shutdown during startup aborts ownership and closes a late server exactly 
   const host = createDesktopToolsOpenCodeHost({ runtimeVersion: '2.2.5', sdkVersion: '1.19.5', hostname: '127.0.0.1', port: 4567, sdk });
   const starting = host.start();
   const stopping = host.stop();
+  assert.ok(release);
   release();
   await assert.rejects(starting, /cancelled/);
   await stopping;
@@ -89,11 +97,12 @@ test('shutdown during startup aborts ownership and closes a late server exactly 
 });
 
 test('replaceable adapters must implement both server and client boundaries', () => {
-  assert.throws(() => createDesktopToolsOpenCodeHost({ runtimeVersion: '2.2.5', sdkVersion: '1.19.5', sdk: { createServer() {} } }), /host interface/);
+  assert.throws(() => Reflect.apply(createDesktopToolsOpenCodeHost, undefined, [{ runtimeVersion: '2.2.5', sdkVersion: '1.19.5', sdk: { createServer() {} } }]), /host interface/);
 });
 
 test('supports an explicit IPv6 loopback binding without broadening listener authority', async () => {
   let closes = 0;
+  /** @type {HostSdk} */
   const sdk = {
     async createServer() { return { url: 'http://[::1]:4789/', close() { closes += 1; } }; },
     createClient(options) { return { options }; },

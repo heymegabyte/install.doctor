@@ -9,25 +9,27 @@ export const OPENCODE_HOST_COMPATIBILITY = Object.freeze({
   transport: Object.freeze({ protocol: 'http:', hostnames: Object.freeze(['127.0.0.1', '::1']) }),
 });
 
+/** @param {string} message @returns {never} */
 function fail(message) {
-  const error = new Error(message);
-  error.code = 'DESKTOP_TOOLS_OPENCODE_HOST';
-  throw error;
+  throw Object.assign(new Error(message), { code: 'DESKTOP_TOOLS_OPENCODE_HOST' });
 }
 
+/** @param {string | undefined} value @param {string} label @returns {[number, number, number]} */
 function parseVersion(value, label) {
   const match = /^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-[0-9A-Za-z.-]+)?$/.exec(value ?? '');
   if (!match) fail(`${label} is not an exact semantic version`);
-  return match.slice(1, 4).map(Number);
+  return [Number(match[1]), Number(match[2]), Number(match[3])];
 }
 
+/** @param {[number, number, number]} left @param {[number, number, number]} right */
 function compareVersion(left, right) {
-  for (let index = 0; index < 3; index += 1) {
+  for (const index of /** @type {const} */ ([0, 1, 2])) {
     if (left[index] !== right[index]) return left[index] < right[index] ? -1 : 1;
   }
   return 0;
 }
 
+/** @param {{ sdkVersion?: string, runtimeVersion?: string }} versions */
 export function assertOpenCodeCompatibility({ sdkVersion, runtimeVersion }) {
   if (sdkVersion !== OPENCODE_HOST_COMPATIBILITY.sdk.version) {
     fail(`OpenCode SDK ${sdkVersion ?? '<missing>'} differs from the reviewed pin ${OPENCODE_HOST_COMPATIBILITY.sdk.version}`);
@@ -45,6 +47,7 @@ export function assertOpenCodeCompatibility({ sdkVersion, runtimeVersion }) {
   });
 }
 
+/** @param {string} value @param {string} expectedHostname @param {number} expectedPort */
 function privateEndpoint(value, expectedHostname, expectedPort) {
   let endpoint;
   try { endpoint = new URL(value); } catch { fail('OpenCode SDK returned an invalid endpoint'); }
@@ -59,6 +62,12 @@ function privateEndpoint(value, expectedHostname, expectedPort) {
   return endpoint.href;
 }
 
+/** @typedef {NonNullable<Parameters<typeof createOpencodeServer>[0]> & Required<Pick<NonNullable<Parameters<typeof createOpencodeServer>[0]>, 'hostname' | 'port' | 'timeout' | 'signal' | 'config'>>} HostServerOptions */
+/** @typedef {{ url: string, close(): void | Promise<void> }} HostServer */
+/** @typedef {{ baseUrl: string, directory: string | undefined }} HostClientOptions */
+/** @typedef {{ createServer(options: HostServerOptions): Promise<HostServer>, createClient(options: HostClientOptions): object }} HostSdk */
+/** @typedef {{ runtimeVersion?: string, sdkVersion?: string, hostname?: string, port?: number, timeout?: number, config?: HostServerOptions['config'], directory?: string, sdk?: HostSdk }} HostOptions */
+/** @param {HostOptions} value */
 function exactOptions(value) {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) fail('OpenCode host options must be an object');
   const allowed = ['runtimeVersion', 'sdkVersion', 'hostname', 'port', 'timeout', 'config', 'directory', 'sdk'];
@@ -77,13 +86,17 @@ function exactOptions(value) {
 
 const upstreamSdk = Object.freeze({
   createServer: createOpencodeServer,
-  createClient: createOpencodeClient,
+  /** @param {HostClientOptions} options */
+  createClient({ baseUrl, directory }) {
+    return createOpencodeClient({ baseUrl, ...(directory === undefined ? {} : { directory }) });
+  },
 });
 
 /**
  * Creates the narrow, replaceable OpenCode execution substrate owned by Desktop Tools.
  * The returned host is one-shot: start and stop are idempotent, while restart requires a
  * new host so an old session can never silently adopt a new server process.
+ * @param {HostOptions} input
  */
 export function createDesktopToolsOpenCodeHost(input) {
   const options = exactOptions(input);
@@ -95,9 +108,14 @@ export function createDesktopToolsOpenCodeHost(input) {
 
   const abort = new AbortController();
   let state = 'idle';
+  /** @typedef {{url: string, client: object, compatibility: ReturnType<typeof assertOpenCodeCompatibility>}} Session */
+  /** @type {Promise<Session> | undefined} */
   let startPromise;
+  /** @type {Promise<void> | undefined} */
   let stopPromise;
+  /** @type {HostServer | undefined} */
   let server;
+  /** @type {Session | undefined} */
   let session;
 
   async function start() {
