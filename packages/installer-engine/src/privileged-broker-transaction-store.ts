@@ -6,6 +6,7 @@ import { z } from 'zod';
 import { NativeDpkgTransactionRecordSchema } from './native-dpkg-transaction-record.js';
 import type { NativeDpkgTransactionPersistence, NativeDpkgTransactionRecord } from './native-dpkg-transaction-record.js';
 
+const platformOpenFlags: { readonly O_NOFOLLOW?: number; readonly O_DIRECTORY?: number } = constants;
 const digest = z.string().regex(/^[a-f0-9]{64}$/);
 const GenerationSchema = z.strictObject({
   schemaVersion: z.literal(1),
@@ -37,9 +38,9 @@ async function assertPrivateDirectory(path: string, ownerUid: number): Promise<v
 }
 
 async function writeExclusive(path: string, content: Buffer): Promise<void> {
-  const handle = await open(path, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | (constants.O_NOFOLLOW ?? 0), 0o600);
+  const handle = await open(path, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | (platformOpenFlags.O_NOFOLLOW ?? 0), 0o600);
   try { await handle.writeFile(content); await handle.sync(); } finally { await handle.close(); }
-  const directory = await open(resolve(path, '..'), constants.O_RDONLY | (constants.O_DIRECTORY ?? 0));
+  const directory = await open(resolve(path, '..'), constants.O_RDONLY | (platformOpenFlags.O_DIRECTORY ?? 0));
   try { await directory.sync(); } finally { await directory.close(); }
 }
 
@@ -49,7 +50,7 @@ async function readProtected(path: string, ownerUid: number): Promise<Buffer> {
     || (before.mode & 0o177) !== 0 || before.size < 1 || before.size > 1_048_576) {
     throw new Error('privileged transaction generation is unsafe');
   }
-  const handle = await open(path, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
+  const handle = await open(path, constants.O_RDONLY | (platformOpenFlags.O_NOFOLLOW ?? 0));
   try {
     const opened = await handle.stat();
     if (opened.dev !== before.dev || opened.ino !== before.ino || opened.size !== before.size) throw new Error('transaction generation changed while opening');
@@ -129,10 +130,11 @@ export async function createPrivilegedBrokerTransactionPersistence(input: {
     },
     async evidenceDigest() {
       const transactionIds = (await readdir(root)).sort();
-      if (transactionIds.length === 0 || transactionIds.length > 1 || transactionIds.some(value => !/^[a-f0-9]{64}$/.test(value))) {
+      const [transactionId] = transactionIds;
+      if (transactionIds.length !== 1 || transactionId === undefined || !/^[a-f0-9]{64}$/.test(transactionId)) {
         throw new Error('privileged transaction fence requires exactly one transaction identity');
       }
-      const chain = await readChain(transactionIds[0]!);
+      const chain = await readChain(transactionId);
       const latest = chain.at(-1);
       if (!latest) throw new Error('privileged transaction fence has no durable generation');
       return latest.digest;
