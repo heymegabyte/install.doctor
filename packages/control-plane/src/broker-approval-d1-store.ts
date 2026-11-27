@@ -100,6 +100,8 @@ export function createBrokerApprovalD1Store(
         request.grantId,
       ).first<ApprovalStateRow>();
       if (!row) return null;
+      const grant: unknown = JSON.parse(row.grant_json);
+      const delegation: unknown = JSON.parse(row.delegation_json);
       return {
         schemaVersion: 1,
         authorizationId: row.authorization_id,
@@ -114,8 +116,8 @@ export function createBrokerApprovalD1Store(
         deviceFingerprint: row.device_fingerprint,
         runIntentId: row.run_intent_id,
         status: row.status,
-        grant: JSON.parse(row.grant_json),
-        delegation: JSON.parse(row.delegation_json),
+        grant,
+        delegation,
       };
     },
 

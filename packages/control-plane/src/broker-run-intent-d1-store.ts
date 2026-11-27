@@ -220,6 +220,7 @@ SELECT i.grant_expires_at, d.owner_decision_id, d.decision, d.decided_at,
  LIMIT 1`;
 
 function rowToRunIntent(row: RunIntentRow): BrokerRunIntentValue {
+  const operations: unknown = JSON.parse(row.operations_json);
   return BrokerRunIntent.parse({
     schemaVersion: 1, runIntentId: row.run_intent_id, authorizationId: row.authorization_id,
     tenantId: row.tenant_id, profileId: row.profile_id,
@@ -228,7 +229,7 @@ function rowToRunIntent(row: RunIntentRow): BrokerRunIntentValue {
     grantId: row.grant_id, hostId: row.host_id, releaseId: row.release_id, runId: row.run_id,
     planDigest: row.plan_digest, enrolledUid: row.enrolled_uid,
     brokerExecutableDigest: row.broker_executable_digest, runtimeDigest: row.runtime_digest,
-    workerDigest: row.worker_digest, operations: JSON.parse(row.operations_json),
+    workerDigest: row.worker_digest, operations,
     descriptorDigest: row.descriptor_digest, closureDigest: row.closure_digest,
     consentDigest: row.consent_digest, requestedAt: row.requested_at,
     grantExpiresAt: row.grant_expires_at,
@@ -335,6 +336,7 @@ export function createBrokerRunIntentD1Store(
         || current >= Date.parse(row.decision_expires_at)
         || current >= Date.parse(row.grant_expires_at)
         || current - Date.parse(row.owner_reauthenticated_at) > MAX_OWNER_REAUTH_AGE_MS) return null;
+      const operations: unknown = JSON.parse(row.operations_json);
       return BrokerApprovalReconstruction.parse({
         schemaVersion: 1, authorizationId: row.authorization_id,
         ownerDecisionId: row.owner_decision_id, ownerActorId: row.owner_actor_id,
@@ -349,7 +351,7 @@ export function createBrokerRunIntentD1Store(
           releaseId: row.release_id, runId: row.run_id, planDigest: row.plan_digest,
           approvedPlanDigest: row.approved_plan_digest, enrolledUid: row.enrolled_uid,
           brokerExecutableDigest: row.broker_executable_digest, runtimeDigest: row.runtime_digest,
-          workerDigest: row.worker_digest, operations: JSON.parse(row.operations_json),
+          workerDigest: row.worker_digest, operations,
           descriptorDigest: row.descriptor_digest, closureDigest: row.closure_digest,
           consentDigest: row.consent_digest, issuedAt: row.requested_at,
           expiresAt: row.grant_expires_at,

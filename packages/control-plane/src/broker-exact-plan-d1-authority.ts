@@ -79,6 +79,7 @@ const LOAD = `SELECT * FROM broker_exact_plan_authority
    AND release_id = ? AND run_id = ? LIMIT 1`;
 
 function factsFromRow(row: PlanRow): AuthoritativeBrokerPlanFactsValue {
+  const operations: unknown = JSON.parse(row.operations_json);
   return AuthoritativeBrokerPlanFacts.parse({
     hostId: row.host_id,
     runId: row.run_id,
@@ -87,7 +88,7 @@ function factsFromRow(row: PlanRow): AuthoritativeBrokerPlanFactsValue {
     brokerExecutableDigest: row.broker_executable_digest,
     runtimeDigest: row.runtime_digest,
     workerDigest: row.worker_digest,
-    operations: JSON.parse(row.operations_json),
+    operations,
     descriptorDigest: row.descriptor_digest,
     closureDigest: row.closure_digest,
     consentDigest: row.consent_digest,
