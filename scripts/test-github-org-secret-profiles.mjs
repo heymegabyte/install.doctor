@@ -112,6 +112,17 @@ for (const workload of ['projectsites.dev', 'swarml.ink', 'mcp.megabyte.space', 
 for (const host of Object.keys(manifest.hosts)) {
   assert.deepEqual(selectHostSecrets(manifest, host, ['SLACK_WEBHOOK_URL']), []);
 }
+const matrixSecrets = ['MATRIX_HOMESERVER', 'MATRIX_PASSWORD', 'MATRIX_USERNAME'];
+assert.deepEqual(
+  selectHostSecrets(manifest, 'macos.megabyte.space', matrixSecrets),
+  matrixSecrets,
+);
+for (const host of ['ubuntu.megabyte.space', 'zen.megabyte.space', 'legion.megabyte.space']) {
+  assert.deepEqual(selectHostSecrets(manifest, host, matrixSecrets), []);
+}
+for (const workload of Object.keys(manifest.workloads)) {
+  assert.deepEqual(selectConfigurationSecrets(manifest, manifest.workloads[workload], matrixSecrets), []);
+}
 assert.deepEqual(selectConfigurationSecrets(
   manifest, manifest.workloads['crawl.cheap'], ['EXA_API_KEY', 'SENTRY_DSN', 'ANTHROPIC_API_KEY'],
 ), ['EXA_API_KEY', 'SENTRY_DSN']);

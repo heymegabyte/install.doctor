@@ -268,8 +268,10 @@ export function selectConfigurationSecrets(manifest, configuration, secretNames)
   const reserved = new Set(manifest.reservedNames ?? []);
   const exact = new Set(capabilities.flatMap((capability) => manifest.exactCapabilityNames?.[capability] ?? []));
   return [...secretNames].filter((name) => (
-    !exclude.some((pattern) => pattern.test(name))
-    && (exact.has(name) || !reserved.has(name) && include.some((pattern) => pattern.test(name)))
+    exact.has(name)
+    || !exclude.some((pattern) => pattern.test(name))
+      && !reserved.has(name)
+      && include.some((pattern) => pattern.test(name))
   )).sort();
 }
 

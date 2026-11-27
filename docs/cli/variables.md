@@ -91,7 +91,7 @@ The variables below provide configuration to integrations after the correspondin
 | Variable | Service | Description |
 |---|---|---|
 | `SLACK_API_TOKEN` | Slack | API token for Slack workspace integration |
-| `MATRIX_PASSWORD` | Matrix/Element | Password for Matrix account authentication |
+| `MATRIX_HOMESERVER`, `MATRIX_USERNAME`, `MATRIX_PASSWORD` | Matrix/Element | macOS-only Apprise credentials resolved from the exact Infisical capability |
 
 ### Infrastructure
 
