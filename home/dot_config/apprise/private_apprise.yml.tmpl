@@ -15,7 +15,7 @@ include:
 groups:
   - chat: matrix
   - developer: slack
-  - social: reddit, twitter
+  - social: reddit
   - owner: sendgrid, twilio, rsyslog, system
 
 tag: all
@@ -160,29 +160,6 @@ urls:
   # Sends a text message from Twilio to the `CELL_PHONE_NUMBER`
   - twilio://{{- $twilioAccountSid -}}:{{- $twilioAuthToken -}}@{{- $twilioFromNumber -}}/{{- $cellPhoneNumber -}}
     - tag: text, twilio
-  {{ end }}
-
-  {{- $twitterApiKey := (default "" (env "TWITTER_API_KEY")) -}}
-  {{- if and (stat (joinPath .host.home ".config" "age" "chezmoi.txt")) (stat (joinPath .chezmoi.sourceDir ".chezmoitemplates" (printf "%s%s" "secrets-" .chezmoi.hostname) "TWITTER_API_KEY")) -}}
-  {{-   $twitterApiKey = includeTemplate (printf "%s%s" (printf "%s%s" "secrets-" .chezmoi.hostname) "/TWITTER_API_KEY") | decrypt | trim -}}
-  {{- end -}}
-  {{- $twitterApiKeySecret := (default "" (env "TWITTER_API_KEY_SECRET")) -}}
-  {{- if and (stat (joinPath .host.home ".config" "age" "chezmoi.txt")) (stat (joinPath .chezmoi.sourceDir ".chezmoitemplates" (printf "%s%s" "secrets-" .chezmoi.hostname) "TWITTER_API_KEY_SECRET")) -}}
-  {{-   $twitterApiKeySecret = includeTemplate (printf "%s%s" (printf "%s%s" "secrets-" .chezmoi.hostname) "/TWITTER_API_KEY_SECRET") | decrypt | trim -}}
-  {{- end -}}
-  {{- $twitterAccessToken := (default "" (env "TWITTER_ACCESS_TOKEN")) -}}
-  {{- if and (stat (joinPath .host.home ".config" "age" "chezmoi.txt")) (stat (joinPath .chezmoi.sourceDir ".chezmoitemplates" (printf "%s%s" "secrets-" .chezmoi.hostname) "TWITTER_ACCESS_TOKEN")) -}}
-  {{-   $twitterAccessToken = includeTemplate (printf "%s%s" (printf "%s%s" "secrets-" .chezmoi.hostname) "/TWITTER_ACCESS_TOKEN") | decrypt | trim -}}
-  {{- end -}}
-  {{- $twitterAccessTokenSecret := (default "" (env "TWITTER_ACCESS_TOKEN_SECRET")) -}}
-  {{- if and (stat (joinPath .host.home ".config" "age" "chezmoi.txt")) (stat (joinPath .chezmoi.sourceDir ".chezmoitemplates" (printf "%s%s" "secrets-" .chezmoi.hostname) "TWITTER_ACCESS_TOKEN_SECRET")) -}}
-  {{-   $twitterAccessTokenSecret = includeTemplate (printf "%s%s" (printf "%s%s" "secrets-" .chezmoi.hostname) "/TWITTER_ACCESS_TOKEN_SECRET") | decrypt | trim -}}
-  {{- end -}}
-  {{- if and (ne $twitterApiKey "") (ne $twitterApiKeySecret "") (ne $twitterAccessToken "") (ne $twitterAccessTokenSecret "") -}}
-  ### Twitter
-  # Posts a tweet
-  - twitter://{{- $twitterApiKey -}}/{{- $twitterApiKeySecret -}}/{{- $twitterAccessToken -}}/{{- $twitterAccessTokenSecret -}}?mode=tweet:
-    - tag: post, tweet, megabyte-labs
   {{ end }}
 
   ### dbus
