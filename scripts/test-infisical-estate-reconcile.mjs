@@ -161,6 +161,31 @@ assert.deepEqual(selectConfigurationSecrets(
 assert.deepEqual(selectConfigurationSecrets(
   livekitManifest, livekitManifest.workloads['mcp.megabyte.space'], livekitNames,
 ), []);
+const lobTestNames = [
+  'LOB_ACCOUNT_ID', 'LOB_DEFAULT_FROM_CITY', 'LOB_DEFAULT_FROM_COUNTRY', 'LOB_DEFAULT_FROM_LINE1',
+  'LOB_DEFAULT_FROM_NAME', 'LOB_DEFAULT_FROM_STATE', 'LOB_DEFAULT_FROM_ZIP', 'LOB_PUBLISHABLE_LIVE',
+  'LOB_PUBLISHABLE_TEST', 'LOB_SECRET_TEST',
+];
+const lobTestManifest = validateManifest({
+  ...manifest,
+  workloads: {
+    ...manifest.workloads,
+    'pdf-kitchen-lob-test': {
+      profile: 'pdf-kitchen-lob-test',
+      projectId: 'b2f79a79-6767-45ce-a55b-2c01fd4f280a',
+      secretPath: '/test/lob',
+    },
+  },
+  profiles: { ...manifest.profiles, 'pdf-kitchen-lob-test': ['pdf-kitchen-lob-test'] },
+  reservedNames: [...manifest.reservedNames, ...lobTestNames],
+  exactCapabilityNames: { ...manifest.exactCapabilityNames, 'pdf-kitchen-lob-test': lobTestNames },
+});
+assert.deepEqual(selectConfigurationSecrets(
+  lobTestManifest, lobTestManifest.workloads['pdf-kitchen-lob-test'], lobTestNames,
+), lobTestNames);
+assert.deepEqual(selectConfigurationSecrets(
+  lobTestManifest, lobTestManifest.workloads['mcp.megabyte.space'], lobTestNames,
+), []);
 const accessSshNames = [
   'CF_ACCESS_SSH_COOLIFY_CLIENT_ID', 'CF_ACCESS_SSH_COOLIFY_CLIENT_SECRET',
   'CF_ACCESS_SSH_UBUNTU_CLIENT_ID', 'CF_ACCESS_SSH_UBUNTU_CLIENT_SECRET',
