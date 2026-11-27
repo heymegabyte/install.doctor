@@ -238,6 +238,8 @@ for (const host of Object.keys(manifest.hosts)) {
 const stripeMeterMetadata = [
   'STRIPE_METER_ID_AI_CALL', 'STRIPE_METER_ID_BYTES_EGRESS',
   'STRIPE_METER_ID_IMAGE_GENERATION', 'STRIPE_METER_IDS',
+  'STRIPE_PRICE_ID_METER_AI_CALLS', 'STRIPE_PRICE_ID_METER_EGRESS',
+  'STRIPE_PRICE_ID_METER_IMAGE_GEN',
 ];
 assert.deepEqual(
   selectConfigurationSecrets(manifest, manifest.workloads['stripe-meter-metadata-archive'], stripeMeterMetadata),
