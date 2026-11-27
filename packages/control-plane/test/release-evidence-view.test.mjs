@@ -20,7 +20,7 @@ function fixture() {
     predicate: { buildDefinition: { buildType: 'https://desktop.tools/build-types/release-closure/v1',
       externalParameters: { releaseId, sourceCommit: 'b'.repeat(40), tenant: 'must-not-leak' } },
       runDetails: { builder: { id: 'https://desktop.tools/builders/release-closure/v1', secret: 'must-not-leak' } } } });
-  const graph = [...payloads].map(([name, hashValue], index) => ({ type: 'software_File', spdxId: `file-${index}`, name,
+  const graph = [...payloads].map(([name, hashValue], index) => ({ type: 'software_File', spdxId: `file-${String(index)}`, name,
     verifiedUsing: [{ type: 'Hash', algorithm: 'sha256', hashValue }] }));
   const spdx = bytes({ '@context': 'https://spdx.org/rdf/3.0.1/spdx-context.jsonld', '@graph': graph });
   const artifacts = Object.fromEntries([...payloads].sort());
@@ -40,7 +40,7 @@ function fixture() {
     const [prefix, filename] = prefixes[key];
     lines.push(
       `${prefix}_url=https://desktop.tools/releases/${releaseId}/${filename}`,
-      `${prefix}_sha256=${digest(objects[key])}`, `${prefix}_size=${objects[key].byteLength}`);
+      `${prefix}_sha256=${digest(objects[key])}`, `${prefix}_size=${String(objects[key].byteLength)}`);
   }
   return { releaseId, manifest: bytes(`${lines.join('\n')}\n`), ...objects };
 }
@@ -61,19 +61,35 @@ void test('rejects substituted release bytes and exploitability evidence bound t
   const catalogTamper = fixture(); catalogTamper.catalog = bytes([{ name: 'substituted' }]);
   await assert.rejects(projectPublicReleaseEvidence(catalogTamper), /signed manifest/);
   const vexTamper = fixture();
+  /** @type {unknown} */
   const statement = JSON.parse(new TextDecoder().decode(vexTamper.exploitability));
-  statement.releaseClosure.artifacts['catalog.json'] = 'f'.repeat(64);
+  assert.ok(statement && typeof statement === 'object' && 'releaseClosure' in statement);
+  const { releaseClosure } = statement;
+  assert.ok(releaseClosure && typeof releaseClosure === 'object' && 'artifacts' in releaseClosure);
+  const { artifacts } = releaseClosure;
+  assert.ok(artifacts && typeof artifacts === 'object' && 'catalog.json' in artifacts);
+  artifacts['catalog.json'] = 'f'.repeat(64);
   vexTamper.exploitability = bytes(statement);
   const manifestText = new TextDecoder().decode(vexTamper.manifest)
     .replace(/exploitability_sha256=[a-f0-9]{64}/, `exploitability_sha256=${digest(vexTamper.exploitability)}`)
-    .replace(/exploitability_size=\d+/, `exploitability_size=${vexTamper.exploitability.byteLength}`);
+    .replace(/exploitability_size=\d+/, `exploitability_size=${String(vexTamper.exploitability.byteLength)}`);
   vexTamper.manifest = bytes(manifestText);
   await assert.rejects(projectPublicReleaseEvidence(vexTamper), /exact release closure/);
 });
 
+/** @param {Uint8Array} data @returns {ReadableStream<Uint8Array>} */
+function streamBytes(data) {
+  return new ReadableStream({
+    start(controller) {
+      controller.enqueue(data);
+      controller.close();
+    },
+  });
+}
+
 void test('bounded object reader rejects declared and streamed oversize or mismatched objects', async () => {
   const small = bytes('ok');
-  assert.deepEqual(await readReleaseEvidenceObject(new Blob([small]).stream(), small.byteLength), small);
-  await assert.rejects(readReleaseEvidenceObject(new Blob([small]).stream(), small.byteLength + 1), /mismatch/);
-  await assert.rejects(readReleaseEvidenceObject(new Blob([small]).stream(), 9_000_000), /size/);
+  assert.deepEqual(await readReleaseEvidenceObject(streamBytes(small), small.byteLength), small);
+  await assert.rejects(readReleaseEvidenceObject(streamBytes(small), small.byteLength + 1), /mismatch/);
+  await assert.rejects(readReleaseEvidenceObject(streamBytes(small), 9_000_000), /size/);
 });
