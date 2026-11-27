@@ -24,13 +24,16 @@ Run an automation adapter with runtime-only credentials:
 mcp-portal-profile.mjs exec automation -- your-mcp-adapter
 ```
 
-The helper resolves `MCP_AUTOMATION_CF_ACCESS_CLIENT_ID` and
-`MCP_AUTOMATION_CF_ACCESS_CLIENT_SECRET` through `get-secret` immediately
+The helper resolves `CF_ACCESS_MCP_AUTOMATION_CLIENT_ID` and
+`CF_ACCESS_MCP_AUTOMATION_CLIENT_SECRET` through `get-secret` immediately
 before starting the adapter. It exposes the endpoint and credentials to that
 child as `MCP_PORTAL_URL`, `MCP_PORTAL_CF_ACCESS_CLIENT_ID`, and
 `MCP_PORTAL_CF_ACCESS_CLIENT_SECRET`; it does not print or write their values.
 The adapter maps the latter two variables to Cloudflare's
 `CF-Access-Client-Id` and `CF-Access-Client-Secret` HTTP headers.
+
+These reference names are checked against the pinned canonical automation
+manifest so the helper cannot silently drift to an absent alias.
 
 CUA Driver, BrowserMCP, filesystem, shell, and other host-control tools remain
 local and session-scoped. This descriptor does not replace their client

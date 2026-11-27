@@ -11,8 +11,8 @@
       "authentication": "service-token-per-workload",
       "codeMode": "opt-in",
       "secretRefs": {
-        "clientId": "MCP_AUTOMATION_CF_ACCESS_CLIENT_ID",
-        "clientSecret": "MCP_AUTOMATION_CF_ACCESS_CLIENT_SECRET"
+        "clientId": "CF_ACCESS_MCP_AUTOMATION_CLIENT_ID",
+        "clientSecret": "CF_ACCESS_MCP_AUTOMATION_CLIENT_SECRET"
       }
     },
     "sandbox": {
