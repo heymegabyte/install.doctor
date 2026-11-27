@@ -4,7 +4,8 @@ import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
-  assertSecretsValidated, inventorySecretNames, secretDirectoriesForHost, selectHostSecrets, validateManifest,
+  assertSecretsValidated, inventorySecretNames, secretDirectoriesForHost, selectConfigurationSecrets,
+  selectHostSecrets, validateManifest,
 } from './infisical-estate-reconcile.mjs';
 
 const root = mkdtempSync(join(tmpdir(), 'infisical-estate-reconcile-'));
@@ -20,13 +21,23 @@ const manifest = validateManifest({
       secretPath: '/',
     },
   },
-  profiles: { developer: ['cloudflare'] },
+  workloads: {
+    'mcp.megabyte.space': {
+      profile: 'cloudflare-mcp',
+      projectId: '4ae065b0-c081-454e-a513-220a28e5d2f0',
+      secretPath: '/',
+    },
+  },
+  profiles: { developer: ['cloudflare'], 'cloudflare-mcp': ['cloudflare'] },
   capabilityPatterns: { cloudflare: ['^CLOUDFLARE_'] },
   alwaysExcludePatterns: ['PASSWORD$'],
 });
 const inventory = inventorySecretNames([root]);
 assert.deepEqual([...inventory.keys()], ['CLOUDFLARE_API_TOKEN', 'SUDO_PASSWORD']);
 assert.deepEqual(selectHostSecrets(manifest, 'macos.megabyte.space', inventory.keys()), ['CLOUDFLARE_API_TOKEN']);
+assert.deepEqual(selectConfigurationSecrets(
+  manifest, manifest.workloads['mcp.megabyte.space'], inventory.keys(),
+), ['CLOUDFLARE_API_TOKEN']);
 const defaultDirectories = ['/general', '/workstation'];
 assert.deepEqual(secretDirectoriesForHost({
   secretDirectories: defaultDirectories, secretDirectoriesOverridden: false,
@@ -46,5 +57,5 @@ assert.throws(() => assertSecretsValidated({
 assert.throws(() => validateManifest({
   ...manifest,
   hosts: { 'macos.megabyte.space': { profile: 'developer', secretPath: '/' } },
-}), /invalid host configuration/);
+}), /invalid target configuration/);
 console.log('infisical-estate-reconcile unit tests: PASS');

@@ -24,6 +24,8 @@ The estate needs a value-blind, least-privilege migration that makes Infisical a
 - Keep AI provider upstream credentials only on the Ubuntu/LiteLLM runtime; macOS receives scoped LiteLLM client credentials rather than raw upstream keys.
 - Add a durable metadata-only credential validation ledger and require every apply-selected credential to have current `status: valid` evidence from an approved validator before any write begins.
 - Record value-free migrated-destination evidence and exact source-retirement assertions so cutover and retirement are auditable without retaining or fingerprinting secret values.
+- Add first-class workload targets that are selected independently from hosts; begin with `workloads.mcp.megabyte.space` routed to its dedicated Infisical project root.
+- Route Cloudflare-native MCP provider credentials only to the MCP workload target, never through macOS, Ubuntu, or legacy workstation host profiles.
 
 ## Out of scope
 
@@ -41,6 +43,7 @@ The estate needs a value-blind, least-privilege migration that makes Infisical a
 - Online operational consumers resolve from Infisical and fail closed outside their grants.
 - macOS and Ubuntu identities can read only their own project root and receive `403` across the host-project boundary.
 - Dedicated macOS and Ubuntu hosts resolve from their dedicated project root, while explicitly declared legacy managed workstations temporarily retain their Global-project host paths until migrated.
+- `--workload` and `--host` are mutually exclusive, and workload plans use only the general encrypted inventory plus their declared workload policy.
 - Offline recovery remains independently testable without making the legacy inventory an ambient online fallback.
 - Only an explicitly reviewed canary source may retire after positive and negative acceptance evidence; broader source retirement remains separately gated.
 - `invalid-retired`, missing, stale, or otherwise unverified validation records are rejected during preflight, leaving every destination unchanged.
