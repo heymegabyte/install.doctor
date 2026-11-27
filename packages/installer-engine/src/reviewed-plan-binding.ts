@@ -4,8 +4,15 @@ import { z } from 'zod';
 const VERSION = z.literal(1);
 const id = z.string().min(1).max(128).regex(/^[a-z0-9][a-z0-9._-]*$/);
 const digest = z.string().regex(/^[a-f0-9]{64}$/);
-const instant = z.string().datetime({ offset: true });
+const instant = z.iso.datetime({ offset: true });
 const effectClass = z.enum(['configuration', 'package', 'operating-system', 'network', 'storage', 'external-provider']);
+
+function hasUnsortedEffects(effects: readonly z.infer<typeof effectClass>[]): boolean {
+  return effects.some((effect, index) => {
+    const previous = effects[index - 1];
+    return previous !== undefined && previous.localeCompare(effect) >= 0;
+  });
+}
 
 const RollbackLimitsShapeSchema = z.strictObject({
   automaticEffects: z.array(effectClass).max(6),
@@ -20,8 +27,7 @@ const RollbackLimitsShapeSchema = z.strictObject({
   if (value.automaticEffects.some(effect => separate.has(effect))) {
     context.addIssue({ code: 'custom', message: 'rollback effect classes cannot be both automatic and separately approved' });
   }
-  if (value.automaticEffects.some((effect, index) => index > 0 && value.automaticEffects[index - 1]!.localeCompare(effect) >= 0)
-    || value.separatelyApprovedEffects.some((effect, index) => index > 0 && value.separatelyApprovedEffects[index - 1]!.localeCompare(effect) >= 0)) {
+  if (hasUnsortedEffects(value.automaticEffects) || hasUnsortedEffects(value.separatelyApprovedEffects)) {
     context.addIssue({ code: 'custom', message: 'rollback effect classes must be canonically sorted' });
   }
 });

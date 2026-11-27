@@ -2,7 +2,7 @@ import { z } from 'zod';
 
 const identifier = z.string().min(1).max(128).regex(/^[a-z0-9][a-z0-9._-]*$/);
 const digest = z.string().regex(/^[a-f0-9]{64}$/);
-const timestamp = z.string().datetime({ offset: true }).max(64);
+const timestamp = z.iso.datetime({ offset: true }).max(64);
 
 /**
  * One host-wide mutation owner contract shared by install/resume and rollback.
@@ -17,7 +17,7 @@ export const HostMutationOwnerSchema = z.strictObject({
   pid: z.number().int().positive(),
   bootId: z.string().min(1).max(256),
   processStart: z.string().min(1).max(256),
-  token: z.string().uuid(),
+  token: z.uuid(),
   claimedAt: timestamp,
   heartbeatAt: timestamp,
   leaseUntil: timestamp,

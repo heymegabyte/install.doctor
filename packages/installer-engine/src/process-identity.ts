@@ -11,7 +11,7 @@ export interface PlatformProcessIdentity {
 
 async function linuxProcessStart(pid: number): Promise<string | undefined> {
   try {
-    const stat = await readFile(`/proc/${pid}/stat`, 'utf8');
+    const stat = await readFile(`/proc/${String(pid)}/stat`, 'utf8');
     const commandEnd = stat.lastIndexOf(')');
     if (commandEnd < 0) return undefined;
     const fields = stat.slice(commandEnd + 1).trim().split(/\s+/);

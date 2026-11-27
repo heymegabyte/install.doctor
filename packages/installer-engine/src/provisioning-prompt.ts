@@ -8,7 +8,7 @@ Treat the attached canonical context as immutable authorization input. Discover 
 
 const digest = z.string().regex(/^[a-f0-9]{64}$/);
 const identifier = z.string().min(1).max(128).regex(/^[a-zA-Z0-9][a-zA-Z0-9._:/-]*$/);
-const jsonScalar = z.union([z.string().max(16_384), z.number().finite(), z.boolean(), z.null()]);
+const jsonScalar = z.union([z.string().max(16_384), z.number(), z.boolean(), z.null()]);
 type JsonValue = z.infer<typeof jsonScalar> | JsonValue[] | { [key: string]: JsonValue };
 const jsonValue: z.ZodType<JsonValue> = z.lazy(() => z.union([
   jsonScalar,
@@ -20,7 +20,7 @@ const boundedObject = z.record(z.string().min(1).max(256), jsonValue)
   .superRefine((value, context) => {
     const inspect = (candidate: JsonValue, depth: number): void => {
       if (depth > 32) { context.addIssue({ code: 'custom', message: 'object exceeds maximum nesting depth' }); return; }
-      if (Array.isArray(candidate)) { candidate.forEach(child => inspect(child, depth + 1)); return; }
+      if (Array.isArray(candidate)) { for (const child of candidate) inspect(child, depth + 1); return; }
       if (candidate !== null && typeof candidate === 'object') {
         for (const [key, child] of Object.entries(candidate)) {
           if (/(?:secret|token|password|credential|private.?key)/i.test(key)) {
@@ -34,9 +34,12 @@ const boundedObject = z.record(z.string().min(1).max(256), jsonValue)
   });
 const uniqueIdentifiers = z.array(identifier).max(128)
   .refine(values => values.length === new Set(values).size, 'values must be unique')
-  .refine(values => values.every((value, index) => index === 0 || values[index - 1]! < value), 'values must be sorted');
+  .refine(values => values.every((value, index) => {
+    const previous = values[index - 1];
+    return previous === undefined || previous < value;
+  }), 'values must be sorted');
 
-export const ProvisioningPromptContextSchema = z.strictObject({
+const UnsignedPromptContextSchema = z.strictObject({
   schemaVersion: z.literal(1),
   promptVersion: z.literal(PROVISIONING_PROMPT_VERSION),
   promptDigest: digest,
@@ -46,8 +49,10 @@ export const ProvisioningPromptContextSchema = z.strictObject({
   policy: boundedObject,
   capabilities: uniqueIdentifiers,
   permittedTools: uniqueIdentifiers,
-  contextDigest: digest,
 });
+
+export const ProvisioningPromptContextSchema = UnsignedPromptContextSchema.extend({ contextDigest: digest });
+const PromptContextWithOptionalDigestSchema = ProvisioningPromptContextSchema.partial({ contextDigest: true });
 
 export type ProvisioningPromptContext = z.infer<typeof ProvisioningPromptContextSchema>;
 export type ProvisioningPromptInput = Omit<ProvisioningPromptContext, 'schemaVersion' | 'promptVersion' | 'promptDigest' | 'contextDigest'>;
@@ -62,9 +67,10 @@ function canonicalValue(value: JsonValue): JsonValue {
 }
 
 export function canonicalProvisioningPromptBytes(value: unknown): Buffer {
-  const parsedContext = ProvisioningPromptContextSchema.partial({ contextDigest: true }).parse(value);
-  const { contextDigest: _contextDigest, ...parsed } = parsedContext;
-  return Buffer.from(`${JSON.stringify(canonicalValue(parsed as unknown as JsonValue))}\n`, 'utf8');
+  const parsedContext = PromptContextWithOptionalDigestSchema.parse(value);
+  delete parsedContext.contextDigest;
+  const unsignedContext: z.infer<typeof UnsignedPromptContextSchema> = parsedContext;
+  return Buffer.from(`${JSON.stringify(canonicalValue(unsignedContext))}\n`, 'utf8');
 }
 
 export function provisioningPromptDigest(): string {
@@ -72,7 +78,7 @@ export function provisioningPromptDigest(): string {
 }
 
 export function createProvisioningPromptContext(input: ProvisioningPromptInput): ProvisioningPromptContext {
-  const unsigned = ProvisioningPromptContextSchema.omit({ contextDigest: true }).parse({
+  const unsigned = UnsignedPromptContextSchema.parse({
     schemaVersion: 1,
     promptVersion: PROVISIONING_PROMPT_VERSION,
     promptDigest: provisioningPromptDigest(),
