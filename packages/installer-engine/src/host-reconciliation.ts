@@ -6,7 +6,7 @@ import { z } from 'zod';
 
 const identifier = z.string().min(1).max(128).regex(/^[a-z0-9][a-z0-9._-]*$/);
 const digest = z.string().regex(/^[a-f0-9]{64}$/);
-const timestamp = z.string().datetime({ offset: true }).max(64);
+const timestamp = z.iso.datetime({ offset: true }).max(64);
 const action = z.enum(['discover', 'validate', 'plan', 'approve', 'apply', 'verify']);
 const phaseOrder = action.options;
 
@@ -35,7 +35,7 @@ export const HostReconciliationLeaseSchema = z.strictObject({
   schemaVersion: z.literal(1),
   hostId: identifier,
   ownerId: identifier,
-  token: z.string().uuid(),
+  token: z.uuid(),
   claimedAt: timestamp,
   heartbeatAt: timestamp,
   leaseUntil: timestamp,
@@ -76,8 +76,10 @@ function exactDirectory(path: string, label: string): void {
   if (!isAbsolute(path) || resolve(path) !== path || dirname(path) === path) throw new Error(`${label} must be a canonical absolute non-root path`);
 }
 
+const platformOpenFlags: { readonly O_DIRECTORY?: number } = constants;
+
 async function syncDirectory(path: string): Promise<void> {
-  const handle = await open(path, constants.O_RDONLY | (constants.O_DIRECTORY ?? 0));
+  const handle = await open(path, constants.O_RDONLY | (platformOpenFlags.O_DIRECTORY ?? 0));
   try { await handle.sync(); } finally { await handle.close(); }
 }
 
@@ -89,7 +91,7 @@ async function atomicJson(path: string, value: unknown): Promise<void> {
   finally { await rm(temporary, { force: true }); }
 }
 
-async function readJson(path: string): Promise<unknown | null> {
+async function readJson(path: string): Promise<unknown> {
   try {
     const metadata = await lstat(path);
     if (!metadata.isFile() || metadata.isSymbolicLink() || metadata.nlink !== 1 || (metadata.mode & 0o077) !== 0) {
@@ -108,7 +110,7 @@ export async function createHostReconciler(options: Options): Promise<HostReconc
   const ownerId = identifier.parse(options.ownerId);
   const leaseMs = z.number().int().min(1_000).max(3_600_000).parse(options.leaseMs ?? 30_000);
   const now = options.now ?? (() => new Date().toISOString());
-  const isOwnerAlive = options.isOwnerAlive ?? (async () => true);
+  const isOwnerAlive = options.isOwnerAlive ?? (() => Promise.resolve(true));
   await mkdir(options.stateRoot, { recursive: true, mode: 0o700 });
   const rootMetadata = await lstat(options.stateRoot);
   if (!rootMetadata.isDirectory() || rootMetadata.isSymbolicLink()) {
@@ -156,7 +158,7 @@ export async function createHostReconciler(options: Options): Promise<HostReconc
         if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
       }
       const current = await readLease();
-      if (owns(current)) return current!;
+      if (current !== null && owns(current)) return current;
       if (current && new Date(current.leaseUntil).getTime() <= new Date(now()).getTime() && !await isOwnerAlive(current)) {
         const stale = `${leasePath}.stale.${current.token}`;
         try { await rename(leasePath, stale); await syncDirectory(hostRoot); }

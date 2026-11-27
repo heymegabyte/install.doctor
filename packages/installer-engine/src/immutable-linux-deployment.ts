@@ -13,7 +13,7 @@ export const IMMUTABLE_LINUX_LIFECYCLE_PHASES = [
 const VERSION = z.literal(1);
 const identifier = z.string().min(1).max(256).regex(/^[A-Za-z0-9][A-Za-z0-9._:/@+-]*$/);
 const digest = z.string().regex(/^[a-f0-9]{64}$/);
-const instant = z.string().datetime({ offset: true }).max(64);
+const instant = z.iso.datetime({ offset: true }).max(64);
 const ostreeRef = z.string().min(3).max(512).regex(/^[A-Za-z0-9][A-Za-z0-9._:/@+-]*$/);
 const nevra = z.string().min(3).max(512).regex(/^[A-Za-z0-9][A-Za-z0-9._+~:-]*$/);
 const flatpakRef = z.string().min(5).max(512).regex(/^(?:app|runtime)\/[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+$/);
@@ -223,6 +223,12 @@ function operationSortKey(operation: z.infer<typeof OperationSchema>): string {
   return `${operation.kind}:${operation.subject}:${operation.from ?? ''}:${operation.to ?? ''}`;
 }
 
+function bootedDeployment(observation: z.infer<typeof ImmutableLinuxObservationSchema>) {
+  const deployment = observation.deployments.find(item => item.booted);
+  if (!deployment) throw new Error('exactly one deployment must be booted');
+  return deployment;
+}
+
 /**
  * Creates a deterministic immutable-Linux reconciliation plan. This function is intentionally
  * side-effect free: evidence is admitted only after an external verifier supplies its id, and
@@ -231,7 +237,7 @@ function operationSortKey(operation: z.infer<typeof OperationSchema>): string {
 export function planImmutableLinuxDeployment(input: unknown): ImmutableLinuxDeploymentPlan {
   const request = InputSchema.parse(input);
   const { observation, policy } = request;
-  const booted = observation.deployments.find(deployment => deployment.booted)!;
+  const booted = bootedDeployment(observation);
   const now = Date.parse(request.now);
   const verified = new Set(request.verifiedEvidenceIds);
   const evidence = request.evidence.find(item => verified.has(item.evidenceId)
@@ -406,7 +412,7 @@ export const ImmutableLinuxActivationResultSchema = z.strictObject({
 export function inspectImmutableLinuxActivation(planInput: unknown, observationInput: unknown) {
   const plan = ImmutableLinuxDeploymentPlanSchema.parse(planInput);
   const observation = ImmutableLinuxObservationSchema.parse(observationInput);
-  const booted = observation.deployments.find(item => item.booted)!;
+  const booted = bootedDeployment(observation);
   const base = { expectedChecksum: plan.reboot.expectedChecksum, observedChecksum: booted.checksum,
     preBootId: plan.reboot.preBootId, postBootId: observation.bootId };
   if (observation.fixture.fixtureId !== plan.fixtureId) return ImmutableLinuxActivationResultSchema.parse({

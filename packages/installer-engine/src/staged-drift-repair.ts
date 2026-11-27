@@ -3,7 +3,7 @@ import { z } from 'zod';
 
 const id = z.string().regex(/^[a-z0-9][a-z0-9._-]{0,127}$/);
 const digest = z.string().regex(/^[a-f0-9]{64}$/);
-const timestamp = z.string().datetime({ offset: true }).max(64);
+const timestamp = z.iso.datetime({ offset: true }).max(64);
 const DriftItemSchema = z.strictObject({
   id,
   cohort: id,
@@ -80,16 +80,17 @@ export function planStagedDriftRepair(input: unknown): StagedDriftRepairDecision
   const evaluatedAt = Date.parse(parsed.evaluatedAt);
   const prior = new Map(parsed.priorOutcomes.map(item => [item.itemId, item.outcome]));
   const drifted = parsed.items.filter(item => item.observedDigest !== item.desiredDigest);
-  const isActiveException = (item: z.infer<typeof DriftItemSchema>) => item.exception !== null
-    && Date.parse(item.exception.expiresAt) > evaluatedAt;
-  const activeCohort = parsed.cohortOrder.find(cohort => drifted.some(item => item.cohort === cohort && !isActiveException(item))) ?? null;
+  const activeException = ({ exception }: z.infer<typeof DriftItemSchema>) =>
+    exception !== null && Date.parse(exception.expiresAt) > evaluatedAt ? exception : null;
+  const activeCohort = parsed.cohortOrder.find(cohort => drifted.some(item => item.cohort === cohort && activeException(item) === null)) ?? null;
   const items = [...parsed.items].sort((left, right) => left.id.localeCompare(right.id)).map(item => {
+    const exception = activeException(item);
     let itemDisposition: z.infer<typeof disposition>;
     let reason: string;
     if (item.observedDigest === item.desiredDigest) {
       itemDisposition = 'converged'; reason = 'observed state already matches desired state';
-    } else if (isActiveException(item)) {
-      itemDisposition = 'intentional-exception'; reason = `active exception ${item.exception!.id}: ${item.exception!.reason}`;
+    } else if (exception !== null) {
+      itemDisposition = 'intentional-exception'; reason = `active exception ${exception.id}: ${exception.reason}`;
     } else if (item.cohort !== activeCohort) {
       itemDisposition = 'later-cohort'; reason = `cohort ${item.cohort} waits for ${activeCohort ?? 'no active cohort'}`;
     } else if (item.dependencies.some(dependency => prior.get(dependency) === 'failed')) {

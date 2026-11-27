@@ -39,7 +39,7 @@ export interface LinuxHostReadOptions {
 }
 
 export interface LinuxOfflineHostFactDependencies {
-  readonly platform?: NodeJS.Platform | string;
+  readonly platform?: string;
   readonly arch?: string;
   readonly now?: () => string;
   readonly readFile?: (path: string, options: LinuxHostReadOptions) => Promise<string>;
@@ -115,22 +115,22 @@ export function deriveLinuxImmutableHostId(rawMachineId: string): string {
 
 function parseQuotedValue(value: string, lineNumber: number): string {
   if (value.length < 2 || value.at(-1) !== '"') {
-    throw new Error(`unterminated quoted os-release value on line ${lineNumber}`);
+    throw new Error(`unterminated quoted os-release value on line ${String(lineNumber)}`);
   }
   const body = value.slice(1, -1);
   let parsed = '';
   for (let index = 0; index < body.length; index += 1) {
-    const character = body[index];
+    const character = body.charAt(index);
     if (character !== '\\') {
       if (character === '\u0000' || character === '\n' || character === '\r') {
-        throw new Error(`invalid control character in os-release line ${lineNumber}`);
+        throw new Error(`invalid control character in os-release line ${String(lineNumber)}`);
       }
       parsed += character;
       continue;
     }
     const escaped = body[index + 1];
     if (escaped === undefined || !['\\', '"', '$', '`'].includes(escaped)) {
-      throw new Error(`unsupported escape in os-release line ${lineNumber}`);
+      throw new Error(`unsupported escape in os-release line ${String(lineNumber)}`);
     }
     parsed += escaped;
     index += 1;
@@ -147,17 +147,17 @@ export function parseLinuxOsRelease(input: string): OsRelease {
   for (let index = 0; index < lines.length; index += 1) {
     const line = lines[index] ?? '';
     if (line === '' || /^\s*#/.test(line)) continue;
-    if (line.length > 4_096) throw new Error(`os-release line ${index + 1} exceeds its bound`);
+    if (line.length > 4_096) throw new Error(`os-release line ${String(index + 1)} exceeds its bound`);
     const match = /^([A-Z][A-Z0-9_]*)=(.*)$/.exec(line);
-    if (!match) throw new Error(`invalid os-release assignment on line ${index + 1}`);
+    if (!match) throw new Error(`invalid os-release assignment on line ${String(index + 1)}`);
     const [, key, encodedValue] = match;
-    if (key === undefined || encodedValue === undefined) throw new Error(`invalid os-release line ${index + 1}`);
+    if (key === undefined || encodedValue === undefined) throw new Error(`invalid os-release line ${String(index + 1)}`);
     if (Object.hasOwn(result, key)) throw new Error(`duplicate os-release key: ${key}`);
     if (encodedValue.startsWith('"')) {
       result[key] = parseQuotedValue(encodedValue, index + 1);
     } else {
       if (!/^[A-Za-z0-9._+:/@%-]*$/.test(encodedValue)) {
-        throw new Error(`invalid unquoted os-release value on line ${index + 1}`);
+        throw new Error(`invalid unquoted os-release value on line ${String(index + 1)}`);
       }
       result[key] = encodedValue;
     }
