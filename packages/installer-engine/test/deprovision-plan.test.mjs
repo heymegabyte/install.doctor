@@ -6,8 +6,10 @@ import {
 } from '../dist/index.js';
 
 const at = '2026-11-06T12:00:00.000Z';
+/** @param {string} character */
 const digest = character => character.repeat(64);
 
+/** @param {string} resourceId @param {string} effect @param {string} target */
 const owned = (resourceId, effect, target) => ({
   schemaVersion: 1,
   resourceId,
@@ -25,6 +27,7 @@ const owned = (resourceId, effect, target) => ({
   userData: 'absent',
 });
 
+/** @param {unknown[]} resources */
 const input = resources => ({
   schemaVersion: 1,
   sourceRunId: 'install-run',
@@ -58,11 +61,11 @@ test('builds a deterministic non-executing plan and preserves user data by defau
   assert.equal(first.policy.preserveUserData, true);
   assert.deepEqual(first.eligibleResourceIds, ['config.shell', 'service.agent']);
   assert.deepEqual(first.refusedResourceIds, ['data.projects', 'network.tunnel', 'package.curl']);
-  assert.equal(first.items.find(item => item.resourceId === 'config.shell').operation, 'preview-remove-managed-configuration');
-  assert.equal(first.items.find(item => item.resourceId === 'service.agent').operation, 'preview-disable-managed-service');
-  assert.equal(first.items.find(item => item.resourceId === 'package.curl').reason, 'effect-prohibited');
-  assert.equal(first.items.find(item => item.resourceId === 'network.tunnel').reason, 'effect-prohibited');
-  assert.equal(first.items.find(item => item.resourceId === 'data.projects').reason, 'user-data-preserved');
+  assert.equal(first.items.find(item => item.resourceId === 'config.shell')?.operation, 'preview-remove-managed-configuration');
+  assert.equal(first.items.find(item => item.resourceId === 'service.agent')?.operation, 'preview-disable-managed-service');
+  assert.equal(first.items.find(item => item.resourceId === 'package.curl')?.reason, 'effect-prohibited');
+  assert.equal(first.items.find(item => item.resourceId === 'network.tunnel')?.reason, 'effect-prohibited');
+  assert.equal(first.items.find(item => item.resourceId === 'data.projects')?.reason, 'user-data-preserved');
   DeprovisionPlanSchema.parse(first);
 });
 
@@ -130,9 +133,9 @@ test('preserves modified artifacts and configuration with present or unknown use
   ]), () => at);
 
   assert.deepEqual(plan.eligibleResourceIds, []);
-  assert.equal(plan.items.find(item => item.resourceId === 'config.modified').reason, 'target-modified-since-install');
-  assert.equal(plan.items.find(item => item.resourceId === 'config.user-data').reason, 'user-data-present');
-  assert.equal(plan.items.find(item => item.resourceId === 'config.uncertain').reason, 'user-data-unknown');
+  assert.equal(plan.items.find(item => item.resourceId === 'config.modified')?.reason, 'target-modified-since-install');
+  assert.equal(plan.items.find(item => item.resourceId === 'config.user-data')?.reason, 'user-data-present');
+  assert.equal(plan.items.find(item => item.resourceId === 'config.uncertain')?.reason, 'user-data-unknown');
 });
 
 test('refuses every privileged or ambiguous effect even with installer ownership', () => {
@@ -142,6 +145,6 @@ test('refuses every privileged or ambiguous effect even with installer ownership
   assert.deepEqual(plan.eligibleResourceIds, []);
   assert.equal(plan.refusedResourceIds.length, effects.length);
   assert.ok(plan.items.every(item => item.disposition === 'refused'));
-  assert.equal(plan.items.find(item => item.effect === 'user-data').reason, 'user-data-preserved');
+  assert.equal(plan.items.find(item => item.effect === 'user-data')?.reason, 'user-data-preserved');
   assert.ok(plan.items.filter(item => item.effect !== 'user-data').every(item => item.reason === 'effect-prohibited'));
 });

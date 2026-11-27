@@ -6,12 +6,15 @@ import { join } from 'node:path';
 import test from 'node:test';
 import {
   applyConfigurationTransaction,
+  DeprovisionPlanSchema,
   createDesktopToolsToolAdapters,
   createInstallerEngine,
   createJournalStore,
 } from '../dist/index.js';
 
+/** @param {Uint8Array} bytes */
 const digest = bytes => createHash('sha256').update(bytes).digest('hex');
+/** @param {string} character */
 const fixedDigest = character => character.repeat(64);
 const facts = {
   schemaVersion: 1, hostId: 'deprovision-canary', collectedAt: '2026-11-09T00:00:00.000Z',
@@ -23,6 +26,7 @@ const desiredState = {
   packages: [], services: [], consents: [], offline: true,
 };
 
+/** @param {string[]} paths */
 async function snapshot(paths) {
   return Object.fromEntries(await Promise.all(paths.map(async path => {
     const metadata = await stat(path);
@@ -79,7 +83,8 @@ test('disposable committed lifecycle deprovision preview preserves user, modifie
         const [target, content] = node.id === task.id ? [managed, 'installed managed\n']
           : node.id === modifiedTask.id ? [modified, 'installed modified\n'] : [unsupported, 'installed storage sentinel\n'];
         const candidate = Buffer.from(content);
-        return applyConfigurationTransaction({
+        assert.ok(context?.configurationCompensation);
+        await applyConfigurationTransaction({
           spec: { schemaVersion: 1, taskId: node.id, targetPath: target, effect: 'installer-configuration', dependencies: [] },
           candidateBytes: candidate,
           hooks: {
@@ -110,6 +115,7 @@ test('disposable committed lifecycle deprovision preview preserves user, modifie
   for (const value of compensations) {
     assert.equal(value.record.state, 'available');
     assert.match(value.record.artifactDigest, /^[a-f0-9]{64}$/);
+    assert.ok(value.appliedDigest);
     assert.match(value.appliedDigest, /^[a-f0-9]{64}$/);
   }
 
@@ -124,12 +130,16 @@ test('disposable committed lifecycle deprovision preview preserves user, modifie
     requestConsent: async () => { throw new Error('deprovision preview must not request mutation consent'); },
     now: () => '2026-11-09T00:00:00.000Z',
   });
-  const ownershipEvidence = resourceId => ({
-    schemaVersion: 1, owner: 'install.doctor', sourceRunId,
-    artifactDigest: evidenceByResource[resourceId].record.artifactDigest,
-    appliedDigest: evidenceByResource[resourceId].appliedDigest,
-  });
-  const preview = await adapters.desktop_tools_deprovision_preview({
+  /** @param {string} resourceId */
+  const ownershipEvidence = resourceId => {
+    const evidence = evidenceByResource[resourceId];
+    assert.ok(evidence?.appliedDigest);
+    return {
+      schemaVersion: 1, owner: 'install.doctor', sourceRunId,
+      artifactDigest: evidence.record.artifactDigest, appliedDigest: evidence.appliedDigest,
+    };
+  };
+  const preview = DeprovisionPlanSchema.parse(await adapters.desktop_tools_deprovision_preview({
     schemaVersion: 1, sourceRunId, sourcePlanDigest: plan.digest,
     resources: [
       { schemaVersion: 1, resourceId: 'config.managed', effect: 'configuration', target: managed,
@@ -146,16 +156,16 @@ test('disposable committed lifecycle deprovision preview preserves user, modifie
         ownership: 'installer-owned', ownershipEvidence: ownershipEvidence('storage.unsupported'),
         observedDigest: digest(await readFile(unsupported)), userData: 'absent' },
     ],
-  });
+  }));
 
   assert.equal(preview.executable, false);
   assert.deepEqual(preview.eligibleResourceIds, ['config.managed']);
   assert.deepEqual(preview.refusedResourceIds,
     ['config.modified', 'config.unowned', 'data.user', 'storage.unsupported']);
-  assert.equal(preview.items.find(item => item.resourceId === 'config.modified').reason, 'target-modified-since-install');
-  assert.equal(preview.items.find(item => item.resourceId === 'config.unowned').reason, 'ownership-not-installer');
-  assert.equal(preview.items.find(item => item.resourceId === 'data.user').reason, 'user-data-preserved');
-  assert.equal(preview.items.find(item => item.resourceId === 'storage.unsupported').reason, 'effect-prohibited');
+  assert.equal(preview.items.find(item => item.resourceId === 'config.modified')?.reason, 'target-modified-since-install');
+  assert.equal(preview.items.find(item => item.resourceId === 'config.unowned')?.reason, 'ownership-not-installer');
+  assert.equal(preview.items.find(item => item.resourceId === 'data.user')?.reason, 'user-data-preserved');
+  assert.equal(preview.items.find(item => item.resourceId === 'storage.unsupported')?.reason, 'effect-prohibited');
   assert.equal(invocations.length, 0, 'preview must not invoke the mutation engine');
   assert.deepEqual(await snapshot([managed, modified, userData, unowned, unsupported]), before,
     'preview must preserve bytes and metadata for every resource');
