@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { z } from 'zod';
 import {
+  PrivilegedStepUpBinding,
   PrivilegedStepUpRecord,
   verifiedPasskeySessionFromBetterAuth,
   verifyPrivilegedStepUp,
@@ -8,6 +10,20 @@ import {
 import { cookiePair, createWorkerFixture, setCookies } from './helpers/worker-app-fixture.mjs';
 
 /** @typedef {Awaited<ReturnType<typeof createWorkerFixture>>} WorkerFixture */
+
+const SocialSignIn = z.object({ url: z.url() });
+const SignedInSession = z.object({
+  user: z.looseObject({ id: z.string() }),
+  session: z.looseObject({ id: z.string() }),
+});
+const IssuedChallenge = z.object({ id: z.string(), challenge: z.string(), binding: PrivilegedStepUpBinding });
+const Completion = z.object({ status: z.string() });
+const Refusal = z.object({ error: z.string() });
+const RegistrationOptions = z.object({
+  rp: z.object({ id: z.string() }),
+  authenticatorSelection: z.object({ userVerification: z.string() }),
+});
+
 /**
  * @param {WorkerFixture['app']} app
  * @param {WorkerFixture['env']} env
@@ -19,30 +35,30 @@ async function githubSession(app, env, serial) {
     body: JSON.stringify({ provider: 'github', callbackURL: '/' }),
   }), env);
   assert.equal(started.status, 200, await started.clone().text());
-  const providerUrl = new URL((await started.json()).url);
+  const providerUrl = new URL(SocialSignIn.parse(await started.json()).url);
   const stateCookie = setCookies(started.headers).find(value => value.startsWith('__Secure-better-auth.state='));
   assert.ok(stateCookie);
   const state = providerUrl.searchParams.get('state');
   assert.ok(state);
   const originalFetch = globalThis.fetch;
-  globalThis.fetch = async (input, init) => {
+  globalThis.fetch = (input, init) => {
     const url = input instanceof Request ? input.url : String(input);
     const method = init?.method ?? (input instanceof Request ? input.method : 'GET');
     if (url === 'https://github.com/login/oauth/access_token' && method === 'POST') {
-      return Response.json({ access_token: `token-${serial}`, token_type: 'bearer', scope: 'read:user,user:email' });
+      return Promise.resolve(Response.json({ access_token: `token-${String(serial)}`, token_type: 'bearer', scope: 'read:user,user:email' }));
     }
     if (url === 'https://api.github.com/user' && method === 'GET') {
-      return Response.json({ id: 271828, login: 'step-up-owner', name: 'Step Up Owner',
-        email: 'step-up@example.test', avatar_url: 'https://avatars.example.test/step-up' });
+      return Promise.resolve(Response.json({ id: 271828, login: 'step-up-owner', name: 'Step Up Owner',
+        email: 'step-up@example.test', avatar_url: 'https://avatars.example.test/step-up' }));
     }
     if (url === 'https://api.github.com/user/emails' && method === 'GET') {
-      return Response.json([{ email: 'step-up@example.test', primary: true, verified: true }]);
+      return Promise.resolve(Response.json([{ email: 'step-up@example.test', primary: true, verified: true }]));
     }
-    throw new Error(`unexpected provider request: ${method} ${url}`);
+    return Promise.reject(new Error(`unexpected provider request: ${method} ${url}`));
   };
   try {
     const callback = await app.fetch(new Request(
-      `https://desktop.tools/api/auth/callback/github?code=code-${serial}&state=${encodeURIComponent(state)}`,
+      `https://desktop.tools/api/auth/callback/github?code=code-${String(serial)}&state=${encodeURIComponent(state)}`,
       { headers: { cookie: cookiePair(stateCookie), 'cf-connecting-ip': '192.0.2.20' }, redirect: 'manual' },
     ), env);
     assert.equal(callback.status, 302, await callback.clone().text());
@@ -54,7 +70,7 @@ async function githubSession(app, env, serial) {
       headers: { cookie, 'cf-connecting-ip': '192.0.2.20' },
     }), env);
     assert.equal(response.status, 200, await response.clone().text());
-    return { cookie, value: await response.json() };
+    return { cookie, value: SignedInSession.parse(await response.json()) };
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -63,11 +79,13 @@ async function githubSession(app, env, serial) {
 /** @param {Record<string, unknown>} row */
 function rowToRecord(row) {
   assert.ok(typeof row.scopes_json === 'string');
+  /** @type {unknown} */
+  const scopes = JSON.parse(row.scopes_json);
   return PrivilegedStepUpRecord.parse({
     schemaVersion: 1, id: row.id, challengeSha256: row.challenge_sha256,
     binding: { actor: row.actor, origin: row.origin,
       target: { kind: row.target_kind, id: row.target_id }, planDigest: row.plan_digest,
-      scopes: JSON.parse(row.scopes_json) },
+      scopes },
     status: row.status, issuedAt: row.issued_at, expiresAt: row.expires_at,
     verifiedAt: row.verified_at, verifiedSessionId: row.verified_session_id,
     credentialId: row.credential_id, credentialRevocationEpoch: row.credential_revocation_epoch,
@@ -103,7 +121,7 @@ async function mockOfficialVerification(db, issued, session, credentialId) {
 
 void test('HTTP/D1 step-up is exactly bound, one-time, and denied after official passkey deletion', async t => {
   const fixture = await createWorkerFixture();
-  t.after(() => fixture.cleanup());
+  t.after(() => { fixture.cleanup(); });
   const first = await githubSession(fixture.app, fixture.env, 1);
   const headers = { cookie: first.cookie, 'content-type': 'application/json', 'cf-connecting-ip': '192.0.2.20' };
   const input = { target: { kind: 'host', id: 'host-1' }, planDigest: 'a'.repeat(64), scopes: ['plan:apply'] };
@@ -111,7 +129,7 @@ void test('HTTP/D1 step-up is exactly bound, one-time, and denied after official
     method: 'POST', headers, body: JSON.stringify(input),
   }), fixture.env);
   assert.equal(issueResponse.status, 201, await issueResponse.clone().text());
-  const issued = await issueResponse.json();
+  const issued = IssuedChallenge.parse(await issueResponse.json());
 
   const verifiedSession = await githubSession(fixture.app, fixture.env, 2);
   const credentialId = 'credential-1';
@@ -129,18 +147,18 @@ void test('HTTP/D1 step-up is exactly bound, one-time, and denied after official
     method: 'POST', headers: consumeHeaders, body: consumeBody,
   }), fixture.env);
   assert.equal(consumed.status, 200, await consumed.clone().text());
-  assert.equal((await consumed.json()).status, 'consumed');
+  assert.equal(Completion.parse(await consumed.json()).status, 'consumed');
   const replay = await fixture.app.fetch(new Request('https://desktop.tools/api/v1/privileged-step-up/consume', {
     method: 'POST', headers: consumeHeaders, body: consumeBody,
   }), fixture.env);
   assert.equal(replay.status, 403);
-  assert.equal((await replay.json()).error, 'not_verified');
+  assert.equal(Refusal.parse(await replay.json()).error, 'not_verified');
 
   const secondIssueResponse = await fixture.app.fetch(new Request('https://desktop.tools/api/v1/privileged-step-up/challenges', {
     method: 'POST', headers: consumeHeaders, body: JSON.stringify(input),
   }), fixture.env);
   assert.equal(secondIssueResponse.status, 201, await secondIssueResponse.clone().text());
-  const secondIssued = await secondIssueResponse.json();
+  const secondIssued = IssuedChallenge.parse(await secondIssueResponse.json());
   await mockOfficialVerification(fixture.db, secondIssued, verifiedSession, credentialId);
   const deleted = await fixture.app.fetch(new Request('https://desktop.tools/api/auth/passkey/delete-passkey', {
     method: 'POST', headers: consumeHeaders, body: JSON.stringify({ id: 'passkey-1' }),
@@ -151,13 +169,13 @@ void test('HTTP/D1 step-up is exactly bound, one-time, and denied after official
     body: JSON.stringify({ id: secondIssued.id, challenge: secondIssued.challenge, ...input }),
   }), fixture.env);
   assert.equal(denied.status, 403);
-  assert.equal((await denied.json()).error, 'credential_revoked');
+  assert.equal(Refusal.parse(await denied.json()).error, 'credential_revoked');
 
   const recovery = await fixture.app.fetch(new Request('https://desktop.tools/api/auth/passkey/generate-register-options', {
     method: 'GET', headers: { cookie: verifiedSession.cookie, 'cf-connecting-ip': '192.0.2.20' },
   }), fixture.env);
   assert.equal(recovery.status, 200, await recovery.clone().text());
-  const registration = await recovery.json();
+  const registration = RegistrationOptions.parse(await recovery.json());
   assert.equal(registration.rp.id, 'desktop.tools');
   assert.equal(registration.authenticatorSelection.userVerification, 'required');
 });
