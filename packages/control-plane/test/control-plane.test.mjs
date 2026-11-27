@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import crypto from 'node:crypto';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, URL } from 'node:url';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { blueprintDigest, exportMarkdown } from '../../aid-core/dist/core.js';
 
@@ -162,11 +162,19 @@ const TEST_ENV = {
   INSTALL_DOCTOR_RELEASE_SIGNER_ID: 'install-doctor-test',
 };
 
+/** @param {string} value */
 const shellLiteral = (value) => `'${value.replaceAll("'", "'\\''")}'`;
+
+/** @returns {D1Database} */
+function testDatabase() {
+  const database = Reflect.get(globalThis, '__AID_TEST_DB__');
+  assert.ok(database, 'Worker fixture did not install its D1 adapter');
+  return database;
+}
 
 test('pairing start uses a high-entropy human code and rejects oversized requests before parsing', async () => {
   const app = await loadWorkerApp();
-  const env = { ...TEST_ENV, DB: globalThis.__AID_TEST_DB__ };
+  const env = { ...TEST_ENV, DB: testDatabase() };
   const response = await app.fetch(
     new Request('https://app.install.doctor/api/devices/pair/start', {
       method: 'POST',
@@ -199,15 +207,18 @@ test('pairing start uses a high-entropy human code and rejects oversized request
 
   const alphabet = '23456789ABCDEFGHJKLMNPQRSTUVWXYZ';
   const codeBytes = [...body.code.replaceAll('-', '')].map((character) => alphabet.indexOf(character));
-  const originalGetRandomValues = globalThis.crypto.getRandomValues;
+  const webCrypto = crypto.webcrypto;
+  const originalGetRandomValues = webCrypto.getRandomValues;
   let replayedCode = false;
-  globalThis.crypto.getRandomValues = (array) => {
+  webCrypto.getRandomValues = (array) => {
     if (!replayedCode && array.byteLength === 12) {
       replayedCode = true;
+      assert.ok(array instanceof Uint8Array);
       array.set(codeBytes);
       return array;
     }
-    return originalGetRandomValues.call(globalThis.crypto, array);
+    originalGetRandomValues.call(webCrypto, array);
+    return array;
   };
   try {
     const collisionSafe = await app.fetch(
@@ -220,7 +231,7 @@ test('pairing start uses a high-entropy human code and rejects oversized request
     assert.notEqual((await collisionSafe.json()).code, body.code);
     assert.equal(replayedCode, true, 'test must force an issuance collision');
   } finally {
-    globalThis.crypto.getRandomValues = originalGetRandomValues;
+    webCrypto.getRandomValues = originalGetRandomValues;
   }
 
   const oversized = await app.fetch(
@@ -246,7 +257,7 @@ test('pairing start uses a high-entropy human code and rejects oversized request
 
 test('v1 target authorization persists exact public binding and atomically claims target-owned authority', async () => {
   const app = await loadWorkerApp();
-  const db = globalThis.__AID_TEST_DB__;
+  const db = testDatabase();
   const desiredEnvironment = {
     schemaVersion: 4, revision: 'revision-1', appUrl: 'https://desktop.tools',
     routing: { engine: 'projectsites', preferredProvider: 'deepseek', allowPremium: false, maxTaskCostMicros: 0 },
@@ -274,6 +285,7 @@ test('v1 target authorization persists exact public binding and atomically claim
     targetKeyFingerprint: 'b'.repeat(64), scopes: ['profile:read'], nonce: 'n'.repeat(32),
     expiresAt: new Date(Date.now() + 5 * 60_000).toISOString(),
   };
+  /** @param {unknown} [body] @param {string} [secret] */
   const start = (body = { binding, machineLabel: 'Zen' }, secret = pollSecret) => app.fetch(new Request(
     'https://brian.desktop.tools/api/v1/device-authorizations/start', {
       method: 'POST', headers: { authorization: `Bearer ${secret}`, 'content-type': 'application/json' },
@@ -291,6 +303,7 @@ test('v1 target authorization persists exact public binding and atomically claim
 
   const stored = await db.prepare('SELECT request_json, poll_sha256, status FROM device_authorizations WHERE request_id=?')
     .bind(authorization.request.requestId).first();
+  assert.ok(stored);
   assert.equal(stored.poll_sha256, crypto.createHash('sha256').update(pollSecret).digest('hex'));
   assert.equal(stored.request_json, JSON.stringify(authorization.request));
   assert.equal(stored.status, 'pending');
@@ -321,6 +334,8 @@ test('v1 target authorization persists exact public binding and atomically claim
   assert.match(credential.credentialId, /^cred_[a-f0-9]{32}$/);
   const persisted = await db.prepare('SELECT secret_sha256, tenant_id, profile_id, target_key_fingerprint, scopes FROM device_authorization_credentials WHERE credential_id=?')
     .bind(credential.credentialId).first();
+  assert.ok(persisted);
+  assert.ok(typeof persisted.scopes === 'string');
   assert.equal(persisted.secret_sha256, crypto.createHash('sha256').update(credential.credential).digest('hex'));
   assert.deepEqual({ tenantId: persisted.tenant_id, profileId: persisted.profile_id,
     fingerprint: persisted.target_key_fingerprint, scopes: JSON.parse(persisted.scopes) }, {
@@ -474,7 +489,7 @@ test('OIDC sign-in returns to an exact pairing review without accepting an open 
 
 test('public pairing lookup normalizes malformed, unknown, and claimed responses', async () => {
   const app = await loadWorkerApp();
-  const env = { ...TEST_ENV, DB: globalThis.__AID_TEST_DB__ };
+  const env = { ...TEST_ENV, DB: testDatabase() };
   const unavailable = { error: 'pairing_unavailable' };
 
   for (const code of ['', 'bad-code', '2222-2222-2222']) {
@@ -509,6 +524,7 @@ test('public pairing lookup normalizes malformed, unknown, and claimed responses
     code: pairing.code, status: 'approved', authorization: 'break-glass:admin-token',
   });
   const approvalRecord = await env.DB.prepare('SELECT decided_by FROM pairings WHERE code=?').bind(pairing.code).first();
+  assert.ok(approvalRecord);
   assert.equal(approvalRecord.decided_by, 'break-glass:admin-token');
   const claimed = await app.fetch(
     new Request('https://app.install.doctor/api/devices/pair/poll', {
@@ -524,12 +540,13 @@ test('public pairing lookup normalizes malformed, unknown, and claimed responses
 
 test('compatibility pairing approval is fail-closed break-glass token access', async () => {
   const app = await loadWorkerApp();
-  const db = globalThis.__AID_TEST_DB__;
+  const db = testDatabase();
   const started = await app.fetch(new Request('https://desktop.tools/api/devices/pair/start', {
     method: 'POST', headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ tenant: 'break-glass-auth', label: 'break-glass-host' }),
   }), { ...TEST_ENV, DB: db });
   const pairing = await started.json();
+  /** @param {Record<string, unknown>} env @param {string} [authorization] */
   const request = (env, authorization) => app.fetch(new Request('https://desktop.tools/api/devices/pair/approve', {
     method: 'POST',
     headers: { ...(authorization ? { authorization } : {}), 'content-type': 'application/json' },
@@ -551,7 +568,7 @@ test('compatibility pairing approval is fail-closed break-glass token access', a
 
 test('pair claim is atomic, digest-only, binding-safe, and normalizes terminal failures', async () => {
   const app = await loadWorkerApp();
-  const db = globalThis.__AID_TEST_DB__;
+  const db = testDatabase();
   const env = { ...TEST_ENV, DB: db };
   const fingerprint = 'e'.repeat(64);
   const profileRevision = 'sha256:profile-atomic-v1';
@@ -568,6 +585,7 @@ test('pair claim is atomic, digest-only, binding-safe, and normalizes terminal f
     .bind(new Date().toISOString(), pairing.code).run();
 
   const poll = (headers = {}) => {
+    /** @type {Record<string, string | undefined>} */
     const presented = {
       authorization: `Bearer ${pairing.pollSecret}`,
       'x-desktop-tools-tenant': 'tenant-atomic',
@@ -576,7 +594,7 @@ test('pair claim is atomic, digest-only, binding-safe, and normalizes terminal f
       ...headers,
     };
     for (const [name, value] of Object.entries(presented)) if (value === undefined) delete presented[name];
-    return app.fetch(new Request('https://app.install.doctor/api/devices/pair/poll', { headers: presented }), env);
+    return app.fetch(new Request('https://app.install.doctor/api/devices/pair/poll', { headers: /** @type {Record<string, string>} */ (presented) }), env);
   };
   for (const headers of [
     { 'x-desktop-tools-tenant': undefined },
@@ -604,6 +622,7 @@ test('pair claim is atomic, digest-only, binding-safe, and normalizes terminal f
   assert.deepEqual(await replay.json(), { error: 'claim_unavailable' });
   const device = await db.prepare('SELECT token_sha256, pairing_code, tenant, permissions, profile_revision, machine_fingerprint, created_at, expires_at FROM devices WHERE device_id=?')
     .bind(credential.deviceId).first();
+  assert.ok(device);
   assert.equal(device.pairing_code, pairing.code);
   assert.equal(device.tenant, 'tenant-atomic');
   assert.equal(device.profile_revision, profileRevision);
@@ -628,6 +647,7 @@ test('pair claim is atomic, digest-only, binding-safe, and normalizes terminal f
   assert.equal(expiredIdentity.status, 401);
   assert.deepEqual(await expiredIdentity.json(), { error: 'unauthorized' });
 
+  /** @param {unknown} body */
   const revoke = (body) => app.fetch(new Request(`https://app.install.doctor/api/devices/${credential.deviceId}/revoke`, {
     method: 'POST',
     headers: { authorization: `Bearer ${TEST_ENV.AID_ADMIN_TOKEN}`, 'content-type': 'application/json' },
@@ -677,7 +697,7 @@ test('pair claim is atomic, digest-only, binding-safe, and normalizes terminal f
 
 test('pending pairing polling has a durable bounded cadence and normalized 429 response', async () => {
   const app = await loadWorkerApp();
-  const db = globalThis.__AID_TEST_DB__;
+  const db = testDatabase();
   const env = { ...TEST_ENV, DB: db };
   const started = await app.fetch(new Request('https://app.install.doctor/api/devices/pair/start', {
     method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ tenant: 'tenant-cadence' }),
@@ -701,7 +721,7 @@ test('pending pairing polling has a durable bounded cadence and normalized 429 r
 
 test('claim persists only explicitly approved scopes and rejects broadening or unapproved bound scopes', async () => {
   const app = await loadWorkerApp();
-  const db = globalThis.__AID_TEST_DB__;
+  const db = testDatabase();
   const env = { ...TEST_ENV, DB: db };
   for (const permissions of [[], ['tenant:admin']]) {
     const rejected = await app.fetch(new Request('https://app.install.doctor/api/devices/pair/start', {
@@ -720,6 +740,7 @@ test('claim persists only explicitly approved scopes and rejects broadening or u
     body: JSON.stringify({ tenant: 'tenant-scopes', permissions: ['pull-desired-state', 'report-status'] }),
   }), env);
   const pairing = await started.json();
+  /** @param {string[]} approvedScopes */
   const approve = (approvedScopes) => app.fetch(new Request('https://app.install.doctor/api/devices/pair/approve', {
     method: 'POST', headers: { authorization: `Bearer ${TEST_ENV.AID_ADMIN_TOKEN}`, 'content-type': 'application/json' },
     body: JSON.stringify({ code: pairing.code, approvedScopes }),
@@ -735,6 +756,7 @@ test('claim persists only explicitly approved scopes and rejects broadening or u
   assert.equal(claimed.status, 200);
   const credential = await claimed.json();
   const stored = await db.prepare('SELECT permissions FROM devices WHERE device_id=?').bind(credential.deviceId).first();
+  assert.ok(stored);
   assert.equal(stored.permissions, '["report-status"]');
 });
 
@@ -754,7 +776,7 @@ test('unexpected claim database failures expose no internal detail', async () =>
 
 test('owner-bound pairing context is private and cannot use legacy token approval', async () => {
   const app = await loadWorkerApp();
-  const env = { ...TEST_ENV, DB: globalThis.__AID_TEST_DB__ };
+  const env = { ...TEST_ENV, DB: testDatabase() };
   const started = await app.fetch(new Request('https://app.install.doctor/api/devices/pair/start', {
     method: 'POST', headers: { 'content-type': 'application/json' },
     body: JSON.stringify({
@@ -786,7 +808,7 @@ test('owner-bound pairing context is private and cannot use legacy token approva
 
 test('privileged pairing derives tenant, profile, digest, and owner from server authority', async () => {
   const app = await loadWorkerApp();
-  const db = globalThis.__AID_TEST_DB__;
+  const db = testDatabase();
   const digest = '7'.repeat(64);
   const fingerprint = '8'.repeat(64);
   const profiles = [{ id: 'profile-authoritative', tenantId: 'tenant-authoritative', slug: 'authority-profile',
@@ -854,6 +876,7 @@ test('privileged pairing derives tenant, profile, digest, and owner from server 
   assert.equal((await callerOwner.json()).error, 'invalid_request');
 });
 
+/** @param {import('node:test').TestContext} t */
 function makeBootstrapRuntimeFixture(t, product = 'legacy-install-doctor') {
   const desktop = product === 'desktop-tools';
   const origin = desktop ? 'https://desktop.tools' : 'https://app.install.doctor';
@@ -959,11 +982,11 @@ esac
     catalogUrl = `${origin}/releases/test/catalog.json`,
     createdAt = Math.floor(Date.now() / 1000) - 60,
     expiresAt = Math.floor(Date.now() / 1000) + 600,
-    artifactBody,
+    artifactBody = '#!/usr/bin/env bash\nset -euo pipefail\n',
     engineBody = '#!/usr/bin/env node\nprocess.exit(0)\n',
     catalogBody = '[{"name":"fixture"}]\n',
     brokerApprovalDelegationUrl = `${origin}/releases/test/broker-approval-signer-delegation.json`,
-    brokerApprovalMinimumRevocationEpoch = 7,
+    brokerApprovalMinimumRevocationEpoch = /** @type {number | string} */ (7),
   } = {}) => {
     const artifact = path.join(downloadRoot, `provision-${crypto.randomUUID()}.sh`);
     const manifest = path.join(downloadRoot, `manifest-${crypto.randomUUID()}`);
@@ -1059,11 +1082,15 @@ esac
           ['debian_packages', 'debian-bookworm-main-amd64-Packages.xz', closure.debianPackages],
           ['debian_tree', 'tree_2.1.0-1_amd64.deb', closure.debianTree],
         ].flatMap(([prefix, filename, file]) => {
+          assert.ok(file);
           const bytes = fs.readFileSync(file);
           return [`${prefix}_url=${origin}/releases/test/${filename}`, `${prefix}_sha256=${crypto.createHash('sha256').update(bytes).digest('hex')}`, `${prefix}_size=${bytes.byteLength}`];
         }),
         ...['macos-x64', 'macos-arm64', 'linux-x64', 'linux-arm64'].flatMap(platform => {
-          const key = platform.replaceAll('-', '_'); const bytes = fs.readFileSync(opencode[platform]);
+          const key = platform.replaceAll('-', '_');
+          const archive = opencode[platform];
+          assert.ok(archive);
+          const bytes = fs.readFileSync(archive);
           const extension = platform.startsWith('macos-') ? 'zip' : 'tar.gz';
           return [`opencode_${key}_url=${origin}/releases/test/opencode-${platform}.${extension}`, `opencode_${key}_sha256=${crypto.createHash('sha256').update(bytes).digest('hex')}`, `opencode_${key}_size=${bytes.byteLength}`];
         }),
@@ -1071,6 +1098,7 @@ esac
       ...['macos-x64', 'macos-arm64', 'linux-x64', 'linux-arm64'].flatMap((platform) => {
         const key = platform.replaceAll('-', '_');
         const runtime = runtimes[platform];
+        assert.ok(runtime);
         const runtimeBody = fs.readFileSync(runtime);
         return [
           `runtime_${key}_url=${origin}/releases/test/node-${platform}.tar.gz`,
@@ -1085,6 +1113,7 @@ esac
     return { artifact, engine, catalog, launcher, runtimes, opencode, closure, manifest, signature: `${manifest}.sig` };
   };
 
+  /** @param {string} script @param {ReturnType<typeof createRelease>} release @param {NodeJS.ProcessEnv} [extraEnv] */
   const run = (script, release, extraEnv = {}) =>
     spawnSync('bash', [], {
       input: script,
@@ -1134,11 +1163,11 @@ test('public product status is generated from evidence-backed Desktop Tools trut
   const body = await response.json();
   assert.equal(body.product, 'Desktop Tools');
   assert.equal(
-    body.capabilities.find(item => item.id === 'device-authorization').status,
+    body.capabilities.find((/** @type {{ id: string }} */ item) => item.id === 'device-authorization').status,
     'implemented-unverified'
   );
   assert.equal(
-    body.migrations.find(item => item.legacy === 'app.install.doctor').canonical,
+    body.migrations.find((/** @type {{ legacy: string }} */ item) => item.legacy === 'app.install.doctor').canonical,
     'desktop.tools'
   );
   assert.equal(JSON.stringify(body).includes('verified-live'), false);
@@ -1351,6 +1380,7 @@ test('Control Plane Phase 1: OpenAPI 3.1 schema (/api/v1/openapi.json) covers 10
   const discoveredV1Routes = [];
   while ((match = v1RouteRegex.exec(srcIndex)) !== null) {
     const [, method, routePath] = match;
+    assert.ok(method && routePath);
     discoveredV1Routes.push({ method, routePath });
     assert.ok(spec.paths[routePath], `OpenAPI 3.1 spec must document path ${routePath}`);
     assert.ok(spec.paths[routePath][method], `OpenAPI 3.1 spec must document ${method.toUpperCase()} ${routePath}`);
@@ -1485,13 +1515,14 @@ test('Control Plane /start resolves only a digest-bound CAS channel before consu
     previous: null,
     rollbackOfActivationId: null,
   }));
+  /** @type {string[]} */
   const requested = [];
-  const RELEASE_CHANNELS = { async get(key) {
+  const RELEASE_CHANNELS = { async get(/** @type {string} */ key) {
     requested.push(key);
     const bytes = key === 'bootstrap/channels/stable.json' ? pointer : null;
     return bytes ? { body: new Blob([bytes]).stream(), size: bytes.byteLength } : null;
   } };
-  const RELEASES = { async get(key) {
+  const RELEASES = { async get(/** @type {string} */ key) {
     requested.push(key);
     const bytes = key === 'bootstrap/release-1/manifest' ? manifest : null;
     return bytes ? { body: new Blob([bytes]).stream(), size: bytes.byteLength } : null;
@@ -1504,7 +1535,7 @@ test('Control Plane /start resolves only a digest-bound CAS channel before consu
   const tampered = await app.fetch(new Request('https://app.install.doctor/start'), {
     ...TEST_ENV,
     RELEASE_CHANNELS,
-    RELEASES: { async get(key) {
+    RELEASES: { async get(/** @type {string} */ key) {
       const bytes = key === 'bootstrap/release-1/manifest' ? new TextEncoder().encode('tampered') : null;
       return bytes ? { body: new Blob([bytes]).stream(), size: bytes.byteLength } : null;
     } },
@@ -1541,6 +1572,7 @@ test('Control Plane landing page advertises only the canonical signed bootstrap 
 
 test('Control Plane serves immutable release bytes from the exact release object key', async () => {
   const app = await loadWorkerApp();
+  /** @type {string[]} */
   const requestedKeys = [];
   const bodies = new Map([
     ['bootstrap/2026.11.05-a1/manifest', new Uint8Array([0, 10, 13, 255, 65])],
@@ -1549,12 +1581,12 @@ test('Control Plane serves immutable release bytes from the exact release object
     ['bootstrap/2026.11.05-a1/install-doctor-engine.mjs', new TextEncoder().encode('#!/usr/bin/env node\n')],
     ['bootstrap/2026.11.05-a1/catalog.json', new TextEncoder().encode('[]\n')],
     ['bootstrap/2026.11.05-a1/start', new TextEncoder().encode('#!/usr/bin/env bash\nexit 0\n')],
-    ...['macos-x64', 'macos-arm64', 'linux-x64', 'linux-arm64'].map((platform) => [
+    ...['macos-x64', 'macos-arm64', 'linux-x64', 'linux-arm64'].map((platform) => /** @type {const} */ ([
       `bootstrap/2026.11.05-a1/node-${platform}.tar.gz`, new TextEncoder().encode(`runtime-${platform}`),
-    ]),
+    ])),
   ]);
   const RELEASES = {
-    async get(key) {
+    async get(/** @type {string} */ key) {
       requestedKeys.push(key);
       const body = bodies.get(key);
       return body ? { body: new Blob([body]).stream(), size: body.byteLength } : null;
@@ -1606,8 +1638,9 @@ test('Control Plane release serving fails closed for unavailable storage, missin
   assert.equal(withoutBinding.status, 503);
   assert.equal((await withoutBinding.json()).error, 'release_storage_not_configured');
 
+  /** @type {string[]} */
   const requestedKeys = [];
-  const RELEASES = { async get(key) { requestedKeys.push(key); return null; } };
+  const RELEASES = { async get(/** @type {string} */ key) { requestedKeys.push(key); return null; } };
   const missing = await app.fetch(
     new Request('https://app.install.doctor/releases/release-1/manifest'),
     { ...TEST_ENV, RELEASES },
@@ -1728,7 +1761,7 @@ printf 'VERIFIED_CATALOG_MODE=%s\nVERIFIED_CATALOG_BODY=%s\n' "$catalog_mode" "$
 
   const tamperedEngine = fixture.createRelease();
   const tamperedEngineBytes = fs.readFileSync(tamperedEngine.engine);
-  tamperedEngineBytes[0] ^= 1;
+  tamperedEngineBytes[0] = (tamperedEngineBytes[0] ?? 0) ^ 1;
   fs.writeFileSync(tamperedEngine.engine, tamperedEngineBytes);
   const engineFailure = fixture.run(startScript, tamperedEngine);
   assert.notEqual(engineFailure.status, 0);
@@ -1737,7 +1770,9 @@ printf 'VERIFIED_CATALOG_MODE=%s\nVERIFIED_CATALOG_BODY=%s\n' "$catalog_mode" "$
 
   const tamperedRuntime = fixture.createRelease();
   const selectedRuntimePlatform = `${process.platform === 'darwin' ? 'macos' : 'linux'}-${process.arch}`;
-  fs.appendFileSync(tamperedRuntime.runtimes[selectedRuntimePlatform], 'tampered');
+  const runtimePath = tamperedRuntime.runtimes[selectedRuntimePlatform];
+  assert.ok(runtimePath);
+  fs.appendFileSync(runtimePath, 'tampered');
   const runtimeFailure = fixture.run(startScript, tamperedRuntime);
   if (runtimeSource === 'system') {
     assert.equal(runtimeFailure.status, 0, runtimeFailure.stderr);
@@ -1749,7 +1784,7 @@ printf 'VERIFIED_CATALOG_MODE=%s\nVERIFIED_CATALOG_BODY=%s\n' "$catalog_mode" "$
 
   const tamperedArtifact = fixture.createRelease();
   const tamperedBytes = fs.readFileSync(tamperedArtifact.artifact);
-  tamperedBytes[0] ^= 1;
+  tamperedBytes[0] = (tamperedBytes[0] ?? 0) ^ 1;
   fs.writeFileSync(tamperedArtifact.artifact, tamperedBytes);
   const artifactFailure = fixture.run(startScript, tamperedArtifact);
   assert.notEqual(artifactFailure.status, 0);
@@ -1879,6 +1914,7 @@ test('Desktop Tools profile stage-zero executes a verified v10 runtime closure w
   assert.equal(result.status, 0, result.stderr);
   const [profileBinding, runtimeBinding, delegationBinding, offlineBinding] = result.stdout.trim().split('\n');
   assert.equal(profileBinding, `profile-example|example|revision-7|${'c'.repeat(64)}`);
+  assert.ok(runtimeBinding && delegationBinding);
   assert.match(runtimeBinding, /^2\.2\.5\|[a-f0-9]{64}\|[a-f0-9]{64}\|[a-f0-9]{64}\|\/.+\/release\.sbom\.json$/);
   assert.match(delegationBinding, /^\/.+\/broker-approval-signer-delegation\.json\|[a-f0-9]{64}\|7\|600\|absent$/);
   assert.equal(offlineBinding, '/media/desktop-tools/bundle|/media/desktop-tools/authority.json|resume|offline-run-7|headless');
