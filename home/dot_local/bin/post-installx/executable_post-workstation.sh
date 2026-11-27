@@ -2798,8 +2798,10 @@ resolve_secret() {
 PBS_REPOSITORY="$(resolve_secret PBS_REPOSITORY)"
 [ -n "$PBS_REPOSITORY" ] || PBS_REPOSITORY="pbs@pbs!pve-backup@10.0.0.114:pbs-local"
 export PBS_REPOSITORY
-export PBS_PASSWORD="$(resolve_secret PBS_PASSWORD)"
-export PBS_FINGERPRINT="$(resolve_secret PBS_FINGERPRINT)"
+PBS_PASSWORD="$(resolve_secret PBS_PASSWORD)"
+export PBS_PASSWORD
+PBS_FINGERPRINT="$(resolve_secret PBS_FINGERPRINT)"
+export PBS_FINGERPRINT
 
 if [ -z "$PBS_PASSWORD" ]; then
   printf 'ERROR: PBS_PASSWORD is unavailable (get-secret + /etc/pbs-workstation.env both empty); refusing to report backup success.\n' >&2
@@ -2815,17 +2817,21 @@ elif command -v hc-ping-url.sh >/dev/null 2>&1; then
 fi
 [ -n "$HC_URL" ] && curl -fsS -m 10 "${HC_URL}/start" >/dev/null 2>&1 || true
 
-KEYFILE="/run/pbs-backup.key"
-trap 'rm -f "$KEYFILE"' EXIT
+umask 077
+key_directory="$(mktemp -d /run/pbs-workstation-backup.XXXXXX)"
+trap 'rm -rf -- "$key_directory"' EXIT
+KEYFILE="$key_directory/key"
 if [ -x "$GET_SEC" ]; then
   runuser -u "$TARGET_USER" -- env PATH="$USER_HOME/.local/share/mise/shims:$USER_HOME/.local/bin:/usr/local/bin:/usr/bin:/bin" "$GET_SEC" PBS_ENCRYPTION_KEY > "$KEYFILE" 2>/dev/null || true
 fi
 if [ ! -s "$KEYFILE" ] && [ -r /etc/pbs-workstation.env ]; then
   grep -E '^PBS_ENCRYPTION_KEY=' /etc/pbs-workstation.env 2>/dev/null | tail -n1 | cut -d= -f2- > "$KEYFILE" 2>/dev/null || true
 fi
-chmod 0600 "$KEYFILE" 2>/dev/null || true
-KEY_ARGS=()
-[ -s "$KEYFILE" ] && KEY_ARGS=(--keyfile "$KEYFILE")
+if [ ! -s "$KEYFILE" ]; then
+  printf 'ERROR: PBS encryption key unavailable. Backup refused.\n' >&2
+  [ -z "$HC_URL" ] || curl -fsS -m 10 "$HC_URL/fail" >/dev/null 2>&1 || true
+  exit 1
+fi
 
 set +e
 proxmox-backup-client backup \
@@ -2840,7 +2846,7 @@ proxmox-backup-client backup \
   --backup-type host \
   --backup-id "$(hostname -s)" \
   --change-detection-mode=metadata \
-  "${KEY_ARGS[@]}"
+  --crypt-mode encrypt --keyfile "$KEYFILE"
 RC=$?
 set -e
 if [ -n "$HC_URL" ]; then
