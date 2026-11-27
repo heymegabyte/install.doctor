@@ -1,20 +1,31 @@
-# Proposal: Per-user launchd singletons for eligible local MCP bridges
+# Proposal: Cross-platform per-user MCP singleton brokers
 
 **Architect Role:** assigned
 
 ## Why
 
-Session-independent MCP wrappers currently start once per agent client. This multiplies Node runtimes, memory, secret loading, and failure surfaces. macOS needs one supervised backend per eligible MCP identity while retaining isolated client connections.
+Session-independent local MCP wrappers currently start once per agent client, multiplying runtimes, memory, secret resolution, and failure surfaces. The existing macOS launchd broker proves the per-user singleton model, but Ubuntu lacks an equivalent canonical lifecycle and the current change does not fully define host eligibility, offline behavior, or cross-platform rollback.
+
+Install Doctor needs one portable desired-state contract that deploys only registry-approved MCP singletons through native per-user service managers while preserving local/session security boundaries.
 
 ## What changes
 
-- Run the eligible Cloudflare, Langfuse, Paperclip, theme.tools, and current descriptor-only VoiceKit wrappers behind a per-user launchd broker.
-- Connect clients through user-private Unix sockets with request-ID isolation.
-- Preserve CUA Driver and BrowserMCP's supported shared-daemon plus per-session-frontend architecture.
-- Keep DataForSEO outside the generic broker because it provides native Streamable HTTP.
-- Add idempotent installation, health checks, tests, and rollback.
+- Generalize the broker lifecycle across macOS launchd LaunchAgents and Ubuntu systemd user services.
+- Keep newline-delimited stdio clients behind private per-user Unix sockets with connection and JSON-RPC request isolation.
+- Add versioned, deny-by-default host profiles that select exact eligible MCP IDs, executable artifacts, secret references, network/offline class, platform, and session requirements.
+- Preserve CUA Driver, BrowserMCP, filesystem, shell, and other host-control MCPs as local, lazy, session-bound tools outside the generic singleton broker.
+- Make local startup and rollback safe when remote MCPs, Infisical, home Internet, or the wider estate are unavailable.
+- Add deterministic rendering, validation, canary rollout, health, duplicate-process detection, and platform-specific rollback evidence.
+
+## Out of scope
+
+- Remotely exposing local stdio, GUI, browser, filesystem, or shell MCPs.
+- Treating the broker as an authentication or authorization boundary for an upstream.
+- Automatically enabling systemd lingering or starting GUI/session tools on headless hosts.
+- Embedding credentials in service definitions, client configuration, environment files, logs, or repository data.
+- Promoting an MCP to singleton eligibility without canonical registry evidence and multi-client safety verification.
 
 ## Impact
 
-Install Doctor owns portable installation and launchd lifecycle. The canonical MCP registry owns eligibility. No secret is stored in a plist, generated config, socket path, or repository file.
+Install Doctor owns portable rendering, installation, verification, and rollback for user services. `mcp.megabyte.space` remains the source of truth for MCP ownership, route, transport, risk, and singleton eligibility. Host profiles narrow that canonical inventory for a specific enrolled machine; they cannot broaden it.
 
