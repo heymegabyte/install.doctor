@@ -80,35 +80,41 @@ function fixture(overrides = {}) {
   const service = createBrokerAuthorizationService({
     now: () => now,
     store: {
-      async persistRunIntent(value) { calls.intents.push(value); return true; },
-      async persistOwnerDecision(value) { calls.decisions.push(value); return true; },
-      async loadApprovedReconstruction(value) { calls.lookups.push(value); return reconstruction; },
-      async loadAuthorizationStatus(value) { calls.statuses.push(value); return { schemaVersion: 1, status: 'approved', ownerDecisionId: 'decision-1' }; },
-      async persistReviewedPlan(runIntentId, value) {
-        assert.equal(runIntentId, intent.runIntentId);
-        if (reviewedPlan && JSON.stringify(reviewedPlan) !== JSON.stringify(value)) throw new Error('collision');
-        reviewedPlan = value; calls.reviewedPlans.push(value); return reviewedPlan === value;
+      persistRunIntent(value) { calls.intents.push(value); return Promise.resolve(true); },
+      persistOwnerDecision(value) { calls.decisions.push(value); return Promise.resolve(true); },
+      loadApprovedReconstruction(value) { calls.lookups.push(value); return Promise.resolve(reconstruction); },
+      loadAuthorizationStatus(value) { calls.statuses.push(value); return Promise.resolve({ schemaVersion: 1, status: 'approved', ownerDecisionId: 'decision-1' }); },
+      persistReviewedPlan(runIntentId, value) {
+        return new Promise(resolve => {
+          assert.equal(runIntentId, intent.runIntentId);
+          if (reviewedPlan && JSON.stringify(reviewedPlan) !== JSON.stringify(value)) throw new Error('collision');
+          reviewedPlan = value;
+          calls.reviewedPlans.push(value);
+          resolve(reviewedPlan === value);
+        });
       },
-      async loadReviewedPlan() { return reviewedPlan; },
+      loadReviewedPlan() { return Promise.resolve(reviewedPlan); },
     },
     authority: {
-      async reconstructRunIntent() { return intent; },
-      async loadRunIntent(id) { return id === intent.runIntentId ? intent : null; },
-      async ownerForTenant() { return { authenticationActor: 'owner@example.com', ownerActorId: 'owner-1' }; },
-      async reconstructCurrentPlanAuthority() { return currentAuthority; },
+      reconstructRunIntent() { return Promise.resolve(intent); },
+      loadRunIntent(id) { return Promise.resolve(id === intent.runIntentId ? intent : null); },
+      ownerForTenant() { return Promise.resolve({ authenticationActor: 'owner@example.com', ownerActorId: 'owner-1' }); },
+      reconstructCurrentPlanAuthority() { return Promise.resolve(currentAuthority); },
       ...overrides,
     },
     approval: {
-      async delegationForRelease(releaseId) {
-        assert.equal(releaseId, intent.releaseId);
-        return { schemaVersion: 1, kind: 'desktop-tools-broker-approval-signer-delegation',
-          keyId: 'approval-key-1', algorithm: 'Ed25519', signatureDomain: 'desktop-tools-broker-approval-v1',
-          product: 'desktop-tools', releaseId, channel: 'stable', publicKeySpki: 'A'.repeat(64),
-          notBefore: '2026-11-09T11:00:00.000Z', notAfter: '2026-11-09T13:00:00.000Z',
-          maximumApprovalLifetimeSeconds: 600, revocationEpoch: 1, delegationDigest: hex('4') };
+      delegationForRelease(releaseId) {
+        return new Promise(resolve => {
+          assert.equal(releaseId, intent.releaseId);
+          resolve({ schemaVersion: 1, kind: 'desktop-tools-broker-approval-signer-delegation',
+            keyId: 'approval-key-1', algorithm: 'Ed25519', signatureDomain: 'desktop-tools-broker-approval-v1',
+            product: 'desktop-tools', releaseId, channel: 'stable', publicKeySpki: 'A'.repeat(64),
+            notBefore: '2026-11-09T11:00:00.000Z', notAfter: '2026-11-09T13:00:00.000Z',
+            maximumApprovalLifetimeSeconds: 600, revocationEpoch: 1, delegationDigest: hex('4') });
+        });
       },
-      async persistApprovedState(value) { calls.states.push(value); return true; },
-      async approve(value) { calls.approvals.push(value); return signedApproval; },
+      persistApprovedState(value) { calls.states.push(value); return Promise.resolve(true); },
+      approve(value) { calls.approvals.push(value); return Promise.resolve(signedApproval); },
     },
   });
   return { service, calls, reconstruction, currentAuthority, signedApproval };
@@ -198,7 +204,7 @@ void test('fact, profile, release, policy, approval, closure, plan, and rollback
   for (const drift of axes) {
     /** @type {CurrentAuthority} */
     let current;
-    const setup = fixture({ async reconstructCurrentPlanAuthority() { return current; } });
+    const setup = fixture({ reconstructCurrentPlanAuthority() { return Promise.resolve(current); } });
     current = setup.currentAuthority;
     await setup.service.reviewAuthorization(intent.runIntentId, owner);
     const lookup = { schemaVersion: 1, authorizationId: intent.authorizationId, ownerDecisionId: 'decision-1',
@@ -214,11 +220,11 @@ void test('fact, profile, release, policy, approval, closure, plan, and rollback
 });
 
 void test('authority failures fail closed and cannot persist caller facts', async () => {
-  const unavailable = fixture({ async reconstructRunIntent() { throw new Error('down'); } });
+  const unavailable = fixture({ reconstructRunIntent() { return Promise.reject(new Error('down')); } });
   await rejectsCode(unavailable.service.requestAuthorization(intent, principal), 'authority_unavailable');
   assert.equal(unavailable.calls.intents.length, 0);
 
-  const absent = fixture({ async reconstructRunIntent() { return null; } });
+  const absent = fixture({ reconstructRunIntent() { return Promise.resolve(null); } });
   await rejectsCode(absent.service.requestAuthorization(intent, principal), 'authoritative_state_mismatch');
   assert.equal(absent.calls.intents.length, 0);
 });

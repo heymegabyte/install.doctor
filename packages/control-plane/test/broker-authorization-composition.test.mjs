@@ -3,9 +3,10 @@ import { generateKeyPairSync, sign } from 'node:crypto';
 import fs from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
 import test from 'node:test';
+import { z } from 'zod';
 import { URL } from 'node:url';
 import { sqliteD1Fixture } from './helpers/sqlite-d1-fixture.mjs';
-import { brokerApprovalSemanticDigest } from '../../aid-core/dist/broker-approval-contracts.js';
+import { brokerApprovalSemanticDigest, SignedBrokerApproval } from '../../aid-core/dist/broker-approval-contracts.js';
 import { createBrokerAuthorizationComposition } from '../src/broker-authorization-composition.ts';
 
 /** @param {string} value */
@@ -61,19 +62,25 @@ async function fixture({ delegatedKeyId = 'approval-key-1', configuredKeyId = de
     descriptorDigest: intent.descriptorDigest, closureDigest: intent.closureDigest, consentDigest: intent.consentDigest };
   /** @satisfies {Parameters<typeof createBrokerAuthorizationComposition>[0]} */
   const dependencies = { database,
-    releaseBucket: { async get(/** @type {string} */ key) { assert.equal(key,
-      'desktop-tools/bootstrap/release-1/broker-approval-signer-delegation.json');
-      return { size: delegationBytes.byteLength, body: new ReadableStream({ start(controller) {
-        controller.enqueue(delegationBytes); controller.close(); } }) }; } },
-    resolveActiveRelease: async () => release,
-    deviceAuthority: { async resolve() { return { deviceCredentialId: principal.deviceCredentialId,
+    releaseBucket: { get(/** @type {string} */ key) {
+      return new Promise(resolve => {
+        assert.equal(key, 'desktop-tools/bootstrap/release-1/broker-approval-signer-delegation.json');
+        const body = new ReadableStream({ start(controller) {
+          controller.enqueue(delegationBytes);
+          controller.close();
+        } });
+        resolve({ size: delegationBytes.byteLength, body });
+      });
+    } },
+    resolveActiveRelease: () => Promise.resolve(release),
+    deviceAuthority: { resolve() { return Promise.resolve({ deviceCredentialId: principal.deviceCredentialId,
       deviceFingerprint: principal.deviceFingerprint, tenantId: principal.tenantId,
-      profileId: intent.profileId, profileRevisionDigest: intent.profileRevisionDigest, active: true }; } },
-    publicProfileAuthority: { async resolve() { return { profileId: intent.profileId, tenantId: intent.tenantId,
-      revision: 'revision-1', digest: intent.profileRevisionDigest, visibility: 'public-bootstrap', enabled: true }; } },
+      profileId: intent.profileId, profileRevisionDigest: intent.profileRevisionDigest, active: true }); } },
+    publicProfileAuthority: { resolve() { return Promise.resolve({ profileId: intent.profileId, tenantId: intent.tenantId,
+      revision: 'revision-1', digest: intent.profileRevisionDigest, visibility: 'public-bootstrap', enabled: true }); } },
     planAuthority: {
-      async reconstruct() { return plan; },
-      async reconstructCurrentAuthority() { return {
+      reconstruct() { return Promise.resolve(plan); },
+      reconstructCurrentAuthority() { return Promise.resolve({
         tenantId: intent.tenantId,
         profile: { id: intent.profileId, revision: 'revision-1', digest: intent.profileRevisionDigest },
         host: { id: intent.hostId, factsDigest: hex('5') },
@@ -83,16 +90,19 @@ async function fixture({ delegatedKeyId = 'approval-key-1', configuredKeyId = de
         rollbackLimits: { automaticEffects: ['configuration'],
           separatelyApprovedEffects: ['external-provider', 'network', 'operating-system', 'package', 'storage'],
           destructiveAutomaticRepair: false }, now: now.toISOString(),
-      }; },
+      }); },
     },
-    tenantOwnerAuthority: { async resolveForTenant() { return { authenticationActor: 'owner@example.com', ownerActorId: 'owner-1' }; } },
-    resolveDevice: async () => principal,
-    resolveFreshOwner: async () => ({ actor: 'owner@example.com', authenticatedAt: '2026-11-09T11:58:00.000Z' }),
-    signerService: { async fetch(_url, init) { assert.ok(typeof init?.body === 'string');
-      const request = JSON.parse(init.body);
-      assert.ok(typeof request.message === 'string');
-      const signature = sign(null, Buffer.from(request.message, 'base64url'), privateKey).toString('base64url');
-      return Response.json({ schemaVersion: 1, keyId: configuredKeyId, algorithm: 'Ed25519', signature }); } },
+    tenantOwnerAuthority: { resolveForTenant() { return Promise.resolve({ authenticationActor: 'owner@example.com', ownerActorId: 'owner-1' }); } },
+    resolveDevice: () => Promise.resolve(principal),
+    resolveFreshOwner: () => Promise.resolve({ actor: 'owner@example.com', authenticatedAt: '2026-11-09T11:58:00.000Z' }),
+    signerService: { fetch(_url, init) {
+      return new Promise(resolve => {
+        assert.ok(typeof init?.body === 'string');
+        const request = z.looseObject({ message: z.string() }).parse(JSON.parse(init.body));
+        const signature = sign(null, Buffer.from(request.message, 'base64url'), privateKey).toString('base64url');
+        resolve(Response.json({ schemaVersion: 1, keyId: configuredKeyId, algorithm: 'Ed25519', signature }));
+      });
+    } },
     signerKeyId: configuredKeyId, now: () => now, randomApprovalId: () => 'approval-1' };
   return { dependencies, intent, principal };
 }
@@ -118,7 +128,7 @@ void test('composes request, owner decision, locator status, one-use signed clai
     deviceFingerprint: setup.intent.deviceFingerprint, runIntentId: setup.intent.runIntentId, grantId: setup.intent.grantId };
   response = await api.request('/api/devices/broker-approvals/claim', { method: 'POST', body: JSON.stringify(claim) });
   assert.equal(response.status, 200);
-  const result = await response.json();
+  const result = z.looseObject({ approval: SignedBrokerApproval }).parse(await response.json());
   assert.equal(result.approval.signerKeyId, setup.dependencies.signerKeyId);
   assert.equal(result.approval.revocationEpoch, 7);
   response = await api.request('/api/devices/broker-approvals/claim', { method: 'POST', body: JSON.stringify(claim) });

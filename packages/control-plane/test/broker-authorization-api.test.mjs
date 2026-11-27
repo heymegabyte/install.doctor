@@ -17,13 +17,13 @@ function fixture({ device = principal, owner = null } = {}) {
   const calls = [];
   /** @satisfies {ApiOptions['service']} */
   const service = {
-    async requestAuthorization(value, identity) { calls.push(['request', value, identity]); return { created: true }; },
-    async reviewAuthorization(id, identity) { calls.push(['review', id, identity]); return { id }; },
-    async decideAuthorization(value, identity) { calls.push(['decide', value, identity]); return { created: true }; },
-    async claimApprovedAuthorization(value, identity) { calls.push(['claim', value, identity]); return { approval: true }; },
-    async authorizationStatus(value, identity) { calls.push(['status', value, identity]); return { schemaVersion: 1, status: 'pending' }; },
+    requestAuthorization(value, identity) { calls.push(['request', value, identity]); return Promise.resolve({ created: true }); },
+    reviewAuthorization(id, identity) { calls.push(['review', id, identity]); return Promise.resolve({ id }); },
+    decideAuthorization(value, identity) { calls.push(['decide', value, identity]); return Promise.resolve({ created: true }); },
+    claimApprovedAuthorization(value, identity) { calls.push(['claim', value, identity]); return Promise.resolve({ approval: true }); },
+    authorizationStatus(value, identity) { calls.push(['status', value, identity]); return Promise.resolve({ schemaVersion: 1, status: 'pending' }); },
   };
-  return { app: createBrokerAuthorizationApi({ service, resolveDevice: async () => device, resolveFreshOwner: async () => owner }), service, calls };
+  return { app: createBrokerAuthorizationApi({ service, resolveDevice: () => Promise.resolve(device), resolveFreshOwner: () => Promise.resolve(owner) }), service, calls };
 }
 
 void test('device routes require explicit authentication before invoking the service', async () => {
@@ -51,17 +51,17 @@ void test('routes pass authenticated principals and owner sessions to the bounde
 
 void test('adapter bounds bodies and maps validation, policy, and unknown failures without details', async () => {
   const invalid = fixture();
-  invalid.service.requestAuthorization = async () => { throw new SyntaxError('secret parse detail'); };
+  invalid.service.requestAuthorization = () => { return Promise.reject(new SyntaxError('secret parse detail')); };
   let response = await invalid.app.request('/api/devices/broker-authorizations', { method: 'POST', body: '{}' });
   assert.equal(response.status, 400);
   assert.deepEqual(await response.json(), { error: 'invalid_request' });
 
-  invalid.service.requestAuthorization = async () => { throw new BrokerAuthorizationServiceError('insufficient_scope', 403); };
+  invalid.service.requestAuthorization = () => { return Promise.reject(new BrokerAuthorizationServiceError('insufficient_scope', 403)); };
   response = await invalid.app.request('/api/devices/broker-authorizations', { method: 'POST', body: '{}' });
   assert.equal(response.status, 403);
   assert.deepEqual(await response.json(), { error: 'insufficient_scope' });
 
-  invalid.service.requestAuthorization = async () => { throw new Error('database internals'); };
+  invalid.service.requestAuthorization = () => { return Promise.reject(new Error('database internals')); };
   response = await invalid.app.request('/api/devices/broker-authorizations', { method: 'POST', body: '{}' });
   assert.equal(response.status, 503);
   assert.deepEqual(await response.json(), { error: 'broker_authorization_unavailable' });
