@@ -64,6 +64,7 @@
 - [ ] 3.10 Apply the same validation-ledger and locked pre-write gate to workloads, binding evidence to workload ID, declared source-store identity, exact project/root path, consumer, environment, and plan; reject host/workload or cross-store ledger substitution.
 - [ ] 3.11 Add the workload round-trip gate: production-equivalent workload retrieval, bounded non-destructive consumer use, and representative host/cross-project denial before cutover or retirement evidence.
 - [ ] 3.12 Require current provider-specific validation for every selected source identity before use; keep inconclusive/unreachable/stale results `unverified` and fail before write.
+- [x] 3.12a Validate `general:AGENTMAIL_API_KEY` through the official read-only inbox-list API, but keep the age source and perform no destination write until a named Cloudflare workload consumer and target-retrieval contract exist.
 - [ ] 3.13 Track an explicit required-destination set per source and mark each destination complete only after write, Infisical round trip, intended target-host/workload retrieval, cross-target denial, consumer cutover, and rollback evidence.
 - [ ] 3.14 Prove writer-side verification cannot substitute for intended target retrieval and one completed destination cannot hide another incomplete destination.
 
