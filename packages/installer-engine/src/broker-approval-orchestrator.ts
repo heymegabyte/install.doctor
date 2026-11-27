@@ -76,7 +76,7 @@ export async function orchestrateBrokerApproval(options: BrokerApprovalOrchestra
   await options.transport.request(grant, binding);
 
   let delay = poll.initialDelayMs;
-  while (true) {
+  for (;;) {
     const beforePoll = now() - startedAt;
     if (!Number.isSafeInteger(beforePoll) || beforePoll < 0) throw new Error('broker approval clock moved backwards');
     if (beforePoll >= poll.timeoutMs) throw new Error('broker approval polling timed out');

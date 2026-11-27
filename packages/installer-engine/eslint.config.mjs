@@ -6,8 +6,6 @@ const tsconfigRootDir = fileURLToPath(new URL('../../', import.meta.url));
 // Each path has existing strict source diagnostics. Remove it once the module passes.
 const pendingSourceFiles = [
   'src/alloy-pipeline-reconciler.ts',
-  'src/broker-approval-orchestrator.ts',
-  'src/broker-approval-transport.ts',
   'src/credential-rotation.ts',
   'src/debian-gpgv.ts',
   'src/engine.ts',

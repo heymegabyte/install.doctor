@@ -26,7 +26,7 @@ export const BrokerApprovalDeviceIdentitySchema = z.strictObject({
   deviceId: id,
   tenant: id,
   label: z.string().max(200).nullable(),
-  enrolledAt: z.string().datetime({ offset: true }),
+  enrolledAt: z.iso.datetime({ offset: true }),
   grantedPermissions: z.array(z.string().min(1).max(64)).max(32),
   profileRevision: digest,
   machineFingerprint: digest,
@@ -69,7 +69,7 @@ async function boundedJson(response: Response): Promise<unknown> {
   const reader = response.body.getReader();
   const chunks: Uint8Array[] = [];
   let length = 0;
-  while (true) {
+  for (;;) {
     const { done, value } = await reader.read();
     if (done) break;
     length += value.byteLength;
@@ -164,14 +164,14 @@ export function createBrokerApprovalTransport(options: BrokerApprovalTransportOp
   const request = async (path: string, init: { method: 'GET' } | { method: 'POST'; body: unknown }): Promise<unknown> => {
     const token = await readPrivateDeviceToken(options.tokenPath);
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    const timer = setTimeout(() => { controller.abort(); }, timeoutMs);
     try {
       const response = await fetcher(new URL(path, origin), {
         method: init.method, signal: controller.signal,
         headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json', accept: 'application/json' },
         ...('body' in init ? { body: JSON.stringify(init.body) } : {}),
       });
-      if (!response.ok) throw new Error(`broker approval request failed with HTTP ${response.status}`);
+      if (!response.ok) throw new Error(`broker approval request failed with HTTP ${String(response.status)}`);
       return await boundedJson(response);
     } finally { clearTimeout(timer); }
   };
