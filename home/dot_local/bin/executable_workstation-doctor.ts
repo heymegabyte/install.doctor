@@ -10,9 +10,10 @@
  */
 
 import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { homedir, hostname, platform } from "node:os";
-import { join } from "node:path";
+import { isAbsolute, join } from "node:path";
 
 interface DiagnosticFinding {
   readonly id: string;
@@ -87,6 +88,44 @@ async function fetchStatusCode(url: string, timeoutMs = 2_500): Promise<number> 
   }
 }
 
+function sourceDigest(path: string): string | undefined {
+  try {
+    return createHash("sha256").update(readFileSync(path)).digest("hex");
+  } catch {
+    return undefined;
+  }
+}
+
+function checkProxyIdentity(runningIdentity: unknown): DiagnosticFinding {
+  const lookup = runCommand("chezmoi", ["source-path"]);
+  const sourceDirectory = lookup.stdout.trimEnd();
+  const selectedPath = lookup.status === 0 && isAbsolute(sourceDirectory) && !sourceDirectory.includes("\n")
+    ? join(sourceDirectory, "dot_local", "bin", "executable_megabyte-local-proxy.ts")
+    : undefined;
+  const installedPath = join(homedir(), ".local", "bin", "megabyte-local-proxy.ts");
+  const selected = selectedPath ? sourceDigest(selectedPath) : undefined;
+  const installed = sourceDigest(installedPath);
+  const running = typeof runningIdentity === "string" && /^[a-f0-9]{64}$/.test(runningIdentity)
+    ? runningIdentity
+    : undefined;
+
+  let state: string;
+  if (!selected) state = "selected-source-unavailable";
+  else if (!installed) state = "installed-source-unavailable";
+  else if (selected !== installed) state = "installed-source-drift";
+  else if (!running) state = "running-identity-unverified";
+  else if (installed !== running) state = "restart-needed";
+  else state = "verified";
+
+  return {
+    id: "local-artifact-proxy-identity",
+    severity: "warning",
+    passed: state === "verified",
+    summary: "Workstation proxy selected, installed, and running source identities agree",
+    detail: `state=${state}, selectedPath=${selectedPath ?? "unavailable"}, selected=${selected ?? "unavailable"}, installed=${installed ?? "unavailable"}, running=${running ?? "unverified"}`,
+  };
+}
+
 async function checkSharedRuntimeServices(findings: DiagnosticFinding[]): Promise<void> {
   const proxyHealth = await fetchJsonEndpoint("http://127.0.0.1:4880/healthz");
   const proxyRuntime = proxyHealth.body?.runtime;
@@ -97,6 +136,12 @@ async function checkSharedRuntimeServices(findings: DiagnosticFinding[]): Promis
     summary: "Tier-1 local artifact proxy (:4880) healthy on Node TypeScript runtime",
     detail: `status=${proxyHealth.status}, runtime=${String(proxyRuntime ?? "unknown")}`,
   });
+
+  findings.push(checkProxyIdentity(
+    proxyHealth.status === 200 && proxyRuntime === "node-typescript"
+      ? proxyHealth.body?.source_sha256
+      : undefined,
+  ));
 
   const npmrcPath = join(homedir(), ".npmrc");
   const npmrcRaw = existsSync(npmrcPath) ? readFileSync(npmrcPath, "utf8") : "";
