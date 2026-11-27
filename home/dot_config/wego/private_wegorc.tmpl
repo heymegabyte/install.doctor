@@ -39,7 +39,7 @@ location={{ .user.weatherZipCode }}
 md-coords=false
 
 # openweathermap backend: the api KEY to use (default )
-owm-api-key={{ if (stat (joinPath .chezmoi.sourceDir ".chezmoitemplates" (printf "%s%s" "secrets-" .chezmoi.hostname) "OPENWEATHERMAP_API_KEY")) }}{{ includeTemplate (printf "%s%s" (printf "%s%s" "secrets-" .chezmoi.hostname) "/OPENWEATHERMAP_API_KEY") | decrypt | trim }}{{ else }}{{ env "OPENWEATHERMAP_API_KEY" }}{{ end }}
+owm-api-key={{ if and (eq .chezmoi.os "darwin") (lookPath "get-secret") }}{{ output "get-secret" "OPENWEATHERMAP_API_KEY" | trim }}{{ else }}{{ env "OPENWEATHERMAP_API_KEY" }}{{ end }}
 
 # openweathermap backend: print raw requests and responses (default false)
 owm-debug=false
