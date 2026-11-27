@@ -34,6 +34,8 @@ The current test count is reported by `npm test`; do not copy a stale count into
 ```bash
 npm ci
 npm run typecheck
+npm run build
+npm run lint
 npm test
 ```
 
@@ -41,8 +43,20 @@ The build uses the base compiler profile from the qualified `@theme-tools/testin
 1.0.2 archive at theme.tools revision `08b6d16a1bb7c4da9eb11ec741720c5ec078a551`.
 `vendor/theme-tools/tsconfig.base.json` is the exact `package/dist/tsconfig/base.json`
 member. Its SHA-256 is `6f72381362b2ee9b97227b5a775ff3234dcf9df7e11d0c1c240be77ef650b713`.
-The package keeps its own emit and library settings. Zod is the runtime dependency,
-and TypeScript is the development dependency.
+The package keeps its own emit and library settings. Zod is the runtime dependency.
+TypeScript and ESLint are development dependencies. Use Node 24.22.2 to match
+the Linux CI toolchain when running the lint and test commands.
+
+The strict typed ESLint configuration uses the qualified `@theme-tools/testing`
+1.0.2 archive at theme.tools revision `77dc59ef311c3e6eb6916b92b4e0424b52bed27c`.
+Its SHA-256 is `c36d17107b474b4c93a2be1974f48ec67644e27632d55d03c91f84a529d3c696`.
+The eight JavaScript files in `vendor/theme-tools/` are unmodified
+`package/dist/<filename>` members, and the license is `package/LICENSE`.
+To refresh them, extract those same members from a verified replacement archive
+and update the pinned development dependencies to match. The local ESLint
+configuration selects the source and test TypeScript projects.
+`npm test` builds the declarations before linting the tests against them,
+and Linux CI runs that same command.
 The downloadable bundle also includes compiled `dist/` files so its tests can be run
 with `node --test test/core.test.mjs` without building. No root privileges are needed.
 

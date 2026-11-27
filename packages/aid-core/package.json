@@ -36,14 +36,18 @@
     "build": "tsc --project tsconfig.json",
     "typecheck": "tsc --project tsconfig.json --noEmit",
     "typecheck:test": "tsc --project tsconfig.test.json",
-    "test": "npm run build && npm run typecheck:test && node --test test/*.test.mjs"
+    "lint": "eslint --max-warnings=0 \"src/**/*.ts\" \"test/**/*.mjs\"",
+    "test": "npm run build && npm run typecheck:test && npm run lint && node --test test/*.test.mjs"
   },
   "engines": {
     "node": ">=22"
   },
   "devDependencies": {
     "@types/node": "22.20.7",
-    "typescript": "5.8.3"
+    "@typescript-eslint/utils": "8.74.0",
+    "eslint": "10.15.0",
+    "typescript": "5.8.3",
+    "typescript-eslint": "8.74.0"
   },
   "dependencies": {
     "zod": "4.6.7"
