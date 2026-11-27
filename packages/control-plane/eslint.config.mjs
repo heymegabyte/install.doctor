@@ -5,5 +5,5 @@ export default createThemeToolsTypedLintConfig({
   tsconfigRootDir: fileURLToPath(new URL('../../', import.meta.url)),
   profile: 'strict',
   project: 'packages/control-plane/tsconfig.tooling.json',
-  files: ['packages/control-plane/scripts/**/*.mjs', 'scripts/verify-desktop-tools-release.mjs'],
+  files: ['packages/control-plane/scripts/**/*.mjs', 'scripts/build-desktop-tools-release.mjs', 'scripts/verify-desktop-tools-release.mjs'],
 });

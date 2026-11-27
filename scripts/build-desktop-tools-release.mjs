@@ -8,8 +8,9 @@ import { TextDecoder } from 'node:util';
 import { renderBootstrap } from '../packages/control-plane/src/bootstrap.ts';
 import { BrokerApprovalSignerDelegation } from '../packages/aid-core/src/broker-approval-contracts.ts';
 
-/** @type {typeof import('../packages/control-plane/node_modules/zod/index.js')} */
-const { z } = createRequire(new URL('../packages/control-plane/package.json', import.meta.url))('zod');
+/** @type {unknown} */
+const controlPlaneZod = createRequire(new URL('../packages/control-plane/package.json', import.meta.url))('zod');
+const { z } = /** @type {typeof import('../packages/control-plane/node_modules/zod/index.js')} */ (controlPlaneZod);
 
 const id = z.string().regex(/^[a-z0-9][a-z0-9._-]{0,127}$/);
 const regularPath = z.string().min(1).max(4096);
@@ -18,12 +19,12 @@ const platforms = /** @type {const} */ (['macos_x64', 'macos_arm64', 'linux_x64'
 const platformKey = z.enum(platforms);
 const Configuration = z.strictObject({
   releaseId: id, sourceCommit: z.string().regex(/^[a-f0-9]{40}$/),
-  createdAt: z.number().int().positive().safe(), expiresAt: z.number().int().positive().safe(),
+  createdAt: z.number().int().positive(), expiresAt: z.number().int().positive(),
   signerId: z.string().regex(/^desktop-[a-z0-9][a-z0-9._-]{0,119}$/),
   signerPublicKey: z.string().regex(/^ssh-ed25519 [A-Za-z0-9+/]+={0,3}(?: [^\r\n]{1,128})?$/),
   releaseChannel: z.literal('stable'),
   brokerApprovalSignerDelegation: regularPath,
-  brokerApprovalMinimumRevocationEpoch: z.number().int().nonnegative().safe(),
+  brokerApprovalMinimumRevocationEpoch: z.number().int().nonnegative(),
   runtimeNodeVersion: z.string().regex(/^24\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$/),
   opencodeVersion: version,
   opencodeLock: regularPath,
@@ -54,7 +55,7 @@ const opencodeFilename = platform => platform.startsWith('macos_')
   ? `opencode-${outputPlatform(platform)}.zip` : `opencode-${outputPlatform(platform)}.tar.gz`;
 /** @param {typeof platforms[number]} platform */
 const lockArtifact = platform => z.strictObject({
-  releaseFilename: z.literal(opencodeFilename(platform)), upstreamUrl: z.string().url().startsWith('https://'),
+  releaseFilename: z.literal(opencodeFilename(platform)), upstreamUrl: z.url().startsWith('https://'),
   sha256: z.string().regex(/^[a-f0-9]{64}$/), size: z.number().int().positive().max(limits.opencode)
 });
 const OpenCodeLock = z.strictObject({
@@ -79,11 +80,17 @@ async function input(pathInput, maximum, label) {
   return { path, bytes: await readFile(path) };
 }
 
+/** @param {unknown} value @returns {value is Record<string, unknown>} */
+function isJsonObject(value) {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
 /** @param {Source} source @param {string} label */
 function jsonObject(source, label) {
+  /** @type {unknown} */
   let value;
   try { value = JSON.parse(source.bytes.toString('utf8')); } catch { throw new Error(`${label} is not valid JSON`); }
-  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error(`${label} must be a JSON object`);
+  if (!isJsonObject(value)) throw new Error(`${label} must be a JSON object`);
   return value;
 }
 
@@ -142,9 +149,9 @@ function spdxReleaseEvidence(expected, config) {
 /** @param {Sbom} value @param {Map<string, string>} expected @param {ReleaseConfig} config */
 function validateSbom(value, expected, config) {
   if (value.bomFormat !== 'CycloneDX' || value.specVersion !== '1.6' || value.version !== 1
-    || value.metadata?.component?.name !== 'desktop-tools-release'
+    || value.metadata.component.name !== 'desktop-tools-release'
     || value.metadata.component.version !== config.releaseId) throw new Error('SBOM identity is invalid');
-  const properties = new Map((value.metadata.component.properties ?? []).map(item => [item?.name, item?.value]));
+  const properties = new Map(value.metadata.component.properties.map(item => [item.name, item.value]));
   if (properties.get('desktop.tools:source-commit') !== config.sourceCommit
     || properties.get('desktop.tools:opencode-version') !== config.opencodeVersion
     || properties.get('desktop.tools:broker-approval-delegation-sha256') !== config.brokerApprovalDelegationSha256
@@ -152,9 +159,9 @@ function validateSbom(value, expected, config) {
     || properties.get('desktop.tools:debian-trust-policy-sha256') !== config.debianTrustPolicySha256
     || properties.get('desktop.tools:debian-composition-sha256') !== config.debianCompositionSha256) throw new Error('SBOM release pins are invalid');
   const actual = new Map();
-  for (const component of value.components ?? []) {
-    const digest = component?.hashes?.find(item => item?.alg === 'SHA-256')?.content;
-    if (typeof component?.name !== 'string' || typeof digest !== 'string' || actual.has(component.name)) throw new Error('SBOM components are ambiguous');
+  for (const component of value.components) {
+    const digest = component.hashes.find(item => item.alg === 'SHA-256')?.content;
+    if (typeof component.name !== 'string' || typeof digest !== 'string' || actual.has(component.name)) throw new Error('SBOM components are ambiguous');
     actual.set(component.name, digest);
   }
   if (JSON.stringify([...actual.entries()].sort()) !== JSON.stringify([...expected.entries()].sort())) {
@@ -168,16 +175,16 @@ function validateProvenance(value, expected, config, lock) {
   if (value._type !== 'https://in-toto.io/Statement/v1' || value.predicateType !== 'https://slsa.dev/provenance/v1') {
     throw new Error('provenance statement type is invalid');
   }
-  const parameters = value.predicate?.buildDefinition?.externalParameters;
-  if (parameters?.releaseId !== config.releaseId || parameters?.sourceCommit !== config.sourceCommit
-    || parameters?.opencodeVersion !== config.opencodeVersion
-    || parameters?.brokerApprovalDelegationSha256 !== config.brokerApprovalDelegationSha256
-    || parameters?.brokerApprovalMinimumRevocationEpoch !== config.brokerApprovalMinimumRevocationEpoch) {
+  const parameters = value.predicate.buildDefinition.externalParameters;
+  if (parameters.releaseId !== config.releaseId || parameters.sourceCommit !== config.sourceCommit
+    || parameters.opencodeVersion !== config.opencodeVersion
+    || parameters.brokerApprovalDelegationSha256 !== config.brokerApprovalDelegationSha256
+    || parameters.brokerApprovalMinimumRevocationEpoch !== config.brokerApprovalMinimumRevocationEpoch) {
     throw new Error('provenance release pins are invalid');
   }
   const actual = new Map();
-  for (const subject of value.subject ?? []) {
-    if (typeof subject?.name !== 'string' || typeof subject?.digest?.sha256 !== 'string' || actual.has(subject.name)) {
+  for (const subject of value.subject) {
+    if (typeof subject.name !== 'string' || typeof subject.digest.sha256 !== 'string' || actual.has(subject.name)) {
       throw new Error('provenance subjects are ambiguous');
     }
     actual.set(subject.name, subject.digest.sha256);
@@ -186,8 +193,8 @@ function validateProvenance(value, expected, config, lock) {
     throw new Error('provenance does not bind the exact release payload closure');
   }
   const resolved = new Map();
-  for (const dependency of value.predicate?.buildDefinition?.resolvedDependencies ?? []) {
-    if (typeof dependency?.uri !== 'string' || typeof dependency?.digest?.sha256 !== 'string' || resolved.has(dependency.uri)) {
+  for (const dependency of value.predicate.buildDefinition.resolvedDependencies) {
+    if (typeof dependency.uri !== 'string' || typeof dependency.digest.sha256 !== 'string' || resolved.has(dependency.uri)) {
       throw new Error('provenance resolved dependencies are ambiguous');
     }
     resolved.set(dependency.uri, dependency.digest.sha256);
@@ -274,8 +281,9 @@ export async function buildDesktopToolsRelease(configurationInput, now = Math.fl
   const composition = jsonObject(compositionSource, 'Debian composition receipt');
   config.debianTrustPolicySha256 = sha256(trustPolicySource.bytes);
   config.debianCompositionSha256 = sha256(compositionSource.bytes);
-  if (composition.schemaVersion !== 1 || composition.descriptor?.packageKey !== 'tree'
-    || composition.descriptor?.package?.version !== '2.1.0-1' || !Array.isArray(composition.artifacts)
+  const descriptor = composition.descriptor;
+  if (composition.schemaVersion !== 1 || !isJsonObject(descriptor) || descriptor.packageKey !== 'tree'
+    || !isJsonObject(descriptor.package) || descriptor.package.version !== '2.1.0-1' || !Array.isArray(composition.artifacts)
     || composition.artifacts.length !== 4) throw new Error('Debian composition receipt is invalid');
   /** @type {Record<string, keyof typeof debianInputs>} */
   const debianArtifactFiles = {
@@ -284,31 +292,42 @@ export async function buildDesktopToolsRelease(configurationInput, now = Math.fl
     'debian-bookworm-main-amd64-packages': 'debian-bookworm-main-amd64-Packages.xz',
     'tree-deb-bookworm-amd64': 'tree_2.1.0-1_amd64.deb',
   };
-  if (JSON.stringify(composition.artifacts.map((/** @type {{id?: string} | null} */ item) => item?.id).sort()) !== JSON.stringify(Object.keys(debianArtifactFiles).sort())) {
+  /** @type {unknown[]} */
+  const compositionArtifacts = composition.artifacts;
+  if (JSON.stringify(compositionArtifacts.map(item => isJsonObject(item) && typeof item.id === 'string' ? item.id : undefined).sort()) !== JSON.stringify(Object.keys(debianArtifactFiles).sort())) {
     throw new Error('Debian composition receipt artifact closure is invalid');
   }
-  for (const item of composition.artifacts) {
+  for (const item of compositionArtifacts) {
+    if (!isJsonObject(item) || typeof item.id !== 'string') throw new Error('Debian composition receipt artifact closure is invalid');
     const filename = debianArtifactFiles[item.id];
     const source = filename && debianInputs[filename];
     if (!source || item.sha256 !== sha256(source.bytes) || item.sizeBytes !== source.bytes.length) throw new Error(`Debian composition artifact binding mismatch: ${item.id}`);
   }
-  const freshness = composition.descriptor?.metadataProof?.inRelease;
-  const signedAt = Date.parse(freshness?.signedAt);
+  const proof = descriptor.metadataProof;
+  const freshness = isJsonObject(proof) && isJsonObject(proof.inRelease) ? proof.inRelease : undefined;
+  const signedAt = typeof freshness?.signedAt === 'string' ? Date.parse(freshness.signedAt) : NaN;
   const validUntil = freshness?.validUntil;
   const maximumDateAgeSeconds = freshness?.maximumDateAgeSeconds;
-  const freshnessDeadline = validUntil === null && Number.isSafeInteger(maximumDateAgeSeconds)
-    ? signedAt + maximumDateAgeSeconds * 1000 : Date.parse(validUntil);
+  const freshnessDeadline = validUntil === null && typeof maximumDateAgeSeconds === 'number' && Number.isSafeInteger(maximumDateAgeSeconds)
+    ? signedAt + maximumDateAgeSeconds * 1000 : typeof validUntil === 'string' ? Date.parse(validUntil) : NaN;
   if (!Number.isFinite(signedAt) || !Number.isFinite(freshnessDeadline)
     || config.expiresAt * 1000 > freshnessDeadline) {
     throw new Error('Debian repository freshness does not cover the release expiry');
   }
   const catalogSource = await input(config.catalog, limits.metadata, 'catalog');
+  /** @type {unknown} */
   let catalog;
   try { catalog = JSON.parse(catalogSource.bytes.toString('utf8')); } catch { throw new Error('catalog is not valid JSON'); }
   if (!Array.isArray(catalog)) throw new Error('catalog must be an array');
-  const treeEntries = catalog.filter(entry => entry?.name === 'tree');
-  if (treeEntries.length !== 1 || treeEntries[0]?.offlinePayloads?.length !== 1
-    || JSON.stringify(treeEntries[0].offlinePayloads[0]) !== JSON.stringify(composition.descriptor)) {
+  /** @type {unknown[]} */
+  const catalogEntries = catalog;
+  const treeEntries = catalogEntries.filter(entry => isJsonObject(entry) && entry.name === 'tree');
+  const [tree] = treeEntries;
+  const payloads = isJsonObject(tree) ? tree.offlinePayloads : undefined;
+  /** @type {unknown[]} */
+  const treePayloads = Array.isArray(payloads) ? payloads : [];
+  if (treeEntries.length !== 1 || treePayloads.length !== 1
+    || JSON.stringify(treePayloads[0]) !== JSON.stringify(descriptor)) {
     throw new Error('catalog does not contain the exact staged tree offline payload authority');
   }
   const sources = new Map(/** @type {[string, Source][]} */ ([
@@ -341,11 +360,16 @@ export async function buildDesktopToolsRelease(configurationInput, now = Math.fl
   const licenses = sources.get('THIRD_PARTY_LICENSES.txt');
   if (!licenses) throw new Error('missing third-party licenses');
   validateLicenses(licenses, config.opencodeVersion);
+  const { archiveKeyringUri, inReleaseUri, packagesIndexUri, treePayloadUri } = trustPolicy;
+  if (typeof archiveKeyringUri !== 'string' || typeof inReleaseUri !== 'string'
+    || typeof packagesIndexUri !== 'string' || typeof treePayloadUri !== 'string') {
+    throw new Error('provenance resolved dependencies are ambiguous');
+  }
   config.debianResolvedDependencies = [
-    { uri: trustPolicy.archiveKeyringUri, sha256: sha256(debianInputs['debian-bookworm-archive-keyring.gpg'].bytes) },
-    { uri: trustPolicy.inReleaseUri, sha256: sha256(debianInputs['debian-bookworm-inrelease'].bytes) },
-    { uri: trustPolicy.packagesIndexUri, sha256: sha256(debianInputs['debian-bookworm-main-amd64-Packages.xz'].bytes) },
-    { uri: trustPolicy.treePayloadUri, sha256: sha256(debianInputs['tree_2.1.0-1_amd64.deb'].bytes) },
+    { uri: archiveKeyringUri, sha256: sha256(debianInputs['debian-bookworm-archive-keyring.gpg'].bytes) },
+    { uri: inReleaseUri, sha256: sha256(debianInputs['debian-bookworm-inrelease'].bytes) },
+    { uri: packagesIndexUri, sha256: sha256(debianInputs['debian-bookworm-main-amd64-Packages.xz'].bytes) },
+    { uri: treePayloadUri, sha256: sha256(debianInputs['tree_2.1.0-1_amd64.deb'].bytes) },
     { uri: `source:${config.sourceCommit}:debian-trust-policy`, sha256: sha256(trustPolicySource.bytes) },
     { uri: `composition:tree:2.1.0-1`, sha256: sha256(compositionSource.bytes) },
   ];
@@ -407,15 +431,15 @@ export async function buildDesktopToolsRelease(configurationInput, now = Math.fl
   ]);
   const bytesByName = new Map([...sources.entries()].map(([name, source]) => [name, source.bytes]));
   const lines = ['schema_version=10', 'product_id=desktop-tools', `release_id=${config.releaseId}`,
-    `source_commit=${config.sourceCommit}`, `created_at=${config.createdAt}`, `expires_at=${config.expiresAt}`,
+    `source_commit=${config.sourceCommit}`, `created_at=${String(config.createdAt)}`, `expires_at=${String(config.expiresAt)}`,
     `key_id=${config.signerId}`, 'engine_node_min=22', `runtime_node_version=${config.runtimeNodeVersion}`,
     `opencode_version=${config.opencodeVersion}`,
-    `broker_approval_minimum_revocation_epoch=${config.brokerApprovalMinimumRevocationEpoch}`];
+    `broker_approval_minimum_revocation_epoch=${String(config.brokerApprovalMinimumRevocationEpoch)}`];
   for (const [prefix, filename] of artifacts) {
     const bytes = bytesByName.get(filename);
     if (!bytes) throw new Error(`missing manifest artifact: ${filename}`);
     lines.push(`${prefix}_url=${origin}/releases/${config.releaseId}/${filename}`,
-      `${prefix}_sha256=${sha256(bytes)}`, `${prefix}_size=${bytes.byteLength}`);
+      `${prefix}_sha256=${sha256(bytes)}`, `${prefix}_size=${String(bytes.byteLength)}`);
   }
   const manifest = Buffer.from(`${lines.join('\n')}\n`, 'utf8');
   if (manifest.byteLength > limits.manifest) throw new Error('manifest exceeds size policy');
@@ -439,10 +463,11 @@ export async function buildDesktopToolsRelease(configurationInput, now = Math.fl
     outputDirectory: output, manifestSha256: sha256(manifest) });
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+const cliPath = process.argv[1];
+if (cliPath && import.meta.url === `file://${cliPath}`) {
   const [configurationPath] = process.argv.slice(2);
   if (!configurationPath) { process.stderr.write('usage: build-desktop-tools-release.mjs CONFIG.json\n'); process.exitCode = 64; }
   else buildDesktopToolsRelease(JSON.parse(await readFile(resolve(configurationPath), 'utf8')))
     .then(result => process.stdout.write(`${JSON.stringify(result)}\n`))
-    .catch(error => { process.stderr.write(`build-desktop-tools-release: ${error instanceof Error ? error.message : 'unknown failure'}\n`); process.exitCode = 1; });
+    .catch((/** @type {unknown} */ error) => { process.stderr.write(`build-desktop-tools-release: ${error instanceof Error ? error.message : 'unknown failure'}\n`); process.exitCode = 1; });
 }
