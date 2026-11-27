@@ -164,6 +164,7 @@ install_service() {
     validate_linux_linger
     systemctl --user daemon-reload
     systemctl --user enable --now "$systemd_unit_name"
+    systemctl --user restart "$systemd_unit_name"
   fi
   sleep 1
   status_service

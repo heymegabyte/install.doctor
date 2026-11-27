@@ -38,6 +38,7 @@ test "$(stat -f '%Lp' "$unit" 2>/dev/null || stat -c '%a' "$unit")" = 600
 grep -q '^ProtectSystem=strict$' "$unit"
 grep -q '^RuntimeDirectory=mcp-singletons$' "$unit"
 grep -q '^RuntimeDirectoryMode=0700$' "$unit"
+grep -q 'systemctl --user restart "$systemd_unit_name"' "$root/home/dot_local/bin/executable_mcp-singleton-manager"
 node -e 'const c=require(process.argv[1]); const ids=Object.keys(c.services); if (ids.join(",") !== "cloudflare-mcp,theme-tools-mcp" || c.hostContract.platform !== "linux" || c.hostContract.lingerPolicy !== "forbid" || !c.runtimeDir.endsWith("/runtime/mcp-singletons")) process.exit(1)' "$config"
 
 if HOME="$fixture/home" MCP_SINGLETON_PLATFORM=linux MCP_SINGLETON_LINGER_POLICY=invalid \
