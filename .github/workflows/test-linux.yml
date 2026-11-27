@@ -62,13 +62,14 @@ jobs:
         if: ${{ !cancelled() && steps.aid-core.outcome != 'skipped' }}
         run: npm --prefix packages/desktop-tools-runtime test
 
-      - name: Verify Control Plane tooling types and lint
+      - name: Verify Control Plane types and lint
         if: ${{ !cancelled() && steps.runtime-test-dependencies.outcome == 'success' }}
         run: |
           npm --prefix packages/control-plane ci --ignore-scripts --no-audit --no-fund
           npm --prefix packages/control-plane run typecheck:tooling
           npm --prefix packages/control-plane run lint:tooling
           npm --prefix packages/control-plane run types:runtime
+          npm --prefix packages/control-plane run lint:source
           npm --prefix packages/control-plane run lint:test
 
       - name: Lint core scripts
