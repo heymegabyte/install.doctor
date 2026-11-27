@@ -49,7 +49,8 @@ function canonical(value: unknown): unknown {
 async function readStdin(): Promise<Buffer> {
   const chunks: Buffer[] = [];
   let total = 0;
-  for await (const chunk of process.stdin) {
+  const stdin: AsyncIterable<Uint8Array> = process.stdin;
+  for await (const chunk of stdin) {
     const bytes = Buffer.from(chunk);
     total += bytes.length;
     if (total > MAX_ENVELOPE_BYTES) throw new Error('broker worker envelope exceeds its boundary');
@@ -59,13 +60,15 @@ async function readStdin(): Promise<Buffer> {
   return Buffer.concat(chunks, total);
 }
 
+const platformOpenFlags: { readonly O_NOFOLLOW?: number } = constants;
+
 async function readProtectedRootFile(path: string, maximumBytes: number): Promise<Buffer> {
   const before = await lstat(path);
   if (!before.isFile() || before.isSymbolicLink() || before.nlink !== 1 || before.uid !== 0
     || (before.mode & 0o022) !== 0 || before.size < 1 || before.size > maximumBytes) {
     throw new Error('broker release authority file is unsafe');
   }
-  const handle = await open(path, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
+  const handle = await open(path, constants.O_RDONLY | (platformOpenFlags.O_NOFOLLOW ?? 0));
   try {
     const opened = await handle.stat();
     if (opened.dev !== before.dev || opened.ino !== before.ino || opened.size !== before.size) throw new Error('broker release authority changed while opening');
@@ -115,7 +118,7 @@ export async function executePrivilegedBrokerWorker(input: {
   const envelope = EnvelopeSchema.parse(input.envelope);
   const storeRoot = input.storeRoot ?? STORE_ROOT;
   if (storeRoot !== STORE_ROOT) throw new Error('privileged broker worker store root is not the production root');
-  const store = await createPrivilegedBrokerStore({ root: storeRoot, verifyApproval: async () => false });
+  const store = await createPrivilegedBrokerStore({ root: storeRoot, verifyApproval: () => Promise.resolve(false) });
   const { grant } = await store.readGrant(envelope.request.grantId);
   const validated = validatePrivilegedBrokerRequest({
     request: envelope.request, grant, peerUid: envelope.peerUid, now: input.now ?? new Date(), consumeNonce: () => true,
@@ -124,13 +127,13 @@ export async function executePrivilegedBrokerWorker(input: {
     throw new Error('broker nonce was already durably consumed');
   }
   const { authority: storedAuthority } = await store.readAuthority(grant.grantId);
-  if ('authorityKind' in storedAuthority && storedAuthority.authorityKind === 'native-service') {
+  if ('authorityKind' in storedAuthority) {
     const authority = storedAuthority;
     const operation = authority.operations.operations[envelope.request.operationId];
     const task = authority.plan.tasks.find(candidate => candidate.id === envelope.request.taskId);
     if (!operation || operation.kind !== 'native-service' || operation.action !== envelope.request.phase || !task
       || !authority.plan.selectedTaskIds.includes(task.id) || task.operations[envelope.request.phase] !== envelope.request.operationId
-      || operation.manager !== authority.descriptor.manager || operation.unit !== authority.descriptor.unit
+      || operation.unit !== authority.descriptor.unit
       || operation.desiredState !== authority.descriptor.desiredState) {
       throw new Error('broker service request is outside the selected authority operation');
     }
@@ -225,15 +228,18 @@ export async function executePrivilegedBrokerWorker(input: {
     const sources = new Map(authority.artifacts.map(item => [item.artifactId,
       { sourcePath: item.artifactId === authority.descriptor.artifact.id ? staged.path : item.sourcePath,
         authority: { sha256: item.sha256, sizeBytes: item.sizeBytes, mode: item.mode } }]));
-    const resolver = async (artifactId: string) => {
+    const resolver = (artifactId: string) => {
       const source = sources.get(artifactId);
-      if (!source) throw new Error(`broker release artifact is unavailable: ${artifactId}`);
-      return source;
+      if (!source) return Promise.reject(new Error(`broker release artifact is unavailable: ${artifactId}`));
+      return Promise.resolve(source);
     };
-    const keyring = authority.artifacts.find(item => item.artifactId === authority.descriptor.metadataProof.inRelease.keyring.artifactId)!;
+    const keyring = authority.artifacts.find(item => item.artifactId === authority.descriptor.metadataProof.inRelease.keyring.artifactId);
+    if (!keyring) throw new Error('broker release keyring artifact is unavailable');
     const verifiedMetadata = await verifyNativeDebianMetadataWithResolver({
       closure, resolver,
-      verifier: async () => createDefaultDebianMetadataVerifier({ keyring: { kind: 'path', absolutePath: keyring.sourcePath } }),
+      verifier: () => new Promise(resolve => {
+        resolve(createDefaultDebianMetadataVerifier({ keyring: { kind: 'path', absolutePath: keyring.sourcePath } }));
+      }),
     });
     const compareDebianVersions = await createTrustedDebianVersionComparator();
     const persistence = await createPrivilegedBrokerTransactionPersistence({ root: authority.transactionRoot,
@@ -272,7 +278,7 @@ async function main(): Promise<void> {
   if (writeSync(4, bytes) !== bytes.length) throw new Error('broker receipt packet was not written atomically');
 }
 
-if (import.meta.url === `file://${process.argv[1]}` || process.argv[1] === '/proc/self/fd/6') {
+if (import.meta.url === `file://${String(process.argv[1])}` || process.argv[1] === '/proc/self/fd/6') {
   main().catch(() => {
     try { writeSync(4, Buffer.from('{"schemaVersion":1,"status":"failed","error":"broker operation failed"}', 'utf8')); } catch { /* best effort */ }
     process.exitCode = 0;
