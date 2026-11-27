@@ -74,9 +74,13 @@ export function validateManifest(manifest) {
   }
   const reservedNames = manifest.reservedNames ?? [];
   const exactCapabilityNames = manifest.exactCapabilityNames ?? {};
-  if (!Array.isArray(reservedNames) || typeof exactCapabilityNames !== 'object' || Array.isArray(exactCapabilityNames)) fail('invalid reserved-name policy');
+  const blockedReservedNames = manifest.blockedReservedNames ?? [];
+  if (!Array.isArray(reservedNames) || !Array.isArray(blockedReservedNames) || typeof exactCapabilityNames !== 'object' || Array.isArray(exactCapabilityNames)) fail('invalid reserved-name policy');
   if (new Set(reservedNames).size !== reservedNames.length || reservedNames.some((name) => !/^[A-Z][A-Z0-9_]{0,127}$/.test(name))) {
     fail('invalid or duplicate reserved secret name');
+  }
+  if (new Set(blockedReservedNames).size !== blockedReservedNames.length || blockedReservedNames.some((name) => !reservedNames.includes(name))) {
+    fail('invalid or duplicate blocked reserved secret name');
   }
   const exactOwners = new Map();
   for (const [capability, names] of Object.entries(exactCapabilityNames)) {
@@ -88,7 +92,10 @@ export function validateManifest(manifest) {
       exactOwners.set(name, capability);
     }
   }
-  for (const name of reservedNames) if (!exactOwners.has(name)) fail(`reserved secret ${name} has no exact capability owner`);
+  for (const name of blockedReservedNames) if (exactOwners.has(name)) fail(`blocked reserved secret ${name} also has an exact capability owner`);
+  for (const name of reservedNames) {
+    if (!exactOwners.has(name) && !blockedReservedNames.includes(name)) fail(`reserved secret ${name} has no exact capability owner or blocked disposition`);
+  }
   for (const capabilities of Object.values(manifest.profiles)) {
     for (const capability of capabilities) {
       if (!manifest.capabilityPatterns?.[capability] && !exactCapabilityNames[capability]) fail(`profile references unknown capability ${capability}`);
