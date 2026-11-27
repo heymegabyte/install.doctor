@@ -16,11 +16,9 @@ const pendingFixtures = [
   'test/desktop-release-publication.test.mjs',
   'test/disposable-product-composition.test.mjs',
   'test/helpers/worker-app-fixture.mjs',
-  'test/offline-bundle-publication.test.mjs',
   'test/oidc-owner-enrollment.test.mjs',
   'test/privileged-step-up-http.test.mjs',
   'test/release-evidence-view.test.mjs',
-  'test/release-publication.test.mjs',
 ].map(file => `packages/control-plane/${file}`);
 
 export default [
