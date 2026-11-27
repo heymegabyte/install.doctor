@@ -886,7 +886,6 @@ export PIP_EXTRA_INDEX_URL="\${MEGABYTE_NEXUS_URL}/repository/pypi-group/simple/
 export PIP_TRUSTED_HOST="127.0.0.1 nexus.megabyte.space"
 export UV_CACHE_DIR="\${MEGABYTE_CACHE_ROOT}/packages/uv"
 export UV_INDEX_URL="\${MEGABYTE_NEXUS_PYPI_URL:-\${MEGABYTE_LOCAL_PROXY_URL}/repository/pypi-group/simple}"
-export UV_EXTRA_INDEX_URL="\${MEGABYTE_NEXUS_URL}/repository/pypi-group/simple https://pypi.org/simple"
 export UV_INSECURE_HOST="127.0.0.1:${LOCAL_PROXY_PORT}"
 export POETRY_CACHE_DIR="\${MEGABYTE_CACHE_ROOT}/packages/poetry"
 export GOMODCACHE="\${MEGABYTE_CACHE_ROOT}/packages/gomod"
@@ -971,7 +970,6 @@ backup_if_exists "$HOME/.config/uv/uv.toml"
 cat <<EOF > "$HOME/.config/uv/uv.toml"
 cache-dir = "${CACHE_ROOT}/packages/uv"
 index-url = "${LOCAL_PROXY_BASE}/repository/pypi-group/simple"
-extra-index-url = ["${NEXUS_BASE}/repository/pypi-group/simple", "https://pypi.org/simple"]
 allow-insecure-host = ["127.0.0.1:${LOCAL_PROXY_PORT}", "127.0.0.1"]
 EOF
 
