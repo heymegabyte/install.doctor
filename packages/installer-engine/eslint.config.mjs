@@ -13,7 +13,6 @@ const pendingSourceFiles = [
   'src/privileged-broker-device-approval.ts',
   'src/privileged-broker-store.ts',
   'src/privileged-broker-worker.ts',
-  'src/privileged-systemd-transaction-store.ts',
   'src/rollback-executor.ts',
 ].map(file => `packages/installer-engine/${file}`);
 
