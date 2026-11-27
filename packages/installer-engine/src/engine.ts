@@ -274,7 +274,7 @@ export async function deriveBoundNormalizedPlan(
   const facts = HostFactsSchema.parse(factsInput);
   const desired = DesiredStateInputSchema.parse(desiredInput);
   const releaseId = identifier.parse(releaseIdInput);
-  const createdAt = z.string().datetime({ offset: true }).parse(createdAtInput);
+  const createdAt = z.iso.datetime({ offset: true }).parse(createdAtInput);
   if (facts.hostId !== desired.hostId) throw new Error('desired state targets a different host');
   const draft = PlanDraftSchema.parse(planInput);
   const graph = normalizeGraph(draft);
@@ -298,18 +298,16 @@ export async function deriveBoundNormalizedPlan(
     consents: sorted(desired.consents),
   };
   const hostFactsDigest = await sha256(semanticFacts);
-  const semanticPlan = {
+  const persistedPlan = {
     schemaVersion: 1 as const,
     releaseId,
     desiredRevision: desired.revision,
-    desiredState: semanticDesired,
     hostFactsDigest,
     tasks: graph.tasks,
     selectedTaskIds: graph.selectedTaskIds,
     executionPolicy: draft.executionPolicy,
   };
-  const digest = await sha256(semanticPlan);
-  const { desiredState: _desiredState, ...persistedPlan } = semanticPlan;
+  const digest = await sha256({ ...persistedPlan, desiredState: semanticDesired });
   const plan = NormalizedPlanSchema.parse({ ...persistedPlan, planId: `plan-${digest.slice(0, 24)}`, digest, createdAt });
   taskMap(plan);
   return plan;
@@ -352,6 +350,10 @@ function outcome(statuses: Readonly<Record<string, TaskTerminalStatus>>): { stat
   return { status: 'success', exitCode: 0, nextAction: null };
 }
 
+function normalizeEngineError(reason: unknown, message: string): Error {
+  return reason instanceof Error ? reason : new Error(message, { cause: reason });
+}
+
 export function createInstallerEngine(options: EngineOptions): InstallerEngine {
   const now = options.now ?? (() => new Date().toISOString());
   const telemetry = options.telemetry
@@ -383,7 +385,8 @@ export function createInstallerEngine(options: EngineOptions): InstallerEngine {
     }
     if (telemetry.onResult) {
       try {
-        void Promise.resolve(telemetry.onResult(exportResult)).catch(() => {});
+        const onResult: (result: TelemetryExportResult) => unknown = telemetry.onResult.bind(telemetry);
+        void Promise.resolve(onResult(exportResult)).catch(() => {});
       } catch { /* Telemetry observers cannot change install semantics. */ }
     }
     return result;
@@ -479,7 +482,7 @@ export function createInstallerEngine(options: EngineOptions): InstallerEngine {
           try { observer(structuredClone(event)); } catch { rendererFailures += 1; }
         }
       };
-      const emit = (body: EventBody): void => publish(createEvent(body));
+      const emit = (body: EventBody): void => { publish(createEvent(body)); };
       const phase = (name: InstallerPhase, status: 'started' | 'succeeded' | 'failed' | 'skipped'): void => {
         if (status === 'started') phaseOrder.push(name);
         emit({ kind: 'phase-status', phase: name, status });
@@ -521,8 +524,9 @@ export function createInstallerEngine(options: EngineOptions): InstallerEngine {
       }
 
       phase('approve', 'succeeded');
-      const journalClaim: JournalClaim | undefined = options.journal
-        ? await options.journal.claim(request.runId, plan, request.resume ? 'resume' : 'run')
+      const heartbeatJournal = options.journal;
+      const journalClaim: JournalClaim | undefined = heartbeatJournal
+        ? await heartbeatJournal.claim(request.runId, plan, request.resume ? 'resume' : 'run')
         : undefined;
       let journalCommitted = false;
       let journalReleased = false;
@@ -533,23 +537,24 @@ export function createInstallerEngine(options: EngineOptions): InstallerEngine {
       const leaseController = new AbortController();
       const heartbeatIntervalMs = options.journal?.heartbeatIntervalMs ?? 10_000;
       const scheduleHeartbeat = (): void => {
-        if (!journalClaim || !options.journal || heartbeatStopped) return;
+        if (!journalClaim || !heartbeatJournal || heartbeatStopped) return;
         heartbeatTimer = setTimeout(() => {
-          heartbeatInFlight = options.journal!.renew(journalClaim.owner).then(
-            () => scheduleHeartbeat(),
-            error => {
+          heartbeatInFlight = heartbeatJournal.renew(journalClaim.owner).then(
+            () => { scheduleHeartbeat(); },
+            (error: unknown) => {
               heartbeatFailure = error;
               leaseController.abort(error);
             },
           );
         }, heartbeatIntervalMs);
-        heartbeatTimer.unref?.();
+        const timer: { unref?: () => unknown } = heartbeatTimer;
+        timer.unref?.();
       };
       const stopHeartbeat = async (): Promise<void> => {
         heartbeatStopped = true;
         if (heartbeatTimer) clearTimeout(heartbeatTimer);
         await heartbeatInFlight;
-        if (heartbeatFailure) throw heartbeatFailure;
+        if (heartbeatFailure) throw normalizeEngineError(heartbeatFailure, 'journal heartbeat failed');
       };
       scheduleHeartbeat();
       const releaseJournal = async (attempts: number, throwOnFailure: boolean): Promise<void> => {
@@ -565,7 +570,7 @@ export function createInstallerEngine(options: EngineOptions): InstallerEngine {
             if (attempt < attempts) await sleep(25 * attempt);
           }
         }
-        if (throwOnFailure) throw lastError;
+        if (throwOnFailure) throw normalizeEngineError(lastError, 'journal release failed');
       };
       const checkpoint = async (task: TaskNode, status: JournalEntry['status'], attempts: number): Promise<void> => {
         if (!journalClaim || !options.journal) return;
@@ -573,15 +578,21 @@ export function createInstallerEngine(options: EngineOptions): InstallerEngine {
           taskId: task.id, inputDigest: task.inputDigest, status, attempts, updatedAt: now(),
         });
       };
+      let runCompletion: Promise<InstallerRunResult>;
       try {
       const tasks = taskMap(plan);
+      const selectedTask = (taskId: string): TaskNode => {
+        const task = tasks.get(taskId);
+        if (!task) throw new Error(`selected task is missing: ${taskId}`);
+        return task;
+      };
       phase('apply', 'started');
       const pending = new Set(plan.selectedTaskIds);
       const running = new Map<string, Promise<void>>();
       const runningResources = new Map<string, TaskNode['resources']>();
       const taskControllers = new Map<string, AbortController>();
       const heldLocks = new Map<string, string>();
-      let failurePolicyAbort = false;
+      const failurePolicy = { abort: false };
       const isFinalizer = (task: TaskNode): boolean => task.lifecycle === 'run-finalizer';
       const terminalDependency = (task: TaskNode): TaskTerminalStatus | undefined => isFinalizer(task) ? undefined :
         task.dependencies.map(dependency => statuses[dependency]).find(status =>
@@ -603,7 +614,7 @@ export function createInstallerEngine(options: EngineOptions): InstallerEngine {
         const finalizer = isFinalizer(task);
         const controller = new AbortController();
         taskControllers.set(taskId, controller);
-        const cancelTask = (): void => controller.abort(runSignal?.reason ?? leaseController.signal.reason);
+        const cancelTask = (): void => { controller.abort(runSignal?.reason ?? leaseController.signal.reason); };
         if (!finalizer) runSignal?.addEventListener('abort', cancelTask, { once: true });
         leaseController.signal.addEventListener('abort', cancelTask, { once: true });
         if ((!finalizer && runSignal?.aborted) || leaseController.signal.aborted) cancelTask();
@@ -617,13 +628,13 @@ export function createInstallerEngine(options: EngineOptions): InstallerEngine {
             finalAttempt = attempt;
             try {
               if (controller.signal.aborted) throw new InstallerOperationError('operation cancelled', 'cancelled');
-              let compensationPrepared = false;
+              const compensation = { prepared: false };
               const configurationCompensation: ConfigurationCompensationPersistence | undefined = journalClaim && options.journal
                 ? {
                     prepare: async artifact => {
                       if (artifact.record.taskId !== task.id) throw new Error('compensation task identity does not match the running task');
                       await options.journal?.persistCompensation(journalClaim.owner, artifact);
-                      compensationPrepared = true;
+                      compensation.prepared = true;
                     },
                     update: async record => {
                       if (record.taskId !== task.id) throw new Error('compensation task identity does not match the running task');
@@ -644,7 +655,7 @@ export function createInstallerEngine(options: EngineOptions): InstallerEngine {
               const context = {
                 signal: controller.signal,
                 attempt,
-                output: (stream: 'stdout' | 'stderr', line: string) => emit({ kind: 'output', taskId, stream, line: redactSecrets(line) }),
+                output: (stream: 'stdout' | 'stderr', line: string) => { emit({ kind: 'output', taskId, stream, line: redactSecrets(line) }); },
                 ...(configurationCompensation ? { configurationCompensation } : {}),
                 ...(nativeDpkgTransaction ? { nativeDpkgTransaction } : {}),
               } satisfies TaskExecutionContext;
@@ -676,7 +687,7 @@ export function createInstallerEngine(options: EngineOptions): InstallerEngine {
               }
               await options.adapter.apply(task, context);
               ensureActive('after-mutation');
-              if (task.compensation === 'configuration' && !compensationPrepared) {
+              if (task.compensation === 'configuration' && !compensation.prepared) {
                 throw new Error('configuration task returned without durable compensation evidence');
               }
               const verification = await options.adapter.verify(task, context);
@@ -705,7 +716,11 @@ export function createInstallerEngine(options: EngineOptions): InstallerEngine {
                 : exponential;
               await Promise.race([
                 sleep(delay),
-                new Promise<never>((_, reject) => controller.signal.addEventListener('abort', () => reject(new InstallerOperationError('operation cancelled', 'cancelled')), { once: true })),
+                new Promise<never>((_, reject) => {
+                  controller.signal.addEventListener('abort', () => {
+                    reject(new InstallerOperationError('operation cancelled', 'cancelled'));
+                  }, { once: true });
+                }),
               ]);
             }
           }
@@ -721,7 +736,7 @@ export function createInstallerEngine(options: EngineOptions): InstallerEngine {
           }
           emit({ kind: 'task-status', taskId, status: interrupted ? 'interrupted' : 'failed', attempt: finalAttempt || 1 });
           if (!finalizer && !interrupted && task.failurePolicy === 'abort-run') {
-            failurePolicyAbort = true;
+            failurePolicy.abort = true;
             for (const [runningTaskId, runningController] of taskControllers) {
               if (runningTaskId !== taskId) runningController.abort(new Error(`run aborted by failure policy on ${taskId}`));
             }
@@ -732,7 +747,7 @@ export function createInstallerEngine(options: EngineOptions): InstallerEngine {
               await options.adapter.cleanup(task, {
                 signal: new AbortController().signal,
                 attempt: finalAttempt || 1,
-                output: (stream: 'stdout' | 'stderr', line: string) => emit({ kind: 'output', taskId, stream, line: redactSecrets(line) }),
+                output: (stream: 'stdout' | 'stderr', line: string) => { emit({ kind: 'output', taskId, stream, line: redactSecrets(line) }); },
               });
             }
             catch {
@@ -755,9 +770,9 @@ export function createInstallerEngine(options: EngineOptions): InstallerEngine {
       while (pending.size > 0 || running.size > 0) {
         if (runSignal?.aborted) {
           for (const [taskId, controller] of taskControllers) {
-            if (!isFinalizer(tasks.get(taskId)!)) controller.abort(runSignal.reason);
+            if (!isFinalizer(selectedTask(taskId))) controller.abort(runSignal.reason);
           }
-          for (const taskId of sorted([...pending]).filter(id => !isFinalizer(tasks.get(id)!))) {
+          for (const taskId of sorted([...pending]).filter(id => !isFinalizer(selectedTask(id)))) {
             pending.delete(taskId);
             statuses[taskId] = 'interrupted';
             const task = tasks.get(taskId);
@@ -766,11 +781,11 @@ export function createInstallerEngine(options: EngineOptions): InstallerEngine {
             emit({ kind: 'task-status', taskId, status: 'interrupted', attempt: 0 });
           }
         }
-        if (failurePolicyAbort) {
+        if (failurePolicy.abort) {
           for (const [taskId, controller] of taskControllers) {
-            if (!isFinalizer(tasks.get(taskId)!)) controller.abort(new Error('run aborted by task failure policy'));
+            if (!isFinalizer(selectedTask(taskId))) controller.abort(new Error('run aborted by task failure policy'));
           }
-          for (const taskId of sorted([...pending]).filter(id => !isFinalizer(tasks.get(id)!))) {
+          for (const taskId of sorted([...pending]).filter(id => !isFinalizer(selectedTask(id)))) {
             pending.delete(taskId);
             statuses[taskId] = 'blocked';
             const task = tasks.get(taskId);
@@ -796,7 +811,7 @@ export function createInstallerEngine(options: EngineOptions): InstallerEngine {
             const sampled = await Promise.race([
               options.resourcePressureSampler.sample(),
               new Promise<never>((_, reject) => {
-                pressureTimer = setTimeout(() => reject(new Error('resource pressure sampling timed out')), resourcePressureSampleTimeoutMs);
+                pressureTimer = setTimeout(() => { reject(new Error('resource pressure sampling timed out')); }, resourcePressureSampleTimeoutMs);
               }),
             ]);
             pressure = ResourcePressureSampleSchema.parse(sampled);
@@ -808,7 +823,7 @@ export function createInstallerEngine(options: EngineOptions): InstallerEngine {
           ? adaptiveAdmission(pressure, maxConcurrency, resourceLimits.networkConcurrency)
           : { concurrency: maxConcurrency, networkConcurrency: resourceLimits.networkConcurrency, reasons: [] as string[] };
         const adjustment = admission.reasons.length > 0
-          ? `concurrency=${admission.concurrency};network=${admission.networkConcurrency};reasons=${admission.reasons.join(',')}`
+          ? `concurrency=${String(admission.concurrency)};network=${String(admission.networkConcurrency)};reasons=${admission.reasons.join(',')}`
           : '';
         if (adjustment && adjustment !== lastAdmissionAdjustment && pending.size > 0) {
           const evidenceTaskId = sorted([...pending])[0];
@@ -817,8 +832,8 @@ export function createInstallerEngine(options: EngineOptions): InstallerEngine {
         }
         lastAdmissionAdjustment = adjustment;
         let admitted = false;
-        const ordinaryOutstanding = [...pending].some(id => !isFinalizer(tasks.get(id)!))
-          || [...running.keys()].some(id => !isFinalizer(tasks.get(id)!));
+        const ordinaryOutstanding = [...pending].some(id => !isFinalizer(selectedTask(id)))
+          || [...running.keys()].some(id => !isFinalizer(selectedTask(id)));
         for (const taskId of sorted([...pending])) {
           if (running.size >= admission.concurrency) break;
           const task = tasks.get(taskId);
@@ -841,7 +856,7 @@ export function createInstallerEngine(options: EngineOptions): InstallerEngine {
         if (running.size > 0) await Promise.race(running.values());
         else if (pending.size > 0 && !admitted) throw new Error('scheduler stalled with pending tasks');
       }
-      if (heartbeatFailure) throw heartbeatFailure;
+      if (heartbeatFailure) throw normalizeEngineError(heartbeatFailure, 'journal heartbeat failed');
       phase('apply', Object.values(statuses).some(value => value === 'failed' || value === 'blocked' || value === 'interrupted') ? 'failed' : 'succeeded');
       phase('verify', 'started');
       phase('verify', Object.values(statuses).some(value => value === 'failed' || value === 'blocked' || value === 'pending' || value === 'pending-reboot') ? 'failed' : 'succeeded');
@@ -855,7 +870,7 @@ export function createInstallerEngine(options: EngineOptions): InstallerEngine {
         taskCounts: counts(statuses), evidencePaths: journalClaim ? [journalClaim.runDirectory] : ['unpersisted:event-stream'], nextAction: terminal.nextAction,
       });
       const finalizersVerified = plan.selectedTaskIds
-        .filter(taskId => isFinalizer(tasks.get(taskId)!))
+        .filter(taskId => isFinalizer(selectedTask(taskId)))
         .every(taskId => statuses[taskId] === 'verified' || statuses[taskId] === 'inapplicable');
       if (journalClaim && options.journal && terminal.status !== 'cancelled' && finalizersVerified) {
         const finalPhase = createEvent({ kind: 'phase-status', phase: 'record', status: 'succeeded' });
@@ -881,7 +896,7 @@ export function createInstallerEngine(options: EngineOptions): InstallerEngine {
         phase('record', 'succeeded');
         emit({ kind: 'run-status', status: terminal.status === 'success' ? 'success' : terminal.status === 'cancelled' ? 'cancelled' : 'failed' });
       }
-      return completeRun(
+      runCompletion = completeRun(
         { schemaVersion: 1, phaseOrder, plan, events, taskStatuses: statuses, receipt, exitCode: terminal.exitCode, rendererFailures },
         request.desiredState,
       );
@@ -889,8 +904,9 @@ export function createInstallerEngine(options: EngineOptions): InstallerEngine {
         let heartbeatError: unknown;
         try { await stopHeartbeat(); } catch (error) { heartbeatError = error; }
         if (!journalCommitted) await releaseJournal(1, true);
-        if (heartbeatError) throw heartbeatError;
+        if (heartbeatError) throw normalizeEngineError(heartbeatError, 'journal heartbeat failed');
       }
+      return runCompletion;
     },
 
     async status(requestInput, observer) {

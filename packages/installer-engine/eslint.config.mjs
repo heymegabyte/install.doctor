@@ -3,17 +3,9 @@ import { createThemeToolsTypedLintConfig } from '../aid-core/vendor/theme-tools/
 
 const tsconfigRootDir = fileURLToPath(new URL('../../', import.meta.url));
 
-// Each path has existing strict source diagnostics. Remove it once the module passes.
-const pendingSourceFiles = [
-  'src/engine.ts',
-].map(file => `packages/installer-engine/${file}`);
-
-export default [
-  { ignores: pendingSourceFiles },
-  ...createThemeToolsTypedLintConfig({
-    tsconfigRootDir,
-    profile: 'strict',
-    project: 'packages/installer-engine/tsconfig.json',
-    files: ['packages/installer-engine/src/**/*.ts'],
-  }),
-];
+export default createThemeToolsTypedLintConfig({
+  tsconfigRootDir,
+  profile: 'strict',
+  project: 'packages/installer-engine/tsconfig.json',
+  files: ['packages/installer-engine/src/**/*.ts'],
+});
