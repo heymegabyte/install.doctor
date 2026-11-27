@@ -309,7 +309,15 @@ export function validateValidationLedger(ledger, inventorySources = []) {
   const sourcesById = new Map(inventorySources.map((source) => [source.sourceId, source]));
   const canonicalNames = new Set(inventorySources.map(({ canonicalName }) => canonicalName));
   for (const [key, record] of Object.entries(ledger.records)) {
-    if (!record || !['valid', 'unverified', 'invalid-retired', 'public-retired'].includes(record.status)) fail(`validation record ${key} has invalid status`);
+    if (!record || !['valid', 'unverified', 'invalid-blocked', 'invalid-retired', 'public-retired'].includes(record.status)) fail(`validation record ${key} has invalid status`);
+    if (record.status === 'invalid-blocked') {
+      const hasBlockingDependency = (Array.isArray(record.requiredConsumers) && record.requiredConsumers.length > 0)
+        || (Array.isArray(record.requiredDestinations) && record.requiredDestinations.length > 0)
+        || (Array.isArray(record.replacementBlockers) && record.replacementBlockers.length > 0);
+      if (record.providerConfirmedInvalid !== true || !hasBlockingDependency || record.sourceRetired === true) {
+        fail(`validation record ${key} has incomplete invalid-blocked evidence`);
+      }
+    }
     if (key.includes(':')) {
       const source = sourcesById.get(key);
       if (!source) {
@@ -423,6 +431,7 @@ export function validateRetirementEvidence({ source, ledger, inventorySources, o
     if (!validPublicRetirement) fail(`source ${source.sourceId} has public status without complete declassification evidence`);
     return { record, evidenceKind: 'public-identifier-retirement', destinations: [] };
   }
+  if (record.status === 'invalid-blocked') fail(`source ${source.sourceId} is provider-invalid but blocked from retirement`);
   if (record.status !== 'valid') fail(`source ${source.sourceId} is not valid for retirement`);
   const destinations = Array.isArray(record.destination) ? record.destination : record.destination ? [record.destination] : [];
   if (record.migrated !== true) fail(`source ${source.sourceId} is missing migrated evidence`);

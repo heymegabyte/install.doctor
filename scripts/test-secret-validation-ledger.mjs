@@ -9,7 +9,7 @@ const recordKeys = [...ledgerText.matchAll(/^    "([^"]+)":/gm)].map((match) => 
 assert.equal(new Set(recordKeys).size, recordKeys.length, 'validation ledger contains duplicate record keys');
 const ledger = JSON.parse(ledgerText);
 assert.equal(ledger.schemaVersion, 1);
-const allowedStatuses = new Set(['valid', 'unverified', 'invalid-retired', 'public-retired']);
+const allowedStatuses = new Set(['valid', 'unverified', 'invalid-blocked', 'invalid-retired', 'public-retired']);
 const sourceDirectories = [
   join(homedir(), '.local/share/chezmoi/home/.chezmoitemplates/secrets'),
   join(homedir(), '.local/share/chezmoi/home/.chezmoitemplates/secrets-workstation'),
@@ -29,6 +29,14 @@ const repositoryDirectoriesByStore = new Map([
 for (const [name, record] of Object.entries(ledger.records)) {
   assert.ok(allowedStatuses.has(record.status), `${name} has an unsupported validation status`);
   assert.ok(record.validator, `${name} has no validator provenance`);
+  if (record.status === 'invalid-blocked') {
+    const hasBlockingDependency = (Array.isArray(record.requiredConsumers) && record.requiredConsumers.length > 0)
+      || (Array.isArray(record.requiredDestinations) && record.requiredDestinations.length > 0)
+      || (Array.isArray(record.replacementBlockers) && record.replacementBlockers.length > 0);
+    assert.equal(record.providerConfirmedInvalid, true, `${name} lacks provider-invalid evidence`);
+    assert.equal(hasBlockingDependency, true, `${name} lacks a retirement blocker`);
+    assert.notEqual(record.sourceRetired, true, `${name} is blocked but marked retired`);
+  }
   if (record.status === 'invalid-retired' || record.sourceRetired) {
     if (name.includes(':')) {
       const [store, canonicalName] = name.split(':', 2);

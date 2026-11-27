@@ -637,6 +637,26 @@ const invalidRetirementReceipt = retireSecretSource({
 });
 assert.equal(invalidRetirementReceipt.evidenceKind, 'invalid-retirement');
 assert.equal(existsSync(join(retirementGeneral, 'INVALID_TOKEN')), true);
+const invalidBlockedRecord = {
+  status: 'invalid-blocked', sourceId: invalidRetirementSource.sourceId,
+  canonicalName: invalidRetirementSource.canonicalName,
+  ciphertextSha256: invalidRetirementSource.ciphertextSha256,
+  validator: 'provider-expired-probe', providerConfirmedInvalid: true,
+  requiredConsumers: ['runtime-needs-replacement'], replacementBlockers: ['interactive-provider-reauthentication'],
+};
+assert.throws(() => validateRetirementEvidence({
+  source: invalidRetirementSource,
+  inventorySources: retirementInventory,
+  ledger: { schemaVersion: 1, records: { [invalidRetirementSource.sourceId]: invalidBlockedRecord } },
+  offlineExceptions: noOfflineExceptions,
+}), /provider-invalid but blocked from retirement/);
+assert.throws(() => assertSecretSourcesValidated(
+  { schemaVersion: 1, records: { [invalidRetirementSource.sourceId]: invalidBlockedRecord } },
+  [invalidRetirementSource], retirementInventory,
+), /no current valid credential evidence/);
+assert.throws(() => validateValidationLedger({ schemaVersion: 1, records: {
+  [invalidRetirementSource.sourceId]: { ...invalidBlockedRecord, requiredConsumers: [], replacementBlockers: [] },
+} }, retirementInventory), /incomplete invalid-blocked evidence/);
 const publicRetirementRecord = {
   status: 'public-retired', sourceId: publicRetirementSource.sourceId,
   canonicalName: publicRetirementSource.canonicalName,

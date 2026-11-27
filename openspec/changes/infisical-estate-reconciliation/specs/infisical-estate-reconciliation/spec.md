@@ -40,6 +40,11 @@ Every source selected for migration or runtime use SHALL have a current `valid` 
 - **WHEN** provider-specific validation proves the exact source invalid and listings show no required destination, consumer, or offline exception
 - **THEN** it may enter reviewed `invalid-retired` state but cannot be migrated, used, or selected as fallback
 
+#### Scenario: Provider-invalid credential still has a required dependency
+
+- **WHEN** provider-specific validation proves the exact source invalid but a required consumer, destination, replacement blocker, or offline exception remains
+- **THEN** it enters `invalid-blocked`, cannot be migrated, used, selected as fallback, or retired, and retains its exact encrypted source until replacement and cutover evidence clears every blocker
+
 ### Requirement: Memory-only migration
 
 The system SHALL decrypt only selected legacy values, pass them directly to an authenticated Infisical write operation, and avoid plaintext staging files and value-bearing logs.
