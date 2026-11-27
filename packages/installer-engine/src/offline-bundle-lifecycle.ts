@@ -5,7 +5,7 @@ import { z } from 'zod';
 import { OfflineBundleError, verifyOfflineBundle } from './offline-bundle.js';
 
 const digest = z.string().regex(/^[a-f0-9]{64}$/);
-const timestamp = z.string().datetime({ offset: true }).max(64);
+const timestamp = z.iso.datetime({ offset: true }).max(64);
 const RecordSchema = z.strictObject({
   schemaVersion: z.literal(1), manifestDigest: digest, state: z.enum(['revoked', 'expired']),
   recordedAt: timestamp, reason: z.string().min(1).max(256),
@@ -40,7 +40,7 @@ async function readRecord(stateRoot: string, manifestDigest: string): Promise<Of
   const path = join(directory, `${digest.parse(manifestDigest)}.json`);
   let handle;
   try {
-    handle = await open(path, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
+    handle = await open(path, constants.O_RDONLY | ((constants as Partial<typeof constants>).O_NOFOLLOW ?? 0));
     const metadata = await handle.stat();
     if (!metadata.isFile() || metadata.size < 1 || metadata.size > 4096 || (process.platform !== 'win32' && metadata.nlink !== 1)) {
       throw new OfflineBundleError('offline lifecycle record is not a bounded regular file');
@@ -55,14 +55,15 @@ async function readRecord(stateRoot: string, manifestDigest: string): Promise<Of
 
 async function writeRecord(stateRoot: string, recordInput: OfflineBundleLifecycleRecord): Promise<OfflineBundleLifecycleRecord> {
   const record = RecordSchema.parse(recordInput);
-  const directory = (await lifecycleDirectory(stateRoot, true))!;
+  const directory = await lifecycleDirectory(stateRoot, true);
+  if (!directory) throw new OfflineBundleError('offline lifecycle directory is unavailable');
   const existing = await readRecord(stateRoot, record.manifestDigest);
   if (existing) {
     if (JSON.stringify(existing) === JSON.stringify(record)) return existing;
     throw new OfflineBundleError(`offline bundle already has a ${existing.state} lifecycle record`);
   }
   const target = join(directory, `${record.manifestDigest}.json`);
-  const stage = join(directory, `.${basename(target)}.${process.pid}.${Date.now()}.tmp`);
+  const stage = join(directory, `.${basename(target)}.${String(process.pid)}.${String(Date.now())}.tmp`);
   try {
     const handle = await open(stage, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY, 0o600);
     try { await handle.writeFile(`${JSON.stringify(record)}\n`); await handle.sync(); } finally { await handle.close(); }

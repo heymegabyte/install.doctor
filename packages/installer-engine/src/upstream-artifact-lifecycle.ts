@@ -52,7 +52,7 @@ export const AdmittedUpstreamArtifactSchema = z.strictObject({
     authenticated: z.literal(true),
     signatureKeyId: Digest,
     license: z.string().min(1).max(128),
-    mirroredAt: z.string().datetime({ offset: true }),
+    mirroredAt: z.iso.datetime({ offset: true }),
   }),
 }).superRefine((value, context) => {
   const archivePaths = new Set<string>();
@@ -106,9 +106,10 @@ export function resolveAdmittedUpstreamArtifact(input: {
   const candidates = z.array(AdmittedUpstreamArtifactSchema).min(1).max(4096).parse(input.candidates);
   const matches = candidates.filter(candidate => candidate.package === packageName && candidate.version === version
     && candidate.platform.os === platform.os && candidate.platform.arch === platform.arch);
-  if (matches.length === 0) throw new Error(`no admitted artifact for ${packageName}@${version} ${platform.os}/${platform.arch}`);
+  const [match] = matches;
+  if (!match) throw new Error(`no admitted artifact for ${packageName}@${version} ${platform.os}/${platform.arch}`);
   if (matches.length !== 1) throw new Error(`ambiguous admitted artifact for ${packageName}@${version} ${platform.os}/${platform.arch}`);
-  return matches[0]!;
+  return match;
 }
 
 export function compileArtifactLifecyclePlan(rawInput: {
@@ -124,7 +125,7 @@ export function compileArtifactLifecyclePlan(rawInput: {
   if (!uninstall && !target) throw new Error('install and update plans require an admitted target artifact');
   if (target && target.package !== packageName) throw new Error('target artifact package does not match the request');
   const action: ArtifactLifecyclePlan['action'] = uninstall ? 'uninstall' : !installed ? 'install'
-    : installed.admissionId === target!.admissionId ? 'noop' : 'update';
+    : installed.admissionId === target?.admissionId ? 'noop' : 'update';
   const retained = new Set(target?.extraction.files.map(file => file.installPath) ?? []);
   const removePaths = [...new Set((installed?.files ?? []).map(file => file.path).filter(path => !retained.has(path)))].sort();
   const planWithoutDigest = { schemaVersion: 1 as const, action, package: packageName, root,

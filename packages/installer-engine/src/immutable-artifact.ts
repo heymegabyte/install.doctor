@@ -96,7 +96,7 @@ async function inspectCandidate(path: string, expected: ImmutableArtifactDescrip
     }
   }
   if (metadata.size !== expected.sizeBytes) throw new ImmutableArtifactError('cached artifact size mismatch');
-  const handle = await open(path, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
+  const handle = await open(path, constants.O_RDONLY | ((constants as Partial<typeof constants>).O_NOFOLLOW ?? 0));
   try {
     const current = await handle.stat();
     if (current.dev !== metadata.dev || current.ino !== metadata.ino || current.size !== metadata.size) {
@@ -121,7 +121,7 @@ async function boundedBody(response: Response, expected: number): Promise<Buffer
   const reader = response.body.getReader();
   const chunks: Uint8Array[] = [];
   let total = 0;
-  while (true) {
+  for (;;) {
     const part = await reader.read();
     if (part.done) break;
     total += part.value.byteLength;
@@ -140,7 +140,7 @@ async function download(input: {
 }): Promise<Buffer> {
   let current = input.url;
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), input.timeoutMs);
+  const timer = setTimeout(() => { controller.abort(); }, input.timeoutMs);
   try {
     for (let redirects = 0; redirects <= input.maximumRedirects; redirects += 1) {
       let response: Response;
@@ -163,7 +163,7 @@ async function download(input: {
         current = next.toString();
         continue;
       }
-      if (response.status !== 200) throw new ImmutableArtifactError(`artifact transport returned HTTP ${response.status}`);
+      if (response.status !== 200) throw new ImmutableArtifactError(`artifact transport returned HTTP ${String(response.status)}`);
       parseContentLength(response, input.expectedSize);
       return await boundedBody(response, input.expectedSize);
     }
