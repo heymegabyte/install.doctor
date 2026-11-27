@@ -5,9 +5,21 @@ root="$(cd "$(dirname "$0")/.." && pwd)"
 fixture="$(mktemp -d "${TMPDIR:-/tmp}/mcp-singleton-manager.XXXXXX")"
 trap 'rm -rf "$fixture"' EXIT
 
-mkdir -p "$fixture/home/.local/bin" "$fixture/home/.agentskills/mcp-servers"
+mkdir -p "$fixture/home/.local/bin" "$fixture/home/.agentskills/mcp-servers" \
+  "$fixture/native-home/.local/bin" "$fixture/native-home/.agentskills/mcp-servers"
 cp "$root/home/dot_local/bin/executable_mcp-singleton-broker.mjs" "$fixture/home/.local/bin/mcp-singleton-broker.mjs"
+cp "$root/home/dot_local/bin/executable_mcp-singleton-broker.mjs" "$fixture/native-home/.local/bin/mcp-singleton-broker.mjs"
 printf '# fixture\n' >"$fixture/home/.agentskills/mcp-servers/paperclip-mcp-stdio-runner.mjs"
+printf '# fixture\n' >"$fixture/native-home/.agentskills/mcp-servers/paperclip-mcp-stdio-runner.mjs"
+
+# Native platform detection must be executable without the test override.
+HOME="$fixture/native-home" \
+XDG_CONFIG_HOME="$fixture/native-home/.config" \
+XDG_STATE_HOME="$fixture/native-home/.local/state" \
+MCP_SINGLETON_RUNTIME_DIR="$fixture/native-runtime/mcp-singletons" \
+MCP_SINGLETON_NODE="$(command -v node)" \
+MCP_SINGLETON_SERVICES="cloudflare-mcp" \
+bash "$root/home/dot_local/bin/executable_mcp-singleton-manager" render >/dev/null
 
 HOME="$fixture/home" \
 XDG_CONFIG_HOME="$fixture/home/.config" \

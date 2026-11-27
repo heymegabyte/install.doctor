@@ -4,7 +4,14 @@ set -euo pipefail
 label="space.megabyte.mcp-singletons"
 state_root="${XDG_STATE_HOME:-$HOME/.local/state}/mcp-singletons"
 config_root="${XDG_CONFIG_HOME:-$HOME/.config}/mcp-singletons"
-detected_platform="${MCP_SINGLETON_PLATFORM:-$(case "$(uname -s)" in Darwin) printf darwin ;; Linux) printf linux ;; *) printf unknown ;; esac)}"
+detected_platform="${MCP_SINGLETON_PLATFORM:-}"
+if test -z "$detected_platform"; then
+  case "$(uname -s)" in
+    Darwin) detected_platform=darwin ;;
+    Linux) detected_platform=linux ;;
+    *) detected_platform=unknown ;;
+  esac
+fi
 if test "$detected_platform" = linux; then
   socket_root="${MCP_SINGLETON_RUNTIME_DIR:-${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/mcp-singletons}"
 else
