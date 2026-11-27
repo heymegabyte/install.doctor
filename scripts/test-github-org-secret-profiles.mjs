@@ -8,7 +8,7 @@ const inventory = JSON.parse(readFileSync(new URL('../config/infisical/github-or
 const manifest = validateManifest(JSON.parse(readFileSync(new URL('../config/infisical/estate-secret-profiles.json', import.meta.url), 'utf8')));
 const result = validateRepositoryProfiles(inventory, manifest);
 assert.equal(result.repositoryCount, 10);
-assert.deepEqual(result.runtimeGaps, ['ghost.claims', 'megabyte.space']);
+assert.deepEqual(result.runtimeGaps, ['ghost.claims']);
 
 const live = inventory.repositories.map(({ id, name, defaultBranch, archived, disabled }) => ({ id, name, defaultBranch, archived, disabled }));
 assert.equal(validateRepositoryProfiles(inventory, manifest, live).repositoryCount, 10);
@@ -43,6 +43,9 @@ assert.deepEqual(selectConfigurationSecrets(
 ), ghostSecrets.sort());
 assert.deepEqual(selectConfigurationSecrets(
   manifest, manifest.workloads['mcp.megabyte.space'], ghostSecrets,
+), []);
+assert.deepEqual(selectConfigurationSecrets(
+  manifest, manifest.workloads['megabyte.space'], ghostSecrets,
 ), []);
 
 const fetched = await fetchPublicRepositories('heymegabyte', async () => new Response(JSON.stringify([

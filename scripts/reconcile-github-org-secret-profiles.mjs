@@ -34,8 +34,14 @@ export function validateRepositoryProfiles(inventory, manifest, liveRepositories
       if (repository.infisicalWorkload) {
         const workload = manifest?.workloads?.[repository.infisicalWorkload];
         if (!workload) fail(`${repository.name} references unknown workload ${repository.infisicalWorkload}`);
-        if (!Array.isArray(manifest.profiles?.[workload.profile]) || manifest.profiles[workload.profile].length === 0) {
+        if (!Array.isArray(manifest.profiles?.[workload.profile])) {
+          fail(`${repository.name} references an unknown workload profile`);
+        }
+        if (manifest.profiles[workload.profile].length === 0 && repository.secretlessRuntime !== true) {
           fail(`${repository.name} references an empty workload profile`);
+        }
+        if (manifest.profiles[workload.profile].length > 0 && repository.secretlessRuntime === true) {
+          fail(`${repository.name} claims a secretless runtime with a non-empty profile`);
         }
       }
     } else if (repository.infisicalWorkload !== null) {
