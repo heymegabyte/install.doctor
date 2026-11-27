@@ -7,6 +7,8 @@ import { join } from 'node:path';
 import test from 'node:test';
 import { verifyDesktopReleaseCatalog } from '../dist/offline-bundle.js';
 
+/** @typedef {Parameters<typeof verifyDesktopReleaseCatalog>[0]} CatalogInput */
+/** @param {import("node:crypto").BinaryLike} bytes */
 const sha = bytes => createHash('sha256').update(bytes).digest('hex');
 
 for (const schemaVersion of [8, 9]) test(`signed schema-v${schemaVersion} release independently binds the exact native descriptor and four objects`, async () => {
@@ -17,6 +19,7 @@ for (const schemaVersion of [8, 9]) test(`signed schema-v${schemaVersion} releas
   const releaseId = 'native-release-1';
   const payload = Buffer.from('tree payload\n'); const inRelease = Buffer.from('signed release\n');
   const packages = Buffer.from('packages index\n'); const keyring = Buffer.from('archive keyring\n');
+  /** @satisfies {NonNullable<CatalogInput['nativeAuthority']>['descriptor']} */
   const descriptor = {
     schemaVersion: 1, kind: 'native-offline-package', manager: 'dpkg', packageKey: 'tree',
     platform: { os: 'linux', arch: 'x64' }, package: { name: 'tree', version: '2.1.0-1', architecture: 'amd64' },
@@ -36,13 +39,16 @@ for (const schemaVersion of [8, 9]) test(`signed schema-v${schemaVersion} releas
     dependencyClosure: { depends: [], preDepends: [] }, affectedServiceUnits: [], conffiles: [],
     maintainerScriptPolicy: { trust: 'signed-repository-metadata', network: 'deny', serviceStarts: 'suppress-and-restore', conffiles: 'preserve-local' },
   };
+  /** @satisfies {NonNullable<CatalogInput['serviceAuthority']>} */
   const serviceDescriptor = { kind: 'native-service', manager: 'systemd', serviceKey: 'alloy',
     unit: 'alloy.service', desiredState: 'enabled-and-started' };
-  const catalogBytes = Buffer.from(`${JSON.stringify([{ name: 'tree', bin: 'tree', platforms: ['linux'], installMode: 'cli',
+  const catalog = [{ name: 'tree', bin: 'tree', platforms: ['linux'], installMode: 'cli',
     loadPolicy: 'lazy', loadRationale: 'default-lazy', deps: [], artifacts: [], offlinePayloads: [descriptor],
     providers: ['apt'], pkgs: { apt: 'tree' } }, { name: 'alloy', bin: 'alloy', platforms: ['linux'], installMode: 'service',
     loadPolicy: 'eager-service', loadRationale: 'desired-state:alloy', deps: [], artifacts: [], offlinePayloads: [],
-    serviceDeclarations: [{ name: 'alloy.service', privilege: 'admin', manager: 'systemd' }] }])}\n`);
+    serviceDeclarations: [{ name: 'alloy.service', privilege: 'admin', manager: 'systemd' }] }];
+  const catalogBytes = Buffer.from(`${JSON.stringify(catalog)}\n`);
+  /** @type {[prefix: string, id: string, filename: string, bytes: Buffer][]} */
   const objects = [
     ['debian_inrelease', descriptor.metadataProof.inRelease.artifactId, 'debian-bookworm-inrelease', inRelease],
     ['debian_keyring', descriptor.metadataProof.inRelease.keyring.artifactId, 'debian-bookworm-archive-keyring.gpg', keyring],
@@ -73,9 +79,9 @@ for (const schemaVersion of [8, 9]) test(`signed schema-v${schemaVersion} releas
   await writeFile(manifestPath, `${lines.join('\n')}\n`, { mode: 0o600 });
   const signed = spawnSync('/usr/bin/ssh-keygen', ['-Y', 'sign', '-q', '-f', key, '-n', 'desktop.tools.release', manifestPath], { encoding: 'utf8' });
   assert.equal(signed.status, 0, signed.stderr);
-  const artifacts = objects.map(([prefix, artifactId, filename, bytes]) => ({ artifactId,
+  const artifacts = objects.map(([_prefix, artifactId, filename, bytes]) => ({ artifactId,
     url: `https://desktop.tools/releases/${releaseId}/${filename}`,
-    authority: { sha256: sha(bytes), sizeBytes: bytes.length, mode: '0600' } }));
+    authority: { sha256: sha(bytes), sizeBytes: bytes.length, mode: /** @type {const} */ ('0600') } }));
   const input = { manifestPath, signaturePath: `${manifestPath}.sig`,
     trust: { keyId: 'desktop-test', publicKey: (await readFile(`${key}.pub`, 'utf8')).trim() },
     expectedReleaseId: releaseId, catalogBytes, nativeAuthority: { descriptor, artifacts }, now: 1_794_080_100 };
@@ -83,9 +89,10 @@ for (const schemaVersion of [8, 9]) test(`signed schema-v${schemaVersion} releas
   assert.equal(verified.releaseId, releaseId);
   assert.equal((await verifyDesktopReleaseCatalog({ ...input, nativeAuthority: undefined,
     serviceAuthority: serviceDescriptor })).releaseId, releaseId);
-  await assert.rejects(verifyDesktopReleaseCatalog({ ...input, nativeAuthority: undefined,
-    serviceAuthority: { ...serviceDescriptor, unit: 'other.service' } }), /Invalid input|not an exact signed catalog member/);
-  const packageOnlyCatalog = Buffer.from(`${JSON.stringify(JSON.parse(catalogBytes).filter(entry => entry.name !== 'alloy'))}\n`);
+  // An untyped caller may provide a service outside the supported descriptor.
+  await assert.rejects(Reflect.apply(verifyDesktopReleaseCatalog, undefined, [{ ...input, nativeAuthority: undefined,
+    serviceAuthority: { ...serviceDescriptor, unit: 'other.service' } }]), /Invalid input|not an exact signed catalog member/);
+  const packageOnlyCatalog = Buffer.from(`${JSON.stringify(catalog.filter(entry => entry.name !== 'alloy'))}\n`);
   const packageOnlyManifestPath = join(root, 'package-only-manifest');
   const packageOnlyManifest = (await readFile(manifestPath, 'utf8'))
     .replace(`catalog_sha256=${sha(catalogBytes)}`, `catalog_sha256=${sha(packageOnlyCatalog)}`)
@@ -98,7 +105,9 @@ for (const schemaVersion of [8, 9]) test(`signed schema-v${schemaVersion} releas
     manifestPath: packageOnlyManifestPath, signaturePath: `${packageOnlyManifestPath}.sig`, catalogBytes: packageOnlyCatalog,
     serviceAuthority: serviceDescriptor }), /not an exact signed catalog member/);
   const substituted = { ...input, nativeAuthority: structuredClone(input.nativeAuthority) };
-  substituted.nativeAuthority.artifacts.find(item => item.artifactId === descriptor.artifact.id).authority.sha256 = 'f'.repeat(64);
+  const substitutedArtifact = substituted.nativeAuthority.artifacts.find(item => item.artifactId === descriptor.artifact.id);
+  assert.ok(substitutedArtifact);
+  substitutedArtifact.authority.sha256 = 'f'.repeat(64);
   await assert.rejects(verifyDesktopReleaseCatalog(substituted), /not an exact member/);
   if (schemaVersion === 9) {
     const invalidManifest = (await readFile(manifestPath, 'utf8'))

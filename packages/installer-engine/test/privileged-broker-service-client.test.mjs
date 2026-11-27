@@ -5,22 +5,33 @@ import { createPrivilegedBrokerReceipt, privilegedBrokerDigest } from '../dist/p
 import { privilegedBrokerDescriptorDigest } from '../dist/privileged-broker-authority.js';
 
 const descriptor = { kind: 'native-service', manager: 'systemd', serviceKey: 'alloy', unit: 'alloy.service', desiredState: 'enabled-and-started' };
+/** @typedef {Parameters<typeof createPrivilegedBrokerServiceRuntime>[0]} ServiceConfig */
+/** @typedef {NonNullable<Parameters<typeof createPrivilegedBrokerServiceRuntime>[2]>} ServiceTransport */
+/** @typedef {Parameters<ReturnType<typeof createPrivilegedBrokerServiceRuntime>['apply']>[0]} ServiceOperation */
+
+/** @satisfies {ServiceConfig['grant']} */
 const grant = {
   schemaVersion: 1, grantId: 'grant-service', hostId: 'host-one', releaseId: 'release-one', runId: 'run-one',
   planDigest: 'a'.repeat(64), approvedPlanDigest: 'a'.repeat(64), enrolledUid: 501,
   brokerExecutableDigest: 'b'.repeat(64), runtimeDigest: 'c'.repeat(64), workerDigest: 'd'.repeat(64),
-  operations: ['check', 'apply', 'verify'].map(phase => ({ taskId: 'service.native.alloy', operationId: `alloy-${phase}`, phase })),
+  operations: (/** @type {const} */ (['check', 'apply', 'verify'])).map(phase => ({ taskId: 'service.native.alloy', operationId: `alloy-${phase}`, phase })),
   descriptorDigest: privilegedBrokerDescriptorDigest(descriptor), closureDigest: 'e'.repeat(64), consentDigest: 'f'.repeat(64),
   issuedAt: '2026-11-09T12:00:00.000Z', expiresAt: '2026-11-09T12:05:00.000Z',
 };
 const config = { helperPath: '/run/desktop-tools/authority/release-one/broker',
   socketPath: '/run/desktop-tools/broker/run-one/broker.sock', hostId: 'host-one', releaseId: 'release-one',
   runId: 'run-one', planDigest: 'a'.repeat(64), taskId: 'service.native.alloy', grant };
+/**
+ * @param {ServiceOperation['action']} action
+ * @returns {ServiceOperation}
+ */
 const operation = action => ({ kind: 'native-service', effectClass: 'native-service', action,
   manager: 'systemd', unit: 'alloy.service', desiredState: 'enabled-and-started' });
 
 test('service client sends only the canonical sealed descriptor and validates receipts', async () => {
+  /** @type {{ request: Parameters<ServiceTransport['invoke']>[0]['request'], bytes: string, links: number }[]} */
   const seen = [];
+  /** @type {ServiceTransport} */
   const transport = { async invoke(input) {
     const bytes = await input.payload.readFile();
     seen.push({ request: input.request, bytes: bytes.toString('utf8'), links: (await input.payload.stat()).nlink });
