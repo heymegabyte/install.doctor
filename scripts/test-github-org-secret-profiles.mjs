@@ -8,7 +8,7 @@ const inventory = JSON.parse(readFileSync(new URL('../config/infisical/github-or
 const manifest = validateManifest(JSON.parse(readFileSync(new URL('../config/infisical/estate-secret-profiles.json', import.meta.url), 'utf8')));
 const result = validateRepositoryProfiles(inventory, manifest);
 assert.equal(result.repositoryCount, 10);
-assert.deepEqual(result.runtimeGaps, ['ghost.claims']);
+assert.deepEqual(result.runtimeGaps, []);
 
 const live = inventory.repositories.map(({ id, name, defaultBranch, archived, disabled }) => ({ id, name, defaultBranch, archived, disabled }));
 assert.equal(validateRepositoryProfiles(inventory, manifest, live).repositoryCount, 10);
