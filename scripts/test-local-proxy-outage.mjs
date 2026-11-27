@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { once } from "node:events";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -59,12 +59,14 @@ test("an npm cache survives a Nexus outage and still serves cold public artifact
       return fetchImpl(input, options);
     };
   `;
-  const script = fileURLToPath(new URL("../home/dot_local/bin/executable_megabyte-local-proxy.ts", import.meta.url));
+  const source = readFileSync(fileURLToPath(new URL("../home/dot_local/bin/executable_megabyte-local-proxy.ts", import.meta.url)));
+  const script = join(cache, "megabyte-local-proxy.ts");
+  writeFileSync(script, source);
   const child = spawn(process.execPath, [
     "--experimental-strip-types", "--import", `data:text/javascript;base64,${Buffer.from(intercept).toString("base64")}`, script,
   ], {
     env: { ...process.env, MEGABYTE_LOCAL_PROXY_HOST: "127.0.0.1", MEGABYTE_LOCAL_PROXY_PORT: String(port),
-      MEGABYTE_CACHE_ROOT: cache, MEGABYTE_NEXUS_URL: nexus, MEGABYTE_LOCAL_PROXY_META_TTL: "1" },
+      MEGABYTE_CACHE_ROOT: cache, MEGABYTE_NEXUS_URL: nexus, MEGABYTE_LOCAL_PROXY_META_TTL: "1", MEGABYTE_LOCAL_PROXY_SOURCE_SHA256: "0".repeat(64) },
     stdio: "inherit",
   });
   const exited = once(child, "exit");
@@ -80,6 +82,21 @@ test("an npm cache survives a Nexus outage and still serves cold public artifact
     if (attempt === 49) assert.fail("Local proxy startup timed out");
     await setTimeout(100);
   }
+  const startupDigest = createHash("sha256").update(source).digest("hex");
+  const replacementPath = join(cache, "replacement.ts");
+  const replacement = Buffer.concat([source, Buffer.from("\n// Isolated replacement fixture\n")]);
+  const replacementDigest = createHash("sha256").update(replacement).digest("hex");
+  const readHealthIdentity = async () => {
+    const response = await fetch(proxy + "/healthz", { signal: AbortSignal.timeout(5_000) });
+    assert.equal(response.status, 200);
+    return (await response.json()).source_sha256;
+  };
+  assert.equal(await readHealthIdentity(), startupDigest);
+  assert.notEqual(replacementDigest, startupDigest);
+  writeFileSync(replacementPath, replacement);
+  renameSync(replacementPath, script);
+  assert.equal(createHash("sha256").update(readFileSync(script)).digest("hex"), replacementDigest);
+  assert.equal(await readHealthIdentity(), startupDigest);
   const read = async (path, expectedCache) => {
     const response = await fetch(proxy + path, { signal: AbortSignal.timeout(5_000) });
     assert.equal(response.status, 200);

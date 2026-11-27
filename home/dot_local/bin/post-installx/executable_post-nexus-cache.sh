@@ -244,6 +244,9 @@ function resolveConfiguration(): ProxyConfiguration {
   };
 }
 
+// Capture the startup source once so a later file replacement cannot update
+// the identity of a listener that still runs the previous source.
+const SOURCE_SHA256 = createHash("sha256").update(readFileSync(new URL(import.meta.url))).digest("hex");
 const CONFIG = resolveConfiguration();
 const START_TIME_SECONDS = Date.now() / 1000;
 
@@ -606,6 +609,7 @@ async function handleProxyRequest(req: IncomingMessage, res: ServerResponse): Pr
       JSON.stringify({
         status: "ok",
         runtime: "node-typescript",
+        source_sha256: SOURCE_SHA256,
         local_proxy: CONFIG.localBaseUrl,
         nexus_upstream: CONFIG.nexusBaseUrl,
         cache_root: CONFIG.cacheRootDir,

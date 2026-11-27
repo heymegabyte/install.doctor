@@ -1,7 +1,7 @@
 ## Tasks
 
 - [x] Record the deployed source drift and reproduce its outage behavior in an isolated fixture.
-- [ ] Define and generate a release identity shared by the standalone proxy and generated provisioning hook.
+- [x] Report a startup source digest with both the standalone proxy and generated provisioning hook.
 - [x] Extend the workstation doctor to compare selected, installed, and running identities.
 - [ ] Implement targeted local reconciliation and rollback using the existing service managers.
 - [ ] Verify clean, drifted, needs-restart, rollback, and outage cases with isolated fixtures before rollout.
@@ -15,4 +15,4 @@
 - The complete canonical source also adds local CAS operations and a vulnerable-package denylist. Any approval of a guard-only local rollout must bind its exact digest and preserve this distinction in the deployment receipt.
 - The current workstation's one-file chezmoi source lookup reported inconsistent source state. The documented bootstrap hook also rewrites package-manager configuration, so a focused reconciliation needs its own exact staged-artifact path. The fixture command is `node --test scripts/test-local-proxy-outage.mjs` in an isolated source tree.
 
-- The workstation doctor obtains the configured source directory from `chezmoi source-path` and hashes the selected standalone file and installed bytes separately. It accepts a valid running digest when a healthy proxy supplies it. Missing evidence and digest mismatches appear as an independent warning and fail `--strict`. The running digest producer remains pending.
+- The workstation doctor obtains the configured source directory from `chezmoi source-path` and hashes the selected standalone file and installed bytes separately. It accepts a valid running digest when a healthy proxy supplies it. Missing evidence and digest mismatches appear as an independent warning and fail `--strict`. The proxy now reports its startup source digest. An isolated atomic replacement fixture verifies the listener retains its previous digest while continuing to serve outage traffic.
