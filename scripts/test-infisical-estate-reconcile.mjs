@@ -186,6 +186,20 @@ assert.deepEqual(selectConfigurationSecrets(
 assert.deepEqual(selectConfigurationSecrets(
   lobTestManifest, lobTestManifest.workloads['mcp.megabyte.space'], lobTestNames,
 ), []);
+const weatherManifest = validateManifest({
+  ...manifest,
+  profiles: { ...manifest.profiles, developer: [...manifest.profiles.developer, 'workstation-weather'] },
+  reservedNames: [...manifest.reservedNames, 'OPENWEATHERMAP_API_KEY'],
+  exactCapabilityNames: {
+    ...manifest.exactCapabilityNames, 'workstation-weather': ['OPENWEATHERMAP_API_KEY'],
+  },
+});
+assert.deepEqual(selectHostSecrets(
+  weatherManifest, 'macos.megabyte.space', ['OPENWEATHERMAP_API_KEY'],
+), ['OPENWEATHERMAP_API_KEY']);
+assert.deepEqual(selectConfigurationSecrets(
+  weatherManifest, weatherManifest.workloads['mcp.megabyte.space'], ['OPENWEATHERMAP_API_KEY'],
+), []);
 const accessSshNames = [
   'CF_ACCESS_SSH_COOLIFY_CLIENT_ID', 'CF_ACCESS_SSH_COOLIFY_CLIENT_SECRET',
   'CF_ACCESS_SSH_UBUNTU_CLIENT_ID', 'CF_ACCESS_SSH_UBUNTU_CLIENT_SECRET',
