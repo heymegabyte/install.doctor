@@ -47,6 +47,7 @@ const RequestAuthorityDelegation = z.strictObject({
   releaseRootSignature: z.string().min(1).max(16_384),
 });
 
+/** @param {readonly string[]} values @param {string} label */
 function sortedUnique(values, label) {
   const sorted = [...values].sort();
   if (new Set(values).size !== values.length || values.some((value, index) => value !== sorted[index])) {
@@ -54,9 +55,12 @@ function sortedUnique(values, label) {
   }
 }
 
+/** @param {unknown} value */
 export const canonicalRequestBytes = value => Buffer.from(`${JSON.stringify(value)}\n`, 'utf8');
+/** @param {unknown} value */
 export const requestDigest = value => createHash('sha256').update(canonicalRequestBytes(value)).digest('hex');
 
+/** @param {unknown} left @param {unknown} right */
 function same(left, right) {
   const a = canonicalRequestBytes(left); const b = canonicalRequestBytes(right);
   return a.length === b.length && timingSafeEqual(a, b);
@@ -67,6 +71,18 @@ function same(left, right) {
  * reconstruction has reproduced every semantic field. Signing is injected by
  * the protected request-authority; release-root material is intentionally not
  * accepted by this function.
+ * @param {{
+ *   discovered: unknown,
+ *   reconstructed: unknown,
+ *   producer: unknown,
+ *   requestAuthorityDelegation: unknown,
+ *   createdAt: unknown,
+ *   expiresAt: unknown,
+ *   requesterClaimDigest: unknown,
+ *   bundle?: Uint8Array,
+ *   nonce: unknown,
+ *   signRequestAuthority: (bytes: Buffer, delegation: z.output<typeof RequestAuthorityDelegation>) => string | Promise<string>,
+ * }} input
  */
 export async function reconstructOfflineBundleRequest(input) {
   const discovered = SemanticClosure.parse(input.discovered);

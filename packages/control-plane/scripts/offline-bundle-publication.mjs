@@ -2,7 +2,9 @@ import { createHash } from 'node:crypto';
 import { posix } from 'node:path';
 import { z } from 'zod';
 
+/** @param {Uint8Array} bytes */
 const digest = bytes => createHash('sha256').update(bytes).digest('hex');
+/** @param {unknown} value */
 const canonical = value => Buffer.from(`${JSON.stringify(value)}\n`, 'utf8');
 const hex = z.string().regex(/^[a-f0-9]{64}$/);
 const id = z.string().regex(/^[a-z0-9][a-z0-9._-]{0,127}$/);
@@ -59,12 +61,21 @@ const RequestAuthorityDelegation = z.strictObject({
   releaseRootSignature: z.string().min(1).max(16_384),
 });
 
+/** @param {readonly string[]} values @param {string} label */
 function exactUnique(values, label) {
   if (new Set(values).size !== values.length || [...values].sort().some((value, index) => value !== values[index])) {
     throw new Error(`${label} must be unique and canonically sorted`);
   }
 }
 
+/** @typedef {Pick<ReturnType<typeof import('./r2-publication-storage.mjs').createR2PublicationStorage>, 'create' | 'read'>} PrivateStorage */
+/**
+ * @param {PrivateStorage} storage
+ * @param {string} key
+ * @param {Uint8Array} bytes
+ * @param {Parameters<PrivateStorage['create']>[2]} metadata
+ * @param {string} collisionMessage
+ */
 async function createOrMatch(storage, key, bytes, metadata, collisionMessage) {
   if (await storage.create(key, bytes, metadata)) return 'created';
   const existing = await storage.read(key);
@@ -76,6 +87,15 @@ async function createOrMatch(storage, key, bytes, metadata, collisionMessage) {
  * Publish a host-bound bundle inside the dedicated authority. The caller injects
  * the release-root delegation verifier and the protected Ed25519 signing
  * process; neither secret is accepted as serializable configuration.
+ * @param {{
+ *   request: unknown, delegation: unknown, manifest: unknown, claims: unknown,
+ *   now: unknown, authorityVersion: unknown, requestAuthority: unknown,
+ *   requestAuthorityDelegation: unknown, bundle?: Uint8Array, storage: PrivateStorage,
+ *   sign: (namespace: string, bytes: Buffer) => string | Promise<string>,
+ *   verifyDelegation: (input: { delegation: z.output<typeof Delegation>, bytes: Buffer }) => boolean | Promise<boolean>,
+ *   verifyRequestAuthorityDelegation: (input: { delegation: z.output<typeof RequestAuthorityDelegation> }) => boolean | Promise<boolean>,
+ *   verifyRequestAuthority: (input: { authority: z.output<typeof RequestAuthority>, delegation: z.output<typeof RequestAuthorityDelegation> }) => boolean | Promise<boolean>,
+ * }} input
  */
 export async function publishOfflineBundle(input) {
   const request = Request.parse(input.request);

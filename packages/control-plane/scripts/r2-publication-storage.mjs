@@ -1,15 +1,25 @@
 import { GetObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
 
-function isPreconditionFailure(error) {
-  return error && typeof error === 'object' && ('$metadata' in error)
-    && error.$metadata?.httpStatusCode === 412;
+/** @typedef {{ contentType: string, sha256: string, visibility?: 'private' }} ObjectMetadata */
+
+/** @param {unknown} error @param {number} status */
+function hasHttpStatus(error, status) {
+  if (!error || typeof error !== 'object' || !('$metadata' in error)) return false;
+  const metadata = error.$metadata;
+  return metadata !== null && typeof metadata === 'object'
+    && 'httpStatusCode' in metadata && metadata.httpStatusCode === status;
 }
 
+/** @param {import('@aws-sdk/client-s3').GetObjectCommandOutput['Body']} body */
 async function bodyBytes(body) {
   if (!body || typeof body.transformToByteArray !== 'function') throw new Error('R2 returned an unreadable object body');
   return Buffer.from(await body.transformToByteArray());
 }
 
+/**
+ * @param {{ endpoint: string, bucket: string, accessKeyId: string, secretAccessKey: string }} options
+ * @param {Pick<S3Client, 'send'>} [injectedClient]
+ */
 export function createR2PublicationStorage({ endpoint, bucket, accessKeyId, secretAccessKey }, injectedClient) {
   const url = new URL(endpoint);
   if (url.protocol !== 'https:' || !/^[a-z0-9-]+\.r2\.cloudflarestorage\.com$/.test(url.hostname) || url.pathname !== '/') {
@@ -21,6 +31,7 @@ export function createR2PublicationStorage({ endpoint, bucket, accessKeyId, secr
   }
   const client = injectedClient ?? new S3Client({ region: 'auto', endpoint: url.origin, credentials: { accessKeyId, secretAccessKey } });
   return {
+    /** @param {string} key @param {Uint8Array} bytes @param {ObjectMetadata} metadata */
     async create(key, bytes, metadata) {
       try {
         await client.send(new PutObjectCommand({
@@ -30,19 +41,21 @@ export function createR2PublicationStorage({ endpoint, bucket, accessKeyId, secr
         }));
         return true;
       } catch (error) {
-        if (isPreconditionFailure(error)) return false;
+        if (hasHttpStatus(error, 412)) return false;
         throw error;
       }
     },
+    /** @param {string} key */
     async read(key) {
       try {
         const response = await client.send(new GetObjectCommand({ Bucket: bucket, Key: key }));
         return { bytes: await bodyBytes(response.Body), etag: response.ETag ?? '' };
       } catch (error) {
-        if (error && typeof error === 'object' && ('$metadata' in error) && error.$metadata?.httpStatusCode === 404) return null;
+        if (hasHttpStatus(error, 404)) return null;
         throw error;
       }
     },
+    /** @param {string} key @param {Uint8Array} bytes @param {string} [expectedEtag] */
     async compareAndSwap(key, bytes, expectedEtag) {
       try {
         const response = await client.send(new PutObjectCommand({
@@ -52,7 +65,7 @@ export function createR2PublicationStorage({ endpoint, bucket, accessKeyId, secr
         }));
         return { ok: true, etag: response.ETag ?? '' };
       } catch (error) {
-        if (isPreconditionFailure(error)) return { ok: false };
+        if (hasHttpStatus(error, 412)) return { ok: false };
         throw error;
       }
     },

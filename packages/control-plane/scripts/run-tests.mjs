@@ -11,6 +11,7 @@ const files = (await readdir(join(root, 'test')))
   .sort()
   .map(name => join('test', name));
 
+/** @param {string[]} argumentsInput */
 function run(argumentsInput) {
   const result = spawnSync(process.execPath, argumentsInput, {
     cwd: root,
