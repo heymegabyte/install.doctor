@@ -123,6 +123,21 @@ for (const host of ['ubuntu.megabyte.space', 'zen.megabyte.space', 'legion.megab
 for (const workload of Object.keys(manifest.workloads)) {
   assert.deepEqual(selectConfigurationSecrets(manifest, manifest.workloads[workload], matrixSecrets), []);
 }
+assert.deepEqual(
+  selectConfigurationSecrets(
+    manifest,
+    manifest.workloads['google-maps-credential-archive'],
+    ['GOOGLE_MAPS_API_KEY'],
+  ),
+  ['GOOGLE_MAPS_API_KEY'],
+);
+for (const [workload, configuration] of Object.entries(manifest.workloads)) {
+  if (workload === 'google-maps-credential-archive') continue;
+  assert.deepEqual(selectConfigurationSecrets(manifest, configuration, ['GOOGLE_MAPS_API_KEY']), []);
+}
+for (const host of Object.keys(manifest.hosts)) {
+  assert.deepEqual(selectHostSecrets(manifest, host, ['GOOGLE_MAPS_API_KEY']), []);
+}
 assert.deepEqual(selectConfigurationSecrets(
   manifest, manifest.workloads['crawl.cheap'], ['EXA_API_KEY', 'SENTRY_DSN', 'ANTHROPIC_API_KEY'],
 ), ['EXA_API_KEY', 'SENTRY_DSN']);
