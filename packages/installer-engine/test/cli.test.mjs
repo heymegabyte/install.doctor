@@ -9,6 +9,17 @@ import test from 'node:test';
 import { applyConfigurationTransaction, createInstallerEngine, createJournalStore } from '../dist/index.js';
 
 const execute = promisify(execFile);
+
+/** @param {(error: { code: number, stdout: string, stderr: string }) => boolean} predicate */
+function checkCliFailure(predicate) {
+  return (/** @type {unknown} */ error) => {
+    assert.ok(error instanceof Error && 'code' in error && typeof error.code === 'number');
+    assert.ok('stdout' in error && typeof error.stdout === 'string');
+    assert.ok('stderr' in error && typeof error.stderr === 'string');
+    return predicate({ code: error.code, stdout: error.stdout, stderr: error.stderr });
+  };
+}
+/** @param {string} character */
 const digest = character => character.repeat(64);
 
 test('real headless CLI uses strict argv operations and emits canonical NDJSON', async () => {
@@ -23,6 +34,13 @@ test('real headless CLI uses strict argv operations and emits canonical NDJSON',
   };
   const nodeCheck = `const fs=require('node:fs');process.exit(fs.existsSync(${JSON.stringify(marker)})?0:10)`;
   const nodeApply = `require('node:fs').appendFileSync(${JSON.stringify(marker)},'x');console.log('fixture-output');console.error('token=supersecretvalue')`;
+  /** @typedef {{ argv: string[], verifiedExecutable?: { argvIndex: number, sha256: string } }} ArgvOperation */
+  /** @type {Record<'fixture-check' | 'fixture-apply' | 'fixture-verify', ArgvOperation>} */
+  const operations = {
+    'fixture-check': { argv: [process.execPath, '-e', nodeCheck] },
+    'fixture-apply': { argv: [process.execPath, '-e', nodeApply] },
+    'fixture-verify': { argv: [process.execPath, '-e', nodeCheck] },
+  };
   const invocation = {
     schemaVersion: 1,
     command: 'run',
@@ -41,17 +59,13 @@ test('real headless CLI uses strict argv operations and emits canonical NDJSON',
     },
     desiredState: { schemaVersion: 1, revision: 'revision-1', hostId: 'cli-host', packages: [], services: [], consents: ['telemetry'], offline: false },
     plan: { tasks: [task], selectedTaskIds: [task.id] },
-    operations: {
-      'fixture-check': { argv: [process.execPath, '-e', nodeCheck] },
-      'fixture-apply': { argv: [process.execPath, '-e', nodeApply] },
-      'fixture-verify': { argv: [process.execPath, '-e', nodeCheck] },
-    },
+    operations,
   };
   const cli = new URL('../dist/cli.js', import.meta.url).pathname;
   const { renderer: _renderer, stateRoot: _stateRoot, approvedPlanDigest: _approval, telemetry: _telemetry, ...planInvocation } = invocation;
   await writeFile(invocationPath, `${JSON.stringify({ ...planInvocation, command: 'plan' })}\n`, { mode: 0o600 });
   const planned = await execute(process.execPath, [cli, '--input', invocationPath], {
-    env: { PATH: process.env.PATH ?? '' }, input: '', timeout: 10_000, maxBuffer: 1_000_000,
+    env: { PATH: process.env.PATH ?? '' }, timeout: 10_000, maxBuffer: 1_000_000,
   });
   const executableSha256 = createHash('sha256').update(await readFile(process.execPath)).digest('hex');
   const verifiedPlanInvocation = structuredClone({ ...planInvocation, command: 'plan' });
@@ -60,12 +74,12 @@ test('real headless CLI uses strict argv operations and emits canonical NDJSON',
   }
   await writeFile(invocationPath, `${JSON.stringify(verifiedPlanInvocation)}\n`, { mode: 0o600 });
   const verifiedPlan = await execute(process.execPath, [cli, '--input', invocationPath], {
-    env: { PATH: process.env.PATH ?? '' }, input: '', timeout: 10_000, maxBuffer: 1_000_000,
+    env: { PATH: process.env.PATH ?? '' }, timeout: 10_000, maxBuffer: 1_000_000,
   });
   for (const operation of Object.values(verifiedPlanInvocation.operations)) operation.argv[0] = '/a/different/private/stage/node';
   await writeFile(invocationPath, `${JSON.stringify(verifiedPlanInvocation)}\n`, { mode: 0o600 });
   const relocatedPlan = await execute(process.execPath, [cli, '--input', invocationPath], {
-    env: { PATH: process.env.PATH ?? '' }, input: '', timeout: 10_000, maxBuffer: 1_000_000,
+    env: { PATH: process.env.PATH ?? '' }, timeout: 10_000, maxBuffer: 1_000_000,
   });
   assert.equal(JSON.parse(relocatedPlan.stdout).digest, JSON.parse(verifiedPlan.stdout).digest,
     'approval identity must bind verified bytes rather than a private staging path');
@@ -79,8 +93,8 @@ test('real headless CLI uses strict argv operations and emits canonical NDJSON',
   };
   await writeFile(invocationPath, `${JSON.stringify(digestMismatchInvocation)}\n`, { mode: 0o600 });
   await assert.rejects(execute(process.execPath, [cli, '--input', invocationPath], {
-    env: { PATH: process.env.PATH ?? '' }, input: '', timeout: 10_000, maxBuffer: 1_000_000,
-  }), error => error.code === 7 && error.stdout.includes('"status":"failed"'));
+    env: { PATH: process.env.PATH ?? '' }, timeout: 10_000, maxBuffer: 1_000_000,
+  }), checkCliFailure(error => error.code === 7 && error.stdout.includes('"status":"failed"')));
   invocation.approvedPlanDigest = JSON.parse(planned.stdout).digest;
   const tamperedInvocation = structuredClone(invocation);
   tamperedInvocation.runId = 'cli-run-tampered-operation';
@@ -88,16 +102,16 @@ test('real headless CLI uses strict argv operations and emits canonical NDJSON',
   await writeFile(invocationPath, `${JSON.stringify(tamperedInvocation)}\n`, { mode: 0o600 });
   await assert.rejects(
     execute(process.execPath, [cli, '--input', invocationPath], {
-      env: { PATH: process.env.PATH ?? '' }, input: '', timeout: 10_000, maxBuffer: 1_000_000,
+      env: { PATH: process.env.PATH ?? '' }, timeout: 10_000, maxBuffer: 1_000_000,
     }),
-    error => error.code === 3
+    checkCliFailure(error => error.code === 3
       && error.stderr === ''
-      && error.stdout.trim().split('\n').map(line => JSON.parse(line)).at(-1)?.status === 'rejected',
+      && error.stdout.trim().split('\n').map(line => JSON.parse(line)).at(-1)?.status === 'rejected'),
   );
   await assert.rejects(readFile(marker, 'utf8'), { code: 'ENOENT' }, 'changed operation argv must not execute under an earlier approval');
   await writeFile(invocationPath, `${JSON.stringify(invocation)}\n`, { mode: 0o600 });
   const { stdout, stderr } = await execute(process.execPath, [cli, '--input', invocationPath], {
-    env: { PATH: process.env.PATH ?? '' }, input: '', timeout: 10_000, maxBuffer: 1_000_000,
+    env: { PATH: process.env.PATH ?? '' }, timeout: 10_000, maxBuffer: 1_000_000,
   });
   assert.equal(stderr, '');
   const events = stdout.trim().split('\n').map(line => JSON.parse(line));
@@ -110,6 +124,7 @@ test('real headless CLI uses strict argv operations and emits canonical NDJSON',
   assert.equal(stdout.includes('supersecretvalue'), false);
   assert.equal(await readFile(marker, 'utf8'), 'x');
   const [committedPlanDigest] = await readdir(join(invocation.stateRoot, 'runs'));
+  assert.ok(committedPlanDigest);
   assert.match(committedPlanDigest, /^[a-f0-9]{64}$/);
   const evidenceInvocationPath = join(directory, 'evidence.json');
   await writeFile(evidenceInvocationPath, `${JSON.stringify({
@@ -117,7 +132,7 @@ test('real headless CLI uses strict argv operations and emits canonical NDJSON',
     planDigest: committedPlanDigest, stateRoot: invocation.stateRoot,
   })}\n`, { mode: 0o600 });
   const evidenceResult = await execute(process.execPath, [cli, '--input', evidenceInvocationPath], {
-    env: { PATH: process.env.PATH ?? '' }, input: '', timeout: 10_000, maxBuffer: 1_000_000,
+    env: { PATH: process.env.PATH ?? '' }, timeout: 10_000, maxBuffer: 1_000_000,
   });
   const inspection = JSON.parse(evidenceResult.stdout);
   assert.equal(inspection.authority, 'committed');
@@ -126,7 +141,7 @@ test('real headless CLI uses strict argv operations and emits canonical NDJSON',
   invocation.runId = 'cli-run-2';
   await writeFile(invocationPath, `${JSON.stringify(invocation)}\n`, { mode: 0o600 });
   const second = await execute(process.execPath, [cli, '--input', invocationPath], {
-    env: { PATH: process.env.PATH ?? '' }, input: '', timeout: 10_000, maxBuffer: 1_000_000,
+    env: { PATH: process.env.PATH ?? '' }, timeout: 10_000, maxBuffer: 1_000_000,
   });
   assert.equal(second.stderr, '');
   assert.equal(await readFile(marker, 'utf8'), 'x', 'unchanged CLI reapply must not duplicate mutation');
@@ -151,8 +166,8 @@ test('CLI rejects unknown fields before spawning an operation', async () => {
   const cli = new URL('../dist/cli.js', import.meta.url).pathname;
   await assert.rejects(
     execute(process.execPath, [cli, '--input', invocationPath], { env: { PATH: process.env.PATH ?? '' }, timeout: 5_000 }),
-    error => error.code === 2 && /^invalid invocation \[unknown\/parse\]:/i.test(error.stderr)
-      && error.stderr.trimEnd().split('\n').length === 1,
+    checkCliFailure(error => error.code === 2 && /^invalid invocation \[unknown\/parse\]:/i.test(error.stderr)
+      && error.stderr.trimEnd().split('\n').length === 1),
   );
 });
 
@@ -161,6 +176,7 @@ test('CLI enforces the exact plan-bound execution concurrency policy', async () 
   const invocationPath = join(directory, 'invocation.json');
   const lock = join(directory, 'exclusive-apply');
   const completed = join(directory, 'completed');
+  /** @param {string} id */
   const task = id => ({
     schemaVersion: 1, id, inputDigest: createHash('sha256').update(id).digest('hex'), dependencies: [], predicate: 'supported',
     operations: { check: `${id}-check`, apply: `${id}-apply`, verify: `${id}-verify` }, timeoutMs: 5_000,
@@ -168,6 +184,7 @@ test('CLI enforces the exact plan-bound execution concurrency policy', async () 
     privilege: 'user', network: 'none', consent: 'none', lockDomains: [], cleanup: 'none', compensation: 'none',
   });
   const tasks = [task('policy.first'), task('policy.second')];
+  /** @type {Record<string, { argv: string[] }>} */
   const operations = {};
   for (const item of tasks) {
     const check = `const fs=require('node:fs');const value=fs.existsSync(${JSON.stringify(completed)})?fs.readFileSync(${JSON.stringify(completed)},'utf8'):'';process.exit(value.includes(${JSON.stringify(item.id)})?0:10)`;
@@ -213,6 +230,7 @@ test('native managed-file operation records durable compensation and rolls back 
     privilege: 'user', network: 'none', consent: 'none', lockDomains: ['installer-configuration'], cleanup: 'none',
     compensation: 'configuration', failurePolicy: 'abort-run',
   };
+  /** @param {'check' | 'apply' | 'verify'} action */
   const managedFile = action => ({
     kind: 'managed-file', action, targetPath: target, candidateBase64: candidate.toString('base64'), candidateMode: 0o600,
   });
@@ -229,6 +247,7 @@ test('native managed-file operation records durable compensation and rolls back 
     },
   };
   const cli = new URL('../dist/cli.js', import.meta.url).pathname;
+  /** @param {unknown} invocation */
   const runCli = async invocation => {
     await writeFile(invocationPath, `${JSON.stringify(invocation)}\n`, { mode: 0o600 });
     return execute(process.execPath, [cli, '--input', invocationPath], {
@@ -237,10 +256,10 @@ test('native managed-file operation records durable compensation and rolls back 
   };
   const unsafeMode = structuredClone({ ...common, command: 'plan', runId: 'managed-file-unsafe-mode' });
   for (const operation of Object.values(unsafeMode.operations)) operation.candidateMode = 0o622;
-  await assert.rejects(runCli(unsafeMode), error => error.code === 2 && /owner-readable and not group\/world-writable/.test(error.stderr));
+  await assert.rejects(runCli(unsafeMode), checkCliFailure(error => error.code === 2 && /owner-readable and not group\/world-writable/.test(error.stderr)));
   const phaseMismatch = structuredClone({ ...common, command: 'plan', runId: 'managed-file-phase-mismatch' });
   phaseMismatch.operations['policy-check'].action = 'apply';
-  await assert.rejects(runCli(phaseMismatch), error => error.code === 2 && /managed file operation phase mismatch/.test(error.stderr));
+  await assert.rejects(runCli(phaseMismatch), checkCliFailure(error => error.code === 2 && /managed file operation phase mismatch/.test(error.stderr)));
   assert.equal(await readFile(target, 'utf8'), '{"schemaVersion":1,"releaseId":"old"}\n');
   const planned = JSON.parse((await runCli({ ...common, command: 'plan', runId: 'managed-file-plan' })).stdout);
   const sourceRunId = 'managed-file-install';
@@ -272,7 +291,7 @@ test('native managed-file operation records durable compensation and rolls back 
 
   await assert.rejects(runCli({
     ...source, command: 'rollback-config-execute', rollbackRunId: 'stale-source-new-rollback', approvedPlanDigest: rollbackPlan.digest,
-  }), error => error.code === 3 && /rollback source.*already bound|already consumed/i.test(error.stderr));
+  }), checkCliFailure(error => error.code === 3 && /rollback source.*already bound|already consumed/i.test(error.stderr)));
   assert.equal(await readFile(target, 'utf8'), candidate.toString('utf8'), 'stale rollback authority must not mutate a newer installation');
 
   const replacementSource = { schemaVersion: 1, stateRoot, sourceRunId: replacementRunId, sourcePlanDigest: planned.digest };
@@ -304,6 +323,7 @@ test('managed cask launcher is reversible and an unchanged rerun preserves inode
     privilege: 'user', network: 'none', consent: 'none', lockDomains: ['installer-configuration'], cleanup: 'none',
     compensation: 'configuration', failurePolicy: 'abort-run',
   };
+  /** @param {'check' | 'apply' | 'verify'} action */
   const operation = action => ({
     kind: 'managed-cask-launcher', action, packageKey: 'fixture-app', appBundle: 'Fixture App.app',
     appPaths: [appPath, '/Applications/Fixture App.app'], targetPath: target, candidateMode: 0o700,
@@ -318,6 +338,7 @@ test('managed cask launcher is reversible and an unchanged rerun preserves inode
     operations: { 'cask-check': operation('check'), 'cask-apply': operation('apply'), 'cask-verify': operation('verify') },
   };
   const cli = new URL('../dist/cli.js', import.meta.url).pathname;
+  /** @param {unknown} input */
   const invoke = async input => {
     await writeFile(invocationPath, `${JSON.stringify(input)}\n`, { mode: 0o600 });
     return execute(process.execPath, [cli, '--input', invocationPath], { env: { PATH: process.env.PATH ?? '' }, timeout: 10_000 });
@@ -345,7 +366,7 @@ test('managed cask launcher is reversible and an unchanged rerun preserves inode
   const rollback = JSON.parse((await invoke({ ...source, command: 'rollback-config-execute', rollbackRunId: 'cask-rollback',
     approvedPlanDigest: rollbackPlan.digest })).stdout);
   assert.equal(rollback.receipt.completed, true);
-  await assert.rejects(lstat(target), error => error.code === 'ENOENT');
+  await assert.rejects(lstat(target), error => error instanceof Error && 'code' in error && error.code === 'ENOENT');
 
   await writeFile(target, '#!/bin/sh\necho user-owned\n', { mode: 0o700 });
   await assert.rejects(invoke({ ...common, command: 'run', runId: 'cask-conflict',
@@ -378,6 +399,7 @@ test('managed Flatpak launcher verifies the installed app, is reversible, and pr
     privilege: 'user', network: 'none', consent: 'none', lockDomains: ['installer-configuration'], cleanup: 'none',
     compensation: 'configuration', failurePolicy: 'abort-run',
   };
+  /** @param {'check' | 'apply' | 'verify'} action */
   const operation = action => ({
     kind: 'managed-flatpak-launcher', action, packageKey: 'fixture-app', appId: 'org.example.Fixture',
     flatpakPath, flatpakSha256, homeDirectory: directory, targetPath: target, candidateMode: 0o700,
@@ -392,6 +414,7 @@ test('managed Flatpak launcher verifies the installed app, is reversible, and pr
     operations: { 'flatpak-check': operation('check'), 'flatpak-apply': operation('apply'), 'flatpak-verify': operation('verify') },
   };
   const cli = new URL('../dist/cli.js', import.meta.url).pathname;
+  /** @param {unknown} input */
   const invoke = async input => {
     await writeFile(invocationPath, `${JSON.stringify(input)}\n`, { mode: 0o600 });
     return execute(process.execPath, [cli, '--input', invocationPath], { env: { PATH: process.env.PATH ?? '' }, timeout: 10_000 });
@@ -417,7 +440,7 @@ test('managed Flatpak launcher verifies the installed app, is reversible, and pr
   const rollback = JSON.parse((await invoke({ ...source, command: 'rollback-config-execute', rollbackRunId: 'flatpak-rollback',
     approvedPlanDigest: rollbackPlan.digest })).stdout);
   assert.equal(rollback.receipt.completed, true);
-  await assert.rejects(lstat(target), error => error.code === 'ENOENT');
+  await assert.rejects(lstat(target), error => error instanceof Error && 'code' in error && error.code === 'ENOENT');
 
   await writeFile(target, '#!/bin/sh\necho user-owned\n', { mode: 0o700 });
   await assert.rejects(invoke({ ...common, command: 'run', runId: 'flatpak-conflict',
@@ -439,6 +462,7 @@ test('native managed-directory operation records durable authority and rolls bac
     privilege: 'user', network: 'none', consent: 'none', lockDomains: ['installer-configuration'], cleanup: 'none',
     compensation: 'configuration', failurePolicy: 'abort-run',
   };
+  /** @param {'check' | 'apply' | 'verify'} action */
   const operation = action => ({ kind: 'managed-directory', action, targetPath: target, candidateMode: 0o700 });
   const common = {
     schemaVersion: 1, releaseId: 'release-directory',
@@ -448,6 +472,7 @@ test('native managed-directory operation records durable authority and rolls bac
     operations: { 'directory-check': operation('check'), 'directory-apply': operation('apply'), 'directory-verify': operation('verify') },
   };
   const cli = new URL('../dist/cli.js', import.meta.url).pathname;
+  /** @param {unknown} invocation */
   const runCli = async invocation => {
     await writeFile(invocationPath, `${JSON.stringify(invocation)}\n`, { mode: 0o600 });
     return execute(process.execPath, [cli, '--input', invocationPath], { env: { PATH: process.env.PATH ?? '' }, timeout: 10_000, maxBuffer: 1_000_000 });
@@ -462,7 +487,7 @@ test('native managed-directory operation records durable authority and rolls bac
   const rollbackPlan = JSON.parse((await runCli({ ...source, command: 'rollback-config-plan' })).stdout);
   const rollback = JSON.parse((await runCli({ ...source, command: 'rollback-config-execute', rollbackRunId: 'directory-rollback', approvedPlanDigest: rollbackPlan.digest })).stdout);
   assert.equal(rollback.receipt.completed, true);
-  await assert.rejects(lstat(target), error => error.code === 'ENOENT');
+  await assert.rejects(lstat(target), error => error instanceof Error && 'code' in error && error.code === 'ENOENT');
 });
 
 test('verified artifact operation revalidates exact candidate bytes and activates with durable rollback evidence', async () => {
@@ -486,6 +511,7 @@ test('verified artifact operation revalidates exact candidate bytes and activate
     privilege: 'user', network: 'none', consent: 'none', lockDomains: ['installer-configuration'], cleanup: 'none',
     compensation: 'configuration', failurePolicy: 'abort-run',
   };
+  /** @param {'check' | 'apply' | 'verify'} action */
   const managedArtifact = (action, candidatePath = candidateOne) => ({
     kind: 'managed-artifact', action, candidatePath, candidateSha256, candidateSizeBytes: candidate.length,
     targetPath: target, candidateMode: 0o700,
@@ -504,6 +530,7 @@ test('verified artifact operation revalidates exact candidate bytes and activate
     },
   };
   const cli = new URL('../dist/cli.js', import.meta.url).pathname;
+  /** @param {unknown} invocation */
   const runCli = async invocation => {
     await writeFile(invocationPath, `${JSON.stringify(invocation)}\n`, { mode: 0o600 });
     return execute(process.execPath, [cli, '--input', invocationPath], {
@@ -513,15 +540,15 @@ test('verified artifact operation revalidates exact candidate bytes and activate
 
   const unsafeMode = structuredClone({ ...common, command: 'plan', runId: 'artifact-unsafe-mode' });
   for (const operation of Object.values(unsafeMode.operations)) operation.candidateMode = 0o500;
-  await assert.rejects(runCli(unsafeMode), error => error.code === 2);
+  await assert.rejects(runCli(unsafeMode), checkCliFailure(error => error.code === 2));
 
   const selfReplacing = structuredClone({ ...common, command: 'plan', runId: 'artifact-self-replacing' });
   for (const operation of Object.values(selfReplacing.operations)) operation.targetPath = operation.candidatePath;
-  await assert.rejects(runCli(selfReplacing), error => error.code === 2 && /candidate and target must be distinct paths/i.test(error.stderr));
+  await assert.rejects(runCli(selfReplacing), checkCliFailure(error => error.code === 2 && /candidate and target must be distinct paths/i.test(error.stderr)));
 
   const windows = structuredClone({ ...common, command: 'plan', runId: 'artifact-windows' });
   windows.facts.os = 'win32';
-  await assert.rejects(runCli(windows), error => error.code === 2 && /managed artifact activation is unsupported on win32/i.test(error.stderr));
+  await assert.rejects(runCli(windows), checkCliFailure(error => error.code === 2 && /managed artifact activation is unsupported on win32/i.test(error.stderr)));
 
   const planned = JSON.parse((await runCli({ ...common, command: 'plan', runId: 'artifact-plan-one' })).stdout);
   const relocated = structuredClone(common);
@@ -532,7 +559,7 @@ test('verified artifact operation revalidates exact candidate bytes and activate
   await writeFile(candidateOne, Buffer.alloc(candidate.length, 0x78), { mode: 0o600 });
   await assert.rejects(runCli({
     ...common, command: 'run', runId: 'artifact-poisoned', approvedPlanDigest: planned.digest, renderer: 'json', stateRoot,
-  }), error => error.code === 7 || error.code === 8);
+  }), checkCliFailure(error => error.code === 7 || error.code === 8));
   assert.equal(await readFile(target, 'utf8'), previous.toString('utf8'), 'candidate revalidation must precede target mutation');
 
   const installed = await runCli({
@@ -576,12 +603,15 @@ test('rollback-config CLI derives an identity-only stable plan, resumes explicit
     privilege: 'user', network: 'none', consent: 'none', lockDomains: ['config.rollback-cli'], cleanup: 'none',
     compensation: 'configuration', failurePolicy: 'abort-run',
   };
+  /** @type {unknown} */
   let sourceApplyError;
+  /** @type {import('../dist/index.js').InstallerAdapter} */
   const adapter = {
     discover: async () => facts,
     plan: async () => ({ tasks: [rollbackTask], selectedTaskIds: [rollbackTask.id] }),
     check: async () => (await readFile(target, 'utf8')) === 'new\n' ? 'verified' : 'needed',
     apply: async (_task, context) => {
+      assert.ok(context);
       try { await applyConfigurationTransaction({
         spec: { schemaVersion: 1, taskId: rollbackTask.id, targetPath: target, effect: 'installer-configuration', dependencies: [] },
         candidateBytes: Buffer.from('new\n'),
@@ -601,11 +631,12 @@ test('rollback-config CLI derives an identity-only stable plan, resumes explicit
   const sourceResult = await engine.run({
     runId: sourceRunId, releaseId: sourcePlan.releaseId, desiredState, approvedPlanDigest: sourcePlan.digest,
   });
-  assert.equal(sourceResult.receipt.status, 'success', `${sourceApplyError?.stack ?? ''}\n${JSON.stringify(sourceResult)}`);
+  assert.equal(sourceResult.receipt.status, 'success', `${sourceApplyError instanceof Error ? sourceApplyError.stack ?? '' : ''}\n${JSON.stringify(sourceResult)}`);
   assert.equal(await readFile(target, 'utf8'), 'new\n');
 
   const cli = new URL('../dist/cli.js', import.meta.url).pathname;
   const invocationPath = join(directory, 'rollback.json');
+  /** @param {unknown} invocation */
   const runCli = async invocation => {
     await writeFile(invocationPath, `${JSON.stringify(invocation)}\n`, { mode: 0o600 });
     return execute(process.execPath, [cli, '--input', invocationPath], { env: { PATH: process.env.PATH ?? '' }, timeout: 10_000, maxBuffer: 1_000_000 });
@@ -620,27 +651,29 @@ test('rollback-config CLI derives an identity-only stable plan, resumes explicit
   };
   await assert.rejects(
     runCli({ ...executeInvocation, command: 'rollback-config-resume', rollbackRunId: 'rollback-cli-absent' }),
-    error => error.code === 3 && /precondition failed.*resume requires uncommitted evidence; found absent/.test(error.stderr),
+    checkCliFailure(error => error.code === 3 && /precondition failed.*resume requires uncommitted evidence; found absent/.test(error.stderr)),
   );
-  await assert.rejects(runCli({ ...executeInvocation, plan: rollbackPlan }), error => error.code === 2 && /unrecognized key/i.test(error.stderr));
-  await assert.rejects(runCli({ ...executeInvocation, compensations: [] }), error => error.code === 2 && /unrecognized key/i.test(error.stderr));
-  await assert.rejects(runCli({ ...executeInvocation, approvedPlanDigest: digest('0') }), error => error.code === 2 && /exact derived plan approval/i.test(error.stderr));
+  await assert.rejects(runCli({ ...executeInvocation, plan: rollbackPlan }), checkCliFailure(error => error.code === 2 && /unrecognized key/i.test(error.stderr)));
+  await assert.rejects(runCli({ ...executeInvocation, compensations: [] }), checkCliFailure(error => error.code === 2 && /unrecognized key/i.test(error.stderr)));
+  await assert.rejects(runCli({ ...executeInvocation, approvedPlanDigest: digest('0') }), checkCliFailure(error => error.code === 2 && /exact derived plan approval/i.test(error.stderr)));
   assert.equal(await readFile(target, 'utf8'), 'new\n', 'schema or approval rejection must precede restoration');
   await writeFile(target, 'user-edit\n', { mode: 0o600 });
   const editedBeforeRollback = { bytes: await readFile(target), metadata: await lstat(target) };
   await assert.rejects(
     runCli({ ...executeInvocation, rollbackRunId: 'rollback-cli-drift' }),
-    error => error.code === 3 && /precondition failed.*target changed after installation/.test(error.stderr),
+    checkCliFailure(error => error.code === 3 && /precondition failed.*target changed after installation/.test(error.stderr)),
   );
   assert.equal(await readFile(target, 'utf8'), 'user-edit\n', 'rollback must preserve post-install user edits');
+  /** @type {import('../dist/index.js').RollbackRunInspection | undefined} */
   let driftInspection;
   await assert.rejects(runCli({
     schemaVersion: 1, command: 'rollback-config-status', stateRoot,
     rollbackRunId: 'rollback-cli-drift', planDigest: rollbackPlan.digest,
-  }), error => {
+  }), checkCliFailure(error => {
     driftInspection = JSON.parse(error.stdout);
     return error.code === 1;
-  });
+  }));
+  assert.ok(driftInspection);
   assert.equal(driftInspection.authority, 'uncommitted');
   assert.equal(Object.hasOwn(driftInspection, 'receipt'), false);
   const driftEventRoot = join(stateRoot, 'rollback-runs', rollbackPlan.digest, 'rollback-cli-drift', 'events');
@@ -651,7 +684,7 @@ test('rollback-config CLI derives an identity-only stable plan, resumes explicit
     'a precondition refusal must not publish restoration or terminal-success evidence');
   await assert.rejects(
     runCli({ ...executeInvocation, command: 'rollback-config-resume', rollbackRunId: 'rollback-cli-drift' }),
-    error => error.code === 3 && /precondition failed.*target changed after installation/.test(error.stderr),
+    checkCliFailure(error => error.code === 3 && /precondition failed.*target changed after installation/.test(error.stderr)),
   );
   const editedAfterRetry = { bytes: await readFile(target), metadata: await lstat(target) };
   assert.deepEqual(editedAfterRetry.bytes, editedBeforeRollback.bytes);
@@ -666,18 +699,18 @@ test('rollback-config CLI derives an identity-only stable plan, resumes explicit
   assert.equal(await readFile(target, 'utf8'), 'old\n');
   await writeFile(target, 'new\n', { mode: 0o600 });
   await assert.rejects(runCli(executeInvocation),
-    error => error.code === 3 && /rollback source is already bound/.test(error.stderr));
+    checkCliFailure(error => error.code === 3 && /rollback source is already bound/.test(error.stderr)));
   assert.equal(await readFile(target, 'utf8'), 'new\n', 'a consumed rollback source must not authorize another run identity');
   const status = JSON.parse((await runCli({
     schemaVersion: 1, command: 'rollback-config-status', stateRoot,
     rollbackRunId: 'rollback-cli-drift', planDigest: rollbackPlan.digest,
   })).stdout);
   assert.equal(status.authority, 'committed');
-  await assert.rejects(runCli(executeInvocation), error => error.code === 3 && /execution requires absent evidence; found uncommitted/.test(error.stderr));
+  await assert.rejects(runCli(executeInvocation), checkCliFailure(error => error.code === 3 && /execution requires absent evidence; found uncommitted/.test(error.stderr)));
   assert.equal(await readFile(target, 'utf8'), 'new\n');
   const compensationRoot = join(stateRoot, 'runs', sourcePlan.digest, sourceRunId, 'compensations');
   await writeFile(join(compensationRoot, `${digest('9')}.json`), '{}\n', { mode: 0o600 });
-  await assert.rejects(runCli({ ...source, command: 'rollback-config-plan' }), error => error.code === 4 && /committed install evidence; found corrupt/.test(error.stderr));
+  await assert.rejects(runCli({ ...source, command: 'rollback-config-plan' }), checkCliFailure(error => error.code === 4 && /committed install evidence; found corrupt/.test(error.stderr)));
 });
 
 test('CLI rejects invocation files writable by another user class', { skip: process.platform === 'win32' }, async () => {
@@ -688,7 +721,7 @@ test('CLI rejects invocation files writable by another user class', { skip: proc
   const cli = new URL('../dist/cli.js', import.meta.url).pathname;
   await assert.rejects(
     execute(process.execPath, [cli, '--input', invocationPath], { env: { PATH: process.env.PATH ?? '' }, timeout: 5_000 }),
-    error => error.code === 2 && /owned by the current user and not writable by group or other/i.test(error.stderr),
+    checkCliFailure(error => error.code === 2 && /owned by the current user and not writable by group or other/i.test(error.stderr)),
   );
 });
 
@@ -731,14 +764,16 @@ test('load-plan CLI emits a stable nonmutating lazy/eager closure report', async
   const second = await execute(process.execPath, [cli, '--input', invocationPath], { env: { PATH: process.env.PATH ?? '' }, timeout: 5_000 });
   assert.equal(first.stderr, '');
   assert.equal(first.stdout, second.stdout);
+  /** @type {ReturnType<typeof import('../dist/index.js').buildLoadPlan>} */
   const report = JSON.parse(first.stdout);
   assert.deepEqual(report.installOrder, ['resolver']);
-  assert.equal(report.items.find(item => item.name === 'optional').selectionReason, 'unselected-lazy');
+  assert.equal(report.items.find(item => item.name === 'optional')?.selectionReason, 'unselected-lazy');
 });
 
 test('normal CLI plans native package operations but rejects mutation without the approved privileged broker', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'desktop-tools-native-cli-authority-'));
   const invocationPath = join(directory, 'invocation.json');
+  /** @param {'check' | 'apply' | 'verify'} action */
   const operation = action => ({ kind: 'native-package', effectClass: 'native-package', action,
     packageKey: 'tree', payloadArtifactId: 'tree-deb-bookworm-amd64',
     // Status must be host-independent: a runner may already have a newer tree
@@ -771,17 +806,17 @@ test('normal CLI plans native package operations but rejects mutation without th
       renderer: 'ndjson', plan, approvedPlanDigest: plan.digest, operations: invocation.operations })}\n`, { mode: 0o600 });
     await assert.rejects(execute(process.execPath, [cli, '--input', invocationPath], {
       env: { PATH: process.env.PATH ?? '' }, timeout: 5_000,
-    }), error => {
+    }), checkCliFailure(error => {
       const events = error.stdout.trim().split('\n').map(line => JSON.parse(line));
       return error.code === 6 && error.stderr === ''
         && events.some(event => event.kind === 'task-status' && event.taskId === task.id && event.status === 'pending');
-    });
+    }));
   }
   await writeFile(invocationPath, `${JSON.stringify({ ...invocation, command: 'run', approvedPlanDigest: plan.digest,
     renderer: 'headless', stateRoot: join(directory, 'state') })}\n`, { mode: 0o600 });
   await assert.rejects(execute(process.execPath, [cli, '--input', invocationPath], {
     env: { PATH: process.env.PATH ?? '' }, timeout: 5_000,
-  }), error => error.code === 4 && /require the approved privileged broker/i.test(error.stderr));
+  }), checkCliFailure(error => error.code === 4 && /require the approved privileged broker/i.test(error.stderr)));
 });
 
 test('runs-list is read-only when no run evidence exists', async () => {
@@ -795,7 +830,7 @@ test('runs-list is read-only when no run evidence exists', async () => {
   });
   assert.equal(stderr, '');
   assert.deepEqual(JSON.parse(stdout), { schemaVersion: 1, runs: [] });
-  await assert.rejects(lstat(stateRoot), error => error.code === 'ENOENT');
+  await assert.rejects(lstat(stateRoot), error => error instanceof Error && 'code' in error && error.code === 'ENOENT');
 });
 
 test('resume requires exact released-uncommitted evidence and a rebuilt matching operation manifest', async () => {
@@ -846,7 +881,7 @@ test('resume requires exact released-uncommitted evidence and a rebuilt matching
 
   await assert.rejects(
     execute(process.execPath, [cli, '--input', invocationPath], { env: { PATH: process.env.PATH ?? '' }, timeout: 10_000 }),
-    error => /found committed/.test(error.stderr),
+    checkCliFailure(error => /found committed/.test(error.stderr)),
     'committed evidence must not be resumed',
   );
 
@@ -855,7 +890,7 @@ test('resume requires exact released-uncommitted evidence and a rebuilt matching
   await writeFile(invocationPath, `${JSON.stringify({ ...resume, runId: activeRunId })}\n`, { mode: 0o600 });
   await assert.rejects(
     execute(process.execPath, [cli, '--input', invocationPath], { env: { PATH: process.env.PATH ?? '' }, timeout: 10_000 }),
-    error => /found active/.test(error.stderr),
+    checkCliFailure(error => /found active/.test(error.stderr)),
     'active evidence must not be resumed',
   );
   await store.release(active.owner);
@@ -868,25 +903,26 @@ test('resume requires exact released-uncommitted evidence and a rebuilt matching
   await writeFile(invocationPath, `${JSON.stringify(changed)}\n`, { mode: 0o600 });
   await assert.rejects(
     execute(process.execPath, [cli, '--input', invocationPath], { env: { PATH: process.env.PATH ?? '' }, timeout: 10_000 }),
-    error => /operation manifest/.test(error.stderr),
+    checkCliFailure(error => /operation manifest/.test(error.stderr)),
     'changed operation manifest must invalidate resume before mutation',
   );
   assert.equal(await readFile(marker, 'utf8'), 'x', 'rejected resume must not mutate');
 
   const objectDirectory = join(stateRoot, 'runs', normalized.digest, tamperedRunId, 'objects', 'sha256');
   const [objectName] = await readdir(objectDirectory);
+  assert.ok(objectName);
   await writeFile(join(objectDirectory, objectName), '{}\n', { mode: 0o600 });
   await writeFile(invocationPath, `${JSON.stringify({ ...resume, runId: tamperedRunId })}\n`, { mode: 0o600 });
   await assert.rejects(
     execute(process.execPath, [cli, '--input', invocationPath], { env: { PATH: process.env.PATH ?? '' }, timeout: 10_000 }),
-    error => /found corrupt/.test(error.stderr),
+    checkCliFailure(error => /found corrupt/.test(error.stderr)),
     'tampered durable evidence must not be resumed',
   );
 
   await writeFile(invocationPath, `${JSON.stringify({ ...resume, runId: 'resume-foreign' })}\n`, { mode: 0o600 });
   await assert.rejects(
     execute(process.execPath, [cli, '--input', invocationPath], { env: { PATH: process.env.PATH ?? '' }, timeout: 10_000 }),
-    error => /found absent/.test(error.stderr),
+    checkCliFailure(error => /found absent/.test(error.stderr)),
     'foreign or absent run identity must not be resumed',
   );
 });

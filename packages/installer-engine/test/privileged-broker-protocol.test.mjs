@@ -6,11 +6,13 @@ import {
   validatePrivilegedBrokerRequest,
 } from '../dist/privileged-broker-protocol.js';
 
+/** @param {string} character */
 const hex = character => character.repeat(64);
 const issuedAt = '2026-11-08T12:00:00.000Z';
 const expiresAt = '2026-11-08T12:05:00.000Z';
 
 function fixture() {
+  /** @type {import('../dist/privileged-broker-protocol.js').PrivilegedBrokerGrant} */
   const grant = {
     schemaVersion: 1,
     grantId: 'grant-1', hostId: 'host-1', releaseId: 'release-1', runId: 'run-1',
@@ -20,6 +22,7 @@ function fixture() {
     descriptorDigest: hex('b'), closureDigest: hex('c'), consentDigest: hex('d'),
     issuedAt, expiresAt,
   };
+  /** @type {import('../dist/privileged-broker-protocol.js').PrivilegedBrokerRequest} */
   const request = {
     schemaVersion: 1,
     hostId: grant.hostId, releaseId: grant.releaseId, runId: grant.runId, planDigest: grant.planDigest,
@@ -34,6 +37,7 @@ function fixture() {
 
 test('exact grant admits one peer-bound request and creates a bound receipt', () => {
   const { grant, request } = fixture();
+  /** @type {Set<string>} */
   const consumed = new Set();
   const validation = validatePrivilegedBrokerRequest({
     request, grant, peerUid: 1000, now: new Date(request.requestedAt),
@@ -49,6 +53,8 @@ test('exact grant admits one peer-bound request and creates a bound receipt', ()
 });
 
 test('broker rejects peer substitution, authority drift, replay, unknown fields, and expired grants', () => {
+  /** @typedef {Omit<Parameters<typeof validatePrivilegedBrokerRequest>[0], 'consumeNonce'>} RequestInput */
+  /** @type {Array<[string, (state: ReturnType<typeof fixture>) => RequestInput, RegExp]>} */
   const cases = [
     ['peer substitution', ({ grant, request }) => ({ request, grant, peerUid: 1001, now: new Date(request.requestedAt) }), /peer uid/],
     ['authority drift', ({ grant, request }) => ({ request: { ...request, descriptorDigest: hex('f') }, grant, peerUid: 1000, now: new Date(request.requestedAt) }), /descriptorDigest differs/],
@@ -62,7 +68,9 @@ test('broker rejects peer substitution, authority drift, replay, unknown fields,
     assert.throws(() => validatePrivilegedBrokerRequest({ ...input, consumeNonce: () => true }), pattern, name);
   }
   const { grant, request } = fixture();
+  /** @type {Set<string>} */
   const consumed = new Set();
+  /** @type {Parameters<typeof validatePrivilegedBrokerRequest>[0]['consumeNonce']} */
   const consumeNonce = value => consumed.has(value) ? false : (consumed.add(value), true);
   validatePrivilegedBrokerRequest({ request, grant, peerUid: 1000, now: new Date(request.requestedAt), consumeNonce });
   assert.throws(() => validatePrivilegedBrokerRequest({ request, grant, peerUid: 1000, now: new Date(request.requestedAt), consumeNonce }), /already consumed/);

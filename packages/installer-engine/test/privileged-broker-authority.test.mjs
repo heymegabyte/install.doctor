@@ -14,8 +14,11 @@ import {
 import { createPrivilegedBrokerStore } from '../dist/privileged-broker-store.js';
 import { privilegedBrokerDigest } from '../dist/privileged-broker-protocol.js';
 
+/** @param {string} value */
 const hash = value => createHash('sha256').update(value).digest('hex');
+/** @param {string} left @param {string} right */
 const compare = (left, right) => left.localeCompare(right, undefined, { numeric: true });
+/** @returns {import('../dist/contracts.js').NativeOfflinePayloadDescriptor} */
 const descriptor = () => ({
   schemaVersion: 1, kind: 'native-offline-package', manager: 'dpkg', packageKey: 'tree',
   platform: { os: 'linux', arch: 'x64' }, package: { name: 'tree', version: '2.1.0-1', architecture: 'amd64' },
@@ -35,6 +38,7 @@ const descriptor = () => ({
 
 async function fixture() {
   const payload = descriptor();
+  /** @type {import('../dist/contracts.js').DesiredStateInput} */
   const desired = { schemaVersion: 1, revision: 'revision-1', hostId: 'host-1', packages: ['tree'], services: [], consents: [], offline: false };
   const composed = composeNativeDebianPackageSlice({ descriptor: payload,
     target: { distroId: 'debian', versionId: '12', codename: 'bookworm', architecture: 'amd64' },
@@ -58,19 +62,28 @@ async function fixture() {
       { artifactId: 'tree-deb', url: 'https://desktop.tools/releases/release-1/tree.deb', sourcePath: '/run/desktop-tools/release/tree.deb', sha256: hash('tree'), sizeBytes: 10, mode: '0600' },
     ], transactionRoot: '/var/lib/desktop-tools/transactions/run-1',
   };
-  return { authority: PrivilegedBrokerExecutionAuthoritySchema.parse(authority), plan, payload };
+  const packageAuthority = PrivilegedBrokerExecutionAuthoritySchema.parse(authority);
+  assert.ok('artifacts' in packageAuthority);
+  return { authority: packageAuthority, plan, payload };
 }
 
 test('root execution authority is exact, grant-bound, create-only, and independently readable', async t => {
   const { authority, plan, payload } = await fixture();
   const root = await mkdtemp(join(tmpdir(), 'broker-authority-'));
   t.after(() => rm(root, { recursive: true, force: true }));
-  const store = await createPrivilegedBrokerStore({ root: await realpath(root), ownerUid: process.getuid(), verifyApproval: async () => true });
+  const uid = process.getuid?.();
+  assert.ok(typeof uid === 'number', 'broker authority tests require a POSIX user ID');
+  const store = await createPrivilegedBrokerStore({ root: await realpath(root), ownerUid: uid, verifyApproval: async () => true });
   const closureDigest = privilegedBrokerExecutionAuthorityDigest(authority);
+  const [taskId] = authority.plan.selectedTaskIds;
+  assert.ok(taskId);
   const grant = { schemaVersion: 1, grantId: 'grant-1', hostId: 'host-1', releaseId: 'release-1', runId: 'run-1',
-    planDigest: plan.digest, approvedPlanDigest: plan.digest, enrolledUid: process.getuid(),
+    planDigest: plan.digest, approvedPlanDigest: plan.digest, enrolledUid: uid,
     brokerExecutableDigest: '6'.repeat(64), runtimeDigest: '7'.repeat(64), workerDigest: '8'.repeat(64),
-    operations: Object.entries(authority.operations.operations).map(([operationId, operation]) => ({ taskId: authority.plan.selectedTaskIds[0], operationId, phase: operation.action })),
+    operations: Object.entries(authority.operations.operations).map(([operationId, operation]) => {
+      assert.equal(operation.kind, 'native-package');
+      return { taskId, operationId, phase: operation.action };
+    }),
     descriptorDigest: privilegedBrokerDescriptorDigest(payload), closureDigest, consentDigest: '2'.repeat(64),
     issuedAt: '2026-11-08T12:00:00.000Z', expiresAt: '2026-11-08T12:05:00.000Z' };
   const approval = { schemaVersion: 1, approvalId: 'approval-1', method: 'signed-device',
@@ -93,14 +106,33 @@ test('root execution authority is exact, grant-bound, create-only, and independe
 
 test('authority rejects path, operation, artifact, and semantic identity drift', async () => {
   const { authority } = await fixture();
-  for (const mutate of [
-    value => { value.artifacts[0].sourcePath = 'relative'; },
-    value => { value.artifacts[0].sha256 = 'f'.repeat(64); },
-    value => { value.operations.operations['native-debian-tree-apply'].packageKey = 'other'; },
-    value => { value.operations.operations['native-debian-tree-check'].expectedPackage.version = '9.9.9'; },
+  /** @type {Array<(value: typeof authority) => void>} */
+  const mutations = [
+    value => {
+      const [artifact] = value.artifacts;
+      assert.ok(artifact);
+      artifact.sourcePath = 'relative';
+    },
+    value => {
+      const [artifact] = value.artifacts;
+      assert.ok(artifact);
+      artifact.sha256 = 'f'.repeat(64);
+    },
+    value => {
+      const operation = value.operations.operations['native-debian-tree-apply'];
+      assert.equal(operation?.kind, 'native-package');
+      operation.packageKey = 'other';
+    },
+    value => {
+      const operation = value.operations.operations['native-debian-tree-check'];
+      assert.equal(operation?.kind, 'native-package');
+      operation.expectedPackage.version = '9.9.9';
+    },
     value => { value.hostId = 'other'; },
-  ]) {
-    const candidate = structuredClone(authority); mutate(candidate);
+  ];
+  for (const mutate of mutations) {
+    const candidate = structuredClone(authority);
+    mutate(candidate);
     assert.throws(() => PrivilegedBrokerExecutionAuthoritySchema.parse(candidate));
   }
 });

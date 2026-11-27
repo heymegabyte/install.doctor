@@ -18,10 +18,18 @@ import { brokerApprovalAuditDigest, brokerApprovalSemanticDigest,
 const helperSource = process.env.DESKTOP_TOOLS_PRIVILEGED_BROKER_TEST_BINARY;
 const clientModuleSource = process.env.DESKTOP_TOOLS_PRIVILEGED_BROKER_CLIENT_TEST_MODULE;
 const enabled = process.platform === 'linux' && process.geteuid?.() === 0 && helperSource && clientModuleSource;
+/** @typedef {Parameters<typeof composeNativeDebianPackageSlice>[0]} CompositionOptions */
+/** @typedef {ReturnType<typeof derivePrivilegedBrokerAuthority>['controllerInput']} ControllerInput */
+/** @typedef {NonNullable<Parameters<typeof runPrivilegedBrokerController>[1]>} ControllerOptions */
+
+/** @param {string | Buffer} value */
 const hash = value => createHash('sha256').update(value).digest('hex');
+/** @param {string} path */
 const fileHash = async path => hash(await readFile(path));
+/** @type {CompositionOptions['compareDebianVersions']} */
 const compare = (left, right) => left.localeCompare(right, undefined, { numeric: true });
 
+/** @returns {CompositionOptions['descriptor']} */
 function descriptor() {
   return {
     schemaVersion: 1, kind: 'native-offline-package', manager: 'dpkg', packageKey: 'tree',
@@ -41,8 +49,16 @@ function descriptor() {
   };
 }
 
+/**
+ * @param {string} runId
+ * @param {string} authorityRoot
+ * @param {string} helperPath
+ * @param {string} runtimePath
+ * @param {string} workerPath
+ */
 async function exactInput(runId, authorityRoot, helperPath, runtimePath, workerPath) {
   const payload = descriptor();
+  /** @type {CompositionOptions['desiredState']} */
   const desired = { schemaVersion: 1, revision: 'controller-test', hostId: 'controller-host', packages: ['tree'], services: [], consents: [], offline: false };
   const composed = composeNativeDebianPackageSlice({ descriptor: payload,
     target: { distroId: 'debian', versionId: '12', codename: 'bookworm', architecture: 'amd64' },
@@ -54,6 +70,7 @@ async function exactInput(runId, authorityRoot, helperPath, runtimePath, workerP
   const plan = await deriveBoundNormalizedPlan({ tasks: [composed.task], selectedTaskIds: [composed.task.id],
     executionPolicy: { maxConcurrency: 1, resourceLimits: { cpu: 2, memoryMiB: 1024, networkConcurrency: 0 } } },
   facts, composed.desiredState, 'controller-release', now.toISOString());
+  /** @param {string} artifactId @param {string} value @param {string} file */
   const artifact = (artifactId, value, file) => ({ artifactId, url: `https://desktop.tools/${artifactId}`,
     sourcePath: join(authorityRoot, file), sha256: hash(value), sizeBytes: Buffer.byteLength(value), mode: '0600' });
   return derivePrivilegedBrokerAuthority({
@@ -71,7 +88,17 @@ async function exactInput(runId, authorityRoot, helperPath, runtimePath, workerP
   }).controllerInput;
 }
 
+/**
+ * @param {string} runId
+ * @param {string} authorityRoot
+ * @param {string} helperPath
+ * @param {string} runtimePath
+ * @param {string} workerPath
+ * @param {number} enrolledUid
+ * @param {number} socketGid
+ */
 async function exactServiceInput(runId, authorityRoot, helperPath, runtimePath, workerPath, enrolledUid, socketGid) {
+  /** @param {string} name */
   const entry = (name, overrides = {}) => ({ name, bin: name, platforms: ['linux'], installMode: 'cli',
     loadPolicy: 'lazy', loadRationale: 'default-lazy', deps: [], ...overrides });
   const loadPlan = buildLoadPlan({ schemaVersion: 1, platform: 'linux', architecture: 'x64', roles: ['server'],
@@ -103,10 +130,12 @@ async function exactServiceInput(runId, authorityRoot, helperPath, runtimePath, 
   }).controllerInput;
 }
 
+/** @param {string} path */
 async function absent(path) {
-  await assert.rejects(lstat(path), error => error?.code === 'ENOENT');
+  await assert.rejects(lstat(path), error => error instanceof Error && 'code' in error && error.code === 'ENOENT');
 }
 
+/** @param {number} enrolledGid */
 async function prepareRuntimeParents(enrolledGid) {
   await mkdir('/run/desktop-tools', { recursive: true, mode: 0o750 });
   await mkdir('/run/desktop-tools/authority', { recursive: true, mode: 0o711 });
@@ -118,7 +147,13 @@ async function prepareRuntimeParents(enrolledGid) {
   ]);
 }
 
+/**
+ * @param {import('node:test').TestContext} t
+ * @param {string} suffix
+ * @param {(input: ControllerInput) => { controllerInput: ControllerInput, options?: ControllerOptions } | Promise<{ controllerInput: ControllerInput, options?: ControllerOptions }>} authorize
+ */
 async function exerciseController(t, suffix, authorize) {
+  assert.ok(helperSource);
   const runId = `controller-test-${process.pid}-${suffix}`;
   const authorityRoot = `/run/desktop-tools/authority/${runId}`;
   const socketRoot = `/run/desktop-tools/broker/${runId}`;
@@ -139,7 +174,7 @@ async function exerciseController(t, suffix, authorize) {
   const { controllerInput, options = {} } = await authorize(input);
   const result = await runPrivilegedBrokerController(controllerInput, {
     ...options,
-    onReady: () => process.emit('SIGTERM'),
+    onReady: () => { process.emit('SIGTERM'); },
   });
   assert.equal(result.exitCode, 0);
   await absent(controllerInput.socketPath);
@@ -148,10 +183,19 @@ async function exerciseController(t, suffix, authorize) {
   await absent(`/run/desktop-tools/privileged/authorities/${controllerInput.grant.grantId}.json`);
 }
 
+/**
+ * @param {string} file
+ * @param {readonly string[]} arguments_
+ * @param {{ env?: NodeJS.ProcessEnv }} options
+ * @returns {Promise<string>}
+ */
 async function command(file, arguments_, options = {}) {
   return await new Promise((resolve, reject) => {
     const child = spawn(file, arguments_, { shell: false, stdio: ['ignore', 'pipe', 'pipe'], ...options });
-    const stdout = []; const stderr = [];
+    /** @type {Buffer[]} */
+    const stdout = [];
+    /** @type {Buffer[]} */
+    const stderr = [];
     child.stdout.on('data', chunk => stdout.push(Buffer.from(chunk)));
     child.stderr.on('data', chunk => stderr.push(Buffer.from(chunk)));
     child.once('error', reject);
@@ -163,6 +207,7 @@ async function command(file, arguments_, options = {}) {
 
 test('Linux root controller admits an enrolled UID through the real sealed-FD broker transport',
   { skip: !enabled, timeout: 20_000 }, async t => {
+  assert.ok(helperSource && clientModuleSource);
   const identity = await command('/usr/bin/id', ['-g', '1000']).catch(() => '');
   if (!identity.trim()) return t.skip('fixture requires enrolled uid 1000');
   const enrolledGid = Number(identity.trim());
@@ -206,8 +251,10 @@ writeSync(4,Buffer.from(JSON.stringify(receipt)));
   const clientModule = pathToFileURL(clientModulePath).href;
   const clientScript = `import{open,readFile}from'node:fs/promises';import{createPrivilegedBrokerNativeRuntime as create}from'${clientModule}';const input=JSON.parse(await readFile(process.argv[1],'utf8'));const payload=process.argv[2];const runtime=create(input.config);const authority=phase=>({operation:{kind:'native-package',effectClass:'native-package',action:phase,packageKey:'tree',payloadArtifactId:'tree-deb'},rootDescriptor:{packageKey:'tree',artifact:{sha256:'${hash('tree')}',sizeBytes:4}},packages:[],installedWitnesses:[],withPayload:async(_key,use)=>{const handle=await open(payload,'r');try{return await use(handle)}finally{await handle.close()}},context:undefined});if(await runtime.check(authority('check'))!=='needed')process.exit(3);await runtime.apply(authority('apply'));if(await runtime.verify(authority('verify'))!=='verified')process.exit(4);`;
   const clientInputPath = join('/tmp', `${runId}.json`);
+  const [operation] = input.grant.operations;
+  assert.ok(operation);
   const clientConfig = { helperPath, socketPath: input.socketPath, hostId: input.grant.hostId, releaseId: input.grant.releaseId,
-    runId: input.grant.runId, planDigest: input.grant.planDigest, taskId: input.grant.operations[0].taskId, grant: input.grant };
+    runId: input.grant.runId, planDigest: input.grant.planDigest, taskId: operation.taskId, grant: input.grant };
   await writeFile(clientInputPath, JSON.stringify({ config: clientConfig }), { mode: 0o400 }); await chown(clientInputPath, 1000, enrolledGid);
   t.after(() => rm(clientInputPath, { force: true }));
   const result = await runPrivilegedBrokerController(input, { confirmation: { confirm: async () => true }, onReady: async () => {
@@ -220,6 +267,7 @@ writeSync(4,Buffer.from(JSON.stringify(receipt)));
 
 test('Linux root controller carries only the exact service descriptor through the real sealed-FD broker transport',
   { skip: !enabled, timeout: 20_000 }, async t => {
+  assert.ok(helperSource && clientModuleSource);
   const identity = await command('/usr/bin/id', ['-g', '1000']).catch(() => '');
   if (!identity.trim()) return t.skip('fixture requires enrolled uid 1000');
   const enrolledGid = Number(identity.trim());
@@ -258,8 +306,10 @@ writeSync(4,Buffer.from(JSON.stringify(receipt)));
     await rm(clientInputPath, { force: true }); await rm(clientModulePath, { force: true });
   });
   const input = await exactServiceInput(runId, authorityRoot, helperPath, runtimePath, workerPath, 1000, enrolledGid);
+  const [operation] = input.grant.operations;
+  assert.ok(operation);
   const clientConfig = { helperPath, socketPath: input.socketPath, hostId: input.grant.hostId, releaseId: input.grant.releaseId,
-    runId: input.grant.runId, planDigest: input.grant.planDigest, taskId: input.grant.operations[0].taskId, grant: input.grant };
+    runId: input.grant.runId, planDigest: input.grant.planDigest, taskId: operation.taskId, grant: input.grant };
   await writeFile(clientInputPath, JSON.stringify({ config: clientConfig, descriptor: input.authority.descriptor }), { mode: 0o400 });
   await chown(clientInputPath, 1000, enrolledGid);
   const clientModule = pathToFileURL(clientModulePath).href;
@@ -283,6 +333,7 @@ test('Linux root controller serializes process-global broker lifecycles',
     await exerciseController(deviceTest, 'device', async controllerInput => {
     const signer = generateKeyPairSync('ed25519');
     const signerKeyId = 'controller-device-key-1';
+    /** @type {Omit<NonNullable<ControllerInput['deviceApproval']>, 'signature' | 'auditDigest'>} */
     const unsigned = { schemaVersion: 1, kind: 'desktop-tools-broker-approval', signerKeyId,
       signatureDomain: 'desktop-tools-broker-approval-v1', approvalId: `approval-${controllerInput.grant.runId}`,
       authorizationId: 'authorization-controller', ownerDecisionId: 'decision-controller', ownerActorId: 'owner-controller',
@@ -299,6 +350,7 @@ test('Linux root controller serializes process-global broker lifecycles',
       publicKeySpki: signer.publicKey.export({ type: 'spki', format: 'der' }).toString('base64url'),
       notBefore: controllerInput.grant.issuedAt, notAfter: controllerInput.grant.expiresAt,
       maximumApprovalLifetimeSeconds: 600, revocationEpoch: 1 };
+    /** @param {unknown} value @returns {unknown} */
     const sorted = value => value && typeof value === 'object' && !Array.isArray(value)
       ? Object.fromEntries(Object.entries(value).sort(([a], [b]) => a.localeCompare(b)).map(([key, entry]) => [key, sorted(entry)]))
       : Array.isArray(value) ? value.map(sorted) : value;
