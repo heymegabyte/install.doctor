@@ -22,7 +22,7 @@ export const PROXMOX_LIFECYCLE_PHASES = [
 
 const identifier = z.string().min(1).max(128).regex(/^[a-z0-9][a-z0-9._-]*$/);
 const sha256 = z.string().regex(/^[a-f0-9]{64}$/);
-const instant = z.string().datetime({ offset: true });
+const instant = z.iso.datetime({ offset: true });
 const port = z.number().int().min(1).max(65_535);
 
 const RepositoryObservationSchema = z.strictObject({

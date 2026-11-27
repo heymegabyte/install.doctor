@@ -29,7 +29,7 @@ const authority = z.string().min(1).max(160).regex(/^[a-z0-9][a-z0-9.:/_-]*$/);
 const qrexecService = z.string().min(1).max(160).regex(/^[A-Za-z0-9][A-Za-z0-9.+_-]*$/);
 const qrexecArgument = z.string().min(1).max(256).regex(/^[A-Za-z0-9][A-Za-z0-9._+:/-]*$/).nullable();
 const sha256 = z.string().regex(/^[a-f0-9]{64}$/);
-const instant = z.string().datetime({ offset: true });
+const instant = z.iso.datetime({ offset: true });
 
 const QubesCompartmentSchema = z.strictObject({
   id: identifier,
@@ -207,7 +207,8 @@ export function preflightQubesMutation(input: unknown): QubesMutationPreflightRe
 
   let ruleId: string | undefined;
   if (request.boundary === 'qrexec') {
-    const operation = request.qrexec!;
+    const operation = request.qrexec;
+    if (operation === null) throw new Error('qrexec request is required for the qrexec boundary');
     const source = request.fixture.compartments.find(item => item.id === operation.sourceId);
     const target = request.fixture.compartments.find(item => item.id === operation.targetId);
     if (!source || !target) return Object.freeze({ decision: 'deny', boundary: request.boundary, reason: 'unknown-compartment' });

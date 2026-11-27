@@ -24,7 +24,7 @@ export const WINDOWS_LIFECYCLE_PHASES = [
 
 const identifier = z.string().min(1).max(128).regex(/^[a-z0-9][a-z0-9._-]*$/);
 const sha256 = z.string().regex(/^[a-f0-9]{64}$/);
-const instant = z.string().datetime({ offset: true });
+const instant = z.iso.datetime({ offset: true });
 
 export const WindowsFixtureSchema = z.strictObject({
   schemaVersion: z.literal(1),
