@@ -17,6 +17,7 @@ import {
   createOfflineInstallerAdapter,
   createOnlineReleaseArtifactResolver,
   createInstallerEngine,
+  TaskNodeSchema,
   createRollbackPlan,
   InstallerOperationError,
   createJournalStore,
@@ -32,12 +33,32 @@ import {
   collectLinuxOfflineHostFacts,
 } from '../dist/index.js';
 
+/** @typedef {import('../dist/contracts.js').HostFacts} HostFacts */
+/** @typedef {import('../dist/contracts.js').DesiredStateInput} DesiredState */
+/** @typedef {import('../dist/contracts.js').TaskNode} TaskNode */
+/** @typedef {import('../dist/contracts.js').NativeOfflinePayloadDescriptor} NativeDescriptor */
+/** @typedef {NonNullable<Parameters<typeof createOfflineBundle>[0]['artifacts'][number]>} ArtifactInput */
+/** @typedef {Exclude<NonNullable<ArtifactInput['catalogDescriptor']>, NativeDescriptor>} ExecutableDescriptor */
+/** @typedef {NonNullable<Parameters<typeof createOfflineInstallerAdapter>[0]['sandbox']>} Sandbox */
+/** @typedef {Awaited<ReturnType<ReturnType<typeof createInstallerEngine>['plan']>>} Plan */
+/** @typedef {import('../dist/offline-execution.js').NativePackageRuntime} NativeRuntime */
+/** @typedef {Parameters<NonNullable<Parameters<typeof createOfflineInstallerAdapter>[0]['nativePackageRuntimeFactory']>>[0]} RuntimeClaim */
+/** @typedef {{ at?: string, later?: string, facts?: HostFacts }} FixtureOptions */
+/** @typedef {{ candidatePlan?: Plan, candidateOperations?: unknown, candidateDesiredState?: DesiredState, candidateFacts?: HostFacts, graphDigest?: string, extraArtifacts?: ArtifactInput[], includeFixtureExecutable?: boolean, bundleOutputRoot?: string }} MakeBundleOptions */
+
+/** @param {string} character */
 const digest = character => character.repeat(64);
+/** @param {Buffer} bytes */
 const sha = bytes => createHash('sha256').update(bytes).digest('hex');
 const execute = promisify(execFile);
 const at = '2026-11-06T04:00:00.000Z';
 const later = '2026-11-06T05:00:00.000Z';
-const task = (id, dependencies = []) => ({
+/**
+ * @param {string} id
+ * @param {string[]} dependencies
+ * @returns {TaskNode}
+ */
+const task = (id, dependencies = []) => TaskNodeSchema.parse({
   schemaVersion: 1, id, inputDigest: digest(id === 'task.prepare' ? '1' : '2'), dependencies,
   predicate: 'offline-supported', operations: { check: `${id}.check`, apply: `${id}.apply`, verify: `${id}.verify` },
   timeoutMs: 5_000, retry: { class: 'never', maxAttempts: 1, backoffMs: 0 },
@@ -45,6 +66,7 @@ const task = (id, dependencies = []) => ({
   lockDomains: [], cleanup: 'always', compensation: 'none', failurePolicy: 'continue-independent',
 });
 
+/** @param {import('node:test').TestContext} t @param {FixtureOptions} options */
 async function fixture(t, options = {}) {
   const fixtureAt = options.at ?? at;
   const fixtureLater = options.later ?? later;
@@ -70,6 +92,7 @@ async function fixture(t, options = {}) {
   const catalog = join(source, 'catalog');
   await writeFile(engine, '#!/usr/bin/env node\nprocess.exit(0)\n', { mode: 0o700 });
   const executableBytes = await readFile(executable);
+  /** @type {ExecutableDescriptor} */
   const executableDescriptor = {
     schemaVersion: 1, id: 'fixture-operation', version: '1.0.0',
     platform: { os: 'linux', arch: 'x64' },
@@ -79,6 +102,7 @@ async function fixture(t, options = {}) {
     },
     destination: { root: 'user-bin', filename: 'fixture-operation', mode: '0700' },
   };
+  /** @type {ExecutableDescriptor} */
   const armExecutableDescriptor = {
     ...executableDescriptor,
     platform: { os: 'linux', arch: 'arm64' },
@@ -88,6 +112,7 @@ async function fixture(t, options = {}) {
     },
   };
   const unusedExecutableBytes = await readFile(unusedExecutable);
+  /** @type {ExecutableDescriptor} */
   const unusedExecutableDescriptor = {
     schemaVersion: 1, id: 'unused-operation', version: '1.0.0', platform: { os: 'linux', arch: 'x64' },
     source: {
@@ -113,6 +138,7 @@ async function fixture(t, options = {}) {
   const inReleaseBytes = await readFile(inRelease);
   const packagesBytes = await readFile(packagesIndex);
   const repositoryKeyringBytes = await readFile(repositoryKeyring);
+  /** @type {NativeDescriptor} */
   const nativePayloadDescriptor = {
     schemaVersion: 1, kind: 'native-offline-package', manager: 'dpkg', packageKey: 'fixture-operation',
     platform: { os: 'linux', arch: 'x64' },
@@ -151,10 +177,12 @@ async function fixture(t, options = {}) {
   execFileSync('ssh-keygen', ['-Y', 'sign', '-q', '-f', releaseKeyPath, '-n', 'install.doctor.release', releaseEnvelope]);
   await rename(`${releaseEnvelope}.sig`, releaseSignature);
   const tasks = [task('task.install', ['task.prepare']), task('task.prepare')];
+  /** @type {HostFacts} */
   const facts = options.facts ?? {
     schemaVersion: 1, hostId: 'offline-host', collectedAt: at, os: 'linux', osVersion: '24.04', arch: 'x64',
     environment: 'native', roles: ['fixture'], packageManagers: [], capabilities: [],
   };
+  /** @type {DesiredState} */
   const desiredState = {
     schemaVersion: 1, revision: 'revision-1', hostId: facts.hostId,
     packages: [], services: [], consents: [], offline: true,
@@ -181,6 +209,7 @@ async function fixture(t, options = {}) {
   const hostFactsPath = join(source, 'host-facts');
   await writeFile(planPath, `${JSON.stringify(plan)}\n`, { mode: 0o600 });
   await writeFile(operationsPath, canonicalOfflineOperationManifestBytes(operations), { mode: 0o600 });
+  /** @param {MakeBundleOptions} options */
   const makeBundle = async ({
     candidatePlan = plan, candidateOperations = operations, candidateDesiredState = desiredState, candidateFacts = facts,
     graphDigest, extraArtifacts = [], includeFixtureExecutable = true, bundleOutputRoot = outputRoot,
@@ -189,6 +218,11 @@ async function fixture(t, options = {}) {
     await writeFile(operationsPath, canonicalOfflineOperationManifestBytes(candidateOperations), { mode: 0o600 });
     await writeFile(desiredStatePath, canonicalOfflineDesiredStateBytes(candidateDesiredState), { mode: 0o600 });
     await writeFile(hostFactsPath, canonicalOfflineHostFactsBytes(candidateFacts), { mode: 0o600 });
+    /** @type {ArtifactInput[]} */
+    const fixtureArtifacts = includeFixtureExecutable ? [{
+      id: 'fixture-operation', sourcePath: executable, mediaType: 'application/octet-stream', mode: '0700',
+      license: 'MIT', schema: null, catalogDescriptor: { ...executableDescriptor, kind: 'immutable-executable' }, containsSecrets: false,
+    }] : [];
     return createOfflineBundle({
       outputRoot: bundleOutputRoot, releaseId: candidatePlan.releaseId, planDigest: candidatePlan.digest,
       graphDigest: graphDigest ?? offlineExecutionGraphDigest(candidatePlan, candidateOperations, candidateDesiredState, candidateFacts),
@@ -203,7 +237,7 @@ async function fixture(t, options = {}) {
         { id: 'operation-manifest', sourcePath: operationsPath, mediaType: 'application/json', mode: '0600', license: 'MIT', schema: { id: 'operation-manifest', version: '5' }, containsSecrets: false },
         { id: 'desired-state', sourcePath: desiredStatePath, mediaType: 'application/json', mode: '0600', license: 'MIT', schema: { id: 'desired-state', version: '1' }, containsSecrets: false },
         { id: 'host-facts', sourcePath: hostFactsPath, mediaType: 'application/json', mode: '0600', license: 'MIT', schema: { id: 'host-facts', version: '1' }, containsSecrets: false },
-        ...(includeFixtureExecutable ? [{ id: 'fixture-operation', sourcePath: executable, mediaType: 'application/octet-stream', mode: '0700', license: 'MIT', schema: null, catalogDescriptor: { ...executableDescriptor, kind: 'immutable-executable' }, containsSecrets: false }] : []),
+        ...fixtureArtifacts,
         ...extraArtifacts,
       ],
     });
@@ -215,6 +249,14 @@ async function fixture(t, options = {}) {
   };
 }
 
+/** @param {Plan} plan */
+function firstTask(plan) {
+  const [selected] = plan.tasks;
+  assert.ok(selected);
+  return selected;
+}
+
+/** @param {import('node:test').TestContext} t */
 async function managedFileFixture(t) {
   const state = await fixture(t);
   const targetDirectory = join(await realpath(state.root), 'managed-targets');
@@ -360,6 +402,7 @@ test('runtime package artifacts require exact selected signed-catalog authority 
   await assert.rejects(substituted.makeBundle(), /bytes or identity.*signed catalog descriptor/);
 
   const duplicate = await fixture(t);
+  /** @type {ArtifactInput} */
   const artifact = {
     id: 'fixture-operation', sourcePath: duplicate.executable, mediaType: 'application/octet-stream',
     mode: '0700', license: 'MIT', schema: null, catalogDescriptor: { ...duplicate.executableDescriptor, kind: 'immutable-executable' }, containsSecrets: false,
@@ -385,13 +428,17 @@ test('offline operation v5 rejects earlier formats, implicit effects, and unsupp
     }])),
   }));
 
-  for (const [domain, expected] of [
+  /** @type {Array<[string, RegExp]>} */
+  const invalidDomains = [
     ['package-manager.apt', /unsupported package-manager authority/],
     ['service-manager.systemd', /unsupported service-state authority/],
-  ]) {
+  ];
+  for (const [domain, expected] of invalidDomains) {
     const state = await fixture(t);
     const candidatePlan = structuredClone(state.plan);
-    candidatePlan.tasks[0].lockDomains = [domain];
+    const [selectedTask] = candidatePlan.tasks;
+    assert.ok(selectedTask);
+    selectedTask.lockDomains = [domain];
     const outputRoot = join(state.root, domain.replaceAll('.', '-'));
     await mkdir(outputRoot);
     await assert.rejects(
@@ -410,10 +457,12 @@ test('v5 admits only an exact signed native dpkg package triple and runtime rema
     `Date: ${new Date(at).toUTCString()}`, `Valid-Until: ${new Date(later).toUTCString()}`,
     'SHA256:', ` ${sha(packagesBytes)} ${packagesBytes.length} main/binary-amd64/Packages.xz`, '',
   ].join('\n');
+  /** @type {TaskNode} */
   const nativeTask = {
     ...task('task.native-package'), privilege: 'admin', consent: 'package-install',
     lockDomains: ['package-manager.dpkg'],
   };
+  /** @type {DesiredState} */
   const desiredState = { ...state.desiredState, packages: ['fixture-operation'], consents: ['package-install'] };
   const plan = await createInstallerEngine({
     adapter: {
@@ -423,14 +472,17 @@ test('v5 admits only an exact signed native dpkg package triple and runtime rema
     },
     now: () => at,
   }).plan(state.facts, desiredState, 'release-1');
+  /** @type {Array<keyof TaskNode['operations']>} */
+  const actions = ['check', 'apply', 'verify'];
   const operations = {
     schemaVersion: 5, configurationRoots: [],
-    operations: Object.fromEntries(['check', 'apply', 'verify'].map(action => [nativeTask.operations[action], {
+    operations: Object.fromEntries(actions.map(action => [nativeTask.operations[action], {
       kind: 'native-package', effectClass: 'native-package', action,
       packageKey: 'fixture-operation', payloadArtifactId: 'fixture-package',
       expectedPackage: { name: 'fixture-operation', version: '1.0.0-1', architecture: 'amd64' },
     }])),
   };
+  /** @type {ArtifactInput[]} */
   const nativeArtifacts = [
     { id: 'fixture-package', sourcePath: state.nativePayload, mediaType: 'application/vnd.debian.binary-package', mode: '0600', license: 'MIT', schema: null, catalogDescriptor: state.nativePayloadDescriptor, containsSecrets: false },
     { id: 'fixture-inrelease', sourcePath: state.inRelease, mediaType: 'text/plain', mode: '0600', license: 'MIT', schema: null, containsSecrets: false },
@@ -442,7 +494,9 @@ test('v5 admits only an exact signed native dpkg package triple and runtime rema
     includeFixtureExecutable: false, extraArtifacts: nativeArtifacts,
   });
   const mismatchedStatusAuthority = structuredClone(operations);
-  mismatchedStatusAuthority.operations[nativeTask.operations.apply].expectedPackage.version = '9.9.9';
+  const applyAuthority = mismatchedStatusAuthority.operations[nativeTask.operations.apply];
+  assert.ok(applyAuthority);
+  applyAuthority.expectedPackage.version = '9.9.9';
   const mismatchedOutput = join(state.root, 'mismatched-status-authority');
   await mkdir(mismatchedOutput, { mode: 0o700 });
   await assert.rejects(state.makeBundle({
@@ -462,11 +516,12 @@ test('v5 admits only an exact signed native dpkg package triple and runtime rema
       now: () => new Date('2026-11-06T04:30:00.000Z'),
     },
   );
-  assert.equal(metadata['fixture-operation'].payloadSha256, sha(payloadBytes));
+  assert.equal(metadata['fixture-operation']?.payloadSha256, sha(payloadBytes));
 
   const onlineCache = join(state.root, 'native-online-cache');
   await mkdir(onlineCache, { mode: 0o700 });
-  const onlineObjects = new Map(await Promise.all(nativeArtifacts.map(async item => [item.id, await readFile(item.sourcePath)])));
+  const onlineObjects = new Map(await Promise.all(nativeArtifacts.map(async item => /** @type {const} */ ([item.id, await readFile(item.sourcePath)]))));
+  /** @type {Record<string, string>} */
   const onlineFilenames = {
     'fixture-package': 'tree_2.1.0-1_amd64.deb',
     'fixture-inrelease': 'debian-bookworm-inrelease',
@@ -477,19 +532,27 @@ test('v5 admits only an exact signed native dpkg package triple and runtime rema
   const onlineResolver = await createOnlineReleaseArtifactResolver({
     releaseId: plan.releaseId,
     cacheRoot: onlineCache,
-    artifacts: nativeArtifacts.map(item => ({
-      artifactId: item.id,
-      url: `https://desktop.tools/releases/${plan.releaseId}/${onlineFilenames[item.id]}`,
-      authority: { sha256: sha(onlineObjects.get(item.id)), sizeBytes: onlineObjects.get(item.id).length, mode: '0600' },
-    })),
+    artifacts: nativeArtifacts.map(item => {
+      const bytes = onlineObjects.get(item.id);
+      const filename = onlineFilenames[item.id];
+      assert.ok(bytes && filename);
+      return {
+        artifactId: item.id,
+        url: `https://desktop.tools/releases/${plan.releaseId}/${filename}`,
+        authority: { sha256: sha(bytes), sizeBytes: bytes.length, mode: '0600' },
+      };
+    }),
     fetcher: async url => {
       onlineFetches += 1;
       const filename = new URL(url).pathname.split('/').at(-1);
       const artifactId = Object.entries(onlineFilenames).find(([, value]) => value === filename)?.[0];
+      assert.ok(artifactId);
       const bytes = onlineObjects.get(artifactId);
+      assert.ok(bytes);
       return new Response(bytes, { status: 200, headers: { 'content-length': String(bytes.length) } });
     },
   });
+  /** @type {import('../dist/debian-metadata.js').DebianMetadataVerifier} */
   const metadataVerifier = {
     verifyInRelease: async () => ({ cleartext: Buffer.from(releaseText), signingKeyFingerprint: 'A'.repeat(40) }),
     decompressPackages: async (_path, bytes) => bytes,
@@ -517,13 +580,15 @@ test('v5 admits only an exact signed native dpkg package triple and runtime rema
     createOfflineInstallerAdapter({ closure, materializedRoot: destination }),
     /explicit privileged runtime, Debian version comparator, and independently verified metadata/,
   );
+  /** @type {string[]} */
   const runtimeCalls = [];
+  /** @type {NativeRuntime} */
   const nativePackageRuntime = {
     check: async authority => {
       runtimeCalls.push(authority.operation.action);
       assert.equal(authority.rootDescriptor.packageKey, 'fixture-operation');
       assert.equal(authority.packages.length, 1);
-      assert.deepEqual(authority.packages[0].metadata, metadata['fixture-operation']);
+      assert.deepEqual(authority.packages[0]?.metadata, metadata['fixture-operation']);
       await authority.withPayload('fixture-operation', async payload => {
         assert.deepEqual(await payload.readFile(), payloadBytes);
       });
@@ -543,6 +608,7 @@ test('v5 admits only an exact signed native dpkg package triple and runtime rema
       return 'verified';
     },
   };
+  /** @type {RuntimeClaim[]} */
   const runtimeClaims = [];
   const adapter = await createOfflineInstallerAdapter({
     closure, materializedRoot: destination,
@@ -584,16 +650,26 @@ test('v5 admits only an exact signed native dpkg package triple and runtime rema
     assert.equal(typeof claim.persistence.load, 'function');
     assert.equal(typeof claim.persistence.save, 'function');
   }
-  await assert.rejects(runtimeClaims[0].persistence.load('0'.repeat(64)), /lease|owner/i,
+  const [releasedClaim] = runtimeClaims;
+  assert.ok(releasedClaim);
+  await assert.rejects(releasedClaim.persistence.load('0'.repeat(64)), /lease|owner/i,
     'owner-bound persistence is fenced after terminal journal release');
 
+  /** @type {string[]} */
   const onlineRuntimeCalls = [];
+  /** @type {RuntimeClaim[]} */
   const onlineRuntimeClaims = [];
-  const onlineRuntime = Object.fromEntries(['check', 'apply', 'verify'].map(action => [action, async authority => {
-    onlineRuntimeCalls.push(action);
+  /** @param {Parameters<NativeRuntime['apply']>[0]} authority */
+  const recordOnlineCall = async authority => {
+    onlineRuntimeCalls.push(authority.operation.action);
     await authority.withPayload('fixture-operation', async payload => assert.deepEqual(await payload.readFile(), payloadBytes));
-    return action === 'check' ? 'needed' : action === 'verify' ? 'verified' : undefined;
-  }]));
+  };
+  /** @type {NativeRuntime} */
+  const onlineRuntime = {
+    check: async authority => { await recordOnlineCall(authority); return 'needed'; },
+    apply: recordOnlineCall,
+    verify: async authority => { await recordOnlineCall(authority); return 'verified'; },
+  };
   const onlineAdapter = await createOfflineInstallerAdapter({
     closure, materializedRoot: destination, artifactResolver: onlineResolver,
     nativePackageRuntimeFactory: claim => { onlineRuntimeClaims.push(claim); return onlineRuntime; },
@@ -630,6 +706,7 @@ test('v5 admits only an exact signed native dpkg package triple and runtime rema
   assert.equal(sha(canonicalOfflineOperationManifestBytes(operations)), sha(canonicalOfflineOperationManifestBytes(closure.operations)));
 
   let substitutedRuntimeCalls = 0;
+  /** @type {Awaited<ReturnType<typeof createOnlineReleaseArtifactResolver>>} */
   const substitutedResolver = async artifactId => {
     const candidate = await onlineResolver(artifactId);
     return artifactId === 'fixture-package'
@@ -660,6 +737,7 @@ test('v5 admits only an exact signed native dpkg package triple and runtime rema
     bootId: 'linux-boot:native-orchestrated', processStart: 'linux-jiffies:2', pid: 43,
     now: () => at, isProcessAlive: async () => true,
   });
+  /** @type {RuntimeClaim[]} */
   const orchestratedClaims = [];
   const orchestrated = await executeOfflineBundle({
     plan: bundlePlan, trust: state.trust, releaseTrust: state.releaseTrust, materializedRoot: destination,
@@ -693,7 +771,7 @@ test('v5 admits only an exact signed native dpkg package triple and runtime rema
   assert.equal(orchestrated.receipt.status, 'success', JSON.stringify(orchestrated.events));
   assert.equal(orchestratedClaims.length, 3);
   assert.ok(orchestratedClaims.every(claim => claim.identity.runId === 'native-orchestrated-runtime'));
-  await assert.rejects(executeOfflineBundle({
+  await assert.rejects(Reflect.apply(executeOfflineBundle, undefined, [{
     plan: bundlePlan, trust: state.trust, releaseTrust: state.releaseTrust, materializedRoot: destination,
     journalFactory: () => orchestratedJournal, runId: 'native-direct-runtime-rejected', now: () => at,
     hostAttestor: { platform: 'linux', discover: async () => ({ immutableHostId: state.facts.hostId, facts: state.facts }) },
@@ -702,11 +780,13 @@ test('v5 admits only an exact signed native dpkg package triple and runtime rema
       verifyInRelease: async () => ({ cleartext: Buffer.from(releaseText), signingKeyFingerprint: 'A'.repeat(40) }),
     },
     compareDebianVersions: () => 0,
-  }), /owner-bound privileged runtime factory/,
+  }]), /owner-bound privileged runtime factory/,
   'production orchestration does not accept a preconstructed ambient native runtime');
 
   const altered = structuredClone(operations);
-  altered.operations[nativeTask.operations.verify].payloadArtifactId = 'other-payload';
+  const verifyAuthority = altered.operations[nativeTask.operations.verify];
+  assert.ok(verifyAuthority);
+  verifyAuthority.payloadArtifactId = 'other-payload';
   const alteredRoot = join(state.root, 'native-altered');
   await mkdir(alteredRoot);
   await assert.rejects(state.makeBundle({
@@ -732,11 +812,13 @@ test('native Debian verification recursively proves every dependency payload bef
   ].join('\n'));
   const inReleaseBytes = Buffer.from('opaque signed metadata\n');
   const keyringBytes = Buffer.from('pinned keyring\n');
+  /** @type {Array<[string, Buffer]>} */
   const artifacts = [
     ['root-deb', rootBytes], ['dependency-deb', dependencyBytes], ['proof-packages', packagesBytes],
     ['proof-inrelease', inReleaseBytes], ['proof-keyring', keyringBytes],
   ];
   for (const [id, bytes] of artifacts) await writeFile(join(root, 'artifacts', id), bytes, { mode: 0o600 });
+  /** @type {Omit<NativeDescriptor['metadataProof'], 'packageStanza'>} */
   const proof = {
     inRelease: {
       artifactId: 'proof-inrelease', path: 'dists/noble/InRelease', sha256: sha(inReleaseBytes),
@@ -748,6 +830,16 @@ test('native Debian verification recursively proves every dependency payload bef
       sha256: sha(packagesBytes), sizeBytes: packagesBytes.length, architecture: 'amd64',
     },
   };
+  /**
+   * @param {string} packageKey
+   * @param {string} artifactId
+   * @param {Buffer} bytes
+   * @param {string} version
+   * @param {string} filename
+   * @param {string|null} depends
+   * @param {NativeDescriptor['dependencyClosure']} dependencyClosure
+   * @returns {NativeDescriptor}
+   */
   const descriptor = (packageKey, artifactId, bytes, version, filename, depends, dependencyClosure) => ({
     ...state.nativePayloadDescriptor, packageKey,
     package: { name: packageKey, version, architecture: 'amd64' },
@@ -762,16 +854,23 @@ test('native Debian verification recursively proves every dependency payload bef
   const rootDescriptor = descriptor('fixture-operation', 'root-deb', rootBytes, '1.0.0-1', 'pool/root.deb', 'fixture-dependency (= 2.0.0-1)', {
     depends: [{ packageKey: 'fixture-dependency', artifactId: 'dependency-deb' }], preDepends: [],
   });
+  const baseline = await state.makeBundle();
+  const baselineClosure = await validateOfflineExecutionClosure(baseline);
+  /** @type {typeof baseline.manifest.artifacts} */
   const manifestArtifacts = artifacts.map(([id, bytes]) => ({
     id, path: `artifacts/${id}`, sha256: sha(bytes), sizeBytes: bytes.length,
-    mode: '0600',
-    ...(id === 'root-deb' ? { catalogDescriptor: rootDescriptor } : {}),
-    ...(id === 'dependency-deb' ? { catalogDescriptor: dependencyDescriptor } : {}),
+    mode: '0600', mediaType: 'application/octet-stream', license: 'MIT', schema: null, containsSecrets: false,
+    catalogDescriptor: id === 'root-deb' ? rootDescriptor : id === 'dependency-deb' ? dependencyDescriptor : null,
   }));
-  const verified = { bundleDirectory: root, manifest: { artifacts: manifestArtifacts }, manifestDigest: sha(Buffer.from('manifest')) };
+  const verified = { ...baseline, bundleDirectory: root, manifest: { ...baseline.manifest, artifacts: manifestArtifacts } };
+  /** @type {typeof baselineClosure} */
   const closure = {
-    operations: { operations: { check: { kind: 'native-package', packageKey: 'fixture-operation', payloadArtifactId: 'root-deb',
-      expectedPackage: { name: rootDescriptor.package.name, version: rootDescriptor.package.version, architecture: rootDescriptor.package.architecture } } } },
+    ...baselineClosure,
+    operations: { ...baselineClosure.operations, operations: { check: {
+      kind: 'native-package', effectClass: 'native-package', action: 'check',
+      packageKey: 'fixture-operation', payloadArtifactId: 'root-deb',
+      expectedPackage: { name: rootDescriptor.package.name, version: rootDescriptor.package.version, architecture: rootDescriptor.package.architecture },
+    } } },
     nativePackageDescriptors: { 'fixture-dependency': dependencyDescriptor, 'fixture-operation': rootDescriptor },
   };
   const releaseText = [
@@ -785,7 +884,7 @@ test('native Debian verification recursively proves every dependency payload bef
     now: () => new Date('2026-11-06T04:30:00.000Z'),
   });
   assert.deepEqual(Object.keys(results), ['fixture-dependency', 'fixture-operation']);
-  assert.equal(results['fixture-dependency'].payloadSha256, sha(dependencyBytes));
+  assert.equal(results['fixture-dependency']?.payloadSha256, sha(dependencyBytes));
 });
 
 test('signed offline managed files apply natively, commit compensation, no-op on reapply, and explicitly restore or remove', async t => {
@@ -795,11 +894,13 @@ test('signed offline managed files apply natively, commit compensation, no-op on
     bootId: 'linux-boot:managed', processStart: 'linux-jiffies:1', pid: 42,
     now: () => at, isProcessAlive: async () => true,
   });
+  /** @type {NonNullable<Parameters<typeof executeOfflineBundle>[0]['hostAttestor']>} */
   const hostAttestor = {
     platform: 'linux',
     discover: async () => ({ immutableHostId: state.facts.hostId, facts: { ...state.facts, collectedAt: later } }),
   };
   let sandboxCalls = 0;
+  /** @type {Sandbox} */
   const sandbox = {
     probe: async () => { sandboxCalls += 1; return { supported: false, platform: 'test', reason: 'native managed files must not require Bubblewrap' }; },
     execute: async () => { sandboxCalls += 1; throw new Error('native managed files must not enter Bubblewrap'); },
@@ -869,10 +970,16 @@ test('offline managed-file authority rejects unsafe schema, mismatched triplets,
     schemaVersion: 5, configurationRoots: [`${state.targetDirectory}/z`, state.targetDirectory], operations: { operation: base },
   }), /sorted|overlap/i);
 
+  /** @type {ArtifactInput[]} */
   const candidateArtifacts = state.created.manifest.artifacts.filter(item => item.id.startsWith('candidate-')).map(item => ({
     id: item.id, sourcePath: join(state.source, item.id), mediaType: item.mediaType, mode: item.mode,
     license: item.license, schema: item.schema, containsSecrets: false,
   }));
+  /**
+   * @param {string} label
+   * @param {(operations: typeof state.operations.operations) => void} mutate
+   * @param {RegExp} pattern
+   */
   const rejectChangedAuthority = async (label, mutate, pattern) => {
     const operations = structuredClone(state.operations);
     mutate(operations.operations);
@@ -887,16 +994,24 @@ test('offline managed-file authority rejects unsafe schema, mismatched triplets,
     );
   };
   await rejectChangedAuthority('action', operations => {
-    operations['task.managed-existing.check'].action = 'verify';
+    const operation = operations['task.managed-existing.check'];
+    assert.ok(operation);
+    operation.action = 'verify';
   }, /action does not match/);
   await rejectChangedAuthority('artifact', operations => {
-    operations['task.managed-existing.verify'].candidateArtifactId = 'candidate-new';
+    const operation = operations['task.managed-existing.verify'];
+    assert.ok(operation);
+    operation.candidateArtifactId = 'candidate-new';
   }, /disagree on their authority/);
   await rejectChangedAuthority('target', operations => {
-    operations['task.managed-existing.verify'].targetPath = state.newTarget;
+    const operation = operations['task.managed-existing.verify'];
+    assert.ok(operation);
+    operation.targetPath = state.newTarget;
   }, /disagree on their authority/);
   await rejectChangedAuthority('mode', operations => {
-    operations['task.managed-existing.verify'].candidateMode = 0o640;
+    const operation = operations['task.managed-existing.verify'];
+    assert.ok(operation);
+    operation.candidateMode = 0o640;
   }, /disagree on their authority/);
 
   const surplusPath = join(state.source, 'candidate-surplus');
@@ -926,14 +1041,16 @@ test('offline managed-file authority rejects unsafe schema, mismatched triplets,
       execute: async () => { sandboxCalls += 1; return { exitCode: 0, stdout: '', stderr: '' }; },
     },
   });
-  await assert.rejects(adapter.check(closure.plan.tasks.find(item => item.id === 'task.managed-existing')), /regular file with one link/);
+  const selected = closure.plan.tasks.find(item => item.id === 'task.managed-existing');
+  assert.ok(selected);
+  await assert.rejects(adapter.check(selected), /regular file with one link/);
   await rm(hardlinkAlias);
 
   const linkedSource = join(state.targetDirectory, 'linked-source');
   await writeFile(linkedSource, 'linked\n', { mode: 0o600 });
   await rm(state.existingTarget);
   await symlink(linkedSource, state.existingTarget);
-  await assert.rejects(adapter.check(closure.plan.tasks.find(item => item.id === 'task.managed-existing')), /symbolic link|regular file with one link/);
+  await assert.rejects(adapter.check(selected), /symbolic link|regular file with one link/);
   assert.equal(sandboxCalls, 0);
 });
 
@@ -949,6 +1066,7 @@ test('offline managed-file roots reject symlink aliases and nested symlink escap
   const linkedRootClosure = structuredClone(closure);
   linkedRootClosure.operations.configurationRoots = [linkedRoot];
   for (const operation of Object.values(linkedRootClosure.operations.operations)) {
+    assert.ok(operation.kind === 'managed-file');
     operation.targetPath = join(linkedRoot, 'fixture.conf');
   }
   await assert.rejects(
@@ -964,6 +1082,7 @@ test('offline managed-file roots reject symlink aliases and nested symlink escap
   const nestedEscapeClosure = structuredClone(closure);
   nestedEscapeClosure.operations.configurationRoots = [nestedRoot];
   for (const operation of Object.values(nestedEscapeClosure.operations.operations)) {
+    assert.ok(operation.kind === 'managed-file');
     operation.targetPath = join(nestedRoot, 'escape', 'fixture.conf');
   }
   const nestedAdapter = await createOfflineInstallerAdapter({
@@ -971,7 +1090,7 @@ test('offline managed-file roots reject symlink aliases and nested symlink escap
     materializedRoot: state.destination,
   });
   await assert.rejects(
-    nestedAdapter.check(nestedEscapeClosure.plan.tasks[0]),
+    nestedAdapter.check(firstTask(nestedEscapeClosure.plan)),
     /parent.*symbolic link|escape.*configuration root/i,
   );
   await assert.rejects(readFile(join(outside, 'fixture.conf')), { code: 'ENOENT' });
@@ -1027,9 +1146,10 @@ test('execution closure rejects a mismatched graph digest and noncanonical depen
 });
 
 test('offline readiness reports every deterministic legacy blocker in task order', () => {
+  /** @type {TaskNode[]} */
   const tasks = [
     {
-      ...task('provision.chezmoi'), network: 'required', resources: { cpu: 1, memoryMiB: 32, network: true },
+      ...task('provision.chezmoi'), network: 'required', resources: { cpu: 1, memoryMiB: 32, network: true, diskIoWeight: 0, networkIoWeight: 0 },
       lockDomains: ['chezmoi', 'package-manager'],
     },
     {
@@ -1037,7 +1157,7 @@ test('offline readiness reports every deterministic legacy blocker in task order
       lockDomains: ['service-manager', 'privilege'], privilege: 'admin', consent: 'privileged',
     },
     {
-      ...task('desired.packages'), network: 'required', resources: { cpu: 1, memoryMiB: 32, network: true },
+      ...task('desired.packages'), network: 'required', resources: { cpu: 1, memoryMiB: 32, network: true, diskIoWeight: 0, networkIoWeight: 0 },
       lockDomains: ['package-manager', 'privilege'], privilege: 'admin', consent: 'privileged',
     },
     { ...task('native.tree'), lockDomains: ['package-manager.dpkg'], privilege: 'admin', consent: 'package-install' },
@@ -1052,8 +1172,9 @@ test('offline readiness reports every deterministic legacy blocker in task order
 });
 
 test('offline readiness preserves each independent network declaration as migration evidence', () => {
+  /** @type {TaskNode} */
   const policyOnly = { ...task('policy-only'), network: 'optional' };
-  const resourceOnly = { ...task('resource-only'), resources: { cpu: 1, memoryMiB: 32, network: true } };
+  const resourceOnly = { ...task('resource-only'), resources: { cpu: 1, memoryMiB: 32, network: true, diskIoWeight: 0, networkIoWeight: 0 } };
   assert.deepEqual(inspectOfflinePlanReadiness([resourceOnly, policyOnly]), [
     { taskId: 'policy-only', kind: 'network', authority: 'policy:optional', migration: 'signed-offline-artifact-closure' },
     { taskId: 'resource-only', kind: 'network', authority: 'resource:true', migration: 'signed-offline-artifact-closure' },
@@ -1063,8 +1184,10 @@ test('offline readiness preserves each independent network declaration as migrat
 test('execution closure rejects network tasks, missing operations, and unreferenced runtime artifacts', async t => {
   const state = await fixture(t);
   const networkPlan = structuredClone(state.plan);
-  networkPlan.tasks[1].network = 'required';
-  networkPlan.tasks[1].resources.network = true;
+  const [, networkTask] = networkPlan.tasks;
+  assert.ok(networkTask);
+  networkTask.network = 'required';
+  networkTask.resources.network = true;
   const networkRoot = join(state.root, 'network');
   await mkdir(networkRoot);
   await assert.rejects(
@@ -1113,8 +1236,11 @@ test('materialized adapter reproduces exact authority and executes only verified
     now: '2026-11-06T04:30:00.000Z',
   });
   const closure = await validateOfflineExecutionClosure(bundlePlan);
+  /** @type {Parameters<Sandbox['execute']>[0][]} */
   const calls = [];
+  /** @type {number | undefined} */
   let forcedExitCode;
+  /** @type {Sandbox} */
   const sandbox = {
     probe: async () => ({
       supported: true, platform: 'linux', kind: 'linux-bubblewrap-network-namespace',
@@ -1143,11 +1269,11 @@ test('materialized adapter reproduces exact authority and executes only verified
   assert.ok(calls.every(call => !('executablePath' in call)));
 
   forcedExitCode = 11;
-  assert.equal(await adapter.check(closure.plan.tasks[0]), 'reboot-required');
+  assert.equal(await adapter.check(firstTask(closure.plan)), 'reboot-required');
   forcedExitCode = 31;
-  assert.equal(await adapter.verify(closure.plan.tasks[0]), 'pending-reboot');
+  assert.equal(await adapter.verify(firstTask(closure.plan)), 'pending-reboot');
   forcedExitCode = 76;
-  await assert.rejects(adapter.apply(closure.plan.tasks[0]), error =>
+  await assert.rejects(adapter.apply(firstTask(closure.plan)), error =>
     error instanceof InstallerOperationError && error.failureClass === 'rate-limit');
 });
 
@@ -1193,6 +1319,7 @@ test('materialized adapter rejects hardlinks and symlinks before sandbox admissi
   const created = await state.makeBundle();
   const verified = await verifyOfflineBundle({ bundleDirectory: created.bundleDirectory, trust: state.trust, releaseTrust: state.releaseTrust });
   const closure = await validateOfflineExecutionClosure(verified);
+  /** @param {string} name */
   const makeDestination = async name => {
     const destination = join(state.root, name);
     await applyOfflineBundle({
@@ -1202,6 +1329,7 @@ test('materialized adapter rejects hardlinks and symlinks before sandbox admissi
     return destination;
   };
   let calls = 0;
+  /** @type {Sandbox} */
   const sandbox = {
     probe: async () => ({ supported: false, platform: 'test', reason: 'not called' }),
     execute: async () => { calls += 1; return { exitCode: 0, stdout: '', stderr: '' }; },
@@ -1209,14 +1337,14 @@ test('materialized adapter rejects hardlinks and symlinks before sandbox admissi
   const hardlinkDestination = await makeDestination('hardlink-materialized');
   await link(join(hardlinkDestination, 'fixture-operation'), join(hardlinkDestination, 'alias'));
   const hardlinkAdapter = await createOfflineInstallerAdapter({ closure, materializedRoot: hardlinkDestination, sandbox });
-  await assert.rejects(hardlinkAdapter.check(state.plan.tasks[0]), /unsafe inode metadata/);
+  await assert.rejects(hardlinkAdapter.check(firstTask(state.plan)), /unsafe inode metadata/);
 
   const symlinkDestination = await makeDestination('symlink-materialized');
   const executable = join(symlinkDestination, 'fixture-operation');
   await rename(executable, `${executable}.original`);
   await symlink(`${executable}.original`, executable);
   const symlinkAdapter = await createOfflineInstallerAdapter({ closure, materializedRoot: symlinkDestination, sandbox });
-  await assert.rejects(symlinkAdapter.check(state.plan.tasks[0]), /opened safely/);
+  await assert.rejects(symlinkAdapter.check(firstTask(state.plan)), /opened safely/);
   assert.equal(calls, 0);
 });
 
@@ -1243,7 +1371,7 @@ test('sandbox receives the verified open inode when its materialized pathname is
       },
     },
   });
-  assert.equal(await adapter.check(state.plan.tasks[0]), 'needed');
+  assert.equal(await adapter.check(firstTask(state.plan)), 'needed');
   assert.equal(observed, '#!/bin/sh\nexit 0\n');
 });
 
@@ -1269,7 +1397,7 @@ test('sandbox receives a sealed snapshot when the materialized inode is mutated 
       },
     },
   });
-  assert.equal(await adapter.check(state.plan.tasks[0]), 'needed');
+  assert.equal(await adapter.check(firstTask(state.plan)), 'needed');
   assert.equal(observed, '#!/bin/sh\nexit 0\n');
 });
 
@@ -1294,6 +1422,7 @@ test('journal-required orchestration attests live Linux facts before sandbox mut
     now: () => at, isProcessAlive: async () => true,
   });
   const calls = [];
+  /** @type {string[]} */
   const journalHostIds = [];
   const result = await executeOfflineBundle({
     plan: bundlePlan, trust: state.trust, releaseTrust: state.releaseTrust, materializedRoot: destination,
@@ -1349,14 +1478,18 @@ test('provider outage cannot fabricate recovery: offline interruption resumes on
     bootId: 'linux-boot:test', processStart: 'linux-jiffies:1', pid: 42,
     now: () => at, isProcessAlive: async () => false,
   });
+  /** @type {NonNullable<Parameters<typeof executeOfflineBundle>[0]['hostAttestor']>} */
   const attestor = {
     platform: 'linux',
     discover: async () => ({ immutableHostId: state.facts.hostId, facts: { ...state.facts, collectedAt: later } }),
   };
   const installed = new Set();
   let applies = 0;
-  let enteredResolve;
+  /** @type {() => void} */
+  let enteredResolve = () => {};
+  /** @type {Promise<void>} */
   const entered = new Promise(resolve => { enteredResolve = resolve; });
+  /** @type {Sandbox} */
   const sandbox = {
     probe: async () => ({
       supported: true, platform: 'linux', kind: 'linux-bubblewrap-network-namespace', executablePath: '/usr/bin/bwrap',
@@ -1364,6 +1497,7 @@ test('provider outage cannot fabricate recovery: offline interruption resumes on
     }),
     execute: async operation => {
       const operationId = operation.arguments.at(-1);
+      assert.ok(operationId);
       const taskId = operationId.split('.').slice(0, -1).join('.');
       if (operationId.endsWith('.check')) return { exitCode: installed.has(taskId) ? 0 : 10, stdout: '', stderr: '' };
       if (operationId.endsWith('.apply')) {
@@ -1371,7 +1505,9 @@ test('provider outage cannot fabricate recovery: offline interruption resumes on
         installed.add(taskId);
         if (taskId === 'task.prepare') {
           enteredResolve();
-          await new Promise((_, reject) => operation.signal.addEventListener('abort', () => reject(new InstallerOperationError('offline interruption', 'cancelled')), { once: true }));
+          const { signal } = operation;
+          assert.ok(signal);
+          await new Promise((_, reject) => signal.addEventListener('abort', () => reject(new InstallerOperationError('offline interruption', 'cancelled')), { once: true }));
         }
       }
       return { exitCode: 0, stdout: '', stderr: '' };
@@ -1454,6 +1590,7 @@ test('production provisioner dispatches and reruns a real signed bundle through 
     INSTALL_DOCTOR_OFFLINE_MODE: 'execute',
     INSTALL_DOCTOR_RENDERER: 'headless',
   };
+  /** @param {string} runId */
   const invoke = runId => execute('/bin/bash', ['-c', 'source "$1"; runOfflineBundleProvisioning', '_', provisioner], {
     env: { ...baseEnvironment, INSTALL_DOCTOR_OFFLINE_RUN_ID: runId }, timeout: 30_000, maxBuffer: 2_000_000,
   });
@@ -1461,6 +1598,7 @@ test('production provisioner dispatches and reruns a real signed bundle through 
   assert.equal(first.stderr, '');
   const materialized = join(stateRoot, 'install.doctor', 'offline', 'materialized', created.manifestDigest);
   const engineState = join(stateRoot, 'install.doctor', 'offline', 'engine');
+  /** @param {string} runId */
   const committedRun = runId => createJournalStore({
     stateRoot: engineState, hostId: facts.hostId, bootId: 'inspection-only', processStart: 'inspection-only',
   }).inspectCompletion(runId, state.plan.digest);
@@ -1484,10 +1622,10 @@ test('production provisioner dispatches and reruns a real signed bundle through 
 
 test('offline orchestration rejects a missing journal factory before trust-boundary work', async () => {
   let discovered = false;
-  await assert.rejects(executeOfflineBundle({
+  await assert.rejects(Reflect.apply(executeOfflineBundle, undefined, [{
     runId: 'missing-journal',
     hostAttestor: { platform: 'linux', discover: async () => { discovered = true; throw new Error('must not run'); } },
-  }), /attested-host journal factory/);
+  }]), /attested-host journal factory/);
   assert.equal(discovered, false);
 });
 
@@ -1509,6 +1647,7 @@ test('journal-required orchestration refuses unsupported or mismatched live host
   let calls = 0;
   let journalFactories = 0;
   const journalFactory = () => { journalFactories += 1; return journal; };
+  /** @type {Sandbox} */
   const sandbox = {
     probe: async () => ({ supported: false, platform: 'test', reason: 'must not probe' }),
     execute: async () => { calls += 1; return { exitCode: 0, stdout: '', stderr: '' }; },

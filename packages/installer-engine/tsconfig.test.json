@@ -63,6 +63,7 @@
     "test/native-transaction-journal.test.mjs",
     "test/offline-authority.test.mjs",
     "test/offline-bundle.test.mjs",
+    "test/offline-execution.test.mjs",
     "test/offline-sandbox.test.mjs",
     "test/operational-slo.test.mjs",
     "test/performance-qualification.test.mjs",
