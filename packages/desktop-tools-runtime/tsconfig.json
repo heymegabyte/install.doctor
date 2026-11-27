@@ -17,6 +17,8 @@
     "test/build.test.mjs",
     "test/supervisor.test.mjs",
     "src/opencode-host.mjs",
-    "test/opencode-host.test.mjs"
+    "test/opencode-host.test.mjs",
+    "src/encrypted-recording.mjs",
+    "test/encrypted-recording.test.mjs"
   ]
 }

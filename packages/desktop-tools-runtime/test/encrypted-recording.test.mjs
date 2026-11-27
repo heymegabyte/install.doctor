@@ -11,6 +11,7 @@ const consent = { actorId: 'owner-1', approvedAt: '2026-11-08T12:00:00.000Z', re
 const policy = { retainUntil: '2026-12-08T12:00:00.000Z', maxBytes: 1_048_576, allowExport: true, allowDelete: true };
 const exportAuthorization = { actorId: 'owner-1', approvedAt: '2026-11-08T12:01:00.000Z', purpose: 'support-review' };
 
+/** @param {Partial<Parameters<typeof EncryptedCastWriter.create>[0]>} [overrides] */
 async function fixture(overrides = {}) {
   const root = await mkdtemp(join(tmpdir(), 'desktop-tools-recording-'));
   const path = join(root, 'session-1.cast.enc');
@@ -52,6 +53,7 @@ test('stores sanitized asciicast v3 output, resize, marker, and exit as authenti
 
 test('requires output-only consent, a sanitizer, and an in-memory encryption key', async () => {
   const root = await mkdtemp(join(tmpdir(), 'desktop-tools-recording-denied-'));
+  /** @type {Omit<Parameters<typeof EncryptedCastWriter.create>[0], 'consent'>} */
   const base = { path: join(root, 'denied.cast.enc'), sessionId: 'session-1', createdAt: '2026-11-08T12:00:00.000Z', cols: 80, rows: 24, policy,
     trigger: { kind: 'local', parentSessionId: null, outbox: false }, key: key(), forbiddenValues: [], sanitizeOutput: value => value };
   await assert.rejects(EncryptedCastWriter.create({ ...base, consent: { ...consent, recordOutput: false } }), /output-only consent/);
@@ -65,7 +67,9 @@ test('covers local, browser, scheduled, child, and offline recording authorities
       kind, parentSessionId: kind === 'child' ? 'parent-session' : null, outbox: kind === 'offline',
     } });
     await value.writer.finish(1, 0);
-    const stored = JSON.parse((await readFile(value.path, 'utf8')).split('\n')[0]);
+    const [header] = (await readFile(value.path, 'utf8')).split('\n');
+    assert.ok(header);
+    const stored = JSON.parse(header);
     assert.equal(stored.trigger.kind, kind);
   }
 });
@@ -89,7 +93,9 @@ test('keeps interrupted or failed capture visibly incomplete', async () => {
 });
 
 test('serializes concurrent events in invocation order despite asynchronous sanitization', async () => {
+  /** @type {(() => void) | undefined} */
   let releaseFirst;
+  /** @type {Promise<void>} */
   const firstSanitizer = new Promise(resolve => { releaseFirst = resolve; });
   let calls = 0;
   const value = await fixture({ sanitizeOutput: async output => {
@@ -100,6 +106,7 @@ test('serializes concurrent events in invocation order despite asynchronous sani
   const first = value.writer.output(1, 'first');
   const second = value.writer.output(2, 'second');
   const resized = value.writer.resize(3, 100, 30);
+  assert.ok(releaseFirst);
   releaseFirst();
   await Promise.all([first, second, resized]);
   await value.writer.finish(4, 0);
