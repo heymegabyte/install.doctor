@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import crypto from 'node:crypto';
-import { fileURLToPath, URL } from 'node:url';
+import { fileURLToPath } from 'node:url';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { z } from 'zod';
 import { DeviceAuthorizationRequestSchema } from '../../aid-core/dist/device-authorization.js';
@@ -924,7 +924,7 @@ function makeBootstrapRuntimeFixture(t, product = 'legacy-install-doctor') {
   fs.mkdirSync(downloadRoot);
   fs.mkdirSync(stageRoot);
   fs.mkdirSync(mockBin);
-  t.after(() => fs.rmSync(fixtureRoot, { recursive: true, force: true }));
+  t.after(() => { fs.rmSync(fixtureRoot, { recursive: true, force: true }); });
 
   const privateKey = path.join(fixtureRoot, 'release-signing-key');
   execFileSync('ssh-keygen', ['-q', '-t', 'ed25519', '-N', '', '-C', 'bootstrap-runtime-test', '-f', privateKey]);
@@ -1066,7 +1066,7 @@ esac
     fs.writeFileSync(closure.debianKeyring, 'pinned Debian archive keyring\n');
     fs.writeFileSync(closure.debianPackages, 'signed Debian Packages.xz\n');
     fs.writeFileSync(closure.debianTree, 'tree Debian package\n');
-    const body = artifactBody ?? '#!/usr/bin/env bash\nset -euo pipefail\n';
+    const body = artifactBody;
     fs.writeFileSync(artifact, body, { mode: 0o700 });
     fs.writeFileSync(engine, engineBody, { mode: 0o700 });
     fs.writeFileSync(catalog, catalogBody, { mode: 0o600 });
@@ -1076,33 +1076,33 @@ esac
     const engineDigest = crypto.createHash('sha256').update(engineBody).digest('hex');
     const catalogDigest = crypto.createHash('sha256').update(catalogBody).digest('hex');
     const manifestBody = [
-      `schema_version=${desktop ? 10 : 5}`,
+      `schema_version=${String(desktop ? 10 : 5)}`,
       ...(desktop ? ['product_id=desktop-tools'] : []),
       `release_id=${releaseId}`,
       `source_commit=${'a'.repeat(40)}`,
-      `created_at=${createdAt}`,
-      `expires_at=${expiresAt}`,
+      `created_at=${String(createdAt)}`,
+      `expires_at=${String(expiresAt)}`,
       `key_id=${keyId}`,
       `artifact_url=${artifactUrl}`,
       `artifact_sha256=${digest}`,
-      `artifact_size=${Buffer.byteLength(body)}`,
+      `artifact_size=${String(Buffer.byteLength(body))}`,
       `engine_url=${origin}/releases/test/${engineFilename}`,
       `engine_sha256=${engineDigest}`,
-      `engine_size=${Buffer.byteLength(engineBody)}`,
+      `engine_size=${String(Buffer.byteLength(engineBody))}`,
       `catalog_url=${catalogUrl}`,
       `catalog_sha256=${catalogDigest}`,
-      `catalog_size=${Buffer.byteLength(catalogBody)}`,
+      `catalog_size=${String(Buffer.byteLength(catalogBody))}`,
       `launcher_url=${origin}/releases/${releaseId}/start`,
       `launcher_sha256=${crypto.createHash('sha256').update(launcherBody).digest('hex')}`,
-      `launcher_size=${Buffer.byteLength(launcherBody)}`,
+      `launcher_size=${String(Buffer.byteLength(launcherBody))}`,
       'engine_node_min=22',
       'runtime_node_version=24.11.0',
       ...(desktop ? [
         'opencode_version=2.2.5',
-        `broker_approval_minimum_revocation_epoch=${brokerApprovalMinimumRevocationEpoch}`,
+        `broker_approval_minimum_revocation_epoch=${String(brokerApprovalMinimumRevocationEpoch)}`,
         `broker_approval_delegation_url=${brokerApprovalDelegationUrl}`,
         `broker_approval_delegation_sha256=${crypto.createHash('sha256').update(fs.readFileSync(closure.brokerApprovalDelegation)).digest('hex')}`,
-        `broker_approval_delegation_size=${fs.statSync(closure.brokerApprovalDelegation).size}`,
+        `broker_approval_delegation_size=${String(fs.statSync(closure.brokerApprovalDelegation).size)}`,
         ...[
           ['supervisor', 'desktop-tools-supervisor.mjs', closure.supervisor],
           ['tools', 'desktop-tools-tools.tar.gz', closure.tools],
@@ -1119,7 +1119,7 @@ esac
         ].flatMap(([prefix, filename, file]) => {
           assert.ok(file);
           const bytes = fs.readFileSync(file);
-          return [`${prefix}_url=${origin}/releases/test/${filename}`, `${prefix}_sha256=${crypto.createHash('sha256').update(bytes).digest('hex')}`, `${prefix}_size=${bytes.byteLength}`];
+          return [`${String(prefix)}_url=${origin}/releases/test/${String(filename)}`, `${String(prefix)}_sha256=${crypto.createHash('sha256').update(bytes).digest('hex')}`, `${String(prefix)}_size=${String(bytes.byteLength)}`];
         }),
         ...['macos-x64', 'macos-arm64', 'linux-x64', 'linux-arm64'].flatMap(platform => {
           const key = platform.replaceAll('-', '_');
@@ -1127,7 +1127,7 @@ esac
           assert.ok(archive);
           const bytes = fs.readFileSync(archive);
           const extension = platform.startsWith('macos-') ? 'zip' : 'tar.gz';
-          return [`opencode_${key}_url=${origin}/releases/test/opencode-${platform}.${extension}`, `opencode_${key}_sha256=${crypto.createHash('sha256').update(bytes).digest('hex')}`, `opencode_${key}_size=${bytes.byteLength}`];
+          return [`opencode_${key}_url=${origin}/releases/test/opencode-${platform}.${extension}`, `opencode_${key}_sha256=${crypto.createHash('sha256').update(bytes).digest('hex')}`, `opencode_${key}_size=${String(bytes.byteLength)}`];
         }),
       ] : []),
       ...['macos-x64', 'macos-arm64', 'linux-x64', 'linux-arm64'].flatMap((platform) => {
@@ -1138,7 +1138,7 @@ esac
         return [
           `runtime_${key}_url=${origin}/releases/test/node-${platform}.tar.gz`,
           `runtime_${key}_sha256=${crypto.createHash('sha256').update(runtimeBody).digest('hex')}`,
-          `runtime_${key}_size=${runtimeBody.byteLength}`,
+          `runtime_${key}_size=${String(runtimeBody.byteLength)}`,
         ];
       }),
       '',
@@ -1163,19 +1163,19 @@ esac
         MOCK_ARTIFACT: release.artifact,
         MOCK_ENGINE: release.engine,
         MOCK_CATALOG: release.catalog,
-        MOCK_SUPERVISOR: release.closure?.supervisor ?? '',
-        MOCK_TOOLS: release.closure?.tools ?? '',
-        MOCK_SBOM: release.closure?.sbom ?? '',
-        MOCK_PROVENANCE: release.closure?.provenance ?? '',
-        MOCK_SPDX: release.closure?.spdx ?? '',
-        MOCK_EXPLOITABILITY: release.closure?.exploitability ?? '',
-        MOCK_LICENSES: release.closure?.licenses ?? '',
-        MOCK_OPENCODE_LOCK: release.closure?.opencodeLock ?? '',
-        MOCK_BROKER_APPROVAL_DELEGATION: release.closure?.brokerApprovalDelegation ?? '',
-        MOCK_OPENCODE_MACOS_X64: release.opencode?.['macos-x64'] ?? '',
-        MOCK_OPENCODE_MACOS_ARM64: release.opencode?.['macos-arm64'] ?? '',
-        MOCK_OPENCODE_LINUX_X64: release.opencode?.['linux-x64'] ?? '',
-        MOCK_OPENCODE_LINUX_ARM64: release.opencode?.['linux-arm64'] ?? '',
+        MOCK_SUPERVISOR: release.closure.supervisor,
+        MOCK_TOOLS: release.closure.tools,
+        MOCK_SBOM: release.closure.sbom,
+        MOCK_PROVENANCE: release.closure.provenance,
+        MOCK_SPDX: release.closure.spdx,
+        MOCK_EXPLOITABILITY: release.closure.exploitability,
+        MOCK_LICENSES: release.closure.licenses,
+        MOCK_OPENCODE_LOCK: release.closure.opencodeLock,
+        MOCK_BROKER_APPROVAL_DELEGATION: release.closure.brokerApprovalDelegation,
+        MOCK_OPENCODE_MACOS_X64: release.opencode['macos-x64'] ?? '',
+        MOCK_OPENCODE_MACOS_ARM64: release.opencode['macos-arm64'] ?? '',
+        MOCK_OPENCODE_LINUX_X64: release.opencode['linux-x64'] ?? '',
+        MOCK_OPENCODE_LINUX_ARM64: release.opencode['linux-arm64'] ?? '',
         MOCK_RUNTIME_MACOS_X64: release.runtimes['macos-x64'],
         MOCK_RUNTIME_MACOS_ARM64: release.runtimes['macos-arm64'],
         MOCK_RUNTIME_LINUX_X64: release.runtimes['linux-x64'],
@@ -1184,7 +1184,7 @@ esac
       },
     });
 
-  const assertStageClean = () => assert.deepEqual(fs.readdirSync(stageRoot), [], 'private stage is removed');
+  const assertStageClean = () => { assert.deepEqual(fs.readdirSync(stageRoot), [], 'private stage is removed'); };
   return { config, createRelease, run, assertStageClean, mockBin };
 }
 
@@ -1543,7 +1543,7 @@ void test('Control Plane /start resolves only a digest-bound CAS channel before 
   const now = Math.floor(Date.now() / 1000);
   const manifest = new TextEncoder().encode([
     'schema_version=5', 'release_id=release-1', `source_commit=${'a'.repeat(40)}`,
-    `created_at=${now - 60}`, `expires_at=${now + 86_400}`, 'key_id=not-source-pinned', '',
+    `created_at=${String(now - 60)}`, `expires_at=${String(now + 86_400)}`, 'key_id=not-source-pinned', '',
   ].join('\n'));
   const digest = Buffer.from(await crypto.subtle.digest('SHA-256', manifest)).toString('hex');
   const pointer = new TextEncoder().encode(JSON.stringify({
@@ -1589,7 +1589,7 @@ void test('Control Plane /start resolves only a digest-bound CAS channel before 
 
   const expiredManifest = new TextEncoder().encode([
     'schema_version=5', 'release_id=release-1', `source_commit=${'a'.repeat(40)}`,
-    `created_at=${now - 86_400}`, `expires_at=${now - 1}`, 'key_id=not-source-pinned', '',
+    `created_at=${String(now - 86_400)}`, `expires_at=${String(now - 1)}`, 'key_id=not-source-pinned', '',
   ].join('\n'));
   const expiredDigest = Buffer.from(await crypto.subtle.digest('SHA-256', expiredManifest)).toString('hex');
   const expiredPointer = new TextEncoder().encode(JSON.stringify({
@@ -1650,14 +1650,14 @@ void test('Control Plane serves immutable release bytes from the exact release o
     ['node-linux-arm64.tar.gz', 'application/gzip'],
   ]) {
     const response = await app.fetch(
-      new Request(`https://app.install.doctor/releases/2026.11.05-a1/${file}`),
+      new Request(`https://app.install.doctor/releases/2026.11.05-a1/${String(file)}`),
       { ...TEST_ENV, RELEASES },
     );
     assert.equal(response.status, 200);
     assert.equal(response.headers.get('content-type'), expectedContentType);
     assert.equal(response.headers.get('cache-control'), 'public, max-age=31536000, immutable, no-transform');
     assert.equal(response.headers.get('x-content-type-options'), 'nosniff');
-    assert.deepEqual(new Uint8Array(await response.arrayBuffer()), bodies.get(`bootstrap/2026.11.05-a1/${file}`));
+    assert.deepEqual(new Uint8Array(await response.arrayBuffer()), bodies.get(`bootstrap/2026.11.05-a1/${String(file)}`));
   }
   assert.deepEqual(requestedKeys, [
     'bootstrap/2026.11.05-a1/manifest',
@@ -1728,8 +1728,8 @@ void test('Rendered /start executes only an authentic, current release and scrub
 
   const childEnvironment = path.join(os.tmpdir(), `install-doctor-child-env-${crypto.randomUUID()}`);
   const curlLog = path.join(os.tmpdir(), `install-doctor-curl-log-${crypto.randomUUID()}`);
-  t.after(() => fs.rmSync(childEnvironment, { force: true }));
-  t.after(() => fs.rmSync(curlLog, { force: true }));
+  t.after(() => { fs.rmSync(childEnvironment, { force: true }); });
+  t.after(() => { fs.rmSync(curlLog, { force: true }); });
   const valid = fixture.createRelease({
     artifactBody: `#!/usr/bin/env bash
 set -euo pipefail
@@ -1996,7 +1996,7 @@ void test('Desktop Tools stage-zero redirect, transfer ceiling, and truncation f
   const fixture = makeBootstrapRuntimeFixture(t, 'desktop-tools');
   const { renderBootstrap } = await import('../src/bootstrap.ts');
   const marker = path.join(os.tmpdir(), `desktop-tools-executed-${crypto.randomUUID()}`);
-  t.after(() => fs.rmSync(marker, { force: true }));
+  t.after(() => { fs.rmSync(marker, { force: true }); });
   const artifactBody = `#!/usr/bin/env bash\n: > ${JSON.stringify(marker)}\n`;
   const script = renderBootstrap({
     ...fixture.config,
@@ -2046,7 +2046,7 @@ void test('Rendered /start gates the kernel and architecture before any release 
     ['Linux', 'arm64', 'linux-arm64'],
   ]) {
     const result = fixture.run(startScript, release, { MOCK_UNAME_S: kernel, MOCK_UNAME_M: machine });
-    assert.equal(result.status, 0, `${kernel}/${machine}: ${result.stderr}`);
+    assert.equal(result.status, 0, `${String(kernel)}/${String(machine)}: ${result.stderr}`);
     assert.equal(result.stdout.trim(), expected);
     fixture.assertStageClean();
   }
@@ -2058,14 +2058,14 @@ void test('Rendered /start gates the kernel and architecture before any release 
     ['Darwin', 'powerpc'],
   ]) {
     const marker = path.join(os.tmpdir(), `install-doctor-curl-marker-${crypto.randomUUID()}`);
-    t.after(() => fs.rmSync(marker, { force: true }));
+    t.after(() => { fs.rmSync(marker, { force: true }); });
     const result = fixture.run(startScript, release, {
       MOCK_UNAME_S: kernel,
       MOCK_UNAME_M: machine,
       MOCK_CURL_MARKER: marker,
     });
     assert.notEqual(result.status, 0);
-    assert.match(result.stderr, new RegExp(`unsupported bootstrap platform: ${kernel}/${machine}`));
+    assert.match(result.stderr, new RegExp(`unsupported bootstrap platform: ${String(kernel)}/${String(machine)}`));
     assert.equal(fs.existsSync(marker), false, 'unsupported platforms must fail before curl runs');
     fixture.assertStageClean();
   }
