@@ -2,6 +2,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
 import test from 'node:test';
+import { URL } from 'node:url';
+import { sqliteD1Fixture } from './helpers/sqlite-d1-fixture.mjs';
 import {
   BrokerOwnerDecision,
   BrokerRunIntent,
@@ -11,29 +13,14 @@ import {
 const migration = fs.readFileSync(
   new URL('../migrations/0014_broker_run_authority.sql', import.meta.url), 'utf8',
 );
+/** @param {string} character */
 const hex = character => character.repeat(64);
 
 function fixture(now = '2026-11-09T12:04:00.000Z') {
   const sqlite = new DatabaseSync(':memory:');
   sqlite.exec('PRAGMA foreign_keys = ON');
   sqlite.exec(migration);
-  const db = {
-    prepare(sql) {
-      let values = [];
-      const statement = {
-        bind(...bound) { values = bound; return statement; },
-        async first() {
-          const row = sqlite.prepare(sql).get(...values);
-          return row ? { ...row } : null;
-        },
-        async run() {
-          const result = sqlite.prepare(sql).run(...values);
-          return { meta: { changes: Number(result.changes) } };
-        },
-      };
-      return statement;
-    },
-  };
+  const db = sqliteD1Fixture(sqlite);
   const store = createBrokerRunIntentD1Store(db, { now: () => new Date(now) });
   const intent = {
     schemaVersion: 1, runIntentId: 'intent-1', authorizationId: 'authorization-1',
@@ -103,6 +90,7 @@ test('reconstructs the exact grant from joined columns rather than stored grant 
   await setup.store.persistRunIntent(setup.intent);
   await setup.store.persistOwnerDecision(setup.decision);
   const result = await setup.store.loadApprovedReconstruction(setup.lookup);
+  assert.ok(result);
   assert.equal(result.ownerActorId, 'owner-1');
   assert.deepEqual(result.grant, {
     schemaVersion: 1, grantId: setup.intent.grantId, hostId: setup.intent.hostId,

@@ -9,6 +9,8 @@
     "test/auth-return-policy.test.mjs",
     "test/better-auth-migration-parity.test.mjs",
     "test/broker-approval-managed-signer.test.mjs",
+    "test/broker-production-authorities.test.mjs",
+    "test/broker-run-intent-d1-store.test.mjs",
     "test/debian-native-catalog-merge.test.mjs",
     "test/offline-bundle-publication.test.mjs",
     "test/offline-bundle-request.test.mjs",
@@ -18,6 +20,7 @@
     "test/privileged-step-up.test.mjs",
     "test/r2-publication-storage.test.mjs",
     "test/release-evidence-view.test.mjs",
+    "test/target-authorization-owner.test.mjs",
     ".wrangler/control-plane-runtime.d.ts"
   ]
 }

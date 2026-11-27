@@ -2,11 +2,14 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
 import test from 'node:test';
+import { URL } from 'node:url';
+import { sqliteD1Fixture } from './helpers/sqlite-d1-fixture.mjs';
 import {
   authenticatedOwnerFromBetterAuthSession,
   createBrokerProductionAuthorities,
 } from '../src/broker-production-authorities.ts';
 
+/** @param {string} value */
 const hex = value => value.repeat(64);
 const now = new Date('2026-11-09T12:00:00.000Z');
 
@@ -17,10 +20,7 @@ function setup() {
     '0010_atomic_device_claim.sql', '0016_broker_production_authority.sql']) {
     sqlite.exec(fs.readFileSync(new URL(`../migrations/${migration}`, import.meta.url), 'utf8'));
   }
-  const database = { prepare(sql) { let values = []; const statement = {
-    bind(...bound) { values = bound; return statement; },
-    async first() { const row = sqlite.prepare(sql).get(...values); return row ? { ...row } : null; },
-  }; return statement; } };
+  const database = sqliteD1Fixture(sqlite);
   const profiles = [{ id: 'profile-1', tenantId: 'tenant-1', slug: 'brian', revision: 'revision-1',
     digest: hex('a'), visibility: 'public-bootstrap', enabled: true }];
   sqlite.prepare(`INSERT INTO devices
