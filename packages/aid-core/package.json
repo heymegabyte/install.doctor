@@ -36,7 +36,7 @@
     "build": "tsc --project tsconfig.json",
     "typecheck": "tsc --project tsconfig.json --noEmit",
     "typecheck:test": "tsc --project tsconfig.test.json",
-    "lint": "cd ../.. && node packages/aid-core/node_modules/eslint/bin/eslint.js --config packages/aid-core/eslint.config.mjs --max-warnings=0 \"packages/aid-core/src/**/*.ts\" \"packages/aid-core/test/**/*.mjs\" scripts/check-offline-secret-inventory.mjs scripts/generate-desktop-tools-status.mjs",
+    "lint": "cd ../.. && node packages/aid-core/node_modules/eslint/bin/eslint.js --config packages/aid-core/eslint.config.mjs --max-warnings=0 \"packages/aid-core/src/**/*.ts\" \"packages/aid-core/test/**/*.mjs\" scripts/check-offline-secret-inventory.mjs scripts/generate-desktop-tools-status.mjs scripts/validate-catalog-artifacts.mjs",
     "inventory:check": "node ../../scripts/check-offline-secret-inventory.mjs --check",
     "inventory:refresh": "node ../../scripts/check-offline-secret-inventory.mjs --write",
     "test": "npm run build && npm run typecheck:test && npm run lint && node --test test/*.test.mjs"

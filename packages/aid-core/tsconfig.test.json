@@ -13,6 +13,7 @@
     "test/**/*.test.mjs",
     "test/fixtures/**/*.mjs",
     "../../scripts/check-offline-secret-inventory.mjs",
-    "../../scripts/generate-desktop-tools-status.mjs"
+    "../../scripts/generate-desktop-tools-status.mjs",
+    "../../scripts/validate-catalog-artifacts.mjs"
   ]
 }

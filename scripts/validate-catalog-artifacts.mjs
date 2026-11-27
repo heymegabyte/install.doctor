@@ -2,7 +2,7 @@
 import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync, realpathSync, statSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
-import { fileURLToPath, pathToFileURL } from 'node:url';
+import { fileURLToPath } from 'node:url';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const AID_CORE = resolve(ROOT, 'packages', 'aid-core');
@@ -24,7 +24,7 @@ async function loadSchema() {
         }
       }
       try {
-        const module = await import(pathToFileURL(CONTRACT).href);
+        const module = await import('../packages/aid-core/dist/installer-contracts.js');
         return module.ImmutableArtifactDescriptorSchema;
       } catch (error) {
         throw new Error('immutable artifact contract could not be loaded; run `cd packages/aid-core && npm install && npm run build`', { cause: error });
@@ -34,7 +34,7 @@ async function loadSchema() {
   return schemaPromise;
 }
 
-/** @param {readonly { key: unknown, artifacts: unknown }[]} declarations */
+/** @param {readonly ({ key: unknown, artifacts: unknown } | null | undefined)[]} declarations */
 export async function validateArtifactDeclarations(declarations) {
   const schema = await loadSchema();
   /** @type {Map<string, ArtifactDescriptor[]>} */
@@ -44,13 +44,16 @@ export async function validateArtifactDeclarations(declarations) {
       || declaration.artifacts.length < 1 || declaration.artifacts.length > 16) {
       throw new Error('catalog _artifacts must be a non-empty array of at most 16 descriptors');
     }
-    const artifacts = declaration.artifacts.map((/** @type {unknown} */ value, index) => {
+    const key = declaration.key;
+    /** @type {readonly unknown[]} */
+    const values = declaration.artifacts;
+    const artifacts = values.map((value, index) => {
       const parsed = schema.safeParse(value);
       if (!parsed.success) {
-        throw new Error(`invalid _artifacts descriptor for ${declaration.key}[${index}]: ${parsed.error.issues[0]?.message ?? 'invalid descriptor'}`);
+        throw new Error(`invalid _artifacts descriptor for ${key}[${String(index)}]: ${parsed.error.issues[0]?.message ?? 'invalid descriptor'}`);
       }
-      if (parsed.data.id !== declaration.key) {
-        throw new Error(`artifact id ${parsed.data.id} does not match catalog key ${declaration.key}`);
+      if (parsed.data.id !== key) {
+        throw new Error(`artifact id ${parsed.data.id} does not match catalog key ${key}`);
       }
       return parsed.data;
     });
@@ -69,22 +72,29 @@ export async function validateArtifactDeclarations(declarations) {
 async function main() {
   const path = process.argv[2];
   if (!path) throw new Error('usage: validate-catalog-artifacts.mjs <catalog.json>');
+  /** @type {unknown} */
   const catalog = JSON.parse(readFileSync(path, 'utf8'));
   if (!Array.isArray(catalog)) throw new Error('catalog is not a JSON array');
-  const declarations = catalog
-    .filter((entry) => entry && Object.hasOwn(entry, 'artifacts'))
-    .map((entry) => ({ key: entry.name, artifacts: entry.artifacts }));
+  /** @type {readonly unknown[]} */
+  const entries = catalog;
+  const declarations = entries.flatMap((entry) => {
+    if (entry === null || typeof entry !== 'object' || !('artifacts' in entry) || !Object.hasOwn(entry, 'artifacts')) {
+      return [];
+    }
+    return [{ key: 'name' in entry ? entry.name : undefined, artifacts: entry.artifacts }];
+  });
   const validated = await validateArtifactDeclarations(declarations);
   for (const declaration of declarations) {
-    if (JSON.stringify(declaration.artifacts) !== JSON.stringify(validated.get(declaration.key))) {
-      throw new Error(`catalog artifacts for ${declaration.key} are not in canonical platform order`);
+    if (JSON.stringify(declaration.artifacts) !== JSON.stringify(validated.get(String(declaration.key)))) {
+      throw new Error(`catalog artifacts for ${String(declaration.key)} are not in canonical platform order`);
     }
   }
 }
 
 if (process.argv[1] && realpathSync(process.argv[1]) === realpathSync(fileURLToPath(import.meta.url))) {
-  main().catch((error) => {
-    process.stderr.write(`catalog artifact validation failed: ${error.message}\n`);
+  main().catch((/** @type {unknown} */ error) => {
+    const message = error instanceof Error ? error.message : String(error);
+    process.stderr.write(`catalog artifact validation failed: ${message}\n`);
     process.exitCode = 1;
   });
 }

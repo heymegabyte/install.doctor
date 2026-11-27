@@ -14,6 +14,6 @@ export default [
     tsconfigRootDir,
     profile: 'strict',
     project: 'packages/aid-core/tsconfig.test.json',
-    files: ['packages/aid-core/test/**/*.mjs', 'scripts/check-offline-secret-inventory.mjs', 'scripts/generate-desktop-tools-status.mjs'],
+    files: ['packages/aid-core/test/**/*.mjs', 'scripts/check-offline-secret-inventory.mjs', 'scripts/generate-desktop-tools-status.mjs', 'scripts/validate-catalog-artifacts.mjs'],
   }),
 ];
