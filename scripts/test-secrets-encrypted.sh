@@ -3,11 +3,9 @@
 #
 # The secrets store home/.chezmoitemplates/secrets/** must ship ONLY age-encrypted values, so every
 # regular file in it MUST begin with the `-----BEGIN AGE ENCRYPTED FILE-----` envelope. Eleven
-# pre-existing plaintext CREDENTIAL files are already committed to the repo; their rotation +
-# age-encryption + history scrub is a HUMAN-GATED secret-hygiene action (owner must revoke/rotate the
-# live credentials first), so this gate RECORDS them as known debt while blocking any NEW plaintext
-# secret from landing. Non-credential plaintext entries and the one valid-but-unarmored binary-age
-# ciphertext were remediated (armored in place, value preserved) in the SEC-15/16/17 pass.
+# Previously committed plaintext credential files have now been converted to verified age envelopes.
+# This gate blocks any plaintext secret from landing and keeps the historical known-debt mechanism
+# empty unless a future explicitly reviewed exception is introduced.
 #
 # Non-vacuity: (a) the detector is re-run against a planted temp fixture to prove it actually flags a
 # plaintext file, and (b) the known-debt allowlist is asserted to still be plaintext — the moment a
@@ -32,9 +30,8 @@ ENVELOPE="-----BEGIN AGE ENCRYPTED FILE-----"
 # human-rotation allowlist entry (this is exactly how UNKEY_DATABASE_PRIMARY was mis-triaged).
 BINARY_AGE_MAGIC="age-encryption.org/v1"
 
-# Pre-existing committed-plaintext debt awaiting a human rotation+encryption+scrub pass. Names only —
-# never values. Update (shrink) this list as the debt is cleared; the gate enforces it stays current.
-KNOWN_PLAINTEXT='DITTOFEED_ADMIN_API_KEY DITTOFEED_PUBLIC_WRITE_KEY FLY_REDIS_SHARED_PASSWORD GRAPESJS_API_KEY GRAPESJS_PUBLIC_KEY LANGFLOW_API_KEY LANGFLOW_DATABASE_URL LANGFLOW_SECRET_KEY LANGFLOW_SUPERUSER_PASSWORD TURNSTILE_SECRET_KEY TURNSTILE_SITE_KEY'
+# Reviewed committed-plaintext debt. Keep empty while the store satisfies the age-envelope invariant.
+KNOWN_PLAINTEXT=''
 
 say "secrets-encrypted (AGE envelope invariant; no secret VALUES read)"
 
