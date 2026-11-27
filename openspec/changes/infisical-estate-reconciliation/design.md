@@ -263,6 +263,11 @@ The value-free inventory listing, profile capability groups, host/workload decla
 
 Listing/profile synchronization is deterministic and drift-detecting. Additions default to `blocked-unknown`; removals require a retirement/deletion assertion; precedence and alias changes invalidate prior plans. The operator-facing list command reports source IDs, stores, names, dispositions, targets, validation status, destination completion, offline-exception state, and blockers without resolving values.
 
+After staging any offline template addition or retirement, run the Aid Core
+build, `inventory:refresh`, and `inventory:check` before committing. Stage
+the regenerated inventory alongside the template filename change so the index
+and the policy receipt agree on every revision.
+
 ### Validation-ledger acceptance scenarios
 
 1. **Complete valid selection:** every selected credential has fresh matching `valid` provenance; preflight may proceed to the separately authorized write phase.
