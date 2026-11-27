@@ -109,7 +109,7 @@ function writeEncryptedSecret({ encryptedPath, environment, name, projectId, sec
   if (write.status !== 0) fail(`Infisical rejected ${name}`);
   const readBack = spawnSync('infisical', [
     'secrets', 'get', name, '--projectId', projectId, '--env', environment,
-    '--path', secretPath, '--plain', '--silent', '--telemetry=false',
+    '--path', secretPath, '--plain', '--secret-overriding=false', '--silent', '--telemetry=false',
   ], { stdio: ['ignore', 'pipe', 'pipe'], maxBuffer: 16 * 1024 * 1024 });
   const expected = decrypt.stdout;
   const cliOutput = readBack.stdout;
