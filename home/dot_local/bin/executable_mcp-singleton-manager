@@ -7,13 +7,28 @@ config_root="${XDG_CONFIG_HOME:-$HOME/.config}/mcp-singletons"
 socket_root="$state_root/sockets"
 config_path="$config_root/config.json"
 plist="$HOME/Library/LaunchAgents/$label.plist"
+systemd_unit_name="mcp-singletons.service"
+systemd_unit_dir="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
+systemd_unit="$systemd_unit_dir/$systemd_unit_name"
 broker="${MCP_SINGLETON_BROKER:-$HOME/.local/bin/mcp-singleton-broker.mjs}"
 runner="${MCP_SINGLETON_RUNNER:-$HOME/.agentskills/mcp-servers/paperclip-mcp-stdio-runner.mjs}"
 node_bin="${MCP_SINGLETON_NODE:-$(command -v node || true)}"
-services=(cloudflare-mcp langfuse-mcp paperclip-control-plane-mcp theme-tools-mcp voicekit-mcp)
+default_services="cloudflare-mcp langfuse-mcp paperclip-control-plane-mcp theme-tools-mcp voicekit-mcp"
+read -r -a services <<<"${MCP_SINGLETON_SERVICES:-$default_services}"
 
 die() { printf 'mcp-singleton-manager: %s\n' "$*" >&2; exit 1; }
 require_paths() { test -x "$node_bin" || die "node unavailable"; test -f "$broker" || die "broker unavailable: $broker"; test -f "$runner" || die "runner unavailable: $runner"; }
+
+platform() {
+  if test -n "${MCP_SINGLETON_PLATFORM:-}"; then
+    case "$MCP_SINGLETON_PLATFORM" in darwin|linux) printf '%s\n' "$MCP_SINGLETON_PLATFORM"; return ;; *) die "invalid MCP_SINGLETON_PLATFORM" ;; esac
+  fi
+  case "$(uname -s)" in
+    Darwin) printf 'darwin\n' ;;
+    Linux) printf 'linux\n' ;;
+    *) die "unsupported platform: $(uname -s)" ;;
+  esac
+}
 
 render_config() {
   require_paths
@@ -59,28 +74,74 @@ EOF
   chmod 600 "$plist"
 }
 
+render_systemd_unit() {
+  mkdir -p "$systemd_unit_dir"
+  chmod 700 "$systemd_unit_dir"
+  local temp="$systemd_unit.$$.tmp"
+  umask 077
+  printf '%s\n' \
+    '[Unit]' \
+    'Description=Megabyte per-user MCP singleton broker' \
+    'After=network.target' \
+    '' \
+    '[Service]' \
+    'Type=simple' \
+    "ExecStart=$node_bin $broker --config $config_path" \
+    'Restart=on-failure' \
+    'RestartSec=2' \
+    'UMask=0077' \
+    "Environment=HOME=$HOME" \
+    "Environment=XDG_CONFIG_HOME=${XDG_CONFIG_HOME:-$HOME/.config}" \
+    "Environment=XDG_STATE_HOME=${XDG_STATE_HOME:-$HOME/.local/state}" \
+    'Environment=PATH=/usr/local/bin:/usr/bin:/bin' \
+    'NoNewPrivileges=true' \
+    'PrivateTmp=true' \
+    'ProtectControlGroups=true' \
+    'ProtectKernelModules=true' \
+    'ProtectKernelTunables=true' \
+    'ProtectSystem=strict' \
+    'ReadWritePaths=%h/.config %h/.local/state' \
+    'RestrictSUIDSGID=true' \
+    '' \
+    '[Install]' \
+    'WantedBy=default.target' >"$temp"
+  mv "$temp" "$systemd_unit"
+  chmod 600 "$systemd_unit"
+}
+
 install_service() {
-  test "$(uname -s)" = Darwin || die "launchd singleton installation is macOS-only"
   render_config
-  render_plist
-  launchctl bootout "gui/$(id -u)/$label" >/dev/null 2>&1 || true
-  for _ in 1 2 3 4 5; do
-    launchctl print "gui/$(id -u)/$label" >/dev/null 2>&1 || break
-    sleep 1
-  done
-  bootstrap_ok=0
-  for _ in 1 2 3 4 5; do
-    if launchctl bootstrap "gui/$(id -u)" "$plist" >/dev/null 2>&1; then bootstrap_ok=1; break; fi
-    sleep 1
-  done
-  test "$bootstrap_ok" = 1 || die "launchd bootstrap failed after bounded retry"
-  launchctl kickstart -k "gui/$(id -u)/$label"
+  if test "$(platform)" = darwin; then
+    render_plist
+    launchctl bootout "gui/$(id -u)/$label" >/dev/null 2>&1 || true
+    for _ in 1 2 3 4 5; do
+      launchctl print "gui/$(id -u)/$label" >/dev/null 2>&1 || break
+      sleep 1
+    done
+    bootstrap_ok=0
+    for _ in 1 2 3 4 5; do
+      if launchctl bootstrap "gui/$(id -u)" "$plist" >/dev/null 2>&1; then bootstrap_ok=1; break; fi
+      sleep 1
+    done
+    test "$bootstrap_ok" = 1 || die "launchd bootstrap failed after bounded retry"
+    launchctl kickstart -k "gui/$(id -u)/$label"
+  else
+    command -v systemctl >/dev/null || die "systemctl unavailable"
+    render_systemd_unit
+    systemctl --user daemon-reload
+    systemctl --user enable --now "$systemd_unit_name"
+  fi
   sleep 1
   status_service
 }
 
 status_service() {
-  launchctl print "gui/$(id -u)/$label" >/dev/null 2>&1 || die "service not loaded"
+  if test "$(platform)" = darwin; then
+    launchctl print "gui/$(id -u)/$label" >/dev/null 2>&1 || die "service not loaded"
+  else
+    systemctl --user is-active --quiet "$systemd_unit_name" || die "service not active"
+    systemctl --user is-enabled --quiet "$systemd_unit_name" || die "service not enabled"
+  fi
   for service in "${services[@]}"; do
     test -S "$socket_root/$service.sock" || die "missing socket for $service"
   done
@@ -88,8 +149,14 @@ status_service() {
 }
 
 uninstall_service() {
-  launchctl bootout "gui/$(id -u)/$label" >/dev/null 2>&1 || true
-  rm -f "$plist"
+  if test "$(platform)" = darwin; then
+    launchctl bootout "gui/$(id -u)/$label" >/dev/null 2>&1 || true
+    rm -f "$plist"
+  else
+    systemctl --user disable --now "$systemd_unit_name" >/dev/null 2>&1 || true
+    rm -f "$systemd_unit"
+    systemctl --user daemon-reload
+  fi
   for service in "${services[@]}"; do rm -f "$socket_root/$service.sock"; done
   printf 'mcp singleton broker unloaded; configuration retained at %s\n' "$config_path"
 }
@@ -99,7 +166,11 @@ case "${1:-status}" in
   status) status_service ;;
   restart) install_service ;;
   uninstall|rollback) uninstall_service ;;
-  render) render_config; render_plist; printf '%s\n' "$plist" ;;
+  render)
+    render_config
+    if test "$(platform)" = darwin; then render_plist; printf '%s\n' "$plist"
+    else render_systemd_unit; printf '%s\n' "$systemd_unit"; fi
+    ;;
   *) die "usage: mcp-singleton-manager {install|status|restart|rollback|render}" ;;
 esac
 
