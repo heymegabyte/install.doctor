@@ -7,8 +7,9 @@ import {
   planDueDataVerificationChecks,
 } from '../dist/data-verification-schedule.js';
 
+/** @param {string} value */
 const d = value => value.repeat(64);
-const kinds = ['structural', 'rotating-content', 'full', 'client-decryption'];
+const kinds = /** @type {const} */ (['structural', 'rotating-content', 'full', 'client-decryption']);
 const policy = () => ({
   schemaVersion: 1,
   policyId: 'critical-data',
@@ -21,6 +22,13 @@ const policy = () => ({
   })),
 });
 
+/** @typedef {ReturnType<typeof DataVerificationResultSchema.parse>} VerificationResult */
+/**
+ * @param {VerificationResult['kind']} kind
+ * @param {Partial<Pick<VerificationResult, 'contentDigests' | 'resultId' | 'scheduledAt' | 'startedAt' |
+ *   'completedAt' | 'status' | 'evidenceDigest' | 'serverSideChunkCheck'>> & {decryptedArtifacts?: number}} [options]
+ * @returns {VerificationResult}
+ */
 function result(kind, options = {}) {
   const contentDigests = kind === 'rotating-content' ? (options.contentDigests ?? [d('a')]) : [];
   const clientDecryption = kind === 'client-decryption' ? {
@@ -40,9 +48,14 @@ function result(kind, options = {}) {
 test('strict policy requires all four bounded schedules exactly once', () => {
   assert.equal(DataVerificationPolicySchema.parse(policy()).checks.length, 4);
   assert.throws(() => DataVerificationPolicySchema.parse({ ...policy(), checks: policy().checks.slice(0, 3) }));
-  const duplicate = policy(); duplicate.checks[3] = { ...duplicate.checks[3], kind: 'structural' };
+  const duplicate = policy();
+  assert.ok(duplicate.checks[3]);
+  duplicate.checks[3] = { ...duplicate.checks[3], kind: 'structural' };
   assert.throws(() => DataVerificationPolicySchema.parse(duplicate), /every verification class exactly once/);
-  const unbounded = policy(); unbounded.checks[0].timeoutSeconds = unbounded.checks[0].intervalSeconds;
+  const unbounded = policy();
+  const [firstCheck] = unbounded.checks;
+  assert.ok(firstCheck);
+  firstCheck.timeoutSeconds = firstCheck.intervalSeconds;
   assert.throws(() => DataVerificationPolicySchema.parse(unbounded), /timeout must be shorter/);
 });
 
@@ -55,7 +68,7 @@ test('scheduler coalesces missed intervals and caps admitted concurrency', () =>
 
   const failed = result('structural', { status: 'failed' });
   const retry = planDueDataVerificationChecks({ policy: policy(), results: [failed], now: '2026-11-10T01:00:00.000Z' });
-  assert.equal(retry.find(item => item.kind === 'structural').reason, 'retry-failure');
+  assert.equal(retry.find(item => item.kind === 'structural')?.reason, 'retry-failure');
   assert.equal(retry.filter(item => item.kind === 'structural').length, 1, 'outage replay created duplicate checks');
   assert.throws(() => planDueDataVerificationChecks({
     policy: policy(),

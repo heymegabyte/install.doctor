@@ -10,8 +10,10 @@
     ]
   },
   "include": [
+    "test/backup-authority-plan.test.mjs",
     "test/bundle.test.mjs",
     "test/credential-rotation.test.mjs",
+    "test/data-verification-schedule.test.mjs",
     "test/debian-gpgv.test.mjs",
     "test/debian-metadata.test.mjs",
     "test/debian-relationships.test.mjs",

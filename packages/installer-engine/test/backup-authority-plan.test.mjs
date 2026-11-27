@@ -1,14 +1,18 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { planBackupAuthorities } from '../dist/backup-authority-plan.js';
+import { BackupAuthorityPlanInputSchema, planBackupAuthorities } from '../dist/backup-authority-plan.js';
 
+/** @param {string} value */
 const d = value => value.repeat(64);
+/** @typedef {ReturnType<typeof BackupAuthorityPlanInputSchema.parse>} BackupInput */
+/** @param {string} role @param {BackupInput['writer']['allowedActions']} actions */
 const identity = (role, actions) => ({
   identityId: `${role}-identity`,
   principalId: `provider:${role}`,
   credentialRef: `infisical://desktop-tools/backup/${role}`,
   allowedActions: actions,
 });
+/** @param {Record<string, unknown>} [overrides] @returns {BackupInput} */
 const input = overrides => ({
   schemaVersion: 1,
   planId: 'critical-backup-authority',
@@ -41,7 +45,7 @@ test('separates provider-enforced writer and maintenance authority and binds evi
 });
 
 test('writer can never receive prune, delete, overwrite, or retention authority', () => {
-  for (const action of ['backup:prune', 'backup:delete', 'backup:overwrite', 'snapshot:delete', 'retention:change', 'retention:bypass']) {
+  for (const action of /** @type {const} */ (['backup:prune', 'backup:delete', 'backup:overwrite', 'snapshot:delete', 'retention:change', 'retention:bypass'])) {
     assert.throws(() => planBackupAuthorities(input({
       writer: identity('writer', ['backup:create', action]),
     })), /writer cannot prune, delete, overwrite, or administer retention/i);
@@ -70,6 +74,7 @@ test('provider capability gaps gate activation and are reported exactly', () => 
   assert.deepEqual(plan.findings.map(finding => finding.code), [
     'provider-cannot-separate-identities', 'provider-enforcement-insufficient', 'provider-action-unsupported',
   ]);
+  assert.ok(plan.findings[2]);
   assert.match(plan.findings[2].detail, /backup:delete, backup:prune/);
 });
 
@@ -86,7 +91,9 @@ test('policy-only and generic-compatible storage explicitly cannot guarantee imm
   assert.equal(plan.immutability.guarantee, 'not-guaranteed');
   assert.equal(plan.immutability.evidenceRef, null);
   assert.ok(plan.findings.some(finding => finding.code === 'immutability-not-guaranteed'));
-  assert.match(plan.findings.at(-1).detail, /policy-only.*lock is not enabled.*can bypass.*evidence is absent.*S3-compatible/s);
+  const lastFinding = plan.findings.at(-1);
+  assert.ok(lastFinding);
+  assert.match(lastFinding.detail, /policy-only.*lock is not enabled.*can bypass.*evidence is absent.*S3-compatible/s);
 });
 
 test('contracts reject unknown fields, duplicate actions, and maintenance without owned destructive work', () => {
