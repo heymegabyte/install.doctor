@@ -10,6 +10,7 @@
     ]
   },
   "include": [
+    "test/actionable-alerts.test.mjs",
     "test/backup-authority-plan.test.mjs",
     "test/bundle.test.mjs",
     "test/credential-rotation.test.mjs",
@@ -20,6 +21,7 @@
     "test/debian-version.test.mjs",
     "test/device-posture-attestation.test.mjs",
     "test/effect-migration.test.mjs",
+    "test/fleet-capacity-cost.test.mjs",
     "test/fleet-error-budget.test.mjs",
     "test/helpers/composition-engine-fixture.mjs",
     "test/immutable-linux-deployment.test.mjs",

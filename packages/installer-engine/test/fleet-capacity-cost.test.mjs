@@ -25,9 +25,11 @@ test('each capacity or cost threshold gates its dependent sustained work before 
   for (const metricName of names) {
     const changed = structuredClone(input);
     const metric = changed.metrics.find(candidate => candidate.metric === metricName);
+    assert.ok(metric);
     metric.current = 80; metric.projectedIncrease = 10;
     const decision = evaluateFleetCapacityCostForecast(changed);
     const result = decision.metrics.find(candidate => candidate.metric === metricName);
+    assert.ok(result);
     assert.equal(result.status, 'gated', metricName);
     assert.ok(result.utilization < 1, `${metricName} must gate before exhaustion`);
     assert.equal(result.blockedWork.length > 0, true);
@@ -37,9 +39,11 @@ test('each capacity or cost threshold gates its dependent sustained work before 
 
 test('unknown confidence fails closed and evidence changes decision identity', () => {
   const unknown = structuredClone(input);
-  unknown.metrics[0].confidence = 'unknown';
+  const [firstMetric] = unknown.metrics;
+  assert.ok(firstMetric);
+  firstMetric.confidence = 'unknown';
   const blocked = evaluateFleetCapacityCostForecast(unknown);
-  assert.equal(blocked.metrics.find(metric => metric.metric === names[0]).status, 'unverified');
+  assert.equal(blocked.metrics.find(metric => metric.metric === names[0])?.status, 'unverified');
   assert.equal(blocked.admitted, false);
   assert.notEqual(blocked.decisionDigest, evaluateFleetCapacityCostForecast({ ...input, evidenceDigest: 'b'.repeat(64) }).decisionDigest);
 });
@@ -48,6 +52,10 @@ test('forecasts reject missing, duplicate, contradictory, and overflowing metric
   assert.throws(() => evaluateFleetCapacityCostForecast({ ...input, metrics: input.metrics.slice(1) }), /length|metric/i);
   assert.throws(() => evaluateFleetCapacityCostForecast({ ...input, metrics: input.metrics.map((metric, index) => index === 1 ? input.metrics[0] : metric) }), /exactly once/);
   assert.throws(() => evaluateFleetCapacityCostForecast({ ...input, metrics: input.metrics.map((metric, index) => index === 0 ? { ...metric, warningRatio: 0.9 } : metric) }), /precede/);
-  const overflow = structuredClone(input); overflow.metrics[0].current = Number.MAX_SAFE_INTEGER; overflow.metrics[0].projectedIncrease = 1;
+  const overflow = structuredClone(input);
+  const [overflowMetric] = overflow.metrics;
+  assert.ok(overflowMetric);
+  overflowMetric.current = Number.MAX_SAFE_INTEGER;
+  overflowMetric.projectedIncrease = 1;
   assert.throws(() => evaluateFleetCapacityCostForecast(overflow), /overflow/);
 });

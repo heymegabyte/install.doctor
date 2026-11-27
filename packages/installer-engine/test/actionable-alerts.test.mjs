@@ -7,11 +7,15 @@ import {
   detectMissingHeartbeat,
 } from '../dist/actionable-alerts.js';
 
+/** @param {string} value */
 const digest = value => value.repeat(64).slice(0, 64);
-const subject = { kind: 'device', id: 'nvme0n1', displayName: 'NVMe system disk' };
+const subject = { kind: /** @type {const} */ ('device'), id: 'nvme0n1', displayName: 'NVMe system disk' };
+/** @param {string} observedAt */
 const evidence = (observedAt, summary = 'simulated media error') => ({
   observedAt, source: 'hardware-health', summary, correlationId: 'fault-run-1', contentDigest: digest('a'),
 });
+/** @param {string} at @returns {import("../dist/actionable-alerts.js").ActionableAlertSignal} */
+
 const fault = at => ({
   schemaVersion: 1, hostId: 'zen', subject, condition: 'nvme-critical-warning', severity: 'critical',
   recoveryImpact: 'recovery-point-at-risk', impactSummary: 'local recovery points may become unavailable',
@@ -41,7 +45,7 @@ test('matching recovery evidence clears the simulated fault and a later fault op
     evidence: evidence('2026-11-10T10:05:00Z', 'device self-test and recovery verification passed'),
   });
   assert.equal(resolved.state, 'resolved');
-  assert.equal(resolved.resolutionEvidence.summary, 'device self-test and recovery verification passed');
+  assert.equal(resolved.resolutionEvidence?.summary, 'device self-test and recovery verification passed');
   const reopened = applyActionableAlertSignal(resolved, fault('2026-11-10T11:00:00Z'));
   assert.equal(reopened.state, 'firing');
   assert.notEqual(reopened.alertId, opened.alertId);
@@ -71,6 +75,7 @@ test('missing heartbeat is emitted only beyond the bounded freshness threshold',
   };
   assert.equal(detectMissingHeartbeat(policy, { ...base, evaluatedAt: '2026-11-10T10:01:29Z' }), undefined);
   const signal = detectMissingHeartbeat(policy, { ...base, evaluatedAt: '2026-11-10T10:01:30Z' });
+  assert.ok(signal);
   assert.equal(signal.condition, 'missing-heartbeat.alloy-delivery');
   assert.equal(signal.hostId, 'zen');
   assert.match(signal.impactSummary, /90s old/);
