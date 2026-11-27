@@ -79,7 +79,7 @@ docker exec "$CONTAINER" /bin/sh -ceu '
 '
 
 docker exec "$CONTAINER" /usr/bin/setpriv --bounding-set=-net_admin --no-new-privs -- \
-  node /opt/install.doctor/packages/installer-engine/acceptance.mjs /evidence/receipt.json \
+  node /opt/install.doctor/packages/installer-engine/test/fixtures/native-dpkg-pid1/acceptance.mjs /evidence/receipt.json \
   | tee "$EVIDENCE_ROOT/run.ndjson"
 test -s "$EVIDENCE_ROOT/receipt.json"
 # The container creates the receipt as root under a deliberately restrictive

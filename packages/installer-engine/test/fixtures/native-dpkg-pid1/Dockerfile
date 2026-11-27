@@ -28,7 +28,7 @@ WORKDIR /opt/install.doctor/packages/installer-engine
 COPY packages/installer-engine/package.json packages/installer-engine/package-lock.json ./
 RUN npm ci --omit=dev --ignore-scripts --no-audit --no-fund
 COPY packages/installer-engine/dist ./dist
-COPY packages/installer-engine/test/fixtures/native-dpkg-pid1/acceptance.mjs ./acceptance.mjs
+COPY packages/installer-engine/test/fixtures/native-dpkg-pid1/acceptance.mjs ./test/fixtures/native-dpkg-pid1/acceptance.mjs
 COPY --from=broker-builder /desktop-tools-privileged-broker /usr/local/libexec/desktop-tools-privileged-broker
 
 STOPSIGNAL SIGRTMIN+3

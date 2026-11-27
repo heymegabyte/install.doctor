@@ -16,6 +16,8 @@ hasNoDeployCommands() { ! grep -Eq 'wrangler deploy|git push|release activate' "
 
 check 'driver exists' test -f "$DRIVER"
 check 'fixture exists' test -f "$FIXTURE"
+check 'image preserves the fixture source layout' grep -Fq 'acceptance.mjs ./test/fixtures/native-dpkg-pid1/acceptance.mjs' "$DOCKERFILE"
+check 'driver invokes the nested fixture entry point' grep -Fq '/opt/install.doctor/packages/installer-engine/test/fixtures/native-dpkg-pid1/acceptance.mjs' "$DRIVER"
 check 'Dockerfile exists' test -f "$DOCKERFILE"
 check 'workflow exists' test -f "$WORKFLOW"
 check 'pinned Debian-family base image' grep -Eq '^FROM node:24-bookworm@sha256:[a-f0-9]{64}$' "$DOCKERFILE"

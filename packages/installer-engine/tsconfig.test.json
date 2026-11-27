@@ -12,6 +12,7 @@
   "include": [
     "bin/**/*.mjs",
     "test/*.test.mjs",
-    "test/helpers/**/*.mjs"
+    "test/helpers/**/*.mjs",
+    "test/fixtures/**/*.mjs"
   ]
 }

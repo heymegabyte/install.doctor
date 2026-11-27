@@ -16,12 +16,19 @@ import {
   deriveBoundNormalizedPlan,
   inspectNativeDebianPackage,
   verifyDebianRepositoryMetadata,
-} from './dist/index.js';
-import { createPrivilegedBrokerNativeRuntime } from './dist/privileged-broker-client.js';
-import { derivePrivilegedBrokerAuthority } from './dist/privileged-broker-derivation.js';
-import { runPrivilegedBrokerController } from './dist/privileged-broker-controller.js';
+} from '../../../dist/index.js';
+import { derivePrivilegedBrokerAuthority } from '../../../dist/privileged-broker-derivation.js';
+import { runPrivilegedBrokerController } from '../../../dist/privileged-broker-controller.js';
 import { brokerApprovalAuditDigest, brokerApprovalSemanticDigest,
-  brokerApprovalSigningBytes } from './node_modules/@install-doctor/aid-core/dist/broker-approval-contracts.js';
+  brokerApprovalSigningBytes } from '@install-doctor/aid-core/broker-approval-contracts';
+
+/** @typedef {Parameters<typeof createNativeDpkgTransactionRuntime>[0]} RuntimeOptions */
+/** @typedef {Parameters<ReturnType<typeof createNativeDpkgTransactionRuntime>['apply']>[0]} RuntimeAuthority */
+/** @typedef {Parameters<NonNullable<RuntimeOptions['executeDpkg']>>[0]} DpkgRequest */
+/** @typedef {RuntimeAuthority['rootDescriptor']} NativeDescriptor */
+/** @typedef {NativeDescriptor['metadataProof']['packagesIndex']['architecture']} Architecture */
+/** @typedef {{ artifactId: string, sourcePath: string }} ArtifactSource */
+/** @typedef {{ code: number, signal: NodeJS.Signals | null, stdout: string, stderr: string }} CommandResult */
 
 const receiptPath = process.argv[2];
 if (!receiptPath?.startsWith('/evidence/')) throw new Error('an evidence path below /evidence is required');
@@ -38,12 +45,20 @@ const POLICY_PATH = '/usr/sbin/policy-rc.d';
 const STATE_ROOT = '/var/lib/install-doctor-native-fixture';
 const TRANSACTION_PATH = join(STATE_ROOT, 'transaction.json');
 const BROKER_HELPER_SOURCE = '/usr/local/libexec/desktop-tools-privileged-broker';
+/** @type {DpkgRequest['action'][]} */
 const actionLog = [];
 
+/** @param {Buffer} bytes */
 function sha256(bytes) {
   return createHash('sha256').update(bytes).digest('hex');
 }
 
+/**
+ * @param {string} file
+ * @param {readonly string[]} arguments_
+ * @param {{ stdio?: import('node:child_process').StdioOptions, env?: NodeJS.ProcessEnv, allowFailure?: boolean }} options
+ * @returns {Promise<CommandResult>}
+ */
 async function command(file, arguments_, options = {}) {
   return await new Promise((resolve, reject) => {
     const child = spawn(file, arguments_, {
@@ -51,9 +66,12 @@ async function command(file, arguments_, options = {}) {
       stdio: options.stdio ?? ['ignore', 'pipe', 'pipe'],
       env: options.env ?? { PATH: '/usr/sbin:/usr/bin:/sbin:/bin', LANG: 'C', LC_ALL: 'C' },
     });
+    /** @type {Buffer[]} */
     const stdout = [];
+    /** @type {Buffer[]} */
     const stderr = [];
     let total = 0;
+    /** @param {Buffer[]} target @returns {(chunk: Buffer) => void} */
     const collect = target => chunk => {
       total += chunk.length;
       if (total > 1024 * 1024) child.kill('SIGKILL');
@@ -70,6 +88,7 @@ async function command(file, arguments_, options = {}) {
   });
 }
 
+/** @param {string} path @param {unknown} value */
 async function atomicJson(path, value) {
   await mkdir(dirname(path), { recursive: true, mode: 0o700 });
   const temporary = `${path}.${process.pid}.tmp`;
@@ -85,10 +104,12 @@ async function atomicJson(path, value) {
   try { await directory.sync(); } finally { await directory.close(); }
 }
 
+/** @param {string} path */
 async function absent(path) {
-  await assert.rejects(lstat(path), error => error?.code === 'ENOENT');
+  await assert.rejects(lstat(path), error => error instanceof Error && 'code' in error && error.code === 'ENOENT');
 }
 
+/** @param {string} work @param {Architecture} architecture */
 async function buildPackage(work, architecture) {
   const root = join(work, 'package');
   await mkdir(join(root, 'DEBIAN'), { recursive: true });
@@ -114,6 +135,7 @@ async function buildPackage(work, architecture) {
   return output;
 }
 
+/** @param {string} packagePath @param {Architecture} architecture @returns {Promise<NativeDescriptor>} */
 async function createDescriptor(packagePath, architecture) {
   const bytes = await readFile(packagePath);
   const artifactDigest = sha256(bytes);
@@ -156,6 +178,7 @@ async function createDescriptor(packagePath, architecture) {
   };
 }
 
+/** @param {string} work @param {string} packagePath @param {Architecture} architecture */
 async function createAndVerifyRepositoryAuthority(work, packagePath, architecture) {
   const repository = join(work, 'repository-authority');
   const gnupg = join(repository, 'gnupg');
@@ -166,7 +189,8 @@ async function createAndVerifyRepositoryAuthority(work, packagePath, architectur
     '--quick-generate-key', identity, 'ed25519', 'sign', '1y']);
   const listing = await command('/usr/bin/gpg', ['--batch', '--homedir', gnupg, '--with-colons', '--fingerprint', identity]);
   const fingerprint = listing.stdout.split('\n').map(line => line.split(':')).find(fields => fields[0] === 'fpr')?.[9];
-  assert.match(fingerprint ?? '', /^(?:[A-F0-9]{40}|[A-F0-9]{64})$/);
+  assert.ok(fingerprint);
+  assert.match(fingerprint, /^(?:[A-F0-9]{40}|[A-F0-9]{64})$/);
 
   const payloadBytes = await readFile(packagePath);
   const payloadDigest = sha256(payloadBytes);
@@ -225,7 +249,9 @@ async function createAndVerifyRepositoryAuthority(work, packagePath, architectur
   assert.equal(verified.inReleaseFingerprint, fingerprint);
   assert.equal(verified.payloadSha256, payloadDigest);
   const substitutedIndex = Buffer.from(exactPackagesBytes);
-  substitutedIndex[0] ^= 0x01;
+  const firstIndexByte = substitutedIndex[0];
+  assert.ok(firstIndexByte !== undefined);
+  substitutedIndex[0] = firstIndexByte ^ 0x01;
   await assert.rejects(verifyDebianRepositoryMetadata({ descriptor, inReleaseBytes, keyringBytes,
     packagesIndexBytes: substitutedIndex, payloadBytes,
     verifier: createDefaultDebianMetadataVerifier({ keyring: { kind: 'path', absolutePath: keyringPath },
@@ -234,6 +260,7 @@ async function createAndVerifyRepositoryAuthority(work, packagePath, architectur
     inReleasePath, keyringPath, packagesPath };
 }
 
+/** @param {string} work @param {NativeDescriptor} descriptor @param {ArtifactSource[]} artifacts */
 async function createSignedReleaseAuthority(work, descriptor, artifacts) {
   const releaseId = 'pid1-broker-release';
   const releaseRoot = join(work, 'desktop-release');
@@ -257,6 +284,7 @@ async function createSignedReleaseAuthority(work, descriptor, artifacts) {
     product: 'desktop-tools', releaseId, channel: 'stable',
     publicKeySpki: approvalSigner.publicKey.export({ type: 'spki', format: 'der' }).toString('base64url'),
     notBefore, notAfter, maximumApprovalLifetimeSeconds: 600, revocationEpoch: 1 };
+  /** @param {unknown} value @returns {unknown} */
   const canonical = value => value && typeof value === 'object' && !Array.isArray(value)
     ? Object.fromEntries(Object.entries(value).sort(([left], [right]) => left.localeCompare(right))
       .map(([name, child]) => [name, canonical(child)]))
@@ -265,6 +293,7 @@ async function createSignedReleaseAuthority(work, descriptor, artifacts) {
   const delegationBytes = Buffer.from(`${JSON.stringify(canonical({ ...delegationProjection, delegationDigest }))}\n`);
   const delegationPath = join(releaseRoot, 'broker-approval-signer-delegation.json');
   await writeFile(delegationPath, delegationBytes, { mode: 0o400 });
+  /** @type {Array<[string, string, string]>} */
   const nativeObjects = [
     ['debian_inrelease', descriptor.metadataProof.inRelease.artifactId, 'fixture-InRelease'],
     ['debian_keyring', descriptor.metadataProof.inRelease.keyring.artifactId, 'fixture-keyring.gpg'],
@@ -300,6 +329,7 @@ async function createSignedReleaseAuthority(work, descriptor, artifacts) {
   return { releaseId, releaseProof, approvalSigner, signerKeyId, delegationPath, delegationDigest };
 }
 
+/** @param {{ packagePath: string, repositoryAuthority: Awaited<ReturnType<typeof createAndVerifyRepositoryAuthority>> }} input */
 async function runBrokerComposition({ packagePath, repositoryAuthority }) {
   await command('/usr/bin/dpkg', ['--purge', '--', PACKAGE_NAME]);
   const enrolledUid = 1000;
@@ -322,12 +352,12 @@ async function runBrokerComposition({ packagePath, repositoryAuthority }) {
   await chmod(socketRoot, 0o710);
   await Promise.all([
     copyFile(BROKER_HELPER_SOURCE, helperPath), copyFile(process.execPath, runtimePath),
-    copyFile(new URL('./dist/desktop-tools-privileged-worker.mjs', import.meta.url), workerPath),
+    copyFile(new URL('../../../dist/desktop-tools-privileged-worker.mjs', import.meta.url), workerPath),
     copyFile(packagePath, clientPayloadPath),
   ]);
   const clientSource = `
 import { open, readFile } from 'node:fs/promises';
-import { createPrivilegedBrokerNativeRuntime } from '${new URL('./dist/privileged-broker-client.js', import.meta.url).href}';
+import { createPrivilegedBrokerNativeRuntime } from '${new URL('../../../dist/privileged-broker-client.js', import.meta.url).href}';
 const input=JSON.parse(await readFile(process.argv[2],'utf8'));
 const runtime=createPrivilegedBrokerNativeRuntime(input.config);
 const authority=phase=>({operation:{kind:'native-package',effectClass:'native-package',action:phase,packageKey:input.packageKey,payloadArtifactId:input.artifact.id},rootDescriptor:{packageKey:input.packageKey,artifact:input.artifact},packages:[],installedWitnesses:[],withPayload:async(_key,use)=>{const handle=await open(process.argv[3],'r');try{return await use(handle)}finally{await handle.close()}},context:undefined});
@@ -360,7 +390,9 @@ process.stdout.write(JSON.stringify({check,apply:'applied',verify})+'\\n');
     const mapping = item.artifactId === descriptor.artifact.id ? `debian_tree` : item.artifactId === descriptor.metadataProof.inRelease.artifactId
       ? 'debian_inrelease' : item.artifactId === descriptor.metadataProof.inRelease.keyring.artifactId ? 'debian_keyring' : 'debian_packages';
     const manifest = await readFile(release.releaseProof.manifestPath, 'utf8');
-    item.url = manifest.match(new RegExp(`^${mapping}_url=(.+)$`, 'm'))[1];
+    const url = manifest.match(new RegExp(`^${mapping}_url=(.+)$`, 'm'))?.[1];
+    assert.ok(url, `missing ${mapping} release artifact URL`);
+    item.url = url;
   }
   const facts = await collectLinuxOfflineHostFacts();
   const desiredState = { schemaVersion: 1, revision: 'pid1-broker', hostId: facts.hostId,
@@ -425,9 +457,13 @@ process.stdout.write(JSON.stringify({check,apply:'applied',verify})+'\\n');
   await absent(`/run/desktop-tools/privileged/authorities/${derived.grant.grantId}.json`);
   const transactionIds = await readdir(derived.authority.transactionRoot);
   assert.equal(transactionIds.length, 1);
-  const generationNames = (await readdir(join(derived.authority.transactionRoot, transactionIds[0]))).sort();
-  assert.ok(generationNames.length > 0);
-  const generation = JSON.parse(await readFile(join(derived.authority.transactionRoot, transactionIds[0], generationNames.at(-1)), 'utf8'));
+  const [transactionId] = transactionIds;
+  assert.ok(transactionId);
+  const transactionDirectory = join(derived.authority.transactionRoot, transactionId);
+  const generationNames = (await readdir(transactionDirectory)).sort();
+  const latestGeneration = generationNames.at(-1);
+  assert.ok(latestGeneration);
+  const generation = JSON.parse(await readFile(join(transactionDirectory, latestGeneration), 'utf8'));
   assert.equal(generation.record.phase, 'completed');
   return { receipt: clientReceipt, grantId: derived.grant.grantId, authorityRetired: true, signedDeviceApproval: true,
     transactionCompleted: true, releaseManifestSha256: release.releaseProof.manifestSha256 };
@@ -444,13 +480,19 @@ async function serviceState() {
   return { enabled: enabled.code === 0 && enabled.stdout.trim() === 'enabled', running: active.code === 0 && active.stdout.trim() === 'active' };
 }
 
+/** @param {DpkgRequest} request @param {AbortController} controller @param {boolean} interruptAfterUnpack */
 async function executeDpkg(request, controller, interruptAfterUnpack) {
   const arguments_ = request.action === 'unpack'
     ? ['--force-confold', '--no-triggers', '--unpack', '--', '/proc/self/fd/3']
     : ['--force-confold', '--no-triggers', '--configure', '--', request.packageName];
   const policy = await command(POLICY_PATH, [], { allowFailure: true });
   assert.equal(policy.code, 101, 'runtime policy-rc.d helper was not active at the mutation boundary');
-  const stdio = request.action === 'unpack' ? ['ignore', 'ignore', 'pipe', request.payloadDescriptor] : ['ignore', 'ignore', 'pipe'];
+  /** @type {import('node:child_process').StdioOptions} */
+  const stdio = ['ignore', 'ignore', 'pipe'];
+  if (request.action === 'unpack') {
+    assert.ok(request.payloadDescriptor !== undefined);
+    stdio.push(request.payloadDescriptor);
+  }
   const result = await command('/usr/bin/dpkg', arguments_, {
     allowFailure: true,
     stdio,
@@ -467,7 +509,8 @@ async function executeDpkg(request, controller, interruptAfterUnpack) {
   return { code: result.code, stderr: result.stderr.replace(/[\0\r\n]+/g, ' ').trim().slice(0, 1024) };
 }
 
-async function main() {
+/** @param {string} receiptPath */
+async function main(receiptPath) {
   assert.equal((await readFile('/proc/1/comm', 'utf8')).trim(), 'systemd', 'fixture does not have systemd as PID 1');
   await assertNativeDpkgNetworkDenied();
   const networkInterfaces = (await readdir('/sys/class/net', { withFileTypes: true }))
@@ -512,14 +555,21 @@ async function main() {
   try { control = await inspectNativeDebianPackage({ descriptor, payloadHandle: inspectionHandle }); }
   finally { await inspectionHandle.close(); }
 
-  let transaction;
+  /** @type {{ transaction?: Parameters<RuntimeOptions['persistence']['save']>[0] }} */
+  const recorded = {};
+  /** @type {RuntimeOptions['persistence']} */
   const persistence = {
     async load() {
       try { return JSON.parse(await readFile(TRANSACTION_PATH, 'utf8')); }
-      catch (error) { if (error?.code === 'ENOENT') return undefined; throw error; }
+      catch (error) { if (error instanceof Error && 'code' in error && error.code === 'ENOENT') return undefined; throw error; }
     },
-    async save(value) { transaction = structuredClone(value); await atomicJson(TRANSACTION_PATH, value); },
+    async save(value) { recorded.transaction = structuredClone(value); await atomicJson(TRANSACTION_PATH, value); },
   };
+  /**
+   * @param {RuntimeAuthority['operation']['action']} action
+   * @param {AbortSignal} signal
+   * @returns {RuntimeAuthority}
+   */
   const authority = (action, signal) => ({
     operation: { kind: 'native-package', effectClass: 'native-package', action, packageKey: PACKAGE_KEY, payloadArtifactId: descriptor.artifact.id, expectedPackage: { name: descriptor.package.name, version: descriptor.package.version, architecture: descriptor.package.architecture } },
     rootDescriptor: descriptor,
@@ -528,9 +578,16 @@ async function main() {
       metadata: {
         packageName: descriptor.package.name, packageVersion: descriptor.package.version,
         packageArchitecture: descriptor.package.architecture, payloadSha256: descriptor.artifact.sha256,
+        packageFilename: descriptor.metadataProof.packageStanza.filename,
+        inReleaseFingerprint: descriptor.metadataProof.inRelease.signingKeyFingerprint,
+        inReleaseDate: descriptor.metadataProof.inRelease.signedAt,
+        inReleaseValidUntil: descriptor.metadataProof.inRelease.validUntil,
+        inReleaseMaximumDateAgeSeconds: descriptor.metadataProof.inRelease.maximumDateAgeSeconds,
+        packagesIndexSha256: descriptor.metadataProof.packagesIndex.sha256,
       },
       control,
     }],
+    installedWitnesses: [],
     withPayload: async (packageKey, use) => {
       assert.equal(packageKey, PACKAGE_KEY);
       const handle = await open(packagePath, 'r');
@@ -539,6 +596,7 @@ async function main() {
     context: { signal, attempt: 1, output() {} },
   });
   const compareDebianVersions = await createTrustedDebianVersionComparator();
+  /** @param {AbortController} controller */
   const makeRuntime = (controller, interruptAfterUnpack = false) => createNativeDpkgTransactionRuntime({
     identity: { runId: 'pid1-acceptance', hostId: 'debian-bookworm-pid1', planDigest: PLAN_DIGEST },
     persistence,
@@ -548,8 +606,8 @@ async function main() {
 
   const controller = new AbortController();
   await assert.rejects(makeRuntime(controller, true).apply(authority('apply', controller.signal)), /fixture boundary interruption/);
-  assert.equal(transaction.phase, 'blocked');
-  assert.equal(transaction.packages[0].phase, 'unpacked');
+  assert.equal(recorded.transaction?.phase, 'blocked');
+  assert.equal(recorded.transaction?.packages[0]?.phase, 'unpacked');
   const interruptedPolicyRestored = JSON.stringify(await exactPolicyState()) === JSON.stringify(initialPolicy);
   const interruptedServiceRestored = JSON.stringify(await serviceState()) === JSON.stringify(initialService);
   assert.equal(interruptedPolicyRestored, true);
@@ -561,7 +619,7 @@ async function main() {
   const resumeActions = actionLog.slice(resumeStart);
   const resumeConfigureOnly = JSON.stringify(resumeActions) === JSON.stringify(['configure']);
   assert.equal(resumeConfigureOnly, true, `resume actions were ${JSON.stringify(resumeActions)}`);
-  assert.equal(transaction.phase, 'completed');
+  assert.equal(recorded.transaction?.phase, 'completed');
 
   const secondStart = actionLog.length;
   const secondController = new AbortController();
@@ -588,7 +646,7 @@ async function main() {
   const [dpkgVersion, systemdVersion, runtimeBytes] = await Promise.all([
     command('/usr/bin/dpkg', ['--version']),
     command('/usr/bin/systemctl', ['--version']),
-    readFile(new URL('./dist/native-dpkg-transaction.js', import.meta.url)),
+    readFile(new URL('../../../dist/native-dpkg-transaction.js', import.meta.url)),
   ]);
 
   const receipt = {
@@ -623,4 +681,4 @@ async function main() {
   await rm(work, { recursive: true, force: true });
 }
 
-await main();
+await main(receiptPath);
