@@ -4,7 +4,6 @@ import { chmod, lstat, open, readFile, readdir, realpath, rename, rm, rmdir } fr
 import { dirname, join, resolve } from 'node:path';
 import { z } from 'zod';
 import { RollbackPlanSchema, createRollbackPlan } from './rollback.js';
-import type { RollbackPlan } from './rollback.js';
 import type { PersistedConfigurationCompensation } from './journal.js';
 import { MANAGED_DIRECTORY_AUTHORITY_MARKER, configurationCompensationArtifactDigest, serviceStateEquals } from './config-transaction.js';
 import type { ServiceState, ServiceStateSnapshot } from './config-transaction.js';
@@ -28,7 +27,7 @@ export interface RollbackTargetState { readonly existed: boolean; readonly diges
 function isRestoredPostcondition(artifact: PersistedConfigurationCompensation, target: RollbackTargetState): boolean {
   const snapshot = artifact.snapshot;
   const fileRestored = 'kind' in snapshot && snapshot.kind === 'directory' ? !target.existed && target.type === 'absent'
-    : 'kind' in snapshot && snapshot.kind === 'service' ? true : snapshot.existed
+    : 'kind' in snapshot ? true : snapshot.existed
     ? target.existed && target.type === 'regular' && target.links === 1
       && target.digest === snapshot.digest && target.mode === snapshot.mode
       && target.uid === snapshot.uid && target.gid === snapshot.gid
@@ -71,7 +70,7 @@ async function restoreManagedDirectory(artifact: PersistedConfigurationCompensat
     if (!markerInfo.isFile() || markerInfo.nlink !== 1 || markerInfo.uid !== uid || (markerInfo.mode & 0o7777) !== 0o600
       || marker.toString('hex') !== snapshot.authority.markerHex || sha256(marker) !== snapshot.authority.markerDigest) throw new Error('rollback directory authority mismatch');
   } finally { await handle.close(); }
-  const tombstone = join(parent, `.install-doctor-directory-rollback-${process.pid}-${randomBytes(12).toString('hex')}`);
+  const tombstone = join(parent, `.install-doctor-directory-rollback-${String(process.pid)}-${randomBytes(12).toString('hex')}`);
   await beforeMutation?.();
   await rename(snapshot.targetPath, tombstone);
   const parentHandle = await open(parent, constants.O_RDONLY); try { await parentHandle.sync(); } finally { await parentHandle.close(); }
@@ -101,7 +100,7 @@ async function assertSafeTarget(path: string, uid: number): Promise<boolean> {
 async function restore(artifact: PersistedConfigurationCompensation, uid: number, beforeMutation?: () => Promise<void>): Promise<void> {
   const snapshot = artifact.snapshot;
   if ('kind' in snapshot && snapshot.kind === 'directory') return restoreManagedDirectory(artifact, uid, beforeMutation);
-  if ('kind' in snapshot && snapshot.kind === 'service') return;
+  if ('kind' in snapshot) return;
   const parent = await safeParent(snapshot.targetPath, uid);
   const exists = await assertSafeTarget(snapshot.targetPath, uid);
   if (!snapshot.existed) {
@@ -113,7 +112,7 @@ async function restore(artifact: PersistedConfigurationCompensation, uid: number
   const bytes = Buffer.from(artifact.bytesBase64, 'base64');
   if (sha256(bytes) !== snapshot.digest) throw new Error('rollback snapshot byte digest mismatch');
   if (process.platform === 'win32' || typeof constants.O_NOFOLLOW !== 'number') throw new Error('platform cannot prove no-follow rollback safety');
-  const candidate = `${parent}/.install-doctor-rollback-${process.pid}-${randomBytes(12).toString('hex')}`;
+  const candidate = `${parent}/.install-doctor-rollback-${String(process.pid)}-${randomBytes(12).toString('hex')}`;
   const handle = await open(candidate, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY | constants.O_NOFOLLOW, 0o600);
   try { await handle.writeFile(bytes); await handle.chmod(snapshot.mode); await handle.chown(snapshot.uid, snapshot.gid); await handle.sync(); }
   finally { await handle.close(); }
@@ -123,6 +122,10 @@ async function restore(artifact: PersistedConfigurationCompensation, uid: number
   if (!restored.isFile() || restored.isSymbolicLink() || restored.nlink !== 1 || restored.uid !== snapshot.uid || restored.gid !== snapshot.gid
     || (restored.mode & 0o7777) !== snapshot.mode || sha256(restoredBytes) !== snapshot.digest) throw new Error('rollback postcondition verification failed');
   await chmod(snapshot.targetPath, snapshot.mode);
+}
+
+function isAvailableConfiguration(record: { readonly kind: string; readonly state: string }): boolean {
+  return record.kind === 'configuration' && record.state === 'available';
 }
 
 export async function executeApprovedUserFileRollback(input: unknown, compensations: readonly PersistedConfigurationCompensation[], observer?: UserFileRollbackObserver): Promise<UserFileRollbackResult> {
@@ -136,8 +139,9 @@ export async function executeApprovedUserFileRollback(input: unknown, compensati
   const outcomes: RollbackTaskOutcome[] = [];
   for (const taskId of request.plan.taskOrder) {
     const artifact = byId.get(taskId);
-    if (!artifact || artifact.record.kind !== 'configuration' || artifact.record.state !== 'available') throw new Error(`rollback artifact is unavailable: ${taskId}`);
+    if (!artifact || !isAvailableConfiguration(artifact.record)) throw new Error(`rollback artifact is unavailable: ${taskId}`);
     const serviceSnapshot = artifact.serviceSnapshot ?? null;
+    const restoreService = serviceSnapshot === null ? undefined : observer?.restoreService?.bind(observer);
     const artifactBytes = artifact.bytesBase64 === null ? null : Buffer.from(artifact.bytesBase64, 'base64');
     if (configurationCompensationArtifactDigest(artifact.snapshot, artifactBytes, serviceSnapshot) !== artifact.record.artifactDigest) {
       throw new Error(`rollback compensation artifact digest mismatch: ${taskId}`);
@@ -146,7 +150,7 @@ export async function executeApprovedUserFileRollback(input: unknown, compensati
       ? { existed: false, digest: null, mode: null, uid: null, gid: null, type: 'absent' as const, links: null, service: null }
       : await observe(artifact.snapshot.targetPath, 'kind' in artifact.snapshot);
     if (serviceSnapshot !== null) {
-      if (observer?.captureService === undefined || observer.restoreService === undefined) throw new Error(`unsupported service manager for rollback: ${serviceSnapshot.manager}`);
+      if (observer?.captureService === undefined || restoreService === undefined) throw new Error(`unsupported service manager for rollback: ${serviceSnapshot.manager}`);
       target = { ...target, service: await observer.captureService(serviceSnapshot) };
     }
     // A prior rollback attempt can complete the mutation and fail before its
@@ -161,8 +165,12 @@ export async function executeApprovedUserFileRollback(input: unknown, compensati
     if (decision === 'already-recorded') { outcomes.push({ taskId, status: 'restored', detail: 'previously-recorded' }); continue; }
     if (decision === 'skip-restored') { const outcome = { taskId, status: 'restored' as const, detail: 'reconciled-after-interruption' }; outcomes.push(outcome); await observer?.afterTask(outcome); continue; }
     try {
-      await restore(artifact, uid, observer?.beforeMutation === undefined ? undefined : () => observer.beforeMutation!(taskId));
-      if (serviceSnapshot !== null) { await observer!.beforeMutation?.(taskId); await observer!.restoreService!(serviceSnapshot); }
+      const beforeMutation = observer?.beforeMutation?.bind(observer, taskId);
+      await restore(artifact, uid, beforeMutation);
+      if (serviceSnapshot !== null && restoreService !== undefined) {
+        await beforeMutation?.();
+        await restoreService(serviceSnapshot);
+      }
     } catch (error) {
       const outcome = { taskId, status: 'failed' as const, detail: error instanceof Error ? error.message : 'unknown failure' };
       outcomes.push(outcome); await observer?.afterTask(outcome);
