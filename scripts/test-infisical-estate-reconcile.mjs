@@ -548,6 +548,7 @@ mkdirSync(retirementGeneral);
 mkdirSync(retirementWorkstation);
 writeFileSync(join(retirementGeneral, 'RETIRE_TOKEN'), 'general retirement ciphertext');
 writeFileSync(join(retirementGeneral, 'INVALID_TOKEN'), 'invalid retirement ciphertext');
+writeFileSync(join(retirementGeneral, 'PUBLIC_IDENTIFIER'), 'public identifier ciphertext');
 writeFileSync(join(retirementWorkstation, 'RETIRE_TOKEN'), 'workstation sibling ciphertext');
 const retirementStores = [
   { id: 'general', directory: retirementGeneral, precedence: 10, hostDefault: true, workloadKinds: ['host'] },
@@ -556,6 +557,7 @@ const retirementStores = [
 const retirementInventory = inventorySecretSources(retirementStores);
 const retirementSource = retirementInventory.find(({ sourceId }) => sourceId === 'general:RETIRE_TOKEN');
 const invalidRetirementSource = retirementInventory.find(({ sourceId }) => sourceId === 'general:INVALID_TOKEN');
+const publicRetirementSource = retirementInventory.find(({ sourceId }) => sourceId === 'general:PUBLIC_IDENTIFIER');
 const completeRetirementRecord = {
   status: 'valid',
   sourceId: retirementSource.sourceId,
@@ -633,6 +635,29 @@ const invalidRetirementReceipt = retireSecretSource({
 });
 assert.equal(invalidRetirementReceipt.evidenceKind, 'invalid-retirement');
 assert.equal(existsSync(join(retirementGeneral, 'INVALID_TOKEN')), true);
+const publicRetirementRecord = {
+  status: 'public-retired', sourceId: publicRetirementSource.sourceId,
+  canonicalName: publicRetirementSource.canonicalName,
+  ciphertextSha256: publicRetirementSource.ciphertextSha256,
+  validator: 'public-identifier-format', publicIdentifierRetirement: true,
+  structurallyValidated: true, sensitive: false, requiredDestinations: [], requiredConsumers: [],
+};
+const publicRetirementReceipt = retireSecretSource({
+  sourceId: publicRetirementSource.sourceId,
+  secretStores: retirementStores,
+  ledger: { schemaVersion: 1, records: { [publicRetirementSource.sourceId]: publicRetirementRecord } },
+  offlineExceptions: noOfflineExceptions,
+});
+assert.equal(publicRetirementReceipt.evidenceKind, 'public-identifier-retirement');
+assert.equal(existsSync(join(retirementGeneral, 'PUBLIC_IDENTIFIER')), true);
+assert.throws(() => retireSecretSource({
+  sourceId: publicRetirementSource.sourceId,
+  secretStores: retirementStores,
+  ledger: { schemaVersion: 1, records: { [publicRetirementSource.sourceId]: {
+    ...publicRetirementRecord, structurallyValidated: false,
+  } } },
+  offlineExceptions: noOfflineExceptions,
+}), /without complete declassification evidence/);
 assert.throws(() => retireSecretSource({
   sourceId: 'RETIRE_TOKEN', secretStores: retirementStores,
   ledger: { schemaVersion: 1, records: {} }, offlineExceptions: noOfflineExceptions,

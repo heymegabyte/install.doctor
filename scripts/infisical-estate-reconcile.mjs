@@ -309,12 +309,13 @@ export function validateValidationLedger(ledger, inventorySources = []) {
   const sourcesById = new Map(inventorySources.map((source) => [source.sourceId, source]));
   const canonicalNames = new Set(inventorySources.map(({ canonicalName }) => canonicalName));
   for (const [key, record] of Object.entries(ledger.records)) {
-    if (!record || !['valid', 'unverified', 'invalid-retired'].includes(record.status)) fail(`validation record ${key} has invalid status`);
+    if (!record || !['valid', 'unverified', 'invalid-retired', 'public-retired'].includes(record.status)) fail(`validation record ${key} has invalid status`);
     if (key.includes(':')) {
       const source = sourcesById.get(key);
       if (!source) {
         const [store, canonicalName, ...extra] = key.split(':');
         const retiredLifecycleEvidence = record.status === 'invalid-retired'
+          || record.status === 'public-retired'
           || record.status === 'valid'
             && record.migrated === true
             && record.targetRetrievalVerified === true
@@ -412,6 +413,15 @@ export function validateRetirementEvidence({ source, ledger, inventorySources, o
       && Array.isArray(record.requiredConsumers) && record.requiredConsumers.length === 0;
     if (!validInvalidRetirement) fail(`source ${source.sourceId} has invalid status without complete invalid-retirement evidence`);
     return { record, evidenceKind: 'invalid-retirement', destinations: [] };
+  }
+  if (record.status === 'public-retired') {
+    const validPublicRetirement = record.publicIdentifierRetirement === true
+      && record.structurallyValidated === true
+      && record.sensitive === false
+      && Array.isArray(record.requiredDestinations) && record.requiredDestinations.length === 0
+      && Array.isArray(record.requiredConsumers) && record.requiredConsumers.length === 0;
+    if (!validPublicRetirement) fail(`source ${source.sourceId} has public status without complete declassification evidence`);
+    return { record, evidenceKind: 'public-identifier-retirement', destinations: [] };
   }
   if (record.status !== 'valid') fail(`source ${source.sourceId} is not valid for retirement`);
   const destinations = Array.isArray(record.destination) ? record.destination : record.destination ? [record.destination] : [];
