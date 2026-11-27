@@ -10,7 +10,7 @@ mcp-singleton-manager rollback
 
 `MCP_SINGLETON_SERVICES` may narrow the canonical default service list for a host profile. It must never be used to grant a host tools outside its approved profile. Linux installation enables the user unit for that user's normal systemd session; it deliberately does not enable lingering and never installs a root or system service.
 
-The systemd unit uses private temporary storage, strict read-only system paths, and explicit per-user writable paths. Capability-changing directives are intentionally omitted because restricted containers and some Proxmox guests reject them even for unprivileged user services; the broker already runs without root and exposes no network listener.
+The systemd unit uses private temporary storage, strict read-only system paths, and explicit per-user writable paths. Capability-changing directives, including `ProtectKernelModules`, are intentionally omitted because restricted containers and some Proxmox guests reject them even for unprivileged user services; the broker already runs without root and exposes no network listener.
 
 Eligible services are Cloudflare, Langfuse, Paperclip, theme.tools, and the current descriptor-only VoiceKit wrapper. CUA Driver and BrowserMCP remain session-scoped frontends to their supported shared daemons. DataForSEO follows its native Streamable HTTP path.
 

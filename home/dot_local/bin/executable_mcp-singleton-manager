@@ -96,7 +96,6 @@ render_systemd_unit() {
     'Environment=PATH=/usr/local/bin:/usr/bin:/bin' \
     'PrivateTmp=true' \
     'ProtectControlGroups=true' \
-    'ProtectKernelModules=true' \
     'ProtectKernelTunables=true' \
     'ProtectSystem=strict' \
     'ReadWritePaths=%h/.config %h/.local/state' \
