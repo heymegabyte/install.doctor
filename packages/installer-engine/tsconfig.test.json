@@ -24,6 +24,7 @@
     "test/deprovision-plan.test.mjs",
     "test/device-posture-attestation.test.mjs",
     "test/effect-migration.test.mjs",
+    "test/fault-injection.test.mjs",
     "test/fleet-capacity-cost.test.mjs",
     "test/fleet-error-budget.test.mjs",
     "test/helpers/composition-engine-fixture.mjs",

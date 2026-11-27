@@ -30,11 +30,11 @@ test('all required failures have exact recoverable outcomes before mutation', ()
   assert.equal(report.complete, true);
   assert.deepEqual([...new Set(report.outcomes.map(item => item.scenario.kind))].sort(), [...FAULT_KINDS].sort());
   assert.ok(report.outcomes.every(item => item.outcome === 'recoverable' && item.mutationMayHaveOccurred === false));
-  assert.equal(report.outcomes.find(item => item.scenario.kind === 'reboot').status, 'pending-reboot');
-  assert.equal(report.outcomes.find(item => item.scenario.kind === 'telemetry-failure').status, 'success-with-telemetry-gap');
-  assert.equal(report.outcomes.find(item => item.scenario.kind === 'corrupt-artifact').nextAction, 'replace-artifact');
-  assert.equal(report.outcomes.find(item => item.scenario.kind === 'expired-credential').automaticRetryAllowed, false);
-  assert.equal(report.outcomes.find(item => item.scenario.kind === 'enospc').automaticRetryAllowed, false);
+  assert.equal(report.outcomes.find(item => item.scenario.kind === 'reboot')?.status, 'pending-reboot');
+  assert.equal(report.outcomes.find(item => item.scenario.kind === 'telemetry-failure')?.status, 'success-with-telemetry-gap');
+  assert.equal(report.outcomes.find(item => item.scenario.kind === 'corrupt-artifact')?.nextAction, 'replace-artifact');
+  assert.equal(report.outcomes.find(item => item.scenario.kind === 'expired-credential')?.automaticRetryAllowed, false);
+  assert.equal(report.outcomes.find(item => item.scenario.kind === 'enospc')?.automaticRetryAllowed, false);
 });
 
 test('possible mutation is uncertain and never automatically retried or resumed', () => {
