@@ -27,6 +27,7 @@
     "test/privileged-step-up.test.mjs",
     "test/r2-publication-storage.test.mjs",
     "test/release-evidence-view.test.mjs",
+    "test/release-publication.test.mjs",
     "test/target-authorization-owner.test.mjs",
     "test/target-device-authorization-d1-store.test.mjs",
     ".wrangler/control-plane-runtime.d.ts"
