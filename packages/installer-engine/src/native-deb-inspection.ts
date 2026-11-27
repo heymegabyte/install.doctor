@@ -94,8 +94,8 @@ function parseOctal(bytes: Buffer, label: string): number {
 
 function tarHeaderChecksum(header: Buffer): number {
   let total = 0;
-  for (let index = 0; index < header.length; index += 1) {
-    total += index >= 148 && index < 156 ? 0x20 : header[index]!;
+  for (const [index, byte] of header.entries()) {
+    total += index >= 148 && index < 156 ? 0x20 : byte;
   }
   return total;
 }
@@ -127,7 +127,9 @@ function parseControl(bytes: Buffer): DebianControlMetadata {
     if (sawParagraphEnd) throw new NativeDebInspectionError('control metadata must contain exactly one paragraph');
     if (line.startsWith(' ') || line.startsWith('\t')) {
       if (priorKey === undefined) throw new NativeDebInspectionError('control metadata has an orphan continuation');
-      fields.set(priorKey, `${fields.get(priorKey)!}\n${line.slice(1)}`);
+      const priorValue = fields.get(priorKey);
+      if (priorValue === undefined) throw new NativeDebInspectionError('control metadata has an orphan continuation');
+      fields.set(priorKey, `${priorValue}\n${line.slice(1)}`);
       continue;
     }
     const separator = line.indexOf(':');
@@ -175,9 +177,8 @@ function validateMd5sums(bytes: Buffer): void {
   if (source.includes('\0') || source.includes('\r')) throw new NativeDebInspectionError('md5sums metadata contains unsafe controls');
   const paths = new Set<string>();
   for (const line of source.split('\n').filter(value => value.length > 0)) {
-    const match = /^[a-f0-9]{32}  (.+)$/.exec(line);
-    if (!match) throw new NativeDebInspectionError('md5sums metadata contains a malformed record');
-    const path = match[1]!;
+    const path = /^[a-f0-9]{32}  (.+)$/.exec(line)?.[1];
+    if (path === undefined) throw new NativeDebInspectionError('md5sums metadata contains a malformed record');
     if (path.startsWith('/') || path.includes('//') || path.split('/').some(segment => !segment || segment === '.' || segment === '..')) {
       throw new NativeDebInspectionError('md5sums metadata contains an unsafe payload path');
     }
@@ -290,21 +291,15 @@ export function createNativeDpkgDebControlArchiveRunner(): DpkgDebControlArchive
           terminalError ??= error;
           child.kill('SIGKILL');
         };
-        const timer = setTimeout(() => fail(new NativeDebInspectionError('dpkg-deb control extraction timed out')), input.timeoutMilliseconds);
+        const timer = setTimeout(() => {
+          fail(new NativeDebInspectionError('dpkg-deb control extraction timed out'));
+        }, input.timeoutMilliseconds);
         timer.unref();
-        const abort = (): void => fail(new NativeDebInspectionError('dpkg-deb control extraction was cancelled'));
+        const abort = (): void => {
+          fail(new NativeDebInspectionError('dpkg-deb control extraction was cancelled'));
+        };
         input.signal?.addEventListener('abort', abort, { once: true });
         if (input.signal?.aborted) abort();
-        child.stdout!.on('data', (chunk: Buffer) => {
-          outputBytes += chunk.length;
-          if (outputBytes > input.maximumOutputBytes) fail(new NativeDebInspectionError('dpkg-deb control archive exceeded its output bound'));
-          else output.push(Buffer.from(chunk));
-        });
-        child.stderr!.on('data', (chunk: Buffer) => {
-          diagnosticBytes += chunk.length;
-          if (diagnosticBytes > 65_536) fail(new NativeDebInspectionError('dpkg-deb diagnostics exceeded their output bound'));
-          else diagnostics.push(Buffer.from(chunk));
-        });
         child.once('error', error => {
           if (settled) return;
           settled = true; clearTimeout(timer); input.signal?.removeEventListener('abort', abort);
@@ -313,12 +308,31 @@ export function createNativeDpkgDebControlArchiveRunner(): DpkgDebControlArchive
         child.once('close', (code, signal) => {
           if (settled) return;
           settled = true; clearTimeout(timer); input.signal?.removeEventListener('abort', abort);
-          if (terminalError) return reject(terminalError);
+          if (terminalError) {
+            reject(terminalError);
+            return;
+          }
           if (code !== 0) {
             const diagnostic = Buffer.concat(diagnostics).toString('utf8').replaceAll(/[\r\n]+/g, ' ').trim().slice(0, 512);
-            return reject(new NativeDebInspectionError(`dpkg-deb failed (${signal ?? `exit ${String(code)}`})${diagnostic ? `: ${diagnostic}` : ''}`));
+            reject(new NativeDebInspectionError(`dpkg-deb failed (${signal ?? `exit ${String(code)}`})${diagnostic ? `: ${diagnostic}` : ''}`));
+            return;
           }
           resolve(Buffer.concat(output));
+        });
+        const { stdout, stderr } = child;
+        if (!stdout || !stderr) {
+          fail(new NativeDebInspectionError('dpkg-deb output streams are unavailable'));
+          return;
+        }
+        stdout.on('data', (chunk: Buffer) => {
+          outputBytes += chunk.length;
+          if (outputBytes > input.maximumOutputBytes) fail(new NativeDebInspectionError('dpkg-deb control archive exceeded its output bound'));
+          else output.push(Buffer.from(chunk));
+        });
+        stderr.on('data', (chunk: Buffer) => {
+          diagnosticBytes += chunk.length;
+          if (diagnosticBytes > 65_536) fail(new NativeDebInspectionError('dpkg-deb diagnostics exceeded their output bound'));
+          else diagnostics.push(Buffer.from(chunk));
         });
       });
     },

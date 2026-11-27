@@ -37,8 +37,9 @@ export function parseDpkgQueryState(stdout: string): DpkgPackageState {
   if (stdout.length === 0 || stdout.length > 4096 || /[\0\r]/.test(stdout)) throw new NativeDpkgStateError('dpkg-query output is empty, oversized, or contains unsafe controls');
   const lines = stdout.split('\n');
   if (lines.at(-1) === '') lines.pop();
-  if (lines.length !== 1) throw new NativeDpkgStateError('dpkg-query must return exactly one package record');
-  const fields = lines[0]!.split('\x1f');
+  const [line] = lines;
+  if (lines.length !== 1 || line === undefined) throw new NativeDpkgStateError('dpkg-query must return exactly one package record');
+  const fields = line.split('\x1f');
   if (fields.length !== 6) throw new NativeDpkgStateError('dpkg-query record has an unexpected field count');
   return Object.freeze({
     packageName: packageName.parse(fields[0]), version: version.parse(fields[1]), architecture: architecture.parse(fields[2]),
@@ -100,12 +101,15 @@ export function createNativeDpkgQueryRunner(): DpkgQueryRunner {
           if (next.length > 4096) { overflow = true; child.kill('SIGKILL'); }
           return next.slice(0, 4097);
         };
-        child.stdout!.on('data', (chunk: Buffer) => { stdout = append(stdout, chunk); });
-        child.stderr!.on('data', (chunk: Buffer) => { stderr = append(stderr, chunk); });
+        child.stdout.on('data', (chunk: Buffer) => { stdout = append(stdout, chunk); });
+        child.stderr.on('data', (chunk: Buffer) => { stderr = append(stderr, chunk); });
         child.once('error', error => { clearTimeout(timer); reject(error); });
         child.once('close', code => {
           clearTimeout(timer);
-          if (overflow) return reject(new NativeDpkgStateError('dpkg-query timed out or exceeded its output bound'));
+          if (overflow) {
+            reject(new NativeDpkgStateError('dpkg-query timed out or exceeded its output bound'));
+            return;
+          }
           resolve(Object.freeze({ code: code ?? 255, stdout, stderr }));
         });
       });
@@ -124,7 +128,7 @@ export async function inspectDpkgPackage(input: {
   if (result.code === 1 && result.stdout.length === 0) {
     return assessDpkgPackageState({ observed: null, expectedName: input.packageName, expectedVersion: input.version, expectedArchitecture: input.architecture });
   }
-  if (result.code !== 0) throw new NativeDpkgStateError(`dpkg-query failed with exit ${result.code}`);
+  if (result.code !== 0) throw new NativeDpkgStateError(`dpkg-query failed with exit ${String(result.code)}`);
   return assessDpkgPackageState({
     observed: parseDpkgQueryState(result.stdout), expectedName: input.packageName,
     expectedVersion: input.version, expectedArchitecture: input.architecture,
