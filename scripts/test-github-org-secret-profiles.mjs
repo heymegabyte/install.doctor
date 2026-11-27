@@ -68,6 +68,12 @@ for (const host of ['zen.megabyte.space', 'legion.megabyte.space']) {
     ...langfuseSdkSecrets, ...langfuseRuntimeSecrets, ...blockedLangfuseSecrets,
   ]), []);
 }
+const blockedInfrastructureSecrets = [
+  'MINIO_ROOT_USER', 'MINIO_ROOT_PASSWORD', 'TAILSCALE_AUTH_KEY', 'WASABI_CLIENT_ID', 'WASABI_CLIENT_SECRET',
+];
+for (const host of Object.keys(manifest.hosts)) {
+  assert.deepEqual(selectHostSecrets(manifest, host, blockedInfrastructureSecrets), []);
+}
 assert.deepEqual(selectConfigurationSecrets(
   manifest, manifest.workloads['crawl.cheap'], ['EXA_API_KEY', 'SENTRY_DSN', 'ANTHROPIC_API_KEY'],
 ), ['EXA_API_KEY', 'SENTRY_DSN']);
