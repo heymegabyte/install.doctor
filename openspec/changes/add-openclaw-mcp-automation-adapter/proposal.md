@@ -14,7 +14,9 @@ Install a host-scoped `megabyte-automation` Streamable HTTP registration whose t
 
 - Exact macOS and Ubuntu automation-profile validation against the existing canonical pin.
 - Collision-safe merge into OpenClaw's native `mcp.servers` registry.
-- Runtime-only credential resolution for an explicitly named `openclaw` child.
+- Runtime-only credential resolution for the exact explicitly allowed Gateway executable.
+- Stable runtime assets and an atomic systemd-user drop-in that preserve the observed direct Node Gateway argv and port.
+- Plan-bound unit reconciliation, syntax validation, reload, restart health, and compensated rollback.
 - Metadata-only plan, protected receipt, atomic apply, drift-safe rollback, tests, and runbook.
 
-Live host application, Gateway restart, secret rotation, Cloudflare mutation, and MCP portal promotion are excluded. Live Ubuntu remains gated on a reviewed metadata-only plan and an operator-controlled service cutover.
+Live host application, secret rotation, Cloudflare mutation, and MCP portal promotion are excluded. Live Ubuntu remains gated on coordinator review of a metadata-only plan and a separately authorized service cutover.

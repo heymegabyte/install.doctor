@@ -101,14 +101,16 @@ node scripts/openclaw-mcp-automation-adapter.mjs apply \
 # The existing Gateway command must be preserved after `--`; only its launch
 # gains the runtime-only environment required by the two header placeholders.
 node scripts/openclaw-mcp-automation-adapter.mjs exec \
-  --host-class ubuntu-runner -- openclaw gateway
+  --host-class ubuntu-runner \
+  --allowed-executable /absolute/path/to/openclaw \
+  -- /absolute/path/to/openclaw gateway
 
 node scripts/openclaw-mcp-automation-adapter.mjs rollback \
   --receipt "$HOME/.local/state/install.doctor/openclaw-mcp-automation.json"
 ```
 
 Use `macos-workstation` on macOS. `exec` accepts only an executable whose
-basename is `openclaw`, invokes no shell, resolves exactly
+path exactly matches `--allowed-executable`, invokes no shell, resolves exactly
 `CF_ACCESS_MCP_AUTOMATION_CLIENT_ID` and
 `CF_ACCESS_MCP_AUTOMATION_CLIENT_SECRET` through `get-secret`, and refuses to
 start OpenClaw when either value is unavailable.
@@ -125,3 +127,34 @@ The registration shape follows OpenClaw's upstream
 [native MCP registry](https://github.com/openclaw/openclaw/blob/main/docs/tools/mcp.md)
 and its documented
 [HTTP header environment substitution](https://github.com/openclaw/openclaw/blob/main/docs/cli/mcp/transports.md).
+
+### Ubuntu systemd-user cutover
+
+The deployed Ubuntu Gateway may invoke Node and OpenClaw's `dist` entrypoint
+directly. Do not rewrite that command to a guessed `openclaw` shim. Review the
+active `ExecStart`, encode its exact argv as JSON, and run a metadata-only plan:
+
+```sh
+GATEWAY_ARGV='["/absolute/node","/absolute/openclaw/dist/index.js","gateway","--port","18789"]'
+node scripts/openclaw-systemd-reconciler.mjs plan \
+  --gateway-argv-json "$GATEWAY_ARGV"
+```
+
+Plan prints `gatewayArgvDigest`, the preserved `gatewayPort`, and the current
+`unitExecStartDigest`, but not the argv itself. After coordinator review, apply
+must use that exact digest so a unit change between plan and apply fails closed:
+
+```sh
+node scripts/openclaw-systemd-reconciler.mjs apply \
+  --gateway-argv-json "$GATEWAY_ARGV" \
+  --expected-exec-start-digest 'sha256:<from-plan>' \
+  --receipt "$HOME/.local/state/install.doctor/openclaw-systemd-mcp.json"
+```
+
+The reconciler copies the adapter and all pinned runtime inputs to stable
+user-local mode-`0600` paths, atomically installs only an `ExecStart` drop-in,
+runs `systemd-analyze --user verify`, reloads the user manager, restarts the
+Gateway, and proves it active. A failed lifecycle gate restores all files and
+attempts to restart the predecessor. Explicit rollback also reloads, restarts,
+and checks the restored service. Repository delivery does not run these live
+commands; the coordinator owns the reviewed Ubuntu plan and apply.

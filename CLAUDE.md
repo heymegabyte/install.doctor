@@ -107,6 +107,9 @@ host-bound references resolve through `get-secret` only in the OpenClaw child
 environment. Installation is explicit, mode-0600, atomic, preservation-safe,
 and rollback-bound. Never replace a live Gateway command without first proving
 the existing command and config are preserved in a metadata-only plan.
+On Ubuntu, `scripts/openclaw-systemd-reconciler.mjs` installs stable runtime
+assets and an exact-argv user-service drop-in; apply is bound to the planned
+unit digest and must pass syntax, reload, restart, and active-health gates.
 
 ---
 

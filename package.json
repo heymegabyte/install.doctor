@@ -33,6 +33,7 @@
     "test:mcp-host-manifests": "node scripts/test-mcp-host-manifest-consumer.mjs",
     "test:mcp-client-reconciliation": "node scripts/test-reconcile-mcp-clients.mjs",
     "test:openclaw-mcp-automation": "node scripts/test-openclaw-mcp-automation-adapter.mjs",
+    "test:openclaw-systemd-reconciler": "node scripts/test-openclaw-systemd-reconciler.mjs",
     "validate:software": "task validate:software"
   },
   "keywords": [

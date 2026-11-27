@@ -67,14 +67,14 @@ writeFileSync(join(bin, 'get-secret'), `#!/bin/sh\ncase "$1" in\n  CF_ACCESS_MCP
 writeFileSync(join(bin, 'openclaw'), `#!/bin/sh\n[ "$CF_ACCESS_MCP_AUTOMATION_CLIENT_ID" = synthetic-client-id ] || exit 21\n[ "$CF_ACCESS_MCP_AUTOMATION_CLIENT_SECRET" = synthetic-client-secret ] || exit 22\nprintf runtime-ok\n`);
 chmodSync(join(bin, 'get-secret'), 0o700);
 chmodSync(join(bin, 'openclaw'), 0o700);
-const runtime = execFileSync(process.execPath, [adapter, 'exec', ...common, '--', join(bin, 'openclaw'), 'gateway'], {
+const runtime = execFileSync(process.execPath, [adapter, 'exec', ...common, '--allowed-executable', join(bin, 'openclaw'), '--', join(bin, 'openclaw'), 'gateway'], {
   encoding: 'utf8', env: { ...process.env, PATH: `${bin}:${process.env.PATH}` },
 });
 assert.equal(runtime, 'runtime-ok');
-assert.throws(() => execFileSync(process.execPath, [adapter, 'exec', ...common, '--', '/bin/echo'], { encoding: 'utf8', stdio: 'pipe' }), /accepts only an openclaw/);
+assert.throws(() => execFileSync(process.execPath, [adapter, 'exec', ...common, '--allowed-executable', join(bin, 'openclaw'), '--', '/bin/echo'], { encoding: 'utf8', stdio: 'pipe' }), /exactly match/);
 writeFileSync(join(bin, 'get-secret'), '#!/bin/sh\nexit 1\n');
 chmodSync(join(bin, 'get-secret'), 0o700);
-assert.throws(() => execFileSync(process.execPath, [adapter, 'exec', ...common, '--', join(bin, 'openclaw')], {
+assert.throws(() => execFileSync(process.execPath, [adapter, 'exec', ...common, '--allowed-executable', join(bin, 'openclaw'), '--', join(bin, 'openclaw')], {
   encoding: 'utf8', env: { ...process.env, PATH: `${bin}:${process.env.PATH}` }, stdio: 'pipe',
 }), /unable to resolve CF_ACCESS_MCP_AUTOMATION_CLIENT_ID/);
 

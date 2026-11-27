@@ -3,7 +3,7 @@ import { execFileSync, spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { basename, dirname, join, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   applyTransaction, loadPinnedProfiles, rollbackTransaction,
@@ -129,6 +129,7 @@ function parseArguments(args) {
     else if (value === '--source-directory') options.sourceDirectory = resolve(args[++index]);
     else if (value === '--config') options.configPath = resolve(args[++index]);
     else if (value === '--receipt') options.receiptPath = resolve(args[++index]);
+    else if (value === '--allowed-executable') options.allowedExecutable = resolve(args[++index]);
     else fail(`unknown argument ${value}`);
   }
   return options;
@@ -145,11 +146,16 @@ async function main() {
   const loaded = await loadPinnedProfiles(options);
   const profile = automationProfile(loaded, options.hostClass);
   if (options.command === 'exec') {
-    if (options.child.length === 0 || basename(options.child[0]) !== 'openclaw') fail('exec accepts only an openclaw child command');
+    if (!options.allowedExecutable || options.child.length === 0 || resolve(options.child[0]) !== options.allowedExecutable) {
+      fail('exec child must exactly match --allowed-executable');
+    }
     const child = spawn(options.child[0], options.child.slice(1), {
       env: buildRuntimeEnvironment(profile), stdio: 'inherit', shell: false,
     });
-    child.once('error', (error) => { process.stderr.write(`openclaw-mcp-automation-adapter: cannot start openclaw: ${error.message}\n`); process.exitCode = 1; });
+    for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP']) {
+      process.on(signal, () => { if (!child.killed) child.kill(signal); });
+    }
+    child.once('error', (error) => { process.stderr.write(`openclaw-mcp-automation-adapter: cannot start allowed child: ${error.message}\n`); process.exitCode = 1; });
     child.once('exit', (code, signal) => { if (signal) process.kill(process.pid, signal); else process.exitCode = code ?? 1; });
     return;
   }
