@@ -13,6 +13,7 @@ import { blueprintDigest, exportMarkdown } from '../../aid-core/dist/core.js';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const distIndexPath = path.resolve(__dirname, '../dist/index.js');
 
+const errorResponse = z.looseObject({ error: z.string() });
 const oracleResponse = z.looseObject({ unlocked: z.boolean(), codeName: z.string() });
 const pairingResponse = z.looseObject({
   code: z.string(), pollSecret: z.string(), verifyUrl: z.string(), tenant: z.string(),
@@ -766,7 +767,7 @@ void test('claim persists only explicitly approved scopes and rejects broadening
       }),
     }), env);
     assert.equal(rejected.status, 400);
-    assert.equal((await rejected.json()).error, 'invalid_request');
+    assert.equal(errorResponse.parse(await rejected.json()).error, 'invalid_request');
   }
 
   const started = await app.fetch(new Request('https://app.install.doctor/api/devices/pair/start', {
@@ -837,7 +838,7 @@ void test('owner-bound pairing context is private and cannot use legacy token ap
     body: JSON.stringify({ code: pairing.code }),
   }), env);
   assert.equal(bypass.status, 409);
-  assert.equal((await bypass.json()).error, 'owner_approval_required');
+  assert.equal(errorResponse.parse(await bypass.json()).error, 'owner_approval_required');
 });
 
 void test('privileged pairing derives tenant, profile, digest, and owner from server authority', async () => {
@@ -907,7 +908,7 @@ void test('privileged pairing derives tenant, profile, digest, and owner from se
     }),
   }), env);
   assert.equal(callerOwner.status, 400);
-  assert.equal((await callerOwner.json()).error, 'invalid_request');
+  assert.equal(errorResponse.parse(await callerOwner.json()).error, 'invalid_request');
 });
 
 /** @param {import('node:test').TestContext} t */
@@ -1402,10 +1403,14 @@ void test('Control Plane Phase 1: OpenAPI 3.1 schema (/api/v1/openapi.json) cove
 
   const oaRes = await app.fetch(new Request('https://app.install.doctor/api/v1/openapi.json'), TEST_ENV);
   assert.equal(oaRes.status, 200);
-  const spec = await oaRes.json();
+  const spec = z.looseObject({
+    openapi: z.string(),
+    components: z.looseObject({ securitySchemes: z.record(z.string(), z.unknown()) }),
+    paths: z.record(z.string(), z.record(z.string(), z.unknown())),
+  }).parse(await oaRes.json());
   assert.equal(spec.openapi, '3.1.0');
-  assert.ok(spec.components?.securitySchemes?.bearerAdmin);
-  assert.ok(spec.components?.securitySchemes?.bearerDevice);
+  assert.ok(spec.components.securitySchemes.bearerAdmin);
+  assert.ok(spec.components.securitySchemes.bearerDevice);
 
   // Extract all /api/v1/* routes from src/index.ts and verify 100% coverage in OpenAPI 3.1 spec
   const srcIndex = fs.readFileSync(path.resolve(__dirname, '../src/index.ts'), 'utf8');
@@ -1416,8 +1421,9 @@ void test('Control Plane Phase 1: OpenAPI 3.1 schema (/api/v1/openapi.json) cove
     const [, method, routePath] = match;
     assert.ok(method && routePath);
     discoveredV1Routes.push({ method, routePath });
-    assert.ok(spec.paths[routePath], `OpenAPI 3.1 spec must document path ${routePath}`);
-    assert.ok(spec.paths[routePath][method], `OpenAPI 3.1 spec must document ${method.toUpperCase()} ${routePath}`);
+    const documentedPath = spec.paths[routePath];
+    assert.ok(documentedPath, `OpenAPI 3.1 spec must document path ${routePath}`);
+    assert.ok(documentedPath[method], `OpenAPI 3.1 spec must document ${method.toUpperCase()} ${routePath}`);
   }
   assert.ok(discoveredV1Routes.length >= 9, 'Must discover all /api/v1/* routes');
   assert.ok(spec.paths['/start']);
@@ -1509,7 +1515,7 @@ void test('Control Plane Phase 1: GitHub discovery, truthful unsupported mutatio
   // GET /start universal bootstrap
   const startRes = await app.fetch(new Request('https://app.install.doctor/start'), TEST_ENV);
   assert.equal(startRes.status, 503);
-  assert.equal(z.looseObject({ error: z.string() }).parse(await startRes.json()).error, 'release_channel_unavailable');
+  assert.equal(errorResponse.parse(await startRes.json()).error, 'release_channel_unavailable');
 });
 
 void test('Control Plane /start fails closed when the activated release channel is not configured', async () => {
@@ -1519,13 +1525,13 @@ void test('Control Plane /start fails closed when the activated release channel 
     RELEASES: undefined,
   });
   assert.equal(response.status, 503);
-  assert.equal((await response.json()).error, 'release_channel_unavailable');
+  assert.equal(errorResponse.parse(await response.json()).error, 'release_channel_unavailable');
   const injectedKey = await app.fetch(new Request('https://app.install.doctor/start'), {
     ...TEST_ENV,
     INSTALL_DOCTOR_RELEASE_SIGNER_KEY: 'ssh-ed25519 attacker-controlled-key',
   });
   assert.equal(injectedKey.status, 503, 'deployment bindings cannot inject a release trust anchor');
-  assert.equal((await injectedKey.json()).error, 'release_channel_unavailable');
+  assert.equal(errorResponse.parse(await injectedKey.json()).error, 'release_channel_unavailable');
 });
 
 void test('Control Plane /start resolves only a digest-bound CAS channel before consulting pinned trust', async () => {
@@ -1563,7 +1569,7 @@ void test('Control Plane /start resolves only a digest-bound CAS channel before 
   } };
   const response = await app.fetch(new Request('https://app.install.doctor/start'), { ...TEST_ENV, RELEASES, RELEASE_CHANNELS });
   assert.equal(response.status, 503);
-  assert.equal((await response.json()).error, 'release_trust_not_configured');
+  assert.equal(errorResponse.parse(await response.json()).error, 'release_trust_not_configured');
   assert.deepEqual(requested, ['bootstrap/channels/stable.json', 'bootstrap/release-1/manifest']);
 
   const tampered = await app.fetch(new Request('https://app.install.doctor/start'), {
@@ -1575,7 +1581,7 @@ void test('Control Plane /start resolves only a digest-bound CAS channel before 
     } },
   });
   assert.equal(tampered.status, 503);
-  assert.equal((await tampered.json()).error, 'release_channel_unavailable');
+  assert.equal(errorResponse.parse(await tampered.json()).error, 'release_channel_unavailable');
 
   const expiredManifest = new TextEncoder().encode([
     'schema_version=5', 'release_id=release-1', `source_commit=${'a'.repeat(40)}`,
@@ -1591,7 +1597,7 @@ void test('Control Plane /start resolves only a digest-bound CAS channel before 
     RELEASES: { async get() { return { body: new Blob([expiredManifest]).stream(), size: expiredManifest.byteLength }; } },
   });
   assert.equal(expired.status, 503);
-  assert.equal((await expired.json()).error, 'release_channel_unavailable');
+  assert.equal(errorResponse.parse(await expired.json()).error, 'release_channel_unavailable');
 });
 
 void test('Control Plane landing page advertises only the canonical signed bootstrap command', async () => {
@@ -1670,7 +1676,7 @@ void test('Control Plane release serving fails closed for unavailable storage, m
     TEST_ENV,
   );
   assert.equal(withoutBinding.status, 503);
-  assert.equal((await withoutBinding.json()).error, 'release_storage_not_configured');
+  assert.equal(errorResponse.parse(await withoutBinding.json()).error, 'release_storage_not_configured');
 
   /** @type {string[]} */
   const requestedKeys = [];
@@ -1680,7 +1686,7 @@ void test('Control Plane release serving fails closed for unavailable storage, m
     { ...TEST_ENV, RELEASES },
   );
   assert.equal(missing.status, 404);
-  assert.equal((await missing.json()).error, 'release_not_found');
+  assert.equal(errorResponse.parse(await missing.json()).error, 'release_not_found');
   assert.deepEqual(requestedKeys, ['bootstrap/release-1/manifest']);
 
   for (const pathname of [
@@ -2225,7 +2231,7 @@ void test('Control Plane Phase 2: Fleet Drift Radar, Cryptographic Execution Rec
     TEST_ENV
   );
   assert.equal(staleRes.status, 409);
-  assert.equal(z.looseObject({ error: z.string() }).parse(await staleRes.json()).error, 'receipt_outside_replay_window');
+  assert.equal(errorResponse.parse(await staleRes.json()).error, 'receipt_outside_replay_window');
 
   // 3. GET /api/v1/catalog/semantic
   const semRes = await app.fetch(
@@ -2247,7 +2253,7 @@ void test('Control Plane security: desired-state metadata is authenticated and r
   );
   assert.equal(desiredRead.status, 401);
   assert.ok(desiredRead.headers.get('x-request-id'));
-  assert.equal((await desiredRead.json()).error, 'unauthorized');
+  assert.equal(errorResponse.parse(await desiredRead.json()).error, 'unauthorized');
 
   const preview = await app.fetch(
     new Request('https://app.install.doctor/api/environment/apply', {
@@ -2268,7 +2274,7 @@ void test('Control Plane security: desired-state metadata is authenticated and r
     TEST_ENV
   );
   assert.equal(oversized.status, 413);
-  const oversizedBody = await oversized.json();
+  const oversizedBody = errorResponse.extend({ requestId: z.string() }).parse(await oversized.json());
   assert.equal(oversizedBody.error, 'request_too_large');
   assert.equal(typeof oversizedBody.requestId, 'string');
   assert.equal('detail' in oversizedBody, false);
