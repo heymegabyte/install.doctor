@@ -13,3 +13,6 @@
 - [x] Add a plan-bound mode-0600 systemd-user drop-in reconciler with syntax, reload, restart-health, compensation, and rollback gates.
 - [x] Test exact argv/port preservation, metadata-only planning, modes, lifecycle order, health, and failed-activation restoration.
 - [x] Rebase on current main, validate the expanded OpenSpec and interacting MCP suites, commit, and push.
+- [x] Accept and exactly preserve the observed bounded `--max-old-space-size=8192` Node prefix.
+- [x] Reject eval, require, loader, import, path-substitution, unbounded heap, and unrecognized Node prefix flags.
+- [x] Validate, rebase current main, commit, and push the closed Node-runtime-prefix change.

@@ -91,3 +91,17 @@ The reconciler MUST install stable mode-0600 runtime assets and a user-service d
 
 - **WHEN** unit validation, restart, or active health fails
 - **THEN** every installed file is restored to its predecessor and the reconciler reloads and attempts to restart the prior service
+
+### Requirement: Closed Node runtime prefix
+
+The reconciler MAY accept `--max-old-space-size=<digits>` between Node and the absolute OpenClaw entrypoint only when its value is within 128–65536 MiB. It MUST reject every other Node prefix flag, including eval, require, loader, import, and path-substitution mechanisms.
+
+#### Scenario: Reviewed heap cap
+
+- **WHEN** the observed argv contains `--max-old-space-size=8192` before the absolute OpenClaw entrypoint
+- **THEN** validation accepts it and the rendered replacement preserves it at the identical argv position
+
+#### Scenario: Executable Node preload requested
+
+- **WHEN** a Node prefix requests eval, require, loader, import, an unbounded heap size, or any unrecognized runtime behavior
+- **THEN** validation fails before plan or apply can render a service

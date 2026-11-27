@@ -23,8 +23,21 @@ export function validateGatewayArgv(value) {
   if (!Array.isArray(value) || value.length < 3 || !value.every((item) => typeof item === 'string' && item.length > 0)) {
     fail('gateway argv must be a JSON string array with executable, OpenClaw entrypoint, and gateway command');
   }
-  if (!value[0].startsWith('/') || basename(value[0]) !== 'node' || !value[1].startsWith('/') || !/(?:^|\/)openclaw(?:\/|$)/i.test(value[1])
-    || !value.slice(2).includes('gateway')) fail('gateway argv must identify an absolute Node executable and OpenClaw gateway entrypoint');
+  if (!value[0].startsWith('/') || basename(value[0]) !== 'node') fail('gateway argv must begin with an absolute Node executable');
+  let entrypointIndex = 1;
+  let sawHeapFlag = false;
+  while (value[entrypointIndex]?.startsWith('--')) {
+    const match = /^--max-old-space-size=(\d+)$/.exec(value[entrypointIndex]);
+    const size = match ? Number(match[1]) : NaN;
+    if (sawHeapFlag || !Number.isSafeInteger(size) || size < 128 || size > 65536) {
+      fail(`gateway argv contains a disallowed Node runtime flag`);
+    }
+    sawHeapFlag = true;
+    entrypointIndex += 1;
+  }
+  const entrypoint = value[entrypointIndex];
+  if (!entrypoint?.startsWith('/') || !/(?:^|\/)openclaw(?:\/|$)/i.test(entrypoint)
+    || value[entrypointIndex + 1] !== 'gateway') fail('gateway argv must identify an absolute OpenClaw entrypoint followed by gateway');
   for (const argument of value) {
     if (!/^[A-Za-z0-9_./:@+=,-]+$/.test(argument)) fail(`gateway argv contains an unsupported systemd character`);
   }

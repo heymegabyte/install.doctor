@@ -14,22 +14,29 @@ const dropIn = join(temp, 'systemd/openclaw-gateway.service.d/40-mcp-automation.
 const receipt = join(temp, 'state/receipt.json');
 const node = '/home/runner/.volta/tools/image/node/24.1.0/bin/node';
 const entrypoint = '/home/runner/.volta/tools/image/packages/openclaw/lib/node_modules/openclaw/dist/index.js';
-const argv = [node, entrypoint, 'gateway', '--port', '18789'];
+const nodeFlag = '--max-old-space-size=8192';
+const argv = [node, nodeFlag, entrypoint, 'gateway', '--port', '18789'];
 
 assert.deepEqual(validateGatewayArgv(argv), argv);
+assert.deepEqual(validateGatewayArgv([node, entrypoint, 'gateway', '--port', '18789']), [node, entrypoint, 'gateway', '--port', '18789']);
 assert.throws(() => validateGatewayArgv(['/usr/bin/node', '/tmp/not-the-product.js', 'gateway']), /OpenClaw/);
 assert.throws(() => validateGatewayArgv([node, entrypoint, 'gateway', 'bad value']), /unsupported/);
+for (const dangerous of ['--eval=process.exit()', '--require=/tmp/preload.js', '--loader=/tmp/loader.mjs',
+  '--import=/tmp/preload.mjs', '--experimental-loader=/tmp/loader.mjs', '--max-old-space-size=0', '--max-old-space-size=999999']) {
+  assert.throws(() => validateGatewayArgv([node, dangerous, entrypoint, 'gateway']), /disallowed Node runtime flag/);
+}
+assert.throws(() => validateGatewayArgv([node, nodeFlag, nodeFlag, entrypoint, 'gateway']), /disallowed Node runtime flag/);
 const rendered = renderDropIn({ gatewayArgv: argv, hostClass: 'ubuntu-runner', adapterPath: '/home/runner/.local/lib/adapter.mjs',
   pinPath: '/home/runner/.local/share/pin.json', profilesPath: '/home/runner/.local/share/profiles' });
 assert.match(rendered, /^\[Service\]\nExecStart=\n/);
-assert.match(rendered, new RegExp(`${node} .* --allowed-executable ${node} -- ${node} ${entrypoint} gateway --port 18789`));
+assert.match(rendered, new RegExp(`${node} .* --allowed-executable ${node} -- ${node} ${nodeFlag} ${entrypoint} gateway --port 18789`));
 assert.equal((rendered.match(/18789/g) ?? []).length, 1);
 
 const bin = join(temp, 'bin');
 const log = join(temp, 'lifecycle.log');
 const failMarker = join(temp, 'fail-verify');
 mkdirSync(bin);
-writeFileSync(join(bin, 'systemctl'), `#!/bin/sh\nprintf '%s\\n' "systemctl $*" >>"${log}"\ncase "$*" in *'--property=ExecStart --value'*) printf '%s\\n' '{ path=${node} ; argv[]=${node} ${entrypoint} gateway --port 18789 ; }' ;; esac\nexit 0\n`);
+writeFileSync(join(bin, 'systemctl'), `#!/bin/sh\nprintf '%s\\n' "systemctl $*" >>"${log}"\ncase "$*" in *'--property=ExecStart --value'*) printf '%s\\n' '{ path=${node} ; argv[]=${node} ${nodeFlag} ${entrypoint} gateway --port 18789 ; }' ;; esac\nexit 0\n`);
 writeFileSync(join(bin, 'systemd-analyze'), `#!/bin/sh\nprintf '%s\\n' "systemd-analyze $*" >>"${log}"\n[ ! -f "${failMarker}" ]\n`);
 chmodSync(join(bin, 'systemctl'), 0o700);
 chmodSync(join(bin, 'systemd-analyze'), 0o700);
@@ -52,7 +59,7 @@ assert.equal(statSync(dropIn).mode & 0o777, 0o600);
 assert.equal(statSync(join(runtime, 'openclaw-mcp-automation-adapter.mjs')).mode & 0o777, 0o600);
 assert.equal(statSync(receipt).mode & 0o777, 0o600);
 const installed = readFileSync(dropIn, 'utf8');
-assert.match(installed, new RegExp(`${node} .* -- ${node} ${entrypoint} gateway --port 18789`));
+assert.match(installed, new RegExp(`${node} .* -- ${node} ${nodeFlag} ${entrypoint} gateway --port 18789`));
 assert.equal(readFileSync(receipt, 'utf8').includes(entrypoint), false);
 const lifecycle = readFileSync(log, 'utf8');
 assert.match(lifecycle, /systemctl --user daemon-reload/);

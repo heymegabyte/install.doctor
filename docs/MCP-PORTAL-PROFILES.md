@@ -135,7 +135,7 @@ directly. Do not rewrite that command to a guessed `openclaw` shim. Review the
 active `ExecStart`, encode its exact argv as JSON, and run a metadata-only plan:
 
 ```sh
-GATEWAY_ARGV='["/absolute/node","/absolute/openclaw/dist/index.js","gateway","--port","18789"]'
+GATEWAY_ARGV='["/absolute/node","--max-old-space-size=8192","/absolute/openclaw/dist/index.js","gateway","--port","18789"]'
 node scripts/openclaw-systemd-reconciler.mjs plan \
   --gateway-argv-json "$GATEWAY_ARGV"
 ```
@@ -158,3 +158,9 @@ Gateway, and proves it active. A failed lifecycle gate restores all files and
 attempts to restart the predecessor. Explicit rollback also reloads, restarts,
 and checks the restored service. Repository delivery does not run these live
 commands; the coordinator owns the reviewed Ubuntu plan and apply.
+
+The only supported Node runtime argument before the absolute OpenClaw
+entrypoint is `--max-old-space-size=<digits>` from 128 through 65536 MiB. The
+reconciler preserves an accepted heap cap exactly. It rejects eval, require,
+loader, import, path substitution, unbounded heap values, and every unknown
+Node prefix flag before rendering a unit.
