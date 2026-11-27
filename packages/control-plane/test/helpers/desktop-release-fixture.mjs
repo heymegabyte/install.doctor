@@ -81,11 +81,15 @@ export async function createDesktopReleaseInputs(root, {
     ['debian-bookworm-main-amd64-packages', debianBodies.packagesIndex], ['tree-deb-bookworm-amd64', debianBodies.treePayload],
   ])).map(([id, bytes]) => ({ id, sha256: digest(bytes), sizeBytes: bytes.length })) };
   if (bodies.catalog) {
+    /** @type {unknown} */
     const catalog = JSON.parse(Buffer.from(bodies.catalog).toString('utf8'));
-    if (!Array.isArray(catalog) || catalog.filter(entry => entry?.name === 'tree').length !== 1) {
-      throw new Error('fixture catalog must contain exactly one tree entry');
-    }
-    const staged = catalog.map(entry => entry?.name === 'tree'
+    if (!Array.isArray(catalog)) throw new Error('fixture catalog must contain exactly one tree entry');
+    /** @type {unknown[]} */
+    const entries = catalog;
+    /** @param {unknown} entry @returns {entry is Record<string, unknown>} */
+    const treeEntry = entry => entry !== null && typeof entry === 'object' && 'name' in entry && entry.name === 'tree';
+    if (entries.filter(treeEntry).length !== 1) throw new Error('fixture catalog must contain exactly one tree entry');
+    const staged = entries.map(entry => treeEntry(entry)
       ? { ...entry, offlinePayloads: [receipt.descriptor] } : entry);
     outputBodies.set('catalog.json', Buffer.from(`${JSON.stringify(staged)}\n`));
   } else {

@@ -12,12 +12,12 @@ void test('R2 adapter uses atomic create-only and compare-and-swap conditions', 
   /** @type {(GetObjectCommand | PutObjectCommand)[]} */
   const commands = [];
   /** @type {NonNullable<Parameters<typeof createR2PublicationStorage>[1]>} */
-  const client = { async send(command) {
+  const client = { send(command) {
     commands.push(command);
     if (command instanceof GetObjectCommand) {
-      return { ETag: '"etag-1"', Body: { async transformToByteArray() { return new TextEncoder().encode('stored'); } } };
+      return Promise.resolve({ ETag: '"etag-1"', Body: { transformToByteArray: () => Promise.resolve(new TextEncoder().encode('stored')) } });
     }
-    return { ETag: '"etag-2"' };
+    return Promise.resolve({ ETag: '"etag-2"' });
   } };
   const storage = createR2PublicationStorage(config, client);
   assert.equal(await storage.create('bootstrap/r/file', Buffer.from('body'), { contentType: 'text/plain', sha256: 'c'.repeat(64) }), true);
@@ -35,8 +35,8 @@ void test('R2 adapter uses atomic create-only and compare-and-swap conditions', 
 });
 
 void test('R2 adapter converts only 412 responses into conditional conflicts', async () => {
-  const client = { async send() {
-    throw Object.assign(new Error('precondition failed'), { $metadata: { httpStatusCode: 412 } });
+  const client = { send() {
+    return Promise.reject(Object.assign(new Error('precondition failed'), { $metadata: { httpStatusCode: 412 } }));
   } };
   const storage = createR2PublicationStorage(config, client);
   assert.equal(await storage.create('bootstrap/r/file', Buffer.from('x'), { contentType: 'text/plain', sha256: 'd'.repeat(64) }), false);
