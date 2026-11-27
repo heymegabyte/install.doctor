@@ -49,6 +49,24 @@ Raw AI upstream/provider keys belong only to the Ubuntu-hosted LiteLLM runtime p
 
 macOS receives only scoped LiteLLM client keys needed to call the gateway. Client keys have bounded model/team/budget authority and cannot administer LiteLLM, enumerate provider credentials, or bypass the gateway to call upstream providers directly. Classification distinguishes `ai-upstream-provider` from `litellm-client`; aliases or names that blur that boundary fail planning.
 
+### Cloudflare Access SSH client credential placement
+
+Repository-wide consumer evidence identifies the four general-store sources `CF_ACCESS_SSH_COOLIFY_CLIENT_ID`, `CF_ACCESS_SSH_COOLIFY_CLIENT_SECRET`, `CF_ACCESS_SSH_UBUNTU_CLIENT_ID`, and `CF_ACCESS_SSH_UBUNTU_CLIENT_SECRET` as outbound controller credentials. The macOS-side `coolify-ssh-proxy.sh` and `ubuntu-ssh-proxy.sh` resolve the corresponding pair immediately before launching `cloudflared access ssh`; the SSH key remains a separate factor. The destination hosts do not consume these values to serve SSH.
+
+The `developer-workstation` profile therefore receives a new exact-name capability such as `cloudflare-access-ssh-client` containing only these four names. The broad `cloudflare` capability's `^CF_` pattern must explicitly exclude all `^CF_ACCESS_SSH_.*_(CLIENT_ID|CLIENT_SECRET)$` names before exact capabilities are added. Pattern ordering alone is not a security boundary: the schema/compiler must support deterministic deny-before-allow or equivalent reserved-name exclusion, reject overlap unless an exact reviewed capability re-admits the name, and show the result in profile diffs.
+
+| Target | Coolify pair | Ubuntu pair | Reason |
+| --- | --- | --- | --- |
+| `macos.megabyte.space` | allow exact ID + secret | allow exact ID + secret | evidenced local SSH proxy consumer; destination is the dedicated macOS project root |
+| `ubuntu.megabyte.space` | deny | deny | SSH target/server, not the outbound Access client; keeping its own bearer token on the target defeats separation |
+| `zen.megabyte.space` | deny | deny | provisioning source references client IDs for policy reconciliation, but no runtime host consumer requires either pair |
+| `legion.megabyte.space` | deny | deny | no evidenced consumer; shared managed-workstation profile must not imply access |
+| `omen.megabyte.space` | deny | deny | provisioning source references the Coolify ID fallback, but no runtime host consumer requires either pair; host is not yet an eligible secret target until explicitly declared |
+
+Zen and Omen provisioning scripts use only client IDs to locate Cloudflare service-token resources while reconciling Access policies. Those control-plane actions should run from an authorized controller/workload and use value-free resource IDs or Cloudflare API lookup where possible; source-code ownership does not grant the destination host either client pair. If a future non-macOS automation runner genuinely initiates SSH, it requires a separately declared workload identity and its own per-caller Access service token, not reuse of the macOS token.
+
+Zen and Legion retain their explicit legacy Global project paths only for credentials independently admitted by their managed-host allowlists. Omen must be added as an explicit host declaration with its reviewed project/path and independently enrolled identity before it can receive any host secret; until then it fails closed. None of these declarations may add the SSH client capability. Client IDs are handled with the same routing and non-disclosure controls as their paired secrets even though an ID alone is not sufficient authentication.
+
 ### Acceptance scenarios
 
 1. **macOS default inventory:** selecting only `macos.megabyte.space` uses its declared `secrets-workstation` overrides plus the allowed general fallback and records both sources without values.
@@ -58,6 +76,10 @@ macOS receives only scoped LiteLLM client keys needed to call the gateway. Clien
 5. **Unsafe override:** multi-host, missing, unapproved, ambiguous, or symlink-escaping directory overrides fail before decryption or external mutation.
 6. **AI upstream isolation:** Ubuntu/LiteLLM can resolve its allowlisted raw provider key; macOS receives `403` or no grant for that key.
 7. **LiteLLM client access:** macOS can resolve only its scoped LiteLLM client key and use the gateway without receiving an upstream provider key.
+8. **macOS SSH controller:** the macOS plan admits exactly the four reviewed Coolify/Ubuntu Access SSH client names and its proxy retrieves the matching pair without logging it.
+9. **Destination-host denial:** Ubuntu, Zen, Legion, and a declared Omen profile exclude all `CF_ACCESS_SSH_*_(CLIENT_ID|CLIENT_SECRET)` names despite their generic Cloudflare capability.
+10. **Undeclared Omen:** selecting Omen before an explicit project/path/identity declaration fails before source validation or retrieval.
+11. **New SSH caller:** a new runner cannot reuse the macOS pair through a broad profile and instead requires its own workload identity and token contract.
 
 ## Hardened host profiles
 
@@ -248,6 +270,8 @@ Before exact-source deletion, rollback may restore consumer resolution to the st
 - **Migration override broadens the fleet:** constrain `--project-id` to one explicitly selected host, keep it non-persistent, and retain the declared path and identity checks.
 - **Workstation inventory overrides Ubuntu:** bind `secrets-workstation` to `macos.megabyte.space`; make every alternate directory an explicit single-host `--secret-directory` override.
 - **Raw provider key reaches a developer laptop:** classify upstream and client keys separately, keep upstream keys in Ubuntu/LiteLLM only, and verify macOS denial.
+- **SSH destination receives its caller bearer token:** reserve all Cloudflare Access SSH client names from broad Cloudflare matching and admit only exact names to the evidenced controller capability.
+- **Provisioning repository is mistaken for host consumption:** distinguish code that reconciles Access policy IDs from the runtime identity that initiates SSH; repository reference alone never grants a destination host the credential pair.
 - **Long-lived local bootstrap credential leaks:** cap client secrets at 90 days, store them in Keychain or a mode-`0600` Ubuntu file, and use 900-second/max-two-use access tokens.
 - **Profile expansion by repository noise:** require explicit capability admission and reviewable diff; discovery alone never grants access.
 - **Canary retirement is mistaken for bulk authority:** bind every deletion to its own exact-source assertion and current drift digest; the canary cannot authorize another source, while rotation, revocation, and age-key retirement remain separate work.

@@ -31,6 +31,7 @@ The estate needs a value-blind, least-privilege migration that makes Infisical a
 - Delete an encrypted source only after every required least-privilege destination has passed Infisical round-trip, target-host/workload retrieval, consumer cutover, rollback, and source-retirement gates.
 - Keep source listings, profiles, target mappings, validation records, and retirement state synchronized so stale or unlisted sources cannot be selected implicitly.
 - Add an explicit `wordpress-platform.megabyte.space` workload boundary for the 14 `secrets-wordpress` sources, backed by a dedicated Infisical project rather than any host, Global, MCP, macOS, or Ubuntu project; split consumers into additional site workload projects whenever one runtime identity does not require the complete reviewed allowlist.
+- Classify the Coolify and Ubuntu Cloudflare Access SSH service-token pairs as controller-side SSH client credentials: grant the four exact names only to the macOS controller profile, remove them from generic `CF_`/Cloudflare capability matching, and deny them to Ubuntu and managed destination hosts.
 
 ## Out of scope
 
@@ -51,6 +52,7 @@ The estate needs a value-blind, least-privilege migration that makes Infisical a
 - Dedicated macOS and Ubuntu hosts resolve from their dedicated project root, while explicitly declared legacy managed workstations temporarily retain their Global-project host paths until migrated.
 - `--workload` and `--host` are mutually exclusive, and workload plans use only their one explicitly declared source store: general for ordinary/MCP workloads or `secrets-wordpress` for declared WordPress/site workloads.
 - WordPress-store sources are selectable only through an explicit WordPress/site workload whose dedicated project, identity, source-store policy, and per-source capability allowlist are declared; no host profile or unrelated workload can discover or retrieve them.
+- macOS can resolve the exact Coolify and Ubuntu SSH Access client pairs for its local proxy helpers; Ubuntu, Zen, Legion, Omen, unrelated workloads, and generic Cloudflare profiles cannot select or retrieve those credentials.
 - Offline recovery remains independently testable without making the legacy inventory an ambient online fallback.
 - Every in-scope encrypted source is deleted after its own exact-source validation, required-destination round trips and target retrieval, consumer cutover, recovery/observation, offline-exception, and retirement-assertion gates pass; canary evidence never authorizes another source.
 - `invalid-retired`, missing, stale, or otherwise unverified validation records are rejected during preflight, leaving every destination unchanged.

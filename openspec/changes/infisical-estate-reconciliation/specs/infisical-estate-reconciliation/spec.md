@@ -107,6 +107,37 @@ The system SHALL use repository-and-environment-bound GitHub OIDC identities for
 - **WHEN** a production workflow requests repository secrets
 - **THEN** authentication uses claims bound to that repository and production environment.
 
+### Requirement: Controller-only Cloudflare Access SSH credentials
+
+The system SHALL reserve every `CF_ACCESS_SSH_*_(CLIENT_ID|CLIENT_SECRET)` name from generic Cloudflare capability matching and SHALL admit the Coolify and Ubuntu client pairs only through an exact-name controller capability assigned to `macos.megabyte.space`. SSH destination hosts and unrelated workloads SHALL NOT receive the caller bearer credentials.
+
+#### Scenario: macOS initiates non-interactive SSH
+
+- **WHEN** the macOS controller profile resolves credentials for its Coolify or Ubuntu SSH proxy
+- **THEN** the corresponding exact client ID and client secret pair is available from the dedicated macOS destination
+- **AND** neither value appears in logs, argv, generated configuration, or durable proxy state
+
+#### Scenario: Destination host is planned
+
+- **WHEN** Ubuntu, Zen, Legion, or Omen is selected
+- **THEN** all Cloudflare Access SSH client IDs and secrets are excluded despite any generic `CF_` or Cloudflare capability
+
+#### Scenario: Broad pattern overlaps a reserved SSH name
+
+- **WHEN** a generic capability regex matches a reserved Cloudflare Access SSH client name
+- **THEN** deny-before-allow processing excludes it unless an exact reviewed controller capability re-admits it
+- **AND** ambiguous overlap fails schema/profile compilation
+
+#### Scenario: Omen lacks an explicit host declaration
+
+- **WHEN** Omen is selected before its exact project, path, identity, and profile are declared
+- **THEN** planning fails before validation, decryption, or destination access
+
+#### Scenario: Another automation caller needs SSH
+
+- **WHEN** a non-macOS runner needs non-interactive SSH
+- **THEN** it requires a separate workload identity and per-caller Access token contract rather than inheriting or copying the macOS pair
+
 ### Requirement: Safe reconciliation
 
 The system SHALL be idempotent, complete inventory before mutation, mask output, and perform no deletion, revocation, rotation, or permission widening outside the declared plan.

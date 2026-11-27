@@ -22,6 +22,10 @@
 - [ ] 2.3a Classify raw AI upstream/provider keys as Ubuntu/LiteLLM-runtime-only and scoped LiteLLM client keys as the only AI access granted to macOS.
 - [ ] 2.4 Add negative tests for unknown, cloned, renamed, stale, role-conflicting, expired, oversized, and implicitly expanded host profiles.
 - [ ] 2.5 Add deterministic profile-diff, downgrade, revocation, and re-enrollment tests without resolving secret values.
+- [ ] 2.6 Reserve `^CF_ACCESS_SSH_.*_(CLIENT_ID|CLIENT_SECRET)$` from the generic `cloudflare`/`^CF_` capability and add an exact-name `cloudflare-access-ssh-client` capability containing only the Coolify and Ubuntu client ID/secret pairs.
+- [ ] 2.7 Grant `cloudflare-access-ssh-client` only to `macos.megabyte.space`; prove Ubuntu, Zen, Legion, Omen, every workload, and every other host profile exclude all four names.
+- [ ] 2.8 Add Omen to the manifest only after its exact project ID, absolute secret path, identity, profile, owner, and migration state are reviewed; until then reject Omen as an undeclared target, and never grant its eventual managed-host profile the SSH client capability.
+- [ ] 2.9 Add schema/compiler support for reserved-name deny-before-allow semantics, reject ambiguous regex overlap, and require exact reviewed re-admission plus a value-free profile diff.
 
 ## 2A. Workload targets
 
@@ -92,5 +96,6 @@
 - [ ] 7.2e Add acceptance tests for three-store source identity, same-name independence, provider validation, invalid retirement, multi-destination completeness, target-host retrieval, active offline exceptions, exact-source deletion, and profile/listing drift.
 - [ ] 7.2f Add a deterministic metadata-only listing and closed-set sync validator across inventory, profiles, host/workload targets, validation ledger, destination evidence, offline exceptions, and retirement assertions.
 - [ ] 7.2g Add WordPress workload tests for exact 14-source inventory, exclusive source-store selection, host/general/workstation/MCP exclusion, dedicated-project routing, per-group allowlists, site-project split, privileged-bootstrap denial, intended workload retrieval, and explicit cross-target denial.
+- [ ] 7.2h Add SSH Access credential tests for macOS exact-name admission, Coolify/Ubuntu pair completeness, Ubuntu/Zen/Legion/Omen denial, generic `^CF_` exclusion, undeclared-Omen failure, overlap rejection, and new-caller token non-reuse.
 - [ ] 7.3 Update operator documentation to distinguish online authority, transition fallback, offline recovery, and retirement eligibility without listing values.
 - [ ] 7.4 Run strict OpenSpec validation and focused repository secret-safety/profile tests; report PASS, FAIL, BLOCKED, and UNVERIFIED distinctly.
