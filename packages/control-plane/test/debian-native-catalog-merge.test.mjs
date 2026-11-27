@@ -52,10 +52,16 @@ void test('fails closed on duplicate authority, wrong artifacts, wrong package, 
 
 void test('stages the checked-in release catalog with only the tree entry changed', async () => {
   const catalogUrl = new URL('../src/catalog.json', import.meta.url);
-  const base = JSON.parse(await readFile(catalogUrl, 'utf8'));
+  /** @type {unknown} */
+  const parsed = JSON.parse(await readFile(catalogUrl, 'utf8'));
+  assert.ok(Array.isArray(parsed));
+  /** @type {unknown[]} */
+  const base = parsed;
   const merged = mergeDebianNativeCatalog(base, receipt);
   assert.equal(merged.length, base.length);
   const changed = merged.filter((entry, index) => entry !== base[index]);
   assert.equal(changed.length, 1);
-  assert.deepEqual(changed[0], { ...base.find((/** @type {{ name: string }} */ entry) => entry.name === 'tree'), offlinePayloads: [descriptor] });
+  const tree = base.find(entry => entry !== null && typeof entry === 'object' && 'name' in entry && entry.name === 'tree');
+  assert.ok(tree);
+  assert.deepEqual(changed[0], { ...tree, offlinePayloads: [descriptor] });
 });

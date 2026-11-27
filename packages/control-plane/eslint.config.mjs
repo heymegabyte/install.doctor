@@ -13,7 +13,6 @@ const pendingFixtures = [
   'test/broker-release-delegation-loader.test.mjs',
   'test/broker-run-intent-authority.test.mjs',
   'test/credential-lifecycle-rebuild.test.mjs',
-  'test/debian-native-catalog-merge.test.mjs',
   'test/debian-native-composition.test.mjs',
   'test/desktop-release-builder.test.mjs',
   'test/desktop-release-channel.test.mjs',
