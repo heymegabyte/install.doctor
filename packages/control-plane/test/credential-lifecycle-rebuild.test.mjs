@@ -9,6 +9,10 @@ const profileId = 'profile-lifecycle';
 const scopes = ['profile:read', 'session:create'];
 const pollProof = 'c'.repeat(64);
 
+/** @typedef {import('../src/atomic-credential-claim.ts').ClaimRecord} ClaimRecord */
+/** @typedef {import('../src/atomic-credential-claim.ts').IssuedDeviceCredential} DeviceCredential */
+/** @typedef {ReturnType<typeof DeviceAuthorizationAuditSchema.parse>} AuditReceipt */
+/** @param {number} sequence @param {string} fingerprint @param {string} expiresAt @returns {ClaimRecord['request']} */
 function authorizationRequest(sequence, fingerprint, expiresAt) {
   return {
     schemaVersion: 1,
@@ -30,10 +34,21 @@ function authorizationRequest(sequence, fingerprint, expiresAt) {
 }
 
 function disposableLifecycleStore() {
+  /** @type {Map<string, ClaimRecord>} */
   const requests = new Map();
+  /** @type {Map<string, DeviceCredential & { requestId: string, secretDigest: string, revokedAt: string | null }>} */
   const credentials = new Map();
+  /** @type {AuditReceipt[]} */
   const receipts = [];
 
+  /**
+   * @param {ClaimRecord['request']} request
+   * @param {AuditReceipt['event']} event
+   * @param {AuditReceipt['outcome']} outcome
+   * @param {string} occurredAt
+   * @param {AuditReceipt['credentialId']} credentialId
+   * @param {AuditReceipt['reasonCode']} reasonCode
+   */
   const appendReceipt = (request, event, outcome, occurredAt, credentialId, reasonCode) => {
     const receipt = DeviceAuthorizationAuditSchema.parse({
       schemaVersion: 1,
@@ -50,7 +65,11 @@ function disposableLifecycleStore() {
     receipts.push(receipt);
   };
 
-  return {
+  /** @satisfies {Parameters<typeof claimDeviceCredential>[1]['store'] & {
+   * requests: typeof requests, credentials: typeof credentials, receipts: AuditReceipt[],
+   * addApproved(request: ClaimRecord['request']): void, authenticate(credentialId: string, secret: string): boolean,
+   * }} */
+  const store = {
     requests,
     credentials,
     receipts,
@@ -82,6 +101,7 @@ function disposableLifecycleStore() {
       if (credential.revokedAt) return 'already-revoked';
       credentials.set(credentialId, { ...credential, revokedAt });
       const state = requests.get(credential.requestId);
+      assert.ok(state, 'revoked credential must have a recorded authorization');
       appendReceipt(state.request, 'revoked', 'accepted', revokedAt, credential.id, reason);
       return 'revoked';
     },
@@ -91,6 +111,7 @@ function disposableLifecycleStore() {
       return Boolean(credential && !credential.revokedAt && credential.secretDigest === digest);
     },
   };
+  return store;
 }
 
 test('revocation survives a disposable host rebuild and produces exact secret-free receipts', async () => {
@@ -101,6 +122,7 @@ test('revocation survives a disposable host rebuild and produces exact secret-fr
   const rebuiltRequest = authorizationRequest(2, rebuiltFingerprint, '2026-11-09T10:40:00.000Z');
   store.addApproved(oldRequest);
 
+  /** @param {ClaimRecord['request']} request @param {string} now @param {string} credentialId */
   const claim = (request, now, credentialId) => claimDeviceCredential({
     requestId: request.requestId,
     tenantId,
