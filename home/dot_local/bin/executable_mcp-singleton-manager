@@ -143,8 +143,6 @@ render_systemd_unit() {
     'RestrictSUIDSGID=true' \
     'LockPersonality=true' \
     'ProtectControlGroups=true' \
-    'ProtectKernelLogs=true' \
-    'ProtectKernelModules=true' \
     'ProtectKernelTunables=true' \
     'ProtectSystem=strict' \
     'ReadWritePaths=%h/.config %h/.local/state %t/mcp-singletons' \
