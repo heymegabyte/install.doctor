@@ -24,6 +24,7 @@
     "test/debian-native-catalog-merge.test.mjs",
     "test/desktop-release-builder.test.mjs",
     "test/desktop-release-channel.test.mjs",
+    "test/desktop-release-publication.test.mjs",
     "test/offline-bundle-publication.test.mjs",
     "test/offline-bundle-request.test.mjs",
     "test/oidc-owner-enrollment.test.mjs",

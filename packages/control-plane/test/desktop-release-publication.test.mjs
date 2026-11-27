@@ -32,18 +32,29 @@ test('CLI verifier uses the signed promotion payload and rejects different bytes
   await assert.rejects(verify({ ...claim, payload: Buffer.from('different bytes') }), /signature verification failed/);
 });
 
+/** @param {Uint8Array} bytes */
 const digest = bytes => createHash('sha256').update(bytes).digest('hex');
+/** @param {unknown} value @returns {unknown} */
 const canonicalValue = value => Array.isArray(value) ? value.map(canonicalValue)
   : value && typeof value === 'object'
     ? Object.fromEntries(Object.entries(value).sort(([left], [right]) => left.localeCompare(right))
       .map(([key, entry]) => [key, canonicalValue(entry)])) : value;
+/** @param {string} domain @param {unknown} value */
 const semanticDigest = (domain, value) => digest(Buffer.from(`${domain}\0${JSON.stringify(canonicalValue(value))}`));
 
+/** @param {import('node:test').TestContext} t @param {(value: string[]) => string[]} [mutate] */
 async function fixture(t, mutate = value => value, schemaVersion = 7) {
   const directory = await mkdtemp(join(tmpdir(), 'desktop-release-test-'));
   t.after(() => rm(directory, { recursive: true, force: true }));
   const releaseId = `desktop-${randomUUID()}`;
+  /** @type {Map<string, Buffer>} */
   const bodies = new Map();
+  /** @param {string} name */
+  const artifactBytes = name => {
+    const body = bodies.get(name);
+    assert.ok(body, `missing fixture payload: ${name}`);
+    return body;
+  };
   const evidence = ['manifest', 'manifest.sig', 'release.sbom.json', 'release.provenance.json', 'THIRD_PARTY_LICENSES.txt'];
   const releaseFiles = schemaVersion === 9 ? DESKTOP_RELEASE_V9_FILES
     : schemaVersion === 8 ? DESKTOP_RELEASE_V8_FILES : DESKTOP_RELEASE_FILES;
@@ -65,11 +76,13 @@ async function fixture(t, mutate = value => value, schemaVersion = 7) {
   const opencodeVersion = '2.2.5';
   const lockedNames = { macos_x64: 'opencode-macos-x64.zip', macos_arm64: 'opencode-macos-arm64.zip',
     linux_x64: 'opencode-linux-x64.tar.gz', linux_arm64: 'opencode-linux-arm64.tar.gz' };
+  /** @type {Record<string, {releaseFilename: string, upstreamUrl: string, sha256: string, size: number}>} */
+  const lockedArtifacts = {};
   const lock = { schemaVersion: 1, name: 'opencode', version: opencodeVersion, sourceCommit: 'c'.repeat(40), license: 'MIT',
-    sourceVerification: { tagCommit: 'c'.repeat(40), gitHubVerified: false, assetDigestSource: 'github-release-api' }, artifacts: {} };
+    sourceVerification: { tagCommit: 'c'.repeat(40), gitHubVerified: false, assetDigestSource: 'github-release-api' }, artifacts: lockedArtifacts };
   for (const [platform, name] of Object.entries(lockedNames)) lock.artifacts[platform] = { releaseFilename: name,
     upstreamUrl: `https://github.com/anomalyco/opencode/releases/download/v${opencodeVersion}/fixture-${name}`,
-    sha256: digest(bodies.get(name)), size: bodies.get(name).byteLength };
+    sha256: digest(artifactBytes(name)), size: artifactBytes(name).byteLength };
   bodies.set('opencode.lock.json', Buffer.from(`${JSON.stringify(lock)}\n`));
   const closure = [...bodies.entries()];
   bodies.set('release.sbom.json', Buffer.from(`${JSON.stringify({ bomFormat: 'CycloneDX', specVersion: '1.6', version: 1,
@@ -78,12 +91,12 @@ async function fixture(t, mutate = value => value, schemaVersion = 7) {
     ] } }, components: closure.map(([name, bytes]) => ({ name, hashes: [{ alg: 'SHA-256', content: digest(bytes) }] })) })}\n`));
   const provenance = { _type: 'https://in-toto.io/Statement/v1',
     predicateType: 'https://slsa.dev/provenance/v1', subject: closure.map(([name, bytes]) => ({ name, digest: { sha256: digest(bytes) } })),
-    predicate: { buildDefinition: { externalParameters: { releaseId, sourceCommit: 'a'.repeat(40), opencodeVersion },
+    predicate: { buildDefinition: { externalParameters: { releaseId, sourceCommit: 'a'.repeat(40), opencodeVersion,
+      ...(schemaVersion >= 8 && { debianTrustPolicySha256: 'd'.repeat(64), debianCompositionSha256: 'e'.repeat(64) }) },
       resolvedDependencies: Object.values(lock.artifacts).map(artifact => ({ uri: artifact.upstreamUrl, digest: { sha256: artifact.sha256 } })) } } };
   if (schemaVersion >= 8) {
     const parameters = provenance.predicate.buildDefinition.externalParameters;
-    parameters.debianTrustPolicySha256 = 'd'.repeat(64);
-    parameters.debianCompositionSha256 = 'e'.repeat(64);
+    assert.ok(parameters.debianTrustPolicySha256 && parameters.debianCompositionSha256);
     for (const [name, bytes] of [...bodies.entries()].filter(([name]) => name.startsWith('debian-') || name.endsWith('_amd64.deb'))) {
       provenance.predicate.buildDefinition.resolvedDependencies.push({ uri: `https://deb.debian.org/${name}`, digest: { sha256: digest(bytes) } });
     }
@@ -100,6 +113,7 @@ async function fixture(t, mutate = value => value, schemaVersion = 7) {
     'engine_node_min=22', 'runtime_node_version=24.11.0', `opencode_version=${opencodeVersion}`
   ];
   if (schemaVersion === 9) entries.push('broker_approval_minimum_revocation_epoch=7');
+  /** @type {[string, string][]} */
   const artifacts = [
     ['artifact','provision.sh'], ['engine','desktop-tools-engine.mjs'], ['catalog','catalog.json'], ['launcher','start'],
     ['runtime_macos_x64','node-macos-x64.tar.gz'], ['runtime_macos_arm64','node-macos-arm64.tar.gz'],
@@ -118,8 +132,8 @@ async function fixture(t, mutate = value => value, schemaVersion = 7) {
   );
   for (const [prefix, name] of artifacts) entries.push(
     `${prefix}_url=https://desktop.tools/releases/${releaseId}/${name}`,
-    `${prefix}_sha256=${digest(bodies.get(name))}`,
-    `${prefix}_size=${bodies.get(name).byteLength}`
+    `${prefix}_sha256=${digest(artifactBytes(name))}`,
+    `${prefix}_size=${artifactBytes(name).byteLength}`
   );
   bodies.set('manifest', Buffer.from(`${mutate(entries).join('\n')}\n`));
   bodies.set('manifest.sig', Buffer.from('signature\n'));
@@ -127,11 +141,17 @@ async function fixture(t, mutate = value => value, schemaVersion = 7) {
   return { directory, releaseId };
 }
 
+/** @typedef {ReturnType<typeof import('../scripts/r2-publication-storage.mjs').createR2PublicationStorage>} Storage */
+/** @typedef {{ bytes: Buffer, etag: string }} StoredObject */
+/** @typedef {[string, Parameters<Storage['create']>[2]]} CreateCall */
+/** @returns {Storage & { objects: Map<string, StoredObject>, creates: CreateCall[] }} */
 function storage() {
+  /** @type {Map<string, StoredObject>} */
   const objects = new Map();
+  /** @type {CreateCall[]} */
   const creates = [];
   return { objects, creates,
-    async create(key, bytes, metadata) { creates.push([key, metadata]); if (objects.has(key)) return false; objects.set(key, { bytes: Buffer.from(bytes) }); return true; },
+    async create(key, bytes, metadata) { creates.push([key, metadata]); if (objects.has(key)) return false; objects.set(key, { bytes: Buffer.from(bytes), etag: `created-${objects.size + 1}` }); return true; },
     async read(key) { return objects.get(key) ?? null; },
     async compareAndSwap(key, bytes, expectedEtag) {
       const current = objects.get(key);
@@ -146,12 +166,13 @@ function storage() {
 test('publishes an exact Desktop Tools v7 release in a product-qualified immutable keyspace', async t => {
   const release = await fixture(t);
   const target = storage();
+  /** @type {Parameters<Parameters<typeof publishDesktopRelease>[0]['verifySignature']>[0] | undefined} */
   let verified;
   const result = await publishDesktopRelease({ ...release, expectedReleaseId: release.releaseId, storage: target,
     verifySignature: async input => { verified = input; } });
   assert.equal(result.product, 'desktop-tools');
-  assert.equal(verified.namespace, 'desktop.tools.release');
-  assert.equal(target.creates.at(-1)[0], `desktop-tools/bootstrap/${release.releaseId}/manifest`);
+  assert.equal(verified?.namespace, 'desktop.tools.release');
+  assert.equal(target.creates.at(-1)?.[0], `desktop-tools/bootstrap/${release.releaseId}/manifest`);
   assert.equal(target.creates.some(([key]) => key.startsWith('bootstrap/')), false);
   const retry = await publishDesktopRelease({ ...release, expectedReleaseId: release.releaseId, storage: target, verifySignature: async () => {} });
   assert.equal(retry.outcomes.every(item => item.outcome === 'already-present'), true);
@@ -163,7 +184,7 @@ test('publishes and reinspects an exact Desktop Tools v8 release with four Debia
   const result = await publishDesktopRelease({ ...release, expectedReleaseId: release.releaseId, storage: target,
     verifySignature: async () => {} });
   assert.equal(result.product, 'desktop-tools');
-  assert.equal(target.creates.at(-1)[0], `desktop-tools/bootstrap/${release.releaseId}/manifest`);
+  assert.equal(target.creates.at(-1)?.[0], `desktop-tools/bootstrap/${release.releaseId}/manifest`);
   for (const name of ['debian-bookworm-inrelease', 'debian-bookworm-archive-keyring.gpg',
     'debian-bookworm-main-amd64-Packages.xz', 'tree_2.1.0-1_amd64.deb']) {
     assert.equal(target.objects.has(`desktop-tools/bootstrap/${release.releaseId}/${name}`), true);
@@ -175,7 +196,7 @@ test('publishes and reinspects an exact Desktop Tools v8 release with four Debia
   const unbound = await fixture(t, value => value, 8);
   const sbomPath = join(unbound.directory, 'release.sbom.json');
   const sbom = JSON.parse(await readFile(sbomPath, 'utf8'));
-  sbom.components = sbom.components.filter(component => component.name !== 'tree_2.1.0-1_amd64.deb');
+  sbom.components = sbom.components.filter((/** @type {{name: string}} */ component) => component.name !== 'tree_2.1.0-1_amd64.deb');
   const alteredSbom = Buffer.from(`${JSON.stringify(sbom)}\n`);
   await writeFile(sbomPath, alteredSbom);
   const manifestPath = join(unbound.directory, 'manifest');
@@ -192,17 +213,18 @@ test('publishes and reinspects an exact v9 release with a release-root-bound app
   const target = storage();
   const result = await publishDesktopRelease({ ...release, expectedReleaseId: release.releaseId, storage: target,
     verifySignature: async () => {} });
-  assert.equal(target.creates.at(-1)[0], `desktop-tools/bootstrap/${release.releaseId}/manifest`);
+  assert.equal(target.creates.at(-1)?.[0], `desktop-tools/bootstrap/${release.releaseId}/manifest`);
   assert.equal(target.objects.has(`desktop-tools/bootstrap/${release.releaseId}/broker-approval-signer-delegation.json`), true);
   const inspected = await inspectPublishedDesktopRelease({ expectedReleaseId: release.releaseId, storage: target,
     verifySignature: async () => {} });
   assert.equal(inspected.schemaVersion, 9);
   assert.equal(inspected.minimumRevocationEpoch, 7);
-  assert.equal(inspected.brokerApprovalDelegation.releaseId, release.releaseId);
+  assert.equal(inspected.brokerApprovalDelegation?.releaseId, release.releaseId);
   assert.equal(result.releaseId, release.releaseId);
 });
 
 test('rejects noncanonical, substituted, stale, revoked, wrong-channel, and non-Ed25519 v9 delegations', async t => {
+  /** @param {(value: Record<string, unknown>) => Record<string, unknown>} transform @param {RegExp} expected */
   async function alterDelegation(transform, expected) {
     const release = await fixture(t, value => value, 9);
     const path = join(release.directory, 'broker-approval-signer-delegation.json');
@@ -221,12 +243,12 @@ test('rejects noncanonical, substituted, stale, revoked, wrong-channel, and non-
       verifySignature: async () => {} }), expected);
   }
   await alterDelegation(value => Object.fromEntries(Object.entries(value).reverse()), /not canonical JSON/);
-  await alterDelegation(value => ({ ...canonicalValue(value), releaseId: 'other-release' }), /identity or policy/);
-  await alterDelegation(value => ({ ...canonicalValue(value), channel: 'beta' }), /identity or policy/);
-  await alterDelegation(value => ({ ...canonicalValue(value), revocationEpoch: 6 }), /identity or policy/);
-  await alterDelegation(value => ({ ...canonicalValue(value), notAfter: new Date().toISOString() }), /validity window/);
-  await alterDelegation(value => ({ ...canonicalValue(value), publicKeySpki: Buffer.from('not-an-ed25519-key').toString('base64url') }), /Ed25519/);
-  await alterDelegation(value => ({ ...canonicalValue(value), delegationDigest: 'f'.repeat(64) }), /digest is invalid/);
+  await alterDelegation(value => ({ .../** @type {Record<string, unknown>} */ (canonicalValue(value)), releaseId: 'other-release' }), /identity or policy/);
+  await alterDelegation(value => ({ .../** @type {Record<string, unknown>} */ (canonicalValue(value)), channel: 'beta' }), /identity or policy/);
+  await alterDelegation(value => ({ .../** @type {Record<string, unknown>} */ (canonicalValue(value)), revocationEpoch: 6 }), /identity or policy/);
+  await alterDelegation(value => ({ .../** @type {Record<string, unknown>} */ (canonicalValue(value)), notAfter: new Date().toISOString() }), /validity window/);
+  await alterDelegation(value => ({ .../** @type {Record<string, unknown>} */ (canonicalValue(value)), publicKeySpki: Buffer.from('not-an-ed25519-key').toString('base64url') }), /Ed25519/);
+  await alterDelegation(value => ({ .../** @type {Record<string, unknown>} */ (canonicalValue(value)), delegationDigest: 'f'.repeat(64) }), /digest is invalid/);
 });
 
 test('activates only inspected Desktop Tools releases with product-qualified CAS and exact rollback', async t => {
@@ -250,7 +272,7 @@ test('activates only inspected Desktop Tools releases with product-qualified CAS
     expectedEtag: promoted2.etag, kind: 'rollback', rollbackOfActivationId: promoted2.pointer.activationId,
     activationId: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc', activatedAt: '2026-11-08T12:02:00.000Z', now });
   assert.equal(rollback.pointer.generation, 3);
-  assert.equal(JSON.parse(channels.objects.get('desktop-tools/channels/stable.json').bytes).product, 'desktop-tools');
+  assert.equal(JSON.parse(channels.objects.get('desktop-tools/channels/stable.json')?.bytes.toString('utf8') ?? '').product, 'desktop-tools');
   assert.equal([...channels.objects.keys()].some(key => key.startsWith('bootstrap/')), false);
   await assert.rejects(activateDesktopRelease({ channel: 'stable', release: { ...second, product: 'legacy-install-doctor' }, storage: channels,
     expectedEtag: rollback.etag, activationId: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd', activatedAt: '2026-11-08T12:03:00.000Z', now }), /product mismatch/);
@@ -279,7 +301,7 @@ test('reconciles a post-CAS receipt failure without repeating activation', async
   const reconciled = await reconcileDesktopActivationReceipt({ channel: 'stable', activationId, storage: channels });
   assert.equal(reconciled.status, 'reconciled');
   assert.equal((await reconcileDesktopActivationReceipt({ channel: 'stable', activationId, storage: channels })).status, 'already-present');
-  assert.equal(JSON.parse(channels.objects.get('desktop-tools/channels/stable.json').bytes).generation, 1);
+  assert.equal(JSON.parse(channels.objects.get('desktop-tools/channels/stable.json')?.bytes.toString('utf8') ?? '').generation, 1);
 });
 
 test('signed cohort health gates suspend failed canaries before CAS and admit only their exact transition', async t => {
@@ -292,12 +314,14 @@ test('signed cohort health gates suspend failed canaries before CAS and admit on
     storage: releaseStorage, verifySignature: verifyRelease, now });
   const release = await inspectPublishedDesktopRelease({ expectedReleaseId: releaseFixture.releaseId,
     storage: releaseStorage, verifySignature: verifyRelease, now });
+  /** @param {string} result */
   const evidence = result => ({ schemaVersion: 1, product: 'desktop-tools', kind: 'cohort-health',
     releaseId: release.releaseId, sourceCohort: 'build', targetCohort: 'canary', result,
     observedAt: new Date(now * 1_000 - 1_000).toISOString(), expiresAt: new Date(now * 1_000 + 60_000).toISOString(),
     evidenceDigest: 'a'.repeat(64), signerId: 'desktop-health-1', signature: Buffer.alloc(64, 7).toString('base64url') });
   let verified = 0;
-  const verifyPromotionSignature = async ({ payload, signature, namespace }) => {
+  /** @type {NonNullable<Parameters<typeof activateDesktopRelease>[0]['verifyPromotionSignature']>} */
+  const verifyPromotionSignature = ({ payload, signature, namespace }) => {
     assert.equal(namespace, 'desktop.tools.promotion-health');
     assert.equal(Buffer.from(payload).includes(Buffer.from(release.releaseId)), true);
     assert.equal(signature.byteLength, 64);
@@ -319,6 +343,7 @@ test('signed cohort health gates suspend failed canaries before CAS and admit on
     activatedAt: '2026-11-08T15:02:00.000Z', now, minimumPromotionRemainingSeconds: 3_600,
     promotionEvidence: evidence('passed'), verifyPromotionSignature });
   assert.equal(promoted.status, 'activated');
+  assert.ok(promoted.pointer.promotionEvidenceSha256);
   assert.match(promoted.pointer.promotionEvidenceSha256, /^[a-f0-9]{64}$/);
   assert.equal(verified, 2);
 });
@@ -351,7 +376,8 @@ test('Desktop Tools freshness is signature-verified, read-only, product-qualifie
 
   const pointerKey = 'desktop-tools/channels/stable.json';
   const stored = channels.objects.get(pointerKey);
-  const pointer = JSON.parse(stored.bytes);
+  assert.ok(stored);
+  const pointer = JSON.parse(stored.bytes.toString('utf8'));
   channels.objects.set(pointerKey, { ...stored,
     bytes: Buffer.from(`${JSON.stringify({ ...pointer, manifestSha256: 'f'.repeat(64) })}\n`) });
   await assert.rejects(inspectActiveDesktopReleaseFreshness({ channel: 'stable', channelStorage: channels,
