@@ -12,6 +12,10 @@ on the legacy Firebase deploy credential and no unrelated site path is intercept
 
 ## One-time authority provisioning
 
+From the repository root, run `bash scripts/check-control-plane-github-admission.sh master`
+to verify the live GitHub branch policy and independent reviewer requirement. The check reads
+GitHub settings using the active `gh` session. It covers the GitHub environment only.
+
 Create the protected GitHub environment `control-plane-production`, restrict it to `master`, and
 require an authorized reviewer. Configure the nonsecret repository variables
 `INFISICAL_PROJECT_SLUG`, `INFISICAL_CONTROL_PLANE_MIGRATOR_ID`, and
