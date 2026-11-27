@@ -11,6 +11,7 @@
     "test/broker-approval-managed-signer.test.mjs",
     "test/offline-bundle-publication.test.mjs",
     "test/offline-bundle-request.test.mjs",
+    "test/oidc-owner-enrollment.test.mjs",
     "test/privileged-pair-binding.test.mjs",
     "test/r2-publication-storage.test.mjs",
     "test/release-evidence-view.test.mjs",

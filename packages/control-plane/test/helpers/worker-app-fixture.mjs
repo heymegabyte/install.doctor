@@ -59,14 +59,18 @@ export async function createWorkerFixture() {
   const bundle = path.join(root, 'worker.mjs');
   fs.writeFileSync(bundle, fs.readFileSync(distIndexPath, 'utf8').replace(/["']cloudflare:[^"']+["']/g, JSON.stringify(mockUrl)), { mode: 0o600, flag: 'wx' });
   const module = await import(`${pathToFileURL(bundle).href}?fixture=${Date.now()}`);
-  const db = globalThis[key];
+  /** @type {D1Database} */
+  const db = Reflect.get(globalThis, key);
   assert.ok(db, 'worker fixture did not publish its isolated D1 adapter');
+  /** @type {Pick<typeof import('../../src/index.ts').default, 'fetch'>} */
+  const app = module.default;
+  assert.equal(typeof app?.fetch, 'function', 'worker bundle did not export a fetch handler');
   return Object.freeze({
-    app: module.default,
+    app,
     db,
     env: Object.freeze({ ...TEST_ENV, DB: db }),
     async cleanup() {
-      delete globalThis[key];
+      Reflect.deleteProperty(globalThis, key);
       fs.rmSync(root, { recursive: true, force: true });
     },
   });

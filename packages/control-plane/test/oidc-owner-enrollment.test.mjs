@@ -3,9 +3,14 @@ import test from 'node:test';
 import { blueprintDigest, exportMarkdown } from '../../aid-core/dist/core.js';
 import { createWorkerFixture } from './helpers/worker-app-fixture.mjs';
 
-const cookiePair = value => value.split(';', 1)[0];
-const setCookies = headers => typeof headers.getSetCookie === 'function'
-  ? headers.getSetCookie() : (headers.get('set-cookie') ? [headers.get('set-cookie')] : []);
+/** @param {string} value */
+const cookiePair = value => value.split(';', 1)[0] ?? '';
+/** @param {Headers} headers */
+const setCookies = headers => {
+  if (typeof headers.getSetCookie === 'function') return headers.getSetCookie();
+  const cookie = headers.get('set-cookie');
+  return cookie ? [cookie] : [];
+};
 
 test('actual Better Auth callback session completes exact owner enrollment without an admin token', async t => {
   const fixture = await createWorkerFixture();
@@ -26,11 +31,13 @@ test('actual Better Auth callback session completes exact owner enrollment witho
   assert.equal(providerUrl.origin, 'https://github.com');
   assert.equal(providerUrl.searchParams.get('redirect_uri'), 'https://desktop.tools/api/auth/callback/github');
   const state = providerUrl.searchParams.get('state');
+  assert.ok(state);
   assert.match(state, /^[A-Za-z0-9_-]{20,}$/);
   const stateSetCookie = setCookies(startedSignIn.headers).find(value => value.startsWith('__Secure-better-auth.state='));
   assert.ok(stateSetCookie);
   assert.match(stateSetCookie, /; HttpOnly; Secure; SameSite=Lax/);
 
+  /** @type {{ url: string, method: string }[]} */
   const providerRequests = [];
   globalThis.fetch = async (input, init) => {
     const url = input instanceof Request ? input.url : String(input);
