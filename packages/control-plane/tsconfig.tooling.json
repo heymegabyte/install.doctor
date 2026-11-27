@@ -1,12 +1,9 @@
 {
-  "extends": "../aid-core/vendor/theme-tools/tsconfig.base.json",
+  "extends": "../aid-core/vendor/theme-tools/tsconfig.node.json",
   "compilerOptions": {
     "allowJs": true,
     "allowImportingTsExtensions": true,
-    "checkJs": true,
-    "module": "NodeNext",
-    "moduleResolution": "NodeNext",
-    "types": ["node"]
+    "checkJs": true
   },
   "include": ["scripts/**/*.mjs", "../../scripts/build-desktop-tools-release.mjs", "../../scripts/verify-desktop-tools-release.mjs"]
 }

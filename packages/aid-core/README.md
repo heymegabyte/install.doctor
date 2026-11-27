@@ -43,7 +43,14 @@ The build uses the base compiler profile from the qualified `@theme-tools/testin
 1.0.2 archive at theme.tools revision `08b6d16a1bb7c4da9eb11ec741720c5ec078a551`.
 `vendor/theme-tools/tsconfig.base.json` is the exact `package/dist/tsconfig/base.json`
 member. Its SHA-256 is `6f72381362b2ee9b97227b5a775ff3234dcf9df7e11d0c1c240be77ef650b713`.
-The package keeps its own emit and library settings. Zod is the runtime dependency.
+The Control Plane tooling project uses `vendor/theme-tools/tsconfig.node.json`
+from the same archive (archive SHA-256
+`b1f0d3c467b1f584255b05fd1fbb7f75cc96a3e96fceb169b9b24b315b8b1da9`).
+This file is the exact `package/dist/tsconfig/node.json` member, exported as
+`@theme-tools/testing/tsconfig/node.json`. Its SHA-256 is
+`2e5e79d3d127cc0530302475dbf54089b3f88a22e01241e73a89d1ef1c2aadb9`.
+
+Aid Core keeps its own emit and library settings. Zod is its runtime dependency.
 TypeScript and ESLint are development dependencies. Use Node 24.22.2 to match
 the Linux CI toolchain when running the lint and test commands.
 
