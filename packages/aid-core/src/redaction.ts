@@ -60,7 +60,7 @@ export function createStreamingSecretRedactor(options: { readonly maxBufferedCha
       const end = PEM_END.exec(record);
       if (!end) return '';
       insidePem = false;
-      return redactRecord(record.slice((end.index ?? 0) + end[0].length));
+      return redactRecord(record.slice(end.index + end[0].length));
     }
 
     const begin = PEM_BEGIN.exec(record);
@@ -68,7 +68,7 @@ export function createStreamingSecretRedactor(options: { readonly maxBufferedCha
     const prefix = redactSecrets(record.slice(0, begin.index));
     const remainder = record.slice(begin.index + begin[0].length);
     const end = PEM_END.exec(remainder);
-    if (end) return `${prefix}${REDACTED}${redactRecord(remainder.slice((end.index ?? 0) + end[0].length))}`;
+    if (end) return `${prefix}${REDACTED}${redactRecord(remainder.slice(end.index + end[0].length))}`;
     insidePem = true;
     const lineEnding = record.endsWith('\r\n') ? '\r\n' : record.endsWith('\n') ? '\n' : '';
     return `${prefix}${REDACTED}${lineEnding}`;

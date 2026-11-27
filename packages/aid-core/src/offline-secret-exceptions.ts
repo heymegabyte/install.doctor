@@ -2,7 +2,7 @@
 import { z } from 'zod';
 
 const identifier = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/);
-const date = z.string().date();
+const date = z.iso.date();
 const storePath = z.string().regex(/^home\/\.chezmoitemplates\/secrets(?:-[a-z0-9-]+)?$/);
 
 export const offlineSecretPurposes = ['pre-network', 'boot', 'offline-execution', 'independent-recovery'] as const;

@@ -3,7 +3,7 @@ import { z } from 'zod';
 
 const identifier = z.string().regex(/^[a-z0-9][a-z0-9._-]{0,95}$/);
 const boundedText = z.string().min(1).max(512).refine(value => !/[\r\n\0]/.test(value));
-const observedAt = z.string().datetime({ offset: true });
+const observedAt = z.iso.datetime({ offset: true });
 const dataKinds = ['dataset', 'file', 'database', 'vm', 'container', 'configuration', 'key'] as const;
 const protectionLayers = ['snapshot', 'replication', 'independent-backup', 'verification', 'restore'] as const;
 

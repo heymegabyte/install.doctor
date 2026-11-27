@@ -1,14 +1,14 @@
 import { z } from 'zod';
 
 const id = z.string().min(1).max(128).regex(/^[a-z0-9][a-z0-9._:-]*$/);
-const instant = z.string().datetime({ offset: true }).max(64);
+const instant = z.iso.datetime({ offset: true }).max(64);
 const state = z.enum(['unknown', 'stale', 'running', 'failed', 'verified']);
 const domains = ['release-adoption', 'fleet-drift', 'run-critical-path', 'agent-cost', 'secret-access',
   'platform-evidence', 'capacity', 'pool-health', 'backup-freshness', 'replication-lag', 'verification', 'restore-outcomes'] as const;
 
 export const OperationsDashboardObservationSchema = z.strictObject({ schemaVersion: z.literal(1), tenantId: id,
   hostId: id.nullable(), domain: z.enum(domains), observedAt: instant, expiresAt: instant, state,
-  evidenceDigest: z.string().regex(/^[a-f0-9]{64}$/).nullable(), value: z.number().finite().nullable(),
+  evidenceDigest: z.string().regex(/^[a-f0-9]{64}$/).nullable(), value: z.number().nullable(),
   unit: z.enum(['1', 'percent', 'bytes', 'seconds', 'usd']).nullable(), reason: z.string().min(1).max(512),
 }).superRefine((value, context) => {
   if (Date.parse(value.expiresAt) <= Date.parse(value.observedAt)) context.addIssue({ code: 'custom', path: ['expiresAt'], message: 'dashboard evidence expiry must follow observation' });
@@ -24,7 +24,7 @@ const panel = z.strictObject({ id, title: z.string().min(1).max(128), domain: z.
   states: z.tuple([z.literal('unknown'), z.literal('stale'), z.literal('running'), z.literal('failed'), z.literal('verified')]),
   stateField: z.literal('desktop_tools_state'), evidenceField: z.literal('evidence_digest'),
   records: z.array(z.strictObject({ hostId: id.nullable(), state, observedAt: instant.nullable(), evidenceDigest: z.string().regex(/^[a-f0-9]{64}$/).nullable(),
-    value: z.number().finite().nullable(), unit: z.enum(['1', 'percent', 'bytes', 'seconds', 'usd']).nullable(), reason: z.string().min(1).max(512) })).max(100_000),
+    value: z.number().nullable(), unit: z.enum(['1', 'percent', 'bytes', 'seconds', 'usd']).nullable(), reason: z.string().min(1).max(512) })).max(100_000),
 });
 export const OperationsDashboardBundleSchema = z.strictObject({ schemaVersion: z.literal(1), tenantId: id, generatedAt: instant,
   dashboards: z.array(z.strictObject({ id, title: z.string().min(1).max(128), panels: z.array(panel).min(1).max(32) })).length(3) });

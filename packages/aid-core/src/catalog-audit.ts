@@ -3,7 +3,7 @@ import { SoftwareCatalogEntrySchema } from './software-catalog.js';
 
 const id = z.string().min(1).max(128).regex(/^[a-z0-9][a-z0-9._:-]*$/);
 const digest = z.string().regex(/^[a-f0-9]{64}$/);
-const instant = z.string().datetime({ offset: true }).max(64);
+const instant = z.iso.datetime({ offset: true }).max(64);
 const unknown = z.strictObject({ status: z.literal('unknown'), reason: z.enum(['not-queried', 'not-published', 'source-unavailable', 'unsupported-source', 'stale-evidence']) });
 
 export const CatalogAuditPolicySchema = z.strictObject({ schemaVersion: z.literal(1), policyId: id,
@@ -18,13 +18,13 @@ export const CatalogAuditPolicySchema = z.strictObject({ schemaVersion: z.litera
 });
 
 export const CatalogAuditObservationSchema = z.strictObject({ schemaVersion: z.literal(1), entryKey: id,
-  observedAt: instant, source: z.string().url().max(2_048), immutableSourceDigest: digest,
+  observedAt: instant, source: z.url().max(2_048), immutableSourceDigest: digest,
   release: z.discriminatedUnion('status', [unknown, z.strictObject({ status: z.literal('observed'), latestVersion: z.string().min(1).max(256), publishedAt: instant, prerelease: z.boolean() })]),
   maintenance: z.discriminatedUnion('status', [unknown, z.strictObject({ status: z.literal('observed'), archived: z.boolean(), lastCommitAt: instant, openIssueCount: z.number().int().nonnegative().max(10_000_000) })]),
   popularity: z.discriminatedUnion('status', [unknown, z.strictObject({ status: z.literal('observed'), stars: z.number().int().nonnegative().max(10_000_000), forks: z.number().int().nonnegative().max(10_000_000) })]),
   vulnerabilities: z.discriminatedUnion('status', [unknown, z.strictObject({ status: z.literal('observed'), database: id, queriedAt: instant,
     findings: z.array(z.strictObject({ id, severity: z.enum(['low', 'medium', 'high', 'critical']), affected: z.boolean(), fixedVersion: z.string().min(1).max(256).nullable() })).max(100_000) })]),
-  license: z.discriminatedUnion('status', [unknown, z.strictObject({ status: z.literal('observed'), spdx: z.string().min(1).max(128), evidenceUrl: z.string().url().max(2_048) })]),
+  license: z.discriminatedUnion('status', [unknown, z.strictObject({ status: z.literal('observed'), spdx: z.string().min(1).max(128), evidenceUrl: z.url().max(2_048) })]),
   support: z.discriminatedUnion('status', [unknown, z.strictObject({ status: z.literal('observed'), receiptDigests: z.array(digest).max(256), expiresAt: instant })]),
 });
 

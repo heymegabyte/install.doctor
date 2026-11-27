@@ -129,6 +129,10 @@ function invariant(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);
 }
 
+function isObject(value: unknown): value is object {
+  return value !== null && typeof value === 'object';
+}
+
 function identifier(value: unknown, label: string): asserts value is string {
   invariant(typeof value === 'string' && /^[a-z0-9][a-z0-9._-]{0,95}$/.test(value), `${label}: invalid identifier`);
 }
@@ -159,8 +163,11 @@ export function calculateCadenceEntropy(intervalsMs: number[]): number {
   for (const ms of intervalsMs) {
     invariant(typeof ms === 'number' && Number.isFinite(ms) && ms >= 0, 'Invalid interval');
     let bin = 0;
-    while (bin < CADENCE_BOUNDS.length && ms >= CADENCE_BOUNDS[bin]!) bin++;
-    bins[bin]!++;
+    for (const upperBound of CADENCE_BOUNDS) {
+      if (ms < upperBound) break;
+      bin++;
+    }
+    bins[bin] = (bins[bin] ?? 0) + 1;
     total++;
   }
   let entropy = 0;
@@ -177,7 +184,7 @@ export function calculateCadenceEntropy(intervalsMs: number[]): number {
  * Predicts the multi-dimensional intent probability distribution given buffer context and telemetry.
  */
 export function predictIntentDistribution(context: IntentContext): IntentDistribution {
-  invariant(context !== null && typeof context === 'object', 'Invalid context');
+  invariant(isObject(context), 'Invalid context');
   invariant(typeof context.terminalBuffer === 'string' && context.terminalBuffer.length <= MAX_SAMPLES, 'Expected bounded string terminalBuffer');
   invariant(Array.isArray(context.interArrivalsMs), 'Expected array interArrivalsMs');
   invariant(typeof context.machineRole === 'string' && context.machineRole.length <= 256, 'Expected bounded string machineRole');
@@ -373,6 +380,8 @@ export function cloudflareEdgeRoute(intent: IntentKind, allowPremium: boolean): 
         cacheTtlSeconds: 3600,
         vectorizeQueryNeeded: false
       };
+    case 'INSPECT_FLEET':
+    case 'UPGRADE_PACKAGE':
     default:
       return {
         workerTier: 'standard',
@@ -510,16 +519,20 @@ export function stepVirtualPet(
   event: 'idempotent-run' | 'failed-build' | 'easter-egg-unlocked'
 ): VirtualPetState {
   const p = { ...pet };
-  if (event === 'idempotent-run') {
-    p.happiness = Math.min(100, p.happiness + 15);
-    p.hunger = Math.max(0, p.hunger - 10);
-    p.wisdom = Math.min(100, p.wisdom + 5);
-  } else if (event === 'failed-build') {
-    p.happiness = Math.max(0, p.happiness - 20);
-    p.hunger = Math.min(100, p.hunger + 25);
-  } else if (event === 'easter-egg-unlocked') {
-    p.happiness = 100;
-    p.wisdom = Math.min(100, p.wisdom + 30);
+  switch (event) {
+    case 'idempotent-run':
+      p.happiness = Math.min(100, p.happiness + 15);
+      p.hunger = Math.max(0, p.hunger - 10);
+      p.wisdom = Math.min(100, p.wisdom + 5);
+      break;
+    case 'failed-build':
+      p.happiness = Math.max(0, p.happiness - 20);
+      p.hunger = Math.min(100, p.hunger + 25);
+      break;
+    case 'easter-egg-unlocked':
+      p.happiness = 100;
+      p.wisdom = Math.min(100, p.wisdom + 30);
+      break;
   }
 
   // Evolve stages based on wisdom & happiness
@@ -577,8 +590,8 @@ export function analyzeFleetDrift(
   desired: DesiredMachinePosture,
   observed: ObservedHostPosture
 ): FleetDriftReport {
-  invariant(desired !== null && typeof desired === 'object', 'Expected desired posture');
-  invariant(observed !== null && typeof observed === 'object', 'Expected observed posture');
+  invariant(isObject(desired), 'Expected desired posture');
+  invariant(isObject(observed), 'Expected observed posture');
   identifier(desired.machineId, 'machineId');
   invariant(Array.isArray(desired.packages) && desired.packages.length <= 10_000, 'Invalid desired.packages');
   invariant(Array.isArray(observed.installedPackages) && observed.installedPackages.length <= 10_000, 'Invalid observed.installedPackages');
@@ -597,13 +610,13 @@ export function analyzeFleetDrift(
   const healingPlan: string[] = [];
 
   if (missingPackages.length > 0) {
-    healingPlan.push(`aid apply --yes # install ${missingPackages.length} missing package(s): ${missingPackages.slice(0, 5).join(', ')}`);
+    healingPlan.push(`aid apply --yes # install ${String(missingPackages.length)} missing package(s): ${missingPackages.slice(0, 5).join(', ')}`);
   }
   for (const svc of stoppedServices) {
     healingPlan.push(`sudo systemctl restart ${svc} || brew services restart ${svc}`);
   }
   if (observed.sshPort !== undefined && observed.sshPort !== 22) {
-    securityFindings.push(`SSH listening on non-standard port ${observed.sshPort} (policy requires standard port 22 protected by Cloudflare firewall)`);
+    securityFindings.push(`SSH listening on non-standard port ${String(observed.sshPort)} (policy requires standard port 22 protected by Cloudflare firewall)`);
     healingPlan.push('chezmoi apply ~/.ssh/sshd_config && cloudflare-firewall');
   }
   if (observed.cloudflareOnlyIngress === false) {
@@ -700,7 +713,7 @@ export async function mintExecutionReceipt(input: ExecutionReceiptInput): Promis
  * Verifies the cryptographic SHA-256 integrity of an ExecutionReceipt.
  */
 export async function verifyExecutionReceipt(receipt: ExecutionReceipt): Promise<boolean> {
-  if (!receipt || typeof receipt !== 'object' || typeof receipt.receiptHash !== 'string') return false;
+  if (!isObject(receipt) || typeof receipt.receiptHash !== 'string') return false;
   try {
     const expected = await computeReceiptPayloadHash(receipt, receipt.prevReceiptHash);
     return expected === receipt.receiptHash;

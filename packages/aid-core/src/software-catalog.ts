@@ -7,7 +7,7 @@ const text = z.string().min(1).max(2048);
 const manager = z.enum(['brew', 'apt', 'dnf', 'pacman', 'cask', 'choco', 'scoop', 'go', 'cargo', 'npm', 'pipx', 'pip', 'gem', 'apk', 'flatpak']);
 const platform = z.enum(['macos', 'linux', 'windows']);
 const architecture = z.enum(['x64', 'arm64']);
-const unique = <T extends z.ZodTypeAny>(item: T, maximum: number, label: string) => z.array(item).max(maximum)
+const unique = <T extends z.ZodType>(item: T, maximum: number, label: string) => z.array(item).max(maximum)
   .refine(values => new Set(values).size === values.length, `duplicate ${label}`);
 const strict = <T extends z.ZodRawShape>(shape: T) => z.strictObject(shape);
 
@@ -27,8 +27,8 @@ const legacyShape = {
   loadRationale: text, preloadReason: identifier.optional(),
   artifacts: unique(ImmutableArtifactDescriptorSchema, 16, 'artifacts').optional(),
   serviceDeclarations: z.array(serviceDeclaration).min(1).max(32).optional(),
-  short: text.optional(), github: z.string().url().max(2048).optional(), home: z.string().url().max(2048).optional(),
-  docs: z.string().url().max(2048).optional(), deprecated: text.optional(), replacement: identifier.optional(),
+  short: text.optional(), github: z.url().max(2048).optional(), home: z.url().max(2048).optional(),
+  docs: z.url().max(2048).optional(), deprecated: text.optional(), replacement: identifier.optional(),
   deps: unique(identifier, 256, 'dependencies').optional(), systemIdentityReconciliation: z.boolean().optional(),
   postInstallPrivilege: z.enum(['user', 'admin']).optional(), caskLauncher: launcher.optional(),
   flatpakLauncher: flatpakLauncher.optional(), configured: z.literal(true).optional(), postInstall: z.string().min(1).max(256).optional(),
@@ -64,8 +64,8 @@ export const SoftwareCatalogEntrySchema = strict({
   load: strict({ delivery: z.enum(['eager', 'lazy']), policy: legacyShape.loadPolicy, rationale: text }),
   privilege: strict({ install: z.enum(['user', 'system-package-manager']), configure: z.enum(['none', 'user', 'admin']) }),
   exposure: strict({ network: z.enum(['none', 'service-declared', 'unknown']), reason: text }),
-  provenance: strict({ kind: z.enum(['package-provider', 'immutable-artifact', 'mixed']), upstream: z.string().url().max(2048).nullable() }),
-  license: strict({ status: z.enum(['declared', 'unknown']), spdx: z.string().min(1).max(128).nullable(), evidence: z.string().url().max(2048).nullable() }),
+  provenance: strict({ kind: z.enum(['package-provider', 'immutable-artifact', 'mixed']), upstream: z.url().max(2048).nullable() }),
+  license: strict({ status: z.enum(['declared', 'unknown']), spdx: z.string().min(1).max(128).nullable(), evidence: z.url().max(2048).nullable() }),
   supportEvidence: strict({ status: z.enum(['verified', 'unverified']), receiptDigests: unique(z.string().regex(/^[a-f0-9]{64}$/), 256, 'support receipts') }),
 }).superRefine((entry, context) => {
   if (entry.identity.key !== entry.name || entry.identity.command !== entry.bin) {
@@ -209,13 +209,19 @@ export function buildSoftwareCatalogPlan(input: unknown, requestInput: unknown):
     }
   }
 
+  const getEntry = (identity: string) => {
+    const entry = entries.get(identity);
+    if (!entry) throw new Error(`requested catalog identity ${identity} is unknown`);
+    return entry;
+  };
+
   const visiting = new Set<string>();
   const visited = new Set<string>();
   const visitCycle = (identity: string, path: string[]) => {
     if (visiting.has(identity)) throw new Error(`catalog dependency cycle ${[...path, identity].join(' -> ')}`);
     if (visited.has(identity)) return;
     visiting.add(identity);
-    for (const dependency of entries.get(identity)!.dependencies) visitCycle(dependency, [...path, identity]);
+    for (const dependency of getEntry(identity).dependencies) visitCycle(dependency, [...path, identity]);
     visiting.delete(identity);
     visited.add(identity);
   };
@@ -223,8 +229,7 @@ export function buildSoftwareCatalogPlan(input: unknown, requestInput: unknown):
 
   const selected = new Map<string, z.infer<typeof planReason>[] >();
   const add = (identity: string, reason: z.infer<typeof planReason>) => {
-    const entry = entries.get(identity);
-    if (!entry) throw new Error(`requested catalog identity ${identity} is unknown`);
+    const entry = getEntry(identity);
     if (!supports(entry, request)) {
       const dimensions = [
         !entry.platforms.includes(request.platform) ? `platform ${request.platform}` : null,
@@ -251,7 +256,7 @@ export function buildSoftwareCatalogPlan(input: unknown, requestInput: unknown):
   }
 
   for (const identity of selected.keys()) {
-    const entry = entries.get(identity)!;
+    const entry = getEntry(identity);
     for (const conflict of entry.conflicts) if (selected.has(conflict)) {
       throw new Error(`selected catalog entries conflict: ${identity} and ${conflict}`);
     }
@@ -261,7 +266,7 @@ export function buildSoftwareCatalogPlan(input: unknown, requestInput: unknown):
   const ordered = new Set<string>();
   const orderVisit = (identity: string) => {
     if (ordered.has(identity)) return;
-    for (const dependency of [...entries.get(identity)!.dependencies].sort()) if (selected.has(dependency)) orderVisit(dependency);
+    for (const dependency of [...getEntry(identity).dependencies].sort()) if (selected.has(dependency)) orderVisit(dependency);
     ordered.add(identity);
     order.push(identity);
   };
@@ -273,7 +278,7 @@ export function buildSoftwareCatalogPlan(input: unknown, requestInput: unknown):
     if (!entry.architectures.includes(request.architecture)) reasons.push({ code: 'unsupported-architecture', related: null, detail: `${entry.name} does not support ${request.architecture}.` });
     if (!(entry.roles.includes('any') || entry.roles.includes(request.role))) reasons.push({ code: 'unsupported-role', related: null, detail: `${entry.name} does not support role ${request.role}.` });
     const conflict = entry.conflicts.find(identity => selected.has(identity))
-      ?? [...selected.keys()].find(identity => entries.get(identity)!.conflicts.includes(entry.name));
+      ?? [...selected.keys()].find(identity => getEntry(identity).conflicts.includes(entry.name));
     if (conflict) reasons.push({ code: 'conflicts-with-selected', related: conflict, detail: `${entry.name} conflicts with selected entry ${conflict}.` });
     if (reasons.length === 0 && request.phase === 'bootstrap' && entry.load.delivery === 'eager') {
       reasons.push({ code: 'deferred-until-post-bootstrap', related: null, detail: `${entry.name} is eager only after bootstrap.` });
@@ -286,7 +291,11 @@ export function buildSoftwareCatalogPlan(input: unknown, requestInput: unknown):
     schemaVersion: 1,
     target: { platform: request.platform, architecture: request.architecture, role: request.role, phase: request.phase },
     order,
-    inclusions: order.map(identity => ({ identity, reasons: selected.get(identity)! })),
+    inclusions: order.map(identity => {
+      const reasons = selected.get(identity);
+      if (!reasons) throw new Error(`ordered catalog identity ${identity} was not selected`);
+      return { identity, reasons };
+    }),
     exclusions,
   });
 }

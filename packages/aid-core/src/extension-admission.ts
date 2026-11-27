@@ -4,16 +4,16 @@ import { z } from 'zod';
 const identifier = z.string().regex(/^[a-z0-9][a-z0-9._-]{0,127}$/);
 const digest = z.string().regex(/^[a-f0-9]{64}$/);
 const base64url = z.string().regex(/^[A-Za-z0-9_-]+$/).max(512);
-const timestamp = z.string().datetime({ offset: true });
+const timestamp = z.iso.datetime({ offset: true });
 const semver = z.string().regex(/^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/);
 const relativeModule = z.string().min(1).max(240).regex(/^(?!\/)(?!.*(?:^|\/)\.\.(?:\/|$))(?!.*(?:^|\/)node_modules(?:\/|$))[A-Za-z0-9._/-]+\.mjs$/);
-const immutableUrl = z.string().url().max(2_048).superRefine((value, context) => {
+const immutableUrl = z.url().max(2_048).superRefine((value, context) => {
   const parsed = new URL(value);
   if (parsed.protocol !== 'https:' || parsed.username || parsed.password || parsed.search || parsed.hash) {
     context.addIssue({ code: 'custom', message: 'Artifact URLs must be credential-free immutable HTTPS locations' });
   }
 });
-const unique = <T extends z.ZodTypeAny>(schema: T, label: string, maximum = 256) => z.array(schema).max(maximum)
+const unique = <T extends z.ZodType>(schema: T, label: string, maximum = 256) => z.array(schema).max(maximum)
   .superRefine((values, context) => {
     const encoded = values.map(value => JSON.stringify(value));
     if (new Set(encoded).size !== values.length) context.addIssue({ code: 'custom', message: `${label} must be unique` });
@@ -60,7 +60,7 @@ export const ExtensionManifestSchema = z.strictObject({
 });
 
 const signature = z.strictObject({ algorithm: z.literal('Ed25519'), keyId: identifier, value: base64url });
-const signed = <T extends z.ZodTypeAny>(payload: T) => z.strictObject({ payload, signature });
+const signed = <T extends z.ZodType>(payload: T) => z.strictObject({ payload, signature });
 export const SignedExtensionManifestSchema = signed(ExtensionManifestSchema);
 
 export const ExtensionCatalogSchema = z.strictObject({
@@ -284,7 +284,7 @@ export async function authorizeExtensionInvocation(input: unknown): Promise<z.in
     capability: ExtensionCapabilitySchema }).parse(input);
   const receipt = await admitExtension(value.admission); const state = value.runtimeState;
   if (state.extensionId !== receipt.extensionId || state.version !== receipt.version) throw new Error('Extension runtime state identity does not match admission');
-  if (!state.enabled) throw new Error(`Extension is disabled: ${state.reason}`);
+  if (!state.enabled) throw new Error(`Extension is disabled: ${String(state.reason)}`);
   if (!receipt.grantedCapabilities.some(capability => capabilityKey(capability) === capabilityKey(value.capability))) {
     throw new Error('Extension invocation capability is not granted');
   }

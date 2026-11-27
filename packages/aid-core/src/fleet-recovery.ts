@@ -84,7 +84,7 @@ function identifier(value: unknown, label: string): asserts value is string {
 
 function uniqueStrings(value: unknown, label: string): asserts value is string[] {
   invariant(Array.isArray(value) && value.length <= 10_000, `${label}: expected bounded array`);
-  value.forEach(entry => identifier(entry, label));
+  value.forEach(entry => { identifier(entry, label); });
   invariant(new Set(value).size === value.length, `${label}: duplicates`);
 }
 
@@ -216,7 +216,7 @@ export function assessBackupSources(policiesInput: unknown, evidenceInput: unkno
   invariant(Array.isArray(policiesInput) && policiesInput.length > 0 && policiesInput.length <= 10_000, 'source policies: expected non-empty bounded array');
   invariant(Array.isArray(evidenceInput) && evidenceInput.length <= 10_000, 'source evidence: expected bounded array');
   const policies: BackupSourcePolicy[] = policiesInput.map((entry, index) => {
-    const value = exactObject(entry, ['id', 'path', 'expectedMount', 'allowSymlink', 'crossFilesystem', 'allowEmpty'], `source policy ${index}`);
+    const value = exactObject(entry, ['id', 'path', 'expectedMount', 'allowSymlink', 'crossFilesystem', 'allowEmpty'], `source policy ${String(index)}`);
     identifier(value.id, 'source policy id');
     absolutePath(value.path, 'source path');
     absolutePath(value.expectedMount, 'expected mount');
@@ -228,7 +228,7 @@ export function assessBackupSources(policiesInput: unknown, evidenceInput: unkno
 
   const evidence = new Map<string, BackupSourceEvidence>();
   for (const [index, entry] of evidenceInput.entries()) {
-    const value = exactObject(entry, ['id', 'requestedPath', 'resolvedPath', 'mountPath', 'exists', 'readable', 'entryCount', 'isSymlink', 'crossesFilesystem'], `source evidence ${index}`);
+    const value = exactObject(entry, ['id', 'requestedPath', 'resolvedPath', 'mountPath', 'exists', 'readable', 'entryCount', 'isSymlink', 'crossesFilesystem'], `source evidence ${String(index)}`);
     identifier(value.id, 'source evidence id');
     absolutePath(value.requestedPath, 'requested path');
     absolutePath(value.resolvedPath, 'resolved path');
@@ -261,7 +261,7 @@ export function assessBackupSources(policiesInput: unknown, evidenceInput: unkno
 
 /** Pure discover/plan/status orchestration. It never grants mutation authority. */
 export function reconcileFleetRecovery(input: unknown, mode: 'discover' | 'plan' | 'status', policies: unknown, evidence: unknown): FleetRecoveryReconciliation {
-  invariant(mode === 'discover' || mode === 'plan' || mode === 'status', 'Unsupported reconciliation mode');
+  invariant(['discover', 'plan', 'status'].includes(mode), 'Unsupported reconciliation mode');
   const manifest = validateFleetRecoveryManifest(input);
   const sources = assessBackupSources(policies, evidence);
   return {

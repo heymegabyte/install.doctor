@@ -59,7 +59,7 @@ const runtimeServiceSchema = z.object({
 const branchEntrypointPropsSchema = z.object({
   schemaVersion: z.literal('1.0.0'),
   searchProviderId: identifier,
-  searchEndpoint: z.string().url().refine(value => {
+  searchEndpoint: z.url().refine(value => {
     const url = new URL(value);
     return url.protocol === 'https:' && !url.username && !url.password && !url.search && !url.hash;
   }, 'Branch search endpoint must be credential-free HTTPS without query or fragment'),
@@ -125,7 +125,7 @@ const manifestSchema = z.object({
     migrationsOwner: z.literal('@theme.tools/crawl-research'),
   }).strict(),
   broker: z.object({
-    endpoint: z.string().url().refine(value => {
+    endpoint: z.url().refine(value => {
       const url = new URL(value);
       return url.protocol === 'https:' && !url.username && !url.password && !url.hash;
     }, 'Broker endpoint must be credential-free HTTPS without a fragment'),
@@ -227,9 +227,6 @@ const manifestSchema = z.object({
     if ([...expectedPolicySources].some(source => !source || !actualPolicySources.has(source))
       || policyBindings.some(binding => binding.policyReference !== branchBinding.props.egressPolicyReference)) {
       context.addIssue({ code: 'custom', path: ['internalBindings'], message: 'Ordinary and Browser retrieval must share one authoritative egress policy route' });
-    }
-    if (browserBinding.props.virtualHostname !== branchBinding.props.browserVirtualHostname) {
-      context.addIssue({ code: 'custom', path: ['internalBindings'], message: 'Branch and Browser egress must share the exact reserved virtual hostname' });
     }
   }
   const browserResources = manifest.resources.filter(resource => resource.role === 'browser_rendering');
@@ -359,19 +356,24 @@ export function buildInstallDoctorProvisioningSpec(input: unknown): InstallDocto
       mutationAllowed: false,
       rollback: ['no-mutation'],
     }]);
+  const runtimeServiceName = (serviceId: string): string => {
+    const service = manifest.runtimeServices.find(candidate => candidate.id === serviceId);
+    if (!service) throw new Error(`Unknown runtime service: ${serviceId}`);
+    return service.serviceName;
+  };
   const internalBindingActions = [...manifest.internalBindings]
     .sort((left, right) => left.sourceServiceId.localeCompare(right.sourceServiceId) || left.binding.localeCompare(right.binding))
     .flatMap((binding): InstallDoctorProvisioningAction[] => {
-      const source = manifest.runtimeServices.find(service => service.id === binding.sourceServiceId)!;
-      const target = manifest.runtimeServices.find(service => service.id === binding.targetServiceId)!;
+      const sourceServiceName = runtimeServiceName(binding.sourceServiceId);
+      const targetServiceName = runtimeServiceName(binding.targetServiceId);
       const bindingDigestInput = binding.role === 'branch_executor' || binding.role === 'browser_egress'
-        ? `${binding.targetEntrypoint}:${JSON.stringify(binding.props)}:${binding.role === 'browser_egress' ? binding.directFetchFallback : ''}`
-        : `${binding.policyReference}:${binding.directFetchFallback}`;
+        ? `${binding.targetEntrypoint}:${JSON.stringify(binding.props)}:${binding.role === 'browser_egress' ? String(binding.directFetchFallback) : ''}`
+        : `${binding.policyReference}:${String(binding.directFetchFallback)}`;
       const actions: InstallDoctorProvisioningAction[] = [{
         actionId: `internal-binding:${binding.id}`,
-        idempotencyKey: `install-doctor:${deterministicDigest(`${manifest.revision}:${source.serviceName}:${binding.binding}:${target.serviceName}:${bindingDigestInput}`)}`,
+        idempotencyKey: `install-doctor:${deterministicDigest(`${manifest.revision}:${sourceServiceName}:${binding.binding}:${targetServiceName}:${bindingDigestInput}`)}`,
         operation: 'ensure-internal-service-binding',
-        target: `${source.serviceName}:${binding.binding}:${target.serviceName}`,
+        target: `${sourceServiceName}:${binding.binding}:${targetServiceName}`,
         mutationAllowed: false,
         rollback: ['preserve-existing-binding', 'remove-only-new-binding'],
       }];
@@ -379,29 +381,30 @@ export function buildInstallDoctorProvisioningSpec(input: unknown): InstallDocto
         actionId: `branch-entrypoint:${binding.id}`,
         idempotencyKey: `install-doctor:${deterministicDigest(`${manifest.revision}:${binding.id}:${JSON.stringify(binding.props)}`)}`,
         operation: 'validate-branch-entrypoint-props',
-        target: `${target.serviceName}:${binding.targetEntrypoint}:${binding.props.egressPolicyReference}`,
+        target: `${targetServiceName}:${binding.targetEntrypoint}:${binding.props.egressPolicyReference}`,
         mutationAllowed: false,
         rollback: ['no-mutation'],
       } : binding.role === 'browser_egress' ? {
         actionId: `browser-egress-entrypoint:${binding.id}`,
         idempotencyKey: `install-doctor:${deterministicDigest(`${manifest.revision}:${binding.id}:${JSON.stringify(binding.props)}`)}`,
         operation: 'validate-browser-egress-entrypoint',
-        target: `${target.serviceName}:${binding.targetEntrypoint}:${binding.props.virtualHostname}`,
+        target: `${targetServiceName}:${binding.targetEntrypoint}:${binding.props.virtualHostname}`,
         mutationAllowed: false,
         rollback: ['no-mutation'],
       } : {
         actionId: `egress-policy:${binding.id}`,
         idempotencyKey: `install-doctor:${deterministicDigest(`${manifest.revision}:${binding.id}:${binding.policyReference}`)}`,
         operation: 'validate-egress-policy-binding',
-        target: `${target.serviceName}:${binding.policyReference}`,
+        target: `${targetServiceName}:${binding.policyReference}`,
         mutationAllowed: false,
         rollback: ['no-mutation'],
       });
       return actions;
     });
-  const descriptorKey = manifest.secretReferences.find(secret => secret.secretName === 'RESEARCH_BROWSER_DESCRIPTOR_KEY')!;
+  const descriptorKey = manifest.secretReferences.find(secret => secret.secretName === 'RESEARCH_BROWSER_DESCRIPTOR_KEY');
+  if (!descriptorKey) throw new Error('Missing Browser descriptor key reference');
   const descriptorKeyConsumerNames = manifest.runtimeSecretBindings
-    .map(binding => manifest.runtimeServices.find(service => service.id === binding.serviceId)!.serviceName)
+    .map(binding => runtimeServiceName(binding.serviceId))
     .sort();
   return {
     schemaVersion: 1,

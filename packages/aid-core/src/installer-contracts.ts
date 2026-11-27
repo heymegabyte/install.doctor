@@ -4,13 +4,13 @@ const VERSION = z.literal(1);
 const id = z.string().min(1).max(128).regex(/^[a-z0-9][a-z0-9._-]*$/);
 const catalogKey = z.string().min(1).max(128).regex(/^[a-z0-9][a-z0-9._:-]*$/);
 const text = z.string().min(1).max(512);
-const timestamp = z.string().datetime({ offset: true }).max(64);
+const timestamp = z.iso.datetime({ offset: true }).max(64);
 const digest = z.string().regex(/^[a-f0-9]{64}$/);
 const boundedIds = z.array(id).max(256).refine(values => new Set(values).size === values.length, 'duplicate identifiers');
 const strict = <T extends z.ZodRawShape>(shape: T) => z.strictObject(shape);
 const signature = strict({ keyId: id, algorithm: z.literal('sshsig-ed25519'), namespace: z.literal('install.doctor.release'), detached: z.literal(true) });
 
-const immutableGithubReleaseUrl = z.string().url().max(2048).superRefine((value, context) => {
+const immutableGithubReleaseUrl = z.url().max(2048).superRefine((value, context) => {
   const parsed = new URL(value);
   const match = parsed.pathname.match(/^\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\/releases\/download\/([^/]+)\/[A-Za-z0-9_.+-]+$/);
   if (parsed.protocol !== 'https:' || parsed.hostname !== 'github.com' || parsed.username || parsed.password
@@ -62,9 +62,9 @@ const canonicalPosixFile = z.string().min(2).max(4096).superRefine((value, conte
     context.addIssue({ code: 'custom', message: 'conffile must not contain empty, current, or parent path segments' });
   }
 });
-const uniqueBounded = <T extends z.ZodTypeAny>(item: T, maximum: number, label: string) => z.array(item).max(maximum)
+const uniqueBounded = <T extends z.ZodType>(item: T, maximum: number, label: string) => z.array(item).max(maximum)
   .refine(values => new Set(values).size === values.length, `duplicate ${label}`);
-const immutableRepositoryOrigin = z.string().url().max(2048).superRefine((value, context) => {
+const immutableRepositoryOrigin = z.url().max(2048).superRefine((value, context) => {
   const parsed = new URL(value);
   if (parsed.protocol !== 'https:' || parsed.username || parsed.password || parsed.search || parsed.hash) {
     context.addIssue({ code: 'custom', message: 'repository origin must be credential-free HTTPS without query or fragment' });
@@ -76,7 +76,10 @@ const nativePayloadDependencies = z.array(nativePayloadDependency).max(4096).sup
   if (new Set(identities).size !== identities.length) {
     context.addIssue({ code: 'custom', message: 'duplicate native payload dependency reference' });
   }
-  if (identities.some((identity, index) => index > 0 && identities[index - 1]!.localeCompare(identity) >= 0)) {
+  if (identities.some((identity, index) => {
+    const next = identities[index + 1];
+    return next !== undefined && identity.localeCompare(next) >= 0;
+  })) {
     context.addIssue({ code: 'custom', message: 'native payload dependency references must be unique and sorted' });
   }
 });
@@ -209,7 +212,7 @@ export type NativeOfflinePayloadDescriptor = z.infer<typeof NativeOfflinePayload
 export const ReleaseManifestSchema = strict({
   schemaVersion: VERSION, releaseId: id, sourceCommit: z.string().regex(/^[a-f0-9]{40}$/), createdAt: timestamp, expiresAt: timestamp,
   supportedSchemaVersions: z.array(VERSION).length(1),
-  artifacts: z.array(strict({ id, url: z.string().url().max(2048).refine(value => value.startsWith('https://app.install.doctor/releases/')), sha256: digest, sizeBytes: z.number().int().positive().max(2 ** 32), mediaType: z.literal('text/x-shellscript'), mode: z.literal('0700'), originClass: z.literal('install-doctor-release'), platforms: boundedIds })).min(1).max(512),
+  artifacts: z.array(strict({ id, url: z.url().max(2048).refine(value => value.startsWith('https://app.install.doctor/releases/')), sha256: digest, sizeBytes: z.number().int().positive().max(2 ** 32), mediaType: z.literal('text/x-shellscript'), mode: z.literal('0700'), originClass: z.literal('install-doctor-release'), platforms: boundedIds })).min(1).max(512),
   signature
 });
 export type ReleaseManifest = z.infer<typeof ReleaseManifestSchema>;
@@ -222,7 +225,7 @@ export type ReleaseManifest = z.infer<typeof ReleaseManifestSchema>;
  */
 const runtimePlatform = z.enum(['macos-x64', 'macos-arm64', 'linux-x64', 'linux-arm64']);
 const runtimeTuple = strict({
-  url: z.string().url().max(2048),
+  url: z.url().max(2048),
   sha256: digest,
   size: z.number().int().positive().max(100_663_296),
 });
@@ -240,14 +243,14 @@ export const StageZeroReleaseEnvelopeSchema = strict({
   createdAt: z.number().int().nonnegative().max(4_102_444_800),
   expiresAt: z.number().int().positive().max(4_102_444_800),
   keyId: id,
-  artifactUrl: z.string().url().max(2048),
+  artifactUrl: z.url().max(2048),
   artifactSha256: digest,
   artifactSize: z.number().int().positive().max(8_388_608),
-  engineUrl: z.string().url().max(2048),
+  engineUrl: z.url().max(2048),
   engineSha256: digest,
   engineSize: z.number().int().positive().max(8_388_608),
   engineNodeMin: z.literal(22),
-  catalogUrl: z.string().url().max(2048),
+  catalogUrl: z.url().max(2048),
   catalogSha256: digest,
   catalogSize: z.number().int().positive().max(8_388_608),
   runtimeNodeVersion: z.string().regex(/^24\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$/),
@@ -334,35 +337,35 @@ export function parseStageZeroReleaseEnvelope(input: string): StageZeroReleaseEn
 export function serializeStageZeroReleaseEnvelope(input: unknown): string {
   const value = StageZeroReleaseEnvelopeSchema.parse(input);
   return [
-    `schema_version=${value.schemaVersion}`,
+    `schema_version=${String(value.schemaVersion)}`,
     `release_id=${value.releaseId}`,
     `source_commit=${value.sourceCommit}`,
-    `created_at=${value.createdAt}`,
-    `expires_at=${value.expiresAt}`,
+    `created_at=${String(value.createdAt)}`,
+    `expires_at=${String(value.expiresAt)}`,
     `key_id=${value.keyId}`,
     `artifact_url=${value.artifactUrl}`,
     `artifact_sha256=${value.artifactSha256}`,
-    `artifact_size=${value.artifactSize}`,
+    `artifact_size=${String(value.artifactSize)}`,
     `engine_url=${value.engineUrl}`,
     `engine_sha256=${value.engineSha256}`,
-    `engine_size=${value.engineSize}`,
-    `engine_node_min=${value.engineNodeMin}`,
+    `engine_size=${String(value.engineSize)}`,
+    `engine_node_min=${String(value.engineNodeMin)}`,
     `catalog_url=${value.catalogUrl}`,
     `catalog_sha256=${value.catalogSha256}`,
-    `catalog_size=${value.catalogSize}`,
+    `catalog_size=${String(value.catalogSize)}`,
     `runtime_node_version=${value.runtimeNodeVersion}`,
     `runtime_macos_x64_url=${value.runtimes['macos-x64'].url}`,
     `runtime_macos_x64_sha256=${value.runtimes['macos-x64'].sha256}`,
-    `runtime_macos_x64_size=${value.runtimes['macos-x64'].size}`,
+    `runtime_macos_x64_size=${String(value.runtimes['macos-x64'].size)}`,
     `runtime_macos_arm64_url=${value.runtimes['macos-arm64'].url}`,
     `runtime_macos_arm64_sha256=${value.runtimes['macos-arm64'].sha256}`,
-    `runtime_macos_arm64_size=${value.runtimes['macos-arm64'].size}`,
+    `runtime_macos_arm64_size=${String(value.runtimes['macos-arm64'].size)}`,
     `runtime_linux_x64_url=${value.runtimes['linux-x64'].url}`,
     `runtime_linux_x64_sha256=${value.runtimes['linux-x64'].sha256}`,
-    `runtime_linux_x64_size=${value.runtimes['linux-x64'].size}`,
+    `runtime_linux_x64_size=${String(value.runtimes['linux-x64'].size)}`,
     `runtime_linux_arm64_url=${value.runtimes['linux-arm64'].url}`,
     `runtime_linux_arm64_sha256=${value.runtimes['linux-arm64'].sha256}`,
-    `runtime_linux_arm64_size=${value.runtimes['linux-arm64'].size}`,
+    `runtime_linux_arm64_size=${String(value.runtimes['linux-arm64'].size)}`,
     '',
   ].join('\n');
 }
@@ -509,7 +512,10 @@ export const PlatformSupportCellSchema = strict({
 export type PlatformSupportCell = z.infer<typeof PlatformSupportCellSchema>;
 
 const canaryTaskIds = z.array(id).max(10_000).superRefine((values, context) => {
-  if (new Set(values).size !== values.length || values.some((value, index) => index > 0 && values[index - 1]!.localeCompare(value) >= 0)) {
+  if (new Set(values).size !== values.length || values.some((value, index) => {
+    const next = values[index + 1];
+    return next !== undefined && value.localeCompare(next) >= 0;
+  })) {
     context.addIssue({ code: 'custom', message: 'canary task identifiers must be unique and sorted' });
   }
 });

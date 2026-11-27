@@ -5,8 +5,15 @@ import { DesiredStateInputSchema, HostFactsSchema, type DesiredStateInput } from
 const identifier = z.string().regex(/^[a-z0-9][a-z0-9._-]{0,95}$/);
 const recipeIdentifier = z.string().regex(/^[a-z0-9][a-z0-9._:-]{0,127}$/);
 const digest = z.string().regex(/^[a-f0-9]{64}$/);
+function isSortedBy<T>(values: readonly T[], key: (value: T) => string): boolean {
+  return values.every((value, index) => {
+    const next = values[index + 1];
+    return next === undefined || key(value).localeCompare(key(next)) < 0;
+  });
+}
+
 const identifiers = z.array(identifier).max(4096).refine(values => new Set(values).size === values.length, 'duplicate identifiers')
-  .refine(values => values.every((value, index) => index === 0 || values[index - 1]!.localeCompare(value) < 0), 'identifiers must be sorted');
+  .refine(values => isSortedBy(values, value => value), 'identifiers must be sorted');
 const recipeReferenceSchema = z.strictObject({
   id: recipeIdentifier,
   version: z.string().min(1).max(64).regex(/^[A-Za-z0-9][A-Za-z0-9._+-]*$/),
@@ -20,7 +27,7 @@ const secretRequirementSchema = z.strictObject({
 });
 const secretRequirementsSchema = z.array(secretRequirementSchema).max(256)
   .refine(values => new Set(values.map(value => value.id)).size === values.length, 'secret requirement ids must be unique')
-  .refine(values => values.every((value, index) => index === 0 || values[index - 1]!.id.localeCompare(value.id) < 0), 'secret requirements must be sorted');
+  .refine(values => isSortedBy(values, value => value.id), 'secret requirements must be sorted');
 
 const portableProfileShape = {
   kind: z.literal('desktop-tools-portable-profile'),
@@ -48,7 +55,7 @@ const portableProfileShape = {
     mode: z.enum(['deterministic-only', 'agent-assisted']),
     allowedRoutes: z.array(z.enum(['general', 'economy', 'code', 'architect', 'research', 'critical', 'batch', 'restricted'])).max(8)
       .refine(values => new Set(values).size === values.length, 'prompt routes must be unique')
-      .refine(values => values.every((value, index) => index === 0 || values[index - 1]!.localeCompare(value) < 0), 'prompt routes must be sorted'),
+      .refine(values => isSortedBy(values, value => value), 'prompt routes must be sorted'),
   }),
   skills: z.strictObject({
     repository: z.literal('heymegabyte/agent-skills'),
@@ -74,7 +81,7 @@ const portableProfileExportSchema = z.discriminatedUnion('schemaVersion', [porta
   }
   const recipeIds = value.recipes.map(recipe => recipe.id);
   if (new Set(recipeIds).size !== recipeIds.length) context.addIssue({ code: 'custom', path: ['recipes'], message: 'recipe ids must be unique' });
-  if (value.recipes.some((recipe, index) => index > 0 && value.recipes[index - 1]!.id.localeCompare(recipe.id) >= 0)) {
+  if (!isSortedBy(value.recipes, recipe => recipe.id)) {
     context.addIssue({ code: 'custom', path: ['recipes'], message: 'recipes must be sorted by id' });
   }
   if (value.profile.revision !== value.desired.revision) context.addIssue({ code: 'custom', path: ['desired', 'revision'], message: 'desired revision must match profile revision' });

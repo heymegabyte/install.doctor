@@ -3,13 +3,16 @@ import { z } from 'zod';
 const strict = <T extends z.ZodRawShape>(shape: T) => z.strictObject(shape);
 const VERSION = z.literal(1);
 const identifier = z.string().min(1).max(128).regex(/^[a-z0-9][a-z0-9._-]*$/);
-const timestamp = z.string().datetime({ offset: true }).max(64);
+const timestamp = z.iso.datetime({ offset: true }).max(64);
 const digest = z.string().regex(/^[a-f0-9]{64}$/);
 const nonce = z.string().min(32).max(128).regex(/^[A-Za-z0-9_-]+$/);
 const scope = z.string().min(1).max(128).regex(/^[a-z][a-z0-9.-]*:[a-z][a-z0-9.-]*$/);
 const scopes = z.array(scope).min(1).max(64).superRefine((values, context) => {
   if (new Set(values).size !== values.length) context.addIssue({ code: 'custom', message: 'duplicate scopes' });
-  if (values.some((value, index) => index > 0 && values[index - 1]!.localeCompare(value) >= 0)) {
+  if (values.some((value, index) => {
+    const next = values[index + 1];
+    return next !== undefined && value.localeCompare(next) >= 0;
+  })) {
     context.addIssue({ code: 'custom', message: 'scopes must be unique and sorted' });
   }
 });
@@ -37,7 +40,7 @@ const boundMessage = {
   requestId: identifier,
   binding: DeviceAuthorizationBindingSchema,
 } as const;
-const transitionEnvelope = z.object(boundMessage).passthrough();
+const transitionEnvelope = z.looseObject(boundMessage);
 
 export const DeviceAuthorizationRequestSchema = strict({
   ...boundMessage,
@@ -57,7 +60,7 @@ export const DeviceAuthorizationApprovalSchema = strict({
   actorId: identifier,
   approvedAt: timestamp,
 }).refine(value => Date.parse(value.approvedAt) <= Date.parse(value.binding.expiresAt), {
-  path: ['approvedAt'], message: 'approval cannot occur after request expiry',
+  path: ['approvedAt'], error: 'approval cannot occur after request expiry',
 });
 export type DeviceAuthorizationApproval = z.infer<typeof DeviceAuthorizationApprovalSchema>;
 
@@ -66,7 +69,7 @@ export const DeviceAuthorizationPollSchema = strict({
   pollProof: digest,
   polledAt: timestamp,
 }).refine(value => Date.parse(value.polledAt) <= Date.parse(value.binding.expiresAt), {
-  path: ['polledAt'], message: 'poll cannot occur after request expiry',
+  path: ['polledAt'], error: 'poll cannot occur after request expiry',
 });
 export type DeviceAuthorizationPoll = z.infer<typeof DeviceAuthorizationPollSchema>;
 
@@ -91,7 +94,7 @@ export const DeviceAuthorizationDenialSchema = strict({
   deniedAt: timestamp,
   reason: z.enum(['owner-denied', 'policy-denied', 'expired', 'cancelled']),
 }).refine(value => value.reason === 'expired' || Date.parse(value.deniedAt) <= Date.parse(value.binding.expiresAt), {
-  path: ['deniedAt'], message: 'non-expiry denial cannot occur after request expiry',
+  path: ['deniedAt'], error: 'non-expiry denial cannot occur after request expiry',
 });
 export type DeviceAuthorizationDenial = z.infer<typeof DeviceAuthorizationDenialSchema>;
 

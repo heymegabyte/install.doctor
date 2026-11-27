@@ -2,7 +2,7 @@ import { z } from 'zod';
 
 const id = z.string().min(1).max(128).regex(/^[a-z0-9][a-z0-9._:-]*$/);
 const digest = z.string().regex(/^[a-f0-9]{64}$/);
-const timestamp = z.string().datetime({ offset: true }).max(64);
+const timestamp = z.iso.datetime({ offset: true }).max(64);
 const strict = z.strictObject;
 const outcome = z.enum(['queued', 'running', 'succeeded', 'failed', 'blocked', 'cancelled', 'unknown']);
 const base = { schemaVersion: z.literal(1), observedAt: timestamp, severity: z.enum(['debug', 'info', 'warn', 'error']) };

@@ -3,8 +3,8 @@ import { z } from 'zod';
 
 const identifier = z.string().regex(/^[a-z0-9][a-z0-9._-]{0,95}$/);
 const boundedText = z.string().min(1).max(512).refine(value => !/[\r\n\0]/.test(value));
-const timestamp = z.string().datetime({ offset: true });
-const signalValue = z.union([z.string().max(256), z.number().finite(), z.boolean(), z.null()]);
+const timestamp = z.iso.datetime({ offset: true });
+const signalValue = z.union([z.string().max(256), z.number(), z.boolean(), z.null()]);
 
 export const hardwareCategories = ['cpu', 'memory', 'disk', 'gpu', 'firmware', 'secure-boot', 'tpm', 'battery', 'thermal', 'ups'] as const;
 

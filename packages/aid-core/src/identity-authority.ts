@@ -28,7 +28,7 @@ const identitySchema = z.object({
   authority: z.literal('infisical'),
   authentication: z.object({
     mode: z.enum(['github-oidc', 'platform-oidc', 'workload-identity', 'universal-auth']),
-    issuer: z.string().url(),
+    issuer: z.url(),
     tokenTtlSeconds: z.number().int().positive().max(86_400),
     tokenMaxUses: z.number().int().positive().max(10_000),
   }).strict(),

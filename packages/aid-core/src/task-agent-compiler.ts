@@ -4,7 +4,7 @@ import { AgentSandboxPolicySchema, compileAgentSandboxPolicy } from './agent-san
 const identifier = z.string().regex(/^[a-z0-9][a-z0-9._:-]{0,127}$/);
 const digest = z.string().regex(/^[a-f0-9]{64}$/);
 const exactPath = z.string().min(1).max(512).refine(value => value.startsWith('/') && !value.includes('\0') && !value.split('/').includes('..'), 'path must be absolute and normalized');
-const unique = <T extends z.ZodTypeAny>(schema: T, maximum = 256) => z.array(schema).max(maximum).refine(values => new Set(values).size === values.length, 'values must be unique');
+const unique = <T extends z.ZodType>(schema: T, maximum = 256) => z.array(schema).max(maximum).refine(values => new Set(values).size === values.length, 'values must be unique');
 const sortedUnique = (values: readonly string[]): string[] => [...new Set(values)].sort((left, right) => left.localeCompare(right));
 const rule = (effect: 'allow' | 'deny', values: readonly string[], reason: string) => ({ effect, values: sortedUnique(values), reason });
 

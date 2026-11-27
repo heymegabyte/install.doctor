@@ -3,7 +3,7 @@ import { z } from 'zod';
 const VERSION = 1 as const;
 const id = z.string().min(1).max(128).regex(/^[a-z0-9][a-z0-9._-]*$/);
 const digest = z.string().regex(/^[a-f0-9]{64}$/);
-const timestamp = z.string().datetime({ offset: true }).max(64);
+const timestamp = z.iso.datetime({ offset: true }).max(64);
 const strict = z.strictObject;
 
 export const PlatformCellTupleSchema = strict({
@@ -66,7 +66,7 @@ export const PlatformCanaryReceiptSchema = validity(strict({
 export const PlatformBenchmarkReceiptSchema = validity(strict({
   ...receiptBase, evidenceClass: z.literal('platform-benchmark'), result: z.literal('passed'), benchmarkSuiteId: id,
   measurements: z.array(strict({ metric: id, unit: z.enum(['milliseconds', 'bytes', 'percent', 'count']),
-    value: z.number().finite().nonnegative(), budget: z.number().finite().nonnegative(), comparison: z.enum(['at-most', 'at-least']) })).min(1).max(128),
+    value: z.number().nonnegative(), budget: z.number().nonnegative(), comparison: z.enum(['at-most', 'at-least']) })).min(1).max(128),
   safetyInvariantsPassed: z.literal(true), signature: signature('desktop.tools.platform-benchmark'),
 }));
 

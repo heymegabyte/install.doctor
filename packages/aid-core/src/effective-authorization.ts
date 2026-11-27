@@ -32,7 +32,7 @@ const resource = z.string().min(1).max(512)
   });
 const action = z.string().regex(/^[a-z][a-z0-9._:-]{0,95}$/);
 
-const unique = <T extends z.ZodTypeAny>(schema: T, label: string) => z.array(schema).min(1).max(256)
+const unique = <T extends z.ZodType>(schema: T, label: string) => z.array(schema).min(1).max(256)
   .superRefine((values, context) => {
     if (new Set(values).size !== values.length) context.addIssue({ code: 'custom', message: `${label} must be unique` });
   });
@@ -47,7 +47,7 @@ export const EffectiveAuthorizationRequestSchema = z.strictObject({
   requestId: identifier,
   principal: identifier,
   tenant: identifier,
-  evaluatedAt: z.string().datetime({ offset: true }),
+  evaluatedAt: z.iso.datetime({ offset: true }),
   claims: claimsSchema,
   targets: z.strictObject({
     product: targetSchema,
@@ -73,8 +73,8 @@ export const EffectiveAuthorizationRuleSchema = z.strictObject({
     const names = conditions.map(condition => condition.claim);
     if (new Set(names).size !== names.length) context.addIssue({ code: 'custom', message: 'Rule condition claims must be unique' });
   }),
-  validFrom: z.string().datetime({ offset: true }).optional(),
-  expiresAt: z.string().datetime({ offset: true }).optional(),
+  validFrom: z.iso.datetime({ offset: true }).optional(),
+  expiresAt: z.iso.datetime({ offset: true }).optional(),
   source: z.strictObject({ policyId: identifier, revision: identifier }),
 }).superRefine((rule, context) => {
   if (rule.validFrom && rule.expiresAt && Date.parse(rule.validFrom) >= Date.parse(rule.expiresAt)) {

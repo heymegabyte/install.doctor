@@ -3,7 +3,7 @@ import { z } from 'zod';
 const VERSION = 1 as const;
 const id = z.string().min(1).max(128).regex(/^[a-z0-9][a-z0-9._-]*$/);
 const digest = z.string().regex(/^[a-f0-9]{64}$/);
-const timestamp = z.string().datetime({ offset: true }).max(64);
+const timestamp = z.iso.datetime({ offset: true }).max(64);
 const strict = z.strictObject;
 const fieldName = z.string().min(1).max(64).regex(/^[a-z][A-Za-z0-9]*$/);
 
@@ -158,7 +158,6 @@ export function projectSaasRead(
   for (const record of records) {
     if (!requested.has(record.kind)) throw new Error(`Unrequested SaaS resource returned by authority: ${record.kind}`);
     if (record.tenantId !== null && record.tenantId !== principal.tenantId) throw new Error('Cross-tenant SaaS resource denied');
-    if (record.kind === 'catalog' && (!record.public || record.tenantId !== null)) throw new Error('Catalog resource is not public');
     if (!capabilities.has(record.capability.capabilityId)) throw new Error(`Missing read capability: ${record.capability.capabilityId}`);
     if (record.capability.expiresAt !== null && Date.parse(record.capability.expiresAt) <= Date.parse(now)
       && record.capability.status !== 'stale') {

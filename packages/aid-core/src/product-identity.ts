@@ -26,7 +26,7 @@ const legacyIdentitySchema = z.object({
   owner: z.literal('desktop-tools'),
   mapsTo: identityIdSchema,
   disposition: z.enum(['compatibility-alias', 'migration-only', 'retired']),
-  removeAfter: z.string().date().nullable()
+  removeAfter: z.iso.date().nullable()
 }).strict();
 
 const capabilityStatusSchema = z.enum([

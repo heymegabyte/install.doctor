@@ -9,7 +9,7 @@ const status = z.enum(['queued', 'running', 'succeeded', 'failed', 'blocked', 'c
 const signal = z.enum(['log', 'metric', 'trace', 'event']);
 const metric = z.strictObject({
   unit: z.enum(['1', 'ms', 'By', 's', 'usd_usd']),
-  value: z.number().finite(),
+  value: z.number(),
 }).nullable();
 
 const CorrelationContextSchema = z.strictObject({
@@ -30,7 +30,7 @@ export const CorrelatedTelemetryRecordSchema = z.strictObject({
   source,
   signal,
   name: id,
-  observedAt: z.string().datetime({ offset: true }).max(64),
+  observedAt: z.iso.datetime({ offset: true }).max(64),
   severity: z.enum(['debug', 'info', 'warn', 'error']),
   ...CorrelationContextSchema.shape,
   status,

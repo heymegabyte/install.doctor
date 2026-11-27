@@ -2,7 +2,7 @@ import { z } from 'zod';
 
 const identifier = z.string().regex(/^[a-z0-9][a-z0-9._:-]{0,127}$/);
 const exactPath = z.string().min(1).max(512).refine(value => value.startsWith('/') && !value.includes('\0') && !value.split('/').includes('..'), 'path must be absolute and normalized');
-const unique = <T extends z.ZodTypeAny>(schema: T, max = 256) => z.array(schema).max(max).refine(values => new Set(values).size === values.length, 'values must be unique');
+const unique = <T extends z.ZodType>(schema: T, max = 256) => z.array(schema).max(max).refine(values => new Set(values).size === values.length, 'values must be unique');
 const RuleSchema = z.strictObject({ effect: z.enum(['allow', 'deny']), values: unique(z.string().min(1).max(512), 512), reason: z.string().min(1).max(512) });
 
 export const AgentSandboxPolicySchema = z.strictObject({

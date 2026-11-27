@@ -98,7 +98,7 @@ function identifier(value: unknown, label: string): asserts value is string {
 }
 function ids(value: unknown, label: string): asserts value is string[] {
   invariant(Array.isArray(value) && value.length <= 10000, `${label}: expected bounded array`);
-  value.forEach(v => identifier(v, label));
+  value.forEach(v => { identifier(v, label); });
   invariant(new Set(value).size === value.length, `${label}: duplicates`);
 }
 function integer(value: unknown, min: number, max: number, label: string): asserts value is number {
@@ -388,7 +388,8 @@ export function migrateBlueprintV3ToV4(input: unknown, options: {
 }): BlueprintV4 {
   const source = validateEnvironment(input);
   invariant(source.schemaVersion === 3, 'Expected schemaVersion 3 blueprint');
-  invariant(options !== null && typeof options === 'object', 'Explicit v4 migration options are required');
+  const migrationOptions: unknown = options;
+  invariant(typeof migrationOptions === 'object' && migrationOptions !== null, 'Explicit v4 migration options are required');
   const migrated: BlueprintV4 = {
     ...source,
     schemaVersion: 4,
@@ -540,7 +541,7 @@ export interface SessionRecord {
 }
 function iso(value: string): void { invariant(/^\d{4}-\d{2}-\d{2}T/.test(value) && Number.isFinite(Date.parse(value)), 'Invalid timestamp'); }
 export function newSession(id: string, tenantId: string, machineId: string, actorId: string, blueprintRevision: string, now: string): SessionRecord {
-  [id, tenantId, machineId, actorId, blueprintRevision].forEach(v => identifier(v, 'session metadata')); iso(now);
+  [id, tenantId, machineId, actorId, blueprintRevision].forEach(v => { identifier(v, 'session metadata'); }); iso(now);
   return { id, tenantId, machineId, actorId, blueprintRevision, status: 'created', recordingKey: `recordings/${tenantId}/${machineId}/${id}.cast`, createdAt: now };
 }
 /** Persist created + recording header before spawning a PTY. A reconnect never calls newSession. */
@@ -575,7 +576,7 @@ export class CastWriter {
   output(seconds: number, sanitizedOutput: string) { this.#write(seconds, 'o', sanitizedOutput); }
   marker(seconds: number, label: string) { identifier(label, 'marker'); this.#write(seconds, 'm', label); }
   resize(seconds: number, cols: number, rows: number) {
-    integer(cols, 1, 1000, 'cols'); integer(rows, 1, 1000, 'rows'); this.#write(seconds, 'r', `${cols}x${rows}`);
+    integer(cols, 1, 1000, 'cols'); integer(rows, 1, 1000, 'rows'); this.#write(seconds, 'r', `${String(cols)}x${String(rows)}`);
   }
   finish(seconds: number, exitCode: number) {
     integer(exitCode, 0, 255, 'exitCode'); this.#write(seconds, 'x', String(exitCode)); this.#closed = true;
