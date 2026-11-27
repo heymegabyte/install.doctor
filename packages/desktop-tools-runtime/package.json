@@ -10,12 +10,17 @@
   },
   "scripts": {
     "build": "node scripts/build.mjs",
-    "test": "node --test test/*.test.mjs"
+    "test": "npm run typecheck && node --test test/*.test.mjs",
+    "typecheck": "tsc --project tsconfig.json"
   },
   "engines": {
     "node": ">=22"
   },
   "dependencies": {
     "@opencode-ai/sdk": "1.19.5"
+  },
+  "devDependencies": {
+    "@types/node": "24.10.0",
+    "typescript": "5.8.3"
   }
 }

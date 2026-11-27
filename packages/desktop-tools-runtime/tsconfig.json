@@ -1,0 +1,17 @@
+{
+  "extends": "../aid-core/vendor/theme-tools/tsconfig.base.json",
+  "compilerOptions": {
+    "allowJs": true,
+    "checkJs": true,
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "types": [
+      "node"
+    ]
+  },
+  "include": [
+    "src/desktop-tools-supervisor.mjs",
+    "src/session-evidence.mjs",
+    "test/helpers/runtime-fixture.mjs"
+  ]
+}

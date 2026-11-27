@@ -81,5 +81,6 @@ Build outputs are deterministic inputs to the release builder:
 - `dist/desktop-tools-supervisor.mjs`
 - `dist/desktop-tools-tools.tar.gz`
 
-Run `npm test` and `npm run build`. The generated `dist/` directory is deliberately not
+Run `npm ci`, then `npm test` and `npm run build`. The test command first
+strictly checks the supervisor, session evidence, and protocol runtime fixture. The generated `dist/` directory is deliberately not
 versioned; the production release workflow builds it from the reviewed source.
