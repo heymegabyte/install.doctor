@@ -41,6 +41,16 @@ for (const host of ['zen.megabyte.space', 'legion.megabyte.space']) {
 assert.deepEqual(selectConfigurationSecrets(
   manifest, manifest.workloads['mcp.megabyte.space'], sentryAdminSecrets,
 ), sentryAdminSecrets);
+const posthogAdminSecrets = ['POSTHOG_HOST', 'POSTHOG_PERSONAL_API_KEY'];
+for (const host of ['macos.megabyte.space', 'ubuntu.megabyte.space']) {
+  assert.deepEqual(selectHostSecrets(manifest, host, posthogAdminSecrets), posthogAdminSecrets);
+}
+for (const host of ['zen.megabyte.space', 'legion.megabyte.space']) {
+  assert.deepEqual(selectHostSecrets(manifest, host, posthogAdminSecrets), []);
+}
+assert.deepEqual(selectConfigurationSecrets(
+  manifest, manifest.workloads['mcp.megabyte.space'], posthogAdminSecrets,
+), posthogAdminSecrets);
 assert.deepEqual(selectConfigurationSecrets(
   manifest, manifest.workloads['crawl.cheap'], ['EXA_API_KEY', 'SENTRY_DSN', 'ANTHROPIC_API_KEY'],
 ), ['EXA_API_KEY', 'SENTRY_DSN']);
