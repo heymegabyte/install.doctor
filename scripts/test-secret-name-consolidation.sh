@@ -10,8 +10,9 @@
 #   * the `CLOUDFLARE_R2_TOKEN*` / `CLOUDFLARE_R2_JURISDICTION_USER` trio — superseded by
 #     CLOUDFLARE_R2_ID/SECRET (system) and CLOUDFLARE_R2_ID_USER/SECRET_USER (user, post-rclone/autorestic).
 # Keeping both names in the keyring is ambiguous credential surface with zero named consumers.
-# This suite locks: obsolete names absent, canonical names present, zero named consumers anywhere,
-# and (non-vacuity) that a planted obsolete name fails the gate.
+# This suite locks: obsolete names absent, canonical names present or explicitly retired with exact
+# provider-invalid evidence, zero runtime consumers, and (non-vacuity) that a planted obsolete name
+# fails the gate. Validation ledgers and OpenSpec records are audit evidence, not consumers.
 # Pure existence + name-reference assertions — no network, no secret VALUES ever read.
 set -uo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -59,23 +60,32 @@ for name in "${OBSOLETE[@]}"; do
 done
 [ "$missing" -eq 0 ] && pass "all ${#OBSOLETE[@]} obsolete OAuth/R2 secret names are absent from the base store"
 
-# 2. Canonical names present — the single source of truth must survive (deletion must not have been
-#    over-broad and stripped an active credential name).
+# 2. Canonical names either remain present or carry exact source-qualified invalid-retirement evidence.
+#    This prevents an over-broad deletion while allowing provider-rejected credentials to stay retired.
 gone=0
 for name in "${CANONICAL[@]}"; do
-  if [ ! -e "$SECRETS/$name" ]; then
-    fail "canonical secret '$name' is missing — an active credential name was deleted"
+  if [ -e "$SECRETS/$name" ]; then continue; fi
+  if ! jq -e --arg key "general:$name" '
+    .records[$key]
+    | .status == "invalid-retired"
+      and .providerConfirmedInvalid == true
+      and .sourceRetired == true
+  ' config/infisical/secret-validation-ledger.json >/dev/null; then
+    fail "canonical secret '$name' is absent without exact provider-invalid retirement evidence"
     gone=1
   fi
 done
-[ "$gone" -eq 0 ] && pass "all ${#CANONICAL[@]} canonical OAuth/R2 secret names remain present"
+[ "$gone" -eq 0 ] && pass "all ${#CANONICAL[@]} canonical OAuth/R2 names are present or exactly retired"
 
 # 3. Zero named consumers. Only report paths (never lines) so a failed CI run cannot echo a value.
 #    Exclude this guard itself.
 CONSUMER_PATHS="$(git grep -Ilw -e 'GITHUB_OAUTH_CLIENT_ID' -e 'GITHUB_OAUTH_CLIENT_SECRET' \
   -e 'GOOGLE_OAUTH_CLIENT_ID' -e 'GOOGLE_OAUTH_CLIENT_SECRET' \
   -e 'CLOUDFLARE_R2_TOKEN' -e 'CLOUDFLARE_R2_TOKEN_USER' -e 'CLOUDFLARE_R2_JURISDICTION_USER' -- \
-  ':!scripts/test-secret-name-consolidation.sh' ':!.agent' 2>/dev/null || true)"
+  ':!scripts/test-secret-name-consolidation.sh' \
+  ':!config/infisical/secret-validation-ledger.json' \
+  ':!openspec/changes/infisical-estate-reconciliation/**' \
+  ':!.agent' 2>/dev/null || true)"
 if [ -z "$CONSUMER_PATHS" ]; then
   pass "no tracked code, config, or template references any obsolete secret name"
 else
