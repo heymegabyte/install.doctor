@@ -16,7 +16,7 @@ import {
   PrivilegedBrokerRequestSchema,
   privilegedBrokerDigest,
 } from './privileged-broker-protocol.js';
-import type { PrivilegedBrokerGrant, PrivilegedBrokerReceipt, PrivilegedBrokerRequest } from './privileged-broker-protocol.js';
+import type { PrivilegedBrokerReceipt, PrivilegedBrokerRequest } from './privileged-broker-protocol.js';
 
 const identifier = z.string().min(1).max(128).regex(/^[a-z0-9][a-z0-9._-]*$/);
 const digest = z.string().regex(/^[a-f0-9]{64}$/);
@@ -61,13 +61,15 @@ async function hashHandle(handle: FileHandle, size: number): Promise<string> {
   return hash.digest('hex');
 }
 
+const platformOpenFlags: { readonly O_NOFOLLOW?: number } = constants;
+
 async function openVerifiedHelper(path: string, expectedDigest: string): Promise<FileHandle> {
   const before = await lstat(path);
   if (!before.isFile() || before.isSymbolicLink() || before.nlink !== 1 || before.uid !== 0
     || (before.mode & 0o022) !== 0 || (before.mode & 0o111) === 0 || await realpath(path) !== path) {
     throw new Error('privileged broker helper is not a canonical protected root-owned executable');
   }
-  const handle = await open(path, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
+  const handle = await open(path, constants.O_RDONLY | (platformOpenFlags.O_NOFOLLOW ?? 0));
   const opened = await handle.stat();
   if (opened.dev !== before.dev || opened.ino !== before.ino || opened.size !== before.size
     || await hashHandle(handle, opened.size) !== expectedDigest) {
@@ -91,16 +93,16 @@ export const defaultPrivilegedBrokerTransport: PrivilegedBrokerTransport = Objec
       const stdout: Buffer[] = [];
       let stdoutBytes = 0;
       let stderrBytes = 0;
-      let overflow = false;
+      const outputState = { overflow: false };
       if (!child.stdout || !child.stderr) {
         child.kill('SIGKILL');
         throw new Error('privileged broker output channels are unavailable');
       }
       child.stdout.on('data', (chunk: Buffer) => {
         stdoutBytes += chunk.length;
-        if (stdoutBytes <= 65_536) stdout.push(Buffer.from(chunk)); else overflow = true;
+        if (stdoutBytes <= 65_536) stdout.push(Buffer.from(chunk)); else outputState.overflow = true;
       });
-      child.stderr.on('data', (chunk: Buffer) => { stderrBytes += chunk.length; if (stderrBytes > 8_192) overflow = true; });
+      child.stderr.on('data', (chunk: Buffer) => { stderrBytes += chunk.length; if (stderrBytes > 8_192) outputState.overflow = true; });
       const requestStream = child.stdio[3];
       if (!requestStream || !('end' in requestStream)) {
         child.kill('SIGKILL');
@@ -113,7 +115,7 @@ export const defaultPrivilegedBrokerTransport: PrivilegedBrokerTransport = Objec
         child.once('error', error => { clearTimeout(timer); reject(error); });
         child.once('close', (code, signal) => { clearTimeout(timer); resolve({ code, signal }); });
       });
-      if (status.signal !== null || status.code !== 0 || overflow || stdoutBytes === 0) {
+      if (status.signal !== null || status.code !== 0 || outputState.overflow || stdoutBytes === 0) {
         throw new Error('privileged broker transport failed or exceeded its output boundary');
       }
       const response = BrokerResponseSchema.parse(JSON.parse(Buffer.concat(stdout).toString('utf8')) as unknown);
@@ -141,7 +143,7 @@ export function createPrivilegedBrokerNativeRuntime(
   now: () => Date = () => new Date(),
 ): NativePackageRuntime {
   const config = PrivilegedBrokerClientConfigSchema.parse(configInput);
-  const grant = config.grant as PrivilegedBrokerGrant;
+  const grant = config.grant;
   if (grant.hostId !== config.hostId || grant.releaseId !== config.releaseId || grant.runId !== config.runId
     || grant.planDigest !== config.planDigest || grant.brokerExecutableDigest.length !== 64) {
     throw new Error('privileged broker client configuration differs from its exact grant');
@@ -195,7 +197,7 @@ export function createPrivilegedBrokerServiceRuntime(
   now: () => Date = () => new Date(),
 ) {
   const config = PrivilegedBrokerClientConfigSchema.parse(configInput);
-  const grant = config.grant as PrivilegedBrokerGrant;
+  const grant = config.grant;
   const descriptor = PrivilegedBrokerServiceDescriptorSchema.parse(descriptorInput);
   if (grant.hostId !== config.hostId || grant.releaseId !== config.releaseId || grant.runId !== config.runId
     || grant.planDigest !== config.planDigest || grant.descriptorDigest !== privilegedBrokerDescriptorDigest(descriptor)) {
@@ -205,7 +207,7 @@ export function createPrivilegedBrokerServiceRuntime(
   const descriptorSha256 = createHash('sha256').update(descriptorBytes).digest('hex');
   const invoke = async (phase: 'check' | 'apply' | 'verify', operationInput: NativeServiceOperation): Promise<PrivilegedBrokerReceipt> => {
     const operation = NativeServiceOperationSchema.parse(operationInput);
-    if (operation.action !== phase || operation.manager !== descriptor.manager || operation.unit !== descriptor.unit
+    if (operation.action !== phase || operation.unit !== descriptor.unit
       || operation.desiredState !== descriptor.desiredState) throw new Error('privileged service runtime operation differs from descriptor authority');
     const granted = grant.operations.find(candidate => candidate.taskId === config.taskId && candidate.phase === phase);
     if (!granted) throw new Error(`privileged broker grant lacks the ${phase} service operation`);
@@ -214,7 +216,7 @@ export function createPrivilegedBrokerServiceRuntime(
     const path = `${root}/descriptor.json`;
     try {
       await writeFile(path, descriptorBytes, { mode: 0o600, flag: 'wx' });
-      const payload = await open(path, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
+      const payload = await open(path, constants.O_RDONLY | (platformOpenFlags.O_NOFOLLOW ?? 0));
       await unlink(path);
       try {
         const requestedAt = now().toISOString();

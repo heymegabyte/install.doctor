@@ -8,7 +8,6 @@ const pendingSourceFiles = [
   'src/engine.ts',
   'src/native-dpkg-transaction.ts',
   'src/offline-execution.ts',
-  'src/privileged-broker-client.ts',
   'src/privileged-broker-controller.ts',
   'src/privileged-broker-worker.ts',
 ].map(file => `packages/installer-engine/${file}`);
