@@ -4,10 +4,10 @@ import { lstat, mkdir, open, readdir, readFile, realpath, rename, rm } from 'nod
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
 import { z } from 'zod';
 import { TelemetryBatchSchema } from './telemetry.js';
-import type { TelemetryBatch, TelemetryTransport } from './telemetry.js';
+import type { TelemetryTransport } from './telemetry.js';
 
 const digest = z.string().regex(/^[a-f0-9]{64}$/);
-const timestamp = z.string().datetime({ offset: true }).max(64);
+const timestamp = z.iso.datetime({ offset: true }).max(64);
 const RecordSchema = z.strictObject({
   schemaVersion: z.literal(1), id: digest, enqueuedAt: timestamp, nextAttemptAt: timestamp,
   attempts: z.number().int().min(0).max(32), batch: TelemetryBatchSchema,
@@ -32,12 +32,12 @@ function sha(value: Uint8Array): string { return createHash('sha256').update(val
 
 async function atomicWrite(path: string, value: unknown): Promise<void> {
   const parent = dirname(path);
-  const stage = join(parent, `.${basename(path)}.${process.pid}.${randomUUID()}.tmp`);
+  const stage = join(parent, `.${basename(path)}.${String(process.pid)}.${randomUUID()}.tmp`);
   const handle = await open(stage, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY, 0o600);
   try { await handle.writeFile(bytes(value)); await handle.sync(); } finally { await handle.close(); }
   try {
     await rename(stage, path);
-    const parentHandle = await open(parent, constants.O_RDONLY | (constants.O_DIRECTORY ?? 0));
+    const parentHandle = await open(parent, constants.O_RDONLY | ((constants as Partial<typeof constants>).O_DIRECTORY ?? 0));
     try { await parentHandle.sync(); } finally { await parentHandle.close(); }
   } finally { await rm(stage, { force: true }); }
 }
@@ -81,7 +81,7 @@ export function createTelemetryDeliveryStore(options: {
   async function heartbeat(): Promise<z.infer<typeof HeartbeatSchema> | undefined> {
     let handle;
     try {
-      handle = await open(join(root, 'heartbeat.json'), constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
+      handle = await open(join(root, 'heartbeat.json'), constants.O_RDONLY | ((constants as Partial<typeof constants>).O_NOFOLLOW ?? 0));
       const metadata = await handle.stat();
       if (!metadata.isFile() || metadata.size < 1 || metadata.size > 16_384
         || (process.platform !== 'win32' && (metadata.nlink !== 1 || (metadata.mode & 0o077) !== 0))) {
@@ -108,7 +108,7 @@ export function createTelemetryDeliveryStore(options: {
       return { status: 'enqueued', id };
     },
     async drain(transport: TelemetryTransport, endpoint: string): Promise<{ delivered: number; failed: number; deferred: number; expired: number }> {
-      const parsedEndpoint = z.string().url().refine(value => {
+      const parsedEndpoint = z.url().refine(value => {
         const url = new URL(value);
         return url.protocol === 'https:' && !url.username && !url.password && !url.search && !url.hash;
       }, 'telemetry delivery endpoint must be credential-free HTTPS').parse(endpoint);

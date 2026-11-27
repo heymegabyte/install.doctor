@@ -68,8 +68,6 @@ const pendingSourceFiles = [
   'src/target-device-authorization-http.ts',
   'src/target-device-authorization.ts',
   'src/target-device-credential.ts',
-  'src/telemetry-delivery.ts',
-  'src/telemetry.ts',
   'src/typed-tool-adapters.ts',
   'src/verified-artifact-materializer.ts',
   'src/windows-fixture-contract.ts',

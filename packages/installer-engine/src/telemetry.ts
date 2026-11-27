@@ -4,7 +4,7 @@ import type { InstallerEvent } from './contracts.js';
 
 const boundedLabel = z.string().regex(/^[a-z0-9][a-z0-9._-]*$/).max(64);
 const eventId = z.string().regex(/^[a-z0-9][a-z0-9._-]*$/).max(128);
-const telemetryEndpoint = z.string().url()
+const telemetryEndpoint = z.url()
   .refine(value => value.startsWith('https://'), 'telemetry endpoint must use HTTPS')
   .refine(value => {
     const endpoint = new URL(value);
@@ -33,10 +33,10 @@ export const TelemetryExportConfigSchema = z.object({
 }).strict();
 
 const RemoteEventSchema = z.discriminatedUnion('kind', [
-  z.object({ kind: z.literal('run-status'), sequence: z.number().int().nonnegative(), at: z.string().datetime({ offset: true }), runId: eventId, status: z.enum(['started', 'redirected', 'rejected', 'success', 'failed', 'cancelled']) }).strict(),
-  z.object({ kind: z.literal('phase-status'), sequence: z.number().int().nonnegative(), at: z.string().datetime({ offset: true }), runId: eventId, phase: z.enum(['discover', 'validate', 'plan', 'approve', 'apply', 'verify', 'record']), status: z.enum(['started', 'succeeded', 'failed', 'skipped']) }).strict(),
-  z.object({ kind: z.literal('task-status'), sequence: z.number().int().nonnegative(), at: z.string().datetime({ offset: true }), runId: eventId, taskId: eventId, status: z.enum(['queued', 'running', 'retrying', 'verified', 'inapplicable', 'pending', 'pending-reboot', 'interrupted', 'blocked', 'failed']), attempt: z.number().int().min(0).max(10) }).strict(),
-  z.object({ kind: z.literal('lock'), sequence: z.number().int().nonnegative(), at: z.string().datetime({ offset: true }), runId: eventId, taskId: eventId, domain: eventId, state: z.enum(['waiting', 'acquired', 'released']) }).strict(),
+  z.object({ kind: z.literal('run-status'), sequence: z.number().int().nonnegative(), at: z.iso.datetime({ offset: true }), runId: eventId, status: z.enum(['started', 'redirected', 'rejected', 'success', 'failed', 'cancelled']) }).strict(),
+  z.object({ kind: z.literal('phase-status'), sequence: z.number().int().nonnegative(), at: z.iso.datetime({ offset: true }), runId: eventId, phase: z.enum(['discover', 'validate', 'plan', 'approve', 'apply', 'verify', 'record']), status: z.enum(['started', 'succeeded', 'failed', 'skipped']) }).strict(),
+  z.object({ kind: z.literal('task-status'), sequence: z.number().int().nonnegative(), at: z.iso.datetime({ offset: true }), runId: eventId, taskId: eventId, status: z.enum(['queued', 'running', 'retrying', 'verified', 'inapplicable', 'pending', 'pending-reboot', 'interrupted', 'blocked', 'failed']), attempt: z.number().int().min(0).max(10) }).strict(),
+  z.object({ kind: z.literal('lock'), sequence: z.number().int().nonnegative(), at: z.iso.datetime({ offset: true }), runId: eventId, taskId: eventId, domain: eventId, state: z.enum(['waiting', 'acquired', 'released']) }).strict(),
 ]);
 
 export const TelemetryBatchSchema = z.object({
@@ -73,18 +73,25 @@ export async function exportInstallerTelemetry(
   const metadataEvents = events.filter((event): event is Exclude<InstallerEvent, { kind: 'output' }> => event.kind !== 'output');
   const droppedCapacityEvents = Math.max(0, metadataEvents.length - 256);
   const safeEvents = metadataEvents.slice(0, 256)
-    .map(({ schemaVersion: _schemaVersion, ...event }) => event);
+    .map(event => {
+      const metadata = { ...event };
+      Reflect.deleteProperty(metadata, 'schemaVersion');
+      return metadata;
+    });
   if (!config.consent) return Object.freeze({ status: 'disabled', exportedEvents: 0, droppedOutputEvents, droppedCapacityEvents });
   const batch = TelemetryBatchSchema.parse({
     schemaVersion: 1, labels: config.labels, retention: config.retention,
     events: safeEvents, droppedOutputEvents, droppedCapacityEvents,
   });
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(new Error('telemetry timeout')), config.timeoutMs);
+  const timeoutError = new Error('telemetry timeout');
+  const timer = setTimeout(() => { controller.abort(timeoutError); }, config.timeoutMs);
   try {
     await Promise.race([
       transport({ endpoint: config.endpoint, batch, signal: controller.signal }),
-      new Promise<never>((_resolve, reject) => controller.signal.addEventListener('abort', () => reject(controller.signal.reason), { once: true })),
+      new Promise<never>((_resolve, reject) => {
+        controller.signal.addEventListener('abort', () => { reject(timeoutError); }, { once: true });
+      }),
     ]);
     return Object.freeze({ status: 'succeeded', exportedEvents: batch.events.length, droppedOutputEvents, droppedCapacityEvents });
   } catch {
