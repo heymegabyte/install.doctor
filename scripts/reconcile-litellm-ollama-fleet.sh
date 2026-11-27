@@ -135,7 +135,8 @@ for alias, template in templates.items():
     params["rpm"] = rpm
     params.setdefault("input_cost_per_token", 0.0)
     params.setdefault("output_cost_per_token", 0.0)
-    params["max_parallel_requests"] = 4 if "macbook" in api_base.lower() else 8
+    # Fleet origins enforce two active requests for the entire node.
+    params["max_parallel_requests"] = 2
     model_info = deployment.setdefault("model_info", {})
     if isinstance(model_info, dict):
         if model_info.get("mode") == "embedding":
@@ -144,7 +145,10 @@ for alias, template in templates.items():
             params.setdefault("timeout", 180)
             params.setdefault("stream_timeout", 45)
             if "qwen2.5" in template_model:
-                params.setdefault("num_ctx", 32768)
+                context = params.get("num_ctx", 4096)
+                if type(context) is not int or context < 1:
+                    raise SystemExit(f"reconcile-litellm-ollama-fleet: invalid num_ctx for {alias}")
+                params["num_ctx"] = min(context, 4096)
         if "id" in model_info:
             model_info["id"] = f"{alias}-{origin_slug}"
         model_info.setdefault("tags", ["local", "ollama", "gpu"])

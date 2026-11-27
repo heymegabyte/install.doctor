@@ -69,6 +69,7 @@ model_list:
     litellm_params:
       model: ollama_chat/qwen2.5:7b-instruct
       api_base: http://existing:11434
+      num_ctx: 32768
   - model_name: remote-only
     litellm_params:
       model: deepseek/deepseek-chat
@@ -85,8 +86,8 @@ FACTS="$(facts_of "$CFG")"
 [ "$(fact LAST_TIMEOUT)" = "180" ] && pass "added entry defaults timeout to 180s" || fail "added timeout is '$(fact LAST_TIMEOUT)'"
 [ "$(fact LAST_STREAM_TIMEOUT)" = "45" ] && pass "added entry defaults stream_timeout to 45s" || fail "added stream_timeout is '$(fact LAST_STREAM_TIMEOUT)'"
 [ "$(fact LAST_TAGS)" = "local,ollama,gpu" ] && pass "added entry tags deployment as local,ollama,gpu" || fail "added tags are '$(fact LAST_TAGS)'"
-[ "$(fact LAST_MAX_PAR)" = "8" ] && pass "added entry caps max_parallel_requests to 8 on Linux GPU" || fail "added max_parallel_requests is '$(fact LAST_MAX_PAR)'"
-[ "$(fact LAST_NUM_CTX)" = "32768" ] && pass "added entry sets num_ctx to 32768 on qwen2.5 models" || fail "added num_ctx is '$(fact LAST_NUM_CTX)'"
+[ "$(fact LAST_MAX_PAR)" = "2" ] && pass "added entry matches the origin concurrency cap" || fail "added max_parallel_requests is '$(fact LAST_MAX_PAR)'"
+[ "$(fact LAST_NUM_CTX)" = "4096" ] && pass "added entry caps the inherited context at the origin limit" || fail "added num_ctx is '$(fact LAST_NUM_CTX)'"
 
 # --- 2. idempotent for an already-enrolled origin ---
 cat > "$CFG" <<'YAML'

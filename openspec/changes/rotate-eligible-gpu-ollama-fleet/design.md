@@ -36,3 +36,10 @@ See `proposal.md` for motivation and `specs/gpu-ollama-fleet/spec.md` for requir
 3. Preview the LiteLLM route diff, add exactly one Omen deployment beside the existing Legion deployment, and run bounded inference plus desktop coexistence checks.
 4. Confirm Zen remains excluded from Ollama while repairing its separate Coolify connectivity through the owning workflow.
 5. Roll back by removing only the reconciler-owned Omen route and disabling its reconciler-owned Ollama service; preserve models, logs, desktop services, host-specific tunnel configuration, and the last known-good Legion route for diagnosis.
+
+New reconciler entries match the deployed admission proxy's two-slot
+limit and cap inherited Qwen context at 4,096 tokens. These are
+per-deployment hints in LiteLLM. The origin still owns its aggregate
+slot enforcement across aliases. Existing rows are left untouched by
+the enrollment helper. The helper edits a catalog and does not probe
+readiness, so a successful edit is not evidence of live admission.
