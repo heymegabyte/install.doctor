@@ -23,6 +23,21 @@ The remaining page documents historical Install Doctor compatibility inputs. Env
 and Chezmoi/Age files can still be required by an existing fork, but new Desktop Tools integrations
 should use bounded secret references and protected runtime delivery instead.
 
+### Healthchecks Discord delivery
+
+The Healthchecks stack consumes `discord_client_id` and `discord_client_secret` as Docker secrets.
+On the admitted Ubuntu host, provision both together from its least-privileged Infisical identity:
+
+```shell
+healthchecks-sync-discord-secrets --project-id fa93b35d-7cf1-4e33-bd3f-9712f503a382
+```
+
+The command requires an active Docker Swarm, retrieves only `DISCORD_CLIENT_ID` and
+`DISCORD_CLIENT_SECRET`, never writes plaintext to disk or output, rejects a one-secret partial
+state, and rolls back newly created Docker secrets if the pair cannot be completed. Existing paired
+Docker secrets are left unchanged; rotate them only during an explicit Healthchecks maintenance
+window.
+
 ## Legacy environment-variable compatibility
 
 The easiest way to get started with automating the Install Doctor provisioning process and leveraging optional features is to define user-specific variables as environment variables.

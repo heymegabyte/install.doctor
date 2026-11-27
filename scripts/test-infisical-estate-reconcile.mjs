@@ -585,6 +585,8 @@ for (const [recordPatch, error] of [
   [{ migrated: false }, /missing migrated evidence/],
   [{ destination: undefined }, /missing destination evidence/],
   [{ targetRetrievalVerified: false }, /missing target retrieval evidence/],
+  [{ remainingConsumers: ['legacy local consumer'] }, /still has required consumer cutovers/],
+  [{ requiredConsumers: ['runtime'], consumerCutoverVerified: false }, /missing consumer cutover evidence/],
   [{ status: 'unverified' }, /not valid for retirement/],
 ]) {
   assert.throws(() => retireSecretSource({

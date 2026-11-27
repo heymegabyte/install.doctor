@@ -71,6 +71,8 @@ services:
       - healthchecks_s3_secret_key
       - healthchecks_secret_key
       - healthchecks_superuser_password
+      - discord_client_id
+      - discord_client_secret
       - matrix_access_token
       - matrix_homeserver
       - matrix_username
@@ -112,6 +114,12 @@ networks:
     external: true
 
 secrets:
+  # Provision these from the Ubuntu Infisical project with
+  # healthchecks-sync-discord-secrets before deploying the stack.
+  discord_client_id:
+    external: true
+  discord_client_secret:
+    external: true
   healthchecks_db_password:
     external: true
   healthchecks_secret_key:

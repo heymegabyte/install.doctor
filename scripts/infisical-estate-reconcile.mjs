@@ -430,6 +430,12 @@ export function validateRetirementEvidence({ source, ledger, inventorySources, o
     fail(`source ${source.sourceId} is missing destination evidence`);
   }
   if (record.targetRetrievalVerified !== true) fail(`source ${source.sourceId} is missing target retrieval evidence`);
+  if (Array.isArray(record.remainingConsumers) && record.remainingConsumers.length > 0) {
+    fail(`source ${source.sourceId} still has required consumer cutovers`);
+  }
+  if (Array.isArray(record.requiredConsumers) && record.requiredConsumers.length > 0 && record.consumerCutoverVerified !== true) {
+    fail(`source ${source.sourceId} is missing consumer cutover evidence`);
+  }
   return { record, evidenceKind: 'migrated', destinations: [...destinations].sort() };
 }
 
