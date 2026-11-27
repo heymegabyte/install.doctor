@@ -18,7 +18,12 @@ class FakeSocket {
   /** @type {Map<Parameters<AddListener>[0], Parameters<AddListener>[1]>} */
   listeners = new Map();
   /** @param {string} value */
-  send(value) { this.sent.push(JSON.parse(value)); }
+  send(value) {
+    /** @type {unknown} */
+    const message = JSON.parse(value);
+    assert.ok(message && typeof message === 'object' && !Array.isArray(message));
+    this.sent.push(/** @type {Record<string, unknown>} */ (message));
+  }
   /** @param {number} code @param {string} reason */
   close(code, reason) { this.closed.push({ code, reason }); }
   /** @param {Parameters<AddListener>[0]} type @param {Parameters<AddListener>[1]} listener */
@@ -40,8 +45,8 @@ async function fixture(t) {
   const calls = { start: [], cancel: [], resize: [], flow: [], authorize: [], allowCancellation: true };
   /** @type {Options} */
   const options = { stateRoot, clock: () => now,
-    startRun: async value => calls.start.push(value), cancelRun: async value => calls.cancel.push(value), resizeRun: async value => calls.resize.push(value),
-    setFlow: async value => calls.flow.push(value), authorizeCancellation: async value => { calls.authorize.push(value); return calls.allowCancellation; } };
+    startRun: value => calls.start.push(value), cancelRun: value => calls.cancel.push(value), resizeRun: value => calls.resize.push(value),
+    setFlow: value => calls.flow.push(value), authorizeCancellation: value => { calls.authorize.push(value); return calls.allowCancellation; } };
   const coordinator = new DurableSessionCoordinator(options);
   const created = await coordinator.create({ sessionId: 'session-1', runId: 'run-1', createdAt: new Date(now).toISOString(),
     expiresAt: new Date(now + 60_000).toISOString(), cols: 80, rows: 24,
@@ -56,7 +61,7 @@ function attachment(created, connectionId, acknowledgedSequence, socket) {
   return { sessionId: created.sessionId, runId: created.runId, resumeToken: created.resumeToken, connectionId, acknowledgedSequence, socket };
 }
 
-test('reconnect resumes the same durable run and replays only unacknowledged output', async t => {
+void test('reconnect resumes the same durable run and replays only unacknowledged output', async t => {
   const f = await fixture(t);
   const first = new FakeSocket();
   const attached = await f.coordinator.attach(attachment(f.created, 'connection-1', 0, first));
@@ -75,7 +80,7 @@ test('reconnect resumes the same durable run and replays only unacknowledged out
   assert.equal(f.calls.start.length, 1, 'reattachment must not create another run');
 });
 
-test('acknowledgement applies durable backpressure and resumes below the low-water mark', async t => {
+void test('acknowledgement applies durable backpressure and resumes below the low-water mark', async t => {
   const f = await fixture(t);
   const socket = new FakeSocket();
   const attached = await f.coordinator.attach(attachment(f.created, 'connection-1', 0, socket));
@@ -93,7 +98,7 @@ test('acknowledgement applies durable backpressure and resumes below the low-wat
   assert.equal((await f.coordinator.status('session-1')).retainedBytes, 0);
 });
 
-test('resize is persisted and forwarded only by the current attachment', async t => {
+void test('resize is persisted and forwarded only by the current attachment', async t => {
   const f = await fixture(t);
   const socket = new FakeSocket();
   const attached = await f.coordinator.attach(attachment(f.created, 'connection-1', 0, socket));
@@ -104,7 +109,7 @@ test('resize is persisted and forwarded only by the current attachment', async t
     JSON.stringify({ schemaVersion: 1, type: 'resize', cols: 1, rows: 1 })), /stale connection/);
 });
 
-test('authorized cancellation is durable and idempotent for one authority', async t => {
+void test('authorized cancellation is durable and idempotent for one authority', async t => {
   const f = await fixture(t);
   const socket = new FakeSocket();
   const attached = await f.coordinator.attach(attachment(f.created, 'connection-1', 0, socket));
@@ -115,7 +120,7 @@ test('authorized cancellation is durable and idempotent for one authority', asyn
   await assert.rejects(() => f.coordinator.attach(attachment(f.created, 'connection-2', 0, new FakeSocket())), /cannot attach/);
 });
 
-test('a WebSocket client cannot self-authorize cancellation', async t => {
+void test('a WebSocket client cannot self-authorize cancellation', async t => {
   const f = await fixture(t);
   const socket = new FakeSocket();
   const attached = await f.coordinator.attach(attachment(f.created, 'connection-1', 0, socket));
@@ -126,7 +131,7 @@ test('a WebSocket client cannot self-authorize cancellation', async t => {
   assert.equal((await f.coordinator.status('session-1')).phase, 'running');
 });
 
-test('expiry durably cancels the existing run and never starts a replacement', async t => {
+void test('expiry durably cancels the existing run and never starts a replacement', async t => {
   const f = await fixture(t);
   f.advance(60_001);
   await assert.rejects(() => f.coordinator.attach(attachment(f.created, 'late', 0, new FakeSocket())), /expired/);
@@ -135,7 +140,7 @@ test('expiry durably cancels the existing run and never starts a replacement', a
   assert.equal((await f.coordinator.status('session-1')).phase, 'expired');
 });
 
-test('wrong run, token, stale connection, oversized frame, and corrupt durable state fail closed', async t => {
+void test('wrong run, token, stale connection, oversized frame, and corrupt durable state fail closed', async t => {
   const f = await fixture(t);
   const socket = new FakeSocket();
   await assert.rejects(() => f.coordinator.attach({ ...attachment(f.created, 'bad', 0, socket), runId: 'run-2' }), /authority/);
@@ -144,18 +149,20 @@ test('wrong run, token, stale connection, oversized frame, and corrupt durable s
   await assert.rejects(() => f.coordinator.receive('session-1', 'good', attached.epoch + 1, JSON.stringify({ schemaVersion: 1, type: 'ack', sequence: 0 })), /stale connection/);
   await assert.rejects(() => f.coordinator.emit('session-1', 'x'.repeat(16 * 1024 + 1)), /byte bound/);
   const path = join(f.stateRoot, 'sessions', 'session-1.json');
+  /** @type {unknown} */
   const state = JSON.parse(await readFile(path, 'utf8'));
+  assert.ok(state && typeof state === 'object' && 'lastSequence' in state);
   state.lastSequence = 5;
   await import('node:fs/promises').then(({ writeFile }) => writeFile(path, JSON.stringify(state), { mode: 0o600 }));
   await assert.rejects(() => f.coordinator.status('session-1'), /empty replay window/);
 });
 
-test('failed run creation remains terminal and cannot be adopted by reconnect', async t => {
+void test('failed run creation remains terminal and cannot be adopted by reconnect', async t => {
   const stateRoot = await mkdtemp(join(tmpdir(), 'desktop-tools-session-'));
   t.after(() => rm(stateRoot, { recursive: true, force: true }));
   const coordinator = new DurableSessionCoordinator({ stateRoot, clock: () => Date.parse('2030-01-01T00:00:00Z'),
-    startRun: async () => { throw new Error('spawn failed'); }, cancelRun: async () => {}, resizeRun: async () => {}, setFlow: async () => {},
-    authorizeCancellation: async () => true });
+    startRun: () => Promise.reject(new Error('spawn failed')), cancelRun: () => {}, resizeRun: () => {}, setFlow: () => {},
+    authorizeCancellation: () => true });
   await assert.rejects(() => coordinator.create({ sessionId: 'failed-session', runId: 'failed-run', createdAt: '2030-01-01T00:00:00Z',
     expiresAt: '2030-01-01T00:01:00Z', cols: 80, rows: 24,
     limits: { maxRetainedBytes: 100, highWaterBytes: 10, lowWaterBytes: 3, maxFrames: 10 } }), /spawn failed/);

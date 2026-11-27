@@ -7,6 +7,19 @@ import test from 'node:test';
 import { gzipSync } from 'node:zlib';
 import { PROVISIONING_PROMPT, PROVISIONING_PROMPT_VERSION, approvedSkills, approvedTools, generateOpenCodeConfig, main, minimalEnvironment, prepareProvisioningPrompt } from '../src/desktop-tools-supervisor.mjs';
 
+/** @param {unknown} value @returns {asserts value is Record<string, unknown>} */
+function assertRecord(value) {
+  assert.ok(value !== null && typeof value === 'object' && !Array.isArray(value));
+}
+
+/** @param {string} text */
+function parseRecord(text) {
+  /** @type {unknown} */
+  const value = JSON.parse(text);
+  assertRecord(value);
+  return value;
+}
+
 /** @param {unknown} value @returns {unknown} */
 function canonical(value) {
   if (Array.isArray(value)) return value.map(canonical);
@@ -105,7 +118,7 @@ async function fixture() {
   return { root, runtime, sha256, state, prompt, session, toolArgs };
 }
 
-test('prepares protected state and validates an exact pinned runtime', async () => {
+void test('prepares protected state and validates an exact pinned runtime', async () => {
   const item = await fixture();
   await main(['prepare', '--state-dir', item.state]);
   assert.equal((await stat(item.state)).mode & 0o777, 0o700);
@@ -114,7 +127,7 @@ test('prepares protected state and validates an exact pinned runtime', async () 
   await assert.rejects(main(['validate', '--state-dir', item.state, '--runtime', item.runtime, '--sha256', '0'.repeat(64), '--version', '2.2.5']), /digest/);
 });
 
-test('installs the signed runtime closure idempotently without inference credentials', async () => {
+void test('installs the signed runtime closure idempotently without inference credentials', async () => {
   const item = await fixture();
   await rm(join(item.state, 'config', 'inference-token'));
   const archive = join(item.root, 'opencode-runtime.tar.gz');
@@ -150,20 +163,24 @@ test('installs the signed runtime closure idempotently without inference credent
 
   const extraArchive = join(item.root, 'opencode-extra.tar.gz');
   await writeFile(extraArchive, gzipSync(Buffer.concat([tarEntry('opencode', await readFile(item.runtime), 0o700), tarEntry('unexpected', Buffer.from('x'), 0o600), Buffer.alloc(1024)])));
-  const extraSha = await digest(extraArchive); const changedLock = JSON.parse(await readFile(lock, 'utf8'));
-  changedLock.artifacts[platform].sha256 = extraSha; await writeFile(lock, `${JSON.stringify(changedLock)}\n`); const changedLockSha = await digest(lock);
+  const extraSha = await digest(extraArchive); const changedLock = parseRecord(await readFile(lock, 'utf8'));
+  const artifacts = changedLock.artifacts;
+  assertRecord(artifacts);
+  const platformArtifact = artifacts[platform];
+  assertRecord(platformArtifact);
+  platformArtifact.sha256 = extraSha; await writeFile(lock, `${JSON.stringify(changedLock)}\n`); const changedLockSha = await digest(lock);
   await assert.rejects(main(args.map(value => value === archive ? extraArchive : value === archiveSha ? extraSha : value === lockSha ? changedLockSha : value)), /exactly one executable/);
 
   const zipState = join(item.root, 'zip-state'); const zipArchive = join(item.root, 'opencode-runtime.zip');
   await writeFile(zipArchive, storedZip('opencode', await readFile(item.runtime))); const zipSha = await digest(zipArchive);
-  changedLock.artifacts[platform] = { ...changedLock.artifacts[platform], sha256: zipSha, releaseFilename: `${platform}.zip` };
+  artifacts[platform] = { ...platformArtifact, sha256: zipSha, releaseFilename: `${platform}.zip` };
   await writeFile(lock, `${JSON.stringify(changedLock)}\n`); const zipLockSha = await digest(lock);
   const zipResult = await main(args.map(value => value === item.state ? zipState : value === archive ? zipArchive : value === archiveSha ? zipSha : value === lockSha ? zipLockSha : value));
   assert.ok('changed' in zipResult && zipResult.runtime);
   assert.equal(zipResult.changed, true); assert.equal(await readFile(zipResult.runtime, 'utf8'), await readFile(item.runtime, 'utf8'));
 });
 
-test('run binds only private loopback and strips inherited secret variables', async () => {
+void test('run binds only private loopback and strips inherited secret variables', async () => {
   const item = await fixture();
   process.env.API_TOKEN = 'must-not-leak';
   const result = await main(['run', '--state-dir', item.state, '--runtime', item.runtime, '--sha256', item.sha256, '--version', '2.2.5', '--port', '4123', '--provisioning-context', item.prompt.path, '--session-context', item.session.path, ...item.toolArgs]);
@@ -176,23 +193,40 @@ test('run binds only private loopback and strips inherited secret variables', as
   assert.equal(await readFile(join(item.state, 'observed-cwd'), 'utf8'), `${await realpath(item.state)}\n`);
   assert.equal(await readFile(join(item.state, 'prompt-binding'), 'utf8'), `${PROVISIONING_PROMPT_VERSION}\n${item.prompt.context.promptDigest}\n${item.prompt.context.contextDigest}\n`);
   const evidencePath = join(item.state, 'history', 'prompt-bindings', `${item.prompt.context.contextDigest}.json`);
-  const evidence = JSON.parse(await readFile(evidencePath, 'utf8'));
+  const evidence = parseRecord(await readFile(evidencePath, 'utf8'));
   assert.equal(evidence.state, 'recorded-before-execution');
   assert.equal(evidence.promptDigest, item.prompt.context.promptDigest);
   assert.equal(evidence.contextDigest, item.prompt.context.contextDigest);
   assert.equal((await stat(evidencePath)).mode & 0o777, 0o600);
-  const config = JSON.parse(await readFile(join(item.state, 'opencode-config'), 'utf8'));
+  const config = parseRecord(await readFile(join(item.state, 'opencode-config'), 'utf8'));
   assert.equal(config.model, 'projectsites/dynamic/code');
-  assert.equal(config.providers.projectsites.settings.apiKey, `{file:${join(item.state, 'config', 'inference-token')}}`);
-  assert.equal(config.providers.projectsites.settings.baseURL, 'https://desktop.tools/api/ai/v1');
-  assert.equal(config.instructions.length, 1);
-  assert.equal(config.mcp.servers['desktop-tools'].type, 'local');
-  assert.equal(config.mcp.servers['desktop-tools'].enabled, true);
-  assert.equal(config.mcp.servers['desktop-tools'].command[0], '/usr/bin/env');
-  assert.ok(config.mcp.servers['desktop-tools'].command.includes('-i'));
-  assert.ok(config.mcp.servers['desktop-tools'].command.some((/** @type {string} */ value) => /desktop-tools-mcp-server-[a-f0-9]{64}\.mjs$/.test(value)));
+  assertRecord(config.providers);
+  assertRecord(config.providers.projectsites);
+  const settings = config.providers.projectsites.settings;
+  assertRecord(settings);
+  assert.equal(settings.apiKey, `{file:${join(item.state, 'config', 'inference-token')}}`);
+  assert.equal(settings.baseURL, 'https://desktop.tools/api/ai/v1');
+  assert.ok(Array.isArray(config.instructions));
+  /** @type {readonly unknown[]} */
+  const instructions = config.instructions;
+  assert.equal(instructions.length, 1);
+  const [instruction] = instructions;
+  assert.ok(typeof instruction === 'string');
+  assertRecord(config.mcp);
+  assertRecord(config.mcp.servers);
+  const server = config.mcp.servers['desktop-tools'];
+  assertRecord(server);
+  assert.equal(server.type, 'local');
+  assert.equal(server.enabled, true);
+  assert.ok(Array.isArray(server.command));
+  /** @type {readonly unknown[]} */
+  const command = server.command;
+  assert.equal(command[0], '/usr/bin/env');
+  assert.ok(command.includes('-i'));
+  assert.ok(command.some(value => typeof value === 'string' && /desktop-tools-mcp-server-[a-f0-9]{64}\.mjs$/.test(value)));
   assert.equal(JSON.stringify(config.mcp).includes('scoped-test-token'), false);
-  assert.match(config.instructions[0], /config\/prompts\/[a-f0-9]{64}\/provisioning\.md$/);
+  assert.match(instruction, /config\/prompts\/[a-f0-9]{64}\/provisioning\.md$/);
+  assert.ok(Array.isArray(config.policies));
   assert.deepEqual(config.policies.slice(0, 2), [
     { action: 'provider.use', resource: '*', effect: 'deny' },
     { action: 'provider.use', resource: 'projectsites', effect: 'allow' }
@@ -205,8 +239,8 @@ test('run binds only private loopback and strips inherited secret variables', as
   assert.equal((await stat(join(item.state, 'config', 'server-password'))).mode & 0o777, 0o600);
   assert.ok('evidence' in result && result.evidence);
   assert.equal(result.evidence.captureComplete, false);
-  const history = JSON.parse(await readFile(result.evidence.historyPath, 'utf8'));
-  const recording = JSON.parse(await readFile(result.evidence.recordingPath, 'utf8'));
+  const history = parseRecord(await readFile(result.evidence.historyPath, 'utf8'));
+  const recording = parseRecord(await readFile(result.evidence.recordingPath, 'utf8'));
   assert.deepEqual(recording, history);
   assert.equal(history.evidenceState, 'headers-persisted');
   assert.equal(history.captureComplete, false);
@@ -225,13 +259,13 @@ test('run binds only private loopback and strips inherited secret variables', as
   delete process.env.API_TOKEN;
 });
 
-test('rejects arbitrary options and privileged ports', async () => {
+void test('rejects arbitrary options and privileged ports', async () => {
   const item = await fixture();
   await assert.rejects(main(['run', '--shell', '/bin/sh']), /unsupported/);
   await assert.rejects(main(['run', '--state-dir', item.state, '--runtime', item.runtime, '--sha256', item.sha256, '--version', '2.2.5', '--port', '80']), /unprivileged/);
 });
 
-test('generates restart-survivable hardened service definitions without secrets', async () => {
+void test('generates restart-survivable hardened service definitions without secrets', async () => {
   const item = await fixture();
   const output = join(item.root, 'service');
   await main(['service', '--state-dir', item.state, '--runtime', item.runtime, '--sha256', item.sha256, '--version', '2.2.5', '--output-dir', output, '--port', '4444', '--provisioning-context', item.prompt.path, '--session-context', item.session.path, ...item.toolArgs]);
@@ -254,7 +288,7 @@ test('generates restart-survivable hardened service definitions without secrets'
   await assert.rejects(stat(join(output, 'run')), /ENOENT/);
 });
 
-test('evidence collision fails closed before OpenCode launch and cannot claim complete capture', async () => {
+void test('evidence collision fails closed before OpenCode launch and cannot claim complete capture', async () => {
   const item = await fixture();
   await main(['prepare', '--state-dir', item.state]);
   const recordingPath = join(item.state, 'recordings', `${item.session.context.sessionId}.header.json`);
@@ -264,11 +298,11 @@ test('evidence collision fails closed before OpenCode launch and cannot claim co
     /evidence collision/,
   );
   await assert.rejects(readFile(join(item.state, 'argv'), 'utf8'), /ENOENT/);
-  const history = JSON.parse(await readFile(join(item.state, 'history', `${item.session.context.sessionId}.json`), 'utf8'));
+  const history = parseRecord(await readFile(join(item.state, 'history', `${item.session.context.sessionId}.json`), 'utf8'));
   assert.equal(history.captureComplete, false);
 });
 
-test('session evidence rejects invalid lineage context before OpenCode launch', async () => {
+void test('session evidence rejects invalid lineage context before OpenCode launch', async () => {
   const item = await fixture();
   const invalid = await writeSessionContext(item.root, { sessionId: 'session-invalid', parentSessionId: '../parent' });
   await assert.rejects(
@@ -278,11 +312,11 @@ test('session evidence rejects invalid lineage context before OpenCode launch', 
   await assert.rejects(readFile(join(item.state, 'argv'), 'utf8'), /ENOENT/);
 });
 
-test('tool authority must be the exact closure digest bound into the verified prompt', async () => {
+void test('tool authority must be the exact closure digest bound into the verified prompt', async () => {
   const item = await fixture();
   const contextPath = item.toolArgs[item.toolArgs.indexOf('--tool-context') + 1];
   assert.ok(contextPath);
-  const changed = JSON.parse(await readFile(contextPath, 'utf8')); changed.operations = { injected: { argv: ['/bin/sh'] } };
+  const changed = parseRecord(await readFile(contextPath, 'utf8')); changed.operations = { injected: { argv: ['/bin/sh'] } };
   await writeFile(contextPath, `${JSON.stringify(changed)}\n`, { mode: 0o600 });
   await assert.rejects(
     main(['run', '--state-dir', item.state, '--runtime', item.runtime, '--sha256', item.sha256, '--version', '2.2.5',
@@ -292,7 +326,7 @@ test('tool authority must be the exact closure digest bound into the verified pr
   await assert.rejects(readFile(join(item.state, 'argv'), 'utf8'), /ENOENT/);
 });
 
-test('minimal environment contains no inherited credential-shaped values', () => {
+void test('minimal environment contains no inherited credential-shaped values', () => {
   process.env.AWS_SECRET_ACCESS_KEY = 'secret';
   process.env.ANTHROPIC_API_KEY = 'ambient-anthropic';
   process.env.DEEPSEEK_API_KEY = 'ambient-deepseek';
@@ -307,14 +341,14 @@ test('minimal environment contains no inherited credential-shaped values', () =>
   assert.equal(environment.TMPDIR, '/tmp/desktop-tools-state/tmp');
   assert.equal(environment.OPENCODE_DISABLE_PROJECT_CONFIG, '1');
   assert.ok(environment.OPENCODE_CONFIG_CONTENT);
-  assert.deepEqual(JSON.parse(environment.OPENCODE_CONFIG_CONTENT).permissions, [{ action: '*', resource: '*', effect: 'deny' }]);
+  assert.deepEqual(parseRecord(environment.OPENCODE_CONFIG_CONTENT).permissions, [{ action: '*', resource: '*', effect: 'deny' }]);
   delete process.env.AWS_SECRET_ACCESS_KEY;
   delete process.env.ANTHROPIC_API_KEY;
   delete process.env.DEEPSEEK_API_KEY;
   delete process.env.OPENAI_API_KEY;
 });
 
-test('strict config permits only ProjectSites, pinned skills, and task-specific typed tools', () => {
+void test('strict config permits only ProjectSites, pinned skills, and task-specific typed tools', () => {
   const credential = '/private/state/config/inference-token';
   const config = generateOpenCodeConfig(credential);
   assert.deepEqual(Object.keys(config.providers), ['projectsites']);
@@ -333,7 +367,7 @@ test('strict config permits only ProjectSites, pinned skills, and task-specific 
   assert.equal(config.permissions.some(rule => rule.action === 'edit' && rule.effect === 'allow'), false);
 });
 
-test('run refuses missing, permissive, and malformed inference credential state', async () => {
+void test('run refuses missing, permissive, and malformed inference credential state', async () => {
   const item = await fixture();
   await rm(join(item.state, 'config', 'inference-token'));
   await assert.rejects(main(['run', '--state-dir', item.state, '--runtime', item.runtime, '--sha256', item.sha256, '--version', '2.2.5', '--provisioning-context', item.prompt.path]), /credential is unavailable/);
@@ -345,18 +379,20 @@ test('run refuses missing, permissive, and malformed inference credential state'
   await assert.rejects(main(['run', '--state-dir', item.state, '--runtime', item.runtime, '--sha256', item.sha256, '--version', '2.2.5', '--provisioning-context', item.prompt.path]), /credential/);
 });
 
-test('rejects tampered, secret-shaped, and over-authorized prompt contexts before execution', async () => {
+void test('rejects tampered, secret-shaped, and over-authorized prompt contexts before execution', async () => {
   const item = await fixture();
   const tampered = { ...item.prompt.context, policy: { network: true } };
   await writeFile(item.prompt.path, JSON.stringify(tampered), { mode: 0o600 });
   await assert.rejects(prepareProvisioningPrompt(item.prompt.path, item.state), /digest mismatch/);
   const secretShaped = { ...item.prompt.context, discoveredFacts: { apiToken: 'must-not-enter-prompt' } };
-  const { contextDigest: _secretDigest, ...secretUnsigned } = secretShaped;
+  const { contextDigest: secretDigest, ...secretUnsigned } = secretShaped;
+  assert.equal(secretDigest, item.prompt.context.contextDigest);
   secretShaped.contextDigest = createHash('sha256').update(`${JSON.stringify(canonical(secretUnsigned))}\n`).digest('hex');
   await writeFile(item.prompt.path, JSON.stringify(secretShaped), { mode: 0o600 });
   await assert.rejects(prepareProvisioningPrompt(item.prompt.path, item.state), /secret-shaped/);
   const excessive = { ...item.prompt.context, permittedTools: ['desktop_tools_root_shell'] };
-  const { contextDigest: _excessiveDigest, ...excessiveUnsigned } = excessive;
+  const { contextDigest: excessiveDigest, ...excessiveUnsigned } = excessive;
+  assert.equal(excessiveDigest, item.prompt.context.contextDigest);
   excessive.contextDigest = createHash('sha256').update(`${JSON.stringify(canonical(excessiveUnsigned))}\n`).digest('hex');
   await writeFile(item.prompt.path, JSON.stringify(excessive), { mode: 0o600 });
   await assert.rejects(prepareProvisioningPrompt(item.prompt.path, item.state), /unapproved tool/);

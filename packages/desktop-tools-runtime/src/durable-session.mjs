@@ -25,11 +25,11 @@ const MAX_MESSAGE_BYTES = 16 * 1024;
 /** @typedef {{socket: SessionSocket, connectionId: string, epoch: number, paused: boolean}} Connection */
 /** @typedef {{
  * stateRoot: string, clock: () => number,
- * startRun(value: Readonly<RunIdentity & TerminalSize>): unknown,
- * cancelRun(value: Readonly<RunIdentity & {reason: string, authorizationId?: string}>): unknown,
- * resizeRun(value: Readonly<RunIdentity & TerminalSize>): unknown,
- * setFlow(value: Readonly<RunIdentity & {state: Flow}>): unknown,
- * authorizeCancellation(value: Readonly<RunIdentity & {connectionId: string, authorizationId: string}>): boolean | Promise<boolean>,
+ * startRun: (value: Readonly<RunIdentity & TerminalSize>) => unknown,
+ * cancelRun: (value: Readonly<RunIdentity & {reason: string, authorizationId?: string}>) => unknown,
+ * resizeRun: (value: Readonly<RunIdentity & TerminalSize>) => unknown,
+ * setFlow: (value: Readonly<RunIdentity & {state: Flow}>) => unknown,
+ * authorizeCancellation: (value: Readonly<RunIdentity & {connectionId: string, authorizationId: string}>) => boolean | Promise<boolean>,
  * }} CoordinatorOptions */
 
 /** @param {string} message @returns {never} */
@@ -106,10 +106,12 @@ function retainedBytes(frames) {
   return frames.reduce((total, frame) => total + frame.bytes, 0);
 }
 
-/** @param {SessionState} value */
-function validateState(value) {
-  exact(value, ['schemaVersion', 'sessionId', 'runId', 'resumeTokenSha256', 'createdAt', 'expiresAt', 'phase', 'flow', 'lastSequence', 'acknowledgedSequence', 'connectionEpoch', 'attachment', 'terminal', 'frames', 'limits', 'cancellation'], 'durable session');
-  if (value.schemaVersion !== VERSION) fail('unsupported durable session schema');
+/** @param {unknown} input */
+function validateState(input) {
+  exact(input, ['schemaVersion', 'sessionId', 'runId', 'resumeTokenSha256', 'createdAt', 'expiresAt', 'phase', 'flow', 'lastSequence', 'acknowledgedSequence', 'connectionEpoch', 'attachment', 'terminal', 'frames', 'limits', 'cancellation'], 'durable session');
+  const fields = /** @type {Record<string, unknown>} */ (input);
+  if (fields.schemaVersion !== VERSION) fail('unsupported durable session schema');
+  const value = /** @type {SessionState} */ (fields);
   id(value.sessionId, 'sessionId');
   id(value.runId, 'runId');
   if (!/^[a-f0-9]{64}$/.test(value.resumeTokenSha256)) fail('resume token digest is invalid');
@@ -153,7 +155,7 @@ function validateState(value) {
 
 /** @param {string} path @param {SessionState} value */
 async function atomicWrite(path, value) {
-  const temporary = `${path}.tmp-${process.pid}-${randomBytes(6).toString('hex')}`;
+  const temporary = `${path}.tmp-${String(process.pid)}-${randomBytes(6).toString('hex')}`;
   const handle = await open(temporary, 'wx', 0o600);
   try {
     await handle.writeFile(`${JSON.stringify(value)}\n`, 'utf8');
@@ -173,7 +175,9 @@ async function load(path) {
   if (!metadata.isFile() || metadata.isSymbolicLink() || (metadata.mode & 0o077) !== 0) fail('session state must be a private regular file', 77);
   const bytes = await readFile(path, 'utf8');
   if (Buffer.byteLength(bytes) > 8 * 1024 * 1024) fail('session state exceeds its byte bound');
-  try { return validateState(JSON.parse(bytes)); } catch (error) {
+  try {
+    return validateState(JSON.parse(bytes));
+  } catch (error) {
     if (error && typeof error === 'object' && 'exitCode' in error && error.exitCode) throw error;
     fail('session state is not valid JSON');
   }
@@ -184,13 +188,14 @@ function wire(type, body) {
   return JSON.stringify({ schemaVersion: VERSION, type, ...body });
 }
 
-/** @param {SessionSocket} socket */
+/** @param {unknown} socket @returns {SessionSocket} */
 function assertSocket(socket) {
-  if (socket === null || typeof socket !== 'object' || typeof socket.send !== 'function' || typeof socket.close !== 'function') {
+  if (socket === null || typeof socket !== 'object' || !('send' in socket) || typeof socket.send !== 'function'
+    || !('close' in socket) || typeof socket.close !== 'function') {
     fail('transport must implement the WebSocket send/close interface');
   }
-  if (socket.addEventListener !== undefined && typeof socket.addEventListener !== 'function') fail('WebSocket event interface is invalid');
-  return socket;
+  if ('addEventListener' in socket && socket.addEventListener !== undefined && typeof socket.addEventListener !== 'function') fail('WebSocket event interface is invalid');
+  return /** @type {SessionSocket} */ (socket);
 }
 
 export class DurableSessionCoordinator {
@@ -310,11 +315,11 @@ export class DurableSessionCoordinator {
         await this.#setFlow(Object.freeze({ sessionId: state.sessionId, runId: state.runId, state: 'paused' }));
         socket.send(wire('flow', { state: 'paused', retainedBytes: retainedBytes(state.frames) }));
       }
-      /** @param {{data?: EncodedMessage} | EncodedMessage} event */
+      /** @param {{data?: EncodedMessage} | EncodedMessage | null | undefined} event */
       const message = event => {
         const encoded = typeof event === 'string' || event instanceof Uint8Array || event instanceof ArrayBuffer ? event : event?.data;
         if (encoded === undefined) { socket.close(4002, 'invalid session message'); return; }
-        void this.receive(state.sessionId, connectionId, epoch, encoded).catch(() => socket.close(4002, 'invalid session message'));
+        void this.receive(state.sessionId, connectionId, epoch, encoded).catch(() => { socket.close(4002, 'invalid session message'); });
       };
       const close = () => { void this.detach(state.sessionId, connectionId, epoch); };
       socket.addEventListener?.('message', message);
@@ -352,7 +357,7 @@ export class DurableSessionCoordinator {
       state.frames.push({ sequence, payload, bytes });
       const connection = this.#connections.get(sessionId);
       const pressure = currentBytes + bytes + integer(connection?.socket.bufferedAmount ?? 0, 'WebSocket bufferedAmount');
-      const shouldPause = state.flow === 'open' && (pressure >= state.limits.highWaterBytes || state.frames.length >= state.limits.maxFrames);
+      const shouldPause = pressure >= state.limits.highWaterBytes || state.frames.length >= state.limits.maxFrames;
       if (shouldPause) state.flow = 'paused';
       await atomicWrite(statePath(this.#root, sessionId), state);
       if (shouldPause) await this.#setFlow(Object.freeze({ sessionId, runId: state.runId, state: 'paused' }));
@@ -369,11 +374,19 @@ export class DurableSessionCoordinator {
 
   /** @param {string} sessionId @param {string} connectionId @param {number} epoch @param {EncodedMessage} encoded */
   async receive(sessionId, connectionId, epoch, encoded) {
-    const bytes = typeof encoded === 'string' ? Buffer.byteLength(encoded) : encoded?.byteLength;
+    const bytes = typeof encoded === 'string' ? Buffer.byteLength(encoded)
+      : encoded instanceof Uint8Array || encoded instanceof ArrayBuffer ? encoded.byteLength : 0;
     if (!Number.isSafeInteger(bytes) || bytes < 1 || bytes > MAX_MESSAGE_BYTES) fail('session message exceeds its byte bound');
-    let message;
-    try { message = JSON.parse(typeof encoded === 'string' ? encoded : Buffer.from(encoded instanceof ArrayBuffer ? new Uint8Array(encoded) : encoded).toString('utf8')); } catch { fail('session message is not valid JSON'); }
-    if (message?.schemaVersion !== VERSION || typeof message.type !== 'string') fail('session message schema is invalid');
+    /** @type {unknown} */
+    let parsed;
+    try {
+      parsed = JSON.parse(typeof encoded === 'string' ? encoded : Buffer.from(encoded instanceof ArrayBuffer ? new Uint8Array(encoded) : encoded).toString('utf8'));
+    } catch {
+      fail('session message is not valid JSON');
+    }
+    if (parsed === null || typeof parsed !== 'object' || !('schemaVersion' in parsed) || parsed.schemaVersion !== VERSION
+      || !('type' in parsed) || typeof parsed.type !== 'string') fail('session message schema is invalid');
+    const message = /** @type {Record<string, unknown>} */ (parsed);
     if (message.type === 'ack') {
       exact(message, ['schemaVersion', 'type', 'sequence'], 'ack message');
       return this.#acknowledge(sessionId, connectionId, epoch, message.sequence);
@@ -398,10 +411,10 @@ export class DurableSessionCoordinator {
     });
   }
 
-  /** @param {string} sessionId @param {string} connectionId @param {number} epoch @param {number} sequence */
-  #acknowledge(sessionId, connectionId, epoch, sequence) {
+  /** @param {string} sessionId @param {string} connectionId @param {number} epoch @param {unknown} input */
+  #acknowledge(sessionId, connectionId, epoch, input) {
     return this.#withConnection(sessionId, connectionId, epoch, async state => {
-      integer(sequence, 'acknowledgement sequence');
+      const sequence = integer(input, 'acknowledgement sequence');
       if (sequence < state.acknowledgedSequence || sequence > state.lastSequence) fail('acknowledgement is outside the emitted sequence range');
       state.acknowledgedSequence = sequence;
       state.frames = state.frames.filter(frame => frame.sequence > sequence);
@@ -419,11 +432,11 @@ export class DurableSessionCoordinator {
     });
   }
 
-  /** @param {string} sessionId @param {string} connectionId @param {number} epoch @param {number} cols @param {number} rows */
-  #resize(sessionId, connectionId, epoch, cols, rows) {
+  /** @param {string} sessionId @param {string} connectionId @param {number} epoch @param {unknown} inputCols @param {unknown} inputRows */
+  #resize(sessionId, connectionId, epoch, inputCols, inputRows) {
     return this.#withConnection(sessionId, connectionId, epoch, async state => {
-      integer(cols, 'terminal cols', 1);
-      integer(rows, 'terminal rows', 1);
+      const cols = integer(inputCols, 'terminal cols', 1);
+      const rows = integer(inputRows, 'terminal rows', 1);
       if (cols > 1000 || rows > 1000) fail('terminal dimensions exceed their bound');
       state.terminal = { cols, rows };
       await atomicWrite(statePath(this.#root, sessionId), state);
@@ -432,11 +445,13 @@ export class DurableSessionCoordinator {
     });
   }
 
-  /** @param {string} sessionId @param {string} connectionId @param {number} epoch @param {string} authorizationId */
-  #cancel(sessionId, connectionId, epoch, authorizationId) {
+  /** @param {string} sessionId @param {string} connectionId @param {number} epoch @param {unknown} input */
+  #cancel(sessionId, connectionId, epoch, input) {
     return this.#withConnection(sessionId, connectionId, epoch, async state => {
-      id(authorizationId, 'cancellation authorizationId');
-      if (await this.#authorizeCancellation(Object.freeze({ sessionId, runId: state.runId, connectionId, authorizationId })) !== true) {
+      const authorizationId = id(input, 'cancellation authorizationId');
+      /** @type {unknown} */
+      const authorized = await this.#authorizeCancellation(Object.freeze({ sessionId, runId: state.runId, connectionId, authorizationId }));
+      if (authorized !== true) {
         fail('cancellation requires explicit trusted authorization', 77);
       }
       if (state.cancellation !== null) {

@@ -12,7 +12,7 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 /** @param {Uint8Array} bytes */
 const hash = bytes => createHash('sha256').update(bytes).digest('hex');
 
-test('build emits byte-for-byte deterministic signed-closure inputs', async () => {
+void test('build emits byte-for-byte deterministic signed-closure inputs', async () => {
   assert.equal(spawnSync(process.execPath, ['scripts/build.mjs'], { cwd: root }).status, 0);
   const firstSupervisor = await readFile(resolve(root, 'dist/desktop-tools-supervisor.mjs'));
   const firstTools = await readFile(resolve(root, 'dist/desktop-tools-tools.tar.gz'));

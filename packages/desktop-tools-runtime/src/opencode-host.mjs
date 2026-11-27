@@ -14,6 +14,16 @@ function fail(message) {
   throw Object.assign(new Error(message), { code: 'DESKTOP_TOOLS_OPENCODE_HOST' });
 }
 
+/** @param {unknown} value @returns {value is object} */
+function isObject(value) {
+  return value !== null && typeof value === 'object';
+}
+
+/** @param {unknown} value */
+function isAbsoluteDirectory(value) {
+  return typeof value === 'string' && value.startsWith('/');
+}
+
 /** @param {string | undefined} value @param {string} label @returns {[number, number, number]} */
 function parseVersion(value, label) {
   const match = /^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-[0-9A-Za-z.-]+)?$/.exec(value ?? '');
@@ -38,7 +48,7 @@ export function assertOpenCodeCompatibility({ sdkVersion, runtimeVersion }) {
   const minimum = parseVersion(OPENCODE_HOST_COMPATIBILITY.runtime.minimum, 'minimum OpenCode runtime version');
   const maximum = parseVersion(OPENCODE_HOST_COMPATIBILITY.runtime.maximumExclusive, 'maximum OpenCode runtime version');
   if (compareVersion(runtime, minimum) < 0 || compareVersion(runtime, maximum) >= 0) {
-    fail(`OpenCode runtime ${runtimeVersion} is outside the reviewed compatibility window`);
+    fail(`OpenCode runtime ${String(runtimeVersion)} is outside the reviewed compatibility window`);
   }
   return Object.freeze({
     sdkVersion,
@@ -69,18 +79,18 @@ function privateEndpoint(value, expectedHostname, expectedPort) {
 /** @typedef {{ runtimeVersion?: string, sdkVersion?: string, hostname?: string, port?: number, timeout?: number, config?: HostServerOptions['config'], directory?: string, sdk?: HostSdk }} HostOptions */
 /** @param {HostOptions} value */
 function exactOptions(value) {
-  if (value === null || typeof value !== 'object' || Array.isArray(value)) fail('OpenCode host options must be an object');
+  if (!isObject(value) || Array.isArray(value)) fail('OpenCode host options must be an object');
   const allowed = ['runtimeVersion', 'sdkVersion', 'hostname', 'port', 'timeout', 'config', 'directory', 'sdk'];
-  const unknown = Object.keys(value).filter(key => !allowed.includes(key));
-  if (unknown.length) fail(`unsupported OpenCode host option: ${unknown[0]}`);
+  const unknown = Object.keys(value).find(key => !allowed.includes(key));
+  if (unknown !== undefined) fail(`unsupported OpenCode host option: ${unknown}`);
   const hostname = value.hostname ?? '127.0.0.1';
   if (!OPENCODE_HOST_COMPATIBILITY.transport.hostnames.includes(hostname)) fail('OpenCode host must bind to an explicit loopback address');
   const port = value.port ?? 4096;
   if (!Number.isSafeInteger(port) || port < 1024 || port > 65_535) fail('OpenCode host port must be unprivileged');
   const timeout = value.timeout ?? 5_000;
   if (!Number.isSafeInteger(timeout) || timeout < 100 || timeout > 60_000) fail('OpenCode host startup timeout is invalid');
-  if (value.config !== undefined && (value.config === null || typeof value.config !== 'object' || Array.isArray(value.config))) fail('OpenCode host config must be an object');
-  if (value.directory !== undefined && (typeof value.directory !== 'string' || !value.directory.startsWith('/'))) fail('OpenCode client directory must be absolute');
+  if (value.config !== undefined && (!isObject(value.config) || Array.isArray(value.config))) fail('OpenCode host config must be an object');
+  if (value.directory !== undefined && !isAbsoluteDirectory(value.directory)) fail('OpenCode client directory must be absolute');
   return { ...value, hostname, port, timeout };
 }
 
@@ -102,7 +112,7 @@ export function createDesktopToolsOpenCodeHost(input) {
   const options = exactOptions(input);
   const compatibility = assertOpenCodeCompatibility(options);
   const sdk = options.sdk ?? upstreamSdk;
-  if (sdk === null || typeof sdk !== 'object' || typeof sdk.createServer !== 'function' || typeof sdk.createClient !== 'function') {
+  if (!isObject(sdk) || typeof sdk.createServer !== 'function' || typeof sdk.createClient !== 'function') {
     fail('OpenCode SDK adapter does not implement the Desktop Tools host interface');
   }
 
@@ -132,7 +142,7 @@ export function createDesktopToolsOpenCodeHost(input) {
           signal: abort.signal,
           config: options.config ?? {},
         });
-        if (candidate === null || typeof candidate !== 'object' || typeof candidate.close !== 'function') {
+        if (!isObject(candidate) || typeof candidate.close !== 'function') {
           fail('OpenCode SDK returned an invalid server handle');
         }
         server = candidate;
@@ -141,7 +151,7 @@ export function createDesktopToolsOpenCodeHost(input) {
           fail('OpenCode host startup was cancelled');
         }
         const client = sdk.createClient({ baseUrl: url, directory: options.directory });
-        if (client === null || typeof client !== 'object') fail('OpenCode SDK returned an invalid client');
+        if (!isObject(client)) fail('OpenCode SDK returned an invalid client');
         session = Object.freeze({ url, client, compatibility });
         state = 'running';
         return session;

@@ -11,6 +11,13 @@ const consent = { actorId: 'owner-1', approvedAt: '2026-11-08T12:00:00.000Z', re
 const policy = { retainUntil: '2026-12-08T12:00:00.000Z', maxBytes: 1_048_576, allowExport: true, allowDelete: true };
 const exportAuthorization = { actorId: 'owner-1', approvedAt: '2026-11-08T12:01:00.000Z', purpose: 'support-review' };
 
+/** @param {string} text @returns {unknown} */
+function parseFixtureJson(text) {
+  /** @type {unknown} */
+  const value = JSON.parse(text);
+  return value;
+}
+
 /** @param {Partial<Parameters<typeof EncryptedCastWriter.create>[0]>} [overrides] */
 async function fixture(overrides = {}) {
   const root = await mkdtemp(join(tmpdir(), 'desktop-tools-recording-'));
@@ -33,7 +40,7 @@ async function fixture(overrides = {}) {
   return { root, path, encryptionKey, writer };
 }
 
-test('stores sanitized asciicast v3 output, resize, marker, and exit as authenticated ciphertext', async () => {
+void test('stores sanitized asciicast v3 output, resize, marker, and exit as authenticated ciphertext', async () => {
   const value = await fixture();
   await value.writer.output(1, 'ready token=secret-value');
   await value.writer.resize(2, 100, 30);
@@ -42,16 +49,16 @@ test('stores sanitized asciicast v3 output, resize, marker, and exit as authenti
   const stored = await readFile(value.path, 'utf8');
   assert.doesNotMatch(stored, /secret-value|ready/);
   const plaintext = await exportRecording({ path: value.path, key: value.encryptionKey, authorization: exportAuthorization });
-  const lines = plaintext.trimEnd().split('\n').map(line => JSON.parse(line));
+  const lines = plaintext.trimEnd().split('\n').map(parseFixtureJson);
   assert.deepEqual(lines[0], { version: 3, term: { cols: 80, rows: 24 }, timestamp: 1794139200 });
   assert.deepEqual(lines.slice(1), [[1, 'o', 'ready token=[REDACTED]'], [1, 'r', '100x30'], [1, 'm', 'plan-approved'], [1, 'x', '0']]);
-  const status = JSON.parse(await readFile(value.writer.statusPath, 'utf8'));
+  const status = parseFixtureJson(await readFile(value.writer.statusPath, 'utf8'));
   assert.deepEqual(status, { schemaVersion: 1, sessionId: 'session-1', state: 'complete', captureComplete: true, reason: null });
   assert.equal((await stat(value.path)).mode & 0o777, 0o600);
   assert.equal(value.writer.input, undefined);
 });
 
-test('requires output-only consent, a sanitizer, and an in-memory encryption key', async () => {
+void test('requires output-only consent, a sanitizer, and an in-memory encryption key', async () => {
   const root = await mkdtemp(join(tmpdir(), 'desktop-tools-recording-denied-'));
   /** @type {Omit<Parameters<typeof EncryptedCastWriter.create>[0], 'consent'>} */
   const base = { path: join(root, 'denied.cast.enc'), sessionId: 'session-1', createdAt: '2026-11-08T12:00:00.000Z', cols: 80, rows: 24, policy,
@@ -61,7 +68,7 @@ test('requires output-only consent, a sanitizer, and an in-memory encryption key
   await assert.rejects(EncryptedCastWriter.create({ ...base, consent, path: join(root, 'no-key.cast.enc'), key: 'environment-key' }), /KeyObject/);
 });
 
-test('covers local, browser, scheduled, child, and offline recording authorities', async () => {
+void test('covers local, browser, scheduled, child, and offline recording authorities', async () => {
   for (const kind of ['local', 'browser', 'scheduled', 'child', 'offline']) {
     const value = await fixture({ sessionId: `session-${kind}`, trigger: {
       kind, parentSessionId: kind === 'child' ? 'parent-session' : null, outbox: kind === 'offline',
@@ -69,30 +76,34 @@ test('covers local, browser, scheduled, child, and offline recording authorities
     await value.writer.finish(1, 0);
     const [header] = (await readFile(value.path, 'utf8')).split('\n');
     assert.ok(header);
-    const stored = JSON.parse(header);
-    assert.equal(stored.trigger.kind, kind);
+    const stored = parseFixtureJson(header);
+    assert.ok(stored && typeof stored === 'object' && 'trigger' in stored);
+    const { trigger } = stored;
+    assert.ok(trigger && typeof trigger === 'object' && 'kind' in trigger);
+    assert.equal(trigger.kind, kind);
   }
 });
 
-test('fails closed when sanitization leaves a known secret in output', async () => {
+void test('fails closed when sanitization leaves a known secret in output', async () => {
   const value = await fixture({ sanitizeOutput: text => text });
   await assert.rejects(value.writer.output(1, 'leaked secret-value'), /forbidden secret/);
   await assert.rejects(value.writer.finish(2, 0), /forbidden secret/);
   await value.writer.markIncomplete('secret-redaction-failure');
-  const status = JSON.parse(await readFile(value.writer.statusPath, 'utf8'));
+  const status = parseFixtureJson(await readFile(value.writer.statusPath, 'utf8'));
+  assert.ok(status && typeof status === 'object' && 'captureComplete' in status);
   assert.equal(status.captureComplete, false);
 });
 
-test('keeps interrupted or failed capture visibly incomplete', async () => {
+void test('keeps interrupted or failed capture visibly incomplete', async () => {
   const value = await fixture();
   await value.writer.output(1, 'partial');
   await value.writer.markIncomplete('storage-backpressure');
-  const status = JSON.parse(await readFile(value.writer.statusPath, 'utf8'));
+  const status = parseFixtureJson(await readFile(value.writer.statusPath, 'utf8'));
   assert.deepEqual(status, { schemaVersion: 1, sessionId: 'session-1', state: 'incomplete', captureComplete: false, reason: 'storage-backpressure' });
   await assert.rejects(value.writer.finish(2, 0), /closed/);
 });
 
-test('serializes concurrent events in invocation order despite asynchronous sanitization', async () => {
+void test('serializes concurrent events in invocation order despite asynchronous sanitization', async () => {
   /** @type {(() => void) | undefined} */
   let releaseFirst;
   /** @type {Promise<void>} */
@@ -111,44 +122,44 @@ test('serializes concurrent events in invocation order despite asynchronous sani
   await Promise.all([first, second, resized]);
   await value.writer.finish(4, 0);
   const plaintext = await exportRecording({ path: value.path, key: value.encryptionKey, authorization: exportAuthorization });
-  const lines = plaintext.trimEnd().split('\n').map(line => JSON.parse(line));
+  const lines = plaintext.trimEnd().split('\n').map(parseFixtureJson);
   assert.deepEqual(lines.slice(1), [[1, 'o', 'first'], [1, 'o', 'second'], [1, 'r', '100x30'], [1, 'x', '0']]);
 });
 
-test('does not accept output after finish has been requested', async () => {
+void test('does not accept output after finish has been requested', async () => {
   const value = await fixture();
   const finish = value.writer.finish(1, 0);
   await assert.rejects(value.writer.output(2, 'too late'), /closed/);
   await finish;
 });
 
-test('a failed accepted event prevents a false complete capture', async () => {
+void test('a failed accepted event prevents a false complete capture', async () => {
   const value = await fixture({ sanitizeOutput: () => { throw new Error('sanitizer unavailable'); } });
   await assert.rejects(value.writer.output(1, 'not recorded'), /sanitizer unavailable/);
   await assert.rejects(value.writer.finish(2, 0), /sanitizer unavailable/);
   await value.writer.markIncomplete('sanitizer-failure');
-  const status = JSON.parse(await readFile(value.writer.statusPath, 'utf8'));
+  const status = parseFixtureJson(await readFile(value.writer.statusPath, 'utf8'));
   assert.deepEqual(status, { schemaVersion: 1, sessionId: 'session-1', state: 'incomplete', captureComplete: false, reason: 'sanitizer-failure' });
 });
 
-test('markIncomplete racing a successful finish cannot overwrite complete status', async () => {
+void test('markIncomplete racing a successful finish cannot overwrite complete status', async () => {
   const value = await fixture();
   const finish = value.writer.finish(1, 0);
   const incomplete = value.writer.markIncomplete('late-disconnect');
   await finish;
   await assert.rejects(incomplete, /completed recording/);
-  const status = JSON.parse(await readFile(value.writer.statusPath, 'utf8'));
+  const status = parseFixtureJson(await readFile(value.writer.statusPath, 'utf8'));
   assert.deepEqual(status, { schemaVersion: 1, sessionId: 'session-1', state: 'complete', captureComplete: true, reason: null });
 });
 
-test('enforces encryption authentication and actor-bound export authorization', async () => {
+void test('enforces encryption authentication and actor-bound export authorization', async () => {
   const value = await fixture();
   await value.writer.finish(1, 0);
   await assert.rejects(exportRecording({ path: value.path, key: key(), authorization: exportAuthorization }), /authentication failed/);
   await assert.rejects(exportRecording({ path: value.path, key: value.encryptionKey, authorization: { ...exportAuthorization, actorId: 'other' } }), /not authorized/);
 });
 
-test('retention is preview-only and deletion requires a separate actor-bound authorization', async () => {
+void test('retention is preview-only and deletion requires a separate actor-bound authorization', async () => {
   const value = await fixture();
   await value.writer.finish(1, 0);
   assert.deepEqual(await previewRetention({ path: value.path, now: '2027-01-01T00:00:00.000Z' }), {

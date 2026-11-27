@@ -75,16 +75,22 @@ function validateTrigger(value) {
 
 /** @param {unknown} values */
 function validateForbiddenValues(values) {
-  if (!Array.isArray(values) || values.length > 256 || values.some(value => typeof value !== 'string' || value.length < 8 || value.length > 16_384)) {
-    fail('recording forbidden values must be bounded nontrivial strings');
+  if (!Array.isArray(values) || values.length > 256) fail('recording forbidden values must be bounded nontrivial strings');
+  /** @type {string[]} */
+  const validated = [];
+  for (const value of /** @type {unknown[]} */ (values)) {
+    if (typeof value !== 'string' || value.length < 8 || value.length > 16_384) {
+      fail('recording forbidden values must be bounded nontrivial strings');
+    }
+    validated.push(value);
   }
-  if (new Set(values).size !== values.length) fail('recording forbidden values must be unique');
-  return /** @type {string[]} */ ([...values]);
+  if (new Set(validated).size !== validated.length) fail('recording forbidden values must be unique');
+  return validated;
 }
 
 /** @param {string} path @param {unknown} value */
 async function atomicStatus(path, value) {
-  const temporary = `${path}.tmp-${process.pid}-${randomBytes(6).toString('hex')}`;
+  const temporary = `${path}.tmp-${String(process.pid)}-${randomBytes(6).toString('hex')}`;
   await writeFile(temporary, `${JSON.stringify(value)}\n`, { flag: 'wx', mode: 0o600 });
   await chmod(temporary, 0o600);
   await rename(temporary, path);
@@ -94,7 +100,7 @@ async function atomicStatus(path, value) {
 function encryptLine(key, sessionId, sequence, plaintext) {
   const nonce = randomBytes(12);
   const cipher = createCipheriv('aes-256-gcm', key, nonce);
-  cipher.setAAD(Buffer.from(`${sessionId}:${sequence}`, 'utf8'));
+  cipher.setAAD(Buffer.from(`${sessionId}:${String(sequence)}`, 'utf8'));
   const ciphertext = Buffer.concat([cipher.update(plaintext, 'utf8'), cipher.final()]);
   return {
     sequence,
@@ -111,7 +117,7 @@ function decryptLine(key, sessionId, envelope) {
   try {
     if (typeof envelope.nonce !== 'string' || typeof envelope.tag !== 'string' || typeof envelope.ciphertext !== 'string') fail('recording authentication failed', 77);
     const decipher = createDecipheriv('aes-256-gcm', key, Buffer.from(envelope.nonce, 'base64url'));
-    decipher.setAAD(Buffer.from(`${sessionId}:${envelope.sequence}`, 'utf8'));
+    decipher.setAAD(Buffer.from(`${sessionId}:${String(envelope.sequence)}`, 'utf8'));
     decipher.setAuthTag(Buffer.from(envelope.tag, 'base64url'));
     return Buffer.concat([decipher.update(Buffer.from(envelope.ciphertext, 'base64url')), decipher.final()]).toString('utf8');
   } catch {
@@ -134,7 +140,7 @@ export class EncryptedCastWriter {
   #closed = false;
   #accepting = true;
   #pending = Promise.resolve();
-  /** @type {unknown} */
+  /** @type {Error | undefined} */
   #failure;
   /** @type {'complete' | 'incomplete' | undefined} */
   #terminalRequest;
@@ -208,6 +214,8 @@ export class EncryptedCastWriter {
   get input() { return undefined; }
   get statusPath() { return this.#statusPath; }
 
+  #hasCompleted() { return this.#terminalState === 'complete'; }
+
   /** @param {string} plaintext */
   async #writePlaintext(plaintext) {
     if (this.#closed) fail('recording is closed');
@@ -232,12 +240,12 @@ export class EncryptedCastWriter {
     const result = this.#pending.then(async () => {
       if (this.#failure) throw this.#failure;
       try {
-        return await operation();
+        await operation();
       } catch (error) {
         // Once an accepted event is lost, this capture can no longer truthfully
         // become complete. Preserve the first cause until markIncomplete closes it.
-        this.#failure = error;
-        throw error;
+        this.#failure = error instanceof Error ? error : new Error('recording operation failed');
+        throw this.#failure;
       }
     });
     this.#pending = result.catch(() => {});
@@ -267,7 +275,7 @@ export class EncryptedCastWriter {
   /** @param {number} seconds @param {number} cols @param {number} rows */
   resize(seconds, cols, rows) {
     if (!Number.isSafeInteger(cols) || cols < 1 || cols > 1000 || !Number.isSafeInteger(rows) || rows < 1 || rows > 1000) fail('recording geometry is invalid');
-    return this.#enqueue(() => this.#event(seconds, 'r', `${cols}x${rows}`));
+    return this.#enqueue(() => this.#event(seconds, 'r', `${String(cols)}x${String(rows)}`));
   }
 
   /** @param {number} seconds @param {string} label */
@@ -291,8 +299,8 @@ export class EncryptedCastWriter {
         await atomicStatus(this.#statusPath, { schemaVersion: 1, sessionId: this.#header.sessionId, state: 'complete', captureComplete: true, reason: null });
         this.#terminalState = 'complete';
       } catch (error) {
-        this.#failure = error;
-        throw error;
+        this.#failure = error instanceof Error ? error : new Error('recording operation failed');
+        throw this.#failure;
       }
     });
     this.#pending = result.catch(() => {});
@@ -307,7 +315,7 @@ export class EncryptedCastWriter {
     if (!waitsForFailedFinish) this.#terminalRequest = 'incomplete';
     this.#accepting = false;
     await this.#pending;
-    if (this.#terminalState === 'complete') fail('completed recording cannot be marked incomplete');
+    if (this.#hasCompleted()) fail('completed recording cannot be marked incomplete');
     if (waitsForFailedFinish && !this.#failure) fail('completed recording cannot be marked incomplete');
     if (!this.#closed) { this.#closed = true; await this.#handle.close(); }
     await atomicStatus(this.#statusPath, { schemaVersion: 1, sessionId: this.#header.sessionId, state: 'incomplete', captureComplete: false, reason });
@@ -331,7 +339,12 @@ async function readEnvelope(pathInput, maxBytes = MAX_RECORDING_BYTES) {
   const consent = validateConsent(header.consent);
   const policy = validatePolicy(header.policy);
   validateTrigger(header.trigger);
-  return { path, header: { sessionId, consent, policy }, events: lines.map(line => JSON.parse(line)) };
+  const events = lines.map(line => {
+    /** @type {unknown} */
+    const event = JSON.parse(line);
+    return event;
+  });
+  return { path, header: { sessionId, consent, policy }, events };
 }
 
 /** @param {{path: string, key: KeyObject, authorization: {actorId: string, approvedAt: string, purpose: string}}} input */
@@ -345,7 +358,7 @@ export async function exportRecording(input) {
   identifier(input.authorization.purpose, 'export purpose');
   if (!value.header.policy.allowExport || input.authorization.actorId !== value.header.consent.actorId) fail('recording export is not authorized', 77);
   return value.events.map((event, index) => {
-    if (event.sequence !== index) fail('recording sequence gap detected', 73);
+    if (!event || typeof event !== 'object' || !('sequence' in event) || event.sequence !== index) fail('recording sequence gap detected', 73);
     return decryptLine(key, value.header.sessionId, event);
   }).join('');
 }
