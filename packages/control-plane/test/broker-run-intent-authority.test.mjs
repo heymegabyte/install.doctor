@@ -55,15 +55,15 @@ function fixture(overrides = {}) {
   /** @type {[string, unknown][]} */
   const calls = [];
   const adapter = createAuthoritativeBrokerRunIntentAdapter({ now: () => current, resolvers: {
-    device: { async resolve(id) { calls.push(['device', id]); return values.device; } },
-    profile: { async resolve(id) { calls.push(['profile', id]); return values.profile; } },
-    release: { async resolveActive(channel) { calls.push(['release', channel]); return values.release; } },
+    device: { resolve(id) { calls.push(['device', id]); return Promise.resolve(values.device); } },
+    profile: { resolve(id) { calls.push(['profile', id]); return Promise.resolve(values.profile); } },
+    release: { resolveActive(channel) { calls.push(['release', channel]); return Promise.resolve(values.release); } },
     plan: {
-      async reconstruct(context) { calls.push(['plan', context]); return values.plan; },
-      async reconstructCurrentAuthority() { throw new Error('unexpected current authority lookup'); },
+      reconstruct(context) { calls.push(['plan', context]); return Promise.resolve(values.plan); },
+      reconstructCurrentAuthority() { return Promise.reject(new Error('unexpected current authority lookup')); },
     },
-    owner: { async resolveForTenant(tenant) { calls.push(['owner', tenant]); return values.owner; } },
-    runIntent: { async load(id) { calls.push(['load', id]); return id === intent.runIntentId ? intent : null; } },
+    owner: { resolveForTenant(tenant) { calls.push(['owner', tenant]); return Promise.resolve(values.owner); } },
+    runIntent: { load(id) { calls.push(['load', id]); return Promise.resolve(id === intent.runIntentId ? intent : null); } },
   } });
   return { adapter, calls, values };
 }
@@ -103,7 +103,7 @@ void test('rejects every authenticated device and immutable public-profile subst
     { ...fixture().values.profile, enabled: false },
   ]) {
     const { adapter } = fixture({ profile });
-    if (profile.visibility === 'private' || profile.enabled === false) {
+    if (profile.visibility === 'private' || !profile.enabled) {
       await assert.rejects(adapter.reconstructRunIntent(intent, principal));
     } else assert.equal(await adapter.reconstructRunIntent(intent, principal), null);
   }

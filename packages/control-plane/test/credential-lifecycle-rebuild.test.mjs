@@ -16,14 +16,14 @@ const pollProof = 'c'.repeat(64);
 function authorizationRequest(sequence, fingerprint, expiresAt) {
   return {
     schemaVersion: 1,
-    requestId: `request-${sequence}`,
+    requestId: `request-${String(sequence)}`,
     binding: {
       tenantId,
       profileId,
       targetPublicKey: sequence === 1 ? 'A'.repeat(43) : 'B'.repeat(43),
       targetKeyFingerprint: fingerprint,
       scopes,
-      nonce: `${sequence}`.repeat(32),
+      nonce: String(sequence).repeat(32),
       expiresAt,
     },
     machineLabel: 'rebuild-fixture',
@@ -54,7 +54,7 @@ function disposableLifecycleStore() {
       schemaVersion: 1,
       requestId: request.requestId,
       binding: request.binding,
-      eventId: `event-${receipts.length + 1}`,
+      eventId: `event-${String(receipts.length + 1)}`,
       event,
       outcome,
       actorId: event === 'revoked' ? 'owner-lifecycle' : null,
@@ -82,28 +82,28 @@ function disposableLifecycleStore() {
         revision: `revision-${request.requestId}`,
       });
     },
-    async readForClaim(requestId) {
-      return requests.get(requestId) ?? null;
+    readForClaim(requestId) {
+      return Promise.resolve(requests.get(requestId) ?? null);
     },
-    async atomicClaim({ requestId, expectedRevision, expectedStatus, credential, claimedAt }) {
+    atomicClaim({ requestId, expectedRevision, expectedStatus, credential, claimedAt }) {
       const state = requests.get(requestId);
-      if (!state || state.status !== expectedStatus || state.revision !== expectedRevision) return 'conflict';
-      if (credentials.has(credential.id)) return 'credential-id-collision';
+      if (!state || state.status !== expectedStatus || state.revision !== expectedRevision) return Promise.resolve('conflict');
+      if (credentials.has(credential.id)) return Promise.resolve('credential-id-collision');
       requests.set(requestId, { ...state, status: 'claimed', revision: `${state.revision}-claimed` });
       credentials.set(credential.id, { ...credential, requestId, secretDigest: crypto.createHash('sha256').update(credential.secret).digest('hex'), revokedAt: null });
       appendReceipt(state.request, 'claimed', 'accepted', claimedAt, credential.id, null);
-      return 'claimed';
+      return Promise.resolve('claimed');
     },
-    async atomicRevoke({ credentialId, tenantId: presentedTenant, deviceKeyFingerprint, revokedAt, reason }) {
+    atomicRevoke({ credentialId, tenantId: presentedTenant, deviceKeyFingerprint, revokedAt, reason }) {
       const credential = credentials.get(credentialId);
-      if (!credential) return 'not-found';
-      if (credential.tenantId !== presentedTenant || credential.deviceKeyFingerprint !== deviceKeyFingerprint) return 'binding-mismatch';
-      if (credential.revokedAt) return 'already-revoked';
+      if (!credential) return Promise.resolve('not-found');
+      if (credential.tenantId !== presentedTenant || credential.deviceKeyFingerprint !== deviceKeyFingerprint) return Promise.resolve('binding-mismatch');
+      if (credential.revokedAt) return Promise.resolve('already-revoked');
       credentials.set(credentialId, { ...credential, revokedAt });
       const state = requests.get(credential.requestId);
       assert.ok(state, 'revoked credential must have a recorded authorization');
       appendReceipt(state.request, 'revoked', 'accepted', revokedAt, credential.id, reason);
-      return 'revoked';
+      return Promise.resolve('revoked');
     },
     authenticate(credentialId, secret) {
       const credential = credentials.get(credentialId);
@@ -133,8 +133,8 @@ void test('revocation survives a disposable host rebuild and produces exact secr
     store,
     now: new Date(now),
     credentialLifetimeMs: 60 * 60 * 1000,
-    verifyPollProof: async presented => presented === pollProof,
-    mintCredential: async () => ({ id: credentialId, secret: `fixture-secret-${credentialId}` }),
+    verifyPollProof: presented => Promise.resolve(presented === pollProof),
+    mintCredential: () => Promise.resolve({ id: credentialId, secret: `fixture-secret-${credentialId}` }),
   });
 
   const original = await claim(oldRequest, '2026-11-09T10:00:00.000Z', 'credential-1');
