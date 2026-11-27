@@ -244,7 +244,19 @@ export function validateValidationLedger(ledger, inventorySources = []) {
     if (!record || !['valid', 'unverified', 'invalid-retired'].includes(record.status)) fail(`validation record ${key} has invalid status`);
     if (key.includes(':')) {
       const source = sourcesById.get(key);
-      if (!source) fail(`validation ledger references unknown source ${key}`);
+      if (!source) {
+        const [store, canonicalName, ...extra] = key.split(':');
+        const retiredExactSource = extra.length === 0
+          && defaultSecretStores.some(({ id }) => id === store)
+          && /^[A-Z][A-Z0-9_]{0,127}$/.test(canonicalName ?? '')
+          && record.sourceId === key
+          && record.canonicalName === canonicalName
+          && record.status === 'invalid-retired'
+          && record.sourceRetired === true
+          && /^[a-f0-9]{64}$/.test(record.ciphertextSha256 ?? '');
+        if (!retiredExactSource) fail(`validation ledger references unknown source ${key}`);
+        continue;
+      }
       if (record.sourceId && record.sourceId !== key) fail(`validation record ${key} has mismatched source id`);
       if (record.canonicalName && record.canonicalName !== source.canonicalName) fail(`validation record ${key} has mismatched canonical name`);
       if (record.ciphertextSha256 && record.ciphertextSha256 !== source.ciphertextSha256) fail(`validation record ${key} has stale ciphertext evidence`);
