@@ -234,6 +234,23 @@ assert.deepEqual(selectConfigurationSecrets(
 for (const host of Object.keys(pageSpeedManifest.hosts)) {
   assert.deepEqual(selectHostSecrets(pageSpeedManifest, host, ['PAGESPEED_API_KEY']), []);
 }
+const logoDevManifest = validateManifest({
+  ...manifest,
+  profiles: { ...manifest.profiles, 'projectsites-runtime': [...manifest.profiles['projectsites-runtime'], 'projectsites-logodev'] },
+  reservedNames: [...manifest.reservedNames, 'LOGODEV_TOKEN'],
+  exactCapabilityNames: {
+    ...manifest.exactCapabilityNames, 'projectsites-logodev': ['LOGODEV_TOKEN'],
+  },
+});
+assert.deepEqual(selectConfigurationSecrets(
+  logoDevManifest, logoDevManifest.workloads['projectsites.dev'], ['LOGODEV_TOKEN'],
+), ['LOGODEV_TOKEN']);
+assert.deepEqual(selectConfigurationSecrets(
+  logoDevManifest, logoDevManifest.workloads['mcp.megabyte.space'], ['LOGODEV_TOKEN'],
+), []);
+for (const host of Object.keys(logoDevManifest.hosts)) {
+  assert.deepEqual(selectHostSecrets(logoDevManifest, host, ['LOGODEV_TOKEN']), []);
+}
 const accessSshNames = [
   'CF_ACCESS_SSH_COOLIFY_CLIENT_ID', 'CF_ACCESS_SSH_COOLIFY_CLIENT_SECRET',
   'CF_ACCESS_SSH_UBUNTU_CLIENT_ID', 'CF_ACCESS_SSH_UBUNTU_CLIENT_SECRET',

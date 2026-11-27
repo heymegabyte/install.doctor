@@ -67,6 +67,7 @@
 - [x] 3.12a Validate `general:AGENTMAIL_API_KEY` through the official read-only inbox-list API, but keep the age source and perform no destination write until a named Cloudflare workload consumer and target-retrieval contract exist.
 - [x] 3.12b Keep `general:BRANDFETCH_API_KEY` `unverified` and preserve its age source after the read-only Brand API returned HTTP 429 with exhausted quota metadata; perform no destination write or retirement until a fresh successful provider read or explicit invalidation.
 - [x] 3.12c Keep `general:ANSIBLE_GALAXY_TOKEN` `unverified` and preserve its age source because candidate read-only identity routes returned endpoint-level HTTP 404 rather than an authoritative credential result; do not migrate or retire it on ambiguous evidence.
+- [x] 3.12d Validate `general:LOGODEV_TOKEN` through the official server-side Search API (`200` versus altered-key `401`) and mirror it only to the `projectsites.dev` root, but preserve the age source until the deployed consumer retrieves the Infisical value and stops passing a secret API key to the publishable CDN-token route; agents use Logo.dev's hosted OAuth MCP instead.
 - [ ] 3.13 Track an explicit required-destination set per source and mark each destination complete only after write, Infisical round trip, intended target-host/workload retrieval, cross-target denial, consumer cutover, and rollback evidence.
 - [ ] 3.14 Prove writer-side verification cannot substitute for intended target retrieval and one completed destination cannot hide another incomplete destination.
 
