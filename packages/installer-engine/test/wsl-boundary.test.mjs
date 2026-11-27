@@ -16,6 +16,7 @@ const identity = {
   linux: { authority: 'linux-guest', guestId: 'workstation-01-ubuntu', distroName: 'Ubuntu-24.04', distroId: 'ubuntu-2404', instanceId: 'guest-instance-10' },
 };
 
+/** @param {Partial<ReturnType<typeof import('../dist/wsl-boundary.js').WslOperationSchema.parse>>} overrides */
 const operation = overrides => ({
   schemaVersion: 1, pairId: identity.pairId, runId: 'run-01', planDigest,
   authority: 'linux-guest', principalId: identity.linux.guestId, action: 'read',
@@ -79,11 +80,16 @@ test('opaque credentials are usable only by their issuing authority', () => {
   assert.throws(() => preflightWslOperation(identity, operation({ action: 'credential-read', path: undefined })), /credential-read requires/);
 });
 
+/** @param {Partial<ReturnType<typeof import('../dist/wsl-boundary.js').WslRestartRequestSchema.parse>>} overrides */
 const restart = overrides => ({ schemaVersion: 1, identity, runId: 'run-01', planDigest,
   target: 'linux-guest', authority: 'linux-guest', principalId: identity.linux.guestId,
   requestedAt: '2026-11-10T12:00:00.000Z',
   returnTimeoutMs: 300_000, ...overrides });
 
+/**
+ * @param {ReturnType<typeof WslRestartContinuationSchema.parse>} continuation
+ * @param {Partial<ReturnType<typeof import('../dist/wsl-boundary.js').WslRestartHeartbeatSchema.parse>>} overrides
+ */
 const heartbeat = (continuation, overrides = {}) => ({ schemaVersion: 1, pairId: identity.pairId,
   runId: 'run-01', planDigest, continuationId: continuation.continuationId,
   windowsBootId: 'windows-boot-10', linuxInstanceId: 'guest-instance-11',
@@ -92,7 +98,9 @@ const heartbeat = (continuation, overrides = {}) => ({ schemaVersion: 1, pairId:
 test('a guest restart requires guest authority and proves Windows stayed on the same boot', () => {
   assert.deepEqual(coordinateWslRestart(restart({ authority: 'windows-host', principalId: identity.windows.hostId })),
     { status: 'denied', reason: 'restart-authority-mismatch' });
-  const { continuation } = coordinateWslRestart(restart({}));
+  const result = coordinateWslRestart(restart({}));
+  assert.equal(result.status, 'ready');
+  const { continuation } = result;
   assert.deepEqual(WslRestartContinuationSchema.parse(structuredClone(continuation)), continuation);
   assert.deepEqual(inspectWslRestartReturn(continuation, heartbeat(continuation), '2026-11-10T12:01:01.000Z'),
     { status: 'ready-to-resume', canResume: true, reason: 'linux-guest-restart-verified' });
@@ -103,7 +111,9 @@ test('a guest restart requires guest authority and proves Windows stayed on the 
 });
 
 test('a Windows-host reboot requires host authority and fresh host and guest identities', () => {
-  const { continuation } = coordinateWslRestart(restart({ target: 'windows-host', authority: 'windows-host', principalId: identity.windows.hostId }));
+  const result = coordinateWslRestart(restart({ target: 'windows-host', authority: 'windows-host', principalId: identity.windows.hostId }));
+  assert.equal(result.status, 'ready');
+  const { continuation } = result;
   assert.deepEqual(inspectWslRestartReturn(continuation, heartbeat(continuation, {
     windowsBootId: 'windows-boot-11', linuxInstanceId: 'guest-instance-11',
   }), '2026-11-10T12:01:01.000Z'),
@@ -119,7 +129,9 @@ test('a Windows-host reboot requires host authority and fresh host and guest ide
 });
 
 test('missing, late, wrong-continuation, and tampered restart evidence fail closed', () => {
-  const { continuation } = coordinateWslRestart(restart({}));
+  const result = coordinateWslRestart(restart({}));
+  assert.equal(result.status, 'ready');
+  const { continuation } = result;
   assert.deepEqual(inspectWslRestartReturn(continuation, null, '2026-11-10T12:04:59.000Z'),
     { status: 'awaiting-return', canResume: false, reason: 'return-heartbeat-missing' });
   assert.deepEqual(inspectWslRestartReturn(continuation, null, '2026-11-10T12:05:00.000Z'),

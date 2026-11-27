@@ -3,6 +3,7 @@ import test from 'node:test';
 import { buildLoadPlan, composeSelectedNativeSystemdService, deriveBoundNormalizedPlan,
   derivePrivilegedBrokerServiceAuthority } from '../dist/index.js';
 
+/** @param {string} name */
 const entry = (name, overrides = {}) => ({ name, bin: name, platforms: ['linux'], installMode: 'cli',
   loadPolicy: 'lazy', loadRationale: 'default-lazy', deps: [], ...overrides });
 async function fixture() {
@@ -37,10 +38,16 @@ test('derives one exact native-service grant without package or payload authorit
 
 test('service derivation rejects plan, operation, consent, and socket substitution', async () => {
   const base = await fixture();
-  for (const mutate of [
+  /** @type {((value: typeof base) => void)[]} */
+  const mutations = [
     value => { value.approvedPlanDigest = '0'.repeat(64); },
-    value => { value.operations['native-systemd-alloy-apply'].unit = 'other.service'; },
+    value => {
+      const operation = value.operations['native-systemd-alloy-apply'];
+      assert.equal(operation?.kind, 'native-service');
+      operation.unit = 'other.service';
+    },
     value => { value.desiredState.consents = []; },
     value => { value.socketPath = '/run/desktop-tools/broker/other/broker.sock'; },
-  ]) { const candidate = structuredClone(base); mutate(candidate); assert.throws(() => derivePrivilegedBrokerServiceAuthority(candidate)); }
+  ];
+  for (const mutate of mutations) { const candidate = structuredClone(base); mutate(candidate); assert.throws(() => derivePrivilegedBrokerServiceAuthority(candidate)); }
 });

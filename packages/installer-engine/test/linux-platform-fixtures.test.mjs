@@ -6,10 +6,13 @@ import {
 } from '../dist/linux-platform-fixtures.js';
 
 const evidenceDigest = 'e'.repeat(64);
+/** @param {import('../dist/linux-platform-fixtures.js').LinuxFixtureDefinition} definition */
 const observation = definition => ({ fixtureId: definition.fixtureId, boundary: definition.boundary, disposable: true,
   imageDigest: definition.image.digest, ...definition.tuple, infrastructureEvidenceDigest: evidenceDigest });
+/** @returns {import('../dist/linux-platform-fixtures.js').LinuxFixtureAdapter} */
 function adapter({ dirty = false, duplicate = false } = {}) {
-  let state = { desiredStateDigest: dirty ? 'f'.repeat(64) : undefined, mutationCount: dirty ? 1 : 0 };
+  /** @type {import('../dist/linux-platform-fixtures.js').LinuxFixtureState} */
+  let state = dirty ? { desiredStateDigest: 'f'.repeat(64), mutationCount: 1 } : { mutationCount: 0 };
   return { discover: () => ({ ...state }), apply: desiredStateDigest => {
     const mutated = duplicate || state.desiredStateDigest !== desiredStateDigest;
     state = { desiredStateDigest, mutationCount: state.mutationCount + (mutated ? 1 : 0) };
@@ -46,6 +49,7 @@ test('unmaterialized OSTree and WSL definitions cannot mint semantic pass receip
 
 test('fixture lifecycle rejects dirty roots, duplicate reapply mutations, and tuple substitution', () => {
   const definition = LINUX_PLATFORM_FIXTURES[0];
+  assert.ok(definition);
   assert.throws(() => verifyLinuxFixtureLifecycle(definition, observation(definition), adapter({ dirty: true })), /not clean/);
   assert.throws(() => verifyLinuxFixtureLifecycle(definition, observation(definition), adapter({ duplicate: true })), /unchanged reapply/);
   assert.throws(() => verifyLinuxFixtureLifecycle(definition, { ...observation(definition), osId: 'ubuntu' }, adapter()), /mismatch: osId/);
@@ -65,11 +69,13 @@ test('unavailable platform infrastructure emits exact BLOCKED evidence instead o
 
 test('an available boundary still blocks a missing or substituted immutable image', () => {
   const definition = LINUX_PLATFORM_FIXTURES[0];
+  assert.ok(definition);
   const blocked = admitLinuxFixtureInfrastructure(definition,
     { availableBoundaries: [definition.boundary], imageDigests: {} });
   assert.equal(blocked.status, 'BLOCKED'); assert.equal(blocked.code, 'FIXTURE_IMAGE_UNAVAILABLE');
   const substituted = admitLinuxFixtureInfrastructure(definition,
     { availableBoundaries: [definition.boundary], imageDigests: { [definition.image.reference]: '0'.repeat(64) } });
+  assert.equal(substituted.status, 'BLOCKED');
   assert.equal(substituted.code, 'FIXTURE_IMAGE_UNAVAILABLE');
   const ready = admitLinuxFixtureInfrastructure(definition,
     { availableBoundaries: [definition.boundary], imageDigests: { [definition.image.reference]: definition.image.digest } });

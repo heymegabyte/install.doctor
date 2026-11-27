@@ -13,12 +13,15 @@ import {
 } from '../dist/alloy-pipeline-reconciler.js';
 
 const ALLOY = process.env.ALLOY_BINARY ?? '/opt/homebrew/bin/alloy';
+/** @param {Buffer} bytes */
 const sha256 = bytes => createHash('sha256').update(bytes).digest('hex');
+/** @param {string} revision @param {string} content */
 const candidate = (revision, content) => {
   const bytes = Buffer.from(content);
   return { revision, content: bytes, sha256: sha256(bytes) };
 };
 
+/** @param {string} revision */
 function moduleConfig(revision) {
   return `declare "pipeline" {
   argument "source_path" {}
@@ -47,6 +50,7 @@ function moduleConfig(revision) {
 `;
 }
 
+/** @param {ReturnType<typeof alloyPipelinePaths>} paths @param {string} eventPath */
 function localConfig(paths, eventPath) {
   return `logging {
   level  = "info"
@@ -83,7 +87,7 @@ async function unusedPort() {
   const server = createServer();
   await new Promise((resolve, reject) => {
     server.once('error', reject);
-    server.listen(0, '127.0.0.1', resolve);
+    server.listen(0, '127.0.0.1', () => resolve(undefined));
   });
   const address = server.address();
   assert.ok(address && typeof address !== 'string');
@@ -91,6 +95,7 @@ async function unusedPort() {
   return address.port;
 }
 
+/** @param {() => boolean | Promise<boolean>} predicate @param {string} message */
 async function waitFor(predicate, message, timeoutMs = 10_000) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {

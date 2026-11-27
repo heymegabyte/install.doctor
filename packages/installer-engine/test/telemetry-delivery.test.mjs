@@ -14,6 +14,10 @@ const batch = (runId = 'run-1', eventAt = new Date(at).toISOString()) => ({
   droppedOutputEvents: 0, droppedCapacityEvents: 0,
 });
 
+/**
+ * @param {import('node:test').TestContext} t
+ * @param {Partial<Omit<Parameters<typeof createTelemetryDeliveryStore>[0], 'stateRoot'>>} overrides
+ */
 async function fixture(t, overrides = {}) {
   const root = await realpath(await mkdtemp(join(tmpdir(), 'desktop-tools-telemetry-delivery-')));
   t.after(() => rm(root, { recursive: true, force: true }));
@@ -60,20 +64,20 @@ test('timestamps, capacity, and age bounds fail or drop explicitly', async t => 
 test('collector heartbeat remains unverified until the exact emitted probe is queryable', async t => {
   const state = await fixture(t);
   await state.store.recordHeartbeat('running');
-  assert.equal((await state.store.status()).verification, 'unverified');
+  assert.equal((await state.store.status())?.verification, 'unverified');
   await assert.rejects(state.store.recordDeliveryProbe('a'.repeat(64)), /not the exact successfully delivered batch/);
   const probe = (await state.store.enqueue(batch('probe-run'))).id;
   await state.store.drain(async () => {}, 'https://logs.example.test');
   await state.store.recordDeliveryProbe(probe);
-  assert.equal((await state.store.status()).verification, 'unverified', 'emission alone was treated as query proof');
+  assert.equal((await state.store.status())?.verification, 'unverified', 'emission alone was treated as query proof');
   await assert.rejects(state.store.recordQueryableProbe('b'.repeat(64)), /does not match/);
   await state.store.recordQueryableProbe(probe);
-  assert.equal((await state.store.status()).verification, 'verified');
+  assert.equal((await state.store.status())?.verification, 'verified');
   await state.store.recordHeartbeat('stopped');
-  assert.equal((await state.store.status()).verification, 'stale');
+  assert.equal((await state.store.status())?.verification, 'stale');
   await state.store.recordHeartbeat('running');
   state.clock.value += 120_001;
-  assert.equal((await state.store.status()).verification, 'stale');
+  assert.equal((await state.store.status())?.verification, 'stale');
 });
 
 test('delivery rejects unsafe heartbeat files and insecure endpoints before transport', async t => {

@@ -9,6 +9,10 @@ const policy = {
   allowCriticalOnLowBattery: true, allowCriticalMeteredAvoidanceOverride: true,
 };
 const condition = { powerSource: 'ac', batteryLevel: null, connectivity: 'online', meteredNetwork: false };
+/**
+ * @param {string} id
+ * @param {Partial<ReturnType<typeof import('../dist/mobile-reconciliation-policy.js').MissedReconciliationWorkSchema.parse>>} changes
+ */
 const work = (id, changes = {}) => ({
   id, coalesceKey: id, dueAt: '2026-11-10T10:00:00.000Z', expiresAt: null,
   priority: 'normal', powerPolicy: 'any', connectivity: 'none', meteredPolicy: 'allow',
@@ -39,8 +43,8 @@ test('coalesces an unbounded missed stream and admits only the bounded prioritiz
   assert.deepEqual(first.scheduled.map(item => item.id), ['security', 'backup', 'health-499']);
   assert.equal(first.scheduled.length, policy.maxItems);
   assert.equal(first.totals.workUnits, policy.maxWorkUnits);
-  assert.equal(first.deferred.find(item => item.work.id === 'inventory').reason, 'item-budget');
-  assert.equal(first.deferred.find(item => item.work.id === 'cleanup').reason, 'item-budget');
+  assert.equal(first.deferred.find(item => item.work.id === 'inventory')?.reason, 'item-budget');
+  assert.equal(first.deferred.find(item => item.work.id === 'cleanup')?.reason, 'item-budget');
 });
 
 test('battery, offline, and metered policies defer unsafe work but admit bounded critical recovery', () => {
@@ -58,17 +62,17 @@ test('battery, offline, and metered policies defer unsafe work but admit bounded
     ],
   });
   assert.deepEqual(decision.scheduled.map(item => item.id), ['critical-local', 'critical-network']);
-  assert.equal(decision.deferred.find(item => item.work.id === 'metered-denied').reason, 'metered-denied');
-  assert.equal(decision.deferred.find(item => item.work.id === 'ordinary-local').reason, 'battery-low');
-  assert.equal(decision.deferred.find(item => item.work.id === 'requires-ac').reason, 'ac-required');
-  assert.equal(decision.deferred.find(item => item.work.id === 'network-budget').reason, 'network-budget');
+  assert.equal(decision.deferred.find(item => item.work.id === 'metered-denied')?.reason, 'metered-denied');
+  assert.equal(decision.deferred.find(item => item.work.id === 'ordinary-local')?.reason, 'battery-low');
+  assert.equal(decision.deferred.find(item => item.work.id === 'requires-ac')?.reason, 'ac-required');
+  assert.equal(decision.deferred.find(item => item.work.id === 'network-budget')?.reason, 'network-budget');
 
   const offline = planMobileHostCatchUp({
     evaluatedAt, condition: { powerSource: 'ac', batteryLevel: null, connectivity: 'offline', meteredNetwork: false },
     policy, missedWork: [work('local'), work('remote', { connectivity: 'online', meteredPolicy: 'allow', networkBytes: 1 })],
   });
   assert.deepEqual(offline.scheduled.map(item => item.id), ['local']);
-  assert.equal(offline.deferred[0].reason, 'offline');
+  assert.equal(offline.deferred[0]?.reason, 'offline');
 });
 
 test('strict policy rejects contradictory observations, invalid work, duplicates, and unknown fields', () => {

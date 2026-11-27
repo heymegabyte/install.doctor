@@ -12,16 +12,20 @@ import {
 const releaseDigest = 'a'.repeat(64);
 const recipeDigest = 'b'.repeat(64);
 const now = '2026-11-10T12:00:00.000Z';
-const compartments = [
+/** @typedef {ReturnType<typeof QubesFixtureSchema.parse>['compartments'][number]} Compartment */
+/** @type {Array<[Compartment['id'], Compartment['kind'], Compartment['templateId'], Compartment['networking'], Compartment['persistentRoot'], Compartment['outboundAuthorities'], Compartment['acceptedAuthorities']]>} */
+const compartmentRows = [
   ['admin', 'dom0', null, 'none', true, ['admin.read'], ['file.open']],
   ['debian-12', 'template-vm', null, 'none', true, ['template.update'], ['template.update']],
   ['work', 'app-vm', 'debian-12', 'through-netvm', true, ['file.open'], ['file.open']],
   ['disp-work', 'disposable-vm', 'debian-12', 'through-netvm', false, ['file.open'], ['file.open']],
   ['sys-whonix', 'whonix-gateway', 'debian-12', 'direct', true, ['network.proxy'], ['network.proxy']],
   ['anon-whonix', 'whonix-workstation', 'debian-12', 'whonix-only', true, ['file.open'], ['file.open']],
-].map(([id, kind, templateId, networking, persistentRoot, outboundAuthorities, acceptedAuthorities]) => ({
+];
+const compartments = compartmentRows.map(([id, kind, templateId, networking, persistentRoot, outboundAuthorities, acceptedAuthorities]) => ({
   id, kind, templateId, networking, persistentRoot, outboundAuthorities, acceptedAuthorities,
 }));
+/** @type {ReturnType<typeof QubesFixtureSchema.parse>} */
 const fixture = {
   schemaVersion: 1, fixtureId: 'qubes-4.2-lab', isolation: 'disposable-qubes-lab', platform: 'qubes', qubesVersion: '4.2.4',
   compartments,
@@ -30,6 +34,10 @@ const fixture = {
   supportedBoundaries: [...QUBES_FIXTURE_BOUNDARIES],
 };
 
+/**
+ * @param {import('../dist/qubes-fixture-contract.js').QubesFixtureBoundary} boundary
+ * @param {Partial<ReturnType<typeof import('../dist/qubes-fixture-contract.js').QubesFixtureEvidenceSchema.parse>>} overrides
+ */
 function evidence(boundary, overrides = {}) {
   return { schemaVersion: 1, evidenceId: `qubes-${boundary}`, source: 'real-qubes-lab', fixtureId: fixture.fixtureId,
     boundary, releaseDigest, recipeDigest, fixtureDigest: digestQubesFixture(fixture),
@@ -37,6 +45,10 @@ function evidence(boundary, overrides = {}) {
     independentAttestor: 'qubes-lab-attestor', phases: [...QUBES_LIFECYCLE_PHASES], outcome: 'passed', ...overrides };
 }
 
+/**
+ * @param {import('../dist/qubes-fixture-contract.js').QubesFixtureBoundary} boundary
+ * @param {Partial<ReturnType<typeof import('../dist/qubes-fixture-contract.js').QubesMutationPreflightSchema.parse>>} overrides
+ */
 function request(boundary, overrides = {}) {
   const item = evidence(boundary);
   return { fixture, boundary, qrexec: null, releaseDigest, recipeDigest, evidence: [item],
@@ -76,27 +88,36 @@ test('every compartment boundary needs current externally verified evidence boun
 });
 
 test('qrexec admits only the exact route and intersection of source, rule, and target authority', () => {
+  /** @type {NonNullable<ReturnType<typeof import('../dist/qubes-fixture-contract.js').QubesMutationPreflightSchema.parse>['qrexec']>} */
   const qrexec = { sourceId: 'work', targetId: 'admin', service: 'desktop.ToolsOpen', argument: 'review', authority: 'file.open' };
   assert.deepEqual(preflightQubesMutation(request('qrexec', { qrexec })), {
     decision: 'allow', boundary: 'qrexec', evidenceId: 'qubes-qrexec', ruleId: 'work-open-admin', reason: 'verified-real-evidence',
   });
-  for (const [change, reason] of [
+  /** @type {Array<[Partial<typeof qrexec>, string]>} */
+  const deniedRoutes = [
     [{ targetId: 'debian-12' }, 'no-exact-qrexec-rule'],
     [{ service: 'desktop.ToolsAdmin' }, 'no-exact-qrexec-rule'],
     [{ argument: 'install' }, 'no-exact-qrexec-rule'],
     [{ authority: 'template.update' }, 'authority-not-delegated'],
     [{ sourceId: 'missing' }, 'unknown-compartment'],
-  ]) assert.equal(preflightQubesMutation(request('qrexec', { qrexec: { ...qrexec, ...change } })).reason, reason);
+  ];
+  for (const [change, reason] of deniedRoutes) assert.equal(preflightQubesMutation(request('qrexec', { qrexec: { ...qrexec, ...change } })).reason, reason);
 });
 
 test('one compartment cannot broaden another authority through fixture policy', () => {
   const broadenSource = structuredClone(fixture);
-  broadenSource.qrexecRules[0].authorities = ['template.update'];
+  const [sourceRule] = broadenSource.qrexecRules;
+  assert.ok(sourceRule);
+  sourceRule.authorities = ['template.update'];
   assert.throws(() => QubesFixtureSchema.parse(broadenSource), /broaden source authority/);
 
   const broadenTarget = structuredClone(fixture);
-  broadenTarget.compartments.find(item => item.id === 'work').outboundAuthorities.push('network.proxy');
-  broadenTarget.qrexecRules[0].authorities = ['network.proxy'];
+  const [targetRule] = broadenTarget.qrexecRules;
+  const source = broadenTarget.compartments.find(item => item.id === 'work');
+  assert.ok(targetRule);
+  assert.ok(source);
+  source.outboundAuthorities.push('network.proxy');
+  targetRule.authorities = ['network.proxy'];
   assert.throws(() => QubesFixtureSchema.parse(broadenTarget), /broaden target acceptance/);
 
   assert.throws(() => QubesFixtureSchema.parse({ ...fixture, qrexecRules: [...fixture.qrexecRules,
