@@ -37,6 +37,8 @@
     "typecheck": "tsc --project tsconfig.json --noEmit",
     "typecheck:test": "tsc --project tsconfig.test.json",
     "lint": "eslint --max-warnings=0 \"src/**/*.ts\" \"test/**/*.mjs\"",
+    "inventory:check": "node ../../scripts/check-offline-secret-inventory.mjs --check",
+    "inventory:refresh": "node ../../scripts/check-offline-secret-inventory.mjs --write",
     "test": "npm run build && npm run typecheck:test && npm run lint && node --test test/*.test.mjs"
   },
   "engines": {

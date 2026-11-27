@@ -54,6 +54,10 @@ jobs:
         id: aid-core
         run: npm --prefix packages/aid-core test
 
+      - name: Verify tracked offline inventory
+        if: ${{ !cancelled() && steps.aid-core.outcome != 'skipped' }}
+        run: npm --prefix packages/aid-core run inventory:check
+
       - name: Verify Desktop Tools Runtime types, lint, and behavior
         if: ${{ !cancelled() && steps.aid-core.outcome != 'skipped' }}
         run: npm --prefix packages/desktop-tools-runtime test

@@ -11,6 +11,7 @@
   },
   "include": [
     "test/**/*.test.mjs",
-    "test/fixtures/**/*.mjs"
+    "test/fixtures/**/*.mjs",
+    "../../scripts/check-offline-secret-inventory.mjs"
   ]
 }

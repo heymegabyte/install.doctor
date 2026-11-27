@@ -60,6 +60,13 @@ and Linux CI runs that same command.
 The downloadable bundle also includes compiled `dist/` files so its tests can be run
 with `node --test test/core.test.mjs` without building. No root privileges are needed.
 
+After staging changes to an offline store's tracked template filenames, run
+`npm run build` and `npm run inventory:refresh` from this package, then stage the
+updated inventory. `npm run inventory:check` verifies the Git index without
+reading template contents. Linux CI runs the index check explicitly. The runtime
+test also verifies the checkout's file
+inventory.
+
 ## Important boundaries
 
 The schemas export every setting they support, **not every eventual product setting**. V1 covers basic
