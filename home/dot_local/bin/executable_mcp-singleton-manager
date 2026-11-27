@@ -117,12 +117,20 @@ render_systemd_unit() {
     '[Unit]' \
     'Description=Megabyte per-user MCP singleton broker' \
     'After=network.target' \
+    'StartLimitIntervalSec=60' \
+    'StartLimitBurst=5' \
     '' \
     '[Service]' \
     'Type=simple' \
     "ExecStart=$node_bin $broker --config $config_path" \
     'Restart=on-failure' \
     'RestartSec=2' \
+    'TimeoutStartSec=30' \
+    'TimeoutStopSec=15' \
+    'MemoryHigh=384M' \
+    'MemoryMax=512M' \
+    'TasksMax=128' \
+    'CPUQuota=200%' \
     'UMask=0077' \
     'RuntimeDirectory=mcp-singletons' \
     'RuntimeDirectoryMode=0700' \
@@ -131,7 +139,12 @@ render_systemd_unit() {
     "Environment=XDG_STATE_HOME=${XDG_STATE_HOME:-$HOME/.local/state}" \
     'Environment=PATH=/usr/local/bin:/usr/bin:/bin' \
     'PrivateTmp=true' \
+    'NoNewPrivileges=true' \
+    'RestrictSUIDSGID=true' \
+    'LockPersonality=true' \
     'ProtectControlGroups=true' \
+    'ProtectKernelLogs=true' \
+    'ProtectKernelModules=true' \
     'ProtectKernelTunables=true' \
     'ProtectSystem=strict' \
     'ReadWritePaths=%h/.config %h/.local/state %t/mcp-singletons' \

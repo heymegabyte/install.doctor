@@ -43,7 +43,10 @@ function startWorker(serviceId, service) {
     cwd: typeof service.cwd === 'string' ? service.cwd : homedir(),
     env: Object.fromEntries((service.envAllowlist ?? ['HOME', 'PATH', 'TMPDIR', 'XDG_CONFIG_HOME', 'XDG_STATE_HOME']).flatMap((key) =>
       typeof process.env[key] === 'string' ? [[key, process.env[key]]] : [])),
-    stdio: ['pipe', 'pipe', 'inherit'],
+    // Backend stderr may contain provider responses or SDK diagnostics with
+    // credentials. Keep it out of launchd/systemd journals; clients receive
+    // bounded protocol errors through the broker instead.
+    stdio: ['pipe', 'pipe', 'ignore'],
   });
   const worker = { child, buffer: '', pending: new Map(), sequence: 1, restartTimer: null };
   workers.set(serviceId, worker);

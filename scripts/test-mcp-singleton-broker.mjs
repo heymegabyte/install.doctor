@@ -11,10 +11,14 @@ const temp = await mkdtemp(join(tmpdir(), 'mcp-singleton-test-'));
 const worker = join(temp, 'worker.mjs');
 const socket = join(temp, 'runtime', 'fixture.sock');
 const config = join(temp, 'config.json');
-await writeFile(worker, `import readline from 'node:readline'; for await (const line of readline.createInterface({input:process.stdin})) { const m=JSON.parse(line); if(m.id!=null) process.stdout.write(JSON.stringify({jsonrpc:'2.0',id:m.id,result:{method:m.method}})+'\\n'); }\n`);
+const journalSentinel = 'MCP_BACKEND_SECRET_SENTINEL_DO_NOT_LOG';
+await writeFile(worker, `import readline from 'node:readline'; process.stderr.write('${journalSentinel}\\n'); for await (const line of readline.createInterface({input:process.stdin})) { const m=JSON.parse(line); if(m.id!=null) process.stdout.write(JSON.stringify({jsonrpc:'2.0',id:m.id,result:{method:m.method}})+'\\n'); }\n`);
 await chmod(worker, 0o700);
 await writeFile(config, JSON.stringify({ version: 1, runtimeDir: join(temp, 'runtime'), services: { fixture: { socket, command: [process.execPath, worker] } } }));
-const child = spawn(process.execPath, [broker, '--config', config], { stdio: ['ignore', 'inherit', 'inherit'] });
+const child = spawn(process.execPath, [broker, '--config', config], { stdio: ['ignore', 'inherit', 'pipe'] });
+let brokerStderr = '';
+child.stderr.setEncoding('utf8');
+child.stderr.on('data', (chunk) => { brokerStderr += chunk; });
 
 async function request(id, method) {
   for (let i = 0; i < 100; i += 1) {
@@ -36,6 +40,8 @@ try {
   const [one, two] = await Promise.all([request(1, 'alpha'), request(1, 'beta')]);
   assert.deepEqual(one, { jsonrpc: '2.0', id: 1, result: { method: 'alpha' } });
   assert.deepEqual(two, { jsonrpc: '2.0', id: 1, result: { method: 'beta' } });
+  await new Promise((resolveDelay) => setTimeout(resolveDelay, 50));
+  assert.equal(brokerStderr.includes(journalSentinel), false, 'backend stderr leaked through broker journal boundary');
   console.log('mcp singleton broker isolation: ok');
 } finally {
   child.kill('SIGTERM');
