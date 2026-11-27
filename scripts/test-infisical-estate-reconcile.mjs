@@ -355,9 +355,10 @@ const estate = validateManifest(JSON.parse(
 const nexusPair = ['NEXUS_ACCESS_CLIENT_ID', 'NEXUS_ACCESS_CLIENT_SECRET'];
 const nexusInventory = [...nexusPair, 'NEXUS_ADMIN_PASSWORD', 'NEXUS_ACCESS_CLIENT_SECRET_OTHER'];
 for (const host of Object.keys(estate.hosts)) {
-  assert.deepEqual(selectHostSecrets(estate, host, nexusInventory),
-    host === 'legion.megabyte.space' ? nexusPair : []);
+  assert.deepEqual(selectHostSecrets(estate, host, nexusInventory), []);
 }
-for (const workload of Object.values(estate.workloads)) {
-  assert.deepEqual(selectConfigurationSecrets(estate, workload, nexusInventory), []);
+for (const [name, workload] of Object.entries(estate.workloads)) {
+  assert.deepEqual(selectConfigurationSecrets(estate, workload, nexusInventory),
+    name === 'legion-nexus-apt.megabyte.space' ? nexusPair : []);
 }
+assert.equal(estate.workloads['legion-nexus-apt.megabyte.space'].projectId, 'dfa5b473-ecd6-4845-b311-a23d8705b466');
