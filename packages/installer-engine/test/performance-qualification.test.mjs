@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   PERFORMANCE_CASES,
+  PERFORMANCE_METRICS,
   PERFORMANCE_SAFETY_INVARIANTS,
   PerformanceBudgetPolicySchema,
   PerformanceObservationSchema,
@@ -10,7 +11,12 @@ import {
   runPerformanceBenchmarkHarness,
 } from '../dist/performance-qualification.js';
 
+/** @typedef {typeof PERFORMANCE_CASES[number]} PerformanceCase */
+/** @typedef {typeof PERFORMANCE_METRICS[number]} PerformanceMetric */
+
+/** @param {string} character */
 const d = character => character.repeat(64);
+/** @type {Record<PerformanceCase, PerformanceMetric[]>} */
 const required = {
   'bootstrap-cold': ['duration-ms'],
   'plan-warm': ['duration-ms'],
@@ -20,6 +26,7 @@ const required = {
   'lazy-load-warm': ['duration-ms'],
   'host-resources': ['cpu-percent', 'memory-bytes', 'disk-read-bytes', 'disk-write-bytes', 'network-bytes'],
 };
+/** @param {PerformanceMetric} metric */
 const ceiling = metric => metric === 'cpu-percent' ? 80 : metric === 'memory-bytes' ? 512 * 1024 * 1024 : metric.endsWith('-bytes') ? 64 * 1024 * 1024 : 1_000;
 const policy = () => ({
   schemaVersion: 1,
@@ -32,10 +39,12 @@ const policy = () => ({
     budgets: required[name].map(metric => ({ metric, maximum: ceiling(metric) })),
   })),
 });
+/** @param {PerformanceCase} name @param {Partial<Record<PerformanceMetric, number>>} overrides */
 const measurements = (name, overrides = {}) => required[name].map(metric => ({
   metric,
   value: overrides[metric] ?? (metric === 'memory-bytes' ? 100_000_000 : metric.endsWith('-bytes') ? 1_000_000 : 10),
 }));
+/** @param {typeof PERFORMANCE_SAFETY_INVARIANTS[number]} [failed] */
 const safety = (failed = undefined) => PERFORMANCE_SAFETY_INVARIANTS.map(invariant => ({
   invariant,
   passed: invariant !== failed,
@@ -61,7 +70,11 @@ test('versioned contracts require exact case, metric, sample, and invariant cove
   missingCase.cases.pop();
   assert.throws(() => PerformanceBudgetPolicySchema.parse(missingCase));
   const duplicateMetric = structuredClone(policy());
-  duplicateMetric.cases[0].budgets.push(duplicateMetric.cases[0].budgets[0]);
+  const [firstCase] = duplicateMetric.cases;
+  assert.ok(firstCase);
+  const [firstBudget] = firstCase.budgets;
+  assert.ok(firstBudget);
+  firstCase.budgets.push(firstBudget);
   assert.throws(() => PerformanceBudgetPolicySchema.parse(duplicateMetric), /unique/);
   const unknownVersion = { ...policy(), schemaVersion: 2 };
   assert.throws(() => PerformanceBudgetPolicySchema.parse(unknownVersion));
@@ -92,13 +105,17 @@ test('a faster result is rejected when any safety invariant regresses', () => {
 
 test('rejects resource pressure, individual slow samples, insufficient samples, and stale bindings', () => {
   const highMemory = observation();
-  highMemory.cases.find(item => item.case === 'host-resources').samples[1] = measurements('host-resources', { 'memory-bytes': 900_000_000 });
+  const hostResources = highMemory.cases.find(item => item.case === 'host-resources');
+  assert.ok(hostResources);
+  hostResources.samples[1] = measurements('host-resources', { 'memory-bytes': 900_000_000 });
   let result = evaluatePerformanceQualification(policy(), highMemory);
   assert.equal(result.admitted, false);
   assert.match(result.failures.join('\n'), /budget:host-resources:memory-bytes/);
 
   const tooFew = observation();
-  tooFew.cases.find(item => item.case === 'plan-warm').samples.pop();
+  const warmPlan = tooFew.cases.find(item => item.case === 'plan-warm');
+  assert.ok(warmPlan);
+  warmPlan.samples.pop();
   result = evaluatePerformanceQualification(policy(), tooFew);
   assert.equal(result.admitted, false);
   assert.match(result.failures.join('\n'), /sample-count:plan-warm/);
@@ -108,6 +125,7 @@ test('rejects resource pressure, individual slow samples, insufficient samples, 
 });
 
 test('harness runs every declared case deterministically and fails closed on mismatched output', async () => {
+  /** @type {PerformanceCase[]} */
   const seen = [];
   const result = await runPerformanceBenchmarkHarness({
     policy: policy(),

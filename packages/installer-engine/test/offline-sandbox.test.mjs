@@ -67,6 +67,7 @@ test('Linux execution reprobes immediately, contains paths, and invokes only Bub
   t.after(() => rm(root, { recursive: true, force: true }));
   const executable = join(root, 'tool');
   await writeFile(executable, '#!/bin/sh\nexit 0\n', { mode: 0o700 });
+  /** @type {Parameters<import('../dist/offline-sandbox.js').OfflineSandboxDependencies['run']>[0][]} */
   const calls = [];
   const runtime = createOfflineSandboxRuntime({
     platform: 'linux',
@@ -89,18 +90,20 @@ test('Linux execution reprobes immediately, contains paths, and invokes only Bub
   });
   assert.equal(result.exitCode, 0);
   assert.equal(calls.length, 2, 'each execution must perform a fresh isolation proof before operation admission');
-  assert.equal(calls[1].argv[0], '/usr/bin/bwrap');
-  assert.ok(calls[1].argv.includes('--unshare-net'));
-  assert.equal(calls[1].argv.includes('--share-net'), false);
-  assert.ok(calls[1].argv.includes('--cap-drop'));
-  assert.ok(calls[1].argv.includes('ALL'));
-  assert.equal(calls[1].argv.includes('--bind'), false);
-  assert.ok(calls[1].argv.includes('--ro-bind-data'), 'verified descriptors must be copied without reopening a pathname');
-  assert.equal(calls[1].argv.includes('/proc/self/fd/3'), false, 'Bubblewrap closes unclaimed descriptor paths before mount setup');
-  assert.equal(calls[1].argv.includes('/'), false, 'host root must never be mounted into the sandbox');
-  assert.deepEqual(calls[1].fileDescriptors, [executableHandle.fd]);
-  assert.equal(calls[1].argv.includes('--preserve-fds'), false, 'Bubblewrap 0.9 uses descriptor-backed data mounts');
-  assert.ok(calls[1].argv.includes('/run/install-doctor/operation'));
+  const [, operation] = calls;
+  assert.ok(operation);
+  assert.equal(operation.argv[0], '/usr/bin/bwrap');
+  assert.ok(operation.argv.includes('--unshare-net'));
+  assert.equal(operation.argv.includes('--share-net'), false);
+  assert.ok(operation.argv.includes('--cap-drop'));
+  assert.ok(operation.argv.includes('ALL'));
+  assert.equal(operation.argv.includes('--bind'), false);
+  assert.ok(operation.argv.includes('--ro-bind-data'), 'verified descriptors must be copied without reopening a pathname');
+  assert.equal(operation.argv.includes('/proc/self/fd/3'), false, 'Bubblewrap closes unclaimed descriptor paths before mount setup');
+  assert.equal(operation.argv.includes('/'), false, 'host root must never be mounted into the sandbox');
+  assert.deepEqual(operation.fileDescriptors, [executableHandle.fd]);
+  assert.equal(operation.argv.includes('--preserve-fds'), false, 'Bubblewrap 0.9 uses descriptor-backed data mounts');
+  assert.ok(operation.argv.includes('/run/install-doctor/operation'));
 
   await assert.rejects(runtime.execute({
     materializedRoot: root, executableFileDescriptor: -1, artifactFileDescriptors: [], arguments: [], timeoutMs: 1_000,

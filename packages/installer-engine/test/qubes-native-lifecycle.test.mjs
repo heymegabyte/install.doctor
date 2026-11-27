@@ -13,7 +13,10 @@ import {
 
 const releaseDigest = 'a'.repeat(64);
 const recipeDigest = 'b'.repeat(64);
+/** @param {number} index */
 const payload = index => index.toString(16).repeat(64);
+const managementAuthorities = ['dom0.policy', 'template.package', 'app.configure', 'disposable.run',
+  'disposable.destroy', 'whonix.gateway.configure', 'whonix.workstation.configure'];
 const compartments = [
   { id: 'admin', kind: 'dom0', templateId: null, networking: 'none', persistentRoot: true },
   { id: 'debian-12', kind: 'template-vm', templateId: null, networking: 'none', persistentRoot: true },
@@ -22,15 +25,10 @@ const compartments = [
   { id: 'disp-work', kind: 'disposable-vm', templateId: 'debian-12', networking: 'none', persistentRoot: false },
   { id: 'sys-whonix', kind: 'whonix-gateway', templateId: 'debian-12', networking: 'direct', persistentRoot: true },
   { id: 'anon-whonix', kind: 'whonix-workstation', templateId: 'debian-12', networking: 'whonix-only', persistentRoot: true },
-].map(item => ({ ...item, outboundAuthorities: item.id === 'admin' ? [
-  'dom0.policy', 'template.package', 'app.configure', 'disposable.run', 'disposable.destroy',
-  'whonix.gateway.configure', 'whonix.workstation.configure',
-] : [], acceptedAuthorities: [] }));
-const managementAuthorities = ['dom0.policy', 'template.package', 'app.configure', 'disposable.run',
-  'disposable.destroy', 'whonix.gateway.configure', 'whonix.workstation.configure'];
-compartments.find(item => item.id === 'admin').outboundAuthorities = [];
-compartments.find(item => item.id === 'mgmt').outboundAuthorities = managementAuthorities;
+].map(item => ({ ...item, outboundAuthorities: item.id === 'mgmt' ? managementAuthorities : [],
+  acceptedAuthorities: /** @type {string[]} */ ([]) }));
 
+/** @type {Array<[string, typeof QUBES_NATIVE_OPERATION_KINDS[number], string, string, string]>} */
 const definitions = [
   ['policy', 'dom0-policy', 'admin', 'desktop.ToolsDom0Policy', 'dom0.policy'],
   ['template', 'template-package', 'debian-12', 'desktop.ToolsTemplatePackage', 'template.package'],
@@ -40,7 +38,11 @@ const definitions = [
   ['gateway', 'whonix-gateway-config', 'sys-whonix', 'desktop.ToolsWhonixGateway', 'whonix.gateway.configure'],
   ['workstation', 'whonix-workstation-config', 'anon-whonix', 'desktop.ToolsWhonixWorkstation', 'whonix.workstation.configure'],
 ];
-for (const [, , target, , authority] of definitions) compartments.find(item => item.id === target).acceptedAuthorities.push(authority);
+for (const [, , target, , authority] of definitions) {
+  const compartment = compartments.find(item => item.id === target);
+  assert.ok(compartment);
+  compartment.acceptedAuthorities.push(authority);
+}
 
 const fixture = {
   schemaVersion: 1,
@@ -121,22 +123,28 @@ test('unchanged reapply preserves persistent compartment state and creates no le
   const second = executeDisposableQubesLifecycle(plan, state, '2026-11-10T12:05:00.000Z');
   const persistent = second.operationReceipts.filter(item => !item.kind.startsWith('disposable-'));
   assert.ok(persistent.every(item => item.outcome === 'unchanged'));
-  assert.equal(second.operationReceipts.find(item => item.kind === 'disposable-run').outcome, 'applied');
-  assert.equal(second.operationReceipts.find(item => item.kind === 'disposable-destroy').outcome, 'destroyed');
+  assert.equal(second.operationReceipts.find(item => item.kind === 'disposable-run')?.outcome, 'applied');
+  assert.equal(second.operationReceipts.find(item => item.kind === 'disposable-destroy')?.outcome, 'destroyed');
   assert.equal(state.activeDisposables.size, 0);
 });
 
 test('compartment isolation rejects mismatched targets, undelegated routes, generic shell fields, and missing teardown', () => {
   const retargeted = structuredClone(plan);
-  retargeted.operations.find(item => item.kind === 'template-package').targetId = 'work';
+  const template = retargeted.operations.find(item => item.kind === 'template-package');
+  assert.ok(template);
+  template.targetId = 'work';
   assert.throws(() => QubesNativePlanSchema.parse(retargeted), /exact template-vm target/);
 
   const undelegated = structuredClone(plan);
-  undelegated.operations.find(item => item.kind === 'app-config').argument = 'unexpected';
+  const app = undelegated.operations.find(item => item.kind === 'app-config');
+  assert.ok(app);
+  app.argument = 'unexpected';
   assert.throws(() => QubesNativePlanSchema.parse(undelegated), /exact least-privilege qrexec route/);
 
-  const genericShell = structuredClone(plan);
-  genericShell.operations[0].command = 'sh -c whoami';
+  const genericShell = {
+    ...plan,
+    operations: plan.operations.map((item, index) => index === 0 ? { ...item, command: 'sh -c whoami' } : item),
+  };
   assert.throws(() => QubesNativePlanSchema.parse(genericShell), /unrecognized/i);
 
   const leaked = structuredClone(plan);

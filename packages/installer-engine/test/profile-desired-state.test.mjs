@@ -25,6 +25,7 @@ const environment = {
   secretReferences: [],
 };
 
+/** @param {import('node:test').TestContext} t */
 async function fixture(t) {
   const root = await mkdtemp(join(tmpdir(), 'desktop-tools-desired-'));
   t.after(() => rm(root, { recursive: true, force: true }));
@@ -32,6 +33,7 @@ async function fixture(t) {
   await mkdir(config, { mode: 0o700 });
   const credentialPath = join(config, 'device-credential.json');
   const environmentPath = join(config, 'ENVIRONMENT.md');
+  /** @type {Parameters<ProtectedDeviceCredentialStore['save']>[0]['request']} */
   const request = {
     schemaVersion: 1, requestId: 'request-1',
     binding: { tenantId: 'tenant-1', profileId: 'profile-1', targetPublicKey: 'A'.repeat(43),
@@ -50,13 +52,15 @@ async function fixture(t) {
 test('fetches exact profile desired state, resolves one machine, and is unchanged on a second run', async t => {
   const item = await fixture(t);
   let calls = 0;
+  /** @type {typeof globalThis.fetch} */
   const fetch = async (url, init) => {
     calls += 1;
     assert.equal(String(url), 'https://brian.desktop.tools/api/device/current');
-    assert.equal(init.headers.authorization, 'Bearer secret-device-credential-never-log');
+    assert.equal(new Headers(init?.headers).get('authorization'), 'Bearer secret-device-credential-never-log');
     return Response.json({ tenant: 'tenant-1', deviceId: 'credential-1', revision: 'revision-1',
       digest: item.profileDigest, updatedAt: '2026-11-09T13:02:00.000Z', markdown: item.markdown });
   };
+  /** @satisfies {Parameters<typeof fetchProfileDesiredState>[0]} */
   const input = { origin: 'https://brian.desktop.tools', credentialPath: item.credentialPath,
     environmentPath: item.environmentPath, expectedProfileId: 'profile-1', expectedProfileDigest: item.profileDigest,
     machineId: 'zen', hostOs: 'linux', fetch };
@@ -74,6 +78,7 @@ test('rejects profile, digest, device, scope, origin, and partial-response subst
   const item = await fixture(t);
   const body = { tenant: 'tenant-1', deviceId: 'credential-1', revision: 'revision-1',
     digest: item.profileDigest, updatedAt: '2026-11-09T13:02:00.000Z', markdown: item.markdown };
+  /** @satisfies {Parameters<typeof fetchProfileDesiredState>[0]} */
   const base = { origin: 'https://brian.desktop.tools', credentialPath: item.credentialPath,
     environmentPath: item.environmentPath, expectedProfileId: 'profile-1', expectedProfileDigest: item.profileDigest,
     machineId: 'zen', hostOs: 'linux' };
@@ -93,6 +98,7 @@ test('rejects profile, digest, device, scope, origin, and partial-response subst
 test('failed refresh preserves the previous complete desired state', async t => {
   const item = await fixture(t);
   await writeFile(item.environmentPath, item.markdown, { mode: 0o600 });
+  /** @satisfies {Parameters<typeof fetchProfileDesiredState>[0]} */
   const input = { origin: 'https://brian.desktop.tools', credentialPath: item.credentialPath,
     environmentPath: item.environmentPath, expectedProfileId: 'profile-1', expectedProfileDigest: item.profileDigest,
     machineId: 'zen', hostOs: 'linux', fetch: async () => Response.json({
