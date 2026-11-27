@@ -95,7 +95,7 @@ const ProcessOperationSchema = z.strictObject({
     sha256: z.string().regex(/^[a-f0-9]{64}$/),
   }).optional(),
 });
-const legacyAdminBridgeByTask = Object.freeze({
+const legacyAdminBridgeByTask: Readonly<Partial<Record<string, z.infer<typeof ProcessOperationSchema>['legacyAdminBridge']>>> = Object.freeze({
   'bootstrap.native-dependencies': 'native-dependencies',
   'bootstrap.homebrew': 'homebrew',
   'desired.packages': 'selected-packages',
@@ -120,10 +120,11 @@ const ManagedDirectoryOperationSchema = z.strictObject({
     .refine(path => resolve(path) === path && dirname(path) !== path, 'managed directory target must be normalized and non-root'),
   candidateMode: z.literal(0o700),
 });
+const allowedSudoPaths = ['/usr/bin/sudo', '/bin/sudo'] as const;
 const SudoCredentialCleanupOperationSchema = z.strictObject({
   kind: z.literal('sudo-credential-cleanup'),
   action: z.enum(['check', 'apply', 'verify']),
-  sudoPath: z.enum(['/usr/bin/sudo', '/bin/sudo']),
+  sudoPath: z.enum(allowedSudoPaths),
   digestKind: z.enum(['content-sha256', 'stat-identity-sha256']),
   sudoSha256: z.string().regex(/^[a-f0-9]{64}$/),
   sudoPreexisting: z.boolean(),
@@ -214,7 +215,7 @@ const RunsListInvocationSchema = z.strictObject({
 });
 const BrokerApprovalClaimInvocationSchema = z.strictObject({
   schemaVersion: z.literal(1), command: z.literal('broker-approval-claim'),
-  origin: z.string().url(),
+  origin: z.url(),
   tokenPath: z.string().min(1).max(4096).refine(value => isAbsolute(value) && resolve(value) === value,
     'device token path must be canonical and absolute'),
   grant: PrivilegedBrokerGrantSchema,
@@ -224,7 +225,7 @@ const BrokerApprovalClaimInvocationSchema = z.strictObject({
 const privateStatePath = z.string().min(1).max(4096)
   .refine(value => isAbsolute(value) && resolve(value) === value, 'device authorization path must be canonical and absolute');
 const targetAuthorizationBase = {
-  schemaVersion: z.literal(1), origin: z.string().url(), statePath: privateStatePath,
+  schemaVersion: z.literal(1), origin: z.url(), statePath: privateStatePath,
 };
 const DeviceAuthorizationStartInvocationSchema = z.strictObject({
   ...targetAuthorizationBase, command: z.literal('device-authorization-start'),
@@ -232,7 +233,7 @@ const DeviceAuthorizationStartInvocationSchema = z.strictObject({
   profileId: identifier, machineLabel: z.string().min(1).max(128),
   scopes: z.array(z.string().min(1).max(128)
     .regex(/^[a-z][a-z0-9.-]*(?::[a-z][a-z0-9.-]*)?$/)).min(1).max(64),
-  expiresAt: z.string().datetime({ offset: true }).max(64),
+  expiresAt: z.iso.datetime({ offset: true }).max(64),
 });
 const DeviceAuthorizationStatusInvocationSchema = z.strictObject({
   schemaVersion: z.literal(1), command: z.literal('device-authorization-status'),
@@ -247,7 +248,7 @@ const DeviceAuthorizationCancelInvocationSchema = z.strictObject({
 });
 const ProfileDesiredStateSyncInvocationSchema = z.strictObject({
   schemaVersion: z.literal(1), command: z.literal('profile-desired-state-sync'),
-  origin: z.string().url(), credentialPath: privateStatePath, environmentPath: privateStatePath,
+  origin: z.url(), credentialPath: privateStatePath, environmentPath: privateStatePath,
   expectedProfileId: identifier, expectedProfileDigest: z.string().regex(/^[a-f0-9]{64}$/), machineId: identifier,
 });
 const bundlePlatform = z.strictObject({
@@ -271,7 +272,7 @@ const BundleCreateInvocationSchema = z.strictObject({
   outputRoot: z.string().min(1).max(4096).refine(isAbsolute, 'output root must be absolute'),
   releaseId: identifier, planDigest: z.string().regex(/^[a-f0-9]{64}$/), graphDigest: z.string().regex(/^[a-f0-9]{64}$/),
   platform: bundlePlatform, selectedTaskIds: z.array(identifier).min(1).max(10_000),
-  createdAt: z.string().datetime({ offset: true }), expiresAt: z.string().datetime({ offset: true }),
+  createdAt: z.iso.datetime({ offset: true }), expiresAt: z.iso.datetime({ offset: true }),
   signer: z.strictObject({
     keyId: identifier, privateKeyPath: z.string().min(1).max(4096).refine(isAbsolute, 'private key path must be absolute'),
   }),
@@ -297,20 +298,20 @@ const bundleLifecycle = {
   stateRoot: z.string().min(1).max(4096).refine(isAbsolute, 'state root must be absolute'),
   trust: bundleTrust, releaseTrust: bundleTrust,
 };
-const BundleInspectInvocationSchema = z.strictObject({ ...bundleLifecycle, command: z.literal('bundle-inspect'), now: z.string().datetime({ offset: true }).optional() });
-const BundleRevokeInvocationSchema = z.strictObject({ ...bundleLifecycle, command: z.literal('bundle-revoke'), approvedManifestDigest: z.string().regex(/^[a-f0-9]{64}$/), revokedAt: z.string().datetime({ offset: true }).optional(), reason: z.string().min(1).max(256) });
-const BundleExpireInvocationSchema = z.strictObject({ ...bundleLifecycle, command: z.literal('bundle-expire'), approvedManifestDigest: z.string().regex(/^[a-f0-9]{64}$/), now: z.string().datetime({ offset: true }).optional() });
+const BundleInspectInvocationSchema = z.strictObject({ ...bundleLifecycle, command: z.literal('bundle-inspect'), now: z.iso.datetime({ offset: true }).optional() });
+const BundleRevokeInvocationSchema = z.strictObject({ ...bundleLifecycle, command: z.literal('bundle-revoke'), approvedManifestDigest: z.string().regex(/^[a-f0-9]{64}$/), revokedAt: z.iso.datetime({ offset: true }).optional(), reason: z.string().min(1).max(256) });
+const BundleExpireInvocationSchema = z.strictObject({ ...bundleLifecycle, command: z.literal('bundle-expire'), approvedManifestDigest: z.string().regex(/^[a-f0-9]{64}$/), now: z.iso.datetime({ offset: true }).optional() });
 const BundlePlanInvocationSchema = z.strictObject({
   schemaVersion: z.literal(2), command: z.literal('bundle-plan'),
   bundleDirectory: z.string().min(1).max(4096).refine(isAbsolute, 'bundle directory must be absolute'),
-  trust: bundleTrust, releaseTrust: bundleTrust, expected: bundleExpected, now: z.string().datetime({ offset: true }).optional(),
+  trust: bundleTrust, releaseTrust: bundleTrust, expected: bundleExpected, now: z.iso.datetime({ offset: true }).optional(),
 });
 const BundleApplyInvocationSchema = z.strictObject({
   schemaVersion: z.literal(2), command: z.literal('bundle-apply'),
   bundleDirectory: z.string().min(1).max(4096).refine(isAbsolute, 'bundle directory must be absolute'),
   destinationDirectory: z.string().min(1).max(4096).refine(isAbsolute, 'destination directory must be absolute'),
   stateRoot: z.string().min(1).max(4096).refine(isAbsolute, 'state root must be absolute'),
-  trust: bundleTrust, releaseTrust: bundleTrust, expected: bundleExpected, now: z.string().datetime({ offset: true }).optional(),
+  trust: bundleTrust, releaseTrust: bundleTrust, expected: bundleExpected, now: z.iso.datetime({ offset: true }).optional(),
   approvedManifestDigest: z.string().regex(/^[a-f0-9]{64}$/),
   offline: z.literal(true), networkPolicy: z.literal('deny'),
 });
@@ -457,11 +458,12 @@ async function presentRun(input: {
     return true;
   }, projection, {
     interactiveTui: input.rendererMode === 'tui'
-      && process.stdin.isTTY === true
-      && process.stdout.isTTY === true
+      && process.stdin.isTTY
+      && process.stdout.isTTY
       && process.env.TERM !== 'dumb',
   }, input.stateRoot ? chunk => {
-    if (spillCreationFailure !== undefined) throw spillCreationFailure;
+    if (spillCreationFailure instanceof Error) throw spillCreationFailure;
+    if (spillCreationFailure !== undefined) throw new Error('renderer spill creation failed', { cause: spillCreationFailure });
     return spillLog?.append(chunk) ?? false;
   } : undefined);
   const onDrain = (): void => {
@@ -477,12 +479,12 @@ async function presentRun(input: {
       if (intent === 'clear-filter') renderer.updateProjectionOptions({ logFilter: '' });
     },
     onCancel: cancel,
-    onWidth: width => renderer.updateProjectionOptions({ width }),
-    onHeight: height => renderer.updateProjectionOptions({ height }),
-    onFilter: logFilter => renderer.updateProjectionOptions({ logFilter }),
+    onWidth: width => { renderer.updateProjectionOptions({ width }); },
+    onHeight: height => { renderer.updateProjectionOptions({ height }); },
+    onFilter: logFilter => { renderer.updateProjectionOptions({ logFilter }); },
   }) : undefined;
   try {
-    const result = await input.execute(controller.signal, event => renderer.onEvent(event));
+    const result = await input.execute(controller.signal, event => { renderer.onEvent(event); });
     renderer.finish(result);
     return result;
   } finally {
@@ -511,8 +513,8 @@ function assertManagedArtifactGraph(invocation: PlanBindingInvocation): void {
   for (const task of invocation.plan.tasks.filter(candidate => selected.has(candidate.id))) {
     const artifactOperations = Object.values(task.operations).map(operationId => invocation.operations[operationId])
       .filter((operation): operation is z.infer<typeof ManagedArtifactOperationSchema> => operation?.kind === 'managed-artifact');
-    if (artifactOperations.length === 0) continue;
-    const operation = artifactOperations[0]!;
+    const [operation] = artifactOperations;
+    if (!operation) continue;
     if (!operation.descriptor) continue; // Compatibility for already-prepared legacy operation manifests.
     const descriptorDigest = createHash('sha256').update(JSON.stringify(canonical(operation.descriptor))).digest('hex');
     if (descriptorDigest !== operation.authority.descriptorDigest
@@ -529,7 +531,8 @@ function assertManagedArtifactGraph(invocation: PlanBindingInvocation): void {
         const directory = invocation.operations[operationId];
         return directory?.kind === 'managed-directory' && directory.targetPath === root;
       }));
-      if (owners.length !== 1 || !task.dependencies.includes(owners[0]!.id)) {
+      const [owner] = owners;
+      if (owners.length !== 1 || !owner || !task.dependencies.includes(owner.id)) {
         usageError(`managed artifact task ${task.id} requires one selected managed-directory dependency for ${root}`);
       }
     }
@@ -570,7 +573,7 @@ function bindOperationsToPlan(invocation: PlanBindingInvocation): z.infer<typeof
         .filter((operation): operation is z.infer<typeof ProcessOperationSchema> & { readonly id: string } =>
           operation.kind === undefined || operation.kind === 'process');
       if (processOperations.length > 0) {
-        const expectedLegacyAdminBridge = legacyAdminBridgeByTask[task.id as keyof typeof legacyAdminBridgeByTask];
+        const expectedLegacyAdminBridge = legacyAdminBridgeByTask[task.id];
         if (task.privilege === 'admin') {
           if (!expectedLegacyAdminBridge || processOperations.length !== 3
             || processOperations.some(operation => operation.legacyAdminBridge !== expectedLegacyAdminBridge)) {
@@ -592,12 +595,11 @@ function bindOperationsToPlan(invocation: PlanBindingInvocation): z.infer<typeof
           || (operation.kind === 'managed-file' && first.kind === 'managed-file' && operation.candidateBase64 !== first.candidateBase64)
           || (operation.kind === 'managed-cask-launcher' && first.kind === 'managed-cask-launcher'
             && (operation.packageKey !== first.packageKey || operation.appBundle !== first.appBundle
-              || JSON.stringify(canonical(operation.appPaths)) !== JSON.stringify(canonical(first.appPaths))
-              || operation.policy !== first.policy))
+              || JSON.stringify(canonical(operation.appPaths)) !== JSON.stringify(canonical(first.appPaths))))
           || (operation.kind === 'managed-flatpak-launcher' && first.kind === 'managed-flatpak-launcher'
             && (operation.packageKey !== first.packageKey || operation.appId !== first.appId
               || operation.flatpakPath !== first.flatpakPath || operation.flatpakSha256 !== first.flatpakSha256
-              || operation.homeDirectory !== first.homeDirectory || operation.policy !== first.policy))
+              || operation.homeDirectory !== first.homeDirectory))
           || (operation.kind === 'managed-artifact' && first.kind === 'managed-artifact'
             && (operation.candidateSha256 !== first.candidateSha256 || operation.candidateSizeBytes !== first.candidateSizeBytes
               || JSON.stringify(canonical(operation.descriptor)) !== JSON.stringify(canonical(first.descriptor))
@@ -608,14 +610,14 @@ function bindOperationsToPlan(invocation: PlanBindingInvocation): z.infer<typeof
       }
       const sudoCleanupOperations = Object.values(referencedOperations)
         .filter(operation => operation.kind === 'sudo-credential-cleanup');
-      if (sudoCleanupOperations.length > 0) {
+      const [firstSudoCleanup] = sudoCleanupOperations;
+      if (firstSudoCleanup) {
         if (task.id !== 'system.sudo-credential-cleanup' || task.lifecycle !== 'run-finalizer'
           || task.compensation !== 'none' || sudoCleanupOperations.length !== 3) {
           usageError('sudo credential cleanup requires one non-compensating run-finalizer triplet');
         }
-        const first = sudoCleanupOperations[0]!;
-        if (sudoCleanupOperations.some(operation => operation.sudoPath !== first.sudoPath
-          || operation.digestKind !== first.digestKind || operation.sudoSha256 !== first.sudoSha256 || operation.sudoPreexisting !== first.sudoPreexisting)) {
+        if (sudoCleanupOperations.some(operation => operation.sudoPath !== firstSudoCleanup.sudoPath
+          || operation.digestKind !== firstSudoCleanup.digestKind || operation.sudoSha256 !== firstSudoCleanup.sudoSha256 || operation.sudoPreexisting !== firstSudoCleanup.sudoPreexisting)) {
           usageError('sudo credential cleanup operations must bind identical executable and preexisting authority');
         }
       }
@@ -683,22 +685,22 @@ function assertPreparedArtifactClosure(
         const operation = invocation.operations[operationId];
         return operation?.kind === 'managed-artifact' && artifactKeys.has(JSON.stringify(canonical(operation)));
       }));
-    if (artifactTasks.length !== 1) usageError(`artifact ${artifact.itemName} must be owned by exactly one selected managed-artifact task`);
-    const artifactTask = artifactTasks[0]!;
+    const [artifactTask] = artifactTasks;
+    if (artifactTasks.length !== 1 || !artifactTask) usageError(`artifact ${artifact.itemName} must be owned by exactly one selected managed-artifact task`);
     for (const requirement of artifact.directoryRequirements.filter(candidate => !candidate.exists)) {
       const directoryTasks = invocation.plan.tasks.filter(task => selected.has(task.id)
         && Object.values(task.operations).length === 3
         && Object.values(task.operations).every(operationId => {
           const operation = invocation.operations[operationId];
           return operation?.kind === 'managed-directory'
-            && operation.targetPath === requirement.targetPath
-            && operation.candidateMode === requirement.targetMode;
+            && operation.targetPath === requirement.targetPath;
         }));
-      if (directoryTasks.length !== 1) {
+      const [directoryTask] = directoryTasks;
+      if (directoryTasks.length !== 1 || !directoryTask) {
         usageError(`absent ${requirement.kind} root requires exactly one selected managed-directory task: ${requirement.targetPath}`);
       }
-      if (!artifactTask.dependencies.includes(directoryTasks[0]!.id)) {
-        usageError(`artifact ${artifact.itemName} must depend on managed-directory task ${directoryTasks[0]!.id}`);
+      if (!artifactTask.dependencies.includes(directoryTask.id)) {
+        usageError(`artifact ${artifact.itemName} must depend on managed-directory task ${directoryTask.id}`);
       }
     }
   }
@@ -713,9 +715,11 @@ function inputPath(argv: readonly string[]): string {
   return resolve(argv[1]);
 }
 
+const platformOpenFlags: { readonly O_NOFOLLOW?: number } = constants;
+
 async function readInvocation(path: string): Promise<Invocation> {
   const inheritedInvocation = process.platform === 'linux' && path === '/proc/self/fd/4';
-  const handle = await open(path, constants.O_RDONLY | (inheritedInvocation ? 0 : (constants.O_NOFOLLOW ?? 0)));
+  const handle = await open(path, constants.O_RDONLY | (inheritedInvocation ? 0 : (platformOpenFlags.O_NOFOLLOW ?? 0)));
   try {
     const metadata = await handle.stat();
     if (!metadata.isFile() || metadata.size < 2 || metadata.size > 1_048_576) {
@@ -747,7 +751,7 @@ function childEnvironment(): NodeJS.ProcessEnv {
     'XDG_DATA_HOME', 'XDG_STATE_HOME',
     'INSTALL_DOCTOR_CHEZMOI_SOURCE', 'INSTALL_DOCTOR_RELEASE_ID', 'INSTALL_DOCTOR_SOURCE_COMMIT',
   ] as const;
-  return Object.fromEntries(allowed.flatMap(key => process.env[key] === undefined ? [] : [[key, process.env[key]]])) as NodeJS.ProcessEnv;
+  return Object.fromEntries(allowed.flatMap(key => process.env[key] === undefined ? [] : [[key, process.env[key]]]));
 }
 
 const telemetryTransport: TelemetryTransport = async ({ endpoint, batch, signal }) => {
@@ -758,7 +762,7 @@ const telemetryTransport: TelemetryTransport = async ({ endpoint, batch, signal 
     redirect: 'error',
     signal,
   });
-  if (!response.ok) throw new Error(`telemetry collector returned HTTP ${response.status}`);
+  if (!response.ok) throw new Error(`telemetry collector returned HTTP ${String(response.status)}`);
 };
 
 function baseAdapterFor(invocation: OperationInvocation, nativeBinding?: {
@@ -788,7 +792,7 @@ function baseAdapterFor(invocation: OperationInvocation, nativeBinding?: {
   const runSudoCredentialCommand = async (operation: z.infer<typeof SudoCredentialCleanupOperationSchema>,
     args: readonly string[], task: TaskNode, context?: TaskExecutionContext): Promise<number> => {
     if (process.platform === 'win32') throw new Error('sudo credential cleanup is unsupported on win32');
-    if (operation.sudoPath !== '/usr/bin/sudo' && operation.sudoPath !== '/bin/sudo') throw new Error('sudo executable path is not allowed');
+    if (!allowedSudoPaths.includes(operation.sudoPath)) throw new Error('sudo executable path is not allowed');
     const parent = dirname(operation.sudoPath);
     const parentMetadata = await lstat(parent);
     const canonicalParent = await realpath(parent);
@@ -801,7 +805,7 @@ function baseAdapterFor(invocation: OperationInvocation, nativeBinding?: {
     const before = await lstat(operation.sudoPath);
     let handle: Awaited<ReturnType<typeof open>> | undefined;
     try {
-      try { handle = await open(operation.sudoPath, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0)); }
+      try { handle = await open(operation.sudoPath, constants.O_RDONLY | (platformOpenFlags.O_NOFOLLOW ?? 0)); }
       catch (error) { if ((error as NodeJS.ErrnoException).code !== 'EACCES') throw error; }
       const metadata = handle ? await handle.stat() : before;
       if (!before.isFile() || before.isSymbolicLink() || !metadata.isFile() || metadata.nlink !== 1
@@ -842,7 +846,7 @@ function baseAdapterFor(invocation: OperationInvocation, nativeBinding?: {
     if (!before.isFile() || before.isSymbolicLink() || before.nlink !== 1) {
       throw new Error('managed file target must be a single-linked regular file');
     }
-    const handle = await open(path, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
+    const handle = await open(path, constants.O_RDONLY | (platformOpenFlags.O_NOFOLLOW ?? 0));
     try {
       const after = await handle.stat();
       if (!after.isFile() || after.nlink !== 1 || before.dev !== after.dev || before.ino !== after.ino) {
@@ -886,7 +890,7 @@ function baseAdapterFor(invocation: OperationInvocation, nativeBinding?: {
       throw new Error('Flatpak executable parent directory is unsafe');
     }
     const before = await lstat(operation.flatpakPath);
-    const handle = await open(operation.flatpakPath, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
+    const handle = await open(operation.flatpakPath, constants.O_RDONLY | (platformOpenFlags.O_NOFOLLOW ?? 0));
     try {
       const opened = await handle.stat();
       if (!before.isFile() || before.isSymbolicLink() || !opened.isFile() || opened.nlink !== 1
@@ -951,7 +955,7 @@ function baseAdapterFor(invocation: OperationInvocation, nativeBinding?: {
         throw new Error('managed artifact candidate must be private and owned by the current user');
       }
     }
-    const handle = await open(operation.candidatePath, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
+    const handle = await open(operation.candidatePath, constants.O_RDONLY | (platformOpenFlags.O_NOFOLLOW ?? 0));
     try {
       const opened = await handle.stat();
       if (!opened.isFile() || opened.dev !== before.dev || opened.ino !== before.ino || opened.size !== before.size
@@ -979,7 +983,7 @@ function baseAdapterFor(invocation: OperationInvocation, nativeBinding?: {
     if (!before.isFile() || before.isSymbolicLink() || (process.platform !== 'win32' && before.nlink !== 1)) {
       throw new Error('managed artifact target must be a single-linked regular file');
     }
-    const handle = await open(operation.targetPath, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
+    const handle = await open(operation.targetPath, constants.O_RDONLY | (platformOpenFlags.O_NOFOLLOW ?? 0));
     try {
       const opened = await handle.stat();
       if (!opened.isFile() || opened.dev !== before.dev || opened.ino !== before.ino || opened.size !== before.size
@@ -1182,13 +1186,13 @@ function baseAdapterFor(invocation: OperationInvocation, nativeBinding?: {
     }
     if (selected.kind === 'native-service') {
       if (!serviceBinding && invocation.command === 'status' && selected.action === 'check') {
-        if (selected.manager !== 'systemd' || readOnlyServiceAdapter?.manager !== 'systemd') {
+        if (readOnlyServiceAdapter?.manager !== 'systemd') {
           throw new Error('native service status requires an available read-only systemd adapter');
         }
         const observed = await readOnlyServiceAdapter.capture(selected.unit);
         return systemdStateMatches(observed, selected.desiredState) ? 0 : 10;
       }
-      if (!serviceBinding || selected.action !== expectedAction || selected.manager !== serviceBinding.descriptor.manager
+      if (!serviceBinding || selected.action !== expectedAction
         || selected.unit !== serviceBinding.descriptor.unit || selected.desiredState !== serviceBinding.descriptor.desiredState) {
         throw new Error('native service operation requires matching approved privileged broker authority');
       }
@@ -1272,7 +1276,7 @@ function baseAdapterFor(invocation: OperationInvocation, nativeBinding?: {
       }
       throw new Error(`privileged broker returned an unsupported ${selected.action} status`);
     }
-    const expectedLegacyAdminBridge = legacyAdminBridgeByTask[task.id as keyof typeof legacyAdminBridgeByTask];
+    const expectedLegacyAdminBridge = legacyAdminBridgeByTask[task.id];
     if (task.privilege === 'admin') {
       if (!expectedLegacyAdminBridge || selected.legacyAdminBridge !== expectedLegacyAdminBridge) {
         throw new Error('admin process operation is not an explicitly admitted legacy bridge');
@@ -1287,7 +1291,7 @@ function baseAdapterFor(invocation: OperationInvocation, nativeBinding?: {
       const executablePath = selected.argv[argvIndex];
       if (!executablePath) throw new Error(`verified executable index is outside operation argv: ${id}`);
       if (process.platform === 'win32') throw new Error('verified executable descriptor execution is unsupported on win32');
-      verifiedHandle = await open(executablePath, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
+      verifiedHandle = await open(executablePath, constants.O_RDONLY | (platformOpenFlags.O_NOFOLLOW ?? 0));
       try {
         const metadata = await verifiedHandle.stat();
         if (!metadata.isFile() || metadata.nlink !== 1) throw new Error(`verified executable is not a single-linked regular file: ${id}`);
@@ -1314,27 +1318,27 @@ function baseAdapterFor(invocation: OperationInvocation, nativeBinding?: {
     }
   };
   return {
-    discover: async () => {
+    discover: () => settleSynchronous(() => {
       if (!('facts' in invocation)) throw new Error('read-only evidence invocation cannot perform discovery');
       return structuredClone(invocation.facts);
-    },
-    plan: async () => {
+    }),
+    plan: () => settleSynchronous(() => {
       if (!('facts' in invocation)) throw new Error('read-only evidence invocation cannot create a plan');
       return bindOperationsToPlan(invocation);
-    },
+    }),
     check: async (task, context) => {
       const code = await operation(task.operations.check, task, 'check', context);
       if (code === 0) return 'verified' satisfies Inspection;
       if (code === 10) return 'needed' satisfies Inspection;
       if (code === 11) return 'reboot-required' satisfies Inspection;
       if (code === 20) return 'inapplicable' satisfies Inspection;
-      throw new Error(`check operation failed with exit ${code}`);
+      throw new Error(`check operation failed with exit ${String(code)}`);
     },
     apply: async (task, context) => {
       const code = await operation(task.operations.apply, task, 'apply', context);
       if (code === 75) throw new InstallerOperationError('apply operation reported a transient failure', 'transient');
       if (code === 76) throw new InstallerOperationError('apply operation reported rate limiting', 'rate-limit');
-      if (code !== 0) throw new Error(`apply operation failed with exit ${code}`);
+      if (code !== 0) throw new Error(`apply operation failed with exit ${String(code)}`);
     },
     verify: async (task, context) => {
       const code = await operation(task.operations.verify, task, 'verify', context);
@@ -1342,7 +1346,7 @@ function baseAdapterFor(invocation: OperationInvocation, nativeBinding?: {
       if (code === 20) return 'inapplicable' satisfies Verification;
       if (code === 30) return 'pending' satisfies Verification;
       if (code === 31) return 'pending-reboot' satisfies Verification;
-      throw new Error(`verify operation failed with exit ${code}`);
+      throw new Error(`verify operation failed with exit ${String(code)}`);
     },
   };
 }
@@ -1388,7 +1392,7 @@ async function adapterFor(invocation: OperationInvocation): Promise<InstallerAda
       const operationId = task.operations[phase];
       const operation = invocation.operations[operationId];
       return operation?.kind !== 'native-service' || operation.action !== phase
-        || operation.manager !== binding.descriptor.manager || operation.unit !== binding.descriptor.unit
+        || operation.unit !== binding.descriptor.unit
         || operation.desiredState !== binding.descriptor.desiredState
         || !grant.operations.some(candidate => candidate.taskId === task.id && candidate.operationId === operationId && candidate.phase === phase);
     })) {
@@ -1481,6 +1485,14 @@ function authorizationSignal(): { readonly signal: AbortSignal; close(): void } 
       process.removeListener('SIGTERM', cancel);
     },
   };
+}
+
+function settleSynchronous<T>(compute: () => T): Promise<T> {
+  return new Promise(resolve => { resolve(compute()); });
+}
+
+function invocationPayload(invocation: object, ...headers: Array<'command' | 'schemaVersion'>): Record<string, unknown> {
+  return Object.fromEntries(Object.entries(invocation).filter(([key]) => !headers.some(header => header === key)));
 }
 
 async function main(): Promise<void> {
@@ -1607,7 +1619,7 @@ async function main(): Promise<void> {
       return;
     }
     if (invocation.command === 'load-plan') {
-      const { command: _command, ...loadInput } = invocation;
+      const loadInput = invocationPayload(invocation, 'command');
       process.stdout.write(`${JSON.stringify(buildLoadPlan(loadInput))}\n`);
       return;
     }
@@ -1640,22 +1652,22 @@ async function main(): Promise<void> {
       return;
     }
     if (invocation.command === 'cask-launcher-derive') {
-      const { command: _command, schemaVersion: _schemaVersion, ...input } = invocation;
+      const input = invocationPayload(invocation, 'command', 'schemaVersion');
       process.stdout.write(`${JSON.stringify(composeSelectedCaskLaunchers(input))}\n`);
       return;
     }
     if (invocation.command === 'flatpak-launcher-derive') {
-      const { command: _command, schemaVersion: _schemaVersion, ...input } = invocation;
+      const input = invocationPayload(invocation, 'command', 'schemaVersion');
       process.stdout.write(`${JSON.stringify(composeSelectedFlatpakLaunchers(input))}\n`);
       return;
     }
     if (invocation.command === 'privileged-broker-authority-derive') {
-      const { command: _command, ...derivationInput } = invocation;
+      const derivationInput = invocationPayload(invocation, 'command');
       process.stdout.write(`${JSON.stringify(derivePrivilegedBrokerAuthority(derivationInput))}\n`);
       return;
     }
     if (invocation.command === 'privileged-broker-service-authority-derive') {
-      const { command: _command, ...derivationInput } = invocation;
+      const derivationInput = invocationPayload(invocation, 'command');
       process.stdout.write(`${JSON.stringify(derivePrivilegedBrokerServiceAuthority(derivationInput))}\n`);
       return;
     }
@@ -1850,10 +1862,10 @@ async function main(): Promise<void> {
       const nativeExecution = compareDebianVersions
         ? {
             compareDebianVersions,
-            debianMetadataVerifier: async ({ descriptor, keyringBytes }: {
+            debianMetadataVerifier: ({ descriptor, keyringBytes }: {
               readonly descriptor: (typeof executionClosure.nativePackageDescriptors)[string];
               readonly keyringBytes: Buffer;
-            }) => {
+            }) => settleSynchronous(() => {
               const expected = executionClosure.runtimeArtifacts[descriptor.metadataProof.inRelease.keyring.artifactId];
               if (!expected || expected.sha256 !== descriptor.metadataProof.inRelease.keyring.sha256
                 || expected.sizeBytes !== keyringBytes.byteLength || expected.mode !== '0600') {
@@ -1865,7 +1877,7 @@ async function main(): Promise<void> {
                   absolutePath: join(invocation.materializedRoot, descriptor.metadataProof.inRelease.keyring.artifactId),
                 },
               });
-            },
+            }),
             nativePackageRuntimeFactory: (claim: NonNullable<TaskExecutionContext['nativeDpkgTransaction']>) =>
               createNativeDpkgTransactionRuntime({
                 identity: claim.identity,
@@ -1939,7 +1951,7 @@ async function main(): Promise<void> {
       process.stdout.write(`${JSON.stringify(await engine.plan(invocation.facts, invocation.desiredState, invocation.releaseId))}\n`);
       return;
     }
-    if (invocation.command !== 'run' && invocation.command !== 'resume' && invocation.command !== 'status') throw new Error('unsupported command state');
+    if (!('renderer' in invocation)) throw new Error('unsupported command state');
     presentationPlan ??= invocation.command === 'status'
       ? NormalizedPlanSchema.parse(invocation.plan)
       : await engine.plan(invocation.facts, invocation.desiredState, invocation.releaseId);

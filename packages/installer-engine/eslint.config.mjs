@@ -9,7 +9,6 @@ const pendingSourceFiles = [
   'src/broker-approval-orchestrator.ts',
   'src/broker-approval-release-delegation.ts',
   'src/broker-approval-transport.ts',
-  'src/cli.ts',
   'src/credential-rotation.ts',
   'src/debian-gpgv.ts',
   'src/debian-metadata.ts',
