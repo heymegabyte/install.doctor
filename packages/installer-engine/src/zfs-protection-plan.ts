@@ -4,7 +4,7 @@ import { z } from 'zod';
 const VERSION = z.literal(1);
 const id = z.string().regex(/^[a-zA-Z0-9][a-zA-Z0-9._:/@-]{0,255}$/);
 const digest = z.string().regex(/^[a-f0-9]{64}$/);
-const timestamp = z.string().datetime({ offset: true }).max(64);
+const timestamp = z.iso.datetime({ offset: true }).max(64);
 const owner = z.enum(['sanoid', 'proxmox-autosnap', 'manual', 'external']);
 const operation = z.enum(['snapshot', 'prune', 'scrub']);
 
@@ -157,9 +157,9 @@ export function planZfsProtection(policyInput: unknown, observationInput: unknow
       if (sameIdentityMismatch || (existing.scheduleId !== desired.scheduleId && overlaps(desired, existing))) findings.push({ severity: 'blocked', code: 'schedule-collision', subject: desired.scheduleId, detail: `${sameIdentityMismatch ? 'conflicts with' : 'overlaps'} observed ${existing.operation} schedule ${existing.scheduleId} owned by ${existing.owner}` });
     }
   }
-  for (let index = 0; index < policy.schedules.length; index += 1) for (let candidate = index + 1; candidate < policy.schedules.length; candidate += 1) {
-    const left = policy.schedules[index]!;
-    const right = policy.schedules[candidate]!;
+  for (const [index, left] of policy.schedules.entries()) for (let candidate = index + 1; candidate < policy.schedules.length; candidate += 1) {
+    const right = policy.schedules[candidate];
+    if (!right) throw new Error('validated schedule is missing');
     if (overlaps(left, right)) findings.push({ severity: 'blocked', code: 'schedule-collision', subject: left.scheduleId, detail: `desired schedule overlaps ${right.scheduleId}; one scheduler per operation window is required` });
   }
   for (const snapshot of observed.snapshots) for (const dependency of snapshot.dependencies) {

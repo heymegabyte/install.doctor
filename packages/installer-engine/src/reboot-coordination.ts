@@ -3,7 +3,7 @@ import { z } from 'zod';
 
 const identifier = z.string().min(1).max(128).regex(/^[a-z0-9][a-z0-9._-]*$/);
 const digest = z.string().regex(/^[a-f0-9]{64}$/);
-const timestamp = z.string().datetime({ offset: true });
+const timestamp = z.iso.datetime({ offset: true });
 
 const ActiveUserSchema = z.strictObject({
   sessionId: identifier,
@@ -47,7 +47,15 @@ const ContinuationBodySchema = z.strictObject({
 });
 
 export const RebootContinuationSchema = ContinuationBodySchema.extend({ continuationId: digest }).superRefine((record, context) => {
-  const { continuationId: _continuationId, ...body } = record;
+  const body: ContinuationBody = {
+    schemaVersion: record.schemaVersion,
+    hostId: record.hostId,
+    runId: record.runId,
+    planDigest: record.planDigest,
+    preBootId: record.preBootId,
+    requestedAt: record.requestedAt,
+    recoveryDeadline: record.recoveryDeadline,
+  };
   if (continuationDigest(body) !== record.continuationId) context.addIssue({ code: 'custom', path: ['continuationId'], message: 'continuation identity does not match its durable reboot state' });
 });
 
@@ -87,7 +95,7 @@ export function coordinatePlannedReboot(input: unknown) {
   return Object.freeze({ status: 'ready' as const, blockers: [], continuation });
 }
 
-export function inspectRebootReturn(continuationInput: unknown, heartbeatInput: unknown | null, nowInput: string) {
+export function inspectRebootReturn(continuationInput: unknown, heartbeatInput: unknown, nowInput: string) {
   const continuation = RebootContinuationSchema.parse(continuationInput);
   const now = timestamp.parse(nowInput);
   const timedOut = Date.parse(now) >= Date.parse(continuation.recoveryDeadline);

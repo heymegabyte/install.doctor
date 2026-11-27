@@ -165,7 +165,7 @@ export function planSyncoidAdmission(policyInput: unknown, observationInput: unk
   if (commonAnchorGuid) {
     const anchorTxg = sourceOrder.get(commonAnchorGuid);
     const destinationOnly = observed.destinationSnapshots.filter(snapshot => !sourceGuids.has(snapshot.guid) && (anchorTxg === undefined || snapshot.createdTxg > anchorTxg));
-    if (destinationOnly.length > 0) findings.push({ severity: 'blocked', code: 'destination-diverged', subject: observed.destination.dataset, detail: `${destinationOnly.length} destination-only snapshot(s) follow the common anchor; automatic rollback and deletion are forbidden` });
+    if (destinationOnly.length > 0) findings.push({ severity: 'blocked', code: 'destination-diverged', subject: observed.destination.dataset, detail: `${String(destinationOnly.length)} destination-only snapshot(s) follow the common anchor; automatic rollback and deletion are forbidden` });
   }
   for (const hold of observed.holds) findings.push({ severity: 'info', code: 'dependency-preserved', subject: hold.snapshotGuid, detail: `preserve hold tags: ${[...new Set(hold.tags)].sort().join(', ')}` });
   for (const bookmark of observed.destinationBookmarks) findings.push({ severity: 'info', code: 'dependency-preserved', subject: bookmark.name, detail: 'preserve destination bookmark as replication history' });

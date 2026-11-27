@@ -3,7 +3,7 @@ import { z } from 'zod';
 
 const identifier = z.string().min(1).max(128).regex(/^[a-z0-9][a-z0-9._-]*$/);
 const digest = z.string().regex(/^[a-f0-9]{64}$/);
-const timestamp = z.string().datetime({ offset: true });
+const timestamp = z.iso.datetime({ offset: true });
 
 const UpsHardwareSchema = z.strictObject({
   hostId: identifier,
@@ -97,7 +97,8 @@ function dependencyOrder(nodes: UpsShutdownRequest['dependencies']): string[] {
     if (visited.has(id)) return;
     if (visiting.has(id)) throw new Error(`UPS dependency graph contains a cycle at ${id}`);
     visiting.add(id);
-    const node = byId.get(id)!;
+    const node = byId.get(id);
+    if (!node) throw new Error(`UPS dependency node is unavailable: ${id}`);
     for (const dependency of [...node.dependsOn].sort()) visit(dependency);
     visiting.delete(id);
     visited.add(id);
@@ -145,14 +146,14 @@ export function planUpsDependencyShutdown(input: unknown, nowInput: string): Ups
     if (!node.shutdownSupported || !node.recoverySupported) throw new Error(`Node ${node.id} lacks safe shutdown or recovery support`);
   }
   const controllers = request.dependencies.filter(node => node.kind === 'ups-controller');
-  if (controllers.length !== 1 || controllers[0]!.dependsOn.length !== 0) throw new Error('Exactly one root UPS controller is required');
+  const [controller] = controllers;
+  if (controllers.length !== 1 || !controller || controller.dependsOn.length !== 0) throw new Error('Exactly one root UPS controller is required');
   const byId = new Map(request.dependencies.map(node => [node.id, node]));
-  const controllerId = controllers[0]!.id;
   const reachesController = (id: string, seen = new Set<string>()): boolean => {
-    if (id === controllerId) return true;
+    if (id === controller.id) return true;
     if (seen.has(id)) return false;
     seen.add(id);
-    return byId.get(id)!.dependsOn.some(dependency => reachesController(dependency, seen));
+    return byId.get(id)?.dependsOn.some(dependency => reachesController(dependency, seen)) ?? false;
   };
   for (const node of request.dependencies) if (!reachesController(node.id)) throw new Error(`Node ${node.id} is not protected by the UPS controller dependency root`);
   const recoveryOrder = dependencyOrder(request.dependencies);
@@ -201,8 +202,17 @@ export function planUpsCancellationRecovery(planInput: unknown, progressInput: u
     || plan.shutdownOrder.some((id, index) => id !== plan.recoveryOrder[plan.recoveryOrder.length - 1 - index])) {
     throw new Error('UPS shutdown and recovery orders are not exact reverses');
   }
-  const { planDigest, mode: _mode, ...body } = plan;
-  if (sha256(body) !== planDigest) throw new Error('UPS shutdown plan digest does not match its contents');
+  const body = {
+    schemaVersion: plan.schemaVersion,
+    requestId: plan.requestId,
+    hostId: plan.hostId,
+    upsDeviceId: plan.upsDeviceId,
+    upsIdentitySha256: plan.upsIdentitySha256,
+    trigger: plan.trigger,
+    shutdownOrder: plan.shutdownOrder,
+    recoveryOrder: plan.recoveryOrder,
+  };
+  if (sha256(body) !== plan.planDigest) throw new Error('UPS shutdown plan digest does not match its contents');
   const progress = ProgressSchema.parse(progressInput);
   if (progress.planDigest !== plan.planDigest) throw new Error('Shutdown progress does not match the UPS plan');
   if (progress.activeNodeId !== null) return Object.freeze({ status: 'inspection-required' as const, reason: 'shutdown-effect-in-flight' as const, recoveryOrder: [] as const });
