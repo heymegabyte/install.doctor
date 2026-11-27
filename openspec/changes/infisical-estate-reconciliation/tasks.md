@@ -65,6 +65,7 @@
 - [ ] 3.11 Add the workload round-trip gate: production-equivalent workload retrieval, bounded non-destructive consumer use, and representative host/cross-project denial before cutover or retirement evidence.
 - [ ] 3.12 Require current provider-specific validation for every selected source identity before use; keep inconclusive/unreachable/stale results `unverified` and fail before write.
 - [x] 3.12a Validate `general:AGENTMAIL_API_KEY` through the official read-only inbox-list API, but keep the age source and perform no destination write until a named Cloudflare workload consumer and target-retrieval contract exist.
+- [x] 3.12b Keep `general:BRANDFETCH_API_KEY` `unverified` and preserve its age source after the read-only Brand API returned HTTP 429 with exhausted quota metadata; perform no destination write or retirement until a fresh successful provider read or explicit invalidation.
 - [ ] 3.13 Track an explicit required-destination set per source and mark each destination complete only after write, Infisical round trip, intended target-host/workload retrieval, cross-target denial, consumer cutover, and rollback evidence.
 - [ ] 3.14 Prove writer-side verification cannot substitute for intended target retrieval and one completed destination cannot hide another incomplete destination.
 

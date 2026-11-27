@@ -9,7 +9,7 @@ const recordKeys = [...ledgerText.matchAll(/^    "([^"]+)":/gm)].map((match) => 
 assert.equal(new Set(recordKeys).size, recordKeys.length, 'validation ledger contains duplicate record keys');
 const ledger = JSON.parse(ledgerText);
 assert.equal(ledger.schemaVersion, 1);
-const allowedStatuses = new Set(['valid', 'invalid-retired']);
+const allowedStatuses = new Set(['valid', 'unverified', 'invalid-retired']);
 const sourceDirectories = [
   join(homedir(), '.local/share/chezmoi/home/.chezmoitemplates/secrets'),
   join(homedir(), '.local/share/chezmoi/home/.chezmoitemplates/secrets-workstation'),
