@@ -113,8 +113,9 @@ export OCO_OPENAI_API_KEY="$OPENAI_API_KEY"
 ### Pexels
 export PEXELS_API_KEY="{{ if (stat (joinPath .chezmoi.sourceDir ".chezmoitemplates" (printf "%s%s" "secrets-" .chezmoi.hostname) "PEXELS_API_KEY")) }}{{ includeTemplate (printf "%s%s" (printf "%s%s" "secrets-" .chezmoi.hostname) "/PEXELS_API_KEY") | decrypt | trim }}{{ else }}{{ env "PEXELS_API_KEY" }}{{ end }}"
 
-### PyPi
-export PYPI_TOKEN="{{ if (stat (joinPath .chezmoi.sourceDir ".chezmoitemplates" (printf "%s%s" "secrets-" .chezmoi.hostname) "PYPI_TOKEN")) }}{{ includeTemplate (printf "%s%s" (printf "%s%s" "secrets-" .chezmoi.hostname) "/PYPI_TOKEN") | decrypt | trim }}{{ else }}{{ env "PYPI_TOKEN" }}{{ end }}"
+### PyPI
+# Publishing credentials are resolved on demand with `get-secret PYPI_TOKEN`.
+# Do not materialize a long-lived upload token in every interactive shell.
 
 ### Replicate
 export REPLICATE_API_KEY="{{ if (stat (joinPath .chezmoi.sourceDir ".chezmoitemplates" (printf "%s%s" "secrets-" .chezmoi.hostname) "REPLICATE_API_KEY")) }}{{ includeTemplate (printf "%s%s" (printf "%s%s" "secrets-" .chezmoi.hostname) "/REPLICATE_API_KEY") | decrypt | trim }}{{ else }}{{ env "REPLICATE_API_KEY" }}{{ end }}"
