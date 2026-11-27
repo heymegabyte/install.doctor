@@ -39,6 +39,7 @@
     "test/target-authorization-owner.test.mjs",
     "test/target-device-authorization-d1-store.test.mjs",
     "test/helpers/desktop-release-fixture.mjs",
+    "../desktop-tools-runtime/src/session-evidence.mjs",
     "../installer-engine/test/helpers/composition-engine-fixture.mjs",
     ".wrangler/control-plane-runtime.d.ts"
   ]
