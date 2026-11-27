@@ -10,14 +10,21 @@ const expectedArtifactIds = Object.freeze([
   'tree-deb-bookworm-amd64',
 ].sort());
 
+/** @param {unknown} value @returns {value is Record<string, unknown>} */
+function isRecord(value) {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+/** @param {unknown} value @param {string[]} keys @param {string} label */
 function exactKeys(value, keys, label) {
-  if (!value || typeof value !== 'object' || Array.isArray(value)
+  if (!isRecord(value)
     || JSON.stringify(Object.keys(value).sort()) !== JSON.stringify([...keys].sort())) {
     throw new Error(`${label} has an invalid shape`);
   }
   return value;
 }
 
+/** @param {string} pathInput @param {number} maximumBytes @param {string} label */
 async function safeRead(pathInput, maximumBytes, label) {
   if (!isAbsolute(pathInput) || normalize(pathInput) !== pathInput || pathInput.includes('\0')) {
     throw new Error(`${label} path must be canonical and absolute`);
@@ -34,12 +41,14 @@ async function safeRead(pathInput, maximumBytes, label) {
   return readFile(path);
 }
 
+/** @param {Buffer} bytes @param {string} label @returns {unknown} */
 function parseJson(bytes, label) {
   let value;
   try { value = JSON.parse(bytes.toString('utf8')); } catch { throw new Error(`${label} is not valid JSON`); }
   return value;
 }
 
+/** @param {unknown} baseInput @param {unknown} receiptInput @returns {ReadonlyArray<Readonly<Record<string, unknown>>>} */
 export function mergeDebianNativeCatalog(baseInput, receiptInput) {
   if (!Array.isArray(baseInput) || baseInput.length === 0 || baseInput.length > 4096) {
     throw new Error('base catalog must be a bounded non-empty array');
@@ -49,32 +58,42 @@ export function mergeDebianNativeCatalog(baseInput, receiptInput) {
     throw new Error('composition receipt identity is invalid');
   }
   const descriptor = receipt.descriptor;
-  if (!descriptor || descriptor.schemaVersion !== 1 || descriptor.kind !== 'native-offline-package'
+  if (!isRecord(descriptor) || descriptor.schemaVersion !== 1 || descriptor.kind !== 'native-offline-package'
     || descriptor.manager !== 'dpkg' || descriptor.packageKey !== 'tree'
-    || descriptor.package?.name !== 'tree' || descriptor.package?.version !== '2.1.0-1'
-    || descriptor.package?.architecture !== 'amd64' || descriptor.distro?.id !== 'debian'
-    || descriptor.distro?.versionId !== '12' || descriptor.distro?.codename !== 'bookworm') {
+    || !isRecord(descriptor.package) || descriptor.package.name !== 'tree' || descriptor.package.version !== '2.1.0-1'
+    || descriptor.package.architecture !== 'amd64' || !isRecord(descriptor.distro) || descriptor.distro.id !== 'debian'
+    || descriptor.distro.versionId !== '12' || descriptor.distro.codename !== 'bookworm') {
     throw new Error('composition receipt descriptor is outside the tree cutover');
   }
-  const artifactIds = receipt.artifacts.map(item => item?.id).sort();
+  /** @type {unknown[]} */
+  const artifacts = receipt.artifacts;
+  const artifactIds = artifacts.map(item => isRecord(item) ? item.id : undefined).sort();
   if (JSON.stringify(artifactIds) !== JSON.stringify(expectedArtifactIds)) {
     throw new Error('composition receipt does not contain the exact Debian artifact inventory');
   }
-  const names = baseInput.map(entry => entry?.name);
-  if (names.some(name => typeof name !== 'string') || new Set(names).size !== names.length) {
-    throw new Error('base catalog contains ambiguous entry identities');
-  }
+  /** @type {unknown[]} */
+  const entries = baseInput;
+  const catalog = entries.map(entry => {
+    if (!isRecord(entry) || typeof entry.name !== 'string') {
+      throw new Error('base catalog contains ambiguous entry identities');
+    }
+    return entry;
+  });
+  const names = catalog.map(entry => entry.name);
+  // Unrelated packages can have multiple entries for different binaries.
   const treeIndex = names.indexOf('tree');
-  if (treeIndex < 0 || names.lastIndexOf('tree') !== treeIndex) throw new Error('base catalog must contain exactly one tree entry');
-  const tree = baseInput[treeIndex];
-  if (!tree || typeof tree !== 'object' || Array.isArray(tree) || Object.hasOwn(tree, 'offlinePayloads')) {
+  if (treeIndex < 0) throw new Error('base catalog must contain exactly one tree entry');
+  if (names.lastIndexOf('tree') !== treeIndex) throw new Error('base catalog contains ambiguous tree entries');
+  const tree = catalog[treeIndex];
+  if (!tree || Object.hasOwn(tree, 'offlinePayloads')) {
     throw new Error('base tree entry already contains native payload authority');
   }
-  return Object.freeze(baseInput.map((entry, index) => index === treeIndex
+  return Object.freeze(catalog.map((entry, index) => index === treeIndex
     ? Object.freeze({ ...entry, offlinePayloads: Object.freeze([descriptor]) })
     : entry));
 }
 
+/** @param {{ baseCatalogPath: string, receiptPath: string, outputPath: string }} paths */
 export async function mergeDebianNativeCatalogFiles({ baseCatalogPath, receiptPath, outputPath }) {
   if (!isAbsolute(outputPath) || normalize(outputPath) !== outputPath || outputPath.includes('\0')) {
     throw new Error('output path must be canonical and absolute');

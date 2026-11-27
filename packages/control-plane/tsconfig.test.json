@@ -9,6 +9,7 @@
     "test/auth-return-policy.test.mjs",
     "test/better-auth-migration-parity.test.mjs",
     "test/broker-approval-managed-signer.test.mjs",
+    "test/debian-native-catalog-merge.test.mjs",
     "test/offline-bundle-publication.test.mjs",
     "test/offline-bundle-request.test.mjs",
     "test/oidc-owner-enrollment.test.mjs",

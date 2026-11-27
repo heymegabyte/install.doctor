@@ -3,6 +3,7 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
+import { URL } from 'node:url';
 import { mergeDebianNativeCatalog, mergeDebianNativeCatalogFiles } from '../../../scripts/merge-debian-native-catalog.mjs';
 
 const descriptor = Object.freeze({
@@ -23,7 +24,8 @@ test('merges one descriptor into exactly one tree entry deterministically withou
   const second = mergeDebianNativeCatalog(base, receipt);
   assert.deepEqual(second, first);
   assert.deepEqual(first.map(item => item.name), ['alpha', 'tree', 'zeta']);
-  assert.deepEqual(first[1].offlinePayloads, [descriptor]);
+  assert.deepEqual(first[1]?.offlinePayloads, [descriptor]);
+  assert.ok(base[1]);
   assert.equal(Object.hasOwn(base[1], 'offlinePayloads'), false);
 });
 
@@ -46,4 +48,14 @@ test('fails closed on duplicate authority, wrong artifacts, wrong package, and a
   assert.throws(() => mergeDebianNativeCatalog([{ name: 'tree' }], { ...receipt, artifacts: receipt.artifacts.slice(1) }), /identity is invalid/);
   assert.throws(() => mergeDebianNativeCatalog([{ name: 'tree' }], { ...receipt, descriptor: { ...descriptor, packageKey: 'other' } }), /outside/);
   assert.throws(() => mergeDebianNativeCatalog([{ name: 'tree' }, { name: 'tree' }], receipt), /ambiguous/);
+});
+
+test('stages the checked-in release catalog with only the tree entry changed', async () => {
+  const catalogUrl = new URL('../src/catalog.json', import.meta.url);
+  const base = JSON.parse(await readFile(catalogUrl, 'utf8'));
+  const merged = mergeDebianNativeCatalog(base, receipt);
+  assert.equal(merged.length, base.length);
+  const changed = merged.filter((entry, index) => entry !== base[index]);
+  assert.equal(changed.length, 1);
+  assert.deepEqual(changed[0], { ...base.find((/** @type {{ name: string }} */ entry) => entry.name === 'tree'), offlinePayloads: [descriptor] });
 });
