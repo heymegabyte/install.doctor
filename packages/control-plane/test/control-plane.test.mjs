@@ -13,6 +13,7 @@ import { blueprintDigest, exportMarkdown } from '../../aid-core/dist/core.js';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const distIndexPath = path.resolve(__dirname, '../dist/index.js');
 
+const oracleResponse = z.looseObject({ unlocked: z.boolean(), codeName: z.string() });
 const pairingResponse = z.looseObject({
   code: z.string(), pollSecret: z.string(), verifyUrl: z.string(), tenant: z.string(),
 });
@@ -1300,7 +1301,7 @@ void test('Control Plane Phase 1: PIA endpoints (/api/v1/intent/* and /api/v1/ea
   assert.equal(telRes.status, 200);
   assert.ok(telRes.headers.get('x-intent-entropy'));
   assert.equal(telRes.headers.get('x-predicted-intent'), 'SYNC_CHEZMOI');
-  const telJson = await telRes.json();
+  const telJson = z.looseObject({ primaryIntent: z.string(), confidence: z.number() }).parse(await telRes.json());
   assert.equal(telJson.primaryIntent, 'SYNC_CHEZMOI');
   assert.ok(telJson.confidence > 0.4);
 
@@ -1319,7 +1320,7 @@ void test('Control Plane Phase 1: PIA endpoints (/api/v1/intent/* and /api/v1/ea
     TEST_ENV
   );
   assert.equal(specRes.status, 200);
-  const branch = await specRes.json();
+  const branch = z.looseObject({ branchId: z.string(), intent: z.string() }).parse(await specRes.json());
   assert.ok(branch.branchId.startsWith('spec_'));
   assert.equal(branch.intent, 'SYNC_CHEZMOI');
 
@@ -1341,7 +1342,7 @@ void test('Control Plane Phase 1: PIA endpoints (/api/v1/intent/* and /api/v1/ea
     TEST_ENV
   );
   assert.equal(colRes.status, 200);
-  const collapsed = await colRes.json();
+  const collapsed = z.looseObject({ status: z.string(), perceivedLatencyMicros: z.number(), auditSignature: z.string() }).parse(await colRes.json());
   assert.equal(collapsed.status, 'collapsed');
   assert.equal(collapsed.perceivedLatencyMicros, 0);
   assert.ok(collapsed.auditSignature.startsWith('ed25519_sig_'));
@@ -1360,7 +1361,7 @@ void test('Control Plane Phase 1: PIA endpoints (/api/v1/intent/* and /api/v1/ea
   );
   assert.equal(eggRes.status, 200);
   assert.equal(eggRes.headers.get('x-easter-egg-unlocked'), 'xyzzy-1989');
-  const eggJson = await eggRes.json();
+  const eggJson = oracleResponse.parse(await eggRes.json());
   assert.equal(eggJson.unlocked, true);
   assert.equal(eggJson.codeName, 'COLOSSAL_CAVE_PORTAL');
 
@@ -1376,7 +1377,7 @@ void test('Control Plane Phase 1: PIA endpoints (/api/v1/intent/* and /api/v1/ea
     TEST_ENV
   );
   assert.equal(fibRes.status, 200);
-  const fibJson = await fibRes.json();
+  const fibJson = oracleResponse.parse(await fibRes.json());
   assert.equal(fibJson.unlocked, true);
   assert.equal(fibJson.codeName, 'FIBONACCI_HARMONIC_RESONANCE');
 
@@ -1391,7 +1392,7 @@ void test('Control Plane Phase 1: PIA endpoints (/api/v1/intent/* and /api/v1/ea
     TEST_ENV
   );
   assert.equal(astralRes.status, 200);
-  const astralJson = await astralRes.json();
+  const astralJson = oracleResponse.parse(await astralRes.json());
   assert.equal(astralJson.unlocked, true);
   assert.equal(astralJson.codeName, 'ASTRAL_PLANE_DUNGEON');
 });
@@ -1442,7 +1443,7 @@ void test('Control Plane Phase 1: GitHub discovery, truthful unsupported mutatio
     TEST_ENV
   );
   assert.equal(scanRes.status, 200);
-  const scanJson = await scanRes.json();
+  const scanJson = z.looseObject({ defaultMasterRepo: z.string(), suggestedHostRepo: z.string() }).parse(await scanRes.json());
   assert.equal(scanJson.defaultMasterRepo, 'heymegabyte/install.doctor');
   assert.equal(scanJson.suggestedHostRepo, 'ubuntu.megabyte.space');
 
@@ -1459,7 +1460,7 @@ void test('Control Plane Phase 1: GitHub discovery, truthful unsupported mutatio
     TEST_ENV
   );
   assert.equal(ensRes.status, 501);
-  const ensJson = await ensRes.json();
+  const ensJson = z.looseObject({ error: z.string(), status: z.string(), repoFullName: z.string() }).parse(await ensRes.json());
   assert.equal(ensJson.error, 'github_reconciliation_not_configured');
   assert.equal(ensJson.status, 'unsupported');
   assert.equal(ensJson.repoFullName, 'heymegabyte/ubuntu.megabyte.space');
@@ -1477,7 +1478,7 @@ void test('Control Plane Phase 1: GitHub discovery, truthful unsupported mutatio
     TEST_ENV
   );
   assert.equal(ensFallbackRes.status, 501);
-  const ensFallback = await ensFallbackRes.json();
+  const ensFallback = z.looseObject({ fqdn: z.string(), repoFullName: z.string() }).parse(await ensFallbackRes.json());
   assert.equal(ensFallback.fqdn, 'ephemeral-node');
   assert.equal(ensFallback.repoFullName, 'heymegabyte/ephemeral-node');
 
@@ -1500,7 +1501,7 @@ void test('Control Plane Phase 1: GitHub discovery, truthful unsupported mutatio
     TEST_ENV
   );
   assert.equal(mintAuth.status, 501);
-  const mintJson = await mintAuth.json();
+  const mintJson = z.looseObject({ error: z.string(), status: z.string() }).parse(await mintAuth.json());
   assert.equal(mintJson.error, 'api_key_provisioning_not_configured');
   assert.equal(mintJson.status, 'unsupported');
   assert.equal('apiKey' in mintJson, false);
@@ -1508,7 +1509,7 @@ void test('Control Plane Phase 1: GitHub discovery, truthful unsupported mutatio
   // GET /start universal bootstrap
   const startRes = await app.fetch(new Request('https://app.install.doctor/start'), TEST_ENV);
   assert.equal(startRes.status, 503);
-  assert.equal((await startRes.json()).error, 'release_channel_unavailable');
+  assert.equal(z.looseObject({ error: z.string() }).parse(await startRes.json()).error, 'release_channel_unavailable');
 });
 
 void test('Control Plane /start fails closed when the activated release channel is not configured', async () => {
@@ -2134,7 +2135,7 @@ void test('Control Plane Phase 2: Fleet Drift Radar, Cryptographic Execution Rec
     TEST_ENV
   );
   assert.equal(driftRes.status, 200);
-  const driftJson = await driftRes.json();
+  const driftJson = z.looseObject({ converged: z.boolean(), missingPackages: z.array(z.string()), stoppedServices: z.array(z.string()), healingPlan: z.array(z.string()) }).parse(await driftRes.json());
   assert.equal(driftJson.converged, false);
   assert.deepEqual(driftJson.missingPackages, ['tmux']);
   assert.deepEqual(driftJson.stoppedServices, ['alloy']);
@@ -2171,7 +2172,7 @@ void test('Control Plane Phase 2: Fleet Drift Radar, Cryptographic Execution Rec
     TEST_ENV
   );
   assert.equal(mintRes.status, 201);
-  const receipt = await mintRes.json();
+  const receipt = z.looseObject({ receiptHash: z.string() }).parse(await mintRes.json());
   assert.equal(receipt.receiptHash.length, 64);
 
   const verRes = await app.fetch(
@@ -2186,7 +2187,7 @@ void test('Control Plane Phase 2: Fleet Drift Radar, Cryptographic Execution Rec
     TEST_ENV
   );
   assert.equal(verRes.status, 200);
-  const verJson = await verRes.json();
+  const verJson = z.looseObject({ valid: z.boolean() }).parse(await verRes.json());
   assert.equal(verJson.valid, true);
 
   const tamperedRes = await app.fetch(
@@ -2201,7 +2202,7 @@ void test('Control Plane Phase 2: Fleet Drift Radar, Cryptographic Execution Rec
     TEST_ENV
   );
   assert.equal(tamperedRes.status, 200);
-  assert.equal((await tamperedRes.json()).valid, false);
+  assert.equal(z.looseObject({ valid: z.boolean() }).parse(await tamperedRes.json()).valid, false);
 
   const staleRes = await app.fetch(
     new Request('https://app.install.doctor/api/v1/receipts/mint', {
@@ -2224,7 +2225,7 @@ void test('Control Plane Phase 2: Fleet Drift Radar, Cryptographic Execution Rec
     TEST_ENV
   );
   assert.equal(staleRes.status, 409);
-  assert.equal((await staleRes.json()).error, 'receipt_outside_replay_window');
+  assert.equal(z.looseObject({ error: z.string() }).parse(await staleRes.json()).error, 'receipt_outside_replay_window');
 
   // 3. GET /api/v1/catalog/semantic
   const semRes = await app.fetch(
@@ -2232,9 +2233,9 @@ void test('Control Plane Phase 2: Fleet Drift Radar, Cryptographic Execution Rec
     TEST_ENV
   );
   assert.equal(semRes.status, 200);
-  const semJson = await semRes.json();
+  const semJson = z.looseObject({ count: z.number(), matches: z.array(z.looseObject({ name: z.string() })) }).parse(await semRes.json());
   assert.ok(semJson.count >= 1);
-  assert.equal(semJson.matches[0].name, 'ripgrep');
+  assert.equal(semJson.matches[0]?.name, 'ripgrep');
 });
 
 void test('Control Plane security: desired-state metadata is authenticated and requests are bounded/correlated', async () => {
