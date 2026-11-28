@@ -195,3 +195,19 @@ paths into a disposable local repository, and verifies that a missing
 repository and a mismatched identity cannot create snapshots. The
 correct identity must add one snapshot while preserving both prior
 snapshots. The fixture passed with the local Restic CLI.
+
+### November 28 Ubuntu controller management path
+
+The enrolled controller's successful SSH session terminated at its
+managed user-level `agent-fleet-sshd.service` on TCP 2222. A metadata-only
+journal query found 246 recent `sshd` records from that unit. The existing
+CrowdSec acquisition filter targets the absent system `ssh.service`
+instead. Its `auth.log` acquisition reported zero parsed lines in the
+same observation. The firewall bouncer was active, so the gap is SSH
+event acquisition.
+
+- [ ] Validate a narrowly scoped acquisition for the actual managed
+  SSH unit. Prove original-peer attribution on the management path and
+  exercise parsing and blocking without banning a shared proxy or
+  interrupting management. Arm a local rollback before activating the
+  policy. Keep one ban owner.
