@@ -250,3 +250,14 @@ The prior file is retained as
 `/etc/crowdsec/acquis.yaml.pre-agent-fleet-sshd-20261128`.
 Use atomic replacement and `systemctl reload crowdsec.service` to
 restore it. A live classification and packet-drop canary remain open.
+
+A single live authentication canary offered a disposable unknown
+public key via the verified private route with host-key validation
+enabled. SSH rejected it. The managed user unit logged two matching
+authentication records, and CrowdSec's corrected acquisition showed
+two parsed and whitelisted lines. The management peer had no decision,
+a fresh authorized SSH connection succeeded, and UFW and both CrowdSec
+services stayed active. The disposable key was removed. This proves
+live acquisition and classification for the allowlisted route. It
+does not exercise packet dropping on an external source or original
+client attribution through the Cloudflare Access fallback.
