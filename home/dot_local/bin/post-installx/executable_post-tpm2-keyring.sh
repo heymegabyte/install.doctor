@@ -25,6 +25,33 @@ if ! command -v gnome-keyring-daemon >/dev/null 2>&1; then
   exit 0
 fi
 
+has_active_gnome_session() {
+  local uid=$1 sessions session session_uid properties
+  sessions=$(loginctl list-sessions --no-legend --no-pager 2>/dev/null) || return 1
+  [[ -S "/run/user/$uid/bus" ]] && pgrep -u "$uid" -x gnome-shell >/dev/null || return 1
+  while read -r session session_uid _; do
+    [[ -n "$session" && "$session_uid" == "$uid" ]] || continue
+    properties=$(loginctl show-session "$session" --no-pager \
+      -p User -p Type -p Class -p Seat -p Remote -p Active 2>/dev/null) || continue
+    if grep -Fxq "User=$uid" <<<"$properties" &&
+      grep -Eq '^Type=(x11|wayland)$' <<<"$properties" &&
+      grep -Fxq 'Class=user' <<<"$properties" &&
+      grep -Eq '^Seat=[^[:space:]]+$' <<<"$properties" &&
+      grep -Fxq 'Remote=no' <<<"$properties" &&
+      grep -Fxq 'Active=yes' <<<"$properties"; then
+      return 0
+    fi
+  done <<<"$sessions"
+  return 1
+}
+
+target_uid=$EUID
+if (( EUID == 0 )); then target_uid=${SUDO_UID:-}; fi
+if [[ ! "$target_uid" =~ ^[1-9][0-9]*$ ]] || ! has_active_gnome_session "$target_uid"; then
+  log_info "No active local GNOME session for the provisioning user. Skipping."
+  exit 0
+fi
+
 # Predicate 3 & 4: Usable TPM2 device (/dev/tpmrm0) + systemd-creds TPM2 support
 if [[ ! -e /dev/tpmrm0 ]] || ! command -v systemd-creds >/dev/null 2>&1; then
   log_info "TPM2 resource manager (/dev/tpmrm0) or systemd-creds not present; skipping TPM2 keyring integration."
@@ -39,7 +66,7 @@ fi
 if [[ $EUID -eq 0 ]]; then SUDO=""; else SUDO="sudo -n"; fi
 
 # Encrypted credential enrollment is performed separately by the host operator.
-if ! $SUDO test -s /etc/credstore.encrypted/gnome-keyring.cred; then
+if ! $SUDO test -s "/etc/credstore.encrypted/gnome-keyring-${target_uid}.cred"; then
   log_info "No enrolled encrypted GNOME keyring credential. Skipping."
   exit 0
 fi
@@ -106,20 +133,20 @@ fi
 EOF
 $SUDO chmod 0755 /usr/local/libexec/tpm2-keyring-unlock
 
-# Install systemd system unit triggered after user@1000.service starts
-$SUDO tee /etc/systemd/system/tpm2-keyring-unlock.service >/dev/null <<'EOF'
+# Install the system unit for the verified graphical user.
+sed "s/@TARGET_UID@/$target_uid/g" <<'EOF' | $SUDO tee /etc/systemd/system/tpm2-keyring-unlock.service >/dev/null
 [Unit]
 Description=TPM2-Backed GNOME Keyring Unlock Helper (with PAM Password Fallback)
-After=user@1000.service
-Wants=user@1000.service
+After=user@@TARGET_UID@.service
+Wants=user@@TARGET_UID@.service
 ConditionPathExists=/dev/tpmrm0
-ConditionPathExists=/etc/credstore.encrypted/gnome-keyring.cred
+ConditionPathExists=/etc/credstore.encrypted/gnome-keyring-@TARGET_UID@.cred
 
 [Service]
 Type=oneshot
 TimeoutStartSec=20s
-LoadCredentialEncrypted=gnome-keyring:/etc/credstore.encrypted/gnome-keyring.cred
-ExecStart=/usr/local/libexec/tpm2-keyring-unlock 1000
+LoadCredentialEncrypted=gnome-keyring:/etc/credstore.encrypted/gnome-keyring-@TARGET_UID@.cred
+ExecStart=/usr/local/libexec/tpm2-keyring-unlock @TARGET_UID@
 RemainAfterExit=yes
 
 [Install]
