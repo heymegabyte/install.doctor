@@ -73,3 +73,12 @@ Session detection over SSH and explicit headless skip passed.
 The existing daemon remained on PID `759228`. No harness configuration
 was rewritten or revoked by the rollout. The previous hook is stored
 at `~/.local/state/install-doctor/cua-hook-rollback-b51b2542`.
+
+The managed Mac also adopted the current hook with its host-specific
+default-enabled selection preserved. Its hook SHA-256 matches Omen's
+above. Console session detection and headless skip passed. The signed
+0.44.0 desktop daemon remained on PID `9739` during deployment.
+The staged `com.trycua.cua-driver.plist` passed `plutil -lint`, but
+launchd did not report that job loaded in the GUI domain. Login-time
+activation still needs a fresh console login test. The previous hook
+is retained at `~/.local/state/install-doctor/cua-hook-rollback-e88e7fb8`.
