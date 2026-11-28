@@ -144,7 +144,16 @@ function isDraining(): boolean {
   }
 }
 
-const allowedModels = new Set(["qwen2.5:7b-instruct", "qwen2.5-coder:14b", "nomic-embed-text:latest"]);
+const supportedModels = ["qwen2.5:7b-instruct", "qwen2.5-coder:14b", "nomic-embed-text:latest"];
+const configuredModels = process.env.OLLAMA_PROXY_MODELS;
+const selectedModels = configuredModels === undefined
+  ? supportedModels
+  : configuredModels.split(",").map((model) => model.trim());
+const allowedModels = new Set(selectedModels);
+if (allowedModels.size !== selectedModels.length ||
+    selectedModels.some((model) => !supportedModels.includes(model))) {
+  throw new Error("OLLAMA_PROXY_MODELS must be a nonempty, unique subset of supported local models");
+}
 const maxInventoryBytes = 64 * 1024;
 let inventoryProbe: Promise<boolean> | undefined;
 

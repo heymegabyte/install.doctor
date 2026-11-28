@@ -19,7 +19,7 @@ test("streams hold admission slots until the upstream closes", { timeout: 10000 
   let upstreamRequests = 0;
   let inventoryRequests = 0;
   let inventoryMode: "valid" | "missing" | "malformed" | "unavailable" | "oversized" | "timeout" = "valid";
-  const models = ["qwen2.5:7b-instruct", "qwen2.5-coder:14b", "nomic-embed-text:latest"]
+  const models = ["qwen2.5:7b-instruct", "nomic-embed-text:latest"]
     .map((name) => ({ name, digest: "a".repeat(64) }));
   const upstream = createServer(async (request, response) => {
     if (request.url === "/api/tags") {
@@ -69,6 +69,7 @@ test("streams hold admission slots until the upstream closes", { timeout: 10000 
     env: {
       ...process.env,
       OLLAMA_PROXY_PORT: String(proxyAddress.port),
+      OLLAMA_PROXY_MODELS: models.map(({ name }) => name).join(","),
       OLLAMA_UPSTREAM_PORT: String(upstreamAddress.port),
       OLLAMA_GATEWAY_TOKEN_FILE: tokenPath,
       OLLAMA_PROXY_DRAIN_FILE: drainPath,
@@ -100,6 +101,13 @@ test("streams hold admission slots until the upstream closes", { timeout: 10000 
   const initialAdmission = await admission("fixture-token");
   assert.equal(initialAdmission.status, 200);
   await initialAdmission.text();
+  const excludedLocalModel = await fetch(origin + "/api/chat", {
+    method: "POST",
+    headers: { Authorization: "Bearer fixture-token", "Content-Type": "application/json" },
+    body: JSON.stringify({ model: "qwen2.5-coder:14b", messages: [] }),
+  });
+  assert.equal(excludedLocalModel.status, 403);
+  await excludedLocalModel.text();
   for (inventoryMode of ["missing", "malformed", "unavailable", "oversized", "timeout"] as const) {
     const unavailable = await admission("fixture-token");
     assert.equal(unavailable.status, 503, inventoryMode);

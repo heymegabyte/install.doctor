@@ -28,3 +28,21 @@ origin returned 768 embedding dimensions. Missing credentials received
 401. The old script is saved as
 `~/.local/bin/ollama-auth-proxy.ts.pre-admission-20261128`.
 Coolify ingress and distributed admission remain open.
+
+The managed Mac now uses the shared proxy with the two installed
+and approved models. The operator-set `OLLAMA_PROXY_MODELS` may
+narrow the supported policy only. This same subset controls readiness
+and request acceptance. The fixture checks readiness with the
+two-model inventory, rejects a supported but excluded model, and
+exercises failure on an incomplete inventory.
+
+The installed Mac proxy SHA-256 is
+`cb7860182e2117d692ed9331ca09697ec8a39cbf028ed6b02c34e664d248256d`.
+A first launchd reload encountered transient bootstrap error 5.
+The original plist was restored and its service restarted. A
+bounded retry after domain release activated the validated new
+plist. Actual loopback checks passed readiness, HTTP 401 without a
+token, HTTP 403 for the excluded model, and an authenticated
+768-dimension embedding. The existing tunnel and native Ollama
+service were unchanged. The previous plist is retained with suffix
+`.pre-shared-admission-20261128` for launchd rollback.
