@@ -46,3 +46,12 @@ token, HTTP 403 for the excluded model, and an authenticated
 768-dimension embedding. The existing tunnel and native Ollama
 service were unchanged. The previous plist is retained with suffix
 `.pre-shared-admission-20261128` for launchd rollback.
+
+After the Mac LaunchAgent reload, the existing Cloudflare Tunnel
+returned HTTP 401 for both missing and invalid origin credentials.
+With the enrolled credential, readiness reported available, returned
+503 while the scoped drain marker existed, and recovered when it was
+removed. A fresh embedding through the authenticated Tunnel returned
+768 dimensions at 2,048 context tokens. These are checks from the
+managed Mac's enrolled network. Coolify's gateway transport and
+distributed exclusion still require their own tests.
