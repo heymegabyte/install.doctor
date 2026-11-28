@@ -28,3 +28,16 @@ Its selected headless run skipped correctly. The active user daemon
 remained on PID 1230329. The prior hook is retained at
 `~/.local/state/install-doctor/cua-hook-rollback-ed8aa757`.
 Restore it atomically if this provisioning change must be rolled back.
+
+A November 28 upstream readback compared the WinRects helper at
+[`cua-driver-rs-v0.44.0`](https://github.com/trycua/cua/blob/cua-driver-rs-v0.44.0/libs/cua-driver/wayland-helper/winrects%40cua/metadata.json)
+and [`cua-driver-rs-v0.67.0`](https://github.com/trycua/cua/blob/cua-driver-rs-v0.67.0/libs/cua-driver/wayland-helper/winrects%40cua/metadata.json).
+Both declare helper version 12 and support GNOME Shell 45–49 in
+their metadata. Legion runs GNOME Shell 50.1. Its installed helper
+declares versions 45–51 and its extension code matches upstream
+0.44.0 byte for byte, with SHA-256
+`b7b5b922e68a8ee53eb549a3d2f85dd28259140633c0c34123f16910f7ac8e0c`.
+Upstream 0.67.0 has different extension code but still omits 50
+from the supported shell versions. Preserve the currently operating
+session and keep fresh GNOME 50 helper activation conditional on
+supported upstream metadata and a representative session test.
