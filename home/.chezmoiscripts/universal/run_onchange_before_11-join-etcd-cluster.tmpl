@@ -1,0 +1,38 @@
+{{- if (eq .host.distro.family "linux") -}}
+#!/usr/bin/env bash
+# @file etcd Clustering
+# @brief Adds the host to `etcd` cluster
+# @description
+#     This script adds the host to `etcd` cluster provided as input, if `etcd` is installed. Static clustering
+#     mechanism is used to join the host to an existing etcd cluster. The other mechanisms that are based on
+#     service discovery is not supported by this script.
+#
+#     Static mechanism needs the IP address(es) of all the participating members to bootstrap a node/member.
+#     This is the only input needed to be able to add the host as a member of the cluster. The format of this field
+#     is available in the [inputs file](https://github.com/megabyte-labs/install.doctor/blob/master/home/.chezmoi.yaml.tmpl).
+#
+#     ## Configuration Variables
+#
+#     The following chart details the input variable(s) that are used to join the host to `etcd` cluster:
+#
+#     | Variable                     | Description                                                |
+#     |------------------------------|------------------------------------------------------------|
+#     | `etcd.initial_cluster_urls`  | Appropriately formatted initial cluster configuration      |
+
+{{ includeTemplate "universal/profile-before" }}
+{{ includeTemplate "universal/logg-before" }}
+
+### Join host to `etcd` cluster
+if command -v etcd > /dev/null; then
+  logg info 'Adding host to the `etcd` cluster'
+  {{ if and .etcd.initial_cluster_urls (gt (len .etcd.initial_cluster_urls) 0) }}
+  etcd --name {{ .chezmoi.hostname }} \
+  --initial-advertise-peer-urls http://$(hostname -i):2380 --listen-peer-urls http://$(hostname -i):2380 \
+  --advertise-client-urls http://$(hostname -i):2379 --listen-client-urls http://$(hostname -i):2379 \
+  --initial-cluster "{{ .etcd.initial_cluster_urls }}" \
+  --initial-cluster-state existing
+  {{ end }}
+else
+  logg info 'etcd is not installed or it is not available in the PATH'
+fi
+{{ end -}}
