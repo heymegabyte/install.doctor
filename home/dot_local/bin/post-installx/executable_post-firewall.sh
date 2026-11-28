@@ -5,6 +5,28 @@ set -euo pipefail
 
 log() { printf 'firewall: %s\n' "$*" >&2; }
 
+if [[ $# == 1 && "$1" == --verify ]]; then
+  if [[ "$(uname -s)" != Linux ]] || ! command -v ufw >/dev/null; then
+    log 'native UFW verification is inapplicable on this host'
+    exit 20
+  fi
+  if ! live=$(LC_ALL=C ufw status verbose); then
+    log 'could not read native UFW state with the current permissions'
+    exit 1
+  fi
+  if ! grep -Fxq 'Status: active' <<< "$live" ||
+     ! grep -Fxq 'Default: deny (incoming), allow (outgoing), deny (routed)' <<< "$live"; then
+    log 'native UFW is inactive or deviates from the expected defaults'
+    exit 1
+  fi
+  printf '%s\n' 'Native UFW is active with the expected default policy.'
+  exit 0
+fi
+if (( $# != 0 )); then
+  log 'usage: post-firewall.sh [--verify]'
+  exit 2
+fi
+
 if [ "${INSTALL_DOCTOR_FIREWALL:-1}" = 0 ]; then
   log 'native firewall configuration was explicitly omitted from desired state'
   exit 0
