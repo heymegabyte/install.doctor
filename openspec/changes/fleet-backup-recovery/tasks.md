@@ -158,3 +158,17 @@ active and outside this change.
 The previous Restic writer is saved with suffix
 `.pre-retention-guard-20261128`. Keep the timer disabled if the
 old writer must be restored for diagnosis, since it can prune history.
+
+Omen's preceding snapshot independently restored all 1,355 bytes of
+`/etc/ufw/after.rules`, matching the live file. The enrolled repository
+ID starts `69d41c148862`. The active writer now requires the full ID
+through the systemd drop-in `65-repository-identity.conf`. A wrong-ID
+fixture on Omen failed with the snapshot inventory unchanged. The
+installed writer SHA-256 is
+`2cc53c6b743bc92574b3ca94eeffc72ef2d1964deb781302cc1ed6f7c519d35f`.
+The timer remained active after reload, with the recalculated next run
+at 04:24:52 EST. No new backup was triggered by enrollment.
+
+Rollback uses the prior writer with suffix
+`.pre-repository-identity-20261128` and removal of only the identity
+drop-in while the writer is idle, followed by a systemd reload.
