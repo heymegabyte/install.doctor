@@ -131,3 +131,11 @@ active. Automatic execution and wider rollout are pending.
 For rollback, while the service is idle, restore the writer with suffix
 `.pre-repository-identity-20261128`, remove only the repository identity
 drop-in, and reload systemd. The retained writer still previews retention.
+
+The repository-pinned snapshot
+`b75c216ec1a549ba4101c618b49529f4234f0da25ba484d647159a59c3f8f3ed`
+also passed a read-only `restic restore --verify` for the complete
+`/etc/ufw` scope. All contents matched the live directory. The
+12 regular files matched recorded paths, modes and ownership.
+The root-private runtime directory was removed before the
+SSH command returned success.
