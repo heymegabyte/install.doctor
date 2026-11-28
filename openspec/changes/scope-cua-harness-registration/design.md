@@ -1,3 +1,7 @@
+> **Architect:** codex
+> **Architect Role:** assigned
+> Current architecture ownership reviewed November 28, 2026.
+
 ## Context
 
 The existing hook configures the desktop daemon and edits the configuration of Claude Code, Codex, OpenCode, and Antigravity in one execution.

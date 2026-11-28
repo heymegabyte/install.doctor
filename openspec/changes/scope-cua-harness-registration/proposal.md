@@ -1,3 +1,7 @@
+> **Architect:** codex
+> **Architect Role:** assigned
+> Current architecture ownership reviewed November 28, 2026.
+
 ## Why
 
 Selecting the Install Doctor Cua desktop hook currently grants desktop tool access to multiple agent harnesses and can replace malformed operator configuration. Driver setup needs its own authority boundary.
