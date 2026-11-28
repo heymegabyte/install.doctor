@@ -227,3 +227,26 @@ management access and proof that the active WARP or Tunnel path does
 not attribute unrelated clients to a shared ban target.
 
 [CrowdSec journald acquisition](https://docs.crowdsec.net/docs/log_processor/data_sources/journald/)
+
+The Ubuntu controller now acquires the actual user SSH unit. Before
+activation, fresh known-host checks verified the private route and
+the independently forced Cloudflare Access fallback. OpenSSH saw a
+private peer on the first path and loopback on the fallback. The
+installed parser whitelisted the observed private peer and the
+loopback fixture. Access therefore does not provide an original
+Internet client address to this host-level ban path.
+
+After syntax validation, the acquisition file was atomically replaced
+and CrowdSec reloaded with a five-minute host-local rollback armed.
+Both SSH routes succeeded again and acquisition metrics showed 32
+lines read from the corrected unit. Those observed lines were
+unparsed. The prior synthetic parser checks establish classification
+for the authentication failure fixture. The timer was canceled only
+after the path and service checks passed. UFW and the bouncer stayed
+active. The installed acquisition SHA-256 is
+`83fcdd9a2ea9dfc9f1ebe0d4cb84660200447f425541e69ad80b00d22cfdbdc3`.
+
+The prior file is retained as
+`/etc/crowdsec/acquis.yaml.pre-agent-fleet-sshd-20261128`.
+Use atomic replacement and `systemctl reload crowdsec.service` to
+restore it. A live classification and packet-drop canary remain open.
