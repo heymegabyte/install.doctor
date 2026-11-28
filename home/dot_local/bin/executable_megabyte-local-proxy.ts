@@ -162,6 +162,15 @@ function resolveConfiguration(): ProxyConfiguration {
 // the identity of a listener that still runs the previous source.
 const SOURCE_SHA256 = createHash("sha256").update(readFileSync(new URL(import.meta.url))).digest("hex");
 const CONFIG = resolveConfiguration();
+// The operator maintains this comma-separated inventory independently of Nexus search results.
+const RESERVED_NPM_NAMES = new Set(
+  (process.env.MEGABYTE_NPM_RESERVED_NAMES ?? "").split(",").map(name => name.trim()).filter(Boolean),
+);
+for (const name of RESERVED_NPM_NAMES) {
+  if (!/^[a-z0-9_-][a-z0-9._-]*$/.test(name)) {
+    throw new Error("MEGABYTE_NPM_RESERVED_NAMES contains an invalid unscoped npm name");
+  }
+}
 const START_TIME_SECONDS = Date.now() / 1000;
 
 mkdirSync(CONFIG.blobsDir, { recursive: true });
@@ -376,6 +385,7 @@ function rewriteRegistryMetadata(
 async function fetchUpstreamArtifact(
   targetUrl: string,
   incomingHeaders: IncomingMessage["headers"],
+  privateHostedRequest = false,
 ): Promise<RemoteFetchResult> {
   const headers: Record<string, string> = {
     "user-agent":
@@ -389,10 +399,13 @@ async function fetchUpstreamArtifact(
       headers[headerName] = value;
     }
   }
+  if (privateHostedRequest && typeof incomingHeaders.authorization === "string") {
+    headers.authorization = incomingHeaders.authorization;
+  }
   const response = await fetch(targetUrl, {
     method: "GET",
     headers,
-    redirect: "follow",
+    redirect: privateHostedRequest ? "error" : "follow",
     signal: AbortSignal.timeout(CONFIG.upstreamTimeoutMs),
   });
   const arrayBuffer = await response.arrayBuffer();
@@ -641,6 +654,42 @@ async function handleProxyRequest(req: IncomingMessage, res: ServerResponse): Pr
     recordProxyOutcome("HIT-LOCAL-CARGO-CONFIG", repositoryName, cargoConfig.byteLength);
     sendBufferResponse(res, 200, "application/json", cargoConfig, "HIT-LOCAL-CARGO-CONFIG", headOnly);
     return;
+  }
+
+  if (RESERVED_NPM_NAMES.size > 0 &&
+    (repositoryName === "npm-group" || repositoryName === "npm-proxy" || repositoryName === "npm-hosted")) {
+    let npmPath: string;
+    try {
+      npmPath = decodeURIComponent(relativePath.split("?", 1)[0] ?? "");
+      // Reject ambiguous encodings before the URL parser or Nexus normalizes the path.
+      if (/[\\%?#\x00-\x20\x7f]/.test(npmPath) || npmPath.split("/").some(segment => segment === "." || segment === "..")) {
+        throw new Error("Invalid npm path");
+      }
+    } catch {
+      sendBufferResponse(res, 400, "text/plain", Buffer.from("Invalid npm path\n"), "MISS-ERROR", headOnly);
+      return;
+    }
+    const packageName = npmPath.replace(/^\/+/, "").split("/", 1)[0] ?? "";
+    if (RESERVED_NPM_NAMES.has(packageName)) {
+      res.setHeader("Cache-Control", "no-store");
+      if (!req.headers.authorization) {
+        sendBufferResponse(res, 401, "text/plain", Buffer.from("Authorization required\n"), "MISS-ERROR", headOnly);
+        return;
+      }
+      const hostedPath = npmPath.replace(/^\/+/, "").split("/").map(encodeURIComponent).join("/");
+      const query = new URL(rawPath, CONFIG.localBaseUrl).search;
+      try {
+        const remote = await fetchUpstreamArtifact(
+          `${CONFIG.nexusBaseUrl}/repository/npm-hosted/${hostedPath}${query}`,
+          req.headers,
+          true,
+        );
+        sendBufferResponse(res, remote.status, remote.contentType, remote.body, "MISS-VIA-NEXUS", headOnly);
+      } catch {
+        sendBufferResponse(res, 502, "text/plain", Buffer.from("Bad Gateway\n"), "MISS-ERROR", headOnly);
+      }
+      return;
+    }
   }
 
   const acceptHeader = typeof req.headers.accept === "string" ? req.headers.accept : "";

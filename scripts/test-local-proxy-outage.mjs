@@ -32,6 +32,14 @@ test("an npm cache survives a Nexus outage and still serves cold public artifact
     if (request.url.startsWith("/public/")) upstreamRequests.push(request.url);
     if (request.url === "/public/is-number/-/is-number-7.0.0.tgz") {
       response.end(publicArchive);
+    } else if (request.url?.startsWith("/repository/npm-hosted/")) {
+      const url = new URL(request.url, "http://localhost");
+      const status = Number(url.searchParams.get("status") ?? 404);
+      if (request.headers.authorization !== "Bearer fixture") response.writeHead(403).end();
+      else if (status === 200) response.end(archive);
+      else if (status === 302) response.writeHead(302, { location: nexus + "/public/reserved-fixture" }).end();
+      else if (status === 502) request.socket.destroy();
+      else response.writeHead(status).end();
     } else if (!nexusAvailable) {
       response.writeHead(503).end();
     } else if (request.url === packagePath) {
@@ -66,7 +74,7 @@ test("an npm cache survives a Nexus outage and still serves cold public artifact
     "--experimental-strip-types", "--import", `data:text/javascript;base64,${Buffer.from(intercept).toString("base64")}`, script,
   ], {
     env: { ...process.env, MEGABYTE_LOCAL_PROXY_HOST: "127.0.0.1", MEGABYTE_LOCAL_PROXY_PORT: String(port),
-      MEGABYTE_CACHE_ROOT: cache, MEGABYTE_NEXUS_URL: nexus, MEGABYTE_LOCAL_PROXY_META_TTL: "1", MEGABYTE_LOCAL_PROXY_SOURCE_SHA256: "0".repeat(64) },
+      MEGABYTE_CACHE_ROOT: cache, MEGABYTE_NPM_RESERVED_NAMES: "reserved-fixture", MEGABYTE_NEXUS_URL: nexus, MEGABYTE_LOCAL_PROXY_META_TTL: "1", MEGABYTE_LOCAL_PROXY_SOURCE_SHA256: "0".repeat(64) },
     stdio: "inherit",
   });
   const exited = once(child, "exit");
@@ -111,6 +119,7 @@ test("an npm cache survives a Nexus outage and still serves cold public artifact
   await setTimeout(1_100);
   // Model on-disk entries left by older versions of the proxy.
   const legacyEntries = [
+    { path: "/repository/npm-group/%72eserved-fixture/-/reserved-fixture-1.0.0.tgz?status=404", age: 0, directory: "blobs", extension: ".bin" },
     { path: "/repository/npm-group/@theme-tools%2flegacy-fresh", age: 0, directory: "meta", extension: ".body.json" },
     { path: "/repository/npm-group/@theme-tools%2flegacy-stale", age: 60, directory: "meta", extension: ".body.json" },
     { path: "/repository/npm-group/@theme.tools/legacy/-/legacy-1.0.0.tgz", age: 0, directory: "blobs", extension: ".bin" },
@@ -133,13 +142,30 @@ test("an npm cache survives a Nexus outage and still serves cold public artifact
     "/repository/npm-group/@theme-tools%2fcold",
     "/repository/npm-proxy/%40theme.tools%2Fcold",
     "/repository/npm-group/@theme.tools/cold/-/cold-1.0.0.tgz",
-    ...legacyEntries.map(({ path }) => path),
+    ...legacyEntries.filter(({ path }) => path.includes("legacy")).map(({ path }) => path),
   ]) {
     const rejected = await fetch(proxy + path, { signal: AbortSignal.timeout(5_000) });
     assert.equal(rejected.status, 503);
     assert.equal(rejected.headers.get("x-megabyte-cache"), "MISS-ERROR");
     await rejected.arrayBuffer();
   }
+  const reserved = "/repository/npm-group/%72eserved-fixture/-/reserved-fixture-1.0.0.tgz?status=";
+  const authorization = { authorization: "Bearer fixture" };
+  const privateRequest = (status, headers = authorization) =>
+    fetch(proxy + reserved + status, { headers, signal: AbortSignal.timeout(5_000) });
+  assert.equal((await privateRequest(200, {})).status, 401);
+  assert.equal((await privateRequest(200, { authorization: "Bearer wrong-scope" })).status, 403);
+  const allowed = await privateRequest(200);
+  assert.equal(allowed.status, 200);
+  assert.equal(allowed.headers.get("cache-control"), "no-store");
+  assert.deepEqual(Buffer.from(await allowed.arrayBuffer()), archive);
+  for (const [upstreamStatus, expectedStatus] of [[401, 401], [403, 403], [404, 404], [503, 503], [302, 502], [502, 502]]) {
+    const response = await privateRequest(upstreamStatus);
+    assert.equal(response.status, expectedStatus);
+    await response.arrayBuffer();
+    assert.deepEqual(upstreamRequests, []);
+  }
   assert.deepEqual(await read("/repository/npm-group/is-number/-/is-number-7.0.0.tgz", "MISS-VIA-UPSTREAM"), publicArchive);
+  assert.deepEqual(await read("/repository/npm-group/is-number/-/is-number-7.0.0.tgz", "HIT-LOCAL"), publicArchive);
   assert.deepEqual(upstreamRequests, ["/public/is-number/-/is-number-7.0.0.tgz"]);
 });
