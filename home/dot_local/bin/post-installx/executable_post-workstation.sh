@@ -2741,11 +2741,11 @@ while IFS=$'\t' read -r pool capacity extra; do
   fi
 done <<<"$pools"
 EOF
-  run_root install -m 0755 "$TMP_DIR/fleet-zfs-autosnap-guard" /usr/local/bin/fleet-zfs-autosnap-guard
+  run_root install -m 0755 "$TMP_DIR/fleet-zfs-autosnap-guard" /usr/local/bin/sanoid-capacity-preflight
   run_root install -d -m 0755 /etc/systemd/system/sanoid.service.d
   cat > "$TMP_DIR/capacity-guard.conf" <<'EOF'
 [Service]
-ExecStartPre=/usr/local/bin/fleet-zfs-autosnap-guard
+ExecStartPre=/usr/local/bin/sanoid-capacity-preflight
 EOF
   run_root cp "$TMP_DIR/capacity-guard.conf" /etc/systemd/system/sanoid.service.d/capacity-guard.conf
   run_root systemctl daemon-reload
