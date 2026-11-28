@@ -21,5 +21,43 @@ grep -Fq 'exit 20' "$HOOK" \
 if grep -qE '10\.0\.0\.155|10\.0\.0\.143|legion-firewall|LEGION-INBOUND' "$HOOK"; then fail 'host-specific Legion firewall logic remains'; else pass 'firewall boundary is host-neutral'; fi
 if sed '/^[[:space:]]*#/d' "$HOOK" | grep -Eq 'SUDO_PASSWORD|get-secret|askpass|SUDO_ASKPASS'; then fail 'firewall boundary retrieves ambient privilege secrets'; else pass 'firewall boundary retrieves no privilege secret'; fi
 
+fixture=$(mktemp -d)
+trap 'rm -rf -- "$fixture"' EXIT
+cat > "$fixture/uname" <<'EOF'
+#!/bin/sh
+printf '%s\n' "${FIXTURE_OS:-Linux}"
+EOF
+cat > "$fixture/ufw" <<'EOF'
+#!/bin/sh
+[ "$*" = 'status verbose' ] || exit 99
+case "$FIXTURE_POLICY" in
+  healthy)
+    printf '%s\n' 'Status: active' 'Default: deny (incoming), allow (outgoing), deny (routed)'
+    ;;
+  inactive) printf '%s\n' 'Status: inactive' ;;
+  drifted)
+    printf '%s\n' 'Status: active' 'Default: allow (incoming), allow (outgoing), deny (routed)'
+    ;;
+  unreadable) exit 1 ;;
+  *) exit 98 ;;
+esac
+EOF
+chmod 0755 "$fixture/uname" "$fixture/ufw"
+verify_case() {
+  local mode=$1 platform=$2 expected=$3 message=$4 result=0 output
+  output=$(PATH="$fixture:$PATH" FIXTURE_POLICY="$mode" FIXTURE_OS="$platform" \
+    bash "$HOOK" --verify 2>&1) || result=$?
+  if [[ "$result" == "$expected" && "$output" == *"$message"* ]]; then
+    pass "read-only verifier: $mode on $platform"
+  else
+    fail "read-only verifier: $mode on $platform (exit $result, output $output)"
+  fi
+}
+verify_case healthy Linux 0 'Native UFW is active'
+verify_case inactive Linux 1 'inactive or deviates'
+verify_case drifted Linux 1 'inactive or deviates'
+verify_case unreadable Linux 1 'could not read'
+verify_case healthy Darwin 20 'inapplicable'
+
 printf 'firewall-enforcement: %d passed, %d failed\n' "$P" "$F"
 [ "$F" -eq 0 ]
