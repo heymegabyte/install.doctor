@@ -271,3 +271,23 @@ a decision was created, so it supplied no valid packet-drop
 comparison. Its interface and namespace were removed. The table
 propagation test is verified; positive-control packet acceptance
 and subsequent denial remain open.
+
+### Guarded scheduled capture and restore
+
+On November 28 at 04:24:45 EST the Ubuntu controller timer wrote
+`9ff0e3d9c373e53795adf1413d1634f2ab8ddf4d7c51cbc79db8cee9a889cbbf`.
+At 04:24:54 EST Omen's timer wrote
+`8c9b057eed043eaae49f7433484ea950d773963873a2d8e9b967d1f2df7e938b`.
+Both systemd services exited 0 and Restic reported no integrity
+errors. A read-only dump of `/etc/ufw/after.rules` from each exact
+generation matched the live bytes (1,397 on Ubuntu and 1,355 on Omen).
+The earlier independently tested snapshots `b75c216e` and
+`2f858a77` remained in their respective inventories. Both drills
+removed their private temporary directories.
+
+These two timer invocations verify repository identity enforcement,
+retention preview and scheduled capture on the two enrolled hosts.
+Omen additionally exercised its required-source mount check.
+The historical systemd descriptions still say Prune; execution used
+the confirmed preview-only writers. Other fleet hosts and independent
+credential recovery remain open.
