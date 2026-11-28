@@ -6,6 +6,10 @@ const id = z.string().regex(/^[a-zA-Z0-9][a-zA-Z0-9._:/@-]{0,255}$/);
 const digest = z.string().regex(/^[a-f0-9]{64}$/);
 const timestamp = z.string().datetime({ offset: true }).max(64);
 const owner = z.enum(['sanoid', 'proxmox-autosnap', 'manual', 'external']);
+function isPoolDataset(name: string, pool: string): boolean {
+  return !name.includes('@') && (name === pool || name.startsWith(`${pool}/`));
+}
+
 const operation = z.enum(['snapshot', 'prune', 'scrub']);
 
 const ScheduleSchema = z.strictObject({
@@ -64,11 +68,17 @@ export const ZfsProtectionPolicySchema = z.strictObject({
     context.addIssue({ code: 'custom', path: ['capacity', 'warningRatio'], message: 'warning threshold must precede admission threshold' });
   }
   for (const [index, exclusion] of value.exclusions.entries()) {
+    if (exclusion.kind === 'dataset' && !isPoolDataset(exclusion.pattern, value.pool)) {
+      context.addIssue({ code: 'custom', path: ['exclusions', index, 'pattern'], message: 'dataset exclusion must belong to the policy pool' });
+    }
     if (exclusion.kind === 'dataset' && /[*?\[]/.test(exclusion.pattern)) {
       context.addIssue({ code: 'custom', path: ['exclusions', index, 'pattern'], message: 'ZFS snapshot exclusions require exact dataset boundaries, not file globs' });
     }
   }
   for (const [index, dataset] of value.datasets.entries()) {
+    if (!isPoolDataset(dataset.dataset, value.pool)) {
+      context.addIssue({ code: 'custom', path: ['datasets', index, 'dataset'], message: 'dataset must belong to the policy pool' });
+    }
     if (dataset.managed && dataset.snapshotOwner === 'manual') {
       context.addIssue({ code: 'custom', path: ['datasets', index, 'snapshotOwner'], message: 'managed datasets require an automated owner' });
     }
@@ -90,6 +100,17 @@ export const ZfsProtectionObservationSchema = z.strictObject({
   if (value.pool.allocatedBytes > value.pool.sizeBytes) context.addIssue({ code: 'custom', path: ['pool', 'allocatedBytes'], message: 'allocated bytes exceed pool size' });
   const datasets = value.datasets.map(item => item.name);
   if (new Set(datasets).size !== datasets.length) context.addIssue({ code: 'custom', path: ['datasets'], message: 'observed datasets must be unique' });
+  for (const [index, dataset] of value.datasets.entries()) {
+    if (!isPoolDataset(dataset.name, value.pool.name)) {
+      context.addIssue({ code: 'custom', path: ['datasets', index, 'name'], message: 'dataset must belong to the observed pool' });
+    }
+  }
+  for (const [index, snapshot] of value.snapshots.entries()) {
+    const [dataset, name, extra] = snapshot.name.split('@');
+    if (!dataset || !name || extra !== undefined || !isPoolDataset(dataset, value.pool.name)) {
+      context.addIssue({ code: 'custom', path: ['snapshots', index, 'name'], message: 'snapshot must identify a dataset in the observed pool' });
+    }
+  }
   const snapshots = value.snapshots.map(item => item.name);
   if (new Set(snapshots).size !== snapshots.length) context.addIssue({ code: 'custom', path: ['snapshots'], message: 'observed snapshots must be unique' });
   for (const [snapshotIndex, snapshot] of value.snapshots.entries()) for (const [dependencyIndex, dependency] of snapshot.dependencies.entries()) {

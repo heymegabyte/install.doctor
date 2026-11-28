@@ -73,8 +73,23 @@ test('strict policy validation rejects globbed ZFS exclusions, unmanaged ownersh
   assert.throws(() => planZfsProtection(manual, observation), /automated owner/);
   const duplicate = structuredClone(policy); duplicate.datasets.push(duplicate.datasets[0]);
   assert.throws(() => planZfsProtection(duplicate, observation), /unique/);
-  assert.throws(() => planZfsProtection({ ...policy, pool: 'production' }, observation), /does not match/);
+  assert.throws(() => planZfsProtection({ ...policy, pool: 'production', datasets: [{ ...policy.datasets[0], dataset: 'production/data' }], exclusions: [] }, observation), /does not match/);
   assert.throws(() => discoverZfsProtection({ ...observation, readOnly: false }), /readOnly/);
   const badDependency = structuredClone(observation); badDependency.snapshots[0].dependencies[0].snapshot = 'labpool/data@other';
   assert.throws(() => discoverZfsProtection(badDependency), /containing snapshot/);
+});
+
+test('pool capacity and ownership evidence cannot cover a different pool', () => {
+  const foreignPolicy = structuredClone(policy);
+  foreignPolicy.datasets[0].dataset = 'labpool-other/data';
+  assert.throws(() => planZfsProtection(foreignPolicy, observation), /dataset must belong to the policy pool/);
+
+  const foreignObservation = structuredClone(observation);
+  foreignObservation.datasets[0].name = 'otherpool/data';
+  assert.throws(() => discoverZfsProtection(foreignObservation), /dataset must belong to the observed pool/);
+
+  const foreignSnapshot = structuredClone(observation);
+  foreignSnapshot.snapshots[0].name = 'otherpool/data@sanoid_2026-11-10';
+  foreignSnapshot.snapshots[0].dependencies = [];
+  assert.throws(() => discoverZfsProtection(foreignSnapshot), /snapshot must identify a dataset in the observed pool/);
 });
