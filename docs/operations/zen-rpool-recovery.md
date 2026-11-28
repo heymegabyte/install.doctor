@@ -2,7 +2,7 @@
 
 Observed 2026-11-04 through the repository-authorized `zen.megabyte.space` SSH target. Raw evidence is held in a mode-0700 temporary evidence directory and is not committed because it contains device and host metadata.
 
-## Current finding
+## November 4 assessment
 
 - `bpool`: online, zero known data errors.
 - `rpool`: online, but the completed scrub reports two permanent data errors and repaired `0B`. `zpool status -v` does not resolve them to file paths.
@@ -35,3 +35,22 @@ The repair is blocked on all of:
 7. Retain the old device unchanged until recovery is accepted; then handle it under the approved media-disposal process.
 
 Use `scripts/fleet-storage-assess.sh --host zen.megabyte.space --output <new-private-directory>` for repeatable read-only evidence. It intentionally has no repair mode.
+
+## November 28 offsite recovery update
+
+The independently enrolled Wasabi receiver still lists
+`host/zen/2026-11-27T06:48:07Z` with its protection flag set. All six
+split payload and metadata indexes for configuration, host metadata,
+and home show encryption. Zen's recovery evidence records an actual
+independent full extraction of those archives, including 126,802 home
+files. This satisfies the configuration and home restore checkpoint for
+that generation. Check coverage for application data changed since the
+capture before selecting it for hardware recovery.
+[Zen PBS recovery evidence](https://github.com/heymegabyte/zen.megabyte.space/blob/main/evidence/2026-11-27-pbs-recovery.md#retention-while-zen-is-unreachable)
+
+The enrolled SSH route timed out before authentication on November 28.
+Fresh pool topology, error counters, disk identity, and repair outcome
+remain unknown. Establish an independent console or wired management
+path before attempting device changes. Preserve the protected recovery
+generation until an equivalent replacement has passed an independent
+restore.
