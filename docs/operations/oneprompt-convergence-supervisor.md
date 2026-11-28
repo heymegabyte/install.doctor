@@ -16,6 +16,14 @@ Status keeps manager, worker, heartbeat, progress, checkpoint, blockers, budgets
 
 `adopt-plan` is read-only. `adopt` accepts only an inactive adapter-managed legacy definition, creates a permission-restricted recovery bundle, migrates through `scripts/convergence-machine.mjs`, retains the most restrictive intent, and installs the canonical definition inactive. `rollback` stops and unloads canonical state, verifies no owner, restores the recorded database/config/legacy definition, and leaves explicit stopped intent. Neither operation starts a service.
 
+On macOS, an unmanaged but recognized canonical definition can be recovered
+when its recorded checkout is missing. Pass the absent absolute checkout as
+`--predecessor-repo` to `adopt` alongside the supported destination checkout,
+machine interface, and revision. The adapter validates the replacement before
+unloading the predecessor, retains the old definition for rollback, and leaves
+the new definition inactive with stopped intent. If the predecessor fails to
+unload, its definition stays in place.
+
 ```bash
 bash -n home/dot_local/bin/executable_oneprompt-convergence-supervisor
 bash scripts/test-oneprompt-convergence-supervisor.sh

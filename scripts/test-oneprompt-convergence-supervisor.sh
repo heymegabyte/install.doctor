@@ -20,7 +20,7 @@ case "${1:-}" in
     esac
     ;;
   bootstrap|kickstart) printf active >"$FAKE_MANAGER_STATE";;
-  bootout) printf inactive >"$FAKE_MANAGER_STATE";;
+  bootout) test "${FAKE_MANAGER_BOOTOUT_FAIL:-0}" = 0 || exit 1; printf inactive >"$FAKE_MANAGER_STATE";;
 esac
 if test "${1:-}" = bootout; then if test -f "$FAKE_STATE_DB"; then mode="$(sqlite3 "$FAKE_STATE_DB" 'select desired_mode from convergence_state where singleton=1;' 2>/dev/null || printf absent)"; else mode=absent; fi; printf 'bootout-mode=%s\n' "$mode" >>"$FAKE_MANAGER_CALLS"; fi
 SH
@@ -169,6 +169,45 @@ node -e 'const x=JSON.parse(process.argv[1]);if(x.controller.desiredMode==="runn
 run_canonical rollback >/dev/null
 test "$canonical_before" = "$(shasum -a 256 "$CANONICAL_PREDECESSOR" | awk '{print $1}')" || fail canonical-predecessor-rollback
 pass 'known inactive canonical predecessor is adopted recoverably without starting'
+
+if test "$(uname -s)" = Darwin; then
+  HOME_ORPHAN="$TMP/home-orphan"; mkdir -p "$HOME_ORPHAN/Library/LaunchAgents"
+  ORPHAN="$TMP/missing-oneprompt-checkout"
+  ORPHAN_PLIST="$HOME_ORPHAN/Library/LaunchAgents/tools.theme.oneprompt.converge.plist"
+  sed -e "s|$REPO|$ORPHAN|g" -e "s|$HOME_CANONICAL|$HOME_ORPHAN|g" "$CANONICAL_PREDECESSOR" >"$ORPHAN_PLIST"
+  plutil -insert KeepAlive -bool false "$ORPHAN_PLIST"
+  plutil -insert EnvironmentVariables.XDG_CACHE_HOME -string "$HOME_ORPHAN/.cache" "$ORPHAN_PLIST"
+  plutil -insert EnvironmentVariables.XDG_CONFIG_HOME -string "$HOME_ORPHAN/.config" "$ORPHAN_PLIST"
+  plutil -insert EnvironmentVariables.XDG_DATA_HOME -string "$HOME_ORPHAN/.local/share" "$ORPHAN_PLIST"
+  orphan_before="$(shasum -a 256 "$ORPHAN_PLIST" | awk '{print $1}')"
+  run_orphan() { env HOME="$HOME_ORPHAN" PATH="$BIN_DIR:$NODE_DIR:/usr/bin:/bin" XDG_STATE_HOME="$HOME_ORPHAN/.local/state" ONEPROMPT_SUPERVISOR_MANAGER=launchd FAKE_MANAGER_STATE="$TMP/orphan-manager" FAKE_MANAGER_CALLS="$TMP/orphan-calls" FAKE_STATE_DB="$HOME_ORPHAN/.local/state/oneprompt-convergence/state.sqlite" "$TOOL" "$@"; }
+  if run_orphan adopt --repo "$REPO" --machine-interface "$MACHINE" --revision 0000000000000000000000000000000000000000 --predecessor-repo "$ORPHAN" >/dev/null 2>&1; then fail orphan-bad-pin; fi
+  test "$orphan_before" = "$(shasum -a 256 "$ORPHAN_PLIST" | awk '{print $1}')" || fail orphan-bad-pin-mutated
+  printf scheduled >"$TMP/orphan-manager"
+  if FAKE_MANAGER_BOOTOUT_FAIL=1 run_orphan adopt --repo "$REPO" --machine-interface "$MACHINE" --revision "$REVISION" --predecessor-repo "$ORPHAN" >/dev/null 2>&1; then fail orphan-failed-unload; fi
+  test "$orphan_before" = "$(shasum -a 256 "$ORPHAN_PLIST" | awk '{print $1}')" || fail orphan-failed-unload-mutated
+  cat >"$BIN_DIR/node" <<'SH'
+#!/usr/bin/env bash
+if test "${FAKE_MACHINE_INSTALL_FAIL:-0}" = 1 && [[ "${1:-}" == */convergence-machine.mjs ]] && test "${2:-}" = install; then exit 74; fi
+exec "$FAKE_REAL_NODE" "$@"
+SH
+  chmod +x "$BIN_DIR/node"
+  export FAKE_REAL_NODE="$NODE_DIR/node"
+  if FAKE_MACHINE_INSTALL_FAIL=1 run_orphan adopt --repo "$REPO" --machine-interface "$MACHINE" --revision "$REVISION" --predecessor-repo "$ORPHAN" >/dev/null 2>&1; then fail orphan-failed-install; fi
+  test "$orphan_before" = "$(shasum -a 256 "$ORPHAN_PLIST" | awk '{print $1}')" || fail orphan-failed-install-mutated
+  test ! -e "$HOME_ORPHAN/.local/state/oneprompt-convergence/host-adapter/config" || fail orphan-incomplete-config
+  rm "$BIN_DIR/node"
+  ONEPROMPT_CONVERGENCE_STATE_DIR="$HOME_ORPHAN/.local/state/oneprompt-convergence" "$MACHINE" install --json --migration-mode safe >/dev/null
+  ONEPROMPT_CONVERGENCE_STATE_DIR="$HOME_ORPHAN/.local/state/oneprompt-convergence" "$MACHINE" stop --json --migration-mode forbid >/dev/null
+  run_orphan adopt --repo "$REPO" --machine-interface "$MACHINE" --revision "$REVISION" --predecessor-repo "$ORPHAN" >/dev/null
+  run_orphan status | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const x=JSON.parse(s);if(x.controller.desiredMode!=="stopped"||x.adoptionState!=="adopted")process.exit(1)})' || fail orphan-status
+  ! grep -Eq 'bootstrap|kickstart' "$TMP/orphan-calls" || fail orphan-started
+  orphan_bundle="$(sed -n "s/^recovery_bundle='\(.*\)'$/\1/p" "$HOME_ORPHAN/.local/state/oneprompt-convergence/host-adapter/config")"
+  test "$(sqlite3 "$orphan_bundle/state.sqlite.before" 'PRAGMA quick_check')" = ok || fail orphan-sqlite-backup
+  run_orphan rollback >/dev/null
+  test "$orphan_before" = "$(shasum -a 256 "$ORPHAN_PLIST" | awk '{print $1}')" || fail orphan-rollback
+  pass 'orphaned canonical predecessor requires a valid replacement and recovers stopped'
+fi
 
 HOME_UNKNOWN="$TMP/home-unknown"; mkdir -p "$HOME_UNKNOWN/Library/LaunchAgents"
 printf '<plist><dict><key>Label</key><string>tools.theme.oneprompt.converge</string><key>ProgramArguments</key><array><string>/tmp/unknown-writer</string></array></dict></plist>\n' >"$HOME_UNKNOWN/Library/LaunchAgents/tools.theme.oneprompt.converge.plist"

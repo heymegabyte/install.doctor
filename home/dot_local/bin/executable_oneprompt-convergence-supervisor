@@ -224,20 +224,22 @@ verify_known_canonical_predecessor() {
   serialized="$(plutil -convert json -o - "$definition" 2>/dev/null)" || die "canonical predecessor is not a valid launchd property list"
   node -e '
     const value=JSON.parse(process.argv[1]);
-    const expectedWorker=process.argv[2], expectedRepo=process.argv[3], expectedState=process.argv[4];
+    const expectedWorker=process.argv[2], expectedRepo=process.argv[3], expectedState=process.argv[4], home=process.argv[5];
     const args=value.ProgramArguments;
     const env=value.EnvironmentVariables;
-    const allowed=new Set(["Label","ProgramArguments","WorkingDirectory","EnvironmentVariables","RunAtLoad","StartInterval","ThrottleInterval","ProcessType","StandardOutPath","StandardErrorPath"]);
+    const allowed=new Set(["Label","ProgramArguments","WorkingDirectory","EnvironmentVariables","RunAtLoad","StartInterval","ThrottleInterval","ProcessType","StandardOutPath","StandardErrorPath","KeepAlive"]);
     const executable=Array.isArray(args) ? args[0] : "";
     const safeExecutable=typeof executable==="string" && executable.startsWith("/") && executable.split("/").at(-1)==="node";
-    const safeEnvironment=env && typeof env==="object" && !Array.isArray(env) && env.ONEPROMPT_CONVERGENCE_STATE_DIR===expectedState && Object.keys(env).every((key)=>["HOME","PATH","ONEPROMPT_CONVERGENCE_STATE_DIR"].includes(key));
-    if(value.Label!=="tools.theme.oneprompt.converge" || !Array.isArray(args) || args.length!==2 || !safeExecutable || args[1]!==expectedWorker || value.WorkingDirectory!==expectedRepo || !safeEnvironment || value.KeepAlive===true || Object.keys(value).some((key)=>!allowed.has(key))) process.exit(1);
-  ' "$serialized" "$worker" "$repo" "$state_root" || die "canonical definition is not a recognized inactive OnePrompt predecessor"
+    const locations={ HOME:home, ONEPROMPT_CONVERGENCE_STATE_DIR:expectedState, XDG_CACHE_HOME:home+"/.cache", XDG_CONFIG_HOME:home+"/.config", XDG_DATA_HOME:home+"/.local/share" };
+    const safeEnvironment=env && typeof env==="object" && !Array.isArray(env) && env.ONEPROMPT_CONVERGENCE_STATE_DIR===expectedState
+      && Object.entries(env).every(([key,val])=>key==="PATH" ? typeof val==="string" : Object.hasOwn(locations,key) && locations[key]===val);
+    if(value.Label!=="tools.theme.oneprompt.converge" || !Array.isArray(args) || args.length!==2 || !safeExecutable || args[1]!==expectedWorker || value.WorkingDirectory!==expectedRepo || !safeEnvironment || (value.KeepAlive!==undefined && value.KeepAlive!==false) || Object.keys(value).some((key)=>!allowed.has(key))) process.exit(1);
+  ' "$serialized" "$worker" "$repo" "$state_root" "$HOME" || die "canonical definition is not a recognized inactive OnePrompt predecessor"
 }
 
 adopt_service() {
-  local repo_arg="" machine_arg="" expected_revision="" m legacy canonical old_config bundle desired predecessor_kind
-  while test "$#" -gt 0; do case "$1" in --repo) repo_arg="$2"; shift 2;; --machine-interface) machine_arg="$2"; shift 2;; --revision) expected_revision="$2"; shift 2;; *) die "unknown adopt option: $1";; esac; done
+  local repo_arg="" machine_arg="" expected_revision="" predecessor_repo="" m legacy canonical old_config bundle desired predecessor_kind
+  while test "$#" -gt 0; do case "$1" in --repo) repo_arg="$2"; shift 2;; --machine-interface) machine_arg="$2"; shift 2;; --revision) expected_revision="$2"; shift 2;; --predecessor-repo) predecessor_repo="$2"; shift 2;; *) die "unknown adopt option: $1";; esac; done
   test -n "$repo_arg" && test -n "$machine_arg" && test -n "$expected_revision" || die "adopt requires --repo, --machine-interface, and --revision"
   m="$(manager)"; legacy="$(legacy_definition_for "$m")"; canonical="$(definition_path_for "$m")"; old_config="$state_root/config"
   if test -r "$config_root/config" && test ! -e "$legacy"; then
@@ -249,6 +251,7 @@ adopt_service() {
   fi
   repo_arg="$(canonical_repo "$repo_arg")"
   if test -f "$legacy"; then
+    test -z "$predecessor_repo" || die "explicit predecessor recovery requires a canonical launchd definition"
     predecessor_kind=legacy
     test -r "$old_config/repository" && test -r "$old_config/manager" || die "legacy definition is not adapter-managed"
     test "$(sed -n '1p' "$old_config/repository")" = "$repo_arg" || die "legacy repository differs from requested repository"
@@ -257,7 +260,23 @@ adopt_service() {
   elif test -f "$canonical"; then
     predecessor_kind=canonical
     canonical_active "$m" && die "canonical predecessor is active; stop it before adoption"
-    verify_known_canonical_predecessor "$m" "$canonical" "$repo_arg"
+    if test -n "$predecessor_repo"; then
+      predecessor_kind=canonical-orphan
+      validate_path "$predecessor_repo"
+      test ! -e "$predecessor_repo" && test ! -L "$predecessor_repo" || die "explicit predecessor checkout must be absent"
+      verify_known_canonical_predecessor "$m" "$canonical" "$predecessor_repo"
+      test "$expected_revision" = "$oneprompt_revision" && test "$(repo_revision "$repo_arg")" = "$expected_revision" || die "unsupported replacement OnePrompt revision"
+      test "$machine_arg" = "$repo_arg/scripts/convergence-machine.mjs" && test -x "$machine_arg" || die "replacement machine interface must be the pinned checkout executable"
+      git -C "$repo_arg" diff --quiet HEAD -- scripts vendor/theme-tools package.json package-lock.json || die "replacement checkout launch inputs differ from the pinned revision"
+      test -f "$repo_arg/scripts/convergence-worker.mjs" || die "replacement worker is missing"
+      node "$repo_arg/scripts/verify-convergence-artifact.mjs" >/dev/null || die "replacement shared artifact failed repository verification"
+      if test -f "$state_root/state.sqlite"; then
+        configured_machine="$machine_arg"
+        machine_call status | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const x=JSON.parse(s);if(x.desiredMode!=="stopped"||(x.currentOwner!=null&&x.processObservation!=="dead"))process.exit(1)})' || die "orphan recovery requires durable stopped intent and no live worker"
+      fi
+    else
+      verify_known_canonical_predecessor "$m" "$canonical" "$repo_arg"
+    fi
   else
     die "no legacy or recognized canonical predecessor definition is present"
   fi
@@ -267,10 +286,39 @@ adopt_service() {
   else
     cp -p "$canonical" "$bundle/predecessor-definition"
   fi
-  test ! -f "$state_root/state.sqlite" || cp -p "$state_root/state.sqlite" "$bundle/state.sqlite.before"
+  if test -f "$state_root/state.sqlite"; then
+    if test "$predecessor_kind" = canonical-orphan; then
+      validate_path "$bundle"
+      sqlite3 "$state_root/state.sqlite" ".backup '$bundle/state.sqlite.before'" || die "unable to back up orphaned supervisor state"
+      chmod 600 "$bundle/state.sqlite.before"
+    else
+      cp -p "$state_root/state.sqlite" "$bundle/state.sqlite.before"
+    fi
+  fi
   printf '{"schemaVersion":1,"predecessorKind":"%s","legacyIdentity":"%s","canonicalIdentity":"%s","repository":"%s"}\n' "$predecessor_kind" "$legacy_identity" "$logical_identity" "$(json_string "$repo_arg")" | write_atomic "$bundle/manifest.json"
-  if test "$predecessor_kind" = legacy; then rm -f "$legacy"; else unload_canonical_predecessor "$m"; rm -f "$canonical"; fi
-  install_service --repo "$repo_arg" --machine-interface "$machine_arg" --revision "$expected_revision"
+  if test "$predecessor_kind" = legacy; then
+    rm -f "$legacy"
+  else
+    unload_canonical_predecessor "$m"
+    if test -n "$predecessor_repo" && launchctl print "gui/$(id -u)/$logical_identity" >/dev/null 2>&1; then
+      die "orphaned predecessor is still loaded; original definition preserved; recovery=$bundle"
+    fi
+    rm -f "$canonical"
+  fi
+  if test -n "$predecessor_repo"; then
+    if ! (
+      set -e
+      install_service --repo "$repo_arg" --machine-interface "$machine_arg" --revision "$expected_revision" || exit 1
+      read_config
+      machine_call stop >/dev/null
+    ); then
+      rm -f "$config_root/config"
+      write_atomic "$canonical" <"$bundle/predecessor-definition"
+      die "orphan replacement failed; original definition restored inactive; recovery=$bundle"
+    fi
+  else
+    install_service --repo "$repo_arg" --machine-interface "$machine_arg" --revision "$expected_revision"
+  fi
   read_config
   desired="$(machine_call status | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>console.log(JSON.parse(s).desiredMode))')"
   if test -e "$state_root/stop"; then machine_call stop >/dev/null
@@ -292,13 +340,15 @@ rollback_service() {
   node -e 'const s=JSON.parse(process.argv[1]); if(s.ownerId!=null||s.desiredMode!=="stopped")process.exit(1)' "$status" || die "controller still has an owner or is not stopped"
   test "$(sha256 "$configured_definition")" = "$configured_definition_sha256" || die "canonical definition changed; refusing rollback"
   rm -f "$configured_definition"; test "$configured_manager" != systemd || rm -f "$(timer_path)"
-  if test "${predecessor_kind:-legacy}" = canonical; then
+  if test "${predecessor_kind:-legacy}" = canonical || test "${predecessor_kind:-legacy}" = canonical-orphan; then
     cp -p "$recovery_bundle/predecessor-definition" "$configured_definition"
   else
     cp -p "$recovery_bundle/predecessor-definition" "$(legacy_definition_for "$configured_manager")"
     mkdir -p "$state_root/config"; cp -R "$recovery_bundle/legacy-config/." "$state_root/config/"
   fi
-  test ! -f "$recovery_bundle/state.sqlite.before" || cp -p "$recovery_bundle/state.sqlite.before" "$state_root/state.sqlite"
+  if test "${predecessor_kind:-legacy}" != canonical-orphan && test -f "$recovery_bundle/state.sqlite.before"; then
+    cp -p "$recovery_bundle/state.sqlite.before" "$state_root/state.sqlite"
+  fi
   : >"$state_root/stop"; rm -f "$config_root/config"
   printf 'restored inactive %s predecessor definition; stopped intent retained\n' "${predecessor_kind:-legacy}"
 }
