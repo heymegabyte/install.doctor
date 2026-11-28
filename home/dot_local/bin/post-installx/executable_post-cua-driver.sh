@@ -31,29 +31,55 @@ else
   warn() { echo "[WARN] $1" >&2; }
 fi
 
-if [ "${INSTALL_DOCTOR_CUA_DRIVER:-0}" != "1" ] || [ "${HEADLESS_INSTALL:-}" = "1" ] || [ "${HEADLESS_INSTALL:-}" = "true" ]; then
-  log "Cua Driver is lazy; set INSTALL_DOCTOR_CUA_DRIVER=1 on an interactive desktop to enable it"
+if (( $# > 1 )) || [[ -n "${1:-}" && "${1:-}" != --check-session ]]; then
+  printf 'Usage: post-cua-driver.sh [--check-session]\n' >&2
+  exit 64
+fi
+check_session=${1:-}
+skip() {
+  log "$1"
+  if [[ "$check_session" == --check-session ]]; then exit 1; fi
   exit 0
+}
+
+if [ "${INSTALL_DOCTOR_CUA_DRIVER:-0}" != "1" ] || [ "${HEADLESS_INSTALL:-}" = "1" ] || [ "${HEADLESS_INSTALL:-}" = "true" ]; then
+  skip 'Cua Driver skipped by provisioning selection or headless mode'
 fi
 
-# Verify supported OS and real configured desktop (works even over SSH)
-has_desktop=0
-if declare -f has_configured_desktop >/dev/null 2>&1; then
-  has_configured_desktop && has_desktop=1 || has_desktop=0
-else
-  if [ "$OS" = "macos" ] && [ -d "/System/Library/CoreServices/Finder.app" ]; then
-    has_desktop=1
-  elif [ -n "${DISPLAY:-}" ] || [ -n "${WAYLAND_DISPLAY:-}" ] \
-    || compgen -G "/run/user/*/wayland-*" >/dev/null 2>&1 \
-    || compgen -G "/tmp/.X11-unix/X*" >/dev/null 2>&1 \
-    || compgen -G "/usr/share/wayland-sessions/*.desktop" >/dev/null 2>&1 \
-    || compgen -G "/usr/share/xsessions/*.desktop" >/dev/null 2>&1; then
-    has_desktop=1
-  fi
-fi
+has_local_user_desktop() {
+  (( EUID != 0 )) || return 1
+  case "$(uname -s)" in
+    Darwin)
+      [[ "$(stat -f '%u' /dev/console)" == "$EUID" ]] &&
+        /bin/launchctl print "gui/$EUID" >/dev/null 2>&1
+      ;;
+    Linux)
+      local sessions session uid properties
+      sessions=$(loginctl list-sessions --no-legend --no-pager 2>/dev/null) || return 1
+      while read -r session uid _; do
+        [[ -n "$session" && "$uid" == "$EUID" ]] || continue
+        properties=$(loginctl show-session "$session" --no-pager \
+          -p User -p Type -p Class -p Seat -p Remote -p Active 2>/dev/null) || continue
+        if grep -Fxq "User=$EUID" <<<"$properties" &&
+           grep -Eq '^Type=(x11|wayland)$' <<<"$properties" &&
+           grep -Fxq 'Class=user' <<<"$properties" &&
+           grep -Eq '^Seat=[^[:space:]]+$' <<<"$properties" &&
+           grep -Fxq 'Remote=no' <<<"$properties" &&
+           grep -Fxq 'Active=yes' <<<"$properties"; then
+          return 0
+        fi
+      done <<<"$sessions"
+      return 1
+      ;;
+    *) return 1 ;;
+  esac
+}
 
-if [ "$has_desktop" -ne 1 ]; then
-  log "No configured desktop detected on $OS — skipping Cua Driver installation"
+if ! has_local_user_desktop; then
+  skip 'Cua Driver skipped because this user has no active local graphical session'
+fi
+if [[ "$check_session" == --check-session ]]; then
+  log 'Cua Driver is applicable to the active local graphical session'
   exit 0
 fi
 

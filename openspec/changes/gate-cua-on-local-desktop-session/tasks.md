@@ -1,0 +1,3 @@
+- [x] Gate Cua setup on the selected user's local graphical session and expose a non-mutating preflight.
+- [x] Test positive local sessions and deny forwarded, headless, remote, greeter, and other-user cases.
+- [ ] Verify the deployed preflight from Legion SSH and on the managed Mac.

@@ -30,9 +30,40 @@ INSTALL_DOCTOR_CUA_DRIVER=1 HEADLESS_INSTALL=1 bash "$hook"
 [[ ! -e "$CUA_TEST_LOG" ]]
 [[ "$(snapshot)" == "$before" ]]
 
-if [[ "$(uname -s)" == Linux ]]; then
+if [[ "$(uname -s)" == Linux ]] && (( EUID != 0 )); then
+  cat > "$HOME/.local/bin/loginctl" <<'STUB'
+#!/usr/bin/env bash
+mode=${FIXTURE_CUA_SESSION_MODE:-local}
+if [[ "$1" == list-sessions ]]; then
+  if [[ "$mode" == missing ]]; then exit 1; fi
+  uid=$EUID
+  if [[ "$mode" == other-user ]]; then uid=$((EUID + 1)); fi
+  printf 'seat-session %s user seat0 tty2\n' "$uid"
+elif [[ "$1" == show-session ]]; then
+  type=wayland class=user remote=no seat=seat0
+  case "$mode" in
+    tty) type=tty ;;
+    greeter) class=greeter ;;
+    remote) remote=yes ;;
+    seatless) seat= ;;
+  esac
+  printf 'User=%s\nType=%s\nClass=%s\nRemote=%s\nSeat=%s\nActive=yes\n' \
+    "$EUID" "$type" "$class" "$remote" "$seat"
+fi
+STUB
+  chmod +x "$HOME/.local/bin/loginctl"
+  for mode in missing tty greeter remote seatless other-user; do
+    DISPLAY=localhost:99 FIXTURE_CUA_SESSION_MODE="$mode" INSTALL_DOCTOR_CUA_DRIVER=1 bash "$hook"
+    if DISPLAY=localhost:99 FIXTURE_CUA_SESSION_MODE="$mode" INSTALL_DOCTOR_CUA_DRIVER=1 bash "$hook" --check-session; then
+      echo "Unexpected eligible session: $mode" >&2
+      exit 1
+    fi
+  done
+  [[ ! -e "$CUA_TEST_LOG" ]]
+  env -u DISPLAY -u WAYLAND_DISPLAY INSTALL_DOCTOR_CUA_DRIVER=1 bash "$hook" --check-session
+  [[ ! -e "$CUA_TEST_LOG" ]]
   for attempt in 1 2; do
-    DISPLAY=:99 HEADLESS_INSTALL=0 INSTALL_DOCTOR_CUA_DRIVER=1 bash "$hook"
+    env -u DISPLAY -u WAYLAND_DISPLAY HEADLESS_INSTALL=0 INSTALL_DOCTOR_CUA_DRIVER=1 bash "$hook"
   done
   [[ "$(snapshot)" == "$before" ]]
   [[ ! -d "$HOME/.agents" ]]
