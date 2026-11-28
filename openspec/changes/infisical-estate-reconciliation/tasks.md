@@ -98,13 +98,18 @@ files for the Nexus Access pair. Both exact reads failed with
 `~/.infisical.json` consumer binding. The focused host-binding,
 identity-policy, and estate-reconciliation tests passed.
 
-The Legion estate profile uses a legacy project folder under
-`/hosts/legion-megabyte-space`. The host consumer introduced in
-`a9826ece` deliberately uses the root of a dedicated host project
-and renders bindings for macOS and Ubuntu only. A usable Legion
-binding requires an independently admitted host project and identity,
-or a reviewed change to the host binding contract with exact scoped
-denial tests. A legacy profile entry alone grants no access.
+Revision `e090a32d` routes the Nexus pair to the dedicated
+`legion-nexus-apt.megabyte.space` workload at its own project root.
+The existing Legion host profile remains bound to the legacy shared
+project folder for its other consumers. A general host `get-secret`
+binding is therefore outside the Nexus credential delivery path.
+
+Legion evidence records that the dedicated project exists and its
+root is empty. Infisical rejected creation of its no-access identity
+because all four available identities were allocated. The subsequent
+combined inventory showed a recent login for each. Keep those
+identities and subscriptions intact unless independent dependency
+evidence supports a separately authorized change.
 
 After enrollment, verify allowed reads, cross-host and administrative
 denials, and renewal and revocation. Then bind the two Nexus Access
