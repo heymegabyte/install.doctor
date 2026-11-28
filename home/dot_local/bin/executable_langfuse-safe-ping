@@ -8,22 +8,26 @@ umask 077
 langfuse_url="${LANGFUSE_HOST:-${LANGFUSE_BASEURL:-https://us.cloud.langfuse.com}}"
 langfuse_url="${langfuse_url%/}"
 timeout_ms="${LANGFUSE_TIMEOUT_MS:-2500}"
-if [[ ! "$timeout_ms" =~ ^[1-9][0-9]{0,8}$ ]]; then timeout_ms=2500; fi
+if [[ ! "$timeout_ms" =~ ^[1-9][0-9]{0,8}$ ]] || (( timeout_ms > 30000 )); then timeout_ms=2500; fi
 spool_dir="${LANGFUSE_SPOOL_DIR:-${XDG_CACHE_HOME:-$HOME/.cache}/megabyte/ai/langfuse-spool}"
 client="$HOME/.agentskills/bin/lib/langfuse-safe.ts"
-mkdir -p -- "$spool_dir"
+if ! mkdir -p -- "$spool_dir" 2>/dev/null; then
+  printf '{"healthy":false,"failOpen":true,"error":"spool_unavailable"}\n'
+  exit 0
+fi
 
 if command -v node >/dev/null 2>&1 && [ -f "$client" ]; then
-  node --experimental-strip-types --input-type=module - "$client" "$timeout_ms" "$langfuse_url" "$spool_dir" <<'NODE' 2>/dev/null ||
+  LANGFUSE_HOST="$langfuse_url" LANGFUSE_TIMEOUT_MS="$timeout_ms" LANGFUSE_SPOOL_DIR="$spool_dir" \
+    node --experimental-strip-types --input-type=module - "$client" <<'NODE' 2>/dev/null ||
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
-const [clientPath, timeout, baseUrl, spoolDir] = process.argv.slice(2);
+const [clientPath] = process.argv.slice(2);
 const { LangfuseSafeClient } = await import(pathToFileURL(clientPath).href);
 const client = new LangfuseSafeClient({
-  timeoutMs: Number(timeout),
-  baseUrl,
-  spoolFilePath: join(spoolDir, 'traces.jsonl'),
+  timeoutMs: Number(process.env.LANGFUSE_TIMEOUT_MS),
+  baseUrl: process.env.LANGFUSE_HOST,
+  spoolFilePath: join(process.env.LANGFUSE_SPOOL_DIR, 'traces.jsonl'),
 });
 const health = await client.probeHealth();
 const replay = health.healthy ? await client.replaySpool() : { replayed: 0, remaining: 0 };
